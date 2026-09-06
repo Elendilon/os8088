@@ -79471,6 +79471,59 @@ Measured, on the same machine and the same document:
 `.text` +150 bytes. `tests/wdscroll.py` is the gate and each of its four legs
 was watched going red with its own fix backed out.
 
+#### 68.2.4 …and NEITHER ARE THE CHROME STRIPS
+
+§68.2.2 stopped the fill at `[wd_rgt]` so a refused blit would leave the
+scroll bar alone. It is the same claim one axis round, and the field reported
+the other half of it: *"drag and drop scrolling is still clearing the whole
+window and repainting it (toolbars, footer included)."*
+
+**A thumb drag in Word is ALWAYS this case.** `SB_RATE` is 0 here (§13.10.5.4)
+— *"a scroll here ends in `wd_redraw`, and this window is the widest in the
+system"* — so the whole gesture commits ONCE, at the release, and the view
+jumps by however far the hand went. Measured: six one-pixel steps down the
+shipped window's track move `[wd_top]` by **22** rows against a `[wd_vrows]`
+of 6, so `|d| >= [wd_vrows]` and `wd_scrollpaint` retains nothing and refuses.
+The drag's redraw is `.fullpaint`, every time, by design.
+
+What `.fullpaint` then did was white-fill the **whole content box** — which is
+the menu bar, the ribbon, the ruler and the status strip as well as the text —
+and `wd_paint` drew all four again. None of them changed. A scroll moves the
+VIEW; the chrome is a function of the window and the caret, and the caret does
+not move.
+
+`[wd_chkeep]` is `[wd_sbkeep]`'s twin and the proof is the same one:
+`wd_sigsame` AGREEING means the geometry the strips were drawn under still
+holds, and the only things that draw over a strip are a kernel W_PAINT (which
+enters `wd_paint` directly, with the flag clear), a panel — banked under
+§68.2.1, or repaired in place by `wd_mrepair` — and `.fullpaint`'s own fill.
+Every one of those leaves the chrome DRAWN. So the flag is set the moment
+`wd_sigsame` agrees and cleared at `.full`, where the geometry moved and the
+strips really are in the wrong place; the fill then runs from
+`[wd_ct] + [wd_ctop]` to `[wd_bot]` — under the chrome, above the status line
+— and `wd_paint` skips `wd_chrome` entirely. **The grow box falls out of it
+the same way §68.2.2's did**: with a status strip shown, `[wd_bot]` stops
+above the corner the kernel draws it in, so the restore goes too.
+
+Measured on a cycle-accurate 5150 (CGA), `WELCOME.DOC` in the shipped window,
+ONE thumb drag of 22 rows — the drawing calls each redraw makes, which is what
+Part 5 of PERFORMANCE.md prices a repaint by:
+
+| | before | after |
+|---|---:|---:|
+| `wd_mbar` / `wd_ribbon` / `wd_ruler` / `wd_status` | 1 each | **0 each** |
+| `gfx_fill` | 217 | **26** |
+| `gfx_hline` | 62 | **0** |
+| `gfx_frame` | 32 | **5** |
+| `gfx_vline` | 9 | **0** |
+| **all four** | **320** | **31** |
+
+At the cost table's 756 µs fixed part that is **~218 ms** off every thumb
+drag, and the figure is DERIVED from the call counts rather than timed. The
+screen after the drag is identical to the pixel.
+
+`.text` +56 bytes. `tests/wdscroll.py` leg G is the gate.
+
 #### 68.3.1 The document's two moves go a WORD at a time
 
 Every edit opens or closes a gap in **two** claims in lockstep — the text and

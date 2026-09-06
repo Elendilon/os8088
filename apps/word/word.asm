@@ -7243,8 +7243,10 @@ wd_paint:
 .barwhole:                          ; thumb HEIGHT also changed wd_sbcheck
     call wd_sbar                    ; does the full draw on its own evidence
 .bardone:
-    call wd_chrome                  ; ...and the chrome strips' rules, which
-                                    ; only a full fill can have erased
+    cmp byte [wd_chkeep], 0         ; ...and the chrome strips' rules, which
+    jne .nochrome                   ; only a full fill can have erased - and
+    call wd_chrome                  ; the fill above stopped short of them
+.nochrome:                          ; (SPEC.md 68.2.4)
     call wd_sheet                   ; ...and the sheet's edges (SPEC.md 68.11)
     call wd_hire                    ; the worker exists from the first paint
                                     ; now (SPEC.md 68.2, Frotz's precedent):
@@ -9452,6 +9454,17 @@ wd_redraw:
     call wd_sigsame
     pop ax
     jc .full
+    mov byte [wd_chkeep], 1         ; THE CHROME IS ON THE GLASS (SPEC.md
+                                    ; 68.2.4). wd_sigsame agreeing is the
+                                    ; whole proof: the only things that draw
+                                    ; over a strip are a kernel W_PAINT, a
+                                    ; panel (banked, or repaired in place by
+                                    ; wd_mrepair) and .fullpaint's own fill,
+                                    ; and every one of those leaves the chrome
+                                    ; drawn - so what a full repaint below
+                                    ; here owes is the TEXT BAND and nothing
+                                    ; above or below it. Only .full, where
+                                    ; the geometry moved, has to draw it all
     push ax                         ; the screen shows [wd_ptop] and the view
     mov ax, [wd_top]                ; may already have moved - a scroll bar
     cmp ax, [wd_ptop]               ; click scrolls and THEN redraws. Reconcile
@@ -9830,8 +9843,8 @@ wd_redraw:
                                     ; on this path
 .done:
     mov byte [wd_resume], 0
-    jmp short .out
-
+    jmp .out                        ; NEAR: SPEC.md 68.2.4 pushed .out past a
+                                    ; short jump's reach from here
 .scrolled0:
     mov word [wd_dr0], 0xFFFF       ; no walk has run this redraw, so nothing
     mov word [wd_dr1], 0            ; is known dirty beyond the exposed rows
@@ -9857,6 +9870,8 @@ wd_redraw:
     jmp short .fullpaint
 
 .full:
+    mov byte [wd_chkeep], 0         ; the geometry moved: the strips are in the
+                                    ; wrong place and the fill takes them
     ; Reached when wd_sigsame REFUSED - a resize, a toast arriving or leaving,
     ; an uncover - so nothing above has measured anything, and both numbers
     ; the view is clamped by may have changed: a wider window wraps into fewer
@@ -9901,6 +9916,13 @@ wd_redraw:
     je .fillw                       ; the grow box exactly right, so the fill
     mov cx, [wd_rgt]                ; stops at the last drawable TEXT column
 .fillw:                             ; and neither is disturbed
+    cmp byte [wd_chkeep], 0         ; ...and the same for the STRIPS (SPEC.md
+    je .fillh                       ; 68.2.4): the band this repaint owes
+    mov bx, [wd_ct]                 ; begins under the chrome and ends above
+    add bx, [wd_ctop]               ; the status line, so the fill does too -
+    mov dx, [wd_bot]                ; every row of a strip it used to erase was
+                                    ; a row wd_chrome then drew again
+.fillh:
     push ax                         ; the pen is a register here, not a
     mov al, CWHITE                  ; variable - keep x1 across the call
     call OSAPI_SET_COLOR
@@ -9909,6 +9931,11 @@ wd_redraw:
     call wd_paint                   ; SI still = window ptr
     cmp byte [wd_sbkeep], 0
     jne .nogrow                     ; the fill never reached the corner
+    cmp byte [wd_chkeep], 0         ; ...nor did it when the band stopped above
+    je .grow                        ; a status strip, which is where the
+    cmp byte [wd_vsta], 0           ; kernel draws the box. With the strip
+    jne .nogrow                     ; hidden, [wd_bot] IS the content's last
+.grow:                              ; row and the corner went with it
     mov bx, si                      ; the white fill erased the grow box;
     call OSAPI_WM_GROW              ; restore it (SPEC.md 11.1/27)
 .nogrow:
@@ -9918,9 +9945,10 @@ wd_redraw:
                                     ; going through here at all, and a stale 1
                                     ; would have it draw off its own signatures
     mov byte [wd_sbkeep], 0         ; ONE-SHOT: W_PAINT is wd_paint's other
-                                    ; caller and there the KERNEL has filled
-                                    ; the whole content, so the bar really has
-                                    ; gone and the full draw is the right one
+    mov byte [wd_chkeep], 0         ; caller and there the KERNEL has filled
+                                    ; the whole content, so the bar and the
+                                    ; strips really have gone and the full
+                                    ; draw is the right one
     mov byte [wd_ymoved], 0         ; spent: it described THIS redraw's pass 1
                                     ; (wd_scrollpaint tests it, and a stale 1
                                     ; would refuse a later good blit)
@@ -20429,6 +20457,12 @@ wd_sury2  equ wd_mnrec + 46     ; word } way back cannot disagree by a pixel
                             ; the grow box right to the pixel, so the full
                             ; repaint must not take them off the screen
                             ; (SPEC.md 27.7.2). ONE-SHOT
+    WDVAR wd_chkeep, 1      ; byte: ...and the same claim in the OTHER
+                            ; direction - the menu bar, ribbon, ruler and
+                            ; status strip are right too, so the fill starts
+                            ; below them and ends above the status line and
+                            ; wd_paint draws no chrome (SPEC.md 68.2.4).
+                            ; ONE-SHOT
     WDVAR wd_sbhurt, 1      ; byte: the blit band reached into the scroll
                             ; bar's columns and the strip blanked them, so
                             ; the bar owes a whole redraw (SPEC.md 27.7.2)

@@ -22,6 +22,13 @@ Three field reports, all about the scroll bar (SPEC.md 27.7.2, 68.6):
      nothing raised it once the walk had lettered the rest, so the FIRST page
      click blitted and every one after it refused on d > rowsn.
 
+  G  a thumb DRAG clears the whole window and repaints it, toolbars and
+     footer included. SB_RATE is 0 here, so the gesture commits once at the
+     release and the view jumps further than [wd_vrows] - the blit refuses,
+     and .fullpaint white-filled the whole content box and drew all four
+     chrome strips again for a scroll that cannot have moved any of them
+     (SPEC.md 68.2.4).
+
 LEG B IS THE ONE WITH TEETH. Speed is worthless if the pixels are wrong, and
 a stale banked y draws a row at the wrong height - which no timing assertion
 would see. It pages DOWN through the document with the blit and then back UP,
@@ -397,6 +404,56 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     dF = sum(1 for p, q in zip(band(viaRep, box), band(viaBlit, box)) if p != q)
     check("F: a page DOWN after an up-blit equals one after a repaint", dF == 0,
           "%d differing pixels: the up blit left the tables wrong" % dF)
+
+    # ---- leg G: a thumb DRAG must not repaint the chrome ------------------
+    # SB_RATE is 0 here (SPEC.md 13.10.5.4), so the whole gesture commits ONCE
+    # at the release and the view jumps by however far the hand went - which
+    # is nearly always more than [wd_vrows], so wd_scrollpaint retains nothing
+    # and refuses.  A thumb drag IS the refused-blit repaint, every time, and
+    # what that repaint used to do was white-fill the whole content box - menu
+    # bar, ribbon, ruler and status strip included - and draw all four again.
+    # None of them changed: a scroll moves the VIEW (SPEC.md 68.2.4).
+    #
+    # The reference is the SAME DRAG with wd_sigsame forced to refuse, which
+    # is .full - the one path where the strips really may be in the wrong
+    # place and [wd_chkeep] is cleared.  So the fast screen is checked against
+    # a screen drawn the old way, in one boot, on the same view.
+    winbox = (rw("wd_cl"), rw("wd_ct"),
+              rw("wd_cl") + rw("wd_cw") - 1, rw("wd_ct") + rw("wd_ch") - 1)
+
+    def thumb_drag(steps=6):
+        mo.to(sbx, ty + 12); time.sleep(0.4)
+        mo._edge(True); time.sleep(0.8)
+        for k in range(1, steps + 1):
+            mo.to(sbx, ty + 12 + k, l=True); time.sleep(0.7)
+        mo._edge(False); time.sleep(1.4)
+
+    up_to(0)
+    nchrome = M.bp_count(m, P("wd_chrome"), thumb_drag,
+                         quiet=4.0, first=25.0, limit=240.0)
+    topG = rw("wd_top")
+    check("G: the drag scrolled past a page (the case is arranged)",
+          topG >= vrows, "top=%d, vrows=%d - the blit would not refuse" % (topG, vrows))
+    check("G: a thumb drag redraws NO chrome", nchrome == 0,
+          "wd_chrome ran %d time(s): the strips are being erased and drawn "
+          "again for a scroll that cannot have moved them" % nchrome)
+    mo.to(4, 4); time.sleep(1.2); M.settle(m)
+    fastG = shot(m)
+
+    keepS = m.read(P("wd_sigsame"), 2)
+    up_to(0)
+    m.write(P("wd_sigsame"), bytes([0xF9, 0xC3]))   # stc; ret - always .full
+    thumb_drag()
+    m.write(P("wd_sigsame"), keepS)
+    topG2 = rw("wd_top")
+    mo.to(4, 4); time.sleep(1.2); M.settle(m)
+    slowG = shot(m)
+
+    check("G: both arms reached the same view (case arranged)", topG == topG2,
+          "%d against %d" % (topG, topG2))
+    dG = sum(1 for p, q in zip(band(fastG, winbox), band(slowG, winbox)) if p != q)
+    check("G: ...and the same pixels as the full repaint, chrome included",
+          dG == 0, "%d differing pixels over the WHOLE window" % dG)
 
 print()
 print("wdscroll: %s" % ("FAILED: " + ", ".join(FAIL) if FAIL else "ok"))

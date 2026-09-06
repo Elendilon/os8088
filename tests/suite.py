@@ -2307,7 +2307,7 @@ SOAK = [
         "must refuse the blit and repaint.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
-    Row("wdscroll", "soak", py("tests/wdscroll.py"), 420.0,
+    Row("wdscroll", "soak", py("tests/wdscroll.py"), 330.0,
         "SPEC.md 68.2.2 and 27.7.2.2: Word's scroll bar is not part of the "
         "text band, and a scroll UPWARD blits like a scroll down. Leg A "
         "samples the bar's ARROW CELL through a down-arrow click and requires "
@@ -2324,7 +2324,15 @@ SOAK = [
         "its SOURCE, so the up blit's own screen was perfect to the pixel and "
         "the next page down drew three rows of the wrong text. Leg B puts BOTH "
         "ends of its round trip against a forced repaint separately - a round "
-        "trip says something is wrong and never which end.",
+        "trip says something is wrong and never which end. Leg G is the THUMB "
+        "DRAG (68.2.4): SB_RATE is 0 here, so the gesture commits once at the "
+        "release and jumps further than [wd_vrows] - the blit refuses, and "
+        ".fullpaint white-filled the whole content box and drew all four "
+        "chrome strips again for a scroll that cannot have moved any of them. "
+        "It asserts BOTH halves against their own defect - no wd_chrome call, "
+        "and the same pixels over the WHOLE window as the same drag with "
+        "wd_sigsame forced to refuse, which is the one path that still owes "
+        "the strips.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
     Row("wdmove", "soak", py("tests/wdmove.py"), 210.0,
