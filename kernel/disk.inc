@@ -1498,7 +1498,8 @@ dsk_xfer:
     mov cx, ax                  ; the boot bar counts SECTORS, and a call now
 .notch:                         ; carries a run of them (SPEC.md 18.91) - so
     SPLCALL splf_step               ; it is stepped per sector rather than per
-    call KERNEL_SEG:cw_fpg_step               ; call, or the bar would under-count exactly
+    mov bp, fpg_step
+    call KERNEL_SEG:cw_mem_disp ; call, or the bar would under-count exactly
     loop .notch                 ; as far as the batching won. BOTH preserve
                                 ; every register and the flags - CX is this
                                 ; loop's counter and CF is dsk_xfer's answer

@@ -6096,8 +6096,6 @@ cw_evq_mup:             call evq_mup        ; them out of its 75-byte rung.
                                             ; and one was born (SPEC.md 74.1.1)
 cw_font_run:            call font_run
                     retf
-cw_fpg_step:             call fpg_step
-                     retf
 %ifdef KERN_BIG                 ; ...and gfx_disp_enter is dual display's
 cw_gfx_disp_enter:      call gfx_disp_enter
                     retf
@@ -6140,10 +6138,6 @@ cw_gfx_pixel:           call gfx_pixel
 cw_gfx_rowbase:         call gfx_rowbase
                     retf
 %endif
-cw_gfx_scroll:          call gfx_scroll
-                    retf                    ; retf leaves the flags alone, so
-                                            ; gfx_scroll's CF is still its
-                                            ; answer at the cold caller
 cw_gfx_unlock:          call gfx_unlock
                     retf
 cw_gfx_vline:           call gfx_vline
@@ -6159,13 +6153,7 @@ cw_icon_pen:            call icon_pen
                     retf
 cw_icon_draw16:         call icon_draw16
                     retf
-cw_inst_alloc:          call inst_alloc
-                    retf
-cw_inst_bind_win:       call inst_bind_win
-                    retf
 cw_inst_find_kind:      call inst_find_kind
-                    retf
-cw_inst_set_name_x:     call inst_set_name_x
                     retf
 cw_inst_fhome_idx:      call inst_fhome_idx
                     retf
@@ -6202,8 +6190,6 @@ cw_menu_draw_bar:       call menu_draw_bar
                     retf
 cw_menu_popup:          call menu_popup
                     retf
-cw_osapi_file_here:      call osapi_file_here
-                     retf
 cw_osapi_snd_tone:      call osapi_snd_tone
                     retf
 cw_snd_beep:            call snd_beep
@@ -6219,8 +6205,6 @@ cw_task_sleep:           call task_sleep     ; the Timer's 9 ticks and Bounce's
 cw_task_yield:          call task_yield
                     retf
 cw_toast_show:          call toast_show
-                    retf
-cw_ui_note:             call ui_note
                     retf
 cw_vga_xor_rect_vram:   call vga_xor_rect_vram
                     retf
@@ -6266,8 +6250,6 @@ cw_wm_create:           call wm_create
                     retf
 cw_wm_destroy:          call wm_destroy
                     retf
-cw_wm_destroy_seg:      call wm_destroy_seg
-                    retf
 cw_wm_minsize:          call wm_minsize
                     retf
 cw_wm_snap:             call wm_snap    ; OUTSIDE the KERN_BIG gate below:
@@ -6296,8 +6278,6 @@ cw_wm_hit:              call wm_hit
                     retf
 cw_wm_idx2ptr:          call wm_idx2ptr
                     retf
-cw_wm_obscured:         call wm_obscured
-                    retf
 cw_wm_paint_all:        call wm_paint_all
                     retf
 cw_wm_paint_dmg:         call wm_paint_dmg
@@ -6306,10 +6286,6 @@ cw_wm_pkgcall:          call wm_pkgcall
                     retf
 cw_wm_show:             call wm_show
                     retf
-cw_wm_wake_call:        call wm_wake_call   ; assoc_run's second phase (SPEC.md
-                    retf                    ; 54.10): the launched window is on
-                                            ; the glass, so the package may now
-                                            ; spend the document it was handed
 %ifdef WM_ANIM
 cw_inst_unmin:          call inst_unmin
                     retf

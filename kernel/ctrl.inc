@@ -3443,7 +3443,8 @@ cp_tick_x:
     mov bx, [di+I_WIN]
     test byte [bx+W_FLAGS], 2   ; visible?
     jz .out
-    call KERNEL_SEG:cw_wm_obscured
+    mov bp, wm_obscured
+    call KERNEL_SEG:cw_mem_disp
     jc .out
     call KERNEL_SEG:cw_wm_content             ; AX = content left, DX = content top
     mov di, ax

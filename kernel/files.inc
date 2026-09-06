@@ -7590,7 +7590,9 @@ fm_scrollpaint:
     mov bx, [fm_by1]
     mov cx, [fm_bx2]
     mov dx, [fm_by2]
-    call KERNEL_SEG:cw_gfx_scroll
+    mov bp, gfx_scroll          ; cw_mem_disp is `call bp / retf` and neither
+    call KERNEL_SEG:cw_mem_disp ; touches the flags, so gfx_scroll's CF is
+                                ; still its answer here (SPEC.md 2.6)
     jc .refj                    ; it refused: fm_repaint puts the selection
                                 ; back with everything else
 

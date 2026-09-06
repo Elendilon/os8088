@@ -224,7 +224,7 @@ had added.
     "bss": 5959,
     "budget": 129536,
     "codemax": 65536,
-    "cold": 37974,
+    "cold": 37998,
     "coldpara": 2400,
     "fatpara": 288,
     "imgpara": 3552,
@@ -237,7 +237,7 @@ had added.
     "ovl": 1417,
     "ovlw": 5037,
     "stk0": 512,
-    "text": 50676,
+    "text": 50636,
     "vgabuf": 848,
     "vgabufpara": 64
   },
@@ -621,29 +621,29 @@ there and nowhere else.
 <!-- kernsize:themes -->
 | theme | bytes | share |
 |---|---:|---:|
-| the file system, end to end | 31,593 | 35.6% |
+| the file system, end to end | 31,617 | 35.7% |
 | the window system and its furniture | 24,256 | 27.4% |
 | drawing: adapters, primitives, glyphs, icons | 14,788 | 16.7% |
 | hardware: drivers, clock, mouse, sound, CPU, XMS | 8,530 | 9.6% |
-| the kernel proper: API table, heap, scheduler, events | 7,365 | 8.3% |
+| the kernel proper: API table, heap, scheduler, events | 7,325 | 8.3% |
 | the three built-in kinds | 1,542 | 1.7% |
 | the Control Panel | 576 | 0.6% |
-| **total** | **88,650** | |
+| **total** | **88,634** | |
 <!-- /kernsize:themes -->
 
 <!-- BEGIN generated table -->
 | module | `.text` | `.cold` | code | `.bss` | `.lowbss` | `.boot2` |
 |---|---:|---:|---:|---:|---:|---:|
 | `wm.inc` — the window manager (§11) | 11,671 | 94 | **11,765** | 1,074 | — | — |
-| `files.inc` — the Disk window (§22) | 1,083 | 8,252 | **9,335** | 465 | — | — |
+| `files.inc` — the Disk window (§22) | 1,083 | 8,255 | **9,338** | 465 | — | — |
 | `vga12.inc` — the VGA planar primitives (§5) | 7,228 | 660 | **7,888** | 162 | 526 | — |
-| `disk.inc` — volumes, mount, the FAT read path (§18–19) | 395 | 5,852 | **6,247** | 890 | — | — |
+| `disk.inc` — volumes, mount, the FAT read path (§18–19) | 395 | 5,855 | **6,250** | 890 | — | — |
 | `fdlg.inc` — the Standard File dialog (§38) | 241 | 4,969 | **5,210** | 168 | — | — |
 | `diskw.inc` — the FAT write path (§18.4–18.6) | 179 | 4,740 | **4,919** | 158 | — | — |
 | `mouse.inc` — serial mouse and the cursor (§9) | 3,814 | — | **3,814** | 151 | 128 | — |
 | `ui.inc` — the UI task and the event ladder (§13) | 3,354 | — | **3,354** | 58 | — | — |
 | `menu.inc` — the menu bar and pull-downs (§12) | 2,790 | 177 | **2,967** | 197 | 84 | — |
-| `assoc.inc` — file type associations (§54) | 480 | 2,004 | **2,484** | 43 | — | — |
+| `assoc.inc` — file type associations (§54) | 480 | 2,010 | **2,490** | 43 | — | — |
 | `memory.inc` — the claim heap (§50) | 35 | 2,420 | **2,455** | 18 | 324 | — |
 | `driver.inc` — loadable drivers + `SYSTEM.CFG` (§51) | 502 | 1,953 | **2,455** | 262 | — | — |
 | `instance.inc` — instances and the built-in kinds (§29) | 2,054 | 236 | **2,290** | 700 | — | — |
@@ -656,7 +656,7 @@ there and nowhere else.
 | `snd.inc` — the sound layer (§34) | 1,024 | — | **1,024** | 287 | — | — |
 | `fsx.inc` — fullscreen exclusive (§53) | 986 | — | **986** | 9 | — | — |
 | `icons.inc` — the icon renderer (§10) | 977 | — | **977** | 281 | — | — |
-| `loader.inc` — the package loader (§21) | 4 | 896 | **900** | 38 | — | — |
+| `loader.inc` — the package loader (§21) | 4 | 908 | **912** | 38 | — | — |
 | `viddet.inc` — adapter detection and geometry (§39) | 867 | — | **867** | — | 696 | 3 |
 | `desk.inc` — the desktop and volume zones (§14/§26.1) | 11 | 850 | **861** | 12 | — | — |
 | `fprog.inc` — the file-operation progress widget (§12.8) | 725 | — | **725** | — | — | — |
@@ -681,8 +681,8 @@ there and nowhere else.
 | `stkdiag.inc` — what an interrupt costs a task stack (STACK-SLOTS-PLAN §10), `STKDIAG=1` | — | — | **0** | — | — | — |
 | `moudiag.inc` — what the identify window saw (§9.4.6), `MOUDIAG=1` | — | — | **0** | — | — | — |
 | `compress.inc` — the LZB compressor (§20.15), an on-demand module and 0 resident | — | — | **0** | — | — | — |
-| `kernel.asm` — API table, entry points, `kmain`, the shims | 3,028 | 18 | **3,046** | — | — | 421 |
-| **total** | **50,676** | **37,974** | **88,650** | **5,959** | **9,182** | **2,250** |
+| `kernel.asm` — API table, entry points, `kmain`, the shims | 2,988 | 18 | **3,006** | — | — | 421 |
+| **total** | **50,636** | **37,998** | **88,634** | **5,959** | **9,182** | **2,250** |
 <!-- END generated table -->
 
 ### Reading it
