@@ -1860,15 +1860,22 @@ DRVC_FILE    equ 5              ; a volume served by somebody answering
 ;     every call to the part of your content that shows. OSAPI_WM_OBSCURED
 ;     is still there and still correct, but it vetoes the whole frame for
 ;     one covered pixel - prefer the clip.
-;  6. Your stack is SCH_STACK (384) bytes in LOW_SEG and SS != DS (see the header of
-;     this file). No deep recursion, no big stack buffers, and BP-relative
-;     operands address SS.
+;  6. Your stack is the CLASS you named in OS88_HEADER's 4th argument -
+;     OS88_STACK_128/192/256/384, SPEC.md 8.7 - in LOW_SEG, and SS != DS (see
+;     the header of this file). It is NOT always SCH_STACK: first fit is
+;     SMALLEST fit, so you get the class you asked for and saying nothing asks
+;     for the largest. No deep recursion, no big stack buffers, and
+;     BP-relative operands address SS.
 ;  7. You may call: the gfx_* and font_* slots, OSAPI_SET_COLOR, OSAPI_GFX_PEN,
 ;     OSAPI_WM_CONTENT, OSAPI_WM_OBSCURED, OSAPI_WM_CLIP_SET,
 ;     OSAPI_WM_CLIP_CLEAR, OSAPI_WM_CLIP_TEST, OSAPI_VIDEO, OSAPI_GET_TICKS,
 ;     OSAPI_MOUSE, OSAPI_SRAND/RAND, OSAPI_SND_CAPS, OSAPI_SND_TONE,
-;     OSAPI_TASK_SLEEP, OSAPI_TASK_YIELD, OSAPI_WM_WAKE and
-;     OSAPI_TASK_ALIVE. OSAPI_WM_WAKE is not a new permission - its own
+;     OSAPI_TASK_SLEEP, OSAPI_TASK_YIELD, OSAPI_WM_WAKE, OSAPI_DRV_CALL and
+;     OSAPI_TASK_ALIVE. OSAPI_DRV_CALL is on SPEC.md 20.6's list and was
+;     missing from this copy of it, which is the one defect a list like this
+;     can have: a worker-legal cell absent from an exhaustive list reads as
+;     forbidden by omission (SPEC.md 20.11 requires the amendment in the same
+;     change as the cell, for exactly this reason). OSAPI_WM_WAKE is not a new permission - its own
 ;     cell below has always said "any context - ISR-safe and worker-safe,
 ;     no lock needed" - and it is on this list because a list of what a
 ;     worker MAY call is read as exhaustive, so a worker-safe slot missing

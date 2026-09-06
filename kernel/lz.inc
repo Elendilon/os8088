@@ -109,7 +109,10 @@ section .cold
 ;      AL    = LZ_LZ4 or LZ_LZB
 ; out: CF=0 and ES:DI is one past the last byte written. CF=1 = refused, and
 ;      nothing past the declared length was written.
-; clobbers: AX BX CX DX SI DI and the flags. DS and ES come back the caller's.
+; clobbers: AX BX CX DX SI DI and the flags. DS comes back the caller's.
+;      ES DOES NOT when the output crosses 64KB: `lz_dbump` below advances it
+;      by 0x1000 with no `push es`, and `.out` unwinds cx dx bx si di bp ds
+;      only. Reload ES yourself if you need it after a big expansion.
 ; -----------------------------------------------------------------------------
 ; **THE OUTPUT CROSSES 64KB AND THE INPUT DOES NOT**, and the asymmetry is
 ; deliberate rather than an omission (SPEC.md 20.14.5). The output has to:

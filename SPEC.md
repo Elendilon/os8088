@@ -12305,9 +12305,9 @@ W_ONDRAG equ 28  ; word: near ptr or 0 - the pointer MOVED while your press
 W_ONTIMER equ 30 ; word: near ptr or 0 - the one-shot timer's handler
                  ; (§13.9). CX = DX = 0, SI = window; W_ONCLICK's environment.
                  ; NOT a template word: wm_create zeroes it, `wm_ontimer`
-                 ; (API slot 0x0438) sets it.
+                 ; (API slot 0x0440) sets it.
 W_TIMER  equ 32  ; word: the deadline in [ticks], 0 = disarmed. Written by
-                 ; `wm_timer` (API slot 0x0430) and cleared by the scan
+                 ; `wm_timer` (API slot 0x0438) and cleared by the scan
                  ; BEFORE it dispatches, so a handler may re-arm.
 WIN_SIZE equ 34  ; on kern_big. THE LAST THREE WORDS ARE KERN_BIG's ALONE:
                  ; the 128KB kernel's record stops at 28 and its
@@ -20483,7 +20483,7 @@ about the control and not the app:
 
 Everything else in those windows fires on the release.
 
-### 13.9 A window's TIMER — `W_ONTIMER` (API 0x0430)
+### 13.9 A window's TIMER — `W_ONTIMER` (API 0x0440)
 
 **Call me back in N ticks.** `OSAPI_WM_TIMER` (BX = window, AX = ticks from
 now, 0 cancels) arms one; `W_ONTIMER` — installed with `OSAPI_WM_ONTIMER`
@@ -32471,12 +32471,23 @@ this module.
 ```
 in:  AX = the SOURCE segment, the source at AX:0000
      DX = the OUTPUT segment, the output at DX:0000, CX bytes of room
-     BX = a scratch segment of CMZ_TBL (8,192) bytes, at BX:0000
+     BX = a scratch segment: CMZ_PREV + 2*(DI+1) bytes at BX:0000
+     DI = the window's MASK - a power of two less one, 1,023 to 16,383
      CX = the source's length, 1..0xFFFF
 out: CF=0 and AX = the packed length, which is < CX — a whole stream, T
      word and raw tail included (§20.13.7)
      CF=1 = it did not get smaller, and the output is undefined
+clobbers: AX BX CX DX SI DI, flags. DS, ES and BP come back
 ```
+
+**`DI` is an input, and the scratch block is sized from it.** An earlier
+revision of this block omitted `DI` and published the scratch as
+*"CMZ_TBL (8,192) bytes"* — a constant that exists nowhere in the tree. The
+real requirement is `CMZ_PREV + 2*(DI+1)`, which at the 16,384 window is
+**40,962 bytes**, five times the figure that was published; `cmz_pack`'s first
+action is `mov [cs:cmz_mask], di` (`kernel/compress.inc:126`).
+`kernel/compress.inc:100-110` is the source of truth and this block now
+matches it.
 
 **Segments and not pointers**, because the far pointer this is reached through
 lives in `mod_fp` — kernel `.bss` — so a caller whose `DS` was already the
@@ -83447,9 +83458,9 @@ free list of §20.3.1 being empty), and their contracts, which
 
 | slot | routine | contract |
 |---|---|---|
-| **0x0428** | `wm_wake` (`OSAPI_WM_WAKE`) | in BX = a window of yours. Posts `EVT_WAKE {a = BX}`; any context, ISR- and worker-safe. out CF=0 a wake is queued for that window (posted now, or one already waited — coalesced, at most one per window), CF=1 the ring was full and nothing was posted. Every register preserved |
-| **0x0430** | `wm_onwake` (`OSAPI_WM_ONWAKE`) | in BX = window, AX = a near proc in your segment, 0 clears. A side table (`wm_onwk`, `wm_onsz`'s shape) cleared by `wm_destroy`, not a template word. The handler is called SI = your window, on the UI task, billed to your instance, **without the gfx lock**: it may call the file slots and may take the lock for a stated burst; nothing is delivered with it, and one stale wake after a slot's reuse is possible. **A handler re-posts itself only while it has work** — a wake round trip is at least one task switch (693 µs), so a handler that always re-posts spins the UI task at ~1,400 wakes a second and paints whatever it paints ~90 times a second on the target; RunCPM's re-posts when the slice ran out with the Z80 still running or output is pending, and NOT when the Z80 is blocked in CONIN on an empty key ring — then the next kick is `os88_onkey`'s. (Wave 1's counter re-posted unconditionally as scaffolding; wave 2's slice driver keeps this rule - `rc_wants_wake()` is the one place it is decided.) A CF=1 answer is not retried: every callback that can run — paint, key, click — kicks again, which is why RUNCPM declares `os88_onclick` though the terminal has no mouse |
-| **0x0438** | `osapi_file_goto_qm` (`OSAPI_FILE_GOTO_QM`) | in DX = folder cluster, BL = volume; out exactly as `OSAPI_FILE_GOTO_Q` (CF=0 AX=0 / CF=1 AX=FERR_*). GOTO_Q's quiet stand and then `inst_vol_mark`, so the calling instance now stands there and its next file cell's `inst_vol_enter` does not undo the move |
+| **0x0450** | `wm_wake` (`OSAPI_WM_WAKE`) | in BX = a window of yours. Posts `EVT_WAKE {a = BX}`; any context, ISR- and worker-safe. out CF=0 a wake is queued for that window (posted now, or one already waited — coalesced, at most one per window), CF=1 the ring was full and nothing was posted. Every register preserved |
+| **0x0458** | `wm_onwake` (`OSAPI_WM_ONWAKE`) | in BX = window, AX = a near proc in your segment, 0 clears. A side table (`wm_onwk`, `wm_onsz`'s shape) cleared by `wm_destroy`, not a template word. The handler is called SI = your window, on the UI task, billed to your instance, **without the gfx lock**: it may call the file slots and may take the lock for a stated burst; nothing is delivered with it, and one stale wake after a slot's reuse is possible. **A handler re-posts itself only while it has work** — a wake round trip is at least one task switch (693 µs), so a handler that always re-posts spins the UI task at ~1,400 wakes a second and paints whatever it paints ~90 times a second on the target; RunCPM's re-posts when the slice ran out with the Z80 still running or output is pending, and NOT when the Z80 is blocked in CONIN on an empty key ring — then the next kick is `os88_onkey`'s. (Wave 1's counter re-posted unconditionally as scaffolding; wave 2's slice driver keeps this rule - `rc_wants_wake()` is the one place it is decided.) A CF=1 answer is not retried: every callback that can run — paint, key, click — kicks again, which is why RUNCPM declares `os88_onclick` though the terminal has no mouse |
+| **0x0460** | `osapi_file_goto_qm` (`OSAPI_FILE_GOTO_QM`) | in DX = folder cluster, BL = volume; out exactly as `OSAPI_FILE_GOTO_Q` (CF=0 AX=0 / CF=1 AX=FERR_*). GOTO_Q's quiet stand and then `inst_vol_mark`, so the calling instance now stands there and its next file cell's `inst_vol_enter` does not undo the move |
 
 `ui_task` pops `EVT_WAKE` in order with the mouse events (`ui.inc`, `.wake`)
 and calls `wm_wake_disp` (`wm.inc`): the slot's flag is cleared first so the
