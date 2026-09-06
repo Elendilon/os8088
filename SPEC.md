@@ -95494,6 +95494,51 @@ impostors are refused, and 0.0% on Mode X in a pose where none is. That is
 the price of the shape being right, and it is the trade the impostor exists
 to make in the other direction.
 
+##### 88.5.4.2 ELEVEN CZ DOES NOT FIT A WORD, and the gate failed open
+
+`cs_drawobj` reaches §88.5.4.1's impostor through a cheaper test first: it
+compares `cs_sizepx`'s `0.75 x CSM_RAD x scly` against **11 cz**, and only
+projects the three points when the model is small enough to be worth it. It
+built that product in `CX` — a **word** — by shifts and adds, and `11 cz`
+stops fitting a word at **cz = 5,958 m**.
+
+Past there the product **wrapped**, the comparison fell the wrong way and
+the object took the full path: every solid between 5,958 m and the
+two-pixel refusal transformed all of its vertices and drew all of its faces
+to cover four pixels. Traced on a 4.77 MHz 8088 with twelve towers standing
+at 8 km, each four pixels across:
+
+```
+                     stock                  fixed
+  cs_boxlod        0 hits    0.0 ms      12 hits   12.6 ms
+  cs_rect          0 hits    0.0 ms      12 hits   10.9 ms
+  cs_stackverts   12 hits   19.1 ms       0 hits    0.0 ms
+  cs_projall      13 hits   36.9 ms       1 hit     2.3 ms
+  cs_faces        13 hits   80.6 ms       1 hit     8.4 ms
+  the frame                194.5 ms                87.9 ms
+```
+
+**Nothing shipped stood in the band**, which is why no world was slow and
+nothing looked wrong: JFK's three named towers hand over to a far model at
+3,000 m, its rivers are `CSM_FLAT` and never boxed, and its anonymous
+towers are out of range from the runway. What the defect cost was the next
+building anybody added, at exactly the distance a take-off starts from —
+6,845 m from the Empire State. Seven more midtown towers, ranged to be
+visible from the runway, cost **+66.3 ms** of the take-off frame with the
+wrap and **+31.3 ms** without it (185.8 against 150.8 ms, Hercules).
+
+The fix is to refuse the multiply rather than to widen it: `DX` is already
+known zero above, so `AX` is under 65,536 and any `cz >= 5,958` boxes
+whatever `AX` holds — `cmp cx, 5958 / jae .lod`, and the shifts are never
+taken. **The `CS_EDGEPX` gate forty lines below guards its own `24 cz` with
+`cmp cx, 2600 / ja .out`**, so the shape was known when it was written; this
+one was the site that never got it.
+
+It moves the picture by **52 pixels of 252,000** at the take-off view and by
+**none at all** at 4 km, 2 km or over midtown, those being the ranges where
+the gate already fell the right way. `tests/skieslod.py` is the row, and its
+`--clobber-lod` NOPs the two instructions to put the wrapping product back.
+
 #### 88.5.8 "Buildings lean over", which was the horizon
 
 Reported off the machine with a photograph: a large dithered wedge standing
@@ -96460,6 +96505,18 @@ drop-downs get a release the title page never armed.
   `--clobber-lod` raises the refusal past every rectangle it can draw, which
   is the gate exactly as it was, and `imp26` — level at the foot of the
   Montparnasse tower — reports **22 px**.
+- `tests/skieslod.py` (soak, MartyPC, Hercules): §88.5.4.2's gate. JFK's
+  four anonymous towers are put in a row across the sight line at **7 km** —
+  inside the band where `11 cz` used to wrap — and the row reads which path
+  they take over one frame: `cs_boxlod` four times, `cs_stackverts` never,
+  and `cs_rect` four times, because a `cs_boxlod` that was called and then
+  refused would otherwise pass. It moves the CAMERA and the towers rather
+  than trusting where JFK happens to put them: from the runway two of the
+  four fall outside the frustum, which would make the counts a fact about
+  the world's layout instead of about the gate. `--clobber-lod` NOPs the
+  `cmp cx, 5958 / jae .lod` that refuses the multiply, which is the wrapping
+  product exactly, and all three checks go red — the four reading **9.81 ms
+  a tower against 0.69**.
 - `tests/skiesease.py` (soak, MartyPC): §88.7.3's capture. Every reading is
   taken at a `cs_step` BREAKPOINT and not after a frame — the model steps per
   tick and a frame spends one, two or three of them, so a per-frame sample

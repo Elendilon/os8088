@@ -990,17 +990,28 @@ cs_drawobj:
     or al, al
     jnz .stack                      ; a wireframe keeps its edges
     call cs_sizepx
+    or dx, dx                       ; over a word: larger than any 11 cz, so
+    jnz .stack                      ; the full path
     mov cx, [cs_ocz]
+    ; --- ELEVEN CZ DOES NOT FIT A WORD past 5,957 m, and AX does (DX is
+    ;     zero above), so beyond that the box always wins and the multiply
+    ;     must not be taken at all. Without this the product WRAPPED and the
+    ;     gate failed open: every solid between 5,958 m and the two-pixel
+    ;     refusal drew its whole model - twelve towers four pixels across
+    ;     cost 194.5 ms of an 8088's frame against 87.9 (88.5.4.2). The
+    ;     CS_EDGEPX gate below guards its own 24 cz with `cmp cx, 2600`;
+    ;     this one never did ------------------------------------------------
+    cmp cx, 5958
+    jae .lod
     mov bx, cx
     shl cx, 1
     shl cx, 1
     add cx, bx
     shl cx, 1
     add cx, bx                      ; CX = 11 cz... and the radius is nearer
-    or dx, dx                       ; the half-height than the height, so
-    jnz .stack                      ; this is about 6 px
-    cmp ax, cx
-    jae .stack
+    cmp ax, cx                      ; the half-height than the height, so
+    jae .stack                      ; this is about 6 px
+.lod:
     mov ax, [cs_ocz]
     sub ax, [si + CSM_RAD]
     cmp ax, CS_NEAR
