@@ -1004,11 +1004,77 @@ both bodies plus a descending twin of `mem_cp_next`, or duplicate them.
 the record does not have — and `.lowbss` has 34 bytes of its rung left, so
 widening `MC_SIZE` costs 64 bytes and crosses a rung on kern_big.
 
-**One claim gets its 14KB back for nothing.** Of the eight top-down call sites,
-seven are a CS or a bus master. The eighth is **ETHER.DRV's socket pool**
-(drivers/ether/tcp.inc:784) — neither, merely **undeclared**. It would move under
-today's engine, today, for **zero kernel bytes**, as soon as it declares a
-relocation proc. In §2.0's scenario that is 14KB of the wall.
+**One claim gets its 14KB back for nothing, and §5.1 is why it is safe.**
+
+---
+
+### 5.1 ETHER.DRV's socket pool — the comment that pinned it is wrong
+
+Of the eight top-down call sites, seven claim a CS or a bus-master buffer. The
+eighth is **ETHER.DRV's 14KB socket pool** (drivers/ether/tcp.inc:784), and the
+comment beside that claim says:
+
+> the card's own descriptors point into these rings and it DMAs into them, so
+> this block is as unmovable as a driver image
+
+**Both clauses are false for this card, and the same file contradicts them 100
+lines earlier.** The objection they encode — *the moment an IRQ from the card
+arrives it writes into memory we have moved something else into* — cannot happen
+here, for three independent reasons, any one of which is sufficient:
+
+1. **There is no IRQ.** `ETHER.DRV` hooks no vector at all, deliberately:
+   *"IT POLLS, AND HOOKS NOTHING — No interrupt vector, no IRQ line, no DMA
+   channel"* (drivers/ether/ether.asm:27), and drivers/ether/ne2000.inc:41 gives
+   the reason — *"an ISR would have to run at IF=0 on a machine whose kernel is
+   not re-entrant"* (SPEC.md 72.2.1). The card's ring is drained by polling from
+   inside the socket verbs a package already calls once a tick.
+2. **The card has no path to host RAM.** Received frames land in *the card's own*
+   packet memory — a circular buffer of 256-byte pages between PSTART and PSTOP,
+   `CURR` being where the card will write next and `BNRY` where we have read to
+   (drivers/ether/ne2000.inc:28). The 8390's two DMA engines are both internal:
+   *"the card's LOCAL DMA wraps at the ring end; its REMOTE DMA — the window we
+   read through — does not"* (:35). The host side of remote DMA is
+   `in al, dx` / `stosb` through one port (`ne_dma_read`, :207). **The CPU moves
+   every byte.** There are no host-memory descriptors to point anywhere.
+3. **No task can be inside the pool during a compaction.** The pool is a
+   *software* ring the driver fills with the CPU from inside socket verbs, which
+   run on the calling package's task — and `mem_compact` raises `[sch_lock]`
+   across the plan and the moves. The only claim in the whole driver is
+   `sk_claim` (tcp.inc:784), reached only through `sk_reclaim`, which calls
+   `sk_release` **first**: at the one moment a compaction can fire from inside
+   this driver, `[sk_seg]` is 0 and there is no pool to move.
+
+**And the driver's own author already wrote down that a move is safe.**
+tcp.inc:680, explaining why `sk_reclaim` frees and re-claims rather than
+regrowing:
+
+> A FREE AND A CLAIM AND NOT A REGROW, deliberately: **`mem_regrow` can move a
+> block, and everything that reads a ring reads `[sk_seg]` fresh through
+> `sk_ring`, so a move would be safe** — but the sizes and the shifts change with
+> the rung and every ring's CONTENTS would then be at the wrong offsets inside it.
+
+That is a statement about a **rung change**, not about a move. The move is
+conceded in the same sentence.
+
+**So the relocation proc is one word.** `sk_ring` (tcp.inc:813) is the single
+accessor — *"every ring access goes through this rather than loading `[sk_seg]`
+by hand"* — and re-derives `ES` from `[sk_seg]` on every access; `[sk_base]`
+(ethstate.inc:142) is an **offset inside** the claim and does not change when the
+claim moves. `mov [sk_seg], dx / ret` is `clip_reloc`'s shape at **5 bytes**,
+plus one `OSAPI_MEM_MOVABLE` call at the claim site.
+
+**Placement should not change.** Top-down is still right — it is a long-lived
+driver-owned block, and docs/HEAP-CLAIMS.md's *"placement is a second axis"*
+applies. What changes is only that it stops being a **wall**; and because a
+movable block can never pass a pinned one under the ascending walk, declaring it
+slides the pool down onto the highest pinned block beneath it and merges the gap
+under it with the run above. **A strict improvement, needing no descending pass.**
+
+**Not landed here.** It is a behaviour change to a shipped driver and the only
+harness that can exercise `ETHER.DRV` is QEMU (`tests/ethernet.py`; MartyPC has
+no NIC of any kind), so it wants that gate green first — and the gate's assertion
+1b already reads `sk_seg` and the ladder rung, which is exactly the state a move
+disturbs.
 
 ---
 

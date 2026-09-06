@@ -782,13 +782,38 @@ sk_try:
     mov cl, 10
     shr ax, cl                      ; AX = KB
     call OSAPI_MEM_CLAIM_HI         ; out DX = the base segment. FROM THE TOP
-                                    ; (SPEC.md 50.3.2): the card's own
-                                    ; descriptors point into these rings and it
-                                    ; DMAs into them, so this block is as
-                                    ; unmovable as a driver image and belongs at
-                                    ; the same end of the heap - not in the
-                                    ; arena the compactor and every data claim
-                                    ; share
+                                    ; (SPEC.md 50.3.2), because it is long-lived
+                                    ; and driver-owned and belongs at the same
+                                    ; end of the heap as a driver image - not in
+                                    ; the arena the compactor and every data
+                                    ; claim share.
+                                    ;
+                                    ; **NOT because the card writes into it: it
+                                    ; cannot.** This comment used to say "the
+                                    ; card's own descriptors point into these
+                                    ; rings and it DMAs into them, so this block
+                                    ; is as unmovable as a driver image", and
+                                    ; both clauses are false for an NE2000. The
+                                    ; 8390's two DMA engines are internal to the
+                                    ; card - frames land in ITS packet memory
+                                    ; between PSTART and PSTOP (ne2000.inc) and
+                                    ; the host side of remote DMA is `in al, dx`
+                                    ; / `stosb` through one port, so the CPU
+                                    ; moves every byte. There is no host-memory
+                                    ; descriptor to point anywhere, and this
+                                    ; driver hooks no vector at all (ether.asm:
+                                    ; "IT POLLS, AND HOOKS NOTHING").
+                                    ;
+                                    ; So the pool is UNDECLARED, not unmovable -
+                                    ; sk_reclaim below says so in as many words,
+                                    ; and a relocation proc for it is one store
+                                    ; to [sk_seg], because sk_ring re-derives ES
+                                    ; from that word on every access and
+                                    ; [sk_base] is an offset INSIDE the block.
+                                    ; docs/plans/HEAP-UNPIN-PLAN.md 5.1 is the
+                                    ; full argument and what declaring it would
+                                    ; cost. Placement stays either way: top-down
+                                    ; is right for a long-lived driver block
     jc .no
     mov [sk_seg], dx
     mov ax, bx                      ; TX starts above ALL the RX rings: the
