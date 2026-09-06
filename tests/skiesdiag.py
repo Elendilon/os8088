@@ -33,7 +33,7 @@ import os88ui                                               # noqa: E402
 import dispapps                                             # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CSD_SLOTS, CSD_ROWS = 3, 4
+CSD_SLOTS, CSD_ROWS, CSD_BLKS = 3, 4, 6
 bad = []
 
 
@@ -116,7 +116,7 @@ def main(argv):
         def blocks():
             """The four painted words, read off the GLASS and not off bss."""
             out = []
-            for s in range(CSD_SLOTS + 1):
+            for s in range(CSD_BLKS):
                 b = m.read(0xB0000 + devoff(s * CSD_ROWS), 2)
                 out.append((b[0] << 8) | b[1])
             return out
@@ -168,12 +168,23 @@ def main(argv):
         m.advance(frames=20)
         m.run()
         b2 = blocks()
-        print("      frozen at %04x: ticks %d -> %d, blocks %s"
-              % (at, b1[CSD_SLOTS], b2[CSD_SLOTS],
+        print("      frozen at %04x: ticks %d -> %d, age %d -> %d, "
+              "stage %02x, blocks %s"
+              % (at, b1[3], b2[3], b1[4], b2[4], b2[5] & 0xFF,
                  " ".join("%04x" % v for v in b2[:CSD_SLOTS])))
-        check(b2[CSD_SLOTS] > b1[CSD_SLOTS],
+        check(b2[3] > b1[3],
               "the counter keeps going when the flight has stopped (%d -> %d)"
-              % (b1[CSD_SLOTS], b2[CSD_SLOTS]))
+              % (b1[3], b2[3]))
+        check(b2[4] > b1[4] and b2[4] > 10,
+              "and TICKS SINCE THE LAST FRAME grows, which is the reading a"
+              " single photograph can be taken of (%d -> %d)" % (b1[4], b2[4]))
+        # 9 and not 1: the `jmp $` lands on cs_render's FIRST instruction,
+        # which is before its own CSSTAGE, so the last stage the machine got
+        # PAST is the simulation loop's - which is exactly what the block
+        # means and worth having the gate state
+        check((b2[5] & 0xFF) == 9,
+              "and the STAGE block says the last stage it got past (%d)"
+              % (b2[5] & 0xFF))
         # the picture is a `jmp $`, so every sample lands on it or one byte in
         check(all(at <= v <= at + 1 for v in b2[:CSD_SLOTS]),
               "and all %d IP blocks NAME the address it is stuck at (%04x: %s)"

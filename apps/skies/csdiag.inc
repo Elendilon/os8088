@@ -28,6 +28,7 @@
 ; =============================================================================
 
 CSD_SLOTS equ 3                     ; interrupted IPs kept
+CSD_BLKS  equ 6                     ; ...and the blocks painted in all
 CSD_ROWS  equ 4                     ; scan rows a word is painted in
 
 ; -----------------------------------------------------------------------------
@@ -128,9 +129,24 @@ cs_diag_paint:
     mov si, bx
     shl si, 1
     mov ax, [cs_dring + si]
-    cmp bx, CSD_SLOTS               ; ...and the last slot is the COUNTER,
-    jb .word                        ; which is what says IRQ0 is still alive
-    mov ax, [cs_dtick]
+    cmp bx, CSD_SLOTS
+    jb .word
+    je .tick
+    cmp bx, CSD_SLOTS + 1
+    je .age
+    mov al, [cs_dstage]             ; BLOCK 6: WHERE IN A FRAME, and the low
+    mov ah, [cs_par]                ; byte of the frame parity beside it
+    jmp short .word
+.tick:
+    mov ax, [cs_dtick]              ; BLOCK 4: is IRQ0 alive at all
+    jmp short .word
+.age:
+    mov ax, [cs_dtick]              ; BLOCK 5: TICKS SINCE THE LAST FRAME
+    sub ax, [cs_dframe]             ; FINISHED - this is what tells a machine
+                                    ; whose PICTURE stopped while the tick
+                                    ; went on (a big number: the freeze is
+                                    ; ours) from one where BOTH stopped
+                                    ; together (a small one: it is below us)
 .word:                              ; AH goes down first, so the leftmost eight
     mov di, bx                      ; pixels are bits 15..8 and the next eight
                                     ; are bits 7..0 - a word read left to right
@@ -150,8 +166,8 @@ cs_diag_paint:
     inc di
     loop .row
     inc bx
-    cmp bx, CSD_SLOTS
-    jbe .slot
+    cmp bx, CSD_BLKS
+    jb .slot
 .out:
     ret
 

@@ -96521,13 +96521,36 @@ blocks read as four — at the top-left corner of the view:
 |---|---|
 | 1–3 | the last three interrupted IPs, oldest first, bit 15 leftmost |
 | 4 | a **tick counter** |
+| 5 | **ticks since the last frame FINISHED** |
+| 6 | high byte the page parity, low byte the **stage** the frame had reached |
 
-**The counter is half the diagnosis on its own.** If the picture has stopped
-and the counter is still moving, then IRQ0 is alive, `IF` is set, and the
-freeze is a loop in this package — which the three IPs beside it name. If
-the counter has stopped too, the machine is dead below Clear Skies (`IF`
-clear, a `hlt` that will never wake, or the tick chain gone) and no amount
-of looking at the package will find it.
+**Block 5 is the diagnosis and it needs only one photograph**, which is what
+the first version got wrong: a tick counter alone says nothing from a single
+still, because a number is only moving if you see it twice. Ticks-since-the
+last-finished-frame does not have that problem. A **big** number means the
+tick went on running long after the picture stopped — the freeze is ours,
+and the three IPs beside it name the loop. A **small** one (0 to 3) means
+both stopped at the same moment, so the machine is dead below Clear Skies:
+`IF` clear, a `hlt` nothing will wake, or the tick chain gone.
+
+Block 6 says **where in a frame** it stopped, which is the other half:
+
+| stage | reached |
+|---|---|
+| 1 | `cs_render` entered | 
+| 2 | `cs_r_begin` returned |
+| 3 | the matrix and the eye are done, the sky/ground pass is next |
+| 4 | `cs_skyground` returned, the scene is next |
+| 5 | `cs_scene` returned, the panel is next |
+| 6 | `cs_panel` returned, the blit or the page flip is next |
+| 7 | the frame **finished** |
+| 8 | in `cs_input` |
+| 9 | in the simulation loop |
+| 10 | in the kernel's **`hlt`** tick wait (§53.5) |
+| 11 | out of it again |
+
+Stage 10 with a small block 5 is one specific answer and worth naming: the
+machine went into `fsx_wait`'s `hlt` and nothing ever woke it.
 
 `tests/skiesdiag.py` is what says the instrument works, and it works the
 only way such a thing can be tested: it **freezes the machine on purpose**,
