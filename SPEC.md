@@ -94209,6 +94209,32 @@ and `along`. And `cs_sdiff`'s multiply by 256 is two byte moves and its
 shift loop is unrolled per scale: 145 and up to 360 cycles, three times an
 object, became 30 and 80.
 
+##### 88.5.6.1 The quarter-metre projection had the wrong sign past 1,024 pixels
+
+The three product shifts are not one form. Shifting by 11 takes bits 8..23
+of the 32-bit product as a word (`mov al, ah` / `mov ah, dl`) and `sar`s
+three more, which is sound because the clamp in front of it — the high word
+under 125 — keeps |product| below 125 × 65536 < 2^23, so the word IS the
+product over 256. The shift by 13 shipped in the same form with its own
+clamp of 500, and 500 × 65536 is 2^25: for a point whose projection lies
+between 1,024 and 4,000 pixels from the centre, bits 24..31 are lost, the
+word wraps, and the coordinate comes back with the wrong sign and a
+magnitude of the wrong size. Nothing on the view is in that band. **Every
+side-clip crossing is** — §88.5.7 puts them at 4z, which is 1,772 pixels —
+so on a quarter-metre object (anything within 8 km, which in a climbing turn
+is the runway, the airport's buildings and the near river) a crossing
+projected to the far corner of nowhere and the polygon it belonged to
+filled the view. The 5150 showed a solid white wall over half the sky, a
+river reaching the top of it and the frame at 3 fps under the fill, all in
+a banked climb and none of it flying straight; MartyPC shows the same past
+about 20 degrees of bank. Neither fix costs a cycle, and the three pinned
+scenes of §88.12 read 153, 156 and 172 ms against 153, 160 and 178: the
+tower and city frames were filling polygons that reached past the view. The shift by 13 now moves the PAIR — `shl ax` /
+`rcl dx` three times, DX the answer — the form the shift by 15 always had,
+fourteen cycles for fourteen, and the 11 keeps the word form with the
+comment that says why it may. `tests/skiesgeom.py` replays the projection
+on the host and `--clobber-proj` puts the word form back.
+
 #### 88.5.7 A line through a clamped point bends, so the sides clip too
 
 The projection clamps a point at ±4000 (§88.5.5: |cx| over 9z), and a
@@ -94260,6 +94286,30 @@ both under 4 (oz − r) no vertex is past a side and `cs_projall` skips the
 fourteen instructions a vertex (`cs_pinside`); when the object is in front
 of the near plane by its radius too, it is WHOLE, and §88.3.2 says what
 that buys.
+
+##### 88.5.7.1 The side pass emitted before it crossed
+
+`cs_sidepass` walks the ring A → B and, when A is inside and B past the
+plane, must emit A and then the crossing. The first build did that in that
+order, through `.emita`, whose copy loop ends with A's z in AX — and
+`cs_cxing` takes A's DISTANCE in AX. So the crossing's t was z/(z − db)
+instead of da/(da − db), which for any point not hard against the plane is
+nearly 1, and the "crossing" sat almost on the outside point: the runway
+face seen from a bank had a corner at x/z = 7.5 where 4 was the plane, and
+the polygon reached 3,647 pixels across. The other case — A outside, B
+inside — computes first and emits after, and was right, which is why one
+edge of a polygon went and its neighbour held. The pass now computes the
+crossing off the two distances first and emits A and it after, the same
+order on the glass and no cycle more. `tests/skiesgeom.py --clobber-side`
+swaps the two calls back.
+
+**What the two faults had in common** is that a straight flight never
+reaches either: an object beside the eye at 4z, on an edge whose inside end
+comes first, projected at the quarter-metre scale, wants a bank. The gate
+that would have caught them — every polygon and segment of a frame against
+a host replay of the same integer arithmetic, on scenes pinned at 30 and
+60 degrees — is §88.11's `skiesgeom`, and it was written to go red on both
+before either was fixed.
 
 ### 88.6 The world (`apps/skies/csworld.inc`)
 
@@ -94529,6 +94579,18 @@ table exactly.
   it to the launcher's window — the check that catches a click handler
   coming back with SI clobbered, which the first build did (§13.14), and
   `--clobber-si` puts that bug back and must go red on it.
+- `tests/skiesgeom.py` (soak, MartyPC): §88.5.5–§88.5.7's arithmetic, held.
+  Five scenes pinned by poke — the Issy climb-out at 30 and 60 degrees of
+  bank, Le Bourget at 60 right and 30 left, and the straight climb — and in
+  one frame of each a breakpoint at every `cs_poly` and `cs_edge1`/`cs_seg`
+  reads the object's camera-space vertices and flags out of the bss and
+  replays the near pass, the four side passes and the per-scale projection
+  on the host, `idiv` truncation, Q15 and table buckets included, holding
+  what the guest drew to it within three pixels. It is the row a straight
+  flight could not be: the two faults of §88.5.6.1 and §88.5.7.1 moved
+  points by hundreds of pixels and only under a bank. `--clobber-proj` and
+  `--clobber-side` each patch one fault back into the guest's code and the
+  row must go red on it.
 - `tests/skiesperf.py`: an INSTRUMENT, `tankperf.py`'s shape — a breakpoint on
   `cs_render`, twelve consecutive frames, cycle-exact, on a scene pinned by
   poke — and where the frame rate in §88.12 comes from. Two things it does
@@ -94569,7 +94631,8 @@ its near size, the worst frame in the world.
 | the ground to the wheels (§88.5.5), full-width rows | 134 ms, 7.5 fps | 151 | 183 |
 | sixteenth-metre transforms (§88.5.6), the dashed centreline (§88.6.2) | 143 ms, 7.0 fps | 156 ms, 6.4 fps | 189 ms, 5.3 fps |
 | the frustum's sides clip (§88.5.7) | 159 ms, 6.3 fps | 166 ms, 6.0 fps | 197 ms, 5.1 fps |
-| **wireframes marked per object, no dirty bit, the size test before the rotation, per-scale projection, whole objects (§88.3.2)** | **153 ms, 6.5 fps** | **160 ms, 6.2 fps** | **178 ms, 5.6 fps** |
+| wireframes marked per object, no dirty bit, the size test before the rotation, per-scale projection, whole objects (§88.3.2) | 153 ms, 6.5 fps | 160 ms, 6.2 fps | 178 ms, 5.6 fps |
+| **the side pass crosses before it emits, the quarter-metre shift moves the pair (§88.5.6.1, §88.5.7.1)** | **153 ms, 6.5 fps** | **156 ms, 6.4 fps** | **172 ms, 5.8 fps** |
 
 **The target was twelve frames a second; the runway frame stood at ten
 before the runway was drawn to the wheels and is 7.5 after.** Where

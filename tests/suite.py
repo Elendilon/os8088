@@ -1652,6 +1652,13 @@ SOAK = [
         "SPEC.md 88 on CGA: the 320x112 view, palette 0 over a light-blue"
         " background, the same flight",
         needs=("marty",), serial=True),
+    Row("skiesgeom", "soak", py("tests/skiesgeom.py"), 320.0,
+        "SPEC.md 88.5.5-88.5.7: every polygon and segment of a frame, on"
+        " five pinned scenes (four of them BANKED), held to a host replay of"
+        " the guest's own near clip, side clip and per-scale projection -"
+        " the two faults a straight flight never reached (88.5.6.1,"
+        " 88.5.7.1), each with a red run that patches it back",
+        needs=("marty",), serial=True),
     Row("skiesui", "soak", py("tests/skiesui.py"), 150.0,
         "SPEC.md 88.10's title page on the VGA machine: the two drop-downs"
         " (SPEC.md 13.14's first users) drop, close and pick, Esc closes one,"

@@ -301,9 +301,17 @@ cs_ktabs:
     shl ax, 1
     rcl dx, 1
     mov ax, dx
+  %elif %2 == 13
+    shl ax, 1                       ; the PAIR left three: DX = product >> 13.
+    rcl dx, 1                       ; The middle-word form below holds only
+    shl ax, 1                       ; while |product| < 2^23 - DX within
+    rcl dx, 1                       ; +-127 - and this clamp lets 500 through,
+    shl ax, 1                       ; so a point 1,024 to 4,000 pixels from
+    rcl dx, 1                       ; the centre came back with the wrong
+    mov ax, dx                      ; sign: every side-clip crossing (88.5.6.1)
   %else
-    mov al, ah
-    mov ah, dl
+    mov al, ah                      ; bits 8..23 as a word, then the rest:
+    mov ah, dl                      ; sound because 125 x 65536 < 2^23
     %rep %2 - 8
     sar ax, 1
     %endrep
@@ -1746,11 +1754,16 @@ cs_sidepass:
     inc bp
     or ax, ax
     js .aout
-    call .emita                     ; A inside: out it goes...
     or bx, bx
-    jns .next                       ; ...and B too: nothing between
-    call cs_cxing                   ; ...B outside: the crossing follows
-    call .emitx
+    jns .ain                        ; A inside and B too: A alone
+    call cs_cxing                   ; A inside, B past the plane: the
+    call .emita                     ; crossing off the two distances FIRST -
+    call .emitx                     ; .emit leaves A's z in AX, and the first
+    jmp short .next                 ; build computed it after, so every such
+                                    ; crossing sat at t = z/(z - db), which is
+                                    ; almost ON the outside point (88.5.7.1)
+.ain:
+    call .emita
     jmp short .next
 .aout:
     or bx, bx
