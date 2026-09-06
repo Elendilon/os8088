@@ -304,7 +304,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | SOLITAIRE | `apps/solitaire/solitaire.asm` | §43 | yes |
 | TAMEGRAM | `apps/tamegram/tamegram.asm` | §49 | yes |
 | TANK | `apps/tank/tank.asm` | §85 | yes |
-| TAPE | `apps/tape/tape.asm` | §88 | no |
+| TAPE | `apps/tape/tape.asm` | §88 | yes |
 | TELNET | `apps/telnet/telnet.asm` | §70 | yes |
 | TEXPAD | `apps/texpad/texpad.asm` | §69 | yes |
 | TRACKER | `apps/tracker/tracker.asm` | §45 | yes |

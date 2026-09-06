@@ -2659,7 +2659,15 @@ EMUDRIVERS = $(DRIVERS) $(BUILD)/vmmouse.drv
 # SHIPPED kernel's modules. See `make emu` for what the directory is for.
 EMUDIR := $(BUILD)/emuk
 
-SYSAPPS := $(BUILD)/taskmgr.o88
+# TAPE.O88 ships HERE and not on the apps disk (SPEC.md 88.12). The 5150 is a
+# 360KB machine, and at that geometry the package is ~8 clusters - 8% of the
+# system disk's 100 free, against 30% of the apps disk's 27. It is also right
+# on the merits: a tool that drives the machine's own hardware belongs beside
+# the Task Manager (SPEC.md 28.3). It rides the kern_small disks too, because
+# SPEC.md 24.5's requirement filter excludes a package that cannot REACH a
+# driver kern_small does not carry, and this one reaches no driver - it
+# refuses itself honestly on a small heap, with the arithmetic on the glass.
+SYSAPPS := $(BUILD)/taskmgr.o88 $(BUILD)/tape.o88
 SYSAPPSARGS := $(addprefix SYSTEM:,$(SYSAPPS))
 
 # --- the CORE PACKAGES (SPEC.md 24.3) ----------------------------------------
