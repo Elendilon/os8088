@@ -133,11 +133,11 @@ cs_ot_spx:
     CS_OBJ cs_m_spx_menk,   0,     -580,  -740,  16, 12000,    0, cs_n_spx_menk,   CSO_COLLIDE | CSO_POI
     ; the three queens' pyramids in a row, their centres 140 m south of
     ; Menkaure's and 71 m clear of its base. They are 32 m across, which is
-    ; what makes them the natural filler here: a machine on Buildings=Moderate
-    ; loses them and loses nothing it flies by.
-    CS_OBJ cs_m_spx_queen,  0,     -690,  -880,  16,  4000,    0, cs_n_spx_queen,  CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_spx_queen,  0,     -625,  -880,  16,  4000,    0, cs_n_spx_queen,  CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_spx_queen,  0,     -560,  -880,  16,  4000,    0, cs_n_spx_queen,  CSO_COLLIDE | CSO_FILLER
+    ; what makes them the smallest thing here: a machine that has to lose
+    ; something loses them and loses nothing it flies by.
+    CS_OBJ cs_m_spx_queen,  0,     -690,  -880,  16,  4000,    0, cs_n_spx_queen,  CSO_COLLIDE
+    CS_OBJ cs_m_spx_queen,  0,     -625,  -880,  16,  4000,    0, cs_n_spx_queen,  CSO_COLLIDE
+    CS_OBJ cs_m_spx_queen,  0,     -560,  -880,  16,  4000,    0, cs_n_spx_queen,  CSO_COLLIDE
     ; --- the Sphinx, 700 m east of Khafre and on its latitude --------------
     CS_OBJ cs_m_spx_sphinx, 0,      360,  -370,   0,  6000,    0, cs_n_spx_sphinx, CSO_COLLIDE | CSO_POI
     CS_OBJ cs_m_spx_vtemp,  0,      400,  -460,   0,  4000,    0, cs_n_spx_vtemp,  CSO_COLLIDE
@@ -145,8 +145,8 @@ cs_ot_spx:
     ; --- the field itself, 2.5 km east ------------------------------------
     ; Both stand 188 m and 238 m clear of the runway rectangle, south of it,
     ; which is well outside 88.6's 150 m.
-    CS_OBJ cs_m_hangar,     0,     2900,  -450,   0,  3000,    0, cs_n_bldg,       CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_shed,       0,     2600,  -480,   0,  3000,    0, cs_n_bldg,       CSO_COLLIDE | CSO_FILLER
+    CS_OBJ cs_m_hangar,     0,     2900,  -450,   0,  3000,    0, cs_n_bldg,       CSO_COLLIDE
+    CS_OBJ cs_m_shed,       0,     2600,  -480,   0,  3000,    0, cs_n_bldg,       CSO_COLLIDE
     ; --- the Nile: the same ribbon twice, meeting at z = 0 -----------------
     CS_OBJ cs_m_spx_nile, cs_m_spx_nilef, 3800, -3000, 0, 7000, 3000, cs_n_spx_nile, CSO_TERRAIN
     CS_OBJ cs_m_spx_nile, cs_m_spx_nilef, 4250,  3000, 0, 7000, 3000, cs_n_spx_nile, CSO_TERRAIN
@@ -161,9 +161,9 @@ cs_ot_spx:
     CS_OBJ cs_m_spx_corn,   0,     4400,     0,   0,  5000,    0, cs_n_spx_corn,   CSO_ROAD
     CS_OBJ cs_m_block,      0,     4900, -1300,   0,  4500,    0, cs_n_bldg,       CSO_COLLIDE
     CS_OBJ cs_m_block2,     0,     5150,  -600,   0,  4500,    0, cs_n_bldg,       CSO_COLLIDE
-    CS_OBJ cs_m_block,      0,     4750,  1200,   0,  4500,    0, cs_n_bldg,       CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block2,     0,     5150,  2100,   0,  4500,    0, cs_n_bldg,       CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_small,      0,     5000,  1900,   0,  3500,    0, cs_n_bldg,       CSO_COLLIDE | CSO_FILLER
+    CS_OBJ cs_m_block,      0,     4750,  1200,   0,  4500,    0, cs_n_bldg,       CSO_COLLIDE
+    CS_OBJ cs_m_block2,     0,     5150,  2100,   0,  4500,    0, cs_n_bldg,       CSO_COLLIDE
+    CS_OBJ cs_m_small,      0,     5000,  1900,   0,  3500,    0, cs_n_bldg,       CSO_COLLIDE
 cs_ote_spx:
 CS_N_SPX equ (cs_ote_spx - cs_ot_spx) / CSO_SIZE
 

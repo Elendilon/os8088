@@ -230,13 +230,13 @@ cs_ot_paris:
     CS_OBJ cs_m_per1,   0,             5576, -2576,   0,  8000,    0, cs_n_seine,  CSO_ROAD
     CS_OBJ cs_m_per2,   0,             -576, -2576,   0,  8000,    0, cs_n_seine,  CSO_ROAD
     CS_OBJ cs_m_per3,   0,             -576,  3576,   0,  8000,    0, cs_n_seine,  CSO_ROAD
-    CS_OBJ cs_m_hangar, 0,            -2750, -2350,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_shed,   0,            -2300, -2750,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_small,  0,            -2900, -2050,   0,  2500,    0, cs_n_bldg,   CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block,  0,             1000,  1200,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block2, 0,             1900,   800,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block,  0,             -900,  -700,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block2, 0,            -1700,   200,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE | CSO_FILLER
+    CS_OBJ cs_m_hangar, 0,            -2750, -2350,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE
+    CS_OBJ cs_m_shed,   0,            -2300, -2750,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE
+    CS_OBJ cs_m_small,  0,            -2900, -2050,   0,  2500,    0, cs_n_bldg,   CSO_COLLIDE
+    CS_OBJ cs_m_block,  0,             1000,  1200,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE
+    CS_OBJ cs_m_block2, 0,             1900,   800,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE
+    CS_OBJ cs_m_block,  0,             -900,  -700,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE
+    CS_OBJ cs_m_block2, 0,            -1700,   200,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE
 cs_ote_paris:
 CS_N_PARIS equ (cs_ote_paris - cs_ot_paris) / CSO_SIZE
 cs_n_eiffel: db 'THE EIFFEL TOWER', 0

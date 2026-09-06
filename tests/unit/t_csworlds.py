@@ -71,7 +71,7 @@ def main():
             "CSM_FLAT", "CSM_STACK", "CSO_MODEL", "CSO_FAR", "CSO_X", "CSO_Z",
             "CSO_RANGE", "CSO_NAME", "CSO_FLAGS", "CSO_SIZE", "CSO_COLLIDE",
             "CSM_EDGES", "CSI_NINK",
-            "CSO_POI", "CSO_FILLER", "CSA_NAME", "CSA_X", "CSA_Z", "CSA_HDG",
+            "CSO_POI", "CSO_DENSE", "CSA_NAME", "CSA_X", "CSA_Z", "CSA_HDG",
             "CSA_HLEN", "CSA_HWID", "CSA_RWY", "CSA_OBJS", "CSA_NOBJ",
             "CS_MAXV", "CS_FAR"]
     miss = [n for n in need if n not in E]
@@ -168,7 +168,7 @@ def main():
                 bad.append("%s: it is lettered %s and heads %.0f degrees"
                            % (who, zstr(w(a + E["CSA_RWY"])), got))
 
-        items, npoi, nfil, total = [], 0, 0, 0
+        items, npoi, nden, total = [], 0, 0, 0
         rwy_here = [1e9, None]
         for o in range(objs, objs + nobj * E["CSO_SIZE"], E["CSO_SIZE"]):
             md = model(w(o + E["CSO_MODEL"]))
@@ -192,8 +192,8 @@ def main():
                            % (who, nm, ox, oz))
             if fl & E["CSO_POI"]:
                 npoi += 1
-            if fl & E["CSO_FILLER"]:
-                nfil += 1
+            if fl & E["CSO_DENSE"]:
+                nden += 1
             # a collidable base may not stand on its own runway
             if fl & E["CSO_COLLIDE"]:
                 dx, dz = ox - ax, oz - az
@@ -204,25 +204,32 @@ def main():
                                "under the %d m this wants"
                                % (who, nm, d, RWY_CLEAR))
                 rwy_here[0] = min(rwy_here[0], d)
-            items.append((ox, oz, rng, weight(md)))
-            total += weight(md)
+            # THE BUDGET IS THE DEFAULT RUNG'S (SPEC.md 88.13.1), so a
+            # CSO_DENSE object is counted for CS_NVIS and not for the peak.
+            # High is a 286/386 rung and is MEANT to be over what a 4.77 MHz
+            # 8088 can carry; pricing it here would make the budget refuse
+            # the feature rather than the regression it exists to catch.
+            items.append((ox, oz, rng, weight(md), bool(fl & E["CSO_DENSE"])))
+            if not fl & E["CSO_DENSE"]:
+                total += weight(md)
 
         # --- the PEAK LOAD: the worst frame the world can be asked for ------
-        eyes = [(ox, oz) for ox, oz, _, _ in items]
+        eyes = [(ox, oz) for ox, oz, _, _, _ in items]
         eyes += [(round(ax + ux * s), round(az + uz * s))
                  for s in (-hlen, 0, hlen, 3000, 6000)]
         peak, peakn = 0, 0
         for ex, ez in eyes:
             load = n = 0
-            for ox, oz, rng, wt in items:
+            for ox, oz, rng, wt, dense in items:
                 if abs(ox - ex) + abs(oz - ez) <= min(rng, SAMPLE_R):
-                    load += wt
-                    n += 1
+                    n += 1                      # CS_NVIS binds on every CPU
+                    if not dense:
+                        load += wt              # ...the WEIGHT is the default's
             peak, peakn = max(peak, load), max(peakn, n)
         if peakn > NVIS_MAX:
             bad.append("%s: %d objects can be in one frame, and CS_NVIS is "
                        "32 with the rest dropped silently" % (who, peakn))
-        rows.append((who, nobj, npoi, nfil, total, peak, peakn,
+        rows.append((who, nobj, npoi, nden, total, peak, peakn,
                      rwy_here[0]))
 
     base = [r for r in rows if r[0] == BASE]
@@ -232,13 +239,13 @@ def main():
     bpeak = base[0][5]
 
     print("  %-13s %4s %4s %4s %7s %7s %4s %8s %8s"
-          % ("location", "objs", "poi", "fill", "weight", "peak", "vis",
+          % ("location", "objs", "poi", "dens", "weight", "peak", "vis",
              "rwy m", "vs base"))
-    for who, nobj, npoi, nfil, total, peak, peakn, rwy in rows:
+    for who, nobj, npoi, nden, total, peak, peakn, rwy in rows:
         ratio = peak / float(bpeak) if bpeak else 0.0
         flag = "  <-- OVER" if ratio > OVER else ""
         print("  %-13s %4d %4d %4d %7d %7d %4d %8s %7.2fx%s"
-              % (who, nobj, npoi, nfil, total, peak, peakn,
+              % (who, nobj, npoi, nden, total, peak, peakn,
                  "-" if rwy > 1e8 else "%.0f" % rwy, ratio, flag))
         if ratio > OVER:
             bad.append("%s's peak frame is %.2fx %s's, and %s is the only "

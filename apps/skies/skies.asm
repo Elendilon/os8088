@@ -210,8 +210,12 @@ CSBL_NONE   equ 0                ; Detail Level: NOTHING built - refused in
                                  ;    is the cheapest form there is (88.13.1)
 CSBL_ROADS  equ 1                ; ...the roads and bridges, and no more
 CSBL_LOW    equ 2                ; ...and the critical points of interest
-CSBL_MOD    equ 3                ; ...everything but the anonymous filler
-CSBL_ALL    equ 4                ; ...all of it
+CSBL_MOD    equ 3                ; ...and the rest of what is built: THE
+                                 ;    DEFAULT, and every location's whole
+                                 ;    table until it grows a High tier
+CSBL_HIGH   equ 4                ; ...and CSO_DENSE over that - the dense
+                                 ;    city, which is a 286/386 rung and not
+                                 ;    an 8088 one (88.13.1)
 CSZ_SMALL  equ 0                ; Size: half the moderate view each way
 CSZ_MOD    equ 1                ; ...the Hercules default, 75% elsewhere
 CSZ_FULL   equ 2                ; ...the whole box, whatever it costs
@@ -231,8 +235,11 @@ CSFL_ALL    equ 3                ; both, which is a filled world; neither is
 CSO_COLLIDE equ 1               ; the first level's footprint and the tallest
 CSO_POI   equ 0x0100            ; a CRITICAL point of interest: drawn even at
                                 ; CSBL_FEW, and its range is never cut back
-CSO_FILLER equ 0x0200           ; ...and the other end: anonymous blocks and
-                                ; sheds, which CSBL_MOD leaves out (88.13.1)
+CSO_DENSE equ 0x0200            ; ...and the other end: THE DENSE CITY, drawn
+                                ; at CSBL_HIGH and at no other rung (88.13.1).
+                                ; The bit was CSO_FILLER and the anonymous
+                                ; blocks and sheds wore it; they draw at
+                                ; Moderate now, and nothing wears this yet
 CSO_ROAD  equ 0x0800            ; a ROAD, a causeway or a BRIDGE: drawn from
                                 ; CSBL_ROADS up, where nothing else built is.
                                 ; It is the shape of a city with no city on
@@ -428,7 +435,7 @@ cs_entry:
     mov [cs_scrw], ax
     mov [cs_dock], cx
 
-    mov byte [cs_setbld], CSBL_ALL   ; the settings' defaults (88.13): all of
+    mov byte [cs_setbld], CSBL_MOD   ; the settings' defaults (88.13): all of
     mov byte [cs_setlod], CSL_MOD   ; them are what the simulator shipped
     mov byte [cs_setfill], CSFL_ALL  ; with, so a player who never opens the
                                     ; page is flying exactly what they flew.
@@ -994,7 +1001,7 @@ cs_setclick:
     ;     lies on top), and os88ui_drpress lets a CLOSED control claim a
     ;     press that lands on its own box - so a press on the open list's
     ;     lower items went to whatever box the list was covering. Buildings
-    ;     is row 0 and its list falls over Detail, so Moderate and Full were
+    ;     is row 0 and its list falls over Detail, so Moderate and High were
     ;     unreachable from the page; None arriving as a fourth item is what
     ;     walked into it (88.13.6).
     mov di, 3
@@ -1642,7 +1649,7 @@ cs_flyrect:  dw 0, 0, 0, 0
 ; --- the Settings page's controls (SPEC.md 88.13). Every one of them is the
 ;     shared drop-down or the shared check box, and the page is the first
 ;     user of the second ---------------------------------------------------
-cs_drbld:    dw 0, 0, 0, 0, cs_i_bld,  5, CSBL_ALL, 0
+cs_drbld:    dw 0, 0, 0, 0, cs_i_bld,  5, CSBL_MOD, 0
              db 0, 0FFh
              dw 0, 0, 0
 cs_drlod:    dw 0, 0, 0, 0, cs_i_lod,  3, CSL_MOD, 0
@@ -1662,7 +1669,7 @@ cs_setdrops: dw cs_drbld, cs_drlod, cs_drsize, cs_drmode
 cs_setboxes: dw cs_ckterr, cs_ckbld
 CS_NFILL     equ ($ - cs_setboxes) / 2
 cs_setbytes: dw cs_setbld, cs_setlod, cs_setsize, cs_modepref
-cs_i_bld:    dw cs_s_bnone, cs_s_broad, cs_s_blow, cs_s_bmod, cs_s_ball
+cs_i_bld:    dw cs_s_bnone, cs_s_broad, cs_s_blow, cs_s_bmod, cs_s_bhigh
 cs_i_lod:    dw cs_s_lnear, cs_s_lmod, cs_s_lfar
 cs_i_size:   dw cs_s_zsml, cs_s_zmod, cs_s_zful
 cs_i_mode:   dw cs_s_modex, cs_s_cga
@@ -1676,7 +1683,7 @@ cs_s_bnone:  db 'None', 0
 cs_s_broad:  db 'Only Roads', 0
 cs_s_blow:   db 'Low', 0
 cs_s_bmod:   db 'Moderate', 0
-cs_s_ball:   db 'Full', 0
+cs_s_bhigh:  db 'High', 0
 cs_s_lnear:  db 'Near', 0
 cs_s_lmod:   db 'Moderate', 0
 cs_s_lfar:   db 'Far', 0

@@ -239,9 +239,11 @@ cs_m_jfk_mbr: db CSM_FLAT, 2, 0, 1, CSI_MARK, 0     ; the Manhattan Bridge,
     dw   384,  -302
 
 ; --- the world ---------------------------------------------------------------
-; Nineteen objects. Four are CSO_POI, so Buildings=Few leaves the three towers
-; and the Brooklyn Bridge, which is a New York a player can still navigate by;
-; six are CSO_FILLER, so Moderate means something. THE RANGES ARE CUT SO THAT
+; Nineteen objects. Four are CSO_POI, so Detail Level = Low leaves the three
+; towers and the Brooklyn Bridge, a New York a player can still navigate by;
+; six are anonymous blocks and sheds, drawn from Moderate with everything
+; else here - NOTHING in this table is CSO_DENSE yet, so High and Moderate
+; are the same New York. THE RANGES ARE CUT SO THAT
 ; NO MORE THAN FIFTEEN OF THEM ARE EVER IN ONE FRAME, which is what
 ; tests/unit/t_csworlds.py's peak reads (CS_NVIS is 32 and the thirty-third
 ; would be dropped silently, so a skyline denser than that loses buildings
@@ -269,12 +271,12 @@ cs_ot_jfk:
     CS_OBJ cs_m_jfk_est1, cs_m_jfk_est1f,  1860,   600,   0, 11000, 3000, cs_n_jfk_east, CSO_TERRAIN
     CS_OBJ cs_m_jfk_bbr,  0,               -500, -4390,   0,  8000,    0, cs_n_jfk_bbr,  CSO_POI | CSO_ROAD
     CS_OBJ cs_m_jfk_mbr,  0,                -50, -3810,   0,  8000,    0, cs_n_jfk_mbr,  CSO_ROAD
-    CS_OBJ cs_m_hangar,   0,               4900, -3680,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_shed,     0,               4490, -3340,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block,    0,                680, -5140,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block2,   0,               2170, -1640,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_small,    0,               1180,  2660,   0,  2500,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block,    0,               -110,  1740,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
+    CS_OBJ cs_m_hangar,   0,               4900, -3680,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_shed,     0,               4490, -3340,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_block,    0,                680, -5140,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_block2,   0,               2170, -1640,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_small,    0,               1180,  2660,   0,  2500,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_block,    0,               -110,  1740,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE
 cs_ote_jfk:
 CS_N_JFK equ (cs_ote_jfk - cs_ot_jfk) / CSO_SIZE
 

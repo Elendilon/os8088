@@ -8,12 +8,22 @@ Every setting trades picture for frame rate, so every check here is about
 one of the two: either the renderer does less work, or the glass shows
 something different.
 
+  0. the Detail Level a player who never opens the page flies on is
+     MODERATE (88.13.1.1) - in the byte and in the drop-down's own record -
+     because Moderate carries every location's whole table and High is the
+     286/386 rung above it;
   1. Flight -> Settings opens the page and the painter writes all seven
      controls' rects (four drop-downs, two fill boxes, Done);
   2. picking Detail Level = Low leaves fewer objects in the frame - cs_nvisn,
      which is what the cull filed - and the frame gets measurably shorter;
   3. a fill box toggles its bit in cs_setfill, and clearing both leaves the
      wireframe: the ground's dither is gone from the glass;
+  3a. Moderate is High minus CSO_DENSE, COUNTED and not compared as pixels:
+     a paused Clear Skies is not a still picture - the water moves - so two
+     arms drawing the same objects differ by thousands of pixels and a
+     SAME-RUNG control reads the same thousands. The dense objects are
+     counted out of the world's own table, so the check does not go stale
+     the day a location grows a High tier;
   3b. Detail Level = None files nothing built and still leaves the
      runway, the water and the terrain standing (88.13.1), and Only
      Roads brings the roads and bridges back and no more;
@@ -36,7 +46,10 @@ cs_scrclear, which is that band exactly, and check 5 must go red.
 the defect exactly, and the bank and glass checks must go red - note that
 the PICK still works without it, which is why those two checks exist.
 --clobber-arm puts a ret on os88ui_arm so Done never arms, and the release
-must then fail to turn the page.
+must then fail to turn the page. --clobber-default puts the old top-rung
+default back and check 0 must go red; --clobber-dense points cs_consider's
+`test ax, CSO_DENSE` at CSO_COLLIDE, which objects actually wear, so the top
+rung's filter fires at Moderate too and check 3a must go red.
 """
 import argparse
 import os
@@ -50,7 +63,7 @@ import dispapps                                             # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CPS = 4772727
-CSBL_NONE, CSBL_ROADS, CSBL_LOW, CSBL_ALL = 0, 1, 2, 4
+CSBL_NONE, CSBL_ROADS, CSBL_LOW, CSBL_MOD, CSBL_HIGH = 0, 1, 2, 3, 4
 CSFL_TERRAIN, CSFL_BLDG, CSFL_ALL = 1, 2, 3
 bad = []
 
@@ -70,6 +83,11 @@ def main(argv):
                     help="NOP the screen clear a size change owes: must go red")
     ap.add_argument("--clobber-drwin", action="store_true",
                     help="take the page's drop-downs' window handle away")
+    ap.add_argument("--clobber-default", action="store_true",
+                    help="the old CSBL_HIGH default back: check 0 goes red")
+    ap.add_argument("--clobber-dense", action="store_true",
+                    help="the top rung's filter fires at Moderate too: check"
+                         " 3a goes red")
     ap.add_argument("--clobber-arm", action="store_true",
                     help="put a ret on os88ui_arm, so Done never arms")
     a = ap.parse_args(argv)
@@ -130,6 +148,42 @@ def main(argv):
             m.write(lin + mp["os88ui_arm"], b"\xC3")
             m.run()
             print("  (os88ui_arm is a ret: this run must fail)")
+
+        if a.clobber_default:
+            m.pause()
+            m.write(lin + base + off("cs_setbld"), bytes([CSBL_HIGH]))
+            m.write(lin + mp["cs_drbld"] + 12, CSBL_HIGH.to_bytes(2, "little"))
+            m.run()
+            print("  (the old top-rung default back: this run must fail)")
+        if a.clobber_dense:
+            # `test ax, CSO_DENSE` is A9 00 02. Point it at CSO_COLLIDE, which
+            # objects actually wear, and the top rung's filter starts firing at
+            # Moderate - the defect check 3a exists for.
+            lo, hi = mp["cs_consider"], mp["cs_range"]
+            code = m.read(lin + lo, hi - lo)
+            i = code.find(b"\xA9\x00\x02")
+            if i < 0:
+                sys.exit("skiesset: cs_consider does not test CSO_DENSE the "
+                         "way this patch expects - re-read it before trusting "
+                         "the red run")
+            m.pause()
+            m.write(lin + lo + i + 1, b"\x01\x00")
+            m.run()
+            print("  (the dense filter pointed at CSO_COLLIDE: must fail)")
+
+        # --- 0. THE DEFAULT IS MODERATE (SPEC.md 88.13.1) --------------------
+        #
+        # Moderate carries every location's whole table today, so this is the
+        # picture the simulator has always drawn; High is the rung that adds
+        # CSO_DENSE on top of it and is a 286/386 one. Read BEFORE the page is
+        # opened, because opening it is what would set the byte if the record
+        # and the init disagreed.
+        check(byte("cs_setbld") == CSBL_MOD,
+              "the Detail Level a player who never opens the page flies on is "
+              "Moderate (%d)" % byte("cs_setbld"))
+        drdef = int.from_bytes(m.readseg(seg, mp["cs_drbld"] + 12, 2), "little")
+        check(drdef == CSBL_MOD,
+              "...and the page's own drop-down agrees (%d)" % drdef)
 
         # --- 1. the page and its controls ------------------------------------
         ui.menu_pick("Flight", "Settings")
@@ -305,10 +359,47 @@ def main(argv):
         frames(3)
         all_ms = frames()
         all_n = seen["n"]
-        check(byte("cs_setbld") == CSBL_ALL,
-              "F5 puts every building back (%d)" % byte("cs_setbld"))
-        check(few_n < all_n, "Low files fewer objects than Full (%d against %d)"
+        check(byte("cs_setbld") == CSBL_HIGH,
+              "F5 is Detail Level = High (%d)" % byte("cs_setbld"))
+        check(few_n < all_n, "Low files fewer objects than High (%d against %d)"
               % (few_n, all_n))
+
+        # --- 3a. MODERATE IS HIGH MINUS CSO_DENSE (SPEC.md 88.13.1.1) -------
+        #
+        # Counted rather than compared as pixels: a paused Clear Skies is not
+        # a still picture - the water moves - so two arms drawing the same
+        # objects differ on the glass by thousands of pixels, and a same-rung
+        # CONTROL reads the same thousands. The cull's own count is exact.
+        # The dense objects are counted out of the world's table, so this
+        # check does not go stale the day a location grows a High tier: with
+        # none, the two rungs file the same set.
+        ap = int.from_bytes(m.read(lin + base + off("cs_airport"), 2), "little")
+        objs = int.from_bytes(m.read(lin + ap + 18, 2), "little")
+        nobj = int.from_bytes(m.read(lin + ap + 20, 2), "little")
+        ndense = sum(1 for o in range(objs, objs + nobj * 20, 20)
+                     if int.from_bytes(m.read(lin + o + 16, 2), "little") & 0x0200)
+        m.key("F4")
+        m.advance(frames=40)
+        m.run()
+        pin()
+        frames(3)
+        frames()
+        mod_n = seen["n"]
+        check(byte("cs_setbld") == CSBL_MOD,
+              "F4 is Detail Level = Moderate (%d)" % byte("cs_setbld"))
+        if ndense:
+            check(mod_n < all_n,
+                  "this world has %d CSO_DENSE objects, so Moderate files "
+                  "fewer than High (%d against %d)" % (ndense, mod_n, all_n))
+        else:
+            check(mod_n == all_n,
+                  "nothing here wears CSO_DENSE, so Moderate and High file "
+                  "the same set (%d and %d)" % (mod_n, all_n))
+        check(few_n < mod_n, "and Low files fewer than Moderate (%d against %d)"
+              % (few_n, mod_n))
+        m.key("F5")
+        m.advance(frames=40)
+        m.run()
         check(few_ms < all_ms * 0.9,
               "...and its frame is shorter (%.1f ms against %.1f)" % (few_ms, all_ms))
 

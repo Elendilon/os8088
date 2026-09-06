@@ -96278,16 +96278,67 @@ things that trade the same way, and it belongs beside them rather than alone
 in the bar. It greys itself where the display offers no choice, which is
 every adapter but a VGA.
 
-#### 88.13.1 Detail Level — None, Only Roads, Low, Moderate, Full
+#### 88.13.1 Detail Level — None, Only Roads, Low, Moderate, High
 
 A LADDER, and every rung of it is the same test in `cs_consider`, before the
 range check, so a refused object costs the cull two compares and no
-transform at all. `CSO_POI` marks a critical point of interest, `CSO_FILLER`
-an anonymous block or shed, `CSO_ROAD` a road, causeway or bridge. **None**
-draws nothing built, **Only Roads** the roads and bridges and no more,
-**Low** the points of interest, **Moderate** everything but the filler,
-**Full** all of it. Measured over the city on a 4.77 MHz 8088: **143.4 ms at
-Full, 52.7 at Low and 72.5 at None**, filing 16, 11 and 3 objects.
+transform at all. `CSO_POI` marks a critical point of interest, `CSO_ROAD` a
+road, causeway or bridge, `CSO_DENSE` the dense city. **None** draws nothing
+built, **Only Roads** the roads and bridges and no more, **Low** the points
+of interest, **Moderate** the rest of what is built, **High** `CSO_DENSE` on
+top of that. Measured over the city on a 4.77 MHz 8088: **143.4 ms with the
+whole table, 52.7 at Low and 72.5 at None**, filing 16, 11 and 3 objects.
+
+##### 88.13.1.1 MODERATE IS THE DEFAULT, and High is a 286/386 rung
+
+The ladder used to end **Moderate, Full**, with Full the default and the
+only difference between the two being `CSO_FILLER` — the anonymous blocks
+and sheds. Measured across all nine worlds on Hercules, at each one's spawn
+and low over the centroid of its own non-terrain objects:
+
+```
+  NEPAL-VNLK   spawn           295.6 ms   295.5 ms    -0.1     RIO-SDU   +47.2
+  PARIS-LBG    over the city    70.9      70.4        -0.5     MIAMI     +34.5
+  NYC-JFK      over the city   107.1     107.5        +0.4     ISSY      +19.3
+  LONDON-LCY   over the city   101.4     102.1        +0.7     CAIRO     +13.2
+  SANFAN-SFO   spawn           216.2     217.6        +1.3
+```
+
+**Five of the nine could not tell the two rungs apart**, and Nepal could not
+because it has no filler at all — its six `CSO_FILLER` ridges also carry
+`CSO_TERRAIN`, which the ladder tests first, so the flag had never filtered
+one of them. A rung that more than half the tree cannot see is a rung spent
+on nothing.
+
+So the two collapsed: **Moderate carries every location's whole table and is
+the default**, which is a pure relabel — the picture a player who never
+opens the page flies is exactly the one that always shipped — and the top
+rung is free for content that means something. `CSO_FILLER` kept its bit and
+became `CSO_DENSE`: the two are the same slot, *what only the top rung
+draws*, and what changed is which objects wear it. The 51 anonymous blocks
+and sheds lost the flag and draw from Moderate; nothing wears `CSO_DENSE`
+yet, so **High and Moderate are the same picture until a location grows one**.
+
+What High is for is the machine that can carry it: seven midtown towers
+ranged to be seen from the JFK runway cost, on a 4.77 MHz 8088 with the box
+LOD working (§88.5.4.2),
+
+```
+  take-off 6.8 km   119.0 -> 150.8 ms      climb 2 km   168.8 -> 250.5 ms
+  climb 4 km        165.0 -> 205.9         over midtown 115.6 -> 148.6
+```
+
+— 5.9 fps down to 4.0 at the two-kilometre climb, which is what puts it
+above an XT and on a 286 or a 386.
+
+**The world budget follows the DEFAULT rung and the object count does not.**
+`tests/unit/t_csworlds.py` prices each world's peak frame against
+Paris-Issy's at 1.15x, and it now leaves `CSO_DENSE` objects out of that
+weight — High is meant to be over what an 8088 carries, and a budget that
+priced it would refuse the feature rather than the regression it exists to
+catch. `CS_NVIS` is the other half and is counted over **everything**: 32
+objects with the thirty-third dropped silently binds on a 386 exactly as
+hard as on an XT, so a dense city is capped by that whatever the CPU.
 
 **Only Roads is the rung worth explaining.** It is the shape of a city with
 no city on it — the Seine's bridges, the Périphérique, the Golden Gate, the
@@ -96551,10 +96602,20 @@ drop-downs get a release the title page never armed.
   fill box clears its bit and both off is the wireframe; **Detail Level =
   None files nothing built and still leaves the runway, the water and the
   terrain standing, and Only Roads brings the roads back and no more**
-  (§88.13.1); Low files 11 objects where Full files 16 and draws in 52.7 ms
+  (§88.13.1); the Detail Level a player who never opens the page flies on is
+  **Moderate**, in the byte and in the drop-down's own record (§88.13.1.1);
+  Low files 11 objects where the whole table files 16 and draws in 52.7 ms
   against 143.4; every F-key sets its byte inside the bracket (§88.13.5);
   and shrinking the
-  view leaves none of the larger one beside it. `--clobber-clear` NOPs the
+  view leaves none of the larger one beside it. **Moderate is High minus
+  `CSO_DENSE`, counted and not compared as pixels** — a paused Clear Skies is
+  not a still picture, so two arms drawing the same objects differ by
+  thousands and a same-rung CONTROL reads the same thousands; the dense
+  objects are counted out of the world's own table so the check survives the
+  day a location grows a High tier. `--clobber-default` puts the old top-rung
+  default back and `--clobber-dense` points the ladder's `test ax, CSO_DENSE`
+  at `CSO_COLLIDE`, which objects actually wear, so the top rung's filter
+  fires at Moderate too. `--clobber-clear` NOPs the
   screen clear a size change owes and that last check must go red — it
   reads the band either side of the shrink, so it also proves the larger
   view had put something there to begin with.

@@ -267,7 +267,7 @@ CS_BOX  cs_m_mia_hotel, 30, 42, 20
 
 ; --- the world ---------------------------------------------------------------
 ; Twenty objects. EVERY PIECE OF WATER IS A POINT OF INTEREST AND NOTHING
-; ELSE IS (88.13.1), so Buildings=Few in Miami draws the coastline and leaves
+; ELSE IS (88.13.1), so Detail Level = Low in Miami draws the coastline and leaves
 ; the rest of Florida flat, which is exactly what this location is for. Six
 ; of them, which is the most the convention allows and the right six.
 ;
@@ -296,14 +296,14 @@ cs_ot_mia:
     CS_OBJ cs_m_mia_sefc,  0,              -2500,   200, 0, 14000,     0, cs_n_mia_dtn,   CSO_COLLIDE
     CS_OBJ cs_m_mia_twr2,  0,              -2560,  -250, 0, 11000,     0, cs_n_mia_dtn,   CSO_COLLIDE
     CS_OBJ cs_m_mia_twr3,  0,              -2520,   620, 0,  9000,     0, cs_n_mia_dtn,   CSO_COLLIDE
-    CS_OBJ cs_m_block,     0,              -2700,  -700, 0,  4000,     0, cs_n_bldg,      CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block2,    0,              -2850,   900, 0,  4000,     0, cs_n_bldg,      CSO_COLLIDE | CSO_FILLER
+    CS_OBJ cs_m_block,     0,              -2700,  -700, 0,  4000,     0, cs_n_bldg,      CSO_COLLIDE
+    CS_OBJ cs_m_block2,    0,              -2850,   900, 0,  4000,     0, cs_n_bldg,      CSO_COLLIDE
     CS_OBJ cs_m_mia_hotel, 0,               -140,   900, 0,  6000,     0, cs_n_mia_hotel, CSO_COLLIDE
     CS_OBJ cs_m_mia_hotel, 0,               -150, -1000, 0,  6000,     0, cs_n_mia_hotel, CSO_COLLIDE
-    CS_OBJ cs_m_small,     0,               -200,  2100, 0,  4000,     0, cs_n_bldg,      CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block2,    0,               -420,   300, 0,  4500,     0, cs_n_bldg,      CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_hangar,    0,              -4900,  -320, 0,  3500,     0, cs_n_bldg,      CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_shed,      0,              -4300,   300, 0,  3000,     0, cs_n_bldg,      CSO_COLLIDE | CSO_FILLER
+    CS_OBJ cs_m_small,     0,               -200,  2100, 0,  4000,     0, cs_n_bldg,      CSO_COLLIDE
+    CS_OBJ cs_m_block2,    0,               -420,   300, 0,  4500,     0, cs_n_bldg,      CSO_COLLIDE
+    CS_OBJ cs_m_hangar,    0,              -4900,  -320, 0,  3500,     0, cs_n_bldg,      CSO_COLLIDE
+    CS_OBJ cs_m_shed,      0,              -4300,   300, 0,  3000,     0, cs_n_bldg,      CSO_COLLIDE
 cs_ote_mia:
 CS_N_MIA equ (cs_ote_mia - cs_ot_mia) / CSO_SIZE
 
