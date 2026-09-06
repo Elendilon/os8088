@@ -210,7 +210,7 @@ WD_WTICKS    equ 3              ; ...and how often the worker looks, ~165ms.
                                 ; Finer than WD_IDLE so the settle lands
                                 ; near the deadline rather than a tick late
 WD_HCHUNK    equ 4              ; rows of the height count per worker pass
-                                ; (SPEC.md 27.7.3). The count is the one walk
+                                ; (SPEC.md 27.7.2.2). The count is the one walk
                                 ; that cannot be bounded by the view, so it is
                                 ; bounded by TIME instead: this many rows, then
                                 ; the lock goes back.
@@ -1498,6 +1498,70 @@ wd_shiftrows:
     ret
 
 ; -----------------------------------------------------------------------------
+; wd_upheight - how far do the retained rows move on a FORMATTED up scroll?
+; in:  AX = the row delta (negative), SI = window ptr, wd_bounds run and
+;      [wd_top] already moved; gfx lock held
+; out: CF = 0 and DI = the signed pixel delta (negative, the sign convention
+;      [wd_sdpx] uses); CF = 1 refuse. Preserves every other register.
+;
+; A down scroll prices itself out of the banks: the rows that LEAVE are on the
+; glass, so their heights are in wd_ryb. An up scroll's entering rows are
+; ABOVE the view and in no bank at all, which is why this was refused outright
+; and every scroll upward on a formatted note repainted the whole window -
+; menu bar, ruler and text - at 622 ms against the down click's 251.
+;
+; So price them: |d| rows of layout, no drawing and no signatures. Two things
+; make it safe rather than merely cheaper. It must not BANK ([wd_nobank]),
+; because rows 0..|d|-1 of the new view are exactly the slots wd_shiftrows is
+; about to read as its SOURCE. And it must not lay the note out from index 0
+; to reach the new top, which is the repaint's own cost paid twice - so it
+; goes through SPEC.md 27.13's row index and REFUSES when that cannot seed it.
+;
+; The answer is where the walk stops. Bounded at row |d|-1, wd_walk stops ON
+; row |d| with wd_rstart already run for it, so [wd_rby] is the first RETAINED
+; row's new top and [wd_ty] is its old one.
+; -----------------------------------------------------------------------------
+wd_upheight:
+    push ax
+    push bx
+    push cx
+    push dx
+    neg ax                          ; |d|
+    mov dx, ax
+    dec dx                          ; stop AFTER row |d|-1
+    mov ax, [wd_top]
+    call wd_xseed                   ; SPEC.md 27.13, which survives wd_scrollto
+    jc .no                          ; dropping [wd_rowsok]
+    mov word [wd_hity], 0xFFFF
+    mov word [wd_wanty], 0x7FFF
+    mov byte [wd_draw], 0
+    mov byte [wd_sigup], 0
+    mov byte [wd_clip], 0
+    mov byte [wd_nobank], 1
+    call wd_walk
+    mov byte [wd_nobank], 0
+    mov byte [wd_resume], 0
+    mov ax, [wd_rby]
+    sub ax, [wd_ty]
+    jle .no                         ; it did not get past row 0, or the pen
+    cmp ax, [wd_bot]                ; went backwards: neither is a band
+    jae .no                         ; ...and neither is a delta past the band
+    mov di, ax
+    neg di                          ; content moves DOWN, which is the sign
+    clc                             ; [wd_sdpx] spells negative
+    jmp short .out
+.no:
+    mov byte [wd_nobank], 0
+    mov byte [wd_resume], 0
+    stc
+.out:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; wd_scrollpaint - move the view with a blit instead of a repaint
 ; in:  SI = window ptr, wd_bounds run, gfx lock held, [wd_top] ALREADY moved,
 ;      [wd_dr0]/[wd_dr1] = whatever rows the caller found dirty in the frame
@@ -1506,6 +1570,14 @@ wd_shiftrows:
 ;      was drawn and the caller must repaint in full. Preserves all registers.
 ; -----------------------------------------------------------------------------
 wd_scrollpaint:
+    mov byte [wd_1pass], 0          ; THIS routine runs a pass of its own, and
+                                    ; it is not that one (SPEC.md 27.4.6): its
+                                    ; exposed rows are clipped by ROW and are
+                                    ; re-signed as it draws, because an exposed
+                                    ; row's OLD signature is the row that
+                                    ; scrolled away and could match by luck -
+                                    ; which is exactly the test wd_rflush
+                                    ; would apply if this were left set
     push ax
     push bx
     push cx
@@ -1530,14 +1602,17 @@ wd_scrollpaint:
                                     ; same work without the blit
     cmp byte [wd_hasfmt], 0
     je .pxuni
-    or ax, ax                       ; formatted (SPEC.md 68.6): an UP scroll's
-    js .nope                        ; entering rows have unknown heights -
-                                    ; the full repaint is the honest path
-    cmp byte [wd_ymoved], 0         ; ...and so is a scroll riding an edit
-    jne .nope                       ; that MOVED rows: pass 1 has already
+    cmp byte [wd_ymoved], 0         ; a scroll riding an edit that MOVED rows
+    jne .nope                       ; is the full repaint's: pass 1 has already
                                     ; rewritten the banked ys to the new
                                     ; layout, so they no longer describe the
                                     ; glass the blit would move
+    or ax, ax
+    jns .pxdn                       ; formatted (SPEC.md 68.6): an UP scroll's
+    call wd_upheight                ; entering rows are ABOVE the view and in
+    jc .nope                        ; no bank at all, so they are PRICED
+    jmp short .pxhave               ; (SPEC.md 27.7.2.2) rather than refused
+.pxdn:
     cmp byte [wd_rowsok], 0
     je .nope
     cmp ax, [wd_rowsn]
@@ -1681,13 +1756,24 @@ wd_scrollpaint:
 
     cmp byte [wd_hasfmt], 0         ; erase the band: OSAPI_GFX_SCROLL leaves
     je .eruni                       ; the vacated rows holding a copy of what
-    mov bx, [wd_bot]                ; was next to them. Formatted: the blit
-    sub bx, [wd_sdpx]               ; moved [ty..bot] up by sdpx, so EXACTLY
-    inc bx                          ; the bottom sdpx pixels are vacated -
-    cmp bx, [wd_ty]                 ; derived from the delta itself, never
-    jae .erf                        ; from a blank row's banked y (a garbage
-    mov bx, [wd_ty]                 ; bank once erased the window's own
-.erf:                               ; chrome through this fill)
+    cmp word [wd_sdpx], 0           ; was next to them. Formatted: derived from
+    jl .erup                        ; the DELTA itself, never from a blank
+    mov bx, [wd_bot]                ; row's banked y (a garbage bank once
+    sub bx, [wd_sdpx]               ; erased the window's own chrome through
+    inc bx                          ; this fill). Content moved UP by sdpx, so
+    cmp bx, [wd_ty]                 ; exactly the BOTTOM sdpx pixels are
+    jae .erf                        ; vacated...
+    mov bx, [wd_ty]
+.erf:
+    mov dx, [wd_bot]
+    jmp short .erhave
+.erup:
+    mov bx, [wd_ty]                 ; ...and on the way DOWN it is the TOP
+    mov dx, bx                      ; -sdpx of the band, which is the whole of
+    sub dx, [wd_sdpx]               ; what a scroll UPWARD exposes
+    dec dx
+    cmp dx, [wd_bot]
+    jbe .erhave
     mov dx, [wd_bot]
     jmp short .erhave
 .eruni:
@@ -1719,6 +1805,57 @@ wd_scrollpaint:
     call OSAPI_SET_COLOR
     pop ax
     call OSAPI_GFX_FILL
+
+    ; ...AND THE SLIVER, on the way up only (SPEC.md 27.7.2.2). A content height
+    ; that is not a multiple of the row pitch leaves a <8px band below the last
+    ; drawable row, and wd_rflush refuses to draw a row that would cross
+    ; [wd_bot] - so whatever lands in it lands there for good. A scroll DOWN
+    ; never puts anything there: its vacated band runs to [wd_bot] and the
+    ; erase above covers it. A scroll UP vacates the TOP, and the blit has just
+    ; pushed the row above's pixels into the sliver with everything else.
+    ; wd_vshift's UNIFORM arm avoids this by not blitting into it at all; a
+    ; formatted band cannot, its rows not being a fixed pitch apart - so it is
+    ; erased here instead, off the ys wd_shiftrows has just made current.
+    ; Measured: 529 differing pixels against a full repaint, all of them in
+    ; four scanlines at the foot of the shipped window.
+    cmp byte [wd_hasfmt], 0
+    je .noslv
+    cmp word [wd_sdpx], 0
+    jge .noslv
+    mov bx, [wd_vrows]
+    dec bx
+.slvup:
+    or bx, bx
+    js .noslv
+    push bx
+    shl bx, 1
+    mov ax, [bx+wd_ryb]
+    pop bx
+    cmp ax, [wd_ty]                 ; A BANK OUTSIDE THE BAND DESCRIBES NO
+    jb .slvnext                     ; GLASS ROW - a slot never written reads 0,
+    add ax, [wd_gh1]                ; and 0 + gh1 is under [wd_bot], so without
+    cmp ax, [wd_bot]                ; this the scan takes the first garbage
+    jbe .slvhave                    ; slot it meets and fills from y = 8 to the
+.slvnext:                           ; foot of the window. Measured: 7,522
+    dec bx                          ; differing pixels, and it is the same
+    jmp short .slvup                ; garbage-bank hazard the erase above
+.slvhave:                           ; carries a comment about
+    inc ax                          ; the first pixel below the last drawable
+    cmp ax, [wd_bot]                ; row - nothing left over, nothing to do
+    ja .noslv
+    cmp ax, [wd_ty]
+    jb .noslv                       ; ...and never above the band either
+    mov bx, ax                      ; BX = y1
+    mov dx, [wd_bot]                ; DX = y2
+    mov ax, [wd_tx]
+    sub ax, WD_MARGIN
+    mov cx, [wd_rgt]
+    push ax
+    mov al, CWHITE
+    call OSAPI_SET_COLOR
+    pop ax
+    call OSAPI_GFX_FILL
+.noslv:
     mov word [wd_prowi], 0xFFFF     ; the fill erased what the delta cache knew
 
     mov word [wd_hity], 0xFFFF      ; one pass, drawing AND re-signing: the
@@ -1966,7 +2103,7 @@ wd_bounds:
     mov [wd_sbb], ax
     call wd_hguess                  ; ...and now the geometry is known, what the
                                     ; note's LENGTH already says about its
-                                    ; height (SPEC.md 27.7.3)
+                                    ; height (SPEC.md 27.7.2.2)
 .geom:
     ; The checkpoint and wd_rows are ROW INDICES, so they mean nothing under a
     ; different geometry - and unlike the signatures, nothing else was going to
@@ -3187,9 +3324,12 @@ wd_walk:
     call wd_advwrap                 ; same paragraph: h = its line spacing,
                                     ; BP moves by the ENTERED row's height
     call wd_nextrow                 ; the pen changed rows, so the signature
-    call wd_bpush                   ; being accumulated belongs to the old one
-    call wd_rstart                  ; ...and in break mode the rows below have
-    call wd_rowsetup                ; to be pushed down before it is drawn
+    call wd_eoutck                  ; ...and if THIS row begins where the edit
+    jnc .stop                       ; left it, nothing below it moved either
+    call wd_bpush                   ; (SPEC.md 27.4.3) - asked before wd_rstart
+    call wd_rstart                  ; overwrites the entry it compares against
+    call wd_rowsetup                ; ...and in break mode the rows below have
+                                    ; to be pushed down before it is drawn
     mov ax, [wd_row]
     cmp ax, [wd_lastrow]            ; SIGNED (SPEC.md 27.7): wd_row is a
     jle .fits                       ; VISIBLE row and is negative above the
@@ -3266,8 +3406,11 @@ wd_walk:
                                     ; format is scanned once and its first
                                     ; row's height includes the open space
     call wd_nextrow                 ; the mark occupies no cell - so it is not
-    call wd_rstart                  ; folded into either row's signature, and
-    call wd_rowsetup                ; the pixels of the row it ends are the
+    call wd_eoutck                  ; folded into either row's signature. Same
+    jnc .nlstop                     ; test as the wrap above: a paragraph start
+    call wd_rstart                  ; is a row start like any other, and kinds
+    call wd_rowsetup                ; 1 and 2 cannot move a mark
+                                    ; ...and the pixels of the row it ends are the
     mov ax, [wd_row]                ; same with it and without it. Signed, for
     cmp ax, [wd_lastrow]            ; the reason at the wrap above (near jumps:
     jg .nlstop                      ; the Show-all block above pushed .loop
@@ -3568,7 +3711,7 @@ wd_walk:
     mov ax, [wd_row]                ; the ABSOLUTE row this walk stopped on,
     add ax, [wd_top]                ; and the index that row begins at: the
     mov [wd_stoprow], ax            ; pair a resumable walk picks up from
-    push ax                         ; (SPEC.md 27.7.3). wd_rstart has already
+    push ax                         ; (SPEC.md 27.7.2.2). wd_rstart has already
     mov ax, [wd_i]                  ; run for this row, so [wd_i] is its FIRST
     mov [wd_stopi], ax              ; character and not the last of the row
     pop ax                          ; above. Published on EVERY bounded stop
@@ -3974,6 +4117,296 @@ wd_fold:
 ; which is what makes one run erase the whole band as well as letter it. That
 ; is the entire reason this rewrite needs no fill: the padding IS the erase.
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; wd_eoutck - may this walk STOP here, the rows below being what is already on
+;             the glass? (SPEC.md 27.4.3)
+; in:  [wd_row] = the row just entered, [wd_i] = the index it starts at,
+;      called between wd_nextrow and wd_rstart - so wd_rows[[wd_row]] still
+;      holds what the LAST full walk wrote
+; out: CF = 0 stop (and wd_rows has been repaired), CF = 1 carry on;
+;      preserves every register
+;
+; THE OWNER'S SENTENCE: "we only need to draw that char until we reach the end
+; of the line". This is the test that says when the end of the line has been
+; reached - exactly, and without a snapshot to compare against.
+;
+; SPEC.md 27.4 says the start of a row is (index, row) alone. So if this row
+; begins at exactly [wd_eodel] characters later than it did before the edit,
+; it holds the same characters it held, at the same pen, at the same height -
+; and so does every row below it, because the only thing the edit did to them
+; was shift their indices. Their signatures still stand (wd_fold folds the
+; character, the CHP byte, the selection and the caret pen, never a start
+; index), their banked ys still describe the glass, and their pixels were
+; never touched.
+;
+; What is left is the indices themselves, and that repair is wd_append's,
+; written out once more here: every entry from this row down moves by the
+; same delta. wd_walk's .stop already grants the licence - "a walk that ends
+; early is one whose caller knows nothing below it moved".
+;
+; ONE COMPARE A ROW, no second pass and nothing to undo when it does not fire.
+;
+; [wd_eodel] is set for an INSERT (+1) and a BACKSPACE (-1) only. Forward
+; Delete is excluded and the reason is not symmetry: wd_fastokd accepts a
+; Delete sitting ON a paragraph mark, and removing one gives every row that
+; was in that paragraph the NEXT paragraph's format - an alignment difference
+; moves their pens and a spacing difference their ys, while changing not one
+; row-start index. This test would fire and the rows below would stand at the
+; wrong x. A backspace cannot do it: wd_fastcm refuses an edit index before
+; [wd_ckpi], which for a 13 at [wd_cur]-1 forces [wd_cur] == [wd_ckpi].
+; -----------------------------------------------------------------------------
+wd_eoutck:
+    cmp word [wd_eodel], 0
+    je .no                          ; not an edit this may be asked about
+    cmp byte [wd_rowsok], 0
+    je .no                          ; the table describes nothing
+    push ax
+    push bx
+    push cx
+    mov ax, [wd_row]
+    cmp ax, [wd_rowsn]
+    jae .pop_drop                   ; past what the table describes - and the
+    cmp ax, WD_MAXROWS              ; bank below goes with it, or the next row
+    jae .pop_drop                   ; compares against a stale neighbour
+
+    ; THE BANK (SPEC.md 27.4.5). A plain edit compares against THIS row's
+    ; pre-edit entry, which is still there - wd_rstart overwrites it a few
+    ; instructions from now. A SPLIT compares against the row ABOVE's, and
+    ; that one wd_rstart overwrote a whole row ago. So each call banks the
+    ; entry it read, and the split takes the bank rather than the array.
+    ; Without this the split's compare reads the NEW table and matches by
+    ; luck: measured on WELCOME.DOC it fired one row late, having missed the
+    ; real reconvergence and hit a row whose old and new entries happened to
+    ; be equal.
+    mov bx, ax
+    shl bx, 1
+    mov bx, [bx+wd_rows]
+    xchg bx, [wd_eoprev]            ; BX = the row above's, banked last call;
+    mov cx, [wd_eoprow]             ; [wd_eoprev] = this row's, for the next
+    mov [wd_eoprow], ax
+
+    cmp ax, [wd_ckpr]               ; the caret's own row is the one the edit
+    jle .pop_no                     ; CHANGED - only rows past it can match.
+                                    ; [wd_ckpr] is rewritten by the walk that
+                                    ; is running, so for a split it is already
+                                    ; the row the caret landed on
+    cmp word [wd_eorow], 0
+    jne .usebank
+    mov bx, [wd_eoprev]             ; a plain edit: this row's own entry, which
+                                    ; the xchg above left there
+    jmp short .cmpent
+.usebank:
+    cmp word [wd_nlrow], 0xFFFF     ; ONCE per redraw: pass 2 walks the same
+    jne .pop_no                     ; rows again over a table pass 1 already
+                                    ; shifted, and a second shift is silent
+    cmp byte [wd_curseen], 0        ; ...and THIS walk must have stood on the
+    je .pop_no                      ; caret. wd_walk clears the flag on entry,
+                                    ; so it is a fact about this pass and not
+                                    ; a leftover - and stopping before it
+                                    ; leaves [wd_cury] at its initial 0 and
+                                    ; sends wd_redraw's net over the whole
+                                    ; note, which is the win handed back. It
+                                    ; is the EXACT condition: a row of slack
+                                    ; below [wd_ckpr] was the conservative
+                                    ; version and cost a drawn row every time
+    dec ax                          ; a SPLIT reconverges one row DOWN, so the
+    js .pop_no                      ; entry to compare is the row ABOVE's
+    cmp ax, cx                      ; ...and the bank must really be its - a
+    jne .pop_no                     ; resumed walk's first call has no
+                                    ; neighbour behind it
+.cmpent:
+    add bx, [wd_eodel]              ; ...plus what the edit inserted or removed
+    cmp bx, [wd_i]
+    jne .pop_no                     ; it did not land there: something below
+                                    ; really did reflow, so carry on
+    cmp word [wd_eorow], 0
+    jne .split
+    ; --- it matched: repair the indices from here down and stop -------------
+    mov cx, [wd_rowsn]
+    cmp cx, WD_MAXROWS              ; [wd_rowsn] is not capped to the array it
+    jbe .rok                        ; indexes (NOTEPAD-NOTES 5.3.1), same
+    mov cx, WD_MAXROWS              ; clamp wd_append's bump loop makes
+.rok:
+    mov bx, [wd_row]
+.bump:
+    cmp bx, cx
+    jae .done
+    push bx
+    shl bx, 1
+    mov ax, [bx+wd_rows]
+    add ax, [wd_eodel]
+    mov [bx+wd_rows], ax
+    pop bx
+    inc bx
+    jmp short .bump
+.done:
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
+.pop_drop:
+    mov word [wd_eoprow], 0xFFFF    ; nothing was read, so nothing is banked
+.pop_no:
+    pop cx
+    pop bx
+    pop ax
+.no:
+    stc
+    ret
+
+    ; --- A SPLIT: the note below reconverged ONE ROW DOWN (SPEC.md 27.4.5) --
+    ; Entry k must end up holding what entry k-1 held - the signature and the
+    ; banked y unchanged, the start index moved by the character the Enter
+    ; inserted. Descending, or the copy would overwrite its own source.
+    ;
+    ; The PIXEL delta is the pen's own: this row's y less the banked y of the
+    ; row it displaces. Not a row height and not 8 - a split makes a new
+    ; PARAGRAPH, whose first row can carry space-before under a format
+    ; (SPEC.md 68.6), and the pen is the only thing that knows. Everything
+    ; below moves by exactly that, because from here down the note is what it
+    ; was: same characters, same paragraph, same heights.
+.split:
+    cmp ax, [wd_vrows]              ; AX is still row-1: it must be a row the
+    jae .pop_no                     ; GLASS shows, or there are no pixels to
+                                    ; move and wd_ryb describes nothing
+    mov bx, ax
+    shl bx, 1
+    mov ax, bp                      ; the pen (wd_rstart banks it as [wd_rby]
+    sub ax, [bx+wd_ryb]             ; a moment from now)
+    jle .pop_no                     ; it did not move DOWN at all: refuse
+    mov [wd_nlpx], ax
+    mov cx, [wd_rowsn]
+    inc cx                          ; the note is one row longer than it was
+    cmp cx, WD_MAXROWS
+    jbe .srok
+    mov cx, WD_MAXROWS
+.srok:
+    mov [wd_rowsn], cx
+    dec cx                          ; CX = the last entry to write
+.sh:
+    cmp cx, [wd_row]
+    jb .shdone
+    mov bx, cx
+    shl bx, 1
+    mov ax, [bx+wd_rows-2]
+    add ax, [wd_eodel]
+    mov [bx+wd_rows], ax
+    cmp cx, [wd_vrows]              ; wd_sig and wd_ryb describe the GLASS, so
+    jae .shnext                     ; they stop at the view - wd_rows runs on
+    mov ax, [bx+wd_sig-2]           ; to [wd_rowsn], being the note's own index
+    mov [bx+wd_sig], ax             ; (SPEC.md 27.13)
+    mov ax, [bx+wd_ryb-2]
+    add ax, [wd_nlpx]
+    mov [bx+wd_ryb], ax
+.shnext:
+    dec cx
+    jmp short .sh
+.shdone:
+    mov ax, [wd_row]
+    mov [wd_nlrow], ax              ; wd_nlpush reads it after the walk
+    jmp short .done
+
+; -----------------------------------------------------------------------------
+; wd_nlband - the push's band, and whether it is legal at all
+; out: CF = 0 and AX = x1, CX = x2, the same byte columns wd_vshift moves;
+;      CF = 1 the band would reach the scroll bar's columns. Preserves the rest.
+;
+; wd_scrollpaint blanks that strip and puts the bar and the grow box back
+; (SPEC.md 27.7.2). Here the case is rarer - it needs a chosen face or an
+; unsnapped origin - and the whole point of this path is that it draws two
+; rows, so it REFUSES instead and the ordinary reflow has it.
+; -----------------------------------------------------------------------------
+wd_nlband:
+    call wd_bandx
+    cmp cx, [wd_rgt]
+    ja .no
+    clc
+    ret
+.no:
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; wd_nlpush - move the note below an Enter's split down (SPEC.md 27.4.5)
+; in:  SI = window ptr, pass 1 has run, gfx lock held
+; out: CF = 0 there was nothing to do, or the pixels moved and [wd_dr1] now
+;      stops at the split; CF = 1 the scroll was REFUSED after the tables were
+;      already shifted, so the caller owes a full repaint. Preserves every
+;      register.
+; -----------------------------------------------------------------------------
+wd_nlpush:
+    cmp word [wd_nlrow], 0xFFFF
+    je .none
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    ; y2 is the bottom of the last WHOLE row and NOT [wd_bot] - wd_vshift's
+    ; trap, one routine along (SPEC.md 68.6). A content height that is not a
+    ; multiple of the row pitch leaves a sliver below the last row; wd_rflush
+    ; refuses to draw a row that would cross it, so nothing here would ever
+    ; erase what a scroll to [wd_bot] pushed into it. Measured on a CGA with
+    ; WELCOME.DOC: four scanlines of the last row's glyphs, left standing.
+    mov bx, [wd_vrows]
+    dec bx
+    shl bx, 1
+    mov dx, [bx+wd_ryb]
+    add dx, [wd_gh1]
+    cmp dx, [wd_bot]
+    jbe .y2ok
+    mov dx, [wd_bot]
+.y2ok:
+    mov bx, [wd_nlrow]
+    dec bx
+    shl bx, 1
+    mov bx, [bx+wd_ryb]             ; y1 = the first pixel row that moves
+    cmp bx, dx
+    jae .fail                       ; the split's own row is the last one on
+                                    ; the glass: nothing below it to move
+    call wd_nlband                  ; the same band the arming agreed to
+    jc .fail
+    mov si, [wd_nlpx]
+    neg si                          ; DOWN by the pen's own delta
+    call OSAPI_GFX_SCROLL
+    jc .fail
+    mov byte [wd_ymoved], 0         ; every row that moved has been moved, so
+    mov word [wd_prowi], 0xFFFF     ; the erase-to-the-bottom sweep must not
+                                    ; run - it is the thing this replaces
+
+    ; The rows this push cannot vouch for are drawn whether a signature moved
+    ; or not: the caret's own row, which the split truncated, down to the
+    ; split's own, whose pixels the scroll left standing as a copy of what has
+    ; just moved off them. Below the split the glass IS the note; above the
+    ; caret nothing was touched and pass 1's own answer stands.
+    mov ax, [wd_ckpr]
+    or ax, ax
+    jns .d0
+    xor ax, ax                      ; the caret's row is above the view: the
+.d0:                                ; band starts at the top of the glass
+    cmp [wd_dr0], ax
+    jbe .d1                         ; 0xFFFF is "none" and is above every row
+    mov [wd_dr0], ax
+.d1:
+    mov ax, [wd_nlrow]
+    dec ax
+    mov [wd_dr1], ax                ; pass 2 stops at the split, and reaches it
+    clc
+.pop:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+.fail:
+    stc
+    jmp short .pop
+.none:
+    clc
+    ret
+
 wd_rstart:
     push ax
     push cx
@@ -3999,9 +4432,20 @@ wd_rstart:
                                     ; the same fact again for a row OUTSIDE the
                                     ; view - one compare unless it is wanted
                                     ; (SPEC.md 27.13)
-    cmp ax, WD_MAXROWS              ; ...and into wd_rows, which is the same
-    jae .norow                      ; fact for every row rather than for the
-    shl ax, 1                       ; caret's (SPEC.md 27.5)
+    cmp byte [wd_nobank], 0         ; ...and into wd_rows, which is the same
+    jne .norow                      ; fact for every row rather than for the
+                                    ; caret's (SPEC.md 27.5) - UNLESS this walk
+                                    ; is only PRICING rows (SPEC.md 27.7.2.2),
+                                    ; because wd_shiftrows reads exactly these
+                                    ; entries as its source a moment later and
+                                    ; would shift the new view's row starts
+                                    ; into the retained rows' slots. Measured:
+                                    ; the page-DOWN after an up-blit drew three
+                                    ; rows of the wrong text, 7,522 pixels, and
+                                    ; the up-blit's own screen was perfect
+    cmp ax, WD_MAXROWS
+    jae .norow
+    shl ax, 1
     mov di, ax
     mov ax, [wd_i]
     mov [di+wd_rows], ax
@@ -4019,9 +4463,9 @@ wd_rstart:
     mov ax, [wd_row]
     cmp ax, WD_MAXROWS
     jae .rydone                     ; unsigned: rows above the view fail too
-    cmp ax, [wd_vrows]
-    jae .rydone
-    shl ax, 1
+    cmp ax, [wd_vrows]              ; ([wd_nobank] needs no test here: a walk
+    jae .rydone                     ; that prices rows has draw and sigup both
+    shl ax, 1                       ; 0, which the two tests above already stop)
     mov di, ax
     mov ax, bp
     cmp byte [wd_hasfmt], 0
@@ -4112,8 +4556,22 @@ wd_rflush:
     push di
     cmp byte [wd_draw], 0
     je .out
+    cmp byte [wd_1pass], 0          ; ONE PASS (SPEC.md 27.4.6): this runs at
+    je .nosig                       ; the row's END, just before wd_nextrow,
+    call wd_rowsig                  ; so [wd_rowh] is complete and the question
+    call wd_rowrng                  ; pass 1 existed to answer is answerable
+    jc .out                         ; here - and ONLY here, because [wd_clip]
+.nosig:                             ; gates the glyph store too and that runs
+                                    ; while the signature is still half folded.
+                                    ; Idempotent: wd_nextrow's own compare is
+                                    ; equal a moment from now
     call wd_rowdirty
     jc .out                         ; a row this redraw already knows is right
+    mov ax, [wd_dr1]                ; ...and this row HAS been handled, at this
+    mov [wd_1pdr1], ax              ; range: the walk's own tail can widen it
+                                    ; after the drawing has gone past (a note
+                                    ; that SHRANK), and wd_redraw compares the
+                                    ; two rather than assuming it cannot
     mov ax, [wd_rby]
     cmp ax, [wd_ty]
     jb .out                         ; ABOVE the view: scrolled off the top
@@ -5524,7 +5982,7 @@ wd_worker:
     call wd_bounds                  ; the walk reads [wd_ty]/[wd_rgt], and the
     call wd_hchunk                  ; window may have been resized since.
                                     ; A CHUNK of the count and not the whole of
-                                    ; it (SPEC.md 27.7.3): the lock is held
+                                    ; it (SPEC.md 27.7.2.2): the lock is held
                                     ; across this, so the bound on the walk is
                                     ; the bound on how long a UI action behind
                                     ; it has to wait
@@ -5571,19 +6029,47 @@ wd_worker:
 ; visits them - every position below has to stay true - but they have no
 ; signature slot and no pixels, so they are counted and otherwise ignored.
 ; -----------------------------------------------------------------------------
-wd_nextrow:
+; -----------------------------------------------------------------------------
+; wd_1pok - may this redraw lay the note out ONCE? (SPEC.md 27.4.6)
+; out: CF = 0 yes, CF = 1 no; preserves all registers
+;
+; Its own routine and not two inline compares, for the reason wd_nlband is:
+; it is the whole arming, so `stc`/`ret` over it in a running guest turns the
+; one-pass redraw off and leaves everything else alone. tests/wdcaret.py is
+; the A/B that needs it.
+; -----------------------------------------------------------------------------
+wd_1pok:
+    cmp byte [wd_ekind], 4          ; A CARET MOVE and nothing else. Every
+    jne .no                         ; other kind can reflow, and a reflow can
+    clc                             ; change a row's height, and a height
+    ret                             ; change erases a band before it letters
+.no:                                ; it - which is a fill this pass has
+    stc                             ; already drawn rows underneath
+    ret
+
+; wd_rowsig - the signature half of it, on its own (SPEC.md 27.4.6)
+; in:  [wd_row], [wd_rowh] = the row's accumulated signature, [wd_sigup]
+; out: wd_sig[row] updated and [wd_dr0]/[wd_dr1] widened if it changed;
+;      preserves all registers
+;
+; Split out because ONE-PASS drawing needs the answer at the row's END and
+; before wd_rflush, where the two-pass form had a whole earlier walk to get it
+; from. It is IDEMPOTENT: once it has stored the signature the compare is
+; equal, so wd_nextrow calling it a second time a few instructions later
+; costs a compare and does nothing.
+wd_rowsig:
     push ax
     push bx
     cmp byte [wd_sigup], 0
-    je .adv
+    je .out
     mov ax, [wd_row]
     cmp ax, [wd_vrows]
-    jae .adv
+    jae .out
     shl ax, 1
     mov bx, ax
     mov ax, [wd_rowh]
     cmp ax, [bx+wd_sig]
-    je .adv                         ; same word, same pixels: leave it alone
+    je .out                         ; same word, same pixels: leave it alone
     mov [bx+wd_sig], ax
     mov ax, [wd_row]
     cmp ax, [wd_dr0]
@@ -5591,13 +6077,17 @@ wd_nextrow:
     mov [wd_dr0], ax
 .hi:
     cmp ax, [wd_dr1]
-    jbe .adv
+    jbe .out
     mov [wd_dr1], ax
-.adv:
-    inc word [wd_row]
-    mov word [wd_rowh], 0
+.out:
     pop bx
     pop ax
+    ret
+
+wd_nextrow:
+    call wd_rowsig
+    inc word [wd_row]
+    mov word [wd_rowh], 0
     ret
 
 ; -----------------------------------------------------------------------------
@@ -5607,7 +6097,21 @@ wd_nextrow:
 ; -----------------------------------------------------------------------------
 wd_rowdirty:
     cmp byte [wd_clip], 0
-    je .yes                         ; not clipping: this is a full paint
+    jne wd_rowrng                   ; a tail jump: it answers the same way and
+    clc                             ; POP leaves the flags alone
+    ret
+
+; -----------------------------------------------------------------------------
+; wd_rowrng - is [wd_row] inside [wd_dr0]..[wd_dr1]?
+; out: CF = 1 if it is NOT; preserves all registers
+;
+; The range test on its own, because the ONE-PASS redraw (SPEC.md 27.4.6) needs
+; it in a different place from everybody else. [wd_clip] gates the GLYPH STORE
+; as well as the drawing - the same three gates, deliberately - and in one pass
+; the store runs before the row's signature is complete, so the range cannot
+; be what gates it. It clips nothing and wd_rflush asks this itself.
+; -----------------------------------------------------------------------------
+wd_rowrng:
     push ax
     mov ax, [wd_row]
     cmp ax, [wd_dr0]
@@ -5615,7 +6119,6 @@ wd_rowdirty:
     cmp ax, [wd_dr1]
     ja .no
     pop ax
-.yes:
     clc
     ret
 .no:
@@ -5721,7 +6224,7 @@ wd_sigsame:
 ; It preserves the two query fields because wd_onclick sets them BEFORE it
 ; gets here, and a walk consumes them.
 ;
-; It comes in two sizes (SPEC.md 27.7.3). wd_height finishes the count in one
+; It comes in two sizes (SPEC.md 27.7.2.2). wd_height finishes the count in one
 ; hold, for the one caller that needs the answer exact - a click on the bar.
 ; wd_hchunk does WD_HCHUNK rows of it and hands the lock back, which is what
 ; the worker calls: the count of a 16KB note is seconds of walking, and doing
@@ -5945,7 +6448,7 @@ wd_seedck:
                                     ; UNLESS the word is longer than a row, in
                                     ; which case wd_wordfit never decided
                                     ; anything about it and there is nothing
-                                    ; further back to redo (SPEC.md 27.4.2)
+                                    ; further back to redo (SPEC.md 27.4.3)
     or ax, ax
     jz .out
     dec ax
@@ -6041,7 +6544,7 @@ wd_ckword:
 ; out: CF = 0 seed here, the walk need go no further back; CF = 1 back up as
 ;      before. Preserves every register.
 ;
-; SPEC.md 27.4.2, and it is wd_ckword's other half: that one asks whether the
+; SPEC.md 27.4.3, and it is wd_ckword's other half: that one asks whether the
 ; edit is past the row's first word, this one asks whether there is a word-fit
 ; decision in front of this row AT ALL.
 ;
@@ -6188,7 +6691,7 @@ wd_netseed:
 ;
 ; This is a sparse table of the character index at which every Kth ABSOLUTE
 ; row begins: entry n describes row n << [wd_xksh]. It costs no walking at
-; all, because SPEC.md 27.7.3's background count already visits every row in
+; all, because SPEC.md 27.7.2.2's background count already visits every row in
 ; order and already computes exactly this - wd_xnote just keeps what was
 ; being thrown away.
 ;
@@ -6698,7 +7201,7 @@ wd_paint:
     ret                             ; view, so the height is still owed
 
 ; -----------------------------------------------------------------------------
-; wd_hguess - what the note's LENGTH alone says about its height (SPEC.md 27.7.3)
+; wd_hguess - what the note's LENGTH alone says about its height (SPEC.md 27.7.2.2)
 ; in:  [wd_rcols] valid (wd_bounds has run); out: [wd_drows] raised to it
 ; preserves all registers
 ;
@@ -7808,12 +8311,12 @@ wd_clamp:
     ret
 
 ; -----------------------------------------------------------------------------
-; wd_fastok* - five doors onto one answer: may wd_redraw take the cheap paths
+; wd_fastok* - six doors onto one answer: may wd_redraw take the cheap paths
 ;              for this keystroke, and what does the visual break need to know
 ;              about it? (SPEC.md 27.4/27.3)
 ; in:  [wd_cur] and the note BEFORE the edit
 ; out: [wd_fast] = the KIND, 0 if none: 1 insert, 2 backspace, 3 forward
-;      Delete, 4 a caret move. [wd_ecol] = the caret's column on its row,
+;      Delete, 4 a caret move, 5 an Enter. [wd_ecol] = the caret's column,
 ;      before the edit; [wd_eext] = columns of the row below that go stale
 ;      BEYOND that one. All three left alone when the answer is no.
 ;      Preserves all registers
@@ -7894,15 +8397,48 @@ wd_fastokr:                         ; Right: it lands one FORWARD, and the cell
     mov bx, 4
     xor cx, cx
     mov ax, [wd_cur]
+    jmp short wd_fastcm
+wd_fastoke:                         ; ENTER: an insert at the caret like kind 1,
+    push ax                         ; and a SPLIT as well - the row it lands on
+    push bx                         ; ends there and its tail becomes a row of
+    push cx                         ; its own, so every row below moves down one
+    mov bx, 5                       ; (SPEC.md 27.4.5). Kind 5 rather than a
+    xor cx, cx                      ; flag beside kind 1 because the three
+    mov ax, [wd_cur]                ; things that read the kind - wd_append,
+                                    ; wd_seedck and wd_brktry - each want a
+                                    ; different answer for it
 wd_fastcm:
-    mov word [wd_mvbot], 0x7FFF ; kind 4 arrives here as well (Left and Right),
-                                ; and neither measures the row it came from -
-                                ; so park the bound at "no idea" and let
-                                ; wd_move be the only thing that ever sets it
+    mov word [wd_mvbot], 0x7FFF ; the default is "no idea", which is what an
+                                ; EDIT wants: kinds 1..3 never read it, and a
+                                ; caret move that cannot trust the checkpoint
+                                ; below has nothing to bound itself by
     cmp byte [wd_ckok], 0
     je .out
     cmp ax, [wd_ckpi]
     jb .out
+    cmp bl, 4                   ; ...but Left and Right ARE a caret move, and
+    jne .nomv                   ; SPEC.md 27.4.1's rule covers them too: the
+                                ; caret travels ONE CHARACTER, so it lands on
+                                ; [wd_ckpr], one row above it (Left, off the
+                                ; start of a row) or one below (Right, off the
+                                ; end, or past a paragraph mark). wd_ask folds
+                                ; the caret into a row's signature and a move
+                                ; changes nothing else, so the only rows whose
+                                ; signatures can differ are those two - and
+                                ; the DEEPER of them is never past ckpr + 1.
+                                ;
+                                ; They used to park the sentinel here and pay
+                                ; the whole view for it: measured on a 5150
+                                ; with WELCOME.DOC, Right walked 142.8 ms and
+                                ; Left 164.8 where Down walked 4.3 and Home
+                                ; 23.1 - the arrows that go through wd_move
+                                ; and get a real bound (SPEC.md 27.4.4)
+    push ax
+    mov ax, [wd_ckpr]
+    inc ax
+    mov [wd_mvbot], ax          ; wd_redraw clamps it to the view, so a caret
+    pop ax                      ; leaving the last visible row needs no test
+.nomv:
     mov [wd_fast], bl
     mov [wd_eext], cl
     mov ax, [wd_cur]
@@ -8093,9 +8629,12 @@ wd_onkey:
 .insplain:
     call wd_fastok                  ; a printable at the caret is THE case the
     jmp short .doins                ; incremental paths exist for (SPEC.md
-                                    ; 27.3/27.4); Enter is not, and
+                                    ; 27.3/27.4), and Enter is one too now -
 .append:                            ; jumps in below wd_fastok
     call wd_selkill
+    call wd_fastoke                 ; ...and Enter IS a fast path now
+                                    ; (SPEC.md 27.4.5): after wd_selkill,
+                                    ; which is what may have moved the caret
     push ax                         ; the new ¶ inherits the paragraph it
     mov ax, [wd_cur]                ; SPLITS (Word's rule, SPEC.md 68.3): its
     call wd_papat                   ; CHP byte is a PAP INDEX, never the
@@ -8806,6 +9345,34 @@ wd_redraw:
     mov al, [wd_fast]               ; ONE-SHOT: whoever set it meant this
     mov byte [wd_fast], 0           ; redraw and no other
     mov [wd_ekind], al
+    mov word [wd_eodel], 0          ; ...and the index shift it made, for
+    mov word [wd_eorow], 0          ; wd_eoutck (SPEC.md 27.4.3). ONLY an
+    mov word [wd_nlrow], 0xFFFF     ; insert and a backspace: kinds 3 and 4 are
+    mov word [wd_eoprow], 0xFFFF    ; ...and the split's one-entry shadow of
+    cmp al, 1                       ; excluded at the helper's own comment, and
+    jne .nod1                       ; a forward Delete for a reason rather than
+    mov word [wd_eodel], 1          ; for symmetry
+.nod1:
+    cmp al, 2
+    jne .nod2
+    mov word [wd_eodel], -1
+.nod2:
+    cmp al, 5                       ; ENTER (SPEC.md 27.4.5): the same +1, and
+    jne .nod5                       ; the reconvergence one row DOWN. Every
+    cmp byte [wd_sigok], 0          ; precondition the PUSH needs is settled
+    je .nod5                        ; here rather than at the push, so the walk
+    call wd_nlband                  ; cannot stop early on a redraw that then
+    jc .nod5                        ; has to reflow anyway - the two are armed
+    mov word [wd_eodel], 1          ; by one word and cannot disagree.
+    mov word [wd_eorow], 1          ; [wd_eodel] IS SET HERE AND NOT ABOVE: an
+.nod5:                              ; Enter with the split refused must leave
+                                    ; the early-out OFF ENTIRELY, because
+                                    ; 27.4.3's test - the row's OWN entry plus
+                                    ; one - says nothing true about a split,
+                                    ; and its repair bumps indices where a
+                                    ; shift was owed. Armed the other way round
+                                    ; it drew a wrong screen on every Enter the
+                                    ; push declined
     mov byte [wd_resume], 0
     cmp byte [wd_bmode], 0
     je .normal
@@ -8878,12 +9445,30 @@ wd_redraw:
     mov word [wd_wanty], 0x7FFF     ; which rows stopped matching
     mov word [wd_dr0], 0xFFFF
     mov word [wd_dr1], 0
+    mov word [wd_1pdr1], 0
     mov byte [wd_ymoved], 0         ; ...and which rows MOVED (SPEC.md 68.6):
     mov word [wd_ymv0], 0x7FFF      ; a height change shifts every row below
     mov word [wd_ymv1], 0           ; it without changing a character
-    mov byte [wd_draw], 0
-    mov byte [wd_sigup], 1
-    mov byte [wd_clip], 0
+
+    ; ...UNLESS THIS IS A CARET MOVE, in which case there is no pass 1 and no
+    ; pass 2, there is a PASS (SPEC.md 27.4.6). Nothing reflowed, so no row
+    ; can change height and no band has to be erased before it is lettered -
+    ; and with no fill in the way, a row can be drawn the moment its signature
+    ; says it changed. wd_rflush runs at the row's end, which is exactly that
+    ; moment. Measured on a 5150 with WELCOME.DOC, pass 1 was 23.5 ms of a
+    ; 68.6 ms Right arrow, and it draws not one pixel.
+    mov byte [wd_1pass], 0
+    call wd_1pok
+    jc .p1way
+    mov byte [wd_1pass], 1
+.p1way:
+    mov al, [wd_1pass]
+    mov [wd_draw], al               ; the one pass DRAWS as it goes, and CLIPS
+    mov byte [wd_sigup], 1          ; NOTHING: [wd_clip] gates the glyph store
+    mov byte [wd_clip], 0           ; as well as the drawing, and in one pass
+                                    ; the store runs before the row's own
+                                    ; signature is complete. wd_rflush asks the
+                                    ; range itself, where the answer exists
     mov ax, [wd_vrows]              ; STOP at the bottom of the view, plus the
                                     ; one row past it a caret can wrap onto
                                     ; (SPEC.md 27.7). Below that a row has no
@@ -8920,6 +9505,27 @@ wd_redraw:
 .p1bound:                           ; below the last visible one
     mov [wd_lastrow], ax
     call wd_walk
+
+    ; TWO THINGS THE WALK CAN STILL DO AFTER THE DRAWING HAS GONE PAST IT, and
+    ; each would leave a wrong screen rather than a slow one (SPEC.md 27.4.6).
+    ; Neither can happen for a caret move - nothing reflowed and the note is
+    ; byte for byte what it was - so this is a net and not a path, and it says
+    ; so by falling out to the full repaint rather than trying to patch up.
+    cmp byte [wd_1pass], 0
+    je .p1ok
+    cmp byte [wd_ymoved], 0
+    jne .p1bad                      ; a row changed HEIGHT: the band sweep
+                                    ; erases from there to the content bottom
+                                    ; and re-letters it, over rows this pass
+                                    ; has already drawn
+    mov ax, [wd_dr1]
+    cmp ax, [wd_1pdr1]
+    je .p1ok                        ; ...or the walk's own tail widened the
+.p1bad:                             ; range past where the drawing reached -
+    mov byte [wd_1pass], 0          ; wd_walk's .pad marks rows a note that
+    jmp .full                       ; SHRANK left behind, and it runs after
+.p1ok:                              ; the last wd_rflush
+
     cmp byte [wd_follow], 0         ; the caret has to be somewhere the user
     je .noflw                       ; can see it (SPEC.md 27.7) - but only
     cmp byte [wd_curseen], 0        ; ...and the walk above may have stopped
@@ -8967,6 +9573,17 @@ wd_redraw:
                                     ; the view renames every row the band and
                                     ; the signatures are counted in - so that
                                     ; is a full repaint, not a band
+    call wd_nlpush                  ; ENTER (SPEC.md 27.4.5): the walk
+    jnc .pushok                     ; reconverged one row down, so the note
+    jmp .fullpaint                  ; below the split is already drawn - move
+.pushok:                            ; the pixels instead of drawing them
+                                    ; again. ABOVE the test below, because a
+                                    ; push that has shifted the tables owes
+                                    ; the glass its two rows whether or not a
+                                    ; signature changed; a REFUSED scroll has
+                                    ; shifted them and moved nothing, so the
+                                    ; honest recovery is the full repaint,
+                                    ; exactly as wd_scrollpaint's is
     mov ax, [wd_dr0]
     cmp ax, 0xFFFF
     je .done                        ; not one pixel of the text moved
@@ -9079,6 +9696,11 @@ wd_redraw:
     ; pen, and whatever is left of the band right of the last whole cell. They
     ; are still fills, and they carry no glyphs, so they cannot flicker and
     ; cannot disagree with anything at a clip edge.
+    ; THE TWO MARGIN FILLS STAY on the one-pass path (SPEC.md 27.4.6), even
+    ; though a caret move cannot put ink in either - the bar is inside the
+    ; text columns and the run erases its own row. They are ~1.5 ms of a
+    ; ~50 ms keystroke and their band is the drawn rows' band either way, so
+    ; skipping them buys 3% for an argument about where a caret can land.
     push ax
     mov al, CWHITE
     call OSAPI_SET_COLOR
@@ -9116,12 +9738,15 @@ wd_redraw:
     pop dx
     pop bx
 
+    cmp byte [wd_1pass], 0          ; the one pass already drew them
+    jne .nop2
     mov byte [wd_draw], 1           ; pass 2: draw, and only inside it - and
     mov byte [wd_sigup], 0          ; STOP at it, because pass 1 already knows
     mov byte [wd_clip], 1           ; no row below wd_dr1 changed. An arrow key
     mov ax, [wd_dr1]                ; dirties two rows and used to lay out the
     mov [wd_lastrow], ax            ; whole note behind them to draw them
     call wd_walk
+.nop2:
     mov byte [wd_clip], 0
     mov byte [wd_clean], 0          ; the moved-rows erase may have set it
 
@@ -9155,6 +9780,12 @@ wd_redraw:
     mov word [wd_dr0], 0xFFFF       ; no walk has run this redraw, so nothing
     mov word [wd_dr1], 0            ; is known dirty beyond the exposed rows
 .scrolled:
+    cmp word [wd_nlrow], 0xFFFF     ; ...unless an Enter reconverged and then
+    je .scrok                       ; the caret-follow scrolled: the tables
+    jmp .fullpaint                  ; describe the note one row lower and the
+.scrok:                             ; glass has not been told, so
+                                    ; wd_scrollpaint would shift a lie
+                                    ; (SPEC.md 27.4.5)
     ; The view moved. Move the PIXELS to match instead of drawing them again
     ; (SPEC.md 27.7.2) - and if that is refused, the full repaint below is
     ; exactly what used to happen every time.
@@ -9226,6 +9857,10 @@ wd_redraw:
     call OSAPI_WM_GROW              ; restore it (SPEC.md 11.1/27)
 .nogrow:
 .out:
+    mov word [wd_eodel], 0          ; ONE-SHOT: it described THIS redraw's edit
+    mov byte [wd_1pass], 0          ; ONE-SHOT: wd_paint calls wd_walk without
+                                    ; going through here at all, and a stale 1
+                                    ; would have it draw off its own signatures
     mov byte [wd_sbkeep], 0         ; ONE-SHOT: W_PAINT is wd_paint's other
                                     ; caller and there the KERNEL has filled
                                     ; the whole content, so the bar really has
@@ -9236,7 +9871,7 @@ wd_redraw:
     call wd_hirechk                 ; a debt left by ANY of this routine's
                                     ; exits, not just the .done path it used to
                                     ; hang off - .fullpaint fell straight past
-                                    ; that one (SPEC.md 27.7.3)
+                                    ; that one (SPEC.md 27.7.2.2)
     call wd_selmark                 ; the screen shows this selection now
     mov byte [wd_selonly], 0        ; ONE-SHOT: whoever set it meant THIS
                                     ; redraw, and the next one may well be a
@@ -20129,7 +20764,7 @@ section .text
                             ; reading the character BEFORE the one in hand,
                             ; which a seeded walk cannot always do
 
-; --- the chunked height count (SPEC.md 27.7.3) -------------------------------
+; --- the chunked height count (SPEC.md 27.7.2.2) -------------------------------
 ; Where the count has got to, and where a bounded walk stopped. The two are
 ; separate because wd_walk's .stop is shared by every bounded walk in the
 ; module - a paint, a caret key - and only wd_height may keep what it reports.
@@ -20299,6 +20934,41 @@ section .text
     WDVAR wd_mry1, 2        ; word } once by wd_mgeo and read by painter, hit
     WDVAR wd_mrx2, 2        ; word } test, highlight and close repaint alike
     WDVAR wd_mry2, 2        ; word } (the fm_hit discipline)
+    WDVAR wd_eodel, 2       ; word: the signed index shift this redraw's edit
+                            ; made (+1 insert, -1 backspace), or 0 - which is
+                            ; both "not that kind of edit" and "the early-out
+                            ; is off" (SPEC.md 27.4.3). ONE-SHOT
+    WDVAR wd_eorow, 2       ; word: the ROW OFFSET wd_eoutck compares at - 0
+                            ; for an edit that stayed on one row, 1 for an
+                            ; ENTER, which reconverges one row DOWN
+                            ; (SPEC.md 27.4.5). ONE-SHOT, and it is also the
+                            ; whole arming of the push: set only when every
+                            ; precondition the push needs already holds
+    WDVAR wd_nlrow, 2       ; word: the row that reconvergence landed on,
+                            ; 0xFFFF = it did not. ONE-SHOT
+    WDVAR wd_nobank, 1      ; byte: this walk must not BANK a row's y into
+                            ; wd_ryb. One caller (SPEC.md 27.7.2.2): the
+                            ; measure that prices a formatted UP scroll,
+                            ; whose rows land in exactly the slots
+                            ; wd_shiftrows is about to READ
+    WDVAR wd_1pass, 1       ; byte: THIS redraw lays the note out ONCE -
+                            ; wd_rflush asks the signature question in place
+                            ; instead of a pass 1 asking it first
+                            ; (SPEC.md 27.4.6). ONE-SHOT
+    WDVAR wd_1pdr1, 2       ; word: the [wd_dr1] the last DRAWN row saw. The
+                            ; walk's own tail can widen the range after the
+                            ; drawing has gone past - a note that shrank - so
+                            ; this is what says whether it did
+    WDVAR wd_eoprev, 2      ; word } the PRE-EDIT wd_rows entry the last
+    WDVAR wd_eoprow, 2      ; word } wd_eoutck call read, and which row it
+                            ; was (0xFFFF = none). A split compares against
+                            ; the row ABOVE and wd_rstart has already
+                            ; overwritten that entry, so the test carries its
+                            ; own one-entry shadow (SPEC.md 27.4.5)
+    WDVAR wd_nlpx,  2       ; word: ...and the pixels the note below it moves
+                            ; DOWN by, which is the new row's pen y less the
+                            ; banked y of the row it displaced - so a row that
+                            ; gained height under a format is still exact
     WDVAR wd_sbkeep, 1      ; byte: a refused blit left the scroll bar and
                             ; the grow box right to the pixel, so the full
                             ; repaint must not take them off the screen

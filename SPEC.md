@@ -37845,6 +37845,294 @@ after it on row 8 of a 16-row view: the back-up ran **nine** rows to index 0
 and pass 1 then laid out rows 0..16 on every keystroke. See
 docs/plans/completed/NOTEPAD-NOTES.md 5.2 for the figures either side.
 
+#### 27.4.3 …and an EDIT stops where the indices reconverge
+
+§27.4.1 bounds a caret MOVE, because nothing reflowed. An edit is the harder
+case and had no bound at all: pass 1 laid out every row from the caret to the
+bottom of the view, on every keystroke, to be told nothing below had changed.
+Measured on a cycle-accurate 5150 with `WELCOME.DOC` in Word's shipped window
+(`[wd_vrows]` = 6), that was **149.2 ms of a 205.6 ms keystroke**.
+
+`wd_eoutck` stops it, and the test is exact rather than heuristic. §27.4 says
+the start of a row is **(index, row) alone**. So a row that begins exactly
+`[wd_eodel]` characters later than it did before the edit holds the same
+characters, at the same pen, at the same height — and so does every row below
+it, because the only thing the edit did to them was shift their indices. The
+walk stops there.
+
+What survives is what makes it legal:
+
+- **the signatures**, because `wd_fold` folds the character, the CHP byte, the
+  selection and the caret pen — never a start index;
+- **the banked ys** in `wd_ryb`, because no row below changed height;
+- **the pixels**, because nothing below was redrawn.
+
+What does not survive is `wd_rows` itself, which is a table of **absolute**
+character indices — so every entry from the stopping row down moves by the
+same delta. That repair is `wd_append`'s (§27.14.1), written once more.
+`wd_walk`'s `.stop` already grants exactly this licence: *"a walk that ends
+early is one whose caller knows nothing below it moved."*
+
+**ONE COMPARE A ROW**, no snapshot, no second pass and nothing to undo when it
+does not fire — a row that really did reflow fails the compare and the walk
+carries on as before.
+
+**Only an insert (+1) and a backspace (−1).** Forward Delete is excluded and
+the reason is not symmetry: `wd_fastokd` accepts a Delete sitting **on** a
+paragraph mark, and removing one gives every row that was in that paragraph
+the *next* paragraph's format — an alignment difference moves their pens and a
+spacing difference their ys, while changing not one row-start index. The test
+would fire and the rows below would stand at the wrong x. A backspace cannot
+do it: `wd_fastcm` refuses an edit index before `[wd_ckpi]`, which for a `13`
+at `[wd_cur]−1` forces `[wd_cur]` = `[wd_ckpi]`.
+
+It is **height-agnostic**, so it needs no part of §68.6's model and runs on a
+formatted document unchanged:
+
+| caret | `wd_onkey` before | after | `wd_walk` before | after |
+|---|---:|---:|---:|---:|
+| row 1 | 205.6 ms | **80.4 ms** | 149.2 ms | **29.6 ms** |
+| row 3 | 224.9 ms | **142.8 ms** | 88.6 ms | **44.0 ms** |
+
+`.text` +149 bytes.
+
+**This is not a port.** Note Pad does not do it: for a mid-line insert
+`np_redraw` walks to `[np_vrows]` exactly as Word did, and its two escapes are
+`np_append`, which requires the caret at the end of a line, and the visual
+break (§27.3), which stops at the caret only because the screen below it is
+knowingly wrong until a worker settles it. Neither is a reconvergence test.
+
+#### 27.4.4 …and Left and Right are a caret move too
+
+§27.4.1 bounds a caret move at the deeper of the two rows whose signatures can
+differ — the one it left and the one it arrived on — and `wd_move` sets it.
+**Left and Right do not go through `wd_move`.** They reach `wd_fastcm`, which
+parked `[wd_mvbot]` at the `0x7FFF` sentinel and let pass 1 lay out the whole
+view to be told nothing moved.
+
+Measured on a cycle-accurate 5150 with `WELCOME.DOC` in the shipped window,
+caret clicked on row 1:
+
+| key | `wd_onkey` | `wd_walk` | `[wd_mvbot]` |
+|---|---:|---:|---:|
+| Right | 186.3 → **67.3 ms** | 142.8 → **23.8 ms** | 0x7FFF → 2 |
+| Left | 216.6 → **96.2 ms** | 164.8 → **42.2 ms** | 0x7FFF → 1 |
+| Down (already bounded) | 114.5 | 4.3 | 5 |
+| Home (already bounded) | 52.6 | 23.1 | 1 |
+
+The rule is §27.4.1's, unchanged: the caret travels **one character**, so it
+lands on `[wd_ckpr]`, one row above it (Left, off the start of a row) or one
+below (Right, off the end of one, or past a paragraph mark). `wd_ask` folds
+the caret into a row's signature and a move changes nothing else, so the
+deeper of the two is never past `ckpr + 1`.
+
+It is set only inside the checkpoint's own guard, so a move that cannot trust
+`[wd_ckok]` keeps the sentinel and the old behaviour; and `wd_redraw` clamps
+the bound to the view, so a caret leaving the last visible row needs no test
+of its own. Kinds 1..3 never read `[wd_mvbot]`, so the default is left alone
+for them.
+
+`.text` +14 bytes.
+
+#### 27.4.5 …and an ENTER pushes the note down rather than drawing it again
+
+An Enter was the one edit at the caret with **no fast path at all**: `.append`
+never called a `wd_fastok*` door, so `[wd_fast]` stayed 0, and every cheap path
+in `wd_redraw` is gated on the kind. No `wd_seedck`, so pass 1 started at the
+top of the view; no bound, so it ran to the bottom of it; no `[wd_eodel]`, so
+§27.4.3's reconvergence could not fire; and every row below the split changed
+its y, so `[wd_ymoved]` erased to the content bottom and pass 2 lettered the
+lot. Measured on a cycle-accurate 5150 with `WELCOME.DOC` in the shipped
+window, caret clicked on row 1: **448.2 ms**, and **165 ms of it was a pass
+that draws nothing.**
+
+Kind **5** is that door. It is a fifth kind rather than a flag beside kind 1
+because the three places that read the kind each want a different answer for
+it: `wd_append` refuses it (a `13` is not a glyph to stamp), `wd_seedck` takes
+it (the caret's row is where the split is), and `wd_brktry` refuses it (the
+break's column arithmetic assumes the row did not end).
+
+**The reconvergence test is §27.4.3's, one row down.** A split makes a row
+where there was none, so the row that is *now* R holds what the row that *was*
+R−1 held. `[wd_eorow]` is that offset — 0 for an edit that stayed on one row, 1
+for an Enter — and the two cases share every other instruction.
+
+**The test carries its own one-entry shadow, and it has to.** §27.4.3 compares
+against `wd_rows[R]`, which is still the pre-edit value: `wd_rstart` overwrites
+it a few instructions later. A split compares against `wd_rows[R−1]`, and
+`wd_rstart` overwrote *that* one a whole row ago. So each `wd_eoutck` call
+banks the entry it read (`[wd_eoprev]`, with `[wd_eoprow]` saying which row it
+was), and the split reads the bank rather than the array. Without it the
+compare reads the **new** table and can only match by luck: measured on
+`WELCOME.DOC` it fired one row late every time, having missed the real
+reconvergence and hit a row whose old and new entries happened to be equal.
+That is a wrong screen waiting to happen, not a missed optimisation — nothing
+about `new_rows[R−1] + 1 == wd_i` says the note below reconverged.
+
+The caret guard is `[wd_curseen]`, and it is exact. A split puts the caret on
+the row **below** the one it truncated, so a stop before the walk has stood on
+the caret leaves `[wd_cury]` at its initial 0 and sends `wd_redraw`'s net over
+the whole note — the win handed straight back. `wd_walk` clears the flag on
+entry, so it is a fact about this pass rather than a leftover. The
+conservative version — a row of slack below `[wd_ckpr]` — cost a drawn row on
+**every** Enter that fired.
+
+And it may fire **once per redraw**. Pass 2 walks the same rows again over a
+table pass 1 has already shifted, and a second shift is silent.
+
+**What the repair costs is a shift rather than a bump.** Entry k takes entry
+k−1: `wd_rows` plus the inserted character, `wd_sig` unchanged, `wd_ryb` plus
+the pixel delta. Descending, or the copy overwrites its own source. `wd_rows`
+runs to `[wd_rowsn]`, being the note's own row index (§27.13); `wd_sig` and
+`wd_ryb` describe the **glass** and stop at the view.
+
+**And then the pixels are a scroll.** From the split's own row to the bottom of
+the last whole row, down by the pen's delta — one `OSAPI_GFX_SCROLL` where the
+old path erased to the content bottom and lettered every row in it. The delta
+is the **pen's** and not a row height: a split makes a new *paragraph*, whose
+first row can carry space-before under a format (§68.6), and the pen is the
+only thing that knows. Everything below moves by exactly that, because from
+there down the note is what it was — same characters, same paragraph, same
+heights.
+
+Three things had to be got right and each is a way to draw a wrong screen
+rather than a slow one:
+
+- **The band's bottom is the last WHOLE row, not `[wd_bot]`.** `wd_vshift`
+  carries the same warning one routine along. A content height that is not a
+  multiple of the row pitch leaves a sliver below the last row; `wd_rflush`
+  refuses to draw a row that would cross it, so nothing would ever erase what a
+  scroll to `[wd_bot]` pushed into it. The first build did exactly that and
+  left **four scanlines of the last row's glyphs standing**, on a picture that
+  still reads as text.
+- **The rows the push cannot vouch for are drawn whether a signature moved or
+  not** — the caret's own row, which the split truncated, down to the split's,
+  whose pixels the scroll left standing as a copy of what has just moved off
+  them. `wd_nlpush` forces them into `[wd_dr0]`/`[wd_dr1]` itself, and is
+  called **above** `wd_redraw`'s "not one pixel moved" early-out for that
+  reason.
+- **A caret-follow scroll after a push must repaint in full.** `wd_scrollto`
+  does not drop `[wd_sigok]`, so `wd_scrollpaint` would happily blit a table
+  that describes the note one row lower than the glass does. Two instructions
+  at `.scrolled`.
+
+A refused `OSAPI_GFX_SCROLL` is the same recovery `wd_scrollpaint`'s is: the
+tables are already shifted and nothing moved, so the caller repaints. And the
+whole arming — the kind, `[wd_sigok]`, and a band that stops clear of the
+scroll bar — is settled **once, before the walk**, in `[wd_eorow]`. The early
+stop and the push cannot then disagree, which they could if each asked
+separately.
+
+**`[wd_eodel]` is set inside that arming and not before it**, and getting it
+the other way round drew a wrong screen on every Enter the push declined.
+§27.4.3's test — the row's *own* entry plus one — says nothing true about a
+split, and its repair *bumps* indices where a *shift* was owed. So an Enter
+that cannot be pushed must leave the early-out off entirely rather than fall
+back to the one for an insert.
+
+Measured on the same machine and document, caret clicked on row 1. The A/B is
+one boot with `wd_nlband` patched to refuse, and it is taken on a machine made
+quiet first:
+
+| | before | after |
+|---|---:|---:|
+| `wd_onkey` for one Enter (A/B, quiet machine) | 410.7 ms | **71.9 ms** (5.7x) |
+| `wd_onkey` for one Enter (breakdown, one sample) | 448.2 ms | **116.9 ms** |
+| rows laid out by pass 1 | 7 | **2** |
+| rows laid out and drawn by pass 2 | 6 | **2** |
+
+**It does not fire on every Enter, and the ones it refuses are honest.** An
+Enter in the middle of a long line makes the tail a row of its own starting at
+column 0, so it holds more characters than it did as a fragment and everything
+below it genuinely re-wraps — different characters at different positions,
+which have to be drawn. Over seven caret positions in `WELCOME.DOC` the push
+took five; the two it refused both reflowed. The seed and the bound still
+apply to those, so a refused Enter is faster than it was too.
+
+`.text` +369 bytes, `.bss` +10 (`[wd_eorow]`, `[wd_nlrow]`, `[wd_nlpx]`,
+`[wd_eoprev]`, `[wd_eoprow]`).
+
+`tests/wdenter.py` is the gate, and its leg F is the A/B inside one boot:
+`wd_nlband` is the whole arming, so patching it to `stc`/`ret` in the guest
+turns the feature off and the same keystroke draws the same screen the slow way.
+
+#### 27.4.6 …and a CARET MOVE lays the note out once, not twice
+
+`wd_redraw` is **two walks**. Pass 1 works out which rows stopped matching
+their signatures; pass 2 draws them. The split earns its keep on an edit,
+because a reflow can change a row's **height**, and a height change means a
+band has to be **erased** before it is lettered (§68.6) — an erase over rows
+you have already drawn is a blank line, so the drawing cannot start until the
+range is known.
+
+**A caret move needs neither half of that.** Nothing reflowed, so no row
+changes height and no band is erased; and with no fill in the way a row can be
+drawn the moment its signature says it changed — which is at the row's **end**,
+where `wd_rflush` already runs, one call before `wd_nextrow` folds the
+signature. Measured on a cycle-accurate 5150 with `WELCOME.DOC` in the shipped
+window, a Right arrow was **68.6 ms of which pass 1 was 23.5**, and pass 1
+draws not one pixel.
+
+So `wd_rowsig` is split out of `wd_nextrow` and `wd_rflush` calls it first. It
+is **idempotent** — once it has stored the signature the compare is equal — so
+`wd_nextrow` calling it again a few instructions later costs a compare and does
+nothing, and every other path is untouched.
+
+**`[wd_clip]` cannot be what gates it, and that is the whole trap.** The same
+byte gates the **glyph store** as well as the drawing — the same three tests,
+deliberately, at all three store sites — so clipping the one pass to the dirty
+range composed **no cells at all** for a row whose signature was not yet known.
+`wd_rflush`'s delta then diffed a stale `wd_rbuf` against `wd_prow`, found every
+cell changed, and re-lettered the whole row: **419 differing bits on a Right
+arrow**, on a screen that still read as text. The one pass therefore clips
+nothing, `wd_rowrng` is the range test on its own, and `wd_rflush` is the only
+thing that asks it.
+
+Two things the walk can still do **after** the drawing has gone past, and each
+is a wrong screen rather than a slow one. Neither can happen for a caret move —
+nothing reflowed and the note is byte for byte what it was — so they are a net
+rather than a path, and they say so by falling out to the full repaint:
+
+- **`[wd_ymoved]`.** A row that changed height asks for the band sweep, which
+  erases to the content bottom and re-letters — over rows already drawn.
+- **`[wd_dr1]` past where the drawing reached.** `wd_walk`'s `.pad` marks the
+  rows a note that *shrank* left behind, and it runs after the last
+  `wd_rflush`. `[wd_1pdr1]` is the range the last drawn row saw, and the two
+  are compared rather than assumed equal.
+
+**`wd_seecaret` now runs after the drawing rather than before it**, which is
+the one ordering this changes. A scroll it decides on lands on rows this pass
+has drawn — and that is fine, because `wd_scrollpaint`'s precondition is that
+the tables describe the glass, which after one pass they do. The cost is one
+wasted draw in the rare case, against a whole layout pass in every other.
+
+Measured on the same machine and document, caret clicked on row 1, on a
+machine made quiet first:
+
+| | two passes | one |
+|---|---:|---:|
+| `wd_onkey` for one Right arrow | 67.6 ms | **47.0 ms** (1.44x) |
+| `wd_walk` calls in the keystroke | 2 | **1** |
+
+`.text` +475 bytes total for §27.4.5 and this together, `.bss` +13.
+
+It is **kind 4 and nothing else**: every other kind can reflow, and a reflow
+can change a height, and a height change is the erase this rests on not
+happening. `wd_1pok` is that one test, in a routine of its own so that
+`stc`/`ret` over it in a running guest is the A/B — `tests/wdcaret.py` leg C.
+
+**And a methodological one, because it nearly became a bug report.** A
+ten-scenario A/B run as two BOOTS, comparing whole framebuffers, read 6 and 15
+bits apart on `Home`/`End` and on a five-Right / five-Left pair. Neither is the
+collapse. The 15 was the **desktop clock**, which is outside the window and
+which two boots do not agree on; the 6 survives banding to the window and is
+still not attributable, because the same sequences read **0 against a full
+repaint in both forms** (`tests/wdcaret.py` leg B, and the printed line in leg
+C) — and the two boots' screens already differed by 31 bits before a key was
+pressed. **The reference is the full repaint, taken inside one boot.** A
+cross-boot framebuffer diff is a signal, not a verdict, and every leg of the
+gate is written against the repaint for that reason.
+
 ### 27.5 Where each row starts — a query about a row costs a row
 
 §27.4 bounded the *keystroke*. It did nothing for the caret keys, and they
@@ -38348,6 +38636,68 @@ full draw is the right one. `[np_sbkeep]` is set on exactly one path and
 cleared at the end of `.fullpaint`, so every other entry to `np_paint` reads 0
 and behaves as it always did.
 
+#### 27.7.2.2 …and a scroll UPWARD is priced, not refused
+
+§27.7.2's blit moves the view with `OSAPI_GFX_SCROLL` instead of repainting it.
+On a **formatted** note it only ever did so DOWNWARDS: a down scroll prices
+itself out of the banks, because the rows that LEAVE are on the glass and
+their heights are in `wd_ryb`, while an up scroll's entering rows are ABOVE the
+view and in no bank at all. So every click above the thumb repainted the whole
+window — menu bar, ruler and text — and the field reported exactly that.
+Measured on a cycle-accurate 5150 with `WELCOME.DOC` in the shipped window:
+
+| a scroll-bar track click | before | now |
+|---|---:|---:|
+| below the thumb (down) | 251 ms | 252 ms |
+| **above the thumb (up)** | **622 ms** | **307 ms** (2.03x) |
+
+So **price them**: `wd_upheight` lays out |d| rows, no drawing and no
+signatures, and the answer is where the walk stops. Bounded at row |d|-1,
+`wd_walk` stops ON row |d| with `wd_rstart` already run for it, so `[wd_rby]`
+is the first RETAINED row's new top and `[wd_ty]` is its old one. It goes
+through §27.13's row index and **refuses** when that cannot seed it, because
+laying the note out from index 0 to reach the new top is the repaint's own
+cost paid twice.
+
+Three things had to be got right, and each was found on the glass rather than
+by reading:
+
+- **The erase band is at the other end.** `OSAPI_GFX_SCROLL` leaves the
+  vacated rows holding a copy of what was beside them. A down scroll vacates
+  the bottom; an up scroll vacates the TOP, and the formatted erase was
+  derived from `[wd_bot] - [wd_sdpx]` in one direction only.
+- **The SLIVER.** A content height that is not a multiple of the row pitch
+  leaves a <8px band below the last drawable row, and `wd_rflush` refuses to
+  draw a row that would cross `[wd_bot]` — so whatever lands there lands for
+  good. A down scroll never puts anything there (its vacated band runs to
+  `[wd_bot]`); an up scroll pushes the row above's pixels into it.
+  `wd_vshift`'s UNIFORM arm avoids this by not blitting into the sliver at
+  all, which a formatted band cannot do. It is erased instead, off the ys
+  `wd_shiftrows` has just made current — and the scan for the last drawable
+  row must reject a bank OUTSIDE the band, a slot never written reading 0 and
+  0 + `[wd_gh1]` being under `[wd_bot]`. Without that it filled from y = 8 to
+  the foot of the window: **7,522 pixels**.
+- **`[wd_nobank]`, and it is `wd_rows` that needs it, not `wd_ryb`.** The
+  pricing walk runs BEFORE `wd_shiftrows`, and `wd_rstart` writes
+  `wd_rows[row]` for every row it starts — which are exactly the entries the
+  shift reads as its SOURCE, so the new view's row starts were shifted into
+  the retained rows' slots. `wd_ryb` was never at risk (a walk with `[wd_draw]`
+  and `[wd_sigup]` both 0 does not bank it) and suppressing that was the
+  redundant half of the first fix. **The up blit's own screen was perfect to
+  the pixel and the NEXT page down drew three rows of the wrong text** — which
+  is why `tests/wdscroll.py` leg F exists: it is the only leg that looks at
+  what a scroll LEAVES BEHIND rather than at what it draws.
+
+`wd_scrollpaint` also clears `[wd_1pass]` on entry (§27.4.6): it runs a pass of
+its own, whose exposed rows are clipped by ROW and re-signed as they are drawn,
+because an exposed row's old signature is the row that scrolled away and could
+match by luck — which is exactly the test `wd_rflush` would apply if the flag
+were left set.
+
+`wd_upheight` is the whole arming, so `stc`/`ret` over it in a running guest is
+the A/B, and it is what still exercises `[wd_sbkeep]` — leg D of that gate used
+to BE the refusal.
+
 ### 27.7.3 The height is counted a chunk at a time
 
 §27.7.1 bounded every walk that draws to the bottom of the view, which left
@@ -38459,7 +38809,7 @@ On README.TXT: 15,428 characters in a 24-cell row is **642** against the true
 
 ### 27.7.5 A resize walks to the bottom of the view, not to the end
 
-§27.7.1 bounded every walk that draws, and §27.7.3 chunked the one that
+§27.7.1 bounded every walk that draws, and §27.7.2.2 chunked the one that
 counts. One unbounded walk was left, on a path neither of them looks at:
 `np_paint`, when `[np_gchg]` says the geometry moved. A resize changes the
 wrap width, so every row start moves and the whole layout is stale — and the
@@ -38481,7 +38831,7 @@ after `[np_vrows]`, and its exit is the answer:
   right for the same reason it always was.
 
 So nothing tests which happened: `np_hmark` raises the debt *before* the walk,
-and the walk either clears it on the way out or leaves it owed for §27.7.3's
+and the walk either clears it on the way out or leaves it owed for §27.7.2.2's
 worker. The two cases are the two exits, and they were already there.
 
 **What this does NOT remove, because nothing can.** Wrapping is sequential:
@@ -38499,7 +38849,7 @@ was the invisible pass in front of it.
 
 ### 27.7.6 Only a scroll past the counted extent may finish the count
 
-§27.7.3 moved the height count into the background and §27.7.4 gave the bar an
+§27.7.2.2 moved the height count into the background and §27.7.4 gave the bar an
 estimate to draw from, and one caller still finished the whole thing
 synchronously: `np_onclick`, for any click on the scroll bar. That is the
 worst possible moment for it — the first bar click after opening a file is
@@ -38709,7 +39059,7 @@ a table holds is no seed for a row *above* it.
 
 `np_xi` is a sparse table of the character index at which every Kth
 **absolute** row begins: entry n describes row `n << [np_xksh]`. **It costs no
-walking at all** — §27.7.3's background count already visits every row in
+walking at all** — §27.7.2.2's background count already visits every row in
 order and already computes exactly this, so `np_xnote` keeps what was being
 thrown away. It hangs off `np_rstart`, which runs once per row of every walk,
 and is one compare against `[np_xnext]` unless that row is wanted.
@@ -39321,7 +39671,7 @@ again with the longer word and might break earlier. So the screen can be one
 wrap behind the note while the keys are still coming, exactly as the visual
 break is one line break ahead of it. **`[np_sowed]` is the debt and nothing new
 was hired**: the worker already spends it with a full `np_redraw`, and only
-after `NP_IDLE` ticks without a keystroke — §27.7.3's height recount and this
+after `NP_IDLE` ticks without a keystroke — §27.7.2.2's height recount and this
 reconcile are the same settle, woken by the same `np_hmark` that `np_ins`
 already raises.
 
