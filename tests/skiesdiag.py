@@ -33,7 +33,7 @@ import os88ui                                               # noqa: E402
 import dispapps                                             # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CSD_SLOTS, CSD_ROWS, CSD_BLKS = 3, 4, 6
+CSD_SLOTS, CSD_ROWS, CSD_BLKS = 3, 4, 9
 bad = []
 
 
@@ -55,7 +55,8 @@ def diagmap():
          "-DCSDIAG", "-l", lst, "-o", os.devnull, "apps/skies/skies.asm"],
         cwd=ROOT)
     out, text = {}, open(lst, errors="replace").read()
-    for name, pat in (("cs_dtick", r"mov word \[cs_dtick\], 0"),
+    for name, pat in (("cs_spguard2", r"mov si, cs_spguard2"),
+                      ("cs_dtick", r"mov word \[cs_dtick\], 0"),
                       ("cs_dring", r"mov \[cs_dring \+ bx\], ax"),
                       ("cs_devoff", r"mov si, \[cs_devoff \+ si\]"),
                       ("cs_diag_isr", r"mov word \[es:8\*4\], cs_diag_isr")):
@@ -147,6 +148,35 @@ def main(argv):
         check(len(ips) > 2 and all(0 < v < 0xE000 for v in ips),
               "the ring holds package addresses (%s)"
               % " ".join("%04x" % v for v in sorted(ips)))
+
+        # --- 2b: break a GUARD on purpose (SPEC.md 88.14.1) ------------------
+        # The latch is the half that says whether memory went wrong BEFORE
+        # the machine died, so it needs its own deliberate break: one byte
+        # into cs_spguard2, which nothing in the package addresses at all.
+        pre = blocks()
+        check(pre[6] == 0 and pre[7] == 0,
+              "no guard has gone while the flight is healthy (%04x %04x)"
+              % (pre[6], pre[7]))
+        m.pause()
+        m.write(lin + sym["cs_spguard2"], b"\x01")
+        m.run()
+        m.advance(frames=12)
+        m.run()
+        post = blocks()
+        print("      guard broken on purpose: which %d, stage %d, tick %d"
+              % (post[6] >> 8, post[6] & 0xFF, post[7]))
+        check((post[6] >> 8) == 3,
+              "the LATCH names the guard that went (region %d, wanted 3)"
+              % (post[6] >> 8))
+        check(1 <= (post[6] & 0xFF) <= 11 and post[7] > 0,
+              "...with the stage and the tick it went on (%d, %d)"
+              % (post[6] & 0xFF, post[7]))
+        again = blocks()
+        m.advance(frames=12)
+        m.run()
+        check(blocks()[7] == again[7],
+              "...and it latches ONCE, so the reading is of the moment (%d)"
+              % again[7])
 
         # --- 3/4: freeze it on purpose ---------------------------------------
         # `jmp $` over the FIRST instruction of cs_diag_paint's caller is no

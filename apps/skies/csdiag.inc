@@ -28,8 +28,10 @@
 ; =============================================================================
 
 CSD_SLOTS equ 3                     ; interrupted IPs kept
-CSD_BLKS  equ 6                     ; ...and the blocks painted in all
+CSD_BLKS  equ 9                     ; ...and the blocks painted in all
 CSD_ROWS  equ 4                     ; scan rows a word is painted in
+CSD_CANB  equ 16                    ; the watchdog's own guard, beside the
+CSD_PAT   equ 0xA55A                ; bytes a wild write was seen to reach
 
 ; -----------------------------------------------------------------------------
 ; cs_diag_on / cs_diag_off - take and give back the int 08h vector. Called
@@ -42,6 +44,24 @@ cs_diag_on:
     mov es, ax
     mov word [cs_dhead], 0
     mov word [cs_dtick], 0
+    mov word [cs_dframe], 0
+    mov byte [cs_dbroke], 0
+    mov byte [cs_dbwhich], 0
+    mov byte [cs_dbstage], 0
+    mov word [cs_dbtick], 0
+    push cx                         ; ...and lay the watchdog's own guard
+    push di
+    push es
+    push ds
+    pop es
+    mov di, cs_dcan
+    mov cx, CSD_CANB / 2
+    mov ax, CSD_PAT
+    cld
+    rep stosw
+    pop es
+    pop di
+    pop cx
     pushf                           ; CLAUDE.md: pushf/cli ... popf, so an
     cli                             ; interrupt disabled here comes back
     mov ax, [es:8*4]
@@ -73,6 +93,82 @@ cs_diag_off:
     ret
 
 ; -----------------------------------------------------------------------------
+; cs_diag_ck - ARE THE GUARDS STILL THERE? (SPEC.md 88.14.1)
+;
+; Called from CSSTAGE, so eleven times a frame rather than once a tick: what
+; that buys is the PHASE. A tick samples a 55 ms window and names a routine;
+; a stage names sky/ground, or the scene, or the panel, or the blit.
+;
+; Four regions, and none of them is arbitrary. cs_spguard0/1/2 were declared
+; around the two span sets by whoever built them and are referenced by
+; NOTHING - their last two words each are span0's and span1's y0/y1 header,
+; and the rest has never been written by anything, so zero is what they hold.
+; cs_dcan is the watchdog's own, next to the bytes a wild write was actually
+; seen to reach (the stage byte came back holding 130).
+;
+; It latches ONCE. After that the four painted words are the moment memory
+; first went wrong, and nothing that happens on the way to the machine dying
+; can overwrite the reading.
+; Preserves every register.
+; -----------------------------------------------------------------------------
+cs_diag_ck:
+    cmp byte [cs_dbroke], 0
+    je .look
+    ret
+.look:
+    push ax
+    push bx
+    push cx
+    push si
+    mov bl, 1                       ; region 1: before span0
+    mov si, cs_spguard0
+    mov cx, 2
+    call .zeroes
+    jc .broke
+    inc bl                          ; region 2: before span1
+    mov si, cs_spguard1
+    mov cx, 2
+    call .zeroes
+    jc .broke
+    inc bl                          ; region 3: after span1
+    mov si, cs_spguard2
+    mov cx, 4
+    call .zeroes
+    jc .broke
+    inc bl                          ; region 4: the watchdog's own
+    mov si, cs_dcan
+    mov cx, CSD_CANB / 2
+.p:
+    lodsw
+    cmp ax, CSD_PAT
+    jne .broke
+    loop .p
+    jmp short .out
+.broke:
+    mov byte [cs_dbroke], 1
+    mov [cs_dbwhich], bl
+    mov al, [cs_dstage]
+    mov [cs_dbstage], al
+    mov ax, [cs_dtick]
+    mov [cs_dbtick], ax
+.out:
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+.zeroes:                            ; CX words at DS:SI, all zero? CF=1 if not
+    lodsw
+    or ax, ax
+    jnz .no
+    loop .zeroes
+    clc
+    ret
+.no:
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
 ; cs_diag_isr - int 08h, in front of the kernel's
 ; -----------------------------------------------------------------------------
 cs_diag_isr:
@@ -90,6 +186,8 @@ cs_diag_isr:
     cld
     mov bp, sp                      ; SS != DS (CLAUDE.md), and [bp] wants SS
     mov ax, [bp + 9*2]              ; nine pushes down to the IRET frame's IP
+    mov cx, [bp + 10*2]             ; ...and the CS above it, which is what
+    mov [cs_dcseg], cx              ; says whether an IP is ours at all
     mov bx, [cs_dhead]
     mov [cs_dring + bx], ax
     add bx, 2
@@ -134,6 +232,22 @@ cs_diag_paint:
     je .tick
     cmp bx, CSD_SLOTS + 1
     je .age
+    cmp bx, CSD_SLOTS + 2
+    je .stage
+    cmp bx, CSD_SLOTS + 3
+    je .broke
+    cmp bx, CSD_SLOTS + 4
+    je .btick
+    mov ax, [cs_dcseg]              ; BLOCK 9: the interrupted CS - not ours
+    jmp short .word                 ; means the CPU had already left
+.btick:
+    mov ax, [cs_dbtick]             ; BLOCK 8: the TICK a guard first went
+    jmp short .word
+.broke:
+    mov al, [cs_dbstage]            ; BLOCK 7: the STAGE it went in, and WHICH
+    mov ah, [cs_dbwhich]            ; guard - zero for both means memory was
+    jmp short .word                 ; still whole when everything stopped
+.stage:
     mov al, [cs_dstage]             ; BLOCK 6: WHERE IN A FRAME, and the low
     mov ah, [cs_par]                ; byte of the frame parity beside it
     jmp short .word

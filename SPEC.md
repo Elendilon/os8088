@@ -96693,6 +96693,55 @@ freeze that 8,000 pinned poses and 4,200 frames of continuous rolling under
 MartyPC could not reproduce — which is itself a finding: whatever it is, it
 is not a function of the drawn state alone.
 
+#### 88.14.1 The guards, and the two defects they found before the field did
+
+A photograph of a dead machine is a photograph of the wreckage. The second
+field run came back with the stage block holding **130**, which is not a
+value `CSSTAGE` ever writes — so memory had been scribbled on, and every
+other block in the picture was suspect with it. What that calls for is a
+reading taken at the MOMENT rather than at the death.
+
+`cs_diag_ck` is that. Four regions are checked and the first failure
+**latches**: which region, the stage it was in, and the tick — written once
+and never again, so nothing that happens on the way to the machine dying can
+overwrite the answer. It is called from `CSSTAGE`, which is eleven times a
+frame rather than once a tick, and that is the whole point: a tick samples a
+55 ms window and names a routine, a stage names the sky/ground pass, or the
+scene, or the panel, or the blit.
+
+The regions are not arbitrary. `cs_spguard0/1/2` were declared around the two
+span sets by whoever built them and referenced by **nothing** — their last
+two words each are that set's `y0`/`y1` header (§88.3.3), and the rest has
+never been written, so zero is what they hold. `cs_dcan` is the watchdog's
+own, laid down beside the bytes a wild write was actually seen to reach.
+
+**And the guard went red on a healthy flight, first time out.** Two defects,
+neither of which anything else in the tree could see:
+
+**The span sets were filled 960 bytes at a time into a 480-byte buffer.**
+`cs_r_setup` and `cs_clearall` both did `mov cx, CS_MAXROW * 2` with a
+`rep stosw` — words where the buffer is `CS_MAXROW * 2` **bytes**, one word a
+row. The intent was "both sets at once", and that is wrong twice over: it is
+twice the count, and the two sets are not contiguous, `cs_spguard1` being
+between them. So the sweep ran over that guard — header included, which
+`cs_r_begin` then re-armed each frame, which is why nothing ever showed —
+and stopped 8 bytes short of `cs_span1`'s end. Each set is filled on its own
+now.
+
+**`cs_lrunproc` was never set on the Mode X arm.** It is a `ZWORD`, so it is
+0 until something writes it, and `CS_SLICE`'s `call [cs_lrunproc]` is
+instantiated by `CS_WALKS` for **CGA and Mode X** alike. The CGA arm sets it
+and the Hercules arm sets it; the Mode X arm sets `cs_hrunproc` beside it and
+not this one, so a steep line in a Mode X bracket called package offset 0. A
+pointer that only some arms of a backend switch fill is the shape to look
+for, and the switch's fall-through structure is what hides it: Mode X is the
+arm that runs FIRST and falls through to the others, so every pointer it
+misses is set by an arm it never reaches.
+
+Neither is the Hercules freeze this build was written to find. Both are real,
+both were found by an instrument pointed somewhere else, and that is the
+argument for the instrument.
+
 ### 88.12 What it costs
 
 Measured with `tests/skiesperf.py` on MartyPC's 4.77 MHz 8088 with a
