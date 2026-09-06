@@ -1983,7 +1983,19 @@ KMODS = $(KMODDIR)/ctrl.drv $(KMODDIR)/format.drv $(KMODDIR)/clone.drv
 # $(KMODS) because $(SMALLDRIVERS) is $(KMODS) and kern_small has no hibernate
 # at all now - no mod_tab row, no name and no module - so a small floppy that
 # named HIBER.DRV would be asking for a file that build does not cut.
+# ...AND IT IS GUARDED, because $(DRIVERS) below adds it to EVERY disk rule.
+# `KMODARGS` two lines down has carried this same `ifneq` since kern_small
+# grew its own modules; this one did not, and $(DRIVERS) is what the SHIPPED
+# image rules expand - so `make KERN_SMALL=1 <tree>/os8088-360.img` asked
+# os88disk for a file that build does not cut and stopped with `cannot read
+# .../hiber.drv`. `make small` cannot see it: those disks come from
+# $(SMALLDRIVERS), which is $(KMODS) and never held this. tests/bootfloor.py
+# builds exactly that combination and is how it surfaced.
+ifneq ($(KERN_SMALL),)
+BIGMODS =
+else
 BIGMODS = $(KMODDIR)/hiber.drv
+endif
 KMODARGS = -m 0=$(BUILD)/ctrl.drv -m 1=$(BUILD)/format.drv \
            -m 2=$(BUILD)/clone.drv
 # ...and kern_small's FIFTH and SIXTH, Cut/Copy/Paste (SPEC.md 22.3, MOD_FCP)
