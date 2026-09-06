@@ -197,9 +197,12 @@ cs_clearall:
     mov cx, CS_MAXROW               ; the first frame fills and carries all
     mov al, 0x83
     rep stosb
-    mov di, cs_span0                ; ...over empty spans
-    mov cx, CS_MAXROW * 2
+    mov di, cs_span0                ; ...over empty spans, ONE WORD A ROW and
+    mov cx, CS_MAXROW               ; one `rep` per set (cs_r_setup's note)
     mov ax, 0x00FF
+    rep stosw
+    mov di, cs_span1
+    mov cx, CS_MAXROW
     rep stosw
     mov es, [cs_tseg]
     cmp byte [cs_back], CSB_MODEX

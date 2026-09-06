@@ -1764,9 +1764,10 @@ cs_tpl:
     dw cs_ttl, cs_paint, cs_onkey, cs_onclick
 
 %ifdef CSDIAG                   ; SPEC.md 88.14: where the frame had reached,
-%macro CSSTAGE 1                ; for a machine that stopped inside it
-    mov byte [cs_dstage], %1
-%endmacro
+%macro CSSTAGE 1                ; for a machine that stopped inside it - and
+    mov byte [cs_dstage], %1    ; the GUARDS checked at the same eleven points,
+    call cs_diag_ck             ; so a scribble is caught in the phase that
+%endmacro                       ; made it rather than at the death (88.14.1)
 %else
 %macro CSSTAGE 1
 %endmacro
@@ -2152,7 +2153,14 @@ cs_tpl:
     ZWORD cs_dtick                  ; whether IRQ0 is alive at all, the tick
     ZWORD cs_dframe                 ; the last frame FINISHED on, and where in
     ZBYTE cs_dstage                 ; a frame the machine had got to
-    ZBYTE cs_dcs                    ; (unused: keeps the word aligned)
+    ZBYTE cs_dbroke                 ; ...and the LATCH (88.14.1): a guard has
+    ZBYTE cs_dbwhich                ; gone, which one, at which stage and on
+    ZBYTE cs_dbstage                ; which tick - written once and never
+    ZWORD cs_dcseg                  ; the interrupted CS, so an IP is placed
+                                    ; in a segment rather than assumed to be
+                                    ; ours
+    ZWORD cs_dbtick                 ; again, so the photograph is of the
+    ZBUF  cs_dcan, CSD_CANB         ; MOMENT and not of the wreckage
 %endif
     ZWORD cs_adcx                   ; the attitude indicator: centre, the
     ZWORD cs_adcy                   ; bezel's radii, the window's half sizes

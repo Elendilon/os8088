@@ -171,6 +171,13 @@ cs_r_setup:
     mov byte [cs_pbg8], CSI_PBG     ; the panel's ground, as the glyph stores
     mov word [cs_inktab], cs_inkmodex ; want it (a Mode X index...)
     mov word [cs_hrunproc], cs_hrun_modex
+    mov word [cs_lrunproc], cs_hrun_modex   ; ...AND THIS ONE, which the Mode
+                                    ; X arm did not set at all: it is a ZWORD,
+                                    ; so `call [cs_lrunproc]` in a Mode X
+                                    ; bracket went to package offset 0. The
+                                    ; other two arms set it and that is what
+                                    ; hid it - a pointer only some arms fill
+                                    ; is the shape to look for
     mov word [cs_rowsproc], cs_polyrows
     mov word [cs_hzproc], cs_hzrow_modex
     mov word [cs_glyphproc], cs_glyph_modex
@@ -254,11 +261,14 @@ cs_r_setup:
     mov word [cs_spprv], cs_span1
     push ds
     pop es
-    mov di, cs_span0
-    mov cx, CS_MAXROW * 2           ; both sets empty
-    mov ax, 0x00FF
-    cld
-    rep stosw
+    mov di, cs_span0                ; BOTH SETS EMPTY, and one `rep` cannot
+    mov cx, CS_MAXROW               ; do it: a set is ONE WORD A ROW, so
+    mov ax, 0x00FF                  ; CS_MAXROW words and not CS_MAXROW * 2,
+    cld                             ; and the two are not contiguous either -
+    rep stosw                       ; cs_spguard1 sits between them. The one
+    mov di, cs_span1                ; sweep wrote 960 bytes into a 480-byte
+    mov cx, CS_MAXROW               ; buffer, over that guard and 8 bytes
+    rep stosw                       ; short of span1's end
     mov di, cs_rowkind
     mov cx, CS_MAXROW
     mov al, 3                       ; every row: kind unknown
