@@ -2191,22 +2191,77 @@ SOAK = [
         "from them.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
-    Row("wdscroll", "soak", py("tests/wdscroll.py"), 300.0,
-        "SPEC.md 68.2.2: Word's scroll bar is not part of the text band. Leg A "
+    Row("wdtype", "soak", py("tests/wdtype.py"), 420.0,
+        "SPEC.md 27.4.3: a keystroke stops walking where the row indices "
+        "reconverge (205.6 -> 80.4 ms). Legs B..D are CORRECTNESS legs and the "
+        "old code was correct, so they pass on a build with the early-out "
+        "compiled out - leg E is the one that fails there, and it is a "
+        "BREAKPOINT on wd_eoutck.rok rather than a stopwatch, because the "
+        "first version bounded wd_walk's cycles and PASSED at 344,824 with the "
+        "feature disabled. Leg D is the one that catches the dangerous "
+        "failure, an early-out that fires without its index proof, and it "
+        "PROVES a reflow was arranged before asserting: a row below whose "
+        "start index moved by something other than the characters typed. It "
+        "was green against that break until it did (3,849 differing pixels "
+        "after). The pixel reference is a page down and back, which a "
+        "formatted document always full-repaints (68.6), so the comparison is "
+        "against a screen no early-out touched.",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+    Row("wdcaret", "soak", py("tests/wdcaret.py"), 480.0,
+        "SPEC.md 27.4.6: a caret move lays the note out ONCE. Leg A counts "
+        "wd_walk calls inside one keystroke and requires 1 - the change "
+        "itself, and what fails on a build with the feature off; leg C is the "
+        "A/B inside one boot, wd_1pok being the whole arming. The trap the "
+        "gate exists for is a level under the pixels: [wd_clip] gates the "
+        "GLYPH STORE as well as the drawing, by the same three tests and "
+        "deliberately, so clipping the one pass to the dirty range composed no "
+        "cells at all for a row whose signature was not yet known and "
+        "wd_rflush's delta then re-lettered the whole row - 419 differing bits "
+        "on a Right arrow, on a screen that still read as text. Leg D is the "
+        "one ordering the collapse changes: wd_seecaret now runs AFTER the "
+        "drawing, so a Down that scrolls lands on rows this pass already drew. "
+        "The pixel reference throughout is a page down and back, which a "
+        "formatted document always full-repaints (68.6).",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+    Row("wdenter", "soak", py("tests/wdenter.py"), 450.0,
+        "SPEC.md 27.4.5: an Enter pushes the note below the split down with "
+        "one gfx_scroll instead of erasing to the content bottom and "
+        "lettering every row in it (448.2 -> 133.3 ms). Leg A is the one that "
+        "fails on a build with the feature off - a BREAKPOINT on "
+        "wd_nlpush.d1, past the scroll - and leg F is the A/B inside one "
+        "boot: wd_nlband is the whole arming, so stc/ret over it in the guest "
+        "turns the push off and the same keystroke must draw the same screen "
+        "the slow way. The pixel reference throughout is a page down and "
+        "back, which a formatted document always full-repaints (68.6), and "
+        "THE BAND INCLUDES THE SLIVER below the last whole row: the first "
+        "build scrolled to [wd_bot] and left four scanlines of the last "
+        "row's glyphs standing, which still reads as text. Leg E is the "
+        "corruption case rather than a speed one - an Enter on the last "
+        "visible row makes the caret-follow scroll, and the push has repaired "
+        "the tables for a layout the glass has not been given, so wd_redraw "
+        "must refuse the blit and repaint.",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+    Row("wdscroll", "soak", py("tests/wdscroll.py"), 420.0,
+        "SPEC.md 68.2.2 and 27.7.2.2: Word's scroll bar is not part of the "
+        "text band, and a scroll UPWARD blits like a scroll down. Leg A "
         "samples the bar's ARROW CELL through a down-arrow click and requires "
-        "0 of 48 samples altered (the band used to carry six of its fourteen "
-        "columns, blank them and redraw the bar); leg B the same for a track "
-        "click; leg D asserts the BEHAVIOUR on a refused blit - wd_sbar must "
-        "not run - because the refused path legitimately moves the thumb and "
-        "no pixel box separates that from the bug; leg C that three "
-        "consecutive page clicks all still blit. The last leg is the one with "
-        "teeth: it pages down with the blit and back up, which a formatted "
-        "document always full-repaints, and requires the screen to come back "
-        "with 0 differing pixels - the fast path checked against the slow one. "
-        "CGA by name and read out of guest VRAM, MASKED to the bar's columns: "
-        "a rendered frame only changes once a video frame, so an fbuf sample "
-        "misses a strip blanked and redrawn inside one - this gate passed with "
-        "the fix backed out until that was fixed.",
+        "0 of 48 altered; leg D requires a click ABOVE the thumb not to enter "
+        "wd_paint - it always did, repainting menu bar, ruler and text at 622 "
+        "ms against the down click's 251. Leg E is the A/B, wd_upheight being "
+        "the whole arming, AND the only thing still exercising [wd_sbkeep]: "
+        "leg D used to BE the refusal. Its target view is deliberately NOT the "
+        "top of the note, because returning to top 0 passed while the <8px "
+        "SLIVER below the last drawable row was blitted into and never erased "
+        "- at top 0 the pixels pushed into it happened to be white. Leg F is "
+        "the one that looks at what a scroll LEAVES BEHIND rather than what it "
+        "draws: the pricing walk banked wd_rows, which wd_shiftrows reads as "
+        "its SOURCE, so the up blit's own screen was perfect to the pixel and "
+        "the next page down drew three rows of the wrong text. Leg B puts BOTH "
+        "ends of its round trip against a forced repaint separately - a round "
+        "trip says something is wrong and never which end.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
     Row("wdmove", "soak", py("tests/wdmove.py"), 210.0,
@@ -2681,6 +2736,67 @@ SOAK = [
         "compared frame for frame and the per-frame variation - which is real "
         "work, not noise - cancels instead of being averaged over.",
         needs=("marty",), serial=True, timeout=600),
+    Row("atkey", "soak", py("tests/atkey.py"), 100.0,
+        "WHAT ONE ARTFULTYPE KEYSTROKE COSTS on a 4.77MHz 8088, in guest "
+        "cycles off at_onkey's entry to its return. Nothing in this tree had "
+        "ever measured this app - SPEC.md 46.1 states a contract and every "
+        "millisecond attached to it was PREDICTED - so this is the row that "
+        "makes the figures readings. It prints the SCENE with the number, "
+        "because the answer depends entirely on how many visual lines the "
+        "caret's PARAGRAPH has: at_apply_edit repaints at_dfrom..+at_rlk-1 "
+        "and at_relayout sets at_dfrom from at_lhome, the paragraph's first "
+        "visual line. A keystroke figure without its paragraph length is not "
+        "a figure. It reads at_rlk back afterwards, which is what turns "
+        "46.1's honest 'that paragraph's visual lines' into a table.",
+        needs=("marty", "nasm"), serial=True, timeout=900),
+    Row("atmenusu", "soak", py("tests/atmenusu.py"), 45.0,
+        "SPEC.md 46.5.1: ArtfulType's pull-down banks the pixels it covers and "
+        "the close writes them back, instead of repainting every text line the "
+        "panel crossed FULL WIDTH - 104.9 ms to 14.5 on a 4.77MHz 8088. THE "
+        "ASSERTION IS PIXEL EQUALITY and it is the only one worth making: a "
+        "save-under that is fast and wrong is worse than a repaint that is "
+        "slow and right, and every way of getting it wrong shows up in a "
+        "photograph - the shadow left out of the bank, the rect clamped "
+        "differently from the erase, the plane count taken from the wrong "
+        "display. It dismisses the menu WITHOUT PICKING, by releasing while "
+        "still over the title, because every item runs a command that "
+        "repaints the screen and would hide the error. The second cycle pokes "
+        "[at_suseg] = 0 while the panel is down - what a refused claim leaves "
+        "behind - so one run checks the write-back and the repaint fallback "
+        "against one reference. Verified to go red: leaving the drop shadow's "
+        "ROW out of the bank is 68 differing pixels on exactly that row. It "
+        "BUILDS NOTHING - it reads the shipped disks, so it declares them in "
+        "wants= and shares the emulator lane.",
+        needs=("marty", "nasm"), serial=True, timeout=900,
+        wants=("build/os8088-360.img", "build/apps360.img")),
+    Row("atblit", "soak", py("tests/atblit.py"), 165.0,
+        "SPEC.md 46.4.2: does ArtfulType's BAND emit draw the same picture as "
+        "the expander it replaced? at_draw_line hands at_compose's 1bpp strip "
+        "straight to OSAPI_GFX_BLIT1 now instead of widening it to packed "
+        "4bpp for OSAPI_GFX_BLIT4, which means the strip's POLARITY flipped - "
+        "and every way of getting that wrong is a plausible-looking wrong "
+        "picture rather than a crash. Miss one of the five writers into "
+        "at_strip1 and that element renders inverted; the fifth is at_bigtext "
+        "in atui.inc, which an audit of atrend.inc misses. Complement above "
+        "at_glyph's italic rcr chain and every italic grows a bar down its "
+        "left edge. Forget AT_X4TAB or atimg.inc's xor and the 4bpp fallback "
+        "draws the negative - which no kern_big row would ever execute. So "
+        "the gate is 0 differing pixels against NOATBLIT1=1, which assembles "
+        "byte for byte identical to the package before the change. It PACES "
+        "ITS TYPING on the app's own at_caret: type_text outruns a 4.77MHz "
+        "ArtfulType, the key queue overflows, and the two arms then receive "
+        "different documents - which reads exactly like a rendering bug. "
+        "Rebuilds the tree, like blitplane, because the A/B is two packages. "
+        "It GENERALISES: --knob picks which of ArtfulType's A/Bs to run and "
+        "every one of them must draw the identical picture, so a wave adds a "
+        "knob rather than a row. Six scenes, and three of them exist because "
+        "a break test came back green - the SPLASH is at_bigtext and "
+        "at_drawimg, which an audit of atrend.inc misses; the ZOOMED-IN one "
+        "is the only state in which a plain line renders above scale 1 "
+        "(SPEC.md 46.4.9); and the document's mid-paragraph edit had to gain "
+        "two ArrowUps before anything could be pushed past a wrap "
+        "(SPEC.md 46.4.11).",
+        needs=("marty", "nasm"), serial=True, timeout=900),
     Row("blitplane", "soak", py("tests/blitplane.py"), 180.0,
         "SPEC.md 5.4.1.3: does gfx_blit4's PLANAR DECODER draw the same "
         "pixels as the run writer, on both destination phases, and is it "
