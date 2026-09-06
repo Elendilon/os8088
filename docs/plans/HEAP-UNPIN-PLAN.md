@@ -83,6 +83,9 @@ So the barrier a user actually feels is usually a **region in the middle**, not
 the furniture at the top. SPEC.md 66.5.3 measured the shape once: Tracker's
 114KB module sat still with 38KB free directly beneath it.
 
+On a fully-loaded kern_big machine the driver share of that ceiling alone is
+**~69KB** — 48KB of images plus the 8KB sound ring and ETHER's 14KB pool (§3.4).
+
 **If the top-down claims became movable the top-down door stops being needed for
 them** — they pack down with everything else, and one contiguous free run at the
 ceiling is the best packing there is. That is a simplification the design gets
@@ -334,14 +337,22 @@ Two things make a driver harder than a module:
    publication down; the kernel's part is to bank and clear `drv_fseg` for the
    class across the copy.
 
-**The real blocker is neither of those; it is the size of the IF=0 window.** The
-copy plus every fixup has to be one interrupts-off window, because `snd_tick`
-far-calls `DSV_TICK` from inside IRQ0. `ETHER.DRV` is **18KB unpacked**, which at
-2.79 ms/KB is **50.2 ms — 0.91 of a system tick** spent with interrupts off. That
-loses ticks, stops the pointer, and is a worse artefact than the fragmentation it
-cures. A driver move is therefore only honest for the *small* images, or it needs
-the class's publication banked so the window covers the fixups and not the copy —
-which is a design nobody has written.
+**What is actually at stake here is bigger than it looks: ~69KB.** `drv_memk`'s
+own constants (kernel/driver.inc:1057) give the images as SOUND 6KB, HDD 8KB,
+**ETHER 18KB**, RAMDISK 9KB, NET 6KB, VMMOUSE 1KB — 48KB — and on top of that sit
+the 8KB Sound Blaster ring and **ETHER's 14KB ring pool**, both claimed top-down
+and both `MC_RLOC` = 0. On a fully-loaded kern_big machine that is the driver
+share of "the top of the heap", and it is three times the furniture this document
+first estimated.
+
+**The IF=0 problem belongs to exactly one driver.** `SOUND.DRV` is the only
+driver in the tree that hooks an interrupt vector (drivers/sound/sb.inc:3056) and
+the only one that spawns a worker task — kernel/sched.inc:141 says so in as many
+words: *"one driver calls `OSAPI_DRV_TASK` in the whole tree"*. Every other
+shipped driver states in its own header that it hooks nothing. So the
+interrupts-off window is 6KB ≈ **16.7 ms**, not the 50.2 ms an 18KB `ETHER.DRV`
+would have cost, and moving the other four images is **pointer fix-ups only**,
+under `[sch_lock]` with interrupts on like everything else the compactor does.
 
 **And two drivers hold pointers the kernel cannot reach at all.** `HDDTOOL.DRV`
 and `RAMPAGE.DRV` each keep two words naming their parent driver's segment
@@ -349,27 +360,35 @@ and `RAMPAGE.DRV` each keep two words naming their parent driver's segment
 callback cannot reach"*, one level worse, because here the holder is a second
 image rather than a kernel table. Only a `DRVV_RELOC` verb reaches them.
 
-**The user's "unload and remount" costs zero new bytes and is nonetheless
-unavailable.** The whole path exists — `drv_unload_x` (kernel/driver.inc:2938),
-`drv_release` (:3011), `drv_load_row` (:2431) — but it cannot be reached from
-where the pressure is felt: `mem_compact` runs under `inc [sch_lock]` and
-`[mem_cp_busy]`, `drv_unload` **yields**, and `drv_load`'s own `dskw_read_x`
-**claims** — which `mem_claim_x.go` refuses outright while `[mem_cp_busy]` is set
-(kernel/memory.inc:570). It is structurally impossible as a compaction primitive,
-not merely a bad idea.
+**The user's "unload and remount" is not hypothetical. This tree already does it,
+twice, and it is 91 bytes.** `hbm_detach`/`hbm_reload` (kernel/hiber.inc:1321,
+called at :1202 and :1258 — 61 and 30 bytes) unload every driver whose state is
+*hardware* before a hibernate image is written and reload them from a bitmask
+afterwards, deliberately keeping `DRVC_DISK` and `DRVC_FILE` loaded *"because
+their state is memory"* (SPEC.md 87.4 step 2). And `ss_reap_x`
+(kernel/blank.inc:699) calls `drv_release` on `SAVER.DRV`'s image **every time
+the screen saver finishes**.
 
-It is also 60–500× slower and it destroys state with no other home: a floppy
-reload is ~7–8 `int 13h` calls ≈ 2.8–3.2 s plus a second mount to put the user's
-volume back, against 5.6–50.2 ms to copy the same image; and `rd_unmount` *"IT
-DISCARDS"* — a RAM disk loses its **contents**, every open TCP socket goes, every
-mounted hard-disk partition unmounts with its desktop zones, and every XMS token a
-package holds is void.
+On two axes reload beats moving outright. It reaches **strictly more memory** — it
+frees the 8KB ring and the 14KB ETHER pool, which no relocation gives back at all
+— and **it breaks no interface**, because a package addresses a driver by CLASS
+(`net_cls`, apps/os88sock.inc:39) and never by segment.
 
-**The project has already taken this decision once, and correctly.** Hibernate
-(SPEC.md 87.4 step 1, kernel/hiber.inc:1321) unloads exactly the drivers whose
-state is *hardware* and deliberately keeps `DRVC_DISK` and `DRVC_FILE` loaded
-*"because their state is memory"*. Unload-and-remount is a fine **user** action on
-the Control Panel's Drivers page and a bad thing for the heap to do by itself.
+What it costs is disk time and state, and the state is the real bill: a reload is
+~8–13 `int 13h` calls (two quiet remounts plus the image), plus `ETHER`'s
+`DHCP_WAIT` of 110 ticks — **6.04 s** (drivers/ether/ether.asm:48). `rd_unmount`
+*"IT DISCARDS"*: a RAM disk loses its **contents**. Every driver-backed volume
+unmounts with the Disk windows standing on it, and every TCP connection goes.
+
+**What it cannot be is a compaction primitive**, and that is structural rather
+than a judgement: `mem_compact` runs under `inc [sch_lock]` with `[mem_cp_busy]`
+set, `drv_unload` **yields**, and `drv_load`'s own `dskw_read_x` **claims** —
+which `mem_claim_x.go` refuses outright while `[mem_cp_busy]` is set
+(kernel/memory.inc:570). It belongs where hibernate already puts it: a decision
+taken on the UI task, outside the compactor, from a known-safe context — and, on
+this evidence, offered to the **user** on the Control Panel's Drivers page rather
+than taken by the heap on its own initiative.
+
 
 ### 3.5 Package regions — what the fix list actually is
 
@@ -764,6 +783,7 @@ first two are worth taking whatever is decided about the rest.
 | **A** | **Stop pinning three claims for a placement constraint** (§3.1): `mem_can_move` drops the `MC_DMA` refusal, `mem_cp_plan`/`mem_cp_run` bump the fill point to the next page-safe base | **~50** | 0 | ESTIMATE; `mem_dmaok` (28) exists and is the whole test |
 | **B** | **Modules become purgeable** (§3.3, §4.3): `resb MOD_MAX` count, `mod_leave` ~12, ~20 thunk sites × 3, +5 in `mod_need`, `mem_pg_forget` arm ~14, `mem_cp_drop` guard ~8 | **~104–168** | ~77–140 | ESTIMATE, and **two independent passes disagreed** — 104 and 152–168 for the same design, the spread being how many call sites are counted. Calibrated on `mod_drop` 15, `mod_disarm` 19–21 |
 | **C** | **Regions move when idle** (§3.5, §4.2): `[wm_pkgd]` + its two brackets ~11, the fix-up routine ~110, the `mem_can_move` arm ~20, widen `mem_find_own`'s fence ~20, the `[ld_base]` refusal ~6, tier-3 gate ~15 | **~200** | ~11 | ESTIMATE; the fix-up is `dsk_dseg_reloc`'s shape over four tables and five words. Two agents arrived at ~110 independently |
+| **D0** | **Driver unload/reload as a policy step** (§3.4): the mechanism is BUILT — `hbm_detach`/`hbm_reload` are 91 bytes, `ss_reap_x` does it per session. Only a policy hook is new | **~40** | 0 | ESTIMATE. Reaches **more** memory than a move (the 8KB ring and ETHER's 14KB pool) and breaks nothing, because a package names a driver by CLASS |
 | **D** | **Driver images move in place** (§3.2, §3.4, §4.4): the 66-word fix-up, a dispatch depth count, the mask/unmask bracket, `DRVV_QUIESCE`/`DRVV_REARM`/`DRVV_RELOC` | **~175–242** | ~40 | ESTIMATE; `drv_call` is 61, `[drv_wcnt]`'s half costs 0. **The bytes are not what stops this** — §3.4's 50.2 ms IF=0 window for an 18KB `ETHER.DRV` is |
 | **E** | **The descending pass** (§5) | **~120** | 0 | ESTIMATE; parameterising `mem_cp_plan` (104) + `mem_cp_run` (115) + a descending `mem_cp_next` (55) |
 | **F** | **Worker-owning regions, by declaration** (§4.7): `OSAPI_TASK_RESTARTABLE`, the frame rebuild, the `mem_can_move` arm | **~90** | ~20 | ESTIMATE; `task_spawn`'s tail is the rebuild, `inst_parksafe_set` (22) the setter's shape. +24 `.bss`, +1 API cell |
@@ -865,7 +885,8 @@ Ordered by how much they cost somebody who is not reading this document.
 ## 9. What it buys — and the argument against
 
 **For.** On a busy 640KB machine the pinned population is one or two regions
-mid-arena plus 15–25KB of furniture at the top. §3.1, §3.2 and §3.3 between them
+mid-arena plus, on a fully-loaded machine, **~69KB** of driver furniture at the
+top (§3.4) and 8–9KB of module image. §3.1, §3.2 and §3.3 between them
 are maybe 200 bytes, reuse code that already exists, and take the furniture out.
 The region half is the other two thirds of the bill and reaches 135,930 bytes of
 the tree's 327,280 — but the *right* 135,930, since SHEET, PAINT and TEXPAD are
