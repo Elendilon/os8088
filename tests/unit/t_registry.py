@@ -83,6 +83,11 @@ UNREGISTERED = {
                   "(docs/plans/SOAK-PARALLEL.md 14.2). Run it by hand when a field "
                   "sync question needs the module",
 
+    "skiesperf.py": "an INSTRUMENT, not a test: it prices CLEAR SKIES' frame "
+                    "on MartyPC to the cycle - a breakpoint on cs_render and "
+                    "each drawing stage patched out for its delta, on a scene "
+                    "pinned by poke - and asserts nothing (SPEC.md 88.12). It "
+                    "is where every number in 88.12 came from",
     "tankperf.py": "an INSTRUMENT, not a test: it prices TANK ATTACK's frame "
                    "on MartyPC to the cycle - a breakpoint on tk_render, and "
                    "each drawing stage patched out for its delta - and "

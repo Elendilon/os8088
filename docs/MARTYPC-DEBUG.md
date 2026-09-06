@@ -240,6 +240,17 @@ dx = −16, dy = +2). VGA comes back 640x480 at (0, 0) and CGA at (0, 0), so
 two adapters of three encourage the assumption the third breaks. A pixel
 gate that compares `fbuf` against anything else needs both halves.
 
+**It bites as a DEFECT REPORT, not as a shear**, which is why it is worth a
+paragraph rather than a footnote. Clear Skies spent a session chasing "94 lit
+pixels beside the view" that were the view's own leftmost sixteen, read at a
+box column they do not occupy; the shadow was clean and the spans were the
+view's, and both readings were taken as *the bleed comes from somewhere else*
+rather than as *there is no bleed* (SPEC.md 88.13.4.1). A band named in the
+guest's coordinates is off by exactly two bytes here, which is the size of a
+plausible bug. **On the 1bpp adapters read `m.vram()`** — the card's memory,
+byte for byte the arithmetic in `tools/hercshot.py` — and keep `fbuf` for
+VGA, where it is the only route.
+
 **`card=` is not optional on a two-card machine.** `settle`, `launch` and the
 screen probe ask `video` with no card by default, which answers MartyPC's
 **primary** — the first `[[machine.video]]` block — and os8088 need not be

@@ -259,7 +259,7 @@ A package `%include`s these itself; they are not kernel calls. Include them at t
 
 | include | SPEC | what it gives you |
 |---|---|---|
-| `apps/os88ui.inc` | §13, 75 | Buttons, check boxes, radio dots, scroll bars, group boxes, the standard alert and the standard About card. Opt into the alert with `%define OS88UI_ALERT`, the About card with `%define OS88UI_ABOUT`, the scroll bar with `%define OS88UI_SCROLL` and its thumb-drag half with `%define OS88UI_SBDRAG`. |
+| `apps/os88ui.inc` | §13, 75 | Buttons, check boxes, radio dots, scroll bars, group boxes, the standard alert, the standard About card and the drop-down. Opt into the alert with `%define OS88UI_ALERT`, the About card with `%define OS88UI_ABOUT`, the scroll bar with `%define OS88UI_SCROLL` and its thumb-drag half with `%define OS88UI_SBDRAG`, and the drop-down - one pick out of a short list, a Macintosh popup's gesture - with `%define OS88UI_DROP` (SPEC.md 13.14). |
 | `apps/os88line.inc` | §83 | A one-line text field: caret, horizontal scroll, focus, click-to-position and the editing keys. The caller owns a 20-byte block. |
 | `apps/os88text.inc` | §83 | The multi-line sibling of os88line.inc. Enter inserts a newline; no wrap, no selection, no undo. |
 | `apps/os88chart.inc` | §82 | A 4bpp offscreen canvas and all seven chart types - area, bar, column, line, pie, scatter, combination - plus a BMP writer. Shared by CHART.O88 and Sheet's chart window. |
@@ -299,6 +299,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | RECORDER | `apps/recorder/recorder.asm` | §35 | yes |
 | RUNCPM | `apps/runcpm/runcpm.asm` | §74 | yes |
 | SHEET | `apps/sheet/sheet.asm` | §81 | yes |
+| SKIES | `apps/skies/skies.asm` | §88 | yes |
 | SOLITAIRE | `apps/solitaire/solitaire.asm` | §43 | yes |
 | TAMEGRAM | `apps/tamegram/tamegram.asm` | §49 | yes |
 | TANK | `apps/tank/tank.asm` | §85 | yes |
@@ -402,6 +403,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | 85 | TANK ATTACK — a wireframe tank duel in a foreign mode (`apps/tank/`) |
 | 86 | AUDIO PLAYER — background music from a streamed WAV (`apps/audio/`) |
 | 87 | Hibernate — the machine to a file on the hard disk, and back (`kernel/hiber.inc`, `HIBER.DRV`) |
+| 88 | CLEAR SKIES — a filled-polygon flight simulator in a foreign mode (`apps/skies/`) |
 
 ## docs/
 

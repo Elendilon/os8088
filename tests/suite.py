@@ -216,6 +216,23 @@ FAST = [
     Row("mirror", "fast", py("tests/unit/t_mirror.py"), 3.9,
         "a constant written down in two files must agree in both; there is no "
         "linker here to notice"),
+    Row("csworld", "fast", py("tests/unit/t_csworld.py"), 2.0,
+        "SPEC.md 88.6.3: no collidable building in any CLEAR SKIES world"
+        " stands in that world's own water - every base footprint against"
+        " every river polygon, edges and containment and not just corners."
+        " Nine locations and eight worlds since 88.6.4, and it walks them all"),
+    Row("csworlds", "fast", py("tests/unit/t_csworlds.py"), 2.0,
+        "SPEC.md 88.6.4: every CLEAR SKIES world costs about what PARIS costs."
+        " The 12 fps budget was measured on Paris alone (88.12), so a world"
+        " written afterwards can miss it by a factor with nothing to say so -"
+        " slowness is one of the three defects an emulator cannot show. It"
+        " prices each world's PEAK frame the way the renderer does and holds"
+        " it to 1.15x Paris', and refuses a world that can put more than 30"
+        " objects in one frame when CS_NVIS is 32 and drops the rest silently"),
+    Row("csart", "fast", py("tests/unit/t_csart.py"), 0.6,
+        "apps/skies/csart.inc is what tools/csart.py generates (SPEC.md 88.10):"
+        " the launcher's two 1bpp bands are drawn by the tool and checked in,"
+        " and the include cannot drift from the drawing"),
     Row("inktab", "fast", py("tests/unit/t_inktab.py"), 0.2,
         "SPEC.md 42.23.1: Paint's two ink-class masks ARE the kernel's "
         "gfx_inktab. A one-bit canvas stores what a 1bpp SCREEN shows, so the "
@@ -1642,6 +1659,97 @@ SOAK = [
         "SPEC.md 85.6.6: no round starts inside a piece of scenery - which one"
         "in nineteen did, sealing the player in a box a 26-unit step cannot"
         "leave - and a player who somehow IS inside one can still drive out",
+        needs=("marty",), serial=True),
+    Row("skies", "soak", py("tests/skies.py"), 35.0,
+        "SPEC.md 88: CLEAR SKIES draws and advances, takes off from the runway"
+        " under full throttle and the stick, crashes when the nose is held"
+        " into the ground and comes back to the airport's reset point, and"
+        " its frames do not flash - SPEC.md 85.1's instrument on a raster"
+        " that redraws the whole view every frame. Hercules, the target."
+        " Measured at 30 s wall alone on an idle four-core box - it was 120"
+        " before SPEC.md 88.5.6.1 took the frame rate back",
+        needs=("marty",), serial=True),
+    Row("skiescga", "soak", py("tests/skies.py", "--machine",
+                               "os8088_5150_cga_gla"), 35.0,
+        "SPEC.md 88 on CGA: the 320x112 view (88.13.4 s default there is"
+        " FULL, which is the geometry CGA shipped with), palette 0 over a"
+        " light-blue background, the same flight",
+        needs=("marty",), serial=True),
+    Row("fsxclip", "soak", py("tests/fsxclip.py"), 22.0,
+        "SPEC.md 53.1.1: an fsx bracket entered from a CLICK handler comes"
+        " back to a whole desktop - the menu bar, the background and the dock"
+        " held pixel for pixel against what they were, because fsx_run clears"
+        " the clip region the handler armed",
+        needs=("marty",), serial=True),
+    Row("skiesset", "soak", py("tests/skiesset.py"), 42.0,
+        "SPEC.md 88.13: the Settings page and its four knobs reaching the"
+        " picture - Few files fewer objects and draws faster, a fill box"
+        " clears its bit, the in-flight hotkeys do the same without the page,"
+        " and a smaller view leaves none of the larger one beside it. Also"
+        " 88.13.6's two defects: a drop-down's list has to BANK and reach the"
+        " glass (the pick works without either, which is how this row passed"
+        " while the page could not be dropped down at all) and Done has to be"
+        " the full 13.7 gesture",
+        needs=("marty",), serial=True),
+    Row("skiespitts", "soak", py("tests/skiespitts.py"), 34.0,
+        "SPEC.md 88.7.2: the second aeroplane flies by its own CSP_ATT - the"
+        " Pitts rolls right round and loops over the top and stays where the"
+        " stick left it, where the trainer clamps both axes and returns to"
+        " level - and wears its own scattered panel (88.9.3)",
+        needs=("marty",), serial=True),
+    Row("skiespanel", "soak", py("tests/skiespanel.py"), 24.0,
+        "SPEC.md 88.9.4: the panel is SAMPLED on the gate and PAINTED per"
+        " page, so Mode X's two pages cannot hold readings taken different"
+        " gates apart - the altimeter that read 1,683 feet one frame and"
+        " 1,666 the next. The displayed sequence never goes backwards in a"
+        " climb; --clobber-share sends the between-gates path back to .same"
+        " and it does, four frames in twelve",
+        needs=("marty",), serial=True),
+    Row("skiesfleet", "soak", py("tests/skiesfleet.py"), 52.0,
+        "SPEC.md 88.7.5-88.7.7: the three aeroplanes that came after the"
+        " Pitts, each checked on its MECHANIC. The Magister's roll rate ramps"
+        " and decays and its engine spools; the Bijave starts in the air with"
+        " no engine and glides better than 12:1; the A5 starts on the water,"
+        " gets off it and lands back on it, and the SAME touchdown in the"
+        " Cessna is a crash. --clobber-lag and --clobber-amphib are the two"
+        " red runs",
+        needs=("marty",), serial=True),
+    Row("skiesease", "soak", py("tests/skiesease.py"), 46.0,
+        "SPEC.md 88.7.3: the horizon captures the last three ticks of an"
+        " approach - held toward level both aeroplanes land EXACTLY on it on"
+        " both axes, in at most three ticks and with no tick under 60% of the"
+        " rate, the Pitts lands on INVERTED level too, and held away nothing"
+        " is eased at all. Read at a cs_step breakpoint: a frame spends one,"
+        " two or three ticks, so a per-frame sample cannot see the landing",
+        needs=("marty",), serial=True),
+    Row("skiesgeom", "soak", py("tests/skiesgeom.py"), 42.0,
+        "SPEC.md 88.5.5-88.5.8: every polygon and segment of a frame, on nine"
+        " pinned scenes - four BANKED, four low among the buildings - held to"
+        " a host replay of the guest's own near clip, side clip and per-scale"
+        " projection: the two faults a straight flight never reached"
+        " (88.5.6.1, 88.5.7.1), each with a red run that patches it back."
+        " Plus 88.5.8's invariant, which is NOT a replay: with the wings"
+        " level a world-vertical edge must project vertical, and the replay"
+        " cannot catch a fault in the algorithm because it reproduces it."
+        " And 88.5.4.1: no IMPOSTOR rectangle bigger than CS_LODPX, which is"
+        " the screen-axis-aligned square that stood upright in a bank",
+        needs=("marty",), serial=True),
+    Row("skiesui", "soak", py("tests/skiesui.py"), 44.0,
+        "SPEC.md 88.10's title page on the VGA machine: the two drop-downs"
+        " (SPEC.md 13.14's first users) drop, close and pick, Esc closes one,"
+        " Flight -> Instructions turns the page and back, the Mode menu's CGA"
+        " pick flies in CGA320, and the release of the pick's press is owed to"
+        " the launcher's window - [ui_armw] read directly, the check that"
+        " catches a click handler coming back with SI clobbered",
+        needs=("marty",), serial=True),
+    Row("skiesvga", "soak", py("tests/skies.py", "--machine",
+                               "os8088_xt_vga"), 45.0,
+        "SPEC.md 88 on MODE X - MartyPC's VGA hosts the unchained mode, whatever"
+        " an earlier session believed - the 320x144 view on two pages, the same"
+        " flight at ~4 fps, and the page SHOWN changing every second in flight:"
+        " the owner once saw this backend freeze on its first frame with the"
+        " loop still running, and a flip that never shows the drawn page is"
+        " exactly that",
         needs=("marty",), serial=True),
     Row("wireflick", "soak", py("tests/wireflick.py"), 30.0,
         "SPEC.md 78.5's three draw orders, as ink on the glass per displayed"

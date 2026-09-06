@@ -4474,6 +4474,27 @@ $(BUILD)/tank.bin: apps/tank/tank.asm apps/tank/tkraster.inc \
 $(BUILD)/tank.o88: $(BUILD)/tank.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/tank.bin -o $@
 
+# CLEAR SKIES (SPEC.md 88): a filled-polygon flight simulator over Paris, in
+# the same foreign-mode fsx bracket as TANK ATTACK - every pixel its own, no
+# kernel drawing slot past fsx_mode. Six sources: the raster, the geometry,
+# the world, the flight model, the session, and the generated sine table -
+# plus ONE FILE PER LOCATION since SPEC.md 88.6.4 (csw_*.inc, %included by
+# csworld.inc, and a wildcard here so a tenth of them is a file and not a
+# Makefile edge nobody remembers).
+CSWORLDS := $(wildcard apps/skies/csw_*.inc)
+$(BUILD)/skies.bin: apps/skies/skies.asm apps/skies/csraster.inc \
+                    apps/skies/cs3d.inc apps/skies/csworld.inc \
+                    apps/skies/csflight.inc apps/skies/csgame.inc \
+                    apps/skies/cspanel.inc apps/skies/cssin.inc \
+                    apps/skies/csart.inc $(CSWORLDS) \
+                    apps/os88api.inc apps/os88ui.inc \
+                    | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/skies/ -o $@ apps/skies/skies.asm
+	@echo "skies: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/skies.o88: $(BUILD)/skies.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/skies.bin -o $@
+
 $(BUILD)/arkanoid.bin: apps/arkanoid/arkanoid.asm apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ apps/arkanoid/arkanoid.asm
 	@echo "arkanoid: $(call FILESIZE,$@) bytes"
@@ -7182,17 +7203,17 @@ small: $(BUILD)/small360.img $(BUILD)/small.img
 #   modplug, recorder,      SOUND.DRV, which a 128-256KB machine has nothing
 #   tracker, audio          to spare for - the same judgement that took
 #                           RAMDISK.DRV and RAMPAGE.DRV out of $(SMALLDRIVERS)
-#   tank                    the fullscreen surface (SPEC.md 42.7/81). It opens
-#                           and draws its splash, and there is no GAME behind
-#                           it without fsx, so what ships is a menu that leads
-#                           nowhere
+#   tank, skies             the fullscreen surface (SPEC.md 42.7/81, 88). Each
+#                           opens and draws its panel, and there is no GAME
+#                           behind it without fsx, so what ships is a menu that
+#                           leads nowhere
 #
 # 99,749 bytes of a 360KB floppy - 27% of it - for eight programs that could
 # not have started (SPEC.md 24.5 has the same figures, re-measured together).
 SMALLOMIT := $(BUILD)/browser.o88 $(BUILD)/ftpd.o88 $(BUILD)/telnet.o88 \
              $(BUILD)/modplug.o88 $(BUILD)/recorder.o88 $(BUILD)/tracker.o88 \
              $(BUILD)/audio.o88
-SMALLOMIT_GAMES := $(BUILD)/tank.o88
+SMALLOMIT_GAMES := $(BUILD)/tank.o88 $(BUILD)/skies.o88
 
 # ...and BROWSER.HTM with the browser, for the same reason one step along: a
 # .HTM is openable by nothing else on the machine (SPEC.md 71), and a manual
@@ -7953,7 +7974,7 @@ APPS_TOOLS := $(BUILD)/artful.o88 $(BUILD)/browser.o88 $(BUILD)/calc.o88 \
               $(BUILD)/ftpd.o88 $(BUILD)/sheet.o88 $(BUILD)/telnet.o88 \
               $(BUILD)/texpad.o88 $(BUILD)/tracker.o88 $(BUILD)/audio.o88
 APPS_GAMES := $(BUILD)/arkanoid.o88 $(BUILD)/tank.o88 $(BUILD)/cyclone.o88 \
-              $(BUILD)/mines.o88 \
+              $(BUILD)/mines.o88 $(BUILD)/skies.o88 \
               $(BUILD)/missile.o88 $(BUILD)/solitair.o88 $(BUILD)/tamegram.o88
 
 # The CORE PACKAGES (SPEC.md 24.3) are a SECOND copy on the system disk and
@@ -8053,9 +8074,20 @@ APPS_DATA_360   := $(filter-out $(MEDIA_DISK_DATA),$(APPS_DATA))
 # the symptom was 'Disk error' on a module that had been fine an hour earlier.
 ZDATA := $(BUILD)/zdata$(if $(PKGZ),-$(PKGZ))
 ifneq ($(PKGZ),)
-APPS_DATA_360 := $(ZDATA)/BEVERLY.MOD $(ZDATA)/PAPER.TEX $(ZDATA)/GUIDE.TEX \
-                 $(ZDATA)/DEMO.HTM
-APPS_DATA     := $(APPS_DATA_360)
+# ...AND THE COLLAPSE UN-COLLAPSED (SPEC.md 88.6.4). The paragraph above is
+# still true - 42 clusters is not 114 - but it was true with 37 of the 354 to
+# spare, and CLEAR SKIES' nine locations spend 6 of them. The 360KB apps disk
+# came out at 355 clusters against 354, so the module goes back to riding
+# build/media360.img alone, which is the split SPEC.md 24.4 designed and this
+# branch had merely made unnecessary. The .TEX pair and the browser's page
+# stay, so MEDIA/ is still a folder with files in it (see APPS_DATA_360 above,
+# whose reasoning this restores rather than replaces).
+#
+# It is one cluster, so the next person to add anything is in this decision
+# too: 42 is the whole of the slack, and it came from a file rather than from
+# a package getting smaller.
+APPS_DATA_360 := $(ZDATA)/PAPER.TEX $(ZDATA)/GUIDE.TEX $(ZDATA)/DEMO.HTM
+APPS_DATA     := $(ZDATA)/BEVERLY.MOD $(APPS_DATA_360)
 MEDIA_DISK_DATA := $(ZDATA)/BEVERLY.MOD
 endif
 
