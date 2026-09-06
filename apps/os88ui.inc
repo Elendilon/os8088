@@ -2610,7 +2610,9 @@ os88ui_abh: dw 0
 ;                               ; read after a pick and to set before a paint
 ;       dw 0                    ; OS88UI_DR_WIN: your window ptr, once created
 ;       db 0, 0FFh              ; OS88UI_DR_OPEN, OS88UI_DR_HOT: the control's
-;                               ; own; leave them
+;       dw 0, 0                 ; OS88UI_DR_SEG, OS88UI_DR_KB: the banked
+;                               ; pixels under an open list. All four are the
+;                               ; control's own; leave them
 ;
 ; --- USING IT ----------------------------------------------------------------
 ;   in W_PAINT:      fill the rect, then BX = my_drop, DI = flags (OS88UI_DIS
@@ -2628,8 +2630,26 @@ os88ui_abh: dw 0
 ;   in W_ONMOUSEUP:  BX = my_drop, CX/DX, `call os88ui_drup` - the release
 ;                    over an item picks it; the answers are os88ui_drpress's
 ;   Esc, a menu, anything that should take an open list down:
-;                    BX = my_drop, `call os88ui_drclose` - CF = 1 it was open
-;                    and your content wants repainting
+;                    BX = my_drop, `call os88ui_drclose`, THE GFX LOCK HELD -
+;                    which every handler that can reach it already is
+;                    (W_ONKEY, AM_ONCMD and W_ONCLICK all run under it)
+;
+; CF = 1 OUT OF drpress, drup AND drclose MEANS REPAINT, AND IT IS NOW THE
+; UNCOMMON ANSWER. Opening the list banks the pixels it covers (SPEC.md
+; 5.4.3's published save-under, 13.14.1) and taking it down writes them back,
+; so the close is one blit rather than a repaint of everything the list lay
+; over. Keep the repaint anyway: it is what you get when the heap has no room
+; for the bank, when the rect straddles two displays, and after any repaint
+; of your own - a bank taken before it describes pixels that have gone.
+;
+; A bank is pixels and not a promise about them, so it shares one window with
+; the kernel's own menu drop (SPEC.md 12.4) and with Word's (68.2): if
+; something else draws inside the rect between the open and the close - a
+; window under yours repainting on its own account - the write-back puts the
+; older pixels back over it. What keeps that narrow is that drawing is
+; serialised by the gfx lock and that any repaint of your own drops the bank;
+; what makes it acceptable is that it is the window three shipped
+; save-unders already stand in.
 ;
 ; A press on a greyed control is yours to refuse before calling: the record
 ; carries no disabled bit because the painter's flag is the one place that
@@ -2644,7 +2664,9 @@ OS88UI_DR_SEL   equ 12
 OS88UI_DR_WIN   equ 14
 OS88UI_DR_OPEN  equ 16
 OS88UI_DR_HOT   equ 17
-OS88UI_DR_SIZE  equ 18
+OS88UI_DR_SEG   equ 18          ; the banked pixels under the open list, or 0
+OS88UI_DR_KB    equ 20          ; ...and the claim's size, to give back
+OS88UI_DR_SIZE  equ 22
 OS88UI_DRIH     equ 12          ; an item's pitch: an 8px cell and 4px of air,
                                 ; the About card's line and a menu's look
 OS88UI_DRAW     equ 12          ; the arrow cell's width
@@ -2728,15 +2750,164 @@ os88ui_drop:
     clc
     UI_PEN                      ; the pen back, always
     cmp byte [ds:bp+OS88UI_DR_OPEN], 0
-    je .out
-    call os88ui_drlist
-.out:
+    je .shut
+    call os88ui_drbank          ; what the list is about to cover, banked, so
+    call os88ui_drlist          ; taking it down is a blit and not a repaint
+    jmp short .out              ; (SPEC.md 13.14.1)
+.shut:
+    call os88ui_drfree          ; closed: a bank taken before this repaint
+.out:                           ; describes pixels that are no longer there
     pop bp
     pop di
     pop si
     pop dx
     pop cx
     pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_drrect - the OPEN list's rect, the one os88ui_drlist draws (internal)
+; in:  BP = the record
+; out: AX/BX/CX/DX = x1/y1/x2/y2, inclusive, screen. Clobbers nothing else
+; -----------------------------------------------------------------------------
+os88ui_drrect:
+    mov ax, [ds:bp+0]
+    mov cx, [ds:bp+4]
+    mov bx, [ds:bp+6]
+    inc bx                      ; the frame starts the row under the box...
+    push ax
+    mov ax, [ds:bp+OS88UI_DR_N]
+    mov dl, OS88UI_DRIH
+    mul dl                      ; ...and ends a row past the last cell
+    add ax, bx
+    inc ax
+    mov dx, ax
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_drbank - BANK THE PIXELS THE LIST IS ABOUT TO COVER (SPEC.md 5.4.3)
+; in:  BP = the record, the gfx lock held; call it IMMEDIATELY before drawing
+;      the list, so what it reads is what the list hides
+; out: nothing; every register preserved. A failure - no heap, or a rect that
+;      straddles two displays - simply leaves OS88UI_DR_SEG at 0, and the
+;      close then repaints as it always did
+;
+; A repaint costs a fill and a text run per item and per cell of the content
+; underneath; a write-back is one blit. Word measured its own dropdown's
+; close at 521 ms against 19.7 (SPEC.md 68.2), and this control is that same
+; trade published once for everybody.
+; -----------------------------------------------------------------------------
+os88ui_drbank:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    push es
+    call os88ui_drfree          ; a bank we still hold is last frame's
+    call os88ui_drrect
+    push ax                     ; --- bytes = planes x rows x byte columns ---
+    push bx
+    mov cl, 3
+    shr ax, cl
+    shr cx, cl
+    sub cx, ax
+    inc cx                      ; CX = byte columns
+    sub dx, bx
+    inc dx                      ; DX = rows
+    mov ax, dx
+    mul cx                      ; AX = one plane's bytes (a list is far under
+    mov cx, ax                  ; 64KB of one, OS88UI_DRMAX bounding it)
+    mov bx, [ds:bp+OS88UI_DR_WIN]
+    or bx, bx
+    jz .none
+    call OSAPI_WM_DISPLAY       ; DH = the bpp OF THE DISPLAY WE ARE ON, which
+    mov bl, dh                  ; OSAPI_VIDEO cannot answer on a two-card
+    xor bh, bh                  ; machine (SPEC.md 39.16.4): a buffer sized for
+    cmp bl, 4                   ; the wrong one arrives as noise (39.14.8)
+    je .planes
+    mov bx, 1
+.planes:
+    mov ax, cx
+    mul bx
+    add ax, 1023
+    mov cl, 10
+    shr ax, cl                  ; AX = KB, rounded up
+    or ax, ax
+    jz .none
+    mov [ds:bp+OS88UI_DR_KB], ax
+    call OSAPI_MEM_CLAIM
+    jc .none
+    mov [ds:bp+OS88UI_DR_SEG], dx
+    mov es, dx
+    xor di, di
+    pop bx
+    pop ax
+    call os88ui_drrect          ; the rect again: the sizing spent it
+    call OSAPI_GFX_SAVE
+    jnc .out                    ; refused (it straddles two displays): half a
+    call os88ui_drfree          ; bank put back is worse than none
+    jmp short .out
+.none:
+    pop bx
+    pop ax
+.out:
+    pop es
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_drback - put the banked pixels back (internal)
+; in:  BP = the record, the gfx lock held
+; out: CF = 0 the screen is repaired, CF = 1 nothing was banked and the
+;      caller's content wants repainting. Every register preserved
+; -----------------------------------------------------------------------------
+os88ui_drback:
+    cmp word [ds:bp+OS88UI_DR_SEG], 0
+    jne .have
+    stc
+    ret
+.have:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push es
+    mov es, [ds:bp+OS88UI_DR_SEG]
+    xor si, si
+    call os88ui_drrect
+    call OSAPI_GFX_REST
+    call os88ui_drfree
+    pop es
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
+
+; os88ui_drfree - give the claim back WITHOUT restoring (internal): the
+;                 painter's way out, since a repaint has already put fresh
+;                 content where the bank's copy is stale. Preserves all
+os88ui_drfree:
+    push ax
+    push dx
+    mov dx, [ds:bp+OS88UI_DR_SEG]
+    or dx, dx
+    jz .out
+    mov ax, [ds:bp+OS88UI_DR_KB]
+    call OSAPI_MEM_FREE
+    mov word [ds:bp+OS88UI_DR_SEG], 0
+.out:
+    pop dx
     pop ax
     ret
 
@@ -2875,7 +3046,10 @@ os88ui_drpress:
     mov bx, [ds:bp+OS88UI_DR_WIN]
     call OSAPI_WM_CLIP_SET      ; W_ONCLICK arms no region of its own, and
     jc .spent                   ; the list must not land on a window over ours
-    call os88ui_drlist
+    call os88ui_drbank          ; the pixels it covers, banked (13.14.1) -
+    call os88ui_drlist          ; AFTER the clip, which changes nothing about
+                                ; what a save reads, and before the drawing,
+                                ; which is the whole point
 .spent:
     mov ax, 01FFh               ; spent, no pick, nothing to repaint
     clc
@@ -2897,7 +3071,10 @@ os88ui_drpress:
     mov ax, 01FFh
 .down:
     mov byte [ds:bp+OS88UI_DR_OPEN], 0
-    stc                         ; the list covered your content: repaint
+    call os88ui_drback          ; the banked pixels back, and CF says whether
+                                ; that happened: CF = 1 only when there was no
+                                ; bank, which is the repaint the caller has
+                                ; always owed on this path
 .out:
     pop bp
     pop si
@@ -2965,7 +3142,9 @@ os88ui_drup:
     mov [ds:bp+OS88UI_DR_SEL], ax
     mov byte [ds:bp+OS88UI_DR_OPEN], 0
     mov ah, 1
-    stc
+    push ax
+    call os88ui_drback          ; the pixels back, CF = 1 only with no bank
+    pop ax
 .out:
     pop bp
     pop bx
@@ -2980,7 +3159,10 @@ os88ui_drclose:
     cmp byte [bx+OS88UI_DR_OPEN], 0
     je .no
     mov byte [bx+OS88UI_DR_OPEN], 0
-    stc
+    push bp
+    mov bp, bx
+    call os88ui_drback          ; the pixels back where they were banked, and
+    pop bp                      ; CF = 1 - repaint - only where they were not
     ret
 .no:
     clc

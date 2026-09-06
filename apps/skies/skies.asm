@@ -971,8 +971,10 @@ cs_s_flybtn: db 'Fly', 0
 ; records the flight reads, kept in step by position
 cs_drplane:  dw 0, 0, 0, 0, cs_plnames, CS_NPLANES, 0, 0
              db 0, 0FFh
+             dw 0, 0                ; the banked pixels (OS88UI_DR_SEG/_KB)
 cs_drport:   dw 0, 0, 0, 0, cs_apnames, CS_NPORTS, 0, 0
              db 0, 0FFh
+             dw 0, 0
 cs_flyrect:  dw 0, 0, 0, 0
 cs_planes:   dw cs_p_c172
 cs_plnames:  dw cs_s_c172

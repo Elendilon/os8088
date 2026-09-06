@@ -216,6 +216,10 @@ FAST = [
     Row("mirror", "fast", py("tests/unit/t_mirror.py"), 3.9,
         "a constant written down in two files must agree in both; there is no "
         "linker here to notice"),
+    Row("csworld", "fast", py("tests/unit/t_csworld.py"), 2.0,
+        "SPEC.md 88.6.3: no collidable building in CLEAR SKIES' Paris stands"
+        " in the Seine - every base footprint against every river polygon,"
+        " edges and containment and not just corners"),
     Row("csart", "fast", py("tests/unit/t_csart.py"), 0.6,
         "apps/skies/csart.inc is what tools/csart.py generates (SPEC.md 88.10):"
         " the launcher's two 1bpp bands are drawn by the tool and checked in,"
@@ -1659,6 +1663,12 @@ SOAK = [
                                "os8088_5150_cga_gla"), 180.0,
         "SPEC.md 88 on CGA: the 320x112 view, palette 0 over a light-blue"
         " background, the same flight",
+        needs=("marty",), serial=True),
+    Row("fsxclip", "soak", py("tests/fsxclip.py"), 150.0,
+        "SPEC.md 53.1.1: an fsx bracket entered from a CLICK handler comes"
+        " back to a whole desktop - the menu bar, the background and the dock"
+        " held pixel for pixel against what they were, because fsx_run clears"
+        " the clip region the handler armed",
         needs=("marty",), serial=True),
     Row("skiesgeom", "soak", py("tests/skiesgeom.py"), 320.0,
         "SPEC.md 88.5.5-88.5.7: every polygon and segment of a frame, on"

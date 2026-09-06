@@ -3,7 +3,16 @@
 ;
 ; THE WORLD (SPEC.md 88.6): the models, the objects that stand in Paris, and
 ; the two tables a second row could be added to - the aeroplanes and the
-; airports. Metres; x east, z north, y up; the Eiffel Tower at the origin.
+; airports. Metres; x east, z north, y up; the origin is the Eiffel Tower's
+; square. The tower itself STANDS 60 m BACK from it, at (25, -55), which is
+; away from the river along the near bank's normal: its base is 124 m across
+; and the Seine's near bank passes 66 m from the square, so a corner of it
+; stood 15.7 m INSIDE the water and was drawn dipping into the river. The
+; setback leaves the nearest corner 44.7 m clear. THE LOUVRE AND NOTRE-DAME
+; WERE IN THE WATER TOO, which nobody had reported and tests/unit/t_csworld.py
+; found the moment it existed: the palace by 30.8 m and the cathedral by 7.9.
+; They moved with the tower and every collidable base now stands clear
+; (88.6.3).
 ;
 ; A MODEL is db type, nverts (a STACK's LEVELS), nfaces, nedges, edge ink, 0;
 ; dw radius, verts, faces, edges. A STACK's verts are levels of (wx, h, wz),
@@ -279,18 +288,18 @@ cs_e_rwy:  db 0,1, 1,2, 2,3, 3,0, 4,5
 %endmacro
 
 cs_objtab:
-    CS_OBJ cs_m_eiffel, cs_m_eiffelf,     0,     0,   0, 16000, 2500, cs_n_eiffel, CSO_COLLIDE
+    CS_OBJ cs_m_eiffel, cs_m_eiffelf,    25,   -55,   0, 16000, 2500, cs_n_eiffel, CSO_COLLIDE
     CS_OBJ cs_m_troc,   0,             -480,   520,   0,  3000,    0, cs_n_troc,   CSO_COLLIDE
     CS_OBJ cs_m_troc,   0,             -180,   620,   0,  3000,    0, cs_n_troc,   CSO_COLLIDE
     CS_OBJ cs_m_ecole,  0,              150,  -900,   0,  3000,    0, cs_n_ecole,  CSO_COLLIDE
     CS_OBJ cs_m_inval,  0,             1320,  -380,   0,  3500,    0, cs_n_inval,  CSO_COLLIDE
     CS_OBJ cs_m_idome,  0,             1320,  -560,   0,  8000,    0, cs_n_inval,  CSO_COLLIDE
     CS_OBJ cs_m_montp,  0,             2000, -1800,   0, 16000,    0, cs_n_montp,  CSO_COLLIDE
-    CS_OBJ cs_m_louvre, 0,             2900,   250,   0,  5000,    0, cs_n_louvre, CSO_COLLIDE
-    CS_OBJ cs_m_lpyr,   0,             3030,   300,   0,  2500,    0, cs_n_louvre, CSO_COLLIDE
-    CS_OBJ cs_m_ndnave, 0,             4060,  -600,   0,  4000,    0, cs_n_nd,     CSO_COLLIDE
-    CS_OBJ cs_m_ndtwr,  0,             3995,  -585,   0,  6000,    0, cs_n_nd,     CSO_COLLIDE
-    CS_OBJ cs_m_ndtwr,  0,             3995,  -615,   0,  6000,    0, cs_n_nd,     CSO_COLLIDE
+    CS_OBJ cs_m_louvre, 0,             2700,    50,   0,  5000,    0, cs_n_louvre, CSO_COLLIDE
+    CS_OBJ cs_m_lpyr,   0,             2830,    80,   0,  2500,    0, cs_n_louvre, CSO_COLLIDE
+    CS_OBJ cs_m_ndnave, 0,             4040,  -620,   0,  4000,    0, cs_n_nd,     CSO_COLLIDE
+    CS_OBJ cs_m_ndtwr,  0,             3975,  -605,   0,  6000,    0, cs_n_nd,     CSO_COLLIDE
+    CS_OBJ cs_m_ndtwr,  0,             3975,  -635,   0,  6000,    0, cs_n_nd,     CSO_COLLIDE
     CS_OBJ cs_m_panth,  0,             4210, -1280,   0,  7000,    0, cs_n_panth,  CSO_COLLIDE
     CS_OBJ cs_m_arc,    0,                0,  1700,   0,  5000,    0, cs_n_arc,    CSO_COLLIDE
     CS_OBJ cs_m_arche,  0,            -4300,  3800,   0,  5000,    0, cs_n_def,    CSO_COLLIDE

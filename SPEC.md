@@ -21431,6 +21431,41 @@ the launcher's own window — the ARM rather than the wreckage, because what
 a release through a wrong record does depends on the kernel bytes it finds
 there, and a run that patched the bug back in found bytes that did nothing.
 
+#### 13.14.1 …and it BANKS the pixels it covers, so the close is a blit
+
+The first build took the list down by answering `CF = 1` — *repaint your
+content* — which is the only thing a control can say when it cannot read the
+screen. §5.4.3 published `OSAPI_GFX_SAVE`/`OSAPI_GFX_REST` for exactly that
+gap, and Word measured what the gap costs: its own dropdown opened in 99.6 ms
+and closed in **521.4 ms**, because the close re-lettered every text row the
+panel had covered (§68.2). The control now banks the rect
+`os88ui_drrect` names — the list's own frame, the row under the closed box
+down to a row past the last cell — immediately before it draws, and writes it
+back when it comes down. `os88ui_drpress`, `os88ui_drup` and
+`os88ui_drclose` all answer `CF = 0` when that worked.
+
+Measured on MartyPC's 4.77 MHz 8088 with a Hercules, CLEAR SKIES' Location
+list over its title page: **`cs_paint` 100.5 ms against `os88ui_drback`'s
+5.1 ms**, cycle-exact, entry to return — **19.6x**, for a list of two items
+over a 312x156 content area, and the claim it needs is **1 KB**. A longer
+list over a busier window is the trade Word measured at 26x.
+
+**The repaint stays, on three paths that are not failures.** The heap can
+refuse the claim; the rect can straddle two displays, where a save reads one
+card and half a bank put back is worse than none (§39.14.8); and any repaint
+of the app's own content makes a bank taken before it describe pixels that
+are gone — so `os88ui_drop` frees a bank it finds on the way in and takes a
+fresh one on the way out, which is what makes a window drag with a list open
+correct rather than merely lucky. The buffer is sized from
+`OSAPI_WM_DISPLAY`'s `DH` and never from `OSAPI_VIDEO`, for §39.16.4's
+reason: on a two-card machine the depth is the display's.
+
+The record grew by two words (`OS88UI_DR_SEG`, `OS88UI_DR_KB`) and
+`OS88UI_DR_SIZE` is 22 — **appended**, so every offset a caller already reads
+is unmoved, and a declaration that was not grown with it overlaps the next
+one rather than failing to assemble. `tests/skiesui.py` reads the two
+records' spacing for that reason.
+
 ## 14. apps.inc
 
 The built-in app **kinds**: About, Timer, Bounce. Nothing is
@@ -66856,6 +66891,31 @@ What falls out, all of it free:
   sound grant the app takes inside the bracket is billed to its instance,
   and `snd_release_inst` at teardown still catches what it leaks.
 
+### 53.1.1 The bracket CLEARS the clip region, because the screen is the app's
+
+A clip region dies at the arming task's next `gfx_unlock` (§11.3), and a
+bracket runs **inside** the lock hold that entered it: `fsx_run` never
+unlocks, and `fsx_restore` repaints the desktop under that same still-held
+lock. So a package that armed a region to draw in a click handler — which
+§11.3 tells it to do, since `W_ONCLICK` arms none of its own — and then
+entered a bracket from that handler handed the kernel its own content rect as
+the clip for everything that followed.
+
+What that looks like is not a refusal. CLEAR SKIES' **Fly button** is a
+`W_ONMOUSEUP` handler that redraws the button through a region and then calls
+`OSAPI_FSX_RUN`; leaving the flight, the desktop came back with **no
+background, no menu bar, no dock and no drive icons**, while every window
+drew correctly — because `wm_paint` arms a region per window and so overrode
+the stale one, and nothing else in `wm_paint_all` does. The same package
+entered from its **menu** or from the `f` key was clean, both of those arming
+no region, which is what made it look like a fault in the launcher.
+
+`fsx_run` calls `wm_clip_clear` before it calls the app. One instruction of
+argument-free housekeeping, and it belongs here rather than in every package:
+the app owns the whole screen from that call, so no window's region can mean
+anything inside it, and the restore's business is the desktop rather than any
+window's content. `tests/fsxclip.py` is the gate and drives the button.
+
 ### 53.2 The freeze — a whitelist, not `sch_lock` (binding)
 
 `sch_lock` is the wrong tool and sched.inc documents why: it stops the
@@ -95021,6 +95081,37 @@ rolling friction and brakes, roll and pitch rates and their return-to-level,
 the turn constant, the eye height — and its name. Both tables have one row.
 `[cs_plane]` and `[cs_airport]` are the rows in use, and nothing reads a
 constant the record could carry.
+
+#### 88.6.3 The tower stands 60 m back from the origin, out of the river
+
+The map's origin is the Eiffel Tower's square, and the tower's OBJECT was at
+it. Its base is 124 m across, so a corner reaches 88 m diagonally; the Seine's
+near bank — the inner chain of `cs_m_rivc0`, the piece centred at (200, 183) —
+passes 66 m from the square. One corner therefore stood **15.7 m inside the
+water**, and from the air the tower was drawn dipping into the river.
+
+The object moved to **(25, −55)**, which is 60 m along the near bank's own
+normal, away from it: the nearest corner is 44.7 m clear. Moving the tower
+rather than the river is what keeps the six river pieces joined — they are
+separate ribbons that meet end to end, and offsetting one puts a step in the
+water at both of its joins. The origin still means the tower's square; the
+tower stands back from it, as it does from the quay.
+
+**Two more were in the water and nobody had reported either**, which is the
+whole case for `tests/unit/t_csworld.py`: it walks the object table and the
+models out of `build/skies.bin` and holds every collidable base's footprint
+against every river polygon, and it found NOTRE-DAME 7.9 m in and THE LOUVRE
+by 30.8 the first time it ran. The cathedral moved 20 m south-west with its
+two towers (19.6 m clear); the palace moved 200 m along its own bank, to
+(2700, 50), which keeps all 500 m of it and its pyramid and buys 52.8.
+
+**Corners are not enough, and that is not hypothetical.** The first version
+of the gate tested the four base corners, and it PASSED the Louvre at a
+position where the river crossed the middle of its footprint with every
+corner dry — a 500 m building lying along a 190 m band of water. It tests
+every edge pair and containment either way now, which is also what a bridge
+over the river would need. `MARGIN` is 5 m; the tightest thing in Paris is
+Notre-Dame at 19.6.
 
 ### 88.7 The flight model (`apps/skies/csflight.inc`)
 

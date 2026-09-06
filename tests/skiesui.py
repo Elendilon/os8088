@@ -24,6 +24,12 @@ landed - and every answer is read out of the package's bss, not the glass.
      climbing;
   6. after all of that the menu bar still drops.
 
+Check 2a is the drop-down's SAVE-UNDER (SPEC.md 13.14.1): opening the list
+banks the pixels it covers and closing it writes them back, so the band the
+list lay over must come back pixel for pixel, with the claim released. The
+pointer is parked at one place for both captures, which is what lets the
+comparison be exact rather than approximate.
+
 Check 2 also reads the kernel's `ui_armw` between the pick's PRESS and its
 RELEASE, and that word must name the launcher's own window (cs_win). It is
 the check that would have caught the first build: its click handler came
@@ -53,6 +59,9 @@ import dispapps                                             # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DR_SEL, DR_OPEN = 12, 16                # os88ui.inc's record (OS88UI_DR_*)
+DR_SIZE = 22                            # ...whose two banking words (13.14.1)
+                                        # were APPENDED, so a record declared
+                                        # to the old length overlaps the next
 CSB_MODEX, CSB_CGA = 1, 2
 bad = []
 
@@ -108,6 +117,9 @@ def main(argv):
                 m.write(lin + mp[name] + si_at, b"\x5d")      # pop si -> pop bp
                 m.run()
             print("  (SI clobbered on purpose in cs_onclick and cs_drtake: this run must fail)")
+        check(mp["cs_drport"] - mp["cs_drplane"] == DR_SIZE,
+              "the two drop-down records are OS88UI_DR_SIZE apart (%d)"
+              % (mp["cs_drport"] - mp["cs_drplane"]))
         pl, po = rect("cs_drplane"), rect("cs_drport")
         check(pl[2] > pl[0] and po[1] > pl[3], "the painter wrote the drop-downs' rects (%s, %s)" % (pl, po))
 
@@ -138,6 +150,36 @@ def main(argv):
         check(bss("cs_airport") == second and bss("cs_inited", 1) == 0,
               "the pick is the airport in use, and the next flight starts there (cs_airport %04x, cs_inited %d)"
               % (bss("cs_airport"), bss("cs_inited", 1)))
+
+        # --- 2a. ...and the pixels it covered come BACK (SPEC.md 13.14.1) -----
+        # The pointer is parked at the same place for both captures, so the
+        # comparison can be exact: what differs is the list, or nothing.
+        park = (po[0] - 30, po[1] - 40)
+        ui.mo.to(*park)
+        m.advance(frames=20)
+        m.run()
+        m.pause()
+        fw, fh, was = m.fbuf(0)
+        m.run()
+        click((po[0] + po[2]) // 2, (po[1] + po[3]) // 2)
+        kb = rec("cs_drport", 20)
+        check(rec("cs_drport", 18) != 0 and kb > 0,
+              "opening the list banked the pixels under it (%d KB)" % kb)
+        click(po[0] + 20, po[3] + 2 + 6)                # the first item: the
+        ui.mo.to(*park)                                 # pick does not change
+        m.advance(frames=20)                            # what is drawn
+        m.run()
+        m.pause()
+        fw, fh, now = m.fbuf(0)
+        m.run()
+        y0, y1 = po[3] + 1, min(po[3] + 2 + 12 * 2 + 2, fh)
+        band = lambda f: b"".join(f[(y * fw + po[0]) * 3:(y * fw + po[2] + 1) * 3]
+                                  for y in range(y0, y1))
+        a, b = band(was), band(now)
+        d = sum(1 for i in range(0, len(a), 3) if a[i:i + 3] != b[i:i + 3])
+        check(d == 0, "closing it put every pixel back (%d of %d differ)"
+              % (d, len(a) // 3))
+        check(rec("cs_drport", 18) == 0, "and the claim went with it")
 
         # --- 3. Esc closes ----------------------------------------------------
         click((po[0] + po[2]) // 2, (po[1] + po[3]) // 2)

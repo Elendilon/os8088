@@ -258,6 +258,21 @@ fsx_run:
                                 ; promise on the secondary display.
 %endif
 
+    call wm_clip_clear          ; THE WHOLE SCREEN IS THE APP'S, so no window's
+                                ; clip region may survive into it (SPEC.md
+                                ; 53.1.1). A region dies at the caller's next
+                                ; gfx_unlock and the bracket runs INSIDE that
+                                ; same hold, so a package that armed one to
+                                ; draw in its click handler - which is what
+                                ; SPEC.md 11.3 tells it to do - and then
+                                ; entered a bracket handed us its own content
+                                ; rect as the clip for everything: the app's
+                                ; own drawing, and then fsx_restore's repaint
+                                ; of the DESKTOP. CLEAR SKIES' Fly button was
+                                ; exactly that, and the desktop came back with
+                                ; no background, no menu bar and no dock,
+                                ; while its windows drew correctly because
+                                ; wm_paint arms a region per window
     push bp                     ; the app owns the machine from here to its
     mov si, bx                  ; ret: wm_pkgcall's contract, record in SI,
     mov bp, ax                  ; offset in BP (SPEC.md 53.1)
