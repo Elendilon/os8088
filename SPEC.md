@@ -95458,6 +95458,35 @@ two frames to put a new reading on both pages. Six ticks is 4.6 frames on
 Hercules and 2.4 on Mode X, which is the tighter of the two and still clears
 it. A slower panel is one constant if the 3 Hz ever reads as busy.
 
+#### 88.5.8 "Buildings lean over", which was the horizon
+
+Reported off the machine with a photograph: a large dithered wedge standing
+on a slope, at **ALT 00085**. Four instruments were pointed at it and none of
+them found a fault:
+
+- the **projection replay** (§88.11's `skiesgeom`) is exact on four new
+  scenes low among the buildings — 25 polygons and 78 segments, worst 0 px;
+- **convexity**: 2,335 polygons over 264 camera poses, 50 not convex and
+  every one of them a 2-to-3 pixel sliver — a face seen edge-on, folded by
+  integer rounding, and invisible;
+- **the vertical invariant**: with the wings level and no pitch, a
+  world-vertical edge projects to a screen x that differs by **0 pixels**
+  between its two ends. At 10° of pitch it is 1 px, and at 20° of bank 8 px
+  over a 13 px edge, which is the bank;
+- and the picture itself. **`ALT 00085` is FEET** — `cs_k_alt` is metres ×
+  3.281 — so the aeroplane is at **26 metres**, and a left bank of about 55°
+  at that height reproduces the photograph frame for frame, down to `SPD
+  087 / HDG 251 / THR 100`. The wedge is the GROUND: its straight sloping
+  edge is the horizon, and the black below and right of it is sky.
+
+So there is nothing to fix, and what the report bought instead is the third
+instrument, which is now a permanent check in `tests/skiesgeom.py`. It is
+worth having for a reason the replay cannot cover: **the replay reproduces
+the guest's own algorithm**, so a fault in the algorithm rather than in its
+arithmetic would agree with itself and pass. A world-vertical edge staying
+vertical is an outside fact about perspective, and yaw alone never mixes Y
+into X or Z.
+
 #### 88.7.4 Speeds are 16.7, and why that had to happen first
 
 `cs_spd` was 16.8 metres a second, and **two sites read it signed**: the

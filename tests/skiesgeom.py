@@ -24,6 +24,13 @@ faults, neither of which a straight flight reaches:
     1,024 and 4,000 pixels from the centre came back with the wrong sign
     (88.5.6.1). The side-clip crossings sit at 1,772 - every one of them.
 
+AND ONE INVARIANT THAT IS NOT A REPLAY. A world-vertical edge must project
+vertical when the camera has neither pitch nor roll, because yaw alone never
+mixes Y into X or Z. The replay cannot catch a fault in the ALGORITHM - it
+reproduces the guest's own - so this one is checked directly. It is the
+invariant behind "buildings lean over", which was reported off the machine
+and turned out to be the horizon under a steep bank (SPEC.md 88.5.8).
+
 THE REFERENCE is the guest's integer arithmetic, replayed: the camera-space
 vertices and their flags are read out of the package's bss at each
 polygon and edge (the transform is trusted - it is the same nine multiplies
@@ -63,6 +70,23 @@ SCENES = {   # airport (the launcher's Location row), x, y, z (metres);
                                                          # it, 30 left: the
                                                          # runway half behind
                                                          # the eye
+    # --- LOW AND AMONG THE BUILDINGS, which none of the five above is: the
+    #     owner photographed a solid standing on a slope it should not have,
+    #     at 85 m over a city with the throttle open. A box that close is
+    #     clipped by the near plane AND by two side planes at once, which a
+    #     climb-out at 40 m over open country never asks for.
+    "city85":  (0, 2400, 85, 0, 45875, 0, 0),            # by the Louvre, 252
+    "city85b": (0, 200, 85, -200, 45875, 876, 1800),     # under the tower
+    "city85c": (0, 3800, 85, -500, 20000, 0, 2000),      # over Notre-Dame
+    "inval26": (0, 1320, 26, -1180, 0, 0, 0),            # LEVEL and 800 m
+                                                         # from Les Invalides
+                                                         # at 26 m: a wall 33
+                                                         # pixels tall and
+                                                         # WHOLLY IN VIEW,
+                                                         # which is what the
+                                                         # vertical invariant
+                                                         # needs (88.5.8)
+    "lbg85":   (1, 4350, 85, 4800, 20000, 0, 3000),      # off Le Bourget
 }
 bad = []
 
@@ -379,6 +403,11 @@ def main(argv):
                 sys.exit("skiesgeom: cs_render never ran")
             m.bp_exec(lin + render, *[lin + s for s in stops])
             cur, ref, npoly, nseg, worst = "?", None, 0, 0, 0
+            lean = (0, None, None)      # the worst world-vertical edge that
+            leann = 0                   # did not come out vertical (88.5.8),
+                                        # and how many were looked at - a
+                                        # check that examined nothing must
+                                        # not pass
             pending = None                  # (edge, reference) awaiting its cs_seg
             errs = []
 
@@ -411,7 +440,33 @@ def main(argv):
                 if k == "cs_drawobj":
                     ob = int.from_bytes(m.readseg(seg, si, 2), "little")
                     cur = name_of(ob)
-                elif k == "cs_poly":
+                elif k == "cs_poly" and not roll and not pitch:
+                    # A WORLD-VERTICAL EDGE MUST PROJECT VERTICAL when the
+                    # camera has neither pitch nor roll: yaw alone never
+                    # mixes Y into X or Z, so the two vertices of a wall's
+                    # side share a screen x. This is the invariant behind
+                    # "buildings lean over" and it is independent of the
+                    # replay below - the replay reproduces the guest's own
+                    # algorithm, so an algorithmic fault would agree with
+                    # itself. CS_SIDES emits base+1, top+1, top+0, base+0,
+                    # so the vertical pairs are (0,1) and (2,3); a FLAT
+                    # model (a river, a runway) has no vertical edge at all.
+                    # ...on a face that was NOT CLIPPED, because a clip
+                    # renumbers the list and (0,1)/(2,3) stop being the
+                    # columns. cs_pwhole is the guest's own word for that.
+                    if (cx == 4 and byte("cs_pwhole")
+                            and m.readseg(seg, w("cs_mdl"), 1)[0] != 1):
+                        vv = [(sg(int.from_bytes(m.readseg(seg, si + 4 * i, 2), "little")),
+                               sg(int.from_bytes(m.readseg(seg, si + 4 * i + 2, 2), "little")))
+                              for i in range(4)]
+                        for va, vb in ((0, 1), (2, 3)):
+                            dx_ = abs(vv[va][0] - vv[vb][0])
+                            dy_ = abs(vv[va][1] - vv[vb][1])
+                            if dy_ >= 8 and abs(vv[va][0]) < 4000:
+                                leann += 1
+                                if dx_ > lean[0]:
+                                    lean = (dx_, cur, (vv[va], vv[vb]))
+                if k == "cs_poly":
                     R, pts, fv, whole = geom()
                     fn = w("cs_fn")
                     idx = list(m.readseg(seg, w("cs_fidx"), fn))
@@ -462,6 +517,12 @@ def main(argv):
                   % (sc, npoly, nseg, worst, len(errs)))
             check(npoly + nseg >= 6, "%s: the frame had something to check (%d polygons, %d segments)"
                   % (sc, npoly, nseg))
+            if not roll and not pitch:
+                check(leann >= 4 and lean[0] <= 1,
+                      "%s: %d world-vertical edges, and they stay vertical "
+                      "with the wings level (worst %d px%s)"
+                      % (sc, leann, lean[0],
+                         ": %s %s" % (lean[1], lean[2]) if lean[1] else ""))
         m.type_text("f")
         m.advance(frames=30)
         m.run()

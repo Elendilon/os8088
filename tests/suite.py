@@ -1722,12 +1722,15 @@ SOAK = [
         " is eased at all. Read at a cs_step breakpoint: a frame spends one,"
         " two or three ticks, so a per-frame sample cannot see the landing",
         needs=("marty",), serial=True),
-    Row("skiesgeom", "soak", py("tests/skiesgeom.py"), 31.0,
-        "SPEC.md 88.5.5-88.5.7: every polygon and segment of a frame, on"
-        " five pinned scenes (four of them BANKED), held to a host replay of"
-        " the guest's own near clip, side clip and per-scale projection -"
-        " the two faults a straight flight never reached (88.5.6.1,"
-        " 88.5.7.1), each with a red run that patches it back",
+    Row("skiesgeom", "soak", py("tests/skiesgeom.py"), 39.0,
+        "SPEC.md 88.5.5-88.5.8: every polygon and segment of a frame, on nine"
+        " pinned scenes - four BANKED, four low among the buildings - held to"
+        " a host replay of the guest's own near clip, side clip and per-scale"
+        " projection: the two faults a straight flight never reached"
+        " (88.5.6.1, 88.5.7.1), each with a red run that patches it back."
+        " Plus 88.5.8's invariant, which is NOT a replay: with the wings"
+        " level a world-vertical edge must project vertical, and the replay"
+        " cannot catch a fault in the algorithm because it reproduces it",
         needs=("marty",), serial=True),
     Row("skiesui", "soak", py("tests/skiesui.py"), 44.0,
         "SPEC.md 88.10's title page on the VGA machine: the two drop-downs"
