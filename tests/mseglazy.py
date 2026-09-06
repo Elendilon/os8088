@@ -76,7 +76,14 @@ import msegsym
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 KNOBS = ["DISKCNT=1"]
-DEFINES = ["DISK_COUNTERS"]
+# **DERIVED, NEVER RESTATED** (docs/plans/SOAK-PARALLEL.md 8.4). A knob's make
+# VARIABLE and its nasm DEFINE are not the same string, and this line used to
+# be the second copy of that mapping: `["DISK_COUNTERS"]` against `os88build`'s
+# `('DISK_COUNTERS', 'KERN_BIG', 'KERN_KNOB')`. It assembled - which is exactly why it survived - but as
+# a DIFFERENT cache key from the one `Tree.apply()` had just set, so the row
+# re-assembled the kernel a second time to get the same answer. `fddpark`
+# is the class that died of this mirror going stale; `tree()` asks make.
+DEFINES = ()                    # filled from the tree in main()
 MACHINE = sys.argv[1] if len(sys.argv) > 1 else "os8088_5150_herc_gla_144"
 SYS_IMG = sys.argv[2] if len(sys.argv) > 2 else "build/os8088-360.img"
 APPS_IMG = "build/mseg.img"
@@ -132,7 +139,7 @@ def build_counted():
     kernel back - two full builds, and in between any row reading the tree
     would have driven a DISKCNT kernel nobody asked for.
     """
-    global SYS_IMG, APPS_IMG, O88
+    global SYS_IMG, APPS_IMG, O88, DEFINES
     say("building the counted kernel (DISKCNT=1)...")
     # `mseg` COMES ALONG, and that is a fix rather than tidiness: this row's
     # own usage line says `make mseg && python3 tests/mseglazy.py`, mseg is NOT
@@ -142,6 +149,7 @@ def build_counted():
     # reading as a failing one. A private tree has to name what it wants, and
     # naming it is what fixed it.
     t = os88build.tree(*KNOBS, targets=("os8088-360.img", "mseg")).apply()
+    DEFINES = t.defines         # ...and apply() has already set the default
     SYS_IMG = t.img("os8088-360.img")
     APPS_IMG = t.img("mseg.img")
     O88 = t.img("mseg.o88")
