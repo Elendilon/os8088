@@ -1634,7 +1634,7 @@ KNOBS := $(strip $(foreach k,VIDEO HERCSEG RTC DISKCNT DISKAL BOOTDIAG FLOPPY1 \
                              FONT INSTCHUNK PICOMEM PM_BASE PM_SB_PORT ANIMOFF DISINK0 \
                              BOOTPROF STKDIAG BOOTMARK BOOTHALT BOOTSTOP NOPS2 MOUIDSLOW MOUDIAG FDDSLOW TRACKRUN SBDRAGOFF SBRATE \
                              ETHPROF FTPDSLOW FTPDBG \
-                             KERN_SMALL KERN_EMU FSNOSTAMP THEMEDARK TITLESNAP SPLSTARS NOSIZESNAP NOFLUSHR NOUNAL BAND NOPLANE NOCOLFAST NOBLITCUT NOUIBLOCK NOMOUPRIV NOCHAINPRIV NOHEDGE NOATBLIT1 NOATFAST NOATWALK NOATSBAR NOATROW NOATBLANK NOATPLAIN NOATCX NOATRESPAN NOATFETCH NOATCELL NOCURDISK NOFDDPARK VGADIRTY DLJUNK COMPRESS NOKZIP,\
+                             KERN_SMALL KERN_EMU FSNOSTAMP THEMEDARK TITLESNAP SPLSTARS NOSIZESNAP NOFLUSHR NOUNAL BAND NOPLANE NOCOLFAST NOBLITCUT NOUIBLOCK NOMOUPRIV NOCHAINPRIV NOHEDGE NOATBLIT1 NOATFAST NOATWALK NOATSBAR NOATROW NOATBLANK NOATPLAIN NOATCX NOATRESPAN NOATFETCH NOATCELL NOATTAIL NOCURDISK NOFDDPARK VGADIRTY DLJUNK COMPRESS NOKZIP,\
                              $(if $($(k)),$(k)=$($(k)))))
 # **A KNOB KERNEL IS NOT THE SHIPPED KERNEL, so KERN_BUDGET does not bind it**
 # (kernel.asm guard 1). It is built to answer a question about a machine and
@@ -1660,7 +1660,7 @@ KNOBS := $(strip $(foreach k,VIDEO HERCSEG RTC DISKCNT DISKAL BOOTDIAG FLOPPY1 \
 # kern_emu carrying -DKERN_KNOB would SKIP guard 1 (the KERN_BUDGET footprint
 # check), so the one build that adds a feature would be the one build nothing
 # measured.
-ifneq ($(filter-out KERN_SMALL=% KERN_EMU=% NOHEDGE=% NOATBLIT1=% NOATFAST=% NOATWALK=% NOATSBAR=% NOATROW=% NOATBLANK=% NOATPLAIN=% NOATCX=% NOATRESPAN=% NOATFETCH=% NOATCELL=%,$(KNOBS)),)
+ifneq ($(filter-out KERN_SMALL=% KERN_EMU=% NOHEDGE=% NOATBLIT1=% NOATFAST=% NOATWALK=% NOATSBAR=% NOATROW=% NOATBLANK=% NOATPLAIN=% NOATCX=% NOATRESPAN=% NOATFETCH=% NOATCELL=% NOATTAIL=%,$(KNOBS)),)
 VIDDEF += -DKERN_KNOB
 endif
 
@@ -2997,6 +2997,11 @@ $(shell mkdir -p $(BUILD); \
 # NOATCELL=1   compose every cell through a CALL to at_glyph, seven register
 #              banks and a per-cell strip-cursor computation, even on a plain
 #              scale-1 line where none of it can differ (SPEC.md 46.4.9).
+# NOATTAIL=1   erase the WHOLE region before a whole-view repaint, the way
+#              at_draw_text and at_redraw_below both did, and then draw an
+#              opaque full-width line into every row of it - PERFORMANCE.md's
+#              second rule broken twice, and 115 ms of a 250 ms repaint on a
+#              Hercules (SPEC.md 46.4.10).
 ATKNOB :=
 ifneq ($(NOATBLIT1),)
 ATDEF += -DNOATBLIT1
@@ -3041,6 +3046,10 @@ endif
 ifneq ($(NOATCELL),)
 ATDEF += -DNOATCELL
 ATKNOB := $(ATKNOB)c
+endif
+ifneq ($(NOATTAIL),)
+ATDEF += -DNOATTAIL
+ATKNOB := $(ATKNOB)t
 endif
 ATSTAMP := $(BUILD)/.artful-$(if $(ATKNOB),$(ATKNOB),opt)
 $(shell mkdir -p $(BUILD); \

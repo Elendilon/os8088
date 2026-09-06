@@ -60464,6 +60464,50 @@ trip back out.
 → 142.8 on five) for **106 bytes** — 19,747 → 19,853. `NOATCELL=1` is the A/B,
 and `tests/atblit.py` is the picture.
 
+#### 46.4.10 The erase is the text's TAIL, not the region
+
+Both whole-view repaints — `at_draw_text` and `at_redraw_below` — opened with a
+white `OSAPI_GFX_FILL` across the **entire** region they were about to redraw,
+and then drew a line into every row of it. `at_draw_line` is **opaque and full
+width on both of its arms**: the band arm blits `at_strip1` with `CX =
+[at_tw]`, the colour arm expands to `[at_xw] = [at_tw]` and blits that, and the
+row clamp shortens the blit at `ty1` rather than narrowing it. Consecutive
+lines tile exactly, because `at_line_y` accumulates `at_lgeom`'s row heights.
+
+So every pixel the fill whitened between `at_ty0` (or `[at_rby]`) and the
+bottom of the last line drawn was **written twice** — PERFORMANCE.md's second
+rule, and the one defect of its three that an emulator cannot show.
+
+The fill moves **after** the loop and covers only what the text did not.
+`[at_tby]` is the first row nothing has drawn on: `at_ty0` (or the erase's own
+`at_line_y` in `at_redraw_below`) before the loop, and `[at_dly] + [at_prh]`
+after each line — the y `at_parse` was just given and the row height it just
+computed, so no second walk is needed. At the end, `[at_tby] >= [at_ty1]` means
+the text reached the bottom by itself and there is nothing to erase.
+`at_filltail` is that fill, factored out of the two sites that had it inline.
+
+**IT IS NOT `at_line_y(at_nlines)`, and that formulation shipped wrong once.**
+The walk to `at_nlines` is the bottom of the last line *only while the loop ran
+to the end*. A loop that stops early — the next line is below the view, or `BX`
+started past `at_nlines` and the walk then reads `at_lattr` past the table —
+leaves every row between the last line it drew and that answer **unerased**,
+which is a stale picture rather than a crash: `tests/atblit.py` reported 130
+differing pixels on the scrolled scene and 502 on the undone one, all of them
+old text nothing had painted over. Carrying the row costs 2 bytes of bss and
+one `add` a line, and cannot be wrong about a loop it is inside.
+
+**Measured on a Hercules**, text region 592 × 284: the fill alone is **115 ms**
+of a 250 ms `at_redraw_below`, against 6.1 ms for a one-character line and
+18.9 ms for a full-width one. A repaint whose view is full now spends none of
+it. `NOATTAIL=1` is the A/B.
+
+**What it does NOT do is change what a failed blit looks like.** Today a line
+whose blit is refused shows the white the fill left; after this it shows
+whatever was underneath. Both arms of `at_draw_line` cannot refuse together —
+`gfx_blit1`'s CF falls into the expander, which is `kern_small`'s only path and
+`kern_big`'s fallback — so this is a difference in a state the app does not
+have, and it is written down rather than measured.
+
 ### 46.5 The chrome — the app draws its own Macintosh
 
 Fullscreen makes the kernel bar unreachable (§11.2), which is exactly what

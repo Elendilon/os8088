@@ -420,27 +420,31 @@ at_redraw_below:
 .from:
     call at_line_y
     jc .out                         ; below the view: nothing shows
-    mov [at_rby], ax
-    mov al, CWHITE
-    call OSAPI_SET_COLOR
-    mov ax, [at_tx0]
-    push bx
-    mov bx, [at_rby]
-    mov cx, ax
-    add cx, [at_tw]
-    dec cx
-    mov dx, [at_ty1]
-    dec dx
-    call OSAPI_GFX_FILL
-    pop bx
+%ifdef NOATTAIL
+    call at_filltail                ; the pre-46.4.10 erase: from this line's
+%else                               ; y to the region's bottom, every pixel of
+    mov [at_tby], ax                ; it then drawn over again below
+%endif
 .draw:
     cmp bx, [at_nlines]
-    jae .out
+    jae .tail
     call at_line_y
-    jc .out
+    jc .tail
     call at_draw_line
+%ifndef NOATTAIL
+    mov ax, [at_dly]                ; SPEC.md 46.4.10: the first row nothing
+    add ax, [at_prh]                ; has drawn on, kept as the loop goes
+    mov [at_tby], ax
+%endif
     inc bx
     jmp short .draw
+.tail:
+%ifndef NOATTAIL
+    mov ax, [at_tby]
+    cmp ax, [at_ty1]
+    jae .out                        ; the text reached the bottom by itself
+    call at_filltail
+%endif
 .out:
     pop dx
     pop cx

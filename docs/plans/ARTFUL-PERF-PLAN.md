@@ -561,7 +561,53 @@ now reports **85 differing pixels** in one cell.
 **Where the keystroke stands**: 520.7 ms at the start of this work, **81.8 ms**
 now on the same scene — **6.37x**.
 
-**What is left**: Wave 6 (`at_append`) and 4a. 2a and 2b are settled and
-refused; 3b and 3c are built. 4a needs re-costing against a line that is now
-~20 ms rather than the 122 ms it was planned against, and Wave 6 needs
-answering against the measurement that made `at_compose` the target instead.
+**4a IS REFUSED, and the measurement that refuses it found something better.**
+Re-costed on iron-equivalent numbers, Hercules, text region 592 x 284:
+
+| | measured |
+|---|---|
+| one `gfx_scroll` of the text band | **176.6 ms** (842,711 cycles, identical across three) |
+| the full-region white `GFX_FILL` it would replace | **~115 ms** |
+| one `at_draw_line`, one-character line | **6.1 ms** |
+| one `at_draw_line`, full-width plain line | **18.9 ms** |
+| one `at_redraw_below` over 22 such lines | **249.6 ms** |
+
+**The scroll costs MORE than the fill it replaces** — 176.6 against 115 — so
+4a's saving is not "a scroll instead of a repaint", it is `(N-K)` line draws
+minus a 61 ms surcharge. That was still a good trade at the 122 ms line the
+plan was written against, and it is a marginal one at 18.9: break-even at
+`N-K` >= 4 full-width lines *before* §46.4.10, and >= **9.3** after it, on a
+view that holds 28. An edit below the top third of the screen would pay MORE
+than it does today, and a document of short lines can never reach break-even at
+all (29 lines of a 28-line view). Against +230 to +300 bytes and the dy-anchor
+hazard, that is not a change worth making.
+
+**§46.4.10 IS WHAT THE RE-COSTING FOUND**, and it is the better half of 4a for
+none of the risk. Both whole-view repaints opened with a white `GFX_FILL`
+across the entire region and then drew an **opaque, full-width** line into
+every row of it — `at_draw_line` blits `CX = [at_tw]` on the band arm and
+expands to the same width on the colour one, and consecutive lines tile
+exactly. So every pixel between the fill's top and the bottom of the last line
+was **written twice**: PERFORMANCE.md's second rule, broken in the two places
+that repaint the most. The fill moves *after* the loop and covers only what the
+text did not — `at_line_y` with `BX = at_nlines` is the first row it did not
+reach, and CF there means the view is full and there is nothing to erase.
+
+**1.33x on `at_redraw_below` for 24 bytes** (249.6 → 187.4 ms over 22 lines;
+259.0 → 195.4 over 23, 239.2 → 181.4 over 21). Factoring the two inline fills
+into `at_filltail` pays for most of it. `NOATTAIL=1` is the A/B.
+
+**The obvious formulation of the fill top is wrong, and the row caught it.**
+`at_line_y(at_nlines)` — the row after the last line — is the bottom of the
+drawn text *only while the loop ran to the end*. A loop that stops early leaves
+every row between the last line it drew and that answer unerased: 130 differing
+pixels on the scrolled scene and 502 on the undone one, all of them old text
+nothing had painted over. `[at_tby]` carries the row instead — `[at_dly] +
+[at_prh]` after each line, which is the y `at_parse` was just given and the
+height it just computed — for 2 bytes of bss and one `add` a line, and it
+cannot be wrong about a loop it is inside. **Fifth time in this plan** the
+right answer was a witness rather than an argument, and the first time the
+witness was already in place when the mistake was made.
+
+**What is left**: Wave 6 (`at_append`). 2a, 2b and 4a are settled and refused;
+3b and 3c are built.

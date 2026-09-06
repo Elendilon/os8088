@@ -1338,6 +1338,34 @@ at_line_y:
     ret
 
 ; -----------------------------------------------------------------------------
+; at_filltail - white from row AX down to at_ty1-1, across the text width
+; in:  AX = first row (< at_ty1); out: nothing; preserves all registers
+; SPEC.md 46.4.10. The two whole-view repaints had this inline and used it to
+; erase the ground they were about to draw on; it erases what the text does
+; NOT cover now, which is why it takes the top row as an argument.
+; -----------------------------------------------------------------------------
+at_filltail:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov bx, ax
+    mov al, CWHITE
+    call OSAPI_SET_COLOR
+    mov ax, [at_tx0]
+    mov cx, ax
+    add cx, [at_tw]
+    dec cx
+    mov dx, [at_ty1]
+    dec dx
+    call OSAPI_GFX_FILL
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; at_draw_text - repaint the whole text region (erase + every visible line)
 ; out: nothing; preserves all registers; lock held by the caller
 ; -----------------------------------------------------------------------------
@@ -1347,25 +1375,34 @@ at_draw_text:
     push cx
     push dx
     call at_caret_off
-    mov al, CWHITE
-    call OSAPI_SET_COLOR
-    mov ax, [at_tx0]
-    mov bx, [at_ty0]
-    mov cx, ax
-    add cx, [at_tw]
-    dec cx
-    mov dx, [at_ty1]
-    dec dx
-    call OSAPI_GFX_FILL
+%ifdef NOATTAIL
+    mov ax, [at_ty0]                ; the pre-46.4.10 erase: the WHOLE region,
+    call at_filltail                ; every pixel of it drawn over again below
+%else
+    mov ax, [at_ty0]
+    mov [at_tby], ax                ; SPEC.md 46.4.10: the first row nothing
+%endif                              ; has drawn on yet
     mov bx, [at_top]
 .line:
     cmp bx, [at_nlines]
-    jae .done
+    jae .tail
     call at_line_y
-    jc .done
+    jc .tail
     call at_draw_line
+%ifndef NOATTAIL
+    mov ax, [at_dly]                ; ...and at_parse's own row height, which
+    add ax, [at_prh]                ; is the one at_line_y would walk to
+    mov [at_tby], ax
+%endif
     inc bx
     jmp short .line
+.tail:
+%ifndef NOATTAIL
+    mov ax, [at_tby]
+    cmp ax, [at_ty1]
+    jae .done                       ; the text reached the bottom by itself
+    call at_filltail
+%endif
 .done:
     call at_caret_on
     pop dx

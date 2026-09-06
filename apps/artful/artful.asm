@@ -1205,7 +1205,20 @@ at_xrlo     equ at_ocaret + 2
 at_xrhi     equ at_xrlo + 2
 at_xry      equ at_xrhi + 2
 at_rby      equ at_xry + 2
-at_pastepos equ at_rby + 2
+at_tby      equ at_rby + 2                    ; word: SPEC.md 46.4.10 - the
+                                              ; first row of the text region
+                                              ; that the repaint loop has NOT
+                                              ; drawn on, kept as it goes. It
+                                              ; is not at_line_y(at_nlines):
+                                              ; that walk is right only while
+                                              ; the loop ran to the end, and
+                                              ; a loop that stopped early
+                                              ; leaves the rows between the
+                                              ; last line and that answer
+                                              ; UNERASED - which is a stale
+                                              ; picture and how this shipped
+                                              ; wrong once.
+at_pastepos equ at_tby + 2
 at_wlo      equ at_pastepos + 2
 at_whi      equ at_wlo + 2
 at_wplen    equ at_whi + 2
