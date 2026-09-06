@@ -1687,6 +1687,39 @@ assigning garbage, which is why the SDK documents the guard rather than
 **No shipped C package declares yet**, and that is now an audit rather than an
 impossibility. `docs/HEAP-CLAIMS.md`'s row says so.
 
+### 10.8 Piece A — `MC_DMA` stops being a pin
+
+**Built. +61 bytes of `.cold`, and it CROSSED A RUNG** — `.cold` 38,370 →
+38,431, which took the footprint 18,944 → 18,432 spare (36 steps). It still
+fits with room, and the crossing is reported rather than designed around
+(CLAUDE.md's rung rule): the byte cost is 61 and the 512 is what the previous
+work had already spent into that rung.
+
+`mem_can_move`'s `MC_DMA` refusal is gone; `mem_cp_dest` honours the constraint
+instead, in both directions, and `mem_cp_adv` and both walks' *"would it
+move"* test now read the **destination** rather than the fill point, because a
+bump puts the two apart. SPEC.md 66.4.2 is the contract and §3.1 above the
+evidence: four `MC_DMA` claims in the tree, one chip, and what keeps the Sound
+Blaster's ring still is what keeps everything still — nobody declared it.
+
+**`tests/heapfrag` check 14 is the gate and the head is the WHOLE block**,
+which is what makes it sharp. A block of P paragraphs whose whole length must
+end inside one 64KB page can only sit at a base whose page offset is ≤
+0x1000 − P, and every heap base is a multiple of 64 paragraphs (guard 6b) — so
+of the 64 offsets a destination can have, only a handful are legal. The check
+claims 60KB with a 60KB head, declares it movable, fills it, frees the block
+underneath and asks for one KB more than the largest single run.
+
+| arm | where it landed |
+|---|---|
+| shipped | page offset **0** paragraphs — legal |
+| the bump amputated (`mem_cp_dest`'s `MC_DMA` read forced to 0) | page offset **3,520** paragraphs, with 3,840 of head to place: **straddling by 204KB** |
+| `HEAPCOMPACT=0` | refused, as declared |
+
+The middle row is what this piece is about. A straddle does not fault: the 8237
+wraps to the start of its page and moves **the wrong memory, silently**, which
+is why the check reads an address and not a flag.
+
 ---
 
 ## 10.1 How the rest would be verified

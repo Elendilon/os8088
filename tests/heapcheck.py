@@ -50,13 +50,14 @@ LABELS = ["worker hired", "room", "comb built", "pattern round-trip",
           "declare movable", "break the comb", "heap IS fragmented",
           "the big claim", "contents intact", "pinned block held",
           "something moved", "told once per move",
-          "ceiling packed up"]
+          "ceiling packed up", "dma lands page-safe"]
 # With the compactor removed these THREE must go the other way. Check 11 is NOT
 # here: 0 moves and 0 notifications agree, so it passes honestly in both.
 # Check 12 is the descending pass (SPEC.md 66.4): its ask can only be funded by
 # merging the run under a ceiling block with the hole above it, so with no
-# compactor at all there is nothing to merge and the claim is refused.
-OFF_MUST_FAIL = {7, 10, 12}
+# compactor at all there is nothing to merge and the claim is refused. Check 13
+# is SPEC.md 66.4.2's page-constrained move, and its ask is the same shape.
+OFF_MUST_FAIL = {7, 10, 12, 13}
 
 
 def u16(b, i=0):
@@ -160,6 +161,7 @@ def main():
             print("   block %d  %04x -> %04x%s"
                   % (i, u16(b, 72 + i * 2), u16(b, 56 + i * 2),
                      "   (freed)" if u16(b, 56 + i * 2) == 0 else ""))
+        print("dma landed at page offset %d paragraphs" % u16(b, 114))
         print("L0=%dK S=%dK L1=%dK want=%dK  moved=%d told=%d stranger=%d"
               % (u16(b, 6), u16(b, 4), u16(b, 8), u16(b, 10),
                  nmoved, nrel, nbad))

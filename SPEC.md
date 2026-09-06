@@ -75718,6 +75718,70 @@ of what would declare and what each one costs. `tests/heapfrag`'s check 13
 (§66.8) is the only exerciser today, and it builds the scenario above on
 purpose.
 
+### 66.4.2 `MC_DMA` is a placement constraint, not a pin
+
+`MC_DMA` holds *the 64KB-page-safe head in paragraphs* — a statement about
+where a block may **land**, so that an ISA DMA transfer into its head cannot
+wrap at a physical page boundary. `mem_can_move` read it as *"a bus master is
+looking at this"* and refused outright, over a comment that said such a block
+was **unrelocatable in principle**. Both halves were wrong, and the second was
+refuted by a routine in the same file: `mem_regrow`'s path 3 has relocated a
+page-constrained claim page-safely since before compaction existed — it stages
+`MC_DMA`, lets `mem_hifit` + `mem_dmaok` pick a legal base, copies and rewrites
+`MC_SEG`.
+
+**There are four `MC_DMA` claims in the tree and only one has a chip armed on
+it.**
+
+| claim | why it asked | bus master armed? |
+|---|---|---|
+| the directory read-ahead | one `int 13h` fill in fewer calls | no |
+| the file manager's copy buffer | it is an `int 13h` target | no — `filecp.inc` falls back to a plain claim with **no** `MC_DMA` when no page-safe run exists, and still copies |
+| the typeface cache (`apps/os88type.inc`) | a 512-byte aligned base for a file read | **never** |
+| the Sound Blaster's ring | the 8237 holds its page and offset | **yes**, and it is the only one |
+
+Nothing else on this machine is a bus master into host RAM, and each was
+checked rather than assumed: the NE2000's *"remote DMA"* is a PIO window at one
+port with the CPU moving every byte (§72.2.1), the IDE rung is
+`in ax, dx` / `stosw`, XMS is `int 15h AH=87h` or a `rep movsw` under a raised
+`[sch_lock]`, and `VMMOUSE.DRV` says of itself *"no interrupt vector, no IRQ
+line, no DMA channel"*.
+
+**So the test comes out of `mem_can_move` and the constraint goes into
+`mem_cp_dest`.** What keeps the Sound Blaster's ring still is what keeps every
+other claim still: **nobody declared it**. That is not a weaker guarantee than
+the old refusal — it is the same guarantee the whole of §66.2 rests on, applied
+to one more field. A holder that declares a block a chip is armed on has made a
+false statement, exactly as a holder that declares one and forgets its
+relocation proc has; §66.9 reason 2 is the register of which claims those are.
+
+**The bump, in both directions.** `mem_cp_dest` computes the fill-point
+destination as before and then, for a claim carrying `MC_DMA`, moves it off a
+page boundary its head would straddle — the same arithmetic `mem_claim_1`'s own
+scan does:
+
+- **going up**, to the next page's floor;
+- **coming down**, to the highest base in *this* page whose head still fits.
+
+Those two directions are not a symmetry for its own sake. The bump is the one
+thing in either walk that can move a destination the **wrong** way, and both
+passes' termination arguments rest on it not doing so: going up a claim only
+ever slides down, coming down only ever up. Choosing the relieving direction to
+agree with the pass keeps that true, and a bump that would still carry the
+block past its own base is turned into *"do not move it"* — which both callers
+already handle, being the same answer as *"already packed"*.
+
+**And the fill point advances from the DESTINATION, not from itself.** With a
+bump the two are no longer the same paragraph, so `mem_cp_adv` reads `DI`;
+`mem_cp_plan`'s *"would it move"* test became `DI != MC_SEG` for the same
+reason, which is also what keeps the plan and the run step for step over a
+bumped block — §66.4's binding property.
+
+**Direction of error if this is got wrong**, and it is why the gate reads an
+address rather than a flag: a block landing across a page is answered by the
+8237 wrapping to the start of its page and moving **the wrong memory,
+silently**.
+
 ### 66.5 The worker park
 
 Without it, a claim owned by a package with a live worker is pinned — which is
@@ -76650,11 +76714,17 @@ machine, and it is the one the design deliberately does not touch.
 compactor having no pass that could reach it — and the second half is gone, so
 what each of these costs is now exactly what §66.6 says it costs and no more.
 
-**2. A bus master may be looking at it — permanent.** Anything carrying
-`MC_DMA`: the Sound Blaster's double-buffer and the file manager's copy
-buffer. The 64KB page rule is a property of the *address* (§50.3), and the
-chip may be mid-transfer. `mem_can_move` refuses these whatever anyone
-declares, which is right twice over.
+**2. A bus master may be looking at it — RETIRED as a pin, and it names the
+one claim it is still true of.** This entry said `mem_can_move` refuses
+anything carrying `MC_DMA` *"whatever anyone declares, which is right twice
+over"*, and §66.4.2 is why it was right neither time: `MC_DMA` is a placement
+constraint, `mem_cp_dest` honours it, and of the four claims carrying it only
+the **Sound Blaster's ring** has a chip armed on it. The file manager's copy
+buffer, the directory read-ahead and the typeface cache do not, and
+`filecp.inc`'s own fallback drops the tag entirely and still copies. What keeps
+the ring still is what keeps every undeclared claim still: nobody declared it,
+and a driver that does has made a false statement — which is the same contract
+every other holder is under.
 
 **3. Purgeable — never MOVED, and since §66.10 never a barrier either.** The
 window raise cache and the directory read-ahead. Relocating one is the wrong

@@ -51,10 +51,14 @@ HF_MINBLK equ 4               ; ...and the fewest worth proceeding on: three
                               ; (SPEC.md 50.6.3, correctly - mem_claim sheds
                               ; it) and shedding it leaves the arena a little
                               ; smaller than the figure that sized the comb
+HF_DMAKB  equ 60              ; check 14's page-constrained block: the head
+                              ; is the WHOLE of it and a head must end inside
+                              ; one 64KB page, so 60KB is the largest that can
+                              ; be asked for at all
 HF_MINKB  equ 64              ; below this there is no room to build a comb
                               ; that proves anything, and the suite says so
                               ; rather than passing vacuously
-HF_ROWS   equ 14
+HF_ROWS   equ 15
 HF_BSS_TOTAL equ 128
 
 ; -----------------------------------------------------------------------------
@@ -464,6 +468,92 @@ hf_run:
 .ceildone:
     mov bx, HF_N*2              ; hand the ceiling block back either way
     cmp word [bx+hf_base], 0
+    je .dma
+    mov dx, [bx+hf_base]
+    call OSAPI_MEM_FREE
+    mov word [bx+hf_base], 0
+
+    ; --- 14. A PAGE-CONSTRAINED CLAIM MOVES, PAGE-SAFELY (SPEC.md 66.4.2) ---
+    ; MC_DMA was a PIN until 66.4.2 - mem_can_move refused any claim carrying
+    ; it, over a comment saying such a block was "unrelocatable in principle".
+    ; It is a PLACEMENT constraint, and this is the placement asserted.
+    ;
+    ; THE HEAD IS THE WHOLE BLOCK, which is what makes the check sharp: a
+    ; block of P paragraphs whose whole length must end inside one 64KB page
+    ; can only sit at a base whose page offset is <= 0x1000 - P, and every
+    ; heap base is a multiple of 64 paragraphs (kernel.asm guard 6b) - so of
+    ; the 64 offsets a destination can have, only a few are legal. A
+    ; compaction that ignored MC_DMA would land on a legal one by luck and
+    ; not by design, and the arithmetic below says which happened.
+    ;
+    ; The direction of error is why this reads an ADDRESS and not a flag: a
+    ; block landing across a page is answered by the 8237 wrapping to the
+    ; start of its page and moving the WRONG MEMORY, silently.
+.dma:
+    cmp word [hf_bigseg], 0     ; the hole this pass needs is the big claim's,
+    je .dmano                   ; and without one there is nothing to open
+    call OSAPI_MEM_AVAIL        ; AX = largest run KB
+    mov cl, 2
+    shr ax, cl                  ; a quarter of it, capped at HF_DMAKB: the
+    cmp ax, HF_DMAKB            ; head has to fit inside ONE 64KB page, so the
+    jbe .dmasz                  ; block does too
+    mov ax, HF_DMAKB
+.dmasz:
+    cmp ax, 4
+    jb .dmano                   ; too small to say anything
+    mov [hf_hik], ax
+    mov cx, ax                  ; CX = KB of head = ALL of it
+    call OSAPI_MEM_CLAIM_DMA
+    jc .dmano
+    mov di, HF_N                ; the slot check 13 handed back
+    mov bx, di
+    shl bx, 1
+    mov [bx+hf_base], dx
+    mov [bx+hf_base0], dx
+    mov ax, hf_reloc
+    call OSAPI_MEM_MOVABLE      ; DX is still its base
+    jc .dmabad
+    push word [hf_s]
+    mov ax, [hf_hik]
+    mov [hf_s], ax
+    call hf_fill                ; DI = HF_N
+    mov dx, [hf_bigseg]         ; ...and NOW open the hole under it
+    call OSAPI_MEM_FREE
+    mov word [hf_bigseg], 0
+    call OSAPI_MEM_AVAIL
+    inc ax                      ; one KB more than the largest single run, so
+    call OSAPI_MEM_CLAIM        ; only a merge can fund it - and the block in
+    jc .dmapop                  ; the way is the page-constrained one
+    call OSAPI_MEM_FREE         ; DX still: give it straight back
+    mov di, HF_N
+    call hf_check               ; the contents came with it
+    pop word [hf_s]
+    jc .dmabad
+    mov bx, HF_N*2
+    mov ax, [bx+hf_base]
+    cmp ax, [bx+hf_base0]
+    je .dmabad                  ; it did not move: the run proves nothing
+    and ax, 0x0FFF              ; paragraphs into its 64KB physical page...
+    mov [hf_dmaoff], ax
+    mov cx, [hf_hik]
+    mov bx, cx
+    mov cl, 6
+    shl bx, cl                  ; KB -> paragraphs
+    add ax, bx
+    cmp ax, 0x1000              ; ...and the whole head still ends inside it
+    ja .dmabad
+    call hf_pass
+    jmp short .dmadone
+.dmapop:
+    pop word [hf_s]
+.dmabad:
+    call hf_fail
+    jmp short .dmadone
+.dmano:
+    call hf_fail
+.dmadone:
+    mov bx, HF_N*2
+    cmp word [bx+hf_base], 0
     je .done
     mov dx, [bx+hf_base]
     call OSAPI_MEM_FREE
@@ -781,13 +871,14 @@ hf_l_pin:  db 'pin held', 0
 hf_l_move: db 'did move', 0
 hf_l_rel:  db 'told once', 0
 hf_l_ceil: db 'ceiling up', 0
+hf_l_dma:  db 'dma page', 0
 hf_l_none: db '-', 0
 
 ; one label per check, in the order hf_run records them
 hf_lbl_t:
     dw hf_l_wrk, hf_l_room, hf_l_claim, hf_l_fill, hf_l_decl, hf_l_free
     dw hf_l_frag, hf_l_big, hf_l_vfy, hf_l_pin, hf_l_move, hf_l_rel
-    dw hf_l_ceil, hf_l_none
+    dw hf_l_ceil, hf_l_dma, hf_l_none
 
     OS88_BSS HF_BSS_TOTAL
     OS88_IMAGE_END
@@ -820,3 +911,5 @@ hf_base0   equ os88_image_end + 92   ; HF_N+1 words: ...and where it started
 hf_hia     equ os88_image_end + 110  ; word: the ceiling block FREED to leave
                                   ; the hole check 13's block must pack into
 hf_hik     equ os88_image_end + 112  ; word: KB in each of the two
+hf_dmaoff  equ os88_image_end + 114  ; word: check 14's landing offset inside
+                                  ; its 64KB page, for the harness to print

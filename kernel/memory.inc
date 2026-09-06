@@ -1270,9 +1270,21 @@ mem_can_move:
     push di
     cmp word [ss:si+MC_RLOC], 0
     je .pin                     ; the default: nobody declared it movable
-    cmp word [ss:si+MC_DMA], 0
-    jne .pin                    ; a bus master's, and unrelocatable in
-                                ; principle (see the header)
+                                ;
+                                ; MC_DMA IS NOT TESTED HERE ANY MORE, and the
+                                ; sentence it used to carry - "a bus master's,
+                                ; and unrelocatable in principle" - was wrong
+                                ; on both halves (SPEC.md 66.4.2). The field is
+                                ; a PLACEMENT constraint: the 64KB-page-safe
+                                ; head in paragraphs, which mem_cp_dest now
+                                ; honours exactly as mem_claim's own scan does,
+                                ; and mem_regrow's path 3 has relocated one of
+                                ; these page-safely since before compaction
+                                ; existed. Of the four MC_DMA claims in the
+                                ; tree only the Sound Blaster's ring has a chip
+                                ; armed on it, and what keeps that one still is
+                                ; the same thing that keeps every other claim
+                                ; still: nobody declared it
     call mem_in_xfer            ; ...and the block a DISK TRANSFER is reading
     jc .pin                     ; into, which the kernel is holding a pointer
                                 ; into on its own stack (SPEC.md 66.3 rule 5)
@@ -1738,23 +1750,66 @@ mem_cp_far:                     ; AX = where the fill point resumes past a
 .out:
     ret
 
-mem_cp_adv:                     ; BX past a claim this pass just packed
-    push ax
-    mov ax, [ss:si+MC_PARA]
-    cmp byte [mem_cp_up], 0
-    je .up
-    neg ax
-.up:
-    add bx, ax
-    pop ax
+mem_cp_adv:                     ; BX past a claim this pass just packed -
+    mov bx, di                  ; FROM ITS DESTINATION and not from the old
+    cmp byte [mem_cp_up], 0     ; fill point, because mem_cp_dest's page bump
+    jne .out                    ; can put the two apart (SPEC.md 66.4.2).
+    add bx, [ss:si+MC_PARA]     ; Coming down the destination IS the new fill
+.out:                           ; point; going up it is a block-length below it
     ret
 
-mem_cp_dest:                    ; DI = where SI's bytes belong at the fill
-    mov di, bx                  ; point. Going down that IS the fill point;
-    cmp byte [mem_cp_up], 0     ; coming down it is a block-length below it
-    je .out
+; mem_cp_dest - DI = where SI's bytes belong at the fill point, PAGE-SAFELY.
+;
+; Going up that is the fill point; coming down it is a block-length below it.
+; And then, for a claim carrying MC_DMA, it is bumped off a 64KB physical page
+; boundary its head would straddle - the same arithmetic mem_claim_1's own scan
+; does, in the same two directions (SPEC.md 66.4.2).
+;
+; THE BUMP IS THE ONE THING IN THIS WALK THAT CAN MOVE A DESTINATION THE WRONG
+; WAY, and both passes rest on it not doing so: going up a claim only ever
+; slides DOWN, coming down it only ever slides UP. So the direction that
+; relieves the straddle is chosen to agree - the next page's floor going up,
+; the highest base in THIS page going down - and a destination that would
+; still pass the claim's own base is turned into "do not move it", which both
+; callers already handle because it is the same answer as "already packed".
+mem_cp_dest:
+    mov di, bx
+    cmp byte [mem_cp_up], 0
+    je .page
     sub di, [ss:si+MC_PARA]
+.page:
+    push ax
+    push cx
+    mov ax, [ss:si+MC_DMA]      ; AX = the page-safe head, 0 = no constraint
+    or ax, ax
+    jz .out
+    mov cx, di
+    and cx, 0x0FFF              ; paragraphs into this 64KB physical page...
+    add cx, ax
+    cmp cx, 0x1000              ; ...and the head has to END inside it
+    jbe .out
+    mov cx, di
+    and cx, 0xF000
+    add cx, 0x1000              ; the top of this page
+    jc .stay                    ; ...past 1MB, so there is no next page at all
+    cmp byte [mem_cp_up], 0
+    je .set
+    sub cx, ax                  ; coming down: the highest base in THIS page
+.set:                           ; whose head still fits. Going up: the NEXT
+    mov di, cx                  ; page's floor
+    cmp byte [mem_cp_up], 0
+    jne .dchk
+    cmp di, [ss:si+MC_SEG]
+    jbe .out                    ; going up, a bump PAST its own base is not
+    jmp short .stay             ; packing, it is moving it
+.dchk:
+    cmp di, [ss:si+MC_SEG]
+    jae .out                    ; ...and the mirror coming down
+.stay:
+    mov di, [ss:si+MC_SEG]      ; the bump has nowhere legal to go: leave it
 .out:
+    pop cx
+    pop ax
     ret
 
 ; mem_cp_gap / mem_cp_tail leave the SUBTRACTION's flags live, and both callers
@@ -1807,6 +1862,8 @@ mem_cp_plan:
     push ax
     push bx
     push si
+    push di                     ; mem_cp_dest's answer, and mem_avail plans
+                                ; through here (SPEC.md 66.10.3)
     xor dx, dx                  ; movers
     xor cx, cx                  ; largest run
     mov byte [mem_wpin], 0      ; ...and "a worker is what stopped me", which
@@ -1826,12 +1883,12 @@ mem_cp_plan:
     jc .pinned
     call mem_cp_mine            ; ...and is it THIS pass's to move (66.4)
     jc .pinned
-    call mem_cp_near
-    cmp ax, bx
-    je .stay                    ; already packed: it would not move
+    call mem_cp_dest            ; DI = where its bytes WOULD go, page bump and
+    cmp di, [ss:si+MC_SEG]      ; all - the run's own arithmetic, so the two
+    je .stay                    ; walks cannot disagree about a bumped block
     inc dx
 .stay:
-    call mem_cp_adv             ; the fill point advances by its size
+    call mem_cp_adv             ; the fill point advances past the DESTINATION
     jmp short .loop
 .pinned:
     call mem_cp_drop            ; ...unless it is a cache this pass may
@@ -1860,6 +1917,7 @@ mem_cp_plan:
     jbe .done
     mov cx, ax
 .done:
+    pop di
     pop si
     pop bx
     pop ax
@@ -1896,12 +1954,11 @@ mem_cp_run:
     jc .pinned
     call mem_cp_mine            ; the plan's step, for real
     jc .pinned
-    call mem_cp_near
-    cmp ax, bx
-    je .packed                  ; already where it belongs
-    call mem_cp_dest            ; DI = the base its bytes are going to, which
-                                ; is the fill point going up and a block-length
-                                ; below it coming down
+    call mem_cp_dest            ; DI = the base its bytes are going to: the
+    cmp di, [ss:si+MC_SEG]      ; fill point going up, a block-length below it
+    je .packed                  ; coming down, and off a 64KB page boundary its
+                                ; MC_DMA head would straddle. Equal to its own
+                                ; base means already where it belongs
     push si                     ; the RECORD: SI is about to become the source
     push bx                     ; the fill point
     push di                     ; ...and the destination, for MC_SEG below
