@@ -95213,6 +95213,62 @@ gate flies it to 172° of pitch.
 The stall drops the nose toward the EARTH and not toward zero pitch, which
 is the same thing only while upright; `cos(roll)` says which way that is.
 
+#### 88.7.3 The horizon captures the last three ticks (`cs_ease`)
+
+A key is a stick that is either hard over or centred, so an axis moves in
+whole `ROLLR`/`PITCHR` quanta and **can only stop where the quanta fall**.
+On the trainer that is 3° of roll and 0.8° of pitch and hardly matters; on
+the Pitts it is 10° and 4°, and `cs_steps` spends up to three ticks in one
+frame, so what a pilot actually feels is a **30° roll quantum**. Level
+flight is then a place you cannot get to: you step from 15° of bank to −15°
+and back, for ever. That is what the owner reported, and it is worse on the
+aerobatic aeroplane precisely because it is the one with no auto-level to do
+it for you.
+
+So an approach to the horizon is **eased and snapped**. `cs_ease` takes the
+step an axis was about to make and the angle it would make it from, and asks
+how many more ticks at this rate are left before the angle crosses the
+nearest horizon:
+
+| ticks left | the step taken |
+|---|---|
+| one | **exactly the distance** — the angle lands ON the horizon |
+| two | half of what is left, rounded up, so the second one lands |
+| three | a third of what is left, rounded up |
+| four or more | the full rate, unchanged |
+
+Nothing else changes: the rate is the record's, the clamp is the model's,
+and an axis moving AWAY from the horizon is never touched.
+
+**The horizon is a half turn, not zero.** The nearest multiple of 180° is
+the target on both axes, so wings-level and INVERTED-level are both places
+the Pitts can settle, and so are nose-on-the-horizon upright and over the
+top of a loop. `angle AND 0x7FFF` against `0x4000` picks which of the two
+bounding multiples is nearer in three instructions, and it wraps for free
+because the angles do.
+
+**It does not put a hitch in a continuous roll**, which is the thing to
+check rather than assume. The step is chosen to be *near* the rate and not
+*a fraction* of it: rolling through level from 25° at 10° a tick gives
+8.33, 8.33, 8.33 instead of 10, 10, 5 — three ticks 17% slow out of the 36
+a full roll takes, which is under half a percent of the roll and invisible.
+The alternative shapes were both worse: a dead-band snap cannot help,
+because the problem is that you never get INTO the band; and a rate that
+ramps while the key is held gives fine control but still never lands on
+anything exactly.
+
+**And it costs nothing measurable**, which is the question the owner asked
+before it was built. It is per TICK, not per pixel: at most two axes × three
+ticks a frame, and the arithmetic is three compares, a shift and — only on
+the three-tick rung — one `div`. Measured on the machine between the proc's
+entry and the call's return, **244 cycles minimum, 298 median, 658 worst**
+(the `div` rung). So the worst frame anyone can construct — both axes on the
+`div` rung on all three ticks — is **3,948 cycles, 0.83 ms**, against the
+141.7 ms a Hercules frame over the city costs: **0.59%**, and the ordinary
+held-stick case is 1,464 cycles, **0.22%**. A tick with the stick centred is
+zero, the call being inside the `jz` that was already there. `+122 bytes` of
+`apps/skies`, A/B'd against the build before it.
+
 **Where a second aeroplane costs memory, and why it is not a part.** A plane
 is a 36-byte record, a name, and a ~120-byte cockpit; the Pitts' own model is
 about 150 bytes of code. `.o88` parts (§20.12) would move the DATA to a
@@ -95575,6 +95631,18 @@ flight nothing.
   and the over-the-top check must go red; the row's own docstring records why
   the roll checks survive that, which is a signed clamp overflowing before it
   bites.
+- `tests/skiesease.py` (soak, MartyPC): §88.7.3's capture. Every reading is
+  taken at a `cs_step` BREAKPOINT and not after a frame — the model steps per
+  tick and a frame spends one, two or three of them, so a per-frame sample
+  cannot see whether the angle passed through zero or landed on it, which is
+  the whole question — and the attitude is pinned AT the first stop, because
+  a poke followed by a free run loses the approach to the ticks that pass
+  while the breakpoint is being armed. Held toward level, both aeroplanes
+  land exactly on the horizon on both axes, within three ticks of coming
+  inside three rates, with no eased tick under 60% of the rate; held away,
+  every tick is the full rate; and the Pitts lands exactly on 180° too.
+  `--clobber-ease` puts a `ret` on `cs_ease`'s first byte — the model exactly
+  as it was — and all five landing checks go red.
 - `tests/skiesgeom.py` (soak, MartyPC): §88.5.5–§88.5.7's arithmetic, held.
   Five scenes pinned by poke — the Issy climb-out at 30 and 60 degrees of
   bank, Le Bourget at 60 right and 30 left, and the straight climb — and in

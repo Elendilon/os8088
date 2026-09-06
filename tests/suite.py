@@ -1684,6 +1684,14 @@ SOAK = [
         " stick left it, where the trainer clamps both axes and returns to"
         " level - and wears its own scattered panel (88.9.3)",
         needs=("marty",), serial=True),
+    Row("skiesease", "soak", py("tests/skiesease.py"), 46.0,
+        "SPEC.md 88.7.3: the horizon captures the last three ticks of an"
+        " approach - held toward level both aeroplanes land EXACTLY on it on"
+        " both axes, in at most three ticks and with no tick under 60% of the"
+        " rate, the Pitts lands on INVERTED level too, and held away nothing"
+        " is eased at all. Read at a cs_step breakpoint: a frame spends one,"
+        " two or three ticks, so a per-frame sample cannot see the landing",
+        needs=("marty",), serial=True),
     Row("skiesgeom", "soak", py("tests/skiesgeom.py"), 31.0,
         "SPEC.md 88.5.5-88.5.7: every polygon and segment of a frame, on"
         " five pinned scenes (four of them BANKED), held to a host replay of"

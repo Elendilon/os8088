@@ -450,7 +450,9 @@ cs_att_free:
     or ax, ax
     jz .pitch
     imul word [di + CSP_ROLLR]
-    add [cs_roll], ax
+    mov si, cs_roll                 ; ...eased onto the horizon if this is the
+    call cs_ease                    ; last of an approach (88.7.3) - and here
+    add [cs_roll], ax               ; INVERTED level is one of them
 .pitch:
     mov di, [cs_plane]
     mov al, [cs_kpitch]
@@ -458,6 +460,8 @@ cs_att_free:
     or ax, ax
     jz .stall
     imul word [di + CSP_PITCHR]
+    mov si, cs_pitch
+    call cs_ease
     add [cs_pitch], ax
 .stall:
     mov di, [cs_plane]
@@ -478,6 +482,92 @@ cs_att_free:
 .out:
     ret
 
+; -----------------------------------------------------------------------------
+; cs_ease - THE HORIZON CAPTURES THE LAST THREE TICKS (SPEC.md 88.7.3)
+; in:  AX = the step this tick, signed (the rate x the stick); SI = the angle
+; out: AX = the step to take. Preserves BX, CX, DX, SI, DI.
+;
+; A key is a stick that is hard over or centred, so an axis moves in whole
+; ROLLR/PITCHR quanta and can only STOP where the quanta fall - 10 degrees of
+; roll on the Pitts, and cs_steps spends up to three ticks in a frame, so what
+; the pilot feels is a 30-degree quantum with level flight not in it. Here the
+; last three ticks of an approach are shortened so the angle LANDS on the
+; horizon: one tick away take exactly the distance, two take half of what is
+; left rounded up, three a third. Four or more is not an approach and the rate
+; is untouched, and so is an axis moving AWAY.
+;
+; THE HORIZON IS A HALF TURN, not zero: wings level and INVERTED level are
+; both places the Pitts may settle, and so is the top of a loop. The angles
+; wrap at 65,536, so `AND 0x7FFF` against 0x4000 picks the nearer of the two
+; bounding multiples in three instructions and needs no case for the wrap.
+; -----------------------------------------------------------------------------
+cs_ease:
+    or ax, ax
+    jz .plain                       ; centred: there is no step to shorten
+    push bx
+    push cx
+    push dx
+    mov cx, ax                      ; CX = the step, signed
+    mov ax, [si]
+    and ax, 0x7FFF                  ; how far into this half turn we are
+    cmp ax, 0x4000
+    jb .below
+    mov bx, 0x8000                  ; the multiple ABOVE is the near one
+    sub bx, ax
+    jmp short .dist
+.below:
+    mov bx, ax                      ; ...or the one BELOW
+    neg bx
+.dist:
+    mov ax, bx                      ; BX = the signed distance to it
+    xor ax, cx
+    js .out                         ; moving away: not an approach at all
+    mov ax, bx
+    or ax, ax
+    jns .dmag
+    neg ax
+.dmag:
+    jz .out                         ; already on it: leave at the full rate
+    mov dx, cx                      ; DX = the rate's magnitude
+    or dx, dx
+    jns .smag
+    neg dx
+.smag:
+    cmp ax, dx
+    jbe .land                       ; one tick away: land on it exactly
+    add dx, dx
+    cmp ax, dx
+    ja .three
+    inc ax                          ; two: half of what is left, rounded up,
+    shr ax, 1                       ; so the second one lands
+    jmp short .sign
+.three:
+    mov bx, dx                      ; DX = 2 rates -> 3
+    shr bx, 1
+    add dx, bx
+    cmp ax, dx
+    ja .out                         ; four or more: a plain full-rate tick
+    add ax, 2                       ; three: a third of what is left, up
+    mov bx, 3
+    xor dx, dx
+    div bx
+.sign:
+    or cx, cx                       ; the magnitude wears the step's sign,
+    jns .pos                        ; which is the distance's - they agree,
+    neg ax                          ; or we left at .out
+.pos:
+    mov cx, ax
+    jmp short .out
+.land:
+    mov cx, bx                      ; exactly the distance to the horizon
+.out:
+    mov ax, cx
+    pop dx
+    pop cx
+    pop bx
+.plain:
+    ret
+
 ; cs_axis - one control axis: AX = the key (-1/0/1), BX = the held rate,
 ; CX = the return rate, DX = the limit, SI = the angle word. Clobbers AX, BX.
 cs_axis:
@@ -486,7 +576,8 @@ cs_axis:
     push dx                         ; imul writes DX, and DX is the limit
     imul bx
     pop dx
-    add ax, [si]
+    call cs_ease                    ; ...and the horizon takes the last three
+    add ax, [si]                    ; ticks of an approach (88.7.3)
     cmp ax, dx
     jle .lo
     mov ax, dx
