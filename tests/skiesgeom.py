@@ -58,7 +58,7 @@ SCENES = {   # airport (the launcher's Location row), x, y, z (metres);
     "issy60":  (0, -2430, 35, -2097, 7646, 876, 10923),  # 60 right, climbing out
     "issy30":  (0, -2430, 60, -2097, 7646, 876, 5461),   # 30 right
     "level":   (0, -2689, 40, -2409, 7282, 876, 0),      # the straight climb
-    "lbg60":   (1, 4305, 14, 4926, 13653, 876, 10923),   # Le Bourget, just off
+    "lbg60":   (1, 4305, 14, 4926, 13653, 876, 10923),   # Paris-LBG, just off
     "lbgm30":  (1, 4600, 40, 4945, 46421, 876, -5461),   # ...turned back over
                                                          # it, 30 left: the
                                                          # runway half behind
@@ -311,6 +311,19 @@ def main(argv):
                     sys.exit("skiesgeom: the frame never came")
             m.bp_exec()
 
+        # WHICH ROW OF THE LOCATION LIST each of the two Paris runways is, read
+        # off cs_ports rather than assumed: the list is nine long and sorted by
+        # its own names since SPEC.md 88.6.4, so Paris-Issy is not row 0 any
+        # more and the next rename would move it again.
+        nports = (mp["cs_apnames"] - mp["cs_ports"]) // 2
+        ports = [int.from_bytes(m.readseg(seg, mp["cs_ports"] + 2 * i, 2), "little")
+                 for i in range(nports)]
+        recs = [mp["cs_a_issy"], mp["cs_a_lbg"]]
+        try:
+            LROW = [ports.index(r) for r in recs]
+        except ValueError:
+            sys.exit("skiesgeom: cs_a_issy/cs_a_lbg are not both in cs_ports")
+
         airport = 0
         for sc in sorted(scenes, key=lambda n: SCENES[n][0]):
             row, x, y, z, hdg, pitch, roll = SCENES[sc]
@@ -328,11 +341,15 @@ def main(argv):
                 mo.click((po[0] + po[2]) // 2, (po[1] + po[3]) // 2)
                 m.advance(frames=20)
                 m.run()
-                mo.click(po[0] + 20, po[3] + 2 + 12 * row + 6)
+                # the open list's first row is os88ui_drfit's answer and no
+                # longer the row under the box (SPEC.md 13.14.2)
+                top = int.from_bytes(m.readseg(seg, mp["cs_drport"] + 22, 2), "little")
+                mo.click(po[0] + 20, top + 1 + 12 * LROW[row] + 6)
                 m.advance(frames=20)
                 m.run()
-                check(w("cs_airport") == [mp["cs_a_issy"], mp["cs_a_lbg"]][row],
-                      "the Location list picked airport %d (cs_airport %04x)" % (row, w("cs_airport")))
+                check(w("cs_airport") == recs[row],
+                      "the Location list picked %s at row %d (cs_airport %04x)"
+                      % (("Paris-Issy", "Paris-LBG")[row], LROW[row], w("cs_airport")))
                 m.type_text("f")
                 m.advance(frames=40)
                 m.run()
@@ -345,8 +362,14 @@ def main(argv):
             poke("cs_roll", (roll & 0xFFFF).to_bytes(2, "little"))
             poke("cs_state", b"\x01")
             poke("cs_pause", b"\x01")
-            for o in range(mp["cs_objtab"], mp["cs_objend"], 20):
-                m.write(lin + o + 18, b"\x00\x00")        # every skip cleared
+            # THE WORLD IS THE PICKED LOCATION'S since SPEC.md 88.6.4, so the
+            # skips to clear are the ones in the table its record names and
+            # not a global cs_objtab, which no longer exists.
+            ap = w("cs_airport")
+            objs = int.from_bytes(m.read(lin + ap + 18, 2), "little")
+            nobj = int.from_bytes(m.read(lin + ap + 20, 2), "little")
+            for o in range(objs, objs + nobj * 20, 20):
+                m.write(lin + o + 18, b"\x00\x00")
             m.run()
             frames(3)
             # --- one frame, held to the replay at every polygon and segment --

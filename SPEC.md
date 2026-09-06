@@ -21474,6 +21474,85 @@ is unmoved, and a declaration that was not grown with it overlaps the next
 one rather than failing to assemble. `tests/skiesui.py` reads the two
 records' spacing for that reason.
 
+#### 13.14.2 …and a list too tall for the window slides UP into it
+
+The list drops UNDER the box, and `os88ui_drpress` arms the clip off the
+window before it draws — so a list with more items than there is room below
+the box was simply CUT OFF by the content's bottom edge, and the items past
+the cut could not be picked because they were not there. Nothing had ever
+noticed, because the two lists that existed were two items and three.
+
+CLEAR SKIES' Location list is **nine** since §88.6.4, on a control whose box
+sits at content y 88 of a 137-row page: nine items is 110 rows and there are
+33 below the box, so **six and a half of the nine were off the bottom**.
+
+`os88ui_drfit` decides where the list goes instead, and `OS88UI_DR_TOP` is
+where it decided — the row under the box, or, when the list would overrun the
+content, as far up as it must slide to fit. That is the Macintosh popup's
+placement rather than a new idea, and §13.14 already describes the gesture as
+that one. Everything derives from `os88ui_drrect` now, `os88ui_drlist`
+included, so the frame, the cells, the hit test, the bank and the write-back
+cannot disagree about where the list is — which they would have, since three
+of them used to compute it separately from the box's own rect.
+
+It is called from `os88ui_drbank`, which is the one door every path that draws
+a list comes through, and that is deliberate rather than convenient: a window
+DRAGGED with a list open repaints through `os88ui_drop`, and the fit has to be
+taken again against wherever the window now is.
+
+A list taller than the whole content — twelve items is 146 rows against a
+137-row page — is put at the content's top and the clip takes the rest, which
+is the old behaviour on the only case it was ever right for. `OS88UI_DRMAX` is
+still 12 and the record is 24 bytes rather than 22.
+
+**A list that covers its own box broke the single click, and the fix was a
+rule the kernel's menus already have.** `os88ui_drup` picked whatever
+`os88ui_dritemat` found under the release, and until now geometry was what
+made that safe: the list was always BELOW the box, so pressing and releasing
+without moving released over the BOX, which is not an item, and nothing was
+picked. Slide the list up over the control and the same gesture releases over
+an item — so one click on the Location box picked whichever of the nine
+happened to lie under it, and `tests/skiesui.py` said so on the glass the
+first time it ran.
+
+It now refuses to pick while `OS88UI_DR_HOT` is still `0FFh`, which means the
+pointer has not moved onto an item since the press that opened the list. That
+is `menu_drop`'s own rule — press the title, release the title, nothing
+happens (§12.2) — and it needs no new state, because the byte is already set
+to `0FFh` at open and written by `os88ui_drdrag` as the pointer moves. Press,
+drag onto an item, release still picks; click-then-click still picks, because
+the second click's PRESS is what takes it. What it costs is four bytes.
+
+**And `OS88UI_DR_TOP` has to be written on every path, including the ones that
+fail.** It was computed inside `os88ui_drbank`, which is where the drawing
+starts — but `os88ui_drpress` reaches that only if `OSAPI_WM_CLIP_SET`
+succeeds first, and the hit test needs to know where the cells are whether the
+list was drawn or not. It is computed the moment `OS88UI_DR_OPEN` goes to 1
+now, before either call that can refuse, and a record with no window gets the
+row under its own box — which is where every list went before any of this
+existed, so the failure path is exactly the old behaviour rather than a new
+one.
+
+That surfaced a defect of CLEAR SKIES' own: the **Settings page's four
+drop-downs had never been given `OS88UI_DR_WIN`** (§88.13), so every press on
+one called `OSAPI_WM_CLIP_SET` with `BX = 0` and took the refusal it got back.
+The lists were hit-tested where they had never been drawn, and it did not show
+because the page repaints on the way past. All six of the package's records
+are armed in `cs_entry` now.
+
+**And a package with two drop-downs must ask the OPEN one first, which is not
+the same as the drawn order any more.** `os88ui_drpress` lets a CLOSED control
+claim a press that lands on its own box, and that was safe while every list
+drew below its own box: no list could ever cover another control. The Location
+list covers the Plane box now, so a press on an item at that height was taken
+by the Plane control underneath, which opened ITS list while the one on top
+was still up. §88.10's `cs_onclick` tests `OS88UI_DR_OPEN` on both and asks
+the open one alone, falling back to the drawn order when neither is; the
+Settings page already asked its four last-drawn-first for the same reason, and
+needs nothing, because a three-item list still fits under every one of its
+boxes. `tests/skiesui.py` covers the Location list end to end and it is what
+found this, on the glass, after the arithmetic said the fit was right.
+
 ### 13.15 The CHECK BOX — the fourth shared element (`OS88UI_CHK`)
 
 `%define OS88UI_CHK` before the include and it costs a dozen bytes of record
@@ -95062,14 +95141,14 @@ way at, a name for the crash line, flags, and the cull's skip tick
 level's height a box the aeroplane may not enter — flying into the Eiffel
 Tower is a crash that says so; `CSO_SEEN` is the cull's (§88.5.1).
 
-**Two airports**, a record each (`CSA_*`): Paris-Issy, 3.5 km south-west of
-the tower on the river bend, runway 04, 1,000 m; and Le Bourget, 7 km
-north-east and outside the ring road's square, runway 07, 1,400 m. The
-launcher's Location list (§88.10) is that table, and the runway is built
-from whichever row is in use at bracket entry (§88.6.2). One aeroplane
-still, the Cessna 172, its row being every constant the flight model reads
-(§88.7) and its cockpit's (§88.9.2); the Plane list is one item long until a
-second row is written, and a second row is all it takes.
+**Nine locations, a record each** (`CSA_*`, §88.6.4), of which two stand in
+Paris: Paris-Issy, 3.5 km south-west of the tower on the river bend, runway
+04, 1,000 m; and Paris-LBG (Le Bourget), 7 km north-east and outside the ring
+road's square, runway 07, 1,400 m. The launcher's Location list (§88.10) is
+that table, and the runway is built from whichever row is in use at bracket
+entry (§88.6.2). Two aeroplanes, the Cessna 172 and the Pitts Special, each
+row being every constant the flight model reads (§88.7) and its cockpit's
+(§88.9.2).
 
 #### 88.6.1 The river is six pieces, each with a far model
 
@@ -95140,6 +95219,62 @@ corner dry — a 500 m building lying along a 190 m band of water. It tests
 every edge pair and containment either way now, which is also what a bridge
 over the river would need. `MARGIN` is 5 m; the tightest thing in Paris is
 Notre-Dame at 19.6.
+
+#### 88.6.4 A location is a runway AND the world round it
+
+The object table was a global — `cs_objtab`, `CS_NOBJ` — read straight by
+`cs_scene`, `cs_skipclr` and `cs_collide`. That is exactly right for one city
+with two aerodromes in it, which is what shipped, and it is the reason a
+SECOND city was a rewrite rather than a row: Le Bourget is a different runway
+in the same Paris, and Manhattan is not.
+
+So the world moved INTO the location record. `CSA_OBJS` is the table and
+`CSA_NOBJ` is how many rows it has, and the three walkers read the pair out of
+`[cs_airport]` rather than naming a symbol. That is nine bytes of code and two
+words a row, and it is the whole mechanism: **nothing else changed**, because
+nothing outside a world's own file ever reads that world's coordinates. Every
+world may therefore put its origin on its own landmark, and every world's
+metres mean the same thing they always did.
+
+**Nine locations in eight worlds.** Paris keeps both of its runways and so is
+the one world with two rows pointing at it, which is the case the pair of
+words exists to express and a per-location table would have duplicated.
+Alphabetically: Cairo-SPX, London-LCY, Miami-MIA, Nepal-VNLK, NYC-JFK,
+Paris-ISSY, Paris-LBG, Rio-SDU, SanFan-SFO.
+
+**One file per world**, `apps/skies/csw_*.inc`, `%include`d by `csworld.inc`,
+which keeps only what they share: the `CS_BOX`/`CS_PYR`/`CS_DOME`/`CS_HILL`
+macros, the face tables every solid in every world indexes, the ribbon faces
+(`cs_f_rib1`/`2`/`3`) the Seine used to carry six copies of, the shared edge
+chains `cs_e_road1..5`, the anonymous filler models, the runway's own face and
+the aeroplanes. The order inside a world file is fixed — models, table, names,
+record — because `CS_N_<WORLD>` is an `equ` over the table's own two labels
+and NASM cannot see them from above.
+
+**A world switch makes every object a stranger.** `cs_skipclr` clears
+`CSO_SKIP` and `CSO_SEEN` over the table it is pointed at, and a table left
+behind keeps whatever the last visit wrote there; the flags are the cull's
+memory of a frame that is now in another country. It runs on every reset,
+which is what a pick already forces (§88.10).
+
+**Two gates hold the set together**, both host-side and both on the fast tier.
+`tests/unit/t_csworld.py` walks all eight worlds rather than Paris alone and
+keeps every collidable footprint out of that world's own water — which caught
+four mountains standing in the Dudh Koshi in Nepal's first draft, the same way
+it once caught Notre-Dame and the Louvre standing in the Seine (§88.6.3).
+`tests/unit/t_csworlds.py` is the new one and it is about the CLOCK: the twelve
+frames a second the whole design is built against were measured on Paris and
+on nothing else (§88.12), so it prices every world the way the renderer does —
+an object's weight is its expanded vertices plus three a face plus one an edge
+— and holds each world's PEAK frame, the worst sum reachable from any sample
+eye, to 1.15x Paris'. Slowness is one of the three defects an emulator cannot
+show, so a world that misses the budget by a factor would otherwise ship
+looking perfectly well.
+
+It also refuses what `CS_NVIS` refuses silently. Thirty-two objects can be in
+one frame and the thirty-third is DROPPED, so a skyline denser than that loses
+buildings rather than dropping frames, and the fault would read as a missing
+model. Paris itself reaches twenty-six.
 
 ### 88.7 The flight model (`apps/skies/csflight.inc`)
 
@@ -95354,13 +95489,24 @@ at §5.6's price; a band stores paper as the SET bit, so it is right on a
 1bpp adapter untranslated and right on VGA under the blit's default pen, and
 the title is lettered in the 8x8 face where the blit is refused. On the
 left, **Plane** and **Location** are two of §13.14's drop-downs — the first
-two anywhere — over the plane and airport tables by index, and **Fly** is
+two anywhere — over the plane and location tables by index, and **Fly** is
 the standard button with the default ring (§13.8's press and release),
 greyed with no mode to fly in (§47); Enter and F fly too. A pick sets the
 row in use and clears `cs_inited`, so the next flight starts on the new
 runway in the new aeroplane rather than carrying on where the last left
 off. The window is 312 by 156 with its frame, which is what fits between
 CGA's bar and dock.
+
+**The Location list is NINE items and is sorted by its own names** (§88.6.4).
+`cs_ports` and `cs_apnames` are kept in step by position and are in
+alphabetical order rather than in the order the worlds were written, which is
+what `csworld.inc`'s `%include`s decide; `CS_DEFPORT` is the row `cs_entry`
+starts on and must be Paris-Issy's index in that list, because the default is
+what shipped and moving Paris down the list must not silently change which
+runway a fresh instance opens on. Nine items is also what found §13.14.2: a
+list that long did not fit under its own box, and **six and a half of the nine
+were drawn off the bottom of the window**, on a control that had never been
+given more than three.
 
 **Flight → Instructions** turns the page: the same window lettered with the
 keys, and any click or key turns it back. **Mode** is a second menu that

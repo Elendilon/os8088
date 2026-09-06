@@ -247,8 +247,12 @@ def main(argv):
         poke("cs_pause", b"\x01")           # the world stands still
         # ...and every object is looked at again: a poke is a teleport, and
         # the cull's skip counters (SPEC.md 88.5.2) were set where it was
-        mp = dispapps._map("skies")
-        for o in range(mp["cs_objtab"], mp["cs_objend"], 20):
+        # THE WORLD IS THE PICKED LOCATION'S since SPEC.md 88.6.4, so the skips
+        # to clear are the ones in the table its record names.
+        ap = w("cs_airport")
+        objs = int.from_bytes(m.read(lin + ap + 18, 2), "little")
+        nobj = int.from_bytes(m.read(lin + ap + 20, 2), "little")
+        for o in range(objs, objs + nobj * 20, 20):
             m.write(lin + o + 18, b"\x00\x00")
         m.run()
         frames(3)                           # a warm-up, discarded: the first

@@ -178,7 +178,13 @@ def main(argv):
                     ((-20 * 65536 // 360) & 0xFFFF).to_bytes(2, "little"))
             m.write(lin + base + off("cs_state"), b"\x01")
             m.write(lin + base + off("cs_pause"), b"\x01")
-            for o in range(mp["cs_objtab"], mp["cs_objend"], 20):
+            # THE WORLD IS THE PICKED LOCATION'S since SPEC.md 88.6.4, so the
+            # skips to clear are the ones in the table its record names and
+            # not a global cs_objtab, which no longer exists.
+            ap = int.from_bytes(m.read(lin + base + off("cs_airport"), 2), "little")
+            objs = int.from_bytes(m.read(lin + ap + 18, 2), "little")
+            nobj = int.from_bytes(m.read(lin + ap + 20, 2), "little")
+            for o in range(objs, objs + nobj * 20, 20):
                 m.write(lin + o + 18, b"\x00\x00")
             m.run()
 

@@ -654,8 +654,10 @@ cs_runway_xy:
 ; cs_collide - the aeroplane against every CSO_COLLIDE box (SPEC.md 88.6)
 ; -----------------------------------------------------------------------------
 cs_collide:
-    mov si, cs_objtab
-    mov cx, CS_NOBJ
+    mov si, [cs_airport]            ; the PICKED location's world (88.6.4):
+    mov cx, [si + CSA_NOBJ]         ; a tower in Paris is not in the way of
+    mov si, [si + CSA_OBJS]         ; an aeroplane over Manhattan
+    jcxz .out
 .o:
     test word [si + CSO_FLAGS], CSO_COLLIDE
     jz .next
@@ -692,6 +694,7 @@ cs_collide:
 .next:
     add si, CSO_SIZE
     loop .o
+.out:
     ret
 
 ; -----------------------------------------------------------------------------

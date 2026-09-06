@@ -228,7 +228,12 @@ CSA_RWY   equ 14                ; word: the runway's designation
 CSA_SPAWN equ 16                ; where the aeroplane stands at reset, along
                                 ; the runway from its centre (negative = the
                                 ; near threshold)
-CSA_SIZE  equ 18
+CSA_OBJS  equ 18                ; word: THE WORLD THIS PLACE STANDS IN - its
+CSA_NOBJ  equ 20                ; object table and how many rows it has. A
+                                ; location is a runway AND the country round
+                                ; it (88.6.4), so cs_scene walks the picked
+                                ; row's table and not one global one
+CSA_SIZE  equ 22
 
 ; --- a plane (SPEC.md 88.7) - speeds 16.8 m/s, angles 65536 to the turn -------
 CSP_NAME   equ 0
@@ -390,7 +395,14 @@ cs_entry:
     jc .full
     mov [cs_win], bx
     mov [cs_drplane + OS88UI_DR_WIN], bx    ; the drop-downs arm their clips
-    mov [cs_drport + OS88UI_DR_WIN], bx     ; off it (os88ui.inc)
+    mov [cs_drport + OS88UI_DR_WIN], bx     ; off it (os88ui.inc) - ALL SIX of
+    mov [cs_drbld + OS88UI_DR_WIN], bx      ; them, and the Settings page's
+    mov [cs_drlod + OS88UI_DR_WIN], bx      ; four had been left at 0 since
+    mov [cs_drsize + OS88UI_DR_WIN], bx     ; 88.13 shipped, so os88ui_drpress
+    mov [cs_drmode + OS88UI_DR_WIN], bx     ; was calling OSAPI_WM_CLIP_SET
+                                            ; with BX = 0 and taking its
+                                            ; refusal - the list was hit
+                                            ; tested where it was never drawn
     mov al, 1                       ; an 8-aligned content origin: the two
     call OSAPI_WM_SNAP              ; bands land on the byte grid (SPEC.md
                                     ; 5.4.2) and font_run reaches 6.1's
@@ -1137,13 +1149,20 @@ cs_onclick:
     call cs_setclick
     jmp .out
 .page0:
-    mov bx, cs_drplane              ; the drop-downs first: an open list
-    call os88ui_drpress             ; takes any press, wherever it lands
-    call cs_drtake
-    jc .out
+    mov bx, cs_drport               ; THE OPEN LIST FIRST (SPEC.md 13.14.2), and
+    cmp byte [bx + OS88UI_DR_OPEN], 0   ; that is not the same as the drawn
+    jne .p0drop                     ; order any more: the nine-item Location
+    mov bx, cs_drplane              ; list slides UP over the PLANE box, and
+    cmp byte [bx + OS88UI_DR_OPEN], 0   ; os88ui_drpress lets a closed control
+    jne .p0drop                     ; claim a press that lands on its own box -
+    mov bx, cs_drplane              ; so the box underneath took the press and
+    call os88ui_drpress             ; opened ITS list while the one on top was
+    call cs_drtake                  ; still up. Neither open: the drawn order,
+    jc .out                         ; where a press can only be on one box
     mov bx, cs_drport
-    call os88ui_drpress
-    call cs_drtake
+.p0drop:
+    call os88ui_drpress             ; an open list takes any press, wherever
+    call cs_drtake                  ; it lands, so this is the whole of it
     jc .out
     cmp byte [cs_want], CSB_NONE    ; the button: greyed, it refuses
     je .out
@@ -1418,26 +1437,27 @@ cs_s_flybtn: db 'Fly', 0
 ; records the flight reads, kept in step by position
 cs_drplane:  dw 0, 0, 0, 0, cs_plnames, CS_NPLANES, 0, 0
              db 0, 0FFh
-             dw 0, 0                ; the banked pixels (OS88UI_DR_SEG/_KB)
-cs_drport:   dw 0, 0, 0, 0, cs_apnames, CS_NPORTS, 0, 0
+             dw 0, 0, 0             ; the banked pixels (OS88UI_DR_SEG/_KB)
+                                    ; and where the open list goes (_TOP)
+cs_drport:   dw 0, 0, 0, 0, cs_apnames, CS_NPORTS, CS_DEFPORT, 0
              db 0, 0FFh
-             dw 0, 0
+             dw 0, 0, 0
 cs_flyrect:  dw 0, 0, 0, 0
 ; --- the Settings page's controls (SPEC.md 88.13). Every one of them is the
 ;     shared drop-down or the shared check box, and the page is the first
 ;     user of the second ---------------------------------------------------
 cs_drbld:    dw 0, 0, 0, 0, cs_i_bld,  3, CSBL_ALL, 0
              db 0, 0FFh
-             dw 0, 0
+             dw 0, 0, 0
 cs_drlod:    dw 0, 0, 0, 0, cs_i_lod,  3, CSL_MOD, 0
              db 0, 0FFh
-             dw 0, 0
+             dw 0, 0, 0
 cs_drsize:   dw 0, 0, 0, 0, cs_i_size, 3, CSZ_MOD, 0
              db 0, 0FFh
-             dw 0, 0
+             dw 0, 0, 0
 cs_drmode:   dw 0, 0, 0, 0, cs_i_mode, 2, 0, 0
              db 0, 0FFh
-             dw 0, 0
+             dw 0, 0, 0
 cs_ckgnd:    dw 0, 0, 0, 0, cs_s_gnd, 1
 cs_ckwat:    dw 0, 0, 0, 0, cs_s_wat, 1
 cs_ckbld:    dw 0, 0, 0, 0, cs_s_bld, 1
@@ -1475,9 +1495,20 @@ cs_s_setts:  db 'Settings', 0
 cs_planes:   dw cs_p_c172, cs_p_pitts
 cs_plnames:  dw cs_s_c172, cs_s_pitts
 CS_NPLANES   equ ($ - cs_plnames) / 2
-cs_ports:    dw cs_a_issy, cs_a_lbg
-cs_apnames:  dw cs_s_issy, cs_s_lbg
+; --- the LOCATIONS (SPEC.md 88.6.4), ALPHABETICALLY: the list a player reads
+;     is sorted by its own names and not by the order the worlds were written
+;     in, which is what csworld.inc's %includes decide. The two tables are
+;     kept in step BY POSITION - cs_apnames is what the drop-down shows and
+;     cs_ports the record the flight reads - and CS_DEFPORT is the row
+;     cs_entry starts on, which must be the index of cs_a_issy here: the
+;     default is what shipped, and moving Paris down the list must not
+;     silently change which runway a fresh instance opens on.
+cs_ports:    dw cs_a_spx, cs_a_lcy, cs_a_mia, cs_a_vnlk, cs_a_jfk
+             dw cs_a_issy, cs_a_lbg, cs_a_sdu, cs_a_sfo
+cs_apnames:  dw cs_s_spx, cs_s_lcy, cs_s_mia, cs_s_vnlk, cs_s_jfk
+             dw cs_s_issy, cs_s_lbg, cs_s_sdu, cs_s_sfo
 CS_NPORTS    equ ($ - cs_apnames) / 2
+CS_DEFPORT   equ 5              ; PARIS-ISSY, where the simulator shipped
 
 cs_i_lines:  dw cs_i1, cs_i2, cs_i3, cs_i4, cs_i5, cs_i6, cs_i7, cs_i8
              dw cs_i9, cs_i10, cs_i2, cs_i11, cs_i12, 0

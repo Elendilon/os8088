@@ -217,9 +217,18 @@ FAST = [
         "a constant written down in two files must agree in both; there is no "
         "linker here to notice"),
     Row("csworld", "fast", py("tests/unit/t_csworld.py"), 2.0,
-        "SPEC.md 88.6.3: no collidable building in CLEAR SKIES' Paris stands"
-        " in the Seine - every base footprint against every river polygon,"
-        " edges and containment and not just corners"),
+        "SPEC.md 88.6.3: no collidable building in any CLEAR SKIES world"
+        " stands in that world's own water - every base footprint against"
+        " every river polygon, edges and containment and not just corners."
+        " Nine locations and eight worlds since 88.6.4, and it walks them all"),
+    Row("csworlds", "fast", py("tests/unit/t_csworlds.py"), 2.0,
+        "SPEC.md 88.6.4: every CLEAR SKIES world costs about what PARIS costs."
+        " The 12 fps budget was measured on Paris alone (88.12), so a world"
+        " written afterwards can miss it by a factor with nothing to say so -"
+        " slowness is one of the three defects an emulator cannot show. It"
+        " prices each world's PEAK frame the way the renderer does and holds"
+        " it to 1.15x Paris', and refuses a world that can put more than 30"
+        " objects in one frame when CS_NVIS is 32 and drops the rest silently"),
     Row("csart", "fast", py("tests/unit/t_csart.py"), 0.6,
         "apps/skies/csart.inc is what tools/csart.py generates (SPEC.md 88.10):"
         " the launcher's two 1bpp bands are drawn by the tool and checked in,"

@@ -571,8 +571,10 @@ cs_scene:
     mov word [cs_nvisn], 0
     mov si, cs_rwobj                ; the runway first...
     call cs_consider
-    mov si, cs_objtab               ; ...then the table
-    mov cx, CS_NOBJ
+    mov bx, [cs_airport]            ; ...then the PICKED LOCATION'S world
+    mov si, [bx + CSA_OBJS]         ; (88.6.4), which is a pair of words in
+    mov cx, [bx + CSA_NOBJ]         ; its record and not a global table
+    jcxz .done
 .o:
     push cx
     push si
@@ -581,6 +583,7 @@ cs_scene:
     pop cx
     add si, CSO_SIZE
     loop .o
+.done:
     ; --- the ground shapes, far to near, then the solids ---------------------
     mov byte [cs_pass], CSM_FLAT
     call cs_drawpass
@@ -591,12 +594,18 @@ cs_scene:
 ; cs_skipclr - every object looked at on the next frame: the aeroplane has
 ;              been moved by something other than flying
 cs_skipclr:
-    mov si, cs_objtab
-    mov cx, CS_NOBJ
+    push bx
+    mov bx, [cs_airport]            ; the PICKED location's world (88.6.4):
+    mov si, [bx + CSA_OBJS]         ; a switch leaves the last one's skips
+    mov cx, [bx + CSA_NOBJ]         ; and SEEN bits where they were, and
+    jcxz .out                       ; this is what makes them strangers
 .o:
     mov word [si + CSO_SKIP], 0
+    and byte [si + CSO_FLAGS + 1], ~(CSO_SEEN >> 8)
     add si, CSO_SIZE
     loop .o
+.out:
+    pop bx
     ret
 
 cs_drawpass:
