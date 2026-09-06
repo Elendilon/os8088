@@ -359,5 +359,6 @@ cs_a_jfk:
     dw 1000                          ; CSA_WLEN    half its length...
     dw 40                           ; CSA_WWID    ...and half its width
     dw cs_n_jfk_hud              ; CSA_WNAME
+    dw 0                        ; CSA_FLAGS
 cs_s_jfk: db 'NYC-JFK', 0
 cs_s_rwy_jfk: db 'RUNWAY 31', 0

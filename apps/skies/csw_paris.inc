@@ -272,6 +272,7 @@ cs_a_issy:
     dw 800                          ; CSA_WLEN    half its length...
     dw 40                           ; CSA_WWID    ...and half its width
     dw cs_n_seine              ; CSA_WNAME
+    dw 0                        ; CSA_FLAGS
 cs_a_lbg:
     dw cs_s_lbg                     ; CSA_NAME
     dw 4500, 5000                   ; CSA_X, CSA_Z: 7 km north-east, outside
@@ -287,6 +288,7 @@ cs_a_lbg:
     dw 1000                          ; CSA_WLEN    half its length...
     dw 40                           ; CSA_WWID    ...and half its width
     dw cs_n_seine              ; CSA_WNAME
+    dw 0                        ; CSA_FLAGS
                                     ; from the other side of it
 cs_s_issy:   db 'PARIS-ISSY', 0
 cs_s_rwy04:  db 'RUNWAY 04', 0

@@ -96417,6 +96417,98 @@ A change of level clears every object's skip counter (§88.5.2) — an object
 the cull dropped for a hundred ticks would otherwise stay dropped after the
 player asked for it back.
 
+#### 88.13.7 Occlusion, and why only one location has it
+
+`cs_occlude` marks the visible objects that stand **wholly behind** another
+one, and `cs_drawpass` skips them. It runs for a location whose record sets
+`CSA_OCC` in `CSA_FLAGS` and for no other: everywhere else the pass clears
+its marks, reads the flag and returns, which is two compares and a
+`rep stosb` over at most thirty-two bytes.
+
+**The test is angular and in the world, never on the screen.** `along` is
+already in every `cs_vkey` slot and `across` is two multiplies, so an object
+found hidden is refused **before `cs_scale` rotates anything** — the same
+place the Detail Level refuses one, which is the cheapest there is. Nothing
+is projected and no framebuffer is read; the earlier attempt that filled the
+faces and used them as the occluder measured `solid + (wire − fill-off)`
+exactly, because there the fill *was* the occluder and it had to be drawn.
+
+An occluder A hides an occludee B when B's angular interval lies inside A's
+**at both of B's own levels** — its base, which is widest and lowest, and its
+top, which is narrowest and highest. Both intervals are linear in elevation,
+so their difference is linear and containment at the two ends is containment
+throughout: two tests settle a frustum exactly. A's half-width is taken **at
+the height where A's surface meets B's elevation**, and that is the whole
+trick: the first draft compared B's base width at B's top elevation and
+missed a ridge that is plainly hidden, because a frustum is narrow where it
+is tall.
+
+##### 88.13.7.1 The width rule was chosen on numbers, not on safety
+
+A box's half-extent across the heading is `wx |cos h| + wz |sin h|`. That is
+exact for an object dead ahead and errs either way for one off to the side,
+so it is **not** conservative for every bearing. The conservative rule — the
+smaller of `wx`/`wz` for an occluder, three quarters of their sum for an
+occludee — was written first and measured, on Nepal's own geometry swept
+down the take-off run:
+
+```
+   out    conservative rule        heading-frame rule
+     0    both spurs hidden        both spurs hidden
+   400    both spurs hidden        both spurs hidden
+   600    nothing                  both spurs hidden
+  2000    nothing                  both spurs hidden
+  2200    nothing                  nothing
+```
+
+The conservative rule stops working 400 m off the threshold, so the rule is
+the frame one — **with the occluder shrunk by an eighth**. That margin is
+not a guess either: the unshrunk rule shipped to `tests/skiesocc.py` and the
+row found it hiding a spur at 2,000 m that is **654 pixels visible**, which
+is the difference between measuring the extent across the *heading* and the
+covering happening across the *line of sight*. The occluder pays the margin,
+so the error is always towards drawing.
+
+`tests/skiesocc.py` is what holds it there. It reads `cs_occ` — the
+routine's own verdicts — back out of the guest and checks each one against
+the glass **with the pass switched off**, over nine viewpoints of which
+three are off the centreline. The "pass off" is the whole of it: with the
+pass ON the object is already being skipped, so removing it changes nothing
+and the check passes whatever the pass believes. The first version did
+exactly that, and its `--clobber-occ` arm — a `cs_occpair` that answers yes
+without testing anything — came back **green, with twenty-two verdicts
+"confirmed invisible"**. Against the pass off, the same clobber fails thirty
+ways.
+
+##### 88.13.7.2 What it is worth, and why Nepal alone
+
+Nepal is the only location in the tree with big objects standing behind big
+objects. Its two spurs sit past the gate and the gate's two peaks are 2,400 m
+tall and 1,200 m across; from the strip the spurs are **100% covered**, with
+a 0-pixel control. Culling them by hand, on a 4.77 MHz 8088 on Hercules:
+
+```
+  culled by hand, the ceiling            what the shipped pass gets
+  on the strip   310.4 -> 234.2 ms         0 m   317.4 -> 248.8 ms   -22%
+  1 km out       298.1 -> 202.7           400    292.1 -> 216.2      -26%
+  2 km out       267.9 -> 196.0           800    291.5 -> 206.7      -29%
+  at the gate    205.3 -> 167.9          1200    309.7 -> 219.7      -29%
+                                         2400    255.6 -> 259.3      +3.7
+                                         3200    207.8 -> 209.0      +1.2
+```
+
+The two right-hand rows are what the pass costs where it finds nothing, and
+a location that never asks pays less still: **0 to 1.9 ms** on NYC-JFK, over
+the same five viewpoints §88.13.1.2 was measured at, which is the mark clear
+and two compares.
+
+Manhattan was measured for this first and refused it: in a dense block
+**43–45% of drawn pixels are covered by something nearer, and 0–1 objects of
+sixteen are entirely hidden** — towers of one height stacked in depth peek
+out at the edges, and an object-level test can only skip what is entirely
+gone. The pixels are not where the time goes either (§88.5.4.2), so the flag
+is off for every world but this one.
+
 #### 88.13.2 Draw Distance
 
 Every `CSO_RANGE` and `CSO_LOD` is scaled by 0.6, 1 or 1.6 in 8.8. Far holds
@@ -96712,6 +96804,17 @@ drop-downs get a release the title page never armed.
   `--clobber-lod` raises the refusal past every rectangle it can draw, which
   is the gate exactly as it was, and `imp26` — level at the foot of the
   Montparnasse tower — reports **22 px**.
+- `tests/skiesocc.py` (soak, MartyPC, Hercules): §88.13.7's gate, and the
+  only thing keeping its width rule honest. It reads `cs_occ` — the pass's
+  own verdicts — back out of the guest and checks each one against the glass
+  **with the pass switched off**, which is the whole of it: with the pass on
+  the object is already skipped, so removing it changes nothing and the check
+  passes whatever the pass believes. The first version did exactly that and
+  its `--clobber-occ` arm came back green with twenty-two verdicts "confirmed
+  invisible"; against the pass off the same clobber fails thirty ways. Nine
+  viewpoints, three of them off the centreline, because the rule is exact for
+  an object dead ahead and errs only for one off to the side — and that is
+  how the unshrunk rule was caught hiding 654 visible pixels at 2,000 m.
 - `tests/skieslod.py` (soak, MartyPC, Hercules): §88.5.4.2's gate. JFK's
   four anonymous towers are put in a row across the sight line at **7 km** —
   inside the band where `11 cz` used to wrap — and the row reads which path

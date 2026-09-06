@@ -336,5 +336,6 @@ cs_a_mia:
     dw 1000                          ; CSA_WLEN    half its length...
     dw 60                           ; CSA_WWID    ...and half its width
     dw cs_n_mia_bay              ; CSA_WNAME
+    dw 0                        ; CSA_FLAGS
 cs_s_mia: db 'MIAMI-MIA', 0
 cs_s_rwy_mia: db 'RUNWAY 09', 0

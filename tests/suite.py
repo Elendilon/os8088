@@ -1699,6 +1699,16 @@ SOAK = [
         " while the page could not be dropped down at all) and Done has to be"
         " the full 13.7 gesture",
         needs=("marty",), serial=True),
+    Row("skiesocc", "soak", py("tests/skiesocc.py"), 26.0,
+        "SPEC.md 88.13.7: the occlusion pass, and the only thing keeping its"
+        " width rule honest. Every verdict cs_occlude reaches is checked"
+        " against the glass WITH THE PASS OFF - with it on the object is"
+        " already skipped, so removing it changes nothing and the check"
+        " passes whatever the pass believes, which is how the first version's"
+        " --clobber-occ run came back green with twenty-two verdicts"
+        " 'confirmed invisible'. Nine viewpoints, three of them off the"
+        " centreline, because the rule is exact for an object dead ahead",
+        needs=("marty",), serial=True),
     Row("skieslod", "soak", py("tests/skieslod.py"), 20.0,
         "SPEC.md 88.5.4.2: a solid too small to tell apart is one filled"
         " rectangle PAST SIX KILOMETRES too. cs_drawobj built 11 cz in a"

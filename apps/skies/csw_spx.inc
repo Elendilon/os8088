@@ -215,5 +215,6 @@ cs_a_spx:
     dw 1000                          ; CSA_WLEN    half its length...
     dw 100                           ; CSA_WWID    ...and half its width
     dw cs_n_spx_nile              ; CSA_WNAME
+    dw 0                        ; CSA_FLAGS
 cs_s_spx: db 'CAIRO-SPX', 0
 cs_s_rwy_spx: db 'RUNWAY 27', 0

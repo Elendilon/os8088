@@ -310,5 +310,6 @@ cs_a_sfo:
     dw 800                          ; CSA_WLEN    half its length...
     dw 100                           ; CSA_WWID    ...and half its width
     dw cs_n_sfo_bay              ; CSA_WNAME
+    dw 0                        ; CSA_FLAGS
 cs_s_sfo: db 'SANFAN-SFO', 0
 cs_s_rwy_sfo: db 'RUNWAY 31', 0
