@@ -2686,6 +2686,41 @@ os88ui_drop:
     push di
     push bp
     mov bp, bx                  ; BP = the record (SS != DS: ds: below)
+    call os88ui_drbox
+    cmp byte [ds:bp+OS88UI_DR_OPEN], 0
+    je .shut
+    call os88ui_drbank          ; what the list is about to cover, banked, so
+    call os88ui_drlist          ; taking it down is a blit and not a repaint
+    jmp short .out              ; (SPEC.md 13.14.1)
+.shut:
+    call os88ui_drfree          ; closed: a bank taken before this repaint
+.out:                           ; describes pixels that are no longer there
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_drbox - the CLOSED control: its ground, its frame, the arrow cell and
+;                THE PICK'S CAPTION (internal)
+; in:  BP = the record, DI = the painter's flags; the gfx lock is held
+;
+; It is its own routine because a pick has to redraw it. The list's
+; write-back (13.14.1) puts back the pixels the list covered - which are
+; below the box and do not include the caption - so without this the control
+; came down showing the item it had before the press. That is what the whole
+; repaint used to do on the way past.
+; -----------------------------------------------------------------------------
+os88ui_drbox:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
     UI_WHITE
     mov ax, [ds:bp+0]           ; the interior, one pixel in from the frame
     mov bx, [ds:bp+2]
@@ -2749,16 +2784,6 @@ os88ui_drop:
     UI_RUN
     clc
     UI_PEN                      ; the pen back, always
-    cmp byte [ds:bp+OS88UI_DR_OPEN], 0
-    je .shut
-    call os88ui_drbank          ; what the list is about to cover, banked, so
-    call os88ui_drlist          ; taking it down is a blit and not a repaint
-    jmp short .out              ; (SPEC.md 13.14.1)
-.shut:
-    call os88ui_drfree          ; closed: a bank taken before this repaint
-.out:                           ; describes pixels that are no longer there
-    pop bp
-    pop di
     pop si
     pop dx
     pop cx
@@ -3075,6 +3100,11 @@ os88ui_drpress:
                                 ; that happened: CF = 1 only when there was no
                                 ; bank, which is the repaint the caller has
                                 ; always owed on this path
+    jc .out                     ; ...and when it did, the BOX still shows the
+    push ax                     ; item it had before the press: the list's
+    xor di, di                  ; rect is below it and the write-back cannot
+    call os88ui_drbox           ; reach it (13.14.1). A press only reaches a
+    pop ax                      ; live control, so the pen is the live one
 .out:
     pop bp
     pop si
@@ -3144,6 +3174,13 @@ os88ui_drup:
     mov ah, 1
     push ax
     call os88ui_drback          ; the pixels back, CF = 1 only with no bank
+    jc .rest
+    push di
+    xor di, di
+    call os88ui_drbox           ; ...and the box, whose caption is the pick
+    pop di
+    clc
+.rest:
     pop ax
 .out:
     pop bp

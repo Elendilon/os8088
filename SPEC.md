@@ -21460,6 +21460,14 @@ correct rather than merely lucky. The buffer is sized from
 `OSAPI_WM_DISPLAY`'s `DH` and never from `OSAPI_VIDEO`, for §39.16.4's
 reason: on a two-card machine the depth is the display's.
 
+**A PICK REDRAWS THE CLOSED BOX**, and the first build did not. The banked
+rect is the LIST's - the rows below the box - so the write-back cannot reach
+the caption, and the control came down still showing the item it had before
+the press. The whole repaint used to do that on the way past. `os88ui_drbox`
+is the closed control on its own for this reason: its ground, its frame, the
+arrow cell and the pick's caption, drawn again after a successful restore. A
+press only ever reaches a live control, so it draws in the live pen.
+
 The record grew by two words (`OS88UI_DR_SEG`, `OS88UI_DR_KB`) and
 `OS88UI_DR_SIZE` is 22 — **appended**, so every offset a caller already reads
 is unmoved, and a declaration that was not grown with it overlaps the next

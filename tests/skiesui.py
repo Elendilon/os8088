@@ -180,6 +180,12 @@ def main(argv):
         check(d == 0, "closing it put every pixel back (%d of %d differ)"
               % (d, len(a) // 3))
         check(rec("cs_drport", 18) == 0, "and the claim went with it")
+        # ...and the BOX itself, which the write-back cannot reach, shows the
+        # item that was picked rather than the one it had (SPEC.md 13.14.1)
+        box = lambda f: b"".join(f[(y * fw + po[0]) * 3:(y * fw + po[2] + 1) * 3]
+                                 for y in range(po[1] + 1, po[3]))
+        check(box(was) != box(now),
+              "the closed box was redrawn with the pick's caption")
 
         # --- 3. Esc closes ----------------------------------------------------
         click((po[0] + po[2]) // 2, (po[1] + po[3]) // 2)
