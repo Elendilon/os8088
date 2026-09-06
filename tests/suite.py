@@ -1788,6 +1788,19 @@ SOAK = [
         " windows on an aeroplane with no clamp. --clobber-adi puts the raw"
         " idiv back and is the red run",
         needs=("marty",), serial=True),
+    Row("skieshz", "soak", py("tests/skieshz.py"), 35.0,
+        "SPEC.md 88.3.3.1: the horizon reaches the GLASS. cs_skyground was"
+        " right the whole time - pinned at 45 degrees its cs_xl is a correct"
+        " diagonal - and the band's rows were drawn into the shadow and never"
+        " carried, because the band loop wrote each split row's span and never"
+        " widened the span set's ROW RANGE, which is the only thing cs_blit"
+        " walks. The row checks the glass against the guest's own normal at"
+        " every bank angle, over GROUPS OF FOUR ROWS because two of the"
+        " Hercules ground's four dither phases are blank and a per-row test"
+        " passes on a broken build. It PINS the attitude, which is what makes"
+        " the failure reachable: nothing else then widens the range."
+        " --clobber-range is the red run",
+        needs=("marty",), serial=True),
     Row("skiesgeom", "soak", py("tests/skiesgeom.py"), 42.0,
         "SPEC.md 88.5.5-88.5.8: every polygon and segment of a frame, on nine"
         " pinned scenes - four BANKED, four low among the buildings - held to"
