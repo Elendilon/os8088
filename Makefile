@@ -1634,7 +1634,7 @@ KNOBS := $(strip $(foreach k,VIDEO HERCSEG RTC DISKCNT DISKAL BOOTDIAG FLOPPY1 \
                              FONT INSTCHUNK PICOMEM PM_BASE PM_SB_PORT ANIMOFF DISINK0 \
                              BOOTPROF STKDIAG BOOTMARK BOOTHALT BOOTSTOP NOPS2 MOUIDSLOW MOUDIAG FDDSLOW TRACKRUN SBDRAGOFF SBRATE \
                              ETHPROF FTPDSLOW FTPDBG \
-                             KERN_SMALL KERN_EMU FSNOSTAMP THEMEDARK TITLESNAP SPLSTARS NOSIZESNAP NOFLUSHR NOUNAL BAND NOPLANE NOCOLFAST NOBLITCUT NOUIBLOCK NOMOUPRIV NOCHAINPRIV NOHEDGE NOATBLIT1 NOATFAST NOATWALK NOATSBAR NOATROW NOATBLANK NOCURDISK NOFDDPARK VGADIRTY DLJUNK COMPRESS NOKZIP,\
+                             KERN_SMALL KERN_EMU FSNOSTAMP THEMEDARK TITLESNAP SPLSTARS NOSIZESNAP NOFLUSHR NOUNAL BAND NOPLANE NOCOLFAST NOBLITCUT NOUIBLOCK NOMOUPRIV NOCHAINPRIV NOHEDGE NOATBLIT1 NOATFAST NOATWALK NOATSBAR NOATROW NOATBLANK NOATPLAIN NOCURDISK NOFDDPARK VGADIRTY DLJUNK COMPRESS NOKZIP,\
                              $(if $($(k)),$(k)=$($(k)))))
 # **A KNOB KERNEL IS NOT THE SHIPPED KERNEL, so KERN_BUDGET does not bind it**
 # (kernel.asm guard 1). It is built to answer a question about a machine and
@@ -1660,7 +1660,7 @@ KNOBS := $(strip $(foreach k,VIDEO HERCSEG RTC DISKCNT DISKAL BOOTDIAG FLOPPY1 \
 # kern_emu carrying -DKERN_KNOB would SKIP guard 1 (the KERN_BUDGET footprint
 # check), so the one build that adds a feature would be the one build nothing
 # measured.
-ifneq ($(filter-out KERN_SMALL=% KERN_EMU=% NOHEDGE=% NOATBLIT1=% NOATFAST=% NOATWALK=% NOATSBAR=% NOATROW=% NOATBLANK=%,$(KNOBS)),)
+ifneq ($(filter-out KERN_SMALL=% KERN_EMU=% NOHEDGE=% NOATBLIT1=% NOATFAST=% NOATWALK=% NOATSBAR=% NOATROW=% NOATBLANK=% NOATPLAIN=%,$(KNOBS)),)
 VIDDEF += -DKERN_KNOB
 endif
 
@@ -2984,6 +2984,8 @@ $(shell mkdir -p $(BUILD); \
 #              repeat (SPEC.md 46.4.5).
 # NOATBLANK=1  compose a SPACE like any other glyph - eight rows of fetch,
 #              complement and store over ground already laid (SPEC.md 46.4.6).
+# NOATPLAIN=1  run every Writer-mode line through at_parse's styled FSM, even
+#              one with no markup in it at all (SPEC.md 46.4.7).
 ATKNOB :=
 ifneq ($(NOATBLIT1),)
 ATDEF += -DNOATBLIT1
@@ -3008,6 +3010,10 @@ endif
 ifneq ($(NOATBLANK),)
 ATDEF += -DNOATBLANK
 ATKNOB := $(ATKNOB)k
+endif
+ifneq ($(NOATPLAIN),)
+ATDEF += -DNOATPLAIN
+ATKNOB := $(ATKNOB)p
 endif
 ATSTAMP := $(BUILD)/.artful-$(if $(ATKNOB),$(ATKNOB),opt)
 $(shell mkdir -p $(BUILD); \

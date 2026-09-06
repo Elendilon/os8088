@@ -110,6 +110,60 @@ at_geom_init:
 ; has to do that in the FSM above rather than in at_reveal: a click cannot land
 ; inside a hidden run, so nothing would ever put the caret at the end of one.
 ; -----------------------------------------------------------------------------
+%ifndef NOATPLAIN
+; -----------------------------------------------------------------------------
+; at_plain - can the styled FSM produce anything .rloop would not? (46.4.7)
+; in:  BX = line index; at_lbuf and [at_pcnt] valid (at_slice has run)
+; out: CF = 0 -> PROVABLY plain, so .rloop's arrays are byte-identical to
+;      .sloop's; CF = 1 -> styled. Preserves every register.
+;
+; The three conditions are the whole of what .sloop can do that .rloop cannot:
+; a heading level gives it a prefix to hide and a base style; a non-zero entry
+; nibble means a span is already open; and ` * ~ [ are the ONLY characters that
+; reach .code, .star, .tilde or .bracket. Anything else takes .fsm ->
+; .stylevis, fails all four span tests, and lands in .place storing exactly
+; what .rloop stores.
+;
+; It is a LOCAL proof and not a flag in at_lattr's spare bit: a flag would make
+; the layout and the renderer share a predicate they can disagree about
+; silently, and would have to be cleared on every path at_span can leave by.
+; -----------------------------------------------------------------------------
+at_plain:
+    push ax
+    push cx
+    push si
+    mov al, [bx+at_lattr]
+    test al, 3                      ; a heading: a prefix to hide and a base
+    jnz .no                         ; style, neither of which .rloop writes
+    test al, 0F0h                   ; a span already open at the first char
+    jnz .no
+    mov cx, [at_pcnt]
+    jcxz .yes
+    xor si, si
+.ch:
+    mov al, [si+at_lbuf]
+    cmp al, '`'
+    je .no
+    cmp al, '*'
+    je .no
+    cmp al, '~'
+    je .no
+    cmp al, '['                     ; at_span never sees this one - the link
+    je .no                          ; window is at_parse's own FSM
+    inc si
+    loop .ch
+.yes:
+    clc
+    jmp short .out
+.no:
+    stc
+.out:
+    pop si
+    pop cx
+    pop ax
+    ret
+%endif
+
 at_parse:
     push ax
     push bx
@@ -147,7 +201,13 @@ at_parse:
     cmp byte [at_pforce], 0
     jne .styled                     ; at_cmd_none needs the hidden set as
     cmp byte [at_writer], 0         ; the parser defines it, in either mode
-    jne .styled
+    je .raw
+%ifdef NOATPLAIN
+    jmp .styled
+%else
+    call at_plain                   ; SPEC.md 46.4.7: a line the styled FSM
+    jc .styled                      ; could not style differently is parsed
+%endif                              ; raw, in Writer mode too
 .raw:
     xor si, si                      ; SI = char index
     xor dx, dx                      ; DX = x

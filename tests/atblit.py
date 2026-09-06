@@ -66,10 +66,23 @@ import os, subprocess, tempfile                          # noqa: E402
 # and a strike - are drawn after the row loop, so a space inside either must
 # still be composed. A run without a space in it would never test that.
 DOC = ["# *Heading* one",
+       # A heading with NO delimiter in it, which is the only thing that
+       # isolates 46.4.7's heading test: the italic one above is excluded by
+       # the `*` anyway, so removing the heading test on purpose would still
+       # come out green without this line.
+       "# Plain heading here",
        "Plain body text for the ordinary path.",
        "This is **bold text** and *italic here* and ~~struck out~~.",
        "A `code span` is the three-colour line.",
-       "A [link text](http://os8088.com) underlines it."]
+       "A [link text](http://os8088.com) underlines it.",
+       # ...and a bold run long enough that its MIDDLE visual line carries an
+       # open span and NO delimiter of any kind. That line is plain by every
+       # test in at_plain but the entry-nibble one, so it is the only thing
+       # that isolates it. The closing ** has to land on a THIRD line: put it
+       # on the second and the character test catches it instead.
+       "A **bold run that is deliberately long enough to wrap onto a "
+       "second visual line which contains no delimiter of any kind at "
+       "all and then carries on for a while longer still** and ends."]
 
 CARDS = {"cga":  "os8088_5150_cga_gla",
          "herc": "os8088_5150_herc_gla",

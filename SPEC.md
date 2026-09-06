@@ -60270,6 +60270,46 @@ kernel nothing in this repository builds by default.
 
 `NOATBLANK=1` is the A/B.
 
+#### 46.4.7 A line with no markup in it is parsed raw, in Writer mode too
+
+`at_parse` has two loops. `.rloop` writes `at_vis[i] = 0`, `at_sty[i] = 0` and
+`at_xmap[i] = i * pcw` in about ten instructions a character. `.sloop` is the
+styled FSM — the heading prefix countdown, the link window, the delimiter
+tests, the four span bits folded into a style byte, the code-column call — and
+it is **115 instruction bytes on a plain letter against `.rloop`'s 29**, which
+at the 8088's fetch floor is ~373 clocks a character against ~40.
+
+**For most lines the two produce byte-identical arrays**, and it is provable
+rather than likely. `.sloop` collapses onto `.rloop` exactly when the line has
+no heading level (no prefix to hide, no base style), enters with a zero span
+nibble, and contains none of `` ` `` `*` `~` `[` — the only four characters
+that can reach `.code`, `.star`, `.tilde` or `.bracket`. Every character then
+takes `.fsm` → `.stylevis`, all four span tests fail, and `.place` stores
+exactly what `.rloop` would.
+
+Two things that would spoil the equivalence do not:
+
+- **`at_reveal` is a no-op on such a line.** It walks back from the caret while
+  the character behind it is HIDDEN; with every `at_vis` zero its first
+  compare ends the walk, and `cmp cx, si / je .out` returns having touched
+  nothing.
+- **`[at_pcb0]`/`[at_pcb1]` are initialised above the branch** to the empty
+  span `at_codebg` refuses on, which is what a raw line keeps anyway.
+
+So `at_parse` proves the line plain and takes `.rloop`. The proof is one pass
+over `at_lbuf` — which is already in memory and contiguous — at four compares a
+character, and it pays for itself several times over against the FSM it
+replaces.
+
+**It is deliberately a LOCAL decision and not a flag.** The obvious design is
+to spend `at_lattr`'s unused bit 3 on a plain-line flag computed in `at_scan`,
+which already reads every byte; that makes the layout and the renderer share a
+predicate they can disagree about silently, and puts a bit that must be cleared
+on every path `at_span` can leave by. Proving it where it is used costs a pass
+that is a fraction of what it saves and has nothing to invalidate.
+
+`NOATPLAIN=1` is the A/B.
+
 ### 46.5 The chrome — the app draws its own Macintosh
 
 Fullscreen makes the kernel bar unreachable (§11.2), which is exactly what

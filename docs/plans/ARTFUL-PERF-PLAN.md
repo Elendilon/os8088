@@ -424,6 +424,38 @@ in them never tested that; dropping the `AT_ST_L | AT_ST_S` guard on purpose
 now reads 16 differing pixels, which is exactly the rule segments under the
 spaces.
 
+**S25 IS BUILT — but as a LOCAL PROOF rather than as the flag it proposed**
+(SPEC.md §46.4.7), and it is the biggest single win since §46.4.3: **1.18x** on
+plain body text (141.3 → 119.3 ms, Hercules, three visual lines) and **1.00x**
+on a heading, where the proof correctly refuses and the check costs nothing
+measurable. 57 bytes.
+
+S25's design was to spend `at_lattr`'s unused bit 3 on a plain-line flag
+computed in `at_scan`, which already reads every byte. That is a contract
+between the LAYOUT and the RENDERER that the two can disagree about silently,
+and the plan already knew it needed clearing on a path `at_span` can leave by
+(`.skip`). `at_parse` proves the line plain **where it is used** instead: one
+pass over `at_lbuf`, which is already in memory and contiguous, at four
+compares a character. That pays for itself several times over against
+`.sloop`'s ~373 clocks a character, and there is nothing to invalidate.
+
+The equivalence is provable, not likely: `.sloop` collapses onto `.rloop`
+exactly when the line has no heading level, enters with a zero span nibble, and
+holds none of `` ` `` `*` `~` `[` — the only four characters that reach
+`.code`, `.star`, `.tilde` or `.bracket`. Two things that would spoil it do
+not: `at_reveal` is a no-op when nothing is hidden (its first compare ends the
+walk and `cmp cx, si / je .out` returns), and `[at_pcb0]`/`[at_pcb1]` are
+initialised above the branch to the empty span `at_codebg` refuses on.
+
+**The gate needed three new witnesses, and finding that out took breaking each
+condition separately.** The first attempt left all three green: the italic
+heading is excluded by its `*` anyway, so removing the heading test changed
+nothing, and the wrapped bold run's closing `**` landed on the second visual
+line, so the character test caught it before the entry-nibble test could. The
+document now carries a heading with NO delimiter in it, and a bold run long
+enough that its MIDDLE visual line has an open span and no delimiter at all.
+Broken one at a time they read 1,716 / 396 / 910 differing pixels.
+
 **What is left, re-ranked on the measurement rather than the prediction.**
 **A profile of the keystroke that remains** says no single term dominates any
 more. Per printable keystroke on Hercules in a three-line paragraph, MEASURED
@@ -432,10 +464,9 @@ call counts: `at_glyph` 187, `at_getb` 347, `at_span` 342, `at_parse` 3,
 `at_parse`'s styled loop 12%, `at_getb` 8%, `at_span` 5% — so the remaining
 wins are 5-12% each and none is a cliff.
 
-The largest single one left is **S25, the plain-line flag** (part 4): it makes
-`at_parse` take its raw loop on a line with no styling, which is most lines,
-and lets `at_caret_on` compute the caret's x arithmetically instead of parsing
-at all — one of the three parses a keystroke pays, plus the cost on every
-arrow key and every lit blink phase. It is a PROOF rather than a cache, which
-is what makes it worth more than the "skip the redundant `at_parse`" item
-beside it: that one needs an invalidation rule, and this one does not. Wave 6 is unchanged. 4a still needs re-costing on a ~30 ms line, ; 2a is settled and refused. Wave 6 and 3b/3c are unchanged. 4a needs re-costing first.
+S25's SECOND half is still open and is now the largest item left: `at_caret_on`
+still calls `at_parse` to find the caret's x, and on a line §46.4.7 has proved
+plain that x is `at_tx0 + (caret - lstart) * pcw` — arithmetic, not a parse.
+That is one of the three parses a keystroke pays, plus the cost on every arrow
+key and every lit blink phase. Beside it sit Wave 6 (`at_append`) and 4a, which
+still needs re-costing on a ~30 ms line. Wave 6 is unchanged. 4a still needs re-costing on a ~30 ms line, ; 2a is settled and refused. Wave 6 and 3b/3c are unchanged. 4a needs re-costing first.
