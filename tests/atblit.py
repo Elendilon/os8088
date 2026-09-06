@@ -320,6 +320,70 @@ def drive(img, apps, machine, card, tree, census, shot=None):
             raise SystemExit("atblit: [at_zoom] is still 0 - the Zoom In item "
                              "was not chosen, so this scene tested nothing")
         ui.settle()
+        # CAPTURE WHILE ZOOMED IN, WITH A PLAIN LINE ON THE GLASS. Every
+        # other scene is at zoom 0, where at_cellwtab makes a body cell 8px
+        # and every plain line scale 1; zoom 1 makes it 16, so a plain body
+        # line is SCALE 2 - the one state in which at_parse's .rloop runs
+        # with at_psc != 1, and the only thing that can witness SPEC.md
+        # 46.4.9's scale guard.
+        #
+        # PAGING TO A PLAIN LINE IS THE LOAD-BEARING HALF. Capturing right
+        # here renders the caret's own line, which after the scroll scene is
+        # the delimiter-per-four-characters one - STYLED, so at_parse clears
+        # the flag and the fast composer is never entered. Removing the
+        # guard on purpose was GREEN with the zoom capture alone: the
+        # picture cannot show a bug in a path the scene does not take. The
+        # document's TAIL is the filler, one `x` a line, which is plain at
+        # every zoom.
+        #
+        # IT IS A SEARCH AND NOT A COUNT, for two reasons. The three
+        # adapters fit different numbers of rows and carry different filler
+        # counts, so "page down N times" lands somewhere different on each;
+        # and the very bottom is one line SHORT of useful, because at_layout
+        # emits the trailing empty logical line through at_emitend without
+        # at_mkplain, so its attr is 0 and a view scrolled to at_maxtop
+        # shows that line and nothing else.
+        #
+        # THE WITNESS IS at_lattr AND NOT [at_pplain], which looks like the
+        # obvious reading and is confounded: SPEC.md 46.4.8 lets at_caret_on
+        # SKIP at_parse on a plain line, so the last parse of a repaint is
+        # whichever STYLED line was drawn last and the flag reads 0 with a
+        # perfectly good plain line on the glass. Bit 3 of a line's attr is
+        # the same fact stated where nothing can overwrite it.
+        def band():
+            """The attrs of the visual lines currently on the glass."""
+            top = u16(m.readseg(seg, syms["at_top"], 2))
+            nl = u16(m.readseg(seg, syms["at_nlines"], 2))
+            rows = ((u16(m.readseg(seg, syms["at_ty1"], 2))
+                     - u16(m.readseg(seg, syms["at_ty0"], 2)))
+                    // max(1, u16(m.readseg(seg, syms["at_prh"], 2))))
+            n = max(1, min(rows, nl - top))
+            return top, nl, m.readseg(seg, syms["at_lattr"] + top, n)
+
+        for _ in range(6):
+            nav("PageDown")                 # ...to a known end, then back up
+        for _ in range(10):
+            top, nl, attrs = band()
+            if any(b & 8 for b in attrs):
+                break
+            nav("PageUp")
+        else:
+            raise SystemExit(
+                "atblit: zoomed in at psc=%d, no page of this document has a "
+                "PLAIN line (attr bit 3) on it - the last band tried was %d "
+                "of %d, attrs %s. Rendering a plain line at a scale above 1 "
+                "is the whole point of this scene."
+                % (u16(m.readseg(seg, syms["at_psc"], 2)), top, nl,
+                   " ".join("%02x" % b for b in attrs)))
+        if u16(m.readseg(seg, syms["at_psc"], 2)) == 1:
+            raise SystemExit("atblit: zoomed in and at_psc is still 1 - "
+                             "at_cellwtab's zoom row has moved and this "
+                             "scene is testing scale 1 twice")
+        ui.settle()
+        w6, h6, zoomin = m.fbuf()
+        if shot:
+            os88marty.write_png_rgb(shot.replace(".png", "-zoomin.png"),
+                                    w6, h6, zoomin)
 
         # ...and back OUT again, which is the other half of the geometry
         # change and the one that puts the row back in a comparable state:
@@ -384,7 +448,7 @@ def drive(img, apps, machine, card, tree, census, shot=None):
             os88marty.write_png_rgb(shot.replace(".png", "-undo.png"),
                                     w4, h4, undone)
 
-    return w, h, splash, rgb, scrolled, zoomed, undone, counts
+    return w, h, splash, rgb, scrolled, zoomin, zoomed, undone, counts
 
 
 def diff(a, b, w, h, y0=0):
@@ -444,11 +508,11 @@ def main():
     print("   %s arm: %s" % (a.knob, os.path.relpath(knob.dir, ROOT)))
 
     os.makedirs("/tmp/atblit", exist_ok=True)
-    w, h, bsp, band, bsc, bzm, bun, cb = drive(shipped.img("os8088-360.img"),
+    w, h, bsp, band, bsc, bzi, bzm, bun, cb = drive(shipped.img("os8088-360.img"),
                                 shipped.img("apps360.img"), machine, a.card,
                                 shipped,
                                 a.census, "/tmp/atblit/%s-shipped-%s.png" % (a.knob, a.card))
-    w2, h2, esp, expa, esc, ezm, eun, ce = drive(knob.img("os8088-360.img"),
+    w2, h2, esp, expa, esc, ezi, ezm, eun, ce = drive(knob.img("os8088-360.img"),
                                   knob.img("apps360.img"), machine, a.card,
                                   knob,
                                   a.census,
@@ -472,7 +536,8 @@ def main():
     for scene, x, y, y0 in (("splash", bsp, esp, MBAR_H),
                             ("document", band, expa, 0),
                             ("scrolled", bsc, esc, 0),
-                            ("zoomed", bzm, ezm, 0),
+                            ("zoomed-in", bzi, ezi, 0),
+                            ("zoomed-out", bzm, ezm, 0),
                             ("undone", bun, eun, 0)):
         n, box = diff(x, y, w, h, y0)
         print("   %s/%s %-9s %d differing pixels of %d%s"

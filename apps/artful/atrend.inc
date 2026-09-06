@@ -174,6 +174,15 @@ at_parse:
     mov di, si
     shl di, 1
     mov [di+at_xmap], dx
+%ifndef NOATCELL
+    ; SPEC.md 46.4.9: .rloop wrote at_vis = 0 and at_sty = 0 for EVERY cell,
+    ; and at scale 1 at_xmap[i] is i*8 - so cell i's byte column is i. That is
+    ; exactly what at_compose needs to drop the per-cell call.
+    mov byte [at_pplain], 1
+    cmp word [at_psc], 1
+    je .out
+    mov byte [at_pplain], 0
+%endif
     jmp .out
 .styled:
     mov al, [bx+at_lattr]
@@ -321,6 +330,9 @@ at_parse:
     mov [bx+at_xmap], di
     xchg bx, dx
     call at_reveal                  ; ...and the run the caret is typing
+%ifndef NOATCELL
+    mov byte [at_pplain], 0         ; a styled line has hidden cells and
+%endif                              ; per-cell styles: no fast loop
 .out:
     pop bp
     pop di
@@ -594,6 +606,59 @@ at_compose:
     rep stosw                       ; ground is SET and at_glyph clears ink
     pop es
     xor si, si
+%ifndef NOATCELL
+    ; --- SPEC.md 46.4.9: a PLAIN scale-1 line, composed without a call ------
+    ; at_glyph is 1,034 cycles a cell and its eight-row emitter is 264 of
+    ; them; the rest is a call, seven register banks, a range check and a
+    ; strip cursor recomputed from at_xmap. On a line at_parse took .rloop
+    ; for at scale 1, NONE of that can differ: every cell is visible and
+    ; unstyled, so there is no style to dispatch on and no hidden cell to
+    ; skip, and cell i's byte column is i - so the cursor is an `inc`.
+    cmp byte [at_pplain], 0
+    je .ch
+    mov cx, [at_pcnt]
+    jcxz .done
+    mov di, at_strip1               ; cell 0's byte column
+.fastc:
+    mov al, [si+at_lbuf]
+    cmp al, ' '
+    jne .fdraw
+    cmp byte [at_blankok], 0        ; 46.4.6, and there is no rule to draw:
+    jne .fnext                      ; a plain cell carries no link or strike
+.fdraw:
+    cmp al, 32
+    jb .fhuh
+    cmp al, 126
+    jbe .fok
+.fhuh:
+    mov al, '?'
+.fok:
+    push cx
+    xor ah, ah
+    sub ax, 32
+    mov cl, 3
+    shl ax, cl
+    mov bx, ax
+    add bx, at_fontbuf              ; BX -> the eight glyph rows
+    push di
+    mov cx, 8
+.frow:
+    mov al, [bx]
+    inc bx
+%ifndef NOATBLIT1
+    not al
+%endif
+    mov [di], al
+    add di, AT_S1ST
+    loop .frow
+    pop di
+    pop cx
+.fnext:
+    inc di
+    inc si
+    loop .fastc
+    jmp short .done
+%endif
 .ch:
     cmp si, [at_pcnt]
     jae .done

@@ -525,5 +525,43 @@ forward reads the low run only, and breaking the gap arithmetic on purpose left
 the row green until it gained an edit with text still AFTER the caret. **Third
 time** a break-test in this work passed for want of a witness.
 
-**What is left**: Wave 6 (`at_append`), and 4a, which still needs re-costing on
-a line that is now ~20 ms rather than the 122 it was planned against. Wave 6 is unchanged. 4a still needs re-costing on a ~30 ms line, ; 2a is settled and refused. Wave 6 and 3b/3c are unchanged. 4a needs re-costing first.
+**AND THE PER-CELL CALL IS OFF A PLAIN LINE** (SPEC.md §46.4.9). §46.4.3 took
+the decisions out of `at_glyph`'s body; this takes the *call* out. One
+`at_glyph` is **1,034 cycles** and its eight-row emitter is **264** of them —
+the other 770 are a `call`, seven push/pop pairs, a range check, a style
+dispatch and a strip cursor recomputed from `at_xmap`: **74% overhead on the
+one path with no decisions left to make**. On a line `at_parse` took `.rloop`
+for, at scale 1, `at_vis` and `at_sty` are zero everywhere and cell *i*'s byte
+column IS *i*, so `at_compose` runs a straight-line emitter and the cursor is
+an `inc`. **1.22x for 106 bytes** (99.4 → 81.8 ms, three visual lines,
+Hercules; 19,747 → 19,853).
+
+Its two guards break differently and that is the whole test story. Clearing the
+flag at `.styled` is worth **10,705 differing pixels** the moment it is
+removed — the styled lines of the document are on the glass in every scene.
+The **scale** guard is worth nothing at all until a PLAIN line is rendered at a
+scale above 1, and `tests/atblit.py` did not have one: the zoom scene captured
+only after the round trip back out, and capturing *while* zoomed in did not fix
+it either, because the caret's line at that point is the delimiter-per-four-
+characters one and `at_parse` clears the flag on it. **Fourth time in this plan
+a break-test passed for want of a witness**, and this one took two attempts to
+witness rather than one.
+
+The scene now pages to the document's plain filler tail and **says so out of
+`at_lattr`**, which is the reading that is not confounded: SPEC.md §46.4.8 lets
+`at_caret_on` skip `at_parse` on a plain line, so `[at_pplain]` after a repaint
+is whichever *styled* line was drawn last and reads 0 with a perfectly good
+plain line on screen. It is a search rather than a count of PageDowns, because
+the three adapters fit different numbers of rows and because the very bottom is
+one line short of useful — `at_layout` emits the trailing empty logical line
+through `at_emitend` without `at_mkplain`, so its attr is 0 and a view at
+`at_maxtop` shows that line and nothing else. With the guard removed the scene
+now reports **85 differing pixels** in one cell.
+
+**Where the keystroke stands**: 520.7 ms at the start of this work, **81.8 ms**
+now on the same scene — **6.37x**.
+
+**What is left**: Wave 6 (`at_append`) and 4a. 2a and 2b are settled and
+refused; 3b and 3c are built. 4a needs re-costing against a line that is now
+~20 ms rather than the 122 ms it was planned against, and Wave 6 needs
+answering against the measurement that made `at_compose` the target instead.

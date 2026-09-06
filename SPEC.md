@@ -60416,6 +60416,54 @@ Together with §46.4.7 this is **1.22x on a keystroke in plain body text**
 3.7 ms; `at_caret_on`'s own share is 2.3 ms. `NOATCX=1` is the A/B for the
 caret half, `NOATPLAIN=1` for the mechanism as a whole.
 
+#### 46.4.9 A plain scale-1 line is composed with no per-cell call at all
+
+`at_glyph` is **1,034 cycles a cell** and its eight-row emitter is **264** of
+them. The other 770 are a `call`, seven push/pop pairs, a range check on the
+character, a style dispatch, and a strip cursor recomputed out of `at_xmap` and
+shifted down to a byte column — **74% overhead on the one path that has no
+decisions left to make.**
+
+§46.4.3 already took the decisions out of the *body*. This takes the *call*
+out, for the line shape §46.4.8 has just finished proving: a line `at_parse`
+took `.rloop` for, at scale 1.
+
+`.rloop` writes `at_vis[i] = 0` and `at_sty[i] = 0` for **every** cell and
+`at_xmap[i] = i * pcw`. At `pcw` = 8 that says three things at once, and each
+one deletes work:
+
+- every cell is visible, so there is no hidden cell to skip;
+- every cell is unstyled, so there is no style to dispatch on and no rule to
+  draw underneath;
+- cell *i*'s **byte** column is *i*, so the strip cursor is an `inc` rather
+  than a table read, a shift and an add.
+
+So `at_parse` publishes the fact in `[at_pplain]` at `.rdone` — set, then
+cleared unless `[at_psc]` is 1 — and `at_compose` reads it once, before its
+loop, and runs a straight-line emitter: fetch the byte, clamp it to the
+printable range, index the face, write eight rows a stride apart, `inc` both
+cursors. §46.4.6's blank skip is honoured by testing `[at_blankok]` (a plain
+cell carries neither a link nor a strike, so the two styles that ink a space
+cannot be present) and §46.4.2's polarity by the same `not al` the general
+path uses.
+
+**`.styled` clears the flag**, and must: a styled line has hidden cells, so
+cell *i*'s column is not *i*, and it has rules that are drawn after the row
+loop. Removing that one store draws the styled lines of the test document
+through the plain emitter and is worth **10,705 differing pixels**.
+
+**The scale guard is the half that is easy to leave out.** At scale 2 a glyph
+occupies two byte columns and sixteen strip rows, so a plain line at zoom 1 —
+where `at_cellwtab` makes a body cell 16px in either mode — composed through
+this loop would be drawn at half width and half height. That state is reachable
+from the View menu and nothing else in `at_compose` would notice, which is why
+`tests/atblit.py` captures **while zoomed in** rather than only after the round
+trip back out.
+
+**1.22x on a keystroke** (99.4 → 81.8 ms, Hercules, three visual lines; 174.7
+→ 142.8 on five) for **106 bytes** — 19,747 → 19,853. `NOATCELL=1` is the A/B,
+and `tests/atblit.py` is the picture.
+
 ### 46.5 The chrome — the app draws its own Macintosh
 
 Fullscreen makes the kernel bar unreachable (§11.2), which is exactly what

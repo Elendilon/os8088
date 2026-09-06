@@ -1088,7 +1088,12 @@ at_scplain  equ at_sbty + 2                  ; byte: this visual line has no
                                              ; styling character in it yet
 at_scplsp   equ at_scplain + 1               ; byte: ...as it stood at the last
                                              ; SPACE, for the wrap rewind
-at_scspsp   equ at_scplsp + 1                ; byte: the span nibble at that
+at_pplain   equ at_scplsp + 1                ; byte: at_parse took .rloop AND
+                                             ; the scale is 1, so every cell
+                                             ; of this line is visible,
+                                             ; unstyled and byte-aligned
+                                             ; (SPEC.md 46.4.9)
+at_scspsp   equ at_pplain + 1                ; byte: the span nibble at that
                                              ; same space (SPEC.md 46.3.2)
 at_scsksp   equ at_scspsp + 1                ; word: ...and at_scskip with it
 at_blankok  equ at_scsksp + 2                ; byte: 1 = the kernel's face
