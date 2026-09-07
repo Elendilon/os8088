@@ -43,8 +43,10 @@ WHAT THIS GUARANTEES, and it is worth being precise because the old rule was
 "one build at a time, globally":
 
   * two rows with DIFFERENT knobs never touch the same file;
-  * two rows with the SAME knobs share one tree, and the second waits only
-    for the first's BUILD, not for its run;
+  * two rows with the SAME knobs share one tree: the second waits for the
+    first's BUILD, and a row that wants to BUILD one waits for the rows
+    READING it (_Lock downgrades to a shared hold rather than dropping it,
+    which is what stopped `msegnomem` reading a kernel.bin mid-rewrite);
   * `build/` itself is never written by a row at all, so a person or another
     agent may `make` in the checkout while a soak runs.
 
@@ -298,12 +300,34 @@ def _goals(d, targets):
     return out
 
 
+# Shared holds taken by this process, kept alive for its lifetime: see
+# _Lock.__exit__. Never read - the list IS the reference.
+_HELD = []
+
+
 class _Lock(object):
-    """flock on one tree's own lock file, held across the build and no longer.
+    """flock on one tree's own lock file: EXCLUSIVE to build, SHARED to read.
 
     Per TREE and not global: two rows with different knobs never meet here,
-    and two with the same knob meet for the length of one `make` - after which
-    both read the same finished tree.
+    and two with the same knob meet for the length of one `make`.
+
+    **AND THEN THE READER KEEPS A SHARED HOLD**, which the first version did
+    not and a soak caught. The claim was that after the build "both read the
+    same finished tree", resting on the second row's `make` being a no-op. It
+    is not reliably: `msegnomem` and `mseglazy` share the DISKCNT=1 tree, the
+    second re-entered it while the first was running, and os88sym read a
+    kernel.bin mid-rewrite - "the map describes a DIFFERENT kernel ... first
+    difference at 0x72a, and the file was written 2.7 s ago". The message had
+    already worked out what happened; nothing had stopped it happening.
+
+    So the hold is downgraded rather than dropped, and lives as long as the
+    reading process. A second row's BUILD then waits for the readers, and two
+    readers never wait for each other. It costs serialisation only between
+    rows that share a tree, which is exactly the set that can collide.
+
+    Everything the original argument rested on is unchanged: it is still one
+    flock, still per tree, and the kernel still drops it when the holder exits
+    however it exits - no lease, no expiry, nothing to get wedged.
 
     The kernel drops it when the holder exits, so there is no lease to expire,
     nothing to renew, and no way to leave one behind. That is the property
@@ -326,11 +350,21 @@ class _Lock(object):
         return self
 
     def __exit__(self, *a):
+        """Downgrade to SHARED and KEEP it - see the class docstring.
+
+        The handle is parked in a module-level list because closing it is what
+        releases an flock: a Tree that went out of scope would drop the hold
+        silently and put the race back with nothing to show for it.
+        """
         try:
-            fcntl.flock(self.fh, fcntl.LOCK_UN)
-        finally:
-            self.fh.close()
-            self.fh = None
+            fcntl.flock(self.fh, fcntl.LOCK_SH)
+            _HELD.append(self.fh)
+        except Exception:               # a downgrade that cannot be taken is
+            try:                        # not worth failing a row over: fall
+                fcntl.flock(self.fh, fcntl.LOCK_UN)
+            finally:
+                self.fh.close()
+        self.fh = None
 
 
 # THE COMPRESSED KERNEL'S FOUR DEFINES ARE NOT REPORTED, and that is the

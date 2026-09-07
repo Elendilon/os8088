@@ -1568,7 +1568,7 @@ SOAK = [
         "nothing. VERIFIED by A/B - made to try the claim instead of asking, "
         "the table goes 4 claims to 2 and this row names it. Needs `make "
         "mseg`.",
-        needs=("marty", "nasm"), serial=True),
+        needs=("marty", "nasm"), serial=True, wants=("build/mseg.img",)),
     Row("c64part", "soak", py("tests/c64part.py"), 30.0,
         "THE FIRST REAL CONSUMER of the parts standard (SPEC.md 20.12, and "
         "C64-SPEC 1.4): C64.ROM - 20,480 bytes of KERNAL, BASIC and "
@@ -1619,7 +1619,7 @@ SOAK = [
         "assertion 1 does NOT notice, because op_seg answers a lazy row out "
         "of the row itself and that is still 0. Presence is what the package "
         "was told; the carve is what the disk did. Needs `make mseg`.",
-        needs=("marty", "nasm"), serial=True),
+        needs=("marty", "nasm"), serial=True, wants=("build/mseg.img",)),
     Row("msegxms", "soak", py("tests/msegxms.py"), 50.0,
         "SPEC.md 20.12.4: an OP_XMS part really goes ABOVE 1MB. Every MartyPC "
         "row proves the FALLBACK - an 8088 has nothing up there, so the part "
