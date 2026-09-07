@@ -228,6 +228,16 @@ FAST = [
         " clearing it deliberately leaves ps2mouse fully green). So the"
         " invariant is asserted over the source instead",
         needs=()),
+    Row("csair", "fast", py("tests/unit/t_csair.py"), 0.3,
+        "SPEC.md 88.7.6.3: CLEAR SKIES' eight rects of lift and sink keep"
+        " CS_LIFTCLR out of the circuit - which is where every OTHER test of"
+        " this simulator flies, so a rect edged toward the runway would be"
+        " found as a broken glide ratio three rows away. It measures the"
+        " NEAREST CORNER and not the centre, because a rect 3,000 m out that"
+        " reaches 900 m in is 2,100 m out. Also that there is both lift and"
+        " sink to find, and that the swoop's ramp lands exactly on its far"
+        " end - CS_SWOOPLO + CS_SWOOPT x CS_SWOOPD = CS_SWOOPHI",
+        needs=()),
     Row("cssin", "fast", py("tests/unit/t_cssin.py"), 0.3,
         "SPEC.md 88.5.9: CLEAR SKIES' sine table is a QUARTER of the turn"
         " now, and nothing held it to its generator before it became one."
@@ -1795,7 +1805,7 @@ SOAK = [
         " high byte, so an amphibian airborne OFF the water read STALLED for"
         " the whole flight",
         needs=("marty",), serial=True),
-    Row("skiesfleet", "soak", py("tests/skiesfleet.py"), 58.0,
+    Row("skiesfleet", "soak", py("tests/skiesfleet.py"), 52.0,
         "SPEC.md 88.7.5-88.7.7.1: the three aeroplanes that came after the"
         " Pitts, each checked on its MECHANIC. The Magister's roll rate ramps"
         " and decays and its engine spools; the Bijave starts in the air with"
@@ -1806,8 +1816,14 @@ SOAK = [
         " table, walked out of the GUEST rather than carried here as a"
         " coordinate - and dry land off the runway is still a crash, which is"
         " the pair that says the strip stopped being an invisible runway"
-        " without the edge going away. --clobber-lag, --clobber-amphib and"
-        " --clobber-water are the three red runs",
+        " without the edge going away. The glider then gets 88.7.6.1-88.7.6.3"
+        " to itself: W held for two hundred frames opens no throttle and makes"
+        " no tone, an announcement AGES OUT with nothing else happening, and"
+        " the air is read against cs_lifts as the guest holds it - still air"
+        " is still, the table's strongest column and deepest sink move an"
+        " aeroplane by exactly what the row says, and crossing into either"
+        " arms the swoop. --clobber-lag, --clobber-amphib and --clobber-water"
+        " are the three red runs",
         needs=("marty",), serial=True),
     Row("skiesease", "soak", py("tests/skiesease.py"), 46.0,
         "SPEC.md 88.7.3: the horizon captures the last three ticks of an"

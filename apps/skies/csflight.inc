@@ -218,6 +218,7 @@ cs_reset:
     mov [cs_py+1], ax
     mov byte [cs_state], CS_ST_AIR
     mov byte [cs_msg], CSG_RELEASE
+    mov byte [cs_msgt], CS_MSGAGE   ; ...which nothing else would clear (88.7.6.2)
     mov ax, [di + CSP_VSTALL]       ; 1.4 VSTALL, which is what a tug tows
     mov bx, ax                      ; at and what the book calls best glide
     shr bx, 1
@@ -251,7 +252,15 @@ cs_step:
     ret
 .live:
     mov di, [cs_plane]
+    call cs_msgage                  ; --- an ANNOUNCEMENT expires (88.7.6.2) --
     ; --- the throttle -------------------------------------------------------
+    ; NOT ON A GLIDER (88.7.6.1). CSP_THRUST 0 is an aeroplane with no engine,
+    ; and its throttle used to open to 100 on the W key like everyone else -
+    ; which the ENGINE NOISE is made from, so the Bijave hummed. The panel
+    ; hid it (the Bijave's THR item is (0,0)), the model ignored it, and the
+    ; only thing that ever read it was the sound.
+    cmp word [di + CSP_THRUST], 0
+    je .throk
     mov al, [cs_kthr]
     or al, al
     jz .throk
@@ -372,7 +381,38 @@ cs_step:
     sar bx, 1
     sub ax, bx
 .vsok:
+    ; --- AND THE AIR ITSELF (SPEC.md 88.7.6.3). Into cs_vs and not into the
+    ;     altitude, so the VARIOMETER shows it: cs_k_vs reads this word, and
+    ;     an instrument that misses the one thing a sailplane is flown on
+    ;     would be an odd instrument
+    push ax
+    push di
+    call cs_lift
+    mov [cs_airv], ax
+    pop di
+    pop ax
+    add ax, [cs_airv]
     mov [cs_vs], ax
+    ; --- crossing INTO it is what you HEAR: leaving is silent, arriving is
+    ;     a swoop, which is the cue a variometer's audio actually gives
+    mov bl, 0
+    mov ax, [cs_airv]
+    or ax, ax
+    jz .sg
+    mov bl, 1
+    jns .sg
+    mov bl, -1
+.sg:
+    cmp bl, [cs_airs]
+    je .swok
+    mov [cs_airs], bl
+    or bl, bl
+    jz .swok
+    cmp byte [cs_sound], 0          ; ...and it is SCHEDULED, so with the sound
+    je .swok                        ; off there is nothing to schedule - one
+    mov [cs_swdir], bl              ; armed here and left standing is a swoop
+    mov byte [cs_swt], CS_SWOOPT    ; that plays when the sound comes back on
+.swok:
     call cs_move
     ; --- the ground, and what is standing on it ---------------------------
     ; The wheels are on it when the altitude is BELOW the field, or AT it
@@ -933,6 +973,114 @@ cs_fence:
     mov byte [cs_msg], CSG_EDGE
     ret
 
+; =============================================================================
+; THE AIR (SPEC.md 88.7.6.3) - rects of lift and sink round the field
+;
+; Placed in metres from the LOCATION's own centre, so one table serves all
+; nine worlds and every one of them gets the same weather round its own
+; runway. Every rect keeps CS_LIFTCLR out of the field, which is the circuit
+; and is where every other test of this simulator flies.
+;
+; The rate is cs_vs's own scale, m/s x 128, positive UP. A sailplane's still
+; air sink is about 1 m/s, so +448 is a climb you can work and -320 is air
+; worth leaving.
+; =============================================================================
+CSAIR_DX      equ 0                   ; from the field, metres
+CSAIR_DZ      equ 2
+CSAIR_HW      equ 4                   ; ...and how far it reaches, half-extents
+CSAIR_HD      equ 6
+CSAIR_RATE    equ 8                   ; m/s x 128, + up
+CSAIR_SIZE    equ 10
+CS_NLIFT    equ 8
+CS_LIFTCLR  equ 2500                ; the disc round the field they keep out of
+
+cs_lifts:
+    dw  3200, -1800,  700, 500,  448    ; +3.5 m/s, the near one
+    dw -2900,  2600,  600, 800, -256    ; -2.0
+    dw  4800,  3400,  900, 700,  384
+    dw -4200, -3100,  700, 600,  320
+    dw   600,  5200,  800, 900, -320
+    dw -5600,   900,  600, 700,  512    ; +4.0, the strong one
+    dw  2200, -5400,  700, 800, -192
+    dw  6400, -1200,  900, 600,  256
+
+; -----------------------------------------------------------------------------
+; cs_lift - the air's vertical rate where the aeroplane is, in cs_vs's units
+; out: AX = the rate, 0 in still air. Clobbers BX, CX, SI, DI
+;
+; AN AEROPLANE WITH AN ENGINE DOES NOT FEEL IT, and that is the design rather
+; than a shortcut (88.7.6.3): a Magister crosses one of these in three seconds
+; at a bump it has the thrust to ignore, where a sailplane at 22 m/s dwells in
+; it for a minute and has nothing else to climb on. It is the same
+; CSP_THRUST = 0 the throttle is gated on, so a sailplane is exactly the
+; aeroplane the air flies.
+; -----------------------------------------------------------------------------
+cs_lift:
+    xor ax, ax
+    mov di, [cs_plane]
+    cmp word [di + CSP_THRUST], 0
+    jne .out
+    mov si, [cs_airport]
+    mov cx, [cs_px+1]
+    sub cx, [si + CSA_X]
+    mov di, [cs_pz+1]
+    sub di, [si + CSA_Z]
+    mov si, cs_lifts
+    mov bx, CS_NLIFT
+.l:
+    mov ax, cx
+    sub ax, [si + CSAIR_DX]
+    call cs_wabs
+    cmp ax, [si + CSAIR_HW]
+    jg .n
+    mov ax, di
+    sub ax, [si + CSAIR_DZ]
+    call cs_wabs
+    cmp ax, [si + CSAIR_HD]
+    jg .n
+    mov ax, [si + CSAIR_RATE]
+    ret
+.n:
+    add si, CSAIR_SIZE
+    dec bx
+    jnz .l
+    xor ax, ax
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_msgage - an ANNOUNCEMENT goes by itself; a WARNING stays (SPEC.md 88.7.6.2)
+;
+; The field reported the glider's `TOW RELEASED - NOSE DOWN FOR 43 KNOTS`
+; standing on the panel until something else happened, and the cause is that
+; a sailplane STARTS IN THE AIR: `CSG_TAKEOFF` is cleared by the liftoff at
+; cs_step's `.steer`, and an aeroplane launched already flying never reaches
+; that line. So the prompt had no clearer at all.
+;
+; A countdown rather than a second condition, because the two are different
+; kinds of message. A WARNING is true while a state is true and clears when
+; the state does - the stall, the world's edge, a crash. An ANNOUNCEMENT is a
+; thing that HAPPENED, and the reader has read it: the tow release, a landing,
+; a splashdown. Those three set [cs_msgt] and it takes them away.
+; -----------------------------------------------------------------------------
+cs_msgage:
+    cmp byte [cs_msgt], 0
+    je .out
+    dec byte [cs_msgt]
+    jnz .out
+    ; A TOAST (88.13.8) BORROWS THE STRIP and banks what it took, so an
+    ; announcement that ages out UNDER one is retired where it is actually
+    ; kept: clearing cs_msg here would cut the toast short, and leaving
+    ; cs_toastwas alone would put the announcement back when the toast went.
+    cmp byte [cs_msg], CSG_TOAST
+    je .under
+    mov byte [cs_msg], CSG_NONE
+.out:
+    ret
+.under:
+    mov byte [cs_toastwas], CSG_NONE
+    ret
+
 ; -----------------------------------------------------------------------------
 ; cs_touch - the wheels met the ground: a landing, or not (SPEC.md 88.7)
 ; -----------------------------------------------------------------------------
@@ -994,6 +1142,7 @@ cs_touch:
     mov word [cs_roll], 0
     mov word [cs_vs], 0
     mov byte [cs_msg], CSG_LANDED
+    mov byte [cs_msgt], CS_MSGAGE
     cmp byte [cs_onwater], 0
     je .counted
     mov byte [cs_msg], CSG_SPLASH   ; ...and the water says WHICH water, off
@@ -1342,6 +1491,27 @@ cs_sound_step:
     je .want
     cmp byte [cs_state], CS_ST_CRASH
     je .want
+    ; --- THE AIR HAS THE FIRST WORD (SPEC.md 88.7.6.3): a rising swoop into
+    ;     lift, a falling one into sink, CS_SWOOPT ticks of it. It is only
+    ;     ever heard on an aeroplane with no engine, because only there does
+    ;     cs_lift answer at all - and there the tone under it is silence
+    cmp byte [cs_swt], 0
+    je .noswoop
+    dec byte [cs_swt]
+    mov al, CS_SWOOPT
+    sub al, [cs_swt]                ; 1..CS_SWOOPT: how far through it is
+    cbw
+    mov bx, CS_SWOOPD
+    imul bx
+    cmp byte [cs_swdir], 0
+    jg .swup
+    neg ax                          ; sink: down from the top
+    add ax, CS_SWOOPHI
+    jmp short .want
+.swup:
+    add ax, CS_SWOOPLO              ; lift: up from the bottom
+    jmp short .want
+.noswoop:
     mov ax, [cs_thr]
     or ax, ax
     jz .st

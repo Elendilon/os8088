@@ -94,6 +94,8 @@ CPS = 4772727
 CSBL_NONE, CSBL_ROADS, CSBL_LOW, CSBL_MOD, CSBL_HIGH = 0, 1, 2, 3, 4
 CSL_NEAR, CSL_MOD, CSL_FAR, CSL_ULTRA = 0, 1, 2, 3
 CSZ_SMALL, CSZ_MOD, CSZ_FULL = 0, 1, 2
+CSA_OBJS, CSA_NOBJ = 18, 20        # the location's object table
+CSO_SKIP, CSO_SIZE = 18, 20        # ...and one object's deferral
 CSFL_TERRAIN, CSFL_BLDG, CSFL_ALL = 1, 2, 3
 CSG_TAKEOFF, CSG_TOAST = 1, 9
 CSM_STACK = 0                           # a model of LEVELS, so its first pair
@@ -367,10 +369,35 @@ def main(argv):
 
         seen = {}
 
+        def skipclr():
+            """Every object due to be looked at AGAIN, now.
+
+            CSO_SKIP is not a flag, it is THE TICK THE CULL NEXT LOOKS AT THIS
+            OBJECT (SPEC.md 88.5.2), so what one frame files is what the cull
+            examined - and an object still inside its deferral is absent from
+            the count whatever the rung says. The guest free-runs between
+            every pause here, for a HOST-timing-dependent number of frames,
+            so a count taken without this reads the deferral phase rather
+            than the rung: measured at six-way concurrency the None rung read
+            0 filed with 6 objects deferred in 3 runs of 12, and 3 filed with
+            3 deferred in the other 9 - the same pose, the same world, the
+            same cs_setbld, and a re-clear brought it straight back to 3.
+            """
+            ap = int.from_bytes(m.read(lin + base + off("cs_airport"), 2),
+                                "little")
+            objs = int.from_bytes(m.read(lin + ap + CSA_OBJS, 2), "little")
+            nobj = int.from_bytes(m.read(lin + ap + CSA_NOBJ, 2), "little")
+            for o in range(objs, objs + nobj * CSO_SIZE, CSO_SIZE):
+                m.write(lin + o + CSO_SKIP, b"\x00\x00")
+            m.write(lin + mp["cs_rwobj"] + CSO_SKIP, b"\x00\x00")
+
         def frames(n=6):
             """Milliseconds a frame, and what the cull filed - READ AT THE
             STOP, because cs_nvisn is zeroed at the top of every cs_scene and
             a read taken while the guest runs catches it part way up."""
+            m.pause()
+            skipclr()
+            m.run()
             m.bp_exec(lin + rd)
             m.run()
             if m.wait_stop(30) is None:
@@ -418,11 +445,7 @@ def main(argv):
             # THE WORLD IS THE PICKED LOCATION'S since SPEC.md 88.6.4, so the
             # skips to clear are the ones in the table its record names and
             # not a global cs_objtab, which no longer exists.
-            ap = int.from_bytes(m.read(lin + base + off("cs_airport"), 2), "little")
-            objs = int.from_bytes(m.read(lin + ap + 18, 2), "little")
-            nobj = int.from_bytes(m.read(lin + ap + 20, 2), "little")
-            for o in range(objs, objs + nobj * 20, 20):
-                m.write(lin + o + 18, b"\x00\x00")
+            skipclr()
             m.run()
             m.advance(frames=2)
             m.pause()
@@ -697,8 +720,17 @@ def main(argv):
         none_n = seen["n"]
         check(none_n < few_n, "None files fewer than Low (%d against %d)"
               % (none_n, few_n))
+        # ...and if it IS empty, say what it was looking at. An empty world
+        # here has never been the rung: it is a pose that did not take or a
+        # cull that never looked, and neither is visible in a bare count.
+        m.pause()
+        ap_now = int.from_bytes(m.read(lin + base + off("cs_airport"), 2),
+                                "little")
+        st_now = byte("cs_state")
+        m.run()
         check(none_n > 0, "...and not an empty world: the runway, the water "
-                          "and the terrain are still filed (%d)" % none_n)
+                          "and the terrain are still filed (%d, state %d, "
+                          "airport %04x)" % (none_n, st_now, ap_now))
         # AGAINST FULL and not against Low: by Low the frame is already the
         # ground band and a few distant objects, so None against Low is a few
         # per cent either way - under this harness's own spread - and a check
