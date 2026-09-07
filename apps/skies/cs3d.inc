@@ -38,7 +38,16 @@
 
 ; -----------------------------------------------------------------------------
 ; cs_sin / cs_cos - AX = an angle; out AX = sin / cos x 32768, clamped to
-;                   32767. Clobbers BX, CX.
+;                   32767. Clobbers BX, AND NOTHING ELSE.
+;
+; It used to clobber CX as well, and the quarter table made that expensive:
+; the old body wrote CL alone (a shift count), so cs_d_adi holding cos in CX
+; across a `call cs_sin` merely had its low byte replaced by 5 and nobody
+; ever saw it. The new one writes the whole word, so the same line put a
+; DIVISOR OF ZERO into the guarded divide and the horizon stood vertical at
+; wings level. The call site is fixed (SPEC.md 88.9.2.4) and so is the
+; contract: two bytes of push and pop, on a routine called twenty-five times
+; a frame, buys a register nobody has to remember.
 ;
 ; A QUARTER TABLE (SPEC.md 88.5.9). The index is the angle's top ten bits, so
 ; its top two are the quadrant: bit 8 says the quarter runs BACKWARDS, and bit
@@ -49,6 +58,7 @@
 cs_cos:
     add ax, 16384
 cs_sin:
+    push cx
     mov bx, ax
     mov cl, 6                       ; the top ten bits: 0..1023 of the turn
     shr bx, cl
@@ -65,6 +75,7 @@ cs_sin:
     jz .pos
     neg ax                          ; ...and the far half is below the axis
 .pos:
+    pop cx
     ret
 
 ; -----------------------------------------------------------------------------

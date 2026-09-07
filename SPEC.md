@@ -95003,12 +95003,13 @@ per-vertex path, and the nine multiplies a vertex never touch it.
 
 It was made a size change by a MERGE. Two branches of Clear Skies, each with
 a few hundred bytes of headroom, met at 360 bytes over `APP_MAX_SIZE` — which
-is the whole of what that guard is for. The next lever is much larger and is
-written down here so it does not have to be found again: **`csart.inc` is
-10,479 bytes, 21.6% of the image**, it is data rather than code, and §20.12's
-embedded parts are the mechanism for exactly that (`apps/c64` carries 20,480
-bytes of ROM as part 0). Four of its five aeroplane bands are dead weight at
-any moment.
+is the whole of what that guard is for. The lever it named as the next one
+has since been pulled and is §88.10.2: `csart.inc` was 10,479 bytes, 21.6%
+of the image, and the six bands now ride as one LZ4 stream that expands into
+a claim, which is 5,900 bytes of image for nothing on a frame's path. The
+quarter table stands on its own merits either way — a whole turn of a table
+whose three quarters are the first one reflected is 1,534 bytes nobody
+needs, at whatever headroom.
 
 **One value changed by one unit.** The old table clamped only the positive
 peak, so sin 270° was −32,768; a quarter table's peaks are symmetric and it
@@ -96340,6 +96341,31 @@ restores `cs_wh` from that rather than from a save taken on the way in. The
 word is never borrowed, so a host-side reader has one that is true at every
 instruction, and the clip's save shrinks from three words to two.
 
+#### 88.9.2.4 …and the cosine was held in a register the sine clobbers
+
+`cs_d_adi` fetched the cosine, put it in **CX**, then called `cs_sin` — which
+is documented to clobber CX. It had done so since the instrument was written.
+
+It never showed, because the old `cs_sin` wrote **CL alone**: `mov cl, 5` as
+a shift count. So the divisor was `cos` with its low byte replaced by 5 —
+32,517 for 32,767 — and a bar a fifth of a pixel out at the ends is nobody's
+defect. The quarter table (§88.5.9) writes the whole of CX, and the same line
+then handed `cs_cdiv` a divisor of **zero at wings level**: the guard
+answered ±30,000, the clamp made it ±4·`adhh`, and the horizon stood
+**vertical with the wings level** in the first photograph taken after it.
+
+Two fixes, because either alone leaves the trap. The call site takes the
+**sine first and the cosine last, straight into BX**, so nothing runs between
+fetching the divisor and dividing by it. And `cs_sin` now **preserves CX** —
+two bytes on a routine called twenty-five times a frame, which buys a
+register no caller has to remember. Its contract is "clobbers BX" now.
+
+It is worth naming what kind of bug this is: a latent contract violation that
+an unrelated, correct, well-tested change made fatal. `tests/skiesadi.py`
+gained the assertion that would have caught it at either end — **wings level
+is a level bar**, `cs_addy` = 0 at roll 0 — which no test asked before,
+because the instrument had always looked right.
+
 #### 88.9.9 A message is an annunciator, not a strip
 
 The message line was a WINDOW, and a window is painted once with the cockpit
@@ -96468,6 +96494,39 @@ A second full outline was the other candidate and it loses: the face is a
 25% dither, so two lines two pixels apart read as one thick smear at this
 size, where four corners read as a bezel. Eight short segments a window,
 once per target.
+
+#### 88.9.7.1 …and the layout rows are the BEZEL's, not the window's
+
+The field's next note was that the brackets *"overlap the top, or each
+other"*, and both were true of every cockpit. A readout occupies **three
+pixels more than its rect on every side** — one for the outline `cs_panel`
+grows it by, two for `cs_pbox`'s corner brackets — and the rows were laid
+out against the rect. So the top row's bracket landed **on the panel's own
+edge line at row 0**, and at 15 rows apart with a 12-row window the bottom
+bracket of one readout sat **exactly on the top outline of the next**: rows
+17 and 17 in the photographs, at the same left corner.
+
+The window is **nine rows** now and the levels are **5, 21, 37 and 53**,
+which puts a clear row at 1, 17, 33 and 49 and leaves row 0 to the edge
+line. Nine is not a squeeze: the 8×8 cell's ink is **seven rows deep**, so a
+nine-row plate with the glyph one row in has exactly one blank row above it
+and one below — where the twelve-row plate had two above and three, and was
+already bottom-heavy.
+
+Four levels of bezel and a message strip is what 88 panel rows will take.
+The arithmetic is worth writing down because every near miss on the way was
+one or two rows out: a level costs `h + 6` rows of bezel plus a clear row,
+the message erases rows 65 to 76 whatever is under it (§88.9.9), and the
+switch rail's stalk reaches `r + 1` either side of row 82. `4 × 15 + 3 = 63`
+fits in rows 1…64; the same four at twelve rows need 75 and do not, at any
+spacing.
+
+`tests/unit/t_cspanel.py` checks the **bezel** rectangle now and requires a
+clear pixel between any two — not merely no overlap, because two bezels a
+pixel apart read as one smear on a 25% dither, which is the same argument
+that gave a window corner brackets instead of a second outline (§88.9.7).
+Checking the window rect is checking the wrong rectangle, and it passed the
+whole time the defect was on the glass.
 
 #### 88.9.8 The layout, and the gate that holds all five to all three
 
@@ -96677,6 +96736,59 @@ transparent blit: `OSAPI_GFX_BLIT1` is opaque, so a plane-only band punches
 its whole bounding box out of what is under it, and an aeroplane's bounding
 box is most of the cloud. A mask is the same size as the band it masks, and
 the slot to use one does not exist.
+
+#### 88.10.2 The bands are PACKED, and expand into a claim
+
+The six bands are **10,480 bytes**, and the package had **1,152 of
+`APP_MAX_SIZE` left**. They are the largest block in the image that **no
+frame ever reads** — the title page draws them and the fsx bracket never
+does — so `csart.inc` carries them as **one LZ4 stream of 4,487 bytes**, T
+word first (§20.13.7), and `cs_artload` expands them **once, in the entry
+proc**, into a claim of `CS_ART_KB` = 11. The image falls **47,078 →
+41,178** and the package **60,288 → 54,390**, which is **5,898 bytes** of a
+60KB segment bought for 11KB of a heap that has tens (§50.3) and for one
+decode at launch. **Nothing on a frame's path moved**: the claim is read by
+three blits on the windowed page and by nothing else.
+
+**It is this cheap because a band holds no pointer.** There is nothing to
+relocate, so the whole of the change is that what was a label in this
+segment is an **offset into the blob** — `csart.inc` emits an `equ` per band
+where it emitted a label — and `dw cs_art_c172` in a plane record
+(`CSP_ART`, §88.10.1) goes on assembling untouched, an equ being a constant
+like any other. The three blits already loaded ES for the band and were
+handing it `DS`; they load `[cs_artseg]` instead. That is the whole
+difference, and it is why the art went first and the **worlds did not**: a
+world is models, names and an object table that point at each other
+(§88.6), so it cannot leave this segment without either a relocation table
+or a segment of its own.
+
+**They pack to 43% because every aircraft stands in front of the SAME
+cumulus** (§88.10.1): band 2 onwards is mostly a match back into band 1,
+which is the one case LZ4's 64KB window is for. The five bands alone are
+9,120 of the 10,480, and the decision to draw the cloud into each of them
+rather than share it — taken above on the argument that a mask costs as
+much as the band and needs a slot that does not exist — turns out to cost
+**almost nothing in the image**, because the compressor shares what the
+blit could not.
+
+**BOTH REFUSALS ARE NORMAL PATHS** (§20.6, §47). A heap too full to claim 11KB
+and a stream the kernel declines to decode — a build carrying only LZB would
+(§20.14.5) — both leave `[cs_artseg]` at **0**, and zero is tested at each of
+the three blits rather than passed to one: a band read from segment 0 is the
+interrupt vector table drawn on the glass. What 0 draws is the page the
+blit slot's **own** refusal already drew on `kern_small`, the title lettered
+in the 8x8 face and no aeroplane, so the fallback is one that shipped and
+has been looked at rather than a new one. The kernel frees the claim with
+the instance (§50.3), so there is nothing to undo on the way out and no
+close path to get wrong.
+
+`tools/csart.py` does the packing and **checks its own stream** — it expands
+what it wrote and compares it with the bands that made it, and refuses to
+emit a stream that is not smaller than they are — so a compressor change
+cannot quietly ship art that does not come back.
+`tests/unit/t_csart.py` is unchanged and still binds: it regenerates the
+include and holds the tree's copy to it, which now covers the stream as well
+as the drawing.
 
 ### 88.13 The settings (SPEC.md 88.13)
 

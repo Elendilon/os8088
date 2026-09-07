@@ -52,6 +52,7 @@ def equ(path, name):
 
 
 CS_PANROWS = equ(RASTER, "CS_PANROWS")
+PBOX = 3                            # cs_panel's outline plus cs_pbox's two
 CS_SLACK = 4                        # cells a window may exceed its text by
 # cs_d_msg ERASES ITS STRIP ON THE FACE, full width, from two rows above the
 # message's own row to nine below (SPEC.md 88.9.9) - so nothing may be drawn
@@ -161,7 +162,15 @@ def main():
                     x0 = 160 - w // 2
                 else:
                     x0, w = colx(cx), cells * cell
-                boxes.append((x0, x0 + w - 1, y, y + h - 1, "window %d" % i))
+                # THE BEZEL, NOT THE WINDOW (SPEC.md 88.9.7): cs_panel grows
+                # the rect by one for the outline and cs_pbox by two more for
+                # the corner brackets, so what a window actually occupies is
+                # three pixels outside it on every side. Checking the window
+                # is checking the wrong rectangle - it passed while SPD's
+                # bottom bracket sat ON ALT's top outline, and while the top
+                # row's bracket sat on the panel's own edge line
+                boxes.append((x0 - PBOX, x0 + w - 1 + PBOX, y - PBOX,
+                              y + h - 1 + PBOX, "window %d" % i))
             rx = lambda r: (r * 256 // pasp)
             boxes.append((adcx - rx(adry) - 3, adcx + rx(adry) + 3,
                           adcy - adry - 1, adcy + adry + 1, "the ADI bezel"))
@@ -179,11 +188,20 @@ def main():
             for i in range(len(boxes)):
                 for j in range(i + 1, len(boxes)):
                     a, b = boxes[i], boxes[j]
-                    if (a[0] <= b[1] and b[0] <= a[1]
-                            and a[2] <= b[3] and b[2] <= a[3]):
-                        check(False, "%s/%s: %s overlaps %s (%s vs %s)"
+                    # ...and a CLEAR pixel between them, not merely no
+                    # overlap: two bezels a pixel apart read as one smear on
+                    # a 25% dither, which is the same argument that gave a
+                    # window corner brackets instead of a second outline
+                    g = (a[0] - 1, a[1] + 1, a[2] - 1, a[3] + 1)
+                    if (g[0] <= b[1] and b[0] <= g[1]
+                            and g[2] <= b[3] and b[2] <= g[3]):
+                        check(False, "%s/%s: %s touches %s (%s vs %s)"
                               % (name, aname, a[4], b[4], a[:4], b[:4]))
             for x0, x1, y0, y1, what in boxes:
+                check(y0 >= 1 or not what.startswith("window"),
+                      "%s/%s: %s is clear of the panel's own top edge, which "
+                      "is drawn along row 0 (rows %d..%d)"
+                      % (name, aname, what, y0, y1))
                 check(0 <= x0 and x1 <= 319 and 0 <= y0 and y1 < CS_PANROWS,
                       "%s/%s: %s is inside the panel (%d..%d, %d..%d)"
                       % (name, aname, what, x0, x1, y0, y1))
