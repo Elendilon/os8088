@@ -266,7 +266,9 @@ CS_BOX  cs_m_mia_twr3, 30,  96,  20
 CS_BOX  cs_m_mia_hotel, 30, 42, 20
 
 ; --- the world ---------------------------------------------------------------
-; Twenty objects. EVERY PIECE OF WATER IS A POINT OF INTEREST AND NOTHING
+; TWENTY-NINE objects and the last nine are CSO_DENSE, so twenty of them are
+; the Miami every rung below High draws (88.13.1.3).
+; EVERY PIECE OF WATER IS A POINT OF INTEREST AND NOTHING
 ; ELSE IS (88.13.1), so Detail Level = Low in Miami draws the coastline and leaves
 ; the rest of Florida flat, which is exactly what this location is for. Six
 ; of them, which is the most the convention allows and the right six.
@@ -304,6 +306,50 @@ cs_ot_mia:
     CS_OBJ cs_m_block2,    0,               -420,   300, 0,  4500,     0, cs_n_bldg,      CSO_COLLIDE
     CS_OBJ cs_m_hangar,    0,              -4900,  -320, 0,  3500,     0, cs_n_bldg,      CSO_COLLIDE
     CS_OBJ cs_m_shed,      0,              -4300,   300, 0,  3000,     0, cs_n_bldg,      CSO_COLLIDE
+    ; --- THE HIGH TIER (SPEC.md 88.13.1.3): eleven more, CSO_DENSE, so
+    ;     Detail Level = High is the only rung that draws one and every rung
+    ;     below it gives the Miami that always shipped.
+    ;
+    ;     A CLIMB-OUT ON RUNWAY 09 CROSSES THIS WORLD'S TWO BUILT PLACES AND
+    ;     BOTH ARE THIN: downtown is three towers and two blocks at 2.2 km,
+    ;     and the barrier island - the shape the whole location is built to
+    ;     show - carries two hotels along nine kilometres of sand. So High
+    ;     puts a WALL on the bay and a STRIP on the beach, which is what
+    ;     those two places are.
+    ;
+    ;     Brickell is the wall: four towers running south from downtown along
+    ;     the bay's west shore. The strip is two mid-rises spaced down Collins
+    ;     between the two hotels already there, so the island reads as built
+    ;     along its length rather than at two points on it.
+    ;
+    ;     NINE AND NOT ELEVEN, and CS_NVIS is what settled that. A fifth
+    ;     Brickell tower and two more mid-rises put 29 objects in one frame
+    ;     against 32, with the thirty-third dropped SILENTLY - and the eye
+    ;     that sees them is not the runway or the beach but the MIDDLE
+    ;     CAUSEWAY, which is halfway between downtown and the island and can
+    ;     see the whole of both. A world with two built places 2.4 km apart
+    ;     has its peak in the water between them.
+    ;
+    ;     Nothing anonymous passes DOWNTOWN MIAMI's 196 m, every footprint
+    ;     keeps 60 m of daylight from every other and 80 m from the water -
+    ;     which on a barrier island is the binding rule and not a formality -
+    ;     Brickell's ranges are its own Manhattan distance from the spawn
+    ;     plus 400 m rounded up to 500, so the skyline the climb-out flies at
+    ;     is standing before the roll. THE STRIP'S ARE NOT, and deliberately:
+    ;     it takes 4,500 like the island's own block and hotel, because a
+    ;     55 m mid-rise nine kilometres away is a box LOD dot and the strip is
+    ;     something the aeroplane flies OVER rather than towards. Ranging it
+    ;     from the spawn as well put 29 objects in one frame against
+    ;     CS_NVIS' 32, and the thirty-third is dropped SILENTLY.
+    CS_OBJ cs_m_tower,     0,              -2500,  -520, 0,  5000,     0, cs_n_mia_bkl,   CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower2,    0,              -2600,  -850, 0,  5000,     0, cs_n_mia_bkl,   CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower,     0,              -2540,  -980, 0,  5500,     0, cs_n_mia_bkl,   CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower2,    0,              -2620, -1330, 0,  5500,     0, cs_n_mia_bkl,   CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower2,    0,              -2480,   320, 0,  4500,     0, cs_n_mia_dtn,   CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_midrise,   0,              -2680,    60, 0,  4500,     0, cs_n_mia_dtn,   CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_midrise,   0,               -155,   180, 0,  4500,     0, cs_n_mia_hotel, CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_midrise,   0,               -145,  -500, 0,  4500,     0, cs_n_mia_hotel, CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_midrise,   0,               -175, -1600, 0,  4500,     0, cs_n_mia_hotel, CSO_COLLIDE | CSO_DENSE
 cs_ote_mia:
 CS_N_MIA equ (cs_ote_mia - cs_ot_mia) / CSO_SIZE
 
@@ -314,6 +360,7 @@ cs_n_mia_cut:   db 'GOVERNMENT CUT', 0
 cs_n_mia_cway:  db 'A CAUSEWAY', 0
 cs_n_mia_dtn:   db 'DOWNTOWN MIAMI', 0
 cs_n_mia_hotel: db 'A BEACH HOTEL', 0
+cs_n_mia_bkl:   db 'BRICKELL', 0
 
 ; --- the location ------------------------------------------------------------
 ; The real Miami International is nine kilometres inland and its runways are

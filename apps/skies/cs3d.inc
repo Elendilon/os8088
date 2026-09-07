@@ -1012,16 +1012,24 @@ cs_consider:
     mov bl, [cs_setbld]             ;     a LADDER: the DENSE CITY goes first,
     cmp bl, CSBL_HIGH               ;     then everything but the points of
     je .tier                        ;     interest, then all but the roads,
-    test ax, CSO_TERRAIN            ;     then those too. TERRAIN is exempt
-    jnz .tier                       ;     from every rung of it - the hills,
-    cmp bl, CSBL_NONE               ;     the water and the runway are the
-    je .out                         ;     world's own surface and not
-    test ax, CSO_ROAD               ;     buildings to thin out - and the
-    jnz .tier                       ;     ROADS come back one rung up, being
-    cmp bl, CSBL_ROADS              ;     the shape of a city with no city on
-    je .out                         ;     it and a line model each
-    test ax, CSO_DENSE              ; High's own content, and only High's
-    jnz .out
+    test ax, CSO_DENSE              ;     then those too.
+    jnz .out                        ; HIGH'S OWN CONTENT, AND ONLY HIGH'S, and
+                                    ; it is tested FIRST so that no exemption
+                                    ; below can undo it: this sat under
+                                    ; TERRAIN's, and 88.13.1.1 is the record
+                                    ; of what that costs - Nepal's CSO_FILLER
+                                    ; ridges were terrain too, so the flag had
+                                    ; never filtered one of them, and its own
+                                    ; High tier (88.13.1.3) drew at every rung
+                                    ; for the same reason until this moved
+    test ax, CSO_TERRAIN            ; TERRAIN is exempt from what is left -
+    jnz .tier                       ; the hills, the water and the runway are
+    cmp bl, CSBL_NONE               ; the world's own surface and not
+    je .out                         ; buildings to thin out - and the
+    test ax, CSO_ROAD               ; ROADS come back one rung up, being
+    jnz .tier                       ; the shape of a city with no city on
+    cmp bl, CSBL_ROADS              ; it and a line model each
+    je .out
     cmp bl, CSBL_LOW
     jne .tier
     test ax, CSO_POI

@@ -63,6 +63,14 @@ CS_BOX cs_m_spx_vtemp,   22,  13,  22    ; the valley temple beside it: 45 m
 ; navigating by, so it is slender, tall and drawn from twelve kilometres.
 CS_BOX cs_m_spx_ctwr,    12, 187,  12
 
+; A MASTABA: 44 m by 24 and 9 m tall, flat-topped, and there are hundreds of
+; them at Giza in two ruled grids either side of Khufu. It is the shape the
+; plateau actually has from the air and the High tier is built out of it
+; (SPEC.md 88.13.1.3) - which is the right thing for THIS world to spend its
+; top rung on, because a tomb field is 26 bytes of model and a tower is a
+; skyline Giza has not got.
+CS_BOX cs_m_spx_mast,    22,   9,  12
+
 ; --- the Nile: two ribbons of three quads, joined station for station -------
 ; ONE model used TWICE, at two origins 450 m apart in x and 6,000 in z, which
 ; is exactly the lean of the centreline: the south piece's last stations and
@@ -112,7 +120,9 @@ cs_m_spx_corn: db CSM_FLAT, 4, 0, 3, CSI_MARK, 0
     dw  220,  3000
 
 ; =============================================================================
-; The world. Twenty objects, and NINE is the most that survive the range test
+; The world. THIRTY objects, the last ten CSO_DENSE (88.13.1.3), so twenty of
+; them are the Giza every rung below High draws.
+; Twenty objects, and NINE is the most that survive the range test
 ; and the cull's cone together, from any of six viewpoints walked by hand:
 ; nine off the runway looking west, nine over the Nile looking back at Giza,
 ; nine over Cairo, four over Khufu looking east. That is 68 vertices and 35
@@ -164,6 +174,36 @@ cs_ot_spx:
     CS_OBJ cs_m_block,      0,     4750,  1200,   0,  4500,    0, cs_n_bldg,       CSO_COLLIDE
     CS_OBJ cs_m_block2,     0,     5150,  2100,   0,  4500,    0, cs_n_bldg,       CSO_COLLIDE
     CS_OBJ cs_m_small,      0,     5000,  1900,   0,  3500,    0, cs_n_bldg,       CSO_COLLIDE
+    ; --- THE HIGH TIER (SPEC.md 88.13.1.3): ten more, CSO_DENSE, so Detail
+    ;     Level = High is the only rung that draws one and every rung below it
+    ;     gives the Giza that always shipped.
+    ;
+    ;     THIS WORLD IS THE FLOOR OF THE SET and its High tier does not
+    ;     change that. What every other location's top rung adds is towers;
+    ;     Giza has none and inventing some would be the one thing this file
+    ;     is written not to do. What the plateau really has beside the three
+    ;     pyramids is the CEMETERIES - two ruled grids of flat-topped mastabas
+    ;     east and west of Khufu, which is the texture an aerial photograph of
+    ;     Giza is mostly made of - so that is the tier: seven tombs 9 m tall,
+    ;     in a 90 m grid, four in the Eastern Cemetery and three in the
+    ;     Western. They take 3,000 m like a shed: a 9 m box is nothing at
+    ;     4,500 and the field is something the aeroplane arrives OVER.
+    ;
+    ;     Three more thicken Cairo on the east bank, where the departure
+    ;     starts and which is behind the aeroplane for the whole flight, so
+    ;     they take the 4,500 the blocks beside them already have. That
+    ;     4,500 is load-bearing and not a habit: it is what keeps the two
+    ;     halves of this world out of one frame.
+    CS_OBJ cs_m_spx_mast,   0,      210,    90,   0,  3000,    0, cs_n_spx_mast,   CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_spx_mast,   0,      210,   230,   0,  3000,    0, cs_n_spx_mast,   CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_spx_mast,   0,      300,    90,   0,  3000,    0, cs_n_spx_mast,   CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_spx_mast,   0,      300,   230,   0,  3000,    0, cs_n_spx_mast,   CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_spx_mast,   0,     -250,   150,   0,  3000,    0, cs_n_spx_mast,   CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_spx_mast,   0,     -250,   290,   0,  3000,    0, cs_n_spx_mast,   CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_spx_mast,   0,     -340,   150,   0,  3000,    0, cs_n_spx_mast,   CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower2,     0,     4900,  -100,   0,  4500,    0, cs_n_spx_cairo,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_midrise,    0,     5250,   700,   0,  4500,    0, cs_n_spx_cairo,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower2,     0,     4850,  1650,   0,  4500,    0, cs_n_spx_cairo,  CSO_COLLIDE | CSO_DENSE
 cs_ote_spx:
 CS_N_SPX equ (cs_ote_spx - cs_ot_spx) / CSO_SIZE
 
@@ -178,6 +218,8 @@ cs_n_spx_cause:  db 'THE CAUSEWAY', 0
 cs_n_spx_nile:   db 'THE NILE', 0
 cs_n_spx_ctwr:   db 'THE CAIRO TOWER', 0
 cs_n_spx_corn:   db 'THE CORNICHE', 0
+cs_n_spx_mast:   db 'A MASTABA', 0
+cs_n_spx_cairo:  db 'CAIRO', 0
 
 ; =============================================================================
 ; The location (SPEC.md 88.6, 88.6.4). Cairo West is out in the desert on the

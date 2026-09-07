@@ -246,7 +246,8 @@ CS_BOX cs_m_sfo_dtwr,  22, 270,  22     ; and the tall flat-topped tower beside
                                         ; it, for something to judge it against
 
 ; --- the world ---------------------------------------------------------------
-; Twenty objects, 172 vertices. About eleven of them are in the frame on the
+; TWENTY-EIGHT objects and the last eight are CSO_DENSE, so twenty of them are
+; the San Francisco every rung below High draws. Twenty objects, 172 vertices. About eleven of them are in the frame on the
 ; take-off run: the four of the bridge, the Pacific, the strait, the three
 ; hills and one or two of the bay pieces, with the city 49 degrees off the
 ; nose and outside the view. Most of those are past their CSO_LOD at 5 km, so
@@ -273,6 +274,37 @@ cs_ot_sfo:
     CS_OBJ cs_m_hangar,   0,               2866, -2942,   0,  2600,    0, cs_n_bldg,     CSO_COLLIDE
     CS_OBJ cs_m_shed,     0,               2560, -2685,   0,  2600,    0, cs_n_bldg,     CSO_COLLIDE
     CS_OBJ cs_m_small,    0,               3211, -3231,   0,  2600,    0, cs_n_bldg,     CSO_COLLIDE
+    ; --- THE HIGH TIER (SPEC.md 88.13.1.3): eight more, CSO_DENSE, so Detail
+    ;     Level = High is the only rung that draws one and every rung below it
+    ;     gives the San Francisco that always shipped.
+    ;
+    ;     THE CITY IS WHERE THE TRADE WAS TAKEN. This world spends 52 of its
+    ;     172 vertices on the bridge, which is right - it is what the location
+    ;     is for - and downtown is left as two towers and two blocks, there to
+    ;     be somewhere to fly to. But the Financial District is a TIGHT
+    ;     cluster on a peninsula, and two towers 400 m apart read as two
+    ;     towers rather than as a city; from the Marin side, which is where a
+    ;     RUNWAY 31 departure ends up, the whole of it is one silhouette.
+    ;
+    ;     So six fill the district round the Transamerica and the flat-topped
+    ;     tower, and two more stand down towards the Embarcadero, which is the
+    ;     side the bay is on and the side the aeroplane sees. Nothing
+    ;     anonymous passes 180 m, under the Transamerica's 220 and the tower
+    ;     beside it at 270; every footprint keeps 60 m of daylight from every
+    ;     other, 80 m from the bay and 60 m from the runway rectangle.
+    ;
+    ;     Ranges are each one's own Manhattan distance from the spawn plus
+    ;     400 m rounded up to 500 - 3,500 to 4,500 here, which is short
+    ;     because the city is close: the runway is on the bay shore 1.7 km
+    ;     south of it, so the cluster is standing on the roll.
+    CS_OBJ cs_m_tower,    0,               3710, -1300,   0,  4000,    0, cs_n_sfo_fidi, CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower2,   0,               3900, -1520,   0,  3500,    0, cs_n_sfo_fidi, CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower,    0,               4150, -1150,   0,  3500,    0, cs_n_sfo_fidi, CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower2,   0,               3560, -1000,   0,  4500,    0, cs_n_sfo_fidi, CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_midrise,  0,               4200, -1420,   0,  3500,    0, cs_n_sfo_fidi, CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower,    0,               3830,  -880,   0,  4000,    0, cs_n_sfo_fidi, CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_midrise,  0,               3350,  -860,   0,  4500,    0, cs_n_sfo_emb,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower2,   0,               3300, -1500,   0,  4000,    0, cs_n_sfo_emb,  CSO_COLLIDE | CSO_DENSE
 cs_ote_sfo:
 CS_N_SFO equ (cs_ote_sfo - cs_ot_sfo) / CSO_SIZE
 
@@ -287,6 +319,8 @@ cs_n_sfo_pres: db 'THE PRESIDIO', 0
 cs_n_sfo_alc:  db 'ALCATRAZ', 0
 cs_n_sfo_tram: db 'THE TRANSAMERICA PYRAMID', 0
 cs_n_sfo_dt:   db 'DOWNTOWN SAN FRANCISCO', 0
+cs_n_sfo_fidi: db 'THE FINANCIAL DISTRICT', 0
+cs_n_sfo_emb:  db 'THE EMBARCADERO', 0
 
 ; --- the location ------------------------------------------------------------
 ; The runway is 4,187 m from the bridge on a bearing of 130, and its heading
