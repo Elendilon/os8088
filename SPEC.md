@@ -95003,12 +95003,13 @@ per-vertex path, and the nine multiplies a vertex never touch it.
 
 It was made a size change by a MERGE. Two branches of Clear Skies, each with
 a few hundred bytes of headroom, met at 360 bytes over `APP_MAX_SIZE` — which
-is the whole of what that guard is for. The next lever is much larger and is
-written down here so it does not have to be found again: **`csart.inc` is
-10,479 bytes, 21.6% of the image**, it is data rather than code, and §20.12's
-embedded parts are the mechanism for exactly that (`apps/c64` carries 20,480
-bytes of ROM as part 0). Four of its five aeroplane bands are dead weight at
-any moment.
+is the whole of what that guard is for. The lever it named as the next one
+has since been pulled and is §88.10.2: `csart.inc` was 10,479 bytes, 21.6%
+of the image, and the six bands now ride as one LZ4 stream that expands into
+a claim, which is 5,900 bytes of image for nothing on a frame's path. The
+quarter table stands on its own merits either way — a whole turn of a table
+whose three quarters are the first one reflected is 1,534 bytes nobody
+needs, at whatever headroom.
 
 **One value changed by one unit.** The old table clamped only the positive
 peak, so sin 270° was −32,768; a quarter table's peaks are symmetric and it
@@ -95653,6 +95654,64 @@ What remains, and is by design, is that the impostor is a plain rectangle
 where the model is stepped: at 7,000 m the Empire State's impostor covers 27
 lit pixels against the model's 35, the difference being the taper. That is
 the trade §88.5.4 exists to make, and it is bounded by `CS_LODPX` = 8.
+
+##### 88.5.4.4 The impostor's height gets its own bound, with hysteresis
+
+Reported off the same 10 MHz 8086 once §88.5.4.3 had fixed the sizes:
+buildings and, closer in, individual building faces still alternate frame to
+frame — some flicking in and out of existence entirely, some flipping between
+impostor and polygons.
+
+**The cause is that a two-pixel-wide building was on the polygon path at
+all.** `cs_faces` decides a face's winding from the cross product of its
+*rounded screen* vertices, and at skyline range that is noise. The Empire
+State's far model at 9.5 km on Mode X projects **2–4 columns wide by 17 rows
+tall**, and its five faces read:
+
+```
+  cross  -17  DRAW   v0(161,76) v1(161,59) v2(160,59)
+  cross    0  cull   v0(163,76) v1(161,59) v2(161,59)
+  cross  +17  cull   v0(159,76) v1(160,59) v2(161,59)
+  cross    0  cull   v0(161,59) v1(161,59) v2(161,59)   <- one pixel, three times
+```
+
+One face draws, on a cross product of **17**. A pixel of rounding takes it to
+0, which the test reads as *away*, and the whole building goes. Turning the
+winding cull off makes every solid draw a steady five faces at every position
+— which is the proof that the winding, and nothing else, is what moves.
+
+The fix is not to patch the winding, which is right in principle and cheap;
+it is that **an object this small should be the impostor**. §88.5.4.1's
+refusal was written against WIDE, flat rectangles — its own histogram is
+22x3, 20x2, 18x2 — and it holds the height to the same eight pixels, which
+puts every tall thin tower back on the polygon path. So the height gets its
+own bound, `CS_LODTALL` = 26, and the width keeps `CS_LODPX` = 8: a 22-pixel
+rectangle is still refused, and a 3x17 tower is not.
+
+**And both bounds have hysteresis.** `CSO_BOXED` (bit 13) says the impostor
+drew this object last frame, and while it is set the object may grow
+`CS_LODHYST` = 5 pixels past either bound before it gives the impostor up —
+so one sitting on the boundary does not change shape every few metres, which
+is what *"once something crosses the not-impostor distance it shouldn't flip
+back"* asks for. `cs_skipclr` forgets the bit with `CSO_SEEN`.
+
+Measured on the take-off run, stepping four metres at a time, as the mass of
+lit pixels above the horizon:
+
+```
+  with the height held to CS_LODPX   339 309 309 309 309 311 311 337 337 311 338 338
+  with CS_LODTALL and hysteresis     407 407 407 407 407 407 394 394 394 394 394 394
+```
+
+The signature is the **dip** and not the step — 337, 337, **311**, 338, 338 is
+a building that went away for four metres and came back — and that is what
+`tests/skieslod.py` checks, because the skyline legitimately grows and
+shrinks as the aeroplane rolls. The deepest dip is **0 of 407** fixed and
+**26 of 339** with the bound put back.
+
+Face-by-face over the same run, the count each object draws is now constant
+at every one of twenty positions three metres apart, where before the Empire
+State read `1 1 1 1 1 1 0 0 1 1 …`.
 
 #### 88.5.8 "Buildings lean over", which was the horizon
 
@@ -96609,6 +96668,59 @@ its whole bounding box out of what is under it, and an aeroplane's bounding
 box is most of the cloud. A mask is the same size as the band it masks, and
 the slot to use one does not exist.
 
+#### 88.10.2 The bands are PACKED, and expand into a claim
+
+The six bands are **10,480 bytes**, and the package had **1,152 of
+`APP_MAX_SIZE` left**. They are the largest block in the image that **no
+frame ever reads** — the title page draws them and the fsx bracket never
+does — so `csart.inc` carries them as **one LZ4 stream of 4,487 bytes**, T
+word first (§20.13.7), and `cs_artload` expands them **once, in the entry
+proc**, into a claim of `CS_ART_KB` = 11. The image falls **47,078 →
+41,178** and the package **60,288 → 54,390**, which is **5,898 bytes** of a
+60KB segment bought for 11KB of a heap that has tens (§50.3) and for one
+decode at launch. **Nothing on a frame's path moved**: the claim is read by
+three blits on the windowed page and by nothing else.
+
+**It is this cheap because a band holds no pointer.** There is nothing to
+relocate, so the whole of the change is that what was a label in this
+segment is an **offset into the blob** — `csart.inc` emits an `equ` per band
+where it emitted a label — and `dw cs_art_c172` in a plane record
+(`CSP_ART`, §88.10.1) goes on assembling untouched, an equ being a constant
+like any other. The three blits already loaded ES for the band and were
+handing it `DS`; they load `[cs_artseg]` instead. That is the whole
+difference, and it is why the art went first and the **worlds did not**: a
+world is models, names and an object table that point at each other
+(§88.6), so it cannot leave this segment without either a relocation table
+or a segment of its own.
+
+**They pack to 43% because every aircraft stands in front of the SAME
+cumulus** (§88.10.1): band 2 onwards is mostly a match back into band 1,
+which is the one case LZ4's 64KB window is for. The five bands alone are
+9,120 of the 10,480, and the decision to draw the cloud into each of them
+rather than share it — taken above on the argument that a mask costs as
+much as the band and needs a slot that does not exist — turns out to cost
+**almost nothing in the image**, because the compressor shares what the
+blit could not.
+
+**BOTH REFUSALS ARE NORMAL PATHS** (§20.6, §47). A heap too full to claim 11KB
+and a stream the kernel declines to decode — a build carrying only LZB would
+(§20.14.5) — both leave `[cs_artseg]` at **0**, and zero is tested at each of
+the three blits rather than passed to one: a band read from segment 0 is the
+interrupt vector table drawn on the glass. What 0 draws is the page the
+blit slot's **own** refusal already drew on `kern_small`, the title lettered
+in the 8x8 face and no aeroplane, so the fallback is one that shipped and
+has been looked at rather than a new one. The kernel frees the claim with
+the instance (§50.3), so there is nothing to undo on the way out and no
+close path to get wrong.
+
+`tools/csart.py` does the packing and **checks its own stream** — it expands
+what it wrote and compares it with the bands that made it, and refuses to
+emit a stream that is not smaller than they are — so a compressor change
+cannot quietly ship art that does not come back.
+`tests/unit/t_csart.py` is unchanged and still binds: it regenerates the
+include and holds the tree's copy to it, which now covers the stream as well
+as the drawing.
+
 ### 88.13 The settings (SPEC.md 88.13)
 
 Four knobs, each of which trades picture for frame rate, on a **Settings**
@@ -97177,7 +97289,12 @@ drop-downs get a release the title page never armed.
   **12.48 ms each against 3.17**. It also carries §88.5.4.3's check: the
   impostor must be the SIZE of the model it stands in for, over four towers
   at three ranges, and `--clobber-shr` NOPs the pairs that give `cs_pshr`
-  back.
+  back. And §88.5.4.4's: nothing on the skyline goes away and comes back
+  down the take-off run — a **dip** and not a step, because the skyline
+  legitimately grows and shrinks as the aeroplane rolls, so what the row
+  looks for is a value below BOTH its neighbours. `--clobber-tall` puts the
+  height bound back to `CS_LODPX` and the deepest dip goes 0 of 407 to 26 of
+  339.
 - `tests/skiesease.py` (soak, MartyPC): §88.7.3's capture. Every reading is
   taken at a `cs_step` BREAKPOINT and not after a frame — the model steps per
   tick and a frame spends one, two or three of them, so a per-frame sample
