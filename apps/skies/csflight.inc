@@ -167,7 +167,7 @@ cs_reset:
     mov byte [cs_kbrake], 0         ; ...and the brake is OFF on a fresh
                                     ; runway, being a latch now (88.7.10.1)
     mov byte [cs_msg], CSG_TAKEOFF
-    mov si, cs_g_take0              ; ...WHICH NAMES THIS AEROPLANE'S ROTATE
+    mov si, cs_g_take              ; ...WHICH NAMES THIS AEROPLANE'S ROTATE
     mov di, [cs_plane]              ; SPEED (88.7.9) and not the Cessna's: the
     mov ax, [di + CSP_VROT]         ; jet leaves the ground at 81 knots and
     call cs_gspeed                  ; the prompt used to say 55 at it
@@ -232,7 +232,7 @@ cs_reset:
     add ax, bx
     add ax, bx
     mov [cs_spd], ax
-    mov si, cs_g_tow0               ; ...and the prompt names the speed the
+    mov si, cs_g_tow                ; ...and the prompt names the speed the
     call cs_gspeed                  ; tow LEFT IT AT (88.7.9)
 .down:
     ret
@@ -247,7 +247,26 @@ cs_reset:
 ; indicator can never come to disagree about what 42 m/s is.
 ; -----------------------------------------------------------------------------
 cs_gspeed:
-    mov di, cs_promptb
+    push ax                         ; TWO PANELS, TWO SENTENCES, BOTH COMPOSED
+    push si                         ; HERE (SPEC.md 88.15.6.1): a cockpit's
+    mov bx, [si + 2]                ; forty cells hold 'FULL THROTTLE, PULL
+    mov [cs_gsuf], bx               ; BACK AT 54 KNOTS' and the one-line
+                                    ; strip's fourteen hold 'ROTATE 54 KT'.
+                                    ; BX AND NOT AX: AX is the speed, and it
+                                    ; has to reach the first pass - loading
+                                    ; the suffix through it read the SUFFIX'S
+                                    ; ADDRESS as a speed and every cockpit
+                                    ; prompt said 542 knots (tests/skiesfleet)
+    mov si, [si]                    ; Composing BOTH now rather than the live
+    mov di, cs_promptb              ; backend's one is what makes it free of
+    call cs_gspeed1                 ; ordering: a Mode pick does not clear
+    pop si                          ; cs_inited (it is not the aeroplane that
+    pop ax                          ; changed), so a prompt composed for the
+    mov bx, [si + 6]                ; backend that was running would still be
+    mov [cs_gsuf], bx               ; up the next time the other one was
+    mov si, [si + 4]                ; entered
+    mov di, cs_promptc
+cs_gspeed1:                         ; SI = the opening, DI = the buffer
     push ax
     call cs_strcpy                  ; the words, DI left where the NUL goes
     pop ax
@@ -262,7 +281,7 @@ cs_gspeed:
     inc di
     jmp short .fw
 .kt:
-    mov si, cs_g_kt
+    mov si, [cs_gsuf]
     call cs_strcpy
     mov byte [di], 0                ; cs_strcpy copies UP TO the NUL, not it
     ret

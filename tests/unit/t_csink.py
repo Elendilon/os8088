@@ -8,9 +8,10 @@ somewhere else, and every one of them fails the same way: silently, on one
 adapter or one setting, long after the row that was forgotten.
 
   - **the inks.** `CSI_NINK` rows in each of `cs_inkherc`, `cs_inkcga`,
-    `cs_inkmodex`, `cs_dactab`, `cs_inkval_cga` and `cs_inkval_modex`. A new
-    ink added to four of the six draws in whatever byte follows the table on
-    the two it was left out of.
+    `cs_inkmodex`, `cs_inkc160`, `cs_dactab` and the three `cs_inkval_*`. A
+    new ink added to some of them draws in whatever byte follows the table on
+    the rest - and a new BACKEND arrives with two more tables to forget, which
+    is how this row earned its keep on the merge it was written for.
   - **the river's LINE.** §88.6.5 gives a river reduced to its far model the
     river's own blue rather than the runway's white, so every `*_f` model
     whose full model is `CSI_RIVER` must carry `CSI_RIVLINE`. One left behind
@@ -43,8 +44,14 @@ def equ(path, name):
     return int(m.group(1))
 
 
-def rows(text, label, per):
-    """The db rows of a table, as lists of ints; `per` bytes a row."""
+def rows(text, label, per, macro=None):
+    """The rows of a table, as lists of ints; `per` bytes a row.
+
+    `macro` names a one-row-a-line macro (`CS_C16 9`), which is how the
+    160x100 backend writes its inks - a row there is one attribute in four
+    identical bytes and spelling that out four times would be the mistake
+    the macro exists to prevent.
+    """
     lines = []
     for line in text.splitlines():
         if not lines:
@@ -56,6 +63,8 @@ def rows(text, label, per):
         body = line.split(";")[0].strip()
         if body.startswith("db "):
             lines.append(body)
+        elif macro and body.startswith(macro + " "):
+            lines.append("db " + ", ".join([body[len(macro) + 1:].strip()] * per))
         elif body == "" or line.lstrip().startswith(";"):
             continue                    # a comment inside the table
         else:
@@ -80,12 +89,13 @@ def main():
     ras = open(os.path.join(APP, "csraster.inc")).read()
     asm = os.path.join(APP, "skies.asm")
     n = equ(asm, "CSI_NINK")
-    for label, per in (("cs_dactab", 3), ("cs_inkherc", 4), ("cs_inkcga", 4),
-                       ("cs_inkmodex", 4)):
-        got = rows(ras, label, per)
+    for label, per, mac in (("cs_dactab", 3, None), ("cs_inkherc", 4, None),
+                            ("cs_inkcga", 4, None), ("cs_inkmodex", 4, None),
+                            ("cs_inkc160", 4, "CS_C16")):
+        got = rows(ras, label, per, mac)
         check(len(got) == n,
               "%s has CSI_NINK = %d rows (%d)" % (label, n, len(got)))
-    for label in ("cs_inkval_cga", "cs_inkval_modex"):
+    for label in ("cs_inkval_cga", "cs_inkval_modex", "cs_inkval_c160"):
         got = rows(ras, label, 1)
         check(len(got) == n,
               "%s has CSI_NINK = %d entries (%d)" % (label, n, len(got)))

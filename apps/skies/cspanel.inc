@@ -217,6 +217,49 @@ cs_elhw:
 ; tests/unit/t_cspanel.py holds all five to all three, bezels and all.
 ; =============================================================================
 
+; --- THE ONE-LINE STRIP (SPEC.md 88.15.5), which is not an aeroplane's panel
+;     at all: it is the ONE the 16-colour text hack uses, whatever is being
+;     flown. The box there is a hundred rows tall and every one of them is
+;     worth four of a CGA's, so a cockpit's 88 would leave the view twelve -
+;     and 160 pixels is TWENTY cells, which no cockpit's six windows fit
+;     across. What fits is the three readings a pilot actually scans, in
+;     one line: speed, altitude and heading.
+;
+;       cell 0        6              14           19
+;            S 120    A 01500        H 090        .
+;
+;     THERE ARE NO WINDOWS ON IT. A cockpit's window is an outline and two
+;     corner brackets, so it occupies three pixels more than its rect on
+;     every side and a nine-row one wants fifteen; and it buys nothing here,
+;     because cs_glyph_c160 letters every cell OPAQUELY on [cs_pbg8], which
+;     is black - so each reading already sits on a black plate exactly the
+;     size of its own text, on a dark grey face.
+;
+;     Rows: 0 is the strip's own top edge, 3..10 the glyph, 1..12 what a
+;     message erases. Every other item is (0, 0) - "this cockpit has not got
+;     one" - which cs_pitem has meant since 88.9.5.1, so no drawing code
+;     learns anything about the strip. THE MESSAGE IS ITEM 7 AT THE SAME
+;     ROW, on purpose: a line this short cannot hold both, so a message
+;     takes the strip and the three readings stand down while it is up
+;     (88.15.6).
+cs_ck_strip:
+    dw 0, 0                         ; CSK_WIN, CSK_NWIN: NO WINDOWS AT ALL
+    dw .items                       ; CSK_ITEMS
+    dw 0, 0                         ; CSK_ADCX, CSK_ADCY: no attitude indicator
+    dw 0                            ; CSK_ADRY
+    dw 0                            ; CSK_BARW: no throttle bar either
+    dw 0, 0                         ; CSK_DECO, CSK_NDECO: nothing that only
+.items:                             ; looks the part - there is no room for it
+    dw   0,  3                      ;   the speed
+    dw   6,  3                      ;   the altitude
+    dw  14,  3                      ;   the heading
+    dw   0,  0                      ;   no attitude indicator
+    dw   0,  0                      ;   no throttle
+    dw   0,  0                      ;   no state line: the message says it
+    dw   0,  0                      ;   no throttle bar
+    dw   0,  3                      ;   the message, ACROSS the readings
+    dw   0,  0                      ;   no variometer
+
 ; --- the Cessna's: a TRAINER's six-pack. Three readouts down the left, the
 ;     throttle down the right, and four round instruments either side of the
 ;     attitude indicator - which is what the aeroplane actually has, and
@@ -425,11 +468,30 @@ cs_ck_a5:
                                          ; has - no strobes, and the nav
                                          ; lights
 
-; cs_pcell - BX = an item: out BX = its x at 320 wide, DX = its row below the
-;            view, off the plane's cockpit. Clobbers SI
-cs_pcell:
+; -----------------------------------------------------------------------------
+; cs_ckrec - SI = the cockpit record this panel is drawn from: the aeroplane's
+;            own, or the shared ONE-LINE STRIP on the 16-colour text hack,
+;            where 20 cells hold no cockpit at all (SPEC.md 88.15.5).
+;            Clobbers nothing but SI
+;
+; It is a proc rather than three copies of the test because the plane's record
+; is read from three places, and a fourth backend arriving at one of them and
+; not the others is exactly the shape 88.9.5.1 was.
+; -----------------------------------------------------------------------------
+cs_ckrec:
+    cmp byte [cs_back], CSB_C160
+    je .strip
     mov si, [cs_plane]
     mov si, [si + CSP_COCKPIT]
+    ret
+.strip:
+    mov si, cs_ck_strip
+    ret
+
+; cs_pcell - BX = an item: out BX = its x at 320 wide, DX = its row below the
+;            view, off the panel's cockpit. Clobbers SI
+cs_pcell:
+    call cs_ckrec
     mov si, [si + CSK_ITEMS]
     shl bx, 1
     shl bx, 1
@@ -463,11 +525,11 @@ cs_pface:
     call cs_prect
     mov al, CSI_PBG                 ; --- the windows ----------------------------
     call cs_setink
-    mov si, [cs_plane]
-    mov si, [si + CSP_COCKPIT]
+    call cs_ckrec
     mov cx, [si + CSK_NWIN]
     mov si, [si + CSK_WIN]
-.w:
+    jcxz .now                       ; a panel with NO windows (88.15.5) - and
+.w:                                 ; `loop` from zero is 65,536 of them
     push cx
     push si
     call cs_pwrect
@@ -476,13 +538,14 @@ cs_pface:
     pop cx
     add si, 8
     loop .w
+.now:
     call cs_pclip                   ; --- their outlines, and the panel's top ---
     mov al, CSI_PFG
     call cs_setink
-    mov si, [cs_plane]
-    mov si, [si + CSP_COCKPIT]
+    call cs_ckrec
     mov cx, [si + CSK_NWIN]
     mov si, [si + CSK_WIN]
+    jcxz .noo
 .o:
     push cx
     push si
@@ -496,6 +559,7 @@ cs_pface:
     pop cx
     add si, 8
     loop .o
+.noo:
     xor ax, ax
     mov bx, [cs_pany]
     mov cx, [cs_vw]
@@ -503,10 +567,16 @@ cs_pface:
     mov dx, bx
     call cs_seg
     ; --- the attitude indicator: a round bezel round a square window ---------
-    mov si, [cs_plane]
-    mov si, [si + CSP_COCKPIT]
-    mov ax, [si + CSK_ADCX]
-    call cs_hscalex
+    call cs_ckrec
+    mov word [cs_adry], 0           ; A ZERO BEZEL IS NO INSTRUMENT (88.15.5):
+    cmp word [si + CSK_ADRY], 0     ; the one-line strip has no room for one,
+    jne .adi                        ; and a ring of radius 0 at (0, 0) would
+    call cs_vclip                   ; be two stray pixels at the strip's left.
+    jmp .noadi                      ; THE CLIP IS GIVEN BACK ON THE WAY PAST:
+.adi:                               ; cs_pclip SAVES the view's edges and a
+    mov ax, [si + CSK_ADCX]         ; second arm would save the panel's over
+    call cs_hscalex                 ; them, so skipping the ADI's cs_vclip
+                                    ; would cost the whole bracket its clip
     mov [cs_adcx], ax
     mov ax, [cs_pany]
     add ax, [si + CSK_ADCY]
@@ -552,9 +622,9 @@ cs_pface:
     call cs_pring
     call cs_vclip
     call cs_adwin                   ; ...and the window, black
+.noadi:
     ; --- and the instruments that only look the part (SPEC.md 88.9.3) -------
-    mov si, [cs_plane]
-    mov si, [si + CSP_COCKPIT]
+    call cs_ckrec
     mov cx, [si + CSK_NDECO]
     jcxz .nodeco
     mov si, [si + CSK_DECO]
@@ -606,7 +676,8 @@ cs_plabels:
 .l:
     mov si, di
     shl si, 1
-    mov si, [cs_plbl + si]
+    add si, [cs_plblp]              ; a cockpit's SPD/ALT/HDG/THR, or the
+    mov si, [si]                    ; strip's one letter each (88.15.5)
     or si, si
     jz .next                        ; this item has no fixed label
     mov bx, di
@@ -614,10 +685,13 @@ cs_plabels:
     push si
     call cs_pcell                   ; BX = its x, DX = its row
     pop si
-    or bx, bx
-    jz .n2                          ; ...and this cockpit has no such window
-    call cs_pline
-.n2:
+    or bx, bx                       ; ...and this cockpit has no such window.
+    jnz .lbl                        ; IT IS BOTH WORDS, which cs_pitem has
+    or dx, dx                       ; always tested and this tested only the
+    jz .n2                          ; x - so a label at CELL 0 was dropped,
+.lbl:                               ; which no cockpit has and the ONE-LINE
+    call cs_pline                   ; strip's speed does: its number was
+.n2:                                ; lettered and its S was not (88.15.5)
     pop di
 .next:
     inc di
@@ -632,7 +706,14 @@ cs_plabels:
     ret
 
 ; the fixed label of items 0..CS_PI_THR; 0 where there is none
-cs_plbl: dw cs_s_spd, cs_s_alt, cs_s_hdg, 0, cs_s_thr
+cs_plbl:    dw cs_s_spd, cs_s_alt, cs_s_hdg, 0, cs_s_thr
+; ...and the ONE-LINE strip's, where a label is a letter and a space: three
+; four-letter ones plus their numbers is 23 cells of the 20 there are
+; (SPEC.md 88.15.5)
+cs_plbl160: dw cs_s_s1, cs_s_a1, cs_s_h1, 0, 0
+cs_s_s1:    db 'S', 0
+cs_s_a1:    db 'A', 0
+cs_s_h1:    db 'H', 0
 
 cs_pdeco:
     mov [cs_dsi], si
@@ -913,6 +994,8 @@ cs_k_adi:
     ret
 
 cs_d_adi:
+    cmp word [cs_adry], 0           ; ...nor is it redrawn on the gate
+    je .nadi
     call cs_adwin                   ; the window over the last line
     ; --- the offset: nose up moves the horizon DOWN, a row per 1.4 degrees --
     mov ax, [cs_pitch]
@@ -1063,6 +1146,8 @@ cs_d_adi:
     mov dx, bx
     call cs_seg
     jmp cs_vclip
+.nadi:
+    ret
 
 ; cs_adend - AX = the end's u; SI -> the (x, y) pair to fill in. Its x is
 ;            u.W/R and its y off + u.k/R, both back in box coordinates
