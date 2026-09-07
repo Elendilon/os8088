@@ -172,7 +172,13 @@ CS_LODPX  equ 8                 ; the biggest RECTANGLE cs_boxlod may stand
                                 ; which nothing in a banked world is, so it
                                 ; has to be small enough that nobody can see
                                 ; the shape
-CS_NVIS   equ 32                ; objects that can be in one frame
+CS_NVIS   equ 48                ; objects that can be in one frame, and the
+                                ; 49th is dropped SILENTLY. It was 32 and 32
+                                ; IS REACHABLE: Paris at Draw Distance = Far
+                                ; scales every range by 1.6 and puts 34
+                                ; objects in a level frame, so two of them
+                                ; came off the glass with nothing said
+                                ; (88.13.2.2). Eleven bytes a slot
 CS_OCCN   equ 4                 ; occluders cs_occlude keeps (88.13.7): the
                                 ; four biggest BY ANGULAR SIZE. Three found
                                 ; one spur of two over part of the run and
@@ -243,6 +249,10 @@ CSL_NEAR   equ 0                ; Detail: 0.6 of every draw range...
 CSL_MOD    equ 1                ; ...as it shipped...
 CSL_FAR    equ 2                ; ...and 1.6, which also holds the near model
                                 ;    of the tower out to 4 km
+CSL_ULTRA  equ 3                ; ...and 2.0 with NO BOX IMPOSTOR AT ALL
+                                ;    (88.13.2.1): every solid draws its
+                                ;    polygons at every size, which is a rung
+                                ;    for a machine pegged to the tick
 CSFL_TERRAIN equ 1               ; Fill: TERRAIN - the ground under the
                                  ;    horizon, the water, and the hills and
                                  ;    mountains, which are the world's own
@@ -436,6 +446,11 @@ CSG_PAUSED equ 5
 CSG_EDGE   equ 6
 CSG_RELEASE equ 7               ; a sailplane's launch (88.7.6)
 CSG_SPLASH equ 8                ; ...and an amphibian's water landing (88.7.7)
+CSG_TOAST  equ 9                ; A SETTING JUST CHANGED (88.13.8): its name
+                                ; and its new value, composed into cs_toastbuf
+                                ; and shown for CS_TOASTT ticks in place of
+                                ; whatever the strip was saying
+CS_TOASTT  equ 27               ; ...which is a second and a half at 18.2 Hz
 
 ; --- the attract window (SPEC.md 88.10) ---------------------------------------
 CS_WINW   equ 312               ; the launcher, frame included: it fits
@@ -1768,7 +1783,7 @@ cs_flyrect:  dw 0, 0, 0, 0
 cs_drbld:    dw 0, 0, 0, 0, cs_i_bld,  5, CSBL_MOD, 0
              db 0, 0FFh
              dw 0, 0, 0
-cs_drlod:    dw 0, 0, 0, 0, cs_i_lod,  3, CSL_MOD, 0
+cs_drlod:    dw 0, 0, 0, 0, cs_i_lod,  4, CSL_MOD, 0
              db 0, 0FFh
              dw 0, 0, 0
 cs_drsize:   dw 0, 0, 0, 0, cs_i_size, 3, CSZ_MOD, 0
@@ -1786,7 +1801,7 @@ cs_setboxes: dw cs_ckterr, cs_ckbld
 CS_NFILL     equ ($ - cs_setboxes) / 2
 cs_setbytes: dw cs_setbld, cs_setlod, cs_setsize, cs_modepref
 cs_i_bld:    dw cs_s_bnone, cs_s_broad, cs_s_blow, cs_s_bmod, cs_s_bhigh
-cs_i_lod:    dw cs_s_lnear, cs_s_lmod, cs_s_lfar
+cs_i_lod:    dw cs_s_lnear, cs_s_lmod, cs_s_lfar, cs_s_lultra
 cs_i_size:   dw cs_s_zsml, cs_s_zmod, cs_s_zful
 cs_i_mode:   dw cs_s_modex, cs_s_cga
 cs_s_setttl: db 'SETTINGS', 0
@@ -1803,6 +1818,7 @@ cs_s_bhigh:  db 'High', 0
 cs_s_lnear:  db 'Near', 0
 cs_s_lmod:   db 'Moderate', 0
 cs_s_lfar:   db 'Far', 0
+cs_s_lultra: db 'Ultra', 0
 cs_s_zsml:   db 'Small', 0
 cs_s_zmod:   db 'Moderate', 0
 cs_s_zful:   db 'Full', 0
@@ -1844,7 +1860,7 @@ cs_i9:       db 'M         engine sound on and off', 0
 cs_i10:      db 'Esc or F  back to this window', 0
 cs_i11:      db 'Full throttle; pull back at 55 knots.', 0
 cs_i12:      db 'Click, or press a key, to return.', 0
-cs_i13:      db 'F1 to F10 the settings, in flight', 0   ; in the blank
+cs_i13:      db 'F1 to F5  step a setting, in flight', 0   ; in the blank
                                                           ; separator's place:
                                                           ; the page is full
                                                           ; at thirteen lines
@@ -2350,6 +2366,9 @@ cs_tpl:
     ZWORD cs_elrow
     ZWORD cs_msgink                ; the message's ink and row while
     ZWORD cs_msgy                  ; its strip is erased (88.9.9)
+    ZBUF  cs_toastbuf, 40          ; A SETTING'S NAME AND VALUE (88.13.8), and
+    ZBYTE cs_toastt                ; the ticks it has left, and what the strip
+    ZBYTE cs_toastwas              ; was saying before it
     ZWORD cs_pwl                   ; a window's edges while it is
     ZWORD cs_pwr                   ; being resolved (88.9.5)
     ZBYTE cs_pfirst                 ; bit n: page n has never had its ground

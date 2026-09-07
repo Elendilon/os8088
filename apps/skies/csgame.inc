@@ -68,6 +68,7 @@ cs_fsx_main:
     cmp byte [cs_quit], 0
     jne .leave
     call cs_steps                   ; CX = ticks since the last frame
+    call cs_toaststep               ; ...which is what a toast is timed on
     jcxz .draw
     cmp byte [cs_pause], 0
     jne .draw
@@ -396,8 +397,8 @@ cs_scrclear:
 ; cs_hotkey - a settings key inside the bracket (SPEC.md 88.13.5)
 ; in:  AL = the character; out: CF = 1 it was one of ours. Clobbers AX, BX, CX
 ;
-;   -/+   the view's Size, down and up      1 2 3  Buildings: few, some, all
-;   4 5 6 the three fills, each a toggle    7 8 9  Detail: near, moderate, far
+;   -/+   the view's Size, down and up - kept as the ALTERNATE to F3, which
+;         is the one setting where a player wants to say which way
 ;
 ; A key that changes what is DRAWN costs the next frame and nothing after it,
 ; so it is one store. Size is the exception - the view's geometry, its byte
@@ -433,14 +434,16 @@ cs_hotkey:
     call cs_clearall                ; ...and what was on the glass is stale
     call cs_scrclear                ; ...INCLUDING THE PIXELS BESIDE THE VIEW
 .yes:
-    stc
-    ret
+    mov cl, 2                       ; ...and the strip says which and what to
+    call cs_toast                   ; (88.13.8), at the end of the ladder too:
+    stc                             ; "SIZE: FULL" is the answer to a `+` that
+    ret                             ; could not go up as much as to one that did
 .no:
     clc
     ret
 
 ; -----------------------------------------------------------------------------
-; cs_hotkeyx - the settings' own keys, F1 to F10 (SPEC.md 88.13.5)
+; cs_hotkeyx - the settings' own keys, F1 to F5 (SPEC.md 88.13.5)
 ; in:  AH = the scan code of an EXTENDED key (AL was 0)
 ; out: CF = 1 it was one of ours. Clobbers AX, CX
 ;
@@ -448,40 +451,88 @@ cs_hotkey:
 ; player expects to find something else, and these are keys nobody reaches
 ; for by accident. They arrive as int 16h EXTENDED codes - AL zero, AH the
 ; scan code - so this hangs off cs_input's `.ext` arm beside the arrows and
-; not off the character one. TEN of them, in the page's own reading order:
-; five levels of detail, two fills, three draw distances.
+; not off the character one.
+;
+; ONE KEY A SETTING AND NOT ONE A VALUE. It was ten - a key per rung of the
+; detail ladder, a key per rung of the draw distance - and that runs out: the
+; detail ladder is five rungs since 88.13.1.1 and the draw distance is four
+; since 88.13.2.1, which is eleven keys for four settings before the fills.
+; Each of these three steps its ladder ONE UP and round at the top, and what
+; a player has lost by not being able to jump straight to a rung they get
+; back on the Settings page, which is where a considered choice belongs.
+;
+;   F1  Detail Level    F2  Draw Distance   F3  Size (also -/+)
+;   F4  Terrain fill    F5  Buildings fill  - each a toggle
+;
+; Every one of them raises a TOAST (88.13.8), which is what makes a cycling
+; key usable at all: a key that steps a ladder is no good if the glass does
+; not say where the ladder now is.
 ; -----------------------------------------------------------------------------
-CSK_F1     equ 0x3B                 ; ...and F2..F10 follow it
+CSK_F1     equ 0x3B                 ; ...and F2..F5 follow it
 cs_hotkeyx:
     cmp ah, CSK_F1
     jb .no
-    cmp ah, CSK_F1 + 9
+    cmp ah, CSK_F1 + 4
     ja .no
+    push bx
+    push si
     mov al, ah
-    sub al, CSK_F1                  ; 0..9
-    cmp al, 5
-    jb .bld
-    cmp al, 7
-    jb .fill
-    sub al, 7                       ; F8 F9 F10: Draw Distance
-    mov [cs_setlod], al
-    jmp short .yes
-.bld:                               ; F1..F5: Detail Level, None first
-    mov [cs_setbld], al
-    call cs_skipclr                 ; every object is looked at again, or one
-    jmp short .yes                  ; the cull dropped stays dropped (88.5.2)
-.fill:                              ; F6 Terrain, F7 Buildings - each toggled
-    sub al, 5
+    sub al, CSK_F1                  ; 0..4
     mov cl, al
+    xor ch, ch
+    cmp al, 3
+    jae .fill
+    ; --- F1 F2 F3: one step up the ladder, and round at the top -----------
+    mov bx, cx
+    shl bx, 1
+    mov si, [cs_toastset + bx]      ; the setting's own byte...
+    mov bx, cx
+    mov al, [cs_cycn + bx]          ; ...and how many rungs it has
+    mov ah, [si]
+    inc ah
+    cmp ah, al
+    jb .set
+    xor ah, ah
+.set:
+    mov [si], ah
+    call cs_toast                   ; FIRST, WHILE CL STILL SAYS WHICH: every
+                                    ; call below spends CX - cs_skipclr's own
+                                    ; `loop` leaves it ZERO, so a toast raised
+                                    ; after one says "Detail Level" whatever
+                                    ; key was pressed. The toast reads the
+                                    ; setting's byte, which is already written
+    cmp cl, 2
+    je .size
+    call cs_skipclr                 ; DETAIL *AND* DRAW DISTANCE: both change
+    jmp short .done                 ; which objects are in range, so one the
+                                    ; cull dropped for N ticks has to be
+                                    ; looked at again (88.5.2). The old F8..F10
+                                    ; did not, so raising the draw distance
+                                    ; left the far half of the world absent
+                                    ; for up to CS_FAR/16 ticks
+.size:
+    call cs_r_setup                 ; the whole geometry follows the size
+    call cs_clearall                ; ...and what was on the glass is stale
+    call cs_scrclear                ; ...INCLUDING THE PIXELS BESIDE THE VIEW
+    jmp short .done
+.fill:                              ; F4 Terrain, F5 Buildings - each toggled
     mov al, 1
+    push cx
+    sub cl, 3
     shl al, cl
+    pop cx
     xor [cs_setfill], al
-.yes:
+    call cs_toast
+.done:
+    pop si
+    pop bx
     stc
     ret
 .no:
     clc
     ret
+
+cs_cycn: db CSBL_HIGH + 1, CSL_ULTRA + 1, CSZ_FULL + 1
 
 ; -----------------------------------------------------------------------------
 ; cs_render - one frame (SPEC.md 88.8)
@@ -799,6 +850,129 @@ cs_strcpy:
 .d:
     ret
 
+; -----------------------------------------------------------------------------
+; cs_strcpyu - cs_strcpy, UPPER-CASED (SPEC.md 88.13.8)
+;
+; The toast is lettered out of the SETTINGS PAGE'S OWN strings - 'Detail
+; Level', 'Ultra', 'Buildings' - so that the two can never come to disagree
+; about what a rung is called; the panel writes in capitals. Ten bytes buys
+; that instead of a second set of names to keep in step.
+; -----------------------------------------------------------------------------
+cs_strcpyu:
+    lodsb
+    or al, al
+    jz .d
+    cmp al, 'a'
+    jb .put
+    cmp al, 'z'
+    ja .put
+    sub al, 32
+.put:
+    mov [di], al
+    inc di
+    jmp short cs_strcpyu
+.d:
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_toast - CL = which setting changed; its name and its new value on the
+;            message strip for CS_TOASTT ticks (SPEC.md 88.13.8)
+;
+; The three ladders are 0, 1, 2 and the two fills 3 and 4, which is the order
+; cs_cycset and cs_cycn use. Everything the toast letters is a pointer this
+; file already had: the page's own label for the setting, and either the
+; page's own name for the value or ON/OFF for a fill.
+;
+; It does not paint. cs_msg is what the panel reads once a frame (88.9.9), so
+; a toast is one byte and the strip redraws itself; what expires it is
+; cs_toaststep, off the SAME tick count the flight model is stepped with, so
+; it lasts the same second and a half on a machine drawing 3 frames a second
+; and on one drawing 18.
+; -----------------------------------------------------------------------------
+cs_toast:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    xor ch, ch
+    mov bx, cx
+    shl bx, 1
+    mov si, [cs_toastlbl + bx]
+    mov di, cs_toastbuf
+    call cs_strcpyu
+    mov word [di], ': '             ; NOT `stosb`: ES is the KERNEL'S in a
+    add di, 2                       ; package (SPEC.md 20), so a store through
+                                    ; it lands in the wrong segment entirely
+    cmp cl, 3
+    jae .fill
+    mov si, [cs_toastset + bx]      ; the setting's byte...
+    mov al, [si]
+    xor ah, ah
+    shl ax, 1
+    mov si, [cs_toastval + bx]      ; ...and the page's own list of names
+    add si, ax
+    mov si, [si]
+    jmp short .val
+.fill:
+    mov al, cl                      ; the fill BIT this one owns: Terrain 1,
+    sub al, 3                       ; Buildings 2 (88.13.3)
+    mov cl, al
+    mov al, 1
+    shl al, cl
+    test [cs_setfill], al
+    mov si, cs_g_off
+    jz .val
+    mov si, cs_g_on
+.val:
+    call cs_strcpyu
+    mov byte [di], 0
+    mov al, [cs_msg]                ; ...and what the strip goes back to
+    cmp al, CSG_TOAST               ; (a toast on a toast keeps the first
+    je .arm                         ; answer, not itself)
+    mov [cs_toastwas], al
+.arm:
+    mov byte [cs_msg], CSG_TOAST
+    mov byte [cs_toastt], CS_TOASTT
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_toaststep - CX ticks have gone by; expire the toast (SPEC.md 88.13.8)
+;
+; ON THE FRAME'S OWN TICK COUNT and not inside cs_step, because cs_step is
+; the thing a PAUSE stops: a toast raised while paused would otherwise sit
+; there for ever. Clobbers nothing. It restores only a strip that is STILL
+; the toast, so a stall or a crash raised in the meantime keeps the glass.
+; -----------------------------------------------------------------------------
+cs_toaststep:
+    cmp byte [cs_toastt], 0
+    je .out
+    push ax
+    mov al, [cs_toastt]
+    sub al, cl
+    ja .keep
+    xor al, al
+    cmp byte [cs_msg], CSG_TOAST
+    jne .keep
+    mov ah, [cs_toastwas]
+    mov [cs_msg], ah
+.keep:
+    mov [cs_toastt], al
+    pop ax
+.out:
+    ret
+
+cs_toastlbl: dw cs_s_lbld, cs_s_llod, cs_s_lsize, cs_s_terr, cs_s_bld
+cs_toastset: dw cs_setbld, cs_setlod, cs_setsize
+cs_toastval: dw cs_i_bld, cs_i_lod, cs_i_size
+cs_g_on:     db 'On', 0
+cs_g_off:    db 'Off', 0
+
 cs_d_spd:
     mov bx, CS_PI_SPD
     call cs_pcell
@@ -1011,7 +1185,7 @@ cs_s_crash:  db 'CRASHED      ', 0
 
 cs_msgtab:   dw cs_g_none, cs_g_takeoff, cs_g_stall, cs_g_landed
              dw cs_g_crash, cs_g_paused, cs_g_edge, cs_g_release
-             dw cs_g_splash
+             dw cs_g_splash, cs_toastbuf
 cs_g_none:   db 0
 cs_g_takeoff: db 'FULL THROTTLE, PULL BACK AT 55 KNOTS', 0
 cs_g_stall:  db 'STALL - NOSE DOWN, POWER ON', 0

@@ -14,12 +14,15 @@ the band, so nothing was slow and nothing looked wrong; what it cost was the
 next building anybody added, at exactly the distance a JFK take-off starts
 from (6,845 m to the Empire State).
 
-The four anonymous towers of NYC-JFK are moved nowhere - the CAMERA is put
+Four of NYC-JFK's anonymous towers are moved nowhere - the CAMERA is put
 7 km back down the runway heading and their ranges raised so the cull keeps
 them - and then, over one frame:
 
   1. every one of them takes cs_boxlod and none takes cs_stackverts, which
      is the gate falling the right way;
+  2b. ...and at DRAW DISTANCE = ULTRA the same four at the same place take
+     the POLYGONS instead - cs_boxlod not entered at all and nothing
+     reaching cs_rect (88.13.2.1), which is that rung's whole feature;
   2. the box reaches the glass - cs_rect once per tower - so a gate that
      merely CALLED cs_boxlod and had it refuse would not pass this;
   3. and the frame is shorter for it: the marginal cost of the four is
@@ -33,9 +36,10 @@ them - and then, over one frame:
      a building flickering between two sizes as the aeroplane taxied, which
      is how it was reported off a 10 MHz 8086;
   5. and NOTHING ON THE SKYLINE GOES AWAY AND COMES BACK down the take-off
-     run. A dip, not a step: the skyline grows and shrinks as the aeroplane
-     rolls and a big single step is legitimate, but a value BELOW BOTH ITS
-     NEIGHBOURS is something that went away for four metres and returned.
+     run - asked of the GUEST and not of the pixels: cs_boxlod and
+     cs_stackverts are the two paths a solid can take, so a frame is a map
+     of object -> box, polygons or absent, and a taxi straight at the city
+     is monotone. A state that returns after another is the defect exactly.
 
 Check 3 is deliberately a BOUND and not a ratchet: it has to separate two
 regimes (4.2 ms a tower boxed, 11.9 unboxed on a 4.77 MHz 8088) and not
@@ -43,11 +47,29 @@ pin whatever this month's rectangle costs.
 
 --clobber-lod is the red run (docs/WRITING-TESTS.md 1): it NOPs the two
 instructions that refuse the multiply, which restores the wrapping product
-exactly, and the first three checks must go red. --clobber-shr NOPs the
-pairs that give cs_pshr back and check 4 must go red. --clobber-tall puts
-the impostor's height bound back to CS_LODPX, which returns a two-pixel-wide
-tower to the polygon path where its winding is decided by rounding, and
-check 5 must go red.
+exactly, and the first three checks must go red. --clobber-ultra NOPs the
+`je` that 88.13.2.1 hangs on, so Ultra boxes what Far boxes, and check 2b
+must go red.
+
+TWO OF THE RED RUNS HERE NO LONGER GO RED, and neither is a check that
+stopped working - both are checks whose defect stopped existing:
+
+  --clobber-shr NOPs the pairs inside cs_boxlod that give cs_pshr back, and
+  check 4 gets its model arm by putting `stc / ret` ON cs_boxlod - a routine
+  replaced by two bytes never reaches the instructions the clobber patched.
+  The check itself is sound and caught the defect when it was live; the
+  clobber and the check do not meet. Asking the BYTE instead needs a range
+  where cs_boxlod is CALLED and then refuses, and that window is a few
+  hundred metres wide, different per model and not reachable at all for
+  these four at this eye height - it was tried and withdrawn rather than
+  left in place reading nothing.
+
+  --clobber-tall puts the impostor's height bound back to CS_LODPX, which
+  returns a two-pixel-wide tower to the polygon path - where its winding
+  USED to be decided by rounding. SPEC.md 88.5.10 fixed that: the winding is
+  the whole polygon's area now, so the same tower on the polygon path is
+  stable and check 5 has nothing to see. The bound is about COST now and no
+  longer about flicker.
 """
 import argparse
 import math
@@ -64,6 +86,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CPS = 4772727.0
 CSO_X, CSO_RANGE, CSO_SKIP, CSO_SIZE = 4, 10, 18, 20
 CSA_OBJS, CSA_NOBJ = 18, 20
+CSL_MOD, CSL_ULTRA = 1, 3       # the Draw Distance rungs this row names
 DIST = 8000                     # ...down the runway heading, in the band
 bad = []
 
@@ -84,6 +107,8 @@ def main(argv):
                     help="the wrapping multiply back: the row must go red")
     ap.add_argument("--clobber-shr", action="store_true",
                     help="cs_boxlod keeps the scale it clobbered: check 4 red")
+    ap.add_argument("--clobber-ultra", action="store_true",
+                    help="Ultra stops turning the impostor off: check 2b red")
     ap.add_argument("--clobber-tall", action="store_true",
                     help="the tall bound back to CS_LODPX: check 5 goes red")
     a = ap.parse_args(argv)
@@ -102,6 +127,9 @@ def main(argv):
 
         def word(n):
             return int.from_bytes(m.read(lin + base + off(n), 2), "little")
+
+        def byte(n):
+            return m.readseg(seg, base + off(n), 1)[0]
 
         def poke(n, d):
             m.write(lin + base + off(n), d)
@@ -171,6 +199,22 @@ def main(argv):
             print("  (cs_boxlod keeps the scale it clobbered, %d site(s): "
                   "must fail)" % n)
 
+        if a.clobber_ultra:
+            # the `je .stack` that 88.13.2.1 hangs on, NOPped: Ultra then
+            # behaves exactly like Far and boxes the same solids
+            lo, hi = mp["cs_drawobj"], mp["cs_boxlod"]
+            code = m.read(lin + lo, hi - lo)
+            i = code.find(b"\x80\x3E"
+                          + (base + off("cs_setlod")).to_bytes(2, "little")
+                          + b"\x03\x74")
+            if i < 0:
+                sys.exit("skieslod: cs_drawobj does not hold 88.13.2.1's "
+                         "Ultra test where this patch expects it")
+            m.pause()
+            m.write(lin + lo + i + 5, b"\x90\x90")
+            m.run()
+            print("  (Ultra no longer turns the impostor off: this run must "
+                  "fail)")
         if a.clobber_tall:
             # `cmp si, CS_LODTALL` is 83 FE 1A: put the bound back to
             # CS_LODPX and a two-pixel-wide tower returns to the polygon
@@ -190,16 +234,25 @@ def main(argv):
         objs = int.from_bytes(m.read(lin + port + CSA_OBJS, 2), "little")
         nobj = int.from_bytes(m.read(lin + port + CSA_NOBJ, 2), "little")
         # Every anonymous BOX in the table, whatever rung it belongs to -
-        # six of them are CSO_DENSE since 88.13.1.2 and the count is not a
+        # most of them are CSO_DENSE since 88.13.1.2 and the count is not a
         # constant this row should carry.
+        #
+        # FOUR OF THEM AND NO MORE, and that cap is load-bearing. place()
+        # lays them in a row 200 m apart across the sight line, so the number
+        # found decides how wide that row is: when 88.13.1.3 took Manhattan's
+        # anonymous boxes from ten to sixteen the row became 3 km wide, the
+        # outer towers went off-axis, and BOTH of this file's own red runs
+        # went green - --clobber-tall's dip landing at 2.6% against a 3%
+        # bound. The checks below are tuned to four towers on the sight line
+        # and the world may grow as many more as it likes.
         want = tuple(mp[n] for n in ("cs_m_jfk_mid", "cs_m_jfk_dtn",
                                      "cs_m_jfk_hi", "cs_m_jfk_lo"))
         rng0 = [int.from_bytes(m.read(lin + objs + i * CSO_SIZE + CSO_RANGE, 2),
                                "little") for i in range(nobj)]
         towers = [i for i in range(nobj)
                   if int.from_bytes(m.read(lin + objs + i * CSO_SIZE, 2),
-                                    "little") in want]
-        check(len(towers) >= 4, "NYC-JFK's anonymous towers found in its "
+                                    "little") in want][:4]
+        check(len(towers) == 4, "NYC-JFK's anonymous towers found in its "
                                 "object table (%d)" % len(towers))
 
         h = math.radians(310)                   # the runway's own heading
@@ -297,6 +350,37 @@ def main(argv):
               "and the box REACHES THE GLASS: cs_rect %d (want %d or more, "
               "so a cs_boxlod that refused would not pass)"
               % (nrect, len(towers)))
+
+        # --- 2b: ...and DRAW DISTANCE = ULTRA turns the whole thing off ----
+        #
+        # 88.13.2.1: the impostor is the one rung on that ladder that is a
+        # SUBSTITUTION rather than a distance, so the rung above Far takes
+        # the substitution away and every solid draws its polygons at every
+        # size. The SAME towers at the SAME place, which is what makes this
+        # about the rung and not about a layout: cs_boxlod is not entered at
+        # all, cs_stackverts is entered once per tower, and nothing reaches
+        # cs_rect - that routine having exactly one caller.
+        m.pause()
+        poke("cs_setlod", bytes([CSL_ULTRA]))
+        for i in range(nobj):
+            m.write(lin + objs + i * CSO_SIZE + CSO_SKIP, b"\x00\x00")
+        m.run()
+        m.advance(frames=6)
+        m.run()
+        uh = one_frame()
+        check(uh.get("cs_boxlod", 0) == 0 and uh.get("cs_rect", 0) == 0
+              and uh.get("cs_stackverts", 0) >= len(towers),
+              "at Ultra the same %d take the POLYGONS: cs_boxlod %d, cs_rect "
+              "%d, cs_stackverts %d (want 0, 0 and %d or more)"
+              % (len(towers), uh.get("cs_boxlod", 0), uh.get("cs_rect", 0),
+                 uh.get("cs_stackverts", 0), len(towers)))
+        m.pause()
+        poke("cs_setlod", bytes([CSL_MOD]))
+        for i in range(nobj):
+            m.write(lin + objs + i * CSO_SIZE + CSO_SKIP, b"\x00\x00")
+        m.run()
+        m.advance(frames=6)
+        m.run()
 
         # --- 3: and the frame is shorter for it ----------------------------
         on = frame_ms()
@@ -405,27 +489,29 @@ def main(argv):
         # straight back, which is what the field saw: with the tall bound at
         # CS_LODPX the run reads 181, 141, 187 and the largest single step is
         # a quarter of the whole skyline.
-        def skymass():
-            m.pause()
-            fb = m.read(0xB0000, 0x8000)
-            m.run()
-            vy, wh = word("cs_vy"), word("cs_wh")
-            wb0, wbn = word("cs_wb0"), word("cs_wbn")
-            b0 = word("cs_vx") // 8
-            n = 0
-            for y in range(vy, vy + wh // 2):
-                o = (y & 3) * 0x2000 + (y >> 2) * 90 + b0
-                for by in fb[o + wb0:o + wb0 + wbn]:
-                    n += bin(by).count("1")
-            return n
-
         rax = int.from_bytes(m.read(lin + port + 2, 2), "little")
         raz = int.from_bytes(m.read(lin + port + 4, 2), "little")
         rax = rax - 65536 if rax > 32767 else rax
         raz = raz - 65536 if raz > 32767 else raz
         rh = int.from_bytes(m.read(lin + port + 8, 2), "little")
         hh = rh * 2 * math.pi / 65536.0
-        mass = []
+        # WHAT EACH OBJECT WAS DRAWN AS, and not how many pixels were lit.
+        #
+        # This was a LIT-PIXEL sweep - the mass above the horizon, and a
+        # value below both its neighbours meant something had gone away for
+        # four metres and come back. That reads a dithered picture, and when
+        # 88.13.1.3 put twelve more towers on this skyline the ordinary
+        # phase shift of a 50% dither behind a moving eye became 2.7% of it:
+        # the clean run and --clobber-tall both landed under a 3% bound and
+        # BOTH OF THIS FILE'S RED RUNS WENT GREEN. A tolerance that a denser
+        # world can walk through is not a bound.
+        #
+        # So it asks the guest instead. cs_boxlod and cs_stackverts are the
+        # two paths a solid can take and cs_obj says which object is on one,
+        # so a frame is a MAP of object -> box, polygons or absent; a taxi
+        # straight at the city is monotone, so a state that goes away and
+        # COMES BACK is the defect exactly, whatever the dither did.
+        seen_at = []
         for k in range(14):
             d = -840 + k * 4
             m.pause()
@@ -444,22 +530,45 @@ def main(argv):
                 m.write(lin + objs + i * CSO_SIZE + CSO_SKIP, b"\x00\x00")
             m.run()
             m.advance(frames=10)
-            mass.append(skymass())
-        mass = mass[2:]                 # the first two are the scene settling
-        top = max(mass)
-        # A DIP, not a step. The skyline grows and shrinks as the aeroplane
-        # rolls and a big single step is legitimate; what is not is a value
-        # BELOW BOTH ITS NEIGHBOURS - something that went away for four
-        # metres and came back. With the tall bound at CS_LODPX the run
-        # reads ... 337, 337, 311, 338, 338 ... and the dip is 26 pixels of
-        # 339; fixed, there is no dip at all.
-        dip = max([min(mass[i - 1], mass[i + 1]) - mass[i]
-                   for i in range(1, len(mass) - 1)] + [0])
-        check(dip <= top * 0.03,
+            m.run()
+            state = {}
+            m.bp_exec(lin + mp["cs_render"])
+            m.run()
+            if m.wait_stop(60) is None:
+                sys.exit("skieslod: cs_render never ran")
+            m.bp_exec(lin + mp["cs_render"], lin + mp["cs_boxlod"],
+                      lin + mp["cs_stackverts"])
+            for _ in range(300):
+                m.run()
+                if m.wait_stop(60) is None:
+                    break
+                ip = m.regs()["ip"]
+                if ip == mp["cs_render"]:
+                    break
+                ob = int.from_bytes(m.read(lin + base + off("cs_obj"), 2),
+                                    "little")
+                state[ob] = "b" if ip == mp["cs_boxlod"] else "p"
+            m.bp_exec()
+            m.run()
+            seen_at.append(state)
+        seen_at = seen_at[2:]           # the first two are the scene settling
+        flick = []
+        for ob in sorted(set().union(*[set(s) for s in seen_at])):
+            seq = [s.get(ob, ".") for s in seen_at]
+            for i in range(len(seq)):   # a state that RETURNS after another
+                if seq[i] in seq[i + 1:]:
+                    j = seq.index(seq[i], i + 1)
+                    if any(c != seq[i] for c in seq[i:j]):
+                        nm = int.from_bytes(m.read(lin + ob + 14, 2), "little")
+                        flick.append("%s %s" % (
+                            m.readseg(seg, nm, 24).split(b"\0")[0]
+                            .decode("ascii", "replace"), "".join(seq)))
+                        break
+        check(len(seen_at[0]) >= 4 and not flick,
               "nothing on the skyline goes away and comes back down the "
-              "take-off run: the deepest dip is %d of %d lit pixels (%.1f%%, "
-              "wants 3%% or less) - %s"
-              % (dip, top, 100.0 * dip / max(top, 1), mass))
+              "take-off run: %d objects drawn, %d flickered%s"
+              % (len(seen_at[0]), len(flick),
+                 "" if not flick else " - " + "; ".join(flick[:3])))
 
     print("skieslod: %s" % ("FAIL - " + "; ".join(bad) if bad else "ok"))
     return 1 if bad else 0

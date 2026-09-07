@@ -37,9 +37,14 @@ something different.
   3b. Detail Level = None files nothing built and still leaves the
      runway, the water and the terrain standing (88.13.1), and Only
      Roads brings the roads and bridges back and no more;
-  4. inside the bracket the hotkeys do the same things without the page -
-     F1..F5 the detail level, F6/F7 the fills, F8..F10 the draw
-     distance, -/+ size;
+  4. inside the bracket the hotkeys CYCLE, one key a setting (88.13.5): F1
+     the detail level, F2 the draw distance, F3 the size, F4/F5 the two
+     fills - each stepping its own ladder one rung and round at the top,
+     walked a FULL LAP so the wrap is seen and not only the step;
+  4c. ...and every one of them raises a TOAST naming the setting and its new
+     value (88.13.8), checked against the SETTINGS PAGE'S OWN list of names
+     read out of the guest rather than a copy typed here, and then left to
+     expire back to the strip it replaced;
   4b. the page's controls behave: a drop-down's list actually COMES DOWN
      (banked and on the glass, not merely marked open), and Done is drawn
      down on the press, cancels on a release off it and turns the page only
@@ -78,7 +83,10 @@ import dispapps                                             # noqa: E402
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CPS = 4772727
 CSBL_NONE, CSBL_ROADS, CSBL_LOW, CSBL_MOD, CSBL_HIGH = 0, 1, 2, 3, 4
+CSL_NEAR, CSL_MOD, CSL_FAR, CSL_ULTRA = 0, 1, 2, 3
+CSZ_SMALL, CSZ_MOD, CSZ_FULL = 0, 1, 2
 CSFL_TERRAIN, CSFL_BLDG, CSFL_ALL = 1, 2, 3
+CSG_TAKEOFF, CSG_TOAST = 1, 9
 CSM_STACK = 0                           # a model of LEVELS, so its first pair
                                         # of words IS a footprint - a CSM_FLAT
                                         # model's are its first vertex
@@ -135,6 +143,25 @@ def main(argv):
 
         def rect(name):
             return [rec(name, 2 * i) for i in range(4)]
+
+        def to_rung(key, name, want, rungs):
+            """A hotkey CYCLES since 88.13.5, so a rung is reached by stepping
+            to it. Up to two laps, because a press the guest has not read yet
+            is a press this must not count twice - cs_input polls int 16h once
+            a FRAME and a frame here can be 400 ms."""
+            for _ in range(2 * rungs + 2):
+                m.pause()
+                v = byte(name)
+                m.run()
+                if v == want:
+                    return True
+                m.key(key)
+                m.advance(frames=40)
+                m.run()
+            return False
+
+        def bld(rung):
+            return to_rung("F1", "cs_setbld", rung, CSBL_HIGH + 1)
 
         m.advance(frames=30)
         m.run()
@@ -412,7 +439,7 @@ def main(argv):
         frames(3)
         few_ms = frames()
         few_n = seen["n"]
-        m.key("F5")                                 # ...F1..F5 the detail level
+        bld(CSBL_HIGH)                              # ...F1 steps the detail level
         m.advance(frames=40)
         m.run()
         pin()
@@ -464,7 +491,7 @@ def main(argv):
             m.run()
 
         def at_level(k):
-            m.key("F%d" % (k + 1))
+            bld(k)
             m.advance(frames=40)
             m.run()
             pin()
@@ -536,7 +563,7 @@ def main(argv):
                 rungs(rec, "another world with a dense city")
                 go(home)
                 break
-        m.key("F5")
+        bld(CSBL_HIGH)
         m.advance(frames=40)
         m.run()
 
@@ -591,7 +618,7 @@ def main(argv):
                 "ascii", "replace")
 
             def sit(rung):
-                m.key("F%d" % (rung + 1))
+                bld(rung)
                 m.advance(frames=40)
                 m.run()
                 m.pause()
@@ -630,7 +657,7 @@ def main(argv):
                   % (rn, st, dc, why, nm, pick["name"]))
             m.advance(frames=60)           # let the crash reset before 3b
             m.run()
-        m.key("F5")
+        bld(CSBL_HIGH)
         m.advance(frames=40)
         m.run()
 
@@ -644,11 +671,11 @@ def main(argv):
         # else, which is the rung between. IN THE BRACKET, because on the
         # Settings page any key turns the page back and the F-key is spent
         # doing that.
-        m.key("F1")
+        bld(CSBL_NONE)
         m.advance(frames=40)
         m.run()
         check(byte("cs_setbld") == CSBL_NONE,
-              "F1 is Detail Level = None (%d)" % byte("cs_setbld"))
+              "F1 steps down to Detail Level = None (%d)" % byte("cs_setbld"))
         pin()
         frames(3)
         none_ms = frames()
@@ -664,11 +691,11 @@ def main(argv):
         check(none_ms < all_ms * 0.6, "...and its frame is far shorter than "
               "Full's (%.1f ms against %.1f)" % (none_ms, all_ms))
 
-        m.key("F2")                                 # ...and ONLY ROADS brings
+        bld(CSBL_ROADS)                             # ...and ONLY ROADS brings
         m.advance(frames=40)                        # the roads back, no more
         m.run()
         check(byte("cs_setbld") == CSBL_ROADS,
-              "F2 is Only Roads (%d)" % byte("cs_setbld"))
+              "...and the next rung up is Only Roads (%d)" % byte("cs_setbld"))
         pin()
         frames(3)
         frames()
@@ -676,28 +703,94 @@ def main(argv):
         check(none_n < roads_n < few_n,
               "Only Roads files more than None and fewer than Low "
               "(%d, %d, %d)" % (none_n, roads_n, few_n))
-        m.key("F5")                                 # ...and everything back
+        bld(CSBL_HIGH)                              # ...and everything back
         m.advance(frames=40)
         m.run()
 
-        # --- 4. the other hotkeys --------------------------------------------
-        for key, name, want in (("F8", "cs_setlod", 0), ("F10", "cs_setlod", 2),
-                                ("F9", "cs_setlod", 1), ("F1", "cs_setbld", 0),
-                                ("F2", "cs_setbld", 1), ("F3", "cs_setbld", 2),
-                                ("F4", "cs_setbld", 3), ("F5", "cs_setbld", 4)):
+        # --- 4. the hotkeys CYCLE, one key a setting (88.13.5) ---------------
+        #
+        # It was a key a VALUE and that ran out - eleven keys for four
+        # settings, and twelve exist. Each of these steps its own ladder one
+        # rung and ROUND at the top, which is the whole of what has to be
+        # checked: a full lap, so that both the step and the wrap are seen.
+        def press(key):
+            # FORTY and not twenty: m.advance counts DISPLAY frames and
+            # cs_input polls int 16h once a RENDER frame, which here is 150 to
+            # 400 ms. At twenty a press landed inside the NEXT check's window
+            # and read as the one before it having done nothing.
             m.key(key)
-            m.advance(frames=25)
+            m.advance(frames=40)
             m.run()
-            check(byte(name) == want, "the %s key sets %s to %d (%d)"
-                  % (key, name, want, byte(name)))
-        m.key("F6")
-        m.advance(frames=25)
+            m.pause()
+            out = (byte("cs_setbld"), byte("cs_setlod"), byte("cs_setsize"),
+                   byte("cs_setfill"), byte("cs_msg"), byte("cs_toastt"),
+                   m.readseg(seg, base + off("cs_toastbuf"), 40)
+                   .split(b"\0")[0].decode("ascii", "replace"))
+            m.run()
+            return out
+        for key, name, rungs in (("F1", "cs_setbld", CSBL_HIGH + 1),
+                                 ("F2", "cs_setlod", CSL_ULTRA + 1),
+                                 ("F3", "cs_setsize", CSZ_FULL + 1)):
+            was = byte(name)
+            lap = []
+            for _ in range(rungs):
+                lap.append(press(key)[("cs_setbld", "cs_setlod",
+                                       "cs_setsize").index(name)])
+            check(lap == [(was + 1 + i) % rungs for i in range(rungs)],
+                  "%s steps %s one rung and round: %s from %d"
+                  % (key, name, lap, was))
+            check(byte(name) == was,
+                  "...and a full lap of %d comes home (%d against %d)"
+                  % (rungs, byte(name), was))
+        for key, bit in (("F4", CSFL_TERRAIN), ("F5", CSFL_BLDG)):
+            was = byte("cs_setfill")
+            press(key)
+            check(byte("cs_setfill") == was ^ bit,
+                  "%s toggles its own fill bit (%d -> %d)"
+                  % (key, was, byte("cs_setfill")))
+            press(key)
+            check(byte("cs_setfill") == was, "...and back (%d)" % byte("cs_setfill"))
+
+        # --- 4c. and every one of them TOASTS what it changed (88.13.8) ------
+        #
+        # A cycling key is no good if the glass does not say where the ladder
+        # landed, so this is the feature and not a decoration. The text is
+        # lettered out of the Settings page's own strings, so it is checked
+        # against the page's OWN list - cs_i_lod's names read out of the
+        # guest - rather than against a copy typed here that could agree with
+        # a wrong answer.
+        def dropname(tab, i):
+            p = int.from_bytes(m.readseg(seg, mp[tab] + 2 * i, 2), "little")
+            return m.readseg(seg, p, 24).split(b"\0")[0].decode(
+                "ascii", "replace").upper()
+        for key, name, tab, label in (("F1", "cs_setbld", "cs_i_bld", "DETAIL LEVEL"),
+                                      ("F2", "cs_setlod", "cs_i_lod", "DRAW DISTANCE"),
+                                      ("F3", "cs_setsize", "cs_i_size", "SIZE")):
+            st = press(key)
+            want = "%s: %s" % (label, dropname(tab, byte(name)))
+            check(st[4] == CSG_TOAST and st[6] == want,
+                  "%s toasts %r (msg %d, %r)" % (key, want, st[4], st[6]))
+            if key == "F3":                 # ...and put the size back: check 5
+                to_rung("F3", "cs_setsize", CSZ_MOD, CSZ_FULL + 1)
+        # ...and it goes away again, back to what the strip was saying
+        m.pause()
+        m.write(lin + base + off("cs_msg"), bytes([CSG_TAKEOFF]))
         m.run()
-        check(byte("cs_setfill") == CSFL_BLDG,
-              "F6 takes the terrain's fill off (%d)" % byte("cs_setfill"))
-        m.key("F6")
-        m.advance(frames=25)
+        m.advance(frames=6)
         m.run()
+        st = press("F1")
+        check(st[4] == CSG_TOAST and st[5] > 0,
+              "a toast is up with %d ticks to run" % st[5])
+        for _ in range(40):
+            m.advance(frames=8)
+            m.run()
+            if byte("cs_msg") != CSG_TOAST:
+                break
+        check(byte("cs_msg") == CSG_TAKEOFF,
+              "...and it expires back to the strip it replaced (msg %d, "
+              "toastt %d)" % (byte("cs_msg"), byte("cs_toastt")))
+        while byte("cs_setbld") != CSBL_HIGH:      # the rung the checks below
+            press("F1")                            # were taken at
 
         # --- 5. a smaller view leaves nothing beside it ----------------------
         #
