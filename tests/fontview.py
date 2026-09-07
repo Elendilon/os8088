@@ -41,12 +41,20 @@ with os88marty.launch("build/os8088-360.img", apps="build/apps360.img",
     dispcp.open_drive(m, mo, S, os88marty.settle, "A")
     slot = dispcp.win_list(m, S)[-1]
     wx, wy, _, _ = dispcp.win_rect(m, S, slot)
+    # SYSTEM/FONTS and not FONTS: SPEC.md 19.8.1 moved the folder INTO SYSTEM/
+    # for the ROOT's sake - the boot floppy's own window is what a person opens
+    # - and ty_gofonts walks to exactly one folder. tests/unit/t_fonts.py
+    # asserts BOTH halves ("the root has no FONTS folder", "SYSTEM/FONTS holds
+    # every face in faces/"), so the root is where this can never be.
+    dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "SYSTEM")
+    slot = dispcp.win_list(m, S)[-1]
+    wx, wy, _, _ = dispcp.win_rect(m, S, slot)
     dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "FONTS")
     names = [n for n, _ in dispcp.listing(m, S)]
     installed = [n for n in names if n.endswith(".F88")]
     print("installed:", installed)
     if len(installed) != 10:
-        fails.append("FONTS contains %d F88 faces, not all 10" % len(installed))
+        fails.append("SYSTEM/FONTS contains %d F88 faces, not all 10" % len(installed))
 
     slot = dispcp.win_list(m, S)[-1]
     wx, wy, _, _ = dispcp.win_rect(m, S, slot)
