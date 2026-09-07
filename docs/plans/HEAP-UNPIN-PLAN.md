@@ -74,7 +74,7 @@ Everything else is already movable. The RAM disk's store declares `rd_reloc`
 (drivers/ramdisk/rdstore.inc:112), Frotz's 508KB story `zf_reloc`, Tracker's
 116KB module `trk_reloc`, and SPEC.md 66.9's reason 5 — the donated
 per-partition listing, written up as *"structural, and the interesting one"* —
-**has since been built**: `dsk_dseg_reloc` (kernel/disk.inc:4444) is the
+**has since been built**: the kernel's own holders are rows of `mem_rr_tab` (kernel/memory.inc) and are the
 kernel's half of a donated claim's move and `mem_reloc_call` runs it before the
 owner's proc on every move. **SPEC.md 66.9 reason 5 and docs/HEAP-CLAIMS.md's
 row for it are stale and should be corrected whether or not anything here is
@@ -1221,7 +1221,7 @@ Three properties fall out of putting it there and nowhere else:
 **A correction that moves the tight budget.** A kernel relocation proc is
 dispatched through `cw_mem_disp`, which is `call bp` with `CS = KERNEL_SEG`, so
 **BP has to be a `.text` offset** (kernel/memory.inc:1697) — which is why
-`dsk_dseg_reloc` sits in `.text` inside a `.cold` file. So the region and driver
+`mem_region_reloc` sits in `.text` inside a `.cold` file. So the region and driver
 fix-ups below are **`.text`, not `.cold`**, and they spend the budget with 8,901
 bytes left rather than the one with 18,944.
 

@@ -300,8 +300,12 @@ _MIRROR = {
     "MC_OWN": ("kernel/memory.inc", 4),
     "MC_DMA": ("kernel/memory.inc", 6),
     "MC_RLOC": ("kernel/memory.inc", 8),
-    "MC_HI": ("kernel/memory.inc", 10),
-    "MC_SIZE": ("kernel/memory.inc", 11),
+    # MC_HI was a byte of its own and is now MC_DMA's top bit: both halves of
+    # the word say WHERE a claim may land, and the head is capped at 0x1000 by
+    # mem_claim_1, so the bit is free by a check and not by hope.
+    "MC_DMA_HI": ("kernel/memory.inc", 0x8000),
+    "MC_DMA_HEAD": ("kernel/memory.inc", 0x7FFF),
+    "MC_SIZE": ("kernel/memory.inc", 10),
     # kernel/vidsel.inc - the PER-DISPLAY CONTEXT record (SPEC.md 39.14)
     #
     # Nine harness scripts each wrote `VID_CTX_SZ = 42` down by hand, and the

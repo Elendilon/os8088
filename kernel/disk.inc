@@ -4409,59 +4409,14 @@ dsk_fatw_claim:
 ; in the arena's floor. What it knew that this file must not forget is that the
 ; live window has a SECOND naming word, [dsk_fatseg]; dsk_fatw_demote below is
 ; where that now lives.
-section .text                   ; ...and dsk_dseg_reloc below still needs it:
-                                ; mem_reloc_call reaches a kernel proc through
-                                ; cw_mem_disp - `call bp` with CS = KERNEL_SEG
-                                ; - so BP has to be a .text offset. An INDIRECT
-                                ; transfer is the one class os88ovlchk cannot
-                                ; see, so nothing would have failed
-; -----------------------------------------------------------------------------
-; dsk_dseg_reloc - the KERNEL's half of a DONATED claim's move (SPEC.md 66.5.10.2)
-; in:  BX = the base it WAS at, DX = the base it is at now; DS = KERNEL_SEG
-; out: nothing (every register preserved)
-;
-; NOT A RELOCATION PROC: no claim names this in MC_RLOC, and it is not reached
-; through cw_mem_disp because some record asked for it. mem_reloc_call calls it
-; for EVERY move, before the owner's own proc, because the kernel is a holder
-; of claims it does not own - which is what osapi_vol_add's DX means (18.7).
-;
-; A DONATED claim has three naming words and the callback reaches one (66.5.10.1).
-; These are the other two: dsk_vtab's DV_SEG, where the donation is recorded,
-; and [dsk_dseg], where the listing is READ FROM - and the second equals the
-; first only while that volume is the one mounted. dsk_fatw_reloc's problem
-; exactly, one table along, and the scan is by VALUE for its reason: a
-; compaction can fire while a different volume is current.
-;
-; Every row, free ones included. A free row's DV_SEG is stale rather than
+; dsk_dseg_reloc lived here: the KERNEL's half of a DONATED claim's move
+; (SPEC.md 66.5.10.2). It walked dsk_vtab's DV_SEG by value and then the live
+; [dsk_dseg] - which is two rows of mem_rr_tab and nothing else, so it is two
+; rows of mem_rr_tab. What it knew that this file must not forget is WHY the
+; scan is by value and covers free rows too: a compaction can fire while a
+; different volume is current, and a free row's DV_SEG is stale rather than
 ; meaningless (6.1's clear leaves it alone), so writing the new base into one
-; costs a store and keeps the table honest; skipping it would need the kind
-; test, which is two more instructions to achieve nothing.
-;
-; .text, and 66.5.6.1 is why: cw_mem_disp is `call bp` with CS = KERNEL_SEG,
-; so BP has to be a .text offset. This sits above the section switch below for
-; that reason and not by accident.
-; -----------------------------------------------------------------------------
-dsk_dseg_reloc:
-    push ax
-    push cx
-    push si
-    mov si, dsk_vtab
-    mov cx, DVOL_MAX
-.scan:
-    cmp [si+DV_SEG], bx
-    jne .next
-    mov [si+DV_SEG], dx
-.next:
-    add si, DV_SIZE
-    loop .scan
-    cmp [dsk_dseg], bx          ; ...and the LIVE pointer, if the block being
-    jne .out                    ; moved is the mounted volume's
-    mov [dsk_dseg], dx
-.out:
-    pop si
-    pop cx
-    pop ax
-    ret
+; keeps the table honest where skipping it would need a kind test.
 section .cold                   ; ...and back, or every routine below joins it
 
 dsk_fatw_drop:
