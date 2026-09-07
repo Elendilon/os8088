@@ -782,8 +782,10 @@ CS_SETDY  equ 34                    ; ...and the pitch down to the second
 CS_SETLH  equ 11                    ; a label's height above its control
 CS_SETFY  equ 90                    ; the fill boxes' row...
 CS_SETFX  equ 44                    ; ...their first column and pitch
-CS_SETFW  equ 86
-CS_SETFB  equ 82                    ; ...and how wide each one's area is
+CS_SETFW  equ 124                   ; ...WIDE ENOUGH FOR THE NOTES (88.13.10):
+CS_SETFB  equ 120                   ; 'Buildings' plus its own is 17 + 72 + 8 +
+                                    ; 32 = 129 from the box's left edge, and
+                                    ; the row has 44..304 for two of them
 CS_SETBY  equ 112                   ; Done
 
 ; -----------------------------------------------------------------------------
@@ -966,6 +968,15 @@ cs_set_page:
     mov si, [cs_setlbls + si]
     mov al, CBLACK
     call cs_at_left
+    push si                         ; ...and its hotkey beside it (88.13.10)
+    mov si, di
+    shl si, 1
+    mov di, [cs_sethk + si]
+    pop si
+    or di, di
+    jz .nohk
+    call cs_hkat
+.nohk:
     pop ax
     add bx, CS_SETLH                ; ...and the control under it
     mov cx, ax
@@ -1031,6 +1042,20 @@ cs_set_page:
     push di
     xor di, di
     call os88ui_chk
+    pop di
+    push di                         ; ...and its hotkey after the label the
+    mov ax, di                      ; widget just drew (SPEC.md 88.13.10)
+    mov bl, CS_SETFW
+    mul bl
+    add ax, CS_SETFX + OS88UI_CKBOX + OS88UI_CKGAP
+    mov cx, ax                      ; CX = where that label starts...
+    mov bx, CS_SETFY + 2            ; ...and the row os88ui_chk centres it on
+    mov si, di
+    shl si, 1
+    mov di, [cs_fillhk + si]
+    mov si, [cs_setboxes + si]
+    mov si, [si + OS88UI_CK_LABEL]
+    call cs_hkat
     pop di
     pop cx
     inc di
@@ -1485,6 +1510,38 @@ cs_at_centre:
     pop cx
     ret
 
+; cs_hkat - a hotkey note after a label (SPEC.md 88.13.10)
+; in:  SI = the label, DI = the note, BX = content y, CX = the label's x
+; Preserves every register. The note is placed off the label's OWN length
+; rather than at a column, because 'Size' and 'Draw Distance' are 9 pixels
+; and 104 wide and a fixed column puts one of them in the next control.
+cs_hkat:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push cx
+    call cs_strlen                  ; CX = the label's length...
+    mov ax, cx
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1                       ; ...in pixels, the face being 8 wide
+    pop cx
+    add cx, ax
+    add cx, 8                       ; one cell of daylight
+    mov si, di
+    mov al, CBLACK
+    call cs_at_left
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ; cs_strlen - SI = string; out CX = its length. Preserves SI.
 cs_strlen:
     push si
@@ -1870,6 +1927,13 @@ cs_i_lod:    dw cs_s_lnear, cs_s_lmod, cs_s_lfar, cs_s_lultra
 cs_i_size:   dw cs_s_zsml, cs_s_zmod, cs_s_zful
 cs_i_mode:   dw cs_s_modex, cs_s_cga
 cs_i_mode160: dw cs_s_cga, cs_s_c160   ; a real CGA's two (SPEC.md 88.15.7)
+cs_sethk:    dw cs_s_hk1, cs_s_hk2, cs_s_hk3, 0   ; Mode has no hotkey
+cs_fillhk:   dw cs_s_hk4, cs_s_hk5
+cs_s_hk1:    db '(F1)', 0
+cs_s_hk2:    db '(F2)', 0
+cs_s_hk3:    db '(F3)', 0
+cs_s_hk4:    db '(F4)', 0
+cs_s_hk5:    db '(F5)', 0
 cs_s_setttl: db 'SETTINGS', 0
 cs_s_lbld:   db 'Detail Level', 0
 cs_s_llod:   db 'Draw Distance', 0
