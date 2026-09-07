@@ -2099,8 +2099,17 @@ SOAK = [
         " windows on an aeroplane with no clamp. --clobber-adi puts the raw"
         " idiv back and is the red run",
         needs=("marty",), serial=True),
-    Row("skieshz", "soak", py("tests/skieshz.py"), 35.0,
-        "SPEC.md 88.3.3.1: the horizon reaches the GLASS. cs_skyground was"
+    Row("skieshz", "soak", py("tests/skieshz.py"), 52.0,
+        "SPEC.md 88.3.3.1 and 88.13.3.1: the horizon reaches the GLASS, in"
+        " BOTH modes - the fill's band, and the one segment that is the whole"
+        " horizon when the ground fill is off. The second went the same way as"
+        " the first a mode along: cs_skyground runs before cs_scene, so"
+        " cs_seg read the PREVIOUS frame's last object's cs_pinview,"
+        " cs_pwhole and object box, and the segment was drawn into the shadow"
+        " and never carried. Reported as \"at some angles, some of the time,"
+        " the horizon line disappears in wire view\". --clobber-hzmark is"
+        " check 2's red run and reads 3 of 36 poses short."
+        " SPEC.md 88.3.3.1: the horizon reaches the GLASS. cs_skyground was"
         " right the whole time - pinned at 45 degrees its cs_xl is a correct"
         " diagonal - and the band's rows were drawn into the shadow and never"
         " carried, because the band loop wrote each split row's span and never"

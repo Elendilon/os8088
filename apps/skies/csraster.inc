@@ -1205,11 +1205,23 @@ cs_skyground:
     je .out                         ; from the earth is this one segment
     mov al, CSI_LINE
     call cs_setink
+    ; --- AND IT BELONGS TO NO OBJECT (SPEC.md 88.13.3.1). cs_skyground runs
+    ;     BEFORE cs_scene, so all three of the words cs_seg reads here are
+    ;     the PREVIOUS frame's last object's: cs_pinview would skip the clip,
+    ;     cs_pwhole would skip the marking, and cs_markacc would accumulate
+    ;     into an object box that cs_drawobj resets for its first object a
+    ;     moment later. That is the panel's situation exactly, and cs_pclip
+    ;     already says so in as many words - so the horizon takes the same
+    ;     three stores, and cs_ownmk makes it mark its own rows.
+    mov byte [cs_pinview], 0
+    mov byte [cs_pwhole], 0
+    mov byte [cs_ownmk], -1
     mov ax, [cs_hzsa]
     mov bx, [cs_hzsa+2]
     mov cx, [cs_hzsa+4]
     mov dx, [cs_hzsa+6]
     call cs_seg
+    mov byte [cs_ownmk], 0
 .out:
     ret
 
