@@ -46,7 +46,7 @@ that must be REFUSED, and a decoder that refuses everything passes all of them
 | tier | budget | what belongs there |
 |---|---|---|
 | `fast` | **30s, enforced** | host-side only: read what `make` just built and check an invariant that breaks silently. Runs as part of every `make`. |
-| `full` | **600s, enforced** | `fast`, plus the build configurations `all` never builds, plus a CURATED handful of emulator rows. |
+| `full` | **180s, enforced** | one question: *did you obviously break the OS?* Does it compile, does it boot, does it do the basic things, is anything critical gone. |
 | `soak` | **none, deliberately** | everything else. Where a row goes when it is worth having and does not fit the gate. |
 
 The budgets are `BUDGET` in `tools/os88test.py`, and the runner FAILS a tier
@@ -62,10 +62,11 @@ still run by the person who touched its subject, which is who it is for.
 `soak` is a real answer and costs nobody any budget.
 
 A `full` row earns its place with **breadth per second**: `bootsmoke` is about
-twelve seconds for a boot to a desktop on both 1bpp adapters, and fails for
+thirteen seconds for a boot to a desktop on both 1bpp adapters, and fails for
 almost any serious regression, wherever it was. A row that can only fail for
 one narrow reason belongs in `soak`, next to the change that would break it.
-Ten minutes is about eight emulator rows, not fifty.
+Three minutes is about four emulator rows, not fifty — §2.2 is the rest of
+that rule.
 
 `soak` having no budget is not an oversight. A budget there would push rows out
 of the suite, which is the opposite of the point.
@@ -119,6 +120,55 @@ that is the answer.
 **Moving a row DOWN is not deleting it.** Every row named above still runs,
 still fails the same way, and is still one `-k` away. What changes is who pays
 for it: the person who touched its subject, instead of everybody.
+
+### 2.2 What earns a `full` row
+
+**`full` asks one question: did you obviously break the OS?** Does it compile,
+does it boot, does it do the basic things, is anything critical gone. It runs
+when a major round of work reaches the integration branch — not per commit —
+so it is a smoke test with reach, not a survey.
+
+**The budget is 180s, and that is a target for four lanes on an ordinary box.**
+A slower machine is expected to take longer; what the ceiling stops is the tier
+growing until nobody runs it. Today it uses 60.3s in the runner and 75.3s of
+wall on a cold four-core container (37.8s / 51.1s warm), so there is room.
+
+Three rules, and each retired a row when the tier was recut from 14 to 5:
+
+**Nothing app-specific.** A package is not the OS. A row may *drive* an app as
+the vehicle for a generic check — `ctoolchain` builds four C packages because
+that is what a toolchain produces, and the row is about the toolchain — but a
+row whose SUBJECT is one program belongs in `soak`. That moved `weavesmoke`
+(72.8s, WEAVE opening a bundle) and `appsmall` out.
+
+**A kernel check is allowed, and should be short.** `kernresident` boots a VGA
+machine and walks `mem_tab` in 13.7s; `small128` builds the second shipped
+kernel and boots it on the 128KB floor machine. That is the shape. A deep sweep
+of one subsystem is not, however true it is — `smallboot` walked three adapters
+for 118s where `small128` beside it already proves that kernel builds and
+boots.
+
+**The subject is the OS, not the tree and not the suite.** `buildmatrix`'s 99
+knob configurations are instruments; `bmshare` and `kernmods` are about
+build-speed variables and a size report; `martyconc` gates the emulator harness;
+`stackprose` reads prose. Every one is worth having and none can answer this
+tier's question — and `buildmatrix` alone was 143s of a 180s budget.
+
+> **What that costs, said plainly.** The knob `%ifdef` arms now assemble at
+> `soak` cadence rather than at every integration merge, and `kern_emu` is
+> built by no tier at all (`make emu` and `soak -k 'vmmouse'` build it). That
+> is the trade the three-minute target buys. `kern_small` is unaffected —
+> `small128` builds it every run.
+
+The five that remain, and the part of the question each answers:
+
+| row | answers |
+|---|---|
+| `bootsmoke` | does it boot to a desktop, on both 1bpp adapters |
+| `kernresident` | does it boot on VGA — and does `kern_big` still fit 128KB at the desktop |
+| `small128` | does the second shipped kernel still compile, and boot on its floor machine |
+| `ps2mouse` | do the mouse and the keyboard still work |
+| `ctoolchain` | does the C toolchain still produce a package |
 
 ---
 
@@ -652,6 +702,8 @@ and §7 is why.
 - [ ] Registered in `tests/suite.py` with a `why` that says what breaks.
 - [ ] If I put it in `fast`: it is not about one package or one driver, and
       something outside the kernel can break it (§2.1).
+- [ ] If I put it in `full`: it helps answer *did you obviously break the OS*,
+      it is not about one package, and it is short (§2.2).
 - [ ] `make test-full` is green, and the row passes at `--marty-jobs 3`.
 
 ---
@@ -693,6 +745,7 @@ not. Each one can still happen today.
 | 28 | ...and then the INSTRUMENT sealing the hole the row had just opened. `tests/filler`'s fill is first fit ascending and undeclared - therefore pinned - so it took the ceiling hole `sndmove` had made above the sound driver and put 13KB of immovable claim against the very block the following ask needed moved. Every round after that was refused for want of room the instrument had taken. It grew an 'S' key (ask, do not fill) for rows that build their own arena | §1 |
 | 29 | `sndmove` reporting the ring **GONE** on the first run that moved it. It looked the claim up by `MC_OWN == <the segment the driver booted at>`, and a move rewrites the owner of every claim the holder held - so the correct answer read as a missing block. A lookup key that the thing under test is supposed to change is not a key | §8 |
 | 30 | `sndmove`'s vector check green-by-vacuum: it asserted that no interrupt vector still named the old image, and **no vector named it at all**, because `SOUND.DRV` hooks its IRQ at the first stream open and not at attach. The A/B is what said so - with the kernel's IVT patch removed the desktop still drew and only that check went red, which is also the reason it exists. `SBTEST.O88` now rides on the disk to open and close one stream first | §1 |
+| 33 | The `full` tier at 14 rows and 452s of row time, of which `buildmatrix` alone was 143s assembling 99 knob configurations — instruments, not the OS — while `weavesmoke` spent 73s opening one package's bundle and `martyconc` gated the emulator harness rather than the machine. A pre-merge smoke test that takes five minutes and is mostly about the tree rather than the product is one that gets skipped | §2.2 |
 | 32 | The `fast` tier at 55 rows and 62.7s of work, of which over half was one package's business (three SKIES rows, three FRACTAL, Paint's ink masks, the Weave family's two) or a kernel internal no package can reach (`.lowbss`'s order at 5.1s, the LZ codec at 4.7s, a `.bss` sentinel, the month mask). Nothing was wrong with any of them - they were being charged to the wrong person, on every build, for ever. The tier is the one nobody opts into, so the test is not "is this valuable" but "is it valuable to somebody who did not touch this" | §2.1 |
 | 31 | A kernel change that passed its own new row, `make test-full` and thirteen of the fifteen heap rows, and **broke the hard disk**: `hdmove` alone went red, with `No hardware found` on the glass. `mem_region_reloc` had been given a 256-entry IVT sweep, and int C1h/C3h on `os8088_xt_hdd` are SCRATCH WORDS the XT-IDE option ROM keeps in unused vectors - one held a value that was also a heap base. Run the whole family after touching `mem_can_move`, and A/B a failure against the base before believing it was already broken: `rdmove` in the same run WAS already broken, and the two look identical from the summary line | §1 |
 

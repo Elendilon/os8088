@@ -130,7 +130,7 @@ make bootdiag # WHY a BIOS answers `Disk error` and stops (§2.9.10). SIX
 make test-fast   # THE REGRESSION SUITE (docs/TESTING.md, tools/os88test.py,
 make test-full   #   tests/suite.py). Three tiers; the two that GATE carry an
 make test-soak   #   ENFORCED wall-clock budget — the runner FAILS fast over
-                 #   30s and full over 600s, so a row that no longer fits is
+                 #   30s and full over 180s, so a row that no longer fits is
                  #   a decision somebody takes rather than a drift nobody
                  #   notices. SOAK HAS NONE, deliberately: it is where a test
                  #   goes when it is worth having and does not fit the gate,
@@ -149,10 +149,15 @@ make test-soak   #   ENFORCED wall-clock budget — the runner FAILS fast over
                  #     charge every contributor for somebody else's subject -
                  #     they are in soak, one `-k` away, run by whoever's change
                  #     would break them
-                 #   full ~3m45 — adds the knob kernels and kern_small (every
-                 #     configuration `all` does NOT build, so the only thing
-                 #     keeping them assembling), the C toolchain and a boot to
-                 #     a desktop on both 1bpp adapters
+                 #   full ~1m15 — ONE question: did you obviously break the
+                 #     OS? Boots to a desktop on both 1bpp adapters and on
+                 #     VGA, builds and boots kern_small on its 128KB floor
+                 #     machine, checks the mouse and the keyboard, and builds
+                 #     a C package. **5 rows**, and the 180s ceiling is a
+                 #     target for four lanes on an ordinary box. What it no
+                 #     longer carries is the 99-knob build matrix, which is
+                 #     `soak -k 'buildmatrix'` now: a knob is an instrument,
+                 #     and knob rot is not the OS being broken
                  #   soak no budget — the rest of tests/, one subject each:
                  #     `python3 tools/os88test.py soak -k 'disp*'`
                  #   ...and the WHOLE soak is `tools/os88soak.py`, never this
@@ -779,10 +784,12 @@ the registry fields, a `secs` you measured, `wants=` and private trees instead
 of `builds=True`, `os88ui` instead of a remembered coordinate, the guest's
 clock instead of `time.sleep`, and a §1 that is the only question that decides
 whether the row is worth having: **break the thing on purpose and watch it go
-red.** Its 2.1 is the second question, and it is the one that decides the
-TIER: `fast` is paid for by everybody on every build, so a row about one
-package, or about a kernel internal nothing outside the kernel can reach,
-belongs in `soak` however good it is.
+red.** Its 2.1 and 2.2 are the second question, and they decide the TIER:
+`fast` is paid for by everybody on every build, so a row about one package or
+about a kernel internal nothing outside the kernel can reach belongs in
+`soak`; `full` asks only *did you obviously break the OS*, so a row about one
+package, about the build matrix, or about the suite's own instruments belongs
+there too.
 
 **MartyPC is the default instrument; QEMU is a fallback with a closed list.**
 docs/TESTING.md's opening owns the rule and the reasoning. The list is

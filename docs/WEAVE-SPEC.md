@@ -3907,14 +3907,14 @@ soak row (host-side, no build): the `.WAB` format is this family's, and
 
 ### 12.3 The suite rows
 
-Respecting the enforced tier budgets (fast 30 s host-only; full 600 s;
+Respecting the enforced tier budgets (fast 30 s host-only; full 180 s;
 soak unbudgeted). `needs`, `secs` and `wants=` are `tests/suite.py`'s:
 
 | tier | row | what |
 |---|---|---|
 | soak | `wab` | §12.2 — `tests/unit/t_wab.py`. Host-side and a tenth of a second, but per-package, so `soak` (docs/WRITING-TESTS.md 2.1) |
 | soak | `lmpack` | LOOM's compilers built with the host's `cc` and diffed against `weavesim --pack` (§12.3.3) — the dev loop, not the gate |
-| full | `weavesmoke` | MartyPC boots, opens `WEAVE/FORM.WAB`, asserts drawn-window STRUCTURE (never a golden screenshot) on both 1bpp GLaBIOS twins; needs marty and the C toolchain, builds its disk in a private tree (`tools/os88build.py`) — the family's ONE full row |
+| soak | `weavesmoke` | MartyPC boots, opens `WEAVE/FORM.WAB`, asserts drawn-window STRUCTURE (never a golden screenshot) on both 1bpp GLaBIOS twins; needs marty and the C toolchain, builds its disk in a private tree (`tools/os88build.py`) — the family's widest single row. It was the family's ONE full-tier row until docs/WRITING-TESTS.md 2.2: `full` asks only whether the OS is obviously broken, and a package is not the OS |
 | soak | `weavevm` | raw-QEMU SS≠DS boot-sector differential corpus vs weavesim (the rcz80test shape) — **both cores**: the WVM's end states (§12.1.1) and the FX VM's results and errors (§12.1.2) |
 | soak | `weavecanvas` | raw-QEMU SS≠DS differential of the CANVAS core against the model's composer — sprite records, the staging ring, the emitted SPANS (§6.10.7) and the composed buffer (§12.1.3) |
 | soak | `weavesession` | MartyPC scripted replay of a real session, diffed against `weavesim --run`'s end state (§12.3.1) |

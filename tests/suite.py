@@ -19,8 +19,9 @@ THE THREE TIERS.
          checks the invariants that break SILENTLY. Hangs off the default
          build, so it cannot be skipped.
 
-  full   Budget 10 minutes. THE PRE-MERGE GATE. fast, plus the build matrix
-         `all` never builds, plus a CURATED set of emulator tests.
+  full   Budget 3 minutes. THE PRE-MERGE GATE, and it asks ONE question:
+         DID YOU OBVIOUSLY BREAK THE OS?  Does it compile, does it boot,
+         does it do the basic things, is anything critical gone.
 
   soak   No budget. Everything else - the rest of `tests/`, which is a great
          deal and is where the deep single-subject gates live.
@@ -33,20 +34,46 @@ and then drives a session through it.  Instances are isolated now, so
 `--marty-jobs` runs emulator rows side by side - but the lane is CORES-1 wide
 and the box is four cores, so the arithmetic barely moves.
 
-So 10 minutes is about **eight** emulator tests, not fifty.  That is not a
-limitation to be engineered away - it is what the machine costs - and the
-honest response is to say which eight and put the rest in `soak` where they
-are still one command away (`os88test.py soak -k disp*`).  The runner FAILS
-the tier when it overruns, so this stays true as rows are added rather than
-drifting until the suite is too slow to run.
+So THREE minutes is about four such rows, not fifty.  That is not a limitation
+to be engineered away - it is what the machine costs - and the honest response
+is to say which four and put the rest in `soak` where they are still one
+command away (`os88test.py soak -k disp*`).  The runner FAILS the tier when it
+overruns, so this stays true as rows are added rather than drifting until the
+suite is too slow to run.  The 180s is a target for FOUR LANES on an ordinary
+box; a slower one is expected to take longer, and today's tier leaves room for
+that (60.3s in the runner and 75.3s of wall on a cold four-core container,
+37.8s / 51.1s warm).
 
-WHAT EARNS A `full` ROW.  Breadth per second, and independence.  `bootsmoke`
-is the model: about twelve seconds for a boot to a desktop on both 1bpp
-adapters, and it exercises the boot sector, FAT12, the
-`int 13h` splitter, adapter detection, the heap ladder, `drv_boot` and the
-first paint - so it fails for almost any serious regression, wherever it was.
+WHAT EARNS A `full` ROW.  ONE QUESTION: DID YOU OBVIOUSLY BREAK THE OS?  Does
+it compile, does it boot, does it do the basic things, is anything critical
+gone.  `bootsmoke` is the model: thirteen seconds for a boot to a desktop on
+both 1bpp adapters, exercising the boot sector, FAT12, the `int 13h` splitter,
+adapter detection, the heap ladder, `drv_boot` and the first paint - so it
+fails for almost any serious regression, wherever it was.
+
+Three things follow, and each one retired a row when the tier was recut:
+
+  NOTHING APP-SPECIFIC.  A package is not the OS.  A row may DRIVE an app as
+  the vehicle for a generic check - `ctoolchain` builds four C packages
+  because that is what a toolchain produces - but a row whose SUBJECT is one
+  program belongs in `soak`.  That is what moved `weavesmoke` (72.8s) and
+  `appsmall` out.
+
+  A KERNEL CHECK IS ALLOWED, AND SHOULD BE SHORT.  `kernresident` boots a VGA
+  machine and walks `mem_tab` in 13.7s; that is the shape.  A deep sweep of
+  one subsystem is not, however true it is: `smallboot` walked three adapters
+  for 118s where `small128` beside it already builds that kernel and boots it.
+
+  THE SUBJECT IS THE OS, NOT THE TREE AND NOT THE SUITE.  `buildmatrix`'s 99
+  knob configurations are instruments, `bmshare` and `kernmods` are about
+  build-speed variables and a size report, `martyconc` gates the emulator
+  harness and `stackprose` reads prose.  Every one is worth having; none of
+  them can answer this tier's question, and `buildmatrix` alone was 143s of
+  a 180s budget.
+
 A row that can only fail for one narrowly-scoped reason belongs in `soak`,
-next to the change that would break it.
+next to the change that would break it.  docs/WRITING-TESTS.md section 2.2 is
+this rule written for somebody adding a row rather than moving one.
 
 WHAT EARNS A `fast` ROW, which is the harder question and the one this list
 got wrong for a long time.  `fast` is the only tier NOBODY OPTS INTO - `all`
@@ -223,15 +250,11 @@ FAST = [
     Row("api-abi", "fast", py("tests/unit/t_api_abi.py"), 3.3,
         "the API table decoded from kernel.bin and compared with the SDK - the "
         "silent merge collision CLAUDE.md asks to be checked by hand"),
-    Row("stackprose", "full", py("tests/unit/t_stackprose.py"), 10.0,
-        "a doc or comment that names the task stack's SIZE names the one the "
-        "kernel has. SCH_STACK has been 1,536, 512, 256 and 384; SPEC.md 2.1 "
-        "and 20.6 rule 6 followed it every time and the forty-odd places "
-        "CITING them did not. That is not a typo class - docs/UPSTREAM.md's "
-        "stale 256 had a session report a worker-stack contract difference "
-        "between this branch and `main` that had not existed since #112, and "
-        "go looking for what to adapt. os88geom guards the copies a SCRIPT "
-        "retyped; this guards the ones a HUMAN did. FULL rather than fast: a stale comment misleads a reader, it does not break a build, and the fast tier runs on every `make` against a 30s budget this row is a sixth of",
+    Row("stackprose", "soak", py("tests/unit/t_stackprose.py"), 10.0,
+        "a doc or comment that names the task stack's SIZE names the one the kernel has. SCH_STACK has been 1,536, 512, 256 and 384; SPEC.md 2.1 and 20.6 rule 6 followed it every time and the forty-odd places CITING them did not. That is not a typo class - docs/UPSTREAM.md's stale 256 had a session report a worker-stack contract difference between this branch and `main` that had not existed since #112, and go looking for what to adapt. os88geom guards the copies a SCRIPT retyped; this guards the ones a HUMAN did."
+        "SOAK rather than fast or full: a stale comment misleads a reader, "
+        "it does not break a build - so it answers neither tier's question, "
+        "and both are paid for by people it is not about",
         needs=()),
     Row("drvovl", "fast", py("tests/unit/t_drvovl.py"), 0.1,
         "SPEC.md 20.13/62.9.9: a driver-loaded OVERLAY may not be COMPRESSED. "
@@ -398,18 +421,13 @@ FAST = [
         "does: a reference refreshed at the wrong moment or left over from"
         "the last pixel reads FR_CAP for a point that escapes. "
         "SOAK and not fast: FRACTAL is ONE package - `soak -k 'fr*'`"),
-    Row("appsmall", "full", py("tests/unit/t_appsmall.py"), 0.8,
-        "SPEC.md 27.16's two claims: -DAPP_SMALL costs the SHIPPED package "
-        "zero bytes (docs/history/KERN-SPLIT-PLAN.md 6's gate, one level down), and "
-        "the small build is really smaller. Both fail silently - a %ifdef one "
-        "line too wide changes the shipped package for a feature it still "
-        "has, and a define that stops reaching the source leaves "
-        "build/smallapps*.img as the ordinary floppy under another name. It "
-        "is also the only thing keeping the small arm ASSEMBLING: nothing in "
-        "`all` builds it. "
-        "FULL and not fast: it is a build CONFIGURATION `all` never "
-        "builds, which is t_buildmatrix's sentence one package along - and "
-        "`fast` may not build"),
+    Row("appsmall", "soak", py("tests/unit/t_appsmall.py"), 0.8,
+        "SPEC.md 27.16's two claims: -DAPP_SMALL costs the SHIPPED package zero bytes (docs/history/KERN-SPLIT-PLAN.md 6's gate, one level down), and the small build is really smaller. Both fail silently - a %ifdef one line too wide changes the shipped package for a feature it still has, and a define that stops reaching the source leaves build/smallapps*.img as the ordinary floppy under another name. It is also the only thing keeping the small arm ASSEMBLING: nothing in `all` builds it."
+        "SOAK and not fast or full: it is a build CONFIGURATION, "
+        "t_buildmatrix's sentence one package along - `fast` may not build "
+        "at all, and whether five named packages' small arm still assembles "
+        "is not 'did you obviously break the OS'. It follows t_buildmatrix "
+        "down"),
     Row("ktags", "soak", py("tests/unit/t_ktags.py"), 0.1,
         "every owner tag the kernel ships has a TYPE name on the Task "
         "Manager's heap page - SPEC.md 28.4's hex fallback is for a tag this "
@@ -760,10 +778,15 @@ FAST = [
 # tier`).
 # --------------------------------------------------------------------------
 FULL = [
-    Row("buildmatrix", "full", py("tests/unit/t_buildmatrix.py"), 180.0,
+    Row("buildmatrix", "soak", py("tests/unit/t_buildmatrix.py"), 180.0,
         "the knob kernels and kern_small - every configuration `all` "
-        "does not build, and so the only thing that keeps them assembling", builds=True),
-    Row("bmshare", "full", py("tests/unit/t_bmshare.py"), 30.0,
+        "does not build, and so the only thing that keeps them assembling"
+        ". SOAK and not full: 99 knob configurations is not 'did you "
+        "obviously break the OS' - a knob is an instrument, the shipped "
+        "kernel is built by `make` and kern_small by small128's own private "
+        "tree - and at 143s it is four fifths of the whole tier budget on "
+        "its own. It is what a change to a knob runs", builds=True),
+    Row("bmshare", "soak", py("tests/unit/t_bmshare.py"), 30.0,
         "...and that the three variables it builds them WITH change no byte. "
         "ICODIR/NOOVLCHK/NOKERNSIZE each take work out of a knob build - the "
         "shared packages, the source-only overlay gate, the size report's "
@@ -772,19 +795,23 @@ FULL = [
         "compares the images, and it checks the exclusion the sharing rests "
         "on: SBDRAGOFF/SBRATE reach notepad's own nasm line, t_buildmatrix "
         "derives that pair from $(PKGSBDEF) rather than keeping a copy, and "
-        "both ends of that derivation are asserted here"),
-    Row("kernmods", "full", py("tests/unit/t_kernmods.py"), 30.0,
+        "both ends of that derivation are asserted here"
+        ". SOAK and not full: it is about t_buildmatrix's own build-speed "
+        "variables, so it follows that row down"),
+    Row("kernmods", "soak", py("tests/unit/t_kernmods.py"), 30.0,
         "tools/kernsize.py's PER-MODULE pass still measures - the byte "
         "compare inside it worked and nothing ran it, so --bless returned 1 "
         "without writing while t_kernbudget went on advising it. Here and "
-        "not in fast because it assembles the kernel twice",
+        "not in fast because it assembles the kernel twice"
+        ". SOAK and not full: it gates tools/kernsize.py's reporting pass, "
+        "which is an instrument and not the OS",
         needs=("nasm",), serial=False),
     Row("ctoolchain", "full", py("tests/unit/t_ctoolchain.py"), 8.0,
         "the C toolchain still produces a package - the OTHER thing `all` "
         "does not build, and the one that had a `cc` capability with no row "
         "behind it while no C package assembled for two releases",
         needs=("cc",), serial=True, builds=True),
-    Row("martyconc", "full", py("tests/martyconc.py"), 20.0,
+    Row("martyconc", "soak", py("tests/martyconc.py"), 20.0,
         "TWO EMULATORS AT ONCE, and every way that used to go wrong. It is "
         "here rather than in soak because it gates the INSTRUMENT the whole "
         "marty tier runs on, and every failure it catches is SILENT: two "
@@ -796,13 +823,16 @@ FULL = [
         "holder, and that reap() takes an orphan and leaves a live, owned "
         "instance alone. Runs three machines and boots two, so it is also "
         "the one row that would notice the isolation costing more than it "
-        "saves",
+        "saves"
+        ". SOAK and not full: it gates the test INSTRUMENT and not the OS, "
+        "so it cannot answer this tier's question. It is what a change to "
+        "tools/os88marty.py runs",
         needs=("marty",), serial=True),
     Row("bootsmoke", "full", py("tests/bootsmoke.py"), 20.0,
         "does it still reach a desktop on both 1bpp adapters - the widest "
         "reach per second of any test here",
         needs=("marty",), serial=True),
-    Row("smallboot", "full", py("tests/smallboot.py"), 110.0,
+    Row("smallboot", "soak", py("tests/smallboot.py"), 110.0,
         "does KERN_SMALL still reach a desktop - buildmatrix assembles that "
         "build and nothing has ever booted it, which is how it has been "
         "DISCOVERED broken three times rather than reported broken. Here "
@@ -810,7 +840,10 @@ FULL = [
         "of it, and an %ifdef that takes one body too many assembles "
         "perfectly and dies at the first paint. It builds its own image "
         "(`make small`, into build/smallk/) because there is no capability "
-        "to probe for and `all` never builds that kernel",
+        "to probe for and `all` never builds that kernel"
+        ". SOAK and not full: small128 beside it already builds this kernel "
+        "and boots it to a desktop, so what this adds is the THREE-adapter "
+        "sweep - the deep gate a kern_small change runs, at 118s",
         needs=("marty",), serial=True),
     Row("stk0water", "soak", py("tests/stk0water.py"), 70.0,
         "how deep TASK 0's stack has actually been (SPEC.md 15.1). That "
@@ -831,7 +864,7 @@ FULL = [
         "`soak` because it is a MEASUREMENT rather than an assertion - it "
         "prints the margin at five candidate sizes and fails nothing",
         needs=("marty",), serial=True),
-    Row("small128", "full", py("tests/small128.py"), 20.0,
+    Row("small128", "full", py("tests/small128.py"), 40.0,
         "...and it reaches that desktop on a machine with 128KB IN IT. Every "
         "other MartyPC profile here is 640KB, so `MIN_RAM_KB` had been an "
         "ARITHMETIC claim since the day it was written - guard 5 compares two "
@@ -846,7 +879,10 @@ FULL = [
         "no assembler can see it - SPEC.md 54.0's association cache was "
         "holding 3,072 bytes of one and was found by accident. Reads 0 "
         "pinned, 18,432 purgeable, 40.5 KB usable. Builds its own image for "
-        "smallboot's reason",
+        "smallboot's reason"
+        ". 40s and not 20 since smallboot went to soak: this row now "
+        "pays for the `make small` tree itself - 38.4s measured cold "
+        "against 16.1s when the tree is already there",
         needs=("marty",), serial=True),
     Row("int0sweep", "soak", py("tests/int0sweep.py"), 60.0,
         "Does anything raise a DIVIDE ERROR? (SPEC.md 11.96) On an IBM "
@@ -878,9 +914,9 @@ FULL = [
         "[vid_avail], which reads identically until somebody switches a VGA "
         "machine to mono",
         needs=("marty",), serial=True),
-    Row("weavesmoke", "full", py("tests/weavesmoke.py"), 70.0,
+    Row("weavesmoke", "soak", py("tests/weavesmoke.py"), 70.0,
         "WEAVE opens FORM.WAB and draws a window on both 1bpp GLaBIOS twins - "
-        "the Weave family's ONE full-tier row, forever (WEAVE-SPEC 12.3), and "
+        "the Weave family's widest single row (WEAVE-SPEC 12.3), and "
         "the widest reach per second the family has: the .WAB association, "
         "the accept idiom, the bundle reader, the flow walk and the first "
         "paint all fail here. It asserts the drawn window's STRUCTURE and "
@@ -895,7 +931,10 @@ FULL = [
         "little room for the package still growing. It is NOT 2x bootsmoke: "
         "the launch after the boot costs as much again as the boot, and it "
         "went 41s -> 45s when wdraw.inc's paint core took weave.o88 from "
-        "21,076 bytes to 27,020",
+        "21,076 bytes to 27,020"
+        ". SOAK and not full: WEAVE is a PACKAGE, and `full` carries "
+        "nothing app-specific - `soak -k 'weave*'` is twelve rows including "
+        "weavepack, which is WEAVE-SPEC 11.1's actual gate",
         needs=("marty", "cc"), serial=True, timeout=300),
 ]
 
@@ -1610,7 +1649,7 @@ SOAK = [
         "closed list - MartyPC is an 8088 and has no 8042 to test",
         needs=("qemu", "nasm"), serial=True, timeout=420,
         wants=("build/os8088.img", "build/apps.img")),
-    Row("vmmouse", "full", py("tests/vmmouse.py"), 45.0,
+    Row("vmmouse", "soak", py("tests/vmmouse.py"), 45.0,
         "The VMware absolute pointer (SPEC.md 9.11), the browser's grabless "
         "mouse - and the one CI gate a browser-only feature gets. QEMU's pc "
         "machine carries a vmport and a vmmouse by default, so VMMOUSE.DRV's "
@@ -1630,7 +1669,11 @@ SOAK = [
         "injected through vmmouse landing within a few px - the sign and axis "
         "handling that a boot-state read cannot see - and a drag through a "
         "menu, which is what proves the task_yield service point. QEMU by "
-        "name on CLAUDE.md's closed list - MartyPC has no backdoor",
+        "name on CLAUDE.md's closed list - MartyPC has no backdoor"
+        ". SOAK and not full: a browser-only pointer on a THIRD kernel, and "
+        "it drags `make vmmousetest` - a whole kern_emu build - into the "
+        "tier's prebuild for it. ps2mouse keeps pointer-and-keyboard "
+        "covered on the kernel that ships",
         needs=("qemu", "nasm"), serial=True, timeout=420,
         wants=("build/os8088.img", "build/apps.img", "build/vmmouse.img")),
     Row("heapmap", "soak", py("tests/heapmap.py"), 30.0,
