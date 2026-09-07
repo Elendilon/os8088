@@ -862,3 +862,41 @@ Two traps: the capture's column 0 was image column 9, not 10 — calibrate an
 origin against a feature the guest controls before reading a pixel — and
 `os88marty.vram()` returns one entry per **pixel**, not packed bytes; read as
 bytes the dither looks like a stipple and a wrong answer was published on it.
+
+## 39. Every key types a different character on a 286 — 86Box `mr286`/`ami286`, AT 8042, serial mouse (CLOSED — SPEC.md §9.9.7)
+
+`f` typed `\`. The PS/2 probe (§9.9) is gated on `[cpu_tier]`, so it never
+runs on an 8088 and the same disk was clean there; `NOPS2=1` was clean on the
+286 and `NOCHAINPRIV=1`/`NOMOUPRIV=1` were not, which put it on the probe in
+three boots. `MOUDIAG=1` then gave the two bytes: **`cm1 55`** (the command
+byte as read) against **`cmd 65`** (what `.fail` wrote back). The only bit
+that moved besides 4 is **bit 5, 0 → 1**.
+
+Bit 5 is the auxiliary clock on a PS/2 controller and **PC MODE** on an AT
+one, and in PC mode an 8042 stops translating set 2 to set 1. The keyboard's
+set-2 `f` is `0x2B`; set-1 `0x2B` is backslash. One bit, latched for the
+session, and every key on the machine is wrong.
+
+`.fail`'s own comment said it restored the byte "exactly as the BIOS had it"
+and it did not — `[mou_p2cmd0]` is banked with bit 5 forced set for
+`mou_p2_off`'s sake, which is right on a controller where a mouse answered
+and wrong on one where nothing did. `[mou_p2cmdr]` is the raw byte and is
+what the failure paths write now.
+
+**Step 2's evidence test is ALSO wrong here and deliberately stays** (bit 5
+clear reads as "the port is clocked" and on this controller means "AT mode").
+Taking it out sends every machine whose BIOS left bit 1 clear down the `0xA8`
+road — the road that stopped on the **Phoenix 8042** §9.9.1 step 3 records,
+which the reporter confirms is their Packard Bell 386 (`vm/386-ps2`, the only
+machine here with a PS/2 mouse) — and a differential
+`0xA8` is worse still, because asking that question means writing bit 5 SET,
+which is the PC-mode bit itself. Both were built and reverted. With the
+restore fixed, being wrong at step 2 costs a probe that fails at step 5 and
+puts the controller back, and nothing else.
+
+**It could not be gated at runtime by anything in the tree**, which is why
+`tests/unit/t_p2restore.py` asserts it over the source: the probe succeeds on
+QEMU so no failure path runs there, and QEMU does not model the translate bit
+either — measured, by clearing it on purpose and watching `ps2mouse` stay
+green. Confirmed fixed on both machines: the 286 types correctly and the
+Packard Bell's mouse is untouched.
