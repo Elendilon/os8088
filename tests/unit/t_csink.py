@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+"""CLEAR SKIES' PARALLEL TABLES stay in step (SPEC.md 88.4.4, 88.6.5, 88.13.9.1).
+
+    python3 tests/unit/t_csink.py
+
+Three families of table in this package are indexed by something declared
+somewhere else, and every one of them fails the same way: silently, on one
+adapter or one setting, long after the row that was forgotten.
+
+  - **the inks.** `CSI_NINK` rows in each of `cs_inkherc`, `cs_inkcga`,
+    `cs_inkmodex`, `cs_dactab`, `cs_inkval_cga` and `cs_inkval_modex`. A new
+    ink added to four of the six draws in whatever byte follows the table on
+    the two it was left out of.
+  - **the river's LINE.** §88.6.5 gives a river reduced to its far model the
+    river's own blue rather than the runway's white, so every `*_f` model
+    whose full model is `CSI_RIVER` must carry `CSI_RIVLINE`. One left behind
+    is a white river on a colour display and nothing at all to see on the
+    others.
+  - **the settings.** `cs_set_at`, `cs_set_max` and `cs_set_best` are three
+    rows of `CS_SETN` each, and §88.13.9.1's trap is that `best` is NOT
+    `max`: the Mode byte's ceiling is CGA, so a 286 handed the best of
+    everything off the wrong table gets the worse of two displays.
+"""
+import os
+import re
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+APP = os.path.join(ROOT, "apps", "skies")
+bad = []
+
+
+def check(cond, what):
+    print("  [%s] %s" % ("PASS" if cond else "FAIL", what))
+    if not cond:
+        bad.append(what)
+
+
+def equ(path, name):
+    m = re.search(r"^%s\s+equ\s+(-?\d+)" % name, open(path).read(), re.M)
+    if not m:
+        raise SystemExit("t_csink: %s is not defined in %s" % (name, path))
+    return int(m.group(1))
+
+
+def rows(text, label, per):
+    """The db rows of a table, as lists of ints; `per` bytes a row."""
+    lines = []
+    for line in text.splitlines():
+        if not lines:
+            if not line.startswith(label + ":"):
+                continue
+            rest = line[len(label) + 1:].split(";")[0].strip()
+            lines.append(rest)          # a table may open on its own line
+            continue
+        body = line.split(";")[0].strip()
+        if body.startswith("db "):
+            lines.append(body)
+        elif body == "" or line.lstrip().startswith(";"):
+            continue                    # a comment inside the table
+        else:
+            break
+    if not lines:
+        raise SystemExit("t_csink: %s is not a db table" % label)
+    out = []
+    for line in lines:
+        body = line.split(";")[0].strip()
+        if not body.startswith("db "):
+            continue
+        vals = [t.strip() for t in body[3:].split(",")]
+        vals = [int(t, 0) if re.match(r"^-?(0x)?[0-9a-fA-F]+$", t) and
+                (t.startswith("0x") or t.lstrip("-").isdigit()) else t
+                for t in vals]
+        for i in range(0, len(vals), per):
+            out.append(vals[i:i + per])
+    return out
+
+
+def main():
+    ras = open(os.path.join(APP, "csraster.inc")).read()
+    asm = os.path.join(APP, "skies.asm")
+    n = equ(asm, "CSI_NINK")
+    for label, per in (("cs_dactab", 3), ("cs_inkherc", 4), ("cs_inkcga", 4),
+                       ("cs_inkmodex", 4)):
+        got = rows(ras, label, per)
+        check(len(got) == n,
+              "%s has CSI_NINK = %d rows (%d)" % (label, n, len(got)))
+    for label in ("cs_inkval_cga", "cs_inkval_modex"):
+        got = rows(ras, label, 1)
+        check(len(got) == n,
+              "%s has CSI_NINK = %d entries (%d)" % (label, n, len(got)))
+
+    # --- the river's line, in every world -----------------------------------
+    rl = equ(asm, "CSI_RIVLINE")
+    check(rl == n - 1 or rl < n,
+          "CSI_RIVLINE %d is inside CSI_NINK %d" % (rl, n))
+    total, miss = 0, []
+    for f in sorted(os.listdir(APP)):
+        if not f.startswith("csw_") or not f.endswith(".inc"):
+            continue
+        s = open(os.path.join(APP, f)).read()
+        wet = set(re.findall(r"^(cs_m_\w+): db CSM_FLAT,[^;\n]*CSI_RIVER",
+                             s, re.M))
+        for far, ink in re.findall(
+                r"^(cs_m_\w+f): db CSM_FLAT,[^;\n]*?(CSI_\w+)", s, re.M):
+            if far[:-1] not in wet:
+                continue
+            total += 1
+            if ink != "CSI_RIVLINE":
+                miss.append("%s:%s is %s" % (f, far, ink))
+    check(total >= 20,
+          "the worlds' river far models are found (%d of them)" % total)
+    check(not miss,
+          "...and every one of them draws in CSI_RIVLINE (%s)"
+          % (miss if miss else "all %d" % total))
+
+    # --- the settings' three rows -------------------------------------------
+    st = open(os.path.join(APP, "csset.inc")).read()
+    setn = equ(os.path.join(APP, "csset.inc"), "CS_SETN")
+    at = re.search(r"^cs_set_at:\s+dw (.+)$", st, re.M).group(1).split(",")
+    mx = rows(st, "cs_set_max", 1)
+    bs = rows(st, "cs_set_best", 1)
+    check(len(at) == setn and len(mx) == setn and len(bs) == setn,
+          "cs_set_at / _max / _best are all CS_SETN = %d (%d, %d, %d)"
+          % (setn, len(at), len(mx), len(bs)))
+    print("  %s" % ("ok" if not bad else "FAILED: %d" % len(bad)))
+    return 1 if bad else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

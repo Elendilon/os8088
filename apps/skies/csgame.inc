@@ -264,6 +264,10 @@ cs_input:
     je .mute
     cmp al, 'M'
     je .mute
+    cmp al, 'b'                     ; THE BRAKE, A LATCH (SPEC.md 88.7.10.1)
+    je .brake
+    cmp al, 'B'
+    je .brake
     call cs_hotkey                  ; --- the settings, in flight (88.13.5)
     jnc .keys
     jmp .keys
@@ -298,10 +302,13 @@ cs_input:
     jmp .keys
 .mute:
     xor byte [cs_sound], 1
-    jmp short .keys
+    jmp .keys
+.brake:
+    xor byte [cs_kbrake], 1         ; ...and the panel says which (88.7.10.1)
+    jmp .keys
 .reset:
     call cs_reset
-    jmp short .keys
+    jmp .keys
 .pause:
     xor byte [cs_pause], 1
     mov byte [cs_msg], CSG_PAUSED
@@ -362,13 +369,11 @@ cs_input:
     inc bl
 .t2:
     mov [cs_kthr], bl
-    xor bl, bl
-    mov al, CS_KB
-    call OSAPI_KEY_DOWN
-    jnc .b1
-    inc bl
-.b1:
-    mov [cs_kbrake], bl
+    ; B IS NOT HERE ANY MORE (SPEC.md 88.7.10.1): the brake is a LATCH the
+    ; typed reader toggles, beside P, R and M. The field could not tell a
+    ; held B from no B at all - "no difference holding, tapping, or pressing
+    ; once" - and a level read gives a pilot nothing to look at, where a
+    ; latch puts BRAKES ON on the glass.
 .done:
     pop dx
     pop cx
@@ -576,6 +581,10 @@ cs_render:
     call cs_skyground
     CSSTAGE 4
     call cs_scene
+    cmp byte [cs_state], CS_ST_CRASH ; ...and the WINDSHIELD, over the last
+    jne .whole                       ; picture the pilot got (SPEC.md 88.7.11)
+    call cs_crackle
+.whole:
     CSSTAGE 5
     call cs_panel
     CSSTAGE 6
@@ -607,6 +616,111 @@ CS_PI_N    equ 9
 
 ; the layout is the cockpit's (cspanel.inc): x at 320 wide through
 ; cs_hscalex, rows below the view
+
+; =============================================================================
+; THE WINDSHIELD (SPEC.md 88.7.11) - drawn over the view for as long as the
+; crash picture stands, which is CS_CRASHT ticks before cs_reset
+;
+; A TABLE AND NOT A DRAWING. Eight cracks radiate from a hub left of centre,
+; each with one kink, and the kinks are joined into a ring - which is what
+; laminated glass actually does and what a generator of random spokes does
+; not. The coordinates are 1/256 of the view each way, so the same 96 bytes
+; fit Mode X's 320x150, Hercules' 640x112 and every Size rung of both, and
+; the hub is off-centre because a symmetrical star reads as a decoration.
+; =============================================================================
+CS_NCRACK equ 24
+
+cs_crackle:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov al, [cs_pinview]
+    push ax
+    mov al, CSI_MARK
+    call cs_setink
+    mov byte [cs_pinview], 0        ; every segment CLIPPED: the ring reaches
+    mov si, cs_crackt               ; the edges on a wide view
+    mov cx, CS_NCRACK
+.s:
+    push cx
+    push si
+    mov al, [si]                    ; ...and the SECOND row last, because the
+    call cs_crx                     ; scale is a mul and a mul writes DX
+    push ax
+    mov al, [si+1]
+    call cs_cry
+    push ax
+    mov al, [si+2]
+    call cs_crx
+    push ax
+    mov al, [si+3]
+    call cs_cry
+    mov dx, ax
+    pop cx
+    pop bx
+    pop ax
+    call cs_seg
+    pop si
+    pop cx
+    add si, 4
+    loop .s
+    pop ax
+    mov [cs_pinview], al
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; cs_crx / cs_cry - AL = 1/256 of the view; out AX = the x or the row in it.
+; Clobbers DX.
+cs_crx:
+    xor ah, ah
+    mul word [cs_ww]
+    mov al, ah
+    mov ah, dl
+    add ax, [cs_wx0]
+    ret
+cs_cry:                             ; ...and 128 is the view's MIDDLE, scaled
+    xor ah, ah                      ; by the WIDTH on this axis too, so the
+    sub ax, 128                     ; star stays ROUND on a letterbox view and
+    imul word [cs_ww]               ; a short one shows the middle of it. Both
+    mov al, ah                      ; axes by the height instead squashed the
+    mov ah, dl                      ; whole pattern into a 50-row band on
+    mov bx, [cs_wh]                 ; Hercules and it read as scratches
+    shr bx, 1
+    add ax, bx
+    ret
+
+cs_crackt:                          ; the impact star, six cracks out of it,
+                                    ; and what the glass did in between
+    db 104,110, 120,118               ; --- the star round the hub ---
+    db 120,118, 122,136
+    db 122,136, 108,148
+    db 108,148,  92,144
+    db  92,144,  86,126
+    db  86,126, 104,110
+    db 104,110,  96, 70               ; --- out of it, each with one kink ---
+    db  96, 70,  86, 42
+    db 120,118, 156, 94
+    db 156, 94, 200, 60
+    db 122,136, 176,144
+    db 176,144, 250,150
+    db 108,148, 128,198
+    db 128,198, 150,254
+    db  92,144,  70,190
+    db  70,190,  44,254
+    db  86,126,  34,124
+    db  34,124,   2,114
+    db  96, 70, 156, 94              ; --- and what ran BETWEEN three of them:
+    db 176,144, 128,198             ;     a whole ring is a spider's web, and
+    db  70,190,  34,124              ;     glass does not make one
+    db 156, 94, 150,130              ; --- three splinters off the cracks ---
+    db  70,190, 108,180
+    db  34,124,  66,104
 
 ; -----------------------------------------------------------------------------
 ; cs_panel - every item whose key moved, and the ground under them the first
@@ -770,10 +884,11 @@ cs_k_thr:
     ret
 cs_k_state:
     mov al, [cs_state]
-    mov ah, [cs_stall]
-    or ah, [cs_onwater]             ; ...and WHICH ground, so the strip
-    shl ah, 1                       ; repaints when a hull leaves the water
-    or ah, [cs_stall]               ; (88.7.7)
+    mov ah, [cs_kbrake]             ; BIT 2 the brake (88.7.10.1), bit 1 the
+    shl ah, 1                       ; water, bit 0 the stall: every one of
+    or ah, [cs_onwater]             ; them changes the LINE, so every one has
+    shl ah, 1                       ; to change the key or the strip is never
+    or ah, [cs_stall]               ; repainted (88.7.7)
     ret
 cs_k_msg:
     mov al, [cs_msg]
@@ -1059,6 +1174,11 @@ cs_d_state:
     mov si, cs_s_ground
     cmp al, CS_ST_GROUND
     jne .air
+    test ah, 4                      ; BIT 2 IS THE BRAKE (88.7.10.1): a latch
+    jz .dry                         ; the pilot can SEE, which is the whole
+    mov si, cs_s_brakes             ; reason it stopped being a level read
+    jmp short .s
+.dry:
     cmp byte [cs_onwater], 0
     je .s
     mov si, cs_s_water
@@ -1207,6 +1327,7 @@ cs_s_up:     db 'UP  ', 0        ; the variometer's two labels: a needle
 cs_s_dn:     db 'DN  ', 0        ; and not a signed number (88.7.6)
 cs_s_ground: db 'ON THE GROUND', 0
 cs_s_water:  db 'ON THE WATER ', 0
+cs_s_brakes: db 'BRAKES ON    ', 0
 cs_s_flying: db 'FLYING       ', 0
 cs_s_stalled: db 'STALL        ', 0
 cs_s_crash:  db 'CRASHED      ', 0

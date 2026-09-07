@@ -151,7 +151,30 @@ def main(argv):
             poke("cs_thr", (100).to_bytes(2, "little"))
             poke("cs_state", b"\x01")
 
-        def keydown(key, tries=20):
+        def axis_of(key):
+            return "cs_kroll" if key in ("ArrowLeft", "ArrowRight") \
+                else "cs_kpitch"
+
+        def keyclear(key, tries=40):
+            """...and the PREVIOUS key is let go before the next goes down.
+
+            The two arrows on one axis are -1 and +1 in the same byte, so a
+            press that lands while the last break code is still in flight
+            reads as BOTH DOWN - which is 0, the same byte a key nobody has
+            got. `keydown` then returned at once on a stale latch and the row
+            measured six ticks of an aeroplane holding perfectly still, which
+            is how `held AWAY from level every tick is the full rate` came to
+            read [0, 0, 0, 0, 0]."""
+            nm = axis_of(key)
+            for _ in range(tries):
+                if byte(nm) == 0:
+                    return
+                m.advance(frames=4)
+                m.run()
+            sys.exit("skiesease: %s never came back up ([%s] = %d)"
+                     % (key, nm, byte(nm)))
+
+        def keydown(key, tries=40):
             """Run until the GUEST says it has the key, and not a fixed wait.
 
             A press is delivered to the emulator's input queue and reaches
@@ -160,9 +183,9 @@ def main(argv):
             aeroplane standing still for seven ticks and then flying - which
             reads exactly like the model being broken. [cs_kroll] and
             [cs_kpitch] are the guest's own answer to 'have you got it'."""
-            nm = "cs_kroll" if key in ("ArrowLeft", "ArrowRight") else "cs_kpitch"
+            nm = axis_of(key)
             for _ in range(tries):
-                m.advance(frames=2)
+                m.advance(frames=4)
                 m.run()
                 if byte(nm) != 0:
                     return
@@ -176,6 +199,7 @@ def main(argv):
             stop, not before it: a poke followed by a free run loses the
             approach to the ticks that pass while the breakpoint is being
             armed, and the trainer's own return-to-level eats it besides."""
+            keyclear(key)                       # the LAST key is up first
             m.key(key, down=True, up=False)
             keydown(key)                        # ...CONFIRMED, not waited for
             m.bp_exec(lin + mp["cs_step"])
@@ -274,6 +298,7 @@ def main(argv):
             # THE KEY GOES DOWN FIRST AND THE PIN AT THE FIRST STOP, ticks()'
             # own reason: a poke followed by a free run loses the approach to
             # the frames that pass while the breakpoint is being armed
+            keyclear("ArrowLeft")
             m.key("ArrowLeft", down=True, up=False)
             keydown("ArrowLeft")
             m.bp_exec(lin + rd)

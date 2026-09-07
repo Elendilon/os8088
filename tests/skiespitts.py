@@ -181,9 +181,26 @@ def main(argv):
             m.run()
 
         def hold(key, frames, step=15):
-            """Hold a key and sample the two angles as it runs."""
+            """Hold a key and sample the two angles as it runs.
+
+            THE PRESS IS CONFIRMED AND NOT WAITED FOR (docs/WRITING-TESTS.md
+            7.1). A key is delivered to the emulator's queue and reaches the
+            guest some ticks later; under load this row read a trainer that
+            had never rolled at all - peak 0 of a 10,923 limit - which passes
+            the limit check trivially and then fails the return-to-level one,
+            pointing at a flight model that was never asked to do anything.
+            [cs_kroll] and [cs_kpitch] are the guest's own answer."""
             out = []
             m.key(key, down=True, up=False)
+            nm = "cs_kroll" if key in ("ArrowLeft", "ArrowRight") else "cs_kpitch"
+            for _ in range(30):
+                m.advance(frames=2)
+                m.run()
+                if byte(nm) != 0:
+                    break
+            else:
+                sys.exit("skiespitts: the guest never saw %s ([%s] stayed 0)"
+                         % (key, nm))
             for _ in range(frames // step):
                 m.advance(frames=step)
                 m.run()

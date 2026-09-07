@@ -349,6 +349,9 @@ cs_dactab:                          ; 6-bit DAC values, indexed by CSI_*
     db 63, 44, 10                   ; 12 its warning
     db 24, 24, 26                   ; 13 the cockpit's face
     db  0,  0,  0                   ; 14 nothing at all (88.13.3)
+    db 24, 44, 62                   ; 15 a river reduced to a LINE (88.6.5) -
+                                    ;    the river's blue, lifted so a one
+                                    ;    pixel stroke reads against the ground
 
 ; ...and what each MEANING is worth as FOUR ROW PATTERNS on the three
 ; adapters (SPEC.md 88.4.4). Indexed by CSI_* x 4.
@@ -373,6 +376,10 @@ cs_inkherc:
     db 0xFF, 0xFF, 0xFF, 0xFF       ; its warning
     db 0xAA, 0x00, 0x55, 0x00       ; the cockpit's face: 25%
     db 0x00, 0x00, 0x00, 0x00       ; nothing: black (88.13.3)
+    db 0xFF, 0xFF, 0xFF, 0xFF       ; a river as a line: SOLID WHITE. The
+                                    ; river's own ink here is stripes, and a
+                                    ; line drawn in stripes is half a line
+                                    ; (88.6.5)
 cs_inkcga:                          ; palette 0: 0 light blue, 1 green,
     db 0x00, 0x00, 0x00, 0x00       ;   2 red, 3 brown
     db 0x55, 0x55, 0x55, 0x55       ; ground: green
@@ -389,6 +396,9 @@ cs_inkcga:                          ; palette 0: 0 light blue, 1 green,
     db 0xAA, 0xAA, 0xAA, 0xAA       ; its warning: red
     db 0xAA, 0xAA, 0xAA, 0xAA       ; the cockpit's face: red
     db 0x00, 0x00, 0x00, 0x00       ; nothing: black (88.13.3)
+    db 0x00, 0x00, 0x00, 0x00       ; a river as a line: colour 0, the light
+                                    ; blue this palette's river is - drawn
+                                    ; over GROUND, which is green (88.6.5)
 cs_inkmodex:                        ; the DAC above, one for one
     db 0, 0, 0, 0
     db 1, 1, 1, 1
@@ -405,12 +415,13 @@ cs_inkmodex:                        ; the DAC above, one for one
     db 12, 12, 12, 12
     db 13, 13, 13, 13
     db 14, 14, 14, 14               ; nothing: black (88.13.3)
+    db 15, 15, 15, 15               ; a river as a line (88.6.5)
 
 ; The pixel value of an ink on the two colour adapters, for the WALKS and the
 ; glyphs: the 2-bit colour on CGA and the index on Mode X. Hercules is the one
 ; bit.
-cs_inkval_cga:   db 0, 1, 3, 0, 3, 2, 2, 3, 2, 1, 3, 1, 2, 2, 0
-cs_inkval_modex: db 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14
+cs_inkval_cga:   db 0, 1, 3, 0, 3, 2, 2, 3, 2, 1, 3, 1, 2, 2, 0, 0
+cs_inkval_modex: db 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
 
 ; -----------------------------------------------------------------------------
 ; cs_hznone - the horizon band with the TERRAIN fill off (SPEC.md 88.13.3):

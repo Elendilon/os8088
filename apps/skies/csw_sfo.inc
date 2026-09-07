@@ -161,7 +161,7 @@ cs_m_sfo_ocn: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
     dw -1400,  1100
     dw     0,   840
     dw  1400,   562
-cs_m_sfo_ocnf: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
+cs_m_sfo_ocnf: db CSM_FLAT, 3, 0, 2, CSI_RIVLINE, 0
     dw 2100, .v, 0, cs_e_road2
 .v: dw -1400, -300
     dw     0,  -55
@@ -178,7 +178,7 @@ cs_m_sfo_gate: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
     dw -800,  362
     dw    0,  344
     dw 1000,  470
-cs_m_sfo_gatef: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
+cs_m_sfo_gatef: db CSM_FLAT, 3, 0, 2, CSI_RIVLINE, 0
     dw 1100, .v, 0, cs_e_road2
 .v: dw -800, 5
     dw    0, 3
@@ -193,7 +193,7 @@ cs_m_sfo_bays: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
     dw -1600,  770
     dw     0,  450
     dw  1600, 1000
-cs_m_sfo_baysf: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
+cs_m_sfo_baysf: db CSM_FLAT, 3, 0, 2, CSI_RIVLINE, 0
     dw 1900, .v, 0, cs_e_road2
 .v: dw -1600, 320
     dw     0,  15
@@ -208,7 +208,7 @@ cs_m_sfo_bayn: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
     dw -1600,    0
     dw     0,  500
     dw  1600,  850
-cs_m_sfo_baynf: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
+cs_m_sfo_baynf: db CSM_FLAT, 3, 0, 2, CSI_RIVLINE, 0
     dw 1900, .v, 0, cs_e_road2
 .v: dw -1600, -325
     dw     0,   40

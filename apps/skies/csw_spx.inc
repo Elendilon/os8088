@@ -87,7 +87,7 @@ cs_m_spx_nile: db CSM_FLAT, 8, 3, 0, CSI_RIVER, 0
     dw  175, -1000
     dw  325,  1000
     dw  475,  3000
-cs_m_spx_nilef: db CSM_FLAT, 4, 0, 3, CSI_MARK, 0
+cs_m_spx_nilef: db CSM_FLAT, 4, 0, 3, CSI_RIVLINE, 0
     dw 3010, .v, 0, cs_e_road3      ; the centreline, beyond 3,000 m: four
 .v: dw -225, -3000                  ; vertices and three segments where the
     dw  -75, -1000                  ; near model is eight vertices and three
