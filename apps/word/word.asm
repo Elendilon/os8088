@@ -20419,7 +20419,7 @@ section .text
     ; OS88UI_MN_OPEN, at the same address.
 %define WD_MNREC_SZ 58
     WDVAR wd_mnrec, WD_MNREC_SZ
-%define WD_DREC_SZ 24           ; OS88UI_DR_SIZE, a literal for WDVAR's reason
+%define WD_DREC_SZ 26           ; OS88UI_DR_SIZE, a literal for WDVAR's reason
     WDVAR wd_dstyle, WD_DREC_SZ ; the ruler's Style combo (SPEC.md 68.2.3)
     WDVAR wd_dfont, WD_DREC_SZ  ; ...the ribbon's Font combo
     WDVAR wd_dpts, WD_DREC_SZ   ; ...and its Pts combo

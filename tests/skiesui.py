@@ -62,9 +62,15 @@ DR_SEL, DR_OPEN = 12, 16                # os88ui.inc's record (OS88UI_DR_*)
 DR_WIN, DR_SEG = 14, 18                 # ...the window a press clips to, and
                                         # the bank the close writes back
 DR_TOP = 22                             # ...where the OPEN list starts (13.14.2)
-DR_SIZE = 24                            # ...whose two banking words (13.14.1)
+DR_SIZE = 26                            # ...whose two banking words (13.14.1)
                                         # were APPENDED, so a record declared
-                                        # to the old length overlaps the next
+                                        # to the old length overlaps the next.
+                                        # 24 until 13.14.5 gave the control an
+                                        # OS88UI_DR_DIS, and this row caught
+                                        # that change - which is what it is
+                                        # for. t_mirror holds this copy to
+                                        # apps/os88ui.inc's now, so the THIRD
+                                        # spelling cannot drift either
 CSB_MODEX, CSB_CGA = 1, 2
 CS_ARTX, CS_ARTY = 152, 40              # the aircraft band, in CONTENT
 CS_ARTW, CS_ARTH = 152, 96              # coordinates (skies.asm, csart.inc)

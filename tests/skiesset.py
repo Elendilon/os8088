@@ -263,12 +263,23 @@ def main(argv):
         m.run()
         check(byte("cs_page") == 2, "Flight -> Settings turns to the page (%d)"
               % byte("cs_page"))
-        names = ("cs_drbld", "cs_drlod", "cs_drsize", "cs_drmode",
+        # MODE IS NOT ONE OF THEM ON THIS MACHINE (SPEC.md 88.13.10). This
+        # row flies a Hercules, which has one raster, so the Mode row is left
+        # OFF the page rather than greyed and the painter writes SIX rects.
+        # Asserting seven made this row red for the fix working. The row that
+        # covers Mode on both kinds of display is `skiesmode`; the predicate
+        # is not repeated here, because a second copy of it in Python is a
+        # second thing to get wrong.
+        names = ("cs_drbld", "cs_drlod", "cs_drsize",
                  "cs_ckterr", "cs_ckbld", "cs_donerect")
         rects = {n: rect(n) for n in names}
         wrote = [n for n in names if rects[n][2] > rects[n][0]]
         check(len(wrote) == len(names),
-              "the painter wrote all seven controls' rects (%d)" % len(wrote))
+              "the painter wrote all six live controls' rects (%d)" % len(wrote))
+        r = rect("cs_drmode")
+        check(r[2] <= r[0],
+              "...and the MODE row, which this display cannot use, has no "
+              "rect at all (%s)" % (r,))
 
         def click(x, y, f=25):
             ui.mo.click(x, y)

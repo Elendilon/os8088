@@ -21879,6 +21879,48 @@ that: `os88ui_bhit` is already in the build, so the list costs 996 rather than
 1,779, and the rows are no longer free because the anchored-list path exists
 only for them.
 
+#### 13.14.5 A control drawn DISABLED still opened
+
+Reported off the machine, of Clear Skies' Mode row: *"when mode is disabled
+because we're on Hercules and you click it, it still drops down, and then is
+not disabled."* Both halves are right, and the second is the first's
+consequence.
+
+**`OS88UI_DIS` was a PAINT-TIME argument and nothing else.** `os88ui_drop`
+takes it in DI and greys the frame and the caption (§47 rule 1);
+`os88ui_drpress` takes `BX/CX/DX` and has no flags argument at all, so it
+could not know. A press on a greyed box therefore ran the whole open path —
+`OS88UI_DR_OPEN` to 1, the clip armed, the pixels banked, the list drawn —
+and the app's next repaint drew the box **and its open list** through a
+control the app was still greying. That is the "and then is not disabled":
+the list is not drawn from the flags at all.
+
+The fix is to make the state the CONTROL's rather than the call's.
+`OS88UI_DR_DIS` is a word in the record, written by `os88ui_drop` from the
+painter's DI, and `os88ui_drpress` refuses while it is set. Two properties
+make that the right shape rather than adding a flags argument to the press:
+
+- a caller **cannot get it wrong**. An argument the press half did not have
+  before is one every existing caller passes by accident — DI holds whatever
+  it held — and a control that silently refuses input is far harder to
+  diagnose than one that draws wrong. The record can only say what the app
+  last painted, and a press can only follow a paint.
+- the refusal **does not spend the press** (`AH = 0`), so a greyed control
+  behaves exactly as though it were not there and the app may hand the point
+  to whatever is underneath. It answers `AL = 0FFh`, not 0: a plain
+  `xor ax, ax` there would report *"the user chose item 0"*.
+
+The record grows 24 → 26 bytes, which is **six declarations in Clear Skies
+and one literal in Word** (`WD_DREC_SZ`, which allocates all three of its
+combos). Those records are declared inline and packed back to back, so a
+missed one is not a compile error — it is the library writing over the next
+control. `tests/unit/t_mirror.py` holds the literal to `OS88UI_DR_SIZE` for
+that reason.
+
+**Word is not affected and could not have been**: all three of its
+`os88ui_drop` calls pass `xor di, di`, so it has never greyed one. This was
+live in exactly one package and latent for every future caller.
+
 ### 13.15 The CHECK BOX — the fourth shared element (`OS88UI_CHK`)
 
 `%define OS88UI_CHK` before the include and it costs a dozen bytes of record
@@ -103939,6 +103981,40 @@ drop-downs get a release the title page never armed.
   BEFORE it cost**: a mark that precedes a walk reads as the mark plus the
   walk, which is how the per-segment marking of §88.3.2 was first read as
   45 ms and turned out, on the A/B, to be 9.
+
+#### 88.13.10 The Mode row is HIDDEN on a one-mode display, not greyed
+
+§88.13's Settings page has four rows and the last is Mode, which chooses
+between the two rasters a display offers — Mode X and CGA320 on a VGA,
+CGA320 and §88.15's text hack on a CGA. **A Hercules has one**, so the row
+was greyed there (§47 rule 2). The field found the hole in that: *"when mode
+is disabled because we're on Hercules and you click it, it still drops down,
+and then is not disabled."* §13.14.5 is the control's half of that and is
+fixed; this is the application's.
+
+Greying was the wrong answer anyway. §47 rule 2 greys a control **the
+machine could use in another state** — a Save with nothing to save, a Paste
+with an empty clipboard — and the adapter is not a state: it is fixed for
+the life of the session, so a greyed Mode row is a promise the machine can
+never keep. It is left off the page entirely.
+
+`cs_nsets` is the whole mechanism: it returns the page's live row count, one
+fewer where `cs_modechoice` says there is no second mode, and **Mode being
+LAST is what makes that a count rather than a filter**. `CS_NSETALL` is
+derived from the table's own length, so a fifth row cannot be added without
+the count following it. Seven walks over the page take it — the layout, the
+drop-down paint, the sync, the click dispatch, the open-list walk, the drawn
+order and the release — which is every place that used to say `4` or `3`.
+
+The one site that still says four is `cs_wopen`'s, which arms each record's
+`OS88UI_DR_WIN`. Arming a window pointer on a row that is never drawn costs
+nothing and keeps that loop's own property: it walks the table rather than
+naming controls, so a control added to the page cannot be forgotten there.
+
+**Hiding is what makes it safe, and greying alone would not have been.** A
+row that is not painted never has `OS88UI_DR_DIS` written, so §13.14.5's
+refusal would not fire for it — but a row outside the count is reached by no
+walk on the page at all, so there is nothing to refuse.
 
 ### 88.14 The watchdog — `CSDIAG=1` (a diagnostic build)
 
