@@ -67,6 +67,7 @@ import dispcp                                          # noqa: E402
 import os88sym                                         # noqa: E402
 import os88geom                                        # noqa: E402
 import os88qemu                                              # noqa: E402
+import os88build                                       # noqa: E402
 
 S = os88sym.linear
 SOCK = "build/qmp.sock"
@@ -131,7 +132,7 @@ def ether_syms():
                        + ["-I", "drivers/ether/", "-I", "drivers/net/",
                           "-I", "drivers/", "-I", "apps/", "-o", out, src],
                        check=True)
-        if open(out, "rb").read() != open("build/ether.bin", "rb").read():
+        if open(out, "rb").read() != open(os88build.at("build/ether.bin"), "rb").read():
             sys.exit("ethernet: the mapped build is not build/ether.bin - "
                      "every offset it names would be plausible and wrong")
         syms = {}
@@ -360,7 +361,7 @@ def main():
     # about DHCP. Staleness is not the hazard here - a dirty image is - and
     # `make` cannot see the difference, because the guest's write leaves the
     # image NEWER than everything it was built from.
-    if os.path.exists("build/ether360.img"):
+    if os.path.exists(os88build.at("build/ether360.img")):
         os.remove("build/ether360.img")
     r = subprocess.run(["make", "ethertest"], capture_output=True, text=True)
     if r.returncode:
@@ -568,7 +569,7 @@ def main():
         subprocess.run(["python3", "tools/qmp.py", SOCK, "sendkey ret"],
                        check=True, capture_output=True)
 
-        img = os.path.getsize("build/browser.bin")
+        img = os.path.getsize(os88build.at("build/browser.bin"))
         nstate = nlines = 0
         for _ in range(60):
             time.sleep(0.5)

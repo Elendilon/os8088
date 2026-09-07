@@ -48,6 +48,7 @@ import os88geom                                             # noqa: E402
 import os88marty                                            # noqa: E402
 import os88mouse                                            # noqa: E402
 import os88sym                                              # noqa: E402
+import os88build                                       # noqa: E402
 
 MACHINE = "os8088_xt_hdd"
 PKG_HEAPFRAG = "HEAPFRAG.O88"
@@ -72,7 +73,7 @@ def drv_syms():
     it this assembles to an error before the emulator is ever started.
     """
     src = os.path.join(ROOT, "drivers/hdd/hdd.asm")
-    kb = (os.path.getsize(os.path.join(ROOT, "build/hddtool.bin")) + 1023) // 1024
+    kb = (os.path.getsize(os.path.join(ROOT, os88build.at("build/hddtool.bin"))) + 1023) // 1024
     with tempfile.TemporaryDirectory() as d:
         cp, mp = os.path.join(d, "h.asm"), os.path.join(d, "h.map")
         open(cp, "w").write(open(src).read() + "\n[map symbols %s]\n" % mp)

@@ -58,13 +58,14 @@ import os88marty                                            # noqa: E402
 import os88ui                                               # noqa: E402
 import os88geom                                             # noqa: E402
 import dispapps                                             # noqa: E402
+import os88build
 
 ROOT = os.path.dirname(HERE)
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--machine", default="os8088_5150_cga_gla")
-ap.add_argument("--sys", default="build/os8088-360.img")
-ap.add_argument("--bench", default="build/bench360.img")
+ap.add_argument("--sys", default=os88build.at("build/os8088-360.img"))
+ap.add_argument("--bench", default=os88build.at("build/bench360.img"))
 a = ap.parse_args()
 
 for p in (a.sys, a.bench):

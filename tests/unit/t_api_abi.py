@@ -81,6 +81,7 @@ sys.path.insert(0, HERE)
 
 import os88sym                                            # noqa: E402
 from harness import check, eq, done                       # noqa: E402
+import os88build                                       # noqa: E402
 
 TABLE_BASE = 0x0010
 CELL = 8
@@ -194,7 +195,7 @@ def decode(blob, addr):
 
 
 def main():
-    blob = open(os.path.join(ROOT, "build/kernel.bin"), "rb").read()
+    blob = open(os.path.join(ROOT, os88build.at("build/kernel.bin")), "rb").read()
     # ...and drop stage 2, so every address below is an offset into `.text`
     # exactly as it was before SPEC.md 2.9 (tools/os88layout.py)
     blob = blob[os88layout.boot2_pad(ROOT):]

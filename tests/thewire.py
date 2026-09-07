@@ -122,6 +122,7 @@ import os88sym                                             # noqa: E402
 import os88qemu                                            # noqa: E402
 import os88geom                                            # noqa: E402
 import os88wire                                            # noqa: E402
+import os88build                                       # noqa: E402
 
 S = os88sym.linear
 SOCK = "build/qmp.sock"
@@ -255,7 +256,7 @@ def fixture_tree(root):
             buf.append((x >> 16) & 0xFF)
         put("A/0/RANDOM%d.BIN" % which, bytes(buf))
     put("A/1/EMPTY.DAT", b"")
-    hello = open("build/hello.o88", "rb").read()
+    hello = open(os88build.at("build/hello.o88"), "rb").read()
     put("HELLO.O88", hello)
     return want
 
@@ -742,8 +743,8 @@ def main():
         cat = os88wire.pack(json.load(open(man)), "build", pics)
     except os88wire.Refused as e:
         sys.exit("thewire: the fixture will not pack: %s" % e)
-    hello = open("build/hello.o88", "rb").read()
-    mines = open("build/mines.o88", "rb").read()
+    hello = open(os88build.at("build/hello.o88"), "rb").read()
+    mines = open(os88build.at("build/mines.o88"), "rb").read()
     served = {"/wire/catalog.bin": cat,
               "/wire/pkg/HELLO.O88": hello,
               "/wire/pkg/MINES.O88": mines,
@@ -776,7 +777,7 @@ def main():
 
     m = Qemu()
     mo = Mouse()
-    img = os.path.getsize("build/thewire.bin")
+    img = os.path.getsize(os88build.at("build/thewire.bin"))
 
     def shot(tag):
         if a.shots:

@@ -69,9 +69,16 @@ import os88fixture                                          # noqa: E402
 sys.path.insert(0, os.path.join(HERE, "multiseg"))
 import msegsym                                              # noqa: E402
 import os88qemu                                              # noqa: E402
+import os88build
 
-IMG = os.path.join(ROOT, "build", "mseg.img")
-O88 = os.path.join(ROOT, "build", "mseg.o88")
+IMG = os.path.join(ROOT, os88build.at("build/mseg.img"))
+                                # THE RUN'S TREE, not build/: os88fixture.make
+                                # passes BUILD=<tree> so `make test` resolves its
+                                # own goals there, and a TESTAPPS= pointing at
+                                # build/ is then a target with no rule under that
+                                # BUILD - which is how this failed a soak while
+                                # passing by hand (tests/unit/t_artpath.py)
+O88 = os.path.join(ROOT, os88build.at("build/mseg.o88"))
 PKG = "MSEG.O88"
 XMS_PART = 5                        # a SEMANTIC index and not derivable; the
                                     # count below is, and is read out of the

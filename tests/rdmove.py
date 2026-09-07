@@ -27,6 +27,7 @@ Four assertions, and the first is the one that makes the rest mean anything:
 """
 import sys, os, time, hashlib, argparse, subprocess, tempfile
 sys.path.insert(0, "/home/user/os8088/tools")
+import os88build
 sys.path.insert(0, "/home/user/os8088/tests")
 import os88marty, os88mouse, os88sym, os88geom, os88ui, dispcp
 
@@ -59,7 +60,7 @@ def drv_syms():
         # sizes the page image's claim from it, so without it this assembles
         # to an ERROR - which is what this helper did for as long as the knob
         # has existed, and it fails before the emulator is ever started.
-        kb = (os.path.getsize("build/rampage.bin") + 1023) // 1024
+        kb = (os.path.getsize(os88build.at("build/rampage.bin")) + 1023) // 1024
         subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", "drivers/",
                         "-I", "drivers/ramdisk/", "-I", "apps/", "-I", "build/",
                         "-DRAMPAGE_KB=%d" % kb,

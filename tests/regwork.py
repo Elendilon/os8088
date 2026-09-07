@@ -57,6 +57,7 @@ import os88sym                                          # noqa: E402
 import dispcp                                           # noqa: E402
 import regpin                                           # noqa: E402
 import sheetmove                                        # noqa: E402
+import os88build                                       # noqa: E402
 
 DISK = regpin.DISK
 u16, claims, uncovered = sheetmove.u16, sheetmove.claims, sheetmove.uncovered
@@ -74,7 +75,7 @@ def main():
     S = os88sym.linear
     os88fixture.need(DISK)
 
-    base = struct.unpack("<H", open("build/pinme.o88", "rb").read()[8:10])[0]
+    base = struct.unpack("<H", open(os88build.at("build/pinme.o88"), "rb").read()[8:10])[0]
 
     def bss(m, seg, off, n=2):
         return m.readseg(seg, base + off, n)

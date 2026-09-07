@@ -81,6 +81,7 @@ import dispcp                                              # noqa: E402
 import os88bbs                                             # noqa: E402
 import os88qemu                                            # noqa: E402
 import os88sym                                             # noqa: E402
+import os88build                                       # noqa: E402
 
 S = os88sym.linear
 SOCK = os.path.join(ROOT, "build", "qmp.sock")
@@ -268,7 +269,7 @@ def te_syms():
                     "-I", "apps/telnet/", "-I", "drivers/net/",
                     "-o", out, src], check=True, cwd=ROOT)
     if (open(out, "rb").read()
-            != open(os.path.join(ROOT, "build/telnet.bin"), "rb").read()):
+            != open(os.path.join(ROOT, os88build.at("build/telnet.bin")), "rb").read()):
         sys.exit("telansi: the mapped build is not build/telnet.bin - every "
                  "offset it names would be plausible and wrong")
     syms = {}

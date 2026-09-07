@@ -86,6 +86,7 @@ import os88mouse                                        # noqa: E402
 import os88sym                                          # noqa: E402
 import dispcp                                           # noqa: E402
 import sheetmove                                        # noqa: E402
+import os88build                                       # noqa: E402
 
 DISK = "build/regpin360.img"
 u16, claims, uncovered = sheetmove.u16, sheetmove.claims, sheetmove.uncovered
@@ -127,7 +128,7 @@ def main():
 
     import struct
     pm_bss.base = struct.unpack(
-        "<H", open("build/pinme.o88", "rb").read()[8:10])[0]
+        "<H", open(os88build.at("build/pinme.o88"), "rb").read()[8:10])[0]
 
     with os88marty.launch("build/os8088-360.img", apps=DISK,
                           machine=a.machine, boot=False) as m:

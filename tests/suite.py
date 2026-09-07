@@ -308,6 +308,18 @@ FAST = [
     Row("mirror", "fast", py("tests/unit/t_mirror.py"), 4.5,
         "a constant written down in two files must agree in both; there is no "
         "linker here to notice"),
+    Row("artpath", "fast", py("tests/unit/t_artpath.py"), 0.1,
+        "a row that opens a BUILD ARTEFACT must resolve it through "
+        "os88build.at(), or it reads build/ while the soak is reading its own "
+        "frozen tree (docs/plans/SOAK-PARALLEL.md 14.2). It works standalone - "
+        "at() is the identity with $OS88_TREE unset - and fails only in a "
+        "soak, an hour in, as a FileNotFoundError several frames from the "
+        "cause. TEN rows failed one 368-row run this way and the count had "
+        "grown every soak, because a `wants=` they already had looked like "
+        "the answer: prebuild builds the artefact INTO THE TREE and the row "
+        "then opens build/. FAST because it is a whole-suite invariant that "
+        "costs a directory walk, and because the alternative to catching it "
+        "here is catching it in ninety minutes"),
     Row("p2restore", "fast", py("tests/unit/t_p2restore.py"), 0.3,
         "SPEC.md 9.9.7: the PS/2 probe's FAILURE paths must put the 8042's"
         " command byte back UNDOCTORED. [mou_p2cmd0] is banked with bit 5"

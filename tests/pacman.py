@@ -22,6 +22,7 @@ import os88sym
 import os88geom
 import dispcp
 import dispapps
+import os88build
 
 
 def main():
@@ -79,7 +80,7 @@ def main():
         assert read('pm_hired') == 1
         assert read('pm_score', 4) >= 10 and read('pm_eaten', 2) > 0
         assert read('pm_half') == (1 if 'cga' in args.machine else 0)
-        disk = Path('build/pacman.o88').read_bytes()
+        disk = Path(os88build.at('build/pacman.o88')).read_bytes()
         live = m.read(base, len(disk))
         changes = [(i,a,b) for i,(a,b) in enumerate(zip(live,disk)) if a != b and not any(symbols[n] <= i < symbols[n]+20 for n in ('pm_score_text','pm_lives_text','pm_level_text','pm_tpl'))]
         assert not changes, ('image modified', changes[:32])
