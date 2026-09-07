@@ -121,6 +121,11 @@ ALIAS = {
     "OSAPI_FONT_RUN":     "font_run_x",
     "OSAPI_FONT_WIDTH":   "font_width_x",
     "OSAPI_MEM_PARKSAFE": "inst_parksafe_set",
+    # ...and its stronger sibling (SPEC.md 66.6.2). Both live in
+    # instance.inc because both are a fact about an INSTANCE, and the
+    # SDK names them for what the package is declaring rather than for
+    # where the kernel keeps it.
+    "OSAPI_TASK_RESTARTABLE": "inst_restart_set",
     "OSAPI_SND_FM":       "osapi_snd_fm_x",
     "OSAPI_DRV_CALL":     "drv_pkg_call_x",   # beside DRV_CALL_AT above: two
                                               # cells, one routine, on purpose

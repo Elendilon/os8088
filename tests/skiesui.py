@@ -59,6 +59,8 @@ import dispapps                                             # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DR_SEL, DR_OPEN = 12, 16                # os88ui.inc's record (OS88UI_DR_*)
+DR_WIN, DR_SEG = 14, 18                 # ...the window a press clips to, and
+                                        # the bank the close writes back
 DR_TOP = 22                             # ...where the OPEN list starts (13.14.2)
 DR_SIZE = 24                            # ...whose two banking words (13.14.1)
                                         # were APPENDED, so a record declared
@@ -68,6 +70,19 @@ CS_ARTX, CS_ARTY = 152, 40              # the aircraft band, in CONTENT
 CS_ARTW, CS_ARTH = 152, 96              # coordinates (skies.asm, csart.inc)
 CSP_ART = 42                            # the band a plane record names (88.10.1)
 bad = []
+
+
+def _shot(m):
+    w, h, px = m.fbuf()
+    return w, h, bytes(1 if px[i] or px[i+1] or px[i+2] else 0
+                       for i in range(0, len(px), 3))
+
+
+def _band(s, r):
+    w, h, px = s
+    x1, y1, x2, y2 = r
+    return bytes(px[y*w + x] for y in range(max(y1, 0), min(y2, h - 1) + 1)
+                 for x in range(max(x1, 0), min(x2, w - 1) + 1))
 
 
 def check(cond, what):
@@ -316,6 +331,92 @@ def main(argv):
         m.advance(frames=20)
         m.run()
         check(bss("cs_page", 1) == 1, "the menu bar still answers after every gesture above")
+
+        # --- 7. THE TWO REFUSALS, both forced in the guest ---------------------
+        # os88ui_drop's two failure paths are the ones no gesture reaches, and
+        # both shipped answering the wrong thing. They are FORCED here rather
+        # than arranged, because the conditions - a window that cannot be
+        # clipped to, a rect that straddles two displays - want hardware or a
+        # cover this machine has not got. Forcing them is the only way either
+        # gets a test at all, and both were live defects until it had one.
+        click(400, 300)                                 # a click turns the page
+        m.advance(frames=30)                            # back (check 4's rule -
+        m.run()                                         # the MENU only opens it)
+        check(bss("cs_page", 1) == 0,
+              "7: back on the title page, where the drop-downs are (page %d)"
+              % bss("cs_page", 1))
+        pl = rect("cs_drplane")
+        bx, by = (pl[0] + pl[2]) // 2, (pl[1] + pl[3]) // 2
+        drec = (seg << 4) + mp["cs_drplane"]
+
+        # 7a. a press that could not arm the clip must leave the control SHUT.
+        # It used to leave OS88UI_DR_OPEN at 1 with nothing drawn, and the next
+        # press then hit-tested cells nobody could see and picked one.
+        #
+        # THE ARRANGING CHECK IS THE LEG. Without it this reads "the control is
+        # shut", which a click that missed the box entirely also satisfies -
+        # and that is exactly how it first ran: green against the defect it was
+        # written for, because leg 6 had left the Instructions page up and
+        # there was no box under the pointer at all.
+        click(bx, by)
+        check(rec("cs_drplane", DR_OPEN, 1) == 1,
+              "7a: the same click DOES open it with a window (case arranged)")
+        click(bx, by)                                   # ...and press the BOX
+        m.advance(frames=20)                            # again to shut it: a
+        m.run()                                         # click on the desktop
+        check(rec("cs_drplane", DR_OPEN, 1) == 0,       # deactivates the window
+              "7a: pressing the box again shuts it (case arranged)")
+        win = m.read(drec + DR_WIN, 2)
+        m.pause()
+        m.write(drec + DR_WIN, b"\x00\x00")
+        m.run()
+        click(bx, by)
+        shut_after_refusal = rec("cs_drplane", DR_OPEN, 1) == 0
+        m.pause()
+        m.write(drec + DR_WIN, win)
+        m.write(drec + DR_OPEN, b"\x00")
+        m.run()
+        check(shut_after_refusal,
+              "7a: ...and a press that cannot arm the clip leaves it SHUT")
+
+        # 7b. a write-back that REFUSES must be reported as a repaint. It
+        # answered "repaired", so the caller drew nothing and the list stayed
+        # on the glass with the control reading shut - 2,710 pixels of it.
+        def park():
+            # THE POINTER IS PART OF THE PICTURE. Both captures are taken with
+            # it in the same place or the arrow's own pixels answer the
+            # question: parked on the box, it hangs four rows into the band
+            # below and reads as five pixels of a list that is not there.
+            ui.mo.to(pl[0] - 24, pl[1] - 24)
+            m.advance(frames=20)
+            m.run()
+
+        check(rec("cs_drplane", DR_OPEN, 1) == 0,
+              "7b: the control is shut before the reference capture")
+        park()
+        shut_px = _shot(m)
+        click(bx, by)
+        top = rec("cs_drplane", DR_TOP)
+        opened = rec("cs_drplane", DR_OPEN, 1) == 1 and rec("cs_drplane", DR_SEG) != 0
+        rest = m.sym("api_gfx_rest")
+        keep = m.read(rest, 2)
+        m.pause()
+        m.write(rest, bytes([0xF9, 0xC3]))              # stc; ret - always refuse
+        m.run()
+        click(bx, by)                                   # press the box: closes
+        m.advance(frames=40)
+        m.run()
+        park()
+        after_px = _shot(m)
+        m.pause()
+        m.write(rest, keep)
+        m.run()
+        r = (pl[0], top, pl[2], top + 4 * 12)
+        d = sum(1 for p, q in zip(_band(shut_px, r), _band(after_px, r)) if p != q)
+        check(opened, "7b: the list dropped and banked (case, not assertion)")
+        check(d == 0,
+              "7b: a REFUSED write-back is reported as a repaint (%d pixels of "
+              "the list left standing)" % d)
 
     if bad:
         for b in bad:

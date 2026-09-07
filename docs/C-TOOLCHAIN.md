@@ -653,6 +653,58 @@ the string and memory helpers, which are not slots at all.
 in any context, because they load `KERNEL_SEG` themselves rather than trusting
 the ES they were entered with.
 
+### Letting the compactor move a claim
+
+`os88_mem_claim()` was the whole of the C SDK's heap surface until §66.4.1's
+work: there was no `os88_mem_movable`, so **every claim a C package made was
+pinned by construction and no author could change it** — C64's 64KB of RAM,
+RunCPM's 64KB Z80 space, Weave's bundle and canvas, Loom's project buffers,
+each one a wall in the middle of the arena for as long as the program ran.
+
+It is two lines now, and one of them goes in the shim:
+
+```
+%define CC_HAS_ONMOVE                       ; in your .asm
+
+static unsigned my_seg;
+void os88_onmove(unsigned was, unsigned now)
+{   if (my_seg == was) my_seg = now;   }
+
+my_seg = os88_mem_claim(32);
+if (os88_mem_movable(my_seg, 1) != 0) { /* refused: it stays pinned */ }
+```
+
+**`os88_onmove` is not a window callback**, and the difference is the whole of
+what can go wrong with it. It is dispatched from inside `mem_reloc_call`, in
+the middle of the compaction, on whatever task asked for the memory that could
+not be found — so §66.3 rule 3 binds the C on the other side of it: **no
+claim, no free, no yield, no drawing and no file call**, because each of those
+re-enters the walk that is calling you. Assignments and arithmetic only.
+
+Three more things, each of which has cost this project a defect:
+
+- **Fix every word that names the block**, not the first one you think of. A
+  cached base, a "current" pointer, a scratch you handed a library — all stale
+  the instant the handler returns. §66.1 is the record of a design that failed
+  on exactly that.
+- **Pin it around a file call.** If the block is the `ES:BX` of an
+  `os88_file_read()`/`write()`, `os88_mem_movable(seg, 0)` first and declare it
+  again after (§66.9 reason 4): a file call claims, so a compaction inside one
+  moves the buffer out from under a transfer the kernel already has the address
+  of.
+- **Take the answer.** `mem_movable`'s fence is *yours, or not at all*, so a
+  segment you do not hold matches nothing, writes no `MC_RLOC` and returns
+  refused — and from inside the package that is indistinguishable from success.
+  §66.5.6.2 is what that cost once.
+
+`tests/chello` is the worked example and `tests/cmemmove.py` the gate: it puts
+CHELLO above a `tests/heapfrag` that then frees the floor, and reads the move
+back out of the kernel's own table and CHELLO's own statics. The round trip it
+proves is longer than any other callback's — C, thunk, kernel,
+`cc_onmove`, C — and the assertion that earns its keep is that `was` and `now`
+did not arrive swapped, because a swapped pair counts the same moves and reads
+just as plausibly.
+
 What is deliberately **not** wrapped, with the reason for each, is the list in
 `os88.h`'s header comment. The short version: the sound driver's multi-verb
 protocols, `OSAPI_XMEM_*` (every argument is a 32-bit linear base — the one
@@ -668,7 +720,7 @@ in your shim). Adding one of the rest is a dozen lines in `os88thunk.asm`.
 | | |
 |---|---|
 | **`apps/cc/ccsmoke.c`** + `.asm` | the SDK's template. Small and boring on purpose. `make cc-smoke` |
-| **`tests/chello/chello.c`** | the capability gate — the first C program this OS ran. Written to make every part of the round trip visible in a screendump, including a crosshair at the click point, because a swapped x/y still counts up correctly and only the mark can tell you. `make chello` |
+| **`tests/chello/chello.c`** | the capability gate — the first C program this OS ran. Written to make every part of the round trip visible in a screendump, including a crosshair at the click point, because a swapped x/y still counts up correctly and only the mark can tell you. It also gates `os88_mem_movable()` and draws the claim's live base beside where it came from, for the same reason. `make chello` |
 | **`tests/covl/covl.c`** | the overlay gate — argument offsets across a far call, a call back out of the module, a call inside it. `make covl` |
 | **`apps/cword/cword.c`** | the application: a word processor, ~9,700 lines across nine files, RTF in and out, in two segments. Read its header comment for the redraw model and the cost table. `make cworddisk` |
 

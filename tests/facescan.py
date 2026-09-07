@@ -96,6 +96,23 @@ def status(m, seg):
     return out
 
 
+TY_FACE_KB = 8                  # apps/os88type.inc; t_mirror does not reach a
+                                # package's own equs, so it is named here with
+                                # the file it comes from
+
+
+def mem_claims(m):
+    """(base, paragraphs, owner) for every live heap claim."""
+    raw = m.read(m.sym("mem_tab"), 32 * os88geom.MC_SIZE)
+    out = []
+    for i in range(32):
+        r = raw[i * os88geom.MC_SIZE:(i + 1) * os88geom.MC_SIZE]
+        b = r[0] | r[1] << 8
+        if b:
+            out.append((b, r[2] | r[3] << 8, r[4] | r[5] << 8))
+    return out
+
+
 with os88ui.boot(a.sys, apps=a.bench, machine=a.machine) as ui:
     m = ui.m
     ui.path("B:/FACETEST.O88")
@@ -144,6 +161,36 @@ with os88ui.boot(a.sys, apps=a.bench, machine=a.machine) as ui:
             "FACE: handle 0 is face 0 - the KERNEL's 8x8 cell (SPEC.md 6.5), "
             "which is what a refusal leaves current. ty_open answered success "
             "and handed back the slot that was never allocated")
+
+    # --- CLAIM ----------------------------------------------------------
+    # The face's own 8KB block, and the two things about it that were assumed
+    # for a year (docs/plans/HEAP-UNPIN-PLAN.md 3.1): that the base needs
+    # rounding to a 512-byte boundary by hand, and that a spare KB has to be
+    # claimed to pay for the rounding. Neither is true - kernel.asm's guard 6b
+    # asserts every claim base is HEAP_SEG + n*MEM_PARA_KB paragraphs and that
+    # MEM_PARA_KB is a multiple of 32 - and a package cannot see that guard,
+    # so os88type.inc ASSERTS the alignment now and this reads the assertion's
+    # answer from outside. If the guard ever stopped holding, the face would
+    # refuse (ft_err = TYE_NOMEM) instead of writing 496 bytes past its claim.
+    if st["ft_err"] == 0:
+        claims = mem_claims(m)
+        cl = [c for c in claims if c[2] == seg]
+        say("facetest holds %s"
+            % ["%04x/%dKB" % (b, p // 64) for b, p, _ in cl])
+        faces = [c for c in cl if c[1] // 64 == TY_FACE_KB]
+        if not faces:
+            fails.append(
+                "CLAIM: no %dKB claim owned by FACETEST. It was TY_FACE_KB+1 "
+                "until the hand rounding came out, and the extra KB was never "
+                "consumed by it - one kilobyte per open face, up to three per "
+                "Word or CWORD instance" % TY_FACE_KB)
+        for b, p, _ in faces:
+            if b & 0x1F:
+                fails.append(
+                    "CLAIM: the face claim at %04x is not a multiple of 32 "
+                    "paragraphs, so it is not 512-byte aligned - guard 6b no "
+                    "longer holds and os88type.inc's alignment test should "
+                    "have refused the face rather than opening it" % b)
 
     # --- ROWS -----------------------------------------------------------
     # facetest draws two header lines and then four specimen rows, the first

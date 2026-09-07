@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 """os88test - the regression suite, in two tiers with a WALL-CLOCK BUDGET.
 
-    python3 tools/os88test.py fast        # every build. Budget 30s.
-    python3 tools/os88test.py full        # before a merge. Budget 10 min.
+    python3 tools/os88test.py fast        # a commit you keep. Budget 30s.
+    python3 tools/os88test.py full        # major work reaching the integration
+                                          #   branch. Budget 10 min.
     python3 tools/os88test.py --list      # what is registered, and why
     python3 tools/os88test.py fast -k api # just the rows whose name matches
+
+WHEN EACH TIER IS RUN is docs/TESTING.md's `When to run which tier`, and it
+is the authority: none of the three is a per-commit gate.  `full` is four
+minutes and the whole soak is nearly two hours, so a change is covered by the
+ROW about the thing it touched (`soak -k '<subject>'`, minutes) far more often
+than by any tier.
 
 WHY THIS EXISTS.  This tree had ninety test scripts and no way to run them.
 Each one is a real gate - `tests/dockmark.py` and `tests/heapsame.py` are
@@ -148,7 +155,7 @@ def _default_mj():
     CORES-1, for the reason os88soak.py's `widths()` gives at length: the
     missing core is what a check-in, an editor or a small side task runs on,
     and a run sized to fill the box exactly is one that anything else on the
-    box perturbs. Measured on the pre-merge gate, which is the tier that
+    box perturbs. Measured on the `full` tier, which is the one that
     benefits most because it is nearly all emulator rows: 402s -> 227.5s.
 
     $OS88_MARTY_JOBS still overrides, and so does `--marty-jobs`.
@@ -208,7 +215,7 @@ def capabilities():
     # row printed "SKIP" and returned 0 - so a soak scored it `ok` in 0.1s
     # against 20s declared and the watchdog went untested for its whole life.
     # A capability probed on that tree fixes the false green and NOT the
-    # staleness: existence is not freshness (docs/WRITING-TESTS.md 13 row 20),
+    # staleness: existence is not freshness (docs/WRITING-TESTS.md 13 row 33),
     # and an apps/skies edit then leaves a tree that exists and lies. `wants=`
     # runs make on it every time, which is both.
     return caps

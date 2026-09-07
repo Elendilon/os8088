@@ -594,8 +594,14 @@ sb_putu5:
     ret
 
 ; --- window template (SPEC.md 11: 16 bytes, 8 words) -------------------------
-sb_tpl:
-    dw 340, 290, 190, 100           ; x, y, w, h -> content 188 x 81
+sb_tpl:                             ; 88 AND NOT 290: this window has to fit a
+    dw 340, 88, 190, 100            ; 640x200 CGA as well as the 640x480 that
+                                    ; `make test-snd` gives it, because
+                                    ; tests/sndmove.py drives it on a 5150 with
+                                    ; a Sound Blaster to get sbl_isr hooked -
+                                    ; and at 290 the whole window was below the
+                                    ; bottom of that screen.
+                                    ; x, y, w, h -> content 188 x 81
     dw sb_ttl, sb_paint, sb_onkey, sb_onclick
 
 sb_ttl:     db 'SB Test', 0

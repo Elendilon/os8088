@@ -457,12 +457,12 @@ PREWARM = [
 ]
 
 
-# **EXISTENCE IS NOT FRESHNESS** (docs/WRITING-TESTS.md 13 row 20). A PRIVATE
+# **EXISTENCE IS NOT FRESHNESS** (docs/WRITING-TESTS.md 13 row 33). A PRIVATE
 # TREE is built by a recursive make into a directory of its own, and nothing
 # in the shipped graph depends on it - so an edit to apps/skies/ leaves
 # build/skiesdiag/ sitting there, existing, describing a package the guest has
 # not got. `skiesdiag` checks its own tree and FAILS naming it, which is the
-# behaviour row 20 asks for; this is what stops it having to. A no-op
+# behaviour row 33 asks for; this is what stops it having to. A no-op
 # `make skiesdiag` is 0.9s, so it is cheaper to always run than to reason
 # about.
 ALWAYS = {"skiesdiag"}

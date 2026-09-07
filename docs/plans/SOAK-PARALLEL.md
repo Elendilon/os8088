@@ -1352,18 +1352,49 @@ The eligible set is therefore "everything not `alone`", and the slot is
 **self-limiting**: under load it just gets less done, which is the behaviour
 wanted rather than a compromise.
 
-### 15.2 Measure before building
+### 15.2 Measured: 16.8% off the wall, and the pass rate does NOT hold
 
 The 13.1× above is **aggregate guest speed, not row outcomes**, and this
 document's own §1 is the reason not to confuse the two: contention does not
 make a row slow, it makes it LESS THOROUGH, and that does not show in a wall
-time. So run one row set twice — `--marty-jobs 3` and `--marty-jobs 4` — and
-compare **both** wall time and pass/fail.
+time. So the same 299 rows were run twice, same tree, same box, back to back:
 
-  * pass rate holds at 4 flat out → the niced slot is strictly better than
-    either, and the default can rise as well;
-  * pass rate does not hold → the niced slot is the only way to have the
-    throughput at all, and its eligibility rule has to be earned row by row.
+| | `--marty-jobs 3` | `--marty-jobs 4` |
+|---|---|---|
+| wall | **1:39:04** | **1:22:25** |
+| ok / FAIL | 296 / 3 | 295 / 4 |
+| failed | msegnomem, bootfloor-ab, paintpack | msegnomem, paintpack, **uilayer**, **hdboot** |
+
+**The throughput is 16.8%, not the ~30% predicted above**, and the reason is
+in the progress: both arms were at ~77 of 299 rows after 19 minutes. The first
+fifth of a soak is the SERIAL and BUILD lane, where the emulator width buys
+nothing at all; the 30% estimate priced the whole run as if it were emulator
+work. 16.8% of 99 minutes is still 17 minutes a run.
+
+**Three of the failures are not about width.** `bootfloor-ab` was a Makefile
+guard fixed between the arms and cannot fail in the second. `msegnomem` and
+`paintpack` failed in BOTH, and are one cause: rows that SHARE a private
+tree — `diskcnt` has two rows, `noplane` has five — where the second's
+`os88build.tree()` re-runs `make` and rewrites `kernel.bin` under the first.
+os88sym's identity check now names that outright ("the file was written 2.9 s
+ago"), which is how it was finally told apart from a stale tree.
+
+**The two that ARE about width are `uilayer` and `hdboot`, and they are the
+same kind**: a drag that moved nothing, and a click whose menu never dropped
+inside a 10-guest-second budget. **Input delivery**, not a measurement — so
+§15.1's eligibility rule is wrong as stated. `alone` names the rows whose
+ANSWER is a rate; neither of these is one, and both broke anyway. The rule a
+niced slot needs is narrower: a row is safe there when **every input it
+sends is CONFIRMED** — the treatment SPEC-less rows like tests/hibernate.py
+got (a key resent if the machine did not take it, a click retried while its
+target is still there). An unconfirmed input carries the whole row, and width
+is just what exposes it.
+
+So, against this section's own fork: **pass rate does not hold, and the niced
+slot is the way to have the throughput** — but it does not come free with an
+`alone` filter. The honest order is (1) confirm the inputs in the rows that
+fail this way, (2) then the eligible set is nearly everything, and (3) the
+default can rise as well, because at that point width 4 flat out is no worse.
 
 ### 15.3 The hazard to size
 

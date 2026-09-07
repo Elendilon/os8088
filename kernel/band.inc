@@ -77,9 +77,6 @@ BAND_MAXB   equ BAND_MAXW / 8   ; deliberately a WHOLE SCREEN ROW ON THE WIDEST
                                 ; replay, another gfx_blit1 - for any window
                                 ; wider than 640 on Hercules, which is every
                                 ; ZOOMED one (wm_zoom takes [vid_pw] = 720)
-%if gfx_b1pap - gfx_b1ink != 1
-  %error "gfx_b1ink/gfx_b1pap must stay adjacent: band_emit_x sets both in one word store"
-%endif
 BAND_MAXH   equ 16              ; band height cap, rows. TITLE_H is 18 and the
                                 ; bar's interior is 16 of them; the separator
                                 ; under it spans the ragged edges the band

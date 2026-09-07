@@ -86,6 +86,15 @@ br_hire:
     call OSAPI_TASK_SPAWN
     jc .out
     mov byte [br_spawn], 1
+    ; ...AND THE WORKER MAY BE RESTARTED (SPEC.md 66.6.2). Hiring one
+    ; would otherwise pin the region for ever - task_spawn wrote our
+    ; segment into that worker's frame before its first instruction:
+    ; br_nstep banks a generation and every store is guarded on it, so a fetch
+    ; abandoned by a restart writes nothing - which is br_abort's own design.
+    ; The kernel restarts a worker only where it PARKS, which for us is
+    ; inside OSAPI_TASK_ALIVE at the top of the loop; we do not declare
+    ; OSAPI_MEM_PARKSAFE, so the gfx-lock park is not in play.
+    OS88_WORKER_RESTARTABLE br_worker
 .out:
     pop bx
     pop ax

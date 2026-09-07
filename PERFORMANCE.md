@@ -1229,6 +1229,11 @@ list to check yourself against.
 | Scroll the Browser one line, deep in a page | the tier test read the old scroll POSITION rather than the delta, so past one windowful every scroll repainted the whole band, on every page, for the rest of the document. Measured on a cycle-accurate 5150/CGA in a 15-row band, one Down key: **15 `font_run`s and no `gfx_scroll` at all**, **19 frames of visible redraw = 317 ms** | one `gfx_scroll` and the row it exposed, at every depth: **1 `font_run` and 1 `gfx_scroll`**, **5 frames = 83 ms**. Framebuffer **0 differing pixels** against the band repaint on CGA (15 rows) and Hercules (27), 55 scroll steps each | §71.10 |
 | Scroll a Disk window that is already at an end stop | a full repaint to show the same pixels — **266 ms** | **nothing at all**, 0 frames | §22.11 |
 | Type into the file dialog's name box | ~120 glyphs + a 298×151 fill | `font_char` **972 → 36**, scanlines **7,600 → 184** (8 chars) | §38.8 |
+| Word: a Left or Right arrow | `wd_fastcm` parked `[wd_mvbot]` at the 0x7FFF sentinel - they do not go through `wd_move`, which is what sets a real bound - so pass 1 laid out the whole view. Right **186.3 ms** (walk 142.8), Left **216.6** (walk 164.8), against Down's 114.5 (walk 4.3) | §27.4.1's two-row rule applied to them as well, `ckpr + 1`: Right **67.3 ms** (walk 23.8), Left **96.2** (walk 42.2) | §27.4.4 |
+| Word: typing a character mid-line | pass 1 laid out every row from the caret to the bottom of the view, every keystroke, to be told nothing below had changed. On `WELCOME.DOC` in the shipped window (`vrows` = 6): **205.6 ms** at caret row 1, of which `wd_walk` **149.2 ms** | `wd_eoutck` stops the walk where the row indices reconverge - one compare a row, exact, height-agnostic: **80.4 ms**, of which `wd_walk` **29.6 ms** (2.6x and 5.0x). At caret row 3, 224.9 -> **142.8 ms** | §27.4.3 |
+| Word: moving the caret at all | `wd_redraw` is two walks - pass 1 finds the rows whose signatures moved and pass 2 draws them - and the split is there for a REFLOW, which can change a row's height and so needs a band erased before it is lettered. A caret move reflows nothing and pays for it anyway: a Right arrow was **67.6 ms of which pass 1 is 23.5**, drawing not one pixel | `wd_rflush` runs at the row's END, one call before `wd_nextrow` folds the signature, so it asks the question itself: **47.0 ms**, ONE `wd_walk` instead of two (1.44x) | §27.4.6 |
+| Word: a scroll-bar click ABOVE the thumb | A formatted note gave up the upward blit-scroll - the entering rows are above the view and in no bank - so every click above the thumb repainted the whole window, menu bar and ruler included: **622 ms** against the down click's 251 | `wd_upheight` prices those rows with a bounded measure walk instead: **307 ms**, 2.03x, and the chrome is not touched | §27.7.2.2 |
+| Word: pressing Enter | `[wd_fast]` stayed 0, so the keystroke got no seed, no bound and no early-out, and every row below the split changed its y - `[wd_ymoved]` erased to the content bottom and pass 2 lettered the lot. Caret on row 1 of `WELCOME.DOC`: **448.2 ms**, of which **165 ms is a pass that draws nothing** | kind 5: §27.4.3's reconvergence one row down, then the note below it is a `gfx_scroll` rather than a repaint. **116.9 ms**; pass 1 7 rows -> 2, pass 2 6 -> 2 | §27.4.5 |
 | Word: a track click on the scroll bar | the blit refused (a page is `[wd_vfit]` = 2 of 6 rows, but `[wd_rowsn]` had been left at `[wd_bd0]` = 2 by the previous scroll, so `d` = 4 > 2), and the full repaint that followed white-filled the whole content — bar and grow box with it — then drew the bar whole. **512.9 ms** | the blit is taken, and when it genuinely cannot be the fill stops at `[wd_rgt]` and only the THUMB moves: **155.0 ms**, 3.3x | §68.2.2 |
 | Word: an arrow click on the scroll bar | the band rounded x2+1 up from `[wd_rgt]` and carried six of the bar's fourteen columns; the strip was blanked white and `wd_sbar` redrew all sixteen calls. 230.4 ms, and the bar's arrow cell altered in **44 of 48** samples through the click | the band is cut from the CELLS and cannot reach the bar; `wd_sbcheck` moves the thumb in three calls. **197.8 ms**, and **0 of 48** samples | §68.2.2 |
 | Dismiss one of Word's own dropdowns | `wd_mrepair`, a piecewise repaint of everything the panel covered - the covered text rows erased FULL COLUMN WIDTH and re-lettered. Measured on a cycle-accurate 5150, Utilities (168x109) over `WELCOME.DOC` in a 600x136 content area: **2,488,591 cy = 521.4 ms**. `wd_mtrack` closes and reopens per title crossed, so dragging File -> Help was eight of them, ~4.97 s | the banked pixels written back: **93,940 cy = 19.7 ms**, plus **96,863 cy = 20.3 ms** to bank them on the way down. Round trip **621 -> 139.6 ms**; File -> Help ~1.12 s. `wd_mrepair` is now the refusal path only | §68.2.1, §5.3 |
@@ -11157,3 +11162,168 @@ degrades.**
 It is 1.5% of a keystroke on this document and ~15% at the ceiling: the move
 is the whole cost of typing into the front of a long document, where the
 redraw has already been taken away.
+
+### Set 117.3 — where an Enter's 448 ms goes, and what a push takes off it (SPEC.md §27.4.5)
+
+Set 117.2 priced an Enter at 287.3 ms with the caret on row 3 and left it
+there. Taken again on row 1 it is **448.2 ms**, and the reason to take it a
+third time was that `wd_walk`'s pass 1 was only 34.3 ms of it: **414 ms was
+somewhere else, and the walk is where everyone looks.**
+
+A TIMELINE settles it — one breakpoint per routine entry, the delta between
+consecutive stops read as the work done in between. `os8088_5150_cga_gla`,
+`WELCOME.DOC`, shipped window, `vrows` = 6, caret CLICKED on row 1:
+
+| | before | after |
+|---|---:|---:|
+| `wd_onkey`, whole keystroke | 448.16 ms | **116.91 ms** |
+| ...the same keystroke A/B'd on a QUIET machine | 410.7 ms | **71.9 ms** (5.71x) |
+| the edit itself (`wd_selkill` → `wd_redraw`) | 9.7 ms | 9.8 ms |
+| pass 1: rows laid out, drawing nothing | **7 rows, 165 ms** | **2 rows, 23 ms** |
+| pass 2: rows laid out AND drawn | 6 rows, 189 ms | 2 rows, 55 ms |
+| the push's own `OSAPI_GFX_SCROLL` | — | 17.1 ms |
+| `wd_sbcheck` (the thumb) | 33.8 ms | 1.5 ms |
+
+**The finding is that the two passes cost the same.** A full row of *layout*
+was 19–43 ms with `[wd_draw]` clear — `wd_rflush` returns on its first compare
+— so pass 1, which draws not one pixel, was 47% of the keystroke. That is the
+half a `gfx_scroll` cannot touch and a BOUND can, which is why §27.4.5 is a
+reconvergence test first and a blit second: the seed took pass 1 from row 0 to
+the caret's row, and the early stop took it from the bottom of the view to the
+split.
+
+**Two numbers that were nearly a wrong design.** `[wd_hasfmt]` is 1 on
+`WELCOME.DOC` and `[wd_hastab]` is 1 — the two flags `wd_brktry` and
+`wd_append` both stand down on — so the obvious reading is that no
+height-uniform trick is legal here. The banked ys say otherwise:
+`wd_ryb` = [110, 118, 126, 134, 142, 150], a **uniform 8-pixel stride**. The
+flags are document-wide and conservative; the rows on the glass are not. The
+push therefore gates on neither and takes its delta from the **pen**, which is
+right whatever the heights are — and is why it works on the one document
+anybody actually opens, where §68.6's degrade had already made the visual
+break worthless (Set 117.2).
+
+**And one that was a wrong screen.** The first build scrolled the band to
+`[wd_bot]` and read **429 differing bits against the reflow**, all of them in
+`y` 158–161: the sliver below the last whole row, `ty` = 110 + 6 rows of 8 =
+158, `bot` = 161. `wd_rflush` refuses to draw a row that would cross it, so
+nothing erases what a scroll pushes into it — `wd_vshift`'s own comment,
+one routine along, in a routine that did not call it. Cutting the band at the
+last whole row's bottom is 0 differing bits, and `wd_rows`/`wd_ryb` then match
+the reflow's entry for entry.
+
+**Two more numbers, each of which changed the code.** The first build fired
+one row LATE on every caret position tried, because the split compares against
+`wd_rows[R−1]` and `wd_rstart` overwrote that entry a row earlier — it was
+matching a row whose old and new entries happened to be equal, which is luck
+and not a proof. A one-entry shadow fixed it and took two refusals to firings.
+The second was the caret guard: a row of slack below `[wd_ckpr]` is the
+conservative reading and cost a drawn row every time; `[wd_curseen]` is the
+exact condition and is 133.3 → **116.9 ms**.
+
+**And one that did not.** A stopwatch across `wd_onkey` read **412 ms in both
+arms of the A/B** — the push doing nothing at all — until the machine was made
+quiet first. `[wd_hdirty]` is set by every edit and cleared only by a walk that
+reaches the note's end (§27.6), so after any editing the chunked row counter is
+running on its own wake; a bracket between two breakpoints counts every cycle
+the guest spends inside it, another task's included. `tests/wdenter.py` waits
+the counter out before it times anything, and says why.
+
+**And a third that was a wrong screen on the OTHER arm.** `[wd_eodel]` was
+set for kind 5 before the arming rather than inside it, so an Enter the push
+declined kept §27.4.3's early-out — whose test is about a row's own entry and
+whose repair bumps indices where a shift was owed. A ten-scenario A/B caught
+it as 6 to 53 differing bits on every row, including the ones the push never
+took, which is what said the fault was in the arm with the feature *off*.
+
+`.text` +369 bytes, `.bss` +10. `tests/wdenter.py` is the gate, and the
+ten-scenario A/B that found two of these three is what it was cut from.
+
+### Set 117.4 — one pass instead of two for a caret move (SPEC.md §27.4.6)
+
+Set 117.3 found that Word's two layout passes cost about the same, and that
+pass 1 draws nothing. This is that finding acted on, for the one kind of
+redraw where the split buys nothing: a caret move reflows no text, so no row
+changes height, so no band is erased before it is lettered — and with no fill
+in the way a row can be drawn the moment its signature says it changed.
+
+`os8088_5150_cga_gla`, `WELCOME.DOC`, shipped window, `vrows` = 6, caret
+CLICKED, and the A/B is `wd_1pok` patched to `stc`/`ret` inside one boot on a
+machine made quiet first:
+
+| keystroke, from a fresh click | two passes | one |
+|---|---:|---:|
+| Right | 67.6 ms | **47.0 ms** (1.44x) |
+| Right ×8 | 67.8 | **46.3** (1.46x) |
+| Left off a row | 67.6 | **46.1** (1.47x) |
+| Left | 107.7 | **81.9** (1.32x) |
+| Down then Up | 127.0 | **102.1** (1.24x) |
+| Right off a row | 163.7 | **132.1** (1.24x) |
+| Home then End | 290.2 | **209.8** (1.38x) |
+| Down ×7, scrolling the view | 321.2 | 337.3 (**0.95x**) |
+
+**The last row is the honest one**: a caret move that scrolls is the case the
+collapse cannot help, because `wd_seecaret` now runs *after* the drawing, so
+the rows drawn before the scroll are drawn for nothing. It is 5% slower and
+it is one keystroke in seven of a page.
+
+**The trap is a level below the pixels and cost the first build 419 bits.**
+`[wd_clip]` gates the **glyph store** as well as the drawing — the same three
+tests at all three store sites, deliberately — so clipping the one pass to the
+dirty range composed no cells at all for a row whose signature was not yet
+known. `wd_rflush`'s delta then diffed a stale `wd_rbuf` against `wd_prow`,
+found every cell changed, and re-lettered the whole row. On a centred title
+that is 23 cells where the two-pass form drew 2, and the screen still read as
+text.
+
+**And a measurement trap that nearly became a bug report.** A ten-scenario A/B
+run as two BOOTS, comparing whole framebuffers, read 6 and 15 bits apart on two
+of them. The 15 was the **desktop clock**, which is outside the window and
+which two boots do not agree on. The 6 survives banding to the window and is
+still not the collapse: the same sequences read **0 against a full repaint in
+both forms**, and the two boots' screens already differed by 31 bits before a
+key was pressed. The reference is the full repaint taken inside one boot; a
+cross-boot framebuffer diff is a signal, not a verdict.
+
+`.text` +475 bytes for §27.4.5 and §27.4.6 together, `.bss` +13.
+`tests/wdcaret.py` is the gate, and its leg A is the change itself: ONE
+`wd_walk` in the keystroke, counted.
+
+### Set 117.5 — a scroll UPWARD is priced, not refused (SPEC.md §27.7.2.2)
+
+`os8088_5150_cga_gla`, `WELCOME.DOC`, shipped window, `vrows` = 6, `hasfmt` = 1,
+one scroll-bar track click bracketed at `wd_onclick`:
+
+| track click | before | now | what runs |
+|---|---:|---:|---|
+| below the thumb (down) | 251.3 ms | 252.3 ms | `wd_vshift` + `wd_shiftrows`, 5 rows |
+| **above the thumb (up)** | **622.2 ms** | **307.6 ms** | was `wd_paint` + `wd_chrome` + 7 rows; now the blit, 2 walks, 8 rows |
+
+The second walk is the price: `wd_upheight` lays out |d| rows to learn how far
+the retained rows move. It buys the content fill and the whole of the chrome.
+
+**Three defects on the way, all of them found on the glass and none by
+reading**, and the third is the one worth remembering:
+
+1. the formatted erase band was derived for one direction only — an up scroll
+   vacates the TOP;
+2. the <8px **sliver** below the last drawable row: a down scroll's vacated
+   band covers it, an up scroll pushes pixels into it, and `wd_rflush` will
+   never draw there again. **529 differing pixels**, four scanlines. The scan
+   for the last drawable row then had to reject a bank outside the band — a
+   slot never written reads 0, and 0 + `[wd_gh1]` is under `[wd_bot]`, so the
+   first version filled from y = 8 to the foot of the window: **7,522 pixels**;
+3. **the pricing walk banked `wd_rows`**, and `wd_shiftrows` reads exactly
+   those entries as its source. The up blit's own screen was **perfect to the
+   pixel** and the NEXT page down drew three rows of the wrong text. A gate
+   that only ever compares what a scroll DRAWS cannot see this, which is what
+   `tests/wdscroll.py` leg F is for.
+
+**And a note on how it was found**, because two wrong diagnoses came first.
+The failing comparison was a round trip - page down, page back, require the
+same pixels - and both ends of it were suspect. Putting each end against a
+FORCED repaint separately (`wd_upheight` patched to `stc`/`ret`) read *start
+7522, end 0* in one line, which named the half that was wrong and turned the
+next experiment into a two-armed one: page-downs after a repaint, 0 bits;
+page-downs after an up-blit, 7522. A round trip says something is wrong. It
+never says which end.

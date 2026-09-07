@@ -32,7 +32,7 @@ sys.path.insert(0, "/home/user/os8088/tests")
 import os88fixture                                       # noqa: E402
 import os88marty, os88mouse, os88sym, os88geom, dispcp
 
-MC_SIZE, MEM_MAX = 10, 32
+MC_SIZE, MEM_MAX = os88geom.MC_SIZE, os88geom.MEM_MAX
 PKG_MOD, PKG_HEAPFRAG = "BEVERLY.MOD", "HEAPFRAG.O88"
 MS_SZ, MS_SEG = 12, 0
 MP_CHSZ, MP_SEG = 40, 6

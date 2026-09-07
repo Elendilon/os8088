@@ -780,11 +780,20 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
                                  ; and a move re-honours it (SPEC.md 50.3).
 ; ...AND THE SAME TWO FROM THE TOP OF THE HEAP (SPEC.md 50.3.2). For a buffer
 ; THE HARDWARE holds the address of - a sound card's DMA ring, a NIC's
-; descriptors - which can therefore never be moved and has no business in the
-; arena every data claim and the compactor share. SPEC.md 50.3 says why in its
-; own words: "one long-lived data claim landing mid-heap permanently splits the
-; space a package can be loaded into". If software is the only thing that reads
-; your block, use OSAPI_MEM_CLAIM above and let it be compacted.
+; descriptors - which has no business in the arena every data claim and the
+; compactor share. SPEC.md 50.3 says why in its own words: "one long-lived data
+; claim landing mid-heap permanently splits the space a package can be loaded
+; into". If software is the only thing that reads your block, use
+; OSAPI_MEM_CLAIM above and let it be compacted.
+;
+; A BLOCK CLAIMED HERE IS STILL BORN PINNED and stays pinned unless you declare
+; it, exactly like one from the low door. What the door decides is the
+; DIRECTION it is compacted in: the kernel records it (SPEC.md 50.3.2) and
+; SPEC.md 66.4.1's descending pass packs these towards the ceiling, so a
+; ceiling claim that CAN move - one only your own code addresses, put high
+; because it is long-lived rather than because a chip holds it - is worth
+; declaring OSAPI_MEM_MOVABLE. One a bus master is looking at is not, and
+; mem_can_move refuses an MC_DMA claim whatever you declare.
 %define OSAPI_MEM_CLAIM_HI  KERNEL_SEG:0x04C8   ; AX = KB; out CF, DX = segment
 %define OSAPI_MEM_CLAIM_DMA_HI KERNEL_SEG:0x04D0 ; ...and CX = the page-safe HEAD
 
@@ -1766,6 +1775,61 @@ DRVC_FILE    equ 5              ; a volume served by somebody answering
                                  ; refuses to compact any driver-owned claim
                                  ; while any service task is unparked.
 
+%define OSAPI_TASK_RESTARTABLE KERNEL_SEG:0x0518  ; AX = a near offset in YOUR
+                                 ; own image, 0 to withdraw. out CF=1 = you are
+                                 ; not a live package instance. Preserves every
+                                 ; register.
+                                 ;
+                                 ; "IF YOU HAVE TO MOVE MY REGION, THROW MY
+                                 ; WORKER'S STACK AWAY AND RE-ENTER IT HERE"
+                                 ; (SPEC.md 66.6.2).
+                                 ;
+                                 ; WHY IT EXISTS. Your REGION - the block your
+                                 ; code and bss live in - is a claim like any
+                                 ; other, and OSAPI_MEM_MOVABLE already
+                                 ; declares it. But if you hire a worker
+                                 ; (OSAPI_TASK_SPAWN) the kernel wrote your
+                                 ; segment into that worker's frame before its
+                                 ; first instruction, and its own call chain
+                                 ; has pushed it again since, at depths nothing
+                                 ; can compute. So a region with a worker stays
+                                 ; PINNED however it is declared - unless you
+                                 ; say this.
+                                 ;
+                                 ; WHAT YOU ARE ASSERTING is stronger than
+                                 ; OSAPI_MEM_PARKSAFE and the difference
+                                 ; matters: that one says "you may STOP me
+                                 ; here", this says "you may DISCARD what I am
+                                 ; standing on and start me again there". Your
+                                 ; worker's loop begins AGAIN - not resumes.
+                                 ; Everything it needs must live in your region
+                                 ; (which moves with it) or in a claim of its
+                                 ; own (which has its own relocation proc), and
+                                 ; never on its stack across the declaration.
+                                 ;
+                                 ; IT IS A WINDOW, NOT A HEADER BIT. A pump, a
+                                 ; poller, a game loop or a redraw worker loses
+                                 ; a frame and nothing else, and may declare
+                                 ; once and leave it. A worker that mixes audio
+                                 ; or interprets a story file declares only
+                                 ; BETWEEN units of work and withdraws before
+                                 ; the next - the same shape as taking and
+                                 ; releasing OSAPI_MEM_PARKSAFE around a lock.
+                                 ;
+                                 ; THE ASYMMETRY TO WEIGH: parksafe declared
+                                 ; wrongly costs you a missed optimisation.
+                                 ; This costs you a lost loop iteration - and
+                                 ; if your worker was holding something the
+                                 ; declaration was wrong about, it costs you
+                                 ; correctness. The default is undeclared, and
+                                 ; undeclared is the safe answer.
+                                 ;
+                                 ; The kernel restarts your worker only when it
+                                 ; is PARKED (SPEC.md 66.5.4), because your
+                                 ; declaration is about YOUR stack and says
+                                 ; nothing about the kernel's - so declaring
+                                 ; this alongside OSAPI_MEM_PARKSAFE is what
+                                 ; reaches a worker that draws.
 %define OSAPI_MEM_PARKSAFE  KERNEL_SEG:0x0408   ; AL = 1 declare / 0 withdraw.
                                  ; out CF=1 = you are not a live package
                                  ; instance. Preserves every register.
@@ -2289,6 +2353,57 @@ OS88_STACK_384     equ 4        ; the largest, asked for on purpose: a deep
     %if (%1 %+ _end - %1 %+ _list) / AMENU_ENTSZ > MENU_APPMAX
         %error "OS88_MENUSET: at most MENU_APPMAX (5) menus fit in the bar"
     %endif
+%endmacro
+
+; -----------------------------------------------------------------------------
+; OS88_MOVE_PROC / OS88_REGION_MOVABLE / OS88_WORKER_RESTARTABLE
+;
+; Declare THIS PACKAGE'S REGION - the block your code and bss live in - movable
+; (SPEC.md 66.6.1), and, if you hired a worker, restartable (66.6.2).
+;
+;     OS88_REGION_MOVABLE                 ; once, when your window exists
+;     OS88_WORKER_RESTARTABLE my_worker   ; right after OSAPI_TASK_SPAWN took
+;
+; Both are self-contained: OS88_REGION_MOVABLE carries its own relocation proc
+; and jumps over it, so there is no second thing to place and no way to declare
+; without one.
+;
+; WHY THE PROC IS A `ret`. Your own code needs no relocation - every near
+; offset in it survives a move untouched - and every word that NAMES your
+; region is the KERNEL's, which mem_region_reloc puts right: your window's
+; W_SEG, your instance's I_SPTR, the owner of every claim you hold, your menu
+; bar's entries and seven kernel scalars. A proc is required all the same,
+; because "declared and named nothing" is the one shape the kernel cannot tell
+; from "declared and forgot" (66.2), and it is where YOUR fix-up goes if you
+; ever cache your own segment in a word of your own. Almost nothing does.
+;
+; WHAT THE RESTART COSTS YOU is one iteration of your worker's loop, and the
+; kernel takes it only where your worker PARKS - inside OSAPI_TASK_ALIVE, or,
+; if you also declared OSAPI_MEM_PARKSAFE, blocked in OSAPI_GFX_LOCK. The
+; first is the top of your loop and costs a poll. The SECOND IS ANYWHERE IN
+; IT, so a worker that mixes audio, interprets a story or draws half a frame
+; must NOT pair the two blanket-fashion: declare this as a window instead -
+; turn it on immediately before OSAPI_TASK_ALIVE and off immediately after.
+; -----------------------------------------------------------------------------
+%macro OS88_REGION_MOVABLE 0
+    push ax
+    push dx                     ; DX is the instance index in an entry proc
+    mov dx, cs                  ; ...and OUR REGION is the claim
+    mov ax, %%reloc
+    call OSAPI_MEM_MOVABLE
+    pop dx
+    pop ax
+    jmp short %%over
+%%reloc:                        ; BX = the base it WAS at, DX = where it is now
+    ret
+%%over:
+%endmacro
+
+%macro OS88_WORKER_RESTARTABLE 1
+    push ax
+    mov ax, %1
+    call OSAPI_TASK_RESTARTABLE
+    pop ax
 %endmacro
 
 ; -----------------------------------------------------------------------------

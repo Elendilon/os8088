@@ -1498,7 +1498,8 @@ dsk_xfer:
     mov cx, ax                  ; the boot bar counts SECTORS, and a call now
 .notch:                         ; carries a run of them (SPEC.md 18.91) - so
     SPLCALL splf_step               ; it is stepped per sector rather than per
-    call KERNEL_SEG:cw_fpg_step               ; call, or the bar would under-count exactly
+    mov bp, fpg_step
+    call KERNEL_SEG:cw_mem_disp ; call, or the bar would under-count exactly
     loop .notch                 ; as far as the batching won. BOTH preserve
                                 ; every register and the flags - CX is this
                                 ; loop's counter and CF is dsk_xfer's answer
@@ -6513,7 +6514,8 @@ dkf_dsk_vol_slot:    call dsk_vol_slot_x
 ; disk, and the caller has just asked for the floppy to come OUT.
 ; -----------------------------------------------------------------------------
 ; dsk_fdd_park_x - FAR: recalibrate every claimed floppy head to track 0.
-; in:  nothing;  out: nothing (AX/BX/CX/DX preserved; flags clobbered)
+; in:  nothing;  out: DOES NOT RETURN - the `int 0x19` at its tail is the
+;      last instruction of the GUI.  clobbers: AX, CX, DX, ES, flags
 ;
 ; EVERY UNIT THE EQUIPMENT WORD CLAIMED, not every unit with a volume row - so
 ; a drive §18.97.2 wrongly retired, which has no row, is still recalibrated and
@@ -6522,29 +6524,20 @@ dkf_dsk_vol_slot:    call dsk_vol_slot_x
 ; -----------------------------------------------------------------------------
 %ifndef NO_FDDPARK
 dsk_fdd_park_x:
-    push ax
-    push bx
-    push cx
-    push dx
     mov cl, [fdd_dbg_eqp]       ; drives int 11h claimed (0..4), banked by
-    or  cl, cl                  ; desk_init before anything contested it (§57.5)
-    jz  .out                    ; none: nothing to park
-    xor bl, bl                  ; BL = the unit
+                                ; desk_init before anything contested it (§57.5)
 .unit:
+    dec cl                      ; ...counted DOWN, so 0 claimed falls straight
+    js  dsk_rb_go               ; through the same test the last unit exits on
+    mov dl, cl                  ; this unit; DH is irrelevant to AH=00
     xor ah, ah                  ; AH=00 RESET DISK SYSTEM = recalibrate to trk0
-    mov dl, bl                  ; ...this unit; DH is irrelevant to AH=00
     int 0x13                    ; the ROM handshakes, waits and retries. No
                                 ; result is read: the int 19h below resets the
                                 ; FDC whatever this leaves behind (§18.100)
-    inc bl
-    cmp bl, cl
-    jb  .unit
-.out:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    retf
+    jmp short .unit             ; the ORDER units are parked in does not matter
+dsk_rb_go:                      ; the last instruction of the GUI, in .cold
+    int 0x19
+    jmp $
 %endif                           ; NO_FDDPARK
 
 ; =============================================================================

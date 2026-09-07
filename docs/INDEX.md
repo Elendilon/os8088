@@ -192,6 +192,7 @@ Read first: [§7 Concurrency model (read carefully — this is the crux)](../SPE
 | `0x0160` | `OSAPI_TASK_SPAWN` | AX = your worker's near entry (a plain `mov ax, my_worker`... |
 | `0x0168` | `OSAPI_TASK_ALIVE` | BX = YOUR window ptr; the gfx lock must NOT be held, and it must be YOUR WORKER calling - never a window callback... |
 | `0x0410` | `OSAPI_TASK_PARK` | a DRIVER's worker parks here for a heap compaction (SPEC.md 66.5.5), the way a package's parks at OSAPI_TASK_ALIVE... |
+| `0x0518` | `OSAPI_TASK_RESTARTABLE` | AX = a near offset in YOUR own image, 0 to withdraw. out CF=1 = you are not a live package instance. Preserves every register... |
 | `0x02F8` | `OSAPI_BOOT_TICKS` | out AX = how long this machine took to boot, in SYSTEM TICKS (18.2065 Hz, 54.925 ms each): the boot sector's first instruction to the first desktop... |
 
 ### Sound
@@ -296,7 +297,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | NOTEPAD | `apps/notepad/notepad.asm` | §27 | yes |
 | PAINT | `apps/paint/paint.asm` | §42 | yes |
 | PIANO | `apps/piano/piano.asm` | §36 | yes |
-| RECORDER | `apps/recorder/recorder.asm` | §35 | yes |
+| RECORDER | `apps/recorder/recorder.asm` | §35 | no |
 | RUNCPM | `apps/runcpm/runcpm.asm` | §74 | yes |
 | SHEET | `apps/sheet/sheet.asm` | §81 | yes |
 | SKIES | `apps/skies/skies.asm` | §88 | yes |
@@ -411,7 +412,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 
 *How it works today - `docs/` (15):* `BIFF-NOTES.md`, `C-TOOLCHAIN.md`, `C64-SPEC.md`, `FIELD-MACHINES.md`, `FIELD-NOTES.md`, `HEAP-CLAIMS.md`, `HERCULES-TESTING.md`, `KERNEL-MEMORY.md`, `LIVE-MEDIA.md`, `MARTYPC-DEBUG.md`, `README.md`, `TESTING.md`, `UPSTREAM.md`, `WEAVE-SPEC.md`, `WRITING-TESTS.md`
 
-*Plans with work still open - `docs/plans/` (8):* `HANDOFF-SOAK-FINDINGS.md`, `KERN-SMALL-CUT-PLAN.md`, `LAST-DROP-BYTES.md`, `LAST-DROP-PERF.md`, `MONO-RECLAIM-PLAN.md`, `MOUSE-BOOT-FREEZE-PLAN.md`, `O88-COMPRESSION-PLAN.md`, `SOAK-PARALLEL.md`
+*Plans with work still open - `docs/plans/` (12):* `ARTFUL-PERF-PLAN.md`, `HANDOFF-SOAK-FINDINGS.md`, `HEAP-UNPIN-PLAN.md`, `KERN-SMALL-CUT-PLAN.md`, `KERNEL-BYTE-QUEUE.md`, `LAST-DROP-BYTES.md`, `LAST-DROP-PERF.md`, `MONO-RECLAIM-PLAN.md`, `MOUSE-BOOT-FREEZE-PLAN.md`, `O88-COMPRESSION-PLAN.md`, `SOAK-PARALLEL.md`, `UI-MENU-ELEMENT.md`
 
 *Design records for what shipped - `docs/plans/completed/` (65):* `ASSOC-PLAN.md`, `AUDIO-PLAN.md`, `BOOT-LADDER-PLAN.md`, `BOOT-PERF-PLAN.md`, `BROWSER-PLAN.md`, `C64-PORT-PLAN.md`, `CURSOR-PLAN.md`, `DBLCLICK-PLAN.md`, `DEBUG-PLAN.md`, `DISK-PERF-PLAN.md`, `DUAL-DISPLAY-PLAN.md`, `DUAL-DISPLAY-VGA.md`, `EGA-PLAN.md`, `FROTZ-PLAN.md`, `FSX-PLAN.md`, `FTP-PERF.md`, `GFX-FSX-PLAN.md`, `GFX-REWORK-PLAN.md`, `HANDOFF-DISK-IO.md`, `HANDOFF-FONTCHAR-SEAM.md`, `HANDOFF-KERNEL-SIZE-P2.md`, `HANDOFF-KERNEL-SIZE-P3.md`, `HANDOFF-KERNEL-SIZE-P4.md`, `HANDOFF-KERNEL-SIZE.md`, `HANDOFF-REDRAW.md`, `HANDOFF-SOUND-MEMORY.md`, `HANDOFF.md`, `HDD-PLAN.md`, `HDD-SPLIT-PLAN.md`, `HEAP-COMPACTION-PLAN.md`, `KERN-SMALL-CUT-BUILT.md`, `KERN-SMALL-MODULE-SPLIT.md`, `LINE-PERF-PLAN.md`, `MEMORY-PLAN.md`, `MOUSEUP-PLAN.md`, `NET-PLAN.md`, `NET-STACK-PLAN.md`, `NOTEPAD-NOTES.md`, `O88-MULTISEG-PLAN.md`, `ONDEMAND-PLAN.md`, `PAINT-1BPP-PLAN.md`, `PAINT-NOTES.md`, `PAINT-STROKE-PLAN.md`, `PROXY-PLAN.md`, `RUNCPM-PORT-PLAN.md`, `SAVEUNDER-LIVE-PLAN.md`, `SCHED-IDLE-PLAN.md`, `SDK-INCLUDE-SIZE.md`, `SETTINGS-COST.md`, `SNAP-PLAN.md`, `SNAPSHOT-PLAN.md`, `STACK-SLOTS-PLAN.md`, `STKBALANCE-KERNEL.md`, `TEXT-PLAN.md`, `TITLE-PLAN.md`, `TOAST-PLAN.md`, `UI-FREEZE-PLAN.md`, `UIHELPERS-PLAN.md`, `VMMOUSE-PLAN.md`, `WEAVE-PLAN.md`, `WINDOW-ANIM-PLAN.md`, `WINDOW-SIZING-PLAN.md`, `WMEVENT-PLAN.md`, `WORD-PLAN.md`, `XMEM-DRIVER-PLAN.md`
 

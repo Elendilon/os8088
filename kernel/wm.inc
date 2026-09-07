@@ -102,6 +102,15 @@ WIN_SIZE equ 34                 ; NOT a power of two: never shift, multiply
 WIN_SIZE equ 28                 ; ...and kern_small stops where SPEC.md 13.7
 %endif                          ; left it
 MAX_WIN  equ 12                 ; mirrored in apps/os88api.inc (SPEC.md 11)
+WM_PKGD_MAX equ 8               ; how deep wm_pkgs records the nest (SPEC.md
+                                ; 66.6.1). Callbacks nest across packages - a
+                                ; callback may call OSAPI_WM_SHOW, which
+                                ; repaints, which dispatches another package's
+                                ; paint proc - and there is no bound on that in
+                                ; principle, so past this depth mem_frameless
+                                ; pins EVERY region rather than answer from an
+                                ; incomplete stack. Eight is three deeper than
+                                ; anything measured
 
 ; --- the title bar's two boxes (SPEC.md 11) ----------------------------------
 ; The close box on the left, the minimize box mirrored at the right, both the
@@ -316,8 +325,32 @@ wm_pkgcall:
     pop ax                      ; keeps the word above safe to push and pop
     cmp word [es:si+W_SEG], 0   ; (the cmp sets the flags the branch reads, so
     je .near                    ; the `and` above cannot reach it)
+    push ax                     ; WHICH REGION A FRAME IS ABOUT TO REFER TO
+    push bx                     ; (SPEC.md 66.6.1). AX and BX are the
+    mov bl, [cs:wm_pkgd]        ; CALLBACK's arguments, so they are banked
+    xor bh, bh                  ; across five instructions rather than spent
+    cmp bl, WM_PKGD_MAX
+    jae .nostk                  ; deeper than wm_pkgs records: mem_frameless
+    shl bx, 1                   ; pins every region rather than guess
+    mov ax, [es:si+W_SEG]
+    mov [cs:wm_pkgs+bx], ax
+.nostk:
+    inc byte [cs:wm_pkgd]
+    pop bx
+    pop ax
     mov ds, [es:si+W_SEG]       ; DS = the package's own segment
     call far [es:si+W_DISP]     ; ...and off to its dispatcher
+    pushf                       ; A CALLBACK ANSWERS IN THE FLAGS (an entry
+    dec byte [cs:wm_pkgd]       ; proc's CF, W_ONSIZE's), so the decrement is
+    popf                        ; bracketed - `dec` writes ZF and SF.
+                                ; **`cs:` AND NOT DS**: DS is the PACKAGE's
+                                ; here, restored only at `.out` below, so an
+                                ; unprefixed store lands one byte deep in the
+                                ; package's own image. It did, and the window
+                                ; titles came back as line noise. ES is no
+                                ; safer - a callback may clobber it (SPEC.md
+                                ; 13) - and this routine is .text, so CS is
+                                ; KERNEL_SEG and reaches .bss
     jmp short .out
 .near:
     call bp                     ; a kernel window: DS is already ours
@@ -1971,10 +2004,12 @@ wm_pref_take:
     push si
     push di
     push es
+%ifdef GFX_VGA                  ; no EGA on a build with no VGA renderer
     cmp al, VID_EGA             ; the per-window PREF table has THREE entries,
     jne .kindok                 ; VID_VGA / VID_HERC / VID_CGA, and the kind
     mov al, VID_VGA             ; indexes it (kind*4) below - so an unclamped
 .kindok:                        ; EGA reads si+12, off the end of a table in
+%endif
                                 ; the PACKAGE's own segment. An EGA machine
                                 ; takes VGA's row - it is VGA's planar path,
                                 ; and a package cannot supply a fourth pair
@@ -11724,6 +11759,31 @@ wm_animon   db 1                ; 0 = Off, 1 = On
 ; so these three must stay contiguous and in this order)
 ; -----------------------------------------------------------------------------
 section .bss
+wm_pkgd:    resb 1              ; NESTING DEPTH OF KERNEL -> PACKAGE CALLS
+                                ; (SPEC.md 66.6.1), and wm_pkgs the SEGMENT at
+                                ; each level. A level naming a segment means a
+                                ; frame somewhere refers to that package's
+                                ; region - as a far-return CS, as OSAPI_SLOT's
+                                ; own `push ds`, or as anything the package
+                                ; pushed itself - and mem_can_move pins that
+                                ; region while it does.
+                                ;
+                                ; A STACK AND NOT A COUNT, which is the whole
+                                ; difference between a feature that fires and
+                                ; one that does not. A package reaches
+                                ; mem_claim only from inside its own callback,
+                                ; so a global depth is ALWAYS non-zero at the
+                                ; one moment a package-driven compaction runs,
+                                ; and a compactor resting on one would move a
+                                ; region only on a KERNEL-initiated claim.
+                                ; Recording which costs 16 bytes and lets
+                                ; package A's claim pack package B's region.
+                                ;
+                                ; The loader's entry call is NOT counted here:
+                                ; the only region a frame of it can refer to is
+                                ; the one being loaded, and [ld_base] names
+                                ; that one already
+wm_pkgs:    resw WM_PKGD_MAX
 wm_wins:    resb MAX_WIN * WIN_SIZE ; 12 windows x WIN_SIZE bytes
 wm_zord:    resb MAX_WIN            ; window indices, [0] = backmost
 wm_zn:      resb 1                  ; entries in wm_zord

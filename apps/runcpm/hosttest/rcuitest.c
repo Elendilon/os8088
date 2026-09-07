@@ -284,6 +284,15 @@ int  os88_task_spawn(void *win)
     spawned++;
     return 0;
 }
+/* SPEC.md 66.6.2, declared right after the spawn takes - and the harness
+ * checks the LOCK the same way, because it is on that same path */
+static int restartable;
+int  os88_task_restartable(int on)
+{
+    need_lock("task_restartable");
+    restartable = on;
+    return 0;
+}
 void os88_wm_destroy(void *win) { need_lock("wm_destroy"); destroyed++; }
 void os88_task_alive(void *win)
 {
