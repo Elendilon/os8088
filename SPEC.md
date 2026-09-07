@@ -96143,18 +96143,16 @@ The light sport amphibian, and it fills the slow end of the envelope the
 other four leave empty: 95 knots, a 39-knot stall, and a wing that comes
 back to level on its own.
 
-**A water strip is a runway made of water.** The location record carries a
-second one — `CSA_WX`, `CSA_WZ`, `CSA_WHDG`, `CSA_WLEN`, `CSA_WWID` and the
-water's own name — in exactly the four numbers the first one has, so an
-amphibian's landing is the same arithmetic and **not a polygon test**.
-`cs_runway_xy` and `cs_water_xy` are now two wrappers over one
-`cs_local_xy`. `CSA_WLEN` = 0 is a place with no water an aeroplane could
-get down on; **all nine locations have one**, each fitted inside that
-world's own `CSI_RIVER` polygons and checked by containment sampling before
-it was written down.
+**A water strip is a runway made of water** — `CSA_WX`, `CSA_WZ`,
+`CSA_WHDG`, `CSA_WLEN`, `CSA_WWID` and the water's own name, in exactly the
+four numbers the runway has, so `cs_runway_xy` and `cs_water_xy` are two
+wrappers over one `cs_local_xy`. It is where `cs_reset` puts the aeroplane,
+hull in, pointing along it, and `CSA_WLEN` = 0 is a place with no water an
+amphibian could use; **all nine locations have one.** §88.7.7.1 is why it is
+no longer what a LANDING is tested against.
 
 **`CSPF_AMPHIB`** is the whole of what makes the A5 different. With it,
-`cs_touch` tries the water strip before the runway and a touchdown inside it
+`cs_touch` tries the water before the runway and a touchdown on it
 is a landing that says `DOWN ON THE SEINE`; `cs_reset` starts the session on
 the strip's own threshold, hull in, pointing along it. Without it — every
 other aeroplane — the water is not tested at all and putting one down there
@@ -96196,6 +96194,46 @@ disk, which has 37 of 354 free (§19). **The drawings, not the code, are
 what decide how many aeroplanes that disk can carry**: a sixth aeroplane's
 record, cockpit, flight model and name together are under 400 bytes and its
 picture is nearly five times that.
+
+#### 88.7.7.1 ALL water is water, and the strip was an invisible runway on it
+
+The field put it exactly: *"I can take off from water, but cannot land on
+it — my guess is there is an invisible landing strip at one point on the
+water."* That is what it was. `CSA_WLEN`×`CSA_WWID` is a rectangle, so the
+Thames was landable over 800 m of its length and a crash everywhere else,
+with nothing on the glass to say where the edge was.
+
+**It is a point-in-polygon test against the world's own `CSI_RIVER` faces
+now** (`cs_inwater`), and the reason that is affordable is one line:
+**`cs_touch` fires once, at the tick the wheels meet the ground.** The
+"not a polygon test" the old note made a virtue of was buying nothing —
+`cs_water_xy`'s own comment already said *"this runs once, at a touchdown"*.
+Measured over all nine worlds: at most **20 water faces**, every one of them
+a quad, **80 vertices** in the worst world (Miami), against 12–39 objects.
+An object is Manhattan-rejected on its `CSM_RAD` before any face is walked,
+so what a real touchdown costs is a handful of edges.
+
+**The test is division-free**, which is what keeps it in a word: for each
+edge that straddles the point's row, the sign of
+`(bx−ax)(pz−az) − (bz−az)(px−ax)` decides the crossing, and it is compared
+against the sign of `bz−az` rather than divided by it. It runs in the
+OBJECT's own coordinates — the point is brought to the object rather than
+the vertices to the world — so the terms are bounded by the model's extent:
+measured, local vertices are ±6,000 and the worst product is 9.1 × 10⁷,
+which one `imul`'s `DX:AX` holds with 24 bits to spare.
+
+**Nothing was lost by removing the rectangle**, and that was checked rather
+than assumed: every one of the nine strips was sampled at its centre and
+four extremes against that world's `CSI_RIVER` polygons and every point is
+inside, so the polygon test **subsumes** the rectangle. `CSA_WLEN` = 0 still
+means "no water landings here", which keeps an author's escape hatch.
+
+**The splash says WHICH water**, and it can now be right where it could not
+be before: the message takes the touched object's `CSO_NAME` instead of the
+location's single `CSA_WNAME`, so Miami tells `BISCAYNE BAY` from
+`GOVERNMENT CUT` from `THE ATLANTIC`, and Rio tells `COPACABANA` from
+`GUANABARA BAY`. Four of the nine worlds carry more than one water and every
+one of them used to report the same name.
 
 #### 88.7.8 THE ELEVATOR IS A BODY RATE, and it was a world one
 

@@ -421,19 +421,33 @@ def main(argv):
                        "altitude %d m)" % (r.byte("cs_state"), r.metres("cs_py")))
         elif r.word("cs_crashes") != c0 + 1:
             bad.append("cs_crashes read %d after one crash" % r.word("cs_crashes"))
-        ok = until(m, lambda: r.byte("cs_state") == CS_ST_GROUND,
-                   CS_CRASHT * 4 + 60, 15)
-        x1, z1, hdg1 = r.metres("cs_px"), r.metres("cs_pz"), r.word("cs_hdg")
+        # READ IT AT THE RESET, not fifteen frames later. `until` steps in
+        # blocks, so the aeroplane has been flying again for up to a block by
+        # the time the loop returns - and the throttle is the one field that
+        # moves on its own, which is how this read 6 for 0 under a loaded box
+        # and passed every time it ran alone (docs/WRITING-TESTS.md 13 row 8).
+        at = {}
+
+        def landed():
+            if r.byte("cs_state") != CS_ST_GROUND:
+                return False
+            at.setdefault("p", (r.metres("cs_px"), r.metres("cs_pz"),
+                                r.word("cs_hdg"), r.word("cs_thr")))
+            return True
+
+        ok = until(m, landed, CS_CRASHT * 4 + 60, 15)
+        x1, z1, hdg1, thr1 = at.get("p", (r.metres("cs_px"), r.metres("cs_pz"),
+                                          r.word("cs_hdg"), r.word("cs_thr")))
         print("  after the crash: state %d at (%d, %d) heading %d; spawned at "
               "(%d, %d) heading %d; throttle %d"
-              % (r.byte("cs_state"), x1, z1, hdg1, x0, z0, hdg0, r.word("cs_thr")))
+              % (r.byte("cs_state"), x1, z1, hdg1, x0, z0, hdg0, thr1))
         if not ok:
             bad.append("the crash never reset (state %d after %d ticks)"
                        % (r.byte("cs_state"), CS_CRASHT * 4))
-        elif (x1, z1) != (x0, z0) or hdg1 != hdg0 or r.word("cs_thr"):
+        elif (x1, z1) != (x0, z0) or hdg1 != hdg0 or thr1:
             bad.append("the reset did not put the aeroplane back where it "
                        "started: (%d, %d)/%d against (%d, %d)/%d, throttle %d"
-                       % (x1, z1, hdg1, x0, z0, hdg0, r.word("cs_thr")))
+                       % (x1, z1, hdg1, x0, z0, hdg0, thr1))
 
         m.type_text("f")                        # ...and F leaves (SPEC.md 11.2.1)
         m.advance(frames=90)
