@@ -19,8 +19,9 @@ THE THREE TIERS.
          checks the invariants that break SILENTLY. Hangs off the default
          build, so it cannot be skipped.
 
-  full   Budget 10 minutes. THE PRE-MERGE GATE. fast, plus the build matrix
-         `all` never builds, plus a CURATED set of emulator tests.
+  full   Budget 3 minutes. THE PRE-MERGE GATE, and it asks ONE question:
+         DID YOU OBVIOUSLY BREAK THE OS?  Does it compile, does it boot,
+         does it do the basic things, is anything critical gone.
 
   soak   No budget. Everything else - the rest of `tests/`, which is a great
          deal and is where the deep single-subject gates live.
@@ -33,20 +34,102 @@ and then drives a session through it.  Instances are isolated now, so
 `--marty-jobs` runs emulator rows side by side - but the lane is CORES-1 wide
 and the box is four cores, so the arithmetic barely moves.
 
-So 10 minutes is about **eight** emulator tests, not fifty.  That is not a
-limitation to be engineered away - it is what the machine costs - and the
-honest response is to say which eight and put the rest in `soak` where they
-are still one command away (`os88test.py soak -k disp*`).  The runner FAILS
-the tier when it overruns, so this stays true as rows are added rather than
-drifting until the suite is too slow to run.
+So THREE minutes is about four such rows, not fifty.  That is not a limitation
+to be engineered away - it is what the machine costs - and the honest response
+is to say which four and put the rest in `soak` where they are still one
+command away (`os88test.py soak -k disp*`).  The runner FAILS the tier when it
+overruns, so this stays true as rows are added rather than drifting until the
+suite is too slow to run.  The 180s is a target for FOUR LANES on an ordinary
+box; a slower one is expected to take longer, and today's tier leaves room for
+that (60.3s in the runner and 75.3s of wall on a cold four-core container,
+37.8s / 51.1s warm).
 
-WHAT EARNS A `full` ROW.  Breadth per second, and independence.  `bootsmoke`
-is the model: about twelve seconds for a boot to a desktop on both 1bpp
-adapters, and it exercises the boot sector, FAT12, the
-`int 13h` splitter, adapter detection, the heap ladder, `drv_boot` and the
-first paint - so it fails for almost any serious regression, wherever it was.
+WHAT EARNS A `full` ROW.  ONE QUESTION: DID YOU OBVIOUSLY BREAK THE OS?  Does
+it compile, does it boot, does it do the basic things, is anything critical
+gone.  `bootsmoke` is the model: thirteen seconds for a boot to a desktop on
+both 1bpp adapters, exercising the boot sector, FAT12, the `int 13h` splitter,
+adapter detection, the heap ladder, `drv_boot` and the first paint - so it
+fails for almost any serious regression, wherever it was.
+
+Three things follow, and each one retired a row when the tier was recut:
+
+  NOTHING APP-SPECIFIC.  A package is not the OS.  A row may DRIVE an app as
+  the vehicle for a generic check - `ctoolchain` builds four C packages
+  because that is what a toolchain produces - but a row whose SUBJECT is one
+  program belongs in `soak`.  That is what moved `weavesmoke` (72.8s) and
+  `appsmall` out.
+
+  A KERNEL CHECK IS ALLOWED, AND SHOULD BE SHORT.  `kernresident` boots a VGA
+  machine and walks `mem_tab` in 13.7s; that is the shape.  A deep sweep of
+  one subsystem is not, however true it is: `smallboot` walked three adapters
+  for 118s where `small128` beside it already builds that kernel and boots it.
+
+  THE SUBJECT IS THE OS, NOT THE TREE AND NOT THE SUITE.  `buildmatrix`'s 99
+  knob configurations are instruments, `bmshare` and `kernmods` are about
+  build-speed variables and a size report, `martyconc` gates the emulator
+  harness and `stackprose` reads prose.  Every one is worth having; none of
+  them can answer this tier's question, and `buildmatrix` alone was 143s of
+  a 180s budget.
+
 A row that can only fail for one narrowly-scoped reason belongs in `soak`,
-next to the change that would break it.
+next to the change that would break it.  docs/WRITING-TESTS.md section 2.2 is
+this rule written for somebody adding a row rather than moving one.
+
+WHAT EARNS A `fast` ROW, which is the harder question and the one this list
+got wrong for a long time.  `fast` is the only tier NOBODY OPTS INTO - `all`
+depends on it - so every second of it is charged to the contributor who is
+NOT working on its subject and has never read the code it defends.  The
+question is therefore never "is this check worth having"; every row in
+`tests/` is.  It is **"is it worth having to somebody who did not touch
+this?"**
+
+Two questions retire a row from `fast`, and either one on its own is enough:
+
+  1. IS IT ABOUT ONE PACKAGE OR ONE DRIVER?  Then it is `soak`.  Whoever
+     changes SKIES tests SKIES; charging every other contributor two seconds
+     a build for it buys them nothing, and `soak -k 'cs*'` is one command
+     run by the person it is for.
+
+  2. CAN ONLY A KERNEL CHANGE BREAK IT?  Then it is `soak` too.  A row about
+     how the kernel works INSIDE - a .bss sentinel, `.lowbss`'s order, the
+     eviction ranks, `clk_mlen`'s mask - is defended by whoever edits that
+     subsystem, and that is exactly the person who will run `soak -k` on it.
+     `fast` is not where the kernel is proved to still work.  It is where a
+     writer who has never opened that subsystem is caught breaking it by
+     accident.  THE EXCEPTION IS WHAT MAKES THE RULE USEFUL: a kernel-side
+     row stays if code OUTSIDE the kernel can reach it - a package, a
+     driver, the SDK, or a Makefile recipe.  `api-abi` and `drvovl` are both
+     kernel-side and both stay, because the other end of each is somebody
+     else's file.
+
+     AND ONE ROW STAYS FOR WHAT IT PRINTS.  `kernbudget` is kernel-internal
+     by any reading, costs 28ms, and puts `KERN_BUDGET big <n>, small <n>`
+     on every build - which is how kernel size drift stays visible between
+     one person's commits and the next.  A row may earn `fast` by what it
+     puts on the SCREEN as well as by what it catches; the bound is that it
+     must be effectively free, and the number must be one the project
+     actually steers by.  It is the only one, and it is the owner's call.
+
+What survives is four families, and a new row should be able to say which
+one it is joining:
+
+  THE BOUNDARY          the kernel and the code loaded onto it, edited by
+                        different people, with neither side's build saying
+                        so - api-abi, stkclass, drvovl, fonts, pkgdeps
+  RULES OVER EVERY LINE  what any assembly in this tree must obey, kernel
+                        and package alike - asmrules, ovlchk, textrules,
+                        stkbalance, stkapps, swallow
+  THE SHIPPED ARTIFACTS  the floppies themselves, which anybody adding a
+                        file reaches - image, pkg, diskverify, canary,
+                        checkreadme
+  THE TREE AND ITS SUITE duplication, generated docs, and the gates'
+                        own integrity - mirror, checkdocs, docindex,
+                        registry, machines, qemuown, fixtures, layout,
+                        stkwalker
+
+The membership is whatever carries the tier `fast` below; the families are
+how to argue about a new one.  docs/WRITING-TESTS.md section 2.1 is the same
+rule written for somebody adding a row rather than moving one.
 """
 import os
 
@@ -139,45 +222,49 @@ def _kernel_sources():
 # fast - host-side, no emulator, no build. Runs on every `make`.
 # --------------------------------------------------------------------------
 FAST = [
-    Row("blobruns", "fast", py("tests/unit/t_blobruns.py"), 0.1,
+    Row("blobruns", "soak", py("tests/unit/t_blobruns.py"), 0.1,
         "how many int 13h calls stage 1 spends on the blob, per geometry "
         "(SPEC.md 15.3.8.5) - the count is NOT a function of BOOT2_SECS "
         "alone, because a run is bounded by the track and KERNEL.SYS starts "
         "where each BPB puts the data area. 13 is the last sector that fits "
         "two calls on a 720KB disk, and the 14th costs a whole revolution to "
-        "move one sector",
+        "move one sector. "
+        "SOAK and not fast: the blob's shape is stage 1's and the BPB's, "
+        "which no package can reach - it belongs beside a boot or geometry "
+        "change",
         needs=("nasm",)),
-    Row("bootfloor", "fast", py("tests/unit/t_bootfloor.py"), 3.5,
+    Row("bootfloor", "soak", py("tests/unit/t_bootfloor.py"), 3.5,
         "stage 1's RAM floor against the kernel's own ladder (SPEC.md 2.7.1) "
         "- HEAP_PARA is INJECTED, so the two can disagree, and guard 5c used "
         "to reconcile them until stage 1 started testing the exact condition "
         "and the guard became `x > x + 160`. Also the FLAT_PAYLOAD clamp: a "
         "small diagnostic payload bounds below RELOC_ADJ, where the `sub` "
         "after the compare underflows and relocates the sector to the top of "
-        "a 1MB machine that is not there",
+        "a 1MB machine that is not there. "
+        "SOAK and not fast: HEAP_PARA and the ladder are kernel-internal "
+        "and nothing outside the kernel can move either",
         needs=("nasm",)),
-    Row("lowwin", "fast", py("tests/unit/t_lowwin.py"), 10.0,
+    Row("lowwin", "soak", py("tests/unit/t_lowwin.py"), 10.0,
         "the mount-owned window is the BOTTOM of .lowbss (SPEC.md 2.1.2), so "
         "that it and the FAT window under it are one contiguous 8,192-byte "
         "region dead for the whole of kmain. It is bought by one include line "
         "and nothing else would notice it sliding: no RAM moves, no address "
         "any code names changes, and the kernel boots either way - only "
-        "stage C would find out, by writing the overlay over vid_rowtab",
+        "stage C would find out, by writing the overlay over vid_rowtab. "
+        "SOAK and not fast: .lowbss's order is one include line inside "
+        "the kernel, and ten seconds of every `make` is a high price for a "
+        "line only a kernel change touches",
         needs=("nasm",)),
     Row("api-abi", "fast", py("tests/unit/t_api_abi.py"), 3.3,
         "the API table decoded from kernel.bin and compared with the SDK - the "
         "silent merge collision CLAUDE.md asks to be checked by hand"),
-    Row("stackprose", "full", py("tests/unit/t_stackprose.py"), 10.0,
-        "a doc or comment that names the task stack's SIZE names the one the "
-        "kernel has. SCH_STACK has been 1,536, 512, 256 and 384; SPEC.md 2.1 "
-        "and 20.6 rule 6 followed it every time and the forty-odd places "
-        "CITING them did not. That is not a typo class - docs/UPSTREAM.md's "
-        "stale 256 had a session report a worker-stack contract difference "
-        "between this branch and `main` that had not existed since #112, and "
-        "go looking for what to adapt. os88geom guards the copies a SCRIPT "
-        "retyped; this guards the ones a HUMAN did. FULL rather than fast: a stale comment misleads a reader, it does not break a build, and the fast tier runs on every `make` against a 30s budget this row is a sixth of",
+    Row("stackprose", "soak", py("tests/unit/t_stackprose.py"), 10.0,
+        "a doc or comment that names the task stack's SIZE names the one the kernel has. SCH_STACK has been 1,536, 512, 256 and 384; SPEC.md 2.1 and 20.6 rule 6 followed it every time and the forty-odd places CITING them did not. That is not a typo class - docs/UPSTREAM.md's stale 256 had a session report a worker-stack contract difference between this branch and `main` that had not existed since #112, and go looking for what to adapt. os88geom guards the copies a SCRIPT retyped; this guards the ones a HUMAN did."
+        "SOAK rather than fast or full: a stale comment misleads a reader, "
+        "it does not break a build - so it answers neither tier's question, "
+        "and both are paid for by people it is not about",
         needs=()),
-    Row("drvovl", "fast", py("tests/unit/t_drvovl.py"), 0.3,
+    Row("drvovl", "fast", py("tests/unit/t_drvovl.py"), 0.1,
         "SPEC.md 20.13/62.9.9: a driver-loaded OVERLAY may not be COMPRESSED. "
         "RAMPAGE.DRV and HDDTOOL.DRV are read by RAMDISK.DRV and HDD.DRV "
         "themselves, with OSAPI_FILE_READ - which expands a 'CZ' FILE and NOT "
@@ -194,7 +281,7 @@ FAST = [
         "failures, and the reason took a screenshot to see. The gate reads "
         "the DRIVERS' OWN SOURCE for the names they load, so a third overlay "
         "is covered the day it is written"),
-    Row("lzfmt", "fast", py("tests/unit/t_lzfmt.py"), 4.0,
+    Row("lzfmt", "soak", py("tests/unit/t_lzfmt.py"), 4.0,
         "docs/plans/O88-COMPRESSION-PLAN.md wave 0: both compression formats "
         "round-trip. tools/os88lz.py is the REFERENCE and the kernel's "
         "decoders are the copy, so this is what makes that claim mean "
@@ -206,34 +293,43 @@ FAST = [
         "reserve, which is the number that lets a compressed image be read "
         "into the top of its own region and expanded downwards with no "
         "second buffer - noise measures 17 bytes where every real package "
-        "measures 2, because LZ4 EXPANDS data that does not compress",
+        "measures 2, because LZ4 EXPANDS data that does not compress. "
+        "SOAK and not fast: the codec is one subsystem that no package "
+        "can reach, nobody edits it build to build, and lzfmt-all beside it "
+        "is already soak",
         needs=()),
     Row("lzfmt-all", "soak", ["python3", "tools/os88lz.py", "--selfcheck"], 12.0,
         "the same round trip over every binary the tree builds - packages, "
         "drivers and the kernel. SOAK and not fast: the fixed corpus above is "
         "what catches a format bug, this is what catches a bug that only some "
         "real file's byte pattern reaches, and it costs 4s"),
-    Row("mirror", "fast", py("tests/unit/t_mirror.py"), 3.9,
+    Row("mirror", "fast", py("tests/unit/t_mirror.py"), 4.5,
         "a constant written down in two files must agree in both; there is no "
         "linker here to notice"),
-    Row("csworld", "fast", py("tests/unit/t_csworld.py"), 2.0,
+    Row("csworld", "soak", py("tests/unit/t_csworld.py"), 2.0,
         "SPEC.md 88.6.3: no collidable building in any CLEAR SKIES world"
         " stands in that world's own water - every base footprint against"
         " every river polygon, edges and containment and not just corners."
-        " Nine locations and eight worlds since 88.6.4, and it walks them all"),
-    Row("csworlds", "fast", py("tests/unit/t_csworlds.py"), 2.0,
+        " Nine locations and eight worlds since 88.6.4, and it walks them all. "
+        "SOAK and not fast: CLEAR SKIES is ONE package, so this belongs "
+        "beside a change to it - `soak -k 'cs*'`"),
+    Row("csworlds", "soak", py("tests/unit/t_csworlds.py"), 2.0,
         "SPEC.md 88.6.4: every CLEAR SKIES world costs about what PARIS costs."
         " The 12 fps budget was measured on Paris alone (88.12), so a world"
         " written afterwards can miss it by a factor with nothing to say so -"
         " slowness is one of the three defects an emulator cannot show. It"
         " prices each world's PEAK frame the way the renderer does and holds"
         " it to 1.15x Paris', and refuses a world that can put more than 30"
-        " objects in one frame when CS_NVIS is 32 and drops the rest silently"),
-    Row("csart", "fast", py("tests/unit/t_csart.py"), 0.6,
+        " objects in one frame when CS_NVIS is 32 and drops the rest silently. "
+        "SOAK and not fast: CLEAR SKIES is ONE package, so this belongs "
+        "beside a change to it - `soak -k 'cs*'`"),
+    Row("csart", "soak", py("tests/unit/t_csart.py"), 0.6,
         "apps/skies/csart.inc is what tools/csart.py generates (SPEC.md 88.10):"
         " the launcher's two 1bpp bands are drawn by the tool and checked in,"
-        " and the include cannot drift from the drawing"),
-    Row("pkgdeps", "fast", py("tests/unit/t_pkgdeps.py"), 0.9,
+        " and the include cannot drift from the drawing. "
+        "SOAK and not fast: CLEAR SKIES is ONE package, so this belongs "
+        "beside a change to it - `soak -k 'cs*'`"),
+    Row("pkgdeps", "fast", py("tests/unit/t_pkgdeps.py"), 1.4,
         "every %include a package pulls in must be a prerequisite of its .bin "
         "rule, or editing a shared library does not rebuild what includes it "
         "and `make` says 'up to date'. apps/os88ui.inc was missing from NINE "
@@ -293,52 +389,60 @@ FAST = [
         "out of the kernel - measured. SHEET is the control: PINME's region "
         "must stand still WHILE SHEET'S MOVES, or the run proves nothing",
         wants=("build/regpin360.img",)),
-    Row("drvclaim", "fast", py("tests/unit/t_drvclaim.py"), 0.1,
+    Row("drvclaim", "soak", py("tests/unit/t_drvclaim.py"), 0.1,
         "a driver's SERVICE TASK may not reach a claim door: mem_claim can "
         "reach mem_compact, which far-calls a holder's relocation proc on the "
         "stack it was entered on, and a 384-byte worker slice is not STK0. "
         "SPEC.md 20.6 rule 7 binds a package's worker and nothing binds a "
         "driver's; SOUND.DRV is the only driver in the tree that spawns one, "
         "so today the fact is true and unwritten - the second one is where it "
-        "stops being obvious. docs/plans/HEAP-UNPIN-PLAN.md 12 question 4"),
-    Row("inktab", "fast", py("tests/unit/t_inktab.py"), 0.2,
+        "stops being obvious. docs/plans/HEAP-UNPIN-PLAN.md 12 question 4. "
+        "SOAK and not fast: it can only fire when a SECOND driver gains a "
+        "service task, which is not a build-to-build event"),
+    Row("inktab", "soak", py("tests/unit/t_inktab.py"), 0.2,
         "SPEC.md 42.23.1: Paint's two ink-class masks ARE the kernel's "
         "gfx_inktab. A one-bit canvas stores what a 1bpp SCREEN shows, so the "
         "two have to agree about which of the sixteen are solid and which are "
         "the 50% dither - and the first version of the masks was a GUESS that "
         "put six dither colours in the white class. gfx_inktab is a `db` "
         "table, so `mirror` cannot see it: that is why this is a row of its "
-        "own and not one of its names",
+        "own and not one of its names. "
+        "SOAK and not fast: the masks are PAINT's half of the mirror, so "
+        "it belongs beside a PAINT or gfx_inktab change and not on every "
+        "build",
         ),
-    Row("frinset", "fast", py("tests/unit/t_frinset.py"), 1.9,
+    Row("frinset", "soak", py("tests/unit/t_frinset.py"), 1.9,
         "fr_inset never claims a pixel frac_iter would have escaped, and its"
-        "rejection boxes still match the closed forms (SPEC.md 40.5)"),
-    Row("frstepv", "fast", py("tests/unit/t_frstepv.py"), 0.4,
+        "rejection boxes still match the closed forms (SPEC.md 40.5). "
+        "SOAK and not fast: FRACTAL is ONE package - `soak -k 'fr*'`"),
+    Row("frstepv", "soak", py("tests/unit/t_frstepv.py"), 0.4,
         "The axis-phased pass order is still a permutation of the canvas, a"
         "row's twin is still the row before it, and rc=0 is still the order"
         "walked before the phase existed (SPEC.md 40.6). SPEC.md 40.1 rests"
         "the whole restore cache on that arithmetic and nothing else records"
-        "which cached row is which."),
-    Row("frcycle", "fast", py("tests/unit/t_frcycle.py"), 0.8,
+        "which cached row is which. "
+        "SOAK and not fast: FRACTAL is ONE package - `soak -k 'fr*'`"),
+    Row("frcycle", "soak", py("tests/unit/t_frcycle.py"), 0.8,
         "SPEC.md 40.7's cycle check returns exactly what the uncut core"
         "returns, for all five types. The CLAIM needs no sweep - a repeated"
         "state in a deterministic map can never escape - but the BOOKKEEPING"
         "does: a reference refreshed at the wrong moment or left over from"
-        "the last pixel reads FR_CAP for a point that escapes."),
-    Row("appsmall", "fast", py("tests/unit/t_appsmall.py"), 0.8,
-        "SPEC.md 27.16's two claims: -DAPP_SMALL costs the SHIPPED package "
-        "zero bytes (docs/history/KERN-SPLIT-PLAN.md 6's gate, one level down), and "
-        "the small build is really smaller. Both fail silently - a %ifdef one "
-        "line too wide changes the shipped package for a feature it still "
-        "has, and a define that stops reaching the source leaves "
-        "build/smallapps*.img as the ordinary floppy under another name. It "
-        "is also the only thing keeping the small arm ASSEMBLING: nothing in "
-        "`all` builds it"),
-    Row("ktags", "fast", py("tests/unit/t_ktags.py"), 0.1,
+        "the last pixel reads FR_CAP for a point that escapes. "
+        "SOAK and not fast: FRACTAL is ONE package - `soak -k 'fr*'`"),
+    Row("appsmall", "soak", py("tests/unit/t_appsmall.py"), 0.8,
+        "SPEC.md 27.16's two claims: -DAPP_SMALL costs the SHIPPED package zero bytes (docs/history/KERN-SPLIT-PLAN.md 6's gate, one level down), and the small build is really smaller. Both fail silently - a %ifdef one line too wide changes the shipped package for a feature it still has, and a define that stops reaching the source leaves build/smallapps*.img as the ordinary floppy under another name. It is also the only thing keeping the small arm ASSEMBLING: nothing in `all` builds it."
+        "SOAK and not fast or full: it is a build CONFIGURATION, "
+        "t_buildmatrix's sentence one package along - `fast` may not build "
+        "at all, and whether five named packages' small arm still assembles "
+        "is not 'did you obviously break the OS'. It follows t_buildmatrix "
+        "down"),
+    Row("ktags", "soak", py("tests/unit/t_ktags.py"), 0.1,
         "every owner tag the kernel ships has a TYPE name on the Task "
         "Manager's heap page - SPEC.md 28.4's hex fallback is for a tag this "
-        "build has never seen, and three shipped ones had been sitting in it"),
-    Row("dirwsize", "fast", py("tests/unit/t_dirwsize.py"), 0.1,
+        "build has never seen, and three shipped ones had been sitting in it. "
+        "SOAK and not fast: an owner tag is a kernel constant, so only a "
+        "kernel change adds one"),
+    Row("dirwsize", "soak", py("tests/unit/t_dirwsize.py"), 0.1,
         "The directory cache picks its WIDTH from the machine now (SPEC.md "
         "18.95.5), so three numbers in three places have to agree: the "
         "constants, the gate's divisor, and the shift-add that turns slots "
@@ -347,9 +451,11 @@ FAST = [
         "inside the claim, so a claim short by one slot is an int 13h writing "
         "into whatever the heap handed out next. Host-side because a partial "
         "width needs a 36-126KB free run and no emulator here can be put in "
-        "that state on demand",
+        "that state on demand. "
+        "SOAK and not fast: the directory cache's arithmetic is "
+        "kernel-internal",
         needs=(), serial=False),
-    Row("pgrank", "fast", py("tests/unit/t_pgrank.py"), 0.1,
+    Row("pgrank", "soak", py("tests/unit/t_pgrank.py"), 0.1,
         "The purgeable caches are ORDERED - WSAVE below FATW below DIRW - "
         "and that ordering IS the machine's eviction policy (SPEC.md 50.6.4). "
         "A rank is one token with no callers and is silent both ways: too low "
@@ -358,19 +464,29 @@ FAST = [
         "MEM_P_FATW shipped at LOW for one commit on a per-event cost weighed "
         "against a whole-install one (SPEC.md 18.8.4). Also checks each rank "
         "is inside the purgeable range at all, and that dsk_fatw_want asks "
-        "mem_avail_lvl at its OWN rank so it may take the caches it outranks",
+        "mem_avail_lvl at its OWN rank so it may take the caches it outranks. "
+        "SOAK and not fast: the eviction order is the memory manager's "
+        "own and no package can set a rank",
         needs=(), serial=False),
     Row("kernbudget", "fast", py("tests/unit/t_kernbudget.py"), 0.1,
-        "docs/KERNEL-MEMORY.md's blessed baseline carries THIS kernel's "
-        "KERN_BUDGET - it went two moves behind because tools/kernsize.py "
-        "compared spare and could not see a budget move at all"),
+        "docs/KERNEL-MEMORY.md's blessed baseline carries THIS kernel's KERN_BUDGET - it went two moves behind because tools/kernsize.py compared spare and could not see a budget move at all."
+        "FAST by the owner's decision, and it is rule 2's ONE STATED "
+        "EXCEPTION (docs/WRITING-TESTS.md 2.1): the row costs 28ms and "
+        "PRINTS `KERN_BUDGET big <n>, small <n>` on every build, which is "
+        "how kernel size drift stays visible between one person's commits "
+        "and the next. A row may earn `fast` by what it puts on the screen "
+        "as well as by what it catches - bounded by being effectively free, "
+        "and by the number being one the project actually steers by. Do not "
+        "move it back"),
     Row("swallow", "fast", py("tests/unit/t_swallow.py"), 0.1,
         "a statement that ended up inside a block comment: it compiles clean, "
         "runs never, and cost apps/c64 a Paste that outlived a machine reset"),
-    Row("drvmem", "fast", py("tests/unit/t_drvmem.py"), 0.1,
+    Row("drvmem", "soak", py("tests/unit/t_drvmem.py"), 0.1,
         "the Drivers page's memory column (SPEC.md 31.6.2) re-derived: every "
         "image term against the .drv this build made, every claim term against "
-        "the constant in the driver that takes it"),
+        "the constant in the driver that takes it. "
+        "SOAK and not fast: it re-derives ONE PAGE of ONE application "
+        "against per-driver constants"),
     Row("image", "fast", py("tests/unit/t_image.py"), 0.1,
         "the shipped floppies read by an independent FAT12 walker: contiguity, "
         "the standard BPB, SPEC.md 19.6's attributes"),
@@ -386,12 +502,14 @@ FAST = [
         "item long, which looks exactly like a Font menu. `pkg` above cannot "
         "see it - it matches every file BY NAME, so the folder can move and "
         "each of its rows still passes"),
-    Row("sfx", "fast", py("tests/unit/t_sfx.py"), 0.4,
+    Row("sfx", "soak", py("tests/unit/t_sfx.py"), 0.4,
         "OS88NET.COM's self-extracting stub (SPEC.md 62.12) EXECUTED - the "
         "shipped bytes run in a small 8086 and must rebuild os88net.raw "
         "exactly. The DOS end has shipped broken twice for want of ever "
         "being run (tests/dosstub); a packer checked only by its own "
-        "decoder is that shape again"),
+        "decoder is that shape again. "
+        "SOAK and not fast: the stub is one artifact of one tool, and no "
+        "other build reaches it"),
     Row("diskverify", "fast", py("tests/unit/t_diskverify.py"), 0.5,
         "the tree's own fsck, pointed at the seven images `make` ships and "
         "never ran on"),
@@ -411,7 +529,7 @@ FAST = [
         "own BPB: it has to name a sector a transfer run reads AFTER the head "
         "boundary, because the half before it loads correctly on exactly the "
         "machine the canary is for - which is how the first one shipped wrong"),
-    Row("mlen", "fast", py("tests/unit/t_mlen.py"), 3.4,
+    Row("mlen", "soak", py("tests/unit/t_mlen.py"), 3.4,
         "twelve month lengths, read back out of build/kernel.bin. clk_mlen "
         "carries the eleven non-February ones as a 16-bit MASK since kernel "
         "size pass 3 - three bytes shorter than the db table it replaced, and "
@@ -422,15 +540,19 @@ FAST = [
         "below the mask and the one arm the rewrite did not touch. A wrong "
         "bit surfaces as '31 April accepted in the Date/Time page' and as a "
         "midnight rollover on the wrong day, which no harness here can run "
-        "long enough to see"),
-    Row("bsssentinel", "fast", py("tests/unit/t_bsssentinel.py"), 3.5,
+        "long enough to see. "
+        "SOAK and not fast: clk_mlen is kernel-internal and only a clock "
+        "change reaches it"),
+    Row("bsssentinel", "soak", py("tests/unit/t_bsssentinel.py"), 3.5,
         "a sentinel byte whose RESTING value is not zero cannot live in .bss "
         "(SPEC.md 12.8.5.1): `-f bin` emits nothing for it and the boot read "
         "lands padding on those bytes, so it comes up 0. fsx_cur shipped that "
         "way the moment fpg_arm started reading it from OUTSIDE an fsx "
         "bracket, and the file-progress widget was refused for every file "
-        "operation on the machine - which on an install reads as a lock"),
-    Row("invariants", "fast", py("tests/unit/t_invariants.py"), 1.2,
+        "operation on the machine - which on an install reads as a lock. "
+        "SOAK and not fast: only a kernel writer can put a byte in the "
+        "kernel's .bss"),
+    Row("invariants", "soak", py("tests/unit/t_invariants.py"), 1.2,
         "three run-time facts that no %if can express, checked by WHO WRITES "
         "the byte: [sch_cur] is never 0xFF (fsx's ownership compares refuse "
         "[fsx_task]'s no-bracket sentinel only because of that, so a second "
@@ -439,9 +561,11 @@ FAST = [
         "deleted four plane loops on it, and a writer that moves one leaves "
         "all four drawing plane 0 alone on every adapter); and "
         "[vid_rseg] has one writer, which is a DIFFERENT fact because "
-        "sw_xfer used to end on a segment compare",
+        "sw_xfer used to end on a segment compare. "
+        "SOAK and not fast: all three are facts about who writes a KERNEL "
+        "byte, and no package writes one",
         needs=(), serial=False),
-    Row("assocpage", "fast", py("tests/unit/t_assocpage.py"), 0.1,
+    Row("assocpage", "soak", py("tests/unit/t_assocpage.py"), 0.1,
         "the document page is GENERATED now (SPEC.md 54.3), so its 32 words "
         "are replayed on the host against a golden list - the only copy of "
         "them left in the tree. tests/assocglyph.py is the gate on the glass, "
@@ -451,7 +575,9 @@ FAST = [
         "document in the system. Its third (--ref) closes that and needs a "
         "capture taken BEFORE the change, on a 1bpp adapter, under an "
         "emulator; this row is the same proof for the DATA half in a fifth of "
-        "a second, on every make",
+        "a second, on every make. "
+        "SOAK and not fast: the generator is the association layer's, and "
+        "assocglyph beside it is already soak",
         needs=()),
     Row("registry", "fast", py("tests/unit/t_registry.py"), 0.2,
         "every test in tests/ is registered in a tier or says why not - the row "
@@ -473,22 +599,28 @@ FAST = [
         "helps if something reaches it, which is how the DMA staging arm of "
         "both file pipelines rotted for a year with this row green "
         "(SPEC.md 18.4.2.1)"),
-    Row("resident", "fast", py("tests/unit/t_resident.py"), 3.7,
+    Row("resident", "soak", py("tests/unit/t_resident.py"), 3.7,
         "nothing the splash's first tick runs may jump to SPEC.md 15.1.2's "
         "epilogue ladder - the ladder is at the far end of .text and the "
         "floppy has not delivered it yet, so the machine dies with a blank "
         "screen and no message. kernel.asm's SPL_RES_SIZE guard measures where "
-        "the resident code ENDS, and size is not reach"),
-    Row("wakedrain", "fast", py("tests/unit/t_wakedrain.py"), 0.2,
+        "the resident code ENDS, and size is not reach. "
+        "SOAK and not fast: the splash's reach into the epilogue ladder "
+        "is kernel-internal"),
+    Row("wakedrain", "soak", py("tests/unit/t_wakedrain.py"), 0.2,
         "every event-queue drain gives a package's wake back - one that eats "
-        "it deafens the window for the rest of its life (SPEC.md 74.1.1)"),
-    Row("wab", "fast", py("tests/unit/t_wab.py"), 0.1,
+        "it deafens the window for the rest of its life (SPEC.md 74.1.1). "
+        "SOAK and not fast: an evq_pop site is kernel code, so only a "
+        "kernel change adds one"),
+    Row("wab", "soak", py("tests/unit/t_wab.py"), 0.1,
         "the demo bundles `all` just packed, read back by an independent "
         "second reader of the .WAB format - weavesim and t_wab are two "
         "implementations written from WEAVE-SPEC that can disagree, and "
         "until the 8086 runtime lands this row is the disagreement's only "
-        "audience"),
-    Row("lmpack", "fast", py("tests/unit/t_lmpack.py"), 10.0,
+        "audience. "
+        "SOAK and not fast: the .WAB format is the Weave family's - `soak "
+        "-k 'weave*' -k 'wab' -k 'lmpack'`"),
+    Row("lmpack", "soak", py("tests/unit/t_lmpack.py"), 10.0,
         "WEAVE-SPEC 11.1's byte-identity gate, host-side: LOOM's five "
         "SHIPPING compilers built with the host cc, packing every demo, "
         "every template and every case in tests/weave/packerr/, diffed "
@@ -499,7 +631,11 @@ FAST = [
         "at all, and it puts a weavesim change in front of the next `make` "
         "rather than the next soak run. SKIPS with no host compiler, "
         "because a clone with nasm and python3 builds every floppy this "
-        "project ships and a red suite there would be reporting on the box",
+        "project ships and a red suite there would be reporting on the box. "
+        "SOAK and not fast: WEAVE and LOOM are two packages, and six "
+        "seconds of every `make` is the wrong place to prove their "
+        "compilers agree - `soak -k 'lmpack'`, which is what a change to "
+        "either one runs",
         needs=()),
     Row("textrules", "fast", py("tests/unit/t_textrules.py"), 0.7,
         "SPEC.md 6.6's ratchet: transparent text (font_char/font_str) draws every "
@@ -519,13 +655,15 @@ FAST = [
         "whatever build/ held that minute, which is the stale kernel.bin trap "
         "in other clothes. It read paintsu as 0 pixels wrong against a Paint "
         "without the fix in it, and that number was pushed on"),
-    Row("vbrseg", "fast", py("tests/unit/t_vbrseg.py"), 3.4,
+    Row("vbrseg", "soak", py("tests/unit/t_vbrseg.py"), 3.4,
         "SPEC.md 52.10.2.1: build/boothd.bin's BLOB_SEG and SPL_FSEG read back "
         "out of the assembled sector and compared with build/kernel.bin's own "
         "map. The volume boot record is told where the heap starts by a host "
         "tool re-running over kernel.asm, and a knob kernel whose ladder the "
         "tool did not know about boots into wild execution with no build "
-        "error anywhere.",
+        "error anywhere. "
+        "SOAK and not fast: the volume boot record's segments are "
+        "kernel-internal",
         ),
     Row("checkdocs", "fast", py("tools/checkdocs.py"), 1.6,
         "stale SPEC.md citations and slot numbers in prose (already in `make`; "
@@ -539,18 +677,22 @@ FAST = [
     Row("ovlchk", "fast", py("tools/os88ovlchk.py"), 1.4,
         "no near call crosses a section boundary - it assembles cleanly and "
         "runs wrong"),
-    Row("dsegaudit", "fast", py("tools/dsegaudit.py"), 0.2,
+    Row("dsegaudit", "soak", py("tools/dsegaudit.py"), 0.2,
         "no path holding [dsk_dseg] can reach a claim, and a claim COMPACTS "
         "(SPEC.md 50.6.2). It is a 0/1 gate with no harness around it and "
         "nothing ran it - not `make`, not this file, and not t_registry, "
         "whose walk is over tests/ and cannot see a tool. A static gate that "
-        "nobody runs is a comment"),
-    Row("stknosave", "fast",
+        "nobody runs is a comment. "
+        "SOAK and not fast: [dsk_dseg]'s reach is inside the kernel's "
+        "disk layer"),
+    Row("stknosave", "soak",
         py("tools/stkdepth.py", "drivers/ether/ether.asm", "--check"), 0.4,
         "every `; STKDEPTH-NOSAVE:` in ETHER.DRV still holds: the routines "
         "that stopped saving a register to fit a 384-byte task slice (SPEC.md "
         "72.16.4) still get it back from every callee. Without this the trade "
-        "is a landmine for whoever edits the TCP stack next"),
+        "is a landmine for whoever edits the TCP stack next. "
+        "SOAK and not fast: every one of those markers is ETHER.DRV's "
+        "own, so this is a per-driver row"),
     Row("stkbalance", "fast",
         py("tools/stkbalance.py", "apps/sheet/sheet.asm", "apps/chart/chart.asm",
            "apps/os88chart.inc", "apps/os88fp.inc", "apps/os88text.inc",
@@ -608,7 +750,7 @@ FAST = [
         "drags eight times, which is minutes",
         ),
 
-    Row("stkclass", "fast", py("tests/unit/t_stkclass.py"), 12.0,
+    Row("stkclass", "fast", py("tests/unit/t_stkclass.py"), 5.0,
         "every package's DECLARED stack class (SPEC.md 8.7.2) covers its "
         "worker's deepest chain plus SPEC.md 8.7's 64-byte interrupt floor, at "
         "Frotz's 1.25x - the thinnest margin the tree already carries, so "
@@ -648,10 +790,15 @@ FAST = [
 # tier`).
 # --------------------------------------------------------------------------
 FULL = [
-    Row("buildmatrix", "full", py("tests/unit/t_buildmatrix.py"), 180.0,
+    Row("buildmatrix", "soak", py("tests/unit/t_buildmatrix.py"), 180.0,
         "the knob kernels and kern_small - every configuration `all` "
-        "does not build, and so the only thing that keeps them assembling", builds=True),
-    Row("bmshare", "full", py("tests/unit/t_bmshare.py"), 30.0,
+        "does not build, and so the only thing that keeps them assembling"
+        ". SOAK and not full: 99 knob configurations is not 'did you "
+        "obviously break the OS' - a knob is an instrument, the shipped "
+        "kernel is built by `make` and kern_small by small128's own private "
+        "tree - and at 143s it is four fifths of the whole tier budget on "
+        "its own. It is what a change to a knob runs", builds=True),
+    Row("bmshare", "soak", py("tests/unit/t_bmshare.py"), 30.0,
         "...and that the three variables it builds them WITH change no byte. "
         "ICODIR/NOOVLCHK/NOKERNSIZE each take work out of a knob build - the "
         "shared packages, the source-only overlay gate, the size report's "
@@ -660,19 +807,23 @@ FULL = [
         "compares the images, and it checks the exclusion the sharing rests "
         "on: SBDRAGOFF/SBRATE reach notepad's own nasm line, t_buildmatrix "
         "derives that pair from $(PKGSBDEF) rather than keeping a copy, and "
-        "both ends of that derivation are asserted here"),
-    Row("kernmods", "full", py("tests/unit/t_kernmods.py"), 30.0,
+        "both ends of that derivation are asserted here"
+        ". SOAK and not full: it is about t_buildmatrix's own build-speed "
+        "variables, so it follows that row down"),
+    Row("kernmods", "soak", py("tests/unit/t_kernmods.py"), 30.0,
         "tools/kernsize.py's PER-MODULE pass still measures - the byte "
         "compare inside it worked and nothing ran it, so --bless returned 1 "
         "without writing while t_kernbudget went on advising it. Here and "
-        "not in fast because it assembles the kernel twice",
+        "not in fast because it assembles the kernel twice"
+        ". SOAK and not full: it gates tools/kernsize.py's reporting pass, "
+        "which is an instrument and not the OS",
         needs=("nasm",), serial=False),
     Row("ctoolchain", "full", py("tests/unit/t_ctoolchain.py"), 8.0,
         "the C toolchain still produces a package - the OTHER thing `all` "
         "does not build, and the one that had a `cc` capability with no row "
         "behind it while no C package assembled for two releases",
         needs=("cc",), serial=True, builds=True),
-    Row("martyconc", "full", py("tests/martyconc.py"), 20.0,
+    Row("martyconc", "soak", py("tests/martyconc.py"), 20.0,
         "TWO EMULATORS AT ONCE, and every way that used to go wrong. It is "
         "here rather than in soak because it gates the INSTRUMENT the whole "
         "marty tier runs on, and every failure it catches is SILENT: two "
@@ -684,13 +835,16 @@ FULL = [
         "holder, and that reap() takes an orphan and leaves a live, owned "
         "instance alone. Runs three machines and boots two, so it is also "
         "the one row that would notice the isolation costing more than it "
-        "saves",
+        "saves"
+        ". SOAK and not full: it gates the test INSTRUMENT and not the OS, "
+        "so it cannot answer this tier's question. It is what a change to "
+        "tools/os88marty.py runs",
         needs=("marty",), serial=True),
     Row("bootsmoke", "full", py("tests/bootsmoke.py"), 20.0,
         "does it still reach a desktop on both 1bpp adapters - the widest "
         "reach per second of any test here",
         needs=("marty",), serial=True),
-    Row("smallboot", "full", py("tests/smallboot.py"), 110.0,
+    Row("smallboot", "soak", py("tests/smallboot.py"), 110.0,
         "does KERN_SMALL still reach a desktop - buildmatrix assembles that "
         "build and nothing has ever booted it, which is how it has been "
         "DISCOVERED broken three times rather than reported broken. Here "
@@ -698,7 +852,10 @@ FULL = [
         "of it, and an %ifdef that takes one body too many assembles "
         "perfectly and dies at the first paint. It builds its own image "
         "(`make small`, into build/smallk/) because there is no capability "
-        "to probe for and `all` never builds that kernel",
+        "to probe for and `all` never builds that kernel"
+        ". SOAK and not full: small128 beside it already builds this kernel "
+        "and boots it to a desktop, so what this adds is the THREE-adapter "
+        "sweep - the deep gate a kern_small change runs, at 118s",
         needs=("marty",), serial=True),
     Row("stk0water", "soak", py("tests/stk0water.py"), 70.0,
         "how deep TASK 0's stack has actually been (SPEC.md 15.1). That "
@@ -719,7 +876,7 @@ FULL = [
         "`soak` because it is a MEASUREMENT rather than an assertion - it "
         "prints the margin at five candidate sizes and fails nothing",
         needs=("marty",), serial=True),
-    Row("small128", "full", py("tests/small128.py"), 20.0,
+    Row("small128", "full", py("tests/small128.py"), 40.0,
         "...and it reaches that desktop on a machine with 128KB IN IT. Every "
         "other MartyPC profile here is 640KB, so `MIN_RAM_KB` had been an "
         "ARITHMETIC claim since the day it was written - guard 5 compares two "
@@ -734,7 +891,10 @@ FULL = [
         "no assembler can see it - SPEC.md 54.0's association cache was "
         "holding 3,072 bytes of one and was found by accident. Reads 0 "
         "pinned, 18,432 purgeable, 40.5 KB usable. Builds its own image for "
-        "smallboot's reason",
+        "smallboot's reason"
+        ". 40s and not 20 since smallboot went to soak: this row now "
+        "pays for the `make small` tree itself - 38.4s measured cold "
+        "against 16.1s when the tree is already there",
         needs=("marty",), serial=True),
     Row("int0sweep", "soak", py("tests/int0sweep.py"), 60.0,
         "Does anything raise a DIVIDE ERROR? (SPEC.md 11.96) On an IBM "
@@ -766,9 +926,9 @@ FULL = [
         "[vid_avail], which reads identically until somebody switches a VGA "
         "machine to mono",
         needs=("marty",), serial=True),
-    Row("weavesmoke", "full", py("tests/weavesmoke.py"), 70.0,
+    Row("weavesmoke", "soak", py("tests/weavesmoke.py"), 70.0,
         "WEAVE opens FORM.WAB and draws a window on both 1bpp GLaBIOS twins - "
-        "the Weave family's ONE full-tier row, forever (WEAVE-SPEC 12.3), and "
+        "the Weave family's widest single row (WEAVE-SPEC 12.3), and "
         "the widest reach per second the family has: the .WAB association, "
         "the accept idiom, the bundle reader, the flow walk and the first "
         "paint all fail here. It asserts the drawn window's STRUCTURE and "
@@ -783,7 +943,10 @@ FULL = [
         "little room for the package still growing. It is NOT 2x bootsmoke: "
         "the launch after the boot costs as much again as the boot, and it "
         "went 41s -> 45s when wdraw.inc's paint core took weave.o88 from "
-        "21,076 bytes to 27,020",
+        "21,076 bytes to 27,020"
+        ". SOAK and not full: WEAVE is a PACKAGE, and `full` carries "
+        "nothing app-specific - `soak -k 'weave*'` is twelve rows including "
+        "weavepack, which is WEAVE-SPEC 11.1's actual gate",
         needs=("marty", "cc"), serial=True, timeout=300),
 ]
 
@@ -795,6 +958,31 @@ FULL = [
 # single-subject gates; several are worth reading before touching their area.
 # --------------------------------------------------------------------------
 SOAK = [
+    Row("nasm3", "soak", py("tests/unit/t_nasm3.py"), 165.0,
+        "THE OTHER ASSEMBLER. Every tier here assembles with whatever nasm "
+        "the box has, which on this container, on CI and on every Debian or "
+        "Ubuntu box is 2.16 - and CONTRIBUTING.md's floor being 2 is read as "
+        "3.x being equivalent, which it is not: nasm 3 REFUSES constructs "
+        "2.x takes. `add di, mod_fp - mod_tab*7` in kernel/mod.inc's mod_fpr "
+        "is `invalid operand type` there and silent under 2.16, so it "
+        "reached a merge un-buildable for everyone whose nasm is 3.x "
+        "(Homebrew's is) and had to be adapted after the fact - commit "
+        "799c5a9. Nobody was careless; the construct assembles perfectly on "
+        "the assembler everybody in the loop was running, and a gate is the "
+        "only thing that closes that. This one assembles the SHIPPED SET "
+        "(read out of the Makefile's own `all:` rule, so a tenth artefact "
+        "joins it the day it is added), then kern_small, the APP_SMALL "
+        "package arms, kern_emu and every knob in t_buildmatrix's roster - "
+        "imported, not restated. It does NOT assert that the two assemblers "
+        "emit the same bytes: they do not, and it is legitimate (xmem.drv's "
+        "32-bit movers come out with the two prefixes in the other order). "
+        "165s is MEASURED cold on this container, 128s with the private "
+        "tree already there; the knob half is cold every run either way. "
+        "Soak rather than full because it is three minutes of pure `make` "
+        "and the thing it defends moves at the speed of somebody typing a "
+        "new construct, not per commit - run it before a merge that lands "
+        "kernel or package assembly",
+        needs=("nasm3",)),
     Row("weavevm", "soak", py("tests/weavevm.py"), 10.0,
         "WEAVE-SPEC 12.3: the SHIPPING apps/weave/wvm.inc run in a raw-QEMU "
         "BOOT SECTOR with SS != DS and no OS under it at all, diffed case by "
@@ -1498,7 +1686,7 @@ SOAK = [
         "closed list - MartyPC is an 8088 and has no 8042 to test",
         needs=("qemu", "nasm"), serial=True, timeout=420,
         wants=("build/os8088.img", "build/apps.img")),
-    Row("vmmouse", "full", py("tests/vmmouse.py"), 45.0,
+    Row("vmmouse", "soak", py("tests/vmmouse.py"), 45.0,
         "The VMware absolute pointer (SPEC.md 9.11), the browser's grabless "
         "mouse - and the one CI gate a browser-only feature gets. QEMU's pc "
         "machine carries a vmport and a vmmouse by default, so VMMOUSE.DRV's "
@@ -1518,7 +1706,11 @@ SOAK = [
         "injected through vmmouse landing within a few px - the sign and axis "
         "handling that a boot-state read cannot see - and a drag through a "
         "menu, which is what proves the task_yield service point. QEMU by "
-        "name on CLAUDE.md's closed list - MartyPC has no backdoor",
+        "name on CLAUDE.md's closed list - MartyPC has no backdoor"
+        ". SOAK and not full: a browser-only pointer on a THIRD kernel, and "
+        "it drags `make vmmousetest` - a whole kern_emu build - into the "
+        "tier's prebuild for it. ps2mouse keeps pointer-and-keyboard "
+        "covered on the kernel that ships",
         needs=("qemu", "nasm"), serial=True, timeout=420,
         wants=("build/os8088.img", "build/apps.img", "build/vmmouse.img")),
     Row("heapmap", "soak", py("tests/heapmap.py"), 30.0,

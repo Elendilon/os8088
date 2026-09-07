@@ -130,7 +130,7 @@ make bootdiag # WHY a BIOS answers `Disk error` and stops (§2.9.10). SIX
 make test-fast   # THE REGRESSION SUITE (docs/TESTING.md, tools/os88test.py,
 make test-full   #   tests/suite.py). Three tiers; the two that GATE carry an
 make test-soak   #   ENFORCED wall-clock budget — the runner FAILS fast over
-                 #   30s and full over 600s, so a row that no longer fits is
+                 #   30s and full over 180s, so a row that no longer fits is
                  #   a decision somebody takes rather than a drift nobody
                  #   notices. SOAK HAS NONE, deliberately: it is where a test
                  #   goes when it is worth having and does not fit the gate,
@@ -141,11 +141,23 @@ make test-soak   #   ENFORCED wall-clock budget — the runner FAILS fast over
                  #     every shipped floppy walked by an independent FAT12
                  #     reader, unreachable code, SPEC.md 6.6's
                  #     transparent-text ratchet, the doc gate, and that every
-                 #     test in tests/ is registered somewhere or says why not
-                 #   full ~3m45 — adds the knob kernels and kern_small (every
-                 #     configuration `all` does NOT build, so the only thing
-                 #     keeping them assembling), the C toolchain and a boot to
-                 #     a desktop on both 1bpp adapters
+                 #     test in tests/ is registered somewhere or says why not.
+                 #     **25 rows, and the two things it deliberately does NOT
+                 #     cover are the rule** (docs/WRITING-TESTS.md 2.1): a row
+                 #     about ONE package, and a kernel internal no package can
+                 #     reach. `fast` is the one tier nobody opts into, so both
+                 #     charge every contributor for somebody else's subject -
+                 #     they are in soak, one `-k` away, run by whoever's change
+                 #     would break them
+                 #   full ~1m15 — ONE question: did you obviously break the
+                 #     OS? Boots to a desktop on both 1bpp adapters and on
+                 #     VGA, builds and boots kern_small on its 128KB floor
+                 #     machine, checks the mouse and the keyboard, and builds
+                 #     a C package. **5 rows**, and the 180s ceiling is a
+                 #     target for four lanes on an ordinary box. What it no
+                 #     longer carries is the 99-knob build matrix, which is
+                 #     `soak -k 'buildmatrix'` now: a knob is an instrument,
+                 #     and knob rot is not the OS being broken
                  #   soak no budget — the rest of tests/, one subject each:
                  #     `python3 tools/os88test.py soak -k 'disp*'`
                  #   ...and the WHOLE soak is `tools/os88soak.py`, never this
@@ -276,9 +288,10 @@ make loom       # LOOM (WEAVE-SPEC §1.2), the family's second package: the
 make loomdisk   #   in-OS IDE that edits a project's sources and packs the
                 #   `.WAB` ON THE MACHINE, byte-identical to what
                 #   `tools/weavesim.py --pack` writes on the host. That
-                #   identity IS the gate (WEAVE-SPEC §11.1): `make` runs the
-                #   host half of it every time (the `lmpack` row, four
-                #   seconds), and `python3 tools/os88test.py soak -k
+                #   identity IS the gate (WEAVE-SPEC §11.1): the host half
+                #   is `soak -k 'lmpack'` (six seconds; it was a fast row
+                #   until the family stopped charging every build for two
+                #   packages) and `python3 tools/os88test.py soak -k
                 #   'weave*'` runs the machine's. `make loomdisk` puts both
                 #   packages, both overlays, WEAVE.WSM, LOOM.WPV, the demo
                 #   bundles and the demo SOURCES on one floppy in all three
@@ -771,7 +784,12 @@ the registry fields, a `secs` you measured, `wants=` and private trees instead
 of `builds=True`, `os88ui` instead of a remembered coordinate, the guest's
 clock instead of `time.sleep`, and a §1 that is the only question that decides
 whether the row is worth having: **break the thing on purpose and watch it go
-red.**
+red.** Its 2.1 and 2.2 are the second question, and they decide the TIER:
+`fast` is paid for by everybody on every build, so a row about one package or
+about a kernel internal nothing outside the kernel can reach belongs in
+`soak`; `full` asks only *did you obviously break the OS*, so a row about one
+package, about the build matrix, or about the suite's own instruments belongs
+there too.
 
 **MartyPC is the default instrument; QEMU is a fallback with a closed list.**
 docs/TESTING.md's opening owns the rule and the reasoning. The list is
@@ -986,14 +1004,17 @@ in docs/TESTING.md, per capability.
   `--selfcheck` - a second, no emulator - is what says whether the model
   still describes the tree. Run that first, always).
 - `docs/` — **the directory says what a document is** (`docs/README.md`, and
-  `docs/INDEX.md` lists every one under the same four headings). `docs/`
+  `docs/INDEX.md` lists every one under the same five headings). `docs/`
   itself is how the system works TODAY — instructions, contracts, maintained
   reference such as `KERNEL-MEMORY.md`, and `FIELD-NOTES.md`/`FIELD-MACHINES.md`
   for what real hardware said. `docs/plans/` is work proposed or half-done;
   `docs/plans/completed/` is the design record behind something that shipped,
   which is how it got there and never what it does; `docs/history/` is
   superseded, and true of no tree you can check out. A plan whose work lands
-  moves to `completed/` in the commit that lands it.
+  moves to `completed/` in the commit that lands it. **`docs/reports/` is a
+  MEASUREMENT** — true of the tree it was taken on and of no other, so it
+  carries its date, its commit and the box, it is never maintained against a
+  later tree, and a second measurement is a NEW file rather than an edit.
 
 ## Package pipeline
 

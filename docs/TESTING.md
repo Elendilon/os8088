@@ -173,9 +173,19 @@ make a row slow, it makes it less thorough at the same wall time.
 
 | tier | budget | what it does | when |
 |---|---|---|---|
-| `fast` | **30s** (uses ~13) | Host-side only, 48 rows. Reads what `make` just built and checks what breaks SILENTLY. | A commit you are going to keep |
-| `full` | **10 min** | `fast`, plus every knob kernel the Makefile stamps (84 rows in `tests/unit/t_buildmatrix.py`, read off `$(KNOBS)` so a new knob fails the day it is added) and `kern_small`, the C toolchain, and a boot to a desktop on both 1bpp adapters. 13 rows. | A major round of work reaching the integration branch |
-| `soak` | none | The other 229 gates in `tests/`, one subject each. | The end of extensive kernel surgery — or when asked |
+| `fast` | **30s** (uses ~9) | Host-side only, 25 rows. Reads what `make` just built and checks what breaks SILENTLY — and only what somebody who did NOT touch the subject can break. | A commit you are going to keep |
+| `full` | **3 min** (uses ~1¼) | One question: *did you obviously break the OS?* Boots to a desktop on both 1bpp adapters and on VGA, builds and boots `kern_small` on its 128KB floor machine, checks the mouse and keyboard, and builds a C package. 5 rows. | A major round of work reaching the integration branch |
+| `soak` | none | The other 301 gates in `tests/`, one subject each — every per-package and kernel-internal row, the 99-knob build matrix, and everything about the tree or the suite rather than the product. | The end of extensive kernel surgery — or when asked |
+
+**Both gates are deliberately narrow, and docs/WRITING-TESTS.md §2.1 and §2.2
+are the rules.** `fast` is the one tier nobody opts into, so a row about ONE
+package or about a kernel internal no package can reach is charged to every
+contributor who is not working on it. `full` asks only whether the OS is
+obviously broken, so a row about one package, about the build matrix, or about
+the suite's own instruments does not belong there either. Both kinds live in
+`soak`, one `-k` away, run by the person whose change would break them —
+including the 99-knob matrix, which means knob `%ifdef` arms now assemble at
+soak cadence rather than at every integration merge.
 
 The `when` column is the whole of §"When to run which tier" below, compressed
 to fit in a table. **Read that section before running a tier on a schedule of
@@ -271,7 +281,7 @@ life, and report while it is in flight.
 ### Why `full` is CURATED and not "all of them"
 
 A MartyPC boot to a settled desktop is ~7.5 seconds and an emulator row is
-40–75 seconds, so ten minutes is about eight of them at `--marty-jobs 1`.
+40–75 seconds, so three minutes is about four of them at `--marty-jobs 1`.
 The default is 1 for arithmetic: N instances on an N-core box is the ceiling,
 and past it every row takes longer in HOST seconds, which is what `secs`,
 timeouts and `settle`'s patience are measured in (four rows: 175.6s at 1,

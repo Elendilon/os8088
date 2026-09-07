@@ -3,7 +3,7 @@
 
     python3 tools/os88test.py fast        # a commit you keep. Budget 30s.
     python3 tools/os88test.py full        # major work reaching the integration
-                                          #   branch. Budget 10 min.
+                                          #   branch. Budget 3 min.
     python3 tools/os88test.py --list      # what is registered, and why
     python3 tools/os88test.py fast -k api # just the rows whose name matches
 
@@ -121,7 +121,7 @@ import os88build                                            # noqa: E402
 # made this suite exist and they are not advisory - see the header.
 # The tier ceilings, in seconds. `soak` has none by design - it is where a
 # test goes when it is worth having and does not fit the gate.
-BUDGET = {"fast": 30, "full": 600, "soak": None}
+BUDGET = {"fast": 30, "full": 180, "soak": None}
 
 # How far a row may overrun its own declared `secs` before it is reported.
 # Generous on purpose: this is here to catch a row that got 3x slower, not
@@ -184,6 +184,14 @@ def capabilities():
     caps = set()
     if shutil.which("nasm"):
         caps.add("nasm")
+    # THE OTHER ASSEMBLER, and not the same capability. `nasm` above is "this
+    # box can assemble at all"; this is "this box can answer whether the tree
+    # still assembles under nasm 3", which CONTRIBUTING.md's 2.16 floor makes
+    # a separate question rather than a stricter one. os88build.nasm3() reads
+    # `-v` rather than trusting a name, so a `nasm3` that is a symlink to 2.16
+    # is absence and the row SKIPS.
+    if os88build.nasm3():
+        caps.add("nasm3")
     if os.path.exists(os.path.join(ROOT, "build/martypc/run/martypc_headless")):
         caps.add("marty")
     if shutil.which("qemu-system-i386") or shutil.which("qemu-system-x86_64"):

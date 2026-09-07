@@ -341,6 +341,12 @@ DOC_KINDS = [
     ("docs/plans/completed/", "completed"),
     ("docs/plans/", "plan"),
     ("docs/history/", "history"),
+    # A REPORT is a measurement, not a description: true of the tree it was
+    # taken on and of no other, so it neither goes stale the way `docs/` does
+    # nor proposes anything the way `docs/plans/` does. It has to sit ABOVE
+    # the catch-all below, which is a prefix match in order - under it, every
+    # report would file itself as maintained reference.
+    ("docs/reports/", "report"),
     ("docs/", "reference"),
 ]
 
@@ -504,7 +510,10 @@ def build():
       "state and these are how it got there. `docs/plans/completed/` is the "
       "subset whose work has landed; what stays directly in `docs/plans/` "
       "still has work open. `docs/history/` is superseded or closed - a record "
-      "of a moment that has passed, and true of no tree you can check out.")
+      "of a moment that has passed, and true of no tree you can check out. "
+      "`docs/reports/` is a MEASUREMENT taken at a point in time: true of the "
+      "tree it was taken on, quotable with its date and its box, and never to "
+      "be read as a description of today.")
     w("")
     docs = doc_files()
     for kind, label in (
@@ -512,7 +521,9 @@ def build():
             ("plan", "*Plans with work still open - `docs/plans/` (%d):*"),
             ("completed", "*Design records for what shipped - "
                           "`docs/plans/completed/` (%d):*"),
-            ("history", "*Superseded and closed - `docs/history/` (%d):*")):
+            ("history", "*Superseded and closed - `docs/history/` (%d):*"),
+            ("report", "*Measurements, each true of the tree it was taken on "
+                       "- `docs/reports/` (%d):*")):
         names = [os.path.basename(n) for n, k in docs if k == kind]
         w(label % len(names) + " "
           + ", ".join("`%s`" % n for n in names))

@@ -1226,6 +1226,15 @@ in the tree.
   the two constants, which pins the scale factor `mod_fpr` open-codes — is
   why that cannot recur. (Neither `mod_fpi` nor `MODFP_SHIFT` has ever
   existed; this bullet named both for several releases.)
+- **`mod_fpr` multiplies `MOD_TAB_OFF` and not `mod_tab`, and that is an
+  ASSEMBLER constraint rather than a taste.** `add di, mod_fp - mod_tab*7` is
+  a label times a constant; nasm 2.11 through 2.16 take it and nasm 3 refuses
+  it outright — *invalid operand type*, in every spelling — so the tree
+  assembled here every day and would not assemble at all for anybody whose
+  nasm is 3.x. `MOD_TAB_OFF equ mod_tab - $$` is the same address as a
+  **number** (`.text` has `vstart=0`), which multiplies. `tests/unit/t_nasm3.py`
+  is the gate that catches the next one; CONTRIBUTING.md says how to get an
+  nasm 3 to run it with.
 - **`MOD_NENT` is what the modules use and not a round number.** It is
   **7**, which is what the largest module declares — §38.0's Standard File
   dialog on `kern_small` (`FD_NENT` 7). The others: `HB_NENT` 7 (§87,
