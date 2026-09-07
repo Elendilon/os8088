@@ -222,7 +222,7 @@ FAST = [
         "and `make` says 'up to date'. apps/os88ui.inc was missing from NINE "
         "shipped packages and apps/os88type.inc from three; it was found by an "
         "A/B that measured zero because the package never reassembled"),
-    Row("regpin", "soak", py("tests/regpin.py"), 300,
+    Row("regpin", "soak", py("tests/regpin.py"), 160.0,
         "THE NEGATIVE ARM of SPEC.md 66.6.1 (docs/plans/HEAP-UNPIN-PLAN.md "
         "10.1): a region whose package owns a WORKER must NOT move, because "
         "task_spawn wrote the segment into the worker's frame and a pass that "
