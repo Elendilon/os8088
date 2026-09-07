@@ -2979,6 +2979,15 @@ cs_clip_y:
 %%flat:
     mov ax, cx                      ; dy = 0: one run of every pixel
     mov word [cs_slcnt], 0
+    mov dx, [cs_slx]                ; ...STARTING WHERE X DOES (SPEC.md
+                                    ; 88.4.6.1). The sloped path loads this at
+                                    ; %%go and this one did not, so DX arrived
+                                    ; holding 6|dy| from the caller's own
+                                    ; slice test - which for a flat line is
+                                    ; ZERO, and every exactly-horizontal
+                                    ; segment was drawn at the view's LEFT
+                                    ; EDGE. Four bytes, on the one path that
+                                    ; can reach here: no other line pays
 %%row:                              ; AX = this row's run, DX = its first x
     push bp
     push di

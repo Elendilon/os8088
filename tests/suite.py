@@ -246,11 +246,16 @@ FAST = [
         " CSI_NINK rows, so a new ink added to four of them does not draw in"
         " whatever byte follows the other two; every river far model in every"
         " world carrying CSI_RIVLINE, one left behind being a white river on"
-        " a colour display; and cs_set_at / _max / _best all CS_SETN long,"
+        " a colour display; cs_set_at / _max / _best all CS_SETN long,"
         " where the trap is that BEST IS NOT MAX - the Mode byte's ceiling is"
         " CGA, so a 286 given the best of everything off the clamp table gets"
-        " the worse of two displays. Deleting one ink row and whitening one"
-        " river takes it red on both",
+        " the worse of two displays. And every CSM_STACK LOD pair the same"
+        " HEIGHT, because a far model that stands in for a full one at a"
+        " different height makes the object CHANGE SIZE at the switch - the"
+        " Eiffel's was 300 against 324 and popped 24 m as you flew at it,"
+        " where every other pair in every world already agreed. Deleting one"
+        " ink row, whitening one river and shortening one apex take it red on"
+        " all three",
         needs=()),
     Row("csplane", "fast", py("tests/unit/t_csplane.py"), 0.3,
         "SPEC.md 88.7.4: CLEAR SKIES' five plane records agree with their own"
@@ -2016,21 +2021,25 @@ SOAK = [
         " --clobber-water are the three red runs",
         needs=("marty",), serial=True),
     Row("skiesease", "soak", py("tests/skiesease.py"), 34.0,
-        "SPEC.md 88.7.3: the horizon captures the last three ticks of an"
-        " approach - held toward level both aeroplanes land EXACTLY on it on"
-        " both axes, in at most three ticks and with no tick under 60% of the"
-        " rate, the Pitts lands on INVERTED level too, and held away nothing"
-        " is eased at all. Read at a cs_step breakpoint: a frame spends one,"
-        " two or three ticks, so a per-frame sample cannot see the landing."
+        "SPEC.md 88.7.3: the horizon captures the approach - held toward"
+        " level both aeroplanes land EXACTLY on it on both axes, the Pitts"
+        " lands on INVERTED level too, and held away nothing is eased at"
+        " all. Read at a cs_step breakpoint: a frame spends one, two or"
+        " three ticks, so a per-frame sample cannot see the landing."
         " Then 88.7.3.1 asks the question the PILOT asks, which is the"
         " per-FRAME one: the ease landing mid-frame is no use if the frame's"
         " remaining ticks carry the axis off before anything is drawn, and"
         " that is the Pitts 'skipping the horizon' the field reported. Every"
         " horizon a continuous roll passes gets a frame on it, from three"
         " start angles, because ONE of them landing on a frame boundary by"
-        " luck is exactly what the old code did. --clobber-hold NOPs the one"
-        " instruction that arms the hold and reads 1 horizon of 22 frames"
-        " against 4; --clobber-ease puts a ret on cs_ease",
+        " luck is exactly what the old code did. And 88.7.3.2's contract:"
+        " the eased ticks of an approach are EQUAL - a plateau, not a dive -"
+        " and the landing is the frame's LAST tick, so the detent discards"
+        " nothing. That replaced a floor of 60% of the rate, which passed on"
+        " 78%-then-22% - the shape the field called a pause at the horizon."
+        " --clobber-ease puts a ret on cs_ease and is the red run; the"
+        " --clobber-hold beside it is GONE, the ladder having left the hold"
+        " nothing to discard so that knob could no longer fail",
         needs=("marty",), serial=True),
     Row("skiestap", "soak", py("tests/skiestap.py"), 40.0,
         "SPEC.md 88.7.5.2: the two remainders of the per-tick stick, both"
@@ -2041,8 +2050,11 @@ SOAK = [
         " three\". And a held approach to level, read at cs_render rather"
         " than cs_step, shows level on EXACTLY ONE drawn frame: one and not"
         " zero is the capture made visible, one and not four is the promise"
-        " that this is not Tank Attack's lock. --clobber-tap and"
-        " --clobber-hold are the two red runs",
+        " that this is not Tank Attack's lock. --clobber-tap is the red run;"
+        " the --clobber-hold beside it is GONE - what it removed was the jet"
+        " zeroing its rate on arrival, which 88.7.5.2.1 now does only for a"
+        " CENTRED stick, and the detent it aimed at is a rounding safety net"
+        " since 88.7.3.2 lands on a frame's last tick",
         needs=("marty",), serial=True),
     Row("skiesbody", "soak", py("tests/skiesbody.py"), 30.0,
         "SPEC.md 88.7.8: the elevator is a rate about the AEROPLANE's wing"
@@ -2137,6 +2149,25 @@ SOAK = [
         " triangle of a trapezoid, which is noise once the points are whole"
         " pixels, and the two POI towers' crown faces went on and off a frame"
         " at a time on the machine",
+        needs=("marty",), serial=True),
+    Row("skiesflat", "soak", py("tests/skiesflat.py"), 62.0,
+        "SPEC.md 88.4.6.1: an EXACTLY HORIZONTAL segment lands where it was"
+        " asked. CS_SLICE's flat arm - dy zero, so the whole line is one run -"
+        " jumped into the shared row loop without loading DX, which is where"
+        " that loop takes the run's first x; DX held 3xBP from the caller's"
+        " own slice test and BP is 2|dy|, so every exactly-horizontal segment"
+        " on CGA and the 160x100 hack was drawn at the view's LEFT EDGE."
+        " It needs an EXACT angle to show, so it wants a model edge between"
+        " two vertices of the same height seen with the wings level: the"
+        " Eiffel's platform bar (88.5.4.5) is the first such edge in any"
+        " world, and even then the ink landed where nothing had MARKED, so it"
+        " never reached the glass and surfaced only as a stale pixel at the"
+        " other end of the screen. The row reads the SHADOW and asks the"
+        " direct question - stood on the Issy runway looking at the tower, a"
+        " nine-pixel run at the tower's own x and nothing at the left edge,"
+        " read at a breakpoint on cs_blit so the frame it reads is a WHOLE"
+        " one (docs/WRITING-TESTS.md 13 entry 44)."
+        " --clobber-flat NOPs the four bytes and the bar moves to x = 0",
         needs=("marty",), serial=True),
     Row("skiesrwy", "soak", py("tests/skiesrwy.py"), 33.0,
         "SPEC.md 88.6.2.1: the runway keeps its lines PAST ITS OWN MIDDLE."

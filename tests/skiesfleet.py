@@ -485,6 +485,15 @@ def main(argv):
         def soar(dx, dz):
             """Drop the glider in at 900 m, wings level, and see what the air
             does with it."""
+            # THE PAUSE GOES ON FIRST AND A FRAME IS LET BY (docs/WRITING
+            # -TESTS.md 13 row 22): m.pause() lands anywhere, and a cs_step
+            # in flight finishes on resume and writes its own position over
+            # the pin - which lands the aeroplane somewhere that is not the
+            # rect, so no crossing happens and the swoop reads 0.
+            m.pause()
+            poke("cs_pause", b"\x01")
+            m.run()
+            m.advance(frames=2)
             m.pause()
             poke("cs_px", (((fx + dx) * 256) & 0xFFFFFFFF).to_bytes(4, "little"))
             poke("cs_pz", (((fz + dz) * 256) & 0xFFFFFFFF).to_bytes(4, "little"))
@@ -493,6 +502,7 @@ def main(argv):
             poke("cs_roll", b"\x00\x00")
             poke("cs_spd", (22 * 128).to_bytes(2, "little"))
             poke("cs_state", b"\x01")
+            poke("cs_pause", b"\x00")          # ...and only NOW does it fly
             m.run()
             m.advance(frames=4)
             m.run()

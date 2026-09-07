@@ -27,6 +27,14 @@ on it - which is the whole question.
 --clobber-ease is the red run (docs/WRITING-TESTS.md 1): it puts a `ret` on
 cs_ease's first byte, which returns the step unchanged - the model exactly as
 it was - and checks 1 and 4 must go red.
+
+There WAS a --clobber-hold beside it, which NOPed the one instruction that
+arms 88.7.3.1's detent, and it is gone: since 88.7.3.2 the approach is
+arranged to land on a FRAME'S LAST TICK, so the hold has no ticks left to
+discard and removing it changes not one reading here. It is a rounding
+safety net now - it still fires when the spread lands a tick early - and a
+knob that cannot go red is worse than no knob at all (docs/WRITING-TESTS.md
+1). --clobber-ease covers the whole mechanism.
 """
 import argparse
 import os
@@ -66,8 +74,6 @@ def main(argv):
     ap.add_argument("--machine", default="os8088_5150_herc_gla")
     ap.add_argument("--image", default="build/os8088-360.img")
     ap.add_argument("--apps", default="build/apps360.img")
-    ap.add_argument("--clobber-hold", action="store_true",
-                    help="cs_ease never SETS the hold: part 5 goes red")
     ap.add_argument("--clobber-ease", action="store_true",
                     help="return the step unchanged: the row must go red")
     a = ap.parse_args(argv)
@@ -103,24 +109,6 @@ def main(argv):
             m.write(lin + mp["cs_ease"], b"\xC3")
             m.run()
             print("  (cs_ease returns its step unchanged: this run must fail)")
-        if a.clobber_hold:
-            # `or [cs_hzhold], al` at cs_ease's .land - 08 06 <off16>, the
-            # one instruction that arms 88.7.3.1. cs_att_lag's own copy is a
-            # different encoding (80 0E <off16> 01) and is left alone, so the
-            # JET keeps the hold and the two direct-drive models lose it,
-            # which is the tree exactly as the field had it
-            lo = mp["cs_ease"]
-            code = m.read(lin + lo, 0x100)
-            pat = b"\x08\x06" + (base + off("cs_hzhold")).to_bytes(2, "little")
-            i = code.find(pat)
-            if i < 0 or code.find(pat, i + 1) >= 0:
-                sys.exit("skiesease: cs_ease does not arm the hold the way "
-                         "this patch expects")
-            m.pause()
-            m.write(lin + lo + i, b"\x90\x90\x90\x90")
-            m.run()
-            print("  (cs_ease never arms the horizon's hold: part 5 must fail)")
-
         def pick(row):
             po = [rec(mp["cs_drplane"], 2 * i) for i in range(4)]
             ui.mo.click((po[0] + po[2]) // 2, (po[1] + po[3]) // 2)
@@ -150,6 +138,15 @@ def main(argv):
             poke("cs_spd", (70 * 128).to_bytes(2, "little"))
             poke("cs_thr", (100).to_bytes(2, "little"))
             poke("cs_state", b"\x01")
+            # ...AND THE RAMP OUT IS CLEARED WITH IT (SPEC.md 88.7.3.3).
+            # Pinning an attitude is a TELEPORT: cs_hzo holds the rate the
+            # LAST approach came down to and how fast it is climbing back,
+            # which describes an aeroplane we are no longer flying. Left
+            # alone it caps the first ticks after the pin and the row reads
+            # `held AWAY from level every tick is the full rate` as
+            # [974, 1143, 1312, 1481, 1650] - a ramp, correctly, of the
+            # wrong flight
+            m.write(lin + base + off("cs_hzo"), b"\x00" * 8)
 
         def axis_of(key):
             return "cs_kroll" if key in ("ArrowLeft", "ArrowRight") \
@@ -166,11 +163,25 @@ def main(argv):
             is how `held AWAY from level every tick is the full rate` came to
             read [0, 0, 0, 0, 0]."""
             nm = axis_of(key)
-            for _ in range(tries):
+            for i in range(tries):
                 if byte(nm) == 0:
                     return
                 m.advance(frames=4)
                 m.run()
+                if i and i % 10 == 0:
+                    # A LOST BREAK CODE IS SELF-HEALING AND ONLY THAT WAY
+                    # (SPEC.md 9.7): the key-down map is advice, and a break
+                    # dropped inside a long IF=0 window leaves the bit set
+                    # until that key is pressed again. So press and release
+                    # BOTH arrows of this axis rather than waiting longer.
+                    for k in (("ArrowLeft", "ArrowRight") if nm == "cs_kroll"
+                              else ("ArrowUp", "ArrowDown")):
+                        m.key(k, down=True, up=False)
+                        m.advance(frames=2)
+                        m.run()
+                        m.key(k, down=False, up=True)
+                        m.advance(frames=2)
+                        m.run()
             sys.exit("skiesease: %s never came back up ([%s] = %d)"
                      % (key, nm, byte(nm)))
 
@@ -207,22 +218,25 @@ def main(argv):
             if m.wait_stop(30) is None:
                 sys.exit("skiesease: cs_step never ran")
             pin()                               # halted at the top of a tick
-            out = []
+            out, left = [], []
             for _ in range(n):
                 out.append(sg(w(name)))
-                m.run()
+                left.append(byte("cs_tleft"))   # ...and WHERE IN THE FRAME
+                m.run()                         # this tick falls (88.7.3.2)
                 if m.wait_stop(30) is None:
                     sys.exit("skiesease: cs_step never ran")
             m.bp_exec()
             m.run()
             m.key(key, down=False, up=True)
-            return out
+            return out, left
 
         def run(plane, axis, start_deg, key, rate, label, want_half=False):
             angle = int(start_deg * DEG)
-            seq = ticks(key, axis,
-                        lambda: airborne(angle if axis == "cs_roll" else 0,
-                                         0 if axis == "cs_roll" else angle))
+            seq, left = ticks(key, axis,
+                              lambda: airborne(angle if axis == "cs_roll"
+                                               else 0,
+                                               0 if axis == "cs_roll"
+                                               else angle))
             deg = [round(x / DEG, 2) for x in seq]
             print("      %-22s %s" % (label, deg))
             # the first reading is the pinned start; the model has not run yet
@@ -242,10 +256,24 @@ def main(argv):
                       "(%d)" % (label, k - inside[0]))
                 steps = [abs(seq[i + 1] - seq[i]) for i in range(inside[0], k)]
                 steps = [s if s < HALF else 65536 - s for s in steps]
-                check(min(steps) * 10 >= rate * 6,
-                      "%s: no eased tick is a crawl - the smallest is %d%% of "
-                      "the rate (%s)"
-                      % (label, round(100 * min(steps) / rate), steps))
+                # THE SPREAD IS EVEN, and that is the contract 88.7.3.2 put
+                # in place of a floor under the tick. There is no floor any
+                # more and there cannot be one: the distance a frame has left
+                # to travel is whatever it is, and pinned 7 degrees from
+                # inverted the Pitts covers 7 degrees in that frame however
+                # they are divided. What the ladder promises is that they are
+                # divided EQUALLY - a plateau and not a dive - and that the
+                # last of them is the frame's last tick, so the hold discards
+                # nothing. The old check read 60% of the rate and passed on
+                # 78%-then-22%, which is the shape the field called a pause.
+                check(max(steps) - min(steps) <= 1,
+                      "%s: the eased ticks are EQUAL, so the approach is a "
+                      "plateau and not a dive (%s)" % (label, steps))
+                # seq[i] is read at the TOP of tick i, so the tick that
+                # LANDED is k-1 and its cs_tleft is left[k-1]
+                check(left[k - 1] == 1,
+                      "%s lands on the frame's LAST tick, so the hold "
+                      "discards none (cs_tleft %d)" % (label, left[k - 1]))
 
         for row, name in ((0, "CESSNA"), (1, "PITTS")):
             if byte("cs_back") != 0:
@@ -273,7 +301,8 @@ def main(argv):
                 "%s pitch -> horizon" % name)
             # 3 - away from it, nothing eased
             angle = int(0.4 * rr)
-            seq = ticks("ArrowRight", "cs_roll", lambda: airborne(angle, 0), 6)
+            seq, _ = ticks("ArrowRight", "cs_roll",
+                           lambda: airborne(angle, 0), 6)
             steps = [seq[i + 1] - seq[i] for i in range(len(seq) - 1)]
             check(all(s == rr for s in steps),
                   "%s: held AWAY from level every tick is the full rate (%s)"

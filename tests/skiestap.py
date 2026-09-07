@@ -21,11 +21,20 @@ finer than the question - and this row is the two measurements that say so.
      is §88.7.3's capture made visible; one and not four is the promise that
      this is not Tank Attack's lock, which the owner reported as lag.
 
-Two red runs (docs/WRITING-TESTS.md 1). --clobber-tap cuts the latch out of
-`cs_stick`, which is the machine as it was, and check 1 goes red at 4 of 12.
---clobber-hold turns `cs_ease`'s `stc` into a `clc`, so a landing is no
-longer distinguishable from a step toward one, and check 2 goes red with no
-drawn frame at level at all.
+--clobber-tap is the red run (docs/WRITING-TESTS.md 1): it cuts the latch out
+of `cs_stick`, which is the machine as it was, and check 1 goes red at 4
+of 12.
+
+There WAS a --clobber-hold for check 2, which turned `cs_ease`'s `stc` into
+a `clc` so the caller could not tell a landing from a step toward one, and
+it is gone for TWO reasons that arrived together. What it actually removed
+was `cs_att_lag` zeroing `cs_rrate` on arrival - and since 88.7.5.2.1 that
+only happens when the stick is CENTRED, which check 2 never is, so the patch
+is a no-op here. And the detent it was aimed at is a rounding safety net now
+rather than the mechanism: 88.7.3.2 arranges the landing to be a frame's
+LAST tick, so removing the hold altogether still leaves exactly one drawn
+frame on the horizon. No A/B can distinguish it in these scenarios, and a
+knob that cannot go red is worse than no knob (docs/WRITING-TESTS.md 1).
 """
 import argparse
 import os
@@ -61,8 +70,6 @@ def main(argv):
     ap.add_argument("--apps", default="build/apps360.img")
     ap.add_argument("--clobber-tap", action="store_true",
                     help="cut the int 16h latch out of cs_stick: check 1 red")
-    ap.add_argument("--clobber-hold", action="store_true",
-                    help="cs_ease stops saying it ARRIVED: check 2 red")
     a = ap.parse_args(argv)
     os.chdir(ROOT)
     mp = dispapps._map("skies")
@@ -106,19 +113,6 @@ def main(argv):
                 m.write(lin + lo + i, b"\xb3\x00\x90\x90")
                 m.run()
             print("  (the tap latch cut out of cs_stick: this run must fail)")
-        if a.clobber_hold:
-            lo, hi = mp["cs_ease"], mp["cs_axis"]
-            code = m.read(lin + lo, hi - lo)
-            # .land: mov ax,bx / pop dx / pop cx / pop bx / stc / ret
-            i = code.find(b"\x89\xd8\x5a\x59\x5b\xf9\xc3")
-            if i < 0:
-                sys.exit("skiestap: cs_ease does not report its landing the "
-                         "way this patch expects")
-            m.pause()
-            m.write(lin + lo + i + 5, b"\xf8")               # stc -> clc
-            m.run()
-            print("  (cs_ease stops saying it ARRIVED: this run must fail)")
-
         # --- the Magister, in the air -----------------------------------------
         po = [rec(mp["cs_drplane"], 2 * i) for i in range(4)]
         ui.mo.click((po[0] + po[2]) // 2, (po[1] + po[3]) // 2)
