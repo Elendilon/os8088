@@ -3838,7 +3838,28 @@ osapi_table:
                                   ;          displays - and nothing is written
     OSAPI_SLOT api_gfx_rest       ; 0x0510 - ...and put it back: same rect,
                                   ;          ES:SI = the buffer the save filled
-osapi_table_end:                  ; 0x0518
+    OSAPI_XCELL inst_restart_set  ; 0x0518 - X: AX = a near offset in YOUR own
+                                  ;          image, 0 to withdraw. out CF = 1 =
+                                  ;          you are not a live package
+                                  ;          instance.
+                                  ;          "IF YOU HAVE TO MOVE MY REGION,
+                                  ;          THROW MY WORKER'S STACK AWAY AND
+                                  ;          RE-ENTER IT HERE" (SPEC.md
+                                  ;          66.6.2). The one way past 66.6.1's
+                                  ;          limit - a worker's stack carries
+                                  ;          its own segment at depths nothing
+                                  ;          can find, so the answer is not to
+                                  ;          find them but to arrange for the
+                                  ;          stack not to matter.
+                                  ;          IT IS A WINDOW, NOT A PROPERTY,
+                                  ;          and the asymmetry against
+                                  ;          OSAPI_MEM_PARKSAFE is the thing to
+                                  ;          weigh: parksafe declared wrongly
+                                  ;          costs a missed optimisation, this
+                                  ;          costs a lost loop iteration - and
+                                  ;          if the worker was holding
+                                  ;          something, correctness
+osapi_table_end:                  ; 0x0520
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -3846,8 +3867,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 161 * 8
-%error "os8088 API jump table must be exactly 161 8-byte slots"
+%if OSAPI_TABLE_LEN != 162 * 8
+%error "os8088 API jump table must be exactly 162 8-byte slots"
 %endif
 
 ; =============================================================================

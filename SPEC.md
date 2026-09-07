@@ -77649,11 +77649,9 @@ say *"a region is pinned and never arrives here"*; with one declared it does,
 and the holder is the **package itself, at its new base** — dispatched through
 `PKG_DISP` and not through the kernel's shim.
 
-**What is still pinned is a package that owns a WORKER** — `task_spawn` writes
+**What was still pinned is a package that owns a WORKER** — `task_spawn` writes
 the region's segment into the worker's frame before it runs, and nothing can
-rewrite a suspended frame it cannot type. `docs/plans/HEAP-UNPIN-PLAN.md` §4.7
-is the way past it and it is an ABI change: the worker declares a restart point
-and the kernel rebuilds its frame.
+rewrite a suspended frame it cannot type. §66.6.2 is the way past it.
 
 **And `mem_find_own`'s fence had to widen by five bytes.** It matches
 `MC_SEG == DX && MC_OWN == BX` — *yours, or not at all* — and a region's
@@ -77662,6 +77660,69 @@ and the kernel rebuilds its frame.
 caller's region and can be nothing else, so that is the second way to match.
 No new API slot: a region *is* a claim, so `OSAPI_MEM_MOVABLE` is already the
 door.
+
+#### 66.6.2 …and past the worker: the package gives its worker back
+
+`OSAPI_TASK_RESTARTABLE` (slot `0x0518`, `inst_restart_set`) — `AX` = a near
+offset in the caller's own image, `0` to withdraw. It says:
+
+> *While this stands, my worker's stack holds nothing that matters. If you have
+> to move my region, throw the stack away and re-enter me at `offset` in the
+> new segment.*
+
+**Why it has to be the package that says so.** §66.6.1's limit is not that the
+segment is hard to find on the worker's stack — it is that it is there at an
+offset nothing can compute. `task_spawn` writes it into the initial frame, the
+worker's own chain pushes it again, and a scan that patched would corrupt a
+return address silently (§66.3 rule 5). So the kernel does not look for the
+stack; it arranges for the stack not to matter, and only its owner knows when
+that is true.
+
+**It is a WINDOW, not a property.** A worker that mixes audio or interprets
+Z-code declares only between units of work, exactly the way `MEM_PARKSAFE` is
+set around `gfx_lock` and cleared after. A worker that declares while mid-
+anything loses it — and the asymmetry against `MEM_PARKSAFE` is the thing to
+weigh before declaring: parksafe declared wrongly costs a missed optimisation,
+**this costs a lost loop iteration, and if the worker was holding something it
+costs correctness.**
+
+**Two questions, not one.** `mem_frameless` asks whether a restart point is
+declared *and* whether `[sch_parked]` is set for that worker. The declaration
+says the stack holds nothing of the PACKAGE's; it says nothing about the
+KERNEL's, and a worker pre-empted inside `gfx_lock` holding the lock, or inside
+a driver call, would take that with it. The park byte is exactly the proof that
+it is standing at one of the two points where it holds neither (§66.5.4), and
+it is already maintained — so this reaches the **drawing** workers, which
+§66.6.1 could not and which have the big claims.
+
+**A rebuild in place, not a kill and respawn.** `sch_wk_restart` is
+`task_spawn`'s tail run again on a slot that already exists: `T_SP` = slice top
+− `SCH_FRAME`, `DS` = `CS` = the new segment, `IP` = the declared offset, `DX`
+= the instance index, the rest zeroed. A respawn can *fail* — first fit over a
+busy table — and the kernel would then have destroyed a worker it could not
+promise to return; and `task_exit` releases the instance record with the task,
+which is a package closing rather than a worker restarting. The slice keeps its
+`0xCC` fill and its `SCH_MAGIC` canary: both belong to a slice already cut, and
+the high-water mark `tools/stkwater.py` reads stays meaningful across a
+restart.
+
+**It MUST clear `[sch_parked]`.** The worker is standing in `inst_park_hold` or
+in `gfx_lock`'s `.block` arm and **both clear that byte on the way out** — a
+way out the rebuild has just deleted. Left set, `inst_seg_parked` answers
+*"parked"* for ever and the next compaction moves the claims of a worker that
+is running. `[gfx_lock_want]` is left set and that one is harmless: §7.3 makes
+it a fairness hint the next contended acquire spends.
+
+**`[mem_wpin]` is set when the refusal is only the park.** A region whose
+package declared a restart point and whose worker is *running* is refused —
+but a park would fix it, so `mem_compact` is told, and spends its one park
+request on the region rather than only on a package's data claims. A region
+with no declaration sets nothing: no amount of waiting changes that answer.
+
+**What it costs the SDK is one appended cell**, so no published offset moves
+and no package needs rebuilding; a package built before this simply never
+declares and stays pinned. One word per instance (`INST_MAX*2` of `.bss`, a
+side table for `inst_parksafe`'s reason — `I_RECSZ` is full).
 
 ### 66.7 What is deliberately not done
 

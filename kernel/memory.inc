@@ -1496,12 +1496,43 @@ mem_frameless:
     xchg ax, di                 ; AX = the slot for the shim
     call KERNEL_SEG:cw_inst_ptr ; DI = the record (mem_is_region's own shim)
     cmp byte [di+I_TASK], 0xFF
-    jne .nope
+    je .ok                      ; no worker at all: SPEC.md 66.6.1's own case
+    ; IT OWNS A WORKER, and 66.6.2 is the only way past that. Two questions,
+    ; and the order is the cheap one first:
+    ;
+    ;   has the package DECLARED a restart point? Without it the worker's
+    ;   stack carries this segment at a depth nothing can find, and no amount
+    ;   of waiting changes that - so this arm is a hard pin and asking for a
+    ;   park would be asking for nothing.
+    ;
+    ;   is the worker STANDING on it? The declaration says the stack holds
+    ;   nothing that matters; it does NOT say the worker holds nothing of the
+    ;   KERNEL's. A worker pre-empted inside gfx_lock HOLDING the lock, or
+    ;   inside a driver call, would take that with it. [sch_parked] is exactly
+    ;   the proof that it is at one of the two points where it holds neither
+    ;   (SPEC.md 66.5.4), and it is already maintained.
+    push bx
+    shl bx, 1                   ; the side table is WORDS - it holds an offset
+    cmp word [bx+inst_restart], 0
+    pop bx
+    je .nope
+    push bx
+    mov bl, [di+I_TASK]
+    xor bh, bh
+    cmp byte [bx+sch_parked], 0
+    pop bx
+    je .wpin                    ; declared and RUNNING: a park is worth asking
+.ok:
     pop di
     pop cx
     pop ax
     clc
     ret
+.wpin:
+    mov byte [mem_wpin], 1      ; ...so say so, the way mem_busy_seg does. This
+                                ; is what makes mem_compact spend its one park
+                                ; request on a region rather than only on a
+                                ; package's data claims
 .nope:
     pop di
     pop cx
@@ -2151,9 +2182,50 @@ mem_region_reloc:
 .on:
     add di, MC_SIZE
     loop .ol
-    pop di
+    call mem_wk_restart         ; ...and a WORKER standing on the old segment
+    pop di                      ; is re-entered at the new one (SPEC.md 66.6.2)
     pop si
     pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; mem_wk_restart - re-enter a moved region's worker (module internal)
+; in:  BX = the base it WAS at, DX = where it is now
+; out: nothing (all registers preserved)
+;
+; The other half of mem_frameless's 66.6.2 arm: that one decided the move was
+; allowed, this one makes it true. A region that owns no worker, or one whose
+; package never declared a restart point, matches nothing here and pays four
+; compares - and could not have got this far anyway, mem_can_move having
+; refused it.
+;
+; IT LOOKS UP THE **NEW** SEGMENT, and that is not a shortcut. mem_region_reloc
+; has already walked inst_tab and put every I_SPTR right, so the record that
+; matches BX no longer exists - DX is the only thing that finds it. Reordering
+; this above the table walk would silently stop finding anything.
+; -----------------------------------------------------------------------------
+mem_wk_restart:
+    push ax
+    push bx
+    push cx
+    push di
+    mov bx, dx
+    call inst_of_seg            ; DI = the live KIND_PKG record at the new base
+    jc .out
+    mov al, [di+I_TASK]
+    cmp al, 0xFF
+    je .out                     ; no worker: nothing to re-enter
+    call inst_fhome_idx         ; BX = the slot, the one place the side tables'
+    shl bx, 1                   ; indexing lives
+    mov cx, [bx+inst_restart]
+    jcxz .out                   ; never declared: it cannot have moved, and if
+    mov bx, dx                  ; it did, the wrong thing to do is guess
+    call sch_wk_restart         ; AL = slot, BX = the new segment, CX = entry
+.out:
+    pop di
+    pop cx
+    pop bx
     pop ax
     ret
 

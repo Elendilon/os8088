@@ -1775,6 +1775,61 @@ DRVC_FILE    equ 5              ; a volume served by somebody answering
                                  ; refuses to compact any driver-owned claim
                                  ; while any service task is unparked.
 
+%define OSAPI_TASK_RESTARTABLE KERNEL_SEG:0x0518  ; AX = a near offset in YOUR
+                                 ; own image, 0 to withdraw. out CF=1 = you are
+                                 ; not a live package instance. Preserves every
+                                 ; register.
+                                 ;
+                                 ; "IF YOU HAVE TO MOVE MY REGION, THROW MY
+                                 ; WORKER'S STACK AWAY AND RE-ENTER IT HERE"
+                                 ; (SPEC.md 66.6.2).
+                                 ;
+                                 ; WHY IT EXISTS. Your REGION - the block your
+                                 ; code and bss live in - is a claim like any
+                                 ; other, and OSAPI_MEM_MOVABLE already
+                                 ; declares it. But if you hire a worker
+                                 ; (OSAPI_TASK_SPAWN) the kernel wrote your
+                                 ; segment into that worker's frame before its
+                                 ; first instruction, and its own call chain
+                                 ; has pushed it again since, at depths nothing
+                                 ; can compute. So a region with a worker stays
+                                 ; PINNED however it is declared - unless you
+                                 ; say this.
+                                 ;
+                                 ; WHAT YOU ARE ASSERTING is stronger than
+                                 ; OSAPI_MEM_PARKSAFE and the difference
+                                 ; matters: that one says "you may STOP me
+                                 ; here", this says "you may DISCARD what I am
+                                 ; standing on and start me again there". Your
+                                 ; worker's loop begins AGAIN - not resumes.
+                                 ; Everything it needs must live in your region
+                                 ; (which moves with it) or in a claim of its
+                                 ; own (which has its own relocation proc), and
+                                 ; never on its stack across the declaration.
+                                 ;
+                                 ; IT IS A WINDOW, NOT A HEADER BIT. A pump, a
+                                 ; poller, a game loop or a redraw worker loses
+                                 ; a frame and nothing else, and may declare
+                                 ; once and leave it. A worker that mixes audio
+                                 ; or interprets a story file declares only
+                                 ; BETWEEN units of work and withdraws before
+                                 ; the next - the same shape as taking and
+                                 ; releasing OSAPI_MEM_PARKSAFE around a lock.
+                                 ;
+                                 ; THE ASYMMETRY TO WEIGH: parksafe declared
+                                 ; wrongly costs you a missed optimisation.
+                                 ; This costs you a lost loop iteration - and
+                                 ; if your worker was holding something the
+                                 ; declaration was wrong about, it costs you
+                                 ; correctness. The default is undeclared, and
+                                 ; undeclared is the safe answer.
+                                 ;
+                                 ; The kernel restarts your worker only when it
+                                 ; is PARKED (SPEC.md 66.5.4), because your
+                                 ; declaration is about YOUR stack and says
+                                 ; nothing about the kernel's - so declaring
+                                 ; this alongside OSAPI_MEM_PARKSAFE is what
+                                 ; reaches a worker that draws.
 %define OSAPI_MEM_PARKSAFE  KERNEL_SEG:0x0408   ; AL = 1 declare / 0 withdraw.
                                  ; out CF=1 = you are not a live package
                                  ; instance. Preserves every register.

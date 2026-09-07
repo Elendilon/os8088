@@ -32,7 +32,7 @@
 
     OS88_HEADER 'PINME', pm_entry
 
-PM_BSS    equ 16
+PM_BSS    equ 24
 
 ; -----------------------------------------------------------------------------
 ; pm_entry - the window, then the declaration
@@ -75,15 +75,56 @@ pm_reloc:
 ; Its whole purpose is to exist: `mem_frameless` refuses to move a region whose
 ; instance owns a worker, because `task_spawn` wrote this segment into the
 ; worker's frame before it ran an instruction and the stack carries it at a
-; depth nothing can find (docs/plans/HEAP-UNPIN-PLAN.md 4.6).
+; depth nothing can find (docs/plans/HEAP-UNPIN-PLAN.md 4.6) - unless the
+; package declares a restart point (SPEC.md 66.6.2), which 'R' does.
+;
+; **IT IS ALSO THE RESTART POINT**, so `[pm_nstart]` counts entries: 1 from the
+; spawn, 2 after the kernel has thrown its stack away and re-entered it. And
+; `[pm_ntick]` keeps rising afterwards, which is the assertion that matters -
+; a restart that produced a task which never runs again would leave the count
+; right and the machine one worker short.
+;
+; Both counters are BSS, so they live in the region and the move carries them.
 ; -----------------------------------------------------------------------------
 pm_worker:
+    inc word [pm_nstart]
 .loop:
+    inc word [pm_ntick]
     mov bx, [pm_win]
-    call OSAPI_TASK_ALIVE       ; never returns once the close box is clicked
+    call OSAPI_TASK_ALIVE       ; never returns once the close box is clicked;
+                                ; ALSO the park point (SPEC.md 66.5.4), which
+                                ; is what makes a restart legal at all
     mov ax, 4
     call OSAPI_TASK_SLEEP
     jmp .loop
+
+; -----------------------------------------------------------------------------
+; pm_onkey - 'R' declares the restart point, 'P' withdraws it
+; in:  AL = ASCII, AH = scan, SI = window; the gfx lock is HELD
+; -----------------------------------------------------------------------------
+pm_onkey:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    or al, 0x20                 ; case-blind
+    cmp al, 'r'
+    jne .draw
+    mov ax, pm_worker           ; the top of the loop, which is the one point
+    call OSAPI_TASK_RESTARTABLE ; where this worker holds nothing at all
+    jc .draw                    ; refused: [pm_rst] stays 0 and the row sees it
+    mov byte [pm_rst], 1
+.draw:
+    call pm_paint               ; the gfx lock is HELD in a key callback
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
 
 ; -----------------------------------------------------------------------------
 ; pm_paint - W_PAINT, the gfx lock HELD. The hire happens here, once: the entry
@@ -128,7 +169,7 @@ pm_paint:
 
 pm_tpl:
     dw 300, 26, 128, 40
-    dw pm_ttl, pm_paint, 0, 0
+    dw pm_ttl, pm_paint, pm_onkey, 0
 
 pm_ttl:    db 'PinMe', 0
 pm_s_mov:  db 'movable', 0
@@ -142,3 +183,6 @@ pm_self    equ os88_image_end + 2    ; word: our own segment, for pm_reloc
 pm_nreloc  equ os88_image_end + 4    ; word: times pm_reloc was called
 pm_wk      equ os88_image_end + 6    ; byte: the worker has been hired
 pm_mov     equ os88_image_end + 7    ; byte: the declaration took
+pm_nstart  equ os88_image_end + 8    ; word: times pm_worker has been ENTERED
+pm_ntick   equ os88_image_end + 10   ; word: ...and times round its loop
+pm_rst     equ os88_image_end + 12   ; byte: the restart point is declared

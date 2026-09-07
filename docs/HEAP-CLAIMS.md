@@ -12,6 +12,15 @@ machine. §66.5.6.2 is the case for checking: a declaration whose owner fence
 refused it, silently, left this table saying MOVABLE for a cache that was
 pinned. When a row here matters, boot and read the map.
 
+**A package that owns a WORKER is a third question** (§66.6.2). Its region is
+pinned however it declares `OSAPI_MEM_MOVABLE`, because `task_spawn` wrote the
+segment into the worker's frame before its first instruction —
+`OSAPI_TASK_RESTARTABLE` is the way past it, and the kernel acts on it only
+while the worker is **parked**. So a row here that says MOVABLE for a
+worker-owning package is describing what the package asked for and not what the
+compactor will do; `inst_restart[slot]` beside `MC_RLOC` is the pair that
+decides.
+
 **Movable is only half of it — the other half is WHICH WAY** (§66.4.1). A claim
 goes back through the door it came in by, so the ascending pass moves only the
 bottom-up claims and the descending pass only the top-down ones, and each

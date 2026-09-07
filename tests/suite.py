@@ -222,6 +222,15 @@ FAST = [
         "and `make` says 'up to date'. apps/os88ui.inc was missing from NINE "
         "shipped packages and apps/os88type.inc from three; it was found by an "
         "A/B that measured zero because the package never reassembled"),
+    Row("regwork", "soak", py("tests/regwork.py"), 170.0,
+        "SPEC.md 66.6.2: a WORKER-OWNING region moves once the package has "
+        "declared a restart point, and the worker comes back. regpin is the "
+        "same disk, the same arena and the same forcing ask with the 'R' key "
+        "NOT pressed - the two rows are one experiment either side of one "
+        "declaration. The assertion that matters is the last: a restart that "
+        "built a frame the scheduler never resumed leaves the counters right "
+        "and the machine one worker short, so the loop count is read twice",
+        wants=("build/regpin360.img",)),
     Row("regpin", "soak", py("tests/regpin.py"), 160.0,
         "THE NEGATIVE ARM of SPEC.md 66.6.1 (docs/plans/HEAP-UNPIN-PLAN.md "
         "10.1): a region whose package owns a WORKER must NOT move, because "

@@ -1268,7 +1268,7 @@ first two are worth taking whatever is decided about the rest.
 | **D0** | **Driver unload/reload as a policy step** (§3.4): the mechanism is BUILT — `hbm_detach`/`hbm_reload` are 91 bytes, `ss_reap_x` does it per session. Only a policy hook is new | **~40** | 0 | ESTIMATE. Reaches **more** memory than a move (the 8KB ring and ETHER's 14KB pool) and breaks nothing, because a package names a driver by CLASS |
 | **D** | **Driver images move in place** (§3.2, §3.4, §4.4): the 66-word fix-up, a dispatch depth count over SEVEN sites, the mask/unmask bracket, `DRVV_QUIESCE`/`DRVV_REARM`/`DRVV_RELOC` | **~240–310** | ~105 | The depth count is **MEASURED at 15 bytes a site**: `driver.inc:1552` is reached from `snd_tick` inside IRQ0 and a bare `inc byte [mem]` is an interruptible read-modify-write on an 8086, so each site is `pushf/cli/inc/popf` — **105 bytes**, or ~72 through a shared `drv_enter`/`drv_leave`. The rest ESTIMATE; `[drv_wcnt]`'s half costs 0 |
 | **E** | **The descending pass** (§5) — **A, C and D are harmful without it** | **~120** | 0 | ESTIMATE; parameterising `mem_cp_plan` (104) + `mem_cp_run` (115) + a descending `mem_cp_next` (55), with direction DERIVED from the tag/owner rather than a sixth `MC_` field (§5) |
-| **F** | **Worker-owning regions, by declaration** (§4.7): `OSAPI_TASK_RESTARTABLE`, the frame rebuild, the `mem_can_move` arm | **~90** | ~20 | ESTIMATE; `task_spawn`'s tail is the rebuild, `inst_parksafe_set` (22) the setter's shape. +24 `.bss`, +1 API cell |
+| **F** | **Worker-owning regions, by declaration** (§4.7): `OSAPI_TASK_RESTARTABLE`, the frame rebuild, the `mem_can_move` arm | **BUILT: 231** (est. ~90) | 177 | MEASURED (§10.10): `.text` +177, `.bss` +24, `.cold` +30, and it crossed the image rung. 2.6x the estimate, and §10.10 says where |
 
 **Everything: ~915–1,010 bytes**, of which **~430–460 is `.text`** once the
 fix-up procs are counted there — against 8,901 bytes left of `KERN_CODE_MAX`.
@@ -1426,8 +1426,14 @@ in the machine can merge them today.
 | then reconsider | D0 (~40, already built), D (~175–242, one IF=0 window and **more than one IVT vector**), F (~90, asks package authors for something — and §12 question 11 now says what: the point every worker already parks at) |
 
 **§10 is now the record of what happened to that order**, and three rows of it
-moved. **E, piece 0, §2.1.1's three items, ETHER and A are BUILT** (§10.2 to
-§10.8). **C is built** (§10.9) — it needed a filler package before it could be gated
+moved. **E, piece 0, §2.1.1's three items, ETHER, A and F are BUILT** (§10.2 to
+§10.10). **D0 IS DISCARDED** by the owner's decision: it was their own proposal
+for reaching the driver furniture *at all*, and A, C and F reach it by moving
+things instead - *"you found other ways to make them movable, so discard D0"*.
+**And B is re-framed by the same decision**: *"as long as the modules can MOVE,
+I don't care if they purge"*, so what the module row wants is §66.6's treatment
+and not §66.10's, which is a different piece with a different predicate.
+**C is built** (§10.9) — it needed a filler package before it could be gated
 and §4.2's global counter replaced with a segment stack, both of which that
 section records. **Six of §12's open questions are now answered** — 1b, 3, 4, 6,
 10 and 11, all of them by reading the tree rather than by building anything, and
@@ -1869,6 +1875,61 @@ the region's segment into the worker's frame before it runs. §4.7 is the way
 past it and it is an ABI change.
 
 ---
+
+### 10.10 Piece F — a worker-owning region moves, and the worker comes back
+
+**BUILT. SPEC.md 66.6.2 is the contract.** `OSAPI_TASK_RESTARTABLE`
+(`inst_restart_set`, slot `0x0518`) declares a near offset; `mem_frameless`
+accepts a region whose worker has one **and is parked**; `mem_wk_restart` finds
+the instance at the new base and `sch_wk_restart` rebuilds the frame.
+
+**231 bytes, against ~90 estimated** — `.text` +177, `.bss` +24, `.cold` +30,
+and it crossed the image rung. Where the estimate went wrong is the *shape*
+rather than the arithmetic: §4.7 costed a frame rebuild and an accept arm, and
+what it takes is **two predicates and two lookups**. The declaration alone is
+not enough (see below), so `mem_frameless` grew a second question and a
+`[mem_wpin]` arm; and the rebuild cannot be reached from where §4.7 imagined,
+because `mem_region_reloc` has already rewritten every `I_SPTR` by the time the
+move is done — so finding the instance needs a second lookup by the **new**
+segment, which is `mem_wk_restart`, ~45 bytes that were not in the estimate.
+
+**THE DESIGN CHANGED IN ONE PLACE AND IT IS THE IMPORTANT ONE.** §4.7's API
+says *"my worker's stack holds nothing that matters"* and stops there. That is
+a claim about the PACKAGE's stack and says nothing about the KERNEL's: a worker
+pre-empted inside `gfx_lock` **holding** the lock, or inside a driver call,
+would take that with it and the machine would never draw again. So the built
+predicate is two questions — declared **and** `[sch_parked]` — and the park byte
+is exactly the proof that the worker is standing at one of the two points where
+it holds neither (SPEC.md 66.5.4). It costs nothing: that byte is already
+maintained, and `[mem_wpin]` now makes `mem_compact` spend its one park request
+on a region rather than only on a package's data claims, which is what gets a
+declared-but-running worker parked in the first place.
+
+**A defect the design walked into and out of: `[sch_parked]` must be CLEARED by
+the rebuild.** Both park points clear it on the way out — `inst_park_hold`'s
+`.done` and `gfx_lock`'s `inst_park_unlk` — and a rebuild deletes that way out.
+Left set, `inst_seg_parked` answers *"parked"* for ever and the **next**
+compaction moves the claims of a worker that is running: a silent corruption
+introduced by the fix for a silent corruption. `[gfx_lock_want]` is left set
+and is harmless (SPEC.md 7.3 makes it a hint the next contended acquire spends).
+
+**The gate is two rows that differ by one keystroke.** `tests/regpin.py` opens
+the same disk, builds the same arena and makes the same forcing ask **without**
+pressing `R`; `tests/regwork.py` presses it. One says the region must not move,
+the other that it must — which is a better A/B than any kernel patch, because
+nothing but the declaration differs:
+
+    regpin    3 pinme region STAYED       8280, pm_reloc called 0 times
+    regwork   3 the region MOVED          8280 -> 92c0, pm_reloc called 1 time(s)
+              4 the worker was RE-ENTERED entered 1 -> 2
+              5 ...and it is RUNNING      loop 1942 -> 2040 over 4s
+
+**Assertion 5 is the one that earns the row**, and the kernel-side A/B proves
+it: with `mem_wk_restart`'s call nop'd out the region still moved and
+`pm_reloc` still fired, and the worker's tick count **froze at 1717**. It did
+not fault — it resumed at an offset in memory that was no longer its own and
+wandered off, which is §10.1's *"would not fault; it would run the wrong
+memory"* happening in front of the row that was written for it.
 
 ## 10.1 How the rest would be verified
 

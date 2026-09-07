@@ -192,6 +192,7 @@ Read first: [§7 Concurrency model (read carefully — this is the crux)](../SPE
 | `0x0160` | `OSAPI_TASK_SPAWN` | AX = your worker's near entry (a plain `mov ax, my_worker`... |
 | `0x0168` | `OSAPI_TASK_ALIVE` | BX = YOUR window ptr; the gfx lock must NOT be held, and it must be YOUR WORKER calling - never a window callback... |
 | `0x0410` | `OSAPI_TASK_PARK` | a DRIVER's worker parks here for a heap compaction (SPEC.md 66.5.5), the way a package's parks at OSAPI_TASK_ALIVE... |
+| `0x0518` | `OSAPI_TASK_RESTARTABLE` | AX = a near offset in YOUR own image, 0 to withdraw. out CF=1 = you are not a live package instance. Preserves every register... |
 | `0x02F8` | `OSAPI_BOOT_TICKS` | out AX = how long this machine took to boot, in SYSTEM TICKS (18.2065 Hz, 54.925 ms each): the boot sector's first instruction to the first desktop... |
 
 ### Sound
