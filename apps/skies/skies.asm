@@ -782,8 +782,10 @@ CS_SETDY  equ 34                    ; ...and the pitch down to the second
 CS_SETLH  equ 11                    ; a label's height above its control
 CS_SETFY  equ 90                    ; the fill boxes' row...
 CS_SETFX  equ 44                    ; ...their first column and pitch
-CS_SETFW  equ 86
-CS_SETFB  equ 82                    ; ...and how wide each one's area is
+CS_SETFW  equ 124                   ; ...WIDE ENOUGH FOR THE NOTES (88.13.11):
+CS_SETFB  equ 120                   ; 'Buildings' plus its own is 17 + 72 + 8 +
+                                    ; 32 = 129 from the box's left edge, and
+                                    ; the row has 44..304 for two of them
 CS_SETBY  equ 112                   ; Done
 
 ; -----------------------------------------------------------------------------
@@ -942,8 +944,10 @@ cs_set_page:
     mov bx, 4
     mov al, CBLACK
     call cs_at_centre
-    ; --- the four rows: a label, and the control's rect beside it ----------
-    mov cx, 4
+    ; --- the rows: a label, and the control's rect beside it ---------------
+    call cs_nsets                   ; ...however many this display HAS
+    mov cx, di                      ; (DI = the last, so the count is
+    inc cx                          ;  one more - 88.13.11)
     xor di, di                      ; DI = the control: 0 and 1 down the left
 .row:                               ; column, 2 and 3 down the right
     push cx
@@ -966,6 +970,15 @@ cs_set_page:
     mov si, [cs_setlbls + si]
     mov al, CBLACK
     call cs_at_left
+    push si                         ; ...and its hotkey beside it (88.13.11)
+    mov si, di
+    shl si, 1
+    mov di, [cs_sethk + si]
+    pop si
+    or di, di
+    jz .nohk
+    call cs_hkat
+.nohk:
     pop ax
     add bx, CS_SETLH                ; ...and the control under it
     mov cx, ax
@@ -1032,11 +1045,26 @@ cs_set_page:
     xor di, di
     call os88ui_chk
     pop di
+    push di                         ; ...and its hotkey after the label the
+    mov ax, di                      ; widget just drew (SPEC.md 88.13.11)
+    mov bl, CS_SETFW
+    mul bl
+    add ax, CS_SETFX + OS88UI_CKBOX + OS88UI_CKGAP
+    mov cx, ax                      ; CX = where that label starts...
+    mov bx, CS_SETFY + 2            ; ...and the row os88ui_chk centres it on
+    mov si, di
+    shl si, 1
+    mov di, [cs_fillhk + si]
+    mov si, [cs_setboxes + si]
+    mov si, [si + OS88UI_CK_LABEL]
+    call cs_hkat
+    pop di
     pop cx
     inc di
     LOOPF .dbox
-    mov cx, 4
-    mov di, 3
+    call cs_nsets                   ; ...however many this display HAS
+    mov cx, di                      ; (DI = the last, so the count is
+    inc cx                          ;  one more - 88.13.11)
 .ddrop:
     push cx
     mov si, di
@@ -1087,6 +1115,36 @@ cs_modechoice:
     clc
     ret
 
+; cs_nsets - DI = the LAST live Settings row's index (SPEC.md 88.13.11); a
+;            caller wanting the COUNT takes `mov cx, di` / `inc cx`.
+;            EVERY OTHER REGISTER IS PRESERVED, CX INCLUDED, and that is the
+;            whole reason it answers in DI: three of the seven walks are the
+;            CLICK dispatch and hold the point in CX/DX, so a helper that
+;            returned a count in CX ate the x on its way past. Every list
+;            then failed to open, which reads as the drop-down being broken
+;            rather than as a clobbered argument.
+;
+; HIDDEN AND NOT GREYED. SPEC.md 47 rule 2 greys a control the machine could
+; use in another state and this is not one: a Hercules has ONE mode for the
+; life of the session, so the row can never come alive and a greyed box is a
+; promise the machine cannot keep. Greying it was also the shape that let the
+; field open it - a control drawn disabled still took the press until
+; 13.14.5, and a row that is not drawn at all takes none by construction,
+; because every walk on this page is bounded by this count.
+cs_nsets:
+    push ax
+    push cx
+    mov cx, CS_NSETALL
+    call cs_modechoice
+    jnc .out
+    dec cx                          ; one display mode: no Mode row
+.out:
+    mov di, cx
+    dec di
+    pop cx
+    pop ax
+    ret
+
 ; cs_setsync - the controls' selections FROM the settings, and the boxes'
 ;              ticks from the fill mask. Preserves everything
 cs_setsync:
@@ -1095,7 +1153,9 @@ cs_setsync:
     push cx
     push si
     push di
-    mov cx, 4
+    call cs_nsets                   ; ...however many this display HAS
+    mov cx, di                      ; (DI = the last, so the count is
+    inc cx                          ;  one more - 88.13.11)
     xor di, di
 .d:
     mov si, di
@@ -1193,7 +1253,7 @@ cs_setclick:
     ;     is row 0 and its list falls over Detail, so Moderate and High were
     ;     unreachable from the page; None arriving as a fourth item is what
     ;     walked into it (88.13.6).
-    mov di, 3
+    call cs_nsets                   ; ...the last row this display has
 .o:
     mov si, di
     shl si, 1
@@ -1202,7 +1262,7 @@ cs_setclick:
     jne .d                          ; ...start the walk at the open one
     dec di
     jns .o
-    mov di, 3                       ; none open: the drawn order will do
+    call cs_nsets                   ; none open: the drawn order will do
 .d:
     push di
     mov si, di
@@ -1485,6 +1545,38 @@ cs_at_centre:
     pop cx
     ret
 
+; cs_hkat - a hotkey note after a label (SPEC.md 88.13.11)
+; in:  SI = the label, DI = the note, BX = content y, CX = the label's x
+; Preserves every register. The note is placed off the label's OWN length
+; rather than at a column, because 'Size' and 'Draw Distance' are 9 pixels
+; and 104 wide and a fixed column puts one of them in the next control.
+cs_hkat:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push cx
+    call cs_strlen                  ; CX = the label's length...
+    mov ax, cx
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1                       ; ...in pixels, the face being 8 wide
+    pop cx
+    add cx, ax
+    add cx, 8                       ; one cell of daylight
+    mov si, di
+    mov al, CBLACK
+    call cs_at_left
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ; cs_strlen - SI = string; out CX = its length. Preserves SI.
 cs_strlen:
     push si
@@ -1614,7 +1706,9 @@ cs_ondrag:
     push di
     cmp byte [cs_page], 2
     jne .title
-    mov cx, 4                       ; the Settings page's four
+    call cs_nsets                   ; ...however many this display HAS
+    mov cx, di                      ; (DI = the last, so the count is
+    inc cx                          ;  one more - 88.13.11)
     xor di, di
 .d:
     push cx
@@ -1645,7 +1739,7 @@ cs_ondrag:
 ; cs_setup2 - the release half on the Settings page: over an item it picks
 ;             (SPEC.md 13.14), and the Done button fires
 cs_setup2:
-    mov di, 3
+    call cs_nsets                   ; ...the last row this display has
 .d:
     push di
     mov si, di
@@ -1836,32 +1930,36 @@ cs_s_flybtn: db 'Fly', 0
 ; records the flight reads, kept in step by position
 cs_drplane:  dw 0, 0, 0, 0, cs_plnames, CS_NPLANES, 0, 0
              db 0, 0FFh
-             dw 0, 0, 0             ; the banked pixels (OS88UI_DR_SEG/_KB)
-                                    ; and where the open list goes (_TOP)
+             dw 0, 0, 0, 0          ; the banked pixels (OS88UI_DR_SEG/_KB),
+                                    ; where the open list goes (_TOP) and
+                                    ; whether it is greyed (_DIS, 13.14.5)
 cs_drport:   dw 0, 0, 0, 0, cs_apnames, CS_NPORTS, CS_DEFPORT, 0
              db 0, 0FFh
-             dw 0, 0, 0
+             dw 0, 0, 0, 0
 cs_flyrect:  dw 0, 0, 0, 0
 ; --- the Settings page's controls (SPEC.md 88.13). Every one of them is the
 ;     shared drop-down or the shared check box, and the page is the first
 ;     user of the second ---------------------------------------------------
 cs_drbld:    dw 0, 0, 0, 0, cs_i_bld,  5, CSBL_MOD, 0
              db 0, 0FFh
-             dw 0, 0, 0
+             dw 0, 0, 0, 0
 cs_drlod:    dw 0, 0, 0, 0, cs_i_lod,  4, CSL_MOD, 0
              db 0, 0FFh
-             dw 0, 0, 0
+             dw 0, 0, 0, 0
 cs_drsize:   dw 0, 0, 0, 0, cs_i_size, 3, CSZ_MOD, 0
              db 0, 0FFh
-             dw 0, 0, 0
+             dw 0, 0, 0, 0
 cs_drmode:   dw 0, 0, 0, 0, cs_i_mode, 2, 0, 0
              db 0, 0FFh
-             dw 0, 0, 0
+             dw 0, 0, 0, 0
 cs_ckterr:   dw 0, 0, 0, 0, cs_s_terr, 1
 cs_ckbld:    dw 0, 0, 0, 0, cs_s_bld, 1
 cs_donerect: dw 0, 0, 0, 0
 cs_setlbls:  dw cs_s_lbld, cs_s_llod, cs_s_lsize, cs_s_lmode
 cs_setdrops: dw cs_drbld, cs_drlod, cs_drsize, cs_drmode
+CS_NSETALL   equ ($ - cs_setdrops) / 2  ; ...and MODE IS LAST, which is what
+                                    ; lets cs_nsets hide it by returning one
+                                    ; fewer (88.13.11)
 cs_setboxes: dw cs_ckterr, cs_ckbld
 CS_NFILL     equ ($ - cs_setboxes) / 2
 cs_setbytes: dw cs_setbld, cs_setlod, cs_setsize, cs_modepref
@@ -1870,6 +1968,13 @@ cs_i_lod:    dw cs_s_lnear, cs_s_lmod, cs_s_lfar, cs_s_lultra
 cs_i_size:   dw cs_s_zsml, cs_s_zmod, cs_s_zful
 cs_i_mode:   dw cs_s_modex, cs_s_cga
 cs_i_mode160: dw cs_s_cga, cs_s_c160   ; a real CGA's two (SPEC.md 88.15.7)
+cs_sethk:    dw cs_s_hk1, cs_s_hk2, cs_s_hk3, 0   ; Mode has no hotkey
+cs_fillhk:   dw cs_s_hk4, cs_s_hk5
+cs_s_hk1:    db '(F1)', 0
+cs_s_hk2:    db '(F2)', 0
+cs_s_hk3:    db '(F3)', 0
+cs_s_hk4:    db '(F4)', 0
+cs_s_hk5:    db '(F5)', 0
 cs_s_setttl: db 'SETTINGS', 0
 cs_s_lbld:   db 'Detail Level', 0
 cs_s_llod:   db 'Draw Distance', 0

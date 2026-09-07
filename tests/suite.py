@@ -2543,6 +2543,44 @@ SOAK = [
         " is touching it. --clobber-now puts the two throttle entries of"
         " cs_pnow back to 0 and check 1 goes red at about half the frames",
         needs=("marty",), serial=True),
+    Row("skiesmode", "soak", py("tests/skiesmode.py"), 40.0,
+        "SPEC.md 88.13.11: the Settings page's MODE row is HIDDEN where the"
+        " display has one raster, not greyed. 47 rule 2 greys a control the"
+        " machine could use in another STATE, and the adapter is not a state"
+        " - it is fixed for the session, so a greyed Mode row is a promise"
+        " the machine can never keep. Hiding is also what makes it safe:"
+        " a row that is never painted never has OS88UI_DR_DIS written, so"
+        " 13.14.5's refusal would not fire for it, but a row outside"
+        " cs_nsets' count is reached by no walk on the page at all. This arm"
+        " is the Hercules one - no rect, and a press where the row used to be"
+        " opens nothing. --clobber-hide NOPs cs_nsets' `dec cx` and the row"
+        " comes back",
+        needs=("marty",), serial=True),
+    Row("skiesmodevga", "soak",
+        py("tests/skiesmode.py", "--machine", "os8088_xt_vga", "--modes", "1"),
+        40.0,
+        "SPEC.md 88.13.11 the other way round: a display that HAS two rasters"
+        " keeps the Mode row. Both arms are registered because a change that"
+        " hid the row EVERYWHERE would pass the Hercules one, and 'hide it'"
+        " must not come to mean 'delete it'",
+        needs=("marty",), serial=True),
+    Row("uidrdis", "soak", py("tests/uidrdis.py"), 55.0,
+        "SPEC.md 13.14.5: a DROP-DOWN DRAWN DISABLED TAKES NO PRESS."
+        " OS88UI_DIS was a paint-time argument and nothing else - os88ui_drop"
+        " took it in DI and greyed the box, os88ui_drpress took BX/CX/DX and"
+        " could not know - so a press on a greyed control ran the whole open"
+        " path and the app then repainted a list it was still greying. The"
+        " state is the CONTROL's now (OS88UI_DR_DIS, written by the painter)"
+        " and the press half refuses without SPENDING the press, so a greyed"
+        " box behaves as though it were not there. Two things this row had to"
+        " learn: OS88UI_DR_DIS is DERIVED, so poking it disables nothing -"
+        " the app's own predicate is retargeted at a LIVE row instead - and a"
+        " drop-down opens on the PRESS and picks on the RELEASE, so a click"
+        " does both and reads OPEN=0 either way. --clobber-dis turns the"
+        " guard's `je` into a `jmp` so the refusal is never taken, which is"
+        " the tree as the field had it; NOPing that `je` instead makes every"
+        " control refuse every press and passes for the opposite reason",
+        needs=("marty",), serial=True),
     Row("skiesflat", "soak", py("tests/skiesflat.py"), 62.0,
         "SPEC.md 88.4.6.1: an EXACTLY HORIZONTAL segment lands where it was"
         " asked. CS_SLICE's flat arm - dy zero, so the whole line is one run -"

@@ -2742,8 +2742,14 @@ os88ui_chkhit:
 ;       dw 0                    ; OS88UI_DR_WIN: your window ptr, once created
 ;       db 0, 0FFh              ; OS88UI_DR_OPEN, OS88UI_DR_HOT: the control's
 ;       dw 0, 0                 ; OS88UI_DR_SEG, OS88UI_DR_KB: the banked
-;                               ; pixels under an open list. All four are the
-;                               ; control's own; leave them
+;                               ; pixels under an open list
+;       dw 0                    ; OS88UI_DR_TOP: where the open list starts
+;       dw 0                    ; OS88UI_DR_DIS: set from the painter's
+;                               ; OS88UI_DIS, so the press half can refuse
+;                               ; (13.14.5). All six are the control's own;
+;                               ; leave them - and DECLARE them: the record
+;                               ; is OS88UI_DR_SIZE bytes and the library
+;                               ; writes every one of them
 ;
 ; --- USING IT ----------------------------------------------------------------
 ;   in W_PAINT:      fill the rect, then BX = my_drop, DI = flags (OS88UI_DIS
@@ -2751,6 +2757,9 @@ os88ui_chkhit:
 ;                    the list too when it is open, so a repaint of any cause
 ;                    puts the control back exactly as it stands
 ;   in W_ONCLICK:    BX = my_drop, CX/DX = the point, `call os88ui_drpress`.
+;                    A control last PAINTED with OS88UI_DIS refuses the press
+;                    and does not spend it (AH = 0), so a greyed box behaves
+;                    as though it were not there.
 ;                    out AH = 1 the press was SPENT here (do not hand it to
 ;                    anything else), AL = the new pick or 0FFh, CF = 1 REPAINT
 ;                    YOUR CONTENT - the list came down over what it covered.
@@ -2800,7 +2809,15 @@ OS88UI_DR_KB    equ 20          ; ...and the claim's size, to give back
 OS88UI_DR_TOP   equ 22          ; the OPEN list's first row, screen (13.14.2):
                                 ; the row under the box, or higher where a long
                                 ; list would not fit the window below it
-OS88UI_DR_SIZE  equ 24
+OS88UI_DR_DIS   equ 24          ; the control's own: NON-ZERO while it is
+                                ; DISABLED, written by os88ui_drop from the
+                                ; painter's OS88UI_DIS so that the press half
+                                ; can refuse (SPEC.md 13.14.5). It is stored
+                                ; rather than passed because a caller that
+                                ; forgot to pass it would open a control it
+                                ; had just drawn greyed, which is the defect
+                                ; this field exists for
+OS88UI_DR_SIZE  equ 26
 %ifndef OS88UI_DRIH
 %define OS88UI_DRIH 12          ; an item's pitch: an 8px cell and 4px of air,
 %endif                          ; the About card's line and a menu's look -
@@ -2832,6 +2849,9 @@ os88ui_drop:
     push di
     push bp
     mov bp, bx                  ; BP = the record (SS != DS: ds: below)
+    mov ax, di                  ; WHAT IT WAS DRAWN AS, REMEMBERED (13.14.5):
+    and ax, OS88UI_DIS          ; the press half has no flags argument and
+    mov [ds:bp+OS88UI_DR_DIS], al   ; must not open a greyed control
     call os88ui_drbox
     cmp byte [ds:bp+OS88UI_DR_OPEN], 0
     je .shut
@@ -3263,6 +3283,15 @@ os88ui_drpress:
     push si
     push bp
     mov bp, bx
+    cmp byte [ds:bp+OS88UI_DR_DIS], 0   ; A GREYED CONTROL TAKES NO PRESS
+    je .live                            ; (SPEC.md 13.14.5), and does not
+    mov ax, 00FFh                       ; SPEND one either - the press is the
+    clc                                 ; app's to give to whatever is under
+    jmp .out                            ; it, exactly as if we were not here.
+                                        ; AH = 0 not spent, AL = 0FFh NO PICK:
+                                        ; a plain `xor ax, ax` here would
+                                        ; answer "the user chose item 0"
+.live:
     cmp byte [ds:bp+OS88UI_DR_OPEN], 0
     jne .open
     call os88ui_bhit            ; closed: a press on the box drops the list
