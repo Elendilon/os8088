@@ -222,6 +222,14 @@ FAST = [
         "and `make` says 'up to date'. apps/os88ui.inc was missing from NINE "
         "shipped packages and apps/os88type.inc from three; it was found by an "
         "A/B that measured zero because the package never reassembled"),
+    Row("drvclaim", "fast", py("tests/unit/t_drvclaim.py"), 0.1,
+        "a driver's SERVICE TASK may not reach a claim door: mem_claim can "
+        "reach mem_compact, which far-calls a holder's relocation proc on the "
+        "stack it was entered on, and a 384-byte worker slice is not STK0. "
+        "SPEC.md 20.6 rule 7 binds a package's worker and nothing binds a "
+        "driver's; SOUND.DRV is the only driver in the tree that spawns one, "
+        "so today the fact is true and unwritten - the second one is where it "
+        "stops being obvious. docs/plans/HEAP-UNPIN-PLAN.md 12 question 4"),
     Row("inktab", "fast", py("tests/unit/t_inktab.py"), 0.2,
         "SPEC.md 42.23.1: Paint's two ink-class masks ARE the kernel's "
         "gfx_inktab. A one-bit canvas stores what a 1bpp SCREEN shows, so the "

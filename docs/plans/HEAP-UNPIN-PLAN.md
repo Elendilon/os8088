@@ -37,9 +37,11 @@ population here can be made to move: the sound ring by quiescing the chip it is
 armed on (§3.2), a module by being dropped and re-read (§3.3), a driver image by
 fixing 66 kernel words and its IVT vector (§3.4), and a region by proving no
 frame is inside it (§4.2). The one population that resists — a package that owns
-a worker, 16 of 26 packages and **191,350 bytes of region against 135,930** — is
-reached only by **asking its owner**: a declaration that the worker's stack may
-be thrown away and the worker re-entered (§4.7).
+a worker, **20 of 32 shipped packages and 354,316 bytes of region against
+232,460** (§4.6, recounted; an earlier figure of 191,350 against 135,930 came
+off a table that left the six largest packages out) — is reached only by
+**asking its owner**: a declaration that the worker's stack may be thrown away
+and the worker re-entered (§4.7).
 
 **But the question's own framing is sharper than the answer it wants.** Every one
 of those claims is already at the top — a package region goes through
@@ -267,7 +269,11 @@ against whether the package hires a worker (`OSAPI_TASK_SPAWN`):
 | 2,021 | Mines | **no** |
 | 747 | hello | **no** |
 
-**worker-owning 191,350 bytes · worker-less 135,930 bytes.** The C packages are
+**worker-owning 191,350 bytes · worker-less 135,930 bytes — OVER THIS TABLE,
+which is not the shipped set**: it leaves out Word, LOOM, WEAVE, CWORD, C64,
+Frotz and RUNCPM, and counts WIREFRAME, which ships on no floppy. §4.6 carries
+the count over every shipped package on this same basis — **354,316 against
+232,460** — and it is the one to quote. The C packages are
 **not** uniformly on the pinned side, as an earlier draft said: `apps/cc/crt0.asm`
 offers the spawn but **C64 and LOOM do not take it** (apps/c64/c64.asm:44,
 apps/loom/loom.asm:112), so their regions are reachable where CWORD's and
@@ -891,12 +897,21 @@ unenforceable and already violated, it is a distance dependency across three
 files that nothing asserts, and it reaches the sleepers rather than the drawing
 workers that matter.
 
-**What that costs, exactly** (§2.2): the 16 worker-owning packages stay pinned —
-191,350 bytes of region, including Word, Browser, Frotz and every C package. What
-is reached is the 10 worker-less ones, 135,930 bytes, **including SHEET, PAINT and
-TEXPAD, the three largest regions there are** — and SHEET is the package that
-claims ~100KB of heap on open (SPEC.md 24.5.2), which is to say the one most
-likely to be standing where the memory is needed.
+**What that costs, exactly.** Re-counted on §2.2's own basis (the `image` field
+alone) over EVERY shipped package rather than the 26 that table lists — it
+leaves out the six largest, Word, LOOM, WEAVE, CWORD, C64 and Frotz, and counts
+WIREFRAME, which is an instrument and ships on no floppy: **20 worker-owning
+packages stay pinned, 354,316 bytes; 12 worker-less ones are reached, 232,460**
+(RUNCPM is worker-owning and was not built in the tree this was counted on, so
+the pinned side is larger still).
+
+**"every C package" was wrong and §2.2 already says so** — `apps/c64/c64.asm:44`
+and `apps/loom/loom.asm:112` each state in their own source that they take NO
+worker, and they are the **two largest members of the movable side**, LOOM at
+54,994 and C64 at 41,442. Only CWORD, RUNCPM and WEAVE define `CC_HAS_WORKER`.
+SHEET, PAINT and TEXPAD are there too, and SHEET is the package that claims
+~100KB of heap on open (SPEC.md 24.5.2), which is to say the one most likely to
+be standing where the memory is needed.
 
 **Under today's ABI that limit is absolute**: the frame cannot be found (§4.1)
 and cannot be forbidden (§4.5). §4.7 is the way past it, and it is a change to
@@ -965,10 +980,15 @@ pinned. One word per instance for the offset (`INST_MAX*2` = 24 bytes of `.bss`,
 a side table like `inst_parksafe`, because `I_RECSZ` is full).
 
 **What it is worth.** It is the only route found past §4.6, and it puts the other
-**191,350 bytes** of region in reach — Word, Browser, ftpd, Telnet, the Task
-Manager, the games, ModPlug and Tracker between buffers. One change in
-`apps/cc/crt0.asm` would cover every C package at once if their worker loop turns
-out to be re-enterable, which has not been checked.
+**354,316 bytes** of region in reach — Word, WEAVE, CWORD, Frotz, Browser, ftpd,
+Telnet, the Task Manager, the games, ModPlug and Tracker between buffers. One
+change in `apps/cc/crt0.asm` covers CWORD, RUNCPM and WEAVE at once: §12
+question 10 checked the runtime's loop and it IS re-enterable. **All eighteen
+assembly workers could declare the point too, and §12 question 11 says why that
+is the easy half** — the hard half is that the honest declaration is *"my
+statics are consistent here"* rather than *"my loop restarts"*, and the one
+point where that is true is `OSAPI_TASK_ALIVE`, which SPEC.md 66.5's park
+already stops them at.
 
 **Estimate: ~90 bytes** on top of piece C — 35 for the frame rebuild, 24 `.bss`,
 ~20 for the API cell and its setter, ~10 for the `mem_can_move` arm that accepts a
@@ -1243,7 +1263,7 @@ first two are worth taking whatever is decided about the rest.
 |---|---|---:|---:|---|
 | **0** | **Documentation only.** Add the four holders SPEC.md 66.6 misses; note `SSI_SEG` is a sample not a handle; correct SPEC.md 66.9 reason 5 and docs/HEAP-CLAIMS.md's donated-listing row, both stale; delete the dead `[ty_selfseg]` write | **0** | 0 | −4 bytes from every package that includes apps/os88type.inc |
 | **A** | **Stop pinning three claims for a placement constraint** (§3.1): `mem_can_move` drops the `MC_DMA` refusal, `mem_cp_plan`/`mem_cp_run` bump the fill point to the next page-safe base | **~50** | 0 | ESTIMATE; `mem_dmaok` (28) exists and is the whole test |
-| **B** | **Modules become purgeable** (§3.3, §4.3) at `MEM_PG_MED`, with a PER-SPAN pin and `FDLG.DRV` excluded: `resb MOD_MAX` count, `mod_leave` ~12, 29 thunk sites × 3, +5 in `mod_need`, `mem_pg_forget` arm ~14, `mem_cp_drop` guard ~8, plus the three held-span brackets | **~215–240** | ~180–200 | ESTIMATE, and **three passes disagreed**: 104, 152–168 and 215–240. The high figure is the right one — the bracket **cannot** be an increment in `mod_need`, both because ONDEMAND-PLAN §7.1 says *"incremented by the stub before the far call"* and because kernel/ctrl.inc:5839 far-calls the module after `mod_live` with **no `mod_need` at all**. So it is enter+leave per site, plus the held-span arms |
+| **B** | **Modules become purgeable** (§3.3, §4.3) at `MEM_PG_MED`, with a PER-SPAN pin and `FDLG.DRV` excluded: `resb MOD_MAX` count, `mod_leave` ~12, 29 thunk sites × 3, +5 in `mod_need`, `mem_pg_forget` arm ~14, `mem_cp_drop` guard ~8, plus the three held-span brackets | **~215–240** | ~180–200 | ESTIMATE, and **three passes disagreed**: 104, 152–168 and 215–240. The high figure is the right one — the bracket **cannot** be an increment in `mod_need`, both because ONDEMAND-PLAN §7.1 says *"incremented by the stub before the far call"* and because kernel/ctrl.inc:5839 far-calls the module after `mod_live` with **no `mod_need` at all**. So it is enter+leave per site, plus the held-span arms. **§12 question 3 has since named all three exceptions and counted the sites**: 29 thunks far-call through seven FP blocks, 26 of them `need`/`jc`/`call far`, and the three that are not are files.inc:5461 and ctrl.inc:5929 (a `need` with no far call — both held spans) and ctrl.inc:5839 (a far call with no `need`) |
 | **C** | **Regions move when idle** (§3.5, §4.2): `[wm_pkgd]` + its two brackets ~11, the fix-up routine ~110, the `mem_can_move` arm ~20, widen `mem_find_own`'s fence ~20, the `[ld_base]` refusal ~6, tier-3 gate ~15 | **~200** | ~11 | ESTIMATE; the fix-up is `dsk_dseg_reloc`'s shape over four tables and five words. Two agents arrived at ~110 independently |
 | **D0** | **Driver unload/reload as a policy step** (§3.4): the mechanism is BUILT — `hbm_detach`/`hbm_reload` are 91 bytes, `ss_reap_x` does it per session. Only a policy hook is new | **~40** | 0 | ESTIMATE. Reaches **more** memory than a move (the 8KB ring and ETHER's 14KB pool) and breaks nothing, because a package names a driver by CLASS |
 | **D** | **Driver images move in place** (§3.2, §3.4, §4.4): the 66-word fix-up, a dispatch depth count over SEVEN sites, the mask/unmask bracket, `DRVV_QUIESCE`/`DRVV_REARM`/`DRVV_RELOC` | **~240–310** | ~105 | The depth count is **MEASURED at 15 bytes a site**: `driver.inc:1552` is reached from `snd_tick` inside IRQ0 and a bare `inc byte [mem]` is an interruptible read-modify-write on an 8086, so each site is `pushf/cli/inc/popf` — **105 bytes**, or ~72 through a shared `drv_enter`/`drv_leave`. The rest ESTIMATE; `[drv_wcnt]`'s half costs 0 |
@@ -1403,13 +1423,16 @@ in the machine can merge them today.
 | **piece 0** | free, and an incomplete SPEC.md 66.6 is worse than none: the next person fixes five of nine words and ships a machine that draws its menu titles out of the wrong segment |
 | **piece B** | ~215–240 bytes for up to 27KB of claimed ceiling on kern_big (`MOD_MAX` = 4, rounded up to whole KB). **The only piece safe without E**, with `FDLG.DRV` excluded or six thunks changed |
 | **piece E** | before **A**, **C** and **F**. An ascending pack is safe only when the whole top-down population moves, and §4.6 guarantees it will not (§5) |
-| then reconsider | D0 (~40, already built), D (~175–242, one IF=0 window and **more than one IVT vector**), F (~90, asks package authors for something) |
+| then reconsider | D0 (~40, already built), D (~175–242, one IF=0 window and **more than one IVT vector**), F (~90, asks package authors for something — and §12 question 11 now says what: the point every worker already parks at) |
 
 **§10 is now the record of what happened to that order**, and three rows of it
 moved. **E, piece 0, §2.1.1's three items, ETHER and A are BUILT** (§10.2 to
 §10.8). **C is built** (§10.9) — it needed a filler package before it could be gated
 and §4.2's global counter replaced with a segment stack, both of which that
-section records. **B is not built and its prize is
+section records. **Six of §12's open questions are now answered** — 1b, 3, 4, 6,
+10 and 11, all of them by reading the tree rather than by building anything, and
+two of them correcting figures this document had been quoting (§4.6's population
+and the `wm_pkgcall` bracket's cost). **B is not built and its prize is
 smaller than §3.3 says**: the Control Panel's thunks already call `mod_need`
 before every far call, so shedding `CTRL.DRV` is survivable — but a module is
 already freed when its feature closes, so what purgeable adds is only shedding
@@ -1914,33 +1937,101 @@ window.
    not, and `[sbl_play]` goes permanently out of phase. That is asserted from the
    part's behaviour, not measured on this hardware, and it is what decides whether
    the ring can be moved at all or only restarted.
-1b. **Does a descending pass want a direction BIT in the claim record?** `MC_` has
-   five fields and none records which door a block came in through
-   (kernel/memory.inc:71). A bit is `MEM_MAX`×2 of `.lowbss`; a heuristic is the
-   kind of guess SPEC.md 47 refuses.
+1b. **ANSWERED — does a descending pass want a direction BIT in the claim
+   record?** YES, and it is `MC_HI` (§10.2). Both arms were built before the
+   answer was taken: stored is **10 bytes** of `.text` (`mem_is_hi`) plus one
+   byte a record, and DERIVING it from the tag and the owner is **47 bytes**
+   and right for only four of the seven top-down call sites — a driver image
+   and a module image are their tags, a region is `mem_is_region`, and the
+   Sound Blaster's ring is the one driver-owned claim carrying `MC_DMA`, but
+   ETHER's socket pool and the second images `RAMPAGE.DRV` and `HDDTOOL.DRV`
+   hold are indistinguishable from a driver's ordinary bottom-up claim. So the
+   heuristic is not merely a guess, it is a WRONG guess three times in seven,
+   and it costs four and a half times what the fact costs.
 2. **Does `mem_cp_plan`'s `.tail` run already count the ceiling holes correctly**
    when the pinned blocks are at the top (kernel/memory.inc:1607)? If it does not,
    `mem_avail` under-reports today and that is a defect independent of everything
    here.
-3. **Is `mod_need` ever called on a path that does not then far-call the module?**
-   If it is, an increment-in-`mod_need` / decrement-in-`mod_leave` scheme leaks a
-   pin on that path and piece B silently stops working. `cpf_need`
-   (kernel/ctrl.inc:5801) is called by thunks that then dispatch; the question is
-   whether any caller stops there.
-4. **Can any driver verb claim from a `TF_SERVICE` task?** §4.2's reasoning and
-   kernel/clip.inc:47's *"a worker may not claim"* are both about **packages**
-   (SPEC.md 20.6 rule 7). If a driver ever claimed from a service task, the
-   running stack at compaction time would be a slice rather than `STK0` and the
-   `[wm_pkgd]` predicate would be reasoning about the wrong stack. Worth an
-   assertion rather than a comment.
+3. **ANSWERED — is `mod_need` ever called on a path that does not then far-call
+   the module? YES, twice, and once in the OTHER direction too**, which settles
+   piece B's estimate at the high figure and names the three sites.
+
+   Every module has a wrapper (`clo_need`, `dskw_fmt_load`, `fdlg_load`,
+   `fcp_need`, `hbf_need`, `cpf_need`) that is `mov al, MOD_x` / `call
+   mod_need` / `ret`, and **29 thunks** far-call an image through the seven FP
+   blocks (`CPFP` 7, `FDFP` 7, `HBFP` 7, `FMFP` 4, `FCPFP` 3, `CLFP` 1,
+   `CMZFP` 1). Twenty-six of them are `need` / `jc` / `call far` and are the
+   shape an increment-in-`mod_need` scheme assumes. The three that are not:
+
+   * **kernel/files.inc:5461 (`.swapneed`)** — a `mod_need` with **no far call
+     at all**. It is a HELD SPAN made deliberate: the user has been asked to
+     put the system disk in, so the image is made resident *while the disk is
+     in the drive*, and the operation resumes at the next keystroke. An
+     increment here has nothing to decrement at and leaks the pin for the rest
+     of the session.
+   * **kernel/ctrl.inc:5929 (`cp_open_x`)** — `cpf_need` then
+     `cw_app_launch`, so the panel's window is created with its image already
+     in. The far calls arrive later, from `cpf_cp_paint` and its siblings.
+     Same leak, same reason.
+   * **kernel/ctrl.inc:5839** — SPEC.md 13.8.3's two edges far-call the image
+     with **no `mod_need` at all**, deliberately: a release or a drag can only
+     follow a press the panel took, and taking it is what loaded the image. An
+     increment-in-`mod_need` scheme *under*-counts here — a live far call into
+     an image whose pin was never raised, which is the failure that matters.
+
+   So the bracket cannot be an increment in `mod_need`: it is enter+leave per
+   site plus the held-span arms, which is exactly the **215–240** figure §9's
+   table calls the right one, and it now has three named sites behind it
+   instead of two general arguments.
+4. **ANSWERED — can any driver verb claim from a `TF_SERVICE` task?** No, and
+   `tests/unit/t_drvclaim.py` is now the assertion this asked for rather than a
+   comment. `SOUND.DRV` is the only driver in the tree that calls
+   `OSAPI_DRV_TASK` at all, its two tasks are `sbl_refill_task` and
+   `sbl_drain_task`, and neither call cone reaches a claim door — every claim
+   in that driver is in `sbl_attach` (mount) or `sbl_grant_alloc` beneath
+   `sbl_v_grant`, a stream verb that runs on its CALLER's task. The row walks
+   `call`/`jmp` by name from each spawn's entry and fails on any
+   `OSAPI_MEM_CLAIM*` or `OSAPI_MEM_REGROW` in the cone; broken on purpose
+   three levels down (a claim in `sbl_dsp_wr`) it names both tasks and the
+   whole path.
+
+   **The worry in the question was the wrong one, and the right one is worse.**
+   `[wm_pkgd]` is not a property of the running stack: it is a global count of
+   kernel→package far calls in flight with ONE writer, the UI task, at
+   `wm_pkgcall` and the loader's entry call. It answers *"is any callback
+   live"*, which is true or false whoever asks. What a claim from a service
+   task would really cost is the STACK — `mem_compact` far-calls a holder's
+   relocation proc (SHEET's `sh_reloc`, the C SDK's `cc_ovbind`) on whatever
+   stack it was entered on, and a 384-byte worker slice under
+   docs/plans/completed/STACK-SLOTS-PLAN.md's interrupt floor is not `STK0`.
 5. **Can the 8237's live address and count be read back reliably** on the hardware
    this project targets, so a moved ring resumes mid-buffer instead of clicking?
    Period 8237s latch differently across clones — a field question
    (docs/FIELD-MACHINES.md), not an emulator one.
-6. **What does the `wm_pkgcall` bracket actually cost?** Estimated at 10 bytes and
-   ~60 clocks and not measured. `wm_pkgcall` is 45 bytes today; a build with the
-   bracket in it and a `kernsize` line would settle it in one assembly, and it is
-   on the hottest kernel→package path there is.
+6. **ANSWERED — what does the `wm_pkgcall` bracket actually cost? 39 bytes and
+   ~202 clocks, against 10 and ~60 estimated.** The bytes are EXACT (the
+   sequence assembled on its own): enter is 32 — `push ax`, `push bx`, the
+   depth load, the `WM_PKGD_MAX` fence, `shl bx, 1`, the segment load and
+   store, `inc`, `pop bx`, `pop ax` — and leave is 7, the `pushf`/`dec`/`popf`
+   a callback's answer in the flags makes necessary. The clocks are DERIVED
+   from the 8088 tables with PERFORMANCE.md's `max(clocks, 4.34 × bytes)` fetch
+   floor applied over the whole run rather than per instruction (the BIU fills
+   the queue during the four stack ops): enter 153, leave 49, **~42.3 µs on a
+   4.77 MHz 8088**. The deepest arm, where the fence sends it past the table,
+   is 116.
+
+   **It is 3.9× the estimate because the DESIGN changed, not because the
+   estimate was sloppy.** §10.9 records why a global depth cannot work — a
+   package reaches `mem_claim` only from inside its own callback, so the depth
+   is always non-zero exactly when a package-driven compaction runs — and what
+   replaced it records WHICH SEGMENT is at each level. Eleven bytes buys a
+   counter; thirty-nine buys a counter that can answer *"is it THIS region"*.
+
+   **Affordable at the scale it runs at**: one per package window per repaint
+   pass, so three package windows is ~127 µs against a title bar's 40 ms —
+   0.3%. Quoted as derived, not measured, which is exactly the reading
+   PERFORMANCE.md rule 5 says to distrust; a cycle-counted A/B would settle it,
+   and nothing turns on it at 0.3%.
 7. **Is `MEM_PG_LOW` the right rank for a module image?** ONDEMAND-PLAN §7.2 says
    so; a re-read of `CTRL.DRV` mid-session is several `int 13h` calls while the
    user is looking at the panel.
@@ -1955,12 +2046,63 @@ window.
    piece C outright?** It needs no ABI at all and it works on the worker-owning
    regions §4.6 can never reach. It is the comparison that decides whether C is
    worth building, and it has never been costed.
-10. **Is `apps/cc/crt0.asm`'s worker loop re-enterable?** If it is, one change
-    to the C runtime declares §4.7's restart point for CWORD, RUNCPM, C64 and
-    WEAVE at once — four of the largest tenants on the machine. If it is not,
-    every C package stays pinned whatever else is built. Not checked.
-11. **How many shipped workers could actually declare §4.7's restart point?** The
-    argument is that a pump, a poller, a game loop or a redraw worker loses
-    nothing by restarting while Frotz's interpreter and a mixer mid-buffer lose
-    everything. That is a claim about 20 worker loops, reasoned about rather than
-    read, and it decides whether piece F is worth its 90 bytes.
+10. **ANSWERED — is `apps/cc/crt0.asm`'s worker loop re-enterable? YES, and it
+    is three packages and not four.** `cc_worker` is `cld` / `mov [cc_wksp],
+    sp` / `push word [cc_win]` / `call _os88_worker`, then a park loop. It
+    carries nothing across the call: `[cc_wksp]` is re-banked on entry (it is
+    an SP in `LOW_SEG`, so a region move does not touch it) and `[cc_win]` is a
+    KERNEL window handle, equally unaffected. So one change to `crt0.asm`
+    declares the restart point for every C package that has a worker.
+
+    **C64 and LOOM are not among them**: they declare no worker at all, in
+    their own words (apps/c64/c64.asm:44 *"NO CC_HAS_WORKER"*,
+    apps/loom/loom.asm:112 *"NOT CC_HAS_WORKER"*), so they are on the movable
+    side already and §4.7 is not what unlocks them. `CC_HAS_WORKER` is defined
+    by exactly three: CWORD, RUNCPM and WEAVE.
+
+    What the runtime cannot answer for is `os88_worker()` itself, and the three
+    are not alike: CWORD's and RUNCPM's are `for (;;)` polls whose only inputs
+    are statics (`cw_quit`, `rc_mode`), so a restart costs a poll; WEAVE's is a
+    three-instruction trampoline into `WEAVE.WSM`, so its restartability is
+    `wcv_run`'s and lives in a module.
+11. **ANSWERED, and the answer reframes the question: ALL of them could, and
+    that is not the interesting fact.** Every one of the eighteen assembly
+    workers was read, and they are the same shape to a line:
+
+        <entry>:
+            [an optional one-time deadline anchor]
+        .loop:
+            mov bx, [x_win]
+            call OSAPI_TASK_ALIVE
+            ... every input a package STATIC ...
+            jmp .loop
+
+    Not one holds anything in a register or on its slice across an iteration:
+    `[ark_due]`, `[at_cphase]`, `[ap_sopen]`, `[br_gen]`, `[cy_due]`,
+    `[fr_pass]`, `[zx_seen]`, `[fd_xbytes]`, `[mc_due]`, `[np_hdirty]`,
+    `[tk_due]`, `[trk_fs]`, `[wd_quit]` — all of them live in the region the
+    move carries. So re-entering at `.loop` costs a frame, a poll or a step,
+    and never a state.
+
+    **What a restart costs is therefore not a property of the loop, it is a
+    property of WHERE the worker is when the compactor wants it** — the call
+    chain the kernel throws away is `x_render` half-drawn, `zx_step` with an
+    opcode half-retired, `mpp_feed` mid-buffer. Which is to say the declaration
+    piece F asks for cannot honestly be *"my loop restarts"*; it has to be
+    *"my statics are consistent HERE"*, and there is exactly one such point per
+    worker.
+
+    **That point already has a name.** All eighteen reach `OSAPI_TASK_ALIVE`
+    within the first 4 to 8 lines of the worker (the Task Manager at 17, having
+    slept first), and `OSAPI_TASK_ALIVE` is where SPEC.md 66.5's park already
+    stops a consenting worker. So piece F is not asking authors for something
+    new: it is `OSAPI_MEM_PARKSAFE` one step further, and six packages already
+    declare that (ArtfulType, Fractal, Frotz, ModPlug, Note Pad, Tracker).
+
+    **It also weakens §4.6's third refusal.** The targeted two-word patch at the
+    `ALIVE` park was refused partly because *"it reaches the sleepers rather
+    than the drawing workers that matter"* — but the drawing workers
+    (ArtfulType, Tamegram, Tracker, Audio, Fractal) all call `TASK_ALIVE` at
+    their loop top too, so shape 1 is not a subset of the population, it is all
+    of it. §4.6's first two reasons stand unchanged, and shapes 2 and 3
+    (parked inside `gfx_lock`, pre-empted anywhere) are untouched by this.
