@@ -66,10 +66,15 @@ once together and never apart.
 
 **The single most useful line in this document is `main`'s zero.** `main`'s
 nine features cost the floor machine 256 bytes of section and **not one byte of
-footprint** — no rung crossed, `KERN_SIZE` identical to the base. The 128KB
-machine paid for none of them, because what `main` added is almost all `.cold`
-and `.cold` had the slack. Every byte of the merged +1,536 on that build is the
-branch's own.
+footprint** — no rung crossed, `KERN_SIZE` identical to the base.
+
+Not because those bytes are free. `.cold` is RESIDENT — the ladder runs
+KERNEL → COLD → FAT → LOW → VGABUF → HEAP and `KERN_SIZE` spans the lot — so
+all 256 of them are resident bytes. They fitted inside the slack the current
+rungs already had, which is the distinction CLAUDE.md's rung rule is about: a
+rung says WHEN the machine pays, never what a change cost. The next 256 bytes
+on that build may well cost the full 512. Every byte of the merged +1,536 on
+`kern_small` is the branch's own.
 
 Note the shape difference between the two builds: on `kern_big` the branch's
 arm is **−44** of `.text` and on `kern_small` it is **+131**. That is not a
@@ -108,8 +113,10 @@ that costs the kernel nothing.
 | `wm.inc` | +1 | 0 | 0 | +1 | |
 | **total** | **+90** | **+424** | **+74** | **+588** | |
 
-`main` touched no other kernel file. Nothing it added is resident-only: 72% of
-its bytes are `.cold`, which is why the floor machine's footprint did not move.
+`main` touched no other kernel file. **All 588 bytes are resident** — 72% of
+them are `.cold`, and `.cold` is inside `KERN_SIZE`'s span, not something the
+machine gets back. On `kern_big` they crossed one rung; on `kern_small` main's
+smaller 256 fitted the slack and crossed none.
 
 ## What the branch did, module by module
 
@@ -179,8 +186,12 @@ is the tighter constraint in proportion: 8,408 bytes against `KERN_BUDGET`'s
 - **It does not price `kern_emu`.** That build is `kern_big` plus §9.11, and
   the branch created it inside this window; measuring it against A would be
   comparing a kernel to one that did not exist.
-- **`.cold` is not resident.** 1,657 of the merged 1,724 bytes are boot-time
-  code that `mem_unblob` gives back, which is why `KERN_SIZE` moved four rungs
-  and not fourteen. docs/KERNEL-MEMORY.md is the authority on which section
-  costs a machine what; quoting the section sum as "the kernel grew 1,724
-  bytes of RAM" would be wrong by about 24x.
+- **It does not name a section a machine gets back, because almost none of
+  this is one.** `.text`, `.bss`, `.cold`, `.lowbss` and `.vgabuf` are all
+  inside `KERN_SIZE` — only `.boot2` and `.ovl`/`.ovlw` are loaded into memory
+  the machine reuses once it is up, and those did not move here. So of the
+  merged +1,724 section bytes, **+1,725 are resident** and the single
+  non-resident byte is `.ovl`'s −1. `KERN_SIZE`'s +2,048 is those 1,725 bytes
+  billed at 512-byte granularity, not a different quantity.
+  docs/KERNEL-MEMORY.md is the authority on which section costs a machine
+  what.
