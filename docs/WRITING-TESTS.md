@@ -91,7 +91,7 @@ Row("lzmod", "soak", py("tests/lzmod.py"), 30.0,
 | `cmd` | `py("tests/x.py", "--flag")`. Run with `cwd=ROOT`, so paths are ROOT-relative. |
 | `secs` | **measured**, not guessed. §4. |
 | `why` | what breaks if this row goes red, with the § that owns it. Written for somebody who finds it failing in a year and does not know what it was defending. |
-| `needs` | capabilities, PROBED not configured: `marty`, `qemu`, `nasm`, `cc`, `wiredisk` (`capabilities()` in the runner). A missing one SKIPS the row, and a skip is the box declining to answer — never a pass. |
+| `needs` | capabilities, PROBED not configured: `marty`, `qemu`, `nasm`, `nasm3`, `cc`, `wiredisk` (`capabilities()` in the runner). A missing one SKIPS the row, and a skip is the box declining to answer — never a pass. `nasm3` is a second assembler and not a newer one: it is read out of `nasm -v` (`os88build.nasm3()`), so a `nasm3` on PATH that is a symlink to 2.16 is absence. |
 | `serial` | it drives an emulator. The runner keeps those in their own lane, `--marty-jobs` wide (default cores−1); the host-side rows fan out ahead of them. Forgetting it puts an emulator row in the host lane, where it competes with every other row on the box. |
 | `wants` | build artefacts this row OPENS that `make all` does not produce. §5. |
 | `builds` | it shells out to `make` and writes `build/`. **You almost certainly do not want this.** §5. |

@@ -68,6 +68,14 @@ ROM_DIR_LEGACY="$HOME/Library/Application Support/86Box/roms"
 # byte for byte. Older 2.x is untested, so the gate still exists - and if the
 # immediate form ever comes back, this goes to 3 and the message below stops
 # being a footnote.
+#
+# A FLOOR OF 2 IS NOT A STATEMENT THAT 3.x IS EQUIVALENT, and the tree has a
+# soak row about the difference (`tests/unit/t_nasm3.py`): nasm 3 REFUSES
+# constructs 2.x accepts, so the tree can build here every day and be
+# un-buildable for whoever has only 3.x. What that row needs is an nasm 3,
+# and on a Mac this script's own `brew install nasm` is one - so the Mac is
+# the platform where it runs with nothing exported. CONTRIBUTING.md carries
+# the Linux half, which is a build.
 NASM_MIN_MAJOR=2
 
 # The ROM subdirectories vm/*/86box.cfg actually names. Checked after the

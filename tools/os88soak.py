@@ -62,6 +62,7 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
+import os88build                                            # noqa: E402
 
 RUNS = os.path.join(ROOT, "build", "soak")
 
@@ -103,6 +104,25 @@ def requirements():
     req.append(("nasm", bool(shutil.which("nasm")),
                 "every build. Without it nothing under build/ can be made.",
                 _apt("nasm")))
+
+    # THE SECOND ASSEMBLER, and it is not "a newer nasm" - it is the one half
+    # the people who build this tree actually have. CONTRIBUTING.md's floor is
+    # 2 and every box here answers 2.16, so nothing in any tier ever assembles
+    # under 3.x, where constructs 2.x takes are REFUSED (`t_nasm3`'s header
+    # has the incident). No distribution here packages one yet, so the fix is
+    # a build or a path - which is exactly why it is a capability and the row
+    # skips rather than failing.
+    req.append(("nasm3", bool(os88build.nasm3()),
+                "the `nasm3` row - the only thing that assembles this tree "
+                "with an nasm 3, which is what Homebrew installs and what "
+                "half the people building it have.",
+                "brew install nasm       (macOS: it is 3.x)\n"
+                "                  ...or build one and export "
+                "OS88_NASM3=<path>/nasm:\n"
+                "                     git clone --depth 1 -b nasm-3.02 "
+                "https://github.com/netwide-assembler/nasm.git\n"
+                "                     cd nasm && sh autogen.sh && "
+                "./configure && make"))
 
     # The shipped artefacts. `all` builds these and the fast tier reads them;
     # a soak against a half-built tree fails rows for the tree's reason.

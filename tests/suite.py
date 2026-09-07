@@ -795,6 +795,31 @@ FULL = [
 # single-subject gates; several are worth reading before touching their area.
 # --------------------------------------------------------------------------
 SOAK = [
+    Row("nasm3", "soak", py("tests/unit/t_nasm3.py"), 165.0,
+        "THE OTHER ASSEMBLER. Every tier here assembles with whatever nasm "
+        "the box has, which on this container, on CI and on every Debian or "
+        "Ubuntu box is 2.16 - and CONTRIBUTING.md's floor being 2 is read as "
+        "3.x being equivalent, which it is not: nasm 3 REFUSES constructs "
+        "2.x takes. `add di, mod_fp - mod_tab*7` in kernel/mod.inc's mod_fpr "
+        "is `invalid operand type` there and silent under 2.16, so it "
+        "reached a merge un-buildable for everyone whose nasm is 3.x "
+        "(Homebrew's is) and had to be adapted after the fact - commit "
+        "799c5a9. Nobody was careless; the construct assembles perfectly on "
+        "the assembler everybody in the loop was running, and a gate is the "
+        "only thing that closes that. This one assembles the SHIPPED SET "
+        "(read out of the Makefile's own `all:` rule, so a tenth artefact "
+        "joins it the day it is added), then kern_small, the APP_SMALL "
+        "package arms, kern_emu and every knob in t_buildmatrix's roster - "
+        "imported, not restated. It does NOT assert that the two assemblers "
+        "emit the same bytes: they do not, and it is legitimate (xmem.drv's "
+        "32-bit movers come out with the two prefixes in the other order). "
+        "165s is MEASURED cold on this container, 128s with the private "
+        "tree already there; the knob half is cold every run either way. "
+        "Soak rather than full because it is three minutes of pure `make` "
+        "and the thing it defends moves at the speed of somebody typing a "
+        "new construct, not per commit - run it before a merge that lands "
+        "kernel or package assembly",
+        needs=("nasm3",)),
     Row("weavevm", "soak", py("tests/weavevm.py"), 10.0,
         "WEAVE-SPEC 12.3: the SHIPPING apps/weave/wvm.inc run in a raw-QEMU "
         "BOOT SECTOR with SS != DS and no OS under it at all, diffed case by "
