@@ -11190,7 +11190,10 @@ it was found:
    - **bit 5 clear** — the port is already clocked, which says the same thing
      more directly.
 
-   Either one is enough. A byte saying neither falls back to the older road —
+   Either one is enough. **Bit 5 is also WRONG on an AT controller**, where it
+   is PC mode rather than the aux clock, and §9.9.7 is that field defect and
+   why the test stays anyway. A byte saying neither falls back to the older
+   road —
    `0xA8`, then read the command byte again and see whether bit 5 cleared —
    which is correct where it works and is **why it is now the fallback rather
    than the path**: on a Phoenix 8042, enabling the auxiliary port while the
@@ -11574,15 +11577,26 @@ a device that was not there and timed out — `st 14`, `sub 2`, `aux E0`, which
 §9.9.6 already names as "the byte itself carried the evidence". It carried the
 wrong evidence.
 
-The bit-5 shortcut is **gone**. Bit 1 set stays as positive evidence — a BIOS
-does not arm IRQ12 for a port its controller has not got — and everything else
-goes to the `0xA8` road, which is now **DIFFERENTIAL**: the command byte is
-written with bit 5 SET, `0xA8` is sent, and the byte is read back. A
-controller that knows `0xA8` has cleared it; one that does not leaves it set.
-Asking a question and checking the answer *changed* is the whole difference
-from believing a bit that was already in that state. The keyboard interface
-is disabled throughout that window by step 1's `0xAD`, and the byte is put
-back either way.
+**The bit-5 shortcut STAYS, and taking it out was the first version of this
+fix.** Removing it sends every machine whose BIOS left bit 1 clear down the
+`0xA8` road — which is the road §9.9.1 step 3 records as having *stopped* on
+a **Phoenix 8042**, and which the shortcut exists to keep those machines away
+from. The replacement considered was a *differential* `0xA8` — write the byte
+with bit 5 SET, send the command, require the bit to have cleared — and that
+is worse still on the machine this section is about: **it puts an AT
+controller into PC mode on purpose**, which is the exact bit that caused the
+defect. Both were built and both were reverted.
+
+Trading a machine with field evidence for one without is the wrong trade, and
+the hardening was never load-bearing: **the restore below is what cures the
+reported defect on its own**, and with it the misidentification costs a probe
+that fails at step 5 and puts the controller back. Walk it on the field
+byte — `cm1 55`: step 4 writes `(0x65 & 0xDD) | 0x10` = `0x55`, which is bit 5
+CLEAR and translate on, so the controller is never in PC mode even
+transiently; step 5 times out; `.fail` writes `0x45`, exactly what the BIOS
+had. And step 6 is why an AT controller that *does* pass `0xD4`'s byte to the
+keyboard still cannot fool it: a keyboard answers `0xFA` `0xAA` to a reset and
+then nothing, so the device-ID read times out into `.fail`.
 
 **The damage.** `.fail`'s own comment said it restored "its command byte
 exactly as the BIOS had it", and it did not: `[mou_p2cmd0]` is banked with bit
@@ -11592,7 +11606,8 @@ intended — it is the aux clock, which those paths want off. On an AT
 controller it is PC mode, latched for the rest of the session.
 
 `[mou_p2cmdr]` is the raw byte with bit 4 alone cleared, banked beside it, and
-it is what `.fail` and `.noaux` write now. `[mou_p2cmd0]` stays exactly as it
+it is what `.fail` and `.noaux` write now — **the whole of the fix, and the
+only part of it that survived review**. `[mou_p2cmd0]` stays exactly as it
 was for `mou_p2_off`, which only ever runs on a controller where a PS/2 mouse
 answered its own reset — so bit 5 there is the aux clock by construction.
 

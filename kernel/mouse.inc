@@ -1549,31 +1549,32 @@ mou_p2_init:
                                 ; evidence the probe was reaching for - and it
                                 ; is already in the byte just read, which costs
                                 ; the controller no second question
-    ; --- BIT 5 CLEAR IS NOT EVIDENCE (SPEC.md 9.9.7) ------------------------
-    ; It used to be, and it is the field defect: on a PS/2 controller a clear
-    ; bit 5 says the aux clock is running, and on an AT one it says PC mode is
-    ; OFF - which every AT BIOS leaves clear and which says nothing about an
-    ; auxiliary port. A `keyboard_at` 8042 with no such port read 55 here and
-    ; was taken down .haveaux on it.
-    ;
-    ; So ask 0xA8 - and ask it DIFFERENTIALLY. Write the byte with bit 5 SET,
-    ; send 0xA8, read it back: a controller that knows the command has cleared
-    ; the bit, one that does not has left it. Checking that the answer CHANGED
-    ; is the whole difference from believing a bit that was already in the
-    ; state the test wanted. The keyboard interface is disabled throughout by
-    ; step 1's 0xAD and the byte is put back on every road out of here.
-    ;
-    ; This is also the road that does not work on a Phoenix 8042 - enabling the
-    ; port with the keyboard interface disabled puts that controller somewhere
-    ; it will not answer a second command byte read from - and a machine that
-    ; has to take it is no worse off than it was.
+    test ah, 0x20               ; ...or bit 5 already clear, which says the
+    jz .haveaux                 ; same thing more directly: the port is CLOCKED
+                                ;
+                                ; IT IS ALSO WRONG ON AN AT CONTROLLER, where
+                                ; bit 5 is PC MODE and not the aux clock - and
+                                ; IT STAYS (SPEC.md 9.9.7). Being wrong here
+                                ; costs a probe that fails at step 5 and puts
+                                ; the controller back; taking it out costs the
+                                ; PHOENIX 8042 its mouse, because every machine
+                                ; whose BIOS left bit 1 clear would then go
+                                ; down the road below, which is the road that
+                                ; stopped on that controller. A known machine
+                                ; for a hypothetical one is the wrong trade,
+                                ; and the misidentification is HARMLESS now
+                                ; that .fail restores the byte it found
+
+    ; --- no evidence in the byte: ask 0xA8 and look, the older road ---------
+    ; Kept for the controller whose BIOS left both bits saying nothing. It is
+    ; the road that does not work on a Phoenix 8042 - enabling the port with
+    ; the keyboard interface disabled puts that controller somewhere it will
+    ; not answer a second command byte read from - so it is the FALLBACK
+    ; rather than the path, and a machine that has to take it is no worse off
+    ; than it was.
 %ifdef MOU_DIAG
     mov byte [mou_p2sub], 3
 %endif
-    mov al, [mou_p2cmdr]        ; bit 5 SET, and bit 4 held from the 0xAD
-    or  al, 0x20 | MOU_P2KOFF
-    call KERNEL_SEG:ovw_mou_p2wcmd
-    jc .jnoaux
     mov al, 0xA8
     call KERNEL_SEG:ovw_mou_p2cw
     jc .jnoaux
@@ -1587,7 +1588,7 @@ mou_p2_init:
     mov byte [mou_p2sub], 4
     mov [mou_p2cm1], al
 %endif
-    test al, 0x20               ; did 0xA8 CLEAR the bit just set?
+    test al, 0x20               ; did 0xA8 take?
     jz .haveaux
 %ifdef MOU_DIAG
     mov byte [mou_p2aux], 0xE1  ; no: nothing here has an auxiliary port
@@ -1711,10 +1712,10 @@ mou_p2_init:
 %endif
     mov al, 0xA7
     call KERNEL_SEG:ovw_mou_p2cw
-    mov al, [mou_p2cmdr]        ; ...AND THE COMMAND BYTE, which the road above
-    call KERNEL_SEG:ovw_mou_p2wcmd             ; now WRITES to ask its question (SPEC.md
-    jmp short .quit             ; 9.9.7). It used to send only 0xAD and 0xA8,
-                                ; which is why this path used to need nothing
+    mov al, [mou_p2cmdr]        ; ...AND THE COMMAND BYTE. Only 0xAD and 0xA8
+    call KERNEL_SEG:ovw_mou_p2wcmd             ; have been sent on this road, so it is the
+    jmp short .quit             ; byte the BIOS had either way - and writing it
+                                ; costs nothing where nothing changed it
 
 .fail:                          ; put the controller back the way it was found
 %ifdef MOU_DIAG

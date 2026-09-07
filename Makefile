@@ -3475,7 +3475,16 @@ $(BUILD)/vmmcfg/system.cfg: | $(BUILD)
 	  (1 << 5).to_bytes(2,'little') + b'\0\0')" > $@
 
 $(BUILD)/vmmouse.img: KMODDIR := $(EMUDIR)
-$(BUILD)/vmmouse.img: $(EMUDRIVERS) $(SYSAPPS) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) $(BUILD)/vmmcfg/system.cfg tools/os88disk.py
+# ...AND THE KERNEL'S OWN SOURCES, which were NOT here and are the whole of
+# why the `vmmouse` row died twice in one session on an edit that had nothing
+# to do with it. The recipe recurses into the emu sub-make, so it builds
+# build/emuk/ correctly WHEN IT RUNS - and with no kernel source among the
+# prerequisites, a change to kernel/*.inc left this target up to date, the
+# sub-make never ran, and tests/vmmouse.py met a build/emuk/kernel.bin the map
+# no longer described. `wants=` guards a path's EXISTENCE (tests/suite.py), so
+# the runner's pre-build could not see it either. A parse is what it costs
+# when nothing changed.
+$(BUILD)/vmmouse.img: $(KERNEL_SRC) $(KERNEL_INC) $(EMUDRIVERS) $(SYSAPPS) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) $(BUILD)/vmmcfg/system.cfg tools/os88disk.py
 	@$(MAKE) BUILD=$(EMUDIR) KERN_EMU=1 $(EMUDIR)/boot.bin
 	python3 tools/os88disk.py -o $@ --size 1440 \
 		--boot $(EMUDIR)/boot.bin --kernel $(EMUDIR)/$(KERNNAME) \
