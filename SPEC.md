@@ -94672,10 +94672,16 @@ Sources: [Abrash, ch. 38 "The Polygon Primeval"](https://www.phatcode.net/res/22
 | VGA | `FSXM_MODEX` | 320×240 at (0,0) | 320×144 | 96 rows | page flip, 2 pages |
 | CGA | `FSXM_CGA320` | 320×200 at (0,0) | 320×112 | 88 rows | shadow + blit |
 | HERC | `FSXM_HERC` | 640×200 at (40,74) | **400×112**, bytes 15..64 | 88 rows | shadow + blit |
+| CGA | `FSXM_TEXT80` | **160×100×16** at (0,0) (§88.15) | 160×87 | **13 rows** | shadow + an expanding blit |
+
+The last row is a **text** mode retimed into a graphics one, and it is a
+CGA's second option rather than a fourth adapter: §88.15 is the whole of it.
 
 The box is Tank's, for Tank's reason: a CGA row, a Hercules 640-pixel row and
 a Mode X plane row are all 80 bytes, so `add di, 80` steps a row on every
-backend and there is one raster with three plots. The **view** is the part of
+backend and there is one raster with three plots — and 160 pixels at two per
+byte is 80 bytes as well, which is why the fourth backend needed no new
+raster (§88.15.1). The **view** is the part of
 the box the world is drawn in, and the Hercules one is narrower than the box
 so that the 1bpp machine fills 50 bytes a row rather than 80. On Hercules the
 projection scales are 443 horizontally and 285 vertically — the pixel scale
@@ -97029,8 +97035,10 @@ cannot afford the default, and for the one that can afford more.
 
 The Mode choice moved here from a menu of its own (§88.10): it is one of five
 things that trade the same way, and it belongs beside them rather than alone
-in the bar. It greys itself where the display offers no choice, which is
-every adapter but a VGA.
+in the bar. It greys itself where the display offers no choice, which since
+§88.15 is Hercules alone: a VGA's two are Mode X and CGA320, a **real CGA's
+are CGA320 and the 16-colour text hack**, and `[cs_modepref]` is "which of
+the two" with `cs_adapter` setting the names to match.
 
 #### 88.13.1 Detail Level — None, Only Roads, Low, Moderate, High
 
@@ -98014,6 +98022,261 @@ misses is set by an arm it never reaches.
 Neither is the Hercules freeze this build was written to find. Both are real,
 both were found by an instrument pointed somewhere else, and that is the
 argument for the instrument.
+
+### 88.15 CGA in SIXTEEN colours — the 160×100 text hack (`CSB_C160`)
+
+A fourth backend, and the only one in this section that is not a graphics
+mode at all. A CGA has four colours in 320×200 and two in 640×200, and no
+third option — except that its **text** mode has sixteen of each of two
+nibbles per character cell, and the 6845 in front of it will happily be told
+that a character row is two scan lines rather than eight. Retime it, fill
+every cell with the CP437 **right half block** (0xDE, whose eight rows are
+all `0x0F`), turn blink off, and each cell shows its attribute's background
+nibble in its left half and its foreground nibble in its right: **two pixels,
+each any of sixteen colours**. Eighty cells across and a hundred rows down is
+**160×100×16**, on a card that has no such mode.
+
+It is offered on a **real CGA only** (§88.15.7), where it is the one way to
+get more than four colours; it is what the machine that this whole section is
+calibrated against can be shown in colour at last.
+
+#### 88.15.1 It is 80 bytes a row, which is why there is no new raster
+
+§88.3's coincidence holds for a fourth term. A CGA 320×200×4 row, a Hercules
+640-pixel 1bpp row and a Mode X plane row are each 80 bytes — and **160
+pixels at two per byte is 80 bytes as well**. So the shadow is the same
+shape, `add di, 80` still steps a row, `cs_polyrows`, `cs_edge`, `cs_seg`,
+`CS_SLICE` and `cs_blit`'s walk are the code they already were, and what the
+backend adds is what every backend adds: a run writer, a glyph writer, three
+line bodies, an ink table and a row of `cs_vptab`.
+
+The shadow is **packed nibbles, high nibble the LEFT pixel** — which is both
+the standard 4bpp packing (§5.4.2's bands) and, not by coincidence, exactly
+the attribute byte the card wants: background is the left half of a `0xDE`
+cell and background is the attribute's high nibble. So the byte the raster
+writes is the byte the card is given, and the blit does no packing at all.
+
+The alternative was a shadow holding the card's own char/attribute **pairs**,
+160 bytes a row, which would have made the blit a plain `rep movsw` and every
+fill a stride-2 byte walk. It is the wrong way round: the fill covers the
+whole view and the blit only the rows that changed, so the cheap operation
+belongs on the fill. Packed also halves the shadow — 8,000 bytes against
+16,000, inside `CS_SHKB`'s existing claim with no change.
+
+#### 88.15.2 The mode is six 6845 writes and one port byte
+
+`cs_c160_mode`, called once from `cs_r_setup` after `OSAPI_FSX_MODE` has set
+`FSXM_TEXT80`. **No kernel change of any kind**, which is what §88 opens
+with: §53.4 hands a text bracket the CRTC, the mode register and the pages
+outright — *"the hot path was direct VRAM under any contract; bare wins by
+putting nothing between the app and the hardware for the rest"* — so a mode
+the kernel has never heard of costs it nothing.
+
+| 6845 | value | why |
+|---|---|---|
+| R4 vertical total | 127 | 128 rows × 2 scan lines + R5's 6 = the 262 an NTSC field wants, unchanged from the ROM's 32 × 8 + 6 |
+| R5 vertical adjust | 6 | the ROM's, kept |
+| R6 vertical displayed | 100 | a hundred rows of the 128 |
+| R7 vertical sync | 112 | 24 scan lines of bottom border |
+| R9 max scan line | **1** | **the whole trick**: a character row is two scan lines, so 200 lines hold 100 rows |
+| R10 cursor start | 0x20 | the 6845's own "do not display" — `int 10h AH=01h` is an EGA-era call and the machines this is for have not got it |
+
+Then `3D8h` ← `0x09`: 80-column text, video on, **bit 5 clear**. That bit is
+the sixteen colours: with blink enabled an attribute's high nibble is eight
+background colours and a blink flag, and with it off it is sixteen
+backgrounds. The SDK's note that this is *"a port bit on a real CGA"* is the
+same point — `AX=1003h` is an `AH=10h` call and an original CGA BIOS has no
+such function.
+
+`3D9h` ← 0 gives a black overscan, which in a text mode is all that register
+does.
+
+**The video is turned off for the retime and back on after the fill** — one
+`out` of `0x01` before and `0x09` after. The CRTC spends a field or two out
+of lock while R4 and R9 disagree, and a machine that shows that shows a
+rolling picture of the desktop that was there a moment ago.
+
+The fill is 8,000 words of `0x00DE` over the whole 16,000-byte screen: every
+cell the half block, on black. **The character bytes are written once here
+and never again** — the blit touches only the odd addresses.
+
+#### 88.15.2.1 There is nothing to source: the glyph is on the card
+
+The half block is not a font the OS loads or could load. In a text mode the
+pixels come from the **CGA card's own character generator, which is a ROM**;
+0xDE is a CP437 code point and every CGA, every clone and every emulator that
+models one has it. The kernel's own 8×8 face (`OSAPI_FONT_GLYPHS`) is not
+involved in the picture at all — it letters the strip, and that is a separate
+job done in the shadow like any other drawing.
+
+#### 88.15.3 An attribute IS the colour, so there is no palette call
+
+The other three backends spend a call on their colours — `cs_cga_pal` through
+`int 10h AH=0Bh`, `cs_modex_pal` through the DAC — and this one spends none:
+each of the sixteen is already a colour, named by the attribute nibble.
+`cs_inkc160` is therefore the first ink table in this section with **no
+dither in it anywhere**, and it is where the world stops being a compromise:
+
+| ink | colour | |
+|---|---|---|
+| sky | 9 light blue | |
+| ground | 2 green | grass, on a CGA, for the first time |
+| runway | 8 dark grey | asphalt — and not the same colour as a wall |
+| river | 1 blue | |
+| a wall toward us | 7 light grey | |
+| a side | 8 dark grey | **the same material a shade down**, which is what makes a box read as a solid rather than as two colours meeting |
+| a roof | 4 red | tile |
+| a hill | 6 brown | |
+| lines, marks | 15 white | |
+| the panel's window / ink / warning / face | 0, 10, 12, 8 | black, light green, light red, dark grey — a lit instrument on a metal panel |
+
+`cs_inkval_c160` holds each colour in **both nibbles**, which is what the
+walk and the glyph both want: a mask names the half, and `ink8 & mask` is
+then the ink at that pixel with no shift at all.
+
+#### 88.15.4 The one blit that is not a copy
+
+`cs_blit`'s row loop is shared; its inner clause is not. Where CGA and
+Hercules `rep movsw` the shadow straight at the card, this backend lays each
+shadow byte at every **other** address — the attribute of the pair, the
+character between them being `0xDE` since the mode set. The device row is
+therefore 160 bytes where the shadow row is 80, which is the only place in
+the raster where the two strides differ, and `cs_devrows` is where that is
+said.
+
+It costs about 26 cycles a pixel pair against `rep movsw`'s 25 a word, so a
+row that changed is roughly twice the copy the other CGA backend pays for the
+same fraction of the view. That is the price of four bits a pixel and it is
+paid only on rows something touched: §88.3.1's row-kind byte and §88.3.3's
+row range are what keep it off the rest.
+
+**Snow.** Writing `B800` during active display in 80-column text is the one
+thing a genuine IBM CGA is famous for, and this mode is 80-column text — so
+the blit sparkles on that card, where the same machine's 320×200 graphics
+does not. §53.5 already names the window. Nothing here can avoid it and be
+fast: waiting for retrace bounds the blit to about 24% of the field, and
+blanking the display for it trades sparkle for a black frame. It is a real
+cost of the hack, on real IBM hardware, and it is the reason this is an
+option beside CGA320 and not a replacement for it.
+
+#### 88.15.5 The panel is ONE LINE, and it is a record like any other
+
+The box is 100 rows tall and each row is worth four of a CGA's, so §88.9's
+88-row cockpit would leave the view twelve. And 160 pixels is **twenty
+cells**, which no cockpit's six windows fit across. What fits is the three
+readings a pilot actually scans:
+
+```
+cell 0        6              14        19
+     S 120    A 01500        H 090     .
+```
+
+Thirteen rows: row 0 the strip's own top edge, 3..10 the glyph, 1..12 what a
+message erases. `CS_STRIPROWS` is that 13 where `CS_PANROWS` is 88, and
+`[cs_panrows]` is what `cs_r_size` bounds the view's height against — so the
+view gets **87 of the 100 rows**, where a cockpit backend gives its view a
+little over half the box.
+
+**There are no windows on it.** A cockpit's window is an outline and two
+corner brackets (§88.9.7), so it occupies three pixels more than its rect on
+every side and a nine-row one wants fifteen — which thirteen rows have not
+got. It also buys nothing here: `cs_glyph_c160` letters every cell **opaquely
+on `[cs_pbg8]`, which is black**, so each reading already sits on a black
+plate exactly the size of its own text, on a dark grey face. `CSK_NWIN` is 0,
+and the two window loops in `cs_pface` gained the `jcxz` that a `loop` from
+zero needs.
+
+**It is a cockpit record and not a special case.** `cs_ck_strip` is one
+shared record — the same strip whatever is being flown, because three
+readings are three readings — with three windows, three items, and (0, 0) for
+the attitude indicator, the throttle, the throttle bar, the state line and
+the variometer. §88.9.5.1 has meant *"this cockpit has not got one"* by (0, 0)
+since the glider, so `cs_pitem` needed nothing; what it did need was the
+matching test on the **attitude indicator**, which `cs_pitem` deliberately
+does not (0, 0)-test because it is not a cell — a zero `CSK_ADRY` is now what
+says a panel has none, tested in `cs_pface` and in `cs_d_adi`.
+
+`cs_ckrec` is the one place that decides which record a panel is drawn from,
+because the plane's was read from six, and a fourth backend reaching five of
+them is exactly the shape §88.9.5.1 was.
+
+Two things the strip changes that are not the record: the **labels** are one
+letter (`S`, `A`, `H`) where a cockpit's are four, since `SPD 120 ALT 01500
+HDG 090` is 23 cells of the 20 there are; and `cs_pnum` puts the number
+`[cs_plabw]` cells along rather than a hard-coded four. Both are a pointer
+and a word set in `cs_r_setup`.
+
+#### 88.15.6 A message takes the strip, and hands it back
+
+Twenty cells hold three readings **or** one sentence, never both, so the
+message item is at the readings' own row and the erase it already does
+(§88.9.9) covers the whole line. What that needs is two halves:
+
+- `cs_pitem` stands the three readings down while `[cs_msg]` is not
+  `CSG_NONE` — **before** their keys are sampled, so their caches keep the
+  values they were showing and nothing is drawn over the message;
+- `cs_d_msg`, when the message clears, stales those three keys and calls
+  `cs_pitem` for each **in the same frame**. A message going away is not a
+  thing to leave a blank strip behind, and the re-entry is safe because
+  `cs_panel` reloads the item from its own stack and `cs_d_msg` is done with
+  `[cs_pcur]`.
+
+The messages themselves are a **second table**, `cs_msgtab160`: `FULL POWER`,
+`STALL - NOSE DOWN`, `CRASHED`, `TURN BACK`, `TOW RELEASED`, `DOWN ON WATER`.
+It is a table and not a shortened first one because a cockpit panel is forty
+cells wide and has the room — what the strip cannot hold, every other backend
+can, and neither should be cut to the other's width. The crash line does not
+append what was hit, for the same reason.
+
+#### 88.15.8 What it costs — and it is not slower
+
+Measured with `tests/skiesperf.py --c160`, the same pinned scenes on the same
+MartyPC 4.77 MHz 8088 with a CGA, means of twelve exact frames with the tick
+wait patched out:
+
+| scene | `FSXM_CGA320`, 320×112, 4 colours | `FSXM_TEXT80`, 160×87, **16 colours** |
+|---|---|---|
+| runway | 183.50 ms, 5.45 fps | **176.06 ms, 5.68 fps** |
+| climb | **172.41 ms, 5.80 fps** | 181.24 ms, 5.52 fps |
+| city | 216.64 ms, 4.62 fps | **190.92 ms, 5.24 fps** |
+| tower | 228.91 ms, 4.37 fps | **92.56 ms, 10.80 fps** |
+
+**Four times the colours for nothing, and on the worst frame in the world for
+two and a half times the frame rate.** That is not what the arithmetic in
+§88.15.4 predicts on its own — a blit byte is about twice a `rep movsw` byte
+here — and the reason is everything on the other side of it:
+
+- the view is **6,960 shadow bytes against 8,960** (87 rows of 80 against
+  112), because the strip is 13 rows where a cockpit is 88, so the *fill*,
+  the polygon rows and the blit all cover 22% less;
+- the projection scales are halved with the width (138/115 against 277/231
+  for the same 60° field), so **every drawn thing is half as long in
+  pixels** — and `cs_seg`'s walk is priced per pixel. The tower scene is 32
+  wireframe segments and nothing else, which is why it is the row that moves.
+
+So the trade this mode actually makes is **resolution for colour**, and the
+frame rate comes out on the right side of it. `climb` is the one row that
+loses, by 5%: it is mostly sky and ground, where the fill's saving is
+smallest and the blit's doubled byte is the whole difference.
+
+#### 88.15.7 It is offered on `VID_CGA` and nowhere else
+
+The mode is programmed by writing the 6845 directly, and a VGA or an EGA
+running mode 3 answers `3D4h` with a CRTC that is not one — different
+registers, a write-protect bit on R0–R7, and 400 scan lines rather than 200.
+So the offer is made on **`[vid_kind]`**, which is a fact the code can test
+(§47), rather than on a caps bit that would be true for the wrong reason.
+Nothing is lost by that: a VGA already has Mode X and sixteen times the
+colours, an EGA has 16-colour graphics modes of its own, and Hercules has one
+bit.
+
+That makes **`[cs_modepref]` "which of the two this display offers"** rather
+than a mode id: a VGA's two are Mode X and CGA320, a real CGA's are CGA320
+and this, and `cs_adapter` sets the names beside the Settings page's Mode row
+to match (§88.13). The byte then means the same thing on either machine and
+the row greys itself on Hercules, which has no second mode at all. The
+default on a CGA is 0 — **CGA320, exactly what shipped** — so a player who
+never opens the page is flying what they flew before, which is §88.13's rule.
 
 ### 88.12 What it costs
 

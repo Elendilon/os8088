@@ -1725,6 +1725,20 @@ SOAK = [
         " FULL, which is the geometry CGA shipped with), palette 0 over a"
         " light-blue background, the same flight",
         needs=("marty",), serial=True),
+    Row("skies160", "soak", py("tests/skies160.py"), 35.0,
+        "SPEC.md 88.15: CLEAR SKIES in SIXTEEN COLOURS on a CGA - the 160x100"
+        " text hack, reached through the Settings page's Mode row and not a"
+        " poke. Seven colours at once on a card that has four in 320x200, all"
+        " 8,000 character cells still the half block (a blit that wrote pairs"
+        " is exactly the defect this catches), the strip at the bottom of the"
+        " picture - which only a hundred two-scan-line rows put there - the"
+        " three readings changing over a climb with the speed standing beside"
+        " the take-off prompt, and nothing stale against a forced full"
+        " redraw, and a SIZE change that keeps the mode - black is 0x00DE"
+        " here and not 0. Two red runs: --clobber-crtc leaves the 6845's max"
+        " scan line at 7 and --clobber-clear zeroes the screen on this"
+        " backend too. Measured at 34 s wall alone on an idle four-core box",
+        needs=("marty",), serial=True),
     Row("fsxclip", "soak", py("tests/fsxclip.py"), 22.0,
         "SPEC.md 53.1.1: an fsx bracket entered from a CLICK handler comes"
         " back to a whole desktop - the menu bar, the background and the dock"

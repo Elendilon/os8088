@@ -115,6 +115,11 @@ CSB_NONE  equ 0                 ; windowed: no bracket, nothing to draw into
 CSB_MODEX equ 1                 ; 320x240x256 planar, 3 pages - PAGE FLIP
 CSB_CGA   equ 2                 ; 320x200x4 banked, 1 page  - SHADOW + BLIT
 CSB_HERC  equ 3                 ; 720x348 mono, 4 banks     - SHADOW + BLIT
+CSB_C160  equ 4                 ; 160x100x16 - THE TEXT HACK (SPEC.md 88.15):
+                                ; 80x25 retimed to a hundred two-scan-line
+                                ; rows of half blocks, so an attribute byte
+                                ; is two pixels in sixteen colours.
+                                ; SHADOW + AN EXPANDING BLIT
 
 ; --- the logical inks (SPEC.md 88.4.4) ----------------------------------------
 ; Named by what they MEAN. Every backend's table gives an ink FOUR pattern
@@ -189,7 +194,11 @@ CS_OCCZ   equ 14                ; ...seven words each, the last of
                                 ; ranked by
 CS_VISZ   equ 6                 ; ...six bytes each: ptr, reach, along
 CS_MAXROW equ 240               ; the tallest box any backend offers
-CS_LASTB  equ 79                ; the last byte of a box row, on all three
+CS_LASTB  equ 79                ; the last byte of a box row, on all FOUR -
+                                ; 320x4bpp, 640x1bpp, a Mode X plane row and
+                                ; 160 nibble pairs are each eighty bytes,
+                                ; which is what one raster over four backends
+                                ; rests on (88.15.1)
 CS_SHSEG  equ 16000             ; the CGA/Hercules shadow, in bytes
 CS_SHKB   equ 16                ; ...as a claim
 
@@ -656,6 +665,26 @@ cs_adapter:
     mov [cs_vidk], dl
     mov byte [cs_want], CSB_NONE
     mov byte [cs_fsxm], 0FFh
+    ; --- THE 16-COLOUR TEXT HACK IS A REAL CGA'S AND NOBODY ELSE'S (88.15.7).
+    ;     It is programmed by writing the 6845 directly, and a VGA or an EGA
+    ;     running mode 3 answers 3D4h with a CRTC that is not one - so the
+    ;     offer is made on [vid_kind] and not on a caps bit, which is SPEC.md
+    ;     47's rule exactly: a fact the code can test. And a VGA loses nothing
+    ;     by it, Mode X already having sixteen times the colours.
+    mov si, cs_i_mode               ; ...and the Mode row's two names with it
+    cmp dl, VID_CGA
+    jne .m1
+    mov si, cs_i_mode160
+.m1:
+    mov [cs_drmode + OS88UI_DR_ITEMS], si
+    cmp dl, VID_CGA
+    jne .modex
+    cmp byte [cs_modepref], 0       ; a real CGA's two are 320x200x4 and the
+    je .cga                         ; hack, in that order (88.15.7)
+    mov byte [cs_want], CSB_C160
+    mov byte [cs_fsxm], FSXM_TEXT80
+    jmp short .say
+.modex:
     test ax, 1 << FSXM_MODEX
     jz .cga
     cmp byte [cs_modepref], 0       ; Mode X, unless CGA was asked for: a
@@ -1011,10 +1040,18 @@ cs_set_page:
     pop ax
     ret
 
-; cs_modechoice - CF = 0 when this display offers BOTH Mode X and CGA, which
-;                 is the only case where the Mode row means anything
+; cs_modechoice - CF = 0 where the display offers TWO of them, which is the
+;                 only case where the Mode row means anything (SPEC.md 47)
+;
+; A VGA's two are Mode X and CGA320; a real CGA's are CGA320 and SPEC.md
+; 88.15's 16-colour text hack, which is why [cs_modepref] is "which of the
+; two" and not a mode id - the names beside it are cs_adapter's to set, and
+; the byte then means the same thing on both machines. Hercules has one
+; mode and the row stays greyed there.
 cs_modechoice:
     push ax
+    cmp byte [cs_vidk], VID_CGA
+    je .yes
     mov ax, [cs_caps]
     and ax, (1 << FSXM_MODEX) | (1 << FSXM_CGA320)
     cmp ax, (1 << FSXM_MODEX) | (1 << FSXM_CGA320)
@@ -1804,6 +1841,7 @@ cs_i_bld:    dw cs_s_bnone, cs_s_broad, cs_s_blow, cs_s_bmod, cs_s_bhigh
 cs_i_lod:    dw cs_s_lnear, cs_s_lmod, cs_s_lfar, cs_s_lultra
 cs_i_size:   dw cs_s_zsml, cs_s_zmod, cs_s_zful
 cs_i_mode:   dw cs_s_modex, cs_s_cga
+cs_i_mode160: dw cs_s_cga, cs_s_c160   ; a real CGA's two (SPEC.md 88.15.7)
 cs_s_setttl: db 'SETTINGS', 0
 cs_s_lbld:   db 'Detail Level', 0
 cs_s_llod:   db 'Draw Distance', 0
@@ -1824,6 +1862,7 @@ cs_s_zmod:   db 'Moderate', 0
 cs_s_zful:   db 'Full', 0
 cs_s_modex:  db 'Mode X, 256 col', 0
 cs_s_cga:    db 'CGA, 4 col', 0
+cs_s_c160:   db 'CGA, 16 col', 0
 cs_s_terr:   db 'Terrain', 0
 cs_s_bld:    db 'Buildings', 0
 cs_s_done:   db 'Done', 0
@@ -2401,6 +2440,13 @@ CS_SWOOPHI equ 900              ; DOWN from the top in sink
     ZWORD cs_pwl                   ; a window's edges while it is
     ZWORD cs_pwr                   ; being resolved (88.9.5)
     ZBYTE cs_pfirst                 ; bit n: page n has never had its ground
+    ZBYTE cs_gcellb                 ; bytes an 8-pixel glyph cell covers
+    ZWORD cs_panrows                ; rows the panel wants under the view: a
+                                    ; cockpit's 88, or the strip's 12 (88.15.5)
+    ZWORD cs_plblp                  ; the fixed labels this panel letters...
+    ZWORD cs_plabw                  ; ...how many CELLS along its number goes
+    ZWORD cs_msgtabp                ; ...and the message strings it can fit
+    ZWORD cs_msgx0                  ; ...and where its strip starts (88.15.6)
 
 ; --- the shared controls (SPEC.md 20.5.1) -------------------------------------
 %define OS88UI_ABOUT            ; the standard About card, the standard
