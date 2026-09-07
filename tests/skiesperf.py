@@ -178,6 +178,9 @@ def trace(m, lin, seg, base, off, render):
 def main(argv):
     ap = argparse.ArgumentParser()
     ap.add_argument("--machine", default="os8088_5150_herc_gla")
+    ap.add_argument("--c160", action="store_true",
+                    help="price SPEC.md 88.15's 160x100x16 backend instead of"
+                         " the one this display would take (a real CGA only)")
     ap.add_argument("--image", default="build/os8088-360.img")
     ap.add_argument("--apps", default="build/apps360.img")
     ap.add_argument("--scene", default="tower", choices=sorted(SCENES))
@@ -225,6 +228,16 @@ def main(argv):
             m.bp_exec()
             return out
 
+        if a.c160:
+            # SPEC.md 88.15's 16-colour text hack, which cs_adapter offers
+            # only on a real CGA and only as the Mode row's second item: the
+            # three bytes that row sets, so this instrument can price the
+            # backend without driving the Settings page
+            m.pause()
+            poke("cs_modepref", b"\x01")
+            poke("cs_want", b"\x04")           # CSB_C160
+            poke("cs_fsxm", b"\x00")           # FSXM_TEXT80
+            m.run()
         m.type_text("f")
         m.advance(frames=30)
         m.run()
