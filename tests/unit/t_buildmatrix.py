@@ -423,13 +423,31 @@ def shares(variables):
     return not ({v.split("=")[0] for v in variables} & PKG_VARS)
 
 
-def build(name, variables, target="kernel.bin"):
+def build(name, variables, target="kernel.bin", shared=None, extra=()):
+    """Assemble ONE knob arm, out of tree, and say whether nasm took it.
+
+    `shared` is the directory the sharing rows take their four packages and
+    associco.inc from, and the directory the `bm-<name>` build lands beside.
+    It defaults to the RUN'S TREE, which is what every row here wants; a
+    caller passes its own when the packages it must share are not that tree's
+    - `tests/unit/t_nasm3.py` builds the whole shipped set with a DIFFERENT
+    ASSEMBLER first and then has to share ITS packages, or the sharing rows
+    would take nasm 2's and the arm under test would be half-answered.
+
+    `extra` goes on the make line ahead of the knob, for a variable that is
+    not one - `NASM=` is the only caller today. It is deliberately not folded
+    into `variables`: that list is what `shares()` and the stale-knob check
+    read, and a make variable the Makefile does not stamp in $(KNOBS) would
+    fail both.
+    """
     # INSIDE THE RUN'S TREE, both ways (see ICODIR in the header). `at` is the
     # identity function with $OS88_TREE unset, so an interactive run is
     # exactly as it was.
-    shared = os.path.relpath(os88build.at("build"), ROOT)
+    if shared is None:
+        shared = os.path.relpath(os88build.at("build"), ROOT)
     out = os.path.join(ROOT, shared, "bm-" + name)
     cmd = ["make", "BUILD=" + os.path.relpath(out, ROOT)] + NOWASTE + \
+          list(extra) + \
           (["ICODIR=" + shared] if shares(variables) else []) + variables + \
           [os.path.relpath(os.path.join(out, target), ROOT)]
     r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=300)

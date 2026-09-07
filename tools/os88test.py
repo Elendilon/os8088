@@ -184,6 +184,14 @@ def capabilities():
     caps = set()
     if shutil.which("nasm"):
         caps.add("nasm")
+    # THE OTHER ASSEMBLER, and not the same capability. `nasm` above is "this
+    # box can assemble at all"; this is "this box can answer whether the tree
+    # still assembles under nasm 3", which CONTRIBUTING.md's 2.16 floor makes
+    # a separate question rather than a stricter one. os88build.nasm3() reads
+    # `-v` rather than trusting a name, so a `nasm3` that is a symlink to 2.16
+    # is absence and the row SKIPS.
+    if os88build.nasm3():
+        caps.add("nasm3")
     if os.path.exists(os.path.join(ROOT, "build/martypc/run/martypc_headless")):
         caps.add("marty")
     if shutil.which("qemu-system-i386") or shutil.which("qemu-system-x86_64"):
