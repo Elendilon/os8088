@@ -24,8 +24,27 @@ else widens the range. And it compares over GROUPS OF FOUR ROWS, because
 the Hercules ground is 0x88 00 22 00 and two of its four phases are blank:
 a per-row test calls half the ground sky and passes on a broken build.
 
---clobber-range is the red run (docs/WRITING-TESTS.md 1): it NOPs the two
-stores that widen the range and nothing else, which is the code as it was.
+AND THE SAME THING HAPPENED AGAIN ONE MODE ALONG (SPEC.md 88.13.3.1), so
+there is a second check. With the ground fill OFF the two sides are both
+black on a 1bpp adapter and what tells them apart is ONE SEGMENT - and the
+field reported it *"disappearing at some angles, some of the time"*.
+`cs_skyground` runs BEFORE `cs_scene`, so all three of the words `cs_seg`
+reads about its caller are the PREVIOUS frame's last object's: `cs_pinview`
+skips the clip, `cs_pwhole` skips the marking, and `cs_markacc` accumulates
+into an object box `cs_drawobj` resets a moment later. The segment was drawn
+into the shadow and never carried, exactly as the band's rows were.
+
+Check 2 is the GLASS again, and it is an A/B on the segment's own draw: the
+`je` that gates it is turned into a `jmp`, and the difference between the
+two views is precisely the horizon's blitted pixels. What it is held to is
+the host's own Liang-Barsky clip of the same segment against the same view,
+so a pose where the horizon genuinely does not cross the view expects
+nothing and a pose where it does expects a length.
+
+--clobber-range is the red run for check 1 (docs/WRITING-TESTS.md 1): it
+NOPs the two stores that widen the range and nothing else, which is the code
+as it was. --clobber-hzmark is check 2's, and puts back all four stores'
+worth of leftover.
 """
 import argparse
 import os
@@ -60,6 +79,8 @@ def main(argv):
     ap.add_argument("--step", type=int, default=30)
     ap.add_argument("--clobber-range", action="store_true",
                     help="do not widen the range over the band: rows go red")
+    ap.add_argument("--clobber-hzmark", action="store_true",
+                    help="the horizon's segment back on the leftovers: check 2 goes red")
     a = ap.parse_args(argv)
     os.chdir(ROOT)
     mp = dispapps._map("skies")
@@ -133,6 +154,22 @@ def main(argv):
                              for x in range(720)])
             return rows
 
+        def pinp(roll, pitch):
+            """Check 2's OWN pose, and not check 1's.
+
+            The attitude is what decides the horizon's geometry, but the
+            POSITION decides which objects are in the scene - and it is the
+            previous frame's last object whose cs_pinview/cs_pwhole the
+            segment inherits (88.13.3.1). Over check 1's corner of the world
+            the defect does not reproduce at any bank angle; over the city it
+            does, at 8 of 180 poses. A red run that stays green is a check
+            that tests nothing (docs/WRITING-TESTS.md 1)."""
+            pin(roll)
+            for nm, v in (("cs_px", 0), ("cs_py", 400), ("cs_pz", -1200)):
+                poke(nm, ((v * 256) & 0xFFFFFFFF).to_bytes(4, "little"))
+            poke("cs_hdg", b"\x00\x00")
+            poke("cs_pitch", (int(pitch * DEG) & 0xFFFF).to_bytes(2, "little"))
+
         def pin(roll):
             for nm, v in (("cs_px", -22000), ("cs_py", 538), ("cs_pz", -22000)):
                 poke(nm, ((v * 256) & 0xFFFFFFFF).to_bytes(4, "little"))
@@ -183,6 +220,122 @@ def main(argv):
         check(not wrongs,
               "the fill matches the guest's own normal at every bank angle "
               "(worst %d byte-groups at roll %s)" % worst)
+
+        # === 2: the WIRE horizon's one segment reaches the glass (88.13.3.1)
+        poke("cs_setfill", b"\x00")     # ground and buildings as outlines: on
+        poke("cs_setbld", b"\x04")      # 1bpp both sides are black and this
+        poke("cs_setlod", b"\x03")      # segment is the only thing between.
+        poke("cs_pause", b"\x01")       # HIGH/ULTRA on purpose: the words the
+        m.advance(frames=20)            # segment inherits are an OBJECT's.
+        m.run()                         # AND THE WORLD STOPS, because check 2
+                                        # is a difference between two captures
+                                        # and an aeroplane at 120 knots moves
+                                        # the whole scene between them - which
+                                        # reads as the horizon having drawn
+                                        # hundreds of pixels, whatever it did
+        lo = mp["cs_skyground"]
+        code = m.read(lin + lo, 0x400)
+        gate = (b"\x80\x3E" + (base + off("cs_hzhave")).to_bytes(2, "little")
+                + b"\x00\x74")
+        g = code.find(gate)
+        if g < 0:
+            sys.exit("skieshz: cs_skyground does not gate its segment where "
+                     "this expects - re-read it before trusting check 2")
+        jeat = lin + lo + g + len(gate) - 1
+
+        if a.clobber_hzmark:
+            # the three stores before the call and the one after: 88.13.3.1's
+            # whole change, back to the leftovers it was written for
+            n = 0
+            for nm, val in (("cs_pinview", 0), ("cs_pwhole", 0),
+                            ("cs_ownmk", 0xFF), ("cs_ownmk", 0)):
+                pat = (b"\xC6\x06" + (base + off(nm)).to_bytes(2, "little")
+                       + bytes([val]))
+                k = code.find(pat, g)
+                if k < 0:
+                    continue
+                m.write(lin + lo + k, b"\x90" * 5)
+                n += 1
+            if n != 4:
+                sys.exit("skieshz: found %d of 88.13.3.1's 4 stores - re-read "
+                         "cs_skyground before trusting the red run" % n)
+            print("  (the horizon back on the previous object's words: must fail)")
+
+        def clip(x1, y1, x2, y2, xa, ya, xb, yb):
+            """Liang-Barsky, on the host: what of the segment is in the view."""
+            dx, dy = x2 - x1, y2 - y1
+            t0, t1 = 0.0, 1.0
+            for pp, qq in ((-dx, x1 - xa), (dx, xb - x1),
+                           (-dy, y1 - ya), (dy, yb - y1)):
+                if pp == 0:
+                    if qq < 0:
+                        return None
+                    continue
+                r = qq / pp
+                if pp < 0:
+                    if r > t1:
+                        return None
+                    t0 = max(t0, r)
+                else:
+                    if r < t0:
+                        return None
+                    t1 = min(t1, r)
+            return (x1 + t0 * dx, y1 + t0 * dy, x1 + t1 * dx, y1 + t1 * dy)
+
+        wb0, wbn, wx1 = sw("cs_wb0"), sw("cs_wbn"), sw("cs_wx1")
+        box0 = vx // 8
+
+        def viewpx():
+            fb = m.read(0xB0000, 4 * 0x2000)
+            out = bytearray()
+            for y in range(vy, vy + wh):
+                o = (y & 3) * 0x2000 + (y >> 2) * 90 + box0
+                out += fb[o + wb0:o + wb0 + wbn]
+            return bytes(out)
+
+        m.bp_exec(lin + mp["cs_render"])
+        m.run()
+        if m.wait_stop(30) is None:
+            sys.exit("skieshz: cs_render never ran")
+
+        def frames(n=3):
+            for _ in range(n):
+                m.run()
+                if m.wait_stop(60) is None:
+                    sys.exit("skieshz: cs_render never ran")
+
+        short = []
+        for pitch in (-12, 0, 12):
+            for deg in range(0, 360, a.step):
+                pinp(deg, pitch)
+                frames(4)
+                m.write(jeat, b"\x74")          # as it ships
+                frames(3)
+                on = viewpx()
+                hz = [sg(int.from_bytes(
+                    m.read(lin + base + off("cs_hzsa") + 2 * k, 2), "little"))
+                    for k in range(4)]
+                have = m.readseg(seg, base + off("cs_hzhave"), 1)[0]
+                m.write(jeat, b"\xEB")          # ...and never drawn
+                frames(3)
+                dark = viewpx()
+                m.write(jeat, b"\x74")
+                drew = sum(bin(p ^ q).count("1") for p, q in zip(on, dark))
+                c = clip(hz[0], hz[1], hz[2], hz[3],
+                         wx0, 0, wx1, wh - 1) if have else None
+                want = 0 if c is None else int(max(abs(c[2] - c[0]),
+                                                   abs(c[3] - c[1]))) + 1
+                if want >= 8 and drew < want // 2:
+                    short.append((pitch, deg, drew, want))
+        m.bp_exec()
+        m.run()
+        for pitch, deg, drew, want in short:
+            print("      pitch %4d roll %3d: %d pixels of about %d"
+                  % (pitch, deg, drew, want))
+        check(not short,
+              "the wire horizon reaches the glass at every attitude that "
+              "crosses the view (%d of %d poses short)"
+              % (len(short), 3 * (360 // a.step)))
 
     if bad:
         for b in bad:

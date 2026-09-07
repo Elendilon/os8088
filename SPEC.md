@@ -100267,6 +100267,53 @@ Neither bit is a way to make the world disappear. **Buildings = None**
 (§88.13.1) is that, it is cheaper than any fill decision, and it is where
 the frame rate is.
 
+##### 88.13.3.1 ...and that segment belongs to no object
+
+Reported off the machine: *"at some angles, some of the time, the horizon
+line disappears in wire view"*, with two photographs a few seconds apart in
+the same turn — gone, then present.
+
+`cs_seg` reads three words about the object it is drawing for, and
+`cs_skyground` runs **before** `cs_scene`, so at the moment the horizon's
+segment is drawn all three are the PREVIOUS frame's last object's:
+
+  * **`cs_pinview`** makes it skip the clip entirely and walk the raw
+    segment — which for a horizon runs to row 242 or −192 of a 112-row view;
+  * **`cs_pwhole`** makes it skip the marking block (`jne .mk1`);
+  * and with both clear it marks through **`cs_markacc`**, which accumulates
+    into `cs_oby0`/`cs_oblo` — the OBJECT box, which `cs_drawobj` resets to
+    its sentinel for the first object a moment later.
+
+So the segment was drawn into the shadow and its rows were never carried.
+What made it intermittent is that the band's own row loop marks every band
+row full-span, so the line appeared whenever the band happened to cover it
+and vanished when it did not — and a pinned, paused pose renders differently
+from one frame to the next, which is how a photograph catches it either way.
+
+**This is the panel's situation exactly**, and `cs_pclip` has said so since
+it was written: *"segments in the panel mark their own rows (`cs_ownmk`):
+they belong to no object that would."* The horizon takes the same three
+stores and gives `cs_ownmk` back after, so `cs_markrows` marks the segment's
+own rows.
+
+**Measured.** Sweeping pitch and roll and A/B-ing the segment's own draw
+against the host's Liang-Barsky clip of it: **8 of 180 poses drew a horizon
+shorter than the view says it is, four of them drawing nothing at all**, and
+0 of 180 after. Each store is load-bearing and each was put back on purpose
+at a pose the horizon reaches: the `cs_pwhole` leftover costs **593 pixels**
+at pitch −12 roll 20, and the `cs_pinview` leftover the same 593, the two
+coinciding there because the segment is wholly inside the view and both
+land on the same skipped marking.
+
+**It costs nothing to run**, which is the point: LCY **195.6 → 195.7 ms** and
+PARIS-ISSY **120.1 → 120.1**, High/Ultra/wire on a 4.77 MHz 8088. The extra
+marking is free because the band already marks those rows full-span — the
+segment lies inside the band by construction, the band being the rows
+between its own two ends — so the union `cs_blit` walks does not change. 20
+bytes of the package and no kernel byte at all.
+
+`tests/skieshz.py` check 2 is the gate and `--clobber-hzmark` the red run.
+
 #### 88.13.4 Size — Small, Moderate, Full
 
 The table in `cs_vptab` is the **moderate** row: Hercules' 400 of its 640, as
