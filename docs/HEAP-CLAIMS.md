@@ -12,6 +12,21 @@ machine. §66.5.6.2 is the case for checking: a declaration whose owner fence
 refused it, silently, left this table saying MOVABLE for a cache that was
 pinned. When a row here matters, boot and read the map.
 
+**Movable is only half of it — the other half is WHICH WAY** (§66.4.1). A claim
+goes back through the door it came in by, so the ascending pass moves only the
+bottom-up claims and the descending pass only the top-down ones, and each
+treats the other half as a wall. `MC_HI` in the record is that fact and the map
+prints it beside the verdict:
+
+    92400..95C00    14.0K  seg 95C0       movable  top-down
+    9C400..9E400     8.0K  seg 9E40       PINNED   top-down  dma-head 512 para
+    1B800..1C400     3.0K  kern:ASC       movable  bottom-up
+
+so "it is movable and it did not move" has an answer to look up rather than
+derive. On a stock 640KB boot the whole ceiling stack is top-down and only
+`kern:ASC` is not, which is why an ascending pass alone was a plausible model
+of the arena for as long as it was.
+
 ---
 
 ## The verdicts

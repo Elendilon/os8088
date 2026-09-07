@@ -1909,7 +1909,13 @@ window.
   new base and that the head does not cross `0x1000` paragraphs.
 - **`tools/heapmap.py`** already reads `MC_RLOC` out of `mem_tab` on a running
   machine, which is how SPEC.md 66.5.6.2's silently-refused declaration was
-  caught. It needs the new declaration bit, and §4.3's colliding-word report.
+  caught. **The direction bit is BUILT into it** — it prints `top-down` /
+  `bottom-up` beside every verdict, and `Map.compacted()` models the two passes
+  separately instead of packing everything downwards, which it did before and
+  which over-reported by the whole ceiling stack. The first thing it showed is
+  a claim nothing could see: `seg 95C0 14.0K movable top-down` on a stock boot
+  is ETHER's socket pool, movable since §5.1. §4.3's colliding-word report is
+  still open.
 - **§4.3's false-refusal rate is measurable**: count passes where `mem_frameless`
   refused and only one word matched. If that is not near 0.9% on a busy machine
   the arithmetic is wrong.
