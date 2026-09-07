@@ -70,6 +70,56 @@ Ten minutes is about eight emulator rows, not fifty.
 `soak` having no budget is not an oversight. A budget there would push rows out
 of the suite, which is the opposite of the point.
 
+### 2.1 What earns a `fast` row
+
+**`fast` is the one tier nobody opts into.** `all` depends on it, so every
+second of it is charged to the contributor who is *not* working on its subject
+and has never read the code it defends. The question is therefore never "is
+this check worth having" — every row in `tests/` is — it is **"is it worth
+having to somebody who did not touch this?"**
+
+Two questions retire a row from `fast`. Either one on its own is enough.
+
+**1. Is it about ONE package or ONE driver?** Then it is `soak`. Whoever
+changes SKIES tests SKIES, and charging every other contributor two seconds a
+build for it buys them nothing. `soak -k 'cs*'` is one command and it is run
+by the person it is for. This is the rule that retired `csworld`, `csworlds`,
+`csart`, the three `fr*` rows, `inktab`, `wab`, `lmpack`, `drvmem`, `sfx` and
+`stknosave`.
+
+**2. Can only a KERNEL change break it?** Then it is `soak` too. A row about
+how the kernel works *inside* — a `.bss` sentinel, `.lowbss`'s order, the
+purgeable eviction ranks, `clk_mlen`'s month mask — is defended by whoever
+edits that subsystem, and that is exactly the person who will run `soak -k` on
+it. `fast` is not where the kernel is proved to still work; it is where a
+writer who has never opened that subsystem is caught breaking it by accident.
+
+> **The exception is what makes the rule useful.** A kernel-side row stays if
+> code OUTSIDE the kernel can reach it — a package, a driver, the SDK, or a
+> Makefile recipe. `api-abi` reads `kernel.bin` and stays, because the other
+> end of it is `apps/os88api.inc`. `drvovl` reads the kernel's overlay rule
+> and stays, because what broke it was a *Makefile recipe* gaining
+> `$(PKGZARG)`. Ask who else's file has to agree, not which directory the
+> test reads.
+
+What survives is four families, and a new `fast` row should be able to name
+the one it is joining:
+
+| family | what it is | some of its rows |
+|---|---|---|
+| **The boundary** | the kernel and the code loaded onto it, edited by different people, with neither side's build saying they disagree | `api-abi`, `stkclass`, `drvovl`, `fonts`, `pkgdeps` |
+| **Rules over every line** | what any assembly in this tree must obey, kernel and package alike | `asmrules`, `ovlchk`, `textrules`, `stkbalance`, `stkapps`, `swallow` |
+| **The shipped artifacts** | the floppies themselves, which anybody adding a file to one reaches | `image`, `pkg`, `diskverify`, `canary`, `checkreadme` |
+| **The tree and its suite** | duplicated constants, generated docs, and the gates' own integrity | `mirror`, `checkdocs`, `docindex`, `registry`, `machines`, `qemuown`, `fixtures`, `layout`, `stkwalker` |
+
+The membership is whatever carries the tier `fast` in `tests/suite.py`; the
+families are how to argue about a new one. If your row joins none of them,
+that is the answer.
+
+**Moving a row DOWN is not deleting it.** Every row named above still runs,
+still fails the same way, and is still one `-k` away. What changes is who pays
+for it: the person who touched its subject, instead of everybody.
+
 ---
 
 ## 3. The row
@@ -600,6 +650,8 @@ and §7 is why.
       non-zero.
 - [ ] `needs=` names what it cannot do without, so a box that lacks it SKIPS.
 - [ ] Registered in `tests/suite.py` with a `why` that says what breaks.
+- [ ] If I put it in `fast`: it is not about one package or one driver, and
+      something outside the kernel can break it (§2.1).
 - [ ] `make test-full` is green, and the row passes at `--marty-jobs 3`.
 
 ---
@@ -641,6 +693,7 @@ not. Each one can still happen today.
 | 28 | ...and then the INSTRUMENT sealing the hole the row had just opened. `tests/filler`'s fill is first fit ascending and undeclared - therefore pinned - so it took the ceiling hole `sndmove` had made above the sound driver and put 13KB of immovable claim against the very block the following ask needed moved. Every round after that was refused for want of room the instrument had taken. It grew an 'S' key (ask, do not fill) for rows that build their own arena | §1 |
 | 29 | `sndmove` reporting the ring **GONE** on the first run that moved it. It looked the claim up by `MC_OWN == <the segment the driver booted at>`, and a move rewrites the owner of every claim the holder held - so the correct answer read as a missing block. A lookup key that the thing under test is supposed to change is not a key | §8 |
 | 30 | `sndmove`'s vector check green-by-vacuum: it asserted that no interrupt vector still named the old image, and **no vector named it at all**, because `SOUND.DRV` hooks its IRQ at the first stream open and not at attach. The A/B is what said so - with the kernel's IVT patch removed the desktop still drew and only that check went red, which is also the reason it exists. `SBTEST.O88` now rides on the disk to open and close one stream first | §1 |
+| 32 | The `fast` tier at 55 rows and 62.7s of work, of which over half was one package's business (three SKIES rows, three FRACTAL, Paint's ink masks, the Weave family's two) or a kernel internal no package can reach (`.lowbss`'s order at 5.1s, the LZ codec at 4.7s, a `.bss` sentinel, the month mask). Nothing was wrong with any of them - they were being charged to the wrong person, on every build, for ever. The tier is the one nobody opts into, so the test is not "is this valuable" but "is it valuable to somebody who did not touch this" | §2.1 |
 | 31 | A kernel change that passed its own new row, `make test-full` and thirteen of the fifteen heap rows, and **broke the hard disk**: `hdmove` alone went red, with `No hardware found` on the glass. `mem_region_reloc` had been given a 256-entry IVT sweep, and int C1h/C3h on `os8088_xt_hdd` are SCRATCH WORDS the XT-IDE option ROM keeps in unused vectors - one held a value that was also a heap base. Run the whole family after touching `mem_can_move`, and A/B a failure against the base before believing it was already broken: `rdmove` in the same run WAS already broken, and the two look identical from the summary line | §1 |
 
 ---
@@ -654,4 +707,4 @@ not. Each one can still happen today.
 | **docs/plans/SOAK-PARALLEL.md** | the parallel runner, where the suite's time goes, and every measurement quoted above |
 | **docs/plans/HANDOFF-SOAK-FINDINGS.md** | worked diagnoses of rows that failed, and what was ruled out for each |
 | **PERFORMANCE.md** Part 7 | checking a change; Parts 3.1/3.2 for flicker and smoothness harnesses |
-| **`tests/suite.py`** | the registry, and its header on why `full` is curated |
+| **`tests/suite.py`** | the registry, and its header on what earns a `fast` row and why `full` is curated |

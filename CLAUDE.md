@@ -141,7 +141,14 @@ make test-soak   #   ENFORCED wall-clock budget — the runner FAILS fast over
                  #     every shipped floppy walked by an independent FAT12
                  #     reader, unreachable code, SPEC.md 6.6's
                  #     transparent-text ratchet, the doc gate, and that every
-                 #     test in tests/ is registered somewhere or says why not
+                 #     test in tests/ is registered somewhere or says why not.
+                 #     **25 rows, and the two things it deliberately does NOT
+                 #     cover are the rule** (docs/WRITING-TESTS.md 2.1): a row
+                 #     about ONE package, and a kernel internal no package can
+                 #     reach. `fast` is the one tier nobody opts into, so both
+                 #     charge every contributor for somebody else's subject -
+                 #     they are in soak, one `-k` away, run by whoever's change
+                 #     would break them
                  #   full ~3m45 — adds the knob kernels and kern_small (every
                  #     configuration `all` does NOT build, so the only thing
                  #     keeping them assembling), the C toolchain and a boot to
@@ -276,9 +283,10 @@ make loom       # LOOM (WEAVE-SPEC §1.2), the family's second package: the
 make loomdisk   #   in-OS IDE that edits a project's sources and packs the
                 #   `.WAB` ON THE MACHINE, byte-identical to what
                 #   `tools/weavesim.py --pack` writes on the host. That
-                #   identity IS the gate (WEAVE-SPEC §11.1): `make` runs the
-                #   host half of it every time (the `lmpack` row, four
-                #   seconds), and `python3 tools/os88test.py soak -k
+                #   identity IS the gate (WEAVE-SPEC §11.1): the host half
+                #   is `soak -k 'lmpack'` (six seconds; it was a fast row
+                #   until the family stopped charging every build for two
+                #   packages) and `python3 tools/os88test.py soak -k
                 #   'weave*'` runs the machine's. `make loomdisk` puts both
                 #   packages, both overlays, WEAVE.WSM, LOOM.WPV, the demo
                 #   bundles and the demo SOURCES on one floppy in all three
@@ -771,7 +779,10 @@ the registry fields, a `secs` you measured, `wants=` and private trees instead
 of `builds=True`, `os88ui` instead of a remembered coordinate, the guest's
 clock instead of `time.sleep`, and a §1 that is the only question that decides
 whether the row is worth having: **break the thing on purpose and watch it go
-red.**
+red.** Its 2.1 is the second question, and it is the one that decides the
+TIER: `fast` is paid for by everybody on every build, so a row about one
+package, or about a kernel internal nothing outside the kernel can reach,
+belongs in `soak` however good it is.
 
 **MartyPC is the default instrument; QEMU is a fallback with a closed list.**
 docs/TESTING.md's opening owns the rule and the reasoning. The list is

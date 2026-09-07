@@ -173,9 +173,15 @@ make a row slow, it makes it less thorough at the same wall time.
 
 | tier | budget | what it does | when |
 |---|---|---|---|
-| `fast` | **30s** (uses ~13) | Host-side only, 48 rows. Reads what `make` just built and checks what breaks SILENTLY. | A commit you are going to keep |
-| `full` | **10 min** | `fast`, plus every knob kernel the Makefile stamps (84 rows in `tests/unit/t_buildmatrix.py`, read off `$(KNOBS)` so a new knob fails the day it is added) and `kern_small`, the C toolchain, and a boot to a desktop on both 1bpp adapters. 13 rows. | A major round of work reaching the integration branch |
-| `soak` | none | The other 229 gates in `tests/`, one subject each. | The end of extensive kernel surgery — or when asked |
+| `fast` | **30s** (uses ~9) | Host-side only, 25 rows. Reads what `make` just built and checks what breaks SILENTLY — and only what somebody who did NOT touch the subject can break. | A commit you are going to keep |
+| `full` | **10 min** (uses ~5) | `fast`, plus every knob kernel the Makefile stamps (99 rows in `tests/unit/t_buildmatrix.py`, read off `$(KNOBS)` so a new knob fails the day it is added), `kern_small` and `kern_emu`, the C toolchain, and a boot to a desktop on both 1bpp adapters. 14 rows. | A major round of work reaching the integration branch |
+| `soak` | none | The other 292 gates in `tests/`, one subject each — including every per-package and kernel-internal row, which is where they belong. | The end of extensive kernel surgery — or when asked |
+
+**`fast` is deliberately narrow, and docs/WRITING-TESTS.md §2.1 is the rule.**
+It is the one tier nobody opts into, so a row about ONE package or about a
+kernel internal no package can reach is charged to every contributor who is
+not working on it — those live in `soak`, one `-k` away, run by the person
+whose change would break them.
 
 The `when` column is the whole of §"When to run which tier" below, compressed
 to fit in a table. **Read that section before running a tier on a schedule of

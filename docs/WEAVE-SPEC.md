@@ -3901,7 +3901,9 @@ integrity, UISTREAM record validity, CODE jump-target bounds. It is
 written from THIS document and **shares no code with any packer** — the
 `tools/wordfmt.py` pattern: two implementations agreeing by accident of
 shared code is the failure the rule exists to prevent. It registers as a
-fast-tier row (host-side, no build, inside every `make`).
+soak row (host-side, no build): the `.WAB` format is this family's, and
+`fast` does not carry one package's business for every other contributor
+(docs/WRITING-TESTS.md 2.1).
 
 ### 12.3 The suite rows
 
@@ -3910,8 +3912,8 @@ soak unbudgeted). `needs`, `secs` and `wants=` are `tests/suite.py`'s:
 
 | tier | row | what |
 |---|---|---|
-| fast | `wab` | §12.2 — `tests/unit/t_wab.py` |
-| fast | `lmpack` | LOOM's compilers built with the host's `cc` and diffed against `weavesim --pack` (§12.3.3) — the dev loop, not the gate |
+| soak | `wab` | §12.2 — `tests/unit/t_wab.py`. Host-side and a tenth of a second, but per-package, so `soak` (docs/WRITING-TESTS.md 2.1) |
+| soak | `lmpack` | LOOM's compilers built with the host's `cc` and diffed against `weavesim --pack` (§12.3.3) — the dev loop, not the gate |
 | full | `weavesmoke` | MartyPC boots, opens `WEAVE/FORM.WAB`, asserts drawn-window STRUCTURE (never a golden screenshot) on both 1bpp GLaBIOS twins; needs marty and the C toolchain, builds its disk in a private tree (`tools/os88build.py`) — the family's ONE full row |
 | soak | `weavevm` | raw-QEMU SS≠DS boot-sector differential corpus vs weavesim (the rcz80test shape) — **both cores**: the WVM's end states (§12.1.1) and the FX VM's results and errors (§12.1.2) |
 | soak | `weavecanvas` | raw-QEMU SS≠DS differential of the CANVAS core against the model's composer — sprite records, the staging ring, the emitted SPANS (§6.10.7) and the composed buffer (§12.1.3) |
@@ -3979,7 +3981,11 @@ text, `#include`d by `apps/loom/hosttest/lmhost.c` and not a copy of it —
 with the host's `cc`, stands the two claims up as plain arrays, packs every
 demo and every template, and diffs each result against `weavesim --pack`
 byte for byte; then it runs `tests/weave/packerr/` and compares the two
-packers' sentences. It is a FAST-tier row, so it runs on every `make`.
+packers' sentences. It is a SOAK row: `soak -k 'lmpack'`, which is what a
+change to either compiler runs. It was a fast row until
+docs/WRITING-TESTS.md 2.1, and six seconds of every contributor's build for
+two packages is what that rule is about — the dev loop it names below is
+this family's dev loop, not the tree's.
 
 **It is NOT the gate, and the difference is one word wide: `int` is 32 bits
 there and 16 bits here.** So the compilers are written never to depend on
@@ -4039,7 +4045,7 @@ the record of them and of what each found. What binds today:
   `apps/weave/wval.c` for that reason.
 - **The gates.** §12.3's rows, all registered; `python3 tools/os88test.py
   soak -k 'weave*'` is the family's command. The pack identity (§11.1) is
-  green host-side (`lmpack`, every `make`) and on the machine
+  green host-side (`lmpack`, `soak -k 'lmpack'`) and on the machine
   (`weavepack`); `tests/weavefuzz.py` found no project the two packers
   disagree about.
 - **The machines.** `vm/xt-weave` (640KB XT, `build/weave360.img` in B:),
