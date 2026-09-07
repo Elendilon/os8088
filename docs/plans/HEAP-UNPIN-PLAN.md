@@ -1435,7 +1435,44 @@ I don't care if they purge"*, so what the module row wants is §66.6's treatment
 and not §66.10's — a different piece with a different predicate, and the only
 population left pinned.
 
-**What B' would take, costed against D's actual shape rather than B's.** The
+**MEASURED, AND THE ANSWER IS TO LEAVE THEM.** The question is not what a
+module costs to move, it is whether a module is a WALL - and on a running
+machine it is not. Two sequences, read off `tools/heapmap.py` with the
+direction column:
+
+    drivers up, panel CLOSED     9K DRV | 8K DRV | 8.0K HOLE (top)
+                                 descending 499.5K
+    panel REOPENED               9K DRV | 8K DRV | 8K MOD    <- the CEILING
+                                 descending 491.5K
+    hard disk UNMOUNTED, open    9K DRV | 8.0K HOLE | 8K MOD
+                                 descending 499.5K
+    panel CLOSED                 9K DRV | 16.0K HOLE (top)
+                                 descending 507.5K
+
+**A module lands at the ceiling and stays there**, even when it is dropped and
+re-taken: `mem_claim_1`'s `.hi` arm refills the ceiling hole it left, so
+reopening the panel put `CTRL.DRV` back at `9E000..A0000` rather than under the
+two driver images. And the 8KB hole that opens *below* it when a driver is
+unmounted **is closed by the descending pass** - the claims under it pack up to
+its base. The difference between "panel open" and "panel closed" is 507.5 −
+499.5 = **8.0K, which is exactly the module itself**, not a stranded run. That
+is the price of the feature being open, and it is the same price a resident
+implementation would charge for ever.
+
+**What made that true is D and F**, and it would not have been before them:
+everything below a module in the ceiling stack is now movable, so a hole under
+one is closable. A module is only a wall when something PINNED sits above it,
+and after D that is one case - `SOUND.DRV` while it is attached, which the IVT
+scan refuses. A module loaded under an attached sound driver strands the run
+between them until one of the two goes away.
+
+**Span, for the record**, since "scoped to the feature" is what decides it:
+`CTRL.DRV` is loaded by `cp_open_x` and dropped by the panel's close, and the
+panel is an ordinary non-modal window (`cw_app_launch`, `KIND_CTRL`) - so the
+user CAN leave it open and go on working. The other five are per-operation, and
+the two spans that outlive a single call are already named in §12 question 3.
+
+**What B' would take if it is ever wanted, costed against D's actual shape.** The
 fix-up is the same near-nothing: `mod_fp[]`'s segment halves are one more
 `mem_rr_tab` row. The predicate is where it differs and where the cost is —
 **29 thunk sites** far-call a module image against the driver path's seven, and
@@ -1457,10 +1494,13 @@ rests on it, and the failure if one is wrong is the silent kind. It is the
 cheapest remaining piece by a wide margin and the one most worth doing
 carefully.
 
-**The prize is also the smallest.** A module is 2–4KB, is claimed top-down like
-a driver image, and is *freed when its feature closes* — so unlike a driver
-mounted mid-session it is not a wall that outlives the thing that made it, and
-`mem_claim_1`'s `.hi` arm already refills the hole it leaves.
+**But the prize is measured at zero**, which is why the recommendation is to
+leave it: the numbers above say a module costs its own size while its feature
+is open and strands nothing, so ~200 bytes of resident kernel would buy back
+8KB that is not lost in the first place. The one case worth remembering is a
+module under an attached `SOUND.DRV`, and the cheaper fix for that is the
+sound driver's own quiesce (§3.2, already half-built as `sbl_halt`/`sbl_go_on`)
+rather than making every module movable.
 **C is built** (§10.9) — it needed a filler package before it could be gated
 and §4.2's global counter replaced with a segment stack, both of which that
 section records. **Six of §12's open questions are now answered** — 1b, 3, 4, 6,
