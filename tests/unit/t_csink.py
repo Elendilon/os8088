@@ -17,6 +17,12 @@ adapter or one setting, long after the row that was forgotten.
     whose full model is `CSI_RIVER` must carry `CSI_RIVLINE`. One left behind
     is a white river on a colour display and nothing at all to see on the
     others.
+  - **an LOD pair's HEIGHT.** A `CSO_FAR` model stands in for its full model
+    beyond `CSO_LOD`, so the two must be the same height or the object CHANGES
+    SIZE as you fly toward it. The Eiffel's far model was 300 against the full
+    model's 324 and popped 24 m at the switch; every other pair in every world
+    already agreed, which is what makes this a rule rather than a preference.
+
   - **the settings.** `cs_set_at`, `cs_set_max` and `cs_set_best` are three
     rows of `CS_SETN` each, and §88.13.9.1's trap is that `best` is NOT
     `max`: the Mode byte's ceiling is CGA, so a 286 handed the best of
@@ -123,6 +129,45 @@ def main():
     check(not miss,
           "...and every one of them draws in CSI_RIVLINE (%s)"
           % (miss if miss else "all %d" % total))
+
+    # --- an LOD pair is the same HEIGHT ------------------------------------
+    def levels(body):
+        out = []
+        for line in body.splitlines():
+            b = line.split(";")[0].strip()
+            b = re.sub(r"^\.\w+:\s*", "", b)     # a `.v:` label opens the list
+            g = re.match(r"^dw\s+(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*$", b)
+            if g:
+                out.append(tuple(int(x) for x in g.groups()))
+        return out
+
+    pairs, popped = 0, []
+    for f in sorted(os.listdir(APP)):
+        if not f.startswith("csw_") or not f.endswith(".inc"):
+            continue
+        src = open(os.path.join(APP, f)).read()
+        mods = {}
+        for g in re.finditer(r"^(cs_m_\w+): db (CSM_\w+), *(\d+),", src, re.M):
+            i = g.end()
+            j = src.find("\ncs_m_", i)
+            mods[g.group(1)] = (g.group(2),
+                                levels(src[i:j if j > 0 else len(src)]))
+        for g in re.finditer(r"CS_OBJ\s+(cs_m_\w+),\s*(cs_m_\w+f)\b", src):
+            full, far = g.group(1), g.group(2)
+            if full not in mods or far not in mods:
+                continue
+            if mods[full][0] != "CSM_STACK":
+                continue
+            pairs += 1
+            hf = max((v[1] for v in mods[full][1]), default=0)
+            hr = max((v[1] for v in mods[far][1]), default=0)
+            if hf != hr:
+                popped.append("%s:%s %d against %s %d" % (f, far, hr, full, hf))
+    check(pairs >= 5, "the worlds' STACK LOD pairs are found (%d)" % pairs)
+    check(not popped,
+          "...and a far model is the same HEIGHT as the model it stands in "
+          "for, so nothing changes size at the switch (%s)"
+          % (popped if popped else "all %d" % pairs))
 
     # --- the settings' three rows -------------------------------------------
     st = open(os.path.join(APP, "csset.inc")).read()

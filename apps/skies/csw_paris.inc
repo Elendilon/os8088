@@ -72,12 +72,41 @@ cs_m_eiffel: db CSM_STACK, 5, 0, 32, CSI_LINE, 0
     db 8,12, 9,13, 10,14, 11,15
     db 12,16, 13,17, 14,18, 15,19   ; ...and the spire
 
-cs_m_eiffelf: db CSM_STACK, 2, 0, 4, CSI_LINE, 0    ; the far one: the four
-    dw 330, .v, 0, .e                               ; legs to the apex. The
-.v: dw 62, 0, 62                                    ; base square is eight
-    dw 0, 300, 0                                    ; pixels wide where this
-.e: db 0,4, 1,5, 2,6, 3,7                           ; stands in, and cost
-                                                    ; four segments (88.5.4)
+; THE FAR ONE IS A SKYLINE (SPEC.md 88.5.4.5). It was four straight legs from
+; the base square to a point - a tent, or a radio mast, and the two far legs
+; project down the middle as a line that reads as a mistake. What makes this
+; tower recognisable at twenty-five pixels is three things and none of them is
+; a platform square: a FLARED base, ONE horizontal bar, and a thin spire.
+;
+; The SPIRE is one diagonal pair, the square being under two pixels across up
+; there so the other two legs land in the same column; the SHAFT keeps all
+; four, because eleven pixels of width tapering to five is the taper you can
+; see, and the taper is what the old model had none of.
+;
+; The heights are the SKYLINE's and not the tower's. A first platform at the
+; real 57 m of 324 is a fifth of the way up, which at this size is five
+; pixels and lands inside the ground band: the flare was drawn, and invisible.
+; At 105 it is a third of the way up and reads.
+;
+; THERE IS NO PLATFORM BAR and there should be - it is what makes this tower
+; not a pylon. Two edges do it (the platform square's diagonals) and it is
+; REFUSED on 88.5.4.5.1: any near-horizontal edge here leaves stale pixels at
+; the far LEFT of a CGA view, which is 88.3.1's scheme and nothing to do with
+; the tower.
+;
+; The apex is 324 and no longer 300, which is the near model's - the LOD
+; switch used to change the tower's height by 24 m as you flew toward it.
+cs_m_eiffelf: db CSM_STACK, 4, 0, 10, CSI_LINE, 0
+    dw 330, .v, 0, .e
+.v: dw 62, 0, 62                    ; the feet
+    dw 34, 105, 34                  ; the first platform, where the flare ends
+    dw 14, 190, 14                  ; the second
+    dw 0, 324, 0                    ; the apex
+.e: db 0,4, 1,5, 2,6, 3,7           ; the FLARE, all four legs: it is the
+                                    ; widest thing here and the one part
+                                    ; whose shape a viewer can resolve
+    db 4,8, 5,9, 6,10, 7,11         ; the shaft, which needs its WIDTH
+    db 8,12, 10,14                  ; ...and the spire, which does not
 
 ; --- the Seine, three strips cut in two (generated: SPEC.md 88.6): each half
 ;     a ribbon of two or three quads near, its centreline far, so a piece

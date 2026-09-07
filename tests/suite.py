@@ -246,11 +246,16 @@ FAST = [
         " CSI_NINK rows, so a new ink added to four of them does not draw in"
         " whatever byte follows the other two; every river far model in every"
         " world carrying CSI_RIVLINE, one left behind being a white river on"
-        " a colour display; and cs_set_at / _max / _best all CS_SETN long,"
+        " a colour display; cs_set_at / _max / _best all CS_SETN long,"
         " where the trap is that BEST IS NOT MAX - the Mode byte's ceiling is"
         " CGA, so a 286 given the best of everything off the clamp table gets"
-        " the worse of two displays. Deleting one ink row and whitening one"
-        " river takes it red on both",
+        " the worse of two displays. And every CSM_STACK LOD pair the same"
+        " HEIGHT, because a far model that stands in for a full one at a"
+        " different height makes the object CHANGE SIZE at the switch - the"
+        " Eiffel's was 300 against 324 and popped 24 m as you flew at it,"
+        " where every other pair in every world already agreed. Deleting one"
+        " ink row, whitening one river and shortening one apex take it red on"
+        " all three",
         needs=()),
     Row("csplane", "fast", py("tests/unit/t_csplane.py"), 0.3,
         "SPEC.md 88.7.4: CLEAR SKIES' five plane records agree with their own"

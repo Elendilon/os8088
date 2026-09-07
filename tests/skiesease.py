@@ -166,11 +166,25 @@ def main(argv):
             is how `held AWAY from level every tick is the full rate` came to
             read [0, 0, 0, 0, 0]."""
             nm = axis_of(key)
-            for _ in range(tries):
+            for i in range(tries):
                 if byte(nm) == 0:
                     return
                 m.advance(frames=4)
                 m.run()
+                if i and i % 10 == 0:
+                    # A LOST BREAK CODE IS SELF-HEALING AND ONLY THAT WAY
+                    # (SPEC.md 9.7): the key-down map is advice, and a break
+                    # dropped inside a long IF=0 window leaves the bit set
+                    # until that key is pressed again. So press and release
+                    # BOTH arrows of this axis rather than waiting longer.
+                    for k in (("ArrowLeft", "ArrowRight") if nm == "cs_kroll"
+                              else ("ArrowUp", "ArrowDown")):
+                        m.key(k, down=True, up=False)
+                        m.advance(frames=2)
+                        m.run()
+                        m.key(k, down=False, up=True)
+                        m.advance(frames=2)
+                        m.run()
             sys.exit("skiesease: %s never came back up ([%s] = %d)"
                      % (key, nm, byte(nm)))
 

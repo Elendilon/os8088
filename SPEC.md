@@ -96089,6 +96089,79 @@ Face-by-face over the same run, the count each object draws is now constant
 at every one of twenty positions three metres apart, where before the Empire
 State read `1 1 1 1 1 1 0 0 1 1 …`.
 
+##### 88.5.4.5 THE EIFFEL'S FAR MODEL IS A SKYLINE, and it was a tent
+
+Asked for off the machine: *"change the Eiffel's low LOD to a more
+recognisable form — doesn't need the internal square lines, but should have a
+skyline view more Eiffel shaped."*
+
+`cs_m_eiffelf` was two levels and four edges: the base square straight to a
+point. From the Issy runway, 3,454 m away and about **25 pixels tall**, that
+is a tent with a mast — the two far legs project down the middle as a line
+that reads as a mistake rather than as structure. Nothing about it says which
+tower it is.
+
+| | |
+|---|---|
+| the flare | all four legs, `0-4 1-5 2-6 3-7`. It is the widest thing here — about 20 px at 6.2 m a pixel — and the one part whose *shape* a viewer can resolve |
+| the shaft | all four legs. Eleven pixels tapering to five is a taper you can see, and the taper is what the old model had none of |
+| the spire | one diagonal pair. The square is under two pixels across up there, so the other two legs land in the same column and would cost two segments to draw nothing |
+
+**The heights are the SKYLINE's, not the tower's.** A first platform at the
+real 57 m of 324 is a fifth of the way up, which is five pixels here and
+lands *inside the ground band*: built that way first, the flare was drawn and
+invisible. At 105 m it is a third of the way up and reads. Checked at four
+azimuths — 0°, 22°, 45°, 67°.
+
+**The apex is 324 and no longer 300**, which is the full model's. The LOD
+switch was changing the tower's height by 24 m as you flew toward it. Every
+other far model in every world already matched its own, so
+`tests/unit/t_csink.py` holds all five `CSM_STACK` pairs to it.
+
+**What it costs, on a 4.77 MHz 8088 with a Hercules, default settings**
+(Buildings High, Draw Distance Moderate, Size Moderate, both fills; a 400x112
+view), stood on the Issy runway with the tower 3,454 m ahead — median of
+eight frames, measured between two `cs_render` entries:
+
+| | facing the tower | facing away | the tower's share |
+|---|---|---|---|
+| four edges, two levels | **167.9 ms** | 142.8 ms | 25.1 ms |
+| ten edges, four levels | **173.4 ms** | 142.6 ms | 30.8 ms |
+
+**+5.5 ms, or 3.3% of the frame** — 5.96 fps to 5.77. The facing-away figure
+is the same on both builds, which is what makes the difference the tower's
+and not the weather's.
+
+##### 88.5.4.5.1 …and the PLATFORM BAR is refused, on a defect it is not
+
+The shape wants one more thing: a **horizontal bar at the first platform**,
+which is the single most recognisable feature of this tower and the reason
+its silhouette is not a pylon's. Two edges do it — the platform square's two
+DIAGONALS, `4-6 5-7`, and not its four sides, a diagonal being the square's
+full width from exactly the azimuths where a side is foreshortened. It was
+built, it looks right at all four azimuths, and it costs **0.8 ms** on top of
+the above.
+
+**It is not in, because it takes `skiescga` red**: 18 stale pixels after a
+straight climb and 10 after a pitch-up, against 0 without it, reproducibly
+and alone. What differs is a run of `CSI_LINE` at the view's **far left** —
+bytes 0-2 of rows 68 and 70 — nowhere near the tower, which at that pose is
+9° right of the nose. The incremental glass holds it at row 68 and a forced
+full redraw puts it at row 70: something two rows behind, at the other end of
+the screen.
+
+**It is not the diagonals and it is not the tower.** Bisected edge by edge on
+the same pose: the flare, the shaft and the spire are each clean; ANY edge
+joining two vertices of the SAME LEVEL — a near-horizontal segment — trips
+it, the platform's two *sides* as readily as its two diagonals, and one
+diagonal alone gives 4 stale pixels where two give 18. The count scales with
+how many. **It is clean on Hercules** and appears only on CGA.
+
+So a near-horizontal edge added to a distant object leaves a stale run
+somewhere else entirely, which is §88.3.1's scheme and not §88.5's geometry.
+The bar goes in when that is understood; the reproduction is one edge in
+`cs_m_eiffelf` and `python3 tests/skies.py --machine os8088_5150_cga_gla`.
+
 #### 88.5.8 "Buildings lean over", which was the horizon
 
 Reported off the machine with a photograph: a large dithered wedge standing
