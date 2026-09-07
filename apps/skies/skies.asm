@@ -2313,6 +2313,23 @@ cs_tpl:
     ZWORD cs_pbarx                  ; the throttle bar's left end, top row
     ZWORD cs_pbary                  ; and width, off the cockpit
     ZWORD cs_pbarw
+    ZWORD cs_wname                  ; cs_inwater (88.7.7.1): the touched
+    ZWORD cs_wobj                   ; water's name, and the walk's own state -
+    ZWORD cs_wnob                   ; the object, how many are left, the face
+    ZWORD cs_wnf                    ; and how many of those, the vertex table,
+    ZWORD cs_wfp                    ; the point in the object's frame, the
+    ZWORD cs_wvt                    ; edge's two ends and the one just read,
+    ZWORD cs_wpx                    ; the face's index list and its length,
+    ZWORD cs_wpz                    ; where the walk is, and the edge's dz
+    ZWORD cs_wax
+    ZWORD cs_waz
+    ZWORD cs_wvx
+    ZWORD cs_wvz
+    ZWORD cs_wface
+    ZWORD cs_wnv                    ; (cs_wn is cs_wire's, 88.5)
+    ZWORD cs_wi
+    ZWORD cs_wdz
+    ZBYTE cs_wodd                   ; ...and the crossing count's parity
     ZWORD cs_dn                     ; a switch RAIL's counter, its remaining
     ZWORD cs_dmask                  ; mask and the layout x of the switch it
     ZWORD cs_dxl                    ; is drawing (88.9.3.1)

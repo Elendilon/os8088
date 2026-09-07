@@ -32,7 +32,9 @@ that everything ELSE about the A5 still passes, which is why those two
 checks are the ones that are there.
 """
 import argparse
+import math
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -43,10 +45,32 @@ import dispapps                                             # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEG = 65536.0 / 360.0
-CSP_VSTALL, CSP_VMAX, CSP_THRUST = 2, 6, 8
-CSP_ROLLR, CSP_COCKPIT, CSP_ATT = 16, 32, 34
-CSP_SPOOL, CSP_LAUNCH, CSP_FLAGS = 36, 38, 40
-CSA_WX, CSA_WZ, CSA_WHDG, CSA_WLEN = 22, 24, 26, 28
+# THE RECORD LAYOUTS ARE READ OUT OF skies.asm, not copied into here. There
+# were six of these as literals and 88.7.7.1 wanted fourteen more - a walk of
+# the guest's own object table needs the model and object offsets too - and
+# twenty hand-copied numbers is twenty chances to go quietly stale. equ lines
+# are not in the map dispapps builds, so they are parsed the way
+# tests/unit/t_csworld.py parses them.
+def _equates():
+    out = {}
+    for line in open(os.path.join(ROOT, "apps", "skies", "skies.asm")):
+        m = re.match(r"^(CS[A-Z]*_[A-Z0-9_]+)\s+equ\s+"
+                     r"(-?(?:0[xX][0-9A-Fa-f]+|\d+))\s*(?:;|$)", line)
+        if m:
+            out[m.group(1)] = int(m.group(2), 0)      # base 0: CSO_POI is hex
+    return out
+
+
+_E = _equates()
+_WANT = ("CSP_VSTALL CSP_VMAX CSP_THRUST CSP_ROLLR CSP_COCKPIT CSP_ATT "
+         "CSP_SPOOL CSP_LAUNCH CSP_FLAGS CSA_WX CSA_WZ CSA_WHDG CSA_WLEN "
+         "CSA_WWID CSA_OBJS CSA_NOBJ CSO_SIZE CSO_MODEL CSO_X CSO_Z "
+         "CSO_NAME CSM_TYPE CSM_NF CSM_VERTS CSM_FACES CSM_FLAT "
+         "CSI_RIVER").split()
+_miss = [n for n in _WANT if n not in _E]
+if _miss:
+    sys.exit("skiesfleet: skies.asm no longer defines %s" % ", ".join(_miss))
+globals().update({n: _E[n] for n in _WANT})
 CSG_TAKEOFF, CSG_RELEASE, CSG_SPLASH = 1, 7, 8
 CS_ST_GROUND, CS_ST_AIR, CS_ST_CRASH = 0, 1, 2
 bad = []
@@ -71,6 +95,8 @@ def main(argv):
                     help="give the Magister the trainer's model: must go red")
     ap.add_argument("--clobber-amphib", action="store_true",
                     help="take the A5's amphibious flag away: must go red")
+    ap.add_argument("--clobber-water", action="store_true",
+                    help="cs_inwater always answers NO: must go red")
     ap.add_argument("--clobber-tail", action="store_true",
                     help="make the rate decay as slowly as it builds: red")
     a = ap.parse_args(argv)
@@ -128,6 +154,15 @@ def main(argv):
             m.write(lin + lo + i, b"\x90\x90\x90\x90")
             m.run()
             print("  (the rate made to decay as slowly as it builds: must fail)")
+        if a.clobber_water:
+            # cs_inwater blanked to `clc / ret` (SPEC.md 88.7.7.1). BOTH water
+            # landings go red, which is the point: since the strip stopped
+            # being what a touchdown is tested against, this routine is the
+            # whole of what makes a splashdown a landing
+            m.pause()
+            m.write(lin + mp["cs_inwater"], b"\xF8\xC3")
+            m.run()
+            print("  (cs_inwater made to answer NO: this must fail)")
         if a.clobber_amphib:
             m.pause()
             m.write(lin + mp["cs_p_a5"] + CSP_FLAGS, b"\x00\x00")
@@ -364,11 +399,48 @@ def main(argv):
         check(ok, "...and gets off it under its own power (state %d, %d kt)"
               % (byte("cs_state"), w("cs_spd") * 1944 // 128000))
 
-        def splashdown():
+        def waters():
+            """Every CSI_RIVER face of the flown location, out of the GUEST's
+            own object table (SPEC.md 88.7.7.1) - so this row does not carry a
+            coordinate anybody has to keep in step with the world files.
+
+            Returns (centroid x, centroid z, the object's name) per face."""
+            objs, nobj = rec(port, CSA_OBJS), rec(port, CSA_NOBJ)
+            out = []
+            for o in range(objs, objs + nobj * CSO_SIZE, CSO_SIZE):
+                md = rec(o, CSO_MODEL)
+                if m.readseg(seg, md + CSM_TYPE, 1)[0] != CSM_FLAT:
+                    continue
+                ox, oz = sg(rec(o, CSO_X)), sg(rec(o, CSO_Z))
+                vt, f = rec(md, CSM_VERTS), rec(md, CSM_FACES)
+                for _ in range(m.readseg(seg, md + CSM_NF, 1)[0]):
+                    hdr = m.readseg(seg, f, 3)
+                    idx = m.readseg(seg, f + 3, hdr[0])
+                    if hdr[1] == CSI_RIVER:
+                        pts = [(sg(rec(vt, 4 * i)), sg(rec(vt, 4 * i + 2)))
+                               for i in idx]
+                        out.append((ox + sum(p[0] for p in pts) // len(pts),
+                                    oz + sum(p[1] for p in pts) // len(pts),
+                                    name(o + CSO_NAME)))
+                    f += 3 + hdr[0]
+            return out
+
+        def onstrip(px, pz):
+            """...is that point inside the old rectangle? (88.7.7.1)"""
+            wx, wz = sg(rec(port, CSA_WX)), sg(rec(port, CSA_WZ))
+            th = sg(rec(port, CSA_WHDG)) * 2 * math.pi / 65536.0
+            dx, dz = px - wx, pz - wz
+            return (abs(dx * math.sin(th) + dz * math.cos(th))
+                    <= sg(rec(port, CSA_WLEN))
+                    and abs(dx * math.cos(th) - dz * math.sin(th))
+                    <= sg(rec(port, CSA_WWID)))
+
+        def splashdown(at=None):
             """Put the aeroplane a metre over the water strip, sinking gently
-            along it, and let the touchdown happen."""
+            along it, and let the touchdown happen. `at` puts it somewhere
+            else instead, which is what 88.7.7.1 is about."""
             m.pause()
-            sn = rec(port, CSA_WX), rec(port, CSA_WZ)
+            sn = (rec(port, CSA_WX), rec(port, CSA_WZ)) if at is None else at
             poke("cs_px", ((sg(sn[0]) * 256) & 0xFFFFFFFF).to_bytes(4, "little"))
             poke("cs_pz", ((sg(sn[1]) * 256) & 0xFFFFFFFF).to_bytes(4, "little"))
             poke("cs_py", ((3 * 256) & 0xFFFFFFFF).to_bytes(4, "little"))
@@ -400,6 +472,48 @@ def main(argv):
               "...and the strip names the water (msg %d)" % byte("cs_msg"))
         check(w("cs_landings") == land0 + 1,
               "...and it counts (%d -> %d)" % (land0, w("cs_landings")))
+
+        # --- ALL WATER IS WATER (SPEC.md 88.7.7.1) ---------------------------
+        # The strip was an invisible runway on the river: 800 m of the Seine
+        # were landable and the rest of it was a crash. Take the water face
+        # FURTHEST from the strip that is not inside it, and put the same
+        # touchdown there - it is a landing now, and it names ITS OWN water.
+        far = [(px, pz, nm) for px, pz, nm in waters() if not onstrip(px, pz)]
+        check(bool(far), "the flown world has water off the strip to test (%d "
+                         "faces)" % len(far))
+        if far:
+            wx, wz = sg(rec(port, CSA_WX)), sg(rec(port, CSA_WZ))
+            px, pz, nm = max(far, key=lambda r: abs(r[0] - wx) + abs(r[1] - wz))
+            print("      off-strip water: %r at (%d, %d), %d m from the strip"
+                  % (nm, px, pz, abs(px - wx) + abs(pz - wz)))
+            land1 = w("cs_landings")
+            splashdown((px & 0xFFFF, pz & 0xFFFF))
+            for _ in range(20):
+                m.advance(frames=20)
+                m.run()
+                if byte("cs_state") != CS_ST_AIR:
+                    break
+            check(byte("cs_state") == CS_ST_GROUND
+                  and byte("cs_onwater") == 1,
+                  "water OFF the strip is a landing too (state %d, water %d)"
+                  % (byte("cs_state"), byte("cs_onwater")))
+            check(byte("cs_msg") == CSG_SPLASH
+                  and w("cs_landings") == land1 + 1,
+                  "...it counts and it splashes (msg %d, %d -> %d)"
+                  % (byte("cs_msg"), land1, w("cs_landings")))
+
+        # ...and the edge is still an edge: dry land is a crash
+        dry = [(px, pz) for px, pz, _ in waters()]
+        ox = max(abs(p[0]) for p in dry) + 3000
+        splashdown((ox & 0xFFFF, 0))
+        for _ in range(20):
+            m.advance(frames=20)
+            m.run()
+            if byte("cs_state") != CS_ST_AIR:
+                break
+        check(byte("cs_state") == CS_ST_CRASH,
+              "...and dry land off the runway is still a crash (state %d)"
+              % byte("cs_state"))
 
         # ...and the same touchdown in the trainer is a ditching
         fly(0)

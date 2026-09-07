@@ -1786,14 +1786,19 @@ SOAK = [
         " climb; --clobber-share sends the between-gates path back to .same"
         " and it does, four frames in twelve",
         needs=("marty",), serial=True),
-    Row("skiesfleet", "soak", py("tests/skiesfleet.py"), 52.0,
-        "SPEC.md 88.7.5-88.7.7: the three aeroplanes that came after the"
+    Row("skiesfleet", "soak", py("tests/skiesfleet.py"), 58.0,
+        "SPEC.md 88.7.5-88.7.7.1: the three aeroplanes that came after the"
         " Pitts, each checked on its MECHANIC. The Magister's roll rate ramps"
         " and decays and its engine spools; the Bijave starts in the air with"
         " no engine and glides better than 12:1; the A5 starts on the water,"
         " gets off it and lands back on it, and the SAME touchdown in the"
-        " Cessna is a crash. --clobber-lag and --clobber-amphib are the two"
-        " red runs",
+        " Cessna is a crash. Since 88.7.7.1 it also lands on water FAR from"
+        " the strip - the face furthest from it in that world's own object"
+        " table, walked out of the GUEST rather than carried here as a"
+        " coordinate - and dry land off the runway is still a crash, which is"
+        " the pair that says the strip stopped being an invisible runway"
+        " without the edge going away. --clobber-lag, --clobber-amphib and"
+        " --clobber-water are the three red runs",
         needs=("marty",), serial=True),
     Row("skiesease", "soak", py("tests/skiesease.py"), 46.0,
         "SPEC.md 88.7.3: the horizon captures the last three ticks of an"

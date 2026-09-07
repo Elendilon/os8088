@@ -947,24 +947,10 @@ cs_touch:
     test word [di + CSP_FLAGS], CSPF_AMPHIB
     jz .rwy
     mov si, [cs_airport]
-    cmp word [si + CSA_WLEN], 0
-    je .rwy
-    call cs_water_xy
-    mov si, [cs_airport]
-    mov ax, [cs_along]
-    or ax, ax
-    jns .w1
-    neg ax
-.w1:
-    cmp ax, [si + CSA_WLEN]
-    jg .rwy
-    mov ax, [cs_across]
-    or ax, ax
-    jns .w2
-    neg ax
-.w2:
-    cmp ax, [si + CSA_WWID]
-    jg .rwy
+    cmp word [si + CSA_WLEN], 0     ; 0 is a place that offers no water
+    je .rwy                         ; landing at all (88.7.7)
+    call cs_inwater                 ; ALL of it, not a strip on it (88.7.7.1)
+    jnc .rwy
     mov byte [cs_onwater], 1        ; ...on the water, and the limits below
     jmp short .limits               ; are the same ones
 .rwy:
@@ -1010,9 +996,13 @@ cs_touch:
     mov byte [cs_msg], CSG_LANDED
     cmp byte [cs_onwater], 0
     je .counted
-    mov byte [cs_msg], CSG_SPLASH   ; ...and the water says which water
+    mov byte [cs_msg], CSG_SPLASH   ; ...and the water says WHICH water, off
+    mov ax, [cs_wname]              ; the object actually touched (88.7.7.1):
+    or ax, ax                       ; four worlds carry more than one and all
+    jnz .named                      ; four used to report the same name
     mov si, [cs_airport]
     mov ax, [si + CSA_WNAME]
+.named:
     mov [cs_crashwhy], ax
 .counted:
     inc word [cs_landings]
@@ -1020,6 +1010,194 @@ cs_touch:
 .crash:
     mov si, cs_n_ground
     jmp cs_crash
+
+; =============================================================================
+; cs_inwater - is the aeroplane over DRAWN water? (SPEC.md 88.7.7.1)
+;
+; out: CF=1 and [cs_wname] = the touched object's name; CF=0 and [cs_wname] 0.
+;      Clobbers every register.
+;
+; A point-in-polygon test over the location's own CSI_RIVER faces, and what
+; makes it affordable is that cs_touch FIRES ONCE, at the tick the wheels meet
+; the ground - which cs_water_xy's own comment said before this was written.
+; At most 20 water faces in any world here and every one a quad, behind a
+; Manhattan reject on the object's CSM_RAD.
+;
+; DIVISION-FREE, and in the OBJECT's coordinates rather than the world's: the
+; point is brought to the object, so every term is bounded by the model's own
+; extent (measured: local vertices +-6,000, worst product 9.1e7) and one
+; imul's DX:AX holds it with room to spare.
+; =============================================================================
+cs_inwater:
+    mov word [cs_wname], 0
+    mov si, [cs_airport]
+    mov ax, [si + CSA_NOBJ]
+    mov [cs_wnob], ax
+    or ax, ax
+    jz .no
+    mov ax, [si + CSA_OBJS]
+    mov [cs_wobj], ax
+.obj:
+    mov si, [cs_wobj]
+    mov di, [si + CSO_MODEL]
+    cmp byte [di + CSM_TYPE], CSM_FLAT
+    jne .next                       ; water is a RIBBON, and a ribbon is FLAT
+    mov ax, [cs_px+1]               ; --- the point in the object's own frame
+    sub ax, [si + CSO_X]
+    mov [cs_wpx], ax
+    call cs_wabs
+    mov cx, ax
+    mov ax, [cs_pz+1]
+    sub ax, [si + CSO_Z]
+    mov [cs_wpz], ax
+    call cs_wabs
+    add ax, cx                      ; ...Manhattan-rejected on the model's own
+    cmp ax, [di + CSM_RAD]          ; radius, which is what keeps a touchdown
+    jg .next                        ; from walking every ribbon in the world
+    mov ax, [di + CSM_VERTS]
+    mov [cs_wvt], ax
+    mov cl, [di + CSM_NF]
+    xor ch, ch
+    jcxz .next
+    mov [cs_wnf], cx
+    mov si, [di + CSM_FACES]
+.face:
+    mov [cs_wfp], si
+    cmp byte [si + 1], CSI_RIVER    ; the INK is what says water: there is no
+    jne .nf                         ; flag on the object and never was
+    call cs_wpoly
+    jc .yes
+.nf:
+    mov si, [cs_wfp]                ; db count, ink, flags, then the indices
+    mov al, [si]
+    xor ah, ah
+    add ax, 3
+    add si, ax
+    dec word [cs_wnf]
+    jnz .face
+.next:
+    add word [cs_wobj], CSO_SIZE
+    dec word [cs_wnob]
+    jnz .obj
+.no:
+    clc
+    ret
+.yes:
+    mov si, [cs_wobj]
+    mov ax, [si + CSO_NAME]
+    mov [cs_wname], ax
+    stc
+    ret
+
+; cs_wabs - AX = |AX|
+cs_wabs:
+    or ax, ax
+    jns .p
+    neg ax
+.p:
+    ret
+
+; cs_wpoly - SI -> a face record: CF=1 if (cs_wpx, cs_wpz) is inside it.
+;            The crossing count, walked with the PREVIOUS vertex kept, so an
+;            edge costs one index lookup rather than two
+cs_wpoly:
+    mov byte [cs_wodd], 0
+    mov cl, [si]
+    xor ch, ch
+    mov [cs_wnv], cx
+    add si, 3
+    mov [cs_wface], si
+    mov bx, cx                      ; ...starting from the LAST vertex, which
+    dec bx                          ; is what closes the polygon
+    call cs_wvert
+    call cs_wkeep
+    xor bx, bx
+.e:
+    mov [cs_wi], bx
+    call cs_wvert
+    call cs_wedge
+    call cs_wkeep                   ; ...and this vertex becomes the last one
+    mov bx, [cs_wi]
+    inc bx
+    cmp bx, [cs_wnv]
+    jb .e
+    shr byte [cs_wodd], 1           ; CF = an ODD number of crossings
+    ret
+
+; cs_wkeep - the vertex just read becomes the edge's first end
+cs_wkeep:
+    mov ax, [cs_wvx]
+    mov [cs_wax], ax
+    mov ax, [cs_wvz]
+    mov [cs_waz], ax
+    ret
+
+; cs_wvert - BX = a position in the face's index list; out cs_wvx/cs_wvz
+cs_wvert:
+    push bx
+    mov si, [cs_wface]
+    add si, bx
+    mov bl, [si]
+    xor bh, bh
+    shl bx, 1
+    shl bx, 1                       ; four bytes a vertex: x then z
+    add bx, [cs_wvt]
+    mov si, bx
+    mov ax, [si]
+    mov [cs_wvx], ax
+    mov ax, [si + 2]
+    mov [cs_wvz], ax
+    pop bx
+    ret
+
+; cs_wedge - one edge, (cs_wax, cs_waz) to (cs_wvx, cs_wvz), against the
+;            point: toggle [cs_wodd] when the ray crosses it
+cs_wedge:
+    xor bx, bx                      ; BL = (az > pz), BH = (bz > pz)
+    mov ax, [cs_waz]
+    cmp ax, [cs_wpz]
+    jle .a0
+    mov bl, 1
+.a0:
+    mov ax, [cs_wvz]
+    cmp ax, [cs_wpz]
+    jle .b0
+    mov bh, 1
+.b0:
+    cmp bl, bh
+    je .out                         ; the edge does not straddle the row
+    mov ax, [cs_wvx]                ; t = dx (pz - az) - dz (px - ax), and the
+    sub ax, [cs_wax]                ; DIVISION the textbook form does is a
+    mov bx, [cs_wpz]                ; comparison against dz's sign instead
+    sub bx, [cs_waz]
+    imul bx
+    mov cx, ax
+    mov si, dx                      ; SI:CX = dx (pz - az)
+    mov ax, [cs_wvz]
+    sub ax, [cs_waz]
+    mov [cs_wdz], ax
+    mov bx, [cs_wpx]
+    sub bx, [cs_wax]
+    imul bx
+    sub cx, ax
+    sbb si, dx                      ; SI:CX = t
+    or si, si
+    js .neg
+    jnz .pos
+    or cx, cx
+    jz .out                         ; t = 0: ON the edge, and no toggle either
+.pos:                               ; way is what makes it deterministic
+    cmp word [cs_wdz], 0
+    jg .tog
+    ret
+.neg:
+    cmp word [cs_wdz], 0
+    jl .tog
+.out:
+    ret
+.tog:
+    xor byte [cs_wodd], 1
+    ret
 
 ; cs_runway_xy - the aeroplane in the runway's coordinates: along its heading
 ; and across it, whole metres
