@@ -49,12 +49,26 @@ of the arena for as long as it was.
 | **PURGEABLE** | never moved and never a barrier: the compactor **drops** it under pressure (§66.10) |
 | **nothing to declare** | the package makes no heap claim at all (its region is a claim, and a region's base is its CS) |
 
-**Three things can never move, and no API will change that.** A package
+**Four things could never move, and three of them now do.** A package
 **region**, a **driver image** and an **on-demand kernel module** are each
 addressed by a CS, so relocating one invalidates every far pointer, every
-`MB_SEG`, every claim owner word and every saved CS on every stack (§66.6). A
-claim carrying **`MC_DMA`** is the fourth: the 64KB page rule is a property of
-the address, and the chip may be mid-transfer.
+`MB_SEG`, every claim owner word and every saved CS on every stack (§66.6) —
+which is why the answer for the first two is not an API but a **kernel table
+walk**: `mem_region_reloc` rewrites every kernel word that names the block,
+including (§66.6.3.1) the interrupt vector table, and a worker standing on the
+old segment is re-entered on the new one (§66.6.2). The fourth,
+**`MC_DMA`**, stopped being a blanket pin at §66.4.2 — the page rule says where
+a block may *land*, and `mem_cp_dest` honours it — and is now refused only
+while a chip could be armed on one, which `[drv_wcnt]` answers exactly
+(§66.6.4).
+
+**The on-demand kernel module is the one that stays pinned**, and by decision
+rather than by mechanism: every module in the tree is a *temporary action* —
+the Control Panel, Format, Clone, Hibernate, a Cut/Copy/Paste, a file dialog —
+so one can fragment the heap only for as long as the user is inside it, and
+`mem_claim_1`'s `.hi` arm puts it back at the ceiling when it is dropped and
+re-taken. **A persistent module would reopen the question**, and only for that
+module.
 
 **Purgeable caches are refused by `mem_can_move` too**, and it costs nothing:
 a cache that is in the way is dissolved by `mem_cp_drop` when a claim is
@@ -137,7 +151,7 @@ and does not ship.)
 | claim | verdict | note |
 |---|---|---|
 | **SB staging pool** (`SBL_POOLKB` 20KB, stepping down) | **MOVABLE** | §66.5.5. `sbl_reloc`, one word, because a grant is an *offset* and the staging copy is the v3 boundary; every copy into or out of it goes in `SBL_DCHUNK` chunks under `cli`, re-reading `[sbl_poolseg]` per chunk |
-| **SB DMA double-buffer** | **PINNED (forever)** | `MC_DMA`, claimed top-down |
+| **SB DMA double-buffer** | **MOVABLE, while the chip is idle** | §66.6.4. `MC_DMA` and claimed top-down, and it was PINNED (forever) until the `[drv_wcnt]` gate: a stream lives only while its refill or drain task does (§34.5) and the 8237 is armed only while a stream is open, so zero means nothing is armed and `mem_can_move` refuses any `MC_DMA` claim while it is non-zero. `sbl_ring_reloc` is three words and they were already written — it stores the base and falls through into `sbl_dma_derive`, the factored tail of `sbl_dma_map`. **It is inert on its own**: the ring is claimed straight after the image and sits immediately below it, so it moves when the image does and not before. `tests/sndmove.py` is the gate |
 | **HDD** install buffer (`hd_ibufsz` ladder) | **PINNED (rule)** | §66.5.10. An `OSAPI_FILE_READ`/`WRITE` target at all four uses, claimed for one install and freed at its end |
 | **HDD** per-partition listing (`HDD_LISTKB` 6KB) | **MOVABLE** | §66.5.10.2. Donated to the kernel by `osapi_vol_add`, so three words name it: `mem_reloc_call` calls `dsk_dseg_reloc` for **every** move first (the kernel's `DV_SEG` and `[dsk_dseg]`), then the owner's `hd_lst_reloc`, one word. Stays claimed LOW (§50.3.2.1): sent high it cost 9KB |
 | **HDD** second image (`HDDTOOL.DRV`) | **PINNED (forever)** | base is CS (§52.11.7). Claimed top-down |
@@ -184,8 +198,8 @@ one. What actually decides a region is the *worker*.
 | **ftpd** | 28.2KB | **MOVABLE + RESTARTABLE** | `fd_step` is a state machine in statics and the restart lands at the loop top, above it, so a transfer resumes at the step it had reached |
 | **Audio** | 30.2KB | **MOVABLE + RESTARTABLE** | hires only when playback starts; until then it is movable on `I_TASK` alone |
 | **Browser** | 19.8KB | **MOVABLE + RESTARTABLE** | `br_nstep` banks a generation and every store is guarded on it, so a fetch a restart abandons writes nothing — `br_abort`'s own design |
-| **kernel module images** | 2–8KB | **PINNED, and measured harmless** | `CTRL.DRV`, `FORMAT.DRV`, `CLONE.DRV`, `HIBER.DRV` (+ `FILECP`/`FDLG` on kern_small). Claimed top-down, and `mem_claim_1`'s `.hi` arm puts one back at the ceiling when it is dropped and re-taken — so it strands nothing, and the descending pass closes any hole that opens beneath it. Measured: the Control Panel open costs **8.0KB, exactly its own size**, not a trapped run. The one exception is a module sitting under an attached `SOUND.DRV`, the one image the IVT scan still refuses |
-| **driver images** | 48KB | **MOVABLE** | §66.6.3. SOUND 6KB, HDD 8KB, ETHER 18KB, RAMDISK 9KB, NET 6KB, VMMOUSE 1KB (`drv_memk`). Every one but the sound driver's is free the moment it loads; the sound driver's is refused by the IVT scan while it is attached and free the moment it detaches |
+| **kernel module images** | 2–8KB | **PINNED, and measured harmless** | `CTRL.DRV`, `FORMAT.DRV`, `CLONE.DRV`, `HIBER.DRV` (+ `FILECP`/`FDLG` on kern_small). Claimed top-down, and `mem_claim_1`'s `.hi` arm puts one back at the ceiling when it is dropped and re-taken — so it strands nothing, and the descending pass closes any hole that opens beneath it. Measured: the Control Panel open costs **8.0KB, exactly its own size**, not a trapped run. The one exception used to be a module sitting under an attached `SOUND.DRV`; since §66.6.3.1 that image moves too |
+| **driver images** | 48KB | **MOVABLE** | §66.6.3. SOUND 6KB, HDD 8KB, ETHER 18KB, RAMDISK 9KB, NET 6KB, VMMOUSE 1KB (`drv_memk`). Every one of them, the sound driver's included: §66.6.3.1 patches the **sixteen hardware IRQ vectors** instead of refusing on the table, and the copy runs at IF=0 so no ISR can be taken between it and the rewrite. Sixteen and not 256 is load-bearing — unused vectors are SCRATCH, and a full sweep rewrote an XT-IDE option ROM's word and left the machine with no hard disk. The other side of it is a contract: a driver may hook its own IRQ vector and nothing else. `tests/drvmove.py` and `tests/sndmove.py` are the gates |
 | **every C package** | — | **MOVABLE** | `crt0.asm` declares it at entry; `cc_regreloc` is `cc_ovbind` where there is an overlay, because its `.res` loop writes the live `CS` into the return vectors and inside a relocation proc that CS is the new base |
 | **CWORD**, **RUNCPM** | 60.8 / 56.6KB | **+ RESTARTABLE** | `os88_task_restartable(1)` after the spawn takes; both workers are `for(;;)` polls over statics |
 | ArtfulType, Fractal, Frotz, ModPlug, Note Pad, Tracker | | **MOVABLE, NOT restartable** | the six that declare `OSAPI_MEM_PARKSAFE`. That lets the kernel stop the worker while it is blocked in `gfx_lock` — anywhere in its loop, including halfway through a frame or a mixed buffer — so the honest declaration for them is a *window* around `OSAPI_TASK_ALIVE`, not a blanket. Not taken yet |
@@ -209,12 +223,16 @@ the one app that **must not** (§66.5.9.1): `zx_lock` pushes the program
 counter's segment across `OSAPI_GFX_LOCK` by design, and its claims move at
 the ordinary `ALIVE` park regardless.
 
-**1a. A driver IMAGE moves now** (§66.6.3) and is refused only by three facts:
-an interrupt vector carrying its segment (`SOUND.DRV` alone, and it hooks
-five), a frame standing in it, or a `TF_SERVICE` task running. No driver
-declares anything and none can forget to — the kernel asks. `drv_load`
-declares the claim with `mem_region_reloc`, whose table walk is every kernel
-word that names an image.
+**1a. A driver IMAGE moves now** (§66.6.3) and is refused only by two facts: a
+frame standing in it, or `[drv_wcnt]` non-zero — any driver worker alive at
+all, because a service task runs *in* the image and its stack carries the
+image's CS whether it is parked or not. An interrupt vector used to be a third
+and is not any more: §66.6.3.1 rewrites the table rather than refusing on it,
+which is what lets `SOUND.DRV` — the only driver in the tree that hooks one,
+and it hooks five — move at all. No driver declares anything and none can
+forget to: the kernel asks. `drv_load` declares the claim with
+`mem_region_reloc`, whose table walk is every kernel word that names an
+image.
 
 **2. A driver's claims move only while every `TF_SERVICE` task is parked**,
 all-or-nothing, because `TF_SERVICE` is the only handle the kernel has on "a

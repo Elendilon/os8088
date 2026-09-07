@@ -77779,6 +77779,126 @@ free the moment it is loaded, and the sound driver's becomes free the moment it
 detaches — which is the case §66.6's own motivation is about, a driver mounted
 mid-session standing in the middle of the arena for the rest of it.
 
+##### 66.6.3.1 …and the vectors, which is what lets SOUND.DRV move
+
+A driver image is the only claim on the heap that a **fourth** address space
+names: the interrupt vector table at segment 0. A vector into one names it by
+**segment**, and its offset does not move when the image is copied — so the
+patch is the same one every other table in `mem_region_reloc` gets, and
+`mem_can_move` stops refusing on the IVT and rewrites it instead.
+
+**Why the kernel does it and not the driver.** `SOUND.DRV` is the only driver
+in the tree that hooks a vector, and it hooks **five** — `sbl_isr` on its own
+IRQ, plus up to four candidates it installs a stub in while it is *finding*
+that IRQ. Any scheme resting on a driver naming them would have to be right
+about all five, once, for ever, in a driver nobody is editing. The kernel is
+right about all five without being told, and about a driver written after this
+without being changed.
+
+**Sixteen vectors, and NOT 256 — this is the load-bearing sentence.** The
+first build walked the whole table on the argument above, and it **corrupted a
+machine**. The IVT is not a table of pointers: its unused slots are scratch,
+and third parties use them as such. On `os8088_xt_hdd` the XT-IDE option ROM
+keeps two words at int C1h and int C3h; one of them read `0x8000`, a package
+claim moved off `0x8000`, the sweep rewrote the ROM's word to `0x6000`, and the
+hard disk then probed as **"No hardware found"** — a machine with no C: drive,
+produced by a heap compaction, silently. `tests/hdmove.py` is what caught it.
+
+So `mem_iv_patch` is cut to the slots a driver can legitimately own: the
+hardware IRQ vectors, int 08h–0Fh and int 70h–77h. That is a fact rather than
+a guess — a driver hooks its own IRQ line and there is nowhere else for one to
+go — and it is **§66.3 rule 5's argument one address space along**: a sweep
+that *patches* on a coincidence corrupts, where one that merely *refuses* is
+only conservative. The deleted `mem_ivt_names` had the identical false positive
+and was harmless, because all it ever did was pin.
+
+**That makes it a CONTRACT on drivers, and it is stated here because it is not
+a mechanism**: a driver image may hook its own IRQ vector and nothing else. A
+driver that hooked, say, int 2Fh would have its image moved out from under that
+vector, and the next call through it would enter freed memory. Every driver in
+the tree obeys it — only `SOUND.DRV` hooks anything, and `sbl_f_irqdisc` is
+literally `IRQ n → int 8+n`.
+
+**A 240-slot refusal for the rest was considered and NOT taken.** It would be
+~40 resident bytes and, worse, it would pin an image whenever a *scratch* word
+in an unused vector happened to equal its base — which is the same coincidence
+that made the sweep dangerous, pointing the other way, and would turn
+`tests/sndmove.py` into a row that goes red on the arena rather than on the
+kernel. A rule a driver author can read beats a guard that fires on a
+coincidence.
+
+**A driver image moves at IF=0, and only a driver image.** The vectors name the
+old segment until the patch runs, so an ISR taken between the copy and the
+rewrite enters the *old* copy — whose bytes are still intact but whose bss is
+about to be left behind, so any write it makes there is lost. Six bytes in
+`mem_cp_run` (`pushf` / `cmp MC_OWN, MEM_K_DRV` / `cli`) close the whole
+window, for every vector rather than for one masked line.
+
+**What it costs, stated as the bound and not the typical case**: one image
+copy's worth of latency — ~17 ms for the sound driver's 6KB, ~50 ms (three
+ticks) for the largest image in the tree, `ETHER.DRV`'s 18KB — charged once,
+and only when a driver image actually moves. Three lost ticks cost the BIOS
+clock and at most one mouse **packet**, which `mou_isr` resyncs on the framing
+bit rather than corrupting. It cannot land inside a floppy transfer (`dsk_xfer`
+holds `[sch_lock]` and claims nothing) nor inside `sbl_f_irqdisc`, which runs
+on the UI task with a frame in the image that `mem_drv_inside` already refuses
+on. Every other block takes the same path with the flag unchanged, and no
+package code runs inside it — a driver image's holder is `mem_region_reloc`,
+not a dispatcher.
+
+**`[drv_wcnt]` still gates it**, so the image moves only with no driver worker
+alive — which for the sound driver means no stream open and the DSP idle.
+
+**Measured**, `tests/sndmove.py` on a 5150 with a Sound Blaster: the driver
+re-mounted under a RAM disk that is then dropped sits at `9900` with its ring
+at `9700` and a 21KB hole above; one forcing ask moves the pair to `9E40` /
+`9C40` and merges 8.5KB and 21KB into one 29.5KB run. Vector `0Fh` (IRQ 7)
+named `9900` before and names `9E40` after. **The A/B is the reason the row
+checks the vectors at all**: with this loop taken out, every other assertion
+still passes *and the machine still draws* — the stale vector is silent until
+the card next raises its IRQ, and by then the compactor has re-let the bytes
+the CPU would jump into.
+
+#### 66.6.4 …and the one claim a CHIP points into
+
+§66.4.2 is right that `MC_DMA` is about where a claim may **land** and not
+about whether it may move — but one of the four such claims in the tree has a
+bus master armed on it. The Sound Blaster's 8KB ring is programmed into the
+8237's page and offset registers, and no relocation proc can rewrite those
+while a transfer is in flight.
+
+**`[drv_wcnt]` is the kernel's handle on that, and it is exact in the direction
+that matters.** A stream lives only while its refill or drain task does
+(§34.5), and the chip is armed only while a stream is open — so zero means
+nothing is armed. `mem_can_move` refuses any `MC_DMA` claim while it is
+non-zero. **Parked is not enough**, for §66.6.3's reason one claim along: a
+parked refill task means the DSP is *playing*, not that it has stopped. It
+costs the other three `MC_DMA` claims a refusal only while some driver has a
+worker at all, which is rare and brief.
+
+**The driver's side is three words and they were already written.**
+`sbl_ring_reloc` stores the new base and falls through into `sbl_dma_derive` —
+the tail of `sbl_dma_map`, factored rather than copied — which recomputes
+`[sbl_dmaoff]` and `[sbl_page]`, the two the 8237 is programmed from and both a
+function of the base. Nothing is re-armed, and that is the safety argument
+rather than an omission: the proc cannot be reached with a transfer in flight,
+and the next `sbl_go_on` programs the chip from these words as it always did.
+
+**And the ring is inert on its own**, which is worth knowing before reading a
+figure off it: `drv_load` claims the image and `sbl_dma_map` claims the ring
+straight after, so the ring sits **immediately below** the image and packs
+against it with nowhere to go. Measured on a machine with a card: image
+`9E80`, ring `9C80..9E80`, adjacent. It moves when the image does — §66.6.3.1
+— and not before.
+
+**And the driver's half is silent if it is wrong**, which is why
+`tests/sndmove.py` reads `[sbl_seg]`, `[sbl_dmaoff]` and `[sbl_page]` out of
+the image and checks them against the base the kernel granted. A/B'd with
+`sbl_ring_reloc` storing the *old* base: the ring moves, the image moves, the
+vectors follow, the desktop draws, and the only thing that goes red is that
+one check — the next `Play` would have programmed the 8237 with a page and
+offset belonging to somebody else's claim.
+
 ### 66.7 What is deliberately not done
 
 **No compaction on a free, on idle, or on a timer.** The heap is only worth

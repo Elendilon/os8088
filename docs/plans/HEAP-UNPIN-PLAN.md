@@ -2055,6 +2055,13 @@ vector points into the image. `mem_ivt_names` **asks the 8086**: 256 vectors,
 one compare each on the segment half, ~512 compares once per candidate in a
 pass that is about to copy kilobytes.
 
+> **CORRECTED IN PLACE at §10.13.** That scan was a REFUSAL - a driver with a
+> vector into it stayed pinned - and it is a PATCH now, the same loop writing
+> the new segment instead of setting CF. `mem_ivt_names` is deleted and the
+> loop lives in `mem_region_reloc` beside every other table it fixes up
+> (SPEC.md 66.6.3.1). Everything below about *why the kernel asks rather than
+> the driver declaring* is unchanged and is the reason the patch is cheap.
+
 That is not a shortcut, it is the safer answer. `SOUND.DRV` hooks **five**
 vectors - `sbl_isr` on its IRQ, plus up to four candidates it installs a stub
 in *while it is finding* that IRQ - so a driver-side declaration would have had
@@ -2098,6 +2105,123 @@ the machine's own state - the DISK class has one published pair and the hard
 disk's detach cleared it - so the assertion would have been asserting a bug.
 What a move can get wrong is a word left holding the OLD segment, and that is
 what it reads.
+
+### 10.13 …and SOUND.DRV, the last one
+
+**BUILT. SPEC.md 66.6.3.1 and 66.6.4 are the contracts.** §10.12 shipped a
+driver-image move that every driver in the tree could take **except the one the
+study kept naming**, because `SOUND.DRV` is the only driver here that hooks an
+interrupt vector - and `mem_ivt_names` refused on exactly that. Two claims were
+left: the 6KB image, and the 8KB DMA ring sitting immediately underneath it.
+
+**The refusal became a patch, and it is one loop.** A vector into a driver
+image names it by SEGMENT and its offset does not move, so it is the same
+fix-up every other table in `mem_region_reloc` already gets. The scan was
+already written and already correct about all five of the vectors `SOUND.DRV`
+hooks; turning it round cost `cmp`/`jne`/`mov` where there had been
+`cmp`/`je`/`stc`, and **deleted** `mem_ivt_names` and its two exits.
+
+**And then it corrupted a machine, which is the finding worth more than the
+feature.** The turned-round loop kept the refusal's 256-entry sweep, on the
+argument that asking the 8086 is right about a driver nobody has written yet.
+**The IVT is not a table of pointers.** Its unused slots are scratch and third
+parties use them as such: `os8088_xt_hdd`'s XT-IDE option ROM keeps two words
+at int C1h and int C3h, one of them read `0x8000`, a package claim moved off
+`0x8000`, the sweep rewrote the ROM's word to `0x6000` - and the hard disk then
+probed as **"No hardware found"**. A machine with no C: drive, out of a heap
+compaction, with nothing in the log. `tests/hdmove.py` caught it, which is the
+argument for running the whole family after a `mem_can_move` change and not
+only the row you wrote.
+
+`mem_iv_patch` is cut to **sixteen** slots - int 08h..0Fh and int 70h..77h, the
+hardware IRQ vectors - which is what a driver can legitimately own and is a
+fact rather than a guess. It is SPEC.md 66.3 rule 5 one address space along:
+**a sweep that PATCHES on a coincidence corrupts, where one that merely REFUSES
+is only conservative**, and `mem_ivt_names` had the identical false positive
+for a release without anyone noticing, because all it ever did was pin.
+
+**What the turn round DID need is six bytes of `mem_cp_run`.** Between the
+`rep movsw` and the rewrite, every vector still names the old copy - whose
+bytes are intact but whose bss is about to be left behind, so a write an ISR
+makes there is lost. `pushf` / `cmp MC_OWN, MEM_K_DRV` / `cli` closes the whole
+window for every vector at once, where masking one line would have to know
+which. It costs ~17 ms - one tick - charged once, and only when a driver image
+actually moves.
+
+**The ring needed a rule and three words.** §66.4.2 had already established
+that `MC_DMA` is about where a claim may *land*; the ring is the one claim in
+the tree where a **chip** also points into it, and the 8237 cannot be told
+about a move mid-transfer. `[drv_wcnt]` answers it exactly and was already
+exact - a stream lives only while its refill or drain task does (SPEC.md 34.5)
+and the chip is armed only while a stream is open - so `mem_can_move` refuses
+any `MC_DMA` claim while it is non-zero. **Parked is not enough**: a parked
+refill task means the DSP is *playing*, not that it has stopped. The driver's
+side is `sbl_ring_reloc`, which stores the new base and falls through into
+`sbl_dma_derive` - the tail of `sbl_dma_map`, **factored rather than copied**.
+
+**The gate is `tests/sndmove.py`, and building its ARENA was the hard half.**
+Loaded at boot the image sits at the ceiling with the ring packed under it,
+which is where it belongs - so a correct compaction moves neither. The row
+therefore performs §2.0's own defect on purpose: drop the sound driver, mount
+the RAM disk into the ceiling, bring sound back *underneath* it, drop the RAM
+disk. Two attempts before that failed for reasons worth keeping:
+
+  - **a spacer package walls it off.** Opening Paint the way `tests/regmove.py`
+    does put a 33KB pinned region in the largest ceiling run - which is the one
+    *directly under* the ring - so the pair had free space above and a wall
+    below, and packing them up merged nothing. Measured, with a correct kernel:
+    moved nothing, twice.
+  - **the filler's own FILL seals the hole.** It is first fit ascending, so the
+    hole the row had just opened above the image is the lowest run big enough:
+    13KB of undeclared, therefore pinned, claim landing against the very block
+    the ask needs moved. `tests/filler` grew an **'S' key** - ask without
+    filling - for a row that has built its own arena.
+
+Once the arena is right the pass is unambiguous:
+
+    sound driver at 9e80 (at the CEILING, where it boots)
+    re-mounted under the RAM disk, which is now gone: sound at 9900
+      1 the ring is there        9700 8KB dma-head 512 para
+      2 declared movable         MC_RLOC=11c3
+      3 the chip is idle         drv_wcnt=0
+      4 the ring MOVED           9700 -> 9c40
+      4b ...and so did the IMAGE 9900 -> 9e40
+      5 the 8237's words followed sbl_seg=9c40 dmaoff=c400 page=09
+      5b the vectors followed    ['0f'] -> ['0f']
+
+...merging 8.5KB and 21KB into one 29.5KB run.
+
+**Two A/Bs, and both were needed to know the row was worth having.** With
+`sbl_ring_reloc` storing the *old* base, 1 to 4b stay green and only 5 goes
+red. With the IVT loop taken out, 1 to 5 stay green, **the desktop still
+draws**, and only 5b goes red - which is the whole reason that check exists: a
+stale vector is silent until the card next raises its IRQ, and by then the
+compactor has re-let the bytes the CPU would jump into.
+
+**One thing the row does not cover, said plainly**: the refusal arm - that the
+ring does NOT move while a stream is playing - wants a playing stream, which is
+Tracker's harness and not this one's. It also had to *earn* its vector: the
+driver hooks the IRQ at the first stream open and not at attach, so a machine
+that has never made a sound has none, and 5b would have been vacuous on it.
+`SBTEST.O88` rides on the disk to open and close one stream first.
+
+### 10.14 On-demand kernel MODULES are let off the hook, conditionally
+
+The one population left pinned, and it is a **decision** rather than a
+mechanism. `CTRL.DRV`, `FORMAT.DRV`, `CLONE.DRV`, `HIBER.DRV` and, on
+kern_small, `FILECP.DRV` and `FDLG.DRV` are each loaded for a *temporary
+action* - the user opens the Control Panel, formats a disk, clones one,
+hibernates, copies a file, picks a file - completes it and leaves. So a module
+can fragment the arena only for as long as the user is inside it, and
+`mem_claim_1`'s `.hi` arm puts one back at the ceiling when it is dropped and
+re-taken. Measured: a Control Panel open costs **8.0KB, exactly its own size**,
+not a trapped run.
+
+**The condition is written down so that it is not re-derived from scratch: a
+PERSISTENT module would reopen this, and only for that module.** Nothing in
+the mechanism refuses one - a module image is claimed with a kernel tag and
+`mem_region_reloc` already covers `MODC_*` - so what would be needed is the
+fix-up for whatever the module publishes, not a new door.
 
 ## 10.1 How the rest would be verified
 

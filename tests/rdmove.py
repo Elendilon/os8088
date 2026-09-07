@@ -192,8 +192,15 @@ def main():
         mo.click(cp.x + 8, cp.y + 9)
         os88marty.settle(m)
 
+        # THE DRIVER'S SEGMENT IS RE-READ EVERY TIME, never the one banked
+        # above, and that is not tidiness: since SPEC.md 66.6.3 a driver IMAGE
+        # moves too, and this row's own compaction moves it. Reading
+        # [rd_arena] at the old base returned 0x4712 - a plausible segment that
+        # names no claim - so checks 1, 2 and 3 all failed against a kernel
+        # that had done everything right (docs/WRITING-TESTS.md 13, #29's
+        # shape). `drv_tab` is the kernel's own answer and the move updates it.
         def arena():
-            return u16(m.read(seg * 16 + R["rd_arena"], 2))
+            return u16(m.read(rd_seg() * 16 + R["rd_arena"], 2))
 
         base = arena()
         mine = [c for c in claims(m, S) if c[0] == base]
@@ -298,7 +305,8 @@ def main():
         # ASK THE DRIVER which volume it got rather than guessing a letter:
         # the kernel assigns the index (SPEC.md 26.1) and a machine whose B:
         # was retired by 18.97's probe numbers them differently.
-        vol = m.read(seg * 16 + R["rd_vol"], 1)[0]
+        vol = m.read(rd_seg() * 16 + R["rd_vol"], 1)[0]   # ...and here, for
+                                                         # arena()'s reason
         letter = chr(ord("A") + vol) if vol != 0xFF else None
         n3 = 3
         if letter is None:

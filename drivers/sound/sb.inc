@@ -2493,6 +2493,55 @@ sbl_dma_map:
                                 ; have it.
     jc .fail
     mov [sbl_seg], dx
+    call sbl_dma_derive         ; the two words the base decides
+    mov ax, sbl_ring_reloc      ; ...AND THE RING MAY MOVE (SPEC.md 66.6.4).
+    call OSAPI_MEM_MOVABLE      ; DX is still the claim. The kernel refuses an
+                                ; MC_DMA claim while [drv_wcnt] is non-zero,
+                                ; which is exactly while a stream is open and
+                                ; the 8237 armed - so what is declared here can
+                                ; only ever be acted on with the chip idle, and
+                                ; then the proc below is the whole fix-up
+    clc                         ; the pool is NOT claimed here: sbl_pool_get
+                                ; takes it when an app first wants a grant
+    jmp short .out
+.fail:
+    mov word [sbl_seg], 0
+    stc
+.out:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; sbl_ring_reloc - the DMA ring moved. BX = the base it WAS at, DX = the new.
+;
+; A driver's relocation proc is a near proc with a near `ret`, dispatched
+; through the driver's own three-byte dispatcher exactly like a package's
+; (SPEC.md 66.2) - the ring's owner is this segment, so mem_reloc_call takes
+; the PKG_DISP arm and not the kernel's shim.
+;
+; THREE WORDS, AND THEY ARE THE THREE sbl_dma_map ALREADY DERIVES, so this is
+; that derivation and not a second copy of it: [sbl_seg] is the base, and the
+; other two are what the 8237 is programmed from and are a FUNCTION of it - the
+; offset within the 64KB page, and which page that is.
+;
+; NOTHING IS RE-ARMED HERE, and that is the safety argument rather than an
+; omission. The kernel will not move an MC_DMA claim while [drv_wcnt] is
+; non-zero (SPEC.md 66.6.4), a stream lives only while its refill or drain task
+; does (34.5), and the 8237 is armed only while a stream is open - so this
+; cannot be reached with a transfer in flight. The next sbl_go_on programs the
+; chip from these words, as it always did.
+; -----------------------------------------------------------------------------
+sbl_ring_reloc:
+    mov [sbl_seg], dx
+    ; ...and fall through into the derivation it shares with the claim
+sbl_dma_derive:
+    push ax
+    push bx
+    push dx
+    mov dx, [sbl_seg]
     mov ax, dx
     and ax, 0x0FFF
     mov bx, 4
@@ -2508,15 +2557,7 @@ sbl_dma_map:
     dec bx
     jnz .shr
     mov [sbl_page], al
-    clc                         ; the pool is NOT claimed here: sbl_pool_get
-                                ; takes it when an app first wants a grant
-    jmp short .out
-.fail:
-    mov word [sbl_seg], 0
-    stc
-.out:
     pop dx
-    pop cx
     pop bx
     pop ax
     ret

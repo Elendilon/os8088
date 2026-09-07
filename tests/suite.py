@@ -222,6 +222,20 @@ FAST = [
         "and `make` says 'up to date'. apps/os88ui.inc was missing from NINE "
         "shipped packages and apps/os88type.inc from three; it was found by an "
         "A/B that measured zero because the package never reassembled"),
+    Row("sndmove", "soak", py("tests/sndmove.py"), 150.0,
+        "SPEC.md 66.6.3.1/66.6.4: the LAST pinned claims. SOUND.DRV is the "
+        "only driver that hooks an interrupt vector - five of them - so its "
+        "image was the one thing mem_can_move still refused outright; the "
+        "kernel patches the IVT now and moves the image at IF=0. Its 8KB DMA "
+        "ring sits immediately below it and could never move while it was "
+        "pinned, which is why the two are one row. Six assertions, and THREE "
+        "of them are A/B'd: with sbl_ring_reloc storing the old base 5 goes "
+        "red alone, with the IVT loop out 5b goes red alone AND THE MACHINE "
+        "STILL DRAWS - which is the whole reason that check exists. It wants "
+        "a Sound Blaster: os8088_5150_sb_gla, and the driver is already up at "
+        "the first desktop frame there - the first draft went to the Control "
+        "Panel and clicked row 0, which UNLOADED it",
+        wants=("build/sndmove360.img",)),
     Row("drvmove", "soak", py("tests/drvmove.py"), 170.0,
         "SPEC.md 66.6.3: a DRIVER IMAGE moves. It drives the scenario the "
         "whole study exists for - mount the hard disk, mount the RAM disk "

@@ -1339,6 +1339,27 @@ mem_can_move:
 .notslot:
     cmp bh, 0xFF
     je .ok                      ; a kernel tag: its proc is the kernel's own
+%ifdef OS88_DRIVERS
+    ; A CHIP MAY BE POINTING AT IT (SPEC.md 66.6.4). MC_DMA marks a claim the
+    ; 64KB page rule placed, and §66.4.2 is right that the rule is about where
+    ; it may LAND and not about whether it may move - but one of the four such
+    ; claims in the tree has a bus master armed on it, the Sound Blaster's
+    ; ring, and the 8237 holds an address into it that no relocation proc can
+    ; rewrite while it is playing.
+    ;
+    ; [drv_wcnt] is the kernel's handle on that and it is exact in the
+    ; direction that matters: a stream is open only while its refill or drain
+    ; task lives (SPEC.md 34.5), so zero means no stream, and no stream means
+    ; nothing is armed. It costs the other three MC_DMA claims a refusal only
+    ; while some driver has a worker at all, which is rare and always brief.
+    ; PARKED IS NOT ENOUGH, for §66.6.3's reason one claim along: a parked
+    ; refill task means the DSP is playing, not that it has stopped.
+    cmp word [ss:si+MC_DMA], 0
+    je .nodma
+    cmp byte [drv_wcnt], 0
+    jne .pin
+.nodma:
+%endif
     call mem_busy_seg           ; ...otherwise a package's or a driver's own
     jc .pin                     ; segment, and somebody may be RUNNING in it
     jmp short .ok
@@ -1350,10 +1371,22 @@ mem_can_move:
     ; asking, and each of these three ASKS rather than trusting a driver to
     ; have remembered:
     mov bx, [ss:si+MC_SEG]
-    call mem_ivt_names          ; 1. an interrupt vector points into it. NO
-    jc .pin                     ;    [mem_wpin]: a park cannot fix a vector
-    call mem_busy_seg           ; 2. a frame is standing in it (mem_drv_inside)
-    jc .pin                     ; 3. ...or a service task of its own is running
+    call mem_drv_inside         ; 1. a frame is standing in it right now
+    jc .pin
+    cmp byte [drv_wcnt], 0      ; 2. ...or ANY driver worker exists at all -
+    jne .pin                    ;    and PARKED IS NOT ENOUGH HERE. A driver's
+                                ;    service task runs IN the image, so its
+                                ;    stack carries the image's CS as return
+                                ;    addresses whether it is parked or not;
+                                ;    inst_svc_parked answers the question a
+                                ;    driver's DATA claim asks, not the one its
+                                ;    IMAGE asks. [drv_wcnt] is exactly right and
+                                ;    already exact - "zero means no task's CS
+                                ;    points into the image" is drv_unload's own
+                                ;    reason for waiting on it before it frees
+                                ;    one (SPEC.md 51.7). No [mem_wpin]: a park
+                                ;    does not lower this count, only an exit
+                                ;    does
 %endif
 .ok:
     pop di
@@ -1605,56 +1638,6 @@ mem_busy_seg:
     ret
 .free:
     clc
-    ret
-
-; -----------------------------------------------------------------------------
-; mem_ivt_names - does any interrupt vector point INTO the image at BX?
-; in:  BX = a segment
-; out: CF = 1 one does, CF = 0 none does
-; clobbers: nothing else (flags)
-;
-; SPEC.md 66.6.3, and it is the reason a driver image needs no declaration and
-; no new ABI verb. `SOUND.DRV` is the only driver in the tree that hooks a
-; vector, and it hooks MORE than one - `sbl_isr` on its own IRQ, plus up to
-; four CANDIDATE vectors it installs a stub in during IRQ detection - so any
-; scheme resting on a driver naming them would have to be right about all five.
-;
-; This asks the 8086 instead. 256 vectors, one compare each on the SEGMENT
-; half: ~512 compares, a few thousand cycles, once per candidate image in a
-; pass that is about to copy kilobytes. It cannot be forgotten by a driver that
-; does not exist yet, it needs no flag day, and an old driver written before
-; any of this is covered by it exactly as well as a new one - which is what
-; makes it a FACT rather than a declaration (SPEC.md 47).
-;
-; It reads the segment halves only. A vector whose OFFSET points into the image
-; but whose segment does not is not a reference to this image at all.
-; -----------------------------------------------------------------------------
-mem_ivt_names:
-    push ax
-    push cx
-    push si
-    push es
-    xor ax, ax
-    mov es, ax                  ; ES = 0: the vector table
-    mov si, 2                   ; the SEGMENT half of vector 0
-    mov cx, 256
-.v:
-    cmp [es:si], bx
-    je .hit
-    add si, 4
-    loop .v
-    pop es
-    pop si
-    pop cx
-    pop ax
-    clc
-    ret
-.hit:
-    pop es
-    pop si
-    pop cx
-    pop ax
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2186,6 +2169,32 @@ mem_cp_run:
     je .packed                  ; coming down, and off a 64KB page boundary its
                                 ; MC_DMA head would straddle. Equal to its own
                                 ; base means already where it belongs
+    ; A DRIVER IMAGE MOVES AT IF=0, AND ONLY A DRIVER IMAGE (SPEC.md 66.6.3.1).
+    ; Its vectors name the OLD segment until mem_region_reloc rewrites them, so
+    ; an ISR taken between the copy and that rewrite runs the old copy - whose
+    ; bytes are still intact but whose BSS is about to be left behind, so a
+    ; write it makes there is lost. Six bytes closes the whole window, for
+    ; every vector including the four SOUND.DRV installs while it is probing,
+    ; where masking one line would not.
+    ;
+    ; WHAT IT COSTS is one image copy's worth of latency, charged once and only
+    ; when a driver image actually moves: ~17 ms for the sound driver's 6KB,
+    ; and ~50 ms - three ticks - for the largest image in the tree, ETHER's
+    ; 18KB. That is the honest bound and not the typical case. What three lost
+    ; ticks cost: the BIOS clock, and at most one mouse PACKET, which mou_isr
+    ; resyncs on the framing bit rather than corrupting. It cannot land inside
+    ; a floppy transfer - dsk_xfer holds [sch_lock] and claims nothing - and it
+    ; cannot land inside IRQ discovery, which runs on the UI task with a frame
+    ; in the image that mem_drv_inside already refuses on.
+    ;
+    ; Ordinary compaction is untouched: every other block takes this path with
+    ; the flag unchanged. And no PACKAGE code runs inside it, a driver image's
+    ; holder being mem_region_reloc and not a dispatcher.
+    pushf
+    cmp word [ss:si+MC_OWN], MEM_K_DRV
+    jne .noff
+    cli
+.noff:
     push si                     ; the RECORD: SI is about to become the source
     push bx                     ; the fill point
     push di                     ; ...and the destination, for MC_SEG below
@@ -2204,6 +2213,7 @@ mem_cp_run:
     mov bx, ax
     call mem_reloc_call         ; ...and the holder follows the map (BX = old
     pop bx                      ; base, DX = new)
+    popf                        ; ...and IF back, whatever it was
 .packed:
     call mem_cp_adv
     jmp short .loop
@@ -2229,6 +2239,44 @@ section .text                   ; A KERNEL RELOCATION PROC IS A NEAR PROC IN
                                 ; entered at the wrong segment (dsk_dseg_reloc
                                 ; sits in .text inside a .cold file for exactly
                                 ; this reason)
+; -----------------------------------------------------------------------------
+; mem_iv_patch - re-point CX interrupt vectors from BX to DX (module internal)
+; in:  ES = 0, DI = the SEGMENT half of the first vector, CX = how many,
+;      BX = the segment they may name, DX = the one they should name
+; out: DI past the last, CX = 0
+; clobbers: nothing else (flags)
+;
+; SPEC.md 66.6.3.1. SIXTEEN VECTORS AND NOT 256, AND THAT IS THE WHOLE SAFETY
+; OF IT. The first build of this walked the entire table on the argument that
+; asking the 8086 is right about a driver that has not been written yet - and
+; it CORRUPTED A MACHINE, which is the finding worth keeping: **the IVT is not
+; a table of pointers.** Its unused slots are scratch, and third parties use
+; them as such. Measured on `os8088_xt_hdd`, whose XT-IDE option ROM keeps two
+; words at int C1h and int C3h: one of them read 0x8000, a package claim moved
+; off 0x8000, this loop rewrote the ROM's word to 0x6000, and the hard disk
+; then probed as **"No hardware found"** - a machine with no C: drive, from a
+; heap compaction, silently. `tests/hdmove.py` is what caught it.
+;
+; So the loop is cut to the slots a driver can legitimately own: the hardware
+; IRQ vectors. That is a FACT and not a guess - a driver hooks its own IRQ line
+; and there is nowhere else for one to go (SPEC.md 51) - and it is the same
+; argument SPEC.md 66.3 rule 5 makes against a stack scan, one address space
+; along: a sweep that PATCHES on a coincidence corrupts, where one that merely
+; refuses is only conservative. The old mem_ivt_names had the identical false
+; positive and was harmless, because all it did was pin.
+; -----------------------------------------------------------------------------
+%ifdef OS88_DRIVERS             ; kern_small loads no driver, so nothing hooks a
+mem_iv_patch:                   ; vector into a heap claim and this has no caller
+.l:
+    cmp [es:di], bx
+    jne .n
+    mov [es:di], dx
+.n:
+    add di, 4
+    loop .l
+    ret
+%endif
+
 ; -----------------------------------------------------------------------------
 ; mem_region_reloc - THE KERNEL'S HALF of a package REGION's move (SPEC.md 66.6)
 ; in:  BX = the base segment it WAS at, DX = the base it is at NOW
@@ -2307,6 +2355,31 @@ mem_region_reloc:
 .on:
     add di, MC_SIZE
     loop .ol
+%ifdef OS88_DRIVERS
+    ; ...AND THE HARDWARE IRQ VECTORS (SPEC.md 66.6.3.1), which are the fourth
+    ; address space and the only one outside this kernel. A vector into a
+    ; driver image names it by SEGMENT and its OFFSET does not move, so the
+    ; patch is the one every other table here gets - and it is what lets
+    ; SOUND.DRV's image move at all, that driver being the only one in the tree
+    ; that hooks a vector and hooking FIVE of them: `sbl_isr` on its IRQ plus
+    ; four candidates it installs a stub in while finding it.
+    ;
+    ; SIXTEEN VECTORS AND NOT 256, and that is the whole safety of it - see
+    ; mem_iv_patch, which carries the incident.
+    push es
+    xor di, di
+    mov es, di                  ; ES = 0: the vector table
+    mov di, 0x08*4 + 2          ; IRQ0..7 -> int 08h..0Fh, the SEGMENT half
+    mov cx, 8
+    call mem_iv_patch
+    mov di, 0x70*4 + 2          ; IRQ8..15 -> int 70h..77h. No driver in the
+    mov cx, 8                   ; tree reaches these yet - sbl_f_irqdisc is
+    call mem_iv_patch           ; `add al, 8` and so 8-bit only - and a 16-bit
+                                ; card on IRQ 10 would land here, so the eight
+                                ; slots are covered for 32 bytes rather than
+                                ; left as the next reader's trap
+    pop es
+%endif
     call mem_wk_restart         ; ...and a WORKER standing on the old segment
     pop di                      ; is re-entered at the new one (SPEC.md 66.6.2)
     pop si

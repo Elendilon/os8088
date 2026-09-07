@@ -3,7 +3,8 @@
 ;
 ; THE INSTRUMENT WITH NO OPINIONS: a package whose only job is to take the heap
 ; down to a few tens of KB and then, on a keypress, ask for one KB more than
-; the largest free run.
+; the largest free run. 'S' asks WITHOUT filling first, for a row that has
+; built the arena itself and wants it left exactly as it is (fl_onkey).
 ;
 ; It exists because tests/heapfrag cannot be that instrument. heapfrag's comb
 ; is sized L/8 from the largest run IT sees and its twelve assertions are about
@@ -132,8 +133,20 @@ fl_ask:
     ret
 
 ; -----------------------------------------------------------------------------
-; fl_onkey - W_ONKEY: any key makes one round of asks
+; fl_onkey - W_ONKEY: any key makes one round of asks, and 'S' makes HALF a one
 ; in:  AL = ASCII, AH = scan, SI = window; the gfx lock is HELD
+;
+; 'S' ASKS WITHOUT FILLING, and the difference matters to any row that builds
+; its own arena. The fill is first fit ASCENDING, so it lands in the lowest run
+; big enough - which for a row that has deliberately opened a hole ABOVE its
+; subject is that very hole, and the claim is undeclared and therefore PINNED
+; against the block the ask is about to need moved. `tests/sndmove.py` opens
+; that hole by mounting a driver over the sound driver and dropping it again;
+; one round of fill-then-ask sealed it every time, and the ask that followed
+; was refused for want of the room the fill had just taken.
+;
+; So a row that arrives at a fresh arena presses any key (fill, then ask), and
+; a row that has already built the arena it wants presses 'S'.
 ; -----------------------------------------------------------------------------
 fl_onkey:
     push ax
@@ -142,7 +155,11 @@ fl_onkey:
     push dx
     push si
     push di
+    or al, 0x20                 ; either case
+    cmp al, 's'
+    je .ask                     ; ...ask only: the arena is the row's
     call fl_fill                ; mop up whatever the LAST round's compaction
+.ask:
     call fl_ask                 ; freed, and only then ask again
     call fl_paint               ; THE GFX LOCK IS HELD in a key callback
                                 ; (SPEC.md 13), so the window is redrawn here

@@ -4801,6 +4801,24 @@ $(BUILD)/regpin360.img: $(BUILD)/filler.o88 $(BUILD)/sheet.o88 \
 # ...and the SHIPPED packages that declare it, for tests/regapp.py
 # (SPEC.md 66.6.2). One disk for all of them: the row takes --app, and a
 # package per image would be five builds of the same three spacers.
+# ...and the sound driver's ring, for tests/sndmove.py (SPEC.md 66.6.4). The
+# filler ALONE, and the missing spacer is the point: this row builds its arena
+# out of the DRIVERS - it mounts the RAM disk over the sound driver and drops
+# it again - so the hole above the ring is already there, and a spacer package
+# whose region is claimed top-down lands in that same ceiling run and walls the
+# ring off from the low arena instead. The driver itself comes off the SYSTEM
+# disk.
+# SBTEST rides with it for one reason and it is assertion 5b: SOUND.DRV hooks
+# its IRQ at the FIRST STREAM OPEN and not at attach (sbl_f_irqdisc), so on a
+# machine that has never made a sound no vector points into the image and the
+# vector check would be vacuous. One open and close through sbtest is what puts
+# the machine in the state the IVT patch is for - a card that has played and is
+# now idle.
+$(BUILD)/sndmove360.img: $(BUILD)/filler.o88 $(BUILD)/sbtest.o88 \
+                         tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/filler.o88 \
+		$(BUILD)/sbtest.o88
+
 REGAPPS := $(BUILD)/word.o88 $(BUILD)/tank.o88 $(BUILD)/ftpd.o88 \
            $(BUILD)/browser.o88 $(BUILD)/audio.o88
 $(BUILD)/regapp360.img: $(BUILD)/filler.o88 $(BUILD)/paint.o88 $(REGAPPS) \
