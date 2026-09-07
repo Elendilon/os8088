@@ -1076,9 +1076,13 @@ reached them.
 **Nine images, not seven.** The system and apps disks in four geometries each,
 plus `build/media360.img` — `BEVERLY.MOD` is data rather than software and
 was 114 of a 360KB disk's 354 clusters before packages were compressed, so at
-that geometry it also rides a disk of its own (§24.4; lz4-packed it is 42
-clusters and `apps360.img` carries it in `MEDIA/` too); every other apps disk
-carries it in `MEDIA/`, which is why
+that geometry it rides a disk of its own (§24.4). **It is not on `apps360.img`
+as well any more, and cannot be**: lz4-packed it is 42 clusters and that disk
+is at 346 of 354, so no trimming reaches it — taking AUDIO, MODPLUG and
+FONTVIEW off buys 27. At 360KB the module is a disk SWAP, which is what §24.4
+was always for; `tests/lzship.py` carries both halves on one scratch image
+because the harness cannot change a floppy under a running guest. Every other
+apps disk carries it in `MEDIA/`, which is why
 there is no 720KB or 1.2MB media disk to go with it. The **core packages** ship on the system disk too, a second
 copy and never a move (§24.3), and an application's own state goes in
 `SYSTEM/APPDATA/` rather than beside the user's documents (§19.9).
