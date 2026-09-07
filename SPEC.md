@@ -96175,6 +96175,15 @@ second class for the same reason the release is: nothing was ever going to
 take them away, and a panel that says `LANDED` while you taxi is the same
 complaint one step along.
 
+**A TOAST (§88.13.8) BORROWS THE STRIP**, and that is the one case the
+countdown has to know about: `cs_toast` banks what it displaced in
+`cs_toastwas` and puts it back when it expires. So an announcement whose
+`CS_MSGAGE` runs out *while a toast is up* is retired where it is actually
+kept — `cs_msgage` clears `cs_toastwas`, not `cs_msg`. Clearing `cs_msg`
+would cut the toast short mid-sentence; leaving `cs_toastwas` alone would
+put the expired announcement back on the glass when the toast went, which
+is the original complaint returning by a second route.
+
 #### 88.7.6.3 THE AIR — lift and sink, and the swoop that finds it
 
 The field asked for *"updrafts/downdrafts, scattered around — simple rects —
@@ -97377,12 +97386,76 @@ it meets it at 9.4 km — behind Everest's, where the corridor already ends.
 
 #### 88.13.2 Draw Distance
 
-Every `CSO_RANGE` and `CSO_LOD` is scaled by 0.6, 1 or 1.6 in 8.8. Far holds
-the tower's near model out past four kilometres; Near lets the anonymous city
-come up close before it is drawn. **A point of interest never loses range**:
-Near is for thinning the world out, and thinning out the things you navigate
-by would be a different feature. 112.8 ms at Near against 186.7 at Far, over
-the same scene.
+Every `CSO_RANGE` and `CSO_LOD` is scaled by 0.6, 1, 1.6 or 2.0 in 8.8. Far
+holds the tower's near model out past four kilometres; Near lets the anonymous
+city come up close before it is drawn. **A point of interest never loses
+range**: Near is for thinning the world out, and thinning out the things you
+navigate by would be a different feature. 112.8 ms at Near against 186.7 at
+Far, over the same scene.
+
+##### 88.13.2.1 Ultra, which is the impostor turned off
+
+A fourth rung, and the only one on this ladder that is not a distance.
+`cs_boxlod` stands a small solid up as ONE FILLED RECTANGLE (§88.5.4) — under
+`CS_LODPX` = 8 pixels wide and `CS_LODTALL` = 26 tall, which at the far end of
+a city is most of it. That is a **substitution**, and every other rung here
+only moves the range it happens at; **Ultra takes the substitution away**, so
+a solid draws its own polygons at every size it is ever drawn at, and the box
+LOD is not reached at all.
+
+Seven bytes, at the top of the impostor block, and it is the whole feature —
+`cs_boxlod`'s call site is one `je` away from the full path it already falls
+through to when a model is a wireframe.
+
+The range scale is 2.0 and not more, and that is `CS_NVIS` and not taste:
+§88.13.2.2 is why.
+
+It exists because of a field reading. A 286 at Detail = High, Draw Distance =
+Far, over Manhattan is **pegged to the tick** — 54.9 ms, the 18.2 Hz floor, on
+every frame — which means the frame is finishing inside a tick and the machine
+is waiting. A rung that spends that headroom on the picture is what a player
+with one of those has left to buy.
+
+**What it costs**, on the machine it is NOT for — a 4.77 MHz 8088 with a
+Hercules card, NYC-JFK at Detail = High, five scenes down the departure, the
+tick wait patched out:
+
+```
+                     Near   Moderate      Far     Ultra
+  on the roll       46.1 ms    85.7    154.2     282.6
+  rotate            92.8      148.3    168.9     321.5
+  200 m             56.4      114.4    161.7     315.4
+  2 km climb       175.2      213.4    257.8     358.5
+  over midtown     102.8      103.0    125.4     125.3
+```
+
+Ultra is **1.4 to 1.9 times Far** where there is a distant skyline, and **the
+same frame to a tenth of a millisecond over midtown** where nothing is far
+enough away to have been boxed. That shape is the feature working: the rung
+costs exactly what the impostors were saving and nothing anywhere else.
+
+##### 88.13.2.2 …and `CS_NVIS` had to go up to carry it
+
+`CS_NVIS` was 32, the thirty-third object in a frame dropped SILENTLY, and
+**32 is reachable today**. Swept with the cull's own cone (§88.13.1.3's
+method — a 500 m grid of eyes, 24 headings each) and every range scaled by
+Far's 1.6, the worst frame per world is:
+
+```
+  CAIRO 25   LONDON 26   MIAMI 28   NEPAL 18
+  NYC   28   PARIS  34   RIO   27   SANFAN 27
+```
+
+— Paris at **34 in level flight**, so two of its buildings come off the glass
+with nothing said, at a setting a player can pick from the page. Nobody had
+looked, because the gate that owns this number prices the DEFAULT rung and
+`t_csworlds` does not scale by the draw distance at all.
+
+So `CS_NVIS` is 48. It costs **eleven bytes of the package's bss a slot** —
+six in `cs_vis`, four in `cs_vkey`, one in `cs_occ` — 176 bytes for the
+sixteen, and it is bss in a package's own claim rather than anything the
+kernel budgets. 48 covers Paris at Ultra's 2.0 (41) with room; 2.4 would have
+put it at 44 and bought four rows of a table nothing else wants.
 
 #### 88.13.3 Fill — terrain and buildings
 
@@ -97503,18 +97576,79 @@ per fill.
 
 #### 88.13.5 …and the same four on hotkeys, in flight
 
-`-`/`+` the size, **`F1` to `F5`** the detail level (None first),
-**`F6`/`F7`** the two fills, **`F8` to `F10`** the draw distance — the
-page's own reading order. Function keys and not the number row: a flight
-simulator's digits are where a player expects to find something else, and
-these are keys nobody reaches for by accident.
-They arrive as `int 16h` EXTENDED codes — `AL` zero, `AH` the scan code — so
-`cs_hotkeyx` hangs off `cs_input`'s `.ext` arm beside the arrows rather than
-off the character one, and the instructions page names them. A key that changes what is drawn costs the next frame and nothing
+**One key a setting, and it steps that setting's ladder one rung and round
+at the top.**
+
+| | |
+|---|---|
+| `F1` | Detail Level — None, Only Roads, Low, Moderate, High |
+| `F2` | Draw Distance — Near, Moderate, Far, Ultra |
+| `F3` | Size — Small, Moderate, Full (`-`/`+` are still the alternate) |
+| `F4` | Terrain fill, a toggle |
+| `F5` | Buildings fill, a toggle |
+
+It was **a key a VALUE** — `F1` to `F5` the five detail rungs, `F6`/`F7` the
+fills, `F8` to `F10` the three draw distances — and that runs out. The detail
+ladder went to five rungs at §88.13.1.1 and the draw distance to four at
+§88.13.2.1, which is eleven keys for four settings before the fills, and
+there are twelve. A cycling key costs a player the ability to jump straight
+to a rung; the Settings page is where a considered choice belongs, and a
+hotkey is for trying the next one.
+
+**`-`/`+` stay on Size**, because that is the one setting where a player
+wants to say which way, and they cycle nothing: at the top `+` is the
+current value again.
+
+Every one of them raises a **toast** (§88.13.8), and that is not decoration:
+a key that steps a ladder is no good if the glass does not say where the
+ladder now is.
+
+Function keys and not the number row: a flight simulator's digits are where a
+player expects to find something else, and these are keys nobody reaches for
+by accident. They arrive as `int 16h` EXTENDED codes — `AL` zero, `AH` the
+scan code — so `cs_hotkeyx` hangs off `cs_input`'s `.ext` arm beside the
+arrows rather than off the character one, and the instructions page names
+them. A key that changes what is drawn costs the next frame and nothing
 after it, so it is one store; size re-runs the raster's setup, which is
 idempotent and reuses the shadow claim it already holds. **No frame reads a
 setting more than the frame it draws**, so carrying the options costs a
 flight nothing.
+
+**Both ladders that change RANGE now clear the cull's skips.** Detail always
+did; Draw Distance never has, and §88.5.2 keeps an out-of-range object out
+for `distance/16` ticks — so raising the draw distance in flight left the far
+half of the world absent for up to `CS_FAR/16` = 1,000 ticks, which is a
+minute. One `call cs_skipclr` covers both.
+
+#### 88.13.8 The toast: what changed, and what it is now
+
+A cycling hotkey has to say where it landed, and the cockpit already has the
+one place for a line of text — §88.9.9's **message strip**, the band that
+says `FULL THROTTLE, PULL BACK AT 55 KNOTS` on the runway and `STALL` when
+one is happening. A toast is that strip, for a second and a half:
+`DETAIL LEVEL: HIGH`, `DRAW DISTANCE: ULTRA`, `TERRAIN: OFF`.
+
+It is **one byte and a countdown**, and it paints nothing. `cs_msg` is what
+the panel reads once a frame; `CSG_TOAST` is a tenth message whose table
+entry is `cs_toastbuf` itself, so the strip letters the composed line by the
+path every other message already takes.
+
+Three things about it are decisions rather than mechanism:
+
+- **It is lettered out of the Settings page's own strings** — `Detail Level`,
+  `Ultra`, `Buildings` — through an upper-casing copy (`cs_strcpyu`, ten
+  bytes). A second set of names for the same rungs is a second set to keep in
+  step, and they would drift the first time a rung was renamed.
+- **It is timed on the frame's own tick count**, in the loop beside
+  `cs_steps` and not inside `cs_step` — because `cs_step` is what a PAUSE
+  stops, and a toast raised while paused would otherwise sit there for ever.
+  That also makes it the same second and a half on a machine drawing three
+  frames a second and on one drawing eighteen.
+- **It restores only a strip that is still the toast.** A stall or a crash
+  raised while one is up keeps the glass; the toast's expiry finds `cs_msg`
+  changed and leaves it alone. A toast on a toast keeps the FIRST message as
+  what to go back to, so holding `F1` down does not make the strip's own
+  history the thing it restores.
 
 #### 88.13.6 The page's own defects, off the machine
 

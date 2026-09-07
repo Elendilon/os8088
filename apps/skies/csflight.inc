@@ -985,12 +985,12 @@ cs_fence:
 ; air sink is about 1 m/s, so +448 is a climb you can work and -320 is air
 ; worth leaving.
 ; =============================================================================
-CSL_DX      equ 0                   ; from the field, metres
-CSL_DZ      equ 2
-CSL_HW      equ 4                   ; ...and how far it reaches, half-extents
-CSL_HD      equ 6
-CSL_RATE    equ 8                   ; m/s x 128, + up
-CSL_SIZE    equ 10
+CSAIR_DX      equ 0                   ; from the field, metres
+CSAIR_DZ      equ 2
+CSAIR_HW      equ 4                   ; ...and how far it reaches, half-extents
+CSAIR_HD      equ 6
+CSAIR_RATE    equ 8                   ; m/s x 128, + up
+CSAIR_SIZE    equ 10
 CS_NLIFT    equ 8
 CS_LIFTCLR  equ 2500                ; the disc round the field they keep out of
 
@@ -1029,19 +1029,19 @@ cs_lift:
     mov bx, CS_NLIFT
 .l:
     mov ax, cx
-    sub ax, [si + CSL_DX]
+    sub ax, [si + CSAIR_DX]
     call cs_wabs
-    cmp ax, [si + CSL_HW]
+    cmp ax, [si + CSAIR_HW]
     jg .n
     mov ax, di
-    sub ax, [si + CSL_DZ]
+    sub ax, [si + CSAIR_DZ]
     call cs_wabs
-    cmp ax, [si + CSL_HD]
+    cmp ax, [si + CSAIR_HD]
     jg .n
-    mov ax, [si + CSL_RATE]
+    mov ax, [si + CSAIR_RATE]
     ret
 .n:
-    add si, CSL_SIZE
+    add si, CSAIR_SIZE
     dec bx
     jnz .l
     xor ax, ax
@@ -1068,8 +1068,17 @@ cs_msgage:
     je .out
     dec byte [cs_msgt]
     jnz .out
+    ; A TOAST (88.13.8) BORROWS THE STRIP and banks what it took, so an
+    ; announcement that ages out UNDER one is retired where it is actually
+    ; kept: clearing cs_msg here would cut the toast short, and leaving
+    ; cs_toastwas alone would put the announcement back when the toast went.
+    cmp byte [cs_msg], CSG_TOAST
+    je .under
     mov byte [cs_msg], CSG_NONE
 .out:
+    ret
+.under:
+    mov byte [cs_toastwas], CSG_NONE
     ret
 
 ; -----------------------------------------------------------------------------

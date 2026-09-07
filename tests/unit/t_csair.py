@@ -48,7 +48,7 @@ def main():
         rows.append(v)
     check(len(rows) == n, "CS_NLIFT is %d and the table has %d" % (n, len(rows)))
     check(all(len(r) == 5 for r in rows),
-          "every row is CSL_SIZE's five words (%s)"
+          "every row is CSAIR_SIZE's five words (%s)"
           % [len(r) for r in rows if len(r) != 5])
 
     for i, (dx, dz, hw, hd, rate) in enumerate(rows):

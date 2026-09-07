@@ -1221,7 +1221,7 @@ cs_consider:
 ; is for thinning the world out, and thinning out the things you navigate by
 ; would be a different feature. Far still lengthens it.
 ; -----------------------------------------------------------------------------
-cs_lodscl: dw 154, 256, 410
+cs_lodscl: dw 154, 256, 410, 512
 cs_range:
     mov ax, [si + CSO_RANGE]
     push bx
@@ -1362,6 +1362,12 @@ cs_drawobj:
     ;     routine had spent, so it compared a random word and no solid was
     ;     ever boxed: a basilica five kilometres off was four polygons and
     ;     ten milliseconds - 88.5.4) ---------------------------------------
+    cmp byte [cs_setlod], CSL_ULTRA ; ULTRA DRAWS THE POLYGONS AT EVERY SIZE
+    je .stack                       ; (88.13.2.1): the impostor is the one
+                                    ; thing on this ladder that is a
+                                    ; SUBSTITUTION rather than a distance, so
+                                    ; the rung that wants all of it turns the
+                                    ; substitution off and falls through
     or al, al
     jnz .stack                      ; a wireframe keeps its edges
     call cs_sizepx

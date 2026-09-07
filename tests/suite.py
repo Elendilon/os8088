@@ -1745,7 +1745,12 @@ SOAK = [
         " has no location left to stand on and is synthesised rather than left"
         " to stop running), and a CSO_DENSE building is NOT SOLID below High"
         " (88.13.1.4) - flown through at Moderate, crashed into by name at"
-        " High, because cs_collide reads the table and never the ladder",
+        " High, because cs_collide reads the table and never the ladder. And"
+        " 88.13.5's CYCLING hotkeys: F1/F2/F3 each step their own ladder one"
+        " rung and round, walked a FULL LAP so the wrap is seen, F4/F5 toggle"
+        " the fills, and every one of them raises 88.13.8's TOAST - checked"
+        " against the Settings page's own list of names read out of the"
+        " guest, and then left to expire back to the strip it replaced",
         needs=("marty",), serial=True),
     Row("skiesocc", "soak", py("tests/skiesocc.py"), 26.0,
         "SPEC.md 88.13.7: the occlusion pass, and the only thing keeping its"
@@ -1757,7 +1762,7 @@ SOAK = [
         " 'confirmed invisible'. Nine viewpoints, three of them off the"
         " centreline, because the rule is exact for an object dead ahead",
         needs=("marty",), serial=True),
-    Row("skieslod", "soak", py("tests/skieslod.py"), 45.0,
+    Row("skieslod", "soak", py("tests/skieslod.py"), 40.0,
         "SPEC.md 88.5.4.2: a solid too small to tell apart is one filled"
         " rectangle PAST SIX KILOMETRES too. cs_drawobj built 11 cz in a"
         " word, which stops fitting at 5,958 m, and past there the product"
@@ -1772,7 +1777,10 @@ SOAK = [
         " the approach where the rectangle crosses CS_LODPX; and 88.5.4.4,"
         " that nothing on the skyline goes away and comes back as the"
         " aeroplane taxis - a DIP and not a step, because the skyline"
-        " legitimately grows and shrinks",
+        " legitimately grows and shrinks. And 88.13.2.1: at DRAW DISTANCE ="
+        " ULTRA the same towers at the same place take the POLYGONS instead,"
+        " cs_boxlod not entered at all and nothing reaching cs_rect, which is"
+        " that rung's whole feature",
         needs=("marty",), serial=True),
     Row("skiespitts", "soak", py("tests/skiespitts.py"), 34.0,
         "SPEC.md 88.7.2: the second aeroplane flies by its own CSP_ATT - the"

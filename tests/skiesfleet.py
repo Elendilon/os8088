@@ -71,14 +71,14 @@ _miss = [n for n in _WANT if n not in _E]
 if _miss:
     sys.exit("skiesfleet: skies.asm no longer defines %s" % ", ".join(_miss))
 globals().update({n: _E[n] for n in _WANT})
-CSG_TAKEOFF, CSG_RELEASE, CSG_SPLASH = 1, 7, 8
+CSG_TAKEOFF, CSG_RELEASE, CSG_SPLASH, CSG_TOAST = 1, 7, 8, 9
 # ...and csflight.inc's own, which is where the air lives
 _EF = {}
 for _l in open(os.path.join(ROOT, "apps", "skies", "csflight.inc")):
     _m = re.match(r"^(CS[A-Z]*_[A-Z0-9_]+)\s+equ\s+(-?\d+)\s*(?:;|$)", _l)
     if _m:
         _EF[_m.group(1)] = int(_m.group(2))
-for _n in ("CS_NLIFT", "CSL_SIZE", "CSL_DX", "CSL_DZ", "CSL_RATE"):
+for _n in ("CS_NLIFT", "CSAIR_SIZE", "CSAIR_DX", "CSAIR_DZ", "CSAIR_RATE"):
     if _n not in _EF:
         sys.exit("skiesfleet: csflight.inc no longer defines %s" % _n)
     globals()[_n] = _EF[_n]
@@ -411,15 +411,50 @@ def main(argv):
         check(gone, "the tow release goes by itself (msg %d, %d ticks left)"
                     % (byte("cs_msg"), byte("cs_msgt")))
 
+        # ...AND IT GOES UNDER A TOAST TOO (88.13.8 borrows the strip). The
+        # announcement is banked in cs_toastwas while the toast is up, so an
+        # ager that cleared cs_msg would cut the toast short - and one that
+        # left cs_toastwas alone would put the expired release straight back
+        # on the glass when the toast went, which is the same complaint by a
+        # second route. Raised by hand rather than by a setting key, because
+        # what is under test is the AGER and not the settings page.
+        m.pause()
+        poke("cs_msg", bytes([CSG_RELEASE]))
+        poke("cs_msgt", bytes([CS_MSGAGE]))
+        m.run()
+        m.advance(frames=25)                        # ...let it start counting
+        m.pause()
+        poke("cs_toastwas", bytes([CSG_RELEASE]))   # the toast takes the strip
+        poke("cs_msg", bytes([CSG_TOAST]))
+        poke("cs_toastt", bytes([200]))             # ...and holds it far past
+        m.run()                                     # the announcement's own age
+        held = True
+        for _ in range(40):
+            m.advance(frames=25)
+            m.run()
+            if byte("cs_msg") != CSG_TOAST:
+                held = False
+                break
+            if byte("cs_msgt") == 0 and byte("cs_toastwas") == 0:
+                break
+        check(held and byte("cs_toastwas") == 0 and byte("cs_msg") == CSG_TOAST,
+              "an announcement that ages out UNDER a toast retires where it "
+              "is kept (msg %d, was %d, toast %d ticks left)"
+              % (byte("cs_msg"), byte("cs_toastwas"), byte("cs_toastt")))
+        m.pause()                                   # ...and put the strip back
+        poke("cs_toastt", b"\x00")
+        poke("cs_msg", b"\x00")
+        m.run()
+
         # THE AIR (88.7.6.3): still, lift, sink - read off cs_airv, and the
         # ALTITUDE with it, because a rate nothing moves is not weather
         port = w("cs_airport")
         fx, fz = sg(rec(port, CSA_X)), sg(rec(port, CSA_Z))
         lifts = []
         for row in range(CS_NLIFT):
-            at = mp["cs_lifts"] + row * CSL_SIZE
-            lifts.append((sg(rec(at, CSL_DX)), sg(rec(at, CSL_DZ)),
-                          sg(rec(at, CSL_RATE))))
+            at = mp["cs_lifts"] + row * CSAIR_SIZE
+            lifts.append((sg(rec(at, CSAIR_DX)), sg(rec(at, CSAIR_DZ)),
+                          sg(rec(at, CSAIR_RATE))))
         up = max(lifts, key=lambda r: r[2])
         dn = min(lifts, key=lambda r: r[2])
 
