@@ -8875,9 +8875,24 @@ APPS := $(APPS_TOOLS) $(APPS_GAMES) $(APPS_DATA) $(APPS_SYS) $(APPS_DOS)
 # FONT VIEWER is already in APPS/ on the paired 360KB system disk, beside the
 # FONTS/ files it opens; copying it to the software disk as well would exceed
 # that disk by four clusters. Both packages ship on the roomier apps disks.
-APPS_TOOLS_360 := $(filter-out $(BUILD)/audio.o88 $(BUILD)/modplug.o88 \
-                               $(BUILD)/fontview.o88,$(APPS_TOOLS))
-APPS360 := $(APPS_TOOLS_360) $(APPS_GAMES) $(APPS_DATA_360) $(APPS_SYS) $(APPS_DOS)
+# **NONE OF THAT HOLDS ON THIS BRANCH, AND THE FILTER IS GONE.** Every figure
+# above is of UNCOMPRESSED packages. Here every package, driver, module, face
+# and the manual is lz4-packed (SPEC.md 20.13) and the kernel with them
+# (2.9.13), and this disk builds with AUDIO.O88, MODPLUG.O88 and
+# FONTVIEW.O88 all on it at **342 of 354 clusters - 12 spare**. The paragraphs
+# above are kept because the REASONS are still the reasons - a MOD player
+# beside no module, a disk that is exactly full - and they are what the next
+# thing that grows this geometry gives something up for.
+#
+# It was also BROKEN as a filter, in a way `all` cannot show. $(APPSARGS360)
+# below is the RECIPE and it was never filtered, so the two disagreed: the
+# recipe asked os88disk.py for MODPLUG.O88 while the prerequisite list did not
+# build it. In build/ that is invisible because `all` builds every package
+# anyway; in a PRIVATE TREE that builds only what it needs (tools/os88build.py,
+# and tests/small128.py is such a row) it is a hard failure naming a file
+# nothing produced. A per-geometry package list has to be filtered in BOTH
+# places or in neither.
+APPS360 := $(APPS_TOOLS) $(APPS_GAMES) $(APPS_DATA_360) $(APPS_SYS) $(APPS_DOS)
 
 # ...and the same list with the folder each package lands in. os88disk.py
 # reads a "DIR:" prefix per package, so the grouping lives here rather than
