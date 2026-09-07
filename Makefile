@@ -1822,13 +1822,22 @@ WEAVEDEMOS := apps/weave/demos
 WEAVEWABS  := $(BUILD)/FORM.WAB $(BUILD)/SHEET.WAB $(BUILD)/PONG.WAB
 all: checkdocs $(IMG) $(IMG120) $(IMG720) $(IMG360) \
      $(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360) \
-     $(MEDIAIMG360) $(BUILD)/wire.o88 $(WEAVEWABS) $(BUILD)/.weave-hostchecks \
+     $(MEDIAIMG360) $(BUILD)/wire.o88 $(BUILD)/recorder.o88 \
+     $(WEAVEWABS) $(BUILD)/.weave-hostchecks \
      cc-note test-fast
 # wire.o88 is named here and NOWHERE else in `all`, because WIREFRAME is built
 # but does not ship (SPEC.md 78.9, `make wiredisk`). Keeping it in the default
 # build is the whole point of the arrangement: it is the bench for 78.5's draw
 # orders and for 5.6.4.1, and a package that only an on-demand target compiles
 # is a package that stops compiling without anybody noticing.
+#
+# recorder.o88 is here for the SECOND half of that sentence and not the first
+# (SPEC.md 35.1). It is not an instrument - it was a shipped application until
+# it came off the apps disk - and the arrangement is what keeps SPEC.md 35
+# describing a package that still assembles. Without this line RECORDER.O88 is
+# named by no target `all` reaches at all, and the way that fails is the way
+# every entry in this comment fails: silently, months later, when somebody
+# changes apps/os88ui.inc and the one caller nothing builds stops matching it.
 #
 # The Weave demo bundles ride `all` for wire's reason, one stage earlier: the
 # runtime is a C package that `all` does not build (`make weave`), so the pack
@@ -4397,8 +4406,17 @@ $(BUILD)/audio.bin: apps/audio/audio.asm $(AUDIO_SRC) | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/audio/ -o $@ apps/audio/audio.asm
 	@echo "audio: $(call FILESIZE,$@) bytes"
 
-$(BUILD)/audio.o88: $(BUILD)/audio.bin tools/os88pkg.py
-	python3 tools/os88pkg.py $(BUILD)/audio.bin -o $@
+# ...through $(OS88PKG) and behind $(PKGZSTAMP), which is what every other
+# SHIPPED package's rule does and what SPEC.md 20.13.5 says of the whole set -
+# "every shipped package ... is LZ4 on the disk". This rule named the tool
+# directly for a cycle, which made AUDIO.O88 the one shipped package the
+# sentence was not true of: 9,216 bytes on four floppies where 7,468 would do,
+# and a `make PKGZ=` A/B that could not move it. The stamp is the other half
+# and is not optional - no package rule names PKGZ, so without it a
+# `make PKGZ=` after a plain build finds audio.o88 up to date and ships the
+# compressed one on an uncompressed disk (see $(PKGZSTAMP)'s own note).
+$(BUILD)/audio.o88: $(BUILD)/audio.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/audio.bin -o $@
 
 # ...and the SAME SOURCE with -DAPROF (SPEC.md 86.5.1): the diagnostic-counter
 # build, for the profiling tests in docs/plans/completed/AUDIO-PLAN.md. Every counter is inside
@@ -7423,18 +7441,25 @@ small: $(BUILD)/small360.img $(BUILD)/small.img
 #   browser, ftpd, telnet   ETHER.DRV. The NIC is not in $(SMALLDRIVERS) and
 #                           SPEC.md 72's whole surface is driver verbs, so
 #                           there is no socket to refuse on
-#   modplug, recorder,      SOUND.DRV, which a 128-256KB machine has nothing
-#   tracker, audio          to spare for - the same judgement that took
+#   modplug, tracker,       SOUND.DRV, which a 128-256KB machine has nothing
+#   audio                   to spare for - the same judgement that took
 #                           RAMDISK.DRV and RAMPAGE.DRV out of $(SMALLDRIVERS)
 #   tank, skies             the fullscreen surface (SPEC.md 42.7/81, 88). Each
 #                           opens and draws its panel, and there is no GAME
 #                           behind it without fsx, so what ships is a menu that
 #                           leads nowhere
 #
-# 99,749 bytes of a 360KB floppy - 27% of it - for eight programs that could
-# not have started (SPEC.md 24.5 has the same figures, re-measured together).
+# RECORDER WAS THE FOURTH SOUND ROW AND IS NOT A ROW ANY MORE. It is off the
+# shipped apps disk entirely (SPEC.md 35.1), so it is not in $(APPS_TOOLS) for
+# this list to subtract from - and a name here that no list contains is a
+# filter that reads like a decision and is a no-op, which is the shape a stale
+# omit list takes. The rule it would have failed is unchanged and would still
+# omit it if it came back.
+#
+# Eight programs that could not have started (SPEC.md 24.5 has the same
+# figures, re-measured together).
 SMALLOMIT := $(BUILD)/browser.o88 $(BUILD)/ftpd.o88 $(BUILD)/telnet.o88 \
-             $(BUILD)/modplug.o88 $(BUILD)/recorder.o88 $(BUILD)/tracker.o88 \
+             $(BUILD)/modplug.o88 $(BUILD)/tracker.o88 \
              $(BUILD)/audio.o88
 SMALLOMIT_GAMES := $(BUILD)/tank.o88 $(BUILD)/skies.o88
 
@@ -8191,10 +8216,16 @@ $(BUILD)/lptlink144.img: $(BUILD)/llboot144.bin $(BUILD)/lptlink.bin \
 # whoever wrote it and whatever order its entries are stored in - which is
 # also the only answer that survives a host OS writing to the disk. What is
 # left here is which packages ship and which folder each lands in.
+#
+# RECORDER.O88 IS NOT HERE and that is deliberate (SPEC.md 35.1): the sound
+# layer's recording client no longer ships on any floppy. It is still built -
+# `all` names it for WIREFRAME's reason, one screen down from $(BUILD)/wire.o88
+# - so it keeps assembling and SPEC.md 35 keeps describing something that
+# compiles; what changed is which disks carry it, which is nothing.
 APPS_TOOLS := $(BUILD)/artful.o88 $(BUILD)/browser.o88 $(BUILD)/calc.o88 \
               $(BUILD)/chart.o88 $(BUILD)/fractal.o88 \
               $(BUILD)/hello.o88 $(BUILD)/modplug.o88 $(BUILD)/notepad.o88 \
-              $(BUILD)/paint.o88 $(BUILD)/piano.o88 $(BUILD)/recorder.o88 \
+              $(BUILD)/paint.o88 $(BUILD)/piano.o88 \
               $(BUILD)/ftpd.o88 $(BUILD)/sheet.o88 $(BUILD)/telnet.o88 \
               $(BUILD)/texpad.o88 $(BUILD)/tracker.o88 $(BUILD)/audio.o88
 APPS_GAMES := $(BUILD)/arkanoid.o88 $(BUILD)/tank.o88 $(BUILD)/cyclone.o88 \
@@ -8366,12 +8397,20 @@ APPS := $(APPS_TOOLS) $(APPS_GAMES) $(APPS_DATA) $(APPS_SYS) $(APPS_DOS)
 # prerequisites name a file that is not on the disk it builds is a dependency
 # that lies in the direction that costs a rebuild for nothing, and one that
 # stops being harmless the day somebody reads it to find out what is on there.
-# AUDIO.O88 is left off the 360KB disk: it fits with one cluster to spare
-# (353/354) which is too tight to be a good neighbour, and the XT/floppy is
-# exactly where streaming performance is least proven (docs/plans/completed/AUDIO-PLAN.md).
-# It ships on the 1.44MB and 720KB apps disks, which have room.
-APPS_TOOLS_360 := $(filter-out $(BUILD)/audio.o88,$(APPS_TOOLS))
-APPS360 := $(APPS_TOOLS_360) $(APPS_GAMES) $(APPS_DATA_360) $(APPS_SYS) $(APPS_DOS)
+# THE PACKAGE LIST IS THE SAME AT EVERY GEOMETRY NOW, and the difference that
+# is left is DATA (APPS_DATA_360 above). AUDIO.O88 used to be filtered out
+# here: uncompressed it is 9,216 bytes and fitted with one cluster to spare
+# (353/354), which is too tight to be a good neighbour, so it shipped on the
+# 1.44MB and 720KB disks alone. Both halves of that have moved - it goes
+# through $(OS88PKG) like every other package now (7,468 bytes, 8 clusters),
+# and RECORDER.O88 coming off gives 4 back - so the 360KB apps disk carries it
+# with room to spare and there is no per-geometry package list to keep in step.
+# The reservation the old comment carried is a REAL one and it did not go away
+# with the clusters: a 4.77MHz XT streaming from a floppy is where AUDIO's
+# performance is least proven (docs/plans/completed/AUDIO-PLAN.md), and 86Box
+# is where that gets measured. It is a look-at-it question rather than a
+# fits-or-not one, and the disk is not the instrument that answers it.
+APPS360 := $(APPS_TOOLS) $(APPS_GAMES) $(APPS_DATA_360) $(APPS_SYS) $(APPS_DOS)
 
 # ...and the same list with the folder each package lands in. os88disk.py
 # reads a "DIR:" prefix per package, so the grouping lives here rather than
@@ -8412,7 +8451,7 @@ APPSARGS := $(addprefix APPS:,$(APPS_TOOLS)) \
 # AND IT IS PACKED NOW (SPEC.md 62.12): 11,653 bytes and 12 clusters, which is
 # what took this disk off THREE free clusters and put it on ten.
 # Being on this disk is the whole reason a user has it to hand.
-APPSARGS360 := $(addprefix APPS:,$(APPS_TOOLS_360)) \
+APPSARGS360 := $(addprefix APPS:,$(APPS_TOOLS)) \
                $(addprefix GAMES:,$(APPS_GAMES)) \
                $(addprefix MEDIA:,$(APPS_DATA_360)) \
                $(SYSAPPSARGS) \
@@ -8794,8 +8833,11 @@ burn:
 # on the disk: this image deliberately leaves BEVERLY.MOD off (114 clusters of
 # DATA), so the player was here with nothing whatever to open. ModPlug had
 # already gone for the same reason without the reason being stated. Recorder
-# is 4 clusters and records from a sound card the calibration machine does not
-# have (docs/FIELD-MACHINES.md).
+# was 4 clusters and records from a sound card the calibration machine does not
+# have (docs/FIELD-MACHINES.md) - it is off the shipped apps disk altogether
+# now (SPEC.md 35.1), so it is not in $(APPS_TOOLS) for this list to subtract
+# and its name has come out. That is 4 clusters this disk gets for free and
+# no decision reversed: the reason it was dropped here still holds.
 #
 # THREE THINGS ASKED FOR IN THAT ROUND ARE NOT HERE, AND THAT IS THE ANSWER
 # RATHER THAN AN OMISSION - they are not on this disk to drop. COMBOARGS below
@@ -8814,7 +8856,7 @@ burn:
 # is the largest package on the disk, and neither is a field-calibration
 # tool - Calc stays for the arithmetic a field run needs.
 COMBO_DROP := $(BUILD)/artful.o88 $(BUILD)/modplug.o88 $(BUILD)/texpad.o88 \
-              $(BUILD)/tracker.o88 $(BUILD)/recorder.o88 \
+              $(BUILD)/tracker.o88 \
               $(BUILD)/sheet.o88 $(BUILD)/chart.o88
 COMBO_TOOLS := $(filter-out $(COMBO_DROP),$(APPS_TOOLS))
 COMBO_GAMES := $(filter-out $(COMBO_DROP),$(APPS_GAMES))

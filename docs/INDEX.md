@@ -297,7 +297,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | NOTEPAD | `apps/notepad/notepad.asm` | §27 | yes |
 | PAINT | `apps/paint/paint.asm` | §42 | yes |
 | PIANO | `apps/piano/piano.asm` | §36 | yes |
-| RECORDER | `apps/recorder/recorder.asm` | §35 | yes |
+| RECORDER | `apps/recorder/recorder.asm` | §35 | no |
 | RUNCPM | `apps/runcpm/runcpm.asm` | §74 | yes |
 | SHEET | `apps/sheet/sheet.asm` | §81 | yes |
 | SKIES | `apps/skies/skies.asm` | §88 | yes |

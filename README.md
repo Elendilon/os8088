@@ -195,16 +195,18 @@ a Standard File dialog for opening and saving.
 
 **Software**
 
-Eighteen loadable packages ship on the software disk, all closable and most
+Twenty-four loadable packages ship on the software disk, all closable and most
 multi-instance:
 
 - **Apps** — Note Pad (word wrap, DOS-readable text files), TeXPad, Paint,
-  ArtfulType, Fractal, Calculator, Piano, Recorder, Tracker and ModPlug Player
-  (both play Amiga MOD files).
+  ArtfulType, Fractal, Calculator, Sheet, Chart, Piano, Tracker and ModPlug
+  Player (both play Amiga MOD files), an Audio Player that streams a WAV off
+  the disk and keeps playing while you work in another window, and the three
+  that talk over the network — Browser, Telnet and an FTP server.
 - **Games** — Minesweeper, Solitaire, Arkanoid, Missile Command, Cyclone 88,
-  Tank Attack (a first-person wireframe tank duel that takes the whole
-  machine, in 320x200 colour on CGA, Mode X on VGA and 640x200 mono in the
-  middle of a Hercules) and TameGram.
+  Clear Skies, Tank Attack (a first-person wireframe tank duel that takes the
+  whole machine, in 320x200 colour on CGA, Mode X on VGA and 640x200 mono in
+  the middle of a Hercules) and TameGram.
 - ...plus the Task Manager itself, and HELLO, a minimal package that exists to
   be the smallest thing the SDK can build.
 

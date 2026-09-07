@@ -36936,8 +36936,15 @@ Eight packages fail that test:
 | omitted | requirement `kern_small` cannot meet |
 |---|---|
 | `BROWSER`, `FTPD`, `TELNET` | `ETHER.DRV`. The NIC is not in `$(SMALLDRIVERS)`, and §72's whole surface is driver verbs, so there is no socket to refuse on |
-| `MODPLUG`, `RECORDER`, `TRACKER`, `AUDIO` | `SOUND.DRV`, which a 128–256KB machine has nothing to spare for — the judgement that already took `RAMDISK.DRV` and `RAMPAGE.DRV` out of the small driver set |
-| `TANK` | the fullscreen surface (§42.7, §81). It opens and draws its splash, and there is no *game* behind it without fsx |
+| `MODPLUG`, `TRACKER`, `AUDIO` | `SOUND.DRV`, which a 128–256KB machine has nothing to spare for — the judgement that already took `RAMDISK.DRV` and `RAMPAGE.DRV` out of the small driver set |
+| `TANK`, `SKIES` | the fullscreen surface (§42.7, §81, §88). Each opens and draws its panel, and there is no *game* behind it without fsx |
+
+`RECORDER` was a fourth row of the sound group and is **not a row at all now**:
+it fails the same test and would still be omitted, but it is off the shipped
+apps disk entirely (§35.1), so it is not in `$(APPS_TOOLS)` for `$(SMALLOMIT)`
+to subtract from. A name in an omit list that no list contains is a filter that
+reads like a decision and is a no-op, which is the shape a stale omit list
+takes, so the row came out with the package rather than being kept as a note.
 
 …and two data files with them, for the same reason one step along:
 `BROWSER.HTM` is openable by nothing else on the machine (§71) — and it is
@@ -36945,14 +36952,25 @@ that program's manual (§71.12), which is worse than no file at all on a disk
 the program is not on — and `BEVERLY.MOD` is the two removed players' module
 (§24.4).
 
-**99,752 bytes — 27% of a 360KB floppy — for eight programs that could
-not have started.** The apps disk goes 341 → 230 of 354 clusters — which
-moves for SEVEN of them, `AUDIO.O88` not being on that geometry's apps disk in
-the first place. (All three
-re-measured at §71.12, and only 341 moved *because* of it: `BROWSER.HTM` is
-three clusters where `DEMO.HTM` was six, so the full disk was 344 before it.
-The other two read 90,510 and 244 when they were taken and had drifted with
-the packages since, the way a number quoted from a build always does.)
+**112,441 bytes — 31% of a 360KB floppy, 113 of its 354 clusters — for eight
+programs that could not have started.** All eight move at every geometry now:
+`AUDIO.O88` used to be the exception, not being on the 360KB apps disk in the
+first place, and §35.1 put it there. The disk itself goes **322 → 202 of 354**,
+and that figure is not the omissions alone — the small builds' substitutions
+are in it too (`NOTEPAD`, `PAINT`, `CALC`, `SOLITAIRE`, `TASKMGR` and the
+`ASSOC.DAT` the shorter list produces, ~7 clusters between them). 113 is the
+omission's own share.
+
+Two data files ride the same rule one step along, and **neither is on the
+360KB disk to take off**: `BEVERLY.MOD` is on `build/media360.img` at that
+geometry (§24.4) and `BROWSER.HTM`'s slot there is `DEMO.HTM`, which the
+browser is not the only reader of. So the byte figure above is eight packages
+and nothing else, where the same measurement at 1.44MB has the module in it.
+
+(Every figure here re-measured together on one build, the way the numbers this
+paragraph replaces were: they read 99,752 and 341 → 230 when they were taken
+and had drifted with the packages since — and with LZ4 (§20.13.5), which is
+most of the difference between that 341 and today's 322.)
 
 #### 24.5.2 A third ground: a claim larger than the machine
 
@@ -45435,6 +45453,38 @@ Three things about it are worth knowing:
 
 Teardown needs nothing from the app: `snd_release_inst` (§34.3) force-closes
 any live stream and frees the grant.
+
+### 35.1 IT NO LONGER SHIPS — built by `all`, carried by no floppy
+
+`RECORDER.O88` is off the apps disks at every geometry, off `build/apps-all.img`
+(§19.10) and off the live media (§80). It is not in `$(APPS_TOOLS)`, so every
+list derived from that one lost it in the same edit and none of them names it
+any more: the small disks' `$(SMALLOMIT)` (§24.5) and the field combo's
+`$(COMBO_DROP)` both had a row for it, and both rows are **gone rather than
+kept**, because a filter naming something no list contains reads like a
+decision and is a no-op.
+
+**It is still built.** `all` names `$(BUILD)/recorder.o88` directly, which is
+`WIREFRAME`'s arrangement (§78.9) borrowed for the other half of its reason:
+WIREFRAME is built and unshipped because it is an *instrument*, and this is
+built and unshipped because a package no target compiles stops compiling
+without anybody noticing — and this section would then describe something that
+no longer assembles. The source stays at `apps/recorder/`, the `.bin` and
+`.o88` rules are untouched, and putting it back on a disk is one name in
+`$(APPS_TOOLS)`.
+
+**What it cost the disks.** 3,107 bytes LZ4, **4 of a 360KB volume's 354
+clusters**, on four apps floppies. What replaced it there is `AUDIO.O88`
+(§86), which now ships at 360KB as well and is 8 — so the 360KB apps disk went
+318 → 322 of 354 and every other geometry has the room twice over. The pair is
+not a trade the arithmetic forced: nothing was short of clusters, and 322 is
+not near anything.
+
+**Nothing in the sound layer changed for it**, and nothing had to. §34's verb
+contract, `SND_CAP_PCM_IN`, the staging pool's tiers (§34.6) and
+`snd_release_inst`'s teardown are all as they were, and §34.6.2 still names
+this package as the worked example of asking in tiers — which is a statement
+about the code, not about the floppy it is not on.
 
 ## 36. Piano — the fifth package (apps/piano/piano.asm)
 
@@ -95982,6 +96032,36 @@ number of clusters — a 16-byte-record queue is neither.
 | SND ring grant + driver pool | ~28 KB | `SOUND.DRV`'s claims, released when the player stops |
 
 Comfortable on 640 KB; on 256 KB the look-ahead and ring tiers drop.
+
+**On the disk it is 7,468 bytes, not 9,216.** `AUDIO.O88` goes through
+`$(OS88PKG)` behind `$(PKGZSTAMP)` like every other shipped package, so it is
+LZ4 on the floppy and the `image` field at +8 still reads 9,216 — which is the
+row above, and the number that matters to the loader and to `APP_MAX_SIZE`
+(§20.13). Its rule named `tools/os88pkg.py` directly for a cycle, which made
+this the one shipped package §20.13.5's *"every shipped package … is LZ4 on
+the disk"* was not true of, and the one a `make PKGZ=` A/B could not move.
+
+### 86.13 Which disks carry it
+
+**All four apps floppies** — 1.44MB, 1.2MB, 720KB and 360KB — in `APPS/`. The
+360KB one was an exception until the compression above: uncompressed the
+package fitted that geometry with a single cluster to spare, which is too tight
+to be a good neighbour on a disk sixteen growing packages share, so it shipped
+at 1.44MB and 720KB alone. Eight clusters against nine, and the four
+`RECORDER.O88` returned when it came off (§35.1), put the 360KB apps disk at
+**322 of 354** with it aboard, and the per-geometry package list that expressed
+the exception is gone — `$(APPS_TOOLS)` is now the tools list at every size.
+
+**The reservation behind the old exception was never about clusters and has not
+been answered.** A 4.77MHz XT streaming a WAV off a floppy is where this
+player's performance is least proven (`docs/plans/completed/AUDIO-PLAN.md` has
+the procedure), and the disk is not the instrument that answers it — 86Box is.
+Being on the 360KB disk is what makes that measurement takeable by somebody
+who has an XT rather than a build tree.
+
+It is **not** a core package (§24.3), so no system disk carries it, and it is
+**not** on the small disks (§24.5): `SOUND.DRV` is not in `$(SMALLDRIVERS)`, so
+on `kern_small` there is no stream to refuse on.
 
 ### 86.15 Sample rates — the SB2.0 set and the SB Pro high-speed tier
 
