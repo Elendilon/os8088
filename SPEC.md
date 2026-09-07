@@ -98264,6 +98264,134 @@ arithmetic would agree with itself and pass. A world-vertical edge staying
 vertical is an outside fact about perspective, and yaw alone never mixes Y
 into X or Z.
 
+##### 88.7.3.2 …and it lands on a FRAME'S LAST TICK, or the frame stalls
+
+§88.7.3.1 got the horizon drawn and the field reported the Pitts *"lingers
+one extra frame after snapping on the horizon — it makes a roll feel like it
+has a jerk"*, and then, more exactly, *"it visually pauses at the exact
+horizon"*.
+
+**The hold is a detent and the detent was costing two thirds of a frame.**
+`cs_ease` landed the axis on whichever tick happened to come inside a rate
+of it, and `cs_hzhold` then stood the axis still for the rest of that frame.
+Land on tick 1 of 3 and the frame travels one tick and stops; land on tick 3
+and it travels three. Sampling `cs_roll` once a FRAME on a Hercules with the
+key held, the Pitts at 10° a tick and three ticks a frame:
+
+```
+    -30.04, -6.68, 0.00, +29.99      degrees a frame: 30.0, 23.4, 6.7, 30.0
+```
+
+The frame that ends on the horizon moved **6.7° where its neighbours moved
+30**. On a 400-pixel view that is the horizon's ends travelling 23 pixels in
+a frame between two frames that travel 115 — which is not read as a slow
+frame, it is read as a **stop**. The eye is being shown level twice: once
+almost, once exactly.
+
+The cure is not to shorten the hold — the hold is what makes level visible
+at all — it is to **arrive at the end of a frame rather than the middle of
+one**. `cs_steps` already knows the frame's tick budget, so the sim loop
+publishes it (`cs_tframe`) and what is left of it (`cs_tleft`), and the ease
+spends the distance over the ticks it is given rather than over a fixed
+three:
+
+| the distance is | spread over |
+|---|---|
+| within `cs_tleft` rates | `cs_tleft` ticks — the rest of THIS frame |
+| within `cs_tleft + cs_tframe` rates | both — this frame and the next |
+| further | untouched: a plain full-rate tick |
+
+Each tick takes the distance divided by that count, rounded **up**, so the
+last one lands exactly and the hold has no ticks left to discard. The
+counting is by repeated subtraction and is capped at `CS_EASEN` = 6 = two
+frames, which is why no multiply appears: six subtractions are cheaper than
+one `mul` on an 8088.
+
+**Two frames and not one is the point.** Spreading over only what is left of
+this frame sounds simpler and is much worse: a distance a hair over
+`cs_tleft` rates takes full-rate ticks all frame and leaves a CRUMB — the
+measured case leaves 0.02° — so the next frame travels nothing at all and
+the pause comes back doubled. Two frames cannot leave a crumb, because a
+distance that does not fit this frame is by construction more than a
+frame's travel when the next one starts.
+
+Measured on the same Hercules, same aeroplane, same key held.
+
+The Cessna's own return to level (§88.7.6) goes through the same proc and so
+gets the same landing, and so does the elevator.
+
+**§88.7.3.1's detent becomes a rounding safety net**, and that is worth
+writing down because it cost two red arms. The hold still fires when the
+spread lands a tick early — a distance of 2 units over three ticks lands on
+the second — but in every scenario the suite drives, the landing IS the
+frame's last tick, so removing the hold changes nothing that can be
+measured. `tests/skiesease.py`'s `--clobber-hold` and `tests/skiestap.py`'s
+both went green after this section and are **deleted**: a knob that cannot
+go red is worse than no knob (docs/WRITING-TESTS.md §1). `--clobber-ease`
+and `--clobber-tap` are the red arms that remain, and they cover the
+mechanism this section actually rests on.
+
+##### 88.7.3.3 …and the way OUT mirrors the way in, or the rate still steps
+
+§88.7.3.2 took the stall out of the frame that shows the horizon and left one
+discontinuity behind, which the field named before the build reached it:
+*"since the rate change is what is visible — maybe purposely implement a
+rebuild of the same rate we smoothed in, but only where we are leaving the
+horizon because we got smoothed into it."* Exactly so. The approach comes
+down to about 73% of the roll rate and the tick after the capture is back at
+100%, so the aeroplane goes 21.8°, 21.8°, LEVEL, 30.0° — the horizon's ends
+travelling 84 pixels a frame and then 115. A ramp in and a step out.
+
+So each axis carries a **cap and an increment** (`cs_hzo`, indexed by
+`cs_hzox`). Every eased tick writes its own step into the cap, so when the
+capture comes the cap already holds the rate the approach ended at; the
+capture arms the increment as the shortfall to the full rate divided by
+`1 << CS_EASEOS` = 8 ticks. While the increment is armed, a full-rate step
+leaving the horizon is **clamped to the cap**, and the cap climbs by the
+increment each tick until it reaches the rate, when the ramp disarms itself.
+A centred stick disarms it too — the pilot has stopped asking.
+
+The way out is deliberately **shorter than the way in** — under three frames
+against five. Symmetry sounds right and is not: the Pitts' horizon is a half
+turn, so its distance to one is never more than 90° = nine rates, and a
+ramp-out as long as the ladder would still be climbing when the next
+approach began. The aeroplane would never see its own roll rate.
+
+It costs ten bytes of bss and sits on paths `cs_ease` already walks: the
+`.out` arm gains one memory compare, which is the arm a stick held far from
+the horizon takes. Measured on a Hercules, one model tick with the key held —
+the minimum over 120 samples, which is a tick with no render in it:
+
+| | cycles | against the base |
+|---|---|---|
+| before §88.7.3.2 | 18,936 | — |
+| the ladder | 19,184 | +248 |
+| …and the ramp out | **19,472** | **+536** |
+
+Three ticks a frame, so **+1,608 cycles of a 1,177,000-cycle frame — 0.14%,
+or 0.34 ms of 247** — and only while the stick is deflected: `cs_att_free`
+does not call `cs_ease` at all for a centred axis. What it buys, per frame:
+
+```
+    before   30.0, 23.4,  6.7, LEVEL, 30.0                   a 4.5x step
+    ladder   24.6, 21.8, 21.8, 21.8, LEVEL, 30.0             a 1.37x step
+    ramp out 25.5, 23.3, 23.2, LEVEL(23.2), 24.9, 27.4, 29.7 a 1.07x step
+```
+
+The Fouga's is the same shape at its own rate — `19.8, 16.7, 16.7, 16.7,
+LEVEL(16.6), 17.4, 18.5, 19.6, 19.8`.
+
+**The sign is the trap.** The increment is a shift by `CS_EASEOS`, and a
+shift by a variable count on an 8086 is a shift by CL — but CL is the
+*step's* low byte, and the step's SIGN is the one thing the proc still needs
+at that point. Written with CL the aeroplane oscillates around the horizon
+for ever, halving and reversing, and never lands; the shift is therefore
+unrolled with `%rep`, which keeps the constant load-bearing.
+`tests/skiesease.py` caught it on its first run, and its own pin had to
+learn the same lesson the cull's skip table teaches (§88.5.2): **pinning an
+attitude is a teleport**, so the row clears `cs_hzo` with it or it measures
+a ramp belonging to a flight it is no longer in.
+
 #### 88.7.4 Speeds are 16.7, and why that had to happen first
 
 `cs_spd` was 16.8 metres a second, and **two sites read it signed**: the
@@ -98466,6 +98594,26 @@ Magister, per DRAWN frame of a held approach:
 Exactly one drawn frame shows level in each case, which is the whole of what
 was asked for: the horizon is a place the aeroplane passes through visibly
 rather than a place it sticks to.
+
+###### 88.7.5.2.1 A held stick is not a centred one, and the jet forgot
+
+`cs_att_lag` zeroes `cs_rrate` when the ease arrives, which is right for a
+stick that has been let go — the rate is the jet's memory and level is where
+it should stop — and wrong for one that is still held. `cs_lagax` rebuilds a
+rate a quarter of the gap a tick, so the pilot who never released the key
+paid for the capture for **eight frames**. Sampling once a frame with the
+key held, the Fouga at a steady 19.8° a frame:
+
+```
+    ... 19.78, 16.84, LEVEL, 8.34, 14.93, 17.71, 18.90, 19.39, 19.59, 19.68,
+    19.74, 19.78
+```
+
+That is §88.7.3.2's stall one layer up and lasting eight times as long, and
+it is the *"and maybe the jet"* in the same report. The rate is now zeroed
+only when `[cs_kroll]` / `[cs_kpitch]` says the stick is centred, which is
+the case the zeroing was written for; a held stick keeps its rate and the
+frame after the detent is a full one. Four bytes an axis.
 
 #### 88.7.6 The WASSMER BIJAVE — a sailplane, and the mechanic is NO ENGINE
 

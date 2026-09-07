@@ -72,9 +72,11 @@ cs_fsx_main:
     jcxz .draw
     cmp byte [cs_pause], 0
     jne .draw
-.sim:
-    CSSTAGE 9
-    push cx
+    mov [cs_tframe], cl             ; THE FRAME'S TICK BUDGET, and what is
+.sim:                               ; left of it: cs_ease aims its landing at
+    mov [cs_tleft], cl              ; the LAST of them (SPEC.md 88.7.3.2), so
+    CSSTAGE 9                       ; the frame that shows the horizon has
+    push cx                         ; travelled like any other
     call cs_stick                   ; THE STICK, ONCE A TICK (SPEC.md
     call cs_step                    ; 88.7.5.1): cs_input runs once a FRAME,
     call cs_sound_step              ; which is 137 ms on Mode X, so a tap

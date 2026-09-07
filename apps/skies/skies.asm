@@ -431,6 +431,15 @@ CS_ST_GROUND equ 0
 CS_ST_AIR    equ 1
 CS_ST_CRASH  equ 2
 CS_MAXSTEP equ 3                ; the most ticks a frame may ever spend
+CS_EASEOS equ 3                 ; the ramp OUT of the horizon is 1 << this
+                                ; ticks, so under three frames back to the
+                                ; full rate (SPEC.md 88.7.3.3)
+CS_EASEF equ 5                  ; ...and the most FRAMES an approach to the
+CS_EASEN equ CS_EASEF * CS_MAXSTEP  ; horizon is spread over, so the landing
+                                ; is a frame's last tick and every frame of
+                                ; the approach travels alike (SPEC.md
+                                ; 88.7.3.2). Two frames left the last one at
+                                ; HALF the roll rate; five is a rung a frame
 CS_PRATE  equ 6                 ; ticks between instrument readings (88.9.1)
 RW_NDASH  equ 4                 ; centreline stripes drawn ahead (88.6.2)
 RW_DASHM  equ 25                ; ...each this long, with as much gap
@@ -2387,6 +2396,16 @@ CS_SWOOPHI equ 900              ; DOWN from the top in sink
 
     ZBYTE cs_msgt                   ; ...and what is left of them
     ZBYTE cs_hzbit                  ; which axis cs_ease is on (88.7.3.1)
+    ZBYTE cs_tleft                  ; the ticks left in this frame,
+                                    ; this one counted, and how many
+    ZBYTE cs_tframe                 ; it has altogether - cs_ease aims
+                                    ; its landing at the last of them
+                                    ; (SPEC.md 88.7.3.2)
+    ZWORD cs_easm                   ; ...and the distance it is easing,
+    ZWORD cs_eass                   ; against this axis's full rate
+    ZWORD cs_hzox                   ; ...and the ramp OUT (88.7.3.3):
+    ZBUF  cs_hzo, 8                 ; a cap and its increment an axis,
+                                    ; roll first, indexed by cs_hzox
     ZBUF  cs_promptb, 44            ; THE TAKE-OFF PROMPT (88.7.9), composed
                                     ; from the aeroplane's own record: the
                                     ; longest is 29 + 3 digits + ' KNOTS'

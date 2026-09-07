@@ -2021,21 +2021,25 @@ SOAK = [
         " --clobber-water are the three red runs",
         needs=("marty",), serial=True),
     Row("skiesease", "soak", py("tests/skiesease.py"), 34.0,
-        "SPEC.md 88.7.3: the horizon captures the last three ticks of an"
-        " approach - held toward level both aeroplanes land EXACTLY on it on"
-        " both axes, in at most three ticks and with no tick under 60% of the"
-        " rate, the Pitts lands on INVERTED level too, and held away nothing"
-        " is eased at all. Read at a cs_step breakpoint: a frame spends one,"
-        " two or three ticks, so a per-frame sample cannot see the landing."
+        "SPEC.md 88.7.3: the horizon captures the approach - held toward"
+        " level both aeroplanes land EXACTLY on it on both axes, the Pitts"
+        " lands on INVERTED level too, and held away nothing is eased at"
+        " all. Read at a cs_step breakpoint: a frame spends one, two or"
+        " three ticks, so a per-frame sample cannot see the landing."
         " Then 88.7.3.1 asks the question the PILOT asks, which is the"
         " per-FRAME one: the ease landing mid-frame is no use if the frame's"
         " remaining ticks carry the axis off before anything is drawn, and"
         " that is the Pitts 'skipping the horizon' the field reported. Every"
         " horizon a continuous roll passes gets a frame on it, from three"
         " start angles, because ONE of them landing on a frame boundary by"
-        " luck is exactly what the old code did. --clobber-hold NOPs the one"
-        " instruction that arms the hold and reads 1 horizon of 22 frames"
-        " against 4; --clobber-ease puts a ret on cs_ease",
+        " luck is exactly what the old code did. And 88.7.3.2's contract:"
+        " the eased ticks of an approach are EQUAL - a plateau, not a dive -"
+        " and the landing is the frame's LAST tick, so the detent discards"
+        " nothing. That replaced a floor of 60% of the rate, which passed on"
+        " 78%-then-22% - the shape the field called a pause at the horizon."
+        " --clobber-ease puts a ret on cs_ease and is the red run; the"
+        " --clobber-hold beside it is GONE, the ladder having left the hold"
+        " nothing to discard so that knob could no longer fail",
         needs=("marty",), serial=True),
     Row("skiestap", "soak", py("tests/skiestap.py"), 40.0,
         "SPEC.md 88.7.5.2: the two remainders of the per-tick stick, both"
@@ -2046,8 +2050,11 @@ SOAK = [
         " three\". And a held approach to level, read at cs_render rather"
         " than cs_step, shows level on EXACTLY ONE drawn frame: one and not"
         " zero is the capture made visible, one and not four is the promise"
-        " that this is not Tank Attack's lock. --clobber-tap and"
-        " --clobber-hold are the two red runs",
+        " that this is not Tank Attack's lock. --clobber-tap is the red run;"
+        " the --clobber-hold beside it is GONE - what it removed was the jet"
+        " zeroing its rate on arrival, which 88.7.5.2.1 now does only for a"
+        " CENTRED stick, and the detent it aimed at is a rounding safety net"
+        " since 88.7.3.2 lands on a frame's last tick",
         needs=("marty",), serial=True),
     Row("skiesbody", "soak", py("tests/skiesbody.py"), 30.0,
         "SPEC.md 88.7.8: the elevator is a rate about the AEROPLANE's wing"

@@ -734,10 +734,12 @@ cs_att_lag:
     mov si, cs_roll
     call cs_ease
     jnc .radd
-    mov word [cs_rrate], 0          ; ARRIVED: the rate goes with it, and the
-    or byte [cs_hzhold], 1          ; axis holds for the REST OF THIS FRAME
-.radd:                              ; (SPEC.md 88.7.5.2)
-    add [cs_roll], ax
+    or byte [cs_hzhold], 1          ; ARRIVED: the axis holds for the rest of
+    cmp byte [cs_kroll], 0          ; this frame (SPEC.md 88.7.5.2)...
+    jne .radd                       ; ...and the RATE goes with it only if the
+    mov word [cs_rrate], 0          ; stick is CENTRED (88.7.5.2.1): a pilot
+.radd:                              ; still holding it means to keep rolling,
+    add [cs_roll], ax               ; and rebuilding from zero cost 8 frames
 .pitch:
     mov di, [cs_plane]
     test byte [cs_hzhold], 2
@@ -752,8 +754,10 @@ cs_att_lag:
     mov si, cs_pitch
     call cs_ease
     jnc .padd
-    mov word [cs_prate], 0
     or byte [cs_hzhold], 2
+    cmp byte [cs_kpitch], 0         ; ...the elevator the same (88.7.5.2.1)
+    jne .padd
+    mov word [cs_prate], 0
 .padd:
     add [cs_pitch], ax
 .stall:
@@ -830,17 +834,29 @@ cs_ease:
 .axis:
     mov [cs_hzbit], bl
     test [cs_hzhold], bl
-    jz .go
+    jz .pair
     xor ax, ax                      ; it LANDED earlier in this frame: it
     pop bx                          ; stays until the frame is DRAWN (88.7.3.1)
     clc
     ret
+.pair:
+    dec bl                          ; --- THE AXIS'S RAMP-OUT PAIR (88.7.3.3):
+    shl bl, 1                       ; a cap and its increment, a word each,
+    shl bl, 1                       ; at 0 for roll and 4 for pitch
+    xor bh, bh
+    mov [cs_hzox], bx
 .go:
     or ax, ax
     jz .plain                       ; centred: there is no step to shorten
     push cx
     push dx
-    mov cx, ax                      ; CX = the step, signed
+    mov cx, ax                      ; CX = the step, signed...
+    mov dx, ax                      ; ...and its MAGNITUDE, which is this
+    or dx, dx                       ; axis's FULL rate: the ramp out needs it
+    jns .rate                       ; whichever way this call leaves
+    neg dx
+.rate:
+    mov [cs_eass], dx
     mov ax, [si]
     and ax, 0x7FFF                  ; how far into this half turn we are
     cmp ax, 0x4000
@@ -861,50 +877,122 @@ cs_ease:
     neg ax
 .dmag:
     jz .out                         ; already on it: leave at the full rate
-    mov dx, cx                      ; DX = the rate's magnitude
+    mov [cs_easm], ax               ; the distance's MAGNITUDE, parked: the
+.smag:                              ; step's sign is the one it wears back
+    ; --- THE WINDOW IS A LADDER OF WHOLE FRAMES (SPEC.md 88.7.3.2), and the
+    ; distance is spread over the FIRST rung that reaches it - so the landing
+    ; is a frame's LAST tick and every frame of the approach travels alike.
+    ; BX = the rung in ticks, AX = how far it reaches, DX = a counter.
+    mov bl, [cs_tleft]              ; rung one is what is LEFT of this frame
+    xor bh, bh
+    mov dx, bx
     or dx, dx
-    jns .smag
-    neg dx
-.smag:
-    cmp ax, dx
-    jbe .land                       ; one tick away: land on it exactly
-    add dx, dx
-    cmp ax, dx
-    ja .three
-    inc ax                          ; two: half of what is left, rounded up,
-    shr ax, 1                       ; so the second one lands
-    jmp short .sign
-.three:
-    mov bx, dx                      ; DX = 2 rates -> 3
-    shr bx, 1
-    add dx, bx
-    cmp ax, dx
-    ja .out                         ; four or more: a plain full-rate tick
-    add ax, 2                       ; three: a third of what is left, up
-    mov bx, 3
+    jz .out                         ; no ticks left at all: nothing to spread
+    xor ax, ax
+.reach:
+    add ax, [cs_eass]
+    jc .spread                      ; past a word: it certainly reaches
+    dec dx
+    jnz .reach
+.fit:
+    cmp [cs_easm], ax
+    jbe .spread
+    mov dl, [cs_tframe]             ; ...or one WHOLE FRAME further out, up
+    xor dh, dh                      ; to CS_EASEF of them
+    or dx, dx
+    jz .out
+    add bx, dx
+    cmp bx, CS_EASEN
+    ja .out                         ; further than the ladder reaches: a
+.wide:                              ; plain full-rate tick
+    add ax, [cs_eass]
+    jc .spread
+    dec dx
+    jnz .wide
+    jmp short .fit
+.spread:
+    mov ax, [cs_easm]               ; BX = the ticks to spread it over
+    add ax, bx
+    dec ax                          ; ...rounded UP, so the last one lands
     xor dx, dx
     div bx
-.sign:
-    or cx, cx                       ; the magnitude wears the step's sign,
-    jns .pos                        ; which is the distance's - they agree,
-    neg ax                          ; or we left at .out
-.pos:
-    mov cx, ax
-    jmp short .out
-.land:
-    mov al, [cs_hzbit]              ; ...and the axis is HELD on the horizon
-    or [cs_hzhold], al              ; for the rest of the frame (88.7.3.1)
-    mov ax, bx                      ; exactly the distance to the horizon...
+    cmp ax, [cs_easm]
+    jb .sign                        ; a plain eased tick
+    mov ax, [cs_easm]               ; ...or this one REACHES the horizon
+    mov dl, [cs_hzbit]              ; and the axis is HELD there for the rest
+    or [cs_hzhold], dl              ; of the frame (88.7.3.1) - which by
+                                    ; construction is no ticks at all
+    ; --- AND THE WAY OUT MIRRORS THE WAY IN (SPEC.md 88.7.3.3): the cap is
+    ; already the rate the approach came down to, so all that is armed here
+    ; is how fast it climbs back - a shortfall over 1 << CS_EASEOS ticks
+    mov bx, [cs_hzox]
+    mov dx, [cs_eass]
+    sub dx, [cs_hzo + bx]
+    jbe .lsign                      ; came in at the full rate: nothing to do
+%rep CS_EASEOS                      ; a shift by CL would spend the STEP'S
+    shr dx, 1                       ; SIGN, which is the one thing this proc
+%endrep                             ; still needs, so the shift is unrolled
+    jnz .larm
+    inc dx                          ; ...at least a unit, or it never ends
+.larm:
+    mov [cs_hzo + bx + 2], dx
+.lsign:
+    or cx, cx                       ; the distance wears the STEP's sign
+    jns .lpos
+    neg ax
+.lpos:
     pop dx
     pop cx
     pop bx
-    stc                             ; ...and CF says the caller ARRIVED on it,
-    ret                             ; which a lagging model acts on (88.7.5.2)
+    stc                             ; CF says the caller ARRIVED on it, which
+    ret                             ; a lagging model acts on (88.7.5.2)
+.sign:
+    mov bx, [cs_hzox]               ; THE WAY OUT STARTS WHERE THE WAY IN
+    mov [cs_hzo + bx], ax           ; ENDED (88.7.3.3): this eased step
+    or cx, cx                       ; the magnitude wears the step's sign,
+    jns .done                       ; which is the distance's - they agree,
+    neg ax                          ; or we left at .out
+    jmp short .done
 .out:
-    mov ax, cx
+    mov ax, cx                      ; --- A FULL-RATE STEP, capped while the
+    mov bx, [cs_hzox]               ; axis is climbing back out (88.7.3.3)
+    mov dx, [cs_hzo + bx + 2]
+    or dx, dx
+    jnz .ramp
+    mov dx, [cs_eass]               ; not climbing: the way out would start
+    mov [cs_hzo + bx], dx           ; at the full rate, so there is no ramp
+    jmp short .done
+.ramp:
+    add [cs_hzo + bx], dx           ; the cap climbs toward the full rate...
+    mov dx, [cs_eass]
+    cmp [cs_hzo + bx], dx
+    jb .rcap
+    mov [cs_hzo + bx], dx           ; ...and stops there, the ramp over
+    mov word [cs_hzo + bx + 2], 0
+.rcap:
+    mov dx, [cs_hzo + bx]
+    or ax, ax
+    jns .rpos
+    neg ax
+    cmp ax, dx
+    jbe .rneg
+    mov ax, dx
+.rneg:
+    neg ax
+    jmp short .done
+.rpos:
+    cmp ax, dx
+    jbe .done
+    mov ax, dx
+.done:
     pop dx
     pop cx
+    pop bx
+    clc
+    ret
 .plain:
+    mov bx, [cs_hzox]               ; the stick is CENTRED: the climb is over
+    mov word [cs_hzo + bx + 2], 0
     pop bx
     clc
     ret
