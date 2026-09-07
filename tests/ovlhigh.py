@@ -67,7 +67,7 @@ need = os88fixture.need
 
 DISK = "build/cword360.img"
 MC_SIZE = os88geom.MC_SIZE
-MEM_MAX = 32
+MEM_MAX = os88geom.MEM_MAX
 
 
 def u16(b, i=0):
@@ -81,8 +81,15 @@ def claims(m, S):
     for i in range(MEM_MAX):
         r = raw[i * MC_SIZE:(i + 1) * MC_SIZE]
         if u16(r, 0):
-            out.append((u16(r, 0), u16(r, 2), u16(r, 4), u16(r, 6),
-                        u16(r, 8), r[10]))
+            # MC_HI IS NOT A BYTE OF ITS OWN. It was `r[10]`, one past the end
+            # of a 10-byte record (MC_SIZE), and reading it raised IndexError
+            # before a single assertion ran. On this branch the top-down door
+            # is MC_DMA's TOP BIT - tools/os88geom.py says so in as many words
+            # - so the head is the low fifteen bits and `hi` is bit 15.
+            dma = u16(r, 6)
+            out.append((u16(r, 0), u16(r, 2), u16(r, 4),
+                        dma & os88geom.MC_DMA_HEAD, u16(r, 8),
+                        1 if dma & os88geom.MC_DMA_HI else 0))
     return sorted(out)
 
 
