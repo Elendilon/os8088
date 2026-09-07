@@ -98150,14 +98150,22 @@ same fraction of the view. That is the price of four bits a pixel and it is
 paid only on rows something touched: §88.3.1's row-kind byte and §88.3.3's
 row range are what keep it off the rest.
 
-**Snow.** Writing `B800` during active display in 80-column text is the one
-thing a genuine IBM CGA is famous for, and this mode is 80-column text — so
-the blit sparkles on that card, where the same machine's 320×200 graphics
-does not. §53.5 already names the window. Nothing here can avoid it and be
-fast: waiting for retrace bounds the blit to about 24% of the field, and
-blanking the display for it trades sparkle for a black frame. It is a real
-cost of the hack, on real IBM hardware, and it is the reason this is an
-option beside CGA320 and not a replacement for it.
+**Snow, and it is ACCEPTED.** Writing `B800` during active display in
+80-column text is the one thing a genuine IBM CGA is famous for, and this
+mode is 80-column text — so the blit sparkles on **IBM's own card**, where
+the same machine's 320×200 graphics does not. §53.5 already names the window.
+Nothing here can avoid it and be fast: waiting for retrace bounds the blit to
+about 24% of the field, and blanking the display for it trades sparkle for a
+black frame.
+
+The owner's decision is that neither trade is worth making, and the reason is
+that **the snow is one card's**: a genuine IBM CGA is the machine that has
+it, and the clones, the later cards and every emulator that does not model it
+draw this mode clean. So the cost falls on exactly the machine whose owner
+knows what CGA snow is and has chosen to run one — *"that is the IBM PC for
+you, and the user gets to make that choice"* — and it is a **choice** rather
+than a default, this being the Mode row's second item beside a 320×200×4 that
+does not snow at all (§88.15.7).
 
 #### 88.15.5 The panel is ONE LINE, and it is a record like any other
 
