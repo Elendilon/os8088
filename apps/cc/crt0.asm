@@ -358,6 +358,19 @@ cc_entry:
                                     ; OSAPI_TASK_SPAWN would simply refuse
     mov bx, ax                      ; BX = the window, which is the whole of
     mov [cc_win], ax                ; the answer. Banked too, for cc_worker
+    or ax, ax
+    jz .noreg                       ; os88_main() refused: there is nothing to
+                                    ; declare and the loader is about to unwind
+    push ax                         ; --- AND OUR REGION IS MOVABLE (SPEC.md
+    push bx                         ; 66.6.1) ---
+    push dx                         ; DX is the instance index on entry
+    mov dx, cs
+    mov ax, cc_regreloc
+    call OSAPI_MEM_MOVABLE          ; a refusal is not worth reporting: it can
+    pop dx                          ; only mean the region is not ours, which
+    pop bx                          ; cannot happen from here, and the cost is
+    pop ax                          ; a compaction that achieves less
+.noreg:
     pop es
     pop di
     pop si
@@ -1203,6 +1216,31 @@ cc_ovm_gone:db CC_PKG_NAME, '.OVL is not on this disk', 0
 cc_ovm_stale: db CC_PKG_NAME, '.OVL does not match this program', 0
 section .text
 %endif  ; CC_HAS_OVL
+
+; -----------------------------------------------------------------------------
+; cc_regreloc - OUR REGION moved. BX = the base it WAS at, DX = where it is now.
+;
+; A package's own code needs no relocation - every near offset in it survives a
+; move untouched - and every word that NAMES the region is the kernel's, which
+; mem_region_reloc puts right. So for a C package with no overlay this is a
+; `ret`, and it exists because SPEC.md 66.2 requires a proc: opting in and
+; naming nothing is the one shape the kernel cannot tell from opting in and
+; forgetting.
+;
+; WITH AN OVERLAY IT IS NOT A NO-OP, and cc_ovbind was already exactly it.
+; Its `.res` loop writes the LIVE CS into cc_ovv_* - the far vectors the
+; overlay calls BACK through - and inside a relocation proc CS is the region's
+; NEW base (mem_reloc_call dispatches a region's holder at [MC_SEG], which
+; mem_cp_run has already updated). Its `.m` loop rewrites the overlay's own
+; vectors from [cc_ovseg], which a region move does not touch, so it costs a
+; few stores and is right either way.
+; -----------------------------------------------------------------------------
+%ifdef CC_HAS_OVL
+cc_regreloc equ cc_ovbind
+%else
+cc_regreloc:
+    ret
+%endif
 
 %ifdef CC_HAS_PARTS
 ; =============================================================================

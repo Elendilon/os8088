@@ -2351,6 +2351,57 @@ OS88_STACK_384     equ 4        ; the largest, asked for on purpose: a deep
 %endmacro
 
 ; -----------------------------------------------------------------------------
+; OS88_MOVE_PROC / OS88_REGION_MOVABLE / OS88_WORKER_RESTARTABLE
+;
+; Declare THIS PACKAGE'S REGION - the block your code and bss live in - movable
+; (SPEC.md 66.6.1), and, if you hired a worker, restartable (66.6.2).
+;
+;     OS88_REGION_MOVABLE                 ; once, when your window exists
+;     OS88_WORKER_RESTARTABLE my_worker   ; right after OSAPI_TASK_SPAWN took
+;
+; Both are self-contained: OS88_REGION_MOVABLE carries its own relocation proc
+; and jumps over it, so there is no second thing to place and no way to declare
+; without one.
+;
+; WHY THE PROC IS A `ret`. Your own code needs no relocation - every near
+; offset in it survives a move untouched - and every word that NAMES your
+; region is the KERNEL's, which mem_region_reloc puts right: your window's
+; W_SEG, your instance's I_SPTR, the owner of every claim you hold, your menu
+; bar's entries and seven kernel scalars. A proc is required all the same,
+; because "declared and named nothing" is the one shape the kernel cannot tell
+; from "declared and forgot" (66.2), and it is where YOUR fix-up goes if you
+; ever cache your own segment in a word of your own. Almost nothing does.
+;
+; WHAT THE RESTART COSTS YOU is one iteration of your worker's loop, and the
+; kernel takes it only where your worker PARKS - inside OSAPI_TASK_ALIVE, or,
+; if you also declared OSAPI_MEM_PARKSAFE, blocked in OSAPI_GFX_LOCK. The
+; first is the top of your loop and costs a poll. The SECOND IS ANYWHERE IN
+; IT, so a worker that mixes audio, interprets a story or draws half a frame
+; must NOT pair the two blanket-fashion: declare this as a window instead -
+; turn it on immediately before OSAPI_TASK_ALIVE and off immediately after.
+; -----------------------------------------------------------------------------
+%macro OS88_REGION_MOVABLE 0
+    push ax
+    push dx                     ; DX is the instance index in an entry proc
+    mov dx, cs                  ; ...and OUR REGION is the claim
+    mov ax, %%reloc
+    call OSAPI_MEM_MOVABLE
+    pop dx
+    pop ax
+    jmp short %%over
+%%reloc:                        ; BX = the base it WAS at, DX = where it is now
+    ret
+%%over:
+%endmacro
+
+%macro OS88_WORKER_RESTARTABLE 1
+    push ax
+    mov ax, %1
+    call OSAPI_TASK_RESTARTABLE
+    pop ax
+%endmacro
+
+; -----------------------------------------------------------------------------
 ; OS88_BSS totalbytes - declare the package's zeroed-bss size (optional).
 ; Emits nothing; must appear before OS88_IMAGE_END (which supplies the 0
 ; default when this macro is absent). The argument must be a plain constant

@@ -1586,6 +1586,37 @@ _os88_mem_movable:
     ret
 %endif
 
+%ifdef CC_HAS_WORKER
+; int os88_task_restartable(int on) - AX = cc_worker or 0 (SPEC.md 66.6.2).
+;
+; THE OFFSET IS NOT YOURS TO CHOOSE, and that is deliberate. The kernel
+; re-enters a restarted worker with a fresh frame - DS = CS = the new segment,
+; every register zeroed but DX - and the only entry in a C package that is
+; correct under those conditions is `cc_worker` itself, which banks its own SP
+; and pushes its own argument before calling os88_worker(). So this takes a
+; flag and names the entry; a C author cannot get it wrong by taking the
+; address of the wrong function, which is a mistake this SDK cannot detect
+; (SPEC.md 73's rule against taking the address of an overlay function is the
+; same shape one layer along).
+;
+; 0 = the kernel took it, -1 = refused (you are not a live package instance).
+_os88_task_restartable:
+    push bp
+    mov bp, sp
+    xor ax, ax
+    cmp word [bp+4], 0
+    je .set
+    mov ax, cc_worker
+.set:
+    call OSAPI_TASK_RESTARTABLE
+    mov ax, 0
+    jnc .ok
+    dec ax
+.ok:
+    pop bp
+    ret
+%endif
+
 ; unsigned os88_mem_regrow(unsigned seg, int kb) - DX = the claim, AX = the
 ; new size in KB; out DX = the claim's base NOW. ALWAYS TAKE THE ANSWER: a
 ; grow that had to move leaves your old segment pointing at memory that is no

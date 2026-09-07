@@ -169,6 +169,30 @@ first-fit claim lands is a property of the session, not of the code: the same
 6KB first-fits *above* the view cache on a desktop that has been used
 (§66.5.6.2), which is why the listing was made movable after all.
 
+## Regions — the block a package RUNS in (§66.6.1, §66.6.2)
+
+A region is a claim like any other and the same two columns decide it, but the
+holder is unusual: **every word that names it is the KERNEL's**, so its
+relocation proc is very nearly always a `ret` and `OS88_REGION_MOVABLE` emits
+one. What actually decides a region is the *worker*.
+
+| package | region | verdict | note |
+|---|---:|---|---|
+| **SHEET** | 48.5KB | **MOVABLE** | §66.6.1's first customer, and worker-less, so it moves on `I_TASK == 0xFF` alone |
+| **Word** | 56.8KB | **MOVABLE + RESTARTABLE** | the largest region in the tree that hires a worker. `wd_worker` polls four statics and sleeps; a restart costs one poll |
+| **Tank Attack** | 30.9KB | **MOVABLE + RESTARTABLE** | a game loop, every value a static; a restart costs one frame. No move row can cover it — it redraws for ever, so `settle` never returns |
+| **ftpd** | 28.2KB | **MOVABLE + RESTARTABLE** | `fd_step` is a state machine in statics and the restart lands at the loop top, above it, so a transfer resumes at the step it had reached |
+| **Audio** | 30.2KB | **MOVABLE + RESTARTABLE** | hires only when playback starts; until then it is movable on `I_TASK` alone |
+| **Browser** | 19.8KB | **MOVABLE + RESTARTABLE** | `br_nstep` banks a generation and every store is guarded on it, so a fetch a restart abandons writes nothing — `br_abort`'s own design |
+| **every C package** | — | **MOVABLE** | `crt0.asm` declares it at entry; `cc_regreloc` is `cc_ovbind` where there is an overlay, because its `.res` loop writes the live `CS` into the return vectors and inside a relocation proc that CS is the new base |
+| **CWORD**, **RUNCPM** | 60.8 / 56.6KB | **+ RESTARTABLE** | `os88_task_restartable(1)` after the spawn takes; both workers are `for(;;)` polls over statics |
+| ArtfulType, Fractal, Frotz, ModPlug, Note Pad, Tracker | | **MOVABLE, NOT restartable** | the six that declare `OSAPI_MEM_PARKSAFE`. That lets the kernel stop the worker while it is blocked in `gfx_lock` — anywhere in its loop, including halfway through a frame or a mixed buffer — so the honest declaration for them is a *window* around `OSAPI_TASK_ALIVE`, not a blanket. Not taken yet |
+| WEAVE, C64, LOOM | | **MOVABLE** | C64 and LOOM hire no worker at all and say so in their own source; WEAVE's worker trampolines into `WEAVE.WSM`, so its restartability is that module's |
+
+`tests/regapp.py` reads `MC_RLOC` and `inst_restart` back out of the kernel for
+every row above that ships, because a declaration the owner fence refused is
+silent from inside the package.
+
 ## What limits compaction today
 
 Not the mechanism. Two things, in the order they cost:

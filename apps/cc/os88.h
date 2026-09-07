@@ -960,6 +960,45 @@ int os88_mem_movable(unsigned seg, int on);   /* on: 1 = movable, 0 = pin.
 void os88_onmove(unsigned was, unsigned now); /* YOU define this, under
                                                * %define CC_HAS_ONMOVE */
 
+/* --- and your REGION, if you hired a worker (SPEC.md 66.6.2) ---------------
+ * Your region - the block your code, your literals and your statics live in -
+ * is a claim like any other, and os88_mem_movable(<your segment>, 1) declares
+ * it. But the moment you call os88_task_spawn() the kernel has written your
+ * segment into that worker's frame, and its own call chain has pushed it again
+ * since, at depths nothing can compute. So a region with a worker stays PINNED
+ * however you declare it - unless you say this:
+ *
+ *     os88_task_restartable(1);      // in os88_main(), for a poller
+ *
+ * WHAT YOU ARE ASSERTING is stronger than os88_mem_parksafe() and the
+ * difference is the whole of it: parksafe says "you may STOP my worker here",
+ * this says "you may DISCARD what it is standing on and start it again".
+ * os88_worker() begins AGAIN - it does not resume. Everything it needs must
+ * live in a static (which moves with your region) or in a claim of its own
+ * (which has os88_onmove), and never in an automatic across the declaration.
+ *
+ * WHEN IT IS TRUE. The kernel only ever restarts a PARKED worker, and a worker
+ * parks inside os88_task_alive(). So a loop of the ordinary shape -
+ *
+ *     for (;;) { os88_task_alive(win); os88_task_sleep(n); ...statics... }
+ *
+ * - is restartable at the one point it can be restarted at, and may declare
+ * once and leave it. What changes that is os88_mem_parksafe(): with BOTH
+ * declared your worker can also be stopped, and therefore restarted, while it
+ * is blocked in os88_gfx_lock() - which is anywhere in your loop, including
+ * halfway through a frame. If that costs you something, declare this as a
+ * WINDOW instead: turn it on immediately before os88_task_alive() and off
+ * immediately after.
+ *
+ * THE ASYMMETRY TO WEIGH: parksafe declared wrongly costs you a missed
+ * optimisation. This costs you a lost loop iteration - and if your worker was
+ * holding something the declaration was wrong about, it costs you
+ * correctness. Undeclared is the safe answer and it is the default. */
+int os88_task_restartable(int on);            /* on: 1 = you may restart my
+                                               * worker at its entry, 0 =
+                                               * withdraw. 0 = the kernel took
+                                               * it, -1 = refused */
+
 /* --- the PARTS standard (SPEC.md 20.12) ------------------------------------
  * A package that carries more than its own segment - a second segment of
  * code, or an asset it would otherwise trail as a SIDECAR FILE - declares its

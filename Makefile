@@ -4798,6 +4798,16 @@ $(BUILD)/regpin360.img: $(BUILD)/filler.o88 $(BUILD)/sheet.o88 \
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/filler.o88 \
 		$(BUILD)/pinme.o88 $(BUILD)/paint.o88 $(BUILD)/sheet.o88
 
+# ...and the SHIPPED packages that declare it, for tests/regapp.py
+# (SPEC.md 66.6.2). One disk for all of them: the row takes --app, and a
+# package per image would be five builds of the same three spacers.
+REGAPPS := $(BUILD)/word.o88 $(BUILD)/tank.o88 $(BUILD)/ftpd.o88 \
+           $(BUILD)/browser.o88 $(BUILD)/audio.o88
+$(BUILD)/regapp360.img: $(BUILD)/filler.o88 $(BUILD)/paint.o88 $(REGAPPS) \
+                        tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/filler.o88 \
+		$(BUILD)/paint.o88 $(REGAPPS)
+
 # ...and the C SDK's, for tests/cmemmove.py
 # (docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 3). CHELLO is the C toolchain's
 # capability gate (SPEC.md 73) and os88_mem_movable() is the fifth capability

@@ -222,6 +222,16 @@ FAST = [
         "and `make` says 'up to date'. apps/os88ui.inc was missing from NINE "
         "shipped packages and apps/os88type.inc from three; it was found by an "
         "A/B that measured zero because the package never reassembled"),
+    Row("regapp", "soak", py("tests/regapp.py"), 150.0,
+        "SPEC.md 66.6.1/66.6.2 per SHIPPED PACKAGE: five that hire a worker "
+        "declare OS88_REGION_MOVABLE and OS88_WORKER_RESTARTABLE, and a "
+        "declaration the owner fence refused is indistinguishable from one "
+        "that took, from inside the package (66.5.6.2). So this reads MC_RLOC "
+        "and inst_restart back out of the kernel's own tables. regwork proves "
+        "the move; this proves the packages - and it found the region "
+        "declaration placed at the SPAWN, where a package that hires no "
+        "worker never reaches it",
+        wants=("build/regapp360.img",)),
     Row("regwork", "soak", py("tests/regwork.py"), 170.0,
         "SPEC.md 66.6.2: a WORKER-OWNING region moves once the package has "
         "declared a restart point, and the worker comes back. regpin is the "

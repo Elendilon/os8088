@@ -406,6 +406,12 @@ tk_entry:
     call OSAPI_WM_CREATE
     jc .full
     mov [tk_win], bx
+    ; OUR REGION MAY MOVE (SPEC.md 66.6.1). Here, and not beside the
+    ; worker's declaration: a package with NO worker is the case that
+    ; moves most easily, and putting this at the spawn left exactly
+    ; those runs declaring nothing - measured, by the row that reads
+    ; MC_RLOC back out of the kernel's own table.
+    OS88_REGION_MOVABLE
     mov al, 1                       ; an 8-aligned content origin: every
     call OSAPI_WM_SNAP              ; font_run below reaches SPEC.md 6.1's
                                     ; single-store cell, and the score band's

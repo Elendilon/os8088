@@ -815,6 +815,12 @@ wd_entry:
     mov byte [wd_mhi], 0xFF         ; a REAL menu index and a real item
     mov [wd_win], bx                ; the worker (SPEC.md 27.3) has no callback
                                     ; to be handed this in SI
+    ; OUR REGION MAY MOVE (SPEC.md 66.6.1). Here, and not beside the
+    ; worker's declaration: a package with NO worker is the case that
+    ; moves most easily, and putting this at the spawn left exactly
+    ; those runs declaring nothing - measured, by the row that reads
+    ; MC_RLOC back out of the kernel's own table.
+    OS88_REGION_MOVABLE
     push ax                         ; SPEC.md 54.10: the kernel calls this once
     mov ax, wd_onwake               ; our window is on the glass, and the launch
     call OSAPI_WM_ONWAKE            ; document loads in front of it. BX is still
@@ -5874,6 +5880,14 @@ wd_hire:
     call OSAPI_TASK_SPAWN
     jc .out
     mov byte [wd_hired], 1
+    ; ...AND THE WORKER MAY BE RESTARTED (SPEC.md 66.6.2). Hiring one
+    ; would otherwise pin the region for ever - task_spawn wrote our
+    ; segment into that worker's frame before its first instruction:
+    ; Word's worker polls four statics and sleeps; a restart costs one poll.
+    ; The kernel restarts a worker only where it PARKS, which for us is
+    ; inside OSAPI_TASK_ALIVE at the top of the loop; we do not declare
+    ; OSAPI_MEM_PARKSAFE, so the gfx-lock park is not in play.
+    OS88_WORKER_RESTARTABLE wd_worker
 .out:
     pop bx
     pop ax

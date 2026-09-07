@@ -610,6 +610,14 @@ ap_open_track:
     call OSAPI_TASK_SPAWN         ; CF = 1 refused (transient, SPEC.md 20.6)
     jc .notask                    ; no worker slot: say so and stop, rather than
     mov byte [ap_have_worker], 1  ; "Playing" over a ring nothing will feed
+    ; ...AND THE WORKER MAY BE RESTARTED (SPEC.md 66.6.2). Hiring one
+    ; would otherwise pin the region for ever - task_spawn wrote our
+    ; segment into that worker's frame before its first instruction:
+    ; the feed's whole state is in statics and the restart lands above ap_feed.
+    ; The kernel restarts a worker only where it PARKS, which for us is
+    ; inside OSAPI_TASK_ALIVE at the top of the loop; we do not declare
+    ; OSAPI_MEM_PARKSAFE, so the gfx-lock park is not in play.
+    OS88_WORKER_RESTARTABLE ap_worker
 .running:
     mov byte [ap_state], AP_ST_PLAY
     mov word [ap_msg], ap_s_playing

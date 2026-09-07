@@ -1931,6 +1931,39 @@ not fault — it resumed at an offset in memory that was no longer its own and
 wandered off, which is §10.1's *"would not fault; it would run the wrong
 memory"* happening in front of the row that was written for it.
 
+### 10.11 …and the packages that use it
+
+**The kernel side of F delivers nothing until a package declares**, so the same
+wave adopted it. `apps/os88api.inc` gains two macros - `OS88_REGION_MOVABLE`,
+which carries its own `ret` relocation proc and jumps over it so there is no
+second thing to place, and `OS88_WORKER_RESTARTABLE` - and the C SDK gains
+`os88_task_restartable(int)` plus a region declaration in `crt0.asm` itself.
+
+**`cc_regreloc` is `cc_ovbind` and that is not a convenience.** Its `.res` loop
+writes the live `CS` into `cc_ovv_*`, the far vectors the overlay calls BACK
+through, and inside a relocation proc CS is the region's new base - so the one
+routine a C package already had is exactly the one a region move needs. Without
+an overlay it is a `ret`.
+
+**Adopted, and it is 165,765 bytes plus the C packages**: Word (56.8KB), Tank
+Attack (30.9), Audio (30.2), ftpd (28.2), Browser (19.8), and CWORD and RUNCPM
+through the SDK. **Not adopted: the six that declare `OSAPI_MEM_PARKSAFE`**
+(ArtfulType, Fractal, Frotz, ModPlug, Note Pad, Tracker) - that declaration
+lets the kernel stop their worker while it is blocked in `gfx_lock`, which is
+*anywhere* in the loop, so the honest form for them is a window around
+`OSAPI_TASK_ALIVE` rather than a blanket, and it is a per-package judgement
+about what a lost half-frame or half-buffer costs.
+
+**THE PLACEMENT WAS WRONG THE FIRST TIME AND THE ROW CAUGHT IT IN A MINUTE.**
+Both declarations went beside the `OSAPI_TASK_SPAWN` - they read as a pair - and
+a package that hires no worker never reaches that line. Audio hires only when
+playback starts and ftpd only when the card is up, so on a machine with no NIC
+neither ever did: the two packages that move most easily were declaring
+**nothing**. `tests/regapp.py` reads `MC_RLOC` back out of `mem_tab` rather
+than trusting the call, which is the only reason it was visible at all. The
+region declaration is in each entry proc now and only the restart stays at the
+spawn.
+
 ## 10.1 How the rest would be verified
 
 Compaction's success looks exactly like its failure until something reads the

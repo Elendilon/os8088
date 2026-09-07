@@ -423,6 +423,12 @@ fd_entry:
     mov [fd_win], bx
     mov al, 1
     mov bx, [fd_win]
+    ; OUR REGION MAY MOVE (SPEC.md 66.6.1). Here, and not beside the
+    ; worker's declaration: a package with NO worker is the case that
+    ; moves most easily, and putting this at the spawn left exactly
+    ; those runs declaring nothing - measured, by the row that reads
+    ; MC_RLOC back out of the kernel's own table.
+    OS88_REGION_MOVABLE
     call OSAPI_WM_SNAP              ; 8-aligned content, so every log line takes
                                     ; font_run's single-store path on the two
                                     ; mono adapters (SPEC.md 11.94)
@@ -1590,6 +1596,16 @@ fd_hire:
     call OSAPI_TASK_SPAWN
     jc .no                          ; a refusal is an ORDINARY outcome (SPEC.md
     mov byte [fd_spawned], 1        ; 8), and the caller has to hear about it
+    ; ...AND THE WORKER MAY BE RESTARTED (SPEC.md 66.6.2). Hiring one
+    ; would otherwise pin the region for ever - task_spawn wrote our
+    ; segment into that worker's frame before its first instruction:
+    ; fd_step is a state machine whose state is in statics, and the restart
+    ; lands at the loop TOP - before it - so a transfer resumes at the step
+    ; it had reached.
+    ; The kernel restarts a worker only where it PARKS, which for us is
+    ; inside OSAPI_TASK_ALIVE at the top of the loop; we do not declare
+    ; OSAPI_MEM_PARKSAFE, so the gfx-lock park is not in play.
+    OS88_WORKER_RESTARTABLE fd_worker
 .out:
     pop bx
     pop ax
