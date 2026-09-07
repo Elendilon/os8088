@@ -71,7 +71,7 @@ Total assertions reported by the shared harness across the tier: 6,919 - of
 which `image` alone is 4,634, nine shipped volumes walked by an independent
 FAT12 reader in 26 milliseconds.
 
-### The 30 that left fast
+### The 29 that left fast
 
 `fast` is the one tier nobody opts into, so its cost lands on the contributor
 who is NOT working on its subject. Two questions retire a row, either one on
@@ -106,7 +106,6 @@ fails the same way, and is one `-k` away.
 | `wab` | 0.038s | one package or driver | the `.WAB` format is the Weave family's |
 | `inktab` | 0.032s | one package or driver | PAINT's half of the mirror — beside a PAINT or `gfx_inktab` change |
 | `ktags` | 0.029s | kernel-internal | an owner tag is a kernel constant |
-| `kernbudget` | 0.028s | kernel-internal | kernel bookkeeping; a kernel change already runs `kernsize` |
 | `dirwsize` | 0.025s | kernel-internal | the directory cache's arithmetic |
 | `pgrank` | 0.021s | kernel-internal | the eviction order is the memory manager's own |
 | `assocpage` | 0.021s | kernel-internal | the association layer's generator; `assocglyph` was already soak |
