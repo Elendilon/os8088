@@ -263,7 +263,7 @@ def main(argv):
         m.run()
         check(byte("cs_page") == 2, "Flight -> Settings turns to the page (%d)"
               % byte("cs_page"))
-        # MODE IS NOT ONE OF THEM ON THIS MACHINE (SPEC.md 88.13.10). This
+        # MODE IS NOT ONE OF THEM ON THIS MACHINE (SPEC.md 88.13.11). This
         # row flies a Hercules, which has one raster, so the Mode row is left
         # OFF the page rather than greyed and the painter writes SIX rects.
         # Asserting seven made this row red for the fix working. The row that

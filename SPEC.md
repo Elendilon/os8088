@@ -104010,7 +104010,7 @@ drop-downs get a release the title page never armed.
   walk, which is how the per-segment marking of §88.3.2 was first read as
   45 ms and turned out, on the A/B, to be 9.
 
-#### 88.13.10 The Mode row is HIDDEN on a one-mode display, not greyed
+#### 88.13.11 The Mode row is HIDDEN on a one-mode display, not greyed
 
 §88.13's Settings page has four rows and the last is Mode, which chooses
 between the two rasters a display offers — Mode X and CGA320 on a VGA,

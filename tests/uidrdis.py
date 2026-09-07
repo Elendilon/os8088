@@ -11,7 +11,7 @@ is the field's "it still drops down, and then is not disabled".
 
 The state is the CONTROL's now (`OS88UI_DR_DIS`, written by the painter), and
 this row drives the library through the one package that greys one. It is
-NOT a test of Clear Skies' Mode row: 88.13.10 hides that row on the display
+NOT a test of Clear Skies' Mode row: 88.13.11 hides that row on the display
 where it has no meaning, so the row picks a LIVE drop-down and greys it by
 hand, which is the library's contract and nobody else's.
 
@@ -73,7 +73,7 @@ def main(argv):
 
         settings()
 
-        # A LIVE control, and not the Mode row: 88.13.10 hides that one where
+        # A LIVE control, and not the Mode row: 88.13.11 hides that one where
         # it has no meaning, and this row is about the LIBRARY
         rec = mp["cs_drbld"]
 

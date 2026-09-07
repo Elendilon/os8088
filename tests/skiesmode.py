@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""THE MODE ROW IS HIDDEN WHERE THE DISPLAY HAS ONE (SPEC.md 88.13.10).
+"""THE MODE ROW IS HIDDEN WHERE THE DISPLAY HAS ONE (SPEC.md 88.13.11).
 
     python3 tests/skiesmode.py [--machine ...] [--modes 0|1] [--clobber-hide]
 
@@ -24,7 +24,7 @@ Both arms are registered, because a change that hid the row everywhere would
 pass arm 1 and is exactly what this is guarding against.
 
 --clobber-hide makes `cs_nsets` answer the full count whatever the display -
-`dec cx` NOPed out - which is the tree before 88.13.10, and arm 1 goes red.
+`dec cx` NOPed out - which is the tree before 88.13.11, and arm 1 goes red.
 """
 import argparse
 import os

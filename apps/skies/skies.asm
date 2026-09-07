@@ -782,7 +782,7 @@ CS_SETDY  equ 34                    ; ...and the pitch down to the second
 CS_SETLH  equ 11                    ; a label's height above its control
 CS_SETFY  equ 90                    ; the fill boxes' row...
 CS_SETFX  equ 44                    ; ...their first column and pitch
-CS_SETFW  equ 124                   ; ...WIDE ENOUGH FOR THE NOTES (88.13.10):
+CS_SETFW  equ 124                   ; ...WIDE ENOUGH FOR THE NOTES (88.13.11):
 CS_SETFB  equ 120                   ; 'Buildings' plus its own is 17 + 72 + 8 +
                                     ; 32 = 129 from the box's left edge, and
                                     ; the row has 44..304 for two of them
@@ -947,7 +947,7 @@ cs_set_page:
     ; --- the rows: a label, and the control's rect beside it ---------------
     call cs_nsets                   ; ...however many this display HAS
     mov cx, di                      ; (DI = the last, so the count is
-    inc cx                          ;  one more - 88.13.10)
+    inc cx                          ;  one more - 88.13.11)
     xor di, di                      ; DI = the control: 0 and 1 down the left
 .row:                               ; column, 2 and 3 down the right
     push cx
@@ -970,7 +970,7 @@ cs_set_page:
     mov si, [cs_setlbls + si]
     mov al, CBLACK
     call cs_at_left
-    push si                         ; ...and its hotkey beside it (88.13.10)
+    push si                         ; ...and its hotkey beside it (88.13.11)
     mov si, di
     shl si, 1
     mov di, [cs_sethk + si]
@@ -1046,7 +1046,7 @@ cs_set_page:
     call os88ui_chk
     pop di
     push di                         ; ...and its hotkey after the label the
-    mov ax, di                      ; widget just drew (SPEC.md 88.13.10)
+    mov ax, di                      ; widget just drew (SPEC.md 88.13.11)
     mov bl, CS_SETFW
     mul bl
     add ax, CS_SETFX + OS88UI_CKBOX + OS88UI_CKGAP
@@ -1064,7 +1064,7 @@ cs_set_page:
     LOOPF .dbox
     call cs_nsets                   ; ...however many this display HAS
     mov cx, di                      ; (DI = the last, so the count is
-    inc cx                          ;  one more - 88.13.10)
+    inc cx                          ;  one more - 88.13.11)
 .ddrop:
     push cx
     mov si, di
@@ -1115,7 +1115,7 @@ cs_modechoice:
     clc
     ret
 
-; cs_nsets - DI = the LAST live Settings row's index (SPEC.md 88.13.10); a
+; cs_nsets - DI = the LAST live Settings row's index (SPEC.md 88.13.11); a
 ;            caller wanting the COUNT takes `mov cx, di` / `inc cx`.
 ;            EVERY OTHER REGISTER IS PRESERVED, CX INCLUDED, and that is the
 ;            whole reason it answers in DI: three of the seven walks are the
@@ -1155,7 +1155,7 @@ cs_setsync:
     push di
     call cs_nsets                   ; ...however many this display HAS
     mov cx, di                      ; (DI = the last, so the count is
-    inc cx                          ;  one more - 88.13.10)
+    inc cx                          ;  one more - 88.13.11)
     xor di, di
 .d:
     mov si, di
@@ -1545,7 +1545,7 @@ cs_at_centre:
     pop cx
     ret
 
-; cs_hkat - a hotkey note after a label (SPEC.md 88.13.10)
+; cs_hkat - a hotkey note after a label (SPEC.md 88.13.11)
 ; in:  SI = the label, DI = the note, BX = content y, CX = the label's x
 ; Preserves every register. The note is placed off the label's OWN length
 ; rather than at a column, because 'Size' and 'Draw Distance' are 9 pixels
@@ -1708,7 +1708,7 @@ cs_ondrag:
     jne .title
     call cs_nsets                   ; ...however many this display HAS
     mov cx, di                      ; (DI = the last, so the count is
-    inc cx                          ;  one more - 88.13.10)
+    inc cx                          ;  one more - 88.13.11)
     xor di, di
 .d:
     push cx
@@ -1959,7 +1959,7 @@ cs_setlbls:  dw cs_s_lbld, cs_s_llod, cs_s_lsize, cs_s_lmode
 cs_setdrops: dw cs_drbld, cs_drlod, cs_drsize, cs_drmode
 CS_NSETALL   equ ($ - cs_setdrops) / 2  ; ...and MODE IS LAST, which is what
                                     ; lets cs_nsets hide it by returning one
-                                    ; fewer (88.13.10)
+                                    ; fewer (88.13.11)
 cs_setboxes: dw cs_ckterr, cs_ckbld
 CS_NFILL     equ ($ - cs_setboxes) / 2
 cs_setbytes: dw cs_setbld, cs_setlod, cs_setsize, cs_modepref

@@ -2532,7 +2532,7 @@ SOAK = [
         " cs_pnow back to 0 and check 1 goes red at about half the frames",
         needs=("marty",), serial=True),
     Row("skiesmode", "soak", py("tests/skiesmode.py"), 40.0,
-        "SPEC.md 88.13.10: the Settings page's MODE row is HIDDEN where the"
+        "SPEC.md 88.13.11: the Settings page's MODE row is HIDDEN where the"
         " display has one raster, not greyed. 47 rule 2 greys a control the"
         " machine could use in another STATE, and the adapter is not a state"
         " - it is fixed for the session, so a greyed Mode row is a promise"
@@ -2547,7 +2547,7 @@ SOAK = [
     Row("skiesmodevga", "soak",
         py("tests/skiesmode.py", "--machine", "os8088_xt_vga", "--modes", "1"),
         40.0,
-        "SPEC.md 88.13.10 the other way round: a display that HAS two rasters"
+        "SPEC.md 88.13.11 the other way round: a display that HAS two rasters"
         " keeps the Mode row. Both arms are registered because a change that"
         " hid the row EVERYWHERE would pass the Hercules one, and 'hide it'"
         " must not come to mean 'delete it'",
