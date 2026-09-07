@@ -202,16 +202,15 @@ def capabilities():
     # one outcome a probed capability exists to prevent.
     if os.path.exists(os88build.at("build/wire360.img")):
         caps.add("wiredisk")
-    # THE SAME SHAPE ONE PACKAGE ALONG, and it is here because it was found
-    # by the underrun warning rather than by anybody noticing: `skiesdiag`
-    # opens a PRIVATE TREE (`make skiesdiag`, a -DCSDIAG build of a package
-    # that ships without it), nothing in the suite built one, and the row
-    # printed "SKIP" and returned 0 - so a soak scored it `ok` in 0.1s
-    # against 20s declared and the watchdog went untested for the whole of
-    # its life. A skip is the box declining to answer, and only a capability
-    # can say that; a row cannot say it about itself and be believed.
-    if os.path.exists(os88build.at("build/skiesdiag/apps360.img")):
-        caps.add("skiesdiag")
+    # `skiesdiag` WANTED ONE OF THESE and got `wants=` instead, which is the
+    # note worth leaving. It opens a PRIVATE TREE (a -DCSDIAG build of a
+    # package that ships without it), nothing in the suite built one, and the
+    # row printed "SKIP" and returned 0 - so a soak scored it `ok` in 0.1s
+    # against 20s declared and the watchdog went untested for its whole life.
+    # A capability probed on that tree fixes the false green and NOT the
+    # staleness: existence is not freshness (docs/WRITING-TESTS.md 13 row 20),
+    # and an apps/skies edit then leaves a tree that exists and lies. `wants=`
+    # runs make on it every time, which is both.
     return caps
 
 

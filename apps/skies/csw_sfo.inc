@@ -154,7 +154,7 @@ cs_m_sfo_cblf: db CSM_STACK, 2, 0, 4, CSI_LINE, 0
 ; The Pacific, widening south-west from the gate. Its east end is the gate
 ; ribbon's west end.
 cs_m_sfo_ocn: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
-    dw 2100, .v, cs_f_rib2, 0
+    dw 2203, .v, cs_f_rib2, 0
 .v: dw -1400, -1700
     dw     0,  -950
     dw  1400,  -152
@@ -171,7 +171,7 @@ cs_m_sfo_ocnf: db CSM_FLAT, 3, 0, 2, CSI_RIVLINE, 0
 ; towers stand on land (see the header). This is the piece the aeroplane flies
 ; along, so it is the one with the longer range.
 cs_m_sfo_gate: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
-    dw 1100, .v, cs_f_rib2, 0
+    dw 1105, .v, cs_f_rib2, 0
 .v: dw -800, -352
     dw    0, -338
     dw 1000, -430

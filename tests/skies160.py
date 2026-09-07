@@ -118,7 +118,7 @@ def main(argv):
 
     with os88ui.boot(a.image, apps=a.apps, machine=a.machine) as ui:
         m = ui.m
-        ui.path("B:/GAMES/SKIES.O88")
+        win = ui.path("B:/GAMES/SKIES.O88")
         slot, seg = dispapps.pkg_seg(m, 0)
         lin = seg << 4
         base = int.from_bytes(m.readseg(seg, 8, 2), "little")
@@ -191,6 +191,12 @@ def main(argv):
               "offered on (vid_kind %d)" % byte("cs_vidk"))
 
         # --- 1. the player can reach it, through the Settings page ----------
+        # ITS OWN WINDOW FIRST, and CONFIRMED: menu_pick reads the FRONT
+        # window's bar, and a launch is asynchronous - under load the Disk
+        # window was still in front, so the bar read ['Apple', 'File', 'Edit',
+        # 'Nav', 'Builtins', 'Clear Skies'] and the row raised on a menu that
+        # was simply not on it (1 run in 4 at four-way concurrency)
+        ui.raise_window(win)
         ui.menu_pick("Flight", "Settings")
         m.advance(frames=40)
         m.run()

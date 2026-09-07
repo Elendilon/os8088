@@ -245,9 +245,10 @@ cs_m_mia_cw2: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
 ; Three towers of their own and three of csworld.inc's anonymous blocks. The
 ; tallest is four levels on cs_f_sacre's thirteen faces: a 26 m podium, a
 ; setback to a 160 m shaft and a 196 m crown, which is Miami's tallest
-; compressed from 233. Its radius is the honest 210 and not CS_BOX's
-; wx + wz + h/2, because a tower that tall is a spike and the box formula
-; understates one badly.
+; compressed from 233. Its radius is 210, written here as a
+; local fix when CS_BOX's old wx + wz + h/2 was found to understate a spike
+; badly; 88.5.11 made a sound bound the rule for every model, and this one
+; was already over its 200, so it is unchanged.
 cs_m_mia_sefc: db CSM_STACK, 4, 13, 0, CSI_LINE, 0
     dw 210, .v, cs_f_sacre, 0
 .v: dw 28, 0, 28

@@ -292,6 +292,16 @@ FAST = [
         " stands in that world's own water - every base footprint against"
         " every river polygon, edges and containment and not just corners."
         " Nine locations and eight worlds since 88.6.4, and it walks them all"),
+    Row("csrad", "fast", py("tests/unit/t_csrad.py"), 2.0,
+        "SPEC.md 88.5.11: no CLEAR SKIES model declares a CSM_RAD smaller"
+        " than its own vertices need. Three things read that bound and"
+        " cs_sizepx's comment has always said it must never be under the true"
+        " radius - and it was, for 36 of 122 models, because every macro"
+        " computed wx + wz + h/2 where the origin is the BASE. cs_projall"
+        " trusts it to say an object is wholly in front of the near plane and"
+        " cs_edge1 then draws each edge out of cs_sxv without testing cs_fv,"
+        " so a vertex never projected this frame drew a line from whatever"
+        " the last object left in its slot - unclipped, across the cockpit"),
     Row("csworlds", "fast", py("tests/unit/t_csworlds.py"), 2.0,
         "SPEC.md 88.6.4: every CLEAR SKIES world costs about what PARIS costs."
         " The 12 fps budget was measured on Paris alone (88.12), so a world"
@@ -1925,6 +1935,21 @@ SOAK = [
         " analysis. The trainer is wired to it through cs_axisp."
         " --clobber-body is the red run and it reproduces both reports",
         needs=("marty",), serial=True),
+    Row("skiesrad", "soak", py("tests/skiesrad.py"), 34.0,
+        "SPEC.md 88.5.11: cs_pwhole never lies. cs_projall PREDICTS off"
+        " CSM_RAD that an object is wholly in front of the near plane, and"
+        " cs_edge1 then reads cs_sxv without testing cs_fv while cs_pinview"
+        " turns cs_seg's clip off - so a vertex that was never projected this"
+        " frame drew an edge from whatever the last object left in its slot,"
+        " unclipped, across the cockpit. Reported off the machine as \"in"
+        " wire mode sometimes lines will draw across the cockpit\". It dives"
+        " past the Shard, the tallest model in any world, and asserts the"
+        " INVARIANT rather than the pixels - deliberately, because whether a"
+        " line lands on the panel depends on what was in the slot before, so"
+        " it showed on 1 of 80 poses and a pixel row would go green on a"
+        " broken build four times in five. --clobber-rad restores BOTH halves"
+        " (the Shard's old 209, and no 88.5.11.1 guard) and it goes red",
+        needs=("marty",), serial=True),
     Row("skiesdiag", "soak", py("tests/skiesdiag.py"), 20.0,
         "SPEC.md 88.14: Clear Skies' watchdog, which is an instrument for a"
         " machine that has HARD FROZEN - int 08h hooked for the length of the"
@@ -1934,11 +1959,13 @@ SOAK = [
         " such a thing can be tested: it patches a `jmp $` over cs_render and"
         " requires all three blocks to NAME that address off the glass while"
         " the counter goes on climbing. Needs `make skiesdiag` (a private"
-        " tree; the shipped skies.o88 is byte-identical without it), which is a"
-        " CAPABILITY and not the row's own business to report: it said SKIP"
-        " and returned 0 for its whole life, so the suite scored it `ok` in"
-        " 0.1s and nothing ever drove the watchdog",
-        needs=("marty", "skiesdiag"), serial=True),
+        " tree; the shipped skies.o88 is byte-identical without it) - DECLARED,"
+        " because it is not the row's own business to report its absence: it"
+        " said SKIP and returned 0 for its whole life, so the suite scored it"
+        " `ok` in 0.1s and nothing ever drove the watchdog. wants= builds the"
+        " tree AND keeps it current, which a capability cannot do",
+        needs=("marty",), wants=("build/skiesdiag/apps360.img",),
+        serial=True),
     Row("skiesadi", "soak", py("tests/skiesadi.py"), 30.0,
         "SPEC.md 88.9.2.2: THE HARD FREEZE, reduced to one instruction. The"
         " attitude indicator drew its horizon bar at t x tan(roll) and got"

@@ -84,7 +84,7 @@ cs_m_eiffelf: db CSM_STACK, 2, 0, 4, CSI_LINE, 0    ; the far one: the four
 ;     that is a row of dither at the horizon is a segment or two and not a
 ;     dozen transformed vertices (88.6.1) ----------------------------------
 cs_m_rive0: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
-    dw 1550, .v, cs_f_rib2, 0
+    dw 1741, .v, cs_f_rib2, 0
 .v: dw 1424, -1000
     dw -276, 99
     dw -1276, 700
@@ -92,12 +92,12 @@ cs_m_rive0: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
     dw -190, 235
     dw -1190, 834
 cs_m_rive0f: db CSM_FLAT, 3, 0, 2, CSI_RIVLINE, 0
-    dw 1550, .v, 0, cs_e_road2
+    dw 1739, .v, 0, cs_e_road2
 .v: dw 1467, -933
     dw -233, 167
     dw -1233, 767
 cs_m_rive1: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
-    dw 1373, .v, cs_f_rib2, 0
+    dw 1391, .v, cs_f_rib2, 0
 .v: dw 1224, -600
     dw 43, 191
     dw -1333, 187
@@ -105,12 +105,12 @@ cs_m_rive1: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
     dw 91, 343
     dw -1333, 347
 cs_m_rive1f: db CSM_FLAT, 3, 0, 2, CSI_RIVLINE, 0
-    dw 1373, .v, 0, cs_e_road2
+    dw 1375, .v, 0, cs_e_road2
 .v: dw 1267, -533
     dw 67, 267
     dw -1333, 267
 cs_m_rivc0: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
-    dw 1083, .v, cs_f_rib2, 0
+    dw 1090, .v, cs_f_rib2, 0
 .v: dw 1019, 239
     dw 26, -9
     dw -957, -450
@@ -123,7 +123,7 @@ cs_m_rivc0f: db CSM_FLAT, 3, 0, 2, CSI_RIVLINE, 0
     dw 0, 67
     dw -1000, -383
 cs_m_rivc1: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
-    dw 1350, .v, cs_f_rib2, 0
+    dw 1624, .v, cs_f_rib2, 0
 .v: dw 1310, 933
     dw -83, -163
     dw -1083, -962
@@ -131,7 +131,7 @@ cs_m_rivc1: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
     dw -183, -37
     dw -1183, -838
 cs_m_rivc1f: db CSM_FLAT, 3, 0, 2, CSI_RIVLINE, 0
-    dw 1350, .v, 0, cs_e_road2
+    dw 1615, .v, 0, cs_e_road2
 .v: dw 1267, 1000
     dw -133, -100
     dw -1133, -900

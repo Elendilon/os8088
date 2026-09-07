@@ -1314,8 +1314,22 @@ cs_inwater:
     mov [cs_wpz], ax
     call cs_wabs
     add ax, cx                      ; ...Manhattan-rejected on the model's own
-    cmp ax, [di + CSM_RAD]          ; radius, which is what keeps a touchdown
-    jg .next                        ; from walking every ribbon in the world
+    mov bx, [di + CSM_RAD]          ; radius, which is what keeps a touchdown
+    mov dx, bx                      ; from walking every ribbon in the world
+    shr dx, 1                       ; --- AND ONE AND A HALF OF IT, because
+    add bx, dx                      ;     the sum is a MANHATTAN distance and
+    cmp ax, bx                      ;     CSM_RAD is a EUCLIDEAN radius
+    jg .next                        ;     (SPEC.md 88.5.11): |dx| + |dz| runs
+                                    ;     to sqrt(2) x the radius at 45
+                                    ;     degrees, so a bare compare rejects
+                                    ;     a point that IS over the water -
+                                    ;     the Seine's pieces lie diagonally
+                                    ;     and their corners are exactly where
+                                    ;     the two measures diverge most. 3/2
+                                    ;     is over sqrt(2) and is a shift and
+                                    ;     an add; the rejected set only grows,
+                                    ;     and what it grows by is points this
+                                    ;     was wrong about
     mov ax, [di + CSM_VERTS]
     mov [cs_wvt], ax
     mov cl, [di + CSM_NF]

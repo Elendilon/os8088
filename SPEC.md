@@ -95366,6 +95366,104 @@ are at the same world x and z, a yaw being a rotation - and
 polygon down the fan with a length of one, and the guest's sum then differs
 from the host's shoelace on twelve scenes.
 
+#### 88.5.11 `CSM_RAD` must never be under the model's own radius
+
+Reported off the machine: *"in building/ground wire mode, with otherwise max
+settings, sometimes lines will draw across the cockpit."*
+
+`CSM_RAD` is an upper bound on the model's EUCLIDEAN radius. Every consumer
+but one adds it to a depth or subtracts it from one - `cs_consider`'s cone,
+`cs_drawobj`'s near test, `cs_projall`'s - which is sphere arithmetic.
+§88.5's comment has said since `cs_sizepx` was written that *"it must never
+be under the true radius"*.
+
+**It was under the true radius for 36 of 122 models.** Every macro computed
+`wx + wz + h / 2`, which is the bound for a model whose origin is its
+CENTRE, and the origin here is the BASE: the vertical reach is `h`. The
+Shard is 306 m and declared 209. The Empire State is 389 and declared 285.
+
+What that costs is not a rounding error, because two fast paths are built on
+the bound being sound:
+
+  * `cs_projall` sets **`cs_pwhole`** when `oz - r >= near` - "no vertex of
+    this object is behind the near plane" - and `cs_edge1` opens
+    `cmp byte [cs_pwhole],0 / jne .both`, which reads `cs_sxv`/`cs_syv`
+    WITHOUT LOOKING AT `cs_fv`. A vertex that took `.behind` was never
+    projected this frame, so its slot still holds **whatever the last object
+    to use that index left there** - a real screen coordinate from somewhere
+    else in the scene.
+  * `.conv` then sets **`cs_pinview`** from the box of the projected
+    vertices, which never saw the behind ones, and `cs_seg` opens by
+    skipping the clip entirely when it is set.
+
+So the edge is drawn from a real vertex to a stale one, with no clip, and it
+goes wherever that stale coordinate is - including across the panel. Both
+halves are needed, which is why it is intermittent: whether a line lands on
+the cockpit depends on what the previous object happened to leave behind.
+
+**Measured, on the guest.** Diving past the Shard at LCY, 160 m out at 220 m
+with the nose 60 degrees down, High/Ultra/wire: `cs_m_lcy_shd`, `nv=8`,
+`cs_pwhole=1`, `cs_pinview=1`, **`cs_fv = 1 1 1 1 0 0 0 0`** - the four base
+vertices projected and the four apex vertices behind the near plane, never
+projected, drawn anyway. The pixel A/B is `cs_seg`'s own `je .test` patched
+to `jmp`, so every segment is clipped: clipping cannot remove a pixel that
+was inside the view, so **a panel that differs is a line that got out**.
+
+The fix is the bound, and it is EXACT everywhere. The 22 hand-written models
+that were under carry the ceiling of their own Euclidean radius, and the
+macros compute the same thing at ASSEMBLY time: `CS_RAD3` is
+`ceil(sqrt(a^2 + b^2 + c^2))` by Newton from an upper bound - it converges
+from above, so the `%if %%n >= CS_RADV` is the stop rather than a step count
+- and each macro takes the larger of a base corner and a top one.
+
+**Exact and not merely sound, and that was forced by a red gate.** The first
+version summed the terms, which is the only bound with no square root in it,
+and that is 4,000 for NEPAL's peak where 3,612 is the truth - 11% of a radius
+on the models where the height dwarfs the plan. A radius is what
+`cs_consider` files an object on, so 11% files mountains that draw nothing:
+`skiesocc` went red, the extra occluders having moved the pass's verdicts
+until one of them hid a mountain the eye can see. With the square root the
+same frame is **201.1 ms against 225.7**, and several of NEPAL's hand-set
+radii come DOWN - the wall 2,600 to 2,062 - because an exact bound is
+tighter than the estimates that were there.
+`tests/unit/t_csrad.py` decodes every model out of `build/skies.bin` and
+fails the build if any declares less than its own vertices need, which is
+what makes the sentence in `cs_sizepx`'s comment a fact rather than a claim:
+it has been written down since the routine was, and was false of the data
+the whole time.
+
+**Euclidean and not Manhattan, and that was measured rather than assumed.**
+The first fix raised every model to `max(|x| + |y| + |z|)`, which serves
+`cs_inwater` too - and it cost **13.6% of a frame at PARIS-ISSY, 116.6 ->
+132.5 ms, for a view that was BYTE-IDENTICAL**: `cs_nvisn` went 8 to 10 and
+the two extra objects drew nothing at all. The rivers are what did it, being
+long and diagonal, where Manhattan is 40% over Euclidean. So the bound is
+Euclidean, and the one consumer that is not sphere arithmetic is given the
+slack it needs instead: `cs_inwater` rejects on `|dx| + |dz|`, a Manhattan
+distance, so it compares against **3/2 of `CSM_RAD`** - over sqrt(2), a
+shift and an add. That is also a fix in its own right: with a bare compare
+it rejected points that really were over the water, and the Seine's diagonal
+corners are exactly where the two measures diverge most.
+
+##### 88.5.11.1 ...and `cs_pwhole` is OBSERVED, not predicted
+
+Five bytes in `cs_projall`'s `.behind` clear `cs_pwhole`. The prediction off
+`CSM_RAD` is what picks the fast path, and this is the moment it is found
+out: a vertex behind the near plane means the object was not whole, so
+`.conv` is skipped, `cs_pinview` stays off, and every face and edge goes
+back on the per-vertex path - which is correct for **any** bound at all.
+
+It costs nothing on the fast path, because it is on a branch that is already
+the slow case. With the bound sound it cannot fire. It is there so that a
+model added tomorrow with a wrong radius costs a slow frame instead of a
+line across the cockpit, and so that the two are not one failure: the gate
+catches the data at build time, this catches it at run time.
+
+What it leaves behind is `cs_oby0`/`cs_oby1` already widened by the vertices
+`.box` took before it fired, so the object marks more rows than it drew on.
+That is the safe direction - rows blitted that did not change - and not
+worth 12 bytes of sentinel on a path a sound bound never reaches.
+
 ### 88.6 The world (`apps/skies/csworld.inc`)
 
 Metres, x east, z north, y up, the Eiffel Tower at the origin. Thirty-odd

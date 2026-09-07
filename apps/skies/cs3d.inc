@@ -1466,10 +1466,16 @@ cs_drawobj:
     ret
 
 ; cs_sizepx - DX:AX = 0.75 x the model's radius x scly, the size tests'
-;             measure: CSM_RAD is |wx| + |wz| + h/2, a Manhattan bound that
-;             the cull needs (it must never be under the true radius) and
-;             that overstates a box's real extent by up to 3/1.73; three
-;             quarters of it is still over. SI = the model. Clobbers BX.
+;             measure: CSM_RAD is max(|x| + |y| + |z|) over the model's own
+;             vertices (SPEC.md 88.5.11), a Manhattan bound that the cull
+;             needs (IT MUST NEVER BE UNDER THE TRUE RADIUS) and that
+;             overstates a box's real extent by up to 3/1.73; three quarters
+;             of it is still over. SI = the model. Clobbers BX.
+;             That sentence in brackets was here, and was false of the data
+;             for as long as it has been written down - the macros halved the
+;             height, 36 of 122 models were under their own radius, and
+;             tests/unit/t_csrad.py is what makes the claim checkable rather
+;             than repeated.
 cs_sizepx:
     mov ax, [si + CSM_RAD]
     mov bx, ax
@@ -1557,14 +1563,16 @@ cs_boxlod:
     xchg bx, dx                     ; seen from below: the top is lower
 .y:
     ; --- AND REFUSE ONE THAT IS NOT SMALL (SPEC.md 88.5.4.1). The gate that
-    ;     sent us here is on CSM_RAD, which for a STACK is wx + wz + h/2 -
-    ;     and that under-states a TALL building's height, because the drawn
-    ;     rectangle's height is the WHOLE of h projected. Measured over 210
-    ;     poses it let rectangles of 22 x 3 through on a 400-wide view,
-    ;     where its own comment claims six pixels. So the test is on the
-    ;     RECTANGLE and not on an estimate of it, and a refusal costs three
-    ;     projections and takes the full path - which is what the object
-    ;     wanted anyway.
+    ;     sent us here is on CSM_RAD, an ESTIMATE of the object's reach and
+    ;     not the height of the rectangle actually drawn - which is the whole
+    ;     of h projected. Measured over 210 poses it let rectangles of 22 x 3
+    ;     through on a 400-wide view, where its own comment claims six
+    ;     pixels. So the test is on the RECTANGLE and not on an estimate of
+    ;     it, and a refusal costs three projections and takes the full path -
+    ;     which is what the object wanted anyway.
+    ;     (The estimate used to UNDER-state a tall building, h/2 where the
+    ;     origin is the base; 88.5.11 fixed that and this test still stands,
+    ;     because a sound bound is still not the drawn rectangle.)
     ;     THE HEIGHT GETS ITS OWN BOUND (88.5.4.4). The poses that made the
     ;     complaint were WIDE and flat - 22x3, 20x2, 18x2 - and holding the
     ;     height to the same eight put a two-pixel-wide tower back on the
@@ -1878,6 +1886,24 @@ cs_projall:
     jmp short .next
 .behind:
     mov word [cs_fv + di], 0
+    ; --- ...AND THE OBJECT WAS NOT WHOLE AFTER ALL (SPEC.md 88.5.11.1).
+    ;     cs_pwhole is a PREDICTION off CSM_RAD, and this is the moment it
+    ;     is found out: a vertex behind the near plane has no cs_sxv this
+    ;     frame, and cs_edge1's `jne .both` would draw an edge to whatever
+    ;     the last object left in that slot - unclipped, because .conv would
+    ;     have set cs_pinview off a box that never saw this vertex. Clearing
+    ;     it here costs nothing on the fast path (this branch is the slow
+    ;     case already), skips .conv, and puts every face and edge back on
+    ;     the per-vertex path, which is CORRECT for any radius at all. With
+    ;     88.5.11's bound sound it cannot fire; it is what makes a wrong
+    ;     bound a slow frame instead of a line across the cockpit.
+    ;     What it leaves behind is cs_oby0/cs_oby1 already widened by the
+    ;     vertices .box took before this fired, so cs_markacc accumulates
+    ;     onto a box instead of onto cs_drawobj's sentinel and the object
+    ;     marks MORE rows than it drew on. That is the safe direction - rows
+    ;     blitted that did not change - and it is not worth 12 bytes of
+    ;     sentinel to tidy up a path a sound bound never reaches.
+    mov byte [cs_pwhole], 0
 .next:
     add di, 2
     pop cx

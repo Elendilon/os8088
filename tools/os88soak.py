@@ -451,10 +451,21 @@ PREWARM = [
     ("build/weave.img", "weavedisk"),
     ("build/loom.img", "loomdisk"),
     ("build/c64360.img", "c64disk"),
-    ("build/skiesdiag/apps360.img", "skiesdiag"),
+    ("build/skiesdiag/apps360.img", "skiesdiag"),      # ...and ALWAYS, below
     ("build/muptest.img", "build/muptest.img"),
     ("build/spantest.img", "spantest"),
 ]
+
+
+# **EXISTENCE IS NOT FRESHNESS** (docs/WRITING-TESTS.md 13 row 20). A PRIVATE
+# TREE is built by a recursive make into a directory of its own, and nothing
+# in the shipped graph depends on it - so an edit to apps/skies/ leaves
+# build/skiesdiag/ sitting there, existing, describing a package the guest has
+# not got. `skiesdiag` checks its own tree and FAILS naming it, which is the
+# behaviour row 20 asks for; this is what stops it having to. A no-op
+# `make skiesdiag` is 0.9s, so it is cheaper to always run than to reason
+# about.
+ALWAYS = {"skiesdiag"}
 
 
 def prewarm(verbose=True):
@@ -481,7 +492,7 @@ def prewarm(verbose=True):
 
     made, failed = [], []
     for art, target in PREWARM:
-        if os.path.exists(os.path.join(ROOT, art)):
+        if os.path.exists(os.path.join(ROOT, art)) and target not in ALWAYS:
             continue
         r = subprocess.run(["make", "-s", target], cwd=ROOT,
                            capture_output=True, text=True)
