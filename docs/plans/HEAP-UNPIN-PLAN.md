@@ -1266,7 +1266,7 @@ first two are worth taking whatever is decided about the rest.
 | **B** | **Modules become purgeable** (§3.3, §4.3) at `MEM_PG_MED`, with a PER-SPAN pin and `FDLG.DRV` excluded: `resb MOD_MAX` count, `mod_leave` ~12, 29 thunk sites × 3, +5 in `mod_need`, `mem_pg_forget` arm ~14, `mem_cp_drop` guard ~8, plus the three held-span brackets | **~215–240** | ~180–200 | ESTIMATE, and **three passes disagreed**: 104, 152–168 and 215–240. The high figure is the right one — the bracket **cannot** be an increment in `mod_need`, both because ONDEMAND-PLAN §7.1 says *"incremented by the stub before the far call"* and because kernel/ctrl.inc:5839 far-calls the module after `mod_live` with **no `mod_need` at all**. So it is enter+leave per site, plus the held-span arms. **§12 question 3 has since named all three exceptions and counted the sites**: 29 thunks far-call through seven FP blocks, 26 of them `need`/`jc`/`call far`, and the three that are not are files.inc:5461 and ctrl.inc:5929 (a `need` with no far call — both held spans) and ctrl.inc:5839 (a far call with no `need`) |
 | **C** | **Regions move when idle** (§3.5, §4.2): `[wm_pkgd]` + its two brackets ~11, the fix-up routine ~110, the `mem_can_move` arm ~20, widen `mem_find_own`'s fence ~20, the `[ld_base]` refusal ~6, tier-3 gate ~15 | **~200** | ~11 | ESTIMATE; the fix-up is `dsk_dseg_reloc`'s shape over four tables and five words. Two agents arrived at ~110 independently |
 | **D0** | **Driver unload/reload as a policy step** (§3.4): the mechanism is BUILT — `hbm_detach`/`hbm_reload` are 91 bytes, `ss_reap_x` does it per session. Only a policy hook is new | **~40** | 0 | ESTIMATE. Reaches **more** memory than a move (the 8KB ring and ETHER's 14KB pool) and breaks nothing, because a package names a driver by CLASS |
-| **D** | **Driver images move in place** (§3.2, §3.4, §4.4): the 66-word fix-up, a dispatch depth count over SEVEN sites, the mask/unmask bracket, `DRVV_QUIESCE`/`DRVV_REARM`/`DRVV_RELOC` | **~240–310** | ~105 | The depth count is **MEASURED at 15 bytes a site**: `driver.inc:1552` is reached from `snd_tick` inside IRQ0 and a bare `inc byte [mem]` is an interruptible read-modify-write on an 8086, so each site is `pushf/cli/inc/popf` — **105 bytes**, or ~72 through a shared `drv_enter`/`drv_leave`. The rest ESTIMATE; `[drv_wcnt]`'s half costs 0 |
+| **D** | **Driver images move in place** (§3.2, §3.4, §4.4): the 66-word fix-up, a dispatch depth count over SEVEN sites, the mask/unmask bracket, `DRVV_QUIESCE`/`DRVV_REARM`/`DRVV_RELOC` | **BUILT: 260** (est. 240–310) | 28 | MEASURED (§10.12): `.text` +28, `.bss` +9, `.cold` +223, and **none of it on kern_small** - `OS88_DRIVERS` is `KERN_BIG`-only, so the build that cannot load a driver pays nothing. THREE of the four estimated pieces were not needed: no `DRVV_*` verb, no mask/unmask, and the fix-up is table ROWS | The depth count is **MEASURED at 15 bytes a site**: `driver.inc:1552` is reached from `snd_tick` inside IRQ0 and a bare `inc byte [mem]` is an interruptible read-modify-write on an 8086, so each site is `pushf/cli/inc/popf` — **105 bytes**, or ~72 through a shared `drv_enter`/`drv_leave`. The rest ESTIMATE; `[drv_wcnt]`'s half costs 0 |
 | **E** | **The descending pass** (§5) — **A, C and D are harmful without it** | **~120** | 0 | ESTIMATE; parameterising `mem_cp_plan` (104) + `mem_cp_run` (115) + a descending `mem_cp_next` (55), with direction DERIVED from the tag/owner rather than a sixth `MC_` field (§5) |
 | **F** | **Worker-owning regions, by declaration** (§4.7): `OSAPI_TASK_RESTARTABLE`, the frame rebuild, the `mem_can_move` arm | **BUILT: 231** (est. ~90) | 177 | MEASURED (§10.10): `.text` +177, `.bss` +24, `.cold` +30, and it crossed the image rung. 2.6x the estimate, and §10.10 says where |
 
@@ -1963,6 +1963,73 @@ neither ever did: the two packages that move most easily were declaring
 than trusting the call, which is the only reason it was visible at all. The
 region declaration is in each entry proc now and only the restart stays at the
 spawn.
+
+### 10.12 Piece D — a driver image moves, and it needs no declaration
+
+**BUILT. SPEC.md 66.6.3 is the contract, and three of the four pieces §9
+costed were not needed.**
+
+**The fix-up is table ROWS, not a proc.** §3.4 counted 66 kernel words in 9
+tables and priced a routine to walk them. `mem_region_reloc` already walks
+tables, already runs unconditionally for every move, and already covers two of
+the nine (`MC_OWN` and `W_SEG`). So D's whole fix-up is two rows in
+`mem_rr_tab` and three scalars in `mem_rr_sc` - `drv_tab`'s `DRVR_SEG` at
+`DRVR_SIZE` stride, the five contiguous class fast paths at stride 4, and
+`ss_row`, `xm_row` and `drv_blkseg`, the three that are shaped like a `drv_tab`
+row and deliberately outside it (§41.12.5). **~20 bytes for the half the
+estimate put at 90.**
+
+**NO `DRVV_QUIESCE`, NO `DRVV_REARM`, NO `DRVV_RELOC`, and no declaration of
+any kind.** The plan assumed the driver would have to be asked. It does not,
+because every word that names a driver image belongs to the kernel - and the
+one thing the kernel cannot read out of its own tables is whether an interrupt
+vector points into the image. `mem_ivt_names` **asks the 8086**: 256 vectors,
+one compare each on the segment half, ~512 compares once per candidate in a
+pass that is about to copy kilobytes.
+
+That is not a shortcut, it is the safer answer. `SOUND.DRV` hooks **five**
+vectors - `sbl_isr` on its IRQ, plus up to four candidates it installs a stub
+in *while it is finding* that IRQ - so a driver-side declaration would have had
+to be right about all five, once, for ever, in a driver nobody is editing. The
+scan is right about all of them without being told, right about a driver
+written before any of this, and cannot be forgotten by one written after. It is
+§47's *grey a fact, never a guess* applied to the compactor, and it is what
+turns "the driver opts in" into "the kernel checks".
+
+**What DID cost what the estimate said** is the dispatch bracket:
+`drv_enter`/`drv_leave` at the seven far-call sites, `pushf`/`cli` because
+`drv_dispatch` is reached from `snd_tick` inside IRQ0, and neither half able to
+trust `ES` because five of the seven restore it only after the call. Two of the
+seven are `.text` and reach the pair - which lives in `.cold` with the other
+five - through four-byte `retf` wrappers, §2.6.1 forbidding a far-called body
+that ends in a near `ret`.
+
+**The gate is the study's own opening scenario** (§2.0). `tests/drvmove.py`
+mounts the hard disk, mounts the RAM disk under it, **unmounts the hard disk**,
+and forces a pass:
+
+    hdd 9c00   ramdisk 99c0
+      1 image declared movable   MC_RLOC=8126, 9KB
+          hard disk unmounted - the hole is above the RAM disk now
+      2 the image MOVED          99c0 -> 9d80
+      3 nothing still holds 99c0  OK (17 kernel words checked)
+      4 the machine still draws   OK
+
+Its third assertion reads every `drv_fseg*`, `drv_blkseg`, `drv_tab` row and
+claim owner **by name**, because a stale one does not fault - it far-calls a
+dispatcher in freed memory on the next volume access. The A/B, with the
+`drv_tab` row taken out of `mem_rr_tab`, names `drv_tab[3]` exactly - **and
+assertion 2 goes red with it**, because the row reads the segment *from*
+`drv_tab` and a build that does not update it cannot even tell the image moved.
+That is the bug's own shape, and it is why assertion 3 is by name and not a
+summary.
+
+**One thing this row does NOT assert and it is worth saying**: `drv_fseg2` was
+0 after the unmount and the first draft asserted the RAM disk into it. That is
+the machine's own state - the DISK class has one published pair and the hard
+disk's detach cleared it - so the assertion would have been asserting a bug.
+What a move can get wrong is a word left holding the OLD segment, and that is
+what it reads.
 
 ## 10.1 How the rest would be verified
 

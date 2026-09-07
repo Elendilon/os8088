@@ -1315,9 +1315,17 @@ mem_can_move:
                                 ; has not fired yet.
 .notpg:
     cmp bx, MEM_K_DRV
-    je .pin                     ; a driver's image and an on-demand module's
-    cmp bx, MEM_K_MOD           ; are each a CS (SPEC.md 2.8/51.3), and a base
-    je .pin                     ; that is a CS can never move. The boot overlay
+%ifdef OS88_DRIVERS
+    je .drvimg                  ; A DRIVER IMAGE MAY MOVE (SPEC.md 66.6.3) -
+                                ; it is a CS, and a CS moves when nothing
+                                ; anywhere refers to it, which is 66.6.1's rule
+                                ; applied to the other kind of CS on the heap
+%else
+    je .pin                     ; kern_small loads no driver at all (kernel.asm
+%endif                          ; defines OS88_DRIVERS for KERN_BIG alone), so
+                                ; it carries none of 66.6.3 either
+    cmp bx, MEM_K_MOD           ; an on-demand module's is still a CS nothing
+    je .pin                     ; asks about (SPEC.md 2.8). The boot overlay
                                 ; was a third of these until SPEC.md 2.9.6 put
                                 ; it in stage 2's blob, where it is not a claim
                                 ; at all and there is nothing to pin
@@ -1333,6 +1341,20 @@ mem_can_move:
     je .ok                      ; a kernel tag: its proc is the kernel's own
     call mem_busy_seg           ; ...otherwise a package's or a driver's own
     jc .pin                     ; segment, and somebody may be RUNNING in it
+    jmp short .ok
+%ifdef OS88_DRIVERS
+.drvimg:
+    ; THREE FACTS AND NO DECLARATION (SPEC.md 66.6.3). The kernel owns every
+    ; word that names a driver image - mem_region_reloc's table walk is all of
+    ; them - so what it cannot know from its own tables is the only thing worth
+    ; asking, and each of these three ASKS rather than trusting a driver to
+    ; have remembered:
+    mov bx, [ss:si+MC_SEG]
+    call mem_ivt_names          ; 1. an interrupt vector points into it. NO
+    jc .pin                     ;    [mem_wpin]: a park cannot fix a vector
+    call mem_busy_seg           ; 2. a frame is standing in it (mem_drv_inside)
+    jc .pin                     ; 3. ...or a service task of its own is running
+%endif
 .ok:
     pop di
     pop bx
@@ -1563,6 +1585,11 @@ mem_frameless:
 ; putting them behind one predicate is that they lift in one place.
 ; -----------------------------------------------------------------------------
 mem_busy_seg:
+    call mem_drv_inside                 ; ...but FIRST: is a frame standing in
+    jc .pin                             ; it right now (SPEC.md 66.6.3)? That
+                                        ; is the other direction from the park,
+                                        ; and no amount of parking fixes it -
+                                        ; so it sets no [mem_wpin] either
     call KERNEL_SEG:inst_seg_parked     ; CF = 0: no worker, or one that has
     jnc .free                           ; PARKED at OSAPI_TASK_ALIVE (66.5).
                                         ; A segment matching no instance -
@@ -1573,11 +1600,109 @@ mem_busy_seg:
                                 ; asking for. Without it the compactor either
                                 ; pays for a park on every failed claim or
                                 ; never asks for one at all
+.pin:
     stc
     ret
 .free:
     clc
     ret
+
+; -----------------------------------------------------------------------------
+; mem_ivt_names - does any interrupt vector point INTO the image at BX?
+; in:  BX = a segment
+; out: CF = 1 one does, CF = 0 none does
+; clobbers: nothing else (flags)
+;
+; SPEC.md 66.6.3, and it is the reason a driver image needs no declaration and
+; no new ABI verb. `SOUND.DRV` is the only driver in the tree that hooks a
+; vector, and it hooks MORE than one - `sbl_isr` on its own IRQ, plus up to
+; four CANDIDATE vectors it installs a stub in during IRQ detection - so any
+; scheme resting on a driver naming them would have to be right about all five.
+;
+; This asks the 8086 instead. 256 vectors, one compare each on the SEGMENT
+; half: ~512 compares, a few thousand cycles, once per candidate image in a
+; pass that is about to copy kilobytes. It cannot be forgotten by a driver that
+; does not exist yet, it needs no flag day, and an old driver written before
+; any of this is covered by it exactly as well as a new one - which is what
+; makes it a FACT rather than a declaration (SPEC.md 47).
+;
+; It reads the segment halves only. A vector whose OFFSET points into the image
+; but whose segment does not is not a reference to this image at all.
+; -----------------------------------------------------------------------------
+mem_ivt_names:
+    push ax
+    push cx
+    push si
+    push es
+    xor ax, ax
+    mov es, ax                  ; ES = 0: the vector table
+    mov si, 2                   ; the SEGMENT half of vector 0
+    mov cx, 256
+.v:
+    cmp [es:si], bx
+    je .hit
+    add si, 4
+    loop .v
+    pop es
+    pop si
+    pop cx
+    pop ax
+    clc
+    ret
+.hit:
+    pop es
+    pop si
+    pop cx
+    pop ax
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; mem_drv_inside - is a frame standing in the driver image at BX? (internal)
+; in:  BX = a segment
+; out: CF = 1 somebody is inside it, CF = 0 nobody is
+; clobbers: nothing else (flags)
+;
+; SPEC.md 66.6.3, and mem_frameless's [wm_pkgs] walk one layer along. The seven
+; sites that far-call a driver image bracket themselves with drv_enter /
+; drv_leave, so drv_segs[0..drv_depth) is exactly the set of images the machine
+; is executing in - and `sbl_v_grant` CLAIMS, so that set is non-empty at
+; precisely the moment a driver-triggered compaction runs.
+;
+; drv_depth is .bss and reached DS-relative like everything else here; the
+; bracket itself has to work harder for it, ES being the only segment register
+; it can count on at a dispatch site.
+; -----------------------------------------------------------------------------
+mem_drv_inside:
+%ifndef OS88_DRIVERS
+    clc                         ; kern_small loads no driver, so nothing can be
+    ret                         ; inside one and there is no table to walk
+%else
+    push cx
+    push di
+    mov cl, [drv_depth]
+    or cl, cl
+    jz .no
+    cmp cl, DRV_DMAX
+    ja .yes                     ; deeper than drv_segs records: pin everything
+    mov di, drv_segs
+.s:
+    cmp [di], bx
+    je .yes
+    add di, 2
+    dec cl
+    jnz .s
+.no:
+    pop di
+    pop cx
+    clc
+    ret
+.yes:
+    pop di
+    pop cx
+    stc
+    ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; mem_in_xfer - is a disk transfer reading INTO the claim at SI? (internal)
@@ -2232,6 +2357,18 @@ mem_wk_restart:
 mem_rr_tab:
     dw wm_wins + W_SEG,   MAX_WIN,  WIN_SIZE
     dw inst_tab + I_SPTR, INST_MAX, I_RECSZ
+    ; --- AND A DRIVER IMAGE (SPEC.md 66.6.3) ---------------------------------
+    ; The same walk, because a driver image is named the same way a region is:
+    ; by kernel words in tables. Putting it here rather than in a proc of its
+    ; own is what makes it ~20 bytes instead of ~90 - mem_region_reloc already
+    ; runs unconditionally for every move (mem_reloc_call), and the two loops
+    ; it needs are the two it has. A block that is not a driver matches none of
+    ; these rows, which is the same bargain the region rows already take.
+%ifdef OS88_DRIVERS
+    dw drv_tab + DRVR_SEG, DRV_MAX, DRVR_SIZE
+    dw drv_fseg,           5,        4   ; the five published class fast paths,
+                                         ; contiguous BY DESIGN (driver.inc:841)
+%endif
     dw 0
 mem_rr_sc:
     dw menu_seg                 ; the bar's owner...
@@ -2244,6 +2381,14 @@ mem_rr_sc:
     dw dskw_seg                 ; a CALLER's segment, banked across a whole
     dw dskw_wseg                ; file transfer
     dw dskw_czseg
+    ; ...and the driver words that are NOT in drv_tab. Three of them are rows
+    ; shaped like a drv_tab row and deliberately outside it (SPEC.md 41.12.5),
+    ; and a walk of the table alone would miss every one.
+%ifdef OS88_DRIVERS
+    dw ss_row + DRVR_SEG        ; SAVER.DRV (kernel/blank.inc)
+    dw xm_row + DRVR_SEG        ; XMEM.DRV (kernel/xmem.inc)
+    dw drv_blkseg               ; the block-verb far pointer's segment half
+%endif
     dw 0
 section .cold
 

@@ -402,7 +402,9 @@ xm_dsp:
     push cs
     pop es                      ; ES = KERNEL_SEG: what the image reads the
     mov ds, [es:xm_row+DRVR_SEG]    ; things it was handed through
+    call COLD_SEG:drv_enter_x       ; SPEC.md 66.6.3 - .text, so far
     call far [es:xm_row+DRVR_DISP]
+    call COLD_SEG:drv_leave_x
     pop es
     pop ds
     ret

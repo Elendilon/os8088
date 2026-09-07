@@ -222,6 +222,15 @@ FAST = [
         "and `make` says 'up to date'. apps/os88ui.inc was missing from NINE "
         "shipped packages and apps/os88type.inc from three; it was found by an "
         "A/B that measured zero because the package never reassembled"),
+    Row("drvmove", "soak", py("tests/drvmove.py"), 170.0,
+        "SPEC.md 66.6.3: a DRIVER IMAGE moves. It drives the scenario the "
+        "whole study exists for - mount the hard disk, mount the RAM disk "
+        "above nothing, unmount the hard disk, and before this the hole "
+        "stayed for the session. Its third assertion reads every drv_fseg*, "
+        "drv_blkseg, drv_tab row and claim owner BY NAME for the old segment, "
+        "because a stale one does not fault: it far-calls a dispatcher in "
+        "freed memory on the next volume access",
+        wants=("build/regmove360.img",)),
     Row("regapp", "soak", py("tests/regapp.py"), 150.0,
         "SPEC.md 66.6.1/66.6.2 per SHIPPED PACKAGE: five that hire a worker "
         "declare OS88_REGION_MOVABLE and OS88_WORKER_RESTARTABLE, and a "

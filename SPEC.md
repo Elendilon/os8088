@@ -77724,6 +77724,61 @@ and no package needs rebuilding; a package built before this simply never
 declares and stays pinned. One word per instance (`INST_MAX*2` of `.bss`, a
 side table for `inst_parksafe`'s reason — `I_RECSZ` is full).
 
+#### 66.6.3 …and a DRIVER IMAGE, which needs no declaration at all
+
+A driver's base is its `CS` exactly as a package's region is, and §66.6.1's rule
+applies unchanged: **a CS may move when nothing anywhere refers to it.** What is
+different is who the holder is. Every word that names a driver image belongs to
+the **kernel** — `drv_tab`'s `DRVR_SEG` per row, `ss_row` and `xm_row`, which
+are rows shaped like a `drv_tab` row and deliberately outside it (§41.12.5), the
+five published class fast paths `drv_fseg`…`drv_fseg5`, `drv_blkseg`,
+`drv_dlg_seg`, the `MC_OWN` of every claim the driver holds and the `W_SEG` of
+any window it owns — so there is nothing for a driver-side proc to fix, and
+`mem_region_reloc` already walks all of it. The image claim is declared movable
+at `drv_load` with that routine as its proc; the driver is not asked.
+
+**THREE FACTS, ASKED RATHER THAN DECLARED.** `mem_can_move`'s `MEM_K_DRV` arm
+used to be an unconditional pin. It is now:
+
+1. **`mem_ivt_names`** — does any of the 256 interrupt vectors carry this
+   segment? `SOUND.DRV` is the only driver in the tree that hooks one, and it
+   hooks **more than one**: `sbl_isr` on its own IRQ, plus up to four candidate
+   vectors it installs a stub in while it is *finding* that IRQ. A declaration
+   would have to be right about all five, once, for ever, in a driver nobody is
+   editing. A 512-compare scan of the table is right about all of them without
+   being told, is right about a driver written before any of this, and cannot
+   be forgotten by one written after — §47's *grey a fact, never a guess*
+   applied to the compactor. It sets no `[mem_wpin]`: a park cannot unhook a
+   vector.
+2. **`mem_drv_inside`** — is a frame standing in the image right now? The seven
+   kernel sites that far-call a driver bracket themselves with
+   `drv_enter`/`drv_leave`, so `drv_segs[0..drv_depth)` is exactly the set of
+   images the machine is executing in. It is a **stack of segments and not a
+   depth**, for §66.6.1's reason one layer along: `sbl_v_grant` claims, so the
+   depth is non-zero at precisely the moment a driver-triggered compaction runs,
+   and a compactor resting on a count alone would pin every image against
+   itself and silently do nothing.
+3. **`inst_svc_parked`**, through `mem_busy_seg` — is a `TF_SERVICE` task of any
+   driver running? All-or-nothing, because `TF_SERVICE` is the only handle the
+   kernel has on *"a task inside a driver"* and it does not say which (§66.5.5).
+   This one **does** set `[mem_wpin]`: a park fixes it.
+
+**The bracket costs `pushf`/`cli` and not a bare `inc`.** `drv_dispatch` is
+reached from `snd_tick` **inside IRQ0** (§34.5), so the read-modify-write can be
+interrupted by another enter/leave pair and lose the update — leaving a depth
+that never returns to zero, or worse one that does while a frame is inside.
+Neither half relies on `ES` either: five of the seven sites restore it only
+*after* the far call and a driver may clobber it (§13), so both load
+`KERNEL_SEG` themselves. Two of the seven are `.text` and reach the pair, which
+lives in `.cold` with the other five, through four-byte `retf` wrappers —
+§2.6.1 forbids a far-called body that ends in a near `ret`.
+
+**What it reaches**, from `drv_memk`'s own constants: SOUND 6KB, HDD 8KB, ETHER
+18KB, RAMDISK 9KB, NET 6KB, VMMOUSE 1KB. Every one but the sound driver's is
+free the moment it is loaded, and the sound driver's becomes free the moment it
+detaches — which is the case §66.6's own motivation is about, a driver mounted
+mid-session standing in the middle of the arena for the rest of it.
+
 ### 66.7 What is deliberately not done
 
 **No compaction on a free, on idle, or on a timer.** The heap is only worth

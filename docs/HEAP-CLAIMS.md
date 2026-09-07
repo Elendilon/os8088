@@ -184,6 +184,7 @@ one. What actually decides a region is the *worker*.
 | **ftpd** | 28.2KB | **MOVABLE + RESTARTABLE** | `fd_step` is a state machine in statics and the restart lands at the loop top, above it, so a transfer resumes at the step it had reached |
 | **Audio** | 30.2KB | **MOVABLE + RESTARTABLE** | hires only when playback starts; until then it is movable on `I_TASK` alone |
 | **Browser** | 19.8KB | **MOVABLE + RESTARTABLE** | `br_nstep` banks a generation and every store is guarded on it, so a fetch a restart abandons writes nothing — `br_abort`'s own design |
+| **driver images** | 48KB | **MOVABLE** | §66.6.3. SOUND 6KB, HDD 8KB, ETHER 18KB, RAMDISK 9KB, NET 6KB, VMMOUSE 1KB (`drv_memk`). Every one but the sound driver's is free the moment it loads; the sound driver's is refused by the IVT scan while it is attached and free the moment it detaches |
 | **every C package** | — | **MOVABLE** | `crt0.asm` declares it at entry; `cc_regreloc` is `cc_ovbind` where there is an overlay, because its `.res` loop writes the live `CS` into the return vectors and inside a relocation proc that CS is the new base |
 | **CWORD**, **RUNCPM** | 60.8 / 56.6KB | **+ RESTARTABLE** | `os88_task_restartable(1)` after the spawn takes; both workers are `for(;;)` polls over statics |
 | ArtfulType, Fractal, Frotz, ModPlug, Note Pad, Tracker | | **MOVABLE, NOT restartable** | the six that declare `OSAPI_MEM_PARKSAFE`. That lets the kernel stop the worker while it is blocked in `gfx_lock` — anywhere in its loop, including halfway through a frame or a mixed buffer — so the honest declaration for them is a *window* around `OSAPI_TASK_ALIVE`, not a blanket. Not taken yet |
@@ -206,6 +207,13 @@ and Tracker does not (§66.5.7.2); all five declare it as a widening. Frotz is
 the one app that **must not** (§66.5.9.1): `zx_lock` pushes the program
 counter's segment across `OSAPI_GFX_LOCK` by design, and its claims move at
 the ordinary `ALIVE` park regardless.
+
+**1a. A driver IMAGE moves now** (§66.6.3) and is refused only by three facts:
+an interrupt vector carrying its segment (`SOUND.DRV` alone, and it hooks
+five), a frame standing in it, or a `TF_SERVICE` task running. No driver
+declares anything and none can forget to — the kernel asks. `drv_load`
+declares the claim with `mem_region_reloc`, whose table walk is every kernel
+word that names an image.
 
 **2. A driver's claims move only while every `TF_SERVICE` task is parked**,
 all-or-nothing, because `TF_SERVICE` is the only handle the kernel has on "a
