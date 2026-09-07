@@ -3078,8 +3078,8 @@ $(BUILD)/fontview.bin: apps/fontview/fontview.asm apps/os88api.inc \
 	$(NASM) -f bin -w+error -I apps/ -o $@ apps/fontview/fontview.asm
 	@echo "fontview: $(call FILESIZE,$@) bytes"
 
-$(BUILD)/fontview.o88: $(BUILD)/fontview.bin tools/os88pkg.py
-	python3 tools/os88pkg.py $(BUILD)/fontview.bin -o $@
+$(BUILD)/fontview.o88: $(BUILD)/fontview.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/fontview.bin -o $@
 
 # ...AND A STAMP FILE, for exactly VIDSTAMP's and DSSTAMP's reason. PICOMEM,
 # PM_BASE and PM_SB_PORT change the command line and no source, so without
@@ -3465,8 +3465,8 @@ $(BUILD)/vmmouse.bin: drivers/vmmouse/vmmouse.asm kernel/vmmabi.inc \
 	$(NASM) -f bin -w+error -I kernel/ -I drivers/ -I apps/ -o $@ $<
 	@echo "vmmouse: $(call FILESIZE,$@) bytes"
 
-$(BUILD)/vmmouse.drv: $(BUILD)/vmmouse.bin tools/os88drv.py
-	python3 tools/os88drv.py $(BUILD)/vmmouse.bin -o $@
+$(BUILD)/vmmouse.drv: $(BUILD)/vmmouse.bin tools/os88drv.py $(PKGZSTAMP)
+	$(OS88DRV) $(BUILD)/vmmouse.bin -o $@
 
 # RAMDISK.DRV - a DRVC_FILE volume with no hardware behind it (SPEC.md 62.9),
 # and the FILE REDIRECTOR'S HARNESS: every branch site the redirector added to
@@ -4544,8 +4544,8 @@ $(BUILD)/thewire.bin: apps/thewire/thewire.asm apps/thewire/wrhttp.inc \
 	$(NASM) -f bin -w+error -I apps/ -I apps/thewire/ -I drivers/net/ -I drivers/ramdisk/ -o $@ apps/thewire/thewire.asm
 	@echo "thewire: $(call FILESIZE,$@) bytes"
 
-$(BUILD)/thewire.o88: $(BUILD)/thewire.bin tools/os88pkg.py
-	python3 tools/os88pkg.py $(BUILD)/thewire.bin -o $@
+$(BUILD)/thewire.o88: $(BUILD)/thewire.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/thewire.bin -o $@
 
 # THE FTP SERVER (SPEC.md 77) - docs/plans/completed/NET-STACK-PLAN.md stage F, and the first
 # thing here that SERVES. Same include set as Telnet's for the same reason:
@@ -4946,8 +4946,8 @@ $(BUILD)/missile.o88: $(BUILD)/missile.bin tools/os88pkg.py $(PKGZSTAMP)
 $(BUILD)/pacman.bin: apps/pacman/pacman.asm apps/pacman/assets.inc apps/pacman/LICENSE apps/os88api.inc apps/os88ui.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ apps/pacman/pacman.asm
 
-$(BUILD)/pacman.o88: $(BUILD)/pacman.bin tools/os88pkg.py
-	python3 tools/os88pkg.py $(BUILD)/pacman.bin -o $@
+$(BUILD)/pacman.o88: $(BUILD)/pacman.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/pacman.bin -o $@
 
 # Cyclone 88, a Tempest 2000 clone (SPEC.md 67). The web is a polygon of rim
 # vertices in a normalised space plus a depth ladder, resolved ONCE per layout
