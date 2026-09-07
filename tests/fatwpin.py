@@ -60,6 +60,7 @@ import os88build
 import os88marty                                            # noqa: E402
 import os88mouse                                            # noqa: E402
 import os88sym                                              # noqa: E402
+import os88geom                                              # noqa: E402
 import dispcp                                               # noqa: E402
 from harness import check, done                             # noqa: E402
 
@@ -73,7 +74,8 @@ IMG = "build/os8088-360.img"
 APPS = "build/apps360.img"
 
 DVOL_MAX = 8
-MEM_MAX, MC_SIZE, MC_SEG, MC_OWN = 32, 10, 0, 4
+MEM_MAX, MC_SIZE, MC_SEG, MC_OWN = (os88geom.MEM_MAX, os88geom.MC_SIZE,
+                                    os88geom.MC_SEG, os88geom.MC_OWN)
 # SPEC.md 18.8.4: a FAT window is a purgeable CACHE now, and its owner is a
 # RANGE - MEM_P_FATW + the volume - not the single tag 0xFF05 it used to be.
 MEM_PG_MED = 0xFD               # ...and MED, not LOW: a shed volume falls back

@@ -142,17 +142,10 @@ def say(*a):
 # dispcp.scroll_to calls `m.key("ArrowDown")`, which is MartyPC's spelling -
 # every other caller of it is a MartyPC gate (tests/brtest.py and friends) and
 # os88marty.Marty has the method. This is the same contract over QMP, which is
-# the whole of what a QEMU-hosted gate is missing to reuse that scroller.
-QKEYS = {"ArrowDown": "down", "ArrowUp": "up", "Home": "home", "End": "end",
-         "PageDown": "pgdn", "PageUp": "pgup", "Tab": "tab", "Enter": "ret"}
-
-
-class Qemu(eth.Qemu):
-    def key(self, name):
-        if name not in QKEYS:
-            raise KeyError("no QMP sendkey name for %r" % name)
-        self.hmp("sendkey " + QKEYS[name])
-        time.sleep(0.05)
+# the whole of what a QEMU-hosted gate is missing to reuse that scroller - and
+# it is on eth.Qemu now, where ethernet.py's own dispcp.open_named call needs
+# it too. This alias is what stops the rest of this file having to change.
+Qemu = eth.Qemu
 
 
 def main():

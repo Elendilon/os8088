@@ -846,6 +846,12 @@ wd_entry:
     mov word [wd_dfont + OS88UI_DR_N], 1    ; Pica alone until wd_fontscan runs
     mov [wd_dfont + OS88UI_DR_WIN], bx
     mov [wd_mnrec + OS88UI_MN_WIN], bx
+    ; OUR REGION MAY MOVE (SPEC.md 66.6.1). Here, and not beside the
+    ; worker's declaration: a package with NO worker is the case that
+    ; moves most easily, and putting this at the spawn left exactly
+    ; those runs declaring nothing - measured, by the row that reads
+    ; MC_RLOC back out of the kernel's own table.
+    OS88_REGION_MOVABLE
     push ax                         ; SPEC.md 54.10: the kernel calls this once
     mov ax, wd_onwake               ; our window is on the glass, and the launch
     call OSAPI_WM_ONWAKE            ; document loads in front of it. BX is still
@@ -5927,6 +5933,14 @@ wd_hire:
     call OSAPI_TASK_SPAWN
     jc .out
     mov byte [wd_hired], 1
+    ; ...AND THE WORKER MAY BE RESTARTED (SPEC.md 66.6.2). Hiring one
+    ; would otherwise pin the region for ever - task_spawn wrote our
+    ; segment into that worker's frame before its first instruction:
+    ; Word's worker polls four statics and sleeps; a restart costs one poll.
+    ; The kernel restarts a worker only where it PARKS, which for us is
+    ; inside OSAPI_TASK_ALIVE at the top of the loop; we do not declare
+    ; OSAPI_MEM_PARKSAFE, so the gfx-lock park is not in play.
+    OS88_WORKER_RESTARTABLE wd_worker
 .out:
     pop bx
     pop ax
@@ -19941,7 +19955,31 @@ wd_ovneed:
     mov bl, [wd_ovdrv]
     call OSAPI_FILE_GOTO
     mov ax, WD_OVKB
-    call OSAPI_MEM_CLAIM
+    call OSAPI_MEM_CLAIM_HI         ; FROM THE TOP (SPEC.md 50.3.2): this
+                                    ; block's base is a CS, which is that
+                                    ; rule's own first clause, and it was
+                                    ; taking the low door - WD_OVKB of pinned
+                                    ; image in the middle of the arena for as
+                                    ; long as Word is open. SPEC.md 50.3.2.1's
+                                    ; defect one layer out.
+                                    ;
+                                    ; AND IT IS NOT DECLARED MOVABLE, where the
+                                    ; C SDK's overlay is (apps/cc/crt0.asm),
+                                    ; because the two shim conventions differ
+                                    ; in exactly the way that decides it: the
+                                    ; C one funnels every inbound call through
+                                    ; cc_ovthunk, which DISCARDS the module's
+                                    ; CS and re-derives it from [cc_ovseg] on
+                                    ; the way back, so a move under a resident
+                                    ; routine is invisible. wd_s_* is
+                                    ; `call/retf`, so the module's CS is on the
+                                    ; stack for the whole of every shimmed
+                                    ; routine and a move under one returns into
+                                    ; memory that is no longer there - SPEC.md
+                                    ; 66.6's "every saved CS on every stack",
+                                    ; in a package rather than in the kernel.
+                                    ; Changing that is a shim redesign and not
+                                    ; a declaration
     jc .nomem
     mov [wd_ovseg], dx
     mov word [wd_ovfar], 0          ; the far pointer wd_ovcall goes through:

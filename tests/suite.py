@@ -233,6 +233,74 @@ FAST = [
         "apps/skies/csart.inc is what tools/csart.py generates (SPEC.md 88.10):"
         " the launcher's two 1bpp bands are drawn by the tool and checked in,"
         " and the include cannot drift from the drawing"),
+    Row("pkgdeps", "fast", py("tests/unit/t_pkgdeps.py"), 0.9,
+        "every %include a package pulls in must be a prerequisite of its .bin "
+        "rule, or editing a shared library does not rebuild what includes it "
+        "and `make` says 'up to date'. apps/os88ui.inc was missing from NINE "
+        "shipped packages and apps/os88type.inc from three; it was found by an "
+        "A/B that measured zero because the package never reassembled"),
+    Row("sndmove", "soak", py("tests/sndmove.py"), 150.0,
+        "SPEC.md 66.6.3.1/66.6.4: the LAST pinned claims. SOUND.DRV is the "
+        "only driver that hooks an interrupt vector - five of them - so its "
+        "image was the one thing mem_can_move still refused outright; the "
+        "kernel patches the IVT now and moves the image at IF=0. Its 8KB DMA "
+        "ring sits immediately below it and could never move while it was "
+        "pinned, which is why the two are one row. Six assertions, and THREE "
+        "of them are A/B'd: with sbl_ring_reloc storing the old base 5 goes "
+        "red alone, with the IVT loop out 5b goes red alone AND THE MACHINE "
+        "STILL DRAWS - which is the whole reason that check exists. It wants "
+        "a Sound Blaster: os8088_5150_sb_gla, and the driver is already up at "
+        "the first desktop frame there - the first draft went to the Control "
+        "Panel and clicked row 0, which UNLOADED it",
+        wants=("build/sndmove360.img",)),
+    Row("drvmove", "soak", py("tests/drvmove.py"), 170.0,
+        "SPEC.md 66.6.3: a DRIVER IMAGE moves. It drives the scenario the "
+        "whole study exists for - mount the hard disk, mount the RAM disk "
+        "above nothing, unmount the hard disk, and before this the hole "
+        "stayed for the session. Its third assertion reads every drv_fseg*, "
+        "drv_blkseg, drv_tab row and claim owner BY NAME for the old segment, "
+        "because a stale one does not fault: it far-calls a dispatcher in "
+        "freed memory on the next volume access",
+        wants=("build/regmove360.img",)),
+    Row("regapp", "soak", py("tests/regapp.py"), 150.0,
+        "SPEC.md 66.6.1/66.6.2 per SHIPPED PACKAGE: five that hire a worker "
+        "declare OS88_REGION_MOVABLE and OS88_WORKER_RESTARTABLE, and a "
+        "declaration the owner fence refused is indistinguishable from one "
+        "that took, from inside the package (66.5.6.2). So this reads MC_RLOC "
+        "and inst_restart back out of the kernel's own tables. regwork proves "
+        "the move; this proves the packages - and it found the region "
+        "declaration placed at the SPAWN, where a package that hires no "
+        "worker never reaches it",
+        wants=("build/regapp360.img",)),
+    Row("regwork", "soak", py("tests/regwork.py"), 170.0,
+        "SPEC.md 66.6.2: a WORKER-OWNING region moves once the package has "
+        "declared a restart point, and the worker comes back. regpin is the "
+        "same disk, the same arena and the same forcing ask with the 'R' key "
+        "NOT pressed - the two rows are one experiment either side of one "
+        "declaration. The assertion that matters is the last: a restart that "
+        "built a frame the scheduler never resumed leaves the counters right "
+        "and the machine one worker short, so the loop count is read twice",
+        wants=("build/regpin360.img",)),
+    Row("regpin", "soak", py("tests/regpin.py"), 160.0,
+        "THE NEGATIVE ARM of SPEC.md 66.6.1 (docs/plans/HEAP-UNPIN-PLAN.md "
+        "10.1): a region whose package owns a WORKER must NOT move, because "
+        "task_spawn wrote the segment into the worker's frame and a pass that "
+        "moved it would not fault - it would run the wrong memory. "
+        "tests/regmove.py is the positive half. Its subject is tests/pinme and "
+        "NOT tests/filler: a package reaches mem_claim only from inside its "
+        "own callback, so the asker's own region is refused for having a "
+        "frame in it and a row built that way stays green with the pin taken "
+        "out of the kernel - measured. SHEET is the control: PINME's region "
+        "must stand still WHILE SHEET'S MOVES, or the run proves nothing",
+        wants=("build/regpin360.img",)),
+    Row("drvclaim", "fast", py("tests/unit/t_drvclaim.py"), 0.1,
+        "a driver's SERVICE TASK may not reach a claim door: mem_claim can "
+        "reach mem_compact, which far-calls a holder's relocation proc on the "
+        "stack it was entered on, and a 384-byte worker slice is not STK0. "
+        "SPEC.md 20.6 rule 7 binds a package's worker and nothing binds a "
+        "driver's; SOUND.DRV is the only driver in the tree that spawns one, "
+        "so today the fact is true and unwritten - the second one is where it "
+        "stops being obvious. docs/plans/HEAP-UNPIN-PLAN.md 12 question 4"),
     Row("inktab", "fast", py("tests/unit/t_inktab.py"), 0.2,
         "SPEC.md 42.23.1: Paint's two ink-class masks ARE the kernel's "
         "gfx_inktab. A one-bit canvas stores what a 1bpp SCREEN shows, so the "
@@ -1482,6 +1550,57 @@ SOAK = [
         "the mouse ISR draws in? (SPEC.md 7/12.8.4, docs/FIELD-NOTES.md 34) "
         "Rebuilds the tree, because the counters are a knob kernel",
         needs=("marty", "nasm"), serial=True),
+    Row("ovlhigh", "soak", py("tests/ovlhigh.py"), 20.0,
+        "docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 1: a C package's OVERLAY is "
+        "claimed from the TOP (SPEC.md 50.3.2 - its base is a CS) and declares "
+        "itself movable. CWORD.OVL is 18,565 bytes, bigger than every kernel "
+        "module put together, and it took the low door for as long as overlays "
+        "have existed. It reads MC_HI, the placement and MC_RLOC out of "
+        "mem_tab, because a declaration mem_movable REFUSED looks identical "
+        "from inside the package (SPEC.md 66.5.6.2). Verified to fail in both "
+        "halves: the low door reddens three checks, dropping the declaration "
+        "reddens the fourth",
+        needs=("marty", "cc"), serial=True,
+        wants=("build/cword360.img",)),
+    Row("cmemmove", "soak", py("tests/cmemmove.py"), 110.0,
+        "A C PACKAGE DECLARES A CLAIM MOVABLE and the compactor moves it "
+        "(docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 3). os88_mem_claim was the "
+        "whole of the C SDK's heap surface until now, so every C claim was "
+        "pinned by construction - C64's 64KB, RunCPM's 64KB, Weave's canvas, "
+        "Loom's project buffers. The round trip is longer than any other "
+        "callback's (C, thunk, kernel, cc_onmove, C) and the assertion that "
+        "earns its keep is that `was` and `now` did not arrive SWAPPED: "
+        "verified by swapping the two pushes in cc_onmove, which leaves "
+        "[ch_seg] stale and the move count at 0. Needs `cc`",
+        needs=("marty", "cc"), serial=True,
+        wants=("build/cmemmove360.img",)),
+    Row("regmove", "soak", py("tests/regmove.py"), 130.0,
+        "A package's REGION moves and the package keeps working (SPEC.md "
+        "66.6.1). 66.6 said since it was written that a region can never move "
+        "because its base IS its CS; this is the door open. FOUR PACKAGES and "
+        "each has a job - PAINT takes the ceiling, SHEET goes under it and is "
+        "the one that has to move, FILLER takes the arena down to a few tens "
+        "of KB, and closing PAINT leaves the hole. tests/filler is an "
+        "instrument with NO assertions of its own, which heapfrag cannot be: "
+        "its comb is sized from the largest run IT sees and its own checks "
+        "fail when another package's claims are interleaved, so a refused "
+        "forcing claim looks exactly like a granted one",
+        needs=("marty",), serial=True,
+        wants=("build/regmove360.img",)),
+    Row("sheetmove", "soak", py("tests/sheetmove.py"), 130.0,
+        "Compact the heap out from under a LIVE Sheet "
+        "(docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 2). SHEET was the largest "
+        "undeclared holder in the tree - six claims at its entry proc, ~99KB, "
+        "pinned for the session - which made SPEC.md 66.5.10.2's 'the arena "
+        "below the top now has no barrier in it at all' false the moment a "
+        "sheet opened. Five are declared now; sh_stgseg is the ES:BX of all "
+        "seven of the package's file calls and stays pinned, and this asserts "
+        "THAT too, because 'we meant to leave that one' and 'we forgot that "
+        "one' are the same picture. paintmove's recipe. VERIFIED TO FAIL: "
+        "drop sh_cellseg from sh_reloc's table and check 3 reads STALE while "
+        "check 4's repaint differs over 24 rows of the grid",
+        needs=("marty",), serial=True,
+        wants=("build/sheetmove360.img",)),
     Row("heapcheck", "soak", py("tests/heapcheck.py"), 40.0,
         "Drive tests/heapfrag and read its verdict out of the guest (SPEC.md"
         "66.8).",

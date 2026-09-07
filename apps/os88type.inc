@@ -528,8 +528,6 @@ ty_init:
     push di
     push es
 
-    mov ax, ds
-    mov [ty_selfseg], ax
     push ds
     pop es
     mov di, ty_tab
@@ -598,8 +596,17 @@ ty_open:
     jmp .fail
 .have:
     mov [ty_opdi], di
-    mov ax, TY_FACE_KB + 1          ; +1 KB, because the hand alignment below
-    mov cx, ax                      ; gives back up to 496 bytes of it
+    mov ax, TY_FACE_KB              ; ...AND NOT TY_FACE_KB + 1. It asked for
+    mov cx, ax                      ; the extra KB "because the hand alignment
+                                    ; below gives back up to 496 bytes of it",
+                                    ; and the hand alignment gave nothing back
+                                    ; ever: kernel.asm's guard 6b asserts that
+                                    ; every base mem_claim hands out is
+                                    ; HEAP_SEG + n*MEM_PARA_KB paragraphs and
+                                    ; that MEM_PARA_KB is a multiple of 32, so
+                                    ; the round-up could never move the base.
+                                    ; One KB of heap per open face, up to three
+                                    ; per Word or CWORD instance, for nothing
     call OSAPI_MEM_CLAIM_DMA
     jnc .got
     mov al, TYE_NOMEM
@@ -607,8 +614,14 @@ ty_open:
 .got:
     mov di, [ty_opdi]
     mov [di + TF_CLAIM], dx
-    add dx, 31                      ; round the SEGMENT to a multiple of 32
-    and dx, 0xFFE0                  ; paragraphs = a 512-byte boundary
+    test dl, 0x1F                   ; ...so ASSERT the alignment instead of
+    jnz .unaligned                  ; buying insurance against it. A package
+                                    ; cannot see guard 6b, and the rounding
+                                    ; this replaces was the one line that would
+                                    ; have noticed - silently, by pushing
+                                    ; TF_SEG up to 496 bytes into a claim that
+                                    ; no longer had 496 spare. Refusing the
+                                    ; face says so instead
     mov [di + TF_SEG], dx
 
     mov es, dx
@@ -634,6 +647,12 @@ ty_open:
     shr ax, cl
     clc
     jmp .out
+.unaligned:
+    mov al, TYE_NOMEM               ; there is nothing better to say: the base
+                                    ; is unusable and the caller's answer is
+                                    ; the same either way, which is the system
+                                    ; face (SPEC.md 6.4)
+    jmp short .freefail
 .badsum:
     mov al, TYE_SUM
 .freefail:
@@ -1581,8 +1600,15 @@ ty_bandbuf  equ (%1) + 0        ; the band FIRST: it is the buffer every
 ty_adv      equ ty_bandbuf + TY_BANDSZ      ; 95 bytes: the current style's
                                             ; advances, copied into OUR segment
 ty_tab      equ ty_adv + TY_NGLYPH          ; TY_MAXFACE face slots
-ty_selfseg  equ ty_tab + TY_MAXFACE * TF_SIZE   ; word: our own segment
-ty_curseg   equ ty_selfseg + 2  ; word: where the current face's glyphs are
+                                ; (`ty_selfseg` was here: our own segment,
+                                ; stored by ty_init and read by nothing at all.
+                                ; DS is CS for a package and the kernel reloads
+                                ; it from W_SEG on every dispatch, so there was
+                                ; never a moment this could say something `ds`
+                                ; did not - and once a region can move it would
+                                ; have been a stale word to fix for no reader)
+ty_curseg   equ ty_tab + TY_MAXFACE * TF_SIZE   ; word: where the current
+                                ; face's glyphs are
 ty_psseg    equ ty_curseg + 2   ; word: the pre-shifted table's claim, 0 = none
 ty_bm       equ ty_psseg + 2    ; word: the current style's bitmap block
 ty_rowfn    equ ty_bm + 2       ; word: the unrolled row set for [ty_rows]
@@ -1613,6 +1639,6 @@ ty_dnames   equ ty_fnames + TY_MAXFAM * TY_NAMSZ    ; ...and the display ones
 %endmacro
 
 ; ...and its size, for the caller's OS88_BSS. The tail past the face table is
-; 27 bytes of scalars; 48 is that with the slack a new one would want.
+; 25 bytes of scalars; 48 is that with the slack a new one would want.
 TY_BSS_SIZE equ TY_BANDSZ + TY_NGLYPH + TY_MAXFACE * TF_SIZE + 48 \
                 + 24 + TY_MAXFAM * (TY_NAMSZ + TY_DISPSZ)

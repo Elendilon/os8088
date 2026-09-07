@@ -300,7 +300,8 @@ _MIRROR = {
     "MC_OWN": ("kernel/memory.inc", 4),
     "MC_DMA": ("kernel/memory.inc", 6),
     "MC_RLOC": ("kernel/memory.inc", 8),
-    "MC_SIZE": ("kernel/memory.inc", 10),
+    "MC_HI": ("kernel/memory.inc", 10),
+    "MC_SIZE": ("kernel/memory.inc", 11),
     # kernel/vidsel.inc - the PER-DISPLAY CONTEXT record (SPEC.md 39.14)
     #
     # Nine harness scripts each wrote `VID_CTX_SZ = 42` down by hand, and the

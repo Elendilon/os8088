@@ -31614,6 +31614,20 @@ clocks with EA and prefetch costs. What the string ops took out is about
 copies need sits **after** the `pushf`, so the `popf` gives the caller its own
 DF back. A package that runs with `std` is not rare (§20).
 
+**`SSI_SEG` is a SAMPLE, not a handle.** It is a package's region base copied
+into the caller's own buffer, so once §66.6's door opens no kernel fix-up can
+reach it — `mem_reloc_call` knows the tables it maintains and cannot know
+somebody else's snapshot. Today that word is exact for the life of the
+instance because a region cannot move; the moment one can, a reader that
+holds the field across a claim is holding a stale segment and does not know
+it. **Read it, use it, and take it again** — do not bank it. The Task Manager
+is the only reader in the tree, it re-takes the whole snapshot on every
+interval, and it uses the field for a picture rather than for an access
+(placing an instance's band, classifying a claim as region-vs-data, testing
+window ownership), so staleness there costs a wrong drawing for one interval
+and nothing else. That is the property to preserve, not an accident to rely
+on.
+
 `SSI_KB` is the one field filled *outside* that window, and deliberately:
 it is a scan of the claim table per instance, which is not what the window
 protects and has no business running with interrupts off. The kernel fills
@@ -63857,6 +63871,14 @@ placement, it is what a cache being claimed at the boot mount rather than after
 the drivers costs, and it is the next thing to do rather than a regression in
 this one.
 
+**Which door a claim came in by is now recorded**, as `MC_HI` in its own
+record, because §66.4.1's descending compaction pass sends it back through the
+same one: the top packs to the top and the bottom to the bottom, and a claim
+that disagrees with the pass in flight is a barrier to it. Choosing the door is
+still the caller's decision and this changes nothing about it — what it removes
+is the second, accidental half of that decision, which was that a top-down
+claim could never be compacted at all even when its holder could move it.
+
 
 #### 50.3.2.1 Two images the doors were opened for and did not reach
 
@@ -69021,10 +69043,15 @@ The three that failed all clear `[fdlg_win]` from **inside the image's own
 sat behind three separate compares of it: `ui.inc`'s ladder, `fdlg_reap`'s
 resident thunk, and once more at the top of `fdlg_reap_x`. Each turned the
 pass away, and `mod_tab[MOD_FDLG].seg` stayed non-zero for the rest of the
-session. **A 16KB claim, held for a dialog nobody could see, on the machine
+session. **A 4KB claim, held for a dialog nobody could see, on the machine
 with 128KB in it** — and the close box, the least-used route of the four, is
 the one that worked, which is why it survived the module split's own
 testing.
+
+(This paragraph read *"a 16KB claim"* for a while, and 16 is
+`MOD_MAX_KB` — the largest image `mod_need` will claim for at all, which it
+refuses above. The claim is the image rounded up to whole KB, and
+`FDLG.DRV`'s image is 3,243 bytes.)
 
 **The fix is the guard, not the drop.** `mod_r_fdlg` names the `mod_tab` row
 so the resident side can ask the right question, `ui.inc` and `fdlg_reap`
@@ -77019,6 +77046,160 @@ Task switching is paused for that span, which is `dsk_xfer`'s existing
 bargain and means **a Sound Blaster stream can underrun across a large
 compaction**. That is known and accepted rather than unnoticed; see §66.7.
 
+### 66.4.1 The descending pass — packing the ceiling
+
+§50.3.2's top-down door places a claim at the *highest* fit, deliberately
+outside the arena the compactor shares. That is right while the top-down
+population is claimed at boot and never released, and it stops being right the
+moment one is claimed **mid-session**: mount `ETHER.DRV` at boot, open Sheet,
+Paint and Tracker, then mount `SOUND.DRV` and unmount `ETHER.DRV` and close
+everything, and the sound driver's image and ring stand ~125KB below
+`[mem_top]` for the rest of the session. The ascending pass can never reach
+it, because a claim there only ever slides **down** onto paragraphs the walk
+has already passed and this one is already above everything. It is a wall, it
+does not heal, and it accumulates with every later mount.
+
+So `mem_compact` has a second pass with every direction decision turned round:
+the fill point starts at `[mem_top]` and comes down, and a claim slides **up**
+into the hole above it. The ceiling packs against the ceiling exactly as the
+floor packs against the floor.
+
+**`MC_HI` — a claim goes back through the door it came in by.** One byte per
+record, stamped at `mem_claim_1`'s publish site from `[mem_dir]`, which is
+already 0 or 1 and staged as an immediate by the two entries. `mem_cp_mine` is
+the filter: a claim whose `MC_HI` disagrees with `[mem_cp_up]` is a **barrier**
+in that pass, exactly as a pinned one is, so the two passes never contend for a
+block and neither can undo the other's work. The alternative was to derive the
+direction from the claim's shape and store nothing — and it is worse twice
+over: it is 47 bytes against 10, and it is right for four of the seven
+top-down sites and wrong for three.
+
+**One parameterised walk, not two.** `mem_cp_plan` and `mem_cp_run` are the
+same bodies they were; the two directions disagree about **eight** decisions
+and about nothing else, and each is a routine both walks call:
+
+| routine | what it answers |
+|---|---|
+| `mem_cp_fill0` | where the fill point and its search key start |
+| `mem_cp_step` | which way the key steps past a claim's original base |
+| `mem_cp_near` | which edge must meet the fill point for a claim to be already packed — its base going up, its end coming down |
+| `mem_cp_far` | where the fill point resumes past a barrier |
+| `mem_cp_adv` | which way the fill point advances past a claim just packed |
+| `mem_cp_dest` | where a block's bytes are going: the fill point going up, a block-length below it coming down |
+| `mem_cp_gap` | the hole beside a barrier |
+| `mem_cp_tail` | the run past everything, which is the one the pass is usually enlarging |
+
+A duplicated descending pair would have been ~220 bytes against ~120 and would
+have had to be kept in step **by hand, twice over** — the plan against the run,
+and the ascending pair against the descending one. §66.4's claim that the plan
+and the run are step for step is the one thing this feature cannot promise
+loosely, and sharing the bodies is what keeps it true in both directions.
+
+**`mem_bcopy` gains a backward arm**, taken on `DI > SI`. Both halves of it are
+needed and neither is sufficient: walking the 64KB chunks from the **top down**
+stops one chunk's destination landing on the next chunk's source, and `std`
+**inside** a chunk stops it landing on its own. A shift of less than a chunk
+needs the second, a shift of more than one needs the first. `cld` before the
+return, because every other string op in this kernel assumes DF=0. The
+routine's own banner used to argue that overlap was impossible — true of
+`mem_hifit`'s destination and **not** of the compactor's, which comes from the
+fill point.
+
+**The escalation is a loop, not a ladder.** There are two independent things to
+try when a plan comes back short — stand the workers up (§66.5) and turn the
+walk round — and spelling them out in order got the combination wrong: it
+parked only for the *ascending* plan, so a machine whose only blocked mover was
+a top-down claim owned by a package with a worker reached the descending pass
+with that worker still running and `mem_can_move` refused the one block the
+pass was for. As a loop each is asked for whichever plan needs it, and it still
+terminates in at most **three** plans: `[mem_parked]` admits one park and
+`[mem_cp_up]` one turn.
+
+**The two passes are alternatives, not cumulative.** Each plan is made against
+the layout as it stands, so whichever single pass satisfies the claim is the
+one that runs. Running both would spend the ascending copy for a claim the
+descending pass was going to have to satisfy anyway — and the descending copy
+is the expensive one, being over the largest blocks on the machine.
+
+**Termination mirrors §66.4's**, with both comparisons in `mem_cp_next` turned
+round: the descending walk takes the live claim with the **highest** base at or
+**below** `BX`, a claim only ever slides **up**, and only onto paragraphs the
+walk has already passed. `[mem_cp_up]` is left 0 on every path out of
+`mem_compact`, because `mem_avail` plans through the same code (§66.10.3).
+
+**What it does not yet unpin.** All seven top-down claim sites in the tree are
+still born `MC_RLOC = 0`, so on a shipped machine this pass finds nothing to
+move and costs one walk of 32 records on the last tier of a failing claim.
+That is deliberate: the direction invariant is the half that has to be right
+before anything declares, and `docs/plans/HEAP-UNPIN-PLAN.md` is the register
+of what would declare and what each one costs. `tests/heapfrag`'s check 13
+(§66.8) is the only exerciser today, and it builds the scenario above on
+purpose.
+
+### 66.4.2 `MC_DMA` is a placement constraint, not a pin
+
+`MC_DMA` holds *the 64KB-page-safe head in paragraphs* — a statement about
+where a block may **land**, so that an ISA DMA transfer into its head cannot
+wrap at a physical page boundary. `mem_can_move` read it as *"a bus master is
+looking at this"* and refused outright, over a comment that said such a block
+was **unrelocatable in principle**. Both halves were wrong, and the second was
+refuted by a routine in the same file: `mem_regrow`'s path 3 has relocated a
+page-constrained claim page-safely since before compaction existed — it stages
+`MC_DMA`, lets `mem_hifit` + `mem_dmaok` pick a legal base, copies and rewrites
+`MC_SEG`.
+
+**There are four `MC_DMA` claims in the tree and only one has a chip armed on
+it.**
+
+| claim | why it asked | bus master armed? |
+|---|---|---|
+| the directory read-ahead | one `int 13h` fill in fewer calls | no |
+| the file manager's copy buffer | it is an `int 13h` target | no — `filecp.inc` falls back to a plain claim with **no** `MC_DMA` when no page-safe run exists, and still copies |
+| the typeface cache (`apps/os88type.inc`) | a 512-byte aligned base for a file read | **never** |
+| the Sound Blaster's ring | the 8237 holds its page and offset | **yes**, and it is the only one |
+
+Nothing else on this machine is a bus master into host RAM, and each was
+checked rather than assumed: the NE2000's *"remote DMA"* is a PIO window at one
+port with the CPU moving every byte (§72.2.1), the IDE rung is
+`in ax, dx` / `stosw`, XMS is `int 15h AH=87h` or a `rep movsw` under a raised
+`[sch_lock]`, and `VMMOUSE.DRV` says of itself *"no interrupt vector, no IRQ
+line, no DMA channel"*.
+
+**So the test comes out of `mem_can_move` and the constraint goes into
+`mem_cp_dest`.** What keeps the Sound Blaster's ring still is what keeps every
+other claim still: **nobody declared it**. That is not a weaker guarantee than
+the old refusal — it is the same guarantee the whole of §66.2 rests on, applied
+to one more field. A holder that declares a block a chip is armed on has made a
+false statement, exactly as a holder that declares one and forgets its
+relocation proc has; §66.9 reason 2 is the register of which claims those are.
+
+**The bump, in both directions.** `mem_cp_dest` computes the fill-point
+destination as before and then, for a claim carrying `MC_DMA`, moves it off a
+page boundary its head would straddle — the same arithmetic `mem_claim_1`'s own
+scan does:
+
+- **going up**, to the next page's floor;
+- **coming down**, to the highest base in *this* page whose head still fits.
+
+Those two directions are not a symmetry for its own sake. The bump is the one
+thing in either walk that can move a destination the **wrong** way, and both
+passes' termination arguments rest on it not doing so: going up a claim only
+ever slides down, coming down only ever up. Choosing the relieving direction to
+agree with the pass keeps that true, and a bump that would still carry the
+block past its own base is turned into *"do not move it"* — which both callers
+already handle, being the same answer as *"already packed"*.
+
+**And the fill point advances from the DESTINATION, not from itself.** With a
+bump the two are no longer the same paragraph, so `mem_cp_adv` reads `DI`;
+`mem_cp_plan`'s *"would it move"* test became `DI != MC_SEG` for the same
+reason, which is also what keeps the plan and the run step for step over a
+bumped block — §66.4's binding property.
+
+**Direction of error if this is got wrong**, and it is why the gate reads an
+address rather than a flag: a block landing across a page is answered by the
+8237 wrapping to the start of its page and moving **the wrong memory,
+silently**.
+
 ### 66.5 The worker park
 
 Without it, a claim owned by a package with a live worker is pinned — which is
@@ -77818,14 +77999,374 @@ that was inferred rather than measured should say so.**
 rendezvous, so the door is the shape of this design rather than a hole in it.
 What is *behind* the door, so nobody costs it as a small follow-on:
 
-Moving a region means rewriting `I_SPTR`, `W_SEG` for every window it owns,
-every `MB_SEG` in the menu bar (§12.2), the owner word of every claim it holds
-(a package's data claims are owned by the segment it runs in, §50.2),
-`drv_fseg` for a driver — **and every saved CS on every stack**, because a
-package that far-called the kernel has pushed its own CS as the return
-segment. So a region can move only when no task has any frame inside it: no
-worker, and not currently dispatching a callback. That is a real feature with
-a real verification story and it is not this one.
+Moving a region means rewriting **every word in the kernel that names it**,
+and this list was four entries long for a year and is eleven. Each of the
+seven that were missing fails in a way nobody would trace back to a
+compaction — a stale `[menu_seg]` draws every bar title out of the wrong
+segment, and a stale `[fdlg_rqsp]` makes the completion callback silently skip
+so the user's Save does nothing at all:
+
+| holder | where | shape |
+|---|---|---|
+| `I_SPTR` | the instance table, 12 records | written in exactly two places (`kernel/loader.inc`, `kernel/instance.inc`), read in 24 |
+| `W_SEG` | `wm_wins`, 408 bytes | `wm_destroy_seg` (30 bytes) is the walk-by-segment already written |
+| `MB_SEG` | `menu_bar`, 84 bytes (§12.2) | scan by value |
+| `MC_OWN` | `mem_tab`, `MEM_MAX` records — a package's data claims are owned by the segment it runs in (§50.2) | scan by value |
+| `[menu_seg]` the bar's owner, `[menu_dseg]` the **dropped** menu | `kernel/menu.inc` | two words; `[menu_dseg]` is live in exactly the context §66.3 rule 3 names — a menu command claiming with the menu still down |
+| `[fdlg_rqsp]` the file dialog's staleness cookie, `[drv_dlg_seg]` | `kernel/fdlg.inc`, `kernel/driver.inc` | two words |
+| `[dskw_seg]`, `[dskw_wseg]`, `[dskw_czseg]` | `kernel/diskw.inc` | a **caller's** segment banked across a whole file transfer |
+| `[ld_base]` / `[ld_fp+2]`, the region being loaded | `kernel/loader.inc` | cheaper to **refuse**: pin any region whose base is `[ld_base]` |
+| `drv_fseg` | for a driver | one word |
+
+**And every saved CS on every stack**, because a package that far-called the
+kernel has pushed its own CS as the return segment. So a region can move only
+when no task has any frame inside it: no worker, and not currently dispatching
+a callback. That is a real feature with a real verification story and it is
+not this one; `docs/plans/HEAP-UNPIN-PLAN.md` §3.5 and §4 cost it.
+
+**One holder the kernel cannot reach at all**: `SSI_SEG` in an
+`OSAPI_SYS_SNAPSHOT` buffer is a copy in the **caller's** memory, so no kernel
+fix-up can find it. §20.9 says what that makes it.
+
+**What needs nothing** is most of the kernel, and that is the encouraging
+half: sound grants, XMS blocks, toast ownership, the dock, the clipboard,
+`wm_owner` and every `wm_about` / `wm_onwk` / `wm_oncl` / `wm_onrc` /
+`wm_pref` hook are keyed on an **instance slot** or on a near offset read live
+through `W_SEG`. A package's own code needs nothing either: it is `org 0` with
+no relocation of any kind, so every near offset inside the image survives a
+move untouched and only **segment words** are ever wrong afterwards. That is
+the whole reason this list is finite.
+
+#### 66.6.1 …and the door is open: a region moves when it is FRAMELESS
+
+§66.6's list is what a move has to rewrite. The question it left is the one
+that decides whether a move is *legal*, and it has an exact answer:
+
+> **Is there any frame anywhere that refers to the image at segment S?**
+
+The obvious answer — scan every task stack for S — is **refused**, and for
+§66.3 rule 5's own standard. A heap segment number shares a 16-bit range with
+kernel return addresses and with a package's own near pointers, so a sweep that
+patched what it found would corrupt a return address **silently**. It could not
+work anyway: a segment reaches a stack six ways, of which only a suspended
+task's `SCH_FRAME` is at a computable offset. The other five are the far-return
+CS the CPU pushes at every `OSAPI_*` call, `OSAPI_SLOT`'s own `push ds`,
+`api_x`'s conditional `push es`, an interrupt gate frame, and **whatever the
+package pushed itself** — Paint does `push ds` at twelve sites. Frames cannot
+be walked to find them: the kernel has seven `mov bp, sp` sites and none of
+them chain, so below the one `SCH_FRAME` the stack is untyped words.
+
+So no design can *find* the copies. What a design can do is know that **none
+was ever made**, and that is a counting question. Package code runs in exactly
+three contexts and the kernel opens all three:
+
+| context | who opens it | how it is counted |
+|---|---|---|
+| a **callback** — paint, key, click, drag, resize, timer, wake, menu | `wm_pkgcall`, one site | `[wm_pkgs]`, the segment pushed before the dispatch and popped after |
+| its **entry proc** | the loader, one site | `[ld_base]`, the window in which the region exists and the instance does not |
+| its **worker** | `task_spawn` | `I_TASK != 0xFF` in the instance record — `task_spawn` writes the worker's DS and CS into `SCH_FRAME` before it runs an instruction |
+
+> A region is frameless iff it is **not named in `[wm_pkgs]`**, its instance's
+> `I_TASK == 0xFF`, and `MC_SEG != [ld_base]`.
+
+**The two doors are audited, not assumed.** There are exactly two `call far`
+sites in the kernel that reach a package — `wm_pkgcall` and the loader's entry
+call — plus `mem_reloc_call`'s, which is the compactor's own. Every other far
+call in the tree reaches a **module** or a **driver**; `drv_pkg_call_x` runs
+the other way, a package reaching a driver.
+
+**`mem_reloc_call`'s door must NOT be counted**, and this is the trap worth
+writing down. It far-calls a holder's relocation proc through `PKG_DISP`. Count
+it and the moment `mem_cp_run` notifies the first movable *data* claim the
+depth goes non-zero and **the compactor pins every region against itself** — a
+feature that silently does nothing, which is the worst failure shape available.
+It is safe uncounted because the notification is synchronous: the far call has
+returned before the walk reaches another record.
+
+**A STACK OF SEGMENTS AND NOT A DEPTH**, and that is the difference between a
+feature that fires and one that does not. A package reaches `mem_claim` only
+from inside its own callback, so a global depth is **always** non-zero at the
+one moment a package-driven compaction runs — a compactor resting on one would
+move a region on a kernel-initiated claim and never on any other. Recording
+*which* segment is at each level costs `WM_PKGD_MAX` words and lets package A's
+claim pack package B's region. Past that depth the answer is *pin everything*
+rather than a guess.
+
+**`[ld_base]` had to start being cleared.** It was zeroed on the *abort* path,
+where `ld_undo` frees by it, and never on the success path — so a value left
+standing pinned the most recently launched package's region, the one most
+likely to be the largest, for the rest of the session.
+
+**What makes the counter safe is already there.** `mem_compact` raises
+`[sch_lock]` across the plan *and* the moves, so no task can raise the depth
+between the test and the copy. The one window is the park request, which drops
+the lock for up to `INST_PARKW` ticks — and `mem_cp_run` re-calls
+`mem_can_move` per block under the re-raised lock, so a design that hoisted the
+predicate out of that loop for speed would be wrong in a way nothing would
+catch.
+
+**`mem_region_reloc` is the kernel's half**, run unconditionally for every move
+on `dsk_dseg_reloc`'s terms and for its reason: a block that is not a region
+matches nothing in it, and the walk is ~70 compares against a `rep movsw` of up
+to 64KB. It is in `.text`, because `cw_mem_disp` reaches a kernel relocation
+proc with `call bp` and `CS = KERNEL_SEG`. Three address spaces, three loops:
+`wm_wins`, `inst_tab` and the seven scalars are `.bss`; `menu_bar` is `.lowbss`
+and `mem_tab` is the claim table, both `ss:`.
+
+**And `mem_reloc_call` gained a fourth arm.** Its instance-slot case used to
+say *"a region is pinned and never arrives here"*; with one declared it does,
+and the holder is the **package itself, at its new base** — dispatched through
+`PKG_DISP` and not through the kernel's shim.
+
+**What was still pinned is a package that owns a WORKER** — `task_spawn` writes
+the region's segment into the worker's frame before it runs, and nothing can
+rewrite a suspended frame it cannot type. §66.6.2 is the way past it.
+
+**And `mem_find_own`'s fence had to widen by five bytes.** It matches
+`MC_SEG == DX && MC_OWN == BX` — *yours, or not at all* — and a region's
+`MC_OWN` is the instance **slot** where the declaring package's `BX` is its
+**segment**. A record whose `MC_SEG` equals the caller's own segment is that
+caller's region and can be nothing else, so that is the second way to match.
+No new API slot: a region *is* a claim, so `OSAPI_MEM_MOVABLE` is already the
+door.
+
+#### 66.6.2 …and past the worker: the package gives its worker back
+
+`OSAPI_TASK_RESTARTABLE` (slot `0x0518`, `inst_restart_set`) — `AX` = a near
+offset in the caller's own image, `0` to withdraw. It says:
+
+> *While this stands, my worker's stack holds nothing that matters. If you have
+> to move my region, throw the stack away and re-enter me at `offset` in the
+> new segment.*
+
+**Why it has to be the package that says so.** §66.6.1's limit is not that the
+segment is hard to find on the worker's stack — it is that it is there at an
+offset nothing can compute. `task_spawn` writes it into the initial frame, the
+worker's own chain pushes it again, and a scan that patched would corrupt a
+return address silently (§66.3 rule 5). So the kernel does not look for the
+stack; it arranges for the stack not to matter, and only its owner knows when
+that is true.
+
+**It is a WINDOW, not a property.** A worker that mixes audio or interprets
+Z-code declares only between units of work, exactly the way `MEM_PARKSAFE` is
+set around `gfx_lock` and cleared after. A worker that declares while mid-
+anything loses it — and the asymmetry against `MEM_PARKSAFE` is the thing to
+weigh before declaring: parksafe declared wrongly costs a missed optimisation,
+**this costs a lost loop iteration, and if the worker was holding something it
+costs correctness.**
+
+**Two questions, not one.** `mem_frameless` asks whether a restart point is
+declared *and* whether `[sch_parked]` is set for that worker. The declaration
+says the stack holds nothing of the PACKAGE's; it says nothing about the
+KERNEL's, and a worker pre-empted inside `gfx_lock` holding the lock, or inside
+a driver call, would take that with it. The park byte is exactly the proof that
+it is standing at one of the two points where it holds neither (§66.5.4), and
+it is already maintained — so this reaches the **drawing** workers, which
+§66.6.1 could not and which have the big claims.
+
+**A rebuild in place, not a kill and respawn.** `sch_wk_restart` is
+`task_spawn`'s tail run again on a slot that already exists: `T_SP` = slice top
+− `SCH_FRAME`, `DS` = `CS` = the new segment, `IP` = the declared offset, `DX`
+= the instance index, the rest zeroed. A respawn can *fail* — first fit over a
+busy table — and the kernel would then have destroyed a worker it could not
+promise to return; and `task_exit` releases the instance record with the task,
+which is a package closing rather than a worker restarting. The slice keeps its
+`0xCC` fill and its `SCH_MAGIC` canary: both belong to a slice already cut, and
+the high-water mark `tools/stkwater.py` reads stays meaningful across a
+restart.
+
+**It MUST clear `[sch_parked]`.** The worker is standing in `inst_park_hold` or
+in `gfx_lock`'s `.block` arm and **both clear that byte on the way out** — a
+way out the rebuild has just deleted. Left set, `inst_seg_parked` answers
+*"parked"* for ever and the next compaction moves the claims of a worker that
+is running. `[gfx_lock_want]` is left set and that one is harmless: §7.3 makes
+it a fairness hint the next contended acquire spends.
+
+**`[mem_wpin]` is set when the refusal is only the park.** A region whose
+package declared a restart point and whose worker is *running* is refused —
+but a park would fix it, so `mem_compact` is told, and spends its one park
+request on the region rather than only on a package's data claims. A region
+with no declaration sets nothing: no amount of waiting changes that answer.
+
+**What it costs the SDK is one appended cell**, so no published offset moves
+and no package needs rebuilding; a package built before this simply never
+declares and stays pinned. One word per instance (`INST_MAX*2` of `.bss`, a
+side table for `inst_parksafe`'s reason — `I_RECSZ` is full).
+
+#### 66.6.3 …and a DRIVER IMAGE, which needs no declaration at all
+
+A driver's base is its `CS` exactly as a package's region is, and §66.6.1's rule
+applies unchanged: **a CS may move when nothing anywhere refers to it.** What is
+different is who the holder is. Every word that names a driver image belongs to
+the **kernel** — `drv_tab`'s `DRVR_SEG` per row, `ss_row` and `xm_row`, which
+are rows shaped like a `drv_tab` row and deliberately outside it (§41.12.5), the
+five published class fast paths `drv_fseg`…`drv_fseg5`, `drv_blkseg`,
+`drv_dlg_seg`, the `MC_OWN` of every claim the driver holds and the `W_SEG` of
+any window it owns — so there is nothing for a driver-side proc to fix, and
+`mem_region_reloc` already walks all of it. The image claim is declared movable
+at `drv_load` with that routine as its proc; the driver is not asked.
+
+**THREE FACTS, ASKED RATHER THAN DECLARED.** `mem_can_move`'s `MEM_K_DRV` arm
+used to be an unconditional pin. It is now:
+
+1. **`mem_ivt_names`** — does any of the 256 interrupt vectors carry this
+   segment? `SOUND.DRV` is the only driver in the tree that hooks one, and it
+   hooks **more than one**: `sbl_isr` on its own IRQ, plus up to four candidate
+   vectors it installs a stub in while it is *finding* that IRQ. A declaration
+   would have to be right about all five, once, for ever, in a driver nobody is
+   editing. A 512-compare scan of the table is right about all of them without
+   being told, is right about a driver written before any of this, and cannot
+   be forgotten by one written after — §47's *grey a fact, never a guess*
+   applied to the compactor. It sets no `[mem_wpin]`: a park cannot unhook a
+   vector.
+2. **`mem_drv_inside`** — is a frame standing in the image right now? The seven
+   kernel sites that far-call a driver bracket themselves with
+   `drv_enter`/`drv_leave`, so `drv_segs[0..drv_depth)` is exactly the set of
+   images the machine is executing in. It is a **stack of segments and not a
+   depth**, for §66.6.1's reason one layer along: `sbl_v_grant` claims, so the
+   depth is non-zero at precisely the moment a driver-triggered compaction runs,
+   and a compactor resting on a count alone would pin every image against
+   itself and silently do nothing.
+3. **`inst_svc_parked`**, through `mem_busy_seg` — is a `TF_SERVICE` task of any
+   driver running? All-or-nothing, because `TF_SERVICE` is the only handle the
+   kernel has on *"a task inside a driver"* and it does not say which (§66.5.5).
+   This one **does** set `[mem_wpin]`: a park fixes it.
+
+**The bracket costs `pushf`/`cli` and not a bare `inc`.** `drv_dispatch` is
+reached from `snd_tick` **inside IRQ0** (§34.5), so the read-modify-write can be
+interrupted by another enter/leave pair and lose the update — leaving a depth
+that never returns to zero, or worse one that does while a frame is inside.
+Neither half relies on `ES` either: five of the seven sites restore it only
+*after* the far call and a driver may clobber it (§13), so both load
+`KERNEL_SEG` themselves. Two of the seven are `.text` and reach the pair, which
+lives in `.cold` with the other five, through four-byte `retf` wrappers —
+§2.6.1 forbids a far-called body that ends in a near `ret`.
+
+**What it reaches**, from `drv_memk`'s own constants: SOUND 6KB, HDD 8KB, ETHER
+18KB, RAMDISK 9KB, NET 6KB, VMMOUSE 1KB. Every one but the sound driver's is
+free the moment it is loaded, and the sound driver's becomes free the moment it
+detaches — which is the case §66.6's own motivation is about, a driver mounted
+mid-session standing in the middle of the arena for the rest of it.
+
+##### 66.6.3.1 …and the vectors, which is what lets SOUND.DRV move
+
+A driver image is the only claim on the heap that a **fourth** address space
+names: the interrupt vector table at segment 0. A vector into one names it by
+**segment**, and its offset does not move when the image is copied — so the
+patch is the same one every other table in `mem_region_reloc` gets, and
+`mem_can_move` stops refusing on the IVT and rewrites it instead.
+
+**Why the kernel does it and not the driver.** `SOUND.DRV` is the only driver
+in the tree that hooks a vector, and it hooks **five** — `sbl_isr` on its own
+IRQ, plus up to four candidates it installs a stub in while it is *finding*
+that IRQ. Any scheme resting on a driver naming them would have to be right
+about all five, once, for ever, in a driver nobody is editing. The kernel is
+right about all five without being told, and about a driver written after this
+without being changed.
+
+**Sixteen vectors, and NOT 256 — this is the load-bearing sentence.** The
+first build walked the whole table on the argument above, and it **corrupted a
+machine**. The IVT is not a table of pointers: its unused slots are scratch,
+and third parties use them as such. On `os8088_xt_hdd` the XT-IDE option ROM
+keeps two words at int C1h and int C3h; one of them read `0x8000`, a package
+claim moved off `0x8000`, the sweep rewrote the ROM's word to `0x6000`, and the
+hard disk then probed as **"No hardware found"** — a machine with no C: drive,
+produced by a heap compaction, silently. `tests/hdmove.py` is what caught it.
+
+So `mem_iv_patch` is cut to the slots a driver can legitimately own: the
+hardware IRQ vectors, int 08h–0Fh and int 70h–77h. That is a fact rather than
+a guess — a driver hooks its own IRQ line and there is nowhere else for one to
+go — and it is **§66.3 rule 5's argument one address space along**: a sweep
+that *patches* on a coincidence corrupts, where one that merely *refuses* is
+only conservative. The deleted `mem_ivt_names` had the identical false positive
+and was harmless, because all it ever did was pin.
+
+**That makes it a CONTRACT on drivers, and it is stated here because it is not
+a mechanism**: a driver image may hook its own IRQ vector and nothing else. A
+driver that hooked, say, int 2Fh would have its image moved out from under that
+vector, and the next call through it would enter freed memory. Every driver in
+the tree obeys it — only `SOUND.DRV` hooks anything, and `sbl_f_irqdisc` is
+literally `IRQ n → int 8+n`.
+
+**A 240-slot refusal for the rest was considered and NOT taken.** It would be
+~40 resident bytes and, worse, it would pin an image whenever a *scratch* word
+in an unused vector happened to equal its base — which is the same coincidence
+that made the sweep dangerous, pointing the other way, and would turn
+`tests/sndmove.py` into a row that goes red on the arena rather than on the
+kernel. A rule a driver author can read beats a guard that fires on a
+coincidence.
+
+**A driver image moves at IF=0, and only a driver image.** The vectors name the
+old segment until the patch runs, so an ISR taken between the copy and the
+rewrite enters the *old* copy — whose bytes are still intact but whose bss is
+about to be left behind, so any write it makes there is lost. Six bytes in
+`mem_cp_run` (`pushf` / `cmp MC_OWN, MEM_K_DRV` / `cli`) close the whole
+window, for every vector rather than for one masked line.
+
+**What it costs, stated as the bound and not the typical case**: one image
+copy's worth of latency — ~17 ms for the sound driver's 6KB, ~50 ms (three
+ticks) for the largest image in the tree, `ETHER.DRV`'s 18KB — charged once,
+and only when a driver image actually moves. Three lost ticks cost the BIOS
+clock and at most one mouse **packet**, which `mou_isr` resyncs on the framing
+bit rather than corrupting. It cannot land inside a floppy transfer (`dsk_xfer`
+holds `[sch_lock]` and claims nothing) nor inside `sbl_f_irqdisc`, which runs
+on the UI task with a frame in the image that `mem_drv_inside` already refuses
+on. Every other block takes the same path with the flag unchanged, and no
+package code runs inside it — a driver image's holder is `mem_region_reloc`,
+not a dispatcher.
+
+**`[drv_wcnt]` still gates it**, so the image moves only with no driver worker
+alive — which for the sound driver means no stream open and the DSP idle.
+
+**Measured**, `tests/sndmove.py` on a 5150 with a Sound Blaster: the driver
+re-mounted under a RAM disk that is then dropped sits at `9900` with its ring
+at `9700` and a 21KB hole above; one forcing ask moves the pair to `9E40` /
+`9C40` and merges 8.5KB and 21KB into one 29.5KB run. Vector `0Fh` (IRQ 7)
+named `9900` before and names `9E40` after. **The A/B is the reason the row
+checks the vectors at all**: with this loop taken out, every other assertion
+still passes *and the machine still draws* — the stale vector is silent until
+the card next raises its IRQ, and by then the compactor has re-let the bytes
+the CPU would jump into.
+
+#### 66.6.4 …and the one claim a CHIP points into
+
+§66.4.2 is right that `MC_DMA` is about where a claim may **land** and not
+about whether it may move — but one of the four such claims in the tree has a
+bus master armed on it. The Sound Blaster's 8KB ring is programmed into the
+8237's page and offset registers, and no relocation proc can rewrite those
+while a transfer is in flight.
+
+**`[drv_wcnt]` is the kernel's handle on that, and it is exact in the direction
+that matters.** A stream lives only while its refill or drain task does
+(§34.5), and the chip is armed only while a stream is open — so zero means
+nothing is armed. `mem_can_move` refuses any `MC_DMA` claim while it is
+non-zero. **Parked is not enough**, for §66.6.3's reason one claim along: a
+parked refill task means the DSP is *playing*, not that it has stopped. It
+costs the other three `MC_DMA` claims a refusal only while some driver has a
+worker at all, which is rare and brief.
+
+**The driver's side is three words and they were already written.**
+`sbl_ring_reloc` stores the new base and falls through into `sbl_dma_derive` —
+the tail of `sbl_dma_map`, factored rather than copied — which recomputes
+`[sbl_dmaoff]` and `[sbl_page]`, the two the 8237 is programmed from and both a
+function of the base. Nothing is re-armed, and that is the safety argument
+rather than an omission: the proc cannot be reached with a transfer in flight,
+and the next `sbl_go_on` programs the chip from these words as it always did.
+
+**And the ring is inert on its own**, which is worth knowing before reading a
+figure off it: `drv_load` claims the image and `sbl_dma_map` claims the ring
+straight after, so the ring sits **immediately below** the image and packs
+against it with nowhere to go. Measured on a machine with a card: image
+`9E80`, ring `9C80..9E80`, adjacent. It moves when the image does — §66.6.3.1
+— and not before.
+
+**And the driver's half is silent if it is wrong**, which is why
+`tests/sndmove.py` reads `[sbl_seg]`, `[sbl_dmaoff]` and `[sbl_page]` out of
+the image and checks them against the base the kernel granted. A/B'd with
+`sbl_ring_reloc` storing the *old* base: the ring moves, the image moves, the
+vectors follow, the desktop draws, and the only thing that goes red is that
+one check — the next `Play` would have programmed the 8237 with a page and
+offset belonging to somebody else's claim.
 
 ### 66.7 What is deliberately not done
 
@@ -77877,6 +78418,21 @@ afterthought.
   and one that moves the wrong bytes both report a successful claim; only the
   contents tell them apart. It also asserts that a **pinned** claim did not
   move, which is the other half of the same statement.
+- **`tests/heapfrag` check 13 is the descending pass's own gate** (§66.4.1),
+  and it had to bring its own mover: every top-down claim in the shipped tree
+  is pinned, so the pass has nothing to move on a stock machine and a row that
+  merely ran it would be green against a kernel in which it did nothing. The
+  check claims two blocks through `OSAPI_MEM_CLAIM_HI`, declares the lower one
+  movable, fills it, frees the upper one, and then asks for **one KB more than
+  the largest run on the machine** — an amount only the two being merged can
+  fund, which needs the block between them to pack **up**. It then re-reads the
+  block's contents and asserts its base went **up**. It runs after check 7, and
+  that placement is what makes it an assertion rather than a coincidence: the
+  big claim has already packed the arena, so the ascending pass has no movers
+  left and `mem_cp_worth` turns it down, which is precisely the tier the
+  descending pass is reached from. **Verified by amputation**: with `.flip`
+  patched to `jmp .undo` and nothing else changed, checks 1–12 pass and only 13
+  goes red.
 - **The Task Manager's memory map** already draws every claim at its real
   address and is the cheapest visual confirmation there is.
 - **The field sequence** (docs/FIELD-NOTES.md 2) end to end on a
@@ -77902,11 +78458,22 @@ every saved CS on every stack**. §66.6 costs it properly; nothing here is a
 small follow-on. This is the single largest category by bytes on a busy
 machine, and it is the one the design deliberately does not touch.
 
-**2. A bus master may be looking at it — permanent.** Anything carrying
-`MC_DMA`: the Sound Blaster's double-buffer and the file manager's copy
-buffer. The 64KB page rule is a property of the *address* (§50.3), and the
-chip may be mid-transfer. `mem_can_move` refuses these whatever anyone
-declares, which is right twice over.
+**Reason 1 no longer includes "and it is at the top of the heap".** Before
+§66.4.1 a top-down claim was pinned twice over — by its CS base and by the
+compactor having no pass that could reach it — and the second half is gone, so
+what each of these costs is now exactly what §66.6 says it costs and no more.
+
+**2. A bus master may be looking at it — RETIRED as a pin, and it names the
+one claim it is still true of.** This entry said `mem_can_move` refuses
+anything carrying `MC_DMA` *"whatever anyone declares, which is right twice
+over"*, and §66.4.2 is why it was right neither time: `MC_DMA` is a placement
+constraint, `mem_cp_dest` honours it, and of the four claims carrying it only
+the **Sound Blaster's ring** has a chip armed on it. The file manager's copy
+buffer, the directory read-ahead and the typeface cache do not, and
+`filecp.inc`'s own fallback drops the tag entirely and still copies. What keeps
+the ring still is what keeps every undeclared claim still: nobody declared it,
+and a driver that does has made a false statement — which is the same contract
+every other holder is under.
 
 **3. Purgeable — never MOVED, and since §66.10 never a barrier either.** The
 window raise cache and the directory read-ahead. Relocating one is the wrong
@@ -77929,25 +78496,26 @@ Paint's GIF staging is the one with a second reason: `[pt_gbase]` is a
 paragraph derived off `[pt_gseg]` at four sites, so its proc is genuinely
 more than one word.
 
-**5. It was given away and has holders the callback cannot reach —
-structural, and the interesting one.** The HDD's per-partition listing claim,
-§66.5.10.1. Three holders, one owner, and `mem_reloc_call` dispatches to the
-owner. **Fixing it is a kernel change and not a driver one**, because the
-kernel is the other holder: `mem_reloc_call` would have to recognise a claim
-sitting in a `dsk_vtab` row and fix the row and `[dsk_dseg]` before
-dispatching. That is a real design with a real verification story, it is
-6KB per mounted partition, and this tree stands at one 512-byte step of
-`KERN_BUDGET`.
+**5. It was given away and has holders the callback cannot reach — BUILT,
+and this entry is the record of what it was.** The HDD's per-partition listing
+claim, §66.5.10.1: three holders, one owner, and `mem_reloc_call` dispatches to
+the owner. The fix was a kernel change and not a driver one, because the kernel
+is the other holder — and it is `dsk_dseg_reloc` (§66.5.10.2), which
+`mem_reloc_call` calls for **every** move, before the owner's own proc, fixing
+the `dsk_vtab` row and `[dsk_dseg]`. The claim is **MOVABLE** today;
+`docs/HEAP-CLAIMS.md` carries the row. It is left here rather than deleted
+because the shape generalises: a donated claim needs the kernel to be the other
+half of its callback, and this is the worked example.
 
-**6. Nobody has done the audit — one claim, and the only honest
-"declarable" left.** The `MEM_K_FATW` FAT window (§18.8.1), 4.5KB per mounted
-volume and long-lived. It needs `[dsk_fatseg]` *plus* the per-volume
-`dsk_fatw0` array, and — the part that makes it an audit rather than a proc —
-it is read by `dsk_next_clus` inside chain walks that themselves call
-`disk_read`, **which claims**. So the question is not "can the two words be
-fixed" but "is there a window in which a walk holds a FAT position across a
-claim". It is claimed at MOUNT time, so it tends to sit low and be a poor
-barrier, which is why it is last.
+**6. Nobody has done the audit — RETIRED, and the tag it named is gone.**
+This entry described `MEM_K_FATW`, the FAT window (§18.8.1), as *"the only
+honest declarable left"*. That tag no longer exists: §18.8.4 made the window a
+**cache**, `MEM_P_FATW`, so it is purgeable rather than movable and its
+relocation proc was deleted with the tag — `dsk_fatw_demote` carries the second
+naming word (`[dsk_fatseg]`) that proc existed for. The audit the entry asked
+for was therefore answered by making the question not arise. It is left here so
+that a reader who finds `MEM_K_FATW` quoted in an older document knows which
+way it went.
 
 **And nine packages have nothing to declare at all** (§66.5.11) — measured
 after this tree's own inventory said otherwise.
