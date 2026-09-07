@@ -61,21 +61,41 @@ cs_f_sacre:                         ; a box, its roof, a drum and a dome
     CS_SIDES 8, CSI_WALL, CSI_WALL2
 
 ; --- a box, a pyramid, a dome (SPEC.md 88.5) -----------------------------------
+;
+; CSM_RAD IS max(|x| + |y| + |z|) OVER THE MODEL'S OWN VERTICES (SPEC.md
+; 88.5.11), and every one of these four works it out from the shape it is
+; about to emit. It used to be `wx + wz + h / 2`, which is the bound for a
+; model whose origin is its CENTRE - and the origin here is the base, so the
+; vertical reach is h and not h/2. That halving put 36 of 122 models under
+; their own true radius, the Shard by 97 m of 306, and CSM_RAD under-stating
+; is not a rounding error: cs_projall reads it to decide that an object is
+; wholly in front of the near plane, and cs_edge1 then draws every edge from
+; cs_sxv WITHOUT LOOKING AT cs_fv - so a vertex that was never projected this
+; frame contributed whatever the last object left in its slot, unclipped,
+; straight across the cockpit.
 %macro CS_BOX 4                     ; label, wx, h, wz
 %1: db CSM_STACK, 2, 5, 0, CSI_LINE, 0
-    dw %2 + %4 + %3 / 2, %%v, cs_f_box, 0
+    dw %2 + %4 + %3, %%v, cs_f_box, 0   ; the top corner: wx + h + wz
 %%v: dw %2, 0, %4
      dw %2, %3, %4
 %endmacro
 %macro CS_PYR 4                     ; label, wx, h, wz
 %1: db CSM_STACK, 2, 4, 0, CSI_LINE, 0
-    dw %2 + %4 + %3 / 2, %%v, cs_f_pyr, 0
+%if (%2 + %4) > (%3)                ; a base corner, or the apex: whichever
+    dw %2 + %4, %%v, cs_f_pyr, 0    ; reaches further from the base centre
+%else
+    dw %3, %%v, cs_f_pyr, 0
+%endif
 %%v: dw %2, 0, %4
      dw 0, %3, 0
 %endmacro
 %macro CS_DOME 4                    ; label, w, the box's h, the apex's h
 %1: db CSM_STACK, 3, 8, 0, CSI_LINE, 0
-    dw %2 + %2 + %4 / 2, %%v, cs_f_dome, 0
+%if (%2 + %2 + %3) > (%4)           ; the box's top corner, or the apex
+    dw %2 + %2 + %3, %%v, cs_f_dome, 0
+%else
+    dw %4, %%v, cs_f_dome, 0
+%endif
 %%v: dw %2, 0, %2
      dw %2, %3, %2
      dw 0, %4, 0
@@ -83,7 +103,11 @@ cs_f_sacre:                         ; a box, its roof, a drum and a dome
 ; --- a hill, a mountain, a headland: a frustum in the hill's ink --------------
 %macro CS_HILL 6                    ; label, base wx, base wz, height, top wx,
 %1: db CSM_STACK, 2, 5, 0, CSI_LINE, 0   ; top wz. A top of (0,0) is a peak
-    dw %2 + %3 + %4 / 2, %%v, cs_f_hill, 0
+%if (%2 + %3) > (%5 + %6 + %4)      ; a base corner, or a top one
+    dw %2 + %3, %%v, cs_f_hill, 0
+%else
+    dw %5 + %6 + %4, %%v, cs_f_hill, 0
+%endif
 %%v: dw %2, 0, %3
      dw %5, %4, %6
 %endmacro

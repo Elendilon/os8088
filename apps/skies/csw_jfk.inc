@@ -71,7 +71,7 @@ cs_f_jfk_twr:
 ; at 320 m. The top level is 4 m across rather than a point, so the crown and
 ; the mast come to a spike and not to a needle that vanishes at range.
 cs_m_jfk_esb: db CSM_STACK, 5, 17, 0, CSI_LINE, 0
-    dw 285, .v, cs_f_jfk_twr, 0     ; wx + wz + h/2 = 62 + 30 + 190
+    dw 382, .v, cs_f_jfk_twr, 0     ; the Euclidean radius, 88.5.11
 .v: dw 62,   0, 30                  ; the plot
     dw 62,  45, 30                  ; the five-storey base
     dw 34,  62, 20                  ; the setback
@@ -83,7 +83,7 @@ cs_m_jfk_esb: db CSM_STACK, 5, 17, 0, CSI_LINE, 0
 ; range is 16,000 and its near model would be twenty vertices of nothing:
 ; two levels tapering to the same tip draw the same sliver for eight.
 cs_m_jfk_esbf: db CSM_STACK, 2, 5, 0, CSI_LINE, 0
-    dw 285, .v, cs_f_box, 0
+    dw 382, .v, cs_f_box, 0
 .v: dw 44,   0, 24
     dw  8, 381,  8
 
@@ -94,14 +94,14 @@ cs_m_jfk_esbf: db CSM_STACK, 2, 5, 0, CSI_LINE, 0
 ; read as one skyline with two peaks. A 60 m square plot, and the stainless
 ; crown is the taper from the sixty-first floor to the spire.
 cs_m_jfk_chry: db CSM_STACK, 5, 17, 0, CSI_LINE, 0
-    dw 220, .v, cs_f_jfk_twr, 0     ; 30 + 30 + 159
+    dw 320, .v, cs_f_jfk_twr, 0     ; the Euclidean radius, 88.5.11
 .v: dw 30,   0, 30
     dw 30,  62, 30                  ; the base
     dw 22,  78, 22                  ; the setback
     dw 22, 240, 22                  ; the shaft
     dw  3, 319,  3                  ; the arches and the spire
 cs_m_jfk_chryf: db CSM_STACK, 2, 5, 0, CSI_LINE, 0
-    dw 220, .v, cs_f_box, 0
+    dw 320, .v, cs_f_box, 0
 .v: dw 24,   0, 24
     dw  6, 319,  6
 
@@ -111,14 +111,14 @@ cs_m_jfk_chryf: db CSM_STACK, 2, 5, 0, CSI_LINE, 0
 ; kilometres down the island at City Hall (s -4000, c -300), which puts it
 ; over the financial district where the player's approach passes to the left.
 cs_m_jfk_wool: db CSM_STACK, 5, 17, 0, CSI_LINE, 0
-    dw 185, .v, cs_f_jfk_twr, 0     ; 32 + 32 + 120
+    dw 242, .v, cs_f_jfk_twr, 0     ; the Euclidean radius, 88.5.11
 .v: dw 32,   0, 32
     dw 32,  58, 32                  ; the base block
     dw 16,  70, 16                  ; the setback
     dw 16, 205, 16                  ; the tower
     dw  3, 241,  3                  ; the pinnacle
 cs_m_jfk_woolf: db CSM_STACK, 2, 5, 0, CSI_LINE, 0
-    dw 185, .v, cs_f_box, 0
+    dw 242, .v, cs_f_box, 0
 .v: dw 26,   0, 26
     dw  5, 241,  5
 

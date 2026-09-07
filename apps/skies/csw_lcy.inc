@@ -54,7 +54,7 @@
 ; at 62 m shows as the ledge under the clocks, which is what a reader picks the
 ; tower out by from the air.
 cs_m_lcy_ben: db CSM_STACK, 4, 13, 0, CSI_LINE, 0
-    dw 66, .v, cs_f_sacre, 0        ; 9 + 9 + 96/2, the Manhattan bound
+    dw 96, .v, cs_f_sacre, 0        ; the Euclidean radius, 88.5.11
 .v: dw 9, 0, 9                      ; the shaft, 18 m square
     dw 9, 62, 9                     ; the ledge under the clock faces
     dw 7, 78, 7                     ; the belfry above them
@@ -88,7 +88,7 @@ CS_BOX cs_m_lcy_abb,  75,  30,  22
 ; that close the rim top and bottom are left out: they are under a pixel from
 ; anywhere the aeroplane can be.
 cs_m_lcy_eye: db CSM_STACK, 4, 0, 14, CSI_LINE, 0
-    dw 134, .v, 0, .e               ; 4 + 60 + 140/2
+    dw 141, .v, 0, .e               ; the Euclidean radius, 88.5.11
 .v: dw 4,   0,  3
     dw 4,  42, 60
     dw 4, 106, 60

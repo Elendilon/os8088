@@ -146,7 +146,7 @@ CS_HILL cs_m_sdu_dois, 380, 300, 380,  70,  55
 ; north side of the Urca peninsula and turns south round Sugarloaf's seaward
 ; face, so the rock has water on two sides of it and land behind.
 cs_m_sdu_bay0: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
-    dw 1925, .v, cs_f_rib2, 0
+    dw 1926, .v, cs_f_rib2, 0
 .v: dw -1925, -10                   ; the airfield shore, north-west end
     dw -225, -610                   ; abeam the runway, 250 m off the quay
     dw 1375, -1210                  ; ...and on toward the peninsula
@@ -171,7 +171,7 @@ cs_m_sdu_bay0f: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
 ; The gate wants 5. This is the tightest water in the world and it is 78 m of
 ; margin over that at worst.
 cs_m_sdu_bay1: db CSM_FLAT, 8, 3, 0, CSI_RIVER, 0
-    dw 1412, .v, cs_f_rib3, 0
+    dw 1413, .v, cs_f_rib3, 0
 .v: dw -1285, -85                   ; joins bay0's near bank
     dw -600, -330
     dw 150, -370                    ; abeam Sugarloaf, 123 m off the rock
@@ -200,7 +200,7 @@ cs_m_sdu_bot: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
     dw 275, 200
     dw 775, -300
 cs_m_sdu_botf: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
-    dw 760, .v, 0, cs_e_road2
+    dw 761, .v, 0, cs_e_road2
 .v: dw -525, 550
     dw 0, -50
     dw 500, -550
@@ -231,7 +231,7 @@ cs_m_sdu_atlf: db CSM_FLAT, 4, 0, 3, CSI_MARK, 0
 ; same four stations, so the pale crescent is three quads and eight vertices.
 ; It is the one thing in this world that is a colour rather than a solid.
 cs_m_sdu_snd: db CSM_FLAT, 8, 3, 0, CSI_MARK, 0
-    dw 1585, .v, cs_f_sdu_snd, 0
+    dw 1586, .v, cs_f_sdu_snd, 0
 .v: dw 1365, 645                    ; the landward edge
     dw 685, 47
     dw -282, -346
@@ -241,7 +241,7 @@ cs_m_sdu_snd: db CSM_FLAT, 8, 3, 0, CSI_MARK, 0
     dw -265, -495
     dw -1365, -645
 cs_m_sdu_sndf: db CSM_FLAT, 4, 0, 3, CSI_MARK, 0
-    dw 1546, .v, 0, cs_e_road3
+    dw 1547, .v, 0, cs_e_road3
 .v: dw 1425, 600
     dw 710, -24
     dw -274, -421
