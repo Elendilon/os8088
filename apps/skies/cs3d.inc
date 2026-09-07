@@ -1971,27 +1971,79 @@ cs_faces:
     add di, 4
     loop .cp
 .fill:
-    cmp word [cs_pn], 3
+    mov cx, [cs_pn]
+    cmp cx, 3
     jb .skip
-    ; --- (v1 - v0) x (v2 - v0), screen y down: a face toward us is negative,
-    ;     and a ground polygon that may be either way round still needs the
-    ;     sign, because it says which chain an edge is on (cs_pwind) ---------
-    mov ax, [cs_pv + 4]
-    sub ax, [cs_pv]                 ; x1 - x0
-    mov bx, [cs_pv + 10]
-    sub bx, [cs_pv + 2]             ; y2 - y0
+    ; --- THE WHOLE POLYGON'S SIGNED AREA (88.5.10): screen y down, so a face
+    ;     toward us is negative, and a ground polygon that may be either way
+    ;     round still needs the sign, because it says which chain an edge is
+    ;     on (cs_pwind).
+    ;
+    ;     It was ONE triangle - (v1 - v0) x (v2 - v0) - and that is a
+    ;     fraction of a trapezoid's area: the Empire State's crown at 4.2 km
+    ;     read 25 against the polygon's 175, on vertices rounded to whole
+    ;     pixels, so the sign was noise and the two crown faces went on and
+    ;     off a frame at a time, each on its own.
+    ;
+    ;     A QUADRILATERAL IS ITS DIAGONALS' CROSS, which is the whole area
+    ;     in the SAME TWO MULTIPLIES the one triangle took - the eight terms
+    ;     of (v2 - v0) x (v3 - v1) are the shoelace's eight, so it is exact
+    ;     for a folded quad as well as a convex one. Every face a model
+    ;     declares is a quad (CS_SIDES, CS_TOP), so the fix is free on all of
+    ;     them; the fan below is for the 3 to 7 points a clip leaves.
+    cmp cx, 4
+    jne .fan
+    mov ax, [cs_pv + 8]             ; (x2 - x0)(y3 - y1)...
+    sub ax, [cs_pv]
+    mov bx, [cs_pv + 14]
+    sub bx, [cs_pv + 6]
     imul bx
     mov cx, ax
     mov si, dx
-    mov ax, [cs_pv + 6]
-    sub ax, [cs_pv + 2]             ; y1 - y0
-    mov bx, [cs_pv + 8]
-    sub bx, [cs_pv]                 ; x2 - x0
+    mov ax, [cs_pv + 10]            ; ...minus (y2 - y0)(x3 - x1)
+    sub ax, [cs_pv + 2]
+    mov bx, [cs_pv + 12]
+    sub bx, [cs_pv + 4]
     imul bx
     sub cx, ax
     sbb si, dx
-    mov byte [cs_pwind], 0
-    js .draw                        ; toward us
+    jmp short .wound
+.fan:
+    xor cx, cx
+    xor si, si                      ; SI:CX = twice the signed area
+    mov ax, [cs_pn]
+    dec ax
+    dec ax
+    mov [cs_pfan], ax               ; n - 2 triangles in the fan
+    mov di, cs_pv + 4               ; ...from v1
+.tri:
+    push di
+    mov ax, [di]                    ; (xk - x0)(y(k+1) - y0)
+    sub ax, [cs_pv]
+    mov bx, [di + 6]
+    sub bx, [cs_pv + 2]
+    imul bx
+    add cx, ax
+    adc si, dx
+    pop di
+    push di
+    mov ax, [di + 2]                ; ...minus (yk - y0)(x(k+1) - x0)
+    sub ax, [cs_pv + 2]
+    mov bx, [di + 4]
+    sub bx, [cs_pv]
+    imul bx
+    sub cx, ax
+    sbb si, dx
+    pop di
+    add di, 4
+    dec word [cs_pfan]
+    jnz .tri
+.wound:
+    or si, si                       ; TEST THE SUM, not the loop counter: the
+    mov byte [cs_pwind], 0          ; one triangle this replaced left its own
+    js .draw                        ; flags in the `sbb` and the `js` read
+                                    ; them, and `dec` clobbers them - which
+                                    ; culls every face there is
     mov byte [cs_pwind], 1
     test byte [cs_fflags], CSF_NOCULL
     jz .skip                        ; away, or edge-on

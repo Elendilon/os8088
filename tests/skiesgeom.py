@@ -39,6 +39,16 @@ the per-scale projection are done again here, `idiv` truncation, Q15 and
 table buckets included. Both faults move a point by hundreds of pixels; the
 tolerance is TOL.
 
+AND THE WINDING IS THE WHOLE POLYGON'S AREA (SPEC.md 88.5.10). The back-face
+test reads a signed area out of the projected points, and it read ONE
+TRIANGLE'S - a fraction of a trapezoid's, and noise once the points are
+rounded to whole pixels, which is why the Empire State's two crown faces went
+on and off a frame at a time on the machine. It is a fan over the whole
+polygon now, and this row holds the guest's own 32-bit sum to the shoelace of
+the same points computed here: EXACTLY, because both are integer sums of the
+same products. That is an outside fact about the polygon and not a replay of
+the guest's arithmetic.
+
 AND THE IMPOSTOR'S SIZE. cs_boxlod stands a distant solid up as ONE
 SCREEN-AXIS-ALIGNED RECTANGLE, which is invisible at a few pixels and, in a
 bank, the only thing on the glass that did not rotate. Its gate was on
@@ -47,7 +57,7 @@ let 22 x 3 rectangles through on a 400-wide view. cs_rect has exactly one
 caller, so any stop there is an impostor and its size is checked against
 CS_LODPX, read out of skies.asm rather than mirrored (SPEC.md 88.5.4.1).
 
---clobber-proj, --clobber-side and --clobber-lod are the red runs
+--clobber-proj, --clobber-side, --clobber-lod and --clobber-fan are the red runs
 (docs/WRITING-TESTS.md 1): each patches one fault back into the guest's code
 and the row must fail on it.
 """
@@ -268,6 +278,9 @@ def main(argv):
                     help="emit before the crossing in cs_sidepass again: must go red")
     ap.add_argument("--clobber-lod", action="store_true",
                     help="let cs_boxlod draw any size again: must go red")
+    ap.add_argument("--clobber-fan", action="store_true",
+                    help="wind on ONE triangle again, not the whole polygon: "
+                         "must go red")
     a = ap.parse_args(argv)
     os.chdir(ROOT)
     scenes = a.scene or list(SCENES)
@@ -278,6 +291,9 @@ def main(argv):
         return dispapps.bss_off("skies", n)
     sg = lambda v: v - 0x10000 if v >= 0x8000 else v   # noqa: E731
 
+    windall = 0                         # faces whose winding was checked, over
+                                        # every scene: a run that examined none
+                                        # must not pass
     with os88marty.launch(a.image, apps=a.apps, machine=a.machine) as m:
         slot, seg, base = skiestest.open_game(m)
         lin = seg << 4
@@ -361,9 +377,39 @@ def main(argv):
             m.run()
             print("  (cs_sidepass emits before it computes the crossing again: this run must fail)")
 
+        # --- 88.5.10's three sites, found by their BYTES in cs_faces: the
+        #     `cmp cx, 4` that sends a quadrilateral to its diagonals, the
+        #     `mov ax, [cs_pn] / dec ax / dec ax` that sets the general fan's
+        #     length, and the `mov byte [cs_pwind], 0` that the sign test
+        #     straddles. Resolved rather than mirrored, because any of them
+        #     is one edit from moving and a remembered offset would stop at a
+        #     wrong instruction and check nothing.
+        flo, fhi = mp["cs_faces"], mp["cs_wire"]
+        fcode = m.read(lin + flo, fhi - flo)
+        g = fcode.find(b"\x8B\x0E" + (base + off("cs_pn")).to_bytes(2, "little")
+                       + b"\x83\xF9\x03")
+        h = fcode.find(b"\x83\xF9\x04\x75", g) if g >= 0 else -1
+        i = fcode.find(b"\xA1" + (base + off("cs_pn")).to_bytes(2, "little") + b"\x48\x48")
+        j = fcode.find(b"\xC6\x06" + (base + off("cs_pwind")).to_bytes(2, "little") + b"\x00\x78")
+        if g < 0 or h < 0 or i < 0 or j < 0:
+            sys.exit("skiesgeom: cs_faces does not hold the quad test, the "
+                     "fan's length and its sign test where 88.5.10 puts them "
+                     "(%d, %d, %d)" % (h, i, j))
+        quadn, fanlen, wsite = flo + h + 2, flo + i + 3, flo + j
+        if a.clobber_fan:
+            # no polygon has 0 points, so every one takes the general fan -
+            # with a length of one, which is the single triangle exactly
+            m.pause()
+            m.write(lin + quadn, b"\x00")
+            m.write(lin + fanlen, b"\xB0\x01")   # mov al, 1
+            m.run()
+            print("  (the winding is one triangle again, not the whole "
+                  "polygon: this run must fail)")
+
         render, panel = mp["cs_render"], mp["cs_panel"]
         stops = {mp[k]: k for k in ("cs_drawobj", "cs_poly", "cs_seg", "cs_edge1",
                                     "cs_panel", "cs_rect")}
+        stops[wsite] = "cs_wind"
 
         def frames(n):
             m.bp_exec(lin + render)
@@ -454,6 +500,8 @@ def main(argv):
                                         # check that examined nothing must
                                         # not pass
             pending = None                  # (edge, reference) awaiting its cs_seg
+            wind = (0, None)                # the worst winding against the
+            windn = 0                       # shoelace of the same points
             errs = []
 
             def geom():
@@ -490,32 +538,22 @@ def main(argv):
                     big = max(x1 - x0, y1 - y0)
                     if big > imp[0]:
                         imp = (big, cur)
-                elif k == "cs_poly" and not roll and not pitch:
-                    # A WORLD-VERTICAL EDGE MUST PROJECT VERTICAL when the
-                    # camera has neither pitch nor roll: yaw alone never
-                    # mixes Y into X or Z, so the two vertices of a wall's
-                    # side share a screen x. This is the invariant behind
-                    # "buildings lean over" and it is independent of the
-                    # replay below - the replay reproduces the guest's own
-                    # algorithm, so an algorithmic fault would agree with
-                    # itself. CS_SIDES emits base+1, top+1, top+0, base+0,
-                    # so the vertical pairs are (0,1) and (2,3); a FLAT
-                    # model (a river, a runway) has no vertical edge at all.
-                    # ...on a face that was NOT CLIPPED, because a clip
-                    # renumbers the list and (0,1)/(2,3) stop being the
-                    # columns. cs_pwhole is the guest's own word for that.
-                    if (cx == 4 and byte("cs_pwhole")
-                            and m.readseg(seg, w("cs_mdl"), 1)[0] != 1):
-                        vv = [(sg(int.from_bytes(m.readseg(seg, si + 4 * i, 2), "little")),
-                               sg(int.from_bytes(m.readseg(seg, si + 4 * i + 2, 2), "little")))
-                              for i in range(4)]
-                        for va, vb in ((0, 1), (2, 3)):
-                            dx_ = abs(vv[va][0] - vv[vb][0])
-                            dy_ = abs(vv[va][1] - vv[vb][1])
-                            if dy_ >= 8 and abs(vv[va][0]) < 4000:
-                                leann += 1
-                                if dx_ > lean[0]:
-                                    lean = (dx_, cur, (vv[va], vv[vb]))
+                if k == "cs_wind":
+                    # SI:CX is the guest's twice-signed-area, whatever the
+                    # face is about to be; the shoelace of cs_pv is the same
+                    # quantity computed here, and they are integers.
+                    v = (si << 16) | cx
+                    if v >= 1 << 31:
+                        v -= 1 << 32
+                    n = w("cs_pn")
+                    pv = words("cs_pv", 2 * n)
+                    q = [(pv[2 * t], pv[2 * t + 1]) for t in range(n)]
+                    sho = sum(q[t][0] * q[(t + 1) % n][1] - q[(t + 1) % n][0] * q[t][1]
+                              for t in range(n))
+                    windn += 1
+                    if abs(v - sho) > wind[0]:
+                        wind = (abs(v - sho), (cur, n, v, sho))
+                    continue
                 if k == "cs_poly":
                     R, pts, fv, whole = geom()
                     fn = w("cs_fn")
@@ -528,6 +566,37 @@ def main(argv):
                     else:
                         want = R.clip_face([pts[i] for i in idx], [fv[i] for i in idx])
                     npoly += 1
+                    # A WORLD-VERTICAL EDGE MUST PROJECT VERTICAL when the
+                    # camera has neither pitch nor roll: yaw alone never
+                    # mixes Y into X or Z, so its two ends share a screen x.
+                    # This is the invariant behind "buildings lean over" and
+                    # it is independent of the replay above - the replay
+                    # reproduces the guest's own algorithm, so an algorithmic
+                    # fault would agree with itself.
+                    #
+                    # WHICH EDGES ARE VERTICAL is asked of the vertices and
+                    # not of the face table: CS_SIDES emits base+1, top+1,
+                    # top+0, base+0, so (0,1) and (2,3) are the columns - but
+                    # only where the band is a PRISM. A TAPERED one (a dome,
+                    # a spire, the Empire State's setback) leans by design,
+                    # and reading the pairs off the table alone reported that
+                    # as a fault the moment 88.5.10's winding stopped culling
+                    # those faces by accident. Two ends at the same camera x
+                    # AND z are at the same world x and z, a yaw being a
+                    # rotation, so that is the question asked.
+                    # ...on a face that was NOT CLIPPED, because a clip
+                    # renumbers the list. cs_pwhole is the guest's own word.
+                    if not roll and not pitch and cx == 4 and whole:
+                        for va, vb in ((0, 1), (2, 3)):
+                            pa, pb = pts[idx[va]], pts[idx[vb]]
+                            if pa[0] != pb[0] or pa[2] != pb[2]:
+                                continue        # not a vertical edge at all
+                            dx_ = abs(got[va][0] - got[vb][0])
+                            dy_ = abs(got[va][1] - got[vb][1])
+                            if dy_ >= 8 and abs(got[va][0]) < 4000:
+                                leann += 1
+                                if dx_ > lean[0]:
+                                    lean = (dx_, cur, (got[va], got[vb]))
                     if len(want) != len(got):
                         errs.append("%s face %s: %d points against the replay's %d: %s vs %s"
                                     % (cur, idx, len(got), len(want), got, want))
@@ -567,6 +636,12 @@ def main(argv):
                   % (sc, npoly, nseg, worst, len(errs)))
             check(npoly + nseg >= 6, "%s: the frame had something to check (%d polygons, %d segments)"
                   % (sc, npoly, nseg))
+            windall += windn
+            check(windn >= 1 and wind[0] == 0,
+                  "%s: %d faces wound on the WHOLE polygon's area (worst %d "
+                  "off the shoelace%s)"
+                  % (sc, windn, wind[0],
+                     ": %s, %d points, %d against %d" % wind[1] if wind[0] else ""))
             if imp[0]:
                 check(imp[0] <= LODPX,
                       "%s: no impostor is bigger than CS_LODPX (%d px%s)"
@@ -580,6 +655,8 @@ def main(argv):
         m.type_text("f")
         m.advance(frames=30)
         m.run()
+    check(windall >= 40,
+          "the winding was checked on %d faces over the whole run" % windall)
 
     if bad:
         for b in bad:

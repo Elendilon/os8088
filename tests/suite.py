@@ -1838,7 +1838,7 @@ SOAK = [
         " the failure reachable: nothing else then widens the range."
         " --clobber-range is the red run",
         needs=("marty",), serial=True),
-    Row("skiesgeom", "soak", py("tests/skiesgeom.py"), 42.0,
+    Row("skiesgeom", "soak", py("tests/skiesgeom.py"), 48.0,
         "SPEC.md 88.5.5-88.5.8: every polygon and segment of a frame, on nine"
         " pinned scenes - four BANKED, four low among the buildings - held to"
         " a host replay of the guest's own near clip, side clip and per-scale"
@@ -1848,7 +1848,12 @@ SOAK = [
         " level a world-vertical edge must project vertical, and the replay"
         " cannot catch a fault in the algorithm because it reproduces it."
         " And 88.5.4.1: no IMPOSTOR rectangle bigger than CS_LODPX, which is"
-        " the screen-axis-aligned square that stood upright in a bank",
+        " the screen-axis-aligned square that stood upright in a bank. And"
+        " 88.5.10's winding: every face's signed area held to the shoelace of"
+        " the same points computed here, EXACTLY - the back-face test read one"
+        " triangle of a trapezoid, which is noise once the points are whole"
+        " pixels, and the two POI towers' crown faces went on and off a frame"
+        " at a time on the machine",
         needs=("marty",), serial=True),
     Row("skiesui", "soak", py("tests/skiesui.py"), 44.0,
         "SPEC.md 88.10's title page on the VGA machine: the two drop-downs"
