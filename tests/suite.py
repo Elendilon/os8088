@@ -2134,6 +2134,25 @@ SOAK = [
         " pixels, and the two POI towers' crown faces went on and off a frame"
         " at a time on the machine",
         needs=("marty",), serial=True),
+    Row("skiesflat", "soak", py("tests/skiesflat.py"), 62.0,
+        "SPEC.md 88.4.6.1: an EXACTLY HORIZONTAL segment lands where it was"
+        " asked. CS_SLICE's flat arm - dy zero, so the whole line is one run -"
+        " jumped into the shared row loop without loading DX, which is where"
+        " that loop takes the run's first x; DX held 3xBP from the caller's"
+        " own slice test and BP is 2|dy|, so every exactly-horizontal segment"
+        " on CGA and the 160x100 hack was drawn at the view's LEFT EDGE."
+        " It needs an EXACT angle to show, so it wants a model edge between"
+        " two vertices of the same height seen with the wings level: the"
+        " Eiffel's platform bar (88.5.4.5) is the first such edge in any"
+        " world, and even then the ink landed where nothing had MARKED, so it"
+        " never reached the glass and surfaced only as a stale pixel at the"
+        " other end of the screen. The row reads the SHADOW and asks the"
+        " direct question - stood on the Issy runway looking at the tower, a"
+        " nine-pixel run at the tower's own x and nothing at the left edge,"
+        " read at a breakpoint on cs_blit so the frame it reads is a WHOLE"
+        " one (docs/WRITING-TESTS.md 13 entry 44)."
+        " --clobber-flat NOPs the four bytes and the bar moves to x = 0",
+        needs=("marty",), serial=True),
     Row("skiesrwy", "soak", py("tests/skiesrwy.py"), 33.0,
         "SPEC.md 88.6.2.1: the runway keeps its lines PAST ITS OWN MIDDLE."
         " cs_drawobj's size test opened `cmp cx, 2600 / ja .out` on the"

@@ -97033,6 +97033,34 @@ under the wheels is forty of them (§88.5.5) — skips the masks and the ends
 and is one `rep stosw`, ~500. The general loops are what CGA and Mode X
 still run, and what keeps the generic path assembling.
 
+##### 88.4.6.1 An exactly horizontal segment lands where it was asked
+
+`CS_SLICE`'s `%%flat` arm — dy zero, so the whole line is one run — jumped
+into the shared row loop **without loading DX**, and DX is where that loop
+takes the run's first x. What DX actually held was `3 x BP` from the
+caller's own slice test, and BP is `2|dy|`, so for a flat line it was
+**zero**: every exactly horizontal segment on CGA and the 160x100 hack was
+drawn at the view's LEFT EDGE, at its correct row and its correct length.
+Hercules never had it (`cs_slice_herc` keeps x in SI throughout) and Mode X
+does not take the slice at all.
+
+It survived the program's whole life because of what it takes to make one.
+The angle must be EXACT — a roll of one unit tilts it — so it wants a model
+edge between two vertices of the same height seen with the wings level, and
+the first such edge in any world is the Eiffel Tower's platform bar
+(§88.5.4.5). Even then it never reached the glass: the run landed where
+nothing had MARKED (§88.3.1), so it sat in the shadow and surfaced only as
+a stale pixel in `skiescga`'s dirty-row check, at the other end of the
+screen from the tower. That is one commit spent reading a drawing defect as
+a dirty-row defect.
+
+The fix is `mov dx, [cs_slx]` in the flat arm, four bytes on the one path a
+flat line can reach: no sloped line, no polygon row and no other backend
+executes it, so nothing else pays. `tests/skiesflat.py` is the gate and
+asks the direct question — stood on the Issy runway looking at the tower,
+the bar is a nine-pixel run at the tower's own x with nothing at the left —
+and `--clobber-flat` NOPs those four bytes and moves it to x = 0.
+
 #### 88.4.7 A small solid keeps no outline
 
 Twelve segments round a fifteen-pixel box cost more than the box, and at
@@ -98148,6 +98176,7 @@ tower it is.
 
 | | |
 |---|---|
+| the platform | its two DIAGONALS, `4-6 5-7`, and not its four sides — a diagonal is the square's full width from exactly the azimuths where a side is foreshortened. It is the single most recognisable feature of this tower and the reason its silhouette is not a pylon's |
 | the flare | all four legs, `0-4 1-5 2-6 3-7`. It is the widest thing here — about 20 px at 6.2 m a pixel — and the one part whose *shape* a viewer can resolve |
 | the shaft | all four legs. Eleven pixels tapering to five is a taper you can see, and the taper is what the old model had none of |
 | the spire | one diagonal pair. The square is under two pixels across up there, so the other two legs land in the same column and would cost two segments to draw nothing |
@@ -98171,41 +98200,40 @@ eight frames, measured between two `cs_render` entries:
 | | facing the tower | facing away | the tower's share |
 |---|---|---|---|
 | four edges, two levels | **167.9 ms** | 142.8 ms | 25.1 ms |
-| ten edges, four levels | **173.4 ms** | 142.6 ms | 30.8 ms |
+| twelve edges, four levels | **174.2 ms** | 142.8 ms | 31.4 ms |
 
-**+5.5 ms, or 3.3% of the frame** — 5.96 fps to 5.77. The facing-away figure
+**+6.3 ms, or 3.8% of the frame** — 5.96 fps to 5.74. The facing-away figure
 is the same on both builds, which is what makes the difference the tower's
 and not the weather's.
 
-##### 88.5.4.5.1 …and the PLATFORM BAR is refused, on a defect it is not
+##### 88.5.4.5.1 …and the PLATFORM BAR found the flat-line defect
 
-The shape wants one more thing: a **horizontal bar at the first platform**,
-which is the single most recognisable feature of this tower and the reason
-its silhouette is not a pylon's. Two edges do it — the platform square's two
-DIAGONALS, `4-6 5-7`, and not its four sides, a diagonal being the square's
-full width from exactly the azimuths where a side is foreshortened. It was
-built, it looks right at all four azimuths, and it costs **0.8 ms** on top of
-the above.
-
-**It is not in, because it takes `skiescga` red**: 18 stale pixels after a
+The bar went in last, and it went in twice: it was built, it looked right at
+all four azimuths, and it took `skiescga` **red** — 18 stale pixels after a
 straight climb and 10 after a pitch-up, against 0 without it, reproducibly
-and alone. What differs is a run of `CSI_LINE` at the view's **far left** —
-bytes 0-2 of rows 68 and 70 — nowhere near the tower, which at that pose is
-9° right of the nose. The incremental glass holds it at row 68 and a forced
-full redraw puts it at row 70: something two rows behind, at the other end of
-the screen.
+and alone. What differed was a run of `CSI_LINE` at the view's **far left**,
+bytes 0-2 of rows 68 and 70, nowhere near the tower, which at that pose is 9°
+right of the nose. So the bar was held out of the model for a commit under a
+note saying the defect was §88.3.1's and not §88.5's geometry.
 
-**It is not the diagonals and it is not the tower.** Bisected edge by edge on
-the same pose: the flare, the shaft and the spire are each clean; ANY edge
-joining two vertices of the SAME LEVEL — a near-horizontal segment — trips
-it, the platform's two *sides* as readily as its two diagonals, and one
-diagonal alone gives 4 stale pixels where two give 18. The count scales with
-how many. **It is clean on Hercules** and appears only on CGA.
+The note was right about where to look and wrong about which layer. Bisected
+edge by edge on the same pose, the flare, the shaft and the spire were each
+clean and **ANY edge joining two vertices of the same LEVEL** tripped it —
+the platform's two *sides* as readily as its two diagonals, one diagonal
+alone giving 4 stale pixels where two gave 18, the count scaling with how
+many. It was clean on Hercules and appeared only on CGA. That is the
+signature of §88.4.6.1: an exactly horizontal segment drawn at x = 0 instead
+of at the tower, into a part of the shadow nothing had marked, so it never
+reached the glass and surfaced only as a stale pixel at the other end of the
+screen. Four bytes in `CS_SLICE`'s flat arm; the bar is in, and it is the
+first edge in any world that could ever have found it.
 
-So a near-horizontal edge added to a distant object leaves a stale run
-somewhere else entirely, which is §88.3.1's scheme and not §88.5's geometry.
-The bar goes in when that is understood; the reproduction is one edge in
-`cs_m_eiffelf` and `python3 tests/skies.py --machine os8088_5150_cga_gla`.
+The lesson worth keeping is the misdiagnosis. A drawing defect that lands
+where nothing is marked is INDISTINGUISHABLE, from the glass, from a
+marking defect — the ink is somewhere it was not asked for either way. What
+told them apart was reading the **shadow** rather than the screen: the span
+set said the row was empty and the shadow said it was not, which is a
+composition that only a wrong x can produce.
 
 #### 88.5.8 "Buildings lean over", which was the horizon
 

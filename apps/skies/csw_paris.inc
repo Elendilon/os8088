@@ -88,21 +88,26 @@ cs_m_eiffel: db CSM_STACK, 5, 0, 32, CSI_LINE, 0
 ; pixels and lands inside the ground band: the flare was drawn, and invisible.
 ; At 105 it is a third of the way up and reads.
 ;
-; THERE IS NO PLATFORM BAR and there should be - it is what makes this tower
-; not a pylon. Two edges do it (the platform square's diagonals) and it is
-; REFUSED on 88.5.4.5.1: any near-horizontal edge here leaves stale pixels at
-; the far LEFT of a CGA view, which is 88.3.1's scheme and nothing to do with
-; the tower.
+; THE PLATFORM BAR is what makes this tower not a pylon, and it is the reason
+; 88.4.6.1 exists: it was refused for a whole commit because it left ink at
+; the far LEFT of a CGA view, which turned out to be every exactly-horizontal
+; segment in the program being drawn there.
 ;
 ; The apex is 324 and no longer 300, which is the near model's - the LOD
 ; switch used to change the tower's height by 24 m as you flew toward it.
-cs_m_eiffelf: db CSM_STACK, 4, 0, 10, CSI_LINE, 0
+cs_m_eiffelf: db CSM_STACK, 4, 0, 12, CSI_LINE, 0
     dw 330, .v, 0, .e
 .v: dw 62, 0, 62                    ; the feet
     dw 34, 105, 34                  ; the first platform, where the flare ends
     dw 14, 190, 14                  ; the second
     dw 0, 324, 0                    ; the apex
-.e: db 0,4, 1,5, 2,6, 3,7           ; the FLARE, all four legs: it is the
+.e: db 4,6, 5,7                     ; THE PLATFORM, as its two DIAGONALS and
+                                    ; not its four sides - a diagonal is the
+                                    ; square's full width from exactly the
+                                    ; azimuths where a side is foreshortened,
+                                    ; so two edges do what four would and no
+                                    ; square is drawn (88.5.4.5)
+    db 0,4, 1,5, 2,6, 3,7           ; the FLARE, all four legs: it is the
                                     ; widest thing here and the one part
                                     ; whose shape a viewer can resolve
     db 4,8, 5,9, 6,10, 7,11         ; the shaft, which needs its WIDTH
