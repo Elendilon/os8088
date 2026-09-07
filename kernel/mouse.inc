@@ -1526,14 +1526,20 @@ mou_p2_init:
     mov byte [mou_p2sub], 2
 %endif
     mov ah, al                  ; AH = it as the BIOS left it, plus bit 4 from
-    and al, 0xEF                ; the 0xAD above. Banked WITHOUT bit 4, so that
-    or  al, 0x20                ; mou_p2_off does not disable the keyboard on
-    mov [mou_p2cmd0], al        ; the UI task, and WITH bit 5, because the only
-                                ; readers of the bank are .fail and mou_p2_off
-                                ; and both want the port off - both send 0xA7
-                                ; beside it, and banking bit 5 clear made this
-                                ; write undo the 0xA7 it follows. The success
-                                ; path masks bit 5 off again anyway
+    and al, 0xEF                ; the 0xAD above
+    mov [mou_p2cmdr], al        ; THE RAW BYTE, bit 4 alone cleared - what the
+                                ; FAILURE paths put back (SPEC.md 9.9.7). It is
+                                ; a second bank because the one below forces
+                                ; bit 5, and bit 5 is the AUX CLOCK on a PS/2
+                                ; controller and PC MODE on an AT one: writing
+                                ; it on the machine that has no aux port stops
+                                ; the 8042 translating, and every key on the
+                                ; machine comes out as a different character
+    or  al, 0x20                ; ...and the doctored one, which mou_p2_off
+    mov [mou_p2cmd0], al        ; alone reads now. That path runs only where a
+                                ; PS/2 mouse answered its own reset, so bit 5
+                                ; there is the aux clock by construction, and
+                                ; it wants it off beside its own 0xA7
 
     mov byte [mou_p2st], 2      ; IS THERE AN AUXILIARY PORT HERE AT ALL?
     test ah, 0x02               ; BIT 1: this machine's own firmware armed
@@ -1545,12 +1551,25 @@ mou_p2_init:
                                 ; the controller no second question
     test ah, 0x20               ; ...or bit 5 already clear, which says the
     jz .haveaux                 ; same thing more directly: the port is CLOCKED
+                                ;
+                                ; IT IS ALSO WRONG ON AN AT CONTROLLER, where
+                                ; bit 5 is PC MODE and not the aux clock - and
+                                ; IT STAYS (SPEC.md 9.9.7). Being wrong here
+                                ; costs a probe that fails at step 5 and puts
+                                ; the controller back; taking it out costs the
+                                ; PHOENIX 8042 its mouse, because every machine
+                                ; whose BIOS left bit 1 clear would then go
+                                ; down the road below, which is the road that
+                                ; stopped on that controller. A known machine
+                                ; for a hypothetical one is the wrong trade,
+                                ; and the misidentification is HARMLESS now
+                                ; that .fail restores the byte it found
 
     ; --- no evidence in the byte: ask 0xA8 and look, the older road ---------
     ; Kept for the controller whose BIOS left both bits saying nothing. It is
     ; the road that does not work on a Phoenix 8042 - enabling the port with
     ; the keyboard interface disabled puts that controller somewhere it will
-    ; not answer a second command byte read from - so it is now the FALLBACK
+    ; not answer a second command byte read from - so it is the FALLBACK
     ; rather than the path, and a machine that has to take it is no worse off
     ; than it was.
 %ifdef MOU_DIAG
@@ -1686,17 +1705,17 @@ mou_p2_init:
 
 .noaux:                         ; 0xA8 did nothing, or the read never came:
                                 ; either way nothing here has an auxiliary port
-                                ; to talk to. Only 0xAD and 0xA8 have been sent
-                                ; and the command byte was never banked, so the
-                                ; whole of putting this machine back is 0xA7
-                                ; and the 0xAE every path below already sends
+                                ; to talk to
 %ifdef MOU_DIAG
     in  al, MOU_P2CMD
     mov [mou_p2sta], al
 %endif
     mov al, 0xA7
     call KERNEL_SEG:ovw_mou_p2cw
-    jmp short .quit
+    mov al, [mou_p2cmdr]        ; ...AND THE COMMAND BYTE. Only 0xAD and 0xA8
+    call KERNEL_SEG:ovw_mou_p2wcmd             ; have been sent on this road, so it is the
+    jmp short .quit             ; byte the BIOS had either way - and writing it
+                                ; costs nothing where nothing changed it
 
 .fail:                          ; put the controller back the way it was found
 %ifdef MOU_DIAG
@@ -1706,8 +1725,12 @@ mou_p2_init:
                                 ; can supply (SPEC.md 9.9.6)
     mov al, 0xA7                ; the auxiliary port off again...
     call KERNEL_SEG:ovw_mou_p2cw
-    mov al, [mou_p2cmd0]        ; ...and its command byte exactly as the BIOS
-    call KERNEL_SEG:ovw_mou_p2wcmd             ; had it. IRQ12 is deliberately LEFT masked:
+    mov al, [mou_p2cmdr]        ; ...and its command byte EXACTLY as the BIOS
+    call KERNEL_SEG:ovw_mou_p2wcmd             ; had it, bit 4 aside - which is what this
+                                ; line SAID it did and did not (SPEC.md 9.9.7).
+                                ; It wrote the bank with bit 5 forced set, and
+                                ; on an AT controller that bit is PC MODE.
+                                ; IRQ12 is deliberately LEFT masked:
                                 ; nothing else in this kernel uses that line,
                                 ; the port above is now unclocked so nothing
                                 ; can drive it, and a probe that failed has no
@@ -5056,6 +5079,10 @@ mou_p2cmd0  db 0                ; the 8042's command byte AS THE BIOS LEFT IT,
                                 ; which every failure path above puts back and
                                 ; which no reading of this source can supply
 ; --- ...and here THAT span ends. Scratch below it ---------------------------
+mou_p2cmdr  db 0                ; ...and the RAW one, bit 4 alone cleared: what
+                                ; the FAILURE paths put back (SPEC.md 9.9.7).
+                                ; Below the guarded span on purpose - 9.4.4's
+                                ; block is an ABI sysbench reads
 %ifdef KERN_BIG                 ; ...and this one really is the code's, so it
 mou_p2old   dw 0, 0             ; goes with it: int 74h's old vector, restored
 mou_p2m1    db 0                ; ...as is the master 8259's mask as

@@ -197,6 +197,19 @@ def main():
             fails.append("BIOS keyboard tail %04X -> %04X, want +12 for six "
                          "keys: a byte was taken from int 09h by the mouse "
                          "path (SPEC.md 9.9.1)" % (tail0, tail1))
+        else:
+            # ...AND WHICH CHARACTERS (SPEC.md 9.9.7). Counting entries is not
+            # enough and the field proved it: the probe left an AT 8042 in PC
+            # MODE, which stops it TRANSLATING set 2 to set 1, so the BIOS
+            # enqueued a full six keys and every one of them was the wrong
+            # letter - `f` typed `\`. The tail moves by 12 either way.
+            buf = q.read(0x400 + 0x1E, 0x20)        # the BDA's 16-entry ring
+            got = "".join(chr(buf[((tail0 - 0x1E) + 2 * i) % 0x20])
+                          for i in range(6))
+            if got != "abcdef":
+                fails.append("the BIOS queued %r for 'abcdef': the 8042 is not "
+                             "TRANSLATING, which is command-byte bit 5 left "
+                             "set on an AT controller (SPEC.md 9.9.7)" % got)
 
         q.hmp("quit")
     finally:
