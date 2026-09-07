@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A region whose package owns a WORKER must NOT move (SPEC.md 66.6.1, §4.6).
+"""A region whose package owns a WORKER must NOT move (SPEC.md 66.6.1).
 
     make && make build/regmove360.img && python3 tests/regpin.py
 
