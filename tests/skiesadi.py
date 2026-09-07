@@ -38,6 +38,7 @@ import dispapps                                             # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEG = 65536.0 / 360.0
+CS_PI_ADI = 3                       # apps/skies/csgame.inc's
 bad = []
 
 
@@ -158,8 +159,54 @@ def main(argv):
             print("      %s: rises %s" % (label, sorted(set(rises))[:8]))
             return faults, rises
 
-        # --- the aerobatic aeroplane, through both verticals ------------------
+        # --- WINGS LEVEL IS A LEVEL BAR (SPEC.md 88.9.2.4) -------------------
+        # The instrument had always looked right, so nothing ever asked this,
+        # and the day cs_sin started writing the whole of CX instead of CL
+        # alone the cosine held across it became ZERO - the guarded divide
+        # answered +-30000, the clamp made it four half-heights, and the
+        # horizon stood VERTICAL with the wings level. tan 0 is 0 and the
+        # rise off a 45 degree bank is the window's own half width in rows.
         fly(1)
+        m.pause()
+        for nm, val in (("cs_px", -2400), ("cs_py", 600), ("cs_pz", -2000)):
+            poke(nm, ((val * 256) & 0xFFFFFFFF).to_bytes(4, "little"))
+        poke("cs_pitch", b"\x00\x00")
+        poke("cs_spd", (60 * 128).to_bytes(2, "little"))
+        poke("cs_state", b"\x01")
+        m.run()
+        # THE PANEL IS RATE-GATED (SPEC.md 88.9.4), so a read three frames
+        # after a poke is the PREVIOUS pose's answer - which is how this same
+        # check first read 30 and 30 for a bank each way. Wait for the ADI's
+        # own latched key to become the roll just poked, then paint.
+        def adi_rise(r):
+            m.pause()
+            poke("cs_roll", r.to_bytes(2, "little"))
+            m.run()
+            want = ((r >> 8) & 0xFF)
+            for _ in range(30):
+                m.advance(frames=2)
+                m.run()
+                if (int.from_bytes(m.readseg(seg, base + off("cs_pshow") + 2 *
+                                             CS_PI_ADI, 2), "little")
+                        & 0xFF) == want:
+                    break
+            else:
+                sys.exit("skiesadi: the ADI never sampled roll %04x" % r)
+            m.advance(frames=4)
+            m.run()
+            return sg(w("cs_addy"))
+
+        level = [(r, adi_rise(r)) for r in (0, 0x2000, 0xE000)]
+        t = (w("cs_adhw") * w("cs_pasp")) >> 8      # rows for a slope of one
+        print("      level: %s (t = %d rows)" % (level, t))
+        check(level[0][1] == 0,
+              "wings level draws a LEVEL bar (rise %d)" % level[0][1])
+        check(abs(level[1][1] - t) <= 2 and abs(level[2][1] + t) <= 2,
+              "...and a 45 degree bank raises the end by the window's own "
+              "half width in rows (%+d and %+d against %d)"
+              % (level[1][1], level[2][1], t))
+
+        # --- the aerobatic aeroplane, through both verticals ------------------
         for label, centre in (("+90", 0x4000), ("-90", 0xC000)):
             faults, rises = sweep(label, centre)
             check(not faults,

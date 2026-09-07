@@ -201,12 +201,20 @@ cs_elhw:
 ;   an ITEM is (cell column, row), the same signed column, and its row is
 ;   two rows inside its window: a glyph is eight rows and a window twelve.
 ;
-; The layout rows are shared: readouts at 3, 18 and 33, the state at 49, the
-; message at 65 and whatever a panel wears along the bottom at 78. Round
-; instruments keep the LAYOUT's x, because they are round rather than
+; The layout rows are shared and they are the BEZEL's, not the window's
+; (SPEC.md 88.9.7.1): a readout occupies three pixels more than its rect on
+; every side - one for its outline and two for its corner brackets - so the
+; four levels are 5, 21, 37 and 53 with a window NINE rows tall, which puts
+; a clear row at 1, 17, 33 and 49 and leaves row 0 to the panel's own top
+; edge. Nine rows is what the face actually wants: the 8x8 cell's ink is
+; seven rows deep, so a nine-row plate has exactly one blank row above the
+; glyph and one below it.
+;
+; The message is at 67 and whatever a panel wears along the bottom at 82.
+; Round instruments keep the LAYOUT's x, because they are round rather than
 ; lettered - and CGA is the adapter to lay them out against, its pixels
 ; being the widest per row (a dial's x radius is its rows over cs_pasp).
-; tests/unit/t_cspanel.py holds all five to all three.
+; tests/unit/t_cspanel.py holds all five to all three, bezels and all.
 ; =============================================================================
 
 ; --- the Cessna's: a TRAINER's six-pack. Three readouts down the left, the
@@ -221,20 +229,20 @@ cs_ck_c172:
     dw 8                            ; CSK_BARW, in cells
     dw .deco, 7                     ; CSK_DECO, CSK_NDECO
 .win:                               ; cell column, row, cells, rows
-    dw   1,  3,  9, 12              ;   SPD 000
-    dw   1, 18, 11, 12              ;   ALT 00000
-    dw   1, 33,  9, 12              ;   HDG 040
-    dw -10,  3,  9, 12              ;   THR 100
-    dw -10, 19,  9,  8              ;   the throttle bar's slot
-    dw   1, 49, 15, 12              ;   ON THE GROUND
+    dw   1,  5,  9,  9              ;   SPD 000
+    dw   1, 21, 11,  9              ;   ALT 00000
+    dw   1, 37,  9,  9              ;   HDG 040
+    dw -10,  5,  9,  9              ;   THR 100
+    dw -10, 21,  9,  8              ;   the throttle bar's slot
+    dw   1, 53, 15,  9              ;   ON THE GROUND
 .items:                             ; cell column, row
-    dw   2,  5                      ;   SPD
-    dw   2, 20                      ;   ALT
-    dw   2, 35                      ;   HDG
+    dw   2,  6                      ;   SPD
+    dw   2, 22                      ;   ALT
+    dw   2, 38                      ;   HDG
     dw   0,  0                      ;   (the attitude indicator draws itself)
-    dw  -9,  5                      ;   THR
-    dw   2, 51                      ;   the state
-    dw  -9, 21                      ;   the throttle bar
+    dw  -9,  6                      ;   THR
+    dw   2, 54                      ;   the state
+    dw  -9, 22                      ;   the throttle bar
     dw   0, 67                      ;   the message (centred; the row)
     dw   0,  0                      ;   no variometer: an aeroplane with an
                                     ;   engine does not carry one (88.7.6)
@@ -243,8 +251,8 @@ cs_ck_c172:
     dw CSDK_DIAL,   205, 13, 10, 54000   ; oil pressure and temperature
     dw CSDK_DIAL,   115, 37, 10, 29000   ; the fuel gauges
     dw CSDK_DIAL,   205, 37, 10, 45000   ; the turn coordinator
-    dw CSDK_DIAL,   190, 56,  7, 12000   ; the ammeter, charging
-    dw CSDK_DIAL,   230, 56,  7, 20000   ; the vacuum gauge
+    dw CSDK_DIAL,   190, 57,  7, 12000   ; the ammeter, charging
+    dw CSDK_DIAL,   230, 57,  7, 20000   ; the vacuum gauge
     dw CSDK_RAIL,    40, 82,  4, 8 | (0xD7 << 8)
                                          ; the rail: master, both magnetos,
                                          ; carburettor heat COLD, the beacon,
@@ -264,28 +272,28 @@ cs_ck_pitts:
     dw 8                            ; CSK_BARW
     dw .deco, 6                     ; CSK_DECO, CSK_NDECO
 .win:
-    dw   1,  3,  9, 12              ;   SPD 000, high on the left
-    dw   1, 18, 11, 12              ;   ALT 00000, under the eye
-    dw -10, 33,  9, 12              ;   HDG 040, low right
-    dw -10,  3,  9, 12              ;   THR 100, high right
-    dw -10, 19,  9,  8              ;   the throttle bar's slot
-    dw   1, 49, 15, 12              ;   ON THE GROUND
+    dw   1,  5,  9,  9              ;   SPD 000, high on the left
+    dw   1, 21, 11,  9              ;   ALT 00000, under the eye
+    dw -10, 37,  9,  9              ;   HDG 040, low right
+    dw -10,  5,  9,  9              ;   THR 100, high right
+    dw -10, 21,  9,  8              ;   the throttle bar's slot
+    dw   1, 53, 15,  9              ;   ON THE GROUND
 .items:
-    dw   2,  5                      ;   SPD
-    dw   2, 20                      ;   ALT
-    dw  -9, 35                      ;   HDG
+    dw   2,  6                      ;   SPD
+    dw   2, 22                      ;   ALT
+    dw  -9, 38                      ;   HDG
     dw   0,  0                      ;   (the attitude indicator)
-    dw  -9,  5                      ;   THR
-    dw   2, 51                      ;   the state
-    dw  -9, 21                      ;   the throttle bar
+    dw  -9,  6                      ;   THR
+    dw   2, 54                      ;   the state
+    dw  -9, 22                      ;   the throttle bar
     dw   0, 67                      ;   the message
     dw   0,  0                      ;   no variometer (88.7.6)
 .deco:
     dw CSDK_DIAL,   112, 12, 10, 8000    ; the tachometer
     dw CSDK_DIAL,   112, 38, 10, 54000   ; oil pressure, up in the green
-    dw CSDK_DIAL,   165, 56,  7, 45000   ; the G meter, parked at 1
-    dw CSDK_DIAL,   210, 56,  7, 26000   ; the fuel, on the right where an
-    dw CSDK_DIAL,   255, 56,  7, 20000   ; aerobatic tank and its pressure are
+    dw CSDK_DIAL,   165, 57,  7, 45000   ; the G meter, parked at 1
+    dw CSDK_DIAL,   210, 57,  7, 26000   ; the fuel, on the right where an
+    dw CSDK_DIAL,   255, 57,  7, 20000   ; aerobatic tank and its pressure are
     dw CSDK_RAIL,    40, 82,  4, 7 | (0x57 << 8)
                                          ; master, both magnetos, the SMOKE
                                          ; off, the fuel pump, the inverted
@@ -303,28 +311,28 @@ cs_ck_fouga:
     dw 8                            ; CSK_BARW
     dw .deco, 6                     ; CSK_DECO, CSK_NDECO
 .win:
-    dw   1,  3,  9, 12              ;   SPD 000, top left: the one you watch
-    dw   1, 18, 11, 12              ;   ALT 00000, under it
-    dw -10,  3,  9, 12              ;   HDG 040, top right
-    dw -10, 18,  9, 12              ;   THR 100
-    dw -10, 33,  9,  8              ;   the throttle bar's slot
-    dw   1, 49, 15, 12              ;   ON THE GROUND
+    dw   1,  5,  9,  9              ;   SPD 000, top left: the one you watch
+    dw   1, 21, 11,  9              ;   ALT 00000, under it
+    dw -10,  5,  9,  9              ;   HDG 040, top right
+    dw -10, 21,  9,  9              ;   THR 100
+    dw -10, 37,  9,  8              ;   the throttle bar's slot
+    dw   1, 53, 15,  9              ;   ON THE GROUND
 .items:
-    dw   2,  5                      ;   SPD
-    dw   2, 20                      ;   ALT
-    dw  -9,  5                      ;   HDG
+    dw   2,  6                      ;   SPD
+    dw   2, 22                      ;   ALT
+    dw  -9,  6                      ;   HDG
     dw   0,  0                      ;   (the attitude indicator)
-    dw  -9, 20                      ;   THR
-    dw   2, 51                      ;   the state
-    dw  -9, 35                      ;   the throttle bar
+    dw  -9, 22                      ;   THR
+    dw   2, 54                      ;   the state
+    dw  -9, 38                      ;   the throttle bar
     dw   0, 67                      ;   the message
     dw   0,  0                      ;   no variometer (88.7.6)
 .deco:
     dw CSDK_DIAL,   112, 14, 10, 20000   ; % RPM - THE SPOOL, under the hand
     dw CSDK_DIAL,   208, 14, 10, 40000   ; the jet-pipe temperature
-    dw CSDK_DIAL,   170, 56,  7, 12000   ; the fuel flow
-    dw CSDK_DIAL,   215, 56,  7, 30000   ; the hydraulic pressure
-    dw CSDK_DIAL,   260, 56,  7, 20000   ; the oxygen contents
+    dw CSDK_DIAL,   170, 57,  7, 12000   ; the fuel flow
+    dw CSDK_DIAL,   215, 57,  7, 30000   ; the hydraulic pressure
+    dw CSDK_DIAL,   260, 57,  7, 20000   ; the oxygen contents
     dw CSDK_RAIL,    40, 82,  4, 8 | (0xB7 << 8)
                                          ; both igniters, the generator, the
                                          ; airbrakes IN, the boost pumps, the
@@ -344,28 +352,28 @@ cs_ck_bijave:
     dw 8                            ; CSK_BARW: unused - no bar is drawn
     dw .deco, 6                     ; CSK_DECO, CSK_NDECO
 .win:
-    dw   1,  3,  9, 12              ;   SPD 000
-    dw   1, 18, 11, 12              ;   ALT 00000
-    dw -10,  3,  9, 12              ;   HDG 040
-    dw -10, 18,  8, 12              ;   UP 015 - THE VARIOMETER, where a
+    dw   1,  5,  9,  9              ;   SPD 000
+    dw   1, 21, 11,  9              ;   ALT 00000
+    dw -10,  5,  9,  9              ;   HDG 040
+    dw -10, 21,  8,  9              ;   UP 015 - THE VARIOMETER, where a
                                     ;   powered aeroplane keeps its throttle
-    dw   1, 49, 15, 12              ;   ON THE GROUND
+    dw   1, 53, 15,  9              ;   ON THE GROUND
 .items:
-    dw   2,  5                      ;   SPD
-    dw   2, 20                      ;   ALT
-    dw  -9,  5                      ;   HDG
+    dw   2,  6                      ;   SPD
+    dw   2, 22                      ;   ALT
+    dw  -9,  6                      ;   HDG
     dw   0,  0                      ;   (the attitude indicator)
     dw   0,  0                      ;   NO THROTTLE
-    dw   2, 51                      ;   the state
+    dw   2, 54                      ;   the state
     dw   0,  0                      ;   ...and no throttle bar either
     dw   0, 67                      ;   the message
-    dw  -9, 20                      ;   THE VARIOMETER
+    dw  -9, 22                      ;   THE VARIOMETER
 .deco:
     dw CSDK_DIAL,   112, 13, 10, 16384   ; the vario's own face, needle level
     dw CSDK_DIAL,   208, 13, 10, 49000   ; the total-energy compensator
     dw CSDK_DIAL,   208, 38, 10, 8000    ; the second altimeter, in feet
-    dw CSDK_DIAL,   170, 56,  7, 16384   ; the yaw string's own gauge
-    dw CSDK_DIAL,   215, 56,  7, 45000   ; the barograph
+    dw CSDK_DIAL,   170, 57,  7, 16384   ; the yaw string's own gauge
+    dw CSDK_DIAL,   215, 57,  7, 45000   ; the barograph
     dw CSDK_RAIL,   130, 82,  5, 3 | (0x04 << 8)
                                          ; airbrakes IN, the release, and the
                                          ; trim - a glider has no switches to
@@ -383,31 +391,32 @@ cs_ck_a5:
     dw 232, 25                      ; CSK_ADCX, CSK_ADCY: right, in the glass
     dw 20                              ; CSK_ADRY (88.9.6)
     dw 8                            ; CSK_BARW
-    dw .deco, 6                     ; CSK_DECO, CSK_NDECO
+    dw .deco, 7                     ; CSK_DECO, CSK_NDECO
 .win:
-    dw   1,  3,  9, 12              ;   SPD 000
-    dw   1, 18, 11, 12              ;   ALT 00000
-    dw   1, 33,  9, 12              ;   HDG 040
-    dw  13,  3,  9, 12              ;   THR 100
-    dw  13, 19,  9,  8              ;   the throttle bar's slot
-    dw   1, 49, 15, 12              ;   ON THE WATER
-    dw  13, 33,  8, 12              ;   UP 015 - the variometer
+    dw   1,  5,  9,  9              ;   SPD 000
+    dw   1, 21, 11,  9              ;   ALT 00000
+    dw   1, 37,  9,  9              ;   HDG 040
+    dw  14,  5,  9,  9              ;   THR 100
+    dw  14, 21,  9,  8              ;   the throttle bar's slot
+    dw   1, 53, 15,  9              ;   ON THE WATER
+    dw  14, 37,  8,  9              ;   UP 015 - the variometer
 .items:
-    dw   2,  5                      ;   SPD
-    dw   2, 20                      ;   ALT
-    dw   2, 35                      ;   HDG
+    dw   2,  6                      ;   SPD
+    dw   2, 22                      ;   ALT
+    dw   2, 38                      ;   HDG
     dw   0,  0                      ;   (the attitude indicator)
-    dw  14,  5                      ;   THR
-    dw   2, 51                      ;   the state
-    dw  14, 21                      ;   the throttle bar
+    dw  15,  6                      ;   THR
+    dw   2, 54                      ;   the state
+    dw  15, 22                      ;   the throttle bar
     dw   0, 67                      ;   the message
-    dw  14, 35                      ;   THE VARIOMETER
+    dw  15, 38                      ;   THE VARIOMETER
 .deco:
     dw CSDK_DIAL,   290, 12, 10, 8000    ; the engine, on one glass page with
     dw CSDK_DIAL,   290, 38, 10, 54000   ; its temperatures beside it
-    dw CSDK_DIAL,   190, 13,  7, 20000   ; the fuel
-    dw CSDK_DIAL,   160, 56,  7, 12000   ; the volts
-    dw CSDK_DIAL,   200, 56,  7, 45000   ; the trim
+    dw CSDK_DIAL,   196, 13,  6, 20000   ; the fuel and the flaps, in the band
+    dw CSDK_DIAL,   196, 38,  6, 30000   ; between the glass and the horizon
+    dw CSDK_DIAL,   160, 57,  7, 12000   ; the volts
+    dw CSDK_DIAL,   200, 57,  7, 45000   ; the trim
     dw CSDK_RAIL,    40, 82,  5, 8 | (0xAF << 8)
                                          ; master, both pumps, THE WATER
                                          ; RUDDER down, the gear UP for a
@@ -916,24 +925,30 @@ cs_d_adi:
     mov al, ah
     mov ah, dl                      ; AX = t, rows for a slope of one
     push ax
-    mov ax, [cs_roll]
+    mov ax, [cs_roll]               ; ...the SINE first, and the cosine LAST,
+    call cs_sin                     ; straight into the divisor (88.9.2.4):
+    pop bx                          ; BX = t              this line used to
+    imul bx                         ; DX:AX = t sin       hold cos in CX
+    push dx                                             ; across cs_sin, which
+    push ax                                             ; is documented to
+    mov ax, [cs_roll]                                   ; clobber it
     call cs_cos
-    mov cx, ax                      ; CX = cos
-    mov ax, [cs_roll]
-    call cs_sin
-    pop bx                          ; BX = t
-    imul bx                         ; DX:AX = t sin
+    mov bx, ax                      ; BX = cos, and nothing runs before the
+    pop ax                          ; divide that could touch it
+    pop dx
     ; --- COS IS EXACTLY ZERO AT 90 DEGREES (SPEC.md 88.9.2.2) --------------
     ; The note here used to read "CX = cos, over 0.5 within MAXROLL", and
     ; that is true of a TRAINER. cs_att_free and cs_att_lag have no roll
     ; clamp at all (88.7.2), so an aerobatic aeroplane rolls straight through
-    ; the vertical - and cs_sintab is 1024 entries over the turn, so cos
-    ; reads 0 for the whole 64-unit window at +-90 and +-201 either side of
-    ; it. A `idiv cx` there is a DIVIDE BY ZERO, and on an 8088 int 0 returns
-    ; past it with AX undefined, which puts a garbage rise into a segment the
-    ; walk then draws off the end of the shadow.
-    mov bx, cx                      ; the guarded divide (85.5) answers +-30000
-    call cs_cdiv                    ; rather than faulting, zero divisor and all
+    ; the vertical - and the angle steps 64 units at a time through the
+    ; table, so cos reads EXACTLY 0 for that whole window at +-90 and +-201
+    ; either side of it (tests/unit/t_cssin.py asserts the crossings stay
+    ; exact under the quarter table, 88.5.9). A bare idiv there is a DIVIDE
+    ; BY ZERO, and on an 8088 int 0 returns past it with AX undefined, which
+    ; puts a garbage rise into a segment the walk then draws off the end of
+    ; the shadow.
+    call cs_cdiv                    ; the guarded divide (85.5) answers +-30000
+                                    ; rather than faulting, zero divisor and all
     mov bx, [cs_adhh]               ; ...and the rise is clamped to four times
     shl bx, 1                       ; the window's half height: past that the
     shl bx, 1                       ; bar is vertical however much further it

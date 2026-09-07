@@ -96213,6 +96213,31 @@ restores `cs_wh` from that rather than from a save taken on the way in. The
 word is never borrowed, so a host-side reader has one that is true at every
 instruction, and the clip's save shrinks from three words to two.
 
+#### 88.9.2.4 …and the cosine was held in a register the sine clobbers
+
+`cs_d_adi` fetched the cosine, put it in **CX**, then called `cs_sin` — which
+is documented to clobber CX. It had done so since the instrument was written.
+
+It never showed, because the old `cs_sin` wrote **CL alone**: `mov cl, 5` as
+a shift count. So the divisor was `cos` with its low byte replaced by 5 —
+32,517 for 32,767 — and a bar a fifth of a pixel out at the ends is nobody's
+defect. The quarter table (§88.5.9) writes the whole of CX, and the same line
+then handed `cs_cdiv` a divisor of **zero at wings level**: the guard
+answered ±30,000, the clamp made it ±4·`adhh`, and the horizon stood
+**vertical with the wings level** in the first photograph taken after it.
+
+Two fixes, because either alone leaves the trap. The call site takes the
+**sine first and the cosine last, straight into BX**, so nothing runs between
+fetching the divisor and dividing by it. And `cs_sin` now **preserves CX** —
+two bytes on a routine called twenty-five times a frame, which buys a
+register no caller has to remember. Its contract is "clobbers BX" now.
+
+It is worth naming what kind of bug this is: a latent contract violation that
+an unrelated, correct, well-tested change made fatal. `tests/skiesadi.py`
+gained the assertion that would have caught it at either end — **wings level
+is a level bar**, `cs_addy` = 0 at roll 0 — which no test asked before,
+because the instrument had always looked right.
+
 #### 88.9.9 A message is an annunciator, not a strip
 
 The message line was a WINDOW, and a window is painted once with the cockpit
@@ -96341,6 +96366,39 @@ A second full outline was the other candidate and it loses: the face is a
 25% dither, so two lines two pixels apart read as one thick smear at this
 size, where four corners read as a bezel. Eight short segments a window,
 once per target.
+
+#### 88.9.7.1 …and the layout rows are the BEZEL's, not the window's
+
+The field's next note was that the brackets *"overlap the top, or each
+other"*, and both were true of every cockpit. A readout occupies **three
+pixels more than its rect on every side** — one for the outline `cs_panel`
+grows it by, two for `cs_pbox`'s corner brackets — and the rows were laid
+out against the rect. So the top row's bracket landed **on the panel's own
+edge line at row 0**, and at 15 rows apart with a 12-row window the bottom
+bracket of one readout sat **exactly on the top outline of the next**: rows
+17 and 17 in the photographs, at the same left corner.
+
+The window is **nine rows** now and the levels are **5, 21, 37 and 53**,
+which puts a clear row at 1, 17, 33 and 49 and leaves row 0 to the edge
+line. Nine is not a squeeze: the 8×8 cell's ink is **seven rows deep**, so a
+nine-row plate with the glyph one row in has exactly one blank row above it
+and one below — where the twelve-row plate had two above and three, and was
+already bottom-heavy.
+
+Four levels of bezel and a message strip is what 88 panel rows will take.
+The arithmetic is worth writing down because every near miss on the way was
+one or two rows out: a level costs `h + 6` rows of bezel plus a clear row,
+the message erases rows 65 to 76 whatever is under it (§88.9.9), and the
+switch rail's stalk reaches `r + 1` either side of row 82. `4 × 15 + 3 = 63`
+fits in rows 1…64; the same four at twelve rows need 75 and do not, at any
+spacing.
+
+`tests/unit/t_cspanel.py` checks the **bezel** rectangle now and requires a
+clear pixel between any two — not merely no overlap, because two bezels a
+pixel apart read as one smear on a 25% dither, which is the same argument
+that gave a window corner brackets instead of a second outline (§88.9.7).
+Checking the window rect is checking the wrong rectangle, and it passed the
+whole time the defect was on the glass.
 
 #### 88.9.8 The layout, and the gate that holds all five to all three
 
