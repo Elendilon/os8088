@@ -2057,7 +2057,12 @@ SOAK = [
         " since 88.7.3.2 lands on a frame's last tick",
         needs=("marty",), serial=True),
     Row("skiesbody", "soak", py("tests/skiesbody.py"), 30.0,
-        "SPEC.md 88.7.8: the elevator is a rate about the AEROPLANE's wing"
+        "SPEC.md 88.7.8 and 88.7.8.1: the elevator is a rate about the"
+        " AEROPLANE's wing axis, and past the vertical its contribution to"
+        " the heading REVERSES - the 1/cos(pitch) that 88.7.8 drops for being"
+        " singular there had a sign in it, so after a loop a banked pull"
+        " turned the wrong way. --clobber-invert is check 5's red run."
+        " Originally: the elevator is a rate about the AEROPLANE's wing"
         " axis and every model added it straight into [cs_pitch], which is"
         " the world's. Wings level nothing changes (cos 0, sin 0); in a 90"
         " degree bank the world pitch stands still and the whole of"

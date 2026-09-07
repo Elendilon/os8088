@@ -98966,6 +98966,49 @@ with nobody pulling.
 
 `tests/skiesbody.py` is the gate and `--clobber-body` the red run.
 
+##### 88.7.8.1 ...and the dropped division had a SIGN in it
+
+Reported off the machine, one aerobatic session later:
+
+> After doing acrobatics in the jet for a while, the elevator inverts, but
+> only relative to the banked turn. In a 90° left bank, holding up will go
+> to the right, rather than increasing the rate to the left.
+
+§88.7.8 drops the `1/cos(pitch)` on the heading term deliberately, and says
+why: it is singular at the vertical and this aeroplane goes there. What the
+entry did not notice is that the factor is not only a magnitude. The wing
+axis has a vertical component of `cos(pitch) sin(roll)`, so a body pitch
+rate `q` turns the heading by `q sin(roll) cos(pitch)` — and **past the
+vertical `cos(pitch)` is negative**. Dropping it costs the turn rate at high
+pitch, which is the trade §88.7.8 took; dropping its sign costs the
+DIRECTION, which is not.
+
+A loop is how the pitch gets there and stays: nothing re-canonicalises the
+Euler triple, so `[cs_pitch]` reads past a quarter turn for as long as the
+attitude does — `tests/skiespitts.py` records **172°** on the Pitts — and
+every banked pull until it comes back is reversed.
+
+**Measured**, breaking on `cs_elev` with the stick held and reading what it
+adds to `[cs_hdg]`: **+145 at every pitch from −170° to 170°**, flat, which
+is `q sin(roll)` and nothing else, against a truth that changes sign twice
+over that range. **8 of 18 pitches turned the wrong way, every one of them
+past ±110°**, and 0 of 18 after.
+
+The sign needs no cosine and no table. `cos` is negative exactly when the
+angle is more than a quarter turn from zero, which is the top bit of the
+angle plus a quarter turn:
+
+    mov bx, [cs_pitch]
+    add bx, 16384
+    jns .hd
+    neg ax
+
+Four instructions and eleven bytes, on a path that runs once a tick and only
+while the stick is held. The magnitude is still dropped, so §88.7.8's "no
+blow-up in it" stands unchanged.
+
+`tests/skiesbody.py` check 5 is the gate and `--clobber-invert` the red run.
+
 #### 88.7.9 The take-off prompt names THIS aeroplane's speed
 
 Reported off the machine: *"the jet's take-off speed message says 55, but it

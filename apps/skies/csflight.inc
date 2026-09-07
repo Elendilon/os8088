@@ -1023,6 +1023,14 @@ cs_ease:
 ; the vertical, which is somewhere this aeroplane goes, and what they buy -
 ; a turn that keeps its rate at high pitch, and apparent roll under
 ; back-pressure in a bank - is worth less than a model with no blow-up in it.
+;
+; BUT THE FIRST OF THEM HAS A SIGN IN IT (SPEC.md 88.7.8.1). Dropping the
+; magnitude of 1/cos(pitch) costs a turn rate; dropping the SIGN costs the
+; direction, because past the vertical cos(pitch) is negative - and this
+; aeroplane loops. Reported from the field as "after acrobatics the elevator
+; inverts relative to the banked turn: in a 90 degree left bank, holding up
+; goes right". The sign is kept and the magnitude is still dropped, which is
+; four instructions and no blow-up.
 ; -----------------------------------------------------------------------------
 cs_elev:
     push si
@@ -1034,6 +1042,17 @@ cs_elev:
     pop ax
     push ax
     MUL14                           ; q sin(roll): the HEADING, and this proc
+    ; --- ...TIMES THE SIGN OF cos(pitch) (SPEC.md 88.7.8.1). The division
+    ;     dropped below takes the sign with it, and past the vertical that
+    ;     sign is NEGATIVE - so after a loop a banked pull turned the wrong
+    ;     way. It needs no cosine: cos is negative exactly when the angle is
+    ;     more than a quarter turn from zero, which is the top bit of the
+    ;     angle plus a quarter turn.
+    mov bx, [cs_pitch]
+    add bx, 16384
+    jns .hd
+    neg ax
+.hd:
     add [cs_hdg], ax                ; is the only place it is applied
     mov ax, [cs_roll]
     call cs_cos

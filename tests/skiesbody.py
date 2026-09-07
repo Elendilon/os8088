@@ -30,7 +30,18 @@ row is one check each, read at a cs_step breakpoint so a tick is a tick.
      in its steepest bank turns measurably faster with the stick back than
      with it centred.
 
---clobber-body is the red run (docs/WRITING-TESTS.md 1): a `ret` on
+AND ONE FIELD REPORT LATER, CHECK 5 (SPEC.md 88.7.8.1). 88.7.8 drops the
+`1/cos(pitch)` on the heading term for being singular at the vertical, and
+dropped its SIGN with it - so past a quarter turn, which is where a loop
+leaves the pitch and nothing puts it back, a banked pull turned the wrong
+way: *"after acrobatics the elevator inverts relative to the banked turn -
+in a 90 degree left bank, holding up will go to the right"*. Check 5 reads
+the elevator's OWN contribution to the heading (held minus centred, one tick
+from the pinned attitude) and requires it to reverse past the vertical, the
+way cos(pitch) does. --clobber-invert is its red run and NOPs the four
+instructions that keep the sign.
+
+--clobber-body is the red run for checks 1 to 4 (docs/WRITING-TESTS.md 1): a `ret` on
 cs_elev's first byte returns the body rate unresolved and adds nothing to
 the heading, which is the model exactly as it was, and checks 2, 3 and 4 go
 red.
@@ -67,6 +78,8 @@ def main(argv):
     ap.add_argument("--machine", default="os8088_5150_herc_gla")
     ap.add_argument("--image", default="build/os8088-360.img")
     ap.add_argument("--apps", default="build/apps360.img")
+    ap.add_argument("--clobber-invert", action="store_true",
+                    help="drop 88.7.8.1's sign again: check 5 goes red")
     ap.add_argument("--clobber-body", action="store_true",
                     help="cs_elev returns the rate unresolved: rows go red")
     a = ap.parse_args(argv)
@@ -226,6 +239,55 @@ def main(argv):
         check(held[-1] > idle[-1],
               "the trainer turns FASTER with the stick back than centred "
               "(%d against %d a tick)" % (held[-1], idle[-1]))
+
+        # --- 5. past the vertical the TURN reverses (SPEC.md 88.7.8.1) -------
+        # The wing axis has a vertical component of cos(pitch) sin(roll), so
+        # the elevator's own contribution to the heading follows cos(pitch)
+        # and REVERSES past a quarter turn. It did not: 88.7.8 dropped the
+        # 1/cos(pitch) for being singular at the vertical and dropped its sign
+        # with it, so after a loop a banked pull turned the wrong way - "in a
+        # 90 degree left bank, holding up will go to the right".
+        #
+        # ONE DELTA A POSE, from the pinned attitude: cs_elev reads cs_pitch
+        # before this tick's update, so the first tick is the only one that
+        # is at the pitch that was asked for - the clamp drags the rest back
+        # toward CSP_MAXPITCH.
+        if a.clobber_invert:
+            pat = (b"\x8B\x1E" + (base + off("cs_pitch")).to_bytes(2, "little")
+                   + b"\x81\xC3\x00\x40\x79\x02\xF7\xD8")
+            lo2 = mp["cs_elev"]
+            blob = m.read(lin + lo2, 96)
+            k = blob.find(pat)
+            if k < 0:
+                sys.exit("skiesbody: cs_elev does not carry 88.7.8.1's sign "
+                         "where this expects - re-read it before trusting "
+                         "the red run")
+            m.pause()
+            m.write(lin + lo2 + k, b"\x90" * len(pat))
+            m.run()
+            print("  (the sign of cos(pitch) dropped again: must fail)")
+
+        def elev_turn(pitch_deg, roll_deg=90):
+            """What the ELEVATOR alone adds to the heading in one tick."""
+            held = deltas(ticks("ArrowDown", pitch_deg, roll_deg, n=2), 1)[0]
+            idle = deltas(ticks(None, pitch_deg, roll_deg, n=2), 1)[0]
+            return held - idle
+
+        e0 = elev_turn(0)
+        print("      elevator's own turn in a 90 bank: level %d" % e0)
+        wrong = []
+        for p in (130, 170, -130, -170):
+            e = elev_turn(p)
+            print("      ...at pitch %4d: %d" % (p, e))
+            if e0 == 0 or (e > 0) == (e0 > 0):
+                wrong.append((p, e))
+        check(abs(e0) > 4,
+              "the elevator turns the aeroplane at all in a 90 degree bank "
+              "(%d a tick)" % e0)
+        check(not wrong,
+              "...and past the vertical it turns the OTHER way (%s did not, "
+              "against %d level)"
+              % (", ".join("%d deg: %d" % w for w in wrong) or "none", e0))
 
         m.type_text("f")
         m.advance(frames=40)
