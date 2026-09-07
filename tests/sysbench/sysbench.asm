@@ -1434,11 +1434,11 @@ sb_mouse:
     call sb_mb
 
     mov si, sb_l_mhpt               ; --- did the poller ever touch it? -------
-    mov bx, [sb_mstate]             ; mou_hpt is a WORD and is the assertion
-    mov ax, [es:bx+28]              ; that matters: 0 = it never dropped DTR
+    mov bx, [sb_mstate]             ; mou_hpt is a WORD: the desktop tick, then
+    mov ax, [es:bx+28]              ; each drop and each raise (SPEC.md 9.4.8)
     call sb_num
-    mov si, sb_l_mhps
-    mov al, 27                      ; mou_hpst
+    mov si, sb_l_mhps               ; ...and mou_hpst is the assertion that
+    mov al, 27                      ; matters: 0 = it never dropped DTR
     call sb_mb
 
     mov si, sb_l_msn                ; --- settled state; the operator's own
@@ -5182,8 +5182,8 @@ sb_l_mok0:   db '  identified COM1', 0
 sb_l_mok1:   db '  identified COM2', 0
 sb_l_mnd0:   db '  packets needed COM1', 0
 sb_l_mnd1:   db '  packets needed COM2', 0
-sb_l_mhpt:   db '  poller stamp (0=nvr)', 0
-sb_l_mhps:   db '  poller state', 0
+sb_l_mhpt:   db '  poller stamp (tick)', 0
+sb_l_mhps:   db '  poller state (0=nvr)', 0
 sb_l_msn:    db '  mouse found', 0
 sb_l_mpt:    db '  winning row 0/2/4=PS2', 0
 sb_l_mln:    db '  winning IRQ 10=4 FF=P2', 0

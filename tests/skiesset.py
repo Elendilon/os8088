@@ -456,7 +456,7 @@ def main(argv):
             if got != want:
                 sys.exit("skiesset: the pose did not take - %s against %s. "
                          "The world was still stepping when it was written "
-                         "(docs/WRITING-TESTS.md 13 row 22)" % (got, want))
+                         "(docs/WRITING-TESTS.md 13 row 35)" % (got, want))
 
         m.type_text("f")                            # off the page first: any
         m.advance(frames=40)                        # key returns to the title

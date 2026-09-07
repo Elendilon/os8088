@@ -308,6 +308,74 @@ FAST = [
         "them, so a row without one simply vanishes at a rung it should have "
         "survived: thirty water objects had no flag and every river in the "
         "tree emptied at None"),
+    Row("pkgdeps", "fast", py("tests/unit/t_pkgdeps.py"), 0.9,
+        "every %include a package pulls in must be a prerequisite of its .bin "
+        "rule, or editing a shared library does not rebuild what includes it "
+        "and `make` says 'up to date'. apps/os88ui.inc was missing from NINE "
+        "shipped packages and apps/os88type.inc from three; it was found by an "
+        "A/B that measured zero because the package never reassembled"),
+    Row("sndmove", "soak", py("tests/sndmove.py"), 150.0,
+        "SPEC.md 66.6.3.1/66.6.4: the LAST pinned claims. SOUND.DRV is the "
+        "only driver that hooks an interrupt vector - five of them - so its "
+        "image was the one thing mem_can_move still refused outright; the "
+        "kernel patches the IVT now and moves the image at IF=0. Its 8KB DMA "
+        "ring sits immediately below it and could never move while it was "
+        "pinned, which is why the two are one row. Six assertions, and THREE "
+        "of them are A/B'd: with sbl_ring_reloc storing the old base 5 goes "
+        "red alone, with the IVT loop out 5b goes red alone AND THE MACHINE "
+        "STILL DRAWS - which is the whole reason that check exists. It wants "
+        "a Sound Blaster: os8088_5150_sb_gla, and the driver is already up at "
+        "the first desktop frame there - the first draft went to the Control "
+        "Panel and clicked row 0, which UNLOADED it",
+        wants=("build/sndmove360.img",)),
+    Row("drvmove", "soak", py("tests/drvmove.py"), 170.0,
+        "SPEC.md 66.6.3: a DRIVER IMAGE moves. It drives the scenario the "
+        "whole study exists for - mount the hard disk, mount the RAM disk "
+        "above nothing, unmount the hard disk, and before this the hole "
+        "stayed for the session. Its third assertion reads every drv_fseg*, "
+        "drv_blkseg, drv_tab row and claim owner BY NAME for the old segment, "
+        "because a stale one does not fault: it far-calls a dispatcher in "
+        "freed memory on the next volume access",
+        wants=("build/regmove360.img",)),
+    Row("regapp", "soak", py("tests/regapp.py"), 150.0,
+        "SPEC.md 66.6.1/66.6.2 per SHIPPED PACKAGE: five that hire a worker "
+        "declare OS88_REGION_MOVABLE and OS88_WORKER_RESTARTABLE, and a "
+        "declaration the owner fence refused is indistinguishable from one "
+        "that took, from inside the package (66.5.6.2). So this reads MC_RLOC "
+        "and inst_restart back out of the kernel's own tables. regwork proves "
+        "the move; this proves the packages - and it found the region "
+        "declaration placed at the SPAWN, where a package that hires no "
+        "worker never reaches it",
+        wants=("build/regapp360.img",)),
+    Row("regwork", "soak", py("tests/regwork.py"), 170.0,
+        "SPEC.md 66.6.2: a WORKER-OWNING region moves once the package has "
+        "declared a restart point, and the worker comes back. regpin is the "
+        "same disk, the same arena and the same forcing ask with the 'R' key "
+        "NOT pressed - the two rows are one experiment either side of one "
+        "declaration. The assertion that matters is the last: a restart that "
+        "built a frame the scheduler never resumed leaves the counters right "
+        "and the machine one worker short, so the loop count is read twice",
+        wants=("build/regpin360.img",)),
+    Row("regpin", "soak", py("tests/regpin.py"), 160.0,
+        "THE NEGATIVE ARM of SPEC.md 66.6.1 (docs/plans/HEAP-UNPIN-PLAN.md "
+        "10.1): a region whose package owns a WORKER must NOT move, because "
+        "task_spawn wrote the segment into the worker's frame and a pass that "
+        "moved it would not fault - it would run the wrong memory. "
+        "tests/regmove.py is the positive half. Its subject is tests/pinme and "
+        "NOT tests/filler: a package reaches mem_claim only from inside its "
+        "own callback, so the asker's own region is refused for having a "
+        "frame in it and a row built that way stays green with the pin taken "
+        "out of the kernel - measured. SHEET is the control: PINME's region "
+        "must stand still WHILE SHEET'S MOVES, or the run proves nothing",
+        wants=("build/regpin360.img",)),
+    Row("drvclaim", "fast", py("tests/unit/t_drvclaim.py"), 0.1,
+        "a driver's SERVICE TASK may not reach a claim door: mem_claim can "
+        "reach mem_compact, which far-calls a holder's relocation proc on the "
+        "stack it was entered on, and a 384-byte worker slice is not STK0. "
+        "SPEC.md 20.6 rule 7 binds a package's worker and nothing binds a "
+        "driver's; SOUND.DRV is the only driver in the tree that spawns one, "
+        "so today the fact is true and unwritten - the second one is where it "
+        "stops being obvious. docs/plans/HEAP-UNPIN-PLAN.md 12 question 4"),
     Row("inktab", "fast", py("tests/unit/t_inktab.py"), 0.2,
         "SPEC.md 42.23.1: Paint's two ink-class masks ARE the kernel's "
         "gfx_inktab. A one-bit canvas stores what a 1bpp SCREEN shows, so the "
@@ -650,7 +718,9 @@ FAST = [
 ]
 
 # --------------------------------------------------------------------------
-# full - the pre-merge gate. Everything above, plus these.
+# full - everything above, plus these. Run when major work reaches the
+# integration branch, not per commit (docs/TESTING.md, `When to run which
+# tier`).
 # --------------------------------------------------------------------------
 FULL = [
     Row("buildmatrix", "full", py("tests/unit/t_buildmatrix.py"), 180.0,
@@ -1555,6 +1625,57 @@ SOAK = [
         "the mouse ISR draws in? (SPEC.md 7/12.8.4, docs/FIELD-NOTES.md 34) "
         "Rebuilds the tree, because the counters are a knob kernel",
         needs=("marty", "nasm"), serial=True),
+    Row("ovlhigh", "soak", py("tests/ovlhigh.py"), 20.0,
+        "docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 1: a C package's OVERLAY is "
+        "claimed from the TOP (SPEC.md 50.3.2 - its base is a CS) and declares "
+        "itself movable. CWORD.OVL is 18,565 bytes, bigger than every kernel "
+        "module put together, and it took the low door for as long as overlays "
+        "have existed. It reads MC_HI, the placement and MC_RLOC out of "
+        "mem_tab, because a declaration mem_movable REFUSED looks identical "
+        "from inside the package (SPEC.md 66.5.6.2). Verified to fail in both "
+        "halves: the low door reddens three checks, dropping the declaration "
+        "reddens the fourth",
+        needs=("marty", "cc"), serial=True,
+        wants=("build/cword360.img",)),
+    Row("cmemmove", "soak", py("tests/cmemmove.py"), 110.0,
+        "A C PACKAGE DECLARES A CLAIM MOVABLE and the compactor moves it "
+        "(docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 3). os88_mem_claim was the "
+        "whole of the C SDK's heap surface until now, so every C claim was "
+        "pinned by construction - C64's 64KB, RunCPM's 64KB, Weave's canvas, "
+        "Loom's project buffers. The round trip is longer than any other "
+        "callback's (C, thunk, kernel, cc_onmove, C) and the assertion that "
+        "earns its keep is that `was` and `now` did not arrive SWAPPED: "
+        "verified by swapping the two pushes in cc_onmove, which leaves "
+        "[ch_seg] stale and the move count at 0. Needs `cc`",
+        needs=("marty", "cc"), serial=True,
+        wants=("build/cmemmove360.img",)),
+    Row("regmove", "soak", py("tests/regmove.py"), 130.0,
+        "A package's REGION moves and the package keeps working (SPEC.md "
+        "66.6.1). 66.6 said since it was written that a region can never move "
+        "because its base IS its CS; this is the door open. FOUR PACKAGES and "
+        "each has a job - PAINT takes the ceiling, SHEET goes under it and is "
+        "the one that has to move, FILLER takes the arena down to a few tens "
+        "of KB, and closing PAINT leaves the hole. tests/filler is an "
+        "instrument with NO assertions of its own, which heapfrag cannot be: "
+        "its comb is sized from the largest run IT sees and its own checks "
+        "fail when another package's claims are interleaved, so a refused "
+        "forcing claim looks exactly like a granted one",
+        needs=("marty",), serial=True,
+        wants=("build/regmove360.img",)),
+    Row("sheetmove", "soak", py("tests/sheetmove.py"), 130.0,
+        "Compact the heap out from under a LIVE Sheet "
+        "(docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 2). SHEET was the largest "
+        "undeclared holder in the tree - six claims at its entry proc, ~99KB, "
+        "pinned for the session - which made SPEC.md 66.5.10.2's 'the arena "
+        "below the top now has no barrier in it at all' false the moment a "
+        "sheet opened. Five are declared now; sh_stgseg is the ES:BX of all "
+        "seven of the package's file calls and stays pinned, and this asserts "
+        "THAT too, because 'we meant to leave that one' and 'we forgot that "
+        "one' are the same picture. paintmove's recipe. VERIFIED TO FAIL: "
+        "drop sh_cellseg from sh_reloc's table and check 3 reads STALE while "
+        "check 4's repaint differs over 24 rows of the grid",
+        needs=("marty",), serial=True,
+        wants=("build/sheetmove360.img",)),
     Row("heapcheck", "soak", py("tests/heapcheck.py"), 40.0,
         "Drive tests/heapfrag and read its verdict out of the guest (SPEC.md"
         "66.8).",
@@ -1997,13 +2118,25 @@ SOAK = [
         " which is the other half of the report. --clobber-rwy takes the four"
         " bytes of the guard back out and it reads 30, 30, 30, 0, 0, 0",
         needs=("marty",), serial=True),
-    Row("skiesui", "soak", py("tests/skiesui.py"), 44.0,
+    Row("skiesui", "soak", py("tests/skiesui.py"), 90.0,
         "SPEC.md 88.10's title page on the VGA machine: the two drop-downs"
         " (SPEC.md 13.14's first users) drop, close and pick, Esc closes one,"
         " Flight -> Instructions turns the page and back, the Mode menu's CGA"
         " pick flies in CGA320, and the release of the pick's press is owed to"
         " the launcher's window - [ui_armw] read directly, the check that"
-        " catches a click handler coming back with SI clobbered",
+        " catches a click handler coming back with SI clobbered. LEG 7 is the"
+        " control's two REFUSALS (13.14.3), and both are FORCED in the guest"
+        " because no gesture reaches either: DR_WIN zeroed so OSAPI_WM_CLIP_SET"
+        " must refuse - the control then has to stay SHUT, where it used to"
+        " believe it was open with nothing drawn and let the next press pick an"
+        " invisible cell - and api_gfx_rest patched to stc/ret so the write-back"
+        " must refuse, where drback said 'repaired' and left 2,719 pixels of"
+        " list on the glass. Both legs carry their own arranging checks, 7a"
+        " because the first version was GREEN against the defect it was written"
+        " for (leg 6 had left the Instructions page up, so the click landed on"
+        " no box at all), and both captures park the pointer, because parked on"
+        " the box the arrow hangs four rows into the band and reads as five"
+        " pixels of a list that is not there.",
         needs=("marty",), serial=True),
     Row("skiesvga", "soak", py("tests/skies.py", "--machine",
                                "os8088_xt_vga"), 45.0,
@@ -2505,22 +2638,85 @@ SOAK = [
         "from them.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
-    Row("wdscroll", "soak", py("tests/wdscroll.py"), 300.0,
-        "SPEC.md 68.2.2: Word's scroll bar is not part of the text band. Leg A "
+    Row("wdtype", "soak", py("tests/wdtype.py"), 420.0,
+        "SPEC.md 27.4.3: a keystroke stops walking where the row indices "
+        "reconverge (205.6 -> 80.4 ms). Legs B..D are CORRECTNESS legs and the "
+        "old code was correct, so they pass on a build with the early-out "
+        "compiled out - leg E is the one that fails there, and it is a "
+        "BREAKPOINT on wd_eoutck.rok rather than a stopwatch, because the "
+        "first version bounded wd_walk's cycles and PASSED at 344,824 with the "
+        "feature disabled. Leg D is the one that catches the dangerous "
+        "failure, an early-out that fires without its index proof, and it "
+        "PROVES a reflow was arranged before asserting: a row below whose "
+        "start index moved by something other than the characters typed. It "
+        "was green against that break until it did (3,849 differing pixels "
+        "after). The pixel reference is a page down and back, which a "
+        "formatted document always full-repaints (68.6), so the comparison is "
+        "against a screen no early-out touched.",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+    Row("wdcaret", "soak", py("tests/wdcaret.py"), 480.0,
+        "SPEC.md 27.4.6: a caret move lays the note out ONCE. Leg A counts "
+        "wd_walk calls inside one keystroke and requires 1 - the change "
+        "itself, and what fails on a build with the feature off; leg C is the "
+        "A/B inside one boot, wd_1pok being the whole arming. The trap the "
+        "gate exists for is a level under the pixels: [wd_clip] gates the "
+        "GLYPH STORE as well as the drawing, by the same three tests and "
+        "deliberately, so clipping the one pass to the dirty range composed no "
+        "cells at all for a row whose signature was not yet known and "
+        "wd_rflush's delta then re-lettered the whole row - 419 differing bits "
+        "on a Right arrow, on a screen that still read as text. Leg D is the "
+        "one ordering the collapse changes: wd_seecaret now runs AFTER the "
+        "drawing, so a Down that scrolls lands on rows this pass already drew. "
+        "The pixel reference throughout is a page down and back, which a "
+        "formatted document always full-repaints (68.6).",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+    Row("wdenter", "soak", py("tests/wdenter.py"), 450.0,
+        "SPEC.md 27.4.5: an Enter pushes the note below the split down with "
+        "one gfx_scroll instead of erasing to the content bottom and "
+        "lettering every row in it (448.2 -> 133.3 ms). Leg A is the one that "
+        "fails on a build with the feature off - a BREAKPOINT on "
+        "wd_nlpush.d1, past the scroll - and leg F is the A/B inside one "
+        "boot: wd_nlband is the whole arming, so stc/ret over it in the guest "
+        "turns the push off and the same keystroke must draw the same screen "
+        "the slow way. The pixel reference throughout is a page down and "
+        "back, which a formatted document always full-repaints (68.6), and "
+        "THE BAND INCLUDES THE SLIVER below the last whole row: the first "
+        "build scrolled to [wd_bot] and left four scanlines of the last "
+        "row's glyphs standing, which still reads as text. Leg E is the "
+        "corruption case rather than a speed one - an Enter on the last "
+        "visible row makes the caret-follow scroll, and the push has repaired "
+        "the tables for a layout the glass has not been given, so wd_redraw "
+        "must refuse the blit and repaint.",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+    Row("wdscroll", "soak", py("tests/wdscroll.py"), 330.0,
+        "SPEC.md 68.2.2 and 27.7.2.2: Word's scroll bar is not part of the "
+        "text band, and a scroll UPWARD blits like a scroll down. Leg A "
         "samples the bar's ARROW CELL through a down-arrow click and requires "
-        "0 of 48 samples altered (the band used to carry six of its fourteen "
-        "columns, blank them and redraw the bar); leg B the same for a track "
-        "click; leg D asserts the BEHAVIOUR on a refused blit - wd_sbar must "
-        "not run - because the refused path legitimately moves the thumb and "
-        "no pixel box separates that from the bug; leg C that three "
-        "consecutive page clicks all still blit. The last leg is the one with "
-        "teeth: it pages down with the blit and back up, which a formatted "
-        "document always full-repaints, and requires the screen to come back "
-        "with 0 differing pixels - the fast path checked against the slow one. "
-        "CGA by name and read out of guest VRAM, MASKED to the bar's columns: "
-        "a rendered frame only changes once a video frame, so an fbuf sample "
-        "misses a strip blanked and redrawn inside one - this gate passed with "
-        "the fix backed out until that was fixed.",
+        "0 of 48 altered; leg D requires a click ABOVE the thumb not to enter "
+        "wd_paint - it always did, repainting menu bar, ruler and text at 622 "
+        "ms against the down click's 251. Leg E is the A/B, wd_upheight being "
+        "the whole arming, AND the only thing still exercising [wd_sbkeep]: "
+        "leg D used to BE the refusal. Its target view is deliberately NOT the "
+        "top of the note, because returning to top 0 passed while the <8px "
+        "SLIVER below the last drawable row was blitted into and never erased "
+        "- at top 0 the pixels pushed into it happened to be white. Leg F is "
+        "the one that looks at what a scroll LEAVES BEHIND rather than what it "
+        "draws: the pricing walk banked wd_rows, which wd_shiftrows reads as "
+        "its SOURCE, so the up blit's own screen was perfect to the pixel and "
+        "the next page down drew three rows of the wrong text. Leg B puts BOTH "
+        "ends of its round trip against a forced repaint separately - a round "
+        "trip says something is wrong and never which end. Leg G is the THUMB "
+        "DRAG (68.2.4): SB_RATE is 0 here, so the gesture commits once at the "
+        "release and jumps further than [wd_vrows] - the blit refuses, and "
+        ".fullpaint white-filled the whole content box and drew all four "
+        "chrome strips again for a scroll that cannot have moved any of them. "
+        "It asserts BOTH halves against their own defect - no wd_chrome call, "
+        "and the same pixels over the WHOLE window as the same drag with "
+        "wd_sigsame forced to refuse, which is the one path that still owes "
+        "the strips.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
     Row("wdmove", "soak", py("tests/wdmove.py"), 210.0,
@@ -2533,6 +2729,28 @@ SOAK = [
         "byte, wd_mvdn does it last, so the caret is placed at odd and even "
         "tails and at both end stops where the count is 0 or 1. Verified to "
         "go red - dropping wd_mvup's step-back fails every text assertion.",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+    Row("wdcombo", "soak", py("tests/wdcombo.py"), 150.0,
+        "SPEC.md 68.2.3: Word's three combos are os88ui_drop records rather "
+        "than rows of wd_mtab, so the gesture is THREE EVENTS (press, drag, "
+        "release) where the pseudo-menu ran one modal poll - and each edge "
+        "fails silently on its own. Without W_ONDRAG reaching the record "
+        "DR_HOT stays 0FFh and the release picks nothing while leaving the "
+        "list on screen; without the press being ROUTED to an open list "
+        "before the strip hit tests, the click-then-click spelling puts its "
+        "second press on the ruler's indent-drag row and the list never comes "
+        "down. All three combos are driven, because each sits in a different "
+        "strip with a different hit test in front of it, and the Font one's "
+        "list is built at runtime by wd_fontscan and is the only one whose "
+        "pick ACTS - picking a face has to reach wd_a_csel and rename the "
+        "box, or, when ty_openfam refuses, leave it naming the face that "
+        "reads (wd_dfsel). Every cycle ends in PIXELS: the bank is written "
+        "back, so it leaves the content bit-for-bit. The second cycle pokes "
+        "OS88UI_DR_SEG = 0, which is what a refused claim leaves, and PUTS IT "
+        "BACK - a poke that only clears the word orphans ~1.4KB of heap, and "
+        "one leak makes Word's next re-layout read its piece table through a "
+        "stale segment.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
     Row("wdmenusu", "soak", py("tests/wdmenusu.py"), 190.0,
@@ -2995,6 +3213,67 @@ SOAK = [
         "compared frame for frame and the per-frame variation - which is real "
         "work, not noise - cancels instead of being averaged over.",
         needs=("marty",), serial=True, timeout=600),
+    Row("atkey", "soak", py("tests/atkey.py"), 100.0,
+        "WHAT ONE ARTFULTYPE KEYSTROKE COSTS on a 4.77MHz 8088, in guest "
+        "cycles off at_onkey's entry to its return. Nothing in this tree had "
+        "ever measured this app - SPEC.md 46.1 states a contract and every "
+        "millisecond attached to it was PREDICTED - so this is the row that "
+        "makes the figures readings. It prints the SCENE with the number, "
+        "because the answer depends entirely on how many visual lines the "
+        "caret's PARAGRAPH has: at_apply_edit repaints at_dfrom..+at_rlk-1 "
+        "and at_relayout sets at_dfrom from at_lhome, the paragraph's first "
+        "visual line. A keystroke figure without its paragraph length is not "
+        "a figure. It reads at_rlk back afterwards, which is what turns "
+        "46.1's honest 'that paragraph's visual lines' into a table.",
+        needs=("marty", "nasm"), serial=True, timeout=900),
+    Row("atmenusu", "soak", py("tests/atmenusu.py"), 45.0,
+        "SPEC.md 46.5.1: ArtfulType's pull-down banks the pixels it covers and "
+        "the close writes them back, instead of repainting every text line the "
+        "panel crossed FULL WIDTH - 104.9 ms to 14.5 on a 4.77MHz 8088. THE "
+        "ASSERTION IS PIXEL EQUALITY and it is the only one worth making: a "
+        "save-under that is fast and wrong is worse than a repaint that is "
+        "slow and right, and every way of getting it wrong shows up in a "
+        "photograph - the shadow left out of the bank, the rect clamped "
+        "differently from the erase, the plane count taken from the wrong "
+        "display. It dismisses the menu WITHOUT PICKING, by releasing while "
+        "still over the title, because every item runs a command that "
+        "repaints the screen and would hide the error. The second cycle pokes "
+        "[at_suseg] = 0 while the panel is down - what a refused claim leaves "
+        "behind - so one run checks the write-back and the repaint fallback "
+        "against one reference. Verified to go red: leaving the drop shadow's "
+        "ROW out of the bank is 68 differing pixels on exactly that row. It "
+        "BUILDS NOTHING - it reads the shipped disks, so it declares them in "
+        "wants= and shares the emulator lane.",
+        needs=("marty", "nasm"), serial=True, timeout=900,
+        wants=("build/os8088-360.img", "build/apps360.img")),
+    Row("atblit", "soak", py("tests/atblit.py"), 165.0,
+        "SPEC.md 46.4.2: does ArtfulType's BAND emit draw the same picture as "
+        "the expander it replaced? at_draw_line hands at_compose's 1bpp strip "
+        "straight to OSAPI_GFX_BLIT1 now instead of widening it to packed "
+        "4bpp for OSAPI_GFX_BLIT4, which means the strip's POLARITY flipped - "
+        "and every way of getting that wrong is a plausible-looking wrong "
+        "picture rather than a crash. Miss one of the five writers into "
+        "at_strip1 and that element renders inverted; the fifth is at_bigtext "
+        "in atui.inc, which an audit of atrend.inc misses. Complement above "
+        "at_glyph's italic rcr chain and every italic grows a bar down its "
+        "left edge. Forget AT_X4TAB or atimg.inc's xor and the 4bpp fallback "
+        "draws the negative - which no kern_big row would ever execute. So "
+        "the gate is 0 differing pixels against NOATBLIT1=1, which assembles "
+        "byte for byte identical to the package before the change. It PACES "
+        "ITS TYPING on the app's own at_caret: type_text outruns a 4.77MHz "
+        "ArtfulType, the key queue overflows, and the two arms then receive "
+        "different documents - which reads exactly like a rendering bug. "
+        "Rebuilds the tree, like blitplane, because the A/B is two packages. "
+        "It GENERALISES: --knob picks which of ArtfulType's A/Bs to run and "
+        "every one of them must draw the identical picture, so a wave adds a "
+        "knob rather than a row. Six scenes, and three of them exist because "
+        "a break test came back green - the SPLASH is at_bigtext and "
+        "at_drawimg, which an audit of atrend.inc misses; the ZOOMED-IN one "
+        "is the only state in which a plain line renders above scale 1 "
+        "(SPEC.md 46.4.9); and the document's mid-paragraph edit had to gain "
+        "two ArrowUps before anything could be pushed past a wrap "
+        "(SPEC.md 46.4.11).",
+        needs=("marty", "nasm"), serial=True, timeout=900),
     Row("blitplane", "soak", py("tests/blitplane.py"), 180.0,
         "SPEC.md 5.4.1.3: does gfx_blit4's PLANAR DECODER draw the same "
         "pixels as the run writer, on both destination phases, and is it "

@@ -51,7 +51,7 @@ import os88sym                                              # noqa: E402
 
 MACHINE = "os8088_xt_hdd"
 PKG_HEAPFRAG = "HEAPFRAG.O88"
-MC_SIZE, MEM_MAX = 10, 32
+MC_SIZE, MEM_MAX = os88geom.MC_SIZE, os88geom.MEM_MAX
 DRVR_SZ, DRVR_SEG = 16, 2
 HDD_ROW = 1                             # drv_tab row 1 is the hard disk
 CP_I0Y, CP_IROWH, CP_RX = 6, 14, 96
@@ -130,9 +130,15 @@ def main():
         def hdseg():
             return u16(m.read(S("drv_tab") + HDD_ROW * DRVR_SZ + DRVR_SEG, 2))
 
-        def lseg(seg):
-            """HDV_LSEG of every live hd_vols row, in the driver's image."""
-            raw = m.read(seg * 16 + H["hd_vols"], HD_MAXVOL * HDV_SIZE)
+        def lseg(_ignored=None):
+            """HDV_LSEG of every live hd_vols row, in the driver's image.
+
+            THE IMAGE'S SEGMENT IS RE-READ, never banked: since SPEC.md 66.6.3
+            a driver image moves, and reading the driver's own words at the
+            base it loaded at returns a plausible number out of freed memory.
+            `tests/rdmove.py` failed for exactly that for a release.
+            """
+            raw = m.read(hdseg() * 16 + H["hd_vols"], HD_MAXVOL * HDV_SIZE)
             return [u16(raw, i * HDV_SIZE + HDV_LSEG) for i in range(HD_MAXVOL)]
 
         def dvsegs():

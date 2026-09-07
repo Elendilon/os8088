@@ -221,23 +221,23 @@ had added.
   "big": {
     "boot2": 2250,
     "bootmax": 192512,
-    "bss": 6077,
+    "bss": 5959,
     "budget": 129536,
     "codemax": 65536,
-    "cold": 38199,
+    "cold": 38059,
     "coldpara": 2400,
     "fatpara": 288,
-    "imgpara": 3584,
-    "kend": 7040,
+    "imgpara": 3552,
+    "kend": 7008,
     "kseg": 96,
-    "ksize": 111104,
+    "ksize": 110592,
     "lowbss": 9182,
     "lowpara": 608,
     "minramkb": 196,
     "ovl": 1417,
     "ovlw": 5037,
     "stk0": 512,
-    "text": 50852,
+    "text": 50676,
     "vgabuf": 848,
     "vgabufpara": 64
   },
@@ -621,30 +621,30 @@ there and nowhere else.
 <!-- kernsize:themes -->
 | theme | bytes | share |
 |---|---:|---:|
-| the file system, end to end | 31,604 | 35.5% |
-| the window system and its furniture | 24,284 | 27.3% |
-| drawing: adapters, primitives, glyphs, icons | 14,964 | 16.8% |
-| hardware: drivers, clock, mouse, sound, CPU, XMS | 8,671 | 9.7% |
-| the kernel proper: API table, heap, scheduler, events | 7,396 | 8.3% |
+| the file system, end to end | 31,617 | 35.6% |
+| the window system and its furniture | 24,256 | 27.3% |
+| drawing: adapters, primitives, glyphs, icons | 14,788 | 16.7% |
+| hardware: drivers, clock, mouse, sound, CPU, XMS | 8,591 | 9.7% |
+| the kernel proper: API table, heap, scheduler, events | 7,365 | 8.3% |
 | the three built-in kinds | 1,542 | 1.7% |
-| the Control Panel | 590 | 0.7% |
-| **total** | **89,051** | |
+| the Control Panel | 576 | 0.6% |
+| **total** | **88,735** | |
 <!-- /kernsize:themes -->
 
 <!-- BEGIN generated table -->
 | module | `.text` | `.cold` | code | `.bss` | `.lowbss` | `.boot2` |
 |---|---:|---:|---:|---:|---:|---:|
 | `wm.inc` — the window manager (§11) | 11,671 | 94 | **11,765** | 1,074 | — | — |
-| `files.inc` — the Disk window (§22) | 1,083 | 8,252 | **9,335** | 465 | — | — |
-| `vga12.inc` — the VGA planar primitives (§5) | 7,242 | 740 | **7,982** | 162 | 526 | — |
-| `disk.inc` — volumes, mount, the FAT read path (§18–19) | 395 | 5,863 | **6,258** | 890 | — | — |
+| `files.inc` — the Disk window (§22) | 1,083 | 8,255 | **9,338** | 465 | — | — |
+| `vga12.inc` — the VGA planar primitives (§5) | 7,228 | 660 | **7,888** | 162 | 526 | — |
+| `disk.inc` — volumes, mount, the FAT read path (§18–19) | 395 | 5,855 | **6,250** | 890 | — | — |
 | `fdlg.inc` — the Standard File dialog (§38) | 241 | 4,969 | **5,210** | 168 | — | — |
 | `diskw.inc` — the FAT write path (§18.4–18.6) | 179 | 4,740 | **4,919** | 158 | — | — |
-| `mouse.inc` — serial mouse and the cursor (§9) | 3,828 | — | **3,828** | 151 | 128 | — |
-| `ui.inc` — the UI task and the event ladder (§13) | 3,382 | — | **3,382** | 58 | — | — |
+| `mouse.inc` — serial mouse and the cursor (§9) | 3,814 | — | **3,814** | 151 | 128 | — |
+| `ui.inc` — the UI task and the event ladder (§13) | 3,354 | — | **3,354** | 58 | — | — |
 | `menu.inc` — the menu bar and pull-downs (§12) | 2,790 | 177 | **2,967** | 197 | 84 | — |
-| `driver.inc` — loadable drivers + `SYSTEM.CFG` (§51) | 496 | 2,039 | **2,535** | 356 | — | — |
-| `assoc.inc` — file type associations (§54) | 480 | 2,004 | **2,484** | 43 | — | — |
+| `driver.inc` — loadable drivers + `SYSTEM.CFG` (§51) | 502 | 2,014 | **2,516** | 262 | — | — |
+| `assoc.inc` — file type associations (§54) | 480 | 2,010 | **2,490** | 43 | — | — |
 | `memory.inc` — the claim heap (§50) | 35 | 2,420 | **2,455** | 18 | 324 | — |
 | `instance.inc` — instances and the built-in kinds (§29) | 2,054 | 236 | **2,290** | 700 | — | — |
 | `font.inc` — the 8×8 glyph renderer (§6) | 2,186 | — | **2,186** | 215 | 784 | — |
@@ -652,20 +652,20 @@ there and nowhere else.
 | `apps.inc` — the three built-in kinds (§14) | 282 | 1,260 | **1,542** | 11 | 240 | — |
 | `sched.inc` — pre-emptive scheduling (§7–8) | 1,340 | — | **1,340** | 207 | 2,944 | — |
 | `softgfx.inc` — the software renderer, §39.5's 1bpp driver (§32) | 1,292 | — | **1,292** | 20 | — | — |
-| `vidsel.inc` — which adapters the machine HAS, and switching between them (§39.11) | 1,230 | — | **1,230** | 74 | — | — |
+| `vidsel.inc` — which adapters the machine HAS, and switching between them (§39.11) | 1,148 | — | **1,148** | 74 | — | — |
 | `snd.inc` — the sound layer (§34) | 1,024 | — | **1,024** | 287 | — | — |
 | `fsx.inc` — fullscreen exclusive (§53) | 986 | — | **986** | 9 | — | — |
 | `icons.inc` — the icon renderer (§10) | 977 | — | **977** | 281 | — | — |
-| `loader.inc` — the package loader (§21) | 4 | 896 | **900** | 38 | — | — |
+| `loader.inc` — the package loader (§21) | 4 | 908 | **912** | 38 | — | — |
 | `viddet.inc` — adapter detection and geometry (§39) | 867 | — | **867** | — | 696 | 3 |
 | `desk.inc` — the desktop and volume zones (§14/§26.1) | 11 | 850 | **861** | 12 | — | — |
 | `fprog.inc` — the file-operation progress widget (§12.8) | 725 | — | **725** | — | — | — |
 | `dock.inc` — the dock strip (§30) | 696 | — | **696** | 35 | — | — |
 | `clock.inc` — the clock ladder (§37) | 606 | — | **606** | 59 | — | — |
-| `ctrl.inc` — the Control Panel (§31) | 335 | 255 | **590** | 28 | — | — |
-| `hiber.inc` — hibernate, the resident half of `HIBER.DRV` (§87) | 82 | 358 | **440** | 52 | — | — |
+| `ctrl.inc` — the Control Panel (§31) | 335 | 241 | **576** | 28 | — | — |
 | `toast.inc` — the menu bar's transient message (§59) | 433 | — | **433** | 25 | — | — |
 | `blank.inc` — the idle screen blanker (§64) | 194 | 236 | **430** | — | — | — |
+| `hiber.inc` — hibernate, the resident half of `HIBER.DRV` (§87) | 69 | 324 | **393** | 28 | — | — |
 | `mod.inc` — on-demand kernel modules (§2.8) | 56 | 309 | **365** | 112 | — | — |
 | `lz.inc` — the LZ decoder for packages, drivers, files and the kernel itself (§20.13) | — | 340 | **340** | — | — | — |
 | `xmem.inc` — memory above 1MB (§41.4–41.5) | 232 | — | **232** | 22 | — | — |
@@ -681,8 +681,8 @@ there and nowhere else.
 | `stkdiag.inc` — what an interrupt costs a task stack (STACK-SLOTS-PLAN §10), `STKDIAG=1` | — | — | **0** | — | — | — |
 | `moudiag.inc` — what the identify window saw (§9.4.6), `MOUDIAG=1` | — | — | **0** | — | — | — |
 | `compress.inc` — the LZB compressor (§20.15), an on-demand module and 0 resident | — | — | **0** | — | — | — |
-| `kernel.asm` — API table, entry points, `kmain`, the shims | 3,059 | 18 | **3,077** | — | — | 421 |
-| **total** | **50,852** | **38,199** | **89,051** | **6,077** | **9,182** | **2,250** |
+| `kernel.asm` — API table, entry points, `kmain`, the shims | 3,028 | 18 | **3,046** | — | — | 421 |
+| **total** | **50,676** | **38,059** | **88,735** | **5,959** | **9,182** | **2,250** |
 <!-- END generated table -->
 
 ### Reading it
@@ -738,6 +738,18 @@ byte that leaves the segment when the low rung is full costs a whole step
 until the image falls far enough to drop one — and the low rung reads
 478/512 accrued as blessed.
 
+> **THE ESCAPE VALVE IS CLOSED, and the next table to try it pays 512.**
+> `.lowbss` has **34 bytes left in its rung** (478/512 accrued, 93%). Every
+> migration in the list below was taken while there was room: `vga12.inc`'s
+> own comment beside `gfx_pairtab0/1` says *"the low rung had 1,258 bytes
+> standing"*, and `viddet.inc:377` explains `vid_rowtab` as costing *"one
+> 512-byte rung of `KERN_BUDGET` and nothing of the segment"*. Neither
+> sentence is true of the next one: 35 bytes into `.lowbss` bills a whole
+> step immediately. The move is still the right shape when the segment is
+> what binds — it just is not the cheap trick those comments describe any
+> more, so price it as 512 and say so, rather than re-deriving the trick and
+> being surprised by the bill.
+
 What decides a migration is **how many places dereference the pointer**, not
 size. The objects that made the trip are the `.lowbss` column of the table
 above — the glyph table (`font.inc`, 784), the claim map (`memory.inc`, 324),
@@ -755,7 +767,14 @@ did not go, and the reasons stop them being re-proposed:
   through DS. This was tried: the build was clean and the machine booted to a
   desktop that could not launch anything.
 - **`snd_xlat` (256 B) is refused on speed.** Two sites, but they are
-  `spk_pcm_run`'s per-sample loop.
+  `spk_pcm_run`'s per-sample loop. **And three harnesses now depend on those
+  256 bytes staying idle**: `tests/evqfull.py`, `tests/linefast.py` and
+  `tools/os88linecost.py` each plant an executable stub in `snd_xlat`
+  *because* it is 256 unused `KERNEL_SEG` `.bss` bytes at a fixed symbol. So
+  the largest single `.bss` item in the kernel is held in place by the test
+  rig as well as by the mixer, and anybody who reclaims it has three rigs to
+  re-home first. That is a reason that could be removed, and writing it down
+  is not the same as endorsing it.
 
 **`font_glyphs` needed the ABI amended, and was worth it**: `OSAPI_FONT_GLYPHS`
 answers `DX:SI` now, a recorded one-time amendment to a shipped slot (§20.8

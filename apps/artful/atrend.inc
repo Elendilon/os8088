@@ -74,6 +74,9 @@ at_geom_init:
 .tall:
     mov [at_ty0], ax
     mov [at_ty1], cx
+%ifndef NOATSBAR
+    mov byte [at_sbst], 0           ; the geometry [at_sbty] is expressed in
+%endif                              ; has just moved (SPEC.md 46.4.4)
     pop dx
     pop cx
     pop bx
@@ -144,7 +147,14 @@ at_parse:
     cmp byte [at_pforce], 0
     jne .styled                     ; at_cmd_none needs the hidden set as
     cmp byte [at_writer], 0         ; the parser defines it, in either mode
-    jne .styled
+    je .raw
+%ifdef NOATPLAIN
+    jmp .styled
+%else
+    test byte [bx+at_lattr], 8      ; SPEC.md 46.4.8: at_scan already PROVED
+    jz .styled                      ; this line free of the four characters
+%endif                              ; that could style it, walking bytes it
+                                    ; was reading anyway
 .raw:
     xor si, si                      ; SI = char index
     xor dx, dx                      ; DX = x
@@ -164,6 +174,15 @@ at_parse:
     mov di, si
     shl di, 1
     mov [di+at_xmap], dx
+%ifndef NOATCELL
+    ; SPEC.md 46.4.9: .rloop wrote at_vis = 0 and at_sty = 0 for EVERY cell,
+    ; and at scale 1 at_xmap[i] is i*8 - so cell i's byte column is i. That is
+    ; exactly what at_compose needs to drop the per-cell call.
+    mov byte [at_pplain], 1
+    cmp word [at_psc], 1
+    je .out
+    mov byte [at_pplain], 0
+%endif
     jmp .out
 .styled:
     mov al, [bx+at_lattr]
@@ -311,6 +330,9 @@ at_parse:
     mov [bx+at_xmap], di
     xchg bx, dx
     call at_reveal                  ; ...and the run the caret is typing
+%ifndef NOATCELL
+    mov byte [at_pplain], 0         ; a styled line has hidden cells and
+%endif                              ; per-cell styles: no fast loop
 .out:
     pop bp
     pop di
@@ -580,10 +602,63 @@ at_compose:
     mov cx, AT_S1ST/2
     mul cx
     mov cx, ax
-    xor ax, ax
-    rep stosw
+    AT_PAPERAX                      ; SPEC.md 46.4.2: screen polarity, so the
+    rep stosw                       ; ground is SET and at_glyph clears ink
     pop es
     xor si, si
+%ifndef NOATCELL
+    ; --- SPEC.md 46.4.9: a PLAIN scale-1 line, composed without a call ------
+    ; at_glyph is 1,034 cycles a cell and its eight-row emitter is 264 of
+    ; them; the rest is a call, seven register banks, a range check and a
+    ; strip cursor recomputed from at_xmap. On a line at_parse took .rloop
+    ; for at scale 1, NONE of that can differ: every cell is visible and
+    ; unstyled, so there is no style to dispatch on and no hidden cell to
+    ; skip, and cell i's byte column is i - so the cursor is an `inc`.
+    cmp byte [at_pplain], 0
+    je .ch
+    mov cx, [at_pcnt]
+    jcxz .done
+    mov di, at_strip1               ; cell 0's byte column
+.fastc:
+    mov al, [si+at_lbuf]
+    cmp al, ' '
+    jne .fdraw
+    cmp byte [at_blankok], 0        ; 46.4.6, and there is no rule to draw:
+    jne .fnext                      ; a plain cell carries no link or strike
+.fdraw:
+    cmp al, 32
+    jb .fhuh
+    cmp al, 126
+    jbe .fok
+.fhuh:
+    mov al, '?'
+.fok:
+    push cx
+    xor ah, ah
+    sub ax, 32
+    mov cl, 3
+    shl ax, cl
+    mov bx, ax
+    add bx, at_fontbuf              ; BX -> the eight glyph rows
+    push di
+    mov cx, 8
+.frow:
+    mov al, [bx]
+    inc bx
+%ifndef NOATBLIT1
+    not al
+%endif
+    mov [di], al
+    add di, AT_S1ST
+    loop .frow
+    pop di
+    pop cx
+.fnext:
+    inc di
+    inc si
+    loop .fastc
+    jmp short .done
+%endif
 .ch:
     cmp si, [at_pcnt]
     jae .done
@@ -724,6 +799,21 @@ at_glyph:
     mov al, '?'
 .chok:
     mov [at_gsty], dl
+%ifndef NOATBLANK
+    ; SPEC.md 46.4.6: a SPACE inks nothing, and at_compose has already laid
+    ; this cell's ground. AT_ST_L and AT_ST_S are the two styles that ink a
+    ; blank cell, and at_ruleat draws them AFTER the row loop, so a cell
+    ; carrying either is composed normally. Bold, both nibble doublers and the
+    ; clc-seeded shear all preserve blankness.
+    cmp al, ' '
+    jne .notsp
+    test dl, AT_ST_L | AT_ST_S
+    jnz .notsp
+    cmp byte [at_blankok], 0        ; ...and only if the FACE agrees
+    je .notsp
+    jmp .nst
+.notsp:
+%endif
     xor ah, ah
     sub ax, 32
     mov cl, 3
@@ -735,6 +825,33 @@ at_glyph:
     mov bx, at_strip1
     add bx, di                      ; BX = strip write cursor
     xor bp, bp                      ; BP = source row 0..7
+%ifndef NOATFAST
+    ; --- THE UNSTYLED SCALE-1 CELL (SPEC.md 46.4.3) ------------------------
+    ; ...which is nearly every character of body text and ALL of Markdown
+    ; mode. The general body below answers the same four questions eight
+    ; times a cell - bold? scale? italic? - and folds four bytes in; here
+    ; every answer is fixed and the row is one byte at one column.
+    ;
+    ; A plain STORE is correct rather than a fold because at_compose has
+    ; already laid this cell's ground down, and at scale 1 no two visible
+    ; cells share a byte column (at_xmap's x is a multiple of 8). The
+    ; general path's [bx+1..3] writes are no-ops here anyway: at_grow+1..3
+    ; are zero, which complemented is 0FFh, and `and 0FFh` changes nothing.
+    or dl, dl                       ; the style, still live in DL
+    jnz .row
+    cmp word [at_psc], 1            ; a WORD compare: at_psc IS a word, and a
+    jne .row                        ; low-byte one reads scale 257 as scale 1
+    mov cx, 8
+.fast:
+    lodsb                           ; DF is clear: at_compose and at_bigtext
+%ifndef NOATBLIT1
+    not al                          ; both `cld` before they call in, which
+%endif                              ; this makes a precondition rather than a
+    mov [bx], al                    ; coincidence
+    add bx, AT_S1ST
+    loop .fast
+    jmp .nst                        ; no rule to draw - AT_ST_L and AT_ST_S
+%endif                              ; are in DL, and DL is zero on this path
 .row:
     mov al, [si]
     inc si
@@ -792,6 +909,7 @@ at_glyph:
     mov [at_grow+2], bl
     pop bx
 .sheared:
+%ifdef NOATROW
     ; italic: the top half (source rows 0..3) shifts right by `scale` px
     test byte [at_gsty], AT_ST_I
     jz .noshear
@@ -806,20 +924,70 @@ at_glyph:
     rcr byte [at_grow+3], 1
     loop .shr
 .noshear:
-    ; OR the scaled row into `scale` consecutive strip rows
+%ifndef NOATBLIT1
+    not word [at_grow]
+    not word [at_grow+2]
+%endif
+    ; fold the scaled row into `scale` consecutive strip rows
     mov dx, [at_psc]
 .vrep:
     mov al, [at_grow]
-    or [bx], al
+    AT_MERGE [bx], al
     mov al, [at_grow+1]
-    or [bx+1], al
+    AT_MERGE [bx+1], al
     mov al, [at_grow+2]
-    or [bx+2], al
+    AT_MERGE [bx+2], al
     mov al, [at_grow+3]
-    or [bx+3], al
+    AT_MERGE [bx+3], al
     add bx, AT_S1ST
     dec dx
     jnz .vrep
+%else
+    ; --- SPEC.md 46.4.5: the row into REGISTERS, once ----------------------
+    ; at_grow is four bss bytes, and the two stages below treated it as
+    ; working storage rather than as a value: the shear read-modify-wrote all
+    ; four PER SHIFT STEP and .vrep re-read all four ON EVERY REPEAT - eight
+    ; reads a repeat at scale 2, to move one byte of glyph.
+    ;
+    ; THE BYTE ORDER IS INVERTED ON PURPOSE. at_grow[0] is the LEFTMOST 8 px
+    ; and must sit in AH, because that is what makes `rcr ax,1 / rcr dx,1` a
+    ; genuine 32-bit shift right across b0->b1->b2->b3: rcr ax,1 carries AH's
+    ; bit 0 into AL's bit 7 and out of AL into DX. `mov ax, [at_grow]` would
+    ; put b0 in AL and run the shear BACKWARDS - every italic mirrored, and
+    ; nothing anywhere raises.
+    mov ah, [at_grow]               ; b0, the leftmost 8 px
+    mov al, [at_grow+1]
+    mov dh, [at_grow+2]
+    mov dl, [at_grow+3]
+    test byte [at_gsty], AT_ST_I
+    jz .noshear
+    cmp bp, 4                       ; the top half only
+    jae .noshear
+    mov cx, [at_psc]
+.shr:
+    clc                             ; a clear bit shifted in is NO INK, which
+    rcr ax, 1                       ; is why 46.4.2's complement is below and
+    rcr dx, 1                       ; not above this
+    loop .shr                       ; `loop` writes no flag, so CF survives it
+.noshear:
+%ifndef NOATBLIT1
+    ; SPEC.md 46.4.2. The complement is HERE and can be nowhere above: the
+    ; bold overstrike and the shear above both reason in INK. All four bytes,
+    ; because .vrep writes all four at every scale.
+    not ax
+    not dx
+%endif
+    ; fold the scaled row into `scale` consecutive strip rows. The counter is
+    ; CX now: DX is half the glyph row.
+    mov cx, [at_psc]
+.vrep:
+    AT_MERGE [bx], ah
+    AT_MERGE [bx+1], al
+    AT_MERGE [bx+2], dh
+    AT_MERGE [bx+3], dl
+    add bx, AT_S1ST
+    loop .vrep
+%endif
     inc bp
     cmp bp, 8
     jb .row
@@ -871,7 +1039,7 @@ at_ruleat:
     mov bx, ax
     mov cx, [at_psc]
 .b:
-    mov byte [bx+at_strip1], 0FFh
+    mov byte [bx+at_strip1], AT_RULE
     inc bx
     loop .b
     pop ax
@@ -972,9 +1140,14 @@ at_draw_line:
     mov [at_dly], ax
     call at_parse
     call at_compose
-    mov ax, [at_tw]
-    mov [at_xw], ax
-    call at_expand
+%ifdef NOATBLIT1
+    mov ax, [at_tw]                 ; the pre-46.4.2 order, kept verbatim so
+    mov [at_xw], ax                 ; this arm assembles byte for byte
+    call at_expand                  ; identical to the package before it
+%endif
+    ; THE ROW CLAMP STAYS ABOVE THE ARM AND MUST: OSAPI_GFX_BLIT1 refuses
+    ; DX = 0 with CF = 1, and a refusal falls into the expander below, which
+    ; would then draw a full-height line off the bottom of the text region.
     mov dx, [at_prh]
     mov ax, [at_dly]
     add ax, dx
@@ -983,8 +1156,57 @@ at_draw_line:
     mov dx, [at_ty1]
     sub dx, [at_dly]
     jg .rows
+%ifdef NOATBLIT1
     jmp short .out                  ; fully below the region: nothing
+%else
+    jmp .out                        ; ...and the band arm below puts .out out
+%endif                              ; of a short jump's reach
 .rows:
+%ifndef NOATBLIT1
+    ; --- the band arm (SPEC.md 46.4.2) -------------------------------------
+    ; at_compose has already built exactly what OSAPI_GFX_BLIT1 takes: 1bpp,
+    ; row-major, bit 7 leftmost, SCREEN polarity, at at_tx0 = 64 with at_tw
+    ; masked to a multiple of 8 (at_geom_init) and at_prh <= AT_SROWS = 30
+    ; against the slot's 255. The DEFAULT pen carries it on every adapter, so
+    ; there is no OSAPI_GFX_BLIT1_PEN call: on 1bpp the pen is not read, and
+    ; on VGA the default pair short-circuits gfx_blit1's .pvga with no port
+    ; write and takes the plain `rep movsw` emit rather than the complemented
+    ; one. This is what deletes at_expand AND the kernel's 4bpp decode from
+    ; the line: 64.3 -> 3.3 ms on Hercules, 135.4 -> 2.9 on VGA (PREDICTED;
+    ; Paint's identical round trip MEASURED 22x, SPEC.md 42.23.4).
+    cmp byte [at_vbpp], 1
+    jbe .band                       ; 1bpp: at_codebg has already CLEARED
+                                    ; at_cellbg, so no grey column survives
+                                    ; and the band is the whole truth
+    mov ax, [at_pcb1]               ; a colour adapter keeps CLGRAY, so only a
+    cmp [at_pcb0], ax               ; line with NO code span is two colours -
+    ja .band                        ; at_codebg's own compare, reused
+    jmp short .wide
+.band:
+    push ds
+    pop es
+    push bx
+    push dx
+    mov si, at_strip1
+    mov bp, AT_S1ST
+    mov ax, [at_tx0]
+    mov bx, [at_dly]
+    mov cx, [at_tw]
+    call OSAPI_GFX_BLIT1
+    pop dx                          ; pop leaves the flags, so CF still speaks
+    pop bx
+    jnc .sel                        ; CF = 1 is a REFUSAL and nothing drawn -
+                                    ; kern_small carries the slot and not the
+                                    ; body (SPEC.md 5.4.2.5) - so fall into
+                                    ; the expander, which is that build's only
+                                    ; path and draws the identical picture
+.wide:
+    ; ...and on the band path the expansion happens HERE, below the clamp, so
+    ; a line the clamp threw away never pays for it either.
+    mov ax, [at_tw]
+    mov [at_xw], ax
+    call at_expand
+%endif
     push ds
     pop es
     push bx
@@ -995,6 +1217,7 @@ at_draw_line:
     mov cx, [at_tw]
     call OSAPI_GFX_BLIT4
     pop bx
+.sel:
     call at_selxor
 .out:
     pop es
@@ -1115,6 +1338,34 @@ at_line_y:
     ret
 
 ; -----------------------------------------------------------------------------
+; at_filltail - white from row AX down to at_ty1-1, across the text width
+; in:  AX = first row (< at_ty1); out: nothing; preserves all registers
+; SPEC.md 46.4.10. The two whole-view repaints had this inline and used it to
+; erase the ground they were about to draw on; it erases what the text does
+; NOT cover now, which is why it takes the top row as an argument.
+; -----------------------------------------------------------------------------
+at_filltail:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov bx, ax
+    mov al, CWHITE
+    call OSAPI_SET_COLOR
+    mov ax, [at_tx0]
+    mov cx, ax
+    add cx, [at_tw]
+    dec cx
+    mov dx, [at_ty1]
+    dec dx
+    call OSAPI_GFX_FILL
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; at_draw_text - repaint the whole text region (erase + every visible line)
 ; out: nothing; preserves all registers; lock held by the caller
 ; -----------------------------------------------------------------------------
@@ -1124,25 +1375,34 @@ at_draw_text:
     push cx
     push dx
     call at_caret_off
-    mov al, CWHITE
-    call OSAPI_SET_COLOR
-    mov ax, [at_tx0]
-    mov bx, [at_ty0]
-    mov cx, ax
-    add cx, [at_tw]
-    dec cx
-    mov dx, [at_ty1]
-    dec dx
-    call OSAPI_GFX_FILL
+%ifdef NOATTAIL
+    mov ax, [at_ty0]                ; the pre-46.4.10 erase: the WHOLE region,
+    call at_filltail                ; every pixel of it drawn over again below
+%else
+    mov ax, [at_ty0]
+    mov [at_tby], ax                ; SPEC.md 46.4.10: the first row nothing
+%endif                              ; has drawn on yet
     mov bx, [at_top]
 .line:
     cmp bx, [at_nlines]
-    jae .done
+    jae .tail
     call at_line_y
-    jc .done
+    jc .tail
     call at_draw_line
+%ifndef NOATTAIL
+    mov ax, [at_dly]                ; ...and at_parse's own row height, which
+    add ax, [at_prh]                ; is the one at_line_y would walk to
+    mov [at_tby], ax
+%endif
     inc bx
     jmp short .line
+.tail:
+%ifndef NOATTAIL
+    mov ax, [at_tby]
+    cmp ax, [at_ty1]
+    jae .done                       ; the text reached the bottom by itself
+    call at_filltail
+%endif
 .done:
     call at_caret_on
     pop dx
@@ -1199,6 +1459,31 @@ at_caret_on:
     call at_line_y
     jc .out
     mov [at_ccy], ax
+%ifndef NOATCX
+    ; SPEC.md 46.4.8: on a line at_scan has PROVED plain, at_xmap[i] is i*pcw
+    ; by construction - so the caret's x is a multiply and none of at_parse is
+    ; needed. Not the slice either: the proof came off the layout's own walk,
+    ; which is what makes this worth more than proving it here would be.
+    test byte [bx+at_lattr], 8
+    jz .parse
+    call at_lgeom                   ; AX = cell width, DX = row height
+    mov [at_pcw], ax
+    mov [at_prh], dx
+    mov cl, 3
+    shr ax, cl
+    mov [at_psc], ax                ; the glyph box below wants the scale
+    push bx
+    shl bx, 1
+    mov ax, [bx+at_lstart]
+    pop bx
+    mov [at_pstart], ax
+    mov cx, [at_caret]
+    sub cx, ax                      ; AX is still at_pstart
+    mov ax, cx
+    mul word [at_pcw]               ; DX is dead here and pushed at entry
+    jmp short .havex
+.parse:
+%endif
     call at_parse
     mov ax, [at_caret]
     sub ax, [at_pstart]
@@ -1207,6 +1492,7 @@ at_caret_on:
     shl bx, 1
     mov ax, [bx+at_xmap]
     pop bx
+.havex:
     add ax, [at_tx0]
     mov [at_ccx], ax
     mov ax, [at_psc]
@@ -1448,6 +1734,7 @@ at_sbar:
     push si
     cmp byte [at_fs], 0
     je .out
+%ifdef NOATSBAR
     mov al, CWHITE
     call OSAPI_SET_COLOR
     mov ax, [at_sbx]
@@ -1460,6 +1747,67 @@ at_sbar:
     call at_maxtop
     or ax, ax
     jz .out                         ; the document fits: no bar at all
+    mov si, ax
+%else
+    ; --- SPEC.md 46.4.4: what is already on the glass ---------------------
+    ; at_maxtop is walked ONCE here and handed to at_thumby_m below; it used
+    ; to be walked again inside at_thumby.
+    call at_maxtop
+    mov si, ax                      ; SI = maxtop, live to the end
+    or ax, ax
+    jnz .want
+    ; the document FITS, so there is no bar. Erase one only if one is there.
+    cmp byte [at_sbst], 2
+    je .out                         ; already known blank: ZERO far calls,
+                                    ; which is what every Enter in a short
+                                    ; document used to pay a full-height
+                                    ; gutter fill for - the fill sat ABOVE
+                                    ; the test that decides there is no bar
+    call .blank
+    mov byte [at_sbst], 2
+    jmp .out
+.want:
+    cmp byte [at_sbst], 1
+    jne .full                       ; POISONED or blank: draw the lot
+    cmp si, [at_sbmax]
+    jne .full                       ; the document's length moved
+    mov cx, si
+    call at_thumby_m
+    cmp ax, [at_sbty]
+    je .out                         ; NOTHING MOVED. On a long document this
+                                    ; is most scrolls: the travel is
+                                    ; ty1-ty0-47 px over maxtop lines, so a
+                                    ; 1,000-line Hercules document moves the
+                                    ; thumb 0.24 px a line
+    ; --- only the thumb moved: grey its old span and draw it again --------
+    ; The span is sbx+1..sbx+14 - the SHAFT's width, not the thumb's 16. The
+    ; columns either side are the OUTER frame, black for the bar's whole
+    ; height, and the thumb's own frame only ever redraws them the same
+    ; colour. gfx_fill_gray's dither phase is a function of absolute y, so a
+    ; partial re-grey is phase-correct by construction.
+    push ax
+    mov ax, [at_sbx]
+    inc ax
+    mov bx, [at_sbty]
+    mov cx, [at_sbx]
+    add cx, 14
+    mov dx, bx
+    add dx, 15
+    call OSAPI_GFX_FILL_GRAY
+    pop ax
+    mov [at_sbty], ax
+    call .thumb
+    jmp .out
+.full:
+    ; BANK MAXTOP NOW, not at the thumb below: the two arrow loops between
+    ; here and there use SI as their own 1..5 counter, so SI is ZERO by the
+    ; time the thumb is drawn. Reading it there banked at_sbmax = 0 - which
+    ; made every later call miss its own bank and take this path again - and
+    ; handed at_thumby_m a zero divisor. tests/atblit.py caught it as a thumb
+    ; frozen at the top of the shaft while the view was at the bottom.
+    mov [at_sbmax], si
+    call .blank                     ; the arrow boxes' ground
+%endif
     mov al, CBLACK
     call OSAPI_SET_COLOR
     ; frame + the two arrow boxes
@@ -1519,9 +1867,40 @@ at_sbar:
     sub dx, 16
     call OSAPI_GFX_FILL_GRAY
     ; thumb
+%ifdef NOATSBAR
     call at_thumby
-    mov bx, ax
-    mov dx, ax
+    mov [at_sbty], ax
+%else
+    mov cx, [at_sbmax]              ; ...and read it back from the bank, for
+    call at_thumby_m                ; the reason above
+    mov [at_sbty], ax
+    mov byte [at_sbst], 1
+%endif
+    call .thumb
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; the gutter's ground, and the thumb at [at_sbty] - the two pieces both the
+; full body and 46.4.4's incremental arm need
+.blank:
+    mov al, CWHITE
+    call OSAPI_SET_COLOR
+    mov ax, [at_sbx]
+    mov bx, [at_ty0]
+    dec bx
+    mov cx, ax
+    add cx, 15
+    mov dx, [at_ty1]
+    call OSAPI_GFX_FILL
+    ret
+.thumb:
+    mov bx, [at_sbty]
+    mov dx, bx
     add dx, 15
     mov al, CWHITE
     call OSAPI_SET_COLOR
@@ -1539,12 +1918,6 @@ at_sbar:
     mov cx, ax
     add cx, 15
     call OSAPI_GFX_FRAME
-.out:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1587,11 +1960,22 @@ at_maxtop:
 ; out: AX = y; preserves all else
 ; -----------------------------------------------------------------------------
 at_thumby:
+    push cx                         ; the public form, which resolves maxtop
+    call at_maxtop                  ; itself - at_sb_click's call site is
+    mov cx, ax                      ; unchanged by SPEC.md 46.4.4
+    call at_thumby_m
+    pop cx
+    ret
+
+; -----------------------------------------------------------------------------
+; at_thumby_m - the same, with maxtop ALREADY in CX (and nonzero)
+; in:  CX = maxtop; out: AX = the thumb's y; preserves BX/CX/DX
+; at_sbar walks at_maxtop once and hands it here; it used to be walked TWICE
+; per bar, once there and once in at_thumby (SPEC.md 46.4.4).
+; -----------------------------------------------------------------------------
+at_thumby_m:
     push bx
-    push cx
     push dx
-    call at_maxtop
-    mov cx, ax                      ; CX = maxtop (nonzero at the call site)
     mov ax, [at_ty1]
     sub ax, [at_ty0]
     sub ax, 47                      ; travel = shaft height - 16 (thumb):
@@ -1608,6 +1992,5 @@ at_thumby:
     add ax, [at_ty0]
     add ax, 15
     pop dx
-    pop cx
     pop bx
     ret

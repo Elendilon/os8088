@@ -88,6 +88,12 @@ T_NAV = 20.0            # a folder navigation: one mount and a repaint
 T_RAISE = 8.0           # a z-order change: no disk in it at all
 T_MOVE = 15.0           # a drag: the XOR outline is drawn per packet
 T_MENU = 8.0            # a pull-down to appear, and an item to highlight
+# THE FIRST LOOK, for a verb that RE-SENDS its input rather than waiting longer
+# (`close` below, and the same shape in tests/hibernate.py). It is deliberately
+# short: the whole budget is still spent on the second attempt, so what this
+# buys is finding out sooner that the first one was not taken. GUEST seconds
+# like every other budget here.
+T_SHORT = 3.0
 # `scroll_to`'s per-arrow-key budget. It is named apart from the others
 # because a "no" from that wait is read as an END STOP rather than as a
 # failure - so a budget cut short by a busy box does not raise, it decides
@@ -405,14 +411,49 @@ class UI:
                    "" if w.visible else " (and it is not visible)", e))
 
     def close(self, w, limit=T_RAISE):
-        """Click the close box and wait for the record to go free."""
+        """Click the close box and wait for the record to go free.
+
+        **THE CLICK IS RE-SENT ONCE**, and the gate for that is the exact
+        negation of what we are waiting for: if the window is STILL OPEN the
+        click did nothing, and clicking the same close box again is harmless.
+        A close box whose window has gone is a click on whatever is underneath
+        it, which is why this may not simply retry on a timer.
+
+        Every packet of `mo.click` is already proven - the pointer against the
+        published cursor, both edges against the guest's own `mouse_btn` - and
+        the gesture as a whole still is not: what is missing is the window
+        manager RECEIVING it, which no fact about the mouse can show. Measured
+        at a lane of four, this was 1 run in 12 (docs/plans/SOAK-PARALLEL.md
+        15.2), and `move_window` above has the same hole with a kernel witness
+        to close it.
+        """
         w = self._as_win(w)
         self.raise_window(w)
+        # **THE RECT IS RE-READ HERE**, and that is not belt and braces. The
+        # caller's handle is a SNAPSHOT: `wait_window` answers the instant a
+        # record goes visible, which is before the app has finished laying
+        # itself out, and `drag_window` hands back a new object that an older
+        # variable does not become. Clicking `close_xy` of a rect the window
+        # has since left is two confirmed clicks on empty desktop - which is
+        # exactly what a lane of four produced here, twice in twelve runs,
+        # with the retry below firing and the second click missing for the
+        # same reason as the first.
+        w = self._refresh(w)
         x, y = geom.close_xy(w.x, w.y)
-        self.mo.click(x, y, settle=0)
-        self._wait(lambda: all(o.i != w.i for o in self.windows()),
-                   "window %r to close" % w.title, limit,
-                   snapshot=self.titles)
+        gone = lambda: all(o.i != w.i for o in self.windows())    # noqa: E731
+        for attempt in (1, 2):
+            self.mo.click(x, y, settle=0)
+            try:
+                self._wait(gone, "window %r to close" % w.title,
+                           limit if attempt == 2 else min(limit, T_SHORT),
+                           snapshot=self.titles)
+                if attempt == 2:
+                    self._say("the close of %r needed a second click"
+                              % w.title)
+                return
+            except UIError:
+                if attempt == 2 or gone():
+                    raise
 
     def move_window(self, w, x, y, limit=T_MOVE):
         """Drag a window's title bar so its FRAME lands at (x, y), and check.
@@ -440,7 +481,9 @@ class UI:
         want = (geom.snapx(x, bool(w.flags & geom.WF_NOSNAP)), y)
         gx = w.x + w.w // 2
         gy = w.y + geom.TITLE_H // 2
-        self.mo.drag(gx, gy, gx + (x - w.x), gy + (y - w.y), settle=0)
+        self._grab(w, gx, gy)
+        self.mo.to(gx + (x - w.x), gy + (y - w.y), l=True)
+        self.mo._edge(False)
         try:
             self._wait(lambda: self._rect(w.i)[:2] == want,
                        "window %r to arrive at (%d,%d)"
@@ -462,6 +505,48 @@ class UI:
                 "a window may not be dragged off its display."
                 % ((w.title, x, y) + want + got))
         return self._refresh(w)
+
+    def _grab(self, w, gx, gy, guest=T_MOVE):
+        """Press on a window's title bar, and CONFIRM the drag was taken.
+
+        **THE STEP `mo.drag` CANNOT DO.** Its press and release are each
+        proven against the guest's own `mouse_btn`, and the pointer is proven
+        against the published cursor - so every packet is confirmed and the
+        gesture as a whole is still not. What is missing is between them: the
+        window manager has to RECEIVE the press and enter `ui_drag` before the
+        pointer walks off the title bar. Nothing in the mouse layer can see
+        that, because it is not a fact about the mouse.
+
+        `ui_drag`'s first act is `mov [ui_dragwin], bx` (kernel/ui.inc), and
+        it then runs a modal loop until the release - so that word naming our
+        record IS the confirmation, and it is the kernel's own rather than a
+        second opinion.
+
+        It is ZEROED FIRST, which is what makes it exact. The word is not
+        cleared when a drag ends, so a second drag of the SAME window would
+        read the first one's value and confirm a press that never landed -
+        the precise failure this is here to catch. Nothing reads it while the
+        button is up, so clearing it costs the guest nothing.
+
+        Measured: `uilayer` failed at a lane of four with `drag +20+12 from
+        (175, 38) -> (175, 38)` - a window that did not move, from a gesture
+        every packet of which was confirmed (docs/plans/SOAK-PARALLEL.md 15.2).
+        """
+        rec = (self._S("wm_wins") + w.i * geom.WIN_SIZE
+               - geom.KERNEL_SEG * 16) & 0xFFFF
+        self.mo.to(gx, gy)
+        if self.mo.where()[2] & 1:      # a press that finds the button down
+            self.mo._edge(False)        # is no edge at all
+        self.m.write(self._S("ui_dragwin"), b"\x00\x00")
+        self.mo._edge(True)
+        self._wait(
+            lambda: self._word("ui_dragwin") == rec,
+            "the window manager to take a title-bar press on %r (ui_dragwin "
+            "= %#06x)" % (w.title, rec), guest,
+            snapshot=lambda: "ui_dragwin = %#06x, mouse_btn = %02x, pointer "
+                             "%r, press aimed at (%d,%d)"
+                             % (self._word("ui_dragwin"), self.mo.where()[2],
+                                self.mo.where()[:2], gx, gy))
 
     def drag_window(self, w, dx, dy, limit=T_MOVE):
         """move_window by a DELTA. The spelling most callers mean."""

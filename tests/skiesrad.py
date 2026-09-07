@@ -189,7 +189,7 @@ def main(argv):
             if got != want:
                 sys.exit("skiesrad: the pose did not take - %s against %s. The "
                          "world was still stepping when it was written "
-                         "(docs/WRITING-TESTS.md 13 row 22)" % (got, want))
+                         "(docs/WRITING-TESTS.md 13 row 35)" % (got, want))
 
         names = {v: k for k, v in mp.items() if k.startswith("cs_m_")}
         viol, objs = {}, 0

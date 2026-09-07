@@ -532,8 +532,10 @@ sch_fdivs:  dw 32768, 21845, 16384      ; N = 2, 3, 4
 ; clobbers: flags
 ; -----------------------------------------------------------------------------
 sched_unhook:
+%ifdef NO_FDDPARK
     push ax
     push es
+%endif
 
     xor ax, ax
     mov es, ax
@@ -563,9 +565,17 @@ sched_unhook:
     out 0x40, al
     popf
 
+%ifdef NO_FDDPARK
     pop es
     pop ax
     ret
+%else
+    jmp COLD_SEG:dsk_fdd_park_x ; ...and straight on into SPEC.md 18.100's park
+                                ; and the int 19h at its tail. NEVER RETURNS on
+                                ; this arm: both callers are the reboot path
+                                ; and neither has an instruction after it, so
+                                ; AX/ES need not come back either
+%endif
 
 ; -----------------------------------------------------------------------------
 ; sch_wake_ui - make the UI task ready (PROBE, docs/plans/completed/SCHED-IDLE-PLAN.md 6.3)
@@ -911,6 +921,99 @@ task_spawn:
     pop dx
     pop cx
     pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; sch_wk_restart - throw a worker's stack away and re-enter it (SPEC.md 66.6.2)
+; in:  AL = the task slot, BX = the segment to run it in, CX = the entry offset
+; out: nothing (all registers and the flags preserved)
+;
+; task_spawn's tail, run again on a slot that ALREADY EXISTS. It is the one way
+; past SPEC.md 66.6.1's limit: a worker's stack carries its own package's
+; segment from before its first instruction and at depths nothing can find
+; (docs/plans/HEAP-UNPIN-PLAN.md 4.1), so the answer is not to find them - it
+; is to arrange for the stack not to matter, which only the package can
+; authorise (OSAPI_TASK_RESTARTABLE).
+;
+; A REBUILD IN PLACE AND NOT A KILL AND RESPAWN, for two reasons that both
+; matter. A respawn can FAIL - first fit over a busy table - and the kernel
+; would then have destroyed a worker it could not promise to return; and
+; task_exit releases the INSTANCE record with the task, which is a package
+; being closed rather than a worker being restarted.
+;
+; WHAT IT DOES NOT REDO. The slice keeps its 0xCC fill and its SCH_MAGIC
+; canary: both are properties of a slice that has already been cut, and the
+; high-water mark tools/stkwater.py reads is MORE useful across a restart, not
+; less - it is still the deepest this worker has ever been.
+;
+; **IT MUST CLEAR [sch_parked].** The worker is standing in inst_park_hold or
+; in gfx_lock's .block arm, and BOTH clear that byte on the way out - which is
+; a way out this routine has just deleted. Left set, inst_seg_parked answers
+; "parked" for ever and the next compaction moves the claims of a worker that
+; is running. (gfx_lock's [gfx_lock_want] is left set and that one is
+; harmless: SPEC.md 7.3 makes it a fairness hint the next contended acquire
+; spends.)
+; -----------------------------------------------------------------------------
+sch_wk_restart:
+    pushf
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    cli                         ; the frame below is what sch_switch resumes
+                                ; from, so it is built whole or not at all
+    xor ah, ah                  ; AX = the slot
+    mov si, ax
+    shl si, 1                   ; SI = slot*2, the index BOTH slice tables take
+    mov di, [si+sch_stkbase]
+    mov dx, [si+sch_stksize]
+    add dx, di                  ; base + size = the slice TOP...
+    sub dx, SCH_FRAME           ; ...and the frame is carved from it, exactly
+    mov di, dx                  ; as task_spawn carves it
+    mov si, ax
+    mov byte [si+sch_parked], 0 ; ...and it is NOT parked any more: see above
+    shl si, 1                   ; T_SIZE = 8, as three open shifts (sch_currec's
+    shl si, 1                   ; idiom - CX is the entry offset here and AX is
+    shl si, 1                   ; the slot)
+    mov [si+sch_tasks+T_SP], di
+    mov dl, [si+sch_tasks+T_INST]   ; DX = THE INSTANCE INDEX and not the task
+    xor dh, dh                      ; slot: it is task_spawn's spawn argument
+                                    ; and the worker's documented `in:`, and
+                                    ; the two are different numbers
+    push ss
+    pop es                      ; ES = LOW_SEG: the frame lives there and DS
+    cld                         ; cannot reach it
+    mov ax, bx
+    stosw                       ; DS  = the region's NEW segment
+    mov ax, KERNEL_SEG
+    stosw                       ; ES  = the kernel, always (SPEC.md 20.1)
+    xor ax, ax
+    stosw                       ; BP
+    stosw                       ; DI
+    stosw                       ; SI
+    stosw                       ; BX
+    xchg ax, dx
+    stosw                       ; DX  = the instance index, task_spawn's own
+    xchg ax, dx                 ; spawn argument and the worker's `in:`
+    stosw                       ; CX
+    stosw                       ; AX
+    mov ax, cx
+    stosw                       ; IP  = the declared restart point
+    mov ax, bx
+    stosw                       ; CS  = the region's new segment
+    mov ax, 0x0202
+    stosw                       ; FLAGS: IF=1, reserved bit 1 set
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    popf
     ret
 
 ; -----------------------------------------------------------------------------

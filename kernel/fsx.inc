@@ -118,11 +118,13 @@ fsx_capstab:                    ; indexed by VID_* (VGA 0, HERC 1, CGA 2, EGA 3)
     dw 0x01EF                   ; VGA:  0,1,2,3 + 5,6,7,8
     dw 0x0011                   ; HERC: 0 (mode 7 text) + 4 (its own graphics)
     dw 0x000F                   ; CGA:  0,1,2,3
+%ifdef GFX_VGA                  ; the EGA row is kern_big's alone
     dw 0x000F                   ; EGA:  0,1,2,3 - the CGA-compatible modes only,
                                ; which an EGA BIOS all has. Its own mode 10h
                                ; has no FSXM id, and mode 0Dh (native, planar)
                                ; is a safe later addition, not pass 1
                                ; (SPEC.md 39.24, docs/plans/completed/EGA-PLAN.md 7)
+%endif
 
 ; -----------------------------------------------------------------------------
 ; fsx_run - the bracket (SPEC.md 53.1, slot 0x02C8 via X stub)
