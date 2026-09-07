@@ -94987,6 +94987,38 @@ rotation matrix's entries are bounded by 1 and the products are truncated,
 so no sum of two reaches 32768; cos 0 is 32767 and the 1/32768 it is short
 is nobody's pixel.
 
+#### 88.5.9 …and the table is a QUARTER of the turn
+
+`cssin.inc` held 1,024 entries — a whole turn at 2,048 bytes — and three
+quarters of it are the first quarter reflected and negated. It holds 257 now
+(**514 bytes**, saving 1,534), and `cs_sin` reads the index's top two bits as
+the quadrant: bit 8 says the quarter runs backwards, bit 9 says the result is
+below the axis. Two tests and a `neg`.
+
+**That is a size change and not a speed one, and the reason it is allowed to
+be is the call count**: `cs_sin`/`cs_cos` have **twenty-five call sites in
+the whole package**, all of them in the matrix, the flight model and the
+panel — §88.5's *one matrix a frame* is exactly why this is not the
+per-vertex path, and the nine multiplies a vertex never touch it.
+
+It was made a size change by a MERGE. Two branches of Clear Skies, each with
+a few hundred bytes of headroom, met at 360 bytes over `APP_MAX_SIZE` — which
+is the whole of what that guard is for. The next lever is much larger and is
+written down here so it does not have to be found again: **`csart.inc` is
+10,479 bytes, 21.6% of the image**, it is data rather than code, and §20.12's
+embedded parts are the mechanism for exactly that (`apps/c64` carries 20,480
+bytes of ROM as part 0). Four of its five aeroplane bands are dead weight at
+any moment.
+
+**One value changed by one unit.** The old table clamped only the positive
+peak, so sin 270° was −32,768; a quarter table's peaks are symmetric and it
+is −32,767 — the same 1/32768 §88.5.3 already calls nobody's pixel, at one
+index of 1,024. `tests/unit/t_cssin.py` asserts that difference rather than
+tolerating it, holds the 257 entries to §88.5's own snippet, and walks the
+reflection over a whole turn against `sin` itself. The axis crossings stay
+EXACT, which matters: §88.9.2.2's divide by `cos` depends on cos ±90° being
+exactly zero.
+
 #### 88.5.4 Levels of detail, all about pixels
 
 The measure is `cs_sizepx`: **0.75 of the model's radius times the vertical
@@ -96219,6 +96251,181 @@ fires.** It walks the roll through both windows a few units at a time on an
 aeroplane that has no clamp. `--clobber-adi` puts the raw `idiv` back and
 reproduces the fault at `0x4008` and `0xC008`.
 
+#### 88.9.2.3 `cs_pclip` borrows `cs_wh`, so `cs_viewh` is what to read
+
+The panel lives BELOW the view, so `cs_pclip` widens the segment walk's
+vertical bound to the whole box for the length of the panel's own drawing —
+and that bound is `cs_wh`, the view's height. For as long as the cockpit is
+being drawn, therefore, `cs_wh` reads `cs_vh`.
+
+Nothing in the program is wrong about this: the only code that runs inside
+the bracket is the panel's, and the box IS its clip. What it breaks is a
+READER. `tests/skies.py` asks which row of `cs_fulltab` the backend took by
+sampling `cs_ww`/`cs_wh` off a running machine, and it read a plausible
+`320x200` on CGA the day the panel got dense enough to be inside that
+bracket when the sample landed — a wrong answer about the raster, produced
+by a correct panel.
+
+So `cs_r_size` publishes `cs_viewh` at its single exit, and `cs_vclip`
+restores `cs_wh` from that rather than from a save taken on the way in. The
+word is never borrowed, so a host-side reader has one that is true at every
+instruction, and the clip's save shrinks from three words to two.
+
+#### 88.9.9 A message is an annunciator, not a strip
+
+The message line was a WINDOW, and a window is painted once with the cockpit
+and stays: a panel with nothing to say carried a white slab across it for
+ever, and the message was padded to forty cells so the slab was the full
+width whatever it said.
+
+There is no message window now. `cs_d_msg` erases its rows on the cockpit's
+FACE and letters the message on its own length, centred — and a glyph's
+cells are opaque, so what a message gets is a bar exactly the size of the
+message and an empty one gets nothing at all.
+
+#### 88.9.5 A cell is not a layout unit
+
+The panel is one drawing on three adapters: a 320-wide layout put through
+`cs_hscalex`, which doubles it on Hercules's 640-wide box. **Text does not
+scale with it.** A cell is 8 DEVICE pixels on every adapter, so eight layout
+units are eight cells on CGA and Mode X and **four** on Hercules — and every
+width on the panel that was written as "8 at 320 wide" was twice what it
+meant on the one adapter with the pixels to show it.
+
+Two things came out of that, and both were reported from the glass:
+
+- **the digits sat eight cells from their label.** `cs_pnum` put the value
+  four cells along with `add bx, 4 * 8`, and that is 32 layout units, which
+  is eight cells on Hercules. `SPD` and its number had a gap the width of
+  the number twice over.
+- **every window was 2.5× its text.** A window was a rectangle in layout
+  units, and its contents a string in cells.
+
+`cs_pcells` converts: cells × 64 over `[cs_hsx]`, which is four layout units
+a cell on Hercules and eight elsewhere. `cs_pcolx` is the same for a signed
+**cell column** — positive counts in from the left edge, negative from the
+**right** — so a right-hand readout sits the same distance in on every
+adapter, where a fixed layout x sits twice as far in on Hercules.
+
+A window is `(cell column, row, cells, rows)` now, and a `cells` of **0** is
+the whole 320: a message strip spans the panel, and no count of cells can
+say that on two adapters at once.
+
+#### 88.9.5.1 An item a cockpit has not got is (0, 0), and one proc tested it
+
+`(0, 0)` in a cockpit's item table means *this aeroplane has not got one* —
+the glider's throttle and its bar, the powered aeroplanes' variometer. Only
+`cs_d_vs` ever tested for it. Every other draw proc took `cs_pcell`'s answer
+at face value, so the Bijave lettered `072` at cell 0 of row 0, half of it
+above the panel's own top edge, on every frame the throttle changed. It is
+in the photographs of the panel from the first build.
+
+The test is now in `cs_pitem`, before the sample and before the paint, so it
+is written once rather than nine times — with one exception named there: the
+attitude indicator is item 3 and its cell IS `(0, 0)`, because it does not
+have one. It draws from `CSK_ADCX`/`CSK_ADCY` and is skipped by index.
+
+#### 88.9.6 A round instrument gets a round plate
+
+`cs_pdeco` filled a **square** plate and drew the round bezel inside it, so
+the plate's four corners stood outside the glass as black boxes on the
+cockpit's face — the field's *"black boxes outside of them"*. The attitude
+indicator did the same thing at four times the size, which is the black
+rectangle behind the round bezel in every photograph of the panel.
+
+`cs_pdisc` fills the ellipse instead, a row at a time, its half-width
+`rx·√(ry²−dy²)/ry` off `cs_isqrt` — two bits of the radicand a round, which
+is the short way rather than the quick one because this runs **once per
+target**. Every term in it is under 2¹⁵: a radius is rows, and rows are
+under 160.
+
+#### 88.9.6.2 …and the horizon is a CHORD of it, not a bar across a box
+
+Rounding the glass moved the defect rather than removing it. The horizon
+bar was clipped to the window's **rows**, at the full half-width either side,
+which is right for a rectangle and wrong for a disc: at any row but the
+centre the glass is narrower than `cs_adhw`, so both tips of the bar stood
+on the cockpit's face inside the bezel. Measured on a Hercules at 12° of
+bank, the right-hand tip covered x 23…28 of a glass 22 wide there.
+
+The ends are the line's intersections with the ellipse now. Scale x by
+`R/W` and the glass is a **circle** of radius `R = cs_adhh` in which the
+line is `v = off + k·u/R`, so with `a = R² + k²`:
+
+```
+    d  = R·|off| / √a          the line's distance from the centre
+    L  = √(R² − d²)            half the chord
+    u* = −off·k·R / a          the foot of the perpendicular
+```
+
+and the two ends are `u* ± L·R/√a`, mapped back by `x = u·W/R` and
+`y = off + u·k/R`. Every term is a word but one 32-bit product whose
+quotient is a word, `cs_isqrt` is already there for the disc, and **`d ≥ R`
+is the whole of "the horizon is not on the glass"** — which replaces the
+both-above/both-below pair the row clip needed. `L` is taken one pixel in so
+that integer rounding cannot poke a tip back out.
+
+The obvious cheaper answer — walk each end inward along the line until it is
+inside — was tried on paper and **does not converge**: it starts from the
+row-clipped ends, where the glass has zero width, and snaps straight past
+the real intersection. A steep bar at a large pitch offset really does cross
+the glass, and the arithmetic above is what finds where.
+
+#### 88.9.6.3 A bezel is a row walk, not a polygon
+
+The rings were a 24-segment polygon. At the attitude indicator's radius —
+30 box pixels on Hercules — that is a **7.8-pixel chord**, so the bezel read
+as a lumpy nut with flat sides, and the two rings three columns apart
+crossed each other where the facets did not agree.
+
+`cs_pring` walks rows instead, exactly as `cs_pdisc` fills them: each row
+lights from the **previous row's half width to this one's**, both sides. A
+row where the edge moves several columns is filled across, so there are no
+gaps, and the flat cap at the top and the bottom falls out of the same rule
+rather than needing a case. The half width is `cs_elhw`, factored out of
+`cs_pdisc`, so the disc and its bezel are the same curve by construction and
+cannot disagree at the edge.
+
+It is drawn once per target, like everything else on the face, so the
+arithmetic per row costs nothing that matters.
+
+#### 88.9.7 …and a readout gets a bezel
+
+A window was a white rectangle with a one-pixel outline. It has four corner
+brackets two pixels outside it now, which is what makes it read as an
+instrument set INTO a panel rather than painted on one.
+
+A second full outline was the other candidate and it loses: the face is a
+25% dither, so two lines two pixels apart read as one thick smear at this
+size, where four corners read as a bezel. Eight short segments a window,
+once per target.
+
+#### 88.9.8 The layout, and the gate that holds all five to all three
+
+Every cockpit shares the layout rows — readouts at 3, 18 and 33, the state
+at 49, a second row of small gauges at 56, the message at 65 and the switch
+rail at 82 — and differs in what it puts where, which is the point: a
+trainer's six-pack, a biplane's scatter, a jet with the attitude indicator
+as the centrepiece, a glider with a variometer where the throttle would be,
+and an amphibian's single block of glass. **The rows are shared on purpose**:
+five aeroplanes each wandering off the grid read as five accidents rather
+than as five aeroplanes, so what tells them apart is the columns, the
+instrument sizes and the decorations.
+
+Round instruments keep the layout's own x, because they are round rather
+than lettered, and **CGA is the adapter to lay them out against**: a dial's
+x radius is its rows over `cs_pasp`, which is 1.2 there against 1.0 on Mode
+X and 0.78 on Hercules, so what fits on CGA fits everywhere.
+
+`tests/unit/t_cspanel.py` is the gate and it is host-side, in the fast tier:
+it reads the records out of `apps/skies/cspanel.inc` and holds all five
+cockpits to all three adapters — no two windows overlap, no round instrument
+overlaps a window or another instrument, every window is wide enough for
+what is lettered into it and no more than four cells wider, and everything
+is inside the panel. **Both units are checked because both scale**, and a
+layout that is tidy on CGA can overlap on Hercules with nothing to show for
+it in a test that looks at one adapter.
+
 #### 88.9.3 …and instruments that only look the part
 
 A real panel is mostly things the simulation does not model. `CSK_DECO`
@@ -96233,9 +96440,49 @@ reads as noise at gauge size — the first build's dials were specks. The
 instrument windows already solve exactly that with a black ground and a
 white edge, so a gauge is given the plate it would have in the metal.
 
-The Pitts carries six — a tachometer, oil pressure, fuel, a G meter and two
-magnetos — and the Cessna none, which is the trainer's panel being the
-instruments and nothing else.
+#### 88.9.3.1 The switch rail, and where the density comes from
+
+The field's fifth note was *"make the panels a bit more dense and organised,
+same style, more like a real cockpit"*, and the answer is two rows the
+layout did not use.
+
+**A rail of toggles at row 82**, spread from x 40 to 278 rather than a pair
+in the middle. It is ONE table row — `CSDK_RAIL`, whose `CSD_ARG` carries the
+count in its low byte and which way each is thrown in its high one,
+`CS_RAILSTEP` apart from `CSD_X` — because nine near-identical rows at ten
+bytes each is what a rail is not. That collapse is 350 bytes of the package
+against about 70 of code, and it mattered: `CSDIAG=1` had gone **59 bytes
+over `APP_MAX_SIZE`**, and the shipped build's headroom was 531. That band is below the message strip's erase (§88.9.9) and
+above the panel's last row, so it was empty on every aeroplane, and a line
+of switches is what fills the bottom of a real panel. It is also the
+cheapest character in the file: what each aeroplane carries and which way
+each one is thrown is the whole difference between a trainer's master and
+magnetos, a biplane's SMOKE, a jet's igniters and drop tanks, a glider's
+three levers, and an amphibian's water rudder and bilge pump.
+
+**A second row of small gauges at row 56**, between the attitude indicator's
+bottom and the message. Seven rows of radius rather than ten, because that
+band is fifteen rows tall.
+
+The decoration counts went 6, 5, 4, 3, 2 to 7, 6, 6, 6, 6 — and every one of
+those now ends in a rail, so what is drawn went 6, 5, 4, 3, 2 to 14, 12, 13,
+8, 13.
+
+**What cannot be fixed by moving anything** is that the panel is denser on
+CGA and Mode X than on Hercules, and §88.9.5 is why: a cell is 8 DEVICE
+pixels, so a readout block is a third of the layout's width on a 320-wide
+box and a sixth of it on a 640-wide one, while a round instrument's radius
+is in ROWS and shrinks with the aspect either way. Every position here is
+laid out against **CGA**, which is the tight one; the Hercules panel has air
+in it that no layout expressed in these two units can take up.
+
+`tests/unit/t_cspanel.py` is what makes that safe to do at all — it holds
+all five cockpits to all three adapters, and it grew a rule with this work:
+**nothing may sit in the message strip's erase band**, rows 65 to 76, which
+is full width and repainted whenever the aeroplane has something to say. It
+EXPANDS a rail into its switches rather than checking the row, and it reads
+`CS_PANROWS` and `CS_RAILSTEP` out of the assembly instead of holding a copy
+of either.
 
 ### 88.10 The title page
 
@@ -97050,6 +97297,22 @@ a `build/`.
 freeze that 8,000 pinned poses and 4,200 frames of continuous rolling under
 MartyPC could not reproduce — which is itself a finding: whatever it is, it
 is not a function of the drawn state alone.
+
+#### 88.14.2 A private tree nothing rebuilds is a stale tree
+
+`tests/skiesdiag.py` assembles the `CSDIAG` package itself to take the four
+addresses it pokes and reads, and the disk it boots is built separately by
+`make skiesdiag` into `build/skiesdiag/`. Nothing re-runs that. A change to
+`apps/skies/` therefore leaves a tree whose addresses are **plausible and
+wrong**, and the row fails nine assertions that all read as the watchdog
+being broken — which is exactly what happened the first time the package
+grew after the tree was built.
+
+The row holds the tree to its own assembly now: it writes the binary as well
+as the listing and refuses, in one line naming `make skiesdiag`, when the
+tree's `skies.bin` is not byte-identical to it. That is `os88sym`'s rule for
+`build/kernel.bin` applied one level down, and docs/WRITING-TESTS.md §13 row
+20 is the incident.
 
 #### 88.14.1 The guards, and the two defects they found before the field did
 

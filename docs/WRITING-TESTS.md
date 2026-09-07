@@ -621,6 +621,9 @@ not. Each one can still happen today.
 | 17 | `hibernate` mounting ONE `build/hiber.vhd` read-write in three emulators at once: 2 runs in 6, at a different leg every time, one of them a proven click on a proven pointer doing nothing | §5.5 |
 | 19 | `skiesease` pressing a key and then `advance(frames=6)`: on a loaded box the guest had not got it, and the aeroplane standing still for seven ticks reads exactly like a broken flight model. **A GUEST-clock wait is not a confirmation either** — the press is queued in the emulator, not in the guest, so the thing to poll is the guest's own `[cs_kroll]` | §7.1 |
 | 18 | `reap()` racing itself — every `launch` reaps, so one process dropped a finished instance's tree while another wrote its record | §5.5 |
+| 20 | `skiesdiag` reading a `build/skiesdiag/` that `make skiesdiag` had not been re-run for: **a private tree nothing rebuilds is a stale tree**, so nine assertions failed on plausible wrong addresses and read as the watchdog being broken. A row that assembles its own symbol map must hold the tree to it — the same rule `os88sym` applies to `build/kernel.bin`, one level down | §5.1 |
+| 22 | `skiesset` writing a pinned pose while a `cs_step` was in flight: `m.pause()` lands anywhere, the step finishes on resume and writes its own position over the pin, and at Low detail a different position is a different object count — 4 in one run and 11 in the next off the same script. **Set the pause, let a frame by, THEN write, then read it back** | §7.1 |
+| 21 | `tests/skies.py` sampling `cs_ww`/`cs_wh` off a running guest to ask which raster it took, and reading the box's height because the panel's clip BORROWS that word while it draws. The read was correct on the day it was written and started lying when the cockpit got dense enough to still be inside the bracket | §8 |
 
 ---
 

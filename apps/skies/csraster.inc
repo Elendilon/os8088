@@ -119,6 +119,8 @@ cs_r_size:
                                     ; always black, so it costs a word a row
                                     ; and shows nothing (88.13.4)
 .done:
+    mov ax, [cs_wh]                 ; ...and PUBLISHED where the panel's clip
+    mov [cs_viewh], ax              ; cannot borrow it (88.9.2.3)
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2232,14 +2234,17 @@ cs_markspan:
 ;                       the view, for the panel's own drawing (88.9.2), and
 ;                       back. Segments in the panel mark their own rows
 ;                       (cs_ownmk): they belong to no object that would.
+;
+; It BORROWS cs_wh, so for as long as the panel is drawing that word reads the
+; BOX's height and not the view's - which is a trap for anything reading the
+; geometry off a running machine. cs_viewh is the same number and is never
+; borrowed; cs_r_size publishes it and cs_vclip restores from it (88.9.2.3).
 ; -----------------------------------------------------------------------------
 cs_pclip:
     mov ax, [cs_wx0]
     mov [cs_svclip], ax
     mov ax, [cs_wx1]
     mov [cs_svclip + 2], ax
-    mov ax, [cs_wh]
-    mov [cs_svclip + 4], ax
     mov word [cs_wx0], 0
     mov ax, [cs_vw]
     dec ax
@@ -2255,8 +2260,9 @@ cs_vclip:
     mov [cs_wx0], ax
     mov ax, [cs_svclip + 2]
     mov [cs_wx1], ax
-    mov ax, [cs_svclip + 4]
-    mov [cs_wh], ax
+    mov ax, [cs_viewh]              ; the view's height from the word cs_r_size
+    mov [cs_wh], ax                 ; published, not from a save of the last
+                                    ; thing that happened to be in cs_wh
     mov byte [cs_ownmk], 0
     ret
 

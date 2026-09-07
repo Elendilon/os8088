@@ -366,17 +366,20 @@ CSPF_AMPHIB equ 0x0001          ; it may touch down on water, and where the
                                 ; location has some it STARTS there (88.7.7)
 
 ; --- a cockpit record (SPEC.md 88.9.2): what a plane's panel looks like ------
-CSK_WIN    equ 0                ; word: the windows, (x1, y1, x2, y2) at 320
-CSK_NWIN   equ 2                ; word: how many         wide, rows below the view
-CSK_ITEMS  equ 4                ; word: the items' cells, (x, row) x CS_PI_N
+CSK_WIN    equ 0                ; word: the windows, (cell column, row, cells,
+CSK_NWIN   equ 2                ; word: how many        rows) - SPEC.md 88.9.5
+CSK_ITEMS  equ 4                ; word: the items' cells, (cell column, row)
 CSK_ADCX   equ 6                ; the attitude indicator's centre, x at 320
 CSK_ADCY   equ 8                ; ...and its row below the view
-CSK_ADRY   equ 10               ; its bezel's vertical radius, rows
-CSK_ADHH   equ 12               ; its window's half-height, rows
-CSK_BARW   equ 14               ; the throttle bar's width at 320 wide
-CSK_DECO   equ 16               ; word: the DECORATIONS (88.9.3) - instruments
-CSK_NDECO  equ 18               ; word: ...how many. 0 is a bare panel
-CSK_SIZE   equ 20
+CSK_ADRY   equ 10               ; its bezel's vertical radius, rows - and the
+                                ; GLASS is that less two, so the black disc
+                                ; fills the ring rather than sitting inside
+                                ; it (88.9.6). There is no separate
+                                ; half-height any more
+CSK_BARW   equ 12               ; the throttle bar's width, in CELLS (88.9.5)
+CSK_DECO   equ 14               ; word: the DECORATIONS (88.9.3) - instruments
+CSK_NDECO  equ 16               ; word: ...how many. 0 is a bare panel
+CSK_SIZE   equ 18
 
 ; A decoration: five words, drawn once with the face and never read again.
 ; It is what a panel has that the simulation does not model - a tachometer,
@@ -386,11 +389,18 @@ CSD_X      equ 2                ; centre x at 320 wide
 CSD_Y      equ 4                ; ...and its row below the view
 CSD_R      equ 6                ; radius in ROWS (the x radius is this over
                                 ; the pixel aspect, so it is round everywhere)
-CSD_ARG    equ 8                ; a dial's needle angle; a switch's position
+CSD_ARG    equ 8                ; a dial's needle angle; a switch's position;
+                                ; a RAIL's count in the low byte and its
+                                ; up/down mask in the high one, bit 0 first
 CSD_SIZE   equ 10
+CS_RAILSTEP equ 34              ; a rail's pitch, at 320 wide: eight from x 40
+                                ; reach 278 (SPEC.md 88.9.3.1)
 
 CSDK_DIAL  equ 0                ; a bezel and a needle, parked where it is
 CSDK_SWITCH equ 1               ; a toggle on a stalk: ARG 0 down, 1 up
+CSDK_RAIL  equ 2                ; a ROW of them, CS_RAILSTEP apart from CSD_X:
+                                ; nine near-identical table rows are one, which
+                                ; is what a rail is (SPEC.md 88.9.3.1)
 
 ; --- the session (SPEC.md 88.8) -----------------------------------------------
 CS_ST_GROUND equ 0
@@ -2205,7 +2215,20 @@ cs_tpl:
     ZWORD cs_pbarx                  ; the throttle bar's left end, top row
     ZWORD cs_pbary                  ; and width, off the cockpit
     ZWORD cs_pbarw
-    ZBUF  cs_svclip, 6              ; the view's clip while the panel draws
+    ZWORD cs_dn                     ; a switch RAIL's counter, its remaining
+    ZWORD cs_dmask                  ; mask and the layout x of the switch it
+    ZWORD cs_dxl                    ; is drawing (88.9.3.1)
+    ZWORD cs_adrr                   ; the ADI chord (88.9.6.2): R^2, a, the
+    ZWORD cs_ada                    ; root of a, half the chord scaled, and
+    ZWORD cs_adsa                   ; the foot of the perpendicular
+    ZWORD cs_adstep
+    ZWORD cs_adus
+    ZBUF  cs_svclip, 4              ; the view's x clip while the panel draws
+    ZWORD cs_viewh                  ; ...and its HEIGHT, which the panel does
+                                    ; not borrow: cs_pclip widens cs_wh to the
+                                    ; whole box, so a reader that samples
+                                    ; cs_wh mid-panel is told the box's height
+                                    ; (SPEC.md 88.9.2.3)
 %ifdef CSDIAG
     ZBUF  cs_dold, 4                ; the watchdog (SPEC.md 88.14): the int 08h
     ZBUF  cs_dring, CSD_SLOTS * 2   ; vector it chains to, the interrupted IPs
@@ -2234,13 +2257,19 @@ cs_tpl:
     ZWORD cs_ady1
     ZWORD cs_adx2
     ZWORD cs_ady2
-    ZWORD cs_elcx                   ; cs_ellipse: centre, radii, the last point
-    ZWORD cs_elcy
-    ZWORD cs_elrx
-    ZWORD cs_elry
-    ZWORD cs_elx
-    ZWORD cs_ely
-    ZWORD cs_elang
+    ZWORD cs_elcx                   ; cs_pdisc/cs_pring: the centre, the radii,
+    ZWORD cs_elcy                   ; the row being drawn and, for the outline,
+    ZWORD cs_elrx                   ; the row above's half width and the run
+    ZWORD cs_elry                   ; this one lights either side
+    ZWORD cs_eldy
+    ZWORD cs_elprev
+    ZWORD cs_ello
+    ZWORD cs_elhi
+    ZWORD cs_elrow
+    ZWORD cs_msgink                ; the message's ink and row while
+    ZWORD cs_msgy                  ; its strip is erased (88.9.9)
+    ZWORD cs_pwl                   ; a window's edges while it is
+    ZWORD cs_pwr                   ; being resolved (88.9.5)
     ZBYTE cs_pfirst                 ; bit n: page n has never had its ground
 
 ; --- the shared controls (SPEC.md 20.5.1) -------------------------------------

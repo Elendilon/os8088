@@ -620,6 +620,20 @@ cs_panel:
 ; -----------------------------------------------------------------------------
 cs_pitem:
     mov [cs_pcur], bx
+    ; --- AN ITEM THIS COCKPIT HAS NOT GOT IS (0, 0) (SPEC.md 88.9.5.1) ------
+    ; ...and only cs_d_vs was testing for it, so a glider's THR - which is
+    ; (0, 0) because a sailplane has no throttle - was lettered at cell 0 of
+    ; row 0, half of it above the panel's own top edge. It is the same test
+    ; for every item, so it belongs here rather than nine times over.
+    cmp bx, CS_PI_ADI               ; (the attitude indicator is not a cell at
+    je .there                       ; all: it draws from CSK_ADCX)
+    call cs_pcell
+    or bx, bx
+    jnz .there
+    or dx, dx
+    jz .gone
+.there:
+    mov bx, [cs_pcur]
     cmp bx, CS_PI_STATE             ; the state and the message NEVER wait:
     je .now                         ; a stall or a crash has to show at once
     cmp bx, CS_PI_MSG
@@ -649,6 +663,7 @@ cs_pitem:
     shl bx, 1
     jmp [cs_pdraw + bx]
 .same:
+.gone:
     ret
 
 ; cs_pkey - the key of item [cs_pcur]: the value it would show
@@ -720,7 +735,15 @@ cs_shr32:
 ; ignored so the callers read as they did; cs_pnuml is the form that letters
 ; the label too, which is the variometer's, its label being its sign.
 cs_pnum:
-    add bx, 4 * 8                   ; a cell is 8 wide at 320, on every adapter
+    push ax                         ; FOUR CELLS along the label, and a cell is
+    push cx                         ; not a layout unit (SPEC.md 88.9.5): the
+    push dx                         ; old `add bx, 4 * 8` was eight cells on
+    mov ax, 4                       ; Hercules, which is the gap between every
+    call cs_pcells                  ; label and its number in the photographs
+    add bx, ax
+    pop dx
+    pop cx
+    pop ax
     push ax
     mov di, cs_numbuf
     pop ax
@@ -866,7 +889,8 @@ cs_d_bar:                           ; the throttle bar: 0..100 in its slot
     mov [cs_pbary], dx
     mov si, [cs_plane]
     mov si, [si + CSP_COCKPIT]
-    mov ax, [si + CSK_BARW]
+    mov ax, [si + CSK_BARW]         ; in CELLS, like every other width on the
+    call cs_pcells                  ; panel (SPEC.md 88.9.5)
     mov [cs_pbarw], ax
     mov al, CSI_PBG                 ; the whole slot in the ground first...
     call cs_setink
@@ -917,16 +941,9 @@ cs_d_msg:                           ; the message line, padded to 40 cells
     mov si, [cs_crashwhy]
     call cs_strcpy
 .pad:
-    mov al, ' '
-    mov cx, cs_msgbuf + 40
-    sub cx, di
-    jle .term
-    cld
-    push ds
-    pop es
-    rep stosb
-.term:
-    mov byte [cs_msgbuf + 40], 0
+    mov byte [di], 0                ; NO PADDING TO 40 CELLS: the message is
+                                    ; lettered on its own length now, so an
+                                    ; empty one is no bar at all (88.9.9)
     mov al, CSI_PHI
     cmp byte [cs_msg], CSG_CRASH
     je .ink
@@ -934,18 +951,50 @@ cs_d_msg:                           ; the message line, padded to 40 cells
     je .ink
     mov al, CSI_PFG
 .ink:
+    mov [cs_msgink], al
+    ; --- THE STRIP, ERASED ON THE FACE (SPEC.md 88.9.9). It used to be a
+    ;     window, and a window is painted once with the cockpit and stays:
+    ;     a panel with nothing to say carried a white slab across it for
+    ;     ever. There is no message window now; what a message gets is the
+    ;     opaque cells it letters, which is a bar the size of the message.
+    mov al, CSI_PFACE
     call cs_setink
-    mov si, cs_msgbuf
-    mov ax, [cs_vw]
-    sub ax, 320
-    shr ax, 1                       ; 40 cells, centred in the box
-    mov cx, ax
     mov bx, CS_PI_MSG
-    push cx
     call cs_pcell
-    pop cx
     add dx, [cs_pany]
+    mov [cs_msgy], dx
+    mov bx, dx
+    sub bx, 2
+    mov dx, bx
+    add dx, 11
+    xor ax, ax
+    mov cx, [cs_vw]
+    dec cx
+    call cs_prect
+    mov si, cs_msgbuf               ; ...and the message, centred on its own
+    xor cx, cx                      ; length rather than padded to forty
+.len:
+    cmp byte [si], 0
+    je .have
+    inc si
+    inc cx
+    jmp short .len
+.have:
+    jcxz .out
+    mov ax, cx
+    mov cx, 8
+    mul cx
+    mov cx, [cs_vw]
+    sub cx, ax
+    shr cx, 1
+    push cx
+    mov al, [cs_msgink]
+    call cs_setink
+    pop cx
+    mov si, cs_msgbuf
+    mov dx, [cs_msgy]
     call cs_text
+.out:
     ret
 
 cs_s_spd:    db 'SPD ', 0

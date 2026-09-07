@@ -39,15 +39,32 @@
 ; -----------------------------------------------------------------------------
 ; cs_sin / cs_cos - AX = an angle; out AX = sin / cos x 32768, clamped to
 ;                   32767. Clobbers BX, CX.
+;
+; A QUARTER TABLE (SPEC.md 88.5.9). The index is the angle's top ten bits, so
+; its top two are the quadrant: bit 8 says the quarter runs BACKWARDS, and bit
+; 9 says the result is negative. Two tests and a neg for 1,534 bytes, on a
+; routine with twenty-five call sites in the whole package - the matrix is
+; built ONCE a frame (88.5) and this is not the per-vertex path.
 ; -----------------------------------------------------------------------------
 cs_cos:
     add ax, 16384
 cs_sin:
     mov bx, ax
-    mov cl, 5                       ; the top ten bits, as a word index
+    mov cl, 6                       ; the top ten bits: 0..1023 of the turn
     shr bx, cl
-    and bx, 0x7FE
+    mov cx, bx
+    and bx, 255                     ; ...the offset in its quarter
+    test ch, 1
+    jz .fwd
+    neg bx                          ; the odd quarters run backwards, and 256
+    add bx, 256                     ; is the entry sin 90 is in
+.fwd:
+    shl bx, 1
     mov ax, [cs_sintab + bx]
+    test ch, 2
+    jz .pos
+    neg ax                          ; ...and the far half is below the axis
+.pos:
     ret
 
 ; -----------------------------------------------------------------------------
