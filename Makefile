@@ -4780,6 +4780,24 @@ $(BUILD)/regmove360.img: $(BUILD)/filler.o88 $(BUILD)/sheet.o88 \
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/filler.o88 \
 		$(BUILD)/paint.o88 $(BUILD)/sheet.o88
 
+# ...and the NEGATIVE arm's, for tests/regpin.py
+# (docs/plans/HEAP-UNPIN-PLAN.md 10.1). The same three plus PINME, which is the
+# subject: the filler ASKS and cannot be asked about, because a package reaches
+# mem_claim only from inside its own callback and mem_frameless then refuses
+# its region for having a frame in it (10.9). A disk of its own rather than
+# adding PINME to regmove360.img, so that row's arena is untouched.
+$(BUILD)/pinme.bin: tests/pinme/pinme.asm apps/os88api.inc | $(BUILD)
+	nasm -f bin -w+error -I apps/ -o $@ $<
+	@echo "pinme: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/pinme.o88: $(BUILD)/pinme.bin tools/os88pkg.py | $(BUILD)
+	python3 tools/os88pkg.py $< -o $@
+
+$(BUILD)/regpin360.img: $(BUILD)/filler.o88 $(BUILD)/sheet.o88 \
+                        $(BUILD)/paint.o88 $(BUILD)/pinme.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/filler.o88 \
+		$(BUILD)/pinme.o88 $(BUILD)/paint.o88 $(BUILD)/sheet.o88
+
 # ...and the C SDK's, for tests/cmemmove.py
 # (docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 3). CHELLO is the C toolchain's
 # capability gate (SPEC.md 73) and os88_mem_movable() is the fifth capability

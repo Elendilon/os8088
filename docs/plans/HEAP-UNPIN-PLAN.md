@@ -1883,7 +1883,25 @@ window.
   and one whose `W_SEG` was missed both report a successful claim.
 - **A negative arm is as important**: open a package that owns a worker, run the
   hard pass, and assert its region did **not** move (§4.5). A pass that moved it
-  would not fault; it would run the wrong memory.
+  would not fault; it would run the wrong memory. **BUILT — `tests/regpin.py`**,
+  and it took three attempts because the first two were GREEN WITH THE PIN
+  REMOVED FROM THE KERNEL:
+
+  1. the subject was a region at the **ceiling**, where nothing can move it
+     whatever any predicate says (`regmove.py`'s own header, one step along);
+  2. the subject was the package making the forcing ask, and §10.9's finding
+     met from the other side — a package reaches `mem_claim` only from inside
+     its own callback, so `[wm_pkgd]` held its segment and `mem_frameless`
+     refused its region for having a **frame** in it, correctly and for the
+     wrong reason.
+
+  So the asker and the subject are two packages: `tests/filler` asks and
+  `tests/pinme` is asked about — a 215-byte instrument that declares at entry,
+  hires a do-nothing worker at its first paint, and counts relocations, so
+  *"it did not move"* is tellable from *"it moved and the proc was skipped"*.
+  Two Paint instances are spacers whose closing makes the two holes. The A/B is
+  exact: with `mem_frameless`'s `I_TASK` test taken out, PINME packs
+  `8280 → 92c0` and `pm_reloc` fires once.
 - **A dropped-module arm**: open the Control Panel, force a drop from another
   task, click in the panel, assert the module was re-read rather than re-entered.
 - **The DMA arm must read an address.** A page-straddling destination does not

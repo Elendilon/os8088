@@ -222,6 +222,18 @@ FAST = [
         "and `make` says 'up to date'. apps/os88ui.inc was missing from NINE "
         "shipped packages and apps/os88type.inc from three; it was found by an "
         "A/B that measured zero because the package never reassembled"),
+    Row("regpin", "soak", py("tests/regpin.py"), 300,
+        "THE NEGATIVE ARM of SPEC.md 66.6.1 (docs/plans/HEAP-UNPIN-PLAN.md "
+        "10.1): a region whose package owns a WORKER must NOT move, because "
+        "task_spawn wrote the segment into the worker's frame and a pass that "
+        "moved it would not fault - it would run the wrong memory. "
+        "tests/regmove.py is the positive half. Its subject is tests/pinme and "
+        "NOT tests/filler: a package reaches mem_claim only from inside its "
+        "own callback, so the asker's own region is refused for having a "
+        "frame in it and a row built that way stays green with the pin taken "
+        "out of the kernel - measured. SHEET is the control: PINME's region "
+        "must stand still WHILE SHEET'S MOVES, or the run proves nothing",
+        wants=("build/regpin360.img",)),
     Row("drvclaim", "fast", py("tests/unit/t_drvclaim.py"), 0.1,
         "a driver's SERVICE TASK may not reach a claim door: mem_claim can "
         "reach mem_compact, which far-calls a holder's relocation proc on the "
