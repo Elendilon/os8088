@@ -1426,13 +1426,41 @@ in the machine can merge them today.
 | then reconsider | D0 (~40, already built), D (~175–242, one IF=0 window and **more than one IVT vector**), F (~90, asks package authors for something — and §12 question 11 now says what: the point every worker already parks at) |
 
 **§10 is now the record of what happened to that order**, and three rows of it
-moved. **E, piece 0, §2.1.1's three items, ETHER, A and F are BUILT** (§10.2 to
-§10.10). **D0 IS DISCARDED** by the owner's decision: it was their own proposal
+moved. **E, piece 0, §2.1.1's three items, ETHER, A, F and D are BUILT** (§10.2
+to §10.12), which is everything except the modules. **D0 IS DISCARDED** by the owner's decision: it was their own proposal
 for reaching the driver furniture *at all*, and A, C and F reach it by moving
 things instead - *"you found other ways to make them movable, so discard D0"*.
 **And B is re-framed by the same decision**: *"as long as the modules can MOVE,
 I don't care if they purge"*, so what the module row wants is §66.6's treatment
-and not §66.10's, which is a different piece with a different predicate.
+and not §66.10's — a different piece with a different predicate, and the only
+population left pinned.
+
+**What B' would take, costed against D's actual shape rather than B's.** The
+fix-up is the same near-nothing: `mod_fp[]`'s segment halves are one more
+`mem_rr_tab` row. The predicate is where it differs and where the cost is —
+**29 thunk sites** far-call a module image against the driver path's seven, and
+they cannot reuse `drv_enter` because a module runs with `DS = KERNEL_SEG` (it
+is kernel code in another segment) where a driver runs with DS = its own, so
+the segment has to be read out of `[XFP+2]` at each site. Bracketing all 29 is
+**~200 bytes**.
+
+**There may be an argument that costs none of it, and it is checkable rather
+than believed.** A compaction can only run while a frame is inside a module if
+something claims from inside one, and: no module body calls `mem_claim` (grep:
+none of the six module sources has a claim site at all), a package's worker may
+not claim (§20.6 rule 7), and no driver service task's cone reaches a claim door
+(`tests/unit/t_drvclaim.py` asserts exactly that, today). If those three hold
+then the UI task cannot be inside a module and inside `mem_claim` at once, and
+the pin is unnecessary. **That is a proof obligation, not an observation** —
+each of the three wants its own gate in `t_drvclaim`'s shape before a byte
+rests on it, and the failure if one is wrong is the silent kind. It is the
+cheapest remaining piece by a wide margin and the one most worth doing
+carefully.
+
+**The prize is also the smallest.** A module is 2–4KB, is claimed top-down like
+a driver image, and is *freed when its feature closes* — so unlike a driver
+mounted mid-session it is not a wall that outlives the thing that made it, and
+`mem_claim_1`'s `.hi` arm already refills the hole it leaves.
 **C is built** (§10.9) — it needed a filler package before it could be gated
 and §4.2's global counter replaced with a segment stack, both of which that
 section records. **Six of §12's open questions are now answered** — 1b, 3, 4, 6,
