@@ -3832,9 +3832,15 @@ $(BUILD)/wirecfg/WIRE.CFG: | $(BUILD)
 	@mkdir -p $(BUILD)/wirecfg
 	printf '10.0.2.2:8092/wire/\n' > $@
 
-$(BUILD)/thewire360.img: $(BUILD)/boot360.bin $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) $(BUILD)/wirecfg/SYSTEM.CFG $(BUILD)/wirecfg/WIRE.CFG tools/os88disk.py
+# **$(KERNFILE) AND NOT $(BUILD)/kernel.bin.** This branch PACKS the kernel
+# (SPEC.md 2.9.13) and the boot sector expects the packed file; the two
+# names are the IMAGE and the FILE and every rule that puts a kernel on a
+# volume wants the second. This rule arrived from `main`, where they are the
+# same bytes, and merged with no conflict - so the disk booted to a BLACK
+# 720x400 text screen and every row on it reported the feature broken.
+$(BUILD)/thewire360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) $(BUILD)/wirecfg/SYSTEM.CFG $(BUILD)/wirecfg/WIRE.CFG tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 \
-		--boot $(BUILD)/boot360.bin --kernel $(BUILD)/kernel.bin \
+		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
 		$(DRIVERS) $(SYSAPPSARGS) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
 		$(BUILD)/wirecfg/SYSTEM.CFG SYSTEM/APPDATA:$(BUILD)/wirecfg/WIRE.CFG
 
@@ -3876,9 +3882,15 @@ thewiretest: $(BUILD)/thewire360.img $(BUILD)/thewiredata.img
 # mounts a floppy WRITABLE, wave 4's Zmodem receive writes to it, and pointing
 # it at build/apps.img would leave the shipped image dirty and the next
 # `make test` testing a disk this gate had edited.
-$(BUILD)/telnetsys.img: $(BUILD)/boot.bin $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) $(BUILD)/system.cfg tools/os88disk.py
+# **$(KERNFILE) AND NOT $(BUILD)/kernel.bin.** This branch PACKS the kernel
+# (SPEC.md 2.9.13) and the boot sector expects the packed file; the two
+# names are the IMAGE and the FILE and every rule that puts a kernel on a
+# volume wants the second. This rule arrived from `main`, where they are the
+# same bytes, and merged with no conflict - so the disk booted to a BLACK
+# 720x400 text screen and every row on it reported the feature broken.
+$(BUILD)/telnetsys.img: $(BUILD)/boot.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) $(BUILD)/system.cfg tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 \
-		--boot $(BUILD)/boot.bin --kernel $(BUILD)/kernel.bin \
+		--boot $(BUILD)/boot.bin --kernel $(KERNFILE) \
 		$(DRIVERS) $(SYSAPPSARGS) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
 		$(BUILD)/system.cfg $(APPDATAFOLDER)
 

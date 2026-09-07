@@ -227,6 +227,34 @@ class Mouse:
         time.sleep(0.4)
 
 
+def wait_desktop(m, letter="A", secs=90):
+    """Block until drive `letter` HAS a desktop zone, or say what it saw.
+
+    This was `time.sleep(6.0)`, and six seconds is a guess about somebody
+    else's box. The row then called open_drive, which walks dsk_vtab and
+    raises "drive A: has no desktop zone on this machine" when the volume is
+    not mounted yet - a message about the DISK for a machine that was still
+    booting. Under a soak, with four lanes on four cores, QEMU gets a fraction
+    of a core and six seconds is not the boot.
+
+    docs/WRITING-TESTS.md's rule: wait on the CONDITION, not the clock. The
+    condition is the one open_drive is about to test, so a pass here means the
+    next line cannot fail for this reason - and the failure names the machine
+    rather than the feature.
+    """
+    for _ in range(int(secs / 0.4)):
+        try:
+            if dispcp.drive_ordinal(m, S, letter) is not None:
+                return
+        except Exception:                   # the guest is not answering yet
+            pass
+        time.sleep(0.4)
+    sys.exit("%s: drive %s: had no desktop zone after %ds - the guest never "
+             "reached a desktop (a boot failure, not a %s failure)"
+             % (os.path.basename(sys.argv[0]), letter, secs,
+                os.path.basename(sys.argv[0])))
+
+
 def settle(m, card=None):
     time.sleep(2.0)
 
@@ -360,7 +388,7 @@ def main():
     m = Qemu()
     mo = Mouse()
     try:
-        time.sleep(6.0)                     # ...the boot, then DHCP
+        wait_desktop(m, "A")            # ...the boot, then DHCP
         dispcp.open_drive(m, mo, S, settle, "A")
         wins = dispcp.win_list(m, S)
         wx, wy = dispcp.win_rect(m, S, wins[-1])[:2]
