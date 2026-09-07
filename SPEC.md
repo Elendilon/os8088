@@ -96551,6 +96551,59 @@ its whole bounding box out of what is under it, and an aeroplane's bounding
 box is most of the cloud. A mask is the same size as the band it masks, and
 the slot to use one does not exist.
 
+#### 88.10.2 The bands are PACKED, and expand into a claim
+
+The six bands are **10,480 bytes**, and the package had **1,152 of
+`APP_MAX_SIZE` left**. They are the largest block in the image that **no
+frame ever reads** — the title page draws them and the fsx bracket never
+does — so `csart.inc` carries them as **one LZ4 stream of 4,487 bytes**, T
+word first (§20.13.7), and `cs_artload` expands them **once, in the entry
+proc**, into a claim of `CS_ART_KB` = 11. The image falls **47,078 →
+41,178** and the package **60,288 → 54,390**, which is **5,898 bytes** of a
+60KB segment bought for 11KB of a heap that has tens (§50.3) and for one
+decode at launch. **Nothing on a frame's path moved**: the claim is read by
+three blits on the windowed page and by nothing else.
+
+**It is this cheap because a band holds no pointer.** There is nothing to
+relocate, so the whole of the change is that what was a label in this
+segment is an **offset into the blob** — `csart.inc` emits an `equ` per band
+where it emitted a label — and `dw cs_art_c172` in a plane record
+(`CSP_ART`, §88.10.1) goes on assembling untouched, an equ being a constant
+like any other. The three blits already loaded ES for the band and were
+handing it `DS`; they load `[cs_artseg]` instead. That is the whole
+difference, and it is why the art went first and the **worlds did not**: a
+world is models, names and an object table that point at each other
+(§88.6), so it cannot leave this segment without either a relocation table
+or a segment of its own.
+
+**They pack to 43% because every aircraft stands in front of the SAME
+cumulus** (§88.10.1): band 2 onwards is mostly a match back into band 1,
+which is the one case LZ4's 64KB window is for. The five bands alone are
+9,120 of the 10,480, and the decision to draw the cloud into each of them
+rather than share it — taken above on the argument that a mask costs as
+much as the band and needs a slot that does not exist — turns out to cost
+**almost nothing in the image**, because the compressor shares what the
+blit could not.
+
+**BOTH REFUSALS ARE NORMAL PATHS** (§20.6, §47). A heap too full to claim 11KB
+and a stream the kernel declines to decode — a build carrying only LZB would
+(§20.14.5) — both leave `[cs_artseg]` at **0**, and zero is tested at each of
+the three blits rather than passed to one: a band read from segment 0 is the
+interrupt vector table drawn on the glass. What 0 draws is the page the
+blit slot's **own** refusal already drew on `kern_small`, the title lettered
+in the 8x8 face and no aeroplane, so the fallback is one that shipped and
+has been looked at rather than a new one. The kernel frees the claim with
+the instance (§50.3), so there is nothing to undo on the way out and no
+close path to get wrong.
+
+`tools/csart.py` does the packing and **checks its own stream** — it expands
+what it wrote and compares it with the bands that made it, and refuses to
+emit a stream that is not smaller than they are — so a compressor change
+cannot quietly ship art that does not come back.
+`tests/unit/t_csart.py` is unchanged and still binds: it regenerates the
+include and holds the tree's copy to it, which now covers the stream as well
+as the drawing.
+
 ### 88.13 The settings (SPEC.md 88.13)
 
 Four knobs, each of which trades picture for frame rate, on a **Settings**

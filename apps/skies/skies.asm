@@ -468,6 +468,11 @@ cs_entry:
                                     ; adapter is not known until the window
                                     ; exists (below)
 
+    call cs_artload                 ; the title bands out of the image and into
+                                    ; a claim (88.10.2), before the window that
+                                    ; draws them exists. A refusal here is a
+                                    ; plainer page and not a failed launch
+
     mov al, KSC_SPACE               ; ARMING the scancode reader: the first
     call OSAPI_KEY_DOWN             ; answer is always "up" and this is where
                                     ; the SDK says to spend it (SPEC.md 9.7)
@@ -538,6 +543,65 @@ cs_entry:
 .full:
     pop di
     pop si
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_artload - unpack the title bands into a claim (SPEC.md 88.10.2)
+;
+; out: [cs_artseg] = the claim, or 0.  preserves every register
+;
+; The six bands are 10,480 bytes and no frame reads one: the title page draws
+; them and the fsx bracket never does. So the image carries them as ONE LZ4
+; STREAM of CS_ART_ZLEN bytes and this expands them ONCE, here, into a claim
+; of CS_ART_KB - which is 5,993 bytes of a 60KB segment (APP_MAX_SIZE) bought
+; for 11KB of a heap that has tens (SPEC.md 50.3), and for a launch that is
+; one decode longer. Nothing on a frame's path moved.
+;
+; A BAND HOLDS NO POINTER, so there is nothing to relocate and this is the
+; whole of the change: what was a label in this segment is an offset into the
+; blob (csart.inc's equs), the plane records' CSP_ART goes on assembling
+; because an equ is a constant like any other, and the three blits read
+; ES = [cs_artseg] where they read ES = DS.
+;
+; BOTH REFUSALS ARE NORMAL PATHS (SPEC.md 20.6, 47). A heap too full and a
+; stream the kernel will not decode both leave [cs_artseg] at 0, and 0 is the
+; page the blit slot's own refusal already drew - the title lettered in the
+; 8x8 face and no aeroplane. The kernel frees the claim with the instance,
+; so there is nothing to undo on the way out.
+; -----------------------------------------------------------------------------
+cs_artload:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov ax, CS_ART_KB
+    call OSAPI_MEM_CLAIM            ; DX = the base segment
+    jc .none
+    mov es, dx
+    mov si, cs_art_z                ; DS:SI the stream, T word first...
+    mov cx, CS_ART_ZLEN
+    xor di, di                      ; ...ES:0 where it goes, and DI = 0 is the
+    xor bx, bx                      ; contract (SPEC.md 20.13.3). BX:DX is the
+    mov dx, CS_ART_SIZE             ; EXACT output, 32 bits, and ours is one
+    mov al, OSAPI_LZ_LZ4            ; word - so BX is zero and DX is the size,
+    call OSAPI_DECOMP               ; which is why DX is loaded AFTER the claim
+    jc .none                        ; answered in it
+    mov ax, es
+    mov [cs_artseg], ax
+    jmp short .out
+.none:
+    mov word [cs_artseg], 0
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -680,9 +744,12 @@ cs_paint:
 .title:
 
     ; --- the title, one blit; lettered in the 8x8 face where the blit is
-    ;     refused (kern_small carries the slot and not the body) ------------
-    push ds
-    pop es
+    ;     refused (kern_small carries the slot and not the body) OR where the
+    ;     bands never unpacked, which is the same plainer page (88.10.2) ----
+    mov es, [cs_artseg]             ; ES:offset, not DS:label - the bands live
+    mov si, es                      ; in cs_artload's claim now. A zero segment
+    or si, si                       ; is "there is no claim", and it takes the
+    jz .notitle                     ; path a refused blit already took
     mov ax, [cs_winox]
     add ax, CS_TITLEX
     mov bx, [cs_winoy]
@@ -693,6 +760,7 @@ cs_paint:
     mov si, cs_art_title
     call OSAPI_GFX_BLIT1
     jnc .plane
+.notitle:
     mov si, cs_s_title
     mov bx, CS_TITLEY + 16
     mov al, CBLACK
@@ -701,7 +769,11 @@ cs_paint:
                                     ; the band of WHICHEVER row is in use
                                     ; (88.10.1), so the picture follows the
                                     ; Plane list. Every band shares the frame,
-                                    ; so only the pointer changes
+                                    ; so only the offset changes
+    mov es, [cs_artseg]
+    mov si, es
+    or si, si
+    jz .noplane
     mov ax, [cs_winox]
     add ax, CS_ARTX
     mov bx, [cs_winoy]
@@ -712,6 +784,9 @@ cs_paint:
     mov si, [cs_plane]
     mov si, [si + CSP_ART]
     call OSAPI_GFX_BLIT1            ; refused: a plainer page, and that is all
+.noplane:
+    push ds                         ; ES back to ours: everything below this
+    pop es                          ; point is written against DS = ES
 
     ; --- the configuration: the labels, the controls' rects (they follow
     ;     the window), then the controls, LOWEST FIRST - a dropped list lies
@@ -1254,8 +1329,10 @@ cs_artdraw:
     call OSAPI_WM_CONTENT           ; AX/DX, read again rather than remembered:
     mov [cs_winox], ax              ; a window that moved moved the picture
     mov [cs_winoy], dx
-    push ds
-    pop es
+    mov es, [cs_artseg]             ; the claim, or 0 - and with no claim there
+    mov si, es                      ; is no picture to put back (88.10.2)
+    or si, si
+    jz .out
     add ax, CS_ARTX
     mov bx, dx
     add bx, CS_ARTY
@@ -1885,6 +1962,10 @@ cs_tpl:
     ZWORD cs_page0
     ZWORD cs_page1
     ZWORD cs_shseg
+    ZWORD cs_artseg                 ; the title art, unpacked (88.10.2): the
+                                    ; claim's segment, or 0 if it was refused -
+                                    ; which is a page without the bands and not
+                                    ; a launch that fails
     ZWORD cs_inktab
     ZWORD cs_hrunproc
     ZWORD cs_rowsproc               ; the polygon's row loop (88.4.6)
