@@ -63,15 +63,25 @@ def _equates():
 
 _E = _equates()
 _WANT = ("CSP_VSTALL CSP_VMAX CSP_THRUST CSP_ROLLR CSP_COCKPIT CSP_ATT "
-         "CSP_SPOOL CSP_LAUNCH CSP_FLAGS CSA_WX CSA_WZ CSA_WHDG CSA_WLEN "
-         "CSA_WWID CSA_OBJS CSA_NOBJ CSO_SIZE CSO_MODEL CSO_X CSO_Z "
-         "CSO_NAME CSM_TYPE CSM_NF CSM_VERTS CSM_FACES CSM_FLAT "
-         "CSI_RIVER").split()
+         "CSP_SPOOL CSP_LAUNCH CSP_FLAGS CSA_X CSA_Z CSA_WX CSA_WZ CSA_WHDG "
+         "CSA_WLEN CSA_WWID CSA_OBJS CSA_NOBJ CSO_SIZE CSO_MODEL CSO_X CSO_Z "
+         "CSO_NAME CSM_TYPE CSM_NF CSM_VERTS CSM_FACES CSM_FLAT CSI_RIVER "
+         "CS_MSGAGE").split()
 _miss = [n for n in _WANT if n not in _E]
 if _miss:
     sys.exit("skiesfleet: skies.asm no longer defines %s" % ", ".join(_miss))
 globals().update({n: _E[n] for n in _WANT})
 CSG_TAKEOFF, CSG_RELEASE, CSG_SPLASH = 1, 7, 8
+# ...and csflight.inc's own, which is where the air lives
+_EF = {}
+for _l in open(os.path.join(ROOT, "apps", "skies", "csflight.inc")):
+    _m = re.match(r"^(CS[A-Z]*_[A-Z0-9_]+)\s+equ\s+(-?\d+)\s*(?:;|$)", _l)
+    if _m:
+        _EF[_m.group(1)] = int(_m.group(2))
+for _n in ("CS_NLIFT", "CSL_SIZE", "CSL_DX", "CSL_DZ", "CSL_RATE"):
+    if _n not in _EF:
+        sys.exit("skiesfleet: csflight.inc no longer defines %s" % _n)
+    globals()[_n] = _EF[_n]
 CS_ST_GROUND, CS_ST_AIR, CS_ST_CRASH = 0, 1, 2
 bad = []
 
@@ -368,6 +378,95 @@ def main(argv):
         check(run > drop * 12,
               "...and it GLIDES rather than falling - better than 12:1 "
               "(%d:%d)" % (run, drop))
+
+        # --- 3b. the glider's three, from the field (88.7.6.1-88.7.6.3) -------
+        # W ON AN ENGINELESS AEROPLANE. It used to open the throttle to 100
+        # like everyone else's, and cs_sound_step makes the ENGINE TONE out
+        # of exactly that word - so the Bijave hummed (88.7.6.1)
+        m.key("KeyW", down=True, up=False)
+        for _ in range(8):
+            m.advance(frames=25)
+            m.run()
+        m.key("KeyW", down=False, up=True)
+        m.advance(frames=20)
+        m.run()
+        check(w("cs_thr") == 0 and w("cs_tone") == 0,
+              "W opens no throttle on a glider and makes no engine tone "
+              "(thr %d, tone %d)" % (w("cs_thr"), w("cs_tone")))
+
+        # THE PROMPT EXPIRES (88.7.6.2). A sailplane starts in the AIR, so the
+        # liftoff that clears CSG_TAKEOFF never happens and the tow release
+        # had no clearer at all - it stood until something else spoke
+        m.pause()
+        poke("cs_msg", bytes([CSG_RELEASE]))
+        poke("cs_msgt", bytes([CS_MSGAGE]))
+        m.run()
+        gone = False
+        for _ in range(40):
+            m.advance(frames=25)
+            m.run()
+            if byte("cs_msg") == 0:
+                gone = True
+                break
+        check(gone, "the tow release goes by itself (msg %d, %d ticks left)"
+                    % (byte("cs_msg"), byte("cs_msgt")))
+
+        # THE AIR (88.7.6.3): still, lift, sink - read off cs_airv, and the
+        # ALTITUDE with it, because a rate nothing moves is not weather
+        port = w("cs_airport")
+        fx, fz = sg(rec(port, CSA_X)), sg(rec(port, CSA_Z))
+        lifts = []
+        for row in range(CS_NLIFT):
+            at = mp["cs_lifts"] + row * CSL_SIZE
+            lifts.append((sg(rec(at, CSL_DX)), sg(rec(at, CSL_DZ)),
+                          sg(rec(at, CSL_RATE))))
+        up = max(lifts, key=lambda r: r[2])
+        dn = min(lifts, key=lambda r: r[2])
+
+        def soar(dx, dz):
+            """Drop the glider in at 900 m, wings level, and see what the air
+            does with it."""
+            m.pause()
+            poke("cs_px", (((fx + dx) * 256) & 0xFFFFFFFF).to_bytes(4, "little"))
+            poke("cs_pz", (((fz + dz) * 256) & 0xFFFFFFFF).to_bytes(4, "little"))
+            poke("cs_py", ((900 * 256) & 0xFFFFFFFF).to_bytes(4, "little"))
+            poke("cs_pitch", b"\x00\x00")
+            poke("cs_roll", b"\x00\x00")
+            poke("cs_spd", (22 * 128).to_bytes(2, "little"))
+            poke("cs_state", b"\x01")
+            m.run()
+            m.advance(frames=4)
+            m.run()
+            sw = byte("cs_swt")                 # the CROSSING's own swoop
+            m.advance(frames=26)
+            m.run()
+            y0 = sg(int.from_bytes(m.readseg(seg, base + off("cs_py") + 1, 2),
+                                   "little"))
+            air = sg(w("cs_airv"))
+            m.advance(frames=60)
+            m.run()
+            y1 = sg(int.from_bytes(m.readseg(seg, base + off("cs_py") + 1, 2),
+                                   "little"))
+            return air, y0, y1, sw
+
+        calm = soar(0, 14000)                   # well outside every rect
+        lift = soar(up[0], up[1])
+        sink = soar(dn[0], dn[1])
+        print("      the air: calm %+d (%d->%d), lift %+d (%d->%d, swoop %d), "
+              "sink %+d (%d->%d, swoop %d)"
+              % (calm[0], calm[1], calm[2], lift[0], lift[1], lift[2], lift[3],
+                 sink[0], sink[1], sink[2], sink[3]))
+        check(calm[0] == 0 and calm[1] == calm[2],
+              "still air is STILL (%+d, %d -> %d)" % (calm[0], calm[1], calm[2]))
+        check(lift[0] == up[2] and lift[2] > lift[1],
+              "the strongest lift is the table's and it CLIMBS (%+d for %+d, "
+              "%d -> %d)" % (lift[0], up[2], lift[1], lift[2]))
+        check(sink[0] == dn[2] and sink[2] < sink[1],
+              "...and the deepest sink SINKS (%+d for %+d, %d -> %d)"
+              % (sink[0], dn[2], sink[1], sink[2]))
+        check(lift[3] > 0 and sink[3] > 0,
+              "and CROSSING into either arms the swoop (%d, %d)"
+              % (lift[3], sink[3]))
 
         # --- 4. the A5 --------------------------------------------------------
         a5 = fly(4)

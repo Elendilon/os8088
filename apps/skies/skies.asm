@@ -2297,6 +2297,18 @@ cs_tpl:
     ZWORD cs_pbarx                  ; the throttle bar's left end, top row
     ZWORD cs_pbary                  ; and width, off the cockpit
     ZWORD cs_pbarw
+CS_MSGAGE equ 145               ; ticks an ANNOUNCEMENT stands: 8 seconds at
+                                ; 18.2 Hz (SPEC.md 88.7.6.2)
+CS_SWOOPT equ 8                 ; ticks the air's swoop lasts (88.7.6.3)...
+CS_SWOOPD equ 75                ; ...hertz a tick of it, and the two ends it
+CS_SWOOPLO equ 300              ; runs between: UP from the bottom in lift,
+CS_SWOOPHI equ 900              ; DOWN from the top in sink
+
+    ZBYTE cs_msgt                   ; ...and what is left of them
+    ZWORD cs_airv                   ; the air's rate here (88.7.6.3), the sign
+    ZBYTE cs_airs                   ; of the last one, and the swoop it starts
+    ZBYTE cs_swdir
+    ZBYTE cs_swt
     ZWORD cs_wname                  ; cs_inwater (88.7.7.1): the touched
     ZWORD cs_wobj                   ; water's name, and the walk's own state -
     ZWORD cs_wnob                   ; the object, how many are left, the face

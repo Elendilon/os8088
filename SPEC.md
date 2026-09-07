@@ -96137,6 +96137,89 @@ powered aeroplanes pay one cache compare a frame for it. It reads `UP 015`
 or `DN 015` in tenths of a metre a second — a needle's two labels rather
 than a signed number.
 
+#### 88.7.6.1 …and it had a throttle, which is what was humming
+
+The field reported that **`W` turns on the engine noise in the glider**. It
+did. `cs_step`'s throttle ran for every aeroplane, so the Bijave's `[cs_thr]`
+opened to 100 like everyone else's — and `cs_sound_step` makes the engine
+tone out of exactly that word.
+
+Nothing else ever read it. The model takes its thrust from `CSP_THRUST`,
+which is 0; the panel does not show it, because the Bijave's `THR` item is
+`(0, 0)` and §88.9.5.1 skips an item a cockpit has not got. So the throttle
+was a hidden number with one consumer, and that consumer was the speaker.
+
+`CSP_THRUST` = 0 is the test and it is two instructions at the top of the
+throttle, which is the root rather than the symptom: gate the sound and the
+number is still wrong, gate the number and the sound follows.
+
+#### 88.7.6.2 An ANNOUNCEMENT goes by itself; a WARNING stays
+
+Also the field's: **`TOW RELEASED - NOSE DOWN FOR 43 KNOTS` never
+disappears** until something else happens. The cause is the sailplane's own
+mechanic. `CSG_TAKEOFF` is cleared by the LIFTOFF, at `cs_step`'s `.steer` —
+and an aeroplane that starts in the air (`CSP_LAUNCH`, §88.7.6) never reaches
+that line, so its prompt had no clearer at all.
+
+The fix is a countdown rather than a second condition, because these are two
+kinds of message and the difference is worth naming:
+
+| | clears on | examples |
+|---|---|---|
+| **WARNING** | the state that made it ending | the stall, the world's edge, PAUSED |
+| **ANNOUNCEMENT** | `CS_MSGAGE` ticks — 145, eight seconds | the tow release, `LANDED`, a splashdown |
+
+A warning is true while something is true. An announcement is a thing that
+HAPPENED and the reader has read it. `LANDED` and the splashdown are in the
+second class for the same reason the release is: nothing was ever going to
+take them away, and a panel that says `LANDED` while you taxi is the same
+complaint one step along.
+
+#### 88.7.6.3 THE AIR — lift and sink, and the swoop that finds it
+
+The field asked for *"updrafts/downdrafts, scattered around — simple rects —
+and the swooping sounds you can use to detect one"*, and that is what this
+is. A sailplane's mechanic is having no engine (§88.7.6); the other half of
+that mechanic is that the air is the only thing left that can give it energy.
+
+**Eight rects, in metres from the LOCATION's own centre**, so one table
+serves all nine worlds and every one gets the same weather round its own
+runway. Ten bytes a row — the offset, the two half-extents and the rate —
+and the rate is `cs_vs`'s own scale, m/s × 128, positive up. A sailplane's
+still-air sink is about 1 m/s, so **+448 is a climb you can work and −320 is
+air worth leaving.**
+
+**It goes into `cs_vs`, not into the altitude**, and that is the whole of why
+the VARIOMETER shows it: `cs_k_vs` reads that word, so the one instrument a
+sailplane is flown on reads the one thing it is flown on, with no new
+plumbing. The needle is the detector; the sound is the alert.
+
+**AN AEROPLANE WITH AN ENGINE DOES NOT FEEL IT**, and that is the design
+rather than a shortcut. A Magister crosses one of these in three seconds at a
+bump it has the thrust to ignore; a sailplane at 22 m/s dwells in it for a
+minute with nothing else to climb on. It is gated on the same
+`CSP_THRUST` = 0 as §88.7.6.1's throttle, so *the aeroplane the air flies is
+exactly the aeroplane with no engine* — one rule, two consequences. Removing
+that one condition is all it would take to make the air everyone's, and the
+reason not to is that every other aeroplane's tests measure still air.
+
+**`CS_LIFTCLR` = 2,500 m is a clear disc round the field**, which is the
+circuit — nobody wants a thermal on short final in the first minute — and is
+also where every other test of this simulator flies. `tests/unit/t_csair.py`
+holds the table to it, so a rect edged toward the runway fails the build
+rather than a flight.
+
+**The swoop is the CROSSING, not the dwell.** Entering lift is a tone rising
+`CS_SWOOPLO` → `CS_SWOOPHI` over `CS_SWOOPT` = 8 ticks; entering sink is the
+same fall from the top; leaving is silent. That is what a variometer's audio
+actually gives a pilot, it costs one countdown, and it is only ever heard on
+an aeroplane with no engine — where §88.7.6.1 has just made the tone
+underneath it silence. On anything else `cs_lift` answers 0 and the swoop
+never arms — and neither does it with the SOUND SWITCH OFF, because the swoop
+is *scheduled* rather than played: one armed while the panel is quiet and
+left standing would be a swoop that plays when the sound comes back on,
+minutes later and for a thermal that is long gone.
+
 #### 88.7.7 The ICON A5 — an amphibian, and the mechanic is WATER
 
 The light sport amphibian, and it fills the slow end of the envelope the
