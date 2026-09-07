@@ -2263,7 +2263,9 @@ cs_tpl:
     ZBYTE cs_kpitch                 ; the held keys, latched by cs_input and
     ZBYTE cs_hzhold                 ; bit 0 roll, bit 1 pitch: this axis
                                     ; ARRIVED on the horizon and stands still
-                                    ; for the rest of the frame (88.7.5.2)
+                                    ; for the rest of the frame. cs_ease's
+                                    ; since 88.7.3.1, so it is EVERY model's
+                                    ; and not only the lagging one (88.7.5.2)
     ZBYTE cs_taproll                ; a stick press int 16h saw and the level
     ZBYTE cs_tappitch               ; read did not (88.7.5.2), worth one tick
     ZBYTE cs_wasroll                ; ...and the LEVEL read of the tick before,
@@ -2313,6 +2315,8 @@ cs_tpl:
     ZWORD cs_pbarx                  ; the throttle bar's left end, top row
     ZWORD cs_pbary                  ; and width, off the cockpit
     ZWORD cs_pbarw
+CS_HZR equ 1                    ; the horizon's hold, a bit an axis (88.7.3.1)
+CS_HZP equ 2
 CS_MSGAGE equ 145               ; ticks an ANNOUNCEMENT stands: 8 seconds at
                                 ; 18.2 Hz (SPEC.md 88.7.6.2)
 CS_SWOOPT equ 8                 ; ticks the air's swoop lasts (88.7.6.3)...
@@ -2321,6 +2325,10 @@ CS_SWOOPLO equ 300              ; runs between: UP from the bottom in lift,
 CS_SWOOPHI equ 900              ; DOWN from the top in sink
 
     ZBYTE cs_msgt                   ; ...and what is left of them
+    ZBYTE cs_hzbit                  ; which axis cs_ease is on (88.7.3.1)
+    ZBUF  cs_promptb, 44            ; THE TAKE-OFF PROMPT (88.7.9), composed
+                                    ; from the aeroplane's own record: the
+                                    ; longest is 29 + 3 digits + ' KNOTS'
     ZWORD cs_airv                   ; the air's rate here (88.7.6.3), the sign
     ZBYTE cs_airs                   ; of the last one, and the swoop it starts
     ZBYTE cs_swdir

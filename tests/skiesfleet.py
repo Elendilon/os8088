@@ -62,7 +62,7 @@ def _equates():
 
 
 _E = _equates()
-_WANT = ("CSP_VSTALL CSP_VMAX CSP_THRUST CSP_ROLLR CSP_COCKPIT CSP_ATT "
+_WANT = ("CSP_VSTALL CSP_VROT CSP_VMAX CSP_THRUST CSP_ROLLR CSP_COCKPIT CSP_ATT "
          "CSP_SPOOL CSP_LAUNCH CSP_FLAGS CSA_X CSA_Z CSA_WX CSA_WZ CSA_WHDG "
          "CSA_WLEN CSA_WWID CSA_OBJS CSA_NOBJ CSO_SIZE CSO_MODEL CSO_X CSO_Z "
          "CSO_NAME CSM_TYPE CSM_NF CSM_VERTS CSM_FACES CSM_FLAT CSI_RIVER "
@@ -184,6 +184,10 @@ def main(argv):
         check(n == 5, "the Plane list has five rows (%d)" % n)
         po = [rec(mp["cs_drplane"], 2 * i) for i in range(4)]
 
+        def prompt():
+            b = m.readseg(seg, base + off("cs_promptb"), 44)
+            return b.split(b"\x00")[0].decode("latin-1")
+
         def fly(row):
             """Pick row `row` and enter the bracket; out: the plane record."""
             if byte("cs_back") != 0:
@@ -202,6 +206,21 @@ def main(argv):
             m.advance(frames=100)
             m.run()
             check(byte("cs_back") != 0, "row %d: the bracket took a mode" % row)
+            # THE PROMPT NAMES THIS AEROPLANE'S OWN SPEED (88.7.9). It was a
+            # literal 55, which is the Cessna's rotate speed in knots, on the
+            # panel of a jet that leaves the ground at 81 - and the knots are
+            # cs_k_spd's own conversion, so the sentence cannot come to
+            # disagree with the needle it is telling you to watch
+            if rec(got, CSP_LAUNCH):        # ...or, on an aeroplane the tow
+                vs = rec(got, CSP_VSTALL)   # left flying, 1.5 VSTALL
+                v = vs + 2 * (vs >> 2)
+            else:
+                v = rec(got, CSP_VROT)
+            kt = (v * 996) >> 16
+            txt = prompt()
+            check(txt.endswith(" %d KNOTS" % kt),
+                  "row %d's prompt names ITS OWN speed, %d knots (%r)"
+                  % (row, kt, txt))
             return got
 
         def ticks(nn, pin=None):

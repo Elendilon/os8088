@@ -95427,6 +95427,47 @@ the turn constant, the eye height — and its name. Both tables have one row.
 `[cs_plane]` and `[cs_airport]` are the rows in use, and nothing reads a
 constant the record could carry.
 
+#### 88.6.2.1 Past the middle of the runway it lost both its lines
+
+The field reported it as *"when over halfway down the runway all of its lines
+disappear — on the ground or flying at a low height"*, and it is one unsigned
+compare in `cs_drawobj`.
+
+Below `cs_edges` there is a size test: a solid under `CS_EDGEPX` pixels
+across keeps no outline, because twelve segments round a fifteen-pixel box
+cost more than the box. It opens with
+
+```
+    mov cx, [cs_ocz]
+    cmp cx, 2600
+    ja .out                         ; 24 cz would not fit: far and small
+```
+
+`cs_ocz` is the object's ORIGIN in camera z, and `ja` is unsigned. **An
+origin BEHIND the eye has a negative cz, which reads as 65,000-odd** — far,
+and small, and dropped. For every other object in the world that is a
+near-miss nobody would see; **the runway's origin is its own midpoint**, so
+taxi past the halfway board and `cs_ocz` goes negative with the strip filling
+the screen. `.out` is below `call cs_edges` *and* below `call cs_rwline`
+(§88.6.2), which is why both went at once and why the outline going was never
+reported separately.
+
+**This exact case was found once before and only half fixed.** `cs_boxlod`,
+one proc up, opens its own two-pixel test with `mov cx, [cs_ocz] / or cx, cx
+/ jle .big` and its comment records why: *"an origin behind the eye compared
+unsigned as a huge depth in the first build, and a building whose front half
+was still beside the aeroplane vanished."* Same word, same register, same
+mistake — and the `CS_EDGEPX` gate twenty lines below kept it, because the
+building that made the case was a solid and nobody was taxiing down it.
+
+The fix is four bytes and says what the case actually is: **at or behind the
+eye an object is not far and it is not small, it is under you**, so the size
+test does not apply and the outline stands. Measured on a Hercules at Issy,
+walking the aeroplane down the runway at 2 m: `cs_rwline` is entered 30 times
+a frame up to the midpoint and **0 times past it** on the old code, and 30
+either side on the new. `tests/skiesrwy.py` walks both halves and
+`--clobber-rwy` takes the four bytes back out.
+
 #### 88.6.3 The tower stands 60 m back from the origin, out of the river
 
 The map's origin is the Eiffel Tower's square, and the tower's OBJECT was at
@@ -95641,6 +95682,49 @@ entry and the call's return, **244 cycles minimum, 298 median, 658 worst**
 held-stick case is 1,464 cycles, **0.22%**. A tick with the stick centred is
 zero, the call being inside the `jz` that was already there. `+122 bytes` of
 `apps/skies`, A/B'd against the build before it.
+
+#### 88.7.3.1 …and it HOLDS there for the frame it lands on — on EVERY model
+
+§88.7.3 got the aeroplane onto the horizon and the field still reported the
+Pitts *"not aligning to the horizon, sometimes, and just skipping it — all of
+the rest do"*. Both halves of that sentence are right, and the second one
+names the cause: **the hold already existed and belonged to one aeroplane.**
+
+**The ease lands the axis on the horizon MID-FRAME, and the rest of the
+frame's ticks carry it straight off again.** `cs_steps` spends up to three
+ticks between two renders, and at 10° a tick that is 30° of roll a frame.
+Once an axis is exactly on the horizon the next tick reads a distance of zero
+and `cs_ease` returns the FULL rate — correctly, because a pilot holding the
+stick means to keep rolling. But nothing has been drawn in between, so the
+aeroplane is level for a tick that is never rendered. Measured on a Hercules,
+sampling `cs_roll` once a FRAME with the key held from 26° of bank:
+
+```
+    -40.0, -13.4, +10.0, +40.0        frames AT LEVEL: 0
+```
+
+−13.4 to +10 is the ease working perfectly and level falling in the gap.
+
+`cs_hzhold` (§88.7.5.2) is exactly the cure and it was already in the tree:
+a bit an axis, set when the ease arrives, cleared once a frame in `cs_input`,
+and while it is set that axis stands still. **It was written inside
+`cs_att_lag`**, so the JET had it and the two direct-drive models did not —
+which is why the Pitts is the aeroplane the field saw it on and the Cessna
+is not (3° a tick is a 9° frame quantum, and nobody notices missing 9°).
+
+So the set and the test move down into `cs_ease` itself, where every model
+reaches them: the bit is chosen by comparing SI against `cs_roll`, which
+`cs_ease` already has in hand, and a held axis returns a step of zero with
+CF clear. The pilot gets **exactly one rendered frame on the horizon**,
+whatever the frame rate and whatever the roll rate — a *detent* rather than a
+tick count a slower scene would swallow. Holding the key through it carries
+on next frame; letting go leaves the wings level, which on an aeroplane with
+`CSP_ROLLL` = 0 is the only way they ever get there.
+
+`cs_att_lag`'s own copy stays, and is not redundant: it also zeroes
+`cs_rrate`/`cs_prate` on arrival and skips `cs_lagax`, which is the jet's
+rate model and not the horizon's. One byte of bss (`cs_hzbit`) and no
+arithmetic.
 
 #### 88.9.4 The panel is sampled on the gate and painted per PAGE
 
@@ -96116,7 +96200,7 @@ and every turn spends some. Nothing else in the model needed changing: the
 throttle keys still move `cs_thr`, and `thr × 0 / 100` is nothing.
 
 **`CSP_LAUNCH` is what puts it up there**: metres above the field at reset,
-and `cs_reset` then starts the session in the air at 1.4 × `VSTALL` with the
+and `cs_reset` then starts the session in the air at 1.5 × `VSTALL` with the
 tow-released message. Zero is every aeroplane with an engine. A winch or an
 aerotow is a scripted sequence and this is a state machine, so what the
 field does is put the aeroplane where a launch would have left it.
@@ -96287,6 +96371,20 @@ what decide how many aeroplanes that disk can carry**: a sixth aeroplane's
 record, cockpit, flight model and name together are under 400 bytes and its
 picture is nearly five times that.
 
+**Its thrust went up a quarter and its top speed did not.** The field flew it
+and asked for *"a little more acceleration, maybe 25% more"* — it is the
+slowest aeroplane here and it was the slowest to get going. `CSP_THRUST` is
+**11 → 14** (1.5 → 2.0 m/s²) and `CSP_DRAGK` **1201 → 1500** with it, because
+DRAGK is not a free number: the model integrates `v += thrust − drag` with
+`drag = ((v·v) >> 16) · DRAGK >> 16`, so raising the thrust alone would have
+raised **VMAX** and left the acceleration nearly where it was. At 6,272 (95
+knots) the drag is now 13 against a thrust of 14 — the same one-under margin
+1201/11 had, so the aeroplane tops out where it did and gets there sooner.
+
+`tests/unit/t_csplane.py` holds every record to that arithmetic, host-side in
+milliseconds, because no flight test in the suite is long enough to see a
+wrong VMAX: an A5 takes **42 seconds of guest time** to reach 95 knots.
+
 #### 88.7.7.1 ALL water is water, and the strip was an invisible runway on it
 
 The field put it exactly: *"I can take off from water, but cannot land on
@@ -96394,6 +96492,33 @@ with nobody pulling.
 
 `tests/skiesbody.py` is the gate and `--clobber-body` the red run.
 
+#### 88.7.9 The take-off prompt names THIS aeroplane's speed
+
+Reported off the machine: *"the jet's take-off speed message says 55, but it
+takes off at a higher speed."* It did — `FULL THROTTLE, PULL BACK AT 55
+KNOTS` was a literal, and 55 is the **Cessna's** `CSP_VROT`. The Magister
+rotates at 42 m/s, which is **81 knots**; the Pitts at 58; the A5 at 47. The
+sailplane's `TOW RELEASED - NOSE DOWN FOR 43 KNOTS` was the same mistake one
+aeroplane along — `cs_reset` puts it at `VSTALL + 2 × (VSTALL >> 2)`, which
+is **49**. (That arithmetic is 1.5 × `VSTALL` and its comment said 1.4; the
+comment is what moved, the tow speed being what the sailplane has flown on
+since §88.7.6 and not a number to change while fixing a caption.)
+
+The Cessna's own number moves too, 55 → **54**, and that is the fix working
+rather than a second error: 55 came off the record's comment and 54 is what
+`cs_k_spd` puts on the airspeed indicator for the same 28 m/s. The prompt is
+an instruction about a needle, so it has to agree with the needle.
+
+Both are composed now, out of the record the flight model is already reading:
+the opening words, the number, and ` KNOTS`. **The knots are `cs_k_spd`'s own
+conversion** (`v × 996 >> 16`), so the sentence and the airspeed indicator
+cannot come to disagree about what 42 m/s is — which is the whole reason not
+to write the number twice in the first place.
+
+They share one buffer, `cs_toastbuf`'s shape: an aeroplane either starts on
+the ground or in the air, so the take-off prompt and the tow release can
+never be up at once. `cs_msgtab` points both rows at it.
+
 ### 88.8 The session (`apps/skies/csgame.inc`)
 
 `cs_fsx_main` is the §53.1 bracket's exclusive main and has Tank's two rates:
@@ -96414,6 +96539,23 @@ The engine is a speaker tone whose pitch follows the throttle
 (`OSAPI_SND_TONE`, re-issued when the throttle moves), a stall is a repeated
 beep, a crash a low blast; the tone is released at exit and `M` mutes all of
 it.
+
+#### 88.8.1 A paused aeroplane is silent
+
+Reported off the machine: pause with the engine running and **the tone runs
+on for as long as the pause does**. `cs_sound_step` is called inside the sim
+loop, and a pause is exactly the thing that skips that loop — so the last
+tone raised simply stood, with nothing left running to take it down.
+
+The fix belongs on the KEY and not in the frame. Testing `[cs_pause]` once a
+frame would cost a compare on every frame of every flight to catch a
+transition that happens when a key is pressed; `P` releases the tone itself
+and clears `[cs_tone]` with it. The first tick after the pause puts the
+engine back with no extra code at all, because `cs_sound_step` ends in
+`cmp ax, [cs_tone] / je .out` — a `[cs_tone]` of 0 IS a change, so the tone
+it wants is re-issued on the tick the flight resumes.
+
+The stall beep and the swoop go the same way, being the same word.
 
 ### 88.9 The panel
 

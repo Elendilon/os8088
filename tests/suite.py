@@ -238,6 +238,21 @@ FAST = [
         " sink to find, and that the swoop's ramp lands exactly on its far"
         " end - CS_SWOOPLO + CS_SWOOPT x CS_SWOOPD = CS_SWOOPHI",
         needs=()),
+    Row("csplane", "fast", py("tests/unit/t_csplane.py"), 0.3,
+        "SPEC.md 88.7.4: CLEAR SKIES' five plane records agree with their own"
+        " drag. CSP_DRAGK is what decides where an aeroplane stops"
+        " accelerating - every record's comment says 'balances THRUST at"
+        " VMAX' - so a THRUST changed without re-deriving it moves the TOP"
+        " SPEED instead, silently, and no flight test in the suite is long"
+        " enough to notice: an A5 takes 42 seconds of guest time to reach 95"
+        " knots. The row integrates the model's own drag at VMAX and at three"
+        " quarters of it, holds the speeds in order (the sailplane's"
+        " unreachable VROT exempt), and checks each record still declares its"
+        " fields in CSP_ order, without which every value below a new row"
+        " would be read off by one. It was written for the change the field"
+        " asked for - a quarter more thrust in the A5 - and raising that"
+        " thrust alone takes it red",
+        needs=()),
     Row("cssin", "fast", py("tests/unit/t_cssin.py"), 0.3,
         "SPEC.md 88.5.9: CLEAR SKIES' sine table is a QUARTER of the turn"
         " now, and nothing held it to its generator before it became one."
@@ -1816,13 +1831,22 @@ SOAK = [
         " arms the swoop. --clobber-lag, --clobber-amphib and --clobber-water"
         " are the three red runs",
         needs=("marty",), serial=True),
-    Row("skiesease", "soak", py("tests/skiesease.py"), 46.0,
+    Row("skiesease", "soak", py("tests/skiesease.py"), 34.0,
         "SPEC.md 88.7.3: the horizon captures the last three ticks of an"
         " approach - held toward level both aeroplanes land EXACTLY on it on"
         " both axes, in at most three ticks and with no tick under 60% of the"
         " rate, the Pitts lands on INVERTED level too, and held away nothing"
         " is eased at all. Read at a cs_step breakpoint: a frame spends one,"
-        " two or three ticks, so a per-frame sample cannot see the landing",
+        " two or three ticks, so a per-frame sample cannot see the landing."
+        " Then 88.7.3.1 asks the question the PILOT asks, which is the"
+        " per-FRAME one: the ease landing mid-frame is no use if the frame's"
+        " remaining ticks carry the axis off before anything is drawn, and"
+        " that is the Pitts 'skipping the horizon' the field reported. Every"
+        " horizon a continuous roll passes gets a frame on it, from three"
+        " start angles, because ONE of them landing on a frame boundary by"
+        " luck is exactly what the old code did. --clobber-hold NOPs the one"
+        " instruction that arms the hold and reads 1 horizon of 22 frames"
+        " against 4; --clobber-ease puts a ret on cs_ease",
         needs=("marty",), serial=True),
     Row("skiestap", "soak", py("tests/skiestap.py"), 40.0,
         "SPEC.md 88.7.5.2: the two remainders of the per-tick stick, both"
@@ -1901,6 +1925,20 @@ SOAK = [
         " triangle of a trapezoid, which is noise once the points are whole"
         " pixels, and the two POI towers' crown faces went on and off a frame"
         " at a time on the machine",
+        needs=("marty",), serial=True),
+    Row("skiesrwy", "soak", py("tests/skiesrwy.py"), 33.0,
+        "SPEC.md 88.6.2.1: the runway keeps its lines PAST ITS OWN MIDDLE."
+        " cs_drawobj's size test opened `cmp cx, 2600 / ja .out` on the"
+        " object's camera z, and ja is unsigned - so an origin BEHIND the eye"
+        " read as 65,000-odd and was dropped as far and small. The runway's"
+        " origin is its midpoint, and .out is below cs_edges AND below"
+        " cs_rwline, so taxi past the halfway board and the outline and the"
+        " centreline went together. The row walks the aeroplane down the"
+        " strip at 2 m and counts what the guest ENTERS, both halves, because"
+        " a row that walked only the far half could not tell a fix from a"
+        " runway that had stopped being drawn at all; then once at 40 m,"
+        " which is the other half of the report. --clobber-rwy takes the four"
+        " bytes of the guard back out and it reads 30, 30, 30, 0, 0, 0",
         needs=("marty",), serial=True),
     Row("skiesui", "soak", py("tests/skiesui.py"), 44.0,
         "SPEC.md 88.10's title page on the VGA machine: the two drop-downs"

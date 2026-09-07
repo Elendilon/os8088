@@ -306,8 +306,25 @@ cs_input:
     xor byte [cs_pause], 1
     mov byte [cs_msg], CSG_PAUSED
     cmp byte [cs_pause], 0
-    jne .keys
+    jne .quiet
     mov byte [cs_msg], CSG_NONE
+    jmp .keys
+.quiet:                             ; ...AND A PAUSED AEROPLANE IS SILENT
+                                    ; (SPEC.md 88.8.1). cs_sound_step is
+                                    ; inside the sim loop, which a pause
+                                    ; skips, so the engine tone raised before
+                                    ; it simply held for as long as the pause
+                                    ; did. Silencing it here rather than
+                                    ; testing [cs_pause] once a frame costs
+                                    ; nothing per frame, and the first tick
+                                    ; after the pause puts it back: [cs_tone]
+                                    ; is 0, so cs_sound_step's own compare
+                                    ; sees a change and plays it
+    xor ax, ax
+    mov [cs_tone], ax
+    xor cx, cx
+    mov dl, 0x40
+    call OSAPI_SND_TONE
     jmp .keys
 .quit:
     mov byte [cs_quit], 1
@@ -1183,15 +1200,21 @@ cs_s_flying: db 'FLYING       ', 0
 cs_s_stalled: db 'STALL        ', 0
 cs_s_crash:  db 'CRASHED      ', 0
 
-cs_msgtab:   dw cs_g_none, cs_g_takeoff, cs_g_stall, cs_g_landed
-             dw cs_g_crash, cs_g_paused, cs_g_edge, cs_g_release
+; TWO OF THESE ARE COMPOSED (SPEC.md 88.7.9): the take-off prompt and the tow
+; release name a SPEED, and the aeroplane's own record is the only place that
+; number lives - 55 knots is the Cessna's, and the jet rotates at 81. They
+; cannot both be up at once (an aeroplane either starts on the ground or in
+; the air), so one buffer serves them, cs_toastbuf's shape.
+cs_msgtab:   dw cs_g_none, cs_promptb, cs_g_stall, cs_g_landed
+             dw cs_g_crash, cs_g_paused, cs_g_edge, cs_promptb
              dw cs_g_splash, cs_toastbuf
 cs_g_none:   db 0
-cs_g_takeoff: db 'FULL THROTTLE, PULL BACK AT 55 KNOTS', 0
+cs_g_take0:  db 'FULL THROTTLE, PULL BACK AT ', 0
+cs_g_tow0:   db 'TOW RELEASED - NOSE DOWN FOR ', 0
+cs_g_kt:     db ' KNOTS', 0
 cs_g_stall:  db 'STALL - NOSE DOWN, POWER ON', 0
 cs_g_landed: db 'LANDED', 0
 cs_g_crash:  db 'CRASHED INTO ', 0
 cs_g_paused: db 'PAUSED', 0
 cs_g_edge:   db 'THE EDGE OF THE WORLD - TURN BACK', 0
-cs_g_release: db 'TOW RELEASED - NOSE DOWN FOR 43 KNOTS', 0
 cs_g_splash: db 'DOWN ON ', 0    ; ...and the water's own name after it
