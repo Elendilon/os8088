@@ -2006,6 +2006,7 @@ cs_tpl:
                                     ; centreline (88.6.2); the pitch is twice
     ZBYTE cs_pgate                  ; the panel's rate gate (88.9.1)...
     ZWORD cs_plast                  ; ...and the tick the instruments last read
+    ZWORD cs_pfan                   ; the fan's triangles left (88.5.9)
     ZBYTE cs_bshr                  ; cs_boxlod's saved cs_pshr (88.5.4.3)
     ZWORD cs_bw                     ; cs_boxlod's half-width, and its
     ZWORD cs_bx0                    ; projected centre x, top row and base

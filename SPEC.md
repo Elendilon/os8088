@@ -95276,6 +95276,75 @@ a host replay of the same integer arithmetic, on scenes pinned at 30 and
 60 degrees — is §88.11's `skiesgeom`, and it was written to go red on both
 before either was fixed.
 
+#### 88.5.10 A face is wound on the WHOLE polygon, and a quad on its diagonals
+
+Reported off the machine, twice, with photographs: *"the two POI buildings
+are losing, regaining, losing the two top faces ... one frame on, one frame
+off, and each face goes in and out on its own - sometimes both there,
+sometimes one, sometimes neither."* The Empire State and the Chrysler, on the
+approach the take-off run points at.
+
+`cs_faces` decides which way a face is wound from the signed area of its
+PROJECTED points - screen y is down, so a negative area faces us - and it
+read the area of ONE TRIANGLE, `(v1 - v0) x (v2 - v0)`. That is the whole
+area only for a parallelogram. A **tapered** band is a trapezoid, and its
+first triangle is a small fraction of it: the Empire State's crown at 4.2 km
+reads **25 against the polygon's 175**, and with the vertices rounded to
+whole pixels the sign of 25 is noise. So the two faces of the crown - and
+they are independent quantities, which is why they flickered independently -
+turned over as the aeroplane moved.
+
+Stepping the eye down the 310 approach from 3,600 m to 1,200 m in 60 m
+steps, with the whole polygon's area: **0 sign changes in 40 steps**, on both
+towers. With the one triangle: **5 on the Empire State and 19 on the
+Chrysler**, and every one of them is a crown face.
+
+**A QUADRILATERAL'S AREA IS ITS DIAGONALS' CROSS**, and that is the whole
+fix at no cost at all:
+
+    2A = (x2 - x0)(y3 - y1) - (y2 - y0)(x3 - x1)
+
+Expand it and the eight terms are the shoelace's eight, so it is exact for a
+folded quad as well as a convex one - and it is **two multiplies, the same
+two the single triangle took**. Every face a model declares is a quad
+(`CS_SIDES`, `CS_TOP`), so the correct picture is free on all of them. Only
+the 3 to 7 points a clip leaves (§88.5.7) take the general path, a fan of
+`n - 2` triangles from v0 at two multiplies each.
+
+The fan shipped first for every n, and **the general form is what the
+diagonals are worth**: on a Hercules 8088 at JFK with the city drawn, four
+scenes down the approach read **+0.05 ms of 134.87 on the roll, +1.12 of
+157.29 at 6 km, +14.03 of 304.90 at 3 km and +7.96 of 300.12 at 1.5 km**
+against the single triangle - 4.6% of the worst frame for two extra
+multiplies a face, and the 3 km frame itself came down 304.90 -> 295.79 when
+the quads stopped paying them.
+
+**What the correct winding costs is then nothing, and what it costs is two
+faces.** The same four scenes, the shipped code against the single triangle:
+**-0.05, -0.32, +4.00 and -1.77 ms**, which has no sign because the test is
+the same two multiplies either way. The one figure that is not noise is the
+POLYGON COUNT beside it - **36 against 34** at 3 km, the same 35 and the same
+7 and 1 elsewhere - so the 4 ms is the two crown faces that were being culled
+by accident, drawn, at about 2 ms each (§88.12's `cs_poly` floor).
+
+**The trap, which cost a build**: the loop's own `dec word [cs_pfan] / jnz`
+clobbers the flags. The single triangle it replaced ended in `sbb si, dx` and
+the sign test read THAT instruction's flags, so a fan that keeps the same
+`js` culls every face there is and the screen goes empty. The sum is tested
+explicitly now, `or si, si` before the branch, and both paths join at it.
+
+**And it corrected a gate's premise.** §88.11's `skiesgeom` holds a
+world-vertical edge to a vertical projection with the wings level, and it
+took the vertical pairs off the face table - `CS_SIDES` emits base+1, top+1,
+top+0, base+0, so (0,1) and (2,3) are the columns. That is true of a PRISM
+and false of a taper: a dome's or a setback's side edges lean by design, and
+the row reported them as a fault the moment the winding stopped culling them
+by accident. It asks the vertices now - two ends at the same camera x and z
+are at the same world x and z, a yaw being a rotation - and
+`--clobber-fan` is the red run for the winding itself: it sends every
+polygon down the fan with a length of one, and the guest's sum then differs
+from the host's shoelace on twelve scenes.
+
 ### 88.6 The world (`apps/skies/csworld.inc`)
 
 Metres, x east, z north, y up, the Eiffel Tower at the origin. Thirty-odd
