@@ -602,7 +602,7 @@ cs_skipclr:
     jcxz .out                       ; this is what makes them strangers
 .o:
     mov word [si + CSO_SKIP], 0
-    and byte [si + CSO_FLAGS + 1], ~(CSO_SEEN >> 8)
+    and byte [si + CSO_FLAGS + 1], ~((CSO_SEEN | CSO_BOXED) >> 8)
     add si, CSO_SIZE
     loop .o
 .out:
@@ -1512,24 +1512,46 @@ cs_boxlod:
     ;     RECTANGLE and not on an estimate of it, and a refusal costs three
     ;     projections and takes the full path - which is what the object
     ;     wanted anyway.
+    ;     THE HEIGHT GETS ITS OWN BOUND (88.5.4.4). The poses that made the
+    ;     complaint were WIDE and flat - 22x3, 20x2, 18x2 - and holding the
+    ;     height to the same eight put a two-pixel-wide tower back on the
+    ;     polygon path, where its faces are sub-pixel: the Empire State's one
+    ;     visible face read a cross product of 17, a pixel of rounding took
+    ;     it to 0, which the winding test reads as `away', and the whole
+    ;     building vanished. AND BOTH BOUNDS HAVE HYSTERESIS: an object
+    ;     already drawn as the impostor keeps it until it grows CS_LODHYST
+    ;     past them, so one sitting on the boundary does not change shape
+    ;     every few metres.
+    mov di, [cs_obj]
+    test word [di + CSO_FLAGS], CSO_BOXED
+    mov di, 0                       ; ...the slack it has earned
+    jz .lim
+    mov di, CS_LODHYST
+.lim:
     mov si, cx
     sub si, ax
+    sub si, di
     cmp si, CS_LODPX
     jg .out                         ; too wide...
     mov si, dx
     sub si, bx
-    cmp si, CS_LODPX
+    sub si, di
+    cmp si, CS_LODTALL
     jg .out                         ; ...or too tall
     push ax
     mov al, CSI_WALL
     call cs_setink
     pop ax
     call cs_rect
+    mov di, [cs_obj]
+    or word [di + CSO_FLAGS], CSO_BOXED
     mov al, [cs_bshr]
     mov [cs_pshr], al
     clc                             ; drawn
     ret
 .out:
+    mov di, [cs_obj]
+    and word [di + CSO_FLAGS], ~CSO_BOXED
     mov al, [cs_bshr]               ; the object's own scale, back
     mov [cs_pshr], al
     stc                             ; REFUSED: the caller takes the full path

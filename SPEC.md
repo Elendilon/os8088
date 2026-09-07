@@ -95622,6 +95622,64 @@ where the model is stepped: at 7,000 m the Empire State's impostor covers 27
 lit pixels against the model's 35, the difference being the taper. That is
 the trade §88.5.4 exists to make, and it is bounded by `CS_LODPX` = 8.
 
+##### 88.5.4.4 The impostor's height gets its own bound, with hysteresis
+
+Reported off the same 10 MHz 8086 once §88.5.4.3 had fixed the sizes:
+buildings and, closer in, individual building faces still alternate frame to
+frame — some flicking in and out of existence entirely, some flipping between
+impostor and polygons.
+
+**The cause is that a two-pixel-wide building was on the polygon path at
+all.** `cs_faces` decides a face's winding from the cross product of its
+*rounded screen* vertices, and at skyline range that is noise. The Empire
+State's far model at 9.5 km on Mode X projects **2–4 columns wide by 17 rows
+tall**, and its five faces read:
+
+```
+  cross  -17  DRAW   v0(161,76) v1(161,59) v2(160,59)
+  cross    0  cull   v0(163,76) v1(161,59) v2(161,59)
+  cross  +17  cull   v0(159,76) v1(160,59) v2(161,59)
+  cross    0  cull   v0(161,59) v1(161,59) v2(161,59)   <- one pixel, three times
+```
+
+One face draws, on a cross product of **17**. A pixel of rounding takes it to
+0, which the test reads as *away*, and the whole building goes. Turning the
+winding cull off makes every solid draw a steady five faces at every position
+— which is the proof that the winding, and nothing else, is what moves.
+
+The fix is not to patch the winding, which is right in principle and cheap;
+it is that **an object this small should be the impostor**. §88.5.4.1's
+refusal was written against WIDE, flat rectangles — its own histogram is
+22x3, 20x2, 18x2 — and it holds the height to the same eight pixels, which
+puts every tall thin tower back on the polygon path. So the height gets its
+own bound, `CS_LODTALL` = 26, and the width keeps `CS_LODPX` = 8: a 22-pixel
+rectangle is still refused, and a 3x17 tower is not.
+
+**And both bounds have hysteresis.** `CSO_BOXED` (bit 13) says the impostor
+drew this object last frame, and while it is set the object may grow
+`CS_LODHYST` = 5 pixels past either bound before it gives the impostor up —
+so one sitting on the boundary does not change shape every few metres, which
+is what *"once something crosses the not-impostor distance it shouldn't flip
+back"* asks for. `cs_skipclr` forgets the bit with `CSO_SEEN`.
+
+Measured on the take-off run, stepping four metres at a time, as the mass of
+lit pixels above the horizon:
+
+```
+  with the height held to CS_LODPX   339 309 309 309 309 311 311 337 337 311 338 338
+  with CS_LODTALL and hysteresis     407 407 407 407 407 407 394 394 394 394 394 394
+```
+
+The signature is the **dip** and not the step — 337, 337, **311**, 338, 338 is
+a building that went away for four metres and came back — and that is what
+`tests/skieslod.py` checks, because the skyline legitimately grows and
+shrinks as the aeroplane rolls. The deepest dip is **0 of 407** fixed and
+**26 of 339** with the bound put back.
+
+Face-by-face over the same run, the count each object draws is now constant
+at every one of twenty positions three metres apart, where before the Empire
+State read `1 1 1 1 1 1 0 0 1 1 …`.
+
 #### 88.5.8 "Buildings lean over", which was the horizon
 
 Reported off the machine with a photograph: a large dithered wedge standing
@@ -96872,7 +96930,12 @@ drop-downs get a release the title page never armed.
   **12.48 ms each against 3.17**. It also carries §88.5.4.3's check: the
   impostor must be the SIZE of the model it stands in for, over four towers
   at three ranges, and `--clobber-shr` NOPs the pairs that give `cs_pshr`
-  back.
+  back. And §88.5.4.4's: nothing on the skyline goes away and comes back
+  down the take-off run — a **dip** and not a step, because the skyline
+  legitimately grows and shrinks as the aeroplane rolls, so what the row
+  looks for is a value below BOTH its neighbours. `--clobber-tall` puts the
+  height bound back to `CS_LODPX` and the deepest dip goes 0 of 407 to 26 of
+  339.
 - `tests/skiesease.py` (soak, MartyPC): §88.7.3's capture. Every reading is
   taken at a `cs_step` BREAKPOINT and not after a frame — the model steps per
   tick and a frame spends one, two or three of them, so a per-frame sample

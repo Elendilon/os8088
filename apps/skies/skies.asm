@@ -154,6 +154,18 @@ CS_MAXV   equ 24                ; vertices in the largest model (the tower's
 CS_MAXPV  equ 10                ; ...and a face after the near clip
 CS_ESEEN  equ CS_MAXV * 4       ; ...and the edges-once marks (88.13.3): a
                                 ; bit per vertex pair, four bytes a row
+CS_LODTALL equ 26               ; ...and how TALL it may be (88.5.4.4). The
+                                ; complaint 88.5.4.1 answers was a WIDE, flat
+                                ; rectangle that did not rotate in a bank -
+                                ; 22x3, 20x2, 18x2 - and holding the height
+                                ; to the same eight put a two-pixel-wide
+                                ; tower back on the polygon path, where its
+                                ; faces are sub-pixel and the winding is
+                                ; decided by rounding: buildings vanished
+CS_LODHYST equ 5                ; ...and what an object ALREADY drawn as the
+                                ; impostor may grow to before it gives it up.
+                                ; Without it a building sat on the boundary
+                                ; and changed shape every few metres
 CS_LODPX  equ 8                 ; the biggest RECTANGLE cs_boxlod may stand
                                 ; in for a solid (SPEC.md 88.5.4.1): an
                                 ; impostor is axis-aligned in SCREEN space,
@@ -269,6 +281,9 @@ CSO_TERRAIN equ 0x0400          ; THE WORLD'S OWN SURFACE and not a building:
                                 ; already loaded; tests/unit/t_csterrain.py
                                 ; holds every hill, every water and every
                                 ; road object to the right one
+CSO_BOXED equ 0x2000            ; ...bit 13: cs_boxlod drew it last frame, so
+                                ; it keeps the impostor until it grows past
+                                ; CS_LODHYST more than it took it (88.5.4.4)
 CSO_SEEN  equ 0x8000            ; ...and bit 15: drawn last frame (88.5.1)
                                 ; level's height are a box the aeroplane may
                                 ; not enter

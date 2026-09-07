@@ -1709,7 +1709,7 @@ SOAK = [
         " 'confirmed invisible'. Nine viewpoints, three of them off the"
         " centreline, because the rule is exact for an object dead ahead",
         needs=("marty",), serial=True),
-    Row("skieslod", "soak", py("tests/skieslod.py"), 30.0,
+    Row("skieslod", "soak", py("tests/skieslod.py"), 45.0,
         "SPEC.md 88.5.4.2: a solid too small to tell apart is one filled"
         " rectangle PAST SIX KILOMETRES too. cs_drawobj built 11 cz in a"
         " word, which stops fitting at 5,958 m, and past there the product"
@@ -1721,7 +1721,10 @@ SOAK = [
         " of the model it stands in for - cs_boxlod clobbered cs_pshr and a"
         " REFUSED impostor left the full path running in whole metres, so a"
         " building drew at a fraction of its size over exactly the part of"
-        " the approach where the rectangle crosses CS_LODPX",
+        " the approach where the rectangle crosses CS_LODPX; and 88.5.4.4,"
+        " that nothing on the skyline goes away and comes back as the"
+        " aeroplane taxis - a DIP and not a step, because the skyline"
+        " legitimately grows and shrinks",
         needs=("marty",), serial=True),
     Row("skiespitts", "soak", py("tests/skiespitts.py"), 34.0,
         "SPEC.md 88.7.2: the second aeroplane flies by its own CSP_ATT - the"
