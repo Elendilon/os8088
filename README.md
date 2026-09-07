@@ -74,6 +74,8 @@ make 486      # 86Box: 486DX2 @ 66MHz, 8MB, VGA, Sound Blaster 16
 make pentium  # 86Box: Pentium @ 133MHz, 16MB, VGA, Sound Blaster 16
 make xt-sound # the 640KB XT with a Sound Blaster 2.0 (OPL2 + DSP)
 make xt-sound-1.44 # the 640KB XT with SB 1.0 and every app on a 1.44MB B:
+make xt-wire  # the xt-sound XT with an NE1000 on slirp, ETHER.DRV
+              # loaded at boot and a scratch B: for The Wire to write to
 make 286-sound  # 86Box: the 286, with a Sound Blaster 16
 make 386-sound  # 86Box: the 386DX, with a Sound Blaster 16
 make worddisk # build the Microsoft Word floppy, all four geometries
@@ -91,6 +93,13 @@ make runcpmdisk # build the RunCPM floppies - the CP/M 2.2 emulator, its
 make xt-runcpm  # 86Box: the 4.77MHz XT with the 360KB RunCPM disk in B:
 make 286-runcpm # 86Box: the 12.5MHz 286 with the 720KB one - arcade games
 make 386-runcpm # 86Box: the 386DX with the 1.44MB one - everything
+make paccmandisk # build the PaccMan floppy - a second Pac-Man, in C: the
+              # Namco arcade layout from Andre Weissflog's pacman.c, in all
+              # four geometries (paccman.img, paccman720/120/360.img)
+make xt-paccman # 86Box: the 4.77MHz XT with the 720KB PaccMan disk in B: -
+              # the machine the "more performant on XTs" question was about
+make 386-paccman # 86Box: the 386DX/25 with the 1.44MB disk in B: - full speed
+make pmcbandbench # its band composer's benchmark, under QEMU -icount shift=3
 make c64disk  # build the C64 floppy - a Commodore 64: the package, its
               # overlay; the KERNAL/BASIC/CHARGEN ROM rides INSIDE the
               # package as an embedded part (SPEC.md 20.12)
@@ -120,13 +129,15 @@ make 286-525-word #   instead of the apps floppy - one per application disk:
 make 286-525-cword#   -z -word -cword -runcpm -c64 -weave -loom -all. The
 make 286-525-all  #   ONLY machines that read a 1.2MB disk (an XT cannot)
 make allapps  # one floppy with every program on it - both word processors,
-              # Frotz, RunCPM, the Commodore 64 and the Weave family
-              # included. 1.44MB and 1.2MB; the two DD geometries cannot
+              # Frotz, RunCPM, the Commodore 64, PaccMan and the Weave
+              # family included. 1.44MB and 1.2MB; the two DD geometries cannot
               # hold the payload at all
 make live     # the live media (docs/LIVE-MEDIA.md): os8088-usb.img, a
               # bootable hard-disk image for a USB stick, and os8088.iso,
               # the same image as a live CD - the whole OS and every app
               # on one C: drive (make usb / make iso build them singly)
+make imager   # macOS: os8088 imager discovers floppy/USB/CD devices and
+              # offers compatible built images (docs/IMAGER.md)
 make burn     # macOS: interactively write the stick / burn the CD, with a
               # typed confirmation and a read-back verify
 make test     # boot headless with a QMP socket for scripted testing
@@ -140,9 +151,9 @@ make clean
 
 `make` builds the nine shipping floppies and needs nothing but `nasm` and
 `python3`. The disks that carry the C applications — `cworddisk`,
-`runcpmdisk`, `allapps` and the live media (`make live`) — want the compiler
-first: `tools/setup-cc.sh`
-fetches and builds it into `build/cc`, and nothing else in the tree depends on
+`runcpmdisk`, `allapps` and the live media (`make live`) — automatically run
+`tools/setup-cc.sh` when the compiler is missing. It fetches and builds it
+into `build/cc`, and nothing else in the tree depends on
 it. `runcpmdisk`, `allapps` and `live` also fetch RunCPM's command processor
 and master disk (`make runcpm-src`) and the CP/M software that rides beside
 it (`make cpmsw`); none of it is committed here.
@@ -178,7 +189,9 @@ a Standard File dialog for opening and saving.
   Helvetica and a Courier, two more text faces and three monospaces, each
   fitted onto an 8-pixel grid from an open outline font (SPEC.md 6.4.1). The
   kernel keeps its 8x8 cell for chrome; an app composes a row in a real face
-  and puts it down in one call.
+  and puts it down in one call. Double-click any `.F88` to open **Font
+  Viewer**, which lists every installed family; click a family or use the
+  arrow keys to switch, then type directly into its specimen.
 
 **Disks and files**
 
@@ -195,15 +208,15 @@ a Standard File dialog for opening and saving.
 
 **Software**
 
-Twenty-four loadable packages ship on the software disk, all closable and most
+Twenty-six loadable packages ship on the software disk, all closable and most
 multi-instance:
 
 - **Apps** — Note Pad (word wrap, DOS-readable text files), TeXPad, Paint,
-  ArtfulType, Fractal, Calculator, Sheet, Chart, Piano, Tracker and ModPlug
+  ArtfulType, Font Viewer, Fractal, Calculator, Sheet, Chart, Piano, Tracker and ModPlug
   Player (both play Amiga MOD files), an Audio Player that streams a WAV off
   the disk and keeps playing while you work in another window, and the three
   that talk over the network — Browser, Telnet and an FTP server.
-- **Games** — Minesweeper, Solitaire, Arkanoid, Missile Command, Cyclone 88,
+- **Games** — Minesweeper, Solitaire, Arkanoid, Missile Command, [Pac-Man](apps/pacman/README.md), Cyclone 88,
   Clear Skies, Tank Attack (a first-person wireframe tank duel that takes the
   whole machine, in 320x200 colour on CGA, Mode X on VGA and 640x200 mono in
   the middle of a Hercules) and TameGram.
@@ -415,10 +428,59 @@ window's — and from one of those it can claim a single pre-empted worker task
 of its own. Closing a package frees its claim, its task and its instance
 slot.
 
+### The Wire — the online software library
+
+A desktop icon marked **Wire** opens a window listing every program the
+project publishes, fetched over `ETHER.DRV` from **os8088.com** as plain
+HTTP/1.0. Each entry has a picture cropped 1:1 out of a real screenshot, a
+short description, and a recommended machine — 8088/8086, 286, 386 or 486+ —
+that the filter row across the top sorts by. Two buttons: **Load Program**
+runs it now, straight out of memory, without it ever touching a disk;
+**Add to Disk...** writes it and any files that go with it to a floppy you
+pick in the Standard File dialog.
+
+That is the point of it. A networked XT with one 360KB drive reaches the whole
+collection without a second disk, a host computer or a download.
+
+A program that is a **folder tree** — RunCPM with its CP/M drive A — travels as
+an **archive**, `<STEM>.WPK`: the whole tree in one compressed stream, so one
+connection carries it instead of one per file, and each entry names its
+folders so the machine makes them as it goes. On an archive the two buttons
+keep their meanings and grow: **Load Program** mounts a RAM disk (or reuses
+one), unpacks the tree onto it and starts the program from there, and **Add to
+Disk...** writes the same tree onto the floppy you pick as a folder. Both need
+nothing but `ETHER.DRV`; the first needs `RAMDISK.DRV` too, and greys with the
+size it wants when the machine cannot fund the store. The site publishes
+RunCPM as a core archive that fits beside RunCPM on a 640KB machine and its
+remaining tools as a second one. SPEC.md §92.13 is the format, pinned by its
+decoder, and §92.14 the run-from-RAM path, with the 640KB arithmetic.
+
+`THEWIRE.O88` is 12KB and rides the **system** disk in `SYSTEM/`, on all four
+geometries — the disk that already carries the network driver ought to carry
+the program that turns it into software you do not have yet, and it rides
+**no apps disk**, since the desktop icon launches it out of the disk the
+machine booted from. With no card, or
+no driver, the window opens anyway and says so, with the three lines that
+would fix it and both buttons greyed; it never puts up an alert about a card
+you do not have.
+
+The catalog is 32 bytes of header and a 256-byte record per program, at fixed
+offsets so the 8088 reads it with `mov` and never parses. `tools/os88wire.py`
+packs it, verifies it and dumps it, and cuts a picture out of a PNG
+screenshot; the site's own packer is an independent second writer of the same
+bytes, and running `--verify` against what the site publishes is how the two
+are kept honest. Everything off the wire is checked field by field before a
+pixel of it is drawn — a catalog that does not pass leaves the window working
+and says `Catalog not understood`.
+
+SPEC.md §88 is the format and the contract; `docs/WIRE-PLAN.md` is why it
+reads that way.
+
 ### A package can also be written in C
 
 The OS itself is assembly and stays that way. But a **package** can be written
-in C, and two are. The first is `apps/cword` — a second reimplementation of **Microsoft Word
+in C, and several are — the Commodore 64 and the Weave family among them, plus
+the three described here. The first is `apps/cword` — a second reimplementation of **Microsoft Word
 1.1a**, in C this time, with the same nine-menu bar, ribbon, ruler and status
 line as `apps/word` and RTF as its file format. It has both of the product's
 views — Draft, which wraps to the window, and Page, which wraps to the sheet —
@@ -478,6 +540,34 @@ speed**: nothing throttles the emulated Z80 — upstream has no limiter either
 at period speed on the three 86Box machines above. Zork, Hitchhiker and
 Colossal Cave are not there and cannot be: their data files are 76KB, 113KB
 and 68KB, and this port opens a file whole through a 16-bit count.
+
+The third is `apps/paccman` — **PaccMan**, a port of Andre Weissflog's
+[`pacman.c`](https://github.com/floooh/pacman.c) (MIT), the arcade-faithful
+C99 Pac-Man, and a *second* Pac-Man beside the hand-written assembly one in
+`GAMES/`. It is the Namco cabinet's own screen: a 28×36-tile, 224×288 vertical
+field held exactly as the arcade board holds it, the real tile, sprite and
+colour ROM tables, the four ghosts with the *Pac-Man Dossier*'s scatter/chase
+schedule and house dot counters, the CHARACTER / NICKNAME reveal on the
+attract screen, and the arcade's three-voice sound reduced to the one PC
+speaker with the reduction stated rather than hidden. It shares nothing with
+the other Pac-Man — not a file, a name, an image, a target or a vm directory —
+because the next person to touch either would otherwise silently get the
+other.
+
+It exists to answer a question, and the answer is on the glass. The ask was
+*"maybe this port is more performant on XTs"*: C plus one kernel call that
+sends a whole composed band down as four bitplanes, against assembly that
+sends packed pixels through the planar decoder. `tests/paccman.py` runs the
+same bracket over both ports on the same emulated 4.77 MHz 8088 and prints
+them side by side, each on a frame it actually DREW — **2.18 fps against the
+assembly port's 4.14 on VGA** — so no, it is not, and the row prints that
+either way. The band bench says why: the one call really is 6.6× faster than
+the fallback, and the repack that feeds it costs six times what the call
+saves. What PaccMan *does* keep, on VGA, is arcade *time* — a slow frame
+carries two OS ticks of game rather than one, so it runs at 24% of arcade
+speed where the assembly port runs at 23% while drawing twice as often. On
+CGA and Hercules it keeps nothing: the assembly port is at its 18.2 Hz
+deadline there and asleep.
 
 The compiler is [SmallerC](https://github.com/alexfru/SmallerC) (2-clause
 BSD), pinned to one commit and **fetched rather than vendored** — it is not in
@@ -545,10 +635,11 @@ cleanly and runs wrong when C meets this machine.
 | `build/word*.img`      | 1.44MB / 720KB / 1.2MB / 360KB | Microsoft Word floppies (`make worddisk`) |
 | `build/cword*.img`     | 1.44MB / 720KB / 1.2MB / 360KB | Word in C, package + `CWORD.OVL` (`make cworddisk`) |
 | `build/runcpm*.img`    | 1.44MB / 720KB / 1.2MB / 360KB | RunCPM, package + `RUNCPM.OVL` + CP/M drive A + the games and applications each holds (`make runcpmdisk`). What drive A carries is chosen per geometry at build time, so the 1.2MB disk fills itself and names what it left off in its own `LEFT-OFF.TXT` |
+| `build/paccman*.img`   | 1.44MB / 720KB / 1.2MB / 360KB | PaccMan, the C Pac-Man: the package and its README, no overlay (`make paccmandisk`) |
 | `build/c64*.img`       | 1.44MB / 720KB / 1.2MB / 360KB | Commodore 64, package (the ROMs are part 0 of `C64.O88`) + `C64.OVL` (`make c64disk`) |
 | `build/weave*.img`     | 1.44MB / 720KB / 1.2MB / 360KB | Weave: the runtime and its two modules, the demo bundles, LOOM, the demo sources and `CATALOG.TXT` (`make weavedisk`) |
 | `build/loom*.img`      | 1.44MB / 720KB / 1.2MB / 360KB | the Weave IDE's own disk, with the demo sources flat (`make loomdisk`) |
-| `build/apps-all.img`   | 1.44MB FAT12             | every program on one floppy, the seven above included (`make allapps`) |
+| `build/apps-all.img`   | 1.44MB FAT12             | every program on one floppy, the eight above included (`make allapps`) |
 | `build/apps-all-120.img` | 1.2MB FAT12            | the same disk for the 5.25" HD machine. There is no 720KB or 360KB build: the payload does not fit either |
 
 The boot sector takes its geometry from `-DSPT` / `-DHEADS` at assembly
@@ -584,9 +675,9 @@ this geometry too, and so is the everything disk.
 
 Its clusters are 512 bytes like the 1.44MB disk's rather than 1,024 like the
 two DD disks', so it has 2,371 of them — 1,185KB against 1,423KB — and that
-ratio, not the raw one, is what each disk is measured against. Four of the
-seven (Word, cword, the C64, Weave/LOOM) are small enough that every geometry
-carries the identical payload. Three are not, and each answers it in its own
+ratio, not the raw one, is what each disk is measured against. Five of the
+eight (Word, cword, PaccMan, the C64, Weave/LOOM) are small enough that every
+geometry carries the identical payload. Three are not, and each answers it in its own
 way: the **story disk** is a straight cut, because the 1.44MB story list alone
 is 2,519 clusters and two titles have to come off; the **RunCPM disk** drops
 its largest CP/M software area so that the master disk keeps its programs, and
@@ -682,6 +773,7 @@ All targets, at a glance:
 | `xt-ega` | IBM PC/XT | 8088 @ 4.77MHz | 256KB | IBM EGA (640x350) | — |
 | `xt-sound` | XT, 1986 board | 8088 @ 4.77MHz | 640KB | OTI-067 VGA | Sound Blaster 2.0 |
 | `xt-sound-1.44` | XT, 1986 board | 8088 @ 4.77MHz | 640KB | OTI-067 VGA | Sound Blaster 1.0 |
+| `xt-wire` | XT, 1986 board + Novell NE1000 | 8088 @ 4.77MHz | 640KB | OTI-067 VGA | Sound Blaster 2.0 |
 | `286` | AMI 286 clone | 286 @ 12.5MHz | 1MB | OTI-067 VGA | — |
 | `286-525` | AMI 286 clone, two 1.2MB **5.25"** drives | 286 @ 12.5MHz | 1MB | OTI-067 VGA | — |
 | `286-sound` | AMI 286 clone | 286 @ 12.5MHz | 1MB | OTI-067 VGA | Sound Blaster 16 |
@@ -733,6 +825,16 @@ disk that carries it, and the everything disk only ever rode `xt-sound-1.44`.
 `xt-multimon` is the **two-card** XT — a CGA and a Hercules, a monitor window
 each — and the only 86Box machine that can show the extended desktop. It boots
 Single; Control Panel → Display → Desktop is what extends it.
+
+`xt-wire` is the **networked** XT and the only 86Box profile with a network
+card: `xt-sound`'s machine plus a Novell NE1000 — the 8-bit card an XT's bus
+can take — on 86Box's slirp, which NATs through the host with nothing to set
+up. It boots `make ethertest`'s system disk rather than the stock one, so
+`ETHER.DRV` is loaded before the first paint and The Wire's icon is on the
+desktop when it comes up; DHCP binds, slirp's DNS resolves os8088.com, and
+the catalog comes down over plain HTTP with no proxy in the path. B: is a
+scratch 360KB disk (`build/wiredata360.img`, built once and kept) because
+Add to Disk writes, and 86Box writes a floppy image back to its file.
 
 The last sixteen put a **dedicated floppy** in B: instead of the apps disk.
 `xt-weave-256` is the same 4.77MHz XT as `xt-weave` with 256KB rather than

@@ -53,6 +53,15 @@ Read first: [§11 wm.inc — windows](../SPEC.md#11-wminc--windows); [§20 Loada
 | `0x0488` | `OSAPI_WM_DISPLAY` | OSAPI_VIDEO FOR THE DISPLAY THIS WINDOW IS ON (SPEC.md 39.16.4). BX = your window... |
 | `0x03E0` | `OSAPI_WM_KEEPH` | BX = win ptr, AL = 0 clear / non-0 set: "my layout is FIXED... |
 
+### Packages and the desktop
+
+Read first: [§21 loader.inc](../SPEC.md#21-loaderinc); [§26 desk.inc — desktop drive icons](../SPEC.md#26-deskinc--desktop-drive-icons).
+
+| slot | call | takes |
+|---|---|---|
+| `0x0520` | `OSAPI_PKG_RUN` | ES:SI = a package image, byte for byte what the .O88 file holds, in a claim of YOURS... |
+| `0x0528` | `OSAPI_DESK_SVC` | AL = 1 add / 0 withdraw; ES:SI = a 65-byte record in YOUR segment (add only): +0 12 the caption, NUL (<= 11 chars) +12 13 the 8.3 file the zone... |
+
 ### Menus and the menu bar
 
 Read first: [§12 menu.inc](../SPEC.md#12-menuinc); [§59 toast.inc — the transient one-line message](../SPEC.md#59-toastinc--the-transient-one-line-message).
@@ -285,6 +294,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | CHART | `apps/chart/chart.asm` | §82 | yes |
 | CWORD | `apps/cword/cword.asm` | §73.12 | yes |
 | CYCLONE 88 | `apps/cyclone/cyclone.asm` | §67 | yes |
+| FONT VIEWER | `apps/fontview/fontview.asm` | §90 | yes |
 | FPTEST | `apps/fptest/fptest.asm` |  | no |
 | FRACTAL | `apps/fractal/fractal.asm` | §40 | yes |
 | FROTZ | `apps/frotz/frotz.asm` | §61 | yes |
@@ -295,6 +305,8 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | MISSILE | `apps/missile/missile.asm` | §48 | yes |
 | MODPLUG | `apps/modplug/modplug.asm` | §56 | yes |
 | NOTEPAD | `apps/notepad/notepad.asm` | §27 | yes |
+| PACCMAN | `apps/paccman/paccman.asm` | §91 | yes |
+| PACMAN | `apps/pacman/pacman.asm` | §89 | yes |
 | PAINT | `apps/paint/paint.asm` | §42 | yes |
 | PIANO | `apps/piano/piano.asm` | §36 | yes |
 | RECORDER | `apps/recorder/recorder.asm` | §35 | no |
@@ -308,6 +320,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | TEXPAD | `apps/texpad/texpad.asm` | §69 | yes |
 | TRACKER | `apps/tracker/tracker.asm` | §45 | yes |
 | TaskMgr | `apps/taskmgr/taskmgr.asm` | §28 | yes |
+| The Wire | `apps/thewire/thewire.asm` | §92 | no |
 | WEAVE | `apps/weave/weave.asm` | `docs/WEAVE-SPEC.md` | yes |
 | WIRE | `apps/wire/wire.asm` | §78 | no |
 | WORD | `apps/word/word.asm` | §68 | yes |
@@ -405,12 +418,16 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | 86 | AUDIO PLAYER — background music from a streamed WAV (`apps/audio/`) |
 | 87 | Hibernate — the machine to a file on the hard disk, and back (`kernel/hiber.inc`, `HIBER.DRV`) |
 | 88 | CLEAR SKIES — a filled-polygon flight simulator in a foreign mode (`apps/skies/`) |
+| 89 | Pac-Man (`apps/pacman/pacman.asm`) |
+| 90 | FONT VIEWER — the system face browser (`apps/fontview/fontview.asm`) |
+| 91 | PACCMAN — pacman.c, written in C (`apps/paccman/`) |
+| 92 | THE WIRE — the online software library (`apps/thewire/thewire.asm`) |
 
 ## docs/
 
 **The DIRECTORY says what a document is, and the filename does not.** `docs/` describes how the system works today - instructions, contracts and maintained reference. Everything under `docs/plans/` is a design record: what was considered, including the options that were rejected, and it is never a description of what shipped - SPEC.md is the current state and these are how it got there. `docs/plans/completed/` is the subset whose work has landed; what stays directly in `docs/plans/` still has work open. `docs/history/` is superseded or closed - a record of a moment that has passed, and true of no tree you can check out. `docs/reports/` is a MEASUREMENT taken at a point in time: true of the tree it was taken on, quotable with its date and its box, and never to be read as a description of today.
 
-*How it works today - `docs/` (15):* `BIFF-NOTES.md`, `C-TOOLCHAIN.md`, `C64-SPEC.md`, `FIELD-MACHINES.md`, `FIELD-NOTES.md`, `HEAP-CLAIMS.md`, `HERCULES-TESTING.md`, `KERNEL-MEMORY.md`, `LIVE-MEDIA.md`, `MARTYPC-DEBUG.md`, `README.md`, `TESTING.md`, `UPSTREAM.md`, `WEAVE-SPEC.md`, `WRITING-TESTS.md`
+*How it works today - `docs/` (19):* `BIFF-NOTES.md`, `C-TOOLCHAIN.md`, `C64-SPEC.md`, `FIELD-MACHINES.md`, `FIELD-NOTES.md`, `HEAP-CLAIMS.md`, `HERCULES-TESTING.md`, `IMAGER.md`, `KERNEL-MEMORY.md`, `LIVE-MEDIA.md`, `MARTYPC-DEBUG.md`, `PACCMAN-PORT-PLAN.md`, `README.md`, `TELNET-PLAN.md`, `TESTING.md`, `UPSTREAM.md`, `WEAVE-SPEC.md`, `WIRE-PLAN.md`, `WRITING-TESTS.md`
 
 *Plans with work still open - `docs/plans/` (12):* `ARTFUL-PERF-PLAN.md`, `HANDOFF-SOAK-FINDINGS.md`, `HEAP-UNPIN-PLAN.md`, `KERN-SMALL-CUT-PLAN.md`, `KERNEL-BYTE-QUEUE.md`, `LAST-DROP-BYTES.md`, `LAST-DROP-PERF.md`, `MONO-RECLAIM-PLAN.md`, `MOUSE-BOOT-FREEZE-PLAN.md`, `O88-COMPRESSION-PLAN.md`, `SOAK-PARALLEL.md`, `UI-MENU-ELEMENT.md`
 
@@ -418,5 +435,5 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 
 *Superseded and closed - `docs/history/` (9):* `DUAL-DISPLAY-BUG2.md`, `HANDOFF-TESTS-A-STRADDLE.md`, `HANDOFF-TESTS-B-LAUNCH.md`, `HANDOFF-TESTS-C-FRESH.md`, `HANDOFF-TESTS.md`, `KERN-SPLIT-PLAN.md`, `SOUND-PLAN.md`, `TRACKER-PLAN.md`, `WM-ARTIFACTS.md`
 
-*Measurements, each true of the tree it was taken on - `docs/reports/` (1):* `TIER-TIMINGS-2026-09-07.md`
+*Measurements, each true of the tree it was taken on - `docs/reports/` (2):* `KERNEL-BYTES-SINCE-SQUASH-2026-09-07.md`, `TIER-TIMINGS-2026-09-07.md`
 

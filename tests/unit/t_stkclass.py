@@ -89,6 +89,36 @@ def worker_of(path):
     return None
 
 
+CCWORKER = re.compile(r"^\s*%define\s+CC_HAS_WORKER\b")
+
+
+def c_worker(path):
+    """Does this package's shim declare a C worker (SPEC.md 73)?
+
+    A C package never writes `call OSAPI_TASK_SPAWN` itself: it calls
+    os88_task_spawn(), whose body is _os88_task_spawn in apps/cc/os88thunk.asm,
+    and its worker root is cc_worker in apps/cc/crt0.asm. So the scan above
+    finds nothing and `spawns` answers no, and paccman, cword, runcpm, weave
+    and the C64 were all skipped here WITHOUT BEING COUNTED - which is the
+    thing this file's own header calls "how a gate stops being one".
+
+    They are NAMED rather than measured, and that is deliberate. The chain
+    below a compiler-emitted root runs through the L### labels SmallerC emits
+    and tools/stkdepth.py's linear walk stops at the first `ret` it meets in
+    one, so the number it prints for cc_worker is a FLOOR and not a maximum -
+    14 bytes for a package whose composed chain is 118. A gate that passed on
+    that floor would be worse than one that skips, so what each C package's
+    worker stack is really sized by is its own MEASURED water mark
+    (tests/paccman.py reads the worker's slice after thousands of frames and
+    asserts it against OS88_STACK_256). This function exists so the summary
+    says which packages those are.
+    """
+    for ln in open(path, errors="replace"):
+        if CCWORKER.match(ln.split(";")[0]):
+            return True
+    return False
+
+
 def spawns(path):
     """Does any source of this package call OSAPI_TASK_SPAWN at all?"""
     here = os.path.dirname(path)
@@ -112,10 +142,18 @@ def depth(asm, root):
     """stkdepth.py's deepest chain from `root`, in bytes."""
     # drivers/net is on the path for ftpd and Telnet: netpkg.inc is the socket
     # ABI they include from the DRIVER's tree (SPEC.md 72), so a package's own
-    # directory is not enough to assemble one.
+    # directory is not enough to assemble one. drivers/ramdisk is there for
+    # the Wire, which includes rdpkg.inc - the RAM disk's package verbs
+    # (SPEC.md 62.9.16) - and through it rdabi.inc, the same shape one driver
+    # along. The Makefile's nasm line for each package is the authority on
+    # what a package includes; this list has to keep up with it, and the
+    # failure when it does not is "nasm failed: unable to open include file",
+    # which this gate reports rather than skipping (a package whose depth
+    # cannot be measured is one the gate is not watching).
     r = subprocess.run([sys.executable, TOOL, asm, "-I", os.path.join(ROOT, "apps"),
                         "-I", BUILD, "-I", os.path.dirname(asm),
                         "-I", os.path.join(ROOT, "drivers", "net"),
+                        "-I", os.path.join(ROOT, "drivers", "ramdisk"),
                         "--from", root],
                        capture_output=True, text=True, cwd=ROOT, timeout=900)
     m = re.search(r"^== %s: (\d+) bytes ==" % re.escape(root), r.stdout, re.M)
@@ -125,13 +163,15 @@ def depth(asm, root):
 
 
 def main():
-    rows, unfound, unbuilt = [], [], []
+    rows, unfound, unbuilt, cpkgs = [], [], [], []
     for asm in sorted(glob.glob(os.path.join(ROOT, "apps", "*", "*.asm"))):
         app = os.path.basename(os.path.dirname(asm))
         root = worker_of(asm)
         if root is None:
             if spawns(asm):
                 unfound.append(app)      # a spawner this scan could not size
+            elif c_worker(asm):
+                cpkgs.append(app)        # a C worker: named, see c_worker()
             continue                     # no worker: nothing to size
         o88 = os.path.join(BUILD, "%s.o88" % os.path.splitext(os.path.basename(asm))[0])
         if not os.path.exists(o88):
@@ -164,6 +204,10 @@ def main():
             want="none thinner than %.2fx" % BAR)
 
     worst = min(rows, key=lambda r: r[4]) if rows else None
+    if cpkgs:
+        print("t_stkclass: %d C package(s) declare a worker and are sized by "
+              "their own measured water mark, not here: %s"
+              % (len(cpkgs), ", ".join(cpkgs)))
     print("t_stkclass: %d worker%s measured%s, thinnest %s"
           % (len(rows), "" if len(rows) == 1 else "s",
              (", %d package(s) not built" % len(unbuilt)) if unbuilt else "",

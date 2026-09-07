@@ -3567,10 +3567,15 @@ the `rep movsw` it always was.
   own trick on `wm_clip_r0`; folding them was worth 2 µs of the 78, so the cost
   is the compares rather than the stores, and it is left there rather than
   chased.
-- **both `A` and `B` non-empty → `CF = 1`, the FOURTH refusal**, joining
-  §5.4.2's three. It needs a Map Mask split and this does not do one. The only
-  pair in this system that lands here is `CDGRAY` on `CLGRAY` — 8 against 7,
-  the Color theme's disabled chrome — and that belongs to text, not to a band.
+- **both `A` and `B` non-empty** — the planes disagree about which way up the
+  band is. This was **the FOURTH refusal**, `CF = 1`, joining §5.4.2's three,
+  on the ground that it needs a Map Mask split and this did not do one.
+  **That was true until §5.4.2.2.1, which does the split**: the refusal is
+  lifted, the pen takes every pair, and §5.4.2's refusal list is three again.
+  While it was a refusal the only pair in this system that reached it was
+  `CDGRAY` on `CLGRAY` — 8 against 7, the Color theme's disabled chrome — and
+  what changed that is §70.8: an ANSI board's art is sixteen colours on
+  sixteen colours, and *green on red* is refused by the predicate above.
 
 ##### On a 1bpp adapter the pen is NOT READ
 
@@ -3606,6 +3611,126 @@ hole in the doc gate — a wrapped citation is invisible to it — and it is
 recorded here rather than fixed, because the fix (joining continuation lines
 before matching) would need testing against the whole tree's comment style.
 The claim itself is true and is now stated above.
+
+##### 5.4.2.2.1 The fourth refusal is lifted: the Map Mask split
+
+**Every `(ink, paper)` pair is exact now.** `gfx_blit1` no longer answers
+`CF = 1` for a pair whose two colours share no plane in either direction, and
+`§5.4.2.2`'s own words are what it does instead — *"it needs a Map Mask split
+and this does not do one"* — so this does one. `vga12.inc` has carried the
+same sentence at the refusal since the pen landed: *"both: a Map Mask split,
+which this does not do."*
+
+**Why it had to happen in the KERNEL and not in the caller.** Every band in
+this system until now chose its own two colours from a palette the author knew,
+so a refused pair was a pair nobody would ask for — `CDGRAY` on `CLGRAY` and
+nothing else. **§70.8 is the first caller whose pairs come off the wire**: an
+ANSI-BBS terminal is handed sixteen foreground colours against eight
+backgrounds by a host it has never met, and most of the 128 combinations are
+refused by the subset test. A terminal cannot answer a refusal with a different
+colour — a wrong colour on the glass is a wrong picture, not a degraded one —
+and it cannot answer it by lettering, because a glyph call a cell is what the
+band exists to avoid. So the refusal had to go, once, where every caller gets
+it.
+
+##### The two passes
+
+The band's three plane sets are §5.4.2.2's, unchanged: `A = ink & ~paper`
+wants the band as it stands, `B = ~ink & paper` wants its complement, and
+`C = ~(ink ^ paper)` is Set/Reset's. A refused pair is one with both `A` and
+`B` non-empty, and the two wants are irreconcilable in one CPU write **only
+because the Map Mask lets every plane see it**. Splitting the mask splits the
+write:
+
+| pass | Map Mask (SEQ index 2) | Enable Set/Reset (GC1) | what is written | planes it lands on |
+|---|---|---|---|---|
+| 1 | `A OR C` | `C` | the band, `rep movsw` | `A` takes the band byte, `C` takes GC0's constant |
+| 2 | `B` | `C`, still armed | the band COMPLEMENTED, the hand loop | `B` alone |
+
+**Neither pass can undo the other**, which is the property that makes this
+sound rather than merely clever: pass 1's Map Mask has no bit of `B` in it and
+pass 2's has no bit of `A` or `C`, so the two masks are disjoint, every plane
+is written by exactly one pass, and every pixel of the rect is still **written
+once**. That is §5.4.2's contract and PERFORMANCE.md Part 1's rule, both intact.
+
+`GC1` is left armed across pass 2 rather than cleared: `C` and `B` are disjoint
+by construction, so the Map Mask already blocks every plane Set/Reset would
+answer for, and clearing it would be a port write that changes nothing. The Bit
+Mask stays at `FF` on both passes, so **neither pass reads the latches** —
+which is what §5.4.2.2 bought and this must not spend.
+
+The two loops the split needs are **the two the routine already has**: `.row`
+is pass 1 and `.rowi` is pass 2, and the split is a second trip through the
+emit rather than a third code path. What it costs in bytes is the second trip's
+setup — the row counter, the band pointer and the framebuffer pointer are all
+consumed by the first pass and have to be re-established — plus the two
+Sequencer writes and the masks to write.
+
+##### The standing contract grows by one register
+
+§5.4.2's resting state was *"Map Mask = 0Fh with Set/Reset disabled"*, and the
+Map Mask was a register `gfx_blit1` **never touched**, which is why its
+teardown was one `out` (Enable Set/Reset back to 0). It touches it now, so
+**the teardown on the split path is two**: `SEQ2 = 0Fh` as well. Every routine
+in `vga12.inc` is entitled to find the Map Mask at `0Fh`, and a split band that
+returned with it at `B` would silently drop three planes of whatever drew next.
+
+Nothing else changes. A pair that was already accepted takes the same one
+emit, the same two `out`s and the same teardown it always did; the split is
+tested for on the path that used to `stc`.
+
+##### What it costs
+
+| | |
+|---|---|
+| an accepted pair | unchanged — one emit, `rep movsw` at 12.5 clocks a byte, or the hand loop at 17 |
+| **a split pair** | **two emits over the same rect**: one of each, so ~29.5 clocks a byte against 12.5, plus one extra Sequencer write pair and one extra teardown `out` |
+| bytes | **measured, and it is `.cold` rather than `.text`**: the body is `%ifdef KERN_BIG` in `.cold` (§2.6) and only the two new `.bss` words are in the image rung |
+
+**The budget was the image rung's headroom and it was 127 bytes**
+(`tools/kernsize.py`: `image 57,344 +512 (127 left)`), because a crossing is
+512 bytes of every machine's RAM and CLAUDE.md makes that a decision taken
+with whoever asked for the feature rather than a build fix. **It fits, and no
+rung is crossed:**
+
+| section | before | after | |
+|---|---|---|---|
+| `.cold` | 37,667 | **37,734** | +67; the cold rung's headroom 221 → **154** |
+| `.bss` | 6,138 | **6,141** | +3; the image rung's headroom 127 → **124** |
+
+**It is under a hundred bytes because lifting the refusal removes more than it
+adds.** `.penno`'s four bytes go, and so does `.penref` — the eleven-instruction
+unwind §5.4.2.4 had to build when the pen moved *below* the nine banking
+pushes, which had to pop all nine and undo the display nest before its `stc`.
+`.pen` has exactly one answer now, so its `clc` goes with them and the caller
+stops testing it. What is added is the split arm in `.pen` (30 bytes), the Map
+Mask arming beside the two `GC` writes (23), the second pass at `.emitted`
+(29), the teardown's second `out` (14), and two words of frame.
+
+**Two starts are banked at the head of the frame** — `[bp+14]` the band's
+first byte and `[bp+12]` its first framebuffer byte — because neither is
+recoverable from where pass 1 leaves them: `SI` advances by a stride a row and
+`DI` by a `rowadd` plus whatever the wrap fix added. `[bp+12]` is pushed as a
+PLACEHOLDER (`push ax`) and filled in forty lines later, because `DI` is not
+computed until after `mov bp, sp`; `mov sp, bp` / `add sp, 16` discards both
+with the frame. The row count comes back out of `DH`, which is free through
+both emit loops and which a band of at most 255 rows fits in one byte.
+
+**And the framebuffer segment goes through `CX` rather than `BX` now**, because
+`BL` carries pass 2's Map Mask across the whole emit — `BX` is the one register
+neither loop touches. `CX` is dead at that point (it held `x/8` for
+`gfx_rowbase`) and both loops reload it from the frame.
+
+`tools/stkbalance.py` is why the two starts are at `[bp+14]`/`[bp+12]` rather
+than below `BP`: pushing them after `mov bp, sp` and reading them at `[bp-2]`
+left `add sp, 12` reachable at two different depths, which the gate reports as
+an unbalanced path. Inside the frame the arithmetic stays even and the teardown
+is one changed constant.
+
+**The 1bpp arm is untouched.** One plane has nothing to split, the pen is not
+read there at all (§5.4.2.2), and neither the Map Mask nor Set/Reset exists on
+a Hercules or a CGA. `[vid_mono]` is tested before any of this, exactly as it
+was.
 
 #### 5.4.2.3 …and the odd row it could not emit, latent since the pen landed
 
@@ -30418,9 +30543,18 @@ Four things about the convention:
   from the root, matching `type == OSAPI_FT_DIR` — the folder is an ordinary
   visible directory, unlike the system *files* inside it (§19.6).
 
-Cyclone (§67.20) is the first consumer and, at the time of writing, the only
-one: Note Pad, Paint, TeXPad and Word write **documents**, which are the user's
-and belong exactly where the user put them.
+Cyclone (§67.20) is the first consumer: Note Pad, Paint, TeXPad and Word write
+**documents**, which are the user's and belong exactly where the user put them.
+FTPD's `FTPD.CFG` (§77) is the second.
+
+**`WIRE.CFG` is the third, and it is the first that is only ever READ** (§92.4).
+One line, `host[:port][/prefix/]`, naming where the Wire fetches its catalog;
+absent — which is what every shipped disk carries — the package uses
+`os8088.com:80/wire/` and says nothing. That is `19.9`'s tolerate-the-missing-
+folder rule with nothing to tolerate: the default is the shipping
+configuration, and the file exists so that a gate can point one machine at a
+host server (`make thewiretest`) and a user can point theirs at a mirror.
+Nothing on the machine writes it.
 ### 19.10 `apps-all.img` — one floppy with everything, and why it is on demand
 
 The shipped apps floppy is built in four geometries (§19) and carries the
@@ -31500,8 +31634,22 @@ Two teardown corollaries, both about not trading a crash for a leak:
    `osapi_set_color`, `font_*`, `wm_content`, `wm_obscured`,
    `wm_clip_set`/`wm_clip_clear`, `osapi_video`,
    `osapi_get_ticks`, `osapi_mouse`, `osapi_srand`/`osapi_rand`,
-   `task_sleep`, `task_yield`, `OSAPI_WM_WAKE`, `OSAPI_TASK_ALIVE` and
+   `task_sleep`, `task_yield`, `OSAPI_WM_WAKE`, `OSAPI_TASK_ALIVE`,
+   `osapi_snd_tone`/`osapi_snd_caps` and
    `wm_saveu`.
+   **`osapi_snd_tone` was missing from this list too, and is missing for the
+   same reason `OSAPI_WM_WAKE` was.** `apps/os88api.inc` already names it
+   among what a worker may call and spends five lines saying it is
+   *"worker-safe by construction, not by luck"*; `snd_tone_req` is one
+   `pushf`/`cli` … `popf` and takes neither `sch_lock` nor the gfx lock, and
+   `snd_req_inst` bills the tone to the calling task's own instance. Telnet's
+   parser is what found it: §70.9.2's BEL runs on the worker, through
+   `te_step` → `te_feed` → `te_byte` → `te_pbyte` → `te_ground` → `te_control`
+   → `te_bell`, and a board sends BEL. §53 is clear that the call is legal
+   inside an exclusive bracket as well — §53.1's last bullet contemplates
+   sound grants taken there and §53.2 keeps `snd_tick` running — which is
+   what makes it right for Telnet's full-screen renderer too. It is
+   `osapi_snd_play` that is out, and the paragraph below already says why.
    **`OSAPI_WM_WAKE` was missing from this list and is not new** — its
    own cell has said "any context — ISR-safe and worker-safe, no lock
    needed" since it was written (§74.1), and it is the carrier of the
@@ -33384,6 +33532,152 @@ double-click that selected the row and did **nothing at all** — no window, no
 error, no notice, and five sectors of I/O where a load is three hundred. An
 undocumented register contract at a jump target is exactly the difference
 that survives a build and a review.
+
+### 21.5 `OSAPI_PKG_RUN` — the loader's back half, with the read replaced by a copy
+
+Everything in this system launches a package by naming a FILE. The Wire
+(§26.7, docs/WIRE-PLAN.md) fetches a `.O88` over the network into a heap
+claim and has no file to name, so `Load Program` needs a way in that the
+loader did not have. Slot **`KERNEL_SEG:0x04F8`**, the 158th:
+
+```
+OSAPI_PKG_RUN   KERNEL_SEG:0x04F8
+  in   ES:SI  = a package image, byte for byte what the .O88 file holds,
+                in a claim of YOURS. ANY segment - it is COPIED into a region
+                of the kernel's own, never adopted, so the caller may free
+                its claim the moment this returns
+       DX:CX  = its length in bytes, DX the high word
+       DI     = a NUL-terminated 8.3 name, at most 12 characters, in the
+                CALLING INSTANCE's segment - what the new instance is told
+                it was launched from (step 1b's [ld_lname], and the entry
+                proc's SI, §20.2)
+  out  CF = 0, AX = 0: registered, published and its window shown, exactly
+                as a Disk-window double-click leaves one
+       CF = 1, AL = LD_* (§21.4): LD_EBAD a header ld_check_hdr refuses, or
+                flags bit 2 set; LD_EBIG over APP_MAX_SIZE; LD_ENOMEM no
+                region or no instance record; LD_EABORT the entry declined
+```
+
+**`DI` is read through the CALLING INSTANCE's segment and not through ES**,
+and the two really are different: the image is in a claim and the name is in
+the package's own data. `inst_caller` is the published way to ask who is
+calling (§19.2.1) and `I_SPTR` is that instance's segment; a call from kernel
+context answers `0xFF` and the name is then read through `KERNEL_SEG`, which
+is the only segment there is to read it through.
+
+**It is a plain `OSAPI_SLOT` and not an X cell.** ES is an *argument* here,
+and an X stub overwrites ES with the caller's DS (§20.3) — the one segment the
+image is least likely to be in.
+
+**Context: UI TASK ONLY, gfx lock NOT held** — a window callback or an
+`OSAPI_WM_ONWAKE` handler. That is `loader_run`'s own context and for its
+reasons: step 9 takes the lock itself around `wm_show`, and step 8 runs the
+package's entry proc, which creates windows and may draw. `ui_task`'s ladder
+calls `loader_run_x` with the lock free at its `.chk_ld` step, and both
+callback kinds are entered with it released.
+
+**A package carrying PARTS is refused** (header flags bit 2, §20.12): parts
+are read by the package out of its OWN FILE and there is none here. The test
+is `LD_EBAD` and it is asked **before** `ld_check_hdr`, which allows the bit.
+
+#### The split, which is what makes the slot 159 bytes and not a second loader
+
+`ld_run_body_x` gave up two routines, both entered by the disk path exactly
+where they used to be inline:
+
+- **`ld_alloc`** — steps 4 and 5: `roundup512(img + bss)`, `inst_alloc`,
+  `mem_bytes_kb`, `ld_slot`, `mem_claim_hi`. Out `CF = 0` with `[ld_rec]`,
+  `[ld_base]` and `[ld_need]` filled, or `CF = 1` with `AL = LD_ENOMEM`. The
+  one line that is new is a `clc`: `shl ax, cl` writes CF and used to fall
+  through into a caller that never looked at it.
+- **`ld_start`** — steps 7, 8 and 9: zero the bss, call the entry proc through
+  the dispatcher in the package's own header, register and publish the
+  instance and show its window; `.abort` and its `ld_unreserve` sweep come
+  with it. In `ES` = the region, out `AL` = `LD_OK` or `LD_EABORT`.
+
+The disk path is then `ld_check_hdr` → `ld_alloc` → **step 6, the file read
+and the disk-swap re-check** → `ld_start`, and the slot is `ld_check_hdr` →
+`ld_alloc` → **a far `rep movsb`** → `ld_start`. Nothing about the arithmetic,
+the fences or the entry contract moved.
+
+**No disk-swap re-check on the memory path**, and it is not an omission: the
+bytes came out of memory the caller owns and `ld_check_hdr` read *those very
+bytes*, so there is nothing that could have been swapped underneath them. The
+copy count is `[ld_img]` and not the file length, which `ld_check_hdr` has
+just proved equal — parts being refused above.
+
+**The source is banked in `[ld_msrc]`** (offset, then segment) rather than
+kept in `ES:SI`, because `ld_alloc`'s chain reaches `mem_compact` and a
+package's relocation procs and no register survives that by contract.
+
+#### 21.5.1 The copy reads every kernel word BEFORE it moves DS
+
+`[ld_msrc]` is a kernel `.bss` offset and the copy needs it in SI, so the
+order of two instructions is the whole of this section:
+
+```
+    mov si, [ld_msrc]           ; through the KERNEL's DS, while it is still
+    push ds                     ; the kernel's
+    mov ds, [ld_msrc+2]         ; ...and only now the source segment
+    rep movsb
+```
+
+Written the other way round — the `mov ds` first — the `mov si` reads
+`[ld_msrc]` **out of the caller's segment**, at a kernel `.bss` offset that
+means nothing there, and the copy then runs from `caller:<whatever is there>`
+instead of `caller:<the image>`. Nothing refuses it: `ld_check_hdr` ran BEFORE
+the copy, on the bytes the caller actually named, so the header was valid; the
+region is filled with something else; and step 8 far-calls a `PKG_DISP` that
+is not a dispatcher. The machine ends at **CS=0000 IP=0003, executing the
+interrupt vector table**, and one run painted a third of the framebuffer.
+
+**It was intermittent, and that is what made it expensive.** `ld_msrc`'s
+offset is past the end of a small package's image and bss, so the stray read
+lands in whatever the HEAP has next to the caller's region — and the same
+fixture on the same build wedged or worked according to whether a Disk window
+was open, because a listing claim is what sits there. Six runs differing only
+in what had happened before the call: nothing, works; a dialog opened and
+cancelled, works; a Disk window opened and closed, works; a Disk window left
+open, wedge. That reads as a heap defect, and it was two instructions in the
+wrong order.
+
+**The gate that missed it and the gate that catches it.** `tests/pkgrun.py`
+passed throughout, because its test package handed the slot `SI = 0` — so an
+implementation that lost the offset entirely still copied from the right
+place. It now stages the image at `PR_OFF` = 64 bytes into its claim, behind
+64 bytes of poison, and the host compares the RUNNING INSTANCE's region
+against `build/hello.o88` byte for byte. An instance existing only says the
+slot returned. With the fix reverted, the row fails on the first call and the
+machine never comes back.
+
+**The new instance's current directory is the CALLER's** at the time of the
+call (§19.2.1), so a package with an overlay or sidecars run this way looks
+for them where the caller is standing and refuses cleanly. The Wire never
+offers `Load Program` for one.
+
+**The slot is in BOTH kernels, body included** — a slot that exists in one
+build and not another is an ABI that depends on a knob (§20.8 rule 4), which
+is `wm_noanim`'s own precedent. `kern_small` has no Wire and no caller for it,
+and it assembles and answers there like anywhere else.
+
+**What it cost, measured** (`tools/kernsize.py` either side, `kern_big`, on
+top of §26.7's):
+
+| | before | after | |
+|---|---:|---:|---|
+| `.text` | 51,061 | 51,079 | **+18** (the table cell, the resident thunk, `cw_inst_caller`) |
+| `.bss` | 6,134 | 6,138 | **+4** (`[ld_msrc]`) |
+| `.cold` | 37,485 | 37,622 | **+137** |
+
+**159 bytes**, 137 of them `.cold` — 9 over docs/WIRE-PLAN.md §3's 150-byte
+budget, and **taken as it stands rather than contorted**: the 18 in `.text` are
+the three things that cannot be cold — the table cell, the resident thunk every
+cold body needs, and `cw_inst_caller` — so the cold half alone is inside 150
+and the target was a target.
+The measurement is taken on top of §26.7's, which is why the `before` column
+is not the pristine tree's; against that tree the two together are `.text`
++86, `.cold` +312, `.bss` +71. §26.7's own split is that total less this
+one, which was measured on its own before the zone was rewritten.
 
 ## 22. files.inc — the Disk window (file manager)
 
@@ -36813,13 +37107,24 @@ paths exist for, and it is the first and so far only shipped use of them.
 
 ### 24.3 CORE PACKAGES — six programs ride the system disk too
 
-Six packages are **core**: `NOTEPAD.O88`, `CALC.O88`, `PAINT.O88`,
+Six packages are **core**: `NOTEPAD.O88`, `FONTVIEW.O88`, `PAINT.O88`,
 `BROWSER.O88`, `TELNET.O88` and `MINES.O88`. They ship on the three shipped
 **system** disks in addition to the apps disks, each in the folder it already
 occupies over there — `APPS/` for the first five, `GAMES/` for Mines. **A
-second copy, never a move:** the apps disks carry every package there is
-exactly as before, and a single-floppy machine that swaps to the apps disk
-(§28.1) finds everything where it was.
+second copy, never a move:** the roomier apps disks carry every package there
+is exactly as before. The 360 KB pair has one capacity exception: Font Viewer
+stays on the system disk beside its fonts instead of being duplicated onto the
+apps disk (§90).
+
+**`THEWIRE.O88` is on the system disks too and is NOT one of the six.** It is
+a `SYSAPPS` package like `TASKMGR.O88` — it lives in `SYSTEM/`, it is launched
+by name by the kernel rather than found in a folder, and it is on **all four**
+geometries where the core six are on three. The reason is the one this section
+already gives for Browser and Telnet, taken one step: a network machine's
+system disk carries the driver, so it should carry the program that turns the
+driver into software you do not have. It is the *only* copy — there is no
+Wire on the apps disk, because a program whose whole subject is fetching
+software off the network belongs on the disk the machine booted from.
 
 **Entirely build-side. Not one line of the kernel changed for it**, and none
 had to — every mechanism it leans on already existed and already covers "some
@@ -36833,9 +37138,12 @@ it off the system disk (§72.9, §62) — so that disk already carries the
 machine's whole ability to talk to something. Carrying the driver and not the
 two programs that use it is a machine whose link is configured and which has
 nothing on the disk in the drive that can speak over it: working, and
-indistinguishable from broken. Telnet is 4KB and Browser 14KB against the
-360KB disk's 60 free clusters, which is what makes the pair affordable where
-Tracker's 30KB and the module it exists to play are not.
+indistinguishable from broken. Telnet is 4KB and Browser 14KB against what the
+360KB disk had free, which is what makes the pair affordable where Tracker's
+30KB and the module it exists to play are not. (That figure was **60 free
+clusters** here for two releases and was stale the day it was written: it
+described the disk *before* those two went on it. §92.11 measures it rather
+than remembering it.)
 
 **`CORE_TOOLS` / `CORE_GAMES` in the Makefile are the list**, defined up
 beside `DRIVERS` and `SYSAPPS` rather than down with `APPS_TOOLS`, for a
@@ -36851,7 +37159,7 @@ rather than remembered.
 
 **1. The machine boots with something on it to run.** A one-floppy machine
 had to eject the disk it just started from before it could open anything at
-all. Note Pad, Calculator, Paint, Browser, Telnet and Mines are now already
+all. Note Pad, Font Viewer, Paint, Browser, Telnet and Mines are now already
 in the drive.
 
 **2. The associations come up warm, pointing at the system disk.** This is
@@ -36917,8 +37225,8 @@ than any six:
   the system disk used to answer `This document opens with NOTEPAD.O88 - not
   on this disk`, and now opens Note Pad on it.
 
-Calculator, Telnet and Mines have no associated extension and are here for
-reason 1 alone. Their `ASSOC.DAT` rows are icon-cache rows (§54.7), which is
+Telnet and Mines have no associated extension and are here for reason 1
+alone. Their `ASSOC.DAT` rows are icon-cache rows (§54.7), which is
 not nothing: they are what makes `APPS/` and `GAMES/` on the system disk open
 without a header read per package.
 
@@ -36961,6 +37269,142 @@ The **three shipped system images and nothing else** — `SYSDOC`/`SYSLOGO`'s
 scoping (§63) and for the same reason. `make field`'s narrow disks and the
 bench disks are 360KB volumes whose free clusters are the *measurement*, and
 `make combo` already carries every package there is.
+
+#### 24.3.1 The 360KB disks ran out, and TELNET is what stays
+
+**The SYSTEM-disk half of this is superseded by §24.3.1.1** — the Wire changed
+the test, and `PAINT.O88` is what leaves that geometry now, with the game and
+the three faces back on it. The history below stands as it was written,
+because the arithmetic in it is what the decision was taken against.
+
+*"The figure the next thing proposed for this disk has to argue against"* was
+79 clusters narrowing to 60, and §70.9's ANSI-BBS parser is the next thing.
+`TELNET.O88` goes from **7,052 bytes to 10,235** — 7 clusters to 10 — and both
+360KB disks refused the image outright:
+
+| the 360KB disk | in use | free | wave 3 needs |
+|---|---|---|---|
+| system, before | 352 of 354 | 2 | **355** |
+| apps, before | **354 of 354** | **0** | **357** |
+
+The apps disk was not tight, it was **exactly full**, and had been since before
+this wave — which is a thing nobody could see, because a disk that fits reports
+nothing. The parser was cut by 400 bytes first (§70.9.7) and that closed one of
+the four clusters; the other three came off the disks, and **on that geometry
+alone**:
+
+| | what comes off | clusters | after |
+|---|---|---|---|
+| system | `MINES.O88`, `JETBRAIN.F88` | 2 + 2 | **350 of 354, 4 free** |
+| apps | `MODPLUG.O88` | 19 | **338 of 354, 16 free** |
+
+**TELNET STAYS, and the XT is the machine this section's argument is about.**
+A network machine's system disk carries the driver, so it should carry the
+programs that use it, and a 360KB machine is precisely the one with no other
+floppy to swap in. What gives way instead is chosen on the same test:
+
+* **`MINES.O88` is a second copy of a GAME.** The argument above for the core
+  six is about programs the boot disk's own drivers make useful — Browser and
+  Telnet are, and a game is not. It is untouched on the 720KB, 1.44MB and
+  1.2MB system disks and on every apps disk.
+* **`JETBRAIN.F88` is one of TEN faces and the largest** (1,688 bytes, with
+  `COURIER.F88`). Nothing names it: `apps/browser` names `times` and
+  `apps/sheet` names `Helv`, and Sheet is on no system disk at all. That
+  geometry still carries `INCONSOL.F88` and `ROBOMONO.F88`, so it loses one
+  monospace family and not the monospace shape. `license.txt` stays: it
+  travels with the faces that are there (§6.4.1).
+* **`MODPLUG.O88` is §24.4's own argument one step on.** That section already
+  moved `BEVERLY.MOD` off this geometry onto a media disk of its own, so at
+  360KB alone the MOD player ships beside no module to play. `TRACKER.O88`
+  stays, because Tracker is an editor as well as a player and can make a
+  module out of nothing — a player with nothing to play is the redundancy on a
+  disk with no room.
+
+**Nineteen clusters for a need of three is deliberate.** This geometry has
+been at zero free twice now, and §70.11's Zmodem receiver grows `TELNET.O88`
+again by about two clusters on both disks; the four and sixteen above are what
+that is budgeted out of. A disk that is exactly full is a disk the next byte
+breaks, and the breakage lands on whoever is holding it.
+
+**IT WAS FOUR CLUSTERS AND NOT TWO, so one more typeface came off.** §70.11's
+receiver takes `TELNET.O88` from **10,235 to 15,079** — 10 clusters to 15 —
+which is exactly the four the system disk had, leaving it at **354 of 354**:
+full, not tight, which is the state the paragraph above says is the dangerous
+one. So `COURIER.F88` goes with `JETBRAIN.F88`, on the same test and with the
+same words: it is the OTHER 1,688-byte face, it is the THIRD monospace on a
+disk that keeps `INCONSOL.F88` and `ROBOMONO.F88`, and nothing on this disk
+names it. The two places in the tree that write "Courier" are
+`apps/texpad/tpexport.inc` and `apps/word/wdrtf.inc`, and both mean a
+PostScript or RTF font name in a file they are exporting rather than a typeface
+they load — and neither package is on a system disk.
+
+**AND `TALLX.F88` WITH IT, WHICH IS THE THIRD USE AND THE LAST.** The receiver
+crossed fourteen clusters, and shaving a package to fit a cluster boundary is
+not a saving — it is a handful of bytes of headroom handed to the next editor
+with no warning, and the w4 review's fix pass then spent 546 of them on the
+divide guard, the drain and the two staging arms. So the cluster comes off the
+disk.
+TallX is a DISPLAY face and the smallest of the ten (1,118 bytes), nothing
+names it either, and this geometry keeps `ARCHIVO`, `CHARTER`, `HELV`,
+`INCONSOL`, `NOTO`, `ROBOMONO` and `TIMES` — seven of ten, both monospaces, and
+the two the shipped packages ask for by name.
+
+| | what comes off | clusters | after |
+|---|---|---|---|
+| system, after §70.11 | `COURIER.F88` and `TALLX.F88` | 2 + 2 | **351 of 354, 3 free** |
+| apps, after §70.11 | (nothing more) | — | **343 of 354, 11 free** |
+
+**THE ARGUMENT IS NOW SPENT.** It has been used three times in two waves and
+there is no fourth face on this disk that nothing names: what is left is the
+seven a Font menu needs to be worth opening. The sixteen clusters `MODPLUG.O88`
+bought have absorbed the whole of Telnet's growth on the apps disk, and the
+system disk has given up a game and three typefaces. **The next feature that
+grows anything on the 360KB system disk gives up something ELSE** — a core
+package, the manual, the logo — and that is a decision for whoever asks for the
+feature rather than another row in this list.
+
+**A `filter-out` and not a second list**, which is the opposite of
+`SMALLOMIT`'s shape and right for the opposite reason: `kern_small`'s list says
+what CANNOT run there and must not gain a row by accident, where these say what
+a full machine is doing without for want of two kilobytes. A package added to
+`COREAPPS` tomorrow SHOULD land on this disk and be refused by `os88disk.py` if
+it does not fit, which is the failure everybody wants.
+
+#### 24.3.1.1 The Wire changes the test, and PAINT is what leaves
+
+Everything above chose what gives way on the test *"is it named by anything
+on this disk"*. **§88 supplies a better one: can the machine get it BACK.**
+The Wire's catalog carries every core package — Paint, Notepad, Calc, Browser,
+Telnet and Mines among its 33 programs — and **no typeface at all**: a face is
+loaded off the disk that carries it or not at all. So the three faces above
+were the one thing that geometry could never recover, and the game was one
+double-click away the whole time.
+
+On that test the thing to leave is the LARGEST package the Wire can give back,
+and by a distance it is `PAINT.O88` — **27 clusters**, against 18 for
+`NOTEPAD.O88`, 15 for `BROWSER.O88` and 7 for `CALC.O88`. A network machine's
+system disk still carries the programs that use its driver (Browser, Telnet,
+The Wire itself); what it gives up is the one core package that is neither
+network software nor irreplaceable, and is the Wire's own featured program.
+
+| the 360KB system disk | clusters |
+|---|---|
+| after §24.3.1, with `MINES`, `JETBRAIN`, `COURIER`, `TALLX` off | 351 of 354, 3 free |
+| those four back on | +8 → 359 |
+| `PAINT.O88` off | −27 → **333 of 354, 21 free** (measured: the directory grows a cluster with the files) |
+
+`SYS360OMIT` is that one file now. `PAINT.O88` stays on the 720KB, 1.44MB and
+1.2MB system disks and on every apps disk, and `tests/thewire.py`'s and
+`tests/ethernet.py`'s 360KB gate disks (`ether360.img`, `thewire360.img`) take
+the same list. The apps-disk half of §24.3.1 is unchanged: `MODPLUG.O88` is
+still off the 360KB apps disk, for §24.4's reason, which the Wire does not
+alter — that disk is the one a 360KB machine swaps IN, and the module it would
+play is not on it.
+
+**The user chose this, against the recommendation the two waves had made**,
+and the reason is worth keeping: a removal list argued from *"nothing names
+it"* removes the things nobody will miss until they do, where one argued from
+*"the Wire has it"* removes the things anybody can put back.
 
 ### 24.4 The MEDIA DISK — a third shipped disk, at 360KB alone
 
@@ -37831,6 +38275,212 @@ desktop repaint and on every selection change. The caption is a `font_run` now.
 against an 8-px cell, so the run cannot be the erase for it; §22.11.3's rule.
 What the run buys is the cells, and that the caption is never momentarily
 missing from a rect that has just been whitened.
+
+### 26.7 A driver-registered desktop SERVICE zone, and the kernel keeps no glyph
+
+Every desktop zone in this OS is a row of `dsk_vtab` (§26.1). The Wire
+(docs/WIRE-PLAN.md) needs one that is not a disk: double-clicking it opens
+`SYSTEM/THEWIRE.O88`, the online software library. A package cannot put an
+icon on the desktop and `OSAPI_VOL_ADD` is fenced to drivers, so this is
+kernel code — but **the kernel learns nothing about the Wire**, and that is
+the design rather than a nicety. Most XTs have no network card. A desktop
+icon whose glyph, caption and launch name sat in every kernel would be
+carried in RAM by every machine that can never use it, and this OS's own
+budget is measured in single-figure bytes per rung.
+
+So the kernel gains one small GENERIC mechanism: **a desktop zone a DRIVER
+registers**, whose picture the driver draws. `ETHER.DRV` and `NET.DRV`
+register the Wire's out of the shared `drivers/wirezone.inc`. No driver, no
+zone, and the only thing a cardless machine pays at runtime is one compare in
+`desk_svflag`.
+
+#### `OSAPI_DESK_SVC` — slot `KERNEL_SEG:0x0500`
+
+```
+  in   AL    = 1 add / 0 withdraw
+       ES:SI = (add) a 65-byte record in the DRIVER's own segment:
+               +0  12  caption, NUL (<= 11 chars; 'Wire')
+               +12 13  the 8.3 file the zone launches, from the BOOT
+                       volume's SYSTEM/ ('THEWIRE.O88')
+               +25  1  the driver's DRVC_* class
+               +26  1  the verb the kernel calls to PAINT the icon
+               +27 12  the package's HEADER name, NUL ('The Wire')
+               +39 26  the failure notice's lead ('Cannot open Wire:')
+  out  CF = 1 refused: not a published driver, a SECOND registration, or a
+              withdraw of somebody else's zone
+```
+
+An **X cell**, so the caller's segment arrives in ES — which is both where
+the record is and what the fence tests. **The fence is `osapi_vol_fence`,
+unchanged and shared** (§51.8): the caller's segment must be the segment of a
+driver whose services are published. A package gets CF=1 and nothing else,
+for `OSAPI_VOL_ADD`'s reason — the kernel is about to far-call this segment
+on every desktop repaint.
+
+**ONE record, stated as the limit.** A second registration is refused; whoever
+attaches first has the zone, and on a machine with both network drivers loaded
+they reach the same Wire either way. Room for more is a count and a table, and
+nothing has asked for one.
+
+**The strings are copied, once, at registration**, into a `.bss` mirror laid
+out in the record's own order so the copy is one `rep movsb`. Keeping seg:off
+and reading them far at each use is the obvious alternative and it is worse:
+`font_run` and `ld_run_name` both take an SI relative to DS, and **SS is not
+DS on this system** (§1 rule 2), so a caption staged on the stack is
+unreachable by either and every site would need a kernel buffer anyway. The
+caption's terminator is forced here because it is the one field drawn on every
+repaint — without a NUL it letters the rest of `.bss` across the desktop for
+ever. The other three are used once each and the driver is trusted about them
+exactly as it is about the offsets in its own DSV table, which the kernel
+far-calls without looking.
+
+**The lead line is the driver's, not the kernel's.** `Cannot open Wire:` names
+the driver's own program; a kernel that composed it would carry both the words
+and the composer on every machine. That one decision is 47 bytes of `.text`
+and `.cold` that a cardless machine does not pay.
+
+#### The zone itself
+
+`DESK_SVZ` = `DVOL_MAX`, one past the last volume row, so `desk_ord` answers
+"the number of volume zones shown" for it and it lands at the end of §26.1's
+column flow. Every other routine in `desk.inc` is asked about an INDEX and
+never about a drive, so the zone selects, highlights, repaints under a dragged
+window and wraps into the next column exactly as a disk does. Five routines
+carry a one-compare arm — `desk_zflag` (→ `desk_svflag`), `desk_ord`,
+`desk_zone_label`, `desk_draw_zone`, `desk_click` — and `desk_zones_dmg` gains
+one `inc`, because the zone sits one ordinal past the last volume and
+therefore MOVES whenever one is mounted.
+
+**Two conditions make it visible**: a driver has registered one
+(`[desk_svc_seg]` is its segment, and 0 is the whole of what a machine without
+such a driver tests), and fewer than `DVOL_MAX` volumes have zones. It is not
+shown when eight volumes are — a fact rather than a crash: it is a desktop
+SERVICE and a machine with `DVOL_MAX` mounted volumes has said what it wants
+the right-hand edge for.
+
+**Painting calls the driver back.** `desk_draw_zone` reaches `drv_pkg_call`
+with `BH` = the record's class, `BL` = its verb and `CX,DX` = the icon's
+top-left, under `desk_paint`'s own gfx lock — the same door a package reaches
+a driver by (§20.11), so the kernel gains no drawing contract it would then
+owe for ever. The refusal is free and correct: `drv_pkg_call` answers CF=1 /
+AX=0 when no driver of that class is published, so a driver that vanished
+without withdrawing draws nothing rather than far-calling a freed image. The
+kernel then letters the caption itself, white rect hugging it, exactly as a
+volume's (§26.4).
+
+**The paint verb must not touch the driver's hardware.** A desktop repaint can
+land while another task is inside one of the driver's other verbs, so both
+drivers answer it above their own claim, where `NETV_IDENT` is answered and for
+the same reason.
+
+**Double-click** → `ui_svc_open`, which is `ui_tm_open` (§28.3) with a
+different descriptor (§28.3.2): a running instance whose header name matches
+the record's is fronted with `inst_restore`, otherwise the boot volume is
+quiet-mounted, the loader is given the record's file inside `SYSTEM/`, and the
+user's volume and folder go back. A failure raises the kernel's one-line
+notice with the record's lead and the `LD_*` reason. `desk_click` is `.cold`
+and `ui_sys_open` is not, so it goes out through `cw_ui_svc_open` — with **no
+gfx lock held**, which is that routine's contract and why the deselect and its
+redraw happen inside their own lock hold first.
+
+**The repaint on both edges is `desk_zmark`'s** (§26.3), and the withdraw's is
+the interesting one: it marks while the zone is still counted and then adds one
+more to `[desk_zhw]`, because `desk_zones_dmg`'s own `+1` for this zone is
+gated on the segment the withdraw has just cleared and the stale pixels are at
+the ordinal past the last volume.
+
+**The damage mask is a WORD.** It was one byte and `DVOL_MAX` = 8 sat exactly
+at that limit, so zone index 8 had **no bit under any volume count** — the
+eight-volume rule does not rescue it, because the volumes that ARE shown keep
+their own indices whatever their number. A bit that does not fit is a zone
+`desk_paint_x` still draws and every damage-driven path silently stops
+repainting. `[wm_dmg_zn]` is a `dw`, `desk_dmg_zones` answers in AX and
+`desk_paint_mask` shifts DX: **two bytes**, because `mov [mem],ax` and
+`mov ax,[mem]` are the same length as their byte forms.
+
+**`kern_small` leaves the species out** (`%ifndef KERN_SMALL`) — it has no
+driver that would register one. **The CELL is in both kernels** and refuses in
+two instructions there, because a slot that exists in one build and not another
+is an ABI that depends on a knob (§20.8 rule 4, `wm_noanim`'s precedent).
+
+#### What it cost, measured
+
+`tools/kernsize.py` either side, `kern_big`:
+
+| | before | after | |
+|---|---:|---:|---|
+| `.text` | 50,993 | 51,061 | **+68** |
+| `.cold` | 37,310 | 37,485 | **+175** |
+| `.bss` | 6,067 | 6,134 | **+67** |
+
+**243 bytes of `.text` + `.cold`, and 67 of `.bss`** — 43 over
+docs/WIRE-PLAN.md §2's 200-byte budget, and the overrun is named rather than
+absorbed. The slot's own body is about 95 of it: a fence call, a 65-byte
+`rep movsb`, the caption's terminator, `desk_zmark` on both edges and a
+withdraw that checks it is yours. The zone's five arms are about 75. The rest
+is the API cell, two `cw_` shims and the descriptor. The three things that
+could close the gap are all fences or guards — the withdraw's identity check,
+the caption's terminator, the damage rect's gate — and none of them is worth
+43 bytes.
+
+The `.bss` is the record's mirror plus the two words that find it, and it is
+the price of the strings being the driver's: the kernel holds a copy because
+nothing it hands them to can read the driver's segment.
+
+**What a machine with no such driver pays**: those 243 + 67 bytes, and at
+runtime one `cmp word [desk_svc_seg], 0` per zone test. It carries no glyph,
+no caption, no file name and no lead line.
+
+### 26.7.1 The picture is the driver's: `drivers/wirezone.inc`
+
+A reel of cable, side on, with a cord and a two-prong plug — 32 rows for
+VGA/EGA/Hercules and 14 for the CGA, drawn and not squashed (§26.4: the CGA's
+pixels are 2.4:1 tall, and OR-ing row pairs thickens every 1px feature into
+two). Black outline on a white body, the diskette's own mask/data convention.
+
+**Solid black masses, not a 1px outline**, and that is the difference between
+this and the first two drafts of it. Against the desktop's 50% dither a thin
+outline over a white silhouette reads as a pale BLOCK; the third draft stood
+the flanges two rows proud of the drum, which is what makes it a reel rather
+than a framed grille.
+
+```
+  ..######................######..   1.. 2  flange caps
+  ..############################..   3      the drum's top edge
+  ..######.#..#..#..#..#..######..   4..12  ...and the cable wound on it
+  ..############################..  13      the drum's bottom edge
+  ..######................######..  14..15  flange caps
+  ..............####..............  16..19  the cord
+  ...........##########...........  20      the plug's shoulder
+  ........################........  21..25  ...its body
+  ...........###....###...........  26..30  ...and its two prongs
+```
+
+**It is drawn as four 16×16 quadrants through `OSAPI_ICON_DRAW`**, two for the
+short form. That is not a stylistic choice: the slot refuses every record but
+16 px wide and at most 16 rows (§25.6.1 — it stages into a fixed cell and the
+bound is a refusal, not a truncation), and the kernel's own 32-wide icons go
+through `icon_draw_ix`, which is kernel-internal and reachable by no slot.
+Four far calls at ~47 µs is 188 µs on a 4.77 MHz 8088, against the 756 µs any
+one drawing call costs there — inside the noise of the draw it is part of, and
+paid on a desktop repaint and nowhere else.
+
+`drivers/wirezone.inc` is shared by `ETHER.DRV` and `NET.DRV` as **source**,
+never as a copy: `%define WZ_CLASS` before the `%include` is the whole of what
+differs. The include sits high in each file, above every call site, so
+`wz_paint` and `wz_register` are backward references — with it at the foot of
+`net.asm` nasm sized a forward `je` on pass 1 and resized it on pass 2, which
+is `label changed during code generation` on three labels and no build.
+
+**What it cost the two drivers**, and only machines that load one pay it:
+
+| | before | after | |
+|---|---:|---:|---|
+| `ETHER.DRV` | 17,668 | 18,274 | **+606** |
+| `NET.DRV` | 5,832 | 6,437 | **+605** |
+
+380 of those bytes are the six icon records; the rest is the 65-byte
+registration record, the paint verb and the two entry points.
 
 ## 27. HELLO and NOTEPAD — the second and third packages
 
@@ -41255,6 +41905,47 @@ The change made the kernel smaller: `.text` −29, `.cold` −16
 on either guard, `KERN_BUDGET` unmoved. Three resident thunks lost their only
 caller (`disk_mount`, `dsk_find_name`, `ld_run_body` — all three were
 `ui_tm_open`'s alone) and two took their place (`dskw_stat`, `ld_run_name`).
+
+### 28.3.2 `ui_sys_open` — one body, a descriptor per system package
+
+The Wire's desktop zone (§26.7) opens `SYSTEM/THEWIRE.O88` by exactly the
+route above: front the running instance by name, else bank the user's volume
+and folder, quiet-mount the boot volume's root, step into `SYSTEM`,
+`ld_run_name`, put the volume back, and on failure raise `ui_note` with a
+lead line and the `LD_*` reason. That is eighty bytes of sequencing with six
+strings threaded through it, and a second copy of it would drift from this one
+the first time either changed.
+
+So `ui_tm_open` is now a two-instruction entry into `ui_sys_open`, which takes
+`SI` -> a **descriptor**: six words in `.text`, one per surface the routine
+touches.
+
+```
+UO_FILE   dw -> the 8.3 file name, in SYSTEM
+UO_NAME   dw -> the 16-byte header name a running instance carries (§20.2)
+UO_TTL    dw -> the failure notice's title
+UO_LEAD   dw -> ...and its lead line
+UO_ERRS   dw -> six words, indexed by LD_*
+UO_NOFI   dw -> the "not in SYSTEM" reason, which is not an LD_* code
+```
+
+`UO_NOFI` is a field of its own because §21.4 answers `LD_EBAD` both for a
+file that is not a package and for one that is not there, and those are not
+one message to a user; the disambiguation — `dskw_stat` asked on the failure
+path only, still standing in `SYSTEM` — is unchanged and now reads the name to
+ask about out of `UO_FILE`.
+
+`ui_tm_find` is `ui_sys_find`, matching `UO_NAME` instead of a baked
+`ui_s_tmname`; the descriptor pointer lives in `[ui_desc]` for `[ui_tm_cwd]`'s
+reason — this is UI-task-only and one load at a time, and every register in
+the routine is spoken for.
+
+**The two descriptors do not share their reason strings, and the Wire's name
+no file.** The Task Manager's three say `TASKMGR.O88 is not a valid package`
+and so on; the Wire's say `It is not a valid package`. The lead line above
+them already names the program, and the brand is `The Wire` with a desktop
+caption of `Wire` — `THEWIRE.O88 is too large` would be the only place in the
+whole interface where the user is shown the Wire's file name at all.
 
 ### 28.4 The heap page — every claim, grouped under the app that holds it
 
@@ -74530,6 +75221,123 @@ paragraph above the RAM disk's row already took when it reused `DEBUG.DRV`'s
 index: the worst outcome is a driver the user did not ask for, and both of
 those probe nothing that a wrong answer damages.
 
+#### 62.9.16 Two package verbs — `RDPV_STATE` and `RDPV_MOUNT`
+
+Until this section the store was mounted from its Control Panel page and
+nowhere else, and a package could learn nothing about it. The Wire's run-from-
+RAM path (§92.14) needs two answers before it moves a byte: *is there a store,
+and how big could one be*, and *mount one of this size*. Both are
+`OSAPI_DRV_CALL` verbs in `drivers/ramdisk/rdpkg.inc`, §20.11's shape, after
+`RDPV_IDENT` and `RDPV_UPCASE`; `RDPV_MAX` becomes 3 and an older driver
+refuses them with CF = 1 and AX = 0, which a caller reads as "no RAM disk".
+
+```
+RDPV_STATE  = 2   in   nothing
+                  out  CF = 0
+                       AL = the volume index, 0xFF = no store mounted
+                       AH = the location setting, RDL_CONV / RDL_XMS
+                       BX = the store's size in KB (0 when none)
+                       CX = its free KB: free extents x the extent's KB
+                       DX = the largest store RDPV_MOUNT could claim now, KB
+                            (rd_kb_max: OSAPI_MEM_AVAIL's largest run less
+                            the table, or OSAPI_XMEM_CAPS above 1MB, clamped
+                            to RD_MAXKB)
+                       SI = free directory rows (RD_MAXENT less the live ones)
+RDPV_MOUNT  = 3   in   AX = KB wanted; rounded UP to RD_STEPKB
+                  out  CF = 0, AL = the volume index - a store of at least
+                       that size is mounted. A store ALREADY mounted answers
+                       CF = 0 with its index whatever AX said (the caller
+                       has RDPV_STATE for its size); nothing is resized
+                       CF = 1, AL = RDERR_MEM: rd_kb_max is under the size,
+                       and nothing was claimed; or rd_mount's own RDERR_*
+```
+
+**UI-task context only, both of them**: `RDPV_STATE` asks `OSAPI_MEM_AVAIL`
+and `RDPV_MOUNT` registers a volume and paints a desktop zone, neither of
+which §20.6 rule 7 lets a worker near. **`RDPV_MOUNT` sets the live size and
+not the setting**: `[rd_kb]` is what `rd_store_get` reads, and it is written;
+`rd_cfg_mark` is not called, so the size the user chose on the page is what
+the next boot restores. The page shows the live store, as it does for any
+mount. The ceiling on the driver's image is `DRVM_IMG_RAM` in
+`kernel/driver.inc` — 9KB, `t_drvmem` — and these two verbs fit under it.
+
+**As built**: `RAMDISK.DRV` is **8,829 bytes**, from 8,711 — **118 bytes** for
+both verbs and the ladder that reaches them, leaving 387 of headroom under
+`DRVM_IMG_RAM`'s 9,216. That is cheap because neither verb computes anything:
+`RDPV_STATE` is four existing routines read into five registers — `rd_kb_max`,
+`rd_free_ext` × `[rd_extkb]` (the page's own free-space arithmetic, §62.9.10.5),
+`rd_nfiles` — and `RDPV_MOUNT` is a round, a compare against `rd_kb_max` and
+`rd_mount`. The one piece of arithmetic written here is the round UP itself,
+and it refuses a size whose round would **carry** rather than letting it wrap
+to a store that succeeds at `RD_MINKB`. The live size is **banked across
+`rd_mount`** and put back when it refuses, so every failure of this verb —
+`RDERR_MEM` and `rd_mount`'s own alike — leaves the machine as it found it and
+the page still shows the size the user chose.
+
+#### 62.9.17 `OSAPI_FILE_FIND` on a redirected volume
+
+**`dsk_find_x` gains the `DVK_FILE` arm `fcp_scan` already has**, and it is a
+gap rather than a design: §19.7.1's walk was written for FAT sectors and
+`kernel/kernel.asm`'s `api_file_find` has always handed it every volume,
+including one a driver serves. On a redirected volume there are no directory
+sectors, so the first call with `CX` = 0 answered `CF` = 1 and a package could
+`OSAPI_FILE_MKDIR` a folder on a RAM disk and then not ENTER it — the handle
+`OSAPI_FILE_GOTO` and `_GOTO_Q` take comes out of this walk and out of nowhere
+else in the SDK.
+
+It was found by §92.14, whose opening sentence says "the file slots reach it",
+and it is not that section's problem alone: **RunCPM resolves its `A/0` drive
+folders with `os88_file_find`** (§74), so any package that keeps a tree on a
+redirected volume needs this.
+
+```
+dsk_find_x, at the top, where it reads [dsk_cwd]:
+
+    DVK_FILE  -> one FSV_ENUM by ordinal:  AX = [dsk_cwd] (the folder's
+                 handle), CX = the ordinal, DX:BX = dsk_ent, BP = FSV_ENUM
+              -> the driver stages a §19.1 entry into dsk_ent
+              -> join the sector arm's own tail, which copies dsk_ent into
+                 the caller's DSK_FIND_SZ buffer
+    otherwise -> dsk_dirw_start_x and the raw-sector walk, unchanged
+```
+
+**From the caller's side the two arms are the same cell.** The ordinal is
+opaque and dense on both — a raw one counts directory SLOTS and a driver's
+counts live ROWS, and neither is a number a caller may compute; ask for 0, then
+for whatever `CX` comes back as, which is what §19.7.1 already says. The
+buffer's `+16` is the same word `OSAPI_FILE_GOTO` takes for a folder, which on
+a redirected volume is the driver's opaque handle and on a FAT one the first
+cluster — §62.9.1's rule, and the reason `wr_dive`'s FIND-then-GOTO works
+unchanged on both.
+
+**`AX` = 0 from `drv_fs_call` is "the driver does not publish `FSV_ENUM`"**,
+not an error, and it becomes `CF` = 1 with `FERR_NOENT` at once — the same
+answer an empty folder gives, which is what a caller of this cell already
+handles. Any other `AX` is the driver's own `FERR_*` and is passed through.
+A driver that answers `FSV_LIST` and not `FSV_ENUM` therefore lists in the
+Disk window and enumerates as empty here; `RAMDISK.DRV` answers both
+(`rd_enum`, §62.9.7).
+
+**The species filter is the sector arm's and does not apply**: deleted
+entries, the dot links, long-name fragments and the volume label are things a
+FAT directory holds and a driver's row array does not, so the driver's own
+`FSV_ENUM` is the filter. **Hidden and system are the exception** and the
+fence is unchanged — it lives in `api_file_find` above both arms, so a package
+still cannot find a system file on either kind of volume.
+
+**What it costs**: **45 bytes of `.cold`**, which is where `dsk_find_x` lives,
+and nothing at all of `.text` or `.bss` — `tools/kernsize.py` reads 37,622 to
+37,667 and no rung crossed. Four of the forty-five are a `push es`/`push di`
+pair around the driver call, which is not optional: `ES:DI` is the CALLER's
+buffer and §62.9's rule is that a driver's verb owns every register the FSV
+ABI does not reserve. RAMDISK.DRV happens to preserve both and the cable's
+need not.
+
+Per call it is one `drv_fs_call` in place of a directory re-read, and on a
+redirected volume it is strictly the cheaper of the two: §19.7.1's stateless
+re-seek costs the FAT arm a sector walk per entry, where the driver walks its
+own rows in RAM.
+
 ### 62.10 The cable's file client — `NET.DRV` becomes the redirector
 
 §62.9's kernel is finished and proven four milestones deep against a RAM
@@ -82195,23 +83003,41 @@ whose data rate is a *human's typing speed*, so the cable's 3,741 bytes a
 second (PERFORMANCE.md Set 39) is not a compromise here. It is more than the
 application can use.
 
-**A dumb terminal, deliberately.** No cursor addressing, no colour, no scroll
-regions: a printing terminal with a scrolling window, which is what makes a
-BBS, a MUD and a Unix login prompt all readable. Escape sequences are
-**recognised and discarded** rather than acted on, and that is the honest
-choice rather than the lazy one — the failure for a sequence this does not
-implement is *nothing appearing*, where printing it leaves `[2J` in the middle
-of a sentence and looks like a corrupt stream.
+**It was a dumb terminal, deliberately, until §70.8.** No cursor addressing, no
+colour, no scroll regions: a printing terminal with a scrolling window, which
+is what makes a BBS, a MUD and a Unix login prompt all readable. Escape
+sequences were **recognised and discarded** rather than acted on, and that was
+the honest choice rather than the lazy one — the failure for a sequence this
+did not implement is *nothing appearing*, where printing it leaves `[2J` in the
+middle of a sentence and looks like a corrupt stream.
+
+**It is an ANSI-BBS terminal now**, and §70.8 through §70.12 are what that
+means: an 80x25 screen of characters *and attributes* (§70.8), sixteen colours
+windowed on VGA and a pinned polarity rule on the two 1bpp adapters, a
+full-screen text mode that IS the board's own screen rather than a centred
+64-column window onto it, a real ANSI-BBS parser (§70.9) in place of the
+discard, the Telnet options a board expects and the keys a board expects
+(§70.10), and **Zmodem receive** (§70.11) with the file landing on a disk the
+user picks. The discard survives inside §70.9 as the fall-through for a
+sequence still not implemented, which is where it always belonged. Uploads,
+CRC-32, scroll regions and RIPscrip are deferred with their arithmetic in
+docs/TELNET-PLAN.md, which is this work's design record.
 
 ### 70.1 Refusing every Telnet option is a valid implementation
 
-`IAC` introduces a command, `DO`/`WILL` are answered `WONT`/`DONT`, and a
-subnegotiation is swallowed to its `IAC SE`. That is all of RFC 854 this
-needs, and the options worth accepting are the ones this cannot use: `ECHO`
-and `SGA` change what the *host* does rather than what this draws, and `NAWS`
-would have to report a window size the user cannot change — the screen is a
-fixed 64x18 because a terminal that reflows on a resize is one whose host has
-the wrong idea of how wide it is.
+**It was, until §70.10.** `IAC` introduces a command, `DO`/`WILL` are answered
+`WONT`/`DONT`, and a subnegotiation is swallowed to its `IAC SE`. That was all
+of RFC 854 this needed, and the options worth accepting were the ones this
+could not use: `ECHO` and `SGA` change what the *host* does rather than what
+this draws, and `NAWS` would have had to report a window size the user cannot
+change — the screen was a fixed 64x18 because a terminal that reflows on a
+resize is one whose host has the wrong idea of how wide it is.
+
+**What broke it is that a board asks what the terminal is and draws a different
+screen for the answer** (§70.10.1): six options are accepted now — `TTYPE`,
+`NAWS`, `ECHO`, `SGA` and `BINARY` in both directions — and the buffer is
+80x25 always, so `NAWS` reports a size that is a fact rather than a guess. The
+mirror below is unchanged and still governs everything not in that table.
 
 **The reply's sense is the mirror of the question** — a host that says `WILL`
 is told `DONT`, one that asks us to `DO` is told `WONT`. Getting that
@@ -82384,13 +83210,20 @@ rendering, where the windowed terminal spends a glyph cell — PERFORMANCE.md's
 ~900us on the target — on every character. A row change goes from 64 glyph
 cells to a 64-word `rep movsw`.
 
-**The screen is still 64x18 and is CENTRED, not grown to 80x24.** That is a
-decision and not an omission: the buffer is what the host's idea of where a
-line wraps is measured against (§70.5), and a terminal that is 64 columns in a
-window and 80 in full screen would be reflowing at the worst possible moment.
-Growing it to 80 for good is a separate question with a real cost — every
-windowed adapter would then show fewer columns than the screen has — and it is
-not answered here.
+**The screen was still 64x18 and CENTRED, not grown to 80x24, until §70.8.**
+That was a decision and not an omission: the buffer is what the host's idea of
+where a line wraps is measured against (§70.5), and a terminal that is 64
+columns in a window and 80 in full screen would be reflowing at the worst
+possible moment. Growing it to 80 for good was a separate question with a real
+cost — every windowed adapter would then show fewer columns than the screen has
+— and it was not answered here.
+
+**§70.8 answers it: 80x25, and the buffer maps 1:1 onto text VRAM.** The cost
+named above is paid in full and stated there; what buys it is that 80x25 is not
+a size but the board's own screen. The centring, `TET_X0`, `TET_Y0` and the
+full-screen status line are all gone — a board uses row 25 — and §70.8.8
+records the two defects this renderer already had when that work went to read
+it.
 
 **`FSXF_KEEPWORKER` is not optional.** The worker owns the socket (§70.2), so
 a bracket that froze it would freeze the session: nothing would arrive and
@@ -82492,6 +83325,2236 @@ accumulates), the window is uncovered into a full `te_paint`, and the next
 pass blits a screen that was already correct. `te_screen` zeroes it now,
 which is also what makes `te_owed` readable as the whole truth — the
 precondition `te_promise` needs.
+
+### 70.8 The screen is 80x25, a character and an attribute
+
+**§70's opening doctrine ended here**, and the deferred decision §70.6 wrote
+down is the one that ended it. That section grew the terminal to 80 columns in
+full screen and refused, in the same paragraph, to grow the buffer with it:
+*"a terminal that is 64 columns in a window and 80 in full screen would be
+reflowing at the worst possible moment"*, and *"growing it to 80 for good is a
+separate question with a real cost — every windowed adapter would then show
+fewer columns than the screen has — and it is not answered here."*
+
+**It is answered here, and the answer is 80x25.** The cost §70.6 named is
+real and is paid: a 640-pixel screen shows 76 of the 80 columns with the pen
+and the padding taken out, and no window on a CGA can show all of them. What
+buys it is that **80x25 is not a size, it is the BBS's own screen** — an ANSI
+board draws its menus, its boxes and its art against a screen it knows is
+eighty columns by twenty-five rows, and a terminal that is any other size does
+not render that art wrongly so much as it renders a different picture. The
+windowed view was already a VIEWPORT onto a fixed buffer (§70.5); making the
+buffer the size the host is drawing for costs the viewport four columns on one
+adapter and buys every board on the wire.
+
+**The cell is TWO bytes, character then attribute**, and the attribute is
+IBM's:
+
+| bits | field | values |
+|---|---|---|
+| 0–3 | foreground | 0–15, bit 3 = intensity |
+| 4–6 | background | 0–7 |
+| 7 | blink | 1 = blinking, or a bright background when iCE is on (§70.8.9) |
+
+`te_scr` is 80 × 25 × 2 = **4,000 bytes**, row-major, cell *(r, c)* at
+`te_scr + (r*80 + c)*2`. It is the buffer both renderers draw from and the
+only thing either of them agrees about. **Bytes 0x80–0xFF are CP437 GLYPHS and
+never C1 controls** (§70.9): a board's art is made of them, and a terminal that
+read 0x9B as a CSI introducer would eat the picture.
+
+The state, all of it, and every byte named:
+
+| name | size | meaning |
+|---|---|---|
+| `te_cx` | word | cursor column, 0..79 |
+| `te_cy` | word | cursor row, 0..24 |
+| `te_sx`, `te_sy` | word each | **the one** saved cursor — `CSI s`/`CSI u` and `ESC 7`/`ESC 8` share it, and it starts at (0,0) |
+| `te_attr` | byte | the current attribute — **DERIVED** from the six logical bytes below and recomputed by every SGR (§70.9.4) |
+| `te_lfg` | byte | logical foreground, **4 bits**, intensity included; reset 7 |
+| `te_lbg` | byte | logical background, **3 bits**; reset 0 |
+| `te_blk` | byte | 1 = blink (SGR 5) |
+| `te_rev` | byte | 1 = reverse (SGR 7) |
+| `te_con` | byte | 1 = concealed (SGR 8) |
+| `te_pwrap` | byte | 1 = a glyph was written in column 79 and the cursor stayed there |
+| `te_cvis` | byte | 1 = the cursor is drawn; `CSI ?25l` clears it, `?25h` sets it |
+| `te_ice` | byte | 1 = iCE colours: bit 7 is a bright background, not blink. **Render-time only** — it changes nothing in `te_scr` |
+| `te_drb` | 4 bytes | the dirty ROW BITMAP, bit *r* of byte *r*>>3, 25 bits used |
+| `te_scrl` | word | rows the buffer has scrolled since the glass last agreed |
+
+**There is ONE saved-cursor slot and it holds the position only.** `ESC 7`/
+`ESC 8` are DEC's pair and `CSI s`/`CSI u` are ANSI.SYS's, and a board uses
+whichever its author knew; two slots would be two states to keep in step for no
+gain, and neither pair saves the attribute here. It starts at (0,0), so an
+`ESC 8` before any `ESC 7` homes the cursor rather than doing something
+undefined.
+
+**Tab stops are every eight columns and are not settable.** There is no HTS
+and no TBC: a board sets no tab stops, the eighty-byte table one would need is
+eighty bytes, and a stop the host cannot move is a stop that cannot be wrong.
+
+#### 70.8.1 The dirty RANGE became a dirty BITMAP
+
+§70.4 chose a range — `[te_dr0]`..`[te_dr1]`, one compare per mark and one
+bound at the draw — on a stated assumption: *"terminal output is sequential, so
+a burst of bytes touches a contiguous run of rows."* **Cursor addressing is
+exactly the thing that assumption excludes.** A board that draws a menu writes
+row 3, then row 20, then row 3 again; the range spanning them is eighteen rows
+and seventeen of them are clean. On the machine this is for, a windowed row is
+one composed band and one blit per attribute run — call it four calls and
+3 ms — so a range costs about **50 ms of drawing to change two rows**, every
+time the host moves the cursor.
+
+So `[te_dr0]`/`[te_dr1]` become `te_drb`, **four bytes and twenty-five bits**.
+`te_mark` sets a bit, `te_markall` sets all twenty-five, `te_markclr` zeroes
+the four bytes, and a renderer walks the bits. Both renderers consume the same
+bitmap, for §70.6's reason unchanged: `te_putc` runs on the kept worker and
+marks the row it wrote whichever screen is up, so the two cannot drift about
+what changed.
+
+**`[te_scrl]` stays, and it is spent by BOTH renderers now.** It is a
+different debt from the bitmap and always was — pixels the buffer has already
+moved and the glass has not — and §70.8.8 is what happened when only one
+renderer spent it.
+
+**A MARK NAMES A ROW OF THE BUFFER, AND A SCROLL MOVES THE BUFFER** (found).
+Row 5 marked, then a scroll: row 5's pixels are on the glass at row 4 now and
+the mark still says 5, so row 4 is never redrawn and holds stale text until
+something else touches it. The RANGE could only have widened to cover both,
+which is why nobody fixed it there. The bitmap is a twenty-five-bit number and
+moving every mark down one row is **moving that number right one bit** —
+`shr` the top byte, `rcr` the other three, eight bytes of code — so
+`te_markup` runs inside `te_scroll1` and the two debts stay consistent with
+each other by construction.
+
+**And the CURSOR's row is marked after a scroll BLIT** (found by
+`tests/telnet.py`, 12 differing pixels on Hercules). The underline is composed
+into the band (§70.8.2), so the windowed blit carries it up the window with
+everything else and the row it *left* keeps a stale one. A scroll from
+`te_scroll1` always leaves the cursor on the row it opened, which is marked
+already — but a scroll the parser asks for (§70.9.3's `SU`) does not move the
+cursor at all, so `te_scrollpaint` marks `[te_cy]` unconditionally. One call.
+
+#### 70.8.2 The windowed renderer: one composed band a row, one blit an attribute run
+
+**A glyph call per cell is not affordable and never was.** PERFORMANCE.md
+prices an 8x8 cell at ~900 us on a 4.77 MHz 8088, so a full 80x25 screen
+lettered a cell at a time is **1.8 seconds**. The row is composed instead:
+
+1. `te_band` is 80 bytes by 8 rows — **640 bytes**, one screen row's pixels,
+   1bpp, bit 7 leftmost, exactly `OSAPI_GFX_BLIT1`'s band format with a stride
+   of 80.
+2. For each of the row's eighty cells, the eight bytes of that character's
+   glyph are read out of `te_glyf` (§70.8.6) and stored one per band row at
+   the cell's byte column. That is eight byte stores a cell and no drawing
+   call at all.
+3. The cursor, when `[te_cvis]` is set and the cursor is on this row, is
+   **two lit scanlines in the cell's bottom two band rows**, OR'd in during
+   composition. It is not a second paint and it never flashes: the cell goes
+   from its old pixels to its final pixels in the band, and the band reaches
+   the glass once.
+4. The row is then blitted **once per ATTRIBUTE RUN** — a maximal run of
+   adjacent cells sharing an attribute byte — with `OSAPI_GFX_BLIT1_PEN`
+   (0x04A8) set to that run's (ink, paper) and `OSAPI_GFX_BLIT1` (0x0418)
+   given the run's byte column, its width in pixels and eight rows.
+
+**Both of the blit's alignment demands are satisfied by construction**: a cell
+is eight pixels, so a run's x and a run's width are multiples of eight
+whatever the run is, and the pen was §70.4's aligned pen already.
+
+**Every pixel is written exactly once.** That is PERFORMANCE.md Part 1's rule
+rather than an optimisation, and it is what the erase-then-letter pair the old
+`font_run` fallback produced could not offer.
+
+The cost, in calls rather than pixels, which is the unit that matters:
+
+| what changed | calls |
+|---|---|
+| one row of ordinary text (one attribute) | 1 pen + 1 blit |
+| one row of a coloured menu bar (say five runs) | 5 pen + 5 blit |
+| a whole 80x25 repaint, plain text | 50 |
+| the same repaint, lettered a cell at a time | 2,000 |
+| **any row at all on a 1bpp adapter** | **1 blit, no pen** (§70.8.4) |
+| the worst row there is: eighty alternating attributes | 80 pen + 80 blit |
+
+**Counted from `te_emit`, which is one loop and no second path**: it walks the
+row's cells, grows a run while the attribute byte repeats, and emits `te_pen`
++ `te_blitrun` once per run. So the count is exactly the number of maximal
+attribute runs in the row, and on a 1bpp screen the walk is skipped entirely.
+Read off the source rather than instrumented in the guest, and said so.
+
+**A REFUSED BLIT DEGRADES ONCE PER SCREEN, NOT ONCE PER RUN.** §5.4.2 makes
+`kern_small` carry the slot and a `stc`/`retf` stub, so a package must test
+`CF` and the documented degrade is to letter in the kernel's 8x8 face. The
+first refusal latches `[te_nob]` and calls `te_rowfont`, which copies the
+row's characters out of the interleaved buffer into a NUL-terminated run and
+draws it with one `OSAPI_FONT_RUN`; every later row takes that path without
+asking the kernel again. The attributes are lost, which is what a machine with
+no band blitter can offer.
+
+The pen is **valid for exactly the lock hold it was set in** — `gfx_unlock`
+puts `CWHITE`/`CBLACK` back — so it is set inside `te_show`'s hold and never
+banked across one.
+
+#### 70.8.3 The pen takes every pair, since §5.4.2.2.1
+
+**§5.4.2.2's fourth refusal is what this section was shaped around, and it is
+gone.** The pen arms the VGA's Set/Reset for the planes both colours agree on
+and moves the band into the planes they disagree on; that worked when one
+colour's plane set was a SUBSET of the other's and answered `CF = 1` when it
+was not:
+
+> was accepted ⟺ `ink AND paper == ink` **or** `ink AND paper == paper`
+
+`CWHITE` on anything and anything on `CBLACK` were always accepted, and **green
+on red was refused** — 2 AND 4 is 0, and neither operand is 0. That is not a
+corner: it is most of the 128 pairs a board can send, and this is the caller
+that made lifting the refusal necessary. §5.4.2.2.1 does the Map Mask split,
+**a refused run costs two emits instead of one, and every colour on the glass
+is the colour the host sent.**
+
+**No approximation is acceptable here and none is specified.** A terminal
+handed an attribute byte draws that attribute or it draws a different picture;
+there is no degraded-but-honest rendering of a colour, the way there is of a
+shape. Two approximations were judged and rejected — paper exact with the ink
+raised to `ink OR paper`, and ink exact with the paper lowered to
+`ink AND paper` — and docs/TELNET-PLAN.md records, under *"The refused pen
+pair"*, why each is worse than the kernel change: both are one blit and both
+put a colour on the screen that nothing sent.
+
+**IT FIT, and the fallback below was not taken** (found). §5.4.2.2.1's split
+cost **67 bytes of `.cold` and 3 of `.bss`**, so the image rung's headroom went
+127 → 124 and the cold rung's 221 → 154, and neither was crossed. What made it
+fit is that lifting a refusal deletes the refusal: `.penno` and §5.4.2.4's
+eleven-instruction unwind both came out. `tests/telpen.py` is the gate and it
+reads **0 differing pixels of 2,944 on each of six pairs**, four of which were
+refused before — green on red, cyan on magenta, yellow on blue and bright green
+on red — every cell rendered on the host out of the guest's own glyph table.
+
+**The renderer still tests CF on every blit, and the reason is NOT the one
+that used to be written here.** It said "for `kern_small`'s sake", and that is
+false: TELNET is in the Makefile's `SMALLOMIT` list, so no `kern_small` floppy
+carries it and no `kern_small` machine can launch it. The two true reasons:
+
+* **After §5.4.2.2.1 a refusal is unreachable for this renderer on a shipping
+  kernel.** The three surviving refusals are about geometry — an x or a width
+  that is not a multiple of eight, and a band taller than 255 rows — and a cell
+  is eight pixels wide and eight tall, so a run's x, a run's width and a band's
+  height are all right by construction (§70.8.2). There is no attribute pair
+  left to refuse.
+* **It is reachable in exactly one way**, and it is a way a user can take: the
+  package is a FILE, and copying `TELNET.O88` onto a `kern_small` system disk
+  by hand puts it in front of a kernel whose slot is a `stc`/`ret` stub with no
+  body at all (§5.4.2). A refusal is a normal path (PERFORMANCE.md's rule 6),
+  and a terminal that answered it with a blank window rather than with grey
+  letters would be a program that had a reason and did not use it.
+
+**AND THAT ONE WAY IS NOW ARITHMETIC AGAINST A NUMBER THAT DOES NOT FIT.**
+After §70.11's Zmodem receiver the package is its final size — `os88pkg.py`
+reads **image 15,079, bss 16,299**, so the loader's claim is **31,378 bytes**
+— and a `kern_small` machine is a 256KB one whose heap is about 28 KB
+(docs/KERN-SPLIT-PLAN.md). **A hand-copied `TELNET.O88` is therefore most
+likely REFUSED AT THE CLAIM and never reaches the renderer at all**, which
+makes the degrade below unreachable on that machine too, for a second and
+larger reason than the one above.
+
+**This is arithmetic and not a run.** Nothing in this tree boots a
+`kern_small` kernel with `TELNET.O88` beside it — the Makefile's `SMALLOMIT`
+is what stops it — so the claim is a subtraction, and the honest statement is
+that the degrade path is now compile-tested only with no reachable case left
+in it at all. It stays because deleting a documented refusal on the strength
+of a subtraction is a worse trade than 40 bytes: the heap figure is a
+configuration a fork can change, and the code is what makes the change safe.
+
+What it does on a refusal is §70.8.2's degrade — one `OSAPI_FONT_RUN` for the
+whole row, with `[te_nob]` latched so no later row asks the kernel again — and
+not the BLIT4 path below, which was the answer to "the split does not fit" and
+is now unreachable.
+
+**The latch is tested per ROW and it used to be tested per RUN**, which is the
+w2 review's MAJOR 1 and was a defect of exactly the shape a compile-tested path
+has: `te_blitrun` returned on `[te_nob]` *before* reaching the fallback, so the
+first refused run lettered its own row and every later call — the first run of
+every OTHER row included — returned having drawn nothing. One row of text and
+twenty-four blank ones, for the life of the instance, on the one machine that
+can see it. The test now lives at the head of `te_emit`, which answers for the
+whole row before it walks a single run.
+
+**The fallback that was NOT needed, kept for the record: `OSAPI_GFX_BLIT4`
+(0x01D8) for that run, and never an approximation.** A 4bpp band carries a colour per pixel, so
+the pair cannot be refused and the colours are exact. What it costs, priced off
+§5.4.1.3's planar row decoder at **~106.9 cycles a pixel** (PERFORMANCE.md
+Set 107) against the 1bpp emit's ~12.5 clocks a *byte*, i.e. ~1.6 a pixel:
+
+| a 40-cell run, 4.77 MHz 8088 | |
+|---|---|
+| one `OSAPI_GFX_BLIT1` emit | ~4,000 cycles ≈ **0.8 ms** |
+| the same run as a `BLIT4` band | 2,560 pixels × 106.9 ≈ 273,700 cycles ≈ **57 ms** |
+
+Arithmetic off PERFORMANCE.md's own figures, **not measured**. It is the price
+of correctness on a path that is only taken when the kernel could not afford
+the split, and it is bounded — only refused runs pay it, and a board's ordinary
+text is a colour on black, which was never refused. The masked alternative is
+worse and stays rejected: a fill in `paper` then `OSAPI_ICON_DRAW` (0x04B8) two
+cells at a time is ~6.7 ms a call (PERFORMANCE.md Set 84), so the same run is
+**134 ms**, and it needs a fill nothing else needs.
+
+#### 70.8.4 On a 1bpp adapter the pen is not read, so the polarity goes in the band
+
+§5.4.2.2 does not read the pen on Hercules or CGA, and refuses nothing there
+either — a band already means lit and unlit. So the whole row is **ONE band
+and ONE blit** on a 1bpp adapter, with no attribute runs at all, and the
+colour is folded into the composition instead.
+
+**The cell polarity rule, pinned:** a cell is drawn with the glyph LIT on dark
+paper, **unless** its background nibble is non-zero AND its foreground is 0 or
+8 — black or dark grey — in which case the cell is drawn INVERSE: the eight
+band bytes are complemented, so the paper is lit and the glyph is dark.
+
+That is the only rule that keeps a board readable in one bit. A cell of black
+text on a cyan background is the one thing a naive "lit if the character is
+not a space" rule renders as nothing at all, and it is exactly what a board's
+highlighted menu item is made of. Every other pair — a colour on black, a
+colour on a colour — reads correctly as lit glyph on dark ground.
+
+**Blink is ignored windowed.** With `[te_ice]` set, bit 7 means a bright
+background instead, **on a COLOUR screen and there only**. The first version
+widened the background mask from 0x70 to 0xF0 above the `[te_mono]` test, so
+an iCE machine read bit 7 as a background bit on one bit as well — and
+attribute 0x88, blink set on black, then drew INVERSE in the window and plain
+in full screen, where `te_tx_mattr` always masks 0x70. On one bit there is one
+brightness and a bright background is not a thing, so the mask is 0x70 there
+whatever `[te_ice]` says, and §70.8.9's two 1bpp paths agree again.
+
+Composing the inverse is an `XOR` with a mask byte, eight times a cell over
+the band bytes, which is why this costs nothing: **the calls are identical
+either way**, and the calls are what the machine is priced in. The mask is
+`00` on a colour screen, so the same loop serves both and there is no second
+composer.
+
+**The predicate is a MACRO and is emitted twice, and neither emission is a
+call.** The cell loop needs it per cell and the cursor block needs it for the
+cursor's own cell; a `call` a cell is eighty of them a row on a machine
+PERFORMANCE.md prices a near call at 11us on, so the answer is one source and
+two emissions rather than one routine or two copies. It is the third reader of
+the rule above — `te_tx_mattr` is the second — and the one thing all three
+must not be able to disagree about.
+
+**And the cursor is drawn in that cell's OWN polarity.** The underline is two
+lit scanlines OR'd into the band's bottom two rows, and on a cell the loop
+drew inverse those rows are 0xFF already — so the OR drew nothing and the
+cursor vanished inside a board's highlighted menu bar, which is exactly where
+a reader is looking for it. It is an OR on a normal cell and an AND-NOT on an
+inverse one: the same two scanlines, the other way up. The mask is re-derived
+from the cursor cell's attribute and **not** taken from the loop's last value,
+which after the loop is the last COLUMN's and not the cursor's.
+
+**Measured on the glass, both 1bpp adapters** (`tests/telnet.py`, the same
+forty characters in each of two rows, one `0x30` and one `0x03`):
+
+| | CGA | Hercules |
+|---|---|---|
+| the INVERSE row, lit pixels | 3,966 of 4,928 | 4,158 of 5,120 |
+| the normal row, same text | 962 | 962 |
+
+The two are each other's negative and nothing else on that screen is, which is
+what makes counting the right instrument: a count that did not swap cannot be
+a coincidence.
+
+#### 70.8.5 `OSAPI_SAVEU_1BPP` comes off the promise on a colour adapter
+
+§70.7 grants the raise cache per DEBT and banks it with `OSAPI_SAVEU_1BPP`
+(0x0378) set, on the stated ground that the window's content is **two
+colours**: `CBLACK` and `CWHITE`, four uses each. §11.96.17 is what that flag
+promises — *every pixel of my content is colour 0 or colour 15* — and after
+§70.8 it is **false on a colour adapter**, where the content is whatever
+sixteen colours the board chose.
+
+So the flag is set per adapter, off `OSAPI_VIDEO` (0x0158) and its `DH`:
+**dropped on a 4bpp screen, kept on a 1bpp one**, where it is still true and
+still buys a quarter of the memory and a quarter of the blit. §11.96.17 warns
+that the depth claim is RE-STATED on every `wm_saveu` call, so this is decided
+inside `te_promise` and not once at launch — the window can move to a display
+of a different depth (§39.18.2).
+
+What it costs on VGA is the cache going from 11,642 bytes to 46,526, which is
+over `wm_su_kb` for a window this size: the promise is then simply refused,
+the window is not banked, and the raise repaints. That is the price of colour
+and it is stated rather than hidden.
+
+**The depth is asked in `te_layout` and not once at launch**, which is the
+same argument one level down: `te_layout` re-derives everything the live
+content box implies on every paint, click, key and worker draw, so the answer
+is never older than the last event. It is `OSAPI_VIDEO`'s `DH`, and that is
+**the PRIMARY's depth** by that slot's own contract — on an extended desktop
+with a mono card beside a colour one it is the wrong question for the far
+display, and there is no per-display depth published to ask instead (§39.14
+has none). Stated rather than hidden; `OSAPI_FSX_CAPS` answers `DL` per
+display but a `VID_*` kind is not a depth, and inventing a slot for one
+package is what CLAUDE.md's index exists to prevent.
+
+#### 70.8.6 Two hundred and fifty-six glyphs, and where they come from
+
+`OSAPI_FONT_GLYPHS` (0x0218) answers the kernel's own face, and `kernel/font.inc`
+keeps **32..126 only** — `FONT_FIRST` and `FONT_LAST`, 95 glyphs, 760 bytes.
+A terminal needs 0..255, and it needs them to be **CP437** rather than the
+system face: a `make FONT=` kernel replaces the OS's letters, and a board's
+box-drawing character is not a design choice this package may inherit.
+
+So the package builds its own table, `te_glyf`, **2,048 bytes in bss**, at
+launch:
+
+| the machine | 0..31 | 32..127 | 128..255 |
+|---|---|---|---|
+| an EGA/VGA BIOS | `int 10h AX=1130h BH=3` | the same | the same |
+| a CGA/Hercules BIOS | the shipped table | `F000:FA6E` | the shipped table |
+
+`kernel/font.inc`'s `font_init` is the probe, verbatim in its shape and for its
+stated reason: **zero ES:BP, call `AX=1130h`, and treat an unchanged 0:0 as
+"no EGA-or-later BIOS"** — AH=11h is not implemented on a pre-EGA ROM and
+returns with the pair untouched. `kernel/splash.inc`'s `spl_kfont` runs the same
+probe with the same latch. Neither app in the tree probes any more (Paint and
+Artful both went to `OSAPI_FONT_GLYPHS`), so this package is the only one, and
+it is the one that has a reason: it needs the codes the kernel's table does
+not carry.
+
+**The shipped half is 0..31 and 128..255 — 160 glyphs, 1,280 bytes** — and the
+split is on a fact rather than caution, but **the fact is about the ROM and not
+about the code point**, which is not how this section first put it. An
+EGA-or-later BIOS's 8x8 set IS CP437, all 256 of it, by the adapter's own
+definition: so where there is one, all 256 are taken and the shipped table is
+overwritten entirely. That is deliberate and it is not waste — it is the
+terminal drawing the letters the rest of the machine draws. A **pre-EGA** ROM
+has 128 glyphs at `F000:FA6E` and no standard says what a clone put in the low
+32 of them, so there only 32..127 is trusted — that half is ASCII and every ROM
+agrees about ASCII — and the other 160 stay the shipped table's. The table
+above is the whole of it; the sentence that used to be here said 0..31 and
+128..255 ship "because a clone ROM is free to differ", full stop, which reads
+as a claim about the EGA path that the EGA path does not make. `tools/cp437font.py` generates them and
+`apps/telnet/tecp437.inc` is the generated file, **committed**, regenerated and
+diffed by every `make` the way `docs/INDEX.md` is: a generated file that is not
+checked is a generated file that is edited by hand once and then lies.
+
+**It is CLEAN-ROOM and no third-party font is fetched or copied.** The tool
+draws 176..223 — the shades, the blocks and the box-drawing set — GEOMETRICALLY,
+because they are geometry: a 50% shade is a checkerboard, a single-line box
+corner is two runs meeting. Everything else is authored in the tool as eight
+lines of ASCII art per glyph, which is a font a person can read in a diff.
+
+**The box set is a table of ASSIGNMENTS and not of pixels** (found while
+writing it): `BOX_ARMS` maps each of thirty-nine codes to `(up, down, left,
+right)`, each 0, 1 or 2, and the pixels are computed from three rules about
+where a line stops against a perpendicular one — a single arm runs to the FAR
+line and crosses, a double arm at a tee stops both its lines at the NEAR one
+(which is what leaves `╬`'s centre hole and breaks `╠`'s inner riser), and a
+double arm at a corner runs its outer line to the far one and stops its inner
+line at the near one, so outer meets outer and `╔` closes. The mixed-weight
+codes fall out with no special case, and the comment on each generated line is
+derived from the arms too — so a wrong assignment shows in the comment as well
+as in the pixels.
+
+**`--show` prints all 160 as ASCII art and it earned its keep**: six glyphs
+were wrong on looking and none of them would have failed a test. `ñ`/`Ñ`'s
+tilde read as scattered dots, `ª`'s bowl came apart, `ƒ`'s hook left a stray
+pixel, the club's three lobes merged into a blob, `⌡` was `flip(⌠)` and so
+hooked the wrong way (`⌠` over `⌡` drew an S rather than one integral), and
+`ß` reached row 7 so consecutive terminal rows touched.
+
+#### 70.8.7 The full-screen renderer IS the board's screen
+
+§70.6's bracket stays exactly as it is — `FSXM_TEXT80`, `FSXF_KEEPWORKER`,
+`FSXW_FRAME`, `[te_txm]` set before `OSAPI_FSX_RUN` (0x02C8) and cleared inside
+the bracket proc — and what changes is what it draws.
+
+**The buffer maps 1:1 onto text VRAM.** 80 columns by 25 rows against 80 by
+25, all of it, no centring and **no status line**: a board uses row 25, and a
+terminal that reserved it would cut the bottom off every menu. `TET_X0` and
+`TET_Y0` are gone; a row is at `FSI_SEG:(r*160)`.
+
+| what | what it costs |
+|---|---|
+| a dirty row on a colour text screen | one 80-word `rep movsw` straight out of `te_scr` |
+| a dirty row on MDA | eighty cells, each mapped (§70.8.9) then stored |
+| a scroll of N rows | **one** `rep movsw` of (25−N)×160 bytes, then the N vacated rows re-emitted |
+
+The colour case is the whole argument for the bracket, one size smaller than
+§70.6 made it: the cell in `te_scr` **is** the cell in VRAM, character byte
+then attribute byte, so a row is a move and not a translation.
+
+**The way out is drawn once, on entry, on row 25, and the host is allowed to
+overwrite it.** ` ^] to leave ` at the right of the bottom row, in the inverse
+attribute, put there after the first pass and never redrawn. A hint that
+survives is a hint that fights the board for the row it needs; a hint that is
+gone the moment the board draws is a hint that did its job.
+
+**…and a SCROLL had to be told that** (found, on the glass). The debt above is
+spent as a VRAM move, and the move carries the hint up with everything else —
+onto a row that is *not* one of the vacated ones, so it is not re-emitted and
+it sat there. Four scrolls of a fixture whose right margin is blank left it
+drifting four rows up the screen (`w2-shots/fsx-scroll-after.png`, before this
+was added). `[te_thint]` is the row it is on, `0xFF` once it has gone off the
+top, and the scroll marks the row it lands on so the buffer erases it. That
+makes "gone the moment the board draws" true of a board that SCROLLS as well
+as of one that prints over it, which is the commoner case by far.
+
+**No retrace gating, on any adapter.** `apps/tracker/trktxt.inc` is the
+precedent and it reached the opposite conclusion to the obvious one: it
+*removed* a retrace clock that measured correctly, because **polling one is
+indistinguishable from work to a round-robin scheduler** and the drawing side
+took half the machine whether it needed it or not — 28.8% of a cycle-accurate
+8088 in the wait, and the kept worker starved for it. §53.5 names the CGA
+snow window as the reason `FSXW_VSYNC` exists and Tracker deliberately stopped
+using it; this renderer does the same. The pacing is `FSXW_FRAME`, which
+**waits by yielding**, so the frame time this does not use goes to the worker
+that owns the socket.
+
+**The hardware cursor is positioned by the BRACKET, not by the worker.**
+`int 10h AH=02h` after each pass, and `AH=01h CX=2000h` to park it when
+`[te_cvis]` is clear. **The SHAPE call is issued only on a change** — `[te_tcur]`
+is the visibility the CRTC was last told about — because the mode set already
+chose one and a BIOS call a frame for a byte that does not move is a frame the
+kept worker wanted.
+
+**A visible hardware cursor BLINKS, and no `settle()` can see past it.** That
+is a fact about the harness rather than about this renderer and it is recorded
+because it costs a session every time: a full-screen capture taken with
+`[te_cvis]` set never reaches two identical frames on a VGA, and the failure
+reads as "the machine never finished booting". Clear the byte for the capture. §53.7's forbidden list has exactly one `int 10h`
+on it — a **mode set** outside `fsx_mode` — and §53.4 names AH=02h, AH=01h,
+AH=05h, AH=0Eh and AX=1003h as calls the bracket may already make. Both
+existing consumers, `tetxt.inc` and `trktxt.inc`, already do the AH=01h park,
+byte for byte the same three instructions.
+
+**A session that ends while the screen is up leaves the screen as received.**
+There is no status line to report on and nothing is drawn over the board's
+last picture; `^]` leaves, and the windowed status line says what happened.
+
+#### 70.8.8 Two defects the full-screen renderer already had
+
+Both were found by reading `apps/telnet/tetxt.inc` against §53 before any of
+the above was written, and both are recorded here because the fix is part of
+this section rather than a separate change. **Both were then reproduced ON THE
+GLASS before either was fixed**, by reverting the two lines in a scratch build
+and running `tests/telnet.py` against it — which is the only way to know that
+a gate written after a fix can see the thing it is about.
+
+**1. Full screen did not scroll at all.** `te_tx_owed` ends with
+`mov word [te_scrl], 0` under the comment *"a text row change IS the scroll
+here: the rows are re-emitted, so there is nothing for `te_scrollpaint` to
+spend."* Only the rows in the dirty range are re-emitted, and `te_scrollck`
+marks exactly one — `TE_ROWS - 1`, the row it opened. So after a scroll, the
+buffer had moved every row up and the screen had been told about the last one:
+**rows 0..16 kept showing pre-scroll text for the rest of the session**, and
+the bottom row was overwritten again and again. A board's output, which is
+one long scroll, was legible on one line. The renderer spends `[te_scrl]` as a
+VRAM move now (§70.8.7), which is what the debt was always for.
+
+**Reproduced.** Twenty-five numbered lines on the text screen, then four
+scrolls left the way `te_scroll1` leaves them — the buffer moved, the row it
+opened marked, `[te_scrl]` at 1:
+
+| | text VRAM row 0 | rows above the bottom holding pre-scroll text |
+|---|---|---|
+| the defect | `line 00 …` while the buffer said `line 04 …` | **24 of 24** |
+| the fix | `line 04 …` | **0** |
+
+`w2-shots/fsx-scroll-before.png` is the picture and it is the sentence above
+made visible: twenty-four rows frozen at lines 00..23 through four scrolls,
+and the twenty-fifth rewritten over and over. `w2-shots/fsx-scroll-after.png`
+is the same fixture on the fix. `tests/telnet.py`'s assertion 6 is a memcmp of
+all 2,000 cells and reads **26 differing and 24 rows stale** against **0 and
+0**.
+
+**2. `te_show` takes the gfx lock BEFORE it tests `[te_txm]`.** The bracket
+holds the gfx lock for its whole life — §53.6, the caller's hold, taken before
+`fsx_run` and released after it returns, and it is what keeps the mouse ISR
+off the screen. §53.2 is binding about the consequence: *"a kept worker feeds
+data and never takes the gfx lock or a drawing slot… it parks safely if it
+tries, but for a feeder, parking is death by another name: its slices burn in
+the retry loop while the ring drains."* `gfx_lock` is a yield-spin with no
+owner field, so the worker re-tests a byte that cannot change until the
+bracket exits.
+
+`te_show`'s `[te_txm]` test sits **eleven instructions past** the
+`call OSAPI_GFX_LOCK` that parks it. The file's own comment says the byte is
+set before `OSAPI_FSX_RUN` *"so the kept worker skips its very first turn"* —
+it does not skip it; it parks on it. The first byte to arrive after entering
+full screen marks a row, `te_owed` answers true, `te_show` parks, and the
+worker that owns the socket is gone until `^]`. **The test goes first**, ahead
+of the lock, which costs one compare on every windowed pass and is the whole
+fix. The rule it encodes is worth stating separately, because it is not
+`te_show`'s alone: **a kept worker's every path to a drawing slot must be
+gated on `[te_txm]` before the gate, not inside it.**
+
+**Reproduced, and the probe is `[te_dirty]`.** `te_step` zeroes that byte at
+the top of every pass, so a 1 written into it from outside while the bracket
+is up comes back **0** if the worker got a turn and stays **1** if it did not.
+It read **1** on the reverted build and **0** on the fix. A screenshot cannot
+see this at all — the bracket is on the UI task and goes on drawing either way
+— which is why the byte is the assertion and not a picture.
+
+**3. And the debt itself had no critical section**, which §70.9's own wave
+found rather than the field. `FSXF_KEEPWORKER` means `te_tx_owed` runs on the
+**UI task** while `te_putc`, `te_scroll1` and `te_mark` keep running on the
+**worker**, and two read-modify-writes crossed that boundary unguarded. §70.2
+had the house answer for exactly this one word along — `pushf`/`cli` … `popf`,
+and its own comment says *"`te_txw` HAS TWO WRITERS"*.
+
+| what | the window | what a board saw |
+|---|---|---|
+| `mov ax, [te_scrl]` … `mov word [te_scrl], 0` | two instructions | a board that scrolled twice in it lost one: VRAM moved N rows where the buffer moved N+1, and **every row the board did not touch again stayed one line out of place for the rest of the session** |
+| the row loop, then `te_markclr` | **the whole 25-row pass** | a character arriving for row 3 while the loop was on row 18 had its mark cleared unread and **never reached the screen at all** |
+
+The fix is two small procs and **no snapshot buffer**, which is the shape worth
+having: `te_takerow` clears a row's bit *as it draws that row*, under one
+`cli`, so a mark set for a row the loop has passed survives into the next pass
+instead of being dropped; `te_takescroll` reads the counter and zeroes it
+together. `te_markclr` is **deleted** — a bitmap that is cleared wholesale is a
+bitmap that drops what the other task wrote while it was being walked, and
+leaving the routine in the file would have left the shape available.
+
+**Both renderers take the same two procs**, which is the other half of it: the
+windowed path had the identical race on `te_screen`'s UI-task pass, where a
+lost scroll was masked by the `te_markall` that opened the sequence. One
+answer, not two, and no renderer can now be the one that forgot.
+
+#### 70.8.9 iCE colours, and what MDA does with an attribute
+
+**iCE colours are a Session-menu toggle and are OFF by default.** The default
+is hardware blink because that is what the adapter powers up doing and what a
+board that uses blink expects; boards that use bright backgrounds are drawing
+against a terminal the user has told it about, which is what a toggle is.
+
+| where | how bit 7 is turned into a bright background |
+|---|---|
+| EGA/VGA, text mode | `int 10h AX=1003h BL=0` (blink off) / `BL=1` (on) |
+| CGA, text mode | port 3D8h bit 5 |
+| Hercules | it cannot; the item is GREYED |
+| any adapter, windowed | the attribute alone — bit 7 becomes the background's fourth bit |
+
+§53.4 gives the app the blink toggle explicitly, *"through the BIOS the bracket
+may already call (… AX=1003h blink) or the CRTC ports directly"*, and §53.7
+says the video hardware inside a foreign mode is otherwise the app's — the
+6845, the sequencer, the graphics controller, the attribute controller and the
+DAC — so port 3D8h is the app's to write. `docs/FSX-PLAN.md` records the
+per-adapter difference in exactly those terms.
+
+**The label IS the state**, because the kernel's pull-down has no check mark —
+`apps/os88api.inc` publishes `MENU_DIS` and nothing else — so Solitaire's
+precedent applies: three strings and a pointer swap, *iCE Colours*, *iCE
+Colours (on)* and a `MENU_DIS`-prefixed *iCE Colours (Mono)*. `te_ice_label`
+runs out of `te_layout`, so a window dragged onto a mono display greys the
+item by itself.
+
+**Hercules greys the item, with the reason on it**, which is §47's rule: grey
+a FACT. MDA text is monochrome and has no background colour to make bright, so
+there is nothing for the toggle to do and saying so is better than a toggle
+that does nothing.
+
+**And MDA is what the attribute has to be mapped to**, because `FSXM_TEXT80`
+on Hercules is mode 7 at B000 — the FSI block's `FSI_SEG` is the one field
+that varies, and `OSAPI_FSX_CAPS` (0x02C0) answers `DL` = that display's
+`VID_*` kind, which §53.7.1 names as the sanctioned way to ask (`osapi_video`
+answers about the PRIMARY, and a bracket on the Hercules of a VGA-primary
+desktop would be told the wrong thing). The mapping:
+
+| the cell | the MDA byte |
+|---|---|
+| INVERSE by §70.8.4's rule (background non-zero, foreground 0 or 8) | 0x70 |
+| foreground has bit 3 set | 0x0F |
+| anything else | 0x07 |
+| bit 7 | kept in every case |
+
+**There is no underline row and there was one in the first draft.** §70.9.4
+settles it: SGR 4 does not reach `te_scr` at all, because a two-byte cell has
+nowhere to put a third bit and a third byte per cell is 2,000 bytes of bss for
+something no board sends. An MDA already shows attribute 0x01 as an underline
+for a blue foreground, which arrives here through the ordinary colour mapping
+and needs no rule of its own.
+
+That is the same predicate the 1bpp windowed renderer uses for polarity, which
+is the point: the two 1bpp paths cannot disagree about which cells are
+reversed.
+
+**A TESTING NOTE, and it is the emulator's rather than this renderer's.**
+MartyPC's VGA renders **text-mode colour 6 as red rather than brown** — the
+missing brown correction — so a cell of `0x64`, red on brown, is red on red
+there and its glyphs vanish, while the same cell in the *windowed* renderer,
+which is mode 12h through the DAC, is correctly red on brown. Both were
+photographed side by side. Nothing in this package treats colour 6 specially,
+and a gate that asserted on it would be asserting about the emulator, so
+`tests/telpen.py` uses none.
+
+#### 70.8.10 The viewport, and what a narrow window costs now
+
+§70.5's bargain is unchanged and its arithmetic moves. `te_vcols` and
+`te_vrows` are still derived from the LIVE content box on every `te_layout`,
+still show columns 0.. and the LAST rows, and **the buffer still never
+changes**: 80x25 whatever the window is.
+
+The window opens as wide as the desktop allows, up to eighty columns.
+Measured, with the template at 656 x 254 and `wm_fit` clamping it:
+
+| adapter | desktop | the window | te_px | te_vcols x te_vrows |
+|---|---|---|---|---|
+| VGA | 640 x 480 | 640 x 254 | 8 | **79 x 25** |
+| CGA | 640 x 200 | 640 x 155 | 8 | **79 x 13** |
+| Hercules | 720 x 348 | 658 x 254 | 48 | **80 x 25** |
+
+So Hercules is the one adapter of the three that shows the whole board in a
+window, and CGA shows half its rows. On a 640-pixel screen the view cannot
+reach eighty columns — the aligned pen and the padding take the rest — and
+**that is accepted rather than solved**: full screen is where a
+board is used, it is one keystroke away, and the alternative is the one thing
+this app may not do. §70.5's judgement stands word for word: *"what a narrow
+window costs is the right of every line, with no way to scroll to it, and that
+is the accepted trade rather than an oversight."* A horizontal scrollbar was
+judged and deferred; docs/TELNET-PLAN.md carries the arithmetic.
+
+**NAWS does not lie** (§70.10). It reports 80 by 25 always, because the buffer
+is 80 by 25 always. A client that reported its viewport would be telling the
+host where to wrap a line the buffer is not going to wrap there.
+
+#### 70.8.11 What the package costs, and what it does not answer yet
+
+**`tools/os88pkg.py`, before §70.8 and after:**
+
+| | image | bss | total |
+|---|---|---|---|
+| before | 4,719 | 1,935 | 6,654 |
+| after | **7,052** | **7,554** | **14,606** |
+
+The bss is where the screen went: `te_scr` is 4,000 bytes, `te_glyf` 2,048 and
+`te_band` 640, which is 6,688 of the 5,619 it grew by. §20's `APP_MAX_SIZE` is
+61,440 for image + bss and is not the binding limit — contiguous heap is — so
+the launch to watch is a 256 KB machine's, `vm/xt-weave-256`'s class.
+
+**The state, as it was actually written.** §70.8's table is the screen's; these
+are the renderers' own, and they are listed so that nothing else invents a
+second copy of one:
+
+| name | size | meaning |
+|---|---|---|
+| `te_mono` | byte | this screen is 1bpp, re-asked in `te_layout` (§70.8.5) |
+| `te_nob` | byte | `OSAPI_GFX_BLIT1` refused once, so every row letters (§70.8.2) |
+| `te_rr` | word | the row `te_compose` is composing, for the cursor test at its foot — and the scroll count `te_tx_scroll` holds while `DS` points at VRAM |
+| `te_ry`, `te_rcp` | word each | the band's y and the row's first cell, out of the registers' way in `te_emit` |
+| `te_tkind` | byte | the display's `VID_*` kind, from `OSAPI_FSX_CAPS` (§53.7.1) |
+| `te_tcur` | byte | the cursor visibility the CRTC was last told about |
+| `te_thint` | byte | the row the leave hint is on, `0xFF` once gone (§70.8.7) |
+
+**Three things this wave did not answer**, written down so the next one does
+not assume they were:
+
+1. **Per-display depth.** `te_mono` is the PRIMARY's (§70.8.5), so a window on
+   the mono half of an extended desktop composes with a colour polarity.
+2. **The windowed cursor does not blink.** §70.8.2 pins a steady underline and
+   that is what shipped; the full-screen one blinks because the CRTC does.
+3. **There is no `[te_ul]`, and the table above §70.8.1 no longer lists one.**
+   It was dropped after §70.8.9 lost its underline row: `SGR 4` does not reach
+   the attribute at all, the parser consumes it and discards it (§70.9.4), and
+   the MDA mapping is three cases plus the blink bit. A byte no renderer reads
+   is a byte that goes stale in silence, so it is not declared. **`te_satr`
+   went with it and for the same reason** — §70.9.3's one saved slot holds the
+   POSITION and never the attribute, so the byte that was to hold `ESC 7`'s
+   colours had no writer either.
+
+### 70.9 The ANSI-BBS parser (`apps/telnet/teansi.inc`)
+
+§70's *"recognised and discarded"* was the honest choice while nothing acted
+on a sequence: the failure for an unimplemented sequence is nothing appearing,
+where printing it leaves `[2J` in the middle of a sentence. **What replaces it
+is not printing them either** — it is acting on them, and the discard survives
+as the fall-through for every sequence still not implemented.
+
+The parser is a **state machine over single bytes with no lookahead and no
+buffer**, which is the property that matters on this machine: bytes arrive in
+whatever fragments TCP hands over, an escape sequence is routinely split
+across two `NETV_RECV` calls, and a parser that searched a buffer would have
+to reassemble one. Haberman's vtparse is its shape;
+`docs/TELNET-PLAN.md` records why it is that shape and not a port of one.
+
+#### 70.9.1 The states, and every transition
+
+Seven states plus one lookahead sub-state. `[te_pst]` holds it, and
+`tools/ansisim.py` is the second reader of every row below (§70.12).
+
+| state | byte | action | next |
+|---|---|---|---|
+| GROUND | 0x00 | dropped — **the only byte GROUND drops** | GROUND |
+| GROUND | 0x18, 0x1A | consumed, nothing drawn; 0x18 also advances the Zmodem detector (§70.9.6) | GROUND |
+| GROUND | 0x07 08 09 0A 0C 0D | execute (§70.9.2) | GROUND |
+| GROUND | 0x1B | clear params, prefix, intermediates and the no-op flag | ESC |
+| GROUND | anything else, 0x01..0xFF | put the glyph | GROUND |
+| ESC | `[` | | CSI_ENTRY |
+| ESC | `7` | save the cursor POSITION (one slot, §70.8) | GROUND |
+| ESC | `8` | restore it, and clear `[te_pwrap]` | GROUND |
+| ESC | `]` `P` `_` | OSC / DCS / APC — **exactly these three** | STRING |
+| ESC | 0x1B | **restart**: stay here | ESC |
+| ESC | 0x18, 0x1A | abort | GROUND |
+| ESC | 0x07 08 09 0A 0C 0D | execute; **stay in ESC** | ESC |
+| ESC | any other C0, and 0x7F | **ignored, never drawn** | ESC |
+| ESC | anything else | swallowed | GROUND |
+| CSI_ENTRY | 0x3C..0x3F (`< = > ?`) | record in `[te_ppfx]` — **only the FIRST one**; a second is an intermediate | CSI_ENTRY |
+| CSI_ENTRY | `M` `N` | **music, only when bare** (§70.9.3) | MUSIC |
+| CSI_ENTRY | `0`..`9` | first digit of param 0 | CSI_PARAM |
+| CSI_ENTRY | `;` | commit param 0 as absent | CSI_PARAM |
+| CSI_ENTRY, CSI_PARAM | 0x20..0x2F | an intermediate: **the whole sequence becomes a NO-OP** | CSI_IGNORE |
+| CSI_PARAM | 0x3C..0x3F | a private prefix AFTER a parameter: **the same no-op** | CSI_IGNORE |
+| CSI_PARAM | `0`..`9` | accumulate, **saturating at 255** | CSI_PARAM |
+| CSI_PARAM | `;` | next parameter; **the ninth and beyond go to a sink** | CSI_PARAM |
+| CSI_ENTRY, CSI_PARAM | **0x40..0x7E** | dispatch (§70.9.3) | GROUND |
+| CSI_IGNORE | 0x40..0x7E | **consumed, and nothing happens** | GROUND |
+| CSI_* | 0x18, 0x1A | **abort**, nothing dispatched | GROUND |
+| CSI_* | 0x1B | restart the sequence | ESC |
+| CSI_* | 0x07 08 09 0A 0C 0D | **execute it, the sequence continues** | unchanged |
+| CSI_* | any other C0, and 0x7F | **ignored, never drawn** | unchanged |
+| STRING | 0x07 | end — **and it does not ring** | GROUND |
+| STRING | 0x18, 0x1A | abort | GROUND |
+| STRING | 0x1B | | STRING_ESC |
+| STRING | anything else | swallowed, C0 included | STRING |
+| STRING_ESC | `\` | end (ST) | GROUND |
+| STRING_ESC | **anything else** | the string ends and **this byte is the second byte of a NEW escape sequence** — re-enter ESC's row above with it | (as ESC would) |
+| MUSIC | 0x0E | end | GROUND |
+| MUSIC | 0x18, 0x1A | abort | GROUND |
+| MUSIC | 0x1B | restart as a new sequence | ESC |
+| MUSIC | 0x07 08 09 0A 0C 0D | execute; stay | MUSIC |
+| MUSIC | any other C0, and 0x7F | ignored | MUSIC |
+| MUSIC | anything else | swallowed | MUSIC |
+
+**Four rows above are where a hand-written parser goes wrong**, and each is a
+case in `ansisim`'s selfcheck:
+
+* **`ESC ESC` restarts and does not swallow.** A stream that lost bytes between
+  two sequences must not eat the second one's introducer.
+* **`STRING_ESC` on anything but `\` hands the byte to ESC.** vtparse's rule.
+  `ESC ] junk ESC [ 31 m` leaves the colour set, where a parser that swallowed
+  the byte would lose the whole `CSI` behind it. It is a lookahead STATE and not
+  a peek, so a stream split between the `ESC` and the `\` behaves like one that
+  is not — which is the property §70.9's whole shape exists for.
+* **An intermediate makes the sequence a no-op, it does not get ignored.**
+  `ESC[1 q` is consumed to its `q` and draws nothing; a parser that ignored the
+  space would have executed `CSI 1 q`.
+* **The ninth parameter goes to a SINK, not into the eighth.**
+  `ESC[0;1;1;1;1;1;1;31;44m` sets red on black and the `44` never arrives.
+  Accumulating it into the eighth would have set an eighth parameter of 3144.
+
+**The C0 rule is not the same in GROUND as it is inside a sequence.** In GROUND
+most C0 bytes are CP437 glyphs (§70.9.2); **inside ESC, any CSI state or MUSIC
+only the seven recognised controls act, and every other C0 byte — and 0x7F — is
+ignored and never drawn.** A board's art byte is a glyph where it is art and
+noise where it lands inside an escape sequence, and drawing it there is how a
+lost byte turns into a `♦` in the middle of a menu.
+
+**CAN and SUB abort from ESC, every CSI state, STRING and MUSIC**, not only from
+a CSI, and **ESC restarts from all of them**. A truncated music string is the
+case that matters: without the MUSIC rows a board that sent `ESC[M` and then
+crashed would swallow the rest of the session.
+
+**Params: up to eight, each clamped at 255, missing is zero.** `[te_prm]` is
+eight bytes and `[te_pn]` counts them. A handler applies its own default
+where ANSI says one — a `CSI A` with no parameter and a `CSI 0 A` both mean
+one row — and the parser does not, because the default is not the same for
+every final: `CSI J` defaults to 0 and `CSI A` to 1.
+
+**One of the seven controls inside a CSI is EXECUTED and the sequence
+continues.** That is DEC's rule and it is the one that matters on a board: a
+host that sends `CSI 1;` `CR` `1H` has sent a carriage return in the middle of a
+cursor move, and a parser that aborted would lose the move.
+
+**Any final byte 0x40..0x7E ends a CSI**, dispatched or not: an unknown final
+is consumed and ignored, which is the discard §70 chose, now scoped to the one
+place it belongs.
+
+**The private prefix is recorded and only `?25` is acted on**, and it acts
+**if ANY of the parameters is 25** — so `CSI ?25;7l` hides the cursor. Every
+other `?`, `=`, `>` and `<` sequence is consumed and ignored: a board sends
+`?7h` (autowrap), `?33`, `=255` and others that either describe what this
+already does or describe a thing it does not have, and consuming them silently
+is the difference between a clean screen and a screen with `?7h` in it.
+
+#### 70.9.2 The controls, and 0x7F is a glyph
+
+| byte | effect |
+|---|---|
+| 0x00 | dropped — **the only byte GROUND drops** |
+| 0x07 BEL | a short `OSAPI_SND_TONE` (0x00E8) — **and never a block** |
+| 0x08 BS | cursor left one, stopping at column 0. **No erase** |
+| 0x09 TAB | to the next multiple of eight; **clamped to column 79** if that would be 80 or more. **No erase**, and it never sets `[te_pwrap]` |
+| 0x0A LF | cursor down one; at row 24 the screen scrolls. **An INDEX only — no implicit carriage return**, so `A` LF `B` puts the `B` in column 1 |
+| 0x0C FF | clear the screen with the current attribute, cursor home |
+| 0x0D CR | column 0 |
+| 0x0B | **a CP437 glyph** (♂) |
+| 0x0E | **a CP437 glyph** (♫) in GROUND; it terminates MUSIC **only inside MUSIC** |
+| 0x18 CAN, 0x1A SUB | **consumed** in GROUND, and 0x18 advances the Zmodem detector (§70.9.6); inside a sequence they abort it |
+| 0x1B | ESC |
+| everything else below 0x20 | **a CP437 glyph** |
+| 0x7F | **a CP437 glyph** (⌂) |
+| 0x80..0xFF | **CP437 glyphs**, never C1 controls |
+
+**0x0E is a glyph and that is not a detail.** CP437 0x0E is ♫, a character
+board art uses, and a MUSIC string is the only context in which it means
+anything else — so the terminator is scoped to the state that needs it rather
+than taken out of the character set everywhere. `[te_pst]` is what tells the
+two apart, which is the whole reason the parser is a state machine.
+
+**0x00 is the only byte GROUND drops.** CAN and SUB are *consumed* rather than
+dropped, because 0x18 is ZDLE and is the third byte of §70.9.6's auto-start
+sequence: a detector that never saw it could not fire, and a renderer that drew
+it would put a `↑` in the middle of a board's ZRQINIT. Everything else below
+0x20 that is not in the table above is a glyph — ♥ ♦ ♣ ♠ and the rest — because
+BBS art is made of them.
+
+**LF does not carry a CR with it**, which three of `ansisim`'s own selfcheck
+cases got wrong before they were fixed and which is worth its own case in the
+assembly's gate: a terminal that homes the column on a line feed puts every
+second line of a board's two-column menu against the left margin.
+
+**BS does not erase and TAB does not erase**, which is the ANSI-BBS convention
+and not the VT's: a board draws with the cursor and expects a backspace to
+move it, and the existing `te_putc` wrote eight spaces for a tab — which is
+why a board's aligned menu came out with holes in it.
+
+**BEL never blocks.** `OSAPI_SND_TONE` is not a blocking call — it programs the
+sink and stamps an owner record, and `snd_tick` retires the duration inside
+IRQ0 — so the beep is `AX` = frequency, `CX` = a few ticks, `DL` = 0x40, the
+priority packages use. It refuses when a higher-priority owner holds the
+channel or a PWM clip owns channel 2, and a refused beep is a beep that does
+not happen, which is correct: a board that sends BEL forty times in an ANSI
+animation must not be able to stop the terminal.
+
+#### 70.9.3 The CSI table, with every default and every clamp
+
+Every clamp is to the 80x25 buffer. `Pn` is param 0 unless stated.
+
+| final | name | default | effect |
+|---|---|---|---|
+| `A` | CUU | 1 | `cy := max(0, cy − Pn)` |
+| `B` | CUD | 1 | `cy := min(24, cy + Pn)` |
+| `C` | CUF | 1 | `cx := min(79, cx + Pn)` |
+| `D` | CUB | 1 | `cx := max(0, cx − Pn)` |
+| `E` | CNL | 1 | `cy := min(24, cy + Pn)`, `cx := 0` |
+| `F` | CPL | 1 | `cy := max(0, cy − Pn)`, `cx := 0` |
+| `G` | CHA | 1 | `cx := clamp(Pn − 1, 0, 79)` |
+| `H` `f` | CUP / HVP | 1;1 | `cy := clamp(P0 − 1, 0, 24)`, `cx := clamp(P1 − 1, 0, 79)` |
+| `J` | ED | 0 | 0: cursor to end of screen. 1: start of screen to cursor. 2: **all of it, and home the cursor**. **Any other `Pn` does nothing** |
+| `K` | EL | 0 | 0: cursor to end of row. 1: start of row to cursor. 2: the whole row. **Any other `Pn` does nothing, and no `K` ever moves the cursor** |
+| `L` | IL | 1 | insert `Pn` blank rows at `cy`; the rows below shift down; the bottom `Pn` are lost |
+| `M` | DL | 1 | delete `Pn` rows at `cy`; the rows below shift up; `Pn` blank rows at the bottom. **Reachable only as `CSI <n> M`** — a bare `CSI M` is music |
+| `@` | ICH | 1 | insert `Pn` blanks at `cx` in this row; the tail is lost |
+| `P` | DCH | 1 | delete `Pn` cells at `cx`; blanks arrive at the right |
+| `X` | ECH | 1 | `Pn` cells from `cx` become blank |
+| `S` | SU | 1 | the whole screen scrolls up `Pn` |
+| `T` | SD | 1 | the whole screen scrolls down `Pn` |
+| `s` | SCP | — | save `cx`, `cy` into **the one slot** `ESC 7` uses (§70.8). Never the attribute |
+| `u` | RCP | — | restore them, and clear `[te_pwrap]` |
+| `n` | DSR | 0 | `6` answers `ESC [ <row> ; <col> R`, **1-based**. `5` answers `ESC [ 0 n`. Anything else, nothing |
+| `c` | DA | 0 | answers `ESC [ ? 1 ; 0 c` — **only for `Pn` = 0 and only with NO private prefix**, so `CSI ?c` is consumed silently |
+| `N` | — | — | **unknown, ignored** with a parameter; a bare `CSI N` is music |
+| `m` | SGR | 0 | §70.9.4 |
+| `h` `l` with `?` prefix | DECSET / DECRST | — | `[te_cvis]` set / cleared if **any** parameter is 25; every other value consumed |
+
+**`CSI M` and `CSI N` are ANSI music, and this is the design's one genuine
+collision.** `ESC[M` is Delete Line in ANSI.SYS and a music string in
+SyncTERM's ANSI-BBS. **A BARE `CSI M` or `CSI N` — no parameter, no private
+prefix, no intermediate — is MUSIC; anything with a parameter is not.** So
+Delete Line is reachable only as `CSI <n> M`, `CSI <n> N` is an unknown final,
+and on the 8086 the whole rule is one test of the parameter count at the
+`M`/`N` dispatch. SyncTERM resolves it the same way. SyncTERM's third
+introducer, `ESC[|`, is **not** implemented — §70.9 named `M` and `N` — and
+adding it later is one more entry in that same test.
+
+**IL, DL, ICH, DCH and ECH move the cursor NEVER**, operate on rows
+`cy`..24 and columns `cx`..79 (there are no scroll regions, §70.9.3 has no
+`CSI r`), and clamp their counts to what is left.
+
+**`CSI 2 J` homes the cursor.** That is ANSI.SYS's behaviour and not the VT's,
+and every board on the wire was written against ANSI.SYS: a board that clears
+the screen and then writes without positioning expects to be at the top left.
+
+**SPACE and the CURRENT attribute is what fills EVERY gap on this screen**, not
+just an erase's: `ED`, `EL` and `ECH`, the FF clear, **the row a scroll or an
+`LF` at the bottom vacates**, and the gap `IL`, `DL`, `ICH` and `DCH` open. One
+rule, everywhere. That is ANSI.SYS's and not the VT's — the VT fills with the
+reset attribute — and it is what makes a board's coloured background work: the
+board sets a blue background, clears the screen, and gets a blue screen, then
+scrolls it and the new rows are blue too.
+
+**The pending-wrap flag is cleared by anything that ASSIGNS a row or a column**
+and by nothing else: the cursor-motion finals `A B C D E F G H f u`, `ESC 8`,
+BS, HT, LF, CR, FF, and `CSI 2 J` because it homes. It is **not** cleared by
+the other erases, by SU/SD, by IL/DL/ICH/DCH/ECH, by SGR, or by `CSI s`.
+
+**A row insert, a row delete and a screen scroll all mark every row they
+moved**, which on a 25-row bitmap is cheap to say and is the whole of what the
+renderer needs. Only `LF` at the bottom and `SU` take `[te_scrl]`, because
+only they move the screen as a whole in the direction the blit can follow.
+
+#### 70.9.4 SGR is applied to LOGICAL state, and the attribute is derived
+
+`CSI m` takes up to eight parameters and applies them in order, left to right.
+An unknown parameter is ignored and the rest are still applied — a board that
+sends `0;1;44;31` must not lose the `31` because something in front of it was
+not understood. **`CSI m` with no parameter is `CSI 0 m`**: missing is zero, and
+zero is what SGR means by it.
+
+**Reverse is a FLAG on logical state, not a swap of the attribute's nibbles**,
+and this is the single easiest thing in §70.9 to get wrong. `CSI 7;31m` must
+mean **black on red**. A parser that swaps the nibbles when it sees the `7` and
+then writes the `31` into the low nibble draws **blue on white** — a plausible
+picture, entirely wrong, and one that only shows up on the boards that put the
+`7` first.
+
+So the terminal keeps six logical bytes and **derives** `[te_attr]` after every
+SGR:
+
+```
+fg = te_lfg & 0x0F              ; bg = te_lbg & 0x07
+if te_rev:  fg, bg = (bg | (fg & 0x08)), (fg & 0x07)   ; intensity stays on fg
+if te_con:  fg = bg
+te_attr    = (te_blk ? 0x80 : 0) | ((bg & 7) << 4) | (fg & 0x0F)
+```
+
+**The four check values**, which `tools/ansisim.py` and the assembly must both
+produce:
+
+| sequence | `te_attr` |
+|---|---|
+| `CSI 0;7m` | **0x70** |
+| `CSI 1;7m` | **0x78** |
+| `CSI 7;31m` | **0x10** |
+| `CSI 44;8m` | **0x44** |
+
+With that model 22, 24, 25, 27, 28, 39 and 49 are all one byte each and none of
+them needs to know what any other did.
+
+| Ps | effect |
+|---|---|
+| 0 | `te_lfg := 7`, `te_lbg := 0`, blink, reverse, conceal and underline all cleared |
+| 1 | bold: `te_lfg |= 8` |
+| 2 | faint: ignored |
+| 4 | underline: **consumed and discarded** — the attribute is not touched and no byte is kept |
+| 5 | `te_blk := 1` |
+| 7 | `te_rev := 1` |
+| 8 | `te_con := 1` |
+| 22 | `te_lfg &= ~8` |
+| 24 | underline off: the same nothing |
+| 25 | `te_blk := 0` |
+| 27 | `te_rev := 0` |
+| 28 | `te_con := 0` |
+| 30–37 | `te_lfg := (Ps − 30) | (te_lfg & 8)` — **the intensity survives a colour change** |
+| 39 | `te_lfg := 7` — **the whole nibble, so intensity is cleared** |
+| 40–47 | `te_lbg := Ps − 40` |
+| 49 | `te_lbg := 0` |
+| 90–97 | `te_lfg := (Ps − 90) | 8` |
+| 100–107 | `te_lbg := Ps − 100`, **and `te_blk := 1`** |
+
+**100–107 set the blink bit and that is not a bug.** The attribute has one bit
+there: with hardware blink it blinks, and under iCE (§70.8.9) it is a bright
+background. That is the standard iCE convention, it falls out of bit 7 being one
+bit, and its consequence is that **`CSI 25m` also turns a bright background
+off**.
+
+**SGR 4 does not reach the glass anywhere, and it is not KEPT anywhere
+either.** A cell is two bytes and has nowhere to put a third bit; a third byte
+per cell is **2,000 bytes of package bss** for something no board sends. An MDA
+shows attribute 0x01 as an underline for a blue foreground on its own hardware,
+which arrives through §70.8.9's ordinary colour mapping and is as much underline
+as this needs to have.
+
+**The first draft declared a `[te_ul]` byte so that this terminal and `ansisim`
+would "publish the same state", and it is gone.** The byte-for-byte contract of
+§70.12 is `te_scr` and nothing else, so publishing the flag bought the gate
+nothing; what it cost was a byte in a package's bss that no renderer read, and
+a byte no renderer reads is a byte that goes stale in silence — the next
+person to add a rule about underline would have found a flag that was already
+being maintained and would have believed it meant something. `ansisim` keeps
+`Screen.underline` because a Python object may publish what it likes; the
+assembly consumes SGR 4 and SGR 24 and stores nothing. The two readers still
+agree about every one of the 4,000 bytes, which is the contract.
+
+#### 70.9.5 Wrap is PENDING, and that is the whole of it
+
+**A glyph written in column 79 stays visible and the cursor stays on column
+79, with `[te_pwrap]` set.** The next GLYPH wraps to column 0 of the next row,
+scrolling if it was the last, and clears the flag.
+
+**What else clears it is a closed list, and it is "anything that ASSIGNS a row
+or a column"** (§70.9.3): the cursor-motion finals `A B C D E F G H f u`,
+`ESC 8`, BS, HT, LF, CR, FF, and `CSI 2 J` because it homes. **Not** the other
+erases, not SU/SD, not IL/DL/ICH/DCH/ECH, not SGR, and not `CSI s`. A `CSI 0 K`
+after a glyph in column 79 leaves the wrap owed, which is right: the erase
+changed the row, not where the cursor is.
+
+The naive alternative — wrap the cursor as soon as the eightieth glyph is
+written — loses a character on every board that fills the last column and then
+sends `CR LF`, because the cursor is already on the next row and the LF takes
+it one further. That is a blank line between every full-width row of art, and
+it is the single most visible difference between a terminal that draws a
+board's screen and one that does not.
+
+#### 70.9.6 Zmodem auto-start needs a FAILURE TABLE, not a restart
+
+In GROUND, the six bytes `*` `*` 0x18 `B` `0` `0` — the opening of a hex
+`ZRQINIT` header — hand the stream to the Zmodem receiver (§70.11).
+
+**It is a six-state detector beside GROUND (`[te_zdet]`), not a search of the
+receive buffer**, and the reason is the one that shaped the whole parser: those
+six bytes routinely arrive in two `NETV_RECV` calls, and a buffer search finds
+the sequence only when TCP happens to deliver it whole.
+
+**And a mismatch may not simply restart the count**, because the pattern repeats
+its first byte. A detector that fell back to "one matched" on a mismatch
+**misses `***\x18B00`** — after three stars the correct state is "two matched",
+not one. Five bytes of table and a loop:
+
+```
+ZFAIL   db 0, 0, 1, 0, 0, 0     ; fall back to this count and RE-TEST the byte
+
+        while b <> pat[n]:  if n = 0: give up;  n := ZFAIL[n]
+```
+
+**The detector advances only in GROUND, and the count is RESET whenever a byte
+is consumed in any other state.** So `*` `CSI 0 m` `*` 0x18 `B` `0` `0` does not
+fire: two stars separated by a sequence are two stars of somebody's artwork.
+
+**The matched bytes are DRAWN on the way past.** At handover the screen holds
+`**B0` — the 0x18 is dropped as CAN (§70.9.2) and the final `0` is not drawn.
+The alternative, holding the matched bytes and replaying them on a mismatch,
+needs a five-byte replay buffer and would drop a real `**` out of a board's art
+whenever a mismatch followed. What is on the glass is covered by the progress
+panel (§70.11.5) a moment later anyway.
+
+**The handover offset is the offset just past the final `0`.** Everything from
+there belongs to the Zmodem receiver, and **the parser is fed nothing more until
+the transfer ends**: `te_feed` returns short at that point and consumes nothing
+until the receiver resumes it. `ansisim`'s `Screen.feed()` returns the same
+short count and publishes the offset as `zmodem_at`, which is how
+`tests/telansi.py` asserts the handover without a transfer.
+
+#### 70.9.7 What the parser cost, and the four shapes it took
+
+**`apps/telnet/teansi.inc` is 2,494 bytes of the package's image**, and the
+package went from **7,052 to 10,235** — the parser, §70.10's negotiation, the
+key table and the queue together. `tools/os88pkg.py`'s line:
+
+| | image | bss | total |
+|---|---|---|---|
+| after §70.8 | 7,052 | 7,554 | 14,606 |
+| **after §70.9/§70.10** | **10,235** | **7,821** | **18,056** |
+
+**Ten clusters of a 1,024-byte cluster, with five bytes to spare**, which is
+not a coincidence: the 360KB system disk had two free and §24.3.1 carries what
+came off it. **About 350 bytes were found rather than spent** — against 50 the
+wave-2 review's fixes cost — and each is a shape rather than a trick:
+
+* **The CSI finals are a table, not a compare chain.** Twenty-three
+  `cmp al, imm` / `je` pairs are four bytes each and a row of
+  `db final` + `dw handler` is three, and `jmp word [bx+1]` reaches the handler
+  with the same `ret` behind it. It also puts every final in one column where a
+  reader can count them.
+* **One cell mover, and it picks its own direction.** IL, SD and ICH open a gap
+  and copy backwards; DL, SU and DCH close one and copy forwards. Six
+  hand-written `rep movsw` blocks were six chances to get an overlap wrong and
+  six copies of the doubling from cells to bytes; `te_cmove` compares its two
+  addresses and is the only place `std` appears.
+* **`te_reset` is one `rep stosb`**, which is why the parser's whole state is
+  one contiguous run of bss — the option layer's phase and the saved cursor
+  moved in for it. Twenty separate stores is sixty bytes, and a state byte
+  added later that nobody remembers to zero is a session that starts dirty:
+  this shape makes that impossible rather than unlikely.
+* **The seven controls are a sixteen-bit mask.** All seven are below 0x10, so
+  `TE_CTLMASK` = 0x3781 replaces a thirty-two-byte table.
+
+**The worker's deepest chain is 102 bytes**, `tools/stkdepth.py`, and it is the
+feed path rather than the draw path now: `te_step` → `te_feed` → `te_byte` →
+`te_pbyte` → `te_ground` → `te_putc` → `te_nextrow` → `te_scroll1` →
+`te_scrollup` → `te_fillcells` → `te_markcells` → `te_mark` → `te_bit`.
+`OS88_STACK_256` covers it with §8.7's 64-byte interrupt floor at 1.54x, above
+the 1.25x `stkclass` enforces.
+
+**And a mark is a DIFFERENCE, not a habit.** The first version marked the
+cursor's row at both ends of every CSI, which is one call in and one out — and
+a board's art is mostly SGR, so that would have redrawn a row that did not
+change, eighty cells composed and blitted, thousands of times a screen, in
+flat contradiction of PERFORMANCE.md's rule 1. The dispatcher remembers the
+cursor and marks the two rows only if the final MOVED it; the finals that
+change a CELL mark their own rows inside `te_fillcells`, where the row
+arithmetic is already being done. The controls carry the same rule one level
+down: NUL and BEL move nothing and take neither mark, and a board sends CR and
+LF by the thousand.
+
+### 70.10 Negotiation, the keys, and the transmit queue
+
+#### 70.10.1 The options a board expects, and the mirror behind them
+
+§70.1's *"refusing every Telnet option is a valid implementation"* was true
+and was right while nothing this drew depended on the host's idea of the
+terminal. **It stopped being right when the terminal became an 80x25 ANSI
+screen**: a board asks what the terminal is and draws a different screen for
+the answer, and a board that is not told sends the line-oriented fallback.
+
+| received | answered | effect |
+|---|---|---|
+| `DO TTYPE` (24) | `WILL TTYPE` | |
+| `SB TTYPE SEND` | `SB TTYPE IS "ANSI" SE` | 10 bytes on the wire |
+| `DO NAWS` (31) | `WILL NAWS` **and** `SB NAWS 0 80 0 25 SE`, as ONE message | 12 bytes; **always 80x25** |
+| `WILL ECHO` (1) | `DO ECHO` | the host echoes; this draws what comes back |
+| `WILL SGA` (3) | `DO SGA` | character at a time, which a board needs |
+| `DO SGA` | `WILL SGA` | |
+| `DO BINARY` (0) | `WILL BINARY`, `[te_obin]` bit 0 set | **we** send 8-bit clean |
+| `WILL BINARY` | `DO BINARY`, `[te_obin]` bit 1 set | **they** send 8-bit clean |
+| `DONT BINARY` | `WONT BINARY`, bit 0 cleared | |
+| `WONT BINARY` | `DONT BINARY`, bit 1 cleared | |
+| any other `DO`/`DONT` | `WONT` it | §70.1's mirror, unchanged |
+| any other `WILL`/`WONT` | `DONT` it | §70.1's mirror, unchanged |
+| `SB` for anything else | swallowed to `IAC SE` | a subnegotiation never agreed to is not one to parse |
+| `IAC IAC` | one 0xFF glyph | |
+
+**The reply's SENSE is still the mirror of the question** for everything not
+in the table, and §70.1's warning stands: getting it backwards is an option
+loop and it is the one way a Telnet client can wedge a connection that is
+working perfectly.
+
+**`IAC IAC` is one literal 0xFF in the application stream in BOTH directions,
+and that is not cosmetic.** Zmodem sends binary and binary is full of 0xFF, so a
+terminal that forgets to halve an incoming pair **corrupts every download with a
+0xFF in it** — while agreeing perfectly with a sender that also forgets, which
+is why it survives a test written by one author. §70.12's server checks it with
+a payload of 3,000 consecutive 0xFF bytes.
+
+**BINARY is not decoration; Zmodem does not work without it.** A Zmodem data
+subpacket contains every byte value, and a host that has not agreed to
+`TRANSMIT-BINARY` is entitled to strip the eighth bit. `[te_obin]` is two
+bits and not one because the two directions are separate options in RFC 856
+and a host may agree to one and refuse the other.
+
+**The NAWS answer is ONE message of twelve bytes and not two**, and it is the
+only row above that answers one received byte with two replies. §70.10.3's
+held slot is ONE DEEP: sent as two, a full transmit ring would hold the `WILL`
+and drop the size behind it, and the host would be told this terminal has a
+window and never told how big. The ring is 256 bytes and empty when a board
+negotiates, so nothing could reach that hole — which is exactly why it is
+worth closing by construction rather than leaving to arithmetic that happens
+to hold.
+
+**NAWS reports the buffer and not the viewport**, which §70.8.10 states and
+this is the other half of: a client that reported a narrow window would have
+the host wrap its lines where the buffer is not going to wrap them, and every
+line of art after the first would be in the wrong place.
+
+#### 70.10.2 The keys, and the ones the kernel takes first
+
+The delivery contract is `W_ONKEY`'s: **AL = ASCII, AH = the `int 16h` scan
+code, SI = the window**, and the kernel passes `int 16h AH=00h`'s `AX` through
+unchanged — there is no kernel scan-code table and no translation. **AL = 0 is
+how an extended key is recognised**, tested before AH is looked at, which is
+§27's rule for exactly the reason it gives: the numeric keypad sends `4 6 8 2
+7 1 .` with the scan codes of Left, Right, Up, Down, Home, End and Delete.
+
+> **`apps/telnet/telnet.asm` cites §11.2.1 for this and §11.2.1 is the
+> FULLSCREEN KEY.** The citation is wrong and is corrected here rather than
+> repeated: `tetxt.inc`'s use of §11.2.1 — the `F` contract and its exemption
+> for an app taking typed text — is the right one, and `te_txraw`'s is not.
+
+| key | scan | sent |
+|---|---|---|
+| Up | 0x48 | `ESC [ A` |
+| Down | 0x50 | `ESC [ B` |
+| Right | 0x4D | `ESC [ C` |
+| Left | 0x4B | `ESC [ D` |
+| Home | 0x47 | `ESC [ H` |
+| End | 0x4F | `ESC [ K` |
+| PgUp | 0x49 | `ESC [ V` |
+| PgDn | 0x51 | `ESC [ U` |
+| Ins | 0x52 | `ESC [ @` |
+| Del | 0x53 | `0x7F` |
+| F1..F4 | 0x3B..0x3E | `ESC O P` / `Q` / `R` / `S` |
+| F5..F8 | 0x3F..0x42 | `ESC [ 1 5 ~` / `1 7 ~` / `1 8 ~` / `1 9 ~` |
+| F9..F12 | 0x43, 0x44, 0x85, 0x86 | `ESC [ 2 0 ~` / `2 1 ~` / `2 3 ~` / `2 4 ~` |
+
+Those are the ANSI-BBS conventions rather than the VT's — `ESC [ K` for End
+and `ESC [ V` / `ESC [ U` for the page keys are what a DOOR game reads — and
+every board's own help screen names them.
+
+The ASCII keys:
+
+| key | sent |
+|---|---|
+| Enter | `CR LF`, or **`CR` alone when `[te_obin]` bit 0 is set** |
+| Backspace | 0x08 |
+| Esc | 0x1B |
+| Tab | 0x09, when the host box does not have focus |
+| Ctrl+] (0x1D) | **never sent** — it is full screen, in both directions (§70.6) |
+| anything else printable | itself |
+| an outgoing 0xFF | **doubled**, `IAC IAC` |
+
+`CR LF` is RFC 854's requirement for a NVT and a bare `CR` is what BINARY
+means; the old code sent `CR` unconditionally with the comment *"the LF is the
+host's business"*, which every host in practice tolerates and the RFC does not
+say.
+
+**Eleven of those keys never reach this package on a machine with no mouse.**
+§9.6's keyboard-mouse takes Home, Up, PgUp, Left, Right, End, Down and PgDn
+for pointer movement and Ins, Del and Space for the buttons, whenever
+`[mou_ptr]` is 0 — *"these are the keys this takes, and an application does not
+see them"*. **ScrollLock is the escape hatch and it is the only one**
+(`kbm_slock`, bit 4 of `0040:0017`): with it on, the arrows are the
+application's again. A board is unusable without them, so the About panel says
+so and docs/TELNET-PLAN.md records that a per-window opt-out was judged and is
+not in this work.
+
+**F11 and F12 may never arrive at all.** The kernel polls `int 16h AH=01h` and
+`AH=00h`, never the enhanced `AH=10h`/`AH=11h`, so an XT-class BIOS does not
+surface 0x85/0x86. The table carries them because a machine whose BIOS does
+surface them should send the right thing; nothing depends on them.
+
+#### 70.10.3 The transmit queue takes WHOLE MESSAGES or nothing
+
+`TE_TX` grows from 64 bytes to **256**, still a power of two and still
+`and`-masked. The ring is the same ring and §70.2's critical section is
+unchanged: **it has two writers** — `te_onkey` on the UI task and the worker's
+protocol replies — so the read-modify-write of `[te_txw]` is `pushf`/`cli` …
+`popf`, and an interleave that rolled the write index backwards past the read
+index would hand the host a ring's worth of stale bytes.
+
+**What is new is that a reply is enqueued whole or not at all.** A keystroke
+is one byte and a full ring drops it, which §70.2 justified and which is still
+right — at 3,741 B/s a 256-byte queue is 68 ms of typing ahead of the cable,
+and a user who outruns that has an unresponsive machine either way. **A
+protocol reply is not one byte and must not be cut**: half of a
+`SB TTYPE IS "ANSI" SE` on the wire is a subnegotiation the host waits for the
+end of, and half of a Zmodem header is a header the sender NAKs for ever.
+
+    free = (te_txr − te_txw − 1) AND 255
+    if free < length: refuse, enqueue nothing
+
+Space is tested and all of the bytes are copied inside **one** critical
+section, so the ring cannot fill between the test and the copy.
+
+**A refused message goes to `te_pnd`, one deep and 32 bytes**, and is retried
+at the top of the next worker pass before anything else is enqueued. Thirty-two
+is the longest message this package composes — a Zmodem hex header is 21 bytes
+and a binary one at most 18 after escaping; `SB TTYPE IS` is 10 and
+`WILL NAWS` plus `SB NAWS` together are 12.
+
+**One deep is enough because the worker stops consuming while it is
+occupied.** The receive buffer becomes a queue rather than a batch — `[te_rxn]`
+bytes at `te_rx` with `[te_rxi]` bytes taken — and **a pass that could not
+finish the buffer issues no new `NETV_RECV`**. So there is never a second
+message to compose while the first is pending, TCP's own window holds the
+sender, and no byte is dropped anywhere in the chain. §70.11's staging
+back-pressure is the same mechanism reached from the other end.
+
+`te_txraw` stays as the way a protocol byte gets past `te_tx`'s `or al, al`
+filter, for §70.2's reason exactly: that filter is right for the keyboard,
+where AL = 0 is a bare scan code, and wrong for a reply, where **option 0 is
+`TRANSMIT-BINARY`** — which is no longer a hypothetical, because §70.10.1
+answers that option.
+
+**A KEY SEQUENCE GOES IN WHOLE TOO**, which the design first reserved for
+protocol replies and which is the same argument one keyboard along: half of
+`ESC [ 1 5 ~` on the wire is `15~` typed into a board's menu. What a key does
+*not* get is `te_pnd` — the held slot has ONE writer, the worker, and a
+keystroke arrives on the UI task, so a full ring drops the key and says
+nothing. That is §70.2's original bargain and it is still the right one for a
+human's typing; it is a bargain a protocol cannot take.
+
+**`te_enq` carries its answer in DX and not in CF**, which is not a style
+choice: the critical section ends in `popf`, and `popf` restores the flags the
+routine was ENTERED with — so a carry set inside it is a carry the section
+throws away. Every routine in this tree that returns a flag out of a
+`pushf`/`cli` … `popf` has the same trap in it.
+
+**The one thing the ring did NOT need is a second index.** `te_feed` advances
+`[te_rxi]` *before* the byte acts, so `[te_soff]` — and therefore §70.9.6's
+published handover offset — is the offset just PAST the byte, which is exactly
+what `ansisim`'s `feed()` returns. Two implementations of one number, and the
+gate compares them (§70.12).
+
+**And a new session resets all of it.** `te_reset` runs at the Connect
+transition and zeroes every byte the last session negotiated, learned or half
+parsed: a BINARY agreement the new host never made would send Enter as a bare
+CR, a parser left mid-CSI would swallow the new host's first sequence, and a
+Zmodem handover that never completed would stop the new session before its
+first byte. It is one `rep stosb` over one contiguous run of bss, so a state
+byte added later is covered by construction rather than by somebody
+remembering (§70.9.7).
+
+### 70.11 Zmodem receive (`apps/telnet/tezm.inc`)
+
+**Receive only. Uploads are out of scope**, and docs/TELNET-PLAN.md carries
+the arithmetic. Started by §70.9.6's auto-start or by Session → *Receive File
+(Zmodem)…*, which sends a `ZRINIT` and waits.
+
+#### 70.11.1 What is advertised, what the bytes are, and what is refused
+
+**`ZRINIT`'s four header bytes are `ZF3 ZF2 ZF1 ZF0` — NOT the order they
+read.** A *position* frame's four bytes are `ZP0..ZP3`, little endian; a *flag*
+frame's are reversed, so `hdr[3]` is `ZF0`. That is where **`CANFDX | CANOVIO`
+= 0x03** goes, and it is where `ZFILE`'s conversion byte (`ZCBIN` = 1) goes on
+the way in. `hdr[0..1]` of a `ZRINIT` is the **receive buffer size, little
+endian, and this terminal sends 0** — no window, so the sender streams with
+`ZCRCG` and ends each file with a `ZCRCW` it waits on. The back-pressure is
+TCP's, which is the only place on this machine it can usefully live.
+
+**`CANFC32` is NOT advertised: CRC-16 only.** A CRC-32 table is 1,024 bytes of a
+package image and the untabled form is 32-bit arithmetic on an 8086, and it buys
+nothing on a link that is already checksummed twice — TCP's own and Ethernet's.
+A sender that offers a `ZBIN32` header anyway is answered **`ZNAK`, and the
+transfer then continues** — that is what the negotiation is for, and §70.12's
+server sends exactly one deliberate `ZBIN32` `ZFILE` header so the path is
+driven.
+
+**And the CRC-16 is computed BITWISE, with no table.** Eight shifts a byte is
+about 80 cycles on a 4.77 MHz 8088, which is 59,500 bytes a second of checking
+capacity against a cable that delivers 3,741. A 512-byte table would buy
+throughput this transfer cannot use.
+
+**A binary header has ONE `ZPAD`; a hex header has TWO.** `* ZDLE A` against
+`* * ZDLE B` — which is why §70.9.6's auto-start trigger is `**`, it being the
+*hex* `ZRQINIT`'s opening. **The header scan must accept one or two.**
+
+**A hex header's trailer is CR, LF, then XON — for every frame type except
+`ZFIN` and `ZACK`.** The receiver reads one byte and, if it was CR, one more;
+**the XON is left behind for the next `ZPAD` scan to skip.** That is `lrzsz`'s
+own behaviour and this copies it exactly: trying to consume the XON
+deterministically fails on `ZFIN`.
+
+**ZDLE decoding, precisely — and `ZDLE ZDLE` is CANCEL, not a literal.**
+
+| after `ZDLE` (0x18) | means |
+|---|---|
+| `h` `i` `j` `k` (0x68..0x6B) | end of subpacket: `ZCRCE`, `ZCRCG`, `ZCRCQ`, `ZCRCW` |
+| `l` (0x6C, ZRUB0) | a literal 0x7F |
+| `m` (0x6D, ZRUB1) | a literal 0xFF |
+| any `c` with **`(c AND 0x60) == 0x40`** | `c XOR 0x40` — this is how 0x18 arrives, as `ZDLE 'X'` |
+| `ZDLE` again | **CANCEL** |
+| anything else | a protocol error: `ZNAK` and resynchronise |
+
+The sender's side of the same rule, which the receiver does not have to
+reproduce but does have to survive: `ZDLE`, 0x10, 0x11, 0x13, 0x90, 0x91 and
+0x93 are always escaped, everything with bits 5 and 6 clear is escaped when
+`ESCCTL` was asked for, and **CR is escaped only when the previously *sent* byte's
+low seven bits were 0x40**. The receiver simply un-escapes anything valid by the
+table above, which decodes all of it.
+
+**A subpacket's terminator is sent RAW and its CRC is ESCAPED**, and **the CRC
+covers the data plus the frame-end byte**. `ZDLE` and the `ZCRCE/G/Q/W` byte go
+out unescaped; the two CRC bytes that follow go through the escaper. Getting the
+frame-end byte out of the CRC is the classic way to build a receiver that NAKs
+every subpacket while looking correct.
+
+**What each terminator is answered with:**
+
+| terminator | answer | frame |
+|---|---|---|
+| `ZCRCG` | nothing | continues |
+| `ZCRCQ` | `ZACK` with the position | continues |
+| `ZCRCW` | `ZACK` with the position | **over**, and the sender then emits an **XON** the `ZPAD` scan must skip |
+| `ZCRCE` | nothing | over |
+
+**AND THAT TABLE IS ABOUT A *DATA* SUBPACKET.** The `ZFILE` info block is
+`ZCRCW`-terminated too and is **not** answered with a `ZACK`: what the sender
+reads after it is the `ZRPOS` or the `ZSKIP` the Save dialog decides (§70.11.2),
+and an `ZACK` in front of that is a straggler it has to skip. `lrzsz`'s
+receiver does not send one either. The distinction is per SINK — the info block
+or the staging halves — and not per terminator, which is why `tz_subok`
+branches on `[tz_sk]` before it looks at `[tz_fend]` at all.
+
+**`ZEOF` carries the file LENGTH as its position**, and it is answered with a
+fresh `ZRINIT` — which is what lets the next `ZFILE`, or the `ZFIN`, follow.
+
+**Subpackets are 1,024 bytes**, which is what `sz` uses and what §70.11.3's
+arithmetic assumes: **a 4 KB staging half fills after exactly four of them.**
+Nothing in the protocol requires it and nothing here may depend on it.
+
+**No `ZSINIT` is sent and none need be.** This terminal does not ask for
+`ESCCTL`; a sender that honours it when a receiver's `ZRINIT` sets the bit is
+free to, and the decode table above copes either way.
+
+#### 70.11.2 The receiver's states
+
+`[tz_st]` holds one of these. The transitions are the only ones there are.
+
+| state | what it is | leaves on |
+|---|---|---|
+| `ZR_OFF` | not in a transfer | the auto-start or the menu item → `ZR_WAIT` |
+| `ZR_WAIT` | `ZRINIT` sent, waiting for a header | `ZFILE` → `ZR_FILE`; `ZFIN` → `ZR_FIN`; timeout → resend `ZRINIT` |
+| `ZR_FILE` | collecting the `ZCRCW` subpacket that carries the file info | complete → mangle the name, raise `TZ_NAME`, → `ZR_DLG` |
+| `ZR_DLG` | **the transfer is held**: nothing is sent until the UI answers | chosen → `ZRPOS 0`, → `ZR_DATA`; cancelled → `ZSKIP`, → `ZR_SKIP` |
+| `ZR_DATA` | receiving `ZDATA` subpackets into the staging halves | `ZEOF` → flush, → `ZR_EOF`; CRC error → `ZRPOS` at the committed offset, stay |
+| `ZR_EOF` | the file is closed; `ZRINIT` sent again | `ZFILE` → `ZR_FILE`; `ZFIN` → `ZR_FIN` |
+| `ZR_SKIP` | `ZSKIP` sent | `ZFILE` → `ZR_FILE`; `ZFIN` → `ZR_FIN` |
+| `ZR_FIN` | `ZFIN` sent, waiting for the sender's and then `OO` | → `ZR_OFF`, and the terminal is back |
+| `ZR_ERR` | the retry count is spent | → `ZR_OFF`, with the reason on the status line |
+
+**The file-info subpacket is `name` NUL `size mtime mode serial files_left
+bytes_left` NUL, terminated `ZCRCW`** — and **only the first two fields are
+read**: the name for the Save dialog and the size for the progress line.
+Everything after them is ignored rather than parsed. The `mtime` is **octal**,
+which is easy to misread as decimal and is exactly the kind of field a terminal
+gains nothing by having an opinion about.
+
+**A second `ZFILE` for a file already open must be IDEMPOTENT: reopen at
+position 0, never open a second file and never append.** This is the mirror of a
+trap §70.12's server hit from the sending side. A receiver sends `ZRINIT` until
+somebody answers, so **two are usually in flight when the first `ZFILE` goes
+out**; a sender that reads the straggler as the answer to its `ZFILE` resends,
+and every file after the first inherits the file before's reply. The receiver's
+half of the same problem is that **if its `ZRPOS` is lost the sender repeats the
+`ZFILE`** — and a receiver that treated the repeat as a new file would write the
+download twice, or append it to itself, and the disk would say so rather than
+the wire. Equally: **a `ZRINIT` arriving where a `ZRPOS` was expected is a
+straggler to skip, never a reason to resend.**
+
+**`ZRPOS` restarts at the SUBPACKET's start, and `[tz_skip]` is why that is
+honest.** A CRC error discards whatever is in the staging half that is still
+filling — but a subpacket that straddled a chunk boundary has its first part
+**already committed**, because `tz_store` raises a half the moment it is full
+and the CRC is checked at the end. Naming the committed offset would resume the
+sender PAST the start of the bad subpacket and leave its corrupt prefix in the
+file for ever, with the length right so nothing notices: which is the exact
+defect resume-from-committed exists to prevent.
+
+There is no truncate verb, so the prefix cannot be taken back. `[tz_sub0]` is
+where the subpacket now filling started, the `ZRPOS` names *that*, and
+`[tz_skip]` = `[tz_pos] − [tz_sub0]` drops the bytes the sender re-sends over
+what is already written. **The file's SIZE never moves**, which is what keeps
+`OSAPI_FILE_APPEND`'s cluster-multiple precondition true through a retry — and
+is why this is the fix rather than raising only at subpacket boundaries, which
+would make a chunk 5,120 bytes and break §18.4.4.
+
+The `ZRPOS` still waits for `[tz_req]` to clear before it goes out, because
+`[tz_pos]` is not final until the commit in flight has landed. Reachability is
+low and worth saying plainly: the transport is TCP, so a subpacket CRC error
+means corruption above TCP's own checksum.
+
+**A `ZEOF` whose position disagrees is answered the same way and does NOT enter
+subpacket mode.** No subpacket follows a `ZEOF` — the next bytes are the
+sender's answer to our `ZRPOS` — so eating them as data leaves recovery to
+whichever byte pair happens to decode as a frame-end terminator, with the
+5 × 10 s retry count as the floor.
+
+**FIVE `ZDLE ZDLE`s IN A ROW ARE THE SENDER'S ABORT.** One is a lost place and
+resynchronises on the next `ZPAD`; five is the classic cancel a user types at
+the BBS end, and dropping them in `ZP_IDLE` left the terminal showing nothing at
+all for `TZ_TMO` × `TZ_TRIES` = fifty seconds. Any decoded byte resets the run.
+
+**Timeouts and a retry count, so a dead sender returns the terminal.**
+`OSAPI_GET_TICKS` (0x00B8) is the clock — 18.2 Hz, ~55 ms, wrapping at 65,536,
+so every comparison is a subtraction. Ten seconds (182 ticks) without a header
+in `ZR_WAIT`/`ZR_EOF`/`ZR_SKIP` resends the last header; five of those in a row
+is `ZR_ERR`. There is no millisecond slot on this machine and none is needed:
+every Zmodem timeout in the protocol is measured in seconds.
+
+**A batch is `ZFILE` again after `ZEOF`**, which the states above already say,
+and each file gets its own dialog.
+
+**A HEADER CAN BE OWED AND NOT YET SENDABLE, so `[tz_owe]` is a byte and not a
+state.** Two of them wait on the same thing — the UI task's commit — because
+`[tz_pos]` is not final until it lands:
+
+| `[tz_owe]` | what is owed | why it waits |
+|---|---|---|
+| 1 | the `ZRINIT` that answers a `ZEOF` | the file's last partial chunk was raised with it, and a sender told the file is closed is free to start the next one |
+| 2 | a `ZRPOS` after a CRC error, or a `ZDATA` that resumed somewhere we are not | it names the bytes COMMITTED, and the half in flight may or may not have reached the disk |
+
+`tz_poll` sends whichever is owed on the first pass where `[tz_req]` is
+`TZ_NONE`, which is at most one commit's wait. Making them states instead would
+have doubled the table for a condition that is not about the protocol at all.
+
+**AND THE SUBPACKET NEEDS TWO COUNTERS, NOT ONE.** `[tz_n]` counts a header's
+bytes or nibbles *and* a subpacket's two CRC bytes, and the frame-end byte
+resets it for the second job — so a reader of it after the CRC sees **2**. The
+file name's length is wanted exactly there, at `tz_infodone`. With one counter
+the info block was NUL-terminated at its third character, the Save dialog was
+pre-filled with a two-letter name, and everything after it was parsed as the
+decimal size. `[tz_dn]` is the data counter and the two never overlap in time
+by construction: one belongs to the frame, the other to the payload.
+
+#### 70.11.3 The worker stages, the UI task commits
+
+**§20.6 rule 7 is binding and it forbids a worker touching a file**: the file
+slots are the UI task's, because they share `dsk_secbuf`, the FAT snapshot and
+`sch_lock`. §77's FTP server is the worked example of the shape this forces
+and this follows it byte protocol for byte protocol.
+
+    worker                                    UI task (tz_wake)
+    ------                                    -----------------
+    fill tz_arg*, then [tz_req] = TZ_*   -->  sees [tz_req], does the file work,
+    OSAPI_WM_WAKE (0x0450)                    writes tz_rst, clears [tz_req] LAST
+    poll until [tz_req] == TZ_NONE       <--
+
+**One byte, and a byte store is atomic on an 8086.** The producer writes every
+argument before the flag; the consumer clears the flag after every result. The
+worker looks at `[tz_req]` before it looks at anything else, because the
+request's outstanding-ness is the request's argument.
+
+| `[tz_req]` | what the UI task does |
+|---|---|
+| `TZ_NONE` (0) | nothing is outstanding |
+| `TZ_NAME` (1) | ask `OSAPI_FILE_DFREE`, size the chunk, open the Save dialog (§70.11.4) |
+| `TZ_DATA` (2) | write `[tz_un]` bytes of half `[tz_uh]` — `OSAPI_FILE_WRITE` (0x0120) for the first chunk, `OSAPI_FILE_APPEND` (0x0350) for every later one |
+| `TZ_DONE` (3) | the file is complete; nothing to close, because neither slot holds a handle |
+
+**AND THE WORKER KICKS FOR AS LONG AS A REQUEST IS OUTSTANDING.**
+`OSAPI_WM_WAKE` answers CF=1 when the event ring was full of other events and
+nothing was posted, and its own cell says to kick again from the next callback
+— so a `TZ_DATA` whose wake was lost left the worker polling a byte the UI task
+was never told to clear. The transfer then stopped dead: the `ZRINIT` that
+answers a `ZEOF` waits for that commit, so the sender saw nothing for
+`TZ_TMO` × `TZ_TRIES` and the terminal ended in `Sender stopped` with the file
+half written. `tz_poll` kicks every `TZ_KICK` = 9 ticks while `[tz_req]` is not
+`TZ_NONE`, which IS the retry the SDK asks for; the first version kicked only
+while a dialog was up, which is the one case a human was waiting on.
+
+`OSAPI_WM_ONWAKE` (0x0458) is what makes any of it possible (§74.1): the
+handler runs on the UI task, billed to this instance, **without the gfx lock**,
+and it is expressly allowed to call the file slots. Nothing else in the SDK
+is. It is registered from `te_entry`, and the slot **preserves the flags**,
+which matters there because the CF owed to the loader is still in flight.
+
+**The staging area is 8,192 bytes in the PACKAGE'S OWN SEGMENT**, two 4,096-byte
+halves, and the segment is not a choice: `OSAPI_DRV_CALL` (0x0448) is an X stub
+and puts the caller's segment in ES, so a buffer in a heap claim is read out of
+the package's own image instead — which reads as memory corruption rather than
+as a wrong segment register, because the bytes really are ours (§77.2).
+
+**The worker fills one half while the UI task writes the other.** When the half
+in flight has not been collected and the other is full, **the worker simply
+does not call `NETV_RECV`** — TCP holds the sender, the sender blocks, and
+nothing is dropped. Downloads are bounded only by the disk.
+
+**The chunk is a whole number of the DESTINATION's clusters** (§18.4.4), asked
+**once** per transfer rather than per chunk: `OSAPI_FILE_DFREE` (0x0140) answers
+`BX` = **sectors** per cluster, so the cluster is `BX × 512` bytes, and the call
+walks the whole resident FAT snapshot — about 105 ms on a 20 MB hard disk at
+4.77 MHz. §77.40 is the precedent: FTPD called it per chunk and spent 44% of an
+upload inside it.
+
+**AND IT IS ASKED AFTER THE DIALOG ANSWERS, NOT BEFORE IT.** The Save dialog has
+a **Drive** button (§38.11) and `fdlg_home_save` records the volume the user
+landed on into the instance *before* the completion proc runs — which is exactly
+what makes `tz_commit`'s bare-name write land there (§38.10). Sized before the
+question, the chunk describes the volume the terminal was LAUNCHED from: a
+4,096-byte chunk against a partition with 8 KB clusters creates the file with
+`OSAPI_FILE_WRITE` and then meets `dskw_append`'s precondition check on the
+second chunk, which answers **`FERR_NAME`** — so the user is shown `Disk error`
+and a 4 KB stump of a 40 KB file, with an innocent disk. The over-8,192 refusal
+below was never reached through that door at all.
+
+`tz_chunk_set` therefore runs in `tz_dlgdone`, on the UI task, with the lock
+held and no disk I/O: the same 105 ms, one question later. The worker stages
+nothing until it reads `[tz_rst]`, so the chunk is still fixed before the first
+byte lands.
+
+| the destination's cluster | what this does |
+|---|---|
+| ≤ 4,096 bytes | chunk = 4,096, **double-buffered**; 4,096 is a multiple of every power-of-two cluster at or below it, and it is **exactly four 1,024-byte subpackets** (§70.11.1) |
+| 4,097..8,192 | chunk = 8,192, **single-buffered** — the worker fills the whole area, then waits |
+| > 8,192 | **refused**: `ZSKIP`, and the status line names the cluster size — `Cluster 16,384 too big` — because §47's rule is that a refusal states a FACT a person can act on, and *"too large"* is a judgement where 16,384 is a number they can take to another disk |
+
+**THE REFUSAL IS PER FILE AND NOT PER BATCH.** It sends `ZSKIP`, the sender goes
+on to the next file, and the reason stays on the status line until a file IS
+accepted — a cluster is a fact about the destination the user just chose, and
+the next file may be saved somewhere else. The first version called the
+session's failure path here instead, which ended the whole batch for one
+unsuitable folder and contradicted this table's own word.
+
+**AND THE TWO STAGING ARMS ARE NOT THE SAME MECHANISM.** Double-buffered, the
+raise happens in `tz_store` the moment a half fills, because the *other* half is
+there to take the next byte. Single-buffered there is no other half, so
+`tz_canrx` refuses at a full buffer whatever `[tz_req]` says and the raise
+happens on the WORKER's next pass instead. Driving the raise from a byte's
+arrival on that arm put `tz_store`'s `xor bx, bx` on offset 0 of the chunk the
+UI task had just been handed — one silently wrong byte per 8,192 in the file,
+with the length right and the CRC that would have caught it already spent.
+Unreachable on a floppy, which is every geometry any gate drives.
+
+The last chunk is whatever is left, which is §18.4.4's own exception.
+`OSAPI_FILE_APPEND` refuses a file whose current size is not a cluster multiple
+with `FERR_NAME`, and the rule above is exactly what keeps that from happening.
+
+#### 70.11.4 The destination is the standard Save dialog, and a cancel calls nothing back
+
+**`OSAPI_FILE_DLG` (0x0150) with AL = 1**, opened by the UI task when the worker
+has parsed `ZFILE`, pre-filled with the sender's name mangled to 8.3. The
+contract, which shapes everything around it:
+
+* the call **does not block** — it returns CF=0 with the dialog already on
+  screen, and CF=1 when one is already up or the window table is full;
+* the pre-fill is `SI` = a NUL-terminated name of at most 12 characters;
+* the completion proc runs **much later**, on the UI task, gfx lock held, after
+  the dialog has been destroyed, with `AL` = the mode, `SI` = the requester
+  window, **`ES:DI` = the chosen name** and `DX:CX` = that file's size, or 0
+  when the listing has no such file;
+* **the name is all that comes back.** There is no path and no drive: the
+  dialog opened on this instance's own folder, `fdlg_home_save` records the
+  folder and the drive into the instance *before* the callback runs, and a
+  plain `OSAPI_FILE_WRITE` on that bare name therefore lands where the user
+  chose (§19.2.1, §38.10);
+* **there is no overwrite confirmation** anywhere in the dialog, and
+  `OSAPI_FILE_WRITE` creates or replaces without asking. A file the disk
+  already has is replaced, which is what a Save dialog means everywhere else
+  on this system.
+
+**A cancelled dialog calls nothing back at all** (§38.6): `fdlg_close` runs and
+the requester never hears. So the cancel has to be inferred.
+
+**THE FIRST DESIGN INFERRED IT FROM A `W_PAINT` ARRIVING WHILE `[tz_dlg]` WAS
+STILL SET, AND THAT IS WRONG.** The argument for it was that the dialog is
+modal and covers this window, so no paint reaches us while it is up. **It does
+not cover this window.** §38.3 fixes the dialog at 300×170 on (90, 60) and
+§70.8 opens the terminal at 656×254 on (40, 40), so most of the terminal is
+still on the glass — and `fdlg_open`'s own `cw_wm_show` raises and repaints the
+desktop the *instant the dialog goes up*. That paint arrives first, so every
+transfer was skipped before the user could touch anything; worse, `tz_cancelck`
+only *marks* a cancel, so the real dialog stayed on screen and the next file's
+request was then refused for a dialog that was already up. §70.12.2 has the
+run.
+
+**THE SLOT DECIDES, AND THE PAINT IS ITS FALLBACK.** Three things can say a
+dialog is gone, and they are ordered by how much they know.
+
+1. **The dialog's own window SLOT.** `OSAPI_WM_OWNSEG` (0x04E0) answers CF=1
+   for a free slot and CF=0 with the owning segment for a live one. `tz_wmap`
+   builds a BITMAP of the twelve slots immediately before `OSAPI_FILE_DLG` and
+   another immediately after a successful open; the bit that appeared names the
+   slot, and `[tz_dslot]` holds it. That test is **authoritative**, because the
+   used bit it reads is what `wm_destroy` clears and what `wm_hide` does not —
+   so while the dialog is on screen it answers *still there*, and any other
+   signal that disagrees is provably wrong.
+
+   A TALLY would not have done: it is a fact about the DESKTOP, and anything
+   else creating or destroying a window moves it. Modality fences *input* and
+   not `wm_create`/`wm_destroy` from a running package's own task.
+
+2. **A `W_PAINT`, ARMED — and it may not decide.** `[tz_dlgt]` is the tick the
+   dialog went up and `tz_cancelck` ignores anything inside `TZ_DLGARM` = 18
+   ticks, because `fdlg_open`'s own `cw_wm_show` repaints the desktop when the
+   dialog ARRIVES. Past that it sets `[tz_pcan]` **and returns**: `tz_wake`'s
+   next pass is what acts, and only when `[tz_dslot]` is 0xFF — the case where
+   `tz_wmap`'s XOR came back empty and the slot was never worked out.
+
+   Trusting the paint FIRST left the other direction wide open: any
+   `wm_paint_all` reaching us between the arming and the backstop cancelled a
+   file whose dialog the user was still reading, and the screensaver's relight
+   is the concrete one.
+
+3. **Sixty seconds**, for the window that never goes away. Not the mechanism.
+
+**AND THE PAINT MAY NOT ACT ALONE FOR A SECOND REASON, which is an ordering
+this section got wrong the first time.** The first draft argued that a commit is
+safe because *"`fdlg_commit` destroys the dialog and calls the completion proc
+in one UI-task call chain, and `W_PAINT` is another UI-task callback, so it
+cannot be dispatched in between"*. **`W_PAINT` is not dispatched — it is called
+INLINE, by the destroy.** `fdlg_commit` calls `fdlg_close` first, `wm_destroy`
+ends in `wm_paint_dmg` over the rect the dialog vacated, that marks every window
+overlapping it — ours does — and `wm_draw_win` calls our `W_PAINT` **unless
+`wm_su_try` hits**. So the real order is:
+
+    destroy → repaint → te_paint → (the inference) → completion proc → tz_dlgdone
+
+and the only thing that stood between a Save and a `ZSKIP` was the RAISE CACHE
+hitting. §11.96 is explicit that the cache is a **purgeable** claim (§50.6),
+*"given back the instant anything else needs the room"* — so on a 256KB XT, or
+a desktop with a few packages up, **every Save was read as a cancel and every
+download skipped**. A gate on an idle desktop cannot see it, which is why
+fourteen commits passed.
+
+Measured, on `tests/telzm.py`'s cancel run: **`[tz_dlg]` cleared half a second
+after the Escape**, against the 60-second backstop.
+
+**AND A REFUSED OPEN IS RETRIED, WITH THE COUNTER RESET WHEN IT GIVES UP.**
+`OSAPI_FILE_DLG` answers CF=1 while another dialog is up, so `[tz_req]` stays
+`TZ_NAME` and the worker's kick asks again, bounded at `TZ_DTRY` = 20 kicks.
+`[tz_dtry]` goes back to zero on the give-up path as well as on a successful
+open: cleared only by success, one exhausted retry made every LATER file give up
+on its first refused poll, turning one stuck dialog into a batch of instant
+skips.
+
+**Which also settles what a second cancelled dialog was doing.** Escape destroys
+the dialog and drops `[fdlg_win]` in the same keystroke (`fdlg_close`), and
+`fdlg_reap` runs once per UI pass — so a *repeated* refusal could only mean a
+dialog really was up while `[tz_dlg]` said it was not, which is exactly what the
+paint-first rule produced. With the slot deciding, the mismatch cannot arise;
+`tests/telzm.py`'s batch cancels two dialogs in a row and asserts the third.
+
+**A COMMIT CANNOT BE MISREAD AS ONE**, because `tz_dlgdone` clears `[tz_dlg]`
+and `[tz_pcan]` together and runs before any wake can be dispatched: the paint
+that preceded it banked a suspicion nothing will now read, and the slot is free
+by then anyway. `tests/telzm.py` drives ten commits and five cancels over one
+boot — two of the cancels adjacent — and no commit is ever read as a cancel.
+
+**AND A REFUSED OPEN IS RETRIED RATHER THAN READ AS A CANCEL.**
+`OSAPI_FILE_DLG` answers CF=1 while ANOTHER dialog is up, and the one this
+instance just had is only reaped on a later UI pass (§38.1.1) — so a batch
+whose files arrive faster than the reap gets its second request refused, its
+third, and all the rest. `tz_dlgopen` also **returns at once if `[tz_dlg]` is
+already set**, because a request cannot be served while our own dialog is up. `[tz_req]` stays `TZ_NAME` and the worker's kick asks
+again, bounded at `TZ_DTRY` = 20 kicks — about ten seconds — so a dialog
+somebody else leaves up cannot hang the transfer either. Without the retry a
+twelve-file batch showed **one dialog and eleven silent `ZSKIP`s**.
+
+**A 60-second timeout backs it up and is not the mechanism.** If `[tz_dlg]`
+survives 1,092 ticks the receiver sends `ZSKIP` anyway. That is there for the
+window that never goes away rather than for the user who is thinking, and it is
+long because a sender re-sends its `ZFILE` while it waits and a short timeout
+would race a slow reader.
+
+**AND THE SLOT IS CALLED UNDER THE GFX LOCK.** `fdlg_open`'s own contract is
+*"THE CALLER HOLDS THE GFX LOCK — every legal caller is a window callback or an
+`AM_ONCMD` handler, which is what lets this create and show the window inline
+instead of posting a launch"*, and `OSAPI_WM_ONWAKE` is the one callback that
+runs **without** it (§74.1). So `tz_wake` takes it for that call and releases it
+again, which is the same thing the SDK tells a wake handler to do before it
+draws.
+
+**AND NOT UNDER A FOREIGN TEXT MODE.** The Save dialog is a window and every
+kernel drawing slot is off-limits inside §53's bracket, so `tz_wake` refuses to
+open one while `[te_txm]` is set and `te_fsx_main`'s loop LEAVES the bracket
+when it sees `[tz_req]` = `TZ_NAME`. A transfer that reaches its `ZFILE` in full
+screen drops back to the window to ask where the file goes, and the dialog then
+opens on the desktop the user came from (§70.11.5).
+
+**The mangling follows §77.20's rule and not a second opinion.** A file this
+machine downloads by Zmodem and the same file uploaded to it by FTP must land
+on the same name:
+
+* everything up to and including the last `/` or `\` is dropped — a Zmodem
+  pathname is a path and the file goes where the user says, not where the
+  sender says;
+* **a name that is already legal 8.3 is left alone**, which is what makes the
+  mapping round-trip;
+* otherwise the extension is the first three legal characters after the LAST
+  dot, and the name is the first six legal characters plus `~1` — `banana
+  split.mod` becomes `BANANA~1.MOD`, the way every DOS-era system showed a long
+  name;
+* it is **deterministic**: always `~1`, never a search for a free `~2`, because
+  a counter resolved against the directory makes the same download land
+  differently on two disks;
+* a name with nothing legal in it becomes `FILE~1`, because it still has to be
+  something a person can see and delete.
+
+It is a second copy of the rule and not of the code — a package cannot call
+another package's proc — and `tests/telzm.py` asserts both ends against the
+same table so the two cannot drift.
+
+#### 70.11.5 Progress, and the terminal comes back
+
+**Windowed**, the status line carries `NAME  12,345 / 98,765` and the
+terminal's content is replaced by a progress panel — §70.3's About-panel
+shape, a takeover the next paint puts back — so nothing has to be redrawn to
+show a number changing. **Full screen**, row 25 is overwritten with the same
+line and re-emitted from the buffer when the transfer ends, which costs one
+row of the board's screen for the duration and nothing after it.
+
+The counter is updated **per committed chunk and not per subpacket**: a chunk
+is 4 KB and a subpacket is 1 KB or less, so per-subpacket updating would spend
+a status line's worth of drawing four times for every one that told the user
+anything new.
+
+**When the transfer ends the terminal is back and the host's text resumes** —
+the buffer was never touched, so putting it back is the repaint the takeover
+already owed.
+
+**AND A REFUSAL NAMES WHICH REFUSAL.** `Disk error` is what every one of them
+looks like from the outside, and §54.4.1's rule one application along is that a
+reason a person can act on beats a state name: `Folder full` (`FERR_DIRFULL` —
+a subdirectory on a floppy is ONE 512-byte cluster, sixteen entries, and it
+does not grow), `Disk full`, `Disk is write-protected`, `That name is
+protected`, and `Disk error` for the rest. §70.12.3 records how that
+distinction was learned, which is that a gate wrote sixteen files into `MEDIA/`
+and read the seventeenth refusal as a receiver defect.
+
+**A TRANSFER THAT FAILS TELLS THE SENDER, AND THEN DRAINS.** The failure paths
+used to send nothing at all and clear `[te_zon]` at once: the sender was
+mid-file, went on transmitting `ZDATA` subpackets, and `te_byte` handed every
+one of those bytes to the ANSI parser — so the status line said `Disk error`
+while the screen filled with CP437 noise and whatever `ESC [` sequences fell
+out of binary data cleared it, moved the cursor and changed the colours until
+the sender's own timeout expired. So `tz_fail` sends the standard cancel first
+— five `CAN`s and five backspaces, which every Zmodem implementation reads as
+an abort — and the receiver stays on the stream in **`ZR_DRAIN`**, swallowing
+everything, until the wire has been quiet for `TZ_DRAINQ` = 36 ticks. The
+terminal comes back when the wire does rather than when the sender gives up,
+and the panel comes off immediately because the reason is on the status line
+and the terminal is what the user wants back.
+
+**AND THE PANEL COMES OFF EVEN WHEN NO PASS IS COMING.** `tz_end` clears
+`[te_zon]`, and `te_step` only calls `tz_poll` while it is set — so a transfer
+that ended with a commit still outstanding could post `TZ_DONE` to nobody, and
+`[tz_pan]` is cleared in exactly one place. The panel then owned the terminal's
+content for the rest of the session with the session live underneath it.
+Removing the panel is the UI task's only job in `TZ_DONE` and it is a byte
+store, so `tz_end` does it itself in that case.
+
+**And the sender's closing `OO` is TWO bytes.** Ending the transfer on the
+first left `[te_zon]` clear when the second arrived, and the ANSI parser printed
+it: every completed batch left a stray `O` on the board's screen. `tz_end` marks row 24 for the full-screen renderer and every row
+for the windowed one, and `TZ_DONE` is what asks the UI task to spend them: the
+panel is the UI's to remove, and the worker may not.
+
+**AND THE BRACKET HAS TO PUMP THE HANDSHAKE ITSELF.** `FSXF_KEEPWORKER` keeps
+the *worker* (§53.5.1) and **the UI task is `te_fsx_main`'s loop**: it
+dispatches no events, so `OSAPI_WM_WAKE` delivers nothing and a commit posted
+from inside full screen would never happen — the staging area would fill, the
+receiver would stop calling `NETV_RECV`, and the transfer would hang until
+`^]`. So the loop calls `tz_wake` directly on every frame. That is legal
+because the handler is documented as indifferent to being called with nothing
+to do, and it is safe because it skips its own drawing half while `[te_txm]` is
+set: the lock and the glass are both the bracket's (§70.8.8), and a
+`OSAPI_GFX_LOCK` in there would park the UI task on a byte that cannot change
+until the bracket exits.
+
+**And it LEAVES the bracket for a Save dialog.** The dialog is a window and
+every kernel drawing slot is off-limits in a foreign text mode (§53.1), so the
+loop exits when it sees `[tz_req]` = `TZ_NAME` and the dialog opens on the
+desktop the user came from. A transfer that reaches its `ZFILE` in full screen
+therefore drops back to the window to ask where the file goes; one that was
+already under way when `^]` was pressed carries on, with its progress on row
+25 and its commits pumped by the loop.
+
+#### 70.11.6 What the receiver cost, and what it does not answer yet
+
+`apps/telnet/tezm.inc`. **`TELNET.O88` is image 15,079, bss 16,299 — 31,378 of
+`APP_MAX_SIZE`'s 61,440, which is 51%** — and the validator was never the
+constraint here either (§70.8.11). The floppy was, twice, and §24.3.1 carries
+the arithmetic: the receiver takes the package from 10 clusters to 14 on a
+360KB disk, which had four.
+
+Of the bss, **8,192 bytes are the staging area and 64 the `ZFILE` info block**;
+the receiver's whole control state — two state machines, three 32-bit
+positions, the CRC, the counters, the handshake and the mangled name — is
+about ninety bytes. The staging area dominates by two orders of magnitude and
+is the one figure a reader should hold on to: everything else in this section
+is arithmetic about how to keep it full.
+
+**What is measured and what is not.** The gate runs under QEMU, so the
+throughput it observes is the host's and no figure from it belongs in this
+document (§70.12). What IS this machine's is the call count: a 40 KB download
+is **ten `OSAPI_FILE_APPEND` calls and one `OSAPI_FILE_WRITE`**, one
+`OSAPI_FILE_DFREE`, and one `int 13h`-bearing commit per 4,096 bytes rather
+than per 1,024-byte subpacket — which is PERFORMANCE.md's "cost disk work in
+CALLS" applied to the one place in this package that does any.
+
+**Not measured on hardware**, and neither is §70.8.2's figure; both are read
+off the source.
+
+**NEVER DIVIDE BY A NUMBER THE WIRE CHOSE.** The progress bar's fill is
+`pos × width / size`, and `[tz_fsz]` is a decimal field the SENDER wrote into
+the `ZFILE` info block while `[tz_pos]` is bytes this end has committed — two
+independent numbers, of which only the zero case was guarded. A `ZFILE`
+declaring a size of 1 makes the first commit's quotient 2,539,520, which does
+not fit `AX`; `div` raises **#DE**, this kernel installs no `int 0` handler, and
+IVT[0] is whatever the ROM left. **One line of a sender was an uncontrolled far
+jump**, with no cooperation from the user beyond pressing Save. It was reachable
+without hostility too: the size parse drops the carry out of its high multiply,
+so a declared size over 4 GB wraps small, and a 63-character name walked the
+parse into the staging area and read the previous download's digits as this
+file's size.
+
+`tz_frac` now treats `pos >= size` — and a position whose high word survived the
+reduction the size's did not — as a FULL bar, which is what a sender that lied
+deserves. `tests/telzm.py` drives it with a sender that declares 1 and sends
+6,144, and asserts that the session is still up afterwards: the symptom of an
+#DE is a guest that has stopped answering, not a wrong bar.
+
+**ONE diagnostic byte is published in bss and is not debug code.** A cancelled
+dialog calls nothing back at all, so nothing outside this package can see what
+became of one — `[tz_diag]` is a bit per step of its life (asked, the slot
+refused, a paint inferred a cancel, the completion proc ran, it went up, the
+receiver asked for one) and it is how `tests/telzm.py` says *what* failed
+instead of *that* it failed. It sits OUTSIDE both `rep stosb` runs, because a
+byte a reconnect zeroes cannot answer "did a reconnect happen" — which is one
+of the questions it was asked.
+
+**Six counters sat beside it during the work and are gone.** Frames in and out,
+subpackets good and bad, wakes, resets: they found the defects §70.12.2
+records, and then they were seventy-seven bytes of a package whose 360KB
+floppy has two clusters left (§24.3.1). Scaffolding earns its keep while the
+scaffold is up; what survives is the byte no other observer can replace and
+the account of what the counters said.
+
+### 70.12 The gates
+
+The transport is proved by `tests/socktest` and `tests/brfetch` and is not
+re-proved here (§70.4's argument, unchanged). Everything below is about the
+TERMINAL: what it draws, what it sends, and what lands on a disk.
+
+**QEMU by name, for `tests/ethernet.py`'s reason**: MartyPC has no network card
+of any kind, so the emulator this tree develops on cannot host `ETHER.DRV` at
+all (§72.9). The disk shape is `make ethertest`'s — a `SYSTEM.CFG` that already
+asks for the driver, so the card is up and DHCP has run before the first paint
+and the test reads state instead of clicking — and the B: floppy is a SCRATCH
+image of its own, because a Zmodem download WRITES (§92.12's shape).
+
+| tool or test | what it is |
+|---|---|
+| `tools/ansisim.py` | **the host-side reference renderer** of §70.9 — the same state machine in Python, emitting the 80x25 char+attr buffer. `--dump` prints it, `--selfcheck` runs its own cases |
+| `tools/ansifix.py` | generates the SYNTHETIC fixture streams under `tests/fixtures/ansi/` — committed, small, and covering every sequence in §70.9.3 and §70.9.4 |
+| `tools/os88bbs.py` | **the host-side test server**: negotiates like a board, fragments its output deliberately, answers a DSR, and can run a pure-Python Zmodem SENDER |
+| `tests/telansi.py` | the parser and both renderers, on the machine |
+| `tests/telzm.py` | Zmodem receive, end to end, with the bytes read back off the floppy |
+| `tests/telnet.py` | §70.4's and §70.5's four assertions, updated for 80x25 |
+
+**`tools/ansisim.py` IS the contract's second reader**, which is `tools/htmsim.py`'s
+role for §71 and `tools/weavesim.py`'s for WEAVE-SPEC. Two independent
+implementations of one written state machine catch what one implementation and
+its author cannot: a rule that reads one way in the assembly and another way in
+the document is a rule that is wrong somewhere, and the diff says which cell.
+
+**The fixture/oracle contract, pinned**, because a test whose oracle can be
+edited to agree with the code is not a gate:
+
+1. A fixture is a **byte stream**, generated by `tools/ansifix.py`, committed
+   under `tests/fixtures/ansi/`, and never hand-edited.
+2. Its oracle is `tools/ansisim.py`'s output for that stream — **computed at
+   test time, not stored** — so an oracle cannot drift from the reference
+   renderer and a change to the reference renderer is a change to every
+   expectation at once.
+3. The comparison is `te_scr` read out of guest memory against that output,
+   **byte for byte, all 4,000 of them**, characters and attributes alike.
+4. Nothing in the fixtures is third-party art. A small ANSI scene drawn by the
+   tool is fine and is what exercises the block glyphs.
+
+**`tools/os88bbs.py` records what it RECEIVED** — the negotiation replies, the
+keys, the Zmodem headers — to a JSON log, and the tests assert on that log.
+That is what makes §70.10 testable at all: the negotiation table and the key
+table are about bytes this end SENDS, and a screenshot cannot see one. Three
+things about how it asks, each chosen so a test can assert either answer:
+
+* **It sends `SB TTYPE SEND` whether or not the terminal said `WILL TTYPE`.** A
+  terminal that answers anyway is more interesting to a gate than one that is
+  never asked, and the log carries both the question and whatever came back.
+* **Keys are logged as RAW BYTES.** `log["keys_hex"]` is every application byte
+  the terminal sent, in order, so §70.10.2's table is asserted as bytes: type
+  Home, assert `1b5b48` is in it.
+* **`NAWS` is logged, not required.** The server accepts any size and records
+  it; the assertion that it is 80x25 belongs to the terminal's contract
+  (§70.10.1) and not to the server's.
+
+**It fragments deliberately**, splitting inside escape sequences and inside
+`IAC` sequences, because §70.9's whole reason for being a state machine is
+that TCP does exactly that and a parser that only works on whole sequences
+passes every test written by someone who forgot.
+
+**And `ansisim --selfcheck` proves the same property about itself, at every
+offset.** Each of its cases is re-fed with the stream split at **every single
+byte position**, and the buffer, the cursor, the answers, the trigger offset and
+the cursor visibility must all come out identical — then every case concatenated
+and split every seven bytes. **A parser that keeps one byte of state in a local
+across a `feed()` is correct on every fixture and wrong on a wire**, and nothing
+but that sweep catches it before the guest does. The assembly's own gate should
+drive at least one fixture through `NETV_RECV` boundaries it chose rather than
+the ones TCP happened to give it.
+
+`tests/telansi.py` drives one fixture at a time, compares `te_scr`, asserts the
+negotiation replies and a DSR answer in the server's log, enters full screen
+and screenshots it, and types the special keys of §70.10.2 asserting the bytes
+the server saw. `tests/telzm.py` runs the same harness with the server sending
+two files — one under 4 KB, so one chunk, and one about 40 KB, so many — drives
+the Save dialog, reads the scratch floppy back on the host with the tree's own
+FAT12 reader and compares the bytes; a third run cancels the dialog and asserts
+that `ZSKIP` reached the server and that the terminal came back.
+
+**Both rows are `soak` tier.** They boot a QEMU with a network in it and drive a
+whole session, which is minutes rather than seconds, and neither is a
+pre-merge gate for the same reason `tests/ethernet.py` is not: the machine
+under them is not an 8088 and the timings are the host's.
+
+#### 70.12.2 What building `tests/telzm.py` found
+
+**FIVE THINGS, AND FOUR OF THEM WERE IN THE GATE.** That ratio is the useful
+part: a wire protocol has no screen, so a gate that reads the wrong state at
+the wrong moment reports a receiver that is working perfectly as one that never
+ran, and the way out is to make the guest say what it did rather than to reason
+about what it must have done.
+
+1. **THE GATE READ EVERY COUNTER BEFORE THE TRANSFER BEGAN, and it cost four
+   emulator runs.** `wait_dlg` bailed out early on `[te_zon]` being clear —
+   *"the transfer ended without asking"* — and the server waits half a second
+   after the connection before it starts Zmodem, so `[te_zon]` is 0 for a
+   while AFTER the session comes up and the early exit fired on the first poll.
+   Everything the gate then printed — every counter, `[tz_st]`, `[tz_diag]` —
+   was sampled before anything had happened, so a receiver doing exactly the
+   right thing reported as one that had not run at all, while the server's log
+   showed headers it could not possibly have sent. **A poll whose exit
+   condition is also its start condition tests nothing**, and the fix is one
+   more wait: `wait_start` first, for the receiver to take the stream.
+
+2. **A PACKAGE NEEDS `os88sym`'s CHECK TOO, AND THERE WAS NOWHERE TO GET IT.**
+   `te_syms()` proves the MAP describes `build/telnet.bin`; it says nothing
+   about what the GUEST loaded, and CLAUDE.md's stale-emulator trap has an
+   exact analogue one level down — every offset resolves, every read succeeds,
+   and the numbers are another build's. The package is loaded at `pseg:0` with
+   no relocation of any kind (§20), so its first bytes ARE the file's:
+   `tests/telzm.py` compares 512 of them before it reads a single symbol, and
+   says so on the way past. Chasing the possibility that a stale guest was
+   answering cost most of a run; the check that rules it out is four lines.
+
+3. **THE CANCEL INFERENCE DID NOT HOLD**, which is §70.11.4's subject and is
+   recorded there in full rather than here. The gate is what found it, and it
+   found it as `[tz_diag]` bit 2 *and* bit 4 both set on a transfer nobody had
+   touched: the dialog had been read as cancelled and then refused for being
+   already up.
+
+   **AND THE BATCH IS WHAT FOUND THE REST OF IT.** Twelve files in one session
+   is not a stress test somebody thought would be interesting — it is what the
+   mangle table costs — and it turned up two more: `OSAPI_FILE_DLG` refuses
+   while the previous file's dialog is waiting to be reaped, which without a
+   RETRY became one dialog and eleven silent `ZSKIP`s; and `tz_dlgopen` stored
+   its window-count baseline on *every attempt*, so a refused open re-baselined
+   the count against a desktop that already held the dialog and the very next
+   comparison cancelled it. Neither is reachable with one file, and both are
+   ordinary use — a board's download queue is a batch.
+
+4. **`OSAPI_FILE_DLG` HANDS BACK A NAME AND THE FILE LANDS IN `MEDIA/`.** The
+   gate looked in `APPS/`, where `TELNET.O88` was launched from, and reported a
+   transfer that had worked perfectly — both files byte-identical, both
+   SHA-256s matching the server's own — as one that never landed. §38.10 is
+   explicit that the default is `MEDIA` and that the location is per
+   APPLICATION after that; the download goes where the dialog opened, and this
+   application had chosen nowhere.
+
+5. **AND THE `[tz_fsz]` READ HAD TO MOVE TO THE DIALOG.** It is the size the
+   sender declared for the file being ASKED about, and the next `ZFILE`
+   overwrites it, so a read taken after the answer is a read of whichever file
+   came next — which is why both files first reported the same number.
+
+6. **A GATE THAT CANCELS MUST ANSWER THE NEXT DIALOG TOO.** The cancel session
+   pressed Escape and then asserted that the file AFTER the cancelled one
+   arrived — without ever answering *its* dialog, so it sat until the
+   60-second backstop cancelled it as well and the gate reported the
+   receiver's correct behaviour as a defect. **A `ZSKIP` ends one file and not
+   the batch** (§70.11.2) is a claim about two files, so it takes two answers:
+   Escape, then Return, then `CANCEL.BIN` must be absent from the disk and
+   `AFTER.BIN` must be on it whole.
+
+**FOUR OF `MANGLE83_CASES`'s SIXTEEN ROWS CANNOT BE PUT ON A WIRE**, and the
+gate names them in its output rather than skipping them quietly: the two
+pathname rows, because `tools/os88bbs.py`'s sender takes `os.path.basename`
+before the name ever leaves the host; `...`, which no host filesystem will
+make; and the empty one. The other twelve are sent as one batch of tiny files,
+each Save dialog CANCELLED, and `[tz_name]` is read out of guest memory at each
+— which is also twelve consecutive exercises of the cancel path. Each of the
+twelve lives in a directory of its own, because `README.TXT` and `readme.txt`
+are two rows of the table and ONE file on a case-insensitive host, and a gate
+that silently tested eleven where it printed twelve would be worse than one
+that tested none.
+
+#### 70.12.3 What the wave-4 review found, and what the gate still cannot see
+
+**The blocker and three of the six majors were in paths no gate could reach**,
+which is the useful summary: a sender that lies about a size, a volume with
+8 KB clusters, a desktop short enough to shed a raise cache, and a subpacket
+CRC error. `tests/telzm.py` gained one of those four — `LyingSize` declares a
+size of 1 for a file it sends in full, and the assertion is that the session is
+still **up** afterwards, because the symptom of an `#DE` is a guest that has
+stopped answering rather than a wrong progress bar.
+
+**The other three are named here rather than left to be rediscovered.** Every
+geometry the gate drives is a floppy, so `spc` is 1 and the cluster is 512:
+that leaves the **single-buffered** staging arm, the **over-8,192 refusal** and
+`OSAPI_FILE_APPEND`'s precondition at any other cluster size untested, and the
+Drive button is what reaches them. No CRC error is injected, so `tz_subbad`,
+the `[tz_skip]` overlap and the whole ZRPOS recovery are driven by nothing —
+the `ZRPOS` the gate asserts is the opening `ZRPOS 0`. And the raise-cache
+purge behind the cancel rule needs a machine short of memory where this
+desktop is idle. `ZCRCE`, `ZCRCQ`, `ZRUB0` and `ZRUB1` are not exercised
+either, because `tools/os88bbs.py`'s sender uses `ZCRCG` and `ZCRCW` and its
+escaper has no arm for 0x7F or 0xFF.
+
+**AND TWO CANCELLED DIALOGS IN A ROW ARE NOW A GATE CASE.** It was an open
+question at the end of the first fix pass — a twelve-file batch answered with
+alternating Escape and Return produced four dialogs and ten skips — and it was
+this package's, in two places. `tz_wake` trusted a paint before it asked the
+dialog's own slot, so a stray `wm_paint_all` wrote a file off while its dialog
+was still on screen; every later `OSAPI_FILE_DLG` was then refused for a dialog
+this end had already forgotten, and `[tz_dtry]` was cleared only by a SUCCESSFUL
+open, so one exhausted retry made every file after it give up on its first poll.
+The kernel was never involved: `fdlg_close` destroys the dialog and drops
+`[fdlg_win]` in one keystroke, and `fdlg_reap` runs once per UI pass. The batch
+now cancels rows three and four — adjacent — and asserts that row five's dialog
+appears.
+
+**AND THE GATE FILLED A FOLDER, which is worth writing down because it read as
+a receiver defect for three runs.** A subdirectory on a 1.44MB floppy is ONE
+512-byte cluster — sixteen entries — and it does not grow. Committing all
+twelve mangle dialogs put `MEDIA/` at exactly sixteen, and the next session's
+first `OSAPI_FILE_WRITE` came back `FERR_DIRFULL`; the terminal said `Disk
+error`, sent the sender its cancel, and did everything else right. What found
+it was reading `[tz_why]` and then the `FERR_*` out of guest memory — the
+status line's own words were not enough, which is exactly the argument for
+naming the refusal that §70.11.5 now makes. So the batch cancels eleven of its
+twelve dialogs and commits one: the mangle is asserted from `[tz_name]` twelve
+times, the ROUND TRIP through the file system once, and the cancel path eleven
+times over on the way past.
+
+**Two things the gate DID gain that cost nothing.** The terminal's 2,000 cells
+are asserted blank after a completed batch — not one byte of a transfer may
+reach the ANSI parser, and the sender's closing `OO` was leaving one there —
+and one mangled name is asserted a second time as a **directory entry** in
+`MEDIA/` — `banana split.mod` → `BANANA~1.MOD` — which is the same rule read
+through the file system instead of through `[tz_name]`.
+
+#### 70.12.1 What building `tests/telansi.py` found
+
+**A CONNECTION PER FIXTURE, and Connect is the only thing that dials.** The
+parser carries state across a stream — the SGR colours, the saved cursor, the
+pending wrap — and `ansisim` starts each fixture on a fresh `Screen`, so the
+guest has to start each one on a fresh session: Close, Connect, and `te_reset`
+(§70.10.3) makes the two starts the same start. The first version typed the
+host and pressed **Return**, which IS Connect (`te_onkey`'s `.go`) — it dialled
+before the test's server existed, and the Connect click that followed then
+landed on a session that was already up and CLOSED it. **Tab leaves the box
+without dialling**, and it is also the only way to reach the screen with the
+keyboard, so it is the right key for both reasons.
+
+**`make telnettest`'s disk is 1.44MB where `make ethertest`'s is 360KB**, and
+that is the one difference between them. The gate is about the parser, and a
+360KB system disk is 354 clusters with the whole driver set, ten typefaces and
+the core packages already on it (§24.3) — so that geometry would be deciding
+how much parser there is allowed to be. The four shipped geometries are still
+built by every `make` and `os88disk.py` still refuses one that does not fit;
+what this stops is a TEST disk being the thing that fails first.
+
+**The leave hint is the one thing in VRAM that is not in the buffer**, so the
+full-screen memcmp skips exactly twelve cells and asserts them separately.
+`te_tx_hint` writes ` ^] to leave` into row 24's last twelve cells on entry and
+**the host is allowed to overwrite it** (§70.8.7), so it is in VRAM and in no
+buffer — and a gate that compared 4,000 bytes flat would report twenty-one
+differing bytes for a renderer that is behaving exactly as designed. Both facts
+are asserted; neither is the other's excuse.
+
+**`tools/os88bbs.py` cannot exercise §70.1's MIRROR**, because it offers only
+the five options a board offers and every one of them is in §70.10.1's table —
+so nothing it does reaches the fall-through that answers every OTHER option.
+The gate therefore carries a second server of fourteen lines which asks for
+LINEMODE and X-DISPLAY-LOCATION and reads back what it is told: `IAC WONT 34`
+and `IAC DONT 35`. It is worth its own connection because the mirror's SENSE is
+the one way a Telnet client can wedge a session that is working perfectly.
+
+**THE FULL-SCREEN MEMCMP WAS PASSING OVER A BLANK SCREEN**, and the
+screenshot is the only thing that said so. It ran at the end of the fixture
+loop, by which time Close and the mirror check had each put the terminal
+through `te_reset` and `te_clear` — so 4,000 bytes of SPACE were compared with
+4,000 bytes of space, which is a comparison a renderer that drew *nothing at
+all* would also pass. The picture was a black screen with the leave hint on it.
+The check now opens one more session, feeds the `art` fixture, **asserts that
+at least a hundred cells hold a glyph before it presses `^]`**, and then
+compares — 310 of 2,000 on that fixture. The lesson generalises past this file:
+a memcmp is only as strong as the thing on both sides of it, and a gate that
+compares two empty buffers is a gate that reports its own setup.
+
+**The `report` fixture is the answer gate and it needs no `--dsr`.** It asks
+DSR 6 three times, DSR 5 once and DA twice, and `ansisim` publishes exactly
+which bytes come back — so the assertion is that string, in order, inside
+`log["keys_hex"]`, rather than the server's own opinion of a reply it prompted.
+
+**Thirteen fixtures, 0 differing cells of 2,000, on every one.** The stream
+offset the guest fed matches the fixture's length on twelve of them and stops
+at **82 of 151** on `zmodem`, which is `ansisim`'s own `zmodem_at` to the byte.
 
 ## 71. The browser fetches (`apps/browser/brnet.inc`)
 
@@ -101404,3 +104467,2518 @@ What the measurements say about the design, in the order it matters:
    the flash gate in `tests/skies.py` reads every displayed frame at ≥99% of
    its neighbours' ink on both 1bpp adapters, because the shadow is blitted
    whole rows at a time and nothing draws to the card directly.
+
+## 89. Pac-Man (`apps/pacman/pacman.asm`)
+
+`PACMAN.O88` is a native 8086 port of Roklan's Atari computer **disk version,
+revision 3.0, 10/03/82**, from `atari-pacman`, using only the public package
+ABI. It ships in `GAMES/` on every software-disk geometry. Prefix `pm_`; one
+segment per instance; no kernel changes, external ROM or heap claims.
+Provenance, the upstream license and reproducible extraction are in
+`apps/pacman/README.md` and `tools/pacman_assets.py`.
+
+### 89.1 Rules and adaptations
+
+The source's DATMAZ/PACCHR supply the complete 40 by 22 maze, 256 ordinary
+dots and four power pellets. VTABLE, HTABLE and HTAB01..10 supply legal
+movement and junction decisions, including the horizontal tunnel. PACDAT2
+supplies the player and ghost silhouettes, home corners, release delays,
+frightened-time ladder and fruit score ladder. Dots score 10, pellets 50, blue
+ghosts 200/400/800/1600, fruit 100 through 5000. Fruit appears after 80 and
+160 dots, for roughly ten seconds. Three lives start a game; one extra life at
+10,000; all 260 dots advance the level. Scores use two words.
+
+This is a one-player adaptation. Atari interrupts, POKEY sound, console
+options, attract screens, two-player swapping and intermission cartoons are
+replaced by an OS worker, short speaker tones, menus and status text. Movement
+advances one horizontal color clock or two vertical source pixels per OS tick.
+Ghosts alternate home-corner and direct chase phases; frightened ghosts flee,
+eaten ghosts return to the house. The original scripted opening and patrol
+patterns are not reproduced. Timing is expressed in 18.2 Hz ticks, not the
+original video interrupts. Buffered arrow/WASD turns, P or Space pause, N new
+game, F full screen, Esc leave full screen. About pauses play; dismissing it
+leaves the game paused. Losing focus suspends the simulation.
+
+### 89.2 Rendering and lifetime
+
+One 256-byte-stack worker (20.6) is hired on first paint; refusal leaves a "No
+task slot" status and the next paint retries. The worker calls TASK_ALIVE
+outside the graphics lock, sleeps to a tick deadline, and re-anchors when
+late. Updates and rendering share the graphics lock with the UI callbacks, so
+input and simulation never mutate the same state concurrently. Gameplay
+resumes only with focus; no catch-up burst follows a slow draw. Closing the
+window ends the worker through the package lifetime protocol.
+
+A 320 by 176 packed 4bpp canvas occupies 28,160 B of BSS. The mutable tile map
+is 880 B; only maze-used source tiles are expanded to doubled 4bpp pixels at
+build time, with an offset table retaining the original tile IDs. Old and new
+actor rectangles mark horizontal tile spans in 22 bands. Only marked tiles are
+restored from the mutable map, then current actors are composed into RAM. Each
+marked band is sent once through GFX_BLIT4 on color displays. On monochrome,
+four small-table lookups pack eight pixels into one byte in a 320-byte scratch
+band for GFX_BLIT1, with GFX_BLIT4 as its refusal fallback. The board origin
+is byte-aligned. There is no erase on the display. A full rebuild is reserved
+for new boards and paints. Colors use white/dither classes so walls, dots and
+sprites survive monochrome reduction.
+
+VGA and Hercules use 320 by 176 pixels, CGA 320 by 88 (every other source row,
+with a doubled source stride). Frame preferences are 338 by 222, 338 by 222,
+and 338 by 140 respectively; content geometry determines which layout fits.
+The board is centered in the current content, including full screen. All
+self-initiated drawing arms the window clip. The status strip uses opaque
+FONT_RUN and changes only when its values change.
+
+## 90. FONT VIEWER — the system face browser (`apps/fontview/fontview.asm`)
+
+FONT VIEWER is a package in `APPS/` on the system disk. It is also carried in
+`APPS/` on the 720 KB, 1.2 MB and 1.44 MB applications disks, as the other core
+packages are (§24.3). The 360 KB applications disk omits the duplicate: the
+viewer and all ten faces are already together on its paired system disk, while
+another copy would exceed the software disk by four clusters. Its package
+header declares `F88`; browsing `FONTS/` and double-clicking any face therefore
+launches the viewer on the first attempt, through the ordinary §54 association
+cache rather than a kernel special case.
+
+The left side of the window lists every family `ty_scan` found in the system
+volume's `FONTS/` directory. The selected row names the one face open in
+`os88type.inc`; moving the selection with Up/Down or clicking another row
+closes that face and opens the new one. A launch document selects the matching
+8.3 name before the first paint. The application deliberately does not keep
+all ten face files open: `TY_MAXFACE` is the number of concurrently useful
+faces in a typesetting application, not a catalogue-size limit, and a viewer
+needs one external face at a time.
+
+### 90.1 The specimen is the input field
+
+The right side is both proof and editor. Printable ASCII appends to a
+NUL-terminated 127-byte specimen, Backspace removes its last byte, and every
+keystroke recomposes the visible rows in the current face. The initial line
+contains capitals, lowercase, figures and punctuation, so opening the program
+already proves a face without requiring input. Text wraps by measured glyph
+advance through `ty_fit`; each row is composed by `ty_band` + `ty_putn` and
+emitted once by `ty_flush` (§6.5). System-face labels remain in `font_run`, so
+a malformed or unreadable `.F88` can still explain its own failure.
+
+Face changes are deferred through `W_ONWAKE`. Mouse and key callbacks hold the
+graphics lock and therefore may update the selected index and post a wake, but
+may not turn the floppy; the wake opens the face on the UI task after the
+window is visible, then takes the lock only for the repaint. A missing system
+`FONTS/` directory leaves the built-in face active and an explicit status line
+instead of preventing the package from opening.
+
+### 90.2 Testing
+
+`tests/fontview.py` boots the 360 KB system disk under MartyPC, walks through
+the file manager to `FONTS/`, and double-clicks `CHARTER.F88`. It asserts that
+the association made a new FONT VIEWER window, the launch name selected and
+opened Charter, the catalogue count equals the ten `.F88` directory entries,
+typed bytes and Backspace change the specimen, and both Down and a mouse click
+finish a deferred face load with no error. The row is `fontview` in the soak
+tier.
+
+## 91. PACCMAN — pacman.c, written in C (`apps/paccman/`)
+
+The C toolchain's fourth application is **`apps/paccman/`**, package name
+`PACCMAN`, product name **PaccMan**: a native reimplementation of Andre
+Weissflog's **`pacman.c`** (https://github.com/floooh/pacman.c, MIT, 2020),
+the arcade-faithful C99 Pac-Man, at its commit **0f5ec5a**. It is a port in
+§73.12's sense: **the screens, tables, timings and rules are pacman.c's, taken
+from its source and not from memory; the code is reimplemented in the C this
+toolchain compiles (§73) plus the composer loops that are hand-written 8086;
+what cannot carry is present with the fact stated (§47).** Nothing from the
+reference is vendored (CONTRIBUTING.md §6): every file carrying derived
+material cites `pacman.c`, the commit, the author and the licence in its
+header, and so does the About card. The design record is
+`docs/PACCMAN-PORT-PLAN.md`; every wave amends this section and its numbers are
+the shipping ones once the last wave lands.
+
+**It is a SECOND Pac-Man and shares nothing with the first.** §89's
+`apps/pacman` is Roklan's Atari disk version in hand-written assembly, package
+`PACMAN`, a 40×22 horizontal maze, `build/apps*.img`'s `GAMES/`. This one is
+the Namco arcade layout — a **28×36-tile, 224×288 vertical field** held as
+`video_ram`/`color_ram` the way the board holds it — package `PACCMAN`,
+`apps/paccman/`, `build/paccman*.img`, `make paccman`/`make paccmandisk`, a
+`PACCMAN/` folder on `apps-all.img`, `vm/xt-paccman`. No file, name, image,
+target or vm directory answers to both, by §73.12's rule. What the two DO
+share is a rendering *shape*, borrowed from §89.2 as a precedent and not as
+code: one worker sleeping to a tick deadline, dirty tile bands composed in the
+package's own RAM and sent with ONE blit per band, 1bpp packed bands on a
+monochrome adapter, alternate-row sampling where the display is short, focus
+loss suspending play.
+
+**Where the behaviour comes from — the authority table**, every user-visible
+surface traced to the reference:
+
+| what | from |
+|---|---|
+| the intro screen: `1UP   HIGH SCORE   2UP`, `CHARACTER / NICKNAME`, the four-ghost reveal (2×3 tile block, `-SHADOW`/`-SPEEDY`/`-BASHFUL`/`-POKEY`, `BLINKY`/`PINKY`/`INKY`/`CLYDE`) at ticks 60+120i / 120+120i / 150+120i — 60, 120, 150 / 180, 240, 270 / 300, 360, 390 / 420, 480, 510 — the `10 PTS`/`50 PTS` legend at 570, `PRESS ANY KEY TO START!` blinking from 630, `CREDIT  0`; the hiscore field only when > 0 | `pacman.c` 2326–2399 `intro_tick` |
+| the game screen: `HIGH SCORE`, `PLAYER ONE`, `READY!`, `GAME  OVER`, the prelude, READY 130 ticks, the freezes (eat-ghost 60, death 60+150, round won 240, game over 180) | `pacman.c` 1447–1583, 2217–2322, 249–256 |
+| the score strip (right-to-left digits, score/10 with a trailing 0), pill blink on `tick & 8`, fruit at (12..15,20) for 120 ticks, lives at row 34, the fruit list of the last seven rounds, the round-won flash | `pacman.c` 1584–1637, 1092–1132 |
+| the maze: the 31×28 map and its char→tile table, 240 dots + 4 pills, the tunnel row, the red zones, the door | `pacman.c` 1377–1432 |
+| tile, sprite and colour codes | `pacman.c` 190–247 |
+| the 21-row level table (fruit, bonus, fright ticks), clamped after round 20 | `pacman.c` 591–623 |
+| ghost AI: the four personalities, the scatter/chase schedule 7/20/7/20/5/20/5 s, frightened/eyes/house/leave/enter, red-zone no-up, tunnel and frightened half speed, the house dot counters (Inky 30, Clyde 60), the global counter 7/17/32, the 4 s force-leave, reversal on phase change | `pacman.c` 1639–2215 |
+| the time-trigger vocabulary and the 60 Hz fixed step | `pacman.c` 322–325, 420–428, 744–780, 844–915 |
+| sound: three voice registers, the prelude and death register dumps, the six procedural effects | `pacman.c` 3121–3380, 3960–4300 |
+| the tile, sprite, hardware-colour and palette ROM tables and their decoders | `pacman.c` 3382–3945, 2800–2891 |
+| keys: Up/W Down/S Left/A Right/D as LEVELS read every game tick, priority up > down > right > left; F full screen and never "any key"; Esc is the reference's "any key" and here leaves full screen while we hold it, otherwise an "any key" | `pacman.c` 782–817, 926–946 |
+| the Game menu (New Game, Pause, Sound On/Off, Full Screen), P/N in play — platform chrome the reference has no equivalent of | `apps/pacman/pacman.asm`'s `pm_items`, as the precedent |
+
+**The five things the reference is not, stated as facts.** Three are its own
+header saying what it leaves out (lines 50–54, under the sentence that
+introduces them at 44–48); the other two are read off the source — Pinky's
+`// FIXME: does not reproduce 'diagonal overflow'` at `pacman.c` 1910, and
+`2UP`/`CREDIT  0` as static text at 2335 and 2341 — and `apps/paccman/README.md`
+says which line each comes from. The port carries the reference and not the
+arcade: **no attract-mode chase**, **no coffee-break intermissions**,
+**no per-round speed table** (the constant speeds are pacman.c's); each is a
+recorded follow-up and not a greyed item, because there is no menu entry for
+an animation. **The three-voice Namco wavetable is reduced to the one
+PC-speaker square wave** (`OSAPI_SND_TONE`, no waveform, no volume): one
+voice is chosen per OS tick by priority — effects, then the siren/frightened
+tone/prelude melody, then the prelude bass — and the reduction is stated here
+and in the README, never in the About card. **The alpha fade is a cut**: one
+black fill at the fade-out's start and a full repaint at the fade-in's end,
+with the reference's tick counts kept so every sequence keeps its length.
+**Nothing in the Game menu is greyed, and the two that were went live in the
+wave that gave each a body.** `Pause` was greyed while the image had no tick
+loop to stop (wave 1) and `Sound` while it had no sound code to silence (waves
+1–2); each un-greying was the deletion of one marker byte and one reason and
+nothing else, which is the shape §47 predicts. The MACHINE was never either
+reason: `osapi_snd_caps` answers a constant on every kernel this OS boots, so a
+PaccMan that greyed `Sound` because "there is no speaker" would be greying a
+guess. All four items — `New Game`, `Pause`/`Resume`, `Sound Off`/`Sound On`
+and `Full Screen` — act.
+
+**A greyed label may not claim a state the build cannot have, and the word in
+FRONT of the parenthesis is part of the label.** `Sound Off (No Sound Yet)` —
+what this item read for one review round — is an imperative: it says the
+action on offer is to turn sound OFF, i.e. that sound is currently ON, in an
+image with no sound code in it at all. The parenthesis satisfies rule 3 and
+the three characters ahead of it contradict it, which is the same defect the
+re-wording below had just corrected one word along. The pair of labels was
+also unreachable: `MENU_DIS` makes the kernel refuse the click before
+`os88_oncmd` is entered, so nothing could ever have flipped it, and the second
+literal was dead bytes in the image. The item **named its subject and claimed
+no state** until wave 3 gave it a body, and then took the imperative back:
+`Sound Off` is exactly right for a control that can act, and exactly wrong for
+one that cannot.
+
+**A LIVE `Pause` NEEDS ITS STATE ON THE GLASS, and the item label is the only
+surface left.** The kernel has no check-mark marker (`MENU_DIS` is the only
+one in `apps/os88api.inc`), PaccMan deliberately has no status line — its
+content is the 224-pixel arcade field — and the title bar does not change, so
+a paused window would otherwise be **pixel-identical to a hung one**. The
+precedent this menu is copied from does not leave it unsaid either:
+`apps/pacman/pacman.asm` carries `PAUSED - P OR SPACE TO RESUME` in its
+footer. So `pmc_pause_item()` swaps `pmc_items[PMC_CMD_PAUSE]` between
+`Pause` and `Resume`, which works because the kernel reads the item array at
+**drop** time and not at `os88_menu_set` time (`kernel/menu.inc`'s
+`mov si, [es:bx]`, in the measure pass and the draw pass alike) — that is also
+why the array is not `const`. Every write of `pmc_paused` calls it: the `P`
+key, the `SPACE` key and the menu command in `paccman.c`, and `pmc_new_game`'s
+clear in `pmc_game.c`. **`SPACE` resumes as well as `P`**, which is the
+precedent's binding rather than one invented here, and the About card
+**advertises both** on its second key line — `F full. P/Space pause.` — which
+is what the card is for in a program with no status line. The reference binds
+neither key, because `pacman.c` has no pause at all. The bound the card is
+written against is **24 cells**, which is `pmcuitest`'s figure and the tighter
+of the two: the widget's own clamp is `widest × 8 + 2 × OS88UI_ABPADX` against
+the live content box — 25 cells on the 224-pixel arcade field — and the row
+asserts 24 so a cell of slack survives a padding change in somebody else's
+file. The label swap below is still where the STATE is read, because a card
+can advertise a key and cannot show whether the window is stopped.
+
+**And the reason had to be re-worded when `Pause` went live, which is a §47
+lesson worth keeping.** Wave 1 gave both greyed items the SAME reason —
+`(No Game)` — because that build drew the arcade field and ran nothing, so one
+fact really did cover both. Wave 2 put a game in the build and deleted
+`Pause`'s marker on exactly that ground, which left a live `Pause` beside an
+item still asserting there is no game: a greyed label saying something FALSE,
+which is the one thing rule 3 exists to prevent. The two facts were never one
+— `Pause` had nothing to stop, `Sound` had no code to silence — so `Sound`
+read `(No Sound Yet)` for wave 2. `(No Audio)` was the other candidate and was
+not taken, because it reads as a claim about the MACHINE. **A shared reason is
+a liability the moment the two items stop sharing a wave.** Wave 3 gave `Sound`
+a body and deleted the marker byte and the reason together, so nothing in the
+Game menu is greyed now and the shipped item reads `Sound Off` / `Sound On` —
+the paragraph above is the live account of it, and this one is the history.
+
+**Time is two words and the tick is an accumulator.** pacman.c counts 60 Hz
+ticks in a `uint32_t` and there is no 32-bit type here (§73.7), so the tick
+and every trigger are `lo/hi` word pairs, `since()` saturates for compares and
+`since_lo()` wraps for masks. The OS tick is 18.2 Hz, so a frame advances the
+game by `600 × elapsed OS ticks / 182` game ticks, elapsed capped at
+`PMC_CATCHUP_MAX` = 2: a slow frame runs at most two OS ticks' worth of game,
+every sprite stays within one tile of where it was last drawn, and the worker
+re-anchors rather than bursts. **The effective game speed per adapter is
+measured and stated, never predicted.** The one input divergence from the
+reference: a key PRESS is latched until the next frame's poll, because a frame
+here is 3–11 game ticks long and a tap shorter than one would otherwise be
+lost; a hold released before a junction is forgotten, as in the reference.
+There is no buffered turn.
+
+**Rendering.** A frame's damage is the set of tiles a `vid_*` write changed
+(compare-then-write; a write that changes nothing marks nothing) plus the old
+and new rectangles of every sprite, coalesced into **two** column spans per
+8-row band. Each dirty span is composed in a 960-byte scratch by `pmcband.inc`'s
+assembly loops — tiles, then sprites over them — and sent with **one** blit:
+`OSAPI_GFX_BLITP` (four planes) on a colour display, `GFX_BLIT1` on a
+monochrome one, `GFX_BLIT4` when either refuses. There is no persistent
+canvas: the dirty span is exactly the tile set that must be recomposed anyway.
+VGA, EGA and Hercules take every source row (a 307-row frame under `WF_KEEPH`,
+§11.93, so it hangs over the dock rather than losing rows); CGA takes alternate
+rows (224×144, 4-row bands, a 163-row frame). Colour is a 32×4 colour-block →
+nibble map; monochrome a nibble → white/dither/black class table. The worker
+is `OS88_STACK_256` and its tick path is flattened to fit it, with the water
+mark measured (`tools/stkwater.py`) and asserted by `tests/paccman.py`.
+
+**"Maybe more performant on XTs" is a hypothesis this section will answer
+with a number, not a claim it makes.** §89's port measures 5.5 fps on a
+4.77 MHz VGA XT with ~202 of 235 ms inside `gfx_blit4`'s planar decoder; a
+224-pixel-wide band takes that decoder unconditionally, and `GFX_BLITP` is the
+one lever that avoids it. The plan carries NO fps prediction: wave 1 brackets
+the four costs (composition, repack, blit, C game logic) with
+`tests/pmcbandbench` under QEMU `-icount shift=3` (the plan named MartyPC;
+the table below says where the numbers came from), the harness's cost table is
+priced from those measured terms, and wave 4's `tests/paccman.py` prints
+`PACCMAN.O88` beside `PACMAN.O88` on the same profile with a verdict line.
+
+**Wave 1's bench, and the shape it decided.** `tests/pmcband/pmcbandbench.asm`
+`%include`s the shipping composer and times it under
+`qemu-system-i386 -icount shift=3`, converted at PERFORMANCE.md Part 4's one
+count = 0.359 ms of real XT:
+
+| row | counts/op | real XT |
+|---|---|---|
+| `TILE` step 1 — one 8×8 tile into the packed band, 8 rows | 2.000 | **0.72 ms** |
+| `TILE` step 2 — the CGA layout, 4 rows | 1.250 | 0.45 ms |
+| `PACK_PL` — one 8-row band → four bitplanes, 28 columns | 116.375 | **41.78 ms** |
+| `PACK_1` — one 8-row band → 1bpp | 50.500 | 18.13 ms |
+| `BLITP` 224×8, four planes | 20.500 | **7.36 ms** |
+| `BLIT4` 224×8, packed | 134.625 | **48.33 ms** |
+| `BLIT1` 224×8, 1bpp | 3.375 | 1.21 ms |
+| `BAND colour` — 28 tiles + pack + `BLITP` | 194.375 | 69.78 ms |
+| `BAND mono` — 28 tiles + pack + `BLIT1` | 111.250 | 39.94 ms |
+
+The last two rows equal the sum of their parts to within 1%, which is what
+says the eight above them are measuring what their labels claim.
+
+**That table is wave 1's run and it is no longer the whole of the composer.**
+Wave 4 re-took it on the shipping code with the sprite row and the CGA row
+merge added — "The band bench, re-taken" below is the SHIPPING table and the
+one every microsecond in this section and in `apps/paccman/README.md` is priced
+from. It reproduces every row above to within a quarter of a count, and the two
+TILE rows are not comparable with it at all: wave 4 re-took them at
+`PB_N_TILE` = 256, where wave 1's — like every row here — were at `PB_N` = 8,
+which for a ~2-count operation is a 0.125-count grid. `TILE step 2` reads
+**1.164** counts at the finer N against wave 1's 1.250, a sixth of that grid,
+and no mechanism is claimed for the move: at eight iterations it is one PIT
+count. The shipping CGA arm is not that row any more in any case.
+
+**THE LEVER WORKS AND THE REPACK EATS IT.** `GFX_BLITP` puts a 224×8 band down
+in 7.36 ms where `GFX_BLIT4` takes 48.33 — **6.6×**, and that ratio is the
+whole of the performance premise. But turning the packed band into four planes
+costs **41.78 ms**, so a colour band composed-packed-repacked-and-BLITP'd is
+69.78 ms against the 68.4 ms the same band costs composed and sent straight
+through `BLIT4` (28 tiles at 0.72 + 48.33 = 68.49): **a wash, and the win is
+spent before it is banked** — so at wave 1's arithmetic the plane arm is a
+**1.9% loss**, ~1.3 ms a band and ~46 ms on the full repaint, plus one
+`OSAPI_WM_OBSCURED` and one real probe on every frame that has anything to
+draw. It is chosen anyway and `pmc_pick_path` says so at the branch: the loss
+is entirely the repack, the blit itself is 6.6×, and the path has to stay
+chosen, exercised and measured until wave 2 removes the repack — or the wave
+that removes it has nothing to remove it from. That is
+the first risk `docs/PACCMAN-PORT-PLAN.md` records, with its answer already
+decided there — so **wave 2 composes into planar DIRECTLY on the colour path**
+and the packed band stays for the two 1bpp adapters and the `BLIT4` fallback,
+which reads it unchanged. The four-times-wrong number the plan warned about
+was the *model*, not the measurement: `GFX_BLITP` priced from Paint's 64×64
+and 256×16 shapes predicts 4.4 ms for this band against the measured 7.36.
+
+**A full repaint is 36 calls, or 37 where the probe is asked** — one blit per
+tile row — **and it is 2.51 SECONDS on the target XT.** The call count is not
+the cost here and saying only the call count hides that: the table above prices
+a colour band at 69.78 ms, so 36 of them is 2,512 ms (mono, 36 × 39.94 =
+1,438 ms; CGA's half-height field 1,088 ms). The composition, not the primitive
+call, is where the time goes, which is exactly the case PERFORMANCE.md's rule 1
+is about. The probe (§5.4.3.2) is one call a frame, not one a band, and it is
+asked on the WHOLE field so that a straddle anywhere in it is caught rather
+than only one in the first band.
+
+**Which is why `os88_paint` asks `OSAPI_WM_DAMAGE` (§11.90.2) and recomposes
+only the bands it owes.** The window sets `WF_OWNBG`, which is the whole
+precondition §11.90.2 puts on a partial answer, so the kernel really does hand
+this window a rect — and an ordinary menu close, a drag of another window
+across a corner or a toast going away all reach `W_PAINT` through
+`wm_paint_dmg`. A menu dropped over the top three tile rows owes **3 bands =
+209 ms**; a repaint that ignored the answer would charge 2,512. The rect is
+absolute and inclusive and turns into tiles with two shifts (`c = (x −
+pmc_fx) >> 3`, `ty = (y − pmc_fy) >> pmc_rsh`, both clamped to the field), and
+the two `pmc_mark` calls per row UNION that span with whatever play has
+already dirtied rather than replacing it. An EMPTY rect draws nothing at all —
+**and no About card either**: `pmc_repaint` answers whether anything was owed,
+and the card is ~12 `gfx_*` calls and ~200 glyph cells, about **210 ms**, on a
+paint the kernel has just said costs nothing.
+
+**Every OTHER draw path arms a clip region, and only when something is
+covering us.** A key, a menu command and (wave 2) a worker frame all arrive
+with no region armed — the kernel arms one inside its own damage pass, around
+`W_PAINT` and nowhere else — so an unclipped `pmc_flush` writes 36 band blits
+across a covering window's pixels, 2,512 ms of XT spent corrupting somebody
+else's glass, which the kernel then has to repaint. `apps/pacman`'s `pm_redraw`
+is the precedent and calls `OSAPI_WM_CLIP_SET` first from both its paint and
+its worker. **But the region may not be armed unconditionally here**, and that
+is §5.4.3.3: an armed region is one of `OSAPI_GFX_BLITP`'s six refusals,
+binding when the *package* armed it where the kernel's own `W_PAINT` cull is
+advisory — so arming one every frame sends every non-paint frame down `BLIT4`
+for ever (48.33 ms a band against 7.36) and leaves wave 2's planar-direct
+composer nothing to win. So `OSAPI_WM_OBSCURED` is the gate: 0 means nothing is
+covering us and the blit is safe unclipped, 1 arms the region, and
+`pmc_pick_path` has already chosen `BLIT4` on the same answer, so the two
+cannot disagree. A refusal — not one pixel shows — draws nothing and **leaves
+the spans dirty**, so the bands are owed again the moment the window is
+uncovered. §14's worker rule 5 reads the trade the other way ("it vetoes the
+whole frame for one covered pixel, which for a worker that spends minutes on a
+frame is the wrong trade"); this worker spends 70 ms on a band, so the region
+is affordable and it is the region that is taken.
+
+**The About card is dismissed by ANY key and by ANY menu command.**
+`os88_about_card` only draws — "you keep the flag and the dismissal; the widget
+only draws" (`apps/cc/os88.h`) — and the interlock that stops a partial expose
+rubbing a hole in the card (`os88_paint` redraws it whole through
+`os88_about_card_d`, the entry that does not throw the paint's damage rect
+away) is what makes a *missing* dismissal fatal rather than untidy: the card
+would own the arcade field for the life of the instance, with the close box as
+the only way out. A key takes it down, recomposes the whole field because the
+card was opaque over it, and is **swallowed** rather than also starting a game,
+which is the reference's own "any key" posture and `apps/pacman`'s
+`pm_dismiss_body`. A menu command takes it down and then does what was asked,
+clearing the flag *before* the command's own draw so the field lands over the
+whole card in one pass rather than twice. And `pmc_flush` **refuses while the
+flag is up**, leaving the spans marked, so no other caller — wave 2's worker
+above all — can blit through the card.
+
+**The black border is the LETTERBOX and not the content.** `WF_OWNBG` traded
+away the kernel's white fill, so the margin around a 224-wide field in a wider
+window is the package's to paint — but at the shipped size there is no margin:
+`PMC_WIN_W` gives a content exactly `PMC_FIELD_W` wide and `PMC_WIN_H` one
+exactly the field's height deep, and `os88_wm_minsize` pins the window there.
+Filling the whole content instead wrote **64,512 pixels that a band covers a
+moment later**, which is PERFORMANCE.md rule 2's double-draw. Up to four strip
+fills are computed from the two insets and each is skipped when empty, so the
+default window makes **0 fills** and a grown one pays only for the border it
+actually has.
+
+**Budget.** Estimated ~34.5 KB image + ~5 KB bss of 61,440 (the reference's
+game code at cword's measured ~9.4 bytes per code line, plus ~13 KB of ROM
+tables paid in `.data`), so no overlay is planned; `pmc_intro.c` and the
+round set-up are the first `ovl_*` candidates. **The trigger is §73.14's, and
+it is 55,000 RESIDENT bytes — image *plus* bss, not image alone.** The
+estimate above was drafted against a 50,000 figure read off the image, which
+is neither the rule nor measured against the same quantity; nothing in this
+section is priced off it. Two thunks are added to the C SDK (`os88_gfx_blitp` with the probe
+form, `os88_wm_display`), a dozen lines each in `apps/cc/os88thunk.asm`.
+
+**After wave 1**: `os88pkg: 'PACCMAN' entry=+0x0060 image=21844 bss=4498
+icon=yes assoc=0` — 26,342 of 61,440.
+**After wave 2**: `os88pkg: 'PACCMAN' entry=+0x0060 image=37332 bss=5188
+icon=yes assoc=0` — **42,520 of 61,440**, with the intro and the sound still
+to come. The tick path, the movement rules, the four ghosts, the sprite layer,
+the input and the two-span damage model cost **15,488 bytes of image and 690
+of bss**, and about 17 KB of the image is still the arcade tables, which do
+not grow. `tools/cc8086.py` reports 96 functions and a largest frame of **28
+bytes** against the 96 cap. **§73.14's split trigger is 55,000 resident bytes
+— image plus bss — and this line is 12,480 away from it**; `pmc_intro.c` plus
+the round set-up are what move first. **That line is re-pasted from the build
+each wave and never typed**: it is the number §73.14's trigger is read off,
+and it appears here and in `apps/paccman/README.md`, which must agree with it
+word for word.
+
+**Two departures the C forced, recorded because neither is visible in the
+source.** The 28×36 RAMs are held at a stride of **32**, not 28: `y * 28` is a
+multiply the gate can refuse outright when it cannot prove a scratch register
+dead, and a power-of-two stride makes every row index a shift, for 288 bytes
+of bss which is the cheap half of the ceiling (§73.9). And the band pitch is
+kept as a SHIFT rather than `ty * pmc_rows`, for the same reason one level
+down: a variable multiply on an 8086 is a helper call.
+
+**The window's frame is 226 × 307**, and it is the kernel's arithmetic rather
+than a chosen number: `wm_geom` gives a frame's content as `W_W` less one
+border pixel each side and `W_H` less `TITLE_H + 1`, so a 224 × 288 field
+needs exactly that. At `y = MBAR_H` the frame's last row lands 1 row over the
+dock on EGA, 3 on Hercules and 7 on CGA (whose frame is 226 × 163), all inside
+§11.93's `DOCK_H/2` line.
+
+### Wave 2 — the tick path, the ghosts and the sprite layer
+
+**The worker is the reference's `frame()` with two clocks in it.**
+`os88_worker` is `apps/pacman`'s `pm_worker` loop — `os88_task_alive` outside
+the lock, sleep to a deadline, re-anchor when late rather than burst — and
+`pmc_frame` is its whole body: read `os88_ticks`, advance the accumulator by
+`600 × min(elapsed, PMC_CATCHUP_MAX)`, run one `pmc_game_tick` per 182 of it,
+mark the sprites and flush. **The first paint hires it**, not `os88_main`:
+`os88_task_spawn` wants a callback with the gfx lock held, and a refusal is
+normal and transient, so the flag is set only once the spawn took and the next
+paint asks again. Focus loss and `Pause` both suspend play, and the clock is
+re-anchored *before* either test so coming back resumes rather than lurches.
+
+**`pmc_frame` has ONE exit, and that is an instrument's requirement.**
+`tools/stkdepth.py` walks a routine linearly and stops at the first `ret`, so
+an early return above the deep calls hides the whole tick path from the tool
+that exists to measure it: the same body written with three `return`s priced
+`cc_worker`'s chain at **14 bytes** instead of 142.
+
+**The chain, and what sizes `OS88_STACK_256`.** `stkdepth` gives
+`cc_worker` → `_os88_worker` **14**, `_pmc_frame`'s own frame **8**, and
+`_pmc_game_tick`'s chain **120** (through `pmc_update_tiles` → `pmc_vid_score` →
+`pmc_vid_color_char` → `pmc_vid_color_tile` → `pmc_vid_color` → `pmc_mark`) —
+**142 bytes** composed, against the plan's 190 ceiling (re-taken after the
+wave-2 review; the figure drifts with every build, and the wave's verifier
+found 118 stale within the wave, which is why the MEASURED water mark and not
+this sum is what sizes the class). The draw hangs off
+`pmc_frame` *beside* `pmc_game_tick` rather than under it and is shallower
+(52 through `os88_gfx_blitp`), so the two never add up. With §8.7's 64-byte
+interrupt floor on the worst real machine and the ~46 bytes QEMU understates a
+real BIOS by, that leaves ~4 spare on paper, and `tests/paccman.py` asserts
+the MEASURED water mark of the worker's own slice under **208** (162 on
+`os8088_xt_vga`, 170 on `os8088_5150_cga_gla`).
+
+**And that row has now been RUN, which is what turns 256 from a plan into a
+measurement.** On MartyPC the worker's slice reads **162–164 of 256 on
+`os8088_xt_vga` and 170 on `os8088_5150_cga_gla`** — CGA is the deeper arm —
+so ~38 bytes are spare against the 208 bar and ~86 against the slice.
+(**Wave 3 moved both numbers** — one more call level on the tick path, 160
+composed and 178 measured on both profiles; the wave-3 section below carries
+the current pair and this paragraph is the wave-2 record.) Running that row
+also found two things a REGISTERED-but-never-executed one cannot: the
+"image is unmodified" check had no allowance for the SDK's own `cc_tpl` (the
+`wm_create` template, whose first five words `os88_wm_create` writes at
+launch) nor for `pmc_step`/`pmc_rows`/`pmc_rsh` (which `pmc_layout` writes,
+and which carry the VGA answer as their initialiser — **so only the CGA arm
+can see it**), and its liveness assertion watched PAC-MAN, who with no key
+held runs into a wall and STOPS, which is the reference's own behaviour: on
+the 5150 profile he had already eaten seven dots and parked before the first
+sample. The ghosts never park and are the signal; the dot count is what says
+Pac-Man moved at all. A gate that has never been run is not a gate.
+
+The tool cannot
+compose the number itself through compiler-emitted code — its linear walk stops
+inside SmallerC's `L###` labels — so `tests/unit/t_stkclass.py` now NAMES the
+four C packages that declare a worker (`paccman`, `cword`, `runcpm`, `weave`)
+instead of skipping them in silence, and says that each is sized by its own
+measured water mark rather than by a floor this gate would pass on.
+
+**The one input divergence, implemented.** A direction is a LEVEL: the frame
+polls `os88_key_down` once and every game tick of that frame reads the same
+answer, priority up > down > right > left with the current direction as the
+default (`pacman.c` 926–946). §9.7 says in so many words that `kbd_down` is
+legal from a worker, "which is where a game loop that needs it actually runs".
+The divergence is the **press latch**: a frame here is 3–11 game ticks, so
+`os88_onkey` sets one bit and the next poll ORs it in and clears it, which
+makes a tap exactly one frame of held and nothing more. It is **one byte**
+written by the UI task and cleared by the worker — the only state the two
+share — and the window between the worker's read and its clear can drop a
+press, which costs one tap and whose only fix is a lock the worker may not
+take. There is **no buffered turn**, which is a difference from §89's port and
+is what the harness drives from both sides: a tap turns him, and a hold
+released before the junction is never taken.
+
+**The band row PITCH is not the band row WIDTH.** A sprite is 16 pixels wide
+and its position is its actor's centre less 8, so at the tunnel mouth it hangs
+**eight pixels off each end** of the 224-pixel field — Pac-Man at x = 0 puts a
+sprite at −8, and at x = 223 one whose last pixel is 231. The reference draws
+both halves and lets the window clip; it wraps the ACTOR and never the sprite.
+So every band row carries `PMC_BAND_PAD` = 4 bytes of slack at each end and
+the field starts at + `PMC_BAND_PAD`, making the pitch `PMC_BAND_ROW` = **120**
+against a width of 112. What that buys is that `_pmc_sprite` **never clips and
+never tests a bound**: two bounds per pixel is four instructions on the
+hottest loop in the package, ~2,000 times a frame, to catch a case the slack
+absorbs for free. The tile composer, both packers and the `BLIT4` fallback are
+all handed `pmc_band + PMC_BAND_PAD`, so nothing outside `pmc_draw.c` sees it,
+and `tests/unit/t_paccman.py` mirrors both constants because one fact written
+in two files with no linker under it is what that row exists for.
+
+**`_pmc_sprite` merges, it does not overwrite.** The arcade board composites a
+tile layer and then a sprite layer, and colour index 0 is the transparent one,
+so the routine reads the band's own nibble back and leaves it alone where the
+sprite is a hole. `flipy` is a **negative row step** and costs no test at all;
+`flipx` is the four source bytes walked backwards and each one passed through
+`pmc_brev`, a 256-byte table built at launch whose entry is a source byte with
+its four 2-bit pixel fields reversed — which is why there is one pixel loop
+and not two. It is proved on a real x86 with SS ≠ DS by
+`apps/paccman/hosttest/pmcbandtest.asm`, whose two sprite cases are a plain
+merge and then an **odd destination nibble, `flipx` and a negative row step all
+at once** (Pac-Man running left on the CGA layout at an odd pixel is all
+three), against vectors the harness's independently written C twin produced —
+merged over a band that already holds filler, because a vector taken over an
+empty band would pass whether the merge respected its background or not. Eight
+cases and three negative controls, all green.
+
+**A row carries TWO column spans, and the number is off the 1bpp adapters
+rather than off VGA.** The first draft coalesced a row's damage into ONE span
+and justified it with "on the `GFX_BLITP` path width is nearly free" — and
+`BLITP` is unreachable on the two adapters an XT actually boots, because
+`pmc_pick_path` answers `PMC_P_BLIT1` on `bpp == 1` before the probe is asked.
+Priced off the harness's own measured terms, one WASTED column of a band is
+~875 µs on CGA (546 µs composed — a rowstep-2 tile has its own term — plus
+that column's share of a 2,261 µs `pack_1` row and its blit) and ~1,355 µs on
+Hercules, against **814 µs** for the extra `gfx`
+call a second span costs — so a gap of two clean columns already pays for the
+split on both paths. The energizer blink is the case that made it matter:
+it writes columns 1 and 26 of rows 6 and 26, which one span turns into two
+26-column bands, ~33 ms of a ~110 ms 1bpp play frame spent recomposing maze
+tiles that had not changed. `PMC_DGAP` = 1 is where the two arms cross, so a
+ONE-column gap is swallowed and the band stays single. The two spans are kept
+sorted and disjoint, span 2 is dirty only when span 1 is, and they are merged
+back the moment they meet, so one test still answers "is this band owed
+anything" and two bands never become one call more than they save.
+
+**A caller that means a RECTANGLE must mark a RANGE.** With two spans, marking
+the two ENDS of a rect opens one span at each end and leaves every column
+between them undrawn — a menu dismissed over the top three tile rows leaving a
+26-column hole in each of them. `pmc_mark_span(c0, c1, y)` is the range form
+and both rectangle callers use it: the sprite shadow's `pmc_mark_rect` and
+`os88_paint`'s damage-rect decode. `pmc_mark(x, y)` is the point form and is
+for a single tile only.
+
+**The damage model gained a sprite shadow and a widening pass.** Each sprite's
+last-drawn position, tile, colour, flip and enablement are kept; a difference
+marks BOTH rectangles, because the tiles under the old one have to be put
+back. And a band that is dirty for a reason of its own — the score strip, a
+pill blinking, a menu's damage rect — must still have every sprite that lands
+on it composed, or the sprite vanishes from that band for a frame: so
+`pmc_flush_laid` **widens** each dirty band's span to contain them before
+anything is composed, which is also what relieves `_pmc_sprite` of the
+sideways clip it would otherwise need. With two spans a row the widening is
+per SPAN and by OVERLAP: a sprite standing over span 2 has nothing to do with
+span 1, and widening span 1 to reach it would swallow the whole gap the second
+span exists to avoid. The predicate is exactly `pmc_band_sprites`', so a
+sprite is either grown into a span or skipped from it, never neither.
+
+**Every marker asks the RENDERER's own vertical test, `pmc_spr_band`.** On the
+short (CGA) layout a band SAMPLES source rows base, base+2, base+4, base+6, so
+a sprite whose top row is base+7 lands on no sampled row at all and draws
+nothing — while a plain source-row overlap test says it does. That
+disagreement cost one whole band composed and blitted for zero visible change
+(16 tiles + four rows of `pack_1` + a blit, ~17.5 ms), on one sprite vertical
+phase in eight. The markers must stay a SUPERSET of what the renderer draws,
+which is why this is the identical arithmetic and not an approximation of it.
+
+**`PMC_BAND_PAD` = 4 is EXACT, not generous, and the invariant it rests on is
+now asserted.** `_pmc_sprite` never clips and never tests a bound; what makes
+that safe is the pad plus one fact — every sprite position in the port is a
+WRAPPED actor centre less 8, so an enabled sprite's x is in
+`[-8, PMC_FIELD_W - 9]`. The worst legal case is Pac-Man at the left tunnel
+mouth (`pmc_ax` = 223, so `sp_x` = 215): the destination is byte 111 at an odd
+nibble and sixteen pixels touch bytes 111..119 — the row's LAST byte — which
+on band row 7 is offset 959 of a 960-byte scratch. There is ZERO slack left,
+so one more pixel of x writes into `pmc_planes` with nothing to catch it.
+`pmcuitest` asserts both halves (its sprite twin checks the destination
+against the scratch's end; its per-frame audit checks every enabled sprite's
+x against the range), and `pmcband.inc` says so where the constant is defined,
+because wave 3's intro screen is exactly the code that positions a sprite by
+something other than an actor centre.
+
+**THE WORKER BREAKS ITS OWN LOCK HOLD, and the round-won flash is why.**
+A worker takes the gfx lock "for a SHORT BURST" and a worker that computes
+under it wedges the machine with no watchdog able to break it (§20.6 rule 3).
+An ordinary play frame is 18 narrow bands and that is a burst. The **round-won
+flash is not**: `game_update_tiles` recolours the whole playfield every time
+`since(WON) & 0x10` flips, which marks all 31 playfield bands at their full
+width, and the flag flips about **eleven times** over the four seconds between
+`after(WON, 60)` and the `READY!` re-arm. One flip is 31 × ~70 ms = **~2.2
+SECONDS** of one uninterruptible hold; eleven of them is ~24 s of drawing for
+a four-second animation, with nothing else on the machine able to draw
+throughout. So the worker's flush unlocks, yields and re-locks every
+`PMC_HOLD_BANDS` = 4 bands: one task switch (693 µs) a chunk buys a machine
+whose menus, dock and other windows still answer during the flash.
+
+**AND A CHUNK IS THE GAME LOGIC PLUS FOUR BANDS, NOT FOUR BANDS.** `os88_worker`
+brackets the WHOLE of `pmc_frame` in one `os88_gfx_lock`/`unlock` — the input
+poll, up to `PMC_CATCHUP_MAX` = 2 OS ticks of game (`PMC_ACC_PER_OS` 600 /
+`PMC_ACC_PER_GAME` 182 = 3.3 game ticks an OS tick, so as many as seven
+`pmc_step_tick`s), the sound frame, and only then `pmc_flush` — and
+`pmc_flush_laid`'s break test is `n >= PMC_HOLD_BANDS` with `n` starting at 0,
+so the FIRST chunk carries all of that. `apps/cc/os88.h`'s rule 3 ("a worker that computes
+under the lock wedges the machine") is quoted above about the drawing, and this
+is the half of it that is not drawing: at `PMC_T_LOGIC` = 18.6 ms a
+`game_tick`, six ticks and four full-width VGA bands is a measured **387.4 ms**
+of one uninterruptible hold, against the ~279 ms four bands alone would be.
+`pmcuitest`'s `worst hold, one chunk` row is that number — the cost model's own
+clock, bracketed by the `os88_gfx_lock`/`unlock` stubs, driven on a late frame
+so the catch-up is in it — and it FAILS the build over `PMC_HOLD_MS` = 460 ms,
+which is where seven ticks and four bands would land. So the bound is gated
+rather than argued, and the arithmetic above is the whole hold and not the
+drawing half of it. **The bracket is not only the chunking's**: it is also what
+serialises a tick against `os88_paint`, both of which write the video model, so
+shortening it to the flush alone is not the free win it looks like and is not
+taken here. **Only the worker.** A key, a menu command and `os88_paint` all arrive INSIDE a kernel
+callback that holds the lock on our behalf, so those callers pass `brk = 0`
+and take the whole loop in one hold. **After a re-lock nothing is assumed**:
+the clip region died at the unlock (§11.3) and the window may have moved,
+resized or been covered, so the layout, the region and the blit path are all
+taken again, and a refusal RETURNS with the remaining spans still dirty — a
+band is cleaned as it is drawn, so an early return leaves exactly what is
+still owed.
+
+**`pmc_about_up` IS RE-TESTED FIRST, ahead of the layout, and it is the one
+re-check the first version of the break did not have.** That flag is the only
+thing keeping the field off the About card — `pmc_flush`'s entry guard is its
+one other reader — and the card is drawn by `os88_about`, a UI callback that
+runs in precisely the window the break opens: the worker unlocks at band 4,
+the UI task takes the lock to drop the menu, the user picks About PaccMan, the
+flag goes up and the card is painted, the callback returns and the lock is
+released, and the worker re-locks. Without the test it blits bands 5..35
+straight through the card, and **nothing repaints it** — the kernel sends no
+`W_PAINT` for a package's own overdraw — so the card sits with a hole in it
+until it is dismissed. The exposure is not rare: the flush that breaks at all
+is the LONG one (the round-won flash, New Game, the first paint), which is
+exactly the multi-second window a menu click lands in. Returning costs
+nothing, because `pmc_abdismiss` re-marks what the card covered.
+`pmcuitest`'s "About raised mid-break" row drives it from the stub's own yield
+hook — the place the UI task really gets in — and reads **4 bands of 36**;
+with the test removed it reads 36.
+
+**A CALLBACK MARKS AND THE WORKER DRAWS, for the same reason the break
+exists.** `N` and `Game > New Game` mark all 36 bands, and composing them from
+inside the callback is one uninterruptible ~2.5 s hold of the kernel's gfx
+lock, with the chunked path unavailable because a callback's lock is not ours
+to drop. So both commands return without flushing: `pmc_new_game` has marked
+the field and cleared `pmc_paused`, a menu command implies the window is top,
+so `pmc_frame`'s guard passes and the next frame — at most one OS tick, 55 ms
+— draws it chunked and interruptible. **NO callback in this package flushes,
+and the case that used to need one is gone rather than special-cased.** The
+exception was "no frame is coming": a stopped window runs no frames, and
+`os88_about` pauses a game, so `About PaccMan` followed by any key or any Game
+command left the card's spans marked with nothing running to draw them. The
+answer is one line in `pmc_frame` — its `pmc_flush(win, 1)` sits OUTSIDE the
+pause test, inside the `top && !pmc_about_up` guard — so a **paused** window
+runs no game and still draws what it owes, chunked, an OS tick later. That
+deleted all five `pmc_flush(win, 0)` call sites (the Sound toggle, the `Pause`
+branch, a refused `Full Screen`, `os88_oncmd`'s fall-through and
+`pmc_abdismiss`'s key path) and **146 bytes of image** with them, and it
+removed the asymmetry where `Pause` composed and `Resume` deferred.
+
+**And what the About card covered is what is re-marked, not the whole field.**
+`pmc_dirty_all` is 36 bands at full width — 36 × 69.78 ms, ~2.5 s of XT —
+reached from an ordinary keystroke, **and on VGA the card cannot cover 36 of
+them**: `apps/os88ui.inc` measures it as
+`lines * OS88UI_ABLH + 2 * OS88UI_ABPADY`, clamps that to the content box and
+centres it, so ten lines is 134 rows of 288 there, about 17 bands. **THE SAVING
+IS THE ADAPTER'S AND IT IS ZERO ON A SHORT DISPLAY**, which is the half this
+said for one review round and did not mean: CGA's content box is 144 rows and
+its band is 4, so the same 134-row card gives `d0` = 5, `d1` = 139, `ty0` = 0
+and `ty1` = 35 — **the whole field**, because a card 134 rows tall in a 144-row
+box leaves five rows above it and five below. A 1bpp band is 4 screen rows
+rather than 8, so the wall clock is not 36 × 69.78 ms; it is still a whole-field
+compose, and it is the reason **no** callback here flushes rather than only the
+ones that would have been expensive on VGA. `pmc_ab_mark` turns that y-range into a band range and
+marks full-width spans over it, with **a band of slack each side** because
+`PMC_AB_LH`/`PMC_AB_PADY` are a mirror of somebody else's file: the
+over-approximation's only failure mode is drawing one band more than it had
+to, and `tests/unit/t_paccman.py` pins both constants against
+`apps/os88ui.inc`'s own equs in the fast tier, along with the
+`(n << 3) + (n << 2)` that encodes the pitch because `tools/cc8086.py` refuses
+`imul ax, ax, 12`. A layout that has not run, or a window that has gone,
+answers `pmc_dirty_all` as before. Measured by `pmcuitest`, which re-derives
+the widget's measurement independently: **20 bands for the card's 18**.
+
+**The two bottom strips are gated on their own state, and it is the one place
+the reference's structure is not carried verbatim.** `pacman.c` rewrites the
+reserve-life row and the fruit list on every one of its 60 ticks a second, and
+neither can change except at a `game_init` or a `round_init`. Compare-then-
+write keeps them out of the DAMAGE, so they cost no band and no `gfx` call and
+the harness's cost table prices them at **exactly zero** — but they still cost
+the CALLS: three life quads plus up to seven fruit quads is 10 × 21 = **210
+near calls**, ~2.3 ms of call-and-ret alone at PERFORMANCE.md's 11 µs, three
+to six times a drawn frame. `pmc_shlives`/`pmc_shround` gate both loops and
+start impossible, so the first tick after `game_init`'s `vid_clear` paints
+them back; the score, the hiscore and the pill blink stay per-tick because
+those really do change. The audit cannot see this one — it recomposes the
+glass from the two RAMs, so a strip never written into the RAM agrees with the
+glass perfectly — and the same blindness is why the round-won flash below
+needs a counter of its own. `pmcuitest` checks the RAM directly across a life lost
+and a life restored.
+
+**And the round-won flash is shadowed too, an order of magnitude worse.**
+`game_update_tiles` calls `vid_color_playfield` on every game tick from
+`WON + 60` to the `READY!` re-arm — **180 ticks** — while the colour it writes
+only changes when bit 4 of `since(WON)` flips, once every **sixteen**.
+`pmc_vid_color_playfield` is 31 rows × 28 columns = 868 calls to
+`pmc_vid_color`, each of which calls `pmc_ok` again: **~1,736 near calls**,
+19 ms of call-and-ret alone at PERFORMANCE.md's 11 µs and nearer 25–30 with
+the loop and the index arithmetic — **per game tick**, and a frame is 3 to 7
+of them. Fifteen ticks in sixteen that is spent proving nothing changed, about
+**4.5 s of XT** added to the most expensive animation the program has.
+`pmc_shflash` gates it, and is set to `PMC_COLOR_DOT` wherever
+`init_playfield` really has repainted the field that colour, so the first flip
+after a round always draws. **Neither the cost table nor a screendump can see
+this**: compare-then-write keeps every wasted pass out of the damage, and the
+play-frame budget row never enters the round-won state at all — so `pmcuitest`
+carries a host-only counter (`PMC_HOST`; the 8086 image has neither the word
+nor the increment) and drives `game_update_tiles` straight at a won round,
+reading **11 recolours of 180 flash ticks** against the 180 the ungated
+version runs.
+
+**`new_game` clears `Pause`, and `apps/pacman` is where that comes from.**
+`pm_new` clears `pm_pause` before it lays the board, and it has to: `Pause` is
+a state the user set on the game being discarded. Without it, Game > New Game
+taken while paused draws the fresh maze, `PLAYER ONE` and `READY!` from
+`game_init` and then nothing at all — no score, no sprites, no reserve strip —
+because `pmc_frame`'s focus-and-pause guard skips the whole tick path, and on
+the glass it reads as a program that has hung. Found by driving the menu after
+wave 2 made `Pause` live; `pmcuitest` gates it, and `pmc_paused` moved from
+`pmc_menu.c` to `paccman.c` for `pmc_about_up`'s reason — `pmc_game.c` reads
+it and is `#include`d first, and a static has no forward declaration in C.
+
+**`game_init` clears the sprites, and the reference does not have to.**
+`pacman.c` only ever enters `game_init` from a fresh process or from the
+attract screen, so its sprite array is always already zero; here `N` and
+Game > New Game reach it MID-ROUND, and without the clear the two seconds of
+prelude before `game_round_init` runs are drawn with the dead game's Pac-Man
+and ghosts still standing in the maze. Seen on the glass as a white ghost
+loose in the top-left corner under `PLAYER ONE`.
+
+**What a play frame costs, measured by the harness.** On VGA at the shipped
+size, an ordinary play frame is **23 gfx calls, 18 bands, 46 tiles, 15
+sprite-bands of 80 rows and 3 game ticks** — **131.2 ms** — and the frame a
+dot goes in is 19 calls, 15 bands and 46 tiles. Over 18 consecutive frames the
+renderer drew **186 bands**, 10.3 a frame against the 36 a whole repaint
+costs. **More bands and less work is the two-span model doing its job**: the
+frame that carried 10 wide bands of 97 tiles now carries 18 narrow ones of 46,
+and the worst of 24 fell from **271.5 ms to 144.3 ms** against a 599.5 ms bar
+— 24% of a whole repaint where the single-span model was 43%. Which is why the
+harness's structural bound is now the TILE count and not the band count: a
+split that raises the band count and lowers the work is the point of the
+split, so a band ceiling alone would punish the cheaper frame. A whole-field
+recompose is 1,008 tiles and trips the 140-tile bound first; the band and call
+ceilings (24 and 26 against the 72 that two spans on all 36 rows would be)
+stay as the guard against the other failure, a row split without bound.
+**Those milliseconds understate the frame**: the sprite term and the
+game-logic term are still zero, and `pmcuitest`'s closing line says so by name
+rather than letting a plausible number stand. **And the round-won flash is
+NOT in this table at all** — it is the one frame shape the 24-frame drive never
+reaches, it is ~31 full-width bands rather than 18 narrow ones, and it is the
+reason the worker breaks its lock hold (above).
+
+**The two wave-2 bench terms are not taken yet.** `tests/pmcband/pmcbandbench.asm`
+gained `SPRITE 16x8 even` and `SPRITE 16x8 odd+flipx` — the two cases cost
+different loops' worth of work and half of every frame is the odd one — and
+`make pmcbandbench` builds. What has not happened is a run of it long enough
+under `qemu-system-i386 -icount shift=3` to read the two rows off the glass:
+the boot alone is ten minutes there and the machine idles into the screen
+saver between pokes. The **game-logic** term is a different matter and will
+not come from this bench at all: it is a standalone assembly package and
+cannot call the C, so `game_tick()` is priced by `tests/paccman.py`'s cycle
+bracket in wave 4.
+
+**Planar-direct composition is NOT in this wave, and the arithmetic says why
+it still should be.** Wave 1's bench prices a colour band at 28 tiles ×
+0.72 ms = 20.2 for composition, **41.78 ms for the repack** and 7.36 for
+`BLITP` — 69.3 against `BLIT4`'s 68.5, the wash this section already records.
+Fusing the repack into the tile composer removes the four stores and four
+reloads of the intermediate packed band per 8 pixels out of about 62
+instructions, ~35%, which would put the colour path near 47 ms a band against
+`BLIT4`'s 68.5 — a real 1.45× and the first time the plane path would be worth
+its probe. It is not done here because it doubles the composer: tiles AND
+sprites would each need a packed form for the two 1bpp adapters and the
+`BLIT4` fallback and a planar form for `BLITP`, with twins and vectors for
+all four, and wave 2's own subject — the game — is what the wave was for. The
+number to beat is written down; the fusion is wave 3 or 4's, with the bench
+run that is owed above.
+
+**The sixteen colours collapse the arcade's palette in THREE places, and all
+three are stated rather than one.** `tools/paccman_assets.py` maps each arcade
+colour to the nearest of §39's sixteen by Euclidean RGB distance, and three
+pairs land on the same one:
+
+| where | what collides | on the glass |
+|---|---|---|
+| colour block **3**, `COLOR_PINKY` | the body and the eye-WHITES are both `0x0F` | Pinky is a white blob with two floating blue pupils; the eye shape is gone |
+| blocks **7** and **9**, `COLOR_CLYDE` and `COLOR_PACMAN` | both bodies are `0x0E` | Clyde and Pac-Man are the same yellow |
+| blocks **3** and **18**, `COLOR_PINKY` and `COLOR_FRIGHTENED_BLINKING` | both carry `0x0F` | a normal Pinky and a ghost about to stop being edible read alike |
+
+So the five actors render in **four** distinct colours where the arcade has
+five, and one of them shows no eyes. The metric is doing what it was asked:
+Pinky's arcade colour is **(255, 184, 222)**, which is **6,130** from white
+against **10,890** from light magenta `0x0D`, so white genuinely wins and a
+different metric does not help. **Blue cannot be 255 in any arcade colour** —
+`rom_hwcolors` is 3-3-2 and the blue field is two bits, so its maximum is
+`0x47 + 0x97` = 222 — and an earlier draft of this paragraph quoted
+(255, 184, 255) with distances of 5,041 and 9,801, which are the GREEN term
+alone with the blue difference dropped. The figures above are recomputed from
+the committed `pmc_rom.c` and the reference's own `rom_hwcolors`/`rom_palette`.
+
+The fix, if it is taken, is an explicit per-block override — block 3's body to
+light magenta `0x0D`, block 7's to brown `0x06` — regenerating the committed
+`pmc_rom.c` and re-running `--check`. **Clyde's override is a LEGIBILITY trade
+and the metric does not support it**: brown `0x06` is **22,067** from the
+arcade's (255, 184, 71) where the yellow it would replace is **5,237**, so it
+is four times FURTHER than the colour it fixes; the one nearer candidate,
+`0x0C` at 9,997, is already spent on blocks `0x14`/`0x15`. Recorded here as a
+look decision for the polish wave rather than changed in the generated tables,
+because it is the user's arcade look that is being traded — and whoever takes
+it should take it knowing that distance argues against half of it.
+
+### Wave 3 — the attract screen, the sequences and the sound
+
+**The program opens where a cabinet opens: on the attract screen.** `pacman.c`'s
+`init()` does `start(&state.intro.started)` and nothing else, and `os88_main`
+now does the same through `pmc_intro_start()` — every trigger disabled,
+`pmc_mode = PMC_MODE_INTRO`, the first picture drawn straight away (a window
+that is empty until the worker's first frame looks broken, and every `pmc_vid_*`
+write compares before it stores, so drawing it twice marks nothing), and
+`PMC_T_INTRO` started. Waves 1 and 2 opened straight into a round because there
+was no attract screen in the image; `N` and `Game > New Game` still do.
+
+**`pmc_step_tick()` is one 60 Hz tick and it is a FUNCTION.** It is `pacman.c`'s
+own `frame()` loop body (744–772) with nothing added but the fade cut: the sound
+registers first, then the two state-change tests that let the attract screen and
+the game hand control to each other, then the screen's own tick. It is lifted
+out of `pmc_frame`'s loop because the host harness drives the attract screen
+tick by tick — fourteen event ticks and a 40,000-tick run — and a second copy
+of that dispatch in the harness is a copy that drifts. It costs one call level
+on the worker's chain, which is what moved the composed figure below.
+
+**The reveal, at the reference's own event ticks.** `intro_tick` draws at
+FOURTEEN ticks and never between them, which is exactly what the damage model
+wants: an attract screen standing still costs no band at all. Per ghost *i* the
+2×3 tile block lands at 60 + 120*i*, the name at 120 + 120*i* and the nickname
+at 150 + 120*i* — **60, 120, 150 / 180, 240, 270 / 300, 360, 390 / 420, 480,
+510** — the `10 PTS`/`50 PTS` legend at **570** and `PRESS ANY KEY TO START!`
+from **630**. The hiscore field is drawn only when the hiscore is above zero, so
+a fresh instance shows two headings and one score; the 1UP score is a literal
+zero and not the score of the round that just ended.
+
+**The prompt blinks on `since & 0x20`, and that is why there are two `since`
+helpers.** `pmc_since()` saturates at `PMC_SAT` = 0x7FFE so every compare in the
+program stays cheap, and `0x7FFE & 0x20` is a CONSTANT: a prompt written against
+it stops blinking 32,766 ticks — about nine minutes — into one attract screen
+and never starts again, which is precisely what a machine left running in a
+corner does. `pmc_since_lo()` is the 16-bit wrapping form and the blink uses it.
+The harness stamps the prompt at tick **630** (bit 5 set, so the reference's own
+first frame of it is the BLANK one) and at **662** (lit), then runs the screen
+to **40,000 ticks** and asserts both states still occur. Its `intro_to()` counts
+TICKS rather than asking `pmc_since()`, for the same reason one level up.
+
+**The fade is a CUT, and it is two bytes.** 4bpp has no alpha and neither 1bpp
+adapter has anything like one, and a dithered approximation of the reference's
+blended black quad would cost 30 full-field recomposes — about 75 seconds of XT
+for one second of screen. So `pmc_black` blacks the content on the fade-out's
+first tick and `pmc_shblack` remembers that the glass already holds it, which
+makes ~60 ticks of black **one** `gfx_fill`; the fade-in's last tick clears both
+and calls `pmc_dirty_all`. The reference's tick counts are kept, so every
+sequence between the attract screen and a round keeps its LENGTH — which is what
+the game's timing actually depends on. `pmc_repaint` answers black too, cut to
+the damage rect: recomposing the bands there would show the round the fade is
+hiding, a death sequence's maze reappearing behind `GAME  OVER` for as long as a
+menu was down over it. Only a fade that really went black owes the repaint, so
+the FIRST fade-in of an instance — the one the attract screen starts on itself,
+with nothing black behind it — costs nothing.
+
+**Three arcade voices, one PC speaker, by priority.** The three voice registers
+are kept exactly as the reference keeps them — every effect writes the register
+it writes there, at the tick it writes it — and once per OS tick `pmc_snd_frame`
+picks ONE for the speaker: **voice 2 the effects, then voice 1 the tune (the
+siren, the frightened warble and the prelude's MELODY), then voice 0 the prelude
+BASS**. So an effect always interrupts the tune and the melody always outranks
+its own bass. A voice is silent when its VOLUME is zero as well as when its
+frequency is, and that is not a detail: the prelude's bass decays 14→0 over the
+fifteen ticks of every phrase while its frequency stands still, so a sampler
+reading only the frequency would hold that bass note through the whole tune.
+
+**What the one voice costs, stated and not tuned.** No waveform and no volume —
+`waveform` is read off the register and dropped. The speaker is sampled once per
+OS tick while the game runs at 60 Hz, so about 3.3 game ticks pass between two
+samples and an effect shorter than that can fall between them: the eat-dot
+crunch is 5 ticks long and lands as at most two tones. `rom_wavetable` is not
+carried. None of this is on the About card (LESSONS.md 8: they are facts about
+the BUILD), and both the README and this section carry them.
+
+**A slot holds a KIND and `pmc_snd_tick` is a switch on it.** The reference
+dispatches its six procedural effects through a `void (*func)(int slot)` in the
+sound descriptor; nothing in this package may take the address of a function
+(§73.5), so the three slots hold `PMC_SK_*` and the effects are inlined into one
+switch — which also keeps six call levels off the worker's tick path. The two
+dumps' frequencies were converted on the host at full precision and live in
+`pmc_rom.c` as Hz; the effects compute a raw 20-bit register at run time and
+`pmc_hz_of` reduces the WSG's exact `f × 375 / 4096` to `(f >> 5) × 47 >> 4`,
+which is within 0.3% over the whole range the six effects use and cannot
+overflow 16 bits below `f` = 0x5800.
+
+**The siren's phase is a counter and not a mask, and that is a wrap bug avoided.**
+`snd_func_weeooh` tests `cur_tick % 24`; a slot's tick wraps at 65,536, which is
+a multiple of 8 — so the frightened warble's `& 7` stays right for ever — and is
+NOT a multiple of 24. The siren is the one effect that never stops, so it is the
+one that reaches the wrap: `pmc_wph` counts 0..23 instead. `pmcuitest` drives it
+past 70,000 ticks and asserts it is still in range.
+
+**`Sound` is live and nothing in the Game menu is greyed any more.** It was
+greyed while the image had no sound code to silence, and the un-greying was the
+deletion of one marker byte and one reason — the shape §47 predicts. The label
+is the ACTION on offer, `Sound Off` while sound is on, for `Pause`/`Resume`'s
+reason: the kernel's one marker is `MENU_DIS`, there is no check mark, this
+package has no status line and the title bar does not change, so the label is
+the only surface a toggle has. Turning it off silences the speaker at once
+rather than letting the granted tone run out its two ticks. The MACHINE is never
+the reason: `osapi_snd_caps` answers a constant on every kernel this OS boots.
+
+**Reading the About card pauses the game and dismissing it does not un-pause
+it.** That is `apps/pacman/pacman.asm` to the byte — `pm_about_body` sets
+`pm_pause` beside `pm_abon` and `pm_dismiss_body` clears only `pm_abon` — and it
+is the right behaviour: whoever opened the About box is not watching the maze,
+and a game that resumed the instant the card came down would resume with the
+ghosts wherever they were when the player stopped looking. `P`, `SPACE` or the
+menu starts it again.
+
+**It pauses a GAME and not the attract screen**, which is what that sentence has
+to mean to be true, and the first version of it set the byte unconditionally.
+The program *opens* on the attract screen, and `P` and `SPACE` are bound in PLAY
+only (below) — so reading About there froze the reveal with no key able to
+unfreeze it, the menu was the only way back, and the presses meant to unfreeze it
+were sitting in the any-key latch waiting to start a round the moment `Resume`
+was chosen. The card is modal either way while it is up: `pmc_frame`'s guard
+tests `pmc_about_up` as well, so nothing ticks behind it. The other half of the
+same fix is that a **stopped window takes no game input at all** — every key
+below the chrome either latches for the next frame's poll or arms the any-key,
+and a paused window runs no frames, so without the test a key pressed while
+stopped is not ignored but REMEMBERED and spent on the first frame after
+`Resume`.
+
+**The key table, and which keys are the game's.** `F` is full screen and is
+NEVER an "any key" — the reference gives it its own switch case with no `anykey`
+beside it — so a player who enlarges the attract screen does not thereby start a
+round. `Esc` leaves full screen while we hold the latch and is otherwise the
+reference's ordinary any-key. `P` and `N` are platform chrome and act only in
+PLAY: on the attract screen they, and `SPACE`, are ordinary any-key presses,
+which is the one binding where this port differs from §89's (there `SPACE`
+pauses). **All four are on the About card**, which for a program with no status
+line is the only place inside it a key can be discovered: `SPACE` was bound,
+specified here and advertised nowhere until the card's key line became two
+(`Arrows/WASD move. N new.` / `F full. P/Space pause.`), which is the position
+`N` was in before wave 2 reflowed the first one. Ten lines still, because
+eleven is 146 rows of CGA's 144-row content box and the last one would be cut
+off (LESSONS.md 8). **`Esc` is the one bound key NOT on the card**, and that is
+a narrowing of the claim rather than an oversight: it leaves full screen, which
+`F` already does in both directions, so it is a convenience with a route beside
+it — where `N`, `P`/`SPACE` and `F` each have no other key at all. The bound is
+what makes it a choice and not a preference: the widest line on the card is 24
+cells and `F full/Esc out. P/Space pause.`, the shortest phrasing that carries
+the pair, is 30. Chrome sits ABOVE the `input_enable` gate the reference wraps every key
+in, deliberately — the Game menu offers Pause and New Game through the GAME OVER
+sequence and a key that does nothing while the menu item does is the drift §47
+is about — and the game's own keys sit below it, so the key that started a round
+cannot start a second one thirty ticks later inside the fade. The any-key is the
+same one-frame press LATCH the four directions use (§91's one input divergence),
+cleared by the frame's poll so a key pressed during a round is not still sitting
+in the byte when GAME OVER hands control back.
+
+**A label goes white where colour cannot be carried, and the picture does not.**
+The reference colours each ghost's name and nickname with that ghost's own
+colour, and two of the four — BLINKY's red 1 and INKY's cyan 5 — land in the
+mono class table's 50% checkerboard. Photographed on `VIDEO=cga` at this wave's
+review, `-SHADOW BLINKY` and `-BASHFUL INKY` were unreadable smears while
+PINKY's and CLYDE's rows were crisp: §39.4's "grey rounds to black there, so a
+disabled glyph is a checkerboard", one control along. So `pmc_text_ink` writes a
+LABEL in `COLOR_DEFAULT` when the display carries one bit a pixel, and the
+2×3 ghost PICTURE keeps the arcade colour on every adapter — a dithered ghost is
+still a ghost, and the colour is what tells the four apart. VGA and EGA are
+unchanged and are the reference's.
+
+**The rule is EVERY coloured label and not a ghost's name**, which is how it
+shipped and what the wave's own review caught: the two labels on the GAME screen
+are `PLAYER ONE` in INKY's cyan 5 and `GAME  OVER` in BLINKY's red 1, so both
+were the same 50% checkerboard — and on Hercules, where the window is full
+height and there is no row halving to blame, `GAME  OVER` was a full-size smear
+of the one message the player most needs to read. Both now go through
+`pmc_text_ink`.
+
+**The ink is read at WRITE time and baked into `color_ram`**, because that is
+when the reveal happens — so a window carried onto a display of a different
+depth (§39.12's extended desktop, `vm/xt-multimon`, is where that is possible at
+all) keeps the colours it was written with until whatever wrote them writes them
+again. On the ATTRACT screen that is self-healing and costs one cycle: the
+reveal re-writes all four names and nicknames every time round. **On the GAME
+screen it is not**, and that is the caveat the two labels added here bring with
+them: `PLAYER ONE` is written once per `game_init` and `GAME  OVER` once at
+`PMC_T_OVER`, so a window dragged from a VGA onto a 1bpp display between those
+writes keeps INKY's cyan and BLINKY's red and draws exactly the checkerboard
+`pmc_text_ink` exists to prevent, with no re-write until the next round or the
+next game over. It is stated rather than repaired: the repair is one remembered
+byte and a re-write of the two labels when `pmc_layout`'s observed `bpp` changes
+— 16 cells and one band, taken only on a display change — which is a change to
+the drawing path for a machine class with one 86Box profile.
+
+`pmcuitest`'s `drive_intro_mono` is the row for the attract
+screen and for those two, and `drive_layout` asserts `PLAYER ONE`'s colour on
+every one of the five configurations it drives — so "white on 1bpp" and "the
+arcade's colour everywhere else" are both under test, because the alternative is
+a screendump on the adapter nobody looks at.
+
+**And on a SHORT display SOURCE ROW 3 IS NEVER SAMPLED, which is where the
+arcade font keeps every horizontal middle stroke it has.** CGA's window is 163
+rows, so a band is 4 screen rows and `pmcband.inc` samples source rows 0, 2, 4
+and 6 of every 8 — a fixed parity, which is what makes the picture stable across
+a repaint. The leading hyphen the reference gives the four names (`-SHADOW`,
+`-SPEEDY`, `-BASHFUL`, `-POKEY`) is tile 59, a single run on row 3, so it is
+dropped there — **and it is not the only thing dropped, which is what this
+paragraph said for one review round and did not mean.** Decoding the shipped
+`pmc_rom.c` tables row by row: `B`, `E`, `F`, `G` and `H` lose their whole
+middle stroke, `S` loses five pixels across rows 1, 3 and 5, and among the
+digits `3`, `6` and `9` lose theirs. `B` then reads as `O`, `E` and `G` as `C`,
+`F` as a corner and `H` as two bars, so `CHARACTER / NICKNAME` reads
+`CIIARACTCR / NICKNAMC`, `-SHADOW BLINKY` reads `SIIADOW OLINKY`, `PLAYER ONE`
+reads `PLAYCR ONC` and `HIGH SCORE` reads `IIIGII SCORC` — photographed on
+`VIDEO=cga`, and every other glyph is carried whole. **A multi-row letter does
+NOT automatically survive the halving**, which is what the sentence deleted here
+claimed.
+
+It was STATED rather than repaired at wave 3, and the repair is not the one
+line it looks like. A tile pixel is a **2-bit colour INDEX**, not a bit: OR-ing
+source row *r* with row *r+1* — the obvious way to keep a stroke — is exact for
+the 167 tiles whose pixels are only 0 and 3, and **invents a colour** in the 89
+that use index 1 or 2 (the fruit and the prize row: `1 | 2` is 3, an ink the
+tile does not have). The sound form is per-pixel — take the odd row's pixel
+only where the even row's is 0 — and that is extra instructions a source byte
+inside `_pmc_tile`'s inner loop, on the slowest adapter this port runs on; it
+also thickens every one-row maze stroke to two and re-dates both
+`pmcbandtest`'s fixtures and the band bench §91 quotes. That is a decision with
+arithmetic attached rather than a review-round edit, and **wave 4 took it with
+the arithmetic measured** — see "The CGA row merge" below.
+
+**After wave 3**: `os88pkg: 'PACCMAN' entry=+0x0060 image=40848 bss=5222
+icon=yes assoc=0`. That is 46,070 bytes of the 61,440 `APP_MAX_SIZE` allows, and
+**§73.14's split trigger is 55,000 resident bytes — image *plus* bss — so this
+line is 8,930 away from it**; `pmc_intro.c` is still the first thing that moves
+out when it is reached, being once-per-attract code a keystroke never touches.
+(A first draft of this paragraph read the trigger off `image=` alone against a
+50,000 figure, which is the very error the wave-1 paragraph above retracts in
+bold; it overstated the headroom by about five thousand bytes.) `stkdepth` now gives `cc_worker` → `_os88_worker` **14**,
+`_pmc_frame`'s own frame **8** and `_pmc_step_tick`'s chain **138** (the extra
+call level, then `pmc_game_tick` → `pmc_update_tiles` → `pmc_vid_score` →
+`pmc_vid_color_char` → `pmc_vid_color_tile` → `pmc_vid_color` → `pmc_mark`) —
+**160 bytes** composed against the plan's 190 ceiling — unchanged by the
+review's sprite work, which the tool prices inside `_pmc_band_sprites`' own 36
+and not on the tick path. `--from _pmc_frame` now
+answers **64**, not 8, because the flush moved out of the pause test and the
+tool's linear walk reaches it: that is `_pmc_frame` → `pmc_flush` →
+`pmc_flush_laid` → `pmc_pick_path` → `os88_gfx_blitp`, and **14 + 64 = 78** is
+comfortably under the tick path's 160, which stays the worst case. The MEASURED water mark
+is what sizes the class, and `tests/paccman.py` reads **188, 190 and 188 of 256
+on `os8088_xt_vga`, `os8088_5150_cga_gla` and `os8088_5150_herc_gla`** against
+its 208 bar. **It moved 178 → 188 in wave 4's review** and the reason is the
+sprite merge: `pmc_band_sprites` is on the worker's deepest chain and SmallerC
+gives every declared local its own slot, so six new ones would have been twelve
+bytes of task stack. Four of them were written out again — the split test needs
+no `last` and no row-step variable, because the merge arm IS the CGA layout and
+`(n - 1) << 1` is the distance in rows with `sinc`'s sign — which took the
+measured mark from **196 back to 190** and `cc8086`'s worst frame from 40 bytes
+to 34. What is left is 10 bytes of `_pmc_sprite`'s own frame and the two
+pointers the split needs. **The bar leaves 18 bytes over the worst of the three
+where wave 4 left 30**, and the next thing to go on this chain is a stated move
+to `OS88_STACK_384` rather than a quiet one — which is what the 208 is FOR: it
+is not the ceiling, it is the line at which somebody has to decide.
+
+**What the machine says, and what only the machine can.** `tests/paccman.py`
+gained three rows that the host harness cannot have: the program comes up in
+`PMC_MODE_INTRO` with `1UP   HIGH SCORE   2UP` in `video_ram` and `BLINKY`
+revealed by tick 150; a real `Space` arriving at `int 09h` reaches `os88_onkey`,
+is latched, is folded in by the worker's next poll and starts a round; and
+`_pmc_snd_last` — the Hz the frame last handed to `OSAPI_SND_TONE` — carries
+**at least two distinct tones** across the prelude, which is the row's whole
+assertion. The floor is two because two says the speaker is being driven from a
+TUNE rather than stuck on one note, and that is the fact that survives a slower
+or faster machine; **how many** distinct tones six samples catch depends on how
+many frames the adapter draws across the prelude, so the count is PRINTED and
+not gated — an earlier draft of this paragraph quoted one run's five as though
+it were the assertion, which would have made the row the speed measurement every
+row here is polled to avoid being. The reveal and the key are POLLED rather
+than timed, because how many drawn frames 150 game ticks is depends on the
+adapter and a fixed wait would make either row a speed measurement by accident.
+What the tune IS is asserted on the host, by name.
+
+### Wave 4 — the CGA row merge, the disks, and the answer to the hypothesis
+
+**THE CGA ROW MERGE SHIPPED, AND HERE IS THE ARITHMETIC WAVE 3 SAID IT WOULD
+COST.** `_pmc_tile`'s rowstep-2 arm now composes
+
+    merged = even | (odd & pmc_zmask[even])
+
+— take the odd source row's pixel only where the even row's is 0 — and never
+an `OR`, for the reason wave 3 gives: a tile pixel is a 2-bit colour index and
+`1 | 2` is an ink 89 of the 256 tiles do not have. `pmc_zmask[256]` is 0b11 in
+every 2-bit field of a source byte that is zero, generated by
+`tools/paccman_assets.py` beside `pmc_planar` as a property of the FORMAT
+rather than of the reference. The two tables cannot both live in `BX` —
+`xlat`'s only base — so `DX` carries the other and `xchg bx, dx` swaps them,
+two bytes and four clocks (the one-byte three-clock `xchg` is the
+accumulator's, and `AL` is carrying the pixel), which is what makes the merge a
+single pass instead of a second one over a scratch. **The rowstep-1 LOOP is
+unchanged and its prologue is not**: the row skip is now a branch rather than
+arithmetic, because `DX` carries a table on the merge arm, and that prologue is
+shared by both arms.
+
+**What it costs, measured, is the whole of the decision:** a CGA band — 28
+tiles at rowstep 2, the mono pack over four rows and a four-row `GFX_BLIT1` —
+goes from **22.39 ms to 26.16 ms**, **+16.8%**, against the 25% the change was
+allowed. Per tile it is **1.164 counts against 1.520, 0.42 ms against 0.55** —
+**+32% on a tile** for +16% on the band it sits in, the packer and the blit
+being the same on both arms.
+
+**Those two per-tile figures are a RE-TAKE, and the first pair published here
+was at the instrument's floor.** The bench ran its tile rows at the same
+`PB_N` = 8 as everything else, so one tile — about two PIT counts — was
+measured to a 0.125-count grid, which is the size of the whole difference the
+merge makes. Read that way the merge cost 1.250 − 1.125 = **0.125 counts a
+tile**, while the `BAND cga` A/B over the same 28 tiles said **10.5 counts** —
+three times as much, from two rows that differ in exactly one thing
+(`[pb_zm]`) and whose packer and blit therefore cancel. `PB_N_TILE` = 256 is
+the fix; at that N the two agree — 0.356 × 28 = **9.97 counts** against a band
+A/B of 10.5 on the same run — and **`pb_recon` prints the
+reconciliation itself**, two lines at the foot of the report, so a future
+re-take cannot publish a pair that disagrees without saying so on the glass.
+The eleven rows that are NOT tile rows were not re-measured at a new N and are
+as first published; the re-run reproduced them within the bench's own spread
+(`BLIT4` 134.625–134.875 against 134.750, `BAND cga` MERGED 72.25–72.75
+against 72.875), which is why the +16.8% the keep decision was taken on still
+stands — the band figure did not move, only the tile figure under it.
+
+**What it buys is the middle strokes.** Decoding the shipped `pmc_rom.c` row
+by row, the merge changes the CGA picture of **32 of the 36 alphanumerics**,
+and the ones that matter are the ones wave 3 named: `E` goes from four rows
+with no middle bar — which is a `C` — to an `E`; `S` from 13 lit pixels to 21;
+`H` from two bars to an `H`; `B F G 3 6 9` likewise.
+
+**What the photograph shows is that gain and a NEW confusion, and the sentence
+that stood here first claimed only the gain.** On `VIDEO=cga` at zoom
+(`build/port-shots/wave4k-cga-text-zoom.png`) `HIGH` reads as `HIGH` where wave
+3 photographed `IIIGII` — and `SCORE` reads `8GORE`, `CHARACTER / NICKNAME`
+reads `GHARAGTER / NIGKNAME`. Both halves of that are the merge: the `H` has
+its bar back, and the `C`s and the `S` have gained ink they did not want,
+because the merge only ever ADDS it. A `C` gains on
+its third row the `##` spur that makes a `G` a `G`: merged `C` is
+`..######/.##...../.###..##/...####.` and merged `G` is
+`..######/.##..###/.###..##/...#####`, **identical on their first and third
+rows**, differing only on the second and the last. It is four lit pixels either
+way — the sampled arm's `C` and `G` differ by four as well — but the four that
+survive the merge are not the ones a reader uses.
+
+**And the merge COSTS SEPARATION, worst of all between DIGITS.** Decoding the
+shipped `pmc_rom.c` through `pmc_zmask` with `_pmc_tile`'s own formula and
+counting differing lit pixels over the 36 alphanumerics:
+
+| | closest pair, all 36 | closest DIGIT pair |
+|---|---|---|
+| the reference's own 8-row font | 4 px (`I`/`T`, `M`/`N`, `N`/`W`) | 13 px (`6`/`8`) |
+| CGA SAMPLED | 2 px (`B`/`D`, `B`/`O`, `M`/`N`, `N`/`W`) | **5 px** (`0`/`6`, `0`/`9`) |
+| CGA **MERGED — what ships** | **1 px** (`5`/`S`, `6`/`S`) | **2 px** (`5`/`6`) |
+
+Merged `S` is **1 pixel from `5` and 1 from `6`**, where the sampled `S` was 6
+and 4; merged `5` is **2 pixels from `6`** where the sampled pair was 8 apart,
+then `3`/`6` at 3, `5`/`8` at 4 and `6`/`8` at 4. So on the half of the picture
+that CHANGES — the score — the merge is strictly and substantially worse than
+the arm it replaced, and the photograph shows it: on
+`build/port-shots/wave4k-cga-legend-zoom.png` the attract screen's `50 PTS`
+legend reads **`60 PTS`**, and on `wave4k-cga-intro.png` beside it `PRESS`
+reads `PRE88` and `CLYDE` reads `GLYDE` — the `C`/`G` spur again. Two pixels of
+an 8×4 glyph is what stands between a five and a six on that screen. Every one-row maze
+stroke is likewise two rows thick.
+
+**Both outcomes are recorded, which is what decision 9 asked for — and neither
+arm satisfies the half of it that says "the text reads".** The sampled arm
+loses every middle stroke, so `HIGH SCORE` reads `IIIGII SCORC` and the four
+ghost nicknames are unreadable as words; the merged arm reads as words and
+then confuses `C` with `G`, `S` with `5` and `6`, and `5` with `6`. The merge
+is KEPT on that balance and not on a clean pass: it is the lesser defect on
+LETTERS, which is nearly all of the text this game draws — the two headings,
+`CHARACTER / NICKNAME`, four nicknames, `PRESS ANY KEY TO START!`, `READY!`,
+`GAME OVER`, `CREDIT` — and the greater defect on DIGITS, which is the score
+and the `10`/`50 PTS` legend. Four pictures are on disk —
+`wave3-verify-cga-intro-zoom.png` is the sampled arm,
+`wave4k-cga-text-zoom.png` the merged headings (`HIGH 8CORE`, `2UP` as `ZUP`),
+`wave4k-cga-legend-zoom.png` the merged legend and `wave4k-cga-intro.png` the
+whole screen — so the look question can be re-opened by looking, and the digit
+table above is what to look at it with.
+Reverting is one argument at `pmc_draw_band`'s `pmc_tile` call and the sampled
+arm is still under test on both gates.
+
+**AND THE MERGE REACHES THE SPRITE LAYER, which the first version of it did
+not and nothing said so.** `pmc_band_sprites` walked band rows by `k << pmc_ssh`
+and stepped the source by `sinc = 4 << pmc_ssh`, so on CGA exactly 8 of a
+sprite's 16 rows were read — the same alternate-row drop the merge was
+introduced to fix, on the layer the player actually watches. What it costs the
+picture is a different thing from what it costs a glyph and it is worth as
+much: sampling takes the TOP AND BOTTOM CAPS off Pac-Man's circle (his widest
+sprite goes from a disc to a flat-topped blob) and thins every ghost's fringe,
+where the merge is the union of the pair — so the cap survives, and the MOUTH,
+which is a wedge of transparency several rows deep, still reads as open.
+`_pmc_sprite` takes the same `zmask` argument, 0 asks for the plain sample, and
+the formula is the identical `even | (odd & zmask[even])`: for a sprite that is
+"index 0 is transparent" one level up, a pixel showing the band keeps showing
+it only where the dropped row is transparent too.
+
+**The partner row is always the next one DOWN THE SPRITE**, whichever way the
+rows are walked — `sinc` is negative for flipy, so `zoff = sinc >> 1` is the ±4
+bytes to it and the flip needs no test — and **the one row that has no partner
+is source row 15**, which can only ever be the LAST row drawn. `_pmc_sprite`
+does not bound it (bounding it would cost the inner loop a test a row for a
+case the caller can see), so `pmc_band_sprites` SPLITS that row off and asks
+for it with `zmask` = 0: one extra call in the one band a sprite's bottom edge
+falls on, against a read four bytes past the sprite's 64 — the next sprite's
+first row, or, at tile 63, past the table.
+
+**What it costs, measured on the same bench in the same run:** a `SPRITE 16×8`
+row goes from **2.422 counts to 2.891** even-nibble and from **2.547 to 3.047**
+odd-nibble-plus-flipx — **870 → 1,038 µs and 914 → 1,094 µs** of real XT, so
+`PMC_T_SPRROW` is 892 µs and `PMC_T_SPRROWM` **1,066 µs, +20% on a row**. And
+it costs the arm that does NOT merge **one test a source byte**: there is one
+byte loop here and not two, because the loop body is four `PMCPX` expansions
+and a second copy would cost more image than the test costs time. That test is
+visible on the bench — the two SAMPLED sprite rows read 19.375 and 20.375
+counts where wave 4 published 18.5625 and 19.625, **+3.9%** (a second session
+read 18.875 and 20.250, so a third of that is the bench's own spread), which is
+~2.3 ms of a 257.5 ms VGA play frame — **0.9%** — and is the price VGA pays for
+CGA's picture. It is stated rather than hidden because the alternative — a second
+loop — is a size decision somebody could take later with this number in front
+of them.
+
+On the glass, `build/port-shots/wave4k-cga-play-zoom.png` is the ghost house on
+a `VIDEO=cga` kernel with the merge shipping: four ghosts with rounded tops and
+their bottom fringes intact. The sampled arm's picture is not photographed here
+— it is decoded from the shipped `pmc_sprites` instead, row by row, and that
+decode is where "the caps go" comes from: sampling rows 0, 2, … of Pac-Man's
+widest frame drops both the row that rounds his top and the row that rounds his
+bottom, and the union puts them back.
+
+**On a whole CGA FRAME the two merges together are +7.5%**, which is what
+`drive_cga_arms` now reads (160.6 ms sampled against 172.6 merged on the worst
+play frame) where the tile merge alone was +3.9%: a play frame is 46 tiles and
+80 sprite rows, so the sprite layer is the larger half of it. The full repaint,
+which has no sprites in it at all, is +16.4% — the tile merge alone. Both are inside
+decision 9's 25%, and `pmcuitest` fails the build if either leaves it.
+
+**The sampled arm is still reachable, still under test, and now priced on a
+FRAME.** `pmc_tile`'s and `_pmc_sprite`'s `zmask` arguments are pointers and 0
+asks each for the plain sample; `pmcbandtest` carries a vector for each arm of
+each — six now, the two sprite vectors doubled, because the merge's ±4 to the
+dropped row changes SIGN with flipy and a forwards-only vector would not reach
+that; the band bench runs both arms of the tile row and of both sprite rows;
+and
+`pmcuitest`'s `drive_cga_arms` drives the **same CGA round twice**, `pv_merge`
+apart, auditing every frame on both arms — `truth_px` follows the arm, so the
+sample is checked to be its own correct picture and not merely to be cheap.
+That row is what the keep/revert bound is actually checked against now, because
+the bound is written about a frame and the only arithmetic behind it before was
+one bench band with no packer, blit, sprite layer or damage model around it:
+
+| CGA, the same round | full repaint | worst play frame |
+|---|---|---|
+| sampled | 784.4 ms | 160.6 ms |
+| **MERGED — what ships** | **913.5 ms** | **172.6 ms** |
+| the merge costs | **+16.4%** | **+7.5%** |
+
+A full repaint recomposes 1,008 tiles and NO sprites, so it is the tile merge
+alone; a play frame is 46 tiles and 80 sprite rows, so most of its +8.0% is the
+SPRITE merge. **Both are inside the 25%**, and `pmcuitest` fails the build if
+either leaves it.
+
+**The band bench, re-taken.** This is the SHIPPING table; every microsecond in
+this section and in `apps/paccman/README.md` is priced from it. Same
+instrument, same conversion — `qemu-system-i386 -icount shift=3,sleep=off`,
+one count = 0.359 ms of real XT:
+
+**Every row below is ONE RUN** — the second of a session, on the shipping
+build — which is what the previous printing of this table was not, and is why
+its two `BAND cga` rows and its `pb_recon` rows could be read against each
+other and disagree:
+
+| row | N | counts/op | real XT |
+|---|---|---|---|
+| `TILE` step 1 — one 8×8 tile, 8 rows | 256 | 1.949 | **0.70 ms** |
+| `TILE` step 2 — the CGA layout SAMPLED, 4 rows | 256 | 1.164 | 0.42 ms |
+| `TILE` step 2 **MERGED** — the shipping CGA arm | 256 | 1.520 | **0.55 ms** |
+| `PACK_PL` — one 8-row band → four bitplanes | 8 | 116.250 | **41.73 ms** |
+| `PACK_1` — one 8-row band → 1bpp | 8 | 50.375 | 18.08 ms |
+| `SPRITE` 16×8, even nibble, SAMPLED | 8 | 19.375 | 6.96 ms |
+| `SPRITE` 16×8, odd nibble + flipx, SAMPLED | 8 | 20.375 | 7.31 ms |
+| `SPRITE` 16×8, even nibble, **MERGED** | 8 | 23.125 | **8.30 ms** |
+| `SPRITE` 16×8, odd + flipx, **MERGED** | 8 | 24.375 | **8.75 ms** |
+| `BLITP` 224×8, four planes | 8 | 20.500 | **7.36 ms** |
+| `BLIT4` 224×8, packed | 8 | 134.625 | **48.33 ms** |
+| `BLIT1` 224×8, 1bpp | 8 | 3.375 | 1.21 ms |
+| `BAND colour` — 28 tiles + pack + `BLITP` | 8 | 193.875 | 69.60 ms |
+| `BAND mono` — 28 tiles + pack + `BLIT1` | 8 | 110.750 | 39.76 ms |
+| `BAND cga` 4 rows, SAMPLED | 8 | 62.375 | 22.39 ms |
+| `BAND cga` 4 rows, **MERGED** | 8 | 72.875 | **26.16 ms** |
+| `28 × (MERGED − sampled)` — `pb_recon`'s own check | — | 9.97 | 3.58 ms |
+| `BAND cga MERGED − sampled` — the same quantity | — | 10.50 | 3.77 ms |
+
+The last two rows are the same quantity measured on the TILE row and on the
+BAND row and they agree to **4.7%**, which is what `pb_recon` exists to say;
+subtract the table's own two `BAND cga` rows and you get the second of them,
+because both now come off one run. (The previous printing gave 62.375 → 72.875
+from a wave-3 run beside a `pb_recon` range from the wave-4 re-run, so a reader
+who did that subtraction landed outside the range the table then stated.)
+
+**READ THE SECOND RUN.** The first run of a session prices `BLIT4` about 10%
+high — 148.0 counts against 134.625 — and every other row within a count and a
+half; runs 2 and 3 of this take agree **to the count on every row**, and
+134.75 is also what wave 1 read. That is the bench's own warm-up and it is
+named here so nobody re-takes the table once and quotes a cold `BLIT4`. The
+`SPRITE` rows carry a spread of their own between sessions — a second take
+read 18.875 and 20.250 for the two sampled rows against this one's 19.375 and
+20.375, ~2.6% — so the terms below are this run's and the spread is stated.
+
+**THE THREE TILE ROWS RUN AT `PB_N_TILE` = 256 AND EVERY OTHER ROW AT
+`PB_N` = 8**, which is the one place this bench is not uniform and is uniform
+for the wrong reason if it is. A tile is ~2 counts and a band ~70, so eight
+iterations resolve a band to 0.2% and a tile to 6% — and the merge is a 32%
+change to a tile, which is 0.4 of a count. `pb_recon`'s two lines are the guard:
+they are the same quantity measured on the tile row and on the band row, and a
+re-take whose two lines disagree by more than a few percent has published
+nothing, whatever the rows above them say.
+
+**`PMC_T_SPRROW` is the MEAN of the two SAMPLED sprite rows over their eight
+rows — 892 µs — and `PMC_T_SPRROWM` the same mean over the two MERGED ones,
+1,066 µs.** The even-nibble case and the odd-nibble-plus-flipx one differ by 5%
+and Pac-Man spends about half his frames at each, so a frame priced from either
+alone would be wrong by half that in a stated direction; and a merged row is a
+different price from a sampled one for the tile's reason, so `pmc_draw_band`
+counts which rows were which into `pmc_n_sprowm`.
+
+**`PMC_T_LOGIC` is not the bench's, and it could not be**: `game_tick` is a C
+function and the bench is a standalone assembly package that cannot call one.
+`tests/paccman.py` brackets it on MartyPC between `pmc_game_tick`'s entry and
+its own return address — read off the stack at entry, so the bracket is the
+CALL and not the frame — and takes the **minimum of eleven samples**, the
+larger ones carrying whatever interrupt landed inside and IRQ0 being charged to
+the machine rather than to the function. Six runs across the three profiles
+read 85,374 / 86,742 / 89,990 / 90,496 / 91,432 / 91,576 cycles — **17.9 to
+19.2 ms of 4.77 MHz 8088** — and **18.6 ms** is the term.
+
+**A frame, with all five terms in it at last.** `pmcuitest`'s table on VGA at
+the shipped size, against a whole repaint of 36 bands, 1,008 tiles and
+**2,476.1 ms**:
+
+| | calls | bands | tiles | sprite rows | game ticks | ms |
+|---|---|---|---|---|---|---|
+| a play frame | 23 | 18 | 46 | 80 | 3 | **257.5** |
+| the frame a dot goes in | 23 | 18 | 57 | 80 | 3 | 284.2 |
+| worst of 24 consecutive | — | — | — | — | — | **294.7** |
+| a whole repaint, About card up | 53 | 52 | 592 | 0 | 0 | **1,479.7** |
+| the About card dismissed | 25 | 20 | 560 | 0 | 0 | 1,379.2 |
+| a full repaint, letterboxed | 41 | 36 | 1,008 | 0 | 0 | 2,594.7 |
+| one tile changed | 2 | 1 | 1 | 0 | 0 | 4.1 |
+| nothing written at all | 0 | 0 | 0 | 0 | 0 | **0.0** |
+
+**THE THIRD ROW OF THAT TABLE IS NEW AND IT IS A FIX.** A whole `W_PAINT`
+taken while the About card is up used to call `pmc_dirty_all` and compose all
+36 bands — 1,008 tiles, **2,476.1 ms** of VGA XT at the shipped size — and then
+`os88_paint` drew the card over the middle of them. The card is 24 cells plus
+2 × `OS88UI_ABPADX` = **216 px of a 224-px field** and 134 of 288 rows, so on
+VGA 20 of the 36 bands were overdrawn but for four pixels at each edge and on
+CGA 34 of 36 were: about **1.4 s of VGA XT and 0.9 s of CGA XT drawn and
+immediately covered**, which is PERFORMANCE.md rule 2 at the top of its scale.
+The DISMISSAL path had been narrowed to the card's own bands from the start
+(`pmc_ab_mark`) and this one had not, which is what gave it away —
+`pmc_flush`'s `pmc_about_up` guard is one call up the chain and `pmc_repaint`
+reaches `pmc_flush_laid`, which never had it. **`pmc_repaint` now marks the
+COMPLEMENT of the card**: full width outside the card's band range, and inside
+it the two column spans the card leaves showing, which is exactly what the
+two-span damage model already holds — two blits a band instead of one, and 26
+of the 28 tiles spared on each. 592 tiles against 1,008 on VGA, **176 against
+1,008 on CGA** (4 full bands and 32 two-tile ones).
+
+`pmc_ab_box` is the one routine that measures the card now, and it answers
+BOTH callers because they want the same rectangle with the slack the opposite
+way round: `pmc_ab_mark` wants a SUPERSET of what the card covered (a band
+drawn twice costs a band), `pmc_repaint` wants a SUBSET of what it certainly
+covers (a band NOT drawn is a stale strip of field). It answers the subset and
+`pmc_ab_mark` takes two bands back off it. `PMC_AB_PADX` joined `PMC_AB_LH` and
+`PMC_AB_PADY` as a mirror of `apps/os88ui.inc` — a complement has columns in it
+— and `tests/unit/t_paccman.py` pins all three against that file in the fast
+tier. The harness row is `whole repaint, card up`, and it recomputes the
+expected tile count from `pmc_ab_box`'s own four words rather than accepting
+any number below 1,008; the row after it dismisses the card, flushes and
+AUDITS, which is the only check that the complement and `pmc_ab_mark`'s
+rectangle meet — a subset that was really a superset leaves a hole there. The
+row was missing before, and that is why the defect lived: the only card-up
+paint the harness drove set `hg_dmg_whole` = 0 first, so a whole rect under a
+raised card was never costed.
+
+**A TILE HAS THREE PRICES AND THE MODEL NOW USES THE RIGHT ONE.** `T_TILE` is
+the rowstep-1 term, and pricing every tile with it made the CGA column of this
+table ~60% high — 1,008 tiles at 700 µs where a merged CGA tile is 546 — and,
+worse, made the row merge INVISIBLE to the one model that is meant to catch a
+composer regression: sampled and merged priced identically. `pmc_draw_band`
+counts step-2 tiles into `pmc_n_tiles2`, `build.sh` exports `PMC_T_TILE2` and
+`PMC_T_TILE2M` beside `PMC_T_TILE`, and `cost_row` prices each tile at the term
+for the layout it was composed in. The counter is `#ifdef PMC_HOST` and not a
+`PMC_COUNT`, because SmallerC emits a `mov ax, 0` for that macro's
+`((void) 0)`: the shipping image is **byte for byte what it was**.
+
+Wave 3's own table read 131.2 ms for that play frame with the sprite and logic
+terms still zero and said so on its closing line; the two terms it was missing
+are 125 ms of it, which is why that line was there.
+
+**AND THE BLIT ROWS ARE COUNTED PER BLIT KIND NOW, not per kind that appeared.**
+`cost_row` used to charge the frame's WHOLE row count to every blit it saw —
+`(hc_blitp ? rows28 × T_BLITP_R : 0)` and the same again for `BLIT1` and
+`BLIT4` — and a mixed frame is both reachable and the interesting one:
+`pmc_draw_band` falls through from `BLITP` to `BLIT4` when a window moves
+between the probe and the blit, and LATCHES from `BLIT1` to `BLIT4` on a
+`kern_small` kernel after the first band. The stubs only count a call that
+SUCCEEDED, so both counters end non-zero and such a frame was charged its full
+row count at 826 µs a row AND again at 5,947 — a **~7× overcharge on exactly
+the fallback these counters exist to price**, which is conservative for a
+regression hunt and wrong for the budget assertions the model now gates
+(`drive_cga_arms`' 25% bound, `worst of 24 … of a 612.6 ms budget`): it can
+FAIL a frame that is fine. `pmc_n_rc_p`, `pmc_n_rc_1` and `pmc_n_rc_4` are
+counted where each blit is issued and priced with its own term.
+
+**THE MEASUREMENT, AND THE ANSWER TO THE USER'S HYPOTHESIS.**
+`tests/paccman.py` runs ONE `bracket()` — the same code, the same clock, the
+same four kernel API slots counted by exec breakpoint on the table entries
+themselves — over `PACCMAN.O88`'s `pmc_frame` and `PACMAN.O88`'s `pm_step`, and
+reads each port's effective game speed **over the very frames it timed**
+(PACCMAN's 60 Hz accumulator, PACMAN's one step per 18.2 Hz deadline). Measured
+over a separate later window that speed came out at 71% against a frame rate
+that cannot produce more than 33%, because the window had drifted into a
+freeze, where game time runs on and nothing is drawn: one window, both numbers.
+
+**AND THE BRACKET IS A DRAWN FRAME ON BOTH SIDES, which the first version of
+this table was not.** `pmc_frame` has ONE exit and every entry of it reaches
+`pmc_flush`, so on the C port a frame proc entered is a frame drawn; `pm_frame`
+(§89) returns without drawing on five guards — not the top window, paused, the
+About card up, game over, and the hold countdown — and its worker sleeps to an
+18.2 Hz deadline, so counting ITS entries counts the SCHEDULER's cadence on
+every frame it declines to draw. Bracketed there it printed 18.21 "fps" on
+`os8088_5150_cga_gla` beside a speed column, derived from `pm_frames`, that
+said a quarter of that: two numbers about two different events. `pm_step` is
+called from exactly one place — `pm_frame`'s `.move` path, immediately before
+`pm_redraw` — and it is what increments `pm_frames`, so one hit is one drawn
+frame on both ports. The row now also **waits for `PM_PLAY` before it
+brackets**, because PACMAN opens on a READY hold and PaccMan's round was
+started by a real key: a bracket that straddled a hold was exactly what that
+disagreement looked like.
+
+| profile | | fps | ms/frame | gfx calls | speed |
+|---|---|---|---|---|---|
+| `os8088_xt_vga` | PaccMan (C) | 2.18 | 459.8 | 16.7 | 24% |
+| | PACMAN (asm) | **4.14** | 241.6 | 9.0 | 23% |
+| `os8088_5150_cga_gla` | PaccMan (C) | 2.94 | 340.0 | 13.3 | 32% |
+| | PACMAN (asm) | **18.21** | 54.9 | 7.0 | 100% |
+| `os8088_5150_herc_gla` | PaccMan (C) | 2.62 | 381.9 | 14.3 | 29% |
+| | PACMAN (asm) | **16.71** | 59.9 | 8.0 | 92% |
+
+**AND THE CALL COLUMN COUNTS WHOLE FRAMES NOW.** The timing pass leaves the
+guest stopped AT the frame proc; `bp_exec` REPLACES the whole breakpoint set
+(`tools/os88marty.py`), so the first run after re-arming stopped on the frame's
+FIRST gfx call — and that stop was discarded without being classified, so the
+counting loop saw (C − 1) + C + C over three windows and both columns were
+deterministically a third of a call low. The row now runs on to a frame ENTRY
+before it starts counting.
+
+**The fps column reproduces to about ±2% between runs** and the gfx-call column
+to about ±1.4 calls (16.7 and 15.3 on two takes of the VGA row), because which
+sixteen frames of which round the bracket lands on is not fixed — the launch
+goes through the real mouse and the real file dialog. Nothing about the verdict
+is inside that band: the two ports are a factor of two apart on VGA and six on
+the 1bpp adapters.
+
+**The four slot offsets the counting breakpoints sit on are PARSED out of
+`apps/os88api.inc`** rather than copied into the test. Nothing checked that
+mirror — `tests/unit/t_apitable.py` compares `kernel.bin` against the SDK and
+never against this file — so a renumbered slot would have put the breakpoints
+on some other table entry or on none, and the row would have gone on printing a
+plausible calls-per-frame, most likely a SMALLER one, which reads as "the port
+got faster" rather than as a broken instrument.
+
+**PACMAN's two columns are now the same statement twice, and that is the
+point.** Its game advances once per frame DRAWN, so its speed is its fps over
+18.2 by construction — and on both 1bpp adapters it is AT its worker's 18.2 Hz
+deadline, which is what 100% and 92% mean: the assembly port is not merely
+faster there, it is finished early and asleep. PaccMan's speed column is not
+its fps over 60, because `PMC_CATCHUP_MAX` = 2 lets a slow frame carry two OS
+ticks of game.
+
+**The verdict is NO: "maybe this port is more performant on XTs" does not
+hold, on any of the three profiles**, and `tests/paccman.py` prints that
+sentence either way rather than gating on it. `GFX_BLITP` really is the 6.6×
+lever wave 1 measured and it is not enough, for the three reasons wave 1's own
+arithmetic named: the repack that feeds it costs 41.78 ms a band where the blit
+costs 7.36; the C game logic is 18.6 ms a `game_tick` and a frame carries three;
+and this port draws the ARCADE field — 28×36 tiles of 224×288 — where §89's
+draws Roklan's 40×22. The two are not the same picture and the fps column is
+not a like-for-like comparison of two implementations of one thing; what it IS
+is the answer to the question that was asked, on the machine it was asked
+about. **The one column the C port holds at all is `speed`, and only on VGA** —
+24% against 23%, at a ninth of §89's frame rate — which is
+`PMC_CATCHUP_MAX` = 2 doing exactly what it was put in for: a slow frame
+carries two OS ticks of game rather than one, so what the player loses is
+smoothness rather than the game's own clock. On the two 1bpp profiles even that
+column goes to §89, because there §89 is AT its worker's 18.2 Hz deadline and
+asleep — 100% and 92% — and no catch-up scheme can beat a port that is already
+finished early.
+
+**What the port is FOR, given that.** It is a second Pac-Man, arcade-faithful
+where §89's is Roklan's, and it is the C toolchain's fourth application and its
+largest measurement: 2,050 lines of ported C99 in 42,050 bytes of image, an
+assembly composer under it, and a number for every claim. A 386 runs it at a
+speed nobody has to apologise for; a 4.77 MHz XT runs it at a fifth of arcade
+speed and `vm/xt-paccman` is where to watch that.
+
+**The disks, the machine and the gates.** `make paccmandisk` builds
+`build/paccman.img`, `paccman720.img`, `paccman120.img` and `paccman360.img` —
+the package and `README.md` at the root of each, no folder needed because there
+is no `.OVL` — and every one is `os88disk.py --verify`ed in its own recipe. The
+360KB disk uses 77 of 354 clusters. `make allapps` places a `PACCMAN/` folder
+beside `GAMES/PACMAN.O88` on `build/apps-all.img` (2,720 of 2,847 clusters) and
+on `apps-all-120.img`, and `make live` carries it by derivation.
+`vm/xt-paccman` is `vm/xt-word`'s machine — an `ibmxt86` 8088 at 4.77 MHz with
+640KB and an OTI-067 — with `fdd_02_fn` pointed at `build/paccman720.img` and
+the uuid changed and nothing else; `make xt-paccman` boots it (and
+`make 386-paccman` boots `vm/386-paccman`, `vm/386-c-word`'s 386DX/25 with
+`build/paccman.img` in B:, the machine that plays it at full speed), and a
+screencapture of that boot reaching the desktop with both drives mounted is
+`build/port-shots/wave4-xt-paccman-86box.png`. **The reveal on that machine is
+a HUMAN's screencapture and not a scripted one**, and the reason is the profile
+rather than the port: its mouse is `msserial`, so 86Box must CAPTURE the host
+pointer before a click reaches the guest at all, and there is no scripted-input
+path to an 86Box on this host — which is docs/TESTING.md's "86Box cannot
+assert" in its most literal form. Every asserted number above is MartyPC's and
+every screendump above is QEMU's. `tests/unit/
+t_ctoolchain.py`'s TARGETS gained `paccman`, so the whole chain — the extractor
+check, `pmcuitest`'s pixel audit, `pmcbandtest`'s real-x86 run and the package
+itself — is built by the full tier and not only by a human typing `make
+paccman`. **Its stamp is in the artifact list beside the `.o88`**, which is the
+only entry there that is not a package and is what makes that sentence true:
+`make` will not re-run three host gates for a `$(BUILD)/.paccman-hostchecks`
+that is already newer than its sources, so the row deletes the stamp along with
+everything else it names. **And the tier still fits**: `make test-full` was
+597.4 s of its 600 s budget before this port; with `paccman` in `t_ctoolchain`
+it measured **500.8 s, 510.7 s, 502.8 s and — after the review's sprite merge,
+card complement and two new harness rows — 500.0 s on a quiet host** (loads
+1.6, 2.4, 1.5 and 1.5), the `ctoolchain` row going 7.7 s → **10.0 s** when the
+stamp was added and **10.2 s** with everything the review put in it. The plan's fallback — take paccman
+back out and register a soak row that builds it from clean — was therefore not
+taken, and both wall clocks are recorded here so that whoever next puts a row
+in the full tier knows what the headroom actually is.
+
+**`tests/paccman.py` writes into the guest now, and only into bss.** Two
+fixtures the host harness cannot have: a **frightened ghost** put on Pac-Man's
+own tile by writing `pmc_ax`/`pmc_ay`/`pmc_gstate` at the worker's frame
+boundary must score exactly **200** and become `EYES`; the **bonus fruit** with
+Pac-Man placed at `(ax + 4) >> 3 == 14, ay >> 3 == 20` must score exactly
+**100**, round 1's cherry. Every byte written is bss — the actor arrays, the
+ghost states, the bonus — so the image check beside them still covers every
+byte of code and every arcade table, which is what makes the two safe to add
+to a row whose other assertion is that nothing was modified.
+
+**After wave 4**: `os88pkg: 'PACCMAN' entry=+0x0060 image=42050 bss=5230
+icon=yes assoc=0` — **47,280 of 61,440**, and **§73.14's split trigger is
+55,000 resident bytes, image plus bss, so this line is 7,720 away from it**.
+Wave 4 cost **1,210 bytes** over wave 3's 46,070: the CGA row merge (256 of
+`pmc_zmask`, the merged loops in `_pmc_tile` and `_pmc_sprite` with the
+latter's split call), `pmc_ab_box` and `pmc_dirty_not_card`. `cc8086` reports
+114 functions and a largest frame of **34 bytes** against the 96 cap. The
+measured worker water mark is **188 of 256** on `os8088_xt_vga` (178 before
+the review; the wave-3 paragraph above records the move).
+
+**The About card, on the glass.** Ten lines, all whole at the 224-pixel content
+box's width, none of them about how the build renders:
+`PaccMan for os8088` / `A C port of pacman.c,` / `commit 0f5ec5a` /
+`(c) 2020 Andre Weissflog` / `MIT. floooh/pacman.c` / `Tiles/sprites: Pac-Man` /
+`arcade ROMs (Namco)` / `Rules: Pac-Man Dossier` / `Arrows/WASD move. N new.` /
+`F full. P/Space pause.`
+
+**Provenance.** The code is Andre Weissflog's under MIT; the tile, sprite and
+colour tables are Pac-Man arcade ROM data (Namco) and the two register dumps
+were captured from an arcade emulator, all embedded in the reference the same
+way; the gameplay follows Jamey Pittman's Pac-Man Dossier. Shipping the ROM
+data follows the user-decided C64 precedent (docs/C64-SPEC.md). The About card
+carries the product, the reference and its commit, the author's copyright and
+licence, the ROM and Dossier credits, and nothing about how the build renders.
+
+## 92. THE WIRE — the online software library (`apps/thewire/thewire.asm`)
+
+The Wire is a window listing every program the project publishes, fetched
+over `ETHER.DRV` from `os8088.com`, with a picture, a description, a
+recommended-machine filter and two actions: **Load Program** runs it now out
+of memory, **Add to Disk...** writes it and its sidecars to a floppy. A
+networked XT with one 360KB drive reaches the whole collection without ever
+seeing a second disk.
+
+`docs/WIRE-PLAN.md` is the design record — what was considered and why each
+fork went the way it did. This section is the contract.
+
+**`apps/wire/` is WIREFRAME (§78) and is not renamed.** The package is
+`apps/thewire/`, the file `THEWIRE.O88`, the header name `The Wire`. Nothing
+the user sees carries the file name.
+
+### 92.1 The four parts, and where the boundaries are
+
+```
+ kernel/desk.inc         kernel/loader.inc        apps/thewire/          ../os8088-web
+ the Wire zone   --dbl-> OSAPI_PKG_RUN    <--WM_- THEWIRE.O88   <--HTTP-- /wire/catalog.bin
+ (paint, hit)     click  (an image in      ONWAKE  catalog, list,          /wire/pic/*.PIC
+                         memory -> a               picture, filter,        /wire/pkg/*.O88
+                         running instance)         Load / Add
+```
+
+- The two kernel parts (§26's zone, §21's slot) know nothing about HTTP.
+- The package is the only reader of the catalog format on the machine and the
+  only caller of `OSAPI_PKG_RUN` today. It ships on the **system** disks in
+  all four geometries, in `SYSTEM/` beside `TASKMGR.O88` (§24.3), and is in
+  `SMALLOMIT` — `kern_small` has no NIC.
+- The catalog format below is the contract between the machine and the site.
+  The OS repo owns it: `tools/os88wire.py` packs, verifies and dumps it, and
+  the website's packer is an independent second writer of the same bytes. The
+  arrangement is `tests/unit/t_wab.py`'s over a `.WAB`, one format along.
+
+### 92.2 The catalog — `catalog.bin`, format version 1
+
+Little-endian throughout, fixed offsets, so the 8088 reads with `mov` and
+never parses. Every text field is ASCII 0x20..0x7E, NUL-padded to its width,
+and the **writer** refuses anything else. The **reader** refuses on any check
+below with `Catalog not understood` and leaves the window usable.
+
+```
+HEADER, 32 bytes
+ +0   4   'WIRE'
+ +4   1   format version, 1
+ +5   1   record size in 16-byte units, 16 (= 256)
+ +6   2   record count N (1..255)
+ +8   2   header size, 32
+ +10  2   sidecar table offset from file start
+ +12  2   sidecar table entry count S
+ +14  8   catalog date 'YYYYMMDD'
+ +22  10  zero
+
+RECORD i, 256 bytes at 32 + 256*i
+ +0   8   stem, uppercase A-Z 0-9 _ -, space-padded ('HELLO   ');
+          the package file is /wire/pkg/<STEM>.O88 and the picture
+          /wire/pic/<STEM>.PIC
+ +8   24  title (<= 23 chars)
+ +32  1   kind: 0 program, 1 game, 2 utility, 3 document, 4 update,
+          5 shared file. Only 0..2 are used today. A reader shows a kind it
+          does not know as a program.
+ +33  1   tier: 0 = 8088/8086, 1 = 286, 2 = 386, 3 = 486+ - the machine this
+          program is RECOMMENDED for. The filter 'X' shows tier <= X.
+ +34  1   flags
+          bit 0  WF_DISK    needs its files on a disk: an overlay, parts
+                            (header flags bit 2) or sidecars. Load Program is
+                            refused with that reason; Add to Disk works.
+          bit 1  WF_PIC     /wire/pic/<STEM>.PIC exists
+          bit 2  WF_NEW     new on the Wire
+          bit 3  WF_FLOPPY  only as a floppy image from os8088.com - its files
+                            live in a folder tree the Wire does not create
+                            (RunCPM's A/0/). Both actions refused.
+          bit 4  WF_ARC     an ARCHIVE (92.13): the file is /wire/pkg/<STEM>.WPK,
+                            a folder tree in one stream. n = 0 and bit 0 is
+                            clear; Load Program unpacks it into a RAM disk
+                            and runs it (92.14), Add to Disk unpacks it where
+                            the dialog points. **The writer sets bit 3 WITH
+                            it** and a reader that knows bit 4 ignores bit 3
+                            on such a record: wr_catck never refused a flag
+                            it did not know, so a Wire from before 92.13
+                            reads the same catalog, greys both buttons with
+                            the floppy reason, and never fetches a .O88 that
+                            is not there
+ +35  1   sidecar count n, 0..8
+ +36  2   first sidecar index into the table (meaningless when n = 0)
+ +38  4   size of <STEM>.O88 in bytes - or of <STEM>.WPK, the bytes the
+          transfer will carry (wr_hdrdone checks Content-Length against it).
+          **ON AN ARCHIVE IT IS A DWORD BOUNDED BY WIRE_ARCMAX** = 1MB, which
+          is the FIRST SIZE REFUSED, and the 16-bit-and-WIRE_FILEMAX rule
+          below is the NON-archive reader's alone: a .WPK is never one claim
+          and never one file, so its size is bounded for sanity rather than
+          for capacity, and RunCPM's is 231,463. The 16-bit rule applied to
+          every record refused that one and took the whole catalog with it
+ +42  4   total bytes, the .O88 plus every sidecar - Add to Disk refuses
+          before touching the disk when OSAPI_FILE_DFREE is short. For an
+          archive: the UNPACKED total
+ +46  2   WC_NEEDKB: for an archive, the KB a RAM disk store must have to
+          hold it - the archive header's own figure (92.13). Zero otherwise
+ +48  64  icon: 16 mask words then 16 data words, bit 15 = leftmost - the
+          package's own OS88_ICON16 block (file offset 32..95 when its header
+          flags bit 0 is set) or the site's generic program icon. Drawn per
+          list row with OSAPI_ICON_DRAW.
+ +112 140 description: 5 lines x 28 bytes, each NUL-terminated within its 28
+          (<= 27 chars). PRE-WRAPPED BY THE WRITER; the machine wraps nothing.
+          Unused lines are all-NUL.
+ +252 4   zero
+
+SIDECAR TABLE entry j, 16 bytes at (header +10) + 16*j
+ +0   12  NUL-terminated 8.3 name, uppercase ('WEAVE.OVL') - fetched from
+          /wire/pkg/<NAME>, written beside the .O88
+ +12  4   size in bytes
+```
+
+The offsets are `WC_*` equs in `apps/thewire/wcat.inc` and are **mirrored in
+`tools/os88wire.py`**; `tests/unit/t_wire.py` compares the two files and
+fails the fast tier when they disagree, which is `t_mirror`'s arrangement for
+a constant that lives on both sides of a wire.
+
+**The generic icon is the kernel's own `ico_app16`** — a diamond outline over
+a solid diamond mask, which is what the Disk window already draws for a
+package with no `OS88_ICON16`, so a program looks the same in the Wire's list
+as it does in the folder it comes from. `tools/os88wire.py` carries the rows
+baked in rather than parsed, because the website's packer runs in a checkout
+with no kernel in it, and `t_wire` compares that copy against
+`kernel/icons.inc`'s own `dw` rows.
+
+**What `--verify --pkgdir` cross-checks, and the one thing it deliberately
+does not.** Given the *published* `/wire/pkg/` — where a file is named
+`<STEM>.O88` — it checks every `WC_SIZE` and every sidecar size against the
+file on disk, that every sidecar named in the table is actually there, and
+that `WC_TOTAL` is the `.O88` plus its sidecars to the byte. It checks a
+record's icon **exactly** when the package declares one (header flags bit 0);
+when the package declares none, the record carries a generic and *which*
+generic is the writer's choice by the sentence above — two independent writers
+may pick differently and both be right. What it still refuses there is the one
+thing that is a fault either way: an icon with no pixels in it, or one whose
+data rows are all zero, both of which `icon_draw_x` accepts and draws as
+nothing. That distinction is not hypothetical — the first spelling of this
+verifier compared the generic too, and failed the site's real catalog on the
+three packages that have no icon of their own.
+
+**Limits the reader enforces**, each a refusal and not a crash: the whole file
+`<= WIRE_CATMAX` = 16,384 bytes (the claim is made before `Content-Length` is
+known); the magic, the version and the two size fields exactly as above;
+`N >= 1`; the record array and the sidecar table both inside the file; every
+sidecar index in range; every file size `<= WIRE_FILEMAX` = 64,512 (63 KB —
+one claim, one `OSAPI_FILE_WRITE`). A larger file gets `WF_FLOPPY` from the
+writer, which is the site's job and the verifier's check.
+
+**A `WF_ARC` RECORD IS CHECKED BY DIFFERENT RULES AND THEY ARE NOT A
+RELAXATION**, they are the ones that are true of an archive: `WC_SIZE` is
+non-zero and **below `WIRE_ARCMAX`** (1MB), `WC_TOTAL` is non-zero, and `n` is
+**0**. `WC_TOTAL >= WC_SIZE` is not among them and cannot be — `WC_TOTAL` is
+what the tree UNPACKS to and a tree of incompressible files is stored, so the
+stream is the total plus 32 bytes of header and 64 an entry. Neither is the
+sidecar span, because `n` is 0 and 92.13's `WC_SIDE0` is meaningless there.
+The 16-bit bound stays on every other record, where it is exactly right.
+
+`WIRE_CATMAX` bounds `N` well below the format's 255: 16,384 bytes is 63
+records with no sidecar table at all, and the record array may not run past
+the end of the file. That is also what keeps `32 + 256*i` inside 16 bits,
+which the reader's addressing depends on.
+
+### 92.3 The picture — `<STEM>.PIC`
+
+**1,024 bytes, raw: 128 x 64 pixels, 1 bit per pixel**, 16 bytes a row, bit 7
+of a byte its leftmost pixel, **1 = ink (black)**, 0 = paper. No header; the
+reader refuses any other `Content-Length`. It is a 1:1 **crop** of a real
+screenshot, never a scaled one — a scaled 16-colour UI is mush and a crop is
+the program.
+
+**The reader inverts the 1,024 bytes as they arrive**, and that one `not` per
+byte is what makes the draw free of adapter branches. `OSAPI_GFX_BLIT1` takes
+a band in *final screen polarity* where a set bit is a LIT pixel, and its
+default pen is `CWHITE` ink on `CBLACK` paper (§5.4.2.2) — while on a 1bpp
+adapter the pen is ignored and a set bit is simply white. Inverted, the file's
+paper bits are the set ones on both, so the same band is correct on a VGA, a
+Hercules and a CGA with no pen call and no second buffer.
+
+`OSAPI_GFX_BLIT1` first: x and width must be multiples of 8, which 128 is, and
+the picture's x is a multiple of 8 from a content origin §11.94 has already
+snapped. When it answers CF = 1 — a `kern_small` kernel, which carries the
+slot and not the body — the fallback expands **one row at a time** into a
+64-byte scratch and calls `OSAPI_GFX_BLIT4` with `DX = 1`. Whole-picture
+`BLIT4` would want 4,096 bytes of packed 4bpp; a row wants 64.
+
+### 92.4 The HTTP profile
+
+Request, exactly:
+
+```
+GET /wire/<file> HTTP/1.0\r\n
+Host: <host>\r\n
+User-Agent: os8088 Wire 1.0\r\n
+Connection: close\r\n
+\r\n
+```
+
+The reply is read a header LINE at a time into a 32-byte buffer rather than
+through the browser's four-state CR-LF-CR-LF machine (§71): the Wire needs
+`Content-Length` and the browser does not, so it has to look at a header's
+contents anyway and a line buffer is both smaller and the thing that makes
+the length readable. A line longer than the buffer is clipped, which cannot
+lose a length header. The status code is columns 9..11 of line 0 — `br_hdrb`'s
+scan, done once on a complete line.
+
+- **`Content-Length` is required.** It bounds the body, drives the progress
+  figure, and its absence is `The Wire did not answer (0)`. A body longer than
+  its claim is truncated and the transfer marked failed.
+- **No chunked decoding, no redirects, no keep-alive.** A 3xx or a 4xx is
+  reported as `The Wire did not answer (NNN)` with the body discarded.
+- One socket at a time. `NETE_BUSY` is an ordinary answer and is retried next
+  pass, never a failure (`drivers/net/netpkg.inc`).
+- Everything off the wire is hostile: the only thing trusted about the server
+  is how many bytes it just handed over, and that is bounded by the capacity
+  passed to `NETV_RECV`.
+
+**Host, port and path prefix come from `WIRE.CFG`** (§19.9), read once at
+launch: one line, `host[:port][/prefix/]`, default when the file is absent
+`os8088.com:80/wire/`. The name goes to `NETV_OPEN` as is — resolution is the
+driver's. The gate's disk carries `10.0.2.2:8092/wire/`.
+
+### 92.5 The task division, and the one byte between the halves
+
+§71.1's division, and it is forced rather than chosen: **a worker may not call
+`OSAPI_MEM_*`, the file slots or the dialog** (§20.6 rule 7), and every
+`NETV_*` verb is non-blocking.
+
+| | does |
+|---|---|
+| the **UI task** | claims, sets the request, and is the only caller of `OSAPI_MEM_CLAIM`/`_FREE`, `OSAPI_FILE_WRITE`, `OSAPI_FILE_DLG` and `OSAPI_PKG_RUN` |
+| the **worker** (one, `OS88_STACK_192`) | opens, polls `NETV_STATUS`, sends, drains into a 1,024-byte staging buffer **in its own segment**, copies into the claim, and paints the status cell under the lock with §20.6 rule 5's obscured and clip tests |
+
+The handshake is `apps/ftpd`'s one byte (§77): the worker writes `wr_wkind`
+and everything else the handler will read, and writes `wr_wake` **last**; the
+handler banks the code, clears the flag, and only then acts. Clearing before
+acting rather than after is not a departure from the ftpd shape — acting is
+what starts the *next* request, and a flag cleared after that would clear the
+new request's wake.
+
+**And a generation counter checked INSIDE the store loop**, which is §71.11's
+lesson written out. `wr_gen` is bumped by the UI task on every abort and every
+new request; the worker banks it at the top of each pass and re-reads it per
+byte in the drain loop. Without the per-byte check a selection change landing
+mid-picture writes the rest of that chunk into a buffer the UI task has
+already freed — the check at the top of the pass is true when the pass starts
+and stale 512 stores later.
+
+### 92.6 The window
+
+Title `The Wire`, content **384 px wide**, height from the adapter through
+`OS88_PREFER` (§11.100.1): **386 x 243** on VGA, EGA and Hercules, **386 x
+147** on CGA, with `OSAPI_WM_MINSIZE` at the CGA size so no display may cut
+the layout below it.
+
+```
+ Show: (*) All  ( ) 8088/8086  ( ) 286  ( ) 386  ( ) 486+
+ +--------------+ +-----------------------------------+
+ | [i] Browser  | | [    128 x 64 picture, or the    ] |
+ | [i] Calculato| | [    words 'No picture'          ] |
+ | [i] Hello   ^| | Browser                           |
+ | [i] Mineswee#| | 8088/8086     15K                 |
+ | [i] Paint   v| | A web browser for the IBM PC.     |
+ | [i] Solitair| | Plain HTTP, no TLS.               |
+ |              | | [         Load Program          ] |
+ |              | | [        Add to Disk...         ] |
+ +--------------+ +-----------------------------------+
+ Available on the Wire: 31 programs
+```
+
+Everything below is content-relative; the content origin is 8-aligned by
+§11.94, so every text pen and the picture's x are 8-aligned too and take
+`font_run`'s single-store path and `gfx_blit1`'s only path.
+
+| element | where |
+|---|---|
+| filter radios | y 2..13, five `os88ui_glyph` rings at x 48, 96, 192, 240, 288, `Show:` at x 0 |
+| list pane | x 0..143, y 18..`y2`; rows 16 px from y 19, icon at x 3, one `OSAPI_FONT_RUN` of **13 cells** per row at x 24 |
+| scroll bar | x 129..142, the same y extent — `os88ui_sbar` with `OS88UI_SBDRAG` |
+| detail pane | x 152..383, same y extent; its text pen at x 160 and the picture at x 208 |
+| buttons | x 156..379, **stacked**, `y2-37..y2-21` and `y2-19..y2-3` |
+| status cell | y `ch-10`, one 48-character space-padded `OSAPI_FONT_RUN` across the full 384 |
+
+**THE DETAIL PANE IS SIZED FROM THE CATALOG FORMAT AND THE LIST GETS WHAT IS
+LEFT**, which is the second place the shipped window departs from
+`docs/WIRE-PLAN.md`'s mock. That mock starts the detail pane at 176 — 208 px —
+and draws a 27-column description in it, and 27 cells is 216 px: the first
+build ran the last two words of every description off the right-hand edge and
+into the frame. §92.2's 27 is the *format*, which the website implements too,
+so what moved is the pane. A pen at 160 ends at 375 with the frame at 383,
+eight pixels clear, and `WR_DESCC` is derived from those two edges so that
+moving either moves the ceiling with it. `wrtxt.inc`'s `WR_PANE` macro asserts
+every hand-written pane line against it at **assembly time** — the pane's own
+sentences do not come through the writer's wrapper, and the no-driver advice
+was thirty characters wide in the one state whose whole point is that a person
+can read it.
+
+What it costs is three cells off a list row, 13 rather than 16, and that is
+the right side to lose them on: a list row is an *index* and the detail pane
+is where the title is shown in full.
+
+`y2 = 18 + PH - 1` and `PH = ch - 29`, so the visible row count is
+`(PH - 2) / 16`: **12 rows on VGA and Hercules, 6 on CGA**, which is the
+floor `docs/WIRE-PLAN.md` §7 asks for.
+
+**The buttons are stacked and not side by side**, and the arithmetic is why:
+`Load Program` and `Add to Disk...` are 12 and 14 cells, so two standard
+buttons want 110 + 6 + 126 = 242 px against a 208-px detail pane. The captions
+are brand and are not shortened (`docs/WIRE-PLAN.md`'s table), so the column
+is what fits.
+
+**The CGA drops the PICTURE, not the description**, and this is the one place
+the shipped window differs from the plan's mock. A 108-row detail pane cannot
+hold a 64-row picture, a title, a tier line and any description at all: with
+the picture, the tier line already runs into the top button. Between a picture
+and the sentences that say what the program is, the sentences are what a
+person acts on. The test is the pane's own height — `>= 170 rows` draws the
+picture — so it is the *screen* that decides and not a `VID_*` compare, which
+is §39's rule.
+
+#### 92.6.1 The wake handler is a BACKGROUND painter
+
+`wr_onwake` draws the list, the pane, the buttons and the status cell after a
+transfer lands, from the UI task's wake and not from `W_PAINT` — and after
+`Load Program` it does so with the launched program's window **on top of
+ours**. Drawn at absolute coordinates with no region armed, the two buttons
+landed inside that window's content and stayed there until it was next
+repainted, which the field reported as the Wire's buttons corrupting the
+program it had just loaded. §11.3 is the rule and this is its application:
+every lock hold in the handler arms `OSAPI_WM_CLIP_SET` first (`wr_clip`), and
+because the pane, the list and each button all **erase and then draw glyphs**,
+each tests its own rect with `OSAPI_WM_CLIP_TEST` and draws the whole unit or
+none of it — the granularity rule's whole-thing gate, `fr_status`'s shape. The
+status cell is one opaque `font_run` and needs no gate of its own. `CLIP_SET`'s
+CF = 1 arms **nothing**, so the handler carries `[wr_hid]` for that case: the
+state work (the next fetch, the free, the launch) still runs and every painter
+returns at once. The worker's own repaint (`wr_nshow`) keeps its
+`OSAPI_WM_OBSCURED` veto, which is all a single run owes.
+
+### 92.7 The two buttons, one predicate, three consumers
+
+§47. One routine answers, for the selected record, "may Load?" / "may Add?"
+with a **reason string**, and three call sites read it: the painter greys on
+it, the click refuses on it and says the reason in the status cell, and the
+File menu's items carry a `MENU_DIS` prefix from it.
+
+| reason | when |
+|---|---|
+| `Select a program first` | nothing is selected |
+| `The catalog is not loaded` | no catalog, or it was refused |
+| `A transfer is already running` | the state machine is in flight |
+| `Needs its files on a disk - use Add to Disk` | `WF_DISK`, Load only |
+| `Available as a floppy from os8088.com` | `WF_FLOPPY`, both |
+| `Needs NNNK free on the disk` | the Save completion's `OSAPI_FILE_DFREE` |
+| `Needs RAMDISK.DRV - use Add to Disk` | `WF_ARC`, Load only: no driver of the class answers `RDPV_IDENT` with `RD_SIG`, or it refuses `RDPV_STATE` (an older driver) |
+| `Needs NNNK free for a RAM disk` | `WF_ARC`, Load only: no store is mounted and `RDPV_STATE`'s largest possible store is under `WC_NEEDKB` rounded up to `RD_STEPKB` (92.14) |
+| `RAM disk needs NNNK more room` | `WF_ARC`, Load only: a store is mounted and its free KB is under `WC_NEEDKB` |
+
+The three RAM-disk reasons are answered by the same predicate from
+`RDPV_STATE`, asked once per paint; the figure in the two that carry one is
+the shortfall the user can act on — the size to set on the RAM disk's page,
+or the room to make on it.
+
+The last one is not in the painter's answer and cannot be: it is knowable
+only once a *volume and folder* have been chosen, which is what §38.6's
+completion is. It is a refusal in the completion, before the first byte moves,
+and `OSAPI_FILE_DFREE` is asked **once** there rather than per file — §77.40's
+finding, where asking per chunk was 44% of an upload. **That call WRITES BX**
+(it is the sectors-per-cluster output), so the figure it is compared against
+is banked first: held in BX it is compared against 1, 2, 4 or 8 and the check
+never fires — on exactly the nearly-full disk it exists for.
+
+**The painter records its own answer in `[wr_grey]`**, bit 0 for Load Program
+and bit 1 for Add to Disk, written where the greying is drawn. That is §13.8's
+rule ("keep which control is down in a variable your `W_PAINT` reads") rather
+than an instrument, and it is what makes §47 assertable by a gate at all: a
+greyed caption on a VGA is `CDGRAY` and on a 1bpp adapter a checkerboard, and
+neither is a thing a screendump comparison can state cleanly. `tests/thewire.py`
+reads the byte.
+
+The predicate keeps the question in **BL and not AH**, and that is not a
+style: the body does `mov ax, [wr_sel]` on its way to the record, so a
+question in AH does not survive it. In AH, every Add to Disk came back with
+Load Program's answer — greying the one button a `WF_DISK` record exists to be
+used with.
+
+### 92.8 What each action does
+
+- **Load Program** — claim the exact size, fetch `/wire/pkg/<STEM>.O88`, and
+  on the wake call `OSAPI_PKG_RUN` with `ES:SI` = the claim, `DX:CX` = the
+  length and `DI` = `<STEM>.O88`; free the claim; status `Loaded <title> from
+  the Wire` and a toast. An `LD_*` refusal is said in the status cell in
+  words. The new instance's current directory is the Wire's (§19.2.1), which
+  is why a `WF_DISK` record is refused rather than launched into a folder
+  where its overlay is not.
+- **Add to Disk...** — `OSAPI_FILE_DLG` Save with `<STEM>.O88` as the default
+  name. The dialog moves the instance's directory to the chosen folder, so
+  every later write lands there. The completion checks free space and then
+  runs the chain: the `.O88` under the chosen name, then each sidecar under
+  its own, each one claim -> fetch -> the wake writes it with
+  `OSAPI_FILE_WRITE` -> free -> next. Status `Adding <title>... N of M
+  files`; a toast on the last. **A failure mid-chain leaves what was
+  written** and says which file failed — there is no undo on this system
+  (§22).
+- **On a `WF_ARC` record, both actions run the same UNPACKER over one
+  transfer** (92.13, 92.14). Load Program mounts or reuses a RAM disk, moves
+  the instance's directory to its root and unpacks there; Add to Disk unpacks
+  where the Save dialog pointed (the typed name is ignored — the archive names
+  its own files). Either way the archive's `home` folder is made and entered
+  first, every entry's folders are made as they are met, and when the last
+  entry is a package the buffer still holds it and Load Program hands it to
+  `OSAPI_PKG_RUN` from there. Status `Adding <title>... N of M files`; the
+  toast says `added to your disk` or `added to the RAM disk`.
+- **A selection change** fetches the record's `.PIC` when it has `WF_PIC` and
+  the worker is idle, and repaints the detail pane and the two rows whose
+  selection changed and nothing else. A second selection change while a
+  picture is in flight bumps the generation and the worker drops the bytes.
+- **Refresh** re-fetches the catalog. **About** is `OSAPI_ABOUT_SET` (§12.2):
+  `The Wire`, `Online Software Library`, `Software by wire.`, the catalog
+  date, `os8088.com`.
+
+### 92.9 No driver, no link
+
+`net_find` answering CF = 1, or `NETV_STATE` without `NSTF_SOCK`, is an
+ordinary state and **never a modal alert**: the window opens with the status
+`Wire connection unavailable`, the list empty, both buttons greyed, and the
+detail pane carrying three lines a person can act on —
+
+```
+The Wire needs ETHER.DRV and a
+network card.
+Control Panel > Drivers turns it on.
+Or browse it at os8088.com/wire
+```
+
+Refresh retries. That is §47 rule 3 at the scale of a whole window: the grey
+says the buttons will refuse and the pane says what to do about it.
+
+### 92.10 The numbers
+
+Measured on this tree. The times are PERFORMANCE.md Part 2's XT figures
+applied to the calls each path makes — this is an 8088 cost model and not a
+stopwatch, because the machine that can hold a stopwatch to it is a 4.77 MHz
+one somebody is holding and the only scripted harness for the network half is
+QEMU (§92.12); `make xt-wire` is the 4.77 MHz machine with a card in it, and it
+can be looked at but not asserted on.
+
+**The picture, 128 × 64 (§92.3).** One `OSAPI_GFX_BLIT1`: one drawing call, so
+**~756 µs of fixed cost** plus 64 rows × 16 bytes of `rep movsb` per plane —
+the traffic `OSAPI_GFX_SCROLL` moves for the same area, and the floor a 1bpp
+block has on this card. The `kern_small` fallback is **64 `OSAPI_GFX_BLIT4`
+calls**, one a row, at ~756 µs of wrapper each: **~48 ms**, plus the nibble
+expansion. Sixty-four times the fixed cost is what a whole-picture `BLIT4`
+would have avoided, and it would have wanted 4,096 bytes of bss to do it on a
+kernel that is *the* memory-constrained one. That is the trade, stated: the
+fallback is slow where the slot is refused, and it is refused on one kernel.
+
+**A list row.** One `OSAPI_GFX_FILL`, one `OSAPI_ICON_DRAW`, one
+`OSAPI_FONT_RUN` — **three drawing calls, ~2.3 ms**. A full twelve-row list is
+36 calls, ~27 ms, and it is drawn on a filter change, a scroll or a `W_PAINT`.
+A **selection change draws two rows and the detail pane** and nothing else,
+which is PERFORMANCE.md rule 1 written into §92.8.
+
+**The status cell.** One opaque `OSAPI_FONT_RUN` of 48 cells at an 8-aligned
+pen: `font_run`'s single-store path, one store a row a cell. The worker
+redraws it **when the KILOBYTE figure changes** and not per `NETV_RECV` — a
+40KB package is 40 repaints rather than the ~80 its chunks would give, and
+what the cell shows is kilobytes, so it is redrawn exactly when the picture
+changes.
+
+### 92.11 Sizes, and the 360KB disk
+
+The 360KB system disk is the binding one: its cluster is 1,024 bytes, and
+`docs/WIRE-PLAN.md` §7 sized the package against what was left on it.
+Measured with `python3 tools/os88disk.py --verify`:
+
+| | |
+|---|---|
+| `THEWIRE.O88` image | **10,174 bytes** (the ceiling is 12,288) |
+| bss | **2,997 bytes** |
+| 360KB system disk before | 354 clusters, 337 in use, **17 free** |
+| 360KB system disk after | 354 clusters, 347 in use, **7 free** |
+
+Seven clusters is about 7 KB, which is the margin the ceiling was chosen for.
+**The enforcement is `os88disk.py` refusing an image that does not fit**, not
+this table: a cluster count in prose goes stale the next time anything ships,
+and the figure that used to sit in `Makefile`'s core-package comment (60 free
+clusters, describing the disk before Browser and Telnet went on it) is what
+that looks like.
+
+The bss is a 1,024-byte receive buffer, the 1,024-byte picture, a 64-byte
+`BLIT4` scratch row, the request and header buffers, the two message buffers
+and the state. **The receive buffer is in the package's own segment and has to
+be**: `NETV_RECV` takes `ES:DI` and `OSAPI_DRV_CALL` puts the *caller's*
+segment in ES, so a staging buffer in a heap claim is written into our own
+image instead — which reads as memory corruption rather than as a wrong
+segment register, because the bytes really are ours (§77.10).
+
+### 92.12 The tests
+
+| row | tier | what |
+|---|---|---|
+| `tests/unit/t_wire.py` | fast | pack -> verify -> dump round trip on a fixture built from `build/hello.o88` and `build/mines.o88`; the writer's refusals; and the `WC_*`/`WIRE_*` equs in `wcat.inc` compared against `tools/os88wire.py`'s |
+| `tests/thewire.py` (`make thewiretest`) | soak | QEMU with an NE2000 and a host HTTP server on 8092. Seven assertions: the catalog loads and `wr_catck` accepts it, the host saw `GET /wire/catalog.bin HTTP/1.0` with a `Host:` and a `User-Agent:`, the list lists three rows, the `8088/8086` filter cuts it to two, a tier-3 `WF_DISK` record greys Load Program and **not** Add to Disk, the 128 × 64 picture on the glass matches the served `.PIC` **pixel for pixel**, and Add to Disk writes the `.O88` and its sidecar byte-identical — read back on the host by a FAT12 reader in that file after `quit` |
+
+| `tests/unit/t_wire.py` (archives) | fast | `--archive` pack -> verify -> dump round trip over a fixture tree; the LZSS encoder against the reference decoder on patterned and random bytes, and the decoder's refusals (a distance past the start, a copy past the end, a short stream, trailing bytes); the `WA_*` equs in `warc.inc` compared against the packer's; the writer's refusals (a path four folders deep, a name that is not 8.3, an entry over `WIRE_FILEMAX`, a program entry that is not last, entries not grouped by folder, more than 255 entries) |
+| `tests/thewire.py` (archives) | soak | the same boot, with `RAMDISK.DRV` wanted as well (`BIT_RAM`, a `SYSTEM.CFG` of the gate's own in `build/wirecfg/`). A fixture `.WPK` the test packs with `--archive`: a `home`, three folders, six entries at depths 0..2 — a stored one, a 40,000-byte LZSS one, an empty file, a twelve-character name and `HELLO.O88` last with `WAH_PROGRAM`. Add to Disk to B: -> every file under `home/` byte-identical, read back by the FAT12 reader in that file, folders included. Load Program on it -> a third live volume appears in `dsk_vtab` and it is `DVK_FILE`, the tree lands on it, the status cell says `Loaded`, and a `HELLO` window appears. Then the clip assertion of 92.6.1: after Load Program the launched window's content is captured, the window is dragged 8px and back for a clean full repaint, and the two must agree PIXEL FOR PIXEL — they read 0 of 17,040 differing, and they do not agree at all when the buttons have been drawn into it. **The pointer is parked at a fixed spot before each capture**: the arrow is drawn into the framebuffer, so a screendump carries it, and the drag left it somewhere else — 47 differing pixels in the shape of a cursor, reported by the first version of this row as the defect it exists to catch |
+
+**The picture assertion is the one nothing else can make.** §92.3 stores the
+band inverted so that one `gfx_blit1` is right on all three adapters, and an
+inversion that went the other way draws a perfectly plausible picture in
+negative: every gate that counts lit pixels, diffs two frames or looks for a
+block of the right size passes it. So the fixture's pattern is deliberately
+asymmetric — diagonal stripes with a solid block in one corner — and the
+comparison is per pixel against the file's own bits. All 8,192 wrong is the
+polarity; a few hundred is the block landing at the wrong x or y.
+
+**`tests/thewire.py` is QEMU's and cannot be MartyPC's**: MartyPC has no
+network card of any kind, so `ETHER.DRV` cannot be hosted on it at all
+(§72.9). Every assertion in it is about behaviour and none about speed,
+because the machine under it is not an 8088.
+
+**`make xt-wire` is where it is an 8088.** `vm/xt-wire` is `xt-sound`'s XT
+with a Novell NE1000 — the 8-bit card an XT bus takes — on 86Box's slirp,
+booting `make ethertest`'s system disk so `ETHER.DRV` is up before the first
+paint and the zone is on the desktop when the machine comes up; the default
+`WIRE.CFG` (none, §92.4) reaches os8088.com's live catalog through slirp's
+NAT with nothing running on the host. B: is a kept scratch disk, because Add
+to Disk writes and 86Box writes a floppy back to its file. It is a machine to
+LOOK at — the Refresh cost in §92.10 on the CPU it was priced for, the zone's
+look in §92.6 — and not a gate: 86Box has no automation socket
+(docs/TESTING.md).
+
+### 92.13 The archive — `<STEM>.WPK`, format version 1
+
+A program that is a folder tree — RunCPM's `A/0/` master disk, the C64's
+parts — was `WF_FLOPPY` until this section, because the Wire moved one flat
+file per HTTP connection into one folder. An archive moves the tree in **one
+stream**, and that is where the win is: on a stop-and-wait TCP over a 4.77 MHz
+8088, fifty-nine connections are tens of seconds of handshakes and slow starts
+that one connection does not pay. Compression is the smaller half — the
+RunCPM master disk is 320KB raw and **229KB** as independent per-entry LZSS
+streams with a 4KB window (both writers land within 0.5% of each other;
+deflate's 196KB on the same bytes is Huffman coding this machine will not
+pay for), about six seconds of wire at the field's 15 KB/s against three
+seconds of decoding — and it is in the format because it is nearly free once
+the container exists.
+
+Little-endian, fixed offsets, read with `mov` and never parsed. Every name is
+an uppercase 8.3, ASCII, in a 12-byte slot: **NUL-padded when shorter, and a
+twelve-character name fills the slot with no NUL** — the reader copies at most
+twelve bytes and stops at a NUL, which is `wr_sputn`'s rule and the shape the
+catalog's sidecar names already take on the machine. The first draft said
+"NUL-terminated", and five of the RunCPM master disk's 77 files
+(`CONSOLE7.COM`, `LEFT-OFF.TXT`...) are twelve characters, so the format's
+motivating example would have excluded them. The **writer** refuses anything
+that is not an 8.3 name and the **reader** refuses on any check below and
+says `That archive is not understood`.
+
+```
+HEADER, 32 bytes
+ +0   4   'WPAK'
+ +4   1   format version, 1
+ +5   1   flags: bit 0 WAH_PROGRAM - the LAST entry is a package (.O88 at
+          depth 0) and Load Program runs it when the tree has landed
+ +6   2   entry count N, 1..255
+ +8   4   unpacked total, bytes (= the catalog's WC_TOTAL)
+ +12  2   need KB: the sum over entries of ceil(unpacked / 1024) - what a
+          RAM disk store must hold, at the 1KB extent a store <= 2MB has
+          (62.9.10). The catalog's WC_NEEDKB is a copy of it
+ +14  2   largest unpacked entry, bytes, <= WIRE_FILEMAX - the ONE claim the
+          reader makes for the whole transfer
+ +16  12  home: a folder the whole tree lands under, or all-NUL for none.
+          RunCPM's is 'RUNCPM', so the tree lands the way the apps floppy
+          lays it out and a later archive of a CP/M game names the same
+          home and paths under A/1/
+ +28  4   zero
+
+ENTRY i, 64 bytes, followed at once by its BODY of `stored` bytes
+ +0   1   method: 0 stored, 1 LZSS (below)
+ +1   1   depth d, 0..3 - how many FOLDER names precede the file name
+ +2   2   zero
+ +4   4   stored size - the body's bytes on the wire
+ +8   4   unpacked size, 0..WIRE_FILEMAX (0 is an empty file: stored 0)
+ +12  4   zero
+ +16  48  the path: four 12-byte slots; slots 0..d-1 are folders, slot d the
+          file name, slots after d all-NUL
+```
+
+**Entries are GROUPED BY FOLDER and the writer enforces it**: every entry whose
+path equals the previous entry's path follows it directly, so the reader that
+banks the folder it is standing in (92.14) enters each folder once. On a
+floppy a folder change is `OSAPI_FILE_FIND` walks and a `GOTO`, each priced in
+`int 13h` calls (PERFORMANCE.md), and a tree written in the writer's order
+costs one change per folder rather than one per file. **The program entry is
+LAST** (`WAH_PROGRAM`) for the reason 92.14 gives.
+
+**Method 1, LZSS, pinned by its DECODER** — two writers exist (this tree's and
+the website's) and they need not choose the same matches, but every stream
+either writes must decode identically:
+
+- The output's length is the entry's unpacked size and the decoder stops
+  when it is reached, whatever is left of the current group.
+- The stream is groups: one FLAG byte, then up to eight items for its bits 0
+  to 7, least significant first. A set bit is one LITERAL byte, copied. A
+  clear bit is a PAIR `B0 B1`: distance `((B1 >> 4) << 8 | B0) + 1` (1 to
+  4096) and length `(B1 & 15) + 3` (3 to 18); copy `length` bytes from
+  `distance` bytes back in the output, one byte at a time, so a distance
+  shorter than the length repeats (a run).
+- Refused: a distance past the start of this entry's output, a copy that
+  would pass its end, a stream that ends before the output is complete, and
+  stored bytes left over when it is.
+
+There is no window buffer: the output is a whole file in one claim, so a
+back-reference is a copy within the destination and the decoder is a state
+machine of a few bytes — the phase (a flag, an item, a pair's second byte),
+the flag byte and its bits left, and a pair's first byte — which is what
+makes it **resumable across the 1,024-byte drains** the worker takes. No
+checksum: TCP carries one, `Content-Length` is checked against `WC_SIZE`
+before the body, and the structure above is checked entry by entry.
+
+The `WA_*` offsets are `apps/thewire/warc.inc`, mirrored in
+`tools/os88wire.py` and compared by `t_wire` exactly as `wcat.inc`'s are.
+`tools/os88wire.py --archive` is this tree's writer and `--verify` its reader;
+the website's `tools/wire.py` is the second writer, and the OS's verifier is
+what the site's build runs over what it wrote.
+
+**AS BUILT** — three things the text above left open, pinned by
+`apps/thewire/wrarc.inc` because the reader had to decide them:
+
+- **A `stored` size of 64KB or more is refused.** The unpacked size has a
+  bound in this section (`WIRE_FILEMAX`, 63KB) and the stored size has none,
+  so `wr_aentck` gives it one: both counters are words, and a word that laps
+  is PERFORMANCE.md rule 3's failure — a small plausible number rather than a
+  refusal. A writer that would emit more stored bytes than unpacked ones
+  should be storing the entry instead of compressing it, so nothing legal is
+  turned away.
+- **A path slot is refused for a separator or a leading dot.** `/`, `\` and
+  `:` inside a slot, and any name beginning `.`, are the only things in this
+  format that could reach a file outside the folder the user chose — the
+  depth field says how many names there are, so a slot is ONE name. Anything
+  outside printable ASCII, an empty slot below the depth and twelve bytes
+  with no NUL in them are refused with them.
+- **`stored` = 0 with a non-zero unpacked size is refused at the ENTRY
+  HEADER**, rather than waiting for a body that never comes.
+
+### 92.14 Run from RAM — Load Program on an archive
+
+Nothing in 92.13 needs a new volume kind: the RAM disk is a volume like any
+other — a **redirected** one, `DVK_FILE`, because RAMDISK.DRV serves files
+rather than sectors (62.9) — packages launch off it (62.9.5) and `FSV_MKDIR`
+makes folders on it (62.9.7). What Load Program adds is the decision to put
+the tree there, and one transfer shared with Add to Disk.
+
+**One file slot did NOT reach it, and this section found that out.**
+`OSAPI_FILE_FIND` had no arm for a redirected volume, so a package could make
+a folder on a store and never enter it — which is every folder an archive
+lands. **62.9.17 is the fix**, in `dsk_find_x` where the gap was rather than
+worked around here, because RunCPM resolves its own `A/0` folders through the
+same cell (74) and would have unpacked and then failed inside itself.
+
+**The decision, in the UI task, before any I/O**, with `RDPV_STATE` (62.9.16):
+
+1. No driver of the class answers `RD_SIG`, or `RDPV_STATE` is refused (an
+   older `RAMDISK.DRV`): grey, `Needs RAMDISK.DRV - use Add to Disk`.
+2. A store is mounted: its free KB must be `>= WC_NEEDKB`, else grey with
+   the shortfall, `RAM disk needs NNNK more room`. A mounted store is REUSED
+   and never resized or unmounted — a second Load, a game after RunCPM,
+   lands in the same store, and what is on it is the user's.
+3. No store: ask for `WC_NEEDKB + WR_RAMSLACK` (16KB, room for what the
+   program will save) rounded up to `RD_STEPKB`; if `RDPV_STATE`'s largest
+   possible store is under that, ask for `WC_NEEDKB` rounded up alone; if it
+   is under that too, grey with `Needs NNNK free for a RAM disk`, NNN being
+   that rounded figure. Otherwise `RDPV_MOUNT` with it — at the location the
+   user's page setting names, conventional or above 1MB, which is the
+   driver's own `rd_kb_max` answering.
+
+Then `OSAPI_FILE_GOTO_Q` to the store's root (DX = 0, BL = the volume index
+`RDPV_STATE` answered), and the chain. On the 640KB XT this is for, the
+arithmetic was **measured and it does not go the way the first draft said**:
+the whole curated master disk — 320KB in 58 rows, `WC_NEEDKB` 345 — mounts a
+368KB store, unpacks, and then `OSAPI_PKG_RUN` answers `LD_ENOMEM`, because
+with ETHER.DRV's rings, the driver, the Wire's own region, catalog and entry
+claim beside a store that size, a ~532KB heap has about 46KB left and RunCPM
+wants its 47KB region and a 64KB Z80 claim before it opens a file. So the
+site publishes RunCPM as **two archives** (§92.13's subsets): `RUNCPM`, the
+core — the package, its overlay, the CCP, the `.SUB`s and the DRI utilities
+with MBASIC, 131,733 bytes unpacked in a 90,329-byte stream, `WC_NEEDKB`
+152 — and `CPMTOOLS`, the assemblers, editors and archivers into the same
+`RUNCPM/A/0`, 190,812 unpacked in 141,166, `WC_NEEDKB` 193, with no program
+entry. Measured under QEMU with the site's own catalog: the core downloads in
+seven seconds, mounts, unpacks and RunCPM comes up at `A>` with its CCP read
+off the RAM disk and drive A resolved through §62.9.17's arm; launched a
+second time by name from the RAM disk's Disk window with the Wire still open,
+it comes up again. Loading `CPMTOOLS` after it wants a store the core's mount
+did not size for, and says so with the figure (`RAM disk needs NNNK more
+room`) — the RAM disk's page sets a larger one first, or Add to Disk takes it
+to a floppy. `RD_MAXENT` is 96 rows and `RD_FILEMAX` 63KB; the core is 39
+entries in 42 rows with its three folders, and its largest file is the
+package. On a 286 with XMS the store is
+above 1MB and none of this is tight.
+
+**One transfer, one unpacker, two writers of the outcome.** The transfer is
+`WK_ARC`: `pkg/<STEM>.WPK`, `Content-Length` checked against `WC_SIZE` — a
+DWORD for this kind, the archive being the first body over 64KB. The worker
+feeds every drained byte to the unpacker, a resumable state machine over the
+header, each entry header and each body, decoding into the ONE claim the UI
+task made from the header's largest-entry figure. When an entry's body is
+complete the worker **pauses** — `WS_PAUSE`, no more `NETV_RECV`, the rest of
+the drained chunk kept at its read position, TCP's window holding the wire —
+and wakes the handler with `WW_ENTRY`. The handler is the only one that
+touches a file (20.6 rule 7, 92.5): it enters the entry's folders, making each
+that is missing, writes the file whole with `OSAPI_FILE_WRITE`, goes back to
+the base folder it banked with `OSAPI_FILE_HERE` when the chain began — the
+`home` folder, entered and made first — and puts the worker back in
+`WS_BODY`. **The folder it stands in is banked**: an entry whose folders match
+the last entry's is written without moving, which with 92.13's grouping rule
+is one folder change per folder. The header's `N` is the chain's length and
+the status cell counts it; a `WW_DONE` before `N` entries, or a byte after the
+last, is `The Wire stopped answering`. A failure mid-tree **leaves what was
+written** and says which file, which is 92.8's rule and §22's.
+
+**The program entry is last so that the launch costs nothing**: when the last
+entry has been written the claim still holds it, byte for byte what the
+`.O88` on the disk now holds, and `OSAPI_PKG_RUN` takes it from there with the
+instance's directory already on the tree — the overlay and the sidecars are
+where the launched package will look (§73.14, 92.8). A tree with no
+`WAH_PROGRAM` — a CP/M game into `RUNCPM/A/1` — ends with the toast and no
+launch. Add to Disk is the same chain from the dialog's completion, with the
+free-space check against `WC_TOTAL` first as before, and `home` made under
+the chosen folder.
+
+**What it costs the package**: the unpacker, the decoder, the RAM decision and
+its reasons, inside `THEWIRE.O88`'s 12,288-byte ceiling (92.11) — the 360KB
+system disk's seven spare clusters are the bound, and a package that will not
+fit is a decision to take with the arithmetic, not a ceiling to raise in
+passing. Measured sizes are in 92.15.
+
+#### 92.14.1 As built
+
+Six things the section above left to the implementation, and one it got
+wrong.
+
+**`OSAPI_FILE_GOTO_QM` and never `GOTO_Q`.** The quiet twin moves the GLOBAL
+current folder and deliberately not the INSTANCE's, and every file cell
+re-stands the machine in the instance's folder first — so a `GOTO_Q` is undone
+by the very next `OSAPI_FILE_WRITE`. `wr_cfgload` already carried that finding
+for `WIRE.CFG` (19.9), and the tree needs it twice over: the writes have to
+land where the archive says, and `OSAPI_PKG_RUN`'s new instance inherits our
+directory (19.2.1), which is the whole reason the program entry is last.
+
+**A mounted RAM disk is `DVK_FILE`, not `DVK_DRV`.** RAMDISK.DRV serves files
+rather than sectors (62.9), so its volume is redirected exactly as NET.DRV's
+is. Nothing in the package depends on the kind; `tests/thewire.py` reads it,
+and this is written down because the first draft of that gate asserted
+`DVK_DRV` and failed on a store that was plainly there.
+
+**The pause is posted with `[wr_apw]`, and the two boundaries carry different
+wakes.** `WW_HDR` says "the claim does not exist yet"; `WW_ENTRY` says "an
+entry's bytes are waiting for a file". Both go through the same one byte in
+92.5's order, and `WS_PAUSE` sits between `WS_BODY` and `WS_DONE` so the
+predicate's contiguous range needs no second compare. **`WS_DONE` and
+`WS_FAIL` moved up one with it**, which is what a state inserted into a
+load-bearing range costs; nothing outside `thewire.asm` reads them.
+
+**Add to Disk STAYS where the tree is**, exactly as Load Program does, rather
+than returning to the folder the dialog chose. The chain ends standing in the
+last entry's folder and nothing after it resolves a name, so moving would be
+work for its own sake — and the one thing that reads the instance's directory
+afterwards is a launch, which only the RAM path takes.
+
+**The status cell counts FILES and the progress figure counts KILOBYTES over
+32 bits.** `Adding <title>... N of M files` is the header's `N` and the
+entries done; the `NNK of MMK` beside it is the transfer, and it is a dword
+because an archive is the first body this client reads that may pass 64KB
+(92.13). Both come from `[wr_pnum]` and `[wr_ptot]`, which the sidecar chain
+fills from `WC_NSIDE` and the archive from its header — one composer, two
+counts of different things.
+
+**AND ONE THING THIS SECTION ASSUMED THAT IS NOT TRUE, WHICH IS NOW FIXED IN
+THE KERNEL**: `OSAPI_FILE_FIND` had no arm for a redirected volume, so on a
+RAM disk the first call with `CX` = 0 answered `CF` = 1 and this feature could
+make `home` and never enter it. Add to Disk was unaffected throughout — a
+floppy is `DVK_BIOS` and every part of the chain works there — and the failure
+was `Could not write TREE` at the first folder. **62.9.17 is the fix**, in
+`dsk_find_x` rather than worked around here, because RunCPM resolves its own
+`A/0` folders through the same cell (74).
+
+**A path slot may be TWELVE characters with no NUL** (92.13), so every name
+this package hands a kernel cell goes through `wr_aname` first: a `wr_sputn`
+bounded at `WARC_SLOT` into a thirteen-byte buffer that always gets a
+terminator. `wr_sput` would have run a twelve-character name into the next
+slot, and at depth 3 the next slot is another name.
+
+### 92.15 Sizes, as built
+
+Measured on the build that landed 92.13 and 92.14, with
+`python3 tools/os88pkg.py build/thewire.bin -o /dev/null` and
+`python3 tools/os88disk.py --verify`.
+
+| | before | after |
+|---|---|---|
+| `THEWIRE.O88` image | 10,310 | **12,285** (the ceiling is 12,288) |
+| its bss | 2,999 | **3,230** |
+| 360KB system disk | 351 of 354 clusters, 3 free | **350 of 354, 4 free** |
+| kernel `.cold` (62.9.17) | 37,622 | **37,667**, no rung crossed |
+
+**Three bytes of the ceiling are left**, and that is the number to look at
+before adding anything to this package. The feature cost 1,975 bytes of image
+against the ~2,000 92.11 left for it, so it fit — but only after TWO
+compaction passes, and the second was paid for by a DEFECT rather than by a
+feature: 92.2's `WIRE_ARCMAX` arm is 34 bytes that had to be found after the
+package was written and already under the ceiling. That is the argument for
+92.15.1 below being a list somebody keeps rather than a note.
+
+Where the room came from:
+
+- `wr_lockarm`, `wr_dall` and `wr_dend`. Nine holds in the wake handler and in
+  `wrarc.inc` opened with the same `OSAPI_GFX_LOCK` / `wr_clip` / `wr_geom`
+  trio, four state changes redrew the same four things and four finished chains
+  the same three. Eleven bytes a site became three. **It is also the safer
+  spelling**: 92.6.1's whole defect is a hold that draws without arming, and a
+  hold that cannot be written without the arm cannot forget it.
+- `wr_selrec`. Eighteen sites read `[wr_sel]` and called `wr_recs`.
+- `wr_stemput`. Three sites composed `<STEM>` plus an extension into a buffer.
+- `wr_wrfail`. `Could not write <name>` is the same sentence for a sidecar
+  chain and for a tree, so it is one routine (92.14).
+- **One epilogue per routine** where there were two. `wr_catck`, `wr_dive`,
+  `wr_nth`, `wr_vispos`, `wr_ieq`, `wr_pass` and every routine in `wrarc.inc`
+  each had a `clc`-and-pops arm beside an identical `stc`-and-pops one. `pop`
+  leaves the flags, so setting the answer and jumping to ONE shared pop set is
+  the same behaviour in fewer bytes — twenty-seven across the six named.
+
+The bss grew by 231 bytes and **none of it is a buffer for the archive's
+data**: 32 bytes of file header, 64 of entry header, 36 for the folder the
+last entry was written into, 40 for the predicate's composed reason and about
+forty of counters. What the tree is decoded through is one heap claim sized
+from `WA_MAXENT`, which is the whole point of 92.13's largest-entry figure.
+
+**`RAMDISK.DRV` and its two verbs are 62.9.16's own figures** and are recorded
+there; the driver's ceiling is `DRVM_IMG_RAM` = 9KB in `kernel/driver.inc`,
+enforced by `t_drvmem`.
+
+**Four spare clusters on the 360KB system disk.** 92.11 said seven and the
+package has taken three of them. That is the binding number for anything that
+wants to ship on that disk next, and it is enforced by `os88disk.py` refusing
+an image that does not fit rather than by this table.
+
+#### 92.15.1 Where the next 200 bytes are, if somebody needs them
+
+Three bytes is not room to work in, and the answer is still NOT to shave now —
+a byte saved against no requirement is a line of code made worse for nothing.
+This is the list, in the order a reader should take it, so that whoever needs
+the room does not have to find it under pressure:
+
+- **~90 bytes: the routines with ONE caller keep their own save sets.**
+  `wr_arcbase`, `wr_arcwrite` and `wr_arcend` are each called from exactly one
+  place in `wr_onwake`, which has already pushed AX, BX, CX, DX, SI, DI and ES.
+  Documenting them as "clobbers everything; one caller" deletes three prologues
+  and six epilogues. It is a real departure from §1's register discipline and
+  that is why it is not taken: the discipline is what makes the next reader
+  able to move a call.
+- **~55 bytes: the two reason strings that share a tail.** `Needs
+  RAMDISK.DRV - use Add to Disk` and `Needs its files on a disk - use Add to
+  Disk` (92.7) end in the same eighteen bytes, and `Adding `/`Loaded `/`Could
+  not write ` are three heads of the same shape. Suffix-sharing needs one head
+  to physically precede the shared tail, so only one of a pair can have it;
+  reworded, both could. **The brand table forbids rewording the buttons and the
+  menu items, not the reasons.**
+- **~40 bytes: `wr_afeed`'s two header accumulators.** The file header and the
+  entry header differ only in a base and a length; a base in BX makes them one
+  block at one byte per store more.
+- **~25 bytes: `wr_aslot` and `wr_apathn`** are the same `mul` with a different
+  add on the end.
+
+Together that is about 210, and the first item is over 40% of it. **The
+ceiling itself is not the lever**: 92.11's twelve kilobytes are the 360KB
+system disk's spare clusters written as a number, and raising it is a decision
+about what comes OFF that disk.
