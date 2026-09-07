@@ -325,32 +325,20 @@ wm_pkgcall:
     pop ax                      ; keeps the word above safe to push and pop
     cmp word [es:si+W_SEG], 0   ; (the cmp sets the flags the branch reads, so
     je .near                    ; the `and` above cannot reach it)
-    push ax                     ; WHICH REGION A FRAME IS ABOUT TO REFER TO
-    push bx                     ; (SPEC.md 66.6.1). AX and BX are the
-    mov bl, [cs:wm_pkgd]        ; CALLBACK's arguments, so they are banked
-    xor bh, bh                  ; across five instructions rather than spent
-    cmp bl, WM_PKGD_MAX
-    jae .nostk                  ; deeper than wm_pkgs records: mem_frameless
-    shl bx, 1                   ; pins every region rather than guess
-    mov ax, [es:si+W_SEG]
-    mov [cs:wm_pkgs+bx], ax
-.nostk:
-    inc byte [cs:wm_pkgd]
-    pop bx
-    pop ax
-    mov ds, [es:si+W_SEG]       ; DS = the package's own segment
+    mov ds, [es:si+W_SEG]       ; DS = the package's own segment...
+    call COLD_SEG:wm_nest_pushd_x   ; ...WHICH A FRAME IS ABOUT TO REFER TO
+                                ; (SPEC.md 66.6.1), and the push reads it from
+                                ; DS, so the segment costs no register here at
+                                ; all - AX and BX are the CALLBACK's
     call far [es:si+W_DISP]     ; ...and off to its dispatcher
-    pushf                       ; A CALLBACK ANSWERS IN THE FLAGS (an entry
-    dec byte [cs:wm_pkgd]       ; proc's CF, W_ONSIZE's), so the decrement is
-    popf                        ; bracketed - `dec` writes ZF and SF.
-                                ; **`cs:` AND NOT DS**: DS is the PACKAGE's
-                                ; here, restored only at `.out` below, so an
-                                ; unprefixed store lands one byte deep in the
-                                ; package's own image. It did, and the window
-                                ; titles came back as line noise. ES is no
+    push cs                     ; DS IS THE PACKAGE'S at the return, and `.out`
+    pop ds                      ; below restores the caller's, so borrowing it
+    call COLD_SEG:wm_nest_pop_x ; for two instructions costs nothing. ES is no
                                 ; safer - a callback may clobber it (SPEC.md
-                                ; 13) - and this routine is .text, so CS is
-                                ; KERNEL_SEG and reaches .bss
+                                ; 13). A CALLBACK ANSWERS IN THE FLAGS (an
+                                ; entry proc's CF, W_ONSIZE's), so the pop
+                                ; brackets its `dec` and `push cs`/`pop ds`
+                                ; writes none
     jmp short .out
 .near:
     call bp                     ; a kernel window: DS is already ours
@@ -11755,11 +11743,85 @@ wm_noanim:
 wm_animon   db 1                ; 0 = Off, 1 = On
 
 ; -----------------------------------------------------------------------------
+; wm_nest_pushd / wm_nest_pop - WHICH IMAGES THE MACHINE IS EXECUTING IN
+; wm_nest_pushd in:  DS = the image being entered, ES = KERNEL_SEG
+; wm_nest_pop   in:  DS = KERNEL_SEG
+; both preserve every register and the FLAGS - a callback's answer is its CF.
+;
+; ONE STACK FOR BOTH KINDS OF IMAGE (SPEC.md 66.6.1, 66.6.3). A package region
+; and a driver image are the same question asked twice - may this block move
+; out from under a return address - and they were two stacks, two brackets and
+; two walks until the answers were found to be the same one. A segment in here
+; means a frame somewhere refers to it; past WM_PKGD_MAX the answer is "pin
+; everything", which is free and safe. mem_in_nest is the reader.
+;
+; A STACK AND NOT A DEPTH, and that is the whole difference between a feature
+; that fires and one that does not: a package reaches mem_claim only from
+; inside its own callback and `sbl_v_grant` CLAIMS from inside a driver verb,
+; so a global depth is non-zero at exactly the moment a compaction runs.
+;
+; **`pushf`/`cli` AND NOT A BARE `inc`.** driver.inc's service cell is reached
+; from snd_tick INSIDE IRQ0 (SPEC.md 34.5), so the read-modify-write can be
+; interrupted by another push/pop pair and lose the update - leaving a depth
+; that never returns to zero, and a machine that never compacts an image again.
+; The pop needs none: `dec byte [m]` is one instruction, and an 8086 takes an
+; interrupt only between two.
+;
+; THE PUSH IS ES-RELATIVE AND THE POP DS-RELATIVE, which is not an
+; inconsistency but what every call site can actually promise. Entering, DS has
+; just been loaded with the image and ES is the kernel at all seven sites;
+; returning, a verb may have clobbered ES (SPEC.md 13) and it is DS the site
+; puts back. .cold, so `cs:` is COLD_SEG and reaches neither.
+; -----------------------------------------------------------------------------
+section .cold
+wm_nest_pushd:
+    pushf
+    cli
+    push ax
+    push bx
+    push ds
+    pop ax                      ; AX = the image, at no register cost to the
+    mov bx, [es:wm_pkgd]        ; caller
+    cmp bx, WM_PKGD_MAX
+    jae .over                   ; deeper than wm_pkgs records: mem_in_nest
+    shl bx, 1                   ; pins every image rather than guess
+    mov [es:bx+wm_pkgs], ax
+.over:
+    inc word [es:wm_pkgd]
+    pop bx
+    pop ax
+    popf
+    ret
+
+wm_nest_pop:
+    pushf
+    dec word [wm_pkgd]
+    popf
+    ret
+
+; ...and the FAR entries, for the sites that are .text (wm_pkgcall itself,
+; vmmouse.inc, xmem.inc). SPEC.md 2.6.1: a far entry ends in `retf` and is
+; never near-called, so the pair above cannot simply be far-called - hence four
+; bytes each rather than a second copy. `call`/`retf` touch no flag.
+wm_nest_pushd_x:
+    call wm_nest_pushd
+    retf
+wm_nest_pop_x:
+    call wm_nest_pop
+    retf
+section .text
+
+; -----------------------------------------------------------------------------
 ; wm.inc .bss - window table + z-order (wm_init zeroes all of it as one run,
 ; so these three must stay contiguous and in this order)
 ; -----------------------------------------------------------------------------
 section .bss
-wm_pkgd:    resb 1              ; NESTING DEPTH OF KERNEL -> PACKAGE CALLS
+wm_pkgd:    resw 1              ; NESTING DEPTH OF KERNEL -> PACKAGE CALLS. A
+                                ; WORD for one byte's rent: both readers load
+                                ; it into a whole register and bound it against
+                                ; WM_PKGD_MAX, so a byte costs each of them a
+                                ; `xor` the word does not - and it leaves
+                                ; wm_pkgs word-aligned into the bargain.
                                 ; (SPEC.md 66.6.1), and wm_pkgs the SEGMENT at
                                 ; each level. A level naming a segment means a
                                 ; frame somewhere refers to that package's

@@ -167,12 +167,6 @@ DRVR_WANT   equ 13              ; db: 1 = the user wants it loaded
 DRVR_ERR    equ 14              ; db: DRVE_* from the last attempt
 DRVR_PAD    equ 15
 DRVR_SIZE   equ 16
-DRV_DMAX    equ 4               ; levels of driver dispatch drv_segs records
-                                ; (SPEC.md 66.6.3). Four because a verb calling
-                                ; into a SECOND driver is the deepest shape in
-                                ; the tree - RAMDISK reaching RAMPAGE.DRV, HDD
-                                ; reaching HDDTOOL.DRV - and past it the answer
-                                ; is "pin everything", which is free and safe
 
 ; --- load failures (SPEC.md 51.3). Every one of them is survivable. ----------
 DRVE_OK     equ 0
@@ -1517,12 +1511,13 @@ drv_call:
                                 ; (SPEC.md 2.6 rule 2)
     pop es
     mov ds, [es:bx+DRVR_SEG]
-    call drv_enter              ; SPEC.md 66.6.3
+    call wm_nest_pushd          ; SPEC.md 66.6.3
     call far [es:bx+DRVR_DISP]
-    call drv_leave
     pop es
     pop ds                      ; DS names the kernel again...
-    pop word [snd_inst]         ; ...so the stamp lands in the kernel
+    call wm_nest_pop            ; ...which is what the pop reads, so it needs
+    pop word [snd_inst]         ; no segment of its own; and the stamp lands
+                                ; in the kernel
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1557,11 +1552,11 @@ drv_svc_call_x:
     push ds
     pop es                      ; ES = KERNEL_SEG: what the driver reads the
     mov ds, [es:drv_fseg]       ; things it was handed through
-    call drv_enter              ; SPEC.md 66.6.3
+    call wm_nest_pushd          ; SPEC.md 66.6.3
     call far [es:drv_fptr]
-    call drv_leave
     pop es
-    pop ds
+    pop ds                      ; ...and DS names the kernel again, which is
+    call wm_nest_pop            ; the segment the pop reads
     retf
 
 ; -----------------------------------------------------------------------------
@@ -1598,11 +1593,11 @@ drv_blk_call_x:
     push ds
     pop es
     mov ds, [es:drv_blkseg]
-    call drv_enter              ; SPEC.md 66.6.3
+    call wm_nest_pushd          ; SPEC.md 66.6.3
     call far [es:drv_blkfp]
-    call drv_leave
     pop es
-    pop ds
+    pop ds                      ; ...and DS names the kernel again, which is
+    call wm_nest_pop            ; the segment the pop reads
     ret
 .none:
     pop ax
@@ -1621,82 +1616,6 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
                                 ; segment of its own. DS is still KERNEL_SEG,
                                 ; so the DATA stays in .text at every toggle
 
-
-; -----------------------------------------------------------------------------
-; drv_enter / drv_leave - WHICH DRIVER IMAGE A FRAME IS INSIDE (SPEC.md 66.6.3)
-; drv_enter in: DS = the image about to be entered; both preserve everything,
-;               the FLAGS included - a verb's answer is its CF.
-;
-; wm_pkgcall's bracket one layer along, and for the same reason: an image the
-; machine is executing in may not be moved out from under the return address.
-; [drv_wcnt] and inst_svc_parked between them already answer "is a driver's own
-; WORKER running"; this answers the other direction, a UI task suspended inside
-; a verb - and that is not hypothetical, `sbl_v_grant` CLAIMS, so a compaction
-; can be triggered from inside an image by the very call that is standing in it.
-;
-; A STACK OF SEGMENTS AND NOT A DEPTH, for wm_pkgd's reason: a depth is
-; non-zero at exactly the moment a driver-triggered compaction runs, so a
-; compactor resting on one would pin every image against itself and the feature
-; would silently do nothing. Past DRV_DMAX the answer is "pin everything".
-;
-; **`pushf`/`cli` AND NOT A BARE `inc`.** driver.inc:1552 is reached from
-; snd_tick INSIDE IRQ0 (SPEC.md 34.5), so the read-modify-write can be
-; interrupted by another enter/leave pair and lose the update - which would
-; leave a depth that never returns to zero and a machine that never compacts a
-; driver again, or worse, one that does so while a frame is inside.
-;
-; NEITHER RELIES ON ES. Five of the seven sites restore ES only AFTER the far
-; call, and a driver may clobber it (SPEC.md 13), so both load KERNEL_SEG
-; themselves rather than trusting what the callee left.
-; -----------------------------------------------------------------------------
-drv_enter:
-    pushf
-    cli
-    push ax
-    push bx
-    push es
-    push ds
-    pop ax                      ; AX = the image we are about to enter
-    mov bx, KERNEL_SEG
-    mov es, bx
-    mov bl, [es:drv_depth]
-    xor bh, bh
-    cmp bl, DRV_DMAX
-    jae .over                   ; deeper than drv_segs records: mem_drv_inside
-    shl bx, 1                   ; pins every image rather than guess
-    mov [es:bx+drv_segs], ax
-.over:
-    inc byte [es:drv_depth]
-    pop es
-    pop bx
-    pop ax
-    popf
-    ret
-
-drv_leave:
-    pushf
-    cli
-    push ax
-    push es
-    mov ax, KERNEL_SEG
-    mov es, ax
-    dec byte [es:drv_depth]
-    pop es
-    pop ax
-    popf
-    ret
-
-; ...and the FAR entries, for the two sites that are .text (vmmouse.inc,
-; xmem.inc). SPEC.md 2.6.1: a far entry ends in `retf` and is never near-called,
-; so the pair above cannot simply be far-called - hence four bytes each rather
-; than a second copy. `call`/`retf` touch no flag, so a verb's CF still comes
-; back out through drv_leave_x.
-drv_enter_x:
-    call drv_enter
-    retf
-drv_leave_x:
-    call drv_leave
-    retf
 
 drv_svc_none:
     xor ax, ax
@@ -1806,13 +1725,13 @@ drv_fs_call:
                                 ; COLD_SEG here (SPEC.md 2.6 rule 1), and the
                                 ; push has to come before DS is spent below
     mov ds, [es:drv_fseg5]
-    call drv_enter              ; SPEC.md 66.6.3
+    call wm_nest_pushd          ; SPEC.md 66.6.3
     call far [es:drv_fptr5]     ; drv_fptr5/drv_fseg5 are adjacent and in that
-    call drv_leave
     pop es                      ; order, so they ARE the far pointer - no
     pop ds                      ; staging like drv_blk_call's is needed
-    pop word [snd_inst]         ; ...and it touches no flag, so the driver's
-    ret                         ; CF still comes back out
+    call wm_nest_pop            ; ...and DS names the kernel again, which is
+    pop word [snd_inst]         ; the segment the pop reads. Neither touches a
+    ret                         ; flag, so the driver's CF still comes back out
 .none:
     pop di
     pop es
@@ -1905,11 +1824,11 @@ drv_cp_call_x:
                                 ; (SPEC.md 2.6 rule 2)
     pop es
     mov ds, [es:si+2]
-    call drv_enter              ; SPEC.md 66.6.3
+    call wm_nest_pushd          ; SPEC.md 66.6.3
     call far [es:si]
-    call drv_leave
     pop es
-    pop ds
+    pop ds                      ; ...and DS names the kernel again, which is
+    call wm_nest_pop            ; the segment the pop reads
     pop word [snd_inst]
 .out:
     pop di
@@ -4385,14 +4304,6 @@ drv_wcnt:   resb 1              ; live driver worker tasks: +1 inside the
                                 ; needs none of this state (SPEC.md 62.9.15)
 drv_dlg_row: resw 1             ; the row that asked for a file dialog, 0 =
                                 ; nobody (SPEC.md 51.10)
-drv_depth: resb 1               ; HOW DEEP THE MACHINE IS INSIDE A DRIVER IMAGE
-drv_segs:  resw DRV_DMAX        ; ...and WHICH ONE at each level (SPEC.md
-                                ; 66.6.3). A stack and not a count, for
-                                ; wm_pkgd's reason one layer along: a driver
-                                ; verb that CLAIMS makes the depth non-zero at
-                                ; exactly the moment the compaction it
-                                ; triggered runs, so a count alone would pin
-                                ; every image against itself
 drv_dlg_seg: resw 1             ; ...the image it was in, so a detach between
                                 ; the ask and the answer refuses
 drv_dlg_cb: resw 1              ; ...and its near completion proc

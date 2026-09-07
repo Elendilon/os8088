@@ -13,11 +13,11 @@ Reads, per sample:
 
 A record is base segment, size in paragraphs, owner, the page-safe DMA head,
 MC_RLOC - which is 0 for PINNED and the near offset of a relocation proc
-otherwise (SPEC.md 66.2) - and MC_HI, the DOOR it came in by. Those last two
-are the whole point: "can this claim be compacted, and WHERE TO" is a
+otherwise (SPEC.md 66.2) - and, in MC_DMA's top bit, the DOOR it came in by.
+Those last two are the whole point: "can this claim be compacted, and WHERE TO" is a
 machine-readable fact, not something to grep the drivers for.
 
-MC_HI IS HALF THE ANSWER AND WAS MISSING HERE. A claim goes back through the
+THE DOOR BIT IS HALF THE ANSWER AND WAS MISSING HERE. A claim goes back through the
 door it came in by (SPEC.md 66.4.1): the ascending pass packs the bottom-up
 claims down and must not drag a top-down one with it, and the descending pass
 is the mirror. Without the bit, `compacted()` below packed EVERY movable claim
@@ -43,7 +43,8 @@ import os88sym                                              # noqa: E402
 MEM_MAX = 32
 MC_SIZE = os88geom.MC_SIZE
 MC_SEG, MC_PARA, MC_OWN, MC_DMA, MC_RLOC = 0, 2, 4, 6, 8
-MC_HI = os88geom.MC_HI
+MC_DMA_HI = os88geom.MC_DMA_HI      # MC_DMA bit 15: the door it came in by
+MC_DMA_HEAD = os88geom.MC_DMA_HEAD  # ...and the page-safe head under it
 INST_MAX = 12
 
 # 0xFF00 | tag - the kernel's own claims (SPEC.md 50.2); 0xFB..0xFE in the
@@ -130,9 +131,10 @@ class Claim(object):
         self.seg = u16(r, MC_SEG)
         self.para = u16(r, MC_PARA)
         self.own = u16(r, MC_OWN)
-        self.dma = u16(r, MC_DMA)
+        place = u16(r, MC_DMA)          # ONE WORD, two placement facts:
+        self.dma = place & MC_DMA_HEAD  # the page-safe head...
+        self.hi = (place & MC_DMA_HI) != 0   # ...and the door it came in by
         self.rloc = u16(r, MC_RLOC)
-        self.hi = r[MC_HI] != 0         # a BYTE: the door it came in by
 
     @property
     def end(self):

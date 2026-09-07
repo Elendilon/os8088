@@ -870,26 +870,10 @@ task_spawn:
                                 ; address is already parked in T_SP above, so
                                 ; stosw may walk it. DF is 0 from the fill's
                                 ; own cld and nothing between touches it
-    mov ax, bp
-    stosw                       ; DS  = the task's own segment
-    mov ax, KERNEL_SEG
-    stosw                       ; ES  = the kernel, always (SPEC.md 20.1)
-    xor ax, ax
-    stosw                       ; BP
-    stosw                       ; DI
-    stosw                       ; SI
-    stosw                       ; BX
-    xchg ax, dx                 ; one byte each way, and DX is wanted below
-    stosw                       ; DX  = the spawn argument
-    xchg ax, dx
-    stosw                       ; CX
-    stosw                       ; AX
-    mov ax, si
-    stosw                       ; IP  = entry
-    mov ax, bp
-    stosw                       ; CS  = the task's own segment
-    mov ax, 0x0202
-    stosw                       ; FLAGS: IF=1, reserved bit 1 set
+    call sch_frame              ; BP = the segment, SI = the entry, DX = the
+                                ; spawn argument, ES:DI = the frame - and
+                                ; sch_wk_restart builds the identical twelve
+                                ; words when it throws a worker's stack away
     mov [bx+T_INST], dl         ; owning instance (0xFF = none)
     mov byte [bx+T_FLAGS], 0    ; TF_SERVICE is the driver cell's to set
                                 ; (SPEC.md 53.2), never inherited
@@ -921,6 +905,41 @@ task_spawn:
     pop dx
     pop cx
     pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; sch_frame - write a task's initial register frame (module internal)
+; in:  BP = the segment it runs in, SI = the entry offset, DX = the instance
+;      index (the worker's documented `in:`), ES:DI = the frame, DF = 0
+; out: DI past it; AX spent, everything else preserved
+;
+; TWELVE WORDS IN sch_switch's POP ORDER, and there are two callers because
+; there are two ways a task's stack comes to be empty: task_spawn cuts a fresh
+; slice, and sch_wk_restart throws a live one away (SPEC.md 66.6.2). They must
+; agree word for word - a frame the scheduler resumes is not a structure it
+; validates - so they are one body rather than two that look alike.
+; -----------------------------------------------------------------------------
+sch_frame:
+    mov ax, bp
+    stosw                       ; DS  = the task's own segment
+    mov ax, KERNEL_SEG
+    stosw                       ; ES  = the kernel, always (SPEC.md 20.1)
+    xor ax, ax
+    stosw                       ; BP
+    stosw                       ; DI
+    stosw                       ; SI
+    stosw                       ; BX
+    xchg ax, dx                 ; one byte each way, and DX is wanted by the
+    stosw                       ; DX  = the instance index
+    xchg ax, dx                 ; caller
+    stosw                       ; CX
+    stosw                       ; AX
+    mov ax, si
+    stosw                       ; IP  = entry
+    mov ax, bp
+    stosw                       ; CS  = the task's own segment
+    mov ax, 0x0202
+    stosw                       ; FLAGS: IF=1, reserved bit 1 set
     ret
 
 ; -----------------------------------------------------------------------------
@@ -963,49 +982,31 @@ sch_wk_restart:
     push si
     push di
     push es
+    push bp
     cli                         ; the frame below is what sch_switch resumes
                                 ; from, so it is built whole or not at all
     xor ah, ah                  ; AX = the slot
     mov si, ax
+    mov byte [si+sch_parked], 0 ; ...and it is NOT parked any more: see above
     shl si, 1                   ; SI = slot*2, the index BOTH slice tables take
     mov di, [si+sch_stkbase]
-    mov dx, [si+sch_stksize]
-    add dx, di                  ; base + size = the slice TOP...
-    sub dx, SCH_FRAME           ; ...and the frame is carved from it, exactly
-    mov di, dx                  ; as task_spawn carves it
-    mov si, ax
-    mov byte [si+sch_parked], 0 ; ...and it is NOT parked any more: see above
-    shl si, 1                   ; T_SIZE = 8, as three open shifts (sch_currec's
-    shl si, 1                   ; idiom - CX is the entry offset here and AX is
-    shl si, 1                   ; the slot)
+    add di, [si+sch_stksize]    ; base + size = the slice TOP...
+    sub di, SCH_FRAME           ; ...and the frame is carved from it, exactly
+    shl si, 1                   ; as task_spawn carves it. T_SIZE = 8, so the
+    shl si, 1                   ; record index is two more open shifts
+                                ; (sch_currec's idiom)
     mov [si+sch_tasks+T_SP], di
     mov dl, [si+sch_tasks+T_INST]   ; DX = THE INSTANCE INDEX and not the task
     xor dh, dh                      ; slot: it is task_spawn's spawn argument
                                     ; and the worker's documented `in:`, and
                                     ; the two are different numbers
+    mov bp, bx                  ; the segment and the entry into the shared
+    mov si, cx                  ; builder's registers
     push ss
     pop es                      ; ES = LOW_SEG: the frame lives there and DS
     cld                         ; cannot reach it
-    mov ax, bx
-    stosw                       ; DS  = the region's NEW segment
-    mov ax, KERNEL_SEG
-    stosw                       ; ES  = the kernel, always (SPEC.md 20.1)
-    xor ax, ax
-    stosw                       ; BP
-    stosw                       ; DI
-    stosw                       ; SI
-    stosw                       ; BX
-    xchg ax, dx
-    stosw                       ; DX  = the instance index, task_spawn's own
-    xchg ax, dx                 ; spawn argument and the worker's `in:`
-    stosw                       ; CX
-    stosw                       ; AX
-    mov ax, cx
-    stosw                       ; IP  = the declared restart point
-    mov ax, bx
-    stosw                       ; CS  = the region's new segment
-    mov ax, 0x0202
-    stosw                       ; FLAGS: IF=1, reserved bit 1 set
+    call sch_frame              ; ...and the same twelve words task_spawn
+    pop bp                      ; writes, from the same body
     pop es
     pop di
     pop si

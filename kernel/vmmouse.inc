@@ -127,11 +127,11 @@ vmm_dsp:
                                 ; things it was handed through
     mov  bp, [es:vmm_row+DRVR_ENT]
     mov  ds, [es:vmm_row+DRVR_SEG]
-    call COLD_SEG:drv_enter_x   ; SPEC.md 66.6.3 - this site is .text and
+    call COLD_SEG:wm_nest_pushd_x   ; SPEC.md 66.6.3 - this site is .text
     call far [es:vmm_row+DRVR_DISP]
-    call COLD_SEG:drv_leave_x   ; the bracket lives with the other five
     pop  es
-    pop  ds
+    pop  ds                     ; ...and DS names the kernel again, which is
+    call COLD_SEG:wm_nest_pop_x ; the segment the pop reads
     ret
 
 ; -----------------------------------------------------------------------------
