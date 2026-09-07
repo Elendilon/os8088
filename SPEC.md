@@ -98473,6 +98473,22 @@ frame rate comes out on the right side of it. `climb` is the one row that
 loses, by 5%: it is mostly sky and ground, where the fill's saving is
 smallest and the blit's doubled byte is the whole difference.
 
+##### 88.15.6.1 The two prompts that name a speed are composed twice
+
+§88.7.9's take-off prompt and tow release name **this aeroplane's** rotate
+speed, not the Cessna's, and the sentence they name it in is 29 characters
+before the number — which is right in a cockpit's forty cells and does not
+fit the fourteen a message gets on the strip. So `cs_gspeed` takes a **pair**
+of openings and composes both: the long one into `cs_promptb` and `ROTATE 55
+KT` into `cs_promptc`, with each panel's message table naming its own.
+
+**Both, and not the live backend's one**, because that makes it free of
+ordering: a **Mode pick does not clear `[cs_inited]`** — it is not the
+aeroplane or the airport that changed — so a prompt composed for whichever
+backend happened to be running would still be up the next time the other one
+was entered. Composing both costs one extra pass through 40 bytes, once per
+reset.
+
 #### 88.15.7 It is offered on `VID_CGA` and nowhere else
 
 The mode is programmed by writing the 6845 directly, and a VGA or an EGA
@@ -98491,6 +98507,17 @@ to match (§88.13). The byte then means the same thing on either machine and
 the row greys itself on Hercules, which has no second mode at all. The
 default on a CGA is 0 — **CGA320, exactly what shipped** — so a player who
 never opens the page is flying what they flew before, which is §88.13's rule.
+
+**It is one of the five bytes §88.13.9 keeps**, and "which of the two" is the
+right thing to keep: `cs_set_max` clamps it to 1, so a `CSSET.DAT` written on
+a VGA and carried to a CGA — or the other way — always names a mode that
+machine actually has, and `cs_adapter` re-derives `[cs_want]` and
+`[cs_fsxm]` from the live `[vid_kind]` on every entry and every window move.
+What it does not carry across is the *meaning*: a player who chose CGA320 on
+a VGA and takes the disk to a real CGA gets the 16-colour mode. That is a
+setting behaving like a setting rather than a defect — both ends are a
+deliberate second choice — and it is the price of a byte that means the same
+thing on machines with different modes in them.
 
 ### 88.12 What it costs
 

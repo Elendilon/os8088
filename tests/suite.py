@@ -1750,9 +1750,14 @@ SOAK = [
         " three readings changing over a climb with the speed standing beside"
         " the take-off prompt, and nothing stale against a forced full"
         " redraw, and a SIZE change that keeps the mode - black is 0x00DE"
-        " here and not 0. Two red runs: --clobber-crtc leaves the 6845's max"
-        " scan line at 7 and --clobber-clear zeroes the screen on this"
-        " backend too. Measured at 34 s wall alone on an idle four-core box",
+        " here and not 0, and the take-off prompt naming THIS aeroplane's"
+        " rotate speed in the strip's own units. Three red runs:"
+        " --clobber-crtc leaves the 6845's max scan line at 7,"
+        " --clobber-clear zeroes the screen on this backend too, and"
+        " --clobber-fit lengthens the strip's sentence past the fourteen"
+        " cells it gets with cs_d_msg's fit clamp taken out - which is a"
+        " message that vanishes off the glass entirely. Measured at 35 s"
+        " wall alone on an idle four-core box",
         needs=("marty",), serial=True),
     Row("fsxclip", "soak", py("tests/fsxclip.py"), 22.0,
         "SPEC.md 53.1.1: an fsx bracket entered from a CLICK handler comes"

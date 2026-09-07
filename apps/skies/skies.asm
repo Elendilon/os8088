@@ -2383,6 +2383,11 @@ CS_SWOOPHI equ 900              ; DOWN from the top in sink
     ZBUF  cs_promptb, 44            ; THE TAKE-OFF PROMPT (88.7.9), composed
                                     ; from the aeroplane's own record: the
                                     ; longest is 29 + 3 digits + ' KNOTS'
+    ZWORD cs_gsuf                   ; the units the sentence being composed
+                                    ; ends in: ' KNOTS' or ' KT' (88.15.6.1)
+    ZBUF  cs_promptc, 16            ; ...and the ONE-LINE strip's own, which
+                                    ; is the same sentence in fourteen cells
+                                    ; (88.15.6.1): 'ROTATE 55 KT'
     ZWORD cs_airv                   ; the air's rate here (88.7.6.3), the sign
     ZBYTE cs_airs                   ; of the last one, and the swoop it starts
     ZBYTE cs_swdir

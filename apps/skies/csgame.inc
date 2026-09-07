@@ -1208,11 +1208,14 @@ cs_d_msg:                           ; the message line, padded to 40 cells
     mov cx, 8
     mul cx
     mov cx, [cs_vw]
-    sub cx, [cs_msgx0]              ; centred in what is LEFT of the line
+    sub cx, [cs_msgx0]              ; centred in what is LEFT of the line...
     sub cx, ax
-    shr cx, 1
-    add cx, [cs_msgx0]
-    push cx
+    jg .fits                        ; ...UNLESS IT DOES NOT FIT, and the shift
+    xor cx, cx                      ; below is UNSIGNED: one cell too long
+.fits:                              ; made the pen 0x7FFC, cs_text's `and cl,
+    shr cx, 1                       ; 0xF8` left the high bits, and cs_glyph's
+    add cx, [cs_msgx0]              ; own `js .out` then dropped every cell -
+    push cx                         ; a whole message that simply vanished
     mov al, [cs_msgink]
     call cs_setink
     pop cx
@@ -1268,19 +1271,24 @@ cs_msgtab:   dw cs_g_none, cs_promptb, cs_g_stall, cs_g_landed
 ; It is a second table and not a shortened first one because a cockpit panel
 ; is forty cells wide and has the room: what the strip cannot hold, every
 ; other backend can, and neither should be cut to the other's width.
-cs_msgtab160: dw cs_g_none, cs_g_t160, cs_g_s160, cs_g_landed
-             dw cs_g_c160, cs_g_paused, cs_g_e160, cs_g_r160
+cs_msgtab160: dw cs_g_none, cs_promptc, cs_g_s160, cs_g_landed
+             dw cs_g_c160, cs_g_paused, cs_g_e160, cs_promptc
              dw cs_g_p160, cs_toastbuf
-cs_g_t160:   db 'FULL POWER', 0
 cs_g_s160:   db 'STALL - NOSE DOWN', 0
 cs_g_c160:   db 'CRASHED', 0
 cs_g_e160:   db 'TURN BACK', 0
-cs_g_r160:   db 'TOW RELEASED', 0
 cs_g_p160:   db 'DOWN ON WATER', 0
 cs_g_none:   db 0
+; opening, suffix - a cockpit's, then the one-line strip's (88.15.6.1)
+cs_g_take:   dw cs_g_take0, cs_g_kt, cs_g_take1, cs_g_kt1
+cs_g_tow:    dw cs_g_tow0, cs_g_kt, cs_g_tow1, cs_g_kt1
 cs_g_take0:  db 'FULL THROTTLE, PULL BACK AT ', 0
 cs_g_tow0:   db 'TOW RELEASED - NOSE DOWN FOR ', 0
+cs_g_take1:  db 'ROTATE ', 0        ; 'ROTATE 55 KT' - twelve of the fourteen
+cs_g_tow1:   db 'DOWN TO ', 0       ; cells the strip lends a message (88.15.6)
 cs_g_kt:     db ' KNOTS', 0
+cs_g_kt1:    db ' KT', 0           ; ...so 'ROTATE 54 KT' is twelve cells of
+                                    ; the fourteen the strip lends a message
 cs_g_stall:  db 'STALL - NOSE DOWN, POWER ON', 0
 cs_g_landed: db 'LANDED', 0
 cs_g_crash:  db 'CRASHED INTO ', 0

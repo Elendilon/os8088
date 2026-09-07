@@ -37,11 +37,13 @@ one of them is about something no other CGA mode can do:
 ...and the strip itself: the three readings letter, they CHANGE over a climb,
 and a message takes cells 6..19 while leaving the speed standing (88.15.6).
 
-Two red runs (docs/WRITING-TESTS.md 1). --clobber-crtc puts R9 back to 7, so
+Three red runs (docs/WRITING-TESTS.md 1). --clobber-crtc puts R9 back to 7, so
 the card stays in 80x25 and check 5 must go red; --clobber-clear makes
 cs_scrclear zero the screen on this backend as it does on the other two,
 which takes every character cell out on a size change and leaves a picture
-nothing can be seen in.
+nothing can be seen in; and --clobber-fit lengthens the strip's own sentence
+past the fourteen cells it gets and takes cs_d_msg's fit clamp out with it,
+which is the whole message vanishing off the glass.
 """
 import argparse
 import os
@@ -99,6 +101,10 @@ def main(argv):
     ap.add_argument("--clobber-crtc", action="store_true",
                     help="leave the 6845's max scan line at 7, so the card"
                          " stays in 80x25: check 5 must go red")
+    ap.add_argument("--clobber-fit", action="store_true",
+                    help="the strip's sentence back to ' KNOTS' AND cs_d_msg's"
+                         " does-it-fit clamp taken out: the prompt vanishes"
+                         " off the glass entirely, which is the defect")
     ap.add_argument("--clobber-clear", action="store_true",
                     help="cs_scrclear zeroes the screen on this backend too,"
                          " so a size change takes the character cells out:"
@@ -162,6 +168,23 @@ def main(argv):
             m.write(lin + lo + i + 1, b"\xEB")
             m.run()
             print("  (cs_scrclear zeroes the screen: this run must fail)")
+
+        if a.clobber_fit:
+            # TWO patches, because the defect needs both halves: a message
+            # one cell too long for the space it is given, and the unsigned
+            # subtraction that used to turn that into a pen of 0x7FFC
+            m.pause()
+            m.write(lin + mp["cs_g_take"] + 6,
+                    mp["cs_g_kt"].to_bytes(2, "little"))
+            code = m.read(lin + mp["cs_d_msg"], 0x140)
+            i = code.find(b"\x7F\x02\x31\xC9")     # jg .fits / xor cx, cx
+            if i < 0:
+                sys.exit("skies160: cs_d_msg does not hold 88.15.6.1's fit "
+                         "clamp where this patch expects it")
+            m.write(lin + mp["cs_d_msg"] + i, b"\xEB")
+            m.run()
+            print("  (the message's fit clamp taken out and its sentence "
+                  "lengthened: this run must fail)")
 
         check(byte("cs_vidk") == 2,
               "the display is a real CGA, which is the one this mode is "
@@ -265,10 +288,29 @@ def main(argv):
         # to be readable beside it (88.15.6)
         pany = w("cs_pany")
         strip = rows160(m, pany, pany + 13)
-        spd = [row[:5] for row in strip]             # cells 0..4
+        spd = [row[:5 * 4] for row in strip]         # cells 0..4, 4 bytes each
         check(any(b for row in spd for b in row),
               "the speed is lettered beside the take-off prompt, in the five "
               "cells the message starts after")
+        # ...AND THE PROMPT ITSELF IS ON THE GLASS. cs_d_msg centres a message
+        # in what is left of the line, and that subtraction is UNSIGNED: one
+        # cell too long made the pen 0x7FFC, cs_text's `and cl, 0xF8` left the
+        # high bits and cs_glyph's own `js .out` then dropped every cell, so a
+        # message that did not fit did not appear AT ALL. The strip is the
+        # only panel narrow enough to reach it, and it reached it on the very
+        # first sentence it was given (88.15.6.1)
+        # THE GLYPH ROWS ONLY (3..10 of the strip): row 0 is the rule
+        # cs_pface draws across the WHOLE width, so a field read from the
+        # top of the strip is lit whatever the message did - which is how
+        # this check passed its own red run the first time
+        msgf = [row[6 * 4:] for row in strip[3:11]]  # cells 6..19
+        check(any(b for row in msgf for b in row),
+              "...and the take-off prompt is lettered beside it, in the "
+              "fourteen the strip lends a message")
+        prompt = m.readseg(seg, base + off("cs_promptc"), 16).split(b"\x00")[0]
+        check(b"KT" in prompt and any(c in b"0123456789" for c in prompt),
+              "...and it names THIS aeroplane's rotate speed in the strip's "
+              "own units (%r)" % prompt)
         m.key("ArrowDown", down=True, up=False)      # the stick back
         for _ in range(60):
             m.advance(frames=20)
