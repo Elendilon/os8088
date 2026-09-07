@@ -11216,7 +11216,10 @@ it was found:
    - **bit 5 clear** — the port is already clocked, which says the same thing
      more directly.
 
-   Either one is enough. A byte saying neither falls back to the older road —
+   Either one is enough. **Bit 5 is also WRONG on an AT controller**, where it
+   is PC mode rather than the aux clock, and §9.9.7 is that field defect and
+   why the test stays anyway. A byte saying neither falls back to the older
+   road —
    `0xA8`, then read the command byte again and see whether bit 5 cleared —
    which is correct where it works and is **why it is now the fallback rather
    than the path**: on a Phoenix 8042, enabling the auxiliary port while the
@@ -11561,6 +11564,98 @@ The decision tree it collapses, in the order the columns are read:
 | `p2st 09`, `irq 0000` | the handshake completed and the line never fired: the cascade, the mask, or the vector |
 | `p2st 09`, `irq` moving, `pkt 0000` | bytes arrive and never sync — read `b0` |
 | `pkt` moving, `x` still | decoded and not applied |
+
+#### 9.9.7 THE FIELD DEFECT: command-byte bit 5 is PC MODE on an AT controller
+
+The field reported an `ami286`/`mr286` in 86Box — `keyboard_type =
+keyboard_at`, `mouse_type = msserial`, so **an AT-class 8042 with no auxiliary
+port** — where the keyboard delivered every key at the **wrong character**:
+`f` typed `\`. `NOPS2=1` was clean, `NOCHAINPRIV=1` and `NOMOUPRIV=1` were
+not, so §9.9's probe owned it, and `MOUDIAG=1` gave the two numbers that
+settle it:
+
+```
+tier 1  aux E0  cmd 65  id 00  irq 0000
+sub 2   pre 1C  pic A0  st 14  cm1 55
+```
+
+`cm1 55` is the command byte as read (bit 4 is our own `0xAD`), `cmd 65` is
+what the probe banked and `.fail` wrote back. **The only bit that changed
+other than 4 is bit 5, `0 → 1`.**
+
+| bit | PS/2 controller | **AT controller** |
+|---|---|---|
+| 5 | disable the auxiliary clock | **IBM PC Mode** |
+| 6 | translate set 2 → set 1 | translate set 2 → set 1 |
+
+**In PC mode an 8042 stops translating.** The keyboard's set-2 `f` is `0x2B`,
+and set-1 `0x2B` is backslash — which is the reported character, exactly. One
+bit, and every key on the machine is wrong.
+
+Two defects, one behind the other.
+
+**The misread.** §9.9.1 step 2 took *bit 5 clear* as evidence of an auxiliary
+port. On a PS/2 controller that reads "the aux clock is running"; on an AT
+controller it reads "AT mode, not PC mode", which every AT BIOS leaves clear
+and which says nothing about an aux port. `cm1 55` has bit 1 clear and bit 5
+clear, so the probe went down `.haveaux` on a machine with no such port, reset
+a device that was not there and timed out — `st 14`, `sub 2`, `aux E0`, which
+§9.9.6 already names as "the byte itself carried the evidence". It carried the
+wrong evidence.
+
+**The bit-5 shortcut STAYS, and taking it out was the first version of this
+fix.** Removing it sends every machine whose BIOS left bit 1 clear down the
+`0xA8` road — which is the road §9.9.1 step 3 records as having *stopped* on
+a **Phoenix 8042**, and which the shortcut exists to keep those machines away
+from. The replacement considered was a *differential* `0xA8` — write the byte
+with bit 5 SET, send the command, require the bit to have cleared — and that
+is worse still on the machine this section is about: **it puts an AT
+controller into PC mode on purpose**, which is the exact bit that caused the
+defect. Both were built and both were reverted.
+
+Trading a machine with field evidence for one without is the wrong trade, and
+the hardening was never load-bearing: **the restore below is what cures the
+reported defect on its own**, and with it the misidentification costs a probe
+that fails at step 5 and puts the controller back. Walk it on the field
+byte — `cm1 55`: step 4 writes `(0x65 & 0xDD) | 0x10` = `0x55`, which is bit 5
+CLEAR and translate on, so the controller is never in PC mode even
+transiently; step 5 times out; `.fail` writes `0x45`, exactly what the BIOS
+had. And step 6 is why an AT controller that *does* pass `0xD4`'s byte to the
+keyboard still cannot fool it: a keyboard answers `0xFA` `0xAA` to a reset and
+then nothing, so the device-ID read times out into `.fail`.
+
+**The damage.** `.fail`'s own comment said it restored "its command byte
+exactly as the BIOS had it", and it did not: `[mou_p2cmd0]` is banked with bit
+4 forced clear and **bit 5 forced set**, for `mou_p2_off`'s sake, and both
+failure paths wrote that. On a PS/2 controller the forced bit is harmless and
+intended — it is the aux clock, which those paths want off. On an AT
+controller it is PC mode, latched for the rest of the session.
+
+`[mou_p2cmdr]` is the raw byte with bit 4 alone cleared, banked beside it, and
+it is what `.fail` and `.noaux` write now — **the whole of the fix, and the
+only part of it that survived review**. `[mou_p2cmd0]` stays exactly as it
+was for `mou_p2_off`, which only ever runs on a controller where a PS/2 mouse
+answered its own reset — so bit 5 there is the aux clock by construction.
+
+**And it cannot be gated at runtime by anything in this tree**, which is why
+its gate is a source check (`tests/unit/t_p2restore.py`, fast tier: the
+failure arms write `[mou_p2cmdr]` and the doctored bank reaches only the
+success path, `mou_p2_off` and the `MOUDIAG` panel). On QEMU the probe
+SUCCEEDS, so no failure path runs at all — and QEMU's `i8042` does not model
+the translate bit either, which was measured rather than assumed: clearing
+bit 6 deliberately in the success path leaves `tests/ps2mouse.py` **fully
+green**, six keys queued and all six the right letter. That row now checks
+the CHARACTERS the BIOS enqueued and not only that it enqueued twelve bytes,
+because counting entries is what the field defect would have passed; the
+check is right and has no teeth on this host, and says so where it stands.
+
+**What made this unfindable.** §9.9's probe is gated on `[cpu_tier]`, so it
+does not run on an 8088 at all — MartyPC is one. QEMU's `i8042` is a PS/2
+controller with an aux port and a mouse on it, where bit 5 means what the code
+thought. 86Box's `386-ps2` has one too. The machine class this needed is *a
+non-XT whose 8042 has no aux port*, which is what `NOPS2=1`'s own entry in the
+knob table has said since the day it was written, and which nothing in the
+tree can host. It took a field machine, three A/B disks and `MOUDIAG=1`.
 
 ### 9.10 Both mouse ISRs run on a stack of THEIR OWN, not the interrupted task's
 
@@ -96695,10 +96790,16 @@ Sources: [Abrash, ch. 38 "The Polygon Primeval"](https://www.phatcode.net/res/22
 | VGA | `FSXM_MODEX` | 320×240 at (0,0) | 320×144 | 96 rows | page flip, 2 pages |
 | CGA | `FSXM_CGA320` | 320×200 at (0,0) | 320×112 | 88 rows | shadow + blit |
 | HERC | `FSXM_HERC` | 640×200 at (40,74) | **400×112**, bytes 15..64 | 88 rows | shadow + blit |
+| CGA | `FSXM_TEXT80` | **160×100×16** at (0,0) (§88.15) | 160×87 | **13 rows** | shadow + an expanding blit |
+
+The last row is a **text** mode retimed into a graphics one, and it is a
+CGA's second option rather than a fourth adapter: §88.15 is the whole of it.
 
 The box is Tank's, for Tank's reason: a CGA row, a Hercules 640-pixel row and
 a Mode X plane row are all 80 bytes, so `add di, 80` steps a row on every
-backend and there is one raster with three plots. The **view** is the part of
+backend and there is one raster with three plots — and 160 pixels at two per
+byte is 80 bytes as well, which is why the fourth backend needed no new
+raster (§88.15.1). The **view** is the part of
 the box the world is drawn in, and the Hercules one is narrower than the box
 so that the 1bpp machine fills 50 bytes a row rather than 80. On Hercules the
 projection scales are 443 horizontally and 285 vertically — the pixel scale
@@ -96803,6 +96904,46 @@ the sky pass's kind-change path widen them), and `cs_blit` walks the union
 of the two ranges. Before that it walked all 200 rows of the box to find
 the 112 of the view, and the 88 panel rows cost 150 cycles each to be found
 empty: 13,000 cycles a frame, 2.8 ms, for nothing.
+
+#### 88.3.3.1 …and the horizon's own band was not one of them
+
+The field reported it twice over: *"I fly far out, and then when turning the
+horizon doesn't turn, at all — it just stays stable. If I change my bank
+angle it will draw only at SOME of the bank angles"*, and wedges of ground
+appearing and disappearing as the bank changed — positive and negative, and
+not accumulating.
+
+`cs_skyground` computes the horizon perfectly. Pinned at a 45° bank,
+`cs_xl` reads 372, 347, 322, 297… down the view — a correct diagonal — and
+at 90° it reads 296 on every row, a vertical line where the arithmetic puts
+it. **The band rows were drawn into the shadow and never carried to the
+glass.**
+
+The band's loop writes each split row's own span, which looks like enough
+and is not: §88.3.3's range is what `cs_blit` walks, and it was widened by
+`cs_hzrows`' kind-change arm, by `cs_markrows` and by `cs_markspan` — and by
+nothing in the band. A frame in which no row changed KIND and no object
+marked anything therefore blitted nothing at all, and the glass kept
+whatever was on it.
+
+**That is why it looked like an intermittent artifact rather than a plain
+missing feature.** In ordinary flight the pitch wobbles, rows cross the
+horizon and change kind, and buildings come and go — so the range covers the
+view and the horizon turns. Fly straight and level far from anything, where
+no row changes kind and there is nothing to mark, and it stops: the fill is
+correct, the blit is asleep. A partial cover gives the wedges — the rows the
+range happens to name update and the rest do not.
+
+The fix is four compares before the band loop, taking the band's first and
+last row into the set's range. It is where the range was always meant to be
+widened; `cs_hzrows` does exactly this for the rows it fills.
+
+`tests/skieshz.py` is the gate, and it works the way the diagnosis did:
+it pins an attitude — which is what makes the failure reachable, because a
+pinned world is a world where nothing else marks anything — and checks the
+GLASS against the guest's own `[cs_nx]`/`[cs_ny]`/`[cs_nz]` over four-row
+groups, one of each dither phase. `--clobber-range` takes the four compares
+back out.
 
 #### 88.3.4 The Hercules view is 400 wide
 
@@ -96965,6 +97106,34 @@ under the wheels is forty of them (§88.5.5) — skips the masks and the ends
 and is one `rep stosw`, ~500. The general loops are what CGA and Mode X
 still run, and what keeps the generic path assembling.
 
+##### 88.4.6.1 An exactly horizontal segment lands where it was asked
+
+`CS_SLICE`'s `%%flat` arm — dy zero, so the whole line is one run — jumped
+into the shared row loop **without loading DX**, and DX is where that loop
+takes the run's first x. What DX actually held was `3 x BP` from the
+caller's own slice test, and BP is `2|dy|`, so for a flat line it was
+**zero**: every exactly horizontal segment on CGA and the 160x100 hack was
+drawn at the view's LEFT EDGE, at its correct row and its correct length.
+Hercules never had it (`cs_slice_herc` keeps x in SI throughout) and Mode X
+does not take the slice at all.
+
+It survived the program's whole life because of what it takes to make one.
+The angle must be EXACT — a roll of one unit tilts it — so it wants a model
+edge between two vertices of the same height seen with the wings level, and
+the first such edge in any world is the Eiffel Tower's platform bar
+(§88.5.4.5). Even then it never reached the glass: the run landed where
+nothing had MARKED (§88.3.1), so it sat in the shadow and surfaced only as
+a stale pixel in `skiescga`'s dirty-row check, at the other end of the
+screen from the tower. That is one commit spent reading a drawing defect as
+a dirty-row defect.
+
+The fix is `mov dx, [cs_slx]` in the flat arm, four bytes on the one path a
+flat line can reach: no sloped line, no polygon row and no other backend
+executes it, so nothing else pays. `tests/skiesflat.py` is the gate and
+asks the direct question — stood on the Issy runway looking at the tower,
+the bar is a nine-pixel run at the tower's own x with nothing at the left —
+and `--clobber-flat` NOPs those four bytes and moves it to x = 0.
+
 #### 88.4.7 A small solid keeps no outline
 
 Twelve segments round a fifteen-pixel box cost more than the box, and at
@@ -97064,6 +97233,39 @@ fewer than Q14 on a machine that does five hundred of these a frame. A
 rotation matrix's entries are bounded by 1 and the products are truncated,
 so no sum of two reaches 32768; cos 0 is 32767 and the 1/32768 it is short
 is nobody's pixel.
+
+#### 88.5.9 …and the table is a QUARTER of the turn
+
+`cssin.inc` held 1,024 entries — a whole turn at 2,048 bytes — and three
+quarters of it are the first quarter reflected and negated. It holds 257 now
+(**514 bytes**, saving 1,534), and `cs_sin` reads the index's top two bits as
+the quadrant: bit 8 says the quarter runs backwards, bit 9 says the result is
+below the axis. Two tests and a `neg`.
+
+**That is a size change and not a speed one, and the reason it is allowed to
+be is the call count**: `cs_sin`/`cs_cos` have **twenty-five call sites in
+the whole package**, all of them in the matrix, the flight model and the
+panel — §88.5's *one matrix a frame* is exactly why this is not the
+per-vertex path, and the nine multiplies a vertex never touch it.
+
+It was made a size change by a MERGE. Two branches of Clear Skies, each with
+a few hundred bytes of headroom, met at 360 bytes over `APP_MAX_SIZE` — which
+is the whole of what that guard is for. The lever it named as the next one
+has since been pulled and is §88.10.2: `csart.inc` was 10,479 bytes, 21.6%
+of the image, and the six bands now ride as one LZ4 stream that expands into
+a claim, which is 5,900 bytes of image for nothing on a frame's path. The
+quarter table stands on its own merits either way — a whole turn of a table
+whose three quarters are the first one reflected is 1,534 bytes nobody
+needs, at whatever headroom.
+
+**One value changed by one unit.** The old table clamped only the positive
+peak, so sin 270° was −32,768; a quarter table's peaks are symmetric and it
+is −32,767 — the same 1/32768 §88.5.3 already calls nobody's pixel, at one
+index of 1,024. `tests/unit/t_cssin.py` asserts that difference rather than
+tolerating it, holds the 257 entries to §88.5's own snippet, and walks the
+reflection over a whole turn against `sin` itself. The axis crossings stay
+EXACT, which matters: §88.9.2.2's divide by `cos` depends on cos ±90° being
+exactly zero.
 
 #### 88.5.4 Levels of detail, all about pixels
 
@@ -97241,6 +97443,173 @@ a host replay of the same integer arithmetic, on scenes pinned at 30 and
 60 degrees — is §88.11's `skiesgeom`, and it was written to go red on both
 before either was fixed.
 
+#### 88.5.10 A face is wound on the WHOLE polygon, and a quad on its diagonals
+
+Reported off the machine, twice, with photographs: *"the two POI buildings
+are losing, regaining, losing the two top faces ... one frame on, one frame
+off, and each face goes in and out on its own - sometimes both there,
+sometimes one, sometimes neither."* The Empire State and the Chrysler, on the
+approach the take-off run points at.
+
+`cs_faces` decides which way a face is wound from the signed area of its
+PROJECTED points - screen y is down, so a negative area faces us - and it
+read the area of ONE TRIANGLE, `(v1 - v0) x (v2 - v0)`. That is the whole
+area only for a parallelogram. A **tapered** band is a trapezoid, and its
+first triangle is a small fraction of it: the Empire State's crown at 4.2 km
+reads **25 against the polygon's 175**, and with the vertices rounded to
+whole pixels the sign of 25 is noise. So the two faces of the crown - and
+they are independent quantities, which is why they flickered independently -
+turned over as the aeroplane moved.
+
+Stepping the eye down the 310 approach from 3,600 m to 1,200 m in 60 m
+steps, with the whole polygon's area: **0 sign changes in 40 steps**, on both
+towers. With the one triangle: **5 on the Empire State and 19 on the
+Chrysler**, and every one of them is a crown face.
+
+**A QUADRILATERAL'S AREA IS ITS DIAGONALS' CROSS**, and that is the whole
+fix at no cost at all:
+
+    2A = (x2 - x0)(y3 - y1) - (y2 - y0)(x3 - x1)
+
+Expand it and the eight terms are the shoelace's eight, so it is exact for a
+folded quad as well as a convex one - and it is **two multiplies, the same
+two the single triangle took**. Every face a model declares is a quad
+(`CS_SIDES`, `CS_TOP`), so the correct picture is free on all of them. Only
+the 3 to 7 points a clip leaves (§88.5.7) take the general path, a fan of
+`n - 2` triangles from v0 at two multiplies each.
+
+The fan shipped first for every n, and **the general form is what the
+diagonals are worth**: on a Hercules 8088 at JFK with the city drawn, four
+scenes down the approach read **+0.05 ms of 134.87 on the roll, +1.12 of
+157.29 at 6 km, +14.03 of 304.90 at 3 km and +7.96 of 300.12 at 1.5 km**
+against the single triangle - 4.6% of the worst frame for two extra
+multiplies a face, and the 3 km frame itself came down 304.90 -> 295.79 when
+the quads stopped paying them.
+
+**What the correct winding costs is then nothing, and what it costs is two
+faces.** The same four scenes, the shipped code against the single triangle:
+**-0.05, -0.32, +4.00 and -1.77 ms**, which has no sign because the test is
+the same two multiplies either way. The one figure that is not noise is the
+POLYGON COUNT beside it - **36 against 34** at 3 km, the same 35 and the same
+7 and 1 elsewhere - so the 4 ms is the two crown faces that were being culled
+by accident, drawn, at about 2 ms each (§88.12's `cs_poly` floor).
+
+**The trap, which cost a build**: the loop's own `dec word [cs_pfan] / jnz`
+clobbers the flags. The single triangle it replaced ended in `sbb si, dx` and
+the sign test read THAT instruction's flags, so a fan that keeps the same
+`js` culls every face there is and the screen goes empty. The sum is tested
+explicitly now, `or si, si` before the branch, and both paths join at it.
+
+**And it corrected a gate's premise.** §88.11's `skiesgeom` holds a
+world-vertical edge to a vertical projection with the wings level, and it
+took the vertical pairs off the face table - `CS_SIDES` emits base+1, top+1,
+top+0, base+0, so (0,1) and (2,3) are the columns. That is true of a PRISM
+and false of a taper: a dome's or a setback's side edges lean by design, and
+the row reported them as a fault the moment the winding stopped culling them
+by accident. It asks the vertices now - two ends at the same camera x and z
+are at the same world x and z, a yaw being a rotation - and
+`--clobber-fan` is the red run for the winding itself: it sends every
+polygon down the fan with a length of one, and the guest's sum then differs
+from the host's shoelace on twelve scenes.
+
+#### 88.5.11 `CSM_RAD` must never be under the model's own radius
+
+Reported off the machine: *"in building/ground wire mode, with otherwise max
+settings, sometimes lines will draw across the cockpit."*
+
+`CSM_RAD` is an upper bound on the model's EUCLIDEAN radius. Every consumer
+but one adds it to a depth or subtracts it from one - `cs_consider`'s cone,
+`cs_drawobj`'s near test, `cs_projall`'s - which is sphere arithmetic.
+§88.5's comment has said since `cs_sizepx` was written that *"it must never
+be under the true radius"*.
+
+**It was under the true radius for 36 of 122 models.** Every macro computed
+`wx + wz + h / 2`, which is the bound for a model whose origin is its
+CENTRE, and the origin here is the BASE: the vertical reach is `h`. The
+Shard is 306 m and declared 209. The Empire State is 389 and declared 285.
+
+What that costs is not a rounding error, because two fast paths are built on
+the bound being sound:
+
+  * `cs_projall` sets **`cs_pwhole`** when `oz - r >= near` - "no vertex of
+    this object is behind the near plane" - and `cs_edge1` opens
+    `cmp byte [cs_pwhole],0 / jne .both`, which reads `cs_sxv`/`cs_syv`
+    WITHOUT LOOKING AT `cs_fv`. A vertex that took `.behind` was never
+    projected this frame, so its slot still holds **whatever the last object
+    to use that index left there** - a real screen coordinate from somewhere
+    else in the scene.
+  * `.conv` then sets **`cs_pinview`** from the box of the projected
+    vertices, which never saw the behind ones, and `cs_seg` opens by
+    skipping the clip entirely when it is set.
+
+So the edge is drawn from a real vertex to a stale one, with no clip, and it
+goes wherever that stale coordinate is - including across the panel. Both
+halves are needed, which is why it is intermittent: whether a line lands on
+the cockpit depends on what the previous object happened to leave behind.
+
+**Measured, on the guest.** Diving past the Shard at LCY, 160 m out at 220 m
+with the nose 60 degrees down, High/Ultra/wire: `cs_m_lcy_shd`, `nv=8`,
+`cs_pwhole=1`, `cs_pinview=1`, **`cs_fv = 1 1 1 1 0 0 0 0`** - the four base
+vertices projected and the four apex vertices behind the near plane, never
+projected, drawn anyway. The pixel A/B is `cs_seg`'s own `je .test` patched
+to `jmp`, so every segment is clipped: clipping cannot remove a pixel that
+was inside the view, so **a panel that differs is a line that got out**.
+
+The fix is the bound, and it is EXACT everywhere. The 22 hand-written models
+that were under carry the ceiling of their own Euclidean radius, and the
+macros compute the same thing at ASSEMBLY time: `CS_RAD3` is
+`ceil(sqrt(a^2 + b^2 + c^2))` by Newton from an upper bound - it converges
+from above, so the `%if %%n >= CS_RADV` is the stop rather than a step count
+- and each macro takes the larger of a base corner and a top one.
+
+**Exact and not merely sound, and that was forced by a red gate.** The first
+version summed the terms, which is the only bound with no square root in it,
+and that is 4,000 for NEPAL's peak where 3,612 is the truth - 11% of a radius
+on the models where the height dwarfs the plan. A radius is what
+`cs_consider` files an object on, so 11% files mountains that draw nothing:
+`skiesocc` went red, the extra occluders having moved the pass's verdicts
+until one of them hid a mountain the eye can see. With the square root the
+same frame is **201.1 ms against 225.7**, and several of NEPAL's hand-set
+radii come DOWN - the wall 2,600 to 2,062 - because an exact bound is
+tighter than the estimates that were there.
+`tests/unit/t_csrad.py` decodes every model out of `build/skies.bin` and
+fails the build if any declares less than its own vertices need, which is
+what makes the sentence in `cs_sizepx`'s comment a fact rather than a claim:
+it has been written down since the routine was, and was false of the data
+the whole time.
+
+**Euclidean and not Manhattan, and that was measured rather than assumed.**
+The first fix raised every model to `max(|x| + |y| + |z|)`, which serves
+`cs_inwater` too - and it cost **13.6% of a frame at PARIS-ISSY, 116.6 ->
+132.5 ms, for a view that was BYTE-IDENTICAL**: `cs_nvisn` went 8 to 10 and
+the two extra objects drew nothing at all. The rivers are what did it, being
+long and diagonal, where Manhattan is 40% over Euclidean. So the bound is
+Euclidean, and the one consumer that is not sphere arithmetic is given the
+slack it needs instead: `cs_inwater` rejects on `|dx| + |dz|`, a Manhattan
+distance, so it compares against **3/2 of `CSM_RAD`** - over sqrt(2), a
+shift and an add. That is also a fix in its own right: with a bare compare
+it rejected points that really were over the water, and the Seine's diagonal
+corners are exactly where the two measures diverge most.
+
+##### 88.5.11.1 ...and `cs_pwhole` is OBSERVED, not predicted
+
+Five bytes in `cs_projall`'s `.behind` clear `cs_pwhole`. The prediction off
+`CSM_RAD` is what picks the fast path, and this is the moment it is found
+out: a vertex behind the near plane means the object was not whole, so
+`.conv` is skipped, `cs_pinview` stays off, and every face and edge goes
+back on the per-vertex path - which is correct for **any** bound at all.
+
+It costs nothing on the fast path, because it is on a branch that is already
+the slow case. With the bound sound it cannot fire. It is there so that a
+model added tomorrow with a wrong radius costs a slow frame instead of a
+line across the cockpit, and so that the two are not one failure: the gate
+catches the data at build time, this catches it at run time.
+
+What it leaves behind is `cs_oby0`/`cs_oby1` already widened by the vertices
+`.box` took before it fired, so the object marks more rows than it drew on.
+That is the safe direction - rows blitted that did not change - and not
+worth 12 bytes of sentinel on a path a sound bound never reaches.
+
 ### 88.6 The world (`apps/skies/csworld.inc`)
 
 Metres, x east, z north, y up, the Eiffel Tower at the origin. Thirty-odd
@@ -97307,6 +97676,47 @@ rolling friction and brakes, roll and pitch rates and their return-to-level,
 the turn constant, the eye height — and its name. Both tables have one row.
 `[cs_plane]` and `[cs_airport]` are the rows in use, and nothing reads a
 constant the record could carry.
+
+#### 88.6.2.1 Past the middle of the runway it lost both its lines
+
+The field reported it as *"when over halfway down the runway all of its lines
+disappear — on the ground or flying at a low height"*, and it is one unsigned
+compare in `cs_drawobj`.
+
+Below `cs_edges` there is a size test: a solid under `CS_EDGEPX` pixels
+across keeps no outline, because twelve segments round a fifteen-pixel box
+cost more than the box. It opens with
+
+```
+    mov cx, [cs_ocz]
+    cmp cx, 2600
+    ja .out                         ; 24 cz would not fit: far and small
+```
+
+`cs_ocz` is the object's ORIGIN in camera z, and `ja` is unsigned. **An
+origin BEHIND the eye has a negative cz, which reads as 65,000-odd** — far,
+and small, and dropped. For every other object in the world that is a
+near-miss nobody would see; **the runway's origin is its own midpoint**, so
+taxi past the halfway board and `cs_ocz` goes negative with the strip filling
+the screen. `.out` is below `call cs_edges` *and* below `call cs_rwline`
+(§88.6.2), which is why both went at once and why the outline going was never
+reported separately.
+
+**This exact case was found once before and only half fixed.** `cs_boxlod`,
+one proc up, opens its own two-pixel test with `mov cx, [cs_ocz] / or cx, cx
+/ jle .big` and its comment records why: *"an origin behind the eye compared
+unsigned as a huge depth in the first build, and a building whose front half
+was still beside the aeroplane vanished."* Same word, same register, same
+mistake — and the `CS_EDGEPX` gate twenty lines below kept it, because the
+building that made the case was a solid and nobody was taxiing down it.
+
+The fix is four bytes and says what the case actually is: **at or behind the
+eye an object is not far and it is not small, it is under you**, so the size
+test does not apply and the outline stands. Measured on a Hercules at Issy,
+walking the aeroplane down the runway at 2 m: `cs_rwline` is entered 30 times
+a frame up to the midpoint and **0 times past it** on the old code, and 30
+either side on the new. `tests/skiesrwy.py` walks both halves and
+`--clobber-rwy` takes the four bytes back out.
 
 #### 88.6.3 The tower stands 60 m back from the origin, out of the river
 
@@ -97394,6 +97804,30 @@ It also refuses what `CS_NVIS` refuses silently. Thirty-two objects can be in
 one frame and the thirty-third is DROPPED, so a skyline denser than that loses
 buildings rather than dropping frames, and the fault would read as a missing
 model. Paris itself reaches twenty-six.
+
+#### 88.6.5 A river reduced to a LINE is blue
+
+Asked for off the machine: *"use blue lines (for coloured displays) for 'the
+river became a single line' LOD."* A river far enough away is drawn as its
+`CSO_FAR` model — a `CSM_FLAT` with no faces and two edges, the water's
+centreline — and every one of them was lettered in `CSI_MARK`, which is the
+**runway's** white. A white line through a green landscape is a road.
+
+`CSI_RIVLINE` is the sixteenth ink, and it is one ink rather than "use
+`CSI_RIVER`" because the river's own fill is not a line colour on every
+adapter:
+
+| | the river's fill | the river's LINE |
+|---|---|---|
+| Mode X | DAC 3, deep blue | a lighter blue, so a one-pixel stroke reads against the ground |
+| CGA (4 colour) | colour 0, the palette's light blue | the same colour 0 — drawn over GREEN ground, so it shows |
+| CGA 160×100 (§88.15) | colour 1, blue | colour 1, the same — the one backend where a line can be the colour of the thing it stands for with nothing given up |
+| Hercules | `FF 00 FF 00`, stripes | **solid white**, because a line drawn in stripes is half a line |
+
+That last row is the whole reason for a separate ink. 28 far models across
+eight worlds carry it, and `tests/unit/t_csink.py` holds every one of them to
+it — one left behind is a white river on a colour display and nothing to see
+on Hercules.
 
 ### 88.7 The flight model (`apps/skies/csflight.inc`)
 
@@ -97523,6 +97957,49 @@ held-stick case is 1,464 cycles, **0.22%**. A tick with the stick centred is
 zero, the call being inside the `jz` that was already there. `+122 bytes` of
 `apps/skies`, A/B'd against the build before it.
 
+#### 88.7.3.1 …and it HOLDS there for the frame it lands on — on EVERY model
+
+§88.7.3 got the aeroplane onto the horizon and the field still reported the
+Pitts *"not aligning to the horizon, sometimes, and just skipping it — all of
+the rest do"*. Both halves of that sentence are right, and the second one
+names the cause: **the hold already existed and belonged to one aeroplane.**
+
+**The ease lands the axis on the horizon MID-FRAME, and the rest of the
+frame's ticks carry it straight off again.** `cs_steps` spends up to three
+ticks between two renders, and at 10° a tick that is 30° of roll a frame.
+Once an axis is exactly on the horizon the next tick reads a distance of zero
+and `cs_ease` returns the FULL rate — correctly, because a pilot holding the
+stick means to keep rolling. But nothing has been drawn in between, so the
+aeroplane is level for a tick that is never rendered. Measured on a Hercules,
+sampling `cs_roll` once a FRAME with the key held from 26° of bank:
+
+```
+    -40.0, -13.4, +10.0, +40.0        frames AT LEVEL: 0
+```
+
+−13.4 to +10 is the ease working perfectly and level falling in the gap.
+
+`cs_hzhold` (§88.7.5.2) is exactly the cure and it was already in the tree:
+a bit an axis, set when the ease arrives, cleared once a frame in `cs_input`,
+and while it is set that axis stands still. **It was written inside
+`cs_att_lag`**, so the JET had it and the two direct-drive models did not —
+which is why the Pitts is the aeroplane the field saw it on and the Cessna
+is not (3° a tick is a 9° frame quantum, and nobody notices missing 9°).
+
+So the set and the test move down into `cs_ease` itself, where every model
+reaches them: the bit is chosen by comparing SI against `cs_roll`, which
+`cs_ease` already has in hand, and a held axis returns a step of zero with
+CF clear. The pilot gets **exactly one rendered frame on the horizon**,
+whatever the frame rate and whatever the roll rate — a *detent* rather than a
+tick count a slower scene would swallow. Holding the key through it carries
+on next frame; letting go leaves the wings level, which on an aeroplane with
+`CSP_ROLLL` = 0 is the only way they ever get there.
+
+`cs_att_lag`'s own copy stays, and is not redundant: it also zeroes
+`cs_rrate`/`cs_prate` on arrival and skips `cs_lagax`, which is the jet's
+rate model and not the horizon's. One byte of bss (`cs_hzbit`) and no
+arithmetic.
+
 #### 88.9.4 The panel is sampled on the gate and painted per PAGE
 
 Reported off the machine: **on Mode X the altimeter reads 1,683 feet one
@@ -97612,6 +98089,225 @@ impostors are refused, and 0.0% on Mode X in a pose where none is. That is
 the price of the shape being right, and it is the trade the impostor exists
 to make in the other direction.
 
+##### 88.5.4.2 ELEVEN CZ DOES NOT FIT A WORD, and the gate failed open
+
+`cs_drawobj` reaches §88.5.4.1's impostor through a cheaper test first: it
+compares `cs_sizepx`'s `0.75 x CSM_RAD x scly` against **11 cz**, and only
+projects the three points when the model is small enough to be worth it. It
+built that product in `CX` — a **word** — by shifts and adds, and `11 cz`
+stops fitting a word at **cz = 5,958 m**.
+
+Past there the product **wrapped**, the comparison fell the wrong way and
+the object took the full path: every solid between 5,958 m and the
+two-pixel refusal transformed all of its vertices and drew all of its faces
+to cover four pixels. Traced on a 4.77 MHz 8088 with twelve towers standing
+at 8 km, each four pixels across:
+
+```
+                     stock                  fixed
+  cs_boxlod        0 hits    0.0 ms      12 hits   12.6 ms
+  cs_rect          0 hits    0.0 ms      12 hits   10.9 ms
+  cs_stackverts   12 hits   19.1 ms       0 hits    0.0 ms
+  cs_projall      13 hits   36.9 ms       1 hit     2.3 ms
+  cs_faces        13 hits   80.6 ms       1 hit     8.4 ms
+  the frame                194.5 ms                87.9 ms
+```
+
+**Nothing shipped stood in the band**, which is why no world was slow and
+nothing looked wrong: JFK's three named towers hand over to a far model at
+3,000 m, its rivers are `CSM_FLAT` and never boxed, and its anonymous
+towers are out of range from the runway. What the defect cost was the next
+building anybody added, at exactly the distance a take-off starts from —
+6,845 m from the Empire State. Seven more midtown towers, ranged to be
+visible from the runway, cost **+66.3 ms** of the take-off frame with the
+wrap and **+31.3 ms** without it (185.8 against 150.8 ms, Hercules).
+
+The fix is to refuse the multiply rather than to widen it: `DX` is already
+known zero above, so `AX` is under 65,536 and any `cz >= 5,958` boxes
+whatever `AX` holds — `cmp cx, 5958 / jae .lod`, and the shifts are never
+taken. **The `CS_EDGEPX` gate forty lines below guards its own `24 cz` with
+`cmp cx, 2600 / ja .out`**, so the shape was known when it was written; this
+one was the site that never got it.
+
+It moves the picture by **52 pixels of 252,000** at the take-off view and by
+**none at all** at 4 km, 2 km or over midtown, those being the ranges where
+the gate already fell the right way. `tests/skieslod.py` is the row, and its
+`--clobber-lod` NOPs the two instructions to put the wrapping product back.
+
+##### 88.5.4.3 A REFUSED impostor left the full path at the wrong scale
+
+Reported off a 10 MHz 8086 with VGA, on High detail and High draw distance:
+*"some of them flicker in and out of existence — the tall tower visible from
+take-off at JFK will flicker as I taxi down the runway"*, and *"at the runway
+the skyline looks amazing, but at a medium distance all of the boxes shrink
+and don't draw properly to the actual building's size or shape"*. Two
+reports, one defect.
+
+`cs_boxlod` works in **whole metres** and sets `cs_pshr` to say so. It can
+also **REFUSE** (§88.5.4.1), and the caller then takes the full path — where
+`cs_nearat`, `cs_stackverts` and `cs_flatverts` all read the object's own
+transform scale (§88.5.6) out of that same byte. It never gave it back, so a
+refused impostor ran the whole model in whole metres when the object wanted
+quarters or sixteenths. Measured on Hercules, one building dead ahead, the
+impostor against the model it stands in for:
+
+```
+                 before                    after
+  jfk_hi  3000   box 16x 5  model 16x19    box 16x19  model 16x19
+  jfk_dtn 3000   box 16x 4  model 16x14    box 16x14  model 16x14
+  jfk_mid 3000   box 16x 3  model 16x 9    box 16x 9  model 16x 9
+  jfk_esb 7000   box 16x 5  model 16x16    box 16x16  model 16x16
+```
+
+The width was right and **the height collapsed**, which is why it reads as a
+squat box rather than a missing one. And because the refusal turns on the
+rectangle crossing `CS_LODPX`, it happened over exactly one band of the
+approach and flipped back and forth at the edge of it — a building
+alternating between a correct impostor and a model a quarter of its height,
+which at three pixels tall is *in and out of existence*.
+
+The fix is four instructions: save `cs_pshr` on entry and put it back at both
+exits. **It is not a regression from §88.5.4.2** — the refusal path has
+always been able to leave the byte wrong — but that fix is what made
+`cs_boxlod` run past six kilometres at all, so it turned a rare wrong frame
+into the normal case and the field found it in a day.
+
+What remains, and is by design, is that the impostor is a plain rectangle
+where the model is stepped: at 7,000 m the Empire State's impostor covers 27
+lit pixels against the model's 35, the difference being the taper. That is
+the trade §88.5.4 exists to make, and it is bounded by `CS_LODPX` = 8.
+
+##### 88.5.4.4 The impostor's height gets its own bound, with hysteresis
+
+Reported off the same 10 MHz 8086 once §88.5.4.3 had fixed the sizes:
+buildings and, closer in, individual building faces still alternate frame to
+frame — some flicking in and out of existence entirely, some flipping between
+impostor and polygons.
+
+**The cause is that a two-pixel-wide building was on the polygon path at
+all.** `cs_faces` decides a face's winding from the cross product of its
+*rounded screen* vertices, and at skyline range that is noise. The Empire
+State's far model at 9.5 km on Mode X projects **2–4 columns wide by 17 rows
+tall**, and its five faces read:
+
+```
+  cross  -17  DRAW   v0(161,76) v1(161,59) v2(160,59)
+  cross    0  cull   v0(163,76) v1(161,59) v2(161,59)
+  cross  +17  cull   v0(159,76) v1(160,59) v2(161,59)
+  cross    0  cull   v0(161,59) v1(161,59) v2(161,59)   <- one pixel, three times
+```
+
+One face draws, on a cross product of **17**. A pixel of rounding takes it to
+0, which the test reads as *away*, and the whole building goes. Turning the
+winding cull off makes every solid draw a steady five faces at every position
+— which is the proof that the winding, and nothing else, is what moves.
+
+The fix is not to patch the winding, which is right in principle and cheap;
+it is that **an object this small should be the impostor**. §88.5.4.1's
+refusal was written against WIDE, flat rectangles — its own histogram is
+22x3, 20x2, 18x2 — and it holds the height to the same eight pixels, which
+puts every tall thin tower back on the polygon path. So the height gets its
+own bound, `CS_LODTALL` = 26, and the width keeps `CS_LODPX` = 8: a 22-pixel
+rectangle is still refused, and a 3x17 tower is not.
+
+**And both bounds have hysteresis.** `CSO_BOXED` (bit 13) says the impostor
+drew this object last frame, and while it is set the object may grow
+`CS_LODHYST` = 5 pixels past either bound before it gives the impostor up —
+so one sitting on the boundary does not change shape every few metres, which
+is what *"once something crosses the not-impostor distance it shouldn't flip
+back"* asks for. `cs_skipclr` forgets the bit with `CSO_SEEN`.
+
+Measured on the take-off run, stepping four metres at a time, as the mass of
+lit pixels above the horizon:
+
+```
+  with the height held to CS_LODPX   339 309 309 309 309 311 311 337 337 311 338 338
+  with CS_LODTALL and hysteresis     407 407 407 407 407 407 394 394 394 394 394 394
+```
+
+The signature is the **dip** and not the step — 337, 337, **311**, 338, 338 is
+a building that went away for four metres and came back — and that is what
+`tests/skieslod.py` checks, because the skyline legitimately grows and
+shrinks as the aeroplane rolls. The deepest dip is **0 of 407** fixed and
+**26 of 339** with the bound put back.
+
+Face-by-face over the same run, the count each object draws is now constant
+at every one of twenty positions three metres apart, where before the Empire
+State read `1 1 1 1 1 1 0 0 1 1 …`.
+
+##### 88.5.4.5 THE EIFFEL'S FAR MODEL IS A SKYLINE, and it was a tent
+
+Asked for off the machine: *"change the Eiffel's low LOD to a more
+recognisable form — doesn't need the internal square lines, but should have a
+skyline view more Eiffel shaped."*
+
+`cs_m_eiffelf` was two levels and four edges: the base square straight to a
+point. From the Issy runway, 3,454 m away and about **25 pixels tall**, that
+is a tent with a mast — the two far legs project down the middle as a line
+that reads as a mistake rather than as structure. Nothing about it says which
+tower it is.
+
+| | |
+|---|---|
+| the platform | its two DIAGONALS, `4-6 5-7`, and not its four sides — a diagonal is the square's full width from exactly the azimuths where a side is foreshortened. It is the single most recognisable feature of this tower and the reason its silhouette is not a pylon's |
+| the flare | all four legs, `0-4 1-5 2-6 3-7`. It is the widest thing here — about 20 px at 6.2 m a pixel — and the one part whose *shape* a viewer can resolve |
+| the shaft | all four legs. Eleven pixels tapering to five is a taper you can see, and the taper is what the old model had none of |
+| the spire | one diagonal pair. The square is under two pixels across up there, so the other two legs land in the same column and would cost two segments to draw nothing |
+
+**The heights are the SKYLINE's, not the tower's.** A first platform at the
+real 57 m of 324 is a fifth of the way up, which is five pixels here and
+lands *inside the ground band*: built that way first, the flare was drawn and
+invisible. At 105 m it is a third of the way up and reads. Checked at four
+azimuths — 0°, 22°, 45°, 67°.
+
+**The apex is 324 and no longer 300**, which is the full model's. The LOD
+switch was changing the tower's height by 24 m as you flew toward it. Every
+other far model in every world already matched its own, so
+`tests/unit/t_csink.py` holds all five `CSM_STACK` pairs to it.
+
+**What it costs, on a 4.77 MHz 8088 with a Hercules, default settings**
+(Buildings High, Draw Distance Moderate, Size Moderate, both fills; a 400x112
+view), stood on the Issy runway with the tower 3,454 m ahead — median of
+eight frames, measured between two `cs_render` entries:
+
+| | facing the tower | facing away | the tower's share |
+|---|---|---|---|
+| four edges, two levels | **167.9 ms** | 142.8 ms | 25.1 ms |
+| twelve edges, four levels | **174.2 ms** | 142.8 ms | 31.4 ms |
+
+**+6.3 ms, or 3.8% of the frame** — 5.96 fps to 5.74. The facing-away figure
+is the same on both builds, which is what makes the difference the tower's
+and not the weather's.
+
+##### 88.5.4.5.1 …and the PLATFORM BAR found the flat-line defect
+
+The bar went in last, and it went in twice: it was built, it looked right at
+all four azimuths, and it took `skiescga` **red** — 18 stale pixels after a
+straight climb and 10 after a pitch-up, against 0 without it, reproducibly
+and alone. What differed was a run of `CSI_LINE` at the view's **far left**,
+bytes 0-2 of rows 68 and 70, nowhere near the tower, which at that pose is 9°
+right of the nose. So the bar was held out of the model for a commit under a
+note saying the defect was §88.3.1's and not §88.5's geometry.
+
+The note was right about where to look and wrong about which layer. Bisected
+edge by edge on the same pose, the flare, the shaft and the spire were each
+clean and **ANY edge joining two vertices of the same LEVEL** tripped it —
+the platform's two *sides* as readily as its two diagonals, one diagonal
+alone giving 4 stale pixels where two gave 18, the count scaling with how
+many. It was clean on Hercules and appeared only on CGA. That is the
+signature of §88.4.6.1: an exactly horizontal segment drawn at x = 0 instead
+of at the tower, into a part of the shadow nothing had marked, so it never
+reached the glass and surfaced only as a stale pixel at the other end of the
+screen. Four bytes in `CS_SLICE`'s flat arm; the bar is in, and it is the
+first edge in any world that could ever have found it.
+
+The lesson worth keeping is the misdiagnosis. A drawing defect that lands
+where nothing is marked is INDISTINGUISHABLE, from the glass, from a
+marking defect — the ink is somewhere it was not asked for either way. What
+told them apart was reading the **shadow** rather than the screen: the span
+set said the row was empty and the shadow said it was not, which is a
+composition that only a wrong x can produce.
+
 #### 88.5.8 "Buildings lean over", which was the horizon
 
 Reported off the machine with a photograph: a large dithered wedge standing
@@ -97640,6 +98336,134 @@ the guest's own algorithm**, so a fault in the algorithm rather than in its
 arithmetic would agree with itself and pass. A world-vertical edge staying
 vertical is an outside fact about perspective, and yaw alone never mixes Y
 into X or Z.
+
+##### 88.7.3.2 …and it lands on a FRAME'S LAST TICK, or the frame stalls
+
+§88.7.3.1 got the horizon drawn and the field reported the Pitts *"lingers
+one extra frame after snapping on the horizon — it makes a roll feel like it
+has a jerk"*, and then, more exactly, *"it visually pauses at the exact
+horizon"*.
+
+**The hold is a detent and the detent was costing two thirds of a frame.**
+`cs_ease` landed the axis on whichever tick happened to come inside a rate
+of it, and `cs_hzhold` then stood the axis still for the rest of that frame.
+Land on tick 1 of 3 and the frame travels one tick and stops; land on tick 3
+and it travels three. Sampling `cs_roll` once a FRAME on a Hercules with the
+key held, the Pitts at 10° a tick and three ticks a frame:
+
+```
+    -30.04, -6.68, 0.00, +29.99      degrees a frame: 30.0, 23.4, 6.7, 30.0
+```
+
+The frame that ends on the horizon moved **6.7° where its neighbours moved
+30**. On a 400-pixel view that is the horizon's ends travelling 23 pixels in
+a frame between two frames that travel 115 — which is not read as a slow
+frame, it is read as a **stop**. The eye is being shown level twice: once
+almost, once exactly.
+
+The cure is not to shorten the hold — the hold is what makes level visible
+at all — it is to **arrive at the end of a frame rather than the middle of
+one**. `cs_steps` already knows the frame's tick budget, so the sim loop
+publishes it (`cs_tframe`) and what is left of it (`cs_tleft`), and the ease
+spends the distance over the ticks it is given rather than over a fixed
+three:
+
+| the distance is | spread over |
+|---|---|
+| within `cs_tleft` rates | `cs_tleft` ticks — the rest of THIS frame |
+| within `cs_tleft + cs_tframe` rates | both — this frame and the next |
+| further | untouched: a plain full-rate tick |
+
+Each tick takes the distance divided by that count, rounded **up**, so the
+last one lands exactly and the hold has no ticks left to discard. The
+counting is by repeated subtraction and is capped at `CS_EASEN` = 6 = two
+frames, which is why no multiply appears: six subtractions are cheaper than
+one `mul` on an 8088.
+
+**Two frames and not one is the point.** Spreading over only what is left of
+this frame sounds simpler and is much worse: a distance a hair over
+`cs_tleft` rates takes full-rate ticks all frame and leaves a CRUMB — the
+measured case leaves 0.02° — so the next frame travels nothing at all and
+the pause comes back doubled. Two frames cannot leave a crumb, because a
+distance that does not fit this frame is by construction more than a
+frame's travel when the next one starts.
+
+Measured on the same Hercules, same aeroplane, same key held.
+
+The Cessna's own return to level (§88.7.6) goes through the same proc and so
+gets the same landing, and so does the elevator.
+
+**§88.7.3.1's detent becomes a rounding safety net**, and that is worth
+writing down because it cost two red arms. The hold still fires when the
+spread lands a tick early — a distance of 2 units over three ticks lands on
+the second — but in every scenario the suite drives, the landing IS the
+frame's last tick, so removing the hold changes nothing that can be
+measured. `tests/skiesease.py`'s `--clobber-hold` and `tests/skiestap.py`'s
+both went green after this section and are **deleted**: a knob that cannot
+go red is worse than no knob (docs/WRITING-TESTS.md §1). `--clobber-ease`
+and `--clobber-tap` are the red arms that remain, and they cover the
+mechanism this section actually rests on.
+
+##### 88.7.3.3 …and the way OUT mirrors the way in, or the rate still steps
+
+§88.7.3.2 took the stall out of the frame that shows the horizon and left one
+discontinuity behind, which the field named before the build reached it:
+*"since the rate change is what is visible — maybe purposely implement a
+rebuild of the same rate we smoothed in, but only where we are leaving the
+horizon because we got smoothed into it."* Exactly so. The approach comes
+down to about 73% of the roll rate and the tick after the capture is back at
+100%, so the aeroplane goes 21.8°, 21.8°, LEVEL, 30.0° — the horizon's ends
+travelling 84 pixels a frame and then 115. A ramp in and a step out.
+
+So each axis carries a **cap and an increment** (`cs_hzo`, indexed by
+`cs_hzox`). Every eased tick writes its own step into the cap, so when the
+capture comes the cap already holds the rate the approach ended at; the
+capture arms the increment as the shortfall to the full rate divided by
+`1 << CS_EASEOS` = 8 ticks. While the increment is armed, a full-rate step
+leaving the horizon is **clamped to the cap**, and the cap climbs by the
+increment each tick until it reaches the rate, when the ramp disarms itself.
+A centred stick disarms it too — the pilot has stopped asking.
+
+The way out is deliberately **shorter than the way in** — under three frames
+against five. Symmetry sounds right and is not: the Pitts' horizon is a half
+turn, so its distance to one is never more than 90° = nine rates, and a
+ramp-out as long as the ladder would still be climbing when the next
+approach began. The aeroplane would never see its own roll rate.
+
+It costs ten bytes of bss and sits on paths `cs_ease` already walks: the
+`.out` arm gains one memory compare, which is the arm a stick held far from
+the horizon takes. Measured on a Hercules, one model tick with the key held —
+the minimum over 120 samples, which is a tick with no render in it:
+
+| | cycles | against the base |
+|---|---|---|
+| before §88.7.3.2 | 18,936 | — |
+| the ladder | 19,184 | +248 |
+| …and the ramp out | **19,472** | **+536** |
+
+Three ticks a frame, so **+1,608 cycles of a 1,177,000-cycle frame — 0.14%,
+or 0.34 ms of 247** — and only while the stick is deflected: `cs_att_free`
+does not call `cs_ease` at all for a centred axis. What it buys, per frame:
+
+```
+    before   30.0, 23.4,  6.7, LEVEL, 30.0                   a 4.5x step
+    ladder   24.6, 21.8, 21.8, 21.8, LEVEL, 30.0             a 1.37x step
+    ramp out 25.5, 23.3, 23.2, LEVEL(23.2), 24.9, 27.4, 29.7 a 1.07x step
+```
+
+The Fouga's is the same shape at its own rate — `19.8, 16.7, 16.7, 16.7,
+LEVEL(16.6), 17.4, 18.5, 19.6, 19.8`.
+
+**The sign is the trap.** The increment is a shift by `CS_EASEOS`, and a
+shift by a variable count on an 8086 is a shift by CL — but CL is the
+*step's* low byte, and the step's SIGN is the one thing the proc still needs
+at that point. Written with CL the aeroplane oscillates around the horizon
+for ever, halving and reversing, and never lands; the shift is therefore
+unrolled with `%rep`, which keeps the constant load-bearing.
+`tests/skiesease.py` caught it on its first run, and its own pin had to
+learn the same lesson the cull's skip table teaches (§88.5.2): **pinning an
+attitude is a teleport**, so the row clears `cs_hzo` with it or it measures
+a ramp belonging to a flight it is no longer in.
 
 #### 88.7.4 Speeds are 16.7, and why that had to happen first
 
@@ -97756,6 +98580,114 @@ bare far calls, because `OSAPI_KEY_DOWN` is not one — so the two extra ticks
 of a frame are **1.65 ms**: 2.3% of a Hercules frame and 1.2% of Mode X's,
 for controls sampled three times as often.
 
+##### 88.7.5.2 A tap is an EVENT, and the horizon has to be SEEN
+
+Sampling the stick per tick (§88.7.5.1) took the shortest tap from three
+ticks to one and the owner reported the result exactly: *"responding to
+about one in three taps"*, and *"still completely skipping the horizon"*.
+Both remainders are the same shape — the simulation's grid is finer than the
+question — and neither is fixed by tuning a rate.
+
+**The tap. `OSAPI_KEY_DOWN` is a LEVEL read** (§9.7), so a press is only
+seen if a poll happens while the key is down. One in three is what that
+looks like: the machine polls three times a frame and a human tap is
+shorter, so it lands between two polls two times in three. **`int 16h` is
+the complement** — an EVENT, held in the BIOS type-ahead buffer, so a press
+of any length is still there when the loop next looks — and Clear Skies was
+already draining that buffer for its letter keys and throwing the extended
+scan codes away.
+
+So the arrows are read **both ways**. `cs_input` latches an arrow it finds
+in the buffer into `[cs_taproll]` / `[cs_tappitch]`, and `cs_stick` spends
+that latch **on the next tick it finds the key up** — one tick of stick,
+which is exactly what the level read would have given had it caught the
+press. A key that is genuinely held is seen by the level read, and the latch
+is dropped unspent; a key that was tapped is seen by neither poll and the
+latch is the whole of it. **This is Arkanoid's shape** (§44.2): its
+`ark_onkey` is a `W_ONKEY` EVENT that starts the paddle and `ark_pkey` a
+level read that sustains it, and the two are complements — `int 16h` cannot
+see a HOLD (there is no key-up event, and the typematic repeats arrive only
+after a delay) and the level read cannot see a TAP. An fsx bracket
+dispatches no events (§88.13), so Clear Skies reads the buffer itself where
+Arkanoid is handed the same presses through its window.
+
+Two things follow that are not optional. `cs_input` must **not** call
+`cs_stick` any more, which it did as part of latching the held keys: a tap
+latched at the top of a frame and spent before the frame's first `cs_step`
+is a tap that moved nothing. And the latch is spent only when the level read
+said the key was up **on the previous tick too** (`[cs_wasroll]`,
+`[cs_waspitch]`) — otherwise a HOLD overshoots by a tick, because its own
+typematic repeats are in that buffer and the last of them is still there
+when the finger comes off. That one was measured rather than reasoned: it
+cost `tests/skiespitts.py` exactly one `CSP_ROLLR` of roll after the stick
+was centred.
+
+Measured on the Magister, the shortest press the emulator can express walked
+across a whole frame in twelve phases (`tests/skiestap.py`):
+
+| | taps that turned the aeroplane |
+|---|---|
+| the level read alone | **2–4 of 12** |
+| with the `int 16h` latch | **12 of 12** |
+
+Two to four in twelve is the owner's *"about one in three"*, and it is a
+RATE rather than a constant — which phases catch a poll depends on where the
+tick boundaries fall — which is what says the diagnosis is the right one
+rather than a plausible one: the machine polls three times a frame, so a tap
+shorter than a tick registers only when a poll happens to land inside it.
+Each registered tap is **2.21°**, which is §88.7.5.1's figure — the latch
+changes how OFTEN a tap is seen and not what one is worth.
+
+**The horizon.** §88.7.3's capture lands `cs_roll` exactly on a multiple of
+a half turn — and then the *next* tick of the same frame carries it off
+again, because the rate that arrived there is still in `[cs_rrate]`. With
+three ticks a frame and one frame drawn per three, the aeroplane can pass
+through level and be **drawn on neither side of it**: the capture is exact
+and invisible.
+
+Two changes make the arrival visible without holding the aeroplane there.
+`cs_ease` returns **CF=1** when it lands exactly on the horizon rather than
+merely stepping toward it; `cs_att_lag` acts on that by zeroing the rate —
+the aeroplane arrived, so it is not still rolling — and by setting a bit in
+`[cs_hzhold]`, which stands that axis still for **the rest of the frame it
+happened in**. `cs_input` clears the byte once a frame.
+
+**It is one frame, deliberately.** Tank Attack locked to the horizon across
+frames and the owner reported it as lag; this holds for at most the two
+remaining ticks of the frame the capture happened in, so what the pilot sees
+is one drawn frame at level and then the stick again. Measured on the
+Magister, per DRAWN frame of a held approach:
+
+| held from | roll, per drawn frame | frames at level |
+|---|---|---|
+| +20° | 11.65, **0.00**, −8.34, … | 1 |
+| +30° | 21.65, 8.07, **0.00**, −8.34, … | 1 |
+| +45° | 36.66, 21.69, 5.32, **0.00**, −8.34, … | 1 |
+
+Exactly one drawn frame shows level in each case, which is the whole of what
+was asked for: the horizon is a place the aeroplane passes through visibly
+rather than a place it sticks to.
+
+###### 88.7.5.2.1 A held stick is not a centred one, and the jet forgot
+
+`cs_att_lag` zeroes `cs_rrate` when the ease arrives, which is right for a
+stick that has been let go — the rate is the jet's memory and level is where
+it should stop — and wrong for one that is still held. `cs_lagax` rebuilds a
+rate a quarter of the gap a tick, so the pilot who never released the key
+paid for the capture for **eight frames**. Sampling once a frame with the
+key held, the Fouga at a steady 19.8° a frame:
+
+```
+    ... 19.78, 16.84, LEVEL, 8.34, 14.93, 17.71, 18.90, 19.39, 19.59, 19.68,
+    19.74, 19.78
+```
+
+That is §88.7.3.2's stall one layer up and lasting eight times as long, and
+it is the *"and maybe the jet"* in the same report. The rate is now zeroed
+only when `[cs_kroll]` / `[cs_kpitch]` says the stick is centred, which is
+the case the zeroing was written for; a held stick keeps its rate and the
+frame after the detent is a full one. Four bytes an axis.
+
 #### 88.7.6 The WASSMER BIJAVE — a sailplane, and the mechanic is NO ENGINE
 
 `CSP_THRUST` is zero, so the only energy it has is the height it starts with
@@ -97763,7 +98695,7 @@ and every turn spends some. Nothing else in the model needed changing: the
 throttle keys still move `cs_thr`, and `thr × 0 / 100` is nothing.
 
 **`CSP_LAUNCH` is what puts it up there**: metres above the field at reset,
-and `cs_reset` then starts the session in the air at 1.4 × `VSTALL` with the
+and `cs_reset` then starts the session in the air at 1.5 × `VSTALL` with the
 tow-released message. Zero is every aeroplane with an engine. A winch or an
 aerotow is a scripted sequence and this is a state machine, so what the
 field does is put the aeroplane where a launch would have left it.
@@ -97784,24 +98716,142 @@ powered aeroplanes pay one cache compare a frame for it. It reads `UP 015`
 or `DN 015` in tenths of a metre a second — a needle's two labels rather
 than a signed number.
 
+#### 88.7.6.1 …and it had a throttle, which is what was humming
+
+The field reported that **`W` turns on the engine noise in the glider**. It
+did. `cs_step`'s throttle ran for every aeroplane, so the Bijave's `[cs_thr]`
+opened to 100 like everyone else's — and `cs_sound_step` makes the engine
+tone out of exactly that word.
+
+Nothing else ever read it. The model takes its thrust from `CSP_THRUST`,
+which is 0; the panel does not show it, because the Bijave's `THR` item is
+`(0, 0)` and §88.9.5.1 skips an item a cockpit has not got. So the throttle
+was a hidden number with one consumer, and that consumer was the speaker.
+
+`CSP_THRUST` = 0 is the test and it is two instructions at the top of the
+throttle, which is the root rather than the symptom: gate the sound and the
+number is still wrong, gate the number and the sound follows.
+
+#### 88.7.6.2 An ANNOUNCEMENT goes by itself; a WARNING stays
+
+Also the field's: **`TOW RELEASED - NOSE DOWN FOR 43 KNOTS` never
+disappears** until something else happens. The cause is the sailplane's own
+mechanic. `CSG_TAKEOFF` is cleared by the LIFTOFF, at `cs_step`'s `.steer` —
+and an aeroplane that starts in the air (`CSP_LAUNCH`, §88.7.6) never reaches
+that line, so its prompt had no clearer at all.
+
+The fix is a countdown rather than a second condition, because these are two
+kinds of message and the difference is worth naming:
+
+| | clears on | examples |
+|---|---|---|
+| **WARNING** | the state that made it ending | the stall, the world's edge, PAUSED |
+| **ANNOUNCEMENT** | `CS_MSGAGE` ticks — 145, eight seconds | the tow release, `LANDED`, a splashdown |
+
+A warning is true while something is true. An announcement is a thing that
+HAPPENED and the reader has read it. `LANDED` and the splashdown are in the
+second class for the same reason the release is: nothing was ever going to
+take them away, and a panel that says `LANDED` while you taxi is the same
+complaint one step along.
+
+**A TOAST (§88.13.8) BORROWS THE STRIP**, and that is the one case the
+countdown has to know about: `cs_toast` banks what it displaced in
+`cs_toastwas` and puts it back when it expires. So an announcement whose
+`CS_MSGAGE` runs out *while a toast is up* is retired where it is actually
+kept — `cs_msgage` clears `cs_toastwas`, not `cs_msg`. Clearing `cs_msg`
+would cut the toast short mid-sentence; leaving `cs_toastwas` alone would
+put the expired announcement back on the glass when the toast went, which
+is the original complaint returning by a second route.
+
+#### 88.7.6.3 THE AIR — lift and sink, and the swoop that finds it
+
+The field asked for *"updrafts/downdrafts, scattered around — simple rects —
+and the swooping sounds you can use to detect one"*, and that is what this
+is. A sailplane's mechanic is having no engine (§88.7.6); the other half of
+that mechanic is that the air is the only thing left that can give it energy.
+
+**Eight rects, in metres from the LOCATION's own centre**, so one table
+serves all nine worlds and every one gets the same weather round its own
+runway. Ten bytes a row — the offset, the two half-extents and the rate —
+and the rate is `cs_vs`'s own scale, m/s × 128, positive up. A sailplane's
+still-air sink is about 1 m/s, so **+448 is a climb you can work and −320 is
+air worth leaving.**
+
+**It goes into `cs_vs`, not into the altitude**, and that is the whole of why
+the VARIOMETER shows it: `cs_k_vs` reads that word, so the one instrument a
+sailplane is flown on reads the one thing it is flown on, with no new
+plumbing. The needle is the detector; the sound is the alert.
+
+**AN AEROPLANE WITH AN ENGINE DOES NOT FEEL IT**, and that is the design
+rather than a shortcut. A Magister crosses one of these in three seconds at a
+bump it has the thrust to ignore; a sailplane at 22 m/s dwells in it for a
+minute with nothing else to climb on. It is gated on the same
+`CSP_THRUST` = 0 as §88.7.6.1's throttle, so *the aeroplane the air flies is
+exactly the aeroplane with no engine* — one rule, two consequences. Removing
+that one condition is all it would take to make the air everyone's, and the
+reason not to is that every other aeroplane's tests measure still air.
+
+**`CS_LIFTCLR` is a clear disc round the field**, which is the circuit —
+nobody wants a thermal on short final in the first minute — and is also
+where every other test of this simulator flies. §88.7.6.4 is what it became
+and why: a bubble tested before the tile rather than a rule about where a
+rect may be put.
+
+**The swoop is the CROSSING, not the dwell.** Entering lift is a tone rising
+`CS_SWOOPLO` → `CS_SWOOPHI` over `CS_SWOOPT` = 8 ticks; entering sink is the
+same fall from the top; leaving is silent. That is what a variometer's audio
+actually gives a pilot, it costs one countdown, and it is only ever heard on
+an aeroplane with no engine — where §88.7.6.1 has just made the tone
+underneath it silence. On anything else `cs_lift` answers 0 and the swoop
+never arms — and neither does it with the SOUND SWITCH OFF, because the swoop
+is *scheduled* rather than played: one armed while the panel is quiet and
+left standing would be a swoop that plays when the sound comes back on,
+minutes later and for a thermal that is long gone.
+
+#### 88.7.6.4 …and it TILES, because eight rects in a world is nothing
+
+Reported off the machine after §88.7.6.3 shipped: *"glider thermals either
+too rare or not working — flew for about 5 minutes and never hit one. Tried
+Paris and Nepal."* Not working would have been a defect; this is arithmetic.
+Eight rects of about 1.2 × 1.0 km, placed once, in a world 32 km across, is
+**under 1% of it**. A sailplane at 22 m/s covers 6.6 km in five minutes, so
+finding one was a coin the field was never going to win.
+
+**The four rects live in a `CS_AIRTILE` = 4,096 m square that repeats**,
+anchored on the location's own centre. Coverage inside the tile is 27%, so a
+glider meets air inside a minute wherever it points, and the wrap is one
+`AND` per axis because the tile is a power of two — cheaper than the walk it
+replaces, not dearer.
+
+**`CS_LIFTCLR` stops being a constraint on the table and becomes a calm
+bubble**, tested before the tile at 1,800 m Manhattan from the field. That
+separation is the point: the circuit is still — a launch is over the
+threshold and the longest runway here is 800 m of half-length — *and* the
+air is dense everywhere else. Trying to satisfy both with placement is what
+made the first version sparse, because a 2,500 m exclusion from all four
+corners of a tile leaves almost nothing to place a rect in.
+
+`tests/unit/t_csair.py` holds the tile to the two things a flight cannot
+show: every rect wholly inside it (the wrap would CUT one, not move it) and
+a coverage between a tenth and a half — under a tenth is the complaint back,
+over a half is weather rather than thermals.
+
 #### 88.7.7 The ICON A5 — an amphibian, and the mechanic is WATER
 
 The light sport amphibian, and it fills the slow end of the envelope the
 other four leave empty: 95 knots, a 39-knot stall, and a wing that comes
 back to level on its own.
 
-**A water strip is a runway made of water.** The location record carries a
-second one — `CSA_WX`, `CSA_WZ`, `CSA_WHDG`, `CSA_WLEN`, `CSA_WWID` and the
-water's own name — in exactly the four numbers the first one has, so an
-amphibian's landing is the same arithmetic and **not a polygon test**.
-`cs_runway_xy` and `cs_water_xy` are now two wrappers over one
-`cs_local_xy`. `CSA_WLEN` = 0 is a place with no water an aeroplane could
-get down on; **all nine locations have one**, each fitted inside that
-world's own `CSI_RIVER` polygons and checked by containment sampling before
-it was written down.
+**A water strip is a runway made of water** — `CSA_WX`, `CSA_WZ`,
+`CSA_WHDG`, `CSA_WLEN`, `CSA_WWID` and the water's own name, in exactly the
+four numbers the runway has, so `cs_runway_xy` and `cs_water_xy` are two
+wrappers over one `cs_local_xy`. It is where `cs_reset` puts the aeroplane,
+hull in, pointing along it, and `CSA_WLEN` = 0 is a place with no water an
+amphibian could use; **all nine locations have one.** §88.7.7.1 is why it is
+no longer what a LANDING is tested against.
 
 **`CSPF_AMPHIB`** is the whole of what makes the A5 different. With it,
-`cs_touch` tries the water strip before the runway and a touchdown inside it
+`cs_touch` tries the water before the runway and a touchdown on it
 is a landing that says `DOWN ON THE SEINE`; `cs_reset` starts the session on
 the strip's own threshold, hull in, pointing along it. Without it — every
 other aeroplane — the water is not tested at all and putting one down there
@@ -97844,6 +98894,296 @@ what decide how many aeroplanes that disk can carry**: a sixth aeroplane's
 record, cockpit, flight model and name together are under 400 bytes and its
 picture is nearly five times that.
 
+**Its thrust went up a quarter and its top speed did not.** The field flew it
+and asked for *"a little more acceleration, maybe 25% more"* — it is the
+slowest aeroplane here and it was the slowest to get going. `CSP_THRUST` is
+**11 → 14** (1.5 → 2.0 m/s²) and `CSP_DRAGK` **1201 → 1500** with it, because
+DRAGK is not a free number: the model integrates `v += thrust − drag` with
+`drag = ((v·v) >> 16) · DRAGK >> 16`, so raising the thrust alone would have
+raised **VMAX** and left the acceleration nearly where it was. At 6,272 (95
+knots) the drag is now 13 against a thrust of 14 — the same one-under margin
+1201/11 had, so the aeroplane tops out where it did and gets there sooner.
+
+`tests/unit/t_csplane.py` holds every record to that arithmetic, host-side in
+milliseconds, because no flight test in the suite is long enough to see a
+wrong VMAX: an A5 takes **42 seconds of guest time** to reach 95 knots.
+
+#### 88.7.7.1 ALL water is water, and the strip was an invisible runway on it
+
+The field put it exactly: *"I can take off from water, but cannot land on
+it — my guess is there is an invisible landing strip at one point on the
+water."* That is what it was. `CSA_WLEN`×`CSA_WWID` is a rectangle, so the
+Thames was landable over 800 m of its length and a crash everywhere else,
+with nothing on the glass to say where the edge was.
+
+**It is a point-in-polygon test against the world's own `CSI_RIVER` faces
+now** (`cs_inwater`), and the reason that is affordable is one line:
+**`cs_touch` fires once, at the tick the wheels meet the ground.** The
+"not a polygon test" the old note made a virtue of was buying nothing —
+`cs_water_xy`'s own comment already said *"this runs once, at a touchdown"*.
+Measured over all nine worlds: at most **20 water faces**, every one of them
+a quad, **80 vertices** in the worst world (Miami), against 12–39 objects.
+An object is Manhattan-rejected on its `CSM_RAD` before any face is walked,
+so what a real touchdown costs is a handful of edges.
+
+**The test is division-free**, which is what keeps it in a word: for each
+edge that straddles the point's row, the sign of
+`(bx−ax)(pz−az) − (bz−az)(px−ax)` decides the crossing, and it is compared
+against the sign of `bz−az` rather than divided by it. It runs in the
+OBJECT's own coordinates — the point is brought to the object rather than
+the vertices to the world — so the terms are bounded by the model's extent:
+measured, local vertices are ±6,000 and the worst product is 9.1 × 10⁷,
+which one `imul`'s `DX:AX` holds with 24 bits to spare.
+
+**Nothing was lost by removing the rectangle**, and that was checked rather
+than assumed: every one of the nine strips was sampled at its centre and
+four extremes against that world's `CSI_RIVER` polygons and every point is
+inside, so the polygon test **subsumes** the rectangle. `CSA_WLEN` = 0 still
+means "no water landings here", which keeps an author's escape hatch.
+
+**The splash says WHICH water**, and it can now be right where it could not
+be before: the message takes the touched object's `CSO_NAME` instead of the
+location's single `CSA_WNAME`, so Miami tells `BISCAYNE BAY` from
+`GOVERNMENT CUT` from `THE ATLANTIC`, and Rio tells `COPACABANA` from
+`GUANABARA BAY`. Four of the nine worlds carry more than one water and every
+one of them used to report the same name.
+
+#### 88.7.7.2 A hull is always braking
+
+Reported off the machine: *"water should slow the A5 quickly — no brakes
+needed when it's landing on water."* On the water the model doubled
+`CSP_FRICT`, which on the A5 is **6 units a tick, 0.85 m/s²** — 28 seconds
+and about 340 m to come off the step from 47 knots. That is not a seaplane,
+it is a very long taxi.
+
+The water takes **`CSP_BRAKE` as well, with no key**: 24 units a tick,
+3.4 m/s², about 7 seconds and 84 m. It is the right shape as well as the
+right number — there is nothing to brake with on the water, and nothing
+needs to be, so the record's brake figure serves both surfaces and the
+aeroplane has one deceleration a pilot can learn.
+
+**With the throttle SHUT**, and that condition is not a nicety: the first
+build applied it always, and 24 units a tick of drag against 14 of thrust is
+an amphibian that **cannot take off**. `skiesfleet` caught it in one line —
+*"gets off it under its own power (state 0, 0 kt)"*. A throttle under
+`CS_HULLTHR` = 25% is a pilot who is not driving, which is every landing and
+no take-off; above it the hull drags at twice the rolling friction and the
+A5 planes and flies. It composes with §88.7.10 for free: `B` closes the
+throttle, so the key that means STOP works on the water too, where there is
+nothing for it to squeeze.
+
+#### 88.7.8 THE ELEVATOR IS A BODY RATE, and it was a world one
+
+Reported off the glass, and it is one defect with two faces:
+
+> Hold up until you end up inverted, facing the other way. Roll to level to
+> the horizon. Up/Down are now inverted — pressing down makes the nose go
+> down, not up.
+
+> Roll 90° into a banked turn to the left. Holding up makes the plane go to
+> the plane's right (aka "towards the sky") rather than making the turn
+> steeper.
+
+The attitude is three Euler angles — `[cs_hdg]`, `[cs_pitch]`, `[cs_roll]` —
+and every model here added the elevator straight into `[cs_pitch]`. **That is
+not what an elevator does.** The stick commands a rate about the aeroplane's
+**own wing axis**, and a rotation about the *world's* pitch axis is the same
+thing only while the wings are level. Adding it to `[cs_pitch]` is
+`Rz(ψ)·Ry(θ+dθ)·Rx(φ)`, which is a rotation about the *intermediate* y axis;
+the body's is `R·Ry(dθ)`, and the two agree only at `φ = 0`.
+
+The conversion is textbook, and with no body yaw from the elevator it is two
+terms:
+
+    θ̇ = q·cos(φ)          the world PITCH
+    ψ̇ = q·sin(φ)          the HEADING
+
+`cs_elev` is those two lines: it takes the tick's body rate, adds
+`q·sin(roll)` to `[cs_hdg]` itself, and returns `q·cos(roll)` for the caller
+to ease and integrate. Every model calls it — `cs_att_free` and
+`cs_att_lag` directly, `cs_att_trim` through `cs_axisp`, which is `cs_axis`
+with the resolution in front of it.
+
+**Both faces fall out of that one line.** In a 90° bank `cos(φ)` is 0 and
+`sin(φ)` is 1, so back-pressure is *all* turn and no world pitch: the turn
+tightens, which is what a banked aeroplane does and what was asked for. And
+over the top of a loop the aeroplane is at `θ = 180°`; roll upright and
+`φ = 180°`, so `cos(φ) = −1` and the same key now *decreases* `θ` — which,
+at `θ` just under 180°, is `sin(θ)` going positive, the nose coming **up**.
+The controls are right way round again with no case analysis at all.
+
+**§88.7.2 was right about the nose vector and wrong about the stick.**
+`cs_att_free`'s note said no Euler dodge was needed at the vertical because
+`cs_matrix` reads a full-circle table and `cs_move` takes `cos(pitch)`
+negative past it. That is true, and it is a claim about where the aeroplane
+*goes*. It says nothing about how the stick reaches the angles, and the two
+were quietly treated as one question.
+
+**Two terms are deliberately dropped.** The exact conversion also carries
+`ψ̇ = …/cos(θ)` and `φ̇ = p + q·sin(φ)·tan(θ)`, and both are singular at the
+vertical — which is a place this aeroplane is expected to go. Dropping them
+costs a turn that is under-rated at high pitch (where a heading barely means
+anything) and no apparent roll under back-pressure in a bank; what it buys
+is a model with no special case, no divide and no blow-up. The coupling is
+**1:1 in angle units** and introduces no new constant: `q` and `[cs_hdg]`
+are the same 65,536-to-the-turn units, so the physics fixes the gain and
+nothing here was tuned.
+
+That gain is not small beside `CSP_TURNK`, and that is the point rather than
+an accident. The Cessna's `TURNK` is 60 a tick at full bank — 6°/s, a
+deliberately gentle trimmed turn — and its `PITCHR` is 146, so holding back
+in a 60° bank adds 126 a tick on top of 52: **17.8°/s against 5.2°/s**. A
+real C172 at 60° of bank turns at about 20°/s, so the coupled figure is the
+*more* faithful one; `TURNK` alone was the aeroplane flying a steady bank
+with nobody pulling.
+
+`tests/skiesbody.py` is the gate and `--clobber-body` the red run.
+
+##### 88.7.8.1 ...and the dropped division had a SIGN in it
+
+Reported off the machine, one aerobatic session later:
+
+> After doing acrobatics in the jet for a while, the elevator inverts, but
+> only relative to the banked turn. In a 90° left bank, holding up will go
+> to the right, rather than increasing the rate to the left.
+
+§88.7.8 drops the `1/cos(pitch)` on the heading term deliberately, and says
+why: it is singular at the vertical and this aeroplane goes there. What the
+entry did not notice is that the factor is not only a magnitude. The wing
+axis has a vertical component of `cos(pitch) sin(roll)`, so a body pitch
+rate `q` turns the heading by `q sin(roll) cos(pitch)` — and **past the
+vertical `cos(pitch)` is negative**. Dropping it costs the turn rate at high
+pitch, which is the trade §88.7.8 took; dropping its sign costs the
+DIRECTION, which is not.
+
+A loop is how the pitch gets there and stays: nothing re-canonicalises the
+Euler triple, so `[cs_pitch]` reads past a quarter turn for as long as the
+attitude does — `tests/skiespitts.py` records **172°** on the Pitts — and
+every banked pull until it comes back is reversed.
+
+**Measured**, breaking on `cs_elev` with the stick held and reading what it
+adds to `[cs_hdg]`: **+145 at every pitch from −170° to 170°**, flat, which
+is `q sin(roll)` and nothing else, against a truth that changes sign twice
+over that range. **8 of 18 pitches turned the wrong way, every one of them
+past ±110°**, and 0 of 18 after.
+
+The sign needs no cosine and no table. `cos` is negative exactly when the
+angle is more than a quarter turn from zero, which is the top bit of the
+angle plus a quarter turn:
+
+    mov bx, [cs_pitch]
+    add bx, 16384
+    jns .hd
+    neg ax
+
+Four instructions and eleven bytes, on a path that runs once a tick and only
+while the stick is held. The magnitude is still dropped, so §88.7.8's "no
+blow-up in it" stands unchanged.
+
+`tests/skiesbody.py` check 5 is the gate and `--clobber-invert` the red run.
+
+#### 88.7.9 The take-off prompt names THIS aeroplane's speed
+
+Reported off the machine: *"the jet's take-off speed message says 55, but it
+takes off at a higher speed."* It did — `FULL THROTTLE, PULL BACK AT 55
+KNOTS` was a literal, and 55 is the **Cessna's** `CSP_VROT`. The Magister
+rotates at 42 m/s, which is **81 knots**; the Pitts at 58; the A5 at 47. The
+sailplane's `TOW RELEASED - NOSE DOWN FOR 43 KNOTS` was the same mistake one
+aeroplane along — `cs_reset` puts it at `VSTALL + 2 × (VSTALL >> 2)`, which
+is **49**. (That arithmetic is 1.5 × `VSTALL` and its comment said 1.4; the
+comment is what moved, the tow speed being what the sailplane has flown on
+since §88.7.6 and not a number to change while fixing a caption.)
+
+The Cessna's own number moves too, 55 → **54**, and that is the fix working
+rather than a second error: 55 came off the record's comment and 54 is what
+`cs_k_spd` puts on the airspeed indicator for the same 28 m/s. The prompt is
+an instruction about a needle, so it has to agree with the needle.
+
+Both are composed now, out of the record the flight model is already reading:
+the opening words, the number, and ` KNOTS`. **The knots are `cs_k_spd`'s own
+conversion** (`v × 996 >> 16`), so the sentence and the airspeed indicator
+cannot come to disagree about what 42 m/s is — which is the whole reason not
+to write the number twice in the first place.
+
+They share one buffer, `cs_toastbuf`'s shape: an aeroplane either starts on
+the ground or in the air, so the take-off prompt and the tow release can
+never be up at once. `cs_msgtab` points both rows at it.
+
+#### 88.7.10 The brake closes the throttle
+
+Reported off the machine: *"brakes are not working."* They were: measured on
+the runway with the engine off, `B` takes 27 units a tick off the speed
+against 7 without it, which is the record working exactly. What is wrong is
+the state the key is pressed IN.
+
+**A landing roll is flown with the throttle where the take-off left it.**
+`W` is held to open it and never let go — nothing closes it, and the panel
+shows `THR 100` all the way down the approach. So on the ground the Cessna's
+16 of thrust was being spent against its 20 of brake, and the aeroplane
+stopped at a fifth of its rate: 11 units a tick instead of 27, which over a
+runway is the difference between stopping and not.
+
+A pilot closes the throttle before touching the brakes. **The key that means
+STOP does it**: `B` sets `[cs_thr]` to 0. It is one word, it is what the
+player meant, and it leaves `S` doing exactly what it did for anyone who
+wants to fly the throttle down by hand.
+
+#### 88.7.11 The windshield goes
+
+Asked for off the machine: *"add crash lines / broken windshield when the
+player crashes."* `cs_crackle` draws it over the view for as long as the
+crash picture stands, which is `CS_CRASHT` ticks before `cs_reset` puts the
+aeroplane back on the runway. It goes on AFTER `cs_scene` and BEFORE
+`cs_panel`, so the pilot keeps the last thing they saw with the glass broken
+in front of it, and the instruments stay readable.
+
+**A table, not a drawing, and not a generator.** Eight cracks radiate from a
+hub, each with one kink, and the kinks are joined into a ring — which is what
+laminated glass does and what random spokes do not. 24 segments, 96 bytes.
+The **hub is off-centre** because a symmetrical star reads as a decoration
+rather than as damage.
+
+The coordinates are **1/256 of the view each way**, scaled at draw time, so
+the same table fits Mode X's 320×150 and Hercules' 640×112 and every §88.13.4
+Size rung of both — the one place a crash overlay would otherwise have needed
+three tables and a rung of its own. `cs_seg` clips each segment, because the
+ring reaches the edges on a wide view.
+
+#### 88.7.10.1 …and it is a LATCH the panel shows, not a key nobody can see
+
+§88.7.10 explained the arithmetic and the field flew it again: *"I was
+bringing the throttle to 0 before pressing the documented B, and was still
+rolling right off the end of the runway. I could not notice any difference in
+speed decrease, either by holding B, tapping B, or pressing B only once."*
+
+**Two separate faults, and the second is the one that matters.** Measured
+under the harness on a real rollout — 36 knots, throttle shut, `B` held — the
+speed falls 4,608 → 2,754 in the span coasting takes to fall 4,602 → 4,171:
+**4.3× the deceleration, and `[cs_kbrake]` reads 1 the whole way.** So the
+model brakes and the key reaches it *here*. What it does not do is give the
+pilot anything to look at: `B` was a LEVEL READ through `OSAPI_KEY_DOWN`
+(§9.7), a byte that is 1 while a finger is down and 0 the instant it is not,
+with no mark on the glass either way. A pilot who cannot tell a working brake
+from a dead key has no way to find out which they have — which is exactly
+what the report says.
+
+**So the brake becomes a latch on the TYPED reader**, beside `P`, `R` and
+`M`: `B` toggles it, and the state line reads **`BRAKES ON`** where it read
+`ON THE GROUND`. That is the field's own suggestion and it is the better
+mechanism for three reasons — a pilot can see the state, a tap is as good as
+a hold, and it stops depending on the key-down map, which §9.7's own contract
+calls *advice and not an oracle* (a lost break code leaves a key reading
+down until it is pressed again).
+
+**It lets go by itself in the two places holding it would be a trap**: at
+`cs_reset`, and at the moment the wheels leave the ground — brakes on with
+20 of drag against 16 of thrust is an aeroplane that cannot take off, and
+now that it is a latch, nothing else would ever release it.
+
+`cs_k_state` packs the latch as **bit 2** beside the water and the stall. All
+three change the line, so all three must change the key, or the strip is
+simply never repainted (§88.7.7's own lesson, one bit along).
+
 ### 88.8 The session (`apps/skies/csgame.inc`)
 
 `cs_fsx_main` is the §53.1 bracket's exclusive main and has Tank's two rates:
@@ -97858,12 +99198,29 @@ typed, `OSAPI_KEY_DOWN` (§9.7) for what is held:
 | ← / → | roll | `R` | back to the runway |
 | `W` / `S` | throttle up / down | `M` | engine sound on / off |
 | `A` / `D` | rudder, and the wheels on the ground | `Esc`, `F` | leave (§11.2.1) |
-| `B` | brakes | | |
+| | | `B` | brakes on / off (§88.7.10.1) |
 
 The engine is a speaker tone whose pitch follows the throttle
 (`OSAPI_SND_TONE`, re-issued when the throttle moves), a stall is a repeated
 beep, a crash a low blast; the tone is released at exit and `M` mutes all of
 it.
+
+#### 88.8.1 A paused aeroplane is silent
+
+Reported off the machine: pause with the engine running and **the tone runs
+on for as long as the pause does**. `cs_sound_step` is called inside the sim
+loop, and a pause is exactly the thing that skips that loop — so the last
+tone raised simply stood, with nothing left running to take it down.
+
+The fix belongs on the KEY and not in the frame. Testing `[cs_pause]` once a
+frame would cost a compare on every frame of every flight to catch a
+transition that happens when a key is pressed; `P` releases the tone itself
+and clears `[cs_tone]` with it. The first tick after the pause puts the
+engine back with no extra code at all, because `cs_sound_step` ends in
+`cmp ax, [cs_tone] / je .out` — a `[cs_tone]` of 0 IS a change, so the tone
+it wants is re-issued on the tick the flight resumes.
+
+The stall beep and the swoop go the same way, being the same word.
 
 ### 88.9 The panel
 
@@ -97893,6 +99250,63 @@ when the throttle moved, once**: a glyph marked its eight span rows and
 not the set's row range (§88.3.3), so the blit never looked at the panel's
 rows unless the throttle bar's rectangle had widened the range that frame.
 `tests/skies.py` now reads the panel rows a second apart in a climb.
+
+##### 88.9.1.1 …and the THROTTLE is a user input, so it never waits
+
+§88.9.1 says above that *"the throttle, the state, a message and the key line
+are keyed every frame"*, and until this section that was true of three of the
+four. `cs_pitem` exempted `CS_PI_STATE` and `CS_PI_MSG` from the gate by name
+and nothing else, so the throttle and its bar waited for `CS_PRATE` like the
+instruments. Asked for off the machine: *"the update rate of the instruments
+is all good and should stay as it is, except for throttle — this is a user
+input, so that makes it feel responsive."*
+
+Measured on a Hercules with W held from idle to full, reading `cs_pkeys` —
+what is actually on the glass — at a `cs_blit` breakpoint:
+
+```
+    cs_thr    6  12  18  24  30  36  42  48  54  60  66  72  78  84  90  96
+    on glass  6   6  18  18  30  30  42  42  54  54  66  66  78  78  90  90
+```
+
+**The throttle moved on 16 frames and the panel redrew on 8.** Every other
+frame the number on the glass is the one before — a whole frame of lag on
+the one control the pilot is holding down.
+
+The four readings that keep the gate are the aeroplane's own — speed,
+altitude, heading, vertical speed — and §88.9.1's reason for them is
+unchanged: they move every tick in a climb and nine opaque glyphs a change
+at the frame rate is a tenth of the frame. The throttle is not that. It
+moves only while a key is held, so **it costs nothing when nobody is
+touching it**: the item's key is compared against what is drawn every frame
+either way (`cs_pkeys`), and an unchanged key returns at `.same`.
+
+The exemption is a **byte table** (`cs_pnow`, one entry an item) rather than
+the compare chain it replaces, which on an 8088 matters for the reason
+PERFORMANCE.md Part 2 gives: the chain was ten bytes of instruction fetch
+against the table's five, and a `max(clocks, 4.34 × bytes)` machine pays the
+fetch. Adding a third immediate item later costs a byte of table rather than
+four instructions on every item's path.
+
+**What it costs, measured with the throttle left alone** — `cs_panel` alone,
+bracketed from its entry to `cs_r_end`'s, 60 frames on a Hercules:
+
+| | min | median | p90 |
+|---|---|---|---|
+| by name | 11,294 | 13,350 | 13,350 |
+| by table | 11,644 | **12,461** | 13,256 |
+
+The median falls **889 cycles**, which is the fetch the table does not do,
+nine items over. The cheapest frame *rises* 350, and that is the honest
+other half: a closed-gate frame now keys two more items, so the frames that
+did least do a little more. Either way it is under 0.1% of a 1,177,000-cycle
+frame, and the aeroplane's own four readings are untouched.
+
+**The whole frame cannot answer this question and was tried first.** A
+pinned pose is not the same picture twice unless the cull's skip table is
+cleared with it (§88.5.2), so the two builds drew different scenes: their
+medians agreed to 0.06% and their minima differed by 79,000 cycles, which
+is the scene and not the panel. Bracket the proc.
 
 #### 88.9.2 The cockpit is drawn from shapes, and belongs to the plane
 
@@ -97940,6 +99354,313 @@ the two are the same number, so the attitude indicator was round; on
 and the bezel was a tall oval in every photograph of that panel. It is one
 `call cs_hscalex` on the radius, and the same line serves §88.9.3's dials.
 
+#### 88.9.2.2 THE HARD FREEZE: the ADI divided by cos(roll)
+
+The freeze the field reported for weeks — *"take off, roll, and halfway
+through the roll it hard freezes"* — is one instruction.
+
+`cs_d_adi` draws the horizon bar at a rise of `t × tan(roll)` over the
+window's half-width, and got the tangent the obvious way:
+
+```
+    call cs_cos
+    mov cx, ax          ; CX = cos, over 0.5 within MAXROLL
+    ...
+    idiv cx             ; AX = t tan
+```
+
+**That note is true of a TRAINER and false of every aerobatic aeroplane in
+the tree.** `cs_att_trim` clamps the roll to `CSP_MAXROLL`, which is 60° on
+the Cessna, so its cosine never falls below 0.5. `cs_att_free` and
+`cs_att_lag` have **no roll clamp at all** (§88.7.2 says so in capitals: the
+Pitts rolls right round), so those two aeroplanes fly straight through the
+vertical — and `cs_sintab` is 1024 entries over the turn, so **`cos` reads
+exactly 0 for the whole 64-unit window at ±90°**, with ±201 either side of
+it. `sin[512]` is 0 and its neighbours are ±201; there is no small value in
+between. So the failure is not an overflow that a bigger type would fix, it
+is a **divide by zero**, in 0.35° of roll out of 360.
+
+That is also why it was intermittent and why it took a field machine. The
+Pitts rolls 1,820 units a tick, and 9 of those is 16,380 — four units short
+of the window. A roll that starts from level steps straight over it. One
+that starts anywhere else does not.
+
+**What made it fatal is what happens next, not the fault itself.** On an
+8088 `int 0` pushes the address of the instruction *after* the divide and
+the BIOS's handler returns there, so the machine carries on with `AX`
+undefined. That garbage becomes `[cs_addy]`, the ADI's endpoints become
+wild, and the segment walk draws off the end of the shadow claim — over the
+package's own data, and then its code. Every symptom the field photographs
+showed is downstream of that: a stage byte holding 130, an interrupted IP
+inside the string *"…es for os8088"*, another mid-instruction on a byte that
+decodes as `retf`, and a tick counter that stops because by then there is
+nothing left to run.
+
+The fix is `cs_cdiv` (§85.5), which answers ±30,000 rather than faulting and
+handles a zero divisor by construction, and then a clamp: **four times the
+window's half-height**, past which the bar is vertical however much further
+it would go. The picture is unchanged everywhere the old code worked — the
+clamp only binds within 0.35° of the vertical, where the bar is already
+steeper than the window is tall.
+
+`tests/skiesadi.py` is the gate and it is built on the observation that made
+this findable at all: **a breakpoint on the INT 0 vector catches every
+divide fault in the whole program at once, and costs nothing when none
+fires.** It walks the roll through both windows a few units at a time on an
+aeroplane that has no clamp. `--clobber-adi` puts the raw `idiv` back and
+reproduces the fault at `0x4008` and `0xC008`.
+
+#### 88.9.2.3 `cs_pclip` borrows `cs_wh`, so `cs_viewh` is what to read
+
+The panel lives BELOW the view, so `cs_pclip` widens the segment walk's
+vertical bound to the whole box for the length of the panel's own drawing —
+and that bound is `cs_wh`, the view's height. For as long as the cockpit is
+being drawn, therefore, `cs_wh` reads `cs_vh`.
+
+Nothing in the program is wrong about this: the only code that runs inside
+the bracket is the panel's, and the box IS its clip. What it breaks is a
+READER. `tests/skies.py` asks which row of `cs_fulltab` the backend took by
+sampling `cs_ww`/`cs_wh` off a running machine, and it read a plausible
+`320x200` on CGA the day the panel got dense enough to be inside that
+bracket when the sample landed — a wrong answer about the raster, produced
+by a correct panel.
+
+So `cs_r_size` publishes `cs_viewh` at its single exit, and `cs_vclip`
+restores `cs_wh` from that rather than from a save taken on the way in. The
+word is never borrowed, so a host-side reader has one that is true at every
+instruction, and the clip's save shrinks from three words to two.
+
+#### 88.9.2.4 …and the cosine was held in a register the sine clobbers
+
+`cs_d_adi` fetched the cosine, put it in **CX**, then called `cs_sin` — which
+is documented to clobber CX. It had done so since the instrument was written.
+
+It never showed, because the old `cs_sin` wrote **CL alone**: `mov cl, 5` as
+a shift count. So the divisor was `cos` with its low byte replaced by 5 —
+32,517 for 32,767 — and a bar a fifth of a pixel out at the ends is nobody's
+defect. The quarter table (§88.5.9) writes the whole of CX, and the same line
+then handed `cs_cdiv` a divisor of **zero at wings level**: the guard
+answered ±30,000, the clamp made it ±4·`adhh`, and the horizon stood
+**vertical with the wings level** in the first photograph taken after it.
+
+Two fixes, because either alone leaves the trap. The call site takes the
+**sine first and the cosine last, straight into BX**, so nothing runs between
+fetching the divisor and dividing by it. And `cs_sin` now **preserves CX** —
+two bytes on a routine called twenty-five times a frame, which buys a
+register no caller has to remember. Its contract is "clobbers BX" now.
+
+It is worth naming what kind of bug this is: a latent contract violation that
+an unrelated, correct, well-tested change made fatal. `tests/skiesadi.py`
+gained the assertion that would have caught it at either end — **wings level
+is a level bar**, `cs_addy` = 0 at roll 0 — which no test asked before,
+because the instrument had always looked right.
+
+#### 88.9.9 A message is an annunciator, not a strip
+
+The message line was a WINDOW, and a window is painted once with the cockpit
+and stays: a panel with nothing to say carried a white slab across it for
+ever, and the message was padded to forty cells so the slab was the full
+width whatever it said.
+
+There is no message window now. `cs_d_msg` erases its rows on the cockpit's
+FACE and letters the message on its own length, centred — and a glyph's
+cells are opaque, so what a message gets is a bar exactly the size of the
+message and an empty one gets nothing at all.
+
+##### 88.9.4.2 The state box, and a key with three things in it
+
+`cs_k_state` is the state in `AL` and, in `AH`, the stall and `cs_onwater`
+packed together — `((stall | water) << 1) | stall` — so that the box repaints
+when a hull leaves the water as well as when a stall starts. That is right:
+the key's job is to change whenever the drawn answer would.
+
+`cs_d_state` then tested **the whole of `AH`** for the stall. `cs_onwater`
+sets bit 1, so an amphibian **airborne off the water** — which is how every
+A5 flight starts, §88.7.7 putting it on the strip at every location — read
+`STALL` for the whole flight, at any speed, and nothing ever cleared it. It
+was reported off the machine as a state box stuck on STALL.
+
+`test ah, 1`, which is the stall's own bit. The trap is worth the paragraph
+because the key and the painter want different things out of the same byte —
+the key wants *did anything change*, the painter wants *which one* — and the
+byte that answers the first cannot be tested as a boolean for the second.
+
+#### 88.9.5 A cell is not a layout unit
+
+The panel is one drawing on three adapters: a 320-wide layout put through
+`cs_hscalex`, which doubles it on Hercules's 640-wide box. **Text does not
+scale with it.** A cell is 8 DEVICE pixels on every adapter, so eight layout
+units are eight cells on CGA and Mode X and **four** on Hercules — and every
+width on the panel that was written as "8 at 320 wide" was twice what it
+meant on the one adapter with the pixels to show it.
+
+Two things came out of that, and both were reported from the glass:
+
+- **the digits sat eight cells from their label.** `cs_pnum` put the value
+  four cells along with `add bx, 4 * 8`, and that is 32 layout units, which
+  is eight cells on Hercules. `SPD` and its number had a gap the width of
+  the number twice over.
+- **every window was 2.5× its text.** A window was a rectangle in layout
+  units, and its contents a string in cells.
+
+`cs_pcells` converts: cells × 64 over `[cs_hsx]`, which is four layout units
+a cell on Hercules and eight elsewhere. `cs_pcolx` is the same for a signed
+**cell column** — positive counts in from the left edge, negative from the
+**right** — so a right-hand readout sits the same distance in on every
+adapter, where a fixed layout x sits twice as far in on Hercules.
+
+A window is `(cell column, row, cells, rows)` now, and a `cells` of **0** is
+the whole 320: a message strip spans the panel, and no count of cells can
+say that on two adapters at once.
+
+#### 88.9.5.1 An item a cockpit has not got is (0, 0), and one proc tested it
+
+`(0, 0)` in a cockpit's item table means *this aeroplane has not got one* —
+the glider's throttle and its bar, the powered aeroplanes' variometer. Only
+`cs_d_vs` ever tested for it. Every other draw proc took `cs_pcell`'s answer
+at face value, so the Bijave lettered `072` at cell 0 of row 0, half of it
+above the panel's own top edge, on every frame the throttle changed. It is
+in the photographs of the panel from the first build.
+
+The test is now in `cs_pitem`, before the sample and before the paint, so it
+is written once rather than nine times — with one exception named there: the
+attitude indicator is item 3 and its cell IS `(0, 0)`, because it does not
+have one. It draws from `CSK_ADCX`/`CSK_ADCY` and is skipped by index.
+
+#### 88.9.6 A round instrument gets a round plate
+
+`cs_pdeco` filled a **square** plate and drew the round bezel inside it, so
+the plate's four corners stood outside the glass as black boxes on the
+cockpit's face — the field's *"black boxes outside of them"*. The attitude
+indicator did the same thing at four times the size, which is the black
+rectangle behind the round bezel in every photograph of the panel.
+
+`cs_pdisc` fills the ellipse instead, a row at a time, its half-width
+`rx·√(ry²−dy²)/ry` off `cs_isqrt` — two bits of the radicand a round, which
+is the short way rather than the quick one because this runs **once per
+target**. Every term in it is under 2¹⁵: a radius is rows, and rows are
+under 160.
+
+#### 88.9.6.2 …and the horizon is a CHORD of it, not a bar across a box
+
+Rounding the glass moved the defect rather than removing it. The horizon
+bar was clipped to the window's **rows**, at the full half-width either side,
+which is right for a rectangle and wrong for a disc: at any row but the
+centre the glass is narrower than `cs_adhw`, so both tips of the bar stood
+on the cockpit's face inside the bezel. Measured on a Hercules at 12° of
+bank, the right-hand tip covered x 23…28 of a glass 22 wide there.
+
+The ends are the line's intersections with the ellipse now. Scale x by
+`R/W` and the glass is a **circle** of radius `R = cs_adhh` in which the
+line is `v = off + k·u/R`, so with `a = R² + k²`:
+
+```
+    d  = R·|off| / √a          the line's distance from the centre
+    L  = √(R² − d²)            half the chord
+    u* = −off·k·R / a          the foot of the perpendicular
+```
+
+and the two ends are `u* ± L·R/√a`, mapped back by `x = u·W/R` and
+`y = off + u·k/R`. Every term is a word but one 32-bit product whose
+quotient is a word, `cs_isqrt` is already there for the disc, and **`d ≥ R`
+is the whole of "the horizon is not on the glass"** — which replaces the
+both-above/both-below pair the row clip needed. `L` is taken one pixel in so
+that integer rounding cannot poke a tip back out.
+
+The obvious cheaper answer — walk each end inward along the line until it is
+inside — was tried on paper and **does not converge**: it starts from the
+row-clipped ends, where the glass has zero width, and snaps straight past
+the real intersection. A steep bar at a large pitch offset really does cross
+the glass, and the arithmetic above is what finds where.
+
+#### 88.9.6.3 A bezel is a row walk, not a polygon
+
+The rings were a 24-segment polygon. At the attitude indicator's radius —
+30 box pixels on Hercules — that is a **7.8-pixel chord**, so the bezel read
+as a lumpy nut with flat sides, and the two rings three columns apart
+crossed each other where the facets did not agree.
+
+`cs_pring` walks rows instead, exactly as `cs_pdisc` fills them: each row
+lights from the **previous row's half width to this one's**, both sides. A
+row where the edge moves several columns is filled across, so there are no
+gaps, and the flat cap at the top and the bottom falls out of the same rule
+rather than needing a case. The half width is `cs_elhw`, factored out of
+`cs_pdisc`, so the disc and its bezel are the same curve by construction and
+cannot disagree at the edge.
+
+It is drawn once per target, like everything else on the face, so the
+arithmetic per row costs nothing that matters.
+
+#### 88.9.7 …and a readout gets a bezel
+
+A window was a white rectangle with a one-pixel outline. It has four corner
+brackets two pixels outside it now, which is what makes it read as an
+instrument set INTO a panel rather than painted on one.
+
+A second full outline was the other candidate and it loses: the face is a
+25% dither, so two lines two pixels apart read as one thick smear at this
+size, where four corners read as a bezel. Eight short segments a window,
+once per target.
+
+#### 88.9.7.1 …and the layout rows are the BEZEL's, not the window's
+
+The field's next note was that the brackets *"overlap the top, or each
+other"*, and both were true of every cockpit. A readout occupies **three
+pixels more than its rect on every side** — one for the outline `cs_panel`
+grows it by, two for `cs_pbox`'s corner brackets — and the rows were laid
+out against the rect. So the top row's bracket landed **on the panel's own
+edge line at row 0**, and at 15 rows apart with a 12-row window the bottom
+bracket of one readout sat **exactly on the top outline of the next**: rows
+17 and 17 in the photographs, at the same left corner.
+
+The window is **nine rows** now and the levels are **5, 21, 37 and 53**,
+which puts a clear row at 1, 17, 33 and 49 and leaves row 0 to the edge
+line. Nine is not a squeeze: the 8×8 cell's ink is **seven rows deep**, so a
+nine-row plate with the glyph one row in has exactly one blank row above it
+and one below — where the twelve-row plate had two above and three, and was
+already bottom-heavy.
+
+Four levels of bezel and a message strip is what 88 panel rows will take.
+The arithmetic is worth writing down because every near miss on the way was
+one or two rows out: a level costs `h + 6` rows of bezel plus a clear row,
+the message erases rows 65 to 76 whatever is under it (§88.9.9), and the
+switch rail's stalk reaches `r + 1` either side of row 82. `4 × 15 + 3 = 63`
+fits in rows 1…64; the same four at twelve rows need 75 and do not, at any
+spacing.
+
+`tests/unit/t_cspanel.py` checks the **bezel** rectangle now and requires a
+clear pixel between any two — not merely no overlap, because two bezels a
+pixel apart read as one smear on a 25% dither, which is the same argument
+that gave a window corner brackets instead of a second outline (§88.9.7).
+Checking the window rect is checking the wrong rectangle, and it passed the
+whole time the defect was on the glass.
+
+#### 88.9.8 The layout, and the gate that holds all five to all three
+
+Every cockpit shares the layout rows — readouts at 3, 18 and 33, the state
+at 49, a second row of small gauges at 56, the message at 65 and the switch
+rail at 82 — and differs in what it puts where, which is the point: a
+trainer's six-pack, a biplane's scatter, a jet with the attitude indicator
+as the centrepiece, a glider with a variometer where the throttle would be,
+and an amphibian's single block of glass. **The rows are shared on purpose**:
+five aeroplanes each wandering off the grid read as five accidents rather
+than as five aeroplanes, so what tells them apart is the columns, the
+instrument sizes and the decorations.
+
+Round instruments keep the layout's own x, because they are round rather
+than lettered, and **CGA is the adapter to lay them out against**: a dial's
+x radius is its rows over `cs_pasp`, which is 1.2 there against 1.0 on Mode
+X and 0.78 on Hercules, so what fits on CGA fits everywhere.
+
+`tests/unit/t_cspanel.py` is the gate and it is host-side, in the fast tier:
+it reads the records out of `apps/skies/cspanel.inc` and holds all five
+cockpits to all three adapters — no two windows overlap, no round instrument
+overlaps a window or another instrument, every window is wide enough for
+what is lettered into it and no more than four cells wider, and everything
+is inside the panel. **Both units are checked because both scale**, and a
+layout that is tidy on CGA can overlap on Hercules with nothing to show for
+it in a test that looks at one adapter.
+
 #### 88.9.3 …and instruments that only look the part
 
 A real panel is mostly things the simulation does not model. `CSK_DECO`
@@ -97954,9 +99675,49 @@ reads as noise at gauge size — the first build's dials were specks. The
 instrument windows already solve exactly that with a black ground and a
 white edge, so a gauge is given the plate it would have in the metal.
 
-The Pitts carries six — a tachometer, oil pressure, fuel, a G meter and two
-magnetos — and the Cessna none, which is the trainer's panel being the
-instruments and nothing else.
+#### 88.9.3.1 The switch rail, and where the density comes from
+
+The field's fifth note was *"make the panels a bit more dense and organised,
+same style, more like a real cockpit"*, and the answer is two rows the
+layout did not use.
+
+**A rail of toggles at row 82**, spread from x 40 to 278 rather than a pair
+in the middle. It is ONE table row — `CSDK_RAIL`, whose `CSD_ARG` carries the
+count in its low byte and which way each is thrown in its high one,
+`CS_RAILSTEP` apart from `CSD_X` — because nine near-identical rows at ten
+bytes each is what a rail is not. That collapse is 350 bytes of the package
+against about 70 of code, and it mattered: `CSDIAG=1` had gone **59 bytes
+over `APP_MAX_SIZE`**, and the shipped build's headroom was 531. That band is below the message strip's erase (§88.9.9) and
+above the panel's last row, so it was empty on every aeroplane, and a line
+of switches is what fills the bottom of a real panel. It is also the
+cheapest character in the file: what each aeroplane carries and which way
+each one is thrown is the whole difference between a trainer's master and
+magnetos, a biplane's SMOKE, a jet's igniters and drop tanks, a glider's
+three levers, and an amphibian's water rudder and bilge pump.
+
+**A second row of small gauges at row 56**, between the attitude indicator's
+bottom and the message. Seven rows of radius rather than ten, because that
+band is fifteen rows tall.
+
+The decoration counts went 6, 5, 4, 3, 2 to 7, 6, 6, 6, 6 — and every one of
+those now ends in a rail, so what is drawn went 6, 5, 4, 3, 2 to 14, 12, 13,
+8, 13.
+
+**What cannot be fixed by moving anything** is that the panel is denser on
+CGA and Mode X than on Hercules, and §88.9.5 is why: a cell is 8 DEVICE
+pixels, so a readout block is a third of the layout's width on a 320-wide
+box and a sixth of it on a 640-wide one, while a round instrument's radius
+is in ROWS and shrinks with the aspect either way. Every position here is
+laid out against **CGA**, which is the tight one; the Hercules panel has air
+in it that no layout expressed in these two units can take up.
+
+`tests/unit/t_cspanel.py` is what makes that safe to do at all — it holds
+all five cockpits to all three adapters, and it grew a rule with this work:
+**nothing may sit in the message strip's erase band**, rows 65 to 76, which
+is full width and repainted whenever the aeroplane has something to say. It
+EXPANDS a rail into its switches rather than checking the row, and it reads
+`CS_PANROWS` and `CS_RAILSTEP` out of the assembly instead of holding a copy
+of either.
 
 ### 88.10 The title page
 
@@ -98083,55 +99844,591 @@ its whole bounding box out of what is under it, and an aeroplane's bounding
 box is most of the cloud. A mask is the same size as the band it masks, and
 the slot to use one does not exist.
 
+#### 88.10.2 The bands are PACKED, and expand into a claim
+
+The six bands are **10,480 bytes**, and the package had **1,152 of
+`APP_MAX_SIZE` left**. They are the largest block in the image that **no
+frame ever reads** — the title page draws them and the fsx bracket never
+does — so `csart.inc` carries them as **one LZ4 stream of 4,487 bytes**, T
+word first (§20.13.7), and `cs_artload` expands them **once, in the entry
+proc**, into a claim of `CS_ART_KB` = 11. The image falls **47,078 →
+41,178** and the package **60,288 → 54,390**, which is **5,898 bytes** of a
+60KB segment bought for 11KB of a heap that has tens (§50.3) and for one
+decode at launch. **Nothing on a frame's path moved**: the claim is read by
+three blits on the windowed page and by nothing else.
+
+**It is this cheap because a band holds no pointer.** There is nothing to
+relocate, so the whole of the change is that what was a label in this
+segment is an **offset into the blob** — `csart.inc` emits an `equ` per band
+where it emitted a label — and `dw cs_art_c172` in a plane record
+(`CSP_ART`, §88.10.1) goes on assembling untouched, an equ being a constant
+like any other. The three blits already loaded ES for the band and were
+handing it `DS`; they load `[cs_artseg]` instead. That is the whole
+difference, and it is why the art went first and the **worlds did not**: a
+world is models, names and an object table that point at each other
+(§88.6), so it cannot leave this segment without either a relocation table
+or a segment of its own.
+
+**They pack to 43% because every aircraft stands in front of the SAME
+cumulus** (§88.10.1): band 2 onwards is mostly a match back into band 1,
+which is the one case LZ4's 64KB window is for. The five bands alone are
+9,120 of the 10,480, and the decision to draw the cloud into each of them
+rather than share it — taken above on the argument that a mask costs as
+much as the band and needs a slot that does not exist — turns out to cost
+**almost nothing in the image**, because the compressor shares what the
+blit could not.
+
+**BOTH REFUSALS ARE NORMAL PATHS** (§20.6, §47). A heap too full to claim 11KB
+and a stream the kernel declines to decode — a build carrying only LZB would
+(§20.14.5) — both leave `[cs_artseg]` at **0**, and zero is tested at each of
+the three blits rather than passed to one: a band read from segment 0 is the
+interrupt vector table drawn on the glass. What 0 draws is the page the
+blit slot's **own** refusal already drew on `kern_small`, the title lettered
+in the 8x8 face and no aeroplane, so the fallback is one that shipped and
+has been looked at rather than a new one. The kernel frees the claim with
+the instance (§50.3), so there is nothing to undo on the way out and no
+close path to get wrong.
+
+`tools/csart.py` does the packing and **checks its own stream** — it expands
+what it wrote and compares it with the bands that made it, and refuses to
+emit a stream that is not smaller than they are — so a compressor change
+cannot quietly ship art that does not come back.
+`tests/unit/t_csart.py` is unchanged and still binds: it regenerates the
+include and holds the tree's copy to it, which now covers the stream as well
+as the drawing.
+
 ### 88.13 The settings (SPEC.md 88.13)
 
 Four knobs, each of which trades picture for frame rate, on a **Settings**
-page in the launcher and on hotkeys inside the bracket. **Every default is
-what the simulator shipped with**, so a player who never opens the page is
-flying exactly what they flew before — the page exists for the machine that
+page in the launcher and on hotkeys inside the bracket: **Detail Level**,
+**Draw Distance**, **Fill** and **Size**. The first two were called
+Buildings and Detail, which named the wrong things — the first had stopped
+being about buildings the moment it gained rungs for roads and for nothing
+at all, and the second was never about detail but about how far away the
+world is drawn. **Every default is what the simulator shipped with**, so a
+player who never opens the page is flying exactly what they flew before — the page exists for the machine that
 cannot afford the default, and for the one that can afford more.
 
 The Mode choice moved here from a menu of its own (§88.10): it is one of five
 things that trade the same way, and it belongs beside them rather than alone
-in the bar. It greys itself where the display offers no choice, which is
-every adapter but a VGA.
+in the bar. It greys itself where the display offers no choice, which since
+§88.15 is Hercules alone: a VGA's two are Mode X and CGA320, a **real CGA's
+are CGA320 and the 16-colour text hack**, and `[cs_modepref]` is "which of
+the two" with `cs_adapter` setting the names to match.
 
-#### 88.13.1 Buildings — Few, Moderate, Full
+#### 88.13.1 Detail Level — None, Only Roads, Low, Moderate, High
 
-`CSO_POI` marks a critical point of interest and `CSO_FILLER` an anonymous
-block or shed. **Few** draws the points of interest alone, **Moderate**
-everything but the filler, **Full** all of it. The test is in `cs_consider`,
-before the range check, so a refused object costs the cull two compares and
-no transform at all. Measured over the city on a 4.77 MHz 8088: **160.1 ms
-at Full against 60.7 at Few**, and 12 objects filed against 4.
+A LADDER, and every rung of it is the same test in `cs_consider`, before the
+range check, so a refused object costs the cull two compares and no
+transform at all. `CSO_POI` marks a critical point of interest, `CSO_ROAD` a
+road, causeway or bridge, `CSO_DENSE` the dense city. **None** draws nothing
+built, **Only Roads** the roads and bridges and no more, **Low** the points
+of interest, **Moderate** the rest of what is built, **High** `CSO_DENSE` on
+top of that. **`CSO_DENSE` is tested FIRST**, above `CSO_TERRAIN`'s exemption
+and `CSO_ROAD`'s: it means *only High draws this*, and nothing below may undo
+it — which is not a nicety, because §88.13.1.3's Nepal tier is six mountains
+and a mountain is terrain. It read 17 objects at both rungs until the test
+moved, which is §88.13.1.1's own finding a second time. Measured over the city on a 4.77 MHz 8088: **143.4 ms with the
+whole table, 52.7 at Low and 72.5 at None**, filing 16, 11 and 3 objects.
+
+##### 88.13.1.1 MODERATE IS THE DEFAULT, and High is a 286/386 rung
+
+The ladder used to end **Moderate, Full**, with Full the default and the
+only difference between the two being `CSO_FILLER` — the anonymous blocks
+and sheds. Measured across all nine worlds on Hercules, at each one's spawn
+and low over the centroid of its own non-terrain objects:
+
+```
+  NEPAL-VNLK   spawn           295.6 ms   295.5 ms    -0.1     RIO-SDU   +47.2
+  PARIS-LBG    over the city    70.9      70.4        -0.5     MIAMI     +34.5
+  NYC-JFK      over the city   107.1     107.5        +0.4     ISSY      +19.3
+  LONDON-LCY   over the city   101.4     102.1        +0.7     CAIRO     +13.2
+  SANFAN-SFO   spawn           216.2     217.6        +1.3
+```
+
+**Five of the nine could not tell the two rungs apart**, and Nepal could not
+because it has no filler at all — its six `CSO_FILLER` ridges also carry
+`CSO_TERRAIN`, which the ladder tests first, so the flag had never filtered
+one of them. A rung that more than half the tree cannot see is a rung spent
+on nothing.
+
+So the two collapsed: **Moderate carries every location's whole table and is
+the default**, which is a pure relabel — the picture a player who never
+opens the page flies is exactly the one that always shipped — and the top
+rung is free for content that means something. `CSO_FILLER` kept its bit and
+became `CSO_DENSE`: the two are the same slot, *what only the top rung
+draws*, and what changed is which objects wear it. The 51 anonymous blocks
+and sheds lost the flag and draw from Moderate; nothing wears `CSO_DENSE`
+yet, so **High and Moderate are the same picture until a location grows one**.
+
+What High is for is the machine that can carry it: seven midtown towers
+ranged to be seen from the JFK runway cost, on a 4.77 MHz 8088 with the box
+LOD working (§88.5.4.2),
+
+```
+  take-off 6.8 km   119.0 -> 150.8 ms      climb 2 km   168.8 -> 250.5 ms
+  climb 4 km        165.0 -> 205.9         over midtown 115.6 -> 148.6
+```
+
+— 5.9 fps down to 4.0 at the two-kilometre climb, which is what puts it
+above an XT and on a 286 or a 386.
+
+##### 88.13.1.2 NYC-JFK's dense city, the first High tier
+
+Twelve more towers down Manhattan, `CSO_DENSE`, so High is the only rung
+that draws one and every rung below it gives the New York that always
+shipped. Four anonymous shapes carry it — the 90 m midtown block and the
+140 m financial-district one that were already there, plus a **190 m slim
+tower** and a **55 m broad block**, all of them under the Woolworth's 241,
+which is under the Chrysler's 319, which is under the Empire State's 381.
+That ladder is the only thing the skyline has to say and a nameless block
+that out-topped a landmark would undo it.
+
+They sit on the **island's own axis** — the line from the Empire State to
+the Woolworth, `(-0.41, -0.91)` — offset across it by no more than 430 m,
+and each range is its **own Manhattan distance from the spawn** plus 400 m
+rounded up to 500, so the whole skyline is standing before the take-off roll
+starts rather than arriving under the aeroplane. That is the entire point of
+the rung: the complaint it answers is a runway with nothing in front of it.
+
+Measured on a 4.77 MHz 8088, Hercules, Moderate against High:
+
+```
+  on the roll        165.0 -> 200.5 ms      climb 2 km      170.2 -> 278.9 ms
+  the take-off point 121.0 -> 180.1         over midtown    116.6 -> 142.6
+  climb 4 km         140.1 -> 232.8
+```
+
+— 5.9 fps to 3.6 at the two-kilometre climb, which is the number that puts
+this above an XT. **No 286 figure is quoted here because none has been
+taken**: MartyPC is an 8088 and 86Box has 286 profiles but no debugger and
+no automation socket, so a session can start one and cannot read the result
+(`docs/TESTING.md`). What is CPU-independent is the work — 27 objects filed
+at the peak against 15 — and a 286 reading belongs in `docs/FIELD-NOTES.md`
+when somebody takes one.
+
+**The ceiling this world now sits under is `CS_NVIS`, not the frame time.**
+The peak is **27 objects in one frame** against 32, with the thirty-third
+dropped silently, so Manhattan has five of headroom and a faster machine
+does not raise it: the next thing added there has to take range off
+something or be counted against those five.
+
+One placement was wrong and a gate caught it rather than an eye: the
+twelfth tower was first put at `(-2058,-4130)`, which is the Battery, and
+`tests/unit/t_csworld.py` reported it **IN the Hudson**. The 150 m of water
+clearance every one of them keeps now is a consequence of that.
+
+**The world budget follows the DEFAULT rung and the object count does not.**
+`tests/unit/t_csworlds.py` prices each world's peak frame against
+Paris-Issy's at 1.15x, and it now leaves `CSO_DENSE` objects out of that
+weight — High is meant to be over what an 8088 carries, and a budget that
+priced it would refuse the feature rather than the regression it exists to
+catch. `CS_NVIS` is the other half and is counted over **everything**: 32
+objects with the thirty-third dropped silently binds on a 386 exactly as
+hard as on an XT, so a dense city is capped by that whatever the CPU.
+
+**Only Roads is the rung worth explaining.** It is the shape of a city with
+no city on it — the Seine's bridges, the Périphérique, the Golden Gate, the
+causeways off Miami — and it costs almost nothing, because every road in the
+tree is a LINE model: no faces, `CSI_MARK`, two or three vertices. It is
+also the rung that says what the others are for: below it the world is
+terrain, above it the world is built.
+
+**`CSO_TERRAIN` is exempt from every rung of it.** A hill, a mountain, the
+WATER and the runway are the world's own surface rather than scenery to thin
+out for frames, so the ladder never refuses one: None leaves the landscape,
+the rivers and the strip you are standing on where they were.
+
+The bit is on the OBJECT and not the model, because `cs_consider` tests it
+in the word it has already loaded. The price of that is a classification
+written twice — once in the model, once on every row that uses it — with
+nothing at run time to say the two disagree, and **the first version of this
+paid it**: thirty water objects were left unflagged and every river in the
+tree emptied at None. So `tests/unit/t_csterrain.py` derives the class from
+the model's own header on the fast tier — a `CS_HILL` model or ink
+`CSI_RIVER` is terrain, no faces and ink `CSI_MARK` is a road — and holds
+every object to it. The Golden Gate is the one a header cannot classify (its
+towers are solids and its deck a box, but a bridge is a bridge) and is named
+in that file by hand.
+
+What a face is FILLED with is decided by its ink and not by this bit
+(§88.13.3), which is why the runway carries it and still fills with the
+buildings.
 
 A change of level clears every object's skip counter (§88.5.2) — an object
 the cull dropped for a hundred ticks would otherwise stay dropped after the
 player asked for it back.
 
-#### 88.13.2 Detail — the draw distance
+#### 88.13.7 Occlusion, and why only one location has it
 
-Every `CSO_RANGE` and `CSO_LOD` is scaled by 0.6, 1 or 1.6 in 8.8. Far holds
-the tower's near model out past four kilometres; Near lets the anonymous city
-come up close before it is drawn. **A point of interest never loses range**:
-Near is for thinning the world out, and thinning out the things you navigate
-by would be a different feature. 112.8 ms at Near against 186.7 at Far, over
-the same scene.
+`cs_occlude` marks the visible objects that stand **wholly behind** another
+one, and `cs_drawpass` skips them. It runs for a location whose record sets
+`CSA_OCC` in `CSA_FLAGS` and for no other: everywhere else the pass clears
+its marks, reads the flag and returns, which is two compares and a
+`rep stosb` over at most thirty-two bytes.
 
-#### 88.13.3 Fill — ground, water, buildings
+**The test is angular and in the world, never on the screen.** `along` is
+already in every `cs_vkey` slot and `across` is two multiplies, so an object
+found hidden is refused **before `cs_scale` rotates anything** — the same
+place the Detail Level refuses one, which is the cheapest there is. Nothing
+is projected and no framebuffer is read; the earlier attempt that filled the
+faces and used them as the occluder measured `solid + (wire − fill-off)`
+exactly, because there the fill *was* the occluder and it had to be drawn.
 
-Three bits. A face is filled only if its ink's bit is set — the river is
-water, every wall, roof, hill and runway is a solid — and **the outline is
-drawn either way**, so turning all three off is the wireframe world. With a
-fill off, the size test that drops a small object's outline (§88.4.7) cannot
-run: the outline is then the whole of the object.
+An occluder A hides an occludee B when B's angular interval lies inside A's
+**at both of B's own levels** — its base, which is widest and lowest, and its
+top, which is narrowest and highest. Both intervals are linear in elevation,
+so their difference is linear and containment at the two ends is containment
+throughout: two tests settle a frustum exactly. A's half-width is taken **at
+the height where A's surface meets B's elevation**, and that is the whole
+trick: the first draft compared B's base width at B's top elevation and
+missed a ridge that is plainly hidden, because a frustum is narrow where it
+is tall.
 
-The ground is not a face. With its bit clear every row of `cs_skyground`
-takes the SKY's ink and the horizon is drawn as one segment instead, off the
-two ends the row loop already computes. **It costs nothing and saves
-nothing** — a sky row and a ground row are the same fill — so this one is a
-LOOK rather than a frame: 160.3 ms against 160.1. Water off is 133.4 and
-every fill off 119.0.
+##### 88.13.7.1 The width rule was chosen on numbers, not on safety
+
+A box's half-extent across the heading is `wx |cos h| + wz |sin h|`. That is
+exact for an object dead ahead and errs either way for one off to the side,
+so it is **not** conservative for every bearing. The conservative rule — the
+smaller of `wx`/`wz` for an occluder, three quarters of their sum for an
+occludee — was written first and measured, on Nepal's own geometry swept
+down the take-off run:
+
+```
+   out    conservative rule        heading-frame rule
+     0    both spurs hidden        both spurs hidden
+   400    both spurs hidden        both spurs hidden
+   600    nothing                  both spurs hidden
+  2000    nothing                  both spurs hidden
+  2200    nothing                  nothing
+```
+
+The conservative rule stops working 400 m off the threshold, so the rule is
+the frame one — **with the occluder shrunk by an eighth**. That margin is
+not a guess either: the unshrunk rule shipped to `tests/skiesocc.py` and the
+row found it hiding a spur at 2,000 m that is **654 pixels visible**, which
+is the difference between measuring the extent across the *heading* and the
+covering happening across the *line of sight*. The occluder pays the margin,
+so the error is always towards drawing.
+
+`tests/skiesocc.py` is what holds it there. It reads `cs_occ` — the
+routine's own verdicts — back out of the guest and checks each one against
+the glass **with the pass switched off**, over nine viewpoints of which
+three are off the centreline. The "pass off" is the whole of it: with the
+pass ON the object is already being skipped, so removing it changes nothing
+and the check passes whatever the pass believes. The first version did
+exactly that, and its `--clobber-occ` arm — a `cs_occpair` that answers yes
+without testing anything — came back **green, with twenty-two verdicts
+"confirmed invisible"**. Against the pass off, the same clobber fails thirty
+ways.
+
+##### 88.13.7.2 What it is worth, and why Nepal alone
+
+Nepal is the only location in the tree with big objects standing behind big
+objects. Its two spurs sit past the gate and the gate's two peaks are 2,400 m
+tall and 1,200 m across; from the strip the spurs are **100% covered**, with
+a 0-pixel control. Culling them by hand, on a 4.77 MHz 8088 on Hercules:
+
+```
+  culled by hand, the ceiling            what the shipped pass gets
+  on the strip   310.4 -> 234.2 ms         0 m   317.4 -> 248.8 ms   -22%
+  1 km out       298.1 -> 202.7           400    292.1 -> 216.2      -26%
+  2 km out       267.9 -> 196.0           800    291.5 -> 206.7      -29%
+  at the gate    205.3 -> 167.9          1200    309.7 -> 219.7      -29%
+                                         2400    255.6 -> 259.3      +3.7
+                                         3200    207.8 -> 209.0      +1.2
+```
+
+The two right-hand rows are what the pass costs where it finds nothing, and
+a location that never asks pays less still: **0 to 1.9 ms** on NYC-JFK, over
+the same five viewpoints §88.13.1.2 was measured at, which is the mark clear
+and two compares.
+
+Manhattan was measured for this first and refused it: in a dense block
+**43–45% of drawn pixels are covered by something nearer, and 0–1 objects of
+sixteen are entirely hidden** — towers of one height stacked in depth peek
+out at the edges, and an object-level test can only skip what is entirely
+gone. The pixels are not where the time goes either (§88.5.4.2), so the flag
+is off for every world but this one.
+
+##### 88.13.1.3 …and the other eight worlds
+
+`CSO_DENSE` shipped with one customer and eight locations that could not tell
+High from Moderate apart. Each of the eight now has a tier, and what each one
+ADDS is the thing that world had to leave out to fit a 4.77 MHz 8088 — which
+is a different thing in every case, and that is the point of going location by
+location rather than scattering towers:
+
+| location | the High tier | n |
+|---|---|---|
+| **LONDON-LCY** | the City of London between St Paul's and the Tower, and Canary Wharf as the cluster it is — the two things the world names and then draws as one tower each | 10 |
+| **MIAMI-MIA** | Brickell's wall on the bay, and mid-rises down Collins between the two beach hotels: the two built places a RUNWAY 09 climb-out crosses, both of which were thin | 9 |
+| **RIO-SDU** | Centro off the runway's own end, Botafogo on the bay shore, and Copacabana as a WALL of flats on the beach's own four stations | 9 |
+| **SANFAN-SFO** | the Financial District round the Transamerica, and two down at the Embarcadero: from the Marin side the whole of it is one silhouette | 8 |
+| **CAIRO-SPX** | the mastaba fields — two ruled grids of 9 m flat-topped tombs east and west of Khufu — and three blocks in Cairo | 10 |
+| **NEPAL-VNLK** | the range's SECOND RANK: Lhotse, Nuptse, Ama Dablam, Thamserku, Kangtega and Kusum Kanguru | 6 |
+| **PARIS-ISSY / -LBG** | six more slabs at La Defense, which goes from five towers to a business district, and two mid-rises on the Arc-to-Louvre axis | 8 |
+
+**What each one costs**, on a 4.77 MHz 8088 with a Hercules card, Draw
+Distance = Far, the tick wait patched out so a frame under 54.9 ms is not
+rounded up to it, twelve exact frames a reading — two scenes a location, the
+first on the take-off roll and the second wherever that world's tier actually
+is:
+
+```
+                     Moderate      High       objects
+  NYC-JFK      roll   111.8 ms   154.0 ms     12 -> 22
+               2 km   204.7      257.7         9 -> 17
+  LONDON-LCY   roll   111.1      173.7        10 -> 20
+               4 km   221.7      354.6        15 -> 21
+  MIAMI-MIA    roll   214.2      265.4        19 -> 27
+             rotate   259.2      366.9        17 -> 25
+  RIO-SDU      roll   195.7      294.7        12 -> 20
+             Centro   245.6      335.8        12 -> 21
+  SANFAN-SFO   city   208.3      374.9         9 -> 17
+               gate   214.1      286.0        20 -> 28
+  CAIRO-SPX    roll   188.6      208.3        14 -> 21
+            plateau   125.2      153.8        11 -> 18
+  NEPAL-VNLK   roll   237.3      347.9        11 -> 17
+             valley   200.4      441.7         8 -> 14
+  PARIS      Defense   115.7      145.9        10 -> 16
+          departure   229.7      240.1        16 -> 18
+```
+
+Two of those rows say something the others do not. **Cairo is the cheapest
+tier in the set** — +20 to +29 ms — because a mastaba is 8 vertices and 5
+faces and there is no tower in it, which is that world holding its place as
+the floor of the band while still gaining a rung. And **Nepal is the dearest**
+at +241 ms, because its tier is six MOUNTAINS: nothing else in the set adds
+objects that fill the whole view. That is the world the occlusion pass is
+already on for (§88.13.7), and it is the one place where the tier and the
+pass were designed against each other.
+
+Three rules hold across all of them, and they are the ones a ninth world would
+have to be held to:
+
+1. **An anonymous tower may not out-top the location's own landmarks.** A
+   nameless block taller than the thing the player came to see undoes it. The
+   shared models are `cs_m_tower` 180 m, `cs_m_tower2` 110 and `cs_m_midrise`
+   55 (`csworld.inc`) — 78 bytes for the three, against 26 each per world —
+   and a world whose landmarks are lower than 180 uses the lower two. Giza
+   uses none of them: it has no skyline and inventing one would be the one
+   thing that file is written not to do, so its tier is a **tomb field**.
+2. **A range is the object's own Manhattan distance from the spawn plus 400 m,
+   rounded up to 500**, so the tier is standing before the take-off roll
+   rather than arriving under the aeroplane — that being the complaint the
+   rung answers. The exceptions are stated where they are taken and all have
+   the same shape: Miami's beach strip, Rio's Copacabana and Giza's mastabas
+   are things the aeroplane arrives OVER, not skylines it flies towards, so
+   they take the range their neighbours already have.
+3. **Every footprint keeps 60 m of daylight from every other and 80 m from the
+   water** (200 m and 150 m for Nepal's mountains). `tests/unit/t_csworld.py`
+   is what enforces the second and it earned that in Manhattan (§88.13.1.2).
+
+**`CS_NVIS` is what sizes a tier, and the gate is CONSERVATIVE about it.**
+`tests/unit/t_csworlds.py` reads 26 to 28 objects in the worst frame of every
+world now, against 30 and a `CS_NVIS` of 32 whose thirty-third is dropped
+silently — which reads alarming and is not, because that gate counts every
+object in range **at every heading at once**, capped at 6 km. `cs_consider`
+files on a CONE (§88.5.1). Swept properly — a 500 m grid of eyes over the
+whole 12 km box, 24 headings each, the cull's own `|across| <= f·along + r +
+|dy|` at the WIDEST `f` it ever uses and an eye 1,000 m up — the worst frames
+are:
+
+```
+  CAIRO-SPX  21   LONDON-LCY 21   MIAMI-MIA  26   NEPAL-VNLK 17
+  NYC-JFK    27   PARIS-ISSY 22   RIO-SDU    24   SANFAN-SFO 26
+```
+
+so every world has five or more of real headroom. The gate is left as it is:
+it over-states in the safe direction, and a gate that models the cone would be
+a gate that has to be right about the cone.
+
+##### 88.13.1.4 You cannot hit what the rung does not draw
+
+`cs_collide` walks the location's whole object table and tests `CSO_COLLIDE`,
+and it has never consulted the Detail Level. With `CSO_FILLER` that was
+harmless — the filler was drawn at the default rung. With `CSO_DENSE` it is
+not: **Manhattan's twelve towers kill a player at Moderate, which is the
+default, out of clear air**, and every tier above would have added more of it.
+
+So the walker skips a `CSO_DENSE` object unless `[cs_setbld]` is `CSBL_HIGH`.
+Thirteen bytes, and it is the narrow fix on purpose: the same argument
+applies one rung down — at Detail Level = Low a player already flies through
+nothing and crashes into an anonymous warehouse — but making the world
+non-lethal at the low rungs turns a PERFORMANCE setting into a difficulty
+setting, which is a change to ask for rather than to slip in beside a content
+tier. `CSO_DENSE` is different because it is content that does not exist
+below High at all.
+
+It has one consequence a world has to be designed against, and Nepal is where
+it bites: a peak that stands in a departure corridor at High and not at
+Moderate would be a line a player can fly on one rung and not on another. The
+six there are placed clear of the 060 line by the same box arithmetic the
+file's own header works for the gate peaks, and the only one whose box meets
+it meets it at 9.4 km — behind Everest's, where the corridor already ends.
+
+#### 88.13.2 Draw Distance
+
+Every `CSO_RANGE` and `CSO_LOD` is scaled by 0.6, 1, 1.6 or 2.0 in 8.8. Far
+holds the tower's near model out past four kilometres; Near lets the anonymous
+city come up close before it is drawn. **A point of interest never loses
+range**: Near is for thinning the world out, and thinning out the things you
+navigate by would be a different feature. 112.8 ms at Near against 186.7 at
+Far, over the same scene.
+
+##### 88.13.2.1 Ultra, which is the impostor turned off
+
+A fourth rung, and the only one on this ladder that is not a distance.
+`cs_boxlod` stands a small solid up as ONE FILLED RECTANGLE (§88.5.4) — under
+`CS_LODPX` = 8 pixels wide and `CS_LODTALL` = 26 tall, which at the far end of
+a city is most of it. That is a **substitution**, and every other rung here
+only moves the range it happens at; **Ultra takes the substitution away**, so
+a solid draws its own polygons at every size it is ever drawn at, and the box
+LOD is not reached at all.
+
+Seven bytes, at the top of the impostor block, and it is the whole feature —
+`cs_boxlod`'s call site is one `je` away from the full path it already falls
+through to when a model is a wireframe.
+
+The range scale is 2.0 and not more, and that is `CS_NVIS` and not taste:
+§88.13.2.2 is why.
+
+It exists because of a field reading. A 286 at Detail = High, Draw Distance =
+Far, over Manhattan is **pegged to the tick** — 54.9 ms, the 18.2 Hz floor, on
+every frame — which means the frame is finishing inside a tick and the machine
+is waiting. A rung that spends that headroom on the picture is what a player
+with one of those has left to buy.
+
+**What it costs**, on the machine it is NOT for — a 4.77 MHz 8088 with a
+Hercules card, NYC-JFK at Detail = High, five scenes down the departure, the
+tick wait patched out:
+
+```
+                     Near   Moderate      Far     Ultra
+  on the roll       46.1 ms    85.7    154.2     282.6
+  rotate            92.8      148.3    168.9     321.5
+  200 m             56.4      114.4    161.7     315.4
+  2 km climb       175.2      213.4    257.8     358.5
+  over midtown     102.8      103.0    125.4     125.3
+```
+
+Ultra is **1.4 to 1.9 times Far** where there is a distant skyline, and **the
+same frame to a tenth of a millisecond over midtown** where nothing is far
+enough away to have been boxed. That shape is the feature working: the rung
+costs exactly what the impostors were saving and nothing anywhere else.
+
+##### 88.13.2.2 …and `CS_NVIS` had to go up to carry it
+
+`CS_NVIS` was 32, the thirty-third object in a frame dropped SILENTLY, and
+**32 is reachable today**. Swept with the cull's own cone (§88.13.1.3's
+method — a 500 m grid of eyes, 24 headings each) and every range scaled by
+Far's 1.6, the worst frame per world is:
+
+```
+  CAIRO 25   LONDON 26   MIAMI 28   NEPAL 18
+  NYC   28   PARIS  34   RIO   27   SANFAN 27
+```
+
+— Paris at **34 in level flight**, so two of its buildings come off the glass
+with nothing said, at a setting a player can pick from the page. Nobody had
+looked, because the gate that owns this number prices the DEFAULT rung and
+`t_csworlds` does not scale by the draw distance at all.
+
+So `CS_NVIS` is 48. It costs **eleven bytes of the package's bss a slot** —
+six in `cs_vis`, four in `cs_vkey`, one in `cs_occ` — 176 bytes for the
+sixteen, and it is bss in a package's own claim rather than anything the
+kernel budgets. 48 covers Paris at Ultra's 2.0 (41) with room; 2.4 would have
+put it at 44 and bought four rows of a table nothing else wants.
+
+#### 88.13.3 Fill — terrain and buildings
+
+Two bits, and a cleared one means **wireframe** rather than gone. `TERRAIN`
+is the world's own surface — the ground under the horizon, the water, and
+the hills and mountains; `BUILDINGS` is everything put on it, the runway
+included. A face is filled when its ink's bit is set and drawn as its
+OUTLINE when it is not, in its own ink, so a hill's ridge still reads as a
+hill and a wall as a wall. With a fill off the size test that drops a small
+object's outline (§88.4.7) cannot run: the outline is then the whole of the
+object.
+
+**The outline draws each edge ONCE** (`cs_wire`). Every edge of a closed
+solid is shared by two faces, so outlining each front face in turn draws the
+shared ones twice — the same pixels, at the same cost, for no picture.
+`cs_edgemark` marks an edge by its two VERTEX INDICES as it draws it and
+skips one already marked, over a bit per pair cleared once an object; a face
+the near plane CUT has no such indices, because `cs_pv` then holds points
+the clipper made, and that one is drawn whole. It needs **no per-model edge
+list** — the indices are the face's own — and it is worth having: over the
+city on Mode X, **167.5 ms against 184.2** for the same picture drawn twice
+over, where the solid is 284.7.
+
+**This is where the two bits stop resembling each other.** Buildings are
+tall and narrow, which is the outline's best case and the fill's worst:
+**284.7 → 167.5 ms on Mode X (−41%) and 215.0 → 142.8 on Hercules (−34%)**.
+Terrain is wide and flat, which is the reverse — a Hercules polygon row is a
+`rep stosw`, sixteen pixels a store, against one masked read-modify-write
+per pixel for a line — so **terrain wireframe is a LOOK and not a saving**:
+143.4 ms against 142.8 on Hercules, and slower than solid on a scene with a
+river across it. The ground is not a face at all: with the bit clear its rows take
+**`CSI_BLACK`** while the sky keeps the sky (`cs_hznone`), and the horizon
+is drawn as one segment over the join, off the two ends the row loop already
+computes — which costs nothing and saves nothing, a black row and a green
+one being the same fill. It was the SKY's ink on both sides, which is right
+on a 1bpp adapter for the accidental reason that the sky there IS black, and
+on a colour one painted the whole world blue, horizon and all: black is the
+ground being ABSENT rather than the sky reaching the bottom of the frame.
+
+Neither bit is a way to make the world disappear. **Buildings = None**
+(§88.13.1) is that, it is cheaper than any fill decision, and it is where
+the frame rate is.
+
+##### 88.13.3.1 ...and that segment belongs to no object
+
+Reported off the machine: *"at some angles, some of the time, the horizon
+line disappears in wire view"*, with two photographs a few seconds apart in
+the same turn — gone, then present.
+
+`cs_seg` reads three words about the object it is drawing for, and
+`cs_skyground` runs **before** `cs_scene`, so at the moment the horizon's
+segment is drawn all three are the PREVIOUS frame's last object's:
+
+  * **`cs_pinview`** makes it skip the clip entirely and walk the raw
+    segment — which for a horizon runs to row 242 or −192 of a 112-row view;
+  * **`cs_pwhole`** makes it skip the marking block (`jne .mk1`);
+  * and with both clear it marks through **`cs_markacc`**, which accumulates
+    into `cs_oby0`/`cs_oblo` — the OBJECT box, which `cs_drawobj` resets to
+    its sentinel for the first object a moment later.
+
+So the segment was drawn into the shadow and its rows were never carried.
+What made it intermittent is that the band's own row loop marks every band
+row full-span, so the line appeared whenever the band happened to cover it
+and vanished when it did not — and a pinned, paused pose renders differently
+from one frame to the next, which is how a photograph catches it either way.
+
+**This is the panel's situation exactly**, and `cs_pclip` has said so since
+it was written: *"segments in the panel mark their own rows (`cs_ownmk`):
+they belong to no object that would."* The horizon takes the same three
+stores and gives `cs_ownmk` back after, so `cs_markrows` marks the segment's
+own rows.
+
+**Measured.** Sweeping pitch and roll and A/B-ing the segment's own draw
+against the host's Liang-Barsky clip of it: **8 of 180 poses drew a horizon
+shorter than the view says it is, four of them drawing nothing at all**, and
+0 of 180 after. Each store is load-bearing and each was put back on purpose
+at a pose the horizon reaches: the `cs_pwhole` leftover costs **593 pixels**
+at pitch −12 roll 20, and the `cs_pinview` leftover the same 593, the two
+coinciding there because the segment is wholly inside the view and both
+land on the same skipped marking.
+
+**It costs nothing to run**, which is the point: LCY **195.6 → 195.7 ms** and
+PARIS-ISSY **120.1 → 120.1**, High/Ultra/wire on a 4.77 MHz 8088. The extra
+marking is free because the band already marks those rows full-span — the
+segment lies inside the band by construction, the band being the rows
+between its own two ends — so the union `cs_blit` walks does not change. 20
+bytes of the package and no kernel byte at all.
+
+`tests/skieshz.py` check 2 is the gate and `--clobber-hzmark` the red run.
 
 #### 88.13.4 Size — Small, Moderate, Full
 
@@ -98210,17 +100507,168 @@ per fill.
 
 #### 88.13.5 …and the same four on hotkeys, in flight
 
-`-`/`+` the size, `1 2 3` the buildings, `4 5 6` the three fills, `7 8 9` the
-detail. A key that changes what is drawn costs the next frame and nothing
+**One key a setting, and it steps that setting's ladder one rung and round
+at the top.**
+
+| | |
+|---|---|
+| `F1` | Detail Level — None, Only Roads, Low, Moderate, High |
+| `F2` | Draw Distance — Near, Moderate, Far, Ultra |
+| `F3` | Size — Small, Moderate, Full (`-`/`+` are still the alternate) |
+| `F4` | Terrain fill, a toggle |
+| `F5` | Buildings fill, a toggle |
+
+It was **a key a VALUE** — `F1` to `F5` the five detail rungs, `F6`/`F7` the
+fills, `F8` to `F10` the three draw distances — and that runs out. The detail
+ladder went to five rungs at §88.13.1.1 and the draw distance to four at
+§88.13.2.1, which is eleven keys for four settings before the fills, and
+there are twelve. A cycling key costs a player the ability to jump straight
+to a rung; the Settings page is where a considered choice belongs, and a
+hotkey is for trying the next one.
+
+**`-`/`+` stay on Size**, because that is the one setting where a player
+wants to say which way, and they cycle nothing: at the top `+` is the
+current value again.
+
+Every one of them raises a **toast** (§88.13.8), and that is not decoration:
+a key that steps a ladder is no good if the glass does not say where the
+ladder now is.
+
+Function keys and not the number row: a flight simulator's digits are where a
+player expects to find something else, and these are keys nobody reaches for
+by accident. They arrive as `int 16h` EXTENDED codes — `AL` zero, `AH` the
+scan code — so `cs_hotkeyx` hangs off `cs_input`'s `.ext` arm beside the
+arrows rather than off the character one, and the instructions page names
+them. A key that changes what is drawn costs the next frame and nothing
 after it, so it is one store; size re-runs the raster's setup, which is
 idempotent and reuses the shadow claim it already holds. **No frame reads a
 setting more than the frame it draws**, so carrying the options costs a
 flight nothing.
 
-#### 88.13.6 The page's own two defects, off the machine
+**Both ladders that change RANGE now clear the cull's skips.** Detail always
+did; Draw Distance never has, and §88.5.2 keeps an out-of-range object out
+for `distance/16` ticks — so raising the draw distance in flight left the far
+half of the world absent for up to `CS_FAR/16` = 1,000 ticks, which is a
+minute. One `call cs_skipclr` covers both.
 
-Both were reported off the machine and both are worth writing down, because
+#### 88.13.8 The toast: what changed, and what it is now
+
+A cycling hotkey has to say where it landed, and the cockpit already has the
+one place for a line of text — §88.9.9's **message strip**, the band that
+says `FULL THROTTLE, PULL BACK AT 55 KNOTS` on the runway and `STALL` when
+one is happening. A toast is that strip, for a second and a half:
+`DETAIL LEVEL: HIGH`, `DRAW DISTANCE: ULTRA`, `TERRAIN: OFF`.
+
+It is **one byte and a countdown**, and it paints nothing. `cs_msg` is what
+the panel reads once a frame; `CSG_TOAST` is a tenth message whose table
+entry is `cs_toastbuf` itself, so the strip letters the composed line by the
+path every other message already takes.
+
+Three things about it are decisions rather than mechanism:
+
+- **It is lettered out of the Settings page's own strings** — `Detail Level`,
+  `Ultra`, `Buildings` — through an upper-casing copy (`cs_strcpyu`, ten
+  bytes). A second set of names for the same rungs is a second set to keep in
+  step, and they would drift the first time a rung was renamed.
+- **It is timed on the frame's own tick count**, in the loop beside
+  `cs_steps` and not inside `cs_step` — because `cs_step` is what a PAUSE
+  stops, and a toast raised while paused would otherwise sit there for ever.
+  That also makes it the same second and a half on a machine drawing three
+  frames a second and on one drawing eighteen.
+- **It restores only a strip that is still the toast.** A stall or a crash
+  raised while one is up keeps the glass; the toast's expiry finds `cs_msg`
+  changed and leaves it alone. A toast on a toast keeps the FIRST message as
+  what to go back to, so holding `F1` down does not make the strip's own
+  history the thing it restores.
+
+#### 88.13.9 …and the page's answer is kept
+
+`SYSTEM\APPDATA\CSSET.DAT` on the instance's own volume, nine bytes: a
+four-byte magic and the five the page edits — Detail Level, Draw Distance,
+Size, Mode and the two fill bits. Read once in `cs_entry`, written when the
+Settings page is left. `apps/skies/csset.inc`.
+
+**The read is in the entry proc and not at the first paint**, which is where
+tank puts its own. That is forced: **Size is the last default set and it is
+set from the ADAPTER**, which is not known until the window exists, so a read
+before that line has its answer overwritten by the card. There is also an
+observation this section did not chase — the same read at the first paint left
+the buffer untouched with the file sitting on the disk, and the same read a
+moment later filled it. Tank (§85.9) and cyclone (§67.20) both load at their
+first paint.
+
+The shape is `apps/tank`'s `tkhs.inc` (§85.9), which is `apps/cyclone`'s
+(§67.20), down to its two hard-won rules — **`SYSTEM\APPDATA` on our own
+volume**, because the file browser is the whole of how a user reaches an
+application and a data file in an app folder is a misclick waiting to happen;
+and **`OSAPI_FILE_GOTO` and not its quiet twin**, because `GOTO_Q` moves the
+global cwd and deliberately not the instance's, so a quiet move is undone by
+the very next call and the save writes nothing at all while the load appears
+to work.
+
+**WHEN it saves is this file's own choice, and it is not tank's.** Tank banks
+a score the moment the initials are typed, because a player expects a score to
+be theirs as soon as they finish typing it. A setting is not like that: §88.13.5's
+hotkeys are deliberately TEMPORARY — F1 to F5 are for trying the next rung
+while flying, and a machine switched off mid-flight should not have inherited
+whatever was being tried. So what is written is the **page's** answer, at the
+moment the page is left by either route (Done's release, or a key), and the
+file is the considered choice rather than the last experiment.
+
+**A file that matches the magic and holds nonsense is CLAMPED, not refused.**
+The magic is what tells a foreign or stale file apart; a rung out of range is
+one byte of a file this program itself wrote, so the honest answer is the
+nearest rung rather than throwing five good settings away. A file that fails
+the magic, the size, or the folder leaves the built-in defaults standing —
+which is also the first run, where there is no file at all.
+
+**This is the fourth copy of those eighty lines** — tank, cyclone and ftpd
+carry the other three — and one `apps/os88data.inc` that all four include is
+the obvious next step. It is not taken here: those three work, and moving them
+is a change to three shipped packages rather than to this one.
+
+#### 88.13.9.1 …and a 286 or better with no file starts at the top
+
+Asked for off the machine: *"have a 286+ class default to max settings, when
+no csset is available."* The shipped defaults are the **8088's** — the
+machine this simulator is calibrated against — and on anything faster they
+are a first flight spent looking at an empty world and wondering where the
+buildings went.
+
+`OSAPI_CPU_INFO` answers `CPU_286` or better, which §7 of PERFORMANCE.md's
+rules calls the right thing to branch on: **a fact the code can test rather
+than a guess about speed.** A tier above `CPU_8086` takes `cs_set_best` —
+Detail Level High, Draw Distance Ultra, Size Full, both fills on.
+
+**It runs BEFORE the read**, which is what makes it safe: a file that exists
+says what the player chose and overwrites all five, so the tier decides only
+what a machine that has never been told anything gets. Delete the file and
+the fast machine goes back to the top; the slow one goes back to its own
+defaults.
+
+**`cs_set_best` is not `cs_set_max`**, and the difference is a real trap: the
+clamp's ceiling for the Mode byte is 1, which is *CGA*. A machine handed the
+best of everything else off that table would have been handed the worse of
+two displays.
+
+#### 88.13.6 The page's own defects, off the machine
+
+All were reported off the machine and each is worth writing down, because
 each is a shape that will recur.
+
+**A press on an open list went to the box UNDERNEATH it.** `cs_setclick`
+walked the four drop-downs in the order `cs_set_page` draws them — row 0
+last and so on top — which is the wrong end to start a HIT test from, and
+`os88ui_drpress` lets a closed control claim a press that lands on its own
+box. Buildings is row 0 and its open list falls across Detail, so a press on
+the list's lower items opened Detail's list instead and the pick never
+happened. **Moderate and Full were unreachable from the page** for as long
+as the page has existed; nobody noticed because the row that drives it only
+ever clicked the first item, which is above Detail's box. Adding **None** as
+a fourth item is what walked into it. The fix is the one `.page0` already
+had for the same defect (§13.14.2): an OPEN list takes the press first,
+wherever it landed. `tests/skiesset.py` now picks the second item, which is
+the one that goes through Detail.
 
 **The four drop-downs had no `OS88UI_DR_WIN`.** Only `cs_drplane` and
 `cs_drport` were given the window handle when the launcher's window was
@@ -98288,11 +100736,29 @@ drop-downs get a release the title page never armed.
   `--clobber-si` puts that bug back and must go red on it.
 - `tests/skiesset.py` (soak, MartyPC): §88.13's four knobs, each held to
   either the work the renderer does or the pixels on the glass. The page
-  opens from the menu and its painter writes all eight controls' rects; a
-  fill box clears its bit and all three off is the wireframe; Buildings =
-  Few files 4 objects where Full files 12 and draws in 60.7 ms against
-  143.6; every hotkey sets its byte inside the bracket; and shrinking the
-  view leaves none of the larger one beside it. `--clobber-clear` NOPs the
+  opens from the menu and its painter writes all seven controls' rects; a
+  fill box clears its bit and both off is the wireframe; **Detail Level =
+  None files nothing built and still leaves the runway, the water and the
+  terrain standing, and Only Roads brings the roads back and no more**
+  (§88.13.1); the Detail Level a player who never opens the page flies on is
+  **Moderate**, in the byte and in the drop-down's own record (§88.13.1.1);
+  Low files 11 objects where the whole table files 16 and draws in 52.7 ms
+  against 143.4; every F-key sets its byte inside the bracket (§88.13.5);
+  and shrinking the
+  view leaves none of the larger one beside it. **Moderate is High minus
+  `CSO_DENSE`, counted and not compared as pixels** — a paused Clear Skies is
+  not a still picture, so two arms drawing the same objects differ by
+  thousands and a same-rung CONTROL reads the same thousands; the dense
+  objects are counted out of the world's own table so the check survives the
+  day a location grows a High tier, and it is taken on **both** the default
+  location and the one with a dense city, found by walking `cs_ports`: the
+  EQUAL branch is what a broken ladder trips and the STRICT branch is what
+  says the flag reaches the cull at all. **Neither alone is enough** —
+  `--clobber-dense` drops collidables at Low and Moderate together, so on the
+  dense world the counts still nest and still differ, and only the default
+  world's equality sees it. `--clobber-default` puts the old top-rung default
+  back and `--clobber-dense` points the ladder's `test ax, CSO_DENSE` at
+  `CSO_COLLIDE`, which objects actually wear. `--clobber-clear` NOPs the
   screen clear a size change owes and that last check must go red — it
   reads the band either side of the shrink, so it also proves the larger
   view had put something there to begin with.
@@ -98339,6 +100805,37 @@ drop-downs get a release the title page never armed.
   `--clobber-lod` raises the refusal past every rectangle it can draw, which
   is the gate exactly as it was, and `imp26` — level at the foot of the
   Montparnasse tower — reports **22 px**.
+- `tests/skiesocc.py` (soak, MartyPC, Hercules): §88.13.7's gate, and the
+  only thing keeping its width rule honest. It reads `cs_occ` — the pass's
+  own verdicts — back out of the guest and checks each one against the glass
+  **with the pass switched off**, which is the whole of it: with the pass on
+  the object is already skipped, so removing it changes nothing and the check
+  passes whatever the pass believes. The first version did exactly that and
+  its `--clobber-occ` arm came back green with twenty-two verdicts "confirmed
+  invisible"; against the pass off the same clobber fails thirty ways. Nine
+  viewpoints, three of them off the centreline, because the rule is exact for
+  an object dead ahead and errs only for one off to the side — and that is
+  how the unshrunk rule was caught hiding 654 visible pixels at 2,000 m.
+- `tests/skieslod.py` (soak, MartyPC, Hercules): §88.5.4.2's gate. JFK's
+  four anonymous towers are put in a row across the sight line at **7 km** —
+  inside the band where `11 cz` used to wrap — and the row reads which path
+  they take over one frame: `cs_boxlod` four times, `cs_stackverts` never,
+  and `cs_rect` four times, because a `cs_boxlod` that was called and then
+  refused would otherwise pass. It moves the CAMERA and the towers rather
+  than trusting where JFK happens to put them: from the runway two of the
+  four fall outside the frustum, which would make the counts a fact about
+  the world's layout instead of about the gate. `--clobber-lod` NOPs the
+  `cmp cx, 5958 / jae .lod` that refuses the multiply, which is the wrapping
+  product exactly, and the first three checks go red — the towers reading
+  **12.48 ms each against 3.17**. It also carries §88.5.4.3's check: the
+  impostor must be the SIZE of the model it stands in for, over four towers
+  at three ranges, and `--clobber-shr` NOPs the pairs that give `cs_pshr`
+  back. And §88.5.4.4's: nothing on the skyline goes away and comes back
+  down the take-off run — a **dip** and not a step, because the skyline
+  legitimately grows and shrinks as the aeroplane rolls, so what the row
+  looks for is a value below BOTH its neighbours. `--clobber-tall` puts the
+  height bound back to `CS_LODPX` and the deepest dip goes 0 of 407 to 26 of
+  339.
 - `tests/skiesease.py` (soak, MartyPC): §88.7.3's capture. Every reading is
   taken at a `cs_step` BREAKPOINT and not after a frame — the model steps per
   tick and a frame spends one, two or three of them, so a per-frame sample
@@ -98379,6 +100876,435 @@ drop-downs get a release the title page never armed.
   BEFORE it cost**: a mark that precedes a walk reads as the mark plus the
   walk, which is how the per-segment marking of §88.3.2 was first read as
   45 ms and turned out, on the A/B, to be 9.
+
+### 88.14 The watchdog — `CSDIAG=1` (a diagnostic build)
+
+A hard freeze inside an fsx bracket takes the whole machine with it: no
+pointer, no dock, no menu, and no way to ask the machine anything. 86Box has
+no debugger (docs/TESTING.md), so the only instrument a field machine has is
+a **photograph of the glass** — and a photograph of a frozen frame says what
+the picture was, not where the CPU is.
+
+So this build makes the machine answer in a photograph. `cs_diag_on` hooks
+`int 08h` for the length of the bracket and `cs_diag_isr` runs in front of
+the kernel's, chaining to it (`sch_isr` is what EOIs and schedules, so it
+must still run). Every tick it banks the **interrupted IP** in a ring of
+`CSD_SLOTS` and paints, **straight into VRAM**, four words as sixteen pixels
+each — bit 15 leftmost, three scan rows tall with a blank fourth so the four
+blocks read as four — at the top-left corner of the view:
+
+| block | what it is |
+|---|---|
+| 1–3 | the last three interrupted IPs, oldest first, bit 15 leftmost |
+| 4 | a **tick counter** |
+| 5 | **ticks since the last frame FINISHED** |
+| 6 | high byte the page parity, low byte the **stage** the frame had reached |
+
+**Block 5 is the diagnosis and it needs only one photograph**, which is what
+the first version got wrong: a tick counter alone says nothing from a single
+still, because a number is only moving if you see it twice. Ticks-since-the
+last-finished-frame does not have that problem. A **big** number means the
+tick went on running long after the picture stopped — the freeze is ours,
+and the three IPs beside it name the loop. A **small** one (0 to 3) means
+both stopped at the same moment, so the machine is dead below Clear Skies:
+`IF` clear, a `hlt` nothing will wake, or the tick chain gone.
+
+Block 6 says **where in a frame** it stopped, which is the other half:
+
+| stage | reached |
+|---|---|
+| 1 | `cs_render` entered | 
+| 2 | `cs_r_begin` returned |
+| 3 | the matrix and the eye are done, the sky/ground pass is next |
+| 4 | `cs_skyground` returned, the scene is next |
+| 5 | `cs_scene` returned, the panel is next |
+| 6 | `cs_panel` returned, the blit or the page flip is next |
+| 7 | the frame **finished** |
+| 8 | in `cs_input` |
+| 9 | in the simulation loop |
+| 10 | in the kernel's **`hlt`** tick wait (§53.5) |
+| 11 | out of it again |
+
+Stage 10 with a small block 5 is one specific answer and worth naming: the
+machine went into `fsx_wait`'s `hlt` and nothing ever woke it.
+
+`tests/skiesdiag.py` is what says the instrument works, and it works the
+only way such a thing can be tested: it **freezes the machine on purpose**,
+patching a `jmp $` over the first instruction of `cs_render`, and then
+requires all three IP blocks to name that address off the glass while the
+counter goes on climbing. Checks that the hook is up and that the ring holds
+plausible addresses would pass on an instrument that samples the wrong word;
+that one would not.
+
+It paints into the view, so a running frame overwrites it constantly and it
+flickers. That is the point: **what survives on the glass is what was
+painted after the last frame that ever finished.**
+
+It costs the shipped build nothing — `make` compiles none of it, and the
+default `skies.o88` is byte-identical with the file present. `make skiesdiag`
+builds the package with `-DCSDIAG` into a private tree and writes a 360KB
+apps floppy carrying it, so the diagnostic and the shipped disk never share
+a `build/`.
+
+**It is an instrument, not a fix**, and it is here because Clear Skies has a
+freeze that 8,000 pinned poses and 4,200 frames of continuous rolling under
+MartyPC could not reproduce — which is itself a finding: whatever it is, it
+is not a function of the drawn state alone.
+
+#### 88.14.2 A private tree nothing rebuilds is a stale tree
+
+`tests/skiesdiag.py` assembles the `CSDIAG` package itself to take the four
+addresses it pokes and reads, and the disk it boots is built separately by
+`make skiesdiag` into `build/skiesdiag/`. Nothing re-runs that. A change to
+`apps/skies/` therefore leaves a tree whose addresses are **plausible and
+wrong**, and the row fails nine assertions that all read as the watchdog
+being broken — which is exactly what happened the first time the package
+grew after the tree was built.
+
+The row holds the tree to its own assembly now: it writes the binary as well
+as the listing and refuses, in one line naming `make skiesdiag`, when the
+tree's `skies.bin` is not byte-identical to it. That is `os88sym`'s rule for
+`build/kernel.bin` applied one level down, and docs/WRITING-TESTS.md §13 row
+20 is the incident.
+
+#### 88.14.1 The guards, and the two defects they found before the field did
+
+A photograph of a dead machine is a photograph of the wreckage. The second
+field run came back with the stage block holding **130**, which is not a
+value `CSSTAGE` ever writes — so memory had been scribbled on, and every
+other block in the picture was suspect with it. What that calls for is a
+reading taken at the MOMENT rather than at the death.
+
+`cs_diag_ck` is that. Four regions are checked and the first failure
+**latches**: which region, the stage it was in, and the tick — written once
+and never again, so nothing that happens on the way to the machine dying can
+overwrite the answer. It is called from `CSSTAGE`, which is eleven times a
+frame rather than once a tick, and that is the whole point: a tick samples a
+55 ms window and names a routine, a stage names the sky/ground pass, or the
+scene, or the panel, or the blit.
+
+The regions are not arbitrary. `cs_spguard0/1/2` were declared around the two
+span sets by whoever built them and referenced by **nothing** — their last
+two words each are that set's `y0`/`y1` header (§88.3.3), and the rest has
+never been written, so zero is what they hold. `cs_dcan` is the watchdog's
+own, laid down beside the bytes a wild write was actually seen to reach.
+
+**And the guard went red on a healthy flight, first time out.** Two defects,
+neither of which anything else in the tree could see:
+
+**The span sets were filled 960 bytes at a time into a 480-byte buffer.**
+`cs_r_setup` and `cs_clearall` both did `mov cx, CS_MAXROW * 2` with a
+`rep stosw` — words where the buffer is `CS_MAXROW * 2` **bytes**, one word a
+row. The intent was "both sets at once", and that is wrong twice over: it is
+twice the count, and the two sets are not contiguous, `cs_spguard1` being
+between them. So the sweep ran over that guard — header included, which
+`cs_r_begin` then re-armed each frame, which is why nothing ever showed —
+and stopped 8 bytes short of `cs_span1`'s end. Each set is filled on its own
+now.
+
+**`cs_lrunproc` was never set on the Mode X arm.** It is a `ZWORD`, so it is
+0 until something writes it, and `CS_SLICE`'s `call [cs_lrunproc]` is
+instantiated by `CS_WALKS` for **CGA and Mode X** alike. The CGA arm sets it
+and the Hercules arm sets it; the Mode X arm sets `cs_hrunproc` beside it and
+not this one, so a steep line in a Mode X bracket called package offset 0. A
+pointer that only some arms of a backend switch fill is the shape to look
+for, and the switch's fall-through structure is what hides it: Mode X is the
+arm that runs FIRST and falls through to the others, so every pointer it
+misses is set by an arm it never reaches.
+
+Neither is the Hercules freeze this build was written to find. Both are real,
+both were found by an instrument pointed somewhere else, and that is the
+argument for the instrument.
+
+### 88.15 CGA in SIXTEEN colours — the 160×100 text hack (`CSB_C160`)
+
+A fourth backend, and the only one in this section that is not a graphics
+mode at all. A CGA has four colours in 320×200 and two in 640×200, and no
+third option — except that its **text** mode has sixteen of each of two
+nibbles per character cell, and the 6845 in front of it will happily be told
+that a character row is two scan lines rather than eight. Retime it, fill
+every cell with the CP437 **right half block** (0xDE, whose eight rows are
+all `0x0F`), turn blink off, and each cell shows its attribute's background
+nibble in its left half and its foreground nibble in its right: **two pixels,
+each any of sixteen colours**. Eighty cells across and a hundred rows down is
+**160×100×16**, on a card that has no such mode.
+
+It is offered on a **real CGA only** (§88.15.7), where it is the one way to
+get more than four colours; it is what the machine that this whole section is
+calibrated against can be shown in colour at last.
+
+#### 88.15.1 It is 80 bytes a row, which is why there is no new raster
+
+§88.3's coincidence holds for a fourth term. A CGA 320×200×4 row, a Hercules
+640-pixel 1bpp row and a Mode X plane row are each 80 bytes — and **160
+pixels at two per byte is 80 bytes as well**. So the shadow is the same
+shape, `add di, 80` still steps a row, `cs_polyrows`, `cs_edge`, `cs_seg`,
+`CS_SLICE` and `cs_blit`'s walk are the code they already were, and what the
+backend adds is what every backend adds: a run writer, a glyph writer, three
+line bodies, an ink table and a row of `cs_vptab`.
+
+The shadow is **packed nibbles, high nibble the LEFT pixel** — which is both
+the standard 4bpp packing (§5.4.2's bands) and, not by coincidence, exactly
+the attribute byte the card wants: background is the left half of a `0xDE`
+cell and background is the attribute's high nibble. So the byte the raster
+writes is the byte the card is given, and the blit does no packing at all.
+
+The alternative was a shadow holding the card's own char/attribute **pairs**,
+160 bytes a row, which would have made the blit a plain `rep movsw` and every
+fill a stride-2 byte walk. It is the wrong way round: the fill covers the
+whole view and the blit only the rows that changed, so the cheap operation
+belongs on the fill. Packed also halves the shadow — 8,000 bytes against
+16,000, inside `CS_SHKB`'s existing claim with no change.
+
+#### 88.15.2 The mode is six 6845 writes and one port byte
+
+`cs_c160_mode`, called once from `cs_r_setup` after `OSAPI_FSX_MODE` has set
+`FSXM_TEXT80`. **No kernel change of any kind**, which is what §88 opens
+with: §53.4 hands a text bracket the CRTC, the mode register and the pages
+outright — *"the hot path was direct VRAM under any contract; bare wins by
+putting nothing between the app and the hardware for the rest"* — so a mode
+the kernel has never heard of costs it nothing.
+
+| 6845 | value | why |
+|---|---|---|
+| R4 vertical total | 127 | 128 rows × 2 scan lines + R5's 6 = the 262 an NTSC field wants, unchanged from the ROM's 32 × 8 + 6 |
+| R5 vertical adjust | 6 | the ROM's, kept |
+| R6 vertical displayed | 100 | a hundred rows of the 128 |
+| R7 vertical sync | 112 | 24 scan lines of bottom border |
+| R9 max scan line | **1** | **the whole trick**: a character row is two scan lines, so 200 lines hold 100 rows |
+| R10 cursor start | 0x20 | the 6845's own "do not display" — `int 10h AH=01h` is an EGA-era call and the machines this is for have not got it |
+
+Then `3D8h` ← `0x09`: 80-column text, video on, **bit 5 clear**. That bit is
+the sixteen colours: with blink enabled an attribute's high nibble is eight
+background colours and a blink flag, and with it off it is sixteen
+backgrounds. The SDK's note that this is *"a port bit on a real CGA"* is the
+same point — `AX=1003h` is an `AH=10h` call and an original CGA BIOS has no
+such function.
+
+`3D9h` ← 0 gives a black overscan, which in a text mode is all that register
+does.
+
+**The video is turned off for the retime and back on after the fill** — one
+`out` of `0x01` before and `0x09` after. The CRTC spends a field or two out
+of lock while R4 and R9 disagree, and a machine that shows that shows a
+rolling picture of the desktop that was there a moment ago.
+
+The fill is 8,000 words of `0x00DE` over the whole 16,000-byte screen: every
+cell the half block, on black. **The character bytes are written once here
+and never again** — the blit touches only the odd addresses.
+
+#### 88.15.2.1 There is nothing to source: the glyph is on the card
+
+The half block is not a font the OS loads or could load. In a text mode the
+pixels come from the **CGA card's own character generator, which is a ROM**;
+0xDE is a CP437 code point and every CGA, every clone and every emulator that
+models one has it. The kernel's own 8×8 face (`OSAPI_FONT_GLYPHS`) is not
+involved in the picture at all — it letters the strip, and that is a separate
+job done in the shadow like any other drawing.
+
+#### 88.15.3 An attribute IS the colour, so there is no palette call
+
+The other three backends spend a call on their colours — `cs_cga_pal` through
+`int 10h AH=0Bh`, `cs_modex_pal` through the DAC — and this one spends none:
+each of the sixteen is already a colour, named by the attribute nibble.
+`cs_inkc160` is therefore the first ink table in this section with **no
+dither in it anywhere**, and it is where the world stops being a compromise:
+
+| ink | colour | |
+|---|---|---|
+| sky | 9 light blue | |
+| ground | 2 green | grass, on a CGA, for the first time |
+| runway | 8 dark grey | asphalt — and not the same colour as a wall |
+| river | 1 blue | |
+| a wall toward us | 7 light grey | |
+| a side | 8 dark grey | **the same material a shade down**, which is what makes a box read as a solid rather than as two colours meeting |
+| a roof | 4 red | tile |
+| a hill | 6 brown | |
+| lines, marks | 15 white | |
+| the panel's window / ink / warning / face | 0, 10, 12, 8 | black, light green, light red, dark grey — a lit instrument on a metal panel |
+
+`cs_inkval_c160` holds each colour in **both nibbles**, which is what the
+walk and the glyph both want: a mask names the half, and `ink8 & mask` is
+then the ink at that pixel with no shift at all.
+
+#### 88.15.4 The one blit that is not a copy
+
+`cs_blit`'s row loop is shared; its inner clause is not. Where CGA and
+Hercules `rep movsw` the shadow straight at the card, this backend lays each
+shadow byte at every **other** address — the attribute of the pair, the
+character between them being `0xDE` since the mode set. The device row is
+therefore 160 bytes where the shadow row is 80, which is the only place in
+the raster where the two strides differ, and `cs_devrows` is where that is
+said.
+
+It costs about 26 cycles a pixel pair against `rep movsw`'s 25 a word, so a
+row that changed is roughly twice the copy the other CGA backend pays for the
+same fraction of the view. That is the price of four bits a pixel and it is
+paid only on rows something touched: §88.3.1's row-kind byte and §88.3.3's
+row range are what keep it off the rest.
+
+**Snow, and it is ACCEPTED.** Writing `B800` during active display in
+80-column text is the one thing a genuine IBM CGA is famous for, and this
+mode is 80-column text — so the blit sparkles on **IBM's own card**, where
+the same machine's 320×200 graphics does not. §53.5 already names the window.
+Nothing here can avoid it and be fast: waiting for retrace bounds the blit to
+about 24% of the field, and blanking the display for it trades sparkle for a
+black frame.
+
+The owner's decision is that neither trade is worth making, and the reason is
+that **the snow is one card's**: a genuine IBM CGA is the machine that has
+it, and the clones, the later cards and every emulator that does not model it
+draw this mode clean. So the cost falls on exactly the machine whose owner
+knows what CGA snow is and has chosen to run one — *"that is the IBM PC for
+you, and the user gets to make that choice"* — and it is a **choice** rather
+than a default, this being the Mode row's second item beside a 320×200×4 that
+does not snow at all (§88.15.7).
+
+#### 88.15.5 The panel is ONE LINE, and it is a record like any other
+
+The box is 100 rows tall and each row is worth four of a CGA's, so §88.9's
+88-row cockpit would leave the view twelve. And 160 pixels is **twenty
+cells**, which no cockpit's six windows fit across. What fits is the three
+readings a pilot actually scans:
+
+```
+cell 0        6              14        19
+     S 120    A 01500        H 090     .
+```
+
+Thirteen rows: row 0 the strip's own top edge, 3..10 the glyph, 1..12 what a
+message erases. `CS_STRIPROWS` is that 13 where `CS_PANROWS` is 88, and
+`[cs_panrows]` is what `cs_r_size` bounds the view's height against — so the
+view gets **87 of the 100 rows**, where a cockpit backend gives its view a
+little over half the box.
+
+**There are no windows on it.** A cockpit's window is an outline and two
+corner brackets (§88.9.7), so it occupies three pixels more than its rect on
+every side and a nine-row one wants fifteen — which thirteen rows have not
+got. It also buys nothing here: `cs_glyph_c160` letters every cell **opaquely
+on `[cs_pbg8]`, which is black**, so each reading already sits on a black
+plate exactly the size of its own text, on a dark grey face. `CSK_NWIN` is 0,
+and the two window loops in `cs_pface` gained the `jcxz` that a `loop` from
+zero needs.
+
+**It is a cockpit record and not a special case.** `cs_ck_strip` is one
+shared record — the same strip whatever is being flown, because three
+readings are three readings — with three windows, three items, and (0, 0) for
+the attitude indicator, the throttle, the throttle bar, the state line and
+the variometer. §88.9.5.1 has meant *"this cockpit has not got one"* by (0, 0)
+since the glider, so `cs_pitem` needed nothing; what it did need was the
+matching test on the **attitude indicator**, which `cs_pitem` deliberately
+does not (0, 0)-test because it is not a cell — a zero `CSK_ADRY` is now what
+says a panel has none, tested in `cs_pface` and in `cs_d_adi`.
+
+`cs_ckrec` is the one place that decides which record a panel is drawn from,
+because the plane's was read from six, and a fourth backend reaching five of
+them is exactly the shape §88.9.5.1 was.
+
+Two things the strip changes that are not the record: the **labels** are one
+letter (`S`, `A`, `H`) where a cockpit's are four, since `SPD 120 ALT 01500
+HDG 090` is 23 cells of the 20 there are; and `cs_pnum` puts the number
+`[cs_plabw]` cells along rather than a hard-coded four. Both are a pointer
+and a word set in `cs_r_setup`.
+
+#### 88.15.6 A message takes the strip, and hands it back
+
+Twenty cells hold three readings **or** one sentence, never both, so the
+message item is at the readings' own row and the erase it already does
+(§88.9.9) covers the whole line. What that needs is two halves:
+
+- `cs_pitem` stands the three readings down while `[cs_msg]` is not
+  `CSG_NONE` — **before** their keys are sampled, so their caches keep the
+  values they were showing and nothing is drawn over the message;
+- `cs_d_msg`, when the message clears, stales those three keys and calls
+  `cs_pitem` for each **in the same frame**. A message going away is not a
+  thing to leave a blank strip behind, and the re-entry is safe because
+  `cs_panel` reloads the item from its own stack and `cs_d_msg` is done with
+  `[cs_pcur]`.
+
+The messages themselves are a **second table**, `cs_msgtab160`: `FULL POWER`,
+`STALL - NOSE DOWN`, `CRASHED`, `TURN BACK`, `TOW RELEASED`, `DOWN ON WATER`.
+It is a table and not a shortened first one because a cockpit panel is forty
+cells wide and has the room — what the strip cannot hold, every other backend
+can, and neither should be cut to the other's width. The crash line does not
+append what was hit, for the same reason.
+
+#### 88.15.8 What it costs — and it is not slower
+
+Measured with `tests/skiesperf.py --c160`, the same pinned scenes on the same
+MartyPC 4.77 MHz 8088 with a CGA, means of twelve exact frames with the tick
+wait patched out:
+
+| scene | `FSXM_CGA320`, 320×112, 4 colours | `FSXM_TEXT80`, 160×87, **16 colours** |
+|---|---|---|
+| runway | 183.50 ms, 5.45 fps | **176.06 ms, 5.68 fps** |
+| climb | **172.41 ms, 5.80 fps** | 181.24 ms, 5.52 fps |
+| city | 216.64 ms, 4.62 fps | **190.92 ms, 5.24 fps** |
+| tower | 228.91 ms, 4.37 fps | **92.56 ms, 10.80 fps** |
+
+**Four times the colours for nothing, and on the worst frame in the world for
+two and a half times the frame rate.** That is not what the arithmetic in
+§88.15.4 predicts on its own — a blit byte is about twice a `rep movsw` byte
+here — and the reason is everything on the other side of it:
+
+- the view is **6,960 shadow bytes against 8,960** (87 rows of 80 against
+  112), because the strip is 13 rows where a cockpit is 88, so the *fill*,
+  the polygon rows and the blit all cover 22% less;
+- the projection scales are halved with the width (138/115 against 277/231
+  for the same 60° field), so **every drawn thing is half as long in
+  pixels** — and `cs_seg`'s walk is priced per pixel. The tower scene is 32
+  wireframe segments and nothing else, which is why it is the row that moves.
+
+So the trade this mode actually makes is **resolution for colour**, and the
+frame rate comes out on the right side of it. `climb` is the one row that
+loses, by 5%: it is mostly sky and ground, where the fill's saving is
+smallest and the blit's doubled byte is the whole difference.
+
+##### 88.15.6.1 The two prompts that name a speed are composed twice
+
+§88.7.9's take-off prompt and tow release name **this aeroplane's** rotate
+speed, not the Cessna's, and the sentence they name it in is 29 characters
+before the number — which is right in a cockpit's forty cells and does not
+fit the fourteen a message gets on the strip. So `cs_gspeed` takes a **pair**
+of openings and composes both: the long one into `cs_promptb` and `ROTATE 55
+KT` into `cs_promptc`, with each panel's message table naming its own.
+
+**Both, and not the live backend's one**, because that makes it free of
+ordering: a **Mode pick does not clear `[cs_inited]`** — it is not the
+aeroplane or the airport that changed — so a prompt composed for whichever
+backend happened to be running would still be up the next time the other one
+was entered. Composing both costs one extra pass through 40 bytes, once per
+reset.
+
+#### 88.15.7 It is offered on `VID_CGA` and nowhere else
+
+The mode is programmed by writing the 6845 directly, and a VGA or an EGA
+running mode 3 answers `3D4h` with a CRTC that is not one — different
+registers, a write-protect bit on R0–R7, and 400 scan lines rather than 200.
+So the offer is made on **`[vid_kind]`**, which is a fact the code can test
+(§47), rather than on a caps bit that would be true for the wrong reason.
+Nothing is lost by that: a VGA already has Mode X and sixteen times the
+colours, an EGA has 16-colour graphics modes of its own, and Hercules has one
+bit.
+
+That makes **`[cs_modepref]` "which of the two this display offers"** rather
+than a mode id: a VGA's two are Mode X and CGA320, a real CGA's are CGA320
+and this, and `cs_adapter` sets the names beside the Settings page's Mode row
+to match (§88.13). The byte then means the same thing on either machine and
+the row greys itself on Hercules, which has no second mode at all. The
+default on a CGA is 0 — **CGA320, exactly what shipped** — so a player who
+never opens the page is flying what they flew before, which is §88.13's rule.
+
+**It is one of the five bytes §88.13.9 keeps**, and "which of the two" is the
+right thing to keep: `cs_set_max` clamps it to 1, so a `CSSET.DAT` written on
+a VGA and carried to a CGA — or the other way — always names a mode that
+machine actually has, and `cs_adapter` re-derives `[cs_want]` and
+`[cs_fsxm]` from the live `[vid_kind]` on every entry and every window move.
+What it does not carry across is the *meaning*: a player who chose CGA320 on
+a VGA and takes the disk to a real CGA gets the 16-colour mode. That is a
+setting behaving like a setting rather than a defect — both ends are a
+deliberate second choice — and it is the price of a byte that means the same
+thing on machines with different modes in them.
 
 ### 88.12 What it costs
 

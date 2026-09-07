@@ -71,7 +71,7 @@ cs_f_jfk_twr:
 ; at 320 m. The top level is 4 m across rather than a point, so the crown and
 ; the mast come to a spike and not to a needle that vanishes at range.
 cs_m_jfk_esb: db CSM_STACK, 5, 17, 0, CSI_LINE, 0
-    dw 285, .v, cs_f_jfk_twr, 0     ; wx + wz + h/2 = 62 + 30 + 190
+    dw 382, .v, cs_f_jfk_twr, 0     ; the Euclidean radius, 88.5.11
 .v: dw 62,   0, 30                  ; the plot
     dw 62,  45, 30                  ; the five-storey base
     dw 34,  62, 20                  ; the setback
@@ -83,7 +83,7 @@ cs_m_jfk_esb: db CSM_STACK, 5, 17, 0, CSI_LINE, 0
 ; range is 16,000 and its near model would be twenty vertices of nothing:
 ; two levels tapering to the same tip draw the same sliver for eight.
 cs_m_jfk_esbf: db CSM_STACK, 2, 5, 0, CSI_LINE, 0
-    dw 285, .v, cs_f_box, 0
+    dw 382, .v, cs_f_box, 0
 .v: dw 44,   0, 24
     dw  8, 381,  8
 
@@ -94,14 +94,14 @@ cs_m_jfk_esbf: db CSM_STACK, 2, 5, 0, CSI_LINE, 0
 ; read as one skyline with two peaks. A 60 m square plot, and the stainless
 ; crown is the taper from the sixty-first floor to the spire.
 cs_m_jfk_chry: db CSM_STACK, 5, 17, 0, CSI_LINE, 0
-    dw 220, .v, cs_f_jfk_twr, 0     ; 30 + 30 + 159
+    dw 320, .v, cs_f_jfk_twr, 0     ; the Euclidean radius, 88.5.11
 .v: dw 30,   0, 30
     dw 30,  62, 30                  ; the base
     dw 22,  78, 22                  ; the setback
     dw 22, 240, 22                  ; the shaft
     dw  3, 319,  3                  ; the arches and the spire
 cs_m_jfk_chryf: db CSM_STACK, 2, 5, 0, CSI_LINE, 0
-    dw 220, .v, cs_f_box, 0
+    dw 320, .v, cs_f_box, 0
 .v: dw 24,   0, 24
     dw  6, 319,  6
 
@@ -111,24 +111,28 @@ cs_m_jfk_chryf: db CSM_STACK, 2, 5, 0, CSI_LINE, 0
 ; kilometres down the island at City Hall (s -4000, c -300), which puts it
 ; over the financial district where the player's approach passes to the left.
 cs_m_jfk_wool: db CSM_STACK, 5, 17, 0, CSI_LINE, 0
-    dw 185, .v, cs_f_jfk_twr, 0     ; 32 + 32 + 120
+    dw 242, .v, cs_f_jfk_twr, 0     ; the Euclidean radius, 88.5.11
 .v: dw 32,   0, 32
     dw 32,  58, 32                  ; the base block
     dw 16,  70, 16                  ; the setback
     dw 16, 205, 16                  ; the tower
     dw  3, 241,  3                  ; the pinnacle
 cs_m_jfk_woolf: db CSM_STACK, 2, 5, 0, CSI_LINE, 0
-    dw 185, .v, cs_f_box, 0
+    dw 242, .v, cs_f_box, 0
 .v: dw 26,   0, 26
     dw  5, 241,  5
 
 ; --- and the rest of the city is squares, which is what the budget wants ----
-; Two anonymous shapes, four objects: a 90 m midtown block and a 140 m one for
-; the financial district. Both are well under the Woolworth, which is well
-; under the Chrysler, which is well under the Empire State, and that ladder is
-; the only thing the skyline has to say.
+; Four anonymous shapes: a 90 m midtown block and a 140 m one for the
+; financial district, which Moderate draws, and the 190 m slim tower and 55 m
+; broad block the DENSE city is built from (88.13.1.1). Every one is under the
+; Woolworth's 241, which is under the Chrysler's 319, which is under the
+; Empire State's 381, and that ladder is the only thing the skyline has to
+; say - a nameless block that out-tops a landmark would undo it.
 CS_BOX cs_m_jfk_mid, 45,  90, 30    ; 90 by 60 m, twenty-odd storeys
 CS_BOX cs_m_jfk_dtn, 35, 140, 35    ; 70 by 70 m, a Wall Street tower
+CS_BOX cs_m_jfk_hi,  26, 190, 26    ; 52 by 52 m, a slim one for the spires
+CS_BOX cs_m_jfk_lo,  55,  55, 40    ; 110 by 80 m, the floor between them
 
 ; --- the two rivers, four ribbons and four centrelines -----------------------
 ; Seven stations 1,600 m apart down the island axis, at s = -6000, -4400,
@@ -164,7 +168,7 @@ cs_m_jfk_hud0: db CSM_FLAT, 8, 3, 0, CSI_RIVER, 0   ; the Hudson, the Battery
     dw  -631,  -625
     dw  -554,  1050
     dw  -129,  2598
-cs_m_jfk_hud0f: db CSM_FLAT, 4, 0, 3, CSI_MARK, 0
+cs_m_jfk_hud0f: db CSM_FLAT, 4, 0, 3, CSI_RIVLINE, 0
     dw 2600, .v, 0, cs_e_road3
 .v: dw    43, -2573
     dw  -209,  -778
@@ -181,7 +185,7 @@ cs_m_jfk_hud1: db CSM_FLAT, 8, 3, 0, CSI_RIVER, 0   ; ...and on past Central
     dw  -688,  -598
     dw  -178,   919
     dw   350,  2430
-cs_m_jfk_hud1f: db CSM_FLAT, 4, 0, 3, CSI_MARK, 0
+cs_m_jfk_hud1f: db CSM_FLAT, 4, 0, 3, CSI_RIVLINE, 0
     dw 2430, .v, 0, cs_e_road3
 .v: dw  -756, -2276
     dw  -265,  -752
@@ -198,7 +202,7 @@ cs_m_jfk_est0: db CSM_FLAT, 8, 3, 0, CSI_RIVER, 0   ; the East River, the
     dw   -38,  -832
     dw   960,   507
     dw  1601,  1977
-cs_m_jfk_est0f: db CSM_FLAT, 4, 0, 3, CSI_MARK, 0
+cs_m_jfk_est0f: db CSM_FLAT, 4, 0, 3, CSI_RIVLINE, 0
     dw 2570, .v, 0, cs_e_road3
 .v: dw -1629, -1956
     dw  -330,  -726
@@ -215,7 +219,7 @@ cs_m_jfk_est1: db CSM_FLAT, 8, 3, 0, CSI_RIVER, 0   ; ...and on past midtown
     dw    15,  -857
     dw   591,   636
     dw  1157,  2133
-cs_m_jfk_est1f: db CSM_FLAT, 4, 0, 3, CSI_MARK, 0
+cs_m_jfk_est1f: db CSM_FLAT, 4, 0, 3, CSI_RIVLINE, 0
     dw 2420, .v, 0, cs_e_road3
 .v: dw  -870, -2237
     dw  -276,  -751
@@ -239,16 +243,27 @@ cs_m_jfk_mbr: db CSM_FLAT, 2, 0, 1, CSI_MARK, 0     ; the Manhattan Bridge,
     dw   384,  -302
 
 ; --- the world ---------------------------------------------------------------
-; Nineteen objects. Four are CSO_POI, so Buildings=Few leaves the three towers
-; and the Brooklyn Bridge, which is a New York a player can still navigate by;
-; six are CSO_FILLER, so Moderate means something. THE RANGES ARE CUT SO THAT
-; NO MORE THAN FIFTEEN OF THEM ARE EVER IN ONE FRAME, which is what
-; tests/unit/t_csworlds.py's peak reads (CS_NVIS is 32 and the thirty-third
-; would be dropped silently, so a skyline denser than that loses buildings
-; rather than slowing down). From the start of the take-off roll TWELVE are
-; in range, and only the two field buildings and the two financial-district
-; blocks draw a near model: 72 vertices. Over midtown FOURTEEN are in range
-; for 116, against Paris' twelve and 160 ms.
+; THIRTY-ONE objects, and the last twelve are CSO_DENSE. Nineteen of them are
+; the New York every rung below High draws: four are CSO_POI, so Detail Level
+; = Low leaves the three towers and the Brooklyn Bridge, a city a player can
+; still navigate by, and six are anonymous blocks and sheds that come in at
+; Moderate with the rest. The TWELVE stand only at High (88.13.1.1), which is
+; the rung for a machine faster than the 4.77 MHz 8088 this is costed on.
+;
+; THE RANGES OF THE NINETEEN ARE CUT SO THAT NO MORE THAN FIFTEEN OF THEM ARE
+; EVER IN ONE FRAME. With the dense city the peak is TWENTY-SEVEN, which is
+; what tests/unit/t_csworlds.py reads, and CS_NVIS is 32 with the
+; thirty-third dropped SILENTLY - so this world has five objects of headroom
+; and no more, on any CPU. That ceiling is not a speed budget and a faster
+; machine does not raise it: the next thing added to Manhattan has to take
+; range off something or be counted against those five.
+;
+; From the start of the take-off roll TWELVE of the nineteen are in range, and
+; only the two field buildings and the two financial-district blocks draw a
+; near model: 72 vertices. Over midtown FOURTEEN are in range for 116, against
+; Paris' twelve and 160 ms. On Hercules, Moderate against High: 165.0 -> 200.5
+; ms on the roll, 121.0 -> 180.1 at the take-off point, 140.1 -> 232.8 at
+; 4 km, 170.2 -> 278.9 at 2 km and 116.6 -> 142.6 over midtown.
 ;
 ; The anonymous city is 2,500 to 3,000 like Paris', the towers hand over to
 ; their far models at 3,000 and the rivers at the same, and the three towers'
@@ -263,18 +278,44 @@ cs_ot_jfk:
     CS_OBJ cs_m_jfk_mid,  0,                350,  -680,   0,  7000,    0, cs_n_jfk_mid,  CSO_COLLIDE
     CS_OBJ cs_m_jfk_dtn,  0,               -990, -3310,   0,  8000,    0, cs_n_jfk_dtn,  CSO_COLLIDE
     CS_OBJ cs_m_jfk_dtn,  0,              -1890, -3940,   0,  8000,    0, cs_n_jfk_dtn,  CSO_COLLIDE
-    CS_OBJ cs_m_jfk_hud0, cs_m_jfk_hud0f, -2330, -2980,   0, 11000, 3000, cs_n_jfk_hud,  0
-    CS_OBJ cs_m_jfk_hud1, cs_m_jfk_hud1f, -1280,  1740,   0, 11000, 3000, cs_n_jfk_hud,  0
-    CS_OBJ cs_m_jfk_est0, cs_m_jfk_est0f,  -320, -3720,   0, 11000, 3000, cs_n_jfk_east, 0
-    CS_OBJ cs_m_jfk_est1, cs_m_jfk_est1f,  1860,   600,   0, 11000, 3000, cs_n_jfk_east, 0
-    CS_OBJ cs_m_jfk_bbr,  0,               -500, -4390,   0,  8000,    0, cs_n_jfk_bbr,  CSO_POI
-    CS_OBJ cs_m_jfk_mbr,  0,                -50, -3810,   0,  8000,    0, cs_n_jfk_mbr,  0
-    CS_OBJ cs_m_hangar,   0,               4900, -3680,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_shed,     0,               4490, -3340,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block,    0,                680, -5140,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block2,   0,               2170, -1640,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_small,    0,               1180,  2660,   0,  2500,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block,    0,               -110,  1740,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
+    CS_OBJ cs_m_jfk_hud0, cs_m_jfk_hud0f, -2330, -2980,   0, 11000, 3000, cs_n_jfk_hud,  CSO_TERRAIN
+    CS_OBJ cs_m_jfk_hud1, cs_m_jfk_hud1f, -1280,  1740,   0, 11000, 3000, cs_n_jfk_hud,  CSO_TERRAIN
+    CS_OBJ cs_m_jfk_est0, cs_m_jfk_est0f,  -320, -3720,   0, 11000, 3000, cs_n_jfk_east, CSO_TERRAIN
+    CS_OBJ cs_m_jfk_est1, cs_m_jfk_est1f,  1860,   600,   0, 11000, 3000, cs_n_jfk_east, CSO_TERRAIN
+    CS_OBJ cs_m_jfk_bbr,  0,               -500, -4390,   0,  8000,    0, cs_n_jfk_bbr,  CSO_POI | CSO_ROAD
+    CS_OBJ cs_m_jfk_mbr,  0,                -50, -3810,   0,  8000,    0, cs_n_jfk_mbr,  CSO_ROAD
+    CS_OBJ cs_m_hangar,   0,               4900, -3680,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_shed,     0,               4490, -3340,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_block,    0,                680, -5140,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_block2,   0,               2170, -1640,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_small,    0,               1180,  2660,   0,  2500,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_block,    0,               -110,  1740,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE
+    ; --- THE DENSE CITY (SPEC.md 88.13.1.1): twelve more, CSO_DENSE, so
+    ;     Detail Level = High is the only rung that draws one and the picture
+    ;     every other rung gives is the New York that always shipped. They sit
+    ;     on the ISLAND'S OWN AXIS - the line from the Empire State to the
+    ;     Woolworth, which is (-0.41, -0.91) - offset across it by no more
+    ;     than 430 m; every footprint keeps 60 m of daylight from every other
+    ;     and from all eleven that were here already, and 150 m from the
+    ;     WATER - the twelfth was first placed at (-2058,-4130), which is
+    ;     the Battery and is IN the Hudson, and tests/unit/t_csworld.py is
+    ;     what said so rather than anybody's eye. Each range is its own
+    ;     Manhattan distance FROM THE SPAWN plus 400 m, rounded up to 500,
+    ;     so the whole skyline is standing
+    ;     before the take-off roll starts rather than arriving under the
+    ;     aeroplane - which is the entire point of the rung.
+    CS_OBJ cs_m_jfk_hi,   0,                625,   901,   0, 10500,    0, cs_n_jfk_mid,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_jfk_mid,  0,                  8,   675,   0, 11000,    0, cs_n_jfk_mid,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_jfk_lo,   0,                527,   124,   0, 10000,    0, cs_n_jfk_mid,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_jfk_mid,  0,               -306,   269,   0, 11000,    0, cs_n_jfk_mid,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_jfk_hi,   0,                148,  -351,   0, 10000,    0, cs_n_jfk_mid,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_jfk_mid,  0,               -660,  -688,   0, 10500,    0, cs_n_jfk_mid,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_jfk_lo,   0,               -226, -1376,   0,  9000,    0, cs_n_jfk_mid,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_jfk_mid,  0,               -893, -1568,   0,  9500,    0, cs_n_jfk_mid,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_jfk_dtn,  0,              -1064, -3090,   0,  8500,    0, cs_n_jfk_dtn,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_jfk_hi,   0,              -1817, -3232,   0,  9000,    0, cs_n_jfk_mid,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_jfk_dtn,  0,              -1363, -3852,   0,  8000,    0, cs_n_jfk_dtn,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_jfk_lo,   0,              -1678, -4039,   0,  8000,    0, cs_n_jfk_mid,  CSO_COLLIDE | CSO_DENSE
 cs_ote_jfk:
 CS_N_JFK equ (cs_ote_jfk - cs_ot_jfk) / CSO_SIZE
 
@@ -318,5 +359,6 @@ cs_a_jfk:
     dw 1000                          ; CSA_WLEN    half its length...
     dw 40                           ; CSA_WWID    ...and half its width
     dw cs_n_jfk_hud              ; CSA_WNAME
+    dw 0                        ; CSA_FLAGS
 cs_s_jfk: db 'NYC-JFK', 0
 cs_s_rwy_jfk: db 'RUNWAY 31', 0

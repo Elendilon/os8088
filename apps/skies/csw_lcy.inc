@@ -26,7 +26,7 @@
 ;   Buckingham Palace    (-1250,  320)   1,290 m, bearing 284
 ;
 ; Those four and the Palace of Westminster that Big Ben stands on are the five
-; CSO_POI, so Buildings=Few draws the whole line of the departure rather than
+; CSO_POI, so Detail Level = Low draws the whole line of the departure rather than
 ; four scattered blocks.
 ;
 ; NOTHING COLLIDABLE STANDS IN THE THAMES (SPEC.md 88.6.3), and in London that
@@ -54,7 +54,7 @@
 ; at 62 m shows as the ledge under the clocks, which is what a reader picks the
 ; tower out by from the air.
 cs_m_lcy_ben: db CSM_STACK, 4, 13, 0, CSI_LINE, 0
-    dw 66, .v, cs_f_sacre, 0        ; 9 + 9 + 96/2, the Manhattan bound
+    dw 96, .v, cs_f_sacre, 0        ; the Euclidean radius, 88.5.11
 .v: dw 9, 0, 9                      ; the shaft, 18 m square
     dw 9, 62, 9                     ; the ledge under the clock faces
     dw 7, 78, 7                     ; the belfry above them
@@ -88,7 +88,7 @@ CS_BOX cs_m_lcy_abb,  75,  30,  22
 ; that close the rim top and bottom are left out: they are under a pixel from
 ; anywhere the aeroplane can be.
 cs_m_lcy_eye: db CSM_STACK, 4, 0, 14, CSI_LINE, 0
-    dw 134, .v, 0, .e               ; 4 + 60 + 140/2
+    dw 141, .v, 0, .e               ; the Euclidean radius, 88.5.11
 .v: dw 4,   0,  3
     dw 4,  42, 60
     dw 4, 106, 60
@@ -165,7 +165,7 @@ cs_m_lcy_thw: db CSM_FLAT, 8, 3, 0, CSI_RIVER, 0    ; Battersea to Waterloo
     dw  -169,  -450
     dw   144,   511
     dw   376,  1574
-cs_m_lcy_thwf: db CSM_FLAT, 4, 0, 3, CSI_MARK, 0
+cs_m_lcy_thwf: db CSM_FLAT, 4, 0, 3, CSI_RIVLINE, 0
     dw 1668, .v, 0, cs_e_road3
 .v: dw  -660, -1500
     dw   -60,  -500
@@ -182,7 +182,7 @@ cs_m_lcy_thc: db CSM_FLAT, 8, 3, 0, CSI_RIVER, 0    ; Waterloo to Tower Bridge
     dw  -553,   469
     dw   599,   213
     dw  1546,  -235
-cs_m_lcy_thcf: db CSM_FLAT, 4, 0, 3, CSI_MARK, 0
+cs_m_lcy_thcf: db CSM_FLAT, 4, 0, 3, CSI_RIVLINE, 0
     dw 1614, .v, 0, cs_e_road3
 .v: dw -1510,  -100
     dw  -540,   350
@@ -199,7 +199,7 @@ cs_m_lcy_the: db CSM_FLAT, 8, 3, 0, CSI_RIVER, 0    ; Tower Bridge to the docks
     dw  -954,    60
     dw   641,   160
     dw  2549,    10
-cs_m_lcy_thef: db CSM_FLAT, 4, 0, 3, CSI_MARK, 0
+cs_m_lcy_thef: db CSM_FLAT, 4, 0, 3, CSI_RIVLINE, 0
     dw 2559, .v, 0, cs_e_road3
 .v: dw -2210,   140
     dw  -960,   -60
@@ -218,11 +218,16 @@ cs_m_lcy_mall: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
     dw   490,  -220                 ; about (  -70,  80)
 
 ; =============================================================================
-; The world. Twenty objects, of which five are CSO_POI: the three the location
-; is named for, the Palace of Westminster that carries Big Ben, and St Paul's
-; between them, so Buildings=Few still draws the whole line of the RUNWAY 27
-; departure. Six are CSO_FILLER, two of them in the Royal Docks beside the
-; runway and four in the city, which is what Buildings=Moderate takes out.
+; The world. THIRTY objects, and the last ten are CSO_DENSE. Twenty of them
+; are the London every rung below High draws, and of those five are CSO_POI:
+; the three the location is named for, the Palace of Westminster that carries
+; Big Ben, and St Paul's between them, so Detail Level = Low still draws the
+; whole line of the RUNWAY 27 departure. Six are anonymous blocks and sheds,
+; two of them in the Royal Docks beside the runway and four in the city; they
+; draw from Moderate, so those twenty are the default picture.
+;
+; The TEN stand only at High (88.13.1.3) and are the City of London and
+; Canary Wharf as the clusters they are rather than one tower each.
 ;
 ; Ranges follow Paris' bands: 16,000 for the headline tower, 12,000 to 14,000
 ; for the two that are over 200 m tall, 5,000 to 9,000 for a big building,
@@ -239,16 +244,46 @@ cs_ot_lcy:
     CS_OBJ cs_m_lcy_tow,  cs_m_lcy_towf,  3230,   940,   0,  9000, 2400, cs_n_lcy_tow,  CSO_COLLIDE | CSO_POI
     CS_OBJ cs_m_lcy_ccw,  0,              5300,   780,   0, 12000,    0, cs_n_lcy_ccw,  CSO_COLLIDE
     CS_OBJ cs_m_lcy_buc,  0,             -1250,   320,   0,  5000,    0, cs_n_lcy_buc,  CSO_COLLIDE | CSO_POI
-    CS_OBJ cs_m_lcy_thw,  cs_m_lcy_thwf,   -40,  -800,   0,  4500, 2600, cs_n_lcy_th,   0
-    CS_OBJ cs_m_lcy_thc,  cs_m_lcy_thcf,  1940,   800,   0,  4500, 2600, cs_n_lcy_th,   0
-    CS_OBJ cs_m_lcy_the,  cs_m_lcy_thef,  5660,   310,   0,  5000, 3000, cs_n_lcy_th,   0
-    CS_OBJ cs_m_lcy_mall, 0,              -560,   300,   0,  5000,    0, cs_n_lcy_mall, 0
-    CS_OBJ cs_m_hangar,   0,              6620,  1300,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_shed,     0,              7550,  1320,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block,    0,              1500,  1780,   0,  2500,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block2,   0,              2320,  1560,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_small,    0,              -900,  -640,   0,  2500,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block,    0,              2950,  -120,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
+    CS_OBJ cs_m_lcy_thw,  cs_m_lcy_thwf,   -40,  -800,   0,  4500, 2600, cs_n_lcy_th,   CSO_TERRAIN
+    CS_OBJ cs_m_lcy_thc,  cs_m_lcy_thcf,  1940,   800,   0,  4500, 2600, cs_n_lcy_th,   CSO_TERRAIN
+    CS_OBJ cs_m_lcy_the,  cs_m_lcy_thef,  5660,   310,   0,  5000, 3000, cs_n_lcy_th,   CSO_TERRAIN
+    CS_OBJ cs_m_lcy_mall, 0,              -560,   300,   0,  5000,    0, cs_n_lcy_mall, CSO_ROAD
+    CS_OBJ cs_m_hangar,   0,              6620,  1300,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_shed,     0,              7550,  1320,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_block,    0,              1500,  1780,   0,  2500,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_block2,   0,              2320,  1560,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_small,    0,              -900,  -640,   0,  2500,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_block,    0,              2950,  -120,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE
+    ; --- THE HIGH TIER (SPEC.md 88.13.1.3): ten more, CSO_DENSE, so Detail
+    ;     Level = High is the only rung that draws one and every rung below it
+    ;     gives the London that always shipped. They are the two things this
+    ;     world names and then leaves as ONE OBJECT EACH - the City of London
+    ;     and Canary Wharf are both CLUSTERS on the ground, and a departure up
+    ;     the river that passes a single tower at each is a departure past two
+    ;     lamp-posts.
+    ;
+    ;     The City goes between St Paul's and the Tower, which is where
+    ;     Bishopsgate and Leadenhall really are, and NORTH of the water: the
+    ;     first draft put one at (2560, 960) and that is in the Thames, the
+    ;     middle ribbon's north bank running through z = 1,013 at that x.
+    ;     Canary Wharf goes round One Canada Square at (5300, 780) - the Isle
+    ;     of Dogs, inside the river's loop - and it is what a RUNWAY 27
+    ;     departure meets first, 3.2 to 3.9 km from the spawn.
+    ;
+    ;     Each range is its own Manhattan distance FROM THE SPAWN plus 400 m
+    ;     rounded up to 500, so the skyline is standing before the take-off
+    ;     roll rather than arriving under the aeroplane, and every footprint
+    ;     keeps 60 m of daylight from every other and 80 m from the water.
+    CS_OBJ cs_m_tower,    0,              2380,  1250,   0,  7500,    0, cs_n_lcy_city, CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower2,   0,              2600,  1150,   0,  7000,    0, cs_n_lcy_city, CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower,    0,              2760,  1380,   0,  7000,    0, cs_n_lcy_city, CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower2,   0,              2950,  1180,   0,  6500,    0, cs_n_lcy_city, CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_midrise,  0,              2510,  1500,   0,  7500,    0, cs_n_lcy_city, CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower,    0,              3080,  1420,   0,  6500,    0, cs_n_lcy_city, CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower,    0,              5140,   630,   0,  4500,    0, cs_n_lcy_ccw,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower,    0,              5470,   930,   0,  4000,    0, cs_n_lcy_ccw,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower2,   0,              5180,  1010,   0,  4000,    0, cs_n_lcy_ccw,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_midrise,  0,              5530,   590,   0,  4000,    0, cs_n_lcy_ccw,  CSO_COLLIDE | CSO_DENSE
 cs_ote_lcy:
 CS_N_LCY equ (cs_ote_lcy - cs_ot_lcy) / CSO_SIZE
 
@@ -266,6 +301,7 @@ cs_n_lcy_ccw:  db 'CANARY WHARF', 0
 cs_n_lcy_buc:  db 'BUCKINGHAM PALACE', 0
 cs_n_lcy_th:   db 'THE THAMES', 0
 cs_n_lcy_mall: db 'THE MALL', 0
+cs_n_lcy_city: db 'THE CITY OF LONDON', 0
 
 ; =============================================================================
 ; The location (SPEC.md 88.6, 88.6.4). London City is one runway, 09/27, on
@@ -293,5 +329,6 @@ cs_a_lcy:
     dw 800                          ; CSA_WLEN    half its length...
     dw 100                           ; CSA_WWID    ...and half its width
     dw cs_n_lcy_th              ; CSA_WNAME
+    dw 0                        ; CSA_FLAGS
 cs_s_lcy: db 'LONDON-LCY', 0
 cs_s_rwy_lcy: db 'RUNWAY 27', 0

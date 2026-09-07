@@ -115,6 +115,11 @@ CSB_NONE  equ 0                 ; windowed: no bracket, nothing to draw into
 CSB_MODEX equ 1                 ; 320x240x256 planar, 3 pages - PAGE FLIP
 CSB_CGA   equ 2                 ; 320x200x4 banked, 1 page  - SHADOW + BLIT
 CSB_HERC  equ 3                 ; 720x348 mono, 4 banks     - SHADOW + BLIT
+CSB_C160  equ 4                 ; 160x100x16 - THE TEXT HACK (SPEC.md 88.15):
+                                ; 80x25 retimed to a hundred two-scan-line
+                                ; rows of half blocks, so an attribute byte
+                                ; is two pixels in sixteen colours.
+                                ; SHADOW + AN EXPANDING BLIT
 
 ; --- the logical inks (SPEC.md 88.4.4) ----------------------------------------
 ; Named by what they MEAN. Every backend's table gives an ink FOUR pattern
@@ -134,7 +139,17 @@ CSI_PBG    equ 10               ; the panel's ground...
 CSI_PFG    equ 11               ; ...its ink...
 CSI_PHI    equ 12               ; ...and its warning
 CSI_PFACE  equ 13               ; the cockpit's face round the windows (88.9.2)
-CSI_NINK   equ 14
+CSI_RIVLINE equ 15              ; A RIVER SEEN FROM FAR ENOUGH TO BE A LINE
+                                ; (88.6.5): the river's own blue on the two
+                                ; colour adapters, and white on Hercules,
+                                ; where the river's fill is stripes and a
+                                ; line drawn in stripes is half a line
+CSI_BLACK  equ 14               ; NOTHING: the ground band with the Terrain
+                                ; fill off (88.13.3). It cannot be CSI_SKY -
+                                ; on a 1bpp adapter the sky IS black and the
+                                ; two are the same row, but on a colour one
+                                ; the whole world would then read as sky
+CSI_NINK   equ 16
 
 ; --- the world (SPEC.md 88.5, 88.6) -------------------------------------------
 ; Metres. x east, z north, y up; the Eiffel Tower at the origin.
@@ -147,16 +162,48 @@ CS_FAR    equ 16000             ; nothing beyond this is transformed, and it
 CS_MAXV   equ 24                ; vertices in the largest model (the tower's
                                 ; five levels are 20)
 CS_MAXPV  equ 10                ; ...and a face after the near clip
+CS_ESEEN  equ CS_MAXV * 4       ; ...and the edges-once marks (88.13.3): a
+                                ; bit per vertex pair, four bytes a row
+CS_LODTALL equ 26               ; ...and how TALL it may be (88.5.4.4). The
+                                ; complaint 88.5.4.1 answers was a WIDE, flat
+                                ; rectangle that did not rotate in a bank -
+                                ; 22x3, 20x2, 18x2 - and holding the height
+                                ; to the same eight put a two-pixel-wide
+                                ; tower back on the polygon path, where its
+                                ; faces are sub-pixel and the winding is
+                                ; decided by rounding: buildings vanished
+CS_LODHYST equ 5                ; ...and what an object ALREADY drawn as the
+                                ; impostor may grow to before it gives it up.
+                                ; Without it a building sat on the boundary
+                                ; and changed shape every few metres
 CS_LODPX  equ 8                 ; the biggest RECTANGLE cs_boxlod may stand
                                 ; in for a solid (SPEC.md 88.5.4.1): an
                                 ; impostor is axis-aligned in SCREEN space,
                                 ; which nothing in a banked world is, so it
                                 ; has to be small enough that nobody can see
                                 ; the shape
-CS_NVIS   equ 32                ; objects that can be in one frame
+CS_NVIS   equ 48                ; objects that can be in one frame, and the
+                                ; 49th is dropped SILENTLY. It was 32 and 32
+                                ; IS REACHABLE: Paris at Draw Distance = Far
+                                ; scales every range by 1.6 and puts 34
+                                ; objects in a level frame, so two of them
+                                ; came off the glass with nothing said
+                                ; (88.13.2.2). Eleven bytes a slot
+CS_OCCN   equ 4                 ; occluders cs_occlude keeps (88.13.7): the
+                                ; four biggest BY ANGULAR SIZE. Three found
+                                ; one spur of two over part of the run and
+                                ; the fourth found both everywhere the
+                                ; pixels say both are hidden
+CS_OCCZ   equ 14                ; ...seven words each, the last of
+                                ; them the angular size it is
+                                ; ranked by
 CS_VISZ   equ 6                 ; ...six bytes each: ptr, reach, along
 CS_MAXROW equ 240               ; the tallest box any backend offers
-CS_LASTB  equ 79                ; the last byte of a box row, on all three
+CS_LASTB  equ 79                ; the last byte of a box row, on all FOUR -
+                                ; 320x4bpp, 640x1bpp, a Mode X plane row and
+                                ; 160 nibble pairs are each eighty bytes,
+                                ; which is what one raster over four backends
+                                ; rests on (88.15.1)
 CS_SHSEG  equ 16000             ; the CGA/Hercules shadow, in bytes
 CS_SHKB   equ 16                ; ...as a claim
 
@@ -198,9 +245,17 @@ CSO_SIZE  equ 20
 ; --- what a SETTING is (SPEC.md 88.13): four knobs the player turns, on the
 ;     Settings page and on hotkeys inside the bracket. Every one of them
 ;     trades picture for frame rate, and every default is what shipped ------
-CSBL_FEW    equ 0                ; Buildings: the critical points of interest
-CSBL_MOD    equ 1                ; ...everything but the anonymous filler
-CSBL_ALL    equ 2                ; ...all of it
+CSBL_NONE   equ 0                ; Detail Level: NOTHING built - refused in
+                                 ;    cs_consider before any transform, which
+                                 ;    is the cheapest form there is (88.13.1)
+CSBL_ROADS  equ 1                ; ...the roads and bridges, and no more
+CSBL_LOW    equ 2                ; ...and the critical points of interest
+CSBL_MOD    equ 3                ; ...and the rest of what is built: THE
+                                 ;    DEFAULT, and every location's whole
+                                 ;    table until it grows a High tier
+CSBL_HIGH   equ 4                ; ...and CSO_DENSE over that - the dense
+                                 ;    city, which is a 286/386 rung and not
+                                 ;    an 8088 one (88.13.1)
 CSZ_SMALL  equ 0                ; Size: half the moderate view each way
 CSZ_MOD    equ 1                ; ...the Hercules default, 75% elsewhere
 CSZ_FULL   equ 2                ; ...the whole box, whatever it costs
@@ -208,16 +263,51 @@ CSL_NEAR   equ 0                ; Detail: 0.6 of every draw range...
 CSL_MOD    equ 1                ; ...as it shipped...
 CSL_FAR    equ 2                ; ...and 1.6, which also holds the near model
                                 ;    of the tower out to 4 km
-CSFL_GROUND equ 1                ; Fill: the ground under the horizon...
-CSFL_WATER  equ 2                ; ...the river...
-CSFL_BLDG   equ 4                ; ...and every solid. None of them is a
-CSFL_ALL    equ 7                ; wireframe world with the lines still hidden
+CSL_ULTRA  equ 3                ; ...and 2.0 with NO BOX IMPOSTOR AT ALL
+                                ;    (88.13.2.1): every solid draws its
+                                ;    polygons at every size, which is a rung
+                                ;    for a machine pegged to the tick
+CSFL_TERRAIN equ 1               ; Fill: TERRAIN - the ground under the
+                                 ;    horizon, the water, and the hills and
+                                 ;    mountains, which are the world's own
+                                 ;    surface rather than anything built on
+                                 ;    it (88.13.3)
+CSFL_BLDG   equ 2                ; ...and everything built on it
+CSFL_ALL    equ 3                ; both, which is a filled world; neither is
+                                 ; a wireframe one, its lines still hidden
 
 CSO_COLLIDE equ 1               ; the first level's footprint and the tallest
 CSO_POI   equ 0x0100            ; a CRITICAL point of interest: drawn even at
                                 ; CSBL_FEW, and its range is never cut back
-CSO_FILLER equ 0x0200           ; ...and the other end: anonymous blocks and
-                                ; sheds, which CSBL_MOD leaves out (88.13.1)
+CSO_DENSE equ 0x0200            ; ...and the other end: THE DENSE CITY, drawn
+                                ; at CSBL_HIGH and at no other rung (88.13.1).
+                                ; The bit was CSO_FILLER and the anonymous
+                                ; blocks and sheds wore it; they draw at
+                                ; Moderate now, and nothing wears this yet
+CSO_ROAD  equ 0x0800            ; a ROAD, a causeway or a BRIDGE: drawn from
+                                ; CSBL_ROADS up, where nothing else built is.
+                                ; It is the shape of a city with no city on
+                                ; it, and it costs almost nothing to draw -
+                                ; every one of them is a line model
+CSO_TERRAIN equ 0x0400          ; THE WORLD'S OWN SURFACE and not a building:
+                                ; a hill, a mountain, the runway. The
+                                ; Buildings density never refuses one - a
+                                ; mountain range is not scenery you thin out
+                                ; to buy frames. What its FILL follows is the
+                                ; face's ink and not this bit, so the runway
+                                ; carries it and still fills with the
+                                ; buildings (88.13.1, 88.13.3). WATER carries
+                                ; it too - a river is not a building either,
+                                ; and without the bit None emptied the Seine.
+                                ; It is on
+                                ; the OBJECT and not the model so that
+                                ; cs_consider tests it in the word it has
+                                ; already loaded; tests/unit/t_csterrain.py
+                                ; holds every hill, every water and every
+                                ; road object to the right one
+CSO_BOXED equ 0x2000            ; ...bit 13: cs_boxlod drew it last frame, so
+                                ; it keeps the impostor until it grows past
+                                ; CS_LODHYST more than it took it (88.5.4.4)
 CSO_SEEN  equ 0x8000            ; ...and bit 15: drawn last frame (88.5.1)
                                 ; level's height are a box the aeroplane may
                                 ; not enter
@@ -245,7 +335,13 @@ CSA_WHDG  equ 26                ; numbers as the first, so an amphibian's
 CSA_WLEN  equ 28                ; landing is the same arithmetic and not a
 CSA_WWID  equ 30                ; polygon test. CSA_WLEN 0 is a place with
 CSA_WNAME equ 32                ; no water an aeroplane could get down on
-CSA_SIZE  equ 34
+CSA_FLAGS equ 34                ; word: CSA_* below - what this LOCATION asks
+CSA_SIZE  equ 36                ; for that the others do not (88.13.7)
+CSA_OCC   equ 1                 ; RUN THE OCCLUSION PASS here. It is off
+                                ; everywhere else because it can only pay
+                                ; where big objects stand behind big objects,
+                                ; and a world it cannot help would carry the
+                                ; test for nothing (88.13.7)
 
 ; --- a plane (SPEC.md 88.7) - speeds 16.8 m/s, angles 65536 to the turn -------
 CSP_NAME   equ 0
@@ -294,17 +390,20 @@ CSPF_AMPHIB equ 0x0001          ; it may touch down on water, and where the
                                 ; location has some it STARTS there (88.7.7)
 
 ; --- a cockpit record (SPEC.md 88.9.2): what a plane's panel looks like ------
-CSK_WIN    equ 0                ; word: the windows, (x1, y1, x2, y2) at 320
-CSK_NWIN   equ 2                ; word: how many         wide, rows below the view
-CSK_ITEMS  equ 4                ; word: the items' cells, (x, row) x CS_PI_N
+CSK_WIN    equ 0                ; word: the windows, (cell column, row, cells,
+CSK_NWIN   equ 2                ; word: how many        rows) - SPEC.md 88.9.5
+CSK_ITEMS  equ 4                ; word: the items' cells, (cell column, row)
 CSK_ADCX   equ 6                ; the attitude indicator's centre, x at 320
 CSK_ADCY   equ 8                ; ...and its row below the view
-CSK_ADRY   equ 10               ; its bezel's vertical radius, rows
-CSK_ADHH   equ 12               ; its window's half-height, rows
-CSK_BARW   equ 14               ; the throttle bar's width at 320 wide
-CSK_DECO   equ 16               ; word: the DECORATIONS (88.9.3) - instruments
-CSK_NDECO  equ 18               ; word: ...how many. 0 is a bare panel
-CSK_SIZE   equ 20
+CSK_ADRY   equ 10               ; its bezel's vertical radius, rows - and the
+                                ; GLASS is that less two, so the black disc
+                                ; fills the ring rather than sitting inside
+                                ; it (88.9.6). There is no separate
+                                ; half-height any more
+CSK_BARW   equ 12               ; the throttle bar's width, in CELLS (88.9.5)
+CSK_DECO   equ 14               ; word: the DECORATIONS (88.9.3) - instruments
+CSK_NDECO  equ 16               ; word: ...how many. 0 is a bare panel
+CSK_SIZE   equ 18
 
 ; A decoration: five words, drawn once with the face and never read again.
 ; It is what a panel has that the simulation does not model - a tachometer,
@@ -314,17 +413,33 @@ CSD_X      equ 2                ; centre x at 320 wide
 CSD_Y      equ 4                ; ...and its row below the view
 CSD_R      equ 6                ; radius in ROWS (the x radius is this over
                                 ; the pixel aspect, so it is round everywhere)
-CSD_ARG    equ 8                ; a dial's needle angle; a switch's position
+CSD_ARG    equ 8                ; a dial's needle angle; a switch's position;
+                                ; a RAIL's count in the low byte and its
+                                ; up/down mask in the high one, bit 0 first
 CSD_SIZE   equ 10
+CS_RAILSTEP equ 34              ; a rail's pitch, at 320 wide: eight from x 40
+                                ; reach 278 (SPEC.md 88.9.3.1)
 
 CSDK_DIAL  equ 0                ; a bezel and a needle, parked where it is
 CSDK_SWITCH equ 1               ; a toggle on a stalk: ARG 0 down, 1 up
+CSDK_RAIL  equ 2                ; a ROW of them, CS_RAILSTEP apart from CSD_X:
+                                ; nine near-identical table rows are one, which
+                                ; is what a rail is (SPEC.md 88.9.3.1)
 
 ; --- the session (SPEC.md 88.8) -----------------------------------------------
 CS_ST_GROUND equ 0
 CS_ST_AIR    equ 1
 CS_ST_CRASH  equ 2
 CS_MAXSTEP equ 3                ; the most ticks a frame may ever spend
+CS_EASEOS equ 3                 ; the ramp OUT of the horizon is 1 << this
+                                ; ticks, so under three frames back to the
+                                ; full rate (SPEC.md 88.7.3.3)
+CS_EASEF equ 5                  ; ...and the most FRAMES an approach to the
+CS_EASEN equ CS_EASEF * CS_MAXSTEP  ; horizon is spread over, so the landing
+                                ; is a frame's last tick and every frame of
+                                ; the approach travels alike (SPEC.md
+                                ; 88.7.3.2). Two frames left the last one at
+                                ; HALF the roll rate; five is a rung a frame
 CS_PRATE  equ 6                 ; ticks between instrument readings (88.9.1)
 RW_NDASH  equ 4                 ; centreline stripes drawn ahead (88.6.2)
 RW_DASHM  equ 25                ; ...each this long, with as much gap
@@ -354,6 +469,11 @@ CSG_PAUSED equ 5
 CSG_EDGE   equ 6
 CSG_RELEASE equ 7               ; a sailplane's launch (88.7.6)
 CSG_SPLASH equ 8                ; ...and an amphibian's water landing (88.7.7)
+CSG_TOAST  equ 9                ; A SETTING JUST CHANGED (88.13.8): its name
+                                ; and its new value, composed into cs_toastbuf
+                                ; and shown for CS_TOASTT ticks in place of
+                                ; whatever the strip was saying
+CS_TOASTT  equ 27               ; ...which is a second and a half at 18.2 Hz
 
 ; --- the attract window (SPEC.md 88.10) ---------------------------------------
 CS_WINW   equ 312               ; the launcher, frame included: it fits
@@ -392,7 +512,7 @@ cs_entry:
     mov [cs_scrw], ax
     mov [cs_dock], cx
 
-    mov byte [cs_setbld], CSBL_ALL   ; the settings' defaults (88.13): all of
+    mov byte [cs_setbld], CSBL_MOD   ; the settings' defaults (88.13): all of
     mov byte [cs_setlod], CSL_MOD   ; them are what the simulator shipped
     mov byte [cs_setfill], CSFL_ALL  ; with, so a player who never opens the
                                     ; page is flying exactly what they flew.
@@ -400,6 +520,11 @@ cs_entry:
                                     ; here: it is the ADAPTER's, and the
                                     ; adapter is not known until the window
                                     ; exists (below)
+
+    call cs_artload                 ; the title bands out of the image and into
+                                    ; a claim (88.10.2), before the window that
+                                    ; draws them exists. A refusal here is a
+                                    ; plainer page and not a failed launch
 
     mov al, KSC_SPACE               ; ARMING the scancode reader: the first
     call OSAPI_KEY_DOWN             ; answer is always "up" and this is where
@@ -458,6 +583,15 @@ cs_entry:
                                     ; cs_adapter, which runs again on a Mode
                                     ; change and on a window move: neither may
                                     ; overwrite a Size the player picked
+    call cs_set_load                ; ...AND THE KEPT ONES OVER ALL FOUR
+                                    ; (88.13.9), which is why the read is here
+                                    ; and not at the first paint: Size is the
+                                    ; last default set and it is set from the
+                                    ; ADAPTER, so a file read before this line
+                                    ; would have its answer overwritten by the
+                                    ; card. The entry proc is UI-task context
+                                    ; - it is what opens the window - so the
+                                    ; file slots are legal here
     mov ax, cs_onresize             ; the card can change under us
     call OSAPI_WM_ONRESIZE          ; (SPEC.md 11.98)
     mov ax, cs_onup                 ; the release half of a click (13.7)...
@@ -471,6 +605,65 @@ cs_entry:
 .full:
     pop di
     pop si
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_artload - unpack the title bands into a claim (SPEC.md 88.10.2)
+;
+; out: [cs_artseg] = the claim, or 0.  preserves every register
+;
+; The six bands are 10,480 bytes and no frame reads one: the title page draws
+; them and the fsx bracket never does. So the image carries them as ONE LZ4
+; STREAM of CS_ART_ZLEN bytes and this expands them ONCE, here, into a claim
+; of CS_ART_KB - which is 5,993 bytes of a 60KB segment (APP_MAX_SIZE) bought
+; for 11KB of a heap that has tens (SPEC.md 50.3), and for a launch that is
+; one decode longer. Nothing on a frame's path moved.
+;
+; A BAND HOLDS NO POINTER, so there is nothing to relocate and this is the
+; whole of the change: what was a label in this segment is an offset into the
+; blob (csart.inc's equs), the plane records' CSP_ART goes on assembling
+; because an equ is a constant like any other, and the three blits read
+; ES = [cs_artseg] where they read ES = DS.
+;
+; BOTH REFUSALS ARE NORMAL PATHS (SPEC.md 20.6, 47). A heap too full and a
+; stream the kernel will not decode both leave [cs_artseg] at 0, and 0 is the
+; page the blit slot's own refusal already drew - the title lettered in the
+; 8x8 face and no aeroplane. The kernel frees the claim with the instance,
+; so there is nothing to undo on the way out.
+; -----------------------------------------------------------------------------
+cs_artload:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov ax, CS_ART_KB
+    call OSAPI_MEM_CLAIM            ; DX = the base segment
+    jc .none
+    mov es, dx
+    mov si, cs_art_z                ; DS:SI the stream, T word first...
+    mov cx, CS_ART_ZLEN
+    xor di, di                      ; ...ES:0 where it goes, and DI = 0 is the
+    xor bx, bx                      ; contract (SPEC.md 20.13.3). BX:DX is the
+    mov dx, CS_ART_SIZE             ; EXACT output, 32 bits, and ours is one
+    mov al, OSAPI_LZ_LZ4            ; word - so BX is zero and DX is the size,
+    call OSAPI_DECOMP               ; which is why DX is loaded AFTER the claim
+    jc .none                        ; answered in it
+    mov ax, es
+    mov [cs_artseg], ax
+    jmp short .out
+.none:
+    mov word [cs_artseg], 0
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -495,6 +688,26 @@ cs_adapter:
     mov [cs_vidk], dl
     mov byte [cs_want], CSB_NONE
     mov byte [cs_fsxm], 0FFh
+    ; --- THE 16-COLOUR TEXT HACK IS A REAL CGA'S AND NOBODY ELSE'S (88.15.7).
+    ;     It is programmed by writing the 6845 directly, and a VGA or an EGA
+    ;     running mode 3 answers 3D4h with a CRTC that is not one - so the
+    ;     offer is made on [vid_kind] and not on a caps bit, which is SPEC.md
+    ;     47's rule exactly: a fact the code can test. And a VGA loses nothing
+    ;     by it, Mode X already having sixteen times the colours.
+    mov si, cs_i_mode               ; ...and the Mode row's two names with it
+    cmp dl, VID_CGA
+    jne .m1
+    mov si, cs_i_mode160
+.m1:
+    mov [cs_drmode + OS88UI_DR_ITEMS], si
+    cmp dl, VID_CGA
+    jne .modex
+    cmp byte [cs_modepref], 0       ; a real CGA's two are 320x200x4 and the
+    je .cga                         ; hack, in that order (88.15.7)
+    mov byte [cs_want], CSB_C160
+    mov byte [cs_fsxm], FSXM_TEXT80
+    jmp short .say
+.modex:
     test ax, 1 << FSXM_MODEX
     jz .cga
     cmp byte [cs_modepref], 0       ; Mode X, unless CGA was asked for: a
@@ -613,9 +826,12 @@ cs_paint:
 .title:
 
     ; --- the title, one blit; lettered in the 8x8 face where the blit is
-    ;     refused (kern_small carries the slot and not the body) ------------
-    push ds
-    pop es
+    ;     refused (kern_small carries the slot and not the body) OR where the
+    ;     bands never unpacked, which is the same plainer page (88.10.2) ----
+    mov es, [cs_artseg]             ; ES:offset, not DS:label - the bands live
+    mov si, es                      ; in cs_artload's claim now. A zero segment
+    or si, si                       ; is "there is no claim", and it takes the
+    jz .notitle                     ; path a refused blit already took
     mov ax, [cs_winox]
     add ax, CS_TITLEX
     mov bx, [cs_winoy]
@@ -626,6 +842,7 @@ cs_paint:
     mov si, cs_art_title
     call OSAPI_GFX_BLIT1
     jnc .plane
+.notitle:
     mov si, cs_s_title
     mov bx, CS_TITLEY + 16
     mov al, CBLACK
@@ -634,7 +851,11 @@ cs_paint:
                                     ; the band of WHICHEVER row is in use
                                     ; (88.10.1), so the picture follows the
                                     ; Plane list. Every band shares the frame,
-                                    ; so only the pointer changes
+                                    ; so only the offset changes
+    mov es, [cs_artseg]
+    mov si, es
+    or si, si
+    jz .noplane
     mov ax, [cs_winox]
     add ax, CS_ARTX
     mov bx, [cs_winoy]
@@ -645,6 +866,9 @@ cs_paint:
     mov si, [cs_plane]
     mov si, [si + CSP_ART]
     call OSAPI_GFX_BLIT1            ; refused: a plainer page, and that is all
+.noplane:
+    push ds                         ; ES back to ours: everything below this
+    pop es                          ; point is written against DS = ES
 
     ; --- the configuration: the labels, the controls' rects (they follow
     ;     the window), then the controls, LOWEST FIRST - a dropped list lies
@@ -763,7 +987,7 @@ cs_set_page:
     mov bx, CS_SETFY + 2
     mov al, CBLACK
     call cs_at_left
-    mov cx, 3
+    mov cx, CS_NFILL
     xor di, di
 .box:
     push cx
@@ -797,7 +1021,7 @@ cs_set_page:
     ;     over what is under it ---------------------------------------------
     call cs_setsync                 ; the records say what the settings say
     call cs_donebtn
-    mov cx, 3
+    mov cx, CS_NFILL
     xor di, di
 .dbox:
     push cx
@@ -839,10 +1063,18 @@ cs_set_page:
     pop ax
     ret
 
-; cs_modechoice - CF = 0 when this display offers BOTH Mode X and CGA, which
-;                 is the only case where the Mode row means anything
+; cs_modechoice - CF = 0 where the display offers TWO of them, which is the
+;                 only case where the Mode row means anything (SPEC.md 47)
+;
+; A VGA's two are Mode X and CGA320; a real CGA's are CGA320 and SPEC.md
+; 88.15's 16-colour text hack, which is why [cs_modepref] is "which of the
+; two" and not a mode id - the names beside it are cs_adapter's to set, and
+; the byte then means the same thing on both machines. Hercules has one
+; mode and the row stays greyed there.
 cs_modechoice:
     push ax
+    cmp byte [cs_vidk], VID_CGA
+    je .yes
     mov ax, [cs_caps]
     and ax, (1 << FSXM_MODEX) | (1 << FSXM_CGA320)
     cmp ax, (1 << FSXM_MODEX) | (1 << FSXM_CGA320)
@@ -875,9 +1107,9 @@ cs_setsync:
     mov [bx + OS88UI_DR_SEL], ax
     inc di
     loop .d
-    mov cx, 3
+    mov cx, CS_NFILL
     xor di, di
-    mov ah, CSFL_GROUND
+    mov ah, CSFL_TERRAIN
 .b:
     mov si, di
     shl si, 1
@@ -912,7 +1144,7 @@ cs_settake:
 .out:
     ret
 
-; cs_setfillmask - the three boxes back into [cs_setfill]. Preserves all
+; cs_setfillmask - the fill boxes back into [cs_setfill]. Preserves all
 cs_setfillmask:
     push ax
     push bx
@@ -920,8 +1152,8 @@ cs_setfillmask:
     push si
     push di
     xor al, al
-    mov ah, CSFL_GROUND
-    mov cx, 3
+    mov ah, CSFL_TERRAIN
+    mov cx, CS_NFILL
     xor di, di
 .b:
     mov si, di
@@ -952,9 +1184,27 @@ cs_setclick:
     push dx
     push si
     push di
-    mov di, 3                       ; the drop-downs LAST-DRAWN first, because
-.d:                                 ; an open list takes any press and the
-    push di                         ; topmost one is the one that is open
+    ; --- AN OPEN LIST FIRST (SPEC.md 13.14.2), which is what .page0 already
+    ;     does and this did not. The walk below is in the order the page
+    ;     DRAWS in (cs_set_page counts DI down, so row 0 is drawn last and
+    ;     lies on top), and os88ui_drpress lets a CLOSED control claim a
+    ;     press that lands on its own box - so a press on the open list's
+    ;     lower items went to whatever box the list was covering. Buildings
+    ;     is row 0 and its list falls over Detail, so Moderate and High were
+    ;     unreachable from the page; None arriving as a fourth item is what
+    ;     walked into it (88.13.6).
+    mov di, 3
+.o:
+    mov si, di
+    shl si, 1
+    mov bx, [cs_setdrops + si]
+    cmp byte [bx + OS88UI_DR_OPEN], 0
+    jne .d                          ; ...start the walk at the open one
+    dec di
+    jns .o
+    mov di, 3                       ; none open: the drawn order will do
+.d:
+    push di
     mov si, di
     shl si, 1
     mov bx, [cs_setdrops + si]
@@ -1169,8 +1419,10 @@ cs_artdraw:
     call OSAPI_WM_CONTENT           ; AX/DX, read again rather than remembered:
     mov [cs_winox], ax              ; a window that moved moved the picture
     mov [cs_winoy], dx
-    push ds
-    pop es
+    mov es, [cs_artseg]             ; the claim, or 0 - and with no claim there
+    mov si, es                      ; is no picture to put back (88.10.2)
+    or si, si
+    jz .out
     add ax, CS_ARTX
     mov bx, dx
     add bx, CS_ARTY
@@ -1433,6 +1685,7 @@ cs_setup2:
     call os88ui_bhit
     jc .cancel                      ; released elsewhere: up again, and stay
     mov byte [cs_page], 0
+    call cs_set_save                ; ...and the page's answer is kept (88.13.9)
     call cs_repaint
     ret
 .cancel:
@@ -1510,6 +1763,10 @@ cs_onkey:
     jc .out                         ; spent doing it
     cmp byte [cs_page], 0
     je .page0
+    cmp byte [cs_page], 2           ; a key leaves EITHER second page, and only
+    jne .noset                      ; the Settings one has anything to keep
+    call cs_set_save
+.noset:
     mov byte [cs_page], 0           ; ...and the instructions
     call cs_repaint
     jmp short .out
@@ -1588,10 +1845,10 @@ cs_flyrect:  dw 0, 0, 0, 0
 ; --- the Settings page's controls (SPEC.md 88.13). Every one of them is the
 ;     shared drop-down or the shared check box, and the page is the first
 ;     user of the second ---------------------------------------------------
-cs_drbld:    dw 0, 0, 0, 0, cs_i_bld,  3, CSBL_ALL, 0
+cs_drbld:    dw 0, 0, 0, 0, cs_i_bld,  5, CSBL_MOD, 0
              db 0, 0FFh
              dw 0, 0, 0
-cs_drlod:    dw 0, 0, 0, 0, cs_i_lod,  3, CSL_MOD, 0
+cs_drlod:    dw 0, 0, 0, 0, cs_i_lod,  4, CSL_MOD, 0
              db 0, 0FFh
              dw 0, 0, 0
 cs_drsize:   dw 0, 0, 0, 0, cs_i_size, 3, CSZ_MOD, 0
@@ -1600,37 +1857,41 @@ cs_drsize:   dw 0, 0, 0, 0, cs_i_size, 3, CSZ_MOD, 0
 cs_drmode:   dw 0, 0, 0, 0, cs_i_mode, 2, 0, 0
              db 0, 0FFh
              dw 0, 0, 0
-cs_ckgnd:    dw 0, 0, 0, 0, cs_s_gnd, 1
-cs_ckwat:    dw 0, 0, 0, 0, cs_s_wat, 1
+cs_ckterr:   dw 0, 0, 0, 0, cs_s_terr, 1
 cs_ckbld:    dw 0, 0, 0, 0, cs_s_bld, 1
 cs_donerect: dw 0, 0, 0, 0
 cs_setlbls:  dw cs_s_lbld, cs_s_llod, cs_s_lsize, cs_s_lmode
 cs_setdrops: dw cs_drbld, cs_drlod, cs_drsize, cs_drmode
-cs_setboxes: dw cs_ckgnd, cs_ckwat, cs_ckbld
+cs_setboxes: dw cs_ckterr, cs_ckbld
+CS_NFILL     equ ($ - cs_setboxes) / 2
 cs_setbytes: dw cs_setbld, cs_setlod, cs_setsize, cs_modepref
-cs_i_bld:    dw cs_s_bfew, cs_s_bmod, cs_s_ball
-cs_i_lod:    dw cs_s_lnear, cs_s_lmod, cs_s_lfar
+cs_i_bld:    dw cs_s_bnone, cs_s_broad, cs_s_blow, cs_s_bmod, cs_s_bhigh
+cs_i_lod:    dw cs_s_lnear, cs_s_lmod, cs_s_lfar, cs_s_lultra
 cs_i_size:   dw cs_s_zsml, cs_s_zmod, cs_s_zful
 cs_i_mode:   dw cs_s_modex, cs_s_cga
+cs_i_mode160: dw cs_s_cga, cs_s_c160   ; a real CGA's two (SPEC.md 88.15.7)
 cs_s_setttl: db 'SETTINGS', 0
-cs_s_lbld:   db 'Buildings', 0
-cs_s_llod:   db 'Detail', 0
+cs_s_lbld:   db 'Detail Level', 0
+cs_s_llod:   db 'Draw Distance', 0
 cs_s_lsize:  db 'Size', 0
 cs_s_lmode:  db 'Mode', 0
-cs_s_lfill:  db 'Fill:', 0
-cs_s_bfew:   db 'Few', 0
+cs_s_lfill:  db 'Fill', 0
+cs_s_bnone:  db 'None', 0
+cs_s_broad:  db 'Only Roads', 0
+cs_s_blow:   db 'Low', 0
 cs_s_bmod:   db 'Moderate', 0
-cs_s_ball:   db 'Full', 0
+cs_s_bhigh:  db 'High', 0
 cs_s_lnear:  db 'Near', 0
 cs_s_lmod:   db 'Moderate', 0
 cs_s_lfar:   db 'Far', 0
+cs_s_lultra: db 'Ultra', 0
 cs_s_zsml:   db 'Small', 0
 cs_s_zmod:   db 'Moderate', 0
 cs_s_zful:   db 'Full', 0
 cs_s_modex:  db 'Mode X, 256 col', 0
 cs_s_cga:    db 'CGA, 4 col', 0
-cs_s_gnd:    db 'Ground', 0
-cs_s_wat:    db 'Water', 0
+cs_s_c160:   db 'CGA, 16 col', 0
+cs_s_terr:   db 'Terrain', 0
 cs_s_bld:    db 'Buildings', 0
 cs_s_done:   db 'Done', 0
 cs_s_setts:  db 'Settings', 0
@@ -1653,7 +1914,7 @@ CS_NPORTS    equ ($ - cs_apnames) / 2
 CS_DEFPORT   equ 5              ; PARIS-ISSY, where the simulator shipped
 
 cs_i_lines:  dw cs_i1, cs_i2, cs_i3, cs_i4, cs_i5, cs_i6, cs_i7, cs_i8
-             dw cs_i9, cs_i10, cs_i2, cs_i11, cs_i12, 0
+             dw cs_i9, cs_i10, cs_i13, cs_i11, cs_i12, 0
 cs_i1:       db 'INSTRUCTIONS', 0     ; every line under 38 cells: the
 cs_i2:       db 0                     ; content is 310 wide (88.10)
 cs_i3:       db 'Arrows    pitch and roll', 0
@@ -1666,6 +1927,10 @@ cs_i9:       db 'M         engine sound on and off', 0
 cs_i10:      db 'Esc or F  back to this window', 0
 cs_i11:      db 'Full throttle; pull back at 55 knots.', 0
 cs_i12:      db 'Click, or press a key, to return.', 0
+cs_i13:      db 'F1 to F5  step a setting, in flight', 0   ; in the blank
+                                                          ; separator's place:
+                                                          ; the page is full
+                                                          ; at thirteen lines
 
 ; -----------------------------------------------------------------------------
 ; cs_about - the OSAPI_ABOUT_SET handler (slot 0x01E0)
@@ -1704,6 +1969,16 @@ cs_tpl:
     dw 0, 0, CS_WINW, CS_WINH
     dw cs_ttl, cs_paint, cs_onkey, cs_onclick
 
+%ifdef CSDIAG                   ; SPEC.md 88.14: where the frame had reached,
+%macro CSSTAGE 1                ; for a machine that stopped inside it - and
+    mov byte [cs_dstage], %1    ; the GUARDS checked at the same eleven points,
+    call cs_diag_ck             ; so a scribble is caught in the phase that
+%endmacro                       ; made it rather than at the death (88.14.1)
+%else
+%macro CSSTAGE 1
+%endmacro
+%endif
+
 %include "csraster.inc"
 %include "cs3d.inc"
 %include "csworld.inc"
@@ -1711,6 +1986,8 @@ cs_tpl:
 %include "csgame.inc"
 %include "cspanel.inc"
 %include "csart.inc"
+%include "csset.inc"        ; the settings, kept in SYSTEM\APPDATA (88.13.9)
+%include "csdiag.inc"       ; CSDIAG=1 only: the watchdog (SPEC.md 88.14)
 
 ; =============================================================================
 ; .bss (SPEC.md 20.5: the loader zeroes CS_BSS bytes after the image, and
@@ -1784,6 +2061,10 @@ cs_tpl:
     ZWORD cs_page0
     ZWORD cs_page1
     ZWORD cs_shseg
+    ZWORD cs_artseg                 ; the title art, unpacked (88.10.2): the
+                                    ; claim's segment, or 0 if it was refused -
+                                    ; which is a page without the bands and not
+                                    ; a launch that fails
     ZWORD cs_inktab
     ZWORD cs_hrunproc
     ZWORD cs_rowsproc               ; the polygon's row loop (88.4.6)
@@ -1809,6 +2090,8 @@ cs_tpl:
                                     ; centreline (88.6.2); the pitch is twice
     ZBYTE cs_pgate                  ; the panel's rate gate (88.9.1)...
     ZWORD cs_plast                  ; ...and the tick the instruments last read
+    ZWORD cs_pfan                   ; the fan's triangles left (88.5.9)
+    ZBYTE cs_bshr                  ; cs_boxlod's saved cs_pshr (88.5.4.3)
     ZWORD cs_bw                     ; cs_boxlod's half-width, and its
     ZWORD cs_bx0                    ; projected centre x, top row and base
     ZWORD cs_by0                    ; row
@@ -1874,6 +2157,11 @@ cs_tpl:
     ZBYTE cs_eside                  ; the chain an edge is on: 0 both, 1, 2
     ZWORD cs_lrunproc               ; the run a LINE's slice lays
     ZBUF  cs_pv, CS_MAXPV * 4       ; a projected face: (x, y) pairs
+    ZBYTE cs_fcut                   ; ...the near plane CUT it, so cs_pv is
+                                    ; not the model's vertices (88.13.3)
+    ZWORD cs_wn                     ; ...cs_wire's vertex count...
+    ZWORD cs_wj                     ; ...and the edge's far end
+    ZBUF  cs_eseen, CS_ESEEN        ; ...the edges drawn already, this object
     ZWORD cs_pn
     ZWORD cs_rx1                    ; cs_prect's
     ZWORD cs_rx2
@@ -1986,6 +2274,29 @@ cs_tpl:
     ZBUF  cs_vis, CS_NVIS * CS_VISZ ; the frame's objects: ptr, reach, along
     ZBUF  cs_vkey, CS_NVIS * 4      ; ...sorted far to near: along, record
     ZWORD cs_nvisn
+    ZBUF  cs_occ, CS_NVIS           ; ...and whether cs_occlude hid each one
+    ZWORD cs_occn                   ; how many it hid, for the diagnostics
+    ZBYTE cs_occk                   ; occluders kept this frame
+    ZWORD cs_occi                   ; the slot cs_occlude is looking at
+    ZWORD cs_occwa                  ; the occluder's half-width at this level
+    ZWORD cs_occo                   ; ...and the object cs_occbox is reading
+    ZWORD cs_asinh                  ; |sin h| and |cos h|, once a frame: the
+    ZWORD cs_acosh                  ; extent of an axis-aligned box ACROSS the
+                                    ; heading is wx |cos h| + wz |sin h|
+    ZBUF  cs_p0, 4                  ; a 32-bit product, held for the compare
+    ZWORD cs_ob_l                   ; THE CANDIDATE, six words in the order an
+    ZWORD cs_ob_c                   ; occluder record keeps them (cs_occadd
+    ZWORD cs_ob_y0                  ; copies them straight across): along,
+    ZWORD cs_ob_y1                  ; across, base y, top y, base half-extent
+    ZWORD cs_ob_w0                  ; and top half-extent
+    ZWORD cs_ob_w1
+    ZWORD cs_ob_ang                 ; ...and (half-extent + height) / along,
+                                    ; which is what an occluder is RANKED by:
+                                    ; keeping the three NEAREST fills the
+                                    ; slots with a hangar and two valley
+                                    ; walls and never reaches the peaks that
+                                    ; actually hide anything
+    ZBUF  cs_occa, CS_OCCN * CS_OCCZ ; ...and the occluders kept
     ZBUF  cs_rwverts, 6 * 4         ; the runway, built from the airport
     ZBUF  cs_rwmodel, CSM_SIZE
     ZBUF  cs_rwobj, CSO_SIZE
@@ -2018,6 +2329,16 @@ cs_tpl:
     ZBYTE cs_stall
     ZBYTE cs_inited                 ; the aeroplane has been put on the runway
     ZBYTE cs_kpitch                 ; the held keys, latched by cs_input and
+    ZBYTE cs_hzhold                 ; bit 0 roll, bit 1 pitch: this axis
+                                    ; ARRIVED on the horizon and stands still
+                                    ; for the rest of the frame. cs_ease's
+                                    ; since 88.7.3.1, so it is EVERY model's
+                                    ; and not only the lagging one (88.7.5.2)
+    ZBYTE cs_taproll                ; a stick press int 16h saw and the level
+    ZBYTE cs_tappitch               ; read did not (88.7.5.2), worth one tick
+    ZBYTE cs_wasroll                ; ...and the LEVEL read of the tick before,
+    ZBYTE cs_waspitch               ; which is what tells a tap from the tail
+                                    ; of a hold's typematic repeats
     ZBYTE cs_kroll                  ; spent one step at a time by cs_step
     ZBYTE cs_kyaw
     ZBYTE cs_kthr
@@ -2062,7 +2383,88 @@ cs_tpl:
     ZWORD cs_pbarx                  ; the throttle bar's left end, top row
     ZWORD cs_pbary                  ; and width, off the cockpit
     ZWORD cs_pbarw
-    ZBUF  cs_svclip, 6              ; the view's clip while the panel draws
+CS_HULLTHR equ 25               ; a throttle under this is not driving, so the
+                                ; HULL brakes (88.7.7.2)
+CS_HZR equ 1                    ; the horizon's hold, a bit an axis (88.7.3.1)
+CS_HZP equ 2
+CS_MSGAGE equ 145               ; ticks an ANNOUNCEMENT stands: 8 seconds at
+                                ; 18.2 Hz (SPEC.md 88.7.6.2)
+CS_SWOOPT equ 8                 ; ticks the air's swoop lasts (88.7.6.3)...
+CS_SWOOPD equ 75                ; ...hertz a tick of it, and the two ends it
+CS_SWOOPLO equ 300              ; runs between: UP from the bottom in lift,
+CS_SWOOPHI equ 900              ; DOWN from the top in sink
+
+    ZBYTE cs_msgt                   ; ...and what is left of them
+    ZBYTE cs_hzbit                  ; which axis cs_ease is on (88.7.3.1)
+    ZBYTE cs_tleft                  ; the ticks left in this frame,
+                                    ; this one counted, and how many
+    ZBYTE cs_tframe                 ; it has altogether - cs_ease aims
+                                    ; its landing at the last of them
+                                    ; (SPEC.md 88.7.3.2)
+    ZWORD cs_easm                   ; ...and the distance it is easing,
+    ZWORD cs_eass                   ; against this axis's full rate
+    ZWORD cs_hzox                   ; ...and the ramp OUT (88.7.3.3):
+    ZBUF  cs_hzo, 8                 ; a cap and its increment an axis,
+                                    ; roll first, indexed by cs_hzox
+    ZBUF  cs_promptb, 44            ; THE TAKE-OFF PROMPT (88.7.9), composed
+                                    ; from the aeroplane's own record: the
+                                    ; longest is 29 + 3 digits + ' KNOTS'
+    ZWORD cs_gsuf                   ; the units the sentence being composed
+                                    ; ends in: ' KNOTS' or ' KT' (88.15.6.1)
+    ZBUF  cs_promptc, 16            ; ...and the ONE-LINE strip's own, which
+                                    ; is the same sentence in fourteen cells
+                                    ; (88.15.6.1): 'ROTATE 55 KT'
+    ZWORD cs_airv                   ; the air's rate here (88.7.6.3), the sign
+    ZBYTE cs_airs                   ; of the last one, and the swoop it starts
+    ZBYTE cs_swdir
+    ZBYTE cs_swt
+    ZWORD cs_wname                  ; cs_inwater (88.7.7.1): the touched
+    ZWORD cs_wobj                   ; water's name, and the walk's own state -
+    ZWORD cs_wnob                   ; the object, how many are left, the face
+    ZWORD cs_wnf                    ; and how many of those, the vertex table,
+    ZWORD cs_wfp                    ; the point in the object's frame, the
+    ZWORD cs_wvt                    ; edge's two ends and the one just read,
+    ZWORD cs_wpx                    ; the face's index list and its length,
+    ZWORD cs_wpz                    ; where the walk is, and the edge's dz
+    ZWORD cs_wax
+    ZWORD cs_waz
+    ZWORD cs_wvx
+    ZWORD cs_wvz
+    ZWORD cs_wface
+    ZWORD cs_wnv                    ; (cs_wn is cs_wire's, 88.5)
+    ZWORD cs_wi
+    ZWORD cs_wdz
+    ZBYTE cs_wodd                   ; ...and the crossing count's parity
+    ZWORD cs_dn                     ; a switch RAIL's counter, its remaining
+    ZWORD cs_dmask                  ; mask and the layout x of the switch it
+    ZWORD cs_dxl                    ; is drawing (88.9.3.1)
+    ZWORD cs_adrr                   ; the ADI chord (88.9.6.2): R^2, a, the
+    ZWORD cs_ada                    ; root of a, half the chord scaled, and
+    ZWORD cs_adsa                   ; the foot of the perpendicular
+    ZWORD cs_adstep
+    ZWORD cs_adus
+    ZBUF  cs_svclip, 4              ; the view's x clip while the panel draws
+    ZWORD cs_viewh                  ; ...and its HEIGHT, which the panel does
+                                    ; not borrow: cs_pclip widens cs_wh to the
+                                    ; whole box, so a reader that samples
+                                    ; cs_wh mid-panel is told the box's height
+                                    ; (SPEC.md 88.9.2.3)
+%ifdef CSDIAG
+    ZBUF  cs_dold, 4                ; the watchdog (SPEC.md 88.14): the int 08h
+    ZBUF  cs_dring, CSD_SLOTS * 2   ; vector it chains to, the interrupted IPs
+    ZWORD cs_dhead                  ; it rings, the tick counter that says
+    ZWORD cs_dtick                  ; whether IRQ0 is alive at all, the tick
+    ZWORD cs_dframe                 ; the last frame FINISHED on, and where in
+    ZBYTE cs_dstage                 ; a frame the machine had got to
+    ZBYTE cs_dbroke                 ; ...and the LATCH (88.14.1): a guard has
+    ZBYTE cs_dbwhich                ; gone, which one, at which stage and on
+    ZBYTE cs_dbstage                ; which tick - written once and never
+    ZWORD cs_dcseg                  ; the interrupted CS, so an IP is placed
+                                    ; in a segment rather than assumed to be
+                                    ; ours
+    ZWORD cs_dbtick                 ; again, so the photograph is of the
+    ZBUF  cs_dcan, CSD_CANB         ; MOMENT and not of the wreckage
+%endif
     ZWORD cs_adcx                   ; the attitude indicator: centre, the
     ZWORD cs_adcy                   ; bezel's radii, the window's half sizes
     ZWORD cs_adrx
@@ -2075,14 +2477,37 @@ cs_tpl:
     ZWORD cs_ady1
     ZWORD cs_adx2
     ZWORD cs_ady2
-    ZWORD cs_elcx                   ; cs_ellipse: centre, radii, the last point
-    ZWORD cs_elcy
-    ZWORD cs_elrx
-    ZWORD cs_elry
-    ZWORD cs_elx
-    ZWORD cs_ely
-    ZWORD cs_elang
+    ZWORD cs_elcx                   ; cs_pdisc/cs_pring: the centre, the radii,
+    ZWORD cs_elcy                   ; the row being drawn and, for the outline,
+    ZWORD cs_elrx                   ; the row above's half width and the run
+    ZWORD cs_elry                   ; this one lights either side
+    ZWORD cs_eldy
+    ZWORD cs_elprev
+    ZWORD cs_ello
+    ZWORD cs_elhi
+    ZWORD cs_elrow
+    ZWORD cs_msgink                ; the message's ink and row while
+    ZWORD cs_msgy                  ; its strip is erased (88.9.9)
+    ZBUF  cs_toastbuf, 40          ; A SETTING'S NAME AND VALUE (88.13.8), and
+    ZBYTE cs_toastt                ; the ticks it has left, and what the strip
+    ZBYTE cs_toastwas              ; was saying before it
+    ZBYTE cs_toastn                ; ...and a count, so the panel's key tells
+                                   ; one toast from the next (88.13.8)
+    ZBUF  cs_setbuf, CS_SETFSZ     ; the settings file, as it sits on the disk
+    ZBYTE cs_setread               ; ...read once (88.13.9)
+    ZWORD cs_sdclus                ; where we were standing before it
+    ZBYTE cs_sddrv
+    ZBUF  cs_sdfind, OSAPI_FIND_SZ
+    ZWORD cs_pwl                   ; a window's edges while it is
+    ZWORD cs_pwr                   ; being resolved (88.9.5)
     ZBYTE cs_pfirst                 ; bit n: page n has never had its ground
+    ZBYTE cs_gcellb                 ; bytes an 8-pixel glyph cell covers
+    ZWORD cs_panrows                ; rows the panel wants under the view: a
+                                    ; cockpit's 88, or the strip's 12 (88.15.5)
+    ZWORD cs_plblp                  ; the fixed labels this panel letters...
+    ZWORD cs_plabw                  ; ...how many CELLS along its number goes
+    ZWORD cs_msgtabp                ; ...and the message strings it can fit
+    ZWORD cs_msgx0                  ; ...and where its strip starts (88.15.6)
 
 ; --- the shared controls (SPEC.md 20.5.1) -------------------------------------
 %define OS88UI_ABOUT            ; the standard About card, the standard

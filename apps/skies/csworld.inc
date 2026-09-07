@@ -61,21 +61,79 @@ cs_f_sacre:                         ; a box, its roof, a drum and a dome
     CS_SIDES 8, CSI_WALL, CSI_WALL2
 
 ; --- a box, a pyramid, a dome (SPEC.md 88.5) -----------------------------------
+;
+; CSM_RAD IS THE MODEL'S OWN EUCLIDEAN RADIUS (SPEC.md 88.5.11), and these
+; four work it out EXACTLY from the shape they are about to emit. It used to
+; be `wx + wz + h / 2`, which is the bound for a model whose origin is its
+; CENTRE - and the origin here is the base, so the vertical reach is h and not
+; h/2. That halving put 36 of 122 models under their own radius, the Shard by
+; 97 m of 306, and CSM_RAD under-stating is not a rounding error: cs_projall
+; reads it to decide that an object is wholly in front of the near plane, and
+; cs_edge1 then draws every edge from cs_sxv WITHOUT LOOKING AT cs_fv - so a
+; vertex that was never projected this frame contributed whatever the last
+; object left in its slot, unclipped, straight across the cockpit.
+;
+; EXACT AND NOT MERELY SOUND, because loose costs pixels. The first fix summed
+; the terms - the only bound with no square root in it - and that is 4,000 for
+; NEPAL's peak where 3,612 is the truth, 11% of a radius on the models where h
+; dwarfs the plan. A radius is what cs_consider files an object on, so 11%
+; files mountains that draw nothing, and `skiesocc` went red on it: the extra
+; occluders moved the pass's verdicts and one of them hid a mountain the eye
+; can see. So the macro does the square root at ASSEMBLY time.
+;
+; CS_RAD3 - CS_RADV = ceil(sqrt(a^2 + b^2 + c^2)), by Newton from an upper
+;           bound. It converges from ABOVE, so the `%if %%n >= CS_RADV` is the
+;           stop and not a step count; the four rounds after it are the
+;           ceiling. tests/unit/t_csrad.py checks the answer against Python's
+;           for every model, so this is arithmetic that cannot quietly rot.
+%macro CS_RAD3 3
+%assign %%s (%1)*(%1) + (%2)*(%2) + (%3)*(%3)
+%if %%s == 0
+  %assign CS_RADV 0
+%else
+  %assign CS_RADV (%1) + (%2) + (%3)
+  %rep 24
+    %assign %%n ((CS_RADV) + (%%s) / (CS_RADV)) / 2
+    %if %%n >= CS_RADV
+      %exitrep
+    %endif
+    %assign CS_RADV %%n
+  %endrep
+  %rep 4
+    %if (CS_RADV) * (CS_RADV) < %%s
+      %assign CS_RADV CS_RADV + 1
+    %endif
+  %endrep
+%endif
+%endmacro
 %macro CS_BOX 4                     ; label, wx, h, wz
 %1: db CSM_STACK, 2, 5, 0, CSI_LINE, 0
-    dw %2 + %4 + %3 / 2, %%v, cs_f_box, 0
+    CS_RAD3 %2, %3, %4              ; the top corner, which always dominates
+    dw CS_RADV, %%v, cs_f_box, 0
 %%v: dw %2, 0, %4
      dw %2, %3, %4
 %endmacro
 %macro CS_PYR 4                     ; label, wx, h, wz
 %1: db CSM_STACK, 2, 4, 0, CSI_LINE, 0
-    dw %2 + %4 + %3 / 2, %%v, cs_f_pyr, 0
+    CS_RAD3 %2, 0, %4               ; a base corner...
+%assign %%b CS_RADV
+    CS_RAD3 0, %3, 0                ; ...or the apex
+%if %%b > CS_RADV
+  %assign CS_RADV %%b
+%endif
+    dw CS_RADV, %%v, cs_f_pyr, 0
 %%v: dw %2, 0, %4
      dw 0, %3, 0
 %endmacro
 %macro CS_DOME 4                    ; label, w, the box's h, the apex's h
 %1: db CSM_STACK, 3, 8, 0, CSI_LINE, 0
-    dw %2 + %2 + %4 / 2, %%v, cs_f_dome, 0
+    CS_RAD3 %2, %3, %2              ; the box's top corner...
+%assign %%b CS_RADV
+    CS_RAD3 0, %4, 0                ; ...or the apex
+%if %%b > CS_RADV
+  %assign CS_RADV %%b
+%endif
+    dw CS_RADV, %%v, cs_f_dome, 0
 %%v: dw %2, 0, %2
      dw %2, %3, %2
      dw 0, %4, 0
@@ -83,7 +141,13 @@ cs_f_sacre:                         ; a box, its roof, a drum and a dome
 ; --- a hill, a mountain, a headland: a frustum in the hill's ink --------------
 %macro CS_HILL 6                    ; label, base wx, base wz, height, top wx,
 %1: db CSM_STACK, 2, 5, 0, CSI_LINE, 0   ; top wz. A top of (0,0) is a peak
-    dw %2 + %3 + %4 / 2, %%v, cs_f_hill, 0
+    CS_RAD3 %2, 0, %3               ; a base corner...
+%assign %%b CS_RADV
+    CS_RAD3 %5, %4, %6              ; ...or a top one
+%if %%b > CS_RADV
+  %assign CS_RADV %%b
+%endif
+    dw CS_RADV, %%v, cs_f_hill, 0
 %%v: dw %2, 0, %3
      dw %5, %4, %6
 %endmacro
@@ -114,13 +178,39 @@ cs_e_road3: db 0,1, 1,2, 2,3
 cs_e_road4: db 0,1, 1,2, 2,3, 3,4
 cs_e_road5: db 0,1, 1,2, 2,3, 3,4, 4,5
 
-; --- the anonymous models (SPEC.md 88.13.1): a world flags these CSO_FILLER,
-;     and Buildings=Moderate is what leaves them out -----------------------
+; --- the anonymous models (SPEC.md 88.13.1): the blocks and sheds a world
+;     fills its edges with. They used to be CSO_FILLER, which only the top
+;     rung drew; the ladder's top rung is CSO_DENSE now and these draw from
+;     Moderate, which is the DEFAULT - so an anonymous block is ordinary
+;     content and not an extra ----------------------------------------------
 CS_BOX cs_m_hangar, 30,  12,  60
 CS_BOX cs_m_shed,   40,  10,  40
 CS_BOX cs_m_block,  60,  20,  60
 CS_BOX cs_m_block2, 80,  20,  40
 CS_BOX cs_m_small,  25,  15,  25
+
+; --- ...and the anonymous TOWERS a High tier is built from (SPEC.md
+;     88.13.1.3). The five above are 10 to 20 m: they are a shed, a warehouse
+;     and a city block, and a downtown drawn out of them reads as an
+;     industrial estate. These three are the rank above - a tower, the one
+;     below it and the mid-rise floor between them - and every world that
+;     grows a CSO_DENSE cluster wants the same three shapes, so they are
+;     shared here rather than copied five times at 26 bytes each.
+;
+;     NYC-JFK keeps its own four (88.13.1.2) and is not moved onto these:
+;     Manhattan's ladder is 55, 90, 140 and 190 m under the Woolworth's 241,
+;     which is a statement about that skyline and not a generic scale.
+;
+;     THE RULE EVERY WORLD APPLIES TO THEM is the one Manhattan's four were
+;     cut to: an anonymous tower may not out-top the location's own
+;     landmarks, because a nameless block taller than the thing the player
+;     came to see undoes it. 180 m clears the Shard's 306 and One Canada
+;     Square's 235 in London, the Transamerica's 220 in San Francisco and
+;     Downtown Miami's 196; where a world's landmark is lower than that, the
+;     world uses tower2 and midrise and leaves cs_m_tower alone.
+CS_BOX cs_m_tower,  22, 180,  22    ; 44 m square, about fifty storeys
+CS_BOX cs_m_tower2, 30, 110,  30    ; 60 m square, the rank below it
+CS_BOX cs_m_midrise,45,  55,  35    ; 90 by 70, the floor between them
 
 ; --- the runway's face and edges: its vertices are built in bss by
 ;     cs_airport from the LOCATION record (SPEC.md 88.6) -------------------
@@ -317,10 +407,25 @@ cs_p_a5:
     dw 20 * 128                     ; CSP_VSTALL   39 knots
     dw 24 * 128                     ; CSP_VROT     47 knots
     dw 49 * 128                     ; CSP_VMAX     95 knots
-    dw 11                           ; CSP_THRUST   1.5 m/s^2: 100 hp Rotax
-    dw 1201                         ; CSP_DRAGK    balances THRUST at VMAX
+    dw 14                           ; CSP_THRUST   2.0 m/s^2: 100 hp Rotax, and
+                                    ;              the field asked for a
+                                    ;              quarter more than the 11
+                                    ;              (1.5) it had - it is the
+                                    ;              slowest aeroplane here and
+                                    ;              was the slowest to get going
+    dw 1500                         ; CSP_DRAGK    balances THRUST at VMAX -
+                                    ;              RE-DERIVED with it, so the
+                                    ;              A5 accelerates harder and
+                                    ;              still tops out at 95 knots:
+                                    ;              600 x 1500 >> 16 = 13
+                                    ;              against a thrust of 14,
+                                    ;              which is the same one-under
+                                    ;              margin 1201/11 had
     dw 3                            ; CSP_FRICT    on land; DOUBLED on water
-    dw 18                           ; CSP_BRAKE    ...and no use at all there
+    dw 18                           ; CSP_BRAKE    on the wheels with B - and
+                                    ;              on the WATER always, with
+                                    ;              no key, because a hull is
+                                    ;              a brake (88.7.7.2)
     dw 500                          ; CSP_ROLLR    2.7 degrees a tick
     dw 120                          ; CSP_ROLLL    it comes back to level on
                                     ;              its own: a spin-resistant

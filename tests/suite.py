@@ -306,11 +306,109 @@ FAST = [
     Row("mirror", "fast", py("tests/unit/t_mirror.py"), 4.5,
         "a constant written down in two files must agree in both; there is no "
         "linker here to notice"),
+    Row("p2restore", "fast", py("tests/unit/t_p2restore.py"), 0.3,
+        "SPEC.md 9.9.7: the PS/2 probe's FAILURE paths must put the 8042's"
+        " command byte back UNDOCTORED. [mou_p2cmd0] is banked with bit 5"
+        " forced set for mou_p2_off's sake - the aux clock on a PS/2"
+        " controller and PC MODE on an AT one, which stops the 8042"
+        " translating, so a field 286 typed a different character for every"
+        " key. NOTHING IN THIS TREE CAN GATE IT AT RUNTIME: the probe never"
+        " runs on an 8088, it SUCCEEDS on QEMU so no failure path is taken"
+        " there, and QEMU does not model the translate bit either (measured -"
+        " clearing it deliberately leaves ps2mouse fully green). So the"
+        " invariant is asserted over the source instead",
+        needs=()),
+    Row("csair", "soak", py("tests/unit/t_csair.py"), 0.3,
+        "SPEC.md 88.7.6.3: CLEAR SKIES' eight rects of lift and sink keep"
+        " CS_LIFTCLR out of the circuit - which is where every OTHER test of"
+        " this simulator flies, so a rect edged toward the runway would be"
+        " found as a broken glide ratio three rows away. It measures the"
+        " NEAREST CORNER and not the centre, because a rect 3,000 m out that"
+        " reaches 900 m in is 2,100 m out. Also that there is both lift and"
+        " sink to find, and that the swoop's ramp lands exactly on its far"
+        " end - CS_SWOOPLO + CS_SWOOPT x CS_SWOOPD = CS_SWOOPHI. "
+        "SOAK and not fast: CLEAR SKIES is ONE package, so this belongs "
+        "beside a change to it - `soak -k 'cs*'`",
+        needs=()),
+    Row("csink", "soak", py("tests/unit/t_csink.py"), 0.3,
+        "SPEC.md 88.4.4, 88.6.5, 88.13.9.1: CLEAR SKIES' three families of"
+        " PARALLEL TABLE, each indexed by something declared somewhere else"
+        " and each failing the same way - silently, on one adapter or one"
+        " setting, long after the row that was forgotten. Six ink tables of"
+        " CSI_NINK rows, so a new ink added to four of them does not draw in"
+        " whatever byte follows the other two; every river far model in every"
+        " world carrying CSI_RIVLINE, one left behind being a white river on"
+        " a colour display; cs_set_at / _max / _best all CS_SETN long,"
+        " where the trap is that BEST IS NOT MAX - the Mode byte's ceiling is"
+        " CGA, so a 286 given the best of everything off the clamp table gets"
+        " the worse of two displays. And every CSM_STACK LOD pair the same"
+        " HEIGHT, because a far model that stands in for a full one at a"
+        " different height makes the object CHANGE SIZE at the switch - the"
+        " Eiffel's was 300 against 324 and popped 24 m as you flew at it,"
+        " where every other pair in every world already agreed. Deleting one"
+        " ink row, whitening one river and shortening one apex take it red on"
+        " all three. "
+        "SOAK and not fast: CLEAR SKIES is ONE package, so this belongs "
+        "beside a change to it - `soak -k 'cs*'`",
+        needs=()),
+    Row("csplane", "soak", py("tests/unit/t_csplane.py"), 0.3,
+        "SPEC.md 88.7.4: CLEAR SKIES' five plane records agree with their own"
+        " drag. CSP_DRAGK is what decides where an aeroplane stops"
+        " accelerating - every record's comment says 'balances THRUST at"
+        " VMAX' - so a THRUST changed without re-deriving it moves the TOP"
+        " SPEED instead, silently, and no flight test in the suite is long"
+        " enough to notice: an A5 takes 42 seconds of guest time to reach 95"
+        " knots. The row integrates the model's own drag at VMAX and at three"
+        " quarters of it, holds the speeds in order (the sailplane's"
+        " unreachable VROT exempt), and checks each record still declares its"
+        " fields in CSP_ order, without which every value below a new row"
+        " would be read off by one. It was written for the change the field"
+        " asked for - a quarter more thrust in the A5 - and raising that"
+        " thrust alone takes it red. "
+        "SOAK and not fast: CLEAR SKIES is ONE package, so this belongs "
+        "beside a change to it - `soak -k 'cs*'`",
+        needs=()),
+    Row("cssin", "soak", py("tests/unit/t_cssin.py"), 0.3,
+        "SPEC.md 88.5.9: CLEAR SKIES' sine table is a QUARTER of the turn"
+        " now, and nothing held it to its generator before it became one."
+        " The row regenerates the 257 entries from 88.5's own snippet, then"
+        " walks cs_sin's arithmetic - top ten bits, bit 8 reflects, bit 9"
+        " negates - over all 1,024 indices of a full turn against sin"
+        " itself. The ONE deliberate difference is asserted rather than"
+        " tolerated: 270 degrees reads -32767 where the full table held"
+        " -32768, and every other index must agree to the unit. "
+        "SOAK and not fast: CLEAR SKIES is ONE package, so this belongs "
+        "beside a change to it - `soak -k 'cs*'`"),
+    Row("cspanel", "soak", py("tests/unit/t_cspanel.py"), 1.0,
+        "SPEC.md 88.9.5/88.9.8: the five CLEAR SKIES cockpits fit, on all"
+        " three adapters. A panel is one drawing in TWO units that do not"
+        " scale together - a window's width is CELLS and a cell is 8 device"
+        " pixels, while its x is the 320-wide layout's, which Hercules"
+        " doubles - so a layout that is tidy on CGA can overlap on Hercules"
+        " and a test that looks at one adapter sees neither. No two windows"
+        " overlap, no round instrument overlaps a window or another"
+        " instrument, every window is wide enough for what is lettered into"
+        " it and no more than four cells wider, and everything is inside the"
+        " panel. "
+        "SOAK and not fast: CLEAR SKIES is ONE package, so this belongs "
+        "beside a change to it - `soak -k 'cs*'`"),
     Row("csworld", "soak", py("tests/unit/t_csworld.py"), 2.0,
         "SPEC.md 88.6.3: no collidable building in any CLEAR SKIES world"
         " stands in that world's own water - every base footprint against"
         " every river polygon, edges and containment and not just corners."
         " Nine locations and eight worlds since 88.6.4, and it walks them all. "
+        "SOAK and not fast: CLEAR SKIES is ONE package, so this belongs "
+        "beside a change to it - `soak -k 'cs*'`"),
+    Row("csrad", "soak", py("tests/unit/t_csrad.py"), 2.0,
+        "SPEC.md 88.5.11: no CLEAR SKIES model declares a CSM_RAD smaller"
+        " than its own vertices need. Three things read that bound and"
+        " cs_sizepx's comment has always said it must never be under the true"
+        " radius - and it was, for 36 of 122 models, because every macro"
+        " computed wx + wz + h/2 where the origin is the BASE. cs_projall"
+        " trusts it to say an object is wholly in front of the near plane and"
+        " cs_edge1 then draws each edge out of cs_sxv without testing cs_fv,"
+        " so a vertex never projected this frame drew a line from whatever"
+        " the last object left in its slot - unclipped, across the cockpit. "
         "SOAK and not fast: CLEAR SKIES is ONE package, so this belongs "
         "beside a change to it - `soak -k 'cs*'`"),
     Row("csworlds", "soak", py("tests/unit/t_csworlds.py"), 2.0,
@@ -327,6 +425,16 @@ FAST = [
         "apps/skies/csart.inc is what tools/csart.py generates (SPEC.md 88.10):"
         " the launcher's two 1bpp bands are drawn by the tool and checked in,"
         " and the include cannot drift from the drawing. "
+        "SOAK and not fast: CLEAR SKIES is ONE package, so this belongs "
+        "beside a change to it - `soak -k 'cs*'`"),
+    Row("csterrain", "soak", py("tests/unit/t_csterrain.py"), 0.2,
+        "SPEC.md 88.13.1: every CLEAR SKIES object carries the class flag "
+        "its MODEL implies - CSO_TERRAIN for the hills and the water, "
+        "CSO_ROAD for the roads and bridges. The Detail Level ladder refuses "
+        "objects before they are transformed and those bits are what exempt "
+        "them, so a row without one simply vanishes at a rung it should have "
+        "survived: thirty water objects had no flag and every river in the "
+        "tree emptied at None. "
         "SOAK and not fast: CLEAR SKIES is ONE package, so this belongs "
         "beside a change to it - `soak -k 'cs*'`"),
     Row("pkgdeps", "fast", py("tests/unit/t_pkgdeps.py"), 1.4,
@@ -1988,13 +2096,32 @@ SOAK = [
         " FULL, which is the geometry CGA shipped with), palette 0 over a"
         " light-blue background, the same flight",
         needs=("marty",), serial=True),
+    Row("skies160", "soak", py("tests/skies160.py"), 35.0,
+        "SPEC.md 88.15: CLEAR SKIES in SIXTEEN COLOURS on a CGA - the 160x100"
+        " text hack, reached through the Settings page's Mode row and not a"
+        " poke. Seven colours at once on a card that has four in 320x200, all"
+        " 8,000 character cells still the half block (a blit that wrote pairs"
+        " is exactly the defect this catches), the strip at the bottom of the"
+        " picture - which only a hundred two-scan-line rows put there - the"
+        " three readings changing over a climb with the speed standing beside"
+        " the take-off prompt, and nothing stale against a forced full"
+        " redraw, and a SIZE change that keeps the mode - black is 0x00DE"
+        " here and not 0, and the take-off prompt naming THIS aeroplane's"
+        " rotate speed in the strip's own units. Three red runs:"
+        " --clobber-crtc leaves the 6845's max scan line at 7,"
+        " --clobber-clear zeroes the screen on this backend too, and"
+        " --clobber-fit lengthens the strip's sentence past the fourteen"
+        " cells it gets with cs_d_msg's fit clamp taken out - which is a"
+        " message that vanishes off the glass entirely. Measured at 35 s"
+        " wall alone on an idle four-core box",
+        needs=("marty",), serial=True),
     Row("fsxclip", "soak", py("tests/fsxclip.py"), 22.0,
         "SPEC.md 53.1.1: an fsx bracket entered from a CLICK handler comes"
         " back to a whole desktop - the menu bar, the background and the dock"
         " held pixel for pixel against what they were, because fsx_run clears"
         " the clip region the handler armed",
         needs=("marty",), serial=True),
-    Row("skiesset", "soak", py("tests/skiesset.py"), 42.0,
+    Row("skiesset", "soak", py("tests/skiesset.py"), 75.0,
         "SPEC.md 88.13: the Settings page and its four knobs reaching the"
         " picture - Few files fewer objects and draws faster, a fill box"
         " clears its bit, the in-flight hotkeys do the same without the page,"
@@ -2002,7 +2129,53 @@ SOAK = [
         " 88.13.6's two defects: a drop-down's list has to BANK and reach the"
         " glass (the pick works without either, which is how this row passed"
         " while the page could not be dropped down at all) and Done has to be"
-        " the full 13.7 gesture",
+        " the full 13.7 gesture. And two about the top rung: the ladder NESTS"
+        " with the dense bits on and with them cleared in the guest's own"
+        " table (88.13.1.3 gave every world a dense city, so the equal branch"
+        " has no location left to stand on and is synthesised rather than left"
+        " to stop running), and a CSO_DENSE building is NOT SOLID below High"
+        " (88.13.1.4) - flown through at Moderate, crashed into by name at"
+        " High, because cs_collide reads the table and never the ladder. And"
+        " 88.13.5's CYCLING hotkeys: F1/F2/F3 each step their own ladder one"
+        " rung and round, walked a FULL LAP so the wrap is seen, F4/F5 toggle"
+        " the fills, and every one of them raises 88.13.8's TOAST - checked"
+        " against the Settings page's own list of names read out of the"
+        " guest, and then left to expire back to the strip it replaced - a"
+        " fill's toast says FILL or WIRE and a SECOND toast has to repaint"
+        " the strip, which is the panel's key and not the byte. And"
+        " 88.13.9's round trip: four settings picked on the page, Done, the"
+        " window closed, the package opened again, and the file in"
+        " SYSTEM/APPDATA is what the new instance comes back with",
+        needs=("marty",), serial=True),
+    Row("skiesocc", "soak", py("tests/skiesocc.py"), 26.0,
+        "SPEC.md 88.13.7: the occlusion pass, and the only thing keeping its"
+        " width rule honest. Every verdict cs_occlude reaches is checked"
+        " against the glass WITH THE PASS OFF - with it on the object is"
+        " already skipped, so removing it changes nothing and the check"
+        " passes whatever the pass believes, which is how the first version's"
+        " --clobber-occ run came back green with twenty-two verdicts"
+        " 'confirmed invisible'. Nine viewpoints, three of them off the"
+        " centreline, because the rule is exact for an object dead ahead",
+        needs=("marty",), serial=True),
+    Row("skieslod", "soak", py("tests/skieslod.py"), 40.0,
+        "SPEC.md 88.5.4.2: a solid too small to tell apart is one filled"
+        " rectangle PAST SIX KILOMETRES too. cs_drawobj built 11 cz in a"
+        " word, which stops fitting at 5,958 m, and past there the product"
+        " wrapped and every solid in the band drew all of its vertices and"
+        " faces to cover four pixels - 11.9 ms a tower against 4.2 on a"
+        " 4.77 MHz 8088. Nothing shipped stood in the band, so the row moves"
+        " JFK's anonymous towers onto the sight line at 8 km and reads"
+        " which path they take. Also 88.5.4.3: the impostor must be the SIZE"
+        " of the model it stands in for - cs_boxlod clobbered cs_pshr and a"
+        " REFUSED impostor left the full path running in whole metres, so a"
+        " building drew at a fraction of its size over exactly the part of"
+        " the approach where the rectangle crosses CS_LODPX; and 88.5.4.4,"
+        " that nothing on the skyline goes away and comes back as the"
+        " aeroplane taxis - a DIP and not a step, because the skyline"
+        " legitimately grows and shrinks. And 88.13.2.1: at DRAW DISTANCE ="
+        " ULTRA the same towers at the same place take the POLYGONS instead,"
+        " cs_boxlod not entered at all and nothing reaching cs_rect, which is"
+        " that rung's whole feature",
         needs=("marty",), serial=True),
     Row("skiespitts", "soak", py("tests/skiespitts.py"), 34.0,
         "SPEC.md 88.7.2: the second aeroplane flies by its own CSP_ATT - the"
@@ -2010,32 +2183,168 @@ SOAK = [
         " stick left it, where the trainer clamps both axes and returns to"
         " level - and wears its own scattered panel (88.9.3)",
         needs=("marty",), serial=True),
-    Row("skiespanel", "soak", py("tests/skiespanel.py"), 24.0,
+    Row("skiespanel", "soak", py("tests/skiespanel.py"), 32.0,
         "SPEC.md 88.9.4: the panel is SAMPLED on the gate and PAINTED per"
         " page, so Mode X's two pages cannot hold readings taken different"
         " gates apart - the altimeter that read 1,683 feet one frame and"
         " 1,666 the next. The displayed sequence never goes backwards in a"
         " climb; --clobber-share sends the between-gates path back to .same"
-        " and it does, four frames in twelve",
+        " and it does, four frames in twelve. And 88.9.4.2's state box over"
+        " all EIGHT combinations of state, stall, cs_onwater and 88.7.10.1's"
+        " brake latch: the key packs four things into one word and the"
+        " painter tested the whole of the high byte, so an amphibian airborne"
+        " OFF the water read STALLED for the whole flight. The intermediate"
+        " state each row forces is CONFIRMED at the painter and no longer"
+        " counted in card frames - a gate is every CS_PRATE TICKS, so eight"
+        " card frames is a fifth of one on Mode X, and under load the row"
+        " reported that the key had not changed, which was true and useless",
         needs=("marty",), serial=True),
-    Row("skiesfleet", "soak", py("tests/skiesfleet.py"), 52.0,
-        "SPEC.md 88.7.5-88.7.7: the three aeroplanes that came after the"
+    Row("skiesfleet", "soak", py("tests/skiesfleet.py"), 71.0,
+        "SPEC.md 88.7.5-88.7.7.1: the three aeroplanes that came after the"
         " Pitts, each checked on its MECHANIC. The Magister's roll rate ramps"
         " and decays and its engine spools; the Bijave starts in the air with"
         " no engine and glides better than 12:1; the A5 starts on the water,"
         " gets off it and lands back on it, and the SAME touchdown in the"
-        " Cessna is a crash. --clobber-lag and --clobber-amphib are the two"
-        " red runs",
+        " Cessna is a crash. Since 88.7.7.1 it also lands on water FAR from"
+        " the strip - the face furthest from it in that world's own object"
+        " table, walked out of the GUEST rather than carried here as a"
+        " coordinate - and dry land off the runway is still a crash, which is"
+        " the pair that says the strip stopped being an invisible runway"
+        " without the edge going away. The glider then gets 88.7.6.1-88.7.6.3"
+        " to itself: W held for two hundred frames opens no throttle and makes"
+        " no tone, an announcement AGES OUT with nothing else happening, and"
+        " the air is read against cs_lifts as the guest holds it - still air"
+        " is still, the table's strongest column and deepest sink move an"
+        " aeroplane by exactly what the row says, and crossing into either"
+        " arms the swoop. Since 88.7.7.2 the WATER stops it, and only with"
+        " the throttle shut - a hull that dragged harder than the engine"
+        " pushes is an amphibian that cannot take off, which is how the first"
+        " build of that read - and 88.7.10.1's brake is a LATCH a typed b"
+        " toggles rather than a level read nobody could see. The air is read"
+        " against cs_lifts one whole TILE out on both axes as well as in tile"
+        " zero (88.7.6.4), and every aeroplane's prompt is checked to name"
+        " its OWN rotate speed (88.7.9). --clobber-lag, --clobber-amphib and"
+        " --clobber-water are the three red runs",
         needs=("marty",), serial=True),
-    Row("skiesease", "soak", py("tests/skiesease.py"), 46.0,
-        "SPEC.md 88.7.3: the horizon captures the last three ticks of an"
-        " approach - held toward level both aeroplanes land EXACTLY on it on"
-        " both axes, in at most three ticks and with no tick under 60% of the"
-        " rate, the Pitts lands on INVERTED level too, and held away nothing"
-        " is eased at all. Read at a cs_step breakpoint: a frame spends one,"
-        " two or three ticks, so a per-frame sample cannot see the landing",
+    Row("skiesease", "soak", py("tests/skiesease.py"), 34.0,
+        "SPEC.md 88.7.3: the horizon captures the approach - held toward"
+        " level both aeroplanes land EXACTLY on it on both axes, the Pitts"
+        " lands on INVERTED level too, and held away nothing is eased at"
+        " all. Read at a cs_step breakpoint: a frame spends one, two or"
+        " three ticks, so a per-frame sample cannot see the landing."
+        " Then 88.7.3.1 asks the question the PILOT asks, which is the"
+        " per-FRAME one: the ease landing mid-frame is no use if the frame's"
+        " remaining ticks carry the axis off before anything is drawn, and"
+        " that is the Pitts 'skipping the horizon' the field reported. Every"
+        " horizon a continuous roll passes gets a frame on it, from three"
+        " start angles, because ONE of them landing on a frame boundary by"
+        " luck is exactly what the old code did. And 88.7.3.2's contract:"
+        " the eased ticks of an approach are EQUAL - a plateau, not a dive -"
+        " and the landing is the frame's LAST tick, so the detent discards"
+        " nothing. That replaced a floor of 60% of the rate, which passed on"
+        " 78%-then-22% - the shape the field called a pause at the horizon."
+        " --clobber-ease puts a ret on cs_ease and is the red run; the"
+        " --clobber-hold beside it is GONE, the ladder having left the hold"
+        " nothing to discard so that knob could no longer fail",
         needs=("marty",), serial=True),
-    Row("skiesgeom", "soak", py("tests/skiesgeom.py"), 42.0,
+    Row("skiestap", "soak", py("tests/skiestap.py"), 40.0,
+        "SPEC.md 88.7.5.2: the two remainders of the per-tick stick, both"
+        " reported off the glass. The shortest press MartyPC can express is"
+        " walked across a frame in twelve phases and every one must turn the"
+        " aeroplane - int 16h is an EVENT and OSAPI_KEY_DOWN a LEVEL read, so"
+        " without the latch it is 4 of 12, which is the owner's \"one in"
+        " three\". And a held approach to level, read at cs_render rather"
+        " than cs_step, shows level on EXACTLY ONE drawn frame: one and not"
+        " zero is the capture made visible, one and not four is the promise"
+        " that this is not Tank Attack's lock. --clobber-tap is the red run;"
+        " the --clobber-hold beside it is GONE - what it removed was the jet"
+        " zeroing its rate on arrival, which 88.7.5.2.1 now does only for a"
+        " CENTRED stick, and the detent it aimed at is a rounding safety net"
+        " since 88.7.3.2 lands on a frame's last tick",
+        needs=("marty",), serial=True),
+    Row("skiesbody", "soak", py("tests/skiesbody.py"), 30.0,
+        "SPEC.md 88.7.8 and 88.7.8.1: the elevator is a rate about the"
+        " AEROPLANE's wing axis, and past the vertical its contribution to"
+        " the heading REVERSES - the 1/cos(pitch) that 88.7.8 drops for being"
+        " singular there had a sign in it, so after a loop a banked pull"
+        " turned the wrong way. --clobber-invert is check 5's red run."
+        " Originally: the elevator is a rate about the AEROPLANE's wing"
+        " axis and every model added it straight into [cs_pitch], which is"
+        " the world's. Wings level nothing changes (cos 0, sin 0); in a 90"
+        " degree bank the world pitch stands still and the whole of"
+        " CSP_PITCHR goes into the TURN; and at pitch 180 roll 180 - upright"
+        " and facing back, which is a loop then a roll to level - the same"
+        " key moves [cs_pitch] the other way and the aeroplane CLIMBS, which"
+        " is the controls coming back the right way round with no case"
+        " analysis. The trainer is wired to it through cs_axisp."
+        " --clobber-body is the red run and it reproduces both reports",
+        needs=("marty",), serial=True),
+    Row("skiesrad", "soak", py("tests/skiesrad.py"), 34.0,
+        "SPEC.md 88.5.11: cs_pwhole never lies. cs_projall PREDICTS off"
+        " CSM_RAD that an object is wholly in front of the near plane, and"
+        " cs_edge1 then reads cs_sxv without testing cs_fv while cs_pinview"
+        " turns cs_seg's clip off - so a vertex that was never projected this"
+        " frame drew an edge from whatever the last object left in its slot,"
+        " unclipped, across the cockpit. Reported off the machine as \"in"
+        " wire mode sometimes lines will draw across the cockpit\". It dives"
+        " past the Shard, the tallest model in any world, and asserts the"
+        " INVARIANT rather than the pixels - deliberately, because whether a"
+        " line lands on the panel depends on what was in the slot before, so"
+        " it showed on 1 of 80 poses and a pixel row would go green on a"
+        " broken build four times in five. --clobber-rad restores BOTH halves"
+        " (the Shard's old 209, and no 88.5.11.1 guard) and it goes red",
+        needs=("marty",), serial=True),
+    Row("skiesdiag", "soak", py("tests/skiesdiag.py"), 20.0,
+        "SPEC.md 88.14: Clear Skies' watchdog, which is an instrument for a"
+        " machine that has HARD FROZEN - int 08h hooked for the length of the"
+        " fsx bracket, painting the last three interrupted IPs and a tick"
+        " counter straight into VRAM every tick, so a frozen screen says"
+        " where it is stuck in a photograph. The row tests it the only way"
+        " such a thing can be tested: it patches a `jmp $` over cs_render and"
+        " requires all three blocks to NAME that address off the glass while"
+        " the counter goes on climbing. Needs `make skiesdiag` (a private"
+        " tree; the shipped skies.o88 is byte-identical without it) - DECLARED,"
+        " because it is not the row's own business to report its absence: it"
+        " said SKIP and returned 0 for its whole life, so the suite scored it"
+        " `ok` in 0.1s and nothing ever drove the watchdog. wants= builds the"
+        " tree AND keeps it current, which a capability cannot do",
+        needs=("marty",), wants=("build/skiesdiag/apps360.img",),
+        serial=True),
+    Row("skiesadi", "soak", py("tests/skiesadi.py"), 30.0,
+        "SPEC.md 88.9.2.2: THE HARD FREEZE, reduced to one instruction. The"
+        " attitude indicator drew its horizon bar at t x tan(roll) and got"
+        " the tangent with `idiv cx`, CX = cos - on a note reading \"over 0.5"
+        " within MAXROLL\", which is true of a TRAINER and false of every"
+        " aerobatic aeroplane here. cs_sintab is 1024 entries over the turn,"
+        " so cos is EXACTLY 0 for the 64-unit window at +-90 and the divide"
+        " faults. The row arms the INT 0 VECTOR - which catches every divide"
+        " fault in the program at once - and walks the roll through both"
+        " windows on an aeroplane with no clamp. --clobber-adi puts the raw"
+        " idiv back and is the red run",
+        needs=("marty",), serial=True),
+    Row("skieshz", "soak", py("tests/skieshz.py"), 52.0,
+        "SPEC.md 88.3.3.1 and 88.13.3.1: the horizon reaches the GLASS, in"
+        " BOTH modes - the fill's band, and the one segment that is the whole"
+        " horizon when the ground fill is off. The second went the same way as"
+        " the first a mode along: cs_skyground runs before cs_scene, so"
+        " cs_seg read the PREVIOUS frame's last object's cs_pinview,"
+        " cs_pwhole and object box, and the segment was drawn into the shadow"
+        " and never carried. Reported as \"at some angles, some of the time,"
+        " the horizon line disappears in wire view\". --clobber-hzmark is"
+        " check 2's red run and reads 3 of 36 poses short."
+        " SPEC.md 88.3.3.1: the horizon reaches the GLASS. cs_skyground was"
+        " right the whole time - pinned at 45 degrees its cs_xl is a correct"
+        " diagonal - and the band's rows were drawn into the shadow and never"
+        " carried, because the band loop wrote each split row's span and never"
+        " widened the span set's ROW RANGE, which is the only thing cs_blit"
+        " walks. The row checks the glass against the guest's own normal at"
+        " every bank angle, over GROUPS OF FOUR ROWS because two of the"
+        " Hercules ground's four dither phases are blank and a per-row test"
+        " passes on a broken build. It PINS the attitude, which is what makes"
+        " the failure reachable: nothing else then widens the range."
+        " --clobber-range is the red run",
+        needs=("marty",), serial=True),
+    Row("skiesgeom", "soak", py("tests/skiesgeom.py"), 48.0,
         "SPEC.md 88.5.5-88.5.8: every polygon and segment of a frame, on nine"
         " pinned scenes - four BANKED, four low among the buildings - held to"
         " a host replay of the guest's own near clip, side clip and per-scale"
@@ -2045,7 +2354,62 @@ SOAK = [
         " level a world-vertical edge must project vertical, and the replay"
         " cannot catch a fault in the algorithm because it reproduces it."
         " And 88.5.4.1: no IMPOSTOR rectangle bigger than CS_LODPX, which is"
-        " the screen-axis-aligned square that stood upright in a bank",
+        " the screen-axis-aligned square that stood upright in a bank. And"
+        " 88.5.10's winding: every face's signed area held to the shoelace of"
+        " the same points computed here, EXACTLY - the back-face test read one"
+        " triangle of a trapezoid, which is noise once the points are whole"
+        " pixels, and the two POI towers' crown faces went on and off a frame"
+        " at a time on the machine",
+        needs=("marty",), serial=True),
+    Row("skiesthr", "soak", py("tests/skiesthr.py"), 40.0,
+        "SPEC.md 88.9.1.1: the THROTTLE is a user input, so it never waits"
+        " for 88.9.1's gate. The instruments read the aeroplane every"
+        " CS_PRATE = 6 ticks, which is right for a speed or an altitude -"
+        " they move every tick in a climb and nine opaque glyphs a change at"
+        " the frame rate is a tenth of the frame - and wrong for the one"
+        " control the pilot is holding down. cs_pitem exempted the state and"
+        " the message by NAME and nothing else, so the throttle waited with"
+        " them: measured with W held, cs_thr moved on 16 frames and the panel"
+        " redrew on 8, the glass showing the previous number every other"
+        " frame. The row reads cs_pkeys - what is ON THE GLASS, not what the"
+        " aeroplane holds - at a cs_blit breakpoint, and asks both halves of"
+        " the ask: every frame it moves the new value is shown, and a STEADY"
+        " throttle redraws NOTHING, which is what makes it free when nobody"
+        " is touching it. --clobber-now puts the two throttle entries of"
+        " cs_pnow back to 0 and check 1 goes red at about half the frames",
+        needs=("marty",), serial=True),
+    Row("skiesflat", "soak", py("tests/skiesflat.py"), 62.0,
+        "SPEC.md 88.4.6.1: an EXACTLY HORIZONTAL segment lands where it was"
+        " asked. CS_SLICE's flat arm - dy zero, so the whole line is one run -"
+        " jumped into the shared row loop without loading DX, which is where"
+        " that loop takes the run's first x; DX held 3xBP from the caller's"
+        " own slice test and BP is 2|dy|, so every exactly-horizontal segment"
+        " on CGA and the 160x100 hack was drawn at the view's LEFT EDGE."
+        " It needs an EXACT angle to show, so it wants a model edge between"
+        " two vertices of the same height seen with the wings level: the"
+        " Eiffel's platform bar (88.5.4.5) is the first such edge in any"
+        " world, and even then the ink landed where nothing had MARKED, so it"
+        " never reached the glass and surfaced only as a stale pixel at the"
+        " other end of the screen. The row reads the SHADOW and asks the"
+        " direct question - stood on the Issy runway looking at the tower, a"
+        " nine-pixel run at the tower's own x and nothing at the left edge,"
+        " read at a breakpoint on cs_blit so the frame it reads is a WHOLE"
+        " one (docs/WRITING-TESTS.md 13 entry 44)."
+        " --clobber-flat NOPs the four bytes and the bar moves to x = 0",
+        needs=("marty",), serial=True),
+    Row("skiesrwy", "soak", py("tests/skiesrwy.py"), 33.0,
+        "SPEC.md 88.6.2.1: the runway keeps its lines PAST ITS OWN MIDDLE."
+        " cs_drawobj's size test opened `cmp cx, 2600 / ja .out` on the"
+        " object's camera z, and ja is unsigned - so an origin BEHIND the eye"
+        " read as 65,000-odd and was dropped as far and small. The runway's"
+        " origin is its midpoint, and .out is below cs_edges AND below"
+        " cs_rwline, so taxi past the halfway board and the outline and the"
+        " centreline went together. The row walks the aeroplane down the"
+        " strip at 2 m and counts what the guest ENTERS, both halves, because"
+        " a row that walked only the far half could not tell a fix from a"
+        " runway that had stopped being drawn at all; then once at 40 m,"
+        " which is the other half of the report. --clobber-rwy takes the four"
+        " bytes of the guard back out and it reads 30, 30, 30, 0, 0, 0",
         needs=("marty",), serial=True),
     Row("skiesui", "soak", py("tests/skiesui.py"), 90.0,
         "SPEC.md 88.10's title page on the VGA machine: the two drop-downs"

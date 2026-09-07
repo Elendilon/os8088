@@ -217,6 +217,15 @@ def capabilities():
     # one outcome a probed capability exists to prevent.
     if os.path.exists(os88build.at("build/wire360.img")):
         caps.add("wiredisk")
+    # `skiesdiag` WANTED ONE OF THESE and got `wants=` instead, which is the
+    # note worth leaving. It opens a PRIVATE TREE (a -DCSDIAG build of a
+    # package that ships without it), nothing in the suite built one, and the
+    # row printed "SKIP" and returned 0 - so a soak scored it `ok` in 0.1s
+    # against 20s declared and the watchdog went untested for its whole life.
+    # A capability probed on that tree fixes the false green and NOT the
+    # staleness: existence is not freshness (docs/WRITING-TESTS.md 13 row 33),
+    # and an apps/skies edit then leaves a tree that exists and lies. `wants=`
+    # runs make on it every time, which is both.
     return caps
 
 

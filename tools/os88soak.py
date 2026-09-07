@@ -163,6 +163,17 @@ def requirements():
     req.append(("c64 disk", os.path.exists(B("c64360.img")),
                 "c64part and the C64 rows.",
                 "make c64disk"))
+    # A FIFTH, and the one that proves the list is worth keeping by hand:
+    # skiesdiag's is a private -DCSDIAG TREE rather than a disk `all` chose
+    # not to build, so nothing above would ever have named it. It went
+    # unbuilt and unnoticed because the row reported its own absence as a
+    # pass (tools/os88test.py's probe carries that account).
+    req.append(("skiesdiag tree",
+                os.path.exists(B("skiesdiag", "apps360.img")),
+                "skiesdiag - the ONLY test of Clear Skies' freeze watchdog "
+                "(SPEC.md 88.14), an instrument for a machine that has hard "
+                "frozen.",
+                "make skiesdiag"))
 
     # **AND EVERY ARTEFACT A ROW DECLARES.** The list above is hand-written
     # and names the four disks somebody noticed; `Row(wants=...)` is the
@@ -460,9 +471,21 @@ PREWARM = [
     ("build/weave.img", "weavedisk"),
     ("build/loom.img", "loomdisk"),
     ("build/c64360.img", "c64disk"),
+    ("build/skiesdiag/apps360.img", "skiesdiag"),      # ...and ALWAYS, below
     ("build/muptest.img", "build/muptest.img"),
     ("build/spantest.img", "spantest"),
 ]
+
+
+# **EXISTENCE IS NOT FRESHNESS** (docs/WRITING-TESTS.md 13 row 33). A PRIVATE
+# TREE is built by a recursive make into a directory of its own, and nothing
+# in the shipped graph depends on it - so an edit to apps/skies/ leaves
+# build/skiesdiag/ sitting there, existing, describing a package the guest has
+# not got. `skiesdiag` checks its own tree and FAILS naming it, which is the
+# behaviour row 33 asks for; this is what stops it having to. A no-op
+# `make skiesdiag` is 0.9s, so it is cheaper to always run than to reason
+# about.
+ALWAYS = {"skiesdiag"}
 
 
 def prewarm(verbose=True):
@@ -489,7 +512,7 @@ def prewarm(verbose=True):
 
     made, failed = [], []
     for art, target in PREWARM:
-        if os.path.exists(os.path.join(ROOT, art)):
+        if os.path.exists(os.path.join(ROOT, art)) and target not in ALWAYS:
             continue
         r = subprocess.run(["make", "-s", target], cwd=ROOT,
                            capture_output=True, text=True)

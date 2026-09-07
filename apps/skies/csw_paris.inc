@@ -72,66 +72,100 @@ cs_m_eiffel: db CSM_STACK, 5, 0, 32, CSI_LINE, 0
     db 8,12, 9,13, 10,14, 11,15
     db 12,16, 13,17, 14,18, 15,19   ; ...and the spire
 
-cs_m_eiffelf: db CSM_STACK, 2, 0, 4, CSI_LINE, 0    ; the far one: the four
-    dw 330, .v, 0, .e                               ; legs to the apex. The
-.v: dw 62, 0, 62                                    ; base square is eight
-    dw 0, 300, 0                                    ; pixels wide where this
-.e: db 0,4, 1,5, 2,6, 3,7                           ; stands in, and cost
-                                                    ; four segments (88.5.4)
+; THE FAR ONE IS A SKYLINE (SPEC.md 88.5.4.5). It was four straight legs from
+; the base square to a point - a tent, or a radio mast, and the two far legs
+; project down the middle as a line that reads as a mistake. What makes this
+; tower recognisable at twenty-five pixels is three things and none of them is
+; a platform square: a FLARED base, ONE horizontal bar, and a thin spire.
+;
+; The SPIRE is one diagonal pair, the square being under two pixels across up
+; there so the other two legs land in the same column; the SHAFT keeps all
+; four, because eleven pixels of width tapering to five is the taper you can
+; see, and the taper is what the old model had none of.
+;
+; The heights are the SKYLINE's and not the tower's. A first platform at the
+; real 57 m of 324 is a fifth of the way up, which at this size is five
+; pixels and lands inside the ground band: the flare was drawn, and invisible.
+; At 105 it is a third of the way up and reads.
+;
+; THE PLATFORM BAR is what makes this tower not a pylon, and it is the reason
+; 88.4.6.1 exists: it was refused for a whole commit because it left ink at
+; the far LEFT of a CGA view, which turned out to be every exactly-horizontal
+; segment in the program being drawn there.
+;
+; The apex is 324 and no longer 300, which is the near model's - the LOD
+; switch used to change the tower's height by 24 m as you flew toward it.
+cs_m_eiffelf: db CSM_STACK, 4, 0, 12, CSI_LINE, 0
+    dw 330, .v, 0, .e
+.v: dw 62, 0, 62                    ; the feet
+    dw 34, 105, 34                  ; the first platform, where the flare ends
+    dw 14, 190, 14                  ; the second
+    dw 0, 324, 0                    ; the apex
+.e: db 4,6, 5,7                     ; THE PLATFORM, as its two DIAGONALS and
+                                    ; not its four sides - a diagonal is the
+                                    ; square's full width from exactly the
+                                    ; azimuths where a side is foreshortened,
+                                    ; so two edges do what four would and no
+                                    ; square is drawn (88.5.4.5)
+    db 0,4, 1,5, 2,6, 3,7           ; the FLARE, all four legs: it is the
+                                    ; widest thing here and the one part
+                                    ; whose shape a viewer can resolve
+    db 4,8, 5,9, 6,10, 7,11         ; the shaft, which needs its WIDTH
+    db 8,12, 10,14                  ; ...and the spire, which does not
 
 ; --- the Seine, three strips cut in two (generated: SPEC.md 88.6): each half
 ;     a ribbon of two or three quads near, its centreline far, so a piece
 ;     that is a row of dither at the horizon is a segment or two and not a
 ;     dozen transformed vertices (88.6.1) ----------------------------------
 cs_m_rive0: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
-    dw 1550, .v, cs_f_rib2, 0
+    dw 1741, .v, cs_f_rib2, 0
 .v: dw 1424, -1000
     dw -276, 99
     dw -1276, 700
     dw 1510, -866
     dw -190, 235
     dw -1190, 834
-cs_m_rive0f: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
-    dw 1550, .v, 0, cs_e_road2
+cs_m_rive0f: db CSM_FLAT, 3, 0, 2, CSI_RIVLINE, 0
+    dw 1739, .v, 0, cs_e_road2
 .v: dw 1467, -933
     dw -233, 167
     dw -1233, 767
 cs_m_rive1: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
-    dw 1373, .v, cs_f_rib2, 0
+    dw 1391, .v, cs_f_rib2, 0
 .v: dw 1224, -600
     dw 43, 191
     dw -1333, 187
     dw 1310, -466
     dw 91, 343
     dw -1333, 347
-cs_m_rive1f: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
-    dw 1373, .v, 0, cs_e_road2
+cs_m_rive1f: db CSM_FLAT, 3, 0, 2, CSI_RIVLINE, 0
+    dw 1375, .v, 0, cs_e_road2
 .v: dw 1267, -533
     dw 67, 267
     dw -1333, 267
 cs_m_rivc0: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
-    dw 1083, .v, cs_f_rib2, 0
+    dw 1090, .v, cs_f_rib2, 0
 .v: dw 1019, 239
     dw 26, -9
     dw -957, -450
     dw 981, 395
     dw -26, 143
     dw -1043, -316
-cs_m_rivc0f: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
+cs_m_rivc0f: db CSM_FLAT, 3, 0, 2, CSI_RIVLINE, 0
     dw 1083, .v, 0, cs_e_road2
 .v: dw 1000, 317
     dw 0, 67
     dw -1000, -383
 cs_m_rivc1: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
-    dw 1350, .v, cs_f_rib2, 0
+    dw 1624, .v, cs_f_rib2, 0
 .v: dw 1310, 933
     dw -83, -163
     dw -1083, -962
     dw 1224, 1067
     dw -183, -37
     dw -1183, -838
-cs_m_rivc1f: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
-    dw 1350, .v, 0, cs_e_road2
+cs_m_rivc1f: db CSM_FLAT, 3, 0, 2, CSI_RIVLINE, 0
+    dw 1615, .v, 0, cs_e_road2
 .v: dw 1267, 1000
     dw -133, -100
     dw -1133, -900
@@ -143,7 +177,7 @@ cs_m_rivw0: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
     dw 1148, 78
     dw -23, -221
     dw -1076, 357
-cs_m_rivw0f: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
+cs_m_rivw0f: db CSM_FLAT, 3, 0, 2, CSI_RIVLINE, 0
     dw 1230, .v, 0, cs_e_road2
 .v: dw 1167, 0
     dw -33, -300
@@ -154,7 +188,7 @@ cs_m_rivw1: db CSM_FLAT, 4, 1, 0, CSI_RIVER, 0
     dw -322, 464
     dw 307, -443
     dw -178, 536
-cs_m_rivw1f: db CSM_FLAT, 2, 0, 1, CSI_MARK, 0
+cs_m_rivw1f: db CSM_FLAT, 2, 0, 1, CSI_RIVLINE, 0
     dw 597, .v, 0, cs_e_road1
 .v: dw 250, -500
     dw -250, 500
@@ -217,26 +251,59 @@ cs_ot_paris:
     CS_OBJ cs_m_def2,   0,            -3800,  3650,   0, 12000,    0, cs_n_def,    CSO_COLLIDE
     CS_OBJ cs_m_def3,   0,            -4100,  3350,   0, 12000,    0, cs_n_def,    CSO_COLLIDE
     CS_OBJ cs_m_def4,   0,            -3700,  3400,   0, 10000,    0, cs_n_def,    CSO_COLLIDE
-    CS_OBJ cs_m_hill,   0,             3560,  3150,   0, 12000,    0, cs_n_mont,   CSO_POI
+    CS_OBJ cs_m_hill, 0,             3560,  3150,   0, 12000,    0, cs_n_mont,   CSO_POI | CSO_TERRAIN
     CS_OBJ cs_m_sacre,  0,             3560,  3150, 100,  9000,    0, cs_n_sacre,  CSO_COLLIDE | CSO_POI
-    CS_OBJ cs_m_rive0, cs_m_rive0f,   5033,  -1067,   0,  4500, 2600, cs_n_seine,  0
-    CS_OBJ cs_m_rive1, cs_m_rive1f,   2533,    233,   0,  4500, 2600, cs_n_seine,  0
-    CS_OBJ cs_m_rivc0, cs_m_rivc0f,    200,    183,   0,  4500, 2600, cs_n_seine,  0
-    CS_OBJ cs_m_rivc1, cs_m_rivc1f,  -2067,  -1200,   0,  4500, 2600, cs_n_seine,  0
-    CS_OBJ cs_m_rivw0, cs_m_rivw0f,  -4367,  -2100,   0,  4500, 2600, cs_n_seine,  0
-    CS_OBJ cs_m_rivw1, cs_m_rivw1f,  -5750,  -1300,   0,  4500, 2600, cs_n_seine,  0
-    CS_OBJ cs_m_axis,   0,             -600,  1900,   0,  8000,    0, cs_n_seine,  0
-    CS_OBJ cs_m_per0,   0,             5576,  3576,   0,  8000,    0, cs_n_seine,  0
-    CS_OBJ cs_m_per1,   0,             5576, -2576,   0,  8000,    0, cs_n_seine,  0
-    CS_OBJ cs_m_per2,   0,             -576, -2576,   0,  8000,    0, cs_n_seine,  0
-    CS_OBJ cs_m_per3,   0,             -576,  3576,   0,  8000,    0, cs_n_seine,  0
-    CS_OBJ cs_m_hangar, 0,            -2750, -2350,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_shed,   0,            -2300, -2750,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_small,  0,            -2900, -2050,   0,  2500,    0, cs_n_bldg,   CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block,  0,             1000,  1200,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block2, 0,             1900,   800,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block,  0,             -900,  -700,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block2, 0,            -1700,   200,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE | CSO_FILLER
+    CS_OBJ cs_m_rive0, cs_m_rive0f,   5033,  -1067,   0,  4500, 2600, cs_n_seine,  CSO_TERRAIN
+    CS_OBJ cs_m_rive1, cs_m_rive1f,   2533,    233,   0,  4500, 2600, cs_n_seine,  CSO_TERRAIN
+    CS_OBJ cs_m_rivc0, cs_m_rivc0f,    200,    183,   0,  4500, 2600, cs_n_seine,  CSO_TERRAIN
+    CS_OBJ cs_m_rivc1, cs_m_rivc1f,  -2067,  -1200,   0,  4500, 2600, cs_n_seine,  CSO_TERRAIN
+    CS_OBJ cs_m_rivw0, cs_m_rivw0f,  -4367,  -2100,   0,  4500, 2600, cs_n_seine,  CSO_TERRAIN
+    CS_OBJ cs_m_rivw1, cs_m_rivw1f,  -5750,  -1300,   0,  4500, 2600, cs_n_seine,  CSO_TERRAIN
+    CS_OBJ cs_m_axis,   0,             -600,  1900,   0,  8000,    0, cs_n_seine,  CSO_ROAD
+    CS_OBJ cs_m_per0,   0,             5576,  3576,   0,  8000,    0, cs_n_seine,  CSO_ROAD
+    CS_OBJ cs_m_per1,   0,             5576, -2576,   0,  8000,    0, cs_n_seine,  CSO_ROAD
+    CS_OBJ cs_m_per2,   0,             -576, -2576,   0,  8000,    0, cs_n_seine,  CSO_ROAD
+    CS_OBJ cs_m_per3,   0,             -576,  3576,   0,  8000,    0, cs_n_seine,  CSO_ROAD
+    CS_OBJ cs_m_hangar, 0,            -2750, -2350,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE
+    CS_OBJ cs_m_shed,   0,            -2300, -2750,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE
+    CS_OBJ cs_m_small,  0,            -2900, -2050,   0,  2500,    0, cs_n_bldg,   CSO_COLLIDE
+    CS_OBJ cs_m_block,  0,             1000,  1200,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE
+    CS_OBJ cs_m_block2, 0,             1900,   800,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE
+    CS_OBJ cs_m_block,  0,             -900,  -700,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE
+    CS_OBJ cs_m_block2, 0,            -1700,   200,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE
+    ; --- THE HIGH TIER (SPEC.md 88.13.1.3): eight more, CSO_DENSE, so Detail
+    ;     Level = High is the only rung that draws one and every rung below it
+    ;     gives the Paris that always shipped - which matters more here than
+    ;     anywhere, this being the world SPEC.md 88.12's whole frame budget
+    ;     was measured on.
+    ;
+    ;     SIX OF THE EIGHT ARE AT LA DEFENSE, and that is the only honest
+    ;     place to put towers in this city. Paris is a low city: what it has
+    ;     instead of a skyline is a fabric of six-storey blocks that a
+    ;     filled-polygon engine at twelve frames a second cannot draw the
+    ;     point of. La Defense is the exception - a tight grid of slabs four
+    ;     kilometres north-west of the Arc - and this world already gives it
+    ;     five objects, which reads as five towers rather than as a business
+    ;     district. Eleven reads as one.
+    ;
+    ;     THEY ARE ALL 110 m and not one is over it, so the 180, 160 and 150
+    ;     already there stay the head of the cluster and the silhouette keeps
+    ;     its shape. The other two are mid-rises on the axis between the Arc
+    ;     de Triomphe and the Louvre, which is the line a flight over the
+    ;     centre follows and the one stretch of it with nothing on either
+    ;     side.
+    ;
+    ;     Ranges are Manhattan-from-the-spawn plus 400 rounded to 500, so La
+    ;     Defense stands before the roll at Issy - it is 7.9 km from the
+    ;     threshold and is what the departure turns towards.
+    CS_OBJ cs_m_tower2, 0,            -4450,  3600,   0,  8500,    0, cs_n_def,    CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower2, 0,            -3900,  3900,   0,  8500,    0, cs_n_def,    CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower2, 0,            -3550,  3150,   0,  7000,    0, cs_n_def,    CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower2, 0,            -4250,  3100,   0,  8000,    0, cs_n_def,    CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower2, 0,            -3500,  3800,   0,  8000,    0, cs_n_def,    CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower2, 0,            -4000,  4150,   0,  8500,    0, cs_n_def,    CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_midrise, 0,             700,  1200,   0,  9500,    0, cs_n_p_axe,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_midrise, 0,            1500,   700,   0,  9500,    0, cs_n_p_axe,  CSO_COLLIDE | CSO_DENSE
 cs_ote_paris:
 CS_N_PARIS equ (cs_ote_paris - cs_ot_paris) / CSO_SIZE
 cs_n_eiffel: db 'THE EIFFEL TOWER', 0
@@ -252,6 +319,7 @@ cs_n_def:    db 'LA DEFENSE', 0
 cs_n_mont:   db 'MONTMARTRE', 0
 cs_n_sacre:  db 'THE SACRE-COEUR', 0
 cs_n_seine:  db 'THE SEINE', 0
+cs_n_p_axe:  db 'THE CHAMPS-ELYSEES', 0
 
 ; =============================================================================
 ; The locations (SPEC.md 88.6, 88.6.4): a name, a place, an elevation, a runway
@@ -272,6 +340,7 @@ cs_a_issy:
     dw 800                          ; CSA_WLEN    half its length...
     dw 40                           ; CSA_WWID    ...and half its width
     dw cs_n_seine              ; CSA_WNAME
+    dw 0                        ; CSA_FLAGS
 cs_a_lbg:
     dw cs_s_lbg                     ; CSA_NAME
     dw 4500, 5000                   ; CSA_X, CSA_Z: 7 km north-east, outside
@@ -287,6 +356,7 @@ cs_a_lbg:
     dw 1000                          ; CSA_WLEN    half its length...
     dw 40                           ; CSA_WWID    ...and half its width
     dw cs_n_seine              ; CSA_WNAME
+    dw 0                        ; CSA_FLAGS
                                     ; from the other side of it
 cs_s_issy:   db 'PARIS-ISSY', 0
 cs_s_rwy04:  db 'RUNWAY 04', 0

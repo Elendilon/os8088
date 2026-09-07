@@ -113,8 +113,10 @@ cs_runway_build:
     mov word [di + CSO_LOD], 0
     mov ax, [si + CSA_NAME]
     mov [di + CSO_NAME], ax
-    mov word [di + CSO_FLAGS], 0
-    ret
+    mov word [di + CSO_FLAGS], CSO_TERRAIN   ; the runway is the world's
+    ret                             ; surface and not a building: Buildings
+                                    ; None must not take away the strip you
+                                    ; are standing on (SPEC.md 88.13.1)
 
 ; -----------------------------------------------------------------------------
 ; cs_reset - the aeroplane back at the airport's reset point, engine off
@@ -162,7 +164,13 @@ cs_reset:
     mov [cs_crasht], ax
     mov byte [cs_state], CS_ST_GROUND
     mov byte [cs_stall], 0
+    mov byte [cs_kbrake], 0         ; ...and the brake is OFF on a fresh
+                                    ; runway, being a latch now (88.7.10.1)
     mov byte [cs_msg], CSG_TAKEOFF
+    mov si, cs_g_take              ; ...WHICH NAMES THIS AEROPLANE'S ROTATE
+    mov di, [cs_plane]              ; SPEED (88.7.9) and not the Cessna's: the
+    mov ax, [di + CSP_VROT]         ; jet leaves the ground at 81 knots and
+    call cs_gspeed                  ; the prompt used to say 55 at it
     mov byte [cs_inited], 1
     ; --- AN AMPHIBIAN STARTS ON THE WATER (SPEC.md 88.7.7) where the place
     ; has any: on the water strip's own threshold, pointing along it, with
@@ -216,14 +224,66 @@ cs_reset:
     mov [cs_py+1], ax
     mov byte [cs_state], CS_ST_AIR
     mov byte [cs_msg], CSG_RELEASE
-    mov ax, [di + CSP_VSTALL]       ; 1.4 VSTALL, which is what a tug tows
-    mov bx, ax                      ; at and what the book calls best glide
+    mov byte [cs_msgt], CS_MSGAGE   ; ...which nothing else would clear (88.7.6.2)
+    mov ax, [di + CSP_VSTALL]       ; 1.5 VSTALL, which is about what a tug
+    mov bx, ax                      ; tows at and near enough best glide
     shr bx, 1
     shr bx, 1
     add ax, bx
     add ax, bx
     mov [cs_spd], ax
+    mov si, cs_g_tow                ; ...and the prompt names the speed the
+    call cs_gspeed                  ; tow LEFT IT AT (88.7.9)
 .down:
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_gspeed - the prompt that names a speed, in the aeroplane's own numbers
+;             (SPEC.md 88.7.9)
+; in:  SI = the sentence's opening; AX = the speed, in cs_spd's units
+; clobbers everything. cs_reset is the only caller and clobbers everything too
+;
+; The knots are cs_k_spd's own conversion, so the sentence and the airspeed
+; indicator can never come to disagree about what 42 m/s is.
+; -----------------------------------------------------------------------------
+cs_gspeed:
+    push ax                         ; TWO PANELS, TWO SENTENCES, BOTH COMPOSED
+    push si                         ; HERE (SPEC.md 88.15.6.1): a cockpit's
+    mov bx, [si + 2]                ; forty cells hold 'FULL THROTTLE, PULL
+    mov [cs_gsuf], bx               ; BACK AT 54 KNOTS' and the one-line
+                                    ; strip's fourteen hold 'ROTATE 54 KT'.
+                                    ; BX AND NOT AX: AX is the speed, and it
+                                    ; has to reach the first pass - loading
+                                    ; the suffix through it read the SUFFIX'S
+                                    ; ADDRESS as a speed and every cockpit
+                                    ; prompt said 542 knots (tests/skiesfleet)
+    mov si, [si]                    ; Composing BOTH now rather than the live
+    mov di, cs_promptb              ; backend's one is what makes it free of
+    call cs_gspeed1                 ; ordering: a Mode pick does not clear
+    pop si                          ; cs_inited (it is not the aeroplane that
+    pop ax                          ; changed), so a prompt composed for the
+    mov bx, [si + 6]                ; backend that was running would still be
+    mov [cs_gsuf], bx               ; up the next time the other one was
+    mov si, [si + 4]                ; entered
+    mov di, cs_promptc
+cs_gspeed1:                         ; SI = the opening, DI = the buffer
+    push ax
+    call cs_strcpy                  ; the words, DI left where the NUL goes
+    pop ax
+    mov bx, 996
+    mul bx
+    mov ax, dx                      ; AX = knots
+    xor cx, cx
+    call cs_utoa                    ; ...which preserves DI, so walk it on
+.fw:
+    cmp byte [di], 0
+    je .kt
+    inc di
+    jmp short .fw
+.kt:
+    mov si, [cs_gsuf]
+    call cs_strcpy
+    mov byte [di], 0                ; cs_strcpy copies UP TO the NUL, not it
     ret
 
 ; cs_shl32 - DX:AX <<= 8. Clobbers CX.
@@ -249,7 +309,15 @@ cs_step:
     ret
 .live:
     mov di, [cs_plane]
+    call cs_msgage                  ; --- an ANNOUNCEMENT expires (88.7.6.2) --
     ; --- the throttle -------------------------------------------------------
+    ; NOT ON A GLIDER (88.7.6.1). CSP_THRUST 0 is an aeroplane with no engine,
+    ; and its throttle used to open to 100 on the W key like everyone else -
+    ; which the ENGINE NOISE is made from, so the Bijave hummed. The panel
+    ; hid it (the Bijave's THR item is (0,0)), the model ignored it, and the
+    ; only thing that ever read it was the sound.
+    cmp word [di + CSP_THRUST], 0
+    je .throk
     mov al, [cs_kthr]
     or al, al
     jz .throk
@@ -370,7 +438,38 @@ cs_step:
     sar bx, 1
     sub ax, bx
 .vsok:
+    ; --- AND THE AIR ITSELF (SPEC.md 88.7.6.3). Into cs_vs and not into the
+    ;     altitude, so the VARIOMETER shows it: cs_k_vs reads this word, and
+    ;     an instrument that misses the one thing a sailplane is flown on
+    ;     would be an odd instrument
+    push ax
+    push di
+    call cs_lift
+    mov [cs_airv], ax
+    pop di
+    pop ax
+    add ax, [cs_airv]
     mov [cs_vs], ax
+    ; --- crossing INTO it is what you HEAR: leaving is silent, arriving is
+    ;     a swoop, which is the cue a variometer's audio actually gives
+    mov bl, 0
+    mov ax, [cs_airv]
+    or ax, ax
+    jz .sg
+    mov bl, 1
+    jns .sg
+    mov bl, -1
+.sg:
+    cmp bl, [cs_airs]
+    je .swok
+    mov [cs_airs], bl
+    or bl, bl
+    jz .swok
+    cmp byte [cs_sound], 0          ; ...and it is SCHEDULED, so with the sound
+    je .swok                        ; off there is nothing to schedule - one
+    mov [cs_swdir], bl              ; armed here and left standing is a swoop
+    mov byte [cs_swt], CS_SWOOPT    ; that plays when the sound comes back on
+.swok:
     call cs_move
     ; --- the ground, and what is standing on it ---------------------------
     ; The wheels are on it when the altitude is BELOW the field, or AT it
@@ -402,13 +501,31 @@ cs_step:
 .ground:
     sub cx, [di + CSP_FRICT]        ; rolling friction, and the brakes
     cmp byte [cs_onwater], 0
-    je .wheels                      ; ON THE WATER a hull drags twice as hard
-    sub cx, [di + CSP_FRICT]        ; and there is nothing to brake with
-    jmp short .g0                   ; (SPEC.md 88.7.7)
+    je .wheels
+    ; A HULL IS A BRAKE UNLESS YOU ARE DRIVING IT (SPEC.md 88.7.7.2). Twice
+    ; the rolling friction was the first answer and it is 0.85 m/s^2 on the
+    ; A5: 28 seconds and 340 m to come off the step, which the field read as
+    ; the water not slowing it at all. Water takes the WHEEL BRAKE'S figure
+    ; as well, with no key - but only with the THROTTLE SHUT, because a hull
+    ; that drags harder than the engine pushes is an amphibian that cannot
+    ; take off, which is what the first build of this was.
+    sub cx, [di + CSP_FRICT]
+    cmp word [cs_thr], CS_HULLTHR
+    jae .g0
+    sub cx, [di + CSP_BRAKE]
+    jmp short .g0
 .wheels:
     cmp byte [cs_kbrake], 0
     je .g0
     sub cx, [di + CSP_BRAKE]
+    ; ...AND THE BRAKE CLOSES THE THROTTLE (SPEC.md 88.7.10). The field read
+    ; the brakes as not working, and the arithmetic says why: a landing roll
+    ; is flown with the throttle where the take-off left it, W having been
+    ; held and never let go, so the Cessna's 20 of brake was spending 16 of
+    ; itself on its own engine and stopping at a fifth of its rate. A pilot
+    ; closes the throttle before touching the brakes; the key that means
+    ; STOP does it here.
+    mov word [cs_thr], 0
 .g0:
     mov ax, [cs_spd]
     add ax, cx
@@ -433,6 +550,7 @@ cs_step:
     cmp bx, CS_LIFTOFF
     jl .steer
     mov byte [cs_state], CS_ST_AIR  ; and it flies
+    mov byte [cs_kbrake], 0         ; ...with the brake let go (88.7.10.1)
     mov byte [cs_msg], CSG_NONE
     jmp short .steer
 .nodown:
@@ -493,7 +611,9 @@ cs_att_trim:
     mov cx, [di + CSP_PITCHT]
     mov dx, [di + CSP_MAXPITCH]
     mov si, cs_pitch
-    call cs_axis
+    call cs_axisp                   ; ...and the ELEVATOR is a body rate
+                                    ; (SPEC.md 88.7.8), so it is resolved
+                                    ; before the clamp sees it
     mov di, [cs_plane]
     mov byte [cs_stall], 0
     mov ax, [cs_spd]
@@ -528,6 +648,13 @@ cs_att_trim:
 ; vertical. That is the correct answer rather than a tolerated one - over the
 ; top of a loop the nose really does point up and BACK along the heading.
 ;
+; THAT IS A CLAIM ABOUT WHERE THE AEROPLANE GOES, AND IT WAS READ AS ONE
+; ABOUT THE STICK. Nothing above says how a key reaches the angles, and this
+; proc used to add the elevator straight into [cs_pitch] - a rotation about
+; the WORLD's wing axis rather than the aeroplane's. Roll upright after a
+; loop and the two point opposite ways, so the stick came back inverted;
+; cs_elev is the one line that fixes it (SPEC.md 88.7.8).
+;
 ; The stall drops the nose toward the EARTH and not toward zero pitch, which
 ; is the same thing only while upright: inverted, the earth is the other way.
 ; cos(roll) says which, and there is no clamp on the result.
@@ -548,6 +675,7 @@ cs_att_free:
     or ax, ax
     jz .stall
     imul word [di + CSP_PITCHR]
+    call cs_elev                    ; a BODY rate into the world (88.7.8)
     mov si, cs_pitch
     call cs_ease
     add [cs_pitch], ax
@@ -595,6 +723,8 @@ CS_LAGSH equ 2                      ; a quarter of the gap a tick: 90% of the
                                     ; second of a real second
 
 cs_att_lag:
+    test byte [cs_hzhold], 1        ; already on the horizon this frame: the
+    jnz .pitch                      ; rest of its ticks stand still (88.7.5.2)
     mov al, [cs_kroll]
     cbw
     imul word [di + CSP_ROLLR]      ; the rate the stick is asking for...
@@ -603,17 +733,32 @@ cs_att_lag:
     jz .pitch
     mov si, cs_roll
     call cs_ease
-    add [cs_roll], ax
+    jnc .radd
+    or byte [cs_hzhold], 1          ; ARRIVED: the axis holds for the rest of
+    cmp byte [cs_kroll], 0          ; this frame (SPEC.md 88.7.5.2)...
+    jne .radd                       ; ...and the RATE goes with it only if the
+    mov word [cs_rrate], 0          ; stick is CENTRED (88.7.5.2.1): a pilot
+.radd:                              ; still holding it means to keep rolling,
+    add [cs_roll], ax               ; and rebuilding from zero cost 8 frames
 .pitch:
     mov di, [cs_plane]
+    test byte [cs_hzhold], 2
+    jnz .stall
     mov al, [cs_kpitch]
     cbw
     imul word [di + CSP_PITCHR]
     mov si, cs_prate
-    call cs_lagax
-    jz .stall
+    call cs_lagax                   ; ...the aeroplane's own pitch rate, and
+    jz .stall                       ; it is a BODY rate like anyone's (88.7.8)
+    call cs_elev
     mov si, cs_pitch
     call cs_ease
+    jnc .padd
+    or byte [cs_hzhold], 2
+    cmp byte [cs_kpitch], 0         ; ...the elevator the same (88.7.5.2.1)
+    jne .padd
+    mov word [cs_prate], 0
+.padd:
     add [cs_pitch], ax
 .stall:
     mov di, [cs_plane]
@@ -681,12 +826,37 @@ cs_lagax:
 ; bounding multiples in three instructions and needs no case for the wrap.
 ; -----------------------------------------------------------------------------
 cs_ease:
+    push bx
+    mov bl, CS_HZR                  ; --- WHICH AXIS, and is it already there?
+    cmp si, cs_roll
+    je .axis
+    mov bl, CS_HZP
+.axis:
+    mov [cs_hzbit], bl
+    test [cs_hzhold], bl
+    jz .pair
+    xor ax, ax                      ; it LANDED earlier in this frame: it
+    pop bx                          ; stays until the frame is DRAWN (88.7.3.1)
+    clc
+    ret
+.pair:
+    dec bl                          ; --- THE AXIS'S RAMP-OUT PAIR (88.7.3.3):
+    shl bl, 1                       ; a cap and its increment, a word each,
+    shl bl, 1                       ; at 0 for roll and 4 for pitch
+    xor bh, bh
+    mov [cs_hzox], bx
+.go:
     or ax, ax
     jz .plain                       ; centred: there is no step to shorten
-    push bx
     push cx
     push dx
-    mov cx, ax                      ; CX = the step, signed
+    mov cx, ax                      ; CX = the step, signed...
+    mov dx, ax                      ; ...and its MAGNITUDE, which is this
+    or dx, dx                       ; axis's FULL rate: the ramp out needs it
+    jns .rate                       ; whichever way this call leaves
+    neg dx
+.rate:
+    mov [cs_eass], dx
     mov ax, [si]
     and ax, 0x7FFF                  ; how far into this half turn we are
     cmp ax, 0x4000
@@ -707,54 +877,213 @@ cs_ease:
     neg ax
 .dmag:
     jz .out                         ; already on it: leave at the full rate
-    mov dx, cx                      ; DX = the rate's magnitude
+    mov [cs_easm], ax               ; the distance's MAGNITUDE, parked: the
+.smag:                              ; step's sign is the one it wears back
+    ; --- THE WINDOW IS A LADDER OF WHOLE FRAMES (SPEC.md 88.7.3.2), and the
+    ; distance is spread over the FIRST rung that reaches it - so the landing
+    ; is a frame's LAST tick and every frame of the approach travels alike.
+    ; BX = the rung in ticks, AX = how far it reaches, DX = a counter.
+    mov bl, [cs_tleft]              ; rung one is what is LEFT of this frame
+    xor bh, bh
+    mov dx, bx
     or dx, dx
-    jns .smag
-    neg dx
-.smag:
-    cmp ax, dx
-    jbe .land                       ; one tick away: land on it exactly
-    add dx, dx
-    cmp ax, dx
-    ja .three
-    inc ax                          ; two: half of what is left, rounded up,
-    shr ax, 1                       ; so the second one lands
-    jmp short .sign
-.three:
-    mov bx, dx                      ; DX = 2 rates -> 3
-    shr bx, 1
-    add dx, bx
-    cmp ax, dx
-    ja .out                         ; four or more: a plain full-rate tick
-    add ax, 2                       ; three: a third of what is left, up
-    mov bx, 3
+    jz .out                         ; no ticks left at all: nothing to spread
+    xor ax, ax
+.reach:
+    add ax, [cs_eass]
+    jc .spread                      ; past a word: it certainly reaches
+    dec dx
+    jnz .reach
+.fit:
+    cmp [cs_easm], ax
+    jbe .spread
+    mov dl, [cs_tframe]             ; ...or one WHOLE FRAME further out, up
+    xor dh, dh                      ; to CS_EASEF of them
+    or dx, dx
+    jz .out
+    add bx, dx
+    cmp bx, CS_EASEN
+    ja .out                         ; further than the ladder reaches: a
+.wide:                              ; plain full-rate tick
+    add ax, [cs_eass]
+    jc .spread
+    dec dx
+    jnz .wide
+    jmp short .fit
+.spread:
+    mov ax, [cs_easm]               ; BX = the ticks to spread it over
+    add ax, bx
+    dec ax                          ; ...rounded UP, so the last one lands
     xor dx, dx
     div bx
-.sign:
-    or cx, cx                       ; the magnitude wears the step's sign,
-    jns .pos                        ; which is the distance's - they agree,
-    neg ax                          ; or we left at .out
-.pos:
-    mov cx, ax
-    jmp short .out
-.land:
-    mov cx, bx                      ; exactly the distance to the horizon
-.out:
-    mov ax, cx
+    cmp ax, [cs_easm]
+    jb .sign                        ; a plain eased tick
+    mov ax, [cs_easm]               ; ...or this one REACHES the horizon
+    mov dl, [cs_hzbit]              ; and the axis is HELD there for the rest
+    or [cs_hzhold], dl              ; of the frame (88.7.3.1) - which by
+                                    ; construction is no ticks at all
+    ; --- AND THE WAY OUT MIRRORS THE WAY IN (SPEC.md 88.7.3.3): the cap is
+    ; already the rate the approach came down to, so all that is armed here
+    ; is how fast it climbs back - a shortfall over 1 << CS_EASEOS ticks
+    mov bx, [cs_hzox]
+    mov dx, [cs_eass]
+    sub dx, [cs_hzo + bx]
+    jbe .lsign                      ; came in at the full rate: nothing to do
+%rep CS_EASEOS                      ; a shift by CL would spend the STEP'S
+    shr dx, 1                       ; SIGN, which is the one thing this proc
+%endrep                             ; still needs, so the shift is unrolled
+    jnz .larm
+    inc dx                          ; ...at least a unit, or it never ends
+.larm:
+    mov [cs_hzo + bx + 2], dx
+.lsign:
+    or cx, cx                       ; the distance wears the STEP's sign
+    jns .lpos
+    neg ax
+.lpos:
     pop dx
     pop cx
     pop bx
+    stc                             ; CF says the caller ARRIVED on it, which
+    ret                             ; a lagging model acts on (88.7.5.2)
+.sign:
+    mov bx, [cs_hzox]               ; THE WAY OUT STARTS WHERE THE WAY IN
+    mov [cs_hzo + bx], ax           ; ENDED (88.7.3.3): this eased step
+    or cx, cx                       ; the magnitude wears the step's sign,
+    jns .done                       ; which is the distance's - they agree,
+    neg ax                          ; or we left at .out
+    jmp short .done
+.out:
+    mov ax, cx                      ; --- A FULL-RATE STEP, capped while the
+    mov bx, [cs_hzox]               ; axis is climbing back out (88.7.3.3)
+    mov dx, [cs_hzo + bx + 2]
+    or dx, dx
+    jnz .ramp
+    mov dx, [cs_eass]               ; not climbing: the way out would start
+    mov [cs_hzo + bx], dx           ; at the full rate, so there is no ramp
+    jmp short .done
+.ramp:
+    add [cs_hzo + bx], dx           ; the cap climbs toward the full rate...
+    mov dx, [cs_eass]
+    cmp [cs_hzo + bx], dx
+    jb .rcap
+    mov [cs_hzo + bx], dx           ; ...and stops there, the ramp over
+    mov word [cs_hzo + bx + 2], 0
+.rcap:
+    mov dx, [cs_hzo + bx]
+    or ax, ax
+    jns .rpos
+    neg ax
+    cmp ax, dx
+    jbe .rneg
+    mov ax, dx
+.rneg:
+    neg ax
+    jmp short .done
+.rpos:
+    cmp ax, dx
+    jbe .done
+    mov ax, dx
+.done:
+    pop dx
+    pop cx
+    pop bx
+    clc
+    ret
 .plain:
+    mov bx, [cs_hzox]               ; the stick is CENTRED: the climb is over
+    mov word [cs_hzo + bx + 2], 0
+    pop bx
+    clc
     ret
 
 ; cs_axis - one control axis: AX = the key (-1/0/1), BX = the held rate,
 ; CX = the return rate, DX = the limit, SI = the angle word. Clobbers AX, BX.
+; -----------------------------------------------------------------------------
+; cs_elev - THE ELEVATOR IS A BODY RATE (SPEC.md 88.7.8)
+; in:  AX = this tick's pitch rate about the aeroplane's OWN wing axis
+; out: AX = the part of it that turns the world PITCH; the part that turns
+;      the HEADING has been added to [cs_hdg] already
+; clobbers AX, BX, CX, DX.  Preserves SI and DI
+;
+; The stick commands a rotation about the wing axis, and adding it straight
+; into [cs_pitch] is a rotation about the WORLD's - the same thing only while
+; the wings are level. Two terms convert it, and neither needs a constant:
+;
+;     world pitch += q cos(roll)          heading += q sin(roll)
+;
+; In a 90 degree bank cos is 0 and sin is 1, so back-pressure is all turn and
+; no pitch - which is what a banked aeroplane does. Over the top of a loop
+; the roll is 180 and cos is -1, so the same key moves the nose the other way
+; round the circle, which is the right way UP: the controls come back the
+; right way round with no case analysis at all.
+;
+; The exact conversion divides the heading term by cos(pitch) and adds
+; q sin(roll) tan(pitch) to the roll. BOTH ARE DROPPED: they are singular at
+; the vertical, which is somewhere this aeroplane goes, and what they buy -
+; a turn that keeps its rate at high pitch, and apparent roll under
+; back-pressure in a bank - is worth less than a model with no blow-up in it.
+;
+; BUT THE FIRST OF THEM HAS A SIGN IN IT (SPEC.md 88.7.8.1). Dropping the
+; magnitude of 1/cos(pitch) costs a turn rate; dropping the SIGN costs the
+; direction, because past the vertical cos(pitch) is negative - and this
+; aeroplane loops. Reported from the field as "after acrobatics the elevator
+; inverts relative to the banked turn: in a 90 degree left bank, holding up
+; goes right". The sign is kept and the magnitude is still dropped, which is
+; four instructions and no blow-up.
+; -----------------------------------------------------------------------------
+cs_elev:
+    push si
+    push di
+    push ax                         ; the body rate, past cs_sin's clobbers
+    mov ax, [cs_roll]
+    call cs_sin
+    mov bx, ax
+    pop ax
+    push ax
+    MUL14                           ; q sin(roll): the HEADING, and this proc
+    ; --- ...TIMES THE SIGN OF cos(pitch) (SPEC.md 88.7.8.1). The division
+    ;     dropped below takes the sign with it, and past the vertical that
+    ;     sign is NEGATIVE - so after a loop a banked pull turned the wrong
+    ;     way. It needs no cosine: cos is negative exactly when the angle is
+    ;     more than a quarter turn from zero, which is the top bit of the
+    ;     angle plus a quarter turn.
+    mov bx, [cs_pitch]
+    add bx, 16384
+    jns .hd
+    neg ax
+.hd:
+    add [cs_hdg], ax                ; is the only place it is applied
+    mov ax, [cs_roll]
+    call cs_cos
+    mov bx, ax
+    pop ax
+    MUL14                           ; q cos(roll): the world PITCH, back to
+    pop di                          ; the caller to ease and integrate
+    pop si
+    ret
+
+; cs_axisp - cs_axis for the PITCH axis, which is a BODY rate (88.7.8) and is
+;            resolved into the world before the ease, the add or the clamp
+;            sees it. Same registers in and out
+cs_axisp:
+    or ax, ax
+    jnz .live
+    jmp cs_axis.ret
+.live:
+    push dx                         ; DX is the limit, and both imul and
+    imul bx                         ; cs_elev write it
+    call cs_elev
+    pop dx
+    jmp cs_axis.eased
+
 cs_axis:
     or ax, ax
     jz .ret
     push dx                         ; imul writes DX, and DX is the limit
     imul bx
     pop dx
+.eased:
     call cs_ease                    ; ...and the horizon takes the last three
     add ax, [si]                    ; ticks of an approach (88.7.3)
     cmp ax, dx
@@ -842,6 +1171,136 @@ cs_fence:
     mov byte [cs_msg], CSG_EDGE
     ret
 
+; =============================================================================
+; THE AIR (SPEC.md 88.7.6.3) - a REPEATING TILE of lift and sink
+;
+; The first build was eight rects placed once, in metres from the location's
+; centre, and the field flew for five minutes in two different worlds and
+; never found one (88.7.6.4). Four rects in a tile that repeats every
+; CS_AIRTILE metres is the same table doing a different job: the air is
+; everywhere, a glider meets some inside a minute wherever it points, and
+; the arithmetic is one AND per axis rather than a longer walk.
+;
+; The tile is anchored on the LOCATION'S OWN CENTRE, so one table serves all
+; nine worlds and the pattern sits the same way round every runway.
+;
+; CS_LIFTCLR is a CALM BUBBLE round the field and no longer a constraint on
+; where a rect may be put: the distance test comes first and the tile is free
+; to be dense. That is what makes the two requirements independent - a
+; guaranteed still circuit, and air you can find.
+;
+; The rate is cs_vs's own scale, m/s x 128, positive UP. A sailplane's still
+; air sink is about 1 m/s, so +448 is a climb you can work and -320 is air
+; worth leaving.
+; =============================================================================
+CSAIR_DX    equ 0                   ; within the tile, metres
+CSAIR_DZ    equ 2
+CSAIR_HW    equ 4                   ; ...and how far it reaches, half-extents
+CSAIR_HD    equ 6
+CSAIR_RATE  equ 8                   ; m/s x 128, + up
+CSAIR_SIZE  equ 10
+CS_NLIFT    equ 4
+CS_AIRTILE  equ 4096                ; a POWER OF TWO: the wrap is an AND
+CS_LIFTCLR  equ 1800                ; the calm bubble round the field
+
+cs_lifts:
+    dw   800,  900,  600, 500,  448     ; +3.5 m/s
+    dw  2600,  700,  500, 450, -320     ; -2.5
+    dw  1500, 2800,  650, 550,  512     ; +4.0, the strong one
+    dw  3300, 2600,  500, 500, -256
+
+; -----------------------------------------------------------------------------
+; cs_lift - the air's vertical rate where the aeroplane is, in cs_vs's units
+; out: AX = the rate, 0 in still air. Clobbers BX, CX, SI, DI
+;
+; AN AEROPLANE WITH AN ENGINE DOES NOT FEEL IT, and that is the design rather
+; than a shortcut (88.7.6.3): a Magister crosses one of these in three seconds
+; at a bump it has the thrust to ignore, where a sailplane at 22 m/s dwells in
+; it for a minute and has nothing else to climb on. It is the same
+; CSP_THRUST = 0 the throttle is gated on, so a sailplane is exactly the
+; aeroplane the air flies.
+; -----------------------------------------------------------------------------
+cs_lift:
+    xor ax, ax
+    mov di, [cs_plane]
+    cmp word [di + CSP_THRUST], 0
+    jne .out
+    mov si, [cs_airport]
+    mov cx, [cs_px+1]
+    sub cx, [si + CSA_X]
+    mov di, [cs_pz+1]
+    sub di, [si + CSA_Z]
+    ; --- THE CALM BUBBLE FIRST (88.7.6.4): a launch is over the threshold and
+    ;     a circuit is flown here, so the field's own air is still whatever
+    ;     the tile says. Manhattan, which is what every other range in this
+    ;     simulator is measured in
+    mov ax, cx
+    call cs_wabs
+    mov bx, ax
+    mov ax, di
+    call cs_wabs
+    add ax, bx
+    cmp ax, CS_LIFTCLR
+    jb .none
+    and cx, CS_AIRTILE - 1          ; ...and the tile, which is why this is a
+    and di, CS_AIRTILE - 1          ; power of two
+    mov si, cs_lifts
+    mov bx, CS_NLIFT
+.l:
+    mov ax, cx
+    sub ax, [si + CSAIR_DX]
+    call cs_wabs
+    cmp ax, [si + CSAIR_HW]
+    jg .n
+    mov ax, di
+    sub ax, [si + CSAIR_DZ]
+    call cs_wabs
+    cmp ax, [si + CSAIR_HD]
+    jg .n
+    mov ax, [si + CSAIR_RATE]
+    ret
+.n:
+    add si, CSAIR_SIZE
+    dec bx
+    jnz .l
+.none:
+    xor ax, ax
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_msgage - an ANNOUNCEMENT goes by itself; a WARNING stays (SPEC.md 88.7.6.2)
+;
+; The field reported the glider's `TOW RELEASED - NOSE DOWN FOR 43 KNOTS`
+; standing on the panel until something else happened, and the cause is that
+; a sailplane STARTS IN THE AIR: `CSG_TAKEOFF` is cleared by the liftoff at
+; cs_step's `.steer`, and an aeroplane launched already flying never reaches
+; that line. So the prompt had no clearer at all.
+;
+; A countdown rather than a second condition, because the two are different
+; kinds of message. A WARNING is true while a state is true and clears when
+; the state does - the stall, the world's edge, a crash. An ANNOUNCEMENT is a
+; thing that HAPPENED, and the reader has read it: the tow release, a landing,
+; a splashdown. Those three set [cs_msgt] and it takes them away.
+; -----------------------------------------------------------------------------
+cs_msgage:
+    cmp byte [cs_msgt], 0
+    je .out
+    dec byte [cs_msgt]
+    jnz .out
+    ; A TOAST (88.13.8) BORROWS THE STRIP and banks what it took, so an
+    ; announcement that ages out UNDER one is retired where it is actually
+    ; kept: clearing cs_msg here would cut the toast short, and leaving
+    ; cs_toastwas alone would put the announcement back when the toast went.
+    cmp byte [cs_msg], CSG_TOAST
+    je .under
+    mov byte [cs_msg], CSG_NONE
+.out:
+    ret
+.under:
+    mov byte [cs_toastwas], CSG_NONE
+    ret
+
 ; -----------------------------------------------------------------------------
 ; cs_touch - the wheels met the ground: a landing, or not (SPEC.md 88.7)
 ; -----------------------------------------------------------------------------
@@ -856,24 +1315,10 @@ cs_touch:
     test word [di + CSP_FLAGS], CSPF_AMPHIB
     jz .rwy
     mov si, [cs_airport]
-    cmp word [si + CSA_WLEN], 0
-    je .rwy
-    call cs_water_xy
-    mov si, [cs_airport]
-    mov ax, [cs_along]
-    or ax, ax
-    jns .w1
-    neg ax
-.w1:
-    cmp ax, [si + CSA_WLEN]
-    jg .rwy
-    mov ax, [cs_across]
-    or ax, ax
-    jns .w2
-    neg ax
-.w2:
-    cmp ax, [si + CSA_WWID]
-    jg .rwy
+    cmp word [si + CSA_WLEN], 0     ; 0 is a place that offers no water
+    je .rwy                         ; landing at all (88.7.7)
+    call cs_inwater                 ; ALL of it, not a strip on it (88.7.7.1)
+    jnc .rwy
     mov byte [cs_onwater], 1        ; ...on the water, and the limits below
     jmp short .limits               ; are the same ones
 .rwy:
@@ -917,11 +1362,16 @@ cs_touch:
     mov word [cs_roll], 0
     mov word [cs_vs], 0
     mov byte [cs_msg], CSG_LANDED
+    mov byte [cs_msgt], CS_MSGAGE
     cmp byte [cs_onwater], 0
     je .counted
-    mov byte [cs_msg], CSG_SPLASH   ; ...and the water says which water
+    mov byte [cs_msg], CSG_SPLASH   ; ...and the water says WHICH water, off
+    mov ax, [cs_wname]              ; the object actually touched (88.7.7.1):
+    or ax, ax                       ; four worlds carry more than one and all
+    jnz .named                      ; four used to report the same name
     mov si, [cs_airport]
     mov ax, [si + CSA_WNAME]
+.named:
     mov [cs_crashwhy], ax
 .counted:
     inc word [cs_landings]
@@ -929,6 +1379,208 @@ cs_touch:
 .crash:
     mov si, cs_n_ground
     jmp cs_crash
+
+; =============================================================================
+; cs_inwater - is the aeroplane over DRAWN water? (SPEC.md 88.7.7.1)
+;
+; out: CF=1 and [cs_wname] = the touched object's name; CF=0 and [cs_wname] 0.
+;      Clobbers every register.
+;
+; A point-in-polygon test over the location's own CSI_RIVER faces, and what
+; makes it affordable is that cs_touch FIRES ONCE, at the tick the wheels meet
+; the ground - which cs_water_xy's own comment said before this was written.
+; At most 20 water faces in any world here and every one a quad, behind a
+; Manhattan reject on the object's CSM_RAD.
+;
+; DIVISION-FREE, and in the OBJECT's coordinates rather than the world's: the
+; point is brought to the object, so every term is bounded by the model's own
+; extent (measured: local vertices +-6,000, worst product 9.1e7) and one
+; imul's DX:AX holds it with room to spare.
+; =============================================================================
+cs_inwater:
+    mov word [cs_wname], 0
+    mov si, [cs_airport]
+    mov ax, [si + CSA_NOBJ]
+    mov [cs_wnob], ax
+    or ax, ax
+    jz .no
+    mov ax, [si + CSA_OBJS]
+    mov [cs_wobj], ax
+.obj:
+    mov si, [cs_wobj]
+    mov di, [si + CSO_MODEL]
+    cmp byte [di + CSM_TYPE], CSM_FLAT
+    jne .next                       ; water is a RIBBON, and a ribbon is FLAT
+    mov ax, [cs_px+1]               ; --- the point in the object's own frame
+    sub ax, [si + CSO_X]
+    mov [cs_wpx], ax
+    call cs_wabs
+    mov cx, ax
+    mov ax, [cs_pz+1]
+    sub ax, [si + CSO_Z]
+    mov [cs_wpz], ax
+    call cs_wabs
+    add ax, cx                      ; ...Manhattan-rejected on the model's own
+    mov bx, [di + CSM_RAD]          ; radius, which is what keeps a touchdown
+    mov dx, bx                      ; from walking every ribbon in the world
+    shr dx, 1                       ; --- AND ONE AND A HALF OF IT, because
+    add bx, dx                      ;     the sum is a MANHATTAN distance and
+    cmp ax, bx                      ;     CSM_RAD is a EUCLIDEAN radius
+    jg .next                        ;     (SPEC.md 88.5.11): |dx| + |dz| runs
+                                    ;     to sqrt(2) x the radius at 45
+                                    ;     degrees, so a bare compare rejects
+                                    ;     a point that IS over the water -
+                                    ;     the Seine's pieces lie diagonally
+                                    ;     and their corners are exactly where
+                                    ;     the two measures diverge most. 3/2
+                                    ;     is over sqrt(2) and is a shift and
+                                    ;     an add; the rejected set only grows,
+                                    ;     and what it grows by is points this
+                                    ;     was wrong about
+    mov ax, [di + CSM_VERTS]
+    mov [cs_wvt], ax
+    mov cl, [di + CSM_NF]
+    xor ch, ch
+    jcxz .next
+    mov [cs_wnf], cx
+    mov si, [di + CSM_FACES]
+.face:
+    mov [cs_wfp], si
+    cmp byte [si + 1], CSI_RIVER    ; the INK is what says water: there is no
+    jne .nf                         ; flag on the object and never was
+    call cs_wpoly
+    jc .yes
+.nf:
+    mov si, [cs_wfp]                ; db count, ink, flags, then the indices
+    mov al, [si]
+    xor ah, ah
+    add ax, 3
+    add si, ax
+    dec word [cs_wnf]
+    jnz .face
+.next:
+    add word [cs_wobj], CSO_SIZE
+    dec word [cs_wnob]
+    jnz .obj
+.no:
+    clc
+    ret
+.yes:
+    mov si, [cs_wobj]
+    mov ax, [si + CSO_NAME]
+    mov [cs_wname], ax
+    stc
+    ret
+
+; cs_wabs - AX = |AX|
+cs_wabs:
+    or ax, ax
+    jns .p
+    neg ax
+.p:
+    ret
+
+; cs_wpoly - SI -> a face record: CF=1 if (cs_wpx, cs_wpz) is inside it.
+;            The crossing count, walked with the PREVIOUS vertex kept, so an
+;            edge costs one index lookup rather than two
+cs_wpoly:
+    mov byte [cs_wodd], 0
+    mov cl, [si]
+    xor ch, ch
+    mov [cs_wnv], cx
+    add si, 3
+    mov [cs_wface], si
+    mov bx, cx                      ; ...starting from the LAST vertex, which
+    dec bx                          ; is what closes the polygon
+    call cs_wvert
+    call cs_wkeep
+    xor bx, bx
+.e:
+    mov [cs_wi], bx
+    call cs_wvert
+    call cs_wedge
+    call cs_wkeep                   ; ...and this vertex becomes the last one
+    mov bx, [cs_wi]
+    inc bx
+    cmp bx, [cs_wnv]
+    jb .e
+    shr byte [cs_wodd], 1           ; CF = an ODD number of crossings
+    ret
+
+; cs_wkeep - the vertex just read becomes the edge's first end
+cs_wkeep:
+    mov ax, [cs_wvx]
+    mov [cs_wax], ax
+    mov ax, [cs_wvz]
+    mov [cs_waz], ax
+    ret
+
+; cs_wvert - BX = a position in the face's index list; out cs_wvx/cs_wvz
+cs_wvert:
+    push bx
+    mov si, [cs_wface]
+    add si, bx
+    mov bl, [si]
+    xor bh, bh
+    shl bx, 1
+    shl bx, 1                       ; four bytes a vertex: x then z
+    add bx, [cs_wvt]
+    mov si, bx
+    mov ax, [si]
+    mov [cs_wvx], ax
+    mov ax, [si + 2]
+    mov [cs_wvz], ax
+    pop bx
+    ret
+
+; cs_wedge - one edge, (cs_wax, cs_waz) to (cs_wvx, cs_wvz), against the
+;            point: toggle [cs_wodd] when the ray crosses it
+cs_wedge:
+    xor bx, bx                      ; BL = (az > pz), BH = (bz > pz)
+    mov ax, [cs_waz]
+    cmp ax, [cs_wpz]
+    jle .a0
+    mov bl, 1
+.a0:
+    mov ax, [cs_wvz]
+    cmp ax, [cs_wpz]
+    jle .b0
+    mov bh, 1
+.b0:
+    cmp bl, bh
+    je .out                         ; the edge does not straddle the row
+    mov ax, [cs_wvx]                ; t = dx (pz - az) - dz (px - ax), and the
+    sub ax, [cs_wax]                ; DIVISION the textbook form does is a
+    mov bx, [cs_wpz]                ; comparison against dz's sign instead
+    sub bx, [cs_waz]
+    imul bx
+    mov cx, ax
+    mov si, dx                      ; SI:CX = dx (pz - az)
+    mov ax, [cs_wvz]
+    sub ax, [cs_waz]
+    mov [cs_wdz], ax
+    mov bx, [cs_wpx]
+    sub bx, [cs_wax]
+    imul bx
+    sub cx, ax
+    sbb si, dx                      ; SI:CX = t
+    or si, si
+    js .neg
+    jnz .pos
+    or cx, cx
+    jz .out                         ; t = 0: ON the edge, and no toggle either
+.pos:                               ; way is what makes it deterministic
+    cmp word [cs_wdz], 0
+    jg .tog
+    ret
+.neg:
+    cmp word [cs_wdz], 0
+    jl .tog
+.out:
+    ret
+.tog:
+    xor byte [cs_wodd], 1
+    ret
 
 ; cs_runway_xy - the aeroplane in the runway's coordinates: along its heading
 ; and across it, whole metres
@@ -997,8 +1649,15 @@ cs_collide:
     mov si, [si + CSA_OBJS]         ; an aeroplane over Manhattan
     jcxz .out
 .o:
-    test word [si + CSO_FLAGS], CSO_COLLIDE
+    mov ax, [si + CSO_FLAGS]
+    test ax, CSO_COLLIDE
     jz .next
+    test ax, CSO_DENSE              ; ...AND YOU CANNOT HIT WHAT THE RUNG DOES
+    jz .solid                       ; NOT DRAW (88.13.1.4): a High tier is not
+    cmp byte [cs_setbld], CSBL_HIGH ; in the world below High, and this walker
+    jne .next                       ; reads the table and never the ladder, so
+.solid:                             ; without it Manhattan's twelve kill a
+                                    ; player at Moderate out of clear air
     mov ax, [cs_px+1]
     sub ax, [si + CSO_X]
     jns .x1
@@ -1066,6 +1725,27 @@ cs_sound_step:
     je .want
     cmp byte [cs_state], CS_ST_CRASH
     je .want
+    ; --- THE AIR HAS THE FIRST WORD (SPEC.md 88.7.6.3): a rising swoop into
+    ;     lift, a falling one into sink, CS_SWOOPT ticks of it. It is only
+    ;     ever heard on an aeroplane with no engine, because only there does
+    ;     cs_lift answer at all - and there the tone under it is silence
+    cmp byte [cs_swt], 0
+    je .noswoop
+    dec byte [cs_swt]
+    mov al, CS_SWOOPT
+    sub al, [cs_swt]                ; 1..CS_SWOOPT: how far through it is
+    cbw
+    mov bx, CS_SWOOPD
+    imul bx
+    cmp byte [cs_swdir], 0
+    jg .swup
+    neg ax                          ; sink: down from the top
+    add ax, CS_SWOOPHI
+    jmp short .want
+.swup:
+    add ax, CS_SWOOPLO              ; lift: up from the bottom
+    jmp short .want
+.noswoop:
     mov ax, [cs_thr]
     or ax, ax
     jz .st

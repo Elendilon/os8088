@@ -362,12 +362,22 @@ def doc_files():
 
     The git pathspec `docs/*.md` matches at any depth - a pathspec wildcard is
     not stopped by a `/` - so the one glob still reaches all four directories.
-    Do not "fix" it to `docs/**/*.md`, which git reads as a LITERAL `**`."""
+    Do not "fix" it to `docs/**/*.md`, which git reads as a LITERAL `**`.
+
+    **AND IT IS DE-DUPLICATED, because `ls-files` lists a CONFLICTED path once
+    per stage.** During an unresolved merge git holds three entries for a file
+    with a conflict in it - base, ours, theirs - and plain `ls-files` prints
+    the name three times (verified: a two-line synthetic conflict returns
+    `d/x.md` three times). Regenerating the index in that state wrote
+    `WRITING-TESTS.md` three times into the list and 17 where the answer is
+    15, and nothing caught it: `checkdocs` compares INDEX.md against what the
+    tool produces, so a wrong answer generated and committed together AGREES.
+    A set is the whole fix and it costs nothing in the ordinary case."""
     try:
         names = subprocess.check_output(
             ["git", "-C", ROOT, "ls-files", "docs/*.md"],
             text=True, stderr=subprocess.DEVNULL).split("\n")
-        names = [n for n in names if n]
+        names = sorted({n for n in names if n})
     except (OSError, subprocess.CalledProcessError):
         names = []
     if not names:

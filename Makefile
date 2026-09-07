@@ -3624,7 +3624,16 @@ $(BUILD)/vmmcfg/system.cfg: | $(BUILD)
 	  (1 << 5).to_bytes(2,'little') + b'\0\0')" > $@
 
 $(BUILD)/vmmouse.img: KMODDIR := $(EMUDIR)
-$(BUILD)/vmmouse.img: $(EMUDRIVERS) $(SYSAPPS) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) $(BUILD)/vmmcfg/system.cfg tools/os88disk.py
+# ...AND THE KERNEL'S OWN SOURCES, which were NOT here and are the whole of
+# why the `vmmouse` row died twice in one session on an edit that had nothing
+# to do with it. The recipe recurses into the emu sub-make, so it builds
+# build/emuk/ correctly WHEN IT RUNS - and with no kernel source among the
+# prerequisites, a change to kernel/*.inc left this target up to date, the
+# sub-make never ran, and tests/vmmouse.py met a build/emuk/kernel.bin the map
+# no longer described. `wants=` guards a path's EXISTENCE (tests/suite.py), so
+# the runner's pre-build could not see it either. A parse is what it costs
+# when nothing changed.
+$(BUILD)/vmmouse.img: $(KERNEL_SRC) $(KERNEL_INC) $(EMUDRIVERS) $(SYSAPPS) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) $(BUILD)/vmmcfg/system.cfg tools/os88disk.py
 	@$(MAKE) BUILD=$(EMUDIR) KERN_EMU=1 $(EMUDIR)/boot.bin
 	python3 tools/os88disk.py -o $@ --size 1440 \
 		--boot $(EMUDIR)/boot.bin --kernel $(EMUDIR)/$(KERNNAME) \
@@ -4627,15 +4636,41 @@ $(BUILD)/tank.o88: $(BUILD)/tank.bin tools/os88pkg.py $(PKGZSTAMP)
 # plus ONE FILE PER LOCATION since SPEC.md 88.6.4 (csw_*.inc, %included by
 # csworld.inc, and a wildcard here so a tenth of them is a file and not a
 # Makefile edge nobody remembers).
+# CSDIAG=1 - CLEAR SKIES' OWN WATCHDOG (SPEC.md 88.14). It hooks int 08h for
+# the length of the fsx bracket and paints, straight into VRAM every tick, the
+# last three interrupted IPs and a tick counter. A frozen machine then SAYS
+# where it is stuck, in a photograph - which is the only instrument a field
+# machine has, MartyPC having failed to reproduce this freeze in 8,000 poses.
+# It is a DIAGNOSTIC BUILD and no shipped floppy carries it: `make skiesdiag`.
+CSDIAGDEF :=
 CSWORLDS := $(wildcard apps/skies/csw_*.inc)
-$(BUILD)/skies.bin: apps/skies/skies.asm apps/skies/csraster.inc \
-                    apps/skies/cs3d.inc apps/skies/csworld.inc \
-                    apps/skies/csflight.inc apps/skies/csgame.inc \
-                    apps/skies/cspanel.inc apps/skies/cssin.inc \
-                    apps/skies/csart.inc $(CSWORLDS) \
-                    apps/os88api.inc apps/os88ui.inc \
-                    | $(BUILD)
-	$(NASM) -f bin -w+error -I apps/ -I apps/skies/ -o $@ apps/skies/skies.asm
+SKIES_SRC := apps/skies/skies.asm apps/skies/csraster.inc \
+             apps/skies/cs3d.inc apps/skies/csworld.inc \
+             apps/skies/csflight.inc apps/skies/csgame.inc \
+             apps/skies/cspanel.inc apps/skies/cssin.inc \
+             apps/skies/csart.inc apps/skies/csdiag.inc \
+             apps/skies/csset.inc $(CSWORLDS) \
+             apps/os88api.inc apps/os88ui.inc
+# **THE PRIVATE TREE CARRIES THE SOURCES IT IS BUILT FROM**
+# (docs/WRITING-TESTS.md 13 row 33). The recursive make below is the RECIPE,
+# and a rule whose recipe builds a tree must name that tree's sources in its
+# PREREQUISITES or nothing ever notices the tree has gone stale: an edit to
+# apps/skies/ left build/skiesdiag/ sitting there, existing, describing a
+# package the guest has not got, and `skiesdiag` failed naming it on two
+# separate runs of this change. It is a REAL target rather than a phony one
+# so that tests/suite.py can name it in `wants=`, which is what gets it built
+# - and re-built - before the row runs.
+# No recursion: inside the sub-make BUILD is build/skiesdiag, so this rule's
+# own target expands to build/skiesdiag/skiesdiag/apps360.img and the request
+# lands on the ordinary apps-disk rule instead.
+$(BUILD)/skiesdiag/apps360.img: $(SKIES_SRC) | $(BUILD)
+	@$(MAKE) --no-print-directory BUILD=$(BUILD)/skiesdiag CSDIAGDEF=-DCSDIAG $@
+.PHONY: skiesdiag
+skiesdiag: $(BUILD)/skiesdiag/apps360.img
+	@echo "skiesdiag: $(BUILD)/skiesdiag/apps360.img - boot the SHIPPED"
+	@echo "           system disk with this as B: (SPEC.md 88.14)"
+$(BUILD)/skies.bin: $(SKIES_SRC) | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/skies/ $(CSDIAGDEF) -o $@ apps/skies/skies.asm
 	@echo "skies: $(call FILESIZE,$@) bytes"
 
 $(BUILD)/skies.o88: $(BUILD)/skies.bin tools/os88pkg.py $(PKGZSTAMP)

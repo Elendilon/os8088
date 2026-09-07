@@ -188,7 +188,10 @@ def main(argv):
         m.type_text("f")                        # into the bracket
         m.advance(frames=60)
         m.run()
-        back, ww, wh = r.byte("cs_back"), r.word("cs_ww"), r.word("cs_wh")
+        # cs_viewh, not cs_wh: cs_pclip BORROWS cs_wh for the length of the
+        # panel's own drawing, so a live sample of that word answers with the
+        # box's height whenever it lands inside the cockpit (SPEC.md 88.9.2.3)
+        back, ww, wh = r.byte("cs_back"), r.word("cs_ww"), r.word("cs_viewh")
         print("  backend %d, view %dx%d in a %dx%d box"
               % (back, ww, wh, r.word("cs_vw"), r.word("cs_vh")))
         if back == 0:
@@ -199,7 +202,7 @@ def main(argv):
         want = {3: (400, 112), 2: (320, 112), 1: (320, 144)}.get(back)
         if want and (ww, wh) != want:
             bad.append("backend %d drew a %dx%d view, not %dx%d (SPEC.md 88.3)"
-                       % (back, ww, wh) + want)
+                       % (back, ww, wh, want[0], want[1]))
 
         # --- on the runway, engine off, the take-off prompt up ----------------
         st, spd, thr = r.byte("cs_state"), r.word("cs_spd"), r.word("cs_thr")
@@ -259,6 +262,32 @@ def main(argv):
         if not ok:
             bad.append("the stick back at VROT did not lift off (state %d)"
                        % r.byte("cs_state"))
+        # --- AND A PAUSED AEROPLANE IS SILENT (SPEC.md 88.8.1) ---------------
+        # cs_sound_step lives inside the sim loop and a pause skips it, so a
+        # tone raised before the pause simply held. Asked HERE because this is
+        # the one place in the suite with the engine actually running: at
+        # entry cs_tone is 0 and a check that reads 0 either side proves
+        # nothing.
+        tone0 = r.word("cs_tone")
+        m.type_text("p")
+        ok = until(m, lambda: r.byte("cs_pause") != 0, 200)
+        quiet = until(m, lambda: r.word("cs_tone") == 0, 200)
+        m.type_text("p")
+        back_on = until(m, lambda: r.word("cs_tone") != 0, 300)
+        print("  engine tone %d, paused -> %s, resumed -> %d"
+              % (tone0, "silent" if quiet else "still sounding",
+                 r.word("cs_tone")))
+        if not (tone0 and ok):
+            bad.append("the engine was not sounding before the pause, so the "
+                       "silence proves nothing (tone %d, paused %d)"
+                       % (tone0, r.byte("cs_pause")))
+        elif not quiet:
+            bad.append("PAUSED and the engine tone is still %d (SPEC.md 88.8.1)"
+                       % r.word("cs_tone"))
+        elif not back_on:
+            bad.append("...and it never came back on when the pause ended "
+                       "(tone %d)" % r.word("cs_tone"))
+
         alt0 = r.metres("cs_py")
         ok = until(m, lambda: r.metres("cs_py") >= alt0 + 30, 900 * slow, 30)
         print("  climbed to %d m at %d units of pitch, %d m/s"
@@ -418,19 +447,33 @@ def main(argv):
                        "altitude %d m)" % (r.byte("cs_state"), r.metres("cs_py")))
         elif r.word("cs_crashes") != c0 + 1:
             bad.append("cs_crashes read %d after one crash" % r.word("cs_crashes"))
-        ok = until(m, lambda: r.byte("cs_state") == CS_ST_GROUND,
-                   CS_CRASHT * 4 + 60, 15)
-        x1, z1, hdg1 = r.metres("cs_px"), r.metres("cs_pz"), r.word("cs_hdg")
+        # READ IT AT THE RESET, not fifteen frames later. `until` steps in
+        # blocks, so the aeroplane has been flying again for up to a block by
+        # the time the loop returns - and the throttle is the one field that
+        # moves on its own, which is how this read 6 for 0 under a loaded box
+        # and passed every time it ran alone (docs/WRITING-TESTS.md 13 row 8).
+        at = {}
+
+        def landed():
+            if r.byte("cs_state") != CS_ST_GROUND:
+                return False
+            at.setdefault("p", (r.metres("cs_px"), r.metres("cs_pz"),
+                                r.word("cs_hdg"), r.word("cs_thr")))
+            return True
+
+        ok = until(m, landed, CS_CRASHT * 4 + 60, 15)
+        x1, z1, hdg1, thr1 = at.get("p", (r.metres("cs_px"), r.metres("cs_pz"),
+                                          r.word("cs_hdg"), r.word("cs_thr")))
         print("  after the crash: state %d at (%d, %d) heading %d; spawned at "
               "(%d, %d) heading %d; throttle %d"
-              % (r.byte("cs_state"), x1, z1, hdg1, x0, z0, hdg0, r.word("cs_thr")))
+              % (r.byte("cs_state"), x1, z1, hdg1, x0, z0, hdg0, thr1))
         if not ok:
             bad.append("the crash never reset (state %d after %d ticks)"
                        % (r.byte("cs_state"), CS_CRASHT * 4))
-        elif (x1, z1) != (x0, z0) or hdg1 != hdg0 or r.word("cs_thr"):
+        elif (x1, z1) != (x0, z0) or hdg1 != hdg0 or thr1:
             bad.append("the reset did not put the aeroplane back where it "
                        "started: (%d, %d)/%d against (%d, %d)/%d, throttle %d"
-                       % (x1, z1, hdg1, x0, z0, hdg0, r.word("cs_thr")))
+                       % (x1, z1, hdg1, x0, z0, hdg0, thr1))
 
         m.type_text("f")                        # ...and F leaves (SPEC.md 11.2.1)
         m.advance(frames=90)

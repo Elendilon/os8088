@@ -98,7 +98,7 @@ cs_m_mia_sea1: db CSM_FLAT, 10, 4, 0, CSI_RIVER, 0
     dw  2800,     0
     dw  2800,  1500
     dw  2800,  3000
-cs_m_mia_sea1f: db CSM_FLAT, 5, 0, 4, CSI_MARK, 0
+cs_m_mia_sea1f: db CSM_FLAT, 5, 0, 4, CSI_RIVLINE, 0
     dw 4150, .v, 0, cs_e_road4
 .v: dw     0, -3000
     dw    20, -1500
@@ -117,7 +117,7 @@ cs_m_mia_sea0: db CSM_FLAT, 10, 4, 0, CSI_RIVER, 0
     dw  2800,     0
     dw  2800,  1500
     dw  2800,  3000
-cs_m_mia_sea0f: db CSM_FLAT, 5, 0, 4, CSI_MARK, 0
+cs_m_mia_sea0f: db CSM_FLAT, 5, 0, 4, CSI_RIVLINE, 0
     dw 4150, .v, 0, cs_e_road4
 .v: dw  -330, -3000
     dw  -200, -1500
@@ -171,7 +171,7 @@ cs_m_mia_bay1: db CSM_FLAT, 10, 4, 0, CSI_RIVER, 0
     dw   930,     0
     dw  1060,  1500
     dw  1220,  3000
-cs_m_mia_bay1f: db CSM_FLAT, 5, 0, 4, CSI_MARK, 0
+cs_m_mia_bay1f: db CSM_FLAT, 5, 0, 4, CSI_RIVLINE, 0
     dw 3320, .v, 0, cs_e_road4
 .v: dw    95, -3000
     dw    80, -1500
@@ -190,7 +190,7 @@ cs_m_mia_bay0: db CSM_FLAT, 10, 4, 0, CSI_RIVER, 0
     dw   880,     0
     dw   820,  1500
     dw   840,  3000
-cs_m_mia_bay0f: db CSM_FLAT, 5, 0, 4, CSI_MARK, 0
+cs_m_mia_bay0f: db CSM_FLAT, 5, 0, 4, CSI_RIVLINE, 0
     dw 3340, .v, 0, cs_e_road4
 .v: dw  -110, -3000
     dw  -100, -1500
@@ -214,7 +214,7 @@ cs_m_mia_cut: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
     dw  -560,   110
     dw     0,   105
     dw   560,   100
-cs_m_mia_cutf: db CSM_FLAT, 2, 0, 1, CSI_MARK, 0
+cs_m_mia_cutf: db CSM_FLAT, 2, 0, 1, CSI_RIVLINE, 0
     dw 580, .v, 0, cs_e_road1
 .v: dw  -560,     0
     dw   560,     0
@@ -245,9 +245,10 @@ cs_m_mia_cw2: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
 ; Three towers of their own and three of csworld.inc's anonymous blocks. The
 ; tallest is four levels on cs_f_sacre's thirteen faces: a 26 m podium, a
 ; setback to a 160 m shaft and a 196 m crown, which is Miami's tallest
-; compressed from 233. Its radius is the honest 210 and not CS_BOX's
-; wx + wz + h/2, because a tower that tall is a spike and the box formula
-; understates one badly.
+; compressed from 233. Its radius is 210, written here as a
+; local fix when CS_BOX's old wx + wz + h/2 was found to understate a spike
+; badly; 88.5.11 made a sound bound the rule for every model, and this one
+; was already over its 200, so it is unchanged.
 cs_m_mia_sefc: db CSM_STACK, 4, 13, 0, CSI_LINE, 0
     dw 210, .v, cs_f_sacre, 0
 .v: dw 28, 0, 28
@@ -266,8 +267,10 @@ CS_BOX  cs_m_mia_twr3, 30,  96,  20
 CS_BOX  cs_m_mia_hotel, 30, 42, 20
 
 ; --- the world ---------------------------------------------------------------
-; Twenty objects. EVERY PIECE OF WATER IS A POINT OF INTEREST AND NOTHING
-; ELSE IS (88.13.1), so Buildings=Few in Miami draws the coastline and leaves
+; TWENTY-NINE objects and the last nine are CSO_DENSE, so twenty of them are
+; the Miami every rung below High draws (88.13.1.3).
+; EVERY PIECE OF WATER IS A POINT OF INTEREST AND NOTHING
+; ELSE IS (88.13.1), so Detail Level = Low in Miami draws the coastline and leaves
 ; the rest of Florida flat, which is exactly what this location is for. Six
 ; of them, which is the most the convention allows and the right six.
 ;
@@ -284,26 +287,70 @@ CS_BOX  cs_m_mia_hotel, 30, 42, 20
 ; between the runway rectangle and anything solid is the 238 m the two
 ; airport buildings keep from its sides.
 cs_ot_mia:
-    CS_OBJ cs_m_mia_sea1,  cs_m_mia_sea1f,     0,  3000, 0, 16000, 12000, cs_n_mia_atl,   CSO_POI
-    CS_OBJ cs_m_mia_sea0,  cs_m_mia_sea0f,     0, -3000, 0, 16000, 12000, cs_n_mia_atl,   CSO_POI
-    CS_OBJ cs_m_mia_open,  0,               6900,     0, 0, 16000,     0, cs_n_mia_atl,   CSO_POI
-    CS_OBJ cs_m_mia_bay1,  cs_m_mia_bay1f, -1700,  3000, 0, 12000,  9000, cs_n_mia_bay,   CSO_POI
-    CS_OBJ cs_m_mia_bay0,  cs_m_mia_bay0f, -1700, -3000, 0, 12000,  9000, cs_n_mia_bay,   CSO_POI
-    CS_OBJ cs_m_mia_cut,   cs_m_mia_cutf,   -400, -3750, 0, 11000,  5000, cs_n_mia_cut,   CSO_POI
-    CS_OBJ cs_m_mia_cw0,   0,              -1800, -2580, 0,  9000,     0, cs_n_mia_cway,  0
-    CS_OBJ cs_m_mia_cw1,   0,              -1600,  -260, 0,  9000,     0, cs_n_mia_cway,  0
-    CS_OBJ cs_m_mia_cw2,   0,              -1700,  2420, 0,  9000,     0, cs_n_mia_cway,  0
+    CS_OBJ cs_m_mia_sea1,  cs_m_mia_sea1f,     0,  3000, 0, 16000, 12000, cs_n_mia_atl,   CSO_POI | CSO_TERRAIN
+    CS_OBJ cs_m_mia_sea0,  cs_m_mia_sea0f,     0, -3000, 0, 16000, 12000, cs_n_mia_atl,   CSO_POI | CSO_TERRAIN
+    CS_OBJ cs_m_mia_open,  0,               6900,     0, 0, 16000,     0, cs_n_mia_atl,   CSO_POI | CSO_TERRAIN
+    CS_OBJ cs_m_mia_bay1,  cs_m_mia_bay1f, -1700,  3000, 0, 12000,  9000, cs_n_mia_bay,   CSO_POI | CSO_TERRAIN
+    CS_OBJ cs_m_mia_bay0,  cs_m_mia_bay0f, -1700, -3000, 0, 12000,  9000, cs_n_mia_bay,   CSO_POI | CSO_TERRAIN
+    CS_OBJ cs_m_mia_cut,   cs_m_mia_cutf,   -400, -3750, 0, 11000,  5000, cs_n_mia_cut,   CSO_POI | CSO_TERRAIN
+    CS_OBJ cs_m_mia_cw0,   0,              -1800, -2580, 0,  9000,     0, cs_n_mia_cway,  CSO_ROAD
+    CS_OBJ cs_m_mia_cw1,   0,              -1600,  -260, 0,  9000,     0, cs_n_mia_cway,  CSO_ROAD
+    CS_OBJ cs_m_mia_cw2,   0,              -1700,  2420, 0,  9000,     0, cs_n_mia_cway,  CSO_ROAD
     CS_OBJ cs_m_mia_sefc,  0,              -2500,   200, 0, 14000,     0, cs_n_mia_dtn,   CSO_COLLIDE
     CS_OBJ cs_m_mia_twr2,  0,              -2560,  -250, 0, 11000,     0, cs_n_mia_dtn,   CSO_COLLIDE
     CS_OBJ cs_m_mia_twr3,  0,              -2520,   620, 0,  9000,     0, cs_n_mia_dtn,   CSO_COLLIDE
-    CS_OBJ cs_m_block,     0,              -2700,  -700, 0,  4000,     0, cs_n_bldg,      CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block2,    0,              -2850,   900, 0,  4000,     0, cs_n_bldg,      CSO_COLLIDE | CSO_FILLER
+    CS_OBJ cs_m_block,     0,              -2700,  -700, 0,  4000,     0, cs_n_bldg,      CSO_COLLIDE
+    CS_OBJ cs_m_block2,    0,              -2850,   900, 0,  4000,     0, cs_n_bldg,      CSO_COLLIDE
     CS_OBJ cs_m_mia_hotel, 0,               -140,   900, 0,  6000,     0, cs_n_mia_hotel, CSO_COLLIDE
     CS_OBJ cs_m_mia_hotel, 0,               -150, -1000, 0,  6000,     0, cs_n_mia_hotel, CSO_COLLIDE
-    CS_OBJ cs_m_small,     0,               -200,  2100, 0,  4000,     0, cs_n_bldg,      CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block2,    0,               -420,   300, 0,  4500,     0, cs_n_bldg,      CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_hangar,    0,              -4900,  -320, 0,  3500,     0, cs_n_bldg,      CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_shed,      0,              -4300,   300, 0,  3000,     0, cs_n_bldg,      CSO_COLLIDE | CSO_FILLER
+    CS_OBJ cs_m_small,     0,               -200,  2100, 0,  4000,     0, cs_n_bldg,      CSO_COLLIDE
+    CS_OBJ cs_m_block2,    0,               -420,   300, 0,  4500,     0, cs_n_bldg,      CSO_COLLIDE
+    CS_OBJ cs_m_hangar,    0,              -4900,  -320, 0,  3500,     0, cs_n_bldg,      CSO_COLLIDE
+    CS_OBJ cs_m_shed,      0,              -4300,   300, 0,  3000,     0, cs_n_bldg,      CSO_COLLIDE
+    ; --- THE HIGH TIER (SPEC.md 88.13.1.3): eleven more, CSO_DENSE, so
+    ;     Detail Level = High is the only rung that draws one and every rung
+    ;     below it gives the Miami that always shipped.
+    ;
+    ;     A CLIMB-OUT ON RUNWAY 09 CROSSES THIS WORLD'S TWO BUILT PLACES AND
+    ;     BOTH ARE THIN: downtown is three towers and two blocks at 2.2 km,
+    ;     and the barrier island - the shape the whole location is built to
+    ;     show - carries two hotels along nine kilometres of sand. So High
+    ;     puts a WALL on the bay and a STRIP on the beach, which is what
+    ;     those two places are.
+    ;
+    ;     Brickell is the wall: four towers running south from downtown along
+    ;     the bay's west shore. The strip is two mid-rises spaced down Collins
+    ;     between the two hotels already there, so the island reads as built
+    ;     along its length rather than at two points on it.
+    ;
+    ;     NINE AND NOT ELEVEN, and CS_NVIS is what settled that. A fifth
+    ;     Brickell tower and two more mid-rises put 29 objects in one frame
+    ;     against 32, with the thirty-third dropped SILENTLY - and the eye
+    ;     that sees them is not the runway or the beach but the MIDDLE
+    ;     CAUSEWAY, which is halfway between downtown and the island and can
+    ;     see the whole of both. A world with two built places 2.4 km apart
+    ;     has its peak in the water between them.
+    ;
+    ;     Nothing anonymous passes DOWNTOWN MIAMI's 196 m, every footprint
+    ;     keeps 60 m of daylight from every other and 80 m from the water -
+    ;     which on a barrier island is the binding rule and not a formality -
+    ;     Brickell's ranges are its own Manhattan distance from the spawn
+    ;     plus 400 m rounded up to 500, so the skyline the climb-out flies at
+    ;     is standing before the roll. THE STRIP'S ARE NOT, and deliberately:
+    ;     it takes 4,500 like the island's own block and hotel, because a
+    ;     55 m mid-rise nine kilometres away is a box LOD dot and the strip is
+    ;     something the aeroplane flies OVER rather than towards. Ranging it
+    ;     from the spawn as well put 29 objects in one frame against
+    ;     CS_NVIS' 32, and the thirty-third is dropped SILENTLY.
+    CS_OBJ cs_m_tower,     0,              -2500,  -520, 0,  5000,     0, cs_n_mia_bkl,   CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower2,    0,              -2600,  -850, 0,  5000,     0, cs_n_mia_bkl,   CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower,     0,              -2540,  -980, 0,  5500,     0, cs_n_mia_bkl,   CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower2,    0,              -2620, -1330, 0,  5500,     0, cs_n_mia_bkl,   CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower2,    0,              -2480,   320, 0,  4500,     0, cs_n_mia_dtn,   CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_midrise,   0,              -2680,    60, 0,  4500,     0, cs_n_mia_dtn,   CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_midrise,   0,               -155,   180, 0,  4500,     0, cs_n_mia_hotel, CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_midrise,   0,               -145,  -500, 0,  4500,     0, cs_n_mia_hotel, CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_midrise,   0,               -175, -1600, 0,  4500,     0, cs_n_mia_hotel, CSO_COLLIDE | CSO_DENSE
 cs_ote_mia:
 CS_N_MIA equ (cs_ote_mia - cs_ot_mia) / CSO_SIZE
 
@@ -314,6 +361,7 @@ cs_n_mia_cut:   db 'GOVERNMENT CUT', 0
 cs_n_mia_cway:  db 'A CAUSEWAY', 0
 cs_n_mia_dtn:   db 'DOWNTOWN MIAMI', 0
 cs_n_mia_hotel: db 'A BEACH HOTEL', 0
+cs_n_mia_bkl:   db 'BRICKELL', 0
 
 ; --- the location ------------------------------------------------------------
 ; The real Miami International is nine kilometres inland and its runways are
@@ -336,5 +384,6 @@ cs_a_mia:
     dw 1000                          ; CSA_WLEN    half its length...
     dw 60                           ; CSA_WWID    ...and half its width
     dw cs_n_mia_bay              ; CSA_WNAME
+    dw 0                        ; CSA_FLAGS
 cs_s_mia: db 'MIAMI-MIA', 0
 cs_s_rwy_mia: db 'RUNWAY 09', 0

@@ -146,14 +146,14 @@ CS_HILL cs_m_sdu_dois, 380, 300, 380,  70,  55
 ; north side of the Urca peninsula and turns south round Sugarloaf's seaward
 ; face, so the rock has water on two sides of it and land behind.
 cs_m_sdu_bay0: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
-    dw 1925, .v, cs_f_rib2, 0
+    dw 1926, .v, cs_f_rib2, 0
 .v: dw -1925, -10                   ; the airfield shore, north-west end
     dw -225, -610                   ; abeam the runway, 250 m off the quay
     dw 1375, -1210                  ; ...and on toward the peninsula
     dw -1480, 1210                  ; the far bank, 1,300 m out
     dw 220, 610
     dw 1820, 10
-cs_m_sdu_bay0f: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
+cs_m_sdu_bay0f: db CSM_FLAT, 3, 0, 2, CSI_RIVLINE, 0
     dw 1810, .v, 0, cs_e_road2
 .v: dw -1703, 600
     dw -3, 0
@@ -171,7 +171,7 @@ cs_m_sdu_bay0f: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
 ; The gate wants 5. This is the tightest water in the world and it is 78 m of
 ; margin over that at worst.
 cs_m_sdu_bay1: db CSM_FLAT, 8, 3, 0, CSI_RIVER, 0
-    dw 1412, .v, cs_f_rib3, 0
+    dw 1413, .v, cs_f_rib3, 0
 .v: dw -1285, -85                   ; joins bay0's near bank
     dw -600, -330
     dw 150, -370                    ; abeam Sugarloaf, 123 m off the rock
@@ -180,7 +180,7 @@ cs_m_sdu_bay1: db CSM_FLAT, 8, 3, 0, CSI_RIVER, 0
     dw -300, 700
     dw 600, 550
     dw 1300, -250
-cs_m_sdu_bay1f: db CSM_FLAT, 4, 0, 3, CSI_MARK, 0
+cs_m_sdu_bay1f: db CSM_FLAT, 4, 0, 3, CSI_RIVLINE, 0
     dw 1186, .v, 0, cs_e_road3
 .v: dw -1063, 525
     dw -450, 185
@@ -199,8 +199,8 @@ cs_m_sdu_bot: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
     dw -275, 800                    ; the Urca shore
     dw 275, 200
     dw 775, -300
-cs_m_sdu_botf: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
-    dw 760, .v, 0, cs_e_road2
+cs_m_sdu_botf: db CSM_FLAT, 3, 0, 2, CSI_RIVLINE, 0
+    dw 761, .v, 0, cs_e_road2
 .v: dw -525, 550
     dw 0, -50
     dw 500, -550
@@ -219,7 +219,7 @@ cs_m_sdu_atl: db CSM_FLAT, 8, 3, 0, CSI_RIVER, 0
     dw 975, -450
     dw -225, -900
     dw -1425, -1050
-cs_m_sdu_atlf: db CSM_FLAT, 4, 0, 3, CSI_MARK, 0
+cs_m_sdu_atlf: db CSM_FLAT, 4, 0, 3, CSI_RIVLINE, 0
     dw 1962, .v, 0, cs_e_road3
 .v: dw 1800, 775
     dw 825, -25
@@ -231,7 +231,7 @@ cs_m_sdu_atlf: db CSM_FLAT, 4, 0, 3, CSI_MARK, 0
 ; same four stations, so the pale crescent is three quads and eight vertices.
 ; It is the one thing in this world that is a colour rather than a solid.
 cs_m_sdu_snd: db CSM_FLAT, 8, 3, 0, CSI_MARK, 0
-    dw 1585, .v, cs_f_sdu_snd, 0
+    dw 1586, .v, cs_f_sdu_snd, 0
 .v: dw 1365, 645                    ; the landward edge
     dw 685, 47
     dw -282, -346
@@ -241,7 +241,7 @@ cs_m_sdu_snd: db CSM_FLAT, 8, 3, 0, CSI_MARK, 0
     dw -265, -495
     dw -1365, -645
 cs_m_sdu_sndf: db CSM_FLAT, 4, 0, 3, CSI_MARK, 0
-    dw 1546, .v, 0, cs_e_road3
+    dw 1547, .v, 0, cs_e_road3
 .v: dw 1425, 600
     dw 710, -24
     dw -274, -421
@@ -260,7 +260,9 @@ cs_m_sdu_brdg: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
     dw 600, 900
 
 ; =============================================================================
-; The world. Twenty objects, 159 vertices, five points of interest and seven
+; The world. TWENTY-NINE objects, the last nine CSO_DENSE (88.13.1.3), so
+; twenty of them are the Rio every rung below High draws:
+; twenty objects, 159 vertices, five points of interest and seven
 ; filler.
 ;
 ; WHICH HILLS ARE COLLIDABLE IS A DECISION AND NOT AN OVERSIGHT. cs_collide
@@ -294,26 +296,69 @@ cs_m_sdu_brdg: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
 ; Paris' filler band.
 ; =============================================================================
 cs_ot_sdu:
-    CS_OBJ cs_m_sdu_pao,  cs_m_sdu_paof,      0,     0,   0, 12000, 3500, cs_n_sdu_pao,  CSO_COLLIDE | CSO_POI
-    CS_OBJ cs_m_sdu_urca, 0,               -560,   190,   0,  4000,    0, cs_n_sdu_urca, CSO_COLLIDE | CSO_POI
-    CS_OBJ cs_m_sdu_corc, cs_m_sdu_corcf, -6860,  2495,   0, 16000, 5000, cs_n_sdu_corc, CSO_POI
+    CS_OBJ cs_m_sdu_pao, cs_m_sdu_paof,      0,     0,   0, 12000, 3500, cs_n_sdu_pao,  CSO_COLLIDE | CSO_POI | CSO_TERRAIN
+    CS_OBJ cs_m_sdu_urca, 0,               -560,   190,   0,  4000,    0, cs_n_sdu_urca, CSO_COLLIDE | CSO_POI | CSO_TERRAIN
+    CS_OBJ cs_m_sdu_corc, cs_m_sdu_corcf, -6860,  2495,   0, 16000, 5000, cs_n_sdu_corc, CSO_POI | CSO_TERRAIN
     CS_OBJ cs_m_sdu_crst, 0,              -6860,  2495, 710,  9000,    0, cs_n_sdu_crst, CSO_COLLIDE | CSO_POI
     CS_OBJ cs_m_sdu_arms, 0,              -6860,  2495, 734,  6000,    0, cs_n_sdu_crst, CSO_POI
-    CS_OBJ cs_m_sdu_tij,  0,              -8500,  3600,   0,  9000,    0, cs_n_sdu_tij,  0
-    CS_OBJ cs_m_sdu_dois, 0,              -3600, -2400,   0,  8000,    0, cs_n_sdu_dois, 0
-    CS_OBJ cs_m_sdu_bay0, cs_m_sdu_bay0f, -2460,  1875,   0,  5000, 2600, cs_n_sdu_bay,  0
-    CS_OBJ cs_m_sdu_bay1, cs_m_sdu_bay1f,   200,   750,   0,  5000, 2600, cs_n_sdu_bay,  0
-    CS_OBJ cs_m_sdu_atl,  cs_m_sdu_atlf,  -1175, -1750,   0,  5000, 2600, cs_n_sdu_cop,  0
-    CS_OBJ cs_m_sdu_bot,  cs_m_sdu_botf,  -1425,  -500,   0,  4500, 2600, cs_n_sdu_bay,  0
+    CS_OBJ cs_m_sdu_tij, 0,              -8500,  3600,   0,  9000,    0, cs_n_sdu_tij, CSO_TERRAIN
+    CS_OBJ cs_m_sdu_dois, 0,              -3600, -2400,   0,  8000,    0, cs_n_sdu_dois, CSO_TERRAIN
+    CS_OBJ cs_m_sdu_bay0, cs_m_sdu_bay0f, -2460,  1875,   0,  5000, 2600, cs_n_sdu_bay,  CSO_TERRAIN
+    CS_OBJ cs_m_sdu_bay1, cs_m_sdu_bay1f,   200,   750,   0,  5000, 2600, cs_n_sdu_bay,  CSO_TERRAIN
+    CS_OBJ cs_m_sdu_atl,  cs_m_sdu_atlf,  -1175, -1750,   0,  5000, 2600, cs_n_sdu_cop,  CSO_TERRAIN
+    CS_OBJ cs_m_sdu_bot,  cs_m_sdu_botf,  -1425,  -500,   0,  4500, 2600, cs_n_sdu_bay,  CSO_TERRAIN
     CS_OBJ cs_m_sdu_snd,  cs_m_sdu_sndf,  -1235, -1255,   0,  5000, 2600, cs_n_sdu_cop,  0
-    CS_OBJ cs_m_sdu_brdg, 0,              -3300,  2600,   0,  8000,    0, cs_n_sdu_brg,  0
-    CS_OBJ cs_m_hangar,   0,              -2450,   560,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_shed,     0,              -2900,   480,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_small,    0,              -3150,   700,   0,  2500,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block,    0,              -3600,   100,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block2,   0,              -4300,   700,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block,    0,              -4900,  1600,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_small,    0,              -1750,   500,   0,  2500,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
+    CS_OBJ cs_m_sdu_brdg, 0,              -3300,  2600,   0,  8000,    0, cs_n_sdu_brg,  CSO_ROAD
+    CS_OBJ cs_m_hangar,   0,              -2450,   560,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_shed,     0,              -2900,   480,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_small,    0,              -3150,   700,   0,  2500,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_block,    0,              -3600,   100,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_block2,   0,              -4300,   700,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_block,    0,              -4900,  1600,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_small,    0,              -1750,   500,   0,  2500,    0, cs_n_bldg,     CSO_COLLIDE
+    ; --- THE HIGH TIER (SPEC.md 88.13.1.3): nine more, CSO_DENSE, so Detail
+    ;     Level = High is the only rung that draws one and every rung below it
+    ;     gives the Rio that always shipped.
+    ;
+    ;     THE CITY IS THE ONE THING THIS WORLD DOES NOT HAVE. It is five
+    ;     hills, four sheets of water and a statue - which is the right shape
+    ;     for the location, and it leaves Rio itself as seven sheds beside
+    ;     the runway. So High adds the three built places the shapes are
+    ;     wrapped round, in the order a RUNWAY 11 departure meets them:
+    ;
+    ;       CENTRO       three, off the runway's own end - Santos Dumont is
+    ;                    reclaimed land at the foot of the business district,
+    ;                    so this is what the take-off roll looks at
+    ;       BOTAFOGO     two on the bay shore between Centro and Sugarloaf
+    ;       COPACABANA   four mid-rises in a line just inland of the sand,
+    ;                    which is what that beach is: a WALL of flats, evenly
+    ;                    tall, following the crescent for two kilometres
+    ;
+    ;     The Copacabana four sit on the landward edge of cs_m_sdu_snd offset
+    ;     130 m inland, which is the beach's own four stations, so the wall
+    ;     follows the crescent rather than a straight line drawn near it. They
+    ;     take 4,000 m and no more: the strip is BEHIND Sugarloaf from the
+    ;     runway and the aeroplane meets it after crossing the rock, so
+    ;     ranging it from the spawn buys nothing and costs CS_NVIS.
+    ;
+    ;     NINE AND NOT TEN: a fourth Centro block put 28 objects in one frame
+    ;     against CS_NVIS' 32 with the thirty-third dropped SILENTLY, and the
+    ;     eye that sees them is a shed on the airport road, which is inside
+    ;     everything at once. Nine is the same 27 the other worlds' High tiers
+    ;     settle at.
+    ;
+    ;     Nothing anonymous is over 180 m, against Sugarloaf's 396 and
+    ;     Corcovado's 710; every footprint keeps 60 m from every other, 80 m
+    ;     from the water and 60 m from the runway rectangle.
+    CS_OBJ cs_m_tower2,   0,              -2600,   300,   0,  3500,    0, cs_n_sdu_ctr,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower2,   0,              -2420,   760,   0,  3000,    0, cs_n_sdu_ctr,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower,    0,              -3000,   250,   0,  3000,    0, cs_n_sdu_ctr,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower2,   0,              -1300,   420,   0,  4500,    0, cs_n_sdu_bot,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_midrise,  0,              -1360,   140,   0,  5000,    0, cs_n_sdu_bot,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_midrise,  0,               -330,  -661,   0,  4000,    0, cs_n_sdu_cop,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_midrise,  0,               -715, -1049,   0,  4000,    0, cs_n_sdu_cop,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_midrise,  0,              -1502, -1197,   0,  4000,    0, cs_n_sdu_cop,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_midrise,  0,              -1968, -1345,   0,  4000,    0, cs_n_sdu_cop,  CSO_COLLIDE | CSO_DENSE
 cs_ote_sdu:
 CS_N_SDU equ (cs_ote_sdu - cs_ot_sdu) / CSO_SIZE
 
@@ -329,6 +374,8 @@ cs_n_sdu_dois: db 'DOIS IRMAOS', 0
 cs_n_sdu_bay:  db 'GUANABARA BAY', 0
 cs_n_sdu_cop:  db 'COPACABANA', 0
 cs_n_sdu_brg:  db 'THE RIO-NITEROI BRIDGE', 0
+cs_n_sdu_ctr:  db 'CENTRO', 0
+cs_n_sdu_bot:  db 'BOTAFOGO', 0
 
 ; =============================================================================
 ; The location (SPEC.md 88.6, 88.6.4). Santos Dumont is 1,323 m of reclaimed
@@ -361,5 +408,6 @@ cs_a_sdu:
     dw 1000                          ; CSA_WLEN    half its length...
     dw 100                           ; CSA_WWID    ...and half its width
     dw cs_n_sdu_bay              ; CSA_WNAME
+    dw 0                        ; CSA_FLAGS
 cs_s_sdu: db 'RIO-SDU', 0
 cs_s_rwy_sdu: db 'RUNWAY 11', 0

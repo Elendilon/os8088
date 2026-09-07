@@ -154,14 +154,14 @@ cs_m_sfo_cblf: db CSM_STACK, 2, 0, 4, CSI_LINE, 0
 ; The Pacific, widening south-west from the gate. Its east end is the gate
 ; ribbon's west end.
 cs_m_sfo_ocn: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
-    dw 2100, .v, cs_f_rib2, 0
+    dw 2203, .v, cs_f_rib2, 0
 .v: dw -1400, -1700
     dw     0,  -950
     dw  1400,  -152
     dw -1400,  1100
     dw     0,   840
     dw  1400,   562
-cs_m_sfo_ocnf: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
+cs_m_sfo_ocnf: db CSM_FLAT, 3, 0, 2, CSI_RIVLINE, 0
     dw 2100, .v, 0, cs_e_road2
 .v: dw -1400, -300
     dw     0,  -55
@@ -171,14 +171,14 @@ cs_m_sfo_ocnf: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
 ; towers stand on land (see the header). This is the piece the aeroplane flies
 ; along, so it is the one with the longer range.
 cs_m_sfo_gate: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
-    dw 1100, .v, cs_f_rib2, 0
+    dw 1105, .v, cs_f_rib2, 0
 .v: dw -800, -352
     dw    0, -338
     dw 1000, -430
     dw -800,  362
     dw    0,  344
     dw 1000,  470
-cs_m_sfo_gatef: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
+cs_m_sfo_gatef: db CSM_FLAT, 3, 0, 2, CSI_RIVLINE, 0
     dw 1100, .v, 0, cs_e_road2
 .v: dw -800, 5
     dw    0, 3
@@ -193,7 +193,7 @@ cs_m_sfo_bays: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
     dw -1600,  770
     dw     0,  450
     dw  1600, 1000
-cs_m_sfo_baysf: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
+cs_m_sfo_baysf: db CSM_FLAT, 3, 0, 2, CSI_RIVLINE, 0
     dw 1900, .v, 0, cs_e_road2
 .v: dw -1600, 320
     dw     0,  15
@@ -208,7 +208,7 @@ cs_m_sfo_bayn: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
     dw -1600,    0
     dw     0,  500
     dw  1600,  850
-cs_m_sfo_baynf: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
+cs_m_sfo_baynf: db CSM_FLAT, 3, 0, 2, CSI_RIVLINE, 0
     dw 1900, .v, 0, cs_e_road2
 .v: dw -1600, -325
     dw     0,   40
@@ -246,33 +246,65 @@ CS_BOX cs_m_sfo_dtwr,  22, 270,  22     ; and the tall flat-topped tower beside
                                         ; it, for something to judge it against
 
 ; --- the world ---------------------------------------------------------------
-; Twenty objects, 172 vertices. About eleven of them are in the frame on the
+; TWENTY-EIGHT objects and the last eight are CSO_DENSE, so twenty of them are
+; the San Francisco every rung below High draws. Twenty objects, 172 vertices. About eleven of them are in the frame on the
 ; take-off run: the four of the bridge, the Pacific, the strait, the three
 ; hills and one or two of the bay pieces, with the city 49 degrees off the
 ; nose and outside the view. Most of those are past their CSO_LOD at 5 km, so
 ; what the first frame actually transforms is two towers, two far models and
 ; three centrelines.
 cs_ot_sfo:
-    CS_OBJ cs_m_sfo_twr,  0,                  0,   400,   0, 16000,    0, cs_n_sfo_gg,   CSO_COLLIDE | CSO_POI
-    CS_OBJ cs_m_sfo_twr,  0,                  0,  -400,   0, 16000,    0, cs_n_sfo_gg,   CSO_COLLIDE | CSO_POI
-    CS_OBJ cs_m_sfo_deck, cs_m_sfo_deckf,     0,     0,  80, 16000, 2500, cs_n_sfo_gg,   CSO_POI
-    CS_OBJ cs_m_sfo_cbl,  cs_m_sfo_cblf,      0,     0,   0, 16000, 2200, cs_n_sfo_gg,   CSO_POI
-    CS_OBJ cs_m_sfo_ocn,  cs_m_sfo_ocnf,  -1800,  -200,   0,  5000, 2600, cs_n_sfo_gate, 0
-    CS_OBJ cs_m_sfo_gate, cs_m_sfo_gatef,   400,     0,   0,  5000, 2600, cs_n_sfo_gate, 0
-    CS_OBJ cs_m_sfo_bays, cs_m_sfo_baysf,  3000,  -300,   0,  4500, 2600, cs_n_sfo_bay,  0
-    CS_OBJ cs_m_sfo_bayn, cs_m_sfo_baynf,  3000,  1150,   0,  4500, 2600, cs_n_sfo_bay,  0
-    CS_OBJ cs_m_sfo_marw, 0,              -1150,  1200,   0, 12000,    0, cs_n_sfo_mar,  CSO_COLLIDE
-    CS_OBJ cs_m_sfo_mare, 0,                900,  1150,   0, 10000,    0, cs_n_sfo_mar,  CSO_COLLIDE
-    CS_OBJ cs_m_sfo_pres, 0,               -500,  -950,   0,  9000,    0, cs_n_sfo_pres, CSO_COLLIDE
-    CS_OBJ cs_m_sfo_rock, 0,               2950,   430,   0,  7000,    0, cs_n_sfo_alc,  CSO_COLLIDE
+    CS_OBJ cs_m_sfo_twr,  0,                  0,   400,   0, 16000,    0, cs_n_sfo_gg,   CSO_COLLIDE | CSO_POI | CSO_ROAD
+    CS_OBJ cs_m_sfo_twr,  0,                  0,  -400,   0, 16000,    0, cs_n_sfo_gg,   CSO_COLLIDE | CSO_POI | CSO_ROAD
+    CS_OBJ cs_m_sfo_deck, cs_m_sfo_deckf,     0,     0,  80, 16000, 2500, cs_n_sfo_gg,   CSO_POI | CSO_ROAD
+    CS_OBJ cs_m_sfo_cbl,  cs_m_sfo_cblf,      0,     0,   0, 16000, 2200, cs_n_sfo_gg,   CSO_POI | CSO_ROAD
+    CS_OBJ cs_m_sfo_ocn,  cs_m_sfo_ocnf,  -1800,  -200,   0,  5000, 2600, cs_n_sfo_gate, CSO_TERRAIN
+    CS_OBJ cs_m_sfo_gate, cs_m_sfo_gatef,   400,     0,   0,  5000, 2600, cs_n_sfo_gate, CSO_TERRAIN
+    CS_OBJ cs_m_sfo_bays, cs_m_sfo_baysf,  3000,  -300,   0,  4500, 2600, cs_n_sfo_bay,  CSO_TERRAIN
+    CS_OBJ cs_m_sfo_bayn, cs_m_sfo_baynf,  3000,  1150,   0,  4500, 2600, cs_n_sfo_bay,  CSO_TERRAIN
+    CS_OBJ cs_m_sfo_marw, 0,              -1150,  1200,   0, 12000,    0, cs_n_sfo_mar,  CSO_COLLIDE | CSO_TERRAIN
+    CS_OBJ cs_m_sfo_mare, 0,                900,  1150,   0, 10000,    0, cs_n_sfo_mar,  CSO_COLLIDE | CSO_TERRAIN
+    CS_OBJ cs_m_sfo_pres, 0,               -500,  -950,   0,  9000,    0, cs_n_sfo_pres, CSO_COLLIDE | CSO_TERRAIN
+    CS_OBJ cs_m_sfo_rock, 0,               2950,   430,   0,  7000,    0, cs_n_sfo_alc,  CSO_COLLIDE | CSO_TERRAIN
     CS_OBJ cs_m_sfo_pen,  0,               2950,   430,  42,  6000,    0, cs_n_sfo_alc,  CSO_COLLIDE
     CS_OBJ cs_m_sfo_tram, 0,               3770, -1010,   0, 12000,    0, cs_n_sfo_tram, CSO_COLLIDE | CSO_POI
     CS_OBJ cs_m_sfo_dtwr, 0,               3980, -1180,   0,  9000,    0, cs_n_sfo_dt,   CSO_COLLIDE
-    CS_OBJ cs_m_block,    0,               3560, -1320,   0,  4000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block2,   0,               4080,  -900,   0,  4000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_hangar,   0,               2866, -2942,   0,  2600,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_shed,     0,               2560, -2685,   0,  2600,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_small,    0,               3211, -3231,   0,  2600,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
+    CS_OBJ cs_m_block,    0,               3560, -1320,   0,  4000,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_block2,   0,               4080,  -900,   0,  4000,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_hangar,   0,               2866, -2942,   0,  2600,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_shed,     0,               2560, -2685,   0,  2600,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_small,    0,               3211, -3231,   0,  2600,    0, cs_n_bldg,     CSO_COLLIDE
+    ; --- THE HIGH TIER (SPEC.md 88.13.1.3): eight more, CSO_DENSE, so Detail
+    ;     Level = High is the only rung that draws one and every rung below it
+    ;     gives the San Francisco that always shipped.
+    ;
+    ;     THE CITY IS WHERE THE TRADE WAS TAKEN. This world spends 52 of its
+    ;     172 vertices on the bridge, which is right - it is what the location
+    ;     is for - and downtown is left as two towers and two blocks, there to
+    ;     be somewhere to fly to. But the Financial District is a TIGHT
+    ;     cluster on a peninsula, and two towers 400 m apart read as two
+    ;     towers rather than as a city; from the Marin side, which is where a
+    ;     RUNWAY 31 departure ends up, the whole of it is one silhouette.
+    ;
+    ;     So six fill the district round the Transamerica and the flat-topped
+    ;     tower, and two more stand down towards the Embarcadero, which is the
+    ;     side the bay is on and the side the aeroplane sees. Nothing
+    ;     anonymous passes 180 m, under the Transamerica's 220 and the tower
+    ;     beside it at 270; every footprint keeps 60 m of daylight from every
+    ;     other, 80 m from the bay and 60 m from the runway rectangle.
+    ;
+    ;     Ranges are each one's own Manhattan distance from the spawn plus
+    ;     400 m rounded up to 500 - 3,500 to 4,500 here, which is short
+    ;     because the city is close: the runway is on the bay shore 1.7 km
+    ;     south of it, so the cluster is standing on the roll.
+    CS_OBJ cs_m_tower,    0,               3710, -1300,   0,  4000,    0, cs_n_sfo_fidi, CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower2,   0,               3900, -1520,   0,  3500,    0, cs_n_sfo_fidi, CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower,    0,               4150, -1150,   0,  3500,    0, cs_n_sfo_fidi, CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower2,   0,               3560, -1000,   0,  4500,    0, cs_n_sfo_fidi, CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_midrise,  0,               4200, -1420,   0,  3500,    0, cs_n_sfo_fidi, CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower,    0,               3830,  -880,   0,  4000,    0, cs_n_sfo_fidi, CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_midrise,  0,               3350,  -860,   0,  4500,    0, cs_n_sfo_emb,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower2,   0,               3300, -1500,   0,  4000,    0, cs_n_sfo_emb,  CSO_COLLIDE | CSO_DENSE
 cs_ote_sfo:
 CS_N_SFO equ (cs_ote_sfo - cs_ot_sfo) / CSO_SIZE
 
@@ -287,6 +319,8 @@ cs_n_sfo_pres: db 'THE PRESIDIO', 0
 cs_n_sfo_alc:  db 'ALCATRAZ', 0
 cs_n_sfo_tram: db 'THE TRANSAMERICA PYRAMID', 0
 cs_n_sfo_dt:   db 'DOWNTOWN SAN FRANCISCO', 0
+cs_n_sfo_fidi: db 'THE FINANCIAL DISTRICT', 0
+cs_n_sfo_emb:  db 'THE EMBARCADERO', 0
 
 ; --- the location ------------------------------------------------------------
 ; The runway is 4,187 m from the bridge on a bearing of 130, and its heading
@@ -310,5 +344,6 @@ cs_a_sfo:
     dw 800                          ; CSA_WLEN    half its length...
     dw 100                           ; CSA_WWID    ...and half its width
     dw cs_n_sfo_bay              ; CSA_WNAME
+    dw 0                        ; CSA_FLAGS
 cs_s_sfo: db 'SANFAN-SFO', 0
 cs_s_rwy_sfo: db 'RUNWAY 31', 0

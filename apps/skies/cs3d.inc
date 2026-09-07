@@ -38,16 +38,44 @@
 
 ; -----------------------------------------------------------------------------
 ; cs_sin / cs_cos - AX = an angle; out AX = sin / cos x 32768, clamped to
-;                   32767. Clobbers BX, CX.
+;                   32767. Clobbers BX, AND NOTHING ELSE.
+;
+; It used to clobber CX as well, and the quarter table made that expensive:
+; the old body wrote CL alone (a shift count), so cs_d_adi holding cos in CX
+; across a `call cs_sin` merely had its low byte replaced by 5 and nobody
+; ever saw it. The new one writes the whole word, so the same line put a
+; DIVISOR OF ZERO into the guarded divide and the horizon stood vertical at
+; wings level. The call site is fixed (SPEC.md 88.9.2.4) and so is the
+; contract: two bytes of push and pop, on a routine called twenty-five times
+; a frame, buys a register nobody has to remember.
+;
+; A QUARTER TABLE (SPEC.md 88.5.9). The index is the angle's top ten bits, so
+; its top two are the quadrant: bit 8 says the quarter runs BACKWARDS, and bit
+; 9 says the result is negative. Two tests and a neg for 1,534 bytes, on a
+; routine with twenty-five call sites in the whole package - the matrix is
+; built ONCE a frame (88.5) and this is not the per-vertex path.
 ; -----------------------------------------------------------------------------
 cs_cos:
     add ax, 16384
 cs_sin:
+    push cx
     mov bx, ax
-    mov cl, 5                       ; the top ten bits, as a word index
+    mov cl, 6                       ; the top ten bits: 0..1023 of the turn
     shr bx, cl
-    and bx, 0x7FE
+    mov cx, bx
+    and bx, 255                     ; ...the offset in its quarter
+    test ch, 1
+    jz .fwd
+    neg bx                          ; the odd quarters run backwards, and 256
+    add bx, 256                     ; is the entry sin 90 is in
+.fwd:
+    shl bx, 1
     mov ax, [cs_sintab + bx]
+    test ch, 2
+    jz .pos
+    neg ax                          ; ...and the far half is below the axis
+.pos:
+    pop cx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -584,6 +612,7 @@ cs_scene:
     add si, CSO_SIZE
     loop .o
 .done:
+    call cs_occlude                 ; what stands wholly behind something else
     ; --- the ground shapes, far to near, then the solids ---------------------
     mov byte [cs_pass], CSM_FLAT
     call cs_drawpass
@@ -601,7 +630,7 @@ cs_skipclr:
     jcxz .out                       ; this is what makes them strangers
 .o:
     mov word [si + CSO_SKIP], 0
-    and byte [si + CSO_FLAGS + 1], ~(CSO_SEEN >> 8)
+    and byte [si + CSO_FLAGS + 1], ~((CSO_SEEN | CSO_BOXED) >> 8)
     add si, CSO_SIZE
     loop .o
 .out:
@@ -615,6 +644,12 @@ cs_drawpass:
 .v:
     push cx
     push si
+    mov bx, si                      ; hidden behind something nearer (88.13.7)
+    sub bx, cs_vkey
+    shr bx, 1
+    shr bx, 1
+    cmp byte [cs_occ + bx], 0
+    jne .next
     mov si, [si + 2]                ; the key's record
     mov bx, [si]
     mov bx, [bx + CSO_MODEL]
@@ -630,6 +665,338 @@ cs_drawpass:
 .out:
     ret
 
+
+; =============================================================================
+; THE OCCLUSION PASS (SPEC.md 88.13.7) - only for a location that asks
+; =============================================================================
+
+; -----------------------------------------------------------------------------
+; cs_occlude - mark the visible objects that stand WHOLLY BEHIND another one
+;
+; The test is ANGULAR and in the WORLD, never on the screen. `along` is
+; already in every cs_vkey slot and `across` is two multiplies, so an object
+; found hidden is refused before cs_scale rotates anything - the same place
+; the Detail Level refuses one, which is the cheapest place there is. Nothing
+; is projected and no framebuffer is read.
+;
+; An occluder A hides an occludee B when B's angular interval lies inside A's
+; AT BOTH OF B'S OWN LEVELS - its base, which is its widest and lowest, and
+; its top, which is its narrowest and highest. Both intervals are linear in
+; elevation, so their difference is linear and containment at the two ends is
+; containment throughout: two tests settle a frustum exactly.
+;
+; A's half-width is taken AT THE HEIGHT WHERE A'S SURFACE MEETS B'S ELEVATION,
+; and that is what makes the whole thing work. The first draft compared B's
+; BASE width at B's TOP elevation and missed a ridge the eye can see is
+; hidden, because a frustum is narrow where it is tall.
+;
+; The half-extent is measured ACROSS THE HEADING - wx |cos h| + wz |sin h| -
+; which is exact for an object dead ahead and errs either way for one off to
+; the side. A rule that is conservative for every bearing was measured first
+; and is USELESS: it stops finding Nepal's spurs 400 m off the threshold,
+; where this one goes on finding them to 2,000 m and agrees with the pixels
+; at every point sampled (88.13.7.1). tests/skiesocc.py is what holds it to
+; that, by reading this routine's own verdicts back and checking each one
+; against the glass.
+;
+; in:  [cs_nvisn] filed, cs_vkey sorted far to near
+; out: cs_occ[i] non-zero for a hidden slot, [cs_occn] how many
+; clobbers everything
+; -----------------------------------------------------------------------------
+cs_occlude:
+    push ds                         ; ES IS THE KERNEL'S in a package (SPEC.md
+    pop es                          ; 20), so a string op that forgets this
+    mov word [cs_occn], 0           ; writes into the KERNEL'S SEGMENT - which
+    mov cx, [cs_nvisn]              ; is what the first build of this did,
+    mov di, cs_occ                  ; every frame, on every world, and the
+    xor al, al                      ; symptom was only that no occluder ever
+    cld                             ; held anything. cs_clearall is the same
+    push cx                         ; two instructions for the same reason
+    rep stosb                       ; nothing hidden until it is shown to be
+    pop cx
+    cmp cx, 2
+    jb .out                         ; one object hides nothing
+    mov bx, [cs_airport]
+    test word [bx + CSA_FLAGS], CSA_OCC
+    jz .out                         ; ...and a location that did not ask pays
+    mov ax, [cs_sinh]               ;    two compares and the clear, no more
+    or ax, ax
+    jns .sp
+    neg ax
+.sp:
+    mov [cs_asinh], ax
+    mov ax, [cs_cosh]
+    or ax, ax
+    jns .cp
+    neg ax
+.cp:
+    mov [cs_acosh], ax
+    mov byte [cs_occk], 0
+    mov [cs_occi], cx
+    mov si, cx                      ; NEAR TO FAR, which is cs_vkey backwards
+    dec si
+    shl si, 1
+    shl si, 1
+    add si, cs_vkey
+.slot:
+    dec word [cs_occi]
+    push si
+    mov bp, [si]                    ; BP = along
+    cmp bp, 200
+    jle .next                       ; at or behind the eye: neither role
+    mov di, [si + 2]
+    mov di, [di]                    ; the object
+    call cs_occbox
+    jc .next                        ; not a frustum this pass can reason about
+    call cs_occtest
+    jnc .keep
+    mov bx, [cs_occi]
+    mov byte [cs_occ + bx], 1
+    inc word [cs_occn]
+    jmp short .next
+.keep:
+    call cs_occadd
+.next:
+    pop si
+    sub si, 4
+    cmp si, cs_vkey
+    jae .slot
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_occbox - the candidate's six words, from object DI at along BP
+; out: cs_ob_*, CF = 1 if the model is not a two-or-more-level STACK
+; clobbers everything but BP
+; -----------------------------------------------------------------------------
+cs_occbox:
+    mov [cs_occo], di               ; DI IS THE OBJECT and MUL14 wants a
+    mov si, [di + CSO_MODEL]        ; register: the first draft kept it in DI,
+    cmp byte [si + CSM_TYPE], CSM_STACK  ; overwrote it with a product and
+    jne .no                         ; then re-read a cs_obj cs_consider had
+    mov al, [si + CSM_NV]           ; left behind - a different object's Y
+    cmp al, 2                       ; and position, silently
+    jb .no
+    xor ah, ah
+    dec ax
+    mov bx, 6
+    mul bx                          ; AX = the last level's offset
+    mov si, [si + CSM_VERTS]
+    mov cx, si
+    add cx, ax                      ; CX = the top level
+    mov [cs_ob_l], bp
+    push cx
+    mov ax, [si]                    ; the base: wx |cos h| + wz |sin h|
+    mov bx, [cs_acosh]
+    MUL14
+    mov cx, ax
+    mov ax, [si + 4]
+    mov bx, [cs_asinh]
+    MUL14
+    add ax, cx
+    mov [cs_ob_w0], ax
+    pop si                          ; ...and the top's
+    push si
+    mov ax, [si]
+    mov bx, [cs_acosh]
+    MUL14
+    mov cx, ax
+    mov ax, [si + 4]
+    mov bx, [cs_asinh]
+    MUL14
+    add ax, cx
+    mov [cs_ob_w1], ax
+    pop si
+    mov di, [cs_occo]
+    mov ax, [di + CSO_Y]
+    mov [cs_ob_y0], ax
+    add ax, [si + 2]                ; ...plus the top level's height
+    mov [cs_ob_y1], ax
+    mov ax, [di + CSO_X]            ; across, in the heading's frame
+    sub ax, [cs_ex]
+    mov bx, [cs_cosh]
+    MUL14
+    mov cx, ax
+    mov ax, [di + CSO_Z]
+    sub ax, [cs_ez]
+    mov bx, [cs_sinh]
+    MUL14
+    sub cx, ax
+    mov [cs_ob_c], cx
+    clc
+    ret
+.no:
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_occadd - keep the candidate as an occluder
+;
+; RANKED BY ANGULAR SIZE and not by distance. Keeping the three NEAREST fills
+; the slots with a hangar twelve metres tall and the two valley walls, and
+; never reaches the gate peaks that are the only things in the world that
+; hide anything - measured, one spur of two found instead of both.
+; -----------------------------------------------------------------------------
+cs_occadd:
+    mov ax, [cs_ob_w0]              ; (half-extent + height) / along, in
+    add ax, [cs_ob_y1]              ; sixty-fourths: an angular size, and
+    sub ax, [cs_ob_y0]              ; along is over 200 so it fits a word
+    xor dx, dx
+    mov bx, 64
+    mul bx
+    div word [cs_ob_l]
+    mov [cs_ob_ang], ax
+    mov cl, [cs_occk]
+    xor ch, ch
+    cmp cl, CS_OCCN
+    jb .append
+    mov si, cs_occa                 ; ...else displace the WEAKEST, if this
+    mov di, si                      ; one beats it
+    mov bx, [si + 12]
+    mov cx, CS_OCCN - 1
+.scan:
+    add si, CS_OCCZ
+    cmp [si + 12], bx
+    jae .keep
+    mov bx, [si + 12]
+    mov di, si
+.keep:
+    loop .scan
+    cmp ax, bx
+    jbe .out
+    jmp short .copy
+.append:
+    mov ax, cx
+    mov bx, CS_OCCZ
+    mul bx
+    mov di, cs_occa
+    add di, ax
+    inc byte [cs_occk]
+.copy:
+    push ds                         ; ES is the kernel's (SPEC.md 20)
+    pop es
+    mov si, cs_ob_l
+    mov cx, 7
+    cld
+    rep movsw
+.out:
+    ret
+
+; cs_occtest - CF = 1 if any kept occluder hides the candidate
+cs_occtest:
+    mov cl, [cs_occk]
+    xor ch, ch
+    jcxz .no
+    mov si, cs_occa
+.one:
+    push cx
+    push si
+    call cs_occpair
+    pop si
+    pop cx
+    jc .yes
+    add si, CS_OCCZ
+    loop .one
+.no:
+    clc
+    ret
+.yes:
+    stc
+    ret
+
+; cs_occpair - CF = 1 if occluder SI contains the candidate at BOTH its levels
+cs_occpair:
+    mov ax, [cs_ob_y0]
+    mov bx, [cs_ob_w0]
+    call cs_occlev
+    jnc .no
+    mov ax, [cs_ob_y1]
+    mov bx, [cs_ob_w1]
+    call cs_occlev
+    jnc .no
+    stc
+    ret
+.no:
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_occlev - one level of the candidate against occluder SI
+; in:  AX = the level's height, BX = its half-extent, SI = the occluder
+; out: CF = 1 if that level's angular interval is inside the occluder's
+; -----------------------------------------------------------------------------
+cs_occlev:
+    push bx                         ; the candidate's half-extent
+    sub ax, [cs_ey]                 ; the elevation, over the candidate's along
+    imul word [si]                  ; ...times the OCCLUDER's along
+    idiv word [cs_ob_l]
+    add ax, [cs_ey]                 ; AX = the height A's surface meets it at
+    cmp ax, [si + 6]
+    jg .no                          ; A does not reach that high
+    sub ax, [si + 4]
+    jge .ge
+    xor ax, ax                      ; below A's base: A is at its widest
+.ge:
+    mov cx, [si + 6]
+    sub cx, [si + 4]
+    jle .flat
+    mov bx, [si + 10]
+    sub bx, [si + 8]
+    imul bx
+    idiv cx
+    add ax, [si + 8]
+    jmp short .have
+.flat:
+    mov ax, [si + 8]
+.have:
+    ; --- AND SHRINK IT BY AN EIGHTH. The extent is measured across the
+    ;     HEADING and the covering happens across the LINE OF SIGHT to the
+    ;     occludee, which for an object off to the side is not the same
+    ;     angle; the difference is what let this hide a spur at 2,000 m that
+    ;     tests/skiesocc.py then found on the glass, 654 pixels of it. The
+    ;     margin is the smallest that stands up to that row's viewpoints and
+    ;     it is the OCCLUDER that pays it, so the error is always towards
+    ;     drawing (88.13.7.1)
+    mov bx, ax
+    sar bx, 1
+    sar bx, 1
+    sar bx, 1
+    sub ax, bx
+    mov [cs_occwa], ax
+    mov ax, [si + 2]                ; (ca - wa) lb <= (cb - wb) la
+    sub ax, [cs_occwa]
+    imul word [cs_ob_l]
+    mov [cs_p0], ax
+    mov [cs_p0 + 2], dx
+    pop bx
+    push bx
+    mov ax, [cs_ob_c]
+    sub ax, bx
+    imul word [si]
+    sub ax, [cs_p0]
+    sbb dx, [cs_p0 + 2]
+    js .no
+    pop bx                          ; (cb + wb) la <= (ca + wa) lb
+    push bx
+    mov ax, [cs_ob_c]
+    add ax, bx
+    imul word [si]
+    mov [cs_p0], ax
+    mov [cs_p0 + 2], dx
+    mov ax, [si + 2]
+    add ax, [cs_occwa]
+    imul word [cs_ob_l]
+    sub ax, [cs_p0]
+    sbb dx, [cs_p0 + 2]
+    js .no
+    pop bx
+    stc
+    ret
+.no:
+    pop bx
+    clc
+    ret
+
 ; -----------------------------------------------------------------------------
 ; cs_consider - cull object SI, and file it in cs_vis by depth if it survives
 ; clobbers everything but SI... no: everything (SI is the caller's to keep)
@@ -641,13 +1008,29 @@ cs_drawpass:
 ; -----------------------------------------------------------------------------
 cs_consider:
     mov [cs_obj], si
-    mov ax, [si + CSO_FLAGS]        ; --- WHAT THE PLAYER ASKED FOR (88.13.1):
-    mov bl, [cs_setbld]             ;     the anonymous filler goes first, and
-    cmp bl, CSBL_ALL                 ;     at Few only the points of interest
-    je .tier                        ;     are left standing
-    test ax, CSO_FILLER
-    jnz .out
-    cmp bl, CSBL_FEW
+    mov ax, [si + CSO_FLAGS]        ; --- WHAT THE PLAYER ASKED FOR (88.13.1),
+    mov bl, [cs_setbld]             ;     a LADDER: the DENSE CITY goes first,
+    cmp bl, CSBL_HIGH               ;     then everything but the points of
+    je .tier                        ;     interest, then all but the roads,
+    test ax, CSO_DENSE              ;     then those too.
+    jnz .out                        ; HIGH'S OWN CONTENT, AND ONLY HIGH'S, and
+                                    ; it is tested FIRST so that no exemption
+                                    ; below can undo it: this sat under
+                                    ; TERRAIN's, and 88.13.1.1 is the record
+                                    ; of what that costs - Nepal's CSO_FILLER
+                                    ; ridges were terrain too, so the flag had
+                                    ; never filtered one of them, and its own
+                                    ; High tier (88.13.1.3) drew at every rung
+                                    ; for the same reason until this moved
+    test ax, CSO_TERRAIN            ; TERRAIN is exempt from what is left -
+    jnz .tier                       ; the hills, the water and the runway are
+    cmp bl, CSBL_NONE               ; the world's own surface and not
+    je .out                         ; buildings to thin out - and the
+    test ax, CSO_ROAD               ; ROADS come back one rung up, being
+    jnz .tier                       ; the shape of a city with no city on
+    cmp bl, CSBL_ROADS              ; it and a line model each
+    je .out
+    cmp bl, CSBL_LOW
     jne .tier
     test ax, CSO_POI
     jz .out
@@ -838,7 +1221,7 @@ cs_consider:
 ; is for thinning the world out, and thinning out the things you navigate by
 ; would be a different feature. Far still lengthens it.
 ; -----------------------------------------------------------------------------
-cs_lodscl: dw 154, 256, 410
+cs_lodscl: dw 154, 256, 410, 512
 cs_range:
     mov ax, [si + CSO_RANGE]
     push bx
@@ -979,20 +1362,37 @@ cs_drawobj:
     ;     routine had spent, so it compared a random word and no solid was
     ;     ever boxed: a basilica five kilometres off was four polygons and
     ;     ten milliseconds - 88.5.4) ---------------------------------------
+    cmp byte [cs_setlod], CSL_ULTRA ; ULTRA DRAWS THE POLYGONS AT EVERY SIZE
+    je .stack                       ; (88.13.2.1): the impostor is the one
+                                    ; thing on this ladder that is a
+                                    ; SUBSTITUTION rather than a distance, so
+                                    ; the rung that wants all of it turns the
+                                    ; substitution off and falls through
     or al, al
     jnz .stack                      ; a wireframe keeps its edges
     call cs_sizepx
+    or dx, dx                       ; over a word: larger than any 11 cz, so
+    jnz .stack                      ; the full path
     mov cx, [cs_ocz]
+    ; --- ELEVEN CZ DOES NOT FIT A WORD past 5,957 m, and AX does (DX is
+    ;     zero above), so beyond that the box always wins and the multiply
+    ;     must not be taken at all. Without this the product WRAPPED and the
+    ;     gate failed open: every solid between 5,958 m and the two-pixel
+    ;     refusal drew its whole model - twelve towers four pixels across
+    ;     cost 194.5 ms of an 8088's frame against 87.9 (88.5.4.2). The
+    ;     CS_EDGEPX gate below guards its own 24 cz with `cmp cx, 2600`;
+    ;     this one never did ------------------------------------------------
+    cmp cx, 5958
+    jae .lod
     mov bx, cx
     shl cx, 1
     shl cx, 1
     add cx, bx
     shl cx, 1
     add cx, bx                      ; CX = 11 cz... and the radius is nearer
-    or dx, dx                       ; the half-height than the height, so
-    jnz .stack                      ; this is about 6 px
-    cmp ax, cx
-    jae .stack
+    cmp ax, cx                      ; the half-height than the height, so
+    jae .stack                      ; this is about 6 px
+.lod:
     mov ax, [cs_ocz]
     sub ax, [si + CSM_RAD]
     cmp ax, CS_NEAR
@@ -1011,7 +1411,8 @@ cs_drawobj:
     call cs_flatverts
     call cs_projall
 .full:
-    call cs_faces
+    call cs_wireclr                 ; the edges-once marks are an OBJECT's, and
+    call cs_faces                   ; a vertex index means nothing across two
     ; --- a solid under CS_EDGEPX pixels across keeps no outline: twelve
     ;     segments round a fifteen-pixel box cost more than the box, and at
     ;     that size the walls' patterns already tell them apart. A wireframe
@@ -1022,6 +1423,17 @@ cs_drawobj:
     cmp byte [cs_setfill], CSFL_ALL  ; a fill the player turned off leaves the
     jne .edg                        ; OUTLINE as the whole of the object, so
     mov cx, [cs_ocz]                ; the size test that drops it cannot run
+    or cx, cx                       ; AT OR BEHIND THE EYE it is not far and
+    jle .edg                        ; it is not small, it is UNDER YOU: the
+                                    ; compare below is unsigned, so a negative
+                                    ; cz read as 65,000-odd and took .out -
+                                    ; and the runway's origin is its MIDDLE,
+                                    ; so taxi past that and the strip lost its
+                                    ; outline AND its centreline together.
+                                    ; THE SAME LINE IS IN cs_boxlod ABOVE and
+                                    ; carries the same story about a building:
+                                    ; one of the two got the guard and the
+                                    ; other did not (SPEC.md 88.6.2.1)
     cmp cx, 2600
     ja .out                         ; 24 cz would not fit: far and small
     mov ax, [si + CSM_RAD]
@@ -1054,10 +1466,16 @@ cs_drawobj:
     ret
 
 ; cs_sizepx - DX:AX = 0.75 x the model's radius x scly, the size tests'
-;             measure: CSM_RAD is |wx| + |wz| + h/2, a Manhattan bound that
-;             the cull needs (it must never be under the true radius) and
-;             that overstates a box's real extent by up to 3/1.73; three
-;             quarters of it is still over. SI = the model. Clobbers BX.
+;             measure: CSM_RAD is max(|x| + |y| + |z|) over the model's own
+;             vertices (SPEC.md 88.5.11), a Manhattan bound that the cull
+;             needs (IT MUST NEVER BE UNDER THE TRUE RADIUS) and that
+;             overstates a box's real extent by up to 3/1.73; three quarters
+;             of it is still over. SI = the model. Clobbers BX.
+;             That sentence in brackets was here, and was false of the data
+;             for as long as it has been written down - the macros halved the
+;             height, 36 of 122 models were under their own radius, and
+;             tests/unit/t_csrad.py is what makes the claim checkable rather
+;             than repeated.
 cs_sizepx:
     mov ax, [si + CSM_RAD]
     mov bx, ax
@@ -1077,7 +1495,21 @@ cs_sizepx:
 ;             radius (the caller checked)
 ; -----------------------------------------------------------------------------
 cs_boxlod:
-    mov byte [cs_pshr], 0           ; the cull's origin: whole metres
+    mov al, [cs_pshr]               ; --- AND GIVE IT BACK (88.5.4.3). This
+    mov [cs_bshr], al               ;     routine works in whole metres, but
+    mov byte [cs_pshr], 0           ;     it can REFUSE, and the caller then
+                                    ;     takes the full path with cs_nearat,
+                                    ;     cs_stackverts and cs_flatverts all
+                                    ;     reading the object's scale out of
+                                    ;     this byte. Leaving 0 behind ran the
+                                    ;     whole model at the wrong scale: it
+                                    ;     drew at a fraction of its size, and
+                                    ;     because the refusal turns on the
+                                    ;     rectangle crossing CS_LODPX it did
+                                    ;     that only over part of the approach
+                                    ;     - which is what a building
+                                    ;     FLICKERING between two sizes as the
+                                    ;     aeroplane taxis actually was
     mov si, [cs_mdl]
     mov cl, [si + CSM_NV]           ; levels
     xor ch, ch
@@ -1131,30 +1563,58 @@ cs_boxlod:
     xchg bx, dx                     ; seen from below: the top is lower
 .y:
     ; --- AND REFUSE ONE THAT IS NOT SMALL (SPEC.md 88.5.4.1). The gate that
-    ;     sent us here is on CSM_RAD, which for a STACK is wx + wz + h/2 -
-    ;     and that under-states a TALL building's height, because the drawn
-    ;     rectangle's height is the WHOLE of h projected. Measured over 210
-    ;     poses it let rectangles of 22 x 3 through on a 400-wide view,
-    ;     where its own comment claims six pixels. So the test is on the
-    ;     RECTANGLE and not on an estimate of it, and a refusal costs three
-    ;     projections and takes the full path - which is what the object
-    ;     wanted anyway.
+    ;     sent us here is on CSM_RAD, an ESTIMATE of the object's reach and
+    ;     not the height of the rectangle actually drawn - which is the whole
+    ;     of h projected. Measured over 210 poses it let rectangles of 22 x 3
+    ;     through on a 400-wide view, where its own comment claims six
+    ;     pixels. So the test is on the RECTANGLE and not on an estimate of
+    ;     it, and a refusal costs three projections and takes the full path -
+    ;     which is what the object wanted anyway.
+    ;     (The estimate used to UNDER-state a tall building, h/2 where the
+    ;     origin is the base; 88.5.11 fixed that and this test still stands,
+    ;     because a sound bound is still not the drawn rectangle.)
+    ;     THE HEIGHT GETS ITS OWN BOUND (88.5.4.4). The poses that made the
+    ;     complaint were WIDE and flat - 22x3, 20x2, 18x2 - and holding the
+    ;     height to the same eight put a two-pixel-wide tower back on the
+    ;     polygon path, where its faces are sub-pixel: the Empire State's one
+    ;     visible face read a cross product of 17, a pixel of rounding took
+    ;     it to 0, which the winding test reads as `away', and the whole
+    ;     building vanished. AND BOTH BOUNDS HAVE HYSTERESIS: an object
+    ;     already drawn as the impostor keeps it until it grows CS_LODHYST
+    ;     past them, so one sitting on the boundary does not change shape
+    ;     every few metres.
+    mov di, [cs_obj]
+    test word [di + CSO_FLAGS], CSO_BOXED
+    mov di, 0                       ; ...the slack it has earned
+    jz .lim
+    mov di, CS_LODHYST
+.lim:
     mov si, cx
     sub si, ax
+    sub si, di
     cmp si, CS_LODPX
     jg .out                         ; too wide...
     mov si, dx
     sub si, bx
-    cmp si, CS_LODPX
+    sub si, di
+    cmp si, CS_LODTALL
     jg .out                         ; ...or too tall
     push ax
     mov al, CSI_WALL
     call cs_setink
     pop ax
     call cs_rect
+    mov di, [cs_obj]
+    or word [di + CSO_FLAGS], CSO_BOXED
+    mov al, [cs_bshr]
+    mov [cs_pshr], al
     clc                             ; drawn
     ret
 .out:
+    mov di, [cs_obj]
+    and word [di + CSO_FLAGS], ~CSO_BOXED
+    mov al, [cs_bshr]               ; the object's own scale, back
+    mov [cs_pshr], al
     stc                             ; REFUSED: the caller takes the full path
     ret
 
@@ -1426,6 +1886,24 @@ cs_projall:
     jmp short .next
 .behind:
     mov word [cs_fv + di], 0
+    ; --- ...AND THE OBJECT WAS NOT WHOLE AFTER ALL (SPEC.md 88.5.11.1).
+    ;     cs_pwhole is a PREDICTION off CSM_RAD, and this is the moment it
+    ;     is found out: a vertex behind the near plane has no cs_sxv this
+    ;     frame, and cs_edge1's `jne .both` would draw an edge to whatever
+    ;     the last object left in that slot - unclipped, because .conv would
+    ;     have set cs_pinview off a box that never saw this vertex. Clearing
+    ;     it here costs nothing on the fast path (this branch is the slow
+    ;     case already), skips .conv, and puts every face and edge back on
+    ;     the per-vertex path, which is CORRECT for any radius at all. With
+    ;     88.5.11's bound sound it cannot fire; it is what makes a wrong
+    ;     bound a slow frame instead of a line across the cockpit.
+    ;     What it leaves behind is cs_oby0/cs_oby1 already widened by the
+    ;     vertices .box took before this fired, so cs_markacc accumulates
+    ;     onto a box instead of onto cs_drawobj's sentinel and the object
+    ;     marks MORE rows than it drew on. That is the safe direction - rows
+    ;     blitted that did not change - and it is not worth 12 bytes of
+    ;     sentinel to tidy up a path a sound bound never reaches.
+    mov byte [cs_pwhole], 0
 .next:
     add di, 2
     pop cx
@@ -1510,6 +1988,7 @@ cs_faces:
     mov [cs_fidx], si
     cmp byte [cs_pwhole], 0         ; a whole object: no end is behind or
     jne .plain                      ; past a side, so the count is skipped
+                                    ; (and .plain clears cs_fcut for it)
     ; --- how many ends are behind the near plane, how many past a side ------
     mov cx, [cs_fn]
     xor dx, dx                      ; DL = behind, DH = outside
@@ -1532,9 +2011,12 @@ cs_faces:
     je .skip                        ; all behind
     or dx, dx
     jz .plain                       ; all in front and inside: the projected
-    call cs_fclip                   ; points as they are; else clip in
-    jmp short .fill                 ; camera space and project the rest
+    mov byte [cs_fcut], 1           ; points as they are; else clip in
+    call cs_fclip                   ; camera space and project the rest -
+    jmp short .fill                 ; and cs_pv is then NOT the model's
+                                    ; vertices, which cs_wire has to know
 .plain:
+    mov byte [cs_fcut], 0
     mov si, [cs_fidx]
     mov cx, [cs_fn]
     mov [cs_pn], cx
@@ -1551,39 +2033,94 @@ cs_faces:
     add di, 4
     loop .cp
 .fill:
-    cmp word [cs_pn], 3
+    mov cx, [cs_pn]
+    cmp cx, 3
     jb .skip
-    ; --- (v1 - v0) x (v2 - v0), screen y down: a face toward us is negative,
-    ;     and a ground polygon that may be either way round still needs the
-    ;     sign, because it says which chain an edge is on (cs_pwind) ---------
-    mov ax, [cs_pv + 4]
-    sub ax, [cs_pv]                 ; x1 - x0
-    mov bx, [cs_pv + 10]
-    sub bx, [cs_pv + 2]             ; y2 - y0
+    ; --- THE WHOLE POLYGON'S SIGNED AREA (88.5.10): screen y down, so a face
+    ;     toward us is negative, and a ground polygon that may be either way
+    ;     round still needs the sign, because it says which chain an edge is
+    ;     on (cs_pwind).
+    ;
+    ;     It was ONE triangle - (v1 - v0) x (v2 - v0) - and that is a
+    ;     fraction of a trapezoid's area: the Empire State's crown at 4.2 km
+    ;     read 25 against the polygon's 175, on vertices rounded to whole
+    ;     pixels, so the sign was noise and the two crown faces went on and
+    ;     off a frame at a time, each on its own.
+    ;
+    ;     A QUADRILATERAL IS ITS DIAGONALS' CROSS, which is the whole area
+    ;     in the SAME TWO MULTIPLIES the one triangle took - the eight terms
+    ;     of (v2 - v0) x (v3 - v1) are the shoelace's eight, so it is exact
+    ;     for a folded quad as well as a convex one. Every face a model
+    ;     declares is a quad (CS_SIDES, CS_TOP), so the fix is free on all of
+    ;     them; the fan below is for the 3 to 7 points a clip leaves.
+    cmp cx, 4
+    jne .fan
+    mov ax, [cs_pv + 8]             ; (x2 - x0)(y3 - y1)...
+    sub ax, [cs_pv]
+    mov bx, [cs_pv + 14]
+    sub bx, [cs_pv + 6]
     imul bx
     mov cx, ax
     mov si, dx
-    mov ax, [cs_pv + 6]
-    sub ax, [cs_pv + 2]             ; y1 - y0
-    mov bx, [cs_pv + 8]
-    sub bx, [cs_pv]                 ; x2 - x0
+    mov ax, [cs_pv + 10]            ; ...minus (y2 - y0)(x3 - x1)
+    sub ax, [cs_pv + 2]
+    mov bx, [cs_pv + 12]
+    sub bx, [cs_pv + 4]
     imul bx
     sub cx, ax
     sbb si, dx
-    mov byte [cs_pwind], 0
-    js .draw                        ; toward us
+    jmp short .wound
+.fan:
+    xor cx, cx
+    xor si, si                      ; SI:CX = twice the signed area
+    mov ax, [cs_pn]
+    dec ax
+    dec ax
+    mov [cs_pfan], ax               ; n - 2 triangles in the fan
+    mov di, cs_pv + 4               ; ...from v1
+.tri:
+    push di
+    mov ax, [di]                    ; (xk - x0)(y(k+1) - y0)
+    sub ax, [cs_pv]
+    mov bx, [di + 6]
+    sub bx, [cs_pv + 2]
+    imul bx
+    add cx, ax
+    adc si, dx
+    pop di
+    push di
+    mov ax, [di + 2]                ; ...minus (yk - y0)(x(k+1) - x0)
+    sub ax, [cs_pv + 2]
+    mov bx, [di + 4]
+    sub bx, [cs_pv]
+    imul bx
+    sub cx, ax
+    sbb si, dx
+    pop di
+    add di, 4
+    dec word [cs_pfan]
+    jnz .tri
+.wound:
+    or si, si                       ; TEST THE SUM, not the loop counter: the
+    mov byte [cs_pwind], 0          ; one triangle this replaced left its own
+    js .draw                        ; flags in the `sbb` and the `js` read
+                                    ; them, and `dec` clobbers them - which
+                                    ; culls every face there is
     mov byte [cs_pwind], 1
     test byte [cs_fflags], CSF_NOCULL
     jz .skip                        ; away, or edge-on
 .draw:
     mov al, [cs_fink]               ; --- IS THIS FILL WANTED? (88.13.3) The
-    call cs_fillon                  ;     ink says what the face is made of,
-    jc .skip                        ;     and the edges below still draw it
+    call cs_fillon                  ;     ink says what the face is made of;
+    jc .wire                        ;     with it off the face is its OUTLINE
     mov al, [cs_fink]
     call cs_setink
     mov si, cs_pv
     mov cx, [cs_pn]
     call cs_poly
+    jmp short .skip
+.wire:
+    call cs_wire
 .skip:
     pop si
     mov al, [si]
@@ -1596,20 +2133,152 @@ cs_faces:
     ret
 
 ; -----------------------------------------------------------------------------
+; cs_wire - the face at cs_pv/cs_pn as an OUTLINE, EACH EDGE ONCE (88.13.3)
+;
+; Every edge of a closed solid is shared by exactly two faces, so outlining
+; each front face in turn draws every shared edge TWICE - the same pixels, at
+; the same cost, for no picture. This marks each edge by its two VERTEX
+; INDICES as it draws it and skips one already marked; the marks are cleared
+; once an object (cs_wireclr), because indices are the model's and mean
+; nothing across models.
+;
+; A face the near plane CUT has no such indices - cs_pv holds points the
+; clipper made - so that one is drawn whole. It is the near case only, and
+; the alternative is not drawing an edge that is there.
+;
+; in:  cs_pv/cs_pn projected, cs_fidx = the face's vertex indices, cs_fcut
+;      set when the clipper ran.  Clobbers everything.
+; -----------------------------------------------------------------------------
+cs_wire:
+    mov cx, [cs_pn]
+    cmp cx, 2
+    jb .out
+    mov [cs_wn], cx
+    mov al, [cs_fink]               ; the outline is the FACE's own ink, so a
+    call cs_setink                  ; hill's ridge is a hill and a wall a wall
+    xor di, di                      ; DI = the vertex, 0..n-1
+.e:
+    mov si, di                      ; the segment i -> i + 1, wrapping
+    shl si, 1
+    shl si, 1
+    add si, cs_pv
+    mov ax, [si]
+    mov bx, [si + 2]
+    mov si, di
+    inc si
+    cmp si, [cs_wn]
+    jb .j
+    xor si, si                      ; the last edge closes on vertex 0
+.j:
+    mov [cs_wj], si
+    shl si, 1
+    shl si, 1
+    add si, cs_pv
+    mov cx, [si]
+    mov dx, [si + 2]
+    cmp byte [cs_fcut], 0
+    jne .draw                       ; a cut face has no indices: draw it whole
+    push ax
+    push bx
+    push cx
+    push dx
+    mov si, [cs_fidx]               ; the face's vertex indices
+    mov bx, di
+    mov al, [si + bx]
+    mov bx, [cs_wj]
+    mov ah, [si + bx]
+    call cs_edgemark
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    jc .next                        ; the other face drew it already
+.draw:
+    push di
+    call cs_seg
+    pop di
+.next:
+    inc di
+    cmp di, [cs_wn]
+    jb .e
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_edgemark - has the edge between vertices AL and AH been drawn already?
+;               Marks it if not.  out: CF = 1 it had been. Clobbers AX, BX, CX.
+;
+; A bit per unordered pair, four bytes a row: the LOW index picks the row and
+; the HIGH one the bit in it, so an edge has one address whichever face
+; reaches it first.
+; -----------------------------------------------------------------------------
+cs_edgemark:
+    cmp al, ah                      ; the pair, low end first
+    jbe .ord
+    xchg al, ah
+.ord:
+    mov bl, al
+    xor bh, bh
+    shl bx, 1
+    shl bx, 1                       ; BX = the row, four bytes each
+    mov cl, ah
+    shr cl, 1
+    shr cl, 1
+    shr cl, 1
+    xor ch, ch
+    add bx, cx                      ; ...and the byte within it
+    mov cl, ah
+    and cl, 7
+    mov ch, 1
+    shl ch, cl                      ; CH = the bit
+    mov al, [cs_eseen + bx]
+    test al, ch
+    jnz .seen
+    or al, ch
+    mov [cs_eseen + bx], al
+    clc
+    ret
+.seen:
+    stc
+    ret
+
+; cs_wireclr - the object's edge marks, cleared. Preserves everything
+cs_wireclr:
+    push ax
+    push cx
+    push di
+    push es
+    push ds
+    pop es
+    mov di, cs_eseen
+    mov cx, CS_ESEEN / 2
+    xor ax, ax
+    cld
+    rep stosw
+    pop es
+    pop di
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; cs_fillon - may a face in ink AL be filled? (SPEC.md 88.13.3)
 ; out: CF = 1 the player turned this fill off. Preserves every register
 ;
-; The river is water, the runway and every wall, roof and hill are solids,
-; and the ground under the horizon is cs_skyground's business rather than a
-; face's. Turning all three off leaves the edges, which is the wireframe
-; world the option exists for.
+; TERRAIN is the water and the hills - the world's own surface - and the
+; ground under the horizon, which is cs_skyground's business rather than a
+; face's. Everything else is built: walls, roofs, the runway. A fill turned
+; off leaves the face's OUTLINE (cs_wire), which is the wireframe world the
+; option exists for, and not an empty sky where the thing used to be.
 ; -----------------------------------------------------------------------------
 cs_fillon:
     push ax
-    mov ah, CSFL_BLDG
+    mov ah, CSFL_TERRAIN
     cmp al, CSI_RIVER
-    jne .test
-    mov ah, CSFL_WATER
+    je .test
+    cmp al, CSI_HILL
+    je .test
+    mov ah, CSFL_BLDG
 .test:
     test [cs_setfill], ah
     jz .off

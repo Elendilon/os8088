@@ -32,7 +32,9 @@ that everything ELSE about the A5 still passes, which is why those two
 checks are the ones that are there.
 """
 import argparse
+import math
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -43,11 +45,44 @@ import dispapps                                             # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEG = 65536.0 / 360.0
-CSP_VSTALL, CSP_VMAX, CSP_THRUST = 2, 6, 8
-CSP_ROLLR, CSP_COCKPIT, CSP_ATT = 16, 32, 34
-CSP_SPOOL, CSP_LAUNCH, CSP_FLAGS = 36, 38, 40
-CSA_WX, CSA_WZ, CSA_WHDG, CSA_WLEN = 22, 24, 26, 28
-CSG_TAKEOFF, CSG_RELEASE, CSG_SPLASH = 1, 7, 8
+# THE RECORD LAYOUTS ARE READ OUT OF skies.asm, not copied into here. There
+# were six of these as literals and 88.7.7.1 wanted fourteen more - a walk of
+# the guest's own object table needs the model and object offsets too - and
+# twenty hand-copied numbers is twenty chances to go quietly stale. equ lines
+# are not in the map dispapps builds, so they are parsed the way
+# tests/unit/t_csworld.py parses them.
+def _equates():
+    out = {}
+    for line in open(os.path.join(ROOT, "apps", "skies", "skies.asm")):
+        m = re.match(r"^(CS[A-Z]*_[A-Z0-9_]+)\s+equ\s+"
+                     r"(-?(?:0[xX][0-9A-Fa-f]+|\d+))\s*(?:;|$)", line)
+        if m:
+            out[m.group(1)] = int(m.group(2), 0)      # base 0: CSO_POI is hex
+    return out
+
+
+_E = _equates()
+_WANT = ("CSP_VSTALL CSP_VROT CSP_VMAX CSP_THRUST CSP_ROLLR CSP_COCKPIT CSP_ATT "
+         "CSP_SPOOL CSP_LAUNCH CSP_FLAGS CSA_X CSA_Z CSA_WX CSA_WZ CSA_WHDG "
+         "CSA_WLEN CSA_WWID CSA_OBJS CSA_NOBJ CSO_SIZE CSO_MODEL CSO_X CSO_Z "
+         "CSO_NAME CSM_TYPE CSM_NF CSM_VERTS CSM_FACES CSM_FLAT CSI_RIVER "
+         "CS_MSGAGE").split()
+_miss = [n for n in _WANT if n not in _E]
+if _miss:
+    sys.exit("skiesfleet: skies.asm no longer defines %s" % ", ".join(_miss))
+globals().update({n: _E[n] for n in _WANT})
+CSG_TAKEOFF, CSG_RELEASE, CSG_SPLASH, CSG_TOAST = 1, 7, 8, 9
+# ...and csflight.inc's own, which is where the air lives
+_EF = {}
+for _l in open(os.path.join(ROOT, "apps", "skies", "csflight.inc")):
+    _m = re.match(r"^(CS[A-Z]*_[A-Z0-9_]+)\s+equ\s+(-?\d+)\s*(?:;|$)", _l)
+    if _m:
+        _EF[_m.group(1)] = int(_m.group(2))
+for _n in ("CS_NLIFT", "CSAIR_SIZE", "CSAIR_DX", "CSAIR_DZ", "CSAIR_RATE",
+           "CS_AIRTILE", "CS_LIFTCLR"):
+    if _n not in _EF:
+        sys.exit("skiesfleet: csflight.inc no longer defines %s" % _n)
+    globals()[_n] = _EF[_n]
 CS_ST_GROUND, CS_ST_AIR, CS_ST_CRASH = 0, 1, 2
 bad = []
 
@@ -71,6 +106,8 @@ def main(argv):
                     help="give the Magister the trainer's model: must go red")
     ap.add_argument("--clobber-amphib", action="store_true",
                     help="take the A5's amphibious flag away: must go red")
+    ap.add_argument("--clobber-water", action="store_true",
+                    help="cs_inwater always answers NO: must go red")
     ap.add_argument("--clobber-tail", action="store_true",
                     help="make the rate decay as slowly as it builds: red")
     a = ap.parse_args(argv)
@@ -128,6 +165,15 @@ def main(argv):
             m.write(lin + lo + i, b"\x90\x90\x90\x90")
             m.run()
             print("  (the rate made to decay as slowly as it builds: must fail)")
+        if a.clobber_water:
+            # cs_inwater blanked to `clc / ret` (SPEC.md 88.7.7.1). BOTH water
+            # landings go red, which is the point: since the strip stopped
+            # being what a touchdown is tested against, this routine is the
+            # whole of what makes a splashdown a landing
+            m.pause()
+            m.write(lin + mp["cs_inwater"], b"\xF8\xC3")
+            m.run()
+            print("  (cs_inwater made to answer NO: this must fail)")
         if a.clobber_amphib:
             m.pause()
             m.write(lin + mp["cs_p_a5"] + CSP_FLAGS, b"\x00\x00")
@@ -138,6 +184,10 @@ def main(argv):
         n = (mp["cs_plnames"] - mp["cs_planes"]) // 2
         check(n == 5, "the Plane list has five rows (%d)" % n)
         po = [rec(mp["cs_drplane"], 2 * i) for i in range(4)]
+
+        def prompt():
+            b = m.readseg(seg, base + off("cs_promptb"), 44)
+            return b.split(b"\x00")[0].decode("latin-1")
 
         def fly(row):
             """Pick row `row` and enter the bracket; out: the plane record."""
@@ -157,6 +207,21 @@ def main(argv):
             m.advance(frames=100)
             m.run()
             check(byte("cs_back") != 0, "row %d: the bracket took a mode" % row)
+            # THE PROMPT NAMES THIS AEROPLANE'S OWN SPEED (88.7.9). It was a
+            # literal 55, which is the Cessna's rotate speed in knots, on the
+            # panel of a jet that leaves the ground at 81 - and the knots are
+            # cs_k_spd's own conversion, so the sentence cannot come to
+            # disagree with the needle it is telling you to watch
+            if rec(got, CSP_LAUNCH):        # ...or, on an aeroplane the tow
+                vs = rec(got, CSP_VSTALL)   # left flying, 1.5 VSTALL
+                v = vs + 2 * (vs >> 2)
+            else:
+                v = rec(got, CSP_VROT)
+            kt = (v * 996) >> 16
+            txt = prompt()
+            check(txt.endswith(" %d KNOTS" % kt),
+                  "row %d's prompt names ITS OWN speed, %d knots (%r)"
+                  % (row, kt, txt))
             return got
 
         def ticks(nn, pin=None):
@@ -242,9 +307,12 @@ def main(argv):
         # The decay is three quarters a tick now and the tail is a third of
         # the rate.
         def stickticks(key, held, n=26):
-            # Hold `key` for exactly `held` TICKS, which only cs_stick's own
+            # Hold `key` through `held` + 1 TICKS, which only cs_stick's own
             # breakpoint makes expressible: the stick is read per tick now
-            # (88.7.5.1) and a frame is three of them.
+            # (88.7.5.1) and a frame is three of them. EVERY HIT OF THIS
+            # BREAKPOINT IS A SIM TICK since 88.7.5.2 - cs_input used to call
+            # cs_stick as well, and while it did, one stop in three or four
+            # was that call and moved nothing.
             m.pause()
             airborne(120)
             poke("cs_roll", b"\x00\x00")
@@ -265,7 +333,9 @@ def main(argv):
             m.key(key, down=False, up=True)
             return out
 
-        tap = stickticks("ArrowRight", 2)
+        tap = stickticks("ArrowRight", 1)       # TWO ticks - a release sent
+                                                # at the same halt as the press
+                                                # never reaches the guest
         moved = abs(tap[-1]) / DEG
         print("      a short tap: %.2f degrees, settled %s"
               % (moved, "yes" if tap[-1] == tap[-4] else "no"))
@@ -329,6 +399,151 @@ def main(argv):
               "...and it GLIDES rather than falling - better than 12:1 "
               "(%d:%d)" % (run, drop))
 
+        # --- 3b. the glider's three, from the field (88.7.6.1-88.7.6.3) -------
+        # W ON AN ENGINELESS AEROPLANE. It used to open the throttle to 100
+        # like everyone else's, and cs_sound_step makes the ENGINE TONE out
+        # of exactly that word - so the Bijave hummed (88.7.6.1)
+        m.key("KeyW", down=True, up=False)
+        for _ in range(8):
+            m.advance(frames=25)
+            m.run()
+        m.key("KeyW", down=False, up=True)
+        m.advance(frames=20)
+        m.run()
+        check(w("cs_thr") == 0 and w("cs_tone") == 0,
+              "W opens no throttle on a glider and makes no engine tone "
+              "(thr %d, tone %d)" % (w("cs_thr"), w("cs_tone")))
+
+        # THE PROMPT EXPIRES (88.7.6.2). A sailplane starts in the AIR, so the
+        # liftoff that clears CSG_TAKEOFF never happens and the tow release
+        # had no clearer at all - it stood until something else spoke
+        m.pause()
+        poke("cs_msg", bytes([CSG_RELEASE]))
+        poke("cs_msgt", bytes([CS_MSGAGE]))
+        m.run()
+        gone = False
+        for _ in range(40):
+            m.advance(frames=25)
+            m.run()
+            if byte("cs_msg") == 0:
+                gone = True
+                break
+        check(gone, "the tow release goes by itself (msg %d, %d ticks left)"
+                    % (byte("cs_msg"), byte("cs_msgt")))
+
+        # ...AND IT GOES UNDER A TOAST TOO (88.13.8 borrows the strip). The
+        # announcement is banked in cs_toastwas while the toast is up, so an
+        # ager that cleared cs_msg would cut the toast short - and one that
+        # left cs_toastwas alone would put the expired release straight back
+        # on the glass when the toast went, which is the same complaint by a
+        # second route. Raised by hand rather than by a setting key, because
+        # what is under test is the AGER and not the settings page.
+        m.pause()
+        poke("cs_msg", bytes([CSG_RELEASE]))
+        poke("cs_msgt", bytes([CS_MSGAGE]))
+        m.run()
+        m.advance(frames=25)                        # ...let it start counting
+        m.pause()
+        poke("cs_toastwas", bytes([CSG_RELEASE]))   # the toast takes the strip
+        poke("cs_msg", bytes([CSG_TOAST]))
+        poke("cs_toastt", bytes([200]))             # ...and holds it far past
+        m.run()                                     # the announcement's own age
+        held = True
+        for _ in range(40):
+            m.advance(frames=25)
+            m.run()
+            if byte("cs_msg") != CSG_TOAST:
+                held = False
+                break
+            if byte("cs_msgt") == 0 and byte("cs_toastwas") == 0:
+                break
+        check(held and byte("cs_toastwas") == 0 and byte("cs_msg") == CSG_TOAST,
+              "an announcement that ages out UNDER a toast retires where it "
+              "is kept (msg %d, was %d, toast %d ticks left)"
+              % (byte("cs_msg"), byte("cs_toastwas"), byte("cs_toastt")))
+        m.pause()                                   # ...and put the strip back
+        poke("cs_toastt", b"\x00")
+        poke("cs_msg", b"\x00")
+        m.run()
+
+        # THE AIR (88.7.6.3, 88.7.6.4): still, lift, sink - read off cs_airv,
+        # and the ALTITUDE with it, because a rate nothing moves is not
+        # weather. The table's offsets are inside a TILE that repeats, so a
+        # rect is reached at its own place in ANY tile - which is the property
+        # under test and not an accident of the arithmetic: the rows below
+        # step one whole tile out on each axis and expect the same air
+        port = w("cs_airport")
+        fx, fz = sg(rec(port, CSA_X)), sg(rec(port, CSA_Z))
+        lifts = []
+        for row in range(CS_NLIFT):
+            at = mp["cs_lifts"] + row * CSAIR_SIZE
+            lifts.append((sg(rec(at, CSAIR_DX)), sg(rec(at, CSAIR_DZ)),
+                          sg(rec(at, CSAIR_RATE))))
+        up = max(lifts, key=lambda r: r[2])
+        dn = min(lifts, key=lambda r: r[2])
+
+        def soar(dx, dz):
+            """Drop the glider in at 900 m, wings level, and see what the air
+            does with it."""
+            # THE PAUSE GOES ON FIRST AND A FRAME IS LET BY (docs/WRITING
+            # -TESTS.md 13 row 22): m.pause() lands anywhere, and a cs_step
+            # in flight finishes on resume and writes its own position over
+            # the pin - which lands the aeroplane somewhere that is not the
+            # rect, so no crossing happens and the swoop reads 0.
+            m.pause()
+            poke("cs_pause", b"\x01")
+            m.run()
+            m.advance(frames=2)
+            m.pause()
+            poke("cs_px", (((fx + dx) * 256) & 0xFFFFFFFF).to_bytes(4, "little"))
+            poke("cs_pz", (((fz + dz) * 256) & 0xFFFFFFFF).to_bytes(4, "little"))
+            poke("cs_py", ((900 * 256) & 0xFFFFFFFF).to_bytes(4, "little"))
+            poke("cs_pitch", b"\x00\x00")
+            poke("cs_roll", b"\x00\x00")
+            poke("cs_spd", (22 * 128).to_bytes(2, "little"))
+            poke("cs_state", b"\x01")
+            poke("cs_pause", b"\x00")          # ...and only NOW does it fly
+            m.run()
+            m.advance(frames=4)
+            m.run()
+            sw = byte("cs_swt")                 # the CROSSING's own swoop
+            m.advance(frames=26)
+            m.run()
+            y0 = sg(int.from_bytes(m.readseg(seg, base + off("cs_py") + 1, 2),
+                                   "little"))
+            air = sg(w("cs_airv"))
+            m.advance(frames=60)
+            m.run()
+            y1 = sg(int.from_bytes(m.readseg(seg, base + off("cs_py") + 1, 2),
+                                   "little"))
+            return air, y0, y1, sw
+
+        calm = soar(0, 400)                     # INSIDE the calm bubble
+        lift = soar(up[0], up[1])
+        sink = soar(dn[0], dn[1])
+        far = soar(up[0] + CS_AIRTILE, up[1] + CS_AIRTILE)   # the NEXT tile
+        print("      the air: calm %+d (%d->%d), lift %+d (%d->%d, swoop %d), "
+              "sink %+d (%d->%d, swoop %d), one tile on %+d"
+              % (calm[0], calm[1], calm[2], lift[0], lift[1], lift[2], lift[3],
+                 sink[0], sink[1], sink[2], sink[3], far[0]))
+        check(calm[0] == 0 and calm[1] == calm[2],
+              "the CALM BUBBLE round the field is still (%+d, %d -> %d)"
+              % (calm[0], calm[1], calm[2]))
+        check(lift[0] == up[2] and lift[2] > lift[1],
+              "the strongest lift is the table's and it CLIMBS (%+d for %+d, "
+              "%d -> %d)" % (lift[0], up[2], lift[1], lift[2]))
+        check(sink[0] == dn[2] and sink[2] < sink[1],
+              "...and the deepest sink SINKS (%+d for %+d, %d -> %d)"
+              % (sink[0], dn[2], sink[1], sink[2]))
+        check(lift[3] > 0 and sink[3] > 0,
+              "and CROSSING into either arms the swoop (%d, %d)"
+              % (lift[3], sink[3]))
+        # ...AND IT TILES (88.7.6.4), which is the whole of the fix for air
+        # nobody could find: the same rect one tile out on BOTH axes
+        check(far[0] == up[2] and far[2] > far[1],
+              "one whole tile out on both axes the same lift is there (%+d "
+              "for %+d, %d -> %d)" % (far[0], up[2], far[1], far[2]))
+
         # --- 4. the A5 --------------------------------------------------------
         a5 = fly(4)
         port = w("cs_airport")
@@ -359,11 +574,120 @@ def main(argv):
         check(ok, "...and gets off it under its own power (state %d, %d kt)"
               % (byte("cs_state"), w("cs_spd") * 1944 // 128000))
 
-        def splashdown():
-            """Put the aeroplane a metre over the water strip, sinking gently
-            along it, and let the touchdown happen."""
+        # ...AND THE WATER STOPS IT (88.7.7.2), which twice the rolling
+        # friction did not: measured over the same span with the throttle
+        # shut against the same span with it open, because the hull only
+        # brakes when the pilot is not driving - a hull that dragged harder
+        # than the engine pushes is the check above going red
+        def hull(thr):
             m.pause()
-            sn = rec(port, CSA_WX), rec(port, CSA_WZ)
+            poke("cs_pause", b"\x01")
+            m.run(); m.advance(frames=2); m.pause()
+            poke("cs_spd", (22 * 128).to_bytes(2, "little"))
+            poke("cs_thr", thr.to_bytes(2, "little"))
+            poke("cs_thrust", b"\x00\x00")
+            poke("cs_thracc", b"\x00\x00")
+            poke("cs_state", b"\x00")
+            poke("cs_onwater", b"\x01")
+            poke("cs_pause", b"\x00")
+            m.run()
+            s0 = w("cs_spd")
+            for _ in range(10):
+                m.advance(frames=12)
+                m.run()
+            return s0, w("cs_spd")
+        shut = hull(0)
+        open_ = hull(100)
+        print("      on the water: throttle shut %d -> %d, open %d -> %d"
+              % (shut[0], shut[1], open_[0], open_[1]))
+        check(shut[0] - shut[1] > 3 * (open_[0] - open_[1]),
+              "the WATER stops it with the throttle shut, and does not with "
+              "it open (%d units against %d)"
+              % (shut[0] - shut[1], open_[0] - open_[1]))
+
+        # --- 4b. the brake is a LATCH the panel shows (88.7.10.1) -----------
+        # A TYPED key and not a held one: the field could not tell a held B
+        # from no B at all, and a level read leaves nothing on the glass.
+        m.pause()
+        poke("cs_pause", b"\x01")
+        m.run(); m.advance(frames=2); m.pause()
+        poke("cs_onwater", b"\x00")
+        poke("cs_spd", (30 * 128).to_bytes(2, "little"))
+        poke("cs_thr", (100).to_bytes(2, "little"))
+        poke("cs_state", b"\x00")
+        poke("cs_pause", b"\x00")
+        m.run()
+        m.type_text("b")
+        latched = False
+        for _ in range(30):
+            m.advance(frames=10)
+            m.run()
+            if byte("cs_kbrake"):
+                latched = True
+                break
+        check(latched, "one TYPED b latches the brake (%d)" % byte("cs_kbrake"))
+        thr_after = w("cs_thr")
+        held = byte("cs_kbrake")
+        for _ in range(20):                     # ...and it STAYS, unheld
+            m.advance(frames=12)
+            m.run()
+            held = held and byte("cs_kbrake")
+        check(held and thr_after == 0,
+              "...and it stays on with nothing held, throttle shut (%d, thr "
+              "%d)" % (byte("cs_kbrake"), thr_after))
+        m.type_text("b")                        # ...and the same key lets go
+        released = False
+        for _ in range(30):
+            m.advance(frames=10)
+            m.run()
+            if byte("cs_kbrake") == 0:
+                released = True
+                break
+        check(released,
+              "...and the same key lets it go (%d)" % byte("cs_kbrake"))
+
+        def waters():
+            """Every CSI_RIVER face of the flown location, out of the GUEST's
+            own object table (SPEC.md 88.7.7.1) - so this row does not carry a
+            coordinate anybody has to keep in step with the world files.
+
+            Returns (centroid x, centroid z, the object's name) per face."""
+            objs, nobj = rec(port, CSA_OBJS), rec(port, CSA_NOBJ)
+            out = []
+            for o in range(objs, objs + nobj * CSO_SIZE, CSO_SIZE):
+                md = rec(o, CSO_MODEL)
+                if m.readseg(seg, md + CSM_TYPE, 1)[0] != CSM_FLAT:
+                    continue
+                ox, oz = sg(rec(o, CSO_X)), sg(rec(o, CSO_Z))
+                vt, f = rec(md, CSM_VERTS), rec(md, CSM_FACES)
+                for _ in range(m.readseg(seg, md + CSM_NF, 1)[0]):
+                    hdr = m.readseg(seg, f, 3)
+                    idx = m.readseg(seg, f + 3, hdr[0])
+                    if hdr[1] == CSI_RIVER:
+                        pts = [(sg(rec(vt, 4 * i)), sg(rec(vt, 4 * i + 2)))
+                               for i in idx]
+                        out.append((ox + sum(p[0] for p in pts) // len(pts),
+                                    oz + sum(p[1] for p in pts) // len(pts),
+                                    name(o + CSO_NAME)))
+                    f += 3 + hdr[0]
+            return out
+
+        def onstrip(px, pz):
+            """...is that point inside the old rectangle? (88.7.7.1)"""
+            wx, wz = sg(rec(port, CSA_WX)), sg(rec(port, CSA_WZ))
+            th = sg(rec(port, CSA_WHDG)) * 2 * math.pi / 65536.0
+            dx, dz = px - wx, pz - wz
+            return (abs(dx * math.sin(th) + dz * math.cos(th))
+                    <= sg(rec(port, CSA_WLEN))
+                    and abs(dx * math.cos(th) - dz * math.sin(th))
+                    <= sg(rec(port, CSA_WWID)))
+
+        def splashdown(at=None):
+            """Put the aeroplane a metre over the water strip, sinking gently
+            along it, and let the touchdown happen. `at` puts it somewhere
+            else instead, which is what 88.7.7.1 is about."""
+            m.pause()
+            sn = (rec(port, CSA_WX), rec(port, CSA_WZ)) if at is None else at
             poke("cs_px", ((sg(sn[0]) * 256) & 0xFFFFFFFF).to_bytes(4, "little"))
             poke("cs_pz", ((sg(sn[1]) * 256) & 0xFFFFFFFF).to_bytes(4, "little"))
             poke("cs_py", ((3 * 256) & 0xFFFFFFFF).to_bytes(4, "little"))
@@ -395,6 +719,48 @@ def main(argv):
               "...and the strip names the water (msg %d)" % byte("cs_msg"))
         check(w("cs_landings") == land0 + 1,
               "...and it counts (%d -> %d)" % (land0, w("cs_landings")))
+
+        # --- ALL WATER IS WATER (SPEC.md 88.7.7.1) ---------------------------
+        # The strip was an invisible runway on the river: 800 m of the Seine
+        # were landable and the rest of it was a crash. Take the water face
+        # FURTHEST from the strip that is not inside it, and put the same
+        # touchdown there - it is a landing now, and it names ITS OWN water.
+        far = [(px, pz, nm) for px, pz, nm in waters() if not onstrip(px, pz)]
+        check(bool(far), "the flown world has water off the strip to test (%d "
+                         "faces)" % len(far))
+        if far:
+            wx, wz = sg(rec(port, CSA_WX)), sg(rec(port, CSA_WZ))
+            px, pz, nm = max(far, key=lambda r: abs(r[0] - wx) + abs(r[1] - wz))
+            print("      off-strip water: %r at (%d, %d), %d m from the strip"
+                  % (nm, px, pz, abs(px - wx) + abs(pz - wz)))
+            land1 = w("cs_landings")
+            splashdown((px & 0xFFFF, pz & 0xFFFF))
+            for _ in range(20):
+                m.advance(frames=20)
+                m.run()
+                if byte("cs_state") != CS_ST_AIR:
+                    break
+            check(byte("cs_state") == CS_ST_GROUND
+                  and byte("cs_onwater") == 1,
+                  "water OFF the strip is a landing too (state %d, water %d)"
+                  % (byte("cs_state"), byte("cs_onwater")))
+            check(byte("cs_msg") == CSG_SPLASH
+                  and w("cs_landings") == land1 + 1,
+                  "...it counts and it splashes (msg %d, %d -> %d)"
+                  % (byte("cs_msg"), land1, w("cs_landings")))
+
+        # ...and the edge is still an edge: dry land is a crash
+        dry = [(px, pz) for px, pz, _ in waters()]
+        ox = max(abs(p[0]) for p in dry) + 3000
+        splashdown((ox & 0xFFFF, 0))
+        for _ in range(20):
+            m.advance(frames=20)
+            m.run()
+            if byte("cs_state") != CS_ST_AIR:
+                break
+        check(byte("cs_state") == CS_ST_CRASH,
+              "...and dry land off the runway is still a crash (state %d)"
+              % byte("cs_state"))
 
         # ...and the same touchdown in the trainer is a ditching
         fly(0)

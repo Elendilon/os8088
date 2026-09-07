@@ -36,6 +36,19 @@ derive. On a stock 640KB boot the whole ceiling stack is top-down and only
 `kern:ASC` is not, which is why an ascending pass alone was a plausible model
 of the arena for as long as it was.
 
+**Adding a claim is not touching the compactor.** The fifteen-row heap family
+is ~2,500 declared seconds of emulator, and docs/WRITING-TESTS.md 13 row 31
+asks for all of it after a change to `mem_can_move`, the `mem_cp_*` placement
+and packing routines, `mem_region_reloc`, the claim table's shape, or a
+relocation proc — the kernel code every one of those rows is about. A PACKAGE
+that claims heap reaches none of it: an undeclared claim is born pinned
+(§66.2) and is a wall like any other, which is the case the family already
+covers a dozen times over. Add a row here, let the package's own gates and
+`heapcheck` run, and leave the family to whoever changed the machinery.
+Declaring one MOVABLE is a bigger step and wants `heapmap` read back off a
+running machine (above), but it is still that package's question and not the
+compactor's.
+
 ---
 
 ## The verdicts
@@ -132,6 +145,7 @@ be done". Sizes are the `equ`s at the claim sites.
 | **Audio** | `AP_LA_SZ` 32KB look-ahead ring |
 | **Tank Attack** | `TK_SHKB` 16KB CGA/Hercules shadow |
 | **Frotz** | scrollback `ZW_SBKB` 24KB (8KB fallback) — `zwin.inc`'s claim, outside `zf_reloc` |
+| **Clear Skies** | `CS_SHKB` 16KB 1bpp shadow, `CS_ART_KB` 11KB launcher artwork — both for the life of the instance, and both **pinned by not declaring**, which is the right answer for the shadow rather than an audit nobody has done. `[cs_shseg]` is copied into `[cs_tseg]` at every `fsx` entry and **ES is loaded from `[cs_tseg]` at thirteen sites and kept across the span**, so a move inside a frame is a live segment in a register that no relocation proc can reach — the shape §66.5.9.1's `OSAPI_MEM_PARKSAFE` exists for, and the fsx bracket has no park point. The artwork is a different case and would only cost one word (`[cs_artseg]`, read by three blits and 0 when the claim failed), but it is 11KB claimed at launch and freed with the instance |
 | **every C package** (C64, RunCPM, Weave, Loom, CWORD) | **`os88_mem_movable()` EXISTS NOW** (§66.4.1, `%define CC_HAS_ONMOVE` + `void os88_onmove(unsigned was, unsigned now)`), so this row is "nobody has done the audit" rather than "the SDK cannot" — which is a different row and a much cheaper one. Nothing here declares yet. C64's 64KB RAM, RunCPM's 64KB Z80 space, Weave's bundle/VM/canvas/grid, Loom's 29/50/62KB project buffers, and every `apps/os88parts.inc` scratch part are all pinned. **The C OVERLAY is the exception and it is MOVABLE** (§66.4.1, `apps/cc/crt0.asm`): it is claimed top-down because its base is a CS, and `cc_ovreloc` is four bytes falling through into `cc_ovbind` — safe because `cc_ovthunk` DISCARDS the module's CS and rebuilds the `retf` from `[cc_ovseg]` after the call, so no stack ever holds it. `tests/ovlhigh.py` is the gate |
 
 Word is the one worth an afternoon: session-lived, tens of KB,
