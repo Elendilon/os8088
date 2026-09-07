@@ -422,7 +422,7 @@ def main(argv):
             """Over the city, the world paused, every skip cleared.
 
             THE PAUSE GOES ON FIRST AND A FRAME IS LET BY (docs/WRITING-TESTS
-            13 row 22). `m.pause()` can land in the middle of `cs_step`, and
+            13 row 35). `m.pause()` can land in the middle of `cs_step`, and
             that step finishes when the guest resumes - writing its own
             cs_px/py/pz over the pose this just wrote. The aeroplane is then
             somewhere else, and at Low detail somewhere else is a different

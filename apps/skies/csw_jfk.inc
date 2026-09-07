@@ -168,7 +168,7 @@ cs_m_jfk_hud0: db CSM_FLAT, 8, 3, 0, CSI_RIVER, 0   ; the Hudson, the Battery
     dw  -631,  -625
     dw  -554,  1050
     dw  -129,  2598
-cs_m_jfk_hud0f: db CSM_FLAT, 4, 0, 3, CSI_MARK, 0
+cs_m_jfk_hud0f: db CSM_FLAT, 4, 0, 3, CSI_RIVLINE, 0
     dw 2600, .v, 0, cs_e_road3
 .v: dw    43, -2573
     dw  -209,  -778
@@ -185,7 +185,7 @@ cs_m_jfk_hud1: db CSM_FLAT, 8, 3, 0, CSI_RIVER, 0   ; ...and on past Central
     dw  -688,  -598
     dw  -178,   919
     dw   350,  2430
-cs_m_jfk_hud1f: db CSM_FLAT, 4, 0, 3, CSI_MARK, 0
+cs_m_jfk_hud1f: db CSM_FLAT, 4, 0, 3, CSI_RIVLINE, 0
     dw 2430, .v, 0, cs_e_road3
 .v: dw  -756, -2276
     dw  -265,  -752
@@ -202,7 +202,7 @@ cs_m_jfk_est0: db CSM_FLAT, 8, 3, 0, CSI_RIVER, 0   ; the East River, the
     dw   -38,  -832
     dw   960,   507
     dw  1601,  1977
-cs_m_jfk_est0f: db CSM_FLAT, 4, 0, 3, CSI_MARK, 0
+cs_m_jfk_est0f: db CSM_FLAT, 4, 0, 3, CSI_RIVLINE, 0
     dw 2570, .v, 0, cs_e_road3
 .v: dw -1629, -1956
     dw  -330,  -726
@@ -219,7 +219,7 @@ cs_m_jfk_est1: db CSM_FLAT, 8, 3, 0, CSI_RIVER, 0   ; ...and on past midtown
     dw    15,  -857
     dw   591,   636
     dw  1157,  2133
-cs_m_jfk_est1f: db CSM_FLAT, 4, 0, 3, CSI_MARK, 0
+cs_m_jfk_est1f: db CSM_FLAT, 4, 0, 3, CSI_RIVLINE, 0
     dw 2420, .v, 0, cs_e_road3
 .v: dw  -870, -2237
     dw  -276,  -751

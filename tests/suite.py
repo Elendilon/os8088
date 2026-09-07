@@ -238,6 +238,20 @@ FAST = [
         " sink to find, and that the swoop's ramp lands exactly on its far"
         " end - CS_SWOOPLO + CS_SWOOPT x CS_SWOOPD = CS_SWOOPHI",
         needs=()),
+    Row("csink", "fast", py("tests/unit/t_csink.py"), 0.3,
+        "SPEC.md 88.4.4, 88.6.5, 88.13.9.1: CLEAR SKIES' three families of"
+        " PARALLEL TABLE, each indexed by something declared somewhere else"
+        " and each failing the same way - silently, on one adapter or one"
+        " setting, long after the row that was forgotten. Six ink tables of"
+        " CSI_NINK rows, so a new ink added to four of them does not draw in"
+        " whatever byte follows the other two; every river far model in every"
+        " world carrying CSI_RIVLINE, one left behind being a white river on"
+        " a colour display; and cs_set_at / _max / _best all CS_SETN long,"
+        " where the trap is that BEST IS NOT MAX - the Mode byte's ceiling is"
+        " CGA, so a 286 given the best of everything off the clamp table gets"
+        " the worse of two displays. Deleting one ink row and whitening one"
+        " river takes it red on both",
+        needs=()),
     Row("csplane", "fast", py("tests/unit/t_csplane.py"), 0.3,
         "SPEC.md 88.7.4: CLEAR SKIES' five plane records agree with their own"
         " drag. CSP_DRAGK is what decides where an aeroplane stops"
@@ -1965,12 +1979,16 @@ SOAK = [
         " 1,666 the next. The displayed sequence never goes backwards in a"
         " climb; --clobber-share sends the between-gates path back to .same"
         " and it does, four frames in twelve. And 88.9.4.2's state box over"
-        " all six combinations of state, stall and cs_onwater: the key packs"
-        " three things into one word and the painter tested the whole of the"
-        " high byte, so an amphibian airborne OFF the water read STALLED for"
-        " the whole flight",
+        " all EIGHT combinations of state, stall, cs_onwater and 88.7.10.1's"
+        " brake latch: the key packs four things into one word and the"
+        " painter tested the whole of the high byte, so an amphibian airborne"
+        " OFF the water read STALLED for the whole flight. The intermediate"
+        " state each row forces is CONFIRMED at the painter and no longer"
+        " counted in card frames - a gate is every CS_PRATE TICKS, so eight"
+        " card frames is a fifth of one on Mode X, and under load the row"
+        " reported that the key had not changed, which was true and useless",
         needs=("marty",), serial=True),
-    Row("skiesfleet", "soak", py("tests/skiesfleet.py"), 52.0,
+    Row("skiesfleet", "soak", py("tests/skiesfleet.py"), 71.0,
         "SPEC.md 88.7.5-88.7.7.1: the three aeroplanes that came after the"
         " Pitts, each checked on its MECHANIC. The Magister's roll rate ramps"
         " and decays and its engine spools; the Bijave starts in the air with"
@@ -1987,8 +2005,15 @@ SOAK = [
         " the air is read against cs_lifts as the guest holds it - still air"
         " is still, the table's strongest column and deepest sink move an"
         " aeroplane by exactly what the row says, and crossing into either"
-        " arms the swoop. --clobber-lag, --clobber-amphib and --clobber-water"
-        " are the three red runs",
+        " arms the swoop. Since 88.7.7.2 the WATER stops it, and only with"
+        " the throttle shut - a hull that dragged harder than the engine"
+        " pushes is an amphibian that cannot take off, which is how the first"
+        " build of that read - and 88.7.10.1's brake is a LATCH a typed b"
+        " toggles rather than a level read nobody could see. The air is read"
+        " against cs_lifts one whole TILE out on both axes as well as in tile"
+        " zero (88.7.6.4), and every aeroplane's prompt is checked to name"
+        " its OWN rotate speed (88.7.9). --clobber-lag, --clobber-amphib and"
+        " --clobber-water are the three red runs",
         needs=("marty",), serial=True),
     Row("skiesease", "soak", py("tests/skiesease.py"), 34.0,
         "SPEC.md 88.7.3: the horizon captures the last three ticks of an"

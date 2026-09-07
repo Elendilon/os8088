@@ -164,6 +164,8 @@ cs_reset:
     mov [cs_crasht], ax
     mov byte [cs_state], CS_ST_GROUND
     mov byte [cs_stall], 0
+    mov byte [cs_kbrake], 0         ; ...and the brake is OFF on a fresh
+                                    ; runway, being a latch now (88.7.10.1)
     mov byte [cs_msg], CSG_TAKEOFF
     mov si, cs_g_take              ; ...WHICH NAMES THIS AEROPLANE'S ROTATE
     mov di, [cs_plane]              ; SPEED (88.7.9) and not the Cessna's: the
@@ -499,13 +501,31 @@ cs_step:
 .ground:
     sub cx, [di + CSP_FRICT]        ; rolling friction, and the brakes
     cmp byte [cs_onwater], 0
-    je .wheels                      ; ON THE WATER a hull drags twice as hard
-    sub cx, [di + CSP_FRICT]        ; and there is nothing to brake with
-    jmp short .g0                   ; (SPEC.md 88.7.7)
+    je .wheels
+    ; A HULL IS A BRAKE UNLESS YOU ARE DRIVING IT (SPEC.md 88.7.7.2). Twice
+    ; the rolling friction was the first answer and it is 0.85 m/s^2 on the
+    ; A5: 28 seconds and 340 m to come off the step, which the field read as
+    ; the water not slowing it at all. Water takes the WHEEL BRAKE'S figure
+    ; as well, with no key - but only with the THROTTLE SHUT, because a hull
+    ; that drags harder than the engine pushes is an amphibian that cannot
+    ; take off, which is what the first build of this was.
+    sub cx, [di + CSP_FRICT]
+    cmp word [cs_thr], CS_HULLTHR
+    jae .g0
+    sub cx, [di + CSP_BRAKE]
+    jmp short .g0
 .wheels:
     cmp byte [cs_kbrake], 0
     je .g0
     sub cx, [di + CSP_BRAKE]
+    ; ...AND THE BRAKE CLOSES THE THROTTLE (SPEC.md 88.7.10). The field read
+    ; the brakes as not working, and the arithmetic says why: a landing roll
+    ; is flown with the throttle where the take-off left it, W having been
+    ; held and never let go, so the Cessna's 20 of brake was spending 16 of
+    ; itself on its own engine and stopping at a fifth of its rate. A pilot
+    ; closes the throttle before touching the brakes; the key that means
+    ; STOP does it here.
+    mov word [cs_thr], 0
 .g0:
     mov ax, [cs_spd]
     add ax, cx
@@ -530,6 +550,7 @@ cs_step:
     cmp bx, CS_LIFTOFF
     jl .steer
     mov byte [cs_state], CS_ST_AIR  ; and it flies
+    mov byte [cs_kbrake], 0         ; ...with the brake let go (88.7.10.1)
     mov byte [cs_msg], CSG_NONE
     jmp short .steer
 .nodown:
@@ -1044,35 +1065,42 @@ cs_fence:
     ret
 
 ; =============================================================================
-; THE AIR (SPEC.md 88.7.6.3) - rects of lift and sink round the field
+; THE AIR (SPEC.md 88.7.6.3) - a REPEATING TILE of lift and sink
 ;
-; Placed in metres from the LOCATION's own centre, so one table serves all
-; nine worlds and every one of them gets the same weather round its own
-; runway. Every rect keeps CS_LIFTCLR out of the field, which is the circuit
-; and is where every other test of this simulator flies.
+; The first build was eight rects placed once, in metres from the location's
+; centre, and the field flew for five minutes in two different worlds and
+; never found one (88.7.6.4). Four rects in a tile that repeats every
+; CS_AIRTILE metres is the same table doing a different job: the air is
+; everywhere, a glider meets some inside a minute wherever it points, and
+; the arithmetic is one AND per axis rather than a longer walk.
+;
+; The tile is anchored on the LOCATION'S OWN CENTRE, so one table serves all
+; nine worlds and the pattern sits the same way round every runway.
+;
+; CS_LIFTCLR is a CALM BUBBLE round the field and no longer a constraint on
+; where a rect may be put: the distance test comes first and the tile is free
+; to be dense. That is what makes the two requirements independent - a
+; guaranteed still circuit, and air you can find.
 ;
 ; The rate is cs_vs's own scale, m/s x 128, positive UP. A sailplane's still
 ; air sink is about 1 m/s, so +448 is a climb you can work and -320 is air
 ; worth leaving.
 ; =============================================================================
-CSAIR_DX      equ 0                   ; from the field, metres
-CSAIR_DZ      equ 2
-CSAIR_HW      equ 4                   ; ...and how far it reaches, half-extents
-CSAIR_HD      equ 6
-CSAIR_RATE    equ 8                   ; m/s x 128, + up
-CSAIR_SIZE    equ 10
-CS_NLIFT    equ 8
-CS_LIFTCLR  equ 2500                ; the disc round the field they keep out of
+CSAIR_DX    equ 0                   ; within the tile, metres
+CSAIR_DZ    equ 2
+CSAIR_HW    equ 4                   ; ...and how far it reaches, half-extents
+CSAIR_HD    equ 6
+CSAIR_RATE  equ 8                   ; m/s x 128, + up
+CSAIR_SIZE  equ 10
+CS_NLIFT    equ 4
+CS_AIRTILE  equ 4096                ; a POWER OF TWO: the wrap is an AND
+CS_LIFTCLR  equ 1800                ; the calm bubble round the field
 
 cs_lifts:
-    dw  3200, -1800,  700, 500,  448    ; +3.5 m/s, the near one
-    dw -2900,  2600,  600, 800, -256    ; -2.0
-    dw  4800,  3400,  900, 700,  384
-    dw -4200, -3100,  700, 600,  320
-    dw   600,  5200,  800, 900, -320
-    dw -5600,   900,  600, 700,  512    ; +4.0, the strong one
-    dw  2200, -5400,  700, 800, -192
-    dw  6400, -1200,  900, 600,  256
+    dw   800,  900,  600, 500,  448     ; +3.5 m/s
+    dw  2600,  700,  500, 450, -320     ; -2.5
+    dw  1500, 2800,  650, 550,  512     ; +4.0, the strong one
+    dw  3300, 2600,  500, 500, -256
 
 ; -----------------------------------------------------------------------------
 ; cs_lift - the air's vertical rate where the aeroplane is, in cs_vs's units
@@ -1095,6 +1123,20 @@ cs_lift:
     sub cx, [si + CSA_X]
     mov di, [cs_pz+1]
     sub di, [si + CSA_Z]
+    ; --- THE CALM BUBBLE FIRST (88.7.6.4): a launch is over the threshold and
+    ;     a circuit is flown here, so the field's own air is still whatever
+    ;     the tile says. Manhattan, which is what every other range in this
+    ;     simulator is measured in
+    mov ax, cx
+    call cs_wabs
+    mov bx, ax
+    mov ax, di
+    call cs_wabs
+    add ax, bx
+    cmp ax, CS_LIFTCLR
+    jb .none
+    and cx, CS_AIRTILE - 1          ; ...and the tile, which is why this is a
+    and di, CS_AIRTILE - 1          ; power of two
     mov si, cs_lifts
     mov bx, CS_NLIFT
 .l:
@@ -1114,6 +1156,7 @@ cs_lift:
     add si, CSAIR_SIZE
     dec bx
     jnz .l
+.none:
     xor ax, ax
 .out:
     ret

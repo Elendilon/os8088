@@ -165,7 +165,7 @@ cs_m_lcy_thw: db CSM_FLAT, 8, 3, 0, CSI_RIVER, 0    ; Battersea to Waterloo
     dw  -169,  -450
     dw   144,   511
     dw   376,  1574
-cs_m_lcy_thwf: db CSM_FLAT, 4, 0, 3, CSI_MARK, 0
+cs_m_lcy_thwf: db CSM_FLAT, 4, 0, 3, CSI_RIVLINE, 0
     dw 1668, .v, 0, cs_e_road3
 .v: dw  -660, -1500
     dw   -60,  -500
@@ -182,7 +182,7 @@ cs_m_lcy_thc: db CSM_FLAT, 8, 3, 0, CSI_RIVER, 0    ; Waterloo to Tower Bridge
     dw  -553,   469
     dw   599,   213
     dw  1546,  -235
-cs_m_lcy_thcf: db CSM_FLAT, 4, 0, 3, CSI_MARK, 0
+cs_m_lcy_thcf: db CSM_FLAT, 4, 0, 3, CSI_RIVLINE, 0
     dw 1614, .v, 0, cs_e_road3
 .v: dw -1510,  -100
     dw  -540,   350
@@ -199,7 +199,7 @@ cs_m_lcy_the: db CSM_FLAT, 8, 3, 0, CSI_RIVER, 0    ; Tower Bridge to the docks
     dw  -954,    60
     dw   641,   160
     dw  2549,    10
-cs_m_lcy_thef: db CSM_FLAT, 4, 0, 3, CSI_MARK, 0
+cs_m_lcy_thef: db CSM_FLAT, 4, 0, 3, CSI_RIVLINE, 0
     dw 2559, .v, 0, cs_e_road3
 .v: dw -2210,   140
     dw  -960,   -60

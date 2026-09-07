@@ -98,7 +98,7 @@ cs_m_mia_sea1: db CSM_FLAT, 10, 4, 0, CSI_RIVER, 0
     dw  2800,     0
     dw  2800,  1500
     dw  2800,  3000
-cs_m_mia_sea1f: db CSM_FLAT, 5, 0, 4, CSI_MARK, 0
+cs_m_mia_sea1f: db CSM_FLAT, 5, 0, 4, CSI_RIVLINE, 0
     dw 4150, .v, 0, cs_e_road4
 .v: dw     0, -3000
     dw    20, -1500
@@ -117,7 +117,7 @@ cs_m_mia_sea0: db CSM_FLAT, 10, 4, 0, CSI_RIVER, 0
     dw  2800,     0
     dw  2800,  1500
     dw  2800,  3000
-cs_m_mia_sea0f: db CSM_FLAT, 5, 0, 4, CSI_MARK, 0
+cs_m_mia_sea0f: db CSM_FLAT, 5, 0, 4, CSI_RIVLINE, 0
     dw 4150, .v, 0, cs_e_road4
 .v: dw  -330, -3000
     dw  -200, -1500
@@ -171,7 +171,7 @@ cs_m_mia_bay1: db CSM_FLAT, 10, 4, 0, CSI_RIVER, 0
     dw   930,     0
     dw  1060,  1500
     dw  1220,  3000
-cs_m_mia_bay1f: db CSM_FLAT, 5, 0, 4, CSI_MARK, 0
+cs_m_mia_bay1f: db CSM_FLAT, 5, 0, 4, CSI_RIVLINE, 0
     dw 3320, .v, 0, cs_e_road4
 .v: dw    95, -3000
     dw    80, -1500
@@ -190,7 +190,7 @@ cs_m_mia_bay0: db CSM_FLAT, 10, 4, 0, CSI_RIVER, 0
     dw   880,     0
     dw   820,  1500
     dw   840,  3000
-cs_m_mia_bay0f: db CSM_FLAT, 5, 0, 4, CSI_MARK, 0
+cs_m_mia_bay0f: db CSM_FLAT, 5, 0, 4, CSI_RIVLINE, 0
     dw 3340, .v, 0, cs_e_road4
 .v: dw  -110, -3000
     dw  -100, -1500
@@ -214,7 +214,7 @@ cs_m_mia_cut: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
     dw  -560,   110
     dw     0,   105
     dw   560,   100
-cs_m_mia_cutf: db CSM_FLAT, 2, 0, 1, CSI_MARK, 0
+cs_m_mia_cutf: db CSM_FLAT, 2, 0, 1, CSI_RIVLINE, 0
     dw 580, .v, 0, cs_e_road1
 .v: dw  -560,     0
     dw   560,     0

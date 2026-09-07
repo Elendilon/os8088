@@ -139,12 +139,17 @@ CSI_PBG    equ 10               ; the panel's ground...
 CSI_PFG    equ 11               ; ...its ink...
 CSI_PHI    equ 12               ; ...and its warning
 CSI_PFACE  equ 13               ; the cockpit's face round the windows (88.9.2)
+CSI_RIVLINE equ 15              ; A RIVER SEEN FROM FAR ENOUGH TO BE A LINE
+                                ; (88.6.5): the river's own blue on the two
+                                ; colour adapters, and white on Hercules,
+                                ; where the river's fill is stripes and a
+                                ; line drawn in stripes is half a line
 CSI_BLACK  equ 14               ; NOTHING: the ground band with the Terrain
                                 ; fill off (88.13.3). It cannot be CSI_SKY -
                                 ; on a 1bpp adapter the sky IS black and the
                                 ; two are the same row, but on a colour one
                                 ; the whole world would then read as sky
-CSI_NINK   equ 15
+CSI_NINK   equ 16
 
 ; --- the world (SPEC.md 88.5, 88.6) -------------------------------------------
 ; Metres. x east, z north, y up; the Eiffel Tower at the origin.
@@ -2369,6 +2374,8 @@ cs_tpl:
     ZWORD cs_pbarx                  ; the throttle bar's left end, top row
     ZWORD cs_pbary                  ; and width, off the cockpit
     ZWORD cs_pbarw
+CS_HULLTHR equ 25               ; a throttle under this is not driving, so the
+                                ; HULL brakes (88.7.7.2)
 CS_HZR equ 1                    ; the horizon's hold, a bit an axis (88.7.3.1)
 CS_HZP equ 2
 CS_MSGAGE equ 145               ; ticks an ANNOUNCEMENT stands: 8 seconds at

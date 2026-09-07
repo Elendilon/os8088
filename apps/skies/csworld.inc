@@ -422,7 +422,10 @@ cs_p_a5:
                                     ;              which is the same one-under
                                     ;              margin 1201/11 had
     dw 3                            ; CSP_FRICT    on land; DOUBLED on water
-    dw 18                           ; CSP_BRAKE    ...and no use at all there
+    dw 18                           ; CSP_BRAKE    on the wheels with B - and
+                                    ;              on the WATER always, with
+                                    ;              no key, because a hull is
+                                    ;              a brake (88.7.7.2)
     dw 500                          ; CSP_ROLLR    2.7 degrees a tick
     dw 120                          ; CSP_ROLLL    it comes back to level on
                                     ;              its own: a spin-resistant

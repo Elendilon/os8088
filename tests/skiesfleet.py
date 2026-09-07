@@ -78,7 +78,8 @@ for _l in open(os.path.join(ROOT, "apps", "skies", "csflight.inc")):
     _m = re.match(r"^(CS[A-Z]*_[A-Z0-9_]+)\s+equ\s+(-?\d+)\s*(?:;|$)", _l)
     if _m:
         _EF[_m.group(1)] = int(_m.group(2))
-for _n in ("CS_NLIFT", "CSAIR_SIZE", "CSAIR_DX", "CSAIR_DZ", "CSAIR_RATE"):
+for _n in ("CS_NLIFT", "CSAIR_SIZE", "CSAIR_DX", "CSAIR_DZ", "CSAIR_RATE",
+           "CS_AIRTILE", "CS_LIFTCLR"):
     if _n not in _EF:
         sys.exit("skiesfleet: csflight.inc no longer defines %s" % _n)
     globals()[_n] = _EF[_n]
@@ -465,8 +466,12 @@ def main(argv):
         poke("cs_msg", b"\x00")
         m.run()
 
-        # THE AIR (88.7.6.3): still, lift, sink - read off cs_airv, and the
-        # ALTITUDE with it, because a rate nothing moves is not weather
+        # THE AIR (88.7.6.3, 88.7.6.4): still, lift, sink - read off cs_airv,
+        # and the ALTITUDE with it, because a rate nothing moves is not
+        # weather. The table's offsets are inside a TILE that repeats, so a
+        # rect is reached at its own place in ANY tile - which is the property
+        # under test and not an accident of the arithmetic: the rows below
+        # step one whole tile out on each axis and expect the same air
         port = w("cs_airport")
         fx, fz = sg(rec(port, CSA_X)), sg(rec(port, CSA_Z))
         lifts = []
@@ -503,15 +508,17 @@ def main(argv):
                                    "little"))
             return air, y0, y1, sw
 
-        calm = soar(0, 14000)                   # well outside every rect
+        calm = soar(0, 400)                     # INSIDE the calm bubble
         lift = soar(up[0], up[1])
         sink = soar(dn[0], dn[1])
+        far = soar(up[0] + CS_AIRTILE, up[1] + CS_AIRTILE)   # the NEXT tile
         print("      the air: calm %+d (%d->%d), lift %+d (%d->%d, swoop %d), "
-              "sink %+d (%d->%d, swoop %d)"
+              "sink %+d (%d->%d, swoop %d), one tile on %+d"
               % (calm[0], calm[1], calm[2], lift[0], lift[1], lift[2], lift[3],
-                 sink[0], sink[1], sink[2], sink[3]))
+                 sink[0], sink[1], sink[2], sink[3], far[0]))
         check(calm[0] == 0 and calm[1] == calm[2],
-              "still air is STILL (%+d, %d -> %d)" % (calm[0], calm[1], calm[2]))
+              "the CALM BUBBLE round the field is still (%+d, %d -> %d)"
+              % (calm[0], calm[1], calm[2]))
         check(lift[0] == up[2] and lift[2] > lift[1],
               "the strongest lift is the table's and it CLIMBS (%+d for %+d, "
               "%d -> %d)" % (lift[0], up[2], lift[1], lift[2]))
@@ -521,6 +528,11 @@ def main(argv):
         check(lift[3] > 0 and sink[3] > 0,
               "and CROSSING into either arms the swoop (%d, %d)"
               % (lift[3], sink[3]))
+        # ...AND IT TILES (88.7.6.4), which is the whole of the fix for air
+        # nobody could find: the same rect one tile out on BOTH axes
+        check(far[0] == up[2] and far[2] > far[1],
+              "one whole tile out on both axes the same lift is there (%+d "
+              "for %+d, %d -> %d)" % (far[0], up[2], far[1], far[2]))
 
         # --- 4. the A5 --------------------------------------------------------
         a5 = fly(4)
@@ -551,6 +563,78 @@ def main(argv):
         m.key("ArrowDown", down=False, up=True)
         check(ok, "...and gets off it under its own power (state %d, %d kt)"
               % (byte("cs_state"), w("cs_spd") * 1944 // 128000))
+
+        # ...AND THE WATER STOPS IT (88.7.7.2), which twice the rolling
+        # friction did not: measured over the same span with the throttle
+        # shut against the same span with it open, because the hull only
+        # brakes when the pilot is not driving - a hull that dragged harder
+        # than the engine pushes is the check above going red
+        def hull(thr):
+            m.pause()
+            poke("cs_pause", b"\x01")
+            m.run(); m.advance(frames=2); m.pause()
+            poke("cs_spd", (22 * 128).to_bytes(2, "little"))
+            poke("cs_thr", thr.to_bytes(2, "little"))
+            poke("cs_thrust", b"\x00\x00")
+            poke("cs_thracc", b"\x00\x00")
+            poke("cs_state", b"\x00")
+            poke("cs_onwater", b"\x01")
+            poke("cs_pause", b"\x00")
+            m.run()
+            s0 = w("cs_spd")
+            for _ in range(10):
+                m.advance(frames=12)
+                m.run()
+            return s0, w("cs_spd")
+        shut = hull(0)
+        open_ = hull(100)
+        print("      on the water: throttle shut %d -> %d, open %d -> %d"
+              % (shut[0], shut[1], open_[0], open_[1]))
+        check(shut[0] - shut[1] > 3 * (open_[0] - open_[1]),
+              "the WATER stops it with the throttle shut, and does not with "
+              "it open (%d units against %d)"
+              % (shut[0] - shut[1], open_[0] - open_[1]))
+
+        # --- 4b. the brake is a LATCH the panel shows (88.7.10.1) -----------
+        # A TYPED key and not a held one: the field could not tell a held B
+        # from no B at all, and a level read leaves nothing on the glass.
+        m.pause()
+        poke("cs_pause", b"\x01")
+        m.run(); m.advance(frames=2); m.pause()
+        poke("cs_onwater", b"\x00")
+        poke("cs_spd", (30 * 128).to_bytes(2, "little"))
+        poke("cs_thr", (100).to_bytes(2, "little"))
+        poke("cs_state", b"\x00")
+        poke("cs_pause", b"\x00")
+        m.run()
+        m.type_text("b")
+        latched = False
+        for _ in range(30):
+            m.advance(frames=10)
+            m.run()
+            if byte("cs_kbrake"):
+                latched = True
+                break
+        check(latched, "one TYPED b latches the brake (%d)" % byte("cs_kbrake"))
+        thr_after = w("cs_thr")
+        held = byte("cs_kbrake")
+        for _ in range(20):                     # ...and it STAYS, unheld
+            m.advance(frames=12)
+            m.run()
+            held = held and byte("cs_kbrake")
+        check(held and thr_after == 0,
+              "...and it stays on with nothing held, throttle shut (%d, thr "
+              "%d)" % (byte("cs_kbrake"), thr_after))
+        m.type_text("b")                        # ...and the same key lets go
+        released = False
+        for _ in range(30):
+            m.advance(frames=10)
+            m.run()
+            if byte("cs_kbrake") == 0:
+                released = True
+                break
+        check(released,
+              "...and the same key lets it go (%d)" % byte("cs_kbrake"))
 
         def waters():
             """Every CSI_RIVER face of the flown location, out of the GUEST's

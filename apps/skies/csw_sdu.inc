@@ -153,7 +153,7 @@ cs_m_sdu_bay0: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
     dw -1480, 1210                  ; the far bank, 1,300 m out
     dw 220, 610
     dw 1820, 10
-cs_m_sdu_bay0f: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
+cs_m_sdu_bay0f: db CSM_FLAT, 3, 0, 2, CSI_RIVLINE, 0
     dw 1810, .v, 0, cs_e_road2
 .v: dw -1703, 600
     dw -3, 0
@@ -180,7 +180,7 @@ cs_m_sdu_bay1: db CSM_FLAT, 8, 3, 0, CSI_RIVER, 0
     dw -300, 700
     dw 600, 550
     dw 1300, -250
-cs_m_sdu_bay1f: db CSM_FLAT, 4, 0, 3, CSI_MARK, 0
+cs_m_sdu_bay1f: db CSM_FLAT, 4, 0, 3, CSI_RIVLINE, 0
     dw 1186, .v, 0, cs_e_road3
 .v: dw -1063, 525
     dw -450, 185
@@ -199,7 +199,7 @@ cs_m_sdu_bot: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
     dw -275, 800                    ; the Urca shore
     dw 275, 200
     dw 775, -300
-cs_m_sdu_botf: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
+cs_m_sdu_botf: db CSM_FLAT, 3, 0, 2, CSI_RIVLINE, 0
     dw 761, .v, 0, cs_e_road2
 .v: dw -525, 550
     dw 0, -50
@@ -219,7 +219,7 @@ cs_m_sdu_atl: db CSM_FLAT, 8, 3, 0, CSI_RIVER, 0
     dw 975, -450
     dw -225, -900
     dw -1425, -1050
-cs_m_sdu_atlf: db CSM_FLAT, 4, 0, 3, CSI_MARK, 0
+cs_m_sdu_atlf: db CSM_FLAT, 4, 0, 3, CSI_RIVLINE, 0
     dw 1962, .v, 0, cs_e_road3
 .v: dw 1800, 775
     dw 825, -25

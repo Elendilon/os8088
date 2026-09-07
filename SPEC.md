@@ -97704,6 +97704,30 @@ one frame and the thirty-third is DROPPED, so a skyline denser than that loses
 buildings rather than dropping frames, and the fault would read as a missing
 model. Paris itself reaches twenty-six.
 
+#### 88.6.5 A river reduced to a LINE is blue
+
+Asked for off the machine: *"use blue lines (for coloured displays) for 'the
+river became a single line' LOD."* A river far enough away is drawn as its
+`CSO_FAR` model — a `CSM_FLAT` with no faces and two edges, the water's
+centreline — and every one of them was lettered in `CSI_MARK`, which is the
+**runway's** white. A white line through a green landscape is a road.
+
+`CSI_RIVLINE` is the sixteenth ink, and it is one ink rather than "use
+`CSI_RIVER`" because the river's own fill is not a line colour on every
+adapter:
+
+| | the river's fill | the river's LINE |
+|---|---|---|
+| Mode X | DAC 3, deep blue | a lighter blue, so a one-pixel stroke reads against the ground |
+| CGA (4 colour) | colour 0, the palette's light blue | the same colour 0 — drawn over GREEN ground, so it shows |
+| CGA 160×100 (§88.15) | colour 1, blue | colour 1, the same — the one backend where a line can be the colour of the thing it stands for with nothing given up |
+| Hercules | `FF 00 FF 00`, stripes | **solid white**, because a line drawn in stripes is half a line |
+
+That last row is the whole reason for a separate ink. 28 far models across
+eight worlds carry it, and `tests/unit/t_csink.py` holds every one of them to
+it — one left behind is a white river on a colour display and nothing to see
+on Hercules.
+
 ### 88.7 The flight model (`apps/skies/csflight.inc`)
 
 Deliberately simple, stepped **once per system tick** the way §85.6 steps
@@ -98445,11 +98469,11 @@ exactly the aeroplane with no engine* — one rule, two consequences. Removing
 that one condition is all it would take to make the air everyone's, and the
 reason not to is that every other aeroplane's tests measure still air.
 
-**`CS_LIFTCLR` = 2,500 m is a clear disc round the field**, which is the
-circuit — nobody wants a thermal on short final in the first minute — and is
-also where every other test of this simulator flies. `tests/unit/t_csair.py`
-holds the table to it, so a rect edged toward the runway fails the build
-rather than a flight.
+**`CS_LIFTCLR` is a clear disc round the field**, which is the circuit —
+nobody wants a thermal on short final in the first minute — and is also
+where every other test of this simulator flies. §88.7.6.4 is what it became
+and why: a bubble tested before the tile rather than a rule about where a
+rect may be put.
 
 **The swoop is the CROSSING, not the dwell.** Entering lift is a tone rising
 `CS_SWOOPLO` → `CS_SWOOPHI` over `CS_SWOOPT` = 8 ticks; entering sink is the
@@ -98461,6 +98485,34 @@ never arms — and neither does it with the SOUND SWITCH OFF, because the swoop
 is *scheduled* rather than played: one armed while the panel is quiet and
 left standing would be a swoop that plays when the sound comes back on,
 minutes later and for a thermal that is long gone.
+
+#### 88.7.6.4 …and it TILES, because eight rects in a world is nothing
+
+Reported off the machine after §88.7.6.3 shipped: *"glider thermals either
+too rare or not working — flew for about 5 minutes and never hit one. Tried
+Paris and Nepal."* Not working would have been a defect; this is arithmetic.
+Eight rects of about 1.2 × 1.0 km, placed once, in a world 32 km across, is
+**under 1% of it**. A sailplane at 22 m/s covers 6.6 km in five minutes, so
+finding one was a coin the field was never going to win.
+
+**The four rects live in a `CS_AIRTILE` = 4,096 m square that repeats**,
+anchored on the location's own centre. Coverage inside the tile is 27%, so a
+glider meets air inside a minute wherever it points, and the wrap is one
+`AND` per axis because the tile is a power of two — cheaper than the walk it
+replaces, not dearer.
+
+**`CS_LIFTCLR` stops being a constraint on the table and becomes a calm
+bubble**, tested before the tile at 1,800 m Manhattan from the field. That
+separation is the point: the circuit is still — a launch is over the
+threshold and the longest runway here is 800 m of half-length — *and* the
+air is dense everywhere else. Trying to satisfy both with placement is what
+made the first version sparse, because a 2,500 m exclusion from all four
+corners of a tile leaves almost nothing to place a rect in.
+
+`tests/unit/t_csair.py` holds the tile to the two things a flight cannot
+show: every rect wholly inside it (the wrap would CUT one, not move it) and
+a coverage between a tenth and a half — under a tenth is the complaint back,
+over a half is weather rather than thermals.
 
 #### 88.7.7 The ICON A5 — an amphibian, and the mechanic is WATER
 
@@ -98574,6 +98626,30 @@ location's single `CSA_WNAME`, so Miami tells `BISCAYNE BAY` from
 `GUANABARA BAY`. Four of the nine worlds carry more than one water and every
 one of them used to report the same name.
 
+#### 88.7.7.2 A hull is always braking
+
+Reported off the machine: *"water should slow the A5 quickly — no brakes
+needed when it's landing on water."* On the water the model doubled
+`CSP_FRICT`, which on the A5 is **6 units a tick, 0.85 m/s²** — 28 seconds
+and about 340 m to come off the step from 47 knots. That is not a seaplane,
+it is a very long taxi.
+
+The water takes **`CSP_BRAKE` as well, with no key**: 24 units a tick,
+3.4 m/s², about 7 seconds and 84 m. It is the right shape as well as the
+right number — there is nothing to brake with on the water, and nothing
+needs to be, so the record's brake figure serves both surfaces and the
+aeroplane has one deceleration a pilot can learn.
+
+**With the throttle SHUT**, and that condition is not a nicety: the first
+build applied it always, and 24 units a tick of drag against 14 of thrust is
+an amphibian that **cannot take off**. `skiesfleet` caught it in one line —
+*"gets off it under its own power (state 0, 0 kt)"*. A throttle under
+`CS_HULLTHR` = 25% is a pilot who is not driving, which is every landing and
+no take-off; above it the hull drags at twice the rolling friction and the
+A5 planes and flies. It composes with §88.7.10 for free: `B` closes the
+throttle, so the key that means STOP works on the water too, where there is
+nothing for it to squeeze.
+
 #### 88.7.8 THE ELEVATOR IS A BODY RATE, and it was a world one
 
 Reported off the glass, and it is one defect with two faces:
@@ -98668,6 +98744,81 @@ They share one buffer, `cs_toastbuf`'s shape: an aeroplane either starts on
 the ground or in the air, so the take-off prompt and the tow release can
 never be up at once. `cs_msgtab` points both rows at it.
 
+#### 88.7.10 The brake closes the throttle
+
+Reported off the machine: *"brakes are not working."* They were: measured on
+the runway with the engine off, `B` takes 27 units a tick off the speed
+against 7 without it, which is the record working exactly. What is wrong is
+the state the key is pressed IN.
+
+**A landing roll is flown with the throttle where the take-off left it.**
+`W` is held to open it and never let go — nothing closes it, and the panel
+shows `THR 100` all the way down the approach. So on the ground the Cessna's
+16 of thrust was being spent against its 20 of brake, and the aeroplane
+stopped at a fifth of its rate: 11 units a tick instead of 27, which over a
+runway is the difference between stopping and not.
+
+A pilot closes the throttle before touching the brakes. **The key that means
+STOP does it**: `B` sets `[cs_thr]` to 0. It is one word, it is what the
+player meant, and it leaves `S` doing exactly what it did for anyone who
+wants to fly the throttle down by hand.
+
+#### 88.7.11 The windshield goes
+
+Asked for off the machine: *"add crash lines / broken windshield when the
+player crashes."* `cs_crackle` draws it over the view for as long as the
+crash picture stands, which is `CS_CRASHT` ticks before `cs_reset` puts the
+aeroplane back on the runway. It goes on AFTER `cs_scene` and BEFORE
+`cs_panel`, so the pilot keeps the last thing they saw with the glass broken
+in front of it, and the instruments stay readable.
+
+**A table, not a drawing, and not a generator.** Eight cracks radiate from a
+hub, each with one kink, and the kinks are joined into a ring — which is what
+laminated glass does and what random spokes do not. 24 segments, 96 bytes.
+The **hub is off-centre** because a symmetrical star reads as a decoration
+rather than as damage.
+
+The coordinates are **1/256 of the view each way**, scaled at draw time, so
+the same table fits Mode X's 320×150 and Hercules' 640×112 and every §88.13.4
+Size rung of both — the one place a crash overlay would otherwise have needed
+three tables and a rung of its own. `cs_seg` clips each segment, because the
+ring reaches the edges on a wide view.
+
+#### 88.7.10.1 …and it is a LATCH the panel shows, not a key nobody can see
+
+§88.7.10 explained the arithmetic and the field flew it again: *"I was
+bringing the throttle to 0 before pressing the documented B, and was still
+rolling right off the end of the runway. I could not notice any difference in
+speed decrease, either by holding B, tapping B, or pressing B only once."*
+
+**Two separate faults, and the second is the one that matters.** Measured
+under the harness on a real rollout — 36 knots, throttle shut, `B` held — the
+speed falls 4,608 → 2,754 in the span coasting takes to fall 4,602 → 4,171:
+**4.3× the deceleration, and `[cs_kbrake]` reads 1 the whole way.** So the
+model brakes and the key reaches it *here*. What it does not do is give the
+pilot anything to look at: `B` was a LEVEL READ through `OSAPI_KEY_DOWN`
+(§9.7), a byte that is 1 while a finger is down and 0 the instant it is not,
+with no mark on the glass either way. A pilot who cannot tell a working brake
+from a dead key has no way to find out which they have — which is exactly
+what the report says.
+
+**So the brake becomes a latch on the TYPED reader**, beside `P`, `R` and
+`M`: `B` toggles it, and the state line reads **`BRAKES ON`** where it read
+`ON THE GROUND`. That is the field's own suggestion and it is the better
+mechanism for three reasons — a pilot can see the state, a tap is as good as
+a hold, and it stops depending on the key-down map, which §9.7's own contract
+calls *advice and not an oracle* (a lost break code leaves a key reading
+down until it is pressed again).
+
+**It lets go by itself in the two places holding it would be a trap**: at
+`cs_reset`, and at the moment the wheels leave the ground — brakes on with
+20 of drag against 16 of thrust is an aeroplane that cannot take off, and
+now that it is a latch, nothing else would ever release it.
+
+`cs_k_state` packs the latch as **bit 2** beside the water and the stall. All
+three change the line, so all three must change the key, or the strip is
+simply never repainted (§88.7.7's own lesson, one bit along).
+
 ### 88.8 The session (`apps/skies/csgame.inc`)
 
 `cs_fsx_main` is the §53.1 bracket's exclusive main and has Tank's two rates:
@@ -98682,7 +98833,7 @@ typed, `OSAPI_KEY_DOWN` (§9.7) for what is held:
 | ← / → | roll | `R` | back to the runway |
 | `W` / `S` | throttle up / down | `M` | engine sound on / off |
 | `A` / `D` | rudder, and the wheels on the ground | `Esc`, `F` | leave (§11.2.1) |
-| `B` | brakes | | |
+| | | `B` | brakes on / off (§88.7.10.1) |
 
 The engine is a speaker tone whose pitch follows the throttle
 (`OSAPI_SND_TONE`, re-issued when the throttle moves), a stall is a repeated
@@ -100006,6 +100157,30 @@ which is also the first run, where there is no file at all.
 carry the other three — and one `apps/os88data.inc` that all four include is
 the obvious next step. It is not taken here: those three work, and moving them
 is a change to three shipped packages rather than to this one.
+
+#### 88.13.9.1 …and a 286 or better with no file starts at the top
+
+Asked for off the machine: *"have a 286+ class default to max settings, when
+no csset is available."* The shipped defaults are the **8088's** — the
+machine this simulator is calibrated against — and on anything faster they
+are a first flight spent looking at an empty world and wondering where the
+buildings went.
+
+`OSAPI_CPU_INFO` answers `CPU_286` or better, which §7 of PERFORMANCE.md's
+rules calls the right thing to branch on: **a fact the code can test rather
+than a guess about speed.** A tier above `CPU_8086` takes `cs_set_best` —
+Detail Level High, Draw Distance Ultra, Size Full, both fills on.
+
+**It runs BEFORE the read**, which is what makes it safe: a file that exists
+says what the player chose and overwrites all five, so the tier decides only
+what a machine that has never been told anything gets. Delete the file and
+the fast machine goes back to the top; the slow one goes back to its own
+defaults.
+
+**`cs_set_best` is not `cs_set_max`**, and the difference is a real trap: the
+clamp's ceiling for the Mode byte is 1, which is *CGA*. A machine handed the
+best of everything else off that table would have been handed the worse of
+two displays.
 
 #### 88.13.6 The page's own defects, off the machine
 

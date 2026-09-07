@@ -48,6 +48,11 @@ cs_sd_appdat: db 'APPDATA', 0
 ; than throwing five good settings away.
 cs_set_at:  dw cs_setbld, cs_setlod, cs_setsize, cs_modepref, cs_setfill
 cs_set_max: db CSBL_HIGH, CSL_ULTRA, CSZ_FULL, 1, CSFL_ALL
+; ...and what a 286 or better starts on with no file at all (SPEC.md 88.13.9).
+; NOT cs_set_max: that is a CEILING for the clamp, and the Mode byte's ceiling
+; is 1, which is CGA - a machine given the best of everything else would have
+; been given the worse of two displays.
+cs_set_best: db CSBL_HIGH, CSL_ULTRA, CSZ_FULL, 0, CSFL_ALL
 CS_SETN     equ 5
 
 ; -----------------------------------------------------------------------------
@@ -215,6 +220,28 @@ cs_set_load:
     push es
     push ds
     pop es
+    ; --- A 286 OR BETTER WITH NO FILE STARTS AT THE TOP (SPEC.md 88.13.9).
+    ;     The shipped defaults are an 8088's - the machine this simulator is
+    ;     calibrated against - and on anything faster they are a first flight
+    ;     spent looking at an empty world and wondering where the buildings
+    ;     are. This is BEFORE the read on purpose: a file that exists says
+    ;     what the player chose and overwrites every one of these, so the
+    ;     tier decides only what a machine with no file has ever been told.
+    call OSAPI_CPU_INFO
+    cmp al, CPU_8086
+    jbe .noboost
+    xor bx, bx
+.boost:
+    mov al, [cs_set_best + bx]
+    push bx
+    shl bx, 1
+    mov di, [cs_set_at + bx]
+    mov [di], al
+    pop bx
+    inc bx
+    cmp bx, CS_SETN
+    jb .boost
+.noboost:
     call cs_set_enter
     jc .done
     mov si, cs_set_file

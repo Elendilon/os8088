@@ -91,7 +91,7 @@ cs_m_rive0: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
     dw 1510, -866
     dw -190, 235
     dw -1190, 834
-cs_m_rive0f: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
+cs_m_rive0f: db CSM_FLAT, 3, 0, 2, CSI_RIVLINE, 0
     dw 1739, .v, 0, cs_e_road2
 .v: dw 1467, -933
     dw -233, 167
@@ -104,7 +104,7 @@ cs_m_rive1: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
     dw 1310, -466
     dw 91, 343
     dw -1333, 347
-cs_m_rive1f: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
+cs_m_rive1f: db CSM_FLAT, 3, 0, 2, CSI_RIVLINE, 0
     dw 1375, .v, 0, cs_e_road2
 .v: dw 1267, -533
     dw 67, 267
@@ -117,7 +117,7 @@ cs_m_rivc0: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
     dw 981, 395
     dw -26, 143
     dw -1043, -316
-cs_m_rivc0f: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
+cs_m_rivc0f: db CSM_FLAT, 3, 0, 2, CSI_RIVLINE, 0
     dw 1083, .v, 0, cs_e_road2
 .v: dw 1000, 317
     dw 0, 67
@@ -130,7 +130,7 @@ cs_m_rivc1: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
     dw 1224, 1067
     dw -183, -37
     dw -1183, -838
-cs_m_rivc1f: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
+cs_m_rivc1f: db CSM_FLAT, 3, 0, 2, CSI_RIVLINE, 0
     dw 1615, .v, 0, cs_e_road2
 .v: dw 1267, 1000
     dw -133, -100
@@ -143,7 +143,7 @@ cs_m_rivw0: db CSM_FLAT, 6, 2, 0, CSI_RIVER, 0
     dw 1148, 78
     dw -23, -221
     dw -1076, 357
-cs_m_rivw0f: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
+cs_m_rivw0f: db CSM_FLAT, 3, 0, 2, CSI_RIVLINE, 0
     dw 1230, .v, 0, cs_e_road2
 .v: dw 1167, 0
     dw -33, -300
@@ -154,7 +154,7 @@ cs_m_rivw1: db CSM_FLAT, 4, 1, 0, CSI_RIVER, 0
     dw -322, 464
     dw 307, -443
     dw -178, 536
-cs_m_rivw1f: db CSM_FLAT, 2, 0, 1, CSI_MARK, 0
+cs_m_rivw1f: db CSM_FLAT, 2, 0, 1, CSI_RIVLINE, 0
     dw 597, .v, 0, cs_e_road1
 .v: dw 250, -500
     dw -250, 500

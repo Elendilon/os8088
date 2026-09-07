@@ -195,11 +195,13 @@ def main(argv):
         # flight starts, read STALLED for the whole flight and nothing ever
         # cleared it. Every combination, driven by the three source bytes so
         # the key really changes and the painter really runs.
-        WANT = ((1, 0, 0, "FLYING"), (1, 1, 0, "STALL"),
-                (1, 0, 1, "FLYING"), (1, 1, 1, "STALL"),
-                (0, 0, 0, "ON THE GROUND"), (0, 0, 1, "ON THE WATER"))
+        WANT = ((1, 0, 0, 0, "FLYING"), (1, 1, 0, 0, "STALL"),
+                (1, 0, 1, 0, "FLYING"), (1, 1, 1, 0, "STALL"),
+                (0, 0, 0, 0, "ON THE GROUND"), (0, 0, 1, 0, "ON THE WATER"),
+                (0, 0, 0, 1, "BRAKES ON"),      # the latch (88.7.10.1), bit 2
+                (0, 0, 1, 1, "BRAKES ON"))      # ...and it beats the water
         wrong, seen = [], 0
-        for st, sl, wt, want in WANT:
+        for st, sl, wt, br, want in WANT:
             # A DIFFERENT STATE FIRST, so the key really changes: the panel
             # repaints an item only when its key moves (88.9.4), so a row
             # that happens to be what the aeroplane is already doing would
@@ -207,19 +209,31 @@ def main(argv):
             m.pause()
             m.write(lin + base + off("cs_pause"), b"\x01")
             m.write(lin + base + off("cs_state"), b"\x02")     # CRASHED
+            m.write(lin + base + off("cs_kbrake"), b"\x00")
             m.run()
-            m.advance(frames=8)
+            # CONFIRMED AND NOT COUNTED: the panel repaints an item at a GATE
+            # (every CS_PRATE ticks), and eight card frames is a fifth of a
+            # tick on Mode X - so under load the crash was never painted, and
+            # the row below then reported "the key did not change", which was
+            # perfectly true and told nobody anything at all
+            m.bp_exec(lin + mp["cs_d_state"])
+            m.run()
+            if m.wait_stop(30) is None:
+                sys.exit("skiespanel: cs_d_state never ran for the crash")
+            m.bp_exec()
             m.run()
             m.pause()
             for nm, v in (("cs_state", st), ("cs_stall", sl),
-                          ("cs_onwater", wt), ("cs_pause", 1)):
+                          ("cs_onwater", wt), ("cs_kbrake", br),
+                          ("cs_pause", 1)):
                 m.write(lin + base + off(nm), bytes([v]))
             m.run()
             m.bp_exec(lin + mp["cs_d_state"])
             m.run()
             if m.wait_stop(30) is None:
-                wrong.append("state %d stall %d water %d: the painter never "
-                             "ran - the key did not change" % (st, sl, wt))
+                wrong.append("state %d stall %d water %d brake %d: the "
+                             "painter never ran - the key did not change"
+                             % (st, sl, wt, br))
                 m.bp_exec()
                 m.run()
                 continue
@@ -233,8 +247,8 @@ def main(argv):
             m.run()
             seen += 1
             if got != want:
-                wrong.append("state %d stall %d water %d: %r, wanted %r"
-                             % (st, sl, wt, got, want))
+                wrong.append("state %d stall %d water %d brake %d: %r, "
+                             "wanted %r" % (st, sl, wt, br, got, want))
         check(seen == len(WANT) and not wrong,
               "the state box says which state, over %d combinations%s"
               % (seen, "" if not wrong else " - " + "; ".join(wrong[:3])))

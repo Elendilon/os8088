@@ -67,7 +67,7 @@ cs_m_vnlk_riv: db CSM_FLAT, 8, 3, 0, CSI_RIVER, 0
     dw  -636,  -298
     dw   923,   602
     dw  2135,  1302
-cs_m_vnlk_rivf: db CSM_FLAT, 4, 0, 3, CSI_MARK, 0
+cs_m_vnlk_rivf: db CSM_FLAT, 4, 0, 3, CSI_RIVLINE, 0
     dw 2600, .v, 0, cs_e_road3
 .v: dw -2165, -1250
     dw  -606,  -350
