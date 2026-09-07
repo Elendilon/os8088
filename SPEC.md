@@ -96511,6 +96511,24 @@ FACE and letters the message on its own length, centred — and a glyph's
 cells are opaque, so what a message gets is a bar exactly the size of the
 message and an empty one gets nothing at all.
 
+##### 88.9.4.2 The state box, and a key with three things in it
+
+`cs_k_state` is the state in `AL` and, in `AH`, the stall and `cs_onwater`
+packed together — `((stall | water) << 1) | stall` — so that the box repaints
+when a hull leaves the water as well as when a stall starts. That is right:
+the key's job is to change whenever the drawn answer would.
+
+`cs_d_state` then tested **the whole of `AH`** for the stall. `cs_onwater`
+sets bit 1, so an amphibian **airborne off the water** — which is how every
+A5 flight starts, §88.7.7 putting it on the strip at every location — read
+`STALL` for the whole flight, at any speed, and nothing ever cleared it. It
+was reported off the machine as a state box stuck on STALL.
+
+`test ah, 1`, which is the stall's own bit. The trap is worth the paragraph
+because the key and the painter want different things out of the same byte —
+the key wants *did anything change*, the painter wants *which one* — and the
+byte that answers the first cannot be tested as a boolean for the second.
+
 #### 88.9.5 A cell is not a layout unit
 
 The panel is one drawing on three adapters: a 320-wide layout put through
@@ -97557,6 +97575,52 @@ Three things about it are decisions rather than mechanism:
   changed and leaves it alone. A toast on a toast keeps the FIRST message as
   what to go back to, so holding `F1` down does not make the strip's own
   history the thing it restores.
+
+#### 88.13.9 …and the page's answer is kept
+
+`SYSTEM\APPDATA\CSSET.DAT` on the instance's own volume, nine bytes: a
+four-byte magic and the five the page edits — Detail Level, Draw Distance,
+Size, Mode and the two fill bits. Read once in `cs_entry`, written when the
+Settings page is left. `apps/skies/csset.inc`.
+
+**The read is in the entry proc and not at the first paint**, which is where
+tank puts its own. That is forced: **Size is the last default set and it is
+set from the ADAPTER**, which is not known until the window exists, so a read
+before that line has its answer overwritten by the card. There is also an
+observation this section did not chase — the same read at the first paint left
+the buffer untouched with the file sitting on the disk, and the same read a
+moment later filled it. Tank (§85.9) and cyclone (§67.20) both load at their
+first paint.
+
+The shape is `apps/tank`'s `tkhs.inc` (§85.9), which is `apps/cyclone`'s
+(§67.20), down to its two hard-won rules — **`SYSTEM\APPDATA` on our own
+volume**, because the file browser is the whole of how a user reaches an
+application and a data file in an app folder is a misclick waiting to happen;
+and **`OSAPI_FILE_GOTO` and not its quiet twin**, because `GOTO_Q` moves the
+global cwd and deliberately not the instance's, so a quiet move is undone by
+the very next call and the save writes nothing at all while the load appears
+to work.
+
+**WHEN it saves is this file's own choice, and it is not tank's.** Tank banks
+a score the moment the initials are typed, because a player expects a score to
+be theirs as soon as they finish typing it. A setting is not like that: §88.13.5's
+hotkeys are deliberately TEMPORARY — F1 to F5 are for trying the next rung
+while flying, and a machine switched off mid-flight should not have inherited
+whatever was being tried. So what is written is the **page's** answer, at the
+moment the page is left by either route (Done's release, or a key), and the
+file is the considered choice rather than the last experiment.
+
+**A file that matches the magic and holds nonsense is CLAMPED, not refused.**
+The magic is what tells a foreign or stale file apart; a rung out of range is
+one byte of a file this program itself wrote, so the honest answer is the
+nearest rung rather than throwing five good settings away. A file that fails
+the magic, the size, or the folder leaves the built-in defaults standing —
+which is also the first run, where there is no file at all.
+
+**This is the fourth copy of those eighty lines** — tank, cyclone and ftpd
+carry the other three — and one `apps/os88data.inc` that all four include is
+the obvious next step. It is not taken here: those three work, and moving them
+is a change to three shipped packages rather than to this one.
 
 #### 88.13.6 The page's own defects, off the machine
 

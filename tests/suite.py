@@ -1721,7 +1721,7 @@ SOAK = [
         " held pixel for pixel against what they were, because fsx_run clears"
         " the clip region the handler armed",
         needs=("marty",), serial=True),
-    Row("skiesset", "soak", py("tests/skiesset.py"), 55.0,
+    Row("skiesset", "soak", py("tests/skiesset.py"), 75.0,
         "SPEC.md 88.13: the Settings page and its four knobs reaching the"
         " picture - Few files fewer objects and draws faster, a fill box"
         " clears its bit, the in-flight hotkeys do the same without the page,"
@@ -1740,7 +1740,12 @@ SOAK = [
         " rung and round, walked a FULL LAP so the wrap is seen, F4/F5 toggle"
         " the fills, and every one of them raises 88.13.8's TOAST - checked"
         " against the Settings page's own list of names read out of the"
-        " guest, and then left to expire back to the strip it replaced",
+        " guest, and then left to expire back to the strip it replaced - a"
+        " fill's toast says FILL or WIRE and a SECOND toast has to repaint"
+        " the strip, which is the panel's key and not the byte. And"
+        " 88.13.9's round trip: four settings picked on the page, Done, the"
+        " window closed, the package opened again, and the file in"
+        " SYSTEM/APPDATA is what the new instance comes back with",
         needs=("marty",), serial=True),
     Row("skiesocc", "soak", py("tests/skiesocc.py"), 26.0,
         "SPEC.md 88.13.7: the occlusion pass, and the only thing keeping its"
@@ -1778,13 +1783,17 @@ SOAK = [
         " stick left it, where the trainer clamps both axes and returns to"
         " level - and wears its own scattered panel (88.9.3)",
         needs=("marty",), serial=True),
-    Row("skiespanel", "soak", py("tests/skiespanel.py"), 24.0,
+    Row("skiespanel", "soak", py("tests/skiespanel.py"), 32.0,
         "SPEC.md 88.9.4: the panel is SAMPLED on the gate and PAINTED per"
         " page, so Mode X's two pages cannot hold readings taken different"
         " gates apart - the altimeter that read 1,683 feet one frame and"
         " 1,666 the next. The displayed sequence never goes backwards in a"
         " climb; --clobber-share sends the between-gates path back to .same"
-        " and it does, four frames in twelve",
+        " and it does, four frames in twelve. And 88.9.4.2's state box over"
+        " all six combinations of state, stall and cs_onwater: the key packs"
+        " three things into one word and the painter tested the whole of the"
+        " high byte, so an amphibian airborne OFF the water read STALLED for"
+        " the whole flight",
         needs=("marty",), serial=True),
     Row("skiesfleet", "soak", py("tests/skiesfleet.py"), 58.0,
         "SPEC.md 88.7.5-88.7.7.1: the three aeroplanes that came after the"

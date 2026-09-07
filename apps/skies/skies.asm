@@ -560,6 +560,15 @@ cs_entry:
                                     ; cs_adapter, which runs again on a Mode
                                     ; change and on a window move: neither may
                                     ; overwrite a Size the player picked
+    call cs_set_load                ; ...AND THE KEPT ONES OVER ALL FOUR
+                                    ; (88.13.9), which is why the read is here
+                                    ; and not at the first paint: Size is the
+                                    ; last default set and it is set from the
+                                    ; ADAPTER, so a file read before this line
+                                    ; would have its answer overwritten by the
+                                    ; card. The entry proc is UI-task context
+                                    ; - it is what opens the window - so the
+                                    ; file slots are legal here
     mov ax, cs_onresize             ; the card can change under us
     call OSAPI_WM_ONRESIZE          ; (SPEC.md 11.98)
     mov ax, cs_onup                 ; the release half of a click (13.7)...
@@ -1625,6 +1634,7 @@ cs_setup2:
     call os88ui_bhit
     jc .cancel                      ; released elsewhere: up again, and stay
     mov byte [cs_page], 0
+    call cs_set_save                ; ...and the page's answer is kept (88.13.9)
     call cs_repaint
     ret
 .cancel:
@@ -1702,6 +1712,10 @@ cs_onkey:
     jc .out                         ; spent doing it
     cmp byte [cs_page], 0
     je .page0
+    cmp byte [cs_page], 2           ; a key leaves EITHER second page, and only
+    jne .noset                      ; the Settings one has anything to keep
+    call cs_set_save
+.noset:
     mov byte [cs_page], 0           ; ...and the instructions
     call cs_repaint
     jmp short .out
@@ -1919,6 +1933,7 @@ cs_tpl:
 %include "csgame.inc"
 %include "cspanel.inc"
 %include "csart.inc"
+%include "csset.inc"        ; the settings, kept in SYSTEM\APPDATA (88.13.9)
 %include "csdiag.inc"       ; CSDIAG=1 only: the watchdog (SPEC.md 88.14)
 
 ; =============================================================================
@@ -2386,6 +2401,13 @@ cs_tpl:
     ZBUF  cs_toastbuf, 40          ; A SETTING'S NAME AND VALUE (88.13.8), and
     ZBYTE cs_toastt                ; the ticks it has left, and what the strip
     ZBYTE cs_toastwas              ; was saying before it
+    ZBYTE cs_toastn                ; ...and a count, so the panel's key tells
+                                   ; one toast from the next (88.13.8)
+    ZBUF  cs_setbuf, CS_SETFSZ     ; the settings file, as it sits on the disk
+    ZBYTE cs_setread               ; ...read once (88.13.9)
+    ZWORD cs_sdclus                ; where we were standing before it
+    ZBYTE cs_sddrv
+    ZBUF  cs_sdfind, OSAPI_FIND_SZ
     ZWORD cs_pwl                   ; a window's edges while it is
     ZWORD cs_pwr                   ; being resolved (88.9.5)
     ZBYTE cs_pfirst                 ; bit n: page n has never had its ground

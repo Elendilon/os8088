@@ -4491,6 +4491,7 @@ $(BUILD)/skies.bin: apps/skies/skies.asm apps/skies/csraster.inc \
                     apps/skies/csflight.inc apps/skies/csgame.inc \
                     apps/skies/cspanel.inc apps/skies/cssin.inc \
                     apps/skies/csart.inc apps/skies/csdiag.inc \
+                    apps/skies/csset.inc \
                     $(CSWORLDS) \
                     apps/os88api.inc apps/os88ui.inc \
                     | $(BUILD)
