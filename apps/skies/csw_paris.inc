@@ -237,6 +237,39 @@ cs_ot_paris:
     CS_OBJ cs_m_block2, 0,             1900,   800,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE
     CS_OBJ cs_m_block,  0,             -900,  -700,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE
     CS_OBJ cs_m_block2, 0,            -1700,   200,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE
+    ; --- THE HIGH TIER (SPEC.md 88.13.1.3): eight more, CSO_DENSE, so Detail
+    ;     Level = High is the only rung that draws one and every rung below it
+    ;     gives the Paris that always shipped - which matters more here than
+    ;     anywhere, this being the world SPEC.md 88.12's whole frame budget
+    ;     was measured on.
+    ;
+    ;     SIX OF THE EIGHT ARE AT LA DEFENSE, and that is the only honest
+    ;     place to put towers in this city. Paris is a low city: what it has
+    ;     instead of a skyline is a fabric of six-storey blocks that a
+    ;     filled-polygon engine at twelve frames a second cannot draw the
+    ;     point of. La Defense is the exception - a tight grid of slabs four
+    ;     kilometres north-west of the Arc - and this world already gives it
+    ;     five objects, which reads as five towers rather than as a business
+    ;     district. Eleven reads as one.
+    ;
+    ;     THEY ARE ALL 110 m and not one is over it, so the 180, 160 and 150
+    ;     already there stay the head of the cluster and the silhouette keeps
+    ;     its shape. The other two are mid-rises on the axis between the Arc
+    ;     de Triomphe and the Louvre, which is the line a flight over the
+    ;     centre follows and the one stretch of it with nothing on either
+    ;     side.
+    ;
+    ;     Ranges are Manhattan-from-the-spawn plus 400 rounded to 500, so La
+    ;     Defense stands before the roll at Issy - it is 7.9 km from the
+    ;     threshold and is what the departure turns towards.
+    CS_OBJ cs_m_tower2, 0,            -4450,  3600,   0,  8500,    0, cs_n_def,    CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower2, 0,            -3900,  3900,   0,  8500,    0, cs_n_def,    CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower2, 0,            -3550,  3150,   0,  7000,    0, cs_n_def,    CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower2, 0,            -4250,  3100,   0,  8000,    0, cs_n_def,    CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower2, 0,            -3500,  3800,   0,  8000,    0, cs_n_def,    CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower2, 0,            -4000,  4150,   0,  8500,    0, cs_n_def,    CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_midrise, 0,             700,  1200,   0,  9500,    0, cs_n_p_axe,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_midrise, 0,            1500,   700,   0,  9500,    0, cs_n_p_axe,  CSO_COLLIDE | CSO_DENSE
 cs_ote_paris:
 CS_N_PARIS equ (cs_ote_paris - cs_ot_paris) / CSO_SIZE
 cs_n_eiffel: db 'THE EIFFEL TOWER', 0
@@ -252,6 +285,7 @@ cs_n_def:    db 'LA DEFENSE', 0
 cs_n_mont:   db 'MONTMARTRE', 0
 cs_n_sacre:  db 'THE SACRE-COEUR', 0
 cs_n_seine:  db 'THE SEINE', 0
+cs_n_p_axe:  db 'THE CHAMPS-ELYSEES', 0
 
 ; =============================================================================
 ; The locations (SPEC.md 88.6, 88.6.4): a name, a place, an elevation, a runway

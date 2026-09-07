@@ -1709,7 +1709,7 @@ SOAK = [
         " held pixel for pixel against what they were, because fsx_run clears"
         " the clip region the handler armed",
         needs=("marty",), serial=True),
-    Row("skiesset", "soak", py("tests/skiesset.py"), 45.0,
+    Row("skiesset", "soak", py("tests/skiesset.py"), 55.0,
         "SPEC.md 88.13: the Settings page and its four knobs reaching the"
         " picture - Few files fewer objects and draws faster, a fill box"
         " clears its bit, the in-flight hotkeys do the same without the page,"
@@ -1717,7 +1717,13 @@ SOAK = [
         " 88.13.6's two defects: a drop-down's list has to BANK and reach the"
         " glass (the pick works without either, which is how this row passed"
         " while the page could not be dropped down at all) and Done has to be"
-        " the full 13.7 gesture",
+        " the full 13.7 gesture. And two about the top rung: the ladder NESTS"
+        " with the dense bits on and with them cleared in the guest's own"
+        " table (88.13.1.3 gave every world a dense city, so the equal branch"
+        " has no location left to stand on and is synthesised rather than left"
+        " to stop running), and a CSO_DENSE building is NOT SOLID below High"
+        " (88.13.1.4) - flown through at Moderate, crashed into by name at"
+        " High, because cs_collide reads the table and never the ladder",
         needs=("marty",), serial=True),
     Row("skiesocc", "soak", py("tests/skiesocc.py"), 26.0,
         "SPEC.md 88.13.7: the occlusion pass, and the only thing keeping its"

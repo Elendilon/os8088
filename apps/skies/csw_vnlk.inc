@@ -75,7 +75,11 @@ cs_m_vnlk_rivf: db CSM_FLAT, 4, 0, 3, CSI_MARK, 0
     dw  2165,  1250
 
 ; =============================================================================
-; The world. Every position below was laid out in (along the 060 runway axis,
+; The world. EIGHTEEN objects, the last six CSO_DENSE (88.13.1.3), so twelve of
+; them are the Khumbu every rung below High draws and the six are the range's
+; second rank.
+;
+; Every position below was laid out in (along the 060 runway axis,
 ; offset to its right) and converted once, the axis being (0.866, 0.5) and its
 ; right-hand normal (0.5, -0.866). The gate is at along 3,200 offset +-1,100;
 ; the valley walls are two pairs of ridges at +-2,700 and +-2,900; the wall
@@ -101,6 +105,38 @@ cs_ot_vnlk:
     CS_OBJ cs_m_vnlk_spur, 0,            3753,  3899,   0,  8000,    0, cs_n_vnlk_ridge,  CSO_COLLIDE | CSO_TERRAIN
     CS_OBJ cs_m_vnlk_riv, cs_m_vnlk_rivf, -1181,   646,   0,  6000, 2600, cs_n_vnlk_river,  CSO_TERRAIN
     CS_OBJ cs_m_hangar,     0,             130,  -225,   0,  3000,    0, cs_n_vnlk_hangar, CSO_COLLIDE
+    ; --- THE HIGH TIER (SPEC.md 88.13.1.3): six more, CSO_DENSE, so Detail
+    ;     Level = High is the only rung that draws one and every rung below it
+    ;     gives the Khumbu that always shipped.
+    ;
+    ;     EVERY OTHER WORLD'S TOP RUNG IS A CITY. This one has no city and
+    ;     never will, so its High tier is the SECOND RANK OF THE RANGE: the
+    ;     named peaks that stand behind the gate and beside Everest, which is
+    ;     what the Khumbu looks like and what twelve objects could not say.
+    ;     Below High the valley is its two gate peaks, seven anonymous ridges
+    ;     and Everest at the head of it; at High it is a range.
+    ;
+    ;     IT IS ALSO THE ONE WORLD WHERE THE OCCLUSION PASS IS ON (88.13.7,
+    ;     CSA_OCC below), and this is exactly the load it was built for: a
+    ;     back rank standing behind a front one is the case where a nearer
+    ;     mountain hides a further one wholesale, and the pass is what stops
+    ;     the tier costing what its polygons would.
+    ;
+    ;     NONE OF THE SIX STANDS IN THE RUNWAY 06 DEPARTURE. cs_collide takes
+    ;     a hill's level 0 footprint as an axis-aligned box, so what matters
+    ;     is whether the 060 line is inside a box in x AND z at once; the
+    ;     header above works that for the two gate peaks and the same
+    ;     arithmetic is what placed these. Only Lhotse's box meets the line
+    ;     and it meets it at 9.4 km, which is BEHIND Everest's - the corridor
+    ;     already ends there. So the flight is the same at every rung, which
+    ;     it has to be: a line a player can fly at Moderate and not at High
+    ;     would be a difficulty setting wearing a performance setting's name.
+    CS_OBJ cs_m_vnlk_gate, 0,            8700,  4200,   0, 15000,    0, cs_n_vnlk_lho,    CSO_COLLIDE | CSO_TERRAIN | CSO_DENSE
+    CS_OBJ cs_m_vnlk_gate, 0,            8100,  2300,   0, 12500,    0, cs_n_vnlk_nup,    CSO_COLLIDE | CSO_TERRAIN | CSO_DENSE
+    CS_OBJ cs_m_vnlk_gate, 0,            4700,  5400,   0, 12500,    0, cs_n_vnlk_ama,    CSO_COLLIDE | CSO_TERRAIN | CSO_DENSE
+    CS_OBJ cs_m_vnlk_ridge, 0,           6500,  1200,   0, 10000,    0, cs_n_vnlk_tham,   CSO_COLLIDE | CSO_TERRAIN | CSO_DENSE
+    CS_OBJ cs_m_vnlk_ridge, 0,           5100,  3950,   0, 11500,    0, cs_n_vnlk_kang,   CSO_COLLIDE | CSO_TERRAIN | CSO_DENSE
+    CS_OBJ cs_m_vnlk_spur, 0,            2550,  -600,   0,  4000,    0, cs_n_vnlk_kusum,  CSO_COLLIDE | CSO_TERRAIN | CSO_DENSE
 cs_ote_vnlk:
 CS_N_VNLK equ (cs_ote_vnlk - cs_ot_vnlk) / CSO_SIZE
 
@@ -114,6 +150,12 @@ cs_n_vnlk_peak:   db 'EVEREST', 0
 cs_n_vnlk_ridge:  db 'A RIDGE', 0
 cs_n_vnlk_river:  db 'THE DUDH KOSHI', 0
 cs_n_vnlk_hangar: db 'THE HANGAR', 0
+cs_n_vnlk_lho:    db 'LHOTSE', 0
+cs_n_vnlk_nup:    db 'NUPTSE', 0
+cs_n_vnlk_ama:    db 'AMA DABLAM', 0
+cs_n_vnlk_tham:   db 'THAMSERKU', 0
+cs_n_vnlk_kang:   db 'KANGTEGA', 0
+cs_n_vnlk_kusum:  db 'KUSUM KANGURU', 0
 
 ; --- the location ------------------------------------------------------------
 ; Lukla's strip is 527 m of it and this one is 600, which is the shortest in the

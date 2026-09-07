@@ -96815,7 +96815,11 @@ transform at all. `CSO_POI` marks a critical point of interest, `CSO_ROAD` a
 road, causeway or bridge, `CSO_DENSE` the dense city. **None** draws nothing
 built, **Only Roads** the roads and bridges and no more, **Low** the points
 of interest, **Moderate** the rest of what is built, **High** `CSO_DENSE` on
-top of that. Measured over the city on a 4.77 MHz 8088: **143.4 ms with the
+top of that. **`CSO_DENSE` is tested FIRST**, above `CSO_TERRAIN`'s exemption
+and `CSO_ROAD`'s: it means *only High draws this*, and nothing below may undo
+it — which is not a nicety, because §88.13.1.3's Nepal tier is six mountains
+and a mountain is terrain. It read 17 objects at both rungs until the test
+moved, which is §88.13.1.1's own finding a second time. Measured over the city on a 4.77 MHz 8088: **143.4 ms with the
 whole table, 52.7 at Low and 72.5 at None**, filing 16, 11 and 3 objects.
 
 ##### 88.13.1.1 MODERATE IS THE DEFAULT, and High is a 286/386 rung
@@ -97037,6 +97041,123 @@ sixteen are entirely hidden** — towers of one height stacked in depth peek
 out at the edges, and an object-level test can only skip what is entirely
 gone. The pixels are not where the time goes either (§88.5.4.2), so the flag
 is off for every world but this one.
+
+##### 88.13.1.3 …and the other eight worlds
+
+`CSO_DENSE` shipped with one customer and eight locations that could not tell
+High from Moderate apart. Each of the eight now has a tier, and what each one
+ADDS is the thing that world had to leave out to fit a 4.77 MHz 8088 — which
+is a different thing in every case, and that is the point of going location by
+location rather than scattering towers:
+
+| location | the High tier | n |
+|---|---|---|
+| **LONDON-LCY** | the City of London between St Paul's and the Tower, and Canary Wharf as the cluster it is — the two things the world names and then draws as one tower each | 10 |
+| **MIAMI-MIA** | Brickell's wall on the bay, and mid-rises down Collins between the two beach hotels: the two built places a RUNWAY 09 climb-out crosses, both of which were thin | 9 |
+| **RIO-SDU** | Centro off the runway's own end, Botafogo on the bay shore, and Copacabana as a WALL of flats on the beach's own four stations | 9 |
+| **SANFAN-SFO** | the Financial District round the Transamerica, and two down at the Embarcadero: from the Marin side the whole of it is one silhouette | 8 |
+| **CAIRO-SPX** | the mastaba fields — two ruled grids of 9 m flat-topped tombs east and west of Khufu — and three blocks in Cairo | 10 |
+| **NEPAL-VNLK** | the range's SECOND RANK: Lhotse, Nuptse, Ama Dablam, Thamserku, Kangtega and Kusum Kanguru | 6 |
+| **PARIS-ISSY / -LBG** | six more slabs at La Defense, which goes from five towers to a business district, and two mid-rises on the Arc-to-Louvre axis | 8 |
+
+**What each one costs**, on a 4.77 MHz 8088 with a Hercules card, Draw
+Distance = Far, the tick wait patched out so a frame under 54.9 ms is not
+rounded up to it, twelve exact frames a reading — two scenes a location, the
+first on the take-off roll and the second wherever that world's tier actually
+is:
+
+```
+                     Moderate      High       objects
+  NYC-JFK      roll   111.8 ms   154.0 ms     12 -> 22
+               2 km   204.7      257.7         9 -> 17
+  LONDON-LCY   roll   111.1      173.7        10 -> 20
+               4 km   221.7      354.6        15 -> 21
+  MIAMI-MIA    roll   214.2      265.4        19 -> 27
+             rotate   259.2      366.9        17 -> 25
+  RIO-SDU      roll   195.7      294.7        12 -> 20
+             Centro   245.6      335.8        12 -> 21
+  SANFAN-SFO   city   208.3      374.9         9 -> 17
+               gate   214.1      286.0        20 -> 28
+  CAIRO-SPX    roll   188.6      208.3        14 -> 21
+            plateau   125.2      153.8        11 -> 18
+  NEPAL-VNLK   roll   237.3      347.9        11 -> 17
+             valley   200.4      441.7         8 -> 14
+  PARIS      Defense   115.7      145.9        10 -> 16
+          departure   229.7      240.1        16 -> 18
+```
+
+Two of those rows say something the others do not. **Cairo is the cheapest
+tier in the set** — +20 to +29 ms — because a mastaba is 8 vertices and 5
+faces and there is no tower in it, which is that world holding its place as
+the floor of the band while still gaining a rung. And **Nepal is the dearest**
+at +241 ms, because its tier is six MOUNTAINS: nothing else in the set adds
+objects that fill the whole view. That is the world the occlusion pass is
+already on for (§88.13.7), and it is the one place where the tier and the
+pass were designed against each other.
+
+Three rules hold across all of them, and they are the ones a ninth world would
+have to be held to:
+
+1. **An anonymous tower may not out-top the location's own landmarks.** A
+   nameless block taller than the thing the player came to see undoes it. The
+   shared models are `cs_m_tower` 180 m, `cs_m_tower2` 110 and `cs_m_midrise`
+   55 (`csworld.inc`) — 78 bytes for the three, against 26 each per world —
+   and a world whose landmarks are lower than 180 uses the lower two. Giza
+   uses none of them: it has no skyline and inventing one would be the one
+   thing that file is written not to do, so its tier is a **tomb field**.
+2. **A range is the object's own Manhattan distance from the spawn plus 400 m,
+   rounded up to 500**, so the tier is standing before the take-off roll
+   rather than arriving under the aeroplane — that being the complaint the
+   rung answers. The exceptions are stated where they are taken and all have
+   the same shape: Miami's beach strip, Rio's Copacabana and Giza's mastabas
+   are things the aeroplane arrives OVER, not skylines it flies towards, so
+   they take the range their neighbours already have.
+3. **Every footprint keeps 60 m of daylight from every other and 80 m from the
+   water** (200 m and 150 m for Nepal's mountains). `tests/unit/t_csworld.py`
+   is what enforces the second and it earned that in Manhattan (§88.13.1.2).
+
+**`CS_NVIS` is what sizes a tier, and the gate is CONSERVATIVE about it.**
+`tests/unit/t_csworlds.py` reads 26 to 28 objects in the worst frame of every
+world now, against 30 and a `CS_NVIS` of 32 whose thirty-third is dropped
+silently — which reads alarming and is not, because that gate counts every
+object in range **at every heading at once**, capped at 6 km. `cs_consider`
+files on a CONE (§88.5.1). Swept properly — a 500 m grid of eyes over the
+whole 12 km box, 24 headings each, the cull's own `|across| <= f·along + r +
+|dy|` at the WIDEST `f` it ever uses and an eye 1,000 m up — the worst frames
+are:
+
+```
+  CAIRO-SPX  21   LONDON-LCY 21   MIAMI-MIA  26   NEPAL-VNLK 17
+  NYC-JFK    27   PARIS-ISSY 22   RIO-SDU    24   SANFAN-SFO 26
+```
+
+so every world has five or more of real headroom. The gate is left as it is:
+it over-states in the safe direction, and a gate that models the cone would be
+a gate that has to be right about the cone.
+
+##### 88.13.1.4 You cannot hit what the rung does not draw
+
+`cs_collide` walks the location's whole object table and tests `CSO_COLLIDE`,
+and it has never consulted the Detail Level. With `CSO_FILLER` that was
+harmless — the filler was drawn at the default rung. With `CSO_DENSE` it is
+not: **Manhattan's twelve towers kill a player at Moderate, which is the
+default, out of clear air**, and every tier above would have added more of it.
+
+So the walker skips a `CSO_DENSE` object unless `[cs_setbld]` is `CSBL_HIGH`.
+Thirteen bytes, and it is the narrow fix on purpose: the same argument
+applies one rung down — at Detail Level = Low a player already flies through
+nothing and crashes into an anonymous warehouse — but making the world
+non-lethal at the low rungs turns a PERFORMANCE setting into a difficulty
+setting, which is a change to ask for rather than to slip in beside a content
+tier. `CSO_DENSE` is different because it is content that does not exist
+below High at all.
+
+It has one consequence a world has to be designed against, and Nepal is where
+it bites: a peak that stands in a departure corridor at High and not at
+Moderate would be a line a player can fly on one rung and not on another. The
+six there are placed clear of the 060 line by the same box arithmetic the
+file's own header works for the gate peaks, and the only one whose box meets
+it meets it at 9.4 km — behind Everest's, where the corridor already ends.
 
 #### 88.13.2 Draw Distance
 

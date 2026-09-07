@@ -125,6 +125,29 @@ CS_BOX cs_m_block,  60,  20,  60
 CS_BOX cs_m_block2, 80,  20,  40
 CS_BOX cs_m_small,  25,  15,  25
 
+; --- ...and the anonymous TOWERS a High tier is built from (SPEC.md
+;     88.13.1.3). The five above are 10 to 20 m: they are a shed, a warehouse
+;     and a city block, and a downtown drawn out of them reads as an
+;     industrial estate. These three are the rank above - a tower, the one
+;     below it and the mid-rise floor between them - and every world that
+;     grows a CSO_DENSE cluster wants the same three shapes, so they are
+;     shared here rather than copied five times at 26 bytes each.
+;
+;     NYC-JFK keeps its own four (88.13.1.2) and is not moved onto these:
+;     Manhattan's ladder is 55, 90, 140 and 190 m under the Woolworth's 241,
+;     which is a statement about that skyline and not a generic scale.
+;
+;     THE RULE EVERY WORLD APPLIES TO THEM is the one Manhattan's four were
+;     cut to: an anonymous tower may not out-top the location's own
+;     landmarks, because a nameless block taller than the thing the player
+;     came to see undoes it. 180 m clears the Shard's 306 and One Canada
+;     Square's 235 in London, the Transamerica's 220 in San Francisco and
+;     Downtown Miami's 196; where a world's landmark is lower than that, the
+;     world uses tower2 and midrise and leaves cs_m_tower alone.
+CS_BOX cs_m_tower,  22, 180,  22    ; 44 m square, about fifty storeys
+CS_BOX cs_m_tower2, 30, 110,  30    ; 60 m square, the rank below it
+CS_BOX cs_m_midrise,45,  55,  35    ; 90 by 70, the floor between them
+
 ; --- the runway's face and edges: its vertices are built in bss by
 ;     cs_airport from the LOCATION record (SPEC.md 88.6) -------------------
 cs_f_rwy:  db 4, CSI_RUNWAY, CSF_NOCULL, 0, 1, 2, 3

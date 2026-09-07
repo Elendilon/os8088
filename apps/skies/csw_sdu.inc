@@ -260,7 +260,9 @@ cs_m_sdu_brdg: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
     dw 600, 900
 
 ; =============================================================================
-; The world. Twenty objects, 159 vertices, five points of interest and seven
+; The world. TWENTY-NINE objects, the last nine CSO_DENSE (88.13.1.3), so
+; twenty of them are the Rio every rung below High draws:
+; twenty objects, 159 vertices, five points of interest and seven
 ; filler.
 ;
 ; WHICH HILLS ARE COLLIDABLE IS A DECISION AND NOT AN OVERSIGHT. cs_collide
@@ -314,6 +316,49 @@ cs_ot_sdu:
     CS_OBJ cs_m_block2,   0,              -4300,   700,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE
     CS_OBJ cs_m_block,    0,              -4900,  1600,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE
     CS_OBJ cs_m_small,    0,              -1750,   500,   0,  2500,    0, cs_n_bldg,     CSO_COLLIDE
+    ; --- THE HIGH TIER (SPEC.md 88.13.1.3): nine more, CSO_DENSE, so Detail
+    ;     Level = High is the only rung that draws one and every rung below it
+    ;     gives the Rio that always shipped.
+    ;
+    ;     THE CITY IS THE ONE THING THIS WORLD DOES NOT HAVE. It is five
+    ;     hills, four sheets of water and a statue - which is the right shape
+    ;     for the location, and it leaves Rio itself as seven sheds beside
+    ;     the runway. So High adds the three built places the shapes are
+    ;     wrapped round, in the order a RUNWAY 11 departure meets them:
+    ;
+    ;       CENTRO       three, off the runway's own end - Santos Dumont is
+    ;                    reclaimed land at the foot of the business district,
+    ;                    so this is what the take-off roll looks at
+    ;       BOTAFOGO     two on the bay shore between Centro and Sugarloaf
+    ;       COPACABANA   four mid-rises in a line just inland of the sand,
+    ;                    which is what that beach is: a WALL of flats, evenly
+    ;                    tall, following the crescent for two kilometres
+    ;
+    ;     The Copacabana four sit on the landward edge of cs_m_sdu_snd offset
+    ;     130 m inland, which is the beach's own four stations, so the wall
+    ;     follows the crescent rather than a straight line drawn near it. They
+    ;     take 4,000 m and no more: the strip is BEHIND Sugarloaf from the
+    ;     runway and the aeroplane meets it after crossing the rock, so
+    ;     ranging it from the spawn buys nothing and costs CS_NVIS.
+    ;
+    ;     NINE AND NOT TEN: a fourth Centro block put 28 objects in one frame
+    ;     against CS_NVIS' 32 with the thirty-third dropped SILENTLY, and the
+    ;     eye that sees them is a shed on the airport road, which is inside
+    ;     everything at once. Nine is the same 27 the other worlds' High tiers
+    ;     settle at.
+    ;
+    ;     Nothing anonymous is over 180 m, against Sugarloaf's 396 and
+    ;     Corcovado's 710; every footprint keeps 60 m from every other, 80 m
+    ;     from the water and 60 m from the runway rectangle.
+    CS_OBJ cs_m_tower2,   0,              -2600,   300,   0,  3500,    0, cs_n_sdu_ctr,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower2,   0,              -2420,   760,   0,  3000,    0, cs_n_sdu_ctr,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower,    0,              -3000,   250,   0,  3000,    0, cs_n_sdu_ctr,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_tower2,   0,              -1300,   420,   0,  4500,    0, cs_n_sdu_bot,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_midrise,  0,              -1360,   140,   0,  5000,    0, cs_n_sdu_bot,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_midrise,  0,               -330,  -661,   0,  4000,    0, cs_n_sdu_cop,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_midrise,  0,               -715, -1049,   0,  4000,    0, cs_n_sdu_cop,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_midrise,  0,              -1502, -1197,   0,  4000,    0, cs_n_sdu_cop,  CSO_COLLIDE | CSO_DENSE
+    CS_OBJ cs_m_midrise,  0,              -1968, -1345,   0,  4000,    0, cs_n_sdu_cop,  CSO_COLLIDE | CSO_DENSE
 cs_ote_sdu:
 CS_N_SDU equ (cs_ote_sdu - cs_ot_sdu) / CSO_SIZE
 
@@ -329,6 +374,8 @@ cs_n_sdu_dois: db 'DOIS IRMAOS', 0
 cs_n_sdu_bay:  db 'GUANABARA BAY', 0
 cs_n_sdu_cop:  db 'COPACABANA', 0
 cs_n_sdu_brg:  db 'THE RIO-NITEROI BRIDGE', 0
+cs_n_sdu_ctr:  db 'CENTRO', 0
+cs_n_sdu_bot:  db 'BOTAFOGO', 0
 
 ; =============================================================================
 ; The location (SPEC.md 88.6, 88.6.4). Santos Dumont is 1,323 m of reclaimed

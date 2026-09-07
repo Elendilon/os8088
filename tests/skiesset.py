@@ -21,14 +21,19 @@ something different.
   3a. the rungs NEST and Moderate is High minus CSO_DENSE, COUNTED and not
      compared as pixels: a paused Clear Skies is not a still picture - the
      water moves - so two arms drawing the same objects differ by thousands
-     of pixels and a SAME-RUNG control reads the same thousands. Taken on
-     BOTH the default location and the one with a dense city - found by
-     walking cs_ports, and flown by POKING cs_airport rather than by leaving
-     the bracket, because F toggles and one that has not landed leaves every
-     check after it reading a world that is not being drawn: the EQUAL branch is what a broken ladder trips and the
-     STRICT branch is what says the flag reaches the cull at all, and neither
-     alone is enough - --clobber-dense drops collidables at Low and Moderate
-     together, so on the dense world the counts still nest and still differ;
+     of pixels and a SAME-RUNG control reads the same thousands. Taken with
+     the dense bits ON and with them CLEARED IN THE GUEST'S OWN TABLE: the
+     EQUAL branch is what a broken ladder trips and the STRICT branch is what
+     says the flag reaches the cull at all, and neither alone is enough -
+     --clobber-dense drops collidables at Low and Moderate together, so with
+     the bits on the counts still nest and still differ. The equal branch
+     used to be provided by a location with no CSO_DENSE and since 88.13.1.3
+     there is none, so it is synthesised rather than left to stop running;
+  3c. and a CSO_DENSE building is NOT SOLID below High (88.13.1.4) - the
+     aeroplane is put inside one at Moderate and must fly on, and inside the
+     same one at High and must crash into it by name. cs_collide reads the
+     table and never the ladder, so without the gate Manhattan's twelve kill
+     a player at the DEFAULT rung out of clear air;
   3b. Detail Level = None files nothing built and still leaves the
      runway, the water and the terrain standing (88.13.1), and Only
      Roads brings the roads and bridges back and no more;
@@ -55,6 +60,10 @@ must then fail to turn the page. --clobber-default puts the old top-rung
 default back and check 0 must go red; --clobber-dense points cs_consider's
 `test ax, CSO_DENSE` at CSO_COLLIDE, which objects actually wear, so the top
 rung's filter fires at Moderate too and check 3a must go red.
+--clobber-solid makes cs_collide's `jz .solid` unconditional, which is that
+walker exactly as it was before 88.13.1.4 - every collidable solid at every
+rung, so a High tier kills a player at the default one - and check 3c must go
+red.
 """
 import argparse
 import os
@@ -70,6 +79,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CPS = 4772727
 CSBL_NONE, CSBL_ROADS, CSBL_LOW, CSBL_MOD, CSBL_HIGH = 0, 1, 2, 3, 4
 CSFL_TERRAIN, CSFL_BLDG, CSFL_ALL = 1, 2, 3
+CSM_STACK = 0                           # a model of LEVELS, so its first pair
+                                        # of words IS a footprint - a CSM_FLAT
+                                        # model's are its first vertex
 bad = []
 
 
@@ -93,6 +105,9 @@ def main(argv):
     ap.add_argument("--clobber-dense", action="store_true",
                     help="the top rung's filter fires at Moderate too: check"
                          " 3a goes red")
+    ap.add_argument("--clobber-solid", action="store_true",
+                    help="cs_collide stops asking the rung, so a CSO_DENSE"
+                         " building is solid at Moderate: check 3c goes red")
     ap.add_argument("--clobber-arm", action="store_true",
                     help="put a ret on os88ui_arm, so Done never arms")
     a = ap.parse_args(argv)
@@ -123,6 +138,20 @@ def main(argv):
 
         m.advance(frames=30)
         m.run()
+        if a.clobber_solid:
+            # the `jz .solid` that skips 88.13.1.4's rung test when the object
+            # is not dense, made unconditional: every collidable is solid at
+            # every rung again, which is cs_collide exactly as it was
+            lo, hi = mp["cs_collide"], mp["cs_crash"]
+            code = m.read(lin + lo, hi - lo)
+            i = code.find(b"\xA9\x00\x02\x74")     # test ax, CSO_DENSE / jz
+            if i < 0:
+                sys.exit("skiesset: cs_collide does not hold 88.13.1.4's rung "
+                         "test where this patch expects it")
+            m.pause()
+            m.write(lin + lo + i + 3, b"\xEB")
+            m.run()
+            print("  (cs_collide no longer asks the rung: this run must fail)")
         if a.clobber_clear:
             lo, hi = mp["cs_hotkey"], mp["cs_hotkey"] + 0x120
             code = m.read(lin + lo, hi - lo)
@@ -468,17 +497,139 @@ def main(argv):
         # at all. Neither alone is enough: --clobber-dense drops collidables
         # at Low and Moderate together, so on the dense world the counts still
         # nest and still differ, and only the default world's equality sees it.
+        # ...AND SINCE 88.13.1.3 EVERY WORLD HAS A DENSE CITY, so the equal
+        # branch has no location left to stand on and would silently stop
+        # running - which is how a gate goes green having tested half of
+        # itself. It is SYNTHESISED instead: the CSO_DENSE bit is cleared in
+        # the guest's own table, the three rungs are read again and the bits
+        # go back. That is stronger than the world that used to provide it,
+        # because it holds whichever world the row is on rather than the one
+        # that happened to have no towers.
+        def dense_bits(rec, on):
+            objs = int.from_bytes(m.read(lin + rec + 18, 2), "little")
+            nobj = int.from_bytes(m.read(lin + rec + 20, 2), "little")
+            m.pause()
+            for o in range(objs, objs + nobj * 20, 20):
+                f = int.from_bytes(m.read(lin + o + 16, 2), "little")
+                if on and o in dense_was:
+                    f |= 0x0200
+                elif not on and f & 0x0200:
+                    dense_was.add(o)
+                    f &= ~0x0200
+                m.write(lin + o + 16, f.to_bytes(2, "little"))
+            m.run()
+
         home = int.from_bytes(m.read(lin + base + off("cs_airport"), 2), "little")
         rungs(home, "the default location")
+        dense_was = set()
+        dense_bits(home, False)
+        check(dense_in(home) == 0, "the dense bits come off the table for the "
+              "equal branch (%d left)" % dense_in(home))
+        rungs(home, "the same world with its dense bits off")
+        dense_bits(home, True)
         nport = int.from_bytes(m.readseg(seg, mp["cs_drport"] + 10, 2), "little")
         for i in range(nport):
             rec = int.from_bytes(m.readseg(seg, mp["cs_ports"] + 2 * i, 2),
                                  "little")
             if rec != home and dense_in(rec):
                 go(rec)
-                rungs(rec, "the world with a dense city")
+                rungs(rec, "another world with a dense city")
                 go(home)
                 break
+        m.key("F5")
+        m.advance(frames=40)
+        m.run()
+
+        # --- 3c. A CSO_DENSE building is NOT SOLID below High (88.13.1.4) ----
+        #
+        # cs_collide walks the location's table and tests CSO_COLLIDE, and it
+        # never consulted the Detail Level: a High tier is content that does
+        # not exist below High, so without the gate every one of those towers
+        # kills a player at the DEFAULT rung, out of clear air, in a world
+        # that draws nothing there. The aeroplane is put at the centre of one
+        # at half its height and flown for a few ticks.
+        #
+        # WHICH ONE is chosen host-side: the dense object whose centre is
+        # furthest inside no OTHER collidable's box, because a crash into
+        # something that was going to kill it anyway proves nothing.
+        objs = int.from_bytes(m.read(lin + home + 18, 2), "little")
+        nobj = int.from_bytes(m.read(lin + home + 20, 2), "little")
+
+        def obj(o):
+            md = int.from_bytes(m.read(lin + o + 0, 2), "little")   # CSO_MODEL
+            typ = m.readseg(seg, md, 1)[0]
+            vp = int.from_bytes(m.readseg(seg, md + 8, 2), "little")
+            nv = m.readseg(seg, md + 1, 1)[0]
+            sw = lambda v: v - 65536 if v >= 32768 else v      # noqa: E731
+            top = max(sw(int.from_bytes(m.readseg(seg, vp + 6 * L + 2, 2), "little"))
+                      for L in range(nv))
+            return dict(typ=typ,
+                        x=sw(int.from_bytes(m.read(lin + o + 4, 2), "little")),
+                        z=sw(int.from_bytes(m.read(lin + o + 6, 2), "little")),
+                        hx=abs(sw(int.from_bytes(m.readseg(seg, vp, 2), "little"))),
+                        hz=abs(sw(int.from_bytes(m.readseg(seg, vp + 4, 2), "little"))),
+                        top=top,
+                        name=int.from_bytes(m.read(lin + o + 14, 2), "little"),
+                        flags=int.from_bytes(m.read(lin + o + 16, 2), "little"))
+        rows = [obj(o) for o in range(objs, objs + nobj * 20, 20)]
+        # A STACK only: a CSM_FLAT model's "level 0" is its first VERTEX and
+        # not a footprint, so a river read as a solid is a box the size of the
+        # map and every candidate reads as buried in it.
+        solid = [r for r in rows if r["flags"] & 0x0001 and r["typ"] == CSM_STACK
+                 and not r["flags"] & 0x0200]
+
+        def lonely(r):
+            return min([max(abs(r["x"] - q["x"]) - q["hx"],
+                            abs(r["z"] - q["z"]) - q["hz"]) for q in solid] or [1e9])
+        pick = max((r for r in rows if r["flags"] & 0x0200 and r["flags"] & 0x0001
+                    and r["typ"] == CSM_STACK), key=lonely, default=None)
+        check(pick is not None and lonely(pick) > 50,
+              "there is a CSO_DENSE building to sit inside, %d m clear of "
+              "every other solid thing" % (lonely(pick) if pick else -1))
+        if pick:
+            nm = m.readseg(seg, pick["name"], 32).split(b"\0")[0].decode(
+                "ascii", "replace")
+
+            def sit(rung):
+                m.key("F%d" % (rung + 1))
+                m.advance(frames=40)
+                m.run()
+                m.pause()
+                m.write(lin + base + off("cs_pause"), b"\x01")
+                m.run()
+                m.advance(frames=2)
+                m.pause()
+                for k, v in (("cs_px", pick["x"]), ("cs_py", pick["top"] // 2),
+                             ("cs_pz", pick["z"])):
+                    m.write(lin + base + off(k),
+                            ((v * 256) & 0xFFFFFFFF).to_bytes(4, "little"))
+                for k in ("cs_spd", "cs_thr", "cs_vs", "cs_hs",
+                          "cs_pitch", "cs_roll"):
+                    m.write(lin + base + off(k), b"\x00\x00")
+                m.write(lin + base + off("cs_state"), b"\x01")
+                m.write(lin + base + off("cs_pause"), b"\x00")
+                rung_now = byte("cs_setbld")
+                c0 = w("cs_crashes")
+                m.run()
+                m.advance(frames=25)
+                m.pause()
+                out = (byte("cs_state"), w("cs_crashes") - c0,
+                       w("cs_crashwhy"), rung_now)
+                m.run()
+                return out
+
+            st, dc, why, rn = sit(CSBL_MOD)
+            check(rn == CSBL_MOD and st != 2 and dc == 0,
+                  "at Moderate (rung %d) the aeroplane flies through %s at "
+                  "(%d,%d): state %d, %d crashes"
+                  % (rn, nm, pick["x"], pick["z"], st, dc))
+            st, dc, why, rn = sit(CSBL_HIGH)
+            check(rn == CSBL_HIGH and st == 2 and dc == 1 and why == pick["name"],
+                  "...and at High (rung %d) it hits it, by name: state %d, "
+                  "%d crashes, why %04x against %s at %04x"
+                  % (rn, st, dc, why, nm, pick["name"]))
+            m.advance(frames=60)           # let the crash reset before 3b
+            m.run()
         m.key("F5")
         m.advance(frames=40)
         m.run()

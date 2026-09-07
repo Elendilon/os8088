@@ -1088,8 +1088,15 @@ cs_collide:
     mov si, [si + CSA_OBJS]         ; an aeroplane over Manhattan
     jcxz .out
 .o:
-    test word [si + CSO_FLAGS], CSO_COLLIDE
+    mov ax, [si + CSO_FLAGS]
+    test ax, CSO_COLLIDE
     jz .next
+    test ax, CSO_DENSE              ; ...AND YOU CANNOT HIT WHAT THE RUNG DOES
+    jz .solid                       ; NOT DRAW (88.13.1.4): a High tier is not
+    cmp byte [cs_setbld], CSBL_HIGH ; in the world below High, and this walker
+    jne .next                       ; reads the table and never the ladder, so
+.solid:                             ; without it Manhattan's twelve kill a
+                                    ; player at Moderate out of clear air
     mov ax, [cs_px+1]
     sub ax, [si + CSO_X]
     jns .x1
