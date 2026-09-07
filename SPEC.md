@@ -100578,6 +100578,34 @@ clamp's ceiling for the Mode byte is 1, which is *CGA*. A machine handed the
 best of everything else off that table would have been handed the worse of
 two displays.
 
+#### 88.13.10 The Settings page says which key each row is
+
+The hotkeys (§88.13.5) were only in the instructions, so a player on the
+page had no way to learn that the row in front of them is F1. Each row now
+carries its key beside its label — `Detail Level (F1)`, `Draw Distance
+(F2)`, `Size (F3)`, and the two fill boxes `Terrain (F4)` and `Buildings
+(F5)`. **Mode carries none, because it has none**: `cs_hotkeyx` takes F1 to
+F5 and the fourth drop-down was added after them.
+
+The note is placed off **the label's own length** and not at a column, which
+is what the 8×8 face makes cheap and what the labels demand: `Size` is 32
+pixels and `Draw Distance` is 104, and a fixed column puts one of them
+inside the next control. `cs_hkat` measures with `cs_strlen`, shifts three,
+adds a cell of daylight, and draws — so a renamed label moves its own note.
+
+**It is a second string and not a longer one.** `cs_s_lbld` and the rest are
+shared with the toast (§88.13.8), and a toast reading `Detail Level (F1):
+High` in flight is noise: the player pressing F1 knows which key they
+pressed. Two font calls a row, on a page that is painted when it is opened.
+
+**The fill row had to widen and the rest did not.** At 8 pixels a character
+`Draw Distance (F2)` is 144 and the left column has 156 before the right one
+starts at 164; `Size (F3)` is 72 in a 140-wide column. The check boxes were
+pitched 86 apart in an 82-wide area, and `Terrain (F4)` needs 17 + 56 + 8 +
+32 = 113 from the box's left edge — so the second box moved from 130 to 168
+and the pitch is 124, which puts `Buildings (F5)` ending at 296 of the 304
+the page has.
+
 #### 88.13.6 The page's own defects, off the machine
 
 All were reported off the machine and each is worth writing down, because
