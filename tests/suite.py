@@ -222,6 +222,8 @@ def _kernel_sources():
 # fast - host-side, no emulator, no build. Runs on every `make`.
 # --------------------------------------------------------------------------
 FAST = [
+    Row("pacman-maze", "fast", py("tests/unit/t_pacman.py"), 0.1,
+        "the Atari maze has 260 reachable dots, bounded tunnel edges and complete sprites"),
     Row("blobruns", "soak", py("tests/unit/t_blobruns.py"), 0.1,
         "how many int 13h calls stage 1 spends on the blob, per geometry "
         "(SPEC.md 15.3.8.5) - the count is NOT a function of BOOT2_SECS "
@@ -306,6 +308,19 @@ FAST = [
     Row("mirror", "fast", py("tests/unit/t_mirror.py"), 4.5,
         "a constant written down in two files must agree in both; there is no "
         "linker here to notice"),
+    Row("paccman", "fast", py("tests/unit/t_paccman.py"), 0.3,
+        "PACCMAN's generated arcade tables say what they claim to (SPEC.md "
+        "91). apps/paccman/pmc_rom.c is the build's TRUTH - the reference is "
+        "not vendored (CONTRIBUTING.md 6) and an ordinary build never reads "
+        "it - so nothing else checks the 240 dots, the four pills, the two "
+        "ghost-house doors, the open tunnel row, the table lengths or the "
+        "pinned commit in its header. It also asserts that the prelude's "
+        "MELODY is voice 1 at 539 then 1078 Hz and its bass voice 0 at 67, "
+        "because the two have been the wrong way round once and BOTH "
+        "orderings produce sound; and that pmcband.inc and paccman.c agree "
+        "about the band's three sizes, which is a constant written down in "
+        "two files with no linker here to notice. The byte-for-byte "
+        "reproduction row SKIPS, naming the pin, without $PACMANC_SRC"),
     Row("csworld", "soak", py("tests/unit/t_csworld.py"), 2.0,
         "SPEC.md 88.6.3: no collidable building in any CLEAR SKIES world"
         " stands in that world's own water - every base footprint against"
@@ -487,6 +502,12 @@ FAST = [
         "the constant in the driver that takes it. "
         "SOAK and not fast: it re-derives ONE PAGE of ONE application "
         "against per-driver constants"),
+    Row("ccmake", "fast", py("tests/unit/t_ccmake.py"), 2.1,
+        "automatic compiler setup: missing/partial install, parallel dependents, "
+        "warm reuse, setup failure propagation and fresh live-media dependencies"),
+    Row("imager", "fast", py("tests/unit/t_imager.py"), 0.1,
+        "host media detection, image compatibility, confirmation and read-back "
+        "verification without writing physical devices"),
     Row("image", "fast", py("tests/unit/t_image.py"), 0.1,
         "the shipped floppies read by an independent FAT12 walker: contiguity, "
         "the standard BPB, SPEC.md 19.6's attributes"),
@@ -620,6 +641,21 @@ FAST = [
         "audience. "
         "SOAK and not fast: the .WAB format is the Weave family's - `soak "
         "-k 'weave*' -k 'wab' -k 'lmpack'`"),
+    Row("wire", "fast", py("tests/unit/t_wire.py"), 2.5,
+        "the Wire's two formats (SPEC.md 92.2 and 92.13), from both ends at "
+        "once: tools/os88wire.py packs a fixture out of build/hello.o88 and "
+        "build/mines.o88 and a reader written from the SPEC alone reads it "
+        "back, every refusal the writer owns is fed the input that breaks it, "
+        "and every WC_*/WIRE_* equ in apps/thewire/wcat.inc and every WA_*/"
+        "WARC_* in warc.inc is compared against the tool's. The mirror is the "
+        "half that cannot be got by reading either file - there is no linker "
+        "here, so a half-applied format change packs perfectly and the 8088 "
+        "then reads a record at the wrong offset (t_mirror's argument, for a "
+        "pair of files it does not cover). The ARCHIVE half adds a third "
+        "reading on top of that: 92.13 pins its compression BY ITS DECODER, "
+        "so the tool's encoder, the tool's reference decoder and a decoder "
+        "written here from the paragraph alone must all agree - and the "
+        "8088's resumable unpacker will be a fourth"),
     Row("lmpack", "soak", py("tests/unit/t_lmpack.py"), 10.0,
         "WEAVE-SPEC 11.1's byte-identity gate, host-side: LOOM's five "
         "SHIPPING compilers built with the host cc, packing every demo, "
@@ -857,6 +893,45 @@ FULL = [
         "and boots it to a desktop, so what this adds is the THREE-adapter "
         "sweep - the deep gate a kern_small change runs, at 118s",
         needs=("marty",), serial=True),
+    Row("thewire", "soak", py("tests/thewire.py"), 340.0,
+        "THE WIRE, end to end over a real card (SPEC.md 92.12): a host HTTP "
+        "server on 8092 serves a fixture catalog packed by tools/os88wire.py "
+        "out of build/hello.o88, build/mines.o88, a tier-3 WF_DISK entry and "
+        "a WF_ARC one whose .WPK the test packs with --archive, and the "
+        "machine fetches it because `make thewiretest`'s "
+        "SYSTEM/APPDATA/WIRE.CFG says to. Eleven assertions: the catalog is "
+        "understood, the host saw the request it expected, the list is the "
+        "catalog, the 8088/8086 filter cuts four rows to three, the predicate "
+        "greys Load Program on a WF_DISK record and NOT Add to Disk, the "
+        "picture matches the file pixel for pixel, Add to Disk writes both "
+        "files to B: byte-identical, Load Program runs one out of memory, "
+        "AN ARCHIVE'S WHOLE TREE lands on B: byte-identical - eight entries "
+        "at three depths, an LZSS one, two INCOMPRESSIBLE ones that put the "
+        "stream over 65,536 bytes so the dword Content-Length and the 32-bit "
+        "byte count are read with a high word in them, an empty file and a "
+        "TWELVE-character name that fills its slot with no NUL, read back on "
+        "the host by an independent FAT12 reader after `quit` - "
+        "an archive mounts a RAM disk and runs its program entry off it "
+        "(SPEC.md 92.14), and SPEC.md 92.6.1's CLIP assertion: after Load "
+        "Program the launched window's content is captured, dragged 8px and "
+        "back for a clean repaint, and the two must agree pixel for pixel, "
+        "which they do not when the Wire's wake handler has drawn its "
+        "buttons into a window that is not its own. "
+        "**SOAK AND NOT FULL, and the tier's own rule is why**: this file's "
+        "header lists eight emulator rows as what ten minutes buys, and what "
+        "earns one is BREADTH PER SECOND. This is a boot, twenty clicks and "
+        "three floppy write chains that can only fail for one package's "
+        "reasons - the definition of a soak row. It runs in 96 seconds on "
+        "an idle host and the budget is 340 for the reason every budget "
+        "here is generous: a concurrent build makes an emulator row three "
+        "or four times slower and a tier that failed on that would be "
+        "reporting on the box. It is also QEMU's and "
+        "cannot be MartyPC's: MartyPC has no network card of any kind, so "
+        "ETHER.DRV cannot be hosted on it at all (SPEC.md 72.9). It builds "
+        "its own two disks, and it DELETES them first - QEMU mounts B: "
+        "writable and the write assertion would otherwise find last run's "
+        "files already there",
+        needs=("qemu",), serial=True, builds=True),
     Row("stk0water", "soak", py("tests/stk0water.py"), 70.0,
         "how deep TASK 0's stack has actually been (SPEC.md 15.1). That "
         "section says `redo the fill probe before lowering either` and the "
@@ -958,6 +1033,40 @@ FULL = [
 # single-subject gates; several are worth reading before touching their area.
 # --------------------------------------------------------------------------
 SOAK = [
+    Row("pacman", "soak", py("tests/pacman.py"), 100.0,
+        "native 8088 Pac-Man movement, score, pellets, fruit, level transitions, "
+        "pause, full-screen repaint and worker teardown", needs=("marty",)),
+    Row("paccman", "soak", py("tests/paccman.py"), 100.0,
+        "PACCMAN's attract screen and tick path on a cycle-accurate 8088 "
+        "(SPEC.md 91): the program opening on the attract screen with the "
+        "CHARACTER / NICKNAME reveal run, a real Space arriving at int 09h "
+        "starting a round, the speaker asked for the prelude's tones, the "
+        "worker hired by the first paint, the game advancing with nobody "
+        "touching it, dots eaten, the reserve strip down a life, and the row "
+        "step this ADAPTER needs (2 on CGA, 1 everywhere else). Several of "
+        "those are things the host harness structurally cannot answer - it "
+        "drives pmc_frame() itself, pokes the latch byte and models the "
+        "glass, so it never runs a real worker on a real scheduler nor a real "
+        "keystroke through the kernel - and one is the measurement that "
+        "sizes OS88_STACK_256: tools/stkdepth.py composes a 160-byte static "
+        "chain, and the water mark in the worker's own slice (188 to 190 of 256 "
+        "across the three profiles) is the only thing that says the interrupt "
+        "floor "
+        "on top of it fits. Wave 4 added the two SCORING FIXTURES - a "
+        "frightened ghost put on Pac-Man's own tile must score exactly 200 "
+        "and become eyes, the bonus fruit exactly 100 - written into bss by "
+        "symbol at the worker's frame boundary, so the image check beside "
+        "them still covers every byte of code and every arcade table; and "
+        "the MEASUREMENT, one bracket over this port's frame proc and "
+        "PACMAN.O88's on the same profile, printing fps / ms per frame / gfx "
+        "calls per frame / effective game speed side by side with the "
+        "verdict on the user\'s \'maybe more performant on XTs\' either way "
+        "(it is not: 2.18 fps against 4.14 on os8088_xt_vga). SOAK and not "
+        "full, deliberately: `make test-full` measured 597.4 s of its 600 s "
+        "budget before this port, so a row that boots two machines belongs "
+        "where there is no wall clock to overrun - what the full tier "
+        "carries instead is t_ctoolchain BUILDING paccman, which runs "
+        "build.sh\'s three host gates", needs=("marty", "cc")),
     Row("nasm3", "soak", py("tests/unit/t_nasm3.py"), 165.0,
         "THE OTHER ASSEMBLER. Every tier here assembles with whatever nasm "
         "the box has, which on this container, on CI and on every Debian or "
@@ -1229,6 +1338,11 @@ SOAK = [
         "window. The instrument is a breakpoint on fm_repaint, and the "
         "FOLDER open beside it is the control that says the breakpoint "
         "fires at all.",
+        needs=("marty",), serial=True),
+    Row("fontview", "soak", py("tests/fontview.py"), 60.0,
+        "SPEC.md 90: an F88 association launches FONT VIEWER with that family "
+        "selected, every installed face is listed, typing edits the specimen, "
+        "and both arrow and mouse selection finish loading another face.",
         needs=("marty",), serial=True),
     Row("fmcommit", "soak", py("tests/fmcommit.py"), 80.0,
         "SPEC.md 22.13.3: a committing keystroke redraws the Disk window and "
@@ -1679,8 +1793,10 @@ SOAK = [
         "the handshake? (SPEC.md 9.9) -serial none, so no UART probes present "
         "and the aux port is the only pointing device: mou_p2st 9, port 04, "
         "line FF, ptr 1, and the pointer landing on the EXACT requested pixel, "
-        "which is the statement about the sign handling and 9.9.3's Y "
-        "inversion that nothing else here makes. Then six keys must advance "
+        "then every live menu-bar title opening the cell under that PS/2 "
+        "coordinate. This is the statement about the sign handling, 9.9.3's "
+        "Y inversion and the bar hit test that nothing else here makes. Then "
+        "six keys must advance "
         "the BIOS buffer by twelve bytes, because both halves of the probe are "
         "a chance to take a byte from int 09h. QEMU by name on CLAUDE.md's "
         "closed list - MartyPC is an 8088 and has no 8042 to test",
@@ -1713,6 +1829,43 @@ SOAK = [
         "covered on the kernel that ships",
         needs=("qemu", "nasm"), serial=True, timeout=420,
         wants=("build/os8088.img", "build/apps.img", "build/vmmouse.img")),
+    Row("wirezone", "soak", py("tests/wirezone.py"), 50.0,
+        "Does the desktop SERVICE zone arrive with its driver and LEAVE with "
+        "it? (SPEC.md 26.7) The kernel's half of the Wire is a generic zone a "
+        "driver registers - no glyph, no caption, no launch name in the "
+        "kernel - so a machine with no card pays one compare. Boots "
+        "`make ethertest`'s disk with an ne2k_isa, asserts [desk_svc_seg] is "
+        "set and the zone's rect HAS A PICTURE IN IT, then unticks Ethernet "
+        "on the Control Panel's Drivers page - the one user route to a "
+        "detach - and asserts the segment is 0 and the rect is bare desktop "
+        "with NO STALE PIXELS; then the shipped os8088.img with no NIC, where "
+        "both must be so from the start. The measure is the LONGEST "
+        "HORIZONTAL RUN of one colour in the rect: the desktop is a perfect "
+        "50% dither so its longest run is 1, and anything drawn over it is "
+        "solid somewhere - 36 px against 1 px measured, which separates the "
+        "two states by more than a tuned threshold could. It is the only "
+        "thing in the tree that reaches wz_withdraw, desk_zmark's delete edge "
+        "and the `inc byte [desk_zhw]` that covers the ordinal past the last "
+        "volume, and the bug they guard - an icon left on the glass after its "
+        "driver has gone - is invisible to every assertion about state. QEMU "
+        "by name: MartyPC has no network card of any kind",
+        needs=("qemu", "nasm"), serial=True, timeout=420, builds=True),
+    Row("pkgrun", "soak", py("tests/pkgrun.py"), 110.0,
+        "OSAPI_PKG_RUN (SPEC.md 21.5): the loader's back half with the disk "
+        "read replaced by a copy, which is how the Wire runs a package it "
+        "fetched over the network into a claim. `make pkgrun` builds a TEST "
+        "package no shipped floppy carries (the mseg/covl shape, SPEC.md "
+        "78.9); it reads the SHIPPED hello.o88 off the disk beside it into a "
+        "claim and hands it to the slot three times. Asserts a live instance "
+        "named HELLO in the KERNEL's own inst_tab - so the pass does not rest "
+        "on the test package's opinion - then CF=1 / LD_EBAD for a spoiled "
+        "magic and CF=1 / LD_EBAD for header flags bit 2, a package carrying "
+        "PARTS, which are read out of a FILE that does not exist here "
+        "(SPEC.md 20.12). The two refusals also say the region and the "
+        "instance record a failed load reserved were given back. QEMU because "
+        "nothing here is a time and all three answers are state; it builds "
+        "its own disk, so it needs no capability of its own",
+        needs=("qemu", "nasm"), serial=True, timeout=420, builds=True),
     Row("heapmap", "soak", py("tests/heapmap.py"), 30.0,
         "What does the claim heap look like when the boot is over? (SPEC.md "
         "50, 66) Every driver attached at once on a machine WITH memory above "
@@ -3272,6 +3425,81 @@ SOAK = [
         "the SIZE snap aligns a content width WITHOUT shrinking the zoom "
         "(SPEC.md 11.94.5) - a maximized window must stay x=0, w=[vid_pw]",
         needs=("marty",), serial=True),
+    Row("telnet", "soak", py("tests/telnet.py", "--machine",
+                             "os8088_5150_cga_gla"), 300.0,
+        "SPEC.md 70.8: TELNET's 80x25 screen of CHARACTER AND ATTRIBUTE, both "
+        "renderers and the 1bpp polarity rule. Seven assertions and no wire - "
+        "the transport is tests/socktest's - and the two defects 70.8.8 "
+        "records are the last two: full screen never scrolled at all, and the "
+        "kept worker parked on the gfx lock the FSX bracket holds, which "
+        "SPEC.md 53.2 calls death by another name for a feeder. The GLaBIOS "
+        "twin because the default machine wants the licensed IBM ROM",
+        needs=("marty",), serial=True),
+    Row("telnetherc", "soak", py("tests/telnet.py", "--adapter", "herc",
+                                 "--machine", "os8088_5150_herc_gla"), 300.0,
+        "...and the same seven on the OTHER 1bpp adapter, which is not a "
+        "duplicate: Hercules is 720 wide, so the window shows all EIGHTY "
+        "columns there and CGA shows 79 of them and only 13 rows - the "
+        "viewport arithmetic (70.8.10) is a different answer on each, and the "
+        "full-screen framebuffer is B000 rather than B800 with the MDA "
+        "attribute mapping (70.8.9) under it",
+        needs=("marty",), serial=True),
+    Row("telpen", "soak", py("tests/telpen.py"), 300.0,
+        "SPEC.md 5.4.2.2.1: gfx_blit1's pen used to REFUSE a pair whose two "
+        "colours share no plane in either direction - green on red, and most "
+        "of the sixteen-colour pairs a board's art is made of - and the Map "
+        "Mask splits the band between two passes now. The only row in the "
+        "tree that can see it: the pen is not read on a 1bpp adapter at all, "
+        "and mode 12h has no flat framebuffer, so it is os8088_xt_vga plus "
+        "`fbuf`. Every cell is rendered on the HOST out of the guest's own "
+        "glyph table and compared pixel for pixel",
+        needs=("marty",), serial=True),
+    Row("telansi", "soak", py("tests/telansi.py"), 900.0,
+        "SPEC.md 70.9/70.10/70.12: the ANSI-BBS PARSER on the machine, against "
+        "tools/ansisim.py - the same state machine in Python, and the "
+        "contract's second reader the way htmsim.py is the browser's. Thirteen "
+        "fixtures from tests/fixtures/ansi/ are fed by tools/os88bbs.py in "
+        "deliberately RAGGED fragments, and te_scr is read out of guest memory "
+        "and compared with the simulator's 4,000 bytes CHARACTER AND ATTRIBUTE "
+        "- the oracle computed at test time, never stored, so it cannot drift "
+        "from the reference renderer. Then the negotiation and both "
+        "subnegotiations out of the server's own log (a screenshot cannot see "
+        "a byte this end SENDS), the mirror against a second server asking for "
+        "an option this terminal does not implement, the DSR and DA answers, "
+        "the twelve special keys as the exact bytes on the wire, Enter as a "
+        "BARE CR under TRANSMIT-BINARY, the Zmodem trigger's handover offset, "
+        "and full screen as a memcmp of te_scr against text VRAM. QEMU by "
+        "name for tests/ethernet.py's reason: MartyPC has no NIC, so this "
+        "package's receive path cannot be reached on it at all",
+        needs=("qemu",), serial=True, builds=True),
+    Row("telzm", "soak", py("tests/telzm.py"), 300.0,
+        "SPEC.md 70.11/70.12: ZMODEM RECEIVE end to end, with the bytes read "
+        "back OFF THE DISK. tools/os88bbs.py's pure-Python sender sends two "
+        "batches over one boot: first the rows of its own MANGLE83_CASES as "
+        "tiny files - seven dialogs answered with Return, five cancelled with "
+        "Escape and TWO OF THOSE ADJACENT, which is the case that proves a "
+        "cancelled dialog does not poison the one after it - and [tz_name] read "
+        "out of guest memory - which is what stops the 8086's copy of SPEC.md "
+        "77.20's 8.3 rule drifting from the host's, since the two share no "
+        "code - and the committed ones asserted again as DIRECTORY ENTRIES in "
+        "MEDIA/, which is where SPEC.md 38.10 opens a Save dialog for an "
+        "application that has chosen nowhere. It runs LAST because a "
+        "subdirectory here is ONE 512-byte cluster - sixteen entries - and does "
+        "not grow. Then one file under 4KB (one "
+        "chunk) and one of about 40KB (many, spanning both staging halves and "
+        "ten commits), saved with Return and read back off build/telnetsys.img "
+        "by an independent FAT12 reader and compared BYTE FOR BYTE - and the "
+        "terminal's own 2,000 cells asserted BLANK afterwards, because not one "
+        "byte of a transfer may reach the ANSI parser. Then a sender that "
+        "declares a size of 1 for a file it sends in full, which is what used "
+        "to divide by it and raise #DE on a kernel with no int 0 handler "
+        "(SPEC.md 70.11.6). Finally a CANCEL - Escape, then Return on the next "
+        "file - proving a ZSKIP ends one file and not the batch, and the "
+        "headers out of the server's JSON log: the ZRINIT this end advertises "
+        "(CANFDX|CANOVIO, buffer size 0, and NOT CANFC32), the ZRPOS, the "
+        "ZACKs, and the ZNAK that refuses the one deliberate ZBIN32 header. "
+        "QEMU by name for tests/ethernet.py's reason: MartyPC has no NIC",
+        needs=("qemu",), serial=True, builds=True),
     Row("netpromise", "soak", py("tests/netpromise.py"), 90.0,
         "SPEC.md 70.7/77.47: Telnet and the FTP server promise per DEBT, not"
         "per session.",

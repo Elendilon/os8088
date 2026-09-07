@@ -46,6 +46,8 @@ OUT = os.path.join(ROOT, "docs", "INDEX.md")
 GROUPS = [
     ("Windows", ["11", "20"],
      ["WM_", "ABOUT_SET"]),
+    ("Packages and the desktop", ["21", "26"],
+     ["PKG_", "DESK_"]),
     ("Menus and the menu bar", ["12", "59"],
      ["MENU_", "TOAST"]),
     ("Drawing", ["5", "25", "32", "39", "76"],

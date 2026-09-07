@@ -77,6 +77,7 @@ first of them fires in the first minute of a session.
 | **[docs/plans/completed/FTP-PERF.md](docs/plans/completed/FTP-PERF.md)** | picking the FTP server's speed back up (§77, §72.15) — what moved it from 7 to 15 KB/s, the four things that did NOT work, where the time goes now (57% of it is ABOVE the driver), and the next five candidates in the order the evidence ranks them |
 | **[docs/LIVE-MEDIA.md](docs/LIVE-MEDIA.md)** | answering any user-facing "how do I write, burn or boot the live USB/CD" — it is the reader's guide (dd, Rufus, BIOS settings, troubleshooting) and the README links it; §80 stays the design record and this file must follow it, never lead |
 | **[docs/WEAVE-SPEC.md](docs/WEAVE-SPEC.md)** | touching anything in the Weave family (`apps/weave/` and `apps/loom/`, the `.WAB` bundle, WML/WJS/FX) — the binding contract, outside SPEC.md on the C64 precedent, cited as `WEAVE-SPEC §N`; `tools/weavesim.py` is its reference implementation and `tests/unit/t_wab.py` its independent second reader. **Two packages share one document and a lot of source**: WEAVE runs a bundle, LOOM builds one, and what they share they share as SOURCE (`%include`/`#include`), never as a copy — WEAVE-SPEC §1.2 is the rule and `apps/weave/wfxc.c` is the worked example, being LOOM's FX compiler as well as WEAVE's formula bar's |
+| **[docs/WIRE-PLAN.md](docs/WIRE-PLAN.md)** | anything in The Wire (§92, `apps/thewire/`, the desktop zone and `OSAPI_PKG_RUN`) — the design record: the four facts that decided the shape, the catalog and picture formats as they were pinned, and what was deferred with the arithmetic attached. SPEC.md §92 is the contract and this is why it reads that way; its brand table is **fixed by the user and not to be reworded** |
 | **[docs/plans/completed/WEAVE-PLAN.md](docs/plans/completed/WEAVE-PLAN.md)** | re-opening a Weave design decision — why each fork went the way it did, the judged alternatives, and what was deferred with the arithmetic attached |
 
 ## Commands
@@ -233,6 +234,23 @@ make covl       #   covl is the OVERLAY gate (§73.14); cword is the
                 #   application — Word 1.1a again, in C, in two segments
                 #   (§73.12). `make clean` SPARES build/cc
                 #   (clean-cc removes it) — it is a pinned upstream instrument
+make paccman      # PACCMAN (§91), the C toolchain's FOURTH application:
+make paccmandisk  #   Andre Weissflog's arcade-faithful pacman.c (MIT, pinned
+make xt-paccman   #   at 0f5ec5a) as a second Pac-Man beside §89's assembly
+make 386-paccman  #   one - the Namco 28x36 field, the arcade ROM tables in
+make pmcbandbench #   the COMMITTED pmc_rom.c, the four ghosts, the attract
+                  #   reveal, three voices reduced to the speaker. Shares
+                  #   NOTHING with apps/pacman by §73.12's rule, and `make
+                  #   paccman` and build/pacman.o88 are one letter apart.
+                  #   `paccmandisk` is the floppy in all four geometries;
+                  #   `386-paccman` the 386DX/25 that plays it at full
+                  #   speed; `xt-paccman` the 4.77MHz 86Box XT the user's "maybe
+                  #   more performant on XTs" was about — which it is NOT,
+                  #   and tests/paccman.py prints the two ports side by side
+                  #   with that verdict either way. `pmcbandbench` is the
+                  #   composer's bench, run under `qemu-system-i386 -icount
+                  #   shift=3` and READ ON THE SECOND RUN (the first prices
+                  #   BLIT4 10% high)
 make cpmsw      # the CP/M games and applications the RUNCPM floppies carry
                 #   beside RunCPM's master disk (§74.6) - LADDER, CATCHUM,
                 #   Nemesis, GAINA, WordStar, Turbo Pascal - fetched by
@@ -325,6 +343,14 @@ make vmmousetest # THE ABSOLUTE POINTER'S DISK (§9.11.6): a SYSTEM.CFG with
                 #   name: its `pc` machine carries the backdoor and MartyPC
                 #   has none, and `make run VMPORT=on` is the interactive form
                 #   (on kern_big that is now a no-op - `make emu` first)
+make thewiretest # THE WIRE'S GATE DISKS (§92.12): ethertest's shape plus one
+                #   file - a SYSTEM/APPDATA/WIRE.CFG naming 10.0.2.2:8092
+                #   instead of os8088.com, so the machine fetches a fixture
+                #   catalog the test packed with tools/os88wire.py and every
+                #   assertion is about bytes the test chose. The B: floppy is
+                #   a SCRATCH image of its own because Add to Disk WRITES.
+                #   `make thewiretest && python3 tests/thewire.py`. QEMU by
+                #   name, for tests/ethernet.py's reason: MartyPC has no NIC
 make ethertest  # THE ETHERNET GATE'S DISK (§72.9): a SYSTEM.CFG that already
                 #   asks for ETHER.DRV, so the card is up and DHCP has run
                 #   before the first paint and the test reads state instead of
@@ -466,14 +492,15 @@ exactly like the feature being broken.
 `xt-mfm` (a 20MB ST-225 on a Xebec MFM controller — the machine to install
 and hibernate on; `build/mfm20.img` is created blank and kept),
 `xt-cga`, `xt-hercules`, `xt-ega`, `xt-multimon`, `xt-sound`,
-`xt-sound-1.44`, `286`, `286-525`,
+`xt-sound-1.44`, `xt-wire`, `286`, `286-525`,
 `286-sound`, the eight `286-525-*` application machines (`-z`, `-word`,
 `-cword`, `-runcpm`, `-c64`, `-weave`, `-loom`, `-all` — `vm/286-525` with a
 1.2MB app disk in B: instead of the apps floppy, and the only machines in the
 tree that read that geometry at all: a 1.2MB drive wants the AT's 500 kbps
 controller, so no XT profile can host one),
 `386sx`, `386`, `386-sound`, `386-ps2`, `486`, `pentium`, `xt-z`, `386-z`, `xt-word`,
-`386-word`, `386-c-word`, `xt-runcpm`, `286-runcpm`, `386-runcpm`, `xt-c64`,
+`386-word`, `386-c-word`, `xt-paccman`, `386-paccman`, `xt-runcpm`, `286-runcpm`,
+`386-runcpm`, `xt-c64`,
 `286-c64`, `386-c64`, `xt-weave`, `386-weave`, `xt-weave-256`;
 plus `marty` (MartyPC). **`386-ps2` is the only machine here with a PS/2 mouse** — every other config
 is `mouse_type = msserial`, which is why §9.9 shipped and went untested on
@@ -485,16 +512,25 @@ and the only place that geometry is exercised on period hardware at all.
 `xt-multimon` is the
 **two-card** XT — a CGA and a Hercules, a monitor window each — and the only
 86Box machine that can show §39.12–§39.19's extended desktop; it boots Single,
-and Control Panel → Display → Desktop is what extends it (§39.19.1). `xt-z`
+and Control Panel → Display → Desktop is what extends it (§39.19.1).
+**`xt-wire` is the NETWORKED XT** — `xt-sound`'s machine plus a Novell NE1000
+on slirp, booting `make ethertest`'s disk so `ETHER.DRV` is up before the
+first paint and The Wire (§88) reaches os8088.com's live catalog with nothing
+running on the host; the only 86Box profile with a NIC, and its B: is a kept
+scratch disk because Add to Disk writes. `xt-z`
 and `386-z` are the Frotz machines (§61.9), `xt-word`/`386-word` are the Word
-machines (§68.5), `386-c-word` is the C word processor's (§73.12) and
+machines (§68.5), `386-c-word` is the C word processor's (§73.12),
+**`xt-paccman` is the C Pac-Man's (§91) and the XT is the POINT there** rather
+than the postponement — the ask was "maybe more performant on XTs", so the
+machine the claim is about ships with it, and the answer (no: 2.18 fps against
+PACMAN.O88's 4.14) comes off MartyPC, not off it —
 `xt-runcpm`/`286-runcpm`/`386-runcpm` the CP/M emulator's, one per floppy
 geometry because the three disks carry different software and the machines
 run at different speeds — which for a CP/M game IS the play speed (§74.5,
 §74.6) — `xt-c64`/`286-c64`/`386-c64` the C64 emulator's (C64-SPEC §14.3,
 one per geometry for that same reason), and
 `xt-weave`/`386-weave`/`xt-weave-256` the Weave family's
-(WEAVE-SPEC §13.1) — the fourteen that put a dedicated
+(WEAVE-SPEC §13.1) — the fifteen that put a dedicated
 floppy in B: instead of the apps disk. `xt-weave` takes the **360KB** Weave
 disk rather than a 3.5" one — it fits in 209 of 354 clusters, the whole
 family on one floppy — so it is where that geometry of it is booted at all,
@@ -512,8 +548,8 @@ runcpmdisk` the RUNCPM disks (`tools/getruncpm.py` fetches RunCPM's CCP and
 master disk at a pinned commit and `tools/getcpmsw.py` the CP/M games and
 applications that ride beside it, §74.6 — never committed, either of them;
 `make rczex` and `make rcz80test` are the Z80 core's ZEXDOC gates, in the OS
-and in raw QEMU), `make c64disk` the C64 disks, and `make weavedisk` /
-`make loomdisk` the Weave family's two. **`make wiredisk`** is the same shape for a package that
+and in raw QEMU), `make c64disk` the C64 disks, `make paccmandisk` the PaccMan
+disks, and `make weavedisk` / `make loomdisk` the Weave family's two. **`make wiredisk`** is the same shape for a package that
 DOES NOT SHIP: WIREFRAME is an instrument rather than an application (§78.9),
 so `all` builds `wire.o88` and no shipped floppy carries it, and the three
 tests that drive it — `wireflick`, `wirefps`, `uilat` — default to that disk.
@@ -1033,8 +1069,9 @@ mounts — and every byte read off one is still treated as hostile.
 (86Box / a real XT) and 1.2MB 5.25" HD (§19, the AT-class machine with no 3.5"
 drive). Changing the boot path, the FAT driver or the disk layout means
 checking all four. This is the rule for the on-demand APPLICATION floppies too
-— `zdisk`, `worddisk`, `cworddisk`, `runcpmdisk`, `c64disk`, `weavedisk`,
-`loomdisk`, `allapps` — which were three-geometry until 1.2MB reached them.
+— `zdisk`, `worddisk`, `cworddisk`, `paccmandisk`, `runcpmdisk`, `c64disk`,
+`weavedisk`, `loomdisk`, `allapps` — which were three-geometry until 1.2MB
+reached them.
 
 **Nine images, not seven.** The system and apps disks in four geometries each,
 plus `build/media360.img` — `BEVERLY.MOD` is data rather than software and
@@ -1045,6 +1082,12 @@ carries it in `MEDIA/`, which is why
 there is no 720KB or 1.2MB media disk to go with it. The **core packages** ship on the system disk too, a second
 copy and never a move (§24.3), and an application's own state goes in
 `SYSTEM/APPDATA/` rather than beside the user's documents (§19.9).
+**`THEWIRE.O88` is the exception to both halves of that** (§92): it is a
+`SYSAPPS` package like `TASKMGR.O88`, so it lives in `SYSTEM/` on all FOUR
+system-disk geometries and on **no** apps disk — a program whose whole subject
+is fetching software off the network belongs on the disk the machine booted
+from. `kern_small` leaves it off (`SMALLSYSAPPS`, derived from `SMALLOMIT`):
+there is no NIC there, so there is nothing for it to refuse on.
 
 **Adding a geometry is not only a table row**, and §19 carries what the 1.2MB
 one cost: §18.93.1's boot canary sits at a fixed *file sector*, and the band of
