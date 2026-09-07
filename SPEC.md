@@ -11536,6 +11536,86 @@ The decision tree it collapses, in the order the columns are read:
 | `p2st 09`, `irq` moving, `pkt 0000` | bytes arrive and never sync — read `b0` |
 | `pkt` moving, `x` still | decoded and not applied |
 
+#### 9.9.7 THE FIELD DEFECT: command-byte bit 5 is PC MODE on an AT controller
+
+The field reported an `ami286`/`mr286` in 86Box — `keyboard_type =
+keyboard_at`, `mouse_type = msserial`, so **an AT-class 8042 with no auxiliary
+port** — where the keyboard delivered every key at the **wrong character**:
+`f` typed `\`. `NOPS2=1` was clean, `NOCHAINPRIV=1` and `NOMOUPRIV=1` were
+not, so §9.9's probe owned it, and `MOUDIAG=1` gave the two numbers that
+settle it:
+
+```
+tier 1  aux E0  cmd 65  id 00  irq 0000
+sub 2   pre 1C  pic A0  st 14  cm1 55
+```
+
+`cm1 55` is the command byte as read (bit 4 is our own `0xAD`), `cmd 65` is
+what the probe banked and `.fail` wrote back. **The only bit that changed
+other than 4 is bit 5, `0 → 1`.**
+
+| bit | PS/2 controller | **AT controller** |
+|---|---|---|
+| 5 | disable the auxiliary clock | **IBM PC Mode** |
+| 6 | translate set 2 → set 1 | translate set 2 → set 1 |
+
+**In PC mode an 8042 stops translating.** The keyboard's set-2 `f` is `0x2B`,
+and set-1 `0x2B` is backslash — which is the reported character, exactly. One
+bit, and every key on the machine is wrong.
+
+Two defects, one behind the other.
+
+**The misread.** §9.9.1 step 2 took *bit 5 clear* as evidence of an auxiliary
+port. On a PS/2 controller that reads "the aux clock is running"; on an AT
+controller it reads "AT mode, not PC mode", which every AT BIOS leaves clear
+and which says nothing about an aux port. `cm1 55` has bit 1 clear and bit 5
+clear, so the probe went down `.haveaux` on a machine with no such port, reset
+a device that was not there and timed out — `st 14`, `sub 2`, `aux E0`, which
+§9.9.6 already names as "the byte itself carried the evidence". It carried the
+wrong evidence.
+
+The bit-5 shortcut is **gone**. Bit 1 set stays as positive evidence — a BIOS
+does not arm IRQ12 for a port its controller has not got — and everything else
+goes to the `0xA8` road, which is now **DIFFERENTIAL**: the command byte is
+written with bit 5 SET, `0xA8` is sent, and the byte is read back. A
+controller that knows `0xA8` has cleared it; one that does not leaves it set.
+Asking a question and checking the answer *changed* is the whole difference
+from believing a bit that was already in that state. The keyboard interface
+is disabled throughout that window by step 1's `0xAD`, and the byte is put
+back either way.
+
+**The damage.** `.fail`'s own comment said it restored "its command byte
+exactly as the BIOS had it", and it did not: `[mou_p2cmd0]` is banked with bit
+4 forced clear and **bit 5 forced set**, for `mou_p2_off`'s sake, and both
+failure paths wrote that. On a PS/2 controller the forced bit is harmless and
+intended — it is the aux clock, which those paths want off. On an AT
+controller it is PC mode, latched for the rest of the session.
+
+`[mou_p2cmdr]` is the raw byte with bit 4 alone cleared, banked beside it, and
+it is what `.fail` and `.noaux` write now. `[mou_p2cmd0]` stays exactly as it
+was for `mou_p2_off`, which only ever runs on a controller where a PS/2 mouse
+answered its own reset — so bit 5 there is the aux clock by construction.
+
+**And it cannot be gated at runtime by anything in this tree**, which is why
+its gate is a source check (`tests/unit/t_p2restore.py`, fast tier: the
+failure arms write `[mou_p2cmdr]` and the doctored bank reaches only the
+success path, `mou_p2_off` and the `MOUDIAG` panel). On QEMU the probe
+SUCCEEDS, so no failure path runs at all — and QEMU's `i8042` does not model
+the translate bit either, which was measured rather than assumed: clearing
+bit 6 deliberately in the success path leaves `tests/ps2mouse.py` **fully
+green**, six keys queued and all six the right letter. That row now checks
+the CHARACTERS the BIOS enqueued and not only that it enqueued twelve bytes,
+because counting entries is what the field defect would have passed; the
+check is right and has no teeth on this host, and says so where it stands.
+
+**What made this unfindable.** §9.9's probe is gated on `[cpu_tier]`, so it
+does not run on an 8088 at all — MartyPC is one. QEMU's `i8042` is a PS/2
+controller with an aux port and a mouse on it, where bit 5 means what the code
+thought. 86Box's `386-ps2` has one too. The machine class this needed is *a
+non-XT whose 8042 has no aux port*, which is what `NOPS2=1`'s own entry in the
+knob table has said since the day it was written, and which nothing in the
+tree can host. It took a field machine, three A/B disks and `MOUDIAG=1`.
+
 ### 9.10 Both mouse ISRs run on a stack of THEIR OWN, not the interrupted task's
 
 An ISR lands on whatever stack it interrupts, so the mouse's cost is paid by

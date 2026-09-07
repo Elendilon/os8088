@@ -216,6 +216,18 @@ FAST = [
     Row("mirror", "fast", py("tests/unit/t_mirror.py"), 3.9,
         "a constant written down in two files must agree in both; there is no "
         "linker here to notice"),
+    Row("p2restore", "fast", py("tests/unit/t_p2restore.py"), 0.3,
+        "SPEC.md 9.9.7: the PS/2 probe's FAILURE paths must put the 8042's"
+        " command byte back UNDOCTORED. [mou_p2cmd0] is banked with bit 5"
+        " forced set for mou_p2_off's sake - the aux clock on a PS/2"
+        " controller and PC MODE on an AT one, which stops the 8042"
+        " translating, so a field 286 typed a different character for every"
+        " key. NOTHING IN THIS TREE CAN GATE IT AT RUNTIME: the probe never"
+        " runs on an 8088, it SUCCEEDS on QEMU so no failure path is taken"
+        " there, and QEMU does not model the translate bit either (measured -"
+        " clearing it deliberately leaves ps2mouse fully green). So the"
+        " invariant is asserted over the source instead",
+        needs=()),
     Row("cssin", "fast", py("tests/unit/t_cssin.py"), 0.3,
         "SPEC.md 88.5.9: CLEAR SKIES' sine table is a QUARTER of the turn"
         " now, and nothing held it to its generator before it became one."
