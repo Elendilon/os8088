@@ -102,6 +102,14 @@ Two questions retire a row from `fast`, and either one on its own is enough:
      kernel-side and both stay, because the other end of each is somebody
      else's file.
 
+     AND ONE ROW STAYS FOR WHAT IT PRINTS.  `kernbudget` is kernel-internal
+     by any reading, costs 28ms, and puts `KERN_BUDGET big <n>, small <n>`
+     on every build - which is how kernel size drift stays visible between
+     one person's commits and the next.  A row may earn `fast` by what it
+     puts on the SCREEN as well as by what it catches; the bound is that it
+     must be effectively free, and the number must be one the project
+     actually steers by.  It is the only one, and it is the owner's call.
+
 What survives is four families, and a new row should be able to say which
 one it is joining:
 
@@ -460,12 +468,16 @@ FAST = [
         "SOAK and not fast: the eviction order is the memory manager's "
         "own and no package can set a rank",
         needs=(), serial=False),
-    Row("kernbudget", "soak", py("tests/unit/t_kernbudget.py"), 0.1,
-        "docs/KERNEL-MEMORY.md's blessed baseline carries THIS kernel's "
-        "KERN_BUDGET - it went two moves behind because tools/kernsize.py "
-        "compared spare and could not see a budget move at all. "
-        "SOAK and not fast: the baseline is kernel bookkeeping, and a "
-        "kernel change already runs tools/kernsize.py"),
+    Row("kernbudget", "fast", py("tests/unit/t_kernbudget.py"), 0.1,
+        "docs/KERNEL-MEMORY.md's blessed baseline carries THIS kernel's KERN_BUDGET - it went two moves behind because tools/kernsize.py compared spare and could not see a budget move at all."
+        "FAST by the owner's decision, and it is rule 2's ONE STATED "
+        "EXCEPTION (docs/WRITING-TESTS.md 2.1): the row costs 28ms and "
+        "PRINTS `KERN_BUDGET big <n>, small <n>` on every build, which is "
+        "how kernel size drift stays visible between one person's commits "
+        "and the next. A row may earn `fast` by what it puts on the screen "
+        "as well as by what it catches - bounded by being effectively free, "
+        "and by the number being one the project actually steers by. Do not "
+        "move it back"),
     Row("swallow", "fast", py("tests/unit/t_swallow.py"), 0.1,
         "a statement that ended up inside a block comment: it compiles clean, "
         "runs never, and cost apps/c64 a Paste that outlived a machine reset"),

@@ -103,6 +103,15 @@ writer who has never opened that subsystem is caught breaking it by accident.
 > `$(PKGZARG)`. Ask who else's file has to agree, not which directory the
 > test reads.
 
+**And one row stays for what it PRINTS.** `kernbudget` is kernel-internal by
+any reading of rule 2. It costs 28ms and puts `KERN_BUDGET big <n>, small <n>`
+on every build, which is how kernel size drift stays visible between one
+person's commits and the next — so a row may earn `fast` by what it puts on
+the *screen* as well as by what it catches. The bound is that it must be
+effectively free and the number must be one the project actually steers by.
+It is the only such row, it is the owner's call, and it is written down here
+so the rule above does not evict it again.
+
 What survives is four families, and a new `fast` row should be able to name
 the one it is joining:
 

@@ -1004,14 +1004,17 @@ in docs/TESTING.md, per capability.
   `--selfcheck` - a second, no emulator - is what says whether the model
   still describes the tree. Run that first, always).
 - `docs/` — **the directory says what a document is** (`docs/README.md`, and
-  `docs/INDEX.md` lists every one under the same four headings). `docs/`
+  `docs/INDEX.md` lists every one under the same five headings). `docs/`
   itself is how the system works TODAY — instructions, contracts, maintained
   reference such as `KERNEL-MEMORY.md`, and `FIELD-NOTES.md`/`FIELD-MACHINES.md`
   for what real hardware said. `docs/plans/` is work proposed or half-done;
   `docs/plans/completed/` is the design record behind something that shipped,
   which is how it got there and never what it does; `docs/history/` is
   superseded, and true of no tree you can check out. A plan whose work lands
-  moves to `completed/` in the commit that lands it.
+  moves to `completed/` in the commit that lands it. **`docs/reports/` is a
+  MEASUREMENT** — true of the tree it was taken on and of no other, so it
+  carries its date, its commit and the box, it is never maintained against a
+  later tree, and a second measurement is a NEW file rather than an edit.
 
 ## Package pipeline
 
