@@ -66,6 +66,8 @@ def main(argv):
     ap.add_argument("--machine", default="os8088_5150_herc_gla")
     ap.add_argument("--image", default="build/os8088-360.img")
     ap.add_argument("--apps", default="build/apps360.img")
+    ap.add_argument("--clobber-hold", action="store_true",
+                    help="cs_ease never SETS the hold: part 5 goes red")
     ap.add_argument("--clobber-ease", action="store_true",
                     help="return the step unchanged: the row must go red")
     a = ap.parse_args(argv)
@@ -101,6 +103,23 @@ def main(argv):
             m.write(lin + mp["cs_ease"], b"\xC3")
             m.run()
             print("  (cs_ease returns its step unchanged: this run must fail)")
+        if a.clobber_hold:
+            # `or [cs_hzhold], al` at cs_ease's .land - 08 06 <off16>, the
+            # one instruction that arms 88.7.3.1. cs_att_lag's own copy is a
+            # different encoding (80 0E <off16> 01) and is left alone, so the
+            # JET keeps the hold and the two direct-drive models lose it,
+            # which is the tree exactly as the field had it
+            lo = mp["cs_ease"]
+            code = m.read(lin + lo, 0x100)
+            pat = b"\x08\x06" + (base + off("cs_hzhold")).to_bytes(2, "little")
+            i = code.find(pat)
+            if i < 0 or code.find(pat, i + 1) >= 0:
+                sys.exit("skiesease: cs_ease does not arm the hold the way "
+                         "this patch expects")
+            m.pause()
+            m.write(lin + lo + i, b"\x90\x90\x90\x90")
+            m.run()
+            print("  (cs_ease never arms the horizon's hold: part 5 must fail)")
 
         def pick(row):
             po = [rec(mp["cs_drplane"], 2 * i) for i in range(4)]
@@ -240,6 +259,55 @@ def main(argv):
         run(w("cs_plane"), "cs_roll", 173.0, "ArrowRight",
             rec(w("cs_plane"), CSP_ROLLR), "PITTS roll -> inverted",
             want_half=True)
+
+        # 5 - AND A FRAME IS DRAWN ON IT (SPEC.md 88.7.3.1), which is the
+        #     half a per-TICK sample cannot see and the pilot only ever sees.
+        #     cs_steps spends up to three ticks between renders, so before
+        #     the hold the ease landed mid-frame and the frame's remaining
+        #     ticks carried the axis straight off: sampled once a frame from
+        #     26 deg it read -40.0, -13.4, +10.0, +40.0 and level was in the
+        #     gap. Every start angle is asked, because ONE of them landing on
+        #     a frame boundary by luck is exactly what the old code did.
+        rd = mp["cs_render"]
+        lvl = []
+        for start in (26, 28, 30):
+            # THE KEY GOES DOWN FIRST AND THE PIN AT THE FIRST STOP, ticks()'
+            # own reason: a poke followed by a free run loses the approach to
+            # the frames that pass while the breakpoint is being armed
+            m.key("ArrowLeft", down=True, up=False)
+            keydown("ArrowLeft")
+            m.bp_exec(lin + rd)
+            m.run()
+            if m.wait_stop(30) is None:
+                sys.exit("skiesease: cs_render never ran")
+            airborne(int(start * DEG), 0)
+            rolls = []
+            for _ in range(22):
+                m.run()
+                if m.wait_stop(30) is None:
+                    sys.exit("skiesease: cs_render never ran")
+                rolls.append(sg(w("cs_roll")))
+            m.bp_exec()
+            m.run()
+            m.key("ArrowLeft", down=False, up=True)
+            m.advance(frames=8)
+            m.run()
+            n = sum(1 for r in rolls if r == 0)
+            horiz = [r for r in rolls if r == 0 or abs(r) == HALF]
+            lvl.append((n, len(horiz)))
+            print("      PITTS frames from %2d deg: %s"
+                  % (start, [round(r / DEG, 1) for r in rolls[:12]]))
+            # A DETENT AND NOT A STOP: the roll carries on through it, and
+            # EVERY horizon the roll passes gets a frame - a level-only count
+            # cannot tell one held horizon from four, and 22 frames at 30 deg
+            # a frame is nearly two whole rolls
+            check(n >= 1 and len(horiz) >= 3 and len(horiz) < len(rolls) // 3,
+                  "PITTS from %d deg: a FRAME is drawn on EVERY horizon the "
+                  "roll passes, and the roll carries on (%d level, %d "
+                  "horizons of %d frames)" % (start, n, len(horiz), len(rolls)))
+        check(all(x[0] >= 1 and x[1] >= 3 for x in lvl),
+              "...on every start angle, which is what makes it the hold and "
+              "not luck (%s)" % [x for x in lvl])
         m.type_text("f")
         m.advance(frames=40)
         m.run()

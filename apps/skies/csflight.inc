@@ -165,6 +165,10 @@ cs_reset:
     mov byte [cs_state], CS_ST_GROUND
     mov byte [cs_stall], 0
     mov byte [cs_msg], CSG_TAKEOFF
+    mov si, cs_g_take              ; ...WHICH NAMES THIS AEROPLANE'S ROTATE
+    mov di, [cs_plane]              ; SPEED (88.7.9) and not the Cessna's: the
+    mov ax, [di + CSP_VROT]         ; jet leaves the ground at 81 knots and
+    call cs_gspeed                  ; the prompt used to say 55 at it
     mov byte [cs_inited], 1
     ; --- AN AMPHIBIAN STARTS ON THE WATER (SPEC.md 88.7.7) where the place
     ; has any: on the water strip's own threshold, pointing along it, with
@@ -219,14 +223,65 @@ cs_reset:
     mov byte [cs_state], CS_ST_AIR
     mov byte [cs_msg], CSG_RELEASE
     mov byte [cs_msgt], CS_MSGAGE   ; ...which nothing else would clear (88.7.6.2)
-    mov ax, [di + CSP_VSTALL]       ; 1.4 VSTALL, which is what a tug tows
-    mov bx, ax                      ; at and what the book calls best glide
+    mov ax, [di + CSP_VSTALL]       ; 1.5 VSTALL, which is about what a tug
+    mov bx, ax                      ; tows at and near enough best glide
     shr bx, 1
     shr bx, 1
     add ax, bx
     add ax, bx
     mov [cs_spd], ax
+    mov si, cs_g_tow                ; ...and the prompt names the speed the
+    call cs_gspeed                  ; tow LEFT IT AT (88.7.9)
 .down:
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_gspeed - the prompt that names a speed, in the aeroplane's own numbers
+;             (SPEC.md 88.7.9)
+; in:  SI = the sentence's opening; AX = the speed, in cs_spd's units
+; clobbers everything. cs_reset is the only caller and clobbers everything too
+;
+; The knots are cs_k_spd's own conversion, so the sentence and the airspeed
+; indicator can never come to disagree about what 42 m/s is.
+; -----------------------------------------------------------------------------
+cs_gspeed:
+    push ax                         ; TWO PANELS, TWO SENTENCES, BOTH COMPOSED
+    push si                         ; HERE (SPEC.md 88.15.6.1): a cockpit's
+    mov bx, [si + 2]                ; forty cells hold 'FULL THROTTLE, PULL
+    mov [cs_gsuf], bx               ; BACK AT 54 KNOTS' and the one-line
+                                    ; strip's fourteen hold 'ROTATE 54 KT'.
+                                    ; BX AND NOT AX: AX is the speed, and it
+                                    ; has to reach the first pass - loading
+                                    ; the suffix through it read the SUFFIX'S
+                                    ; ADDRESS as a speed and every cockpit
+                                    ; prompt said 542 knots (tests/skiesfleet)
+    mov si, [si]                    ; Composing BOTH now rather than the live
+    mov di, cs_promptb              ; backend's one is what makes it free of
+    call cs_gspeed1                 ; ordering: a Mode pick does not clear
+    pop si                          ; cs_inited (it is not the aeroplane that
+    pop ax                          ; changed), so a prompt composed for the
+    mov bx, [si + 6]                ; backend that was running would still be
+    mov [cs_gsuf], bx               ; up the next time the other one was
+    mov si, [si + 4]                ; entered
+    mov di, cs_promptc
+cs_gspeed1:                         ; SI = the opening, DI = the buffer
+    push ax
+    call cs_strcpy                  ; the words, DI left where the NUL goes
+    pop ax
+    mov bx, 996
+    mul bx
+    mov ax, dx                      ; AX = knots
+    xor cx, cx
+    call cs_utoa                    ; ...which preserves DI, so walk it on
+.fw:
+    cmp byte [di], 0
+    je .kt
+    inc di
+    jmp short .fw
+.kt:
+    mov si, [cs_gsuf]
+    call cs_strcpy
+    mov byte [di], 0                ; cs_strcpy copies UP TO the NUL, not it
     ret
 
 ; cs_shl32 - DX:AX <<= 8. Clobbers CX.
@@ -746,9 +801,22 @@ cs_lagax:
 ; bounding multiples in three instructions and needs no case for the wrap.
 ; -----------------------------------------------------------------------------
 cs_ease:
+    push bx
+    mov bl, CS_HZR                  ; --- WHICH AXIS, and is it already there?
+    cmp si, cs_roll
+    je .axis
+    mov bl, CS_HZP
+.axis:
+    mov [cs_hzbit], bl
+    test [cs_hzhold], bl
+    jz .go
+    xor ax, ax                      ; it LANDED earlier in this frame: it
+    pop bx                          ; stays until the frame is DRAWN (88.7.3.1)
+    clc
+    ret
+.go:
     or ax, ax
     jz .plain                       ; centred: there is no step to shorten
-    push bx
     push cx
     push dx
     mov cx, ax                      ; CX = the step, signed
@@ -803,6 +871,8 @@ cs_ease:
     mov cx, ax
     jmp short .out
 .land:
+    mov al, [cs_hzbit]              ; ...and the axis is HELD on the horizon
+    or [cs_hzhold], al              ; for the rest of the frame (88.7.3.1)
     mov ax, bx                      ; exactly the distance to the horizon...
     pop dx
     pop cx
@@ -813,8 +883,8 @@ cs_ease:
     mov ax, cx
     pop dx
     pop cx
-    pop bx
 .plain:
+    pop bx
     clc
     ret
 

@@ -367,8 +367,20 @@ cs_p_a5:
     dw 20 * 128                     ; CSP_VSTALL   39 knots
     dw 24 * 128                     ; CSP_VROT     47 knots
     dw 49 * 128                     ; CSP_VMAX     95 knots
-    dw 11                           ; CSP_THRUST   1.5 m/s^2: 100 hp Rotax
-    dw 1201                         ; CSP_DRAGK    balances THRUST at VMAX
+    dw 14                           ; CSP_THRUST   2.0 m/s^2: 100 hp Rotax, and
+                                    ;              the field asked for a
+                                    ;              quarter more than the 11
+                                    ;              (1.5) it had - it is the
+                                    ;              slowest aeroplane here and
+                                    ;              was the slowest to get going
+    dw 1500                         ; CSP_DRAGK    balances THRUST at VMAX -
+                                    ;              RE-DERIVED with it, so the
+                                    ;              A5 accelerates harder and
+                                    ;              still tops out at 95 knots:
+                                    ;              600 x 1500 >> 16 = 13
+                                    ;              against a thrust of 14,
+                                    ;              which is the same one-under
+                                    ;              margin 1201/11 had
     dw 3                            ; CSP_FRICT    on land; DOUBLED on water
     dw 18                           ; CSP_BRAKE    ...and no use at all there
     dw 500                          ; CSP_ROLLR    2.7 degrees a tick

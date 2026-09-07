@@ -262,6 +262,32 @@ def main(argv):
         if not ok:
             bad.append("the stick back at VROT did not lift off (state %d)"
                        % r.byte("cs_state"))
+        # --- AND A PAUSED AEROPLANE IS SILENT (SPEC.md 88.8.1) ---------------
+        # cs_sound_step lives inside the sim loop and a pause skips it, so a
+        # tone raised before the pause simply held. Asked HERE because this is
+        # the one place in the suite with the engine actually running: at
+        # entry cs_tone is 0 and a check that reads 0 either side proves
+        # nothing.
+        tone0 = r.word("cs_tone")
+        m.type_text("p")
+        ok = until(m, lambda: r.byte("cs_pause") != 0, 200)
+        quiet = until(m, lambda: r.word("cs_tone") == 0, 200)
+        m.type_text("p")
+        back_on = until(m, lambda: r.word("cs_tone") != 0, 300)
+        print("  engine tone %d, paused -> %s, resumed -> %d"
+              % (tone0, "silent" if quiet else "still sounding",
+                 r.word("cs_tone")))
+        if not (tone0 and ok):
+            bad.append("the engine was not sounding before the pause, so the "
+                       "silence proves nothing (tone %d, paused %d)"
+                       % (tone0, r.byte("cs_pause")))
+        elif not quiet:
+            bad.append("PAUSED and the engine tone is still %d (SPEC.md 88.8.1)"
+                       % r.word("cs_tone"))
+        elif not back_on:
+            bad.append("...and it never came back on when the pause ended "
+                       "(tone %d)" % r.word("cs_tone"))
+
         alt0 = r.metres("cs_py")
         ok = until(m, lambda: r.metres("cs_py") >= alt0 + 30, 900 * slow, 30)
         print("  climbed to %d m at %d units of pitch, %d m/s"

@@ -306,8 +306,25 @@ cs_input:
     xor byte [cs_pause], 1
     mov byte [cs_msg], CSG_PAUSED
     cmp byte [cs_pause], 0
-    jne .keys
+    jne .quiet
     mov byte [cs_msg], CSG_NONE
+    jmp .keys
+.quiet:                             ; ...AND A PAUSED AEROPLANE IS SILENT
+                                    ; (SPEC.md 88.8.1). cs_sound_step is
+                                    ; inside the sim loop, which a pause
+                                    ; skips, so the engine tone raised before
+                                    ; it simply held for as long as the pause
+                                    ; did. Silencing it here rather than
+                                    ; testing [cs_pause] once a frame costs
+                                    ; nothing per frame, and the first tick
+                                    ; after the pause puts it back: [cs_tone]
+                                    ; is 0, so cs_sound_step's own compare
+                                    ; sees a change and plays it
+    xor ax, ax
+    mov [cs_tone], ax
+    xor cx, cx
+    mov dl, 0x40
+    call OSAPI_SND_TONE
     jmp .keys
 .quit:
     mov byte [cs_quit], 1
@@ -384,8 +401,12 @@ cs_scrclear:
     mov cx, 0x8000 / 2              ; rows, so the arithmetic leaves the tail
 .go:                                ; of the last bank standing
     xor ax, ax
-    cld
-    rep stosw
+    cmp byte [cs_back], CSB_C160    ; BLACK IS NOT ZERO ON THE TEXT HACK
+    jne .z                          ; (88.15.2): a cell is a half block on a
+    mov ax, CS_C160_CH              ; black attribute, and zeroing the screen
+.z:                                 ; takes the CHARACTERS out - after which
+    cld                             ; nothing the blit lays in the attribute
+    rep stosw                       ; bytes can be seen at all
     pop es
     pop di
     pop cx
@@ -671,6 +692,20 @@ cs_panel:
 ; -----------------------------------------------------------------------------
 cs_pitem:
     mov [cs_pcur], bx
+    ; --- A MESSAGE OWNS THE WHOLE ONE-LINE STRIP (SPEC.md 88.15.6) ----------
+    ; Twenty cells hold three readings OR one sentence and not both, so on
+    ; that panel the readings stand down while a message is up - here, before
+    ; the key is even sampled, so their caches keep the values they were
+    ; showing and cs_d_msg has only to STALE them when the message goes.
+    cmp byte [cs_back], CSB_C160
+    jne .live
+    cmp bx, CS_PI_ALT               ; the SPEED is not one of them: it sits in
+    jb .live                        ; the five cells the message starts after,
+    cmp bx, CS_PI_HDG               ; which is what the ground roll needs to
+    ja .live                        ; read while the take-off prompt is up
+    cmp byte [cs_msg], CSG_NONE
+    jne .gone
+.live:
     ; --- AN ITEM THIS COCKPIT HAS NOT GOT IS (0, 0) (SPEC.md 88.9.5.1) ------
     ; ...and only cs_d_vs was testing for it, so a glider's THR - which is
     ; (0, 0) because a sailplane has no throttle - was lettered at cell 0 of
@@ -792,12 +827,13 @@ cs_shr32:
 ; ignored so the callers read as they did; cs_pnuml is the form that letters
 ; the label too, which is the variometer's, its label being its sign.
 cs_pnum:
-    push ax                         ; FOUR CELLS along the label, and a cell is
-    push cx                         ; not a layout unit (SPEC.md 88.9.5): the
-    push dx                         ; old `add bx, 4 * 8` was eight cells on
-    mov ax, 4                       ; Hercules, which is the gap between every
-    call cs_pcells                  ; label and its number in the photographs
-    add bx, ax
+    push ax                         ; THE LABEL'S OWN CELLS along, and a cell
+    push cx                         ; is not a layout unit (SPEC.md 88.9.5):
+    push dx                         ; the old `add bx, 4 * 8` was eight cells
+    mov ax, [cs_plabw]              ; on Hercules, which is the gap between
+    call cs_pcells                  ; every label and its number in the
+    add bx, ax                      ; photographs. Four for 'SPD ', two for
+                                    ; the one-line strip's 'S ' (88.15.5)
     pop dx
     pop cx
     pop ax
@@ -1072,8 +1108,7 @@ cs_d_bar:                           ; the throttle bar: 0..100 in its slot
     mov [cs_pbarx], bx
     add dx, [cs_pany]
     mov [cs_pbary], dx
-    mov si, [cs_plane]
-    mov si, [si + CSP_COCKPIT]
+    call cs_ckrec
     mov ax, [si + CSK_BARW]         ; in CELLS, like every other width on the
     call cs_pcells                  ; panel (SPEC.md 88.9.5)
     mov [cs_pbarw], ax
@@ -1119,10 +1154,13 @@ cs_d_msg:                           ; the message line, padded to 40 cells
     xor ah, ah
     mov bx, ax
     shl bx, 1
-    mov si, [cs_msgtab + bx]
-    call cs_strcpy
+    add bx, [cs_msgtabp]            ; the strings this panel can fit: a
+    mov si, [bx]                    ; cockpit's forty cells, or the strip's
+    call cs_strcpy                  ; twenty (88.15.6)
     cmp byte [cs_msg], CSG_CRASH
     jne .pad
+    cmp byte [cs_back], CSB_C160
+    je .pad                         ; ...and no room for WHAT was hit
     mov si, [cs_crashwhy]
     call cs_strcpy
 .pad:
@@ -1152,9 +1190,9 @@ cs_d_msg:                           ; the message line, padded to 40 cells
     sub bx, 2
     mov dx, bx
     add dx, 11
-    xor ax, ax
-    mov cx, [cs_vw]
-    dec cx
+    mov ax, [cs_msgx0]              ; 0 on a cockpit's own strip; cell 6 on the
+    mov cx, [cs_vw]                 ; ONE-LINE strip, which keeps the speed
+    dec cx                          ; beside the message (88.15.6)
     call cs_prect
     mov si, cs_msgbuf               ; ...and the message, centred on its own
     xor cx, cx                      ; length rather than padded to forty
@@ -1170,9 +1208,14 @@ cs_d_msg:                           ; the message line, padded to 40 cells
     mov cx, 8
     mul cx
     mov cx, [cs_vw]
+    sub cx, [cs_msgx0]              ; centred in what is LEFT of the line...
     sub cx, ax
-    shr cx, 1
-    push cx
+    jg .fits                        ; ...UNLESS IT DOES NOT FIT, and the shift
+    xor cx, cx                      ; below is UNSIGNED: one cell too long
+.fits:                              ; made the pen 0x7FFC, cs_text's `and cl,
+    shr cx, 1                       ; 0xF8` left the high bits, and cs_glyph's
+    add cx, [cs_msgx0]              ; own `js .out` then dropped every cell -
+    push cx                         ; a whole message that simply vanished
     mov al, [cs_msgink]
     call cs_setink
     pop cx
@@ -1180,6 +1223,28 @@ cs_d_msg:                           ; the message line, padded to 40 cells
     mov dx, [cs_msgy]
     call cs_text
 .out:
+    cmp byte [cs_back], CSB_C160    ; --- THE STRIP, HANDED BACK (88.15.6) ---
+    jne .done                       ; The erase above took cells 6..19, so the
+    cmp byte [cs_msg], CSG_NONE     ; altitude and the heading have to be
+    jne .done                       ; lettered again - and in THIS frame, as a
+    call cs_plabels                 ; THE LABELS WENT WITH THE READINGS: they
+                                    ; are lettered ONCE with the face and the
+                                    ; erase above covers the two inside it, so
+                                    ; A and H came back as bare numbers until
+                                    ; the next target's first frame
+    mov bx, CS_PI_ALT               ; message clearing is not a thing to leave
+.back:                              ; a blank strip behind. Their caches still
+    push bx                         ; hold what they last showed, so staling
+    shl bx, 1                       ; them is what makes cs_pitem paint; and
+    mov word [cs_pkeys + bx], 0xFFFF ; cs_pitem re-entered from here is safe -
+    pop bx                          ; cs_panel reloads the item from ITS stack
+    push bx                         ; and cs_d_msg is done with [cs_pcur]
+    call cs_pitem
+    pop bx
+    inc bx
+    cmp bx, CS_PI_HDG
+    jbe .back
+.done:
     ret
 
 cs_s_spd:    db 'SPD ', 0
@@ -1194,15 +1259,39 @@ cs_s_flying: db 'FLYING       ', 0
 cs_s_stalled: db 'STALL        ', 0
 cs_s_crash:  db 'CRASHED      ', 0
 
-cs_msgtab:   dw cs_g_none, cs_g_takeoff, cs_g_stall, cs_g_landed
-             dw cs_g_crash, cs_g_paused, cs_g_edge, cs_g_release
+; TWO OF THESE ARE COMPOSED (SPEC.md 88.7.9): the take-off prompt and the tow
+; release name a SPEED, and the aeroplane's own record is the only place that
+; number lives - 55 knots is the Cessna's, and the jet rotates at 81. They
+; cannot both be up at once (an aeroplane either starts on the ground or in
+; the air), so one buffer serves them, cs_toastbuf's shape.
+cs_msgtab:   dw cs_g_none, cs_promptb, cs_g_stall, cs_g_landed
+             dw cs_g_crash, cs_g_paused, cs_g_edge, cs_promptb
              dw cs_g_splash, cs_toastbuf
+; ...and the SAME messages in twenty cells, for the one-line strip (88.15.6).
+; It is a second table and not a shortened first one because a cockpit panel
+; is forty cells wide and has the room: what the strip cannot hold, every
+; other backend can, and neither should be cut to the other's width.
+cs_msgtab160: dw cs_g_none, cs_promptc, cs_g_s160, cs_g_landed
+             dw cs_g_c160, cs_g_paused, cs_g_e160, cs_promptc
+             dw cs_g_p160, cs_toastbuf
+cs_g_s160:   db 'STALL - NOSE DOWN', 0
+cs_g_c160:   db 'CRASHED', 0
+cs_g_e160:   db 'TURN BACK', 0
+cs_g_p160:   db 'DOWN ON WATER', 0
 cs_g_none:   db 0
-cs_g_takeoff: db 'FULL THROTTLE, PULL BACK AT 55 KNOTS', 0
+; opening, suffix - a cockpit's, then the one-line strip's (88.15.6.1)
+cs_g_take:   dw cs_g_take0, cs_g_kt, cs_g_take1, cs_g_kt1
+cs_g_tow:    dw cs_g_tow0, cs_g_kt, cs_g_tow1, cs_g_kt1
+cs_g_take0:  db 'FULL THROTTLE, PULL BACK AT ', 0
+cs_g_tow0:   db 'TOW RELEASED - NOSE DOWN FOR ', 0
+cs_g_take1:  db 'ROTATE ', 0        ; 'ROTATE 55 KT' - twelve of the fourteen
+cs_g_tow1:   db 'DOWN TO ', 0       ; cells the strip lends a message (88.15.6)
+cs_g_kt:     db ' KNOTS', 0
+cs_g_kt1:    db ' KT', 0           ; ...so 'ROTATE 54 KT' is twelve cells of
+                                    ; the fourteen the strip lends a message
 cs_g_stall:  db 'STALL - NOSE DOWN, POWER ON', 0
 cs_g_landed: db 'LANDED', 0
 cs_g_crash:  db 'CRASHED INTO ', 0
 cs_g_paused: db 'PAUSED', 0
 cs_g_edge:   db 'THE EDGE OF THE WORLD - TURN BACK', 0
-cs_g_release: db 'TOW RELEASED - NOSE DOWN FOR 43 KNOTS', 0
 cs_g_splash: db 'DOWN ON ', 0    ; ...and the water's own name after it

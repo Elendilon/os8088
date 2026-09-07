@@ -1423,6 +1423,17 @@ cs_drawobj:
     cmp byte [cs_setfill], CSFL_ALL  ; a fill the player turned off leaves the
     jne .edg                        ; OUTLINE as the whole of the object, so
     mov cx, [cs_ocz]                ; the size test that drops it cannot run
+    or cx, cx                       ; AT OR BEHIND THE EYE it is not far and
+    jle .edg                        ; it is not small, it is UNDER YOU: the
+                                    ; compare below is unsigned, so a negative
+                                    ; cz read as 65,000-odd and took .out -
+                                    ; and the runway's origin is its MIDDLE,
+                                    ; so taxi past that and the strip lost its
+                                    ; outline AND its centreline together.
+                                    ; THE SAME LINE IS IN cs_boxlod ABOVE and
+                                    ; carries the same story about a building:
+                                    ; one of the two got the guard and the
+                                    ; other did not (SPEC.md 88.6.2.1)
     cmp cx, 2600
     ja .out                         ; 24 cz would not fit: far and small
     mov ax, [si + CSM_RAD]
