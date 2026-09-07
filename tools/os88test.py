@@ -202,6 +202,16 @@ def capabilities():
     # one outcome a probed capability exists to prevent.
     if os.path.exists(os88build.at("build/wire360.img")):
         caps.add("wiredisk")
+    # THE SAME SHAPE ONE PACKAGE ALONG, and it is here because it was found
+    # by the underrun warning rather than by anybody noticing: `skiesdiag`
+    # opens a PRIVATE TREE (`make skiesdiag`, a -DCSDIAG build of a package
+    # that ships without it), nothing in the suite built one, and the row
+    # printed "SKIP" and returned 0 - so a soak scored it `ok` in 0.1s
+    # against 20s declared and the watchdog went untested for the whole of
+    # its life. A skip is the box declining to answer, and only a capability
+    # can say that; a row cannot say it about itself and be believed.
+    if os.path.exists(os88build.at("build/skiesdiag/apps360.img")):
+        caps.add("skiesdiag")
     return caps
 
 

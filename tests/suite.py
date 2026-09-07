@@ -1866,9 +1866,11 @@ SOAK = [
         " such a thing can be tested: it patches a `jmp $` over cs_render and"
         " requires all three blocks to NAME that address off the glass while"
         " the counter goes on climbing. Needs `make skiesdiag` (a private"
-        " tree; the shipped skies.o88 is byte-identical without it) and SKIPS"
-        " with a line saying so when it has not been run",
-        needs=("marty",), serial=True),
+        " tree; the shipped skies.o88 is byte-identical without it), which is a"
+        " CAPABILITY and not the row's own business to report: it said SKIP"
+        " and returned 0 for its whole life, so the suite scored it `ok` in"
+        " 0.1s and nothing ever drove the watchdog",
+        needs=("marty", "skiesdiag"), serial=True),
     Row("skiesadi", "soak", py("tests/skiesadi.py"), 30.0,
         "SPEC.md 88.9.2.2: THE HARD FREEZE, reduced to one instruction. The"
         " attitude indicator drew its horizon bar at t x tan(roll) and got"
