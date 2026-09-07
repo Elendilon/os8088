@@ -99135,6 +99135,63 @@ not the set's row range (§88.3.3), so the blit never looked at the panel's
 rows unless the throttle bar's rectangle had widened the range that frame.
 `tests/skies.py` now reads the panel rows a second apart in a climb.
 
+##### 88.9.1.1 …and the THROTTLE is a user input, so it never waits
+
+§88.9.1 says above that *"the throttle, the state, a message and the key line
+are keyed every frame"*, and until this section that was true of three of the
+four. `cs_pitem` exempted `CS_PI_STATE` and `CS_PI_MSG` from the gate by name
+and nothing else, so the throttle and its bar waited for `CS_PRATE` like the
+instruments. Asked for off the machine: *"the update rate of the instruments
+is all good and should stay as it is, except for throttle — this is a user
+input, so that makes it feel responsive."*
+
+Measured on a Hercules with W held from idle to full, reading `cs_pkeys` —
+what is actually on the glass — at a `cs_blit` breakpoint:
+
+```
+    cs_thr    6  12  18  24  30  36  42  48  54  60  66  72  78  84  90  96
+    on glass  6   6  18  18  30  30  42  42  54  54  66  66  78  78  90  90
+```
+
+**The throttle moved on 16 frames and the panel redrew on 8.** Every other
+frame the number on the glass is the one before — a whole frame of lag on
+the one control the pilot is holding down.
+
+The four readings that keep the gate are the aeroplane's own — speed,
+altitude, heading, vertical speed — and §88.9.1's reason for them is
+unchanged: they move every tick in a climb and nine opaque glyphs a change
+at the frame rate is a tenth of the frame. The throttle is not that. It
+moves only while a key is held, so **it costs nothing when nobody is
+touching it**: the item's key is compared against what is drawn every frame
+either way (`cs_pkeys`), and an unchanged key returns at `.same`.
+
+The exemption is a **byte table** (`cs_pnow`, one entry an item) rather than
+the compare chain it replaces, which on an 8088 matters for the reason
+PERFORMANCE.md Part 2 gives: the chain was ten bytes of instruction fetch
+against the table's five, and a `max(clocks, 4.34 × bytes)` machine pays the
+fetch. Adding a third immediate item later costs a byte of table rather than
+four instructions on every item's path.
+
+**What it costs, measured with the throttle left alone** — `cs_panel` alone,
+bracketed from its entry to `cs_r_end`'s, 60 frames on a Hercules:
+
+| | min | median | p90 |
+|---|---|---|---|
+| by name | 11,294 | 13,350 | 13,350 |
+| by table | 11,644 | **12,461** | 13,256 |
+
+The median falls **889 cycles**, which is the fetch the table does not do,
+nine items over. The cheapest frame *rises* 350, and that is the honest
+other half: a closed-gate frame now keys two more items, so the frames that
+did least do a little more. Either way it is under 0.1% of a 1,177,000-cycle
+frame, and the aeroplane's own four readings are untouched.
+
+**The whole frame cannot answer this question and was tried first.** A
+pinned pose is not the same picture twice unless the cull's skip table is
+cleared with it (§88.5.2), so the two builds drew different scenes: their
+medians agreed to 0.06% and their minima differed by 79,000 cycles, which
+is the scene and not the panel. Bracket the proc.
+
 #### 88.9.2 The cockpit is drawn from shapes, and belongs to the plane
 
 `apps/skies/cspanel.inc`. When a target's panel is first painted, `cs_pface`

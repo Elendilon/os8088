@@ -2141,6 +2141,23 @@ SOAK = [
         " pixels, and the two POI towers' crown faces went on and off a frame"
         " at a time on the machine",
         needs=("marty",), serial=True),
+    Row("skiesthr", "soak", py("tests/skiesthr.py"), 40.0,
+        "SPEC.md 88.9.1.1: the THROTTLE is a user input, so it never waits"
+        " for 88.9.1's gate. The instruments read the aeroplane every"
+        " CS_PRATE = 6 ticks, which is right for a speed or an altitude -"
+        " they move every tick in a climb and nine opaque glyphs a change at"
+        " the frame rate is a tenth of the frame - and wrong for the one"
+        " control the pilot is holding down. cs_pitem exempted the state and"
+        " the message by NAME and nothing else, so the throttle waited with"
+        " them: measured with W held, cs_thr moved on 16 frames and the panel"
+        " redrew on 8, the glass showing the previous number every other"
+        " frame. The row reads cs_pkeys - what is ON THE GLASS, not what the"
+        " aeroplane holds - at a cs_blit breakpoint, and asks both halves of"
+        " the ask: every frame it moves the new value is shown, and a STEADY"
+        " throttle redraws NOTHING, which is what makes it free when nobody"
+        " is touching it. --clobber-now puts the two throttle entries of"
+        " cs_pnow back to 0 and check 1 goes red at about half the frames",
+        needs=("marty",), serial=True),
     Row("skiesflat", "soak", py("tests/skiesflat.py"), 62.0,
         "SPEC.md 88.4.6.1: an EXACTLY HORIZONTAL segment lands where it was"
         " asked. CS_SLICE's flat arm - dy zero, so the whole line is one run -"

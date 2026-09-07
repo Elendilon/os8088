@@ -836,10 +836,11 @@ cs_pitem:
     jz .gone
 .there:
     mov bx, [cs_pcur]
-    cmp bx, CS_PI_STATE             ; the state and the message NEVER wait:
-    je .now                         ; a stall or a crash has to show at once
-    cmp bx, CS_PI_MSG
-    je .now
+    cmp byte [cs_pnow + bx], 0      ; THE ITEMS THAT NEVER WAIT (88.9.1.1) -
+    jne .now                        ; a table and not a compare chain, which
+                                    ; on an 8088 is half the BYTES and so
+                                    ; half the time, and stays that whatever
+                                    ; is added to it
     cmp byte [cs_pgate], 0
     je .paint                       ; between gates the latched value stands
 .now:
@@ -878,6 +879,15 @@ cs_pkeyp:  dw cs_k_spd, cs_k_alt, cs_k_hdg, cs_k_adi, cs_k_thr, cs_k_state
            dw cs_k_thr, cs_k_msg, cs_k_vs
 cs_pdraw:  dw cs_d_spd, cs_d_alt, cs_d_hdg, cs_d_adi, cs_d_thr, cs_d_state
            dw cs_d_bar, cs_d_msg, cs_d_vs
+; ...and which of them are read EVERY FRAME rather than at 88.9.1's gate: a
+; stall or a crash has to show at once, and the THROTTLE and its bar are the
+; only USER INPUT on the panel, so a frame's lag there reads as the machine
+; not listening rather than as an instrument settling. The four readings that
+; are the aeroplane's own - speed, altitude, heading, vertical speed - keep
+; the gate, because those change every tick in a climb and nine opaque glyphs
+; a change at the frame rate is a tenth of the frame (88.9.1.1)
+;              SPD ALT HDG ADI THR STATE BAR MSG  VS
+cs_pnow:   db    0,  0,  0,  0,  1,    1,  1,  1,  0
 
 ; --- the keys -----------------------------------------------------------------
 cs_k_spd:                           ; knots: v(16.7) x 1.944 / 128
