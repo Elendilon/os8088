@@ -3329,10 +3329,15 @@ the `rep movsw` it always was.
   own trick on `wm_clip_r0`; folding them was worth 2 µs of the 78, so the cost
   is the compares rather than the stores, and it is left there rather than
   chased.
-- **both `A` and `B` non-empty → `CF = 1`, the FOURTH refusal**, joining
-  §5.4.2's three. It needs a Map Mask split and this does not do one. The only
-  pair in this system that lands here is `CDGRAY` on `CLGRAY` — 8 against 7,
-  the Color theme's disabled chrome — and that belongs to text, not to a band.
+- **both `A` and `B` non-empty** — the planes disagree about which way up the
+  band is. This was **the FOURTH refusal**, `CF = 1`, joining §5.4.2's three,
+  on the ground that it needs a Map Mask split and this did not do one.
+  **That was true until §5.4.2.2.1, which does the split**: the refusal is
+  lifted, the pen takes every pair, and §5.4.2's refusal list is three again.
+  While it was a refusal the only pair in this system that reached it was
+  `CDGRAY` on `CLGRAY` — 8 against 7, the Color theme's disabled chrome — and
+  what changed that is §70.8: an ANSI board's art is sixteen colours on
+  sixteen colours, and *green on red* is refused by the predicate above.
 
 ##### On a 1bpp adapter the pen is NOT READ
 
@@ -3368,6 +3373,126 @@ hole in the doc gate — a wrapped citation is invisible to it — and it is
 recorded here rather than fixed, because the fix (joining continuation lines
 before matching) would need testing against the whole tree's comment style.
 The claim itself is true and is now stated above.
+
+##### 5.4.2.2.1 The fourth refusal is lifted: the Map Mask split
+
+**Every `(ink, paper)` pair is exact now.** `gfx_blit1` no longer answers
+`CF = 1` for a pair whose two colours share no plane in either direction, and
+`§5.4.2.2`'s own words are what it does instead — *"it needs a Map Mask split
+and this does not do one"* — so this does one. `vga12.inc` has carried the
+same sentence at the refusal since the pen landed: *"both: a Map Mask split,
+which this does not do."*
+
+**Why it had to happen in the KERNEL and not in the caller.** Every band in
+this system until now chose its own two colours from a palette the author knew,
+so a refused pair was a pair nobody would ask for — `CDGRAY` on `CLGRAY` and
+nothing else. **§70.8 is the first caller whose pairs come off the wire**: an
+ANSI-BBS terminal is handed sixteen foreground colours against eight
+backgrounds by a host it has never met, and most of the 128 combinations are
+refused by the subset test. A terminal cannot answer a refusal with a different
+colour — a wrong colour on the glass is a wrong picture, not a degraded one —
+and it cannot answer it by lettering, because a glyph call a cell is what the
+band exists to avoid. So the refusal had to go, once, where every caller gets
+it.
+
+##### The two passes
+
+The band's three plane sets are §5.4.2.2's, unchanged: `A = ink & ~paper`
+wants the band as it stands, `B = ~ink & paper` wants its complement, and
+`C = ~(ink ^ paper)` is Set/Reset's. A refused pair is one with both `A` and
+`B` non-empty, and the two wants are irreconcilable in one CPU write **only
+because the Map Mask lets every plane see it**. Splitting the mask splits the
+write:
+
+| pass | Map Mask (SEQ index 2) | Enable Set/Reset (GC1) | what is written | planes it lands on |
+|---|---|---|---|---|
+| 1 | `A OR C` | `C` | the band, `rep movsw` | `A` takes the band byte, `C` takes GC0's constant |
+| 2 | `B` | `C`, still armed | the band COMPLEMENTED, the hand loop | `B` alone |
+
+**Neither pass can undo the other**, which is the property that makes this
+sound rather than merely clever: pass 1's Map Mask has no bit of `B` in it and
+pass 2's has no bit of `A` or `C`, so the two masks are disjoint, every plane
+is written by exactly one pass, and every pixel of the rect is still **written
+once**. That is §5.4.2's contract and PERFORMANCE.md Part 1's rule, both intact.
+
+`GC1` is left armed across pass 2 rather than cleared: `C` and `B` are disjoint
+by construction, so the Map Mask already blocks every plane Set/Reset would
+answer for, and clearing it would be a port write that changes nothing. The Bit
+Mask stays at `FF` on both passes, so **neither pass reads the latches** —
+which is what §5.4.2.2 bought and this must not spend.
+
+The two loops the split needs are **the two the routine already has**: `.row`
+is pass 1 and `.rowi` is pass 2, and the split is a second trip through the
+emit rather than a third code path. What it costs in bytes is the second trip's
+setup — the row counter, the band pointer and the framebuffer pointer are all
+consumed by the first pass and have to be re-established — plus the two
+Sequencer writes and the masks to write.
+
+##### The standing contract grows by one register
+
+§5.4.2's resting state was *"Map Mask = 0Fh with Set/Reset disabled"*, and the
+Map Mask was a register `gfx_blit1` **never touched**, which is why its
+teardown was one `out` (Enable Set/Reset back to 0). It touches it now, so
+**the teardown on the split path is two**: `SEQ2 = 0Fh` as well. Every routine
+in `vga12.inc` is entitled to find the Map Mask at `0Fh`, and a split band that
+returned with it at `B` would silently drop three planes of whatever drew next.
+
+Nothing else changes. A pair that was already accepted takes the same one
+emit, the same two `out`s and the same teardown it always did; the split is
+tested for on the path that used to `stc`.
+
+##### What it costs
+
+| | |
+|---|---|
+| an accepted pair | unchanged — one emit, `rep movsw` at 12.5 clocks a byte, or the hand loop at 17 |
+| **a split pair** | **two emits over the same rect**: one of each, so ~29.5 clocks a byte against 12.5, plus one extra Sequencer write pair and one extra teardown `out` |
+| bytes | **measured, and it is `.cold` rather than `.text`**: the body is `%ifdef KERN_BIG` in `.cold` (§2.6) and only the two new `.bss` words are in the image rung |
+
+**The budget was the image rung's headroom and it was 127 bytes**
+(`tools/kernsize.py`: `image 57,344 +512 (127 left)`), because a crossing is
+512 bytes of every machine's RAM and CLAUDE.md makes that a decision taken
+with whoever asked for the feature rather than a build fix. **It fits, and no
+rung is crossed:**
+
+| section | before | after | |
+|---|---|---|---|
+| `.cold` | 37,667 | **37,734** | +67; the cold rung's headroom 221 → **154** |
+| `.bss` | 6,138 | **6,141** | +3; the image rung's headroom 127 → **124** |
+
+**It is under a hundred bytes because lifting the refusal removes more than it
+adds.** `.penno`'s four bytes go, and so does `.penref` — the eleven-instruction
+unwind §5.4.2.4 had to build when the pen moved *below* the nine banking
+pushes, which had to pop all nine and undo the display nest before its `stc`.
+`.pen` has exactly one answer now, so its `clc` goes with them and the caller
+stops testing it. What is added is the split arm in `.pen` (30 bytes), the Map
+Mask arming beside the two `GC` writes (23), the second pass at `.emitted`
+(29), the teardown's second `out` (14), and two words of frame.
+
+**Two starts are banked at the head of the frame** — `[bp+14]` the band's
+first byte and `[bp+12]` its first framebuffer byte — because neither is
+recoverable from where pass 1 leaves them: `SI` advances by a stride a row and
+`DI` by a `rowadd` plus whatever the wrap fix added. `[bp+12]` is pushed as a
+PLACEHOLDER (`push ax`) and filled in forty lines later, because `DI` is not
+computed until after `mov bp, sp`; `mov sp, bp` / `add sp, 16` discards both
+with the frame. The row count comes back out of `DH`, which is free through
+both emit loops and which a band of at most 255 rows fits in one byte.
+
+**And the framebuffer segment goes through `CX` rather than `BX` now**, because
+`BL` carries pass 2's Map Mask across the whole emit — `BX` is the one register
+neither loop touches. `CX` is dead at that point (it held `x/8` for
+`gfx_rowbase`) and both loops reload it from the frame.
+
+`tools/stkbalance.py` is why the two starts are at `[bp+14]`/`[bp+12]` rather
+than below `BP`: pushing them after `mov bp, sp` and reading them at `[bp-2]`
+left `add sp, 12` reachable at two different depths, which the gate reports as
+an unbalanced path. Inside the frame the arithmetic stays even and the teardown
+is one changed constant.
+
+**The 1bpp arm is untouched.** One plane has nothing to split, the pen is not
+read there at all (§5.4.2.2), and neither the Map Mask nor Set/Reset exists on
+a Hercules or a CGA. `[vid_mono]` is tested before any of this, exactly as it
+was.
 
 #### 5.4.2.3 …and the odd row it could not emit, latent since the pen landed
 
@@ -30310,8 +30435,22 @@ Two teardown corollaries, both about not trading a crash for a leak:
    `osapi_set_color`, `font_*`, `wm_content`, `wm_obscured`,
    `wm_clip_set`/`wm_clip_clear`, `osapi_video`,
    `osapi_get_ticks`, `osapi_mouse`, `osapi_srand`/`osapi_rand`,
-   `task_sleep`, `task_yield`, `OSAPI_WM_WAKE`, `OSAPI_TASK_ALIVE` and
+   `task_sleep`, `task_yield`, `OSAPI_WM_WAKE`, `OSAPI_TASK_ALIVE`,
+   `osapi_snd_tone`/`osapi_snd_caps` and
    `wm_saveu`.
+   **`osapi_snd_tone` was missing from this list too, and is missing for the
+   same reason `OSAPI_WM_WAKE` was.** `apps/os88api.inc` already names it
+   among what a worker may call and spends five lines saying it is
+   *"worker-safe by construction, not by luck"*; `snd_tone_req` is one
+   `pushf`/`cli` … `popf` and takes neither `sch_lock` nor the gfx lock, and
+   `snd_req_inst` bills the tone to the calling task's own instance. Telnet's
+   parser is what found it: §70.9.2's BEL runs on the worker, through
+   `te_step` → `te_feed` → `te_byte` → `te_pbyte` → `te_ground` → `te_control`
+   → `te_bell`, and a board sends BEL. §53 is clear that the call is legal
+   inside an exclusive bracket as well — §53.1's last bullet contemplates
+   sound grants taken there and §53.2 keeps `snd_tick` running — which is
+   what makes it right for Telnet's full-screen renderer too. It is
+   `osapi_snd_play` that is out, and the paragraph below already says why.
    **`OSAPI_WM_WAKE` was missing from this list and is not new** — its
    own cell has said "any context — ISR-safe and worker-safe, no lock
    needed" since it was written (§74.1), and it is the carrier of the
@@ -34886,6 +35025,142 @@ The **three shipped system images and nothing else** — `SYSDOC`/`SYSLOGO`'s
 scoping (§63) and for the same reason. `make field`'s narrow disks and the
 bench disks are 360KB volumes whose free clusters are the *measurement*, and
 `make combo` already carries every package there is.
+
+#### 24.3.1 The 360KB disks ran out, and TELNET is what stays
+
+**The SYSTEM-disk half of this is superseded by §24.3.1.1** — the Wire changed
+the test, and `PAINT.O88` is what leaves that geometry now, with the game and
+the three faces back on it. The history below stands as it was written,
+because the arithmetic in it is what the decision was taken against.
+
+*"The figure the next thing proposed for this disk has to argue against"* was
+79 clusters narrowing to 60, and §70.9's ANSI-BBS parser is the next thing.
+`TELNET.O88` goes from **7,052 bytes to 10,235** — 7 clusters to 10 — and both
+360KB disks refused the image outright:
+
+| the 360KB disk | in use | free | wave 3 needs |
+|---|---|---|---|
+| system, before | 352 of 354 | 2 | **355** |
+| apps, before | **354 of 354** | **0** | **357** |
+
+The apps disk was not tight, it was **exactly full**, and had been since before
+this wave — which is a thing nobody could see, because a disk that fits reports
+nothing. The parser was cut by 400 bytes first (§70.9.7) and that closed one of
+the four clusters; the other three came off the disks, and **on that geometry
+alone**:
+
+| | what comes off | clusters | after |
+|---|---|---|---|
+| system | `MINES.O88`, `JETBRAIN.F88` | 2 + 2 | **350 of 354, 4 free** |
+| apps | `MODPLUG.O88` | 19 | **338 of 354, 16 free** |
+
+**TELNET STAYS, and the XT is the machine this section's argument is about.**
+A network machine's system disk carries the driver, so it should carry the
+programs that use it, and a 360KB machine is precisely the one with no other
+floppy to swap in. What gives way instead is chosen on the same test:
+
+* **`MINES.O88` is a second copy of a GAME.** The argument above for the core
+  six is about programs the boot disk's own drivers make useful — Browser and
+  Telnet are, and a game is not. It is untouched on the 720KB, 1.44MB and
+  1.2MB system disks and on every apps disk.
+* **`JETBRAIN.F88` is one of TEN faces and the largest** (1,688 bytes, with
+  `COURIER.F88`). Nothing names it: `apps/browser` names `times` and
+  `apps/sheet` names `Helv`, and Sheet is on no system disk at all. That
+  geometry still carries `INCONSOL.F88` and `ROBOMONO.F88`, so it loses one
+  monospace family and not the monospace shape. `license.txt` stays: it
+  travels with the faces that are there (§6.4.1).
+* **`MODPLUG.O88` is §24.4's own argument one step on.** That section already
+  moved `BEVERLY.MOD` off this geometry onto a media disk of its own, so at
+  360KB alone the MOD player ships beside no module to play. `TRACKER.O88`
+  stays, because Tracker is an editor as well as a player and can make a
+  module out of nothing — a player with nothing to play is the redundancy on a
+  disk with no room.
+
+**Nineteen clusters for a need of three is deliberate.** This geometry has
+been at zero free twice now, and §70.11's Zmodem receiver grows `TELNET.O88`
+again by about two clusters on both disks; the four and sixteen above are what
+that is budgeted out of. A disk that is exactly full is a disk the next byte
+breaks, and the breakage lands on whoever is holding it.
+
+**IT WAS FOUR CLUSTERS AND NOT TWO, so one more typeface came off.** §70.11's
+receiver takes `TELNET.O88` from **10,235 to 15,079** — 10 clusters to 15 —
+which is exactly the four the system disk had, leaving it at **354 of 354**:
+full, not tight, which is the state the paragraph above says is the dangerous
+one. So `COURIER.F88` goes with `JETBRAIN.F88`, on the same test and with the
+same words: it is the OTHER 1,688-byte face, it is the THIRD monospace on a
+disk that keeps `INCONSOL.F88` and `ROBOMONO.F88`, and nothing on this disk
+names it. The two places in the tree that write "Courier" are
+`apps/texpad/tpexport.inc` and `apps/word/wdrtf.inc`, and both mean a
+PostScript or RTF font name in a file they are exporting rather than a typeface
+they load — and neither package is on a system disk.
+
+**AND `TALLX.F88` WITH IT, WHICH IS THE THIRD USE AND THE LAST.** The receiver
+crossed fourteen clusters, and shaving a package to fit a cluster boundary is
+not a saving — it is a handful of bytes of headroom handed to the next editor
+with no warning, and the w4 review's fix pass then spent 546 of them on the
+divide guard, the drain and the two staging arms. So the cluster comes off the
+disk.
+TallX is a DISPLAY face and the smallest of the ten (1,118 bytes), nothing
+names it either, and this geometry keeps `ARCHIVO`, `CHARTER`, `HELV`,
+`INCONSOL`, `NOTO`, `ROBOMONO` and `TIMES` — seven of ten, both monospaces, and
+the two the shipped packages ask for by name.
+
+| | what comes off | clusters | after |
+|---|---|---|---|
+| system, after §70.11 | `COURIER.F88` and `TALLX.F88` | 2 + 2 | **351 of 354, 3 free** |
+| apps, after §70.11 | (nothing more) | — | **343 of 354, 11 free** |
+
+**THE ARGUMENT IS NOW SPENT.** It has been used three times in two waves and
+there is no fourth face on this disk that nothing names: what is left is the
+seven a Font menu needs to be worth opening. The sixteen clusters `MODPLUG.O88`
+bought have absorbed the whole of Telnet's growth on the apps disk, and the
+system disk has given up a game and three typefaces. **The next feature that
+grows anything on the 360KB system disk gives up something ELSE** — a core
+package, the manual, the logo — and that is a decision for whoever asks for the
+feature rather than another row in this list.
+
+**A `filter-out` and not a second list**, which is the opposite of
+`SMALLOMIT`'s shape and right for the opposite reason: `kern_small`'s list says
+what CANNOT run there and must not gain a row by accident, where these say what
+a full machine is doing without for want of two kilobytes. A package added to
+`COREAPPS` tomorrow SHOULD land on this disk and be refused by `os88disk.py` if
+it does not fit, which is the failure everybody wants.
+
+#### 24.3.1.1 The Wire changes the test, and PAINT is what leaves
+
+Everything above chose what gives way on the test *"is it named by anything
+on this disk"*. **§88 supplies a better one: can the machine get it BACK.**
+The Wire's catalog carries every core package — Paint, Notepad, Calc, Browser,
+Telnet and Mines among its 33 programs — and **no typeface at all**: a face is
+loaded off the disk that carries it or not at all. So the three faces above
+were the one thing that geometry could never recover, and the game was one
+double-click away the whole time.
+
+On that test the thing to leave is the LARGEST package the Wire can give back,
+and by a distance it is `PAINT.O88` — **27 clusters**, against 18 for
+`NOTEPAD.O88`, 15 for `BROWSER.O88` and 7 for `CALC.O88`. A network machine's
+system disk still carries the programs that use its driver (Browser, Telnet,
+The Wire itself); what it gives up is the one core package that is neither
+network software nor irreplaceable, and is the Wire's own featured program.
+
+| the 360KB system disk | clusters |
+|---|---|
+| after §24.3.1, with `MINES`, `JETBRAIN`, `COURIER`, `TALLX` off | 351 of 354, 3 free |
+| those four back on | +8 → 359 |
+| `PAINT.O88` off | −27 → **333 of 354, 21 free** (measured: the directory grows a cluster with the files) |
+
+`SYS360OMIT` is that one file now. `PAINT.O88` stays on the 720KB, 1.44MB and
+1.2MB system disks and on every apps disk, and `tests/thewire.py`'s and
+`tests/ethernet.py`'s 360KB gate disks (`ether360.img`, `thewire360.img`) take
+the same list. The apps-disk half of §24.3.1 is unchanged: `MODPLUG.O88` is
+still off the 360KB apps disk, for §24.4's reason, which the Wire does not
+alter — that disk is the one a 360KB machine swaps IN, and the module it would
+play is not on it.
+
+**The user chose this, against the recommendation the two waves had made**,
+and the reason is worth keeping: a removal list argued from *"nothing names
+it"* removes the things nobody will miss until they do, where one argued from
+*"the Wire has it"* removes the things anybody can put back.
 
 ### 24.4 The MEDIA DISK — a third shipped disk, at 360KB alone
 
@@ -77599,23 +77874,41 @@ whose data rate is a *human's typing speed*, so the cable's 3,741 bytes a
 second (PERFORMANCE.md Set 39) is not a compromise here. It is more than the
 application can use.
 
-**A dumb terminal, deliberately.** No cursor addressing, no colour, no scroll
-regions: a printing terminal with a scrolling window, which is what makes a
-BBS, a MUD and a Unix login prompt all readable. Escape sequences are
-**recognised and discarded** rather than acted on, and that is the honest
-choice rather than the lazy one — the failure for a sequence this does not
-implement is *nothing appearing*, where printing it leaves `[2J` in the middle
-of a sentence and looks like a corrupt stream.
+**It was a dumb terminal, deliberately, until §70.8.** No cursor addressing, no
+colour, no scroll regions: a printing terminal with a scrolling window, which
+is what makes a BBS, a MUD and a Unix login prompt all readable. Escape
+sequences were **recognised and discarded** rather than acted on, and that was
+the honest choice rather than the lazy one — the failure for a sequence this
+did not implement is *nothing appearing*, where printing it leaves `[2J` in the
+middle of a sentence and looks like a corrupt stream.
+
+**It is an ANSI-BBS terminal now**, and §70.8 through §70.12 are what that
+means: an 80x25 screen of characters *and attributes* (§70.8), sixteen colours
+windowed on VGA and a pinned polarity rule on the two 1bpp adapters, a
+full-screen text mode that IS the board's own screen rather than a centred
+64-column window onto it, a real ANSI-BBS parser (§70.9) in place of the
+discard, the Telnet options a board expects and the keys a board expects
+(§70.10), and **Zmodem receive** (§70.11) with the file landing on a disk the
+user picks. The discard survives inside §70.9 as the fall-through for a
+sequence still not implemented, which is where it always belonged. Uploads,
+CRC-32, scroll regions and RIPscrip are deferred with their arithmetic in
+docs/TELNET-PLAN.md, which is this work's design record.
 
 ### 70.1 Refusing every Telnet option is a valid implementation
 
-`IAC` introduces a command, `DO`/`WILL` are answered `WONT`/`DONT`, and a
-subnegotiation is swallowed to its `IAC SE`. That is all of RFC 854 this
-needs, and the options worth accepting are the ones this cannot use: `ECHO`
-and `SGA` change what the *host* does rather than what this draws, and `NAWS`
-would have to report a window size the user cannot change — the screen is a
-fixed 64x18 because a terminal that reflows on a resize is one whose host has
-the wrong idea of how wide it is.
+**It was, until §70.10.** `IAC` introduces a command, `DO`/`WILL` are answered
+`WONT`/`DONT`, and a subnegotiation is swallowed to its `IAC SE`. That was all
+of RFC 854 this needed, and the options worth accepting were the ones this
+could not use: `ECHO` and `SGA` change what the *host* does rather than what
+this draws, and `NAWS` would have had to report a window size the user cannot
+change — the screen was a fixed 64x18 because a terminal that reflows on a
+resize is one whose host has the wrong idea of how wide it is.
+
+**What broke it is that a board asks what the terminal is and draws a different
+screen for the answer** (§70.10.1): six options are accepted now — `TTYPE`,
+`NAWS`, `ECHO`, `SGA` and `BINARY` in both directions — and the buffer is
+80x25 always, so `NAWS` reports a size that is a fact rather than a guess. The
+mirror below is unchanged and still governs everything not in that table.
 
 **The reply's sense is the mirror of the question** — a host that says `WILL`
 is told `DONT`, one that asks us to `DO` is told `WONT`. Getting that
@@ -77788,13 +78081,20 @@ rendering, where the windowed terminal spends a glyph cell — PERFORMANCE.md's
 ~900us on the target — on every character. A row change goes from 64 glyph
 cells to a 64-word `rep movsw`.
 
-**The screen is still 64x18 and is CENTRED, not grown to 80x24.** That is a
-decision and not an omission: the buffer is what the host's idea of where a
-line wraps is measured against (§70.5), and a terminal that is 64 columns in a
-window and 80 in full screen would be reflowing at the worst possible moment.
-Growing it to 80 for good is a separate question with a real cost — every
-windowed adapter would then show fewer columns than the screen has — and it is
-not answered here.
+**The screen was still 64x18 and CENTRED, not grown to 80x24, until §70.8.**
+That was a decision and not an omission: the buffer is what the host's idea of
+where a line wraps is measured against (§70.5), and a terminal that is 64
+columns in a window and 80 in full screen would be reflowing at the worst
+possible moment. Growing it to 80 for good was a separate question with a real
+cost — every windowed adapter would then show fewer columns than the screen has
+— and it was not answered here.
+
+**§70.8 answers it: 80x25, and the buffer maps 1:1 onto text VRAM.** The cost
+named above is paid in full and stated there; what buys it is that 80x25 is not
+a size but the board's own screen. The centring, `TET_X0`, `TET_Y0` and the
+full-screen status line are all gone — a board uses row 25 — and §70.8.8
+records the two defects this renderer already had when that work went to read
+it.
 
 **`FSXF_KEEPWORKER` is not optional.** The worker owns the socket (§70.2), so
 a bracket that froze it would freeze the session: nothing would arrive and
@@ -77896,6 +78196,2236 @@ accumulates), the window is uncovered into a full `te_paint`, and the next
 pass blits a screen that was already correct. `te_screen` zeroes it now,
 which is also what makes `te_owed` readable as the whole truth — the
 precondition `te_promise` needs.
+
+### 70.8 The screen is 80x25, a character and an attribute
+
+**§70's opening doctrine ended here**, and the deferred decision §70.6 wrote
+down is the one that ended it. That section grew the terminal to 80 columns in
+full screen and refused, in the same paragraph, to grow the buffer with it:
+*"a terminal that is 64 columns in a window and 80 in full screen would be
+reflowing at the worst possible moment"*, and *"growing it to 80 for good is a
+separate question with a real cost — every windowed adapter would then show
+fewer columns than the screen has — and it is not answered here."*
+
+**It is answered here, and the answer is 80x25.** The cost §70.6 named is
+real and is paid: a 640-pixel screen shows 76 of the 80 columns with the pen
+and the padding taken out, and no window on a CGA can show all of them. What
+buys it is that **80x25 is not a size, it is the BBS's own screen** — an ANSI
+board draws its menus, its boxes and its art against a screen it knows is
+eighty columns by twenty-five rows, and a terminal that is any other size does
+not render that art wrongly so much as it renders a different picture. The
+windowed view was already a VIEWPORT onto a fixed buffer (§70.5); making the
+buffer the size the host is drawing for costs the viewport four columns on one
+adapter and buys every board on the wire.
+
+**The cell is TWO bytes, character then attribute**, and the attribute is
+IBM's:
+
+| bits | field | values |
+|---|---|---|
+| 0–3 | foreground | 0–15, bit 3 = intensity |
+| 4–6 | background | 0–7 |
+| 7 | blink | 1 = blinking, or a bright background when iCE is on (§70.8.9) |
+
+`te_scr` is 80 × 25 × 2 = **4,000 bytes**, row-major, cell *(r, c)* at
+`te_scr + (r*80 + c)*2`. It is the buffer both renderers draw from and the
+only thing either of them agrees about. **Bytes 0x80–0xFF are CP437 GLYPHS and
+never C1 controls** (§70.9): a board's art is made of them, and a terminal that
+read 0x9B as a CSI introducer would eat the picture.
+
+The state, all of it, and every byte named:
+
+| name | size | meaning |
+|---|---|---|
+| `te_cx` | word | cursor column, 0..79 |
+| `te_cy` | word | cursor row, 0..24 |
+| `te_sx`, `te_sy` | word each | **the one** saved cursor — `CSI s`/`CSI u` and `ESC 7`/`ESC 8` share it, and it starts at (0,0) |
+| `te_attr` | byte | the current attribute — **DERIVED** from the six logical bytes below and recomputed by every SGR (§70.9.4) |
+| `te_lfg` | byte | logical foreground, **4 bits**, intensity included; reset 7 |
+| `te_lbg` | byte | logical background, **3 bits**; reset 0 |
+| `te_blk` | byte | 1 = blink (SGR 5) |
+| `te_rev` | byte | 1 = reverse (SGR 7) |
+| `te_con` | byte | 1 = concealed (SGR 8) |
+| `te_pwrap` | byte | 1 = a glyph was written in column 79 and the cursor stayed there |
+| `te_cvis` | byte | 1 = the cursor is drawn; `CSI ?25l` clears it, `?25h` sets it |
+| `te_ice` | byte | 1 = iCE colours: bit 7 is a bright background, not blink. **Render-time only** — it changes nothing in `te_scr` |
+| `te_drb` | 4 bytes | the dirty ROW BITMAP, bit *r* of byte *r*>>3, 25 bits used |
+| `te_scrl` | word | rows the buffer has scrolled since the glass last agreed |
+
+**There is ONE saved-cursor slot and it holds the position only.** `ESC 7`/
+`ESC 8` are DEC's pair and `CSI s`/`CSI u` are ANSI.SYS's, and a board uses
+whichever its author knew; two slots would be two states to keep in step for no
+gain, and neither pair saves the attribute here. It starts at (0,0), so an
+`ESC 8` before any `ESC 7` homes the cursor rather than doing something
+undefined.
+
+**Tab stops are every eight columns and are not settable.** There is no HTS
+and no TBC: a board sets no tab stops, the eighty-byte table one would need is
+eighty bytes, and a stop the host cannot move is a stop that cannot be wrong.
+
+#### 70.8.1 The dirty RANGE became a dirty BITMAP
+
+§70.4 chose a range — `[te_dr0]`..`[te_dr1]`, one compare per mark and one
+bound at the draw — on a stated assumption: *"terminal output is sequential, so
+a burst of bytes touches a contiguous run of rows."* **Cursor addressing is
+exactly the thing that assumption excludes.** A board that draws a menu writes
+row 3, then row 20, then row 3 again; the range spanning them is eighteen rows
+and seventeen of them are clean. On the machine this is for, a windowed row is
+one composed band and one blit per attribute run — call it four calls and
+3 ms — so a range costs about **50 ms of drawing to change two rows**, every
+time the host moves the cursor.
+
+So `[te_dr0]`/`[te_dr1]` become `te_drb`, **four bytes and twenty-five bits**.
+`te_mark` sets a bit, `te_markall` sets all twenty-five, `te_markclr` zeroes
+the four bytes, and a renderer walks the bits. Both renderers consume the same
+bitmap, for §70.6's reason unchanged: `te_putc` runs on the kept worker and
+marks the row it wrote whichever screen is up, so the two cannot drift about
+what changed.
+
+**`[te_scrl]` stays, and it is spent by BOTH renderers now.** It is a
+different debt from the bitmap and always was — pixels the buffer has already
+moved and the glass has not — and §70.8.8 is what happened when only one
+renderer spent it.
+
+**A MARK NAMES A ROW OF THE BUFFER, AND A SCROLL MOVES THE BUFFER** (found).
+Row 5 marked, then a scroll: row 5's pixels are on the glass at row 4 now and
+the mark still says 5, so row 4 is never redrawn and holds stale text until
+something else touches it. The RANGE could only have widened to cover both,
+which is why nobody fixed it there. The bitmap is a twenty-five-bit number and
+moving every mark down one row is **moving that number right one bit** —
+`shr` the top byte, `rcr` the other three, eight bytes of code — so
+`te_markup` runs inside `te_scroll1` and the two debts stay consistent with
+each other by construction.
+
+**And the CURSOR's row is marked after a scroll BLIT** (found by
+`tests/telnet.py`, 12 differing pixels on Hercules). The underline is composed
+into the band (§70.8.2), so the windowed blit carries it up the window with
+everything else and the row it *left* keeps a stale one. A scroll from
+`te_scroll1` always leaves the cursor on the row it opened, which is marked
+already — but a scroll the parser asks for (§70.9.3's `SU`) does not move the
+cursor at all, so `te_scrollpaint` marks `[te_cy]` unconditionally. One call.
+
+#### 70.8.2 The windowed renderer: one composed band a row, one blit an attribute run
+
+**A glyph call per cell is not affordable and never was.** PERFORMANCE.md
+prices an 8x8 cell at ~900 us on a 4.77 MHz 8088, so a full 80x25 screen
+lettered a cell at a time is **1.8 seconds**. The row is composed instead:
+
+1. `te_band` is 80 bytes by 8 rows — **640 bytes**, one screen row's pixels,
+   1bpp, bit 7 leftmost, exactly `OSAPI_GFX_BLIT1`'s band format with a stride
+   of 80.
+2. For each of the row's eighty cells, the eight bytes of that character's
+   glyph are read out of `te_glyf` (§70.8.6) and stored one per band row at
+   the cell's byte column. That is eight byte stores a cell and no drawing
+   call at all.
+3. The cursor, when `[te_cvis]` is set and the cursor is on this row, is
+   **two lit scanlines in the cell's bottom two band rows**, OR'd in during
+   composition. It is not a second paint and it never flashes: the cell goes
+   from its old pixels to its final pixels in the band, and the band reaches
+   the glass once.
+4. The row is then blitted **once per ATTRIBUTE RUN** — a maximal run of
+   adjacent cells sharing an attribute byte — with `OSAPI_GFX_BLIT1_PEN`
+   (0x04A8) set to that run's (ink, paper) and `OSAPI_GFX_BLIT1` (0x0418)
+   given the run's byte column, its width in pixels and eight rows.
+
+**Both of the blit's alignment demands are satisfied by construction**: a cell
+is eight pixels, so a run's x and a run's width are multiples of eight
+whatever the run is, and the pen was §70.4's aligned pen already.
+
+**Every pixel is written exactly once.** That is PERFORMANCE.md Part 1's rule
+rather than an optimisation, and it is what the erase-then-letter pair the old
+`font_run` fallback produced could not offer.
+
+The cost, in calls rather than pixels, which is the unit that matters:
+
+| what changed | calls |
+|---|---|
+| one row of ordinary text (one attribute) | 1 pen + 1 blit |
+| one row of a coloured menu bar (say five runs) | 5 pen + 5 blit |
+| a whole 80x25 repaint, plain text | 50 |
+| the same repaint, lettered a cell at a time | 2,000 |
+| **any row at all on a 1bpp adapter** | **1 blit, no pen** (§70.8.4) |
+| the worst row there is: eighty alternating attributes | 80 pen + 80 blit |
+
+**Counted from `te_emit`, which is one loop and no second path**: it walks the
+row's cells, grows a run while the attribute byte repeats, and emits `te_pen`
++ `te_blitrun` once per run. So the count is exactly the number of maximal
+attribute runs in the row, and on a 1bpp screen the walk is skipped entirely.
+Read off the source rather than instrumented in the guest, and said so.
+
+**A REFUSED BLIT DEGRADES ONCE PER SCREEN, NOT ONCE PER RUN.** §5.4.2 makes
+`kern_small` carry the slot and a `stc`/`retf` stub, so a package must test
+`CF` and the documented degrade is to letter in the kernel's 8x8 face. The
+first refusal latches `[te_nob]` and calls `te_rowfont`, which copies the
+row's characters out of the interleaved buffer into a NUL-terminated run and
+draws it with one `OSAPI_FONT_RUN`; every later row takes that path without
+asking the kernel again. The attributes are lost, which is what a machine with
+no band blitter can offer.
+
+The pen is **valid for exactly the lock hold it was set in** — `gfx_unlock`
+puts `CWHITE`/`CBLACK` back — so it is set inside `te_show`'s hold and never
+banked across one.
+
+#### 70.8.3 The pen takes every pair, since §5.4.2.2.1
+
+**§5.4.2.2's fourth refusal is what this section was shaped around, and it is
+gone.** The pen arms the VGA's Set/Reset for the planes both colours agree on
+and moves the band into the planes they disagree on; that worked when one
+colour's plane set was a SUBSET of the other's and answered `CF = 1` when it
+was not:
+
+> was accepted ⟺ `ink AND paper == ink` **or** `ink AND paper == paper`
+
+`CWHITE` on anything and anything on `CBLACK` were always accepted, and **green
+on red was refused** — 2 AND 4 is 0, and neither operand is 0. That is not a
+corner: it is most of the 128 pairs a board can send, and this is the caller
+that made lifting the refusal necessary. §5.4.2.2.1 does the Map Mask split,
+**a refused run costs two emits instead of one, and every colour on the glass
+is the colour the host sent.**
+
+**No approximation is acceptable here and none is specified.** A terminal
+handed an attribute byte draws that attribute or it draws a different picture;
+there is no degraded-but-honest rendering of a colour, the way there is of a
+shape. Two approximations were judged and rejected — paper exact with the ink
+raised to `ink OR paper`, and ink exact with the paper lowered to
+`ink AND paper` — and docs/TELNET-PLAN.md records, under *"The refused pen
+pair"*, why each is worse than the kernel change: both are one blit and both
+put a colour on the screen that nothing sent.
+
+**IT FIT, and the fallback below was not taken** (found). §5.4.2.2.1's split
+cost **67 bytes of `.cold` and 3 of `.bss`**, so the image rung's headroom went
+127 → 124 and the cold rung's 221 → 154, and neither was crossed. What made it
+fit is that lifting a refusal deletes the refusal: `.penno` and §5.4.2.4's
+eleven-instruction unwind both came out. `tests/telpen.py` is the gate and it
+reads **0 differing pixels of 2,944 on each of six pairs**, four of which were
+refused before — green on red, cyan on magenta, yellow on blue and bright green
+on red — every cell rendered on the host out of the guest's own glyph table.
+
+**The renderer still tests CF on every blit, and the reason is NOT the one
+that used to be written here.** It said "for `kern_small`'s sake", and that is
+false: TELNET is in the Makefile's `SMALLOMIT` list, so no `kern_small` floppy
+carries it and no `kern_small` machine can launch it. The two true reasons:
+
+* **After §5.4.2.2.1 a refusal is unreachable for this renderer on a shipping
+  kernel.** The three surviving refusals are about geometry — an x or a width
+  that is not a multiple of eight, and a band taller than 255 rows — and a cell
+  is eight pixels wide and eight tall, so a run's x, a run's width and a band's
+  height are all right by construction (§70.8.2). There is no attribute pair
+  left to refuse.
+* **It is reachable in exactly one way**, and it is a way a user can take: the
+  package is a FILE, and copying `TELNET.O88` onto a `kern_small` system disk
+  by hand puts it in front of a kernel whose slot is a `stc`/`ret` stub with no
+  body at all (§5.4.2). A refusal is a normal path (PERFORMANCE.md's rule 6),
+  and a terminal that answered it with a blank window rather than with grey
+  letters would be a program that had a reason and did not use it.
+
+**AND THAT ONE WAY IS NOW ARITHMETIC AGAINST A NUMBER THAT DOES NOT FIT.**
+After §70.11's Zmodem receiver the package is its final size — `os88pkg.py`
+reads **image 15,079, bss 16,299**, so the loader's claim is **31,378 bytes**
+— and a `kern_small` machine is a 256KB one whose heap is about 28 KB
+(docs/KERN-SPLIT-PLAN.md). **A hand-copied `TELNET.O88` is therefore most
+likely REFUSED AT THE CLAIM and never reaches the renderer at all**, which
+makes the degrade below unreachable on that machine too, for a second and
+larger reason than the one above.
+
+**This is arithmetic and not a run.** Nothing in this tree boots a
+`kern_small` kernel with `TELNET.O88` beside it — the Makefile's `SMALLOMIT`
+is what stops it — so the claim is a subtraction, and the honest statement is
+that the degrade path is now compile-tested only with no reachable case left
+in it at all. It stays because deleting a documented refusal on the strength
+of a subtraction is a worse trade than 40 bytes: the heap figure is a
+configuration a fork can change, and the code is what makes the change safe.
+
+What it does on a refusal is §70.8.2's degrade — one `OSAPI_FONT_RUN` for the
+whole row, with `[te_nob]` latched so no later row asks the kernel again — and
+not the BLIT4 path below, which was the answer to "the split does not fit" and
+is now unreachable.
+
+**The latch is tested per ROW and it used to be tested per RUN**, which is the
+w2 review's MAJOR 1 and was a defect of exactly the shape a compile-tested path
+has: `te_blitrun` returned on `[te_nob]` *before* reaching the fallback, so the
+first refused run lettered its own row and every later call — the first run of
+every OTHER row included — returned having drawn nothing. One row of text and
+twenty-four blank ones, for the life of the instance, on the one machine that
+can see it. The test now lives at the head of `te_emit`, which answers for the
+whole row before it walks a single run.
+
+**The fallback that was NOT needed, kept for the record: `OSAPI_GFX_BLIT4`
+(0x01D8) for that run, and never an approximation.** A 4bpp band carries a colour per pixel, so
+the pair cannot be refused and the colours are exact. What it costs, priced off
+§5.4.1.3's planar row decoder at **~106.9 cycles a pixel** (PERFORMANCE.md
+Set 107) against the 1bpp emit's ~12.5 clocks a *byte*, i.e. ~1.6 a pixel:
+
+| a 40-cell run, 4.77 MHz 8088 | |
+|---|---|
+| one `OSAPI_GFX_BLIT1` emit | ~4,000 cycles ≈ **0.8 ms** |
+| the same run as a `BLIT4` band | 2,560 pixels × 106.9 ≈ 273,700 cycles ≈ **57 ms** |
+
+Arithmetic off PERFORMANCE.md's own figures, **not measured**. It is the price
+of correctness on a path that is only taken when the kernel could not afford
+the split, and it is bounded — only refused runs pay it, and a board's ordinary
+text is a colour on black, which was never refused. The masked alternative is
+worse and stays rejected: a fill in `paper` then `OSAPI_ICON_DRAW` (0x04B8) two
+cells at a time is ~6.7 ms a call (PERFORMANCE.md Set 84), so the same run is
+**134 ms**, and it needs a fill nothing else needs.
+
+#### 70.8.4 On a 1bpp adapter the pen is not read, so the polarity goes in the band
+
+§5.4.2.2 does not read the pen on Hercules or CGA, and refuses nothing there
+either — a band already means lit and unlit. So the whole row is **ONE band
+and ONE blit** on a 1bpp adapter, with no attribute runs at all, and the
+colour is folded into the composition instead.
+
+**The cell polarity rule, pinned:** a cell is drawn with the glyph LIT on dark
+paper, **unless** its background nibble is non-zero AND its foreground is 0 or
+8 — black or dark grey — in which case the cell is drawn INVERSE: the eight
+band bytes are complemented, so the paper is lit and the glyph is dark.
+
+That is the only rule that keeps a board readable in one bit. A cell of black
+text on a cyan background is the one thing a naive "lit if the character is
+not a space" rule renders as nothing at all, and it is exactly what a board's
+highlighted menu item is made of. Every other pair — a colour on black, a
+colour on a colour — reads correctly as lit glyph on dark ground.
+
+**Blink is ignored windowed.** With `[te_ice]` set, bit 7 means a bright
+background instead, **on a COLOUR screen and there only**. The first version
+widened the background mask from 0x70 to 0xF0 above the `[te_mono]` test, so
+an iCE machine read bit 7 as a background bit on one bit as well — and
+attribute 0x88, blink set on black, then drew INVERSE in the window and plain
+in full screen, where `te_tx_mattr` always masks 0x70. On one bit there is one
+brightness and a bright background is not a thing, so the mask is 0x70 there
+whatever `[te_ice]` says, and §70.8.9's two 1bpp paths agree again.
+
+Composing the inverse is an `XOR` with a mask byte, eight times a cell over
+the band bytes, which is why this costs nothing: **the calls are identical
+either way**, and the calls are what the machine is priced in. The mask is
+`00` on a colour screen, so the same loop serves both and there is no second
+composer.
+
+**The predicate is a MACRO and is emitted twice, and neither emission is a
+call.** The cell loop needs it per cell and the cursor block needs it for the
+cursor's own cell; a `call` a cell is eighty of them a row on a machine
+PERFORMANCE.md prices a near call at 11us on, so the answer is one source and
+two emissions rather than one routine or two copies. It is the third reader of
+the rule above — `te_tx_mattr` is the second — and the one thing all three
+must not be able to disagree about.
+
+**And the cursor is drawn in that cell's OWN polarity.** The underline is two
+lit scanlines OR'd into the band's bottom two rows, and on a cell the loop
+drew inverse those rows are 0xFF already — so the OR drew nothing and the
+cursor vanished inside a board's highlighted menu bar, which is exactly where
+a reader is looking for it. It is an OR on a normal cell and an AND-NOT on an
+inverse one: the same two scanlines, the other way up. The mask is re-derived
+from the cursor cell's attribute and **not** taken from the loop's last value,
+which after the loop is the last COLUMN's and not the cursor's.
+
+**Measured on the glass, both 1bpp adapters** (`tests/telnet.py`, the same
+forty characters in each of two rows, one `0x30` and one `0x03`):
+
+| | CGA | Hercules |
+|---|---|---|
+| the INVERSE row, lit pixels | 3,966 of 4,928 | 4,158 of 5,120 |
+| the normal row, same text | 962 | 962 |
+
+The two are each other's negative and nothing else on that screen is, which is
+what makes counting the right instrument: a count that did not swap cannot be
+a coincidence.
+
+#### 70.8.5 `OSAPI_SAVEU_1BPP` comes off the promise on a colour adapter
+
+§70.7 grants the raise cache per DEBT and banks it with `OSAPI_SAVEU_1BPP`
+(0x0378) set, on the stated ground that the window's content is **two
+colours**: `CBLACK` and `CWHITE`, four uses each. §11.96.17 is what that flag
+promises — *every pixel of my content is colour 0 or colour 15* — and after
+§70.8 it is **false on a colour adapter**, where the content is whatever
+sixteen colours the board chose.
+
+So the flag is set per adapter, off `OSAPI_VIDEO` (0x0158) and its `DH`:
+**dropped on a 4bpp screen, kept on a 1bpp one**, where it is still true and
+still buys a quarter of the memory and a quarter of the blit. §11.96.17 warns
+that the depth claim is RE-STATED on every `wm_saveu` call, so this is decided
+inside `te_promise` and not once at launch — the window can move to a display
+of a different depth (§39.18.2).
+
+What it costs on VGA is the cache going from 11,642 bytes to 46,526, which is
+over `wm_su_kb` for a window this size: the promise is then simply refused,
+the window is not banked, and the raise repaints. That is the price of colour
+and it is stated rather than hidden.
+
+**The depth is asked in `te_layout` and not once at launch**, which is the
+same argument one level down: `te_layout` re-derives everything the live
+content box implies on every paint, click, key and worker draw, so the answer
+is never older than the last event. It is `OSAPI_VIDEO`'s `DH`, and that is
+**the PRIMARY's depth** by that slot's own contract — on an extended desktop
+with a mono card beside a colour one it is the wrong question for the far
+display, and there is no per-display depth published to ask instead (§39.14
+has none). Stated rather than hidden; `OSAPI_FSX_CAPS` answers `DL` per
+display but a `VID_*` kind is not a depth, and inventing a slot for one
+package is what CLAUDE.md's index exists to prevent.
+
+#### 70.8.6 Two hundred and fifty-six glyphs, and where they come from
+
+`OSAPI_FONT_GLYPHS` (0x0218) answers the kernel's own face, and `kernel/font.inc`
+keeps **32..126 only** — `FONT_FIRST` and `FONT_LAST`, 95 glyphs, 760 bytes.
+A terminal needs 0..255, and it needs them to be **CP437** rather than the
+system face: a `make FONT=` kernel replaces the OS's letters, and a board's
+box-drawing character is not a design choice this package may inherit.
+
+So the package builds its own table, `te_glyf`, **2,048 bytes in bss**, at
+launch:
+
+| the machine | 0..31 | 32..127 | 128..255 |
+|---|---|---|---|
+| an EGA/VGA BIOS | `int 10h AX=1130h BH=3` | the same | the same |
+| a CGA/Hercules BIOS | the shipped table | `F000:FA6E` | the shipped table |
+
+`kernel/font.inc`'s `font_init` is the probe, verbatim in its shape and for its
+stated reason: **zero ES:BP, call `AX=1130h`, and treat an unchanged 0:0 as
+"no EGA-or-later BIOS"** — AH=11h is not implemented on a pre-EGA ROM and
+returns with the pair untouched. `kernel/splash.inc`'s `spl_kfont` runs the same
+probe with the same latch. Neither app in the tree probes any more (Paint and
+Artful both went to `OSAPI_FONT_GLYPHS`), so this package is the only one, and
+it is the one that has a reason: it needs the codes the kernel's table does
+not carry.
+
+**The shipped half is 0..31 and 128..255 — 160 glyphs, 1,280 bytes** — and the
+split is on a fact rather than caution, but **the fact is about the ROM and not
+about the code point**, which is not how this section first put it. An
+EGA-or-later BIOS's 8x8 set IS CP437, all 256 of it, by the adapter's own
+definition: so where there is one, all 256 are taken and the shipped table is
+overwritten entirely. That is deliberate and it is not waste — it is the
+terminal drawing the letters the rest of the machine draws. A **pre-EGA** ROM
+has 128 glyphs at `F000:FA6E` and no standard says what a clone put in the low
+32 of them, so there only 32..127 is trusted — that half is ASCII and every ROM
+agrees about ASCII — and the other 160 stay the shipped table's. The table
+above is the whole of it; the sentence that used to be here said 0..31 and
+128..255 ship "because a clone ROM is free to differ", full stop, which reads
+as a claim about the EGA path that the EGA path does not make. `tools/cp437font.py` generates them and
+`apps/telnet/tecp437.inc` is the generated file, **committed**, regenerated and
+diffed by every `make` the way `docs/INDEX.md` is: a generated file that is not
+checked is a generated file that is edited by hand once and then lies.
+
+**It is CLEAN-ROOM and no third-party font is fetched or copied.** The tool
+draws 176..223 — the shades, the blocks and the box-drawing set — GEOMETRICALLY,
+because they are geometry: a 50% shade is a checkerboard, a single-line box
+corner is two runs meeting. Everything else is authored in the tool as eight
+lines of ASCII art per glyph, which is a font a person can read in a diff.
+
+**The box set is a table of ASSIGNMENTS and not of pixels** (found while
+writing it): `BOX_ARMS` maps each of thirty-nine codes to `(up, down, left,
+right)`, each 0, 1 or 2, and the pixels are computed from three rules about
+where a line stops against a perpendicular one — a single arm runs to the FAR
+line and crosses, a double arm at a tee stops both its lines at the NEAR one
+(which is what leaves `╬`'s centre hole and breaks `╠`'s inner riser), and a
+double arm at a corner runs its outer line to the far one and stops its inner
+line at the near one, so outer meets outer and `╔` closes. The mixed-weight
+codes fall out with no special case, and the comment on each generated line is
+derived from the arms too — so a wrong assignment shows in the comment as well
+as in the pixels.
+
+**`--show` prints all 160 as ASCII art and it earned its keep**: six glyphs
+were wrong on looking and none of them would have failed a test. `ñ`/`Ñ`'s
+tilde read as scattered dots, `ª`'s bowl came apart, `ƒ`'s hook left a stray
+pixel, the club's three lobes merged into a blob, `⌡` was `flip(⌠)` and so
+hooked the wrong way (`⌠` over `⌡` drew an S rather than one integral), and
+`ß` reached row 7 so consecutive terminal rows touched.
+
+#### 70.8.7 The full-screen renderer IS the board's screen
+
+§70.6's bracket stays exactly as it is — `FSXM_TEXT80`, `FSXF_KEEPWORKER`,
+`FSXW_FRAME`, `[te_txm]` set before `OSAPI_FSX_RUN` (0x02C8) and cleared inside
+the bracket proc — and what changes is what it draws.
+
+**The buffer maps 1:1 onto text VRAM.** 80 columns by 25 rows against 80 by
+25, all of it, no centring and **no status line**: a board uses row 25, and a
+terminal that reserved it would cut the bottom off every menu. `TET_X0` and
+`TET_Y0` are gone; a row is at `FSI_SEG:(r*160)`.
+
+| what | what it costs |
+|---|---|
+| a dirty row on a colour text screen | one 80-word `rep movsw` straight out of `te_scr` |
+| a dirty row on MDA | eighty cells, each mapped (§70.8.9) then stored |
+| a scroll of N rows | **one** `rep movsw` of (25−N)×160 bytes, then the N vacated rows re-emitted |
+
+The colour case is the whole argument for the bracket, one size smaller than
+§70.6 made it: the cell in `te_scr` **is** the cell in VRAM, character byte
+then attribute byte, so a row is a move and not a translation.
+
+**The way out is drawn once, on entry, on row 25, and the host is allowed to
+overwrite it.** ` ^] to leave ` at the right of the bottom row, in the inverse
+attribute, put there after the first pass and never redrawn. A hint that
+survives is a hint that fights the board for the row it needs; a hint that is
+gone the moment the board draws is a hint that did its job.
+
+**…and a SCROLL had to be told that** (found, on the glass). The debt above is
+spent as a VRAM move, and the move carries the hint up with everything else —
+onto a row that is *not* one of the vacated ones, so it is not re-emitted and
+it sat there. Four scrolls of a fixture whose right margin is blank left it
+drifting four rows up the screen (`w2-shots/fsx-scroll-after.png`, before this
+was added). `[te_thint]` is the row it is on, `0xFF` once it has gone off the
+top, and the scroll marks the row it lands on so the buffer erases it. That
+makes "gone the moment the board draws" true of a board that SCROLLS as well
+as of one that prints over it, which is the commoner case by far.
+
+**No retrace gating, on any adapter.** `apps/tracker/trktxt.inc` is the
+precedent and it reached the opposite conclusion to the obvious one: it
+*removed* a retrace clock that measured correctly, because **polling one is
+indistinguishable from work to a round-robin scheduler** and the drawing side
+took half the machine whether it needed it or not — 28.8% of a cycle-accurate
+8088 in the wait, and the kept worker starved for it. §53.5 names the CGA
+snow window as the reason `FSXW_VSYNC` exists and Tracker deliberately stopped
+using it; this renderer does the same. The pacing is `FSXW_FRAME`, which
+**waits by yielding**, so the frame time this does not use goes to the worker
+that owns the socket.
+
+**The hardware cursor is positioned by the BRACKET, not by the worker.**
+`int 10h AH=02h` after each pass, and `AH=01h CX=2000h` to park it when
+`[te_cvis]` is clear. **The SHAPE call is issued only on a change** — `[te_tcur]`
+is the visibility the CRTC was last told about — because the mode set already
+chose one and a BIOS call a frame for a byte that does not move is a frame the
+kept worker wanted.
+
+**A visible hardware cursor BLINKS, and no `settle()` can see past it.** That
+is a fact about the harness rather than about this renderer and it is recorded
+because it costs a session every time: a full-screen capture taken with
+`[te_cvis]` set never reaches two identical frames on a VGA, and the failure
+reads as "the machine never finished booting". Clear the byte for the capture. §53.7's forbidden list has exactly one `int 10h`
+on it — a **mode set** outside `fsx_mode` — and §53.4 names AH=02h, AH=01h,
+AH=05h, AH=0Eh and AX=1003h as calls the bracket may already make. Both
+existing consumers, `tetxt.inc` and `trktxt.inc`, already do the AH=01h park,
+byte for byte the same three instructions.
+
+**A session that ends while the screen is up leaves the screen as received.**
+There is no status line to report on and nothing is drawn over the board's
+last picture; `^]` leaves, and the windowed status line says what happened.
+
+#### 70.8.8 Two defects the full-screen renderer already had
+
+Both were found by reading `apps/telnet/tetxt.inc` against §53 before any of
+the above was written, and both are recorded here because the fix is part of
+this section rather than a separate change. **Both were then reproduced ON THE
+GLASS before either was fixed**, by reverting the two lines in a scratch build
+and running `tests/telnet.py` against it — which is the only way to know that
+a gate written after a fix can see the thing it is about.
+
+**1. Full screen did not scroll at all.** `te_tx_owed` ends with
+`mov word [te_scrl], 0` under the comment *"a text row change IS the scroll
+here: the rows are re-emitted, so there is nothing for `te_scrollpaint` to
+spend."* Only the rows in the dirty range are re-emitted, and `te_scrollck`
+marks exactly one — `TE_ROWS - 1`, the row it opened. So after a scroll, the
+buffer had moved every row up and the screen had been told about the last one:
+**rows 0..16 kept showing pre-scroll text for the rest of the session**, and
+the bottom row was overwritten again and again. A board's output, which is
+one long scroll, was legible on one line. The renderer spends `[te_scrl]` as a
+VRAM move now (§70.8.7), which is what the debt was always for.
+
+**Reproduced.** Twenty-five numbered lines on the text screen, then four
+scrolls left the way `te_scroll1` leaves them — the buffer moved, the row it
+opened marked, `[te_scrl]` at 1:
+
+| | text VRAM row 0 | rows above the bottom holding pre-scroll text |
+|---|---|---|
+| the defect | `line 00 …` while the buffer said `line 04 …` | **24 of 24** |
+| the fix | `line 04 …` | **0** |
+
+`w2-shots/fsx-scroll-before.png` is the picture and it is the sentence above
+made visible: twenty-four rows frozen at lines 00..23 through four scrolls,
+and the twenty-fifth rewritten over and over. `w2-shots/fsx-scroll-after.png`
+is the same fixture on the fix. `tests/telnet.py`'s assertion 6 is a memcmp of
+all 2,000 cells and reads **26 differing and 24 rows stale** against **0 and
+0**.
+
+**2. `te_show` takes the gfx lock BEFORE it tests `[te_txm]`.** The bracket
+holds the gfx lock for its whole life — §53.6, the caller's hold, taken before
+`fsx_run` and released after it returns, and it is what keeps the mouse ISR
+off the screen. §53.2 is binding about the consequence: *"a kept worker feeds
+data and never takes the gfx lock or a drawing slot… it parks safely if it
+tries, but for a feeder, parking is death by another name: its slices burn in
+the retry loop while the ring drains."* `gfx_lock` is a yield-spin with no
+owner field, so the worker re-tests a byte that cannot change until the
+bracket exits.
+
+`te_show`'s `[te_txm]` test sits **eleven instructions past** the
+`call OSAPI_GFX_LOCK` that parks it. The file's own comment says the byte is
+set before `OSAPI_FSX_RUN` *"so the kept worker skips its very first turn"* —
+it does not skip it; it parks on it. The first byte to arrive after entering
+full screen marks a row, `te_owed` answers true, `te_show` parks, and the
+worker that owns the socket is gone until `^]`. **The test goes first**, ahead
+of the lock, which costs one compare on every windowed pass and is the whole
+fix. The rule it encodes is worth stating separately, because it is not
+`te_show`'s alone: **a kept worker's every path to a drawing slot must be
+gated on `[te_txm]` before the gate, not inside it.**
+
+**Reproduced, and the probe is `[te_dirty]`.** `te_step` zeroes that byte at
+the top of every pass, so a 1 written into it from outside while the bracket
+is up comes back **0** if the worker got a turn and stays **1** if it did not.
+It read **1** on the reverted build and **0** on the fix. A screenshot cannot
+see this at all — the bracket is on the UI task and goes on drawing either way
+— which is why the byte is the assertion and not a picture.
+
+**3. And the debt itself had no critical section**, which §70.9's own wave
+found rather than the field. `FSXF_KEEPWORKER` means `te_tx_owed` runs on the
+**UI task** while `te_putc`, `te_scroll1` and `te_mark` keep running on the
+**worker**, and two read-modify-writes crossed that boundary unguarded. §70.2
+had the house answer for exactly this one word along — `pushf`/`cli` … `popf`,
+and its own comment says *"`te_txw` HAS TWO WRITERS"*.
+
+| what | the window | what a board saw |
+|---|---|---|
+| `mov ax, [te_scrl]` … `mov word [te_scrl], 0` | two instructions | a board that scrolled twice in it lost one: VRAM moved N rows where the buffer moved N+1, and **every row the board did not touch again stayed one line out of place for the rest of the session** |
+| the row loop, then `te_markclr` | **the whole 25-row pass** | a character arriving for row 3 while the loop was on row 18 had its mark cleared unread and **never reached the screen at all** |
+
+The fix is two small procs and **no snapshot buffer**, which is the shape worth
+having: `te_takerow` clears a row's bit *as it draws that row*, under one
+`cli`, so a mark set for a row the loop has passed survives into the next pass
+instead of being dropped; `te_takescroll` reads the counter and zeroes it
+together. `te_markclr` is **deleted** — a bitmap that is cleared wholesale is a
+bitmap that drops what the other task wrote while it was being walked, and
+leaving the routine in the file would have left the shape available.
+
+**Both renderers take the same two procs**, which is the other half of it: the
+windowed path had the identical race on `te_screen`'s UI-task pass, where a
+lost scroll was masked by the `te_markall` that opened the sequence. One
+answer, not two, and no renderer can now be the one that forgot.
+
+#### 70.8.9 iCE colours, and what MDA does with an attribute
+
+**iCE colours are a Session-menu toggle and are OFF by default.** The default
+is hardware blink because that is what the adapter powers up doing and what a
+board that uses blink expects; boards that use bright backgrounds are drawing
+against a terminal the user has told it about, which is what a toggle is.
+
+| where | how bit 7 is turned into a bright background |
+|---|---|
+| EGA/VGA, text mode | `int 10h AX=1003h BL=0` (blink off) / `BL=1` (on) |
+| CGA, text mode | port 3D8h bit 5 |
+| Hercules | it cannot; the item is GREYED |
+| any adapter, windowed | the attribute alone — bit 7 becomes the background's fourth bit |
+
+§53.4 gives the app the blink toggle explicitly, *"through the BIOS the bracket
+may already call (… AX=1003h blink) or the CRTC ports directly"*, and §53.7
+says the video hardware inside a foreign mode is otherwise the app's — the
+6845, the sequencer, the graphics controller, the attribute controller and the
+DAC — so port 3D8h is the app's to write. `docs/FSX-PLAN.md` records the
+per-adapter difference in exactly those terms.
+
+**The label IS the state**, because the kernel's pull-down has no check mark —
+`apps/os88api.inc` publishes `MENU_DIS` and nothing else — so Solitaire's
+precedent applies: three strings and a pointer swap, *iCE Colours*, *iCE
+Colours (on)* and a `MENU_DIS`-prefixed *iCE Colours (Mono)*. `te_ice_label`
+runs out of `te_layout`, so a window dragged onto a mono display greys the
+item by itself.
+
+**Hercules greys the item, with the reason on it**, which is §47's rule: grey
+a FACT. MDA text is monochrome and has no background colour to make bright, so
+there is nothing for the toggle to do and saying so is better than a toggle
+that does nothing.
+
+**And MDA is what the attribute has to be mapped to**, because `FSXM_TEXT80`
+on Hercules is mode 7 at B000 — the FSI block's `FSI_SEG` is the one field
+that varies, and `OSAPI_FSX_CAPS` (0x02C0) answers `DL` = that display's
+`VID_*` kind, which §53.7.1 names as the sanctioned way to ask (`osapi_video`
+answers about the PRIMARY, and a bracket on the Hercules of a VGA-primary
+desktop would be told the wrong thing). The mapping:
+
+| the cell | the MDA byte |
+|---|---|
+| INVERSE by §70.8.4's rule (background non-zero, foreground 0 or 8) | 0x70 |
+| foreground has bit 3 set | 0x0F |
+| anything else | 0x07 |
+| bit 7 | kept in every case |
+
+**There is no underline row and there was one in the first draft.** §70.9.4
+settles it: SGR 4 does not reach `te_scr` at all, because a two-byte cell has
+nowhere to put a third bit and a third byte per cell is 2,000 bytes of bss for
+something no board sends. An MDA already shows attribute 0x01 as an underline
+for a blue foreground, which arrives here through the ordinary colour mapping
+and needs no rule of its own.
+
+That is the same predicate the 1bpp windowed renderer uses for polarity, which
+is the point: the two 1bpp paths cannot disagree about which cells are
+reversed.
+
+**A TESTING NOTE, and it is the emulator's rather than this renderer's.**
+MartyPC's VGA renders **text-mode colour 6 as red rather than brown** — the
+missing brown correction — so a cell of `0x64`, red on brown, is red on red
+there and its glyphs vanish, while the same cell in the *windowed* renderer,
+which is mode 12h through the DAC, is correctly red on brown. Both were
+photographed side by side. Nothing in this package treats colour 6 specially,
+and a gate that asserted on it would be asserting about the emulator, so
+`tests/telpen.py` uses none.
+
+#### 70.8.10 The viewport, and what a narrow window costs now
+
+§70.5's bargain is unchanged and its arithmetic moves. `te_vcols` and
+`te_vrows` are still derived from the LIVE content box on every `te_layout`,
+still show columns 0.. and the LAST rows, and **the buffer still never
+changes**: 80x25 whatever the window is.
+
+The window opens as wide as the desktop allows, up to eighty columns.
+Measured, with the template at 656 x 254 and `wm_fit` clamping it:
+
+| adapter | desktop | the window | te_px | te_vcols x te_vrows |
+|---|---|---|---|---|
+| VGA | 640 x 480 | 640 x 254 | 8 | **79 x 25** |
+| CGA | 640 x 200 | 640 x 155 | 8 | **79 x 13** |
+| Hercules | 720 x 348 | 658 x 254 | 48 | **80 x 25** |
+
+So Hercules is the one adapter of the three that shows the whole board in a
+window, and CGA shows half its rows. On a 640-pixel screen the view cannot
+reach eighty columns — the aligned pen and the padding take the rest — and
+**that is accepted rather than solved**: full screen is where a
+board is used, it is one keystroke away, and the alternative is the one thing
+this app may not do. §70.5's judgement stands word for word: *"what a narrow
+window costs is the right of every line, with no way to scroll to it, and that
+is the accepted trade rather than an oversight."* A horizontal scrollbar was
+judged and deferred; docs/TELNET-PLAN.md carries the arithmetic.
+
+**NAWS does not lie** (§70.10). It reports 80 by 25 always, because the buffer
+is 80 by 25 always. A client that reported its viewport would be telling the
+host where to wrap a line the buffer is not going to wrap there.
+
+#### 70.8.11 What the package costs, and what it does not answer yet
+
+**`tools/os88pkg.py`, before §70.8 and after:**
+
+| | image | bss | total |
+|---|---|---|---|
+| before | 4,719 | 1,935 | 6,654 |
+| after | **7,052** | **7,554** | **14,606** |
+
+The bss is where the screen went: `te_scr` is 4,000 bytes, `te_glyf` 2,048 and
+`te_band` 640, which is 6,688 of the 5,619 it grew by. §20's `APP_MAX_SIZE` is
+61,440 for image + bss and is not the binding limit — contiguous heap is — so
+the launch to watch is a 256 KB machine's, `vm/xt-weave-256`'s class.
+
+**The state, as it was actually written.** §70.8's table is the screen's; these
+are the renderers' own, and they are listed so that nothing else invents a
+second copy of one:
+
+| name | size | meaning |
+|---|---|---|
+| `te_mono` | byte | this screen is 1bpp, re-asked in `te_layout` (§70.8.5) |
+| `te_nob` | byte | `OSAPI_GFX_BLIT1` refused once, so every row letters (§70.8.2) |
+| `te_rr` | word | the row `te_compose` is composing, for the cursor test at its foot — and the scroll count `te_tx_scroll` holds while `DS` points at VRAM |
+| `te_ry`, `te_rcp` | word each | the band's y and the row's first cell, out of the registers' way in `te_emit` |
+| `te_tkind` | byte | the display's `VID_*` kind, from `OSAPI_FSX_CAPS` (§53.7.1) |
+| `te_tcur` | byte | the cursor visibility the CRTC was last told about |
+| `te_thint` | byte | the row the leave hint is on, `0xFF` once gone (§70.8.7) |
+
+**Three things this wave did not answer**, written down so the next one does
+not assume they were:
+
+1. **Per-display depth.** `te_mono` is the PRIMARY's (§70.8.5), so a window on
+   the mono half of an extended desktop composes with a colour polarity.
+2. **The windowed cursor does not blink.** §70.8.2 pins a steady underline and
+   that is what shipped; the full-screen one blinks because the CRTC does.
+3. **There is no `[te_ul]`, and the table above §70.8.1 no longer lists one.**
+   It was dropped after §70.8.9 lost its underline row: `SGR 4` does not reach
+   the attribute at all, the parser consumes it and discards it (§70.9.4), and
+   the MDA mapping is three cases plus the blink bit. A byte no renderer reads
+   is a byte that goes stale in silence, so it is not declared. **`te_satr`
+   went with it and for the same reason** — §70.9.3's one saved slot holds the
+   POSITION and never the attribute, so the byte that was to hold `ESC 7`'s
+   colours had no writer either.
+
+### 70.9 The ANSI-BBS parser (`apps/telnet/teansi.inc`)
+
+§70's *"recognised and discarded"* was the honest choice while nothing acted
+on a sequence: the failure for an unimplemented sequence is nothing appearing,
+where printing it leaves `[2J` in the middle of a sentence. **What replaces it
+is not printing them either** — it is acting on them, and the discard survives
+as the fall-through for every sequence still not implemented.
+
+The parser is a **state machine over single bytes with no lookahead and no
+buffer**, which is the property that matters on this machine: bytes arrive in
+whatever fragments TCP hands over, an escape sequence is routinely split
+across two `NETV_RECV` calls, and a parser that searched a buffer would have
+to reassemble one. Haberman's vtparse is its shape;
+`docs/TELNET-PLAN.md` records why it is that shape and not a port of one.
+
+#### 70.9.1 The states, and every transition
+
+Seven states plus one lookahead sub-state. `[te_pst]` holds it, and
+`tools/ansisim.py` is the second reader of every row below (§70.12).
+
+| state | byte | action | next |
+|---|---|---|---|
+| GROUND | 0x00 | dropped — **the only byte GROUND drops** | GROUND |
+| GROUND | 0x18, 0x1A | consumed, nothing drawn; 0x18 also advances the Zmodem detector (§70.9.6) | GROUND |
+| GROUND | 0x07 08 09 0A 0C 0D | execute (§70.9.2) | GROUND |
+| GROUND | 0x1B | clear params, prefix, intermediates and the no-op flag | ESC |
+| GROUND | anything else, 0x01..0xFF | put the glyph | GROUND |
+| ESC | `[` | | CSI_ENTRY |
+| ESC | `7` | save the cursor POSITION (one slot, §70.8) | GROUND |
+| ESC | `8` | restore it, and clear `[te_pwrap]` | GROUND |
+| ESC | `]` `P` `_` | OSC / DCS / APC — **exactly these three** | STRING |
+| ESC | 0x1B | **restart**: stay here | ESC |
+| ESC | 0x18, 0x1A | abort | GROUND |
+| ESC | 0x07 08 09 0A 0C 0D | execute; **stay in ESC** | ESC |
+| ESC | any other C0, and 0x7F | **ignored, never drawn** | ESC |
+| ESC | anything else | swallowed | GROUND |
+| CSI_ENTRY | 0x3C..0x3F (`< = > ?`) | record in `[te_ppfx]` — **only the FIRST one**; a second is an intermediate | CSI_ENTRY |
+| CSI_ENTRY | `M` `N` | **music, only when bare** (§70.9.3) | MUSIC |
+| CSI_ENTRY | `0`..`9` | first digit of param 0 | CSI_PARAM |
+| CSI_ENTRY | `;` | commit param 0 as absent | CSI_PARAM |
+| CSI_ENTRY, CSI_PARAM | 0x20..0x2F | an intermediate: **the whole sequence becomes a NO-OP** | CSI_IGNORE |
+| CSI_PARAM | 0x3C..0x3F | a private prefix AFTER a parameter: **the same no-op** | CSI_IGNORE |
+| CSI_PARAM | `0`..`9` | accumulate, **saturating at 255** | CSI_PARAM |
+| CSI_PARAM | `;` | next parameter; **the ninth and beyond go to a sink** | CSI_PARAM |
+| CSI_ENTRY, CSI_PARAM | **0x40..0x7E** | dispatch (§70.9.3) | GROUND |
+| CSI_IGNORE | 0x40..0x7E | **consumed, and nothing happens** | GROUND |
+| CSI_* | 0x18, 0x1A | **abort**, nothing dispatched | GROUND |
+| CSI_* | 0x1B | restart the sequence | ESC |
+| CSI_* | 0x07 08 09 0A 0C 0D | **execute it, the sequence continues** | unchanged |
+| CSI_* | any other C0, and 0x7F | **ignored, never drawn** | unchanged |
+| STRING | 0x07 | end — **and it does not ring** | GROUND |
+| STRING | 0x18, 0x1A | abort | GROUND |
+| STRING | 0x1B | | STRING_ESC |
+| STRING | anything else | swallowed, C0 included | STRING |
+| STRING_ESC | `\` | end (ST) | GROUND |
+| STRING_ESC | **anything else** | the string ends and **this byte is the second byte of a NEW escape sequence** — re-enter ESC's row above with it | (as ESC would) |
+| MUSIC | 0x0E | end | GROUND |
+| MUSIC | 0x18, 0x1A | abort | GROUND |
+| MUSIC | 0x1B | restart as a new sequence | ESC |
+| MUSIC | 0x07 08 09 0A 0C 0D | execute; stay | MUSIC |
+| MUSIC | any other C0, and 0x7F | ignored | MUSIC |
+| MUSIC | anything else | swallowed | MUSIC |
+
+**Four rows above are where a hand-written parser goes wrong**, and each is a
+case in `ansisim`'s selfcheck:
+
+* **`ESC ESC` restarts and does not swallow.** A stream that lost bytes between
+  two sequences must not eat the second one's introducer.
+* **`STRING_ESC` on anything but `\` hands the byte to ESC.** vtparse's rule.
+  `ESC ] junk ESC [ 31 m` leaves the colour set, where a parser that swallowed
+  the byte would lose the whole `CSI` behind it. It is a lookahead STATE and not
+  a peek, so a stream split between the `ESC` and the `\` behaves like one that
+  is not — which is the property §70.9's whole shape exists for.
+* **An intermediate makes the sequence a no-op, it does not get ignored.**
+  `ESC[1 q` is consumed to its `q` and draws nothing; a parser that ignored the
+  space would have executed `CSI 1 q`.
+* **The ninth parameter goes to a SINK, not into the eighth.**
+  `ESC[0;1;1;1;1;1;1;31;44m` sets red on black and the `44` never arrives.
+  Accumulating it into the eighth would have set an eighth parameter of 3144.
+
+**The C0 rule is not the same in GROUND as it is inside a sequence.** In GROUND
+most C0 bytes are CP437 glyphs (§70.9.2); **inside ESC, any CSI state or MUSIC
+only the seven recognised controls act, and every other C0 byte — and 0x7F — is
+ignored and never drawn.** A board's art byte is a glyph where it is art and
+noise where it lands inside an escape sequence, and drawing it there is how a
+lost byte turns into a `♦` in the middle of a menu.
+
+**CAN and SUB abort from ESC, every CSI state, STRING and MUSIC**, not only from
+a CSI, and **ESC restarts from all of them**. A truncated music string is the
+case that matters: without the MUSIC rows a board that sent `ESC[M` and then
+crashed would swallow the rest of the session.
+
+**Params: up to eight, each clamped at 255, missing is zero.** `[te_prm]` is
+eight bytes and `[te_pn]` counts them. A handler applies its own default
+where ANSI says one — a `CSI A` with no parameter and a `CSI 0 A` both mean
+one row — and the parser does not, because the default is not the same for
+every final: `CSI J` defaults to 0 and `CSI A` to 1.
+
+**One of the seven controls inside a CSI is EXECUTED and the sequence
+continues.** That is DEC's rule and it is the one that matters on a board: a
+host that sends `CSI 1;` `CR` `1H` has sent a carriage return in the middle of a
+cursor move, and a parser that aborted would lose the move.
+
+**Any final byte 0x40..0x7E ends a CSI**, dispatched or not: an unknown final
+is consumed and ignored, which is the discard §70 chose, now scoped to the one
+place it belongs.
+
+**The private prefix is recorded and only `?25` is acted on**, and it acts
+**if ANY of the parameters is 25** — so `CSI ?25;7l` hides the cursor. Every
+other `?`, `=`, `>` and `<` sequence is consumed and ignored: a board sends
+`?7h` (autowrap), `?33`, `=255` and others that either describe what this
+already does or describe a thing it does not have, and consuming them silently
+is the difference between a clean screen and a screen with `?7h` in it.
+
+#### 70.9.2 The controls, and 0x7F is a glyph
+
+| byte | effect |
+|---|---|
+| 0x00 | dropped — **the only byte GROUND drops** |
+| 0x07 BEL | a short `OSAPI_SND_TONE` (0x00E8) — **and never a block** |
+| 0x08 BS | cursor left one, stopping at column 0. **No erase** |
+| 0x09 TAB | to the next multiple of eight; **clamped to column 79** if that would be 80 or more. **No erase**, and it never sets `[te_pwrap]` |
+| 0x0A LF | cursor down one; at row 24 the screen scrolls. **An INDEX only — no implicit carriage return**, so `A` LF `B` puts the `B` in column 1 |
+| 0x0C FF | clear the screen with the current attribute, cursor home |
+| 0x0D CR | column 0 |
+| 0x0B | **a CP437 glyph** (♂) |
+| 0x0E | **a CP437 glyph** (♫) in GROUND; it terminates MUSIC **only inside MUSIC** |
+| 0x18 CAN, 0x1A SUB | **consumed** in GROUND, and 0x18 advances the Zmodem detector (§70.9.6); inside a sequence they abort it |
+| 0x1B | ESC |
+| everything else below 0x20 | **a CP437 glyph** |
+| 0x7F | **a CP437 glyph** (⌂) |
+| 0x80..0xFF | **CP437 glyphs**, never C1 controls |
+
+**0x0E is a glyph and that is not a detail.** CP437 0x0E is ♫, a character
+board art uses, and a MUSIC string is the only context in which it means
+anything else — so the terminator is scoped to the state that needs it rather
+than taken out of the character set everywhere. `[te_pst]` is what tells the
+two apart, which is the whole reason the parser is a state machine.
+
+**0x00 is the only byte GROUND drops.** CAN and SUB are *consumed* rather than
+dropped, because 0x18 is ZDLE and is the third byte of §70.9.6's auto-start
+sequence: a detector that never saw it could not fire, and a renderer that drew
+it would put a `↑` in the middle of a board's ZRQINIT. Everything else below
+0x20 that is not in the table above is a glyph — ♥ ♦ ♣ ♠ and the rest — because
+BBS art is made of them.
+
+**LF does not carry a CR with it**, which three of `ansisim`'s own selfcheck
+cases got wrong before they were fixed and which is worth its own case in the
+assembly's gate: a terminal that homes the column on a line feed puts every
+second line of a board's two-column menu against the left margin.
+
+**BS does not erase and TAB does not erase**, which is the ANSI-BBS convention
+and not the VT's: a board draws with the cursor and expects a backspace to
+move it, and the existing `te_putc` wrote eight spaces for a tab — which is
+why a board's aligned menu came out with holes in it.
+
+**BEL never blocks.** `OSAPI_SND_TONE` is not a blocking call — it programs the
+sink and stamps an owner record, and `snd_tick` retires the duration inside
+IRQ0 — so the beep is `AX` = frequency, `CX` = a few ticks, `DL` = 0x40, the
+priority packages use. It refuses when a higher-priority owner holds the
+channel or a PWM clip owns channel 2, and a refused beep is a beep that does
+not happen, which is correct: a board that sends BEL forty times in an ANSI
+animation must not be able to stop the terminal.
+
+#### 70.9.3 The CSI table, with every default and every clamp
+
+Every clamp is to the 80x25 buffer. `Pn` is param 0 unless stated.
+
+| final | name | default | effect |
+|---|---|---|---|
+| `A` | CUU | 1 | `cy := max(0, cy − Pn)` |
+| `B` | CUD | 1 | `cy := min(24, cy + Pn)` |
+| `C` | CUF | 1 | `cx := min(79, cx + Pn)` |
+| `D` | CUB | 1 | `cx := max(0, cx − Pn)` |
+| `E` | CNL | 1 | `cy := min(24, cy + Pn)`, `cx := 0` |
+| `F` | CPL | 1 | `cy := max(0, cy − Pn)`, `cx := 0` |
+| `G` | CHA | 1 | `cx := clamp(Pn − 1, 0, 79)` |
+| `H` `f` | CUP / HVP | 1;1 | `cy := clamp(P0 − 1, 0, 24)`, `cx := clamp(P1 − 1, 0, 79)` |
+| `J` | ED | 0 | 0: cursor to end of screen. 1: start of screen to cursor. 2: **all of it, and home the cursor**. **Any other `Pn` does nothing** |
+| `K` | EL | 0 | 0: cursor to end of row. 1: start of row to cursor. 2: the whole row. **Any other `Pn` does nothing, and no `K` ever moves the cursor** |
+| `L` | IL | 1 | insert `Pn` blank rows at `cy`; the rows below shift down; the bottom `Pn` are lost |
+| `M` | DL | 1 | delete `Pn` rows at `cy`; the rows below shift up; `Pn` blank rows at the bottom. **Reachable only as `CSI <n> M`** — a bare `CSI M` is music |
+| `@` | ICH | 1 | insert `Pn` blanks at `cx` in this row; the tail is lost |
+| `P` | DCH | 1 | delete `Pn` cells at `cx`; blanks arrive at the right |
+| `X` | ECH | 1 | `Pn` cells from `cx` become blank |
+| `S` | SU | 1 | the whole screen scrolls up `Pn` |
+| `T` | SD | 1 | the whole screen scrolls down `Pn` |
+| `s` | SCP | — | save `cx`, `cy` into **the one slot** `ESC 7` uses (§70.8). Never the attribute |
+| `u` | RCP | — | restore them, and clear `[te_pwrap]` |
+| `n` | DSR | 0 | `6` answers `ESC [ <row> ; <col> R`, **1-based**. `5` answers `ESC [ 0 n`. Anything else, nothing |
+| `c` | DA | 0 | answers `ESC [ ? 1 ; 0 c` — **only for `Pn` = 0 and only with NO private prefix**, so `CSI ?c` is consumed silently |
+| `N` | — | — | **unknown, ignored** with a parameter; a bare `CSI N` is music |
+| `m` | SGR | 0 | §70.9.4 |
+| `h` `l` with `?` prefix | DECSET / DECRST | — | `[te_cvis]` set / cleared if **any** parameter is 25; every other value consumed |
+
+**`CSI M` and `CSI N` are ANSI music, and this is the design's one genuine
+collision.** `ESC[M` is Delete Line in ANSI.SYS and a music string in
+SyncTERM's ANSI-BBS. **A BARE `CSI M` or `CSI N` — no parameter, no private
+prefix, no intermediate — is MUSIC; anything with a parameter is not.** So
+Delete Line is reachable only as `CSI <n> M`, `CSI <n> N` is an unknown final,
+and on the 8086 the whole rule is one test of the parameter count at the
+`M`/`N` dispatch. SyncTERM resolves it the same way. SyncTERM's third
+introducer, `ESC[|`, is **not** implemented — §70.9 named `M` and `N` — and
+adding it later is one more entry in that same test.
+
+**IL, DL, ICH, DCH and ECH move the cursor NEVER**, operate on rows
+`cy`..24 and columns `cx`..79 (there are no scroll regions, §70.9.3 has no
+`CSI r`), and clamp their counts to what is left.
+
+**`CSI 2 J` homes the cursor.** That is ANSI.SYS's behaviour and not the VT's,
+and every board on the wire was written against ANSI.SYS: a board that clears
+the screen and then writes without positioning expects to be at the top left.
+
+**SPACE and the CURRENT attribute is what fills EVERY gap on this screen**, not
+just an erase's: `ED`, `EL` and `ECH`, the FF clear, **the row a scroll or an
+`LF` at the bottom vacates**, and the gap `IL`, `DL`, `ICH` and `DCH` open. One
+rule, everywhere. That is ANSI.SYS's and not the VT's — the VT fills with the
+reset attribute — and it is what makes a board's coloured background work: the
+board sets a blue background, clears the screen, and gets a blue screen, then
+scrolls it and the new rows are blue too.
+
+**The pending-wrap flag is cleared by anything that ASSIGNS a row or a column**
+and by nothing else: the cursor-motion finals `A B C D E F G H f u`, `ESC 8`,
+BS, HT, LF, CR, FF, and `CSI 2 J` because it homes. It is **not** cleared by
+the other erases, by SU/SD, by IL/DL/ICH/DCH/ECH, by SGR, or by `CSI s`.
+
+**A row insert, a row delete and a screen scroll all mark every row they
+moved**, which on a 25-row bitmap is cheap to say and is the whole of what the
+renderer needs. Only `LF` at the bottom and `SU` take `[te_scrl]`, because
+only they move the screen as a whole in the direction the blit can follow.
+
+#### 70.9.4 SGR is applied to LOGICAL state, and the attribute is derived
+
+`CSI m` takes up to eight parameters and applies them in order, left to right.
+An unknown parameter is ignored and the rest are still applied — a board that
+sends `0;1;44;31` must not lose the `31` because something in front of it was
+not understood. **`CSI m` with no parameter is `CSI 0 m`**: missing is zero, and
+zero is what SGR means by it.
+
+**Reverse is a FLAG on logical state, not a swap of the attribute's nibbles**,
+and this is the single easiest thing in §70.9 to get wrong. `CSI 7;31m` must
+mean **black on red**. A parser that swaps the nibbles when it sees the `7` and
+then writes the `31` into the low nibble draws **blue on white** — a plausible
+picture, entirely wrong, and one that only shows up on the boards that put the
+`7` first.
+
+So the terminal keeps six logical bytes and **derives** `[te_attr]` after every
+SGR:
+
+```
+fg = te_lfg & 0x0F              ; bg = te_lbg & 0x07
+if te_rev:  fg, bg = (bg | (fg & 0x08)), (fg & 0x07)   ; intensity stays on fg
+if te_con:  fg = bg
+te_attr    = (te_blk ? 0x80 : 0) | ((bg & 7) << 4) | (fg & 0x0F)
+```
+
+**The four check values**, which `tools/ansisim.py` and the assembly must both
+produce:
+
+| sequence | `te_attr` |
+|---|---|
+| `CSI 0;7m` | **0x70** |
+| `CSI 1;7m` | **0x78** |
+| `CSI 7;31m` | **0x10** |
+| `CSI 44;8m` | **0x44** |
+
+With that model 22, 24, 25, 27, 28, 39 and 49 are all one byte each and none of
+them needs to know what any other did.
+
+| Ps | effect |
+|---|---|
+| 0 | `te_lfg := 7`, `te_lbg := 0`, blink, reverse, conceal and underline all cleared |
+| 1 | bold: `te_lfg |= 8` |
+| 2 | faint: ignored |
+| 4 | underline: **consumed and discarded** — the attribute is not touched and no byte is kept |
+| 5 | `te_blk := 1` |
+| 7 | `te_rev := 1` |
+| 8 | `te_con := 1` |
+| 22 | `te_lfg &= ~8` |
+| 24 | underline off: the same nothing |
+| 25 | `te_blk := 0` |
+| 27 | `te_rev := 0` |
+| 28 | `te_con := 0` |
+| 30–37 | `te_lfg := (Ps − 30) | (te_lfg & 8)` — **the intensity survives a colour change** |
+| 39 | `te_lfg := 7` — **the whole nibble, so intensity is cleared** |
+| 40–47 | `te_lbg := Ps − 40` |
+| 49 | `te_lbg := 0` |
+| 90–97 | `te_lfg := (Ps − 90) | 8` |
+| 100–107 | `te_lbg := Ps − 100`, **and `te_blk := 1`** |
+
+**100–107 set the blink bit and that is not a bug.** The attribute has one bit
+there: with hardware blink it blinks, and under iCE (§70.8.9) it is a bright
+background. That is the standard iCE convention, it falls out of bit 7 being one
+bit, and its consequence is that **`CSI 25m` also turns a bright background
+off**.
+
+**SGR 4 does not reach the glass anywhere, and it is not KEPT anywhere
+either.** A cell is two bytes and has nowhere to put a third bit; a third byte
+per cell is **2,000 bytes of package bss** for something no board sends. An MDA
+shows attribute 0x01 as an underline for a blue foreground on its own hardware,
+which arrives through §70.8.9's ordinary colour mapping and is as much underline
+as this needs to have.
+
+**The first draft declared a `[te_ul]` byte so that this terminal and `ansisim`
+would "publish the same state", and it is gone.** The byte-for-byte contract of
+§70.12 is `te_scr` and nothing else, so publishing the flag bought the gate
+nothing; what it cost was a byte in a package's bss that no renderer read, and
+a byte no renderer reads is a byte that goes stale in silence — the next
+person to add a rule about underline would have found a flag that was already
+being maintained and would have believed it meant something. `ansisim` keeps
+`Screen.underline` because a Python object may publish what it likes; the
+assembly consumes SGR 4 and SGR 24 and stores nothing. The two readers still
+agree about every one of the 4,000 bytes, which is the contract.
+
+#### 70.9.5 Wrap is PENDING, and that is the whole of it
+
+**A glyph written in column 79 stays visible and the cursor stays on column
+79, with `[te_pwrap]` set.** The next GLYPH wraps to column 0 of the next row,
+scrolling if it was the last, and clears the flag.
+
+**What else clears it is a closed list, and it is "anything that ASSIGNS a row
+or a column"** (§70.9.3): the cursor-motion finals `A B C D E F G H f u`,
+`ESC 8`, BS, HT, LF, CR, FF, and `CSI 2 J` because it homes. **Not** the other
+erases, not SU/SD, not IL/DL/ICH/DCH/ECH, not SGR, and not `CSI s`. A `CSI 0 K`
+after a glyph in column 79 leaves the wrap owed, which is right: the erase
+changed the row, not where the cursor is.
+
+The naive alternative — wrap the cursor as soon as the eightieth glyph is
+written — loses a character on every board that fills the last column and then
+sends `CR LF`, because the cursor is already on the next row and the LF takes
+it one further. That is a blank line between every full-width row of art, and
+it is the single most visible difference between a terminal that draws a
+board's screen and one that does not.
+
+#### 70.9.6 Zmodem auto-start needs a FAILURE TABLE, not a restart
+
+In GROUND, the six bytes `*` `*` 0x18 `B` `0` `0` — the opening of a hex
+`ZRQINIT` header — hand the stream to the Zmodem receiver (§70.11).
+
+**It is a six-state detector beside GROUND (`[te_zdet]`), not a search of the
+receive buffer**, and the reason is the one that shaped the whole parser: those
+six bytes routinely arrive in two `NETV_RECV` calls, and a buffer search finds
+the sequence only when TCP happens to deliver it whole.
+
+**And a mismatch may not simply restart the count**, because the pattern repeats
+its first byte. A detector that fell back to "one matched" on a mismatch
+**misses `***\x18B00`** — after three stars the correct state is "two matched",
+not one. Five bytes of table and a loop:
+
+```
+ZFAIL   db 0, 0, 1, 0, 0, 0     ; fall back to this count and RE-TEST the byte
+
+        while b <> pat[n]:  if n = 0: give up;  n := ZFAIL[n]
+```
+
+**The detector advances only in GROUND, and the count is RESET whenever a byte
+is consumed in any other state.** So `*` `CSI 0 m` `*` 0x18 `B` `0` `0` does not
+fire: two stars separated by a sequence are two stars of somebody's artwork.
+
+**The matched bytes are DRAWN on the way past.** At handover the screen holds
+`**B0` — the 0x18 is dropped as CAN (§70.9.2) and the final `0` is not drawn.
+The alternative, holding the matched bytes and replaying them on a mismatch,
+needs a five-byte replay buffer and would drop a real `**` out of a board's art
+whenever a mismatch followed. What is on the glass is covered by the progress
+panel (§70.11.5) a moment later anyway.
+
+**The handover offset is the offset just past the final `0`.** Everything from
+there belongs to the Zmodem receiver, and **the parser is fed nothing more until
+the transfer ends**: `te_feed` returns short at that point and consumes nothing
+until the receiver resumes it. `ansisim`'s `Screen.feed()` returns the same
+short count and publishes the offset as `zmodem_at`, which is how
+`tests/telansi.py` asserts the handover without a transfer.
+
+#### 70.9.7 What the parser cost, and the four shapes it took
+
+**`apps/telnet/teansi.inc` is 2,494 bytes of the package's image**, and the
+package went from **7,052 to 10,235** — the parser, §70.10's negotiation, the
+key table and the queue together. `tools/os88pkg.py`'s line:
+
+| | image | bss | total |
+|---|---|---|---|
+| after §70.8 | 7,052 | 7,554 | 14,606 |
+| **after §70.9/§70.10** | **10,235** | **7,821** | **18,056** |
+
+**Ten clusters of a 1,024-byte cluster, with five bytes to spare**, which is
+not a coincidence: the 360KB system disk had two free and §24.3.1 carries what
+came off it. **About 350 bytes were found rather than spent** — against 50 the
+wave-2 review's fixes cost — and each is a shape rather than a trick:
+
+* **The CSI finals are a table, not a compare chain.** Twenty-three
+  `cmp al, imm` / `je` pairs are four bytes each and a row of
+  `db final` + `dw handler` is three, and `jmp word [bx+1]` reaches the handler
+  with the same `ret` behind it. It also puts every final in one column where a
+  reader can count them.
+* **One cell mover, and it picks its own direction.** IL, SD and ICH open a gap
+  and copy backwards; DL, SU and DCH close one and copy forwards. Six
+  hand-written `rep movsw` blocks were six chances to get an overlap wrong and
+  six copies of the doubling from cells to bytes; `te_cmove` compares its two
+  addresses and is the only place `std` appears.
+* **`te_reset` is one `rep stosb`**, which is why the parser's whole state is
+  one contiguous run of bss — the option layer's phase and the saved cursor
+  moved in for it. Twenty separate stores is sixty bytes, and a state byte
+  added later that nobody remembers to zero is a session that starts dirty:
+  this shape makes that impossible rather than unlikely.
+* **The seven controls are a sixteen-bit mask.** All seven are below 0x10, so
+  `TE_CTLMASK` = 0x3781 replaces a thirty-two-byte table.
+
+**The worker's deepest chain is 102 bytes**, `tools/stkdepth.py`, and it is the
+feed path rather than the draw path now: `te_step` → `te_feed` → `te_byte` →
+`te_pbyte` → `te_ground` → `te_putc` → `te_nextrow` → `te_scroll1` →
+`te_scrollup` → `te_fillcells` → `te_markcells` → `te_mark` → `te_bit`.
+`OS88_STACK_256` covers it with §8.7's 64-byte interrupt floor at 1.54x, above
+the 1.25x `stkclass` enforces.
+
+**And a mark is a DIFFERENCE, not a habit.** The first version marked the
+cursor's row at both ends of every CSI, which is one call in and one out — and
+a board's art is mostly SGR, so that would have redrawn a row that did not
+change, eighty cells composed and blitted, thousands of times a screen, in
+flat contradiction of PERFORMANCE.md's rule 1. The dispatcher remembers the
+cursor and marks the two rows only if the final MOVED it; the finals that
+change a CELL mark their own rows inside `te_fillcells`, where the row
+arithmetic is already being done. The controls carry the same rule one level
+down: NUL and BEL move nothing and take neither mark, and a board sends CR and
+LF by the thousand.
+
+### 70.10 Negotiation, the keys, and the transmit queue
+
+#### 70.10.1 The options a board expects, and the mirror behind them
+
+§70.1's *"refusing every Telnet option is a valid implementation"* was true
+and was right while nothing this drew depended on the host's idea of the
+terminal. **It stopped being right when the terminal became an 80x25 ANSI
+screen**: a board asks what the terminal is and draws a different screen for
+the answer, and a board that is not told sends the line-oriented fallback.
+
+| received | answered | effect |
+|---|---|---|
+| `DO TTYPE` (24) | `WILL TTYPE` | |
+| `SB TTYPE SEND` | `SB TTYPE IS "ANSI" SE` | 10 bytes on the wire |
+| `DO NAWS` (31) | `WILL NAWS` **and** `SB NAWS 0 80 0 25 SE`, as ONE message | 12 bytes; **always 80x25** |
+| `WILL ECHO` (1) | `DO ECHO` | the host echoes; this draws what comes back |
+| `WILL SGA` (3) | `DO SGA` | character at a time, which a board needs |
+| `DO SGA` | `WILL SGA` | |
+| `DO BINARY` (0) | `WILL BINARY`, `[te_obin]` bit 0 set | **we** send 8-bit clean |
+| `WILL BINARY` | `DO BINARY`, `[te_obin]` bit 1 set | **they** send 8-bit clean |
+| `DONT BINARY` | `WONT BINARY`, bit 0 cleared | |
+| `WONT BINARY` | `DONT BINARY`, bit 1 cleared | |
+| any other `DO`/`DONT` | `WONT` it | §70.1's mirror, unchanged |
+| any other `WILL`/`WONT` | `DONT` it | §70.1's mirror, unchanged |
+| `SB` for anything else | swallowed to `IAC SE` | a subnegotiation never agreed to is not one to parse |
+| `IAC IAC` | one 0xFF glyph | |
+
+**The reply's SENSE is still the mirror of the question** for everything not
+in the table, and §70.1's warning stands: getting it backwards is an option
+loop and it is the one way a Telnet client can wedge a connection that is
+working perfectly.
+
+**`IAC IAC` is one literal 0xFF in the application stream in BOTH directions,
+and that is not cosmetic.** Zmodem sends binary and binary is full of 0xFF, so a
+terminal that forgets to halve an incoming pair **corrupts every download with a
+0xFF in it** — while agreeing perfectly with a sender that also forgets, which
+is why it survives a test written by one author. §70.12's server checks it with
+a payload of 3,000 consecutive 0xFF bytes.
+
+**BINARY is not decoration; Zmodem does not work without it.** A Zmodem data
+subpacket contains every byte value, and a host that has not agreed to
+`TRANSMIT-BINARY` is entitled to strip the eighth bit. `[te_obin]` is two
+bits and not one because the two directions are separate options in RFC 856
+and a host may agree to one and refuse the other.
+
+**The NAWS answer is ONE message of twelve bytes and not two**, and it is the
+only row above that answers one received byte with two replies. §70.10.3's
+held slot is ONE DEEP: sent as two, a full transmit ring would hold the `WILL`
+and drop the size behind it, and the host would be told this terminal has a
+window and never told how big. The ring is 256 bytes and empty when a board
+negotiates, so nothing could reach that hole — which is exactly why it is
+worth closing by construction rather than leaving to arithmetic that happens
+to hold.
+
+**NAWS reports the buffer and not the viewport**, which §70.8.10 states and
+this is the other half of: a client that reported a narrow window would have
+the host wrap its lines where the buffer is not going to wrap them, and every
+line of art after the first would be in the wrong place.
+
+#### 70.10.2 The keys, and the ones the kernel takes first
+
+The delivery contract is `W_ONKEY`'s: **AL = ASCII, AH = the `int 16h` scan
+code, SI = the window**, and the kernel passes `int 16h AH=00h`'s `AX` through
+unchanged — there is no kernel scan-code table and no translation. **AL = 0 is
+how an extended key is recognised**, tested before AH is looked at, which is
+§27's rule for exactly the reason it gives: the numeric keypad sends `4 6 8 2
+7 1 .` with the scan codes of Left, Right, Up, Down, Home, End and Delete.
+
+> **`apps/telnet/telnet.asm` cites §11.2.1 for this and §11.2.1 is the
+> FULLSCREEN KEY.** The citation is wrong and is corrected here rather than
+> repeated: `tetxt.inc`'s use of §11.2.1 — the `F` contract and its exemption
+> for an app taking typed text — is the right one, and `te_txraw`'s is not.
+
+| key | scan | sent |
+|---|---|---|
+| Up | 0x48 | `ESC [ A` |
+| Down | 0x50 | `ESC [ B` |
+| Right | 0x4D | `ESC [ C` |
+| Left | 0x4B | `ESC [ D` |
+| Home | 0x47 | `ESC [ H` |
+| End | 0x4F | `ESC [ K` |
+| PgUp | 0x49 | `ESC [ V` |
+| PgDn | 0x51 | `ESC [ U` |
+| Ins | 0x52 | `ESC [ @` |
+| Del | 0x53 | `0x7F` |
+| F1..F4 | 0x3B..0x3E | `ESC O P` / `Q` / `R` / `S` |
+| F5..F8 | 0x3F..0x42 | `ESC [ 1 5 ~` / `1 7 ~` / `1 8 ~` / `1 9 ~` |
+| F9..F12 | 0x43, 0x44, 0x85, 0x86 | `ESC [ 2 0 ~` / `2 1 ~` / `2 3 ~` / `2 4 ~` |
+
+Those are the ANSI-BBS conventions rather than the VT's — `ESC [ K` for End
+and `ESC [ V` / `ESC [ U` for the page keys are what a DOOR game reads — and
+every board's own help screen names them.
+
+The ASCII keys:
+
+| key | sent |
+|---|---|
+| Enter | `CR LF`, or **`CR` alone when `[te_obin]` bit 0 is set** |
+| Backspace | 0x08 |
+| Esc | 0x1B |
+| Tab | 0x09, when the host box does not have focus |
+| Ctrl+] (0x1D) | **never sent** — it is full screen, in both directions (§70.6) |
+| anything else printable | itself |
+| an outgoing 0xFF | **doubled**, `IAC IAC` |
+
+`CR LF` is RFC 854's requirement for a NVT and a bare `CR` is what BINARY
+means; the old code sent `CR` unconditionally with the comment *"the LF is the
+host's business"*, which every host in practice tolerates and the RFC does not
+say.
+
+**Eleven of those keys never reach this package on a machine with no mouse.**
+§9.6's keyboard-mouse takes Home, Up, PgUp, Left, Right, End, Down and PgDn
+for pointer movement and Ins, Del and Space for the buttons, whenever
+`[mou_ptr]` is 0 — *"these are the keys this takes, and an application does not
+see them"*. **ScrollLock is the escape hatch and it is the only one**
+(`kbm_slock`, bit 4 of `0040:0017`): with it on, the arrows are the
+application's again. A board is unusable without them, so the About panel says
+so and docs/TELNET-PLAN.md records that a per-window opt-out was judged and is
+not in this work.
+
+**F11 and F12 may never arrive at all.** The kernel polls `int 16h AH=01h` and
+`AH=00h`, never the enhanced `AH=10h`/`AH=11h`, so an XT-class BIOS does not
+surface 0x85/0x86. The table carries them because a machine whose BIOS does
+surface them should send the right thing; nothing depends on them.
+
+#### 70.10.3 The transmit queue takes WHOLE MESSAGES or nothing
+
+`TE_TX` grows from 64 bytes to **256**, still a power of two and still
+`and`-masked. The ring is the same ring and §70.2's critical section is
+unchanged: **it has two writers** — `te_onkey` on the UI task and the worker's
+protocol replies — so the read-modify-write of `[te_txw]` is `pushf`/`cli` …
+`popf`, and an interleave that rolled the write index backwards past the read
+index would hand the host a ring's worth of stale bytes.
+
+**What is new is that a reply is enqueued whole or not at all.** A keystroke
+is one byte and a full ring drops it, which §70.2 justified and which is still
+right — at 3,741 B/s a 256-byte queue is 68 ms of typing ahead of the cable,
+and a user who outruns that has an unresponsive machine either way. **A
+protocol reply is not one byte and must not be cut**: half of a
+`SB TTYPE IS "ANSI" SE` on the wire is a subnegotiation the host waits for the
+end of, and half of a Zmodem header is a header the sender NAKs for ever.
+
+    free = (te_txr − te_txw − 1) AND 255
+    if free < length: refuse, enqueue nothing
+
+Space is tested and all of the bytes are copied inside **one** critical
+section, so the ring cannot fill between the test and the copy.
+
+**A refused message goes to `te_pnd`, one deep and 32 bytes**, and is retried
+at the top of the next worker pass before anything else is enqueued. Thirty-two
+is the longest message this package composes — a Zmodem hex header is 21 bytes
+and a binary one at most 18 after escaping; `SB TTYPE IS` is 10 and
+`WILL NAWS` plus `SB NAWS` together are 12.
+
+**One deep is enough because the worker stops consuming while it is
+occupied.** The receive buffer becomes a queue rather than a batch — `[te_rxn]`
+bytes at `te_rx` with `[te_rxi]` bytes taken — and **a pass that could not
+finish the buffer issues no new `NETV_RECV`**. So there is never a second
+message to compose while the first is pending, TCP's own window holds the
+sender, and no byte is dropped anywhere in the chain. §70.11's staging
+back-pressure is the same mechanism reached from the other end.
+
+`te_txraw` stays as the way a protocol byte gets past `te_tx`'s `or al, al`
+filter, for §70.2's reason exactly: that filter is right for the keyboard,
+where AL = 0 is a bare scan code, and wrong for a reply, where **option 0 is
+`TRANSMIT-BINARY`** — which is no longer a hypothetical, because §70.10.1
+answers that option.
+
+**A KEY SEQUENCE GOES IN WHOLE TOO**, which the design first reserved for
+protocol replies and which is the same argument one keyboard along: half of
+`ESC [ 1 5 ~` on the wire is `15~` typed into a board's menu. What a key does
+*not* get is `te_pnd` — the held slot has ONE writer, the worker, and a
+keystroke arrives on the UI task, so a full ring drops the key and says
+nothing. That is §70.2's original bargain and it is still the right one for a
+human's typing; it is a bargain a protocol cannot take.
+
+**`te_enq` carries its answer in DX and not in CF**, which is not a style
+choice: the critical section ends in `popf`, and `popf` restores the flags the
+routine was ENTERED with — so a carry set inside it is a carry the section
+throws away. Every routine in this tree that returns a flag out of a
+`pushf`/`cli` … `popf` has the same trap in it.
+
+**The one thing the ring did NOT need is a second index.** `te_feed` advances
+`[te_rxi]` *before* the byte acts, so `[te_soff]` — and therefore §70.9.6's
+published handover offset — is the offset just PAST the byte, which is exactly
+what `ansisim`'s `feed()` returns. Two implementations of one number, and the
+gate compares them (§70.12).
+
+**And a new session resets all of it.** `te_reset` runs at the Connect
+transition and zeroes every byte the last session negotiated, learned or half
+parsed: a BINARY agreement the new host never made would send Enter as a bare
+CR, a parser left mid-CSI would swallow the new host's first sequence, and a
+Zmodem handover that never completed would stop the new session before its
+first byte. It is one `rep stosb` over one contiguous run of bss, so a state
+byte added later is covered by construction rather than by somebody
+remembering (§70.9.7).
+
+### 70.11 Zmodem receive (`apps/telnet/tezm.inc`)
+
+**Receive only. Uploads are out of scope**, and docs/TELNET-PLAN.md carries
+the arithmetic. Started by §70.9.6's auto-start or by Session → *Receive File
+(Zmodem)…*, which sends a `ZRINIT` and waits.
+
+#### 70.11.1 What is advertised, what the bytes are, and what is refused
+
+**`ZRINIT`'s four header bytes are `ZF3 ZF2 ZF1 ZF0` — NOT the order they
+read.** A *position* frame's four bytes are `ZP0..ZP3`, little endian; a *flag*
+frame's are reversed, so `hdr[3]` is `ZF0`. That is where **`CANFDX | CANOVIO`
+= 0x03** goes, and it is where `ZFILE`'s conversion byte (`ZCBIN` = 1) goes on
+the way in. `hdr[0..1]` of a `ZRINIT` is the **receive buffer size, little
+endian, and this terminal sends 0** — no window, so the sender streams with
+`ZCRCG` and ends each file with a `ZCRCW` it waits on. The back-pressure is
+TCP's, which is the only place on this machine it can usefully live.
+
+**`CANFC32` is NOT advertised: CRC-16 only.** A CRC-32 table is 1,024 bytes of a
+package image and the untabled form is 32-bit arithmetic on an 8086, and it buys
+nothing on a link that is already checksummed twice — TCP's own and Ethernet's.
+A sender that offers a `ZBIN32` header anyway is answered **`ZNAK`, and the
+transfer then continues** — that is what the negotiation is for, and §70.12's
+server sends exactly one deliberate `ZBIN32` `ZFILE` header so the path is
+driven.
+
+**And the CRC-16 is computed BITWISE, with no table.** Eight shifts a byte is
+about 80 cycles on a 4.77 MHz 8088, which is 59,500 bytes a second of checking
+capacity against a cable that delivers 3,741. A 512-byte table would buy
+throughput this transfer cannot use.
+
+**A binary header has ONE `ZPAD`; a hex header has TWO.** `* ZDLE A` against
+`* * ZDLE B` — which is why §70.9.6's auto-start trigger is `**`, it being the
+*hex* `ZRQINIT`'s opening. **The header scan must accept one or two.**
+
+**A hex header's trailer is CR, LF, then XON — for every frame type except
+`ZFIN` and `ZACK`.** The receiver reads one byte and, if it was CR, one more;
+**the XON is left behind for the next `ZPAD` scan to skip.** That is `lrzsz`'s
+own behaviour and this copies it exactly: trying to consume the XON
+deterministically fails on `ZFIN`.
+
+**ZDLE decoding, precisely — and `ZDLE ZDLE` is CANCEL, not a literal.**
+
+| after `ZDLE` (0x18) | means |
+|---|---|
+| `h` `i` `j` `k` (0x68..0x6B) | end of subpacket: `ZCRCE`, `ZCRCG`, `ZCRCQ`, `ZCRCW` |
+| `l` (0x6C, ZRUB0) | a literal 0x7F |
+| `m` (0x6D, ZRUB1) | a literal 0xFF |
+| any `c` with **`(c AND 0x60) == 0x40`** | `c XOR 0x40` — this is how 0x18 arrives, as `ZDLE 'X'` |
+| `ZDLE` again | **CANCEL** |
+| anything else | a protocol error: `ZNAK` and resynchronise |
+
+The sender's side of the same rule, which the receiver does not have to
+reproduce but does have to survive: `ZDLE`, 0x10, 0x11, 0x13, 0x90, 0x91 and
+0x93 are always escaped, everything with bits 5 and 6 clear is escaped when
+`ESCCTL` was asked for, and **CR is escaped only when the previously *sent* byte's
+low seven bits were 0x40**. The receiver simply un-escapes anything valid by the
+table above, which decodes all of it.
+
+**A subpacket's terminator is sent RAW and its CRC is ESCAPED**, and **the CRC
+covers the data plus the frame-end byte**. `ZDLE` and the `ZCRCE/G/Q/W` byte go
+out unescaped; the two CRC bytes that follow go through the escaper. Getting the
+frame-end byte out of the CRC is the classic way to build a receiver that NAKs
+every subpacket while looking correct.
+
+**What each terminator is answered with:**
+
+| terminator | answer | frame |
+|---|---|---|
+| `ZCRCG` | nothing | continues |
+| `ZCRCQ` | `ZACK` with the position | continues |
+| `ZCRCW` | `ZACK` with the position | **over**, and the sender then emits an **XON** the `ZPAD` scan must skip |
+| `ZCRCE` | nothing | over |
+
+**AND THAT TABLE IS ABOUT A *DATA* SUBPACKET.** The `ZFILE` info block is
+`ZCRCW`-terminated too and is **not** answered with a `ZACK`: what the sender
+reads after it is the `ZRPOS` or the `ZSKIP` the Save dialog decides (§70.11.2),
+and an `ZACK` in front of that is a straggler it has to skip. `lrzsz`'s
+receiver does not send one either. The distinction is per SINK — the info block
+or the staging halves — and not per terminator, which is why `tz_subok`
+branches on `[tz_sk]` before it looks at `[tz_fend]` at all.
+
+**`ZEOF` carries the file LENGTH as its position**, and it is answered with a
+fresh `ZRINIT` — which is what lets the next `ZFILE`, or the `ZFIN`, follow.
+
+**Subpackets are 1,024 bytes**, which is what `sz` uses and what §70.11.3's
+arithmetic assumes: **a 4 KB staging half fills after exactly four of them.**
+Nothing in the protocol requires it and nothing here may depend on it.
+
+**No `ZSINIT` is sent and none need be.** This terminal does not ask for
+`ESCCTL`; a sender that honours it when a receiver's `ZRINIT` sets the bit is
+free to, and the decode table above copes either way.
+
+#### 70.11.2 The receiver's states
+
+`[tz_st]` holds one of these. The transitions are the only ones there are.
+
+| state | what it is | leaves on |
+|---|---|---|
+| `ZR_OFF` | not in a transfer | the auto-start or the menu item → `ZR_WAIT` |
+| `ZR_WAIT` | `ZRINIT` sent, waiting for a header | `ZFILE` → `ZR_FILE`; `ZFIN` → `ZR_FIN`; timeout → resend `ZRINIT` |
+| `ZR_FILE` | collecting the `ZCRCW` subpacket that carries the file info | complete → mangle the name, raise `TZ_NAME`, → `ZR_DLG` |
+| `ZR_DLG` | **the transfer is held**: nothing is sent until the UI answers | chosen → `ZRPOS 0`, → `ZR_DATA`; cancelled → `ZSKIP`, → `ZR_SKIP` |
+| `ZR_DATA` | receiving `ZDATA` subpackets into the staging halves | `ZEOF` → flush, → `ZR_EOF`; CRC error → `ZRPOS` at the committed offset, stay |
+| `ZR_EOF` | the file is closed; `ZRINIT` sent again | `ZFILE` → `ZR_FILE`; `ZFIN` → `ZR_FIN` |
+| `ZR_SKIP` | `ZSKIP` sent | `ZFILE` → `ZR_FILE`; `ZFIN` → `ZR_FIN` |
+| `ZR_FIN` | `ZFIN` sent, waiting for the sender's and then `OO` | → `ZR_OFF`, and the terminal is back |
+| `ZR_ERR` | the retry count is spent | → `ZR_OFF`, with the reason on the status line |
+
+**The file-info subpacket is `name` NUL `size mtime mode serial files_left
+bytes_left` NUL, terminated `ZCRCW`** — and **only the first two fields are
+read**: the name for the Save dialog and the size for the progress line.
+Everything after them is ignored rather than parsed. The `mtime` is **octal**,
+which is easy to misread as decimal and is exactly the kind of field a terminal
+gains nothing by having an opinion about.
+
+**A second `ZFILE` for a file already open must be IDEMPOTENT: reopen at
+position 0, never open a second file and never append.** This is the mirror of a
+trap §70.12's server hit from the sending side. A receiver sends `ZRINIT` until
+somebody answers, so **two are usually in flight when the first `ZFILE` goes
+out**; a sender that reads the straggler as the answer to its `ZFILE` resends,
+and every file after the first inherits the file before's reply. The receiver's
+half of the same problem is that **if its `ZRPOS` is lost the sender repeats the
+`ZFILE`** — and a receiver that treated the repeat as a new file would write the
+download twice, or append it to itself, and the disk would say so rather than
+the wire. Equally: **a `ZRINIT` arriving where a `ZRPOS` was expected is a
+straggler to skip, never a reason to resend.**
+
+**`ZRPOS` restarts at the SUBPACKET's start, and `[tz_skip]` is why that is
+honest.** A CRC error discards whatever is in the staging half that is still
+filling — but a subpacket that straddled a chunk boundary has its first part
+**already committed**, because `tz_store` raises a half the moment it is full
+and the CRC is checked at the end. Naming the committed offset would resume the
+sender PAST the start of the bad subpacket and leave its corrupt prefix in the
+file for ever, with the length right so nothing notices: which is the exact
+defect resume-from-committed exists to prevent.
+
+There is no truncate verb, so the prefix cannot be taken back. `[tz_sub0]` is
+where the subpacket now filling started, the `ZRPOS` names *that*, and
+`[tz_skip]` = `[tz_pos] − [tz_sub0]` drops the bytes the sender re-sends over
+what is already written. **The file's SIZE never moves**, which is what keeps
+`OSAPI_FILE_APPEND`'s cluster-multiple precondition true through a retry — and
+is why this is the fix rather than raising only at subpacket boundaries, which
+would make a chunk 5,120 bytes and break §18.4.4.
+
+The `ZRPOS` still waits for `[tz_req]` to clear before it goes out, because
+`[tz_pos]` is not final until the commit in flight has landed. Reachability is
+low and worth saying plainly: the transport is TCP, so a subpacket CRC error
+means corruption above TCP's own checksum.
+
+**A `ZEOF` whose position disagrees is answered the same way and does NOT enter
+subpacket mode.** No subpacket follows a `ZEOF` — the next bytes are the
+sender's answer to our `ZRPOS` — so eating them as data leaves recovery to
+whichever byte pair happens to decode as a frame-end terminator, with the
+5 × 10 s retry count as the floor.
+
+**FIVE `ZDLE ZDLE`s IN A ROW ARE THE SENDER'S ABORT.** One is a lost place and
+resynchronises on the next `ZPAD`; five is the classic cancel a user types at
+the BBS end, and dropping them in `ZP_IDLE` left the terminal showing nothing at
+all for `TZ_TMO` × `TZ_TRIES` = fifty seconds. Any decoded byte resets the run.
+
+**Timeouts and a retry count, so a dead sender returns the terminal.**
+`OSAPI_GET_TICKS` (0x00B8) is the clock — 18.2 Hz, ~55 ms, wrapping at 65,536,
+so every comparison is a subtraction. Ten seconds (182 ticks) without a header
+in `ZR_WAIT`/`ZR_EOF`/`ZR_SKIP` resends the last header; five of those in a row
+is `ZR_ERR`. There is no millisecond slot on this machine and none is needed:
+every Zmodem timeout in the protocol is measured in seconds.
+
+**A batch is `ZFILE` again after `ZEOF`**, which the states above already say,
+and each file gets its own dialog.
+
+**A HEADER CAN BE OWED AND NOT YET SENDABLE, so `[tz_owe]` is a byte and not a
+state.** Two of them wait on the same thing — the UI task's commit — because
+`[tz_pos]` is not final until it lands:
+
+| `[tz_owe]` | what is owed | why it waits |
+|---|---|---|
+| 1 | the `ZRINIT` that answers a `ZEOF` | the file's last partial chunk was raised with it, and a sender told the file is closed is free to start the next one |
+| 2 | a `ZRPOS` after a CRC error, or a `ZDATA` that resumed somewhere we are not | it names the bytes COMMITTED, and the half in flight may or may not have reached the disk |
+
+`tz_poll` sends whichever is owed on the first pass where `[tz_req]` is
+`TZ_NONE`, which is at most one commit's wait. Making them states instead would
+have doubled the table for a condition that is not about the protocol at all.
+
+**AND THE SUBPACKET NEEDS TWO COUNTERS, NOT ONE.** `[tz_n]` counts a header's
+bytes or nibbles *and* a subpacket's two CRC bytes, and the frame-end byte
+resets it for the second job — so a reader of it after the CRC sees **2**. The
+file name's length is wanted exactly there, at `tz_infodone`. With one counter
+the info block was NUL-terminated at its third character, the Save dialog was
+pre-filled with a two-letter name, and everything after it was parsed as the
+decimal size. `[tz_dn]` is the data counter and the two never overlap in time
+by construction: one belongs to the frame, the other to the payload.
+
+#### 70.11.3 The worker stages, the UI task commits
+
+**§20.6 rule 7 is binding and it forbids a worker touching a file**: the file
+slots are the UI task's, because they share `dsk_secbuf`, the FAT snapshot and
+`sch_lock`. §77's FTP server is the worked example of the shape this forces
+and this follows it byte protocol for byte protocol.
+
+    worker                                    UI task (tz_wake)
+    ------                                    -----------------
+    fill tz_arg*, then [tz_req] = TZ_*   -->  sees [tz_req], does the file work,
+    OSAPI_WM_WAKE (0x0450)                    writes tz_rst, clears [tz_req] LAST
+    poll until [tz_req] == TZ_NONE       <--
+
+**One byte, and a byte store is atomic on an 8086.** The producer writes every
+argument before the flag; the consumer clears the flag after every result. The
+worker looks at `[tz_req]` before it looks at anything else, because the
+request's outstanding-ness is the request's argument.
+
+| `[tz_req]` | what the UI task does |
+|---|---|
+| `TZ_NONE` (0) | nothing is outstanding |
+| `TZ_NAME` (1) | ask `OSAPI_FILE_DFREE`, size the chunk, open the Save dialog (§70.11.4) |
+| `TZ_DATA` (2) | write `[tz_un]` bytes of half `[tz_uh]` — `OSAPI_FILE_WRITE` (0x0120) for the first chunk, `OSAPI_FILE_APPEND` (0x0350) for every later one |
+| `TZ_DONE` (3) | the file is complete; nothing to close, because neither slot holds a handle |
+
+**AND THE WORKER KICKS FOR AS LONG AS A REQUEST IS OUTSTANDING.**
+`OSAPI_WM_WAKE` answers CF=1 when the event ring was full of other events and
+nothing was posted, and its own cell says to kick again from the next callback
+— so a `TZ_DATA` whose wake was lost left the worker polling a byte the UI task
+was never told to clear. The transfer then stopped dead: the `ZRINIT` that
+answers a `ZEOF` waits for that commit, so the sender saw nothing for
+`TZ_TMO` × `TZ_TRIES` and the terminal ended in `Sender stopped` with the file
+half written. `tz_poll` kicks every `TZ_KICK` = 9 ticks while `[tz_req]` is not
+`TZ_NONE`, which IS the retry the SDK asks for; the first version kicked only
+while a dialog was up, which is the one case a human was waiting on.
+
+`OSAPI_WM_ONWAKE` (0x0458) is what makes any of it possible (§74.1): the
+handler runs on the UI task, billed to this instance, **without the gfx lock**,
+and it is expressly allowed to call the file slots. Nothing else in the SDK
+is. It is registered from `te_entry`, and the slot **preserves the flags**,
+which matters there because the CF owed to the loader is still in flight.
+
+**The staging area is 8,192 bytes in the PACKAGE'S OWN SEGMENT**, two 4,096-byte
+halves, and the segment is not a choice: `OSAPI_DRV_CALL` (0x0448) is an X stub
+and puts the caller's segment in ES, so a buffer in a heap claim is read out of
+the package's own image instead — which reads as memory corruption rather than
+as a wrong segment register, because the bytes really are ours (§77.2).
+
+**The worker fills one half while the UI task writes the other.** When the half
+in flight has not been collected and the other is full, **the worker simply
+does not call `NETV_RECV`** — TCP holds the sender, the sender blocks, and
+nothing is dropped. Downloads are bounded only by the disk.
+
+**The chunk is a whole number of the DESTINATION's clusters** (§18.4.4), asked
+**once** per transfer rather than per chunk: `OSAPI_FILE_DFREE` (0x0140) answers
+`BX` = **sectors** per cluster, so the cluster is `BX × 512` bytes, and the call
+walks the whole resident FAT snapshot — about 105 ms on a 20 MB hard disk at
+4.77 MHz. §77.40 is the precedent: FTPD called it per chunk and spent 44% of an
+upload inside it.
+
+**AND IT IS ASKED AFTER THE DIALOG ANSWERS, NOT BEFORE IT.** The Save dialog has
+a **Drive** button (§38.11) and `fdlg_home_save` records the volume the user
+landed on into the instance *before* the completion proc runs — which is exactly
+what makes `tz_commit`'s bare-name write land there (§38.10). Sized before the
+question, the chunk describes the volume the terminal was LAUNCHED from: a
+4,096-byte chunk against a partition with 8 KB clusters creates the file with
+`OSAPI_FILE_WRITE` and then meets `dskw_append`'s precondition check on the
+second chunk, which answers **`FERR_NAME`** — so the user is shown `Disk error`
+and a 4 KB stump of a 40 KB file, with an innocent disk. The over-8,192 refusal
+below was never reached through that door at all.
+
+`tz_chunk_set` therefore runs in `tz_dlgdone`, on the UI task, with the lock
+held and no disk I/O: the same 105 ms, one question later. The worker stages
+nothing until it reads `[tz_rst]`, so the chunk is still fixed before the first
+byte lands.
+
+| the destination's cluster | what this does |
+|---|---|
+| ≤ 4,096 bytes | chunk = 4,096, **double-buffered**; 4,096 is a multiple of every power-of-two cluster at or below it, and it is **exactly four 1,024-byte subpackets** (§70.11.1) |
+| 4,097..8,192 | chunk = 8,192, **single-buffered** — the worker fills the whole area, then waits |
+| > 8,192 | **refused**: `ZSKIP`, and the status line names the cluster size — `Cluster 16,384 too big` — because §47's rule is that a refusal states a FACT a person can act on, and *"too large"* is a judgement where 16,384 is a number they can take to another disk |
+
+**THE REFUSAL IS PER FILE AND NOT PER BATCH.** It sends `ZSKIP`, the sender goes
+on to the next file, and the reason stays on the status line until a file IS
+accepted — a cluster is a fact about the destination the user just chose, and
+the next file may be saved somewhere else. The first version called the
+session's failure path here instead, which ended the whole batch for one
+unsuitable folder and contradicted this table's own word.
+
+**AND THE TWO STAGING ARMS ARE NOT THE SAME MECHANISM.** Double-buffered, the
+raise happens in `tz_store` the moment a half fills, because the *other* half is
+there to take the next byte. Single-buffered there is no other half, so
+`tz_canrx` refuses at a full buffer whatever `[tz_req]` says and the raise
+happens on the WORKER's next pass instead. Driving the raise from a byte's
+arrival on that arm put `tz_store`'s `xor bx, bx` on offset 0 of the chunk the
+UI task had just been handed — one silently wrong byte per 8,192 in the file,
+with the length right and the CRC that would have caught it already spent.
+Unreachable on a floppy, which is every geometry any gate drives.
+
+The last chunk is whatever is left, which is §18.4.4's own exception.
+`OSAPI_FILE_APPEND` refuses a file whose current size is not a cluster multiple
+with `FERR_NAME`, and the rule above is exactly what keeps that from happening.
+
+#### 70.11.4 The destination is the standard Save dialog, and a cancel calls nothing back
+
+**`OSAPI_FILE_DLG` (0x0150) with AL = 1**, opened by the UI task when the worker
+has parsed `ZFILE`, pre-filled with the sender's name mangled to 8.3. The
+contract, which shapes everything around it:
+
+* the call **does not block** — it returns CF=0 with the dialog already on
+  screen, and CF=1 when one is already up or the window table is full;
+* the pre-fill is `SI` = a NUL-terminated name of at most 12 characters;
+* the completion proc runs **much later**, on the UI task, gfx lock held, after
+  the dialog has been destroyed, with `AL` = the mode, `SI` = the requester
+  window, **`ES:DI` = the chosen name** and `DX:CX` = that file's size, or 0
+  when the listing has no such file;
+* **the name is all that comes back.** There is no path and no drive: the
+  dialog opened on this instance's own folder, `fdlg_home_save` records the
+  folder and the drive into the instance *before* the callback runs, and a
+  plain `OSAPI_FILE_WRITE` on that bare name therefore lands where the user
+  chose (§19.2.1, §38.10);
+* **there is no overwrite confirmation** anywhere in the dialog, and
+  `OSAPI_FILE_WRITE` creates or replaces without asking. A file the disk
+  already has is replaced, which is what a Save dialog means everywhere else
+  on this system.
+
+**A cancelled dialog calls nothing back at all** (§38.6): `fdlg_close` runs and
+the requester never hears. So the cancel has to be inferred.
+
+**THE FIRST DESIGN INFERRED IT FROM A `W_PAINT` ARRIVING WHILE `[tz_dlg]` WAS
+STILL SET, AND THAT IS WRONG.** The argument for it was that the dialog is
+modal and covers this window, so no paint reaches us while it is up. **It does
+not cover this window.** §38.3 fixes the dialog at 300×170 on (90, 60) and
+§70.8 opens the terminal at 656×254 on (40, 40), so most of the terminal is
+still on the glass — and `fdlg_open`'s own `cw_wm_show` raises and repaints the
+desktop the *instant the dialog goes up*. That paint arrives first, so every
+transfer was skipped before the user could touch anything; worse, `tz_cancelck`
+only *marks* a cancel, so the real dialog stayed on screen and the next file's
+request was then refused for a dialog that was already up. §70.12.2 has the
+run.
+
+**THE SLOT DECIDES, AND THE PAINT IS ITS FALLBACK.** Three things can say a
+dialog is gone, and they are ordered by how much they know.
+
+1. **The dialog's own window SLOT.** `OSAPI_WM_OWNSEG` (0x04E0) answers CF=1
+   for a free slot and CF=0 with the owning segment for a live one. `tz_wmap`
+   builds a BITMAP of the twelve slots immediately before `OSAPI_FILE_DLG` and
+   another immediately after a successful open; the bit that appeared names the
+   slot, and `[tz_dslot]` holds it. That test is **authoritative**, because the
+   used bit it reads is what `wm_destroy` clears and what `wm_hide` does not —
+   so while the dialog is on screen it answers *still there*, and any other
+   signal that disagrees is provably wrong.
+
+   A TALLY would not have done: it is a fact about the DESKTOP, and anything
+   else creating or destroying a window moves it. Modality fences *input* and
+   not `wm_create`/`wm_destroy` from a running package's own task.
+
+2. **A `W_PAINT`, ARMED — and it may not decide.** `[tz_dlgt]` is the tick the
+   dialog went up and `tz_cancelck` ignores anything inside `TZ_DLGARM` = 18
+   ticks, because `fdlg_open`'s own `cw_wm_show` repaints the desktop when the
+   dialog ARRIVES. Past that it sets `[tz_pcan]` **and returns**: `tz_wake`'s
+   next pass is what acts, and only when `[tz_dslot]` is 0xFF — the case where
+   `tz_wmap`'s XOR came back empty and the slot was never worked out.
+
+   Trusting the paint FIRST left the other direction wide open: any
+   `wm_paint_all` reaching us between the arming and the backstop cancelled a
+   file whose dialog the user was still reading, and the screensaver's relight
+   is the concrete one.
+
+3. **Sixty seconds**, for the window that never goes away. Not the mechanism.
+
+**AND THE PAINT MAY NOT ACT ALONE FOR A SECOND REASON, which is an ordering
+this section got wrong the first time.** The first draft argued that a commit is
+safe because *"`fdlg_commit` destroys the dialog and calls the completion proc
+in one UI-task call chain, and `W_PAINT` is another UI-task callback, so it
+cannot be dispatched in between"*. **`W_PAINT` is not dispatched — it is called
+INLINE, by the destroy.** `fdlg_commit` calls `fdlg_close` first, `wm_destroy`
+ends in `wm_paint_dmg` over the rect the dialog vacated, that marks every window
+overlapping it — ours does — and `wm_draw_win` calls our `W_PAINT` **unless
+`wm_su_try` hits**. So the real order is:
+
+    destroy → repaint → te_paint → (the inference) → completion proc → tz_dlgdone
+
+and the only thing that stood between a Save and a `ZSKIP` was the RAISE CACHE
+hitting. §11.96 is explicit that the cache is a **purgeable** claim (§50.6),
+*"given back the instant anything else needs the room"* — so on a 256KB XT, or
+a desktop with a few packages up, **every Save was read as a cancel and every
+download skipped**. A gate on an idle desktop cannot see it, which is why
+fourteen commits passed.
+
+Measured, on `tests/telzm.py`'s cancel run: **`[tz_dlg]` cleared half a second
+after the Escape**, against the 60-second backstop.
+
+**AND A REFUSED OPEN IS RETRIED, WITH THE COUNTER RESET WHEN IT GIVES UP.**
+`OSAPI_FILE_DLG` answers CF=1 while another dialog is up, so `[tz_req]` stays
+`TZ_NAME` and the worker's kick asks again, bounded at `TZ_DTRY` = 20 kicks.
+`[tz_dtry]` goes back to zero on the give-up path as well as on a successful
+open: cleared only by success, one exhausted retry made every LATER file give up
+on its first refused poll, turning one stuck dialog into a batch of instant
+skips.
+
+**Which also settles what a second cancelled dialog was doing.** Escape destroys
+the dialog and drops `[fdlg_win]` in the same keystroke (`fdlg_close`), and
+`fdlg_reap` runs once per UI pass — so a *repeated* refusal could only mean a
+dialog really was up while `[tz_dlg]` said it was not, which is exactly what the
+paint-first rule produced. With the slot deciding, the mismatch cannot arise;
+`tests/telzm.py`'s batch cancels two dialogs in a row and asserts the third.
+
+**A COMMIT CANNOT BE MISREAD AS ONE**, because `tz_dlgdone` clears `[tz_dlg]`
+and `[tz_pcan]` together and runs before any wake can be dispatched: the paint
+that preceded it banked a suspicion nothing will now read, and the slot is free
+by then anyway. `tests/telzm.py` drives ten commits and five cancels over one
+boot — two of the cancels adjacent — and no commit is ever read as a cancel.
+
+**AND A REFUSED OPEN IS RETRIED RATHER THAN READ AS A CANCEL.**
+`OSAPI_FILE_DLG` answers CF=1 while ANOTHER dialog is up, and the one this
+instance just had is only reaped on a later UI pass (§38.1.1) — so a batch
+whose files arrive faster than the reap gets its second request refused, its
+third, and all the rest. `tz_dlgopen` also **returns at once if `[tz_dlg]` is
+already set**, because a request cannot be served while our own dialog is up. `[tz_req]` stays `TZ_NAME` and the worker's kick asks
+again, bounded at `TZ_DTRY` = 20 kicks — about ten seconds — so a dialog
+somebody else leaves up cannot hang the transfer either. Without the retry a
+twelve-file batch showed **one dialog and eleven silent `ZSKIP`s**.
+
+**A 60-second timeout backs it up and is not the mechanism.** If `[tz_dlg]`
+survives 1,092 ticks the receiver sends `ZSKIP` anyway. That is there for the
+window that never goes away rather than for the user who is thinking, and it is
+long because a sender re-sends its `ZFILE` while it waits and a short timeout
+would race a slow reader.
+
+**AND THE SLOT IS CALLED UNDER THE GFX LOCK.** `fdlg_open`'s own contract is
+*"THE CALLER HOLDS THE GFX LOCK — every legal caller is a window callback or an
+`AM_ONCMD` handler, which is what lets this create and show the window inline
+instead of posting a launch"*, and `OSAPI_WM_ONWAKE` is the one callback that
+runs **without** it (§74.1). So `tz_wake` takes it for that call and releases it
+again, which is the same thing the SDK tells a wake handler to do before it
+draws.
+
+**AND NOT UNDER A FOREIGN TEXT MODE.** The Save dialog is a window and every
+kernel drawing slot is off-limits inside §53's bracket, so `tz_wake` refuses to
+open one while `[te_txm]` is set and `te_fsx_main`'s loop LEAVES the bracket
+when it sees `[tz_req]` = `TZ_NAME`. A transfer that reaches its `ZFILE` in full
+screen drops back to the window to ask where the file goes, and the dialog then
+opens on the desktop the user came from (§70.11.5).
+
+**The mangling follows §77.20's rule and not a second opinion.** A file this
+machine downloads by Zmodem and the same file uploaded to it by FTP must land
+on the same name:
+
+* everything up to and including the last `/` or `\` is dropped — a Zmodem
+  pathname is a path and the file goes where the user says, not where the
+  sender says;
+* **a name that is already legal 8.3 is left alone**, which is what makes the
+  mapping round-trip;
+* otherwise the extension is the first three legal characters after the LAST
+  dot, and the name is the first six legal characters plus `~1` — `banana
+  split.mod` becomes `BANANA~1.MOD`, the way every DOS-era system showed a long
+  name;
+* it is **deterministic**: always `~1`, never a search for a free `~2`, because
+  a counter resolved against the directory makes the same download land
+  differently on two disks;
+* a name with nothing legal in it becomes `FILE~1`, because it still has to be
+  something a person can see and delete.
+
+It is a second copy of the rule and not of the code — a package cannot call
+another package's proc — and `tests/telzm.py` asserts both ends against the
+same table so the two cannot drift.
+
+#### 70.11.5 Progress, and the terminal comes back
+
+**Windowed**, the status line carries `NAME  12,345 / 98,765` and the
+terminal's content is replaced by a progress panel — §70.3's About-panel
+shape, a takeover the next paint puts back — so nothing has to be redrawn to
+show a number changing. **Full screen**, row 25 is overwritten with the same
+line and re-emitted from the buffer when the transfer ends, which costs one
+row of the board's screen for the duration and nothing after it.
+
+The counter is updated **per committed chunk and not per subpacket**: a chunk
+is 4 KB and a subpacket is 1 KB or less, so per-subpacket updating would spend
+a status line's worth of drawing four times for every one that told the user
+anything new.
+
+**When the transfer ends the terminal is back and the host's text resumes** —
+the buffer was never touched, so putting it back is the repaint the takeover
+already owed.
+
+**AND A REFUSAL NAMES WHICH REFUSAL.** `Disk error` is what every one of them
+looks like from the outside, and §54.4.1's rule one application along is that a
+reason a person can act on beats a state name: `Folder full` (`FERR_DIRFULL` —
+a subdirectory on a floppy is ONE 512-byte cluster, sixteen entries, and it
+does not grow), `Disk full`, `Disk is write-protected`, `That name is
+protected`, and `Disk error` for the rest. §70.12.3 records how that
+distinction was learned, which is that a gate wrote sixteen files into `MEDIA/`
+and read the seventeenth refusal as a receiver defect.
+
+**A TRANSFER THAT FAILS TELLS THE SENDER, AND THEN DRAINS.** The failure paths
+used to send nothing at all and clear `[te_zon]` at once: the sender was
+mid-file, went on transmitting `ZDATA` subpackets, and `te_byte` handed every
+one of those bytes to the ANSI parser — so the status line said `Disk error`
+while the screen filled with CP437 noise and whatever `ESC [` sequences fell
+out of binary data cleared it, moved the cursor and changed the colours until
+the sender's own timeout expired. So `tz_fail` sends the standard cancel first
+— five `CAN`s and five backspaces, which every Zmodem implementation reads as
+an abort — and the receiver stays on the stream in **`ZR_DRAIN`**, swallowing
+everything, until the wire has been quiet for `TZ_DRAINQ` = 36 ticks. The
+terminal comes back when the wire does rather than when the sender gives up,
+and the panel comes off immediately because the reason is on the status line
+and the terminal is what the user wants back.
+
+**AND THE PANEL COMES OFF EVEN WHEN NO PASS IS COMING.** `tz_end` clears
+`[te_zon]`, and `te_step` only calls `tz_poll` while it is set — so a transfer
+that ended with a commit still outstanding could post `TZ_DONE` to nobody, and
+`[tz_pan]` is cleared in exactly one place. The panel then owned the terminal's
+content for the rest of the session with the session live underneath it.
+Removing the panel is the UI task's only job in `TZ_DONE` and it is a byte
+store, so `tz_end` does it itself in that case.
+
+**And the sender's closing `OO` is TWO bytes.** Ending the transfer on the
+first left `[te_zon]` clear when the second arrived, and the ANSI parser printed
+it: every completed batch left a stray `O` on the board's screen. `tz_end` marks row 24 for the full-screen renderer and every row
+for the windowed one, and `TZ_DONE` is what asks the UI task to spend them: the
+panel is the UI's to remove, and the worker may not.
+
+**AND THE BRACKET HAS TO PUMP THE HANDSHAKE ITSELF.** `FSXF_KEEPWORKER` keeps
+the *worker* (§53.5.1) and **the UI task is `te_fsx_main`'s loop**: it
+dispatches no events, so `OSAPI_WM_WAKE` delivers nothing and a commit posted
+from inside full screen would never happen — the staging area would fill, the
+receiver would stop calling `NETV_RECV`, and the transfer would hang until
+`^]`. So the loop calls `tz_wake` directly on every frame. That is legal
+because the handler is documented as indifferent to being called with nothing
+to do, and it is safe because it skips its own drawing half while `[te_txm]` is
+set: the lock and the glass are both the bracket's (§70.8.8), and a
+`OSAPI_GFX_LOCK` in there would park the UI task on a byte that cannot change
+until the bracket exits.
+
+**And it LEAVES the bracket for a Save dialog.** The dialog is a window and
+every kernel drawing slot is off-limits in a foreign text mode (§53.1), so the
+loop exits when it sees `[tz_req]` = `TZ_NAME` and the dialog opens on the
+desktop the user came from. A transfer that reaches its `ZFILE` in full screen
+therefore drops back to the window to ask where the file goes; one that was
+already under way when `^]` was pressed carries on, with its progress on row
+25 and its commits pumped by the loop.
+
+#### 70.11.6 What the receiver cost, and what it does not answer yet
+
+`apps/telnet/tezm.inc`. **`TELNET.O88` is image 15,079, bss 16,299 — 31,378 of
+`APP_MAX_SIZE`'s 61,440, which is 51%** — and the validator was never the
+constraint here either (§70.8.11). The floppy was, twice, and §24.3.1 carries
+the arithmetic: the receiver takes the package from 10 clusters to 14 on a
+360KB disk, which had four.
+
+Of the bss, **8,192 bytes are the staging area and 64 the `ZFILE` info block**;
+the receiver's whole control state — two state machines, three 32-bit
+positions, the CRC, the counters, the handshake and the mangled name — is
+about ninety bytes. The staging area dominates by two orders of magnitude and
+is the one figure a reader should hold on to: everything else in this section
+is arithmetic about how to keep it full.
+
+**What is measured and what is not.** The gate runs under QEMU, so the
+throughput it observes is the host's and no figure from it belongs in this
+document (§70.12). What IS this machine's is the call count: a 40 KB download
+is **ten `OSAPI_FILE_APPEND` calls and one `OSAPI_FILE_WRITE`**, one
+`OSAPI_FILE_DFREE`, and one `int 13h`-bearing commit per 4,096 bytes rather
+than per 1,024-byte subpacket — which is PERFORMANCE.md's "cost disk work in
+CALLS" applied to the one place in this package that does any.
+
+**Not measured on hardware**, and neither is §70.8.2's figure; both are read
+off the source.
+
+**NEVER DIVIDE BY A NUMBER THE WIRE CHOSE.** The progress bar's fill is
+`pos × width / size`, and `[tz_fsz]` is a decimal field the SENDER wrote into
+the `ZFILE` info block while `[tz_pos]` is bytes this end has committed — two
+independent numbers, of which only the zero case was guarded. A `ZFILE`
+declaring a size of 1 makes the first commit's quotient 2,539,520, which does
+not fit `AX`; `div` raises **#DE**, this kernel installs no `int 0` handler, and
+IVT[0] is whatever the ROM left. **One line of a sender was an uncontrolled far
+jump**, with no cooperation from the user beyond pressing Save. It was reachable
+without hostility too: the size parse drops the carry out of its high multiply,
+so a declared size over 4 GB wraps small, and a 63-character name walked the
+parse into the staging area and read the previous download's digits as this
+file's size.
+
+`tz_frac` now treats `pos >= size` — and a position whose high word survived the
+reduction the size's did not — as a FULL bar, which is what a sender that lied
+deserves. `tests/telzm.py` drives it with a sender that declares 1 and sends
+6,144, and asserts that the session is still up afterwards: the symptom of an
+#DE is a guest that has stopped answering, not a wrong bar.
+
+**ONE diagnostic byte is published in bss and is not debug code.** A cancelled
+dialog calls nothing back at all, so nothing outside this package can see what
+became of one — `[tz_diag]` is a bit per step of its life (asked, the slot
+refused, a paint inferred a cancel, the completion proc ran, it went up, the
+receiver asked for one) and it is how `tests/telzm.py` says *what* failed
+instead of *that* it failed. It sits OUTSIDE both `rep stosb` runs, because a
+byte a reconnect zeroes cannot answer "did a reconnect happen" — which is one
+of the questions it was asked.
+
+**Six counters sat beside it during the work and are gone.** Frames in and out,
+subpackets good and bad, wakes, resets: they found the defects §70.12.2
+records, and then they were seventy-seven bytes of a package whose 360KB
+floppy has two clusters left (§24.3.1). Scaffolding earns its keep while the
+scaffold is up; what survives is the byte no other observer can replace and
+the account of what the counters said.
+
+### 70.12 The gates
+
+The transport is proved by `tests/socktest` and `tests/brfetch` and is not
+re-proved here (§70.4's argument, unchanged). Everything below is about the
+TERMINAL: what it draws, what it sends, and what lands on a disk.
+
+**QEMU by name, for `tests/ethernet.py`'s reason**: MartyPC has no network card
+of any kind, so the emulator this tree develops on cannot host `ETHER.DRV` at
+all (§72.9). The disk shape is `make ethertest`'s — a `SYSTEM.CFG` that already
+asks for the driver, so the card is up and DHCP has run before the first paint
+and the test reads state instead of clicking — and the B: floppy is a SCRATCH
+image of its own, because a Zmodem download WRITES (§88.12's shape).
+
+| tool or test | what it is |
+|---|---|
+| `tools/ansisim.py` | **the host-side reference renderer** of §70.9 — the same state machine in Python, emitting the 80x25 char+attr buffer. `--dump` prints it, `--selfcheck` runs its own cases |
+| `tools/ansifix.py` | generates the SYNTHETIC fixture streams under `tests/fixtures/ansi/` — committed, small, and covering every sequence in §70.9.3 and §70.9.4 |
+| `tools/os88bbs.py` | **the host-side test server**: negotiates like a board, fragments its output deliberately, answers a DSR, and can run a pure-Python Zmodem SENDER |
+| `tests/telansi.py` | the parser and both renderers, on the machine |
+| `tests/telzm.py` | Zmodem receive, end to end, with the bytes read back off the floppy |
+| `tests/telnet.py` | §70.4's and §70.5's four assertions, updated for 80x25 |
+
+**`tools/ansisim.py` IS the contract's second reader**, which is `tools/htmsim.py`'s
+role for §71 and `tools/weavesim.py`'s for WEAVE-SPEC. Two independent
+implementations of one written state machine catch what one implementation and
+its author cannot: a rule that reads one way in the assembly and another way in
+the document is a rule that is wrong somewhere, and the diff says which cell.
+
+**The fixture/oracle contract, pinned**, because a test whose oracle can be
+edited to agree with the code is not a gate:
+
+1. A fixture is a **byte stream**, generated by `tools/ansifix.py`, committed
+   under `tests/fixtures/ansi/`, and never hand-edited.
+2. Its oracle is `tools/ansisim.py`'s output for that stream — **computed at
+   test time, not stored** — so an oracle cannot drift from the reference
+   renderer and a change to the reference renderer is a change to every
+   expectation at once.
+3. The comparison is `te_scr` read out of guest memory against that output,
+   **byte for byte, all 4,000 of them**, characters and attributes alike.
+4. Nothing in the fixtures is third-party art. A small ANSI scene drawn by the
+   tool is fine and is what exercises the block glyphs.
+
+**`tools/os88bbs.py` records what it RECEIVED** — the negotiation replies, the
+keys, the Zmodem headers — to a JSON log, and the tests assert on that log.
+That is what makes §70.10 testable at all: the negotiation table and the key
+table are about bytes this end SENDS, and a screenshot cannot see one. Three
+things about how it asks, each chosen so a test can assert either answer:
+
+* **It sends `SB TTYPE SEND` whether or not the terminal said `WILL TTYPE`.** A
+  terminal that answers anyway is more interesting to a gate than one that is
+  never asked, and the log carries both the question and whatever came back.
+* **Keys are logged as RAW BYTES.** `log["keys_hex"]` is every application byte
+  the terminal sent, in order, so §70.10.2's table is asserted as bytes: type
+  Home, assert `1b5b48` is in it.
+* **`NAWS` is logged, not required.** The server accepts any size and records
+  it; the assertion that it is 80x25 belongs to the terminal's contract
+  (§70.10.1) and not to the server's.
+
+**It fragments deliberately**, splitting inside escape sequences and inside
+`IAC` sequences, because §70.9's whole reason for being a state machine is
+that TCP does exactly that and a parser that only works on whole sequences
+passes every test written by someone who forgot.
+
+**And `ansisim --selfcheck` proves the same property about itself, at every
+offset.** Each of its cases is re-fed with the stream split at **every single
+byte position**, and the buffer, the cursor, the answers, the trigger offset and
+the cursor visibility must all come out identical — then every case concatenated
+and split every seven bytes. **A parser that keeps one byte of state in a local
+across a `feed()` is correct on every fixture and wrong on a wire**, and nothing
+but that sweep catches it before the guest does. The assembly's own gate should
+drive at least one fixture through `NETV_RECV` boundaries it chose rather than
+the ones TCP happened to give it.
+
+`tests/telansi.py` drives one fixture at a time, compares `te_scr`, asserts the
+negotiation replies and a DSR answer in the server's log, enters full screen
+and screenshots it, and types the special keys of §70.10.2 asserting the bytes
+the server saw. `tests/telzm.py` runs the same harness with the server sending
+two files — one under 4 KB, so one chunk, and one about 40 KB, so many — drives
+the Save dialog, reads the scratch floppy back on the host with the tree's own
+FAT12 reader and compares the bytes; a third run cancels the dialog and asserts
+that `ZSKIP` reached the server and that the terminal came back.
+
+**Both rows are `soak` tier.** They boot a QEMU with a network in it and drive a
+whole session, which is minutes rather than seconds, and neither is a
+pre-merge gate for the same reason `tests/ethernet.py` is not: the machine
+under them is not an 8088 and the timings are the host's.
+
+#### 70.12.2 What building `tests/telzm.py` found
+
+**FIVE THINGS, AND FOUR OF THEM WERE IN THE GATE.** That ratio is the useful
+part: a wire protocol has no screen, so a gate that reads the wrong state at
+the wrong moment reports a receiver that is working perfectly as one that never
+ran, and the way out is to make the guest say what it did rather than to reason
+about what it must have done.
+
+1. **THE GATE READ EVERY COUNTER BEFORE THE TRANSFER BEGAN, and it cost four
+   emulator runs.** `wait_dlg` bailed out early on `[te_zon]` being clear —
+   *"the transfer ended without asking"* — and the server waits half a second
+   after the connection before it starts Zmodem, so `[te_zon]` is 0 for a
+   while AFTER the session comes up and the early exit fired on the first poll.
+   Everything the gate then printed — every counter, `[tz_st]`, `[tz_diag]` —
+   was sampled before anything had happened, so a receiver doing exactly the
+   right thing reported as one that had not run at all, while the server's log
+   showed headers it could not possibly have sent. **A poll whose exit
+   condition is also its start condition tests nothing**, and the fix is one
+   more wait: `wait_start` first, for the receiver to take the stream.
+
+2. **A PACKAGE NEEDS `os88sym`'s CHECK TOO, AND THERE WAS NOWHERE TO GET IT.**
+   `te_syms()` proves the MAP describes `build/telnet.bin`; it says nothing
+   about what the GUEST loaded, and CLAUDE.md's stale-emulator trap has an
+   exact analogue one level down — every offset resolves, every read succeeds,
+   and the numbers are another build's. The package is loaded at `pseg:0` with
+   no relocation of any kind (§20), so its first bytes ARE the file's:
+   `tests/telzm.py` compares 512 of them before it reads a single symbol, and
+   says so on the way past. Chasing the possibility that a stale guest was
+   answering cost most of a run; the check that rules it out is four lines.
+
+3. **THE CANCEL INFERENCE DID NOT HOLD**, which is §70.11.4's subject and is
+   recorded there in full rather than here. The gate is what found it, and it
+   found it as `[tz_diag]` bit 2 *and* bit 4 both set on a transfer nobody had
+   touched: the dialog had been read as cancelled and then refused for being
+   already up.
+
+   **AND THE BATCH IS WHAT FOUND THE REST OF IT.** Twelve files in one session
+   is not a stress test somebody thought would be interesting — it is what the
+   mangle table costs — and it turned up two more: `OSAPI_FILE_DLG` refuses
+   while the previous file's dialog is waiting to be reaped, which without a
+   RETRY became one dialog and eleven silent `ZSKIP`s; and `tz_dlgopen` stored
+   its window-count baseline on *every attempt*, so a refused open re-baselined
+   the count against a desktop that already held the dialog and the very next
+   comparison cancelled it. Neither is reachable with one file, and both are
+   ordinary use — a board's download queue is a batch.
+
+4. **`OSAPI_FILE_DLG` HANDS BACK A NAME AND THE FILE LANDS IN `MEDIA/`.** The
+   gate looked in `APPS/`, where `TELNET.O88` was launched from, and reported a
+   transfer that had worked perfectly — both files byte-identical, both
+   SHA-256s matching the server's own — as one that never landed. §38.10 is
+   explicit that the default is `MEDIA` and that the location is per
+   APPLICATION after that; the download goes where the dialog opened, and this
+   application had chosen nowhere.
+
+5. **AND THE `[tz_fsz]` READ HAD TO MOVE TO THE DIALOG.** It is the size the
+   sender declared for the file being ASKED about, and the next `ZFILE`
+   overwrites it, so a read taken after the answer is a read of whichever file
+   came next — which is why both files first reported the same number.
+
+6. **A GATE THAT CANCELS MUST ANSWER THE NEXT DIALOG TOO.** The cancel session
+   pressed Escape and then asserted that the file AFTER the cancelled one
+   arrived — without ever answering *its* dialog, so it sat until the
+   60-second backstop cancelled it as well and the gate reported the
+   receiver's correct behaviour as a defect. **A `ZSKIP` ends one file and not
+   the batch** (§70.11.2) is a claim about two files, so it takes two answers:
+   Escape, then Return, then `CANCEL.BIN` must be absent from the disk and
+   `AFTER.BIN` must be on it whole.
+
+**FOUR OF `MANGLE83_CASES`'s SIXTEEN ROWS CANNOT BE PUT ON A WIRE**, and the
+gate names them in its output rather than skipping them quietly: the two
+pathname rows, because `tools/os88bbs.py`'s sender takes `os.path.basename`
+before the name ever leaves the host; `...`, which no host filesystem will
+make; and the empty one. The other twelve are sent as one batch of tiny files,
+each Save dialog CANCELLED, and `[tz_name]` is read out of guest memory at each
+— which is also twelve consecutive exercises of the cancel path. Each of the
+twelve lives in a directory of its own, because `README.TXT` and `readme.txt`
+are two rows of the table and ONE file on a case-insensitive host, and a gate
+that silently tested eleven where it printed twelve would be worse than one
+that tested none.
+
+#### 70.12.3 What the wave-4 review found, and what the gate still cannot see
+
+**The blocker and three of the six majors were in paths no gate could reach**,
+which is the useful summary: a sender that lies about a size, a volume with
+8 KB clusters, a desktop short enough to shed a raise cache, and a subpacket
+CRC error. `tests/telzm.py` gained one of those four — `LyingSize` declares a
+size of 1 for a file it sends in full, and the assertion is that the session is
+still **up** afterwards, because the symptom of an `#DE` is a guest that has
+stopped answering rather than a wrong progress bar.
+
+**The other three are named here rather than left to be rediscovered.** Every
+geometry the gate drives is a floppy, so `spc` is 1 and the cluster is 512:
+that leaves the **single-buffered** staging arm, the **over-8,192 refusal** and
+`OSAPI_FILE_APPEND`'s precondition at any other cluster size untested, and the
+Drive button is what reaches them. No CRC error is injected, so `tz_subbad`,
+the `[tz_skip]` overlap and the whole ZRPOS recovery are driven by nothing —
+the `ZRPOS` the gate asserts is the opening `ZRPOS 0`. And the raise-cache
+purge behind the cancel rule needs a machine short of memory where this
+desktop is idle. `ZCRCE`, `ZCRCQ`, `ZRUB0` and `ZRUB1` are not exercised
+either, because `tools/os88bbs.py`'s sender uses `ZCRCG` and `ZCRCW` and its
+escaper has no arm for 0x7F or 0xFF.
+
+**AND TWO CANCELLED DIALOGS IN A ROW ARE NOW A GATE CASE.** It was an open
+question at the end of the first fix pass — a twelve-file batch answered with
+alternating Escape and Return produced four dialogs and ten skips — and it was
+this package's, in two places. `tz_wake` trusted a paint before it asked the
+dialog's own slot, so a stray `wm_paint_all` wrote a file off while its dialog
+was still on screen; every later `OSAPI_FILE_DLG` was then refused for a dialog
+this end had already forgotten, and `[tz_dtry]` was cleared only by a SUCCESSFUL
+open, so one exhausted retry made every file after it give up on its first poll.
+The kernel was never involved: `fdlg_close` destroys the dialog and drops
+`[fdlg_win]` in one keystroke, and `fdlg_reap` runs once per UI pass. The batch
+now cancels rows three and four — adjacent — and asserts that row five's dialog
+appears.
+
+**AND THE GATE FILLED A FOLDER, which is worth writing down because it read as
+a receiver defect for three runs.** A subdirectory on a 1.44MB floppy is ONE
+512-byte cluster — sixteen entries — and it does not grow. Committing all
+twelve mangle dialogs put `MEDIA/` at exactly sixteen, and the next session's
+first `OSAPI_FILE_WRITE` came back `FERR_DIRFULL`; the terminal said `Disk
+error`, sent the sender its cancel, and did everything else right. What found
+it was reading `[tz_why]` and then the `FERR_*` out of guest memory — the
+status line's own words were not enough, which is exactly the argument for
+naming the refusal that §70.11.5 now makes. So the batch cancels eleven of its
+twelve dialogs and commits one: the mangle is asserted from `[tz_name]` twelve
+times, the ROUND TRIP through the file system once, and the cancel path eleven
+times over on the way past.
+
+**Two things the gate DID gain that cost nothing.** The terminal's 2,000 cells
+are asserted blank after a completed batch — not one byte of a transfer may
+reach the ANSI parser, and the sender's closing `OO` was leaving one there —
+and one mangled name is asserted a second time as a **directory entry** in
+`MEDIA/` — `banana split.mod` → `BANANA~1.MOD` — which is the same rule read
+through the file system instead of through `[tz_name]`.
+
+#### 70.12.1 What building `tests/telansi.py` found
+
+**A CONNECTION PER FIXTURE, and Connect is the only thing that dials.** The
+parser carries state across a stream — the SGR colours, the saved cursor, the
+pending wrap — and `ansisim` starts each fixture on a fresh `Screen`, so the
+guest has to start each one on a fresh session: Close, Connect, and `te_reset`
+(§70.10.3) makes the two starts the same start. The first version typed the
+host and pressed **Return**, which IS Connect (`te_onkey`'s `.go`) — it dialled
+before the test's server existed, and the Connect click that followed then
+landed on a session that was already up and CLOSED it. **Tab leaves the box
+without dialling**, and it is also the only way to reach the screen with the
+keyboard, so it is the right key for both reasons.
+
+**`make telnettest`'s disk is 1.44MB where `make ethertest`'s is 360KB**, and
+that is the one difference between them. The gate is about the parser, and a
+360KB system disk is 354 clusters with the whole driver set, ten typefaces and
+the core packages already on it (§24.3) — so that geometry would be deciding
+how much parser there is allowed to be. The four shipped geometries are still
+built by every `make` and `os88disk.py` still refuses one that does not fit;
+what this stops is a TEST disk being the thing that fails first.
+
+**The leave hint is the one thing in VRAM that is not in the buffer**, so the
+full-screen memcmp skips exactly twelve cells and asserts them separately.
+`te_tx_hint` writes ` ^] to leave` into row 24's last twelve cells on entry and
+**the host is allowed to overwrite it** (§70.8.7), so it is in VRAM and in no
+buffer — and a gate that compared 4,000 bytes flat would report twenty-one
+differing bytes for a renderer that is behaving exactly as designed. Both facts
+are asserted; neither is the other's excuse.
+
+**`tools/os88bbs.py` cannot exercise §70.1's MIRROR**, because it offers only
+the five options a board offers and every one of them is in §70.10.1's table —
+so nothing it does reaches the fall-through that answers every OTHER option.
+The gate therefore carries a second server of fourteen lines which asks for
+LINEMODE and X-DISPLAY-LOCATION and reads back what it is told: `IAC WONT 34`
+and `IAC DONT 35`. It is worth its own connection because the mirror's SENSE is
+the one way a Telnet client can wedge a session that is working perfectly.
+
+**THE FULL-SCREEN MEMCMP WAS PASSING OVER A BLANK SCREEN**, and the
+screenshot is the only thing that said so. It ran at the end of the fixture
+loop, by which time Close and the mirror check had each put the terminal
+through `te_reset` and `te_clear` — so 4,000 bytes of SPACE were compared with
+4,000 bytes of space, which is a comparison a renderer that drew *nothing at
+all* would also pass. The picture was a black screen with the leave hint on it.
+The check now opens one more session, feeds the `art` fixture, **asserts that
+at least a hundred cells hold a glyph before it presses `^]`**, and then
+compares — 310 of 2,000 on that fixture. The lesson generalises past this file:
+a memcmp is only as strong as the thing on both sides of it, and a gate that
+compares two empty buffers is a gate that reports its own setup.
+
+**The `report` fixture is the answer gate and it needs no `--dsr`.** It asks
+DSR 6 three times, DSR 5 once and DA twice, and `ansisim` publishes exactly
+which bytes come back — so the assertion is that string, in order, inside
+`log["keys_hex"]`, rather than the server's own opinion of a reply it prompted.
+
+**Thirteen fixtures, 0 differing cells of 2,000, on every one.** The stream
+offset the guest fed matches the fixture's length on twelve of them and stops
+at **82 of 151** on `zmodem`, which is `ansisim`'s own `zmodem_at` to the byte.
 
 ## 71. The browser fetches (`apps/browser/brnet.inc`)
 

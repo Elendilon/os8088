@@ -2344,6 +2344,81 @@ SOAK = [
         "the SIZE snap aligns a content width WITHOUT shrinking the zoom "
         "(SPEC.md 11.94.5) - a maximized window must stay x=0, w=[vid_pw]",
         needs=("marty",), serial=True),
+    Row("telnet", "soak", py("tests/telnet.py", "--machine",
+                             "os8088_5150_cga_gla"), 300.0,
+        "SPEC.md 70.8: TELNET's 80x25 screen of CHARACTER AND ATTRIBUTE, both "
+        "renderers and the 1bpp polarity rule. Seven assertions and no wire - "
+        "the transport is tests/socktest's - and the two defects 70.8.8 "
+        "records are the last two: full screen never scrolled at all, and the "
+        "kept worker parked on the gfx lock the FSX bracket holds, which "
+        "SPEC.md 53.2 calls death by another name for a feeder. The GLaBIOS "
+        "twin because the default machine wants the licensed IBM ROM",
+        needs=("marty",), serial=True),
+    Row("telnetherc", "soak", py("tests/telnet.py", "--adapter", "herc",
+                                 "--machine", "os8088_5150_herc_gla"), 300.0,
+        "...and the same seven on the OTHER 1bpp adapter, which is not a "
+        "duplicate: Hercules is 720 wide, so the window shows all EIGHTY "
+        "columns there and CGA shows 79 of them and only 13 rows - the "
+        "viewport arithmetic (70.8.10) is a different answer on each, and the "
+        "full-screen framebuffer is B000 rather than B800 with the MDA "
+        "attribute mapping (70.8.9) under it",
+        needs=("marty",), serial=True),
+    Row("telpen", "soak", py("tests/telpen.py"), 300.0,
+        "SPEC.md 5.4.2.2.1: gfx_blit1's pen used to REFUSE a pair whose two "
+        "colours share no plane in either direction - green on red, and most "
+        "of the sixteen-colour pairs a board's art is made of - and the Map "
+        "Mask splits the band between two passes now. The only row in the "
+        "tree that can see it: the pen is not read on a 1bpp adapter at all, "
+        "and mode 12h has no flat framebuffer, so it is os8088_xt_vga plus "
+        "`fbuf`. Every cell is rendered on the HOST out of the guest's own "
+        "glyph table and compared pixel for pixel",
+        needs=("marty",), serial=True),
+    Row("telansi", "soak", py("tests/telansi.py"), 900.0,
+        "SPEC.md 70.9/70.10/70.12: the ANSI-BBS PARSER on the machine, against "
+        "tools/ansisim.py - the same state machine in Python, and the "
+        "contract's second reader the way htmsim.py is the browser's. Thirteen "
+        "fixtures from tests/fixtures/ansi/ are fed by tools/os88bbs.py in "
+        "deliberately RAGGED fragments, and te_scr is read out of guest memory "
+        "and compared with the simulator's 4,000 bytes CHARACTER AND ATTRIBUTE "
+        "- the oracle computed at test time, never stored, so it cannot drift "
+        "from the reference renderer. Then the negotiation and both "
+        "subnegotiations out of the server's own log (a screenshot cannot see "
+        "a byte this end SENDS), the mirror against a second server asking for "
+        "an option this terminal does not implement, the DSR and DA answers, "
+        "the twelve special keys as the exact bytes on the wire, Enter as a "
+        "BARE CR under TRANSMIT-BINARY, the Zmodem trigger's handover offset, "
+        "and full screen as a memcmp of te_scr against text VRAM. QEMU by "
+        "name for tests/ethernet.py's reason: MartyPC has no NIC, so this "
+        "package's receive path cannot be reached on it at all",
+        needs=("qemu",), serial=True, builds=True),
+    Row("telzm", "soak", py("tests/telzm.py"), 300.0,
+        "SPEC.md 70.11/70.12: ZMODEM RECEIVE end to end, with the bytes read "
+        "back OFF THE DISK. tools/os88bbs.py's pure-Python sender sends two "
+        "batches over one boot: first the rows of its own MANGLE83_CASES as "
+        "tiny files - seven dialogs answered with Return, five cancelled with "
+        "Escape and TWO OF THOSE ADJACENT, which is the case that proves a "
+        "cancelled dialog does not poison the one after it - and [tz_name] read "
+        "out of guest memory - which is what stops the 8086's copy of SPEC.md "
+        "77.20's 8.3 rule drifting from the host's, since the two share no "
+        "code - and the committed ones asserted again as DIRECTORY ENTRIES in "
+        "MEDIA/, which is where SPEC.md 38.10 opens a Save dialog for an "
+        "application that has chosen nowhere. It runs LAST because a "
+        "subdirectory here is ONE 512-byte cluster - sixteen entries - and does "
+        "not grow. Then one file under 4KB (one "
+        "chunk) and one of about 40KB (many, spanning both staging halves and "
+        "ten commits), saved with Return and read back off build/telnetsys.img "
+        "by an independent FAT12 reader and compared BYTE FOR BYTE - and the "
+        "terminal's own 2,000 cells asserted BLANK afterwards, because not one "
+        "byte of a transfer may reach the ANSI parser. Then a sender that "
+        "declares a size of 1 for a file it sends in full, which is what used "
+        "to divide by it and raise #DE on a kernel with no int 0 handler "
+        "(SPEC.md 70.11.6). Finally a CANCEL - Escape, then Return on the next "
+        "file - proving a ZSKIP ends one file and not the batch, and the "
+        "headers out of the server's JSON log: the ZRINIT this end advertises "
+        "(CANFDX|CANOVIO, buffer size 0, and NOT CANFC32), the ZRPOS, the "
+        "ZACKs, and the ZNAK that refuses the one deliberate ZBIN32 header. "
+        "QEMU by name for tests/ethernet.py's reason: MartyPC has no NIC",
+        needs=("qemu",), serial=True, builds=True),
     Row("netpromise", "soak", py("tests/netpromise.py"), 240.0,
         "SPEC.md 70.7/77.47: Telnet and the FTP server promise per DEBT, not"
         "per session.",
