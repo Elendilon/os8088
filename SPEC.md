@@ -95409,11 +95409,23 @@ projected, drawn anyway. The pixel A/B is `cs_seg`'s own `je .test` patched
 to `jmp`, so every segment is clipped: clipping cannot remove a pixel that
 was inside the view, so **a panel that differs is a line that got out**.
 
-The fix is the bound. NASM has no square root, so a macro emits the sum
-bound, which is sound and a little loose - `CS_BOX` is `wx + h + wz`, and
-`CS_PYR`, `CS_DOME` and `CS_HILL` take the larger of a base corner and a top
-one - while the 22 hand-written models that were under carry the ceiling of
-their own Euclidean radius, computed on the host.
+The fix is the bound, and it is EXACT everywhere. The 22 hand-written models
+that were under carry the ceiling of their own Euclidean radius, and the
+macros compute the same thing at ASSEMBLY time: `CS_RAD3` is
+`ceil(sqrt(a^2 + b^2 + c^2))` by Newton from an upper bound - it converges
+from above, so the `%if %%n >= CS_RADV` is the stop rather than a step count
+- and each macro takes the larger of a base corner and a top one.
+
+**Exact and not merely sound, and that was forced by a red gate.** The first
+version summed the terms, which is the only bound with no square root in it,
+and that is 4,000 for NEPAL's peak where 3,612 is the truth - 11% of a radius
+on the models where the height dwarfs the plan. A radius is what
+`cs_consider` files an object on, so 11% files mountains that draw nothing:
+`skiesocc` went red, the extra occluders having moved the pass's verdicts
+until one of them hid a mountain the eye can see. With the square root the
+same frame is **201.1 ms against 225.7**, and several of NEPAL's hand-set
+radii come DOWN - the wall 2,600 to 2,062 - because an exact bound is
+tighter than the estimates that were there.
 `tests/unit/t_csrad.py` decodes every model out of `build/skies.bin` and
 fails the build if any declares less than its own vertices need, which is
 what makes the sentence in `cs_sizepx`'s comment a fact rather than a claim:

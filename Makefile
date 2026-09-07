@@ -4479,22 +4479,33 @@ $(BUILD)/tank.o88: $(BUILD)/tank.bin tools/os88pkg.py $(PKGZSTAMP)
 # machine has, MartyPC having failed to reproduce this freeze in 8,000 poses.
 # It is a DIAGNOSTIC BUILD and no shipped floppy carries it: `make skiesdiag`.
 CSDIAGDEF :=
+CSWORLDS := $(wildcard apps/skies/csw_*.inc)
+SKIES_SRC := apps/skies/skies.asm apps/skies/csraster.inc \
+             apps/skies/cs3d.inc apps/skies/csworld.inc \
+             apps/skies/csflight.inc apps/skies/csgame.inc \
+             apps/skies/cspanel.inc apps/skies/cssin.inc \
+             apps/skies/csart.inc apps/skies/csdiag.inc \
+             apps/skies/csset.inc $(CSWORLDS) \
+             apps/os88api.inc apps/os88ui.inc
+# **THE PRIVATE TREE CARRIES THE SOURCES IT IS BUILT FROM**
+# (docs/WRITING-TESTS.md 13 row 20). The recursive make below is the RECIPE,
+# and a rule whose recipe builds a tree must name that tree's sources in its
+# PREREQUISITES or nothing ever notices the tree has gone stale: an edit to
+# apps/skies/ left build/skiesdiag/ sitting there, existing, describing a
+# package the guest has not got, and `skiesdiag` failed naming it on two
+# separate runs of this change. It is a REAL target rather than a phony one
+# so that tests/suite.py can name it in `wants=`, which is what gets it built
+# - and re-built - before the row runs.
+# No recursion: inside the sub-make BUILD is build/skiesdiag, so this rule's
+# own target expands to build/skiesdiag/skiesdiag/apps360.img and the request
+# lands on the ordinary apps-disk rule instead.
+$(BUILD)/skiesdiag/apps360.img: $(SKIES_SRC) | $(BUILD)
+	@$(MAKE) --no-print-directory BUILD=$(BUILD)/skiesdiag CSDIAGDEF=-DCSDIAG $@
 .PHONY: skiesdiag
-skiesdiag:
-	@$(MAKE) --no-print-directory BUILD=$(BUILD)/skiesdiag CSDIAGDEF=-DCSDIAG \
-	         $(BUILD)/skiesdiag/apps360.img
+skiesdiag: $(BUILD)/skiesdiag/apps360.img
 	@echo "skiesdiag: $(BUILD)/skiesdiag/apps360.img - boot the SHIPPED"
 	@echo "           system disk with this as B: (SPEC.md 88.14)"
-CSWORLDS := $(wildcard apps/skies/csw_*.inc)
-$(BUILD)/skies.bin: apps/skies/skies.asm apps/skies/csraster.inc \
-                    apps/skies/cs3d.inc apps/skies/csworld.inc \
-                    apps/skies/csflight.inc apps/skies/csgame.inc \
-                    apps/skies/cspanel.inc apps/skies/cssin.inc \
-                    apps/skies/csart.inc apps/skies/csdiag.inc \
-                    apps/skies/csset.inc \
-                    $(CSWORLDS) \
-                    apps/os88api.inc apps/os88ui.inc \
-                    | $(BUILD)
+$(BUILD)/skies.bin: $(SKIES_SRC) | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/skies/ $(CSDIAGDEF) -o $@ apps/skies/skies.asm
 	@echo "skies: $(call FILESIZE,$@) bytes"
 
