@@ -778,7 +778,13 @@ cs_k_state:
 cs_k_msg:
     mov al, [cs_msg]
     mov ah, [cs_crashwhy]           ; the low byte of the string's address
-    ret                             ; tells crashes apart
+    cmp al, CSG_TOAST               ; ...and a TOAST from the toast before it
+    jne .out                        ; by its own count (88.13.8): two of them
+    mov ah, [cs_toastn]             ; are the same cs_msg and the same
+.out:                               ; cs_crashwhy, so the panel's key never
+    ret                             ; changed and the strip never repainted -
+                                    ; a second setting changed under a line
+                                    ; still naming the first
 
 ; cs_shr32 - DX:AX >>= CL (CL < 16). Clobbers CX.
 cs_shr32:
@@ -938,9 +944,9 @@ cs_toast:
     mov al, 1
     shl al, cl
     test [cs_setfill], al
-    mov si, cs_g_off
-    jz .val
-    mov si, cs_g_on
+    mov si, cs_g_wire               ; a cleared fill bit is WIREFRAME and not
+    jz .val                         ; gone (88.13.3), so the toast says which
+    mov si, cs_g_fill               ; of the two it is
 .val:
     call cs_strcpyu
     mov byte [di], 0
@@ -949,6 +955,7 @@ cs_toast:
     je .arm                         ; answer, not itself)
     mov [cs_toastwas], al
 .arm:
+    inc byte [cs_toastn]            ; the panel's key: see cs_k_msg
     mov byte [cs_msg], CSG_TOAST
     mov byte [cs_toastt], CS_TOASTT
     pop di
@@ -987,8 +994,8 @@ cs_toaststep:
 cs_toastlbl: dw cs_s_lbld, cs_s_llod, cs_s_lsize, cs_s_terr, cs_s_bld
 cs_toastset: dw cs_setbld, cs_setlod, cs_setsize
 cs_toastval: dw cs_i_bld, cs_i_lod, cs_i_size
-cs_g_on:     db 'On', 0
-cs_g_off:    db 'Off', 0
+cs_g_fill:   db 'Fill', 0
+cs_g_wire:   db 'Wire', 0
 
 cs_d_spd:
     mov bx, CS_PI_SPD
@@ -1061,9 +1068,13 @@ cs_d_state:
     cmp al, CS_ST_CRASH
     je .s
     mov si, cs_s_flying
-    or ah, ah
-    jz .s
-    mov si, cs_s_stalled
+    test ah, 1                      ; BIT 0 IS THE STALL (88.9.4.2) and the
+    jz .s                           ; cs_k_state packs cs_onwater in beside it
+    mov si, cs_s_stalled            ; so the strip repaints when a hull leaves
+                                    ; the water, and testing the whole byte
+                                    ; read an amphibian AIRBORNE OFF THE WATER
+                                    ; - which is how every A5 flight starts -
+                                    ; as stalled, for the whole flight
 .s:
     push si
     mov bx, CS_PI_STATE

@@ -44,7 +44,15 @@ something different.
   4c. ...and every one of them raises a TOAST naming the setting and its new
      value (88.13.8), checked against the SETTINGS PAGE'S OWN list of names
      read out of the guest rather than a copy typed here, and then left to
-     expire back to the strip it replaced;
+     expire back to the strip it replaced. A fill's toast says FILL or WIRE
+     and not on or off, because a cleared bit is a wireframe and not a thing
+     gone; and a SECOND toast has to REPAINT the strip, which is the panel's
+     key and not the byte - two toasts were the same cs_msg and the same
+     cs_crashwhy, so the second setting changed under a line still naming
+     the first;
+  6. and the page's answer SURVIVES A CLOSE (88.13.9): four settings picked,
+     the page left by Done, the window closed, the package opened again -
+     and the file in SYSTEM\APPDATA is what it comes back with;
   4b. the page's controls behave: a drop-down's list actually COMES DOWN
      (banked and on the glass, not merely marked open), and Done is drawn
      down on the press, cancels on a release off it and turns the page only
@@ -78,6 +86,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "..", "tools"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import os88ui                                               # noqa: E402
+import os88mouse                                            # noqa: E402
 import dispapps                                             # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -452,6 +461,12 @@ def main(argv):
         m.type_text("f")                            # off the page first: any
         m.advance(frames=40)                        # key returns to the title
         m.run()
+        for _ in range(20):                         # ...and LEAVING THE PAGE
+            if byte("cs_page") == 0:                # NOW WRITES A FILE
+                break                               # (88.13.9): a floppy
+            m.advance(frames=40)                    # create is several
+            m.run()                                 # int 13h calls and forty
+                                                    # frames does not cover it
         check(byte("cs_page") == 0, "a key comes back from the page (%d)"
               % byte("cs_page"))
         m.type_text("f")
@@ -745,14 +760,25 @@ def main(argv):
         # settings, and twelve exist. Each of these steps its own ladder one
         # rung and ROUND at the top, which is the whole of what has to be
         # checked: a full lap, so that both the step and the wrap are seen.
-        def press(key):
+        def press(key, watch=None):
             # FORTY and not twenty: m.advance counts DISPLAY frames and
             # cs_input polls int 16h once a RENDER frame, which here is 150 to
             # 400 ms. At twenty a press landed inside the NEXT check's window
             # and read as the one before it having done nothing.
+            #
+            # ...and where the caller can say WHICH byte the key moves, the
+            # press is CONFIRMED rather than timed: forty frames is enough
+            # most of the time, and "most of the time" in a row of forty
+            # presses is a flake a lane will find.
+            was = byte(watch) if watch else None
             m.key(key)
             m.advance(frames=40)
             m.run()
+            for _ in range(8):
+                if watch is None or byte(watch) != was:
+                    break
+                m.advance(frames=40)
+                m.run()
             m.pause()
             out = (byte("cs_setbld"), byte("cs_setlod"), byte("cs_setsize"),
                    byte("cs_setfill"), byte("cs_msg"), byte("cs_toastt"),
@@ -766,8 +792,8 @@ def main(argv):
             was = byte(name)
             lap = []
             for _ in range(rungs):
-                lap.append(press(key)[("cs_setbld", "cs_setlod",
-                                       "cs_setsize").index(name)])
+                lap.append(press(key, name)[("cs_setbld", "cs_setlod",
+                                             "cs_setsize").index(name)])
             check(lap == [(was + 1 + i) % rungs for i in range(rungs)],
                   "%s steps %s one rung and round: %s from %d"
                   % (key, name, lap, was))
@@ -776,11 +802,11 @@ def main(argv):
                   % (rungs, byte(name), was))
         for key, bit in (("F4", CSFL_TERRAIN), ("F5", CSFL_BLDG)):
             was = byte("cs_setfill")
-            press(key)
+            press(key, "cs_setfill")
             check(byte("cs_setfill") == was ^ bit,
                   "%s toggles its own fill bit (%d -> %d)"
                   % (key, was, byte("cs_setfill")))
-            press(key)
+            press(key, "cs_setfill")
             check(byte("cs_setfill") == was, "...and back (%d)" % byte("cs_setfill"))
 
         # --- 4c. and every one of them TOASTS what it changed (88.13.8) ------
@@ -798,12 +824,36 @@ def main(argv):
         for key, name, tab, label in (("F1", "cs_setbld", "cs_i_bld", "DETAIL LEVEL"),
                                       ("F2", "cs_setlod", "cs_i_lod", "DRAW DISTANCE"),
                                       ("F3", "cs_setsize", "cs_i_size", "SIZE")):
-            st = press(key)
+            st = press(key, name)
             want = "%s: %s" % (label, dropname(tab, byte(name)))
             check(st[4] == CSG_TOAST and st[6] == want,
                   "%s toasts %r (msg %d, %r)" % (key, want, st[4], st[6]))
             if key == "F3":                 # ...and put the size back: check 5
                 to_rung("F3", "cs_setsize", CSZ_MOD, CSZ_FULL + 1)
+        # A FILL IS FILL OR WIRE and not on or off: a cleared bit is a
+        # WIREFRAME and not a thing gone (88.13.3), and the toast is where
+        # that distinction reaches the player.
+        for key, bit, label in (("F4", CSFL_TERRAIN, "TERRAIN"),
+                                ("F5", CSFL_BLDG, "BUILDINGS")):
+            st = press(key, "cs_setfill")
+            want = "%s: %s" % (label, "FILL" if st[3] & bit else "WIRE")
+            check(st[4] == CSG_TOAST and st[6] == want,
+                  "%s toasts %r (%r)" % (key, want, st[6]))
+            press(key, "cs_setfill")        # ...and back
+        # AND A SECOND TOAST REPAINTS THE STRIP. cs_k_msg is the panel's key
+        # for it and it was (cs_msg, the low byte of cs_crashwhy) - identical
+        # for two toasts in a row, so the second setting changed under a line
+        # still naming the first. The count in the key is what fixed it, and
+        # the check is that the PAINTER runs, not that the byte moved.
+        press("F1")
+        m.bp_exec(lin + mp["cs_d_msg"])
+        m.run()
+        m.key("F2")
+        ran = m.wait_stop(30) is not None
+        m.bp_exec()
+        m.run()
+        check(ran, "a second toast repaints the strip (cs_d_msg %s)"
+                   % ("ran" if ran else "never ran"))
         # ...and it goes away again, back to what the strip was saying
         m.pause()
         m.write(lin + base + off("cs_msg"), bytes([CSG_TAKEOFF]))
@@ -871,6 +921,52 @@ def main(argv):
         m.type_text("f")
         m.advance(frames=40)
         m.run()
+
+        # --- 6. the page's answer SURVIVES A CLOSE (88.13.9) ----------------
+        #
+        # Picked on the page, left by Done, the window closed, the package
+        # opened again - which is the whole feature, and the only way to
+        # check it is the round trip: the file is written by one instance and
+        # read by another, so an in-memory check would pass on a save that
+        # never reached the disk and on a load that never ran.
+        #
+        # THE HOTKEYS ARE NOT PART OF IT and must not be: they are
+        # deliberately temporary (88.13.5), so this drives the PAGE.
+        ui.menu_pick("Flight", "Settings")
+        m.advance(frames=40)
+        m.run()
+        check(byte("cs_page") == 2, "Flight -> Settings for the round trip "
+                                    "(page %d)" % byte("cs_page"))
+        WANT = ((CSBL_LOW, "cs_setbld"), (CSL_ULTRA, "cs_setlod"),
+                (CSZ_SMALL, "cs_setsize"), (CSFL_TERRAIN, "cs_setfill"))
+        m.pause()
+        for v, nm in WANT:
+            m.write(lin + base + off(nm), bytes([v]))
+        m.run()
+        m.advance(frames=20)
+        m.run()
+        m.pause()
+        dr = [int.from_bytes(m.readseg(seg, mp["cs_donerect"] + 2 * i, 2),
+                             "little") for i in range(4)]
+        m.run()
+        os88mouse.Mouse(marty=m).click((dr[0] + dr[2]) // 2, (dr[1] + dr[3]) // 2)
+        m.advance(frames=80)
+        m.run()
+        check(byte("cs_page") == 0, "...Done leaves the page (page %d)"
+                                    % byte("cs_page"))
+        ui.menu_pick("Clear Skies", "Close")
+        m.advance(frames=60)
+        m.run()
+        ui.path("B:/GAMES/SKIES.O88")
+        slot, seg = dispapps.pkg_seg(m, 0)
+        lin = seg << 4
+        base = int.from_bytes(m.readseg(seg, 8, 2), "little")
+        m.advance(frames=60)
+        m.run()
+        got = tuple(byte(nm) for _, nm in WANT)
+        check(got == tuple(v for v, _ in WANT),
+              "...and the new instance comes back with them: %s, wanted %s"
+              % (got, tuple(v for v, _ in WANT)))
 
     if bad:
         for b in bad:

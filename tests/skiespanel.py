@@ -15,7 +15,12 @@ cache decides whether it still needs painting.
      read after it - never goes backwards, and it does not stand still
      either;
   2. the labels are drawn with the cockpit and not with the readings, so a
-     panel that has never been repainted still says SPD/ALT/HDG/THR.
+     panel that has never been repainted still says SPD/ALT/HDG/THR;
+  3. and the STATE box says which state (88.9.4.1). cs_k_state packs the
+     state, the stall and cs_onwater into one word so the box repaints when
+     a hull leaves the water; cs_d_state tested the whole of the high byte
+     for the stall, and an amphibian airborne OFF the water - which is how
+     every A5 flight starts - read STALLED for the whole flight.
 
 THE TWO PAGES' CACHES ARE NOT THE CHECK, and were tried as one first: in
 both arms they sit about one gate apart, because the gate lands on
@@ -24,7 +29,9 @@ SHOWN carries the latest reading.
 
 --clobber-share is the red run (docs/WRITING-TESTS.md 1): it sends the
 between-gates path back to `.same`, which is the code exactly as it was, and
-check 1 must go red.
+check 1 must go red. --clobber-state puts cs_d_state's stall test back to the
+whole composite byte - `or ah, ah` for `test ah, 1` - and check 3 must go red
+on the two rows where the hull is off the water.
 """
 import argparse
 import os
@@ -52,6 +59,9 @@ def main(argv):
     ap.add_argument("--machine", default="os8088_xt_vga")
     ap.add_argument("--image", default="build/os8088-360.img")
     ap.add_argument("--apps", default="build/apps360.img")
+    ap.add_argument("--clobber-state", action="store_true",
+                    help="cs_d_state tests the WHOLE composite byte for the"
+                         " stall again: check 3 goes red")
     ap.add_argument("--clobber-share", action="store_true",
                     help="one read per page again: the row must go red")
     a = ap.parse_args(argv)
@@ -80,6 +90,20 @@ def main(argv):
 
         m.advance(frames=30)
         m.run()
+        if a.clobber_state:
+            # `test ah, 1` is F6 C4 01; `or ah, ah` is 08 E4 and a NOP, which
+            # sets ZF off the WHOLE byte exactly as the defect did
+            lo, hi = mp["cs_d_state"], mp["cs_d_bar"]
+            code = m.read(lin + lo, hi - lo)
+            i = code.find(b"\xF6\xC4\x01")
+            if i < 0:
+                sys.exit("skiespanel: cs_d_state does not hold 88.9.4.1's "
+                         "stall test where this patch expects it")
+            m.pause()
+            m.write(lin + lo + i, b"\x08\xE4\x90")
+            m.run()
+            print("  (cs_d_state tests the whole composite byte again: this "
+                  "run must fail)")
         if a.clobber_share:
             # `cmp byte [cs_pgate], 0` is 80 3E lo hi 00, and the `je` after
             # it is the one that now goes to .paint. .same is cs_pitem's last
@@ -160,6 +184,64 @@ def main(argv):
                   if fb[(y * fw + x) * 3:(y * fw + x) * 3 + 3] != b"\0\0\0")
         print("      the SPD label's cells: %d lit pixels" % lit)
         check(lit > 40, "the labels are on the panel (%d lit)" % lit)
+
+        # --- 3. THE STATE BOX SAYS WHICH STATE (SPEC.md 88.9.4.1) -----------
+        #
+        # cs_k_state packs THREE things into one word - the state in AL, and
+        # the stall and cs_onwater into AH - so that the box repaints when a
+        # hull leaves the water as well as when a stall starts. cs_d_state
+        # then tested the WHOLE of AH for the stall, and cs_onwater sets bit
+        # 1: an amphibian airborne off the water, which is how every A5
+        # flight starts, read STALLED for the whole flight and nothing ever
+        # cleared it. Every combination, driven by the three source bytes so
+        # the key really changes and the painter really runs.
+        WANT = ((1, 0, 0, "FLYING"), (1, 1, 0, "STALL"),
+                (1, 0, 1, "FLYING"), (1, 1, 1, "STALL"),
+                (0, 0, 0, "ON THE GROUND"), (0, 0, 1, "ON THE WATER"))
+        wrong, seen = [], 0
+        for st, sl, wt, want in WANT:
+            # A DIFFERENT STATE FIRST, so the key really changes: the panel
+            # repaints an item only when its key moves (88.9.4), so a row
+            # that happens to be what the aeroplane is already doing would
+            # read as "the painter never ran" and it would be RIGHT to.
+            m.pause()
+            m.write(lin + base + off("cs_pause"), b"\x01")
+            m.write(lin + base + off("cs_state"), b"\x02")     # CRASHED
+            m.run()
+            m.advance(frames=8)
+            m.run()
+            m.pause()
+            for nm, v in (("cs_state", st), ("cs_stall", sl),
+                          ("cs_onwater", wt), ("cs_pause", 1)):
+                m.write(lin + base + off(nm), bytes([v]))
+            m.run()
+            m.bp_exec(lin + mp["cs_d_state"])
+            m.run()
+            if m.wait_stop(30) is None:
+                wrong.append("state %d stall %d water %d: the painter never "
+                             "ran - the key did not change" % (st, sl, wt))
+                m.bp_exec()
+                m.run()
+                continue
+            m.bp_exec(lin + mp["cs_pcell"])       # SI is the string it chose
+            m.run()
+            m.wait_stop(30)
+            si = m.regs()["si"] & 0xFFFF
+            got = m.readseg(seg, si, 20).split(b"\0")[0].decode(
+                "ascii", "replace").strip()
+            m.bp_exec()
+            m.run()
+            seen += 1
+            if got != want:
+                wrong.append("state %d stall %d water %d: %r, wanted %r"
+                             % (st, sl, wt, got, want))
+        check(seen == len(WANT) and not wrong,
+              "the state box says which state, over %d combinations%s"
+              % (seen, "" if not wrong else " - " + "; ".join(wrong[:3])))
+        m.pause()
+        m.write(lin + base + off("cs_onwater"), b"\x00")
+        m.write(lin + base + off("cs_pause"), b"\x00")
+        m.run()
         m.type_text("f")
         m.advance(frames=40)
         m.run()

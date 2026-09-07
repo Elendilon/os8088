@@ -291,6 +291,13 @@ def main(argv):
             m.type_text("f")                            # off the page...
             m.advance(frames=40)
             m.run()
+            for _ in range(20):                         # ...which since
+                if bss("cs_page", 1) == 0:              # 88.13.9 WRITES A
+                    break                               # FILE: a floppy
+                m.advance(frames=40)                    # create is several
+                m.run()                                 # int 13h calls and
+                                                        # forty frames does
+                                                        # not cover it
             m.type_text("f")                            # ...and into the air
             m.advance(frames=120)
             m.run()

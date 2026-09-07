@@ -98,8 +98,15 @@ def main(argv):
     a = ap.parse_args(argv)
     os.chdir(ROOT)
     if not os.path.exists(a.apps):
+        # **NOT 0.** The suite gates this row on the `skiesdiag` capability
+        # (tools/os88test.py), so it is never REACHED without the tree - and
+        # this branch returning 0 is how the row spent its life being scored
+        # `ok` in 0.1s against 20s declared before that gate existed. A run
+        # that could not answer says so with its exit status; the line is
+        # here to be friendlier than a traceback to somebody running it by
+        # hand, not to turn an absence into a result.
         print("  SKIP: %s - run `make skiesdiag` first" % a.apps)
-        return 0
+        return 2
     sym = diagmap()
     print("    cs_diag_isr %04x  cs_dtick %04x  cs_devoff %04x"
           % (sym["cs_diag_isr"], sym["cs_dtick"], sym["cs_devoff"]))
