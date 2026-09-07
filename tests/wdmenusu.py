@@ -106,7 +106,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     # named symbol. Not against the head of the image: os88pkg restamps the
     # size at +8 and the loader patches the header area, so those bytes are
     # legitimately not the ones nasm emitted - while a stale build, which is
-    # what this check is for, moves wd_mdraw's body.
+    # what this check is for, moves wd_mact's body.
     I_RECSZ, I_STATE, I_SPTR, I_KIND = 32, 0, 6, 2
     raw = m.read(S("inst_tab"), I_RECSZ * 12)
     seg = None
@@ -114,7 +114,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
         b = i * I_RECSZ
         if raw[b + I_STATE] == 1 and (raw[b + I_KIND] & 0x80):
             cand = u16(raw, b + I_SPTR)
-            if m.read(cand * 16 + syms["wd_mdraw"], 48) == image[syms["wd_mdraw"]:syms["wd_mdraw"] + 48]:
+            if m.read(cand * 16 + syms["wd_mact"], 48) == image[syms["wd_mact"]:syms["wd_mact"] + 48]:
                 seg = cand
                 break
     if seg is None:
@@ -160,6 +160,42 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     d2 = diff(before, after2, box)
     check("the REPAINT fallback lands on the same pixels", not d2,
           "%d differing px, first %s" % (len(d2), d2[:3]))
+
+    # --- EVERY menu's panel rect, against the TABLE that decides it ---------
+    # The geometry moved out to os88ui_mngeo (SPEC.md 13.16), and it is the
+    # one routine here whose answer is four words rather than pixels - so it
+    # is checked as four words, on all nine, derived from wd_mtab rather than
+    # remembered. A golden rect would be a window size written down; this is
+    # the arithmetic wd_mtab already carries.
+    bad = []
+    for i in range(9):
+        c = tab[i * 8]
+        wid = tab[i * 8 + 6] | (tab[i * 8 + 7] << 8)
+        mo.to(cl + c * 8 + 16, ct + WD_MENU_H // 2); time.sleep(0.35)
+        m.mouse(l=True); time.sleep(0.10); m.mouse(l=False); time.sleep(1.0)
+        got = rb("wd_mopen")
+        r = [rw("wd_mrx1"), rw("wd_mry1"), rw("wd_mrx2"), rw("wd_mry2")]
+        why = []
+        if got != i:
+            why.append("did not open (wd_mopen=%d)" % got)
+        else:
+            if r[1] != ct + WD_MENU_H:
+                why.append("y1 %d, not the row under the bar (%d)" % (r[1], ct + WD_MENU_H))
+            want = cl + c * 8 + 4
+            ride = box[2] - 1 - wid + 1        # ...unless it rides the right edge
+            if r[0] not in (want, ride) and r[0] != cl + 1:
+                why.append("x1 %d, not under its title (%d) nor riding the edge (%d)"
+                           % (r[0], want, ride))
+            if r[2] - r[0] + 1 != wid and r[2] != box[2] - 1:
+                why.append("width %d, not the table's %d" % (r[2] - r[0] + 1, wid))
+            if r[3] > box[3] - 1:
+                why.append("y2 %d past the content (%d)" % (r[3], box[3] - 1))
+        if why:
+            bad.append("menu %d: %s" % (i, "; ".join(why)))
+        mo.to(cl + 4, ct + 4); time.sleep(0.2)
+        m.mouse(l=True); time.sleep(0.08); m.mouse(l=False); time.sleep(0.7)
+    check("every menu's panel rect agrees with wd_mtab", not bad,
+          " | ".join(bad[:3]))
 
 print()
 print("wdmenusu: %s" % ("FAILED: " + ", ".join(FAIL) if FAIL else "ok"))

@@ -92,10 +92,12 @@ GROUP_NOTES = {
 INCLUDES = [
     ("os88ui.inc", "13, 75",
      "Buttons, check boxes, radio dots, scroll bars, group boxes, the "
-     "standard alert and the standard About card. Opt into the alert with "
-     "`%define OS88UI_ALERT`, the About card with `%define OS88UI_ABOUT`, the "
-     "scroll bar with `%define OS88UI_SCROLL` and its thumb-drag half with "
-     "`%define OS88UI_SBDRAG`."),
+     "standard alert, the standard About card and the drop-down. Opt into "
+     "the alert with `%define OS88UI_ALERT`, the About card with `%define "
+     "OS88UI_ABOUT`, the scroll bar with `%define OS88UI_SCROLL` and its "
+     "thumb-drag half with `%define OS88UI_SBDRAG`, and the drop-down - one "
+     "pick out of a short list, a Macintosh popup's gesture - with `%define "
+     "OS88UI_DROP` (SPEC.md 13.14)."),
     ("os88line.inc", "83",
      "A one-line text field: caret, horizontal scroll, focus, click-to-position "
      "and the editing keys. The caller owns a 20-byte block."),

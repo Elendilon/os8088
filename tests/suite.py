@@ -216,6 +216,23 @@ FAST = [
     Row("mirror", "fast", py("tests/unit/t_mirror.py"), 3.9,
         "a constant written down in two files must agree in both; there is no "
         "linker here to notice"),
+    Row("csworld", "fast", py("tests/unit/t_csworld.py"), 2.0,
+        "SPEC.md 88.6.3: no collidable building in any CLEAR SKIES world"
+        " stands in that world's own water - every base footprint against"
+        " every river polygon, edges and containment and not just corners."
+        " Nine locations and eight worlds since 88.6.4, and it walks them all"),
+    Row("csworlds", "fast", py("tests/unit/t_csworlds.py"), 2.0,
+        "SPEC.md 88.6.4: every CLEAR SKIES world costs about what PARIS costs."
+        " The 12 fps budget was measured on Paris alone (88.12), so a world"
+        " written afterwards can miss it by a factor with nothing to say so -"
+        " slowness is one of the three defects an emulator cannot show. It"
+        " prices each world's PEAK frame the way the renderer does and holds"
+        " it to 1.15x Paris', and refuses a world that can put more than 30"
+        " objects in one frame when CS_NVIS is 32 and drops the rest silently"),
+    Row("csart", "fast", py("tests/unit/t_csart.py"), 0.6,
+        "apps/skies/csart.inc is what tools/csart.py generates (SPEC.md 88.10):"
+        " the launcher's two 1bpp bands are drawn by the tool and checked in,"
+        " and the include cannot drift from the drawing"),
     Row("inktab", "fast", py("tests/unit/t_inktab.py"), 0.2,
         "SPEC.md 42.23.1: Paint's two ink-class masks ARE the kernel's "
         "gfx_inktab. A one-bit canvas stores what a 1bpp SCREEN shows, so the "
@@ -1643,6 +1660,109 @@ SOAK = [
         "in nineteen did, sealing the player in a box a 26-unit step cannot"
         "leave - and a player who somehow IS inside one can still drive out",
         needs=("marty",), serial=True),
+    Row("skies", "soak", py("tests/skies.py"), 35.0,
+        "SPEC.md 88: CLEAR SKIES draws and advances, takes off from the runway"
+        " under full throttle and the stick, crashes when the nose is held"
+        " into the ground and comes back to the airport's reset point, and"
+        " its frames do not flash - SPEC.md 85.1's instrument on a raster"
+        " that redraws the whole view every frame. Hercules, the target."
+        " Measured at 30 s wall alone on an idle four-core box - it was 120"
+        " before SPEC.md 88.5.6.1 took the frame rate back",
+        needs=("marty",), serial=True),
+    Row("skiescga", "soak", py("tests/skies.py", "--machine",
+                               "os8088_5150_cga_gla"), 35.0,
+        "SPEC.md 88 on CGA: the 320x112 view (88.13.4 s default there is"
+        " FULL, which is the geometry CGA shipped with), palette 0 over a"
+        " light-blue background, the same flight",
+        needs=("marty",), serial=True),
+    Row("fsxclip", "soak", py("tests/fsxclip.py"), 22.0,
+        "SPEC.md 53.1.1: an fsx bracket entered from a CLICK handler comes"
+        " back to a whole desktop - the menu bar, the background and the dock"
+        " held pixel for pixel against what they were, because fsx_run clears"
+        " the clip region the handler armed",
+        needs=("marty",), serial=True),
+    Row("skiesset", "soak", py("tests/skiesset.py"), 42.0,
+        "SPEC.md 88.13: the Settings page and its four knobs reaching the"
+        " picture - Few files fewer objects and draws faster, a fill box"
+        " clears its bit, the in-flight hotkeys do the same without the page,"
+        " and a smaller view leaves none of the larger one beside it. Also"
+        " 88.13.6's two defects: a drop-down's list has to BANK and reach the"
+        " glass (the pick works without either, which is how this row passed"
+        " while the page could not be dropped down at all) and Done has to be"
+        " the full 13.7 gesture",
+        needs=("marty",), serial=True),
+    Row("skiespitts", "soak", py("tests/skiespitts.py"), 34.0,
+        "SPEC.md 88.7.2: the second aeroplane flies by its own CSP_ATT - the"
+        " Pitts rolls right round and loops over the top and stays where the"
+        " stick left it, where the trainer clamps both axes and returns to"
+        " level - and wears its own scattered panel (88.9.3)",
+        needs=("marty",), serial=True),
+    Row("skiespanel", "soak", py("tests/skiespanel.py"), 24.0,
+        "SPEC.md 88.9.4: the panel is SAMPLED on the gate and PAINTED per"
+        " page, so Mode X's two pages cannot hold readings taken different"
+        " gates apart - the altimeter that read 1,683 feet one frame and"
+        " 1,666 the next. The displayed sequence never goes backwards in a"
+        " climb; --clobber-share sends the between-gates path back to .same"
+        " and it does, four frames in twelve",
+        needs=("marty",), serial=True),
+    Row("skiesfleet", "soak", py("tests/skiesfleet.py"), 52.0,
+        "SPEC.md 88.7.5-88.7.7: the three aeroplanes that came after the"
+        " Pitts, each checked on its MECHANIC. The Magister's roll rate ramps"
+        " and decays and its engine spools; the Bijave starts in the air with"
+        " no engine and glides better than 12:1; the A5 starts on the water,"
+        " gets off it and lands back on it, and the SAME touchdown in the"
+        " Cessna is a crash. --clobber-lag and --clobber-amphib are the two"
+        " red runs",
+        needs=("marty",), serial=True),
+    Row("skiesease", "soak", py("tests/skiesease.py"), 46.0,
+        "SPEC.md 88.7.3: the horizon captures the last three ticks of an"
+        " approach - held toward level both aeroplanes land EXACTLY on it on"
+        " both axes, in at most three ticks and with no tick under 60% of the"
+        " rate, the Pitts lands on INVERTED level too, and held away nothing"
+        " is eased at all. Read at a cs_step breakpoint: a frame spends one,"
+        " two or three ticks, so a per-frame sample cannot see the landing",
+        needs=("marty",), serial=True),
+    Row("skiesgeom", "soak", py("tests/skiesgeom.py"), 42.0,
+        "SPEC.md 88.5.5-88.5.8: every polygon and segment of a frame, on nine"
+        " pinned scenes - four BANKED, four low among the buildings - held to"
+        " a host replay of the guest's own near clip, side clip and per-scale"
+        " projection: the two faults a straight flight never reached"
+        " (88.5.6.1, 88.5.7.1), each with a red run that patches it back."
+        " Plus 88.5.8's invariant, which is NOT a replay: with the wings"
+        " level a world-vertical edge must project vertical, and the replay"
+        " cannot catch a fault in the algorithm because it reproduces it."
+        " And 88.5.4.1: no IMPOSTOR rectangle bigger than CS_LODPX, which is"
+        " the screen-axis-aligned square that stood upright in a bank",
+        needs=("marty",), serial=True),
+    Row("skiesui", "soak", py("tests/skiesui.py"), 90.0,
+        "SPEC.md 88.10's title page on the VGA machine: the two drop-downs"
+        " (SPEC.md 13.14's first users) drop, close and pick, Esc closes one,"
+        " Flight -> Instructions turns the page and back, the Mode menu's CGA"
+        " pick flies in CGA320, and the release of the pick's press is owed to"
+        " the launcher's window - [ui_armw] read directly, the check that"
+        " catches a click handler coming back with SI clobbered. LEG 7 is the"
+        " control's two REFUSALS (13.14.3), and both are FORCED in the guest"
+        " because no gesture reaches either: DR_WIN zeroed so OSAPI_WM_CLIP_SET"
+        " must refuse - the control then has to stay SHUT, where it used to"
+        " believe it was open with nothing drawn and let the next press pick an"
+        " invisible cell - and api_gfx_rest patched to stc/ret so the write-back"
+        " must refuse, where drback said 'repaired' and left 2,719 pixels of"
+        " list on the glass. Both legs carry their own arranging checks, 7a"
+        " because the first version was GREEN against the defect it was written"
+        " for (leg 6 had left the Instructions page up, so the click landed on"
+        " no box at all), and both captures park the pointer, because parked on"
+        " the box the arrow hangs four rows into the band and reads as five"
+        " pixels of a list that is not there.",
+        needs=("marty",), serial=True),
+    Row("skiesvga", "soak", py("tests/skies.py", "--machine",
+                               "os8088_xt_vga"), 45.0,
+        "SPEC.md 88 on MODE X - MartyPC's VGA hosts the unchained mode, whatever"
+        " an earlier session believed - the 320x144 view on two pages, the same"
+        " flight at ~4 fps, and the page SHOWN changing every second in flight:"
+        " the owner once saw this backend freeze on its first frame with the"
+        " loop still running, and a flip that never shows the drawn page is"
+        " exactly that",
+        needs=("marty",), serial=True),
     Row("wireflick", "soak", py("tests/wireflick.py"), 30.0,
         "SPEC.md 78.5's three draw orders, as ink on the glass per displayed"
         "frame - the flicker measured rather than argued about",
@@ -2187,7 +2307,7 @@ SOAK = [
         "must refuse the blit and repaint.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
-    Row("wdscroll", "soak", py("tests/wdscroll.py"), 420.0,
+    Row("wdscroll", "soak", py("tests/wdscroll.py"), 330.0,
         "SPEC.md 68.2.2 and 27.7.2.2: Word's scroll bar is not part of the "
         "text band, and a scroll UPWARD blits like a scroll down. Leg A "
         "samples the bar's ARROW CELL through a down-arrow click and requires "
@@ -2204,7 +2324,15 @@ SOAK = [
         "its SOURCE, so the up blit's own screen was perfect to the pixel and "
         "the next page down drew three rows of the wrong text. Leg B puts BOTH "
         "ends of its round trip against a forced repaint separately - a round "
-        "trip says something is wrong and never which end.",
+        "trip says something is wrong and never which end. Leg G is the THUMB "
+        "DRAG (68.2.4): SB_RATE is 0 here, so the gesture commits once at the "
+        "release and jumps further than [wd_vrows] - the blit refuses, and "
+        ".fullpaint white-filled the whole content box and drew all four "
+        "chrome strips again for a scroll that cannot have moved any of them. "
+        "It asserts BOTH halves against their own defect - no wd_chrome call, "
+        "and the same pixels over the WHOLE window as the same drag with "
+        "wd_sigsame forced to refuse, which is the one path that still owes "
+        "the strips.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
     Row("wdmove", "soak", py("tests/wdmove.py"), 210.0,
@@ -2217,6 +2345,28 @@ SOAK = [
         "byte, wd_mvdn does it last, so the caret is placed at odd and even "
         "tails and at both end stops where the count is 0 or 1. Verified to "
         "go red - dropping wd_mvup's step-back fails every text assertion.",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+    Row("wdcombo", "soak", py("tests/wdcombo.py"), 150.0,
+        "SPEC.md 68.2.3: Word's three combos are os88ui_drop records rather "
+        "than rows of wd_mtab, so the gesture is THREE EVENTS (press, drag, "
+        "release) where the pseudo-menu ran one modal poll - and each edge "
+        "fails silently on its own. Without W_ONDRAG reaching the record "
+        "DR_HOT stays 0FFh and the release picks nothing while leaving the "
+        "list on screen; without the press being ROUTED to an open list "
+        "before the strip hit tests, the click-then-click spelling puts its "
+        "second press on the ruler's indent-drag row and the list never comes "
+        "down. All three combos are driven, because each sits in a different "
+        "strip with a different hit test in front of it, and the Font one's "
+        "list is built at runtime by wd_fontscan and is the only one whose "
+        "pick ACTS - picking a face has to reach wd_a_csel and rename the "
+        "box, or, when ty_openfam refuses, leave it naming the face that "
+        "reads (wd_dfsel). Every cycle ends in PIXELS: the bank is written "
+        "back, so it leaves the content bit-for-bit. The second cycle pokes "
+        "OS88UI_DR_SEG = 0, which is what a refused claim leaves, and PUTS IT "
+        "BACK - a poke that only clears the word orphans ~1.4KB of heap, and "
+        "one leak makes Word's next re-layout read its piece table through a "
+        "stale segment.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
     Row("wdmenusu", "soak", py("tests/wdmenusu.py"), 190.0,

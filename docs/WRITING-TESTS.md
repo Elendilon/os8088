@@ -169,6 +169,18 @@ cached against an earlier kernel is a stale-scratch-disk trap (a stale
 byte-identical", which reads as a broken package); make's rules already name
 those includes as prerequisites.
 
+**NEVER ON A FAST ROW, and the reason is a fork bomb rather than a
+convention.** The fast tier runs as part of `make all`, and the prebuild that
+satisfies `wants=` opens with a plain `make` — so one `wants=` on a fast row
+puts a `make` inside a `make`, which re-enters `all`, which runs the fast
+tier, which reaches the prebuild again. Measured, it took a container to
+hundreds of nested makes in about a minute, with no error to read: the tree
+just stops building. `tools/os88test.py` refuses to build anything when
+`$MAKELEVEL` says it is already inside one, which turns the recursion into a
+skip, but the row was wrong to declare it either way — **`wants=` is for what
+`make all` does NOT build**, and anything a fast row can open, `all` has
+already made.
+
 ### 5.2 A different KERNEL: `os88build.tree()`
 
 A knob build, `kern_small`, a `COMPRESS=` or `PKGZ=` set — anything where the

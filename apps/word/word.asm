@@ -341,9 +341,9 @@ WD_MI_SZ     equ 8              ; bytes in one WDMI record - four bytes then
                                 ; name rather than being counted by hand
 WD_MT_SZ     equ 8              ; ...and one wd_mtab row, which wd_mgeti
                                 ; reaches with three shifts
-WD_M_FONTC   equ 9              ; the ribbon's Font combo, as a pseudo-menu
-WD_M_PTSC    equ 10             ; ...its Pts combo
-WD_M_STYLEC  equ 11             ; ...and the ruler's Style combo
+WD_NDROP     equ 3              ; the three COMBOS, which were rows 9, 10 and
+                                ; 11 of wd_mtab and are os88ui_drop records
+                                ; now (SPEC.md 68.2.3); wd_drops is the table
 WD_M_NONE    equ 0xFF           ; [wd_mopen]: nothing open
 WD_MI_HGT    equ 10             ; an item band: 8px of glyph + 1 above + 1 under
 WD_MS_HGT    equ 5              ; a separator band
@@ -375,7 +375,9 @@ WDA_VRUL     equ 15
 WDA_VSTA     equ 16
 WDA_ABOUT    equ 17
 WDA_WIN1     equ 18             ; Window > 1 <doc>: the one window; checked
-WDA_CSEL     equ 19             ; a combo's entry - cosmetic select
+WDA_CSEL     equ 19             ; a combo's entry. NO MENU CARRIES IT any
+                                ; more (SPEC.md 68.2.3) and the number is kept
+                                ; because wd_ftab is indexed by it
 WDA_CHAR     equ 20             ; Format > Character... - the modal dialog
 WDA_PARA     equ 21             ; Format > Paragraph... (SPEC.md 68.3)
 WDA_GOTO     equ 22             ; Edit > Go To... (SPEC.md 68.7)
@@ -497,6 +499,13 @@ WD_RB_SS     equ 366            ; the super/subscript pair
 WD_RL_SLBL   equ 8              ; 'Style:' label
 WD_RL_SBX    equ 64             ; Style combo box
 WD_RL_SBW    equ 96
+%define OS88UI_DRIH 10          ; the drop-down's item pitch (SPEC.md 13.14),
+                                ; overridden: the three combos were pseudo-menus
+                                ; on the menu element and so had a MENU's 10px
+                                ; item band. The control's default is 12, and
+                                ; taking it would make every list two pixels
+                                ; taller per item on a port whose whole point
+                                ; is Word 1.1a's look
 WD_RL_AL     equ 168            ; align left/center/right/justified
 WD_RL_SP1    equ 224            ; spacing '1'
 WD_RL_SP15   equ 239            ; spacing '1.5' (26 wide: three glyph cells)
@@ -815,6 +824,28 @@ wd_entry:
     mov byte [wd_mhi], 0xFF         ; a REAL menu index and a real item
     mov [wd_win], bx                ; the worker (SPEC.md 27.3) has no callback
                                     ; to be handed this in SI
+    ; --- the menu element's record (SPEC.md 13.16), the parts that never move.
+    ; MN_N is the count ON THE BAR and rows past it are the strip combos, so
+    ; it is WD_M_N and not the table's length - a zero here sends every menu
+    ; down the anchored-list path, which is the first thing this init was
+    ; written to stop. The rect is wd_bounds's, per paint.
+    mov word [wd_mnrec + OS88UI_MN_TAB], wd_mtab
+    mov word [wd_mnrec + OS88UI_MN_N], WD_M_N
+    mov word [wd_mnrec + OS88UI_MN_BAR], wd_s_mbar
+    mov word [wd_mnrec + OS88UI_MN_BBUF], wd_mbbuf
+    mov word [wd_mnrec + OS88UI_MN_CHK], wd_mchk
+    mov word [wd_mnrec + OS88UI_MN_OPENH], wd_mwinitem
+    mov word [wd_mnrec + OS88UI_MN_RPNTH], wd_mrepair
+    mov word [wd_dstyle + OS88UI_DR_ITEMS], wd_dstyle_items
+    mov word [wd_dstyle + OS88UI_DR_N], 1
+    mov [wd_dstyle + OS88UI_DR_WIN], bx
+    mov word [wd_dpts + OS88UI_DR_ITEMS], wd_dpts_items
+    mov word [wd_dpts + OS88UI_DR_N], 1
+    mov [wd_dpts + OS88UI_DR_WIN], bx
+    mov word [wd_dfont + OS88UI_DR_ITEMS], wd_dfont_items
+    mov word [wd_dfont + OS88UI_DR_N], 1    ; Pica alone until wd_fontscan runs
+    mov [wd_dfont + OS88UI_DR_WIN], bx
+    mov [wd_mnrec + OS88UI_MN_WIN], bx
     push ax                         ; SPEC.md 54.10: the kernel calls this once
     mov ax, wd_onwake               ; our window is on the glass, and the launch
     call OSAPI_WM_ONWAKE            ; document loads in front of it. BX is still
@@ -1137,6 +1168,12 @@ wd_ondrag:
     push bx
     push cx
     push dx
+    call wd_drdrag                  ; SPEC.md 68.2.3: the combos are drop-downs
+                                    ; now, so the two edges are theirs as well.
+                                    ; Nothing open costs one walk of three, and
+                                    ; the two gestures still cannot be live at
+                                    ; once - a press either opens a list or
+                                    ; grabs the thumb, never both
     call os88ui_sbdragging
     jc wd_sbd_out
     call wd_bounds
@@ -1149,6 +1186,9 @@ wd_onup:
     push bx
     push cx
     push dx
+    call wd_drup                    ; the release over an item is the PICK, and
+                                    ; the drag-out-of-the-box spelling of the
+                                    ; gesture is the one that needs it
     call os88ui_sbdragging
     jc wd_sbd_out
     call wd_bounds
@@ -2014,6 +2054,23 @@ wd_bounds:
     call OSAPI_WM_GEOM              ; CX/DX = content w/h (BX still the window)
     mov [wd_cw], cx                 ; banked beside wd_cl/wd_ct
     mov [wd_ch], dx
+    ; ...and the menu element's copy of the same box, as a RECT (SPEC.md
+    ; 13.16). Here rather than in the painter because this is the one place
+    ; the four numbers are decided, and the element's contract is that its
+    ; record's rect is screen coordinates its owner keeps current - a window
+    ; moves. w/h to x2/y2 is the whole of the conversion.
+    push ax
+    mov ax, [wd_cl]
+    mov [wd_mnrec + OS88UI_MN_RECT], ax
+    add ax, cx
+    dec ax
+    mov [wd_mnrec + OS88UI_MN_RECT + 4], ax
+    mov ax, [wd_ct]
+    mov [wd_mnrec + OS88UI_MN_RECT + 2], ax
+    add ax, dx
+    dec ax
+    mov [wd_mnrec + OS88UI_MN_RECT + 6], ax
+    pop ax
     pop ax                          ; content top
     add ax, dx
     dec ax                          ; the content's own last row...
@@ -2518,10 +2575,10 @@ wd_tabw:
 ; and never again. A person who never opens it pays nothing, which is the same
 ; bargain SPEC.md 6.2 strikes with a directory of faces nobody picks from.
 ;
-; The dropdown is a STATIC table with room reserved (wd_it_fontc), and this
-; fills the reserved records and writes the count byte in wd_mtab. A menu whose
-; length is data rather than assembly is a menu that can grow when a disk
-; carries more faces, without this program knowing their names.
+; The list is a STATIC array with room reserved (wd_dfont_items), and this
+; fills the reserved slots and writes OS88UI_DR_N. A list whose length is data
+; rather than assembly is one that can grow when a disk carries more faces,
+; without this program knowing their names.
 ; -----------------------------------------------------------------------------
 wd_fontscan:
     push ax
@@ -2548,25 +2605,20 @@ wd_fontscan:
     mov cl, al
     xor bx, bx                      ; BX = the family index
 .item:
-    mov ax, bx
-    mov si, WD_MI_SZ                ; the record for item 1 + BX: item 0 is
-    mul si                          ; Pica and is assembled, not filled in
-    mov di, wd_it_fontc + WD_MI_SZ
+    mov ax, bx                      ; the slot for item 1 + BX: item 0 is Pica
+    shl ax, 1                       ; and is assembled, not filled in
+    mov di, wd_dfont_items + 2
     add di, ax
-    mov byte [di+0], 0              ; flags: live
-    mov byte [di+1], 0              ; no mnemonic index
-    mov byte [di+2], WDA_CSEL
-    mov byte [di+3], 0
     mov al, bl
     call ty_famname                 ; SI = the display name the scan built
-    mov [di+4], si
-    mov word [di+6], 0              ; no caption
+    mov [di], si
     inc bx
     loop .item
 
-    mov al, [wd_nfont]              ; ...and the dropdown is that many items
-    inc al                          ; longer than the one Pica it had
-    mov [wd_mtab + WD_M_FONTC * WD_MT_SZ + 3], al
+    mov al, [wd_nfont]              ; ...and the list is that many items longer
+    inc al                          ; than the one Pica it had
+    xor ah, ah
+    mov [wd_dfont + OS88UI_DR_N], ax
 .out:
     pop di
     pop si
@@ -2645,9 +2697,10 @@ wd_facedrop:
     ret
 
 ; -----------------------------------------------------------------------------
-; wd_a_csel - a combo entry was chosen (SPEC.md 68.13)
-; in:  [wd_pickm] = which combo, [wd_picki] = which entry
-; out: the Font combo's caption follows the choice; the others are cosmetic
+; wd_a_csel - a Font combo entry was chosen (SPEC.md 68.13)
+; in:  AL = the item, from wd_drtake, which is the only caller and which has
+;      already established that the record is the Font one (SPEC.md 68.2.3)
+; out: the ribbon's Font box names the face that OPENED
 ;
 ; ITEM 0 IS PICA - the kernel's 8x8 cell, which is what this program has
 ; always set text in and is a perfectly good answer. Items 1.. are the faces
@@ -2671,11 +2724,8 @@ wd_a_csel:
                                     ; the machine follows it into the weeds -
                                     ; observed as a hang with CS:IP parked on
                                     ; this package's own entry point
-    cmp byte [wd_pickm], WD_M_FONTC
-    jne .out
-    mov al, [wd_picki]
-    or al, al
-    jnz .face
+    or al, al                       ; AL is the item, as passed: wd_drtake is
+    jnz .face                       ; the only caller and it tests the record
     call wd_facedrop                ; back to the built-in cell
     mov word [wd_fcap], wd_s_pica
     mov byte [wd_fsel], 0
@@ -2697,7 +2747,7 @@ wd_a_csel:
     push ax
     call ty_openfam                 ; opened NOW rather than at draw time: a
     pop bx                          ; face that will not read should say so
-    jc .out                         ; while the person is still looking at the
+    jc .paint                       ; while the person is still looking at the
     mov [wd_face], al               ; menu they picked it from - and the BOX
     xor ah, ah                      ; is not renamed until it has, so the name
     call ty_use                     ; in the ribbon is EVIDENCE that the face
@@ -2721,6 +2771,9 @@ wd_a_csel:
     mov byte [wd_rowsok], 0
     mov byte [wd_redrw], 1
 .paint:
+    call wd_dfsel                   ; the record follows what actually OPENED -
+                                    ; a refused face reaches here too, and must
+                                    ; leave the box showing the one that reads
     cmp byte [wd_vrib], 0           ; ...and the BOX has to be lettered again.
     je .out                         ; wd_mfire runs AFTER wd_mclose has put the
     call wd_ribbon                  ; rows the dropdown covered back, so the
@@ -5931,6 +5984,8 @@ wd_worker:
     mov byte [wd_inwk], 1           ; wd_itinit must not claim on this task
                                     ; (SPEC.md 20.6 rule 7) - raised for the
                                     ; draw burst, cleared before the unlock
+    call wd_drany                   ; a combo's list is over the content too
+    jnz .unlock
     cmp byte [wd_mopen], WD_M_NONE  ; a dropdown, the About box or a dialog is
     jne .unlock                     ; over the content (SPEC.md 68.2): every
     cmp byte [wd_about], 0          ; draw below would letter text straight
@@ -7107,6 +7162,7 @@ wd_chrome:
 wd_paint:
     push ax
     mov byte [wd_mopen], WD_M_NONE  ; a kernel repaint painted the content
+    call wd_drforget                ; ...the combos' lists with them
     mov byte [wd_mhi], 0xFF         ; clean, so any dropdown, About box or
     mov byte [wd_about], 0          ; dialog is GONE from the pixels: drop the
     mov word [wd_dlg], 0            ; state with them rather than redraw a
@@ -7187,8 +7243,10 @@ wd_paint:
 .barwhole:                          ; thumb HEIGHT also changed wd_sbcheck
     call wd_sbar                    ; does the full draw on its own evidence
 .bardone:
-    call wd_chrome                  ; ...and the chrome strips' rules, which
-                                    ; only a full fill can have erased
+    cmp byte [wd_chkeep], 0         ; ...and the chrome strips' rules, which
+    jne .nochrome                   ; only a full fill can have erased - and
+    call wd_chrome                  ; the fill above stopped short of them
+.nochrome:                          ; (SPEC.md 68.2.4)
     call wd_sheet                   ; ...and the sheet's edges (SPEC.md 68.11)
     call wd_hire                    ; the worker exists from the first paint
                                     ; now (SPEC.md 68.2, Frotz's precedent):
@@ -9396,6 +9454,17 @@ wd_redraw:
     call wd_sigsame
     pop ax
     jc .full
+    mov byte [wd_chkeep], 1         ; THE CHROME IS ON THE GLASS (SPEC.md
+                                    ; 68.2.4). wd_sigsame agreeing is the
+                                    ; whole proof: the only things that draw
+                                    ; over a strip are a kernel W_PAINT, a
+                                    ; panel (banked, or repaired in place by
+                                    ; wd_mrepair) and .fullpaint's own fill,
+                                    ; and every one of those leaves the chrome
+                                    ; drawn - so what a full repaint below
+                                    ; here owes is the TEXT BAND and nothing
+                                    ; above or below it. Only .full, where
+                                    ; the geometry moved, has to draw it all
     push ax                         ; the screen shows [wd_ptop] and the view
     mov ax, [wd_top]                ; may already have moved - a scroll bar
     cmp ax, [wd_ptop]               ; click scrolls and THEN redraws. Reconcile
@@ -9774,8 +9843,8 @@ wd_redraw:
                                     ; on this path
 .done:
     mov byte [wd_resume], 0
-    jmp short .out
-
+    jmp .out                        ; NEAR: SPEC.md 68.2.4 pushed .out past a
+                                    ; short jump's reach from here
 .scrolled0:
     mov word [wd_dr0], 0xFFFF       ; no walk has run this redraw, so nothing
     mov word [wd_dr1], 0            ; is known dirty beyond the exposed rows
@@ -9801,6 +9870,8 @@ wd_redraw:
     jmp short .fullpaint
 
 .full:
+    mov byte [wd_chkeep], 0         ; the geometry moved: the strips are in the
+                                    ; wrong place and the fill takes them
     ; Reached when wd_sigsame REFUSED - a resize, a toast arriving or leaving,
     ; an uncover - so nothing above has measured anything, and both numbers
     ; the view is clamped by may have changed: a wider window wraps into fewer
@@ -9845,6 +9916,13 @@ wd_redraw:
     je .fillw                       ; the grow box exactly right, so the fill
     mov cx, [wd_rgt]                ; stops at the last drawable TEXT column
 .fillw:                             ; and neither is disturbed
+    cmp byte [wd_chkeep], 0         ; ...and the same for the STRIPS (SPEC.md
+    je .fillh                       ; 68.2.4): the band this repaint owes
+    mov bx, [wd_ct]                 ; begins under the chrome and ends above
+    add bx, [wd_ctop]               ; the status line, so the fill does too -
+    mov dx, [wd_bot]                ; every row of a strip it used to erase was
+                                    ; a row wd_chrome then drew again
+.fillh:
     push ax                         ; the pen is a register here, not a
     mov al, CWHITE                  ; variable - keep x1 across the call
     call OSAPI_SET_COLOR
@@ -9853,6 +9931,11 @@ wd_redraw:
     call wd_paint                   ; SI still = window ptr
     cmp byte [wd_sbkeep], 0
     jne .nogrow                     ; the fill never reached the corner
+    cmp byte [wd_chkeep], 0         ; ...nor did it when the band stopped above
+    je .grow                        ; a status strip, which is where the
+    cmp byte [wd_vsta], 0           ; kernel draws the box. With the strip
+    jne .nogrow                     ; hidden, [wd_bot] IS the content's last
+.grow:                              ; row and the corner went with it
     mov bx, si                      ; the white fill erased the grow box;
     call OSAPI_WM_GROW              ; restore it (SPEC.md 11.1/27)
 .nogrow:
@@ -9862,9 +9945,10 @@ wd_redraw:
                                     ; going through here at all, and a stale 1
                                     ; would have it draw off its own signatures
     mov byte [wd_sbkeep], 0         ; ONE-SHOT: W_PAINT is wd_paint's other
-                                    ; caller and there the KERNEL has filled
-                                    ; the whole content, so the bar really has
-                                    ; gone and the full draw is the right one
+    mov byte [wd_chkeep], 0         ; caller and there the KERNEL has filled
+                                    ; the whole content, so the bar and the
+                                    ; strips really have gone and the full
+                                    ; draw is the right one
     mov byte [wd_ymoved], 0         ; spent: it described THIS redraw's pass 1
                                     ; (wd_scrollpaint tests it, and a stale 1
                                     ; would refuse a later good blit)
@@ -12789,38 +12873,6 @@ wd_urec_bulkend_at:
     pop bx
     ret
 
-; =============================================================================
-; Selecting with the pointer, and dropping what was selected (SPEC.md 27.8.1)
-;
-; ui_drag's shape (SPEC.md 13) written against the API, the way sol_drag is:
-; the gfx lock is held for the whole of a pass and released only between them,
-; so nothing else can draw over a half-finished frame and the cursor still
-; moves. What a pass does depends on where the press landed - outside the
-; selection it EXTENDS one, inside it MOVES the text - and the second is why
-; the dead zone exists: a plain click inside a selection is still a click, and
-; what a click does is put the caret there.
-; =============================================================================
-
-; -----------------------------------------------------------------------------
-; wd_selpace - drop the lock, wait for the tick, take it back
-; out: nothing; preserves all registers
-; -----------------------------------------------------------------------------
-wd_selpace:
-    push ax
-    push bx
-    call OSAPI_GFX_UNLOCK
-    call OSAPI_GET_TICKS
-    mov bx, ax
-.spin:
-    call OSAPI_TASK_YIELD
-    call OSAPI_GET_TICKS
-    cmp ax, bx
-    je .spin
-    call OSAPI_GFX_LOCK
-    pop bx
-    pop ax
-    ret
-
 ; -----------------------------------------------------------------------------
 ; wd_hitpt - the character index under the pointer, scrolling the view when
 ;            the pointer has left it
@@ -12903,7 +12955,7 @@ wd_dragsel:
     mov word [wd_lmx], 0xFFFF   ; ...and where the pointer was when it did
     mov word [wd_lmy], 0xFFFF
 .pass:
-    call wd_selpace
+    call os88ui_mnpace
     call OSAPI_MOUSE            ; CX = x, DX = y, AL = buttons
     test al, 1
     jz .up
@@ -13189,7 +13241,7 @@ wd_dragmove:
     mov [wd_dpy], dx
     xor bx, bx                  ; BX = the pointer has left the dead zone
 .pass:
-    call wd_selpace
+    call os88ui_mnpace
     call OSAPI_MOUSE
     test al, 1
     jz .up
@@ -13675,11 +13727,12 @@ wd_mact:
     push ax
     push bx
     push si
-    mov [wd_picki], al              ; WHICH item, and out of WHICH menu: the
-    mov ah, [wd_mopen]              ; action byte alone cannot tell a combo's
-    mov [wd_pickm], ah              ; third entry from its first, and the Font
-    mov ah, al                      ; combo is the first menu here that cares
-    mov al, [wd_mopen]
+    mov ah, al                      ; WHICH item and out of WHICH menu used to
+    mov al, [wd_mopen]              ; be recorded here for the Font combo, the
+                                    ; one caller an action byte could not tell
+                                    ; a third entry from a first for. It is a
+                                    ; drop-down now and its pick reaches
+                                    ; wd_a_csel in AL (SPEC.md 68.2.3)
     call wd_mgeti
     mov al, ah
     call wd_mitemp
@@ -13719,178 +13772,26 @@ wd_wfit:
 ; copy rather than lettering past its own edge.
 ; -----------------------------------------------------------------------------
 wd_mbar:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    mov al, CWHITE
-    call OSAPI_SET_COLOR
-    mov ax, [wd_cl]
-    mov bx, [wd_ct]
-    mov cx, ax
-    add cx, [wd_cw]
-    dec cx
-    mov dx, bx
-    add dx, WD_MENU_H-2
-    call OSAPI_GFX_FILL             ; the strip's ground
-    mov al, CBLACK
-    call OSAPI_SET_COLOR
-    mov ax, [wd_cl]
-    mov bx, cx
-    mov dx, [wd_ct]
-    add dx, WD_MENU_H-1
-    call OSAPI_GFX_HLINE            ; the rule under the bar
-    mov si, wd_s_mbar
-    mov ax, [wd_cw]
-    cmp ax, 8 + 56*8
-    jae .whole
-    sub ax, 16                      ; too narrow: truncate at the cells that
-    js .under                       ; fit. Mid-title cuts are the honest
-    mov cl, 3                       ; degrade for a 96px window
-    shr ax, cl
-    jz .under
-    cmp ax, 56
-    jbe .tr
-    mov ax, 56
-.tr:
-    mov cx, ax
-    mov di, wd_mbbuf
-    cld
-.cp:
-    lodsb
-    mov [di], al
-    inc di
-    or al, al
-    jz .cpd
-    loop .cp
-    mov byte [di], 0
-.cpd:
-    mov si, wd_mbbuf
-.whole:
-    mov cx, [wd_cl]
-    add cx, 8
-    mov dx, [wd_ct]
-    add dx, 3
-    mov al, CBLACK
-    mov ah, CWHITE
-    call OSAPI_FONT_RUN
-.under:
-    mov si, wd_mtab                 ; the mnemonic underlines
-    mov di, WD_M_N
-.mn:
-    mov al, [si]
-    add al, [si+1]
-    inc al
-    xor ah, ah
-    mov cl, 3
-    shl ax, cl
-    cmp ax, [wd_cw]                 ; (start+len+1)*8 <= cw = fully visible
-    ja .mnnext
-    mov al, [si]
-    add al, [si+2]                  ; start + the title's mnemonic index
-    xor ah, ah
-    shl ax, cl
-    add ax, [wd_cl]
-    add ax, 8
-    mov bx, ax
-    add bx, 6
-    mov dx, [wd_ct]
-    add dx, 11
-    call OSAPI_GFX_HLINE
-.mnnext:
-    add si, 8
-    dec di
-    jnz .mn
-    mov al, [wd_mopen]              ; a bar repaint under an open dropdown
-    cmp al, WD_M_N                  ; keeps the title inverted
-    jae .out
-    call wd_mtxor
-.out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
+    push bp                         ; SPEC.md 13.16, wave 2
+    mov bp, wd_mnrec
+    call os88ui_mnbar
+    pop bp
     ret
 
-; -----------------------------------------------------------------------------
-; wd_mtxor - invert a bar title's band (XOR: calling it again un-inverts)
-; in:  AL = menu index 0..8, wd_bounds run; preserves all registers
-; -----------------------------------------------------------------------------
-wd_mtxor:
-    push ax
-    push bx
-    push cx
-    push dx
-    call wd_mgeti
-    mov al, [bx]
-    add al, [bx+1]
-    inc al
-    xor ah, ah
-    mov cl, 3
-    shl ax, cl
-    cmp ax, [wd_cw]
-    ja .out                         ; off a narrow window's bar: nothing shown
-    mov al, [bx]
-    xor ah, ah
-    shl ax, cl
-    add ax, [wd_cl]
-    add ax, 8-2                     ; 2px into the leading space cell
-    mov dl, [bx+1]
-    xor dh, dh
-    shl dx, cl
-    mov cx, ax
-    add cx, dx
-    add cx, 3                       ; ...and 2px into the trailing one
-    mov bx, [wd_ct]
-    inc bx
-    mov dx, [wd_ct]
-    add dx, 12
-    call OSAPI_GFX_XOR_FILL
-.out:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
 
 ; -----------------------------------------------------------------------------
 ; wd_mtitler - AL = menu 0..8: bank its bar band as the gesture anchor
-; out: [wd_mabox] = {x1,y1,x2,y2}; preserves all registers
+; out: OS88UI_MN_ABOX = {x1,y1,x2,y2}; preserves all registers
 ; The anchor is what a release/click is tested against for the "stay open"
 ; and "toggle closed" answers - one rect for titles and combo boxes alike.
 ; -----------------------------------------------------------------------------
 wd_mtitler:
-    push ax
-    push bx
-    push cx
-    push dx
-    call wd_mgeti
-    mov al, [bx]
-    xor ah, ah
-    mov cl, 3
-    shl ax, cl
-    add ax, [wd_cl]
-    add ax, 8-2
-    mov [wd_mabox], ax
-    mov dl, [bx+1]
-    xor dh, dh
-    shl dx, cl
-    add ax, dx
-    add ax, 3
-    mov [wd_mabox+4], ax
-    mov ax, [wd_ct]
-    mov [wd_mabox+2], ax
-    add ax, WD_MENU_H-1
-    mov [wd_mabox+6], ax
-    pop dx
-    pop cx
-    pop bx
-    pop ax
+    push bp                         ; SPEC.md 13.16, wave 2
+    mov bp, wd_mnrec
+    call os88ui_mntitler
+    pop bp
     ret
+
 
 ; -----------------------------------------------------------------------------
 ; wd_mchk - is the checkable item with action AL currently checked?
@@ -13936,382 +13837,6 @@ wd_mchk:
     stc
     ret
 
-; -----------------------------------------------------------------------------
-; wd_mgeo - compute the open dropdown's rectangle into wd_mrect
-; in:  AL = menu index; bar menus anchor under their title, pseudo-menus
-;      (the combos) at [wd_max]/[wd_may] which the click site set
-; out: wd_mrect = {x1,y1,x2,y2}; preserves all registers
-; The height is summed from the items (10px bands, 5px separators, 2px pad
-; top and bottom inside the frame); the rect is clamped INSIDE the content -
-; gfx primitives draw wherever they are pointed, and a dropdown must never
-; scribble the window frame or the desktop below it.
-; -----------------------------------------------------------------------------
-wd_mgeo:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    call wd_mgeti
-    cmp al, WD_M_N
-    jae .combo
-    mov dl, [bx]
-    xor dh, dh
-    mov cl, 3
-    shl dx, cl
-    add dx, [wd_cl]
-    add dx, 8-4                     ; the panel starts 4px left of the title
-    mov [wd_mrx1], dx
-    mov dx, [wd_ct]
-    add dx, WD_MENU_H
-    mov [wd_mry1], dx
-    jmp short .size
-.combo:
-    mov dx, [wd_max]
-    mov [wd_mrx1], dx
-    mov dx, [wd_may]
-    mov [wd_mry1], dx
-.size:
-    push ax                         ; the menu index - the height loop below
-                                    ; eats AL and the flip needs it back
-    mov cl, [bx+3]                  ; height: 4 + 10/5 per item
-    xor ch, ch
-    mov si, [bx+4]
-    mov ax, 4
-.hh:
-    jcxz .hd
-    test byte [si], WDMF_SEP
-    jz .h10
-    add ax, WD_MS_HGT
-    jmp short .hn
-.h10:
-    add ax, WD_MI_HGT
-.hn:
-    add si, 8
-    dec cx
-    jmp short .hh
-.hd:
-    pop cx                          ; CL = the menu index again
-    mov si, ax                      ; SI = the panel's height in pixels
-    mov dx, [wd_ct]
-    add dx, [wd_ch]
-    sub dx, 2                       ; leave the shadow's pixel inside too
-    add ax, [wd_mry1]
-    dec ax
-    cmp ax, dx
-    jbe .yok
-    cmp cl, WD_M_N
-    jb .clip                        ; a BAR menu hangs under its own title and
-                                    ; nowhere else - moving one would put it
-                                    ; over the menu bar it came from
-    ; --- the SLIDE (SPEC.md 6.4.1). A combo's list is anchored at its box, and
-    ; with ten faces there, eleven 10px items stand 114 rows tall - past the
-    ; bottom of a 200-row CGA window by a few pixels. Clipping is what used to
-    ; happen and it is SILENT: the trailing faces are drawn nowhere and
-    ; wd_mfind refuses to find them, so a disk carrying more faces than the
-    ; anchor has room below it simply loses the last ones, which is how
-    ; WD_MAXFONT came to be 6. Sliding the panel up until its bottom sits on
-    ; the limit keeps every item on the screen and reachable; it costs one
-    ; subtraction, and it is only ever taken when the alternative was to lose
-    ; an item.
-    ;
-    ; THE ARITHMETIC IS UNSIGNED AND THE ROOM IS MEASURED, NOT THE TOP. The
-    ; first version computed the new top and compared it against the content
-    ; edge, which is a NEGATIVE number the moment the panel is taller than the
-    ; space above the anchor - and `jb` read it as 65,490 and slid the panel
-    ; off the top of the screen, over the menu bar and the desktop. Subtracting
-    ; two rows that are both on the screen cannot go negative.
-    mov cx, dx
-    sub cx, [wd_ct]                 ; CX = the rows the content has for it
-    cmp cx, si
-    jb .clip                        ; taller than the whole content: nothing
-                                    ; to slide into, so clip as before
-    mov ax, dx
-    sub ax, si
-    inc ax                          ; the top that puts its bottom on DX
-    mov [wd_mry1], ax
-    mov ax, dx                      ; ...and that bottom is the limit itself
-    jmp short .yok
-.clip:
-    mov ax, dx                      ; clipped: trailing items are not drawn
-.yok:                               ; and wd_mfind stops at the same edge
-    mov [wd_mry2], ax
-    mov ax, [bx+6]                  ; the width the table precomputed
-    mov dx, [wd_mrx1]
-    add dx, ax
-    dec dx
-    mov cx, [wd_cl]
-    add cx, [wd_cw]
-    sub cx, 2
-    cmp dx, cx
-    jbe .xok
-    mov dx, cx                      ; ride the right edge (Help lives there)
-    push dx
-    sub dx, ax
-    inc dx
-    mov cx, [wd_cl]
-    inc cx
-    cmp dx, cx
-    jae .x1ok
-    mov dx, cx
-.x1ok:
-    mov [wd_mrx1], dx
-    pop dx
-.xok:
-    mov [wd_mrx2], dx
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; wd_mdraw - draw the open dropdown from wd_mrect (SPEC.md 68.2)
-; in:  [wd_mopen], wd_mrect computed, gfx lock held; preserves all registers
-;
-; White panel, 1px black frame, 1px grey drop shadow right and bottom
-; (GFX_FILL_GRAY: a 50% dither, so it reads grey on every adapter). Items
-; 10px apart with the text at x1+8; separators are hlines; captions right-
-; justified; disabled items drawn whole - label and caption - under the
-; disabled pen so they dither at 1bpp (SPEC.md 47); checked items get a two-
-; line check at x1+2; enabled mnemonics a 1px underline.
-; -----------------------------------------------------------------------------
-wd_mdraw:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    mov al, CWHITE
-    call OSAPI_SET_COLOR
-    mov ax, [wd_mrx1]
-    mov bx, [wd_mry1]
-    mov cx, [wd_mrx2]
-    mov dx, [wd_mry2]
-    call OSAPI_GFX_FILL
-    clc
-    call OSAPI_GFX_PEN              ; live pen: CBLACK, dither flag clear
-    call OSAPI_GFX_FRAME
-    mov ax, [wd_mrx2]               ; the drop shadow: right edge...
-    inc ax
-    mov bx, [wd_mry1]
-    inc bx
-    mov cx, ax
-    mov dx, [wd_mry2]
-    inc dx
-    call OSAPI_GFX_FILL_GRAY
-    mov ax, [wd_mrx1]               ; ...and bottom edge
-    inc ax
-    mov bx, [wd_mry2]
-    inc bx
-    mov cx, [wd_mrx2]
-    inc cx
-    mov dx, bx
-    call OSAPI_GFX_FILL_GRAY
-    ; the items
-    mov al, [wd_mopen]
-    call wd_mgeti
-    mov cl, [bx+3]
-    xor ch, ch
-    mov si, [bx+4]
-    mov di, [wd_mry1]
-    add di, 2
-.item:
-    or cx, cx
-    jnz .live
-    jmp .done                       ; out of the short branch's reach
-.live:
-    test byte [si], WDMF_SEP
-    jz .norm
-    mov ax, di                      ; a separator: one hline mid-band
-    add ax, WD_MS_HGT-1
-    cmp ax, [wd_mry2]
-    jae .done
-    mov ax, [wd_mrx1]
-    inc ax
-    mov bx, [wd_mrx2]
-    dec bx
-    mov dx, di
-    add dx, 2
-    call OSAPI_GFX_HLINE
-    add di, WD_MS_HGT
-    jmp .next
-.norm:
-    mov ax, di
-    add ax, WD_MI_HGT-1
-    cmp ax, [wd_mry2]
-    jae .done                       ; clipped by a short window: stop
-    push cx
-    mov byte [wd_mink], CBLACK
-    test byte [si], WDMF_DIS
-    jnz .dis
-    clc
-    jmp short .pen
-.dis:
-    mov byte [wd_mink], CDGRAY      ; ...and the run's ink is the same answer
-    stc                             ; (SPEC.md 68.14): a package cannot read
-.pen:                               ; the pen back, so it is decided here
-    call OSAPI_GFX_PEN              ; CF IS the argument (SPEC.md 47)
-    ; the check column
-    test byte [si], WDMF_CHK
-    jz .nochk
-    mov al, [si+2]
-    call wd_mchk
-    jnc .nochk
-    mov ax, [wd_mrx1]
-    add ax, 2
-    mov bx, di
-    add bx, 5
-    mov cx, [wd_mrx1]
-    add cx, 3
-    mov dx, di
-    add dx, 7
-    push si
-    xor si, si
-    call OSAPI_GFX_LINE             ; the check's short down-stroke...
-    mov ax, cx
-    mov bx, dx
-    mov cx, [wd_mrx1]
-    add cx, 7
-    mov dx, di
-    add dx, 3
-    call OSAPI_GFX_LINE             ; ...and its long up-stroke
-    pop si
-.nochk:
-    ; the label
-    mov cx, [wd_mrx1]
-    add cx, 8
-    mov dx, di
-    inc dx
-    push si
-    mov si, [si+4]
-    mov ah, CWHITE                  ; OPAQUE (SPEC.md 68.14): the panel's white
-    mov al, [wd_mink]               ; is a constant and the item's own cells
-    call OSAPI_FONT_RUN             ; are one decision each. [gfx_dis] is
-    pop si                          ; already set, so 6.1.12 folds 47's
-                                    ; checkerboard into the run's own mask
-    ; the mnemonic underline (enabled items only: a grey line rounds to
-    ; solid black at 1bpp and a greyed mnemonic answers no key anyway)
-    test byte [si], WDMF_DIS
-    jnz .nomn
-    cmp byte [si+3], 0
-    je .nomn
-    mov al, [si+1]
-    xor ah, ah
-    mov cl, 3
-    shl ax, cl
-    add ax, [wd_mrx1]
-    add ax, 8
-    mov bx, ax
-    add bx, 6
-    mov dx, di
-    add dx, 9
-    call OSAPI_GFX_HLINE
-.nomn:
-    ; the caption, right-justified in the panel
-    mov bx, [si+6]
-    or bx, bx
-    jz .nocap
-    push si
-    mov si, bx
-    call OSAPI_FONT_WIDTH           ; AX is the WIDTH here, so the pair goes
-    mov cx, [wd_mrx2]               ; in after it and not before
-    sub cx, 6
-    sub cx, ax
-    mov dx, di
-    inc dx
-    mov ah, CWHITE
-    mov al, [wd_mink]
-    call OSAPI_FONT_RUN
-    pop si
-.nocap:
-    clc
-    call OSAPI_GFX_PEN              ; pen back live before the next item
-    pop cx
-    add di, WD_MI_HGT
-.next:
-    add si, 8
-    dec cx
-    jz .done
-    jmp .item
-.done:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; wd_mfind - which ENABLED item is the point on?
-; in:  CX = x, DX = y (abs), the dropdown open
-; out: AL = item index, or 0xFF (outside, a separator, a disabled item, or a
-;      clipped one); preserves everything else
-; -----------------------------------------------------------------------------
-wd_mfind:
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    cmp cx, [wd_mrx1]
-    jb .miss
-    cmp cx, [wd_mrx2]
-    ja .miss
-    cmp dx, [wd_mry1]
-    jb .miss
-    cmp dx, [wd_mry2]
-    ja .miss
-    mov al, [wd_mopen]
-    call wd_mgeti
-    mov cl, [bx+3]
-    xor ch, ch
-    mov si, [bx+4]
-    mov di, [wd_mry1]
-    add di, 2
-    cmp dx, di
-    jb .miss                        ; in the top pad
-    xor bx, bx                      ; BL = index
-.scan:
-    jcxz .miss
-    test byte [si], WDMF_SEP
-    jnz .sep
-    mov ax, di
-    add ax, WD_MI_HGT-1
-    cmp ax, [wd_mry2]
-    jae .miss                       ; this item is clipped: so is the rest
-    cmp dx, ax
-    ja .below
-    test byte [si], WDMF_DIS        ; found the band
-    jnz .miss
-    mov al, bl
-    jmp short .out
-.below:
-    add di, WD_MI_HGT
-    jmp short .adv
-.sep:
-    mov ax, di
-    add ax, WD_MS_HGT-1
-    cmp dx, ax
-    jbe .miss                       ; a separator answers nothing
-    add di, WD_MS_HGT
-.adv:
-    add si, 8
-    inc bx
-    dec cx
-    jmp short .scan
-.miss:
-    mov al, 0xFF
-.out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
 
 ; -----------------------------------------------------------------------------
 ; wd_mhl - XOR the highlight band of item AL (0xFF = nothing to do)
@@ -14319,113 +13844,24 @@ wd_mfind:
 ; coordinate idiom the drag markers already use (SPEC.md 27.8).
 ; -----------------------------------------------------------------------------
 wd_mhl:
-    cmp al, 0xFF
-    je .no
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    mov dl, al                      ; DL = target index
-    mov al, [wd_mopen]
-    call wd_mgeti
-    mov si, [bx+4]
-    mov di, [wd_mry1]
-    add di, 2
-    xor cx, cx
-.w:
-    cmp cl, dl
-    je .found
-    test byte [si], WDMF_SEP
-    jz .i10
-    add di, WD_MS_HGT
-    jmp short .n
-.i10:
-    add di, WD_MI_HGT
-.n:
-    add si, 8
-    inc cx
-    jmp short .w
-.found:
-    mov ax, di
-    add ax, WD_MI_HGT-1
-    cmp ax, [wd_mry2]
-    jae .done                       ; clipped: it was not drawn either
-    mov dx, ax
-    mov ax, [wd_mrx1]
-    inc ax
-    mov bx, di
-    mov cx, [wd_mrx2]
-    dec cx
-    call OSAPI_GFX_XOR_FILL
-.done:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-.no:
+    push bp                         ; SPEC.md 13.16, wave 2
+    mov bp, wd_mnrec
+    call os88ui_mnhl
+    pop bp
     ret
+
 
 ; -----------------------------------------------------------------------------
 ; wd_mbarhit - CX/DX = a point: which bar title is it on?
 ; out: AL = 0..8 or 0xFF; preserves everything else
 ; -----------------------------------------------------------------------------
 wd_mbarhit:
-    push bx
-    push cx
-    push dx
-    push si
-    mov ax, [wd_ct]
-    cmp dx, ax
-    jb .no
-    add ax, WD_MENU_H-1
-    cmp dx, ax
-    ja .no
-    mov ax, cx
-    sub ax, [wd_cl]
-    sub ax, 8
-    js .no
-    mov cl, 3
-    shr ax, cl                      ; AL = the cell the click is in (AH = 0)
-    mov si, wd_mtab
-    xor bx, bx
-.s:
-    mov dl, [si]
-    cmp al, dl
-    jb .next
-    mov dh, dl
-    add dh, [si+1]
-    cmp al, dh
-    jae .next
-    mov cl, [si]                    ; visible? (start+len+1)*8 <= cw
-    add cl, [si+1]
-    inc cl
-    xor ch, ch
-    push ax
-    mov ax, cx
-    mov cl, 3
-    shl ax, cl
-    cmp ax, [wd_cw]
-    pop ax
-    ja .next
-    mov al, bl
-    jmp short .out
-.next:
-    add si, 8
-    inc bx
-    cmp bl, WD_M_N
-    jb .s
-.no:
-    mov al, 0xFF
-.out:
-    pop si
-    pop dx
-    pop cx
-    pop bx
+    push bp                         ; SPEC.md 13.16, wave 2
+    mov bp, wd_mnrec
+    call os88ui_mnbarhit
+    pop bp
     ret
+
 
 ; -----------------------------------------------------------------------------
 ; wd_subank - bank the pixels the dropdown is about to cover (SPEC.md 68.2.1)
@@ -14447,93 +13883,12 @@ wd_mbarhit:
 ; which is what it did before this existed.
 ; -----------------------------------------------------------------------------
 wd_subank:
-    push ax
-    push bx
-    push cx
-    push dx
-    push di
-    push es
-    mov word [wd_suseg], 0
-    mov ax, [wd_mrx1]               ; the rect INCLUDING the drop shadow, and
-    mov [wd_surx1], ax              ; clamped exactly the way wd_mrepair grows
-    mov bx, [wd_mry1]               ; and clamps its own - the two must name
-    mov [wd_sury1], bx              ; the same pixels or the restore is short
-    mov ax, [wd_mrx2]               ; by a column
-    inc ax
-    mov dx, [wd_cl]
-    add dx, [wd_cw]
-    dec dx
-    cmp ax, dx
-    jbe .x2ok
-    mov ax, dx
-.x2ok:
-    mov [wd_surx2], ax
-    mov ax, [wd_mry2]
-    inc ax
-    mov dx, [wd_ct]
-    add dx, [wd_ch]
-    dec dx
-    cmp ax, dx
-    jbe .y2ok
-    mov ax, dx
-.y2ok:
-    mov [wd_sury2], ax
-    ; bytes = planes * rows * ((x2>>3) - (x1>>3) + 1)
-    mov ax, [wd_surx2]
-    mov cl, 3
-    shr ax, cl
-    mov bx, [wd_surx1]
-    shr bx, cl
-    sub ax, bx
-    inc ax                          ; AX = byte columns
-    mov bx, [wd_sury2]
-    sub bx, [wd_sury1]
-    inc bx                          ; BX = rows
-    mul bx                          ; AX = one plane's bytes (DX:AX, and a
-                                    ; panel cannot reach 64KB of one plane)
-    mov bx, [wd_win]
-    or bx, bx
-    jz .no
-    push ax
-    call OSAPI_WM_DISPLAY           ; DH = bpp OF THE DISPLAY WE ARE ON, which
-    mov bl, dh                      ; OSAPI_VIDEO cannot answer on a two-card
-    xor bh, bh                      ; machine (SPEC.md 39.16.4)
-    pop ax
-    cmp bl, 4
-    je .planes
-    mov bx, 1                       ; 1bpp adapter: one plane
-.planes:
-    mul bx
-    add ax, 1023
-    mov cl, 10
-    shr ax, cl                      ; AX = KB, rounded up
-    or ax, ax
-    jz .no
-    mov [wd_sukb], ax
-    call OSAPI_MEM_CLAIM            ; out CF=0, DX = base segment
-    jc .no
-    mov [wd_suseg], dx
-    mov es, dx
-    xor di, di
-    mov ax, [wd_surx1]
-    mov bx, [wd_sury1]
-    mov cx, [wd_surx2]
-    mov dx, [wd_sury2]
-    call OSAPI_GFX_SAVE             ; CF=1 = the rect straddles two displays,
-    jnc .out                        ; and half a bank put back is worse than
-    mov dx, [wd_suseg]              ; none: hand it straight back
-    mov ax, [wd_sukb]
-    call OSAPI_MEM_FREE
-.no:
-    mov word [wd_suseg], 0
-.out:
-    pop es
-    pop di
-    pop dx
-    pop cx
-    pop bx
-    pop ax
+    push bp                         ; SPEC.md 13.16.4
+    mov bp, wd_mnrec
+    call os88ui_mnbank
+    pop bp
     ret
+
 
 ; -----------------------------------------------------------------------------
 ; wd_suab / wd_sudlg - bank for the About box and for a modal dialog
@@ -14581,52 +13936,35 @@ wd_sudlg:
 ;      owes wd_mrepair; preserves all registers
 ; -----------------------------------------------------------------------------
 wd_surest:
-    cmp word [wd_suseg], 0
-    jne .have
-    stc
-    ret
-.have:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push es
-    mov es, [wd_suseg]
-    xor si, si
-    mov ax, [wd_surx1]
-    mov bx, [wd_sury1]
-    mov cx, [wd_surx2]
-    mov dx, [wd_sury2]
-    call OSAPI_GFX_REST             ; the same rect the save took, off the
-                                    ; banked copy of it and not off wd_mrect,
-                                    ; which wd_mrepair is free to consume
-    mov dx, [wd_suseg]
-    mov ax, [wd_sukb]
-    call OSAPI_MEM_FREE             ; before the picked item runs (SPEC.md
-    mov word [wd_suseg], 0          ; 12.4): whatever it claims gets a heap
-    pop es                          ; this menu has already left
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    clc
-    ret
+    push bp
+    mov bp, wd_mnrec
+    call os88ui_mnback
+    pop bp                          ; POP does not touch the flags: CF is the
+    ret                             ; element's answer
+
 
 ; -----------------------------------------------------------------------------
 ; wd_mopenm - open menu AL: bank state, invert the title, draw the dropdown
 ; in:  AL = menu index, wd_bounds run, gfx lock held; preserves all registers
 ; -----------------------------------------------------------------------------
 wd_mopenm:
+    push bp                         ; SPEC.md 13.16.4 - the Window menu's own
+    mov bp, wd_mnrec                ; item is composed by the OPENH hook now,
+    call os88ui_mnopen              ; so a drag that slides onto it gets it too
+    pop bp
+    ret
+
+; -----------------------------------------------------------------------------
+; wd_mwinitem - OS88UI_MN_OPENH: the Window menu names the live document
+; in:  AL = the menu about to open; out: nothing, and AL is untouched
+; -----------------------------------------------------------------------------
+wd_mwinitem:
+    cmp al, 7
+    jne .out
     push ax
     push cx
     push si
     push di
-    mov [wd_mopen], al
-    mov byte [wd_mhi], 0xFF
-    cmp al, 7                       ; the Window menu shows the live document:
-    jne .now                        ; compose '1 ' + wd_name into its item
     mov word [wd_win1], '1 '
     mov si, wd_name
     mov di, wd_win1+2
@@ -14639,39 +13977,256 @@ wd_mopenm:
     or ah, ah
     loopnz .cp
     mov byte [wd_win1+15], 0
-.now:
-    call wd_mgeo
-    cmp al, WD_M_N
-    jae .noxor
-    call wd_mtxor
-.noxor:
-    call wd_subank                  ; ...before a pixel of the panel is drawn
-    call wd_mdraw
     pop di
     pop si
     pop cx
     pop ax
+.out:
     ret
+
 
 ; -----------------------------------------------------------------------------
 ; wd_mclose - take the open dropdown down and repaint what it covered
 ; in:  SI = window ptr, gfx lock held; preserves all registers
 ; -----------------------------------------------------------------------------
+; wd_mclose - take the dropdown down, and REPAIR what it covered
+; The element gives the pixels back and answers CF = 1 when it could not
+; (SPEC.md 13.16.4); the repaint is ours because the content is.
 wd_mclose:
-    push ax
-    mov al, [wd_mopen]
-    cmp al, WD_M_NONE
-    je .out
-    cmp al, WD_M_N
-    jae .noxor
-    call wd_mtxor                   ; the title back to normal video
-.noxor:
-    mov byte [wd_mopen], WD_M_NONE
-    mov byte [wd_mhi], 0xFF
-    call wd_surest                  ; the banked pixels, or CF=1 and the
-    jnc .out                        ; piecewise repaint that was the only path
-    call wd_mrepair                 ; before SPEC.md 68.2.1
+    push bp                         ; the repaint the close may owe is the
+    mov bp, wd_mnrec                ; RPNTH hook's now (SPEC.md 13.16.4), so
+    call os88ui_mnclose             ; the element's own closes pay it too
+    pop bp
+    ret
+
+
+; -----------------------------------------------------------------------------
+; wd_drany - is a combo's list down?
+; in:  nothing; out: ZF=0 one is open, ZF=1 none. Every register preserved,
+;      and CALL/RET touch no flag, so the caller's `jne` reads this compare
+;
+; ONE PLACE, because six ask it: the ribbon's and the ruler's delta updates
+; and the background worker must not draw under a list, the key handler and
+; the kernel bar's About must take one down, and wd_mroute routes a press to
+; it. It is what [wd_mopen] is for the menus, and the sites that test one test
+; the other. D2 adds the ribbon's two records and only this routine changes.
+; -----------------------------------------------------------------------------
+wd_drany:
+    push bx
+    call wd_dropen
+    pop bx                          ; POP touches no flag, so the ZF the walk
+    ret                             ; left is the one the caller reads
+
+; -----------------------------------------------------------------------------
+; wd_dropen - WHICH combo's list is down?
+; in:  nothing; out: BX = the record, or 0; ZF=1 none. Every other register
+;      preserved
+;
+; At most one is ever down: a press on a closed box reaches os88ui_drpress
+; only through wd_mroute, which hands an open list every press before the
+; strips are tested at all - so the box under a list cannot open its own.
+; -----------------------------------------------------------------------------
+wd_dropen:
+    push cx
+    push si
+    mov si, wd_drops
+    mov cx, WD_NDROP
+.l:
+    mov bx, [si]
+    cmp byte [bx+OS88UI_DR_OPEN], 0
+    jne .out
+    inc si
+    inc si
+    loop .l
+    xor bx, bx
 .out:
+    or bx, bx
+    pop si
+    pop cx
+    ret
+
+; -----------------------------------------------------------------------------
+; wd_dropress / wd_drdrag / wd_drup - the gesture's three edges, handed to
+; whichever combo has a list down
+; in:  CX = x, DX = y, SI = window ptr, wd_bounds run, gfx lock held
+; out: nothing; every register preserved
+;
+; The press and the release can both PICK, and only the Font combo acts on one
+; (wd_drtake) - Pts has the one size and Style the one style. The drag only
+; moves a highlight. All three are no-ops with nothing open, which is what
+; lets wd_ondrag and wd_onup call them in front of the thumb's own edges: a
+; combo gesture and a thumb drag cannot be live at once, because a press
+; cannot arrive during a live drag at all (SPEC.md 13.10.5.7).
+; -----------------------------------------------------------------------------
+wd_dropress:
+    push ax
+    push bx
+    call wd_dropen
+    jz .out
+    call os88ui_drpress
+    jnc .nrep
+    call wd_drrep
+.nrep:
+    or ah, ah
+    jz .out
+    call wd_drtake
+.out:
+    pop bx
+    pop ax
+    ret
+
+wd_drdrag:
+    push ax
+    push bx
+    call wd_dropen
+    jz .out
+    call os88ui_drdrag
+.out:
+    pop bx
+    pop ax
+    ret
+
+wd_drup:
+    push ax
+    push bx
+    call wd_dropen
+    jz .out
+    call os88ui_drup
+    jnc .nrep
+    call wd_drrep
+.nrep:
+    or ah, ah
+    jz .out
+    call wd_drtake
+.out:
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; wd_drtake - a combo picked item AL out of record BX
+; in:  AL = the item, BX = the record, SI = window ptr, wd_bounds run, lock
+;      held; out: nothing; preserves all registers
+; -----------------------------------------------------------------------------
+wd_drtake:
+    cmp bx, wd_dfont                ; ONLY the Font combo acts on a pick, which
+    jne .out                        ; is why wd_a_csel needs no [wd_pickm] test
+    push ax                         ; of its own any more: this compare is it
+    push bx
+    push cx
+    push dx
+    call wd_a_csel                  ; ...which may tail-jump into wd_redraw,
+    pop dx                          ; so nothing survives it but SI
+    pop cx
+    pop bx
+    pop ax
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; wd_dfsel - the Font box's SEL follows what actually OPENED
+; in:  nothing; out: nothing; preserves all registers
+;
+; The control writes its own pick at the release, and wd_a_csel renames the
+; box only once ty_openfam has succeeded - "the name in the ribbon is EVIDENCE
+; that the face is open and not just that it was asked for" (SPEC.md 68.13).
+; So [wd_fcap] is the truth and this puts the record back in step with it: a
+; face that will not read leaves the box showing the one that does, which is
+; the property the combo had before it was a control.
+; -----------------------------------------------------------------------------
+wd_dfsel:
+    push ax
+    push bx
+    push cx
+    push si
+    mov si, wd_dfont_items
+    mov cx, [wd_dfont + OS88UI_DR_N]
+    mov bx, [wd_fcap]
+    xor ax, ax
+.l:
+    cmp bx, [si]
+    je .hit
+    inc si
+    inc si
+    inc ax
+    loop .l
+    xor ax, ax                      ; not listed at all: Pica, which is item 0
+.hit:
+    mov [wd_dfont + OS88UI_DR_SEL], ax
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; wd_drshut - take an open combo list down, pixels and all
+; in:  SI = window ptr, gfx lock held; out: nothing; preserves all registers
+; -----------------------------------------------------------------------------
+wd_drshut:
+    push bx
+    call wd_dropen
+    jz .out
+    call os88ui_drclose             ; the bank back, or CF=1 and the repaint
+    jnc .out
+    call wd_drrep
+.out:
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; wd_drforget - the lists are GONE from the pixels: drop the state with them
+; in:  nothing; out: nothing; preserves all registers
+; -----------------------------------------------------------------------------
+wd_drforget:
+    push bx
+    push cx
+    push si
+    mov si, wd_drops
+    mov cx, WD_NDROP
+.l:
+    mov bx, [si]
+    mov byte [bx+OS88UI_DR_OPEN], 0
+    inc si
+    inc si
+    loop .l
+    pop si
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; wd_drrep - a drop-down came down with no bank: repaint what its list covered
+; in:  BX = the drop record, SI = window ptr, gfx lock held
+; out: nothing; preserves all registers
+;
+; os88ui_drpress and os88ui_drup answer CF = 1 for exactly one case - the
+; save-under was refused, so the write-back never happened (SPEC.md 13.14.1) -
+; and what the list covered is its own rect, which the record still describes:
+; the close clears OS88UI_DR_OPEN and leaves OS88UI_DR_TOP where it was. So
+; this is os88ui_drrect's arithmetic into wd_mrect, and then the piecewise
+; repaint the menus already own (68.2.1) rather than wd_repaint's whole window
+; - which is the answer this app gave before the combos were controls, and is
+; worth keeping now that they are.
+; -----------------------------------------------------------------------------
+wd_drrep:
+    push ax
+    push dx
+    mov ax, [bx+OS88UI_DR_RECT]
+    mov [wd_mrx1], ax
+    mov ax, [bx+OS88UI_DR_RECT+4]
+    mov [wd_mrx2], ax
+    mov ax, [bx+OS88UI_DR_TOP]
+    mov [wd_mry1], ax
+    mov ax, [bx+OS88UI_DR_N]        ; ...and ends a row past the last cell,
+    mov dl, OS88UI_DRIH             ; which is os88ui_drrect's own sum
+    mul dl
+    add ax, [bx+OS88UI_DR_TOP]
+    inc ax
+    mov [wd_mry2], ax
+    call wd_bounds                  ; wd_mrepair reads the block's rect and
+    call wd_mrepair                 ; both counts live, and this window resizes
+    pop dx
     pop ax
     ret
 
@@ -14924,63 +14479,6 @@ wd_ruly:
     ret
 
 ; -----------------------------------------------------------------------------
-; wd_combo - one combo box: frame, shown text, divider, drop-down arrow
-; in:  AX = x1 (abs), BX = y1 (abs), CX = width, SI = the shown text
-;      gfx lock held; out: nothing; preserves all registers
-; The text sits at x1+8, which every caller keeps on a byte column.
-; -----------------------------------------------------------------------------
-wd_combo:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    mov di, ax                      ; DI = x1
-    add cx, ax
-    dec cx                          ; CX = x2
-    push bx                         ; y1, reloaded after the arrow loop
-    push si                         ; the text, ditto
-    mov al, CBLACK
-    call OSAPI_SET_COLOR
-    mov ax, di
-    mov dx, bx
-    add dx, 11
-    call OSAPI_GFX_FRAME
-    mov ax, cx
-    sub ax, 12
-    call OSAPI_GFX_VLINE            ; the divider in front of the arrow cell
-    mov dx, bx
-    add dx, 4
-    mov si, 3                       ; the arrow: four shrinking hlines
-.ar:
-    mov ax, cx
-    sub ax, 6
-    sub ax, si
-    mov bx, cx
-    sub bx, 6
-    add bx, si
-    call OSAPI_GFX_HLINE
-    inc dx
-    dec si
-    jns .ar
-    pop si
-    pop bx
-    mov cx, di
-    add cx, 8
-    mov dx, bx
-    add dx, 2
-    mov ax, (CWHITE << 8) | CBLACK  ; OPAQUE: the strip's fill is what is under
-    call OSAPI_FONT_RUN             ; this box, and it is white (SPEC.md 68.14)
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
 ; wd_btn12 - one 12x12 bordered toggle cell, optionally lettered
 ; in:  AX = x, BX = y (abs), CL = the letter (0 = none); preserves all
 ; -----------------------------------------------------------------------------
@@ -15065,13 +14563,21 @@ wd_ribbon:
     mov si, wd_s_font
     mov ax, (CWHITE << 8) | CBLACK  ; OPAQUE: the ribbon's fill is white (SPEC.md 68.14)
     call OSAPI_FONT_RUN
-    mov ax, [wd_cl]
-    add ax, WD_RB_FBX
-    mov bx, di
-    add bx, 2
-    mov cx, WD_RB_FBW
-    mov si, [wd_fcap]               ; the face the document is set in, which
-    call wd_combo                   ; is wd_s_pica until one is chosen
+    mov ax, [wd_cl]                 ; the Font combo is os88ui_drop's now
+    add ax, WD_RB_FBX               ; (SPEC.md 68.2.3): the painter fills the
+    mov [wd_dfont + OS88UI_DR_RECT], ax        ; record's rect from the strip
+    add ax, WD_RB_FBW - 1                      ; it is laying out, and the
+    mov [wd_dfont + OS88UI_DR_RECT + 4], ax    ; caption is the PICK - which is
+    mov ax, di                                 ; wd_s_pica until one is chosen
+    add ax, 2
+    mov [wd_dfont + OS88UI_DR_RECT + 2], ax
+    add ax, 11
+    mov [wd_dfont + OS88UI_DR_RECT + 6], ax
+    push di                         ; DI is the strip's row here and the
+    mov bx, wd_dfont                ; control's FLAGS there
+    xor di, di
+    call os88ui_drop
+    pop di
     ; Pts: and its combo
     mov ax, WD_RB_PBX + WD_RB_PBW - 1
     call wd_wfit
@@ -15085,11 +14591,19 @@ wd_ribbon:
     call OSAPI_FONT_RUN
     mov ax, [wd_cl]
     add ax, WD_RB_PBX
-    mov bx, di
-    add bx, 2
-    mov cx, WD_RB_PBW
-    mov si, wd_s_10
-    call wd_combo
+    mov [wd_dpts + OS88UI_DR_RECT], ax
+    add ax, WD_RB_PBW - 1
+    mov [wd_dpts + OS88UI_DR_RECT + 4], ax
+    mov ax, di
+    add ax, 2
+    mov [wd_dpts + OS88UI_DR_RECT + 2], ax
+    add ax, 11
+    mov [wd_dpts + OS88UI_DR_RECT + 6], ax
+    push di
+    mov bx, wd_dpts
+    xor di, di
+    call os88ui_drop
+    pop di
 .btns:
     mov ax, WD_RB_B1 + 2*WD_BTN_P + WD_BTN_W - 1
     call wd_wfit
@@ -15289,6 +14803,8 @@ wd_rbstat:
     je .out
     cmp byte [wd_rbok], 0
     je .out
+    call wd_drany
+    jnz .out
     cmp byte [wd_mopen], WD_M_NONE
     jne .out                        ; a dropdown may cover the strip
     cmp byte [wd_about], 0
@@ -15579,13 +15095,21 @@ wd_ruler:
     mov si, wd_s_style
     mov ax, (CWHITE << 8) | CBLACK  ; OPAQUE: the ruler's fill, likewise
     call OSAPI_FONT_RUN
-    mov ax, [wd_cl]
-    add ax, WD_RL_SBX
-    mov bx, di
-    add bx, 2
-    mov cx, WD_RL_SBW
-    mov si, wd_s_normal
-    call wd_combo
+    mov ax, [wd_cl]                 ; the Style combo is os88ui_drop's now
+    add ax, WD_RL_SBX               ; (SPEC.md 68.2.3): the painter fills the
+    mov [wd_dstyle + OS88UI_DR_RECT], ax      ; record's rect from the strip it
+    add ax, WD_RL_SBW - 1                     ; is laying out, since a window
+    mov [wd_dstyle + OS88UI_DR_RECT + 4], ax  ; moves, and the control draws
+    mov ax, di                                ; itself from that
+    add ax, 2
+    mov [wd_dstyle + OS88UI_DR_RECT + 2], ax
+    add ax, 11
+    mov [wd_dstyle + OS88UI_DR_RECT + 6], ax
+    push di                         ; DI is the strip's row here and the
+    mov bx, wd_dstyle               ; control's FLAGS there
+    xor di, di
+    call os88ui_drop
+    pop di
     ; the four alignment cells, each a 7px four-line glyph
     mov ax, WD_RL_AL + 3*WD_BTN_P + WD_BTN_W - 1
     call wd_wfit
@@ -16047,6 +15571,8 @@ wd_rlstat:
     je .out
     cmp byte [wd_rlok], 0
     je .out
+    call wd_drany                   ; ...and the Style list covers the SCALE
+    jnz .out
     cmp byte [wd_mopen], WD_M_NONE
     jne .out                        ; a dropdown may cover the strip
     cmp byte [wd_about], 0
@@ -16179,7 +15705,7 @@ wd_rldrag:
     mov [wd_rgx], cx                ; the guide, XOR-drawn at the banked x
     call wd_rgxor
 .pass:
-    call wd_selpace                 ; unlock - yield a tick - relock
+    call os88ui_mnpace                 ; unlock - yield a tick - relock
     call OSAPI_MOUSE                ; CX = x, DX = y, AL = buttons
     test al, 1
     jz .drop
@@ -16759,70 +16285,36 @@ wd_stat:
 
 ; -----------------------------------------------------------------------------
 ; wd_mtrack - the press-drag-release gesture, from a press that opened AL
-; in:  AL = menu to open, [wd_mabox] = the anchor band (title or combo box),
+; in:  AL = menu to open, OS88UI_MN_ABOX = the pressed title's own box,
 ;      SI = window ptr, gfx lock held
 ; out: nothing (the menu is left OPEN only for a press-and-release on the
 ;      anchor - the sticky case); preserves all registers
 ; -----------------------------------------------------------------------------
+; wd_mtrack - the press-drag-release gesture, and then the ACTION
+; The element runs the gesture and leaves the picked item in the record with
+; the menu still OPEN (SPEC.md 13.16.4), because wd_mact reads WHICH menu that
+; is - so the lookup, the close and the firing are ours, in that order.
+; Preserves exactly what it always did: AX and DX (wd_mact writes DL).
 wd_mtrack:
     push ax
-    push bx
-    push cx
     push dx
-    call wd_mopenm
-.loop:
-    call wd_selpace                 ; unlock - yield to the tick - relock
-    call OSAPI_MOUSE                ; CX = x, DX = y, AL = buttons
-    test al, 1
-    jz .release
-    cmp byte [wd_mopen], WD_M_N     ; dragging across the bar slides between
-    jae .items                      ; menus (titles only; combos have no bar)
-    call wd_mbarhit
+    push bp
+    mov bp, wd_mnrec
+    mov byte [ds:bp+OS88UI_MN_PICKI], 0xFF
+    call os88ui_mntrack
+    mov al, [ds:bp+OS88UI_MN_PICKI]
+    pop bp
     cmp al, 0xFF
-    je .items
-    cmp al, [wd_mopen]
-    je .items
-    push ax
-    call wd_mclose
-    pop ax
-    call wd_mtitler
-    call wd_mopenm
-    jmp short .loop
-.items:
-    call wd_mfind                   ; the XOR highlight follows the pointer
-    cmp al, [wd_mhi]
-    je .loop
-    push ax
-    mov al, [wd_mhi]
-    call wd_mhl                     ; old band off (0xFF-safe)...
-    pop ax
-    mov [wd_mhi], al
-    call wd_mhl                     ; ...new band on
-    jmp short .loop
-.release:
-    call wd_mfind
-    cmp al, 0xFF
-    jne .fire
-    push bx
-    mov bx, wd_mabox
-    call os88ui_bhit                ; released back on the anchor?
-    pop bx
-    jc .away
-    jmp short .out                  ; yes: STICKY - the menu stays open
-.away:
-    call wd_mclose                  ; released elsewhere: dismissed
-    jmp short .out
-.fire:
+    je .out
     call wd_mact                    ; DL = the item's action...
     call wd_mclose                  ; ...the covered rows come back first...
     mov al, dl
     call wd_mfire                   ; ...and then it runs
 .out:
     pop dx
-    pop cx
-    pop bx
     pop ax
     ret
+
 
 ; -----------------------------------------------------------------------------
 ; wd_mclick_open - a click arriving while a dropdown is open (sticky mode)
@@ -16831,37 +16323,18 @@ wd_mtrack:
 ; title, stays put for a dead spot inside the panel, and swallows the
 ; dismissing click anywhere else - a menu's click never leaks to the text.
 ; -----------------------------------------------------------------------------
+; wd_mclick_open - a click on the bar or an open panel (SPEC.md 13.16.4)
 wd_mclick_open:
     push ax
     push dx
-    call wd_mfind
+    push bp
+    mov bp, wd_mnrec
+    mov byte [ds:bp+OS88UI_MN_PICKI], 0xFF
+    call os88ui_mnclickopen
+    mov al, [ds:bp+OS88UI_MN_PICKI]
+    pop bp
     cmp al, 0xFF
-    jne .fire
-    push bx
-    mov bx, wd_mabox
-    call os88ui_bhit
-    pop bx
-    jnc .toggle
-    call wd_minrect                 ; a separator or disabled item: stay open
-    jnc .out
-    cmp byte [wd_mopen], WD_M_N
-    jae .dismiss
-    call wd_mbarhit                 ; a click on another title slides there
-    cmp al, 0xFF
-    je .dismiss
-    cmp al, [wd_mopen]
-    je .toggle
-    push ax
-    call wd_mclose
-    pop ax
-    call wd_mtitler
-    call wd_mtrack                  ; ...and the new press tracks as a press
-    jmp short .out
-.toggle:
-.dismiss:
-    call wd_mclose
-    jmp short .out
-.fire:
+    je .out
     call wd_mact
     call wd_mclose
     mov al, dl
@@ -16871,24 +16344,6 @@ wd_mclick_open:
     pop ax
     ret
 
-; -----------------------------------------------------------------------------
-; wd_minrect - is the point CX/DX inside the open dropdown's rectangle?
-; out: CF=0 inside; preserves all registers
-; -----------------------------------------------------------------------------
-wd_minrect:
-    cmp cx, [wd_mrx1]
-    jb .no
-    cmp cx, [wd_mrx2]
-    ja .no
-    cmp dx, [wd_mry1]
-    jb .no
-    cmp dx, [wd_mry2]
-    ja .no
-    clc
-    ret
-.no:
-    stc
-    ret
 
 ; -----------------------------------------------------------------------------
 ; wd_mroute - route a content click through the chrome (SPEC.md 68.2)
@@ -16916,6 +16371,18 @@ wd_mroute:
     call wd_abclose
     jmp .cons
 .noab:
+    call wd_drany                   ; AN OPEN LIST TAKES ANY PRESS, wherever it
+    jz .nodrop                      ; lands (SPEC.md 13.14) - the same rule an
+    call wd_dropress                ; open MENU has had since 68.2, and for a
+    jmp .cons                       ; reason the menus never had: the Style
+                                    ; list lies on top of the RULER's second
+                                    ; row, which owns the indent-marker drag,
+                                    ; so the click-then-click spelling of the
+                                    ; gesture put its second press on the ruler
+                                    ; and the list stayed up for ever. It is
+                                    ; also what stops the box UNDER an open
+                                    ; list opening its own (13.14.2)
+.nodrop:
     cmp byte [wd_mopen], WD_M_NONE
     je .closed
     call wd_mclick_open
@@ -16960,13 +16427,12 @@ wd_mroute:
     add di, WD_RB_FBW-1
     cmp cx, di
     ja .rbpts
-    mov al, WD_M_FONTC
     call wd_fontscan                ; the machine's faces, listed the first
                                     ; time this combo is opened and never
                                     ; again (SPEC.md 19.8): the scan is real
-                                    ; floppy I/O, and a menu nobody opens
+                                    ; floppy I/O, and a combo nobody opens
                                     ; should cost nothing
-    mov al, WD_M_FONTC
+    mov bx, wd_dfont
     jmp short .combo1
 .rbpts:
     mov bx, [wd_cl]
@@ -16977,21 +16443,12 @@ wd_mroute:
     add di, WD_RB_PBW-1
     cmp cx, di
     ja .rbtns
-    mov al, WD_M_PTSC
+    mov bx, wd_dpts
 .combo1:
-    mov [wd_max], bx                ; the dropdown hangs off the box, and the
-    mov [wd_mabox], bx              ; box IS the gesture anchor
-    mov [wd_mabox+4], di
-    mov bx, [wd_ct]
-    add bx, WD_MENU_H + WD_RIBBON_H
-    mov [wd_may], bx
-    sub bx, WD_RIBBON_H
-    add bx, 2
-    mov [wd_mabox+2], bx
-    add bx, 11
-    mov [wd_mabox+6], bx
-    call wd_mtrack
-    jmp .cons
+    call os88ui_drpress             ; the drop-down owns the gesture (SPEC.md
+    jnc .cons                       ; 68.2.3): the press answers whether the
+    call wd_drrep                   ; content wants repainting, and what it
+    jmp .cons                       ; covered is exactly the list's own rect
 .rbtns:
     ; the toggle cells (SPEC.md 68.3): B I K | U W D fire wd_applyattr, the
     ; pilcrow toggles Show-all, the greyed super/sub pair is inert. The hit
@@ -17058,19 +16515,13 @@ wd_mroute:
     add di, WD_RL_SBW-1
     cmp cx, di
     ja .rlcells
-    mov [wd_max], bx
-    mov [wd_mabox], bx
-    mov [wd_mabox+4], di
-    call wd_ruly
-    add ax, WD_RULER_H
-    mov [wd_may], ax
-    sub ax, WD_RULER_H
-    add ax, 2
-    mov [wd_mabox+2], ax
-    add ax, 11
-    mov [wd_mabox+6], ax
-    mov al, WD_M_STYLEC
-    call wd_mtrack
+    push bx                         ; the drop-down owns the gesture now
+    mov bx, wd_dstyle               ; (SPEC.md 68.2.3): press, drag and
+    call os88ui_drpress             ; release are its three entry points, and
+    jnc .stpop                      ; the press answers whether the content
+    call wd_drrep                   ; wants repainting, and what it covered is
+.stpop:                             ; exactly the list's own rect
+    pop bx
     jmp .cons
 .rlcells:
     mov di, cx                      ; the click x, banked: wd_rlxy answers its
@@ -17168,6 +16619,12 @@ wd_mkey:
     call wd_abclose
     jmp .cons
 .noab:
+    call wd_drany                   ; a combo's list eats the key that dismisses
+    jz .nodrop2                     ; it, exactly as an open MENU does below
+    call wd_bounds
+    call wd_drshut
+    jmp .cons
+.nodrop2:
     cmp byte [wd_mopen], WD_M_NONE
     jne .open
     or al, al
@@ -17391,8 +16848,14 @@ wd_ftab:
     dw wd_a_vsta
     dw wd_abopen                    ; Help > About...
     dw wd_mf_ret                    ; Window > 1: the one window, checked
-    dw wd_a_csel                    ; a combo entry: cosmetic, EXCEPT the
-                                    ; Font one (SPEC.md 68.13)
+    dw wd_mf_ret                    ; WDA_CSEL: UNREACHABLE since SPEC.md
+                                    ; 68.2.3 - a combo is a drop-down and its
+                                    ; pick goes to wd_a_csel through
+                                    ; wd_drtake, not through an action byte.
+                                    ; The slot stays because this table is
+                                    ; indexed BY that byte and renumbering
+                                    ; seven constants to save two bytes is a
+                                    ; silent wrong-action waiting to happen
     dw wd_a_char                    ; Format > Character... (SPEC.md 68.3)
     dw wd_a_para                    ; Format > Paragraph... (SPEC.md 68.3)
     dw wd_a_goto                    ; Edit > Go To... (SPEC.md 68.7)
@@ -18010,7 +17473,11 @@ wd_abopen:
     push dx
     push si
     push di
-    cmp byte [wd_mopen], WD_M_NONE  ; it replaces any open dropdown
+    call wd_drany                   ; it replaces any open dropdown - a combo's
+    jz .nodrop0                     ; list...
+    call wd_drshut
+.nodrop0:
+    cmp byte [wd_mopen], WD_M_NONE  ; ...and a menu's
     je .nodrop
     call wd_mclose
 .nodrop:
@@ -20021,12 +19488,6 @@ wd_mtab:
     dw wd_it_win, 128
     db 52, 4, 0, 9
     dw wd_it_help, 120
-    db 0xFF, 0, 0, 1                ; the ribbon's Font combo (WD_M_FONTC)
-    dw wd_it_fontc, WD_RB_FBW
-    db 0xFF, 0, 0, 1                ; ...its Pts combo
-    dw wd_it_ptsc, WD_RB_PBW
-    db 0xFF, 0, 0, 1                ; ...and the ruler's Style combo
-    dw wd_it_stylec, WD_RL_SBW
 
 ; the bar itself: one string, one opaque run; cells 0..55
 wd_s_mbar: db 'File Edit View Insert Format Utilities Macro Window Help', 0
@@ -20152,15 +19613,20 @@ wd_it_help:                         ; &Help
     WDMS
     WDMI 0,        0, WDA_ABOUT,  'A', wd_L_about,  0
 
-wd_it_fontc:                        ; Pica, and room for the faces on the disk
-    WDMI 0, 0, WDA_CSEL, 0, wd_s_pica, 0
-%rep WD_MAXFONT                     ; RESERVED, and filled by wd_fontscan
-    WDMI WDMF_DIS, 0, WDA_NONE, 0, wd_s_pica, 0
-%endrep
-wd_it_ptsc:                         ; ...at the one size
-    WDMI 0, 0, WDA_CSEL, 0, wd_s_10, 0
-wd_it_stylec:                       ; ...in the one style
-    WDMI 0, 0, WDA_CSEL, 0, wd_s_normal, 0
+wd_dstyle_items:                    ; the three combos' lists: near pointers to
+    dw wd_s_normal              ; NUL strings, which is what a drop-down takes
+                                ; where a menu took eight-byte records
+wd_dpts_items:                      ; ...at the one size
+    dw wd_s_10
+wd_dfont_items:                     ; ...and Pica, with room for the faces on
+    dw wd_s_pica                ; the disk, which wd_fontscan fills in the
+    times WD_MAXFONT dw 0       ; first time the combo is opened (SPEC.md 19.8)
+
+wd_drops:                           ; every combo, in DRAWN order. One table,
+    dw wd_dfont                 ; because the six questions the rest of the
+    dw wd_dpts                  ; program asks about a combo - is one down,
+    dw wd_dstyle                ; take the press, the drag, the release, shut
+                                ; it, forget it - are all "which one" first
 
 ; --- the labels (menus.cmd, '&' removed) -------------------------------------
 wd_L_new:      db 'New...', 0
@@ -20858,8 +20324,6 @@ section .text
     WDVAR wd_fsel, 1              ; byte: the chosen family, 0-based
     WDVAR wd_nfont, 1             ; byte: families the scan listed, clamped
     WDVAR wd_fscan, 1             ; byte: the scan has run (once, lazily)
-    WDVAR wd_pickm, 1             ; byte } which menu a chosen item came out
-    WDVAR wd_picki, 1             ; byte } of, and which item it was
     WDVAR wd_redrw, 1             ; byte: this action owes the note a redraw,
                                   ; taken on the way out as a tail jump
     WDVAR wd_pxon, 1              ; byte: wd_px[] is the truth about where a
@@ -20909,31 +20373,51 @@ section .text
     WDVAR wd_vrib, 1        ; byte } the View toggles: ribbon, ruler, status
     WDVAR wd_vrul, 1        ; byte } bar shown. Set to 1 in wd_entry - bss
     WDVAR wd_vsta, 1        ; byte } zero would mean all three hidden
-    WDVAR wd_mopen, 1       ; byte: the open dropdown, WD_M_NONE = none.
-                            ; 0..8 the bar, 9..11 the strip combos
-    WDVAR wd_mhi,  1        ; byte: the XOR-highlighted item, 0xFF = none
+    ; --- the menu element's record (SPEC.md 13.16) --------------------------
+    ; The fields below it are ALIASES INTO it, not copies: every one of Word's
+    ; hundred-odd existing references keeps working unchanged while the
+    ; control half moves out routine by routine, and there is never a moment
+    ; when the same fact lives in two places. wd_mopen IS the record's
+    ; OS88UI_MN_OPEN, at the same address.
+%define WD_MNREC_SZ 58
+    WDVAR wd_mnrec, WD_MNREC_SZ
+%define WD_DREC_SZ 24           ; OS88UI_DR_SIZE, a literal for WDVAR's reason
+    WDVAR wd_dstyle, WD_DREC_SZ ; the ruler's Style combo (SPEC.md 68.2.3)
+    WDVAR wd_dfont, WD_DREC_SZ  ; ...the ribbon's Font combo
+    WDVAR wd_dpts, WD_DREC_SZ   ; ...and its Pts combo
+wd_mopen  equ wd_mnrec + 16     ; byte: the open dropdown, WD_M_NONE = none;
+                                ; 0..8, one of the nine bar titles. The three
+                                ; combos used to be 9..11 here and are
+                                ; os88ui_drop records now (SPEC.md 68.2.3)
+wd_mhi    equ wd_mnrec + 17     ; byte: the XOR-highlighted item, 0xFF = none
+wd_mink   equ wd_mnrec + 18     ; byte: the ink a dropped menu's runs letter in
+wd_mrx1   equ wd_mnrec + 20     ; word } the open dropdown's rectangle,
+wd_mry1   equ wd_mnrec + 22     ; word } computed once by wd_mgeo and read by
+wd_mrx2   equ wd_mnrec + 24     ; word } painter, hit test, highlight and close
+wd_mry2   equ wd_mnrec + 26     ; word } repaint alike (the fm_hit discipline)
+wd_suseg  equ wd_mnrec + 36     ; word: the save-under claim's segment
+wd_sukb   equ wd_mnrec + 38     ; word: its size in KB, for the free
+wd_surx1  equ wd_mnrec + 40     ; word } the rect actually banked - the panel
+wd_sury1  equ wd_mnrec + 42     ; word } GROWN by its shadow and clamped,
+wd_surx2  equ wd_mnrec + 44     ; word } computed once on the way down so the
+wd_sury2  equ wd_mnrec + 46     ; word } way back cannot disagree by a pixel
     WDVAR wd_about, 1       ; byte: the About box is up (modal)
     WDVAR wd_quit, 1        ; byte: File > Close/Exit ran - the worker
                             ; finishes the teardown (wd_worker .quit)
     WDVAR wd_stok, 1        ; byte: wd_stold describes the strip
     WDVAR wd_stkf, 1        ; byte: the CAPS/NUM bits the lamps show
-    WDVAR wd_mink, 1        ; byte: the ink a dropped menu's runs letter in -
-                            ; CBLACK, or CDGRAY when the item is dead
-                            ; (SPEC.md 68.14). Decided at the same branch that
-                            ; decides OSAPI_GFX_PEN's CF, because a package
-                            ; cannot read the pen back, and it took the pad
-                            ; byte that used to keep the words below even -
-                            ; which wd_dink then needed back (wd_mpad)
+                            ; (wd_mink is an alias into wd_mnrec now - see
+                            ; the record above. It is the ink a dropped menu's
+                            ; runs letter in: CBLACK, or CDGRAY when the item
+                            ; is dead (SPEC.md 68.14), decided at the same
+                            ; branch that decides OSAPI_GFX_PEN's CF, because
+                            ; a package cannot read the pen back)
     WDVAR wd_dink, 1        ; byte: the same answer for a DIALOG's controls,
                             ; banked by wd_dpen (SPEC.md 6.6.5)
     WDVAR wd_mpad, 1        ; byte: ...and the pad BACK, because two ink bytes
                             ; landed where one did and the words below have to
                             ; stay even again
     WDVAR wd_cbuf, 2        ; wd_btn12's one character and its NUL
-    WDVAR wd_mrx1, 2        ; word } the open dropdown's rectangle, computed
-    WDVAR wd_mry1, 2        ; word } once by wd_mgeo and read by painter, hit
-    WDVAR wd_mrx2, 2        ; word } test, highlight and close repaint alike
-    WDVAR wd_mry2, 2        ; word } (the fm_hit discipline)
     WDVAR wd_eodel, 2       ; word: the signed index shift this redraw's edit
                             ; made (+1 insert, -1 backspace), or 0 - which is
                             ; both "not that kind of edit" and "the early-out
@@ -20973,21 +20457,18 @@ section .text
                             ; the grow box right to the pixel, so the full
                             ; repaint must not take them off the screen
                             ; (SPEC.md 27.7.2). ONE-SHOT
+    WDVAR wd_chkeep, 1      ; byte: ...and the same claim in the OTHER
+                            ; direction - the menu bar, ribbon, ruler and
+                            ; status strip are right too, so the fill starts
+                            ; below them and ends above the status line and
+                            ; wd_paint draws no chrome (SPEC.md 68.2.4).
+                            ; ONE-SHOT
     WDVAR wd_sbhurt, 1      ; byte: the blit band reached into the scroll
                             ; bar's columns and the strip blanked them, so
                             ; the bar owes a whole redraw (SPEC.md 27.7.2)
-    WDVAR wd_suseg, 2       ; word: the save-under claim's segment while a
-                            ; dropdown is down, 0 = none and the close
-                            ; REPAINTS instead (SPEC.md 68.2.1)
-    WDVAR wd_sukb,  2       ; word: its size in KB, for the free
-    WDVAR wd_surx1, 2       ; word } the rect actually banked - the panel GROWN
-    WDVAR wd_sury1, 2       ; word } by its shadow and clamped, computed once
-    WDVAR wd_surx2, 2       ; word } on the way down so the way back cannot
-    WDVAR wd_sury2, 2       ; word } disagree with it by a pixel
-    WDVAR wd_mabox, 8       ; 4 words: the gesture anchor - the bar title's
-                            ; band or the combo's box (os88ui rect order)
-    WDVAR wd_max,  2        ; word } where a combo's dropdown hangs: its
-    WDVAR wd_may,  2        ; word } box's left edge and the strip's bottom
+                            ; (the save-under's six words, the gesture anchor
+                            ; and the combo's corner are all aliases into
+                            ; wd_mnrec now - see the record above)
     WDVAR wd_abrect, 8      ; 4 words: the About box...
     WDVAR wd_abok, 8        ; 4 words: ...and its OK button
     WDVAR wd_lnv,  2        ; word } the status line's source: the caret's
@@ -21273,7 +20754,24 @@ section .text
 %define OS88UI_SCROLL           ; SPEC.md 13.10: the shared scroll bar. This
                                 ; app had the SEVENTH private implementation
                                 ; of it (13.10.6), and its own header said so
+%define OS88UI_DROP             ; SPEC.md 13.14: the drop-down, for the three
+                                ; ribbon/ruler combos - which were pseudo-menus
+                                ; on the menu element (68.2). OS88UI_DRIH is
+                                ; overridden up with the ruler's geometry, not
+                                ; here: it is a %define, so it has to be set
+                                ; before the first line that reads it and the
+                                ; code is all above this include
+%define OS88UI_MENU             ; SPEC.md 13.16: ...and the in-window menu,
+                                ; which is the same story one control along -
+                                ; docs/plans/UI-MENU-ELEMENT.md
 %include "os88ui.inc"
+
+; wd_mnrec's WDVAR size is a LITERAL (the counter is %assign and cannot see an
+; assembler equ - this file's own WD_PROPDRAW comment is about that exact
+; distinction), so it is checked HERE, where the equ finally exists. Both
+; TIMES are zero when the two agree and nasm refuses a negative one either way.
+    times (WD_MNREC_SZ - OS88UI_MN_SIZE) db 0
+    times (OS88UI_MN_SIZE - WD_MNREC_SZ) db 0
 %include "os88type.inc"         ; SPEC.md 6.5: proportional type, and the band
                                 ; it is composed into. AFTER os88ui.inc for no
                                 ; reason but tidiness - it depends on nothing

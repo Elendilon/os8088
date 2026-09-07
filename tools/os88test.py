@@ -348,6 +348,21 @@ def prebuild(rows):
                   % (YELLOW, len(gone), " ".join(gone), OFF))
         return gone
 
+    # **AND NOTHING BUILDS ANYTHING WHEN WE ARE ALREADY INSIDE A `make`.**
+    # The FAST tier runs as part of `make all`, so a fast row that declares
+    # `wants=` puts this routine inside make - and the plain `make` below then
+    # re-enters `all`, which runs the fast tier, which reaches here again.
+    # That is not a slow build, it is a fork bomb: measured, one `wants=` on a
+    # fast row took a container to hundreds of nested makes in about a minute.
+    # MAKELEVEL is make's own answer to "am I a sub-make", and a tree make is
+    # already bringing current is by definition current.
+    if os.environ.get("MAKELEVEL"):
+        gone = [a for a in want if not os.path.exists(os.path.join(ROOT, a))]
+        if gone:
+            print("%s  %d declared artefact(s) are missing inside a make: %s%s"
+                  % (YELLOW, len(gone), " ".join(gone), OFF))
+        return gone
+
     print("os88test: building %d declared artefact(s): %s"
           % (len(want), " ".join(want)))
     r = subprocess.run(["make", "-s"], cwd=ROOT, capture_output=True, text=True)
