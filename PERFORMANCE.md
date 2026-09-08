@@ -11546,3 +11546,72 @@ Two readings that outlive the question:
    by index, so the nine multiplies a vertex — the part worth sharing — is
    shared already. What is left unshared is scan conversion, and that is
    3.2–11.0% of a frame in total.
+
+### Set 120 — CLEAR SKIES: the back-face cull moved in front of the projection, and the wireframe's per-pixel write priced (SPEC.md §88.5.12, §88.4.3.1, docs/plans/SKIES-FRAME-PLAN.md)
+
+Set 119's two leftovers, both measured with `make skiesprobe` +
+`tests/skiescount.py` on `os8088_5150_herc_gla`, means of 12 exact frames with
+the `OSAPI_FSX_WAIT` out, arms interleaved.
+
+**THE CULL.** `cs_faces` decides a face is back-facing from the signed area of
+its PROJECTED points (§88.5.10), so a culled face has already been counted
+against the near and side planes, gathered by index into `cs_pv` and paid two
+`imul`s — **1,326–1,478 cycles, and 29–60% of walked faces are culled.**
+`cs_axcull` (§88.5.12) decides it first and with **no multiply at all**: a
+stack's side face is an axis-aligned plane in WORLD space when its level pair
+is untapered, so the test is one compare against the eye's own world position,
+and `cs_scale` already has that offset because it is the input to the rotation
+(`dot(M x̂, M d) = d.x` for orthonormal M). 143 bytes.
+
+`[cs_axoff]` is the A/B — one image, one speed, the cull acting or computing
+and not acting:
+
+| | runway | city | tower | dflevel | dfangled | dfsquare |
+|---|---|---|---|---|---|---|
+| the winding alone | 176.08 ms | 181.20 | 204.76 | 236.69 | 260.35 | 253.76 |
+| `cs_axcull` on | 175.05 | 180.55 | 204.12 | **231.05** | **256.64** | **250.09** |
+| | −0.58% | −0.35% | −0.32% | **−2.38%** | **−1.43%** | **−1.45%** |
+| faces walked, off → on | 112→70 | 196→168 | 182→154 | 350→140 | 350→210 | 350→210 |
+
+**`dflevel` — level flight among buildings, where a box shows two of its five
+faces — walks 140 faces where it walked 350, and the winding is left with
+nothing to cull at all.**
+
+**THE WIREFRAME'S PIXEL.** `cs_dblplot` prices one `or [es:di], al` by doing it
+twice (`or` is idempotent, so the picture is identical):
+
+| per frame, wire | dfangled | tower |
+|---|---|---|
+| segments: shallow per-pixel / SLICED / steep / vertical | 9.0 / 23.6 / 7.9 / 6.8 | 8.6 / 21.6 / 9.4 / 7.9 |
+| pixels plotted (shallow / steep / vertical) | 861 (188/327/345) | 601 (133/226/242) |
+| **one plot** | **14.5 cy** | **14.2 cy** |
+| **every plot in the frame** | 2.62 ms (1.5%) | 1.79 ms (0.9%) |
+| **plots a byte accumulator could merge** | 0.37 ms (0.21%) | 0.16 ms (0.08%) |
+
+**The write is 14 cycles of a steep pixel's ~85**, 78% of the pixels are steep
+or vertical and 80 bytes apart so nothing can merge, and above six pixels a row
+the slice already lays runs. §88.13.3's dedup was worth 16.7 ms because it
+removed whole SEGMENTS — ~2,400 cycles each — and because that figure is Mode
+X, where a pixel is an `out` and a store.
+
+**THREE THINGS THE VERIFICATION COST, and they are the value of this set.**
+
+1. **`cs_axcull` must preserve SI.** The caller falls through to `.cnt`, which
+   walks the face's indices with `lodsb` from the SI it already has, where
+   `.plain` reloads it. Invisible on every WHOLE object (§88.3.2) and wrong on
+   every other: one building drawn wrong in a 32×6 patch. **The verdict audit
+   could not see it** — both tests agreed about the face and its indices were
+   then read from the wrong place. The framebuffer A/B found it.
+2. **…and a framebuffer A/B of this program cannot CERTIFY.** Two arms
+   byte-identical in behaviour and speed differ in **2 runs of 6, by 865 and
+   896 pixels**, in a band along the horizon, with the scene pinned and the
+   world paused. Four fixes were tried (capture at a breakpoint, count guest
+   frames, pin the nine flight-state words the position does not, re-pin every
+   frame at the breakpoint) and none removed it. The gate is the VERDICT AUDIT
+   instead — the new test's answer against the old one, face by face on the
+   guest — which reads 0 disagreements over 12 scene-and-fill configurations.
+3. **An A/B that can silently measure NOTHING needs an arm check.** Package bss
+   is zeroed, `cs_axmask` defaulted to 0, `and dl, [cs_axmask]` cleared every
+   axis bit, and the cull was inert in BOTH arms: six scenes read a tidy
+   +0.06%, and the timings looked entirely reasonable. What caught it was
+   printing the counters of what each arm actually did beside the milliseconds.

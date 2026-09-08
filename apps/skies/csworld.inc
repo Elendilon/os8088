@@ -34,13 +34,13 @@
 ; The winding is checked once, in the panel, and every box in the world uses
 ; these four tables.
 %macro CS_SIDES 3                   ; base, the +-z ink, the +-x ink
-    db 4, %2, 0, %1+1, %1+5, %1+4, %1+0     ; +z
-    db 4, %2, 0, %1+3, %1+7, %1+6, %1+2     ; -z
-    db 4, %3, 0, %1+0, %1+4, %1+7, %1+3     ; +x
-    db 4, %3, 0, %1+2, %1+6, %1+5, %1+1     ; -x
+    db 4, %2, CSF_PZ, %1+1, %1+5, %1+4, %1+0     ; +z
+    db 4, %2, CSF_MZ, %1+3, %1+7, %1+6, %1+2     ; -z
+    db 4, %3, CSF_PX, %1+0, %1+4, %1+7, %1+3     ; +x
+    db 4, %3, CSF_MX, %1+2, %1+6, %1+5, %1+1     ; -x
 %endmacro
 %macro CS_TOP 2                     ; base (the level's first index), ink
-    db 4, %2, 0, %1+3, %1+0, %1+1, %1+2
+    db 4, %2, CSF_TOP, %1+3, %1+0, %1+1, %1+2
 %endmacro
 
 cs_f_box:                           ; two levels: four walls and a roof

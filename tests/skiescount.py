@@ -25,6 +25,15 @@ build/skies.bin`).
                 SPEC.md 88.4.2.1 refuses it
     cs_cpy      a duplicate ALSO pays the copy that would stand in for the
                 trace it skips, done INTO SCRATCH in front of the real trace
+    cs_dupgath  ...the gather alone, and cs_duparea the winding cross alone
+    cs_dblplot  a 1bpp line's PLOT, done twice. `or` is idempotent too, so
+                this prices one `or [es:di], al` exactly (SPEC.md 88.4.3.1)
+    cs_axoff    cs_axcull (88.5.12) computes and does NOT act, so the winding
+                decides every face - the A/B for what the cull is worth, and
+                with the counters beside it the AUDIT for whether the two
+                verdicts ever differ. **cs_axmask must be poked to 0xFF**:
+                package bss is zeroed, so it defaults to 0 and the cull is
+                then inert in BOTH arms (docs/plans/SKIES-FRAME-PLAN.md 0.2)
     cs_dupface  every face repeats its PREAMBLE - the gather of its projected
                 vertices by index and the quad's diagonal cross - into
                 scratch. 29-40% of walked faces are then thrown away by the
@@ -130,6 +139,11 @@ def main(argv):
     ap.add_argument("--scene", default="city", choices=sorted(SCENES))
     ap.add_argument("--frames", type=int, default=12)
     ap.add_argument("--count-frames", type=int, default=8)
+    ap.add_argument("--fill", default="all", choices=("all", "wire", "terrain",
+                                                      "bldg"),
+                    help="[cs_setfill]: `wire` clears both bits, so every face "
+                         "is its OUTLINE (SPEC.md 88.13.3) and the frame is "
+                         "segments rather than polygons")
     a = ap.parse_args(argv)
     os.chdir(ROOT)
     MP = probemap()
@@ -152,8 +166,8 @@ def main(argv):
         m.type_text("f")
         m.advance(frames=30)
         m.run()
-        print("  backend %d, view %dx%d, scene %s"
-              % (w("cs_back") & 0xFF, w("cs_ww"), w("cs_wh"), a.scene))
+        print("  backend %d, view %dx%d, scene %s, fill %s"
+              % (w("cs_back") & 0xFF, w("cs_ww"), w("cs_wh"), a.scene, a.fill))
 
         # --- pin the scene: skiesperf.py's poke, and its skip-table clear ---
         sc = SCENES[a.scene]
@@ -167,6 +181,8 @@ def main(argv):
             poke("cs_pitch", ((pitch * 65536 // 360) & 0xFFFF).to_bytes(2, "little"))
             poke("cs_roll", ((roll * 65536 // 360) & 0xFFFF).to_bytes(2, "little"))
             poke("cs_state", b"\x01")
+        poke("cs_setfill", bytes([{"all": 3, "terrain": 1, "bldg": 2,
+                                   "wire": 0}[a.fill]]))
         poke("cs_pause", b"\x01")
         ap_ = w("cs_airport")           # a poke is a teleport: SPEC.md 88.5.2's
         objs = int.from_bytes(m.read(lin + ap_ + 18, 2), "little")
@@ -184,7 +200,10 @@ def main(argv):
         m.wait_stop(20)                 # a warm-up frame, discarded
         for n in ("cs_dbg_etr", "cs_dbg_edup", "cs_dbg_ecut", "cs_dbg_erow",
                   "cs_dbg_edrow", "cs_dbg_fwalk", "cs_dbg_fcull",
-                  "cs_dbg_fpoly", "cs_dbg_fout", "cs_dbg_fbox", "cs_dbg_ftr"):
+                  "cs_dbg_fpoly", "cs_dbg_fout", "cs_dbg_fbox", "cs_dbg_ftr",
+                  "cs_dbg_wsh", "cs_dbg_wsl", "cs_dbg_wst", "cs_dbg_wvt",
+                  "cs_dbg_wshpx", "cs_dbg_wshby", "cs_dbg_wstpx",
+                  "cs_dbg_wvtpx"):
             m.write(lin + base + off(n), b"\x00\x00")
         N = a.count_frames
         m.run()
@@ -211,6 +230,21 @@ def main(argv):
         print("  rows/frame:  %.1f traced, %.1f duplicate (%.1f%%), %.1f rows a "
               "trace" % (row / N, drow / N, 100.0 * drow / max(row, 1),
                          row / max(tr, 1)))
+
+        wsh, wsl = w("cs_dbg_wsh"), w("cs_dbg_wsl")
+        wst, wvt = w("cs_dbg_wst"), w("cs_dbg_wvt")
+        shpx, shby = w("cs_dbg_wshpx"), w("cs_dbg_wshby")
+        stpx, vtpx = w("cs_dbg_wstpx"), w("cs_dbg_wvtpx")
+        px = shpx + stpx + vtpx
+        print("  1bpp line walk/frame: %.1f shallow per-pixel, %.1f shallow "
+              "SLICED, %.1f steep, %.1f vertical"
+              % (wsh / N, wsl / N, wst / N, wvt / N))
+        print("    pixels plotted %.1f (shallow %.1f, steep %.1f, vertical "
+              "%.1f)" % (px / N, shpx / N, stpx / N, vtpx / N))
+        print("    the shallow ones land in %.1f DISTINCT BYTES, so %.1f plots "
+              "(%.1f%% of all) could merge into one write"
+              % (shby / N, (shpx - shby) / N,
+                 100.0 * (shpx - shby) / max(px, 1)))
 
         # --- the tick wait out, for the whole run (skiesperf.py's rule: a
         #     frame faster than a tick reads 55 ms and every arm reads it) ---
@@ -304,14 +338,36 @@ def main(argv):
               "a flag): %+.2f ms (%+.2f%%)"
               % (save - stat * tr / N - cpe * dup / N,
                  100 * (save - stat * tr / N - cpe * dup / N) / base_ms))
+        g0, g1 = ab("cs_dupgath")
+        a0_, a1_ = ab("cs_duparea")
         f0, f1 = ab("cs_dupface")
         fpre = (f1 - f0) / max(fw / N, 1)
         print("  a face's PREAMBLE (its gather by index + the winding cross) = "
               "%.0f cycles, %.2f ms a frame over %.1f walked"
               % (fpre / 1000 * CPS, fpre * fw / N, fw / N))
+        gth = (g1 - g0) / max(fw / N, 1)
+        are = (a1_ - a0_) / max(fw / N, 1)
+        print("      of which the GATHER %.0f cycles and the CROSS %.0f "
+              "(%.0f measured whole)"
+              % (gth / 1000 * CPS, are / 1000 * CPS, fpre / 1000 * CPS))
         print("    the %.1f BACK-CULLED faces = %.2f ms (%.2f%%) <== what an "
               "earlier cull could reach"
               % (fc / N, fpre * fc / N, 100 * fpre * (fc / N) / base_ms))
+        print("      ...of which reordering alone - the CROSS off the indices "
+              "BEFORE the gather - reaches %.2f ms (%.2f%%)"
+              % (gth * fc / N, 100 * gth * (fc / N) / base_ms))
+        if px:
+            p0, p1 = ab("cs_dblplot")
+            ppl = (p1 - p0) / max(px / N, 1)
+            print("  --- THE 1bpp PLOT ---")
+            print("  ONE `or [es:di],al` plot = %.1f cycles; ALL %.0f of them = "
+                  "%.2f ms (%.1f%% of the frame)"
+                  % (ppl / 1000 * CPS, px / N, ppl * px / N,
+                     100 * ppl * (px / N) / base_ms))
+            print("    the %.1f MERGEABLE plots = %.2f ms (%.2f%%) <== the "
+                  "ceiling of a byte accumulator"
+                  % ((shpx - shby) / N, ppl * (shpx - shby) / N,
+                     100 * ppl * ((shpx - shby) / N) / base_ms))
 
 
 if __name__ == "__main__":
