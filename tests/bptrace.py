@@ -143,10 +143,22 @@ def main():
 
         # --- 3. the invariants the pump is built on --------------------------
         print("\n3. the two fixes the pump inherits from bp_count")
-        ins = [h["instructions"] for h in tr.hits]
-        check(len(ins) == len(set(ins)),
-              "every stop deduped on `instructions` (%d kept, %d distinct)"
-              % (len(ins), len(set(ins))))
+        # DEDUPED ON THE SERVER'S `stops` SEQUENCE, not on `instructions`.
+        # The pump was written to use the latter and it is not a clock:
+        # machine.run() accumulates that count at the END of a batch and
+        # returns early when a breakpoint hits, so the batch a stop lands in
+        # never reaches it, and what separated two stops was the single
+        # instruction the resume itself steps. `stops` counts entries into a
+        # stopped state and is exact.
+        seq = [h["stops"] for h in tr.hits if h["stops"] is not None]
+        if seq:
+            check(len(seq) == len(set(seq)) and seq == sorted(seq),
+                  "every stop carries a distinct, increasing `stops` "
+                  "(%d kept, %s)" % (len(seq), seq[:6]))
+        else:
+            check(len(tr.hits) == len(set(h["cycles"] for h in tr.hits)),
+                  "no `stops` field - the cycles fallback deduped %d stop(s)"
+                  % len(tr.hits))
         check(all(h["name"] in ("wm_draw_win", "wm_show", "menu_draw_bar")
                   for h in tr.hits),
               "every stop resolved to an armed symbol, none to a raw address")
@@ -293,6 +305,24 @@ def main():
                 check(False, "required=True must raise on a timeout")
             except MartyError:
                 check(True, "...and required=True raises")
+
+        # --- 11. the stop already there is not charged to the block ---------
+        print("\n11. a stop the block did not cause is not counted")
+        # What `go()`'s mark buys, and the third thing bp_count was found to
+        # be counting. A machine already sitting at a breakpoint when the
+        # block opens has not been stopped BY the block, and recording it
+        # attributes a stop to a gesture that had not been made yet.
+        closed(ui)
+        m.bp_exec("wm_draw_win")
+        ui.open_drive("B")                  # ...freezes the guest, as in 1
+        was = m.status().get("state")
+        check(was == "breakpoint", "the guest is parked at a stop (%r)" % was)
+        with os88marty.bp_trace(m, "wm_show") as tr10:
+            os88marty.guest_sleep(m, 1.0)   # nothing opens a window here
+        check(tr10.n == 0,
+              "the parked stop was not charged to the block (n=%d)" % tr10.n)
+        check(m.status().get("state") == "running",
+              "...and the block released the machine it found stopped")
 
     print("")
     if fails:

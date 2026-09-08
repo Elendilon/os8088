@@ -631,9 +631,12 @@ gesture, `tools/os88span.py`'s arm-late pattern is still cheaper.
 **Two failures it inherits from `bp_count`, both of which cost a run.** It
 counts `"breakpoint"` and never `!= "running"` — `advance()` and `pause()`
 from the body leave the guest `paused`, and a pump that resumed those would
-cut the body's own `advance` short. And it dedupes on `instructions`, because
-`run` and the `status` after it are two round trips and the resume has not
-always landed by the next poll.
+cut the body's own `advance` short. And it dedupes on the server's `stops`
+sequence, because `run` and the `status` after it are two round trips and the
+resume has not always landed by the next poll — see *tell a stop from the next
+one* above; it was written to dedupe on `instructions`, which is not a clock.
+It enters through `go()`, so the stop a machine may already have been sitting
+at when the block opened is not charged to the block.
 
 **Without a trace, an armed breakpoint now says so.** `os88mouse`'s polls
 watch the guest clock the way `_Progress` does, so a breakpoint armed outside

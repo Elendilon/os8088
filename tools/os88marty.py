@@ -2525,10 +2525,13 @@ def bp_count(m, target, act, arm=0.6, quiet=3.0, first=14.0, limit=120.0):
 #     learned this as a COUNTING error; here it would be a control one, which
 #     is worse.
 #
-#   IT DEDUPES ON `instructions`. `status` and the `run` after it are two
-#     round trips and the resume has not always landed by the next poll, so
-#     one stop reports twice. The guest's instruction count cannot repeat, so
-#     it tells a repeat report from a second entry and hides nothing real.
+#   IT DEDUPES ON THE SERVER'S `stops` SEQUENCE. `status` and the `run` after
+#     it are two round trips and the resume has not always landed by the next
+#     poll, so one stop reports twice and reads `"breakpoint"` both times.
+#     `_mark`/`_newer` above are the rule; this was written to dedupe on
+#     `instructions`, which is not a clock - `machine.run()` accumulates that
+#     count at the END of a batch and returns early when a breakpoint hits, so
+#     the batch a stop lands in never reaches it.
 #
 # WHAT IT CANNOT DO, said here rather than discovered: a hit costs two or
 # three round trips plus up to `poll` seconds of stopped guest, so a
@@ -2593,7 +2596,7 @@ class BpTrace:
             self._by_addr.setdefault(addr & 0xFFFFF, t if isinstance(t, str)
                                      else "%05X" % addr)
             self._bps.append({"type": "exec", "addr": addr})
-        self._seen = set()
+        self._mark0 = None      # the mark __enter__'s resume found
         self._stop = threading.Event()
         self._thread = None
         self._lock = threading.Lock()
@@ -2601,18 +2604,37 @@ class BpTrace:
     # --- the pump ------------------------------------------------------------
 
     def _pump(self):
+        mark = self._mark0                  # what `__enter__`'s resume found
         while not self._stop.is_set():
             try:
                 st = self.m.status()
-                # `== "breakpoint"`, never `!= "running"` - see the note above.
+                # TWO TESTS, AND THEY ARE NOT THE SAME ONE.
+                #
+                # `_newer` asks whether this is a stop the trace has not been
+                # told about. It has to, because a stop and the SAME stop
+                # polled again both read `"breakpoint"` - the resume is two
+                # round trips and has not always landed by the next poll.
+                # This deduped on `instructions` and that was WRONG, not
+                # merely redundant: `machine.run()` accumulates that count at
+                # the END of a batch and returns early when a breakpoint hits,
+                # so every batch a stop lands in is discarded from it, and what
+                # separated two stops was the single instruction the resume
+                # itself steps. `stops` is the server's own sequence number
+                # and is exact (`_mark`/`_newer` above).
+                #
+                # `== "breakpoint"` then asks whether it is OURS. `advance()`
+                # and `pause()` from the body leave the guest `"paused"`, which
+                # is a new stop by the first test and is not this pump's to
+                # resume: resuming it would cut the body's own `advance` short
+                # from another thread.
+                if not self.m._newer(st, mark):
+                    self._stop.wait(self.poll)
+                    continue
                 if st.get("state") != "breakpoint":
                     self._stop.wait(self.poll)
                     continue
-                ins = st.get("instructions")
-                if ins not in self._seen:
-                    self._seen.add(ins)
-                    self._record(st)
-                self.m.run()
+                self._record(st)
+                mark = self.m._mark(self.m.run(), resumed=True)
             except Exception as e:                  # the emulator went away,
                 self.error = e                      # or a symbol is wrong:
                 return                              # exit re-raises it
@@ -2622,7 +2644,7 @@ class BpTrace:
         flat = ((st.get("cs", 0) << 4) + st.get("ip", 0)) & 0xFFFFF
         rec = {"name": self._by_addr.get(flat, "?%05X" % flat),
                "addr": flat, "cycles": int(st.get("cycles", 0)),
-               "instructions": st.get("instructions"),
+               "stops": st.get("stops"), "instructions": st.get("instructions"),
                "cs": st.get("cs"), "ip": st.get("ip")}
         if self.regs_wanted:
             # ONE extra round trip, and only when asked. A register is what
@@ -2748,9 +2770,15 @@ class BpTrace:
         # alone and needs no help - it watches the CLOCK, and a pumped guest's
         # clock keeps moving.
         self.m._pumping += 1
+        # `go` and not `run`: it CONFIRMS the release and hands back the mark
+        # the pump compares against, so the stop the machine may already have
+        # been sitting at when the block opened is not charged to this trace -
+        # the third thing `bp_count` was found to be counting. It also raises
+        # here, at the call that made the resume, if the guest will not take
+        # one, instead of twenty lines later as a breakpoint that never fires.
+        self._mark0 = self.m.go()
         self._thread = threading.Thread(target=self._pump, daemon=True)
         self._thread.start()
-        self.m.run()
         return self
 
     def __exit__(self, exc_type, exc, tb):
