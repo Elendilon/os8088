@@ -218,6 +218,10 @@ dd_step:
     jne .laid
     ret                             ; no layout yet, so no tiles, no speeds and
 .laid:                              ; nothing to divide by
+    cmp byte [dd_abon], 0
+    je .live
+    ret                             ; SUSPENDED behind the About card, which is
+.live:                              ; why nothing under it can change and the
     inc word [dd_anim]
     call dd_pill_tick
     mov al, [dd_state]
@@ -853,22 +857,44 @@ dd_gh_leave:
     ret
 
 ; --- eyes going home ----------------------------------------------------------
+;
+; ONE TABLE READ, and no search at all (SPEC.md 93.8.5). Every greedy version
+; of this failed the same way - dd_gh_aim descends a distance it cannot see
+; round corners, so the eyes took a side corridor and either circled the board
+; or ping-ponged between two tiles for ever. dd_home_map walks the board once
+; when it is decoded and leaves, in every reachable tile, the direction that
+; steps one tile closer to the pen; here that is a byte to read.
+;
+; dd_dir is written as well as dd_want because the route may double back on
+; the way the eyes were travelling, and dd_gh_legal will not let a ghost
+; reverse. The route is a shortest path, so a step it names is always onto a
+; tile that is not a wall.
 dd_gh_home:
     call dd_at_tile
     jnc .out
     call dd_tile_of
     cmp cl, DD_HOMEC
-    jne .aim
+    jne .route
     cmp ch, DD_HOUSER
-    jne .aim
-    mov bx, [dd_gi]                 ; back in the pen: it re-grows a body and
-    mov byte [dd_gs + bx], GS_OUT   ; comes straight back out
+    je .arrived
+.route:
+    call dd_tindex
+    mov bx, ax
+    mov al, [dd_hdir + bx]
+    cmp al, 4
+    jae .aim                        ; unmapped: a board with no pen, or a tile
+    mov [dd_want + si], al          ; the walk could not reach
+    mov [dd_dir + si], al
     ret
 .aim:
     mov al, DD_HOMEC
-    mov ah, DD_HOUSER
+    mov ah, DD_HOMER
     call dd_gh_aim
 .out:
+    ret
+.arrived:
+    mov bx, [dd_gi]                 ; back in the pen: it re-grows a body and
+    mov byte [dd_gs + bx], GS_OUT   ; comes straight back out
     ret
 
 ; --- frightened: a real choice, taken at random -------------------------------
@@ -1063,8 +1089,8 @@ dd_gh_legal:
     push ax
     push bx
     push cx
-    mov bl, [dd_dir + si]
-    cmp bl, DIR_NONE
+    mov bl, [dd_dir + si]           ; a ghost may not reverse: the rule is what
+    cmp bl, DIR_NONE                ; stops one pacing in front of the player
     je .norev
     xor bh, bh
     cmp al, [dd_rev + bx]
@@ -1486,6 +1512,13 @@ dd_collide:
     mov byte [dd_gs + bx], GS_EYES  ; ...and dd_shown is LEFT ALONE: it has not
                                     ; moved, so its next band is its own box
                                     ; and the eyes land exactly over the ghost
+    cmp byte [dd_demo], 0
+    je .score
+    mov byte [dd_gs + bx], GS_ROAM  ; ...except on the ATTRACT SLICE, where the
+                                    ; ghost house is above dd_rmin and reads as
+                                    ; WALL: a pair of eyes there can never get
+                                    ; home and wanders the strip for ever
+.score:
     call dd_ghost_score
     mov word [dd_gpause], DD_EATPAUSE
     mov ax, 1200

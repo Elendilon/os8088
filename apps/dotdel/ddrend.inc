@@ -822,6 +822,25 @@ dd_actor_prep:
     cmp byte [dd_alive + si], 0
     je .none
     call dd_actor_px                ; [dd_nx]/[dd_ny] now, [dd_px]/[dd_py] then
+    ; --- has anything about it changed at all? ------------------------------
+    cmp byte [dd_still], 0
+    je .move
+    cmp byte [dd_shown + si], 0
+    je .move
+    mov bx, si
+    shl bx, 1
+    mov ax, [dd_ox + bx]
+    cmp ax, [dd_nx]
+    jne .move
+    mov ax, [dd_oy + bx]
+    cmp ax, [dd_ny]
+    jne .move
+    mov al, [dd_img + si]
+    cmp al, [dd_limg + si]
+    jne .move
+    mov byte [dd_uok + si], 2       ; same place, same picture: leave it there
+    ret
+.move:
     ; --- the pixel union of the two boxes -----------------------------------
     mov ax, [dd_nx]
     mov bx, [dd_px]
@@ -945,8 +964,11 @@ dd_actor_px:
 ; in:  SI = the actor. Clobbers everything but SI.
 ; -----------------------------------------------------------------------------
 dd_actor_emit:
+    cmp byte [dd_uok + si], 2
+    je .out
     cmp byte [dd_uok + si], 0
     je .gone
+    mov byte [dd_drewany], 1
     cmp byte [dd_utel + si], 0
     je .main
     mov byte [dd_utel + si], 0
@@ -979,10 +1001,13 @@ dd_actor_emit:
     mov al, [dd_inkof + si]
     call dd_band_emit
     mov byte [dd_shown + si], 1
+    mov al, [dd_img + si]
+    mov [dd_limg + si], al
     ret
 .gone:
     cmp byte [dd_shown + si], 0
     je .out
+    mov byte [dd_drewany], 1
     call dd_wipe_old
     mov byte [dd_shown + si], 0
 .out:
@@ -1573,6 +1598,7 @@ dd_text_w:
 dd_forget:
     push si
     mov word [dd_ovw], 0
+    mov word [dd_ovsi], 0
     xor si, si
 .a:
     mov byte [dd_shown + si], 0
@@ -1592,6 +1618,9 @@ dd_draw:
                                     ; needs a count to check it against
     cmp byte [dd_ok], 0
     je dd_draw_toosmall
+    mov byte [dd_drewany], 0
+    cmp byte [dd_abon], 0
+    jne .about                      ; the card is up and dd_step is suspended
     cmp byte [dd_full], 0
     je .parts
     inc word [dd_fulls]
@@ -1599,6 +1628,19 @@ dd_draw:
     mov byte [dd_full], 0
     jmp short .over
 .parts:
+    ; A FRAME IN WHICH NOTHING MOVED DRAWS NOTHING (SPEC.md 93.5.6). Paused,
+    ; behind READY!, waiting on the board flash - the actors are where they
+    ; were and their images are the ones they had, and five bands of identical
+    ; pixels is 65% of a 4.77 MHz machine for a picture nobody can tell from
+    ; the last one. dd_still says the FRAME has nothing global owed; each actor
+    ; then decides for itself in dd_actor_prep.
+    mov al, [dd_pilrf]
+    or al, [dd_frdirty]
+    mov byte [dd_still], 1
+    or al, al
+    jz .stillok
+    mov byte [dd_still], 0
+.stillok:
     call dd_is_attract
     jc .attract
     call dd_pill_refresh
@@ -1613,8 +1655,16 @@ dd_draw:
     call dd_attract_draw
 .over:
     call dd_overlay
-    cmp byte [dd_abon], 0
-    je .out
+.out:
+    ret
+.about:
+    cmp byte [dd_full], 0           ; ...so the only thing that can change
+    je .out                         ; under it is the WINDOW
+    inc word [dd_fulls]
+    mov byte [dd_still], 0
+    call dd_draw_all
+    mov byte [dd_full], 0
+    call dd_overlay
     push bx
     push si
     mov bx, [dd_win]
@@ -1622,7 +1672,6 @@ dd_draw:
     call os88ui_about_d
     pop si
     pop bx
-.out:
     ret
 
 ; A surface too small for a board says so rather than drawing a broken one.
@@ -1665,6 +1714,8 @@ dd_draw_all:
                                     ; and it happens when the window is
                                     ; painted rather than when it is playing
     call dd_forget
+    mov byte [dd_still], 0
+    mov byte [dd_hudall], 1
     call dd_is_attract
     jc .attract
     call dd_walls_blit
@@ -1774,27 +1825,53 @@ dd_fruit_force:
 ; Clobbers everything.
 ; -----------------------------------------------------------------------------
 dd_hud_draw:
+    ; ONE FIELD, NOT THE PANEL. The score moves on every dot - four or five
+    ; times a second - and lettering all seven lines for it was ~20 ms on top
+    ; of a ~28 ms frame, which on a real 4.77 MHz Hercules is the difference
+    ; between every frame and every other one. The labels never change at all
+    ; and the other three numbers change on a life, a level or a new high, so
+    ; each line is drawn only when its own value did (SPEC.md 93.5.6).
     mov ax, [dd_hy]
     mov [dd_hrow], ax
     mov si, dd_s_score
-    call dd_hud_label
+    call dd_hud_lab
     mov ax, [dd_score]
-    mov dx, [dd_score+2]
+    mov dx, [dd_score + 2]
+    mov di, dd_lscore
     call dd_hud_num
     call dd_hud_gap
     mov si, dd_s_high
-    call dd_hud_label
+    call dd_hud_lab
     call dd_hs_top                  ; DX:AX = the table's top row, or this
-    call dd_hud_num                 ; game's score if it has passed it
+    mov di, dd_lhigh                ; game's score if it has passed it
+    call dd_hud_num
     call dd_hud_gap
     mov si, dd_s_level
-    call dd_hud_label
+    call dd_hud_lab
     mov al, [dd_level]
     xor ah, ah
     xor dx, dx
+    mov di, dd_llevel
     call dd_hud_num
     call dd_hud_gap
     call dd_hud_lives
+    mov byte [dd_hudall], 0
+    ret
+
+; dd_hud_lab - SI = a label, drawn only when the whole panel is owed. Either
+;              way the pen moves down a line.
+dd_hud_lab:
+    cmp byte [dd_hudall], 0
+    jne dd_hud_label
+    jmp short dd_hud_row
+
+; dd_hud_row - the pen down one line, drawing nothing
+dd_hud_row:
+    push ax
+    mov ax, [dd_hrow]
+    add ax, DD_HUDROW
+    mov [dd_hrow], ax
+    pop ax
     ret
 
 dd_hud_label:
@@ -1815,14 +1892,31 @@ dd_hud_label:
     pop ax
     ret
 
-; dd_hud_num - DX:AX as decimal, padded to the HUD's width so the old digits
-;              go with the new ones - a shorter number over a longer one is the
-;              classic way to leave a stray digit on the glass
+; dd_hud_num - DX:AX as decimal at DI's banked copy, padded to the HUD's width
+;              so the old digits go with the new ones - a shorter number over a
+;              longer one is the classic way to leave a stray digit on the
+;              glass. DRAWN ONLY WHEN THE VALUE MOVED.
 dd_hud_num:
     push si
+    push di
+    cmp byte [dd_hudall], 0
+    jne .draw
+    cmp ax, [di]
+    jne .draw
+    cmp dx, [di + 2]
+    je .same
+.draw:
+    mov [di], ax
+    mov [di + 2], dx
     call dd_dec32
     mov si, dd_numbuf
     call dd_hud_label
+    pop di
+    pop si
+    ret
+.same:
+    call dd_hud_row
+    pop di
     pop si
     ret
 
@@ -1845,6 +1939,14 @@ DD_LIVEMAX equ 5
 
 dd_hud_lives:
     push si
+    cmp byte [dd_hudall], 0
+    jne .draw
+    mov al, [dd_lives]
+    cmp al, [dd_llives]
+    je .same
+.draw:
+    mov al, [dd_lives]
+    mov [dd_llives], al
     mov si, dd_s_lives
     call dd_hud_label
     mov al, [dd_lives]
@@ -1852,6 +1954,12 @@ dd_hud_lives:
     jbe .n
     mov al, DD_LIVEMAX
 .n:
+    jmp short .go
+.same:
+    call dd_hud_row
+    pop si
+    ret
+.go:
     mov [dd_ltmp], al
     ; a clean band, five tiles wide
     mov ax, [dd_tw]
@@ -2034,9 +2142,16 @@ dd_overlay:
     jz .none
     mov si, dd_s_clear
 .put:
+    cmp si, [dd_ovsi]               ; the same line as last frame, over pixels
+    jne .draw                       ; nothing has touched? Then it is still
+    cmp byte [dd_drewany], 0        ; there. READY! was being lettered 18 times
+    je .out                         ; a second at ~5 ms a go
+.draw:
+    mov [dd_ovsi], si
     call dd_centre_line
     ret
 .none:
+    mov word [dd_ovsi], 0
     cmp word [dd_ovw], 0
     je .out
     mov al, CBLACK                  ; a message came down: the row under it is

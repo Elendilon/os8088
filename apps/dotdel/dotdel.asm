@@ -236,6 +236,10 @@ dd_entry:
     call OSAPI_WM_ONRESIZE          ; the box moved under us - a drag across a
                                     ; display seam is the case that matters
                                     ; (SPEC.md 93.4)
+    mov byte [dd_snd], 1            ; ON by default: a maze chase that has to be
+                                    ; switched on from a menu before it makes a
+                                    ; sound is one that has none, and Game ->
+                                    ; Sound is the way off
     call dd_font_get                ; the glyph table, once (SPEC.md 93.5.5)
     call dd_hs_init
     call dd_hs_load
@@ -912,6 +916,14 @@ dd_s_small:  db 'Window too small.', 0
     DBYTEV dd_hasfoc
     DBYTEV dd_snd
     DBYTEV dd_hudd                  ; the HUD has changed under itself
+    DBYTEV dd_hudall                ; ...and ALL of it is owed, labels included
+    DBUFV  dd_lscore, 4             ; what each HUD field last had on the glass
+    DBUFV  dd_lhigh, 4
+    DBUFV  dd_llevel, 4
+    DBYTEV dd_llives
+    DBYTEV dd_still                 ; nothing GLOBAL is owed this frame...
+    DBYTEV dd_drewany               ; ...and in the end nothing was drawn
+    DWORDV dd_ovsi                  ; the overlay line last lettered
 
 ; --- fullscreen ---------------------------------------------------------------
     DBYTEV dd_fsx                   ; a bracket is up
@@ -948,6 +960,12 @@ dd_s_small:  db 'Window too small.', 0
     DWORDV dd_ndots
     DBYTEV dd_rmin                  ; rows above this are wall (the demo slice)
     DBUFV  dd_rowoff, DD_ROWS * 2   ; row * DD_COLS, so dd_tile has no MUL
+    DBUFV  dd_hdir, DD_COLS * DD_ROWS   ; the way home from every tile, walked
+    DBUFV  dd_hq, DD_COLS * DD_ROWS * 2 ; once a board (SPEC.md 93.8.5)
+    DWORDV dd_hqh
+    DWORDV dd_hqt
+    DBYTEV dd_hpc
+    DBYTEV dd_hpr
     DBUFV  dd_pilc, DD_NPILL        ; where the pellets are, so the blink
     DBUFV  dd_pilr, DD_NPILL        ; does not have to go and look
     DWORDV dd_piln
@@ -1034,6 +1052,7 @@ dd_s_small:  db 'Window too small.', 0
     DBUFV  dd_alive, DD_NACT
     DBUFV  dd_shown, DD_NACT
     DBUFV  dd_img, DD_NACT
+    DBUFV  dd_limg, DD_NACT         ; ...and the image it was last DRAWN with
     DBUFV  dd_inkof, DD_NACT
     DBUFV  dd_nc0, DD_NACT          ; the tile rectangle of each actor's band
     DBUFV  dd_nc1, DD_NACT          ; for this frame (SPEC.md 93.5.1)

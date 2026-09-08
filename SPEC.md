@@ -108063,6 +108063,58 @@ actor reaches it and comes back after, and it needs a second blit per actor
 per frame to put the vacated tiles back. Being briefly the wrong colour is a
 smaller lie than not being there.
 
+#### 93.5.6 A frame in which nothing moved draws nothing
+
+Paused, behind READY!, waiting on the board flash, or with the About card up —
+the actors are where they were, their images are the ones they had, and five
+bands of identical pixels were still going down eighteen times a second. On a
+real 4.77 MHz Hercules the Task Manager read the package at **65% of the
+machine while the game was paused**, for a picture nobody could tell from the
+last one.
+
+Three things now decide not to draw, in the order they are cheapest:
+
+* **the About card SUSPENDS the game.** `dd_step` returns at once while it is
+  up, so nothing under the card can change and the card is redrawn only when
+  the window itself is (§20.5.1's dismiss already owes a full repaint). It was
+  redrawn on top of a moving board every frame, which is what "the About screen
+  flashes when brought up" was.
+* **an actor whose position AND image are the ones it was last drawn with is
+  left alone.** The frame-level `dd_still` says nothing global is owed — no
+  pellet phase turned over, no fruit changed, no whole repaint — and each actor
+  then answers for itself.
+* **the centred message is lettered once.** READY! was going down at ~5 ms a
+  time, eighteen times a second, over pixels nothing had touched; it is drawn
+  again only when the line changes or an actor drew over it.
+
+Measured off the kernel's own per-task cycle counters — `sch_cycles` against
+`sch_idleslot`, which is the number the Task Manager shows — on a Hercules
+5150 running the game windowed:
+
+| state | share of the machine |
+|---|---:|
+| playing, 18 fps | 62.4% |
+| **paused** | **23.2%** |
+| **About card up** | **11.7%** |
+
+The 65% the field reported paused is 23%, and the About card, which was the
+most expensive state on the machine, is now the cheapest. Nothing about the
+playing figure moved: a frame in which things DID move still draws them.
+
+#### 93.5.6.1 …and the HUD draws the FIELD that changed
+
+The score moves on **every dot** — four or five times a second — and lettering
+all seven lines for it is **~20 ms on top of a ~28 ms frame**, which on the
+target machine is exactly the difference between every frame and every other
+one. The field report was *"1 frame drawn every 2 frames or so when Smiles is
+crossing dots, smooth when he is not"*, and that is the sentence: crossing a
+dot is what makes the HUD dirty.
+
+The labels never change, and the high score, the level and the lives change on
+a life, a level or a new record. Each line is drawn only when its own value
+moved, and a whole panel is owed only by a full repaint. A dot now costs one
+nine-cell number, ~2.5 ms.
+
 #### 93.5.5 Text is a band too — and the margin is 11%, not 30×
 
 Every line this package letters — the HUD, the score table, the play line, the
@@ -108258,10 +108310,19 @@ they go down. It frightens a ghost that is **walking out of the pen** as well
 as one already loose: one that did not was a ghost that killed Smiles while
 every other one ran away, which is what "I still died running into one" turned
 out to be. A frightened ghost turns at random and forgets whatever it was
-tracking; an eaten one becomes a pair of eyes, goes home fast through the
-door, and comes straight back out. A ghost that was mid-exit when the pellet
-went off resumes the exit rather than roaming, because a roaming ghost cannot
-open the door.
+tracking; an eaten one becomes a pair of eyes and goes home. A ghost that was
+mid-exit when the pellet went off resumes the exit rather than roaming,
+because a roaming ghost cannot open the door.
+
+**The eyes go home in two phases, the way a ghost comes out in two phases.**
+Make for the tile above the door; then, on that column and at or below it,
+drive straight down through the door. A greedy aim at the pen alone sent them
+down a side corridor and left them circling the board, because `dd_gh_aim`
+descends a distance it cannot see round corners and the pen is behind a
+one-tile door no descent finds from the wrong side. **And a pair of eyes may
+reverse**: the no-reverse rule exists to stop a ghost pacing in front of the
+player, eyes are not a threat, and what it did to them was strand one in a
+corridor whose only way out was behind it.
 
 #### 93.8.2 Being let out
 
@@ -108321,6 +108382,42 @@ The half-tile test cannot be walked through: Smiles closes at 4 px a tick and
 a ghost at 3.5, so there is always at least one tick inside 8 px of a 16 px
 tile.
 
+#### 93.8.5 The way home is a TABLE, computed once a board
+
+A pair of eyes reads **one byte a tile** to get back to the pen. `dd_home_map`
+walks the board breadth-first out from the pen when the board is decoded and
+leaves, in every reachable tile, the direction that steps one tile closer to
+it; `dd_gh_home` reads that byte, writes it to `dd_want` **and** `dd_dir`
+— the route may double back on the way the eyes were travelling and §93.8.2's
+no-reversing rule would otherwise refuse it — and that is the whole of the
+routine.
+
+**Every greedy version of this failed, and each one failed differently**,
+which is why the table is worth 868 bytes of map and 1,736 of scratch queue.
+Aiming straight at the pen sends the eyes down whichever side corridor
+happens to reduce the distance, because a descent cannot see round a corner
+and the ghost house is behind a one-tile door that no descent finds from the
+wrong side: the field report was *"once eaten a ghost goes out a side path,
+and either never returns or loops across the map once"*. Making it two phases
+— reach the door's column first, then drive down it — moved the failure
+rather than fixing it: an instrumented run poked a ghost into `GS_EYES` and
+watched it visit **four tiles in thirty seconds**, ping-ponging between (11,
+20) and (12, 20), each tile's greedy answer being the other one. Letting eyes
+reverse, tried as a way out of that, made the ping-pong tighter rather than
+looser and is reverted — the direction field removes the need for it, since a
+shortest path never asks for a step onto a wall and never asks for one back
+the way it came unless that genuinely is the way home.
+
+The cost is a walk of at most 868 tiles once per board — three boards in a
+long game — against a search that a per-move version would run four times a
+tick on a 4.77 MHz 8088. The queue is the scratch the walk needs and is dead
+between boards; it is bss, so it costs image nothing.
+
+A board with no pen (the attract slice, whose window starts below the ghost
+house) leaves the map entirely `DD_HDNONE`, and `dd_gh_home` falls back to
+the old aim — which is harmless there because §93.8.4's demo never lets a
+ghost become eyes in the first place.
+
 ### 93.9 Scoring
 
 A dot is 10 and a pellet 50. Ghosts are 200/400/800/1600 within one pellet.
@@ -108347,8 +108444,12 @@ a long game does not farm lives.
 
 Three notes through `OSAPI_SND_TONE` — a dot, a pellet, a ghost — and one for
 the extra life and one for a death. Every one is fire-and-forget with a
-two-tick duration, so nothing in the frame ever waits for the speaker. Game ▸
-Sound turns them off.
+two-tick duration, so nothing in the frame ever waits for the speaker.
+
+**They are ON when the package opens**, and Game ▸ Sound is the way off. They
+were off, on a zeroed byte nobody had thought about: a maze chase that has to
+be switched on from a menu before it makes a sound is one that has none, and
+the field asked whether the game was supposed to have any.
 
 ### 93.11 The attract screen
 
@@ -108367,8 +108468,9 @@ It goes down as **seven bands**, one per grid row, rather than as ~170
 rectangles through `gfx_fill`: at §5.7's ~756 µs a call that would be 128 ms
 of arrival every time the window is raised.
 
-The play line blinks on its own clock, 11 ticks lit against 6 dark, and is
-drawn by nothing else. The dark phase puts down a **blank band** of the same
+The play line blinks on its own clock, **9 ticks lit against 5 dark** — TANK
+ATTACK's rate (§85.10.3), so the two title screens on this machine blink at
+one speed — and is drawn by nothing else. The dark phase puts down a **blank band** of the same
 width and place — one call takes the line down exactly as one call put it up,
 and there is no rectangle to remember.
 

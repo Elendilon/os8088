@@ -126,6 +126,7 @@ dd_level_load:
     mov [dd_ndots], dx
     call dd_pill_list
     call dd_rowoff_fill
+    call dd_home_map                ; the route home, once (SPEC.md 93.8.5)
     ret
 
 ; -----------------------------------------------------------------------------
@@ -182,6 +183,155 @@ dd_rowoff_fill:
     pop cx
     pop bx
     pop ax
+    ret
+
+; =============================================================================
+; THE WAY HOME (SPEC.md 93.8.5)
+;
+; A pair of eyes needs a route to the pen and dd_gh_aim cannot give it one: a
+; greedy descent on squared distance has LOCAL MINIMA, and the ghost house is
+; behind a one-tile door that no descent finds from the wrong side. Two eyes
+; ping-ponged between (11,20) and (12,20) for thirty seconds, which is the
+; field report - "once eaten a ghost goes out a side path, and either never
+; returns or loops across the map once".
+;
+; So the route is worked out ONCE, when the board is decoded: a breadth-first
+; walk out from the pen leaves every reachable tile holding the direction to
+; step to get one tile closer. An eaten ghost then reads one byte a tile and
+; walks it. It is 868 bytes of map and 1,736 of queue against a board that
+; changes three times in a game, and the walk itself is ~11 ms - a hundredth
+; of what a per-move search would cost on this machine.
+; =============================================================================
+
+DD_HDROOT equ 0FEh              ; the pen itself: visited, and nowhere to go
+DD_HDNONE equ 0FFh              ; not reached - a wall, or a board with no pen
+
+; -----------------------------------------------------------------------------
+; dd_tindex - AX = the flat tile index of column CL, row CH (both in range)
+; Preserves every other register.
+; -----------------------------------------------------------------------------
+dd_tindex:
+    push bx
+    mov bl, ch
+    xor bh, bh
+    shl bx, 1
+    mov ax, [dd_rowoff + bx]
+    mov bl, cl
+    xor bh, bh
+    add ax, bx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_home_map - fill dd_hdir by breadth-first search out from the pen
+; Clobbers everything.
+; -----------------------------------------------------------------------------
+dd_home_map:
+    push si
+    push di
+    mov di, dd_hdir                 ; nothing is reachable until it is reached
+    mov cx, DD_COLS * DD_ROWS
+    mov al, DD_HDNONE
+    push es
+    push ds
+    pop es
+    cld
+    rep stosb
+    pop es
+    mov word [dd_hqh], 0
+    mov word [dd_hqt], 0
+    mov cl, DD_HOMEC
+    mov ch, DD_HOUSER
+    call dd_tile
+    cmp al, TT_WALL
+    je .out                         ; no pen on this board - the attract slice
+    mov cl, DD_HOMEC
+    mov ch, DD_HOUSER
+    call dd_tindex
+    mov di, ax
+    mov byte [dd_hdir + di], DD_HDROOT
+    call dd_hq_push
+.loop:
+    call dd_hq_pop
+    jc .out
+    mov [dd_hpc], cl
+    mov [dd_hpr], ch
+    xor bx, bx
+.nb:
+    mov cl, [dd_hpc]
+    mov ch, [dd_hpr]
+    add cl, [dd_dx + bx]
+    add ch, [dd_dy + bx]
+    cmp ch, 0
+    jl .next
+    cmp ch, DD_ROWS
+    jge .next
+    cmp cl, 0                       ; the tunnel wraps, and so does the route
+    jge .nolo
+    add cl, DD_COLS
+.nolo:
+    cmp cl, DD_COLS
+    jl .nohi
+    sub cl, DD_COLS
+.nohi:
+    call dd_tile
+    cmp al, TT_WALL
+    je .next                        ; a DOOR is passable: eyes go through it
+    call dd_tindex
+    mov di, ax
+    cmp byte [dd_hdir + di], DD_HDNONE
+    jne .next
+    mov al, [dd_rev + bx]           ; from THERE, the way back here
+    mov [dd_hdir + di], al
+    call dd_hq_push
+.next:
+    inc bx
+    cmp bx, 4
+    jb .nb
+    jmp short .loop
+.out:
+    pop di
+    pop si
+    ret
+
+; dd_hq_push - the tile at CL, CH onto the queue. Clobbers AX/DI.
+dd_hq_push:
+    push bx
+    call dd_tindex
+    mov di, [dd_hqt]
+    shl di, 1
+    mov [dd_hq + di], ax
+    inc word [dd_hqt]
+    pop bx
+    ret
+
+; dd_hq_pop - CL, CH = the next tile, or CF = 1 when the queue is empty
+dd_hq_pop:
+    push ax
+    push bx
+    push dx
+    mov ax, [dd_hqh]
+    cmp ax, [dd_hqt]
+    je .empty
+    shl ax, 1
+    mov bx, ax
+    mov ax, [dd_hq + bx]
+    inc word [dd_hqh]
+    xor dx, dx                      ; index -> column, row
+    mov bx, DD_COLS
+    div bx
+    mov ch, al
+    mov cl, dl
+    pop dx
+    pop bx
+    pop ax
+    clc
+    ret
+.empty:
+    pop dx
+    pop bx
+    pop ax
+    stc
     ret
 
 ; -----------------------------------------------------------------------------

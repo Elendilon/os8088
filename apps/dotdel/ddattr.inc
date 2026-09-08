@@ -38,8 +38,9 @@ DD_TGW     equ 5                ; the title grid, per glyph
 DD_TGH     equ 7
 DD_TGADV   equ 6                ; ...and the pitch, so there is a column of air
 DD_TITLEN  equ 12               ; "DOT DELIRIUM"
-DD_BLINKON equ 11               ; the play line, in ticks
-DD_BLINKOF equ 6
+DD_BLINKON equ 9                ; the play line, in ticks - TANK ATTACK's rate
+DD_BLINKOF equ 5                ; (SPEC.md 85.10.3), so the two title screens
+                                ; on this machine blink at one speed
 
 ; -----------------------------------------------------------------------------
 ; dd_attract_begin - back to the title

@@ -1910,8 +1910,9 @@ SOAK = [
         "tick counter on a cycle-accurate 4.77 MHz 8088. It shipped at 100.0% "
         "of the tick everywhere, and a board walk, a `font_run` and a pair of "
         "divides each took it to ~60% while everything still LOOKED right "
-        "(93.5.3). `--arm cga` is one adapter. The package is on "
-        "media360.img, not the apps disk (93.13)",
+        "(93.5.3). `--arm cga` is one adapter. At 360 KB it rides the "
+        "ordinary apps disk, in the room the earlier Pac-Man port came off "
+        "it to make (93.13)",
         needs=("marty", "nasm"), serial=True),
     Row("dotdelmd", "soak", py("tests/dotdelmd.py"), 60.0,
         "DOT DELIRIUM on a TWO-CARD desktop (SPEC.md 93.4): straddling the "
