@@ -2263,6 +2263,8 @@ cs_tpl:
     ZWORD cs_pvp                    ; ...its vertex list and edges to go
     ZWORD cs_pei
     ZBYTE cs_pwind                  ; ...and its winding (88.4.2)
+    ZBYTE cs_pnosent                ; the NEXT polygon needs no sentinel pass
+    ZBYTE cs_pnos                   ; (88.5.4.7), and this one did not
     ZBYTE cs_eside                  ; the chain an edge is on: 0 both, 1, 2
     ZWORD cs_lrunproc               ; the run a LINE's slice lays
     ZBUF  cs_pv, CS_MAXPV * 4       ; a projected face: (x, y) pairs

@@ -1831,6 +1831,11 @@ cs_poly:
     mov [cs_pn], cx
     mov [cs_pvp], si
     cld
+    xor al, al                      ; ...and the caller's promise that this
+    xchg al, [cs_pnosent]           ; one needs no sentinel pass, READ AND
+    mov [cs_pnos], al               ; CLEARED so it is a one-shot: a polygon
+                                    ; that inherited it would take another
+                                    ; polygon's leftovers for its own bounds
     ; --- the row range, and a cheap reject ----------------------------------
     mov bx, 0x7FFF                  ; BX = ymin, DX = ymax
     mov dx, -32768
@@ -1930,6 +1935,17 @@ cs_poly:
     sub cx, bx
     inc cx
     shl bx, 1
+    ; --- UNLESS THE CALLER SAYS THIS SHAPE DOES NOT NEED IT (SPEC.md
+    ;     88.5.4.7): a convex polygon with no HORIZONTAL edge has exactly one
+    ;     left-chain edge and one right-chain edge on every row, and
+    ;     cs_edge's chain stores are unconditional - it is the `both' side a
+    ;     horizontal edge takes that reads the value back and needs one to
+    ;     have been laid. Two `rep stosw` down the row range is 25 cycles a
+    ;     row EACH on an 8088, which for the box impostor (88.5.4.6) is most
+    ;     of what the shape costs to set up. The promise is the caller's to
+    ;     make and only cs_boxlod makes it.
+    cmp byte [cs_pnos], 0
+    jne .edges
     mov di, cs_xl
     add di, bx
     mov ax, 0x7FFF
@@ -1940,6 +1956,7 @@ cs_poly:
     add di, bx
     mov ax, -32768
     rep stosw
+.edges:
     ; --- every edge ---------------------------------------------------------
     mov si, [cs_pvp]
     mov cx, [cs_pn]

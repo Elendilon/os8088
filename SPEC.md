@@ -101473,20 +101473,25 @@ before this and only a banked one pays.
 **What it costs**, measured on MartyPC's 4.77 MHz 8088 against a Hercules,
 twelve pinned poses over Paris at three banks each, the scene composition
 identical in both arms and the sky/ground pass reset by poke before every
-reading so the frame is a function of the build and not of the fly-out:
+reading so the frame is a function of the build and not of the fly-out. The
+figures are the SHIPPING build's, §88.5.4.7 included:
 
 | pose | level | +30° | +50° |
 |---|---|---|---|
-| over the Champ de Mars | 169.8 → 171.2 (+0.8%) | 267.8 → 269.7 (+0.7%) | 278.4 → 281.0 (+1.0%) |
-| 800 m back | 189.4 → 190.3 (+0.5%) | 285.1 → 287.7 (+0.9%) | 284.1 → 286.4 (+0.8%) |
-| 2,400 m back | 146.2 → 147.7 (+1.0%) | 209.7 → 212.1 (+1.1%) | 214.0 → 217.0 (+1.4%) |
-| 4,000 m back | 79.3 → 81.3 (+2.5%) | 150.6 → 156.4 (+3.9%) | 156.0 → 158.6 (+1.7%) |
+| over the Champ de Mars | 169.8 → 170.2 (+0.3%) | 267.8 → 270.0 (+0.8%) | 278.4 → 281.0 (+1.0%) |
+| 800 m back | 189.4 → 190.5 (+0.6%) | 285.1 → 288.1 (+1.1%) | 284.1 → 286.5 (+0.8%) |
+| 2,400 m back | 146.2 → 146.6 (+0.3%) | 209.7 → 212.1 (+1.1%) | 214.0 → 217.0 (+1.4%) |
+| 4,000 m back | 79.3 → 79.6 (+0.4%) | 150.6 → 156.5 (+3.9%) | 156.0 → 158.8 (+1.8%) |
 
-One to three impostors are drawn in each, so the quad costs **1 to 2.5 ms**
-against the rectangle's — and `tests/skieslod.py` prices a boxed tower at
-**1.03 ms** marginal where the full path costs it 11.9, so the impostor is
-still worth what it was for. The worst row is the cheapest frame, where two
-impostors are a larger share of less work.
+**The level column is noise**: §88.5.4.7 sends a level impostor back to
+`cs_rect`, and those four frames are **byte-identical to the build before this
+over the whole view** — same picture, same work, and the tenths are what a
+repeated reading of the same frame moves by. One to three impostors are drawn
+in each pose, so a BANKED quad costs **1 to 2.5 ms** against the rectangle's —
+and `tests/skieslod.py` prices a boxed tower at **1.03 ms** marginal where the
+full path costs it 11.9, so the impostor is still worth what it was for. The
+worst row is the cheapest frame, where two impostors are a larger share of
+less work.
 
 `tests/skiesbank.py` is the gate and `--clobber-bank` the red run: it NOPs the
 two conditional jumps that choose the quad, so every impostor is the upright
@@ -101504,6 +101509,60 @@ building's verticals converge, and rolling moves the building across the
 frame: the pinned pose reads 9.1 px level, 10.6 at 30° and 12.5 at 50°, and
 the polygon path leans by the same rule. The honest invariant is that the axis
 is used **whole**, not that it is the same length.
+
+##### 88.5.4.7 What the banked impostor costs, taken back
+
+§88.5.4.6 shipped correct and about a percent dearer, and the profile says
+where that percent is: **most of it is the shape**, which is the point of the
+fix — a 6 × 26 impostor at 50° of bank really does cover 12.5 rows where the
+compressed one covered 6, and those rows have to be filled and blitted. What
+is *not* the shape is `cs_poly`'s general machinery, and two things take that
+back without touching the picture.
+
+**Wings level, it is the rectangle again — byte for byte.** §88.5.4.6's fast
+path asked for R horizontal *and* no lean, and a lean is common: the top of a
+box is further from the eye than its base, so an off-centre building's
+verticals converge by a pixel or two and the quad was taken at level. But that
+lean is perspective the impostor has ALWAYS squared off, the reported defect
+is a banked one, and `cs_rect` is much the cheaper draw. So the test is on R
+alone: **`cs_bry` zero takes the rectangle**, level flight is byte-identical to
+the build before §88.5.4.6, and only a banked frame pays anything at all.
+
+**And a banked one needs no SENTINEL PASS.** `cs_poly` cannot know how many
+edges will touch a row, so it lays `+32767` down `cs_xl` and `−32768` down
+`cs_xr` over the whole row range and every edge takes a min or a max against
+them. That is two `rep stosw`, **about 25 cycles a row each on an 8088**, and
+for a shape this small it is most of what the fill costs to set up. A convex
+polygon with **no horizontal edge** does not need it: every row has exactly one
+left-chain edge and one right-chain edge, and `cs_edge`'s chain stores are
+unconditional — it is only the `both` side a horizontal edge takes that reads
+the value back. The impostor is a parallelogram whose caps are 2·Ry apart and
+whose sides are the projected axis, so with `cs_bry` non-zero **no edge is
+horizontal by construction**. `[cs_pnosent]` is that promise, read and cleared
+at `cs_poly`'s entry so it is a one-shot — a polygon that inherited it would
+take another polygon's leftovers for its own bounds — and `cs_boxlod` is the
+only caller that makes it. It withholds the promise in the one case that can
+still put a horizontal edge in the shape: a top and a base that project to the
+same row.
+
+**Two bytes of `.bss` and about thirty of code**, and no new raster primitive.
+A dedicated parallelogram filler was asked for and costed at ~150 bytes, and
+the profile refused it: with the skip turned off and on **by poke, on the same
+guest and the same frame**, `cs_poly` on one banked impostor is **16,808
+cycles against 16,376 at 30° and 19,009 against 18,525 at 50°** — the sentinel
+pass is **432 to 484 cycles, 2.6% of the fill**, and what is left of the
+machinery after it (four corners scanned for a bounding box, four edges
+classified) is a few hundred more. **The other 97% is the shape**: the rows
+the correct impostor covers, filled and blitted. There is no 150 bytes' worth
+of machinery to remove, and the edge tracing IS the shape.
+
+So the two changes are worth very different amounts and it is worth saying
+which is which. Widening the level fast path is the one that shows: it takes
+the level column of §88.5.4.6's table from +0.5…+2.5% to nothing, because the
+frame does the identical work. The sentinel skip is exact, free of any picture
+change, and **below what a 280 ms frame's repeat noise can resolve** — it is
+kept because it is measured and costs thirty bytes, not because a frame reads
+different for it.
 
 #### 88.5.8 "Buildings lean over", which was the horizon
 

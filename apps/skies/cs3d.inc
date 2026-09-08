@@ -1634,25 +1634,21 @@ cs_boxlod:
     sub ax, di
     cmp ax, CS_LODTALL
     jg .out                         ; ...or too tall
-    ; --- WINGS LEVEL AND NO LEAN: THE OLD RECTANGLE, to the pixel
-    ;     (SPEC.md 88.5.4.6). R horizontal and the up axis vertical is
-    ;     exactly the shape cs_rect draws, and cs_rect draws it for about
-    ;     half what the general polygon does - no sentinel pass over the
-    ;     rows, no four edges traced. So a frame flown straight and level
-    ;     costs what it cost before this and only a BANKED one pays, which
-    ;     is the frame nobody holds.
+    ; --- WINGS LEVEL: THE OLD RECTANGLE, and BYTE FOR BYTE the old picture
+    ;     (SPEC.md 88.5.4.7). With R horizontal the impostor's two caps are
+    ;     horizontal too, and the shape cs_rect draws differs from the quad
+    ;     only by the top's own LEAN - one or two pixels of the perspective
+    ;     the polygon path shows and this one has always squared off. The
+    ;     reported defect is a BANKED one, so level flight keeps the
+    ;     rectangle and pays nothing at all: no sentinel pass over the rows,
+    ;     no four edges traced. It is also what makes the quad's own fast
+    ;     path sound - a banked impostor's caps are 2 Ry apart and its sides
+    ;     the projected axis, so with Ry non-zero there is no horizontal
+    ;     edge left for cs_poly's sentinels to be needed by.
     mov cx, [cs_brx]
     mov dx, [cs_bry]
     or dx, dx
     jnz .quad
-    mov ax, [cs_bx1]
-    cmp ax, [cs_bx0]
-    jne .quad                       ; ...a leaning top is a quad even level:
-                                    ; the top is FURTHER than the base under
-                                    ; pitch, so an off-centre building's
-                                    ; verticals converge, which the polygon
-                                    ; path has always shown and this one
-                                    ; squared off
     mov al, CSI_WALL
     call cs_setink
     mov ax, [cs_bx0]
@@ -1704,6 +1700,20 @@ cs_boxlod:
 .wind:                              ; the list runs the other way round
     mov byte [cs_pwhole], 0         ; the impostor marks its own rows, where
                                     ; cs_rect always did (88.4.4)
+    ; --- AND IT NEEDS NO SENTINEL PASS (SPEC.md 88.5.4.7). cs_poly cannot
+    ;     know how many edges will touch a row, so it lays +32767 down cs_xl
+    ;     and -32768 down cs_xr over the whole range and every edge takes a
+    ;     min or a max. This shape is a PARALLELOGRAM and Ry is not zero
+    ;     here, so no edge is horizontal and every row has exactly one left
+    ;     edge and one right: cs_edge's unconditional stores are already the
+    ;     answer. The one thing that can still put a horizontal edge in it is
+    ;     a top and a base that project to the SAME ROW, and that keeps the
+    ;     sentinels.
+    mov ax, [cs_by0]
+    cmp ax, [cs_by1]
+    je .sent
+    mov byte [cs_pnosent], 1
+.sent:
     mov al, CSI_WALL
     call cs_setink
     mov si, cs_pv

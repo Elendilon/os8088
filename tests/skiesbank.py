@@ -48,10 +48,14 @@ invariant is that the axis is used whole, not that it is the same length. The
 readings on the pinned pose are 9.1 px level, 10.6 at 30 and 12.5 at 50, and
 the polygon path leans by the same rule.
 
---clobber-bank is the red run (docs/WRITING-TESTS.md 1): it NOPs the two
-conditional jumps that send a banked impostor to the quad, so every impostor
-takes the upright rectangle again - which is exactly what shipped - and checks
-2, 3 and 4 must go red.
+LEVEL IS THE RECTANGLE, and check 1 says so: since 88.5.4.7 the test is on Ry
+alone, so wings level draws exactly what shipped - byte for byte over the whole
+view on all four pinned poses - and only a banked frame is a quad at all.
+
+--clobber-bank is the red run (docs/WRITING-TESTS.md 1): it NOPs the jump that
+sends a banked impostor to the quad, so every impostor takes the upright
+rectangle again - which is exactly what shipped - and checks 2, 3 and 4 must
+go red.
 """
 import argparse
 import math
@@ -114,20 +118,18 @@ def main(argv):
         m.run()
 
         if a.clobber_bank:
-            # The pair that sends a banked impostor to the quad: `or dx,dx /
-            # jnz .quad` and `cmp ax,[cs_bx0] / jne .quad`. Four bytes of NOP
-            # puts every impostor back on the upright rectangle.
+            # The one test that sends a banked impostor to the quad:
+            # `or dx,dx / jnz .quad` on Ry (88.5.4.7). Two bytes of NOP puts
+            # every impostor back on the upright rectangle.
             lo, hi = mp["cs_boxlod"], mp["cs_stackverts"]
             code = m.read(lin + lo, hi - lo)
             i = code.find(b"\x09\xD2\x75")          # or dx,dx / jnz
-            j = code.find(b"\x3B\x06")              # cmp ax,[cs_bx0]
-            if i < 0 or j < 0:
+            if i < 0 or code.count(b"\x09\xD2\x75") != 1:
                 sys.exit("skiesbank: cs_boxlod does not choose the quad the "
                          "way this patch expects - re-read it before "
                          "trusting the red run")
             m.pause()
             m.write(lin + lo + i + 2, b"\x90\x90")
-            m.write(lin + lo + j + 4, b"\x90\x90")
             m.run()
             print("  (the upright rectangle back: checks 2-4 must fail)")
 
