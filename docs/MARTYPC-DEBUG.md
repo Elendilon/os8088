@@ -579,6 +579,15 @@ print(tr.count("wm_su_try"), tr.ms("wm_su_try", "gfx_restore"))
 `mem`, `int` and `io` types work too. The set is replaced on entry, cleared on
 exit, and the guest is left running either way.
 
+**That last guarantee is also the one case where a trace is the wrong tool.**
+A row that wants the machine HELD at the stop — because the stop *is* the
+context it works in — must keep a bare `bp_exec`. Two do: `tests/paintrow.py`
+patches a caller while stopped inside `pt_blit`, and `tests/paintlzw.py`'s
+`paint_base` returns with the guest at `toast_show` because the decode bracket
+after it starts from there. Converting the second reached its answer correctly
+and then timed out — the resume on the way out is past `pt_gif_in` before the
+next arm lands. Both carry a comment saying so; add one if you write a third.
+
 - **`regs=True`** records a full register set at every stop — one more round
   trip each, and what attributes a hit to a window (`os88span.py`'s `di=`/`bx=`
   columns).

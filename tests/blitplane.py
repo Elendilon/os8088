@@ -159,11 +159,9 @@ def shots(image, apps, machine, tree=None):
             m.run()
             mo.click(dx + 60, dy + 9)                # behind the disk window
             time.sleep(4)
-            m.bp_exec("gfx_blit4")
-            mo.click(x + pwid // 2, py + TITLE_H // 2)      # ...and in front
-            cyc, g = _bracket(m, kbase)
-            m.bp_exec()
-            m.run()
+            cyc, g = _bracket(          # ...and in front
+                m, kbase,
+                lambda: mo.click(x + pwid // 2, py + TITLE_H // 2))
             os88marty.settle(m)
             return cyc, g, m.fbuf(card=0)[2]
 
@@ -181,12 +179,18 @@ def shots(image, apps, machine, tree=None):
     return f_even, f_odd, cyc_even, cyc_odd, geom, geom2
 
 
-def _bracket(m, kbase):
-    """Time the next gfx_blit4 from its entry to its RETURN.
+def _bracket(m, kbase, gesture):
+    """Time the next gfx_blit4 from its entry to its RETURN, over `gesture`.
 
     The return address is read off the stack rather than assumed: gfx_blit4
     has no exit symbol of its own, and a settle-shaped measurement would be
-    reporting the harness's quiet window rather than the primitive.
+    reporting the harness's quiet window rather than the primitive. It is a
+    word on the GUEST's stack, so it can only be read at the entry stop -
+    which is what `on_hit` is for, and what lets the same callback arm it.
+
+    THE GESTURE IS AN ARGUMENT because it has to be inside the trace: it is a
+    `mo.click`, which proves both button edges against the published
+    `mouse_btn`, and a guest stopped at `gfx_blit4` never publishes another.
     """
     # THE LIMIT IS UNDER THE SCREEN SAVER'S IDLE PERIOD, and that is the
     # point of the number. The blit being waited for happens within a couple
@@ -198,23 +202,37 @@ def _bracket(m, kbase):
     # came up at five, and the breakpoint finally caught one of ITS shapes -
     # so the gate reported a 16x8 blit at (162,377) and then waited out a
     # settle that could never return, and none of it named the cause.
-    if not m.wait_stop(limit=45.0):
+    st = {}
+
+    def stage(mm, rec):
+        r = rec["regs"]
+        if "geom" not in st:                    # the ENTRY
+            ret = u16(mm.read((r["ss"] << 4) + r["sp"], 2))
+            st["geom"] = (r["ax"], r["bx"], r["cx"], r["dx"])
+            st["c0"] = rec["cycles"]
+            print("      blit x=%d y=%d w=%d h=%d" % st["geom"])
+            mm.breakpoints([{"type": "exec", "addr": kbase + ret}])
+        else:                                   # ...and its own return
+            st["cyc"] = rec["cycles"] - st["c0"]
+            mm.breakpoints([])
+        return None
+
+    with os88marty.bp_trace(m, "gfx_blit4", regs=True, on_hit=stage) as tr:
+        gesture()
+        tr.until(lambda: "geom" in st, "gfx_blit4", limit=45.0,
+                 required=False)
+        if "geom" in st:
+            tr.until(lambda: "cyc" in st, "gfx_blit4 to return",
+                     limit=120.0, required=False)
+    if "geom" not in st:
         sys.exit("blitplane: gfx_blit4 never ran within 45s of the click.\n"
                  "  The primitive is not being reached at all - check that "
                  "Paint's canvas is still PACKED here (SPEC.md 42.13.1: a "
                  "planar canvas repaints through gfx_blitp instead), which is "
                  "what putting the window off the byte grid is for.")
-    r = m.regs()
-    ret = u16(m.read((r["ss"] << 4) + r["sp"], 2))
-    print("      blit x=%d y=%d w=%d h=%d" % (r["ax"], r["bx"], r["cx"],
-                                              r["dx"]))
-    m.bp_exec(kbase + ret)
-    c0 = m.status()["cycles"]
-    m.run()
-    if not m.wait_stop(limit=120.0):
+    if "cyc" not in st:
         sys.exit("blitplane: gfx_blit4 never returned")
-    return (m.status()["cycles"] - c0,
-            (r["ax"], r["bx"], r["cx"], r["dx"]))
+    return st["cyc"], st["geom"]
 
 
 def canvas_diff(a, b, geom, w=640):

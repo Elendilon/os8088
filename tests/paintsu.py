@@ -57,6 +57,7 @@ import os88marty, os88mouse, os88sym, dispcp                 # noqa: E402
 # machine?" - about a machine where the answer had become yes. Both take the
 # same arguments in the same registers, so arming both changes nothing else.
 # BLITS is blitpair's, beside gif_pixels: one definition, two rows.
+import blitpair                                              # noqa: E402
 from blitpair import gif_pixels, BLITS                        # noqa: E402
 
 S = os88sym.linear
@@ -104,24 +105,11 @@ def main():
         # has fired yet - which is true here right up until Paint launches and
         # blits, inside the click's own trailing settle. Pumped, the ordering
         # stops being load-bearing.
-        geom = None
-
-        def launch_blit(mm, rec):
-            nonlocal geom
-            r = rec["regs"]
-            if geom is None and r["cx"] >= iw:
-                geom = (r["ax"], r["bx"])
-                mm.breakpoints([])
-            return None
-
-        with os88marty.bp_trace(m, *BLITS, regs=True, on_hit=launch_blit) as tr:
-            mo.dblclick(rx, ry)
-            tr.until(lambda: geom is not None, "the canvas to blit",
-                     limit=300.0, required=False)
+        geom = blitpair.wide_blit(m, lambda: mo.dblclick(rx, ry), iw)
         if geom is None:
             sys.exit("paintsu: the canvas never blitted through %s"
                      % " or ".join(BLITS))
-        ox, oy = geom
+        ox, oy = geom[0], geom[1]
         time.sleep(6)
 
         # --- WHAT IS ON THE GLASS BEFORE ANYTHING IS COVERED ---------------

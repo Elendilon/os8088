@@ -178,12 +178,18 @@ def main():
         # on the first press and the other never did, twice running, on code
         # neither of them changed. app_bounce_kinit is armed BEFORE the press,
         # so what is waited on is the LAUNCH itself rather than a duration.
-        m.bp_exec("app_bounce_kinit")
-        for attempt in range(6):
-            mo.menu(x, 8, x, MBAR_H + 1 + ITEM_BOUNCE * MENU_ITEM_H + 8)
-            if m.wait_stop(limit=8.0):
-                break
-        else:
+        # ...and the press is INSIDE a trace, because `mo.menu` is a press,
+        # a drag and a release, each proved against the published mouse
+        # state - none of which a guest stopped at `app_bounce_kinit` can
+        # move. It survived before only because the launch cannot be reached
+        # until the release has been decoded.
+        with os88marty.bp_trace(m, "app_bounce_kinit") as tr:
+            for attempt in range(6):
+                mo.menu(x, 8,
+                        x, MBAR_H + 1 + ITEM_BOUNCE * MENU_ITEM_H + 8)
+                if tr.wait(1, limit=20.0):
+                    break
+        if not tr.n:
             sys.exit("bouncecost: six presses on Builtins/Bounce and "
                      "app_bounce_kinit never ran - the menu is not being "
                      "reached at all")
