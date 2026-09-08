@@ -2268,6 +2268,27 @@ cs_tpl:
     ZWORD cs_wj                     ; ...and the edge's far end
     ZBUF  cs_eseen, CS_ESEEN        ; ...the edges drawn already, this object
     ZWORD cs_pn
+%ifdef CSPROBE
+    ZWORD cs_dbg_etr                ; PROBE ONLY: edges cs_poly actually traced
+    ZWORD cs_dbg_edup               ; ...of which a face of the SAME object
+    ZWORD cs_dbg_ecut               ; ...had already traced; and the cut faces
+    ZWORD cs_dbg_erow               ; ...and the rows those traces covered
+    ZWORD cs_dbg_edrow              ; ...of which a duplicate's
+    ZWORD cs_dbg_fwalk              ; ...faces cs_faces walked
+    ZWORD cs_dbg_fcull              ; ...of which the winding threw away
+    ZWORD cs_dbg_fpoly              ; ...and which reached cs_poly
+    ZWORD cs_dbg_fout               ; ...of those, off the view
+    ZWORD cs_dbg_fbox               ; ...one or two rows, so no trace at all
+    ZWORD cs_dbg_ftr                ; ...objects whose faces reached cs_poly
+    ZBYTE cs_dbg_fobj               ; ...(this one has)
+    ZBYTE cs_dbl                    ; the A/B: trace every edge TWICE
+    ZBYTE cs_nomark                 ; ...run the dedup TEST or not
+    ZBYTE cs_cpy                    ; ...and price the COPY that would replace
+    ZBUF  cs_dbg_scr, CS_MAXROW * 2 ; a skipped trace, done into scratch
+    ZWORD cs_dbg_y0                 ; ...the trace's first row, clipped
+    ZBYTE cs_dupface                ; ...and the A/B: repeat a face's GATHER
+    ZBUF  cs_dbg_pv, CS_MAXPV * 4   ; and its winding cross, into scratch
+%endif
     ZWORD cs_rx1                    ; cs_prect's
     ZWORD cs_rx2
     ZWORD cs_ry2

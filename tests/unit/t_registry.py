@@ -83,6 +83,14 @@ UNREGISTERED = {
                   "(docs/plans/SOAK-PARALLEL.md 14.2). Run it by hand when a field "
                   "sync question needs the module",
 
+    "skiescount.py": "an INSTRUMENT, not a test: it COUNTS CLEAR SKIES' faces "
+                     "and edges and prices each term by ADDING it - every arm "
+                     "draws the identical picture, where skiesperf.py's "
+                     "patch-out takes a stage's consequences with it - and "
+                     "asserts nothing (SPEC.md 88.11.1, 88.4.2.1). Needs "
+                     "`make skiesprobe`; it is where "
+                     "docs/plans/SKIES-FRAME-PLAN.md's numbers came from",
+
     "skiesperf.py": "an INSTRUMENT, not a test: it prices CLEAR SKIES' frame "
                     "on MartyPC to the cycle - a breakpoint on cs_render and "
                     "each drawing stage patched out for its delta, on a scene "

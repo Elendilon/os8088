@@ -1412,6 +1412,9 @@ cs_drawobj:
     call cs_projall
 .full:
     call cs_wireclr                 ; the edges-once marks are an OBJECT's, and
+%ifdef CSPROBE
+    mov byte [cs_dbg_fobj], 0
+%endif
     call cs_faces                   ; a vertex index means nothing across two
     ; --- a solid under CS_EDGEPX pixels across keeps no outline: twelve
     ;     segments round a fifteen-pixel box cost more than the box, and at
@@ -2033,6 +2036,10 @@ cs_faces:
     add di, 4
     loop .cp
 .fill:
+%ifdef CSPROBE
+    inc word [cs_dbg_fwalk]
+    call cs_probe_face
+%endif
     mov cx, [cs_pn]
     cmp cx, 3
     jb .skip
@@ -2108,7 +2115,13 @@ cs_faces:
                                     ; culls every face there is
     mov byte [cs_pwind], 1
     test byte [cs_fflags], CSF_NOCULL
+%ifdef CSPROBE
+    jnz .draw
+    inc word [cs_dbg_fcull]
+    jmp short .skip
+%else
     jz .skip                        ; away, or edge-on
+%endif
 .draw:
     mov al, [cs_fink]               ; --- IS THIS FILL WANTED? (88.13.3) The
     call cs_fillon                  ;     ink says what the face is made of;
@@ -2117,6 +2130,14 @@ cs_faces:
     call cs_setink
     mov si, cs_pv
     mov cx, [cs_pn]
+%ifdef CSPROBE
+    inc word [cs_dbg_fpoly]
+    cmp byte [cs_dbg_fobj], 0
+    jne .nfo
+    mov byte [cs_dbg_fobj], 1
+    inc word [cs_dbg_ftr]
+.nfo:
+%endif
     call cs_poly
     jmp short .skip
 .wire:
@@ -2241,6 +2262,181 @@ cs_edgemark:
 .seen:
     stc
     ret
+
+%ifdef CSPROBE
+; -----------------------------------------------------------------------------
+; cs_probe_face - PROBE ONLY, A/B 4: with [cs_dupface] set, repeat the per-face
+;                 PREAMBLE - the gather of the face's projected vertices by
+;                 index, and the quad's diagonal cross that decides its winding
+;                 - into scratch, once more. The same instructions on the same
+;                 data, discarded, so the picture is untouched and the frame's
+;                 difference over the faces walked is what one face's preamble
+;                 costs. 29-40% of them are then thrown away by the winding,
+;                 which is what that number is wanted for.
+;                 Preserves everything.
+; -----------------------------------------------------------------------------
+cs_probe_face:
+    cmp byte [cs_dupface], 0
+    jne .go
+    ret
+.go:
+    pushf
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    cmp byte [cs_fcut], 0
+    jne .out                        ; a clipped face's points are the
+    mov si, [cs_fidx]               ; clipper's, not the model's
+    mov cx, [cs_fn]
+    mov di, cs_dbg_pv
+    cld
+.cp:
+    lodsb
+    xor ah, ah
+    mov bx, ax
+    shl bx, 1
+    mov ax, [cs_sxv + bx]
+    mov [di], ax
+    mov ax, [cs_syv + bx]
+    mov [di+2], ax
+    add di, 4
+    loop .cp
+    cmp word [cs_fn], 4
+    jne .out
+    mov ax, [cs_dbg_pv + 8]         ; (x2 - x0)(y3 - y1)...
+    sub ax, [cs_dbg_pv]
+    mov bx, [cs_dbg_pv + 14]
+    sub bx, [cs_dbg_pv + 6]
+    imul bx
+    mov cx, ax
+    mov si, dx
+    mov ax, [cs_dbg_pv + 10]        ; ...minus (y2 - y0)(x3 - x1)
+    sub ax, [cs_dbg_pv + 2]
+    mov bx, [cs_dbg_pv + 12]
+    sub bx, [cs_dbg_pv + 4]
+    imul bx
+    sub cx, ax
+    sbb si, dx
+.out:
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    popf
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_probe_edge - PROBE ONLY: count the traces cs_poly makes and how many of
+;                 them another face of the SAME object has already made, and
+;                 carry the two A/Bs that price the dedup test and its copy.
+;                 Called with the edge's ends in AX/BX and CX/DX, immediately
+;                 before `call cs_edge`. Preserves everything.
+; -----------------------------------------------------------------------------
+cs_probe_edge:
+    pushf
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    inc word [cs_dbg_etr]
+    mov si, bx                      ; the rows this trace covers, view-clipped
+    mov di, dx
+    cmp si, di
+    jle .ord
+    xchg si, di
+.ord:
+    or di, di
+    js .norow
+    cmp si, [cs_wh]
+    jge .norow
+    or si, si
+    jns .r1
+    xor si, si
+.r1:
+    cmp di, [cs_wh]
+    jl .r2
+    mov di, [cs_wh]
+    dec di
+.r2:
+    mov [cs_dbg_y0], si
+    sub di, si
+    inc di
+    add [cs_dbg_erow], di
+    jmp short .idx
+.norow:
+    xor di, di
+.idx:
+    cmp byte [cs_fcut], 0
+    je .look
+    inc word [cs_dbg_ecut]          ; a cut face has no model indices
+    jmp short .out
+.look:
+    ; --- A/B 2: with [cs_nomark] the index lookup and cs_edgemark are
+    ;     skipped, so the difference is what the DEDUP TEST costs - and a
+    ;     production version pays it on EVERY edge to save on one in seven
+    cmp byte [cs_nomark], 0
+    jne .out
+    mov bp, [cs_pn]                 ; the edge's index: i = pn - pei
+    mov si, bp
+    sub si, [cs_pei]
+    mov bx, si
+    inc bx
+    cmp bx, bp
+    jb .j
+    xor bx, bx
+.j:
+    mov bp, [cs_fidx]
+    add si, bp
+    mov al, [si]
+    mov si, bp
+    add si, bx
+    mov ah, [si]
+    push di
+    call cs_edgemark
+    pop di
+    jnc .out
+    inc word [cs_dbg_edup]
+    add [cs_dbg_edrow], di
+    ; --- A/B 3: with [cs_cpy] a duplicate ALSO pays the copy that would stand
+    ;     in for the trace it skips. Done INTO SCRATCH with the real trace
+    ;     still running after it, so the picture is untouched
+    cmp byte [cs_cpy], 0
+    je .out
+    or di, di
+    jz .out
+    push es
+    push ds
+    pop es
+    mov cx, di
+    mov si, [cs_dbg_y0]
+    shl si, 1
+    mov di, si
+    add si, cs_xr
+    add di, cs_dbg_scr
+    cld
+    rep movsw
+    pop es
+.out:
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    popf
+    ret
+%endif
 
 ; cs_wireclr - the object's edge marks, cleared. Preserves everything
 cs_wireclr:

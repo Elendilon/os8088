@@ -1911,6 +1911,9 @@ cs_poly:
     sub ax, bx
     cmp ax, 1
     ja .trace
+%ifdef CSPROBE
+    inc word [cs_dbg_fbox]
+%endif
     mov si, bx
     shl si, 1
     mov ax, [cs_pbx0]
@@ -1966,6 +1969,26 @@ cs_poly:
     je .side
     xor byte [cs_eside], 3
 .side:
+%ifdef CSPROBE
+    call cs_probe_edge
+    ; --- A/B 1: with [cs_dbl] every edge is traced TWICE. cs_edge is
+    ;     idempotent - a chain takes the same value and `.both` takes min/max
+    ;     - so the picture is identical and the frame's difference over the
+    ;     trace count is what ONE trace costs, exactly. The push/pop and the
+    ;     test are in BOTH arms, so the A/B prices the call alone
+    push ax
+    push bx
+    push cx
+    push dx
+    cmp byte [cs_dbl], 0
+    je .nodbl
+    call cs_edge
+.nodbl:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+%endif
     call cs_edge
     pop si
     dec word [cs_pei]
@@ -1974,6 +1997,9 @@ cs_poly:
 .rows:
     jmp [cs_rowsproc]
 .out:
+%ifdef CSPROBE
+    inc word [cs_dbg_fout]
+%endif
     ret
 
 ; cs_polyrows - the general row loop: the row's bounds clamped, its pattern
