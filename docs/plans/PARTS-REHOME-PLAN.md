@@ -209,6 +209,116 @@ Everything else an entry proc might do is stamped by **slot**, not segment —
 the sound grant (`snd_inst`, set to the record around the call at
 loader.inc:1005), the XMS release record, the toast — and survives untouched.
 
+### 4.3 Movability — the carve becomes a REGION, and a region moves
+
+This was raised as *"the freeing of the 2 KB loader RAM depends on everything
+being movable — else it is fragmented by what we just loaded"*, and the answer
+has three parts. **None of them costs a byte** and the first two are measured
+rather than argued.
+
+#### 4.3.1 The two claims come in by OPPOSITE DOORS, so neither can fragment the other
+
+`ld_alloc` reserves the loader's region with **`mem_claim_hi_x`** — top-down,
+*"away from the data claims growing up from the bottom"* (loader.inc:906).
+`op_claim` takes the carve with plain **`OSAPI_MEM_CLAIM`** — bottom-up. They
+are at opposite ends of the arena by construction, not by luck.
+
+Measured, MSEG (the parts fixture) launched on a 5150 with 640 KB, GLaBIOS,
+CGA, off `build/os8088-360.img` + `build/mseg360.img`:
+
+```
+===== MSEG loaded (region + carve both live) =====
+arena 1B80..A000  (530 KB)
+  1B800..1C400     3.0K  inst 0            movable  bottom-up
+  1C400..1D800     5.0K  purge:MED/FATW1   PINNED   bottom-up
+  1D800..1E400     3.0K  kern:ASC          movable  bottom-up
+  1E400..1FC00     6.0K  purge:TRIV/WSAVE0 PINNED   bottom-up
+  20000..2FC00    63.0K  purge:HIGH/02     PINNED   bottom-up  dma-head 4032 para
+  2FC00..33800    15.0K  seg 9F00          PINNED   bottom-up   <- THE CARVE
+  9F000..A0000     4.0K  inst 1            PINNED   top-down    <- THE REGION
+  free runs: 1FC00 +1.0K, 33800 +430.0K
+```
+
+The region is the **top 4 KB of the arena with nothing above it**; the carve is
+**430 KB below it**. Freeing the region does not leave a hole — it extends the
+one free run that is already there. Closing MSEG (which frees both records
+through the same `mem_free_rec_x` the re-home would) returns the heap to
+**byte-identical free runs**: `1E400 +7.0K, 2FC00 +449.0K`, the map before the
+launch, asserted equal.
+
+Nor can anything wedge itself in between. `loader_run` is UI-task-only and one
+load at a time (loader.inc:886), so no second top-down claim can be taken
+between our region's claim and its free.
+
+**So the free does not depend on movability at all.** Even in the worst shape —
+a driver mounted at the ceiling above us — the freed block is the *most*
+reusable place on the heap, because `mem_claim_1`'s `.hi` arm starts at
+`[mem_top] - size` and walks down, so it is the first thing a top-down claim
+looks at.
+
+#### 4.3.2 What the tree actually declares movable — the concern was RIGHT
+
+*"Everything except modules should be movable now"* is correct, and
+`docs/HEAP-CLAIMS.md` line 137 said otherwise (`every package region | PINNED
+(forever) | base is CS`) — a row left behind by **§66.6.1**, which opened that
+door and shipped. It has been corrected in place; the region table 80 lines
+below it was already right and lists **eighteen movable regions**, every C
+package's among them (`crt0.asm` declares it at entry with `cc_regreloc`).
+
+`mem_can_move`'s pins, in the order it tests them:
+
+| pin | reaches us? |
+|---|---|
+| `MC_RLOC == 0` — **nobody declared it** | yes, and it is the default |
+| `mem_in_xfer` — a disk read is landing in it | no, transient |
+| a **purgeable cache** — shed instead, never moved | no |
+| `MEM_K_MOD` — an on-demand **module** | no |
+| an instance slot whose region is not **frameless** | this is the arm we land on |
+| a driver image with a live vector / nested frame / armed chip | no |
+
+So movability is **opt-in per claim** and the default is still pinned — which
+is the only part of the picture that differs from the concern as stated.
+
+#### 4.3.3 A re-homed carve is a region in every sense the compactor tests
+
+This is the finding that matters, and it means **the re-home needs no new
+mechanism and no defensive pin.** Once `mem_reown_x` (§3) stamps the carve's
+`MC_OWN` from the loader's segment to the **instance slot**, every fence
+already lines up:
+
+* **`mem_can_move`** takes `cmp bx, INST_MAX / jb` → `mem_is_region`, which is
+  `I_KIND & KIND_PKG` **and** `MC_SEG == I_SPTR`. After the re-home both hold,
+  so the carve reaches `mem_frameless` — **the same arm SHEET's and every C
+  package's region takes today**.
+* **`mem_frameless`**'s three questions all answer correctly for free. In
+  particular `cmp bx, [ld_base] / je .nope` pins it exactly while the program's
+  own entry proc is running, because §5.4's arm loops back to step 8 with
+  `[ld_base]` = the carve. That is not a coincidence to be preserved — it is
+  the word doing its job on the new base.
+* **`mem_rr_tab`** already names every kernel word that would go stale:
+  `wm_wins + W_SEG`, **`inst_tab + I_SPTR`**, and `mem_tab + MC_OWN` (the
+  program's own later data claims are owned by its segment). The `I_SPTR`
+  staleness this plan worried about is rewritten by a table row that has been
+  there since §66.6.1.
+* **`mem_reloc_call`**'s fourth arm dispatches the holder's own proc through
+  `PKG_DISP` at the **new** base — and part 0 carries a package header, so
+  `PKG_DISP` is there to be dispatched through.
+* **`mem_find_own`**'s widened fence is the door: `cmp dx, bx / je .out`, *"a
+  record whose base equals the caller's own segment can be nothing but that
+  caller's region"*. For a re-homed program DX (the carve's base) **is** BX
+  (its segment), so `OSAPI_MEM_MOVABLE` reaches it with **zero kernel change**.
+
+A re-homed program is therefore movable on exactly the terms any other package
+is: it declares `OS88_REGION_MOVABLE` if it hires no worker, and
+`OSAPI_TASK_RESTARTABLE` on top if it does. Nothing here is a special case,
+which is the point — the re-home hands the kernel a region, and the kernel
+already knows what a region is.
+
+One free consequence: the carve stops counting against the program's
+`MEM_OWNER_MAX`. While the loader holds it the carve is one of the *loader's*
+eight; re-owned to the slot it is nobody's data claim, so the program gets all
+eight of its own.
+
 ---
 
 ## 5. The design
@@ -455,17 +565,20 @@ program. 4.1.1 is the trace.
 1. **§4.1.** Without the `mem_own` arm this ships and fails at the first
    `OSAPI_MEM_CLAIM` a re-homed program makes — which for most packages is
    after the window is up. Build the arm first, with its own gate.
-2. ~~**Compaction.**~~ **CLOSED, audited.** The worry was that `mem_frameless`
-   protects a launch in flight by `cmp bx, [ld_base]` — a claim BASE — while
-   after the re-home `[ld_base]` is Y, which is inside the carve rather than
-   the base of it. It does not arise: `mem_can_move`'s **first** test is
-   `cmp word [ss:si+MC_RLOC], 0 / je .pin`, and the carve is claimed through
-   `OSAPI_MEM_CLAIM` and never declared `OSAPI_MEM_MOVABLE`, so it is pinned by
-   default (§66) and the compactor stops before `mem_frameless` or `[ld_base]`
-   is consulted at all. A re-homed program cannot be moved out from under
-   itself. **This becomes live only if a package ever declares its carve
-   movable**, which nothing does and which HEAP-UNPIN-PLAN §4.7 already refuses
-   for a region owning a worker.
+2. ~~**Compaction.**~~ **CLOSED TWICE — see §4.3.3, which is the better
+   reason.** The first close was that the carve is pinned by default
+   (`mem_can_move`'s first test is `cmp word [ss:si+MC_RLOC], 0 / je .pin`, and
+   nothing declares a carve movable), so the compactor stops before
+   `mem_frameless` or `[ld_base]` is consulted at all. That is true and it is
+   the *weak* answer, because it closes the risk by making the feature
+   unavailable — and it left the question of what happens the day somebody
+   declares one. §4.3.3 answers that: a re-homed carve is a **region** by
+   `mem_is_region`'s own test once `MC_OWN` names the instance slot, so it
+   moves under exactly the rules SHEET's region moves under. `mem_rr_tab`
+   rewrites `I_SPTR`, `mem_reloc_call` dispatches through `PKG_DISP` at the new
+   base, and `[ld_base]` pins it while its entry proc runs. **So do NOT add a
+   defensive pin** — the ~6 bytes sketched for forcing `MC_RLOC = 0` in
+   `mem_reown_x` would buy nothing and would cost the feature.
 3. **`ld_unreserve` on an abort after the re-home.** It frees by slot and by
    `[ld_base]`; the arm sets `[ld_base] = Y` before anything can fail, so the
    carve is swept. Worth a red-run test rather than an argument.
@@ -499,6 +612,17 @@ program. 4.1.1 is the trace.
   4.1's whole gate and must go red without the arm.
 * **`rehomeclose` (soak)** — close it and assert `mem_avail` returns to what it
   was before the launch. The leak §3 describes is invisible until you look.
+  Measured on MSEG today, the free is exact: the map after a close is
+  **byte-identical** to the map before the launch (§4.3.1), so this row asserts
+  equality and not a tolerance.
+* **`rehomemove` (soak)** — §4.3.3's gate, and the one that says the finding is
+  a fact rather than a reading. The fixture declares `OS88_REGION_MOVABLE`
+  after its window is up, a claim big enough to force a compaction is taken,
+  and the assertions are that `MC_SEG` **moved**, that `I_SPTR` followed it,
+  and that the program still paints. `tests/regmove.py` is the shape to copy —
+  it is SHEET's, the first region in the tree to move — and a re-homed carve
+  should be indistinguishable from it. Without `mem_reown_x` this goes red at
+  `mem_is_region`, which makes it the second gate on §3.
 
 ---
 

@@ -134,7 +134,7 @@ waiting and outranks it (§66.10.1), which is the same room at none of the copy.
 | **ArtfulType** document + undo/redo/clip arena | **MOVABLE** | §66.5.7. `at_reloc`, two words; `at_dmov` pins across both file operations |
 | **Fractal** run cache | **MOVABLE** | §66.5.7. `fr_reloc`, one word — every cursor into it is an offset |
 | **ModPlug** module (up to 116KB) | **MOVABLE** | §66.5.8. `mpp_reloc`, 36 words. §56.1's bill: the replayer is an independent copy of Tracker's at *different strides* (`MPS_SZ` 12, `MPM_CHSZ` 40), so a renamed `trk_reloc` walks the tables wrong and yields plausible garbage |
-| every package **region** | **PINNED (forever)** | base is CS |
+| every package **region** | **see *Regions* below** | a region's base is its CS, and this row said `PINNED (forever)` until §66.6.1 opened that door. It is not a data claim and the two columns here do not decide it — the *worker* does. Eighteen regions in the tree are movable today, every C package's among them |
 
 ### Undeclared
 
