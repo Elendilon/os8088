@@ -278,6 +278,7 @@ A package `%include`s these itself; they are not kernel calls. Include them at t
 | `apps/os88pit.inc` | §72.15.1 | `pit_now`: a 32-bit clock in 838ns units off the 8253 and the BIOS tick, good for an hour before it wraps. Sub-tick timing for a profiler. |
 | `apps/os88type.inc` | §6.3, 6.5 | Proportional type: composes a row of glyphs from an `.F88` face into a 1bpp band in your own RAM and puts it up with one `OSAPI_GFX_BLIT1`. |
 | `apps/os88parts.inc` | §20.12 | Package parts: named, sized parts inside one `.O88` - claimed, loaded on demand, optionally into XMS, and refused with an arithmetic the package states itself. A package over 64KB is still a package. |
+| `apps/os88partsbody.inc` | §20.12.9 | The parts standard's CODE, and you do not include it: OS88_PARTS_END emits it after your table, gated on the OP_HAS_* flags the table itself derived. One plain part carries 1,018 bytes of it where every consumer used to carry 2,536. |
 
 ## Packages, and what to read them for
 

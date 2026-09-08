@@ -129,6 +129,11 @@ INCLUDES = [
      "Package parts: named, sized parts inside one `.O88` - claimed, loaded on "
      "demand, optionally into XMS, and refused with an arithmetic the package "
      "states itself. A package over 64KB is still a package."),
+    ("os88partsbody.inc", "20.12.9",
+     "The parts standard's CODE, and you do not include it: OS88_PARTS_END "
+     "emits it after your table, gated on the OP_HAS_* flags the table itself "
+     "derived. One plain part carries 1,018 bytes of it where every consumer "
+     "used to carry 2,536."),
 ]
 
 

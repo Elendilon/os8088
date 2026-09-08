@@ -32675,6 +32675,75 @@ nothing extra, and a table of one compressed part among five plain ones moves
 all five. Both are measured against the disk time saved, which is ~35.6 ms a
 sector.
 
+#### 20.12.9 The standard takes only what the table asks for
+
+`apps/os88parts.inc` is the package's code, not the kernel's, so what it costs
+is measured in the package's own 61,440 bytes. **It was estimated at 500–700
+(docs/plans/completed/O88-MULTISEG-PLAN.md §6.4) and measured, five waves
+later, at 2,536** — for a package declaring one plain `OP_ASSET` row, whose
+whole image was then 2,582 bytes. The standard was 98% of it.
+
+Nothing went wrong wave by wave. Scratch and optional parts, XMS, lazy parts
+and compression each arrived with their bill stated as **"zero kernel
+bytes"** — waves 3, 4, 5 and 6 all say so, in those words, and all four were
+right. The kernel's 85 bytes never moved. The number that did move was the one
+nobody was looking at, and §6.4's estimate was never taken again.
+
+**The flags are derived from the table, and a package declares nothing.**
+`OS88_PART` sets `OP_HAS_XMS`, `OP_HAS_ZERO`, `OP_HAS_OPT`, `OP_HAS_LAZY` and
+`OP_HAS_COMP` from the row it is emitting; `apps/os88partsbody.inc` reads
+them. There is no wording under which "I use compression" is truer than the
+`OP_COMP` already on the row, and a second place to say it is a second place
+to get it wrong.
+
+That is why the code moved into a file of its own and is emitted **after** the
+table. `OS88_PARTS_END` calls `OS88_PARTS_CODE` for you, so an assembly
+package writes exactly what it wrote before; the C SDK calls the two halves
+separately, because its table is in `.data` and its code must be in `.text`
+(`apps/cc/crt0.asm`). Code emitted at the `%include` — where it used to be —
+cannot be gated on a declaration that comes after it.
+
+**What a gate is.** Not a size knob and not a mode: the call graph already
+said which code a given table can reach. `op_fetch`, `op_drop`, `op_lazyok`
+and `op_lin` are public entry points reached from nothing inside the file, and
+`op_xload`, `op_unpack` and `op_scrub` have one caller each in `op_load`,
+behind a test that is false for every row of a table without that flag. The
+gates put the reachability the table already implies into the assembler.
+
+| a package declaring | parts code | was |
+|---|---:|---:|
+| one plain `OP_ASSET` row | **800** | 2,536 |
+| one `OP_ASSET, OP_COMP` row — C64's shape | 1,203 | 2,536 |
+| four features, no compression — `mseg` | 2,160 | 2,584 |
+| all five — `mseg -DMSEG_COMP` | **2,581** | 2,584 |
+
+The last row is the check that matters: **with every flag set the emitted code
+is the size it always was**, so nothing was removed from the standard, only
+from the packages that never asked for it. The three bytes are `op_size`'s
+`.ovfc`, an overflow exit two live ones replaced and nothing has jumped to
+since; `t_asmrules` does not walk `apps/`, which is why it kept assembling.
+
+**C64, the one shipping consumer, goes 43,699 → 42,317** — 1,382 bytes, which
+is the 1,333 above plus the three lazy thunks in `apps/cc/os88thunk.asm`. Those
+had to move into a macro `CC_PARTS_END` invokes: that file is included by
+`crt0.asm` *before* the package's table, so a gate written there would compile
+the thunks out of every C package including one that really does declare a
+lazy row. They were also the last thing in the tree referencing `op_fetch`,
+`op_drop` and `op_lazyok`, so without moving them nothing else would have
+been gated at all.
+
+`OP_BSS` stays at 86 whatever the table says, and 42 of those bytes are the
+XMS and compression words. That is a deliberate non-take: `apps/cc/crt0.asm`
+reserves `OP_BSS` bytes inside the span the loader zeroes, and it does so
+**before** the package's table has been written — so gating the chain would
+need a second constant for C, which is the mirror this whole design is
+avoiding. 42 bytes is the price of not having one.
+
+§20.12.7 already said *"only a package with a compressed row assembles a use
+of it"*. It was describing the intent rather than the build: `op_load` carried
+`call op_unpack` unconditionally, and the sentence is true as of this section
+rather than before it.
+
 ### 20.13 COMPRESSION — flags bits 3 and 4, and one slot
 
 **A file may be compressed and the kernel expands it on the way in.**

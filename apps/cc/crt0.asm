@@ -1278,9 +1278,18 @@ section .data
     OS88_PARTS_BEGIN %1
 %endmacro
 %macro CC_PARTS_END 0
-    OS88_PARTS_END
+    OS88_PARTS_END_TABLE            ; the table's closing checks, in .data...
 section .text
-%endmacro
+    OS88_PARTS_CODE                 ; ...and the CODE over here, which is the
+                                    ; other half of what OS88_PARTS_END does
+                                    ; for an assembly package. It is emitted
+                                    ; AFTER the table on purpose (SPEC.md
+                                    ; 20.12.9): the gates inside it are
+                                    ; derived from the rows above
+    %if OP_HAS_LAZY
+    CC_PART_LAZY_THUNKS             ; ...and so are these, for the same reason
+    %endif                          ; - os88thunk.asm is included before the
+%endmacro                           ; table and cannot gate them itself
 %endif  ; CC_HAS_PARTS
 
 ; =============================================================================

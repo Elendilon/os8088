@@ -2059,6 +2059,17 @@ _os88_part_seg:
     pop bp
     ret
 
+; THE THREE LAZY THUNKS ARE A MACRO, and CC_PARTS_END emits them (SPEC.md
+; 20.12.9). They cannot be emitted HERE: this file is included by crt0.asm
+; before the package's own table, so OP_HAS_LAZY is still 0 at this point and
+; a gate written here would compile the thunks out of every C package -
+; including one that really does declare a lazy row. The table decides, and
+; the table has not been read yet.
+;
+; Ungated they were the only thing in the tree still referencing op_fetch,
+; op_drop and op_lazyok, so C64 carried the whole lazy surface for three
+; functions it never calls.
+%macro CC_PART_LAZY_THUNKS 0
 ; int os88_part_fetch(int i) - claim and read a lazy part NOW. 0 = it is here
 ; (including "already was"), -1 = it could not be had and a toast has said why.
 _os88_part_fetch:
@@ -2101,6 +2112,8 @@ _os88_part_lazyok:
 .ok:
     pop bp
     ret
+
+%endmacro
 
 ; int os88_part_optok(void) - were the OP_OPT scratch parts granted?
 ; All or none (SPEC.md 20.12.4), so it is one answer for the whole table.
