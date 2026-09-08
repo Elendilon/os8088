@@ -11449,3 +11449,280 @@ profile reads **PACCMAN.O88 at 2.18 fps against PACMAN.O88's 4.14** on
 28×36 field against Roklan's 40×22 — so that is not a race between C and
 assembly; it is the answer to "maybe this port is more performant on XTs",
 which is **no**.
+
+### Set 119 — CLEAR SKIES: the shared edge, the cull walk, and why a NOPed call lies (SPEC.md §88.4.2.1, §88.11.1, docs/plans/SKIES-FRAME-PLAN.md)
+
+The question: `cs_wire` (SPEC.md §88.13.3) draws each edge of a solid ONCE
+because two faces share it, and that was worth 284.7 → 167.5 ms on Mode X. The
+FILL has the same redundancy — `cs_poly` traces all four edges of every front
+face — so **is there an indexed-face-set win in the filled path too?**
+
+**Harness**: `make skiesprobe` (SPEC.md §88.11.1) + `tests/skiescount.py`,
+`os8088_5150_herc_gla`, mean of 12 exact frames with the `OSAPI_FSX_WAIT` out,
+four arms per row interleaved 0-1-0-1 so drift cannot land on one of them.
+
+**THE METHOD IS THE FIRST FINDING. Every term is priced by ADDING it, never by
+removing it, so every arm draws the identical picture** — and that is not
+fastidiousness, it is a factor of two. `tests/skiesperf.py` prices a stage by
+NOPing its call, and **a NOPed call takes its consequences with it**: NOP
+`cs_edge` and the chains keep their +big/−big, the polygon's rows are never
+filled, and the reading is the tracing PLUS the fill it removed. On `city`
+that is **17.50 ms removing against 8.47 adding**. A candidate sized against
+the first number is sized against pixels it was never going to save.
+
+So: `cs_edge` is idempotent (a chain takes the same value, `.both` takes
+min/max), and the arm runs it **twice** per edge — the frame's difference over
+the trace count is one trace, exactly. The dedup test is priced by an arm that
+*skips* it. The copy is `rep movsw`'d **into scratch** in front of the trace it
+would replace. The face preamble is repeated into scratch likewise.
+
+**THE SECOND FINDING IS THE SCENE.** SPEC.md §88.12's `runway`, `city` and
+`tower` hold a distant skyline that is LOD-boxed (§88.5.4) and contributes no
+faces; what covers the view there is the one-face FLAT models. They are the
+wrong scenes for a question about building faces, and they understate it
+fourfold. `dflevel`, `dfangled` and `dfsquare` stand among La Défense's six
+110 m towers at ~950 m, and the discriminator is the **pitch**: eye above the
+roofs and a box shows two walls AND a roof — three faces at three shared edges
+of twelve — eye below and it shows two walls sharing one of eight. The
+textbook 3/12 and 1/8, landing on the glass at **25.0%, 23.2% and 11.1%**.
+
+| per frame | runway | city | tower | dflevel | dfangled | dfsquare |
+|---|---|---|---|---|---|---|
+| frame (probe build) | 172.19 ms | 178.18 | 195.59 | 231.4 | 255.28 | 248.7 |
+| eye vs. the roofs | — | — | — | below | above | above |
+| objects in the frame | 7 | 13 | 11 | 7 | 7 | 7 |
+| faces walked | 9.0 | 15.8 | 14.6 | 28.1 | 28.1 | 28.1 |
+| …back-culled | 3.4 (38%) | 4.5 (29%) | 5.6 (38%) | 16.9 (60%) | 11.2 (40%) | 11.2 (40%) |
+| edge traces | 20.2 | 31.5 | 27.0 | 40.5 | 63.0 | 67.5 |
+| …duplicates | 1.1 (5.6%) | 4.5 (14.3%) | 3.4 (12.5%) | 4.5 (11.1%) | 14.6 (23.2%) | 16.9 (25.0%) |
+| rows a trace | 10.2 | 6.6 | 5.9 | 26.7 | 17.3 | 16.8 |
+| **one trace** | 1,352 cy | 1,285 | 1,119 | 2,866 | 2,121 | 1,902 |
+| **all the tracing there is** | 5.74 ms (3.3%) | 8.47 (4.7%) | 6.33 (3.2%) | 24.24 (10.5%) | 28.00 (11.0%) | 26.85 (10.8%) |
+| **the duplicates — the prize** | 0.32 ms (0.19%) | 1.21 (0.68%) | 0.78 (0.40%) | 2.69 (1.16%) | 6.50 (2.55%) | 6.71 (2.69%) |
+| the dedup test, per edge | 295 cy | 490 | 477 | 481 | 496 | 501 |
+| …per frame | 1.33 ms | 3.17 | 2.72 | 4.05 | 6.55 | 7.11 |
+| the copy, per frame | 0.10 ms | 0.30 | 0.16 | 1.37 | 1.71 | 2.02 |
+| **NET at runtime** | **−1.12 ms** | **−2.26** | **−2.10** | **−2.73** | **−1.76** | **−2.42** |
+| **NET, topology precomputed** | −0.02% | +0.29% | +0.14% | +0.35% | **+1.56%** | **+1.54%** |
+| a face's preamble | — | 1,326 cy | — | 1,402 | 1,380 | 1,376 |
+| **the back-culled faces cost** | — | **1.25 ms (0.70%)** | — | **4.96 (2.14%)** | **3.25 (1.27%)** | **3.24 (1.30%)** |
+
+**A runtime dedup is a LOSS on every one of the six**, and it is not close: the
+test is 295–501 cycles paid on 20–68 edges to save on 1–17. Precompute the
+topology per model — a flag beside each face index, ~60 cycles — and the
+ceiling is **+1.56% of a frame** in the view it is best in and under +0.35% on
+four of the six, for a topology byte per face-edge over 122 models in a
+package that has already met `APP_MAX_SIZE` at a merge.
+
+**Why §88.13.3's version was worth 117 ms and this one is worth four, in one
+sentence: in WIREFRAME the duplicate is duplicate PIXELS, and in a FILL it is
+duplicate BOOKKEEPING.** The second `cs_seg` re-walks a span doing a
+read-modify-write per pixel over a line already on the glass. The second
+`cs_edge` refills a span TABLE — two front faces fill two different interiors,
+`cs_polyrows_herc` lays a row as two masked end bytes and a `rep stosw`
+between into the SHADOW, and `cs_blit` carries it to the card once. **The shape
+of a redundancy says nothing about its price.**
+
+**AND THE CULL WALK IS THE BETTER CANDIDATE, which is what the last two rows
+are for.** `cs_faces` decides a face is back-facing from the signed area of its
+PROJECTED points (§88.5.10), so a culled face has already been gathered by
+index into `cs_pv` and paid the two `imul`s: **1,326–1,402 cycles, and 29–60%
+of walked faces are culled.** On `dflevel` — level flight among buildings,
+which is the ordinary case, where a box shows two of its five faces — that is
+**4.96 ms, 2.14% of the frame**, and it needs no per-model data at all. It is
+also the exact complement of the dedup: `dflevel` is where the dedup is worth
+least (0.35%) and this is worth most. docs/plans/SKIES-FRAME-PLAN.md §3 is the
+design; the figure is a **lower bound**, the arm repeating the gather and the
+cross but not the `.cnt` in front of them.
+
+Two readings that outlive the question:
+
+1. **A trace is nearly all fixed cost where the polygons are small** — 6.6
+   rows an edge on `city` at 1,285 cycles — and the rows only start to matter
+   in a building view (26.7 rows at 2,866). A scheme that shares ROWS is
+   sharing the part that was never the expense in half the frames measured.
+2. **The vertex pipeline is already an indexed face set**: `cs_projall`
+   transforms and projects each vertex once per object and every face reads it
+   by index, so the nine multiplies a vertex — the part worth sharing — is
+   shared already. What is left unshared is scan conversion, and that is
+   3.2–11.0% of a frame in total.
+
+### Set 120 — CLEAR SKIES: the back-face cull moved in front of the projection, and the wireframe's per-pixel write priced (SPEC.md §88.5.12, §88.4.3.1, docs/plans/SKIES-FRAME-PLAN.md)
+
+Set 119's two leftovers, both measured with `make skiesprobe` +
+`tests/skiescount.py` on `os8088_5150_herc_gla`, means of 12 exact frames with
+the `OSAPI_FSX_WAIT` out, arms interleaved.
+
+**THE CULL.** `cs_faces` decides a face is back-facing from the signed area of
+its PROJECTED points (§88.5.10), so a culled face has already been counted
+against the near and side planes, gathered by index into `cs_pv` and paid two
+`imul`s — **1,326–1,478 cycles, and 29–60% of walked faces are culled.**
+`cs_axcull` (§88.5.12) decides it first and with **no multiply at all**: a
+stack's side face is an axis-aligned plane in WORLD space when its level pair
+is untapered, so the test is one compare against the eye's own world position,
+and `cs_scale` already has that offset because it is the input to the rotation
+(`dot(M x̂, M d) = d.x` for orthonormal M). 143 bytes.
+
+`[cs_axoff]` is the A/B — one image, one speed, the cull acting or computing
+and not acting:
+
+| | runway | city | tower | dflevel | dfangled | dfsquare |
+|---|---|---|---|---|---|---|
+| the winding alone | 176.08 ms | 181.20 | 204.76 | 236.69 | 260.35 | 253.76 |
+| `cs_axcull` on | 175.05 | 180.55 | 204.12 | **231.05** | **256.64** | **250.09** |
+| | −0.58% | −0.35% | −0.32% | **−2.38%** | **−1.43%** | **−1.45%** |
+| faces walked, off → on | 112→70 | 196→168 | 182→154 | 350→140 | 350→210 | 350→210 |
+
+**`dflevel` — level flight among buildings, where a box shows two of its five
+faces — walks 140 faces where it walked 350, and the winding is left with
+nothing to cull at all.**
+
+**THE WIREFRAME'S PIXEL.** `cs_dblplot` prices one `or [es:di], al` by doing it
+twice (`or` is idempotent, so the picture is identical):
+
+| per frame, wire | dfangled | tower |
+|---|---|---|
+| segments: shallow per-pixel / SLICED / steep / vertical | 9.0 / 23.6 / 7.9 / 6.8 | 8.6 / 21.6 / 9.4 / 7.9 |
+| pixels plotted (shallow / steep / vertical) | 861 (188/327/345) | 601 (133/226/242) |
+| **one plot** | **14.5 cy** | **14.2 cy** |
+| **every plot in the frame** | 2.62 ms (1.5%) | 1.79 ms (0.9%) |
+| **plots a byte accumulator could merge** | 0.37 ms (0.21%) | 0.16 ms (0.08%) |
+
+**The write is 14 cycles of a steep pixel's ~85**, 78% of the pixels are steep
+or vertical and 80 bytes apart so nothing can merge, and above six pixels a row
+the slice already lays runs. §88.13.3's dedup was worth 16.7 ms because it
+removed whole SEGMENTS — ~2,400 cycles each — and because that figure is Mode
+X, where a pixel is an `out` and a store.
+
+**THREE THINGS THE VERIFICATION COST, and they are the value of this set.**
+
+1. **`cs_axcull` must preserve SI.** The caller falls through to `.cnt`, which
+   walks the face's indices with `lodsb` from the SI it already has, where
+   `.plain` reloads it. Invisible on every WHOLE object (§88.3.2) and wrong on
+   every other: one building drawn wrong in a 32×6 patch. **The verdict audit
+   could not see it** — both tests agreed about the face and its indices were
+   then read from the wrong place. The framebuffer A/B found it.
+2. **…and a framebuffer A/B of this program cannot CERTIFY.** Two arms
+   byte-identical in behaviour and speed differ in **2 runs of 6, by 865 and
+   896 pixels**, in a band along the horizon, with the scene pinned and the
+   world paused. Four fixes were tried (capture at a breakpoint, count guest
+   frames, pin the nine flight-state words the position does not, re-pin every
+   frame at the breakpoint) and none removed it. The gate is the VERDICT AUDIT
+   instead — the new test's answer against the old one, face by face on the
+   guest — which reads 0 disagreements over 12 scene-and-fill configurations.
+3. **An A/B that can silently measure NOTHING needs an arm check.** Package bss
+   is zeroed, `cs_axmask` defaulted to 0, `and dl, [cs_axmask]` cleared every
+   axis bit, and the cull was inert in BOTH arms: six scenes read a tidy
+   +0.06%, and the timings looked entirely reasonable. What caught it was
+   printing the counters of what each arm actually did beside the milliseconds.
+
+### Set 121 — `font_run`'s VGA fast path covers 57% of the colour pairs, and no row in the tree drew one of the other 43% (SPEC.md §6.1.10.1)
+
+| | |
+|---|---:|
+| machine | **MartyPC**, cycle-accurate IBM 5150/XT, 4.77 MHz 8088 |
+| adapters | `os8088_xt_vga` (mode 12h) and `os8088_5150_herc_gla` (720×348) |
+| harness | `tests/gfxbench`, report read back with `tools/os88flush.py` |
+| date | 2026-09-08 |
+
+Raised by an agent writing a game, reporting an attract line falling to
+`gfx_fill` + `font_str` on VGA — the pair §6.1 exists to replace — and asking
+whether §6.1.10 had regressed. **It had not**: `.plno` is byte-identical to the
+commit that introduced it (#116). What is true is narrower and was never
+written down for callers.
+
+#### The measurement
+
+Two rows added, the same string, length and place as `FONT_RUN 10 aligned` and
+differing only in the pen — the construction §6.1.12's disabled row already
+uses, and for the same reason.
+
+| row | VGA | Hercules |
+|---|---:|---:|
+| `FONT_RUN 10 aligned` — `CBLACK` on `CWHITE` (subset) | **2,997.88 µs** | 3,179.19 |
+| `FONT_RUN 10 coloured` — `CYELLOW` on `CBLUE` (shares no plane) | **7,200.25** | **3,178.70** |
+| `PAIR 10 coloured` — the same two colours written by hand | 6,882.19 | 8,654.36 |
+| `FONT_RUN 10 aligned` re-run, same session *(instrument control)* | 2,997.18 | 3,180.03 |
+
+**2.40× on VGA.** The instrument repeats to **0.023% (VGA) / 0.026% (Hercules)**
+within a session, so the gap is four orders of magnitude outside noise. And the
+sharpest number is the one Set 76 already taught us to look for: the coloured
+run is **4.6% SLOWER than the hand-written pair** at those colours (7,200.25
+against 6,882.19) — the pair, plus the cost of deciding not to take a fast path
+that does not cover this pen. Set 76 measured the identical shape at 3.3% when
+the fast path covered *no* VGA pen at all.
+
+**The Hercules column is the control and it is flat**: 3,179.19 against
+3,178.70, **0.015% apart** — inside the instrument's own repeatability.
+`font_ink` reduces either pair to 00/FF before the mono prologue runs, so the
+pen cannot reach that path, and the divergence is therefore VGA's alone rather
+than anything about the two strings. `PAIR 10 aligned` and `PAIR 10 coloured`
+read **identically** on VGA (6,882.19 both), which is the second control:
+`gfx_fill` + `font_str` does not care what the colours are, so the whole of the
+VGA movement is `font_run`'s own gate.
+
+Cross-check against the record: this session's Hercules `whole page of rows`
+reads **494,331.49 µs** against Set 76's **494,331** — the same instrument,
+three tree-months apart.
+
+#### Why it was invisible
+
+- **Every `FONT_RUN` row in `tests/gfxbench` drew `CBLACK` on `CWHITE`** — a
+  subset pair, always the fast path.
+- **All 42 statically-resolvable `OSAPI_FONT_RUN` call sites in `apps/` are
+  subset pairs.** (98 sites total; 56 take their colours from a variable and
+  cannot be ruled out by reading.) Nothing shipped has ever taken `.plno`.
+
+So the fall-back had no witness in the tree — which is *exactly* the sentence
+§6.1.12's disabled row is already there to stop being true, one pen along.
+**The lesson is the one that keeps recurring in this file: a fast path with a
+predicate needs a row on BOTH sides of the predicate, not a row on the side the
+kernel happens to use.** A census over the kernel's own pens sized the omission
+correctly and then got quoted as the exposure; the callers it did not count are
+the packages.
+
+#### What a caller needs to know, and what it costs
+
+The rule is a subset test on the plane bits, and its useful corollary is free:
+**if either colour is `CBLACK` or `CWHITE`, the pair always takes the fast
+path** (`0 ⊆ x`, `x ⊆ 15`). 146 of 256 ordered pairs are fast; the 110 that are
+not all have two "mixed" colours. A game wanting yellow letters gets the single
+store on black paper and the pair on blue.
+
+Not proposed here: the `Map Mask` second pass §6.1.10 left out. It is still two
+passes over the run, so against a 6,882 µs pair it would buy something well
+short of the 2.40× the subset pairs get, and the honest first move is that
+packages can have the fast path today for nothing by picking the pen.
+
+#### …and the pen was not the reporter's problem: the follow-up rows
+
+The report that raised this was **coloured text on a BLACK background**, and
+`bg = 0` makes `B` empty for every ink: **colour on black is always a subset
+pair and always takes the single store.** So `.plno` is not that bug, and the
+next candidate was the phase. Two more rows, 19 cells — an attract line's
+length — at `CYELLOW` on `CBLACK`:
+
+| VGA row | measured | vs aligned |
+|---|---:|---:|
+| `FONT_RUN 19 col/blk` — aligned | **4,891.29 µs** | — |
+| `FONT_RUN 19 col/blk +5` — off the byte grid (§6.1.11) | **7,832.39 µs** | **1.60×** |
+
+**§6.1.11 costs 1.60× and not an order of magnitude**, which is what its own
+arithmetic predicts: a run of `n` cells off the grid is `n−1` whole stores plus
+**2 merges**, not `4n` accesses, and the two edge bytes are stashed and written
+by two column passes with the Bit Mask set once rather than per row.
+
+The aligned row is also the **cross-check that the pen is on the fast path**:
+the cost model fitted to the `CBLACK`-on-`CWHITE` rows — 898.8 µs fixed plus
+209.9 µs a cell — predicts **4,887 µs** for 19 cells and the machine reads
+**4,891.29**, 0.09% out. A run that had fallen to `.slow` would read ~13,700.
+
+**So neither the pen nor the phase explains a reported 176 ms for 19
+characters**: that is **36× the aligned run and 22× the unaligned one**, or
+9.26 ms a character against a `FONT_CHAR one cell` of 629 µs — about fifteen
+primitive calls per character. The cost is above `font_run`, not inside it.
+Three things to rule out in that order, all of which have produced a number
+of this shape before: **a measurement taken under QEMU** (Part 3 — the µs
+column there is host speed and means nothing); **the line being redrawn per
+frame** and the span covering tens of frames; and **a per-character call**,
+which pays the 899 µs fixed part of a run nineteen times instead of once.

@@ -5007,6 +5007,18 @@ $(BUILD)/skiesdiag/apps360.img: $(SKIES_SRC) | $(BUILD)
 skiesdiag: $(BUILD)/skiesdiag/apps360.img
 	@echo "skiesdiag: $(BUILD)/skiesdiag/apps360.img - boot the SHIPPED"
 	@echo "           system disk with this as B: (SPEC.md 88.14)"
+
+# ...and the COUNTING build (SPEC.md 88.11.1), skiesdiag's shape exactly: the
+# counters and the four runtime A/B arms behind `%ifdef CSPROBE`, so the
+# SHIPPED package is byte-identical and `make && md5sum $(BUILD)/skies.bin`
+# says so. tests/skiescount.py is what drives it, and it is an INSTRUMENT
+# rather than a gate - it asserts nothing.
+$(BUILD)/skiesprobe/apps360.img: $(SKIES_SRC) | $(BUILD)
+	@$(MAKE) --no-print-directory BUILD=$(BUILD)/skiesprobe CSDIAGDEF=-DCSPROBE $@
+.PHONY: skiesprobe
+skiesprobe: $(BUILD)/skiesprobe/apps360.img
+	@echo "skiesprobe: $(BUILD)/skiesprobe/apps360.img - then"
+	@echo "            python3 tests/skiescount.py --scene dfangled"
 $(BUILD)/skies.bin: $(SKIES_SRC) | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/skies/ $(CSDIAGDEF) -o $@ apps/skies/skies.asm
 	@echo "skies: $(call FILESIZE,$@) bytes"

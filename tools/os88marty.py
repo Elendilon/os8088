@@ -708,6 +708,19 @@ class Marty:
         thing twice running.
         """
         import time
+        # A `bp_trace` PUMP OWNS THE STOPS, so a wait for one inside a block
+        # answers with whatever the pump was about to resume - a stop that
+        # belongs to the trace and not to the caller, arriving almost at once
+        # and meaning nothing. It is a wrong answer rather than a hang, which
+        # is worse, so it is refused here and the block's own verbs are named.
+        if getattr(self, "_pumping", 0) and since is None:
+            raise MartyError(
+                "wait_stop inside a bp_trace block: the pump is resuming every "
+                "stop, so this would answer with one of ITS hits rather than "
+                "with anything the caller asked for. Use `tr.wait(n, name)` to "
+                "block until the trace has recorded a hit, or `tr.until(cond)` "
+                "to stay in the block until the guest state says the work is "
+                "done.")
         budget = (guest if guest is not None else limit * GUEST_BUDGET_RATIO)
         mark = self._go if since is None else since
         c0 = int(self.status().get("cycles", 0))

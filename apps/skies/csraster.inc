@@ -1911,6 +1911,9 @@ cs_poly:
     sub ax, bx
     cmp ax, 1
     ja .trace
+%ifdef CSPROBE
+    inc word [cs_dbg_fbox]
+%endif
     mov si, bx
     shl si, 1
     mov ax, [cs_pbx0]
@@ -1966,6 +1969,26 @@ cs_poly:
     je .side
     xor byte [cs_eside], 3
 .side:
+%ifdef CSPROBE
+    call cs_probe_edge
+    ; --- A/B 1: with [cs_dbl] every edge is traced TWICE. cs_edge is
+    ;     idempotent - a chain takes the same value and `.both` takes min/max
+    ;     - so the picture is identical and the frame's difference over the
+    ;     trace count is what ONE trace costs, exactly. The push/pop and the
+    ;     test are in BOTH arms, so the A/B prices the call alone
+    push ax
+    push bx
+    push cx
+    push dx
+    cmp byte [cs_dbl], 0
+    je .nodbl
+    call cs_edge
+.nodbl:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+%endif
     call cs_edge
     pop si
     dec word [cs_pei]
@@ -1974,6 +1997,9 @@ cs_poly:
 .rows:
     jmp [cs_rowsproc]
 .out:
+%ifdef CSPROBE
+    inc word [cs_dbg_fout]
+%endif
     ret
 
 ; cs_polyrows - the general row loop: the row's bounds clamped, its pattern
@@ -2681,6 +2707,9 @@ cs_seg:
     mov di, [cs_rowoff + si]
     add di, [cs_tbase]
     mov bx, dx
+%ifdef CSPROBE
+    call cs_probe_sh
+%endif
     jmp [cs_lsh]
     ; ---- steep: y increasing ----------------------------------------------
 .steep:
@@ -2710,8 +2739,16 @@ cs_seg:
     mov bx, dx
     or bp, bp
     jz .vert
+%ifdef CSPROBE
+    inc word [cs_dbg_wst]
+    add [cs_dbg_wstpx], cx
+%endif
     jmp [cs_lst]
 .vert:
+%ifdef CSPROBE
+    inc word [cs_dbg_wvt]
+    add [cs_dbg_wvtpx], cx
+%endif
     jmp [cs_lvt]
 .out:
     ret
@@ -3138,6 +3175,14 @@ cs_slice_herc:
     mov si, [cs_e2]
     mov dx, [cs_ystep]
 %%spx:
+%ifdef CSPROBE
+    ; A/B 5: `or` is idempotent, so a second plot draws the identical picture
+    ; and the frame's difference over the plot count is ONE plot, exactly
+    cmp byte [cs_dblplot], 0
+    je %%npsh
+    or [es:di], al
+%%npsh:
+%endif
     or [es:di], al
     add bx, bp
     jg %%ys
@@ -3161,6 +3206,14 @@ cs_slice_herc:
     cmp byte [cs_xdir], 0
     jne %%back
 %%fwd:
+%ifdef CSPROBE
+    ; A/B 5: `or` is idempotent, so a second plot draws the identical picture
+    ; and the frame's difference over the plot count is ONE plot, exactly
+    cmp byte [cs_dblplot], 0
+    je %%npstf
+    or [es:di], al
+%%npstf:
+%endif
     or [es:di], al
     add di, 80
     add bx, bp
@@ -3177,6 +3230,14 @@ cs_slice_herc:
     loop %%fwd
     ret
 %%back:
+%ifdef CSPROBE
+    ; A/B 5: `or` is idempotent, so a second plot draws the identical picture
+    ; and the frame's difference over the plot count is ONE plot, exactly
+    cmp byte [cs_dblplot], 0
+    je %%npstb
+    or [es:di], al
+%%npstb:
+%endif
     or [es:di], al
     add di, 80
     add bx, bp
@@ -3196,6 +3257,14 @@ cs_slice_herc:
     CS_LENTER 1
     mov bp, 80
 %%v:
+%ifdef CSPROBE
+    ; A/B 5: `or` is idempotent, so a second plot draws the identical picture
+    ; and the frame's difference over the plot count is ONE plot, exactly
+    cmp byte [cs_dblplot], 0
+    je %%npvt
+    or [es:di], al
+%%npvt:
+%endif
     or [es:di], al
     add di, bp
     loop %%v
