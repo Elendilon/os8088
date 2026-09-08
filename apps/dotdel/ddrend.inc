@@ -684,186 +684,81 @@ dd_dmg_tile:
 
 ; =============================================================================
 ; THE ACTOR BAND (SPEC.md 93.5.1)
+;
+; ONE BAND AN ACTOR, AND THE BAND IS THE WHOLE PICTURE UNDER IT. A band covers
+; the tiles the actor's box was drawn on and the tiles it is on now, and it is
+; composed from the bottom up: the wall picture's own bytes for that rectangle,
+; then whatever the grid still says is lying on those tiles, then every actor
+; whose box meets it. One gfx_blit1 puts the lot down, and there is no wipe
+; pass and no restore pass - a band that already covers where the sprite was
+; takes it up by drawing what was under it.
+;
+; Two things in that are bug fixes, and both are about what a band is ROUNDED
+; to and what it is allowed to leave out.
+;
+; **A BAND IS CUT ON THE TILE GRID, NOT THE BYTE GRID.** gfx_blit1 only asks
+; for a multiple of 8, and a band cut there reaches PART of the way into the
+; tile ahead - so a dot in that tile was composed partly, which is a dot that
+; changes shape as an actor comes near and changes back once it has gone. A
+; tile is a multiple of 8 wide by construction (SPEC.md 93.3), so cutting on
+; the tile grid costs nothing at all and makes every tile a band touches
+; wholly inside it: a dot is drawn or it is not.
+;
+; **AND A BAND CARRIES EVERY ACTOR IT OVERLAPS.** Two ghosts that met used to
+; eat each other - the second band is opaque, so it laid its own ground over
+; the first one's pixels and the first put them back on the next frame, which
+; is the flicker. Composing the other actor into this band instead means both
+; are in every frame either of them draws. They share the band's one pen while
+; they overlap, which on a colour adapter means the pair is briefly one
+; colour; that is the honest price of a one-pen band, where being eaten is not.
+;
+; The wall picture is in the band for the same reason the dots are: a band is
+; three tile columns wide when an actor's box straddles two boundaries, so the
+; far column can be a wall tile, and blacking it would take that piece of wall
+; off the glass for the rest of the level. Corridor tiles hold no wall ink at
+; all (dd_walls_of draws every line OUTSIDE the corridor it outlines), so in
+; the ordinary case those bytes are the zeros the band would have had anyway.
 ; =============================================================================
 
 ; -----------------------------------------------------------------------------
-; dd_actor_blit - draw actor SI (0..4) where it is now, taking up where it was
-; in:  SI = the actor index. Clobbers everything.
-;
-; Nothing else in this game erases anything: the band is the union of the old
-; box and the new one, so the same call that draws the sprite lays black over
-; the trail behind it and puts back any dot the trail crossed.
+; dd_actors_draw - the whole cast, one band each
+; Two passes, because a band has to know where the OTHER actors are before it
+; can carry them. Clobbers everything.
 ; -----------------------------------------------------------------------------
-dd_actor_blit:
-    mov bx, si
-    shl bx, 1
-    cmp byte [dd_alive + si], 0
-    je .gone
-    ; --- where it is, in whole board pixels ---------------------------------
-    mov ax, [dd_x + bx]
-    mov cl, 4
-    shr ax, cl
-    mov [dd_nx], ax
-    mov ax, [dd_y + bx]
-    shr ax, cl
-    mov [dd_ny], ax
-    cmp byte [dd_shown + si], 0
-    je .fresh
-    ; --- ...and where it was ------------------------------------------------
-    mov ax, [dd_ox + bx]
-    mov [dd_px], ax
-    mov ax, [dd_oy + bx]
-    mov [dd_py], ax
-    ; a move bigger than a tile is a TELEPORT, not a step
-    mov ax, [dd_nx]
-    sub ax, [dd_px]
-    jns .dxp
-    neg ax
-.dxp:
-    cmp ax, [dd_tw]
-    ja .warp
-    mov ax, [dd_ny]
-    sub ax, [dd_py]
-    jns .dyp
-    neg ax
-.dyp:
-    cmp ax, [dd_th]
-    ja .warp
-    jmp short .band
-.warp:
-    call dd_actor_wipe              ; put the tiles it left back...
-.fresh:
-    mov ax, [dd_nx]                 ; ...and start the band at the new box
-    mov [dd_px], ax
-    mov ax, [dd_ny]
-    mov [dd_py], ax
-.band:
-    call dd_band_compose
-    call dd_band_emit
-    mov bx, si
-    shl bx, 1
-    mov ax, [dd_nx]
-    mov [dd_ox + bx], ax
-    mov ax, [dd_ny]
-    mov [dd_oy + bx], ax
-    mov byte [dd_shown + si], 1
-    ret
-.gone:
-    cmp byte [dd_shown + si], 0
-    je .out
-    call dd_actor_wipe
-    mov byte [dd_shown + si], 0
-.out:
-    ret
-
-; -----------------------------------------------------------------------------
-; dd_untint - put back the tile actor SI has just stopped overlapping
-;             (SPEC.md 93.5.4)
-; in:  SI = the actor, [dd_nx]/[dd_ny] = where it is now, in whole px.
-;
-; A band is ONE pen, so a dot inside an actor's band is drawn in that actor's
-; colour. That was written up as an artefact lasting two or three frames and it
-; is not: nothing ever draws that dot again, so on a colour adapter the ghosts
-; leave PERMANENT coloured trails behind them.
-;
-; The fix is one small blit and only when the actor's box has stopped touching
-; a tile at all. An actor's box is exactly one tile wide, so it overlaps at
-; most two, and the moment its top-left crosses into the next one the tile
-; behind is free of it - which is both when the tile needs putting back and the
-; only moment it is safe to.
-;
-; It is 4bpp only. On one plane a dot and a ghost are both lit and there is
-; nothing to put back, and these are the two adapters with the least to spare.
-; -----------------------------------------------------------------------------
-dd_untint:
-    push ax
-    push bx
-    push cx
-    push dx
-    mov bl, [dd_ac + si]            ; the tile it is in, carried along rather
-    mov bh, [dd_ar + si]            ; than divided out (SPEC.md 93.7)
-    mov cl, [dd_ptc + si]
-    mov ch, [dd_ptr + si]
-    mov [dd_ptc + si], bl
-    mov [dd_ptr + si], bh
-    cmp byte [dd_bpp], 1
-    jbe .out
-    cmp byte [dd_shown + si], 0
-    je .out                         ; it has never been drawn: nothing to undo
-    cmp cl, bl
-    jne .put
-    cmp ch, bh
-    jne .put
-    jmp short .out
-.put:
-    call dd_tile_put                ; CL, CH = the tile it has left
-.out:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; dd_actor_wipe - put back the tiles actor SI was last drawn over
-; in:  SI = the actor. Clobbers everything but SI.
-; -----------------------------------------------------------------------------
-dd_actor_wipe:
+dd_actors_draw:
     push si
-    mov bx, si
-    shl bx, 1
-    mov ax, [dd_ox + bx]
-    mov [dd_wx], ax
-    mov ax, [dd_oy + bx]
-    mov [dd_wy], ax
-    ; the sprite box covers at most two tiles each way
-    mov ax, [dd_wx]
-    xor dx, dx
-    div word [dd_tw]
-    mov [dd_wc], ax
-    mov ax, [dd_wy]
-    xor dx, dx
-    div word [dd_th]
-    mov [dd_wr], ax
-    mov bx, 0
-.r:
-    mov cx, 0
-.c:
-    push bx
-    push cx
-    mov ax, [dd_wc]
-    add ax, cx
-    mov cl, al
-    mov ax, [dd_wr]
-    add ax, bx
-    mov ch, al
-    call dd_tile_put
-    pop cx
-    pop bx
-    inc cx
-    cmp cx, 2
-    jbe .c
-    inc bx
-    cmp bx, 2
-    jbe .r
+    xor si, si
+.prep:
+    call dd_actor_prep
+    inc si
+    cmp si, DD_NACT
+    jb .prep
+    xor si, si
+.emit:
+    call dd_actor_emit
+    inc si
+    cmp si, DD_NACT
+    jb .emit
     pop si
     ret
 
 ; -----------------------------------------------------------------------------
-; dd_band_compose - build the union band for actor SI into dd_band
-; in:  SI = the actor, [dd_nx]/[dd_ny] where it is, [dd_px]/[dd_py] where it
-;      was. Out: [dd_bx0]/[dd_by0] the band's board origin, [dd_bw]/[dd_bh]
-;      its extent, [dd_rb] its stride.
+; dd_actor_prep - work out actor SI's band and bank it
+; in:  SI = the actor. Clobbers everything but SI.
 ; -----------------------------------------------------------------------------
-dd_band_compose:
-    ; --- the union box ------------------------------------------------------
+dd_actor_prep:
+    mov byte [dd_utel + si], 0
+    cmp byte [dd_alive + si], 0
+    je .none
+    call dd_actor_px                ; [dd_nx]/[dd_ny] now, [dd_px]/[dd_py] then
+    ; --- the pixel union of the two boxes -----------------------------------
     mov ax, [dd_nx]
     mov bx, [dd_px]
     cmp bx, ax
     jae .x0
     mov ax, bx
 .x0:
-    mov [dd_bx0], ax                ; the leftmost of the two boxes
+    mov [dd_bx0], ax
     mov ax, [dd_nx]
     mov bx, [dd_px]
     cmp bx, ax
@@ -871,6 +766,7 @@ dd_band_compose:
     mov ax, bx
 .x1:
     add ax, [dd_tw]
+    dec ax
     mov [dd_bx1], ax
     mov ax, [dd_ny]
     mov bx, [dd_py]
@@ -886,168 +782,521 @@ dd_band_compose:
     mov ax, bx
 .y1:
     add ax, [dd_th]
+    dec ax
     mov [dd_by1], ax
-    ; --- round the x out to the byte grid -----------------------------------
-    mov ax, [dd_bx0]
-    and ax, ~7
-    mov [dd_bx0], ax
-    mov ax, [dd_bx1]
-    add ax, 7
-    and ax, ~7
-    sub ax, [dd_bx0]
-    mov [dd_bw], ax
-    mov cl, 3
-    shr ax, cl
-    mov [dd_rb], ax                 ; the band's stride, in bytes
-    mov ax, [dd_by1]
-    sub ax, [dd_by0]
-    mov [dd_bh], ax
-    ; --- a clean band -------------------------------------------------------
-    mov ax, [dd_rb]
-    mul word [dd_bh]
-    mov cx, ax
-    cmp cx, DD_BANDSZ
-    jbe .fits
-    mov cx, DD_BANDSZ               ; cannot happen: the union is one tile plus
-.fits:                              ; one step. Clamped rather than trusted
-    mov word [dd_bbase], dd_band
-    mov di, dd_band
-    xor al, al
-    push es
-    push ds
-    pop es
-    cld
-    rep stosb
-    pop es
-    ; --- the dots the band crosses, out of dd_grid --------------------------
-    call dd_band_dots
-    ; --- and the sprite, at the bit offset its x landed on ------------------
-    call dd_band_sprite
-    ret
-
-; -----------------------------------------------------------------------------
-; dd_band_dots - stamp every dot the band overlaps into it
-; The band is at most two tiles each way, so this is a 3x3 walk with a test.
-; -----------------------------------------------------------------------------
-dd_band_dots:
-    cmp byte [dd_bpp], 1
-    jbe .lit
-    ret                             ; **NOT ON A COLOUR ADAPTER** (SPEC.md
-                                    ; 93.5.4). A band is one pen, so a dot
-                                    ; stamped into an actor's band is drawn in
-                                    ; that actor's colour - and dd_untint puts
-                                    ; the tile back only once the actor has
-                                    ; left it, so what the eye gets is a dot
-                                    ; that changes colour as a ghost arrives.
-                                    ; Leaving the dot OUT instead makes the
-                                    ; actor occlude it, which is what a sprite
-                                    ; over a tile is supposed to look like -
-                                    ; and it is less work, not more.
-                                    ; On one plane a dot and a ghost are the
-                                    ; same ink, so the stamp is exact and free.
-.lit:
+    ; --- ...taken out to the tile grid --------------------------------------
+    mov bx, si
     mov ax, [dd_bx0]
     xor dx, dx
     div word [dd_tw]
-    mov [dd_wc], ax                 ; the first tile column the band touches
+    mov [dd_nc0 + bx], al
+    mov ax, [dd_bx1]
+    xor dx, dx
+    div word [dd_tw]
+    cmp ax, DD_COLS - 1
+    jbe .ck
+    mov ax, DD_COLS - 1
+.ck:
+    mov [dd_nc1 + bx], al
     mov ax, [dd_by0]
     xor dx, dx
     div word [dd_th]
-    mov [dd_wr], ax
-    xor bx, bx
-.r:
-    xor cx, cx
+    mov [dd_nr0 + bx], al
+    mov ax, [dd_by1]
+    xor dx, dx
+    div word [dd_th]
+    cmp ax, DD_ROWS - 1
+    jbe .rk
+    mov ax, DD_ROWS - 1
+.rk:
+    mov [dd_nr1 + bx], al
+    mov byte [dd_uok + si], 1
+    ret
+.none:
+    mov byte [dd_uok + si], 0
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_actor_px - actor SI's box in whole px now, and where it was last DRAWN
+; out: [dd_nx]/[dd_ny], [dd_px]/[dd_py], and [dd_utel + si] when the two are
+;      too far apart to be one step. Clobbers AX/BX/CX/DX.
+; -----------------------------------------------------------------------------
+dd_actor_px:
+    mov bx, si
+    shl bx, 1
+    mov ax, [dd_x + bx]
+    mov cl, 4
+    shr ax, cl
+    mov [dd_nx], ax
+    mov ax, [dd_y + bx]
+    shr ax, cl
+    mov [dd_ny], ax
+    cmp byte [dd_shown + si], 0
+    je .fresh
+    mov ax, [dd_ox + bx]
+    mov [dd_px], ax
+    mov ax, [dd_oy + bx]
+    mov [dd_py], ax
+    mov ax, [dd_nx]                 ; a jump bigger than a tile is a TELEPORT -
+    sub ax, [dd_px]                 ; the tunnel, a life lost, a new board - and
+    jns .dxp                        ; not a step. Unioning it would make the
+    neg ax                          ; band the width of the maze, so the old box
+.dxp:                               ; is taken up by a band of its own instead.
+    cmp ax, [dd_tw]
+    ja .tele
+    mov ax, [dd_ny]
+    sub ax, [dd_py]
+    jns .dyp
+    neg ax
+.dyp:
+    cmp ax, [dd_th]
+    jbe .out
+.tele:
+    mov byte [dd_utel + si], 1
+.fresh:
+    mov ax, [dd_nx]
+    mov [dd_px], ax
+    mov ax, [dd_ny]
+    mov [dd_py], ax
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_actor_emit - compose actor SI's band and lay it down
+; in:  SI = the actor. Clobbers everything but SI.
+; -----------------------------------------------------------------------------
+dd_actor_emit:
+    cmp byte [dd_uok + si], 0
+    je .gone
+    cmp byte [dd_utel + si], 0
+    je .main
+    mov byte [dd_utel + si], 0
+    call dd_wipe_old                ; the far side of a teleport
+.main:
+    mov bx, si
+    xor ah, ah
+    mov al, [dd_nc0 + bx]
+    mov [dd_c0], ax
+    mov al, [dd_nc1 + bx]
+    mov [dd_c1], ax
+    mov al, [dd_nr0 + bx]
+    mov [dd_r0], ax
+    mov al, [dd_nr1 + bx]
+    mov [dd_r1], ax
+    call dd_band_build              ; walls, dots, everybody else
+    mov bx, si
+    shl bx, 1
+    mov cl, 4
+    mov ax, [dd_x + bx]
+    shr ax, cl
+    mov [dd_sx], ax
+    mov [dd_ox + bx], ax
+    mov ax, [dd_y + bx]
+    shr ax, cl
+    mov [dd_sy], ax
+    mov [dd_oy + bx], ax
+    mov al, [dd_img + si]
+    call dd_band_one                ; ...and this actor over them
+    mov al, [dd_inkof + si]
+    call dd_band_emit
+    mov byte [dd_shown + si], 1
+    ret
+.gone:
+    cmp byte [dd_shown + si], 0
+    je .out
+    call dd_wipe_old
+    mov byte [dd_shown + si], 0
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_wipe_old - lay down the tiles actor SI was last drawn on, WITHOUT it
+; in:  SI = the actor. Clobbers everything but SI.
+; -----------------------------------------------------------------------------
+dd_wipe_old:
+    mov bx, si
+    shl bx, 1
+    mov ax, [dd_ox + bx]
+    push ax
+    xor dx, dx
+    div word [dd_tw]
+    mov [dd_c0], ax
+    pop ax
+    add ax, [dd_tw]
+    dec ax
+    xor dx, dx
+    div word [dd_tw]
+    cmp ax, DD_COLS - 1
+    jbe .c
+    mov ax, DD_COLS - 1
 .c:
-    push bx
-    push cx
-    mov ax, [dd_wc]
-    add ax, cx
-    mov [dd_tc], ax
-    mov ax, [dd_wr]
-    add ax, bx
-    mov [dd_tr], ax
-    mov cl, [dd_tc]
-    mov ch, [dd_tr]
+    mov [dd_c1], ax
+    mov bx, si
+    shl bx, 1
+    mov ax, [dd_oy + bx]
+    push ax
+    xor dx, dx
+    div word [dd_th]
+    mov [dd_r0], ax
+    pop ax
+    add ax, [dd_th]
+    dec ax
+    xor dx, dx
+    div word [dd_th]
+    cmp ax, DD_ROWS - 1
+    jbe .r
+    mov ax, DD_ROWS - 1
+.r:
+    mov [dd_r1], ax
+    call dd_band_build
+    mov al, DD_INKDOT               ; nothing of this actor's is in it any more
+    call dd_band_emit
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_band_build - fill dd_band with the picture under the tile rectangle
+;                 [dd_c0..dd_c1] x [dd_r0..dd_r1], minus actor SI
+; out: [dd_bx0]/[dd_by0]/[dd_bw]/[dd_bh]/[dd_rb]. Clobbers all but SI.
+; -----------------------------------------------------------------------------
+dd_band_build:
+    mov ax, [dd_c0]
+    mul word [dd_tw]
+    mov [dd_bx0], ax
+    mov ax, [dd_c1]
+    sub ax, [dd_c0]
+    inc ax
+    mul word [dd_tw]
+    mov [dd_bw], ax
+    mov cl, 3
+    shr ax, cl
+    mov [dd_rb], ax
+    mov ax, [dd_r0]
+    mul word [dd_th]
+    mov [dd_by0], ax
+    mov ax, [dd_r1]
+    sub ax, [dd_r0]
+    inc ax
+    mul word [dd_th]
+    mov [dd_bh], ax
+    mov word [dd_bbase], dd_band
+    mov ax, [dd_rb]                 ; a band that would not fit loses rows off
+    or ax, ax                       ; the bottom rather than the next variable
+    jz .none
+    mul word [dd_bh]
+    cmp ax, DD_BANDSZ
+    jbe .fits
+    mov ax, DD_BANDSZ
+    xor dx, dx
+    div word [dd_rb]
+    mov [dd_bh], ax
+.fits:
+    call dd_band_ground
+    call dd_band_items
+    call dd_band_others
+.none:
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_band_ground - a clean band
+;
+; AND THAT IS ENOUGH, because the band's tile rectangle can only ever hold
+; tiles that one of the actor's two boxes was over. bx0 is min(old, new)
+; rounded DOWN to a tile and bx1 is max(old, new) + a tile rounded UP, and the
+; two positions are less than a tile apart, so every column between them is
+; covered by one box or the other - and an actor's box is only ever on tiles it
+; is allowed to stand on. There is no wall ink to preserve: a corridor tile
+; holds none, because dd_walls_of draws every line OUTSIDE the corridor it
+; outlines (SPEC.md 93.2.1).
+;
+; The one exception is the ghost-house DOOR, which is a tile an actor DOES
+; cross and which has a bar drawn on it - so dd_band_items puts that back.
+; Clobbers AX/CX/DX/DI.
+; -----------------------------------------------------------------------------
+dd_band_ground:
+    mov ax, [dd_rb]
+    mul word [dd_bh]
+    mov cx, ax
+    push es
+    push ds
+    pop es
+    mov di, dd_band
+    xor ax, ax
+    cld
+    shr cx, 1
+    rep stosw
+    jnc .even
+    stosb
+.even:
+    pop es
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_band_items - the dots, pellets and fruit still lying on the band's tiles
+; Clobbers everything but SI.
+; -----------------------------------------------------------------------------
+dd_band_items:
+    mov ax, [dd_r0]
+    mov [dd_ir], ax
+    mov word [dd_iy], 0             ; the tile's origin INSIDE the band, walked
+.row:                               ; along rather than multiplied out
+    mov ax, [dd_c0]
+    mov [dd_ic], ax
+    mov word [dd_ix], 0
+.col:
+    mov cl, [dd_ic]
+    mov ch, [dd_ir]
     call dd_tile
     cmp al, TT_DOT
     je .dot
     cmp al, TT_PILL
     je .pill
+    cmp al, TT_DOOR
+    je .door
+    jmp short .next
+.door:
+    xor ax, ax                      ; the ghost house's bar, which is the one
+    mov bx, [dd_th]                 ; piece of the wall picture an actor ever
+    sub bx, [dd_lth]                ; stands on
+    shr bx, 1
+    mov cx, [dd_tw]
+    mov dx, [dd_lth]
+    call dd_item_rect
+    jmp short .next
+.dot:
+    mov ax, [dd_tw]
+    sub ax, [dd_dotw]
+    shr ax, 1
+    mov bx, [dd_th]
+    sub bx, [dd_doth]
+    shr bx, 1
+    mov cx, [dd_dotw]
+    mov dx, [dd_doth]
+    call dd_item_rect
     jmp short .next
 .pill:
     cmp byte [dd_pilon], 0
     je .next
-    mov ax, [dd_pilw]
-    mov [dd_sw], ax
-    mov ax, [dd_pilh]
-    mov [dd_sh], ax
-    jmp short .stamp
-.dot:
-    mov ax, [dd_dotw]
-    mov [dd_sw], ax
-    mov ax, [dd_doth]
-    mov [dd_sh], ax
-.stamp:
-    mov ax, [dd_tc]
-    mul word [dd_tw]
-    mov bx, [dd_tw]
-    sub bx, [dd_sw]
-    shr bx, 1
-    add ax, bx
-    sub ax, [dd_bx0]                ; ...in band coordinates
-    js .next
-    push ax
-    mov ax, [dd_tr]
-    mul word [dd_th]
+    mov ax, [dd_tw]
+    sub ax, [dd_pilw]
+    shr ax, 1
     mov bx, [dd_th]
-    sub bx, [dd_sh]
+    sub bx, [dd_pilh]
     shr bx, 1
-    add ax, bx
-    sub ax, [dd_by0]
-    mov bx, ax
-    pop ax
-    js .next
-    mov cx, [dd_sw]
-    mov dx, [dd_sh]
-    call dd_band_rect_c
+    mov cx, [dd_pilw]
+    mov dx, [dd_pilh]
+    call dd_item_rect
 .next:
-    pop cx
-    pop bx
-    inc cx
-    cmp cx, 2
-    jbe .c
-    inc bx
-    cmp bx, 2
-    jbe .r
+    mov ax, [dd_tw]
+    add [dd_ix], ax
+    inc word [dd_ic]
+    mov ax, [dd_c1]
+    cmp [dd_ic], ax
+    jbe .col
+    mov ax, [dd_th]
+    add [dd_iy], ax
+    inc word [dd_ir]
+    mov ax, [dd_r1]
+    cmp [dd_ir], ax
+    jbe .row
+    ; ...and the fruit, which is a sprite rather than a rectangle
+    cmp word [dd_fruit], 0
+    je .out
+    mov ax, DD_FRUITC
+    cmp ax, [dd_c0]
+    jb .out
+    cmp ax, [dd_c1]
+    ja .out
+    mov ax, DD_FRUITR
+    cmp ax, [dd_r0]
+    jb .out
+    cmp ax, [dd_r1]
+    ja .out
+    mov ax, DD_FRUITC
+    mul word [dd_tw]
+    mov [dd_sx], ax
+    mov ax, DD_FRUITR
+    mul word [dd_th]
+    mov [dd_sy], ax
+    mov al, SP_FRUIT
+    call dd_band_one
+.out:
     ret
 
-; dd_band_rect_c - dd_band_rect, clipped to the band's own extent
-dd_band_rect_c:
+; -----------------------------------------------------------------------------
+; dd_item_rect - dd_band_rect with AX/BX given TILE-relative, for the tile the
+;                walk is on. Clobbers AX/BX/CX/DX.
+; -----------------------------------------------------------------------------
+dd_item_rect:
+    add ax, [dd_ix]
+    add bx, [dd_iy]
+    jmp dd_band_rect
+
+; -----------------------------------------------------------------------------
+; dd_band_others - every actor but SI whose box meets this band
+; Clobbers everything but SI.
+; -----------------------------------------------------------------------------
+dd_band_others:
+    push si
+    push di
+    xor di, di
+.each:
+    cmp di, si
+    je .next
+    cmp byte [dd_alive + di], 0
+    je .next
+    mov bx, di
+    shl bx, 1
+    mov cl, 4
+    mov ax, [dd_x + bx]
+    shr ax, cl
+    mov [dd_sx], ax
+    mov ax, [dd_y + bx]
+    shr ax, cl
+    mov [dd_sy], ax
+    mov ax, [dd_sx]                 ; its BOX, not its band: a band is a union
+    add ax, [dd_tw]                 ; with where it WAS, and drawing that would
+    cmp ax, [dd_bx0]                ; put a second copy of it down the trail
+    jbe .next
+    mov ax, [dd_bx0]
+    add ax, [dd_bw]
+    cmp ax, [dd_sx]
+    jbe .next
+    mov ax, [dd_sy]
+    add ax, [dd_th]
+    cmp ax, [dd_by0]
+    jbe .next
+    mov ax, [dd_by0]
+    add ax, [dd_bh]
+    cmp ax, [dd_sy]
+    jbe .next
+    mov al, [dd_img + di]
+    call dd_band_one
+.next:
+    inc di
+    cmp di, DD_NACT
+    jb .each
+    pop di
+    pop si
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_band_one - OR image AL into the band at BOARD (dd_sx, dd_sy)
+;
+; The band is on the byte grid and the sprite is a whole number of bytes wide,
+; so the only shift in the whole renderer is this one: the sprite's x modulo 8.
+; A sprite composed in from a NEIGHBOURING band can hang off any edge, so every
+; row is clipped and every one of the three byte columns is masked.
+; Preserves every register.
+; -----------------------------------------------------------------------------
+dd_band_one:
     push ax
     push bx
     push cx
     push dx
-    push si                         ; SI is the caller's ACTOR
-    cmp ax, [dd_bw]
-    jge .out
-    cmp bx, [dd_bh]
-    jge .out
-    mov si, ax
-    add si, cx
-    sub si, [dd_bw]
-    jle .wok
-    sub cx, si
-    jle .out
-.wok:
-    mov si, bx
-    add si, dx
-    sub si, [dd_bh]
-    jle .hok
-    sub dx, si
-    jle .out
-.hok:
-    call dd_band_rect
+    push si
+    push di
+    push bp
+    xor ah, ah
+    mov bx, DD_SPRSZ
+    mul bx
+    mov si, dd_spr
+    add si, ax                      ; SI = the scaled image
+    ; --- rows ---------------------------------------------------------------
+    mov cx, [dd_th]
+    mov ax, [dd_sy]
+    sub ax, [dd_by0]
+    jns .ytop
+    neg ax
+    cmp ax, cx
+    jae .out                        ; wholly above the band
+    sub cx, ax
+    mov bx, DD_SPRB
+    mul bx
+    add si, ax                      ; ...and those rows skipped in the image
+    xor ax, ax
+.ytop:
+    cmp ax, [dd_bh]
+    jae .out                        ; wholly below it
+    mov [dd_srow], ax
+    mov bx, [dd_bh]
+    sub bx, ax
+    cmp cx, bx
+    jbe .rows
+    mov cx, bx
+.rows:
+    ; --- columns ------------------------------------------------------------
+    mov ax, [dd_sx]
+    sub ax, [dd_bx0]
+    mov bx, ax
+    sar bx, 1
+    sar bx, 1
+    sar bx, 1                       ; floor(dx / 8), which is signed
+    mov [dd_sbo], bx
+    and ax, 7                       ; ...and its remainder, which is not
+    mov [dd_ssh], al
+    mov dl, 8
+    sub dl, al
+    mov [dd_sh2], dl
+    mov dx, [dd_rb]
+    xor al, al
+    or bx, bx
+    js .c1
+    cmp bx, dx
+    jge .c1
+    or al, 1
+.c1:
+    inc bx
+    or bx, bx
+    js .c2
+    cmp bx, dx
+    jge .c2
+    or al, 2
+.c2:
+    inc bx
+    or bx, bx
+    js .cm
+    cmp bx, dx
+    jge .cm
+    or al, 4
+.cm:
+    or al, al
+    jz .out                         ; wholly left or right of the band
+    mov bh, al                      ; BH = which byte columns are in the band
+    mov ax, [dd_srow]
+    mul word [dd_rb]
+    add ax, [dd_sbo]
+    mov di, dd_band
+    add di, ax                      ; DI = the band byte the first row starts at
+    mov bp, [dd_rb]                 ; ...and its stride, out of memory
+.row:
+    push cx
+    mov dh, [si]                    ; the sprite's row, always DD_SPRB bytes
+    mov dl, [si+1]
+    mov cl, [dd_ssh]
+    mov ax, dx                      ; ONE 16-bit shift gives two of the three
+    shr ax, cl                      ; bytes: AH leading, AL middle
+    mov bl, dl
+    mov cl, [dd_sh2]
+    shl bl, cl                      ; ...and an 8-bit one the third
+    test bh, 1
+    jz .n0
+    or [di], ah
+.n0:
+    test bh, 2
+    jz .n1
+    or [di+1], al
+.n1:
+    test bh, 4
+    jz .n2
+    or [di+2], bl
+.n2:
+    add si, DD_SPRB
+    add di, bp
+    pop cx
+    loop .row
 .out:
+    pop bp
+    pop di
     pop si
     pop dx
     pop cx
@@ -1056,69 +1305,9 @@ dd_band_rect_c:
     ret
 
 ; -----------------------------------------------------------------------------
-; dd_band_sprite - OR actor SI's current image into the band
-; in:  SI = the actor. The image index is [dd_img + SI].
-;
-; The sprite is a whole number of BYTES wide and the band is on the byte grid,
-; so the only shift in the whole renderer is this one: the actor's x modulo 8.
-; -----------------------------------------------------------------------------
-dd_band_sprite:
-    push si
-    mov al, [dd_img + si]
-    xor ah, ah
-    mov bx, DD_SPRSZ
-    mul bx
-    mov si, dd_spr
-    add si, ax                      ; SI = the scaled image
-    mov ax, [dd_nx]
-    sub ax, [dd_bx0]                ; 0..7 plus whatever it travelled
-    mov bx, ax
-    push cx
-    mov cl, 3
-    shr bx, cl
-    pop cx
-    mov [dd_sbo], bx                ; the byte the sprite starts in
-    and ax, 7
-    mov [dd_ssh], ax                ; ...and the bit within it
-    mov ax, [dd_ny]
-    sub ax, [dd_by0]
-    mul word [dd_rb]
-    add ax, [dd_sbo]
-    mov di, dd_band
-    add di, ax                      ; DI = the band byte the sprite starts at
-    mov cx, [dd_th]
-.row:
-    push cx
-    mov dh, [si]                    ; the image row, left byte first
-    xor dl, dl
-    cmp word [dd_tw], 16
-    jb .one
-    mov dl, [si+1]
-.one:
-    mov cl, [dd_ssh]
-    add cl, 8
-    mov ax, dx
-    shr ax, cl                      ; AL = the byte the row overflows into
-    mov bl, al
-    mov cl, 8
-    sub cl, [dd_ssh]
-    mov ax, dx
-    shl ax, cl                      ; AH, AL = the other two
-    or [di], bl
-    or [di+1], ah
-    or [di+2], al
-    add si, DD_SPRB
-    add di, [dd_rb]
-    pop cx
-    loop .row
-    pop si
-    ret
-
-; -----------------------------------------------------------------------------
-; dd_band_emit - the pen for actor SI, then the band
+; dd_band_emit - AL = the pen, then the band
 ; -----------------------------------------------------------------------------
 dd_band_emit:
-    mov al, [dd_inkof + si]
     call dd_pen
     push ds
     pop es
@@ -1235,12 +1424,7 @@ dd_draw:
     jc .attract
     call dd_pill_refresh
     call dd_fruit_draw
-    xor si, si
-.act:
-    call dd_actor_blit
-    inc si
-    cmp si, DD_NACT
-    jb .act
+    call dd_actors_draw
     cmp byte [dd_hudd], 0
     je .over
     call dd_hud_draw
@@ -1310,12 +1494,7 @@ dd_draw_all:
     call dd_hud_draw
     mov byte [dd_hudd], 0
     call dd_fruit_force
-    xor si, si
-.act:
-    call dd_actor_blit
-    inc si
-    cmp si, DD_NACT
-    jb .act
+    call dd_actors_draw
     ret
 .attract:
     call dd_attract_all

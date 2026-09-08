@@ -343,14 +343,13 @@ dd_spr_cut:
     cmp word [dd_tw], 16
     je .wide
     call dd_squash
-    mov [di], al
-    inc di
-    jmp short .next
-.wide:
-    mov [di], al
-    mov [di+1], ah
-    add di, 2
-.next:
+    mov ah, 0                       ; ...and the row is still DD_SPRB bytes:
+.wide:                              ; a narrow image is a wide one with an
+    mov [di], al                    ; empty second byte, so every reader
+    mov [di+1], ah                  ; strides by the same constant. It used to
+    add di, DD_SPRB                 ; pack narrow rows one byte apart while
+.next:                              ; dd_band_one read them two apart, which is
+                                    ; why a CGA's actors were noise
     inc cx
     cmp cx, [dd_th]
     jb .row

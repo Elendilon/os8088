@@ -166,7 +166,6 @@ dd_attract_step:
     call dd_modes
     xor si, si
     call dd_act_move
-    call dd_eat_here
     mov si, 1
 .g:
     push si
@@ -326,14 +325,7 @@ dd_attract_draw:
     cmp byte [dd_strip], 0
     je .out
     call dd_pill_refresh
-    push si
-    xor si, si
-.act:
-    call dd_actor_blit
-    inc si
-    cmp si, DD_NACT
-    jb .act
-    pop si
+    call dd_actors_draw
 .out:
     ret
 
@@ -357,14 +349,7 @@ dd_attract_all:
     call dd_walls_blit              ; nothing of it reaches the glass
     call dd_dots_blit
     call dd_pills_blit
-    push si
-    xor si, si
-.act:
-    call dd_actor_blit
-    inc si
-    cmp si, DD_NACT
-    jb .act
-    pop si
+    call dd_actors_draw
 .out:
     ret
 

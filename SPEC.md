@@ -107514,27 +107514,69 @@ bytes of image and thirty-five chances to draw one of them slightly wrong.
 | 4 | eaten: the eyes alone, by direction |
 | 1 | the fruit |
 
-#### 93.5.1 One `gfx_blit1` an actor, and the band carries the erase
+**A scaled row is `DD_SPRB` bytes whatever the tile is**, so a narrow image is
+a wide one with an empty second byte. The cutter used to pack an eight-pixel
+row one byte per row while the composer strode two, which on a **CGA** — the
+only adapter this game gives an 8-px tile — made every actor and every life
+icon noise. It cost nothing to find and would have cost nothing to have: one
+constant, used by the writer and the reader.
+
+#### 93.5.1 One `gfx_blit1` an actor, and the band is the whole picture under it
 
 An actor is put down as a **band** (§5.4.2): the caller decides every bit and
-the kernel does one `rep movsw` a row. The band is the **union** of where the
-actor was drawn and where it is now, so the same call that draws the sprite
-lays black over the trail behind it. There is no instant at which the sprite
-is off the glass, no second call to be pre-empted between, and **no erase pass
-at all** — §79.5's finding, one game along.
+the kernel does one `rep movsw` a row. The band covers the **union** of the
+tiles the actor's box was drawn on and the tiles it is on now, so the same
+call that draws the sprite lays the ground back over the trail behind it.
+There is no instant at which the sprite is off the glass, no second call to be
+pre-empted between, and **no erase pass at all** — §79.5's finding, one game
+along.
 
-What the fish did not have to solve is that the ground here is not black. The
-band's dots are stamped straight out of `dd_grid` — one byte a tile — rather
-than copied out of a bitmap, which is both cheaper and the reason a dot Smiles
-just ate needs nothing drawn to make it vanish: his own band is over that tile
-and is composed from the grid.
+What the fish did not have to solve is that the ground here is not black, so
+the band is composed from the bottom up: a **clean band**, then whatever
+`dd_grid` says is still lying on those tiles — dots, a lit pellet, the ghost
+house's door bar, the fruit — then **every actor whose box meets it**, and
+last the actor whose band it is. One `gfx_blit1` puts the lot down. The sprite
+is OR'd in at the bit offset the actor's x has landed on, and that shift is
+the only one in the whole renderer.
 
-The sprite is OR'd in at the bit offset the actor's x has landed on, and that
-shift is the only one in the whole renderer.
+Two rules in that are bug fixes, and both are about what the band is allowed
+to be rounded to and what it is allowed to leave out.
+
+**A BAND IS CUT ON THE TILE GRID, NOT THE BYTE GRID.** `gfx_blit1` only asks
+for a multiple of 8, and a band cut there reaches *part* of the way into the
+tile ahead — so a dot in that tile was composed partly, which on the glass is
+a dot that changes shape as an actor comes near and changes back once it has
+gone. A tile is a multiple of 8 wide by construction (§93.3), so cutting on
+the tile grid costs nothing at all and makes every tile a band touches wholly
+inside it: a dot is drawn or it is not. It is also why a dot Smiles just ate
+needs nothing drawn to make it vanish — his own band is over that tile and is
+composed from the grid.
+
+**AND A BAND CARRIES EVERY ACTOR IT OVERLAPS.** Two ghosts that met used to
+eat each other: the second band is opaque, so it laid its own ground over the
+first one's pixels and the first put them back on the next frame, which reads
+as a flash whenever two of them cross. Composing the other actor into this
+band instead means both are in every frame either of them draws. A sprite
+composed in from a neighbouring band is clipped on all four sides, since it
+can hang off any edge of a band that was not cut for it.
+
+**The clean band needs no wall bytes in it, and that is a proof rather than a
+hope.** The rectangle's first column is `min(old, new)` rounded down to a tile
+and its last is `max(old, new) + a tile` rounded up, and the two positions are
+less than a tile apart — so every tile in the rectangle is covered by one of
+the two boxes, and an actor's box is only ever on a tile it is allowed to
+stand on. A corridor tile holds no wall ink at all, because `dd_walls_of`
+draws every line **outside** the corridor it outlines (§93.2.1). The one tile
+an actor stands on that DOES carry a line is the ghost house's **door**, and
+that bar is put back as an item like a dot.
+
+Copying the wall picture into the band instead was built, and it is what a
+frame cannot afford: a `rep movsb` a row over a rectangle five actors wide is
+**12 ms of a 54.9 ms frame** on a VGA, measured, for bytes that are zero.
 
 A move too big for one band is a **teleport** — the tunnel, a new life, the
-start of a level — and is drawn as two operations instead: put the tiles the
-actor was over back, then draw it where it is.
+start of a level — and is drawn as two operations instead: one band over the
+tiles the actor was on, without it, then its own band where it is now.
 
 #### 93.5.2 The frame
 
@@ -107555,17 +107597,18 @@ On MartyPC, a cycle-accurate 4.77 MHz 8088 — the machine this project is
 calibrated against — with the game left to play itself and the guest's own
 cycle counter as the clock:
 
-| adapter | attract | playing | fullscreen |
-|---|---|---|---|
-| VGA 640×480 | 18.21 fps | 18.21 | 18.21 |
-| CGA 640×200 | 18.22 | 18.20 | 18.21 |
-| Hercules 720×348 | 18.19 | 18.21 | 18.20 |
+| adapter | windowed | fullscreen |
+|---|---|---|
+| VGA 640×480 | 17.80 fps (97.9%) | 18.18 (99.8%) |
+| CGA 640×200 | 17.38 (98.2%) | 18.20 (100.0%) |
+| Hercules 720×348 | 16.81 (98.0%) | 18.15 (99.5%) |
 
-…against a tick rate of 18.19–18.22 measured in the same window. **100.0% of
-the tick on every adapter, in every state, windowed and fullscreen, with the
-frame time flat at 54.9 ms.**
+…each against the tick rate measured in the same window. **98–100% of the tick
+on every adapter, windowed and fullscreen.** The windowed figures are a whole
+tick or less short of the ceiling and the shortfall is a rounding of the
+sleep, not a frame that did not fit.
 
-It did not start there, and the three things that were wrong are worth having
+It did not start there, and the things that were wrong are worth having
 written down because none of them was the sprite renderer:
 
 1. **The pellet blink walked the board.** Four power pellets, found by
@@ -107581,6 +107624,13 @@ written down because none of them was the sprite renderer:
    actor's sub-pixel position by the tile, at ~160 cycles a `div`, from a
    dozen call sites a tick. The tile is carried alongside the position now
    (§93.7).
+4. **The band carried a copy of the wall picture.** Cutting the band on the
+   tile grid (§93.5.1) makes it about 1.5× the bytes of a byte-grid one, which
+   is affordable; copying the maze under it as well was **12 ms of a 54.9 ms
+   frame on a VGA**, and §93.5.1 is the argument that those bytes are zero.
+   Composing an item's rectangle with two `mul`s per item instead of a running
+   origin, and shifting the sprite word twice per row instead of once, were
+   another 6 ms between them.
 
 The costs that remain are per frame and small: five actor bands at ~700 µs
 each, the pellet blink at four tile blits three times a second, and the HUD
@@ -107589,28 +107639,29 @@ only when a number moved. The two that are NOT per frame are a full repaint
 picture (~200 ms), which happen at a level start behind "READY!" and when the
 window is repainted.
 
-#### 93.5.4 Dots and the one-pen rule
+#### 93.5.4 The one-pen rule, and what it costs
 
-A band is put down in **one pen**, so a dot stamped into an actor's band is
-drawn in that actor's colour. On the two 1bpp adapters that is exact and free —
-a dot and a ghost are the same ink — so there the band carries the dots and the
-picture is pixel-perfect.
+A band is put down in **one pen**, so everything composed into an actor's band
+— its dots, its pellet, the door bar under it, another ghost crossing it — is
+drawn in **that actor's** colour for as long as it is inside that band. On the
+two 1bpp adapters that is exact and free: a dot, a bar and a ghost are the
+same ink, so the picture is pixel-perfect there.
 
-On a **colour** adapter it is not, and the first version of this got it wrong
-in a way worth recording: the artefact was written up as "a dot goes red for
-two or three frames as a ghost passes", and it is not, because **nothing ever
-draws that dot again**. The ghosts left permanent coloured trails behind them
-across the whole board.
+On a **colour** adapter it is a visible compromise and a bounded one: a dot in
+the tile a ghost is entering is that ghost's colour for the few frames the
+band is over it, and two ghosts that overlap are momentarily one colour. It is
+bounded because **the band is composed from the grid again every frame** —
+nothing is left behind, which is what the first version of this got wrong. That version stamped dots into a byte-rounded band and drew no
+wall bytes at all, so a partly-stamped dot and a recoloured one were both
+*permanent*: the artefact was written up as "a dot goes red for two or three
+frames as a ghost passes" and it was not, because nothing ever drew that dot
+again. The ghosts left coloured trails across the whole board.
 
-Two things fix it and both are in:
-
-- **`dd_untint`** puts a tile back the moment an actor's box stops overlapping
-  it. An actor's box is exactly one tile wide, so it overlaps at most two, and
-  the moment its top-left crosses into the next one the tile behind is both
-  free of it and owed a repaint. One small blit, ~1.25 of them a frame.
-- **The band carries no dots at all on 4bpp.** So the actor OCCLUDES a dot it
-  is over rather than recolouring it, which is what a sprite over a tile is
-  supposed to look like — and it is less work, not more.
+The alternative — an actor OCCLUDING what it is over, black band and all — was
+built and is worse on both counts: a dot vanishes a whole tile before the
+actor reaches it and comes back after, and it needs a second blit per actor
+per frame to put the vacated tiles back. Being briefly the wrong colour is a
+smaller lie than not being there.
 
 #### 93.5.5 Text is a band too
 
@@ -107691,11 +107742,49 @@ A direction that is not legal yet is **remembered** rather than dropped, so a
 turn asked for a few pixels early is taken at the junction. That is the whole
 of what "responsive" means in a maze game.
 
+#### 93.7.3 A decision is taken ON the tile, inside the mover
+
+`dd_ontile` is called from `dd_act_move` at the instant the step is cut at a
+tile origin, and it is where a ghost picks its next direction and where Smiles
+eats what he is standing on. It has to be there, and the reason is arithmetic:
+a tick's budget is a fixed count of 1/16 px and a tile is 256 of them, so at
+Smiles' 100% the two divide and he lands on an origin at the *end* of a tick,
+and at a ghost's 88% they do not — 56 into 256 comes out exactly once every 32
+tiles.
+
+A decision taken once a tick from **outside** the mover therefore reached a
+ghost about twice a minute, and the one place it reliably did reach one was
+standing at a wall, where `dd_decide` had already stopped it dead on an
+origin. That is a single defect with four faces, and all four were reported:
+the ghosts did not appear to chase, two of them paced the pen for the whole
+life instead of leaving it, a frightened ghost did not scatter at junctions,
+and a ghost let out while its bob was carrying it downwards could never turn
+round to face the door (§93.8.2).
+
+What stays outside the mover is what is about the *tick* rather than the tile:
+line of sight, where the eyes are pointing, and the animation clocks.
+
 ### 93.8 The four of them
 
-Targets are the arcade's, and the difference between the four is one branch:
+**Sight starts a chase and memory carries it.** A ghost that is out, whole and
+not frightened is in one of two states, and neither of them is omniscient:
 
-| ghost | chase target |
+* **wandering** — it patrols its own corner (§93.8.1's table), which on this
+  board is a loop around the block nearest that corner;
+* **tracking** — it has, at some point, had a clear line down its own row or
+  column to Smiles. While it can still see him it goes for him through its own
+  personality; every tick that it can see him it writes down **the tile he is
+  on**, which is the mouth of the lane he is about to turn into. When he goes
+  out of view it makes for that tile, and if he is still not in view when it
+  gets there it gives up and goes back to patrolling.
+
+That is deliberately not the arcade's model, where a ghost knows where the
+player is at every moment. On a board this size that reads as unfair and gives
+a player no way to break a chase; here breaking one is a turn taken out of
+sight. What it keeps is the arcade's four personalities, which is the target a
+TRACKING ghost aims at once it can see him:
+
+| ghost | target while it can see him |
 |---|---|
 | 0, red | the tile Smiles is on |
 | 1, pink | four tiles ahead of him |
@@ -107708,21 +107797,48 @@ whose next tile is nearest the target, trying **up, left, down, right**, which
 is the arcade's own tie-break and is the whole of why a ghost climbs out of a
 corner rather than pacing in it.
 
-#### 93.8.1 Scatter, chase, frightened
+Line of sight is a walk along one row or one column, at most 27 tile reads,
+and only for a ghost that shares a row or a column with Smiles at all — which
+is two compares on most ticks. It is taken once a tick per ghost, outside the
+mover (§93.7.3), and both the AI and the eyes read the same answer.
 
-Seven phases alternate scatter and chase (7 s, 20 s, 7 s, 20 s, 5 s, 20 s,
-5 s) and the eighth chases for ever. A phase change turns every roaming ghost
-round, which is the tell that it happened.
+#### 93.8.1 Corners, the mode clock, and frightened
+
+The four corners are the arcade's: (25, 0), (2, 0), (27, 30), (0, 30). Seven
+mode phases alternate (7 s, 20 s, 7 s, 20 s, 5 s, 20 s, 5 s) and the eighth
+runs for ever; what a phase change still does is **turn every roaming ghost
+round**, which is the tell that it happened and is what stops a patrol from
+being a fixed loop.
 
 A power pellet frightens them for a level-dependent time that reaches zero by
 level 15, turns them round, and makes them worth 200, 400, 800 and 1600 as
-they go down. A frightened ghost turns at random; an eaten one becomes a pair
-of eyes, goes home fast through the door, and comes straight back out.
+they go down. It frightens a ghost that is **walking out of the pen** as well
+as one already loose: one that did not was a ghost that killed Smiles while
+every other one ran away, which is what "I still died running into one" turned
+out to be. A frightened ghost turns at random and forgets whatever it was
+tracking; an eaten one becomes a pair of eyes, goes home fast through the
+door, and comes straight back out. A ghost that was mid-exit when the pellet
+went off resumes the exit rather than roaming, because a roaming ghost cannot
+open the door.
 
 #### 93.8.2 Being let out
 
 The red one starts outside. The others wait in the house until the board has
-lost 0, 30 and 60 dots, then walk to the door and out.
+lost 0, 30 and 60 dots — **and** the longest-penned one leaves anyway once
+four seconds have gone by with nothing eaten, which is the arcade's global
+timer. One clock is not enough: a cautious player who stops eating is played
+against one ghost, and the dot tally is per BOARD and not per life, because
+zeroing it on a death put the third and fourth ghosts back behind 30 and 60
+dots they had already earned and a player who kept dying never met them at
+all.
+
+**The walk out is scripted, not pathfound.** The pen is three tiles by six and
+its exit is one column: slide to the door's column, then go up. It was an aim
+at the tile above the door, and that is the second half of why two ghosts sat
+in the pen animating — a ghost may not reverse, so one let out while its bob
+was carrying it downwards could never turn to face the door and took whichever
+sideways turn was nearest instead. The scripted exit sets the direction as
+well as the wish, which is what makes that turn a reversal it is allowed.
 
 #### 93.8.3 The eyes
 
@@ -107731,11 +107847,12 @@ things move them off that:
 
 * a **glance** — every so often, for a few ticks, at a direction that is not
   the one it is travelling. It costs a byte of timer and it is the single
-  cheapest thing in this game that makes it look alive;
-* a **lock** — when the ghost is chasing AND has line of sight to Smiles down
-  its own corridor, the eyes go **wide** and point straight at him. Line of
-  sight is a walk along one row or one column, at most 27 tile reads, and only
-  for a ghost that shares a row or a column with him at all.
+  cheapest thing in this game that makes it look alive. A ghost that is
+  tracking does not glance: it is looking at one thing;
+* a **lock** — while the ghost can SEE Smiles down its own corridor, the eyes
+  go **wide** and point straight at him. It is the same answer the AI is
+  steering on, read out of the same byte, so the wide pair means exactly "this
+  one has you" and never merely "this one is nearby".
 
 The wide pair is a different **image**, not a different draw: the sprite set
 already carries eight eye states a skirt phase (§93.5), so this costs one
@@ -107844,10 +107961,13 @@ black window, so the package is in `SMALLOMIT_GAMES` and the 128 KB machine's
 floppies do not carry it. That is §24.5's rule and not a new one: a package
 that cannot reach the surface it needs is left off rather than shipped broken.
 
-At **360 KB** the apps disk has eight spare clusters and this package is
-eleven, so it rides `build/media360.img` — the second 360 KB disk §24.4
-already exists for — in a `GAMES/` folder of its own. Every other geometry
-carries it on the apps disk.
+At **360 KB** it rides the ordinary apps disk like every other geometry, at
+352 of that disk's 354 clusters. It did not fit when it arrived — eight spare
+clusters against a package of eleven — and it rode `build/media360.img`, the
+second 360 KB disk §24.4 already exists for, until the earlier Pac-Man port
+came off the apps disk to make room. That is a **development** arrangement the
+owner asked for and not a shipping decision: a release that wants both puts
+this one back on the media disk, which is one line of the Makefile.
 
 ### 93.14 Acceptance
 

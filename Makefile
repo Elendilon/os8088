@@ -8800,9 +8800,15 @@ APPS_TOOLS := $(BUILD)/artful.o88 $(BUILD)/browser.o88 $(BUILD)/calc.o88 \
               $(BUILD)/paint.o88 $(BUILD)/piano.o88 \
               $(BUILD)/ftpd.o88 $(BUILD)/sheet.o88 $(BUILD)/telnet.o88 \
               $(BUILD)/texpad.o88 $(BUILD)/tracker.o88 $(BUILD)/audio.o88
+# PACMAN.O88 IS OFF THE DISKS WHILE DOT DELIRIUM IS DEVELOPED, by the owner's
+# decision and not as a shipping choice: the 360KB apps disk had eight spare
+# clusters, SPEC.md 89's package is six of them and SPEC.md 93's is twelve, so
+# taking the older one off is what lets the new one sit beside everything else
+# instead of on a second disk. `make` still BUILDS build/pacman.o88 - it is
+# only the disk lists this leaves.
 APPS_GAMES := $(BUILD)/arkanoid.o88 $(BUILD)/tank.o88 $(BUILD)/cyclone.o88 \
               $(BUILD)/mines.o88 $(BUILD)/skies.o88 $(BUILD)/dotdel.o88 \
-              $(BUILD)/missile.o88 $(BUILD)/pacman.o88 $(BUILD)/solitair.o88 $(BUILD)/tamegram.o88
+              $(BUILD)/missile.o88 $(BUILD)/solitair.o88 $(BUILD)/tamegram.o88
 
 # The CORE PACKAGES (SPEC.md 24.3) are a SECOND copy on the system disk and
 # never a move, so the two lists above are unchanged and still carry every
@@ -9015,7 +9021,7 @@ APPS := $(APPS_TOOLS) $(APPS_GAMES) $(APPS_DATA) $(APPS_SYS) $(APPS_DOS)
 # prerequisite list and the argument list, for the reason the comment above
 # gives: a private tree that builds only what it needs fails hard on a recipe
 # that names a file nothing produced.
-MEDIA_DISK_GAMES := $(BUILD)/dotdel.o88
+MEDIA_DISK_GAMES :=
 APPS_GAMES_360   := $(filter-out $(MEDIA_DISK_GAMES),$(APPS_GAMES))
 
 APPS360 := $(APPS_TOOLS) $(APPS_GAMES_360) $(APPS_DATA_360) $(APPS_SYS) $(APPS_DOS)

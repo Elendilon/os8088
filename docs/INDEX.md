@@ -307,7 +307,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | MODPLUG | `apps/modplug/modplug.asm` | §56 | yes |
 | NOTEPAD | `apps/notepad/notepad.asm` | §27 | yes |
 | PACCMAN | `apps/paccman/paccman.asm` | §91 | yes |
-| PACMAN | `apps/pacman/pacman.asm` | §89 | yes |
+| PACMAN | `apps/pacman/pacman.asm` | §89 | no |
 | PAINT | `apps/paint/paint.asm` | §42 | yes |
 | PIANO | `apps/piano/piano.asm` | §36 | yes |
 | RECORDER | `apps/recorder/recorder.asm` | §35 | no |

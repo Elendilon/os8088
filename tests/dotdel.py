@@ -23,12 +23,14 @@ Five questions, and each one has gone wrong at least once during the build
      everything still LOOKED right (SPEC.md 93.5.3).
 
 BREAK IT ON PURPOSE: put `dd_pills_blit` back on a board walk and leg E goes
-red at ~63%; take `dd_untint` out and nothing here notices, because a wrong
-COLOUR is not something this row reads - that one is a look, and SPEC.md
-93.5.4 is where it is written down.
+red at ~63%, and so does copying the wall picture into every actor's band
+(SPEC.md 93.5.3 item 4, which cost 12 ms of a 54.9 ms frame). What this row
+does NOT read is a wrong COLOUR or a dot drawn half - those are a look, and
+SPEC.md 93.5.1 and 93.5.4 are where they are written down.
 
-DOT DELIRIUM IS ON media360.img AND NOT ON THE APPS DISK at 360KB: the apps
-disk had eight spare clusters and the package is eleven (SPEC.md 93.13).
+DOT DELIRIUM RIDES THE ORDINARY APPS DISK at every geometry (SPEC.md 93.13):
+360KB fits it at 352 of 354 clusters, which is what taking the old Pac-Man
+port off that disk bought.
 """
 import argparse
 import os
@@ -175,7 +177,12 @@ def run_arm(tag, machine, want_tile, a, say):
         # --- C: Enter starts a game and Smiles eats -------------------------
         m.key("Enter")
         time.sleep(3)
-        if p.b("dd_state") not in (1, 2):
+        # READY, PLAY, DIE or the flash between boards - anything but the
+        # title. NOT `== PLAY`: nobody is steering Smiles for these three
+        # seconds and since SPEC.md 93.8's ghosts hunt by line of sight one of
+        # them catches him inside the window on the faster adapters, so an
+        # exact state here failed for the AI working.
+        if p.b("dd_state") not in (1, 2, 3, 4):
             fail.append("%s: Enter did not start a game (state %d)"
                         % (tag, p.b("dd_state")))
         dots0, score0 = p.w("dd_ndots"), p.w("dd_score")
@@ -238,7 +245,7 @@ def run_arm(tag, machine, want_tile, a, say):
 def main(argv):
     ap = argparse.ArgumentParser()
     ap.add_argument("--image", default="build/os8088-360.img")
-    ap.add_argument("--apps", default="build/media360.img")
+    ap.add_argument("--apps", default="build/apps360.img")
     ap.add_argument("--arm", default=None,
                     help="one of vga, cga, herc (default: all three)")
     a = ap.parse_args(argv)

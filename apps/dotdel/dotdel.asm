@@ -992,14 +992,20 @@ dd_s_small:  db 'Window too small.', 0
     DWORDV dd_bh
     DWORDV dd_sbo                   ; the sprite's byte and bit inside it
     DWORDV dd_ssh
-    DWORDV dd_wx                    ; the tiles an actor is being wiped from
-    DWORDV dd_wy
-    DWORDV dd_wc
-    DWORDV dd_wr
-    DWORDV dd_tc                    ; a tile the band composer is stamping
-    DWORDV dd_tr
-    DWORDV dd_sw
-    DWORDV dd_sh
+    DBYTEV dd_vmask                 ; ...and which of its three byte columns
+                                    ; fall inside the band at all
+    DWORDV dd_sx                    ; where dd_band_one is putting a sprite
+    DWORDV dd_sy
+    DWORDV dd_srow
+    DWORDV dd_c0                    ; the tile rectangle a band covers
+    DWORDV dd_c1
+    DWORDV dd_r0
+    DWORDV dd_r1
+    DWORDV dd_ic                    ; ...and the tile of it being composed
+    DWORDV dd_ir
+    DWORDV dd_ix                    ; ...at this origin inside the band
+    DWORDV dd_iy
+    DBYTEV dd_sh2                   ; 8 - [dd_ssh], out of the row loop
 
 ; --- the HUD --------------------------------------------------------------------
     DWORDV dd_hrow
@@ -1028,9 +1034,13 @@ dd_s_small:  db 'Window too small.', 0
     DBUFV  dd_shown, DD_NACT
     DBUFV  dd_img, DD_NACT
     DBUFV  dd_inkof, DD_NACT
-    DBUFV  dd_ptc, DD_NACT          ; the tile each actor's box last started in
-    DBUFV  dd_ptr, DD_NACT
-    DBUFV  dd_ac, DD_NACT           ; ...and the tile it is in NOW, carried
+    DBUFV  dd_nc0, DD_NACT          ; the tile rectangle of each actor's band
+    DBUFV  dd_nc1, DD_NACT          ; for this frame (SPEC.md 93.5.1)
+    DBUFV  dd_nr0, DD_NACT
+    DBUFV  dd_nr1, DD_NACT
+    DBUFV  dd_uok, DD_NACT          ; ...whether it has one
+    DBUFV  dd_utel, DD_NACT         ; ...and whether it got here by teleport
+    DBUFV  dd_ac, DD_NACT           ; the tile it is in NOW, carried
     DBUFV  dd_ar, DD_NACT           ; along by dd_advance instead of divided
     DBUFV  dd_acx, DD_NACT * 2      ; out of the position (SPEC.md 93.7)
     DBUFV  dd_ary, DD_NACT * 2
@@ -1041,8 +1051,13 @@ dd_s_small:  db 'Window too small.', 0
     DBUFV  dd_glook, DD_NGH
     DBUFV  dd_gbig, DD_NGH
     DBUFV  dd_glance, DD_NGH
-    DBUFV  dd_gbigl, DD_NGH         ; the sight answer, kept between its turns
-    DBUFV  dd_glookl, DD_NGH
+    DBUFV  dd_gsee, DD_NGH          ; it has a clear line to Smiles this tick
+    DBUFV  dd_gseed, DD_NGH         ; ...and the direction of it
+    DBUFV  dd_ghunt, DD_NGH         ; it is tracking him (SPEC.md 93.8.1)
+    DBUFV  dd_ghlc, DD_NGH          ; ...and the tile he was last seen on
+    DBUFV  dd_ghlr, DD_NGH
+    DBUFV  dd_gwout, DD_NGH         ; it was walking out of the pen when a
+                                    ; pellet turned it blue
     DWORDV dd_gi
     DWORDV dd_gtry
     DWORDV dd_gc0
@@ -1059,6 +1074,7 @@ dd_s_small:  db 'Window too small.', 0
     DWORDV dd_frcnt                 ; the frightened clock
     DBYTEV dd_eatn                  ; ghosts eaten on this pellet
     DWORDV dd_gpause
+    DWORDV dd_relt                  ; ticks since anything was eaten
 
 ; --- the game --------------------------------------------------------------------
     DBUFV  dd_score, 4

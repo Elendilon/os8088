@@ -73,6 +73,8 @@ DD_PCTEYE equ 190               ; ...and eyes, which go home fast
 DD_PCTTUN equ 55                ; anybody in the tunnel
 
 DD_GLANCE equ 5                 ; ticks a glance lasts
+DD_RELT   equ 73                ; ...and ticks of nothing eaten before the pen
+                                ; lets one out anyway (4 seconds)
 DD_PILLT  equ 5                 ; ticks a pellet spends lit, and dark
 
 ; =============================================================================
@@ -97,6 +99,7 @@ dd_level_begin:
     call dd_level_load              ; thing that ever moves either word
     call dd_layout                  ; put dd_bdy back where a board goes
     call dd_board_render
+    call dd_dotcnt_reset            ; a NEW BOARD zeroes it; a lost life does not
     mov byte [dd_fruits], 0
     mov word [dd_frtim], 0
     mov word [dd_fruit], 0
@@ -148,16 +151,24 @@ dd_actors_home:
     mov byte [dd_gs + bx], GS_ROAM  ; the red one starts outside, as it always
     mov byte [dd_dir + si], DIR_L   ; has
 .penned:
+    mov byte [dd_ghunt + bx], 0
+    mov byte [dd_gsee + bx], 0
+    mov byte [dd_gwout + bx], 0
     inc si
     cmp si, DD_NACT
     jb .g
-    call dd_dotcnt_reset
+    mov word [dd_relt], 0
     call dd_anims                   ; ...and give everybody an image and a PEN
     ret                             ; before the first frame draws them in
                                     ; colour 0, which is the background
 
+; dd_dotcnt_reset - the per-BOARD dot tally the pen's release counts run off.
+; It is reset when a board is laid and NOT when a life is lost: zeroing it on a
+; death put ghosts 2 and 3 back behind the 30 and 60 dots they had already
+; earned, so a player who kept dying was played against two ghosts for ever.
 dd_dotcnt_reset:
     mov word [dd_eaten], 0
+    mov word [dd_relt], 0
     ret
 
 ; -----------------------------------------------------------------------------
@@ -275,7 +286,8 @@ dd_play_step:
     call dd_modes
     xor si, si
     call dd_act_move                ; Smiles first: the ghosts aim at where he
-    call dd_eat_here                ; ends up, which is the arcade's own order
+                                    ; ends up, which is the arcade's own order,
+                                    ; and dd_ontile eats what he crossed
     mov si, 1
 .g:
     push si
@@ -375,8 +387,9 @@ dd_act_move:
     jle .done
     call dd_at_tile
     jnc .move
-    call dd_decide                  ; only ever at an exact tile origin
-.move:
+    call dd_ontile                  ; SPEC.md 93.7.3: the decision is taken
+    call dd_decide                  ; HERE, standing on the tile, and not once
+.move:                              ; a tick from outside
     mov al, [dd_dir + si]
     cmp al, DIR_NONE
     je .done
@@ -391,6 +404,31 @@ dd_act_move:
 .done:
     pop si
     ret
+
+; -----------------------------------------------------------------------------
+; dd_ontile - actor SI has just arrived on a tile origin (SPEC.md 93.7.3)
+;
+; THIS IS WHERE A DECISION IS TAKEN, and it has to be, because an actor is only
+; on a tile origin for an instant INSIDE dd_act_move. A tick's budget is a
+; fixed 1/16-px count and a tile is 256 of them: at Smiles' 100% the two divide
+; and he lands on every origin at the end of a tick, and at a ghost's 88% they
+; do not - 56 into 256 comes out exactly once every 32 tiles. So a decision
+; taken once a tick from outside the mover reached a penned ghost about twice a
+; minute, which is why the ghosts appeared not to chase and why two of them
+; paced the pen for ever: the only place they ever DID think was standing at a
+; wall, where dd_decide had stopped them dead on an origin.
+;
+; What stays outside is what is about the TICK rather than the tile - sight,
+; the eyes, the animation clocks.
+; -----------------------------------------------------------------------------
+dd_ontile:
+    or si, si
+    jz .pac
+    call dd_gh_turn
+    ret
+.pac:
+    call dd_eat_here                ; ...and every dot he crosses, on the tile
+    ret                             ; he crosses it on
 
 ; dd_at_tile - CF = 1 when actor SI is exactly on a tile origin
 dd_at_tile:
@@ -698,14 +736,36 @@ dd_can_go:
 ; =============================================================================
 
 ; -----------------------------------------------------------------------------
-; dd_gh_think - ghost SI's decisions for this tick: state, target and eyes
-; in:  SI = 1..4. Clobbers everything but SI.
+; dd_gh_think - ghost SI's TICK: what it can see, and where its eyes are
+; in:  SI = 1..4. Clobbers everything but SI. The TURN is dd_gh_turn, taken on
+;      the tile itself.
 ; -----------------------------------------------------------------------------
 dd_gh_think:
     push si
     mov bx, si
     dec bx
     mov [dd_gi], bx                 ; the ghost's ordinal, 0..3
+    cmp byte [dd_gs + bx], GS_ROAM
+    je .look
+    mov byte [dd_gsee + bx], 0      ; only a ghost on the board hunts, and one
+    mov byte [dd_ghunt + bx], 0     ; that stops hunting forgets the trail
+    jmp short .eyes
+.look:
+    call dd_gh_look
+.eyes:
+    call dd_gh_eyes
+    pop si
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_gh_turn - ghost SI's TILE: which way it leaves the one it is standing on
+; in:  SI = 1..4, on an exact tile origin. Clobbers everything but SI.
+; -----------------------------------------------------------------------------
+dd_gh_turn:
+    push si
+    mov bx, si
+    dec bx
+    mov [dd_gi], bx
     mov al, [dd_gs + bx]
     cmp al, GS_HOUSE
     je .house
@@ -716,20 +776,19 @@ dd_gh_think:
     cmp al, GS_FRIGHT
     je .fright
     call dd_gh_roam
-    jmp short .look
+    jmp short .done
 .house:
     call dd_gh_house
-    jmp short .look
+    jmp short .done
 .out_:
     call dd_gh_leave
-    jmp short .look
+    jmp short .done
 .eyes:
     call dd_gh_home
-    jmp short .look
+    jmp short .done
 .fright:
     call dd_gh_flee
-.look:
-    call dd_gh_eyes
+.done:
     pop si
     ret
 
@@ -749,22 +808,43 @@ dd_gh_house:
     ; pen is three tiles tall and its ceiling and floor are both wall
     ret
 
-; --- walking out of it --------------------------------------------------------
+; -----------------------------------------------------------------------------
+; dd_gh_leave - walking out of the pen, and it is SCRIPTED
+;
+; It used to be dd_gh_aim at the tile above the door, and that is the bug that
+; left two ghosts bobbing in the pen for ever: dd_gh_legal will not let a ghost
+; REVERSE, and a ghost let out while its bob was carrying it downwards can
+; never turn round to face the door. It then took whichever sideways turn was
+; nearest and paced the pen, animating, for the rest of the life.
+;
+; The pen is three tiles by six and its exit is one column, so there is nothing
+; for a pathfinder to work out: slide to DD_HOMEC, then go up. Setting dd_dir
+; as well as dd_want is what makes the turn a reversal the ghost is allowed.
+; -----------------------------------------------------------------------------
 dd_gh_leave:
     call dd_at_tile
     jnc .out
     call dd_tile_of
     cmp ch, DD_HOMER
-    jbe .arrived
-    mov al, DD_HOMEC
-    mov ah, DD_HOMER
-    call dd_gh_aim                  ; the door, then the tile above it
+    jbe .arrived                    ; through the door and out
+    cmp cl, DD_HOMEC
+    je .up
+    mov al, DIR_R
+    jb .go
+    mov al, DIR_L
+.go:
+    mov [dd_want + si], al
+    mov [dd_dir + si], al
+    ret
+.up:
+    mov byte [dd_want + si], DIR_U
+    mov byte [dd_dir + si], DIR_U
+.out:
     ret
 .arrived:
     mov bx, [dd_gi]
     mov byte [dd_gs + bx], GS_ROAM
     mov byte [dd_want + si], DIR_L
-.out:
     ret
 
 ; --- eyes going home ----------------------------------------------------------
@@ -812,13 +892,88 @@ dd_gh_flee:
 .out:
     ret
 
-; --- scatter or chase ---------------------------------------------------------
+; -----------------------------------------------------------------------------
+; dd_gh_roam - a ghost that is out, whole and not frightened (SPEC.md 93.8.1)
+;
+; SIGHT starts a chase and MEMORY carries it. While a ghost has a clear line
+; down its own row or column to Smiles it goes straight for him, through its
+; own personality; and every tick it can see him it writes down the tile he is
+; on. When he goes out of view it heads for that tile - the mouth of the lane
+; he turned into - and if he is still not in view when it gets there it gives
+; up and goes back to patrolling its own corner.
+;
+; That is deliberately not the arcade's model: the arcade ghost knows where
+; Smiles is at every moment, which on a board this size reads as unfair and
+; gives a player no way to break a chase. Here breaking one is a turn taken
+; out of sight.
+; -----------------------------------------------------------------------------
 dd_gh_roam:
     call dd_at_tile
     jnc .out
-    call dd_gh_target               ; AL = target column, AH = target row
+    mov bx, [dd_gi]
+    cmp byte [dd_ghunt + bx], 0
+    je .wander
+    cmp byte [dd_gsee + bx], 0
+    jne .onhim
+    ; on the trail but blind: the tile he was last seen on
+    call dd_tile_of                 ; CL/CH = where this ghost is
+    mov al, [dd_ghlc + bx]
+    cmp al, cl
+    jne .lane
+    mov al, [dd_ghlr + bx]
+    cmp al, ch
+    jne .lane
+    mov byte [dd_ghunt + bx], 0     ; got there, and he is not in sight of it
+    jmp short .wander
+.lane:
+    mov al, [dd_ghlc + bx]
+    mov ah, [dd_ghlr + bx]
+    call dd_gh_aim
+    ret
+.onhim:
+    call dd_gh_target               ; where its own personality wants it
+    call dd_gh_aim
+    ret
+.wander:
+    call dd_gh_scat
     call dd_gh_aim
 .out:
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_gh_look - can ghost SI see Smiles this tick, and where has he got to?
+; Banks [dd_gsee], [dd_gseed] and, while he is in view, the tile to remember.
+; Clobbers everything but SI.
+; -----------------------------------------------------------------------------
+dd_gh_look:
+    call dd_gh_sees                 ; AL = the direction, when it can
+    mov bx, [dd_gi]
+    jc .seen
+    mov byte [dd_gsee + bx], 0
+    ret
+.seen:
+    mov byte [dd_gsee + bx], 1
+    mov [dd_gseed + bx], al
+    mov byte [dd_ghunt + bx], 1
+    push si
+    xor si, si
+    call dd_tile_of                 ; the lane he is in NOW is the one to make
+    pop si                          ; for when he leaves it
+    mov bx, [dd_gi]
+    mov [dd_ghlc + bx], cl
+    mov [dd_ghlr + bx], ch
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_gh_scat - AL/AH = ghost [dd_gi]'s own corner, which is what it patrols
+;              when it is not tracking anybody
+; -----------------------------------------------------------------------------
+dd_gh_scat:
+    push bx
+    mov bx, [dd_gi]
+    mov al, [dd_scatc + bx]
+    mov ah, [dd_scatr + bx]
+    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -834,8 +989,6 @@ dd_gh_target:
     push cx
     push dx
     push si
-    cmp word [dd_modech], 0
-    je .scatter
     mov bx, [dd_gi]
     or bx, bx
     jz .blinky
@@ -1032,7 +1185,6 @@ dd_gh_eyes:
     push bx
     mov bx, [dd_gi]
     mov byte [dd_gbig + bx], 0
-    mov byte [dd_gbigl + bx], 0
     ; a glance, if one is running
     cmp byte [dd_glance + bx], 0
     je .noglance
@@ -1045,27 +1197,16 @@ dd_gh_eyes:
     mov al, DIR_L
 .have:
     mov [dd_glook + bx], al
-    ; ONE GHOST LOOKS PER TICK, staggered by its ordinal: the walk below is up
-    ; to 27 tile reads and the roll after it is a far call, and four of each
-    ; every tick is 4 ms of a 54.9 ms frame for an eye that nobody can see
-    ; move that fast
-    mov ax, [dd_anim]
-    and ax, 3
-    cmp ax, bx
-    jne .keep
-    ; can it SEE him? Only a roaming ghost bothers to look
-    mov al, [dd_gs + bx]
-    cmp al, GS_ROAM
-    jne .roll
-    call dd_gh_sees
-    jnc .roll
-    mov bx, [dd_gi]
+    ; TRACKING is what widens them, and dd_gh_look has already decided it
+    cmp byte [dd_gsee + bx], 0
+    je .roll
     mov byte [dd_gbig + bx], 1
-    mov [dd_glook + bx], al         ; dd_gh_sees hands back the direction
-    mov byte [dd_gbigl + bx], 1
-    mov [dd_glookl + bx], al
+    mov al, [dd_gseed + bx]
+    mov [dd_glook + bx], al
     jmp short .out
 .roll:
+    cmp byte [dd_ghunt + bx], 0
+    jne .out                        ; on a trail: it is not looking around
     call OSAPI_RAND                 ; ...and every so often it looks away
     and ax, 63
     cmp ax, 1
@@ -1075,13 +1216,6 @@ dd_gh_eyes:
     call OSAPI_RAND
     and al, 3
     mov bx, [dd_gi]
-    mov [dd_glook + bx], al
-    jmp short .out
-.keep:
-    cmp byte [dd_gbigl + bx], 0     ; ...and between its turns it keeps the
-    je .out                         ; answer it last got
-    mov byte [dd_gbig + bx], 1
-    mov al, [dd_glookl + bx]
     mov [dd_glook + bx], al
 .out:
     pop bx
@@ -1240,7 +1374,10 @@ dd_unfright:
     cmp byte [dd_gs + bx], GS_FRIGHT
     jne .next
     mov byte [dd_gs + bx], GS_ROAM
-.next:
+    cmp byte [dd_gwout + bx], 0
+    je .next
+    mov byte [dd_gs + bx], GS_OUT   ; it was still walking out when it turned,
+.next:                              ; and GS_ROAM there cannot open the door
     inc si
     cmp si, DD_NACT
     jb .g
@@ -1268,9 +1405,14 @@ dd_fright_on:
 .g:
     mov bx, si
     dec bx
+    mov byte [dd_gwout + bx], 0
     mov al, [dd_gs + bx]
     cmp al, GS_ROAM
-    jne .next
+    je .fright
+    cmp al, GS_OUT                  ; a ghost still walking out of the pen is
+    jne .next                       ; ON the board and turns blue with the
+    mov byte [dd_gwout + bx], 1     ; rest: one that did not was a ghost that
+.fright:                            ; killed Smiles while every other one ran
     mov byte [dd_gs + bx], GS_FRIGHT
 .next:
     inc si
@@ -1281,9 +1423,23 @@ dd_fright_on:
     pop si
     ret
 
-; dd_release_ck - let the penned ghosts out as the board empties
+; -----------------------------------------------------------------------------
+; dd_release_ck - let the penned ghosts out
+;
+; TWO clocks, because one is not enough: a ghost leaves when the board has lost
+; its share of dots, and - the arcade's global timer - the longest-penned one
+; leaves anyway once DD_RELT ticks have gone by with nothing eaten. Without the
+; second a cautious player is played against one ghost, and with the tally
+; reset on every death a player who kept dying never met the third at all.
+; -----------------------------------------------------------------------------
 dd_release_ck:
     push si
+    inc word [dd_relt]
+    cmp word [dd_relt], DD_RELT
+    jb .bydot
+    mov word [dd_relt], 0
+    call dd_release_one
+.bydot:
     mov si, 1
 .g:
     mov bx, si
@@ -1295,6 +1451,25 @@ dd_release_ck:
     cmp [dd_eaten], ax
     jb .next
     mov byte [dd_gs + bx], GS_OUT
+.next:
+    inc si
+    cmp si, DD_NACT
+    jb .g
+    pop si
+    ret
+
+; dd_release_one - the longest-penned ghost, out
+dd_release_one:
+    push si
+    mov si, 1
+.g:
+    mov bx, si
+    dec bx
+    cmp byte [dd_gs + bx], GS_HOUSE
+    jne .next
+    mov byte [dd_gs + bx], GS_OUT
+    pop si
+    ret
 .next:
     inc si
     cmp si, DD_NACT
@@ -1323,6 +1498,7 @@ dd_eat_here:
     jmp short .out
 .dot:
     inc word [dd_eaten]
+    mov word [dd_relt], 0
     mov ax, DD_PTDOT
     call dd_score_add
     mov ax, 660
@@ -1331,6 +1507,7 @@ dd_eat_here:
     jmp short .out
 .pill:
     inc word [dd_eaten]
+    mov word [dd_relt], 0
     mov ax, DD_PTPILL
     call dd_score_add
     call dd_fright_on
