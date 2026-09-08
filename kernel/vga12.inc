@@ -69,12 +69,27 @@ gfx_mono1       dw 0            ; THE WINDOW BEING DRAWN HAS DECLARED ITS
 ; answers the one question a single plane CAN be asked: which way up the bits
 ; are. It is 0 for every other caller and dies with the pen, so the paragraph
 ; above is untouched for a package.
+%ifdef KERN_BIG                 ; kern_small's gfx_blit1 is stc/ret (SPEC.md
+                                ; 5.4.2.5) and gfx_blit1_x is the only reader
+                                ; of any of these, so that build carries the
+                                ; SLOT and neither the body nor its state
 gfx_b1ink       db CWHITE
 gfx_b1pap       db CBLACK
+%if gfx_b1pap - gfx_b1ink != 1
+  %error "gfx_b1ink/gfx_b1pap must stay adjacent: gfx_blit1_x's .pvga reads the pair in one word load, and band_emit_x writes it in one word store"
+%endif
+%ifdef BANDCOMP
 gfx_b1adp       db 0            ; 0 = the band is in SCREEN polarity, 1 = a set
                                 ;     bit is the pen's ink, 2 = a set bit is its
                                 ;     paper and the emit may turn the band over
-                                ;     to suit the display (SPEC.md 5.9.3.1)
+                                ;     to suit the display (SPEC.md 5.9.3.1).
+                                ;     band_pen_x is the ONLY writer of a
+                                ;     non-zero value in the tree, so a kernel
+                                ;     built without the composer carries
+                                ;     neither this byte nor the arms of .pen
+                                ;     that read it
+%endif
+%endif
 
 ; --- THEME (SPEC.md 76) -----------------------------------------------------
 ; [thm_kind] is the SETTING; the eight bytes below are what it MEANS, copied
@@ -201,7 +216,7 @@ gfx_disink      db CBLACK       ; ...and WHICH DIRECTION a disabled GLYPH
 ; pair to move two of them costs every VGA fill 3 bytes and 4 clocks a site -
 ; the whole point of the interleave - and a name in the right file is not
 ; worth that. The 8s are the only VGA-specific part and they are two bytes;
-; docs/MONO-RECLAIM-PLAN.md 1.1 carries the trade.
+; docs/plans/MONO-RECLAIM-PLAN.md 1.1 carries the trade.
 vga_m8l         db 8
 gfx_lmsk        db 0            ; rect: left edge bit mask
 vga_m8r         db 8
@@ -2525,7 +2540,7 @@ gfx_line_flush:
 ; and write it through the Map Mask) would beat this on detailed pictures and
 ; lose to it on flat ones, and it would need its own 1bpp
 ; twins. It is a worthwhile future optimisation and it changes no caller;
-; docs/PAINT-NOTES.md records why it was not the first one.
+; docs/plans/completed/PAINT-NOTES.md records why it was not the first one.
 ;
 ; Colour reduction on a 1bpp adapter happens in gfx_fill, per run (SPEC.md
 ; 39.4), so a 16-colour picture reads as black/dither/white there exactly as
@@ -4279,7 +4294,7 @@ gfx_sp_next:
 ; went 4,266.31 -> 5,685.53 us, +33.27% for 139 bytes, and it was reverted.
 ; UI_GRAY is os88ui_sbar's trough, so the bill lands on every scrollbar in
 ; every package and on every C package through os88thunk.asm. Do not re-derive
-; it: docs/LAST-DROP-BYTES.md 7.6 carries the numbers and the flip condition.
+; it: docs/plans/LAST-DROP-BYTES.md 7.6 carries the numbers and the flip condition.
 ; -----------------------------------------------------------------------------
 gfx_fill_gray:
     GFXCLIP gfx_fill_gray_d
@@ -4566,7 +4581,7 @@ vga_xor_rect_vram:
 ; 34 differing runs in .cold at a stride of 80 - a scan line - and what it
 ; overwrote next ran: a `call far` became `cbw`, DS went to 0, fm_layout's
 ; stores landed 0x600 low across ui_rebootq, and the machine rebooted or
-; froze (docs/DUAL-DISPLAY-VGA.md 8(11), docs/FIELD-NOTES.md).
+; froze (docs/plans/completed/DUAL-DISPLAY-VGA.md 8(11), docs/FIELD-NOTES.md).
 ;
 ; It is whole-shape rather than split, for gfx_blit4's reason: an outline is
 ; not the intersection of its bounding rect with anything (see the clipped
@@ -5200,10 +5215,12 @@ thm_set:
 %ifdef KERN_BIG
     cmp al, THM_COLOR           ; COLOUR IS A FACT ABOUT THE ADAPTER, and it is
     jne .ok                     ; refused HERE rather than at the two callers
-    cmp byte [vid_kind], VID_VGA; (SPEC.md 76.12.1). The test is the DEPTH of
-    je .ok                      ; the PRIMARY: VID_VGA and VID_EGA are the two
-    cmp byte [vid_kind], VID_EGA; 4-plane kinds, HERC and CGA are 1bpp. It was
-    je .ok                      ; `cmp [vid_kind], VID_VGA` while VGA was the
+    mov ah, [vid_kind]          ; (SPEC.md 76.12.1). The test is the DEPTH of
+    dec ah                      ; the PRIMARY: VID_VGA and VID_EGA are the two
+    cmp ah, 2                   ; 4-plane kinds, HERC and CGA are 1bpp - and
+    jae .ok                     ; `dec` maps VGA -> FF, HERC -> 0, CGA -> 1,
+                                ; EGA -> 2, so ONE unsigned compare answers
+                                ; both. AH is dead in this routine. It was
     xor al, al                  ; only colour adapter - a proxy VID_EGA broke -
 .ok:                            ; and it is NOT [vid_mono]: on a two-card
 %endif                          ; desktop that byte names the display LAST
@@ -5262,11 +5279,14 @@ thm_set:
 ; which is the same lifetime gfx_pen_cf publishes for [gfx_dis].
 ; -----------------------------------------------------------------------------
 gfx_blit1_pen:
-    mov [gfx_b1ink], al
-    mov [gfx_b1pap], ah
+%ifdef KERN_BIG                 ; the SLOT is in both API tables and the state
+    mov [gfx_b1ink], al         ; is kern_big's alone (SPEC.md 5.4.2.5): on the
+    mov [gfx_b1pap], ah         ; small build the blit itself answers stc, so a
+%ifdef BANDCOMP                 ; remembered pen would have nothing to colour
     mov byte [gfx_b1adp], 0     ; ...and a PACKAGE's band is in screen polarity
-    ret                         ; by SPEC.md 5.4.2.2: only band.inc's composer
-                                ; sets that flag, and only for its own emit
+%endif                          ; by SPEC.md 5.4.2.2: only band.inc's composer
+%endif                          ; sets that flag, and only for its own emit
+    ret
 
 gfx_pen_cf:
     jc gfx_pen_dis
@@ -5399,11 +5419,15 @@ gfx_lock:
 gfx_unlock:
     CURLOG 'U'
     mov word [wm_clip_n], 0
+%ifdef KERN_BIG
     mov byte [gfx_b1ink], CWHITE ; ...and so does gfx_blit1's (SPEC.md 5.4.2.2),
     mov byte [gfx_b1pap], CBLACK ; for the same reason one line down - the
+%ifdef BANDCOMP
     mov byte [gfx_b1adp], 0      ; composer's polarity declaration with it
+%endif
                                  ; (SPEC.md 5.9.3.1): it is part of the pen and
                                  ; has exactly the pen's lifetime
+%endif
     mov byte [gfx_mono1], 0     ; ...and so does whose content this was
                                 ; (SPEC.md 11.96.17.1)
     mov byte [gfx_dis], 0       ; the disabled pen dies with the lock, for the
@@ -5865,6 +5889,8 @@ vgas_nb          resw 1          ;   bytes per row
 ; --- gfx_blit1's PEN, resolved once a band (SPEC.md 5.4.2.2) ----------------
 ; KERNEL_SEG's .bss, not COLD_SEG's: gfx_blit1_x reads all four while DS is
 ; still ours, above the point the emit spends it on the caller's band.
+%ifdef KERN_BIG                 ; gfx_blit1_x is the only reader, and it is
+                                ; kern_big's (SPEC.md 5.4.2.5)
 gfx_b1act        resb 1          ; 1 = the pen is not the default, so the two
                                  ;     GC writes below are owed - and owed
                                  ;     back, which is why this is a flag and
@@ -5883,6 +5909,7 @@ gfx_b1b          resb 1          ; ...and pass 2's Map Mask, B alone. It rides
 %if gfx_b1inv - gfx_b1act != 1
   %error "gfx_b1act/gfx_b1inv must stay adjacent: gfx_blit1_x clears both in one word store"
 %endif
+%endif
 vgas_sdy         resw 1          ;   signed dy (positive = content up)
 vgas_ydst        resw 1          ;   first destination row
 vgas_step        resw 1          ;   +1 (up: top-down) / -1 (down: bottom-up)
@@ -5894,7 +5921,10 @@ section .cold                   ; gfx_blit1's body, and its far entry below it
 %ifdef KERN_BIG
 ; =============================================================================
 ; gfx_blit1_x - a composed 1bpp band, straight into the framebuffer (SPEC.md
-;               5.4.2). kern_big only; kern_small's thunk is stc/retf.
+;               5.4.2). kern_big only; kern_small's thunk is stc/retf - a
+;               variant without the two-display, VGA and pen arms was BUILT
+;               and MEASURED for it (+419 bytes, SPEC.md 5.4.2.5) and NOT
+;               TAKEN: that build may stay slower, by decision.
 ;
 ; in:       ES:SI = the band, BP = its stride in bytes per row, AX = x (a
 ;           multiple of 8, SIGNED), BX = y (SIGNED), CX = width in pixels (a
@@ -5928,16 +5958,19 @@ section .cold                   ; gfx_blit1's body, and its far entry below it
 ; SPEC.md 5.4.2.1 is the account.
 ; =============================================================================
 gfx_blit1_x:
-    test ax, 7                  ; the two argument refusals, and they are the
-    jnz .refuse                 ; ONLY two: an x or a width off the byte grid
-    test cx, 7                  ; is a caller error, not a shape to clip
-    jnz .refuse
+    test al, 7                  ; the ONE argument refusal: an x off the byte
+    jnz .refuse                 ; grid is a caller error, not a shape to clip.
+                                ; A WIDTH off it is honoured since SPEC.md
+                                ; 5.4.2.5: the last partial byte column is
+                                ; merged under a mask, one RMW a row
     or cx, cx
     jz .refuse
     or dx, dx
     jz .refuse
-    cmp dx, 255                 ; ...and a band taller than wm_clip_rows' own
-    ja .refuse                  ; byte answer can express (SPEC.md 11.3.2)
+    or dh, dh                   ; ...and a band taller than wm_clip_rows' own
+    jnz .refuse                 ; byte answer can express (SPEC.md 11.3.2):
+                                ; "> 255" IS "the high byte is not zero", and
+                                ; the test one line up has already excluded 0
 
     mov word [gfx_b1act], 0     ; SPEC.md 5.4.2.2's two flags, and BOTH in one
                                 ; store - they are adjacent by assertion below,
@@ -6011,15 +6044,13 @@ gfx_blit1_x:
     or ax, ax                   ; coordinate space, which is why this may be
     jz .r0z                     ; applied before the translation below
     add bx, ax
-    push dx
     mul bp                      ; ...and the band skips r0 whole strides
-    add si, ax
-    pop dx
+    add si, ax                  ; DX is NOT banked around the multiply: .r0z
+                                ; overwrites both halves of it one line down
 .r0z:
-    mov al, [wm_clip_rn]
-    xor ah, ah
-    mov dx, ax                  ; DX = the rows one fragment can offer
     pop ax
+    mov dl, [wm_clip_rn]        ; DX = the rows one fragment can offer, built
+    xor dh, dh                  ; where it is wanted rather than through AX
 .rowsall:
 
     cmp byte [vid_ndisp], 1
@@ -6086,9 +6117,9 @@ gfx_blit1_x:
     mov di, cx
     shr di, 1
     shr di, 1
-    shr di, 1                   ; DI = bytes per row
-    push si                     ; [bp+14] SPEC.md 5.4.2.2.1's TWO STARTS: the
-    push ax                     ; [bp+12] band's first byte and its first
+    shr di, 1                   ; DI = WHOLE bytes per row: what rep moves
+    push si                     ; [bp+16] SPEC.md 5.4.2.2.1's TWO STARTS: the
+    push ax                     ; [bp+14] band's first byte and its first
                                 ; framebuffer byte, which the second pass
                                 ; begins again from and neither of which is
                                 ; recoverable from where the first one leaves
@@ -6097,11 +6128,20 @@ gfx_blit1_x:
                                 ; added. AX is a PLACEHOLDER: DI is not
                                 ; computed until forty lines below, and the
                                 ; frame's offsets are fixed by the pushes
-    push dx                     ; [bp+10] rows remaining
-    push di                     ; [bp+8]  bytes per row
-    mov cx, bp
-    sub cx, di
-    push cx                     ; [bp+6]  the band's step, less what rep moved
+    push dx                     ; [bp+12] rows remaining
+    push di                     ; [bp+10] whole bytes per row
+    sub bp, di                  ; BP = the band's step, less what rep moved
+    and cx, 7                   ; CX = the pixels past the last whole byte
+    jz .notail                  ; (SPEC.md 5.4.2.5); CH is 0 = no tail mask
+    dec bp                      ; ...one more byte the row reads, by hand
+    mov ch, 0FFh                ; CH = the tail's HIGH bits: 1 px = 80h, 7 =
+    shr ch, cl                  ; FEh. ~(0FFh >> t) is 0FFh << (8 - t) for
+    not ch                      ; every t of 1..7, and it needs neither the
+                                ; negate nor the add: CL already holds the
+                                ; tail, and only CH is read back ([bp+7])
+.notail:
+    push bp                     ; [bp+8]  the band's step
+    push cx                     ; [bp+6]  the tail mask, in its HIGH byte
     push word [vid_rowadd]      ; [bp+4]  gfx_nextrow, inlined (Part 9 Set 3)
     push word [vid_wrapbit]     ; [bp+2]
     push word [vid_wrapfix]     ; [bp+0]
@@ -6117,7 +6157,12 @@ gfx_blit1_x:
     pop cx
     add ax, cx
     mov di, ax                  ; DI = the band's first framebuffer byte
-    mov [bp+12], di             ; ...and the placeholder above becomes it
+    mov [bp+14], di             ; ...and the placeholder above becomes it
+    mov bh, [bp+7]              ; BH = the tail mask (SPEC.md 5.4.2.5), off the
+                                ; frame (SS): 0 = the row ends on the byte grid.
+                                ; BH and not BL, which the split below claims -
+                                ; and BX is free of y only from here, `mov ax,
+                                ; bx` above being its last reader
     xor bl, bl                  ; BL = pass 2's Map Mask, 0 = there is no
                                 ; pass 2 - and it must say so on the path that
                                 ; never asks
@@ -6134,7 +6179,7 @@ gfx_blit1_x:
     mov ax, [gfx_b1sq]
     out dx, ax
     mov bl, [gfx_b1b]           ; ...and pass 2 the B planes, at .emitted
-    mov dh, [bp+10]             ; DH = the rows, which the loop below counts
+    mov dh, [bp+12]             ; DH = the rows, which the loop below counts
                                 ; down to zero and the second pass needs back.
                                 ; A band is at most 255 rows (the refusal at
                                 ; the door), so one byte holds it
@@ -6155,21 +6200,28 @@ gfx_blit1_x:
     or dl, dl
     jnz .rowi
 .row:
-    mov cx, [bp+8]
+    mov cx, [bp+10]
     push di
     shr cx, 1                   ; WORDS: `rep movsw` is 12.5 clocks a byte on
     rep movsw                   ; an 8088 against `rep movsb`'s 17, and the
     jnc .even                   ; carry out of the shift is the odd byte. A
     movsb                       ; string op writes no flag and neither does
 .even:                          ; `rep`, so it survives the move (SPEC.md
-    pop di                      ; 5.4.2). No segment override on a rep: an
-    add si, [bp+6]              ; 8086 loses the prefix to an interrupt (5.7)
+    or bh, bh                   ; 5.4.2). No segment override on a rep: an
+    jz .whole                   ; 8086 loses the prefix to an interrupt (5.7)
+    lodsb                       ; SPEC.md 5.4.2.5: THE TAIL BYTE, merged under
+    xor al, [es:di]             ; its mask - dest ^= (src ^ dest) & mask, one
+    and al, bh                  ; read and one write of the framebuffer byte,
+    xor [es:di], al             ; and the bits past the width untouched
+.whole:
+    pop di
+    add si, [bp+8]
     add di, [bp+4]
     test di, [bp+2]
     jz .nowrap
     add di, [bp+0]
 .nowrap:
-    dec word [bp+10]
+    dec word [bp+12]
     jnz .row
     jmp short .emitted
 
@@ -6182,7 +6234,7 @@ gfx_blit1_x:
     ; none of them uses - Word, cword and os88type all emit with the default
     ; pen (SPEC.md 6.3).
 .rowi:
-    mov cx, [bp+8]
+    mov cx, [bp+10]
     push di
     shr cx, 1                   ; CF = an ODD bytes-per-row, and it survives
     jcxz .iodd                  ; everything below: jcxz, lodsw, stosw, loop
@@ -6205,14 +6257,22 @@ gfx_blit1_x:
     not al
     stosb
 .idone:
+    or bh, bh                   ; ...and the tail, complemented (5.4.2.5)
+    jz .iwhole
+    lodsb
+    not al
+    xor al, [es:di]
+    and al, bh
+    xor [es:di], al
+.iwhole:
     pop di
-    add si, [bp+6]
+    add si, [bp+8]
     add di, [bp+4]
     test di, [bp+2]
     jz .inowrap
     add di, [bp+0]
 .inowrap:
-    dec word [bp+10]
+    dec word [bp+12]
     jnz .rowi
 .emitted:
     ; --- SPEC.md 5.4.2.2.1's SECOND PASS, and it changes ONE port -------------
@@ -6231,13 +6291,13 @@ gfx_blit1_x:
     mov dx, VGA_SEQ
     out dx, ax
     pop dx
-    mov si, [bp+14]             ; both starts, banked at the frame's head
-    mov di, [bp+12]
-    mov [bp+10], dh             ; the rows again - the high byte is the zero
+    mov si, [bp+16]             ; both starts, banked at the frame's head
+    mov di, [bp+14]
+    mov [bp+12], dh             ; the rows again - the high byte is the zero
     jmp short .rowi             ; the first pass counted down to
 .noswap:
     mov sp, bp
-    add sp, 16
+    add sp, 18
 .done:
     pop ax
     pop bx
@@ -6289,25 +6349,27 @@ gfx_blit1_x:
     push cx
     push si
     push di
-    mov di, cx
-    shr di, 1
-    shr di, 1
-    shr di, 1                   ; DI = columns to place
-    mov cx, 8
+    mov di, cx                  ; DI = pixels left to place
 .pcol:
-    push ax
-    push cx
-    push si
-    push di
-    call gfx_blit1_x
-    pop di
-    pop si
-    pop cx
-    pop ax
+    mov cx, 8
+    cmp di, cx
+    jae .pc8
+    mov cx, di                  ; ...the last of them a TAIL column (5.4.2.5)
+.pc8:
+    call gfx_blit1_x            ; NOTHING is banked around this: the routine's
+                                ; contract is that it clobbers no register at
+                                ; all, and every one of its four exits honours
+                                ; it - the door refusals are above the banking
+                                ; pushes, .done unwinds all nine (SPEC.md
+                                ; 5.4.2.2.1 having lifted the pen's own
+                                ; refusal, so .penref is gone with it), and
+                                ; .okquiet unwinds .percol's own
+                                ; four. BX and DX were already live across this
+                                ; call unbanked, which is the same claim
     add ax, 8
     inc si
-    dec di
-    jnz .pcol
+    sub di, 8
+    ja .pcol                    ; more than one column was left: go round
     pop di
     pop si
     pop cx
@@ -6349,6 +6411,11 @@ gfx_blit1_x:
     push ax
     push bx
     cmp byte [vid_mono], 0
+%ifndef BANDCOMP
+    jne .pdone                  ; 1bpp with no composer in the build: a set bit
+                                ; is a lit pixel, nothing declares a polarity
+                                ; and the pen has nothing left to say
+%else
     je .pvga
 
     ; --- 1bpp: a set bit is a LIT pixel and a pen has no colour to add
@@ -6383,14 +6450,17 @@ gfx_blit1_x:
     jz .pdone                   ; the set bits are the lit ones: it stands
     mov byte [gfx_b1inv], 1     ; ...and when they are not, the emit turns it
     jmp short .pdone            ; over - the complemented loop and nothing else
+%endif
 
 .pvga:
-    mov al, [gfx_b1ink]
-    mov ah, [gfx_b1pap]
+    mov ax, [gfx_b1ink]         ; AL = ink, AH = paper: ONE word load, off the
+                                ; adjacency asserted beside the declarations
+%ifdef BANDCOMP
     cmp byte [gfx_b1adp], 2     ; the band holds PAPER-as-set (SPEC.md 5.9.3.1),
     jne .pv0                    ; and the grouping below is phrased in terms of
     xchg al, ah                 ; what a SET bit means - so for that band the
 .pv0:                           ; pair that describes it is the other way round
+%endif
     and ax, 0x0F0F
     cmp ax, (CBLACK << 8) | CWHITE
     je .pdone                   ; the default IS the resting state: no ports

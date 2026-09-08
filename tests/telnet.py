@@ -91,9 +91,11 @@ import os88marty                                       # noqa: E402
 import os88mouse                                       # noqa: E402
 import os88sym                                         # noqa: E402
 from os88geom import MB_ENTSZ                          # noqa: E402
+import os88build                                       # noqa: E402
 
 S = os88sym.linear
-MACHINE = {"cga": "os8088_5150_cga", "herc": "os8088_5150_herc"}
+MACHINE = {c: os88marty.machine("os8088_5150_%s" % c)
+           for c in ("cga", "herc")}
 
 TS_IDLE, TS_OPEN, TS_WAIT, TS_UP, TS_DOWN, TS_ERR = range(6)
 TE_COLS, TE_ROWS = 80, 25
@@ -140,7 +142,7 @@ def te_syms():
     subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", "apps/",
                     "-I", "apps/telnet/", "-I", "drivers/net/",
                     "-o", out, src], check=True)
-    if open(out, "rb").read() != open("build/telnet.bin", "rb").read():
+    if open(out, "rb").read() != open(os88build.at("build/telnet.bin"), "rb").read():
         sys.exit("telnet: the mapped build is not build/telnet.bin - every "
                  "offset it names would be plausible and wrong")
     syms = {}
@@ -276,7 +278,31 @@ def main():
             mo.to(2, 2)
             os88marty.settle(m)
 
+        def wait_sized(secs=30):
+            """Block until the package has SIZED ITS VIEW, or say it never did.
+
+            te_vcols/te_vrows/te_px are computed on the window's first paint,
+            not in the entry proc, so a read taken the instant the window
+            appears is a read of zeros. It was taken that way, and on the
+            faster machines it happened to be late enough - the CGA arm read
+            `te_px 0, te_vrows 0, te_vtop 0` and reported "the window does not
+            show the BOTTOM of the buffer" about a view that reads 79x13 two
+            assertions later, in the SAME RUN. Everything downstream that
+            needs text on the screen failed with it, including 70.8.4's
+            polarity check, which lit 0 pixels because nothing had been drawn.
+
+            docs/WRITING-TESTS.md's rule again: wait on the condition."""
+            for _ in range(int(secs / 0.25)):
+                if rw("te_vrows"):
+                    return
+                os88marty.settle(m)
+                time.sleep(0.25)
+            sys.exit("telnet: te_vrows stayed 0 for %ds - the window never "
+                     "sized its view, which is a launch failure rather than "
+                     "anything this row is about" % secs)
+
         # --- 1: the pen, and the rows that fit ------------------------------
+        wait_sized()
         px, vrows, vtop = rw("te_px"), rw("te_vrows"), rw("te_vtop")
         say("te_px %d (%s), te_vrows %d, te_vtop %d"
             % (px, "8-aligned" if px % 8 == 0 else "SKEWED", vrows, vtop))

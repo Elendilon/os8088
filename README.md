@@ -149,14 +149,14 @@ make marty    # a cycle-accurate IBM 5150 (MartyPC) with a debugger attached -
 make clean
 ```
 
-`make` builds the six shipping floppies and needs nothing but `nasm` and
+`make` builds the nine shipping floppies and needs nothing but `nasm` and
 `python3`. The disks that carry the C applications — `cworddisk`,
 `runcpmdisk`, `allapps` and the live media (`make live`) — automatically run
 `tools/setup-cc.sh` when the compiler is missing. It fetches and builds it
 into `build/cc`, and nothing else in the tree depends on
 it. `runcpmdisk`, `allapps` and `live` also fetch RunCPM's command processor
-and master disk (`make runcpm-src`), and `runcpmdisk` the CP/M software that
-rides beside it (`make cpmsw`); none of it is committed here.
+and master disk (`make runcpm-src`) and the CP/M software that rides beside
+it (`make cpmsw`); none of it is committed here.
 
 ![what it looks like: gray dithered desktop, menu bar, drive icons, Note Pad,
 Timer, Bounce, Control Panel and Task Manager windows, and the dock
@@ -184,7 +184,7 @@ a Standard File dialog for opening and saving.
 - **Menu bar clock** — read from the hardware RTC at boot if the machine has
   one, kept from the PIT after that, and settable.
 - **A system clipboard**, shared across apps.
-- **Typefaces** — **ten** `.F88` faces in `FONTS/` on the system disk, found
+- **Typefaces** — **ten** `.F88` faces in `SYSTEM/FONTS/` on the system disk, found
   at run time by any app that asks: Charter and the house 8x8 cell, a Times, a
   Helvetica and a Courier, two more text faces and three monospaces, each
   fitted onto an 8-pixel grid from an open outline font (SPEC.md 6.4.1). The
@@ -208,16 +208,18 @@ a Standard File dialog for opening and saving.
 
 **Software**
 
-Loadable packages ship on the software disk, all closable and most
+Twenty-six loadable packages ship on the software disk, all closable and most
 multi-instance:
 
 - **Apps** — Note Pad (word wrap, DOS-readable text files), TeXPad, Paint,
-  ArtfulType, Font Viewer, Fractal, Calculator, Piano, Recorder, Tracker and
-  ModPlug Player (both play Amiga MOD files).
+  ArtfulType, Font Viewer, Fractal, Calculator, Sheet, Chart, Piano, Tracker and ModPlug
+  Player (both play Amiga MOD files), an Audio Player that streams a WAV off
+  the disk and keeps playing while you work in another window, and the three
+  that talk over the network — Browser, Telnet and an FTP server.
 - **Games** — Minesweeper, Solitaire, Arkanoid, Missile Command, [Pac-Man](apps/pacman/README.md), Cyclone 88,
-  Tank Attack (a first-person wireframe tank duel that takes the whole
-  machine, in 320x200 colour on CGA, Mode X on VGA and 640x200 mono in the
-  middle of a Hercules) and TameGram.
+  Clear Skies, Tank Attack (a first-person wireframe tank duel that takes the
+  whole machine, in 320x200 colour on CGA, Mode X on VGA and 640x200 mono in
+  the middle of a Hercules) and TameGram.
 - ...plus the Task Manager itself, and HELLO, a minimal package that exists to
   be the smallest thing the SDK can build.
 
@@ -250,7 +252,7 @@ into `build/`, and `STORIES=` puts your own beside them.
 native package — Draft and Page views, a two-row ruler, real `.DOC` files in
 the Word for Windows 1.x/2.x binary format, RTF in and out, wildcard Search,
 Sort, Renumber and Table of Contents. Its **Font menu is built from the
-disk**: it lists whatever `FONTS/` is carrying — ten families as shipped, from
+disk**: it lists whatever `SYSTEM/FONTS/` is carrying — ten families as shipped, from
 Times to JetBrains Mono — and choosing one sets the whole document in it. The faces are set at fixed pitch for now — their
 shapes, their height and their leading, but eight pixels a character. It is not a recompile: Opus is pcode
 built against the Windows 2.x API, none of which exists here, so the UI
@@ -291,7 +293,7 @@ every one of these on one 1.44MB floppy.
 | ...and a **PS/2 mouse** | the 8042's auxiliary port on IRQ12, probed **after** both serial ports and only above the XT — an 8088's keyboard is an 8255 and port 64h is not decoded there, so the whole module is behind the CPU tier and compiled out of the 128KB kernel entirely. Unlike a serial mouse this one *answers*: a reset it acknowledges with `FA AA` is a real probe, so there is no run threshold and the first packet settles it. Both mice can be live at once and the first complete packet wins, exactly as it does between two UARTs; the loser is switched off once. `make run MOUSEPORT=ps2` takes the serial ports away and leaves it the only pointing device on the machine. |
 | cursor        | arrow with save-under, drawn by the mouse ISR itself when it's safe, deferred to the next unlock when a task holds the drawing lock. |
 | keyboard      | BIOS int 16h, polled by the UI task. |
-| font          | two answers, and the second is new. **System chrome** is the VGA ROM's own 8x8 cell, copied out via int 10h AX=1130h at boot — one glyph, one byte-aligned store, and the fast path every menu, title and dialog is priced against. **An application** can set type in a real typeface instead: `FONTS/` on the system disk carries `.F88` faces, `apps/os88type.inc` composes a whole row of glyphs into a 1bpp band in the app's own RAM, and **one** kernel call puts the band on the screen. That split is the whole design — a proportional pen can never reach the 8x8 fast path, so lettering a 104-glyph line one glyph at a time would be 79ms of per-call *floor* on an XT before a pixel moved; composed and emitted once it is one floor, and measured it matches the 8x8 row it replaces. Glyph data, metrics, wrap and hit-testing live in the packages that want them, so the second and fifth face cost the kernel nothing. |
+| font          | two answers, and the second is new. **System chrome** is the VGA ROM's own 8x8 cell, copied out via int 10h AX=1130h at boot — one glyph, one byte-aligned store, and the fast path every menu, title and dialog is priced against. **An application** can set type in a real typeface instead: `SYSTEM/FONTS/` on the system disk carries `.F88` faces, `apps/os88type.inc` composes a whole row of glyphs into a 1bpp band in the app's own RAM, and **one** kernel call puts the band on the screen. That split is the whole design — a proportional pen can never reach the 8x8 fast path, so lettering a 104-glyph line one glyph at a time would be 79ms of per-call *floor* on an XT before a pixel moved; composed and emitted once it is one floor, and measured it matches the 8x8 row it replaces. Glyph data, metrics, wrap and hit-testing live in the packages that want them, so the second and fifth face cost the kernel nothing. |
 | disks         | BIOS int 13h, with retries — reads and writes share one routine, so the CHS math and the retry policy can't drift apart, and contiguous clusters coalesce into one transfer because a call costs roughly a disk revolution whatever it moves. Task switching pauses during a transfer (the tick still runs — the floppy motor needs it). FAT12 and FAT16, on floppies and on hard-disk partitions. |
 | software      | `.o88` packages on plain FAT volumes — any PC, Mac or Linux box can read and write the disks, and so can os8088: apps create, replace, rename and delete files through the API, and the kernel validates every byte it reads off a disk before any of it becomes an address. A package is a flat binary assembled at `org 0` and loaded into a paragraph-aligned **claim off the heap**, which is **its own address space**, one segment per package — so there are no relocations of any kind, and `tools/os88pkg.py` is a validator rather than a generator. It calls the kernel through a fixed table of far-call cells at 0060:0010, and the kernel calls back through a three-byte dispatcher in the package's header. Several packages, or several copies of one, run at once. |
 | concurrency   | one drawing mutex (`gfx_lock`); background tasks re-check visibility *under* the lock and then arm a clip region — their window's content rect less every window above it — so a covered window draws the part that shows instead of skipping the frame; ISRs run IF=0 throughout and never draw over a held lock. SPEC.md is the binding contract. |
@@ -352,9 +354,9 @@ docs/MARTYPC-DEBUG.md a cycle-accurate 5150 with a debugger attached, and the
                      accurate
 docs/KERNEL-MEMORY.md what the kernel's byte budget is spent on, and the
                      measured RAM floor
-docs/HERCULES-TESTING.md  testing on Hercules - it IS automatable, and all
-                     three ways of getting it wrong give a black image
-                     rather than an error
+docs/HERCULES-TESTING.md  testing on Hercules - MartyPC reads the card back
+                     directly; on QEMU all four ways of getting it wrong
+                     give a black image rather than an error
 boot/boot.asm        512-byte boot sector: LBA->CHS, retrying reads. It
                      relocates itself, because the kernel lands where it runs
 kernel/kernel.asm    constants, the memory ladder and its guards, boot
@@ -450,8 +452,8 @@ Disk...** writes the same tree onto the floppy you pick as a folder. Both need
 nothing but `ETHER.DRV`; the first needs `RAMDISK.DRV` too, and greys with the
 size it wants when the machine cannot fund the store. The site publishes
 RunCPM as a core archive that fits beside RunCPM on a 640KB machine and its
-remaining tools as a second one. SPEC.md §88.13 is the format, pinned by its
-decoder, and §88.14 the run-from-RAM path, with the 640KB arithmetic.
+remaining tools as a second one. SPEC.md §92.13 is the format, pinned by its
+decoder, and §92.14 the run-from-RAM path, with the 640KB arithmetic.
 
 `THEWIRE.O88` is 12KB and rides the **system** disk in `SYSTEM/`, on all four
 geometries — the disk that already carries the network driver ought to carry
@@ -471,7 +473,7 @@ are kept honest. Everything off the wire is checked field by field before a
 pixel of it is drawn — a catalog that does not pass leaves the window working
 and says `Catalog not understood`.
 
-SPEC.md §88 is the format and the contract; `docs/WIRE-PLAN.md` is why it
+SPEC.md §92 is the format and the contract; `docs/WIRE-PLAN.md` is why it
 reads that way.
 
 ### A package can also be written in C
@@ -634,7 +636,7 @@ cleanly and runs wrong when C meets this machine.
 | `build/cword*.img`     | 1.44MB / 720KB / 1.2MB / 360KB | Word in C, package + `CWORD.OVL` (`make cworddisk`) |
 | `build/runcpm*.img`    | 1.44MB / 720KB / 1.2MB / 360KB | RunCPM, package + `RUNCPM.OVL` + CP/M drive A + the games and applications each holds (`make runcpmdisk`). What drive A carries is chosen per geometry at build time, so the 1.2MB disk fills itself and names what it left off in its own `LEFT-OFF.TXT` |
 | `build/paccman*.img`   | 1.44MB / 720KB / 1.2MB / 360KB | PaccMan, the C Pac-Man: the package and its README, no overlay (`make paccmandisk`) |
-| `build/c64*.img`       | 1.44MB / 720KB / 1.2MB / 360KB | Commodore 64, package + `C64.OVL` + the `C64.ROM` sidecar (`make c64disk`) |
+| `build/c64*.img`       | 1.44MB / 720KB / 1.2MB / 360KB | Commodore 64, package (the ROMs are part 0 of `C64.O88`) + `C64.OVL` (`make c64disk`) |
 | `build/weave*.img`     | 1.44MB / 720KB / 1.2MB / 360KB | Weave: the runtime and its two modules, the demo bundles, LOOM, the demo sources and `CATALOG.TXT` (`make weavedisk`) |
 | `build/loom*.img`      | 1.44MB / 720KB / 1.2MB / 360KB | the Weave IDE's own disk, with the demo sources flat (`make loomdisk`) |
 | `build/apps-all.img`   | 1.44MB FAT12             | every program on one floppy, the eight above included (`make allapps`) |

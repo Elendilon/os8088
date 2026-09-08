@@ -66,6 +66,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, ".."))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import heapmap                                              # noqa: E402
+import os88fixture                                       # noqa: E402
 import os88sym                                              # noqa: E402
 import os88qemu                                              # noqa: E402
 
@@ -103,8 +104,12 @@ TARGETS = ["build/os8088.img", "build/apps.img"]
 
 
 def build():
-    subprocess.run(["make"] + TARGETS, cwd=ROOT, check=True,
-                   stdout=subprocess.DEVNULL)
+    # DECLARED, NOT BUILT HERE. These are the SHIPPED images, so a `make` for
+    # them in the shared tree is the one write that can reach every other row
+    # in a run. tests/suite.py declares them as this row's `wants=`, the
+    # runner builds them before anything starts, and this call then does
+    # nothing at all - which is what lets the row drop builds=True.
+    os88fixture.need(*TARGETS)
 
 
 def launch():
@@ -221,6 +226,19 @@ def main():
             fails.append("BIOS keyboard tail %04X -> %04X, want +12 for six "
                          "keys: a byte was taken from int 09h by the mouse "
                          "path (SPEC.md 9.9.1)" % (tail0, tail1))
+        else:
+            # ...AND WHICH CHARACTERS (SPEC.md 9.9.7). Counting entries is not
+            # enough and the field proved it: the probe left an AT 8042 in PC
+            # MODE, which stops it TRANSLATING set 2 to set 1, so the BIOS
+            # enqueued a full six keys and every one of them was the wrong
+            # letter - `f` typed `\`. The tail moves by 12 either way.
+            buf = q.read(0x400 + 0x1E, 0x20)        # the BDA's 16-entry ring
+            got = "".join(chr(buf[((tail0 - 0x1E) + 2 * i) % 0x20])
+                          for i in range(6))
+            if got != "abcdef":
+                fails.append("the BIOS queued %r for 'abcdef': the 8042 is not "
+                             "TRANSLATING, which is command-byte bit 5 left "
+                             "set on an AT controller (SPEC.md 9.9.7)" % got)
 
         q.hmp("quit")
     finally:

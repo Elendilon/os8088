@@ -47,6 +47,7 @@ import os88marty                                        # noqa: E402
 import os88mouse                                        # noqa: E402
 import os88sym                                          # noqa: E402
 import dispcp                                           # noqa: E402
+import os88build                                       # noqa: E402
 
 S = os88sym.linear
 TE_COLS, TE_ROWS = 80, 25
@@ -94,7 +95,7 @@ def te_syms():
     subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", "apps/",
                     "-I", "apps/telnet/", "-I", "drivers/net/",
                     "-o", out, src], check=True)
-    if open(out, "rb").read() != open("build/telnet.bin", "rb").read():
+    if open(out, "rb").read() != open(os88build.at("build/telnet.bin"), "rb").read():
         sys.exit("telpen: the mapped build is not build/telnet.bin - every "
                  "offset it names would be plausible and wrong")
     syms = {}

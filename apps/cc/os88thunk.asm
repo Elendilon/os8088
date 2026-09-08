@@ -1644,6 +1644,66 @@ _os88_mem_free:
     pop bp
     ret
 
+%ifdef CC_HAS_ONMOVE
+; int os88_mem_movable(unsigned seg, int on) - DX = the claim, AX = the near
+; proc or 0 (SPEC.md 66.2). `on` non-zero declares it movable and names
+; cc_onmove above as the handler; 0 PINS it again, which is a legal call and
+; the other half of SPEC.md 66.5.7.1's pin/unpin pair - pin a buffer for the
+; length of a file call and declare it again after.
+;
+; 0 = the kernel took it, -1 = refused. TAKE THE ANSWER: mem_movable's fence
+; is "yours, or not at all", so a segment you do not hold matches nothing,
+; writes no MC_RLOC and returns CF=1 - and from inside the package that is
+; indistinguishable from success (SPEC.md 66.5.6.2 is what that cost once).
+_os88_mem_movable:
+    push bp
+    mov bp, sp
+    mov dx, [bp+4]
+    xor ax, ax
+    cmp word [bp+6], 0
+    je .set
+    mov ax, cc_onmove
+.set:
+    call OSAPI_MEM_MOVABLE
+    mov ax, 0
+    jnc .ok
+    dec ax
+.ok:
+    pop bp
+    ret
+%endif
+
+%ifdef CC_HAS_WORKER
+; int os88_task_restartable(int on) - AX = cc_worker or 0 (SPEC.md 66.6.2).
+;
+; THE OFFSET IS NOT YOURS TO CHOOSE, and that is deliberate. The kernel
+; re-enters a restarted worker with a fresh frame - DS = CS = the new segment,
+; every register zeroed but DX - and the only entry in a C package that is
+; correct under those conditions is `cc_worker` itself, which banks its own SP
+; and pushes its own argument before calling os88_worker(). So this takes a
+; flag and names the entry; a C author cannot get it wrong by taking the
+; address of the wrong function, which is a mistake this SDK cannot detect
+; (SPEC.md 73's rule against taking the address of an overlay function is the
+; same shape one layer along).
+;
+; 0 = the kernel took it, -1 = refused (you are not a live package instance).
+_os88_task_restartable:
+    push bp
+    mov bp, sp
+    xor ax, ax
+    cmp word [bp+4], 0
+    je .set
+    mov ax, cc_worker
+.set:
+    call OSAPI_TASK_RESTARTABLE
+    mov ax, 0
+    jnc .ok
+    dec ax
+.ok:
+    pop bp
+    ret
+%endif
+
 ; unsigned os88_mem_regrow(unsigned seg, int kb) - DX = the claim, AX = the
 ; new size in KB; out DX = the claim's base NOW. ALWAYS TAKE THE ANSWER: a
 ; grow that had to move leaves your old segment pointing at memory that is no

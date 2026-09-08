@@ -1,7 +1,7 @@
 # =============================================================================
 # os8088 - apps/cc/Makefile.inc
 #
-# The build rules for a C package (SPEC.md 73.1, 67.10). A fragment, not a
+# The build rules for a C package (SPEC.md 73.1, 73.10). A fragment, not a
 # Makefile: the top-level Makefile owns the tree's targets, and this is the
 # one line it needs to gain C -
 #
@@ -27,7 +27,7 @@
 #   build/<pkg>.bin
 #        | tools/os88pkg.py                     (4) validate and stamp
 #   build/<pkg>.o88
-#        | tools/os88disk.py                        FAT12, three geometries
+#        | tools/os88disk.py                     (5) FAT12, four geometries
 #   build/<pkg>.img
 #
 # Steps 3, 4 and 5 are the pipeline every assembly package already goes
@@ -134,8 +134,14 @@ $(BUILD)/$(1).bin: apps/$(2)/$(1).asm $(BUILD)/$(1).gen.asm $(CC_RUNTIME) | $(BU
 # the overlay has been cut off it, so the three mechanisms stack in the one
 # order they can: nasm emits image+module, os88ovl.py takes the module away,
 # os88pkg.py puts the parts on the end.
+#
+# CCPARTZ=lz4|lzb picks the format an OP_COMP row uses (SPEC.md 20.12.7).
+# WHICH rows is the package's own decision - the flag is on the row, in its
+# source - so this only says how, and a package with no such row is unaffected
+# by it entirely.
+CC_PARTZ := --part-compress $(if $(CCPARTZ),$(CCPARTZ),lz4)
 $(BUILD)/$(1).o88: $(BUILD)/$(1).bin tools/os88pkg.py $(if $(3),tools/os88ovl.py) $(4)
-	$(if $(3),python3 tools/os88ovl.py $$< -o $(BUILD)/$(3) --trim $(BUILD)/$(1).trim.bin$(CC_NL)	python3 tools/os88pkg.py $(BUILD)/$(1).trim.bin -o $$@ $(addprefix --part ,$(4)),python3 tools/os88pkg.py $$< -o $$@ $(addprefix --part ,$(4)))
+	$(if $(3),python3 tools/os88ovl.py $$< -o $(BUILD)/$(3) --trim $(BUILD)/$(1).trim.bin$(CC_NL)	python3 tools/os88pkg.py $(BUILD)/$(1).trim.bin -o $$@ $(CC_PARTZ) $(addprefix --part ,$(4)),python3 tools/os88pkg.py $$< -o $$@ $(CC_PARTZ) $(addprefix --part ,$(4)))
 
 # The overlay is also a direct prerequisite of the all-apps/live images.
 # Declare its producer for fresh builds; recover it if only it was deleted.

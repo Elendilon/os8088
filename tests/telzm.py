@@ -90,6 +90,7 @@ import os88bbs                                             # noqa: E402
 import os88qemu                                            # noqa: E402
 import os88sym                                             # noqa: E402
 import telansi                                             # noqa: E402
+import os88build
 
 S = os88sym.linear
 SOCK = telansi.SOCK
@@ -241,6 +242,33 @@ def make_files(d):
     return out
 
 
+def wait_desktop(m, letter="A", secs=90):
+    """Block until drive `letter` HAS a desktop zone, or say what it saw.
+
+    This was `time.sleep(6.0)`, and six seconds is a guess about somebody
+    else's box. The row then called open_drive, which walks dsk_vtab and
+    raises "drive A: has no desktop zone on this machine" when the volume is
+    not mounted yet - a message about the DISK for a machine that was still
+    booting. Under a soak, with four lanes on four cores, QEMU gets a fraction
+    of a core and six seconds is not the boot.
+
+    docs/WRITING-TESTS.md's rule: wait on the CONDITION, not the clock. The
+    condition is the one open_drive is about to test, so a pass here means the
+    next line cannot fail for this reason - and the failure names the machine
+    rather than the feature.
+    """
+    for _ in range(int(secs / 0.4)):
+        try:
+            if dispcp.drive_ordinal(m, S, letter) is not None:
+                return
+        except Exception:                   # the guest is not answering yet
+            pass
+        time.sleep(0.4)
+    sys.exit("telzm: drive %s: had no desktop zone after %ds - the guest "
+             "never reached a desktop (a boot failure, not a telzm failure)"
+             % (letter, secs))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--keep", action="store_true",
@@ -306,7 +334,7 @@ def main():
     mo = telansi.Mouse()
     logs = {}
     try:
-        time.sleep(6.0)                     # ...the boot, then DHCP
+        wait_desktop(m, "A")            # ...the boot, then DHCP
         dispcp.open_drive(m, mo, S, telansi.settle, "A")
         wins = dispcp.win_list(m, S)
         wx, wy = dispcp.win_rect(m, S, wins[-1])[:2]
@@ -327,15 +355,25 @@ def main():
         # every read succeeds, and the numbers are another build's. The package
         # is loaded at pseg:0 with no relocation of any kind (SPEC.md 20), so
         # its first bytes ARE the file's.
-        pkg = open(os.path.join(ROOT, "build", "telnet.bin"), "rb").read()
-        head = m.readseg(pseg, 0, 512)
-        if head != pkg[:512]:
-            n = next((i for i in range(512) if head[i] != pkg[i]), -1)
+        pkg = open(os.path.join(ROOT, os88build.at("build/telnet.bin")),
+                   "rb").read()
+        head = bytearray(m.readseg(pseg, 0, 512))
+        want = bytearray(pkg[:512])
+        # THE FLAGS BYTE IS THE ONE DIFFERENCE, and it is not a mismatch
+        # (SPEC.md 20.13.5, tests/lzload.py's own note): every shipped package
+        # is compressed on this branch, and the EXPANDED image keeps saying so
+        # in bits 3 and 4 while the raw `build/telnet.bin` nasm emitted cannot.
+        # Without this the row read `guest 09, file 01` at offset 3 and blamed
+        # a stale emulator for a package that is byte-for-byte correct.
+        head[3] &= ~0x18
+        want[3] &= ~0x18
+        if head != want:
+            n = next((i for i in range(512) if head[i] != want[i]), -1)
             sys.exit("telzm: the guest's TELNET is not build/telnet.bin - "
                      "they first differ at offset %d (guest %02X, file %02X). "
                      "A stale emulator is answering %s, or the disk was not "
                      "rebuilt: every symbol below would resolve and describe "
-                     "another build" % (n, head[n], pkg[n], SOCK))
+                     "another build" % (n, head[n], want[n], SOCK))
         say("image     512 bytes at pseg:0 match build/telnet.bin")
 
         def rb(n):

@@ -54,6 +54,7 @@ import os88sym
 import stkwater
 import dispcp
 import dispapps
+import os88build
 
 # The static chain tools/stkdepth.py composes for cc_worker is 160 bytes
 # (SPEC.md 91). The interrupt floor on top of it is 32-38 measured here and 64
@@ -461,7 +462,7 @@ def main():
         #
         # Everything else - 37KB of code and arcade ROM tables - must be byte
         # for byte the file.
-        disk = Path('build/paccman.o88').read_bytes()
+        disk = Path(os88build.at('build/paccman.o88')).read_bytes()
         live = m.read(base, len(disk))
         allow = []
         for name, span in (('_pmc_items', 8), ('_pmc_mset', 64),
