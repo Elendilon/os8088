@@ -707,48 +707,67 @@ def _frozen_targets(a):
                            if a.startswith("build/"))
 
 
-def _scope_note(a):
-    """Say what an UNSCOPED run costs, and what decides whether it is the run.
+def _whole_tier_refusal(a):
+    """Why an unscoped `start` does not start, and what to do instead.
 
-    THE MISTAKE THIS IS FOR is not typing the wrong command - it is reaching
-    the whole tier by a rule that measured EFFORT.  `f0aff4c` gated heap
-    compaction out of kern_small and said in its own commit message that
-    kern_big assembles BYTE-IDENTICAL; the whole tier ran behind it anyway, and
-    370 of its rows booted a kernel that had not changed off floppies that had
-    not changed.  The fact was already in hand and nothing asked for it.
+    THE WHOLE TIER IS THE OWNER'S CALL AND NOBODY ELSE'S, and this is the
+    second gate rather than the first - `os88test.py` refuses the same run for
+    the same reason, so neither the runner nor the tier under it can be
+    reached by an agent that has decided for itself that today is the day.
 
-    So this prints at the one moment the decision is actually taken, and it
-    does NOT refuse: a refusal here would be a new way to lose work, and the
-    whole tier is the right answer often enough to be one keystroke away.
-    docs/TESTING.md's "When to run which tier" carries the two questions.
+    TWO WORDINGS WERE TRIED AND BOTH WERE REASONED PAST WITHIN A DAY.  "At the
+    end of extensive kernel surgery" was read as "I edited kernel/": a gate of
+    1,659 bytes out of kern_small, whose own commit message said kern_big
+    assembles BYTE-IDENTICAL, took the whole 377-row tier, of which seven rows
+    touch kern_small at all.  The reach test that replaced it - run it when you
+    cannot NAME what the change misses - was read the very next run as "my
+    change moves kern_big, so I cannot bound it", which is the same door from
+    the other side.  Every wording that leaves a JUDGEMENT is exercised in
+    favour of running it, and the run is one to three hours of somebody else's
+    machine.
+
+    So it is a PERMISSION now.  --user-asked is a claim about the CONVERSATION
+    and not about the change: passing it when the owner did not ask is a false
+    statement, which is a much higher bar than deciding that a diff felt
+    significant.  Nothing is lost by stopping here - nothing has started, and
+    both ways forward are in the message.
     """
-    if a.k or a.exclude:
-        return
     try:
         import suite
         rows = _selected(a)
         secs = {r.name: r.secs for r in suite.rows()}
         hours = sum(secs.get(n, 0.0) for n in rows) / 3600.0
-    except Exception:                                   # never block the run
-        return
-    print()
-    print("%sos88soak: NO -k, so this is the whole %s tier - %d rows, %.1f "
-          "declared hours.%s" % (YELLOW, a.tier, len(rows), hours, OFF))
-    print("  A row runs a BUILT ARTEFACT, so a row whose artefact your change "
-          "left byte-identical")
-    print("  reports yesterday's answer.  Before spending the hours, name the "
-          "rows this change")
-    print("  CANNOT reach - `%s%s%s` is what a change to one build arm costs:"
-          % (DIM, "os88soak.py start -k '*small*' -k buildmatrix", OFF))
-    print("  %seight rows, 14 declared minutes.  docs/TESTING.md, "
-          "\"When to run which tier\".%s" % (DIM, OFF))
-    print()
+        size = "%d rows, %.1f declared hours" % (len(rows), hours)
+    except Exception:
+        size = "the whole tier"
+    return (
+        "%sos88soak: REFUSING the whole %s tier - %s.%s\n"
+        "  It runs ONLY when the owner asks for it in as many words.  Nothing\n"
+        "  else licenses it: not kernel surgery, not a merge, not a change "
+        "whose\n"
+        "  reach you cannot bound, not a hunch that this one is worth it.\n"
+        "\n"
+        "  RUN THE ROWS YOUR CHANGE CAN REACH instead - this runner takes -k, "
+        "so\n"
+        "  the preflight, frozen tree, one lane per core, journal, --resume "
+        "and\n"
+        "  pollable status are all there for ten rows as they are for 377:\n"
+        "      python3 tools/os88test.py --list | grep -i <subject>\n"
+        "      python3 tools/os88soak.py start -k '<glob>' [-k '<glob>' ...]\n"
+        "\n"
+        "  If you believe the whole tier is warranted, SAY SO AND ASK, then "
+        "carry\n"
+        "  on without it.  When the owner has asked, pass --user-asked.\n"
+        "  docs/TESTING.md, \"When to run which tier\".\n"
+        % (RED, a.tier, size, OFF))
 
 
 def start(a):
+    if a.tier == "soak" and not a.k and not a.user_asked:
+        print(_whole_tier_refusal(a), file=sys.stderr)
+        return 2
     cores = _cores()
     mj, hj = widths(cores, a.marty_jobs, a.j)
-    _scope_note(a)
 
     blocking, advisory = preflight()
     print("os88soak: %d core(s); emulator lane %d, host lane %d" % (cores, mj, hj))
@@ -844,6 +863,8 @@ def start(a):
 
     cmd = ["python3", os.path.join("tools", "os88test.py"), a.tier,
            "--marty-jobs", str(mj), "-j", str(hj)]
+    if a.user_asked:
+        cmd.append("--user-asked")
     for g in a.k:
         cmd += ["-k", g]
     for g in a.exclude:
@@ -1183,6 +1204,11 @@ def main():
                     help="read build/ instead of a tree of the run's own - "
                          "faster to start, and a `make` while it runs breaks "
                          "rows (docs/plans/SOAK-PARALLEL.md 14.2)")
+    ap.add_argument("--user-asked", action="store_true", dest="user_asked",
+                    help="the OWNER asked, in as many words, for the WHOLE "
+                         "soak tier. Required by `start` with no -k - see "
+                         "_whole_tier_refusal(). It is a claim about the "
+                         "conversation, not a judgement about the change.")
     ap.add_argument("--strict", action="store_true",
                     help="a missing capability is a FAILURE, not a skip")
     ap.add_argument("-v", "--verbose", action="store_true")

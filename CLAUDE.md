@@ -178,8 +178,11 @@ make test-soak   #   ENFORCED wall-clock budget — the runner FAILS fast over
                  #     and knob rot is not the OS being broken
                  #   soak no budget — the rest of tests/, one subject each:
                  #     `python3 tools/os88test.py soak -k 'disp*'`
-                 #   ...and the WHOLE soak is `tools/os88soak.py`, never this
-                 #   target: `make test-soak` runs it SERIALLY. See below.
+                 #   ...and the runner is `tools/os88soak.py`, never this
+                 #   target: `make test-soak` runs the rows SERIALLY. THE
+                 #   WHOLE TIER IS THE OWNER'S TO ASK FOR — both runners
+                 #   refuse it with no `-k`, and `--user-asked` carries the
+                 #   permission once it has been given. See below.
                  #   WHEN EACH ONE IS RUN is the Testing section below, and
                  #   docs/TESTING.md is the authority: NONE of the three is a
                  #   per-commit gate. Running all three at every step is how
@@ -822,6 +825,18 @@ about the thing it touched, not by the tier that contains it** — after a
 redraw change `python3 tools/os88test.py soak -k 'disp*'` is minutes and is
 the right answer far more often than any tier is.
 
+**THE WHOLE SOAK TIER IS THE OWNER'S CALL AND RUNS ONLY WHEN THEY ASK FOR IT,
+IN AS MANY WORDS.** It is a permission rather than a judgement, and it is not
+reachable by reasoning about the change: two wordings that left the decision
+here were argued past within a day of each other, in opposite directions — *"at
+the end of extensive kernel surgery"* became *"I edited `kernel/`"*, and the
+reach test that replaced it became *"my change moves `kern_big`, so I cannot
+bound it"*. Whoever just did the work always wants to be sure, and the one to
+three hours land on somebody else's box. So `os88test.py soak` and
+`os88soak.py start` both REFUSE with no `-k`, and `--user-asked` is what
+carries the permission once it has been given. If you think the tier is
+warranted, say so in one line, run the rows you CAN name, and carry on.
+
 **WHAT to run is decided by what the BUILD says moved, never by how big the
 work felt.** Every row runs a built artefact, so an artefact your change left
 byte-identical cannot answer a question about it — those rows boot the same
@@ -840,7 +855,7 @@ the preflight, frozen tree, parallel lanes, journal, `--resume` and pollable
 |---|---|---|
 | `fast` | a commit you intend to keep, when it could change a byte under `build/` — and usually there is nothing extra to type, because `all` already ran it | a build you are not going to commit (an experiment, an A/B, a knob build — `make` skips it there itself); a **documentation-only** commit; a commit that only moves the **build number** |
 | `full` | major work reaching the INTEGRATION BRANCH — the first time a piece of it merges there, and again when you come back to that branch and land another large round | every commit on your own feature branch; a **minor bugfix** onto the integration branch; a documentation-only commit or merge; a build-number-only commit |
-| `soak` | the rows your change can REACH, scoped with `-k`; the WHOLE tier only when you cannot name what it misses — the shipped kernel moved somewhere every machine runs it — once, as that work lands, or when you are asked | the whole tier because the work felt big or because you edited `kernel/`. A change the build says moved ONE arm gets that arm's rows: a `kern_small` gate with `kern_big` byte-identical is 7 rows and 13 declared minutes, not 377 rows and nine declared hours |
+| `soak` | the rows your change can REACH, scoped with `-k` — minutes, and the answer to the question you actually have | **the WHOLE tier, ever, unless the owner has asked for it in as many words.** Not for kernel surgery, not at a merge, not because the reach cannot be bounded. Both runners REFUSE it unscoped; `--user-asked` carries the permission once given |
 
 `checkdocs.py` is the gate a documentation-only commit actually owes; a
 build-number-only commit is three bytes of `.text` moving because the commit
@@ -1327,17 +1342,16 @@ answer; the rebuild-and-boot above is what they owe, and the row about the
 thing you changed is what tells you more than the tier would. The Testing
 section is the short form and docs/TESTING.md the authority.
 
-**A merge is where the branch's soak goes — at the branch's OWN scope, not at
-the tier's.** A merge does not widen what a change can reach: the merged tree
-carries the artefacts the branch already tested unless the merge itself moved
-one, and the `md5sum` below is what answers that. So the rows to run at a merge
-are the rows the WORK can reach (docs/TESTING.md, §`soak` under *When to run
-which tier*), once, under fork rule 4's reporting — and the whole tier belongs
-to a merge landing a change whose reach you cannot bound, never to every merge
-that happened to touch `kernel/`. **The instrument that rule wants is the
-paragraph immediately below**, which this fork has had all along: a change that
-leaves the shipped images identical has told you that no row running them can
-see it.
+**A merge is where the branch's soak goes — at the branch's OWN scope, and a
+merge is never a licence for the whole tier.** That is the owner's to ask for
+(docs/TESTING.md, §`soak` under *When to run which tier*), and both runners
+refuse it unscoped. A merge does not widen what a change can reach anyway: the
+merged tree carries the artefacts the branch already tested unless the merge
+itself moved one, and the `md5sum` below is what answers that. So run the rows
+the WORK can reach, once, under fork rule 4's reporting. **The instrument that
+wants is the paragraph immediately below**, which this fork has had all along:
+a change that leaves the shipped images identical has told you that no row
+running them can see it.
 
 When in doubt, build and `md5sum` the images against the ones you already had.
 **Do that comparison at ONE commit, though**: the About box's build number is
