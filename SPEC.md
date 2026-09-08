@@ -100352,6 +100352,82 @@ because it is what `cs_pwind` needs. Degenerate faces (two coincident
 vertices, a pyramid's apex quad) go through the same fill, which handles a
 zero-height row.
 
+##### 88.4.2.1 …and the FILL does NOT dedup a shared edge — measured, refused
+
+§88.13.3's outline draws each edge ONCE, because every edge of a closed solid
+is shared by two faces and outlining each front face in turn draws the shared
+ones twice. **The same redundancy is in the FILL**: `cs_poly` traces all four
+of a face's edges, so an edge between two front faces is scan-converted twice
+— the same Bresenham over the same rows, into the other face's chain. Asked
+as *"we have the data for both faces up front, so can one pass do both?"*,
+which is the indexed-face-set question one level up.
+
+**It is measured, on six scenes, and the RUNTIME version is refused.** The
+instrument is §88.11.1's `CSPROBE` build, and its rule is that **every term is
+priced by ADDING it, never by removing it**, so every arm draws the identical
+picture: `cs_edge` is idempotent (a chain takes the same value, `.both` takes
+min/max), so running every trace TWICE prices one trace exactly; the dedup
+test is priced by an arm that skips it; and the copy by doing it into scratch
+in front of the trace it would replace.
+
+**THE SCENE DECIDES THE ANSWER, and §88.12's pinned three are the wrong ones
+for this question.** `runway`, `city` and `tower` hold a distant skyline —
+LOD-boxed (§88.5.4), so no faces at all — and the polygons that cover the view
+there are the one-face FLAT models. A view standing among buildings is four
+times the tracing. The `df*` scenes are La Défense's six 110 m towers at
+~950 m, and the discriminator is the PITCH, exactly as the arithmetic says:
+**above the roofs a box shows two walls AND a roof — three faces meeting at
+three shared edges of twelve traced — and below them, two faces sharing one of
+eight.**
+
+| per frame, Hercules 4.77 MHz 8088 | runway | city | tower | dflevel | dfangled | dfsquare |
+|---|---|---|---|---|---|---|
+| eye vs. the roofs | — | — | — | below | above | above |
+| faces walked / back-culled | 9.0 / 3.4 | 15.8 / 4.5 | 14.6 / 5.6 | 28.1 / 16.9 | 28.1 / 11.2 | 28.1 / 11.2 |
+| edge traces | 20.2 | 31.5 | 27.0 | 40.5 | 63.0 | 67.5 |
+| …duplicates | 5.6% | 14.3% | 12.5% | **11.1%** | **23.2%** | **25.0%** |
+| rows a trace | 10.2 | 6.6 | 5.9 | 26.7 | 17.3 | 16.8 |
+| one trace | 1,352 cy | 1,285 | 1,119 | 2,866 | 2,121 | 1,902 |
+| **all the tracing there is** | 3.3% | 4.7% | 3.2% | **10.5%** | **11.0%** | **10.8%** |
+| **the duplicates — the whole prize** | 0.19% | 0.68% | 0.40% | 1.16% | **2.55%** | **2.69%** |
+| the dedup TEST, on every edge | 1.33 ms | 3.17 | 2.72 | 4.05 | 6.55 | 7.11 |
+| the COPY replacing a skipped trace | 0.10 ms | 0.30 | 0.16 | 1.37 | 1.71 | 2.02 |
+| **net, at runtime** | −1.12 ms | −2.26 | −2.10 | −2.73 | −1.76 | −2.42 |
+| **net, topology precomputed** | −0.02% | +0.29% | +0.14% | +0.35% | **+1.56%** | **+1.54%** |
+
+**A runtime dedup is a LOSS on every scene, and it is not close**: the test is
+295–501 cycles and is paid on 20–68 edges to save on 1–17, where a whole trace
+is 1,119–2,866. Bake the topology into the model instead — a flag beside each
+face index, so the test is a byte read of ~60 cycles — and the ceiling is
+**+1.56% of a frame** in the view it is best in, for a topology byte per
+face-edge over 122 models in a package that has already met `APP_MAX_SIZE` at
+a merge (§88.5.9). It is the CEILING of the idea and not an implementation:
+`docs/plans/SKIES-FRAME-PLAN.md` §2 carries it as priced-and-parked, beside
+the cull walk that is worth more for less.
+
+**Why this is small where §88.13.3's was large — 284.7 → 167.5 ms on Mode X —
+is the whole finding, and it is not about the sharing.** In WIREFRAME a
+duplicate edge is duplicate PIXELS: the second `cs_seg` walks the same span
+doing a read-modify-write per pixel over a line already on the glass. In a
+FILL the pixels were never duplicated — two front faces fill two different
+interiors, and `cs_polyrows_herc` lays a row as two masked end bytes and a
+`rep stosw` between, into the SHADOW (§88.3), which `cs_blit` carries to the
+card once. What a second trace repeats is the SPAN TABLE and nothing else.
+
+Three structural facts hold the prize where it is:
+
+  * **The vertex pipeline is ALREADY an indexed face set.** A model is verts,
+    faces of indices and edges of indices (§88.6); `cs_projall` transforms and
+    projects each vertex ONCE per object into `cs_sxv`/`cs_syv` and every face
+    reads them by index. The nine multiplies a vertex — the expensive part —
+    are already shared. Only the scan conversion is not.
+  * **A FLAT model has one face and so no shared edge at all**, and the
+    ground, the river, the runway and the roads are what covers the view: the
+    runway frame traces 206 rows from 20 edges and keeps 1.1 duplicates.
+  * **The LOD ladder removes faces before they can share one**: 13 objects in
+    the city frame produce 15.8 walked faces, because anything under about
+    six pixels is `cs_boxlod`'s rectangle (§88.5.4).
+
 #### 88.4.3 The walk is Tank's, without the per-pixel marks
 
 `cs_seg` is §85.3.2's walk with the dirty-span marks taken out of the pixel
@@ -100463,6 +100539,48 @@ executes it, so nothing else pays. `tests/skiesflat.py` is the gate and
 asks the direct question — stood on the Issy runway looking at the tower,
 the bar is a nine-pixel run at the tower's own x with nothing at the left —
 and `--clobber-flat` NOPs those four bytes and moves it to x = 0.
+
+##### 88.4.3.1 …and the per-pixel WRITE is not what a segment costs
+
+Asked of §88.13.3's outline dedup: *"why was the wireframe duplicating pixels
+when the shadow is not 8-aligned — is that somehow slower, and is the bigger
+win still out there?"* It is a fair question, because a 1bpp pixel is a bit and
+a bit is a read-modify-write of the byte around it, and a shallow line can hit
+the same byte up to eight times.
+
+**Measured** (§88.11.1's `cs_dblplot` arm: `or` is idempotent, so a second plot
+draws the identical picture and the frame's difference over the plot count is
+one plot, exactly):
+
+| per frame, wire, Hercules 8088 | dfangled | tower |
+|---|---|---|
+| segments taking the per-pixel shallow arm | 9.0 | 8.6 |
+| …the run SLICE (six pixels a row or more) | 23.6 | 21.6 |
+| …steep | 7.9 | 9.4 |
+| …vertical | 6.8 | 7.9 |
+| pixels plotted | 860.6 | 600.8 |
+| …shallow / steep / vertical | 188 / 327 / 345 | 133 / 226 / 242 |
+| **one `or [es:di], al`** | **14.5 cy** | **14.2** |
+| **every plot in the frame** | 2.62 ms (**1.5%**) | 1.79 ms (**0.9%**) |
+| plots an accumulator could merge | 120.4 (14.0%) | 54.0 (9.0%) |
+| **…what merging them is worth** | 0.37 ms (**0.21%**) | 0.16 ms (**0.08%**) |
+
+**The write is 14 cycles of a steep pixel's ~85** — the rest is the DDA's
+`add`/`jg` and the `loop`, which is why §88.4.3's walk was worth taking the
+span marks out of and why a byte accumulator is worth 0.2%. And **78% of the
+pixels are steep or vertical**, where consecutive pixels are 80 bytes apart and
+nothing can merge at all: a wireframe tower is made of steep lines. The only
+mergeable arm is a shallow line under six pixels a row, and above six the
+slice (§85.3.6) is already laying whole runs — 23.6 segments of 47.3 take it.
+
+**So the answer is that the fill and the wire were never doing the same thing.**
+The plot is cheap; a SEGMENT is not — ~2,400 cycles of clip, mark, DDA setup
+and dispatch before a pixel is written. §88.13.3's dedup was worth 16.7 ms
+because it removed whole segments, and on Mode X — where the figure was taken —
+a pixel is an `out` and a store rather than 14 cycles, so the pixel share there
+is much larger than it is here. Nothing about the shadow buffer's alignment is
+costing anything: the row middle is `rep stosw` on whatever alignment (§88.4.6)
+because the 8088's bus is eight bits wide.
 
 #### 88.4.7 A small solid keeps no outline
 
@@ -100920,6 +101038,107 @@ distance, so it compares against **3/2 of `CSM_RAD`** - over sqrt(2), a
 shift and an add. That is also a fix in its own right: with a bare compare
 it rejected points that really were over the water, and the Seine's diagonal
 corners are exactly where the two measures diverge most.
+
+#### 88.5.12 A stack face is culled against the EYE, before anything is gathered
+
+§88.5.10's winding test is exact and stays the authority. What it is not is
+EARLY: it reads the signed area of the face's PROJECTED points, so a face it
+throws away has already been counted against the near and side planes,
+gathered by index into `cs_pv`, and paid the two `imul`s of the diagonals'
+cross. Measured with §88.11.1's `cs_dupface` arm, a face's preamble is
+**1,326–1,478 cycles and 29–60% of walked faces are thrown away** — 1.25 ms of
+the `city` frame, 3.25 of `dfangled`, **4.96 of `dflevel`, which is 2.14%**.
+
+`cs_axcull` decides the same thing first, and **with no multiply at all.**
+
+A stack's side face is an axis-aligned plane in WORLD space when its level
+pair is untapered, so *"the eye is behind it"* is one compare against the eye's
+own world position:
+
+| face | drawn only when |
+|---|---|
+| +x | `d.x < −wx` |
+| −x | `d.x > wx` |
+| +z | `d.z < −wz` |
+| −z | `d.z > wz` |
+| the cap | `d.y < −h` |
+
+— where `d` is the object's offset FROM THE EYE, which `cs_scale` already has:
+**it is the input to the rotation.** `cs_scale` now files it (`cs_odx`,
+`cs_ody`, `cs_odz`, at the object's own scale, three stores).
+
+The roundabout way to see why that is the right quantity, which is worth
+writing down because it is not obvious: a camera-space normal test would take
+`dot(M₀, C)`, where `M₀` is the matrix column §88.5 already scales a level's
+corners by and `C` is the object's camera-space origin. `M` is orthonormal, so
+`dot(M x̂, M d) = dot(x̂, d) = d.x`. **The dot product reduces to the number
+that was there before the rotation.** Nine multiplies become nothing.
+
+Which face is which costs no image byte: every face already carries a flags
+byte and it was `0` on all of them, so `CS_SIDES`/`CS_TOP` set `CSF_PX`,
+`CSF_MX`, `CSF_PZ`, `CSF_MZ`, `CSF_TOP` in it. The level is the face's own
+first vertex index shifted right twice — all five faces of a level lead with an
+index in their base level — and the model's vert table is `(wx, h, wz)` per
+level, so the half-width is a word at a computed offset. The scale rule
+(§88.5.6) bounds a model's half-width by its radius and the radius by the
+scale, so `shl ax, cl` up to the object's scale cannot overflow, exactly as
+`cs_nearat` relies on.
+
+**It REFUSES rather than guesses, and every refusal falls through to the
+winding**, which is what makes it safe to put in front of a test with a
+photographed field bug behind it (§88.5.10). Three refusals: a **tapered**
+level pair (a pyramid, a dome's cap, a setback) tilts the plane out of the
+axis, so the two levels' half-widths are compared and an unequal pair is left
+alone; a face with **no axis flag** is not a stack side or cap; and
+**`CSF_NOCULL`** — a river is visible from either side — is untouched.
+
+A face it culls is skipped WHOLE: no `.cnt`, no `cs_fclip`, no gather, no
+cross, no `cs_pwind`. A face it passes costs the flags test it was going to
+pay for `CSF_NOCULL` anyway plus a compare.
+
+**What it costs is 143 bytes and what it buys is the back faces**, measured
+with `[cs_axoff]` — one image, one speed, the cull acting or computing and not
+acting, interleaved:
+
+| | runway | city | tower | dflevel | dfangled | dfsquare |
+|---|---|---|---|---|---|---|
+| the winding alone | 176.08 ms | 181.20 | 204.76 | 236.69 | 260.35 | 253.76 |
+| `cs_axcull` on | 175.05 | 180.55 | 204.12 | **231.05** | **256.64** | **250.09** |
+| | −0.58% | −0.35% | −0.32% | **−2.38%** | **−1.43%** | **−1.45%** |
+| faces walked, without → with | 112→70 | 196→168 | 182→154 | 350→140 | 350→210 | 350→210 |
+
+**`dflevel` is the case it is for and it is the ordinary one** — level flight
+among buildings, where a box shows two of its five faces: 350 faces walked
+become 140, the winding is left with **nothing to cull at all**, and the frame
+comes down 5.64 ms.
+
+##### 88.5.12.1 What verifying it cost, which is worth more than the 143 bytes
+
+Three things, in the order they were found:
+
+1. **`cs_axcull` MUST preserve SI, and the first build did not.** The caller
+   falls through to `.cnt`, and that arm walks the face's indices with `lodsb`
+   FROM THE SI IT ALREADY HAS — where `.plain` reloads it from `[cs_fidx]`. So
+   clobbering SI is invisible on every object that is WHOLE (§88.3.2) and
+   corrupts the near/side count on every object that is not, which in these
+   scenes is a handful of river pieces: one building drawn wrong in a 32×6
+   patch. **The verdict audit could not see it** — both tests agreed about the
+   face, and its indices were then read from the wrong place.
+2. **A pixel A/B of this program is NOT reproducible, and the control says so.**
+   Two arms that are byte-identical in behaviour AND speed — `[cs_axoff]` = 1
+   on both sides of the same image — differ in **2 runs of 6**, by 865 and 896
+   pixels, in the same lower-view band as every difference that was being
+   chased. The scene is pinned and the world paused, and it still moves. So a
+   framebuffer comparison is worth running (it is what found the SI bug) and it
+   cannot certify: **the gate is `cs_axcull`'s verdict against the winding's,
+   face by face on the guest** (§88.11.1's audit arm), which is 0 disagreements
+   over 12 scene-and-fill configurations.
+3. **The instrument's own bss is ZEROED, and `cs_axmask` defaults to 0.** With
+   the bisect mask added, `and dl, [cs_axmask]` cleared every axis bit, so the
+   cull was inert in BOTH arms of the A/B and six scenes read a tidy +0.06% of
+   nothing. What caught it was an ARM CHECK printed beside the timing — the
+   counters of what each arm actually did — and not the timing, which looked
+   perfectly reasonable. Any A/B that can silently measure nothing needs one.
 
 ##### 88.5.11.1 ...and `cs_pwhole` is OBSERVED, not predicted
 
@@ -103691,7 +103910,10 @@ the near plane CUT has no such indices, because `cs_pv` then holds points
 the clipper made, and that one is drawn whole. It needs **no per-model edge
 list** — the indices are the face's own — and it is worth having: over the
 city on Mode X, **167.5 ms against 184.2** for the same picture drawn twice
-over, where the solid is 284.7.
+over, where the solid is 284.7. **The FILL has the same redundancy and it is
+REFUSED** (§88.4.2.1): there a shared edge repeats a SPAN TABLE and not
+pixels — each face fills its own interior — so the whole prize is 0.19% to
+0.68% of a frame and the test that finds it costs three times that.
 
 **This is where the two bits stop resembling each other.** Buildings are
 tall and narrow, which is the outline's best case and the fill's worst:
@@ -104268,6 +104490,42 @@ naming controls, so a control added to the page cannot be forgotten there.
 row that is not painted never has `OS88UI_DR_DIS` written, so §13.14.5's
 refusal would not fire for it — but a row outside the count is reached by no
 walk on the page at all, so there is nothing to refuse.
+
+#### 88.11.1 `CSPROBE=1` — the COUNTING build, and why it adds instead of removing
+
+`tests/skiesperf.py` prices a stage by patching its call out. That answers
+*"what does this stage cost"* and it cannot answer *"how much of it is
+redundant"*, because **a NOPed call takes its consequences with it**: NOP
+`cs_edge` and the chains keep their +big/−big and the polygon's rows are never
+filled either, so the number is the tracing PLUS the fill it removed. Read
+`edge (in poly)` at 17.50 ms on `city` that way and 8.47 ms by adding, and the
+difference is the pixels.
+
+So `make skiesprobe` builds `apps/skies` with `-DCSPROBE` into
+`build/skiesprobe/`, `skiesdiag`'s shape exactly (§88.14), and every arm in it
+**adds** a term rather than removing one, so **every arm draws the identical
+picture**:
+
+| arm | what it prices |
+|---|---|
+| `cs_dbl` | every edge traced TWICE. `cs_edge` is idempotent — a chain takes the same value and `.both` takes min/max — so the frame's difference over the trace count is ONE trace, exactly |
+| `cs_nomark` | the index lookup and `cs_edgemark` skipped: what a runtime dedup TEST costs, paid on every edge (§88.4.2.1) |
+| `cs_cpy` | a duplicate ALSO pays the copy that would replace the trace it skips, done into scratch in front of the real one |
+| `cs_dupface` | every face repeats its PREAMBLE — the gather of its projected vertices by index and the quad's diagonal cross — into scratch. 29–60% of walked faces are then thrown away by the winding, so this is what an earlier cull could reach |
+
+Beside them are counters for the faces walked, back-culled, reaching `cs_poly`,
+refused off-view and taken by the two-row shortcut, and for the traces, their
+rows, and the duplicates among both. `tests/skiescount.py` drives it and
+**asserts nothing** — it is an instrument, registered as one.
+
+**The shipped package is byte-identical**: everything above is behind
+`%ifdef CSPROBE`, so `make` then `md5sum build/skies.bin` is the check, and it
+is the same md5 with the scaffolding in the tree as without it.
+
+Its scenes are §88.12's three plus three that stand among La Défense's six
+110 m towers at ~950 m — `dflevel`, `dfangled`, `dfsquare` — because the
+pinned three hold a distant, LOD-boxed skyline and are the wrong scenes for
+any question about building faces (§88.4.2.1's table).
 
 ### 88.14 The watchdog — `CSDIAG=1` (a diagnostic build)
 
