@@ -181,10 +181,11 @@ with os88marty.launch(SYS_IMG, apps=APPS_IMG, machine=MACHINE) as m:
            ", ".join("%04X/%s" % (c.seg, heapmap.owner(c.own))
                      for c in now.claims if c not in before.claims)))
     carve = [c for c in now.claims if c.own == inst] if inst is not None else []
-    if at_base and len(carve) == 1 and carve[0].rloc == 0:
+    if at_base:
         say("(the zero-slack shape: this claim IS the program's region, so "
-            "mem_is_region holds and a move would rewrite I_SPTR correctly - "
-            "SPEC.md 20.12.10.5. The fence assertions below still apply)")
+            "mem_is_region holds, a move would rewrite I_SPTR correctly, and "
+            "the declaration below is expected to have been TAKEN - "
+            "SPEC.md 20.12.10.5. tests/rehomemove.py is what then moves it)")
     if len(carve) != 1:
         fails.append(
             "%d claims are owned by instance slot %r and exactly one should "
@@ -206,13 +207,28 @@ with os88marty.launch(SYS_IMG, apps=APPS_IMG, machine=MACHINE) as m:
                 "the surviving claim came in by the TOP-DOWN door, so it is "
                 "the loader's region and not the carve: step 8a freed the "
                 "wrong one (SPEC.md 20.12.10.5)")
-        # --- 5. and it is PINNED ---------------------------------------------
-        if c.rloc != 0:
+        # --- 5. and its MC_RLOC is the SHAPE's answer ------------------------
+        # The program declares itself movable either way (rhprog.asm's
+        # rp_reloc). Which shape it is in decides whether the kernel takes the
+        # declaration, and BOTH answers are the correct one for their shape -
+        # so this asserts that the kernel agreed with the geometry rather than
+        # asserting one number (SPEC.md 20.12.10.5).
+        if at_base and c.rloc == 0:
             fails.append(
-                "the carve's MC_RLOC is %d, so something declared it movable. "
-                "It must stay pinned: mem_rr_tab rewrites I_SPTR by matching "
-                "the OLD BASE, and I_SPTR is the PART's segment where this "
-                "claim's base is the carve's (SPEC.md 20.12.10.5)" % c.rloc)
+                "the program is AT the carve's base, so this claim is its "
+                "region in every sense - mem_is_region holds and "
+                "mem_find_own's `MC_SEG == the caller's own segment` arm "
+                "reaches it - and yet MC_RLOC is 0, so OSAPI_MEM_MOVABLE "
+                "refused a declaration it should have taken (SPEC.md 66.6.1)")
+        if not at_base and c.rloc != 0:
+            fails.append(
+                "the carve's MC_RLOC is %d and the program sits INSIDE it, "
+                "not at its base. It must stay pinned: mem_rr_tab rewrites "
+                "I_SPTR by matching the OLD BASE, and I_SPTR is the PART's "
+                "segment where this claim's base is the carve's - a move "
+                "would leave I_SPTR naming where the program used to be. "
+                "mem_find_own should have refused (SPEC.md 20.12.10.5)"
+                % c.rloc)
 
     # --- 6. close it, and the heap comes back --------------------------------
     import os88ui

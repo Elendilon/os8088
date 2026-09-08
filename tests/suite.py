@@ -1562,6 +1562,44 @@ SOAK = [
         "back and re-homed the program to itself until wm_create ran out of "
         "window slots. Needs `make rehome`.",
         needs=("marty",), serial=True, wants=("build/rehome360.img",)),
+    Row("rehomemove", "soak", py("tests/rehomemove.py"), 75.0,
+        "SPEC.md 20.12.10.5 and 66.6.1: the block a re-homed program is left "
+        "running in is an ORDINARY MOVABLE REGION afterwards, and the one "
+        "word no other package has to fix, gets fixed. 1.44MB IS THE "
+        "EXPERIMENT: a 512-byte-cluster volume gives op_claim a ZERO head "
+        "slack, so the program sits AT the carve's base and only then does "
+        "mem_is_region hold, mem_find_own reach it and OSAPI_MEM_MOVABLE "
+        "take - at 360KB the same package is refused, correctly, and there "
+        "is nothing to move. tests/filler forces the compaction, "
+        "tests/regmove.py's own idiom. FIVE ASSERTIONS: the claim moved at "
+        "all; the package's proc was CALLED; the kernel's words followed "
+        "(I_SPTR, claim owners); THE PACKAGE'S OWN WORD followed - the "
+        "loader's handoff names the asset by absolute segment and the asset "
+        "is INSIDE the carve, so nothing in the kernel knows that word "
+        "exists; and the window is still findable by title, which is W_SEG "
+        "read back. The fourth assertion is about the ADDRESS and not the "
+        "bytes, and the break-it-on-purpose run is why: a compaction does "
+        "not scrub what it copied from, so a vector the proc never fixed "
+        "still reads the signature off the old copy. Broken on purpose with "
+        "rp_reloc stubbed to `ret` it reports [rp_moved] = 0, the vector "
+        "outside the new extent and a zero delta. Needs `make rehome`.",
+        needs=("marty",), serial=True, wants=("build/rehomemove.img",)),
+    Row("rehomeabort", "soak", py("tests/rehomeabort.py"), 40.0,
+        "SPEC.md 20.12.10.6: a re-homed program REFUSES ITSELF, and nothing "
+        "leaks. THE ONE UNWIND PATH NOTHING ELSE REACHES - by the time this "
+        "entry proc runs, step 8a has freed the LOADER's region, re-owned the "
+        "carve to the instance SLOT and pointed [ld_base] at the program, so "
+        "ld_unreserve has to clean up an arrangement no ordinary launch "
+        "produces: the carve has no segment owner at all, and `call ld_slot / "
+        "call mem_free_owner_x` is the ONLY sweep that reaches it. The disk "
+        "is the same source built -DRH_ABORT, so every check runs first and a "
+        "failure here cannot be a package that never got going. THREE "
+        "ASSERTIONS: ld_status is 4 and no window survived; no instance is "
+        "left live; and the heap comes back BYTE FOR BYTE. Broken on purpose "
+        "with that sweep removed it names the leftover claim - 2KB owned by "
+        "an instance slot - which is invisible from the glass and is why this "
+        "is a row rather than an argument. Needs `make rehome`.",
+        needs=("marty",), serial=True, wants=("build/rehomeabort.img",)),
     Row("multiseg", "soak", py("tests/multiseg.py", "1440"), 20.0,
         "SPEC.md 20.12: a package carries its parts in its OWN FILE and loads "
         "them ITSELF. The kernel parses none of it - all it learns is flags "

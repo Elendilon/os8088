@@ -32906,6 +32906,38 @@ outcome, and runs at **360KB** in the suite because that is the shape §50.3.4's
 fence exists for. On a 512-byte-cluster volume `mem_own`'s old claim-base proxy
 answers correctly by accident, so a 1.44MB-only row would have tested nothing.
 
+##### 20.12.10.5.1 …and in the second shape it MOVES, with one word of its own
+
+`tests/rehomemove.py` takes the zero-slack shape the other way: the program
+declares itself movable, `tests/filler` forces the compaction, and the carve
+**packs down like any other region** — measured, `1E40 → 1D00`, with `I_SPTR`,
+`W_SEG` and the claim owner all following through `mem_rr_tab`.
+
+**Its relocation proc is not a `ret`, and it is the first in the tree that
+cannot be.** `OS88_REGION_MOVABLE` ships a bare `ret` because every word naming
+an ordinary region belongs to the kernel. A re-homed program has one of its
+own: the loader's handoff named the asset **by absolute segment** (§20.12.10.2)
+and **the asset is inside the carve**, so it moves with it and nothing in the
+kernel knows that word exists. This is exactly the case `apps/os88api.inc`
+already described — *"it is where YOUR fix-up goes if you ever cache your own
+segment in a word of your own"* — arriving for the first time.
+
+**The gate asserts the ADDRESS and not the bytes**, and the break-it-on-purpose
+run is why: a compaction copies the block down and does **not scrub what it
+came from**, so a vector the proc never fixed still reads the asset's signature
+off the old copy, perfectly. What cannot false-pass is *"the handoff names an
+address inside the carve's new extent, one delta along"*.
+
+##### 20.12.10.6.1 The unwind, which no ordinary launch produces
+
+`tests/rehomeabort.py` is the same package built `-DRH_ABORT`: every check runs
+and then the re-homed entry returns CF=1. By then the loader's region is freed,
+`[ld_base]` names the program, and **the carve has no segment owner at all** —
+so `ld_unreserve`'s `call ld_slot / call mem_free_owner_x` is the *only* sweep
+that reaches it. Removing that one call leaves a 2 KB claim owned by an
+instance slot standing for the session, which is invisible from the glass; the
+row names it.
+
 ##### 20.12.10.6 What it refuses, and what survives
 
 **A re-homing entry may own no window.** Its region is about to be freed, so a

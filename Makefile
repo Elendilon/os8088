@@ -5649,9 +5649,42 @@ $(BUILD)/rehome360.img: $(BUILD)/rehome.o88 tools/os88disk.py | $(BUILD)
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/rehome.o88
 	@python3 tools/os88disk.py --verify $@
 
-#   make rehome                          builds both fixture disks
+# ...AND THE SAME PACKAGE BESIDE tests/filler, for the move (SPEC.md
+# 20.12.10.5). 1.44MB ONLY, and the geometry is the experiment rather than a
+# convenience: a 512-byte-cluster volume gives op_claim a ZERO head slack, so
+# the program sits AT the carve's base and the claim is its region in every
+# sense - mem_is_region holds, mem_find_own reaches it, and the declaration
+# takes. At 360KB the same package is refused the declaration, correctly, and
+# there would be nothing to move.
+$(BUILD)/rehomemove.img: $(BUILD)/rehome.o88 $(BUILD)/filler.o88 \
+                         tools/os88disk.py | $(BUILD)
+	python3 tools/os88disk.py -o $@ --size 1440 \
+		$(BUILD)/rehome.o88 $(BUILD)/filler.o88
+	@python3 tools/os88disk.py --verify $@
+
+# ...AND THE ABORT ARM. One source, `-DRH_ABORT`, and the program refuses
+# itself AFTER the re-home - the one unwind path nothing else in the tree
+# reaches, because by then the loader's region is already freed and the carve
+# is owned by the instance SLOT rather than by any segment. ld_unreserve's
+# sweep by slot is what has to find it (SPEC.md 20.12.10.6).
+$(BUILD)/rhprogx.bin: tests/rehome/rhprog.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -DRH_ABORT -o $@ $<
+
+$(BUILD)/rehomex.o88: $(BUILD)/rehome.bin $(BUILD)/rhprogx.bin \
+                      $(BUILD)/rhasset.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/rehome.bin -o $@ \
+		--part $(BUILD)/rhprogx.bin --part $(BUILD)/rhasset.bin
+
+$(BUILD)/rehomeabort.img: $(BUILD)/rehomex.o88 tools/os88disk.py | $(BUILD)
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/rehomex.o88
+	@python3 tools/os88disk.py --verify $@
+
+#   make rehome                          builds all four fixture disks
 #   python3 tests/rehome.py 360          runs the gate on MartyPC
-rehome: $(BUILD)/rehome.img $(BUILD)/rehome360.img
+#   python3 tests/rehomemove.py          ...and the move
+#   python3 tests/rehomeabort.py         ...and the unwind
+rehome: $(BUILD)/rehome.img $(BUILD)/rehome360.img $(BUILD)/rehomemove.img \
+        $(BUILD)/rehomeabort.img
 
 # --- MSEG, the parts standard's consumer (ON DEMAND: `make mseg`) -----------
 # SPEC.md 20.12: a package that carries its parts in its own file. It is a

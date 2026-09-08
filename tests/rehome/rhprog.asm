@@ -62,8 +62,24 @@ rp_entry:
     push di
     push es
     call rp_check
+%ifdef RH_ABORT
+    ; --- THE ABORT ARM (`make rehome`'s third disk) -------------------------
+    ; A RE-HOMED PROGRAM THAT REFUSES ITSELF, which is the one path nothing
+    ; else reaches: by here the loader's region is freed, [ld_base] names US,
+    ; and the carve is owned by the instance SLOT. ld_unreserve then sweeps
+    ; XMS by record, heap by SLOT - which is what has to reach the carve - and
+    ; heap by [ld_base], which is what reaches everything WE claimed. Same
+    ; source as the passing arm on purpose: the checks above all run first, so
+    ; a failure here cannot be a package that never got going.
+    mov ax, RP_CLAIM_KB             ; ...and leave one of our OWN claims
+    call OSAPI_MEM_CLAIM            ; outstanding, so the [ld_base] sweep has
+    xor bx, bx                      ; something to find too
+    stc
+    jmp short .out
+%endif
     mov si, rp_tpl
     call OSAPI_WM_CREATE            ; BX = window ptr, CF on table full
+.out:
     pop es
     pop di
     pop si
@@ -140,6 +156,21 @@ rp_check:
 .n4ok:
     inc byte [rp_ok]
 .n4:
+    ; --- ...and DECLARE, which only one of the two shapes can accept --------
+    ; SPEC.md 20.12.10.5. With a zero head slack this claim IS our region -
+    ; mem_is_region holds - and mem_find_own's `MC_SEG == the caller's own
+    ; segment` arm reaches it, so the declaration takes and tests/rehomemove.py
+    ; is what then moves it. With a non-zero slack it is refused, exactly as
+    ; check 4 above has just asserted, and a refusal is not worth reporting
+    ; (apps/os88api.inc says so about OS88_REGION_MOVABLE's own): it can only
+    ; mean the claim is not reachable as ours, which is the correct answer for
+    ; that shape and the whole reason mem_reown_x stamps the SLOT.
+    push dx
+    mov dx, ds                  ; OUR REGION - and `mov dx, cs` would do as
+    mov ax, rp_reloc            ; well, this package being org 0 in one segment
+    call OSAPI_MEM_MOVABLE
+    pop dx
+
     ; --- the verdict, into the title --------------------------------------
     mov al, [rp_ok]
     add al, '0'
@@ -150,6 +181,40 @@ rp_check:
     mov ax, 'BA'
 .say:
     mov [rp_t_v], ax
+    ret
+
+; -----------------------------------------------------------------------------
+; rp_reloc - our relocation proc (SPEC.md 66.2)
+; in:  BX = the base the region WAS at, DX = where it is now, DS = the NEW base
+;      (mem_reloc_call sets it: "the proc's whole job is to write its own data")
+; out: nothing
+;
+; NOT A `ret`, and this is the one package in the tree for which that is true
+; by construction. apps/os88api.inc's OS88_REGION_MOVABLE ships a bare `ret`
+; because every word naming an ordinary region is the KERNEL's - W_SEG,
+; I_SPTR, the owner of every claim - and mem_region_reloc puts those right.
+;
+; A RE-HOMED PROGRAM HAS TWO OF ITS OWN. Its region is the parts carve, and
+; the OTHER PARTS ARE IN IT: the loader's handoff named the asset by absolute
+; segment (SPEC.md 20.12.10.2), and that segment moves with the block it is
+; inside. Nothing else in the machine knows those words exist, so nothing else
+; can fix them - which is precisely the case os88api.inc's "it is where YOUR
+; fix-up goes if you ever cache your own segment in a word of your own" is
+; about, arriving here for the first time.
+;
+; [rp_cseg] is deliberately NOT adjusted: it names a data claim OUTSIDE the
+; carve, which mem_region_reloc does not move and which check 3 gave back
+; anyway.
+; -----------------------------------------------------------------------------
+rp_reloc:
+    push ax
+    mov ax, dx
+    sub ax, bx                  ; AX = the delta, in paragraphs
+    add [rp_hand + RP_ASSET], ax
+    add [rp_hand + RP_CARVE], ax
+    add [rp_aseg], ax           ; ...and the copy the paint reads
+    inc byte [rp_moved]         ; the row reads this: a proc that was declared
+    pop ax                      ; and never called is the failure 66.2 is about
     ret
 
 ; -----------------------------------------------------------------------------
@@ -244,7 +309,8 @@ rp_aseg    equ os88_image_end + RP_HAND_SZ + 2
 rp_cseg    equ os88_image_end + RP_HAND_SZ + 4
 rp_cx      equ os88_image_end + RP_HAND_SZ + 6
 rp_cy      equ os88_image_end + RP_HAND_SZ + 8
-RP_BSS     equ RP_HAND_SZ + 10
+rp_moved   equ os88_image_end + RP_HAND_SZ + 10   ; byte: relocations taken
+RP_BSS     equ RP_HAND_SZ + 12
 
 ; --- AND THE BSS SHIPS INSIDE THE PART (SPEC.md 51.1.2, one format along) ---
 ; A part is not a file and the kernel does not zero it - ld_start jumps to step

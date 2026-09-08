@@ -654,14 +654,14 @@ program. 4.1.1 is the trace.
   Measured on MSEG today, the free is exact: the map after a close is
   **byte-identical** to the map before the launch (§4.3.1), so this row asserts
   equality and not a tolerance.
-* **`rehomemove` (soak)** — §4.3.3's gate, and the one that says the finding is
-  a fact rather than a reading. The fixture declares `OS88_REGION_MOVABLE`
-  after its window is up, a claim big enough to force a compaction is taken,
-  and the assertions are that `MC_SEG` **moved**, that `I_SPTR` followed it,
-  and that the program still paints. `tests/regmove.py` is the shape to copy —
-  it is SHEET's, the first region in the tree to move — and a re-homed carve
-  should be indistinguishable from it. Without `mem_reown_x` this goes red at
-  `mem_is_region`, which makes it the second gate on §3.
+* **`rehomemove` (soak)** — **BUILT**, and it is indistinguishable from
+  `tests/regmove.py`'s subject in every respect but one: a re-homed program has
+  a word of its OWN to fix, the handoff naming a part that lives inside the
+  block being moved. `tests/filler` forces the pass; five assertions; and the
+  break-it run corrected the gate itself — see SPEC.md 20.12.10.5.1.
+* **`rehomeabort` (soak)** — **BUILT**, §8 risk 3's red run: the re-homed entry
+  refuses itself with the loader already freed and the carve on a slot, and the
+  heap has to come back byte for byte (SPEC.md 20.12.10.6.1).
 
 ---
 
@@ -722,7 +722,15 @@ program. 4.1.1 is the trace.
    until `wm_create` ran out of window slots. And it was **broken on purpose**
    to earn step 1 its gate — with `mem_own`'s arms disabled the title reads
    `REHOMED 3/4 BA`, check 3 alone, which is §50.3.4's defect exactly.
-   Still to do: `rehomemove` (§9), and a `rehomeclose` of its own — the close
-   assertion currently rides inside this row.
+   **`rehomemove` and `rehomeabort` are BUILT too** (SPEC.md 20.12.10.5.1,
+   20.12.10.6.1). `rehomemove` runs at 1.44MB because the zero-slack shape is
+   the only one that can accept the declaration, and it found that its own
+   signature check would false-pass — a compaction does not scrub what it
+   copied from. `rehomeabort` is the same source built `-DRH_ABORT` and covers
+   §8 risk 3, which asked for *"a red-run test rather than an argument"*.
+   **`rehomeclose` was NOT built and should not be**: the close-and-compare is
+   already an assertion of the `rehome` row, and a second row running the same
+   launch to the same comparison is a green row that tests nothing
+   (docs/WRITING-TESTS.md §1).
 5. `os88pkg.py`'s header agreement check.
 6. Only then, a real consumer.
