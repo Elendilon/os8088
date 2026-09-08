@@ -95,7 +95,12 @@ Six findings:
    **21.5KB** of a 48.5KB arena between them, so the shipped kernel launches
    `PAINT.O88` with two Disk windows open and a `HEAPCOMPACT=0` one answers
    *Out of memory*. Same shape as §3.1's rows: what looks like a nicety on a
-   small machine is what makes the small machine work.
+   small machine is what makes the small machine work. **The route out is a
+   purgeable view cache** and it is worth taking on its own: a cache that can
+   be SHED does not need to be MOVED, and with the two 2KB caches purgeable
+   the same session reaches **48.5KB in one run** — more than compaction's
+   44.5, because a shed cache gives its bytes back where a moved one only
+   rearranges them (docs/plans/KERN-SMALL-NOCOMPACT.md 9).
 
 6. ~~**32.5KB is the number that makes the request reasonable.**~~ **THIS
    FINDING IS REFUTED, AND IT WAS THE JUSTIFICATION FOR THE WHOLE ASK — see

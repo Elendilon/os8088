@@ -1,6 +1,7 @@
 # Gating heap compaction out of kern_small — costed, measured, and REFUSED
 
-**Status: research, nothing built. The answer is NO, on a measurement.**
+**Status: research, nothing built. Refused AS IT STANDS — and 9 is the route
+that makes it work, also on a measurement.**
 
 The ask: kern_small's heap is small and it can load no driver, so would the
 128KB machine rather have the compactor's bytes back than the compactor?
@@ -16,6 +17,13 @@ same gestures:
 | kern_small `HEAPCOMPACT=0` | **"Out of memory"** |
 
 and 1.5 KB of extra floor does not close that gap, because the gap is 9 KB.
+
+**9 is the way through, and it is measured too**: make the view caches
+PURGEABLE on kern_small and the same session reaches **48.5 KB in one run** —
+more than compaction's 44.5, because a shed cache gives its bytes back where a
+moved one keeps them — and Paint loads with no compactor at all. The
+compactor's bytes are then buyable. What that costs, and the two wrinkles in
+the purgeable contract, are in 9.
 
 **The premise about drivers is right and does not reach the answer.** No driver
 image, no `SOUND.DRV` ring, no donated listing exists on kern_small — SPEC.md
@@ -120,8 +128,27 @@ is three rows:
 | `MEM_K_SAVE` menu save-under (SPEC.md 12.4) | measured **3.0 KB** live while the File menu is down; `MENU_SAVE_KB` 20 is the clamp | **MOVABLE** — `menu_reloc`. Live at exactly the moment a menu COMMAND claims |
 | Disk window view cache (owner = the window's instance slot) | `VIEW_KB` = **2 KB**, up to four | **MOVABLE** — `fm_reloc`. **The one that bites**: two of them strand 21.5 KB in 3 |
 | `MEM_K_CLIP` clipboard (SPEC.md 55) | sized to contents | **MOVABLE** — `clip_reloc`. Long-lived by design; outlives the app that filled it |
-| `MEM_K_COPY` Cut/Copy/Paste buffer | one operation | PINNED for ever — `mem_claim_dma` with the whole block as the page-safe head |
-| `MEM_K_CLONE`, `MEM_K_CMPR`, `MEM_K_HIB` | transient | UNDECLARED, so pinned; each lives for one operation |
+| `MEM_K_COPY` Cut/Copy/Paste buffer | one PASTE | PINNED for ever — `mem_claim_dma` with the whole block as the page-safe head |
+| `MEM_K_CLONE` disk cloner (SPEC.md 18.99), `MEM_K_CMPR` Compress/Uncompress (22.22/22.23) | one operation | UNDECLARED, so pinned; both are `CLONE.DRV`'s |
+
+`MEM_K_HIB` is **not a row on this kernel at all**: hibernate is `BIGMODS`, so
+kern_small has no `mod_tab` row, no module and no claim (SPEC.md 87).
+
+Three lifetime facts worth having, because they are what decides that only one
+row above matters:
+
+* **The copy buffer is claimed by the PASTE, not by the Cut or the Copy.**
+  Cut/Copy write a path into `.bss`; `fcp_bufget` runs inside `fcp_start`,
+  after the self-check and the cluster-span probe. It is *not* bounded by the
+  transfer, though — `fcp_stop` exists because the claim is held across a
+  suspended **overwrite question**, so it can stand for as long as the user
+  takes to answer a modal dialog.
+* **The cloner** copies LBA 0..N−1 raw between two floppies (or two disks in
+  one drive) and never looks at a FAT. Its claim is the job block plus the
+  sectors in flight, for one clone.
+* **Compress** is the file manager's two verbs, riding inside `CLONE.DRV`. Its
+  claim is the source, the output and the matcher's `head[]`/`prev[]` in one
+  block — the largest transient claim in the kernel, and freed with the verb.
 
 The three purgeable families (`MEM_P_WSAVE`, `MEM_P_FATW`, `MEM_P_DIRW`) are
 out of scope by the question and stay whatever is decided — the shed is a
@@ -206,3 +233,92 @@ and every script driving one needs `OS88_BUILD=<tree>/smallk`,
 variable is not its nasm define, and without the define `os88sym` refuses with
 "the map describes a DIFFERENT kernel", which reads like a broken kernel and is
 not one.
+
+---
+
+## 9. The route: make the view cache PURGEABLE on kern_small
+
+The owner's reading of 4 — the save-under and the copy buffer are temporal to a
+user action, hibernate is not on this kernel, the cloner and Compress are
+one-shot verbs, the clipboard is a candidate for gating out entirely — leaves
+**one** row that is neither temporal nor removable: the Disk window's listing
+cache. It is 2 KB, it is long-lived, and 3 measured it stranding 21.5 KB.
+
+**A cache that can be SHED does not need to be MOVED.** That is the whole idea,
+and it beats compaction on its own ground: the shed gives the bytes back, the
+move only rearranges them.
+
+### 9.1 Measured
+
+Same session as 5, on a kern_small built with `HEAPCOMPACT=0` and the view
+cache refused at both claim sites — the worst case of purgeable, a cache that
+is always gone:
+
+```
+A: and B: open   -> 3 claims, largest run 48.5 KB   (compaction reaches 44.5)
+APPS open        -> 3 claims, largest run 48.5 KB
+PAINT.O88        -> LOADED
+```
+
+against the 23.0 KB and the *Out of memory* of 5. The whole arena becomes
+reclaimable, because every claim left in it is purgeable.
+
+**And the window still works.** The cacheless Disk window paints its rows,
+icons, sizes and scrollbar off the global snapshot — photographed on the floor
+machine, `Drive B: 17 files` with the listing on the glass. files.inc:916 calls
+that the documented fallback and it holds.
+
+### 9.2 The contract, and the two wrinkles
+
+SPEC.md 50.6 asks for exactly ONE kernel word naming the block, and a zero in
+it already meaning "no buffer, do it the slow way".
+
+* **The zero path already exists and is already the documented one.** `fmv_fit`
+  and the `KD_INIT` claim both fall to `.nocache` on a refusal today.
+* **It has TWO naming words, and there is precedent.** `FS_VSEG` in the
+  window's `KD_POOL` block, and the `[fm_vseg]` mirror — which is *derived*,
+  republished by `fm_vp_set` from `FS_VSEG` on every acting-window change, so a
+  demote proc is `fm_reloc`'s two compares writing 0 instead of DX.
+  `mem_pg_forget` already carries an arm exactly like it for the FAT window
+  (`dsk_fatw_demote`), for exactly this reason.
+* **The owner has to become a kernel tag** (`MEM_P_VIEW` + the pool ordinal,
+  `MEM_P_WSAVE`'s shape at `FM_MAXWIN` = 4), because in SPEC.md 50.6 the tag IS
+  the request. **That is the wrinkle**: the claim is reaped today by
+  `mem_free_owner` on the instance's teardown — files.inc:395 says so in as
+  many words — and a kernel tag is not reaped that way. The Disk kind has no
+  teardown hook, so the free has to go somewhere. The cheap answer is
+  `KD_INIT`: it already worries about "whatever the last tenant of this
+  `KD_POOL` block left" (SPEC.md 22.6.1), so freeing the previous tenant's
+  claim there closes the one hazard that matters — a stale purgeable claim
+  whose naming word now belongs to a different window. Between a close and the
+  next open the block is merely held, and held purgeably, which is safe.
+* **Rank `MEM_PG_LOW`.** Losing one costs that window's repaints a directory
+  re-read from the global snapshot — "a little I/O, or a visible pause" — and
+  it is **self-healing**: `fmv_fit`'s only caller is `fmv_store`, so the cache
+  is re-claimed the next time a listing is stored into that window. That is
+  strictly cheaper than `MEM_P_FATW`'s MED, whose loss persists until the
+  volume is remounted.
+
+### 9.3 What it does not fix
+
+Compaction still reaches things purging cannot, and gating it out gives those
+up on kern_small too:
+
+* **The apps declare movable claims and most of them ship on the small disk** —
+  Paint's canvas, undo, clipboard and scratch; Note Pad's document and undo;
+  ArtfulType's and Fractal's. SPEC.md 24.5 omits nine packages and none of
+  those is among them. On a 48.5 KB heap the realistic case is one app at a
+  time and its claims die with it, but that is an argument from the size of the
+  machine rather than from the mechanism.
+* **The menu save-under** is still movable and still live at exactly the moment
+  a menu command claims (SPEC.md 12.4) — measured at 3.0 KB, not the 20 KB
+  clamp, so it is a small wall rather than a large one.
+
+### 9.4 The order to take it in
+
+`MEM_P_VIEW` is worth taking **on its own merits and before anything is
+gated**: it is a few dozen bytes, it makes the arena fully reclaimable, and 9.1
+shows it beating the compactor in the case that actually bites. Whether the
+compactor's 1,725 bytes then come out is a second decision, measurable against
+the same rows once the first has landed — and it should be re-measured rather
+than inferred, because 9.3 is what changes hands.
