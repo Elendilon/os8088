@@ -132,6 +132,9 @@ SITES_HIST = {
               "Sheet and Chart (SPEC.md 81, 83) were written on main while "
               "6.6 was being written here, so they joined the ratchet at the "
               "merge and neither number is the sweep's account of itself",
+    (59, 20): "docs/reports/TIER-TIMINGS-2026-09-07.md - what the suite read "
+              "on 7 Sep 2026, before SCRIBE's two inherited sites joined the "
+              "ratchet at its merge (SPEC.md 94.1)",
 }
 
 

@@ -1814,6 +1814,7 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm
         fonts fontsheets fontlist \
         stories zdisk ztest zh zhboot zcheck zgfx zpic zgfxpic zscreens xt-z 386-z \
         worddisk wordcheck xt-word 386-word \
+        scribe scribedisk \
         cc-note chello covl pkgrun pkgbig cword cworddisk 386-c-word runcpm runcpmdisk \
         paccman paccmandisk pmcbandbench xt-paccman 386-paccman \
         runcpm-src cpmsw rcz80test rcmemtest rczex 386-runcpm \
@@ -1839,7 +1840,7 @@ WEAVEWABS  := $(BUILD)/FORM.WAB $(BUILD)/SHEET.WAB $(BUILD)/PONG.WAB
 all: checkdocs $(IMG) $(IMG120) $(IMG720) $(IMG360) \
      $(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360) \
      $(MEDIAIMG360) $(BUILD)/wire.o88 $(BUILD)/recorder.o88 $(BUILD)/imgtest.o88 \
-     $(WEAVEWABS) $(BUILD)/.weave-hostchecks \
+     $(BUILD)/scribe.o88 $(WEAVEWABS) $(BUILD)/.weave-hostchecks \
      cc-note test-fast
 # wire.o88 is named here and NOWHERE else in `all`, because WIREFRAME is built
 # but does not ship (SPEC.md 78.9, `make wiredisk`). Keeping it in the default
@@ -7044,6 +7045,75 @@ $(BUILD)/word120.img: $(BUILD)/word.o88 $(BUILD)/WORD.OVL $(BUILD)/WELCOME.DOC t
 
 $(BUILD)/word360.img: $(BUILD)/word.o88 $(BUILD)/WORD.OVL $(BUILD)/WELCOME.DOC tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/word.o88 $(BUILD)/WORD.OVL $(BUILD)/WELCOME.DOC --folder DOCS
+
+# --- SCRIBE: the fork of WORD (SPEC.md 94) -----------------------------------
+# A SEPARATE PACKAGE and not a second build of the same source. apps/scribe/
+# began as a copy of apps/word/ that kept every wd_ symbol and every wd*.inc
+# filename, so `diff -r apps/word apps/scribe` was exactly what the fork
+# changed; it CARRIES THE sc_ PREFIX AND THE sc*.inc FILENAMES now, and
+# SPEC.md 94.1 records both sides of that trade. NASM finds the sc*.inc out of
+# apps/scribe/ because that is this rule's own -I, which is also why the two
+# cannot accidentally share a header.
+#
+# THE PACKAGE is in `all` and the FLOPPY is on demand. scribe.o88 is named in
+# `all` for wire.o88's and recorder.o88's reason - it ships on no disk, and
+# building it is the only thing that keeps it assembling. It is on no shipped
+# disk because WORD is the one that ships and putting both on the apps floppy
+# would spend 49KB to show two word processors; `make scribedisk` builds its
+# floppy, in all four geometries, which is cword's arrangement (SPEC.md 73.12)
+# and for cword's reason.
+SCRIBESRC := apps/scribe/scribe.asm apps/scribe/scdoc.inc apps/scribe/scrtf.inc \
+             apps/scribe/scutil.inc
+
+$(BUILD)/scribe.bin: $(SCRIBESRC) apps/os88api.inc apps/os88ui.inc apps/os88type.inc \
+                     apps/os88img.inc $(SBSTAMP) | $(BUILD)
+	$(NASM) -f bin -w+error $(PKGSBDEF) -I apps/ -I apps/scribe/ -o $@ apps/scribe/scribe.asm
+	@echo "scribe: $(call FILESIZE,$@) bytes"
+
+# One recipe for all three, for the reason word.o88's rule spells out above:
+# splitting the cut from the package let make decide the .o88 was up to date
+# against the PREVIOUS trim and ship a stale image.
+$(BUILD)/scribe.o88: $(BUILD)/scribe.bin tools/os88ovl.py tools/os88pkg.py
+	python3 tools/os88ovl.py $(BUILD)/scribe.bin -o $(BUILD)/SCRIBE.OVL \
+		--trim $(BUILD)/scribe.trim.bin
+	@ovkb=$$(sed -n 's/^SC_OVKB *equ *\([0-9]*\).*/\1/p' apps/scribe/scribe.asm); \
+	 have=$$(wc -c < $(BUILD)/SCRIBE.OVL); cap=$$((ovkb * 1024)); \
+	 if [ $$have -gt $$cap ]; then \
+	   echo "SCRIBE.OVL is $$have bytes; SC_OVKB reserves $$cap - raise it" >&2; \
+	   exit 1; fi; \
+	 echo "SCRIBE.OVL: $$have of $$cap bytes claimed (SC_OVKB=$$ovkb)"
+	python3 tools/os88pkg.py $(BUILD)/scribe.trim.bin -o $@
+
+$(BUILD)/SCRIBE.OVL: $(BUILD)/scribe.o88 ;
+
+scribe: $(BUILD)/scribe.o88
+
+scribedisk: $(BUILD)/scribe.img $(BUILD)/scribe720.img \
+            $(BUILD)/scribe120.img $(BUILD)/scribe360.img
+
+# SCWELCOM.RTF and not WELCOME.RTF: cword's rule already owns that name and
+# builds it from apps/cword/welcome.wtx, and two rules writing one file is a
+# race whichever way it is resolved. RTF is Scribe's own default format
+# (SPEC.md 94.4), so a disk carrying only a .DOC would never exercise it -
+# and apps/scribe/welcome.wtx was on no rule at all, which meant an edit to it
+# changed nothing and the disk still carried Word's text.
+$(BUILD)/SCWELCOM.RTF: tools/os88rtf.py tools/os88doc.py apps/scribe/welcome.wtx | $(BUILD)
+	python3 tools/os88rtf.py apps/scribe/welcome.wtx -o $@
+
+SCRIBEDISK := $(BUILD)/scribe.o88 $(BUILD)/SCRIBE.OVL $(BUILD)/WELCOME.DOC \
+              $(BUILD)/SCWELCOM.RTF
+
+$(BUILD)/scribe.img: $(SCRIBEDISK) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(SCRIBEDISK) --folder DOCS
+
+$(BUILD)/scribe720.img: $(SCRIBEDISK) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 720 $(SCRIBEDISK) --folder DOCS
+
+$(BUILD)/scribe120.img: $(SCRIBEDISK) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1200 $(SCRIBEDISK) --folder DOCS
+
+$(BUILD)/scribe360.img: $(SCRIBEDISK) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(SCRIBEDISK) --folder DOCS
 
 # --- the .DOC format gate (ON DEMAND: `make wordcheck`) ----------------------
 # There is no copy of Word here to open the output with, and "it round-trips

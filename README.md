@@ -79,6 +79,7 @@ make xt-wire  # the xt-sound XT with an NE1000 on slirp, ETHER.DRV
 make 286-sound  # 86Box: the 286, with a Sound Blaster 16
 make 386-sound  # 86Box: the 386DX, with a Sound Blaster 16
 make worddisk # build the Microsoft Word floppy, all four geometries
+make scribedisk # ...and Scribe's, the fork of Word that inserts pictures
 make xt-word  # 86Box: the 640KB XT with the Word disk in B:
 make 386-word # 86Box: the 386DX with the Word disk in B:
 make zdisk    # build the Frotz story floppies (fetches the stories first)
@@ -633,6 +634,7 @@ cleanly and runs wrong when C meets this machine.
 | `build/media360.img`   | 360KB FAT12              | 360KB media floppy — the shipped module, which the 360KB apps disk has no room for. It exists at that geometry **alone**: every other apps disk, the 1.2MB one included, carries `BEVERLY.MOD` in `MEDIA/` itself |
 | `build/zork*.img`      | 1.44MB / 720KB / 1.2MB / 360KB | Frotz story floppies (`make zdisk`). The 1.2MB one is the only list here that is a cut rather than a fill — the 1.44MB story set alone overruns it, so `ADVENT5.Z5` and `905.Z5` come off and nine of the eleven stay |
 | `build/word*.img`      | 1.44MB / 720KB / 1.2MB / 360KB | Microsoft Word floppies (`make worddisk`) |
+| `build/scribe*.img`    | 1.44MB / 720KB / 1.2MB / 360KB | Scribe, the fork of Word: package + `SCRIBE.OVL` (`make scribedisk`) |
 | `build/cword*.img`     | 1.44MB / 720KB / 1.2MB / 360KB | Word in C, package + `CWORD.OVL` (`make cworddisk`) |
 | `build/runcpm*.img`    | 1.44MB / 720KB / 1.2MB / 360KB | RunCPM, package + `RUNCPM.OVL` + CP/M drive A + the games and applications each holds (`make runcpmdisk`). What drive A carries is chosen per geometry at build time, so the 1.2MB disk fills itself and names what it left off in its own `LEFT-OFF.TXT` |
 | `build/paccman*.img`   | 1.44MB / 720KB / 1.2MB / 360KB | PaccMan, the C Pac-Man: the package and its README, no overlay (`make paccmandisk`) |

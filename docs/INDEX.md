@@ -313,6 +313,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | PIANO | `apps/piano/piano.asm` | §36 | yes |
 | RECORDER | `apps/recorder/recorder.asm` | §35 | no |
 | RUNCPM | `apps/runcpm/runcpm.asm` | §74 | yes |
+| SCRIBE | `apps/scribe/scribe.asm` | §94 | no |
 | SHEET | `apps/sheet/sheet.asm` | §81 | yes |
 | SKIES | `apps/skies/skies.asm` | §88 | yes |
 | SOLITAIRE | `apps/solitaire/solitaire.asm` | §43 | yes |
@@ -425,6 +426,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | 91 | PACCMAN — pacman.c, written in C (`apps/paccman/`) |
 | 92 | THE WIRE — the online software library (`apps/thewire/thewire.asm`) |
 | 93 | Picture decoders (`apps/os88img.inc`) |
+| 94 | SCRIBE (`apps/scribe/`) — the fork of WORD |
 
 ## docs/
 

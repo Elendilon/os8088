@@ -43,6 +43,7 @@
 # strike, leaving a one-pixel stub - the two passes have to be one opaque and
 # one transparent, in that order, and no primitive can collapse them.
 2 apps/word/word.asm  # ONE LINE PER FILE, so two cases on it: 6.6.2 case 6 is wd_drawrun's BOLD second strike (68.1), and 6.6.2 case 1 is the ruler's inch digits over the tick pattern (68)
+2 apps/scribe/scribe.asm  # the same two, inherited: SCRIBE is a fork of word.asm, so sc_drawrun's BOLD strike and the ruler's inch digits are word.asm's two sites under SCRIBE's own names (94.1)
 1 apps/texpad/texpad.asm  # 6.6.2 case 6 - the bold overstrike, tp_draw's second pass
 1 apps/weave/wdraw.inc  # 6.6.2 case 6 - the bold overstrike, w_draw's second pass. WEAVE-SPEC 6.2 makes BOLD a double-strike one pixel right, and the header above is why it cannot be one call: the second run would repaint the ground and erase the first strike
 1 apps/frotz/zwin.inc  # 6.6.2 case 6 - zw_run's bold strike (FROTZ-PLAN 5.1)
