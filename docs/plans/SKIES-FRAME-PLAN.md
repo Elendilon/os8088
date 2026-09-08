@@ -583,9 +583,54 @@ more than that to decide.
 
 What is left, in the order the evidence ranks it:
 
-1. **`cs_blit`'s own per-row walk**, ~300 cycles over 112 rows that are mostly
-   a few bytes now - 7.9 ms of a busy frame spent deciding rather than moving.
-2. **The horizon cache**, worth an empty turn's 77.6 ms -> ~43 on nineteen
-   frames in twenty and NOTHING in a busy one, for ~100 bytes.
+1. ~~`cs_blit`'s own per-row walk~~ - **MEASURED AND PART-TAKEN, 7.1.10.**
+2. **The horizon cache - PARKED, not refused.** Worth an empty turn's 77.6 ms
+   -> ~43 on nineteen frames in twenty. The owner's reading is that it helps
+   HALF-empty scenes too, not only the extreme, and that the question is
+   whether it costs a busy scene anything - which it need not: the "has the
+   horizon moved" test is one five-word compare a FRAME, so a still frame can
+   branch to a second band loop and a moving one runs the loop it runs today,
+   unchanged. Pick it up with that shape, and measure `turnhold` for a
+   regression rather than assuming there is none.
 3. **`cs_scene` itself**, which is 176 of turnhold's 263 ms and has had no
    attention in this round at all.
+
+#### 7.1.10 BUILT - cs_blit's row is 490 cycles, and one of them was a segment
+
+Breakpointing the row loop's own top and taking the delta between hits gives
+the row whole, copy and all - 856 of them over `turnhold`:
+
+| a `cs_blit` row, Hercules | cycles |
+|---|---|
+| **empty** - nothing in either set | **~129** |
+| narrowest working row (p10) | ~518 |
+| median working row | 904 |
+| widest | 1,850 |
+
+So the fixed part is **~490 a row** and a word to Hercules VRAM is **40-49** -
+confirmed independently by solving the two unknowns from two scenes. That
+splits turnhold's 28.4 ms blit into **12.9 walking, 14.8 copying, 0.6 empty**.
+**The empty rows are not the target**: the range is rows 0..157, not the
+screen's 348, so only 29.7 of 155.7 rows are walked for nothing.
+
+**What came out of the 490 was a segment register.** The row swapped DS to the
+shadow and back every iteration - 43 clocks for a value that cannot change
+inside a frame. A package runs CS = DS, so DS holds the shadow for the whole
+walk now and the three package-data reads take a `cs:` override. **+4 bytes,
+cs_blit 28.36 -> 27.2 ms.**
+
+#### 7.1.11 THE CONTROL MUST BE SAME-SESSION - and this is how that was found
+
+The -1.1 ms above is quoted against a control built from the committed source
+and run beside the change, because measured an hour apart **the identical
+build reads 263.1 ms and then 266.6** on the same profile - 1.3%. Host-side
+breakpoint overhead changes how many 18.2 Hz ticks land inside a frame, the
+aeroplane flies a slightly different path, and `cs_scene` follows it: 176.07
+then 177.67 for code that did not change. A change INSIDE cs_blit therefore
+appeared to make cs_scene 1.8 ms slower.
+
+`tests/skiesprof.py` is exact WITHIN a run - the brackets are cycle counts and
+a stopped guest burns none - and the drift is entirely in which frames get
+flown. Build the control from the tree you are comparing against, run it
+beside the change, and treat any cross-session delta under ~2 ms on a 260 ms
+frame as unmeasured.

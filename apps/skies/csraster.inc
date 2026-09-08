@@ -868,9 +868,17 @@ cs_blit:
     shl dx, cl                      ; DX = 80 y, the shadow row
     mov es, [cs_fsi+FSI_SEG]
     cld
+    ; --- DS IS THE SHADOW FOR THE WHOLE WALK (SPEC.md 88.3.6) --------------
+    ; It used to be swapped and swapped back INSIDE the row - push ds, load,
+    ; pop ds, 43 clocks a row for a segment that cannot change inside a frame.
+    ; A package runs CS = DS (apps/os88api.inc), so the three reads that want
+    ; the package's own data take a `cs:` override, one byte and two clocks
+    ; each, and the segment register stops moving.
+    push ds
+    mov ds, [cs_shseg]
 .row:
-    lodsw                           ; AL/AH = lo/hi
-    mov cx, [di]                    ; CL/CH = lo'/hi'
+    cs lodsw                        ; AL/AH = lo/hi
+    mov cx, [cs:di]                 ; CL/CH = lo'/hi'
     inc di
     inc di
     cmp ax, cx
@@ -898,27 +906,23 @@ cs_blit:
     xor ah, ah                      ; AX = the first byte
     push si
     push di
-    mov di, [bx]
+    mov di, [cs:bx]
     add di, ax                      ; ES:DI = the device row
     mov si, dx
     add si, ax                      ; DS:SI = the shadow row
-    push ds                         ; THE BACKEND IS READ BEFORE DS MOVES: one
-    cmp byte [cs_back], CSB_C160    ; line further down and [cs_back] is a
-    mov ds, [cs_shseg]              ; byte of the SHADOW, which is 0 there and
-    je .expand                      ; sent every C160 row through rep movsw -
-    rep movsw                       ; the packed nibbles landing in the
-.done:                              ; character bytes as well as the attribute
-                                    ; ones, so the picture was the right
-                                    ; colours behind the wrong glyphs
-    pop ds
-    pop di
-    pop si
-.next:
+    cmp byte [cs:cs_back], CSB_C160 ; (a SHADOW byte at that address is 0, so
+    je .expand                      ;  reading it without the override sent
+    rep movsw                       ;  every C160 row through rep movsw and
+.done:                              ;  landed the packed nibbles in the
+    pop di                          ;  character bytes as well as the
+    pop si                          ;  attribute ones - the right colours
+.next:                              ;  behind the wrong glyphs)
     inc bx
     inc bx
     add dx, 80
     dec bp
     jnz .row
+    pop ds
 .out:
     ret
 ; --- THE ONE BLIT THAT IS NOT A COPY (SPEC.md 88.15.4). A shadow byte IS an

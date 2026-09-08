@@ -100505,6 +100505,54 @@ object's box — which §88.3.2.1 measured and refused from the other side. The
 two are one wall seen twice.
 
 
+#### 88.3.6 cs_blit's row: 490 cycles of fixed cost against 40-49 a word
+
+`cs_blit` walks the union of the two span sets' row ranges. Breakpointing the
+row loop's own top and taking the delta between consecutive hits gives the row
+whole, copy and all — 856 of them over `turnhold`:
+
+| a `cs_blit` row, Hercules | cycles |
+|---|---|
+| **empty** — nothing in either set | **~129** |
+| narrowest working row (p10) | ~518 |
+| median working row | 904 |
+| widest | 1,850 |
+
+The narrowest working row is the fixed cost with almost nothing copied, so it
+is **~490 a row**; the slope over the median's ~11 words puts a word to
+Hercules VRAM at **40-49 cycles**. Solving the same two unknowns from two
+scenes independently (`turnhold` 126 working rows and 2,879 bytes at 28.42 ms,
+`sparse` 119.6 and 372.6 at 14.47) gives 490 and 49 — so `turnhold`'s blit is
+**12.9 ms of walking, 14.8 of copying and 0.6 of empty rows**.
+
+**The empty rows are NOT the target**, which is worth writing down because it
+looks like they should be: the range is rows 0..157 and not the screen's 348,
+so only 29.7 rows of 155.7 are walked for nothing — 0.6 ms in total.
+
+**What was in the 490 was a segment register.** The row swapped DS to the
+shadow and back — `push ds`, `mov ds, [cs_shseg]`, `pop ds` — 43 clocks a row
+for a segment that cannot change inside a frame. A package runs **CS = DS**
+(`apps/os88api.inc`), so DS is now the shadow for the whole walk and the three
+reads that want the package's own data take a `cs:` override, one byte and two
+clocks each. `[cs_back]` needs the override too, and the reason it was read
+*before* the swap in the first place is the same hazard: a shadow byte at that
+address is 0, which is `CSB_C160`, so every row went down the nibble-expanding
+path and the picture came out the right colours behind the wrong glyphs.
+
+**+4 bytes**, and against a control built from the same source in the same
+session: `cs_blit` **28.36 → 27.19-27.44 ms**, the frame 266.6 → 265.5.
+
+###### 88.3.6.1 …and the control has to be SAME-SESSION
+
+That control matters more than the change. Measured an hour apart, the
+identical committed build reads **263.1 ms and then 266.6** on the same
+profile — 1.3% — because the host-side breakpoint overhead changes how many
+18.2 Hz ticks land inside a frame, the aeroplane then flies a slightly
+different path, and `cs_scene` follows it: 176.07 against 177.67 for code that
+did not change. A change measured against yesterday's number can therefore
+show a 1.8 ms regression in a routine it does not touch. **Build the control
+from the tree you are comparing against and run it beside the change.**
+
 #### 88.3.2 Marks are per object, and off its vertices when it is whole
 
 The first build marked every polygon's bounding box and every segment's

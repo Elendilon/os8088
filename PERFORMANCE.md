@@ -12123,3 +12123,48 @@ Reverted; `build/skies.bin` is byte-identical to before it. **What the family
 did buy is Sets 123–125: 280.1 → 263.1 ms in a held bank, 3.57 → 3.80 fps, for
 222 bytes** — all of it from removing per-row FIXED cost, none of it from
 drawing less.
+
+### Set 128 — CLEAR SKIES: cs_blit's row, and why a control must be SAME-SESSION (SPEC.md §88.3.6)
+
+Set 127 left `cs_blit`'s per-row walk as the last per-row fixed cost in the
+horizon. Breakpointing the row loop's own top and taking the delta between
+consecutive hits gives the row whole, copy and all — 856 of them over
+`turnhold`, no model in between:
+
+| a `cs_blit` row, Hercules | cycles |
+|---|---|
+| **empty** — nothing in either set | **~129** |
+| narrowest working row (p10) | ~518 |
+| median working row | 904 |
+| widest | 1,850 |
+
+The narrowest working row is the fixed cost with almost nothing copied, so it
+is **~490 a row**, and the slope over the median's ~11 words puts a word to
+Hercules VRAM at **40–49 cycles**. Solving the same two unknowns from two
+scenes instead (`turnhold` 126 working rows and 2,879 bytes at 28.42 ms,
+`sparse` 119.6 and 372.6 at 14.47) gives 490 and 49 independently. So
+`turnhold`'s blit is **12.9 ms of walking, 14.8 of copying, 0.6 of empty
+rows** — and the empty rows are not the target, the range being rows 0..157
+and not the screen's 348.
+
+**What was in the 490 was a segment register.** The row swapped DS to the
+shadow and back every iteration — `push ds` / `mov ds, [cs_shseg]` / `pop ds`,
+43 clocks for a value that cannot change inside a frame. A package runs
+**CS = DS**, so DS holds the shadow for the whole walk now and the three reads
+that want the package's own data take a `cs:` override at one byte and two
+clocks each. **+4 bytes**, `cs_blit` **28.36 → 27.2 ms**.
+
+**AND THE CONTROL IS THE REAL SET.** That −1.1 ms frame is quoted against a
+control built from the committed source and run in the same session, because
+measured an hour apart the identical build reads **263.1 ms and then 266.6**
+on the same profile — 1.3%. Host-side breakpoint overhead changes how many
+18.2 Hz ticks land inside a frame; the aeroplane flies a slightly different
+path; `cs_scene` follows it, at 176.07 and then 177.67 for code that did not
+change. Measured against yesterday's number, a change inside `cs_blit`
+appeared to make `cs_scene` 1.8 ms slower.
+
+`tests/skiesprof.py` is exact *within* a run — the brackets are cycle counts
+and a stopped guest burns none — and the drift is entirely in WHICH FRAMES get
+flown. So: **build the control from the tree you are comparing against and run
+it beside the change**, which is what `git stash` plus one rebuild costs, and
+treat any cross-session delta under ~2 ms on a 260 ms frame as unmeasured.
