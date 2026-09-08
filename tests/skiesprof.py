@@ -109,6 +109,9 @@ TIER4 = [                               # the panel's own internals
 TIER5 = [                               # the rolled horizon's own band
     ("cs_skyground", r"call cs_hzrows$",     "hzrows"),      # above, below
     ("cs_skyground", r"call \[cs_hzproc\]$", "hzproc"),
+    # (cs_hzrow_sh's two runs were bracketed here until they were INLINED -
+    #  SPEC.md 88.3.1.2 carries what they measured: 664 cycles a row for 49
+    #  bytes, of which ~350 were the stores)
     # ...and the SPAN PASS (88.3.1.1) is a walk of its own with no call in
     # it, so what it costs is cs_skyground's own EXCLUSIVE time here
 ]

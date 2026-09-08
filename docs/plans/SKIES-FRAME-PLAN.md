@@ -286,22 +286,103 @@ fill is fixed - the row offset, the crossing byte, the mask lookup, two
 costs about what it saves, and it wants `cs_hzb0`/`cs_hzbn` threaded through
 all three row fillers.
 
-#### 7.1.3 ...so the next reading is the FIXED cost a row
+#### 7.1.3 BUILT - the fill's fixed cost, measured and then cut
 
-The horizon is now ~112 x (1,100 cycles of `cs_hzrow_sh` + ~300 of `cs_blit`'s
-per-row walk), and the pixels are almost free. Two things worth pricing:
+`cs_hzproc` bracketed at all 112 of its calls a frame, and its two
+`cs_fillrun` calls inside that:
 
-1. **`cs_hzrow_sh`'s prologue.** It recomputes the crossing's byte that the
-   span pass has just computed (`push cx / mov cl,[cs_kshift] / shr bx,cl /
-   pop cx`, ~61 cycles), and it reaches `cs_fillrun` twice by `call`.
-2. **A "this row is already right" skip is NOT available cheaply**, and the
-   trap is worth writing down: `cmp ax, dx` against last frame's span looks
-   like `cs_hzrows`' own skip and is WRONG - the band is the crossing's BYTE,
-   so a crossing that moves within one byte gives the same band while the
-   byte's split moves, which would quantise the horizon to 8 pixels of x. It
-   also never fires: in a held 45 degree bank the crossing moves ~4 pixels a
-   frame. A correct one wants last frame's crossing per row, `CS_MAXROW`
-   words of bss, to save a fill the measurement says is not there.
+| `cs_hzrow_sh`, `turnhold` | ms a frame | cycles a row |
+|---|---|---|
+| the two `cs_fillrun` calls - 49 bytes of pixels | 15.60 | 664 |
+| **its own body, everything else** | **17.76** | **756** |
+| the whole call | 33.37 | 1,421 |
+
+`rep stosw` over 49 bytes is ~350 cycles, so **1,070 of 1,421 is overhead**,
+and all of it is work the caller had already done or the frame had already
+decided. Three cuts (SPEC.md 88.3.1.2), **+8 bytes**:
+
+1. **DI is passed and WALKS the row.** The band loop holds the row's first
+   view byte and steps it by the stride; the routine rebuilt it from
+   `cs_rowoff` and `cs_tbase`, reloaded ES, then bracketed the left run in
+   `push di`/`pop di` to get back to it. Now the left run leaves DI on the
+   crossing's byte, the blend is a `stosb`, the right run carries on.
+2. **The two runs are INLINE** (`FILLRUN`). Each was a `call` into a routine
+   that re-did `cld`, the odd-address test and the halving - 314 cycles a row
+   between them. `cs_fillrun` survives for `cs_hzrow_modex`.
+3. **The pixel mask is the FRAME's.** Which of `cs_hlm`/`cs_clm`, and whether
+   the index masks to 7 or 3, is the adapter's answer; it was re-decided every
+   row. `[cs_hzmt]`/`[cs_hzmm]` now, set beside the ink patterns - and the
+   `push cx`/`pop cx` round the shift goes with it.
+
+| Hercules 8088, 20 flown frames | frame | `cs_skyground` | `cs_blit` |
+|---|---|---|---|
+| `turnhold`, before 7.1 | 280.1 | 47.75 | 36.17 |
+| ...with the span pass | 276.0 | 51.70 | 28.37 |
+| ...**and the fill diet** | **267.3** | **42.74** | 28.31 |
+| `bank`, before 7.1 | 256.0 | 34.60 | 33.39 |
+| ...**and the fill diet** | **248.7** | **31.81** | 28.89 |
+| `cruise`, before 7.1 | 164.3 | 8.77 | 9.95 |
+| ...**and the fill diet** | 164.5 | 9.28 | 8.83 |
+
+**280.1 -> 267.3 ms in a held bank, 3.57 -> 3.74 fps, for 133 bytes.**
+
+#### 7.1.4 REFUSED - the "pre-pay the horizon" table, and the cache behind it
+
+The idea was to pre-generate the sky/ground picture for a constrained set of
+attitudes and make `cs_skyground` a memory copy. **The premise is right and
+better than it looks**: `cs_matrix`'s second column is `(-sr.cp, cr.cp, sp)`,
+so the horizon is a function of `(roll, pitch)` ALONE - no heading, no
+position, no framerate.
+
+It is refused on two counts, and the first is the one that does not depend on
+any look judgement. **A copy is 4 bytes over the bus per byte laid where a
+fill is 2** (`rep movsw` reads and writes; `rep stosw` only writes), so a
+pre-made picture is ~1.8x the cost of the fill it replaces on an 8088. Its
+only advantage - no per-row decision - is exactly what 7.1.3 buys for +8
+bytes. Second, the table does not fit: one pixel at the view edge is 0.29
+degrees of roll and one row is 0.20 of pitch, so ~1,257 x 112 = 140,784
+states, which is 788 MB of pictures, 31.5 MB of `cs_xl` arrays or 1.1 MB of
+line endpoints. At a fixed roll, pitch is a pure vertical shift, so a strip
+per roll would do - and a strip is 224 rows x 50 bytes = 11.2 KB, so even 32
+roll steps is 358 KB on a machine with 50.5 KB of free heap. (Quantisation is
+NOT the argument: at 3.6 fps a decaying bank already steps ~2 degrees between
+displayed frames, so a 2-4 degree table step is the same order as the frame
+step.)
+
+**The cache behind it is refused on a measurement.** Because the picture is a
+function of `(roll, pitch)`, "has the horizon moved" is an exact five-word
+compare once a frame - and in a held bank it has not moved at all. Read off
+the shipping build at the `call cs_blit` site with no probe:
+
+| `turnhold`, 20 frames | |
+|---|---|
+| horizon identical to last frame | **20 of 20** (longest run 20) |
+| band rows that are object-free | **0 of 112** |
+| mean span width where not empty | **31 bytes of the view's 50** |
+| `bank`, same measure | still in **2 of 20** |
+
+A still horizon ought to mean a row needs no fill at all. It never does:
+every band row is already widened by `cs_markspan`. **`cs_skyground` in a bank
+is mostly erasing last frame's OBJECTS, not drawing a horizon** - which is
+also why 7.1.2's narrower fill buys 11% and why the cost is fixed work a row.
+The cache degrades to laying 31 bytes instead of 50, worth 3.84 ms against
+~2 ms a frame to obtain, and `bank` gets it 2 frames in 20.
+
+**What is left**, if this is picked up again: ~500 cycles a row of prologue in
+`cs_hzrow_sh` against ~350 of pixels. Taking it means FUSING the row into the
+band loop so the crossing's byte, the ink pair and the row pointer are never
+recomputed - a rewrite of the loop rather than a diet of it, ~150 bytes, on
+the loop with two field bugs in its history (88.3.3.1, 88.13.3.1).
+
+Two instrument traps, both of which cost a run:
+
+1. **A breakpoint takes a FLAT address** and the listing gives an offset in
+   the package. Arm one without the load segment and nothing hits - and the
+   wait then sits out its whole limit looking like a slow GUEST.
+2. **`cs_hzy0`/`cs_hzy1` are not the band.** They are where the line meets the
+   view's left and right edges: at 45 degrees in a 400-wide view that is rows
+   -61..174 of a 112-row view, so a host-side walk that trusts them reads 236
+   rows and a negative `y0` reads in FRONT of the span array.
 
 ### 7.2 BUILT — the ADI is 41 ms a frame for as long as the attitude is moving
 

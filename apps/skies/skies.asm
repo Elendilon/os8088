@@ -2274,6 +2274,8 @@ cs_tpl:
                                     ; on it since is the previous span set's
                                     ; entry, not a bit here (88.3.1)
     ZWORD cs_fullspan               ; the span pair of a touched view row
+    ZWORD cs_hzmm                   ; the crossing byte's pixel-mask index and
+    ZWORD cs_hzmt                   ; its table, both the ADAPTER's (88.3.1.2)
     ZWORD cs_hzlo                   ; the band's span pass (88.3.1.1): the
     ZBYTE cs_hzhi                   ; view's first and last BYTE, and the kind
     ZBYTE cs_hzsplit                ; a row must have had to get a band rather

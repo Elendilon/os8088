@@ -11858,3 +11858,88 @@ Three things worth not re-deriving:
    byte gives the same band while the byte's own split moves, which quantises
    the horizon to 8 pixels of x. It also never fired — in a held 45° bank the
    crossing moves ~4 pixels a frame, so the byte changes every second one.
+
+### Set 124 — CLEAR SKIES: a split row's fill was 1,421 cycles and 350 of them were pixels (SPEC.md §88.3.1.2)
+
+`tests/skiesprof.py --tier 5`, MartyPC, `os8088_5150_herc_gla`, the view
+400×112 and so 50 bytes wide. `cs_hzproc` is bracketed at all 112 of its calls
+a frame, and its two `cs_fillrun` calls inside that, so the split is exact.
+
+| `cs_hzrow_sh`, `turnhold` | ms a frame | cycles a row |
+|---|---|---|
+| the two `cs_fillrun` calls — 49 bytes of pixels | 15.60 | 664 |
+| **its own body, everything else** | **17.76** | **756** |
+| the whole call | 33.37 | 1,421 |
+
+`rep stosw` over 49 bytes is ~350 cycles, so **1,070 of the 1,421 is
+overhead** — and all of it is work the caller had already done or the frame
+had already decided. The band loop holds the row's first view byte in DI and
+steps it by the stride; the routine rebuilt it from `cs_rowoff` and
+`cs_tbase`, reloaded ES, and bracketed the left run in `push di`/`pop di` to
+get back to it. Each run was a `call` into a routine that re-did `cld`, the
+odd-address test and the halving. And which pixel-mask table to use, and
+whether the index masks to 7 or 3, was re-decided every row for an answer that
+is the ADAPTER's and cannot change inside a frame.
+
+Taking the three of them: DI is passed and WALKS the row (the left run leaves
+it on the crossing's byte, the blend is a `stosb`, the right run carries on),
+the runs are a `FILLRUN` macro inlined at both sites, and the mask is
+`[cs_hzmt]`/`[cs_hzmm]` set once beside the ink patterns.
+
+| Hercules 8088, 20 flown frames | frame | `cs_skyground` | `cs_blit` |
+|---|---|---|---|
+| `turnhold`, before Set 123 | 280.1 | 47.75 | 36.17 |
+| ...with the span pass | 276.0 | 51.70 | 28.37 |
+| ...**and this** | **267.3** | **42.74** | 28.31 |
+| `bank`, before Set 123 | 256.0 | 34.60 | 33.39 |
+| ...**and this** | **248.7** | **31.81** | 28.89 |
+
+**+8 bytes** — the two inlined runs are paid for by the pointer arithmetic and
+the mask decision that came out. A held bank is 280.1 → 267.3 ms, 3.57 → 3.74
+fps, for the two changes together and 133 bytes.
+
+**And this set is also why a "the horizon has not moved" cache is refused.**
+The horizon is a function of `(roll, pitch)` alone — `cs_matrix`'s second
+column is `(-sr·cp, cr·cp, sp)` and carries no heading term — so "has the
+picture moved" is an exact five-word compare once a frame, and in a held bank
+it has not: **20 frames of 20, longest run 20**. Read off the shipping build
+at the `call cs_blit` site, with no probe:
+
+| `turnhold`, 20 frames | |
+|---|---|
+| horizon identical to last frame | 20 of 20 |
+| band rows that are object-free | **0 of 112** |
+| mean span width where not empty | **31 bytes of the view's 50** |
+| `bank`, same measure | still in 2 of 20 |
+
+A still horizon ought to mean a row needs no fill at all. It never does,
+because every band row is already widened by `cs_markspan` — **`cs_skyground`
+in a bank is mostly erasing last frame's objects, not drawing a horizon.** The
+cache therefore degrades to laying 31 bytes instead of 50, which Set 123
+prices at 3.84 ms, against ~2 ms a frame to obtain it.
+
+**And the change had a defect the fast tier could not see**, worth writing
+down because it is what "pass a pointer instead of rebuilding it" costs: the
+band loop borrows a register for the row's pattern PHASE two instructions
+before the call, and that register was **DI**. Harmless while `cs_hzrow_sh`
+rebuilt DI from `cs_rowoff`; fatal the moment DI became the pointer being
+passed. Every split row then laid itself at the top of the shadow. **A
+one-row band hides it completely** — level flight and roll 180 draw the
+identical picture, and `make`'s fast tier is host-side and cannot see a pixel
+at all — so it took `tests/skieshz.py`, which pins the attitude and sweeps the
+bank angle, to fail it: 0 groups wrong at roll 0 and 180, **867 at roll 150**,
+where the band is the whole view. The timings above were first taken on that
+build and are unchanged by the fix, because the bug wrote the same bytes to
+the wrong address.
+
+Two instrument notes, both of which cost a run:
+
+1. **A breakpoint takes a FLAT address**, and the listing gives an offset in
+   the package. Arming one without the load segment makes nothing hit, and the
+   wait then sits out its whole limit looking like a slow guest rather than a
+   bad address. `tests/skiesprof.py` says so in a comment for the same reason.
+2. **`cs_hzy0`/`cs_hzy1` are not the band.** They are where the horizon meets
+   the view's left and right edges, which at 45° in a 400-wide view is rows
+   −61..174 of a 112-row view — so a host-side walk of "the band's rows" that
+   trusts them reads 236 rows, and `y0` being NEGATIVE reads in front of the
+   span array. The band loop clamps to `[0, cs_wh)`; anything reading it must.

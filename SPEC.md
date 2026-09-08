@@ -100298,6 +100298,73 @@ So the horizon's remaining cost is **fixed cost a row and not pixels**: about
 1,100 cycles in `cs_hzrow_sh` and ~300 in `cs_blit`'s own per-row walk, over
 112 rows, which is where the next reading should be taken.
 
+##### 88.3.1.2 A split row's fill was 1,421 cycles and 350 of them were pixels
+
+§88.3.1.1 left the rolled horizon costing fixed work a row rather than
+pixels, and this is that measurement taken properly. `cs_hzproc` bracketed at
+all 112 of its calls a frame, `turnhold`, Hercules, the view 50 bytes wide:
+
+| `cs_hzrow_sh` | ms a frame | cycles a row |
+|---|---|---|
+| the two `cs_fillrun` calls — 49 bytes of actual pixels | 15.60 | 664 |
+| **its own body, everything else** | **17.76** | **756** |
+| the whole call | 33.37 | 1,421 |
+
+`rep stosw` over 49 bytes is ~350 cycles, so **~1,070 of the 1,421 is
+overhead**. Three things account for most of it, and every one is work the
+caller had already done or the frame had already decided:
+
+1. **The row.** The band loop holds the row's first view byte in DI and steps
+   it by the stride; the routine threw that away and rebuilt it from
+   `cs_rowoff` and `cs_tbase`, reloaded ES, then bracketed the left run in
+   `push di`/`pop di` to get back to it — 51 cycles a row for a pointer it was
+   handed. It takes DI now, the left run leaves DI **on** the crossing's byte,
+   the blend is a `stosb`, and the right run carries on from there.
+2. **The two runs were `call`s.** Each one re-entered a routine that re-did
+   `cld`, the odd-address test and the halving, and paid a `call`/`ret` — 314
+   cycles a row between them. `FILLRUN` is that body as a macro and is inlined
+   at both sites; `cs_fillrun` remains as a routine for `cs_hzrow_modex`,
+   which calls it once a row.
+3. **The pixel mask was re-decided every row.** Which of `cs_hlm`/`cs_clm` and
+   whether the index masks to 7 or 3 is the ADAPTER's answer and cannot change
+   inside a frame. It is `[cs_hzmt]`/`[cs_hzmm]`, set once beside the ink
+   patterns, and the `push cx`/`pop cx` that used to protect the crossing
+   across the shift goes with it — the crossing's low bits are banked in BL
+   before CL becomes the shift count.
+
+**+8 bytes**, because the two inlined runs are paid for by the pointer
+arithmetic and the mask decision that came out:
+
+| Hercules 8088, 20 flown frames | frame | `cs_skyground` | `cs_blit` |
+|---|---|---|---|
+| `turnhold`, before §88.3.1.1 | 280.1 | 47.75 | 36.17 |
+| ...with the span pass | 276.0 | 51.70 | 28.37 |
+| ...**and this** | **267.3** | **42.74** | 28.31 |
+| `bank`, before §88.3.1.1 | 256.0 | 34.60 | 33.39 |
+| ...with the span pass | 254.3 | 36.88 | 29.04 |
+| ...**and this** | **248.7** | **31.81** | 28.89 |
+
+So a held bank is **280.1 → 267.3 ms, 3.57 → 3.74 fps** for the two changes
+together and 133 bytes, and a decaying one 256.0 → 248.7. What is left in
+`cs_hzrow_sh` is ~500 cycles a row of prologue against ~350 of pixels; taking
+the rest of it means fusing the row into the band loop so the crossing's byte,
+the ink pair and the row pointer are never recomputed at all, and that is a
+rewrite of the loop rather than a diet of it.
+
+**And the cache this was measured against is REFUSED.** Because the horizon is
+a function of `(roll, pitch)` alone (§88.4.1 — `cs_matrix`'s second column is
+`(-sr·cp, cr·cp, sp)`, with no heading term), "has the picture moved since
+last frame" is an exact five-word compare once a frame, and in a held bank the
+answer is no: **20 frames of 20 in `turnhold`, longest run 20**. A still
+horizon should mean a band row needs no fill at all. It does not, because
+**0 of 112 band rows are object-free** — every one is widened by
+`cs_markspan`, to a mean of **31 bytes of the view's 50**. So the cache
+degrades to laying 31 bytes instead of 50, which §88.3.1.1.2 already prices at
+3.84 ms, against ~2 ms a frame to obtain — and `bank` is still in only 2
+frames of 20. `cs_skyground` in a bank is mostly **erasing last frame's
+objects**, not drawing a horizon, which is the whole reason its cost is fixed
+work a row rather than pixels.
+
 #### 88.3.2 Marks are per object, and off its vertices when it is whole
 
 The first build marked every polygon's bounding box and every segment's

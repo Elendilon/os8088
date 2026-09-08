@@ -1116,6 +1116,15 @@ cs_skyground:
     mov al, [cs_hzr]
     call cs_inkpat
     mov [cs_hzrt], si
+    mov ax, 7                       ; ...and the crossing byte's pixel mask,
+    mov bx, cs_hlm                  ; which is the ADAPTER's and so the
+    cmp byte [cs_kshift], 3         ; frame's: cs_hzrow_sh used to re-decide
+    je .mk                          ; it once a row (88.3.1.2)
+    mov ax, 3
+    mov bx, cs_clm
+.mk:
+    mov [cs_hzmm], ax
+    mov [cs_hzmt], bx
     mov es, [cs_tseg]
     cmp byte [cs_back], CSB_MODEX
     jne .p0
@@ -1265,14 +1274,20 @@ cs_skyground:
 %ifdef CSHZPROBE
     call cs_probe_hz                ; what an incremental refill would cost
 %endif
-    mov di, bx                      ; (the row's kind and span are the span
+    ; --- AND THE PHASE IS SCRATCHED IN DX, NOT DI (SPEC.md 88.3.1.2) -------
+    ; DI is the ROW now - cs_hzrow_sh takes it and walks it - so the two
+    ; instructions that used to borrow DI for the pattern index write over the
+    ; pointer they are about to pass. It cost a whole view: every split row
+    ; laid itself at the top of the shadow, which a ONE-row band (level, or
+    ; rolled 180) hides completely and a full one fails at 867 byte-groups.
+    mov dx, bx                      ; (the row's kind and span are the span
                                     ;  pass's, above - 88.3.1.1)
-    and di, 3                       ; DI = the row's phase in the pattern
+    and dx, 3                       ; DX = the row's phase in the pattern
     mov si, [cs_hzlt]
-    add si, di
+    add si, dx
     mov al, [si]
     mov si, [cs_hzrt]
-    add si, di
+    add si, dx
     mov ah, [si]
     call [cs_hzproc]                ; the row split at CX: AL left, AH right
     pop di
@@ -1609,15 +1624,36 @@ cs_abs32:
 .o:
     ret
 
+; FILLRUN - CX bytes of AL (= AH) at ES:DI, words where it can; advances DI
+;           past them and clobbers CX. CX may be 0 or negative. DF must be 0.
+;           INLINE, because at 112 rows a frame the `call`/`ret` and the
+;           prologue behind them are 314 cycles a row of the 1,421 a split row
+;           costs (SPEC.md 88.3.1.2). cs_fillrun below is the same code as a
+;           routine, for the Mode X filler that calls it once a row.
+%macro FILLRUN 0
+    or cx, cx
+    jle %%out
+    test di, 1
+    jz %%even
+    stosb
+    dec cx
+    jz %%out
+%%even:
+    shr cx, 1
+    rep stosw
+    jnc %%out
+    stosb
+%%out:
+%endmacro
+
 ; -----------------------------------------------------------------------------
 ; cs_hzwhole - one whole view row of one pattern
-; in:  BX = the row, AL = AH = the pattern.  clobbers BX, CX, DX, DI, ES
+; in:  DI = the row's first VIEW byte, AL = AH = the pattern - the band loop
+;      already has that pointer and walks it, so recomputing it out of
+;      cs_rowoff was 51 cycles a row of nothing (SPEC.md 88.3.1.2)
+; clobbers CX, DX, DI, ES
 ; -----------------------------------------------------------------------------
 cs_hzwhole:
-    shl bx, 1
-    mov di, [cs_rowoff + bx]
-    add di, [cs_tbase]
-    add di, [cs_wb0]
     mov cx, [cs_wbn]
     shr cx, 1
     mov es, [cs_tseg]
@@ -1650,70 +1686,47 @@ cs_hzrow_sh:
     mov ah, al                      ; wholly the left pattern
     jmp cs_hzwhole
 .split:
+    ; --- DI IS THE ROW, AND IT WALKS IT (SPEC.md 88.3.1.2) -----------------
+    ; The band loop already holds the row's first view byte and steps it by
+    ; the stride; this used to throw it away and rebuild it out of cs_rowoff
+    ; and cs_tbase, then bracket the left run in push di/pop di to get back to
+    ; it. Now the left run leaves DI ON the crossing's byte, the blend is a
+    ; `stosb`, and the right run carries on from there.
     mov dx, ax                      ; DL/DH = the two patterns
-    shl bx, 1
-    mov di, [cs_rowoff + bx]
-    add di, [cs_tbase]
-    mov es, [cs_tseg]
-    mov bx, cx
-    push cx
+    mov bl, cl                      ; the crossing's low bits, banked before
+                                    ; CL becomes the shift count
+    mov si, cx
     mov cl, [cs_kshift]
-    shr bx, cl                      ; BX = the crossing byte
-    pop cx
-    mov si, bx
-    sub si, [cs_wb0]                ; SI = bytes wholly left of it
-    push di
-    add di, [cs_wb0]
+    shr si, cl                      ; SI = the crossing byte
+    mov cx, si
+    sub cx, [cs_wb0]                ; CX = bytes wholly left of it
     mov al, dl
     mov ah, dl
-    push cx
-    mov cx, si
-    call cs_fillrun                 ; the left run
-    pop cx
-    pop di
-    ; the crossing byte: pixels (cx & 7).. take the right pattern
-    mov si, cx
-    and si, 7
-    mov al, [cs_hlm + si]           ; pixels i..7, 1bpp
-    cmp byte [cs_kshift], 3
-    je .m
-    and si, 3
-    mov al, [cs_clm + si]           ; pixels i..3, 2bpp
-.m:
-    mov ah, al
+    FILLRUN                         ; the left run
+    xor bh, bh                      ; the crossing byte: pixels (x & mm)..
+    and bx, [cs_hzmm]               ; take the right pattern. The mask and its
+    add bx, [cs_hzmt]               ; table are the FRAME's, not this row's -
+    mov al, [bx]                    ; picking them cost a cs_kshift compare a
+    mov ah, al                      ; row for an answer that cannot change
     not ah                          ; AL = the right's mask, AH = the left's
     and al, dh
     and ah, dl
     or al, ah
-    mov [es:di+bx], al
+    stosb
     mov cx, [cs_wb0]                ; the right run: bytes after it
     add cx, [cs_wbn]
-    sub cx, bx
+    sub cx, si
     dec cx
-    add di, bx
-    inc di
     mov al, dh
     mov ah, dh
-    call cs_fillrun
+    FILLRUN
     ret
 
 ; cs_fillrun - CX bytes of AL (= AH) at ES:DI, words where it can. Advances
 ; DI past them. Clobbers CX. CX may be 0 or negative (nothing is stored).
 cs_fillrun:
-    or cx, cx
-    jle .out
     cld
-    test di, 1
-    jz .even
-    stosb
-    dec cx
-    jz .out
-.even:
-    shr cx, 1
-    rep stosw
-    jnc .out
-    stosb
-.out:
+    FILLRUN
     ret
 
 ; -----------------------------------------------------------------------------
