@@ -6295,9 +6295,61 @@ ordering above.
   complement — and it would take the one remaining pen (`CDGRAY` on `CLGRAY`)
   off `.slow`. Not taken because one pen, in one theme, on one state of one
   control, does not pay for a second row loop.
+
+  **THAT COUNT IS THE KERNEL'S CHROME AND NOT THE MACHINE'S** (§6.1.10.1). The
+  census above ran over `thm_tab` and the content pens, which is every pair the
+  *kernel* sets — and a package sets its own. Over all 256 ordered pairs of the
+  16 colours, **110 of them share no plane in either direction: 43%**. The
+  decision stands; what does not is reading "one pen" as the exposure.
 - **Unaligned runs.** §6.1.4's arithmetic still stands *as an argument about
   cells* and is wrong *as an argument about runs* — docs/plans/completed/TEXT-PLAN.md §4 is the
   correction, and the work is not started.
+
+##### 6.1.10.1 The subset rule is a PACKAGE-visible contract
+
+`.plno` has been in this routine since the day §6.1.10 shipped and is
+byte-identical today; nothing regressed. What was never written down is the
+rule a *caller* needs, because the census that sized the omission counted
+chrome:
+
+> **A run takes the single-store path when one colour's plane bits are a
+> SUBSET of the other's.** Otherwise it falls to `gfx_fill` + `font_str` —
+> §6.1's own pair — and pays for it twice, in the double write and in the
+> flash between the passes.
+
+The corollary is the form worth remembering, and it costs a package nothing:
+**if either colour is `CBLACK` or `CWHITE`, the pair is always a subset pair.**
+`0 ⊆ x` and `x ⊆ 15` for every `x`, so black paper, white paper, black ink or
+white ink each guarantee the fast path whatever the other colour is. That
+covers all 60 pairs involving either, and 86 more besides — 146 of 256.
+`CYELLOW` on `CBLACK` is one store a cell row; `CYELLOW` on `CBLUE` is the
+pair.
+
+**MEASURED** (PERFORMANCE.md Set 121, `tests/gfxbench`, cycle-accurate 4.77 MHz
+8088):
+
+| row | VGA | Hercules |
+|---|---:|---:|
+| `FONT_RUN 10 aligned` — `CBLACK` on `CWHITE`, a subset pair | **2,997.88 µs** | 3,179.19 |
+| `FONT_RUN 10 coloured` — `CYELLOW` on `CBLUE`, sharing no plane | **7,200.25** | 3,178.70 |
+| `PAIR 10 coloured` — the same two colours written by hand | 6,882.19 | 8,654.36 |
+
+**2.40× on VGA, and the coloured run is 4.6% SLOWER than the hand-written pair
+at those colours** — which is Set 76's own signature returning for the pens the
+prologue does not cover: the pair, plus the cost of deciding not to take a fast
+path that is not there for this pen. On Hercules the two rows are **3,179.19
+against 3,178.70**, 0.015% apart against an instrument that repeats to 0.026%:
+`font_ink` reduces either pair to 00/FF and the mono path never asks what the
+colours were, so the divergence is VGA's alone.
+
+**Why no row saw it.** Every `FONT_RUN` row in `tests/gfxbench` drew `CBLACK`
+on `CWHITE`, and all 42 statically-resolvable `OSAPI_FONT_RUN` call sites in
+`apps/` are subset pairs — so nothing in the tree has ever taken `.plno`. That
+is precisely the shape §6.1.12's disabled row already records one paragraph up
+(*"No row in this harness drew disabled text, so the fall-back was invisible
+here for as long as it existed"*), which is why the fix here is a **row** and
+not a code change: `FONT_RUN 10 coloured` and `PAIR 10 coloured` are the same
+string, length and place as `FONT_RUN 10 aligned`, differing only in the pen.
 
 #### 6.1.11 …and unaligned, in one pass too — §6.1.4 is right about a CELL
 

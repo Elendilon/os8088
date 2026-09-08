@@ -1560,6 +1560,18 @@ gb_text:
     mov [gb_trundis], ax
     mov [gb_trundis+2], dx
 
+    ; ...and the same run in a pair of colours that share no plane, which on
+    ; VGA is the OTHER way into .slow (SPEC.md 6.1.10). Read against FONT_RUN
+    ; 10 aligned; on a 1bpp adapter the two are the same measurement.
+    mov word [bl_body], gb_b_fruncol
+    mov si, gb_r_rucol
+    xor al, al
+    call bl_run
+    mov word [bl_body], gb_b_paircol
+    mov si, gb_r_pacol
+    xor al, al
+    call bl_run
+
     ; SPEC.md 6.1.7's question: a run of 20, once as ordinary text and once
     ; SPACE-PADDED, which is what this system actually draws - 27.2 makes a
     ; Note Pad row's padding its ERASE, 12.9 composes the menu bar out to the
@@ -2817,6 +2829,57 @@ gb_b_frunp:
 ; solid black), the FLAG is: font_ink masks a flagged glyph to 47's
 ; checkerboard. So on Hercules and CGA this row measures the mask fold and
 ; nothing else, which is exactly what it is for.
+; SPEC.md 6.1.10's OTHER fall-back, and the one no row here has ever drawn.
+; The planar prologue groups the run's planes once and writes one CPU byte a
+; cell row - but it can only do that when one colour's plane bits are a SUBSET
+; of the other's, so that the planes which VARY across the glyph all want the
+; glyph or all want its complement. A pair sharing no plane in either direction
+; needs two passes, which are not implemented, and it takes .slow: gfx_fill +
+; font_str, the erase-and-letter pair 6.1 exists to replace.
+;
+; 6.1.10's census ran over thm_tab's themes and the content pens - kernel
+; CHROME - and found exactly one pair that needs two passes. Over all 256
+; ordered pairs of the 16 colours, 110 of them do: 43%. A PACKAGE picking its
+; own two colours is outside that census, and a game is the case that picks
+; them freely. CYELLOW on CBLUE is the shape it hits (14 vs 1: A = 14, B = 1,
+; both non-empty).
+;
+; Same string, same length, same place as FONT_RUN 10 aligned - the only
+; difference is the pen, which is the disabled row's construction above and for
+; the same reason. On the two 1bpp adapters this must read as FONT_RUN 10
+; aligned does: font_ink reduces either pair to 00/FF and the mono path never
+; asks what the colours were. A divergence here is VGA's alone.
+gb_b_fruncol:
+    mov cx, [gb_tx]
+    mov dx, [gb_y]
+    mov si, gb_s_test
+    mov al, CYELLOW
+    mov ah, CBLUE
+    call OSAPI_FONT_RUN
+    ret
+
+; ...and the PAIR written by hand at those same two colours, which is what
+; .slow does on the row above. It prices the fall-back against the fall-back
+; rather than against the fast path, so the two readings separate what the
+; pair costs from what DECIDING to take it costs (Set 76's 3.3%).
+gb_b_paircol:
+    mov al, CBLUE
+    call OSAPI_SET_COLOR
+    mov ax, [gb_tx]
+    mov bx, [gb_y]
+    mov cx, ax
+    add cx, 79
+    mov dx, bx
+    add dx, 7
+    call OSAPI_GFX_FILL
+    mov al, CYELLOW
+    call OSAPI_SET_COLOR
+    mov cx, [gb_tx]
+    mov dx, [gb_y]
+    mov si, gb_s_test
+    call OSAPI_FONT_STR_XPARENT
+    ret
+
 gb_b_frundis:
     stc
     mov al, CDGRAY
@@ -3236,6 +3299,8 @@ gb_r_st:   db 'FONT_STR 10 aligned', 0
 gb_r_pa:   db 'PAIR 10 aligned', 0
 gb_r_ru:   db 'FONT_RUN 10 aligned', 0
 gb_r_rudis:db 'FONT_RUN 10 disabled', 0
+gb_r_rucol:db 'FONT_RUN 10 coloured', 0
+gb_r_pacol:db 'PAIR 10 coloured', 0
 gb_r_ru20: db 'FONT_RUN 20 text', 0
 gb_r_rup:  db 'FONT_RUN 20 padded', 0
 gb_r_pa5:  db 'PAIR 10 skewed 5', 0

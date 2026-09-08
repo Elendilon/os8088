@@ -11615,3 +11615,81 @@ X, where a pixel is an `out` and a store.
    axis bit, and the cull was inert in BOTH arms: six scenes read a tidy
    +0.06%, and the timings looked entirely reasonable. What caught it was
    printing the counters of what each arm actually did beside the milliseconds.
+
+### Set 121 — `font_run`'s VGA fast path covers 57% of the colour pairs, and no row in the tree drew one of the other 43% (SPEC.md §6.1.10.1)
+
+| | |
+|---|---:|
+| machine | **MartyPC**, cycle-accurate IBM 5150/XT, 4.77 MHz 8088 |
+| adapters | `os8088_xt_vga` (mode 12h) and `os8088_5150_herc_gla` (720×348) |
+| harness | `tests/gfxbench`, report read back with `tools/os88flush.py` |
+| date | 2026-09-08 |
+
+Raised by an agent writing a game, reporting an attract line falling to
+`gfx_fill` + `font_str` on VGA — the pair §6.1 exists to replace — and asking
+whether §6.1.10 had regressed. **It had not**: `.plno` is byte-identical to the
+commit that introduced it (#116). What is true is narrower and was never
+written down for callers.
+
+#### The measurement
+
+Two rows added, the same string, length and place as `FONT_RUN 10 aligned` and
+differing only in the pen — the construction §6.1.12's disabled row already
+uses, and for the same reason.
+
+| row | VGA | Hercules |
+|---|---:|---:|
+| `FONT_RUN 10 aligned` — `CBLACK` on `CWHITE` (subset) | **2,997.88 µs** | 3,179.19 |
+| `FONT_RUN 10 coloured` — `CYELLOW` on `CBLUE` (shares no plane) | **7,200.25** | **3,178.70** |
+| `PAIR 10 coloured` — the same two colours written by hand | 6,882.19 | 8,654.36 |
+| `FONT_RUN 10 aligned` re-run, same session *(instrument control)* | 2,997.18 | 3,180.03 |
+
+**2.40× on VGA.** The instrument repeats to **0.023% (VGA) / 0.026% (Hercules)**
+within a session, so the gap is four orders of magnitude outside noise. And the
+sharpest number is the one Set 76 already taught us to look for: the coloured
+run is **4.6% SLOWER than the hand-written pair** at those colours (7,200.25
+against 6,882.19) — the pair, plus the cost of deciding not to take a fast path
+that does not cover this pen. Set 76 measured the identical shape at 3.3% when
+the fast path covered *no* VGA pen at all.
+
+**The Hercules column is the control and it is flat**: 3,179.19 against
+3,178.70, **0.015% apart** — inside the instrument's own repeatability.
+`font_ink` reduces either pair to 00/FF before the mono prologue runs, so the
+pen cannot reach that path, and the divergence is therefore VGA's alone rather
+than anything about the two strings. `PAIR 10 aligned` and `PAIR 10 coloured`
+read **identically** on VGA (6,882.19 both), which is the second control:
+`gfx_fill` + `font_str` does not care what the colours are, so the whole of the
+VGA movement is `font_run`'s own gate.
+
+Cross-check against the record: this session's Hercules `whole page of rows`
+reads **494,331.49 µs** against Set 76's **494,331** — the same instrument,
+three tree-months apart.
+
+#### Why it was invisible
+
+- **Every `FONT_RUN` row in `tests/gfxbench` drew `CBLACK` on `CWHITE`** — a
+  subset pair, always the fast path.
+- **All 42 statically-resolvable `OSAPI_FONT_RUN` call sites in `apps/` are
+  subset pairs.** (98 sites total; 56 take their colours from a variable and
+  cannot be ruled out by reading.) Nothing shipped has ever taken `.plno`.
+
+So the fall-back had no witness in the tree — which is *exactly* the sentence
+§6.1.12's disabled row is already there to stop being true, one pen along.
+**The lesson is the one that keeps recurring in this file: a fast path with a
+predicate needs a row on BOTH sides of the predicate, not a row on the side the
+kernel happens to use.** A census over the kernel's own pens sized the omission
+correctly and then got quoted as the exposure; the callers it did not count are
+the packages.
+
+#### What a caller needs to know, and what it costs
+
+The rule is a subset test on the plane bits, and its useful corollary is free:
+**if either colour is `CBLACK` or `CWHITE`, the pair always takes the fast
+path** (`0 ⊆ x`, `x ⊆ 15`). 146 of 256 ordered pairs are fast; the 110 that are
+not all have two "mixed" colours. A game wanting yellow letters gets the single
+store on black paper and the pair on blue.
+
+Not proposed here: the `Map Mask` second pass §6.1.10 left out. It is still two
+passes over the run, so against a 6,882 µs pair it would buy something well
+short of the 2.40× the subset pairs get, and the honest first move is that
+packages can have the fast path today for nothing by picking the pen.
