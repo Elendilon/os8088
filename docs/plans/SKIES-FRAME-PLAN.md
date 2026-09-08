@@ -203,7 +203,7 @@ for the whole object pass. Measure both.
 one, and every stage is bracketed at its call site so the accounting adds to
 99.9% of the loop. Two findings dwarf everything else in this file.
 
-### 7.1 A banked turn is 1.7x a level one, and it is the SKY that does it
+### 7.1 A banked turn is 1.7x a level one, and it is the SKY that does it — COUNTED
 
 | Hercules 8088, 24 flown frames | level | 45 deg held |
 |---|---|---|
@@ -233,6 +233,36 @@ item in §2, §3 and §6 put together. What to look at, in order:
    crossing actually swept, rather than every split row whole, is the same
    argument 88.3.1 already makes for last frame's span - applied to the
    horizon instead of to objects.
+
+**COUNTED, with `CSHZPROBE`** (`make skieshzprobe`; SPEC.md 88.3.1.1), 20
+flown frames a profile, Hercules, the view 50 bytes wide:
+
+| | split rows a frame | refilled today | INCREMENTAL | crossing did not move a BYTE |
+|---|---|---|---|---|
+| `turnhold` 45 deg held | **112 (every row)** | 2,323 B | **336 (14.5%)** | **112 of 112 - 100%** |
+| `rollsweep` 2 deg/frame | 109.1 | 2,178 | 441 (20.2%) | 64.5 (59%) |
+| `bank` decaying | 29.1 | 1,452 | 123 (8.5%) | 12.6 (43%) |
+| `cruise` level | 1.0 | 50 | 3 (6.0%) | 1 (100%) |
+
+**In a HELD bank not one row's crossing moves a single byte and all 2,323 are
+refilled and carried anyway.** 336 is the floor of three bytes a row.
+
+**And it needs NO NEW STORAGE.** A split row's span is `cs_fullspan` today;
+make it the range actually refilled and next frame's `[cs_spprv]` for that row
+already CONTAINS last frame's crossing. So
+
+    refill range = union(last frame's span, this frame's crossing +- 1)
+    new span     = that same range
+
+which objects then widen through `cs_markspan` as they always have. It is
+`cs_hzrows`' same-kind arm applied to the band, and the only new code is a
+byte-RANGE form of `cs_hzrow_sh` - Hercules, CGA and the 160x100 hack share
+it, and Mode X refills every row anyway.
+
+**The gate is `tests/skieshz.py`**, and 88.3.3.1 is the field bug this exact
+loop produced once: a horizon that did not turn, because the band wrote each
+split row's span and nothing widened the set's row RANGE. Whatever is built
+here has to keep that range widening.
 
 **Measure it against `turnhold`**, which lives in the rolled state, and check
 it against `bank`, which passes through it.

@@ -2623,6 +2623,10 @@ cs_probe_edge:
     push ds
     pop es
     mov cx, di
+    cmp cx, CS_DBGSCR               ; the scratch is 112 rows (see its note)
+    jbe .cx
+    mov cx, CS_DBGSCR
+.cx:
     mov si, [cs_dbg_y0]
     shl si, 1
     mov di, si

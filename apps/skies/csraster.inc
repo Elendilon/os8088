@@ -1176,6 +1176,9 @@ cs_skyground:
     inc cx                          ; is off the right, so the row is the
                                     ; left side's
 .split:
+%ifdef CSHZPROBE
+    call cs_probe_hz                ; what an incremental refill would cost
+%endif
     mov ax, [cs_fullspan]           ; a split row goes over whole
     add si, [cs_spcur]
     mov [si], ax
@@ -1224,6 +1227,72 @@ cs_skyground:
     mov byte [cs_ownmk], 0
 .out:
     ret
+
+%ifdef CSHZPROBE
+; -----------------------------------------------------------------------------
+; cs_probe_hz - PROBE ONLY: a split row is about to be refilled WHOLE and its
+;               span set to the whole view (88.3.1). Record what an
+;               INCREMENTAL refill would have touched instead - the bytes
+;               between last frame's crossing and this one, and no others.
+;               in: BX = the row, CX = the crossing x.  Preserves everything.
+; -----------------------------------------------------------------------------
+cs_probe_hz:
+    pushf
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    inc word [cs_dbg_hzrow]
+    mov ax, [cs_wbn]
+    add [cs_dbg_hzby], ax           ; what it lays today: the whole row
+    mov ax, cx                      ; ...and the crossing's BYTE column
+    or ax, ax
+    jns .p
+    xor ax, ax
+.p:
+    mov cl, 3
+    shr ax, cl
+    cmp ax, [cs_wbn]
+    jb .ok
+    mov ax, [cs_wbn]
+    dec ax
+.ok:
+    mov si, bx
+    mov dl, [cs_hzpb + si]          ; last frame's, 0xFF = it was not split
+    mov [cs_hzpb + si], al
+    cmp dl, 0xFF
+    je .whole
+    mov dh, al
+    cmp dl, dh
+    jbe .ord
+    xchg dl, dh
+.ord:
+    mov al, dh
+    sub al, dl
+    cmp al, 0
+    jne .some
+    inc word [cs_dbg_hzsame]        ; the crossing did not move a byte at all
+.some:
+    xor ah, ah
+    add ax, 3                       ; a byte either side, and the crossing's
+    add [cs_dbg_hzinc], ax
+    cmp ax, [cs_dbg_hzmax]
+    jbe .out
+    mov [cs_dbg_hzmax], ax
+    jmp short .out
+.whole:
+    mov ax, [cs_wbn]
+    add [cs_dbg_hzinc], ax
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    popf
+    ret
+%endif
 
 ; cs_hzkeep - bank the horizon's two ends (AX/BX to CX/DX) for the line the
 ;             ground's fill leaves behind when it is off. Preserves all

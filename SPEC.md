@@ -100191,6 +100191,50 @@ every row is refilled every frame there and its panel keeps a **key per
 page** — an instrument changed at frame N is drawn on the page being shown
 at N+1 too.
 
+##### 88.3.1.1 A rolled horizon refills and carries the WHOLE VIEW, and 100% of it is unchanged
+
+§88.12.1 prices a held 45° bank at **282.8 ms against level flight's 164.5**,
+and the objects are barely any of it: `cs_skyground` goes **8.76 → 47.77 ms**
+and `cs_blit`, which then has every row to carry, **9.01 → 36.13** — together
+**75.9 ms, 26.8% of the frame**, against 17.8 and 10.8% level.
+
+The sentence above is what does it. A row the horizon crosses is a SPLIT row,
+and the band loop gives every split row `cs_fullspan` and refills it whole,
+every frame, unconditionally — where a row that merely kept its KIND is
+refilled *over last frame's span and no further*. In a 45° bank every row of
+the view is a split row.
+
+**Counted, with `CSHZPROBE`** (`make skieshzprobe` — its own define, because
+`CSPROBE`'s bss is at `APP_MAX_SIZE`), 20 flown frames a profile, Hercules,
+the view 50 bytes wide:
+
+| | split rows a frame | refilled today | an INCREMENTAL refill | rows whose crossing did not move a BYTE |
+|---|---|---|---|---|
+| `turnhold` — 45° held | **112 (every row)** | 2,323 bytes | **336** (14.5%) | **112 of 112 — 100%** |
+| `rollsweep` — 2°/frame | 109.1 | 2,178 | 441 (20.2%) | 64.5 of 109.1 (59%) |
+| `bank` — decaying | 29.1 | 1,452 | 123 (8.5%) | 12.6 of 29.1 (43%) |
+| `cruise` — level | 1.0 | 50 | 3 (6.0%) | 1 of 1 (100%) |
+
+**In a HELD bank not one row's crossing moves a single byte, and all 2,323 of
+them are refilled and carried anyway.** The 336 bytes an incremental pass
+would touch is the floor of three bytes a row — the crossing's own byte and
+one either side.
+
+**And the recurrence needs no new storage**, which is what makes it worth
+building: a split row's span today is `cs_fullspan`, but if it were instead
+the range actually refilled, then next frame's `[cs_spprv]` for that row
+already CONTAINS last frame's crossing — so the refill range is
+`union(last frame's span, this frame's crossing ± 1)` and the new span is that
+same range, which objects then widen through `cs_markspan` as they always
+have. It is `cs_hzrows`' same-kind arm applied to the band, and the only new
+code is a byte-RANGE form of `cs_hzrow_sh` (Hercules, CGA and the 160×100 hack
+share it; Mode X refills every row anyway and is unaffected).
+
+**Not built.** `tests/skieshz.py` is the gate it would have to pass, and
+§88.3.3.1 is the field bug this exact loop already produced once — a horizon
+that did not turn, because the band wrote each split row's span and nothing
+widened the set's row RANGE.
+
 #### 88.3.2 Marks are per object, and off its vertices when it is whole
 
 The first build marked every polygon's bounding box and every segment's

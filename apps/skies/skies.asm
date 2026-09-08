@@ -235,7 +235,11 @@ CSADI_OFF   equ 1               ; not drawn at all - a performance option
 CSADI_FAST  equ 2               ; ...the same pixels off a table built once
 CSADI_SMALL equ 3               ; ...and a smaller glass in the same bezel
 CSADI_N     equ 4
-CS_ADHMAX   equ 40              ; rows of half-glass the table can hold
+CS_ADHMAX   equ 24              ; rows of half-glass the table can hold. The
+                                ; tallest bezel any cockpit declares is 20
+                                ; rows (CSK_ADRY), so the glass is 18; a taller
+                                ; one ever added falls back to the roots, which
+                                ; is what cs_adsize's `ja .out` is for
 
 CSF_NOCULL equ 1                ; a ground polygon: visible from either side
 ; --- ...and which way a STACK face points, so it can be culled against the
@@ -2301,6 +2305,14 @@ cs_tpl:
     ZWORD cs_wj                     ; ...and the edge's far end
     ZBUF  cs_eseen, CS_ESEEN        ; ...the edges drawn already, this object
     ZWORD cs_pn
+%ifdef CSHZPROBE                    ; ...its OWN define: CSPROBE's bss is
+    ZBUF  cs_hzpb, CS_MAXROW        ; already at APP_MAX_SIZE, and this
+    ZWORD cs_dbg_hzrow              ; question needs none of its arms
+    ZWORD cs_dbg_hzby               ; ...bytes the whole-row refill lays
+    ZWORD cs_dbg_hzinc              ; ...bytes an INCREMENTAL one would
+    ZWORD cs_dbg_hzsame             ; ...rows whose crossing did not move
+    ZWORD cs_dbg_hzmax              ; ...the widest single row's change
+%endif
 %ifdef CSPROBE
     ZWORD cs_dbg_etr                ; PROBE ONLY: edges cs_poly actually traced
     ZWORD cs_dbg_edup               ; ...of which a face of the SAME object
@@ -2317,7 +2329,13 @@ cs_tpl:
     ZBYTE cs_dbl                    ; the A/B: trace every edge TWICE
     ZBYTE cs_nomark                 ; ...run the dedup TEST or not
     ZBYTE cs_cpy                    ; ...and price the COPY that would replace
-    ZBUF  cs_dbg_scr, CS_MAXROW * 2 ; a skipped trace, done into scratch
+CS_DBGSCR equ 112               ; ...and the copy A/B's scratch is 112 rows,
+                                ; the HERCULES view - which is the machine
+                                ; every one of these arms is read on. The copy
+                                ; clamps to it: the probe build is at
+                                ; APP_MAX_SIZE and a buffer sized for a view
+                                ; nobody measures on costs the arms that are
+    ZBUF  cs_dbg_scr, CS_DBGSCR * 2
     ZWORD cs_dbg_y0                 ; ...the trace's first row, clipped
     ZBYTE cs_dupface                ; ...and the A/B: repeat a face's GATHER
     ZBUF  cs_dbg_pv, CS_MAXPV * 4   ; and its winding cross, into scratch
