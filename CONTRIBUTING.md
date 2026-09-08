@@ -73,6 +73,27 @@ taken. Verified: a clean `make` under 2.16.01 assembles the whole tree with
 zero warnings and reproduces every artifact this branch used to ship, byte for
 byte. Homebrew's nasm is 3.x and is fine too; nothing here needs it.
 
+**A floor of 2 does not make 3.x equivalent, and there is a soak row about
+that.** nasm 3 *refuses* constructs 2.x accepts — `add di, mod_fp -
+mod_tab*7` in `kernel/mod.inc` is `invalid operand type` there and silent
+under 2.16 — so the tree can be assembled every day by 2.16 here and be
+un-buildable for everyone whose only assembler is 3.x. That has happened
+(commit 799c5a9). `python3 tools/os88test.py soak -k nasm3` is the gate:
+it assembles the shipped set, `kern_small`, the `APP_SMALL` package arms,
+`kern_emu` and every knob arm with an nasm 3, in a build tree of its own.
+It needs one to run and **SKIPS** without one, which on Linux means building
+it — no distribution packages a 3.x yet:
+
+```
+git clone --depth 1 -b nasm-3.02 https://github.com/netwide-assembler/nasm.git
+cd nasm && sh autogen.sh && ./configure && make
+export OS88_NASM3=$PWD/nasm
+```
+
+On macOS `brew install nasm` already gives 3.x, and the row finds it as
+plain `nasm` with nothing exported. `python3 tools/os88soak.py check` says
+which of the two you are.
+
 ### Linux
 
 Debian / Ubuntu:

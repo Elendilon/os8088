@@ -216,9 +216,13 @@ CWHITE    equ 15
                                  ; band got before this existed - and
                                  ; OSAPI_GFX_UNLOCK puts it back, so a pen is
                                  ; valid for exactly the lock hold you set it
-                                 ; in. Refuses NOTHING itself; the BLIT then
-                                 ; answers CF=1 for a pair whose two colours
-                                 ; share no plane in either direction.
+                                 ; in. Refuses NOTHING, and NEITHER DOES THE
+                                 ; BLIT: a pair whose two colours share no
+                                 ; plane in either direction used to answer
+                                 ; CF=1 and is drawn in two passes now, the
+                                 ; Map Mask splitting the band between them
+                                 ; (SPEC.md 5.4.2.2.1). Every pair of the
+                                 ; sixteen colours is a legal pen.
                                  ;
                                  ; NOT READ on a 1bpp adapter - a band there
                                  ; already means lit and unlit - so a package
@@ -663,6 +667,93 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
                                  ; releases your region, and your task
                                  ; ends inside this call.
 
+; --- running a package you are HOLDING (SPEC.md 21.5) -------------------------
+; The loader's back half with the disk read replaced by a copy. It exists for
+; the Wire (SPEC.md 26.7), which fetches a .O88 over the network into a claim
+; and has nowhere to put it: everything else in this system launches a package
+; by naming a FILE, and there is no file here.
+%define OSAPI_PKG_RUN       KERNEL_SEG:0x0520   ; ES:SI = a package image, byte for byte
+                                 ; what the .O88 file holds, in a claim of
+                                 ; YOURS. ANY segment - it is COPIED into a
+                                 ; region of the kernel's own, never
+                                 ; adopted, so you may free your claim the
+                                 ; moment this returns. DX:CX = its length
+                                 ; in bytes, DX the high word. DI = a
+                                 ; NUL-terminated 8.3 name, at most 12
+                                 ; characters, in YOUR OWN segment (not
+                                 ; ES): what the new instance is told it
+                                 ; was launched from, which is its entry
+                                 ; proc's SI (SPEC.md 20.2).
+                                 ;
+                                 ; Out CF=0 with AX = 0: it is registered,
+                                 ; published and its window shown, exactly
+                                 ; as a Disk-window double-click leaves
+                                 ; one. CF=1 with AL = an LD_* code
+                                 ; (SPEC.md 21.4): 2 the header is not a
+                                 ; package's, or it carries PARTS (header
+                                 ; flags bit 2 - parts are read from the
+                                 ; package's own FILE and there is none
+                                 ; here); 3 too large; 4 its entry proc
+                                 ; declined; 5 no region or no instance
+                                 ; record.
+                                 ;
+                                 ; UI TASK ONLY - a window callback or an
+                                 ; OSAPI_WM_ONWAKE handler - with the gfx
+                                 ; lock NOT held. It takes the lock itself
+                                 ; around the new window's first paint, and
+                                 ; the entry proc it calls runs with the
+                                 ; lock free like every other package's.
+                                 ;
+                                 ; The new instance's CURRENT DIRECTORY is
+                                 ; YOURS at the time of the call (SPEC.md
+                                 ; 19.2.1), so a package with an overlay or
+                                 ; sidecars run this way looks for them
+                                 ; where you are standing. Run one that has
+                                 ; them from a disk instead.
+
+; --- the desktop SERVICE zone, DRIVERS ONLY (SPEC.md 26.7) --------------------
+; A driver puts an icon on the desktop. It is here rather than in
+; drivers/os88drv.inc for OSAPI_FILE_WRITE_SYS's reason: a driver assembles
+; against this same file, and an application author reading the list is owed
+; the refusal's reason rather than a silent CF=1.
+;
+; The kernel keeps no glyph and no name: it holds the record, draws the
+; caption, hit-tests the zone and launches the file, and calls the DRIVER back
+; to paint the picture. That is the whole design - most XTs have no network
+; card, and a desktop icon whose art sat in every kernel would be carried by
+; every machine that cannot use it.
+%define OSAPI_DESK_SVC      KERNEL_SEG:0x0528   ; AL = 1 add / 0 withdraw;
+                                 ; ES:SI = a 65-byte record in YOUR segment
+                                 ; (add only):
+                                 ;   +0  12  the caption, NUL (<= 11 chars)
+                                 ;   +12 13  the 8.3 file the zone launches,
+                                 ;           from the BOOT volume's SYSTEM/
+                                 ;   +25  1  your DRVC_* class
+                                 ;   +26  1  the verb the kernel calls to
+                                 ;           PAINT the icon: CX,DX = its
+                                 ;           top-left, the gfx lock HELD, and
+                                 ;           it MUST NOT touch your hardware -
+                                 ;           a desktop repaint can land while
+                                 ;           another task is inside one of
+                                 ;           your other verbs
+                                 ;   +27 12  the package's HEADER name, NUL -
+                                 ;           what makes the zone a singleton
+                                 ;   +39 26  the failure notice's lead line,
+                                 ;           NUL ('Cannot open Wire:')
+                                 ; out CF=1 refused: not a published driver
+                                 ; (OSAPI_VOL_ADD's own fence), a second
+                                 ; registration - there is ONE zone and
+                                 ; whoever attaches first has it - or a
+                                 ; withdraw of somebody else's.
+                                 ;
+                                 ; The record is COPIED, so it may be
+                                 ; anything of yours; the kernel terminates
+                                 ; the caption itself and trusts the other
+                                 ; three the way it trusts your DSV table.
+                                 ; WITHDRAW AT DETACH: the kernel is about to
+                                 ; free the image your paint verb lives in.
+                                 ; drivers/wirezone.inc is the worked example.
+
 ; --- the clip region (SPEC.md 11.3) -------------------------------------------
 ; What replaced the wm_obscured veto for background painters. Arm it under
 ; the lock and every gfx_*/font_* call you make is cut to the part of YOUR
@@ -780,11 +871,20 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
                                  ; and a move re-honours it (SPEC.md 50.3).
 ; ...AND THE SAME TWO FROM THE TOP OF THE HEAP (SPEC.md 50.3.2). For a buffer
 ; THE HARDWARE holds the address of - a sound card's DMA ring, a NIC's
-; descriptors - which can therefore never be moved and has no business in the
-; arena every data claim and the compactor share. SPEC.md 50.3 says why in its
-; own words: "one long-lived data claim landing mid-heap permanently splits the
-; space a package can be loaded into". If software is the only thing that reads
-; your block, use OSAPI_MEM_CLAIM above and let it be compacted.
+; descriptors - which has no business in the arena every data claim and the
+; compactor share. SPEC.md 50.3 says why in its own words: "one long-lived data
+; claim landing mid-heap permanently splits the space a package can be loaded
+; into". If software is the only thing that reads your block, use
+; OSAPI_MEM_CLAIM above and let it be compacted.
+;
+; A BLOCK CLAIMED HERE IS STILL BORN PINNED and stays pinned unless you declare
+; it, exactly like one from the low door. What the door decides is the
+; DIRECTION it is compacted in: the kernel records it (SPEC.md 50.3.2) and
+; SPEC.md 66.4.1's descending pass packs these towards the ceiling, so a
+; ceiling claim that CAN move - one only your own code addresses, put high
+; because it is long-lived rather than because a chip holds it - is worth
+; declaring OSAPI_MEM_MOVABLE. One a bus master is looking at is not, and
+; mem_can_move refuses an MC_DMA claim whatever you declare.
 %define OSAPI_MEM_CLAIM_HI  KERNEL_SEG:0x04C8   ; AX = KB; out CF, DX = segment
 %define OSAPI_MEM_CLAIM_DMA_HI KERNEL_SEG:0x04D0 ; ...and CX = the page-safe HEAD
 
@@ -863,6 +963,52 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
 ; display, or a kern_small kernel - and nothing was drawn. The fallback is one
 ; OSAPI_GFX_FILL per span, which draws the identical pixels; keep it, it is
 ; also the only path on a 128KB machine.
+; --- banking the pixels under something you are about to draw (SPEC.md 5.4.3) -
+; THE SAVE-UNDER PAIR. Draw a menu, a dialog or a tooltip over your content,
+; and taking it down is either a WRITE-BACK of what was there or a REPAINT of
+; what should be. On a 4.77MHz 8088 those are not the same price: a repaint
+; re-letters every text row the panel covered, at ~900us a glyph cell, and a
+; write-back is a blit. The kernel's own menu bar has banked its drop since
+; SPEC.md 12.4; this is that same pair of routines, published.
+;
+; SIZE THE BUFFER YOURSELF, and take the plane count from OSAPI_WM_DISPLAY's
+; DH and NOT from OSAPI_VIDEO - on a two-display machine the depth is the
+; DISPLAY's, not the primary's, and a buffer sized for the wrong one is the
+; field bug at SPEC.md 39.14.8 (a window banked on a Hercules and replayed
+; onto a VGA arrives as coloured noise):
+;
+;   bytes = planes * (y2-y1+1) * ((x2>>3) - (x1>>3) + 1)
+;
+; x1 is rounded DOWN to a byte column and x2 UP, which the formula already
+; carries. The layout is plane-major: all of plane 0's rows, then plane 1,
+; then 2, then 3 - one plane only on a 1bpp adapter.
+;
+; BOTH REFUSE A RECT THAT STRADDLES TWO DISPLAYS (CF = 1, nothing written).
+; A save is taken off ONE card, so a straddling rect would bank half and put
+; half back, leaving the rest stale. A refusal is not a failure path you have
+; to invent: repaint, which is what you did before you had these cells.
+;
+; The gfx lock is YOURS to hold across the pair, and the rect must still mean
+; the same pixels when you restore it - so do not yield to a repaint in
+; between, and do not bank a rect a window drag could have moved.
+%define OSAPI_GFX_SAVE      KERNEL_SEG:0x0508   ; AX = x1, BX = y1, CX = x2,
+                                 ; DX = y2 (INCLUSIVE, absolute screen),
+                                 ; ES:DI = your buffer. Copies those pixels
+                                 ; into it. ES is yours - a plain cell, no stub
+                                 ; - so the buffer lives in your own segment or
+                                 ; a heap claim you point ES at. out CF = 1
+                                 ; REFUSED (straddles two displays), nothing
+                                 ; written; CF = 0 taken and DI advanced past
+                                 ; the data. AX/BX/CX/DX come back yours, so
+                                 ; the rect is still in hand for the restore
+%define OSAPI_GFX_REST      KERNEL_SEG:0x0510   ; the same rect in AX/BX/CX/DX
+                                 ; and ES:SI = the buffer OSAPI_GFX_SAVE
+                                 ; filled; writes it back. out CF = 1 REFUSED,
+                                 ; CF = 0 and SI advanced. Restoring a rect
+                                 ; that is not the one you banked is not
+                                 ; refused and not detected - it is your
+                                 ; promise, exactly like OSAPI_WM_SAVEU's
+
 %define OSAPI_GFX_SPANS     KERNEL_SEG:0x04D8   ; AX = the y of the FIRST span,
                                  ; ES:SI = CX records of two words each, x1
                                  ; then x2, both INCLUSIVE; CX = rows, row n
@@ -1720,6 +1866,61 @@ DRVC_FILE    equ 5              ; a volume served by somebody answering
                                  ; refuses to compact any driver-owned claim
                                  ; while any service task is unparked.
 
+%define OSAPI_TASK_RESTARTABLE KERNEL_SEG:0x0518  ; AX = a near offset in YOUR
+                                 ; own image, 0 to withdraw. out CF=1 = you are
+                                 ; not a live package instance. Preserves every
+                                 ; register.
+                                 ;
+                                 ; "IF YOU HAVE TO MOVE MY REGION, THROW MY
+                                 ; WORKER'S STACK AWAY AND RE-ENTER IT HERE"
+                                 ; (SPEC.md 66.6.2).
+                                 ;
+                                 ; WHY IT EXISTS. Your REGION - the block your
+                                 ; code and bss live in - is a claim like any
+                                 ; other, and OSAPI_MEM_MOVABLE already
+                                 ; declares it. But if you hire a worker
+                                 ; (OSAPI_TASK_SPAWN) the kernel wrote your
+                                 ; segment into that worker's frame before its
+                                 ; first instruction, and its own call chain
+                                 ; has pushed it again since, at depths nothing
+                                 ; can compute. So a region with a worker stays
+                                 ; PINNED however it is declared - unless you
+                                 ; say this.
+                                 ;
+                                 ; WHAT YOU ARE ASSERTING is stronger than
+                                 ; OSAPI_MEM_PARKSAFE and the difference
+                                 ; matters: that one says "you may STOP me
+                                 ; here", this says "you may DISCARD what I am
+                                 ; standing on and start me again there". Your
+                                 ; worker's loop begins AGAIN - not resumes.
+                                 ; Everything it needs must live in your region
+                                 ; (which moves with it) or in a claim of its
+                                 ; own (which has its own relocation proc), and
+                                 ; never on its stack across the declaration.
+                                 ;
+                                 ; IT IS A WINDOW, NOT A HEADER BIT. A pump, a
+                                 ; poller, a game loop or a redraw worker loses
+                                 ; a frame and nothing else, and may declare
+                                 ; once and leave it. A worker that mixes audio
+                                 ; or interprets a story file declares only
+                                 ; BETWEEN units of work and withdraws before
+                                 ; the next - the same shape as taking and
+                                 ; releasing OSAPI_MEM_PARKSAFE around a lock.
+                                 ;
+                                 ; THE ASYMMETRY TO WEIGH: parksafe declared
+                                 ; wrongly costs you a missed optimisation.
+                                 ; This costs you a lost loop iteration - and
+                                 ; if your worker was holding something the
+                                 ; declaration was wrong about, it costs you
+                                 ; correctness. The default is undeclared, and
+                                 ; undeclared is the safe answer.
+                                 ;
+                                 ; The kernel restarts your worker only when it
+                                 ; is PARKED (SPEC.md 66.5.4), because your
+                                 ; declaration is about YOUR stack and says
+                                 ; nothing about the kernel's - so declaring
+                                 ; this alongside OSAPI_MEM_PARKSAFE is what
+                                 ; reaches a worker that draws.
 %define OSAPI_MEM_PARKSAFE  KERNEL_SEG:0x0408   ; AL = 1 declare / 0 withdraw.
                                  ; out CF=1 = you are not a live package
                                  ; instance. Preserves every register.
@@ -1962,7 +2163,12 @@ W_H       equ 8             ; word: frame height, includes title bar
 W_TITLE   equ 10            ; word: near ptr to NUL title string
 W_PAINT   equ 12            ; word: near ptr, SI = win ptr; content only
 W_ONKEY   equ 14            ; word: near ptr or 0; AL=ascii, AH=scan, SI=win
-W_ONCLICK equ 16            ; word: near ptr or 0; CX=x, DX=y, SI=win
+W_ONCLICK equ 16            ; word: near ptr or 0; CX=x, DX=y, SI=win.
+                            ; GIVE SI BACK AS YOU GOT IT: ui_task arms the
+                            ; release to the SI it finds AFTER you return
+                            ; (SPEC.md 13.7), so a handler that comes back
+                            ; with SI pointing elsewhere has named that as
+                            ; the window, and the release goes through it
 W_MENUS   equ 18            ; word: app menu set ptr, 0 = none. NOT a
                             ; template word - set it with OSAPI_MENU_SET
 W_DISP    equ 20            ; dword: the kernel's far pointer to your
@@ -2238,6 +2444,57 @@ OS88_STACK_384     equ 4        ; the largest, asked for on purpose: a deep
     %if (%1 %+ _end - %1 %+ _list) / AMENU_ENTSZ > MENU_APPMAX
         %error "OS88_MENUSET: at most MENU_APPMAX (5) menus fit in the bar"
     %endif
+%endmacro
+
+; -----------------------------------------------------------------------------
+; OS88_MOVE_PROC / OS88_REGION_MOVABLE / OS88_WORKER_RESTARTABLE
+;
+; Declare THIS PACKAGE'S REGION - the block your code and bss live in - movable
+; (SPEC.md 66.6.1), and, if you hired a worker, restartable (66.6.2).
+;
+;     OS88_REGION_MOVABLE                 ; once, when your window exists
+;     OS88_WORKER_RESTARTABLE my_worker   ; right after OSAPI_TASK_SPAWN took
+;
+; Both are self-contained: OS88_REGION_MOVABLE carries its own relocation proc
+; and jumps over it, so there is no second thing to place and no way to declare
+; without one.
+;
+; WHY THE PROC IS A `ret`. Your own code needs no relocation - every near
+; offset in it survives a move untouched - and every word that NAMES your
+; region is the KERNEL's, which mem_region_reloc puts right: your window's
+; W_SEG, your instance's I_SPTR, the owner of every claim you hold, your menu
+; bar's entries and seven kernel scalars. A proc is required all the same,
+; because "declared and named nothing" is the one shape the kernel cannot tell
+; from "declared and forgot" (66.2), and it is where YOUR fix-up goes if you
+; ever cache your own segment in a word of your own. Almost nothing does.
+;
+; WHAT THE RESTART COSTS YOU is one iteration of your worker's loop, and the
+; kernel takes it only where your worker PARKS - inside OSAPI_TASK_ALIVE, or,
+; if you also declared OSAPI_MEM_PARKSAFE, blocked in OSAPI_GFX_LOCK. The
+; first is the top of your loop and costs a poll. The SECOND IS ANYWHERE IN
+; IT, so a worker that mixes audio, interprets a story or draws half a frame
+; must NOT pair the two blanket-fashion: declare this as a window instead -
+; turn it on immediately before OSAPI_TASK_ALIVE and off immediately after.
+; -----------------------------------------------------------------------------
+%macro OS88_REGION_MOVABLE 0
+    push ax
+    push dx                     ; DX is the instance index in an entry proc
+    mov dx, cs                  ; ...and OUR REGION is the claim
+    mov ax, %%reloc
+    call OSAPI_MEM_MOVABLE
+    pop dx
+    pop ax
+    jmp short %%over
+%%reloc:                        ; BX = the base it WAS at, DX = where it is now
+    ret
+%%over:
+%endmacro
+
+%macro OS88_WORKER_RESTARTABLE 1
+    push ax
+    mov ax, %1
+    call OSAPI_TASK_RESTARTABLE
+    pop ax
 %endmacro
 
 ; -----------------------------------------------------------------------------

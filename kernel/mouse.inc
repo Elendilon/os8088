@@ -1098,10 +1098,12 @@ mou_hotplug:
     push cx
     push dx
     mov bx, [ticks]
-    cmp byte [mou_hpst], 1      ; state 1 (DTR held low) and state 0 (waiting
-    je .low                     ; out the interval) measure from DIFFERENT
-                                ; bases now, so each computes its own elapsed
-                                ; below rather than sharing one (SPEC.md 9.4.8)
+    mov ax, bx
+    sub ax, [mou_hpt]           ; the ONE stamp both wait states measure from
+                                ; (SPEC.md 9.4.8): kmain's desktop tick, then
+                                ; each drop and each raise. Wrap-safe
+    cmp byte [mou_hpst], 1      ; state 1 (DTR held low), states 0/3 (waiting
+    je .low                     ; out the interval)
 %ifdef KERN_BIG
     cmp byte [mou_p2], 0        ; a PS/2 MOUSE answered its own reset (SPEC.md
     jne .done                   ; 9.9.4), which is the same statement as the
@@ -1120,36 +1122,30 @@ mou_hotplug:
                                 ; own trap in the shape a new caller meets it.
                                 ; Nothing is retired here: an identify moves
                                 ; the prior, it does not settle the contest
-    mov ax, bx
-    sub ax, [mou_hpbase]        ; state 0: elapsed since the DESKTOP (kmain's
-                                ; stamp) or the last raise - not [mou_hpt],
-                                ; which stays 0 until a drop (SPEC.md 9.4.8).
-                                ; Wrap-safe, like every elapsed here
-    cmp ax, MOU_REPOLL          ; waiting out the poll interval
+    cmp ax, MOU_REPOLL          ; state 0/3: waiting out the poll interval,
+                                ; measured from the desktop (kmain's stamp) or
+                                ; from the last raise
     jb .done
     mov ax, 0x0408              ; drop DTR/RTS - power the mouse down. OUT2
     call mou_pall               ; stays up so the IRQ gate never glitches
-    mov [mou_hpt], bx           ; THE DROP STAMP - and the whole of sysbench's
-                                ; "poller stamp (0=nvr)": nonzero here and only
-                                ; here says the poller power-cycled the mouse
+    mov [mou_hpt], bx           ; THE DROP STAMP, which state 1 counts from
     mov byte [mou_hpst], 1
     jmp short .done
 .low:
-    mov ax, bx
-    sub ax, [mou_hpt]           ; state 1: low held since the DROP, whose tick
-                                ; [mou_hpt] carries - wrap-safe
-    cmp ax, MOU_RSTLOW          ; held low long enough?
+    cmp ax, MOU_RSTLOW          ; state 1: low held since the DROP, whose tick
+                                ; [mou_hpt] carries - held low long enough?
     jb .done
     mov ax, 0x040B              ; the rising edge a serial mouse resets on
     call mou_pall
-    mov [mou_hpbase], bx        ; re-base the next interval from the raise -
-                                ; [mou_hpt] keeps the DROP tick it was given
-                                ; above, so the "ever dropped" reading survives
-    mov byte [mou_hpst], 0
+    mov [mou_hpt], bx           ; re-base the next interval from the raise -
+    mov byte [mou_hpst], 3      ; and state 3 is state 0 that HAS dropped, which
+                                ; is 9.4.2's "the poller fired" reading in a
+                                ; byte the block already publishes
     mov [mou_dstamp], bx        ; the burst comes through the ISR now: arm the
-    mov [mou_draise], bx        ; discard window - [mou_dstamp] is the quiet
-    mov byte [mou_drain], 1     ; test's last-byte tick (init to now), [mou_draise]
-                                ; the ceiling's raise tick (SPEC.md 9.4.8)
+    mov byte [mou_drain], 1     ; discard window - [mou_dstamp] is the quiet
+                                ; test's last-byte tick (init to now) and
+                                ; [mou_hpt], set one line above, is the
+                                ; ceiling's raise tick (SPEC.md 9.4.8)
     call mou_newround           ; ...and a fresh reset edge is a fresh contest
 .done:
     jmp kret_dx
@@ -1526,14 +1522,20 @@ mou_p2_init:
     mov byte [mou_p2sub], 2
 %endif
     mov ah, al                  ; AH = it as the BIOS left it, plus bit 4 from
-    and al, 0xEF                ; the 0xAD above. Banked WITHOUT bit 4, so that
-    or  al, 0x20                ; mou_p2_off does not disable the keyboard on
-    mov [mou_p2cmd0], al        ; the UI task, and WITH bit 5, because the only
-                                ; readers of the bank are .fail and mou_p2_off
-                                ; and both want the port off - both send 0xA7
-                                ; beside it, and banking bit 5 clear made this
-                                ; write undo the 0xA7 it follows. The success
-                                ; path masks bit 5 off again anyway
+    and al, 0xEF                ; the 0xAD above
+    mov [mou_p2cmdr], al        ; THE RAW BYTE, bit 4 alone cleared - what the
+                                ; FAILURE paths put back (SPEC.md 9.9.7). It is
+                                ; a second bank because the one below forces
+                                ; bit 5, and bit 5 is the AUX CLOCK on a PS/2
+                                ; controller and PC MODE on an AT one: writing
+                                ; it on the machine that has no aux port stops
+                                ; the 8042 translating, and every key on the
+                                ; machine comes out as a different character
+    or  al, 0x20                ; ...and the doctored one, which mou_p2_off
+    mov [mou_p2cmd0], al        ; alone reads now. That path runs only where a
+                                ; PS/2 mouse answered its own reset, so bit 5
+                                ; there is the aux clock by construction, and
+                                ; it wants it off beside its own 0xA7
 
     mov byte [mou_p2st], 2      ; IS THERE AN AUXILIARY PORT HERE AT ALL?
     test ah, 0x02               ; BIT 1: this machine's own firmware armed
@@ -1545,12 +1547,25 @@ mou_p2_init:
                                 ; the controller no second question
     test ah, 0x20               ; ...or bit 5 already clear, which says the
     jz .haveaux                 ; same thing more directly: the port is CLOCKED
+                                ;
+                                ; IT IS ALSO WRONG ON AN AT CONTROLLER, where
+                                ; bit 5 is PC MODE and not the aux clock - and
+                                ; IT STAYS (SPEC.md 9.9.7). Being wrong here
+                                ; costs a probe that fails at step 5 and puts
+                                ; the controller back; taking it out costs the
+                                ; PHOENIX 8042 its mouse, because every machine
+                                ; whose BIOS left bit 1 clear would then go
+                                ; down the road below, which is the road that
+                                ; stopped on that controller. A known machine
+                                ; for a hypothetical one is the wrong trade,
+                                ; and the misidentification is HARMLESS now
+                                ; that .fail restores the byte it found
 
     ; --- no evidence in the byte: ask 0xA8 and look, the older road ---------
     ; Kept for the controller whose BIOS left both bits saying nothing. It is
     ; the road that does not work on a Phoenix 8042 - enabling the port with
     ; the keyboard interface disabled puts that controller somewhere it will
-    ; not answer a second command byte read from - so it is now the FALLBACK
+    ; not answer a second command byte read from - so it is the FALLBACK
     ; rather than the path, and a machine that has to take it is no worse off
     ; than it was.
 %ifdef MOU_DIAG
@@ -1686,17 +1701,17 @@ mou_p2_init:
 
 .noaux:                         ; 0xA8 did nothing, or the read never came:
                                 ; either way nothing here has an auxiliary port
-                                ; to talk to. Only 0xAD and 0xA8 have been sent
-                                ; and the command byte was never banked, so the
-                                ; whole of putting this machine back is 0xA7
-                                ; and the 0xAE every path below already sends
+                                ; to talk to
 %ifdef MOU_DIAG
     in  al, MOU_P2CMD
     mov [mou_p2sta], al
 %endif
     mov al, 0xA7
     call KERNEL_SEG:ovw_mou_p2cw
-    jmp short .quit
+    mov al, [mou_p2cmdr]        ; ...AND THE COMMAND BYTE. Only 0xAD and 0xA8
+    call KERNEL_SEG:ovw_mou_p2wcmd             ; have been sent on this road, so it is the
+    jmp short .quit             ; byte the BIOS had either way - and writing it
+                                ; costs nothing where nothing changed it
 
 .fail:                          ; put the controller back the way it was found
 %ifdef MOU_DIAG
@@ -1706,8 +1721,12 @@ mou_p2_init:
                                 ; can supply (SPEC.md 9.9.6)
     mov al, 0xA7                ; the auxiliary port off again...
     call KERNEL_SEG:ovw_mou_p2cw
-    mov al, [mou_p2cmd0]        ; ...and its command byte exactly as the BIOS
-    call KERNEL_SEG:ovw_mou_p2wcmd             ; had it. IRQ12 is deliberately LEFT masked:
+    mov al, [mou_p2cmdr]        ; ...and its command byte EXACTLY as the BIOS
+    call KERNEL_SEG:ovw_mou_p2wcmd             ; had it, bit 4 aside - which is what this
+                                ; line SAID it did and did not (SPEC.md 9.9.7).
+                                ; It wrote the bank with bit 5 forced set, and
+                                ; on an AT controller that bit is PC MODE.
+                                ; IRQ12 is deliberately LEFT masked:
                                 ; nothing else in this kernel uses that line,
                                 ; the port above is now unclocked so nothing
                                 ; can drive it, and a probe that failed has no
@@ -3041,7 +3060,8 @@ mou_byte:
                                 ; below is indexed on, and AL is the byte
     mov dx, [ticks]
     mov cx, dx                  ; bank [ticks]: both the ceiling and the quiet
-    sub dx, [mou_draise]        ; test measure from it (SPEC.md 9.4.8)
+    sub dx, [mou_hpt]           ; test measure from it. [mou_hpt] IS the raise
+                                ; tick for the whole window (SPEC.md 9.4.8)
     cmp dx, MOU_DRAINT          ; MOU_DRAINT since the RAISE? the ceiling,
     jae .drainover              ; which bounds a burst that never goes quiet
     mov dx, cx                  ; ...or MOU_DRAINQ since the LAST byte? the
@@ -4981,8 +5001,14 @@ mou_seen    db 0                ; a complete packet has arrived this session;
                                 ; never cleared - proof the mouse exists
 mou_hpst    db 0                ; hot-plug poller state: 0 waiting out the
                                 ; interval, 1 DTR/RTS held low, 2 stood down
-                                ; for good (the ports lost their contest)
-mou_hpt     dw 0                ; tick stamp for whichever wait state 0/1 is in
+                                ; for good (the ports lost their contest),
+                                ; 3 waiting like 0 and HAS dropped at least
+                                ; once - so >=1 is "the poller fired", which is
+                                ; 9.4.2's field reading in one peek
+mou_hpt     dw 0                ; the ONE tick stamp the poller measures from:
+                                ; kmain's desktop frame, then each drop and
+                                ; each raise. The raise tick is also the drain
+                                ; ceiling's reference (SPEC.md 9.4.8)
 mou_drain   db 0                ; ISR discards RX while set (armed by a
 mou_dstamp  dw 0                ; hot-plug raise; expires MOU_DRAINT later)
 mou_line    db 0                ; the 8259 bit of the line the WINNING packets
@@ -4993,21 +5019,6 @@ mou_line    db 0                ; the 8259 bit of the line the WINNING packets
                                 ; 9.5.2.1) is otherwise indistinguishable from
                                 ; an ordinary one, and only on real iron
 ; --- ...and here the published span ENDS. Scratch below it ------------------
-mou_hpbase  dw 0                ; the poll interval's base (SPEC.md 9.4.8):
-                                ; kmain stamps it at the first desktop frame
-                                ; and each raise re-bases it, so state 0 counts
-                                ; MOU_REPOLL from the desktop rather than from
-                                ; sched_init. Held apart from [mou_hpt] so that
-                                ; word can stay 0-until-a-drop for 9.4.2's field
-                                ; read; below the published span for the reason
-                                ; the next line gives
-mou_draise  dw 0                ; the tick the hot-plug raise armed the drain
-                                ; (SPEC.md 9.4.8): the CEILING reference, held
-                                ; apart from [mou_dstamp] which the quiet test
-                                ; re-stamps per byte. Deliberately below the
-                                ; published span - it is not a field-peek word,
-                                ; and a byte inside 9.4.2's block would move the
-                                ; offsets the four %errors below pin
 mou_splt    db 0                ; the elapsed tick the loading screen was last
                                 ; notched at, in whichever of mouse_init's two
                                 ; waits is running (SPEC.md 15.3.3). Scratch,
@@ -5056,6 +5067,10 @@ mou_p2cmd0  db 0                ; the 8042's command byte AS THE BIOS LEFT IT,
                                 ; which every failure path above puts back and
                                 ; which no reading of this source can supply
 ; --- ...and here THAT span ends. Scratch below it ---------------------------
+mou_p2cmdr  db 0                ; ...and the RAW one, bit 4 alone cleared: what
+                                ; the FAILURE paths put back (SPEC.md 9.9.7).
+                                ; Below the guarded span on purpose - 9.4.4's
+                                ; block is an ABI sysbench reads
 %ifdef KERN_BIG                 ; ...and this one really is the code's, so it
 mou_p2old   dw 0, 0             ; goes with it: int 74h's old vector, restored
 mou_p2m1    db 0                ; ...as is the master 8259's mask as

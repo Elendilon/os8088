@@ -122,7 +122,12 @@ def main():
     # os88marty.no_saver resolves ss_idle, launch's own gate resolves more -
     # and those go to os88sym's module default. Setting only the environment
     # fails exactly where the row is not looking.
-    t = os88build.tree("PKGZ=" + a.fmt, "COMPRESS=" + a.fmt).apply()
+    # ...AND media360.img WITH THEM: leg 4 boots it (SPEC.md 24.4 puts
+    # BEVERLY.MOD on a floppy of its own at this geometry), and it is not
+    # in DEFAULT_TARGETS, so without naming it the tree has no such file.
+    t = os88build.tree("PKGZ=" + a.fmt, "COMPRESS=" + a.fmt,
+                       targets=os88build.DEFAULT_TARGETS
+                               + ("media360.img",)).apply()
     sysimg, appsimg = t.img("os8088-360.img"), t.img("apps360.img")
     S = os88sym.linear
 
@@ -194,12 +199,47 @@ def main():
             fails.append("CALC.O88 did not open: the loader refused a "
                          "compressed package off the shipped disk")
 
-        # 4. ...and the MODULE, out of MEDIA/ on the APPS disk, which at this
-        #    geometry is the whole point.
-        wins = dispcp.win_list(m, S)
+    # 4. ...and the MODULE, off a floppy of ITS OWN.
+    #
+    #    It used to be MEDIA/ on the apps disk and that stopped being true:
+    #    apps360 is at 346 of 354 clusters and BEVERLY.MOD is 42 of them
+    #    lz4-packed, so it does not fit and no trimming makes it - taking
+    #    AUDIO, MODPLUG and FONTVIEW off buys 27. SPEC.md 24.4 is exactly
+    #    about that: at 360KB the module rides build/media360.img and the
+    #    user swaps disks.
+    #
+    #    A SCRATCH DISK and not media360.img itself, because a swap is what
+    #    24.4 asks of the USER and this harness has no verb for changing a
+    #    floppy under a running guest. Booting media360 alone puts the
+    #    module in B: with no TRACKER.O88 anywhere - the association then
+    #    has no handler and the double-click opens the 'Open' chooser,
+    #    which is the machine behaving correctly and the leg testing
+    #    nothing. The pair on one image is the two halves of the swap, and
+    #    what this leg is actually about is unchanged: 116KB of compressed
+    #    MODULE expanding off a floppy into a claim.
+    #
+    #    Both inputs come out of the row's own tree, so they carry the
+    #    format under test - scratch_disk resolves them and the output.
+    #    t.img() AND NOT `build/...`: this row builds a PRIVATE tree, and
+    #    os88build.apply() sets $OS88_BUILD alone - a private tree is not
+    #    the RUN'S tree, so os88build.at() does not redirect for it and a
+    #    `build/` path here reads the SHARED build. The lz4 arm passed
+    #    that way by luck (build/zdata-lz4 exists) and the lzb arm, whose
+    #    data only ever lives in the tree, failed loudly. The image is
+    #    per-format for the same reason: two arms, two disks.
+    modimg = os88marty.scratch_disk(
+        t.img("lzship-mod360-" + a.fmt + ".img"),
+        "APPS:" + t.img("tracker.o88"),
+        "MEDIA:" + t.img("zdata-" + a.fmt + "/BEVERLY.MOD"), size=360)
+    with os88marty.launch(sysimg, apps=modimg, machine=a.machine) as m:
+        os88marty.settle(m, gate=os88marty.desktop_up)
+        mo = os88mouse.Mouse(marty=m)
+        os88marty.no_saver(m)
         dispcp.open_drive(m, mo, S, os88marty.settle, "B")
         wins2 = dispcp.win_list(m, S)
         wx, wy = dispcp.win_rect(m, S, wins2[-1])[:2]
+        # MEDIA/ on this disk too: $(MEDIAARGS360) prefixes it, so the
+        # module sits in the same folder it does on the roomier geometries
         dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "MEDIA")
         os88marty.settle(m)
         dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "BEVERLY.MOD")
@@ -229,8 +269,8 @@ def main():
         pseg, _ = find_win(m, S, "Tracker")
         if not pseg:
             fails.append("no Tracker window: BEVERLY.MOD did not open from "
-                         "MEDIA/ on the apps disk, which is the whole reason "
-                         "this set exists")
+                         "the media disk (SPEC.md 24.4), which is the whole "
+                         "reason this set exists")
         else:
             seg = int.from_bytes(m.readseg(pseg, P["trk_modseg"], 2), "little")
             got = b""

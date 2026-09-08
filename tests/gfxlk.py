@@ -262,6 +262,19 @@ def main():
         b = brect((wx, wy, ww, wh))
         mo.click((b[0] + b[2]) // 2, (b[1] + b[3]) // 2)    # Refresh
         settle(m)
+        # ...AND SCROLLED BACK TO WHERE `before` WAS TAKEN. Refresh re-reads
+        # the directory and returns the view to the TOP, so without this the
+        # two captures are the same files at different offsets and every row
+        # differs - 3971 pixels of "the list did not survive" about a list
+        # that survived perfectly. It only started mattering when GAMES grew
+        # past the window: scroll_to was a no-op while CYCLONE.O88 was
+        # visible from the top, and PACMAN.O88 and SKIES.O88 pushed it down.
+        row2 = dispcp.scroll_to(m, mo, S, settle, wx, wy, entry)
+        settle(m)
+        if row2 != row:
+            sys.exit("gfxlk: the refreshed view puts CYCLONE.O88 on row %d "
+                     "and it was on row %d - the two captures would be of "
+                     "different scroll positions" % (row2, row))
         mo.click(rx, ry)                    # ...and the same row selected,
         settle(m)                           # or the highlight is the diff
         mo.to(*PARK)
@@ -269,6 +282,12 @@ def main():
         after, _ = crop(m, rect)
         n = sum(1 for i in range(0, min(len(before), len(after)), 3)
                 if before[i:i + 3] != after[i:i + 3])
+        if n and os.environ.get("GFXLK_DUMP"):
+            w = rect[2] - rect[0]
+            for nm, buf in (("before", before), ("after", after)):
+                os88marty.write_png_rgb("/tmp/gfxlk-%s.png" % nm, w,
+                                        len(buf) // (3 * w), buf)
+            print("  dumped /tmp/gfxlk-before.png and -after.png")
         check("the list survived a window opening over the pointer", n == 0,
               "%d pixels the list has that a repaint of it does not" % n)
         check("...and no bank saw the arrow", word(m, "gfx_aud_bank") == 0,

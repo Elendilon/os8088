@@ -396,6 +396,12 @@ PT_PAL_X0   equ 1                   ; tool palette, left column
 PT_PAL_X1   equ 22                  ; ...and right column
 PT_PAL_Y0   equ 1                   ; first button row
 PT_PAL_DY   equ 21                  ; button pitch
+PT_PAL_W    equ PT_PAL_X1 + PT_BW   ; ...and the two of them end to end: the
+                                    ; width of SPEC.md 42.26.1's composed
+                                    ; band, 42, which gfx_blit1 takes off the
+                                    ; byte grid since SPEC.md 5.4.2.5 - so the
+                                    ; divider at PT_DIVX and the bed right of
+                                    ; the buttons stay their own drawers'
 PT_TOOLW    equ 43                  ; the tool column: its bed, the beds the
                                     ; dimension and size text are erased on,
                                     ; and Apply's width are all this
@@ -4582,6 +4588,211 @@ pt_glyph16:
     pop ax
     jmp pt_icon16                   ; tail call: the per-run painter
 
+%ifndef APP_SMALL                   ; SPEC.md 42.26.1: the small arm pairs with
+                                    ; kern_small, which answers CF = 1 to every
+                                    ; band (SPEC.md 5.4.2) - so this could only
+                                    ; ever fall through to the path below, and
+                                    ; on the build whose whole point is bytes
+                                    ; (SPEC.md 42.22) that is 363 of them
+; -----------------------------------------------------------------------------
+; pt_pal_row - a ROW of the palette - two buttons, wells, frames and glyphs -
+;              composed as one 42x20 band and put down with ONE
+;              OSAPI_GFX_BLIT1 (SPEC.md 42.26.1)
+; in:  DI = the row's first tool (an EVEN index), DX = its content y;
+;      [pt_mono] set; gfx lock held
+; out: CF = 0 drawn; CF = 1 the kernel refused and NOTHING was drawn, so the
+;      caller draws the row button by button. Preserves every register.
+;
+; SPEC.md 42.26 put each glyph on one OSAPI_ICON_DRAW and left the eight
+; buttons at 111 ms of every full repaint - eight sprite passes and sixteen
+; fills, each an arriving of its own. This composes the row's pixels in RAM
+; at 15.3 us a byte and arrives ONCE.
+;
+; THE ROW IS THE UNIT BECAUSE THE BUTTON CANNOT BE. gfx_blit1 wants an x on
+; the byte grid and the buttons are at columns 1 and 22; the content origin
+; itself is 8-aligned (SPEC.md 11.94), so the band starts at content column 0
+; and runs to 41, the right button's last - a width of 42, which is only a
+; legal argument since SPEC.md 5.4.2.5 and is what keeps the divider at
+; column 47 and the bed beyond the buttons out of it.
+;
+; What it costs is columns 0 and 21 - bed pt_fsbed has already whitened -
+; being laid white a second time. That is 40 pixels a row against the 76 of
+; each well's border that fill-then-frame wrote twice, so the double-writing
+; PERFORMANCE.md rule 2 is about goes DOWN by an order of magnitude.
+;
+; The band is built in pt_line, which is PT_CW_MAX bytes and holds 120 here,
+; and which nothing walks during a repaint (SPEC.md 42.23.4).
+; -----------------------------------------------------------------------------
+pt_pal_row:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push es
+    mov [pt_by], dx                 ; the row's content y - pt_draw_pal's own
+    push di                         ; scratch, and free on this path
+    push ds
+    pop es                          ; the band is ours
+    mov di, pt_line
+    mov cx, 3 * PT_BW               ; 20 rows of 6 bytes, as words: the white
+    mov ax, 0xFFFF                  ; bed, which every mask below cuts INTO
+    cld
+    rep stosw
+    pop di
+    mov si, pt_pmA
+    call .button
+    inc di
+    cmp di, PT_NTOOL
+    jae .emit                       ; an odd tool count: this row has one
+    mov si, pt_pmB
+    call .button
+.emit:
+    mov ax, [pt_ox]                 ; content column 0, on the byte grid
+    mov bx, [pt_by]
+    add bx, [pt_oy]
+    mov cx, PT_PAL_W
+    mov dx, PT_BW
+    mov si, pt_line
+    mov bp, 6                       ; the band's stride
+    call OSAPI_GFX_BLIT1            ; CF is the answer, and no pop writes one
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; .button - one button's well, frame and glyph into the band
+; in:  DI = the tool, SI = its table; out: preserves DI, clobbers AX BX CX DX SI
+;
+; The square goes dark whole and the interior comes back white, which is two
+; masks rather than three and draws the SELECTED button by simply not doing
+; the second - a black well with a white glyph on it, the one state indication
+; that survives SPEC.md 39.4's reduction (SPEC.md 42.6).
+.button:
+    push di
+    mov bx, pt_line                 ; the 20x20 square, dark
+    mov cx, PT_BW
+.sq:
+    mov ax, [si]
+    and [bx], ax
+    mov ax, [si+2]
+    and [bx+2], ax
+    mov ax, [si+4]
+    and [bx+4], ax
+    add bx, 6
+    loop .sq
+    add si, 6
+    xor dh, dh                      ; DH: bit 0 = in hand, bit 2 = stippled
+    mov al, [pt_tool]
+    xor ah, ah
+    cmp ax, di
+    jne .well
+    or dh, 1                        ; in hand: the well STAYS dark
+    jmp short .glyph
+.well:
+    mov bx, pt_line + 6             ; ...otherwise its interior is white again
+    mov cx, PT_BW - 2
+.in:
+    mov ax, [si]
+    or [bx], ax
+    mov ax, [si+2]
+    or [bx+2], ax
+    mov ax, [si+4]
+    or [bx+4], ax
+    add bx, 6
+    loop .in
+.glyph:
+    add si, 6                       ; SI -> the glyph's byte, shift and column
+    mov dl, 0xFF                    ; no stipple
+    test dh, 1
+    jz .nogrey
+    cmp di, PT_T_FILL
+    jne .nogrey
+    cmp byte [pt_havefill], 0
+    jne .nogrey
+    or dh, 4                        ; SPEC.md 42.6.2: the fill tool this machine
+    and dh, 0xFE                    ; cannot fund is greyed - and 42.26's own
+                                    ; answer draws that glyph DARK even on the
+                                    ; dark well a selected tool has, because
+                                    ; pt_glyph16 hands CDGRAY to the pass as
+                                    ; CBLACK. Reproduced rather than improved:
+                                    ; this row is a speed change, and
+                                    ; tests/paintpal.py holds the two paths to
+                                    ; the same pixels
+    mov al, [si+2]                  ; A one-bit band lays SPEC.md 39.4's
+    add al, [pt_by]                 ; dither itself, and in the phase the
+    add al, [pt_oy]                 ; kernel would have used: the pixels KEPT
+    add al, 2                       ; are those where (x + y) is odd, and
+    mov dl, 0x55                    ; [pt_ox] is a multiple of 8 (SPEC.md
+    test al, 1                      ; 11.94) so a content column's parity IS
+    jz .nogrey                      ; its screen column's
+    mov dl, 0xAA
+.nogrey:
+    mov ch, [si+1]                  ; CH = the glyph's bit offset, all the way
+    mov bl, [si]                    ; down the loop
+    xor bh, bh
+    add bx, pt_line + 2 * 6         ; BX -> band row 2, the glyph's first byte
+    mov si, di
+    add si, si
+    mov si, [pt_ic_tab+si]          ; SI -> its sixteen rows
+.grow:
+    lodsw                           ; AX = the row, bit 15 leftmost
+    and al, dl                      ; the dither, or nothing
+    and ah, dl
+    test dh, 4
+    jz .nofl
+    xor dl, 0xFF                    ; ...whose phase turns over a row down
+.nofl:
+    mov di, ax                      ; bank the row: the two shifts spend AX
+    mov cl, ch
+    shr ax, cl                      ; AH, AL = the first two bytes' pixels
+    test dh, 1
+    jnz .gwhite
+    not ah                          ; a dark glyph on a white well: the bits
+    not al                          ; go OUT
+    and [bx], ah
+    and [bx+1], al
+    mov ax, di
+    mov cl, 8
+    sub cl, ch
+    shl ax, cl                      ; AL = what spills into the third byte
+    not al
+    and [bx+2], al
+    jmp short .gnext
+.gwhite:
+    or [bx], ah                     ; ...and a white one on a dark well: IN
+    or [bx+1], al
+    mov ax, di
+    mov cl, 8
+    sub cl, ch
+    shl ax, cl
+    or [bx+2], al
+.gnext:
+    add bx, 6
+    cmp bx, pt_line + 18 * 6
+    jb .grow
+    pop di
+    ret
+
+; The two buttons, in the band's own bits: the square to AND out, the interior
+; to OR back, then the glyph's first byte, its bit offset in that byte, and
+; its content column - which is the button's plus two, and is what the dither's
+; phase is taken from.
+pt_pmA:     db 0x80, 0x00, 0x07, 0xFF, 0xFF, 0xFF   ; columns 1..20
+            db 0x3F, 0xFF, 0xF0, 0x00, 0x00, 0x00   ; ...its interior, 2..19
+            db 0, 3, PT_PAL_X0 + 2
+pt_pmB:     db 0xFF, 0xFF, 0xFC, 0x00, 0x00, 0x3F   ; columns 22..41
+            db 0x00, 0x00, 0x01, 0xFF, 0xFF, 0x80   ; ...its interior, 23..40
+            db 3, 0, PT_PAL_X1 + 2
+%endif                              ; APP_SMALL
+
 ; -----------------------------------------------------------------------------
 ; pt_draw_pal - the eight tool buttons, two columns of four
 ; in:  nothing; gfx lock held
@@ -4604,7 +4815,24 @@ pt_draw_pal:
     add ax, PT_BW - 1
     cmp ax, [pt_ch]
     jge .done                       ; a short window shows fewer tools rather
-    mov [pt_bx], cx                 ; than drawing over its own strip
+                                    ; than drawing over its own strip
+%ifndef APP_SMALL
+    ; --- SPEC.md 42.26.1: on a one-bit screen the whole ROW is one composed
+    ; band, and the per-button path below is the second path its refusal owes
+    test di, 1
+    jnz .one                        ; the odd half of a row the band declined
+    cmp byte [pt_mono], 0
+    je .one                         ; a colour card has planar hardware for the
+    call pt_pal_row                 ; fills and a real grey for the glyph
+    jc .one
+    inc di
+    inc di
+    cmp di, PT_NTOOL
+    jb .tool
+    jmp short .done
+%endif
+.one:
+    mov [pt_bx], cx
     mov [pt_by], dx
     mov byte [pt_pen], CWHITE       ; the well: black when this tool is in hand
     xor ax, ax

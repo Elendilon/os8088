@@ -43,8 +43,10 @@ WHAT THIS GUARANTEES, and it is worth being precise because the old rule was
 "one build at a time, globally":
 
   * two rows with DIFFERENT knobs never touch the same file;
-  * two rows with the SAME knobs share one tree, and the second waits only
-    for the first's BUILD, not for its run;
+  * two rows with the SAME knobs share one tree: the second waits for the
+    first's BUILD, and a row that wants to BUILD one waits for the rows
+    READING it (_Lock downgrades to a shared hold rather than dropping it,
+    which is what stopped `msegnomem` reading a kernel.bin mid-rewrite);
   * `build/` itself is never written by a row at all, so a person or another
     agent may `make` in the checkout while a soak runs.
 
@@ -76,8 +78,10 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Under build/, so `make clean` sweeps them and .gitignore already covers it.
-# A tree is ~1.2 MB - the whole shipped set of images and packages - so twenty
-# of them is 24 MB and disk is not a consideration here.
+# A tree is ~1.2 MB at DEFAULT_TARGETS - the 360KB pair and the packages - so
+# twenty of them is 24 MB and disk is not a consideration here. A tree is as
+# big as its `targets` though: tests/unit/t_nasm3.py asks for all nine
+# floppies plus kern_small's two and kern_emu's, and that one is ~16 MB.
 TREES = os.path.join(ROOT, "build", "trees")
 
 # What a row almost always wants: the 360KB pair, which is what MartyPC's
@@ -296,12 +300,34 @@ def _goals(d, targets):
     return out
 
 
+# Shared holds taken by this process, kept alive for its lifetime: see
+# _Lock.__exit__. Never read - the list IS the reference.
+_HELD = []
+
+
 class _Lock(object):
-    """flock on one tree's own lock file, held across the build and no longer.
+    """flock on one tree's own lock file: EXCLUSIVE to build, SHARED to read.
 
     Per TREE and not global: two rows with different knobs never meet here,
-    and two with the same knob meet for the length of one `make` - after which
-    both read the same finished tree.
+    and two with the same knob meet for the length of one `make`.
+
+    **AND THEN THE READER KEEPS A SHARED HOLD**, which the first version did
+    not and a soak caught. The claim was that after the build "both read the
+    same finished tree", resting on the second row's `make` being a no-op. It
+    is not reliably: `msegnomem` and `mseglazy` share the DISKCNT=1 tree, the
+    second re-entered it while the first was running, and os88sym read a
+    kernel.bin mid-rewrite - "the map describes a DIFFERENT kernel ... first
+    difference at 0x72a, and the file was written 2.7 s ago". The message had
+    already worked out what happened; nothing had stopped it happening.
+
+    So the hold is downgraded rather than dropped, and lives as long as the
+    reading process. A second row's BUILD then waits for the readers, and two
+    readers never wait for each other. It costs serialisation only between
+    rows that share a tree, which is exactly the set that can collide.
+
+    Everything the original argument rested on is unchanged: it is still one
+    flock, still per tree, and the kernel still drops it when the holder exits
+    however it exits - no lease, no expiry, nothing to get wedged.
 
     The kernel drops it when the holder exits, so there is no lease to expire,
     nothing to renew, and no way to leave one behind. That is the property
@@ -324,11 +350,21 @@ class _Lock(object):
         return self
 
     def __exit__(self, *a):
+        """Downgrade to SHARED and KEEP it - see the class docstring.
+
+        The handle is parked in a module-level list because closing it is what
+        releases an flock: a Tree that went out of scope would drop the hold
+        silently and put the race back with nothing to show for it.
+        """
         try:
-            fcntl.flock(self.fh, fcntl.LOCK_UN)
-        finally:
-            self.fh.close()
-            self.fh = None
+            fcntl.flock(self.fh, fcntl.LOCK_SH)
+            _HELD.append(self.fh)
+        except Exception:               # a downgrade that cannot be taken is
+            try:                        # not worth failing a row over: fall
+                fcntl.flock(self.fh, fcntl.LOCK_UN)
+            finally:
+                self.fh.close()
+        self.fh = None
 
 
 # THE COMPRESSED KERNEL'S FOUR DEFINES ARE NOT REPORTED, and that is the
@@ -404,6 +440,70 @@ def defines_for(args, target="kernel-full.bin", build=None):
                                       line))
                          if not _kz(d))
     return ()
+
+
+# --------------------------------------------------------------------------
+# The OTHER assembler: nasm 3
+# --------------------------------------------------------------------------
+#
+# THE TREE ASSEMBLES UNDER NASM 2.16 AND THAT IS NOT THE SAME QUESTION AS
+# whether it assembles under nasm 3.  CONTRIBUTING.md's floor is 2 here, and
+# the reason it can be is a construct this branch does not use - but the
+# implication people read off it is the wrong way round: 2.16 being ENOUGH
+# does not make 3.x equivalent, and every distribution that has moved on
+# (Homebrew ships 3.x today) hands the tree to an assembler nothing here ever
+# ran.  nasm 3 REFUSES things 2.x accepted: `add di, mod_fp - mod_tab*7` is
+# `invalid operand type` there and assembles silently under 2.16, which is
+# how kernel/mod.inc reached a merge un-buildable for half the people who
+# would try it (commit 799c5a9, SPEC.md 2.8's mod_fpr).
+#
+# So the assembler is a CAPABILITY, probed like every other one in
+# tools/os88test.py - a box without one SKIPS the row rather than passing it.
+NASM3_MIN_MAJOR = 3
+
+# In order, and the order is the point. An explicit path wins; then the
+# side-by-side spellings a person installing a second nasm actually uses; then
+# `nasm` ITSELF, because on a box whose only nasm is 3.x - which is what a
+# `brew install nasm` gives today - there is no second binary to find and the
+# row must still run. Probing the default last is what stops a box with both
+# from testing the one it already tests.
+NASM3_NAMES = ("nasm3", "nasm-3", "nasm")
+
+
+def nasm_version(path):
+    """(major, minor) out of `<path> -v`, or None if it does not answer.
+
+    Read rather than assumed: a name is not a version, and `nasm3` on PATH
+    has been a symlink to 2.16 on at least one box. The probe below turns
+    that into "no nasm 3 here" - a SKIP - instead of a row that assembles the
+    tree twice with the same assembler and reports a pass about a version it
+    never ran.
+    """
+    try:
+        out = subprocess.run([path, "-v"], capture_output=True, text=True,
+                             timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    m = re.search(r'^NASM version (\d+)\.(\d+)', (out.stdout or "") + (out.stderr or ""))
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def nasm3():
+    """The path to an nasm >= 3 on this box, or None.
+
+    `$OS88_NASM3` names one explicitly - which is how a developer points the
+    gate at a build that is not on PATH, and how the container that has no
+    packaged nasm 3 runs it at all.
+    """
+    named = os.environ.get("OS88_NASM3")
+    cands = [named] if named else [shutil.which(n) for n in NASM3_NAMES]
+    for p in cands:
+        if not p:
+            continue
+        v = nasm_version(p)
+        if v and v[0] >= NASM3_MIN_MAJOR:
+            return p
+    return None
 
 
 def tree_root():

@@ -45,6 +45,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 KERNEL_SEG = 0x0060                      # SPEC.md 2 - one place, one meaning
@@ -442,12 +443,41 @@ def _load(defines=(), check=True):
         # growing a second opinion about the layout.
         mine = open(binf, "rb").read()
         mine = mine[:_modcut(mine)]
-        if mine != open(built, "rb").read():
+        theirs = open(built, "rb").read()
+        if mine != theirs:
+            # **SAY WHAT DIFFERS, AND HOW OLD THE FILE IS.** This message used
+            # to end at "a DIFFERENT kernel", and its advice - run `make` - is
+            # the right answer for the case it was written for and useless for
+            # the one that actually keeps happening: three soak rows in two
+            # runs (msegnomem twice, paintpack once) have died here against a
+            # PRIVATE TREE that os88build had just built, every one of them
+            # passing when run alone. A tree rebuilt underneath a reader and a
+            # tree that is genuinely stale are the same sentence today, and
+            # they are not the same bug.
+            #
+            # The three readings that tell them apart cost nothing: the two
+            # lengths (a truncated file is a build that was interrupted), the
+            # first differing offset (near the front is a define or an
+            # include; deep in .cold is a different source), and the age of
+            # the file (seconds means somebody rewrote it while this ran,
+            # which no amount of `make` will fix).
+            n = min(len(mine), len(theirs))
+            at = next((i for i in range(n) if mine[i] != theirs[i]), n)
+            try:
+                age = time.time() - os.path.getmtime(built)
+            except OSError:
+                age = float("nan")
             raise RuntimeError(
-                "the map describes a DIFFERENT kernel from %s: run `make` "
-                "(or pass the knob's --define, or $OS88_DEFINES, and "
-                "$OS88_BUILD for a sub-make's own directory) before trusting "
-                "any address from it." % os.path.relpath(built, ROOT))
+                "the map describes a DIFFERENT kernel from %s: the map is %d "
+                "bytes and the file is %d, first difference at %#x, and the "
+                "file was written %.1f s ago. A file only SECONDS old was "
+                "rewritten while this was reading it - another row building "
+                "the same private tree - and `make` is not the fix for that; "
+                "otherwise run `make` (or pass the knob's --define, or "
+                "$OS88_DEFINES, and $OS88_BUILD for a sub-make's own "
+                "directory) before trusting any address from it."
+                % (os.path.relpath(built, ROOT), len(mine), len(theirs), at,
+                   age))
 
     out, sect, equ = _parse_map(mapf)
     if not out:

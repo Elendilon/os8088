@@ -44,6 +44,31 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+def _declared(target):
+    """A target as `tests/suite.py` SPELLS it, whatever form the row passed.
+
+    `wants=` is written in `build/x` form and `$OS88_PREBUILT` carries it
+    verbatim, but a row that resolves its own artefact - which it must, or it
+    reads the shared build/ while the run reads its tree (tests/unit/
+    t_artpath.py) - passes `<tree>/x`, absolute. Comparing those two strings
+    says "not declared" about an artefact declared and built.
+
+    So the comparison is done in ONE spelling: anything inside the run's tree
+    is mapped back to `build/...` first. `os88build.at()` is the other
+    direction of this and the two are inverses. Outside a frozen run there is
+    no tree and this is the identity.
+    """
+    import os88build
+    root = os88build.tree_root()
+    if not root or not isinstance(target, str):
+        return target
+    a, r = os.path.abspath(target), os.path.abspath(root)
+    if a == r or a.startswith(r + os.sep):
+        rel = os.path.relpath(a, r).replace(os.sep, "/")
+        return "build" if rel == "." else "build/" + rel
+    return target
+
+
 def need(*targets):
     """Run `make` for each target, from the repo root. Exits on failure.
 
@@ -86,7 +111,7 @@ def need(*targets):
     have = os.environ.get("OS88_PREBUILT")
     if have is not None:
         done = set(have.split())
-        missing = [t for t in targets if t not in done]
+        missing = [t for t in targets if _declared(t) not in done]
         if not missing:
             return
         sys.exit(

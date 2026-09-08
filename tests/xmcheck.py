@@ -50,6 +50,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # this one is here because the import is at module scope.)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import os88fixture                                           # noqa: E402
+import os88build
 
 XM_BLKSZ, XM_MAX_BLKS = 8, 8        # XM_MAX_BLKS: kernel/kernel.asm.
                                     # XM_BLKSZ: drivers/xmem/xmem.asm, NOT
@@ -63,7 +64,7 @@ XM_OWN_KERN = 0xFF
 
 SOCK = os.path.join(ROOT, "build", "qmp.sock")
 PID = os.path.join(ROOT, "build", "qemu.pid")
-XMIMG = "build/xmtest.img"          # `all` builds nothing under tests/, and
+XMIMG = os88build.at("build/xmtest.img")          # `all` builds nothing under tests/, and
                                     # `make test` names TESTAPPS as one of its
                                     # own prerequisites, so asking for it here
                                     # builds it (tools/os88fixture.py's rule,

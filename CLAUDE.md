@@ -54,9 +54,10 @@ first of them fires in the first minute of a session.
 | **[docs/plans/HANDOFF-SOAK-FINDINGS.md](docs/plans/HANDOFF-SOAK-FINDINGS.md)** | a row of the soak failing, or looking for work. It is the queue the kernel size pass 2 soak left: 235 rows against a kernel 4,661 bytes lighter, fifteen failures investigated, and **not one of them a regression in kernel behaviour** - so what is in it is what was ALREADY broken. Every item says what was ruled out and on what evidence, and it is worth opening BEFORE diagnosing a failure of your own, because most of them are already in there: three rows FAIL where they mean SKIP (the suite models tools and not artefacts, so "the wire disk has been built" cannot be said), install-then-boot is broken by the per-instance disk clones that make `--marty-jobs` safe, `cold_span` measures `.cold` to EOF and `.ovlw` sits after it - and that one's message says "rebuild before trusting this" about a build that is current, which cost a wrong diagnosis. It has now been worked through and the striking result is that **NOT ONE of the fifteen was a defect in shipped software** - four classifications in it were wrong and are corrected in place, including `trkscrl`, which this row called the one genuine product defect and which is a key the test's own include bound to something the application had already claimed. The largest single finding is not a row at all: PERFORMANCE.md's Hercules VRAM write cost is measured at N=8 against a quantity that needs N=48, and the documented ratio of 1.36 is really 1.671 |
 | **[docs/plans/SOAK-PARALLEL.md](docs/plans/SOAK-PARALLEL.md)** | running the WHOLE soak, or blaming a failure on contention. **BUILT** - `tools/os88soak.py` is the command (`check` / `start` / `status` / `stop`), and `make test-soak` is not: that runs the same rows serially. Its §1 is the measurement that overturns the standing theory, and it is the reason to open this before diagnosing anything: twelve rows at width 1 idle and at width 3 with **two extra CPU hogs** were **1.06x** slower and **12/12 passed in both arms**, so no timeout was ever going to fire and raising one would only make a stuck row sit there longer. What moves under load is the GUEST rate. The wait log recorded **118 waits in each arm - the same waits in the same scripts - at the same median HOST cost of 2.2s and a guest cost of 7.3s against 5.9s**, up to **-37%** per script: the same line of the same test takes the same wall time and hands the machine a third less work. **Contention does not make a row slow, it makes it LESS THOROUGH**, which is precisely why the wall times in every classification run showed nothing. So the waits hang off the GUEST clock now: a budget in guest seconds that a loaded box cannot shorten (17x headroom over the widest wait measured), and a guest that STOPS advancing fails its wait in **2.1s against 120** naming the machine rather than the condition. `OS88_WAITLOG` is how the numbers get re-derived rather than argued about, and the 194-file sweep B5 warns of is deliberately left behind `OS88_GUEST_PACE`. **Its §11 is where the suite's time actually goes**, and the finding is one number: **`settle` is 48% of a row** and two-thirds of every settle is its own floor - `stable` identical captures `quiet` apart is 2.0 host seconds before it can return, and the gap log says `stable` cannot come down (a change arrives after one whole quiet round **1 time in 19**, so halving it would end one settle mid-repaint per 48). **The floor is real, so the only way to spend less is not to settle** - which is what `tools/os88ui.py` is for. Four across-the-board cuts took the same four rows **269.2s -> 206.6s** with everything still passing (`dispnp` 73.8 -> 41.0, `dispthm` 81.2 -> 51.1): the screen bands went lazy, `Mouse.to` confirms each packet instead of sleeping 0.25s after it, the trailing settle came out of the navigation verbs (**2 of 401 call sites** read pixels within six lines of one), and the Control Panel verbs read `[cp_sel]`/`[vid_dmode]`/`[cp_wdirty]` instead - that last one being the SYSTEM.CFG write, where `time.sleep(1.0)` used to return mid-write on a busy box. **Then the log learned to name the CALL SITE**, which turned the totals into a work list with a very sharp head: **one line was 30% of all settle time** in a ten-row sample (`dispcalc`'s `typed`, 60 settles at 2.3s) - and what follows it is thirteen bytes of the Calculator's own composition buffer, so the screen was never the question. `os88marty.quiesce(m, read)` is settle's shape applied to those bytes - the same `stable` identical readings a fixed interval apart, over a handful of bytes instead of a framebuffer and over GUEST seconds instead of host ones - and it took **dispcalc 376.3s -> 197.2s**, 48%, with every assertion still passing. **56 settles in 34 files** are followed by a guest-memory read and no framebuffer read at all, so the pattern has a queue. Its §5 is the IBM ROM audit - **no registered row made the case**, all four are on GLaBIOS twins and `t_machines` keeps them there - and its §6 the two false greens found on the way, of which `dispcp` is the one to remember: a LIBRARY imported by 104 files, registered as a soak row, reporting `ok` in 0.1s against 60 declared. **Its §8 is the second phase and retires `tools/martylock.py`, which is DELETED** — do not go looking for a build lock. A row that wants a knob kernel builds into `build/trees/<knob>-<hash>/` (`tools/os88build.py`) instead of into `build/`, which is the whole of what `builds=True` was protecting and the whole of what the lock was for. `make BUILD=<dir>` has always worked and gives a BYTE-IDENTICAL image; nothing had to be invented. Two traps are written down there and both bit: **`make -n` is not a dry run of the PARSE** — `$(VIDSTAMP)`'s rule deletes `$(BUILD)/kernel.bin` and every boot sector when the knob set differs, so a `make -n` with a knob in it pointed at `build/` is a DESTRUCTIVE command — and a knob's make VARIABLE is not its nasm DEFINE (`VGADIRTY=1` compiles `-DVGA_DIRTY`), so the defines are derived rather than restated. Its audit answers "do we need this many builders": **19 of 52 are knobs**, 27 are an artefact that should just exist before the run, and six are not builds at all |
 | **[docs/WRITING-TESTS.md](docs/WRITING-TESTS.md)** | **ADDING A ROW TO THE SUITE — read it before writing the first line, not after the review.** How to register a row, and the four failures that keep coming back: a `secs` nobody measured (the compression family once declared **2,721 seconds** for rows that take **701**), a `builds=True` that writes the shared tree when a `wants=` or a private tree was the answer (four of eight such rows needed **no build at all**), a hand-rolled click at a remembered coordinate where `tools/os88ui.py` resolves it by name off the guest's own tables, and a `time.sleep` that hands the machine **37% less work** under load and fails looking like the thing under test. Its §1 is the one that decides whether the row is worth having — **break the thing on purpose and watch it go red** — because a green row that tests nothing is worse than no row: nobody investigates a pass, which is how `dispcp` (a LIBRARY) and `mkclick` (a GENERATOR) sat in the suite reporting `ok` in a tenth of a second. **§13 is the list of eighteen incidents the rules are made of**, kept because the abstract rule is forgettable and the corpse is not |
-| **[docs/TESTING.md](docs/TESTING.md)** | concluding something is untestable — it is the matrix of what each emulator can and cannot do, with a recipe per capability |
+| **[docs/TESTING.md](docs/TESTING.md)** | concluding something is untestable, **or reaching for a test tier** — it is the matrix of what each emulator can and cannot do, with a recipe per capability, and its *When to run which tier* is the AUTHORITY on when `fast`, `full` and the soak are run. None of the three is a per-commit gate, and the Testing section below is only its short form |
 | **[docs/KERNEL-MEMORY.md](docs/KERNEL-MEMORY.md)** | spending any memory — the three rules and their guards, what `kernsize`'s lines mean, the ladder, task stacks and the standing gotchas (512-aligned bases, sections are not heap, rungs are not a design input). The budget ledger itself is `kernel/kernel.asm`'s `KERN_BUDGET` comment |
 | **[docs/HEAP-CLAIMS.md](docs/HEAP-CLAIMS.md)** | declaring a heap claim movable, or asking why a compaction achieved less than expected — one row per claim in the tree with its `MC_RLOC` verdict and the reason, including the packages that claim and have never declared (Word, Sheet, every C package — the C SDK cannot). `tools/heapmap.py` reads the fact off a running machine |
+| **[docs/plans/HEAP-UNPIN-PLAN.md](docs/plans/HEAP-UNPIN-PLAN.md)** | costing a region, driver image or module move as a small follow-on. **RESEARCH, nothing built**, and it is SPEC.md 66.6's door priced properly. **HEAP-UNPIN-PLAN §2.0 is the case it exists for and the thing to read first**: a driver mounted MID-SESSION lands at whatever depth the heap had then, and because its base is a CS it becomes a WALL that never moves - mount ETHER at boot, open Sheet/Paint/Tracker, then mount SOUND and unmount ETHER and close everything, and a 6KB image plus an 8KB ring stand in the middle of ~125KB of free space for the rest of the session. It does not heal, it accumulates with every later mount, and it is caused by ordinary use of the Control Panel. **The second thing is that the arena picture is not what it looks like**: a package REGION is claimed TOP-DOWN like a driver image and a module (`mem_claim_hi_x`, kernel/loader.inc:810), so "the top of the heap" IS the set of CS-based claims - and `mem_claim_1`'s `.hi` arm already refills any ceiling hole big enough while `mem_cp_plan` already reports it, so unpinning the top buys a MERGE of free runs and not a reclaim. The REAL mid-arena barriers are three cheaper things: a package's OVERLAY image is claimed BOTTOM-UP with a CS base (SPEC.md 50.3.2.1's defect one layer out) and **`CWORD.OVL` is 18,565 bytes, bigger than every kernel module put together, pinned mid-arena for the program's whole life - while `cc_ovbind` (`apps/cc/crt0.asm:1084`) is ALREADY its relocation proc**, so that one is ~10 bytes of `crt0.asm` and ZERO kernel bytes and is the best value in the file; SHEET puts 99KB of undeclared claims in at its entry proc; and `apps/cc/os88.h` has no `os88_mem_movable` at all so no C package can declare one. **HEAP-UNPIN-PLAN §5.1 settles ETHER.DRV's 14KB socket pool**, which was claimed top-down under a comment saying *"the card's own descriptors point into these rings and it DMAs into them"* - both clauses false for an NE2000, whose two DMA engines are internal to the card and whose host side is `in al, dx`/`stosb`, and which this driver polls with **no vector hooked at all**. The pool is UNDECLARED rather than unmovable, `sk_reclaim` says so in as many words, and a proc for it is one store to `[sk_seg]`. Other claims it REFUTES: a stack scan does not replace ONDEMAND-PLAN §7.1's pin (both a scan and a per-call counter are blind to a HELD SPAN - `kernel/files.inc:5461` holds a module while the user takes the system disk OUT), and `MC_DMA` is not unrelocatable in principle (`mem_regrow` path 3 already relocates one page-safely, and `filecp`'s own fallback drops `MC_DMA` and still copies). Its finding is that the pinned set is FOUR populations with four answers and three are cheap: of four uses of the DMA door only the Sound Blaster ring has a chip armed on it (Word's typeface cache asks for 512-byte ALIGNMENT, the read-ahead is already purgeable), and that ring's unmount/remount is `sbl_halt`/`sbl_go_on`, **already built**. An overlay wants DROPPING and not moving - ONDEMAND-PLAN §7.1/§7.2 designed it and refused it only for want of a pin. A driver image is named by **66 kernel words in 9 tables**, three of which are NOT in `drv_tab` (`ss_row`, `xm_row`, `vmm_row`), and half its predicate is built and exact already - `[drv_wcnt]`, which `drv_unload` waits on. **A STACK SCAN IS REFUSED**: heap segment numbers share a 16-bit range with kernel return addresses AND a package's own near pointers, so a sweep that patched would corrupt a return address silently, which is SPEC.md 66.3 rule 5's own argument. Three exact COUNTERS answer it instead, one of them eleven bytes. Where it stops is a package that owns a WORKER - `task_spawn` writes the region's segment into the worker's frame before it runs, so 191,350 bytes of region stay pinned against 135,930 that move, though the movable side holds SHEET, PAINT and TEXPAD, **the three largest in the tree**. HEAP-UNPIN-PLAN §4.7 is the only way past and it is an ABI change: the worker declares a restart point and the kernel rebuilds its frame. **The user's "unload and remount" is not hypothetical - this tree ships it TWICE** (`hbm_detach`/`hbm_reload` around a hibernate, 91 bytes; `ss_reap_x` every time the screen saver finishes) and it reaches MORE memory than a move while breaking nothing, because a package names a driver by CLASS; what it cannot be is a compaction primitive, `drv_unload` yielding and `drv_load` claiming inside `[mem_cp_busy]`. Bill ~740-870 resident bytes in six separable pieces, every figure an ESTIMATE against a measured comparable. Two things in the tree are stale whatever is decided: SPEC.md 66.9 reason 5 (built, as `dsk_dseg_reloc`) and SPEC.md 38.0.1's "16KB claim", which is `MOD_MAX_KB`'s cap where the claim is 4KB |
 | **[docs/plans/KERN-SMALL-CUT-PLAN.md](docs/plans/KERN-SMALL-CUT-PLAN.md)** | cutting `kern_small` down further for the 128KB machine. **THIS IS THE OPEN HALF ONLY** - what has been BUILT is **[docs/plans/completed/KERN-SMALL-CUT-BUILT.md](docs/plans/completed/KERN-SMALL-CUT-BUILT.md)**, and that one is the briefing: a 128KB desktop has **50.5 KB** of free heap against 32.5 when the study opened, MEASURED on a machine with 128KB in it (`tests/small128.py`) - every other MartyPC profile here is 640KB, so `MIN_RAM_KB` had been an arithmetic claim since the day it was written. It carries A3, A4, A2, C3, B5 and the D rows, and **three findings that bind every row still open**: **SECTIONS ARE NOT HEAP** (3,632 bytes of sections bought 2,560 of heap - 991 were `.ovl`/`.ovlw`, boot-overlay code loaded into memory the machine reuses once it is up, which moves `KERN_SIZE` and moves `HEAP_SEG` by nothing - so every per-feature row in the open plan is an UPPER BOUND on free heap rather than an estimate of it); **in a kernel with overlays a byte's value depends on WHERE it is** (A2, the clock ladder, was REFUSED on a correct measurement of the wrong thing - forcing one rung is 44-51 bytes - and then TAKEN, because `.ovlw` is what §7 caps three of the biggest data cuts against and the clock was 40% of it; gating it took `.ovlw` 4,328 -> 2,789 and UNLOCKED D2, which is 3,584 bytes, seven times what A2's own row claimed); and **a claim is not a section** (B5's second half is 1,024 bytes per open Disk window and never appears in `kernsize` at all - per-instance claims are the lever nothing has counted). Also a reporting trap: `kernsize`'s `sum` is a delta against the BLESSED BASELINE and not against the tree you started from, so a stale baseline reports three waves as one and reads exactly like an increment. **The 70KB target is RETIRED** - it came from SHEET's region, and SHEET claims ~100KB of heap on open, more than the machine has, so no row ever ran it (SPEC.md 24.5.2); the brief is open-ended now. The open plan's founding finding still stands - the requester's own list is the wrong 20% of the kernel, **the file system and the window system are 69% of the code**, and there is no fat symbol - and its **§7 is the floor nobody had to notice**: `.ovlw` is loaded onto the FAT window and spills through the mount buffers, so those may shed **2,816 bytes between them and not one more**. Two standing refusals: the damage-rect layer is the redraw architecture and not a nicety, and PAINT, the other program behind the ask, was solved at the APPLICATION layer instead (SPEC.md 42.23), which is the shape worth noticing |
 | **[docs/plans/completed/KERN-SMALL-MODULE-SPLIT.md](docs/plans/completed/KERN-SMALL-MODULE-SPLIT.md)** | moving more of `.cold` behind `mod.inc`'s on-demand mechanism, **on `kern_small` alone** - `kern_big` keeps every byte resident and its cylinder-run boot read unchanged, which is free, because a module is CUT OUT of `kernel.bin` and `MODC_START` is exactly where the image ends. **BUILT, all three waves, and there is no fourth**: W0 gated `assoc` out (SPEC.md 54.0), W1 made Cut/Copy/Paste `FILECP.DRV` (22.3.0) and W2 made the Standard File dialog `FDLG.DRV` (38.0). `KERN_SIZE` 96,256 -> 88,064 and the heap 32.5 -> 40.5 KB; what is left of the 128KB ask lives in docs/plans/KERN-SMALL-CUT-PLAN.md §8.1. Its finding was that **two of the four candidates are refused by the mechanism itself**, so the net was **4,649 bytes and not the 12,997** the cut plan claimed off a sum of their `.cold`. **`mod_need`'s own transitive cone is 155 symbols in 7 files - 16,880 bytes, 48.9% of `.cold`** - and `assoc.inc` was INSIDE it, so it was GATED rather than moved and went FIRST, being worth **5.5 KB** where either module is under 3 (`asc_use_x` claimed `ASC_KB` = 3,072 bytes under a kernel tag at the BOOT mount and nothing freed it). **`diskw.inc` is not the write path, it is the by-name file I/O layer** - `mod.inc` calls `dskw_read_x` TO LOAD A MODULE - and it has 33 entry points against `MOD_NENT`'s 8, so it is refused. **docs/plans/completed/KERN-SMALL-MODULE-SPLIT.md §9.2.6 and docs/plans/completed/KERN-SMALL-MODULE-SPLIT.md §9.2.7 are what the waves cost and what they found**, and the findings are worth more than the bytes: `MOD_NENT` cannot be per-build because `os88mod.py` scrapes it and cannot evaluate an `%ifdef`; **§22.3.0.1 rule 3 assumes the target of a tail jump is CALLABLE, and a continuation is not** (`fm_dotin` takes the SI its entry banked, so `call/ret` there eats the return address, on BOTH kernels); an `equ` alias that emits nothing still makes the aliased symbol look ADDRESSED to a source-reading walker; and `tools/os88geom.py` mirrored ONE of the two kernels without saying so, so every kern_small script decoded `wm_wins` at the wrong stride and returned plausible numbers. **§8 records the measurement error worth not repeating**: the first call-graph pass could not see `call far COLD_SEG:label` and read fdlg at 2 entries instead of 11 |
 | **[docs/plans/completed/O88-MULTISEG-PLAN.md](docs/plans/completed/O88-MULTISEG-PLAN.md)** | a package that wants MORE THAN ONE SEGMENT, or wants to embed its data. **IT IS BUILT, all seven waves** (SPEC.md §20.12). Read O88-MULTISEG-PLAN §1 FIRST: the kernel-side version of this was built to five waves, gated, and thrown away at **2,560 resident bytes** — and the on-demand module that was supposed to win them back fails twice over, because `mod_need` goes to `[dsk_bootvol]` and only there (so a program on an unrelated disk cannot launch on a one-drive machine) and because a module that is never dropped is the same bytes in a different account. The design now is a **standard packages embed**, `apps/os88parts.inc`, over three kernel facts: a `*.O88` over 64KB is still a package, `image` may be smaller than the file, and the entry proc is told the name of the file it came from. **The whole kernel bill is 85 bytes** — `.cold` +70, `.bss` +15, measured on the tree it landed on, where it crosses one cold rung (footprint +512, 31 steps of spare to 30) and crossed none on the branch it was written on — against the 512 the requester set, and **waves 3 to 7 added none of it**: scratch parts, optional parts, the one carved claim, the whole XMS path, lazy parts and the C SDK's own support are package code, which is the architecture's central claim made good rather than asserted. **The first real consumer is `apps/c64`** — 20,480 bytes of KERNAL, BASIC and CHARGEN that were a sidecar a file copy could separate from the program, now part 0 of `C64.O88`. Everything else — sizing, refusing, claiming, XMS, loading on demand — is already published, and the table in O88-MULTISEG-PLAN §4.1 is the mapping, row by row, checked against the tree. The part table moves from the DISK into the IMAGE, which is what deletes 542 bytes of hostile-input validator rather than moving it, and makes a refusal cost no disk read at all |
@@ -76,6 +77,7 @@ first of them fires in the first minute of a session.
 | **[docs/plans/completed/FTP-PERF.md](docs/plans/completed/FTP-PERF.md)** | picking the FTP server's speed back up (§77, §72.15) — what moved it from 7 to 15 KB/s, the four things that did NOT work, where the time goes now (57% of it is ABOVE the driver), and the next five candidates in the order the evidence ranks them |
 | **[docs/LIVE-MEDIA.md](docs/LIVE-MEDIA.md)** | answering any user-facing "how do I write, burn or boot the live USB/CD" — it is the reader's guide (dd, Rufus, BIOS settings, troubleshooting) and the README links it; §80 stays the design record and this file must follow it, never lead |
 | **[docs/WEAVE-SPEC.md](docs/WEAVE-SPEC.md)** | touching anything in the Weave family (`apps/weave/` and `apps/loom/`, the `.WAB` bundle, WML/WJS/FX) — the binding contract, outside SPEC.md on the C64 precedent, cited as `WEAVE-SPEC §N`; `tools/weavesim.py` is its reference implementation and `tests/unit/t_wab.py` its independent second reader. **Two packages share one document and a lot of source**: WEAVE runs a bundle, LOOM builds one, and what they share they share as SOURCE (`%include`/`#include`), never as a copy — WEAVE-SPEC §1.2 is the rule and `apps/weave/wfxc.c` is the worked example, being LOOM's FX compiler as well as WEAVE's formula bar's |
+| **[docs/WIRE-PLAN.md](docs/WIRE-PLAN.md)** | anything in The Wire (§92, `apps/thewire/`, the desktop zone and `OSAPI_PKG_RUN`) — the design record: the four facts that decided the shape, the catalog and picture formats as they were pinned, and what was deferred with the arithmetic attached. SPEC.md §92 is the contract and this is why it reads that way; its brand table is **fixed by the user and not to be reworded** |
 | **[docs/plans/completed/WEAVE-PLAN.md](docs/plans/completed/WEAVE-PLAN.md)** | re-opening a Weave design decision — why each fork went the way it did, the judged alternatives, and what was deferred with the arithmetic attached |
 
 ## Commands
@@ -129,7 +131,7 @@ make bootdiag # WHY a BIOS answers `Disk error` and stops (§2.9.10). SIX
 make test-fast   # THE REGRESSION SUITE (docs/TESTING.md, tools/os88test.py,
 make test-full   #   tests/suite.py). Three tiers; the two that GATE carry an
 make test-soak   #   ENFORCED wall-clock budget — the runner FAILS fast over
-                 #   30s and full over 600s, so a row that no longer fits is
+                 #   30s and full over 180s, so a row that no longer fits is
                  #   a decision somebody takes rather than a drift nobody
                  #   notices. SOAK HAS NONE, deliberately: it is where a test
                  #   goes when it is worth having and does not fit the gate,
@@ -140,15 +142,31 @@ make test-soak   #   ENFORCED wall-clock budget — the runner FAILS fast over
                  #     every shipped floppy walked by an independent FAT12
                  #     reader, unreachable code, SPEC.md 6.6's
                  #     transparent-text ratchet, the doc gate, and that every
-                 #     test in tests/ is registered somewhere or says why not
-                 #   full ~3m45, THE PRE-MERGE GATE — adds the knob kernels and
-                 #     kern_small (every configuration `all` does NOT build, so
-                 #     the only thing keeping them assembling), the C toolchain
-                 #     and a boot to a desktop on both 1bpp adapters
+                 #     test in tests/ is registered somewhere or says why not.
+                 #     **25 rows, and the two things it deliberately does NOT
+                 #     cover are the rule** (docs/WRITING-TESTS.md 2.1): a row
+                 #     about ONE package, and a kernel internal no package can
+                 #     reach. `fast` is the one tier nobody opts into, so both
+                 #     charge every contributor for somebody else's subject -
+                 #     they are in soak, one `-k` away, run by whoever's change
+                 #     would break them
+                 #   full ~1m15 — ONE question: did you obviously break the
+                 #     OS? Boots to a desktop on both 1bpp adapters and on
+                 #     VGA, builds and boots kern_small on its 128KB floor
+                 #     machine, checks the mouse and the keyboard, and builds
+                 #     a C package. **5 rows**, and the 180s ceiling is a
+                 #     target for four lanes on an ordinary box. What it no
+                 #     longer carries is the 99-knob build matrix, which is
+                 #     `soak -k 'buildmatrix'` now: a knob is an instrument,
+                 #     and knob rot is not the OS being broken
                  #   soak no budget — the rest of tests/, one subject each:
                  #     `python3 tools/os88test.py soak -k 'disp*'`
                  #   ...and the WHOLE soak is `tools/os88soak.py`, never this
                  #   target: `make test-soak` runs it SERIALLY. See below.
+                 #   WHEN EACH ONE IS RUN is the Testing section below, and
+                 #   docs/TESTING.md is the authority: NONE of the three is a
+                 #   per-commit gate. Running all three at every step is how
+                 #   an hour gets spent learning what 13 seconds already said
 python3 tools/os88bisect.py classify <row>   # WHY A ROW FAILS, without
               #   the three errors that made the last bisect VOID
               #   (docs/plans/SOAK-PARALLEL.md 10). It is the classification
@@ -216,6 +234,23 @@ make covl       #   covl is the OVERLAY gate (§73.14); cword is the
                 #   application — Word 1.1a again, in C, in two segments
                 #   (§73.12). `make clean` SPARES build/cc
                 #   (clean-cc removes it) — it is a pinned upstream instrument
+make paccman      # PACCMAN (§91), the C toolchain's FOURTH application:
+make paccmandisk  #   Andre Weissflog's arcade-faithful pacman.c (MIT, pinned
+make xt-paccman   #   at 0f5ec5a) as a second Pac-Man beside §89's assembly
+make 386-paccman  #   one - the Namco 28x36 field, the arcade ROM tables in
+make pmcbandbench #   the COMMITTED pmc_rom.c, the four ghosts, the attract
+                  #   reveal, three voices reduced to the speaker. Shares
+                  #   NOTHING with apps/pacman by §73.12's rule, and `make
+                  #   paccman` and build/pacman.o88 are one letter apart.
+                  #   `paccmandisk` is the floppy in all four geometries;
+                  #   `386-paccman` the 386DX/25 that plays it at full
+                  #   speed; `xt-paccman` the 4.77MHz 86Box XT the user's "maybe
+                  #   more performant on XTs" was about — which it is NOT,
+                  #   and tests/paccman.py prints the two ports side by side
+                  #   with that verdict either way. `pmcbandbench` is the
+                  #   composer's bench, run under `qemu-system-i386 -icount
+                  #   shift=3` and READ ON THE SECOND RUN (the first prices
+                  #   BLIT4 10% high)
 make cpmsw      # the CP/M games and applications the RUNCPM floppies carry
                 #   beside RunCPM's master disk (§74.6) - LADDER, CATCHUM,
                 #   Nemesis, GAINA, WordStar, Turbo Pascal - fetched by
@@ -271,9 +306,10 @@ make loom       # LOOM (WEAVE-SPEC §1.2), the family's second package: the
 make loomdisk   #   in-OS IDE that edits a project's sources and packs the
                 #   `.WAB` ON THE MACHINE, byte-identical to what
                 #   `tools/weavesim.py --pack` writes on the host. That
-                #   identity IS the gate (WEAVE-SPEC §11.1): `make` runs the
-                #   host half of it every time (the `lmpack` row, four
-                #   seconds), and `python3 tools/os88test.py soak -k
+                #   identity IS the gate (WEAVE-SPEC §11.1): the host half
+                #   is `soak -k 'lmpack'` (six seconds; it was a fast row
+                #   until the family stopped charging every build for two
+                #   packages) and `python3 tools/os88test.py soak -k
                 #   'weave*'` runs the machine's. `make loomdisk` puts both
                 #   packages, both overlays, WEAVE.WSM, LOOM.WPV, the demo
                 #   bundles and the demo SOURCES on one floppy in all three
@@ -307,6 +343,14 @@ make vmmousetest # THE ABSOLUTE POINTER'S DISK (§9.11.6): a SYSTEM.CFG with
                 #   name: its `pc` machine carries the backdoor and MartyPC
                 #   has none, and `make run VMPORT=on` is the interactive form
                 #   (on kern_big that is now a no-op - `make emu` first)
+make thewiretest # THE WIRE'S GATE DISKS (§92.12): ethertest's shape plus one
+                #   file - a SYSTEM/APPDATA/WIRE.CFG naming 10.0.2.2:8092
+                #   instead of os8088.com, so the machine fetches a fixture
+                #   catalog the test packed with tools/os88wire.py and every
+                #   assertion is about bytes the test chose. The B: floppy is
+                #   a SCRATCH image of its own because Add to Disk WRITES.
+                #   `make thewiretest && python3 tests/thewire.py`. QEMU by
+                #   name, for tests/ethernet.py's reason: MartyPC has no NIC
 make ethertest  # THE ETHERNET GATE'S DISK (§72.9): a SYSTEM.CFG that already
                 #   asks for ETHER.DRV, so the card is up and DHCP has run
                 #   before the first paint and the test reads state instead of
@@ -448,14 +492,15 @@ exactly like the feature being broken.
 `xt-mfm` (a 20MB ST-225 on a Xebec MFM controller — the machine to install
 and hibernate on; `build/mfm20.img` is created blank and kept),
 `xt-cga`, `xt-hercules`, `xt-ega`, `xt-multimon`, `xt-sound`,
-`xt-sound-1.44`, `286`, `286-525`,
+`xt-sound-1.44`, `xt-wire`, `286`, `286-525`,
 `286-sound`, the eight `286-525-*` application machines (`-z`, `-word`,
 `-cword`, `-runcpm`, `-c64`, `-weave`, `-loom`, `-all` — `vm/286-525` with a
 1.2MB app disk in B: instead of the apps floppy, and the only machines in the
 tree that read that geometry at all: a 1.2MB drive wants the AT's 500 kbps
 controller, so no XT profile can host one),
 `386sx`, `386`, `386-sound`, `386-ps2`, `486`, `pentium`, `xt-z`, `386-z`, `xt-word`,
-`386-word`, `386-c-word`, `xt-runcpm`, `286-runcpm`, `386-runcpm`, `xt-c64`,
+`386-word`, `386-c-word`, `xt-paccman`, `386-paccman`, `xt-runcpm`, `286-runcpm`,
+`386-runcpm`, `xt-c64`,
 `286-c64`, `386-c64`, `xt-weave`, `386-weave`, `xt-weave-256`;
 plus `marty` (MartyPC). **`386-ps2` is the only machine here with a PS/2 mouse** — every other config
 is `mouse_type = msserial`, which is why §9.9 shipped and went untested on
@@ -467,16 +512,25 @@ and the only place that geometry is exercised on period hardware at all.
 `xt-multimon` is the
 **two-card** XT — a CGA and a Hercules, a monitor window each — and the only
 86Box machine that can show §39.12–§39.19's extended desktop; it boots Single,
-and Control Panel → Display → Desktop is what extends it (§39.19.1). `xt-z`
+and Control Panel → Display → Desktop is what extends it (§39.19.1).
+**`xt-wire` is the NETWORKED XT** — `xt-sound`'s machine plus a Novell NE1000
+on slirp, booting `make ethertest`'s disk so `ETHER.DRV` is up before the
+first paint and The Wire (§88) reaches os8088.com's live catalog with nothing
+running on the host; the only 86Box profile with a NIC, and its B: is a kept
+scratch disk because Add to Disk writes. `xt-z`
 and `386-z` are the Frotz machines (§61.9), `xt-word`/`386-word` are the Word
-machines (§68.5), `386-c-word` is the C word processor's (§73.12) and
+machines (§68.5), `386-c-word` is the C word processor's (§73.12),
+**`xt-paccman` is the C Pac-Man's (§91) and the XT is the POINT there** rather
+than the postponement — the ask was "maybe more performant on XTs", so the
+machine the claim is about ships with it, and the answer (no: 2.18 fps against
+PACMAN.O88's 4.14) comes off MartyPC, not off it —
 `xt-runcpm`/`286-runcpm`/`386-runcpm` the CP/M emulator's, one per floppy
 geometry because the three disks carry different software and the machines
 run at different speeds — which for a CP/M game IS the play speed (§74.5,
 §74.6) — `xt-c64`/`286-c64`/`386-c64` the C64 emulator's (C64-SPEC §14.3,
 one per geometry for that same reason), and
 `xt-weave`/`386-weave`/`xt-weave-256` the Weave family's
-(WEAVE-SPEC §13.1) — the fourteen that put a dedicated
+(WEAVE-SPEC §13.1) — the fifteen that put a dedicated
 floppy in B: instead of the apps disk. `xt-weave` takes the **360KB** Weave
 disk rather than a 3.5" one — it fits in 209 of 354 clusters, the whole
 family on one floppy — so it is where that geometry of it is booted at all,
@@ -494,8 +548,8 @@ runcpmdisk` the RUNCPM disks (`tools/getruncpm.py` fetches RunCPM's CCP and
 master disk at a pinned commit and `tools/getcpmsw.py` the CP/M games and
 applications that ride beside it, §74.6 — never committed, either of them;
 `make rczex` and `make rcz80test` are the Z80 core's ZEXDOC gates, in the OS
-and in raw QEMU), `make c64disk` the C64 disks, and `make weavedisk` /
-`make loomdisk` the Weave family's two. **`make wiredisk`** is the same shape for a package that
+and in raw QEMU), `make c64disk` the C64 disks, `make paccmandisk` the PaccMan
+disks, and `make weavedisk` / `make loomdisk` the Weave family's two. **`make wiredisk`** is the same shape for a package that
 DOES NOT SHIP: WIREFRAME is an instrument rather than an application (§78.9),
 so `all` builds `wire.o88` and no shipped floppy carries it, and the three
 tests that drive it — `wireflick`, `wirefps`, `uilat` — default to that disk.
@@ -736,11 +790,28 @@ field measurements:
 
 **There is a regression suite now** — `make test-fast` / `test-full` /
 `test-soak`, driven by `tools/os88test.py` off the registry in
-`tests/suite.py`. The fast tier runs as part of every `make`; **`test-full` is
-the pre-merge gate**. There are still no unit tests in the usual sense: the
-rows are host-side invariant checks over what `make` just built, the build
+`tests/suite.py`. There are still no unit tests in the usual sense: the rows
+are host-side invariant checks over what `make` just built, the build
 configurations `all` never builds, and whole scripted sessions driven through
 an emulator.
+
+**WHEN TO RUN WHICH TIER — docs/TESTING.md's *When to run which tier* is the
+authority and this is its short form.** `full` is four minutes and the whole
+soak is nearly two hours, so neither is a per-commit gate; run each where an
+answer changes and nowhere else. **A change is covered by the ROW that is
+about the thing it touched, not by the tier that contains it** — after a
+redraw change `python3 tools/os88test.py soak -k 'disp*'` is minutes and is
+the right answer far more often than any tier is.
+
+| tier | RUN IT | do NOT run it |
+|---|---|---|
+| `fast` | a commit you intend to keep, when it could change a byte under `build/` — and usually there is nothing extra to type, because `all` already ran it | a build you are not going to commit (an experiment, an A/B, a knob build — `make` skips it there itself); a **documentation-only** commit; a commit that only moves the **build number** |
+| `full` | major work reaching the INTEGRATION BRANCH — the first time a piece of it merges there, and again when you come back to that branch and land another large round | every commit on your own feature branch; a **minor bugfix** onto the integration branch; a documentation-only commit or merge; a build-number-only commit |
+| `soak` | the END of extensive KERNEL SURGERY, once, as it lands — or when you are asked for it | anything less than that. Mid-way through, run the SUBJECT (`soak -k '<subject>'`), never the tier |
+
+`checkdocs.py` is the gate a documentation-only commit actually owes; a
+build-number-only commit is three bytes of `.text` moving because the commit
+count moved (SPEC.md §14.2) and no row in any tier can see it.
 
 **ADDING A ROW IS `docs/WRITING-TESTS.md`, and it is worth reading BEFORE the
 first line rather than at the review.** Everything below is how to drive the
@@ -749,7 +820,12 @@ the registry fields, a `secs` you measured, `wants=` and private trees instead
 of `builds=True`, `os88ui` instead of a remembered coordinate, the guest's
 clock instead of `time.sleep`, and a §1 that is the only question that decides
 whether the row is worth having: **break the thing on purpose and watch it go
-red.**
+red.** Its 2.1 and 2.2 are the second question, and they decide the TIER:
+`fast` is paid for by everybody on every build, so a row about one package or
+about a kernel internal nothing outside the kernel can reach belongs in
+`soak`; `full` asks only *did you obviously break the OS*, so a row about one
+package, about the build matrix, or about the suite's own instruments belongs
+there too.
 
 **MartyPC is the default instrument; QEMU is a fallback with a closed list.**
 docs/TESTING.md's opening owns the rule and the reasoning. The list is
@@ -776,6 +852,15 @@ past:
 Entries 4 to 7 share the only shape that gets on this list easily —
 **MartyPC has not got the hardware at all**, so there is no "prefer MartyPC"
 to weigh. 1–3 are the harder kind.
+
+**VGA IS NOT ON THIS LIST.** MartyPC models a register-level VGA and
+`os8088_xt_vga` (with `_vga_mda`, `_vga_herc`, `_vga_sb`, `_vga_hdd`) boots
+it: mode 12h desktops, and the unchained 320x240 "Mode X" too, rendered
+correctly (`tests/skies.py --machine os8088_xt_vga`). Three sessions in a
+row concluded from the `5150_*` names that MartyPC had no VGA and reached
+for QEMU; the machine list is `tools/martypc/configs/os8088_machines.toml`,
+and "the three adapters" above means the three 1983 ones, not everything
+the emulator has.
 
 **"It is quicker to type" is not on it, and neither is "I already know the QMP
 commands."** Everything else that runs on an 8088 — all three of §39's
@@ -955,14 +1040,17 @@ in docs/TESTING.md, per capability.
   `--selfcheck` - a second, no emulator - is what says whether the model
   still describes the tree. Run that first, always).
 - `docs/` — **the directory says what a document is** (`docs/README.md`, and
-  `docs/INDEX.md` lists every one under the same four headings). `docs/`
+  `docs/INDEX.md` lists every one under the same five headings). `docs/`
   itself is how the system works TODAY — instructions, contracts, maintained
   reference such as `KERNEL-MEMORY.md`, and `FIELD-NOTES.md`/`FIELD-MACHINES.md`
   for what real hardware said. `docs/plans/` is work proposed or half-done;
   `docs/plans/completed/` is the design record behind something that shipped,
   which is how it got there and never what it does; `docs/history/` is
   superseded, and true of no tree you can check out. A plan whose work lands
-  moves to `completed/` in the commit that lands it.
+  moves to `completed/` in the commit that lands it. **`docs/reports/` is a
+  MEASUREMENT** — true of the tree it was taken on and of no other, so it
+  carries its date, its commit and the box, it is never maintained against a
+  later tree, and a second measurement is a NEW file rather than an edit.
 
 ## Package pipeline
 
@@ -981,18 +1069,29 @@ mounts — and every byte read off one is still treated as hostile.
 (86Box / a real XT) and 1.2MB 5.25" HD (§19, the AT-class machine with no 3.5"
 drive). Changing the boot path, the FAT driver or the disk layout means
 checking all four. This is the rule for the on-demand APPLICATION floppies too
-— `zdisk`, `worddisk`, `cworddisk`, `runcpmdisk`, `c64disk`, `weavedisk`,
-`loomdisk`, `allapps` — which were three-geometry until 1.2MB reached them.
+— `zdisk`, `worddisk`, `cworddisk`, `paccmandisk`, `runcpmdisk`, `c64disk`,
+`weavedisk`, `loomdisk`, `allapps` — which were three-geometry until 1.2MB
+reached them.
 
 **Nine images, not seven.** The system and apps disks in four geometries each,
 plus `build/media360.img` — `BEVERLY.MOD` is data rather than software and
 was 114 of a 360KB disk's 354 clusters before packages were compressed, so at
-that geometry it also rides a disk of its own (§24.4; lz4-packed it is 42
-clusters and `apps360.img` carries it in `MEDIA/` too); every other apps disk
-carries it in `MEDIA/`, which is why
+that geometry it rides a disk of its own (§24.4). **It is not on `apps360.img`
+as well any more, and cannot be**: lz4-packed it is 42 clusters and that disk
+is at 346 of 354, so no trimming reaches it — taking AUDIO, MODPLUG and
+FONTVIEW off buys 27. At 360KB the module is a disk SWAP, which is what §24.4
+was always for; `tests/lzship.py` carries both halves on one scratch image
+because the harness cannot change a floppy under a running guest. Every other
+apps disk carries it in `MEDIA/`, which is why
 there is no 720KB or 1.2MB media disk to go with it. The **core packages** ship on the system disk too, a second
 copy and never a move (§24.3), and an application's own state goes in
 `SYSTEM/APPDATA/` rather than beside the user's documents (§19.9).
+**`THEWIRE.O88` is the exception to both halves of that** (§92): it is a
+`SYSAPPS` package like `TASKMGR.O88`, so it lives in `SYSTEM/` on all FOUR
+system-disk geometries and on **no** apps disk — a program whose whole subject
+is fetching software off the network belongs on the disk the machine booted
+from. `kern_small` leaves it off (`SMALLSYSAPPS`, derived from `SMALLOMIT`):
+there is no NIC there, so there is nothing for it to refuse on.
 
 **Adding a geometry is not only a table row**, and §19 carries what the 1.2MB
 one cost: §18.93.1's boot canary sits at a fixed *file sector*, and the band of
@@ -1113,9 +1212,17 @@ others are build GATES (`os88ovlchk.py`, `checkdocs.py`, `checkreadme.py`), so
 a change there can turn a tree that built into one that does not: run `make`
 for those too, but not the boot.
 
-**`make test-full` is the pre-merge gate** — the project's now rather than
-this branch's, having gone upstream with the squash — and it covers the knob
-kernels, `kern_small` and a boot on both 1bpp adapters.
+**`make test-full` is for a merge that lands MAJOR work**, not for every
+merge onto this branch. It covers the knob kernels, `kern_small`, the C
+toolchain and a boot on both 1bpp adapters — a question about the whole tree,
+worth asking the first time a piece of major work reaches the integration
+branch and again when you come back and land another large round of it. A
+minor bugfix, a documentation merge and a build-number commit do not move that
+answer; the rebuild-and-boot above is what they owe, and the row about the
+thing you changed is what tells you more than the tier would. The Testing
+section is the short form and docs/TESTING.md the authority. **A merge that
+lands extensive kernel surgery is also where the whole soak goes** — once, at
+the end of it, under fork rule 4's reporting.
 
 When in doubt, build and `md5sum` the images against the ones you already had.
 **Do that comparison at ONE commit, though**: the About box's build number is

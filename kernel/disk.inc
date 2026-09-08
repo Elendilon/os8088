@@ -295,51 +295,6 @@ dsk_dpt:
     db 0x08                      ; +10 motor start, 1/8 s
 DPT_LEN equ 11
 
-%ifndef NO_SPINUP
-; --- SPEC.md 18.101's spin-up guard: when did THIS drive's motor start? ------
-; In .text with real initialisers, for dsk_dpt's reason one line up: -f bin
-; zeroes nothing, and 0xFF has to mean "no drive" from the first transfer
-; rather than naming A: by accident. dsk_spinup owns both.
-;
-; INSIDE the knob, not beside it: three bytes nothing reads still SHIFT every
-; absolute address after them, and the A/B's whole claim is that NOSPINUP=1
-; assembles byte for byte identical to the kernel before 18.101.
-dsk_mondrv:  db 0xFF             ; the int 13h unit whose motor we saw start,
-                                 ; 0xFF = none (so the first write onto a
-                                 ; motor we did not start waits, which is the
-                                 ; safe direction)
-dsk_monat:   dw 0                ; ...and the [ticks] it started at
-%endif
-
-%ifdef DISK_COUNTERS
-; --- SPEC.md 18.101.4: WHAT the transfer that failed actually was -----------
-; docs/FIELD-NOTES.md 32 is reported off a machine with no debugger, by
-; PHOTOGRAPH, and the one surface a write failure is guaranteed to put on the
-; glass is the cloner's toast (SPEC.md 59.5). fm_clotab indexes its strings by
-; CERR_*, so a field kernel points CERR_IO's entry HERE and the toast that
-; already appears carries the whole failure instead of the word 'error'.
-;
-; A TEMPLATE with sub-labels rather than a formatter: every field is a fixed
-; two-digit slot poked in place, so this costs a nibble helper and no
-; buffering, and each label IS the offset - which is what stops the count of
-; characters in a quoted string from being a thing anybody has to get right.
-;
-; Behind DISKCNT because that is what every field kernel already carries
-; ($(FIELDKNOBS)), so it reaches the machine that reports without putting hex
-; on a shipped product's error dialog.
-dsk_flstr:   db 'Dsk st'
-dsk_fl_st:   db '00 c'
-dsk_fl_cyl:  db '00h'
-dsk_fl_hd:   db '0s'
-dsk_fl_sec:  db '00 u'
-dsk_fl_un:   db '0'
-dsk_fl_op:   db 'W m'
-dsk_fl_mot:  db '00k'
-dsk_fl_cnt:  db '00 e'
-dsk_fl_eot:  db '00 n'
-dsk_fl_att:  db '0', 0
-%endif
-
 fdd_unit:    db 1                ; WHICH unit dsk_fdd_probe is asking about
                                  ; (SPEC.md 18.98). It was unit 1 by
                                  ; construction, in four places.
@@ -1427,18 +1382,6 @@ dsk_xfer:
     mov dl, [dsk_unit]          ; DL = THE ROW'S int 13h drive
 
     mov bp, 3                   ; attempts left at this run length
-%ifndef NO_SPINUP
-    cmp byte [dsk_op], 0x03     ; ...but ONE for a WRITE that covers more than
-    jne .attempt                ; a sector (SPEC.md 18.101.2): a multi-sector
-    cmp word [dsk_run], 1       ; write that failed left an unknown boundary -
-    jbe .attempt                ; some of it is down and AL is not to be
-    mov bp, 1                   ; believed (18.91) - so re-issuing the same
-                                ; long write re-writes sectors that are already
-                                ; correct and gives the fault more arc to
-                                ; damage. It falls straight through to the
-                                ; per-sector ladder below, which keeps its
-                                ; three. A READ has no such asymmetry
-%endif
 .attempt:
 %ifdef DISK_COUNTERS
     inc word [dsk_dbg_i13]
@@ -1472,15 +1415,6 @@ dsk_xfer:
                                 ; volume's real spt goes in before every call,
                                 ; because the table is one and the mounted
                                 ; volume is not
-%ifndef NO_SPINUP
-    call dsk_spinup             ; **A WRITE MAY NOT GO DOWN INTO A SPINDLE THAT
-                                ; IS STILL COMING UP TO SPEED** (SPEC.md
-                                ; 18.101, docs/FIELD-NOTES.md 32). Above the
-                                ; load of AX because it preserves every
-                                ; register and the flags but is not free to
-                                ; assume it: the ROM's own wait is what runs,
-                                ; and it runs inside the int 13h below
-%endif
     mov ax, [dsk_run]           ; AL = the run (<= 128, so AH is 0)...
     mov ah, [dsk_op]            ; ...AH = 02 read / 03 write
     CURXFER_ON                   ; **THE ARROW MAY MOVE FROM HERE TO THE `iret`**
@@ -1496,20 +1430,8 @@ dsk_xfer:
     CURXFER_OFF                  ; `mov` leaves the flags alone, so int 13h's CF
     jnc .ok                     ; still reaches this branch
     mov [dsk_ioerr], ah         ; keep the status for diskw.inc's mapping
-%ifdef DISK_COUNTERS
-    call dsk_flrec              ; ...and the WHOLE transfer, for the toast
-%endif                          ; (SPEC.md 18.101.4)
     cmp ah, 0x03
     je .fail                    ; write-protected: retrying cannot help
-%ifndef NO_SPINUP
-    cmp byte [dsk_op], 0x03     ; A FAILED WRITE RE-ARMS THE GUARD (SPEC.md
-    jne .norearm                ; 18.101.2): the AH=00h below REBUILDS the DOR
-    mov byte [dsk_mondrv], 0xFF ; out of 0040:003F (ECBB-ECD6), so the motor
-.norearm:                       ; bits survive the reset and the retry would
-                                ; skip the wait exactly as the failing call
-                                ; did. If the spindle is why it failed, the
-                                ; retry must not repeat it
-%endif
     mov ah, 0x00                ; failed: reset the controller and retry
     mov dl, [dsk_unit]          ; the ROW's drive (SPEC.md 52.10.3): resetting
     CURXFER_ON                   ; ...and the arrow keeps moving through it too
@@ -1576,7 +1498,8 @@ dsk_xfer:
     mov cx, ax                  ; the boot bar counts SECTORS, and a call now
 .notch:                         ; carries a run of them (SPEC.md 18.91) - so
     SPLCALL splf_step               ; it is stepped per sector rather than per
-    call KERNEL_SEG:cw_fpg_step               ; call, or the bar would under-count exactly
+    mov bp, fpg_step
+    call KERNEL_SEG:cw_mem_disp ; call, or the bar would under-count exactly
     loop .notch                 ; as far as the batching won. BOTH preserve
                                 ; every register and the flags - CX is this
                                 ; loop's counter and CF is dsk_xfer's answer
@@ -1604,192 +1527,6 @@ dsk_xfer:
     pop word [mem_pinseg]       ; the destination is nobody's again - or the
     dec byte [sch_lock]         ; outer pin's (dec and pop leave CF alone, and
     jmp kretc_bp
-
-%ifdef DISK_COUNTERS
-; -----------------------------------------------------------------------------
-; dsk_flrec - bank the failing transfer into dsk_flstr (SPEC.md 18.101.4)
-; in:  AH = the BIOS status, CH/CL/DH/DL as the int 13h was issued, BP =
-;      attempts LEFT at this run length
-; out: nothing - every register AND the flags preserved
-; -----------------------------------------------------------------------------
-dsk_flrec:
-    pushf
-    push ax
-    push bx
-    push cx
-    push dx
-    push es
-    mov bx, dsk_fl_st
-    call dsk_flhex              ; AH = the status
-    mov al, ch                  ; the cylinder's low 8 - a floppy has no high
-    mov bx, dsk_fl_cyl          ; bits and a partition's are in CL, which is
-    call dsk_flhex2             ; printed as the sector below either way
-    mov al, dh
-    and al, 0x0F
-    mov bx, dsk_fl_hd
-    call dsk_flnib
-    mov al, cl
-    and al, 0x3F                ; the sector, without the cylinder's 9:8
-    mov bx, dsk_fl_sec
-    call dsk_flhex2
-    mov al, dl
-    and al, 0x0F                ; 80h prints as 0, which the op letter and the
-    mov bx, dsk_fl_un           ; motor byte beside it already disambiguate
-    call dsk_flnib
-    mov al, 'R'
-    cmp byte [dsk_op], 0x03
-    jne .op
-    mov al, 'W'
-.op:
-    mov [dsk_fl_op], al
-    mov ax, bp                  ; attempts LEFT, so 0 is the last one. Through
-    and al, 0x0F                ; AX: an 8086 has no `mov r8, r16` (SPEC.md 1)
-    mov bx, dsk_fl_att
-    call dsk_flnib
-    mov ax, 0x0040              ; ...and the BIOS's own motor state, which is
-    mov es, ax                  ; what SPEC.md 18.101 is about
-    mov al, [es:0x003F]
-    mov bx, dsk_fl_mot
-    call dsk_flhex2
-    mov al, [es:0x0040]
-    mov bx, dsk_fl_cnt
-    call dsk_flhex2
-    mov al, [dsk_dpt+4]         ; ...and EOT AS THE BIOS WOULD HAVE READ IT.
-    mov bx, dsk_fl_eot          ; dsk_xfer stores it per call out of the LIVE
-    call dsk_flhex2             ; geometry, and on this operation the other end
-                                ; is a hard disk with 17 or 63 of them - so a
-                                ; value here that is not the floppy's spt is a
-                                ; whole class of fault, said in two digits
-    pop es
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    popf
-    ret
-
-; two hex digits of AH / of AL at [BX]; and one of AL's low nibble
-dsk_flhex:
-    mov al, ah
-dsk_flhex2:
-    push ax
-    push cx
-    mov cl, 4
-    shr al, cl
-    call dsk_flnib
-    pop cx
-    pop ax
-    push ax
-    inc bx
-    and al, 0x0F
-    call dsk_flnib
-    dec bx
-    pop ax
-    ret
-dsk_flnib:
-    push ax
-    add al, '0'
-    cmp al, '9'
-    jbe .put
-    add al, 7                   ; 'A'..'F'
-.put:
-    mov [bx], al
-    pop ax
-    ret
-%endif
-
-%ifndef NO_SPINUP
-; -----------------------------------------------------------------------------
-; dsk_spinup - a WRITE may not go down into a spindle still coming up to speed
-; in:  [dsk_unit] = the int 13h drive, [dsk_op] = 02h/03h
-; out: nothing - every register AND the flags preserved (it sits between the
-;      EOT store and the `int 13h` that reads AX)
-;
-; SPEC.md 18.101, and docs/FIELD-NOTES.md 32 is what it is for. The ROM waits
-; for the spindle on a WRITE and ONLY when the write is the call that started
-; the motor - `test [0x3f], al / jnz` at ED62 in the 5150 BIOS - so a READ that
-; started it licenses the very next write to skip the wait. A write into a slow
-; platter clocks 250 kbps into an arc that is turning too slowly, the data field
-; runs past its own end, and the write gate is still open over the NEXT sector's
-; ID address mark. That is a format kill, not a bad sector.
-;
-; NOTHING HERE WAITS. The bit is taken down and the ROM takes its own documented
-; wait - which also re-sets the bit, so this cannot fire twice for one spin-up.
-; Clearing the flag never stops a motor: the ROM's answer to a clear bit is to
-; write the DOR with this drive's motor ON (ED7E) and then delay, so the platter
-; only ever accelerates.
-; -----------------------------------------------------------------------------
-dsk_spinup:
-    pushf
-    push ax
-    push bx
-    push dx
-    push es
-    mov al, [dsk_unit]
-    cmp al, 4
-    jae .out                    ; only drives 0..3 have a bit in 0040:003F - a
-                                ; boot partition and every driver-backed volume
-                                ; leave here (SPEC.md 52.10.3)
-    mov bl, al
-    xor bh, bh
-    mov ah, [dsk_mbit+bx]       ; AH = this unit's motor bit. The table, not
-                                ; `shl`, for SPEC.md 18.9.1's reason
-    mov bx, 0x0040
-    mov es, bx
-    test [es:0x003F], ah
-    jz .stamp                   ; STOPPED: this very call starts it, and the ROM
-                                ; waits by itself for a write. A BIOS that does
-                                ; not maintain the byte reads 0 and lands here,
-                                ; which is exactly today's behaviour
-    cmp byte [dsk_op], 0x03
-    jne .out                    ; a READ never needed the spindle at speed: the
-                                ; data separator locks to whatever arrives
-    cmp al, [dsk_mondrv]
-    jne .force                  ; a motor we never saw start - assume nothing
-    mov dx, [ticks]
-    sub dx, [dsk_monat]         ; DX = ticks since it started. Both 16-bit, so
-                                ; the subtraction is right across [ticks]' wrap
-    push ax                     ; the unit and its motor bit, wanted below
-    mov al, [dsk_dpt+10]        ; motor-start time, eighths of a second...
-    xor ah, ah
-    mov bx, ax
-    shr bx, 1
-    shr bx, 1                   ; BX = d >> 2
-    add ax, ax                  ; AX = 2d ...and 2d + (d >> 2) IS (9d) >> 2
-    add ax, bx                  ; exactly, 8d having no low bits to lose: the
-                                ; DPT's eighths x 9/4 = ticks at 18.2 Hz (18
-                                ; for the standard 8, one second). The ROM's
-                                ; own ED91 loop is LONGER than that on a
-                                ; 4.77MHz 8088, which is the right way round -
-                                ; after the ROM has waited, elapsed always
-                                ; clears the bound and this cannot fire twice
-                                ; for one spin-up.
-                                ;
-                                ; SHIFTS AND NOT `mul`: `mul bx` writes DX:AX
-                                ; and DX is the elapsed count. It was a `mul`
-                                ; for one build, and tests/dskspin.py's row 3
-                                ; is what caught it - the guard fired on every
-                                ; write, including into a spindle that had
-                                ; been up for a minute
-    cmp dx, ax
-    pop ax
-    jae .out                    ; long since up to speed: nothing owed
-.force:
-    not ah                      ; take the flag DOWN, so the ROM's ED62 test
-    and [es:0x003F], ah         ; fails and it takes its own ED87 wait
-    not ah
-.stamp:
-    mov [dsk_mondrv], al
-    mov dx, [ticks]
-    mov [dsk_monat], dx
-.out:
-    pop es
-    pop dx
-    pop bx
-    pop ax
-    popf
-    ret
-%endif
 
 ; -----------------------------------------------------------------------------
 ; dsk_runcap - cap a transfer run to what the BUFFER allows (SPEC.md 18.91)
@@ -4672,59 +4409,14 @@ dsk_fatw_claim:
 ; in the arena's floor. What it knew that this file must not forget is that the
 ; live window has a SECOND naming word, [dsk_fatseg]; dsk_fatw_demote below is
 ; where that now lives.
-section .text                   ; ...and dsk_dseg_reloc below still needs it:
-                                ; mem_reloc_call reaches a kernel proc through
-                                ; cw_mem_disp - `call bp` with CS = KERNEL_SEG
-                                ; - so BP has to be a .text offset. An INDIRECT
-                                ; transfer is the one class os88ovlchk cannot
-                                ; see, so nothing would have failed
-; -----------------------------------------------------------------------------
-; dsk_dseg_reloc - the KERNEL's half of a DONATED claim's move (SPEC.md 66.5.10.2)
-; in:  BX = the base it WAS at, DX = the base it is at now; DS = KERNEL_SEG
-; out: nothing (every register preserved)
-;
-; NOT A RELOCATION PROC: no claim names this in MC_RLOC, and it is not reached
-; through cw_mem_disp because some record asked for it. mem_reloc_call calls it
-; for EVERY move, before the owner's own proc, because the kernel is a holder
-; of claims it does not own - which is what osapi_vol_add's DX means (18.7).
-;
-; A DONATED claim has three naming words and the callback reaches one (66.5.10.1).
-; These are the other two: dsk_vtab's DV_SEG, where the donation is recorded,
-; and [dsk_dseg], where the listing is READ FROM - and the second equals the
-; first only while that volume is the one mounted. dsk_fatw_reloc's problem
-; exactly, one table along, and the scan is by VALUE for its reason: a
-; compaction can fire while a different volume is current.
-;
-; Every row, free ones included. A free row's DV_SEG is stale rather than
+; dsk_dseg_reloc lived here: the KERNEL's half of a DONATED claim's move
+; (SPEC.md 66.5.10.2). It walked dsk_vtab's DV_SEG by value and then the live
+; [dsk_dseg] - which is two rows of mem_rr_tab and nothing else, so it is two
+; rows of mem_rr_tab. What it knew that this file must not forget is WHY the
+; scan is by value and covers free rows too: a compaction can fire while a
+; different volume is current, and a free row's DV_SEG is stale rather than
 ; meaningless (6.1's clear leaves it alone), so writing the new base into one
-; costs a store and keeps the table honest; skipping it would need the kind
-; test, which is two more instructions to achieve nothing.
-;
-; .text, and 66.5.6.1 is why: cw_mem_disp is `call bp` with CS = KERNEL_SEG,
-; so BP has to be a .text offset. This sits above the section switch below for
-; that reason and not by accident.
-; -----------------------------------------------------------------------------
-dsk_dseg_reloc:
-    push ax
-    push cx
-    push si
-    mov si, dsk_vtab
-    mov cx, DVOL_MAX
-.scan:
-    cmp [si+DV_SEG], bx
-    jne .next
-    mov [si+DV_SEG], dx
-.next:
-    add si, DV_SIZE
-    loop .scan
-    cmp [dsk_dseg], bx          ; ...and the LIVE pointer, if the block being
-    jne .out                    ; moved is the mounted volume's
-    mov [dsk_dseg], dx
-.out:
-    pop si
-    pop cx
-    pop ax
-    ret
+; keeps the table honest where skipping it would need a kind test.
 section .cold                   ; ...and back, or every routine below joins it
 
 dsk_fatw_drop:
@@ -5737,6 +5429,10 @@ dsk_find_x:
     mov [dsk_fdord], cx
     mov bp, cx                  ; BP counts the ordinals still to skip
     mov ax, [dsk_cwd]
+    cmp byte [dsk_vkind], DVK_FILE
+    je .fsenum                  ; A REDIRECTED VOLUME (SPEC.md 62.9.17): no
+                                ; sectors to walk, so the driver is asked for
+                                ; the Nth entry instead
     call dsk_dirw_start_x
 .sector:
     call dsk_dirw_get_x           ; dsk_secbuf = the next directory sector, and
@@ -5784,6 +5480,40 @@ dsk_find_x:
     loop .entry                 ; listing's is DSK_DE_STRIDE and is narrower
     jmp short .sector
 
+.fsenum:
+    ; --- A REDIRECTED VOLUME: ONE FSV_ENUM, BY ORDINAL (SPEC.md 62.9.17) ----
+    ; fcp_scan's arm, one cell along and for the same reason: there are no
+    ; directory sectors here, no raw 32 bytes to filter and no dsk_synth to
+    ; run, so the driver is asked for the Nth entry of this folder and answers
+    ; with the same SPEC.md 19.1 staged entry dsk_synth would have built. That
+    ; is why this joins the sector arm at .stage rather than repeating its
+    ; tail: one copy of "what does the caller's buffer take from an entry".
+    ;
+    ; THE SPECIES FILTER ABOVE IS THE SECTOR ARM'S AND DOES NOT APPLY: deleted
+    ; entries, the dot links, long-name fragments and the volume label are
+    ; things a FAT directory holds and a driver's row array does not. Hidden
+    ; and system are the exception, and their fence is api_file_find's, above
+    ; BOTH arms - so a package still cannot find a system file on either.
+    mov cx, bp                  ; the ordinal (BP is this routine's own copy)
+    mov bp, FSV_ENUM
+    mov dx, ds                  ; DX:BX and not ES:BX (SPEC.md 51.8), and DS
+    mov bx, dsk_ent             ; because dsk_ent is `.bss`
+    push es                     ; **ES:DI IS THE CALLER'S BUFFER AND A DRIVER
+    push di                     ; OWNS EVERY REGISTER THE FSV ABI DOES NOT
+    call drv_fs_call            ; RESERVE** (SPEC.md 62.9). RAMDISK.DRV happens
+    pop di                      ; to preserve both and the cable's need not;
+    pop es                      ; `pop` leaves the flags, so the answer below
+    jnc .stage                  ; is still drv_fs_call's
+    or ax, ax
+    jz .jend2                   ; AX = 0 is "the driver publishes no FSV_ENUM"
+                                ; and is drv_fs_call's answer for an absent
+                                ; verb rather than the driver's - the same word
+                                ; an empty folder gives (62.9.7), so it becomes
+                                ; the end of the directory and never an error
+    jmp .ioerr                  ; ...and anything else is the driver's own
+.jend2:                         ; FERR_*, passed through
+    jmp .end
+
 .take:
     ; dsk_synth stages the display name, the type and the cluster into the
     ; kernel's own dsk_ent (SPEC.md 19) - the dsk_get_dir idiom, so the copy
@@ -5817,6 +5547,18 @@ dsk_find_x:
     mov dh, 0                   ; listing costs exactly what it cost before
 .plain:
     pop es
+    jmp short .staged
+.stage:
+    ; ...AND FSV_ENUM's ANSWER ARRIVES HERE (SPEC.md 62.9.17), with dsk_ent
+    ; already staged by the driver. There is no raw entry behind it, so the
+    ; two fields the sector arm reads out of one come from the staged form
+    ; instead: the size is dsk_ent's own dword, and the attribute is 0 -
+    ; which is what a redirected volume's entries are, the species bits
+    ; living in the driver's row and never on this side of the ABI.
+    mov ax, [dsk_ent+20]
+    mov dx, [dsk_ent+22]
+    xor cl, cl
+.staged:
     push ax
     push dx
     push cx
@@ -6777,7 +6519,8 @@ dkf_dsk_vol_slot:    call dsk_vol_slot_x
 ; disk, and the caller has just asked for the floppy to come OUT.
 ; -----------------------------------------------------------------------------
 ; dsk_fdd_park_x - FAR: recalibrate every claimed floppy head to track 0.
-; in:  nothing;  out: nothing (AX/BX/CX/DX preserved; flags clobbered)
+; in:  nothing;  out: DOES NOT RETURN - the `int 0x19` at its tail is the
+;      last instruction of the GUI.  clobbers: AX, CX, DX, ES, flags
 ;
 ; EVERY UNIT THE EQUIPMENT WORD CLAIMED, not every unit with a volume row - so
 ; a drive §18.97.2 wrongly retired, which has no row, is still recalibrated and
@@ -6786,29 +6529,20 @@ dkf_dsk_vol_slot:    call dsk_vol_slot_x
 ; -----------------------------------------------------------------------------
 %ifndef NO_FDDPARK
 dsk_fdd_park_x:
-    push ax
-    push bx
-    push cx
-    push dx
     mov cl, [fdd_dbg_eqp]       ; drives int 11h claimed (0..4), banked by
-    or  cl, cl                  ; desk_init before anything contested it (§57.5)
-    jz  .out                    ; none: nothing to park
-    xor bl, bl                  ; BL = the unit
+                                ; desk_init before anything contested it (§57.5)
 .unit:
+    dec cl                      ; ...counted DOWN, so 0 claimed falls straight
+    js  dsk_rb_go               ; through the same test the last unit exits on
+    mov dl, cl                  ; this unit; DH is irrelevant to AH=00
     xor ah, ah                  ; AH=00 RESET DISK SYSTEM = recalibrate to trk0
-    mov dl, bl                  ; ...this unit; DH is irrelevant to AH=00
     int 0x13                    ; the ROM handshakes, waits and retries. No
                                 ; result is read: the int 19h below resets the
                                 ; FDC whatever this leaves behind (§18.100)
-    inc bl
-    cmp bl, cl
-    jb  .unit
-.out:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    retf
+    jmp short .unit             ; the ORDER units are parked in does not matter
+dsk_rb_go:                      ; the last instruction of the GUI, in .cold
+    int 0x19
+    jmp $
 %endif                           ; NO_FDDPARK
 
 ; =============================================================================

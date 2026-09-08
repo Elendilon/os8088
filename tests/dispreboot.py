@@ -42,6 +42,7 @@ sys.path.insert(0, os.path.join(ROOT, "tests"))
 
 from os88geom import (VID_CTX_SZ, VID_CTX_VX,          # noqa: E402
                       VID_CTX_VY, VID_CTX_KIND, VID_CTX_CH)
+import os88build                                       # noqa: E402
 # SPEC.md 39.14's per-display record: DERIVED from VID_CTX_W and never
 # written down here. This file spelled it `42 + 36`, which is the
 # VID_CTX_W = 18 layout - two bytes early, and what sits there is
@@ -137,7 +138,7 @@ def textdiff(m, pad=""):
     evidence, and it must be taken while the machine is still healthy as well
     as after - a corrupt byte that was already there before the click is a
     different bug from one the click produced."""
-    img = open("build/kernel.bin", "rb").read()[:BSS0]
+    img = open(os88build.at("build/kernel.bin"), "rb").read()[:BSS0]
     ram = m.read(0x0060 << 4, BSS0)
     rs = runs_of(img, ram)
     print("%s.text vs kernel.bin: %d byte(s) in %d run(s)"

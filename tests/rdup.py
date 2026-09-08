@@ -56,10 +56,25 @@ RD_ROW = 3                      # drv_tab row 3 is the RAM disk since
 # "it is the one that self-heals when DSV_SIZE grows again". A number typed
 # into a test does not self-heal, and this is the third row in one soak to
 # prove it (tests/lzship.py's DRVR_SIZE, tests/lzdrv.py's DRV_MAX).
+#
+# ...AND THE SLOT INDEX IS THE SAME LESSON ONE LEVEL UP. This read `(DRVC_FILE
+# - 1) * DSV_SIZE` with "class 1 is index 0" beside it, which was the whole
+# rule until drv_svc stopped reserving a slot for DRVC_RETIRED3 - a class that
+# can never be published. drv_cls_svc_x COMPACTS past it now, so a class ABOVE
+# the retired one is one slot lower than its number implies, and a typed
+# `- 1` read off the end of the table and reported both cells as 0 again. The
+# rule is mirrored from the kernel below rather than restated.
 _EQ = os88sym.equates()
 DRVC_FILE = _EQ["DRVC_FILE"]
+DRVC_RETIRED3 = _EQ["DRVC_RETIRED3"]
 DSV_SIZE = _EQ["DSV_SIZE"]
 DSV_CPUP, DSV_CPDRAG = _EQ["DSV_CPUP"], _EQ["DSV_CPDRAG"]
+
+
+def _svc_slot(cls):
+    """drv_cls_svc_x's own arithmetic: index = class - 1, less one more for
+    every published class the retired one used to sit in front of."""
+    return cls - 1 - (1 if cls > DRVC_RETIRED3 else 0)
 TITLE_H = 18
 
 fails = []
@@ -137,7 +152,7 @@ with M.launch("build/os8088-360.img", apps="build/apps360.img",
     # driver's table. A table that stopped short would show whatever follows
     # it here, so a NON-ZERO answer is only half of it; the behaviour below
     # is the other half.
-    base = m.sym("drv_svc") + (DRVC_FILE - 1) * DSV_SIZE   # class 1 is index 0
+    base = m.sym("drv_svc") + _svc_slot(DRVC_FILE) * DSV_SIZE
     up = int.from_bytes(m.read(base + DSV_CPUP, 2), "little")
     dg = int.from_bytes(m.read(base + DSV_CPDRAG, 2), "little")
     check("DSV_CPUP and DSV_CPDRAG are published", up != 0 and dg != 0,

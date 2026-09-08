@@ -4923,6 +4923,9 @@ dskw_seg:     resw 1            ; ...and that segment (ES at entry), right
                                 ; behind it for the `lds`
 dskw_wseg:    resw 1            ; the advancing source/destination segment
                                 ; (+32 paragraphs per 512-byte sector)
+%if dskw_wseg - dskw_seg != 2   ; ADJACENT ON PURPOSE: memory.inc's mem_rr_tab
+    %error "dskw_seg and dskw_wseg must stay adjacent (mem_rr_tab names them as one row)"
+%endif                          ; names the pair as ONE row of two words
 dskw_len:     resw 1            ; the file's byte count, low word...
 dskw_lenhi:   resw 1            ; ...and high (the DX:AX answer on a read)
 dskw_cap:     resw 1            ; the destination's capacity, low word...

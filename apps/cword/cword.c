@@ -2558,8 +2558,23 @@ void os88_paint(void *win)
      * instance is published (SPEC.md 20.6). A refusal is normal and transient
      * - the task table is 12 slots - so this retries on the next paint rather
      * than treating it as fatal. */
-    if (!cw_hired && os88_task_spawn(win) == 0)
+    if (!cw_hired && os88_task_spawn(win) == 0) {
         cw_hired = 1;
+        /* ...AND THE REGION STAYS MOVABLE (SPEC.md 66.6.2). crt0 declared it
+         * at entry, and hiring a worker would pin it again for ever: the
+         * kernel wrote our segment into that worker's frame before its first
+         * instruction. This says it may throw that frame away and start
+         * os88_worker() again.
+         *
+         * IT IS TRUE HERE and it is worth being explicit about why. The
+         * kernel restarts a worker only where it PARKS, which is inside
+         * os88_task_alive(); our loop reaches that with nothing of its own on
+         * the stack and every value it reads - cw_quit - in a static that the
+         * move carries. A restart costs one four-tick poll. We do not declare
+         * os88_mem_parksafe(), so the gfx-lock park - which could stop the
+         * worker anywhere - is not in play. */
+        os88_task_restartable(1);
+    }
 }
 
 void *os88_main(void)

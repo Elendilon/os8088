@@ -289,6 +289,7 @@ void os88_gfx_lock(void) { }
 void os88_gfx_unlock(void) { }
 void os88_task_sleep(int ticks) { (void)ticks; }
 int  os88_task_spawn(void *win) { (void)win; return -1; }
+int  os88_task_restartable(int on) { (void)on; return 0; }
 void os88_task_alive(void *win) { (void)win; }
 int  os88_peek(unsigned seg, unsigned off) { (void)seg; (void)off; return 0; }
 void os88_gfx_pen(int disabled) { (void)disabled; }

@@ -38,11 +38,13 @@ os.environ.setdefault("OS88_DEFINES", "KERN_SMALL")
 import os88marty as M                                        # noqa: E402
 import os88sym                                               # noqa: E402
 import os88build                                             # noqa: E402
+import os88geom                                              # noqa: E402
 os88build.use_build("build/smallk")
 
 MACHINE = sys.argv[1] if len(sys.argv) > 1 else "os8088_5150_cga_128k"
 DEFS = ("KERN_SMALL",)
-MC_SIZE, MC_SEG, MC_PARA, MC_OWN = 10, 0, 2, 4
+MC_SIZE, MC_SEG, MC_PARA, MC_OWN = (os88geom.MC_SIZE,
+    os88geom.MC_SEG, os88geom.MC_PARA, os88geom.MC_OWN)
 fails = []
 
 

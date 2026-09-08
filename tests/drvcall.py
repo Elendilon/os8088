@@ -37,6 +37,7 @@ import os88marty                                       # noqa: E402
 import os88mouse                                       # noqa: E402
 import os88sym                                         # noqa: E402
 from os88fixture import need                           # noqa: E402
+import os88build                                       # noqa: E402
 
 S = os88sym.linear
 
@@ -88,7 +89,7 @@ def main():
     need("build/drvcall.img", "build/drvcall360.img")
 
     fails = []
-    img = os.path.getsize("build/drvcall.bin")
+    img = os.path.getsize(os88build.at("build/drvcall.bin"))
     with os88marty.launch("build/os8088-360.img",
                           apps="build/drvcall360.img",
                           machine=MACHINE[a.adapter]) as m:

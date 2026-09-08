@@ -39,21 +39,22 @@
 ; =============================================================================
 
 %ifdef FCP_MOD
-MOD_MAX     equ 6               ; rows in mod_tab - SIX on kern_small, which
+MOD_MAX     equ 5               ; rows in mod_tab - FIVE on kern_small, which
 %else                           ; alone carries Cut/Copy/Paste and the file
-MOD_MAX     equ 4               ; dialog as modules
+MOD_MAX     equ 4               ; dialog as modules, and no hibernate at all
 %endif
 MOD_CTRL    equ 0               ; the Control Panel (SPEC.md 31)
 MOD_FMT     equ 1               ; the floppy formatter (SPEC.md 18.96)
 MOD_CLONE   equ 2               ; the disk cloner (SPEC.md 18.99)
-MOD_HIBER   equ 3               ; hibernate and resume (SPEC.md 87) - on
-                                ; kern_small a one-entry stub, so that every
-                                ; kernel cuts the same first four files
+%ifdef KERN_BIG
+MOD_HIBER   equ 3               ; hibernate and resume (SPEC.md 87) - kern_big
+%endif                          ; alone: the 128KB machine has no hard disk to
+                                ; hibernate to, so it carries no ROW either
 %ifdef FCP_MOD
-MOD_FCP     equ 4               ; Cut/Copy/Paste (SPEC.md 22.3-22.5),
+MOD_FCP     equ 3               ; Cut/Copy/Paste (SPEC.md 22.3-22.5),
                                 ; kern_small's alone - kern_big keeps the
                                 ; bodies resident in `.cold`
-MOD_FDLG    equ 5               ; ...and the Standard File dialog (SPEC.md 38,
+MOD_FDLG    equ 4               ; ...and the Standard File dialog (SPEC.md 38,
                                 ; 38.0), on the same terms
 %endif
                                 ; The LZB compressor (SPEC.md 20.15) has NO
@@ -217,9 +218,11 @@ section .text
 mod_f_ctrl: db 'CTRL.DRV', 0    ; .DRV for the attributes and nothing else
 mod_f_fmt:  db 'FORMAT.DRV', 0  ; (SPEC.md 19.6): os88disk.py stamps anything
 mod_f_clon: db 'CLONE.DRV', 0   ; ...and a third of them (SPEC.md 18.99)
+%ifdef KERN_BIG
 mod_f_hib:  db 'HIBER.DRV', 0   ; ...and a fourth: hibernate (SPEC.md 87),
                                 ; which qualifies twice - the user is leaving
                                 ; the machine, or has just booted it
+%endif
 %ifdef FCP_MOD
 mod_f_fcp:  db 'FILECP.DRV', 0  ; ...and kern_small's fifth (SPEC.md 22.3)
 mod_f_fdlg: db 'FDLG.DRV', 0    ; ...and its sixth (SPEC.md 38.0)
@@ -235,7 +238,9 @@ mod_tab:
     dw 0, mod_f_ctrl            ; MOD_CTRL
     dw 0, mod_f_fmt             ; MOD_FMT
     dw 0, mod_f_clon            ; MOD_CLONE
+%ifdef KERN_BIG
     dw 0, mod_f_hib             ; MOD_HIBER
+%endif
 %ifdef FCP_MOD
     dw 0, mod_f_fcp             ; MOD_FCP
 mod_r_fdlg:                     ; ...and this one is NAMED, because SPEC.md

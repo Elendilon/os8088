@@ -51,6 +51,7 @@ import sys
 sys.path.insert(0, "tools")
 import os88marty as M                                      # noqa: E402
 from os88mouse import Mouse                                # noqa: E402
+import os88build                                       # noqa: E402
 
 MACHINE = "os8088_xt_hdd"
 VHD_REL = "media/hdds/default_xtide.vhd"
@@ -403,7 +404,7 @@ def main():
     # --- and the BYTES, for the files the source disk carries packed --------
     # THE SAME READER ON BOTH SIDES, so a difference is the install's and not
     # two implementations disagreeing.
-    src = Vol(open("build/os8088-360.img", "rb").read())
+    src = Vol(open(os88build.at("build/os8088-360.img"), "rb").read())
     for p in WANT_RAW:
         want, wmark = src.read(p), src.mark(p)
         if want is None or wmark not in (0x5A, 0x5B):

@@ -1692,17 +1692,7 @@ fm_s_clbusy:  db 'Clone already running', 0   ; ...and a SECOND one, refused
                                     ; FS_EDIT (SPEC.md 22.21.2). It borrowed
                                     ; fm_s_nomem, which said 'Out of memory'
                                     ; and sent the user closing applications
-%ifdef DISK_COUNTERS
-fm_clotab:    dw fm_s_empty, dsk_flstr, fm_s_ewprot, fm_s_nomem
-                                ; CERR_IO's entry is the FAILING TRANSFER on a
-                                ; field kernel (SPEC.md 18.101.4): the toast
-                                ; that already appears carries the CHS, the
-                                ; BIOS status and the motor byte, so one
-                                ; photograph is the report. fm_s_dskerr is
-                                ; still what a shipped kernel says
-%else
 fm_clotab:    dw fm_s_empty, fm_s_dskerr, fm_s_ewprot, fm_s_nomem
-%endif
               dw fm_s_enodisk, fm_s_clsml, fm_s_efull, fm_s_notimg
               dw fm_s_clsame2, fm_s_clbusy
 fm_s_size:    db 'Size ', 0         ; ...and the resting status line, which
@@ -2144,7 +2134,7 @@ fm_ncpy:
 ;
 ; Two callers, both in .cold like this one, both staging a driver-supplied
 ; name into a kernel field: osapi_drv_dlg_x's default file name and
-; drv_cp_stage's Control Panel page name (SPEC.md 51).
+; drv_cp_name_x's Control Panel page name (SPEC.md 51).
 ; -----------------------------------------------------------------------------
 fm_ncpye:
 .c:
@@ -7600,7 +7590,9 @@ fm_scrollpaint:
     mov bx, [fm_by1]
     mov cx, [fm_bx2]
     mov dx, [fm_by2]
-    call KERNEL_SEG:cw_gfx_scroll
+    mov bp, gfx_scroll          ; cw_mem_disp is `call bp / retf` and neither
+    call KERNEL_SEG:cw_mem_disp ; touches the flags, so gfx_scroll's CF is
+                                ; still its answer here (SPEC.md 2.6)
     jc .refj                    ; it refused: fm_repaint puts the selection
                                 ; back with everything else
 

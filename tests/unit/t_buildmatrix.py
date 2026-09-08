@@ -273,6 +273,29 @@ KNOBS = [
     # rebuilding - so what is left for a build row is exactly what a build row
     # is for: does the other arm still assemble.
     ("nohedge",     ["NOHEDGE=1"], "saver.drv"),
+    # ...and thirteen that reach a PACKAGE, all of them ArtfulType's
+    # (SPEC.md 46.3, 46.4). Each is the A/B of one performance wave and, like
+    # NOHEDGE above, THE ONLY THING THAT ASSEMBLES THE OTHER ARM: nothing
+    # shipped compiles them, and the arms they keep alive are not dead code
+    # but the version the wave replaced, which is what a soak row rebuilds to
+    # compare pixels against. A row is half a second here because the target
+    # is one package and not a tree, so they get one each rather than being
+    # bundled: a bundle assembles every arm at once and then says only that
+    # SOME arm broke.
+    ("noatblit1",   ["NOATBLIT1=1"], "artful.o88"),
+    ("noatfast",    ["NOATFAST=1"], "artful.o88"),
+    ("noatwalk",    ["NOATWALK=1"], "artful.o88"),
+    ("noatsbar",    ["NOATSBAR=1"], "artful.o88"),
+    ("noatrow",     ["NOATROW=1"], "artful.o88"),
+    ("noatblank",   ["NOATBLANK=1"], "artful.o88"),
+    ("noatplain",   ["NOATPLAIN=1"], "artful.o88"),
+    ("noatcx",      ["NOATCX=1"], "artful.o88"),
+    ("noatrespan",  ["NOATRESPAN=1"], "artful.o88"),
+    ("noatfetch",   ["NOATFETCH=1"], "artful.o88"),
+    ("noatcell",    ["NOATCELL=1"], "artful.o88"),
+    ("noattail",    ["NOATTAIL=1"], "artful.o88"),
+    ("noatone",     ["NOATONE=1"], "artful.o88"),
+    ("noatsu",      ["NOATSU=1"], "artful.o88"),
     # MOUDIAG= is SPEC.md 9.9.6's identify-window table drawn on the finished
     # desktop, and it had NO ROW HERE AT ALL until SPEC.md 2.9.12 - which is
     # how a short jump out of range inside the moved mouse cluster went
@@ -401,13 +424,31 @@ def shares(variables):
     return not ({v.split("=")[0] for v in variables} & PKG_VARS)
 
 
-def build(name, variables, target="kernel.bin"):
+def build(name, variables, target="kernel.bin", shared=None, extra=()):
+    """Assemble ONE knob arm, out of tree, and say whether nasm took it.
+
+    `shared` is the directory the sharing rows take their four packages and
+    associco.inc from, and the directory the `bm-<name>` build lands beside.
+    It defaults to the RUN'S TREE, which is what every row here wants; a
+    caller passes its own when the packages it must share are not that tree's
+    - `tests/unit/t_nasm3.py` builds the whole shipped set with a DIFFERENT
+    ASSEMBLER first and then has to share ITS packages, or the sharing rows
+    would take nasm 2's and the arm under test would be half-answered.
+
+    `extra` goes on the make line ahead of the knob, for a variable that is
+    not one - `NASM=` is the only caller today. It is deliberately not folded
+    into `variables`: that list is what `shares()` and the stale-knob check
+    read, and a make variable the Makefile does not stamp in $(KNOBS) would
+    fail both.
+    """
     # INSIDE THE RUN'S TREE, both ways (see ICODIR in the header). `at` is the
     # identity function with $OS88_TREE unset, so an interactive run is
     # exactly as it was.
-    shared = os.path.relpath(os88build.at("build"), ROOT)
+    if shared is None:
+        shared = os.path.relpath(os88build.at("build"), ROOT)
     out = os.path.join(ROOT, shared, "bm-" + name)
     cmd = ["make", "BUILD=" + os.path.relpath(out, ROOT)] + NOWASTE + \
+          list(extra) + \
           (["ICODIR=" + shared] if shares(variables) else []) + variables + \
           [os.path.relpath(os.path.join(out, target), ROOT)]
     r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=300)

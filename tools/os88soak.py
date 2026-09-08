@@ -62,6 +62,7 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
+import os88build                                            # noqa: E402
 
 RUNS = os.path.join(ROOT, "build", "soak")
 
@@ -104,6 +105,25 @@ def requirements():
                 "every build. Without it nothing under build/ can be made.",
                 _apt("nasm")))
 
+    # THE SECOND ASSEMBLER, and it is not "a newer nasm" - it is the one half
+    # the people who build this tree actually have. CONTRIBUTING.md's floor is
+    # 2 and every box here answers 2.16, so nothing in any tier ever assembles
+    # under 3.x, where constructs 2.x takes are REFUSED (`t_nasm3`'s header
+    # has the incident). No distribution here packages one yet, so the fix is
+    # a build or a path - which is exactly why it is a capability and the row
+    # skips rather than failing.
+    req.append(("nasm3", bool(os88build.nasm3()),
+                "the `nasm3` row - the only thing that assembles this tree "
+                "with an nasm 3, which is what Homebrew installs and what "
+                "half the people building it have.",
+                "brew install nasm       (macOS: it is 3.x)\n"
+                "                  ...or build one and export "
+                "OS88_NASM3=<path>/nasm:\n"
+                "                     git clone --depth 1 -b nasm-3.02 "
+                "https://github.com/netwide-assembler/nasm.git\n"
+                "                     cd nasm && sh autogen.sh && "
+                "./configure && make"))
+
     # The shipped artefacts. `all` builds these and the fast tier reads them;
     # a soak against a half-built tree fails rows for the tree's reason.
     imgs = ["os8088-360.img", "apps360.img", "os8088.img", "apps.img"]
@@ -143,6 +163,17 @@ def requirements():
     req.append(("c64 disk", os.path.exists(B("c64360.img")),
                 "c64part and the C64 rows.",
                 "make c64disk"))
+    # A FIFTH, and the one that proves the list is worth keeping by hand:
+    # skiesdiag's is a private -DCSDIAG TREE rather than a disk `all` chose
+    # not to build, so nothing above would ever have named it. It went
+    # unbuilt and unnoticed because the row reported its own absence as a
+    # pass (tools/os88test.py's probe carries that account).
+    req.append(("skiesdiag tree",
+                os.path.exists(B("skiesdiag", "apps360.img")),
+                "skiesdiag - the ONLY test of Clear Skies' freeze watchdog "
+                "(SPEC.md 88.14), an instrument for a machine that has hard "
+                "frozen.",
+                "make skiesdiag"))
 
     # **AND EVERY ARTEFACT A ROW DECLARES.** The list above is hand-written
     # and names the four disks somebody noticed; `Row(wants=...)` is the
@@ -440,9 +471,21 @@ PREWARM = [
     ("build/weave.img", "weavedisk"),
     ("build/loom.img", "loomdisk"),
     ("build/c64360.img", "c64disk"),
+    ("build/skiesdiag/apps360.img", "skiesdiag"),      # ...and ALWAYS, below
     ("build/muptest.img", "build/muptest.img"),
     ("build/spantest.img", "spantest"),
 ]
+
+
+# **EXISTENCE IS NOT FRESHNESS** (docs/WRITING-TESTS.md 13 row 33). A PRIVATE
+# TREE is built by a recursive make into a directory of its own, and nothing
+# in the shipped graph depends on it - so an edit to apps/skies/ leaves
+# build/skiesdiag/ sitting there, existing, describing a package the guest has
+# not got. `skiesdiag` checks its own tree and FAILS naming it, which is the
+# behaviour row 33 asks for; this is what stops it having to. A no-op
+# `make skiesdiag` is 0.9s, so it is cheaper to always run than to reason
+# about.
+ALWAYS = {"skiesdiag"}
 
 
 def prewarm(verbose=True):
@@ -469,7 +512,7 @@ def prewarm(verbose=True):
 
     made, failed = [], []
     for art, target in PREWARM:
-        if os.path.exists(os.path.join(ROOT, art)):
+        if os.path.exists(os.path.join(ROOT, art)) and target not in ALWAYS:
             continue
         r = subprocess.run(["make", "-s", target], cwd=ROOT,
                            capture_output=True, text=True)

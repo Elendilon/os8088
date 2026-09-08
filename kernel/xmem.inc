@@ -402,9 +402,11 @@ xm_dsp:
     push cs
     pop es                      ; ES = KERNEL_SEG: what the image reads the
     mov ds, [es:xm_row+DRVR_SEG]    ; things it was handed through
+    call COLD_SEG:wm_nest_pushd_x   ; SPEC.md 66.6.3 - .text, so far
     call far [es:xm_row+DRVR_DISP]
     pop es
-    pop ds
+    pop ds                          ; ...and DS names the kernel again, which
+    call COLD_SEG:wm_nest_pop_x     ; is the segment the pop reads
     ret
 
 ; -----------------------------------------------------------------------------

@@ -134,11 +134,16 @@ def launch():
         # driver's bit set, exactly as ether360.img does for the card - so the
         # pointer is up before the first paint and this reads state instead of
         # driving the Control Panel through a scripted mouse.
-        " -drive file=build/vmmouse.img,format=raw,if=floppy -boot a"
-        " -drive file=build/apps.img,format=raw,if=floppy,index=1"
+        " -drive file=%s,format=raw,if=floppy -boot a"
+        " -drive file=%s,format=raw,if=floppy,index=1"
         " -serial none"
         " -display none -qmp unix:%s,server,nowait -daemonize -pidfile %s"
-        % (SOCK, PIDFILE), cwd=ROOT, shell=True, check=True)
+        % (_B.at("build/vmmouse.img"),
+           _B.at("build/apps.img"), SOCK, PIDFILE),
+        cwd=ROOT, shell=True, check=True)
+    # BOTH FLOPPIES THROUGH at(): this row builds its own command line
+    # rather than going through os88marty.launch, which is where the
+    # other rows get this for free (tests/unit/t_artpath.py).
     # -daemonize: the emulator outlives this script unless somebody kills it,
     # and the somebody is os88qemu. AT THE LAUNCH SITE and nowhere else, so a
     # script that drives an instance it did not start cannot kill it.

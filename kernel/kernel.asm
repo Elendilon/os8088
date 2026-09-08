@@ -2526,7 +2526,9 @@ section .ovlw    start=OVLW_START vstart=0
 section .modc    start=MODC_START vstart=0
 section .modf    start=MODF_START vstart=0
 section .modl    start=MODL_START vstart=0
+%ifdef KERN_BIG
 section .modh    start=MODH_START vstart=0
+%endif
 %ifdef FCP_MOD
 section .modp    start=MODP_START vstart=0
 %endif
@@ -2723,14 +2725,14 @@ dbg_reg_at:                     ; 0060:000E - THE DEBUG REGISTRY (SPEC.md 57)
 %macro OSAPI_XCELL 1                ; 8 bytes exactly
     push bp                         ; 55        the CALLER's, under the frame
     mov bp, %1                      ; BD lo hi
-    jmp near api_x                  ; E9 lo hi
+    jmp strict near api_x           ; E9 lo hi
     db 0
 %endmacro
 
 %macro OSAPI_NCELL 1                ; 8 bytes exactly
     push bp
     mov bp, %1
-    jmp near api_n
+    jmp strict near api_n
     db 0
 %endmacro
 
@@ -3826,7 +3828,75 @@ osapi_table:
                                   ;          20.14.3). The cell a COPIER wants:
                                   ;          OSAPI_FILE_READ_AT is already raw,
                                   ;          and this is the size to go with it
-osapi_table_end:                  ; 0x0508
+    OSAPI_SLOT api_gfx_save       ; 0x0508 - AX/BX/CX/DX = an inclusive rect,
+                                  ;          ES:DI = your buffer. Bank the
+                                  ;          pixels under a thing you are about
+                                  ;          to draw over (SPEC.md 5.4.3), so
+                                  ;          taking it down is a write-back
+                                  ;          instead of a repaint. CF = 1
+                                  ;          REFUSED - the rect straddles two
+                                  ;          displays - and nothing is written
+    OSAPI_SLOT api_gfx_rest       ; 0x0510 - ...and put it back: same rect,
+                                  ;          ES:SI = the buffer the save filled
+    OSAPI_XCELL inst_restart_set  ; 0x0518 - X: AX = a near offset in YOUR own
+                                  ;          image, 0 to withdraw. out CF = 1 =
+                                  ;          you are not a live package
+                                  ;          instance.
+                                  ;          "IF YOU HAVE TO MOVE MY REGION,
+                                  ;          THROW MY WORKER'S STACK AWAY AND
+                                  ;          RE-ENTER IT HERE" (SPEC.md
+                                  ;          66.6.2). The one way past 66.6.1's
+                                  ;          limit - a worker's stack carries
+                                  ;          its own segment at depths nothing
+                                  ;          can find, so the answer is not to
+                                  ;          find them but to arrange for the
+                                  ;          stack not to matter.
+                                  ;          IT IS A WINDOW, NOT A PROPERTY,
+                                  ;          and the asymmetry against
+                                  ;          OSAPI_MEM_PARKSAFE is the thing to
+                                  ;          weigh: parksafe declared wrongly
+                                  ;          costs a missed optimisation, this
+                                  ;          costs a lost loop iteration - and
+                                  ;          if the worker was holding
+                                  ;          something, correctness
+    OSAPI_SLOT osapi_pkg_run      ; 0x0520 - run a package image that is
+                                  ;          ALREADY IN MEMORY (SPEC.md 21.5):
+                                  ;          ES:SI = the image in a claim of
+                                  ;          yours, DX:CX its length, DI a
+                                  ;          NUL 8.3 name in your own segment.
+                                  ;          A PLAIN SLOT and not an X cell:
+                                  ;          ES is an ARGUMENT here and an X
+                                  ;          stub would overwrite it with the
+                                  ;          caller's DS (SPEC.md 20.3), which
+                                  ;          is the one segment the image is
+                                  ;          least likely to be in
+    OSAPI_XCELL osapi_desk_svc      ; 0x0528 - X: a DRIVER registers the
+                                  ;          desktop SERVICE zone (SPEC.md
+                                  ;          26.7). in AL = 1 add / 0
+                                  ;          withdraw, ES:SI = a 39-byte
+                                  ;          record in the driver's own
+                                  ;          segment: a caption, the 8.3 file
+                                  ;          the zone launches out of SYSTEM/,
+                                  ;          its DRVC_* class, the verb the
+                                  ;          kernel calls to PAINT its icon,
+                                  ;          and the package's header name.
+                                  ;          out CF=1 refused - not a
+                                  ;          published driver (osapi_vol_add's
+                                  ;          own fence), a second registration
+                                  ;          (there is ONE zone), or a
+                                  ;          withdraw of somebody else's.
+                                  ;          The kernel keeps no glyph: a
+                                  ;          desktop icon whose picture lived
+                                  ;          in here would be carried by every
+                                  ;          machine, and most of them have no
+                                  ;          card to use it with.
+                                  ;          THE CELL IS IN BOTH KERNELS
+                                  ;          (SPEC.md 20.8 rule 4) and on
+                                  ;          kern_small the body is two
+                                  ;          instructions that refuse: there is
+                                  ;          no driver there that would
+                                  ;          register one
+osapi_table_end:                  ; 0x0530
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -3834,8 +3904,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 159 * 8
-%error "os8088 API jump table must be exactly 159 8-byte slots"
+%if OSAPI_TABLE_LEN != 164 * 8
+%error "os8088 API jump table must be exactly 164 8-byte slots"
 %endif
 
 ; =============================================================================
@@ -4022,6 +4092,66 @@ api_decomp:
     call COLD_SEG:lzf_decomp
     retf                        ; CF is lz_decomp_x's answer: neither the far
                                 ; return above nor this one touches the flags
+
+; -----------------------------------------------------------------------------
+; api_gfx_save / api_gfx_rest - slots 0x0508 / 0x0510 (SPEC.md 5.4.3)
+;
+; gfx_save and gfx_restore have been in this kernel since the menu save-under
+; and are on BOTH builds - unlike gfx_blit1, which is kern_big only - so what a
+; package was missing was the CELL and not the code. The one thing it was also
+; missing is the test the kernel's own callers owe them: GFXDENTERR puts the
+; whole shape on the display holding the top-left (SPEC.md 39.14.6), so a
+; straddling rect banks one display's half and, on the way back, leaves the
+; other display's half STALE. wm_su_take asks vid_span_one for exactly this
+; reason; a package has no published way to ask, so the cell asks for it.
+;
+; Refusing is the whole answer rather than a shortcoming: a caller that gets
+; CF = 1 repaints, which is what it did before it had this cell at all
+; (SPEC.md 12.4's [menu_sseg] = 0 rule, one layer out).
+;
+; vid_span_one takes AX/BX/CX/DX inclusive - the same four registers these two
+; take - so the guard needs no frame, and gfx_save/gfx_restore preserve all
+; four, so the caller's rect survives for the restore.
+; -----------------------------------------------------------------------------
+api_gfx_save:
+%ifdef KERN_BIG
+    call vid_span_one           ; ...and only kern_big HAS a second display to
+    jc .no                      ; straddle: vid_span_one is inside that build's
+%endif                          ; guard because the extended desktop is, so on
+    call gfx_save               ; the small kernel the question cannot arise
+    clc                         ; and the cell is five bytes lighter
+    ret
+%ifdef KERN_BIG
+.no:
+    stc
+    ret
+%endif
+
+api_gfx_rest:
+%ifdef KERN_BIG
+    call vid_span_one           ; symmetric with the save on purpose: a
+    jc .no                      ; contract that refuses on one side and not
+%endif                          ; the other is the kind that costs somebody a
+    call gfx_restore            ; day
+    clc
+    ret
+%ifdef KERN_BIG
+.no:
+    stc
+    ret
+%endif
+
+; osapi_pkg_run - slot 0x04F8's resident thunk (SPEC.md 21.5)
+;
+; The body is loader.inc's and loader.inc is `.cold`, so this is the ordinary
+; six bytes - and it is in BOTH kernels, body included, because a slot that
+; exists in one build and not another is an ABI that depends on a knob
+; (SPEC.md 20.8 rule 4). `call far` and `retf` touch no flags, so the CF the
+; body answers with is what the caller's `pop ds / retf` returns.
+; -----------------------------------------------------------------------------
+osapi_pkg_run:
+    call COLD_SEG:ldf_ld_pkg_run
+    ret
 
 ; -----------------------------------------------------------------------------
 ; api_file_find - slot 0x0348 (X). in CX = ordinal, ES:DI = a DSK_FIND_SZ
@@ -4992,7 +5122,7 @@ kmain:
     call cursor_show
 
     mov ax, [ticks]             ; TIME THE HOT-PLUG POLLER FROM THE DESKTOP
-    mov [mou_hpbase], ax        ; (SPEC.md 9.4.8). [mou_hpbase] is the poll
+    mov [mou_hpt], ax           ; (SPEC.md 9.4.8). [mou_hpt] is the poll
                                 ; interval's base and starts at 0, and [ticks]
                                 ; started at sched_init, so the poller's first
                                 ; DTR drop fired the instant [ticks] passed
@@ -5003,10 +5133,10 @@ kmain:
                                 ; here, the ~3s interval is measured from when
                                 ; the pointer first exists: a user who moves
                                 ; inside it settles the port and the poller
-                                ; never drops. NOT [mou_hpt], which stays 0
-                                ; until a real drop so sysbench can read "the
-                                ; poller never fired" (SPEC.md 9.4.2). AX is
-                                ; dead - the boot timer above stored its count
+                                ; never drops. "The poller fired" is read off
+                                ; [mou_hpst] >= 1 instead (SPEC.md 9.4.2). AX
+                                ; is dead - the boot timer above stored its
+                                ; count
 
     call COLD_SEG:drv_notice_x  ; ...and only NOW say what did not load: a
                                 ; window needs a screen that has been painted
@@ -5121,7 +5251,12 @@ osapi_font_glyphs:
 ; is not merely stale, it is about the wrong disk.
 osapi_file_dfree:
     call inst_vol_enter
-    jmp dskw_dfree              ; a tail call: its outputs and CF are ours
+    call COLD_SEG:dwf_dskw_dfree    ; its outputs and CF are ours. DIRECTLY,
+    ret                             ; not through a dskw_dfree shim: this was
+                                    ; the one cold shim in the kernel whose
+                                    ; only reference was a call - every other
+                                    ; one is an API cell or a kind template,
+                                    ; where the near entry is the contract
 
 ; ---- osapi_file_here / osapi_file_goto - the volume's location (SPEC.md 19.2)
 ;
@@ -6089,8 +6224,6 @@ cw_evq_mup:             call evq_mup        ; them out of its 75-byte rung.
                                             ; and one was born (SPEC.md 74.1.1)
 cw_font_run:            call font_run
                     retf
-cw_fpg_step:             call fpg_step
-                     retf
 %ifdef KERN_BIG                 ; ...and gfx_disp_enter is dual display's
 cw_gfx_disp_enter:      call gfx_disp_enter
                     retf
@@ -6133,10 +6266,6 @@ cw_gfx_pixel:           call gfx_pixel
 cw_gfx_rowbase:         call gfx_rowbase
                     retf
 %endif
-cw_gfx_scroll:          call gfx_scroll
-                    retf                    ; retf leaves the flags alone, so
-                                            ; gfx_scroll's CF is still its
-                                            ; answer at the cold caller
 cw_gfx_unlock:          call gfx_unlock
                     retf
 cw_gfx_vline:           call gfx_vline
@@ -6156,9 +6285,11 @@ cw_inst_alloc:          call inst_alloc
                     retf
 cw_inst_bind_win:       call inst_bind_win
                     retf
+cw_inst_caller:         call inst_caller    ; OSAPI_PKG_RUN reads its name
+                    retf                    ; argument through the CALLING
+                                            ; instance's segment (SPEC.md
+                                            ; 21.5), and loader.inc is cold
 cw_inst_find_kind:      call inst_find_kind
-                    retf
-cw_inst_set_name_x:     call inst_set_name_x
                     retf
 cw_inst_fhome_idx:      call inst_fhome_idx
                     retf
@@ -6195,8 +6326,6 @@ cw_menu_draw_bar:       call menu_draw_bar
                     retf
 cw_menu_popup:          call menu_popup
                     retf
-cw_osapi_file_here:      call osapi_file_here
-                     retf
 cw_osapi_snd_tone:      call osapi_snd_tone
                     retf
 cw_snd_beep:            call snd_beep
@@ -6215,6 +6344,14 @@ cw_toast_show:          call toast_show
                     retf
 cw_ui_note:             call ui_note
                     retf
+%ifdef KERN_BIG
+cw_ui_svc_open:         call ui_svc_open    ; the service zone's double-click
+                    retf                    ; (SPEC.md 26.7): desk.inc is cold
+                                            ; and ui_sys_open is not
+cw_drv_pkg_call:        call drv_pkg_call_x ; ...and its PAINT, which is the
+                    retf                    ; same door a package reaches a
+                                            ; driver by (SPEC.md 20.11)
+%endif
 cw_vga_xor_rect_vram:   call vga_xor_rect_vram
                     retf
 cw_vid_avail_test:      call vid_avail_test
@@ -6259,8 +6396,6 @@ cw_wm_create:           call wm_create
                     retf
 cw_wm_destroy:          call wm_destroy
                     retf
-cw_wm_destroy_seg:      call wm_destroy_seg
-                    retf
 cw_wm_minsize:          call wm_minsize
                     retf
 cw_wm_snap:             call wm_snap    ; OUTSIDE the KERN_BIG gate below:
@@ -6275,23 +6410,7 @@ cw_wm_onmouseup:        call wm_onmouseup
                     retf
 cw_wm_ondrag:           call wm_ondrag
                     retf
-; ...and the seven HIBER.DRV needs (SPEC.md 87): a kernel window closed from
-; its own release handler, and the reboot path's and fsx_restore's pieces -
-; text mode out, the desktop mode back, the two forced strips, the idle clock
-cw_app_close_win:       call app_close_win
-                    retf
-cw_vid_reboot:          call vid_reboot
-                    retf
-cw_vid_setmode:         call vid_setmode
-                    retf
-cw_menu_force:          call menu_force
-                    retf
-cw_dock_force:          call dock_force
-                    retf
-cw_blk_wake:            call blk_wake
-                    retf
-cw_sched_unhook:        call sched_unhook
-                    retf
+; ...and HIBER.DRV's seven needs go through cw_mem_disp (`call bp / retf`)
 %endif
 cw_wm_dmg_add:           call wm_dmg_add
                      retf
@@ -6305,8 +6424,6 @@ cw_wm_hit:              call wm_hit
                     retf
 cw_wm_idx2ptr:          call wm_idx2ptr
                     retf
-cw_wm_obscured:         call wm_obscured
-                    retf
 cw_wm_paint_all:        call wm_paint_all
                     retf
 cw_wm_paint_dmg:         call wm_paint_dmg
@@ -6315,10 +6432,6 @@ cw_wm_pkgcall:          call wm_pkgcall
                     retf
 cw_wm_show:             call wm_show
                     retf
-cw_wm_wake_call:        call wm_wake_call   ; assoc_run's second phase (SPEC.md
-                    retf                    ; 54.10): the launched window is on
-                                            ; the glass, so the package may now
-                                            ; spend the document it was handed
 %ifdef WM_ANIM
 cw_inst_unmin:          call inst_unmin
                     retf
@@ -6427,8 +6540,6 @@ wm_ontimer_c:         stc       ; which of the three it is refusing
 ; filecp.inc needs none - every caller of an fcp_ routine is files.inc, which
 ; is cold too, so those calls stayed near.
 dskw_delete:          call COLD_SEG:dwf_dskw_delete
-                    ret
-dskw_dfree:           call COLD_SEG:dwf_dskw_dfree
                     ret
 dskw_read:            call COLD_SEG:dwf_dskw_read
                     ret
@@ -6603,6 +6714,12 @@ osapi_vol_mount:  call COLD_SEG:osapi_vol_mount_x
               ret
 osapi_vol_paint:  call COLD_SEG:osapi_vol_paint_x
               ret
+osapi_desk_svc:   call COLD_SEG:osapi_desk_svc_x    ; SPEC.md 26.7, and the
+              ret                               ; same six bytes the four
+                                                ; volume slots above cost. In
+                                                ; BOTH kernels, like the cell:
+                                                ; on kern_small the body is
+                                                ; two instructions that refuse
 
 ; --- ...and driver.inc's (SPEC.md 51). Boot-time loading, the Control Panel
 ; pages and the class dispatch. One entry is reached from an ISR:
@@ -6956,14 +7073,14 @@ OVL_SIZE equ ovl_end - $$       ; `$$` is the SECTION's base, which is OVL_AT
 MODC_START   equ OVLW_START + OVLW_SIZE
 MODF_START   equ MODC_START + MODC_SIZE
 MODL_START   equ MODF_START + MODF_SIZE
-MODH_START   equ MODL_START + MODL_SIZE
-%ifdef FCP_MOD
-MODP_START   equ MODH_START + MODH_SIZE   ; Cut/Copy/Paste, kern_small's alone
+%ifdef KERN_BIG
+MODH_START   equ MODL_START + MODL_SIZE   ; hibernate, kern_big's alone
+MODMAP_START equ MODH_START + MODH_SIZE
+%else
+MODP_START   equ MODL_START + MODL_SIZE   ; Cut/Copy/Paste, kern_small's alone
 MODD_START   equ MODP_START + MODP_SIZE   ; ...and the file dialog after it
 MODMAP_START equ MODD_START + MODD_SIZE
-%else
-MODMAP_START equ MODH_START + MODH_SIZE   ; after hibernate's, which every
-%endif                                    ; kernel carries (SPEC.md 87). The
+%endif                                    ; The
                                           ; compressor has no image of its
                                           ; own: it rides in the cloner's
                                           ; (SPEC.md 20.15.3)
@@ -6980,9 +7097,11 @@ section .modl
 modl_end:
 MODL_SIZE equ modl_end - $$
 
+%ifdef KERN_BIG
 section .modh
 modh_end:
 MODH_SIZE equ modh_end - $$
+%endif
 
 %ifdef FCP_MOD
 section .modp
@@ -7010,8 +7129,10 @@ MODD_SIZE equ modd_end - $$
 %if MODL_SIZE > MOD_MAX_KB*1024
 %error "the clone module is over MOD_MAX_KB - mod_need would refuse it at run time"
 %endif
-%if MODH_SIZE > MOD_MAX_KB*1024
+%ifdef KERN_BIG
+ %if MODH_SIZE > MOD_MAX_KB*1024
 %error "the hibernate module is over MOD_MAX_KB - mod_need would refuse it at run time"
+ %endif
 %endif
 %ifdef FCP_MOD
  %if MODP_SIZE > MOD_MAX_KB*1024
@@ -7046,10 +7167,11 @@ mod_map:
                                 ; flags but this tree's -w+error
     dd MODF_START, MODF_SIZE
     dd MODL_START, MODL_SIZE
-    dd MODH_START, MODH_SIZE
-%ifdef FCP_MOD
-    dd MODP_START, MODP_SIZE    ; ...and kern_small's fifth (SPEC.md 22.3)
-    dd MODD_START, MODD_SIZE    ; ...and its sixth (SPEC.md 38.0)
+%ifdef KERN_BIG
+    dd MODH_START, MODH_SIZE    ; ...and kern_big's fourth: hibernate (87)
+%else
+    dd MODP_START, MODP_SIZE    ; ...or kern_small's fourth (SPEC.md 22.3)
+    dd MODD_START, MODD_SIZE    ; ...and its fifth (SPEC.md 38.0)
 %endif
     dd MODMAP_START             ; ...where the table began, and
     dw 0x384F                   ; the last two bytes of the file
@@ -7574,9 +7696,11 @@ section .modl
 %if ($ - $$) != MODL_SIZE
   %error "something landed in .modl below modl_end - os88mod.py would CUT the clone module short of it"
 %endif
+%ifdef KERN_BIG
 section .modh
 %if ($ - $$) != MODH_SIZE
   %error "something landed in .modh below modh_end - os88mod.py would CUT the hibernate module short of it"
+%endif
 %endif
 section .modmap
 %if ($ - $$) != MODMAP_SIZE
