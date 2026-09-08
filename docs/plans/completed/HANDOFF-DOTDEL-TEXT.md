@@ -174,3 +174,44 @@ byte-identical against the previous `font.inc` at one commit):
 - `PERFORMANCE.md` Set 121 — the measurements above.
 
 Nothing on your branch was touched.
+
+---
+
+## 8. ANSWERED — and the answer is worse than the handoff guessed
+
+*Added by the session on `claude/dot-delirium-pacman-dh0530`, which is why this
+file is in `completed/`.*
+
+**§5's experiment 1 was run, in situ, with a breakpoint pair on the package's
+own `dd_play_line` and the guest's cycle counter** — the same string, the same
+place, the same pen, three builds differing only in `dd_text`. PERFORMANCE.md
+**Set 122** is the record and SPEC.md §93.5.5 the conclusion.
+
+| adapter | band, as first written | band, cell-outer | `OSAPI_FONT_RUN` |
+|---|---:|---:|---:|
+| VGA 640×480 | 12,882 µs | **4,887** | 5,422 |
+| Hercules 720×348 | 12,969 | **4,988** | 5,663 |
+| CGA 640×200 | 12,986 | **5,000** | 5,797 |
+
+Three things this settles:
+
+1. **The band was 2.4× SLOWER than the slot it replaced**, for the whole life
+   of the branch. It composed row-outer and cell-inner, so the glyph lookup ran
+   eight times a character: 393 cycles a band byte. Cell-outer with the stores
+   unrolled is 2.6× faster, and only *then* does the band beat `font_run` — by
+   **10–14%**, not by the order of magnitude the comment claimed.
+2. **The tell was free and nobody looked for it.** Three adapters whose
+   `gfx_blit1` costs differ by a factor of two agreed to **0.9%**. A cost that
+   does not move with the adapter is not in the blit. §6 of this handoff says
+   "one row per thing changed"; the cheaper rule is *one number that should
+   have varied and did not*.
+3. **§4's arithmetic was right.** At twice a second the line is under 2% of the
+   machine either way, so it was never what took the attract screen to 9.8 fps.
+   The band is kept — it is faster, and it makes text the same one-`gfx_blit1`
+   operation as everything else that package draws — but it is not
+   load-bearing, and SPEC.md §93.5.5 now says so in as many words.
+
+The claim is corrected in `apps/dotdel/ddrend.inc`'s header, in SPEC.md
+§93.5.3 item 2 (struck through in place, because it was quoted) and in
+§93.5.5. Commit `e68065c`'s message cannot be rewritten and is left; the two
+live copies are the ones that propagate.

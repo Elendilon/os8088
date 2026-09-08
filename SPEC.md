@@ -107949,10 +107949,12 @@ written down because none of them was the sprite renderer:
    every frame amortised, and on its own the difference between 12 fps and
    18.2. `dd_pill_list` records where they are when the layout is decoded and
    the blink reads four entries.
-2. **The attract screen's play line was `font_run`.** On a VGA that slot
-   cannot reach §6.1's single-store path and falls to the `gfx_fill` +
-   `font_str` pair (font.inc:740); the nineteen-character line cost **176 ms**,
-   three whole ticks, twice a second. §93.5.5 is what replaced it.
+2. ~~**The attract screen's play line was `font_run`.**~~ **THIS ITEM WAS
+   WRONG** and is kept here because it was quoted. The 176 ms it claimed was
+   never measured and is ~30× out; the line costs 5.42 ms through `font_run`
+   and 4.89 ms as a band, and at twice a second neither is what took that
+   screen to 9.8 fps. §93.5.5 has the measurement, what the band actually buys,
+   and where the number came from.
 3. **Every tile lookup was two 16-bit divides.** `dd_tile_of` divided the
    actor's sub-pixel position by the tile, at ~160 cycles a `div`, from a
    dozen call sites a tick. The tile is carried alongside the position now
@@ -107965,12 +107967,47 @@ written down because none of them was the sprite renderer:
    origin, and shifting the sprite word twice per row instead of once, were
    another 6 ms between them.
 
-The costs that remain are per frame and small: five actor bands at ~700 µs
-each, the pellet blink at four tile blits three times a second, and the HUD
-only when a number moved. The two that are NOT per frame are a full repaint
-(~90 ms for the walls and ~36 ms for the dots) and a board render into the
-picture (~200 ms), which happen at a level start behind "READY!" and when the
-window is repainted.
+5. **A lost life owed a WHOLE repaint.** `dd_actors_home` cleared every
+   actor's "where it was drawn", so nothing took the old sprites up and the
+   only way to clean the board was to draw all of it. On a VGA that is **677
+   ms — twelve and a half ticks** — and an unsteered Smiles dies two or three
+   times inside leg E's eight-second window, which is why that leg read
+   anywhere between 66% and 98% on VGA and always 100% on the two 1bpp
+   adapters. A death is a jump of more than a tile, which §93.5.1 already
+   calls a **teleport** and already draws as two bands: leaving `dd_shown`
+   alone is the whole fix, and `tests/dotdel.py` now sees 97–99% on VGA
+   whatever happens inside the window.
+
+#### 93.5.3.1 Where a frame goes, on the adapter with the least room
+
+Measured the same way as §93.5.5 — a breakpoint pair on each proc and the
+guest's own cycle counter — on `os8088_xt_vga`, tile 16×13, five actors in
+play (PERFORMANCE.md Set 123):
+
+| | µs, min of twelve |
+|---|---:|
+| `dd_render` — the whole frame, lock to unlock | 34,599 |
+| …of which `dd_draw` | 25,962 |
+| …of which `dd_actors_draw`, five actors | 23,111 |
+| one `dd_actor_emit` | 4,068 |
+| …its `dd_blit` (the `gfx_blit1` itself) | 1,856 |
+| …its `dd_band_one`, the sprite into the band | 1,135 |
+| …its `dd_band_build` (ground 102, items 209, others 323) | 886 |
+| `dd_step` — **one whole tick of game logic** | **71** |
+
+Two things worth keeping out of that table. **The logic is 0.2% of the
+frame** — four ghosts thinking, line of sight, the eyes, collisions and the
+clocks together cost less than a fortieth of one actor's band — so this game
+is a renderer with an AI in it and not the other way round. And **the ~8.6 ms
+between `dd_render` and `dd_draw` is the kernel's**: the gfx lock hides and
+restores the pointer, and the clip region is armed and dropped, once a frame.
+
+The costs that remain are per frame: five actor bands at ~4.1 ms each on a
+VGA and much less on either 1bpp adapter, the pellet blink at four tile blits
+three times a second, and the HUD only when a number moved. The two that are
+NOT per frame are a **full repaint — 677 ms on a VGA** — and a board render
+into the picture (~200 ms), which now happen at a level start behind "READY!"
+and when the window is repainted, and no longer on a lost life.
 
 #### 93.5.4 The one-pen rule, and what it costs
 
@@ -107996,17 +108033,53 @@ actor reaches it and comes back after, and it needs a second blit per actor
 per frame to put the vacated tiles back. Being briefly the wrong colour is a
 smaller lie than not being there.
 
-#### 93.5.5 Text is a band too
+#### 93.5.5 Text is a band too — and the margin is 11%, not 30×
 
 Every line this package letters — the HUD, the score table, the play line, the
 centred messages — goes down as **one band**, composed out of the kernel's own
 8×8 glyph table (`OSAPI_FONT_GLYPHS`) and put up with one `gfx_blit1`.
 
-It is not `font_run`, and the reason is §93.5.3's second item: on a VGA that
-slot falls to the `gfx_fill` + `font_str` pair and a nineteen-character line
-costs 176 ms. The same line as a band is ~1 ms. This is what §5.4.2 was
-written for — one row of type instead of a hundred and four calls — one face
-smaller than the one it was written for.
+**The reason first given for that was wrong, and the correction is worth more
+than the decision.** It said `font_run` could not reach §6.1's single-store
+path on a VGA and cost **176 ms** for the attract screen's nineteen-character
+play line. `font_run` has had that path since §6.1.10 and an unaligned one
+since §6.1.11; the figure was inherited from two sentences in this tree that
+described the pre-§6.1.10 world in the present tense, one of them `font_run`'s
+own header docblock, and it was never measured. It is **~30× out**. §6.1.10.1
+is the rule that actually binds a caller — the fast path needs one colour's
+plane bits to be a subset of the other's, which black paper always satisfies —
+and this package's pens are all coloured-on-black, so it was never off it.
+
+Measured in situ, `dd_play_line` end to end, the same string at the same place
+with the same pen, minimum of nine samples on a cycle-accurate 4.77 MHz 8088
+(PERFORMANCE.md Set 122):
+
+| adapter | band, as first written | band, cell-outer | `OSAPI_FONT_RUN` |
+|---|---:|---:|---:|
+| VGA 640×480 | 12.882 ms | **4.887** | 5.422 |
+| Hercules 720×348 | 12.969 | **4.988** | 5.663 |
+| CGA 640×200 | 12.986 | **5.000** | 5.797 |
+
+Two things fall out of that table and neither is the one that was claimed.
+
+**The band as first written was 2.4× SLOWER than the slot it replaced.** It
+composed ROW-outer and CELL-inner, so the whole glyph lookup — two bounds
+compares, a shift and two adds — happened eight times a character instead of
+once: 393 cycles a band byte. The tell was in the table all along and nobody
+looked for it — **three adapters whose blits differ by a factor of two agreed
+to 0.9%**, which can only mean the cost was the composer. Cell-outer with the
+eight stores unrolled is 2.6× faster and the band then wins by 10–14%.
+
+**And it was never what made the attract screen slow.** The play line is drawn
+twice a second, so even at the claimed 176 ms it was 35% of the machine and at
+its real cost it is under 2%; the 46% that screen was overrunning by belongs to
+§93.5.3's other two items, which landed in the same commit. Three fixes and one
+measurement afterwards cannot attribute, and this one did not.
+
+The band is kept, at a margin that is now stated honestly: it is faster on all
+three adapters, it makes text the same one-`gfx_blit1` operation as everything
+else this package draws, and it composes at a width the 8×8 run cannot. It is
+not load-bearing, and `font_run` at an aligned x would be a defensible choice.
 
 The cost is that the pen x is rounded down to the byte grid, so a centred line
 can sit up to seven pixels left of exact centre. A line of type is a line of

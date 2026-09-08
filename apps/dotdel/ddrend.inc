@@ -72,15 +72,32 @@ dd_pen:
 ;
 ; Every line this package letters goes down as ONE BAND, composed out of the
 ; kernel's own 8x8 glyph table (`OSAPI_FONT_GLYPHS`) and put up with one
-; `gfx_blit1`. It is not `font_run`, and the reason is measured: on a VGA
-; `font_run` cannot reach SPEC.md 6.1's single-store path and falls to the
-; `gfx_fill` + `font_str` pair (font.inc:740), which for the attract screen's
-; nineteen-character play line is **176 ms** - three whole ticks, twice a
-; second, and the whole of why that screen ran at 9.8 fps against the tick's
-; 18.2. The same line as a band is ~1 ms.
+; `gfx_blit1`.
 ;
-; It is what SPEC.md 5.4.2 was written for, one row of type instead of a
-; hundred and four.
+; THE REASON THIS COMMENT USED TO GIVE WAS WRONG, and the correction is worth
+; more than the decision. It said `font_run` could not reach SPEC.md 6.1's
+; single-store path on a VGA and cost 176 ms for the attract screen's
+; nineteen-character play line. That figure was never measured - it was
+; inherited from two sentences in this tree that described the pre-6.1.10 world
+; in the present tense - and it is about THIRTY TIMES out.
+;
+; Measured in situ, the same string at the same place with the same pen, on a
+; cycle-accurate 4.77 MHz 8088 (PERFORMANCE.md Set 122):
+;
+;                          band, as first written   band, cell-outer   font_run
+;   VGA 640x480                        12.882 ms           4.887 ms    5.422 ms
+;   Hercules 720x348                   12.969              4.988       5.663
+;   CGA 640x200                        12.986              5.000       5.797
+;
+; So the band as first written was 2.4x SLOWER than the slot it replaced, and
+; it is kept at a margin of 10-14% rather than an order of magnitude. What it
+; buys beyond that is that text is the same one-`gfx_blit1` operation as
+; everything else here draws, at a width the 8x8 run cannot compose.
+;
+; It is not load-bearing. `font_run` at an aligned x is a defensible choice and
+; SPEC.md 6.1.10.1 is the rule that decides whether a PEN reaches its fast path
+; - the plane bits of one colour must be a subset of the other's, which black
+; paper always satisfies, and every pen in this package is on black.
 ; =============================================================================
 
 ; -----------------------------------------------------------------------------
@@ -134,23 +151,28 @@ dd_text:
     jb .len
 .have:
     pop si
-    jcxz .out
+    or cx, cx
+    jnz .go
+    jmp .out                        ; a near jump: the unrolled cell below puts
+.go:                                ; .out past a jcxz's reach
     mov [dd_tn], cx
     ; --- eight rows of CX bytes, out of the glyph table ---------------------
+    ;
+    ; CELL-OUTER, ROW-INNER, and the eight stores unrolled. It was the other
+    ; way round, which made the whole lookup - two bounds compares, a shift and
+    ; two adds - happen EIGHT TIMES a character instead of once, and cost 393
+    ; cycles a band byte. The tell that the cost was the COMPOSER and never the
+    ; blit is that a nineteen-cell line read 12.88 ms on a VGA, 12.97 on a
+    ; Hercules and 12.99 on a CGA - three adapters whose blits differ by a
+    ; factor of two, agreeing to 0.9% (SPEC.md 93.5.5).
     mov ax, [dd_gseg]
     mov es, ax
-    xor bx, bx                      ; BX = the glyph row
-.row:
-    push bx
-    mov ax, bx
-    mul word [dd_tn]
-    mov di, dd_band
-    add di, ax                      ; DI = this band row
-    pop bx
-    push si
-    mov cx, [dd_tn]
+    mov di, dd_band                 ; DI = this cell's column, in band row 0
+    mov dx, [dd_tn]                 ; DX = the band's stride, one byte a cell
+    mov cx, dx
 .cell:
     mov al, [si]
+    inc si
     cmp al, [dd_gfirst]
     jb .blank
     cmp al, [dd_glast]
@@ -162,23 +184,49 @@ dd_text:
     shl ax, cl                      ; eight bytes a glyph
     pop cx
     add ax, [dd_goff]
-    add ax, bx                      ; ...and BX says which row of it
-    push bx
     mov bx, ax
+    push di
     mov al, [es:bx]
-    pop bx
-    jmp short .put
-.blank:
-    xor al, al
-.put:
     mov [di], al
+    add di, dx
+    mov al, [es:bx+1]
+    mov [di], al
+    add di, dx
+    mov al, [es:bx+2]
+    mov [di], al
+    add di, dx
+    mov al, [es:bx+3]
+    mov [di], al
+    add di, dx
+    mov al, [es:bx+4]
+    mov [di], al
+    add di, dx
+    mov al, [es:bx+5]
+    mov [di], al
+    add di, dx
+    mov al, [es:bx+6]
+    mov [di], al
+    add di, dx
+    mov al, [es:bx+7]
+    mov [di], al
+    pop di
     inc di
-    inc si
     loop .cell
-    pop si
-    inc bx
-    cmp bx, 8
-    jb .row
+    jmp short .emit
+.blank:
+    push cx                         ; a character the table does not carry, so
+    push di                         ; the cell is ground and nothing else
+    mov cx, 8
+    xor al, al
+.bz:
+    mov [di], al
+    add di, dx
+    loop .bz
+    pop di
+    pop cx
+    inc di
+    loop .cell
+.emit:
     ; --- ...and one call ----------------------------------------------------
     mov al, [dd_tink]
     call dd_pen

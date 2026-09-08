@@ -128,7 +128,13 @@ dd_actors_home:
     mov byte [dd_dir + 0], DIR_L
     mov byte [dd_want + 0], DIR_L
     mov byte [dd_alive + 0], 1
-    mov byte [dd_shown + 0], 0
+    ; ...and [dd_shown] is DELIBERATELY left alone. Putting everybody back is a
+    ; jump of more than a tile, which SPEC.md 93.5.1 already calls a teleport
+    ; and already draws as two bands - the tiles it was on, then where it is.
+    ; Clearing dd_shown here instead made a lost life owe a WHOLE repaint, and
+    ; on a VGA that is 677 ms against a frame's 55: leg E of tests/dotdel.py
+    ; read anywhere from 66% to 98% depending on how many times an unsteered
+    ; Smiles died inside its eight-second window.
     ; the four ghosts
     mov si, 1
 .g:
@@ -138,7 +144,6 @@ dd_actors_home:
     mov ch, [dd_ghr + bx]
     call dd_put_tile
     mov byte [dd_alive + si], 1
-    mov byte [dd_shown + si], 0
     mov byte [dd_dir + si], DIR_L
     mov byte [dd_want + si], DIR_L
     mov bx, si
@@ -1638,9 +1643,8 @@ dd_life_lost:
     mov word [dd_fruit], 0
     mov byte [dd_state], DDS_READY
     mov word [dd_tim], DD_READYT
-    mov byte [dd_full], 1
-    ret
-.over:
+    ret                             ; ...and NOT a full repaint: the board did
+.over:                              ; not change, only where five actors are
     mov byte [dd_lives], 0
     mov byte [dd_state], DDS_OVER
     mov word [dd_tim], DD_OVERT
