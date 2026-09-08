@@ -44,7 +44,6 @@ pointer clamped so every click after it lands somewhere else.
 import argparse
 import os
 import sys
-import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -62,22 +61,6 @@ from blitpair import gif_pixels, BLITS                        # noqa: E402
 
 S = os88sym.linear
 BAND_KB = 8                 # the band cache measures 3 KB, the whole content 9
-
-
-def serialise(m):
-    """One socket, two threads.
-
-    The debug link is a request/response pipe, and the thread that closes the
-    panel and the loop that polls for a breakpoint interleave on it - which
-    arrives as a JSON decode error rather than as anything about the guest.
-    """
-    lock = threading.Lock()
-    inner = m.cmd
-
-    def cmd(**kw):
-        with lock:
-            return inner(**kw)
-    m.cmd = cmd
 
 
 def main():
@@ -114,24 +97,31 @@ def main():
                                                               "OS8088.GIF")))
         mo.to(rx, ry)
         os88marty.settle(m)
-        m.bp_exec(*BLITS)
-        mo.dblclick(rx, ry)
+        # THE LAUNCH BLIT, with the double-click inside the trace. It used
+        # to be a bare `bp_exec` followed by `mo.dblclick` and it worked by
+        # ORDERING alone: dblclick proves each button edge by polling
+        # `mouse_btn`, so it can only survive an armed breakpoint while none
+        # has fired yet - which is true here right up until Paint launches and
+        # blits, inside the click's own trailing settle. Pumped, the ordering
+        # stops being load-bearing.
         geom = None
-        for _ in range(60):
-            if not m.wait_stop(limit=300.0):
-                break
-            r = m.regs()
-            if r["cx"] >= iw:
+
+        def launch_blit(mm, rec):
+            nonlocal geom
+            r = rec["regs"]
+            if geom is None and r["cx"] >= iw:
                 geom = (r["ax"], r["bx"])
-                break
-            m.bp_exec(*BLITS)
-            m.run()
+                mm.breakpoints([])
+            return None
+
+        with os88marty.bp_trace(m, *BLITS, regs=True, on_hit=launch_blit) as tr:
+            mo.dblclick(rx, ry)
+            tr.until(lambda: geom is not None, "the canvas to blit",
+                     limit=300.0, required=False)
         if geom is None:
             sys.exit("paintsu: the canvas never blitted through %s"
                      % " or ".join(BLITS))
         ox, oy = geom
-        m.bp_exec()
-        m.run()
         time.sleep(6)
 
         # --- WHAT IS ON THE GLASS BEFORE ANYTHING IS COVERED ---------------
@@ -150,52 +140,64 @@ def main():
                                         # belong to nothing
 
         # --- WHAT THE CACHE IS ASKED FOR, off wm_su_kb's own answer
-        serialise(m)
-        m.bp_exec("wm_su_kb")
-        opened = []
-        threading.Thread(
-            target=lambda: (time.sleep(1.0),
-                            opened.append(_open(m, mo))), daemon=True).start()
-        want = None
-        if m.wait_stop(limit=120.0):
-            r = m.regs()
-            ret = int.from_bytes(m.read((r["ss"] << 4) + r["sp"], 2), "little")
-            m.bp_exec(kbase + ret)
-            m.run()
-            if m.wait_stop(limit=120.0):
-                want = m.regs()["ax"]
-        m.bp_exec()
-        m.run()
-        for _ in range(60):
-            if opened:
-                break
-            time.sleep(1.0)
+        #
+        # `serialise(m)` used to stand here: a monkey-patch wrapping `m.cmd`
+        # in a lock of this row's own, because the driving thread and the
+        # pumping loop interleaved on one socket and the collision arrived as
+        # a JSON decode error rather than as anything about the guest. That
+        # lock is IN `Marty.cmd` now and has been since tests/paintcull.py
+        # needed the same thing - so what stood here was a second lock around
+        # an already-atomic call, and with the pump on bp_trace's own daemon
+        # there are no longer two callers of this socket in this row at all.
+        # TWO STAGES, AND THE SECOND ADDRESS IS ONLY KNOWABLE AT THE FIRST
+        # STOP: `wm_su_kb` answers in AX at its RETURN, and the return address
+        # is on the guest's own stack. So the callback reads it and re-arms on
+        # it - the pump resumes into the new set with nothing else arranged -
+        # and the cover gesture below runs as ordinary code where it used to
+        # be a lambda on a daemon thread.
+        entry, want = m.sym("wm_su_kb"), None
+
+        def kb(mm, rec):
+            nonlocal want
+            r = rec["regs"]
+            if (r["cs"] << 4) + r["ip"] == entry:
+                ret = int.from_bytes(
+                    mm.read((r["ss"] << 4) + r["sp"], 2), "little")
+                mm.breakpoints([{"type": "exec", "addr": kbase + ret}])
+            else:
+                want = r["ax"]
+                mm.breakpoints([])
+            return None
+
+        with os88marty.bp_trace(m, entry, regs=True, on_hit=kb) as tr:
+            _open(m, mo)
+            # The cover gesture is confirmed the moment the click is decoded;
+            # wm_su_kb runs inside the raise that FOLLOWS it. Exiting here read
+            # `None` KB on the run that taught this.
+            tr.until(lambda: want is not None, "wm_su_kb to return",
+                     limit=120.0, required=False)
         print("   the raise cache asks for %s KB"
               % ("?" if want is None else want))
         time.sleep(6)
 
         # --- UNCOVER: is the canvas redrawn?
-        m.bp_exec(*BLITS)
-        done = []
-        threading.Thread(
-            target=lambda: (time.sleep(1.0),
-                            done.append(_close(m, mo))), daemon=True).start()
         wide = None
-        for _ in range(160):
-            if not m.wait_stop(limit=45.0):
-                break
-            r = m.regs()
-            if r["cx"] >= iw // 2:
+
+        def uncover_blit(mm, rec):
+            nonlocal wide
+            r = rec["regs"]
+            if wide is None and r["cx"] >= iw // 2:
                 wide = (r["ax"], r["bx"], r["cx"], r["dx"])
-                break
-            m.bp_exec(*BLITS)
-            m.run()
-        m.bp_exec()
-        m.run()
-        for _ in range(60):
-            if done:
-                break
-            time.sleep(1.0)
+                mm.breakpoints([])          # one wide blit is the answer
+            return None
+
+        with os88marty.bp_trace(m, *BLITS, regs=True, on_hit=uncover_blit) as tr:
+            _close(m, mo)
+            # `required=False` and it MUST be: a canvas-sized blit not running
+            # is this section's whole finding - it means the raise cache put
+            # the picture back - so a timeout here is an answer, not a failure.
+            tr.until(lambda: wide is not None, "a canvas-sized blit",
+                     limit=60.0, required=False)
         time.sleep(8)
         mo.to(4, 4)
         os88marty.settle(m)

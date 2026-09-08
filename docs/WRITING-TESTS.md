@@ -462,6 +462,41 @@ Rarely, and always for a stated reason:
 Even then, confirm afterwards by reading the state the click was supposed to
 change.
 
+### 6.2 A breakpoint and a UI verb: `os88marty.bp_trace`
+
+**They cannot be spelled one after the other**, and the reason is rule 2 above
+turned against you: every verb confirms by READING GUEST STATE, and a guest
+stopped at a breakpoint publishes nothing new. So an armed breakpoint does not
+send a click to the wrong place - it makes the click's own proof unobtainable,
+and the verb reports a machine that refused to go where it was sent.
+
+Put the breakpoints in a `bp_trace` block and the body is ordinary code:
+
+```python
+with os88marty.bp_trace(m, "wm_su_try", "gfx_restore") as tr:
+    ui.raise_window(w)                  # os88ui verbs, unmodified
+assert tr.count("wm_su_try") == 1
+```
+
+**Stay in the block until the work has RUN** - `tr.until(cond, what)`. A `with`
+block ends when its body ends, and a gesture returns when it is DECODED, not
+when the repaint it triggers has finished. Leaving there clears the
+breakpoints first and the row reports the kernel never doing the thing.
+
+The pump runs on a daemon and resumes at every hit. `regs=True` records a
+register set at each stop; `on_hit=f` is called while the guest is STOPPED and
+its answer kept, which is the only way to read a value that is true only
+inside the routine the breakpoint is on - a damage rect, `wm_clip_n`, a return
+address off the guest's own stack. Do NOT hand-roll the pump: it has two traps
+that have each cost a run, and `bp_trace` carries both fixes
+(docs/MARTYPC-DEBUG.md, *Driving the UI with breakpoints armed*).
+
+**Arm the narrowest symbol that answers the question.** Every hit costs two or
+three round trips plus the pump's poll interval of stopped guest, so a
+breakpoint on a hot symbol runs the machine at a fraction of its speed and the
+wait around it fails on its host backstop. When one packet is the whole
+gesture, `tools/os88span.py`'s arm-late pattern is cheaper still.
+
 ---
 
 ## 7. Waiting: the guest's clock, never the host's
@@ -788,6 +823,7 @@ not. Each one can still happen today.
 | 46 | The `full` tier at 14 rows and 452s of row time, of which `buildmatrix` alone was 143s assembling 99 knob configurations — instruments, not the OS — while `weavesmoke` spent 73s opening one package's bundle and `martyconc` gated the emulator harness rather than the machine. A pre-merge smoke test that takes five minutes and is mostly about the tree rather than the product is one that gets skipped | §2.2 |
 | 47 | `hdboot` pressing a menu with the pointer and the button both CONFIRMED, and no menu for 182 ticks: the `EVT_MDOWN` was dropped from a full ring while the level stood | §7.2 |
 | 48 | Every `os88build.tree()` call sweeping `$(VIDSTAMP)` — a legitimately empty marker — so make rebuilt the whole kernel each time and two rows sharing a tree rebuilt it under each other | §5.2 |
+| 49 | Four rows hand-rolling the SAME breakpoint pump, each with the driving gesture on a daemon thread and the resume loop in `main` - because an armed breakpoint makes every `os88ui` and `os88mouse` verb unable to confirm, so the two could not be written one after the other. Two of the four counted a stop as *anything not running*, which makes the driving thread's own `advance()` and `pause()` read as entries that never happened - in `paintanchor` each one appended an EMPTY damage rect to the list its assertion is over. `paintsu` additionally carried `serialise(m)`, a monkey-patch wrapping `m.cmd` in a lock of its own, years after that lock landed IN `cmd`. **`os88marty.bp_trace` is the one pump**; and outside a trace an armed breakpoint now fails in 2.2s naming the clock, where it took **332.1s** and surfaced from `guest_sleep`'s stall arm - the only thing in the path that was watching | §6.2 |
 
 ---
 
