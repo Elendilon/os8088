@@ -65403,6 +65403,90 @@ FAT12 volume now** (§19.3). A driver is a file on it, the settings that say
 which drivers load are a file on it, and both are reached through the file
 API that already existed.
 
+#### 50.6.5 `MEM_P_VIEW` — the Disk window's listing cache is a CACHE on `kern_small`
+
+**A cache that can be SHED does not need to be MOVED**, and on the 128KB
+machine that is the better of the two: the shed gives the bytes back, where a
+move only rearranges them.
+
+The Disk window's listing cache (§22.1) is `VIEW_KB` — 2KB there — claimed per
+open window, up to `VIEW_SLOTS` = 4 of them. It was an ordinary claim owned by
+the window's instance slot and declared movable through `fm_reloc` (§66.5.6),
+and on the floor machine that made it the single worst thing in the arena.
+Measured on `os8088_5150_cga_128k` with A: and B: open:
+
+```
+13E0    2.0K inst0        movable     the A: window's cache
+1460   23.0K pg:DIRW      purgeable   the read-ahead
+1A20    2.0K inst1        movable     the B: window's cache
+1AA0    1.0K pg:FATW1     purgeable
+1AE0    6.0K pg:WSAVE0    purgeable
+```
+
+Shed every cache and the largest run is **23.0 KB** — the read-ahead's own
+hole, walled above by a 2KB claim. Two 2KB claims strand **21.5 KB of a
+48.5 KB heap**, and only a compaction reaches past them (§66.4), at 44.5 KB.
+As a cache the whole arena is reclaimable and the number is **48.5 KB**.
+
+**On `kern_big` it stays an ordinary movable instance-owned claim** and §66.5.6
+is unchanged. That kernel has the heap to keep a cache *and* a compactor to
+move it out of the way, so shedding one there would be paying floppy I/O for
+room it does not need. The `kern_small` kernel is the one with neither.
+
+##### 50.6.5.1 Rank `MEM_PG_LOW`, and why not `MEM_P_FATW`'s MED
+
+Losing one costs that window's repaints a directory re-read off the global
+snapshot (§22.1) — floppy I/O, which is what puts the FAT window at MED
+(§50.6.4). The difference is that **this one self-heals**: `fmv_fit`'s only
+caller is `fmv_store`, so the cache is re-claimed the next time a listing is
+stored into that window — a navigation, a refresh, a volume switch. A shed FAT
+window stays gone until its volume is remounted, and two volumes that alternate
+then evict each other for as long as it is (§18.8.1's 45 mounts). One is a
+visible pause; the other is seconds the user waits through.
+
+##### 50.6.5.2 Two naming words, and the tag is the owner
+
+§50.6 asks for exactly ONE kernel word naming the block. This claim has two —
+`FS_VSEG` in the window's own `KD_POOL` block, at `FS_SIZE` stride inside
+`fm_pool` rather than in a flat array of words, and the `[fm_vseg]` mirror
+every reader looks at. `mem_pg_own` has no stride column and carries one word,
+so the row exists to be MATCHED and `mem_pg_forget`'s `.view` arm hands the
+owner to **`fmv_demote`** — which is exactly what `MEM_P_FATW`'s `.fatw` arm
+already does with `dsk_fatw_demote`, and for the same reason. `fmv_demote`
+zeroes `FS_VSEG` and clears the mirror when it named that block; `fm_vp_set`
+republishes the mirror on the next acting window, but a paint can come first.
+
+The zero those writes leave IS the notice, which is the whole purgeable
+contract: `.nocache` is what a 0 there already means, and §22.1 calls it the
+documented fallback rather than an error. **The window keeps working** — rows,
+icons, sizes and the scroll bar all paint off the global snapshot.
+
+The owner becomes `MEM_P_VIEW + the window's fm_pool slot`, `MEM_P_WSAVE`'s
+shape (§11.96.3), because in §50.6 the tag IS the request. Two consequences:
+
+1. `fmv_owner` derives the owner from the **block** and no longer from
+   `[fm_vinst]`, so a shed can ask about a window that is not the acting one.
+2. **`mem_free_rec` no longer reaps it** — that walk is by owner and a tag is
+   nobody's instance (§50.4). The claim a closed window leaves is purgeable, so
+   it is never lost, but the block it names is about to become a *different*
+   window's; shedding it then would zero the new tenant's `FS_VSEG`. So
+   `fm_kinit` frees the previous tenant's claim before it zeroes the field,
+   which is the place §22.6.1 already worries about "whatever the last tenant
+   of this `KD_POOL` block left".
+
+##### 50.6.5.3 What it costs, and what it deletes
+
+**+12 bytes of `kern_small`** — `.text` **−35**, `.cold` **+47**, no rung
+crossed, `KERN_SIZE` unmoved — and `kern_big` assembles **byte-identical**. It
+is net-cheap because a purgeable claim is never moved, so `fm_reloc` (52 bytes
+of `.text`) and `fmv_movable` (14) are `kern_big`'s alone now and leave the
+tighter of the two rungs.
+
+The alternative priced against it was a **`KD_DONE` teardown hook** on the kind
+descriptor (§29.3) — architecturally the nicer answer, since a built-in kind is
+an app that ships with the kernel — and it measured **129 bytes** for the same
+job. It is not needed to make the cache purgeable and is a separate decision.
+
 ### 51.0 NOT ON `kern_small` — the whole mechanism is `kern_big`'s
 
 **`kern_small` cannot load a `.DRV` of any kind.** The `%ifdef OS88_DRIVERS`
@@ -77890,6 +77974,91 @@ refused, one step ahead of the purgeable shed (§50.6.2). That is where the
 cost belongs: at that instant the user has just asked for something, and a
 pause is what they are already expecting. Nothing walks the heap on a timer,
 at idle, or on a free.
+
+### 66.0 NOT ON `kern_small` — the 128KB machine keeps PURGING and gives up MOVING
+
+**`OS88_COMPACT` is `kern_big`'s**, resolved in `kernel.asm` above every
+`%include` beside `OS88_ASSOC`, `OS88_DRIVERS` and `OS88_RTC`. On `kern_small`
+every claim is born pinned and stays pinned; `mem_claim`'s refusal path is
+**shed and retry**, which is what it was before §66.4, and `OSAPI_MEM_MOVABLE`
+answers CF = 1.
+
+**Purging is untouched and is the half that matters there.** §50.6's shed
+reaches every cache in priority order on both kernels; what goes is the ability
+to MOVE a claim that is not a cache.
+
+#### 66.0.1 Why it costs that machine so little
+
+Its two biggest customers cannot exist there. A **driver image** (§66.6.3) and
+a driver's **donated claim** (§66.5.10.2) are the reason `mem_region_reloc`
+walks nine kernel tables, and `OS88_DRIVERS` gates the whole mechanism out
+(§51.0). The **association cache** — measured holding 40KB out of reach, and
+the case that put §66.5.6 in the tree — went with §54.0. **Hibernate** is
+`kern_big`'s. Of the kernel's own claims that reach a `kern_small` desktop at
+all, that leaves the **menu save-under**, measured at **3.0KB** and alive for
+exactly as long as a menu is down, and the **clipboard**.
+
+And the one case that did bite was answered at the CLAIM instead. Two 2KB Disk
+window listing caches sat either side of the directory read-ahead and stranded
+**21.5KB of a 48.5KB arena** between them; §50.6.5 makes them **purgeable**, and
+a cache that can be shed does not need to be moved — the shed reaches **48.5KB**
+where the compactor reached 44.5. That is the whole of the argument: the feature
+was earning its bytes on one population, and that population is better served by
+the cheaper mechanism.
+
+#### 66.0.2 What is compiled out, and what stays
+
+Out: `mem_can_move` and the five predicates only it asks (`mem_is_region`,
+`mem_frameless`, `mem_busy_seg`, `mem_in_nest`, `mem_in_xfer`), the seventeen
+`mem_cp_*` routines, `mem_reloc_call`, `mem_rr_walk` / `mem_region_reloc` /
+`mem_rr_tab`, `mem_compact`, `OSAPI_MEM_MOVABLE`'s body, the four kernel
+relocation procs (`menu_reloc`, `clip_reloc`, and `fm_reloc` / `fmv_movable`
+which §50.6.5 had already taken), the **worker park** (§66.5) entire —
+thirteen routines in `instance.inc`, `gfx_lock`'s two hooks and
+`sch_wk_restart` — and `[mem_pinseg]`, whose only reader was `mem_in_xfer`, so
+its writes in `disk.inc`, `clip.inc` and `hiber.inc` go with it.
+
+Stays: **everything about purging**. `mem_shed_one`, `mem_pg_own`,
+`mem_pg_forget`, `mem_pg_cheap`, `mem_rank_bh`, `mem_fatw_dirty`,
+`[mem_pg_rank]` and every `MEM_P_*` tag. `MC_RLOC` stays in the record too,
+published as 0 by `mem_claim_1` and read by nothing — so `tools/heapmap.py`
+still decodes a `kern_small` map and answers PINNED for every row, which is
+true.
+
+**The API slots stay and refuse**, which is `gfx_blit1`'s precedent on this
+kernel (§5.4.2.5): a small-built package calls the same table at the same
+offsets and runs on `kern_big` unchanged (§24.5). `OSAPI_MEM_MOVABLE`,
+`OSAPI_MEM_PARKSAFE` and `OSAPI_TASK_RESTARTABLE` are all promises a package
+MAY make and none is load-bearing — `crt0.asm` throws the answer away in as
+many words — and every caller already has a path for the refusal, because the
+owner fence could always refuse.
+
+#### 66.0.3 `mem_avail` still answers the question `mem_claim` answers
+
+§66.10.3 made the largest run `mem_cp_plan`'s, **because the refusal path
+compacts**. Here it sheds, so the answer is the biggest hole the shed leaves
+and `mem_bigrun` is that walk: the candidates are the arena floor and each
+barrier's end, a cache at or below the caller's rank is not a barrier, and
+`mem_pg_cheap` is the same predicate the total uses — so the run and the total
+cannot disagree. It is `O(MEM_MAX²)`, which is exactly what `mem_cp_plan` was.
+
+The contract is unchanged and it is the one that matters: **under-reporting
+here is not a safe error**, it is the only direction in which the error is
+invisible (§50.3).
+
+#### 66.0.4 What that machine gives up
+
+A claim that is not a cache is a barrier for as long as it is held, and three
+of them can be: the menu save-under while a menu is down, the clipboard, and
+every claim a package declares movable — Paint's canvas, Note Pad's document,
+ArtfulType's and Fractal's are all on the small apps disk (§24.5). The owner's
+decision is that **a 48.5KB machine runs one program at a time and the user
+manages that space**, which is the same judgement §24.5 already makes about
+what ships there.
+
+**`+1,536 bytes of heap`**, measured: `.text` −667, `.bss` −52, `.cold` −936,
+`.lowbss` −4, `KERN_SIZE` 79,872 → 78,336, free heap on the floor machine
+**48.5 → 50.0 KB**. `kern_big` assembles byte-identical.
 
 ### 66.1 Why the first design was wrong, twice
 

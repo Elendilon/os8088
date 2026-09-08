@@ -1102,6 +1102,12 @@ dsk_xfer:
                                 ; Every register and the flags are preserved
 
     inc byte [sch_lock]         ; pause task switching across all int 13h
+%ifdef OS88_COMPACT             ; ...and kern_small pins nothing, because
+                                ; nothing there MOVES (SPEC.md 66.0): the word
+                                ; and its one reader, mem_in_xfer, are the
+                                ; compactor's and go with it. The three
+                                ; instructions below are one stack-balanced
+                                ; group and are gated as one
     push word [mem_pinseg]      ; NESTED, not owned: clip_put pins its source
                                 ; through the same word across a claim that
                                 ; can yield, and a transfer on another task
@@ -1126,6 +1132,7 @@ dsk_xfer:
                                 ; author rule - the rule would be correct,
                                 ; unenforceable, and paid for in silent
                                 ; corruption the one time somebody missed it
+%endif
 
     mov si, cx                  ; SI = sectors remaining
     mov di, ax                  ; DI = current LBA
@@ -1524,7 +1531,9 @@ dsk_xfer:
     call dsk_bpb_bank_zap       ; an I/O error is exactly the shape "this is
     stc                         ; not the disk you think it is" arrives in
 .out:
+%ifdef OS88_COMPACT
     pop word [mem_pinseg]       ; the destination is nobody's again - or the
+%endif
     dec byte [sch_lock]         ; outer pin's (dec and pop leave CF alone, and
     jmp kretc_bp
 

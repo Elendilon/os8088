@@ -263,6 +263,34 @@ MEM_P_FATW_N equ 8              ; 18.8.4): MED, and it was LOW for one commit
                                 ; array mem_pg_own names. MEM_P_FATW_N is
                                 ; DVOL_MAX, asserted where that is defined -
                                 ; a name ending _N is a length, not a tag
+%ifdef KERN_SMALL
+MEM_P_VIEW  equ MEM_PG_LOW<<8 | 0x10    ; a Disk window's listing cache (SPEC.md
+MEM_P_VIEW_N equ VIEW_SLOTS     ; 22.1), kern_small only. LOW - "a little I/O,
+                                ; or a visible pause" - and the RANK is the
+                                ; part that needs an argument, because losing
+                                ; this is floppy I/O and MEM_P_FATW is MED for
+                                ; exactly that. The difference is that a shed
+                                ; window SELF-HEALS: fmv_fit's only caller is
+                                ; fmv_store, so the cache is re-claimed the
+                                ; next time a listing is stored into that
+                                ; window - where a shed FAT window stays gone
+                                ; until the volume is remounted, and two
+                                ; volumes that alternate then evict each other
+                                ; for as long as it is (18.8.1's 45 mounts).
+                                ;
+                                ; IT IS A RANGE, MEM_P_WSAVE's shape: the
+                                ; window's fm_pool slot is added to it, so
+                                ; there is one per Disk window. Low bytes are
+                                ; per-RANK, so 0x10 here does not collide with
+                                ; MEM_P_WSAVE's 0x10 at TRIV.
+                                ;
+                                ; ON kern_big THIS CLAIM STAYS an ordinary,
+                                ; MOVABLE, instance-owned one (SPEC.md
+                                ; 66.5.6): that kernel has the heap to keep a
+                                ; cache AND a compactor to move it out of the
+                                ; way, so shedding one there would be paying
+                                ; floppy I/O for room it does not need
+%endif
 MEM_P_DIRW  equ MEM_PG_HIGH<<8 | 0x02   ; the directory read-ahead window:
                                 ; HIGH, because it is the difference between
                                 ; 316 int 13h calls and 114 on an install
@@ -429,8 +457,15 @@ mem_unblob_x:
     push ax
     call mem_floor_ax
     mov [mem_base], ax
+%ifdef OS88_COMPACT
     xor ax, ax
     call mem_compact
+%endif                          ; ...and on kern_small the store IS the whole
+                                ; routine: with nothing movable there is
+                                ; nothing to pack onto the bytes the blob gave
+                                ; back, and the hole this call exists to close
+                                ; cannot open - every claim below the released
+                                ; run is a barrier either way
     pop ax
     retf
 
@@ -590,16 +625,27 @@ mem_claim_x:
                                 ; an island above them that only another
                                 ; top-down claim could ever reach
 .go:
+%ifdef OS88_COMPACT
     cmp byte [mem_cp_busy], 0   ; INSIDE A COMPACTION - a relocation proc that
     jne .busy                   ; claimed (SPEC.md 66.3 rule 3 forbids it) -
                                 ; the map is mid-walk and first fit would hand
                                 ; it the very run the walk is about to copy
                                 ; the next block onto. Refuse, and refuse the
                                 ; shed too, which frees records the walk holds
+%endif                          ; ...and with no compactor there is no walk to
+                                ; be inside, so kern_small has no such state
+                                ; and asks nothing
     call mem_claim_1            ; COMPACT, THEN SHED AND RETRY (SPEC.md 66.4 /
     jnc .out                    ; 50.6.2). A cache loses to anything that is
+%ifdef OS88_COMPACT
     call mem_compact            ; not one, and a package load loses to nothing
     jnc .go                     ; - so both are on mem_claim_hi's path too.
+%endif                          ; ...and on kern_small it is SHED AND RETRY,
+                                ; which is what this loop was before SPEC.md
+                                ; 66.4 and is the whole of what SPEC.md 66.0
+                                ; gives up: the shed still reaches every cache
+                                ; in priority order, and a barrier stays where
+                                ; it is
     call mem_shed_one           ; Compaction goes FIRST because a shed can
     jnc .go                     ; destroy MEM_P_DIRW, priced at "a long
                                 ; operation getting much longer" - seconds of
@@ -822,6 +868,17 @@ mem_pg_own:
     dw MEM_P_WSAVE, wm_su_segs,  MAX_WIN
     dw MEM_P_DIRW,  dsk_rah_seg, 1
     dw MEM_P_FATW,  dsk_fatwc,   MEM_P_FATW_N
+%ifdef KERN_SMALL
+    dw MEM_P_VIEW,  0,           MEM_P_VIEW_N
+%endif                          ; ...and its PGO_BASE is 0 because this row's
+                                ; naming word is not in a flat array of words:
+                                ; FS_VSEG sits at FS_SIZE stride inside
+                                ; fm_pool, and there is a second word - the
+                                ; [fm_vseg] mirror - besides. The row is here
+                                ; to be MATCHED; mem_pg_forget's `.view` arm
+                                ; hands the owner to fmv_demote, which is what
+                                ; MEM_P_FATW's `.fatw` arm already does and
+                                ; for the same reason
     dw 0
 section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
                                 ; segment of its own. DS is still KERNEL_SEG,
@@ -948,6 +1005,12 @@ mem_pg_forget:
     shl cx, 1                   ; a word per entry (see the header: there is
     add cx, [si+PGO_BASE]       ; no stride column because there is nothing
     mov si, cx                  ; for it to be)
+%ifdef KERN_SMALL
+    mov cx, bx                  ; ...and a DISK WINDOW'S CACHE has two as well
+    sub cx, MEM_P_VIEW          ; (SPEC.md 22.1), for the reason in the table
+    cmp cx, MEM_P_VIEW_N        ; above
+    jb .view
+%endif
     mov cx, bx                  ; A FAT WINDOW HAS MORE NAMING WORDS THAN THIS
     sub cx, MEM_P_FATW          ; PROTOCOL CARRIES (SPEC.md 18.8.4): the LIVE
     cmp cx, MEM_P_FATW_N        ; one is also [dsk_fatseg], which every access
@@ -957,6 +1020,11 @@ mem_pg_forget:
 .fatw:                          ; writes after it land in whatever claim owns
     call dsk_fatw_demote        ; those paragraphs now. So the disk layer is
                                 ; handed the owner and clears the word itself
+%ifdef KERN_SMALL
+    jmp short .out
+.view:
+    call fmv_demote             ; ...and the file manager likewise, BX = owner
+%endif
 .out:
     pop si
     pop cx
@@ -1273,6 +1341,7 @@ mem_bpara:
 ; "no caller does that" is not the same statement as "this cannot happen",
 ; and the failure it would buy is the worst one this tree can ship.
 ; -----------------------------------------------------------------------------
+%ifdef OS88_COMPACT
 mem_can_move:
 %ifdef NOCOMPACT
     stc                         ; make HEAPCOMPACT=0: nothing can move on this
@@ -1686,6 +1755,12 @@ mem_in_nest:
 ; next while the controller is still writing.
 ; -----------------------------------------------------------------------------
 ; -----------------------------------------------------------------------------
+%endif                          ; OS88_COMPACT - SPAN A: the one predicate and
+                                ; the five questions only it asks (SPEC.md
+                                ; 66.3). mem_fatw_dirty below is NOT in it -
+                                ; mem_shed_one asks it too
+
+; -----------------------------------------------------------------------------
 ; mem_fatw_dirty - is the record at SI the LIVE FAT window, with FAT edits in
 ;                  it that have not reached the disk? (SPEC.md 18.8.4)
 ; in:  SI = record pointer
@@ -1718,6 +1793,7 @@ mem_fatw_dirty:
     clc
     ret
 
+%ifdef OS88_COMPACT
 ; -----------------------------------------------------------------------------
 mem_in_xfer:
     push ax
@@ -1788,6 +1864,10 @@ mem_cp_drop:
     ret
 
 ; -----------------------------------------------------------------------------
+%endif                          ; OS88_COMPACT - SPAN B. mem_pg_cheap below is
+                                ; NOT in it: mem_avail ranks a cache with it
+
+; -----------------------------------------------------------------------------
 ; mem_pg_cheap - is this record a cache STRICTLY cheaper than [mem_pg_rank]?
 ; in:  SI = a live claim record
 ; out: CF = 0 takeable, CF = 1 not
@@ -1816,6 +1896,8 @@ mem_pg_cheap:
     stc
     ret
 
+; -----------------------------------------------------------------------------
+%ifdef OS88_COMPACT
 ; -----------------------------------------------------------------------------
 ; mem_cp_next - the live claim the walk has not passed yet (module internal)
 ; in:  [mem_cp_key] = the base segment to search from (mem_cp_fill0 sets it and
@@ -2746,6 +2828,121 @@ mem_cp_end:
 ; change under it later without being told.
 ; -----------------------------------------------------------------------------
 ; -----------------------------------------------------------------------------
+%endif                          ; OS88_COMPACT - SPAN C: the walk, both
+                                ; relocation dispatchers and mem_compact
+                                ; itself. It spans two `section` switches and
+                                ; that is safe because they BALANCE - .cold is
+                                ; in force at the top and at the bottom - so a
+                                ; build without the span never leaves .cold
+
+%ifndef OS88_COMPACT
+; -----------------------------------------------------------------------------
+; mem_runat / mem_bigrun - the largest free run, where nothing moves
+;                          (SPEC.md 66.0, kern_small)
+;
+; mem_runat   in:  DI = a candidate base paragraph
+;             out: AX = the free run starting there, 0 if something is standing
+;                  on it or it is above the ceiling
+; mem_bigrun  out: AX = the largest such run over every candidate
+; both:       [mem_pg_rank] set; every other register and the flags preserved
+;
+; **mem_avail ANSWERS THE QUESTION mem_claim ANSWERS**, which is the whole of
+; its contract (SPEC.md 50.3) and does not change with the compactor gone -
+; only the arithmetic behind it does. On kern_big that answer is
+; mem_cp_plan's, because the refusal path COMPACTS (SPEC.md 66.10.3); here the
+; refusal path sheds and retries, so the answer is the biggest hole the shed
+; leaves and this is that walk.
+;
+; A CACHE AT OR BELOW THE CALLER'S RANK IS NOT A BARRIER - mem_pg_cheap is the
+; same predicate the total below uses and the same one mem_shed_one picks
+; with, so the run and the total cannot disagree. Everything else is, whether
+; it is pinned, purgeable-but-dearer, or an ordinary claim.
+;
+; THE CANDIDATE LIST IS THE FLOOR AND EACH BARRIER'S END, because a free run
+; starts at one of those or nowhere. That makes it MEM_MAX+1 candidates
+; against MEM_MAX records - O(MEM_MAX^2), exactly what mem_cp_plan was, and
+; exactly what the hand-rolled walk it replaced was before that.
+; -----------------------------------------------------------------------------
+mem_runat:
+    push bx
+    push cx
+    push dx
+    push si
+    mov dx, [mem_top]           ; the ceiling, until a barrier undercuts it
+    mov si, mem_tab
+    mov cx, MEM_MAX
+.scan:
+    cmp word [ss:si+MC_SEG], 0
+    je .next
+    call mem_pg_cheap           ; CF = 0 is TAKEABLE - room, not a wall - and
+    jnc .next                   ; the polarity is the way round mem_avail's
+                                ; own total reads it five lines further down.
+                                ; Inverted, this walk called every cache a
+                                ; wall and every wall room, and answered 48.0
+                                ; KB where the heap had 50.0 - under-reporting,
+                                ; which SPEC.md 50.3 names as the direction the
+                                ; error is invisible in
+    mov bx, [ss:si+MC_SEG]
+    cmp bx, di
+    jbe .below
+    cmp bx, dx
+    jae .next
+    mov dx, bx                  ; the lowest wall above us so far
+    jmp short .next
+.below:
+    add bx, [ss:si+MC_PARA]     ; it starts at or below DI - does it REACH it?
+    cmp bx, di
+    jbe .next
+    mov dx, di                  ; DI is inside it: no run here at all, and no
+.next:                          ; later record can lower DX past DI
+    add si, MC_SIZE
+    loop .scan
+    mov ax, dx
+    sub ax, di
+    jnc .out
+    xor ax, ax                  ; a candidate above the ceiling
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+mem_bigrun:
+    push bx
+    push cx
+    push si
+    push di
+    mov di, [mem_base]          ; candidate 0: the floor
+    call mem_runat
+    mov bx, ax                  ; BX = best so far
+    mov si, mem_tab
+    mov cx, MEM_MAX
+.cand:
+    cmp word [ss:si+MC_SEG], 0
+    je .next
+    call mem_pg_cheap
+    jnc .next                   ; a takeable cache is not a wall, so its end
+                                ; is not a candidate either - the run through
+                                ; it was measured from the wall below
+    mov di, [ss:si+MC_SEG]
+    add di, [ss:si+MC_PARA]     ; ...just past a wall
+    call mem_runat
+    cmp ax, bx
+    jbe .next
+    mov bx, ax
+.next:
+    add si, MC_SIZE
+    loop .cand
+    mov ax, bx
+    pop di
+    pop si
+    pop cx
+    pop bx
+    ret
+%endif
+
+; -----------------------------------------------------------------------------
 ; mem_find_own - the claim based at DX and owned by BX (module internal)
 ; in:  DX = a base segment, BX = the owner word
 ; out: CF = 0 and SI = the record; CF = 1 = no such claim, or not this owner's
@@ -2786,6 +2983,15 @@ mem_find_own:
     ret
 
 mem_movable_x:
+%ifndef OS88_COMPACT
+    stc                         ; NOTHING MOVES ON THIS KERNEL (SPEC.md 66.0),
+    ret                         ; so the honest answer is a refusal and not a
+                                ; handle nothing will ever read. The SLOT
+                                ; stays - a small-built package calls the same
+                                ; table at the same offsets - and every caller
+                                ; in the tree already has a path for CF = 1,
+                                ; because the fence below could always refuse
+%else
     push si
     pushf
     cli
@@ -2801,6 +3007,7 @@ mem_movable_x:
 .out:
     pop si
     ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; mem_regrow - resize a claim you already hold (SPEC.md 50.3)
@@ -2846,8 +3053,10 @@ mem_regrow:
     push di
     pushf
     cli
+%ifdef OS88_COMPACT
     cmp byte [mem_cp_busy], 0   ; not from inside a relocation proc either
     jne .fail                   ; (SPEC.md 66.3 rule 3): path 3 would claim
+%endif                          ; ...and kern_small has no walk to be inside
     or ax, ax
     jz .fail
     mov cl, 6
@@ -2934,8 +3143,10 @@ mem_free_x:
     push si
     pushf
     cli
+%ifdef OS88_COMPACT
     cmp byte [mem_cp_busy], 0   ; a relocation proc may not free (SPEC.md 66.3
     jne .busy                   ; rule 3): the walk is standing on the record
+%endif                          ; ...and kern_small has no walk to be inside
     call mem_find_own
     jc .busy
     mov word [ss:si+MC_SEG], 0     ; the record IS the allocator (SPEC.md 50.3)
@@ -3054,6 +3265,7 @@ mem_avail_lvl_x:                  ; as free, because mem_claim sheds them all.
     push di
     pushf
     cli
+%ifdef OS88_COMPACT
     cmp byte [mem_cp_busy], 0   ; INSIDE A COMPACTION, which means a relocation
     jne .nested                 ; proc is asking (SPEC.md 66.3 rule 3 forbids
                                 ; it claiming, and this is the same rule): the
@@ -3061,9 +3273,21 @@ mem_avail_lvl_x:                  ; as free, because mem_claim sheds them all.
                                 ; [mem_wpin] under the walk driving it. Zero
                                 ; is the honest answer to a holder that has no
                                 ; business sizing anything mid-move
+%endif
     mov [mem_pg_rank], al       ; inside the window, with the other three
+%ifdef OS88_COMPACT
     call mem_cp_plan            ; CX = the largest run compaction would leave,
     mov ax, cx                  ; caches at or below AL dissolved with it
+%else
+    call mem_bigrun             ; ...and where nothing moves, the run a
+                                ; claimant can have is the biggest hole the
+                                ; shed leaves - which is a walk of its own
+                                ; again (SPEC.md 66.10.3 read backwards). The
+                                ; CONTRACT is unchanged and it is the one that
+                                ; matters: this answers the question mem_claim
+                                ; answers, and under-reporting is the error
+                                ; that is invisible
+%endif
 
     mov si, mem_tab             ; total free = heap - sum of claims, and a
     mov bx, [mem_top]           ; PURGEABLE claim is only one of them when it
@@ -3089,11 +3313,13 @@ mem_avail_lvl_x:                  ; as free, because mem_claim sheds them all.
     pop dx
     pop cx
     ret
+%ifdef OS88_COMPACT
 .nested:
     popf
     xor ax, ax
     xor bx, bx
     jmp short .out
+%endif
 
 ; -----------------------------------------------------------------------------
 ; mem_owned_kb - how many KB does one owner hold? (SPEC.md 50.6)
@@ -3745,12 +3971,15 @@ section .lowbss                 ; LOW_SEG (SPEC.md 2.1). The claim map is
                                 ; the kernel's own 64KB segment - which since
                                 ; hard-disk support is the binding guard
 mem_tab:  resb MEM_MAX * MC_SIZE  ; the claim map (layout above)
+%ifdef OS88_COMPACT
 mem_fptr: resw 2                  ; mem_reloc_call's staged far pointer. HERE
                                   ; and not in .bss because DS is the HOLDER's
                                   ; at the instruction that reads it, and SS
                                   ; is the one segment register the compactor
                                   ; can count on (SPEC.md 66.3)
 
+%endif                          ; OS88_COMPACT - mem_reloc_call's, and it is
+                                ; the only thing in this file that names it
 section .bss
 
 
@@ -3770,6 +3999,7 @@ mem_skip:   resw 1              ; mem_runfree: a record to ignore, 0 = none
                                 ; aligned by anything, and an EVEN pad cannot
                                 ; change any following symbol's parity even if
                                 ; it were)
+%ifdef OS88_COMPACT
 mem_cp_busy: resb 1             ; the compactor is running (SPEC.md 66.4): a
                                 ; relocation proc that claims - which 66.3
                                 ; rule 3 forbids - would otherwise re-enter
@@ -3798,6 +4028,10 @@ mem_wpin:    resb 1             ; the last plan pinned something ONLY because a
                                 ; worth asking for (SPEC.md 66.5)
 mem_parked:  resb 1             ; ...and this pass has asked, so it owes the
                                 ; withdrawal on every path out
+%endif                          ; OS88_COMPACT: mem_cp_busy, mem_cp_msk,
+                                ; mem_wpin and mem_parked are the walk's own
+                                ; state. mem_pg_rank below is NOT - the SHED
+                                ; and mem_avail both take it (SPEC.md 50.6.4)
 mem_pg_rank: resb 1             ; THE RANK AT WHICH A PURGEABLE CLAIM COUNTS AS
                                 ; TAKEABLE (SPEC.md 50.6.4): a cache is free
                                 ; to this asker when its own level is >=
@@ -3820,6 +4054,7 @@ mem_pg_rank: resb 1             ; THE RANK AT WHICH A PURGEABLE CLAIM COUNTS AS
                                 ; It spends the byte that used to sit here as
                                 ; alignment padding, so the words below are
                                 ; where they were
+%ifdef OS88_COMPACT
 mem_pinseg:  resw 1             ; a segment a disk transfer is reading into, so
                                 ; the claim holding it may not move under the
                                 ; kernel's own pointer (SPEC.md 66.3 rule 5).
@@ -3831,6 +4066,10 @@ mem_cp_key:  resw 1             ; the compaction walk's cursor: the ORIGINAL
                                 ; rather than a stack slot because BOTH passes
                                 ; use it and the run rewrites the bases it is
                                 ; walking - see mem_cp_plan
+%endif                          ; OS88_COMPACT: mem_pinseg's ONLY reader is
+                                ; mem_in_xfer and mem_cp_key's is the walk, so
+                                ; both go with it - and so do the writes, in
+                                ; disk.inc, clip.inc and hiber.inc
 mem_top:  resw 1                  ; one past the last, from int 12h
 
 section .text

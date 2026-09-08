@@ -437,6 +437,13 @@ inst_init:
     retf                        ; FAR: kmain reaches this through OVLGATE1
 section .text
 
+%ifdef OS88_COMPACT             ; THE WORKER PARK (SPEC.md 66.5) IS THE
+                                ; COMPACTOR'S, and on kern_small there is no
+                                ; compactor to park FOR (SPEC.md 66.0). Thirteen
+                                ; routines go with it; the three API slots
+                                ; below it are re-declared as refusals, because
+                                ; a small-built package calls the same table at
+                                ; the same offsets
 ; -----------------------------------------------------------------------------
 ; inst_park_wait - hold this worker still while the heap is compacted
 ; in:  DI = the calling worker's own instance record
@@ -874,6 +881,25 @@ inst_task_park:
 
 
 
+%else
+; -----------------------------------------------------------------------------
+; THE PARK'S API SLOTS, on a kernel with nothing to park for (SPEC.md 66.0)
+;
+; The slots stay and the bodies do not. Each is a promise a package may make
+; and this kernel has no use for, so each is a `ret` that keeps the slot's
+; register contract - and every caller in the tree already treats all three as
+; advisory: `crt0.asm` calls OSAPI_MEM_MOVABLE and throws the answer away in as
+; many words, and SPEC.md 66.5.1's declaration is a WIDENING of what the
+; compactor may do rather than something a package needs to work.
+; -----------------------------------------------------------------------------
+inst_parksafe_set:              ; 0x0408 - AL = 1 declare / 0 withdraw
+inst_restart_set:               ; 0x0518 - AX = a near offset in your own code
+inst_task_park:                 ; 0x0410 - a driver worker's park point
+    ret                         ; ONE body for the three: all three promise
+                                ; every register and the flags back, and
+                                ; nothing here is asked for an answer
+%endif                          ; OS88_COMPACT
+
 inst_ptr:
     push ax
     push cx
@@ -1043,6 +1069,7 @@ inst_alloc:
     pop di
     pop ax
     call inst_fhome_clr         ; ...nor its Standard File location (38.10)
+%ifdef OS88_COMPACT
     push bx                     ; ...nor a dead instance's PARKSAFE (66.5.4):
     call inst_fhome_idx         ; the byte is a side table keyed by slot, and
     push bx                     ; ...and the restart point with it (SPEC.md
@@ -1051,7 +1078,9 @@ inst_alloc:
     pop bx                      ; offset would re-enter a new one at it
     mov byte [bx+inst_parksafe], 0 ; a package that never declared it must
     pop bx                      ; not be parked in gfx_lock because the last
-    clc                         ; tenant of its slot said so
+%endif                          ; tenant of its slot said so - and neither
+                                ; table exists on kern_small
+    clc
 .out:
     pop cx
     ret
@@ -2115,10 +2144,12 @@ inst_pkg_alive:
     cmp byte [di+I_STATE], 1    ; 2 = close requested, 0 = already gone
     jne .die
 .live:
+%ifdef OS88_COMPACT
 %ifndef NOPARK
     cmp byte [inst_parkreq], 0  ; THE COMPACTION PARK (SPEC.md 66.5). This is
     je .out                     ; the one call rule 2 already makes mandatory
     call inst_park_wait         ; once per outer loop, and therefore the one
+%endif
 %endif
 .out:                           ; point at which a worker is known to hold no
     pop di                      ; pointer derived from any claim of its own -
@@ -2404,6 +2435,7 @@ inst_fname:  resb INST_MAX * INST_FNSZ  ; ...and the name it picked there,
 
 inst_parkreq: resb 1            ; SPEC.md 66.5: the compactor is asking every
                                 ; package worker to stand still
+%ifdef OS88_COMPACT
 inst_parksafe: resb INST_MAX    ; ...and which instances said the kernel may
                                 ; park them while they are BLOCKED IN IT, not
                                 ; only at OSAPI_TASK_ALIVE (SPEC.md 66.5.4).
@@ -2423,6 +2455,9 @@ sch_parked:   resb MAX_TASKS    ; ...and which TASKS have. PER TASK and not per
                                 ; has T_INST = 0xFF and no record to be parked
                                 ; in, and an instance can have a package worker
                                 ; and a driver's stream task at once
+%endif                          ; OS88_COMPACT - all three are the park's, and
+                                ; sch_parked is here rather than in sched.inc
+                                ; because the park is what writes it
 
 inst_launch: resw 1             ; deferred launch: 0 = none, else kind + 1
 inst_knd:    resb 1             ; app_launch scratch: kind being launched
