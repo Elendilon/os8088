@@ -237,7 +237,7 @@ item in §2, §3 and §6 put together. What to look at, in order:
 **Measure it against `turnhold`**, which lives in the rolled state, and check
 it against `bank`, which passes through it.
 
-### 7.2 The ADI is 41 ms a frame for as long as the attitude is moving
+### 7.2 BUILT — the ADI is 41 ms a frame for as long as the attitude is moving
 
 The released bank decays 45 deg to 0 over 24 frames and the panel goes with it:
 **44.7 ms a frame while the roll is moving, 2.4 ms once it settles** - a cliff
@@ -248,10 +248,30 @@ show changes, and in a turn the attitude indicator changes every frame.
 panel than the released one (5.02 against 20.61) for exactly this reason,
 which is also the proof that it is the ADI and not the panel in general.
 
-Nothing here is a defect - it is redrawing because it changed. What is worth
-pricing is HOW it redraws: 88.9.2's attitude indicator against 11.96's
-save-under, or a band composer (5.9) for the one item on the page that is
-never static in flight.
+Nothing here is a defect - it is redrawing because it changed. What was worth
+pricing is HOW it redraws, and the answer was not the line at all: **90% of
+the ADI is the ERASE**, a filled ellipse whose half-width is a SQUARE ROOT A
+ROW, taken again on every redraw for a radius that cannot change in flight.
+
+**F6 now cycles four modes** (SPEC.md 88.9.2.5) and this is what they cost, on
+`skiesprof`'s `rollsweep`:
+
+| | `cs_panel` mean | worst frame | the erase per redraw |
+|---|---|---|---|
+| `Full` | 22.43 ms | 44.88 | **30.8 ms** |
+| `Fast` | 15.84 | 33.41 | **14.6 ms** |
+| `Small` | 9.06 | 20.99 | **7.5 ms** |
+| `Off` | 4.28 | 8.31 | 0 |
+
+`Fast` is the table and is **pixel-identical** - 0 differing of 5,040 over the
+instrument's box. `Small` is `Fast` plus a half-radius glass in the same
+bezel. `Off` is a performance option and the quickest way to price the
+instrument from the glass.
+
+**What is left is `cs_prect`, one call a row.** Going further means laying
+those rows without its per-row loop and `cs_markspan`, or composing the
+instrument into a band and blitting it once (5.9's shape). Neither is done,
+and the second is what the screen saver already does for a whole cube.
 
 ### 7.3 ...and three smaller things the same run turned up
 

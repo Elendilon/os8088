@@ -11726,3 +11726,54 @@ else: a held attitude does not change, so the ADI stops redrawing.
 | `cs_faces` inclusive | 33.9 | 73.8 | Set 120 took the back faces out |
 | `cs_edges`/`cs_seg` outlines | 17.5 | 13.7 | §88.4.7's size test governs |
 | the flight model | 10.2 | 10.2 | fixed per tick, not per pixel |
+
+### Set 122 — CLEAR SKIES: the ADI's erase, and what F6's four modes cost (SPEC.md §88.9.2.5)
+
+Set 121 found the attitude indicator at **41 ms a frame, 14% of a banked one**,
+for as long as the roll keeps moving. This is where that goes and what the
+four modes `F6` now cycles are worth.
+
+**Harness**: `tests/skiesprof.py --tier 4 --profile rollsweep --adi <mode>`,
+`os8088_5150_herc_gla`, 20 flown frames. `rollsweep` drives the bank **2° a
+frame** so the ADI's key (§88.9.2 — the top bytes of roll and pitch) changes
+every frame; `bank` only passes through that state and its 71% frame spread
+swamps the comparison.
+
+**Where the ADI's time is**, bracketed inside `cs_d_adi` on `bank`:
+
+| | per frame | of the ADI |
+|---|---|---|
+| `cs_adwin` — the erase | **20.45 ms** | **90%** |
+| …`cs_elhw`, the half-width a row | 10.52 | of which `cs_isqrt` **7.08** |
+| …`cs_prect`, the row itself | 8.23 | |
+| the chord + the aeroplane, four `cs_seg` | 2.25 | 10% |
+
+**It is not the line — it is the erase, and half the erase is a SQUARE ROOT A
+ROW.** The glass is a filled ellipse and `cs_elhw` takes `sqrt(ry² − dy²)`
+per row, on every redraw, for a radius that cannot change in flight: 35 roots
+a redraw for 35 answers that were the same last frame.
+
+| `F6` mode | `cs_panel` mean | worst frame | the erase PER REDRAW |
+|---|---|---|---|
+| `Full` — as shipped | 22.43 ms | 44.88 | **30.8 ms** |
+| `Fast` — the table | 15.84 | 33.41 | **14.6 ms** |
+| `Small` — `Fast` + a half-radius glass | 9.06 | 20.99 | **7.5 ms** |
+| `Off` | 4.28 | 8.31 | 0 |
+
+**`Fast` halves the erase for the IDENTICAL picture** — 0 differing pixels of
+5,040 over the instrument's own box. +254 bytes of image, of which 82 are the
+table.
+
+**Three things about measuring this that cost time:**
+
+1. **The frame MEAN is the wrong comparison.** A roll sweep changes what is in
+   the view, so `Small` reads a 161.8 ms frame against `Full`'s 254.6 for
+   reasons that have nothing to do with the instrument. Compare `cs_panel`, or
+   the erase per redraw.
+2. **A pixel comparison needs the world PAUSED.** The ADI redraws when its key
+   changes, so with the model running the roll has moved on by the time it
+   draws and two shots of the SAME mode differ by 74 pixels. Paused, the poked
+   attitude is the one it draws and `Full` against `Fast` is 0.
+3. **The first `F6` after the bracket opens is swallowed**, so a script that
+   steps the ladder has to settle first and then check it arrived — the mode
+   byte is readable, so check it rather than counting presses.

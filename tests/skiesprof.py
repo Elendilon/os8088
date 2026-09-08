@@ -89,6 +89,16 @@ TIER2 = [
     ("cs_drawobj",  r"call cs_edges$",       "edges"),
     ("cs_drawobj",  r"call cs_markrows$",    "markrows"),
 ]
+TIER4 = [                               # the panel's own internals
+    ("cs_pitem",    r"call cs_pkey$",        "pkey"),
+    ("cs_d_adi",    r"call cs_adwin$",       "adi_erase"),
+    ("cs_d_adi",    r"call cs_seg$",         "adi_seg"),
+    ("cs_d_adi",    r"call cs_sin$",         "adi_sin"),
+    ("cs_d_adi",    r"call cs_isqrt$",       "adi_sqrt"),
+    ("cs_pdisc",    r"call cs_prect$",       "disc_row"),
+    ("cs_pdisc",    r"call cs_elhw$",        "disc_hw"),
+    ("cs_elhw",     r"call cs_isqrt$",       "hw_sqrt"),
+]
 TIER3 = [
     ("cs_faces",    r"call cs_axcull$",      "axcull"),
     ("cs_faces",    r"call cs_fclip$",       "fclip"),
@@ -115,6 +125,12 @@ PROFILES = {
              "decays back towards level under the flight model's own easing "
              "(88.7.5) - the horizon sweeps, the ADI moves every frame, and "
              "the object set changes as the nose comes round"),
+    "rollsweep": dict(
+        pos=(150, 300, -900), hdg=30, pitch=0, roll=0, thr=70, sweep=2,
+        what="the same view with the bank driven 2 degrees a frame, so the "
+             "ADI's key (88.9.2) changes EVERY frame and the instrument "
+             "redraws every frame - the profile the ADI's own modes are "
+             "measured on, where `bank` only passes through that state"),
     "turnhold": dict(
         pos=(150, 300, -900), hdg=30, pitch=0, roll=45, thr=70, hold=True,
         what="...and the same bank HELD, so every frame refills a rolled "
@@ -177,11 +193,15 @@ def main(argv):
     ap.add_argument("--apps", default="build/apps360.img")
     ap.add_argument("--profile", default="cruise", choices=sorted(PROFILES))
     ap.add_argument("--frames", type=int, default=30)
-    ap.add_argument("--tier", type=int, default=2, choices=(1, 2, 3))
+    ap.add_argument("--tier", type=int, default=2, choices=(1, 2, 3, 4))
     ap.add_argument("--warm", type=int, default=6,
                     help="frames flown before the trace arms, so the first "
                          "frame after a poke - which redraws the whole panel "
                          "- is not one of the ones reported")
+    ap.add_argument("--adi", default=None,
+                    choices=("full", "off", "fast", "small"),
+                    help="cycle F6 to this ADI mode before arming "
+                         "(SPEC.md 88.9.2.5)")
     ap.add_argument("--csv", help="write the per-frame table here")
     a = ap.parse_args(argv)
     os.chdir(ROOT)
@@ -193,7 +213,7 @@ def main(argv):
 
     find = sites()
     stages, raw = [], []            # (listing offset, kind, name)
-    for tier, rows in ((1, TIER1), (2, TIER2), (3, TIER3)):
+    for tier, rows in ((1, TIER1), (2, TIER2), (3, TIER3), (4, TIER4)):
         if tier > a.tier:
             break
         for scope, pat, name in rows:
@@ -240,8 +260,21 @@ def main(argv):
         m.type_text("f")
         m.advance(frames=30)
         m.run()
-        print("  backend %d, view %dx%d" % (w("cs_back") & 0xFF, w("cs_ww"),
-                                            w("cs_wh")))
+        if a.adi:
+            want_adi = ("full", "off", "fast", "small").index(a.adi)
+            m.advance(frames=60)    # ...and the first key press after the
+                                    # bracket opens is swallowed otherwise
+            for _ in range(9):      # F6 is a LADDER: step it round to the one
+                if (w("cs_setadi") & 0xFF) == want_adi:
+                    break
+                m.key("F6")
+                m.advance(frames=40)
+            if (w("cs_setadi") & 0xFF) != want_adi:
+                sys.exit("skiesprof: F6 did not reach ADI mode %s" % a.adi)
+            m.advance(frames=60)    # the face redraw F6 asks for
+        print("  backend %d, view %dx%d, ADI mode %d"
+              % (w("cs_back") & 0xFF, w("cs_ww"), w("cs_wh"),
+                 w("cs_setadi") & 0xFF))
         print("  profile %s: %s" % (a.profile, P["what"]))
 
         # --- put the aeroplane where the profile wants it, ONCE -------------
@@ -274,6 +307,8 @@ def main(argv):
 
         rollv = ((P["roll"] * 65536 // 360) & 0xFFFF).to_bytes(2, "little")
         hold = P.get("hold", False)
+        sweep = P.get("sweep", 0)
+        swept = [P["roll"]]
         state = []
 
         def on_hit(mm, rec):
@@ -283,6 +318,10 @@ def main(argv):
                 return None
             if hold:
                 poke("cs_roll", rollv)
+            if sweep:               # drive the bank so the ADI's key moves
+                swept[0] = (swept[0] + sweep) % 360
+                poke("cs_roll", ((swept[0] * 65536 // 360) & 0xFFFF)
+                     .to_bytes(2, "little"))
             state.append(dict(
                 roll=sw("cs_roll") * 360.0 / 65536,
                 pitch=sw("cs_pitch") * 360.0 / 65536,

@@ -491,25 +491,33 @@ cs_hotkey:
 ;
 ;   F1  Detail Level    F2  Draw Distance   F3  Size (also -/+)
 ;   F4  Terrain fill    F5  Buildings fill  - each a toggle
+;   F6  ADI             - Full / Off / Fast / Small (SPEC.md 88.9.2.5)
+;
+; F6 is a LADDER like F1 to F3 and not a toggle like F4 and F5, so the tables
+; below carry a hole at 3 and 4 rather than a second dispatch: the fill keys
+; own those two indices and nothing else does.
 ;
 ; Every one of them raises a TOAST (88.13.8), which is what makes a cycling
 ; key usable at all: a key that steps a ladder is no good if the glass does
 ; not say where the ladder now is.
 ; -----------------------------------------------------------------------------
-CSK_F1     equ 0x3B                 ; ...and F2..F5 follow it
+CSK_F1     equ 0x3B                 ; ...and F2..F6 follow it
 cs_hotkeyx:
     cmp ah, CSK_F1
     jb .no
-    cmp ah, CSK_F1 + 4
+    cmp ah, CSK_F1 + 5
     ja .no
     push bx
     push si
     mov al, ah
-    sub al, CSK_F1                  ; 0..4
+    sub al, CSK_F1                  ; 0..5
     mov cl, al
     xor ch, ch
     cmp al, 3
-    jae .fill
+    jb .lad
+    cmp al, 5
+    jb .fill                        ; 3 and 4 are the fills; 5 is a ladder
+.lad:
     ; --- F1 F2 F3: one step up the ladder, and round at the top -----------
     mov bx, cx
     shl bx, 1
@@ -529,6 +537,13 @@ cs_hotkeyx:
                                     ; after one says "Detail Level" whatever
                                     ; key was pressed. The toast reads the
                                     ; setting's byte, which is already written
+    cmp cl, 5
+    je .size                        ; THE ADI TAKES THE SIZE KEY'S PATH: its
+                                    ; glass and its table are laid out by
+                                    ; cs_pface, and cs_clearall is what makes
+                                    ; the face redraw - which is also the only
+                                    ; thing that clears the old line when the
+                                    ; mode goes to Off (88.9.2.5)
     cmp cl, 2
     je .size
     call cs_skipclr                 ; DETAIL *AND* DRAW DISTANCE: both change
@@ -560,7 +575,7 @@ cs_hotkeyx:
     clc
     ret
 
-cs_cycn: db CSBL_HIGH + 1, CSL_ULTRA + 1, CSZ_FULL + 1
+cs_cycn: db CSBL_HIGH + 1, CSL_ULTRA + 1, CSZ_FULL + 1, 0, 0, CSADI_N
 
 ; -----------------------------------------------------------------------------
 ; cs_render - one frame (SPEC.md 88.8)
@@ -1074,7 +1089,10 @@ cs_toast:
     add di, 2                       ; package (SPEC.md 20), so a store through
                                     ; it lands in the wrong segment entirely
     cmp cl, 3
-    jae .fill
+    jb .lad
+    cmp cl, 5
+    jb .fill                        ; 3 and 4 are the fills; 5 is the ADI
+.lad:
     mov si, [cs_toastset + bx]      ; the setting's byte...
     mov al, [si]
     xor ah, ah
@@ -1137,9 +1155,9 @@ cs_toaststep:
 .out:
     ret
 
-cs_toastlbl: dw cs_s_lbld, cs_s_llod, cs_s_lsize, cs_s_terr, cs_s_bld
-cs_toastset: dw cs_setbld, cs_setlod, cs_setsize
-cs_toastval: dw cs_i_bld, cs_i_lod, cs_i_size
+cs_toastlbl: dw cs_s_lbld, cs_s_llod, cs_s_lsize, cs_s_terr, cs_s_bld, cs_s_ladi
+cs_toastset: dw cs_setbld, cs_setlod, cs_setsize, 0, 0, cs_setadi
+cs_toastval: dw cs_i_bld, cs_i_lod, cs_i_size, 0, 0, cs_i_adi
 cs_g_fill:   db 'Fill', 0
 cs_g_wire:   db 'Wire', 0
 
