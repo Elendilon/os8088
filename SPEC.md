@@ -3410,11 +3410,23 @@ untouched either way: a clipped band costs the same compose and *less* emit.
 
 **What §6.1's two guarantees become.** No flicker: a band byte goes from its old
 content to its final content in one `movsb`, so there is no interval in which
-the run is blank — and on VGA this is an *improvement* over the 8×8 face, whose
-`font_run` gate (font.inc:740) sends every VGA run to the `gfx_fill` +
-`font_str` pair that leaves the line blank between them. No double write: one
-store per band byte per row, one framebuffer write per pixel, PERFORMANCE.md
-rule 2 intact.
+the run is blank. No double write: one store per band byte per row, one
+framebuffer write per pixel, PERFORMANCE.md rule 2 intact.
+
+> **This paragraph used to claim an ADVANTAGE OVER `font_run` ON VGA and it was
+> stale from the day §6.1.10 shipped.** It read *"whose `font_run` gate
+> (font.inc:740) sends every VGA run to the `gfx_fill` + `font_str` pair that
+> leaves the line blank between them"* — true when §5.4.2 was written, false
+> since the planar prologue, and carrying a line number that today lands inside
+> `font_char`'s column loop rather than on any gate. **It was read as current
+> and cost a package a hand-rolled text renderer**: DOT DELIRIUM
+> (`apps/dotdel/ddrend.inc`, not yet on this branch) cites
+> this sentence, and that line number, for a *measured* 176 ms on a nineteen-cell
+> attract line. The same run measures **4,891 µs aligned and 7,832 off the byte
+> grid** (PERFORMANCE.md Set 121) — the claim was inherited from here, not taken
+> off a machine. §6.1.10.1 is the rule that actually binds a caller, and a
+> comparison against `font_run` belongs there where it is maintained, not in a
+> band's own section where nothing re-reads it.
 
 **No `rep` carries a segment override**, deliberately: an 8086 loses the prefix
 if an interrupt lands mid-`rep`, and this is an interrupt-heavy kernel. DS is
@@ -7299,9 +7311,11 @@ compose-and-blit work (docs/plans/completed/TEXT-PLAN.md stage 3 and its §6.1),
 capsule letter is a sprite (the same plan's stage 3.1), and
 `kernel/bootprof.inc` draws on a surface no shipping build has. **The
 seventeenth line is the tracker's**, and it is the honest odd one out: `tui_runc`
-takes the run on mono and `tui_textc` on colour, where `font_run` falls back to
-a `gfx_fill` of ground the pattern view's caller filled once for the whole row
-band. That is a **cost** argument rather than a correctness one — the same shape
+takes the run on mono and `tui_textc` on colour, where `font_run` would write
+again the ground the pattern view's caller filled once for the whole row band.
+(Before §6.1.10 that was literally a `gfx_fill` on VGA; it is the planar
+single store now, so the redundant write is cheaper than this line used to
+mean — the cost argument survives the mechanism changing under it.) That is a **cost** argument rather than a correctness one — the same shape
 as the sixth case that was *retired* — so it is registered with its reasoning
 and the note that the fix, if it comes, belongs in `font_run` and not here.
 
