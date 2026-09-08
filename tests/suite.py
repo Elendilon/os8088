@@ -2640,7 +2640,7 @@ SOAK = [
         " one (docs/WRITING-TESTS.md 13 entry 44)."
         " --clobber-flat NOPs the four bytes and the bar moves to x = 0",
         needs=("marty",), serial=True),
-    Row("skiesrwy", "soak", py("tests/skiesrwy.py"), 33.0,
+    Row("skiesrwy", "soak", py("tests/skiesrwy.py"), 50.0,
         "SPEC.md 88.6.2.1: the runway keeps its lines PAST ITS OWN MIDDLE."
         " cs_drawobj's size test opened `cmp cx, 2600 / ja .out` on the"
         " object's camera z, and ja is unsigned - so an origin BEHIND the eye"
@@ -2652,7 +2652,27 @@ SOAK = [
         " a row that walked only the far half could not tell a fix from a"
         " runway that had stopped being drawn at all; then once at 40 m,"
         " which is the other half of the report. --clobber-rwy takes the four"
-        " bytes of the guard back out and it reads 30, 30, 30, 0, 0, 0",
+        " bytes of the guard back out and it reads 30, 30, 30, 0, 0, 0."
+        " It then flies the LONG FINAL (SPEC.md 88.6.2.2), the same runway one"
+        " bug later: cs_rwline decided `past the far end` on the QUOTIENT of"
+        " metres x 16384 / hlen, which stops fitting in AX one whole runway"
+        " length past the far end, where an 8086 answers with INT 0 - and the"
+        " window is a circuit, this code being reached only below RW_DASHH and"
+        " within RW_DASHW of the axis. The check is what cs_rwsegu is HANDED,"
+        " not whether the machine survived, because surviving is the ROM's"
+        " decision: under GLaBIOS vector 0 is the dummy handler, so the guest"
+        " carries on with AX undefined and draws stripes from it."
+        " --clobber-far NOPs the nine bytes of the guard and the two rows past"
+        " the fence come back dashed from a garbage u. The same approach is"
+        " where the centreline NEVER DASHED (SPEC.md 88.6.2.3): the near end"
+        " has been clamped since the first build - js .zero puts the stripes"
+        " at the threshold you are aiming at - and the far end had no such"
+        " case, so it drew one solid line from a runway length out to the"
+        " flare. The field named the state as well as the symptom - leave and"
+        " come back, because at reset you are stood at the near end - and the"
+        " row reads the four stripes at the far threshold and that the last"
+        " ends ON it. --clobber-thresh pokes [cs_rwfar] onto the threshold so"
+        " they collapse, and every far row reads (0, 32767) again",
         needs=("marty",), serial=True),
     Row("skiesui", "soak", py("tests/skiesui.py"), 90.0,
         "SPEC.md 88.10's title page on the VGA machine: the two drop-downs"

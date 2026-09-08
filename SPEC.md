@@ -100823,6 +100823,143 @@ a frame up to the midpoint and **0 times past it** on the old code, and 30
 either side on the new. `tests/skiesrwy.py` walks both halves and
 `--clobber-rwy` takes the four bytes back out.
 
+#### 88.6.2.2 A long final divided by a word that was not there
+
+`cs_rwline`'s test for *past the far end* was taken on the QUOTIENT of a
+divide that the quotient does not fit in, and the state that reaches it is
+**leave the circuit and come back**.
+
+The centreline's parameter is `u`, the aeroplane's position along the runway
+in Q15 of the whole strip, and it was computed as
+
+```
+    mov ax, [cs_along]
+    add ax, [si + CSA_HLEN]         ; AX = metres from the near end
+    mov dx, 16384
+    mul dx
+    div word [si + CSA_HLEN]        ; u = metres x 16384 / hlen
+    cmp ax, 32000
+    jae .solid                      ; past the far end: one segment
+```
+
+`div word` on an 8086 puts the quotient in AX and **faults with INT 0 when it
+does not fit**. Here it stops fitting at `metres = 4 hlen` — twice the whole
+runway, so **one whole runway length past the far end** — and the `cmp` that
+was supposed to have refused the case long before never runs, because the
+instruction that would have produced its operand is the one that faults.
+
+The window is not exotic; it is a circuit. This code is only reached at all
+when the aeroplane is **below `RW_DASHH` = 150 m and within `RW_DASHW` = 300 m
+of the axis**, which is the description of a long final. Overfly the strip,
+turn back, and come down the extended centreline from more than a runway
+length out. At Issy, `hlen` = 500 m, so the fence is 1,000 m past the
+threshold and the whole of the approach beyond it divides by a word that is
+not there.
+
+**What the fault costs depends on the ROM, which is not ours to choose**, and
+that is the reason to fix it rather than to measure it. Under GLaBIOS, vector
+0 points at the BIOS's own dummy handler (`F000:FF23`), which sends an EOI and
+`iret`s — so the machine carries on, on an 8086, with the address the fault
+pushed being the one AFTER the `div` and with **AX undefined**. The centreline
+is then drawn from that: measured on a Hercules at Issy, stood on the extended
+centreline at 100 m and looking back, `cs_rwsegu` is handed
+
+| stood | what it should draw | what it drew |
+|---|---|---|
+| 250 m past the far end | `(0, 32767)` | `(0, 32767)` |
+| 1,250 m past | `(0, 32767)` | `(0,819) (1638,2457) (3276,4095) (4914,5733) (6552,32767)` |
+| 1,750 m past | `(0, 32767)` | `(16380,17199) … (22932,32767)` |
+
+— a strip that should carry one solid line carrying four stripes at the far
+threshold and a solid tail from three-quarters of the way along, or from
+halfway. The fault is not free either: the same 120-frame window renders
+**84 and 90 frames on the guard and 55 and 60 without it**.
+
+The fix is the test taken **before the multiply**, on metres rather than on
+`u`:
+
+```
+    mov bx, [si + CSA_HLEN]
+    shl bx, 1                       ; the runway's whole length
+    cmp ax, bx
+    jae .solid
+```
+
+Four instructions, no divide, and they answer the same question the old
+`cmp ax, 32000` was asking one step too late. That compare stays where it is
+and keeps its own meaning — the **last stripe's worth** of the strip, where a
+dashed run would have nothing left to draw — so the near case is unchanged
+and every frame that used to reach the divide legitimately still reaches it.
+
+`tests/skiesrwy.py` stands the aeroplane 250 m, 1,250 m and 1,750 m past the
+far end and reads what `cs_rwsegu` is handed; `--clobber-far` NOPs the nine
+bytes of the guard and the last two rows come back as the table above.
+
+#### 88.6.2.3 Coming back to the other threshold, it never dashed
+
+The field reported *"coming in for a landing, the runway lines are not
+changing back to their dashed mode after I get below solid-line height"*, and
+then the thing that identifies it: *"I have to leave, then come back, for it
+to happen."*
+
+That sentence is the whole diagnosis. At reset the aeroplane is stood at the
+**near** end of the strip, and `cs_rwline` clamps the near end — `js .zero`
+puts `u` at 0 when the aeroplane is short of the threshold, so the stripes go
+at the threshold you are aiming at and the solid part runs away from you down
+the rest. **The far end had no such case.** Past it the routine went to
+`.solid`, one segment end to end — which is right when you are high, or
+2 km off to the side, and wrong when you are on short final to that
+threshold. You can only ever meet the far end by taking off, flying a
+circuit and coming back, which is exactly the reproduction that was
+reported.
+
+Measured on a Hercules at Issy, flying a 3° slope in from each end and
+reading what `cs_rwsegu` is handed:
+
+| distance out | height | from the near end | from the far end |
+|---|---|---|---|
+| 2,600 m | 138 m | solid | solid |
+| 1,800 m | 96 m | `(0,819) (1638,2457) (3276,4095) (4914,5733)` + tail | `(0, 32767)` |
+| 300 m | 17 m | the same four stripes + tail | `(0, 32767)` |
+| over the threshold | 2 m | the same four stripes + tail | `(0, 32767)` |
+
+The fix is the near end's clamp, mirrored. `[cs_rwfar]` is
+`32766 − (2 RW_NDASH − 1) du`, computed once beside `[cs_rwdu]` when
+`cs_airport` builds the strip, and it is where a run of `RW_NDASH` stripes
+has to start for the last of them to end **on** the far threshold. Past the
+far end, low and near the axis, `cs_rwline` draws solid from the near end up
+to `[cs_rwfar]` and then re-enters its own dash loop there:
+
+```
+.far:
+    xor ax, ax
+    mov cx, [cs_rwfar]
+    call cs_rwsegu                  ; solid up to the stripes...
+    mov ax, [cs_rwfar]
+    mov cx, RW_NDASH                ; ...then the stripes at that threshold
+    jmp short .dash
+```
+
+**It costs nothing, and that was measured rather than argued.** The near end
+is four stripes and a solid tail; the far end is a solid head and four
+stripes — **five segments either way**, so the two approaches are the same
+price and §88.6.2's *"on the ground it is five segments and about 7 ms"*
+still describes both. Stood 1,250 m off the far threshold at 100 m, the same
+240-frame window renders **35 frames with the stripes and 35 with
+`[cs_rwfar]` poked to 32767 so they collapse back to one segment**. `.far`,
+the 14 bytes that compute `[cs_rwfar]` and §88.6.2.2's guard above it come to
+**46 bytes** of `SKIES.O88` between them, and two of `.bss`.
+
+`[cs_rwfar]` also replaces the bare `32000` that used to mean *the last
+stripe's worth of the strip* — the two are the same quantity, and naming it
+makes the hand-over seamless: the frame where the rolling aeroplane passes
+`[cs_rwfar]` is the frame where `.far` starts drawing the stripes it was
+walking towards.
+
+`tests/skiesrwy.py` flies both approaches and holds the far one against the
+near one: it is red the moment the far threshold answers with one segment
+where the near one answers with five.
+
 #### 88.6.3 The tower stands 60 m back from the origin, out of the river
 
 The map's origin is the Eiffel Tower's square, and the tower's OBJECT was at

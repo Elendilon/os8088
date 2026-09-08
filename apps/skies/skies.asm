@@ -2193,6 +2193,9 @@ cs_tpl:
     ZWORD cs_rwu                    ; cs_rwpt's u
     ZWORD cs_rwdu                   ; a runway stripe, on, in Q15 of the
                                     ; centreline (88.6.2); the pitch is twice
+    ZWORD cs_rwfar                  ; ...and where the FAR threshold's run of
+                                    ; them starts, 32766 - (2 RW_NDASH - 1) du
+                                    ; (88.6.2.3), so the last stripe ends ON it
     ZBYTE cs_pgate                  ; the panel's rate gate (88.9.1)...
     ZWORD cs_plast                  ; ...and the tick the instruments last read
     ZWORD cs_pfan                   ; the fan's triangles left (88.5.9)

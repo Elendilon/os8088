@@ -100,6 +100,15 @@ cs_runway_build:
     mul dx
     div word [si + CSA_HLEN]
     mov [cs_rwdu], ax
+    mov bx, ax                      ; ...and where the FAR threshold's run of
+    shl ax, 1                       ; stripes starts (88.6.2.3): back off
+    add ax, bx                      ; (2 RW_NDASH - 1) pitches from the end,
+    shl ax, 1                       ; so the last one ends ON the threshold
+    add ax, bx                      ; AX = 7 du
+    mov bx, 32766
+    sub bx, ax                      ; (no runway here is short enough to
+    mov [cs_rwfar], bx              ; underflow this: 7 du passes 32766 only
+                                    ; below an 88 m half-length)
     mov di, cs_rwobj
     mov word [di + CSO_MODEL], cs_rwmodel
     mov word [di + CSO_FAR], 0

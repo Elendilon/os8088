@@ -2876,9 +2876,11 @@ cs_ecopy:
 ;             seen moving. Every endpoint is a point along the transformed
 ;             centreline (vertices 5 -> 4, at the object's scale), put into
 ;             scratch vertices 6 and 7 and drawn through cs_edge1, which
-;             near-clips it. Away from the runway - above RW_DASHH, beyond
-;             RW_DASHW of its axis, or past its far end - the line is solid
-;             from end to end and costs one segment, as it did before.
+;             near-clips it. Away from the runway - above RW_DASHH or beyond
+;             RW_DASHW of its axis - the line is solid from end to end and
+;             costs one segment, as it did before. PAST THE FAR END but
+;             inside those two, the stripes go at THAT threshold instead
+;             (SPEC.md 88.6.2.3): the mirror of the near end's `js .zero`.
 ;             Runs after cs_edges, in its ink.
 ; -----------------------------------------------------------------------------
 cs_rwline:
@@ -2898,11 +2900,26 @@ cs_rwline:
     mov ax, [cs_along]
     add ax, [si + CSA_HLEN]         ; AX = metres from the near end
     js .zero
+    ; --- PAST THE FAR END, BEFORE THE DIVIDE (SPEC.md 88.6.2.2). The test
+    ;     for it used to be on the QUOTIENT, and the quotient is
+    ;     metres x 16384 / hlen: it leaves a word at 4 hlen - ONE whole
+    ;     runway length past the far end - and an 8086 answers a divide
+    ;     that does not fit with INT 0, having never produced the operand
+    ;     the compare below wanted. The window is a CIRCUIT: this code is
+    ;     only reached below RW_DASHH and within RW_DASHW of the axis, so
+    ;     overfly the strip, turn back, and come down the extended
+    ;     centreline from more than a runway length out. The test moves in
+    ;     front of the multiply, where it costs three instructions and
+    ;     cannot fault.
+    mov bx, [si + CSA_HLEN]
+    shl bx, 1                       ; the runway's whole length
+    cmp ax, bx
+    jae .far
     mov dx, 16384
     mul dx
     div word [si + CSA_HLEN]        ; AX = the aeroplane's u, Q15 of 2 hlen
-    cmp ax, 32000
-    jae .solid                      ; past the far end
+    cmp ax, [cs_rwfar]
+    jae .far                        ; ...and the last stripe's worth of it
     jmp short .u
 .zero:
     xor ax, ax
@@ -2935,6 +2952,24 @@ cs_rwline:
     pop cx
 .out:
     ret
+    ; --- PAST THE FAR END, LOW AND ON THE AXIS: DASHED AT THAT THRESHOLD
+    ;     (SPEC.md 88.6.2.3). The near end has been clamped since the first
+    ;     build - `js .zero` puts the stripes at the threshold you are
+    ;     aiming at - and the far end had no such case, so an approach to it
+    ;     drew ONE SOLID LINE from a runway length out to the flare. The
+    ;     field reported exactly that, and reported the state it needs:
+    ;     leave and come back, because at reset you are stood at the NEAR
+    ;     end and the only way to meet the far one is to fly a circuit.
+    ;     Solid from the near end up to [cs_rwfar], then the same four
+    ;     stripes ending ON the far threshold - five segments either way,
+    ;     so the two approaches cost the same
+.far:
+    xor ax, ax
+    mov cx, [cs_rwfar]
+    call cs_rwsegu
+    mov ax, [cs_rwfar]
+    mov cx, RW_NDASH
+    jmp short .dash
 .solid:
     xor ax, ax
     mov cx, 32767

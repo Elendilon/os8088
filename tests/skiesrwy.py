@@ -18,9 +18,35 @@ and its segments. It is a count and not a picture on purpose: a picture of
 a runway seen end-on is a few pixels wide and a screendump comparison would
 be arguing about anti-aliasing that does not exist here.
 
---clobber-rwy is the red run (docs/WRITING-TESTS.md 1): it NOPs the three
-bytes of the `or cx, cx / jle` that the fix added and nothing else, so the
-compare is unsigned-only again - the code exactly as the field had it.
+It also flies the LONG FINAL (SPEC.md 88.6.2.2), which is the same runway
+one bug later: `cs_rwline` decided *past the far end* on the QUOTIENT of
+`metres x 16384 / hlen`, and that quotient stops fitting in AX one whole
+runway length past the far end - where an 8086 answers with INT 0. The
+window is a circuit: below RW_DASHH and within RW_DASHW of the axis is the
+description of an approach.
+
+The check is what `cs_rwsegu` is HANDED and not whether the machine survived,
+because surviving is the ROM's decision and not ours: under GLaBIOS vector 0
+is the BIOS's dummy handler, so the guest carries on with AX undefined and
+draws a centreline from it. Liveness is checked too, for the ROM that does
+not absorb it.
+
+That same approach is also where the centreline never dashed (SPEC.md
+88.6.2.3). The NEAR end has been clamped since the first build - `js .zero`
+puts the stripes at the threshold you are aiming at - and the far end had no
+such case, so it drew one solid line from a runway length out to the flare.
+The field named the state as well as the symptom: leave and come back,
+because at reset you are stood at the near end. The row reads the four
+stripes at the far threshold, and that the last of them ends ON it.
+
+--clobber-rwy is the red run for the first (docs/WRITING-TESTS.md 1): it
+NOPs the three bytes of the `or cx, cx / jle` that the fix added and nothing
+else, so the compare is unsigned-only again - the code exactly as the field
+had it. --clobber-far is the red run for the second: it NOPs the nine bytes
+that test metres against the runway's length, putting the divide back in
+front of the guard. --clobber-thresh is the red run for the third: it pokes
+[cs_rwfar] onto the threshold itself, so .far draws the whole strip solid
+and its stripes will not fit - the picture that was reported.
 """
 import argparse
 import os
@@ -54,6 +80,10 @@ def main(argv):
     ap.add_argument("--apps", default="build/apps360.img")
     ap.add_argument("--clobber-rwy", action="store_true",
                     help="the depth test goes back to unsigned-only: red")
+    ap.add_argument("--clobber-far", action="store_true",
+                    help="the far-end test goes back behind the divide: red")
+    ap.add_argument("--clobber-thresh", action="store_true",
+                    help="the far threshold's stripes collapse to one: red")
     a = ap.parse_args(argv)
     os.chdir(ROOT)
     mp = dispapps._map("skies")
@@ -102,11 +132,35 @@ def main(argv):
             m.write(lin + lo + i, b"\x90\x90\x90\x90")
             m.run()
             print("  (the depth test is unsigned-only again: must fail)")
+        if a.clobber_far:
+            # `mov bx, [si+CSA_HLEN] / shl bx, 1 / cmp ax, bx / jae .solid` -
+            # the whole of 88.6.2.2's guard, so the divide is reached again
+            # with a dividend it cannot answer
+            lo = mp["cs_rwline"]
+            code = m.read(lin + lo, 0x100)
+            j = code.find(b"\x8B\x5C\x0A\xD1\xE3\x39\xD8\x73")
+            if j < 0 or code.find(b"\x8B\x5C\x0A\xD1\xE3\x39\xD8\x73",
+                                  j + 1) >= 0:
+                sys.exit("skiesrwy: cs_rwline does not guard its divide the "
+                         "way this patch expects")
+            m.pause()
+            m.write(lin + lo + j, b"\x90" * 9)     # ...and the jae's rel8
+            m.run()
+            print("  (the far-end test is behind the divide again: must fail)")
 
         m.type_text("f")
         m.advance(frames=90)
         m.run()
         check(uw("cs_back") != 0, "the bracket took a mode")
+        if a.clobber_thresh:
+            # 88.6.2.3's far run starts where four stripes still fit; put it
+            # ON the threshold and .far draws the whole strip solid and then
+            # a stripe that will not fit - which is the picture the field
+            # reported, from the code that shipped
+            m.pause()
+            m.write(lin + base + off("cs_rwfar"), b"\xFF\x7F")
+            m.run()
+            print("  (the far threshold's stripes are gone again: must fail)")
         ap_ = uw("cs_airport")
         ax_, az = sg(rec(ap_, CSA_X)), sg(rec(ap_, CSA_Z))
         elev, hdg = sg(rec(ap_, CSA_ELEV)), rec(ap_, CSA_HDG)
@@ -120,14 +174,15 @@ def main(argv):
         m.advance(frames=2)
         m.pause()
 
-        def at(t, y):
+        def at(t, y, back=False):
             """Stood t metres from the runway's middle, y above it."""
             px = ax_ + (t * rws) // 32768
             pz = az + (t * rwc) // 32768
             for nm, v in (("cs_px", px), ("cs_py", elev + y), ("cs_pz", pz)):
                 m.write(lin + base + off(nm),
                         ((v * 256) & 0xFFFFFFFF).to_bytes(4, "little"))
-            poke("cs_hdg", (hdg & 0xFFFF).to_bytes(2, "little"))
+            poke("cs_hdg", ((hdg + (0x8000 if back else 0)) & 0xFFFF)
+                 .to_bytes(2, "little"))
             poke("cs_pitch", b"\x00\x00")
             poke("cs_roll", b"\x00\x00")
             poke("cs_state", b"\x00" if y <= 2 else b"\x01")
@@ -183,6 +238,65 @@ def main(argv):
         check(nl_air > 0,
               "low over the far half it is drawn too (%d, %d segments)"
               % (nl_air, ns_air))
+
+        # 3 - THE LONG FINAL, off the FAR threshold (88.6.2.2, 88.6.2.3).
+        #     Past the far end, below RW_DASHH and on the axis is where
+        #     cs_rwline decided `past the far end` on a QUOTIENT that no
+        #     longer fits in AX - an 8086 answers that with INT 0 - and it is
+        #     also the approach that had no dashed case at all: at reset the
+        #     aeroplane is stood at the NEAR end, so the far one is only ever
+        #     met by flying a circuit, which is the state the field named
+        du, rwfar = uw("cs_rwdu"), uw("cs_rwfar")
+        print("    --- a stripe is %d in Q15, the far run starts at %d"
+              % (du, rwfar))
+        want = [(0, rwfar)] + [(rwfar + 2 * k * du, rwfar + (2 * k + 1) * du)
+                               for k in range(4)]
+
+        def segments(t, y):
+            """What cs_rwsegu is HANDED, stood t from the middle looking back:
+            the u it starts at and the u it ends at, in Q15 of the strip."""
+            at(t, y, back=True)
+            m.bp_exec(lin + mp["cs_rwsegu"])
+            m.run()
+            out = []
+            for _ in range(len(want) + 1):
+                if m.wait_stop(8) is None:
+                    break
+                r = m.regs()
+                out.append((r["ax"], r["cx"]))
+                m.run()
+            m.pause()
+            m.bp_exec()
+            return out
+
+        for mult, what in ((1.5, "control"), (3.5, "the window"),
+                           (4.5, "...and deeper into it")):
+            t = int(mult * hlen)
+            f0 = uw("cs_frames")
+            segs = segments(t, 100)
+            m.run()
+            m.advance(frames=120)
+            m.pause()
+            drew = (uw("cs_frames") - f0) & 0xFFFF
+            print("      %5d m past the far end (%s): %s, %d frames"
+                  % (t - hlen, what, segs[:5], drew))
+            check(segs[:5] == want,
+                  "%.1f hlen out: solid to the far run, then its four stripes"
+                  % mult)
+            check(len(segs) > 4 and segs[4][1] == 32766,
+                  "...the last of them ending ON the threshold (%s)"
+                  % (segs[4] if len(segs) > 4 else None,))
+            check(drew > 0, "...AND THE MACHINE IS STILL RENDERING (%d frames)"
+                  % drew)
+
+        # ...and ABOVE RW_DASHH it is still one segment end to end, which is
+        # the case .far must not have eaten
+        hi = segments(int(3.5 * hlen), 400)
+        print("      1250 m past the far end at 400 m: %s" % (hi[:5],))
+        check(hi[:1] == [(0, 32767)],
+              "high above it, the line is one solid segment (%s)"
+              % (hi[:1],))
+
         m.run()
         m.type_text("f")
         m.advance(frames=40)
