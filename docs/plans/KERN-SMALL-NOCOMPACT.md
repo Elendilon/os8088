@@ -1,7 +1,8 @@
 # Gating heap compaction out of kern_small — costed, measured, and REFUSED
 
-**Status: research, nothing built. Refused AS IT STANDS — and 9 is the route
-that makes it work, also on a measurement.**
+**Status: BUILT, both halves, and SPEC.md 50.6.5 and SPEC.md 66.0 are the
+contract. This file is the design record behind them — how the refusal in 5
+became the route in 9 and then the gate in 10.**
 
 The ask: kern_small's heap is small and it can load no driver, so would the
 128KB machine rather have the compactor's bytes back than the compactor?
@@ -17,6 +18,11 @@ same gestures:
 | kern_small `HEAPCOMPACT=0` | **"Out of memory"** |
 
 and 1.5 KB of extra floor does not close that gap, because the gap is 9 KB.
+
+**That was the answer for one afternoon.** 9 is the route round it — make the
+view cache PURGEABLE, +12 bytes — and 10 is what the gate then measured once
+that had landed: **1,659 resident bytes and +1,536 of heap**, free heap on the
+floor machine **48.5 → 50.0 KB**, with the same session still loading Paint.
 
 **9 is the way through, and it is measured too**: make the view caches
 PURGEABLE on kern_small and the same session reaches **48.5 KB in one run** —
@@ -322,3 +328,82 @@ shows it beating the compactor in the case that actually bites. Whether the
 compactor's 1,725 bytes then come out is a second decision, measurable against
 the same rows once the first has landed — and it should be re-measured rather
 than inferred, because 9.3 is what changes hands.
+
+---
+
+## 10. Built: `OS88_COMPACT`, and what the second measurement said
+
+9 landed first, on its own merits (SPEC.md 50.6.5). With the arena fully
+reclaimable the case in 5 was gone, so the gate was re-measured against the new
+baseline rather than inferred from the old one — which is what 9.4 asked for.
+
+**SPEC.md 66.0 is the contract.** `OS88_COMPACT` is defined for `KERN_BIG` only,
+beside `OS88_ASSOC` / `OS88_DRIVERS` / `OS88_RTC` above every `%include`.
+
+### 10.1 What it cost, measured
+
+| | `.text` | `.bss` | `.cold` | `.lowbss` | `KERN_SIZE` |
+|---|---:|---:|---:|---:|---:|
+| gating compaction out | **−667** | **−52** | **−936** | **−4** | **−1,536** |
+
+**1,659 resident bytes**, against 1,725 predicted in 1 — the difference being
+`fm_reloc` and `fmv_movable`, which 9 had already taken. Free heap on
+`os8088_5150_cga_128k` goes **48.5 → 50.0 KB** and `kern_big` assembles
+**byte-identical**.
+
+### 10.2 `mem_avail` was the whole of the work
+
+Everything else is `%ifdef`. §66.10.3 made the largest free run `mem_cp_plan`'s
+*because the refusal path compacts*; with the compactor gone the refusal path
+sheds, so the answer is the biggest hole the shed leaves and `mem_bigrun` had
+to be written for it — ~100 bytes, `O(MEM_MAX²)`, exactly what it replaced.
+
+**It shipped wrong first and a test caught it.** `mem_pg_cheap` answers CF = 0
+for *takeable*, and the first cut read the carry the other way round — so every
+cache was a wall and every wall was room. It answered **48.0 KB where the heap
+had 50.0**: an under-report, which SPEC.md 50.3 names as the one direction in
+which the error is invisible. Nothing in the driven session showed it. What
+showed it was reading the routine's own `AX` at its `ret` and comparing it with
+the same walk done on the host, over four real heap states.
+
+### 10.3 The two traps in measuring it
+
+Both are worth writing down because both produced a **green result that had
+measured nothing**:
+
+1. **A breakpoint on a routine nothing is calling.** The first probe armed
+   `mem_bigrun` on an idle desktop, waited, timed out, and reported PASS
+   because the failure path returned before the compare. `dsk_fatw_want` sizes
+   the FAT window off `mem_avail` at **every mount**, so a mount is the
+   provocation — and a probe that does not fire has to be a FAILURE, not a
+   silent skip (docs/WRITING-TESTS.md 1).
+2. **`run` is asynchronous.** A `wait_stop` issued straight after it observes
+   the breakpoint the guest is still standing on and answers immediately, which
+   reads the registers of the call *before* the one being measured. Polling
+   `stopped()` does not fix it either — the guest is stopped at the entry when
+   you ask and stopped at the return a microsecond later, and only the **address**
+   tells the two apart. And driving the UI layer from a second thread while
+   breakpoints are armed does not work at all: every `os88ui` verb raises on a
+   stopped guest, correctly.
+
+The read-ahead's size is a third, cheaper reading of the same number and needs
+no debugger: `dsk_rah_want` claims `(n*9+1)>>1` KB for `n = avail/9`, so
+`MEM_P_DIRW`'s size in `mem_tab` *is* `mem_avail`'s answer with known arithmetic
+on top. It confirmed 50.0 KB exactly on an empty heap.
+
+### 10.4 What the machine gives up, stated plainly
+
+The owner's decision, in their words: *"the user can manage their app space"* —
+launch the Task Manager, launch the file manager, close the Task Manager, then
+launch Paint, in exchange for the KB. What is actually given up:
+
+* the **menu save-under** (3.0 KB, alive while a menu is down) and the
+  **clipboard** are barriers now rather than movable;
+* every claim a package declares movable is pinned — Paint's canvas, Note Pad's
+  document, ArtfulType's and Fractal's, all of which ship on the small apps
+  disk (SPEC.md 24.5);
+* `OSAPI_MEM_MOVABLE`, `OSAPI_MEM_PARKSAFE` and `OSAPI_TASK_RESTARTABLE` refuse.
+  The slots stay, so a small-built package still runs on `kern_big` unchanged.
+
+And what it keeps is the half that was doing the work: **purging**, which after
+9 reaches every claim in the arena that a `kern_small` desktop actually makes.

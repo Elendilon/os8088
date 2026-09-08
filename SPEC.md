@@ -77919,6 +77919,91 @@ cost belongs: at that instant the user has just asked for something, and a
 pause is what they are already expecting. Nothing walks the heap on a timer,
 at idle, or on a free.
 
+### 66.0 NOT ON `kern_small` — the 128KB machine keeps PURGING and gives up MOVING
+
+**`OS88_COMPACT` is `kern_big`'s**, resolved in `kernel.asm` above every
+`%include` beside `OS88_ASSOC`, `OS88_DRIVERS` and `OS88_RTC`. On `kern_small`
+every claim is born pinned and stays pinned; `mem_claim`'s refusal path is
+**shed and retry**, which is what it was before §66.4, and `OSAPI_MEM_MOVABLE`
+answers CF = 1.
+
+**Purging is untouched and is the half that matters there.** §50.6's shed
+reaches every cache in priority order on both kernels; what goes is the ability
+to MOVE a claim that is not a cache.
+
+#### 66.0.1 Why it costs that machine so little
+
+Its two biggest customers cannot exist there. A **driver image** (§66.6.3) and
+a driver's **donated claim** (§66.5.10.2) are the reason `mem_region_reloc`
+walks nine kernel tables, and `OS88_DRIVERS` gates the whole mechanism out
+(§51.0). The **association cache** — measured holding 40KB out of reach, and
+the case that put §66.5.6 in the tree — went with §54.0. **Hibernate** is
+`kern_big`'s. Of the kernel's own claims that reach a `kern_small` desktop at
+all, that leaves the **menu save-under**, measured at **3.0KB** and alive for
+exactly as long as a menu is down, and the **clipboard**.
+
+And the one case that did bite was answered at the CLAIM instead. Two 2KB Disk
+window listing caches sat either side of the directory read-ahead and stranded
+**21.5KB of a 48.5KB arena** between them; §50.6.5 makes them **purgeable**, and
+a cache that can be shed does not need to be moved — the shed reaches **48.5KB**
+where the compactor reached 44.5. That is the whole of the argument: the feature
+was earning its bytes on one population, and that population is better served by
+the cheaper mechanism.
+
+#### 66.0.2 What is compiled out, and what stays
+
+Out: `mem_can_move` and the five predicates only it asks (`mem_is_region`,
+`mem_frameless`, `mem_busy_seg`, `mem_in_nest`, `mem_in_xfer`), the seventeen
+`mem_cp_*` routines, `mem_reloc_call`, `mem_rr_walk` / `mem_region_reloc` /
+`mem_rr_tab`, `mem_compact`, `OSAPI_MEM_MOVABLE`'s body, the four kernel
+relocation procs (`menu_reloc`, `clip_reloc`, and `fm_reloc` / `fmv_movable`
+which §50.6.5 had already taken), the **worker park** (§66.5) entire —
+thirteen routines in `instance.inc`, `gfx_lock`'s two hooks and
+`sch_wk_restart` — and `[mem_pinseg]`, whose only reader was `mem_in_xfer`, so
+its writes in `disk.inc`, `clip.inc` and `hiber.inc` go with it.
+
+Stays: **everything about purging**. `mem_shed_one`, `mem_pg_own`,
+`mem_pg_forget`, `mem_pg_cheap`, `mem_rank_bh`, `mem_fatw_dirty`,
+`[mem_pg_rank]` and every `MEM_P_*` tag. `MC_RLOC` stays in the record too,
+published as 0 by `mem_claim_1` and read by nothing — so `tools/heapmap.py`
+still decodes a `kern_small` map and answers PINNED for every row, which is
+true.
+
+**The API slots stay and refuse**, which is `gfx_blit1`'s precedent on this
+kernel (§5.4.2.5): a small-built package calls the same table at the same
+offsets and runs on `kern_big` unchanged (§24.5). `OSAPI_MEM_MOVABLE`,
+`OSAPI_MEM_PARKSAFE` and `OSAPI_TASK_RESTARTABLE` are all promises a package
+MAY make and none is load-bearing — `crt0.asm` throws the answer away in as
+many words — and every caller already has a path for the refusal, because the
+owner fence could always refuse.
+
+#### 66.0.3 `mem_avail` still answers the question `mem_claim` answers
+
+§66.10.3 made the largest run `mem_cp_plan`'s, **because the refusal path
+compacts**. Here it sheds, so the answer is the biggest hole the shed leaves
+and `mem_bigrun` is that walk: the candidates are the arena floor and each
+barrier's end, a cache at or below the caller's rank is not a barrier, and
+`mem_pg_cheap` is the same predicate the total uses — so the run and the total
+cannot disagree. It is `O(MEM_MAX²)`, which is exactly what `mem_cp_plan` was.
+
+The contract is unchanged and it is the one that matters: **under-reporting
+here is not a safe error**, it is the only direction in which the error is
+invisible (§50.3).
+
+#### 66.0.4 What that machine gives up
+
+A claim that is not a cache is a barrier for as long as it is held, and three
+of them can be: the menu save-under while a menu is down, the clipboard, and
+every claim a package declares movable — Paint's canvas, Note Pad's document,
+ArtfulType's and Fractal's are all on the small apps disk (§24.5). The owner's
+decision is that **a 48.5KB machine runs one program at a time and the user
+manages that space**, which is the same judgement §24.5 already makes about
+what ships there.
+
+**`+1,536 bytes of heap`**, measured: `.text` −667, `.bss` −52, `.cold` −936,
+`.lowbss` −4, `KERN_SIZE` 79,872 → 78,336, free heap on the floor machine
+**48.5 → 50.0 KB**. `kern_big` assembles byte-identical.
+
 ### 66.1 Why the first design was wrong, twice
 
 Worth recording, because both wrong answers are the obvious ones and the

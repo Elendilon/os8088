@@ -5366,12 +5366,16 @@ gfx_lock:
                                 ; was meant to be seen by
 .block:
     sti
+%ifdef OS88_COMPACT
 %ifndef NOPARKLK
     call inst_park_lk           ; BLOCKED HERE HOLDS NOTHING, if the package
 %endif                          ; said so (SPEC.md 66.5.4) - which is what
-    call task_yield             ; lets the compactor reach a DRAWING worker's
-%ifndef NOPARKLK                ; claims at all. make HEAPPARKLK=0 is the A/B
+%endif                          ; lets the compactor reach a DRAWING worker's
+    call task_yield             ; claims at all. make HEAPPARKLK=0 is the A/B,
+%ifdef OS88_COMPACT             ; and kern_small has no compactor to reach them
+%ifndef NOPARKLK
     call inst_park_unlk
+%endif
 %endif
     jmp .retry
 

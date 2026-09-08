@@ -942,6 +942,7 @@ sch_frame:
     stosw                       ; FLAGS: IF=1, reserved bit 1 set
     ret
 
+%ifdef OS88_COMPACT
 ; -----------------------------------------------------------------------------
 ; sch_wk_restart - throw a worker's stack away and re-enter it (SPEC.md 66.6.2)
 ; in:  AL = the task slot, BX = the segment to run it in, CX = the entry offset
@@ -1016,6 +1017,9 @@ sch_wk_restart:
     pop ax
     popf
     ret
+%endif                          ; OS88_COMPACT - SPEC.md 66.6.2's restart is
+                                ; the compactor's only way past a worker's own
+                                ; stack, and kern_small has no compactor
 
 ; -----------------------------------------------------------------------------
 ; task_yield - give up the rest of this time slice

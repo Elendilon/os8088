@@ -83,6 +83,15 @@ so one can fragment the heap only for as long as the user is inside it, and
 re-taken. **A persistent module would reopen the question**, and only for that
 module.
 
+**On `kern_small` NOTHING in this file moves** (§66.0). The compactor is
+`kern_big`'s: every claim there is born pinned and stays pinned, `mem_can_move`
+and the whole `mem_cp_*` walk are compiled out, and `OSAPI_MEM_MOVABLE` answers
+CF = 1. Read every **MOVABLE** verdict below as "on `kern_big`" unless the row
+says otherwise. What that machine keeps is **purging**, which reaches every
+`MEM_P_*` row unchanged — and the Disk window's listing cache moved from the
+movable column into the purgeable one to make the trade worth taking
+(§50.6.5).
+
 **Purgeable caches are refused by `mem_can_move` too**, and it costs nothing:
 a cache that is in the way is dissolved by `mem_cp_drop` when a claim is
 waiting and outranks it (§66.10.1), which is the same room at none of the copy.
@@ -93,9 +102,9 @@ waiting and outranks it (§66.10.1), which is the same room at none of the copy.
 
 | claim | size / lifetime | verdict | why, and what it would take |
 |---|---|---|---|
-| `MEM_K_SAVE` menu save-under | `MENU_SAVE_KB` = 20KB, one menu | **MOVABLE** | `menu_reloc`. 20KB mid-arena at exactly the moment a *menu command* claims |
+| `MEM_K_SAVE` menu save-under | `MENU_SAVE_KB` = 20KB clamp; **measured 3.0KB** for a real menu | **MOVABLE on kern_big** | `menu_reloc`. Mid-arena at exactly the moment a *menu command* claims. **PINNED on kern_small** — §66.0 compiles the compactor out there, so the proc and its declaration go with it |
 | `MEM_K_ASC` ASSOC.DAT cache | `ASC_KB` = 3KB, one volume at a time, long-lived | **MOVABLE** | `asc_reloc`. Claimed on a **volume switch**, so on a used machine it lands mid-arena — measured holding 40KB out of reach before it was declared (§66.5.6) |
-| `MEM_K_CLIP` clipboard | sized to contents, long-lived | **MOVABLE** | `clip_reloc`. Outlives the app that filled it (§55). `clip_put` pins its *source* through `[mem_pinseg]` across its own claim (§66.5.6) |
+| `MEM_K_CLIP` clipboard | sized to contents, long-lived | **MOVABLE on kern_big** | `clip_reloc`. Outlives the app that filled it (§55). `clip_put` pins its *source* through `[mem_pinseg]` across its own claim (§66.5.6) — and that word is the compactor's, so on **kern_small** the pin, the proc and the declaration are all compiled out (§66.0) and the claim is PINNED |
 | Disk window view cache, **kern_big** (owner = the window's instance slot) | `VIEW_KB` = 3KB per open window | **MOVABLE** | `fm_reloc` — `FS_VSEG` **and** the `[fm_vseg]` mirror, the pair that killed the word-poke design (§66.1). Declared from the claim site with the owner in hand (§66.5.6.2) |
 | Disk window view cache, **kern_small** (owner = `MEM_P_VIEW` + the window's `fm_pool` slot) | 2KB per open window, up to four | **PURGEABLE** | §50.6.5. A cache that can be SHED does not need to be MOVED, and on a 48.5KB heap two of these stranded **21.5KB** between them as movable claims. Rank `MEM_PG_LOW` because it self-heals — `fmv_fit`'s only caller is `fmv_store`. `fmv_demote` is the second naming word, `dsk_fatw_demote`'s twin; `fm_kinit` frees the previous tenant's, because a tag is nobody's instance and `mem_free_rec` cannot reap it |
 | `MEM_K_COPY` copy buffer | one Cut/Copy/Paste | **PINNED (forever)** | claimed through `mem_claim_dma` with the whole buffer as the page-safe head (§22.5.1) |
