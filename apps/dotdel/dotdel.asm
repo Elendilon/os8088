@@ -872,7 +872,7 @@ dd_s_over:   db 'GAME OVER', 0
 dd_s_clear:  db 'LEVEL CLEAR', 0
 dd_s_paused: db 'PAUSED', 0
 dd_s_play:   db 'PRESS ENTER TO PLAY', 0
-dd_s_hshead: db '   HIGH SCORES', 0
+dd_s_hshead: db 'HIGH SCORES', 0
 dd_s_newhs:  db 'NEW HIGH SCORE: ', 0
 dd_s_small:  db 'Window too small.', 0
 
@@ -1141,6 +1141,8 @@ dd_s_small:  db 'Window too small.', 0
     DWORDV dd_tabx
     DWORDV dd_ply
     DWORDV dd_stripy
+    DWORDV dd_striph                ; the strip's pixel height, decided before
+                                    ; the page is placed (SPEC.md 93.11.4)
     DWORDV dd_grow
     DWORDV dd_gcol
     DBYTEV dd_grbits                ; the title cells of one glyph row

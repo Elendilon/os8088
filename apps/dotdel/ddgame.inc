@@ -178,6 +178,35 @@ dd_actors_home:
     ret                             ; before the first frame draws them in
                                     ; colour 0, which is the background
 
+; -----------------------------------------------------------------------------
+; dd_actors_resnap - put every actor back on the origin of the tile it is on
+;
+; AN ACTOR'S POSITION IS IN UNITS OF THE TILE, so a relayout that changes the
+; TILE leaves all five of them at coordinates that mean nothing. The field
+; report was *"going fullscreen in the middle of play sets everything
+; misaligned, Smiles doesn't draw in his lane, ghosts too"* - and it is not
+; only the bracket: dragging the window between two displays of different
+; shapes re-cuts the tile the same way (SPEC.md 93.4).
+;
+; The TILE each of them is on is still right - dd_ac/dd_ar are tile numbers -
+; so re-deriving the position from it is the whole fix. What it costs is the
+; fraction of a tile they had crossed, once, on a frame where the board is
+; being rebuilt from scratch anyway.
+; -----------------------------------------------------------------------------
+dd_actors_resnap:
+    push si
+    xor si, si
+.a:
+    mov cl, [dd_ac + si]
+    mov ch, [dd_ar + si]
+    call dd_put_tile
+    mov byte [dd_shown + si], 0     ; ...and nothing is on the glass where the
+    inc si                          ; old coordinates said it was
+    cmp si, DD_NACT
+    jb .a
+    pop si
+    ret
+
 ; dd_dotcnt_reset - the per-BOARD dot tally the pen's release counts run off.
 ; It is reset when a board is laid and NOT when a life is lost: zeroing it on a
 ; death put ghosts 2 and 3 back behind the 30 and 60 dots they had already

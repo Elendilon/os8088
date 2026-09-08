@@ -38,6 +38,13 @@ DD_TGW     equ 5                ; the title grid, per glyph
 DD_TGH     equ 7
 DD_TGADV   equ 6                ; ...and the pitch, so there is a column of air
 DD_TITLEN  equ 12               ; "DOT DELIRIUM"
+; THE PAGE'S MINIMUM GAPS, and the slack over them is SPREAD (SPEC.md 93.11.4)
+DD_ATTOP   equ 4                ; above the title
+DD_ATG1    equ 6                ; title to the score table
+DD_ATGM    equ 8                ; ...and the two either side of the play line,
+                                ; together, because they are kept equal
+DD_ATFIX   equ DD_ATTOP + DD_ATG1 + DD_ATGM \
+                + (DD_NHS + 1) * DD_HUDROW + DD_HUDROW
 DD_BLINKON equ 9                ; the play line, in ticks - TANK ATTACK's rate
 DD_BLINKOF equ 5                ; (SPEC.md 85.10.3), so the two title screens
                                 ; on this machine blink at one speed
@@ -445,8 +452,9 @@ dd_attract_layout:
     mul bx
     mov [dd_tith], ax
     ; ...and what the page then needs: title, table, play line and their gaps
-    add ax, 4 + 6 + (DD_NHS + 1) * DD_HUDROW + 4 + DD_HUDROW + 4
-    cmp ax, [dd_ch]
+    add ax, DD_ATFIX                ; ...and what the page then needs: the
+    cmp ax, [dd_ch]                 ; three text blocks and the four gaps at
+                                    ; their minimum
     jbe .fits
     cmp word [dd_tcw], 1
     jbe .fits                       ; as small as it goes: it will be cut, and
@@ -458,34 +466,28 @@ dd_attract_layout:
     mul bx
     mov [dd_titw], ax
 
-    mov ax, [dd_cy]
-    add ax, 4
-    mov [dd_tity], ax
-    add ax, [dd_tith]
-    add ax, 6
-    mov [dd_taby], ax               ; the table
-    add ax, (DD_NHS + 1) * DD_HUDROW
-    add ax, 4
-    mov [dd_ply], ax                ; the play line
-    add ax, DD_HUDROW + 4
-    ; THE STRIP TAKES WHAT IS LEFT, however many tile rows that is: eleven on
-    ; a VGA, six in a CGA fullscreen bracket, and on a windowed CGA - where
-    ; the table and the title are what the screen is FOR - as few as four.
-    ; Fewer than that is not a playfield and the demo runs unseen.
-    mov [dd_stripy], ax
-    mov bx, [dd_cy]
-    add bx, [dd_ch]
-    sub bx, ax                      ; BX = pixel rows left under the play line
+    ; HOW MANY TILE ROWS THE STRIP GETS, decided BEFORE anything is placed:
+    ; eleven on a VGA, six in a CGA fullscreen bracket, and on a windowed CGA -
+    ; where the table and the title are what the screen is FOR - as few as
+    ; four. Fewer than that is not a playfield and the demo would run unseen.
+    mov ax, [dd_ch]
+    sub ax, [dd_tith]
+    sub ax, DD_ATFIX
     jle .nostrip
-    mov ax, bx
     xor dx, dx
-    div word [dd_th]                ; AX = tile rows that fit
+    div word [dd_th]
     cmp ax, DD_ATRMIN
     jb .nostrip
     cmp ax, DD_ATROWS
     jbe .rows
     mov ax, DD_ATROWS
 .rows:
+    push ax
+    mul word [dd_th]
+    mov [dd_striph], ax
+    call dd_attract_place           ; ...and only now the four y positions
+    call dd_attract_bdx             ; ...and the board's own x
+    pop ax
     mov bx, DD_ROWS
     sub bx, ax
     mov [dd_atr0], bx               ; the slice is the BOTTOM of the board
@@ -498,9 +500,96 @@ dd_attract_layout:
     mov [dd_bdy], bx                ; ...and the origin that puts it there
     ret
 .nostrip:
+    mov word [dd_striph], 0
+    call dd_attract_place
+    call dd_attract_bdx
     mov byte [dd_strip], 0
     mov word [dd_clipy0], 0
     mov word [dd_atr0], DD_ROWS     ; nothing is playable: the grid is all wall
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_attract_bdx - the strip's x, centred on the CONTENT BOX
+;
+; dd_layout puts the board's x where it goes when the HUD column is beside it,
+; and on a surface too narrow to hold both side by side it packs the pair and
+; centres THEM - which pushes the board right by half the HUD's width. There
+; is no HUD on the title screen, so that margin is reserved against nothing
+; and the mini-board sat visibly right of everything above it. Centring it on
+; the content box is the whole fix; dd_level_begin calls dd_layout, which puts
+; the playing value back.
+; -----------------------------------------------------------------------------
+dd_attract_bdx:
+    push ax
+    mov ax, [dd_cw]
+    sub ax, [dd_mw]
+    jns .ok
+    xor ax, ax
+.ok:
+    shr ax, 1
+    add ax, [dd_cx]
+    add ax, 4                       ; to the NEAREST byte column, not down to
+    and ax, ~7                      ; the one below: gfx_blit1 wants the grid
+    mov [dd_bdx], ax                ; and rounding one way is a lean
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_attract_place - the four vertical positions, with the SLACK SPREAD
+;                    (SPEC.md 93.11.4)
+;
+; in:  [dd_tith] and [dd_striph], the two blocks whose height is not fixed
+; out: dd_tity / dd_taby / dd_ply / dd_stripy.  Preserves every register.
+;
+; Everything used to be packed against the top of the content box and the
+; strip took whatever was left - so on a surface with room to spare the page
+; sat in the top two thirds with a band of black under it. A fifth of the
+; slack goes above the title, a fifth under it, a fifth under the strip, and
+; what is left is split EQUALLY either side of the play line, which is what
+; "press enter equally between the high scores and the mini-board" asks for.
+; -----------------------------------------------------------------------------
+dd_attract_place:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov ax, [dd_ch]                 ; the slack: what the surface has over what
+    sub ax, [dd_tith]               ; the page needs at its minimum gaps
+    sub ax, [dd_striph]
+    sub ax, DD_ATFIX
+    jns .have
+    xor ax, ax
+.have:
+    mov bx, ax
+    xor dx, dx
+    mov cx, 5
+    div cx
+    mov cx, ax                      ; CX = a fifth of it
+    mov ax, bx                      ; ...and the rest, less the three fifths
+    sub ax, cx                      ; that are spent, joins the two middle gaps
+    sub ax, cx
+    sub ax, cx
+    add ax, DD_ATGM
+    shr ax, 1                       ; BX = ONE of them, so they are equal
+    mov bx, ax
+    mov ax, [dd_cy]
+    add ax, DD_ATTOP
+    add ax, cx
+    mov [dd_tity], ax
+    add ax, [dd_tith]
+    add ax, DD_ATG1
+    add ax, cx
+    mov [dd_taby], ax               ; the table
+    add ax, (DD_NHS + 1) * DD_HUDROW
+    add ax, bx
+    mov [dd_ply], ax                ; the play line, midway
+    add ax, DD_HUDROW
+    add ax, bx
+    mov [dd_stripy], ax             ; ...and the strip, with a fifth under it
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -563,7 +652,8 @@ dd_title_draw:
     sub ax, [dd_titw]
     shr ax, 1
     add ax, [dd_cx]
-    and ax, ~7                      ; gfx_blit1 wants the byte grid
+    add ax, 4                       ; gfx_blit1 wants the byte grid, and the
+    and ax, ~7                      ; NEAREST column rather than the one below
     mov cx, [dd_titw]
     mov dx, [dd_tch]
     call OSAPI_GFX_BLIT1            ; ABSOLUTE screen coordinates: the title is
@@ -657,10 +747,21 @@ dd_table_draw:
     sub ax, DD_TABW
     shr ax, 1
     add ax, [dd_cx]
+    add ax, 4
     and ax, ~7
     mov [dd_tabx], ax
-    mov si, dd_s_hshead
-    call dd_tab_line
+    mov si, dd_s_hshead             ; the HEADING is centred over the table,
+    call dd_text_w                  ; where the rows are a column and have to
+    mov bx, DD_TABW                 ; line up with each other. It used to be
+    sub bx, ax                      ; three spaces in the string
+    shr bx, 1
+    add bx, [dd_tabx]
+    mov dx, [dd_hrow]
+    mov al, DD_INKTXT
+    call dd_text
+    mov ax, [dd_hrow]
+    add ax, DD_HUDROW
+    mov [dd_hrow], ax
     xor di, di
 .row:
     call dd_hs_row_str              ; dd_rowbuf = "n. AAA   nnnnnn"

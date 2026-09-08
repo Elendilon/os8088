@@ -322,6 +322,8 @@ dd_relayout_ck:
     call dd_attract_begin           ; it lays the slice and renders it
     ret
 .again:
+    call dd_actors_resnap           ; THE TILE CHANGED, so every actor's
+                                    ; position is in the old one's units
     call dd_is_attract              ; ...and every later one re-draws it at the
     jnc .board                      ; new tile - or, on the title screen, cuts
     call dd_attract_begin           ; the slice again, which decides how much

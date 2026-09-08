@@ -108494,6 +108494,21 @@ The half-tile test cannot be walked through: Smiles closes at 4 px a tick and
 a ghost at 3.5, so there is always at least one tick inside 8 px of a 16 px
 tile.
 
+#### 93.8.7 A relayout re-derives every actor's position from its TILE
+
+An actor's position is in 1/16 px and is **derived from the tile size**, so a
+relayout that changes the tile leaves all five of them at coordinates that
+mean nothing. The field report was *"going fullscreen in the middle of play
+sets everything misaligned, Smiles doesn't draw in his lane, ghosts too"* —
+and the bracket is not the only way in: dragging the window between two
+displays of different pixel shapes re-cuts the tile the same way (§93.4).
+
+The TILE each of them is on is still right — `dd_ac`/`dd_ar` are tile numbers,
+carried along rather than divided out (§93.7) — so `dd_actors_resnap` puts
+each one back on its own tile's origin. What that costs is the fraction of a
+tile they had crossed, once, on a frame where the board is being rebuilt from
+scratch anyway.
+
 #### 93.8.5 The way home is a TABLE, computed once a board
 
 A pair of eyes reads **one byte a tile** to get back to the pen. `dd_home_map`
@@ -108617,6 +108632,32 @@ adapters that is not a thing: a band has no pen there at all (§5.4.2.2), a set
 bit is lit and a clear one is not, so "PRESS ENTER TO PLAY" in `CBLACK` lit
 every glyph pixel exactly as `CWHITE` did. The line was solid on a Hercules
 and nobody noticed until somebody looked at one.
+
+#### 93.11.4 The page is placed by SPREADING the slack, not by packing
+
+The title, the score table, the play line and the playfield strip used to be
+packed against the top of the content box with fixed 4- and 6-pixel gaps, and
+the strip took whatever was left — so a surface with room to spare showed the
+whole page in its top two thirds with a band of black underneath.
+
+The four blocks are placed from the slack instead. `dd_attract_place` takes
+what the surface has over what the page needs at its minimum gaps, and gives
+out **a fifth above the title, a fifth under it, a fifth under the strip, and
+the remaining two fifths split EQUALLY either side of the play line** — which
+is what *"press enter equally between the high scores and the mini-board"*
+asks for, and it stays true at every tile size because it is a division and
+not a table.
+
+The **strip's row count is decided first**, before anything is placed, which
+is the change that makes the rest possible: it used to be "whatever is left
+under the play line", so the page's position and the strip's height were the
+same number read twice. It is now `(content height − title − the fixed
+blocks) / tile height`, clamped to `DD_ATROWS` and refused below
+`DD_ATRMIN` — and only then does the placement run.
+
+Horizontally nothing moved: the title, the table and the play line were
+already centred on the content box, and the board is centred by `dd_layout`
+with the HUD column living in its left margin (§93.3.1).
 
 #### 93.11.3 The demo player, and the two things that pinned it to one corner
 
