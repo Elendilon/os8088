@@ -102493,14 +102493,27 @@ stands, and counts what the crash ADDS above the horizon row the guest itself
 reports in `[cs_hzy0]` — **129 lit pixels against 0**. `--clobber-crash` puts
 `cs_crackle` back as it shipped and that check goes red.
 
-**What the row deliberately does not ask** is whether a crack *outlives* the
-crash. That was tried — photograph the pose, crash, wait, re-pin, photograph
-again — and it reads the same 1,622 differing pixels with the fix and without
-it, so it is measuring the harness. `cs_hzrows` is incremental, so a teleport
-leaves the view partly stale by itself; and the poke that makes a capture
-deterministic (`cs_rowkind` to 0x83 and both span sets empty, which is
-`cs_clearall` by hand) forces a full refill and would erase exactly the
-leftover such a check is looking for. The two cannot both be had.
+**And it is also why a crack OUTLIVES the crash**, which is how it was
+reported — *"the lines in the sky are the leftovers from the crash, after
+reset"*, on every crash. `cs_blit` copies each row over **cur ∪ prv**, and the
+next frame's sky/ground pass refills only **prv**. So a crack run that was
+never marked itself, but that fell inside the PREVIOUS frame's span, reaches
+the glass once — and the moment the view moves on, no span covers it again and
+nothing can erase it. It is on the glass for the rest of the flight. That
+needs a MOVING view, which is why it happens on every real crash and on none
+of the pinned poses a test can hold still: eight scenarios were tried — the
+runway, teleports nose-up, nose-down and beside the tower, and real dives flown
+into the ground and into the Eiffel Tower — and not one stranded a pixel.
+
+So the gate does not chase the leftover; it asks the routine the rule.
+`tests/skiescrash.py`'s third check snapshots the shadow and the frame's span
+set **on either side of `cs_crackle`**, and every row whose bytes changed must
+have a span that covers them. The shipped routine changes **111 rows and
+leaves 75 of them outside their own span**, most with no span at all; the fixed
+one leaves none. It has to be taken on the FIRST crackle of the crash: on the
+second and every later one the crack is already in the shadow wherever nothing
+refilled it, so drawing it again changes only the rows something else marked,
+and a check taken there reads 51 rows and 0 loose on the broken build too.
 
 #### 88.8.1 A paused aeroplane is silent
 

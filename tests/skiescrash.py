@@ -29,22 +29,25 @@ what the crash ADDS to each half:
   1. the crash reaches the glass at all - so a row that poked a state byte
      and photographed two identical frames would not pass;
   2. and it reaches THE SKY, above the horizon the guest itself reports in
-     cs_hzy0. That is the check the defect fails;
+     cs_hzy0 - 129 lit pixels against 0;
+  3. and EVERY ROW IT WROTE IS RECORDED: the shadow and the frame's span set
+     are read on either side of cs_crackle, and a row whose bytes changed
+     must have a span that covers them. The shipped routine changes 111 rows
+     and leaves 75 of them outside their own span, most with no span at all;
 --clobber-crash is the red run (docs/WRITING-TESTS.md 1): it NOPs the two
 stores the fix added and the one that puts the borrow back, which is
-cs_crackle exactly as it shipped, and CHECK 2 must go red. It reads 129 lit
-sky pixels against 0.
+cs_crackle exactly as it shipped, and CHECKS 2 AND 3 must go red.
 
-WHAT THIS ROW DELIBERATELY DOES NOT ASK is whether a crack OUTLIVES the crash.
-It was tried - photograph the pose, crash, wait, re-pin, photograph again -
-and it reads the same 1,622 differing pixels on BOTH arms, so it is measuring
-the harness and not the code. cs_hzrows is incremental (a row whose kind has
-not changed and whose last span was empty is left alone), so a teleport leaves
-the view partly stale by itself; and the poke that makes a capture
-deterministic - cs_rowkind to 0x83 and both span sets empty, which is
-cs_clearall by hand - forces a full refill and would erase exactly the leftover
-such a check is looking for. The two cannot both be had, and a check that
-fails identically with the fix and without it is a check about the test.
+AND IT IS ALSO WHY A CRACK OUTLIVES THE CRASH, which is how it was reported:
+cs_blit copies each row over cur UNION prv, and the next frame's sky/ground
+pass refills only prv. A crack run that was never marked itself but fell
+inside the PREVIOUS frame's span reaches the glass once - and once the view
+moves on, no span covers it again, so nothing ever erases it. That needs a
+MOVING view to happen, which is why it appears on every real crash and on
+none of the pinned poses this row can hold still. Check 3 asks the question
+without needing the leftover to survive: it snapshots the shadow and the
+frame's span set on either side of cs_crackle and holds the routine to
+88.3.1's own rule.
 """
 import argparse
 import os
@@ -186,9 +189,55 @@ def main(argv):
         # while it runs, and cs_pause has to come off for it to run at all.
         m.pause()
         poke("cs_state", bytes([CS_ST_CRASH]))
-        poke("cs_crasht", (36).to_bytes(2, "little"))
+        poke("cs_crasht", (400).to_bytes(2, "little"))   # hold the picture
         poke("cs_pause", b"\x00")
         m.run()
+
+        # --- 3: EVERY ROW IT WROTE IS RECORDED (88.3.1), asked on the FIRST
+        # crackle of the crash. On the second and every later one the crack
+        # is already in the shadow wherever nothing refilled it, so drawing
+        # it again changes only the rows something else marked - and a check
+        # taken there reads 51 rows, 0 loose, on the broken build as well.
+        m.bp_exec(lin + mp["cs_crackle"])
+        m.run()
+        if m.wait_stop(60) is None:
+            sys.exit("skiescrash: cs_crackle never ran")
+        r = m.regs()
+        ret = int.from_bytes(m.read((r["ss"] << 4) + r["sp"], 2), "little")
+        vh, shseg = word("cs_wh"), word("cs_shseg") & 0xFFFF
+        spcur = word("cs_spcur") & 0xFFFF
+        shadow0 = m.read(shseg << 4, 80 * vh)
+        m.bp_exec(lin + ret)
+        m.run()
+        if m.wait_stop(60) is None:
+            sys.exit("skiescrash: cs_crackle never returned")
+        shadow1 = m.read(shseg << 4, 80 * vh)
+        spans = m.read(lin + spcur, 2 * vh)
+        m.bp_exec()
+        m.run()
+        drew, loose, first = 0, 0, None
+        for y in range(vh):
+            lo_b, hi_b = spans[2 * y], spans[2 * y + 1]
+            ch = [b for b in range(80) if shadow0[80 * y + b] != shadow1[80 * y + b]]
+            if not ch:
+                continue
+            drew += 1
+            out = [b for b in ch if not lo_b <= b <= hi_b]
+            if out:
+                loose += 1
+                if first is None:
+                    first = (y, min(out), max(out), lo_b, hi_b)
+        check(drew >= 20 and loose == 0,
+              "and EVERY ROW IT WROTE IS RECORDED: it changed %d shadow rows "
+              "and %d of them have bytes outside the row's own span%s (want "
+              "20 rows or more, and none loose - an unmarked run neither "
+              "reaches the glass nor can be erased off it)"
+              % (drew, loose, "" if first is None else
+                 ", first row %d bytes %d..%d against a span of %d..%d%s"
+                 % (first[0], first[1], first[2], first[3], first[4],
+                    " (EMPTY)" if first[3] > first[4] else "")))
+
+
         guest_frames(2)
         w2, h2, during = shot()
         d_all = count(w2, h2, during, v0, v0 + vh)
@@ -205,6 +254,9 @@ def main(argv):
 
         # --- and let it end, so the row leaves a machine that is flying
         # rather than one frozen in a crash
+        m.pause()
+        poke("cs_crasht", (4).to_bytes(2, "little"))
+        m.run()
         for _ in range(40):
             m.advance(frames=30)
             m.run()

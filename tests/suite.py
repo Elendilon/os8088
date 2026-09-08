@@ -2355,9 +2355,16 @@ SOAK = [
         " marks a row and the cracks up there were never drawn at all. The row"
         " pins 300 m over Paris nose-down, crashes the aeroplane where it"
         " stands and counts what the crash adds ABOVE the horizon the guest"
-        " itself reports in cs_hzy0: 129 lit pixels against 0."
-        " --clobber-crash puts cs_crackle back as it shipped and that check"
-        " goes red",
+        " itself reports in cs_hzy0 - 129 lit pixels against 0 - and then"
+        " asks the routine the rule directly: the shadow and the frame's span"
+        " set are read on either side of cs_crackle, and every row whose bytes"
+        " changed must have a span that covers them. The shipped routine"
+        " changes 111 rows and leaves 75 outside their own span, most with no"
+        " span at all. THAT is also why a crack outlives the crash - cs_blit"
+        " copies cur UNION prv and the next frame refills only prv, so an"
+        " unmarked run that reached the glass inside the previous frame's span"
+        " can never be erased. --clobber-crash puts cs_crackle back as it"
+        " shipped and both checks go red",
         needs=("marty",), serial=True),
     Row("skiesbank", "soak", py("tests/skiesbank.py"), 22.0,
         "SPEC.md 88.5.4.6: the box impostor BANKS WITH THE WORLD. A solid too"
