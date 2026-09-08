@@ -1692,7 +1692,17 @@ fm_s_clbusy:  db 'Clone already running', 0   ; ...and a SECOND one, refused
                                     ; FS_EDIT (SPEC.md 22.21.2). It borrowed
                                     ; fm_s_nomem, which said 'Out of memory'
                                     ; and sent the user closing applications
+%ifdef DISK_COUNTERS
+fm_clotab:    dw fm_s_empty, dsk_flstr, fm_s_ewprot, fm_s_nomem
+                                ; CERR_IO's entry is the FAILING TRANSFER on a
+                                ; field kernel (SPEC.md 18.101.4): the toast
+                                ; that already appears carries the CHS, the
+                                ; BIOS status and the motor byte, so one
+                                ; photograph is the report. fm_s_dskerr is
+                                ; still what a shipped kernel says
+%else
 fm_clotab:    dw fm_s_empty, fm_s_dskerr, fm_s_ewprot, fm_s_nomem
+%endif
               dw fm_s_enodisk, fm_s_clsml, fm_s_efull, fm_s_notimg
               dw fm_s_clsame2, fm_s_clbusy
 fm_s_size:    db 'Size ', 0         ; ...and the resting status line, which
