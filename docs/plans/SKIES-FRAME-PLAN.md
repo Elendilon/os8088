@@ -592,8 +592,7 @@ What is left, in the order the evidence ranks it:
    branch to a second band loop and a moving one runs the loop it runs today,
    unchanged. Pick it up with that shape, and measure `turnhold` for a
    regression rather than assuming there is none.
-3. **`cs_scene` itself**, which is 176 of turnhold's 263 ms and has had no
-   attention in this round at all.
+3. **`cs_scene` itself** - BROKEN DOWN in 7.4 below.
 
 #### 7.1.10 BUILT - cs_blit's row is 490 cycles, and one of them was a segment
 
@@ -634,3 +633,96 @@ a stopped guest burns none - and the drift is entirely in which frames get
 flown. Build the control from the tree you are comparing against, run it
 beside the change, and treat any cross-session delta under ~2 ms on a 260 ms
 frame as unmeasured.
+
+## 7.4 WHERE cs_scene's 169 ms GOES
+
+Tier 2 over twelve flown frames of `turnhold`, with tier 3's sub-splits:
+
+```
+cs_scene                          169.1 ms
+├─ cull  cs_consider x47           19.1   11%
+├─ occlude                          0.1
+└─ drawpass x2                    148.8   88%
+   └─ drawobj x16.1               146.9
+      ├─ faces x8.8                 67.9   40%
+      │  ├─ poly x11.5              52.1
+      │  │  ├─ THE FILL (excl)      39.8   24%   <- biggest single item
+      │  │  └─ edge x21             12.4    7%
+      │  ├─ fclip x1.0               6.1    4%
+      │  ├─ axcull x16.5             1.5
+      │  └─ its own                  7.3
+      ├─ project x8.8               15.6    9%
+      ├─ scale x16.1                14.3    8%
+      ├─ edges x6.8                 12.8    8%   (seg x6.5 = 6.8, own 5.3)
+      ├─ flatverts x5.8             11.7    7%
+      ├─ markrows x5.4               9.5    6%
+      ├─ stackverts x3.0             4.9
+      ├─ boxlod / wireclr / sizepx   6.1
+      └─ its own                     3.8
+```
+
+Per call, in cycles - which is where the surprises are:
+
+| | ms | calls | cycles each |
+|---|---|---|---|
+| the polygon fill | 39.8 | 11.5 | **16,500** |
+| `cs_flatverts` | 11.7 | 5.8 | **9,640** |
+| `cs_project` | 15.6 | 8.8 | 8,450 |
+| `cs_markrows` | 9.5 | 5.4 | 8,410 |
+| `cs_stackverts` | 4.9 | 3.0 | 7,840 |
+| `cs_fclip` | 6.1 | **1.0** | **29,000** |
+| `cs_scale` | 14.3 | 16.1 | 4,246 |
+| `cs_edge` | 12.4 | 21 | 2,813 |
+| `cs_consider` | 19.1 | 47 | 1,894 |
+| `cs_axcull` | 1.5 | 16.5 | 434 |
+
+### 7.4.1 The CULL, taken apart - and it is not fat
+
+`cs_consider` bracketed at its own call site, 323 calls over six frames, split
+by whether `cs_nvisn` moved (the object was FILED) or not:
+
+| per frame | calls | cycles each | ms |
+|---|---|---|---|
+| cheap rejects - the tier ladder, the skip counter, Manhattan | ~21 | ~390 | 1.7 |
+| **cone rejects** | ~14 | ~2,080 | **6.1** |
+| **filed** | ~15 | **3,255** | **10.3** |
+
+A filed object costs ~1,175 cycles MORE than a rejected one that did the same
+work - that is `.file`: the six-word record and an insertion sort whose body is
+29 bytes and **~126 cycles a shift**.
+
+The ~2,080 common to every expensive call is the range test and the cone, and
+it is **five 8086 multiplies** (one in `cs_range`, four `MUL14` in the cone at
+~150 clocks each) plus a fetch floor of ~200 bytes. **It is not fat**: 29
+in-range objects a frame each need a rotation to know where they are.
+
+**BUILT (88.5.2.1), +13 bytes:** the Detail rung's SCALE was looked up per
+OBJECT - `[cs_setlod]`, a shift, an index into `cs_lodscl`, and a push pair to
+borrow BX - for an answer that cannot change inside a frame; it is
+`[cs_lodsc]`, read once in `cs_scene`. And at `CSL_MOD`, the rung the
+simulator ships on, that scale is **256** - so `range x 256 >> 8` is an
+~130-cycle `mul` by one, and the identity is tested for instead. Measured
+against a control built from the committed source in the same session:
+
+| turnhold, tier 2 | control | + the hoist |
+|---|---|---|
+| `cull#1` | 18.75 | **17.80** |
+| `cs_scene` | 169.05 | **168.00** |
+| `drawobj` / `faces` | 146.81 / 68.34 | 146.82 / 68.34 |
+
+### 7.4.2 What is left in the cull, and the one big lever
+
+1. **An ANGULAR skip - up to 6.1 ms.** The ~14 cone rejects a frame pay 2,080
+   cycles to be thrown away, every frame, and the mechanism to stop that
+   already exists: 88.5.2's `CSO_SKIP`, set today only by the RANGE test. A
+   cone reject knows how far outside it is (`across - si` metres) and could
+   file itself away for k ticks. **The bound is the hard part and must be
+   measured before it is built**: `across` moves by the aeroplane's own
+   lateral speed (<5 m a tick) PLUS `along x` the yaw rate, and `along` runs
+   to 16,000 m - so the safe k depends on a divide, and a wrong one pops an
+   object in late. Measure the distribution of `across - si` first.
+2. **The insertion sort**, ~630 cycles a filed object (~2.0 ms a frame). The
+   shift body is four `mov`s where a `std`/`movsw` pair would be two bytes -
+   worth ~0.6 ms and it has to manage DF.
+3. **`cs_fclip` at 29,000 cycles in ONE call a frame** - 4% of the scene spent
+   clipping the single face that straddles the near plane.

@@ -2164,6 +2164,8 @@ cs_tpl:
                                     ; instructions (88.10)
     ZBYTE cs_setbld                 ; the four settings (88.13), and their
     ZBYTE cs_setsize                ; defaults are what shipped: every
+    ZWORD cs_lodsc                  ; the Detail rung's range SCALE, looked up
+                                    ; once a frame instead of once an object
     ZBYTE cs_setlod                 ; picture below the top of each list is
     ZBYTE cs_setfill                ; a trade the player asked for
     ZBYTE cs_setadi                 ; ...and which ADI mode F6 has cycled to

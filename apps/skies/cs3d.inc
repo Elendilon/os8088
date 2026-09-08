@@ -600,6 +600,11 @@ cs_sdiff:
 ; -----------------------------------------------------------------------------
 cs_scene:
     mov word [cs_nvisn], 0
+    mov bl, [cs_setlod]             ; the Detail rung's SCALE is the frame's,
+    xor bh, bh                      ; and cs_range looked it up once an object
+    shl bx, 1                       ; - a table index and a push pair for an
+    mov bx, [cs_lodscl + bx]        ; answer that cannot change inside a frame
+    mov [cs_lodsc], bx
     mov si, cs_rwobj                ; the runway first...
     call cs_consider
     mov bx, [cs_airport]            ; ...then the PICKED LOCATION'S world
@@ -1066,11 +1071,10 @@ cs_consider:
     jae .far
     add ax, bx
     mov [cs_ddm], ax                ; the reach cs_scale wants is this + |dy|
-    push ax
     call cs_range                   ; AX = this object's range AT THIS DETAIL
     mov bx, ax                      ; (88.13.2), which is its own at Moderate
-    pop ax
-    sub ax, bx
+    mov ax, [cs_ddm]                ; (it was pushed round the call; the word
+    sub ax, bx                      ;  it was just stored in is cheaper)
     jbe .inrange
     ; --- out of range by AX metres: not looked at again for AX/16 ticks.
     ;     The aeroplane covers under 5 m a tick at VMAX, so the margin is
@@ -1227,35 +1231,28 @@ cs_consider:
 cs_lodscl: dw 154, 256, 410, 512
 cs_range:
     mov ax, [si + CSO_RANGE]
-    push bx
-    mov bl, [cs_setlod]
-    cmp bl, CSL_NEAR
+    cmp byte [cs_setlod], CSL_NEAR
     jne .scale
     test word [si + CSO_FLAGS], CSO_POI
-    jz .scale
-    pop bx                          ; a landmark keeps every metre of it
-    ret
+    jnz .out                        ; a landmark keeps every metre of it
 .scale:
-    xor bh, bh
-    shl bx, 1
-    mul word [cs_lodscl + bx]
+    cmp word [cs_lodsc], 256        ; MODERATE is the rung the simulator ships
+    je .out                         ; on and its scale is ONE: the multiply is
+    mul word [cs_lodsc]             ; an identity, and an 8086 imul is ~130
     mov al, ah                      ; (DX:AX) >> 8, and no range x 410 can
     mov ah, dl                      ; overflow it - 16,000 is the largest
-    pop bx
+.out:
     ret
 
 cs_lodat:
     mov ax, [si + CSO_LOD]
     or ax, ax
     jz .none                        ; 0 means "no far model", not "at zero"
-    push bx
-    mov bl, [cs_setlod]
-    xor bh, bh
-    shl bx, 1
-    mul word [cs_lodscl + bx]
+    cmp word [cs_lodsc], 256        ; ...the same identity (88.5.2.1)
+    je .none
+    mul word [cs_lodsc]
     mov al, ah
     mov ah, dl
-    pop bx
 .none:
     ret
 

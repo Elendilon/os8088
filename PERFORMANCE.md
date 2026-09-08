@@ -12168,3 +12168,62 @@ and a stopped guest burns none — and the drift is entirely in WHICH FRAMES get
 flown. So: **build the control from the tree you are comparing against and run
 it beside the change**, which is what `git stash` plus one rebuild costs, and
 treat any cross-session delta under ~2 ms on a 260 ms frame as unmeasured.
+
+### Set 129 — CLEAR SKIES: where cs_scene's 169 ms goes, and the cull taken apart (SPEC.md §88.5.2.1)
+
+`cs_scene` is 169 of `turnhold`'s 265 ms and had never been split. Tier 2 over
+twelve flown frames with tier 3's sub-splits:
+
+| | ms | % of scene | calls | cycles each |
+|---|---|---|---|---|
+| **the polygon FILL** (`cs_poly` less `cs_edge`) | 39.8 | 24% | 11.5 | **16,500** |
+| the object cull `cs_consider` | 19.1 | 11% | 47 | 1,894 |
+| `cs_project` | 15.6 | 9% | 8.8 | 8,450 |
+| `cs_scale` | 14.3 | 8% | 16.1 | 4,246 |
+| `cs_edges` (own + `cs_seg`) | 12.8 | 8% | 6.8 | — |
+| `cs_edge` (polygon edge trace) | 12.4 | 7% | 21 | 2,813 |
+| `cs_flatverts` | 11.7 | 7% | 5.8 | **9,640** |
+| `cs_markrows` | 9.5 | 6% | 5.4 | 8,410 |
+| `cs_faces`' own | 7.3 | 4% | 8.8 | — |
+| **`cs_fclip`** | 6.1 | 4% | **1.0** | **29,000** |
+| `cs_stackverts` | 4.9 | 3% | 3.0 | 7,840 |
+| boxlod / wireclr / sizepx / axcull | 7.6 | 4% | — | — |
+
+**THE CULL IS NOT FAT.** `cs_consider` bracketed at its own call site, 323
+calls over six frames, split by whether `cs_nvisn` moved:
+
+| per frame | calls | cycles each | ms |
+|---|---|---|---|
+| cheap rejects — tier ladder, skip counter, Manhattan | ~21 | ~390 | 1.7 |
+| **cone rejects** | ~14 | ~2,080 | **6.1** |
+| **filed** | ~15 | **3,255** | **10.3** |
+
+A filed object costs ~1,175 cycles *more* than a rejected one that did the same
+work — `.file`'s six-word record and an insertion sort whose body is 29 bytes
+and ~126 cycles a shift. The ~2,080 common to every expensive call is the range
+test and the cone: **five 8086 multiplies** (one in `cs_range`, four `MUL14` at
+~150 clocks) over a ~200-byte fetch floor. Twenty-nine in-range objects a frame
+each need a rotation to know where they are.
+
+**What WAS redundant is +13 bytes' worth.** `cs_range` looked the Detail rung's
+scale up once an OBJECT — `[cs_setlod]`, a shift, an index into `cs_lodscl` and
+a `push bx`/`pop bx` — for an answer that cannot change inside a frame; it is
+`[cs_lodsc]` now, read once in `cs_scene`. And at `CSL_MOD`, the rung the
+simulator ships on, **that scale is 256**, so `range × 256 >> 8` is an ~130-cycle
+`mul` by one and the identity is tested for instead. `cs_lodat` takes the same.
+
+| turnhold, tier 2, **same session** | control | + the hoist |
+|---|---|---|
+| `cull#1` | 18.75 | **17.80** |
+| `cs_scene` | 169.05 | **168.00** |
+| `drawobj` / `faces` | 146.81 / 68.34 | 146.82 / 68.34 |
+
+The neighbouring terms are identical to 0.01, which is what a same-session
+control buys (Set 128).
+
+**And one probe error worth not repeating.** The first run of that split read
+five visible objects where the profiler sees eighteen, and priced the cull at
+half. **A poke is a teleport, so the cull's skip counters have to go**
+(§88.5.2) — `tests/skiesprof.py` does it and the scratch probe did not, so
+most of the world stayed filed away as out-of-range and the very thing being
+measured was halved.

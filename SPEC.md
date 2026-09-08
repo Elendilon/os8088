@@ -101083,6 +101083,20 @@ anything else that teleports it, which is why `tests/skiesperf.py` zeroes
 the table after it pokes a scene. On the runway that is 24 of 41 objects
 at ~250 cycles each instead of ~1,300.
 
+##### 88.5.2.1 The Detail rung's SCALE is the frame's, and at MODERATE it is one
+
+`cs_range` scaled every considered object's draw range by the Detail rung
+(§88.13.2) — and looked the rung up to do it: `[cs_setlod]`, a shift, an index
+into `cs_lodscl`, and a `push bx`/`pop bx` to borrow the register, once an
+OBJECT. The rung cannot change inside a frame, so the scale is read once in
+`cs_scene` into `[cs_lodsc]`.
+
+**And at the rung the simulator ships on it is 256** — `CSL_MOD`'s scale is
+1.0, so `range × 256 >> 8` is the range. An 8086 `mul` is ~130 cycles to
+multiply by one, and a compare is 18, so the identity is tested for instead.
+`cs_lodat` takes the same two.
+
+
 #### 88.5.3 The matrix is Q15
 
 `MUL14` keeps its name — every caller means "a fraction times a value" by
