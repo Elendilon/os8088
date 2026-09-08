@@ -108039,6 +108039,68 @@ NOT per frame are a **full repaint — 677 ms on a VGA** — and a board render
 into the picture (~200 ms), which now happen at a level start behind "READY!"
 and when the window is repainted, and no longer on a lost life.
 
+**Four tile blits three times a second is what the blink costs**, and it is
+worth naming because the field offered to give the blink up over it: it is
+~0.6% of one adapter's frame, and the pellets stay.
+
+#### 93.5.3.2 …and the list is walked in SI, which `dd_tile_put` was loading
+
+`dd_pills_blit` walks the pellet list with **SI as its counter** and
+`dd_tile_put`'s `.emit` loads SI with the band's address, so the first pellet
+trampled the loop and the other three were never refreshed again. They did
+not merely stop blinking: the first actor to cross one composed it in
+whichever phase was current, and if that was the dark half **the pellet was
+gone for the rest of the board**. The field report was *"the dot in the upper
+left corner is blinking, the rest can be eaten but not seen"*, and the upper
+left is pellet 0.
+
+`dd_tile_put` preserves SI now, which is the fix at the routine that broke
+its own published contract rather than at the one caller that noticed. Both
+its other callers already pushed SI around it, which is why nothing else went
+wrong and why nothing else changes. `tests/dotdelpen.py` leg A reads the
+tiles the refresh actually reaches, off CX at a breakpoint on `dd_tile_put`
+itself: four corners on a fixed build, and `{(1,3), (1,23), (13,17)}` on a
+build with the two instructions taken back out.
+
+#### 93.5.7 …and once four pellets really blinked, the blink had to get cheaper
+
+**Fixing §93.5.3.2 broke §93.6**, which is the part worth writing down: the
+blink had never actually cost what this document said it cost, because it had
+never actually drawn four pellets. Measured on a VGA in play, breakpoint pairs
+on a cycle-accurate 4.77 MHz 8088:
+
+| | | |
+|---|---:|---:|
+| `dd_tile_put`, one 16×13 pellet tile | 16,600 cy | **3.48 ms** |
+| `dd_pills_blit`, all four | 67,100 cy | **14.05 ms** |
+| `dd_fill_board`, one pellet RECT | 4,444 cy | **0.93 ms** |
+| `dd_pills_flip`, all four | 20,880 cy | **4.37 ms** |
+
+The tick is 54.9 ms. Four tile blits is a quarter of it landing on one frame
+in five, and that frame overran: leg E of `tests/dotdel.py` read **78.6% of
+the tick** with the picture still perfectly right, which is the failure mode
+§93.5.3 exists for.
+
+**A pellet tile holds nothing but the pellet**, so turning it over is the
+pellet's own rectangle in ink or in black rather than the whole tile
+recomposed and blitted — `dd_pills_flip` and `dd_fill_board` instead of four
+`dd_tile_put`s, and **3.2× cheaper** for a picture that is identical by
+construction (`dd_tile_put`'s pellet arm is `dd_band_rect` at exactly that
+offset and size, and the rest of the tile is the black it already is). An
+actor crossing a pellet is unaffected either way: its band redraws the tile
+off the grid in whichever phase is current.
+
+`dd_fill_board` is `dd_blit`'s clipping for a rect — including `[dd_clipy0]`,
+because the attract screen shows a **slice** of the board (§93.11.2) and says
+so by moving that word and the origin together.
+
+Two things not taken. **Blitting only the pellet's own rows** would have saved
+under a third: at 0.93 ms against a 0.76 ms bare arrival the fill is nearly
+all fixed cost, and so was the tile blit. And **spreading the four across
+frames** — a queue armed at the phase change, N pellets a frame — was built
+and measured at 88.5%, worse than the fill and with a ripple to explain: four
+corners changing over 165 ms is a thing a player would report.
+
 #### 93.5.4 The one-pen rule, and what it costs
 
 A band is put down in **one pen**, so everything composed into an actor's band
@@ -108417,6 +108479,32 @@ A board with no pen (the attract slice, whose window starts below the ghost
 house) leaves the map entirely `DD_HDNONE`, and `dd_gh_home` falls back to
 the old aim — which is harmless there because §93.8.4's demo never lets a
 ghost become eyes in the first place.
+
+#### 93.8.6 The pen is somewhere to be, not somewhere to wait
+
+The pen's interior is a **six-by-three open box** — columns 11–16, rows 13–15
+— in all three layouts, and a ghost inside it **drifts round it**: it carries
+straight on while it can, turns at random about a quarter of the times it
+could have, and picks a new way when the box runs out. It used to bob one
+tile up and one tile down, which the walls did for it for free and which
+reads as a machine waiting rather than as a ghost.
+
+`dd_pen_ok` and not `dd_gh_legal` is what says where it may step, and the
+difference is the one thing in this that could break the game: **the door is
+not a way out here.** `dd_can_go` opens the door tile to any `GS_HOUSE`
+ghost — that is how `dd_gh_leave` walks through it — so a wander built on the
+ordinary rule would let one stroll out before the pen released it. The wander
+tests the box's own bounds instead, and writes `dd_dir` as well as `dd_want`
+so that a `dd_dir` left pointing at the door cannot be carried by
+`dd_decide`'s `.keep` arm.
+
+**A ghost that got home as eyes stays there for `DD_PENWAIT` = 55 ticks (3
+seconds)** before it comes back out, wandering like the others. That is a
+clock of its own: `dd_gwait` counts down in `dd_gh_think`, once a tick, and
+the pen's two *release* rules — the per-ghost dot count and the four-second
+nothing-eaten timer — both step over a ghost that is serving it, so a
+returning ghost is neither let out early nor made to wait behind a dot count
+it already paid.
 
 ### 93.9 Scoring
 

@@ -1914,6 +1914,17 @@ SOAK = [
         "ordinary apps disk, in the room the earlier Pac-Man port came off "
         "it to make (93.13)",
         needs=("marty", "nasm"), serial=True),
+    Row("dotdelpen", "soak", py("tests/dotdelpen.py"), 60.0,
+        "DOT DELIRIUM's ghost house, and the pellets that share its bug class "
+        "(SPEC.md 93.8.6): every pellet on the board gets refreshed and not "
+        "only the first - dd_pills_blit walks the list with SI and "
+        "dd_tile_put used to load SI with the band, so three of the four "
+        "corners went dark the moment an actor crossed them - a penned ghost "
+        "WANDERS the six-by-three pen instead of bobbing one tile up and one "
+        "down, and a ghost that got home as eyes serves DD_PENWAIT there "
+        "before it comes back out. One adapter: none of the three is about "
+        "the surface",
+        needs=("marty", "nasm"), serial=True),
     Row("dotdelmd", "soak", py("tests/dotdelmd.py"), 60.0,
         "DOT DELIRIUM on a TWO-CARD desktop (SPEC.md 93.4): straddling the "
         "seam with a real share of the picture on each card, moving wholly "

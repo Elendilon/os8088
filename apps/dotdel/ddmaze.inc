@@ -50,6 +50,12 @@ DD_LEVLAY equ 3
 DD_HOMEC  equ 13                ; above the door: where eyes go home to
 DD_HOMER  equ 11
 DD_HOUSER equ 14                ; the row the three penned ghosts wait on
+; the pen's INTERIOR, which is six by three and open in all three layouts.
+; dd_pen_ok walks a penned ghost inside this box and no further (SPEC.md 93.8.6)
+DD_PENC0  equ 11
+DD_PENC1  equ 16
+DD_PENR0  equ 13
+DD_PENR1  equ 15
 DD_STARTC equ 13                ; Smiles
 DD_STARTR equ 23
 DD_FRUITC equ 13

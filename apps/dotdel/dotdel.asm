@@ -1078,6 +1078,8 @@ dd_s_small:  db 'Window too small.', 0
     DBUFV  dd_ghlr, DD_NGH
     DBUFV  dd_gwout, DD_NGH         ; it was walking out of the pen when a
                                     ; pellet turned it blue
+    DBUFV  dd_gwait, DD_NGH         ; ticks it still owes the pen after getting
+                                    ; home as eyes (SPEC.md 93.8.6)
     DWORDV dd_gi
     DWORDV dd_gtry
     DWORDV dd_gc0

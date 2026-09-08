@@ -35,11 +35,18 @@
 ; costs one index and no cycles at all in the frame.
 ; =============================================================================
 
-; (dx, dy) for DIR_R, DIR_D, DIR_L, DIR_U
-dd_dx: db 1, 0, -1, 0
-dd_dy: db 0, 1, 0, -1
+; (dx, dy) for DIR_R, DIR_D, DIR_L, DIR_U - and a FIFTH entry for DIR_NONE,
+; which is 4 and which several callers can hold. It costs three bytes and it
+; makes every one of these tables TOTAL over the direction values that exist:
+; a DIR_NONE that reached one used to read the next table along, so dd_rev
+; answered DIR_U and dd_dy answered "two rows down". Nothing was corrupted -
+; every reader validates the tile it lands on - but "no direction" reversing
+; into a real one is the sort of thing that comes back as a ghost turning
+; where it should have stood still.
+dd_dx: db 1, 0, -1, 0, 0
+dd_dy: db 0, 1, 0, -1, 0
 ; the reverse of each
-dd_rev: db DIR_L, DIR_U, DIR_R, DIR_D
+dd_rev: db DIR_L, DIR_U, DIR_R, DIR_D, DIR_NONE
 ; the order the ghosts try their turns in - up, left, down, right - which is
 ; the arcade's own tie-break and is the whole of why a ghost prefers to climb
 dd_tryo: db DIR_U, DIR_L, DIR_D, DIR_R
@@ -73,6 +80,9 @@ DD_PCTEYE equ 190               ; ...and eyes, which go home fast
 DD_PCTTUN equ 55                ; anybody in the tunnel
 
 DD_GLANCE equ 5                 ; ticks a glance lasts
+DD_PENWAIT equ 55               ; ...and ticks a ghost that got home as eyes
+                                ; spends wandering the pen before it comes back
+                                ; out (3 seconds)
 DD_RELT   equ 73                ; ...and ticks of nothing eaten before the pen
                                 ; lets one out anyway (4 seconds)
 DD_PILLT  equ 5                 ; ticks a pellet spends lit, and dark
@@ -159,6 +169,7 @@ dd_actors_home:
     mov byte [dd_ghunt + bx], 0
     mov byte [dd_gsee + bx], 0
     mov byte [dd_gwout + bx], 0
+    mov byte [dd_gwait + bx], 0
     inc si
     cmp si, DD_NACT
     jb .g
@@ -758,6 +769,13 @@ dd_gh_think:
     je .look
     mov byte [dd_gsee + bx], 0      ; only a ghost on the board hunts, and one
     mov byte [dd_ghunt + bx], 0     ; that stops hunting forgets the trail
+    cmp byte [dd_gs + bx], GS_HOUSE
+    jne .eyes
+    cmp byte [dd_gwait + bx], 0     ; ...and one that came home as eyes is on a
+    je .eyes                        ; clock of its own, not the pen's dot count
+    dec byte [dd_gwait + bx]
+    jnz .eyes
+    mov byte [dd_gs + bx], GS_OUT
     jmp short .eyes
 .look:
     call dd_gh_look
@@ -801,20 +819,96 @@ dd_gh_turn:
     pop si
     ret
 
-; --- bobbing in the pen -------------------------------------------------------
+; --- wandering the pen (SPEC.md 93.8.6) ---------------------------------------
+;
+; The pen's interior is a SIX BY THREE open box in all three layouts, and a
+; penned ghost drifts round it: it keeps going while it can, turns at random
+; about a quarter of the time it could have, and picks a new way when the box
+; runs out. It used to bob one tile up and one tile down, which the walls did
+; for it and which reads as a machine waiting rather than a ghost.
+;
+; dd_pen_ok, not dd_gh_legal, is what says where it may step - THE DOOR IS NOT
+; A WAY OUT HERE. dd_can_go opens the door to any GS_HOUSE ghost (that is how
+; dd_gh_leave walks through it), so a wander that consulted the ordinary rule
+; would let one stroll out before the pen released it.
 dd_gh_house:
     call dd_at_tile
     jnc .out
     mov al, [dd_dir + si]
-    cmp al, DIR_U
-    je .down
-    mov byte [dd_want + si], DIR_U
-    jmp short .out
-.down:
-    mov byte [dd_want + si], DIR_D
-.out:
-    ; a bob is one tile up and one tile down, which the walls do for us: the
-    ; pen is three tiles tall and its ceiling and floor are both wall
+    cmp al, DIR_NONE
+    je .pick
+    call dd_pen_ok
+    jnc .pick                       ; the box ran out: it has to turn
+    call OSAPI_RAND
+    test al, 3
+    jnz .out                        ; ...otherwise mostly carry straight on
+.pick:
+    call OSAPI_RAND                 ; a random start, then the first way that
+    and ax, 3                       ; stays in the box and is not straight back
+    mov [dd_gtry], ax
+    mov cx, 4
+.try:
+    mov bx, [dd_gtry]
+    and bx, 3
+    mov al, bl
+    push cx
+    call dd_pen_ok
+    pop cx
+    jnc .next
+    push cx
+    push ax
+    mov bl, [dd_dir + si]
+    xor bh, bh
+    cmp al, [dd_rev + bx]
+    pop ax
+    pop cx
+    jne .take
+.next:
+    inc word [dd_gtry]
+    loop .try
+    mov bl, [dd_dir + si]           ; nothing but a reversal, so take that -
+    xor bh, bh                      ; which is a corner of a 6x3 box with the
+    mov al, [dd_rev + bx]           ; ghost facing its own wall
+    call dd_pen_ok
+    jnc .out
+.take:
+    mov [dd_want + si], al          ; both, as dd_gh_leave does: a pen turn is
+    mov [dd_dir + si], al           ; usually a reversal, and dd_dir must never
+.out:                               ; be left pointing at the door
+    ret
+
+; dd_pen_ok - CF = 1 when ghost SI may step in direction AL and still be inside
+;             the pen. Preserves every register (flags aside).
+dd_pen_ok:
+    push ax
+    push bx
+    push cx
+    mov bl, al
+    xor bh, bh
+    call dd_tile_of
+    add cl, [dd_dx + bx]
+    add ch, [dd_dy + bx]
+    cmp cl, DD_PENC0
+    jb .no
+    cmp cl, DD_PENC1
+    ja .no
+    cmp ch, DD_PENR0
+    jb .no
+    cmp ch, DD_PENR1
+    ja .no
+    call dd_tile
+    cmp al, TT_WALL
+    je .no
+    pop cx
+    pop bx
+    pop ax
+    stc
+    ret
+.no:
+    pop cx
+    pop bx
+    pop ax
+    clc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -894,7 +988,10 @@ dd_gh_home:
     ret
 .arrived:
     mov bx, [dd_gi]                 ; back in the pen: it re-grows a body and
-    mov byte [dd_gs + bx], GS_OUT   ; comes straight back out
+    mov byte [dd_gs + bx], GS_HOUSE ; wanders it for DD_PENWAIT ticks before it
+    mov byte [dd_gwait + bx], DD_PENWAIT    ; comes back out (SPEC.md 93.8.6)
+    mov byte [dd_want + si], DIR_L
+    mov byte [dd_dir + si], DIR_L
     ret
 
 ; --- frightened: a real choice, taken at random -------------------------------
@@ -1383,6 +1480,8 @@ dd_release_ck:
     dec bx
     cmp byte [dd_gs + bx], GS_HOUSE
     jne .next
+    cmp byte [dd_gwait + bx], 0     ; a ghost serving its DD_PENWAIT is on its
+    jne .next                       ; own clock and this one does not touch it
     mov al, [dd_ghdot + bx]
     xor ah, ah
     cmp [dd_eaten], ax
@@ -1404,6 +1503,8 @@ dd_release_one:
     dec bx
     cmp byte [dd_gs + bx], GS_HOUSE
     jne .next
+    cmp byte [dd_gwait + bx], 0     ; ...the longest-penned one that is not
+    jne .next                       ; already on a clock
     mov byte [dd_gs + bx], GS_OUT
     pop si
     ret

@@ -494,6 +494,114 @@ dd_pills_blit:
     ret
 
 ; -----------------------------------------------------------------------------
+; dd_pills_flip - the blink, as one RECT FILL a pellet (SPEC.md 93.5.7)
+;
+; A pellet tile holds nothing but the pellet, so turning it over is the
+; pellet's own rectangle in ink or in black - and that is a quarter of what
+; putting the whole tile back costs. dd_tile_put composes a 16x13 band and
+; blits it, which on a VGA is 3.48 ms; four of those is 14.05 ms of a 54.9 ms
+; tick, landing on one frame in five, and the frame did not fit. A fill is the
+; 756 us arrival and near enough nothing else.
+;
+; It draws the same picture because it draws the same rectangle: dd_tile_put's
+; pellet arm is dd_band_rect at exactly this offset and size, and everything
+; else in the tile is the black it already is. An actor crossing the tile is
+; not this routine's problem either way - its band redraws the tile off the
+; grid, in whichever phase is current.
+; -----------------------------------------------------------------------------
+dd_pills_flip:
+    push si
+    mov al, CBLACK
+    cmp byte [dd_pilon], 0
+    je .pen
+    mov al, DD_INKDOT
+.pen:
+    call OSAPI_SET_COLOR
+    xor si, si
+.each:
+    cmp si, [dd_piln]
+    jae .out
+    mov al, [dd_pilc + si]
+    xor ah, ah
+    mul word [dd_tw]
+    mov di, ax                      ; DI = the tile's board x
+    mov al, [dd_pilr + si]
+    xor ah, ah
+    mul word [dd_th]
+    mov bx, ax                      ; BX = ...and its board y
+    mov ax, [dd_tw]
+    sub ax, [dd_pilw]
+    shr ax, 1
+    add ax, di                      ; AX = the pellet's own left edge
+    mov cx, [dd_th]
+    sub cx, [dd_pilh]
+    shr cx, 1
+    add bx, cx                      ; BX = ...and its top
+    mov cx, [dd_pilw]
+    mov dx, [dd_pilh]
+    push si
+    call dd_fill_board
+    pop si
+    inc si
+    jmp short .each
+.out:
+    pop si
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_fill_board - fill AX,BX size CX,DX in BOARD pixels, in the colour already
+;                 set. Clobbers AX/BX/CX/DX/DI.
+;
+; dd_blit's clipping, for a rect rather than a band - including [dd_clipy0],
+; because the attract screen shows a SLICE of the board and says so by moving
+; that word and the origin together (SPEC.md 93.11.2).
+; -----------------------------------------------------------------------------
+dd_fill_board:
+    or cx, cx
+    jle .out
+    or dx, dx
+    jle .out
+    or ax, ax
+    jge .noleft
+    add cx, ax
+    jle .out
+    xor ax, ax
+.noleft:
+    mov di, ax
+    add di, cx
+    cmp di, [dd_mw]
+    jbe .noright
+    mov cx, [dd_mw]
+    sub cx, ax
+    jle .out
+.noright:
+    cmp bx, [dd_clipy0]
+    jge .notop
+    mov di, [dd_clipy0]
+    sub di, bx
+    sub dx, di
+    jle .out
+    mov bx, [dd_clipy0]
+.notop:
+    mov di, bx
+    add di, dx
+    cmp di, [dd_mh]
+    jbe .nobot
+    mov dx, [dd_mh]
+    sub dx, bx
+    jle .out
+.nobot:
+    add ax, [dd_bdx]                ; ...and only now into screen coordinates
+    add bx, [dd_bdy]
+    add cx, ax
+    dec cx                          ; gfx_fill takes the far corner, inclusive
+    add dx, bx
+    dec dx
+    call OSAPI_GFX_FILL
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
 ; dd_run_emit - one band for the run of dot tiles [dd_runa] .. [dd_gc]-1 of
 ;               tile row [dd_gr]
 ; Clobbers everything but [dd_gc] / [dd_gr] / [dd_runa].
@@ -674,10 +782,20 @@ dd_bandrun:
 ; -----------------------------------------------------------------------------
 ; dd_tile_put - put tile (CL, CH) back on the glass exactly as the board says
 ;               it should look: black, with its dot or pellet if it has one
-; Clobbers everything. This is the one "undo whatever was drawn there"
+; Clobbers everything BUT SI. This is the one "undo whatever was drawn there"
 ; primitive - a blinking pellet, a vanished fruit, a score that has been read.
+;
+; SI IS PRESERVED, and that is a bug fix rather than a courtesy. `.emit` loads
+; SI with the band's address, and dd_pills_blit walks the pellet list with SI
+; as its counter - so the first pellet trampled the loop and the other three
+; were never refreshed again. They did not merely stop blinking: the first
+; actor to cross one composed it in the phase that was current, and if that
+; was the dark half the pellet was gone for the rest of the board. The field
+; report was "the dot in the upper left corner is blinking, the rest can be
+; eaten but not seen", and the upper left is pellet 0.
 ; -----------------------------------------------------------------------------
 dd_tile_put:
+    push si
     mov [dd_gc], cl
     mov [dd_gr], ch
     call dd_tile
@@ -744,6 +862,7 @@ dd_tile_put:
     mov cx, [dd_tw]
     mov dx, [dd_th]
     call dd_blit
+    pop si
     ret
 
 ; dd_dmg_tile - the same, from the [dd_gc]/[dd_gr] the caller already set
@@ -1731,14 +1850,14 @@ dd_draw_all:
     ret
 
 ; -----------------------------------------------------------------------------
-; dd_pill_refresh - the pellets' blink, on the glass
-; Only when the phase actually turned over, and only the four tiles.
+; dd_pill_refresh - the pellets' blink, on the glass (SPEC.md 93.5.7)
+; Only when the phase actually turned over, and as four RECT FILLS.
 ; -----------------------------------------------------------------------------
 dd_pill_refresh:
     cmp byte [dd_pilrf], 0
     je .out
     mov byte [dd_pilrf], 0
-    call dd_pills_blit
+    call dd_pills_flip
 .out:
     ret
 
