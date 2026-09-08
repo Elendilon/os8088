@@ -16,8 +16,16 @@ Three questions, all three of them field reports:
      waiting.  This asks for a real share of the box and more than one column.
   C  A GHOST THAT GOT HOME AS EYES STAYS THERE for DD_PENWAIT = 55 ticks
      before it comes back out, wandering while it waits.
+  D  NOTHING IS DRAWN THROUGH A RUNNING SCREEN SAVER (SPEC.md 79.6.1).  This
+     one is a KERNEL gate driven through this package because a package is
+     the only thing that can reach it: a saver session is not a window, so
+     nothing put a background painter off the screen and every real-time
+     package in the tree drew straight through one.  The fix is `wm_clip_set`
+     refusing while `[blk_sv]` is set, so what this reads is that `dd_draw`
+     is never entered while the saver owns the glass.
 
-BREAK IT ON PURPOSE: make `dd_pills_flip` walk its list in SI and call
+BREAK IT ON PURPOSE: take the two instructions out of `wm_clip_set` and leg D
+goes red at once.  Make `dd_pills_flip` walk its list in SI and call
 `dd_tile_put`, the way it used to, and leg A goes red - the run that proved
 this saw `dd_tile_put` reached for {(1,3), (1,23), (13,17)} where the fixed
 build reaches every pellet.  Put `dd_gh_house` back on its up/down bob and
@@ -47,6 +55,7 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 sys.path.insert(0, HERE)
 
 import os88build                                            # noqa: E402
+import os88sym                                              # noqa: E402
 from dotdel import PKG, bss, Probe                          # noqa: E402
 import os88ui                                               # noqa: E402
 
@@ -219,6 +228,52 @@ def leg_c(ui, p, say, want=3, tries=10):
     return 0
 
 
+def leg_d(ui, p, say, ticks=40):
+    """A saver session owns the glass, so the game draws nothing (79.6.1)."""
+    m = ui.m
+    idle = os88sym.linear("ss_idle")
+    sv = os88sym.linear("blk_sv")
+    m.pause()
+    was = bytes(m.read(idle, 2))
+    m.write(idle, ticks.to_bytes(2, "little"))   # os88ui.boot turns it off
+    m.go()
+    up = 0
+    for _ in range(160):
+        m.pause()
+        up = m.read(sv, 1)[0]
+        m.go()
+        if up:
+            break
+        time.sleep(0.25)
+    if not up:
+        m.pause()
+        m.write(idle, was)
+        m.go()
+        say("D  FAIL: the saver never started in 40s, so nothing was tested")
+        return 1
+    off = codeoff("dd_draw")
+    m.breakpoints([{"type": "execseg", "seg": p.seg, "off": off}])
+    m.go()
+    hit = m.wait_stop(10.0)
+    m.breakpoints([])
+    m.go()
+    time.sleep(0.3)
+    m.pause()
+    still = m.read(sv, 1)[0]
+    m.write(idle, was)
+    m.go()
+    if hit is not None:
+        say("D  FAIL: dd_draw ran while a saver session owned the glass - the "
+            "game is drawing over it (SPEC.md 79.6.1)")
+        return 1
+    if not still:
+        say("D  FAIL: the saver stopped during the watch, so the quiet proves "
+            "nothing")
+        return 1
+    say("D  ok: nothing drawn while the saver ran")
+    return 0
+
+
 def main(argv):
     ap = argparse.ArgumentParser()
     ap.add_argument("--img", default=os88build.at("build/os8088-360.img"))
@@ -247,6 +302,7 @@ def main(argv):
         fail += leg_a(ui, p, say)
         fail += leg_b(ui, p, say)
         fail += leg_c(ui, p, say)
+        fail += leg_d(ui, p, say)      # last: it turns the screen saver ON
 
     if not a.verbose:
         for s in out:

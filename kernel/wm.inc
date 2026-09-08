@@ -6392,6 +6392,17 @@ wm_clip_rn  db 8                ; first drawable row of the cell it was last
 wm_clip_set:
     test byte [bx+W_FLAGS], 2
     jz .gone
+%ifdef KERN_BIG
+    cmp byte [blk_sv], 0        ; A SAVER SESSION OWNS THE GLASS (SPEC.md
+    jne .gone                   ; 79.6.1). The overlay is not a window, so
+%endif                          ; nothing above puts a background painter off
+                                ; the screen and every real-time package drew
+                                ; straight through a running saver. This is
+                                ; the door 11.3 already makes all of them come
+                                ; through, and CF = 1 already means "skip the
+                                ; frame" - so it is one test in one place
+                                ; rather than a new question every package has
+                                ; to learn to ask
     push ax
     push bx
     push cx

@@ -95688,6 +95688,29 @@ the screen.
 repaint is a few instructions away, and an erase here would be pixels written
 twice.
 
+#### 79.6.1 …and a BACKGROUND PAINTER has to be told, once, in one place
+
+A saver session is not a window, so nothing in the window manager put a
+package's worker off the screen and **every real-time package drew straight
+through a running saver.** It was reported against DOT DELIRIUM (§93) — a
+maze chase animating over the sea life — but nothing in it is that package's:
+Cyclone, Missile, Tank Attack, Arkanoid and the Fractal all render from a
+worker on their own clock and none of them can see `[blk_sv]`, which is
+kernel `.bss` with no published offset.
+
+So the answer is **`wm_clip_set`**, which is the door §11.3 already makes
+every background painter come through, and whose `CF = 1` already means
+*"nothing armed, skip the frame"*. It refuses while `[blk_sv]` is set, in the
+same two instructions and for the same reason as §79.5's clock gate. Eight
+bytes, `kern_big` only — `kern_small` has no animated saver.
+
+Two things fall out for free. A painter that already handles `CF = 1` needs
+**no change at all**, which is the whole point of putting it here rather than
+publishing a new question every package would have to learn to ask; and the
+repaint on the way out is already owed, because §79.6 clears `[blk_sv]`
+*before* `wm_paint_all` and a package's own skip path (`dd_render`'s
+`.skip`) marks itself dirty.
+
 ### 79.7 The settings window, and the button that opens it
 
 The Control Panel's **Theme page** (§76.4) gains a `Screen Saver` button under
@@ -108594,6 +108617,31 @@ adapters that is not a thing: a band has no pen there at all (§5.4.2.2), a set
 bit is lit and a clear one is not, so "PRESS ENTER TO PLAY" in `CBLACK` lit
 every glyph pixel exactly as `CWHITE` did. The line was solid on a Hercules
 and nobody noticed until somebody looked at one.
+
+#### 93.11.3 The demo player, and the two things that pinned it to one corner
+
+The attract screen's Smiles is played by `dd_demo_think`: it scores each way
+out of the tile it is standing on, prefers a dot, keeps its distance from any
+ghost that could eat it, and takes 60 off for turning round.
+
+**It paced two lanes and hardly ever reached the right of the slice**, and
+that was two separate faults with one symptom:
+
+* **the tie-break was the try order.** Down an empty corridor with the ghosts
+  far off, every legal direction scores identically; `.try` keeps the
+  *strictly* greatest, so a tie always went to whichever `dd_tryo` names
+  first — up, then left. The order starts at a random one of the four now,
+  which is `dd_gh_flee`'s trick;
+* **it could see one tile.** Scoring only the neighbouring tile cannot tell a
+  cleared corridor from a full one, so once the food beside it was gone every
+  way looked the same for ever. It adds up the food in the `DD_DEMOLOOK` = 10
+  tiles beyond as well, at `DD_DEMOFOOD` = 14 each — so four dots outweigh
+  the turning-round penalty and it will go back for them.
+
+Measured over 60 seconds on a Hercules, after: **26 of the board's 28 columns
+visited, 43% of the time in the left half and 56% in the right.** The
+lookahead is at most 40 tile reads per decision and a decision is taken about
+four times a second.
 
 #### 93.11.2 The demo is the game, on a slice
 

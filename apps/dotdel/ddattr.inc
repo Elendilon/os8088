@@ -186,11 +186,30 @@ dd_attract_step:
     ret
 
 ; -----------------------------------------------------------------------------
-; dd_demo_think - Smiles, played by the machine
+; dd_demo_think - Smiles, played by the machine (SPEC.md 93.11.3)
 ;
 ; It is not a good player and is not meant to be: it prefers a dot, it will not
 ; walk into a ghost, and it keeps going rather than dithering at a junction.
+;
+; TWO THINGS STOP IT PACING, and both were reported from the field as *"Smiles
+; gets stuck bouncing between two short vertical paths and almost never
+; reaches the right half of the screen"*:
+;
+;   * THE TIE-BREAK WAS THE TRY ORDER. Every legal direction down an empty
+;     corridor scores the same, `.try` takes the strictly-greatest, and
+;     dd_tryo is up, left, down, right - so a tie always went UP and then
+;     LEFT, which pins the demo to the top left of the slice. The order now
+;     starts at a random one of the four, which is dd_gh_flee's trick;
+;   * IT COULD ONLY SEE ONE TILE. A machine that scores the neighbouring tile
+;     alone cannot tell a cleared corridor from a full one, so once the dots
+;     near it were gone every way looked identical. It now adds up the food
+;     in the DD_DEMOLOOK tiles beyond, which is what points it at the half of
+;     the board it has not eaten yet - and at DD_DEMOFOOD a tile, four dots
+;     outweigh the turning-round penalty, so it will go back for them.
 ; -----------------------------------------------------------------------------
+DD_DEMOLOOK equ 10              ; tiles the demo looks down a corridor
+DD_DEMOFOOD equ 14              ; ...and what each dot in there is worth
+
 dd_demo_think:
     push si
     push di
@@ -201,9 +220,14 @@ dd_demo_think:
     mov [dd_dc], cx
     mov word [dd_best], 0
     mov byte [dd_bestd], DIR_NONE
+    call OSAPI_RAND                 ; where the try order starts, so a tie is
+    and ax, 3                       ; not always the same direction
+    mov [dd_dstart], ax
     xor di, di
 .try:
     mov bx, di
+    add bx, [dd_dstart]
+    and bx, 3
     mov al, [dd_tryo + bx]
     mov [dd_trydir], al
     push ax
@@ -254,6 +278,32 @@ dd_demo_worth:
 .food:
     add di, 80
 .nofood:
+    ; ...and the food in the DD_DEMOLOOK tiles BEYOND it, which is the whole
+    ; of how it finds a half of the board it has not been to
+    mov si, [dd_dc2]
+    mov cx, DD_DEMOLOOK
+.look:
+    mov ax, si
+    add al, [dd_dx + bx]
+    add ah, [dd_dy + bx]
+    mov si, ax
+    push cx
+    mov cx, si
+    call dd_tile
+    pop cx
+    cmp al, TT_WALL
+    je .looked
+    cmp al, TT_DOOR
+    je .looked
+    cmp al, TT_DOT
+    je .lookfood
+    cmp al, TT_PILL
+    jne .looknext
+.lookfood:
+    add di, DD_DEMOFOOD
+.looknext:
+    loop .look
+.looked:
     ; how far the nearest ghost that could eat him is from that tile
     mov dx, 12                      ; capped: past a dozen tiles they are all
     mov si, 1                       ; equally far away

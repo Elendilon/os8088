@@ -1921,8 +1921,11 @@ SOAK = [
         "corners went dark the moment an actor crossed them - a penned ghost "
         "WANDERS the six-by-three pen instead of bobbing one tile up and one "
         "down, and a ghost that got home as eyes serves DD_PENWAIT there "
-        "before it comes back out. One adapter: none of the three is about "
-        "the surface",
+        "before it comes back out - plus the KERNEL gate a package is the "
+        "only thing that can reach: a saver session is not a window, so "
+        "nothing put a background painter off the screen and every "
+        "real-time package in the tree drew straight through one "
+        "(79.6.1). One adapter: none of the four is about the surface",
         needs=("marty", "nasm"), serial=True),
     Row("dotdelmd", "soak", py("tests/dotdelmd.py"), 60.0,
         "DOT DELIRIUM on a TWO-CARD desktop (SPEC.md 93.4): straddling the "
