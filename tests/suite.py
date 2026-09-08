@@ -830,6 +830,23 @@ FAST = [
     Row("checkreadme", "fast", py("tools/checkreadme.py", "readme.txt"), 0.1,
         "README.TXT's width and size rules - Note Pad refuses a file one byte "
         "too long and shows nothing at all"),
+    Row("readme8088", "soak", py("tests/unit/t_readme8088.py"), 0.1,
+        "README.TXT packs to exactly 8,088 bytes, because the machine is an "
+        "8088 (SPEC.md 20.13.4). A JOKE, PINNED - so NOTHING IS BROKEN when "
+        "this goes red: somebody edited the manual and the number came "
+        "loose, and the fix is the PROSE and never the constant in the test. "
+        "It is a size defended by nobody - no layout depends on it and a "
+        "byte either way costs the machine nothing - which is exactly why it "
+        "needs a row, or the next ordinary edit retires it silently. `soak` "
+        "and not `fast` because only an edit to that one file can break it, "
+        "so the person it is for is the person who touched it "
+        "(docs/WRITING-TESTS.md 2.1). It needs no build: the CRLF fold and "
+        "the LZ4 wrap are the two steps $(SYSDOCRAW)/$(SYSDOC) take, done "
+        "here to readme.txt itself, so a knob tree cannot make it red. The "
+        "shipped artefact is compared as well, but only when it is a FRESH "
+        "LZ4 one - `make PKGZ=` leaves it plain, `make PKGZ=lzb` leaves it "
+        "LZB, and one older than the source would report the same edit a "
+        "second time dressed as a build fault"),
     Row("ovlchk", "fast", py("tools/os88ovlchk.py"), 1.4,
         "no near call crosses a section boundary - it assembles cleanly and "
         "runs wrong"),
@@ -2909,12 +2926,12 @@ SOAK = [
         "carry that bit, or a cell that set it unconditionally would pass. "
         "AND THEN IT OPENS README.TXT off the shipped system disk by "
         "double-clicking it (SPEC.md 20.14.2.1), which no fixture could stand "
-        "in for: the manual's reader has 16,384 bytes for 16,334 of text and "
-        "in-place expansion wants 16,413, so the field saw 'Too big' on a "
-        "file the machine had just reported as fitting. np_len is what says "
-        "it worked - an empty note and a full one look identical at every "
-        "zoom - and it reads 16,019, the CRLF file FOLDED, so 315 carriage "
-        "returns had to arrive to be dropped",
+        "in for: the manual's reader has 16,384 bytes for 14,722 of text, and "
+        "when it was 16,334 an in-place expansion wanting 16,413 made the "
+        "field see 'Too big' on a file the machine had just reported as "
+        "fitting. np_len is what says it worked - an empty note and a full "
+        "one look identical at every zoom - and it reads 14,427, the CRLF "
+        "file FOLDED, so 295 carriage returns had to arrive to be dropped",
         needs=("marty",), serial=True,
         wants=("build/lzfile360.img",)),
     Row("lzcomp", "soak", py("tests/lzcomp.py"), 150.0,
@@ -3313,8 +3330,8 @@ SOAK = [
         "SPEC.md 52.10.13: an install reproduces the source disk's WHOLE "
         "tree - the empty SYSTEM/APPDATA and SYSTEM/DOS/OS88NET.COM included, "
         "which one folder level could not reach - AND ITS BYTES (52.10.13.1). "
-        "README.TXT is compressed on the shipped floppy, 8,850 bytes against "
-        "16,304 expanded, and the installer had two copy shapes chosen by "
+        "README.TXT is compressed on the shipped floppy, 8,088 bytes against "
+        "14,722 expanded, and the installer had two copy shapes chosen by "
         "size: the small one used OSAPI_FILE_READ, which is the TRANSPARENT "
         "read, so the manual was installed EXPANDED with its directory hint "
         "gone while every file too big for the buffer was copied raw and "

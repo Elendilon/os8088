@@ -26,7 +26,7 @@ both the broken and the fixed case, and the difference is a directory entry.
 
 **AND IT COMPARES README.TXT BYTE FOR BYTE**, because the same harness answers
 a second question the same way and the installer got that one wrong too. The
-shipped manual is COMPRESSED - 8,850 bytes on the floppy, 16,304 expanded -
+shipped manual is COMPRESSED - 8,088 bytes on the floppy, 14,722 expanded -
 and the installer had two copy shapes, one raw and one not: a file that fitted
 the buffer took OSAPI_FILE_READ, which is the TRANSPARENT one (SPEC.md
 20.14.3), so it arrived expanded and was installed as a plain file with the
