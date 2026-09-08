@@ -11693,3 +11693,36 @@ Not proposed here: the `Map Mask` second pass §6.1.10 left out. It is still two
 passes over the run, so against a 6,882 µs pair it would buy something well
 short of the 2.40× the subset pairs get, and the honest first move is that
 packages can have the fast path today for nothing by picking the pen.
+
+#### …and the pen was not the reporter's problem: the follow-up rows
+
+The report that raised this was **coloured text on a BLACK background**, and
+`bg = 0` makes `B` empty for every ink: **colour on black is always a subset
+pair and always takes the single store.** So `.plno` is not that bug, and the
+next candidate was the phase. Two more rows, 19 cells — an attract line's
+length — at `CYELLOW` on `CBLACK`:
+
+| VGA row | measured | vs aligned |
+|---|---:|---:|
+| `FONT_RUN 19 col/blk` — aligned | **4,891.29 µs** | — |
+| `FONT_RUN 19 col/blk +5` — off the byte grid (§6.1.11) | **7,832.39 µs** | **1.60×** |
+
+**§6.1.11 costs 1.60× and not an order of magnitude**, which is what its own
+arithmetic predicts: a run of `n` cells off the grid is `n−1` whole stores plus
+**2 merges**, not `4n` accesses, and the two edge bytes are stashed and written
+by two column passes with the Bit Mask set once rather than per row.
+
+The aligned row is also the **cross-check that the pen is on the fast path**:
+the cost model fitted to the `CBLACK`-on-`CWHITE` rows — 898.8 µs fixed plus
+209.9 µs a cell — predicts **4,887 µs** for 19 cells and the machine reads
+**4,891.29**, 0.09% out. A run that had fallen to `.slow` would read ~13,700.
+
+**So neither the pen nor the phase explains a reported 176 ms for 19
+characters**: that is **36× the aligned run and 22× the unaligned one**, or
+9.26 ms a character against a `FONT_CHAR one cell` of 629 µs — about fifteen
+primitive calls per character. The cost is above `font_run`, not inside it.
+Three things to rule out in that order, all of which have produced a number
+of this shape before: **a measurement taken under QEMU** (Part 3 — the µs
+column there is host speed and means nothing); **the line being redrawn per
+frame** and the span covering tens of frames; and **a per-character call**,
+which pays the 899 µs fixed part of a run nineteen times instead of once.

@@ -1572,6 +1572,13 @@ gb_text:
     xor al, al
     call bl_run
 
+    ; ...and the game's own shape: 19 cells, coloured on BLACK (a subset pair,
+    ; so the fast path), aligned. Its +5 twin is in the skewed block below.
+    mov word [bl_body], gb_b_f19
+    mov si, gb_r_f19
+    xor al, al
+    call bl_run
+
     ; SPEC.md 6.1.7's question: a run of 20, once as ordinary text and once
     ; SPACE-PADDED, which is what this system actually draws - 27.2 makes a
     ; Note Pad row's padding its ERASE, 12.9 composes the menu bar out to the
@@ -1604,6 +1611,10 @@ gb_text:
     mov word [bl_body], gb_b_frun
     mov si, gb_r_ru5
     xor al, al
+    call bl_run
+    mov word [bl_body], gb_b_f19    ; ...and the 19-cell coloured run off the
+    mov si, gb_r_f19u               ; byte grid: SPEC.md 6.1.11's path, at the
+    xor al, al                      ; length and pen an attract line uses
     call bl_run
 
     mov ax, [gb_x]
@@ -2849,6 +2860,20 @@ gb_b_frunp:
 ; the same reason. On the two 1bpp adapters this must read as FONT_RUN 10
 ; aligned does: font_ink reduces either pair to 00/FF and the mono path never
 ; asks what the colours were. A divergence here is VGA's alone.
+; SPEC.md 6.1.11's question asked at a GAME's pen. Nineteen cells, CYELLOW on
+; CBLACK - which is a SUBSET pair (bg = 0, so B is empty), so this takes the
+; planar single-store prologue and NOT .slow: the colour is not the variable
+; here, the phase is. Registered twice, at the aligned x and at x+5, so the
+; pair is what 6.1.11 costs a run of the length an attract line actually is.
+gb_b_f19:
+    mov cx, [gb_tx]
+    mov dx, [gb_y]
+    mov si, gb_s_t19
+    mov al, CYELLOW
+    mov ah, CBLACK
+    call OSAPI_FONT_RUN
+    ret
+
 gb_b_fruncol:
     mov cx, [gb_tx]
     mov dx, [gb_y]
@@ -3137,6 +3162,7 @@ gb_ttl:     db 'Gfx Bench', 0
 ; The measured string is tests/fontbench's, character for character, so its
 ; published figures (SPEC.md 6.1.1) cross-check this harness for free.
 gb_s_test:  db 'C-2 01 A0F', 0
+gb_s_t19:   db 'PRESS SPACE TO PLAY', 0   ; 19 cells, an attract line's length
 
 gb_pattern: db 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55
 
@@ -3300,6 +3326,8 @@ gb_r_pa:   db 'PAIR 10 aligned', 0
 gb_r_ru:   db 'FONT_RUN 10 aligned', 0
 gb_r_rudis:db 'FONT_RUN 10 disabled', 0
 gb_r_rucol:db 'FONT_RUN 10 coloured', 0
+gb_r_f19:  db 'FONT_RUN 19 col/blk', 0
+gb_r_f19u: db 'FONT_RUN 19 col/blk +5', 0
 gb_r_pacol:db 'PAIR 10 coloured', 0
 gb_r_ru20: db 'FONT_RUN 20 text', 0
 gb_r_rup:  db 'FONT_RUN 20 padded', 0

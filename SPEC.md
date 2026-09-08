@@ -6342,6 +6342,15 @@ against 3,178.70**, 0.015% apart against an instrument that repeats to 0.026%:
 `font_ink` reduces either pair to 00/FF and the mono path never asks what the
 colours were, so the divergence is VGA's alone.
 
+**Colour on BLACK is always fast**, and it is the case worth stating because it
+is what a game draws: `bg = 0` makes `B` empty for every ink, so `CYELLOW` on
+`CBLACK` takes the single store. Measured at an attract line's length, 19 cells
+(Set 121): **4,891.29 µs aligned and 7,832.39 off the byte grid** — §6.1.11's
+path costing **1.60×**, which is its own arithmetic (`n−1` stores plus 2
+merges) and not an order of magnitude. The aligned figure is 0.09% off what the
+subset-pair cost model predicts, which is the cross-check that the pen really
+did take this path; `.slow` would have read ~13,700.
+
 **Why no row saw it.** Every `FONT_RUN` row in `tests/gfxbench` drew `CBLACK`
 on `CWHITE`, and all 42 statically-resolvable `OSAPI_FONT_RUN` call sites in
 `apps/` are subset pairs — so nothing in the tree has ever taken `.plno`. That
