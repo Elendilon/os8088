@@ -5014,6 +5014,26 @@ $(BUILD)/skies.bin: $(SKIES_SRC) | $(BUILD)
 $(BUILD)/skies.o88: $(BUILD)/skies.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/skies.bin -o $@
 
+# DOT DELIRIUM (SPEC.md 93): a maze chase written from the primitives out
+# rather than ported, which is why it is the only one of the three in this tree
+# that is bigger on a Hercules than on a CGA and the only one that goes
+# fullscreen. The renderer is one gfx_blit1 an actor a frame, composed out of
+# the game's own board (SPEC.md 93.5), and the board is sized from the live
+# surface and the adapter's PIXEL ASPECT (SPEC.md 93.3).
+DOTDEL_SRC := apps/dotdel/dotdel.asm apps/dotdel/ddlay.inc \
+              apps/dotdel/ddmaze.inc apps/dotdel/ddmzdat.inc \
+              apps/dotdel/ddspr.inc apps/dotdel/ddart.inc \
+              apps/dotdel/ddgame.inc apps/dotdel/ddattr.inc \
+              apps/dotdel/ddhs.inc apps/dotdel/ddrend.inc \
+              apps/os88api.inc apps/os88ui.inc
+
+$(BUILD)/dotdel.bin: $(DOTDEL_SRC) | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/dotdel/ -o $@ apps/dotdel/dotdel.asm
+	@echo "dotdel: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/dotdel.o88: $(BUILD)/dotdel.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/dotdel.bin -o $@
+
 $(BUILD)/arkanoid.bin: apps/arkanoid/arkanoid.asm apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ apps/arkanoid/arkanoid.asm
 	@echo "arkanoid: $(call FILESIZE,$@) bytes"
@@ -8009,7 +8029,7 @@ SMALLOMIT := $(BUILD)/browser.o88 $(BUILD)/ftpd.o88 $(BUILD)/telnet.o88 \
              $(BUILD)/thewire.o88 \
              $(BUILD)/modplug.o88 $(BUILD)/tracker.o88 \
              $(BUILD)/audio.o88
-SMALLOMIT_GAMES := $(BUILD)/tank.o88 $(BUILD)/skies.o88
+SMALLOMIT_GAMES := $(BUILD)/tank.o88 $(BUILD)/skies.o88 $(BUILD)/dotdel.o88
 
 # ...and BROWSER.HTM with the browser, for the same reason one step along: a
 # .HTM is openable by nothing else on the machine (SPEC.md 71), and a manual
@@ -8781,7 +8801,7 @@ APPS_TOOLS := $(BUILD)/artful.o88 $(BUILD)/browser.o88 $(BUILD)/calc.o88 \
               $(BUILD)/ftpd.o88 $(BUILD)/sheet.o88 $(BUILD)/telnet.o88 \
               $(BUILD)/texpad.o88 $(BUILD)/tracker.o88 $(BUILD)/audio.o88
 APPS_GAMES := $(BUILD)/arkanoid.o88 $(BUILD)/tank.o88 $(BUILD)/cyclone.o88 \
-              $(BUILD)/mines.o88 $(BUILD)/skies.o88 \
+              $(BUILD)/mines.o88 $(BUILD)/skies.o88 $(BUILD)/dotdel.o88 \
               $(BUILD)/missile.o88 $(BUILD)/pacman.o88 $(BUILD)/solitair.o88 $(BUILD)/tamegram.o88
 
 # The CORE PACKAGES (SPEC.md 24.3) are a SECOND copy on the system disk and
@@ -8988,7 +9008,17 @@ APPS := $(APPS_TOOLS) $(APPS_GAMES) $(APPS_DATA) $(APPS_SYS) $(APPS_DOS)
 # and tests/small128.py is such a row) it is a hard failure naming a file
 # nothing produced. A per-geometry package list has to be filtered in BOTH
 # places or in neither.
-APPS360 := $(APPS_TOOLS) $(APPS_GAMES) $(APPS_DATA_360) $(APPS_SYS) $(APPS_DOS)
+# ...and the GAMES the 360KB disk can hold. DOT DELIRIUM (SPEC.md 93.13) is
+# eleven clusters and that disk had eight, so at this geometry alone it rides
+# build/media360.img - the second 360KB disk SPEC.md 24.4 already exists for -
+# instead of coming off some other package's back. Filtered in BOTH the
+# prerequisite list and the argument list, for the reason the comment above
+# gives: a private tree that builds only what it needs fails hard on a recipe
+# that names a file nothing produced.
+MEDIA_DISK_GAMES := $(BUILD)/dotdel.o88
+APPS_GAMES_360   := $(filter-out $(MEDIA_DISK_GAMES),$(APPS_GAMES))
+
+APPS360 := $(APPS_TOOLS) $(APPS_GAMES_360) $(APPS_DATA_360) $(APPS_SYS) $(APPS_DOS)
 
 # ...and the same list with the folder each package lands in. os88disk.py
 # reads a "DIR:" prefix per package, so the grouping lives here rather than
@@ -9030,7 +9060,7 @@ APPSARGS := $(addprefix APPS:,$(APPS_TOOLS)) \
 # what took this disk off THREE free clusters and put it on ten.
 # Being on this disk is the whole reason a user has it to hand.
 APPSARGS360 := $(addprefix APPS:,$(APPS_TOOLS)) \
-               $(addprefix GAMES:,$(APPS_GAMES)) \
+               $(addprefix GAMES:,$(APPS_GAMES_360)) \
                $(addprefix MEDIA:,$(APPS_DATA_360)) \
                $(APPSYSARGS) \
                $(addprefix SYSTEM/DOS:,$(APPS_DOS)) \
@@ -9040,7 +9070,8 @@ APPSARGS360 := $(addprefix APPS:,$(APPS_TOOLS)) \
 # is in the folder the Open dialog already opens on whichever disk is in the
 # drive (SPEC.md 38.10) - a user who swaps disks should not have to know that
 # this one keeps its module somewhere else.
-MEDIAARGS360 := $(addprefix MEDIA:,$(MEDIA_DISK_DATA))
+MEDIAARGS360 := $(addprefix MEDIA:,$(MEDIA_DISK_DATA)) \
+                $(addprefix GAMES:,$(MEDIA_DISK_GAMES))
 
 $(APPSIMG): $(APPS) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(APPSARGS)
@@ -9067,8 +9098,9 @@ $(APPSIMG360): $(APPS360) tools/os88disk.py
 # disk to swap in would be a disk with a file the user already has. The rule
 # is the geometry's, not the disk's: a media disk exists exactly where the
 # apps disk had to drop the module, and 1.2MB is not such a geometry.
-$(MEDIAIMG360): $(MEDIA_DISK_DATA) tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 360 $(MEDIAARGS360)
+$(MEDIAIMG360): $(MEDIA_DISK_DATA) $(MEDIA_DISK_GAMES) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(MEDIAARGS360) \
+		--folder SYSTEM/APPDATA
 
 # =============================================================================
 # A COMPRESSED 360KB SET (ON DEMAND): `make zset ZFMT=lz4` / `ZFMT=lzb`

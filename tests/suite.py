@@ -1890,6 +1890,29 @@ SOAK = [
         "so the broken build scores zero. `--small --img build/small360.img` "
         "is trigger A, and wants `make small` first.",
         needs=("marty",), serial=True),
+    Row("ddmaze", "soak", py("tests/unit/t_ddmaze.py"), 0.2,
+        "Are DOT DELIRIUM's three layouts playable boards? (SPEC.md 93.2) "
+        "Reads the characters out of apps/dotdel/ddmzdat.inc and floods them "
+        "from Smiles' start tile: 28x31, exactly four power pellets, no dot "
+        "walled off from the rest, and rows 9..19 - the ghost house, its door, "
+        "the tunnel and the two verticals past it - IDENTICAL in all three, "
+        "because every spawn, home and fruit constant in the game reads them. "
+        "A stranded dot is a level that never clears and no screenshot shows "
+        "it. In soak and not fast for docs/WRITING-TESTS.md 2.1's reason: it "
+        "is about one package",
+        needs=("nasm",)),
+    Row("dotdel", "soak", py("tests/dotdel.py"), 170.0,
+        "DOT DELIRIUM on the glass, on all three adapters (SPEC.md 93): the "
+        "title screen's four compositors, the blink, Enter starting a game "
+        "that actually EATS, the tile cut from each adapter's own pixel shape "
+        "(93.3), the bracket re-cutting it bigger and giving it back, and - "
+        "the reason the row exists - RENDERED FRAMES against the game's own "
+        "tick counter on a cycle-accurate 4.77 MHz 8088. It shipped at 100.0% "
+        "of the tick everywhere, and a board walk, a `font_run` and a pair of "
+        "divides each took it to ~60% while everything still LOOKED right "
+        "(93.5.3). `--arm cga` is one adapter. The package is on "
+        "media360.img, not the apps disk (93.13)",
+        needs=("marty", "nasm"), serial=True),
     Row("cycweb", "soak", py("tests/cycweb.py"), 40.0,
         "Does the claw eat the web it slides over? (SPEC.md 67.5.3.1)",
         needs=("marty",), serial=True),

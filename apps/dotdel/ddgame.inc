@@ -1,0 +1,1654 @@
+; =============================================================================
+; os8088 - apps/dotdel/ddgame.inc
+;
+; THE GAME (SPEC.md 93.7 - 93.9): movement on the grid, the four personalities,
+; the modes, the fruit, and the state machine that holds them together.
+;
+; --- MOVEMENT IS EXACT, AND THAT IS NOT AN OPTIMISATION ----------------------
+;
+; An actor's position is the sprite box's top-left in 1/16 px, and a DECISION -
+; a turn, a wall, eating something, arriving anywhere - happens only when both
+; coordinates are exact multiples of the tile. If a step would carry an actor
+; PAST a tile origin it is cut at the origin, the decision is taken, and the
+; remainder is spent afterwards (dd_advance). So no speed has to divide the
+; tile size, an actor can never tunnel through a wall on a long step, and a
+; frame the machine dropped costs nothing but time.
+;
+; That is what makes SPEC.md 93.6's catch-up safe: the logic runs once per tick
+; of elapsed time and a step of four ticks is four steps, not one big one.
+;
+; --- THE EYES (SPEC.md 93.8.3) -----------------------------------------------
+;
+; A ghost's eyes follow the way it is GOING, which is one byte and free. Two
+; things move them off that:
+;
+;   * a GLANCE - every so often, for a few ticks, at a direction that is not
+;     the one it is travelling. It costs a byte of timer and it is the single
+;     cheapest thing in this game that makes it look alive;
+;   * a LOCK - when the ghost is chasing AND has line of sight to Smiles down
+;     its own corridor, the eyes go WIDE and point straight at him. Line of
+;     sight is a walk along one row or one column, which is at most 27 tile
+;     reads and only for a ghost that shares a row or a column with him.
+;
+; The wide pair is a different image rather than a different draw: the sprite
+; set already carries eight eye states a skirt phase (ddspr.inc), so this
+; costs one index and no cycles at all in the frame.
+; =============================================================================
+
+; (dx, dy) for DIR_R, DIR_D, DIR_L, DIR_U
+dd_dx: db 1, 0, -1, 0
+dd_dy: db 0, 1, 0, -1
+; the reverse of each
+dd_rev: db DIR_L, DIR_U, DIR_R, DIR_D
+; the order the ghosts try their turns in - up, left, down, right - which is
+; the arcade's own tie-break and is the whole of why a ghost prefers to climb
+dd_tryo: db DIR_U, DIR_L, DIR_D, DIR_R
+
+; the scatter corners, in tiles: Blinky, Pinky, Inky, Clyde
+dd_scatc: db 25, 2, 27, 0
+dd_scatr: db 0, 0, 30, 30
+
+; where each ghost waits, and how many dots have to go before it is let out
+dd_ghc:   db DD_HOMEC, DD_HOMEC, DD_HOMEC-2, DD_HOMEC+2
+dd_ghr:   db DD_HOMER, DD_HOUSER, DD_HOUSER, DD_HOUSER
+dd_ghdot: db 0, 0, 30, 60
+
+; scatter / chase, in ticks at 18.2 Hz: 7s, 20s, 7s, 20s, 5s, 20s, 5s, forever
+dd_modet: dw 127, 364, 127, 364, 91, 364, 91, 0
+DD_NMODE  equ 8
+
+; how long a pellet frightens them, by level - and it runs out entirely
+dd_frit:  dw 145, 127, 109, 91, 73, 91, 55, 55, 36, 91, 55, 36, 36, 18, 0
+DD_NFRIT  equ 15
+
+; what a fruit is worth, by level band
+dd_frv:   dw 100, 300, 500, 700, 1000, 2000, 3000, 5000
+DD_NFRV   equ 8
+
+DD_TILET  equ 4                 ; ticks a tile takes at 100% speed
+DD_PCTPAC equ 100               ; Smiles
+DD_PCTGH  equ 88                ; a roaming ghost
+DD_PCTFRI equ 60                ; ...frightened
+DD_PCTEYE equ 190               ; ...and eyes, which go home fast
+DD_PCTTUN equ 55                ; anybody in the tunnel
+
+DD_GLANCE equ 5                 ; ticks a glance lasts
+DD_PILLT  equ 5                 ; ticks a pellet spends lit, and dark
+
+; =============================================================================
+; STARTING THINGS
+; =============================================================================
+
+dd_new_game:
+    mov word [dd_score], 0
+    mov word [dd_score+2], 0
+    mov byte [dd_lives], DD_LIVES0
+    mov byte [dd_level], 1
+    mov byte [dd_extra], 0
+    mov byte [dd_demo], 0
+    call dd_level_begin
+    ret
+
+; dd_level_begin - load the board and put everybody back
+dd_level_begin:
+    mov byte [dd_demo], 0
+    mov byte [dd_rmin], 0           ; the WHOLE board: the slice is the
+    mov word [dd_clipy0], 0         ; attract screen's, and it is the only
+    call dd_level_load              ; thing that ever moves either word
+    call dd_layout                  ; put dd_bdy back where a board goes
+    call dd_board_render
+    mov byte [dd_fruits], 0
+    mov word [dd_frtim], 0
+    mov word [dd_fruit], 0
+    call dd_actors_home
+    mov byte [dd_state], DDS_READY
+    mov word [dd_tim], DD_READYT
+    mov byte [dd_full], 1
+    mov byte [dd_paused], 0
+    ret
+
+; dd_actors_home - everybody on their start tile, facing their start way
+dd_actors_home:
+    mov word [dd_modeidx], 0
+    mov ax, [dd_modet]
+    mov [dd_modetim], ax
+    mov word [dd_frcnt], 0
+    mov word [dd_modech], 0
+    mov byte [dd_eatn], 0
+    mov word [dd_gpause], 0
+    mov byte [dd_lastd], DIR_L
+    ; Smiles
+    xor si, si
+    mov cl, DD_STARTC
+    mov ch, DD_STARTR
+    call dd_put_tile
+    mov byte [dd_dir + 0], DIR_L
+    mov byte [dd_want + 0], DIR_L
+    mov byte [dd_alive + 0], 1
+    mov byte [dd_shown + 0], 0
+    ; the four ghosts
+    mov si, 1
+.g:
+    mov bx, si
+    dec bx                          ; BX = the ghost's ordinal
+    mov cl, [dd_ghc + bx]
+    mov ch, [dd_ghr + bx]
+    call dd_put_tile
+    mov byte [dd_alive + si], 1
+    mov byte [dd_shown + si], 0
+    mov byte [dd_dir + si], DIR_L
+    mov byte [dd_want + si], DIR_L
+    mov bx, si
+    dec bx
+    mov byte [dd_gs + bx], GS_HOUSE
+    mov byte [dd_glance + bx], 0
+    mov byte [dd_gbig + bx], 0
+    or bx, bx
+    jnz .penned
+    mov byte [dd_gs + bx], GS_ROAM  ; the red one starts outside, as it always
+    mov byte [dd_dir + si], DIR_L   ; has
+.penned:
+    inc si
+    cmp si, DD_NACT
+    jb .g
+    call dd_dotcnt_reset
+    call dd_anims                   ; ...and give everybody an image and a PEN
+    ret                             ; before the first frame draws them in
+                                    ; colour 0, which is the background
+
+dd_dotcnt_reset:
+    mov word [dd_eaten], 0
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_put_tile - actor SI onto the origin of tile CL, CH
+;
+; It sets FOUR things and not two: the position, and the TILE that position is
+; in, in tiles and in sub-pixels. Those two are then carried along by
+; dd_advance rather than divided out of the position every time somebody asks
+; - which is what dd_tile_of used to do, twice per call, at ~160 cycles a
+; 16-bit DIV on an 8088, from a dozen call sites a tick.
+; -----------------------------------------------------------------------------
+dd_put_tile:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov bx, si
+    shl bx, 1
+    mov [dd_ac + si], cl
+    mov [dd_ar + si], ch
+    mov al, cl
+    xor ah, ah
+    mul word [dd_twS]
+    mov [dd_x + bx], ax
+    mov [dd_acx + bx], ax
+    mov al, ch
+    xor ah, ah
+    mul word [dd_thS]
+    mov [dd_y + bx], ax
+    mov [dd_ary + bx], ax
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; =============================================================================
+; ONE LOGIC STEP - exactly one system tick of game time (SPEC.md 93.6)
+; =============================================================================
+dd_step:
+    cmp byte [dd_ok], 0
+    jne .laid
+    ret                             ; no layout yet, so no tiles, no speeds and
+.laid:                              ; nothing to divide by
+    inc word [dd_anim]
+    call dd_pill_tick
+    mov al, [dd_state]
+    cmp al, DDS_ATTRACT
+    je .attract
+    cmp al, DDS_ENTER
+    je .attract                     ; the demo keeps running behind the prompt
+    cmp al, DDS_READY
+    je .ready
+    cmp al, DDS_PLAY
+    je .play
+    cmp al, DDS_DIE
+    je .die
+    cmp al, DDS_CLEAR
+    je .clear
+    cmp al, DDS_OVER
+    je .over
+    ret
+.attract:
+    call dd_attract_step
+    ret
+.ready:
+    dec word [dd_tim]
+    jnz .rout
+    mov byte [dd_state], DDS_PLAY
+    mov byte [dd_hudd], 1
+.rout:
+    ret
+.play:
+    cmp byte [dd_paused], 0
+    jne .rout
+    call dd_play_step
+    ret
+.die:
+    dec word [dd_tim]
+    jnz .rout
+    call dd_life_lost
+    ret
+.clear:
+    dec word [dd_tim]
+    jnz .rout
+    inc byte [dd_level]
+    call dd_level_begin
+    ret
+.over:
+    dec word [dd_tim]
+    jnz .rout
+    call dd_hs_offer                ; a table place is typed, not awarded
+    ret
+
+; dd_pill_tick - the pellets' own clock, which runs in every state
+dd_pill_tick:
+    dec byte [dd_pilt]
+    jns .out
+    mov byte [dd_pilt], DD_PILLT
+    xor byte [dd_pilon], 1
+    mov byte [dd_pilrf], 1          ; ...and the glass owes them a refresh
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_play_step - one tick of an actual game
+; -----------------------------------------------------------------------------
+dd_play_step:
+    cmp word [dd_gpause], 0
+    je .go
+    dec word [dd_gpause]            ; the beat after a ghost is eaten
+    ret
+.go:
+    call dd_input
+    call dd_modes
+    xor si, si
+    call dd_act_move                ; Smiles first: the ghosts aim at where he
+    call dd_eat_here                ; ends up, which is the arcade's own order
+    mov si, 1
+.g:
+    push si
+    call dd_gh_think
+    call dd_act_move
+    pop si
+    inc si
+    cmp si, DD_NACT
+    jb .g
+    call dd_collide
+    call dd_fruit_tick
+    call dd_release_ck
+    call dd_anims
+    cmp word [dd_ndots], 0
+    jne .out
+    mov byte [dd_state], DDS_CLEAR
+    mov word [dd_tim], DD_CLEART
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_input - the steering, polled (SPEC.md 93.7.2)
+;
+; OSAPI_KEY_DOWN asks whether a key IS DOWN, which is the question a maze game
+; has: a key event arrives at the typematic rate, so a held arrow gives one
+; event, a pause, and then a stream - and a turn that has to be taken within
+; two tiles of a junction cannot be built on that.
+;
+; A direction that is not legal yet is REMEMBERED rather than dropped, so a
+; turn asked for a few pixels early is taken at the junction. That is the whole
+; of what "responsive" means here.
+; -----------------------------------------------------------------------------
+dd_input:
+    cmp byte [dd_demo], 0
+    jne .ai
+    cmp byte [dd_hasfoc], 0
+    je .out                         ; somebody else has the keyboard
+    mov al, KSC_LEFT
+    call OSAPI_KEY_DOWN
+    jc .left
+    mov al, KSC_RIGHT
+    call OSAPI_KEY_DOWN
+    jc .right
+    mov al, KSC_UP
+    call OSAPI_KEY_DOWN
+    jc .up
+    mov al, KSC_DOWN
+    call OSAPI_KEY_DOWN
+    jc .down
+    mov al, 0x1E                    ; A
+    call OSAPI_KEY_DOWN
+    jc .left
+    mov al, 0x20                    ; D
+    call OSAPI_KEY_DOWN
+    jc .right
+    mov al, 0x11                    ; W
+    call OSAPI_KEY_DOWN
+    jc .up
+    mov al, 0x1F                    ; S
+    call OSAPI_KEY_DOWN
+    jc .down
+.out:
+    ret
+.left:
+    mov byte [dd_want], DIR_L
+    ret
+.right:
+    mov byte [dd_want], DIR_R
+    ret
+.up:
+    mov byte [dd_want], DIR_U
+    ret
+.down:
+    mov byte [dd_want], DIR_D
+    ret
+.ai:
+    call dd_demo_think
+    ret
+
+; =============================================================================
+; MOVEMENT
+; =============================================================================
+
+; -----------------------------------------------------------------------------
+; dd_act_move - advance actor SI by one tick of its own speed
+; in:  SI = actor. Clobbers everything but SI.
+; -----------------------------------------------------------------------------
+dd_act_move:
+    push si
+    call dd_speed_of                ; AX = percent for this actor right now
+    mov [dd_pct], ax
+    ; the budget, in 1/16 px along whichever axis it is on
+    call dd_axis_step               ; AX = 1/16 px this tick along dir
+    mov [dd_rem], ax
+.loop:
+    cmp word [dd_rem], 0
+    jle .done
+    call dd_at_tile
+    jnc .move
+    call dd_decide                  ; only ever at an exact tile origin
+.move:
+    mov al, [dd_dir + si]
+    cmp al, DIR_NONE
+    je .done
+    call dd_to_edge                 ; AX = 1/16 px to the next tile origin
+    cmp ax, [dd_rem]
+    jbe .part
+    mov ax, [dd_rem]
+.part:
+    call dd_advance                 ; ...and take it
+    sub [dd_rem], ax
+    jmp short .loop
+.done:
+    pop si
+    ret
+
+; dd_at_tile - CF = 1 when actor SI is exactly on a tile origin
+dd_at_tile:
+    push ax
+    push bx
+    mov bx, si
+    shl bx, 1
+    mov ax, [dd_x + bx]
+    cmp ax, [dd_acx + bx]
+    jne .no
+    mov ax, [dd_y + bx]
+    cmp ax, [dd_ary + bx]
+    jne .no
+    pop bx
+    pop ax
+    stc
+    ret
+.no:
+    pop bx
+    pop ax
+    clc
+    ret
+
+; dd_tile_of - CL = actor SI's column, CH = its row (the tile its box sits in)
+dd_tile_of:
+    mov cl, [dd_ac + si]
+    mov ch, [dd_ar + si]
+    ret
+
+; dd_to_edge - AX = 1/16 px from actor SI to the next tile origin along its
+;              direction. A whole tile when it is standing on one.
+dd_to_edge:
+    push bx
+    push cx
+    push dx
+    mov bx, si
+    shl bx, 1
+    mov al, [dd_dir + si]
+    cmp al, DIR_R
+    je .r
+    cmp al, DIR_L
+    je .l
+    cmp al, DIR_D
+    je .d
+    ; up: back to this tile's own origin, or a whole tile when it is on one
+    mov ax, [dd_y + bx]
+    sub ax, [dd_ary + bx]
+    jnz .out
+    mov ax, [dd_thS]
+    jmp short .out
+.d:
+    mov ax, [dd_ary + bx]
+    add ax, [dd_thS]
+    sub ax, [dd_y + bx]
+    jmp short .out
+.l:
+    mov ax, [dd_x + bx]
+    sub ax, [dd_acx + bx]
+    jnz .out
+    mov ax, [dd_twS]
+    jmp short .out
+.r:
+    mov ax, [dd_acx + bx]
+    add ax, [dd_twS]
+    sub ax, [dd_x + bx]
+.out:
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; dd_advance - move actor SI by AX (1/16 px) along its direction, and wrap the
+;              tunnel when it walks off the end of the world
+; A step is never longer than one tile (dd_act_move cuts it at the edge), so
+; the tile this carries along moves by at most one and the fix-up is a compare
+; and an add rather than a divide.
+dd_advance:
+    push ax
+    push bx
+    push cx
+    mov bx, si
+    shl bx, 1
+    mov cl, [dd_dir + si]
+    cmp cl, DIR_R
+    je .r
+    cmp cl, DIR_L
+    je .l
+    cmp cl, DIR_D
+    je .d
+    ; --- up ----------------------------------------------------------------
+    sub [dd_y + bx], ax
+    mov ax, [dd_y + bx]
+    cmp ax, [dd_ary + bx]
+    jae .out
+    mov ax, [dd_thS]
+    sub [dd_ary + bx], ax
+    dec byte [dd_ar + si]
+    jmp short .out
+.d:
+    add [dd_y + bx], ax
+    mov ax, [dd_ary + bx]
+    add ax, [dd_thS]
+    cmp [dd_y + bx], ax
+    jb .out
+    mov [dd_ary + bx], ax
+    inc byte [dd_ar + si]
+    jmp short .out
+.l:
+    sub [dd_x + bx], ax
+    mov ax, [dd_x + bx]
+    cmp ax, [dd_acx + bx]
+    jae .lwrap
+    mov ax, [dd_twS]
+    sub [dd_acx + bx], ax
+    dec byte [dd_ac + si]
+.lwrap:
+    cmp byte [dd_ac + si], 0
+    jge .out
+    add byte [dd_ac + si], DD_COLS  ; the tunnel: off the left is column 27
+    mov ax, [dd_mwS]
+    add [dd_x + bx], ax
+    add [dd_acx + bx], ax
+    jmp short .out
+.r:
+    add [dd_x + bx], ax
+    mov ax, [dd_acx + bx]
+    add ax, [dd_twS]
+    cmp [dd_x + bx], ax
+    jb .out
+    mov [dd_acx + bx], ax
+    inc byte [dd_ac + si]
+    cmp byte [dd_ac + si], DD_COLS
+    jb .out
+    sub byte [dd_ac + si], DD_COLS
+    mov ax, [dd_mwS]
+    sub [dd_x + bx], ax
+    sub [dd_acx + bx], ax
+.out:
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_axis_step - AX = how far actor SI moves this tick, in 1/16 px, along the
+;                axis it is on. [dd_pct] is its speed as a percentage.
+; -----------------------------------------------------------------------------
+dd_axis_step:
+    push bx
+    push cx
+    push dx
+    mov al, [dd_dir + si]
+    cmp al, DIR_D
+    je .vert
+    cmp al, DIR_U
+    je .vert
+    mov ax, [dd_spx]
+    jmp short .scale
+.vert:
+    mov ax, [dd_spy]
+.scale:
+    mul word [dd_pct]
+    mov bx, 100
+    div bx
+    or ax, ax
+    jnz .out
+    mov ax, 1                       ; never nothing: a rounded-down speed that
+.out:                               ; reached zero would be a frozen actor
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_speed_of - AX = actor SI's speed percentage right now
+; -----------------------------------------------------------------------------
+dd_speed_of:
+    push bx
+    push cx
+    or si, si
+    jz .pac
+    mov bx, si
+    dec bx
+    mov al, [dd_gs + bx]
+    cmp al, GS_EYES
+    je .eyes
+    cmp al, GS_FRIGHT
+    je .fri
+    mov ax, DD_PCTGH
+    jmp short .tun
+.fri:
+    mov ax, DD_PCTFRI
+    jmp short .tun
+.eyes:
+    mov ax, DD_PCTEYE
+    jmp short .out
+.pac:
+    mov ax, DD_PCTPAC
+.tun:
+    ; the tunnel is slow for everybody but a pair of eyes
+    push ax
+    call dd_tile_of
+    cmp ch, 14
+    jne .notun
+    cmp cl, 6
+    jb .intun
+    cmp cl, 21
+    ja .intun
+.notun:
+    pop ax
+    jmp short .out
+.intun:
+    pop ax
+    mov ax, DD_PCTTUN
+.out:
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_decide - actor SI is on a tile origin: take its turn, or stop
+; -----------------------------------------------------------------------------
+dd_decide:
+    push ax
+    push bx
+    push cx
+    push dx
+    call dd_tile_of                 ; CL, CH = where it is
+    mov [dd_dc], cx
+    ; the wanted direction, if it is legal from here
+    mov al, [dd_want + si]
+    cmp al, DIR_NONE
+    je .keep
+    cmp al, [dd_dir + si]
+    je .keep
+    call dd_can_go
+    jnc .keep
+    mov al, [dd_want + si]
+    mov [dd_dir + si], al
+    jmp short .out
+.keep:
+    mov al, [dd_dir + si]
+    cmp al, DIR_NONE
+    je .out
+    call dd_can_go
+    jc .out
+    mov byte [dd_dir + si], DIR_NONE
+.out:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_can_go - CF = 1 when actor SI may step from tile [dd_dc] in direction AL
+;
+; The ghost-house door is the one tile whose answer depends on who is asking:
+; a ghost on its way out or its way home walks through it, and Smiles never
+; does.
+; -----------------------------------------------------------------------------
+dd_can_go:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov bl, al
+    xor bh, bh
+    mov cx, [dd_dc]
+    add cl, [dd_dx + bx]
+    add ch, [dd_dy + bx]
+    call dd_tile
+    cmp al, TT_WALL
+    je .no
+    cmp al, TT_DOOR
+    jne .yes
+    or si, si
+    jz .no                          ; Smiles may not
+    mov bx, si
+    dec bx
+    mov al, [dd_gs + bx]
+    cmp al, GS_OUT
+    je .yes
+    cmp al, GS_EYES
+    je .yes
+    cmp al, GS_HOUSE
+    je .yes
+.no:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
+.yes:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    stc
+    ret
+
+; =============================================================================
+; THE GHOSTS (SPEC.md 93.8)
+; =============================================================================
+
+; -----------------------------------------------------------------------------
+; dd_gh_think - ghost SI's decisions for this tick: state, target and eyes
+; in:  SI = 1..4. Clobbers everything but SI.
+; -----------------------------------------------------------------------------
+dd_gh_think:
+    push si
+    mov bx, si
+    dec bx
+    mov [dd_gi], bx                 ; the ghost's ordinal, 0..3
+    mov al, [dd_gs + bx]
+    cmp al, GS_HOUSE
+    je .house
+    cmp al, GS_OUT
+    je .out_
+    cmp al, GS_EYES
+    je .eyes
+    cmp al, GS_FRIGHT
+    je .fright
+    call dd_gh_roam
+    jmp short .look
+.house:
+    call dd_gh_house
+    jmp short .look
+.out_:
+    call dd_gh_leave
+    jmp short .look
+.eyes:
+    call dd_gh_home
+    jmp short .look
+.fright:
+    call dd_gh_flee
+.look:
+    call dd_gh_eyes
+    pop si
+    ret
+
+; --- bobbing in the pen -------------------------------------------------------
+dd_gh_house:
+    call dd_at_tile
+    jnc .out
+    mov al, [dd_dir + si]
+    cmp al, DIR_U
+    je .down
+    mov byte [dd_want + si], DIR_U
+    jmp short .out
+.down:
+    mov byte [dd_want + si], DIR_D
+.out:
+    ; a bob is one tile up and one tile down, which the walls do for us: the
+    ; pen is three tiles tall and its ceiling and floor are both wall
+    ret
+
+; --- walking out of it --------------------------------------------------------
+dd_gh_leave:
+    call dd_at_tile
+    jnc .out
+    call dd_tile_of
+    cmp ch, DD_HOMER
+    jbe .arrived
+    mov al, DD_HOMEC
+    mov ah, DD_HOMER
+    call dd_gh_aim                  ; the door, then the tile above it
+    ret
+.arrived:
+    mov bx, [dd_gi]
+    mov byte [dd_gs + bx], GS_ROAM
+    mov byte [dd_want + si], DIR_L
+.out:
+    ret
+
+; --- eyes going home ----------------------------------------------------------
+dd_gh_home:
+    call dd_at_tile
+    jnc .out
+    call dd_tile_of
+    cmp cl, DD_HOMEC
+    jne .aim
+    cmp ch, DD_HOUSER
+    jne .aim
+    mov bx, [dd_gi]                 ; back in the pen: it re-grows a body and
+    mov byte [dd_gs + bx], GS_OUT   ; comes straight back out
+    ret
+.aim:
+    mov al, DD_HOMEC
+    mov ah, DD_HOUSER
+    call dd_gh_aim
+.out:
+    ret
+
+; --- frightened: a real choice, taken at random -------------------------------
+dd_gh_flee:
+    call dd_at_tile
+    jnc .out
+    call OSAPI_RAND
+    and ax, 3
+    mov [dd_gtry], ax
+    mov cx, 4
+.try:
+    mov bx, [dd_gtry]
+    and bx, 3
+    mov al, bl
+    push cx
+    call dd_gh_legal
+    pop cx
+    jc .take
+    inc word [dd_gtry]
+    loop .try
+    ret
+.take:
+    mov bx, [dd_gtry]
+    and bx, 3
+    mov [dd_want + si], bl
+.out:
+    ret
+
+; --- scatter or chase ---------------------------------------------------------
+dd_gh_roam:
+    call dd_at_tile
+    jnc .out
+    call dd_gh_target               ; AL = target column, AH = target row
+    call dd_gh_aim
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_gh_target - AL = the column ghost [dd_gi] wants, AH = the row
+;
+; The four personalities, and they are the arcade's: the red one takes the tile
+; Smiles is on, the pink one four ahead of him, the cyan one the far end of the
+; line from the red one through two ahead of him, and the orange one goes home
+; whenever it gets within eight tiles.
+; -----------------------------------------------------------------------------
+dd_gh_target:
+    push bx
+    push cx
+    push dx
+    push si
+    cmp word [dd_modech], 0
+    je .scatter
+    mov bx, [dd_gi]
+    or bx, bx
+    jz .blinky
+    cmp bx, 1
+    je .pinky
+    cmp bx, 2
+    je .inky
+    ; --- Clyde: the tile, until he is close, and then his corner ------------
+    xor si, si
+    call dd_tile_of
+    mov [dd_pc], cx
+    mov si, [dd_gi]
+    inc si
+    call dd_tile_of
+    mov al, cl
+    sub al, byte [dd_pc]
+    cbw
+    mov bx, ax
+    imul bx                         ; AX = dx * dx
+    mov dx, ax
+    mov al, ch
+    sub al, byte [dd_pc + 1]
+    cbw
+    mov bx, ax
+    imul bx
+    add ax, dx
+    cmp ax, 64                      ; eight tiles, squared
+    jae .blinky
+    jmp short .scatter
+.blinky:
+    xor si, si
+    call dd_tile_of
+    mov ax, cx
+    jmp short .out
+.pinky:
+    xor si, si
+    call dd_tile_of
+    mov bl, [dd_lastd]              ; NOT [dd_dir]: a stopped Smiles is
+    xor bh, bh                      ; DIR_NONE, which indexes past dd_dx
+    mov al, [dd_dx + bx]
+    cbw
+    shl ax, 1
+    shl ax, 1
+    add al, cl
+    mov dl, al
+    mov al, [dd_dy + bx]
+    cbw
+    shl ax, 1
+    shl ax, 1
+    add al, ch
+    mov dh, al
+    mov ax, dx
+    jmp short .out
+.inky:
+    xor si, si
+    call dd_tile_of
+    mov bl, [dd_lastd]
+    xor bh, bh
+    mov al, [dd_dx + bx]
+    cbw
+    shl ax, 1
+    add al, cl
+    mov dl, al                      ; two ahead of Smiles
+    mov al, [dd_dy + bx]
+    cbw
+    shl ax, 1
+    add al, ch
+    mov dh, al
+    mov si, 1                       ; ...doubled about the red one
+    call dd_tile_of
+    mov al, dl
+    shl al, 1
+    sub al, cl
+    mov bl, al
+    mov al, dh
+    shl al, 1
+    sub al, ch
+    mov bh, al
+    mov ax, bx
+    jmp short .out
+.scatter:
+    mov bx, [dd_gi]
+    mov al, [dd_scatc + bx]
+    mov ah, [dd_scatr + bx]
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_gh_aim - point ghost SI at tile (AL, AH): of the legal turns, take the one
+;             whose next tile is nearest, and never reverse
+;
+; The try order is up, left, down, right, so an exact tie goes the way the
+; arcade's does - which is what makes a ghost climb out of a corner rather
+; than pace in it.
+; -----------------------------------------------------------------------------
+dd_gh_aim:
+    push bx
+    push cx
+    push dx
+    push di
+    mov [dd_tgt], ax
+    mov word [dd_best], 0FFFFh
+    mov byte [dd_bestd], DIR_NONE
+    xor di, di
+.try:
+    mov bx, di
+    mov al, [dd_tryo + bx]
+    push ax
+    call dd_gh_legal
+    pop ax
+    jnc .next
+    ; the tile that direction leads to
+    push ax
+    call dd_tile_of
+    pop ax
+    mov bl, al
+    xor bh, bh
+    add cl, [dd_dx + bx]
+    add ch, [dd_dy + bx]
+    ; ...and its distance, squared, from the target
+    mov al, cl
+    sub al, byte [dd_tgt]
+    cbw
+    mov bx, ax
+    imul bx
+    mov dx, ax
+    mov al, ch
+    sub al, byte [dd_tgt + 1]
+    cbw
+    mov bx, ax
+    imul bx
+    add ax, dx
+    cmp ax, [dd_best]
+    jae .next
+    mov [dd_best], ax
+    mov bx, di
+    mov al, [dd_tryo + bx]
+    mov [dd_bestd], al
+.next:
+    inc di
+    cmp di, 4
+    jb .try
+    mov al, [dd_bestd]
+    cmp al, DIR_NONE
+    je .out
+    mov [dd_want + si], al
+.out:
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; dd_gh_legal - CF = 1 when ghost SI may turn to direction AL from where it is
+;               (not a wall, and not straight back the way it came)
+dd_gh_legal:
+    push ax
+    push bx
+    push cx
+    mov bl, [dd_dir + si]
+    cmp bl, DIR_NONE
+    je .norev
+    xor bh, bh
+    cmp al, [dd_rev + bx]
+    je .no
+.norev:
+    push ax
+    call dd_tile_of
+    mov [dd_dc], cx
+    pop ax
+    call dd_can_go
+    jc .yes
+.no:
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
+.yes:
+    pop cx
+    pop bx
+    pop ax
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_gh_eyes - where ghost SI is looking, and how wide (SPEC.md 93.8.3)
+; -----------------------------------------------------------------------------
+dd_gh_eyes:
+    push bx
+    mov bx, [dd_gi]
+    mov byte [dd_gbig + bx], 0
+    mov byte [dd_gbigl + bx], 0
+    ; a glance, if one is running
+    cmp byte [dd_glance + bx], 0
+    je .noglance
+    dec byte [dd_glance + bx]
+    jmp short .out
+.noglance:
+    mov al, [dd_dir + si]
+    cmp al, DIR_NONE
+    jne .have
+    mov al, DIR_L
+.have:
+    mov [dd_glook + bx], al
+    ; ONE GHOST LOOKS PER TICK, staggered by its ordinal: the walk below is up
+    ; to 27 tile reads and the roll after it is a far call, and four of each
+    ; every tick is 4 ms of a 54.9 ms frame for an eye that nobody can see
+    ; move that fast
+    mov ax, [dd_anim]
+    and ax, 3
+    cmp ax, bx
+    jne .keep
+    ; can it SEE him? Only a roaming ghost bothers to look
+    mov al, [dd_gs + bx]
+    cmp al, GS_ROAM
+    jne .roll
+    call dd_gh_sees
+    jnc .roll
+    mov bx, [dd_gi]
+    mov byte [dd_gbig + bx], 1
+    mov [dd_glook + bx], al         ; dd_gh_sees hands back the direction
+    mov byte [dd_gbigl + bx], 1
+    mov [dd_glookl + bx], al
+    jmp short .out
+.roll:
+    call OSAPI_RAND                 ; ...and every so often it looks away
+    and ax, 63
+    cmp ax, 1
+    ja .out
+    mov bx, [dd_gi]
+    mov byte [dd_glance + bx], DD_GLANCE
+    call OSAPI_RAND
+    and al, 3
+    mov bx, [dd_gi]
+    mov [dd_glook + bx], al
+    jmp short .out
+.keep:
+    cmp byte [dd_gbigl + bx], 0     ; ...and between its turns it keeps the
+    je .out                         ; answer it last got
+    mov byte [dd_gbig + bx], 1
+    mov al, [dd_glookl + bx]
+    mov [dd_glook + bx], al
+.out:
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_gh_sees - CF = 1 and AL = the direction, when ghost SI shares an open row
+;              or column with Smiles
+; Clobbers AX/BX/CX/DX.
+; -----------------------------------------------------------------------------
+dd_gh_sees:
+    push si
+    push di
+    call dd_tile_of
+    mov [dd_gc0], cx
+    xor si, si
+    call dd_tile_of
+    mov [dd_pc], cx
+    pop di
+    pop si
+    mov al, [dd_gc0 + 1]
+    cmp al, [dd_pc + 1]
+    je .samerow
+    mov al, [dd_gc0]
+    cmp al, [dd_pc]
+    je .samecol
+    clc
+    ret
+.samerow:
+    ; walk the row between the two columns; any wall breaks the line
+    mov cl, [dd_gc0]
+    mov ch, [dd_gc0 + 1]
+    mov dl, DIR_R
+    mov al, [dd_pc]
+    cmp al, cl
+    je .none
+    ja .rwalk
+    mov dl, DIR_L
+.rwalk:
+    mov dh, [dd_pc]
+.rstep:
+    cmp dl, DIR_R
+    jne .rleft
+    inc cl
+    jmp short .rtest
+.rleft:
+    dec cl
+.rtest:
+    cmp cl, dh
+    je .seen
+    push dx
+    call dd_iswall
+    pop dx
+    jc .none
+    jmp short .rstep
+.samecol:
+    mov cl, [dd_gc0]
+    mov ch, [dd_gc0 + 1]
+    mov dl, DIR_D
+    mov al, [dd_pc + 1]
+    cmp al, ch
+    je .none
+    ja .cwalk
+    mov dl, DIR_U
+.cwalk:
+    mov dh, [dd_pc + 1]
+.cstep:
+    cmp dl, DIR_D
+    jne .cup
+    inc ch
+    jmp short .ctest
+.cup:
+    dec ch
+.ctest:
+    cmp ch, dh
+    je .seen
+    push dx
+    call dd_iswall
+    pop dx
+    jc .none
+    jmp short .cstep
+.seen:
+    mov al, dl
+    stc
+    ret
+.none:
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_modes - the scatter / chase clock, and the frightened one
+; -----------------------------------------------------------------------------
+dd_modes:
+    cmp word [dd_frcnt], 0
+    je .normal
+    dec word [dd_frcnt]
+    jnz .out                        ; the frightened clock STOPS the mode one,
+    call dd_unfright                ; which is what the arcade does
+    jmp short .out
+.normal:
+    cmp word [dd_modetim], 0
+    je .out                         ; the last phase runs for ever
+    dec word [dd_modetim]
+    jnz .out
+    inc word [dd_modeidx]
+    mov bx, [dd_modeidx]
+    cmp bx, DD_NMODE
+    jb .load
+    mov bx, DD_NMODE - 1
+    mov [dd_modeidx], bx
+.load:
+    shl bx, 1
+    mov ax, [dd_modet + bx]
+    mov [dd_modetim], ax
+    xor byte [dd_modech], 1         ; even phases scatter, odd ones chase
+    call dd_gh_reverse              ; a mode change turns them all round
+.out:
+    ret
+
+; dd_gh_reverse - every roaming ghost about-faces, which is the tell that the
+;                 mode changed and is the arcade's own rule
+dd_gh_reverse:
+    push si
+    mov si, 1
+.g:
+    mov bx, si
+    dec bx
+    mov al, [dd_gs + bx]
+    cmp al, GS_ROAM
+    je .turn
+    cmp al, GS_FRIGHT
+    jne .next
+.turn:
+    mov bl, [dd_dir + si]
+    cmp bl, DIR_NONE
+    je .next
+    xor bh, bh
+    mov al, [dd_rev + bx]
+    mov [dd_want + si], al
+.next:
+    inc si
+    cmp si, DD_NACT
+    jb .g
+    pop si
+    ret
+
+; dd_unfright - the pellet has worn off
+dd_unfright:
+    push si
+    mov word [dd_frcnt], 0
+    mov byte [dd_eatn], 0
+    mov si, 1
+.g:
+    mov bx, si
+    dec bx
+    cmp byte [dd_gs + bx], GS_FRIGHT
+    jne .next
+    mov byte [dd_gs + bx], GS_ROAM
+.next:
+    inc si
+    cmp si, DD_NACT
+    jb .g
+    pop si
+    ret
+
+; dd_fright_on - a pellet has just gone
+dd_fright_on:
+    push si
+    mov al, [dd_level]
+    dec al
+    cmp al, DD_NFRIT
+    jb .lev
+    mov al, DD_NFRIT - 1
+.lev:
+    xor ah, ah
+    shl ax, 1
+    mov bx, ax
+    mov ax, [dd_frit + bx]
+    mov [dd_frcnt], ax
+    or ax, ax
+    jz .none                        ; late levels do not frighten at all
+    mov byte [dd_eatn], 0
+    mov si, 1
+.g:
+    mov bx, si
+    dec bx
+    mov al, [dd_gs + bx]
+    cmp al, GS_ROAM
+    jne .next
+    mov byte [dd_gs + bx], GS_FRIGHT
+.next:
+    inc si
+    cmp si, DD_NACT
+    jb .g
+    call dd_gh_reverse
+.none:
+    pop si
+    ret
+
+; dd_release_ck - let the penned ghosts out as the board empties
+dd_release_ck:
+    push si
+    mov si, 1
+.g:
+    mov bx, si
+    dec bx
+    cmp byte [dd_gs + bx], GS_HOUSE
+    jne .next
+    mov al, [dd_ghdot + bx]
+    xor ah, ah
+    cmp [dd_eaten], ax
+    jb .next
+    mov byte [dd_gs + bx], GS_OUT
+.next:
+    inc si
+    cmp si, DD_NACT
+    jb .g
+    pop si
+    ret
+
+; =============================================================================
+; EATING, COLLIDING, SCORING (SPEC.md 93.9)
+; =============================================================================
+
+; -----------------------------------------------------------------------------
+; dd_eat_here - whatever Smiles is standing on
+; -----------------------------------------------------------------------------
+dd_eat_here:
+    push si
+    xor si, si
+    call dd_at_tile
+    jnc .out                        ; a dot is taken at the tile, not near it
+    call dd_tile_of
+    call dd_eat_tile                ; AL = what was there; nothing is drawn
+    cmp al, TT_DOT
+    je .dot
+    cmp al, TT_PILL
+    je .pill
+    jmp short .out
+.dot:
+    inc word [dd_eaten]
+    mov ax, DD_PTDOT
+    call dd_score_add
+    mov ax, 660
+    call dd_beep
+    call dd_fruit_ck
+    jmp short .out
+.pill:
+    inc word [dd_eaten]
+    mov ax, DD_PTPILL
+    call dd_score_add
+    call dd_fright_on
+    mov ax, 220
+    call dd_beep
+    call dd_fruit_ck
+.out:
+    pop si
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_collide - Smiles against the four of them
+;
+; The test is the TILE and not the boxes: two actors crossing at speed can
+; never be in the same tile without having been within half a tile of each
+; other, and a box overlap would fire on a pass that the player reads as a
+; miss.
+; -----------------------------------------------------------------------------
+dd_collide:
+    push si
+    xor si, si
+    call dd_tile_of
+    mov [dd_pc], cx
+    mov si, 1
+.g:
+    mov bx, si
+    dec bx
+    mov [dd_gi], bx
+    mov al, [dd_gs + bx]
+    cmp al, GS_EYES
+    je .next                        ; a pair of eyes cannot be run into
+    cmp al, GS_HOUSE
+    je .next
+    call dd_tile_of
+    mov ax, [dd_pc]
+    cmp cl, al
+    jne .next
+    cmp ch, ah
+    jne .next
+    mov bx, [dd_gi]
+    cmp byte [dd_gs + bx], GS_FRIGHT
+    je .eat
+    cmp byte [dd_demo], 0
+    jne .next                       ; the demo's Smiles is not killed: the
+    call dd_die                     ; attract loop is a shop window, not a game
+    pop si
+    ret
+.eat:
+    mov byte [dd_gs + bx], GS_EYES
+    mov byte [dd_shown + si], 0     ; it changes shape entirely: let the
+                                    ; renderer put the old one away first
+    call dd_ghost_score
+    mov word [dd_gpause], DD_EATPAUSE
+    mov ax, 1200
+    call dd_beep
+.next:
+    inc si
+    cmp si, DD_NACT
+    jb .g
+    pop si
+    ret
+
+; dd_ghost_score - 200, 400, 800, 1600 as they go down
+dd_ghost_score:
+    push ax
+    push bx
+    push cx
+    mov cl, [dd_eatn]
+    inc byte [dd_eatn]
+    mov ax, 200
+    or cl, cl
+    jz .add
+.sh:
+    shl ax, 1
+    dec cl
+    jnz .sh
+.add:
+    call dd_score_add
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_score_add - AX points, and the extra life the total may have earned
+; -----------------------------------------------------------------------------
+dd_score_add:
+    push ax
+    push bx
+    push dx
+    add [dd_score], ax
+    adc word [dd_score+2], 0
+    mov byte [dd_hudd], 1
+    cmp byte [dd_extra], 0
+    jne .out
+    mov ax, [dd_score+2]
+    or ax, ax
+    jnz .give
+    mov ax, [dd_score]
+    cmp ax, DD_EXTRA
+    jb .out
+.give:
+    mov byte [dd_extra], 1
+    inc byte [dd_lives]
+    mov ax, 1600
+    call dd_beep
+.out:
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_die / dd_life_lost - Smiles is caught
+; -----------------------------------------------------------------------------
+dd_die:
+    mov byte [dd_state], DDS_DIE
+    mov word [dd_tim], DD_DIET
+    mov ax, 180
+    call dd_beep
+    ret
+
+dd_life_lost:
+    dec byte [dd_lives]
+    jz .over
+    js .over
+    call dd_actors_home
+    mov word [dd_fruit], 0
+    mov byte [dd_state], DDS_READY
+    mov word [dd_tim], DD_READYT
+    mov byte [dd_full], 1
+    ret
+.over:
+    mov byte [dd_lives], 0
+    mov byte [dd_state], DDS_OVER
+    mov word [dd_tim], DD_OVERT
+    mov byte [dd_full], 1
+    ret
+
+; =============================================================================
+; THE FRUIT (SPEC.md 93.9.2)
+; =============================================================================
+
+; dd_fruit_ck - two per board, at seventy dots and at a hundred and seventy
+dd_fruit_ck:
+    push ax
+    mov ax, [dd_eaten]
+    cmp ax, 70
+    je .maybe
+    cmp ax, 170
+    jne .out
+.maybe:
+    cmp byte [dd_fruits], 2
+    jae .out
+    inc byte [dd_fruits]
+    mov word [dd_fruit], 1
+    mov word [dd_frtim], DD_FRUITT
+    mov byte [dd_frdirty], 1
+.out:
+    pop ax
+    ret
+
+; dd_fruit_tick - it waits, and it is taken by standing on it
+dd_fruit_tick:
+    push si
+    cmp word [dd_fruit], 0
+    je .out
+    dec word [dd_frtim]
+    jnz .live
+    mov word [dd_fruit], 0          ; nobody came
+    mov byte [dd_frdirty], 1
+    jmp short .out
+.live:
+    xor si, si
+    call dd_tile_of
+    cmp cl, DD_FRUITC
+    jne .out
+    cmp ch, DD_FRUITR
+    jne .out
+    mov word [dd_fruit], 0
+    mov byte [dd_frdirty], 1
+    call dd_fruit_val
+    call dd_score_add
+    mov ax, 900
+    call dd_beep
+.out:
+    pop si
+    ret
+
+; dd_fruit_val - AX = what this level's fruit is worth
+dd_fruit_val:
+    push bx
+    mov al, [dd_level]
+    dec al
+    shr al, 1                       ; a new fruit every two levels
+    cmp al, DD_NFRV
+    jb .ok
+    mov al, DD_NFRV - 1
+.ok:
+    xor ah, ah
+    shl ax, 1
+    mov bx, ax
+    mov ax, [dd_frv + bx]
+    pop bx
+    ret
+
+; =============================================================================
+; ANIMATION - which image each actor wears this frame
+; =============================================================================
+dd_anims:
+    push si
+    ; --- Smiles: dir * 3 + phase, and the phase runs 0 1 2 1 so the mouth
+    ; opens and closes rather than snapping shut ---------------------------
+    xor si, si
+    mov al, [dd_dir]
+    cmp al, DIR_NONE
+    jne .facing
+    mov al, [dd_lastd]
+    jmp short .phase
+.facing:
+    mov [dd_lastd], al
+.phase:
+    mov cl, 3
+    mul cl                          ; AX = direction * 3
+    mov bl, al
+    mov ax, [dd_anim]
+    and ax, 3
+    cmp ax, 3
+    jne .ph
+    mov ax, 1
+.ph:
+    add al, bl
+    add al, SP_PAC
+    mov [dd_img + 0], al
+    mov al, [dd_ink]
+    mov [dd_inkof + 0], al
+    ; --- the ghosts --------------------------------------------------------
+    mov si, 1
+.g:
+    mov bx, si
+    dec bx
+    mov [dd_gi], bx
+    mov al, [dd_gs + bx]
+    cmp al, GS_EYES
+    je .geyes
+    cmp al, GS_FRIGHT
+    je .gfri
+    ; body: skirt phase from the shared clock, eyes from the look state
+    mov ax, [dd_anim]
+    and ax, 4                       ; a slower flap than the mouth
+    jz .skirt0
+    mov al, 8
+    jmp short .skirt
+.skirt0:
+    xor al, al
+.skirt:
+    mov bx, [dd_gi]
+    mov ah, [dd_gbig + bx]
+    shl ah, 1
+    shl ah, 1
+    add al, ah
+    add al, [dd_glook + bx]
+    add al, SP_GHOST
+    mov [dd_img + si], al
+    mov bx, si
+    mov al, [dd_ink + bx]
+    mov [dd_inkof + si], al
+    jmp short .gnext
+.gfri:
+    mov ax, [dd_anim]
+    and ax, 4
+    jz .f0
+    mov al, 1
+    jmp short .f1
+.f0:
+    xor al, al
+.f1:
+    add al, SP_FRIGHT
+    mov [dd_img + si], al
+    mov al, DD_INKFRI
+    cmp word [dd_frcnt], 36         ; the last two seconds flash white
+    ja .fset
+    mov bx, [dd_anim]
+    and bx, 2
+    jz .fset
+    mov al, CWHITE
+.fset:
+    mov [dd_inkof + si], al
+    jmp short .gnext
+.geyes:
+    mov bx, [dd_gi]
+    mov al, [dd_glook + bx]
+    add al, SP_EYES
+    mov [dd_img + si], al
+    mov byte [dd_inkof + si], DD_INKEYE
+.gnext:
+    inc si
+    cmp si, DD_NACT
+    jb .g
+    pop si
+    ret
+
+; =============================================================================
+; SOUND - three notes and a toggle (SPEC.md 93.10)
+; =============================================================================
+; dd_beep - AX Hz for a couple of ticks, and never at the cost of a frame:
+; OSAPI_SND_TONE is fire and forget, so nothing here waits for anything.
+dd_beep:
+    cmp byte [dd_snd], 0
+    je .out
+    push ax
+    push cx
+    push dx
+    mov cx, 2
+    mov dl, 0x40
+    call OSAPI_SND_TONE
+    pop dx
+    pop cx
+    pop ax
+.out:
+    ret

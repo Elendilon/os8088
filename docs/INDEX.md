@@ -294,6 +294,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | CHART | `apps/chart/chart.asm` | §82 | yes |
 | CWORD | `apps/cword/cword.asm` | §73.12 | yes |
 | CYCLONE 88 | `apps/cyclone/cyclone.asm` | §67 | yes |
+| DOTDEL | `apps/dotdel/dotdel.asm` | §93 | yes |
 | FONT VIEWER | `apps/fontview/fontview.asm` | §90 | yes |
 | FPTEST | `apps/fptest/fptest.asm` |  | no |
 | FRACTAL | `apps/fractal/fractal.asm` | §40 | yes |
@@ -422,6 +423,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | 90 | FONT VIEWER — the system face browser (`apps/fontview/fontview.asm`) |
 | 91 | PACCMAN — pacman.c, written in C (`apps/paccman/`) |
 | 92 | THE WIRE — the online software library (`apps/thewire/thewire.asm`) |
+| 93 | DOT DELIRIUM — a maze chase, sized from the surface (`apps/dotdel/`) |
 
 ## docs/
 
