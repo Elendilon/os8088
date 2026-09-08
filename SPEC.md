@@ -100437,13 +100437,22 @@ at all**. It is a different machine:
 | `cs_blit` | 28.44 | 15.09 |
 | band rows that are object-free | 0 of 112 | **112 of 112** |
 | mean span width | 31 of 50 bytes | **3.0** |
-| horizon identical to last frame | 20 of 20 | 7 of 20 |
+| horizon identical to last frame | 20 of 20 | **19 of 20** |
 
 **With nothing to draw, the horizon IS the frame** — and every row of it is
 skippable, which is exactly what §88.3.1.1.2's refused cache wanted and never
-found in a busy scene. On a still frame the whole band could be nothing; over
-these twenty frames that is ~13.5 ms of 77.6, and on the still frames
-themselves 77.6 → ~39.
+found in a busy scene. On a still frame the whole band could be nothing: 77.6
+→ ~43 ms, 12.9 → ~23 fps, on nineteen frames in twenty.
+
+**That 19 was 7 until the instrument was fixed, and the fix is the lesson.**
+`tests/skiesprof.py`'s held-bank profiles pinned the roll at the FRAME's
+start and then let the model run, so what `cs_matrix` saw was 45° less
+whatever §88.7.5's easing rolled out over that frame's ticks — and the tick
+count per frame alternates between one and two at 77.6 ms. The horizon
+alternated between exactly two positions three rows apart, and read as an
+aeroplane that could not hold a bank. **It was the pin wobbling**: the raw
+attitude took two values, 146 units apart, which is one tick of roll-out
+exactly. A held bank is pinned at the matrix now.
 
 **The aerodrome was tried first and is the WRONG scene**, which is the finding
 worth keeping. Three short buildings and two of the Seine's ribbons reads as
@@ -100495,6 +100504,55 @@ twenty vertices: 182.7 to 178.1 ms — and costs ~20 cycles a primitive on
 the objects that are not whole, which is why the city frame reads 0.8 ms
 MORE for it: the river pieces there reach the eye or a side, and its
 buildings are boxes (§88.5.4) with no primitives at all.
+
+##### 88.3.2.1 REFUSED — marking a diagonal in row BANDS, and the ratio that decides it
+
+A box is the wrong shape for a diagonal, and **one object proves it**. Stopping
+after every `cs_drawobj` in a held 45° bank and reading the span set's total
+width:
+
+| `turnhold`, one frame | span total | it added |
+|---|---|---|
+| after `cs_skyground` | 336 (112 rows × the 3-byte band) | — |
+| **after the AXIS ROAD** | **2,928** | **2,592** |
+| every object after it | 2,928 | **0** |
+
+`cs_m_axis` is `CSM_FLAT` with three vertices, **no faces and two edges** — a
+polyline — and in a bank one of its segments crosses the whole view. Its
+clipped box is therefore the view, so it marks **26 bytes on every one of 112
+rows** where its ink is a few, and every later object finds everything already
+marked.
+
+Marking a flat model's segments in sixteen ROW BANDS instead — each band with
+the x range the line actually has there, one divide for the step and addition
+after — was built and measured:
+
+| `turnhold`, 20 flown frames | fused | + banded marks |
+|---|---|---|
+| span total marked | 2,928 | **1,752** (−40%) |
+| `cs_blit` | 28.44 | **27.34** (−1.10) |
+| `cs_scene` | 176.07 | **180.04** (+3.97) |
+| frame | **263.1** | 266.0 (**+2.9**) |
+
+**The marks got 40% tighter and the frame got 2.9 ms slower.** The arithmetic
+that says so is two unit costs, and it decides every marking question in this
+program:
+
+> **A row costs ~50 cycles to MARK and ~4.5 cycles a byte to CARRY.**
+
+`cs_markrows`' inner loop is a read, two compares and a write; `cs_blit` moves
+a byte for about a ninth of that. So a marking pass over R rows only pays if
+it saves more than **eleven bytes on every row it touches** — and banding the
+axis road saved 10.5. It is not a tuning problem: more bands narrow the marks
+and cost nothing extra per row, but the pass itself is what is dear, and a
+segment that marks its own rows no longer accumulates into the object's box,
+so a two-segment object pays the row walk twice where it paid once.
+
+This is §88.3.2's refusal re-derived from the other end. That one measured a
+wireframe tower's 32 segments and lost by 45 ms; this one is the friendliest
+possible case — ONE object, TWO segments, a box the size of the view and ink a
+few bytes wide — and it still loses. **The mark is per object and off its box,
+and that is settled.**
 
 #### 88.3.3 The blit looks only at the rows anything marked
 

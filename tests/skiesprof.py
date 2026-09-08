@@ -353,7 +353,17 @@ def main(argv):
         def on_hit(mm, rec):
             """At the frame's own boundary, read what the aeroplane is doing
             - so the report can show that the profile did what it claims."""
-            if ("<", "input") not in addrs.get(rec["addr"], ()):
+            ev = addrs.get(rec["addr"], ())
+            # --- A HELD BANK IS PINNED AT THE MATRIX, NOT AT THE INPUT ------
+            # Pinning it at the frame's start and letting the model run means
+            # the roll cs_matrix actually sees is 45 degrees LESS whatever
+            # 88.7.5's easing rolled out over the ticks that frame - and the
+            # tick count per frame alternates, so the horizon alternated
+            # between exactly two positions three rows apart and read as a
+            # wobbling aeroplane. It was the pin wobbling.
+            if hold and ("<", "matrix") in ev:
+                poke("cs_roll", rollv)
+            if ("<", "input") not in ev:
                 return None
             if hold:
                 poke("cs_roll", rollv)

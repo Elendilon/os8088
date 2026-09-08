@@ -391,11 +391,19 @@ an empty corner of Paris, the Issy aerodrome's three outbuildings (12, 10 and
 | `cs_blit` | 28.44 | 15.09 |
 | band rows object-free | 0 of 112 | **112 of 112** |
 | mean span width | 31 of 50 bytes | **3.0** |
-| horizon identical to last frame | 20 of 20 | 7 of 20 |
+| horizon identical to last frame | 20 of 20 | **19 of 20** |
 
 **With nothing to draw the horizon IS the frame**, and every row is skippable
-- the case the cache wanted. ~13.5 ms of 77.6 over these twenty frames; on a
-still frame 77.6 -> ~39. In `turnhold` and `bank` it is worth nothing.
+- the case the cache wanted. On a still frame 77.6 -> ~43 ms, 12.9 -> ~23 fps,
+on nineteen frames in twenty. In `turnhold` and `bank` it is worth nothing.
+
+**That 19 was 7 until the instrument was fixed.** The held-bank profiles
+pinned the roll at the FRAME's start and let the model run, so what cs_matrix
+saw was 45 degrees less whatever 88.7.5's easing rolled out over that frame's
+ticks - and at 77.6 ms a frame takes one tick or two. The raw attitude took
+exactly two values 146 units apart, one tick of roll-out, and the horizon
+alternated between two positions three rows apart. It was the PIN wobbling,
+not the aeroplane. Held profiles pin at the matrix now.
 
 **THE AERODROME WAS TRIED FIRST AND IS THE WRONG SCENE.** Three short
 buildings and two of the Seine's ribbons reads as sparse and measures as busy:
@@ -413,16 +421,10 @@ DIAGONAL AT ALL.
    refused twice when the range had to be threaded through `cs_hzb0`/`cs_hzbn`
    and three row fillers. In the fused loop it is a handful of bytes, and with
    the stores now 41% of the row it is the largest single item in the band.
-2. **Per-ROW marking, from the bounds cs_poly already has.** 88.3.2 measured
-   per-primitive marking on a wireframe tower - 32 segments each running
-   `cs_markrows` over the same hundred rows - and it lost. This is not that:
-   `cs_poly` already computes `cs_xl`/`cs_xr` for every row it fills, so
-   marking from them is a compare-and-store on a pair the loop is holding. It
-   narrows the fill's range AND the blit's, in every scene.
-3. **The horizon cache**, now that 7.1.5's `sparse` prices it: ~13.5 ms of an
-   empty turn's 77.6 and nothing in a busy one, for ~100 bytes and a second
-   path through the band whose correctness rests on the key covering every
-   input to the picture.
+2. **The horizon cache**, now that 7.1.5's `sparse` prices it properly: an
+   empty turn's 77.6 ms -> ~43 on nineteen frames in twenty, and NOTHING in a
+   busy one, for ~100 bytes and a second path through the band whose
+   correctness rests on the key covering every input to the picture.
 4. **`cs_blit`'s own per-row walk**, ~300 cycles over rows that are mostly a
    few bytes now.
 

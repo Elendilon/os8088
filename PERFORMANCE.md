@@ -12027,3 +12027,64 @@ exact per-row bounds it fills between, so marking from those is a
 compare-and-store on a pair the loop already holds — a different trade from
 §88.3.2's refusal, which was a wireframe tower's 32 segments each running
 `cs_markrows` over the same hundred rows.
+
+### Set 126 — CLEAR SKIES: a row costs ~50 cycles to MARK and ~4.5 a byte to CARRY (SPEC.md §88.3.2.1)
+
+Set 125 left "the box is the wrong shape for a diagonal" as the next lead, and
+this set prices it and refuses it. Stopping after every `cs_drawobj` in a held
+45° bank and reading the span set's total width — host-side, no build:
+
+| `turnhold`, one frame | span total | it added |
+|---|---|---|
+| after `cs_skyground` | 336 (112 rows × the 3-byte band) | — |
+| **after the AXIS ROAD** | **2,928** | **2,592** |
+| every one of the eight objects after it | 2,928 | **0** |
+
+**One object does all of it.** `cs_m_axis` — Paris's Louvre-to-La-Défense
+axis — is `CSM_FLAT` with three vertices, no faces and two edges: a polyline.
+In a bank one segment crosses the whole view, so its clipped box IS the view
+and it marks 26 bytes on every one of 112 rows where its ink is a few. Every
+later object then finds everything already marked, which is why a "sparse"
+scene with two Seine ribbons measured busier than `turnhold` (Set 125).
+
+Marking a flat model's segments in sixteen ROW BANDS instead — each band with
+the x range the line actually has there, one divide for the step, addition
+after — was built and measured:
+
+| `turnhold`, 20 flown frames | fused | + banded marks |
+|---|---|---|
+| span total marked | 2,928 | **1,752** (−40%) |
+| `cs_blit` | 28.44 | **27.34** (−1.10) |
+| `cs_scene` | 176.07 | **180.04** (+3.97) |
+| frame | **263.1** | 266.0 (**+2.9**) |
+
+**The marks got 40% tighter and the frame got 2.9 ms slower.** Two unit costs
+explain it, and they decide every marking question in this program:
+
+> **A row costs ~50 cycles to MARK and ~4.5 cycles a byte to CARRY.**
+
+`cs_markrows`' inner loop is a read, two compares and a write; `cs_blit` moves
+a byte for about a ninth of that. So a marking pass over R rows pays only if
+it saves more than **eleven bytes on every row it touches** — banding the axis
+road saved 10.5. More bands narrow the marks and cost nothing per row, so it
+is not a tuning problem: the PASS is what is dear, and a segment that marks
+its own rows stops accumulating into the object's box, so a two-segment object
+walks the rows twice where it walked them once.
+
+§88.3.2 refused per-primitive marking on a wireframe tower's 32 segments and
+lost by 45 ms. This is the friendliest case imaginable — one object, two
+segments, a box the size of the view, ink a few bytes wide — and it still
+loses. **The mark is per object and off its box; that is settled.** The
+change is reverted and `build/skies.bin` is byte-identical to before it.
+
+**And the instrument was wrong about the aeroplane.** Set 125 reported the
+empty turn's horizon still in only 7 frames of 20 and a held bank that seemed
+to wobble. It was the PIN wobbling: `tests/skiesprof.py`'s held-bank profiles
+pinned the roll at the frame's START and then let the model run, so what
+`cs_matrix` saw was 45° less whatever §88.7.5's easing rolled out over that
+frame's ticks — and at 77.6 ms a frame takes one tick or two. The raw attitude
+took exactly two values, 146 units apart, which is one tick of roll-out; the
+horizon alternated between two positions three rows apart. Pinned at the
+matrix instead, the same profile reads **19 of 20, longest run 19** — so the
+cache §88.3.1.1.2 refused is worth ~33 ms of the empty turn's 77.6 (12.9 → ~23
+fps) and still nothing at all in a busy one.
