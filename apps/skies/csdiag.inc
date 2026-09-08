@@ -32,6 +32,14 @@ CSD_BLKS  equ 9                     ; ...and the blocks painted in all
 CSD_ROWS  equ 4                     ; scan rows a word is painted in
 CSD_CANB  equ 16                    ; the watchdog's own guard, beside the
 CSD_PAT   equ 0xA55A                ; bytes a wild write was seen to reach
+CSD_TOP   equ 36                    ; the device row the strip starts on when
+                                    ; the backend leaves room above the view
+                                    ; (SPEC.md 88.14.3). NOT 0: KFZ=1's kernel
+                                    ; heartbeat owns rows 0-3 and its 30-second
+                                    ; report is drawn at MBAR_H + 8 = row 28,
+                                    ; eight rows tall - so 36 clears both, and
+                                    ; 36 + CSD_BLKS * CSD_ROWS = 72 clears a
+                                    ; Hercules view at 74 (cs_vptab) by two
 
 ; -----------------------------------------------------------------------------
 ; cs_diag_on / cs_diag_off - take and give back the int 08h vector. Called
@@ -140,18 +148,23 @@ cs_diag_devo:
 ; -----------------------------------------------------------------------------
 ; cs_diag_rows - WHERE THE STRIP GOES, once (SPEC.md 88.14.3)
 ;
-; It used to go at the VIEW's top-left, on the view's own rows - and a frame's
-; blit writes the view's whole byte range for every dirty row, so the two
-; fought for the same bytes and a photograph of a machine that died mid-blit
-; is a MIXTURE. Two field photographs came back that way: a block whose three
-; rows disagreed, a blank fourth row that was not blank, and one block whose
-; lit pixels spanned SEVENTEEN columns of a sixteen-pixel field.
+; It used to go at the VIEW's top-left. THE BLIT WAS NOT EATING IT - that was
+; this file's first explanation and it is measurably wrong: cs_blit copies a
+; per-row SPAN and not the box's width, and over all 200 view rows with the
+; aeroplane manoeuvring those spans never leave bytes 15 to 64, which is the
+; 400-wide window and nothing else. The watchdog's bytes 5 and 6 were never
+; touched, on any row, ever.
 ;
-; So the strip goes ABOVE the view where the backend leaves room - a Hercules
-; puts the view at device row 74 (cs_vptab), so rows 4 to 39 are black from
-; fsx_enter's clear to the end of the bracket and nothing else ever writes
-; them. Row 4 and not row 0, because KFZ=1's kernel heartbeat owns rows 0-3
-; and the two instruments are meant to be readable together.
+; What IS in the way is the kernel: KFZ=1's heartbeat owns device rows 0-3,
+; and its 30-second report is drawn at MBAR_H + 8 - row 28, eight rows tall -
+; which the two instruments together put straight through the strip. So it
+; goes at CSD_TOP, clear of both and clear of the view, where nothing in
+; either the kernel or the package writes at all.
+;
+; The field mixture that started this - a block whose three rows disagreed, a
+; blank fourth row that was not blank, and one block whose lit pixels spanned
+; SEVENTEEN columns of a sixteen-pixel field - is therefore STILL UNEXPLAINED,
+; and moving the strip is one variable removed rather than a fix for it.
 ;
 ; Where there is no room - CGA and Mode X both put the view at row 0 - it
 ; falls back to the view's own rows, which is exactly what it did before.
@@ -168,9 +181,9 @@ cs_diag_rows:
     pop es
     cld
     mov bx, [cs_vy]
-    cmp bx, CSD_BLKS * CSD_ROWS + 4
+    cmp bx, CSD_BLKS * CSD_ROWS + CSD_TOP
     jb .go                          ; no room above: the view's own rows
-    mov bx, 4
+    mov bx, CSD_TOP
 .go:
     mov di, cs_doff
     mov cx, CSD_BLKS * CSD_ROWS

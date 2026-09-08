@@ -9475,6 +9475,56 @@ for it in every shipping kernel is §8.7.4: the margin that makes this path
 unreachable is a **measurement**, not a proof, and it has now gone stale twice
 — once in docs/FIELD-NOTES.md 29.6 and once in the Task Manager's heap page.
 
+### 8.9 The `KFZ=1` heartbeat, and what it must not do inside a bracket
+
+`KFZTRACE` is the kernel's own answer to "it froze": `khb_paint` writes
+fifteen bytes of kernel state straight into VRAM from IRQ0, twice a tick, at
+the top-left of the screen — four scan rows, four pixels a bit. It is painted
+from the timer because on the machine it exists for the timer is the last
+thing still running, so it is the only context able to report at all. The
+cells, left to right, are
+
+`beat · chain · kfz · sch_cur · sch_lock · gfx_lock_flag · gfx_lock_own ·
+SPhi · SPlo · bad · CShi · IPhi · IPlo · IMR · ISR`
+
+and the last five are the ones a hard freeze is read with: **IMR** says
+whether IRQ0 was masked off, **ISR** whether an EOI went missing (bit 0 is
+always set — this ISR is the one in service — so it is any *other* bit that
+means anything), **CS:IP** names where the machine was standing, and **beat
+against chain** says which side of the BIOS `int 08h` call it died on. A beat
+that stops while all of those read normally leaves the fourth answer: a
+reprogrammed PIT.
+
+#### 8.9.1 The 30-second report must not fire inside an fsx bracket
+
+Beside the strip there is a watchdog: `KHB_STUCK` = 546 ticks — thirty
+seconds — **with no `ui_task` pass**, after which one line of text is drawn
+naming the CS:IP, the mutex owner, three return addresses off the interrupted
+stack, and the PIC's two registers. The threshold is thirty seconds and not
+five because a healthy machine really can spend that long inside one pass;
+ModPlug's opening `W_PAINT` is the worked example.
+
+**Inside an fsx bracket `ui_task` does not run at all** (§53.1) — the app owns
+the machine — so "no pass" is the *defined* state there and never a symptom.
+Without a gate the report therefore fires half a minute into **every**
+bracket, every time, and the field found it exactly that way: `KFZ=1` under a
+flight simulator, with the line landing on top of the app's own instrument
+(§88.14.3).
+
+The collision is the least of it. The report **forces the gfx lock, the clip
+count, `gfx_dis` and `gfx_color` open** so that `font_run` can draw, and then
+draws into the KERNEL's framebuffer at `MBAR_H + 8` — while the app owns the
+video mode. In a Mode X or a CGA320 bracket that is a write into a mode the
+kernel is not driving, which is the one thing §79's blanker is careful never
+to do one feature along.
+
+The gate is one compare against `[fsx_task]`, which is `0xFF` when no bracket
+is up, and it **zeroes** the counter rather than merely holding it — so
+leaving a long bracket does not fire the report on the way out. A bracket
+that genuinely freezes is what §88.14's package-side watchdog is for, and the
+strip itself keeps painting either way: `khb_paint` is unconditional, above
+this test, and its rows 0-3 are clear of everything §88.14.3 puts at row 4.
+
 ## 9. mouse.inc — the pointer: serial and PS/2 mice, and the cursor
 
 - **COM1 (0x3F8, IRQ4 → int 0x0C) and COM2 (0x2F8, IRQ3 → int 0x0B)**, both
@@ -104460,46 +104510,59 @@ freeze that 8,000 pinned poses and 4,200 frames of continuous rolling under
 MartyPC could not reproduce — which is itself a finding: whatever it is, it
 is not a function of the drawn state alone.
 
-#### 88.14.3 The strip goes ABOVE the view, or the blit eats the reading
+#### 88.14.3 The strip goes above the view — and NOT for the reason first given
 
-Two field photographs of a frozen machine came back **unreadable in the same
-way**, and the reason is that the strip was painted at the VIEW's top-left —
-on the view's own rows, out of `cs_devoff`.
+**The correction comes first, because the wrong reason was published.** The
+strip used to be painted at the VIEW's top-left, out of `cs_devoff`, and this
+section's first version said `cs_blit` was overwriting it: the view is 640
+wide and bytes 5 and 6 of a Hercules row are exactly the sixteen pixels a
+block occupies, so the two were said to be fighting over the same bytes.
 
-`cs_blit` writes the view's whole byte range for every dirty row, and bytes 5
-and 6 of a Hercules row are exactly the sixteen pixels a block occupies. So
-the watchdog and the frame were writing the same bytes at 18.2 Hz and ~5 Hz
-respectively, and what a photograph of a machine that died mid-blit shows is
-a **mixture**. §88.14 knew about the flicker and called it the point — *"what
-survives is what was painted after the last frame that ever finished"* — but
-that sentence is only true if the last thing to write a row was the watchdog,
-and on a freeze it is a coin toss per row.
+**That is measurably false, and the field asked the question that caught it**
+— *"in this view size the width of the draw area is far from it; are we still
+blitting 512 even though we shrunk to 400?"* `cs_blit` copies a per-row
+**span** `[lo, hi]`, unioned over this frame's set and last frame's, and skips
+a row whose span is empty. Measured on a Hercules with the aeroplane
+manoeuvring, over **all 200 view rows**:
 
-The symptoms name themselves once you know: a block whose three rows should
-be identical and are not, a fourth row that should be blank and is not, and —
-the one that gave it away — a block whose lit pixels spanned **seventeen
-columns of a sixteen-pixel field**, which no word can do. That last reading
-cost a long detour into whether the capture's scale was 2x (it was: the
-panel's 640-pixel span, the sky's 50% dither phase and a native 720x348
-screenshot all agree).
+| | |
+|---|---|
+| span bytes ever seen | **15 … 64** — the 400-wide window and nothing else |
+| view rows whose span ever reached byte 0 or 1 | **0** |
+| of the strip's 36 rows, those whose first 8 bytes changed | **0** |
 
-`cs_diag_rows` works the offsets out **once**, at `cs_diag_on`, into
-`cs_doff` — and it puts them **above the view where the backend leaves
-room**. `cs_vptab` gives a Hercules a view at device row **74**, so rows
-**4 to 39** are black from `fsx_enter`'s clear to the end of the bracket and
-nothing else ever writes them. Row 4 rather than row 0 because **`KFZ=1`'s
-kernel heartbeat owns rows 0 to 3** (§8, `khb_paint`), and the two
-instruments are meant to be photographed together. Where there is no room —
-CGA and Mode X both put the view at row 0 — it falls back to the view's own
-rows, which is what it always did.
+So the blit is exactly the drawn width, the answer to the field's question is
+*no, it does not blit the box*, and the watchdog's bytes were never touched on
+any row. The "59 mixed readings" the first version quoted were an artefact of
+the measuring script, which read the nine blocks with the guest **running** —
+the ISR repainted between two of its reads and it invented the mixture it went
+looking for. A sampler that pauses first reads them clean in the old position
+too.
 
-It is also FASTER in the ISR, which matters here: the offsets were a table
-lookup before and are a table lookup now, but the table is the watchdog's own
-rather than the raster's, so it costs `cs_diag_devo`'s forty bytes once at
-bracket entry and nothing per tick. Measured on a Hercules, 20 samples of all
-nine blocks with the guest paused: **0 mixed readings**, against 59 before.
+**What is genuinely in the way is the kernel, and that is the field's other
+report.** `KFZ=1`'s heartbeat owns device rows **0-3** (§8.9), and its
+30-second stuck report is drawn at `MBAR_H + 8` — row **28**, eight rows tall.
+Run both instruments together, which is the whole point of having them, and
+the report lands straight through the strip. §8.9.1 stops that report firing
+inside a bracket at all; putting the strip clear of it as well is belt and
+braces.
 
-The shipped package is **byte-identical** — every line of it is inside
+`cs_diag_rows` therefore works the offsets out **once**, at `cs_diag_on`, into
+`cs_doff`, starting at `CSD_TOP` = **36**: clear of the heartbeat's rows 0-3,
+clear of the report's 28-35, and `36 + 9 × 4` = 72, which clears a Hercules
+view at device row **74** (`cs_vptab`) by two. Where there is no room — CGA
+and Mode X both put the view at row 0 — it falls back to the view's own rows,
+which is what it always did.
+
+**The field mixture that started this is still unexplained.** Two photographs
+of a frozen machine came back with a block whose three rows disagreed, a blank
+fourth row that was not blank, and — the one that cannot be a word at all — a
+block whose lit pixels spanned **seventeen columns of a sixteen-pixel field**.
+A machine that stopped inside `cs_diag_paint` explains ONE block half-written,
+not four. Moving the strip is one variable removed, not an answer; a wild
+write is the standing suspicion, and §88.14.1's four guards did not trip.
+
+The shipped package is **byte-identical** — every line of this is inside
 `%ifdef CSDIAG`.
 
 #### 88.14.2 A private tree nothing rebuilds is a stale tree

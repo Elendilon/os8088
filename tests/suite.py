@@ -2515,6 +2515,26 @@ SOAK = [
         " tree AND keeps it current, which a capability cannot do",
         needs=("marty",), wants=("build/skiesdiag/apps360.img",),
         serial=True),
+    Row("skieskfz", "soak", py("tests/skieskfz.py"), 50.0,
+        "SPEC.md 8.9.1: THE TWO INSTRUMENTS TOGETHER. A hard freeze wants"
+        " both - KFZ=1's kernel heartbeat (SPEC.md 8.9), which says whether"
+        " IRQ0 was masked, whether an EOI went missing and which side of the"
+        " BIOS chain the machine died on; and Clear Skies' own watchdog"
+        " (SPEC.md 88.14), which says where in a frame it stopped - and they"
+        " are painted by different code into one framebuffer, so nothing but"
+        " a row that runs both says they fit. The claim the field found is"
+        " the second: the 30-second stuck report must NEVER ARM inside an fsx"
+        " bracket, because ui_task does not run in one at all (SPEC.md 53.1)"
+        " so `no pass in 30 seconds` is the DEFINED state there - and the"
+        " report forces the gfx lock, the clip count, gfx_dis and gfx_color"
+        " open and draws with font_run into the KERNEL's framebuffer while"
+        " the app owns the video mode. It builds its own kernel into a"
+        " PRIVATE TREE (docs/plans/SOAK-PARALLEL.md 8): a KFZ kernel left in"
+        " build/ makes every other emulator row die saying the map describes"
+        " a different kernel. --clobber-stuck NOPs the six bytes of the"
+        " bracket test and khb_stuck climbs to 782 against a threshold of 546",
+        needs=("marty",), wants=("build/skiesdiag/apps360.img",),
+        serial=True),
     Row("skiesadi", "soak", py("tests/skiesadi.py"), 30.0,
         "SPEC.md 88.9.2.2: THE HARD FREEZE, reduced to one instruction. The"
         " attitude indicator drew its horizon bar at t x tan(roll) and got"
