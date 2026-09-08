@@ -107859,8 +107859,13 @@ carries it on the apps disk.
   pair of eyes home and the ghost comes back out;
 - F enters and leaves the fullscreen bracket, and the board is re-cut to the
   bracket's own surface;
-- on `xt-multimon`, the window may be dragged across the seam, straddle it,
-  and go fullscreen on either display, with the board landing on the display
-  the window is on;
-- `tests/unit/t_ddmaze.py` passes (§93.2);
-- `tests/dotdel.py` drives the title, a game and the bracket under MartyPC.
+- on a two-card desktop the window may be dragged across the seam and
+  straddle it with a real share of the picture on each card, moved wholly onto
+  the Hercules and have the board **re-cut** to it and back, and go fullscreen
+  from either — with the bracket taking the display the window is on and not
+  the primary;
+- `tests/unit/t_ddmaze.py` (§93.2) floods all three layouts out of the source;
+- `tests/dotdel.py` drives the title screen, a game and the bracket on all
+  three adapters and gates the rendered frame rate against the game's own tick
+  counter (§93.5.3);
+- `tests/dotdelmd.py` is the two-card pass above, on `os8088_5150_both_gla`.

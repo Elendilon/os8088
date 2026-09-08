@@ -1913,6 +1913,14 @@ SOAK = [
         "(93.5.3). `--arm cga` is one adapter. The package is on "
         "media360.img, not the apps disk (93.13)",
         needs=("marty", "nasm"), serial=True),
+    Row("dotdelmd", "soak", py("tests/dotdelmd.py"), 60.0,
+        "DOT DELIRIUM on a TWO-CARD desktop (SPEC.md 93.4): straddling the "
+        "seam with a real share of the picture on each card, moving wholly "
+        "onto the Hercules and having the board RE-CUT to it and back, and a "
+        "same-mode bracket taking the display the window is on rather than "
+        "the primary - which is the defect SPEC.md 53.7.1 exists for and which "
+        "both of this tree's other same-mode consumers shipped",
+        needs=("marty", "nasm"), serial=True),
     Row("cycweb", "soak", py("tests/cycweb.py"), 40.0,
         "Does the claw eat the web it slides over? (SPEC.md 67.5.3.1)",
         needs=("marty",), serial=True),
