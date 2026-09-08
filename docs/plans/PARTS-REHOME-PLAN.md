@@ -455,11 +455,17 @@ program. 4.1.1 is the trace.
 1. **§4.1.** Without the `mem_own` arm this ships and fails at the first
    `OSAPI_MEM_CLAIM` a re-homed program makes — which for most packages is
    after the window is up. Build the arm first, with its own gate.
-2. **Compaction.** A package region is claimed `mem_claim_hi_x`, top-down and
-   pinned. The carve is an ordinary claim and is *also* pinned by default
-   (`MC_RLOC` = 0, §66), so a re-homed program is as unmovable as it was — but
-   `mem_cp_plan` and `mem_frameless` were written when "the instance's region"
-   and "a claim base" were the same thing. Audit both before building.
+2. ~~**Compaction.**~~ **CLOSED, audited.** The worry was that `mem_frameless`
+   protects a launch in flight by `cmp bx, [ld_base]` — a claim BASE — while
+   after the re-home `[ld_base]` is Y, which is inside the carve rather than
+   the base of it. It does not arise: `mem_can_move`'s **first** test is
+   `cmp word [ss:si+MC_RLOC], 0 / je .pin`, and the carve is claimed through
+   `OSAPI_MEM_CLAIM` and never declared `OSAPI_MEM_MOVABLE`, so it is pinned by
+   default (§66) and the compactor stops before `mem_frameless` or `[ld_base]`
+   is consulted at all. A re-homed program cannot be moved out from under
+   itself. **This becomes live only if a package ever declares its carve
+   movable**, which nothing does and which HEAP-UNPIN-PLAN §4.7 already refuses
+   for a region owning a worker.
 3. **`ld_unreserve` on an abort after the re-home.** It frees by slot and by
    `[ld_base]`; the arm sets `[ld_base] = Y` before anything can fail, so the
    carve is swept. Worth a red-run test rather than an argument.
@@ -500,13 +506,23 @@ program. 4.1.1 is the trace.
 
 0. **`op_want`'s double subtraction**, which is a live bug on this branch and
    has nothing to do with the rest of this. `op_bend` is the run's exact byte
-   end and `op_claim` subtracts `op_tail` from it again, so a run shorter than
-   the last body's sector padding **wraps the word**: measured here, a 61-byte
-   payload gives `op_want` **65,146** and `op_load` answers *"Cannot read my
-   parts"* for a package that is entirely correct. Nothing shipped is small
-   enough to hit it and the first test package written for this work will be.
-   a652b61 has the fix and the reasoning; port it, or re-derive it, first and
-   separately.
+   end and `op_claim` subtracts `op_tail` from it again.
+
+   **It costs no kernel bytes to fix and it makes every consumer smaller.**
+   `os88parts.inc` is package-side, and the fix is a REMOVAL — the `op_tail`
+   measurement in `op_size`, the subtraction in `op_claim`, and the bss word.
+   Applied and measured: **a plain consumer 800 → 775, Clear Skies' loader
+   1,219 → 1,194, `mseg` with all five features 2,581 → 2,552.** Twenty-five
+   bytes back for every package that uses parts.
+
+   **A build-side gate is not a substitute**, and the wrap is the lesser half.
+   On a run big enough not to wrap, `op_want` is asked for up to 511 bytes
+   FEWER than it should be — and `op_want` is the running count `op_read`
+   decrements as bytes arrive, the one thing that says the run was not short.
+   Refusing tiny payloads in `os88pkg.py` would leave that hole open in every
+   real package; the fix closes it and pays 25 bytes to do so.
+
+   a652b61 has the fix and the reasoning; port it first and separately.
 1. **`mem_own`'s `inst_of_seg` arm**, on its own, with a gate. It is
    independently correct, it is the attribution primitive, and everything else
    here depends on it.
