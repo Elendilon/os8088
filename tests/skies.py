@@ -157,7 +157,22 @@ def panel_rows(m, r, back):
 
 def until(m, pred, frames, step=15, what="the condition"):
     """Advance the guest in steps until pred() holds, or `frames` are spent.
-    The guest's own clock, never the host's (docs/WRITING-TESTS.md 7)."""
+
+    MOSTLY the guest's own clock rather than the host's
+    (docs/WRITING-TESTS.md 7), and the exception is worth knowing before
+    sizing anything against it: the m.run() below leaves the guest EXECUTING
+    across the pred() read and the next advance, so a block costs `step`
+    frames plus a host-timed surplus. Measured on an idle box at
+    +6.0-6.4% of the declared frames, varying run to run, against +0.1% for
+    the advances alone - so `frames` is a floor a loaded box crowds down
+    towards, not the interval the loop measures.
+
+    THE m.run() IS LOAD-BEARING and does not simply come out: `key` presses
+    and releases with no guest cycles between them, so the guest has to be
+    executing for the keyboard to deliver both. Taking it out leaves the
+    pause test's second `p` undelivered and the aeroplane frozen for the
+    rest of the row. Size a budget with room in it instead - see the climb.
+    """
     spent = 0
     while spent < frames:
         m.advance(frames=step)
@@ -288,12 +303,45 @@ def main(argv):
             bad.append("...and it never came back on when the pause ended "
                        "(tone %d)" % r.word("cs_tone"))
 
+        # THE BUDGET IS NOT THE REQUIREMENT, and it used to be near enough to
+        # it to decide the row. 900 frames bought EXACTLY 30 m on an idle box
+        # - the row passed on the threshold itself - and a width-4 soak read
+        # 27. What varies is not the flight model: the climb is steady and
+        # ACCELERATING as speed builds (measured, CGA, at 150-frame steps:
+        # 5, 12, 18, 25, 33, 41 m and on to 136 by 2400), so a budget with
+        # room in it is not hiding anything - the aeroplane that reaches 30
+        # late reaches it for the same reason it reaches it early.
+        #
+        # What varies is the PITCH the climb starts at, and that is set by
+        # how long ArrowDown was held above: `until` releases it a block
+        # after the state goes AIR, and a block is `step` frames PLUS
+        # whatever the guest free-runs across the m.run() and the pred read.
+        # That surplus is HOST time - measured at +6.0-6.4% of the declared
+        # frames on an idle box, against +0.1% for the advances alone, and it
+        # varies run to run - so a loaded box holds the stick a little less
+        # and enters the climb shallower (874 units of pitch here, 584 in the
+        # soak that failed). The loop's own docstring promises the guest's
+        # clock; the m.run() in it is what breaks that promise.
+        #
+        # IT CANNOT SIMPLY COME OUT. `key` presses and releases with zero
+        # guest cycles between them, so the guest has to be executing for the
+        # keyboard to deliver both - taking the m.run() out leaves the second
+        # `p` below undelivered and the aeroplane paused for the rest of the
+        # row. So the variance is bounded rather than removed: this asks for
+        # the same 30 m inside twice the frames, which costs nothing when the
+        # machine behaves (until() returns the moment the condition holds -
+        # ~690 frames idle) and is only spent on the box that would otherwise
+        # have failed.
         alt0 = r.metres("cs_py")
-        ok = until(m, lambda: r.metres("cs_py") >= alt0 + 30, 900 * slow, 30)
+        ok = until(m, lambda: r.metres("cs_py") >= alt0 + 30, 1800 * slow, 30)
         print("  climbed to %d m at %d units of pitch, %d m/s"
               % (r.metres("cs_py"), r.sword("cs_pitch"), r.word("cs_spd") // 128))
         if not ok:
-            bad.append("no climb: %d -> %d m" % (alt0, r.metres("cs_py")))
+            bad.append("climbed %d m of the 30 asked for in %d frames (%d -> "
+                       "%d m, pitch %d)" % (r.metres("cs_py") - alt0,
+                                            1800 * slow, alt0,
+                                            r.metres("cs_py"),
+                                            r.sword("cs_pitch")))
         f2 = r.word("cs_frames")
         m.advance(frames=90)
         m.run()
