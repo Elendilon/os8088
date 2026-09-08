@@ -32675,6 +32675,35 @@ nothing extra, and a table of one compressed part among five plain ones moves
 all five. Both are measured against the disk time saved, which is ~35.6 ms a
 sector.
 
+##### 20.12.7.3 `op_want` counted the last body's padding TWICE
+
+**A parts payload under 512 bytes could not load at all**, and the refusal was
+`Cannot read my parts` on a package that was entirely correct — the exact
+false diagnosis §20.12.7's own note is about, one fix along.
+
+`op_size` records `op_bend`, **the run's EXACT byte end**, precisely so that
+`op_want` does not ask for the padding the packer never wrote after the last
+body. It also measured that padding separately as `op_tail`, and `op_claim`
+subtracted it *again*: `op_want = op_bend + slack − op_tail`. On a small run
+that **wrapped the word** — a 61-byte part gives `op_want` 65,146, and
+`op_read`'s test refuses.
+
+**The wrap is the lesser half.** On a run big enough not to wrap, `op_want` is
+asked for up to 511 bytes FEWER than it should be — and `op_want` is the
+running count `op_read` decrements as bytes arrive, the one thing that says
+the run was not short. Every package that uses parts was carrying a weakened
+short-read check, invisibly, and that is why this is a fix rather than a
+build-side refusal of tiny payloads: a gate on the size would have left the
+weakening in place everywhere it actually matters.
+
+The subtraction is gone and `op_tail` with it — `op_bend` was always the whole
+answer. **It costs no kernel bytes and gives bytes back**, this being
+package-side code and the fix being a removal: measured, a plain consumer goes
+**800 → 775**, a three-part loader **1,219 → 1,194**, and `mseg` with all five
+features **2,581 → 2,552**. The bss word is retired in place rather than
+reclaimed, because every offset below it would move and `apps/cc/crt0.asm`
+reads the same chain.
+
 #### 20.12.9 The standard takes only what the table asks for
 
 `apps/os88parts.inc` is the package's code, not the kernel's, so what it costs

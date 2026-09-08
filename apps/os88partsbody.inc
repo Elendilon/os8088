@@ -232,7 +232,6 @@ op_load:
 ; -----------------------------------------------------------------------------
 op_size:
     mov word [op_secs], 0
-    mov word [op_tail], 0
     mov word [op_bytes], 0
     mov word [op_usecs], 0      ; ...and these two stay ungated: the .norun
     mov word [op_ubytes], 0     ; path writes neither, and op_claim reads
@@ -389,13 +388,12 @@ op_size:
     cmp ax, dx
     jbe .next
     mov dx, ax
-    push ax                     ; this row ends the run (so far): the file
-    mov ax, [si+OP_R_LEN]       ; carries no padding after it if it is also
-    neg ax                      ; the LAST body, so a read to its sector
-    and ax, 511                 ; boundary comes back short by exactly this,
-    mov [op_tail], ax           ; and [op_want] must not ask for it
-    pop ax
-    jmp short .next
+    jmp short .next             ; ...and this row ends the run so far, which
+                                ; op_bend above has already recorded EXACTLY.
+                                ; [op_tail] used to be measured here as well -
+                                ; the padding after the last body - and
+                                ; subtracted again in op_claim, which counted
+                                ; it twice
 %if OP_HAS_ZERO
 .scratch:
     push ax
@@ -543,10 +541,22 @@ op_claim:
     mov ax, [op_bend]           ; capacity = slack + the run, rounded up to a
     add ax, bx                  ; whole number of clusters, which is the
     jc .no                      ; slot's other precondition. THE CARRY IS THE
-    push ax                     ; ...and before the rounding, THIS is what has
-    sub ax, [op_tail]           ; to arrive - op_read's fourth input - less the
-    mov [op_want], ax           ; padding after the last row, which is not in
-    pop ax                      ; the file when nothing follows it (op_size)
+    mov [op_want], ax           ; ...and before the rounding, THIS is what has
+                                ; to arrive - op_read's fourth input. NOT less
+                                ; [op_tail]: op_bend is the run's EXACT byte
+                                ; end (see op_size) and so already excludes the
+                                ; padding after the last body, which is what
+                                ; the subtraction here was for. Doing both
+                                ; counted it TWICE - harmless on a large run
+                                ; only in the sense that it asked for `tail`
+                                ; bytes FEWER than it should have, weakening
+                                ; the one check that says the run was not
+                                ; short - and fatal on a small one: a run
+                                ; shorter than that padding WRAPPED this word
+                                ; and `Cannot read my parts` came back for a
+                                ; package that was entirely correct. A parts
+                                ; payload under 512 bytes could not load at
+                                ; all (SPEC.md 20.12.7.3)
                                 ; BOUND op_size could not apply: the slack is
                                 ; up to a cluster short of 32KB and is not
                                 ; known until here, so a 64KB run on a

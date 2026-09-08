@@ -318,11 +318,15 @@ op_xstg     equ OP_BSS_AT + 67      ; ...and the transient claim it uses
 op_want     equ OP_BSS_AT + 69      ; bytes of the run that MUST still arrive,
                                     ; so a file that ends inside it refuses
                                     ; rather than filling half a claim
-op_tail     equ OP_BSS_AT + 71      ; ...less this: the sector padding AFTER the
-                                    ; run's last row, which the packer does not
-                                    ; write (tools/os88pkg.py pads BEFORE each
-                                    ; body and never after the last), so a run
-                                    ; that ends the file arrives short by it
+                                    ; (OP_BSS_AT + 71 was op_tail, the padding
+                                    ; after the run's last body. op_bend
+                                    ; already excludes it, so measuring it
+                                    ; twice is what made a payload under 512
+                                    ; bytes refuse itself - SPEC.md 20.12.7.3.
+                                    ; The word is left UNNAMED rather than
+                                    ; reclaimed: every offset below it would
+                                    ; move, and this chain is read by
+                                    ; apps/cc/crt0.asm too)
 
 op_zn       equ OP_BSS_AT + 73      ; byte: how many rows carry OP_COMP. ZERO
                                     ; IS THE WHOLE OF THE OLD BEHAVIOUR - every
