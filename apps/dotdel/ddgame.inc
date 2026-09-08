@@ -834,6 +834,14 @@ dd_gh_turn:
 dd_gh_house:
     call dd_at_tile
     jnc .out
+    ; A PAUSE ON THE TILE, and it is not only for the look of it (SPEC.md
+    ; 93.5.8): an actor that did not move and whose image did not change is a
+    ; band dd_actor_prep does not compose, and the skirt only flaps every
+    ; fourth tick - so a ghost that hovers costs a quarter of one that drifts.
+    ; Three of them wandering a 6x3 box was 4 points of a VGA's frame rate.
+    call OSAPI_RAND
+    test al, 1
+    jz .hover
     mov al, [dd_dir + si]
     cmp al, DIR_NONE
     je .pick
@@ -875,6 +883,10 @@ dd_gh_house:
     mov [dd_want + si], al          ; both, as dd_gh_leave does: a pen turn is
     mov [dd_dir + si], al           ; usually a reversal, and dd_dir must never
 .out:                               ; be left pointing at the door
+    ret
+.hover:
+    mov byte [dd_want + si], DIR_NONE   ; stand still for a tick. It is on the
+    mov byte [dd_dir + si], DIR_NONE    ; tile, so it thinks again next tick
     ret
 
 ; dd_pen_ok - CF = 1 when ghost SI may step in direction AL and still be inside
@@ -1227,10 +1239,10 @@ dd_gh_eyes:
 .noglance:
     mov al, [dd_dir + si]
     cmp al, DIR_NONE
-    jne .have
-    mov al, DIR_L
-.have:
-    mov [dd_glook + bx], al
+    je .keeplook                    ; STANDING STILL LOOKS WHERE IT LOOKED. It
+    mov [dd_glook + bx], al         ; used to snap to DIR_L, which on a penned
+.keeplook:                          ; ghost's hover tick (SPEC.md 93.5.8) is a
+                                    ; twitch every other tick
     ; TRACKING is what widens them, and dd_gh_look has already decided it
     cmp byte [dd_gsee + bx], 0
     je .roll

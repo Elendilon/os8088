@@ -107971,6 +107971,15 @@ on every adapter, windowed and fullscreen.** The windowed figures are a whole
 tick or less short of the ceiling and the shortfall is a rounding of the
 sleep, not a frame that did not fit.
 
+**Those are the DEMO playing itself, and the headroom is not the same on every
+arm.** A *steered* game on the biggest board — VGA windowed, 448×403, five
+actors all moving and the score changing on every dot — is the heaviest case
+in the tree and measures **93–95%**, twice, on the same instrument. CGA and
+Hercules stay at 98–100% steered. It is the VGA windowed figure a change to
+the renderer has to be measured against, and `FPS_FLOOR` = 90% in
+`tests/dotdel.py` is set a fifth of a tick under it rather than under the
+demo's.
+
 It did not start there, and the things that were wrong are worth having
 written down because none of them was the sprite renderer:
 
@@ -108162,6 +108171,24 @@ Measured off the kernel's own per-task cycle counters — `sch_cycles` against
 The 65% the field reported paused is 23%, and the About card, which was the
 most expensive state on the machine, is now the cheapest. Nothing about the
 playing figure moved: a frame in which things DID move still draws them.
+
+#### 93.5.8 A penned ghost pauses, and the pause is the renderer's
+
+The three ghosts waiting in the pen (§93.8.6) **hover on a tile about half
+the ticks** rather than drifting continuously, and that is a rendering
+decision as much as a look: an actor that did not move and whose image did not
+change is a band `dd_actor_prep` does not compose at all (§93.5.6), and a
+ghost's skirt only flaps every fourth tick — so a hovering ghost costs a
+quarter of a drifting one.
+
+It is `dd_dir` = `DIR_NONE` for that tick, which stops `dd_act_move` without
+any new state: the ghost is standing on a tile origin, so `dd_ontile` runs
+again next tick and rolls again.
+
+**Three ghosts crossing each other in a six-by-three box was four points of a
+VGA's frame rate**, because two actors whose boxes meet compose into one
+larger band (§93.5.1). The pen is the one place on the board where actors
+are deliberately crowded, so it is the one place that needed this.
 
 #### 93.5.6.1 …and the HUD draws the FIELD that changed
 

@@ -1907,10 +1907,9 @@ SOAK = [
         "that actually EATS, the tile cut from each adapter's own pixel shape "
         "(93.3), the bracket re-cutting it bigger and giving it back, and - "
         "the reason the row exists - RENDERED FRAMES against the game's own "
-        "tick counter on a cycle-accurate 4.77 MHz 8088. It shipped at 100.0% "
-        "of the tick everywhere, and a board walk, a `font_run` and a pair of "
-        "divides each took it to ~60% while everything still LOOKED right "
-        "(93.5.3). `--arm cga` is one adapter. At 360 KB it rides the "
+        "tick counter on a cycle-accurate 4.77 MHz 8088. A board walk, a "
+        "`font_run` and a pair of divides each took it to ~60% while "
+        "everything still LOOKED right (93.5.3). `--arm cga` is one adapter. At 360 KB it rides the "
         "ordinary apps disk, in the room the earlier Pac-Man port came off "
         "it to make (93.13)",
         needs=("marty", "nasm"), serial=True),

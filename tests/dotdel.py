@@ -17,8 +17,7 @@ Five questions, and each one has gone wrong at least once during the build
      going fullscreen re-cuts it BIGGER and leaving puts it back.
   E  THE FRAME IS THE TICK (SPEC.md 93.6).  Rendered frames per guest second
      against the game's own tick counter, on a cycle-accurate 4.77 MHz 8088.
-     This is the row's reason for existing: the game held 100.0% of the tick
-     on every adapter when it shipped, and three separate things - a board
+     This is the row's reason for existing: three separate things - a board
      walk, a `font_run` and a pair of divides - each took it to 60% while
      everything still LOOKED right (SPEC.md 93.5.3).
 
@@ -60,9 +59,13 @@ ARMS = (
 
 TICK_HZ = 18.2065
 CPU_HZ = 4772727.0
-# The floor leg E fails under. The game measures 100.0% on all three adapters;
-# 90% is a fifth of a tick of slack, and the three regressions this row exists
-# to catch each cost 35-45%.
+# The floor leg E fails under. THE HEADROOM IS NOT THE SAME ON EVERY ARM and
+# the comment here used to say it was: SPEC.md 93.5.3's 98-100% is the DEMO
+# playing itself, and a steered game on the biggest board - VGA windowed, 448
+# x403, five actors moving and the score changing on every dot - is the
+# heaviest case in the tree and measures 92-95%. CGA and Hercules are 98-99%.
+# 90% is a fifth of a tick under the worst arm, and the three regressions this
+# row exists to catch each cost 35-45%.
 FPS_FLOOR = 0.90
 
 
@@ -159,11 +162,28 @@ def run_arm(tag, machine, want_tile, a, say):
         if p.w("dd_hs") == 0:
             fail.append("%s: the score table's first row is zero - the "
                         "built-in table never loaded" % tag)
+        # ...and the demo is MOVING. Over GUEST ticks and not host seconds:
+        # `time.sleep(2)` is 2 seconds of somebody else's box, and a lane
+        # sharing four cores with two others hands the guest a third of the
+        # work (docs/plans/SOAK-PARALLEL.md 1). This read `dd_x`/`dd_y` twice
+        # 2 host seconds apart and reported "the attract screen is a still
+        # picture" for a demo that was walking about perfectly well - a
+        # 90-second watch of the same guest found no stall longer than one
+        # sample.
         moved = (p.w("dd_x"), p.w("dd_y"))
-        time.sleep(2)
-        if (p.w("dd_x"), p.w("dd_y")) == moved:
-            fail.append("%s: the demo's Smiles has not moved in two seconds - "
-                        "the attract screen is a still picture" % tag)
+        t0 = p.w("dd_anim")
+        deadline = time.time() + 30
+        while (p.w("dd_anim") - t0) & 0xFFFF < 24 and time.time() < deadline:
+            time.sleep(0.1)
+        ticks = (p.w("dd_anim") - t0) & 0xFFFF
+        if ticks < 24:
+            fail.append("%s: the game's own clock advanced %d ticks in 30 "
+                        "host seconds - the guest is not running, so nothing "
+                        "below this can be believed" % (tag, ticks))
+        elif (p.w("dd_x"), p.w("dd_y")) == moved:
+            fail.append("%s: the demo's Smiles has not moved in %d ticks of "
+                        "the game's own clock - the attract screen is a still "
+                        "picture" % (tag, ticks))
 
         # --- B: the play line blinks ----------------------------------------
         seen = set()
