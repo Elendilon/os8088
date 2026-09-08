@@ -50,6 +50,7 @@ def gifname():
     return os.path.basename(gifpath())
 from os88geom import (VID_CTX_SZ, VID_CTX_VX, VID_CTX_VY,    # noqa: E402
                       VID_CTX_CW, VID_CTX_CH)
+import blitpair                                              # noqa: E402
 from blitpair import gif_pixels                              # noqa: E402
 from paintmove import pkg_syms                               # noqa: E402
 
@@ -100,17 +101,23 @@ def run(a, case, iw, ih, px, sym):
                                                 card=0))
         mo.to(rx, ry)
         settle(m, card=0)
-        m.bp_exec("gfx_blitp")
-        mo.dblclick(rx, ry)
-        if not m.wait_stop(limit=300.0):
+        got = {}
+
+        def stub_ds(mm, r):
+            """Paint's segment off the API stub's saved DS - a word on the
+            guest's own stack, so it is readable HERE and nowhere after."""
+            got["base"] = int.from_bytes(
+                mm.read((r["ss"] << 4) + r["sp"] + 2, 2), "little") << 4
+
+        # `wide=0` is "the first gfx_blitp, whatever its width", which is what
+        # this row has always taken.
+        r = blitpair.wide_blit(m, lambda: mo.dblclick(rx, ry), 0,
+                               syms=("gfx_blitp",), regs=True, at_hit=stub_ds)
+        if r is None:
             sys.exit("dispblitp: no gfx_blitp at all - the canvas is not "
                      "planar, so there is nothing here to refuse")
-        r = m.regs()
-        base = int.from_bytes(
-            m.read((r["ss"] << 4) + r["sp"] + 2, 2), "little") << 4
+        base = got["base"]
         ox0, oy0 = r["ax"], r["bx"]      # ...where Paint puts its canvas, ASKED
-        m.bp_exec()
-        m.run()
         time.sleep(6)
         planar = base + sym["pt_planar"]
         if not m.read(planar, 1)[0]:

@@ -116,11 +116,14 @@ def dbl_at_bp(m, mo, wx, wy, name, sym):
     t1 = mo.ticks()
     mo._edge(False)
 
-    m.bp_exec(sym)
-    mo._edge(True)                      # ...the double-click
-    t2 = mo.ticks()
-    m.mouse(0, 0, l=False)
-    state = m.wait_stop(30.0)
+    # assocopen's reasoning, one row along: `_edge` proves the press against
+    # the published `mouse_btn`, which a guest stopped at `sym` cannot move.
+    with os88marty.bp_trace(m, sym) as tr:
+        mo._edge(True)                  # ...the double-click
+        t2 = mo.ticks()
+        m.mouse(0, 0, l=False)
+        tr.wait(1, limit=30.0)
+    state = "breakpoint" if tr.n else None
 
     span = (t2 - t1) & 0xFFFFFFFF
     if span >= os88mouse.DBL_TICKS:

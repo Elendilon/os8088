@@ -58,6 +58,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "tools"))
 sys.path.insert(0, HERE)
 import os88marty, os88mouse, os88sym, dispcp                 # noqa: E402
 import dispapps                                              # noqa: E402
+import blitpair                                              # noqa: E402
 from blitpair import gif_pixels                              # noqa: E402
 from paintmove import pkg_syms                               # noqa: E402
 
@@ -196,16 +197,22 @@ def main():
         settle(m)
         # the FIRST canvas blit is what tells us where the package landed, and
         # it is a kernel call from Paint's task, so its return address is one
-        m.bp_exec("gfx_blitp")
-        mo.dblclick(rx, ry)
-        if not m.wait_stop(limit=300.0):
+        got = {}
+
+        def stub_ds(mm, r):
+            """Paint's segment, off the API stub's saved DS - readable HERE
+            and nowhere else, the word being on the guest's own stack."""
+            got["base"] = int.from_bytes(
+                mm.read((r["ss"] << 4) + r["sp"] + 2, 2), "little") << 4
+
+        # `wide=0` is "the FIRST call, whatever its width", which is what this
+        # row has always taken - it wants where the package landed, not which
+        # blit carried the canvas.
+        if blitpair.wide_blit(m, lambda: mo.dblclick(rx, ry), 0,
+                              syms=("gfx_blitp",), at_hit=stub_ds) is None:
             sys.exit("paintrow: no gfx_blitp - the canvas is not planar, so "
                      "there is no four-plane row to unpack")
-        r = m.regs()
-        base = int.from_bytes(
-            m.read((r["ss"] << 4) + r["sp"] + 2, 2), "little") << 4
-        m.bp_exec()
-        m.run()
+        base = got["base"]
         time.sleep(6)
 
         # ...and now stop INSIDE Paint, so CS and DS are the package's.
@@ -228,6 +235,14 @@ def main():
         # and it does not matter that the drag never completes - the
         # breakpoint stops the machine inside it, which is exactly where the
         # patch below wants to be.
+        #
+        # A BARE ARM ON PURPOSE - do NOT put this in a `bp_trace`. Everything
+        # else in this family moved to one because a pumped breakpoint is what
+        # lets a mouse verb confirm itself; here the whole point is the
+        # opposite. The machine is meant to STOP inside pt_blit and stay
+        # stopped, because that is the context the patch below runs in - a
+        # pump would resume straight past it. The drag not completing is not a
+        # problem, it is the mechanism.
         wx, wy, ww = dispcp.win_rect(m, S, dispcp.win_list(m, S)[-1])[:3]
         m.bp_exec(base + sym["pt_blit"])
         mo.drag(wx + ww // 2, wy + 4, wx + ww // 2 - 40, wy + 30)
