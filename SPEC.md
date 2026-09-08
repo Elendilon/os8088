@@ -108094,6 +108094,27 @@ tiles the refresh actually reaches, off CX at a breakpoint on `dd_tile_put`
 itself: four corners on a fixed build, and `{(1,3), (1,23), (13,17)}` on a
 build with the two instructions taken back out.
 
+#### 93.5.7.1 The list is where they ARE; the grid is whether they still are
+
+`dd_pills_flip` walks the pellet LIST, which is built when the board is
+decoded and never pruned — so an eaten pellet was lettered straight back in on
+the next phase. `dd_eat_tile` clears the tile and the eater's own band puts
+black over it, and 91 milliseconds later the blink drew it again. The field
+report was *"all blinking squares are now visible, but I can't eat them - they
+continue to be present and blink even after going over them (I still get the
+effect)"*, and that parenthesis is the diagnosis: the game had eaten it and
+only the picture disagreed.
+
+One `dd_tile` a pellet, which is a table read (§93.7), and the flip skips a
+tile the grid no longer calls `TT_PILL`. `dd_pills_blit` — the whole-set draw
+a repaint uses — never had the bug, because it goes through `dd_tile_put` and
+that draws whatever the grid says.
+
+**§93.5.3.2 is why this surfaced now.** Only pellet 0 was ever refreshed
+before, so three of the four went dark at the first actor that crossed them
+and stayed dark; the one that did blink was the one at the top left, which is
+also where a player is least likely to be when they notice.
+
 #### 93.5.7 …and once four pellets really blinked, the blink had to get cheaper
 
 **Fixing §93.5.3.2 broke §93.6**, which is the part worth writing down: the
@@ -108341,6 +108362,22 @@ on that. `dd_input` asks **`OSAPI_KEY_DOWN`** once a logic step instead.
 A direction that is not legal yet is **remembered** rather than dropped, so a
 turn asked for a few pixels early is taken at the junction. That is the whole
 of what "responsive" means in a maze game.
+
+#### 93.7.4 The tunnel's LEFT mouth, and the borrow that is the crossing
+
+An actor's position is **unsigned**, and `dd_advance` decides it has crossed
+into the previous tile by comparing it against the tile's own origin. At
+column 0 that origin is **zero**, so a step past it borrows and the compare
+reads the result as a very large x rather than as a crossing: the tile was
+never decremented, the wrap below it had nothing negative to wrap, and Smiles
+walked off the left of the world — never on a tile origin again, so never
+deciding anything again, and clipped off the glass. The field report was
+*"going off one side of the board doesn't wrap to the other"*, and one side is
+exactly right: going RIGHT is an add and a compare against
+`origin + tile`, which no value in range can wrap.
+
+**The borrow IS the crossing**, and it is the only case the compare cannot
+see, so it is one `jc` into the arm that was already there.
 
 #### 93.7.3 A decision is taken ON the tile, inside the mover
 

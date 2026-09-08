@@ -521,6 +521,18 @@ dd_pills_flip:
 .each:
     cmp si, [dd_piln]
     jae .out
+    mov cl, [dd_pilc + si]
+    mov ch, [dd_pilr + si]
+    call dd_tile
+    cmp al, TT_PILL
+    jne .next                       ; EATEN. The list is where the pellets ARE
+                                    ; and the grid is whether they are still
+                                    ; there: dd_eat_tile clears the tile, the
+                                    ; eater's own band puts black over it, and
+                                    ; this used to letter it straight back in
+                                    ; on the next phase - a pellet that gave
+                                    ; its fright and its 50 points and then
+                                    ; blinked away for the rest of the board
     mov al, [dd_pilc + si]
     xor ah, ah
     mul word [dd_tw]
@@ -542,6 +554,7 @@ dd_pills_flip:
     push si
     call dd_fill_board
     pop si
+.next:
     inc si
     jmp short .each
 .out:

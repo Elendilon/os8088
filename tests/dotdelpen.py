@@ -16,6 +16,14 @@ Three questions, all three of them field reports:
      waiting.  This asks for a real share of the box and more than one column.
   C  A GHOST THAT GOT HOME AS EYES STAYS THERE for DD_PENWAIT = 55 ticks
      before it comes back out, wandering while it waits.
+  E  THE TUNNEL WRAPS, BOTH WAYS (SPEC.md 93.7.4).  A position is unsigned
+     and dd_advance decides it has crossed into the previous tile by comparing
+     against that tile's origin - which at column 0 is ZERO, so the step past
+     it borrowed and read as a very large x rather than as a crossing.  Smiles
+     walked off the left of the world and never stood on a tile origin again.
+  F  AN EATEN PELLET STAYS EATEN (SPEC.md 93.5.7.1).  dd_pills_flip walks the
+     pellet LIST, which is never pruned, so the blink lettered an eaten pellet
+     straight back in 91 ms after the eater's own band had put black over it.
   D  NOTHING IS DRAWN THROUGH A RUNNING SCREEN SAVER (SPEC.md 79.6.1).  This
      one is a KERNEL gate driven through this package because a package is
      the only thing that can reach it: a saver session is not a window, so
@@ -25,7 +33,10 @@ Three questions, all three of them field reports:
      is never entered while the saver owns the glass.
 
 BREAK IT ON PURPOSE: take the two instructions out of `wm_clip_set` and leg D
-goes red at once.  Make `dd_pills_flip` walk its list in SI and call
+goes red at once.  Take the `jc` out of `dd_advance`'s left arm and leg E's
+first half reads columns 0 and 1 and nothing else, for ever.  Take
+`dd_pills_flip`'s grid test out and leg F sees the blink fill a tile the grid
+calls empty.  Make `dd_pills_flip` walk its list in SI and call
 `dd_tile_put`, the way it used to, and leg A goes red - the run that proved
 this saw `dd_tile_put` reached for {(1,3), (1,23), (13,17)} where the fixed
 build reaches every pellet.  Put `dd_gh_house` back on its up/down bob and
@@ -274,6 +285,93 @@ def leg_d(ui, p, say, ticks=40):
     return 0
 
 
+TT_EMPTY, TT_PILL = 1, 3
+
+
+def place(m, p, c, r):
+    """Put Smiles on the origin of tile (c, r) - all four position words."""
+    seg = p.seg
+    tw, th = p.w("dd_tw"), p.w("dd_th")
+    m.pause()
+    m.write((seg << 4) + p.names["dd_ac"], bytes([c]))
+    m.write((seg << 4) + p.names["dd_ar"], bytes([r]))
+    for n in ("dd_x", "dd_acx"):
+        m.write((seg << 4) + p.names[n], (c * tw * 16).to_bytes(2, "little"))
+    for n in ("dd_y", "dd_ary"):
+        m.write((seg << 4) + p.names[n], (r * th * 16).to_bytes(2, "little"))
+    m.go()
+
+
+def leg_e(ui, p, say, secs=7.0):
+    """The tunnel row wraps in both directions."""
+    m = ui.m
+    fail = 0
+    for tag, start, key, want in (("left", 2, "ArrowLeft", lambda c: c >= 22),
+                                  ("right", 25, "ArrowRight", lambda c: c <= 5)):
+        place(m, p, start, 14)
+        m.key(key, down=True, up=False)
+        cols = set()
+        t0 = time.time()
+        while time.time() - t0 < secs:
+            m.pause()
+            cols.add(p.b("dd_ac", 0))
+            m.go()
+            time.sleep(0.06)
+        m.key(key, down=False, up=True)
+        if not any(want(c) for c in cols):
+            say("E  FAIL: walking %s off the tunnel row reached columns %s and "
+                "never came out the other side (SPEC.md 93.7.4)"
+                % (tag, sorted(cols)))
+            fail = 1
+        else:
+            say("     %-5s wrapped: columns %s" % (tag, sorted(cols)))
+    if not fail:
+        say("E  ok: the tunnel wraps both ways")
+    return fail
+
+
+def leg_f(ui, p, say):
+    """A pellet that has been eaten is not lettered back in by the blink."""
+    m = ui.m
+    m.pause()
+    pc, pr = p.b("dd_pilc", 0), p.b("dd_pilr", 0)
+    tw, th = p.w("dd_tw"), p.w("dd_th")
+    m.go()
+    place(m, p, pc, pr)
+    time.sleep(1.5)
+    m.pause()
+    tile = m.read((p.seg << 4) + p.names["dd_grid"] + pr * 28 + pc, 1)[0]
+    m.go()
+    if tile == TT_PILL:
+        say("F  FAIL: standing on pellet 0 at (%d,%d) did not eat it" % (pc, pr))
+        return 1
+    off = codeoff("dd_fill_board")
+    m.breakpoints([{"type": "execseg", "seg": p.seg, "off": off}])
+    seen = 0
+    bad = False
+    for _ in range(8):
+        m.go()
+        if m.wait_stop(8.0) is None:
+            break
+        r = m.regs()
+        seen += 1
+        if r["ax"] // tw == pc and r["bx"] // th == pr:
+            bad = True
+            break
+    m.breakpoints([])
+    m.go()
+    if bad:
+        say("F  FAIL: the blink filled pellet 0's tile (%d,%d) after it was "
+            "eaten (SPEC.md 93.5.7.1)" % (pc, pr))
+        return 1
+    if seen == 0:
+        say("F  FAIL: the blink never ran, so nothing was tested")
+        return 1
+    say("F  ok: pellet 0 eaten, and %d blink fills later none is on its tile"
+        % seen)
+    return 0
+
+
 def main(argv):
     ap = argparse.ArgumentParser()
     ap.add_argument("--img", default=os88build.at("build/os8088-360.img"))
@@ -302,6 +400,8 @@ def main(argv):
         fail += leg_a(ui, p, say)
         fail += leg_b(ui, p, say)
         fail += leg_c(ui, p, say)
+        fail += leg_e(ui, p, say)
+        fail += leg_f(ui, p, say)
         fail += leg_d(ui, p, say)      # last: it turns the screen saver ON
 
     if not a.verbose:

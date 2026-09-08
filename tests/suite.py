@@ -1913,7 +1913,7 @@ SOAK = [
         "ordinary apps disk, in the room the earlier Pac-Man port came off "
         "it to make (93.13)",
         needs=("marty", "nasm"), serial=True),
-    Row("dotdelpen", "soak", py("tests/dotdelpen.py"), 60.0,
+    Row("dotdelpen", "soak", py("tests/dotdelpen.py"), 90.0,
         "DOT DELIRIUM's ghost house, and the pellets that share its bug class "
         "(SPEC.md 93.8.6): every pellet on the board gets refreshed and not "
         "only the first - dd_pills_blit walks the list with SI and "
@@ -1921,7 +1921,11 @@ SOAK = [
         "corners went dark the moment an actor crossed them - a penned ghost "
         "WANDERS the six-by-three pen instead of bobbing one tile up and one "
         "down, and a ghost that got home as eyes serves DD_PENWAIT there "
-        "before it comes back out - plus the KERNEL gate a package is the "
+        "before it comes back out, the TUNNEL wrapping both ways (93.7.4: a "
+        "position is unsigned, and at column 0 the step past the tile origin "
+        "borrows and reads as a very large x, so Smiles walked off the left "
+        "of the world), an eaten pellet staying eaten (93.5.7.1) - plus the "
+        "KERNEL gate a package is the "
         "only thing that can reach: a saver session is not a window, so "
         "nothing put a background painter off the screen and every "
         "real-time package in the tree drew straight through one "

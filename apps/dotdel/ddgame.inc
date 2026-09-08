@@ -575,7 +575,7 @@ dd_advance:
     mov ax, [dd_thS]
     sub [dd_ary + bx], ax
     dec byte [dd_ar + si]
-    jmp short .out
+    jmp .out
 .d:
     add [dd_y + bx], ax
     mov ax, [dd_ary + bx]
@@ -584,12 +584,26 @@ dd_advance:
     jb .out
     mov [dd_ary + bx], ax
     inc byte [dd_ar + si]
-    jmp short .out
+    jmp .out
 .l:
     sub [dd_x + bx], ax
+    jc .lcross                      ; THE TUNNEL'S LEFT MOUTH (SPEC.md 93.7.4).
+                                    ; A position is UNSIGNED, so at column 0 -
+                                    ; where the tile's own origin is 0 - a step
+                                    ; past it borrows and the compare below
+                                    ; reads the result as a very large x rather
+                                    ; than as a crossing. The tile was never
+                                    ; decremented, .lwrap had nothing negative
+                                    ; to wrap, and Smiles walked off the left of
+                                    ; the world: never on a tile origin again,
+                                    ; so never deciding anything again, and
+                                    ; clipped off the glass. The BORROW is the
+                                    ; crossing, and it is the only case the
+                                    ; compare cannot see
     mov ax, [dd_x + bx]
     cmp ax, [dd_acx + bx]
     jae .lwrap
+.lcross:
     mov ax, [dd_twS]
     sub [dd_acx + bx], ax
     dec byte [dd_ac + si]
