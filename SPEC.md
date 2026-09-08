@@ -100352,6 +100352,77 @@ because it is what `cs_pwind` needs. Degenerate faces (two coincident
 vertices, a pyramid's apex quad) go through the same fill, which handles a
 zero-height row.
 
+##### 88.4.2.1 …and the FILL does NOT dedup a shared edge — measured, refused
+
+§88.13.3's outline draws each edge ONCE, because every edge of a closed solid
+is shared by two faces and outlining each front face in turn draws the shared
+ones twice. **The same redundancy is in the FILL**: `cs_poly` traces all four
+of a face's edges, so an edge between two front faces is scan-converted twice
+— the same Bresenham over the same rows, into the other face's chain. Asked
+as *"we have the data for both faces up front, so can one pass do both?"*,
+which is the indexed-face-set question one level up.
+
+**It is measured on all three of §88.12's scenes and it is refused.** The
+instrument is a `CSPROBE` build of the package: `cs_edgemark` — §88.13.3's own
+test, on the face's own vertex indices — counts the duplicates without acting
+on them, and three runtime A/Bs price each term with the picture untouched.
+`cs_edge` is IDEMPOTENT (a chain takes the same value; `.both` takes min/max),
+so **running every trace twice prices one trace exactly**, and the copy is
+priced by doing it INTO SCRATCH in front of the trace it would replace.
+
+| per frame, Hercules 4.77 MHz 8088 | runway | city | tower |
+|---|---|---|---|
+| edge traces `cs_poly` makes | 20.2 | 31.5 | 27.0 |
+| …of which another face of the same object already made | 1.1 | 4.5 | 3.4 |
+| | 5.6% | 14.3% | 12.5% |
+| one trace | 1,352 cy | 1,285 | 1,119 |
+| **ALL the tracing there is** | 5.74 ms (3.3%) | 8.48 ms (4.8%) | 6.33 ms (3.2%) |
+| **the duplicates — the whole prize** | 0.32 ms (0.19%) | 1.21 ms (0.68%) | 0.78 ms (0.40%) |
+| the dedup TEST, paid on every edge | 1.33 ms | 3.23 ms | 2.72 ms |
+| the COPY that stands in for a skipped trace | 0.10 ms | 0.26 ms | 0.16 ms |
+| **net** | **−1.12 ms** | **−2.28 ms** | **−2.10 ms** |
+
+**The test costs three times what the duplicates are worth**, because it is
+paid on every edge and pays back on one in seven: `cs_edgemark` is 295–490
+cycles where a whole trace is 1,119–1,352. With the topology PRECOMPUTED per
+model — a flag beside each face index, so the test is a byte read of about 60
+cycles rather than a pair marked in a bitmap — the net turns positive and is
+**+0.31%, +0.14% and −0.02%** of a frame, for a topology byte per face-edge
+across 122 models in a package that has already met `APP_MAX_SIZE` at a merge
+(§88.5.9). That is the ceiling of the idea and not an implementation of it.
+
+**Why this is small where §88.13.3's was large — 284.7 → 167.5 ms on Mode X —
+is the whole finding, and it is not about the sharing.** In WIREFRAME a
+duplicate edge is duplicate PIXELS: the second `cs_seg` walks the same span
+doing a read-modify-write per pixel for a picture that is already on the
+glass. In a FILL the pixels were never duplicated — each face fills its own
+interior, they do not overlap, and what a second trace repeats is the SPAN
+TABLE and nothing else. So the prize is the bookkeeping alone, and **all the
+bookkeeping there is comes to 3.2–4.8% of a frame** before any of it is
+shared.
+
+Three structural facts hold it there, and they are what the next version of
+this question has to get past:
+
+  * **The vertex pipeline is ALREADY an indexed face set.** A model is verts,
+    faces of indices and edges of indices (§88.6); `cs_projall` transforms and
+    projects each vertex ONCE per object into `cs_sxv`/`cs_syv` and every face
+    reads them by index. The nine multiplies a vertex — the expensive part —
+    are already shared. Only the scan conversion is not.
+  * **The biggest polygons have no shared edge at all.** The ground, the
+    river, the runway and the roads are FLAT models of ONE face, and they are
+    what covers the view: the runway frame traces 206 rows from 20 edges and
+    keeps 1.1 duplicates.
+  * **The LOD ladder removes faces before they can share one.** Thirteen
+    objects in the city frame produce 15.8 walked faces, because anything
+    under about six pixels is `cs_boxlod`'s rectangle (§88.5.4) and has no
+    faces at all; of those 15.8, 4.5 are back-culled and 2.2 more fall off
+    the view.
+
+And a trace is nearly all FIXED cost — 1,285 cycles over **6.6 rows** on city,
+so the `idiv`, the four stores and the chain dispatch are most of it. A scheme
+that shares ROWS is sharing the part that was never the expense.
+
 #### 88.4.3 The walk is Tank's, without the per-pixel marks
 
 `cs_seg` is §85.3.2's walk with the dirty-span marks taken out of the pixel
@@ -103691,7 +103762,10 @@ the near plane CUT has no such indices, because `cs_pv` then holds points
 the clipper made, and that one is drawn whole. It needs **no per-model edge
 list** — the indices are the face's own — and it is worth having: over the
 city on Mode X, **167.5 ms against 184.2** for the same picture drawn twice
-over, where the solid is 284.7.
+over, where the solid is 284.7. **The FILL has the same redundancy and it is
+REFUSED** (§88.4.2.1): there a shared edge repeats a SPAN TABLE and not
+pixels — each face fills its own interior — so the whole prize is 0.19% to
+0.68% of a frame and the test that finds it costs three times that.
 
 **This is where the two bits stop resembling each other.** Buildings are
 tall and narrow, which is the outline's best case and the fill's worst:

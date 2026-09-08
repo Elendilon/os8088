@@ -11449,3 +11449,79 @@ profile reads **PACCMAN.O88 at 2.18 fps against PACMAN.O88's 4.14** on
 28×36 field against Roklan's 40×22 — so that is not a race between C and
 assembly; it is the answer to "maybe this port is more performant on XTs",
 which is **no**.
+
+### Set 119 — CLEAR SKIES: what a shared edge traced twice actually costs (SPEC.md §88.4.2.1)
+
+The question: `cs_wire` (SPEC.md §88.13.3) draws each edge of a solid ONCE
+because two faces share it, and that was worth 284.7 → 167.5 ms on Mode X. The
+FILL has the same redundancy — `cs_poly` traces all four edges of every front
+face, so an edge between two front faces is scan-converted twice — so **is
+there an indexed-face-set win in the filled path too?**
+
+**Harness**: a `CSPROBE` build of `apps/skies` (measurement scaffolding, not
+committed), `tests/skiesperf.py`'s scene pinning and its `OSAPI_FSX_WAIT`
+patch-out, `os8088_5150_herc_gla`, mean of 12 exact frames, four arms per row
+and the arms interleaved 0-1-0-1 so drift cannot land on one of them. Counting
+is `cs_edgemark`'s own test — the pair of model vertex indices — run beside
+each trace without acting on it. **Each term is priced by ADDING it, never by
+removing it**, so every arm draws the identical picture:
+
+* *one trace*: `cs_edge` is idempotent (a chain takes the same value, `.both`
+  takes min/max), so the arm calls it **twice** per edge and the frame's
+  difference over the trace count is one trace, exactly.
+* *the dedup test*: the arm skips the index lookup and `cs_edgemark`. This is
+  the term a production version pays on **every** edge while saving on one in
+  seven.
+* *the copy*: the arm `rep movsw`s the edge's rows **into scratch** in front of
+  the trace it would replace, so it costs what the replacement costs and
+  changes nothing.
+
+The push/pop bracket and the probe's own row arithmetic are in both arms of
+every A/B, so what each row prices is the term named and not the scaffolding.
+
+| per frame | runway | city | tower |
+|---|---|---|---|
+| frame (probe build; the shipped one is 169.94 on city) | 172.19 ms | 178.36 | 195.59 |
+| objects in the frame | 7 | 13 | 11 |
+| faces walked / back-culled / reaching `cs_poly` | 9.0 / 3.4 / 5.6 | 15.8 / 4.5 / 11.2 | 14.6 / 5.6 / 9.0 |
+| edge traces | 20.2 | 31.5 | 27.0 |
+| …duplicates | 1.1 (5.6%) | 4.5 (14.3%) | 3.4 (12.5%) |
+| rows traced / duplicate rows | 206 / 16.9 | 209 / 19.1 | 159 / 14.6 |
+| **one trace** | **1,352 cy** | **1,285 cy** | **1,119 cy** |
+| **all the tracing there is** | 5.74 ms (3.3%) | 8.48 ms (4.8%) | 6.33 ms (3.2%) |
+| **the duplicates — the whole prize** | 0.32 ms (0.19%) | 1.21 ms (0.68%) | 0.78 ms (0.40%) |
+| the dedup test, per edge / per frame | 295 cy / 1.33 ms | 490 cy / 3.23 ms | 477 cy / 2.72 ms |
+| the copy, per duplicate / per frame | 431 cy / 0.10 ms | 275 cy / 0.26 ms | 227 cy / 0.16 ms |
+| **NET, all three measured** | **−1.12 ms (−0.65%)** | **−2.28 ms (−1.28%)** | **−2.10 ms (−1.07%)** |
+
+**A runtime dedup is a LOSS on every scene**, and it is not close: the test
+costs three times what the duplicates are worth, because it is paid on 20–32
+edges to save 1–5. Bake the topology into the model instead — a flag beside
+each face index, so the test is a byte read of ~60 cycles — and the same
+arithmetic gives **+0.31%, +0.14% and −0.02%** of a frame. That is the
+CEILING of the whole idea, and it wants a topology byte per face-edge over 122
+models in a package that has already met `APP_MAX_SIZE` at a merge.
+
+**Why the wireframe's version of this was worth 117 ms and the fill's is worth
+one, in one sentence: in WIREFRAME the duplicate is duplicate PIXELS, and in a
+FILL it is duplicate BOOKKEEPING.** The second `cs_seg` re-walks a span doing a
+read-modify-write per pixel over a line that is already drawn; the second
+`cs_edge` re-fills a span TABLE, and the pixels underneath were never
+duplicated at all, because two faces fill two different interiors. Set 89's
+lesson in a new place: **the shape of a redundancy says nothing about its
+price.**
+
+Three readings from the same run that outlive the question:
+
+1. **The whole edge-tracing subsystem is 3.2–4.8% of a frame** — 20 to 32
+   traces at 1,119–1,352 cycles. No arrangement of it can be a big lever, and
+   this is SPEC.md §88.12's point 1 measured from a second direction.
+2. **A trace is nearly all fixed cost**: 6.6 rows an edge on city, so the
+   `idiv`, the four stores and the chain dispatch are most of the 1,285. A
+   scheme that shares ROWS shares the part that was never the expense.
+3. **The vertex pipeline is already an indexed face set** — `cs_projall`
+   transforms and projects each vertex once per object and every face reads it
+   by index — so the nine multiplies a vertex, the part worth sharing, is
+   shared already. And 29–38% of walked faces are back-culled after that
+   gather, which is the next thing anyone measuring this path will notice: it
+   is ~1 ms a frame.
