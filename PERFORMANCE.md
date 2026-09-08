@@ -11615,3 +11615,114 @@ X, where a pixel is an `out` and a store.
    axis bit, and the cull was inert in BOTH arms: six scenes read a tidy
    +0.06%, and the timings looked entirely reasonable. What caught it was
    printing the counters of what each arm actually did beside the milliseconds.
+
+### Set 121 — CLEAR SKIES IN FLIGHT: five moving profiles, every stage bracketed (SPEC.md §88.12.1)
+
+Everything in Set 119, Set 120 and SPEC.md §88.12 is a PINNED frame — the
+aeroplane parked, the world paused — which is what makes those A/Bs exact and
+what means none of them has ever measured a frame that had to step the flight
+model, redraw a panel field that changed, or refill a horizon that had rolled.
+This set flies.
+
+**Harness**: `tests/skiesprof.py`, `os8088_5150_herc_gla`, 24 flown frames a
+profile, tier 3. A profile pokes a starting state, sets the throttle and lets
+go; nothing is pinned after that except a held bank, where the profile says so.
+Every stage is bracketed **at its call site** — a breakpoint on the `call` and
+another on the instruction after it — so a stage's cost is one subtraction of
+the emulator's cycle counter and no arm is compared with another. A stopped
+guest burns no cycles, so `os88marty.bp_trace`'s pump is free to the
+measurement. The brackets nest, so the walk keeps a stack and an EXCLUSIVE
+cost is the inclusive one less the brackets inside it.
+
+**The unaccounted line is 0.07–0.13 ms, 0.0–0.1%, on all five.** That is what
+says these are the frame and not a sample of it.
+
+The view is the one asked for: over the Champ de Mars heading north-east —
+**three solids drawing polygons, two box impostors (§88.5.4), five FLAT ground
+models** (the Seine, the axis road) — a dozen objects.
+
+| 24 frames each | descend | climb | cruise | bank | turnhold |
+|---|---|---|---|---|---|
+| | −12° nose down, 600 m | rotating off Issy, full throttle | level, 300 m | 45° RELEASED, decaying | 45° HELD |
+| **frame** | **124.7 ms** | **152.8** | **164.5** | **238.9** | **282.8** |
+| fps | 8.02 | 6.54 | 6.08 | 4.19 | 3.54 |
+| spread | 16% | 17% | 4% | **71%** | 17% |
+| `cs_input` | 0.59 | 0.59 | 0.59 | 0.59 | 0.69 |
+| `cs_stick` ×ticks | 1.29 | 1.51 | 1.63 | 1.60 | 1.68 |
+| `cs_step` ×ticks | 8.06 | 9.61 | 10.17 | 10.20 | 10.45 |
+| `cs_r_begin` + `cs_matrix` | 1.8 | 1.9 | 1.85 | 1.9 | 1.85 |
+| `cs_skyground` | 8.55 | 9.28 | 8.76 | 30.33 | **47.77** |
+| `cs_scene` | 88.72 | 114.58 | 128.42 | 143.48 | 178.72 |
+| …`cs_consider` (47 objects) | 11.18 | 9.90 | 17.27 | 18.18 | 19.02 |
+| …`cs_drawobj` (n) | 74.83 (10) | 102.28 (7) | 108.28 (11) | 122.12 (14) | 156.22 (17) |
+| `cs_panel` | 4.87 | 5.04 | 3.57 | **20.61** | 5.02 |
+| `cs_blit` | 10.30 | 9.90 | 9.01 | 29.62 | **36.13** |
+
+Inside `cs_drawobj`, inclusive, level (`cruise`):
+
+| | ms | % frame | calls |
+|---|---|---|---|
+| `cs_faces` | 33.94 | 20.6% | 8 |
+| …`cs_poly` | 21.72 | 13.2% | 9.8 |
+| …… `cs_edge` | 6.83 | 4.2% | 28 |
+| …`cs_fclip` | 4.39 | 2.7% | 1 |
+| …`cs_axcull` | 1.21 | 0.7% | 14 |
+| `cs_edges` | 17.46 | 10.6% | 6 |
+| …`cs_seg` | 11.30 | 6.9% | 37 |
+| `cs_projall` | 18.02 | 11.0% | 8 |
+| `cs_scale` | 10.19 | 6.2% | 11.2 |
+| `cs_flatverts` | 10.03 | 6.1% | 5 |
+| `cs_stackverts` | 7.36 | 4.5% | 3 |
+| `cs_boxlod` (the impostors) | 3.25 | 2.0% | 2 |
+| `cs_markrows` | 2.01 | 1.2% | 7 |
+
+**A BANKED TURN IS 1.7 TIMES A LEVEL ONE and almost none of it is the
+objects.** §88.3.1's own sentence is what does it — a rolled horizon is
+refilled EVERY ROW WHOLE — so `cs_skyground` goes **8.76 → 47.77 ms (5.5×)**
+and `cs_blit`, which then has every row to carry, **9.01 → 36.13 (4.0×)**.
+Together **75.9 ms of a 282.8 ms frame, 26.8%, against 17.8 ms and 10.8%
+level.** That is the largest single lever this project has not taken.
+
+**The RELEASED bank walks the cost down inside one trace**, roll +42.6° → 0.0°:
+
+| frame | roll | total | skyground | blit | panel | scene | faces | poly | markrows |
+|---|---|---|---|---|---|---|---|---|---|
+| 0 | 45° | 302.4 | 47.9 | 40.9 | 41.0 | 157.8 | 66.7 | 54.0 | 10.4 |
+| 4 | ~40° | 313.9 | 47.9 | 39.9 | 40.9 | 169.2 | 59.1 | 45.1 | 7.9 |
+| 8 | ~33° | 304.0 | 43.4 | 40.8 | 44.7 | 159.1 | 45.8 | 33.8 | 7.0 |
+| 10 | ~30° | 250.1 | 38.7 | 38.0 | **2.4** | 156.2 | 43.4 | 31.4 | 6.4 |
+| 14 | ~20° | 215.6 | 23.1 | 30.4 | 2.4 | 145.0 | 41.2 | 29.2 | 3.9 |
+| 18 | ~9° | 165.4 | 10.0 | 15.4 | 2.4 | 122.9 | 40.0 | 25.7 | 2.2 |
+| 22 | ~0° | 150.0 | 9.0 | 9.9 | 2.4 | 114.1 | 37.1 | 25.1 | 2.1 |
+
+**THE PANEL'S CLIFF AT FRAME 10 — 44.7 ms to 2.4 — IS THE ADI, and it is the
+one thing on this page a still frame cannot show.** §88.9's items are redrawn
+when the value they show has changed, so the attitude indicator costs **41 ms
+a frame, 14% of a banked one**, for exactly as long as the roll keeps moving
+and nothing once it settles. It is why the HELD bank is *cheaper in the panel
+than the released one* — 5.02 against 20.61 — while being dearer everywhere
+else: a held attitude does not change, so the ADI stops redrawing.
+
+**Three more things no pinned frame charges for:**
+
+1. **The flight model is 6.2% of a level frame** — `cs_step` three times a
+   frame, one per tick, 10.17 ms. §88.12's table charges it nothing because
+   the world was paused there.
+2. **`cs_fclip` is 10.91 ms in the CLIMB** against 4.39 level, 7.1% of that
+   frame over 1.8 calls. On the runway the strip crosses both side planes at
+   its near end, which is §88.5.7's own worst case measured in flight.
+3. **`cs_consider` is 9.9–19.0 ms and never less than 6.5%** — 47 objects
+   considered every frame to draw 7 to 17. It is the largest single stage
+   after the drawing itself, and it grows with the bank because the cone
+   opens (§88.5.1).
+
+**Where the levers are, ranked by what a frame would give back:**
+
+| | level | banked | note |
+|---|---|---|---|
+| the rolled-horizon refill + its blit | 17.8 ms | **75.9 ms** | §88.3.1; nothing has been tried |
+| the ADI while the attitude moves | 0 | **41 ms** | one panel item, §88.9.2 |
+| the cull over 47 objects | 17.3 | 19.0 | §88.5.2's skips already cut it |
+| `cs_faces` inclusive | 33.9 | 73.8 | Set 120 took the back faces out |
+| `cs_edges`/`cs_seg` outlines | 17.5 | 13.7 | §88.4.7's size test governs |
+| the flight model | 10.2 | 10.2 | fixed per tick, not per pixel |

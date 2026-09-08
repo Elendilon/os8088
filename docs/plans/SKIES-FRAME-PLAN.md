@@ -1,8 +1,10 @@
 # CLEAR SKIES — where the frame goes, and the candidates that are left
 
-**Status: OPEN. §3 IS BUILT (SPEC.md 88.5.12) — up to 5.64 ms, 2.38% of a
-frame; §2 is priced and parked; §4 is the queue behind it and §6 is the
-wireframe question, answered and closed.** SPEC.md §88 is the contract, SPEC.md §88.12 is what the
+**Status: OPEN, and §7 is now the head of it.** §3 IS BUILT (SPEC.md 88.5.12)
+— up to 5.64 ms, 2.38% of a frame; §2 is priced and parked; §4 is the queue,
+§6 the wireframe question answered and closed, and **§7 is what an IN-FLIGHT
+profile found that no pinned frame could — a banked turn costs 1.7× a level
+one and the objects are barely any of it.** SPEC.md §88 is the contract, SPEC.md §88.12 is what the
 frame costs and how it got there, and this file is only the *forward* list —
 candidates with a measured ceiling apiece, in the order the evidence ranks
 them.
@@ -194,6 +196,73 @@ what catches a face wrongly dropped.
 than 1,326 cycles × the faces it removes. On `dflevel` that is 16.9 faces, so
 the budget is generous; on `runway` it is 3.4 and the budget is ~4,700 cycles
 for the whole object pass. Measure both.
+
+## 7. OPEN, AND THE BIGGEST THING HERE — the rolled horizon, and the ADI
+
+`tests/skiesprof.py` (SPEC.md 88.12.1) flies five profiles instead of pinning
+one, and every stage is bracketed at its call site so the accounting adds to
+99.9% of the loop. Two findings dwarf everything else in this file.
+
+### 7.1 A banked turn is 1.7x a level one, and it is the SKY that does it
+
+| Hercules 8088, 24 flown frames | level | 45 deg held |
+|---|---|---|
+| frame | 164.5 ms | **282.8** |
+| `cs_skyground` | 8.76 | **47.77** (5.5x) |
+| `cs_blit` | 9.01 | **36.13** (4.0x) |
+| the two together | 17.8 ms, 10.8% | **75.9 ms, 26.8%** |
+
+SPEC.md 88.3.1 predicts it in its own words — *"a row whose kind changed, and
+every split row, is refilled and marked whole"* — and a rolled horizon makes
+every row a split row. So the sky/ground pass refills the whole view and the
+blit then has the whole view to carry.
+
+**Nothing has ever been tried here**, and it is worth more banked than every
+item in §2, §3 and §6 put together. What to look at, in order:
+
+1. **A split row's refill is a full-width `rep stosw` pair either side of the
+   crossing.** It is already the cheap shape (88.4.1). What is dear is that
+   there are 112 of them where level flight has a handful.
+2. **The blit carries what the refill marked.** If a rolled row's ink is
+   unchanged from last frame's — and for most rows of a steady bank it IS,
+   the horizon having moved a pixel or two — then the mark is honest and the
+   COPY is not. A per-row comparison against the shadow before marking is one
+   `repe cmpsw` a row; that is the first thing to price.
+3. **The horizon moves by a bounded amount between frames.** A bank changes
+   the crossing x by a few pixels a row a frame. Refilling only the band the
+   crossing actually swept, rather than every split row whole, is the same
+   argument 88.3.1 already makes for last frame's span - applied to the
+   horizon instead of to objects.
+
+**Measure it against `turnhold`**, which lives in the rolled state, and check
+it against `bank`, which passes through it.
+
+### 7.2 The ADI is 41 ms a frame for as long as the attitude is moving
+
+The released bank decays 45 deg to 0 over 24 frames and the panel goes with it:
+**44.7 ms a frame while the roll is moving, 2.4 ms once it settles** - a cliff
+in one frame at frame 10 of the trace. 88.9's items redraw when the value they
+show changes, and in a turn the attitude indicator changes every frame.
+
+**14% of a banked frame is one instrument.** The held bank is CHEAPER in the
+panel than the released one (5.02 against 20.61) for exactly this reason,
+which is also the proof that it is the ADI and not the panel in general.
+
+Nothing here is a defect - it is redrawing because it changed. What is worth
+pricing is HOW it redraws: 88.9.2's attitude indicator against 11.96's
+save-under, or a band composer (5.9) for the one item on the page that is
+never static in flight.
+
+### 7.3 ...and three smaller things the same run turned up
+
+* **`cs_step` is 6.2% of a level frame** - three calls, one per tick. Every
+  measurement in 88.12 charges it nothing, the world being paused there.
+* **`cs_fclip` is 10.91 ms in the CLIMB** against 4.39 level, 7.1% of that
+  frame: on the runway the strip crosses both side planes at its near end,
+  which is 88.5.7's own worst case, measured in flight for the first time.
+* **`cs_consider` never drops below 6.5%** - 47 objects considered every
+  frame to draw 7 to 17, 9.9 to 19.0 ms. 88.5.2's skip ticks already cut it;
+  what is left is the largest stage after the drawing.
 
 ## 4. The queue behind it, with what is known about each
 

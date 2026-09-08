@@ -105026,6 +105026,79 @@ before a pixel is drawn: what is between here and there is content — how
 many objects a view holds and how many primitives each is — not the
 loops.
 
+#### 88.12.1 …and what a frame costs IN FLIGHT, which is a different question
+
+Everything above is a PINNED frame: `tests/skiesperf.py` and
+`tests/skiescount.py` both park the aeroplane and pause the world, which is
+what makes their A/Bs exact. It also means neither has ever measured a frame
+that had to step the flight model, redraw a panel field that changed, or
+refill a horizon that had rolled. `tests/skiesprof.py` flies instead — a
+profile pokes a starting state, sets the throttle and lets go — and brackets
+every stage at its CALL SITE, a breakpoint on the `call` and another on the
+instruction after it, so a stage's cost is one subtraction of the emulator's
+cycle counter and nothing has to be compared with anything. A stopped guest
+burns no cycles, so the brackets are free to the measurement; the brackets
+nest, so the walk keeps a stack and an EXCLUSIVE cost is the inclusive one
+less the brackets inside it. **The five profiles account for 99.9% of the
+loop**, which is what says the table is the frame and not a sample of it.
+
+The view is one the question asked for: over the Champ de Mars heading
+north-east, **three solids drawing polygons, two box impostors (§88.5.4) and
+five FLAT ground models** — the Seine and the axis road — in a dozen objects.
+
+| Hercules 4.77 MHz 8088, 24 flown frames each | descend | climb | cruise | bank | turnhold |
+|---|---|---|---|---|---|
+| | −12° nose down | rotating off Issy | level | 45° RELEASED | 45° HELD |
+| **frame** | **124.7 ms** | **152.8** | **164.5** | **238.9** | **282.8** |
+| | 8.0 fps | 6.5 | 6.1 | 4.2 | 3.5 |
+| frame-to-frame spread | 16% | 17% | 4% | **71%** | 17% |
+| `cs_step` (the flight model) | 8.06 | 9.61 | 10.17 | 10.20 | 10.45 |
+| `cs_skyground` | 8.55 | 9.28 | 8.76 | 30.33 | **47.77** |
+| `cs_scene` | 88.72 | 114.58 | 128.42 | 143.48 | 178.72 |
+| `cs_panel` | 4.87 | 5.04 | 3.57 | **20.61** | 5.02 |
+| `cs_blit` | 10.30 | 9.90 | 9.01 | 29.62 | **36.13** |
+
+**A BANKED TURN IS 1.7 TIMES A LEVEL ONE** — 282.8 ms against 164.5 — and
+almost none of that is the objects. §88.3.1's own sentence is what does it: a
+rolled horizon is refilled EVERY ROW WHOLE, so `cs_skyground` goes **8.76 →
+47.77 ms (5.5×)** and `cs_blit`, which then has every row to carry, goes
+**9.01 → 36.13 (4.0×)**. Together they are **75.9 ms of a 282.8 ms frame,
+26.8%, against 17.8 ms and 10.8% level.**
+
+**The RELEASED bank is the one that shows it**, because the decay walks the
+cost down within one trace — roll +42.6° to 0.0° over 24 frames:
+
+| frame | roll | total | skyground | blit | panel | scene |
+|---|---|---|---|---|---|---|
+| 0 | 45° | 302.4 ms | 47.9 | 40.9 | 41.0 | 157.8 |
+| 8 | ~33° | 304.0 | 43.4 | 40.8 | 44.7 | 159.1 |
+| 10 | ~30° | 250.1 | 38.7 | 38.0 | **2.4** | 156.2 |
+| 14 | ~20° | 215.6 | 23.1 | 30.4 | 2.4 | 145.0 |
+| 18 | ~9° | 165.4 | 10.0 | 15.4 | 2.4 | 122.9 |
+| 22 | ~0° | 150.0 | 9.0 | 9.9 | 2.4 | 114.1 |
+
+**The panel's cliff at frame 10 — 44.7 ms to 2.4 — is the ADI**, and it is the
+one thing on this page that ONLY a moving frame can show. §88.9's items are
+redrawn when the value they show has changed, so the attitude indicator costs
+**41 ms a frame, 14% of a banked one**, for exactly as long as the roll keeps
+moving, and nothing at all once it settles. That is why the HELD bank is
+*cheaper in the panel than the released one* (5.02 against 20.61) while being
+dearer everywhere else: a held attitude does not change, so the ADI stops.
+
+The rest of the frame, level, in the order it is spent: `cs_scene` 128.4 ms
+(78.1%), of which the objects are 108.3 and **the cull is 17.3 over 47
+considered** (10.5%); inside an object, `cs_faces` 33.9 (20.6%), `cs_edges`
+17.5, projection 18.0, `cs_scale` 10.2, the vertex builders 17.4, `cs_boxlod`
+3.3 for the two impostors. Then `cs_blit` 9.0, `cs_skyground` 8.8, the flight
+model 10.2 over three ticks, `cs_panel` 3.6.
+
+**Two things this measures that no pinned frame could.** The flight model is
+**6.2% of a level frame** — three `cs_step` calls a frame, one per tick — and
+it is charged to nothing in §88.12's table because the world was paused there.
+And `cs_fclip` costs **10.91 ms in the climb** against 4.39 level: on the
+runway the strip crosses both side planes at its near end (§88.5.7), which is
+the case that document priced at 8-10 ms a scene, measured here in flight.
+
 **Mode X on the same 8088** (`os8088_xt_vga`, the runway): **234.6 ms,
 4.3 fps**. It is the slowest backend by a third and the reasons are the
 mode's: two pages mean every view row is refilled every frame (33.6 ms
