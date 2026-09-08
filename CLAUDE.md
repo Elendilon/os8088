@@ -82,14 +82,31 @@ first of them fires in the first minute of a session.
 
 ## Commands
 
-Needs `nasm`, `python3`, and **`cargo` for `make marty`** (plus `libudev-dev`
-and `pkg-config` on Linux). `qemu-system-i386` is for the short list in
-Testing and nothing else. `tools/setup-macos.sh` installs the Mac set but
-**not Rust**, so `make marty` there wants `cargo` in front of it. No linker —
-everything is `nasm -f bin` flat binaries, deliberately, to keep Apple's
-Mach-O-only toolchain out of it.
+**`make deps` FIRST, on a box you have not built on** — it installs the lot
+and is ~0.2 s when they are already there. A fresh Linux container has
+`cargo` and `python3` and has *none* of `nasm`, `qemu` or `libudev-dev`, and
+the failure that costs is not the assembler's: `make marty` compiles most of
+MartyPC before cargo reaches `serialport` and dies on a missing `libudev.h`,
+so the missing dependency is reported four minutes late — which is why
+`tools/martypc/build.sh` now asks the same question in a few milliseconds
+BEFORE it clones anything, and repairs it in place when it is running as
+root on a box with apt.
+
+Needs `nasm`, `python3`, and **`cargo` for `make marty`** — plus
+`libudev-dev` and `pkg-config` on Linux, which is what `make deps`
+(`tools/setup-linux.sh`) is for; `--check` reports without installing.
+`qemu-system-i386` is for the short list in Testing and nothing else.
+`tools/setup-macos.sh` installs the Mac set but **not Rust**, so `make marty`
+there wants `cargo` in front of it — and `cargo` is the one thing `make deps`
+does not install on either platform, rustup being its own decision. No
+linker — everything is `nasm -f bin` flat binaries, deliberately, to keep
+Apple's Mach-O-only toolchain out of it.
 
 ```
+make deps     # install the host dependencies (nasm, qemu, pkg-config +
+              # libudev-dev). IDEMPOTENT and ~0.2s when satisfied, so type it
+              # rather than wonder. `make deps-check` reports and installs
+              # nothing
 make          # build every floppy image into build/ (also runs tools/checkdocs.py),
               # and packs the three Weave demo bundles (build/FORM/SHEET/PONG
               # .WAB) with tools/weavesim.py — docs/WEAVE-SPEC.md's reference
@@ -1114,6 +1131,78 @@ upstream should take this whole section out. It is one section, with no
 branch-specific rule anywhere else in this file, precisely so that removing it
 is a deletion rather than a search — the one other thing to take with it is
 the pointer to it, five lines under the map sentence at the top.
+
+### 0. `make deps` IS THE FIRST COMMAND OF A SESSION — before `make`, before `make marty`
+
+A fresh container has `cargo` and `python3` and **has neither `nasm` nor
+`qemu` nor `libudev-dev`**. `make deps` installs the set in about half a
+minute and is **~0.2 s when everything is already there**, so it is cheap to
+type when unsure — which is the point, because the alternative that keeps
+happening costs four minutes and ends with nothing built.
+
+```sh
+make deps          # or: tools/setup-linux.sh   (--check reports, installs nothing)
+```
+
+**This rule exists because the documentation did not work.** The dependency
+was already named three times — in the Commands section above, in a
+sixty-line subsection of docs/MARTYPC-DEBUG.md, and in
+`tools/os88soak.py`'s preflight — and *every* agent still typed `make marty`
+first, waited out most of a cargo build, and read one of those only after
+`serialport` failed on a missing 200 KB header. The transcript is always the
+same shape: *"MartyPC is still compiling. Let me wait on it rather than poll
+blindly… Missing libudev-dev/pkg-config — the Linux deps CLAUDE.md names.
+Installing and rebuilding."* Two builds where one would do, every time.
+
+Three things are wrong with prose as the mechanism here, and they are worth
+naming because the same three will defeat the next warning written the same
+way:
+
+1. **The cost lands minutes late.** `make marty` clones, patches and
+   compiles most of MartyPC before cargo reaches `serialport`, so the
+   missing header is reported long after the expensive part — to somebody
+   who has by then stopped provisioning a box and started debugging a build.
+2. **It was a parenthesis.** *"(plus `libudev-dev` and `pkg-config` on
+   Linux)"* is a fact inside a sentence about cargo. It is not a command,
+   and nobody types a parenthesis.
+3. **There was no one command to type.** The recipe was two `apt` calls
+   with *opposite* cures — one package wants the newer version a refreshed
+   index names, the other wanted an older one than the index names — which
+   is a thing to get right rather than a thing to run.
+
+So the fix is not more prose, and **you should not need this rule**: two
+forcing functions below it do the work, and they are the reason it is short.
+
+- **`tools/martypc/build.sh` checks first and, HERE, heals itself.**
+  `pkg-config --exists libudev` is exactly the probe the `serialport` crate
+  makes, costs a fraction of a second, and runs *before* the clone. The
+  repair is gated on **being root with apt** — which is this container and
+  is not a contributor's workstation, because a build script that
+  apt-installs behind somebody's back is a worse failure than the one it
+  prevents — so in this fork it fixes itself silently and everywhere else it
+  stops in about a second naming the command, rather than four minutes in.
+  `OS88_NO_PREFLIGHT=1` skips it. **That gating is why the change is safe to
+  send upstream**; this rule is the only part of the work that is not.
+- **`tools/setup-linux.sh` PROBES rather than transcribing.** Every cure in
+  docs/MARTYPC-DEBUG.md is a *fallback* behind a plain attempt, because
+  those cures go stale: that document pins qemu to a base noble version
+  because the `-updates` `.deb` used to 404, and on the archive of
+  2026-09-08 both fetch fine and the plain install is **8 seconds**. A
+  script that hard-coded the pin would install an older emulator for no
+  reason.
+
+Two facts about the container that are not in the general docs, because they
+are this environment's rather than the project's: it runs **as root**, so no
+`sudo` is needed and none is missing; and `apt-get update` prints
+`W: Some index files failed to download` **for a reason that is usually
+harmless** — two third-party PPAs 403 through the agent proxy while the main
+archive fetches perfectly. docs/MARTYPC-DEBUG.md offers that warning as the
+tell of the `_apt` sandbox trap; here it is not one, so judge a refresh by
+whether the install then works and not by that line.
+
+`cargo` is the one thing `make deps` deliberately does **not** install —
+Rust comes from rustup rather than the archive, and every container here
+already has it.
 
 ### 1. UNSHALLOW BEFORE YOU BELIEVE ANY ANSWER ABOUT ANCESTRY
 

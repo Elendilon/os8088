@@ -40,6 +40,20 @@ depends on `serialport`, whose build script hard-fails without them.
 
 ### Installing the deps in a fresh Ubuntu container
 
+> **Do not follow this subsection by hand — run `make deps`.**
+> `tools/setup-linux.sh` is every cure below, applied in the right order and
+> only where it is needed, and `tools/martypc/build.sh` now runs it for you
+> when `pkg-config --exists libudev` fails, *before* the clone rather than
+> four minutes into cargo. This subsection is kept as the ACCOUNT of why the
+> script does what it does — read it when the script fails, not before.
+>
+> **And read it knowing the cures go stale.** The qemu version pin below was
+> right when it was taken and is wrong today: on the archive of 2026-09-08
+> both the `-updates` and the base `.deb` answer 200 and the plain install
+> takes **8 seconds**. That is exactly why the script tries plain first and
+> keeps the pin as a fallback — a transcribed cure installs an older
+> emulator for no reason, and a probed one tracks the archive.
+
 **This subsection is about ONE environment**: a fresh Ubuntu container, which
 is what an agent session gets. A Mac has neither problem — `tools/setup-macos.sh`
 installs through Homebrew (but not Rust, so `make marty` there wants `cargo`
@@ -59,8 +73,15 @@ while `/usr/bin/gpgv --version` answers perfectly well, the missing thing is
 not gpgv: apt drops to the unprivileged `_apt` user to fetch and verify, and
 in a container whose filesystem that user cannot traverse the check fails
 with that sentence. The tell is a plain `apt-get update` that ends in
-`W: Some index files failed to download` having touched nothing, after which
-the install 404s exactly as it does with no refresh at all. Run both steps
+`W: Some index files failed to download` **having touched nothing**, after
+which the install 404s exactly as it does with no refresh at all.
+
+**Weigh the "having touched nothing" and not the warning** — the warning
+alone is ambiguous and reading it as this trap wastes a diagnosis. A blocked
+third-party PPA prints the identical line: on the agent container two PPAs
+(`deadsnakes`, `ondrej/php`) 403 through the outbound proxy every time while
+the main archive fetches all 10.9 MB perfectly, and the refresh is entirely
+successful. Judge it by whether the INSTALL then works. Run both steps
 with the sandbox off:
 
 ```sh
@@ -83,6 +104,12 @@ V='1:8.2.2+ds-0ubuntu1'              # the BASE version, NOT -updates
 apt-get install -y --no-install-recommends \
         "qemu-system-x86=$V" "qemu-system-common=$V" "qemu-system-data=$V"
 ```
+
+**This is the FALLBACK now, not the first move** (see the note at the top of
+this subsection): try the plain install, and pin only if it fails.
+`tools/setup-linux.sh` does exactly that, and derives `$V` from `apt-cache
+madison` rather than hard-coding it, so the pin does not rot into naming a
+version the pool no longer has either.
 
 `-t noble` is **not** enough — it still resolves to the `-updates` version.
 `--no-install-recommends` skips the gstreamer/libcaca display extras, which
