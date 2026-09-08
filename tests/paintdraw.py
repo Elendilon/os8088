@@ -40,6 +40,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "tools"))
 sys.path.insert(0, HERE)
 import os88marty, os88mouse, os88sym, dispcp                 # noqa: E402
 import dispapps                                              # noqa: E402
+import blitpair                                              # noqa: E402
 from blitpair import gif_pixels                              # noqa: E402
 
 S = os88sym.linear
@@ -109,24 +110,12 @@ def main():
         # The canvas origin is ASKED for, off the blit that draws it, for
         # tests/paintplan.py's reason: where Paint puts its picture is not
         # this test's opinion to hold.
-        m.bp_exec("gfx_blitp")
-        mo.dblclick(rx, ry)
-        geom = None
-        for _ in range(40):
-            if not m.wait_stop(limit=300.0):
-                break
-            r = m.regs()
-            if r["cx"] >= iw:
-                geom = (r["ax"], r["bx"])
-                break
-            m.bp_exec("gfx_blitp")
-            m.run()
-        if geom is None:
+        hit = blitpair.wide_blit(m, lambda: mo.dblclick(rx, ry), iw,
+                                 syms=("gfx_blitp",))
+        if hit is None:
             sys.exit("paintdraw: no gfx_blitp as wide as the picture - the "
                      "canvas is not planar, or it fell back to nibbles")
-        ox, oy = geom
-        m.bp_exec()
-        m.run()
+        ox, oy = hit[0], hit[1]
         time.sleep(6)
         pw = [w for w in dispcp.win_list(m, S) if w != disk][-1]
         wx, wy, ww, wh = dispcp.win_rect(m, S, pw)

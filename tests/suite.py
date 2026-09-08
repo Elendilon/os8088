@@ -2877,6 +2877,22 @@ SOAK = [
         "surfacing twenty steps later. Ends with the same navigation run "
         "both ways on one machine: settle-and-hope against read-the-answer.",
         needs=("marty",), serial=True),
+    Row("bptrace", "soak", py("tests/bptrace.py"), 45.0,
+        "Can the harness drive the UI with BREAKPOINTS ARMED? It could not "
+        "until os88marty.bp_trace: every os88ui and os88mouse verb confirms "
+        "by reading guest state, and a guest stopped at a breakpoint "
+        "publishes nothing new - so an armed breakpoint does not mis-aim a "
+        "click, it makes the click's own PROOF unobtainable, and 78 files "
+        "under tests/ arming breakpoints could use none of that layer. It is "
+        "an A/B and has to be: a bare bp_exec must FAIL and name the CLOCK "
+        "(2.2s, against 332.1s and a wrong diagnosis before the os88mouse "
+        "guard), and the same symbols pumped must complete a path(), a "
+        "menu_pick() and a raw pointer move. Then the invariants the four "
+        "converted rows rest on - dedupe on `instructions`, `breakpoint` and "
+        "never `paused`, a cap that overflows instead of wedging, and an "
+        "on_hit that reads the .bss while the guest is still inside the "
+        "routine",
+        needs=("marty",), serial=True),
     Row("dispseam", "soak", py("tests/dispseam.py"), 300.0,
         "Does the one cell a display SEAM crosses still reach the glass?"
         "(SPEC.md 39.14.11) - it builds `make NOSEAMCUT=1` itself for the A/B"

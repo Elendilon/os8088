@@ -508,6 +508,50 @@ def kernel_is_stale(rows):
     return None
 
 
+def _whole_tier_refusal(rows):
+    """Why an unscoped `soak` does not start, and what to do instead.
+
+    THE WHOLE TIER IS THE OWNER'S CALL AND NOBODY ELSE'S.  Two wordings of
+    that rule were tried and both were reasoned past inside a day: "at the end
+    of extensive kernel surgery" was read as "I edited kernel/", and the reach
+    test that replaced it ("run it when you cannot name what the change
+    misses") was read as "my change moves kern_big, so I cannot bound it".
+    Every wording that leaves a JUDGEMENT gets exercised in favour of running
+    it, and the run is one to three hours of somebody else's machine.
+
+    So this is not a judgement any more, it is a PERMISSION, and the flag that
+    carries it is a claim about the conversation rather than about the change:
+    passing --user-asked when the owner did not ask is a false statement, which
+    is a far higher bar than deciding that a diff felt significant.
+
+    Nothing is lost by stopping here - the tier has not started, and the two
+    ways forward are both in the message.
+    """
+    total = len(rows)
+    hours = sum(r.secs for r in rows) / 3600.0
+    return (
+        "\nos88test: REFUSING the whole soak tier - %d rows, %.1f declared "
+        "hours.\n"
+        "  The whole tier runs ONLY when the owner asks for it in as many "
+        "words.\n"
+        "  Nothing else licenses it: not kernel surgery, not a merge, not a "
+        "change\n"
+        "  whose reach you cannot bound, not a hunch that this one is worth "
+        "it.\n"
+        "\n"
+        "  RUN THE ROWS YOUR CHANGE CAN REACH instead - minutes, and it is "
+        "what\n"
+        "  answers the question you actually have:\n"
+        "      python3 tools/os88test.py --list | grep -i <subject>\n"
+        "      python3 tools/os88test.py soak -k '<glob>' [-k '<glob>' ...]\n"
+        "  Past a few minutes use tools/os88soak.py, which takes the same -k.\n"
+        "\n"
+        "  If you believe the whole tier is warranted, SAY SO AND ASK, then\n"
+        "  carry on without it.  When the owner has asked, pass --user-asked.\n"
+        "  docs/TESTING.md, \"When to run which tier\".\n\n"
+        % (total, hours))
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Run the os8088 regression suite.",
@@ -542,6 +586,11 @@ def main():
                          "safety - see the header. Rows marked builds=True "
                          "(cannot share the TREE) or alone=True (cannot share "
                          "the CORES) run alone whatever this says.")
+    ap.add_argument("--user-asked", action="store_true", dest="user_asked",
+                    help="the OWNER asked, in as many words, for the WHOLE "
+                         "soak tier. Required to run `soak` with no -k: "
+                         "nothing else licenses it, and no reasoning about "
+                         "the change reaches it. See _whole_tier_refusal().")
     ap.add_argument("--list", action="store_true", help="print the registry and exit")
     ap.add_argument("--strict", action="store_true",
                     help="a missing capability is a FAILURE, not a skip")
@@ -553,6 +602,10 @@ def main():
 
     import suite
     rows = suite.rows()
+
+    if a.tier == "soak" and not a.k and not a.list and not a.user_asked:
+        sys.stderr.write(_whole_tier_refusal(rows))
+        return 2
 
     if a.list:
         w = max(len(r.name) for r in rows)

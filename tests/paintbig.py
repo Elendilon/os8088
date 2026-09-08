@@ -43,6 +43,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "tools"))
 sys.path.insert(0, HERE)
 import os88marty, os88mouse, os88sym, dispcp                 # noqa: E402
 import dispapps                                              # noqa: E402
+import blitpair                                              # noqa: E402
 from blitpair import gif_pixels                              # noqa: E402
 from paintmove import pkg_syms                               # noqa: E402
 
@@ -67,19 +68,6 @@ def tool_xy(ox, oy, i):
     x = 1 if not (i & 1) else 22
     y = 1 + PT_PAL_DY * (i >> 1)
     return ox - PT_CV_X + x + PT_BW // 2, oy + y + PT_BW // 2
-
-
-def widest(m, blit, iw, limit=40):
-    """The regs at the next `blit` call at least as wide as the picture."""
-    for _ in range(limit):
-        if not m.wait_stop(limit=300.0):
-            return None
-        r = m.regs()
-        if r["cx"] >= iw:
-            return r
-        m.bp_exec(blit)
-        m.run()
-    return None
 
 
 def main():
@@ -138,28 +126,29 @@ def main():
                                                               gifname)))
         mo.to(rx, ry)
         os88marty.settle(m)
-        m.bp_exec(a.blit)
-        mo.dblclick(rx, ry)
-        r = widest(m, a.blit, iw)
+        got = {}
+
+        def stub_ds(mm, r):
+            """Paint's segment, off the API stub's saved DS - the menu check
+            at the end reads variables of Paint's, and this is the one place
+            the harness is stopped inside a call Paint made. It has to happen
+            HERE: the word is on the guest's stack and is gone on the resume."""
+            got["base"] = int.from_bytes(
+                mm.read((r["ss"] << 4) + r["sp"] + 2, 2), "little") << 4
+
+        r = blitpair.wide_blit(m, lambda: mo.dblclick(rx, ry), iw,
+                               syms=(a.blit,), regs=True, at_hit=stub_ds)
         if r is None:
             sys.exit("paintbig: no %s as wide as the picture" % a.blit)
-        # Paint's segment, off the API stub's saved DS - the menu check at
-        # the end reads variables of Paint's, and this is the one place the
-        # harness is stopped inside a call Paint made.
-        pkgbase = int.from_bytes(
-            m.read((r["ss"] << 4) + r["sp"] + 2, 2), "little") << 4
-        m.bp_exec()
-        m.run()
+        pkgbase = got["base"]
         time.sleep(6)
         pw = [w for w in dispcp.win_list(m, S) if w != disk][-1]
         wx, wy, ww, wh = dispcp.win_rect(m, S, pw)
 
         # --- GROW, by the grow box, as far as the desktop allows
-        m.bp_exec(a.blit)
-        mo.drag(wx + ww - 6, wy + wh - 6, 636, 476)
-        r = widest(m, a.blit, iw)
-        m.bp_exec()
-        m.run()
+        r = blitpair.wide_blit(m, lambda: mo.drag(wx + ww - 6, wy + wh - 6,
+                                                  636, 476),
+                               iw, syms=(a.blit,), regs=True)
         os88marty.settle(m)
         time.sleep(8)
         if r is None:
