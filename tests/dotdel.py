@@ -218,6 +218,11 @@ def run_arm(tag, machine, want_tile, a, say):
                                 "the board from its own surface (SPEC.md "
                                 "93.4.2)" % (tag, big[0], big[1],
                                              tile[0], tile[1]))
+            if p.w("dd_frames") in (0, 0xFFFF) or p.b("dd_state") == 255:
+                import os88marty as _mm
+                _w,_h,_d = m.fbuf(0)
+                _mm.write_png_rgb("/tmp/claude-0/-home-user-os8088/359b914f-5179-53b4-9f92-36c43b355829/scratchpad/dbg2_%s_%s.png" % (tag, what), _w, _h, _d)
+                say("DBG shot taken: state=%d frames=%d" % (p.b("dd_state"), p.w("dd_frames")))
             c0, t0, f0 = m.status()["cycles"], p.w("dd_anim"), p.w("dd_frames")
             time.sleep(8)
             c1, t1, f1 = m.status()["cycles"], p.w("dd_anim"), p.w("dd_frames")

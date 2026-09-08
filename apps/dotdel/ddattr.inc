@@ -657,7 +657,7 @@ dd_play_line:
     mov al, DD_INKPLAY
     cmp byte [dd_blink], 0
     jne .ink
-    mov al, CBLACK
+    mov byte [dd_tblank], 1         ; blanked, not black: see dd_text
 .ink:
     push ax
     call dd_text_w

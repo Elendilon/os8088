@@ -107893,19 +107893,49 @@ band instead means both are in every frame either of them draws. A sprite
 composed in from a neighbouring band is clipped on all four sides, since it
 can hang off any edge of a band that was not cut for it.
 
-**The clean band needs no wall bytes in it, and that is a proof rather than a
-hope.** The rectangle's first column is `min(old, new)` rounded down to a tile
-and its last is `max(old, new) + a tile` rounded up, and the two positions are
-less than a tile apart — so every tile in the rectangle is covered by one of
-the two boxes, and an actor's box is only ever on a tile it is allowed to
-stand on. A corridor tile holds no wall ink at all, because `dd_walls_of`
-draws every line **outside** the corridor it outlines (§93.2.1). The one tile
-an actor stands on that DOES carry a line is the ghost house's **door**, and
-that bar is put back as an item like a dot.
+**The clean band is zeros almost always, and the almost is a corner.** The
+proof that it needs no wall bytes runs: the rectangle's first column is
+`min(old, new)` rounded down to a tile and its last is `max(old, new) + a
+tile` rounded up, the two positions are less than a tile apart, so every tile
+in it is covered by one of the two boxes — and an actor's box is only ever on
+a tile it may stand on, which holds no wall ink because `dd_walls_of` draws
+every line **outside** the corridor it outlines (§93.2.1).
 
-Copying the wall picture into the band instead was built, and it is what a
-frame cannot afford: a `rep movsb` a row over a rectangle five actors wide is
-**12 ms of a 54.9 ms frame** on a VGA, measured, for bytes that are zero.
+**That proof assumes movement on one axis, and a TURN is not.** At a turn the
+place the actor was last drawn and the place it is now differ on *both* axes —
+one step back along the old direction, one step on along the new — so the
+rectangle is a 2 × 2 block of tiles whose diagonal member is the **wall tile
+in the corner**, carrying the corner of the maze that `dd_walls_of` extended
+both lines by the line thickness to close. A zeroed band took it off the glass
+for the rest of the level, and the field report was exactly that: *"corners
+disappear when a ghost or Smiles crosses them"*.
+
+So the tiles are walked first — four to nine `dd_tile` reads — and a rectangle
+holding a wall or the ghost-house door takes its bytes out of the wall picture
+instead. **That is one `rep movsb` at a turn and none at all in a straight
+line**; copying it into *every* band was built first and is what a frame
+cannot afford, at **12 ms of a 54.9 ms frame** on a VGA (§93.5.3 item 4) for
+bytes that are zero.
+
+#### 93.5.1.1 A band of zero height is 65,536 rows
+
+`dd_band_walls` copies `[dd_bh]` rows with `dec dx / jnz`, so a height of
+**zero** is not a no-op: it is 65,536 rows of `rep movsb` walking the whole
+package segment — its bss, its code, the lot — and what comes out the far side
+is a worker executing rubble. It reported itself as **STACK OVERFLOW**, which
+is the kernel's canary doing its job on a task whose return addresses had been
+overwritten, and it cost an afternoon because the panel names the symptom
+rather than the cause.
+
+Two things stop it, and both are worth having. `dd_band_build` **refuses** a
+degenerate rectangle rather than clamping one — a band with nothing in it is
+one an actor does not need drawn. And the producers clamp the rectangle's TOP
+as well as its bottom: clamping only `c1`/`r1` to the board's last column and
+row while leaving `c0`/`r0` free is what makes `r1 < r0` in the first place,
+and a negative height is a zero one once it has been through a `mul`.
+
+The zero-fill path was blameless throughout — `rep stosb` with `CX = 0` copies
+nothing — which is why this arrived with the corner fix and not before it.
 
 A move too big for one band is a **teleport** — the tunnel, a new life, the
 start of a level — and is drawn as two operations instead: one band over the
@@ -108178,30 +108208,36 @@ not frightened is in one of two states, and neither of them is omniscient:
 * **wandering** — it patrols its own corner (§93.8.1's table), which on this
   board is a loop around the block nearest that corner;
 * **tracking** — it has, at some point, had a clear line down its own row or
-  column to Smiles. While it can still see him it goes for him through its own
-  personality; every tick that it can see him it writes down **the tile he is
-  on**, which is the mouth of the lane he is about to turn into. When he goes
-  out of view it makes for that tile, and if he is still not in view when it
-  gets there it gives up and goes back to patrolling.
+  column to Smiles. **While it can still see him it goes STRAIGHT at him** and
+  writes down **the tile he is on**, which is the mouth of the lane he is about
+  to turn into. When he goes out of view it makes for that tile, and if he is
+  still not in view when it gets there it gives up and goes back to patrolling.
 
 That is deliberately not the arcade's model, where a ghost knows where the
 player is at every moment. On a board this size that reads as unfair and gives
 a player no way to break a chase; here breaking one is a turn taken out of
-sight. What it keeps is the arcade's four personalities, which is the target a
-TRACKING ghost aims at once it can see him:
+sight.
 
-| ghost | target while it can see him |
-|---|---|
-| 0, red | the tile Smiles is on |
-| 1, pink | four tiles ahead of him |
-| 2, cyan | the far end of the line from the red one through two ahead of him |
-| 3, orange | the tile he is on, until it is within eight tiles, and then its own corner |
+**"Straight at him" is literal, and the first version was not.** It aimed at a
+target with the arcade's four personalities — four tiles ahead of him, the
+mirror through the red one, and so on — and those send a ghost that can see
+Smiles to a tile *past* him; `dd_gh_aim`'s no-reverse rule then keeps it going
+that way. The field report was *"they move in the opposite direction I am
+going even though I am still in that lane"*, and it was right. `dd_gh_sees`
+has already walked the row or column and found no wall, so the direction it
+hands back is both legal and closing: the ghost takes it, and it writes
+`dd_dir` as well as `dd_want` so that a ghost which catches sight of Smiles
+BEHIND it is allowed the one reversal. Measured, 83% of the ticks in which a
+ghost can see him it is already travelling at him, the rest being the ticks
+between the sighting and the next tile origin.
 
-Of the legal turns — never straight back the way it came, never a wall, and
-the house door only for a ghost leaving or coming home — it takes the one
-whose next tile is nearest the target, trying **up, left, down, right**, which
-is the arcade's own tie-break and is the whole of why a ghost climbs out of a
-corner rather than pacing in it.
+What survives of the personalities is the four **corners** they patrol, which
+is what keeps them apart when nobody is in sight. Of the legal turns there —
+never straight back the way it came, never a wall, and the house door only for
+a ghost leaving or coming home — a wandering ghost takes the one whose next
+tile is nearest its corner, trying **up, left, down, right**, which is the
+arcade's own tie-break and is why a ghost climbs out of a corner rather than
+pacing in it.
 
 Line of sight is a walk along one row or one column, at most 27 tile reads,
 and only for a ghost that shares a row or a column with Smiles at all — which
@@ -108264,6 +108300,27 @@ The wide pair is a different **image**, not a different draw: the sprite set
 already carries eight eye states a skirt phase (§93.5), so this costs one
 index and no cycles in the frame.
 
+#### 93.8.4 Touching is a BOX overlap, not a shared tile
+
+Smiles and a ghost collide when their boxes are within **half a tile on both
+axes**, which is the arcade's own rule and about a third of a sprite of
+overlap.
+
+It was a test for the same TILE, on the argument that two actors crossing at
+speed can never share a tile without having been within half a tile of each
+other. That argument is exactly backwards for the case that matters: **two
+actors walking INTO each other never share a tile at all.** Smiles' tile goes
+10, 10, 10, 11 while the ghost's goes 11, 11, 11, 10 — they swap, and the one
+tick where they are on top of each other is a tick where the two tile numbers
+differ. The field report was *"ghosts no longer interact with Smiles, he can
+go right through them"*, in the game and on the title screen, and it appeared
+when §93.8's ghosts started meeting him head-on instead of drifting into him
+sideways.
+
+The half-tile test cannot be walked through: Smiles closes at 4 px a tick and
+a ghost at 3.5, so there is always at least one tick inside 8 px of a 16 px
+tile.
+
 ### 93.9 Scoring
 
 A dot is 10 and a pellet 50. Ghosts are 200/400/800/1600 within one pellet.
@@ -108311,9 +108368,15 @@ rectangles through `gfx_fill`: at §5.7's ~756 µs a call that would be 128 ms
 of arrival every time the window is raised.
 
 The play line blinks on its own clock, 11 ticks lit against 6 dark, and is
-drawn by nothing else. The dark phase draws it in the **background colour**
-rather than skipping it, because `font_run` is opaque: one call puts the line
-up and the same call takes it down, and there is no rectangle to remember.
+drawn by nothing else. The dark phase puts down a **blank band** of the same
+width and place — one call takes the line down exactly as one call put it up,
+and there is no rectangle to remember.
+
+It used to draw the line in the background COLOUR, and on the two 1bpp
+adapters that is not a thing: a band has no pen there at all (§5.4.2.2), a set
+bit is lit and a clear one is not, so "PRESS ENTER TO PLAY" in `CBLACK` lit
+every glyph pixel exactly as `CWHITE` did. The line was solid on a Hercules
+and nobody noticed until somebody looked at one.
 
 #### 93.11.2 The demo is the game, on a slice
 

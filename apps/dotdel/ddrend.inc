@@ -156,6 +156,29 @@ dd_text:
     jmp .out                        ; a near jump: the unrolled cell below puts
 .go:                                ; .out past a jcxz's reach
     mov [dd_tn], cx
+    cmp byte [dd_tblank], 0
+    je .glyphs
+    ; --- BLANKED, which is not the same as drawn in the paper colour --------
+    ; A 1bpp band has no pen at all (SPEC.md 5.4.2.2): a set bit is lit and a
+    ; clear one is not, so `dd_text` with ink CBLACK still lights every glyph
+    ; pixel. That is why "PRESS ENTER TO PLAY" was solid on a Hercules instead
+    ; of blinking - the off phase was drawing the same letters in a colour the
+    ; adapter does not have.
+    mov byte [dd_tblank], 0
+    mov ax, [dd_tn]
+    mov cl, 3
+    shl ax, cl
+    mov cx, ax
+    push es
+    push ds
+    pop es
+    mov di, dd_band
+    xor al, al
+    cld
+    rep stosb
+    pop es
+    jmp .emit
+.glyphs:
     ; --- eight rows of CX bytes, out of the glyph table ---------------------
     ;
     ; CELL-OUTER, ROW-INNER, and the eight stores unrolled. It was the other
@@ -837,6 +860,10 @@ dd_actor_prep:
     mov ax, [dd_bx0]
     xor dx, dx
     div word [dd_tw]
+    cmp ax, DD_COLS - 1
+    jbe .c0
+    mov ax, DD_COLS - 1
+.c0:
     mov [dd_nc0 + bx], al
     mov ax, [dd_bx1]
     xor dx, dx
@@ -849,6 +876,10 @@ dd_actor_prep:
     mov ax, [dd_by0]
     xor dx, dx
     div word [dd_th]
+    cmp ax, DD_ROWS - 1
+    jbe .r0
+    mov ax, DD_ROWS - 1
+.r0:
     mov [dd_nr0 + bx], al
     mov ax, [dd_by1]
     xor dx, dx
@@ -968,6 +999,10 @@ dd_wipe_old:
     push ax
     xor dx, dx
     div word [dd_tw]
+    cmp ax, DD_COLS - 1
+    jbe .c0
+    mov ax, DD_COLS - 1
+.c0:
     mov [dd_c0], ax
     pop ax
     add ax, [dd_tw]
@@ -985,7 +1020,11 @@ dd_wipe_old:
     push ax
     xor dx, dx
     div word [dd_th]
-    mov [dd_r0], ax
+    cmp ax, DD_ROWS - 1             ; the TOP is clamped too, and that is not
+    jbe .r0                         ; belt and braces: clamping only the bottom
+    mov ax, DD_ROWS - 1             ; is what makes r1 < r0, and a rectangle
+.r0:                                ; with a negative height is a band with a
+    mov [dd_r0], ax                 ; height of zero
     pop ax
     add ax, [dd_th]
     dec ax
@@ -1027,9 +1066,17 @@ dd_band_build:
     mul word [dd_th]
     mov [dd_bh], ax
     mov word [dd_bbase], dd_band
-    mov ax, [dd_rb]                 ; a band that would not fit loses rows off
-    or ax, ax                       ; the bottom rather than the next variable
-    jz .none
+    ; A DEGENERATE RECTANGLE IS REFUSED HERE, and it has to be refused rather
+    ; than clamped: dd_band_walls copies dd_bh rows with `dec dx / jnz`, so a
+    ; height of ZERO is 65,536 rows of `rep movsb` walking the whole package
+    ; segment - the bss, the code, everything - and what comes out the far side
+    ; is a machine running on rubble. It read as STACK OVERFLOW because the
+    ; rubble is what the worker then executed.
+    mov ax, [dd_rb]                 ; ...and a band that would not FIT loses
+    or ax, ax                       ; rows off the bottom rather than the next
+    jz .none                        ; variable along
+    cmp word [dd_bh], 0
+    je .none
     mul word [dd_bh]
     cmp ax, DD_BANDSZ
     jbe .fits
@@ -1045,22 +1092,31 @@ dd_band_build:
     ret
 
 ; -----------------------------------------------------------------------------
-; dd_band_ground - a clean band
+; dd_band_ground - what is under the band before anything is stamped on it
 ;
-; AND THAT IS ENOUGH, because the band's tile rectangle can only ever hold
-; tiles that one of the actor's two boxes was over. bx0 is min(old, new)
-; rounded DOWN to a tile and bx1 is max(old, new) + a tile rounded UP, and the
-; two positions are less than a tile apart, so every column between them is
-; covered by one box or the other - and an actor's box is only ever on tiles it
-; is allowed to stand on. There is no wall ink to preserve: a corridor tile
-; holds none, because dd_walls_of draws every line OUTSIDE the corridor it
-; outlines (SPEC.md 93.2.1).
+; ZEROS, ALMOST ALWAYS - and the almost is a bug fix. The rectangle can only
+; hold tiles one of the actor's two boxes was over, and a CORRIDOR tile holds
+; no wall ink at all, because dd_walls_of draws every line OUTSIDE the corridor
+; it outlines (SPEC.md 93.2.1). So the ground is a `rep stosw` of nothing.
 ;
-; The one exception is the ghost-house DOOR, which is a tile an actor DOES
-; cross and which has a bar drawn on it - so dd_band_items puts that back.
-; Clobbers AX/CX/DX/DI.
+; The exception is a TURN. The band is the union of where the actor was DRAWN
+; and where it is now, and at a turn those differ on BOTH axes - one step back
+; along the old direction, one step on along the new - so the rectangle is a
+; 2x2 block of tiles whose diagonal member is the WALL tile in the corner. Its
+; outline is the corner of the maze, dd_walls_of having extended both lines by
+; the line thickness to close it, and a zeroed band took it off the glass for
+; the rest of the level. The field report was exactly that: "corners disappear
+; when a ghost or Smiles crosses them".
+;
+; So the tiles are walked first, and a rectangle holding a WALL or a DOOR takes
+; its bytes out of the wall picture instead. That is one memcpy at a turn and
+; none at all in a straight line - SPEC.md 93.5.3's item 4 is what copying it
+; on EVERY band cost.
+; Clobbers AX/BX/CX/DX/DI.
 ; -----------------------------------------------------------------------------
 dd_band_ground:
+    call dd_rect_wall
+    jc dd_band_walls
     mov ax, [dd_rb]
     mul word [dd_bh]
     mov cx, ax
@@ -1076,6 +1132,83 @@ dd_band_ground:
     stosb
 .even:
     pop es
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_rect_wall - CF = 1 when [dd_c0..dd_c1] x [dd_r0..dd_r1] holds a tile with
+;                a picture on it. Clobbers AX/CX. Preserves SI.
+; -----------------------------------------------------------------------------
+dd_rect_wall:
+    push bx
+    push dx
+    mov dx, [dd_r0]
+.row:
+    mov bx, [dd_c0]
+.col:
+    mov cl, bl
+    mov ch, dl
+    call dd_tile
+    cmp al, TT_WALL
+    je .yes
+    cmp al, TT_DOOR
+    je .yes
+    inc bx
+    cmp bx, [dd_c1]
+    jbe .col
+    inc dx
+    cmp dx, [dd_r1]
+    jbe .row
+    pop dx
+    pop bx
+    clc
+    ret
+.yes:
+    pop dx
+    pop bx
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_band_walls - the wall picture's own bytes for the band's rectangle
+; The band is on the tile grid and a tile is a multiple of 8 wide, so this is a
+; row-by-row copy and never a shift. Clobbers everything but SI.
+; -----------------------------------------------------------------------------
+dd_band_walls:
+    cmp word [dd_bh], 0             ; belt and braces: `dec dx / jnz` on a zero
+    je .none                        ; count is 65,536 rows (see dd_band_build)
+    push si
+    mov ax, [dd_by0]
+    mul word [dd_sb]
+    mov si, ax
+    mov ax, [dd_bx0]
+    mov cl, 3
+    shr ax, cl
+    add si, ax                      ; SI = the picture byte the rectangle is at
+    mov di, dd_band
+    mov dx, [dd_bh]
+    mov bx, [dd_rb]
+    mov ax, [dd_bdseg]
+    push es
+    push ds
+    pop es                          ; ES:DI the band, DS:SI the wall picture
+    mov ds, ax
+    cld
+.row:
+    push si
+    push di
+    mov cx, bx
+    rep movsb
+    pop di
+    pop si
+    add si, [es:dd_sb]              ; DS is the picture now, so our own words
+    add di, bx                      ; have to be read through ES
+    dec dx
+    jnz .row
+    push es
+    pop ds
+    pop es
+    pop si
+.none:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1098,19 +1231,8 @@ dd_band_items:
     je .dot
     cmp al, TT_PILL
     je .pill
-    cmp al, TT_DOOR
-    je .door
-    jmp short .next
-.door:
-    xor ax, ax                      ; the ghost house's bar, which is the one
-    mov bx, [dd_th]                 ; piece of the wall picture an actor ever
-    sub bx, [dd_lth]                ; stands on
-    shr bx, 1
-    mov cx, [dd_tw]
-    mov dx, [dd_lth]
-    call dd_item_rect
-    jmp short .next
-.dot:
+    jmp short .next                 ; ...and a DOOR needs nothing here: the
+.dot:                               ; ground came out of the wall picture
     mov ax, [dd_tw]
     sub ax, [dd_dotw]
     shr ax, 1
@@ -1440,8 +1562,17 @@ dd_text_w:
     ret
 
 ; dd_forget - nothing on the glass is ours any more
+;
+; INCLUDING A MESSAGE OWED A TAKE-DOWN. dd_overlay banks the rectangle it drew
+; one in and fills it black when the message goes, and that rectangle is in
+; SCREEN coordinates: carrying it across a layout change - GAME OVER handing
+; over to the attract screen is one, and it moves dd_bdy by 56 px and re-cuts
+; the board - lands the erase somewhere else entirely. It ate a row of the
+; maze's outline every time a game ended, AFTER the full repaint that would
+; have healed it, because dd_draw_all runs before dd_overlay.
 dd_forget:
     push si
+    mov word [dd_ovw], 0
     xor si, si
 .a:
     mov byte [dd_shown + si], 0

@@ -936,8 +936,18 @@ dd_gh_roam:
     call dd_gh_aim
     ret
 .onhim:
-    call dd_gh_target               ; where its own personality wants it
-    call dd_gh_aim
+    ; STRAIGHT AT HIM, and that is the whole of it: dd_gh_sees walked the row
+    ; or column between them and found no wall, so the direction it handed back
+    ; is both legal and closing. Aiming with a target instead let the arcade's
+    ; personalities send a ghost that could see Smiles four tiles PAST him, and
+    ; dd_gh_aim's no-reverse rule then kept it going that way - which is the
+    ; field report, "they move in the opposite direction I am going even though
+    ; I am still in that lane". Writing dd_dir as well as dd_want is what makes
+    ; the turn a reversal it is allowed: a ghost that has just caught sight of
+    ; Smiles behind it turns round.
+    mov al, [dd_gseed + bx]
+    mov [dd_want + si], al
+    mov [dd_dir + si], al
     ret
 .wander:
     call dd_gh_scat
@@ -978,110 +988,6 @@ dd_gh_scat:
     mov bx, [dd_gi]
     mov al, [dd_scatc + bx]
     mov ah, [dd_scatr + bx]
-    pop bx
-    ret
-
-; -----------------------------------------------------------------------------
-; dd_gh_target - AL = the column ghost [dd_gi] wants, AH = the row
-;
-; The four personalities, and they are the arcade's: the red one takes the tile
-; Smiles is on, the pink one four ahead of him, the cyan one the far end of the
-; line from the red one through two ahead of him, and the orange one goes home
-; whenever it gets within eight tiles.
-; -----------------------------------------------------------------------------
-dd_gh_target:
-    push bx
-    push cx
-    push dx
-    push si
-    mov bx, [dd_gi]
-    or bx, bx
-    jz .blinky
-    cmp bx, 1
-    je .pinky
-    cmp bx, 2
-    je .inky
-    ; --- Clyde: the tile, until he is close, and then his corner ------------
-    xor si, si
-    call dd_tile_of
-    mov [dd_pc], cx
-    mov si, [dd_gi]
-    inc si
-    call dd_tile_of
-    mov al, cl
-    sub al, byte [dd_pc]
-    cbw
-    mov bx, ax
-    imul bx                         ; AX = dx * dx
-    mov dx, ax
-    mov al, ch
-    sub al, byte [dd_pc + 1]
-    cbw
-    mov bx, ax
-    imul bx
-    add ax, dx
-    cmp ax, 64                      ; eight tiles, squared
-    jae .blinky
-    jmp short .scatter
-.blinky:
-    xor si, si
-    call dd_tile_of
-    mov ax, cx
-    jmp short .out
-.pinky:
-    xor si, si
-    call dd_tile_of
-    mov bl, [dd_lastd]              ; NOT [dd_dir]: a stopped Smiles is
-    xor bh, bh                      ; DIR_NONE, which indexes past dd_dx
-    mov al, [dd_dx + bx]
-    cbw
-    shl ax, 1
-    shl ax, 1
-    add al, cl
-    mov dl, al
-    mov al, [dd_dy + bx]
-    cbw
-    shl ax, 1
-    shl ax, 1
-    add al, ch
-    mov dh, al
-    mov ax, dx
-    jmp short .out
-.inky:
-    xor si, si
-    call dd_tile_of
-    mov bl, [dd_lastd]
-    xor bh, bh
-    mov al, [dd_dx + bx]
-    cbw
-    shl ax, 1
-    add al, cl
-    mov dl, al                      ; two ahead of Smiles
-    mov al, [dd_dy + bx]
-    cbw
-    shl ax, 1
-    add al, ch
-    mov dh, al
-    mov si, 1                       ; ...doubled about the red one
-    call dd_tile_of
-    mov al, dl
-    shl al, 1
-    sub al, cl
-    mov bl, al
-    mov al, dh
-    shl al, 1
-    sub al, ch
-    mov bh, al
-    mov ax, bx
-    jmp short .out
-.scatter:
-    mov bx, [dd_gi]
-    mov al, [dd_scatc + bx]
-    mov ah, [dd_scatr + bx]
-.out:
-    pop si
-    pop dx
-    pop cx
     pop bx
     ret
 
@@ -1534,8 +1440,10 @@ dd_eat_here:
 dd_collide:
     push si
     xor si, si
-    call dd_tile_of
-    mov [dd_pc], cx
+    mov ax, [dd_x]                  ; Smiles' box, in 1/16 px
+    mov [dd_pcx], ax
+    mov ax, [dd_y]
+    mov [dd_pcy], ax
     mov si, 1
 .g:
     mov bx, si
@@ -1546,12 +1454,26 @@ dd_collide:
     je .next                        ; a pair of eyes cannot be run into
     cmp al, GS_HOUSE
     je .next
-    call dd_tile_of
-    mov ax, [dd_pc]
-    cmp cl, al
-    jne .next
-    cmp ch, ah
-    jne .next
+    mov bx, si
+    shl bx, 1
+    mov ax, [dd_x + bx]
+    sub ax, [dd_pcx]
+    jns .dxp
+    neg ax
+.dxp:
+    mov dx, [dd_twS]
+    shr dx, 1
+    cmp ax, dx
+    jae .next
+    mov ax, [dd_y + bx]
+    sub ax, [dd_pcy]
+    jns .dyp
+    neg ax
+.dyp:
+    mov dx, [dd_thS]
+    shr dx, 1
+    cmp ax, dx
+    jae .next
     mov bx, [dd_gi]
     cmp byte [dd_gs + bx], GS_FRIGHT
     je .eat
@@ -1561,9 +1483,9 @@ dd_collide:
     pop si
     ret
 .eat:
-    mov byte [dd_gs + bx], GS_EYES
-    mov byte [dd_shown + si], 0     ; it changes shape entirely: let the
-                                    ; renderer put the old one away first
+    mov byte [dd_gs + bx], GS_EYES  ; ...and dd_shown is LEFT ALONE: it has not
+                                    ; moved, so its next band is its own box
+                                    ; and the eyes land exactly over the ghost
     call dd_ghost_score
     mov word [dd_gpause], DD_EATPAUSE
     mov ax, 1200

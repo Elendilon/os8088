@@ -1017,6 +1017,7 @@ dd_s_small:  db 'Window too small.', 0
     DWORDV dd_tx
     DWORDV dd_ty
     DBYTEV dd_tink
+    DBYTEV dd_tblank                ; ...and it is BLANK, glyphs and all
     DWORDV dd_ovx                   ; the overlay line, banked so it can be
     DWORDV dd_ovy                   ; taken down again
     DWORDV dd_ovw
@@ -1062,6 +1063,8 @@ dd_s_small:  db 'Window too small.', 0
     DWORDV dd_gtry
     DWORDV dd_gc0
     DWORDV dd_pc                    ; Smiles' tile, banked for the targets
+    DWORDV dd_pcx                   ; ...and his box, for the collision test
+    DWORDV dd_pcy
     DWORDV dd_tgt
     DWORDV dd_best
     DBYTEV dd_bestd
