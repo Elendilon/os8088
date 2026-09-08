@@ -53,7 +53,7 @@ asked for  KERN_SIZE 57,856   heap floor 58.0 KB   free heap on 128KB = 70.0 KB
 the cut    38,400 bytes = 39.9% of the footprint
 ```
 
-Five findings:
+Six findings:
 
 1. **There is no big single win.** The largest symbol in the kernel is
    `osapi_table` at 1,256 bytes and the second is `kmain` at 217. Below that it
@@ -85,7 +85,19 @@ Five findings:
    them and not one more** — which caps three of the most attractive data cuts
    at half what they would otherwise give. §7.
 
-5. ~~**32.5KB is the number that makes the request reasonable.**~~ **THIS
+5. **The heap COMPACTOR is not on this list, and was costed rather than
+   assumed.** It is the obvious candidate — 1,725 resident bytes for a
+   feature whose two biggest customers, driver images and donated driver
+   claims, cannot exist on a kernel that loads no driver (SPEC.md 51.0). It
+   is refused on a measurement:
+   **docs/plans/KERN-SMALL-NOCOMPACT.md**. The bytes are worth 1.5KB of heap
+   and what they buy is two **2KB** Disk-window view caches that strand
+   **21.5KB** of a 48.5KB arena between them, so the shipped kernel launches
+   `PAINT.O88` with two Disk windows open and a `HEAPCOMPACT=0` one answers
+   *Out of memory*. Same shape as §3.1's rows: what looks like a nicety on a
+   small machine is what makes the small machine work.
+
+6. ~~**32.5KB is the number that makes the request reasonable.**~~ **THIS
    FINDING IS REFUTED, AND IT WAS THE JUSTIFICATION FOR THE WHOLE ASK — see
    §0.1.** It reasoned that `SHEET.O88` is 48,352 bytes, that 66KB would run
    it with 14KB left over, and that 70KB is therefore "roughly where a second
