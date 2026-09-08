@@ -160,7 +160,7 @@ make test-soak   #   ENFORCED wall-clock budget — the runner FAILS fast over
                  #     reader, unreachable code, SPEC.md 6.6's
                  #     transparent-text ratchet, the doc gate, and that every
                  #     test in tests/ is registered somewhere or says why not.
-                 #     **25 rows, and the two things it deliberately does NOT
+                 #     **35 rows, and the two things it deliberately does NOT
                  #     cover are the rule** (docs/WRITING-TESTS.md 2.1): a row
                  #     about ONE package, and a kernel internal no package can
                  #     reach. `fast` is the one tier nobody opts into, so both
@@ -822,11 +822,25 @@ about the thing it touched, not by the tier that contains it** — after a
 redraw change `python3 tools/os88test.py soak -k 'disp*'` is minutes and is
 the right answer far more often than any tier is.
 
+**WHAT to run is decided by what the BUILD says moved, never by how big the
+work felt.** Every row runs a built artefact, so an artefact your change left
+byte-identical cannot answer a question about it — those rows boot the same
+kernel off the same floppies and report yesterday's answer. Read it off the
+`KERN_BUDGET big <n>, small <n>` line `make` already printed, off the diff
+(code inside an `%ifdef KERN_SMALL` cannot move `kern_big`), or exactly, by
+building the other arm into a tree of its own (`make BUILD=<dir>`,
+`tools/os88build.py`) and `cmp`-ing — at ONE commit, since the build number is
+the commit count (SPEC.md §14.2). Then name the rows the change CANNOT reach:
+that list is usually short and easy to write, and its complement is the run.
+**A scope is not a different tool** — `tools/os88soak.py` takes `-k`/`-x`, so
+the preflight, frozen tree, parallel lanes, journal, `--resume` and pollable
+`status` are all there for ten rows as they are for 377.
+
 | tier | RUN IT | do NOT run it |
 |---|---|---|
 | `fast` | a commit you intend to keep, when it could change a byte under `build/` — and usually there is nothing extra to type, because `all` already ran it | a build you are not going to commit (an experiment, an A/B, a knob build — `make` skips it there itself); a **documentation-only** commit; a commit that only moves the **build number** |
 | `full` | major work reaching the INTEGRATION BRANCH — the first time a piece of it merges there, and again when you come back to that branch and land another large round | every commit on your own feature branch; a **minor bugfix** onto the integration branch; a documentation-only commit or merge; a build-number-only commit |
-| `soak` | the END of extensive KERNEL SURGERY, once, as it lands — or when you are asked for it | anything less than that. Mid-way through, run the SUBJECT (`soak -k '<subject>'`), never the tier |
+| `soak` | the rows your change can REACH, scoped with `-k`; the WHOLE tier only when you cannot name what it misses — the shipped kernel moved somewhere every machine runs it — once, as that work lands, or when you are asked | the whole tier because the work felt big or because you edited `kernel/`. A change the build says moved ONE arm gets that arm's rows: a `kern_small` gate with `kern_big` byte-identical is 7 rows and 13 declared minutes, not 377 rows and nine declared hours |
 
 `checkdocs.py` is the gate a documentation-only commit actually owes; a
 build-number-only commit is three bytes of `.text` moving because the commit
@@ -1311,9 +1325,19 @@ branch and again when you come back and land another large round of it. A
 minor bugfix, a documentation merge and a build-number commit do not move that
 answer; the rebuild-and-boot above is what they owe, and the row about the
 thing you changed is what tells you more than the tier would. The Testing
-section is the short form and docs/TESTING.md the authority. **A merge that
-lands extensive kernel surgery is also where the whole soak goes** — once, at
-the end of it, under fork rule 4's reporting.
+section is the short form and docs/TESTING.md the authority.
+
+**A merge is where the branch's soak goes — at the branch's OWN scope, not at
+the tier's.** A merge does not widen what a change can reach: the merged tree
+carries the artefacts the branch already tested unless the merge itself moved
+one, and the `md5sum` below is what answers that. So the rows to run at a merge
+are the rows the WORK can reach (docs/TESTING.md, §`soak` under *When to run
+which tier*), once, under fork rule 4's reporting — and the whole tier belongs
+to a merge landing a change whose reach you cannot bound, never to every merge
+that happened to touch `kernel/`. **The instrument that rule wants is the
+paragraph immediately below**, which this fork has had all along: a change that
+leaves the shipped images identical has told you that no row running them can
+see it.
 
 When in doubt, build and `md5sum` the images against the ones you already had.
 **Do that comparison at ONE commit, though**: the About box's build number is
