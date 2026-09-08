@@ -707,9 +707,48 @@ def _frozen_targets(a):
                            if a.startswith("build/"))
 
 
+def _scope_note(a):
+    """Say what an UNSCOPED run costs, and what decides whether it is the run.
+
+    THE MISTAKE THIS IS FOR is not typing the wrong command - it is reaching
+    the whole tier by a rule that measured EFFORT.  `f0aff4c` gated heap
+    compaction out of kern_small and said in its own commit message that
+    kern_big assembles BYTE-IDENTICAL; the whole tier ran behind it anyway, and
+    370 of its rows booted a kernel that had not changed off floppies that had
+    not changed.  The fact was already in hand and nothing asked for it.
+
+    So this prints at the one moment the decision is actually taken, and it
+    does NOT refuse: a refusal here would be a new way to lose work, and the
+    whole tier is the right answer often enough to be one keystroke away.
+    docs/TESTING.md's "When to run which tier" carries the two questions.
+    """
+    if a.k or a.exclude:
+        return
+    try:
+        import suite
+        rows = _selected(a)
+        secs = {r.name: r.secs for r in suite.rows()}
+        hours = sum(secs.get(n, 0.0) for n in rows) / 3600.0
+    except Exception:                                   # never block the run
+        return
+    print()
+    print("%sos88soak: NO -k, so this is the whole %s tier - %d rows, %.1f "
+          "declared hours.%s" % (YELLOW, a.tier, len(rows), hours, OFF))
+    print("  A row runs a BUILT ARTEFACT, so a row whose artefact your change "
+          "left byte-identical")
+    print("  reports yesterday's answer.  Before spending the hours, name the "
+          "rows this change")
+    print("  CANNOT reach - `%s%s%s` is what a change to one build arm costs:"
+          % (DIM, "os88soak.py start -k '*small*' -k buildmatrix", OFF))
+    print("  %seight rows, 14 declared minutes.  docs/TESTING.md, "
+          "\"When to run which tier\".%s" % (DIM, OFF))
+    print()
+
+
 def start(a):
     cores = _cores()
     mj, hj = widths(cores, a.marty_jobs, a.j)
+    _scope_note(a)
 
     blocking, advisory = preflight()
     print("os88soak: %d core(s); emulator lane %d, host lane %d" % (cores, mj, hj))
