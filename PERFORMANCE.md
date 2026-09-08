@@ -12227,3 +12227,78 @@ half. **A poke is a teleport, so the cull's skip counters have to go**
 (§88.5.2) — `tests/skiesprof.py` does it and the scratch probe did not, so
 most of the world stayed filed away as out-of-range and the very thing being
 measured was halved.
+
+### Set 130 — CLEAR SKIES: REFUSED, the angular skip — and the four gates that could not see it (SPEC.md §88.5.2.2, §88.5.2.3)
+
+Set 129 named the angular skip as the biggest thing left in the cull, and
+built it measures like it. Twelve of the twenty objects a frame that reach the
+cone are refused by it, at ~2,080 cycles each, every frame, and §88.5.2's
+`CSO_SKIP` was already the mechanism. Measured on `turnhold`, tier 2, twelve
+frames, **same-session controls throughout** (Set 128):
+
+| | control | skip `/32` | skip `/64` |
+|---|---|---|---|
+| `cull#1` | 17.80 | 16.46 | **15.46** |
+| frame | 257.6 | — | **251.6** |
+| cone rejects a frame | 12.6 | — | **7.7** |
+
+**It was buying a changed picture. Three landmarks and a road stopped being
+drawn, and it is refused.**
+
+**The four gates that reported it clean**, which is the reusable half of this
+set:
+
+| gate | why it says nothing |
+|---|---|
+| the profiler's `objects 18 → 18` | that is the WORLD's object count, not the drawn one |
+| the FILED SET, frame by frame | an object can be filed and then refused by `cs_drawobj`'s frustum. The first comparison found ten differing frames that were all one road drawing no pixels |
+| a hash of the WHOLE framebuffer | the panel integrates over TICKS and two builds do not spend them alike — **29 of 46 frames "differed"** on airspeed and altitude |
+| a turn scripted per FRAME | the bound is per TICK. `sparse` is ~1.8 ticks a frame, so 2.88° a frame is **1.5° a tick, 2.5× what the aeroplane can do** — the harness violated the premise, not the code |
+
+**The instrument that works** pins `[cs_last]` as well as the attitude: every
+frame advances the tick counter by exactly N and the heading by exactly
+N × 0.626°, the flight model's own ceiling (`CSP_TURNK` 90 + `CS_RUDDER` 24 =
+114 units a tick). Both builds then see the identical world at the identical
+tick at frame *i* whatever they cost to draw. The reading is the DRAWN set
+(`CSO_SEEN`) beside a hash of the **3D view's** pixels alone. It is exactly
+reproducible — **the same build twice differs in 0 of 93 frames** — and that
+control is what turned a counter-intuitive result into a second bug.
+
+**Why it cannot be made to pay.** The cone is not a conservative test: it
+refuses at `f·|along| + r` where a vertex `r` from the centre needs
+`f·|along| + (1+f)·r`. At f = 1 it is short by a whole radius — **3,739 m for
+`cs_m_per1`**, a Paris périphérique segment. The cone throws the road out, the
+frustum keeps it, and it stays on screen only because §88.5.1 files an object
+drawn last frame **without a cone test at all**. Re-testing every frame
+repairs that in one frame; a skip does not. Widen the margin to
+`|along| + 2(r + |dy|)`, make every compare unsigned (the sum passes 32,767,
+and a signed `jle` reads an object well inside as enormously outside and hands
+it the full 255 ticks), and the picture becomes exact — **0 of 91 and 0 of 90
+frames differ in the DRAWN SET** — while the saving disappears:
+
+| turnhold, tier 2, same session | control | sound skip + sort |
+|---|---|---|
+| `cull#1` | 17.70 | 17.58 / 17.59 |
+
+Only **3.0 of 17.1 cone tests a frame** qualify once the margin is sound, and
+they save about what they cost. 56 bytes for 0.0 ms.
+
+**What did pay, from the same session:** the insertion sort's shift body. A
+breakpoint on it counts **67 shifts over 15 filed objects a frame — 1.77 ms**.
+The loop kept a source pointer in SI when `[di-4]`/`[di-2]` address the source
+for nothing, and loaded the compare's word twice. 131 → 116 cycles a shift,
+**29 → 26 bytes**:
+
+| turnhold, tier 2, same session | control | + the sort |
+|---|---|---|
+| `cull#1` | 17.80 | **17.42 / 17.43** |
+| frame | 257.2 | 256.9 / 256.9 |
+
+**0.375 ms against 0.21 predicted** — the arithmetic prices the shift and not
+the prefetch, and three bytes out of a 29-byte loop relieve the 8088's queue
+for the code around it as well. The two arms agree to 0.01 ms.
+
+**The standing lesson is rule 5 one level up.** The shape of the optimisation
+survived every rebuild and every timing; what it had stopped doing was drawing
+three landmarks and a road. **A cull change is not measured in milliseconds
+until it has been measured in pixels.**

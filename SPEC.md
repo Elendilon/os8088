@@ -101097,6 +101097,100 @@ multiply by one, and a compare is 18, so the identity is tested for instead.
 `cs_lodat` takes the same two.
 
 
+##### 88.5.2.2 REFUSED — out of the CONE is NOT out of the cone for k ticks
+
+§88.5.2 files an object away when it is out of RANGE, and the same trick was
+owed one axis along: of the ~20 objects a frame that reach the cone in a held
+bank, **12.6 are refused by it**, at ~2,080 cycles each, every frame, because
+nothing remembered. Built, it measured **`cs_consider` 17.80 → 15.46 ms** and
+the frame **257.6 → 251.6** for 56 bytes — the largest single saving left in
+the cull.
+
+**It was buying a changed picture, and it is refused.** Three landmarks and a
+road stopped being drawn.
+
+**What the cheap gates said, and why each was wrong.** The profiler's
+`objects 18 → 18` is the WORLD's object count and says nothing about what was
+drawn. Comparing the FILED SET is wrong too, in a way worth writing down: an
+object can be filed and then refused by `cs_drawobj`'s frustum, so the first
+comparison showed ten differing frames that were all one road contributing no
+pixels — a defect that is not one. And a scripted turn poked **per frame**
+tests a rate that depends on how fast the frame is: in `sparse` a frame is
+~1.8 ticks, so 2.88° a frame is 1.5° a TICK, two and a half times what the
+aeroplane can do, and the bound was violated by the harness rather than by
+the code.
+
+**The instrument that works** pins `[cs_last]` as well as the attitude: every
+frame advances the tick counter by exactly N and the heading by exactly
+N × 0.626°, the model's own ceiling (`CSP_TURNK` 90 + `CS_RUDDER` 24 = 114
+units a tick). Both builds then see the identical world at the identical tick
+at frame *i*, whatever they cost to draw, and the reading is the DRAWN set
+(`CSO_SEEN`) beside a hash of the 3D view's pixels — never the whole
+framebuffer, because the panel integrates over ticks the two builds do not
+spend alike. It is exactly reproducible: the same build twice differs in **0
+of 93 frames**.
+
+**The finding that killed it: the cone is not a conservative test.** It
+refuses an object when `|across| > f·|along| + r`, where a vertex up to `r`
+from the centre needs `|across| > f·|along| + (1+f)·r`. At f = 1 it is short
+by a whole radius — for `cs_m_per1`, a Paris périphérique segment, that is
+**3,739 metres**. The cone throws the road out, the frustum keeps it, and it
+stays on screen only because §88.5.1 files an object DRAWN LAST FRAME without
+a cone test at all. **Re-testing every frame repairs that in one frame; a
+skip does not**, which is what `CSO_SEEN` has been quietly doing since it was
+written.
+
+**And a second bug found by the arithmetic going the wrong way.** Widening
+the margin to `|along| + 2(r + |dy|)` made the picture WORSE — impossible for
+a wider margin, and that impossibility is how it was found: the sum passes
+32,767, `jle` is SIGNED, and an object well inside the cone then reads as
+enormously outside it and is handed the full 255 ticks. Every comparison on
+that path has to be unsigned and carry-guarded, and `|along| + |across|` has
+to be halved THROUGH the carry (`rcr`) rather than shifted.
+
+**With both fixed the picture is exact and the saving is gone.** 0 of 91 and
+0 of 90 frames differ, in the DRAWN SET and not merely in pixels — and
+`cs_consider` reads **17.58 / 17.70 / 17.59 ms** against a control run
+between them, which is the sort of §88.5.2.3 and nothing else. Only **3.0 of
+17.1 cone tests a frame** qualify for a skip once the margin is sound, and
+they save about what they cost. 56 bytes for 0.0 ms.
+
+The standing lesson is PERFORMANCE.md's rule 5 one level up: the shape of the
+optimisation survived every rebuild, and what it had stopped doing was
+drawing three landmarks and a road. **A cull change is not measured in
+milliseconds until it has been measured in pixels.**
+
+##### 88.5.2.3 The insertion sort's source pointer was a register it did not need
+
+`.file` inserts each filed object into `cs_vkey` by `along`, and a held bank
+does **67 shifts over 15 filed objects a frame** — 1.77 ms, measured by
+counting hits on the shift body itself. The loop maintained a source pointer
+in SI (`mov si, di` / `sub si, 4`) when the source is the destination less
+four and `[di-4]`/`[di-2]` address it for nothing; and it loaded the compare's
+word, discarded it, and loaded it again to store it. Folding both is **26
+bytes against 29 and 116 cycles a shift against 131** — 0.21 ms a frame.
+
+It is provably the same sort: with §88.5.2.2 refused this is the whole diff,
+and the drawn set and the 3D view are identical over 91 frames of the
+scripted turn that refusal describes.
+
+Two larger rewrites were priced against that measurement and neither is worth
+its hazard:
+
+- **`std` + two `movsw`**, with SI and DI auto-decrementing so the pointer
+  arithmetic leaves the loop entirely, is 101 cycles — 0.42 ms gross. But
+  `movsw` writes **ES:DI**, and ES is the kernel's in a package (§20), so it
+  needs `push es`/`push ds`/`pop es` around a routine called 15 times a frame
+  — ~0.16 ms back — and leaves DF set on every exit path. **A segment hazard
+  and a direction flag for ~0.26 ms net, where the safe version measured
+  0.375.**
+- **Seeding the sort from the previous frame's order** makes it O(n) on a
+  held bank and would take most of the 1.77 ms. It needs an identity map from
+  object to slot across frames, and it fails by drawing the painter's order
+  wrong, which is a picture defect rather than a slow frame. Parked; the sort
+  is 0.7% of the frame and `drawobj` is 57%.
+
+
 #### 88.5.3 The matrix is Q15
 
 `MUL14` keeps its name — every caller means "a fraction times a value" by

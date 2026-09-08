@@ -710,19 +710,79 @@ against a control built from the committed source in the same session:
 | `cs_scene` | 169.05 | **168.00** |
 | `drawobj` / `faces` | 146.81 / 68.34 | 146.82 / 68.34 |
 
-### 7.4.2 What is left in the cull, and the one big lever
+### 7.4.2 REFUSED - the angular skip; BUILT - the sort
 
-1. **An ANGULAR skip - up to 6.1 ms.** The ~14 cone rejects a frame pay 2,080
-   cycles to be thrown away, every frame, and the mechanism to stop that
-   already exists: 88.5.2's `CSO_SKIP`, set today only by the RANGE test. A
-   cone reject knows how far outside it is (`across - si` metres) and could
-   file itself away for k ticks. **The bound is the hard part and must be
-   measured before it is built**: `across` moves by the aeroplane's own
-   lateral speed (<5 m a tick) PLUS `along x` the yaw rate, and `along` runs
-   to 16,000 m - so the safe k depends on a divide, and a wrong one pops an
-   object in late. Measure the distribution of `across - si` first.
-2. **The insertion sort**, ~630 cycles a filed object (~2.0 ms a frame). The
-   shift body is four `mov`s where a `std`/`movsw` pair would be two bytes -
-   worth ~0.6 ms and it has to manage DF.
-3. **`cs_fclip` at 29,000 cycles in ONE call a frame** - 4% of the scene spent
-   clipping the single face that straddles the near plane.
+**1. The ANGULAR skip: REFUSED (SPEC.md 88.5.2.2).** It was the biggest thing
+left in the cull and it measured like it - cone rejects **12.6 -> 7.7 a
+frame**, `cs_consider` **17.80 -> 15.46**, the frame **257.6 -> 251.6** for 56
+bytes. **It was buying a changed picture**: three landmarks and a road stopped
+being drawn.
+
+This row said "the bound is the hard part and must be measured before it is
+built", and that was the wrong instruction in two ways. The bound is not
+measured, it is DERIVED - `CSP_TURNK` 90 + `CS_RUDDER` 24 = 114 units a tick
+is an exact ceiling on the closing rate, where the distribution of `across -
+si` says nothing about safety at all. And the hard part was not the bound: it
+is that **the cone is not a conservative test**, refusing an object at
+`f |along| + r` where a vertex r from the centre needs `f |along| + (1+f) r`.
+At f = 1 that is short by a whole radius - 3,739 m for the Paris
+peripherique - so the cone throws the road out, the frustum keeps it, and it
+stays on screen only because 88.5.1 files an object drawn last frame WITHOUT
+a cone test. Re-testing every frame repairs that in one frame. A skip does
+not.
+
+**What this cost was three wrong gates, and they are the reusable part:**
+
+| gate | why it says nothing |
+|---|---|
+| the profiler's `objects 18 -> 18` | that is the WORLD's object count |
+| the FILED SET, frame by frame | an object can be filed and then refused by `cs_drawobj`'s frustum - the first comparison found ten differing frames that were all one road drawing no pixels |
+| the whole framebuffer | the panel integrates over TICKS and the two builds do not spend them alike, so 29 of 46 frames "differed" on airspeed |
+| a turn scripted per FRAME | the bound is per TICK: `sparse` is ~1.8 ticks a frame, so 2.88 deg a frame is 1.5 deg a TICK, 2.5x what the aeroplane can do. **The harness violated the premise, not the code** |
+
+The one that works pins `[cs_last]` as well as the attitude - every frame
+advances the tick counter by exactly N and the heading by exactly N x 0.626
+deg - and reads the DRAWN set (`CSO_SEEN`) beside a hash of the 3D VIEW's
+pixels. Both builds then see the identical world at the identical tick at
+frame i whatever they cost to draw, and it is exactly reproducible: **the same
+build twice differs in 0 of 93 frames.** That control is what turned a
+counter-intuitive result into a second bug - widening the margin made the
+picture WORSE, which is impossible, because the sum passes 32,767 and `jle`
+is signed.
+
+**2. The insertion sort: BUILT (SPEC.md 88.5.2.3), -3 bytes.** Measured rather
+than estimated - a breakpoint on the shift body counts **67 shifts over 15
+filed objects a frame, 1.77 ms**, confirming this row's ~2.0. But the
+`std`/`movsw` shape it proposed is REFUSED: `movsw` writes ES:DI and ES is the
+kernel's in a package, so it needs a push/pop pair around a routine called 15
+times a frame - ~0.16 ms back - and leaves DF set on every exit. **It is 0.05
+ms better than free.** What shipped needs neither: the source pointer SI was a
+register the loop did not need (`[di-4]` and `[di-2]` address the source for
+nothing), and the compare's loaded word IS the word the shift stores. 131 ->
+116 cycles a shift, 29 -> 26 bytes, and **`cs_consider` 17.80 -> 17.42/17.43
+ms** against a control run between the two arms - **0.375 ms**, against 0.21
+predicted, because three bytes out of a 29-byte loop relieve the 8088's
+prefetch queue for the code around it too.
+
+**3. Seeding the sort from the previous frame's order** is the only thing that
+would take the rest of the 1.77 ms - a held bank files the same 15 objects in
+nearly the same depth order, so a seeded insertion sort is O(n). It needs an
+identity map from object to slot across frames and it fails by drawing the
+painter's order WRONG. **Parked**: the sort is 0.7% of the frame.
+
+**4. `cs_fclip` at 29,000 cycles in ONE call a frame** - 4% of the scene spent
+clipping the single face that straddles the near plane. Untouched.
+
+### 7.4.3 Where the cull stands, and the one thing to know before touching it
+
+The cull is **17.42 ms**, down from 18.75 when 7.4.1 took it apart, over two
+changes totalling **+10 bytes of `.text`**: the Detail scale hoisted out of the per-object
+path (88.5.2.1) and the sort's source pointer (88.5.2.3). What is left is the
+five multiplies a rotation needs, and 7.4.1's verdict has not changed - **it
+is not fat**.
+
+**The thing to know is that `CSO_SEEN` is not an optimisation.** 88.5.1 reads
+as one - "it is filed without the cone, which cs_drawobj's frustum repeats
+exactly" - and it is really the repair for a cone that refuses objects the
+frustum keeps. Any change that stops an object being cone-tested EVERY FRAME
+walks into 88.5.2.2, whatever else it is for.

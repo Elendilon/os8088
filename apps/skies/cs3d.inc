@@ -1198,18 +1198,22 @@ cs_consider:
     shl di, 1
     shl di, 1
     add di, cs_vkey                 ; DI = the new key's slot
+    ; The shift walks DOWN, so the source is the destination less four and
+    ; needs no register of its own: [di-4] and [di-2] address it, the load
+    ; the compare already makes IS the word the shift stores, and `sub di, 4`
+    ; at the bottom replaces the pair that maintained SI. 26 bytes against 29
+    ; and 116 cycles a shift against 131 - a held bank does 67 of them over
+    ; 15 filed objects, so it is 0.21 ms a frame (SPEC.md 88.5.2.3).
 .ins:
     cmp di, cs_vkey
     je .place
-    mov si, di
-    sub si, 4
-    cmp [si], cx                    ; the key above holds a NEARER object:
-    jge .place                      ; it stays; else it moves down
-    mov ax, [si]
+    mov ax, [di-4]                  ; the key above holds a NEARER object:
+    cmp ax, cx                      ; it stays; else it moves down, and the
+    jge .place                      ; word compared is the word moved
     mov [di], ax
-    mov ax, [si+2]
+    mov ax, [di-2]
     mov [di+2], ax
-    mov di, si
+    sub di, 4
     jmp short .ins
 .place:
     mov [di], cx
