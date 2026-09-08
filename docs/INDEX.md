@@ -274,6 +274,7 @@ A package `%include`s these itself; they are not kernel calls. Include them at t
 | `apps/os88text.inc` | §83 | The multi-line sibling of os88line.inc. Enter inserts a newline; no wrap, no selection, no undo. |
 | `apps/os88chart.inc` | §82 | A 4bpp offscreen canvas and all seven chart types - area, bar, column, line, pie, scatter, combination - plus a BMP writer. Shared by CHART.O88 and Sheet's chart window. |
 | `apps/os88fp.inc` | §84 | IEEE-754 double arithmetic in software, with an 8087 path chosen at run time. Parse, format, add, subtract, multiply, divide, compare, sqrt, trunc, floor, round. |
+| `apps/os88img.inc` | §93 | Picture decoders: .PIX, .BMP and .PCX into the packed 4bpp that OSAPI_GFX_BLIT4 takes. Owns no state - the caller passes a block in SI. 8-bit files are refused by name, not approximated. |
 | `apps/os88sock.inc` | §20.11, 62.11, 72 | Finding the socket driver: `net_find` answers CF=1 when neither ETHER.DRV nor NET.DRV is loaded and sets `NET_CLASS` otherwise, so every `OSAPI_DRV_CALL` after it addresses the right class. The verbs themselves are `drivers/net/netpkg.inc`'s. |
 | `apps/os88pit.inc` | §72.15.1 | `pit_now`: a 32-bit clock in 838ns units off the 8253 and the BIOS tick, good for an hour before it wraps. Sub-tick timing for a profiler. |
 | `apps/os88type.inc` | §6.3, 6.5 | Proportional type: composes a row of glyphs from an `.F88` face into a 1bpp band in your own RAM and puts it up with one `OSAPI_GFX_BLIT1`. |
@@ -300,6 +301,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | FROTZ | `apps/frotz/frotz.asm` | §61 | yes |
 | FTPD | `apps/ftpd/ftpd.asm` | §77 | yes |
 | HELLO | `apps/hello/hello.asm` | §27 | yes |
+| IMGTEST | `apps/imgtest/imgtest.asm` |  | no |
 | LOOM | `apps/loom/loom.asm` | `docs/WEAVE-SPEC.md` | yes |
 | MINES | `apps/mines/mines.asm` | §23 | yes |
 | MISSILE | `apps/missile/missile.asm` | §48 | yes |
@@ -422,6 +424,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | 90 | FONT VIEWER — the system face browser (`apps/fontview/fontview.asm`) |
 | 91 | PACCMAN — pacman.c, written in C (`apps/paccman/`) |
 | 92 | THE WIRE — the online software library (`apps/thewire/thewire.asm`) |
+| 93 | Picture decoders (`apps/os88img.inc`) |
 
 ## docs/
 

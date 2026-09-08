@@ -827,6 +827,11 @@ FAST = [
     Row("docindex", "fast", py("tools/os88index.py", "--check"), 0.2,
         "docs/INDEX.md still matches the tree - an index that has drifted is "
         "worse than none, because it is consulted and believed"),
+    Row("imgcases", "fast", py("tools/os88imgcase.py", "--check"), 0.3,
+        "apps/imgtest/imgcases.inc still matches what the format documents "
+        "say - the expectations are GENERATED, and a generated file with no "
+        "staleness gate describes a corpus that has moved out from under it "
+        "(SPEC.md 93.3)"),
     Row("checkreadme", "fast", py("tools/checkreadme.py", "readme.txt"), 0.1,
         "README.TXT's width and size rules - Note Pad refuses a file one byte "
         "too long and shows nothing at all"),
