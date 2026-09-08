@@ -533,6 +533,22 @@ from `drv_attach` and nothing else writes it.
 
 Read the kernel and find the write that happens LAST.
 
+**And a CONFIRMED INPUT is not a confirmed GESTURE — the same rule one layer
+down.** `os88mouse` proves every packet it sends: `to()` against the published
+cursor, `_edge()` against the guest's own `mouse_btn`. Neither proves that
+anything *acted*. `mouse_btn` is a LEVEL that `mou_isr` sets; what the UI acts
+on is an `EVT_MDOWN` in the ring, and SPEC.md 10.1 says what happens when that
+ring is full — `evq_push` drops a record. So a press can be confirmed at every
+layer the mouse has and still be a gesture that never happened, which is
+`hdboot` at a lane of four: pointer confirmed at (199,10), button confirmed
+down, and no menu on the screen after **182 ticks**.
+
+Wait on the state the gesture is FOR — `menu_dropd` for a menu, `ui_dragwin`
+for a drag — and let `os88ui.UI._edge_until` do the pressing, because the
+recovery is a **fresh edge** and not a longer wait or a re-sent packet: a
+Microsoft packet carries the LEVEL, so re-sending says what the guest already
+believes.
+
 ### 7.3 `settle` is expensive and often the wrong question
 
 `settle` is **48% of a row**, and two-thirds of every settle is its own floor:
@@ -770,6 +786,8 @@ not. Each one can still happen today.
 | 44 | `skiesflat` reading the shadow after `advance(frames=200)`. `advance` is EXACT in guest time and stops at an arbitrary instruction — which, in a program that spends most of its frame in `cs_scene`, is usually **inside a half-drawn picture**: the ground painted and the tower not reached yet. Which half depends on the free-run phase, which depends on the HOST, so the row passed 5 times in 5 alone and failed 4 in 4 at three-way concurrency, on the same bytes and the same pinned pose — and the failure it printed was `the platform bar is drawn AT THE TOWER (nothing over x=100)`, which reads as the fix under test not working. Entry 39's rule for a different reason: 39 is about not waiting long enough, this is about not stopping in the right PLACE. **Stop where the frame is whole** — a breakpoint at the device copy (`cs_blit`), not a frame count | §7, §7.1 |
 | 45 | The `fast` tier at 55 rows and 62.7s of work, of which over half was one package's business (three SKIES rows, three FRACTAL, Paint's ink masks, the Weave family's two) or a kernel internal no package can reach (`.lowbss`'s order at 5.1s, the LZ codec at 4.7s, a `.bss` sentinel, the month mask). Nothing was wrong with any of them - they were being charged to the wrong person, on every build, for ever. The tier is the one nobody opts into, so the test is not "is this valuable" but "is it valuable to somebody who did not touch this" | §2.1 |
 | 46 | The `full` tier at 14 rows and 452s of row time, of which `buildmatrix` alone was 143s assembling 99 knob configurations — instruments, not the OS — while `weavesmoke` spent 73s opening one package's bundle and `martyconc` gated the emulator harness rather than the machine. A pre-merge smoke test that takes five minutes and is mostly about the tree rather than the product is one that gets skipped | §2.2 |
+| 47 | `hdboot` pressing a menu with the pointer and the button both CONFIRMED, and no menu for 182 ticks: the `EVT_MDOWN` was dropped from a full ring while the level stood | §7.2 |
+| 48 | Every `os88build.tree()` call sweeping `$(VIDSTAMP)` — a legitimately empty marker — so make rebuilt the whole kernel each time and two rows sharing a tree rebuilt it under each other | §5.2 |
 
 ---
 

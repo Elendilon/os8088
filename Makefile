@@ -1931,7 +1931,11 @@ test-full: $(IMG) $(IMG120) $(IMG720) $(IMG360) \
 test-soak: $(IMG) $(IMG120) $(IMG720) $(IMG360) \
            $(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360) \
            $(MEDIAIMG360)
-	@echo "os88: this runs the soak SERIALLY. For the whole tier use"
+	@echo "os88: this runs the soak in ONE FOREGROUND invocation, at the"
+	@echo "      runner's default emulator width (cores-1). For the whole"
+	@echo "      tier use the soak runner, which preflights the box, builds"
+	@echo "      the on-demand artefacts, runs one lane PER CORE, detaches"
+	@echo "      and journals every row so \`start --resume\` picks up:"
 	@echo "      python3 tools/os88soak.py check   # then \`start\`"
 	@python3 tools/os88test.py soak
 

@@ -7,11 +7,42 @@
     python3 tools/os88test.py --list      # what is registered, and why
     python3 tools/os88test.py fast -k api # just the rows whose name matches
 
+THIS IS THE HAND-DRIVEN RUNNER: ONE INVOCATION, IN THE FOREGROUND, THAT YOU
+WAIT FOR.  For a whole tier - and for anything that is going to take more than
+a few minutes - the command is `tools/os88soak.py` (`check`, then `start`),
+which preflights the box, builds the on-demand artefacts, runs ONE LANE PER
+CORE, detaches so it survives your shell, and journals every row so
+`start --resume` picks up where a reclaimed container left off.
+
+**AND THE ONE MISTAKE THAT COSTS REAL TIME IS INVOKING THIS ONCE PER ROW.**
+An invocation has ~22 s of fixed cost before any row runs - python, the
+registry, the capability probe and the kernel-map identity check, which
+re-assembles the whole kernel to prove the map describes the binary under
+test.  That is paid once per CALL, not once per row, and it is invisible in
+the summary line because the runner reports row time.  Measured on the 24
+Clear Skies rows, 1,021 s of declared row time:
+
+    one call, `soak -k 'skies*'`          353.6 s   (lane of 3)
+    one call per row, `-k <one row>`     ~1,549 s   = 1,021 + 24 x 22
+
+A single row measured **45.0 s wall for a 23.0 s row**.  So pass a GLOB and
+let one call cover the family: `soak -k 'skies*'` (or several `-k`), never a
+loop over row names.  A development cycle that feels inexplicably slow is
+usually this, and it took a whole session to find the first time.
+
+THE LANE IS NOT 1, and two places in this tree said it was until somebody
+measured them.  `_default_mj()` below is CORES-1, and `make test-soak` passes
+no width at all - so both it and a bare `soak -k ...` already fan the emulator
+rows out.  `--marty-jobs` overrides per call and `$OS88_MARTY_JOBS` for a
+whole container, which is the one to set when SEVERAL AGENTS share a box:
+three agents each defaulting to three lanes oversubscribe a four-core machine
+without any of them knowing.
+
 WHEN EACH TIER IS RUN is docs/TESTING.md's `When to run which tier`, and it
 is the authority: none of the three is a per-commit gate.  `full` is four
 minutes and the whole soak is nearly two hours, so a change is covered by the
-ROW about the thing it touched (`soak -k '<subject>'`, minutes) far more often
-than by any tier.
+ROWS about the thing it touched - `soak -k '<subject>*'`, one call, minutes -
+far more often than by any tier.
 
 WHY THIS EXISTS.  This tree had ninety test scripts and no way to run them.
 Each one is a real gate - `tests/dockmark.py` and `tests/heapsame.py` are
@@ -485,7 +516,11 @@ def main():
                     choices=["fast", "full", "soak"],
                     help="fast (every build), full (pre-merge), soak (everything)")
     ap.add_argument("-k", metavar="GLOB", action="append", default=[],
-                    help="only rows whose name matches (repeatable)")
+                    help="only rows whose name matches (repeatable). PASS A "
+                         "GLOB and cover the family in ONE call - `-k "
+                         "'skies*'` is 353s where a loop of 24 single-row "
+                         "calls is ~1,549s, because each call pays ~22s of "
+                         "fixed cost before any row runs. See the header.")
     ap.add_argument("-x", "--exclude", metavar="GLOB", action="append",
                     default=[],
                     help="drop rows whose name matches, AFTER -k (repeatable). "

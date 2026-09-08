@@ -7,13 +7,31 @@ and survivable.
     python3 tools/os88soak.py status    # cheap progress read - SAFE to poll
     python3 tools/os88soak.py stop      # end it, and take its emulators with it
 
-WHY THIS EXISTS.  `make test-soak` runs the soak SERIALLY - `os88test.py soak`
-defaults to `--marty-jobs 1` - so the one command in the Makefile is the slow
-one, and the parallel invocation lived in two handoff documents as a line to
-remember (`docs/plans/completed/HANDOFF-KERNEL-SIZE-P3.md` 3).  Anything a reader has to
-remember is something the next reader will not, which is the same sentence
-that put `alone=True` on a row instead of `-x` in a runbook.  This file is
-that line, made into the command.
+WHY THIS EXISTS.  The parallel invocation lived in two handoff documents as a
+line to remember (`docs/plans/completed/HANDOFF-KERNEL-SIZE-P3.md` 3), and anything a
+reader has to remember is something the next reader will not - the same
+sentence that put `alone=True` on a row instead of `-x` in a runbook.  This
+file is that line, made into the command.
+
+**IT IS NOT "THE PARALLEL ONE" ANY MORE, AND SAYING SO COST SOMEBODY HOURS.**
+This paragraph read *"`make test-soak` runs the soak SERIALLY - `os88test.py
+soak` defaults to `--marty-jobs 1`"* long after both halves stopped being
+true: `_default_mj()` has been CORES-1 since the parallel work landed, and the
+Makefile passes no width at all, so `make test-soak` has been running an
+emulator lane of 3 on a four-core box for as long as that sentence has been
+wrong.  A reader who believes it reaches for the wrong lever - and the shape
+to watch for is a per-commit habit of `os88test.py soak -k '<family>'` once
+PER ROW, which pays this runner's ~22 s of fixed cost (the kernel-map identity
+check re-assembles the kernel) twenty-four times over.  Measured on the 24
+Clear Skies rows, 1,021 s of declared row time:
+
+    one invocation, lane of 3      353.6 s   (24 passed)
+    one invocation, lane of 1     ~1,021 s
+    one invocation PER ROW        ~1,549 s   = 1,021 + 24 x 22
+
+What this file adds over `os88test.py soak` is therefore NOT parallelism.  It
+is the four things below - and, since the width change, one lane per core
+rather than cores-1.
 
 It also owns the four things a soak in a container gets wrong, none of which
 belong in `os88test.py` - that runs rows, and these are about the RUN:
@@ -26,10 +44,13 @@ belong in `os88test.py` - that runs rows, and these are about the RUN:
      rather than after them, and prints the command that fixes each one.
 
   2. THE WIDTH.  One instance per core is the measured ceiling and going past
-     it is slower, not broken.  The default here is CORES-1, and the missing
-     core is not caution - it is the one the operator's own check-in, an
-     editor, or a small side task runs on.  A soak sized to exactly fill the
-     box is a soak that anything else on the box perturbs.
+     it is slower, not broken.  The default here is ONE PER CORE.  It was
+     CORES-1, on the argument that the spare core is what the operator's own
+     check-in runs on - and `status` reads a FILE, so there was never a load
+     to leave room for.  What settled it is that every row width 4 was blamed
+     for has since been diagnosed and none of them was a starved guest
+     (`widths()` below has the four).  `os88test.py` run by HAND still leaves
+     one, for the difference that matters: somebody is at that keyboard.
 
   3. SURVIVING.  It runs under `setsid`, so it outlives the shell that
      started it, and every completed row is journalled - so `start --resume`
@@ -541,25 +562,43 @@ def _cores():
 
 
 def widths(cores, mj=None, hj=None):
-    """How wide to run, and WHY it is one less than the box.
+    """How wide to run: THE CORE COUNT, and why it used to be one less.
 
     Measured aggregate guest speed against a real 4.77 MHz 8088, four-core
     box: 3.4x at one instance, 13.1x at four, 13.9x at six, 13.4x at eight.
     It is FLAT past the core count - four to six buys 6% and six to eight
     LOSES 4% - so the core count is the ceiling and nothing above it is worth
-    paying for.  What three costs against four is not in that series and is
-    not claimed here; what it buys is measured, and is the reason for it:
-    twelve rows at width 3 with two extra CPU hogs passed 12/12 and ran 1.06x
-    slower than the same rows alone (docs/plans/SOAK-PARALLEL.md 1).
+    paying for.  That series has never been in dispute.  What was in dispute
+    is the last core, and it is settled now.
 
-    That last core is what a `status` poll, an editor, a `git log` or a small
-    side task runs on.  Leaving it is not politeness - a run sized to fill the
-    box exactly is one that anything else on the box perturbs, and every
-    perturbed row is an hour of somebody deciding whether the failure was
-    real.  `docs/plans/HANDOFF-SOAK-FINDINGS.md` is largely a list of people making
-    that decision.
+    **IT WAS CORES-1, AND THE ARGUMENT FOR THAT DID NOT SURVIVE ITS OWN
+    EVIDENCE.**  The reasoning was that a run sized to fill the box exactly is
+    one anything else perturbs, so the spare core is what a `status` poll, an
+    editor or a small side task runs on.  Two things retired it:
+
+      * `status` READS A FILE.  It was never the load the argument feared, and
+        nothing else in the workflow is either - `start` is detached and the
+        run is polled, not watched.
+      * the four rows that made docs/plans/SOAK-PARALLEL.md 15.2 conclude *"the
+        pass rate does NOT hold at width 4"* have every one been diagnosed
+        since, and **not one of them was a guest starved of CPU**.  Three were
+        the private-tree rebuild race (8.9) - a row's kernel being rewritten
+        underneath it, which width only made more likely to overlap - and the
+        fourth was an `EVT_MDOWN` dropped from a full ring behind a confirmed
+        button level (15.4).  Both are fixed at the cause.  Width was the
+        thing that exposed them and never the thing that broke them.
+
+    Since then this box has run the full soak at width 4 repeatedly and clean,
+    with no niced lane (15.1's proposal, which the same evidence retires: it
+    exists to buy the fourth core back, and the fourth core was never the
+    problem).  So the default fills the box, and 15.2's 16.8% off the wall
+    comes with it.
+
+    A row that genuinely cannot share the cores still says so - `alone=True`
+    is what that flag is for, and it is unaffected by this.  `--marty-jobs`
+    overrides for anyone who wants the old width back on a busy machine.
     """
-    return (mj if mj else max(1, cores - 1),
+    return (mj if mj else max(1, cores),
             hj if hj else max(2, cores))
 
 
@@ -1068,7 +1107,8 @@ def main():
     ap.add_argument("-x", "--exclude", metavar="GLOB", action="append",
                     default=[], help="drop rows matching (passed through)")
     ap.add_argument("--marty-jobs", type=int, default=None, dest="marty_jobs",
-                    help="emulator lane width (default: cores-1, see widths())")
+                    help="emulator lane width (default: one per core, "
+                         "see widths())")
     ap.add_argument("-j", type=int, default=None, help="host-side lane width")
     ap.add_argument("--resume", action="store_true",
                     help="continue the last run, excluding rows it reported")

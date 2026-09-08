@@ -164,7 +164,8 @@ python3 tools/os88soak.py stop
 `check` is worth typing on its own: a capability the box has not got makes a
 row skip, **and a skip is the box declining to answer, not a pass**. It names
 every gap, the rows it would silence, and the command that fixes each. The
-width is CORES-1 so a `status` poll has a core to run on; `start --resume`
+width is ONE PER CORE (SOAK-PARALLEL §4.2 — it was CORES-1, and `status` reads
+a file, so there was never a load to leave room for); `start --resume`
 after a reclaimed container re-runs only what did not finish. Before blaming
 a failure on contention read docs/plans/SOAK-PARALLEL.md §1: load does not
 make a row slow, it makes it less thorough at the same wall time.
@@ -210,6 +211,19 @@ change is covered by the ROW that is about the thing it touched, not by the
 tier that contains it. `python3 tools/os88test.py soak -k 'disp*'` after a
 redraw change is minutes and is the right answer far more often than any
 tier is.
+
+**ONE CALL, WITH A GLOB — never a loop over row names.** An `os88test.py`
+invocation costs ~22 s before any row runs (the registry, the capability
+probe, and the kernel-map identity check, which re-assembles the kernel to
+prove the map describes the binary under test), and that is paid per CALL.
+It does not show in the summary line, which reports row time. Measured on the
+24 Clear Skies rows, 1,021 s of declared row time: **353.6 s** as one
+`soak -k 'skies*'`, against **~1,549 s** as twenty-four single-row calls. A
+development cycle that feels inexplicably slow is usually that, and the
+emulator rows already fan out (docs/plans/SOAK-PARALLEL.md §4.2) so the one
+call is wide as well as cheaper. For a whole tier, or anything past a few
+minutes, use `tools/os88soak.py` instead — it preflights, detaches, runs one
+lane per core and resumes.
 
 **`fast` — at a commit you intend to keep.**
 
