@@ -830,6 +830,23 @@ FAST = [
     Row("checkreadme", "fast", py("tools/checkreadme.py", "readme.txt"), 0.1,
         "README.TXT's width and size rules - Note Pad refuses a file one byte "
         "too long and shows nothing at all"),
+    Row("readme8088", "soak", py("tests/unit/t_readme8088.py"), 0.1,
+        "README.TXT packs to exactly 8,088 bytes, because the machine is an "
+        "8088 (SPEC.md 20.13.4). A JOKE, PINNED - so NOTHING IS BROKEN when "
+        "this goes red: somebody edited the manual and the number came "
+        "loose, and the fix is the PROSE and never the constant in the test. "
+        "It is a size defended by nobody - no layout depends on it and a "
+        "byte either way costs the machine nothing - which is exactly why it "
+        "needs a row, or the next ordinary edit retires it silently. `soak` "
+        "and not `fast` because only an edit to that one file can break it, "
+        "so the person it is for is the person who touched it "
+        "(docs/WRITING-TESTS.md 2.1). It needs no build: the CRLF fold and "
+        "the LZ4 wrap are the two steps $(SYSDOCRAW)/$(SYSDOC) take, done "
+        "here to readme.txt itself, so a knob tree cannot make it red. The "
+        "shipped artefact is compared as well, but only when it is a FRESH "
+        "LZ4 one - `make PKGZ=` leaves it plain, `make PKGZ=lzb` leaves it "
+        "LZB, and one older than the source would report the same edit a "
+        "second time dressed as a build fault"),
     Row("ovlchk", "fast", py("tools/os88ovlchk.py"), 1.4,
         "no near call crosses a section boundary - it assembles cleanly and "
         "runs wrong"),

@@ -32739,19 +32739,21 @@ of them on a 5150 the machine takes the fast decoder. Both knobs stay on both
 sides (`make PKGZ=lzb COMPRESS=lzb`), and `tests/lzship.py --fmt lzb` builds
 and boots the whole set through it, so adding LZB later moves no layout.
 
-**What it is worth, on the geometry that binds** — the 360KB pair, measured:
+**What it is worth, on the geometry that binds** — the 360KB pair, and
+**no cluster totals are written down here.** They move with every package,
+driver, module and face on the disk, so a figure recorded beside them is wrong
+more often than it is right and is believed anyway; every `make` prints the
+live ones (`os88disk: build/os8088-360.img … n/354 clusters`) and `make PKGZ=`
+builds the arm to read them against.
 
-| disk | plain | LZ4 |
-|---|---:|---:|
-| system, of 354 clusters | 326 | **290** |
-| apps, of 354 clusters | 203 + a second floppy | **331**, `BEVERLY.MOD` on it |
-
-The second row is the headline and it is a *disk* rather than a percentage:
-§24.4 gives `BEVERLY.MOD` a floppy of its own at this geometry because 116,085
-bytes is 114 of 354 clusters, and 42,177 bytes is 42 — so the module rides the
-apps disk in `MEDIA/` and the two-disk split is gone. `build/media360.img` is
-still built and now carries a compressed copy of the same file, which is a
-duplicate rather than a requirement.
+What the comparison says is not a percentage but a *disk*, twice over. The
+plain apps disk no longer fits this geometry at all and the compressed one
+does — and §24.4 gave `BEVERLY.MOD` a floppy of its own here because 116,085
+bytes is 114 of 354 clusters, where 42,177 bytes is 42, so the module rides the
+apps disk in `MEDIA/` and the two-disk split is gone. Those two are the file's
+own sizes and stay true; `build/media360.img` is still built and now carries a
+compressed copy of the same file, which is a duplicate rather than a
+requirement.
 
 **`README.TXT` is compressed and gains no room by it.** 14,722 bytes of CRLF
 prose is 8,088, and Note Pad reads it whole through `OSAPI_FILE_READ`, so
