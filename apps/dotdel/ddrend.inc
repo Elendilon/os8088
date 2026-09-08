@@ -712,30 +712,64 @@ dd_band_rect:
     push bx
     push cx
     push dx
+    push si
     push di
     or cx, cx
     jle .out
     or dx, dx
     jle .out
-.row:
+    ; --- THE FIRST ROW'S BASE, ONCE (SPEC.md 93.5.9) ------------------------
+    ; It was a 16-bit MUL and four push/pop pairs PER ROW - about 230 cycles
+    ; of the ~400 a row of a four-pixel dot cost - for a base that advances by
+    ; exactly one stride each time.
     push ax
-    push bx
-    push cx
-    push dx
-    mov ax, bx
-    mul word [dd_rb]                ; MUL writes DX, which is the row counter
-    mov di, [dd_bbase]
-    add di, ax
-    pop dx
-    pop cx
-    pop bx
+    push dx                         ; MUL WRITES DX, WHICH IS THE ROW COUNTER.
+    mov ax, bx                      ; The old code banked it per row and this
+    mul word [dd_rb]                ; one has to bank it once - dropping the
+    mov di, [dd_bbase]              ; push turned the height into the product's
+    add di, ax                      ; high word, so `dec dx / jnz` walked the
+    mov si, [dd_rb]                 ; whole segment. It is the same catastrophe
+    pop dx                          ; dd_band_build's own comment describes
     pop ax
-    call dd_bandrun
-    inc bx
+    ; --- AND THE RUN'S BYTES, ONCE: every row of a RECTANGLE is the same ----
+    ; dd_bandrun rebuilt the identical mask for every row of a dot. Two bytes
+    ; hold any run this game asks for - a dot and a pellet are a few pixels -
+    ; and anything wider still has the general walk below.
+    mov bx, ax
+    and bx, 7                       ; BX = the bit offset into the first byte
+    add bx, cx
+    cmp bx, 16
+    ja .slow
+    sub bx, cx                      ; ...the offset again
+    mov ax, 0FFFFh
+    neg cl
+    add cl, 16                      ; CL = 16 - the width
+    shl ax, cl                      ; the width's worth of high bits...
+    mov cl, bl
+    shr ax, cl                      ; ...slid to the offset: AH is the first
+    or al, al                       ; byte's and AL the second's
+    jz .one
+.two:
+    or [di], ah
+    or [di+1], al
+    add di, si
     dec dx
-    jnz .row
+    jnz .two
+    jmp short .out
+.one:
+    or [di], ah                     ; it fits in ONE byte, and [di+1] may be
+    add di, si                      ; the row after's - so it is not touched
+    dec dx
+    jnz .one
+    jmp short .out
+.slow:
+    call dd_bandrun
+    add di, si
+    dec dx
+    jnz .slow
 .out:
     pop di
+    pop si
     pop dx
     pop cx
     pop bx
@@ -1595,6 +1629,26 @@ dd_band_one:
     mov di, dd_band
     add di, ax                      ; DI = the band byte the first row starts at
     mov bp, [dd_rb]                 ; ...and its stride, out of memory
+    ; BYTE-ALIGNED IS TWO STORES A ROW, and it is not a rare case: a tile is a
+    ; multiple of 8 wide (SPEC.md 93.3), so an actor moving only in Y sits on
+    ; a byte column for its whole journey and every ghost in a vertical
+    ; corridor takes this path. The general row below is two variable shifts,
+    ; three tests and three read-modify-writes.
+    cmp byte [dd_ssh], 0
+    jne .row
+    mov al, bh
+    and al, 3
+    cmp al, 3
+    jne .row                        ; ...and both of its columns are in
+.arow:
+    mov al, [si]
+    or [di], al
+    mov al, [si+1]
+    or [di+1], al
+    add si, DD_SPRB
+    add di, bp
+    loop .arow
+    jmp .out
 .row:
     push cx
     mov dh, [si]                    ; the sprite's row, always DD_SPRB bytes

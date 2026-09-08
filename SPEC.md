@@ -108104,6 +108104,55 @@ tiles the refresh actually reaches, off CX at a breakpoint on `dd_tile_put`
 itself: four corners on a fixed build, and `{(1,3), (1,23), (13,17)}` on a
 build with the two instructions taken back out.
 
+#### 93.5.9 A band is composed per OBJECT, so that is where its time goes
+
+§93.5.3.1 said a VGA actor band was ~6.9 ms and the kernel blit inside it
+~1.9 — so **two thirds of a band was this package composing it**, not the
+kernel drawing it. Broken down, on a cycle-accurate 4.77 MHz 8088 with the
+game in play:
+
+| | before | after |
+|---|---:|---:|
+| `dd_actor_emit`, a whole band | 6.16 ms | **4.69 ms** |
+| …`dd_band_build` (ground, items, others) | 2.81 | **1.14** |
+| … …`dd_band_items`, the dots | 1.12 | **0.89** |
+| … …`dd_band_ground` | 0.37 | 0.38 |
+| … …`dd_band_others` | 0.39 | 0.45 |
+| …`dd_band_one`, this actor's sprite | 1.15 | **0.60** |
+| …`dd_band_emit`, `dd_pen` + `gfx_blit1` | 1.99 | 1.99 |
+
+Nothing about the *shape* changed — the same bands, the same one blit each.
+Two things inside them did:
+
+* **`dd_band_rect` did a 16-bit `mul` and four push/pop pairs PER ROW** for a
+  base that advances by exactly one stride. About 230 cycles of the ~400 a row
+  of a four-pixel dot cost, and there are two or three dots in a band.
+* **…and it rebuilt the same bit mask for every row.** A rectangle's rows are
+  identical by definition. Two bytes hold any run this game asks for, so the
+  mask is built once and the rows are `or`/`or`/`add`.
+* **`dd_band_one` shifted on every row even when the shift was zero.** A tile
+  is a multiple of 8 wide (§93.3), so an actor moving only in Y sits on a byte
+  column for its whole journey: every ghost in a vertical corridor was paying
+  two variable shifts, three tests and three read-modify-writes a row for two
+  stores' worth of work.
+
+**The bit arithmetic was proved equivalent exhaustively rather than
+photographed.** Both old and new forms were modelled and compared over their
+whole input domain — 800 cases for the mask (every byte offset × every width
+that fits in two bytes) and 3,072 for the aligned sprite row — with no
+mismatch. That is the right proof for a change that only rearranges bits, and
+it is one a screenshot cannot give: a frozen-frame hash of this game is not
+reproducible even against itself, because the actors' animation phase follows
+`dd_anim` and two runs are never on the same tick.
+
+**The first attempt at the hoist wedged the renderer**, and the reason is
+written in the code it edited: `dd_band_rect`'s per-row multiply was banked
+with a comment saying *"MUL writes DX, which is the row counter"*. Hoisting
+the multiply without keeping that push made the height the product's high
+word, so `dec dx / jnz` walked the whole segment — the same catastrophe
+`dd_band_build`'s own comment describes one screen up. It costs one push/pop
+per rectangle instead of four pairs per row, so the win survives paying it.
+
 #### 93.5.7.1 The list is where they ARE; the grid is whether they still are
 
 `dd_pills_flip` walks the pellet LIST, which is built when the board is
