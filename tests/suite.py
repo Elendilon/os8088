@@ -2909,12 +2909,12 @@ SOAK = [
         "carry that bit, or a cell that set it unconditionally would pass. "
         "AND THEN IT OPENS README.TXT off the shipped system disk by "
         "double-clicking it (SPEC.md 20.14.2.1), which no fixture could stand "
-        "in for: the manual's reader has 16,384 bytes for 16,334 of text and "
-        "in-place expansion wants 16,413, so the field saw 'Too big' on a "
-        "file the machine had just reported as fitting. np_len is what says "
-        "it worked - an empty note and a full one look identical at every "
-        "zoom - and it reads 16,019, the CRLF file FOLDED, so 315 carriage "
-        "returns had to arrive to be dropped",
+        "in for: the manual's reader has 16,384 bytes for 14,722 of text, and "
+        "when it was 16,334 an in-place expansion wanting 16,413 made the "
+        "field see 'Too big' on a file the machine had just reported as "
+        "fitting. np_len is what says it worked - an empty note and a full "
+        "one look identical at every zoom - and it reads 14,427, the CRLF "
+        "file FOLDED, so 295 carriage returns had to arrive to be dropped",
         needs=("marty",), serial=True,
         wants=("build/lzfile360.img",)),
     Row("lzcomp", "soak", py("tests/lzcomp.py"), 150.0,
@@ -3313,8 +3313,8 @@ SOAK = [
         "SPEC.md 52.10.13: an install reproduces the source disk's WHOLE "
         "tree - the empty SYSTEM/APPDATA and SYSTEM/DOS/OS88NET.COM included, "
         "which one folder level could not reach - AND ITS BYTES (52.10.13.1). "
-        "README.TXT is compressed on the shipped floppy, 8,850 bytes against "
-        "16,304 expanded, and the installer had two copy shapes chosen by "
+        "README.TXT is compressed on the shipped floppy, 8,088 bytes against "
+        "14,722 expanded, and the installer had two copy shapes chosen by "
         "size: the small one used OSAPI_FILE_READ, which is the TRANSPARENT "
         "read, so the manual was installed EXPANDED with its directory hint "
         "gone while every file too big for the buffer was copied raw and "
