@@ -2238,7 +2238,6 @@ cs_tpl:
     ZWORD cs_bx0                    ; projected centre x, top row and base
     ZWORD cs_by0                    ; row
     ZWORD cs_by1
-    ZWORD cs_hzproc
     ZWORD cs_glyphproc
     ZWORD cs_lsh                    ; the walk trio: shallow, steep, vertical
     ZWORD cs_lst
@@ -2274,6 +2273,9 @@ cs_tpl:
                                     ; on it since is the previous span set's
                                     ; entry, not a bit here (88.3.1)
     ZWORD cs_fullspan               ; the span pair of a touched view row
+    ZBUF  cs_hzpat4, 8              ; the fused band's ink PAIR per row phase,
+                                    ; DL left DH right, built once a frame
+    ZWORD cs_hzend                  ; ...and where its walk of cs_xl stops
     ZWORD cs_hzmm                   ; the crossing byte's pixel-mask index and
     ZWORD cs_hzmt                   ; its table, both the ADAPTER's (88.3.1.2)
     ZWORD cs_hzlo                   ; the band's span pass (88.3.1.1): the

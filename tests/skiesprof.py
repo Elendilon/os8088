@@ -152,6 +152,18 @@ PROFILES = {
         what="...and the same bank HELD, so every frame refills a rolled "
              "horizon whole (88.3.1) for the whole run. The decaying one "
              "passes through this; this one lives in it"),
+    "sparse": dict(
+        pos=(-6000, 300, -6000), hdg=225, pitch=0, roll=45, thr=70, hold=True,
+        what="turnhold's held 45 degree bank over an EMPTY quarter of the map "
+             "- ONE object in the view, near the horizon, and nothing else at "
+             "all. The other five profiles are busy on purpose; this is the "
+             "one where a band row can be object-free, which is what SPEC.md "
+             "88.3.1.3.2's horizon cache needs. THE AERODROME WAS TRIED FIRST "
+             "and is the wrong scene: three short buildings and two of the "
+             "Seine's ribbons reads as sparse and is not, because cs_markrows "
+             "marks an object's BOX (88.3.2) and a flat ground model "
+             "kilometres across has an enormous one - it measured 0 of 112 "
+             "rows object-free, same as turnhold, with WIDER spans"),
     "climb": dict(
         pos=None, hdg=None, pitch=8, roll=0, thr=100, spd=40,
         what="full throttle from where cs_reset puts it on the Issy runway: "

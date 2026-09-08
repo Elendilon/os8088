@@ -100365,6 +100365,102 @@ frames of 20. `cs_skyground` in a bank is mostly **erasing last frame's
 objects**, not drawing a horizon, which is the whole reason its cost is fixed
 work a row rather than pixels.
 
+##### 88.3.1.3 ...so the row stops being a CALL at all
+
+§88.3.1.2 took the routine's half of the overhead and left the seam: 1,042
+cycles a row inside `cs_hzrow_sh`, and **601 more in the band loop around it**
+— it banked three registers, re-derived the row's ink pair through two
+pointers, re-tested the 0x7FFF sentinel and paid a `call`/`ret`, while the
+routine rebuilt the row pointer it had just been handed and re-took the
+crossing's byte.
+
+The band is now walked in ONE loop with no call in it, on the shadow backends.
+Everything that is the FRAME's is hoisted: the ink PAIR per row phase is a
+word in `cs_hzpat4` (built once beside the ink patterns) where it was two
+bytes through two pointers, the walk of `cs_xl` is `lodsw` against a
+precomputed `[cs_hzend]`, the pixel mask is §88.3.1.2's `[cs_hzmt]`/
+`[cs_hzmm]`, and the row's three runs — left, the crossing's blended byte,
+right — write straight through DI without ever restoring it.
+
+**Mode X keeps the per-row call.** `cs_hzrow_modex` selects planes as it goes
+and its whole-row arms go through `cs_hzwhole`, so the fused loop is gated on
+the backend and the old one stays for it. `cs_hzrow_sh` is DELETED — nothing
+reaches it any more — and with it `[cs_hzproc]`, whose one remaining reader
+now calls `cs_hzrow_modex` by name. **+89 bytes** for the whole fusion.
+
+| Hercules 8088, 20 flown frames | frame | `cs_skyground` | `cs_blit` |
+|---|---|---|---|
+| `turnhold`, before §88.3.1.1 | 280.1 | 47.75 | 36.17 |
+| ...span pass (§88.3.1.1) | 276.0 | 51.70 | 28.37 |
+| ...fill diet (§88.3.1.2) | 267.3 | 42.74 | 28.31 |
+| ...**fused** | **263.1** (3.80 fps) | **38.41** | 28.44 |
+| `bank`, before | 256.0 | 34.60 | 33.39 |
+| ...**all three** | **246.1** (4.06 fps) | **29.18** | 29.21 |
+
+**280.1 → 263.1 ms in a held bank for 222 bytes, 3.57 → 3.80 fps.**
+
+###### 88.3.1.3.1 It bought a QUARTER of what the byte count said, and that is the lesson
+
+The fused row was predicted at ~936 cycles against 1,643 — 16.6 ms — on the
+same reasoning that made §88.3.1.1's span pass a 3× win: count the BYTES of
+code the row runs through and multiply by the 8088's 4.34. It measures
+**~1,460, so 183 cycles a row and 4.3 ms**, a quarter of the prediction.
+
+The two cases differ in what the row is made of, and that is the whole of it.
+The span pass's body is ~33 bytes of register work with two memory operands,
+so its fetch floor really is its cost. A fill row is ~135 bytes with **twenty**
+memory operands and two `rep stosw` runs, and at ~24 cycles a word the 25
+words it lays are **~600 cycles — 41% of the row on their own.** Hoisting
+cannot touch either of those, so the fetch-floor argument prices the third of
+the row it applies to and says nothing about the rest.
+
+**So the next candidate is the one thing that reduces the WRITES**, and
+§88.3.1.1.2 refused it when the row was 1,437 cycles: laying
+`union(last frame's span, this frame's band)` instead of the whole view. The
+mean span is **31 bytes of the view's 50** (§88.3.1.2), so it is ~9.5 words a
+row, measured at 164 cycles when it was tried — 3.8 ms — and it is much
+cheaper to obtain inside a fused loop than it was through `cs_hzb0`/`cs_hzbn`
+and three row fillers. It is the largest single item left in the band.
+
+###### 88.3.1.3.2 An EMPTY turn is a different frame, and the horizon is half of it
+
+Five of `tests/skiesprof.py`'s profiles are busy on purpose, so everything
+above is measured where the scene pays for itself. `sparse` is the sixth: the
+same held 45° bank over an empty quarter of the map, **no object in the view
+at all**. It is a different machine:
+
+| held 45° bank, 20 flown frames | `turnhold` | `sparse` |
+|---|---|---|
+| frame | 263.1 ms (3.80 fps) | **77.6 ms (12.88 fps)** |
+| `cs_scene` | 176.07 | 6.50 |
+| `cs_skyground` | 38.41 (14.6%) | **38.64 — 49.8%** |
+| `cs_blit` | 28.44 | 15.09 |
+| band rows that are object-free | 0 of 112 | **112 of 112** |
+| mean span width | 31 of 50 bytes | **3.0** |
+| horizon identical to last frame | 20 of 20 | 7 of 20 |
+
+**With nothing to draw, the horizon IS the frame** — and every row of it is
+skippable, which is exactly what §88.3.1.1.2's refused cache wanted and never
+found in a busy scene. On a still frame the whole band could be nothing; over
+these twenty frames that is ~13.5 ms of 77.6, and on the still frames
+themselves 77.6 → ~39.
+
+**The aerodrome was tried first and is the WRONG scene**, which is the finding
+worth keeping. Three short buildings and two of the Seine's ribbons reads as
+sparse and measures as busy: **0 of 112 rows object-free and spans WIDER than
+`turnhold`'s, 33.1 bytes against 31**, with fewer objects and an empty sky.
+`cs_markrows` marks an object's BOX (§88.3.2), and a flat ground model
+kilometres across whose ink is a thin diagonal has a box the size of the view.
+So the cache's ceiling is set by mark GRANULARITY and not by how busy the
+scene is — a per-row interval represents a diagonal horizon perfectly, and one
+rectangle per object cannot represent a diagonal at all.
+
+`cs_poly` already computes the exact per-row bounds it fills between
+(`cs_xl`/`cs_xr`), so marking from those is a compare-and-store on a pair the
+loop already holds. That is a different trade from §88.3.2's refusal, which
+was a wireframe tower's 32 segments each running `cs_markrows` over the same
+hundred rows.
+
 #### 88.3.2 Marks are per object, and off its vertices when it is whole
 
 The first build marked every polygon's bounding box and every segment's

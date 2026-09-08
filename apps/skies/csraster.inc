@@ -23,6 +23,28 @@
 ;
 ; SS != DS (CLAUDE.md): nothing here indexes a table with BP.
 ; =============================================================================
+; FILLRUN - CX bytes of AL (= AH) at ES:DI, words where it can; advances DI
+;           past them and clobbers CX. CX may be 0 or negative. DF must be 0.
+;           INLINE, because at 112 rows a frame the `call`/`ret` and the
+;           prologue behind them are 314 cycles a row of the 1,421 a split row
+;           costs (SPEC.md 88.3.1.2). cs_fillrun below is the same code as a
+;           routine, for the Mode X filler that calls it once a row.
+%macro FILLRUN 0
+    or cx, cx
+    jle %%out
+    test di, 1
+    jz %%even
+    stosb
+    dec cx
+    jz %%out
+%%even:
+    shr cx, 1
+    rep stosw
+    jnc %%out
+    stosb
+%%out:
+%endmacro
+
 
 ; --- per-backend geometry, indexed by CSB_* - 1 -------------------------------
 ; The nine words land on nine contiguous bss words in this order.
@@ -208,7 +230,6 @@ cs_r_setup:
                                     ; hid it - a pointer only some arms fill
                                     ; is the shape to look for
     mov word [cs_rowsproc], cs_polyrows
-    mov word [cs_hzproc], cs_hzrow_modex
     mov word [cs_glyphproc], cs_glyph_modex
     mov si, cs_lp_modex
     cmp byte [cs_back], CSB_MODEX
@@ -217,7 +238,6 @@ cs_r_setup:
     mov word [cs_inktab], cs_inkcga
     mov word [cs_hrunproc], cs_hrun_cga
     mov word [cs_lrunproc], cs_hrun_cga
-    mov word [cs_hzproc], cs_hzrow_sh
     mov word [cs_glyphproc], cs_glyph_cga
     mov si, cs_lp_cga
     cmp byte [cs_back], CSB_CGA
@@ -230,7 +250,6 @@ cs_r_setup:
     mov word [cs_inktab], cs_inkc160 ;    the stride every other backend has
     mov word [cs_hrunproc], cs_hrun_c160
     mov word [cs_lrunproc], cs_hrun_c160
-    mov word [cs_hzproc], cs_hzrow_sh
     mov word [cs_glyphproc], cs_glyph_c160
     mov word [cs_plblp], cs_plbl160 ; ...and the ONE-LINE strip's panel with
     mov word [cs_plabw], 2          ; it: one-letter labels, the number two
@@ -247,7 +266,6 @@ cs_r_setup:
     mov word [cs_hrunproc], cs_hrun_herc
     mov word [cs_rowsproc], cs_polyrows_herc
     mov word [cs_lrunproc], cs_lrun_herc
-    mov word [cs_hzproc], cs_hzrow_sh
     mov word [cs_glyphproc], cs_glyph_herc
     mov si, cs_lp_herc
 .procs:
@@ -1118,13 +1136,26 @@ cs_skyground:
     mov [cs_hzrt], si
     mov ax, 7                       ; ...and the crossing byte's pixel mask,
     mov bx, cs_hlm                  ; which is the ADAPTER's and so the
-    cmp byte [cs_kshift], 3         ; frame's: cs_hzrow_sh used to re-decide
+    cmp byte [cs_kshift], 3         ; frame's: the row filler used to re-decide
     je .mk                          ; it once a row (88.3.1.2)
     mov ax, 3
     mov bx, cs_clm
 .mk:
     mov [cs_hzmm], ax
     mov [cs_hzmt], bx
+    mov si, [cs_hzlt]               ; ...and the ink PAIR per row phase, so a
+    mov di, [cs_hzrt]               ; fused row reads one word where the band
+    mov bx, cs_hzpat4               ; loop read two bytes through two pointers
+    mov cx, 4
+.pk:
+    mov al, [si]
+    mov ah, [di]
+    mov [bx], ax
+    inc si
+    inc di
+    inc bx
+    inc bx
+    loop .pk
     mov es, [cs_tseg]
     cmp byte [cs_back], CSB_MODEX
     jne .p0
@@ -1258,6 +1289,94 @@ cs_skyground:
     pop di
     pop bx
     pop cx
+    cmp byte [cs_back], CSB_MODEX
+    je .b                           ; Mode X keeps the per-row call: its own
+                                    ; filler selects planes as it goes
+    ; ===== THE BAND, FUSED (SPEC.md 88.3.1.3) =============================
+    ; The row used to be a CALL, and both sides of it paid for that. The loop
+    ; banked three registers, re-derived the row's ink pair through two
+    ; pointers and re-tested the 0x7FFF sentinel; the routine then rebuilt the
+    ; row pointer it had just been handed, re-took the crossing's byte and
+    ; re-picked a pixel mask that is the adapter's. 88.3.1.2 took the second
+    ; half of that (1,421 -> 1,042 cycles a row); this takes the seam itself,
+    ; and the loop's own 601 with it. Everything that is the FRAME's is in a
+    ; register or a hoisted word, the walk of cs_xl is `lodsw`, and the row's
+    ; three runs write straight through DI without ever restoring it.
+    push bp
+    mov si, bx
+    shl si, 1
+    add si, cs_xl                   ; SI -> this row's crossing
+    mov ax, bx
+    add ax, cx                      ; ...and the row the band ends before
+    shl ax, 1
+    add ax, cs_xl
+    mov [cs_hzend], ax
+    mov es, [cs_tseg]
+    cld
+.fb:
+    lodsw                           ; AX = the crossing
+    cmp ax, 0x7FFF
+    jne .fb0
+    mov ax, [cs_wx1]                ; untouched inside the band: the crossing
+    inc ax                          ; is off the right, so the row is the
+.fb0:                               ; left side's
+    mov bx, si
+    sub bx, cs_xl + 2               ; BX = the row's phase, doubled - SI is
+    and bx, 6                       ; the row counter here, and lodsw has
+    mov dx, [cs_hzpat4 + bx]        ; already stepped it
+    cmp ax, [cs_wx0]
+    jg .fb1
+    mov dl, dh                      ; wholly the right pattern
+    jmp short .fbw
+.fb1:
+    cmp ax, [cs_wx1]
+    jg .fbw                         ; wholly the left pattern, in DL already
+    mov bx, ax                      ; --- SPLIT: the crossing's pixel mask,
+    and bx, [cs_hzmm]               ;     taken before AX becomes its byte
+    add bx, [cs_hzmt]
+    mov bl, [bx]                    ; BL = pixels i.., the right side's
+    mov cl, [cs_kshift]
+    shr ax, cl                      ; AX = the crossing's byte
+    mov bp, ax
+    mov cx, ax
+    sub cx, [cs_wb0]                ; CX = the bytes wholly left of it
+    mov al, dl
+    mov ah, dl
+    push di
+    FILLRUN                         ; the left run - DI lands ON the crossing
+    mov al, bl                      ; the crossing's byte: the two patterns
+    mov ah, al                      ; through the mask and its complement
+    not ah
+    and al, dh
+    and ah, dl
+    or al, ah
+    stosb
+    mov cx, [cs_wb0]                ; the right run: the bytes after it
+    add cx, [cs_wbn]
+    sub cx, bp
+    dec cx
+    mov al, dh
+    mov ah, dh
+    FILLRUN
+    pop di
+    jmp short .fbn
+.fbw:
+    mov al, dl                      ; a whole view row of one pattern
+    mov ah, dl
+    mov cx, [cs_wbn]
+    shr cx, 1
+    push di
+    rep stosw
+    pop di
+.fbn:
+    add di, 80
+    cmp si, [cs_hzend]
+    jb .fb
+    pop bp
+    mov bx, si                      ; BX = the row the band ended before,
+    sub bx, cs_xl                   ; which is what .below counts from
+    shr bx, 1
+    jmp .below
 .b:
     push cx
     push bx
@@ -1275,7 +1394,7 @@ cs_skyground:
     call cs_probe_hz                ; what an incremental refill would cost
 %endif
     ; --- AND THE PHASE IS SCRATCHED IN DX, NOT DI (SPEC.md 88.3.1.2) -------
-    ; DI is the ROW now - cs_hzrow_sh takes it and walks it - so the two
+    ; DI is the ROW now - the filler takes it and walks it - so the two
     ; instructions that used to borrow DI for the pattern index write over the
     ; pointer they are about to pass. It cost a whole view: every split row
     ; laid itself at the top of the shadow, which a ONE-row band (level, or
@@ -1289,7 +1408,7 @@ cs_skyground:
     mov si, [cs_hzrt]
     add si, dx
     mov ah, [si]
-    call [cs_hzproc]                ; the row split at CX: AL left, AH right
+    call cs_hzrow_modex             ; the row split at CX: AL left, AH right
     pop di
     pop bx
     pop cx
@@ -1624,27 +1743,6 @@ cs_abs32:
 .o:
     ret
 
-; FILLRUN - CX bytes of AL (= AH) at ES:DI, words where it can; advances DI
-;           past them and clobbers CX. CX may be 0 or negative. DF must be 0.
-;           INLINE, because at 112 rows a frame the `call`/`ret` and the
-;           prologue behind them are 314 cycles a row of the 1,421 a split row
-;           costs (SPEC.md 88.3.1.2). cs_fillrun below is the same code as a
-;           routine, for the Mode X filler that calls it once a row.
-%macro FILLRUN 0
-    or cx, cx
-    jle %%out
-    test di, 1
-    jz %%even
-    stosb
-    dec cx
-    jz %%out
-%%even:
-    shr cx, 1
-    rep stosw
-    jnc %%out
-    stosb
-%%out:
-%endmacro
 
 ; -----------------------------------------------------------------------------
 ; cs_hzwhole - one whole view row of one pattern
@@ -1667,59 +1765,6 @@ cs_hzwhole:
     pop ax
 .go:
     rep stosw
-    ret
-
-; -----------------------------------------------------------------------------
-; cs_hzrow_sh - one view row split at a column (the two shadow backends)
-; in:  BX = the row, CX = the crossing x (box coords, any value), AL = the
-;      pattern left of it, AH = the pattern from it rightward
-; clobbers everything
-; -----------------------------------------------------------------------------
-cs_hzrow_sh:
-    cmp cx, [cs_wx0]
-    jg .l1
-    mov al, ah                      ; wholly the right pattern
-    jmp cs_hzwhole
-.l1:
-    cmp cx, [cs_wx1]
-    jle .split
-    mov ah, al                      ; wholly the left pattern
-    jmp cs_hzwhole
-.split:
-    ; --- DI IS THE ROW, AND IT WALKS IT (SPEC.md 88.3.1.2) -----------------
-    ; The band loop already holds the row's first view byte and steps it by
-    ; the stride; this used to throw it away and rebuild it out of cs_rowoff
-    ; and cs_tbase, then bracket the left run in push di/pop di to get back to
-    ; it. Now the left run leaves DI ON the crossing's byte, the blend is a
-    ; `stosb`, and the right run carries on from there.
-    mov dx, ax                      ; DL/DH = the two patterns
-    mov bl, cl                      ; the crossing's low bits, banked before
-                                    ; CL becomes the shift count
-    mov si, cx
-    mov cl, [cs_kshift]
-    shr si, cl                      ; SI = the crossing byte
-    mov cx, si
-    sub cx, [cs_wb0]                ; CX = bytes wholly left of it
-    mov al, dl
-    mov ah, dl
-    FILLRUN                         ; the left run
-    xor bh, bh                      ; the crossing byte: pixels (x & mm)..
-    and bx, [cs_hzmm]               ; take the right pattern. The mask and its
-    add bx, [cs_hzmt]               ; table are the FRAME's, not this row's -
-    mov al, [bx]                    ; picking them cost a cs_kshift compare a
-    mov ah, al                      ; row for an answer that cannot change
-    not ah                          ; AL = the right's mask, AH = the left's
-    and al, dh
-    and ah, dl
-    or al, ah
-    stosb
-    mov cx, [cs_wb0]                ; the right run: bytes after it
-    add cx, [cs_wbn]
-    sub cx, si
-    dec cx
-    mov al, dh
-    mov ah, dh
-    FILLRUN
     ret
 
 ; cs_fillrun - CX bytes of AL (= AH) at ES:DI, words where it can. Advances

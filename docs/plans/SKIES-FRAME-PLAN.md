@@ -326,7 +326,36 @@ decided. Three cuts (SPEC.md 88.3.1.2), **+8 bytes**:
 
 **280.1 -> 267.3 ms in a held bank, 3.57 -> 3.74 fps, for 133 bytes.**
 
-#### 7.1.4 REFUSED - the "pre-pay the horizon" table, and the cache behind it
+#### 7.1.4 BUILT - and the row stops being a CALL at all
+
+7.1.3 took the filler's half and left the seam: 1,042 cycles a row inside it
+and **601 more in the band loop around it** - three push/pop pairs, the ink
+pair fetched as two bytes through two pointers, the sentinel test and a
+call/ret. The band is ONE loop with no call in it now, on the shadow
+backends: the ink PAIR is a word in `cs_hzpat4` built once a frame, the walk
+of `cs_xl` is `lodsw` against a hoisted `[cs_hzend]`, and the row's three runs
+write straight through DI. Mode X keeps the per-row call; `cs_hzrow_sh` and
+`[cs_hzproc]` are DELETED, so it is **+89 bytes**.
+
+| Hercules 8088, 20 flown frames | frame | `cs_skyground` | `cs_blit` |
+|---|---|---|---|
+| `turnhold`, before 7.1 | 280.1 | 47.75 | 36.17 |
+| ...span pass | 276.0 | 51.70 | 28.37 |
+| ...fill diet | 267.3 | 42.74 | 28.31 |
+| ...**fused** | **263.1** (3.80 fps) | **38.41** | 28.44 |
+| `bank`, **all three** | **246.1** (4.06 fps) | 29.18 | 29.21 |
+
+**280.1 -> 263.1 ms in a held bank for 222 bytes.**
+
+**IT BOUGHT A QUARTER OF WHAT THE BYTE COUNT SAID.** Predicted ~936 cycles
+against 1,643 (16.6 ms) by the method that made 7.1's span pass a 3x win;
+measured ~1,460, so 4.3 ms. The span pass's body is ~33 bytes of register
+work; a fill row is ~135 bytes with twenty memory operands and two `rep stosw`
+runs whose 25 words are ~600 cycles - **41% of the row on their own**. Count
+bytes where the body is registers; treat it as an upper bound where the body
+is memory.
+
+#### 7.1.5 REFUSED - the "pre-pay the horizon" table, and the cache behind it
 
 The idea was to pre-generate the sky/ground picture for a constrained set of
 attitudes and make `cs_skyground` a memory copy. **The premise is right and
@@ -334,45 +363,68 @@ better than it looks**: `cs_matrix`'s second column is `(-sr.cp, cr.cp, sp)`,
 so the horizon is a function of `(roll, pitch)` ALONE - no heading, no
 position, no framerate.
 
-It is refused on two counts, and the first is the one that does not depend on
-any look judgement. **A copy is 4 bytes over the bus per byte laid where a
-fill is 2** (`rep movsw` reads and writes; `rep stosw` only writes), so a
-pre-made picture is ~1.8x the cost of the fill it replaces on an 8088. Its
-only advantage - no per-row decision - is exactly what 7.1.3 buys for +8
-bytes. Second, the table does not fit: one pixel at the view edge is 0.29
-degrees of roll and one row is 0.20 of pitch, so ~1,257 x 112 = 140,784
-states, which is 788 MB of pictures, 31.5 MB of `cs_xl` arrays or 1.1 MB of
-line endpoints. At a fixed roll, pitch is a pure vertical shift, so a strip
-per roll would do - and a strip is 224 rows x 50 bytes = 11.2 KB, so even 32
-roll steps is 358 KB on a machine with 50.5 KB of free heap. (Quantisation is
-NOT the argument: at 3.6 fps a decaying bank already steps ~2 degrees between
-displayed frames, so a 2-4 degree table step is the same order as the frame
-step.)
+It is refused on two counts, and the first needs no look judgement. **A copy
+is 4 bytes over the bus per byte laid where a fill is 2** (`rep movsw` reads
+and writes; `rep stosw` only writes), so a pre-made picture is ~1.8x the cost
+of the fill it replaces on an 8088 - and its only advantage, no per-row
+decision, is what 7.1.3 and 7.1.4 buy for 97 bytes. Second, it does not fit:
+one pixel at the view edge is 0.29 degrees of roll and one row is 0.20 of
+pitch, so ~1,257 x 112 = 140,784 states - 788 MB of pictures, 31.5 MB of
+`cs_xl` arrays, 1.1 MB of line endpoints. At a fixed roll pitch is a pure
+vertical shift, so a strip per roll would do; a strip is 224 rows x 50 bytes =
+11.2 KB, so even 32 roll steps is 358 KB on a machine with 50.5 KB of free
+heap. (Quantisation is NOT the argument: at 3.6 fps a decaying bank already
+steps ~2 degrees between displayed frames.)
 
-**The cache behind it is refused on a measurement.** Because the picture is a
-function of `(roll, pitch)`, "has the horizon moved" is an exact five-word
-compare once a frame - and in a held bank it has not moved at all. Read off
-the shipping build at the `call cs_blit` site with no probe:
+**The cache behind it is refused on a measurement, and a SECOND profile was
+built to attack the measurement.** "Has the horizon moved" is an exact
+five-word compare once a frame, and in a held bank it has not moved at all.
+`turnhold` is busy on purpose, so `sparse` was added - the same held bank over
+an empty corner of Paris, the Issy aerodrome's three outbuildings (12, 10 and
+15 m) and two of the Seine's western ribbons, nothing tall and no sky object:
 
-| `turnhold`, 20 frames | |
-|---|---|
-| horizon identical to last frame | **20 of 20** (longest run 20) |
-| band rows that are object-free | **0 of 112** |
-| mean span width where not empty | **31 bytes of the view's 50** |
-| `bank`, same measure | still in **2 of 20** |
+| held 45 degree bank, 20 frames | `turnhold` | `sparse` (EMPTY) |
+|---|---|---|
+| frame | 263.1 ms (3.80 fps) | **77.6 ms (12.88 fps)** |
+| `cs_scene` | 176.07 | 6.50 |
+| `cs_skyground` | 38.41 (14.6%) | **38.64 - 49.8%** |
+| `cs_blit` | 28.44 | 15.09 |
+| band rows object-free | 0 of 112 | **112 of 112** |
+| mean span width | 31 of 50 bytes | **3.0** |
+| horizon identical to last frame | 20 of 20 | 7 of 20 |
 
-A still horizon ought to mean a row needs no fill at all. It never does:
-every band row is already widened by `cs_markspan`. **`cs_skyground` in a bank
-is mostly erasing last frame's OBJECTS, not drawing a horizon** - which is
-also why 7.1.2's narrower fill buys 11% and why the cost is fixed work a row.
-The cache degrades to laying 31 bytes instead of 50, worth 3.84 ms against
-~2 ms a frame to obtain, and `bank` gets it 2 frames in 20.
+**With nothing to draw the horizon IS the frame**, and every row is skippable
+- the case the cache wanted. ~13.5 ms of 77.6 over these twenty frames; on a
+still frame 77.6 -> ~39. In `turnhold` and `bank` it is worth nothing.
 
-**What is left**, if this is picked up again: ~500 cycles a row of prologue in
-`cs_hzrow_sh` against ~350 of pixels. Taking it means FUSING the row into the
-band loop so the crossing's byte, the ink pair and the row pointer are never
-recomputed - a rewrite of the loop rather than a diet of it, ~150 bytes, on
-the loop with two field bugs in its history (88.3.3.1, 88.13.3.1).
+**THE AERODROME WAS TRIED FIRST AND IS THE WRONG SCENE.** Three short
+buildings and two of the Seine's ribbons reads as sparse and measures as busy:
+0 of 112 rows object-free and spans WIDER than turnhold's, 33.1 against 31,
+with FEWER objects and an empty sky. `cs_markrows` marks an object's BOX
+(88.3.2) and a flat ground model kilometres across whose ink is a thin
+diagonal has a box the size of the view. A per-row interval represents a
+diagonal horizon perfectly; ONE RECTANGLE PER OBJECT CANNOT REPRESENT A
+DIAGONAL AT ALL.
+
+#### 7.1.6 What is left, in the order the evidence ranks it
+
+1. **The narrow fill.** `union(last frame's span, this frame's band)` - a mean
+   of 31 bytes of the view's 50 - measured at 164 cycles a row (3.8 ms) and
+   refused twice when the range had to be threaded through `cs_hzb0`/`cs_hzbn`
+   and three row fillers. In the fused loop it is a handful of bytes, and with
+   the stores now 41% of the row it is the largest single item in the band.
+2. **Per-ROW marking, from the bounds cs_poly already has.** 88.3.2 measured
+   per-primitive marking on a wireframe tower - 32 segments each running
+   `cs_markrows` over the same hundred rows - and it lost. This is not that:
+   `cs_poly` already computes `cs_xl`/`cs_xr` for every row it fills, so
+   marking from them is a compare-and-store on a pair the loop is holding. It
+   narrows the fill's range AND the blit's, in every scene.
+3. **The horizon cache**, now that 7.1.5's `sparse` prices it: ~13.5 ms of an
+   empty turn's 77.6 and nothing in a busy one, for ~100 bytes and a second
+   path through the band whose correctness rests on the key covering every
+   input to the picture.
+4. **`cs_blit`'s own per-row walk**, ~300 cycles over rows that are mostly a
+   few bytes now.
 
 Two instrument traps, both of which cost a run:
 
