@@ -1,11 +1,40 @@
 # =============================================================================
 # os8088 - build a bootable 1.44MB floppy image
 #
+#   make deps   install the host dependencies FIRST (see below)
 #   make        build build/os8088.img
 #   make run    boot it in QEMU
 #   make debug  boot it with QEMU waiting for gdb on :1234
 #   make clean
 # =============================================================================
+
+# THE FIRST THING TO TYPE on a box you have not built on. `make deps` installs
+# nasm, pkg-config + libudev-dev (which `make marty` needs and fails MINUTES IN
+# without, inside cargo on the serialport crate) and qemu, by running
+# tools/setup-linux.sh or tools/setup-macos.sh as the host requires. It is
+# IDEMPOTENT and about a fifth of a second when everything is already there,
+# so it is cheap to type when unsure - which is the point, the alternative
+# being a four-minute cargo build that ends on a missing 200KB header.
+#
+# `make deps-check` is the same question with no install: it reports and exits
+# nonzero if anything is missing.
+#
+# .DEFAULT_GOAL IS NOT DECORATION. `all` is 1,800 lines down, and make takes
+# the FIRST TARGET IN THE FILE as the default goal - so putting these two
+# rules up here, where a reader finds them, silently made `make` mean
+# `make deps`: a dependency report, no floppy built, exit 0. Naming the goal
+# costs one line and makes the position of every rule below it a layout
+# question rather than a behavioural one. tests/unit/t_deps.py guards it.
+.DEFAULT_GOAL := all
+
+.PHONY: deps deps-check
+deps:
+	@if [ "$$(uname -s)" = "Darwin" ]; then tools/setup-macos.sh; \
+	 else tools/setup-linux.sh; fi
+deps-check:
+	@if [ "$$(uname -s)" = "Darwin" ]; then \
+	     echo "deps-check: macOS - run tools/setup-macos.sh"; \
+	 else tools/setup-linux.sh --check; fi
 
 NASM  := nasm
 # The `pc` machine carries a `vmport` and a `vmmouse` by default, so a guest

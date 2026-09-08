@@ -103,13 +103,30 @@ if not sys.stdout.isatty() or os.environ.get("NO_COLOR"):
 def _apt(pkg):
     """The install line for this host, best effort.
 
-    Named per platform rather than assumed: `tools/setup-macos.sh` installs
-    the Mac set and does NOT install Rust, which is the one that catches
-    people out on `make marty`.
+    IT NAMES THE SCRIPT RATHER THAN A BARE apt LINE, and that is a
+    correction rather than a preference. What this used to print was
+    `apt-get install -y libudev-dev pkg-config`, which is precisely the
+    command docs/MARTYPC-DEBUG.md exists to say DOES NOT WORK in a fresh
+    container - it 404s against a shipped index, and the refresh that fixes
+    it needs `APT::Sandbox::User=root` or it silently refreshes nothing. So
+    a preflight whose whole purpose is handing the reader something to type
+    was handing them the failure it was warning about.
+
+    `make deps` (tools/setup-linux.sh, tools/setup-macos.sh) is the one
+    command that is right on every host: it refreshes with the sandbox off,
+    installs only what is absent, and probes rather than assuming - the
+    qemu version pin that document carries is a FALLBACK there, because the
+    archive has since caught up and pinning it now would install an older
+    emulator for no reason.
+
+    Named per platform where it still matters: `tools/setup-macos.sh`
+    installs the Mac set and does NOT install Rust, which is the one that
+    catches people out on `make marty`.
     """
     if sys.platform == "darwin":
-        return "tools/setup-macos.sh   (then `brew install %s` if it is not in it)" % pkg
-    return "apt-get install -y %s" % pkg
+        return ("make deps               (tools/setup-macos.sh; then "
+                "`brew install %s` if it is not in it)" % pkg)
+    return "make deps               (tools/setup-linux.sh - installs %s)" % pkg
 
 
 def requirements():
@@ -162,8 +179,10 @@ def requirements():
     req.append(("martypc", os.path.exists(marty),
                 "the default instrument. Without it EVERY emulator row skips, "
                 "which is most of the tier.",
-                "make marty      (needs cargo; on Linux also `%s`)"
-                % _apt("libudev-dev pkg-config")))
+                "make deps && make marty      (deps installs libudev-dev "
+                "+ pkg-config, which\n"
+                "                     cargo needs and fails MINUTES IN "
+                "without; cargo itself is rustup's)"))
 
     req.append(("cc", os.access(B("cc", "SmallerC", "smlrcc"), os.X_OK),
                 "the C packages - Weave, RunCPM, the C64, cword. Eleven rows.",

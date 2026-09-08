@@ -125,7 +125,7 @@ one it is joining:
   THE TREE AND ITS SUITE duplication, generated docs, and the gates'
                         own integrity - mirror, checkdocs, docindex,
                         registry, machines, qemuown, fixtures, layout,
-                        stkwalker
+                        deps, stkwalker
 
 The membership is whatever carries the tier `fast` below; the families are
 how to argue about a new one.  docs/WRITING-TESTS.md section 2.1 is the same
@@ -812,6 +812,17 @@ FAST = [
         "pixel twice and flashes on the target machine, so every call site is "
         "registered in tests/textsites.txt with a reason and the count can only "
         "go down"),
+    Row("deps", "fast", py("tests/unit/t_deps.py"), 0.1,
+        "`make` MUST mean `all`. Adding the `deps` target near the top of the "
+        "Makefile made it the default goal, so `make` printed a dependency "
+        "report, built no floppy and exited 0 - a regression no tier could "
+        "see, because a build that succeeds and produces nothing looks "
+        "exactly like a build. Also guards the dependency preflight: that "
+        "`--check` cannot reach apt, that build.sh probes for libudev BEFORE "
+        "it clones - the ORDER being the whole fix, since the same probe "
+        "after the clone is the four-minute failure it exists to prevent - "
+        "and that its auto-repair stays gated on being root, so `make marty` "
+        "cannot apt-install on a contributor's own workstation"),
     Row("layout", "fast", py("tests/unit/t_layout.py"), 0.1,
         "SPEC.md 2.9: a GUEST ADDRESS IS NOT A FILE OFFSET. Stage 2 sits in "
         "front of .text in kernel.bin, so a host-side reader that indexes the "
