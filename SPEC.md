@@ -65347,6 +65347,90 @@ FAT12 volume now** (§19.3). A driver is a file on it, the settings that say
 which drivers load are a file on it, and both are reached through the file
 API that already existed.
 
+#### 50.6.5 `MEM_P_VIEW` — the Disk window's listing cache is a CACHE on `kern_small`
+
+**A cache that can be SHED does not need to be MOVED**, and on the 128KB
+machine that is the better of the two: the shed gives the bytes back, where a
+move only rearranges them.
+
+The Disk window's listing cache (§22.1) is `VIEW_KB` — 2KB there — claimed per
+open window, up to `VIEW_SLOTS` = 4 of them. It was an ordinary claim owned by
+the window's instance slot and declared movable through `fm_reloc` (§66.5.6),
+and on the floor machine that made it the single worst thing in the arena.
+Measured on `os8088_5150_cga_128k` with A: and B: open:
+
+```
+13E0    2.0K inst0        movable     the A: window's cache
+1460   23.0K pg:DIRW      purgeable   the read-ahead
+1A20    2.0K inst1        movable     the B: window's cache
+1AA0    1.0K pg:FATW1     purgeable
+1AE0    6.0K pg:WSAVE0    purgeable
+```
+
+Shed every cache and the largest run is **23.0 KB** — the read-ahead's own
+hole, walled above by a 2KB claim. Two 2KB claims strand **21.5 KB of a
+48.5 KB heap**, and only a compaction reaches past them (§66.4), at 44.5 KB.
+As a cache the whole arena is reclaimable and the number is **48.5 KB**.
+
+**On `kern_big` it stays an ordinary movable instance-owned claim** and §66.5.6
+is unchanged. That kernel has the heap to keep a cache *and* a compactor to
+move it out of the way, so shedding one there would be paying floppy I/O for
+room it does not need. The `kern_small` kernel is the one with neither.
+
+##### 50.6.5.1 Rank `MEM_PG_LOW`, and why not `MEM_P_FATW`'s MED
+
+Losing one costs that window's repaints a directory re-read off the global
+snapshot (§22.1) — floppy I/O, which is what puts the FAT window at MED
+(§50.6.4). The difference is that **this one self-heals**: `fmv_fit`'s only
+caller is `fmv_store`, so the cache is re-claimed the next time a listing is
+stored into that window — a navigation, a refresh, a volume switch. A shed FAT
+window stays gone until its volume is remounted, and two volumes that alternate
+then evict each other for as long as it is (§18.8.1's 45 mounts). One is a
+visible pause; the other is seconds the user waits through.
+
+##### 50.6.5.2 Two naming words, and the tag is the owner
+
+§50.6 asks for exactly ONE kernel word naming the block. This claim has two —
+`FS_VSEG` in the window's own `KD_POOL` block, at `FS_SIZE` stride inside
+`fm_pool` rather than in a flat array of words, and the `[fm_vseg]` mirror
+every reader looks at. `mem_pg_own` has no stride column and carries one word,
+so the row exists to be MATCHED and `mem_pg_forget`'s `.view` arm hands the
+owner to **`fmv_demote`** — which is exactly what `MEM_P_FATW`'s `.fatw` arm
+already does with `dsk_fatw_demote`, and for the same reason. `fmv_demote`
+zeroes `FS_VSEG` and clears the mirror when it named that block; `fm_vp_set`
+republishes the mirror on the next acting window, but a paint can come first.
+
+The zero those writes leave IS the notice, which is the whole purgeable
+contract: `.nocache` is what a 0 there already means, and §22.1 calls it the
+documented fallback rather than an error. **The window keeps working** — rows,
+icons, sizes and the scroll bar all paint off the global snapshot.
+
+The owner becomes `MEM_P_VIEW + the window's fm_pool slot`, `MEM_P_WSAVE`'s
+shape (§11.96.3), because in §50.6 the tag IS the request. Two consequences:
+
+1. `fmv_owner` derives the owner from the **block** and no longer from
+   `[fm_vinst]`, so a shed can ask about a window that is not the acting one.
+2. **`mem_free_rec` no longer reaps it** — that walk is by owner and a tag is
+   nobody's instance (§50.4). The claim a closed window leaves is purgeable, so
+   it is never lost, but the block it names is about to become a *different*
+   window's; shedding it then would zero the new tenant's `FS_VSEG`. So
+   `fm_kinit` frees the previous tenant's claim before it zeroes the field,
+   which is the place §22.6.1 already worries about "whatever the last tenant
+   of this `KD_POOL` block left".
+
+##### 50.6.5.3 What it costs, and what it deletes
+
+**+12 bytes of `kern_small`** — `.text` **−35**, `.cold` **+47**, no rung
+crossed, `KERN_SIZE` unmoved — and `kern_big` assembles **byte-identical**. It
+is net-cheap because a purgeable claim is never moved, so `fm_reloc` (52 bytes
+of `.text`) and `fmv_movable` (14) are `kern_big`'s alone now and leave the
+tighter of the two rungs.
+
+The alternative priced against it was a **`KD_DONE` teardown hook** on the kind
+descriptor (§29.3) — architecturally the nicer answer, since a built-in kind is
+an app that ships with the kernel — and it measured **129 bytes** for the same
+job. It is not needed to make the cache purgeable and is a separate decision.
+
 ### 51.0 NOT ON `kern_small` — the whole mechanism is `kern_big`'s
 
 **`kern_small` cannot load a `.DRV` of any kind.** The `%ifdef OS88_DRIVERS`

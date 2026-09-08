@@ -263,6 +263,34 @@ MEM_P_FATW_N equ 8              ; 18.8.4): MED, and it was LOW for one commit
                                 ; array mem_pg_own names. MEM_P_FATW_N is
                                 ; DVOL_MAX, asserted where that is defined -
                                 ; a name ending _N is a length, not a tag
+%ifdef KERN_SMALL
+MEM_P_VIEW  equ MEM_PG_LOW<<8 | 0x10    ; a Disk window's listing cache (SPEC.md
+MEM_P_VIEW_N equ VIEW_SLOTS     ; 22.1), kern_small only. LOW - "a little I/O,
+                                ; or a visible pause" - and the RANK is the
+                                ; part that needs an argument, because losing
+                                ; this is floppy I/O and MEM_P_FATW is MED for
+                                ; exactly that. The difference is that a shed
+                                ; window SELF-HEALS: fmv_fit's only caller is
+                                ; fmv_store, so the cache is re-claimed the
+                                ; next time a listing is stored into that
+                                ; window - where a shed FAT window stays gone
+                                ; until the volume is remounted, and two
+                                ; volumes that alternate then evict each other
+                                ; for as long as it is (18.8.1's 45 mounts).
+                                ;
+                                ; IT IS A RANGE, MEM_P_WSAVE's shape: the
+                                ; window's fm_pool slot is added to it, so
+                                ; there is one per Disk window. Low bytes are
+                                ; per-RANK, so 0x10 here does not collide with
+                                ; MEM_P_WSAVE's 0x10 at TRIV.
+                                ;
+                                ; ON kern_big THIS CLAIM STAYS an ordinary,
+                                ; MOVABLE, instance-owned one (SPEC.md
+                                ; 66.5.6): that kernel has the heap to keep a
+                                ; cache AND a compactor to move it out of the
+                                ; way, so shedding one there would be paying
+                                ; floppy I/O for room it does not need
+%endif
 MEM_P_DIRW  equ MEM_PG_HIGH<<8 | 0x02   ; the directory read-ahead window:
                                 ; HIGH, because it is the difference between
                                 ; 316 int 13h calls and 114 on an install
@@ -822,6 +850,17 @@ mem_pg_own:
     dw MEM_P_WSAVE, wm_su_segs,  MAX_WIN
     dw MEM_P_DIRW,  dsk_rah_seg, 1
     dw MEM_P_FATW,  dsk_fatwc,   MEM_P_FATW_N
+%ifdef KERN_SMALL
+    dw MEM_P_VIEW,  0,           MEM_P_VIEW_N
+%endif                          ; ...and its PGO_BASE is 0 because this row's
+                                ; naming word is not in a flat array of words:
+                                ; FS_VSEG sits at FS_SIZE stride inside
+                                ; fm_pool, and there is a second word - the
+                                ; [fm_vseg] mirror - besides. The row is here
+                                ; to be MATCHED; mem_pg_forget's `.view` arm
+                                ; hands the owner to fmv_demote, which is what
+                                ; MEM_P_FATW's `.fatw` arm already does and
+                                ; for the same reason
     dw 0
 section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
                                 ; segment of its own. DS is still KERNEL_SEG,
@@ -948,6 +987,12 @@ mem_pg_forget:
     shl cx, 1                   ; a word per entry (see the header: there is
     add cx, [si+PGO_BASE]       ; no stride column because there is nothing
     mov si, cx                  ; for it to be)
+%ifdef KERN_SMALL
+    mov cx, bx                  ; ...and a DISK WINDOW'S CACHE has two as well
+    sub cx, MEM_P_VIEW          ; (SPEC.md 22.1), for the reason in the table
+    cmp cx, MEM_P_VIEW_N        ; above
+    jb .view
+%endif
     mov cx, bx                  ; A FAT WINDOW HAS MORE NAMING WORDS THAN THIS
     sub cx, MEM_P_FATW          ; PROTOCOL CARRIES (SPEC.md 18.8.4): the LIVE
     cmp cx, MEM_P_FATW_N        ; one is also [dsk_fatseg], which every access
@@ -957,6 +1002,11 @@ mem_pg_forget:
 .fatw:                          ; writes after it land in whatever claim owns
     call dsk_fatw_demote        ; those paragraphs now. So the disk layer is
                                 ; handed the owner and clears the word itself
+%ifdef KERN_SMALL
+    jmp short .out
+.view:
+    call fmv_demote             ; ...and the file manager likewise, BX = owner
+%endif
 .out:
     pop si
     pop cx
