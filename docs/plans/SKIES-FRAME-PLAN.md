@@ -416,11 +416,7 @@ DIAGONAL AT ALL.
 
 #### 7.1.6 What is left, in the order the evidence ranks it
 
-1. **The narrow fill.** `union(last frame's span, this frame's band)` - a mean
-   of 31 bytes of the view's 50 - measured at 164 cycles a row (3.8 ms) and
-   refused twice when the range had to be threaded through `cs_hzb0`/`cs_hzbn`
-   and three row fillers. In the fused loop it is a handful of bytes, and with
-   the stores now 41% of the row it is the largest single item in the band.
+1. ~~The narrow fill~~ - **BUILT AND REFUSED, 7.1.8 below.**
 2. **The horizon cache**, now that 7.1.5's `sparse` prices it properly: an
    empty turn's 77.6 ms -> ~43 on nineteen frames in twenty, and NOTHING in a
    busy one, for ~100 bytes and a second path through the band whose
@@ -550,3 +546,46 @@ is the open question this leaves: 47.3 segments a frame at ~2,400 cycles is
   ahead. Not measured; refused on the arithmetic.
 * **Sharing the DDA rows between two faces without a topology table.** That is
   §2, and it is measured: −0.69% to −1.28%.
+
+#### 7.1.8 REFUSED, MEASURED - the row laying the UNION and not the view
+
+The last candidate: lay `union(last frame's span, this frame's band)` instead
+of the whole view. Correct - the union is every byte that can differ from the
+glass, and outside it the row already holds the pattern this frame would lay -
+and `tests/skieshz.py` passes unchanged. **+109 bytes, and a regression
+wherever there is anything to draw:**
+
+| 20 flown frames | fused | + the narrow fill |
+|---|---|---|
+| `turnhold` | **263.1** | 270.1 (**+7.0**) |
+| `bank` | **246.1** | 248.6 (**+2.5**) |
+| `sparse` - the EMPTY turn | 77.6 | **71.3** (-6.3, 12.9 -> 14.0 fps) |
+
+**A proportional saving against a fixed cost.** The union costs ~340 cycles a
+row to obtain - three indexed reads, four compares, and u0/u1/the mask in
+memory temporaries because the fused loop has no register left - and laying a
+byte fewer saves ~10. It pays when the union is under 16 bytes of the 50:
+sparse's is 3, turnhold's is 31. Halving the block would move break-even only
+to 30, so it is not a code-quality problem.
+
+**It is 7.1.7's wall from the other side.** The narrow fill fails because the
+mean span is 31 and not 12; the span is 31 because a mark is an object's BOX;
+tightening the box costs more than the blit it saves. Reverted,
+byte-identical.
+
+#### 7.1.9 Where this leaves the horizon
+
+Three changes KEPT (7.1, 7.1.3, 7.1.4) and three REFUSED with numbers (7.1.5's
+table and cache, 7.1.7's marks, 7.1.8's fill). **Everything that paid removed
+per-row FIXED cost; nothing that tried to draw LESS paid at all**, because the
+blit carries a byte for ~4.5 cycles and every scheme for carrying fewer costs
+more than that to decide.
+
+What is left, in the order the evidence ranks it:
+
+1. **`cs_blit`'s own per-row walk**, ~300 cycles over 112 rows that are mostly
+   a few bytes now - 7.9 ms of a busy frame spent deciding rather than moving.
+2. **The horizon cache**, worth an empty turn's 77.6 ms -> ~43 on nineteen
+   frames in twenty and NOTHING in a busy one, for ~100 bytes.
+3. **`cs_scene` itself**, which is 176 of turnhold's 263 ms and has had no
+   attention in this round at all.

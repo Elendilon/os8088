@@ -12088,3 +12088,38 @@ horizon alternated between two positions three rows apart. Pinned at the
 matrix instead, the same profile reads **19 of 20, longest run 19** — so the
 cache §88.3.1.1.2 refused is worth ~33 ms of the empty turn's 77.6 (12.9 → ~23
 fps) and still nothing at all in a busy one.
+
+### Set 127 — CLEAR SKIES: REFUSED, the narrow fill — a proportional saving against a fixed cost (SPEC.md §88.3.1.3.3)
+
+Set 125 left the row's two `rep stosw` runs at ~600 cycles, 41% of it, and the
+mean span at 31 bytes of the view's 50. So the last candidate is the one that
+reduces the WRITES: lay `union(last frame's span, this frame's band)` instead
+of the whole view. Correct, gated (`tests/skieshz.py` passes unchanged),
+**+109 bytes, and a regression wherever there is anything to draw**:
+
+| 20 flown frames | fused | + the narrow fill |
+|---|---|---|
+| `turnhold` | **263.1** | 270.1 (**+7.0**) |
+| `bank` | **246.1** | 248.6 (**+2.5**) |
+| `sparse` — the EMPTY turn | 77.6 | **71.3** (−6.3, 12.9 → 14.0 fps) |
+| `turnhold` `cs_skyground` | 38.41 | 41.90 |
+| `sparse` `cs_skyground` | 38.64 | 36.84 |
+
+**A proportional saving against a fixed cost.** Obtaining the union costs
+~340 cycles a row — three indexed reads, four compares, and u0/u1/the pixel
+mask in memory temporaries because the fused loop has no register left — and
+laying one byte fewer saves ~10. So it pays when the union is under **16 bytes
+of the 50**: `sparse`'s is 3 and it wins by 8%, `turnhold`'s is 31 and it
+loses. Halving the block's cost would only move break-even to 30, so this is
+not a code-quality problem.
+
+**It is the same wall as Set 126, seen from the other side.** The narrow fill
+fails because the mean span is 31 and not 12; the mean span is 31 because a
+mark is an object's BOX; and tightening the box costs more than the blit it
+saves. Three changes in this family now measure: the span (Set 123, kept), the
+fill's range (this, refused), the mark's shape (Set 126, refused).
+
+Reverted; `build/skies.bin` is byte-identical to before it. **What the family
+did buy is Sets 123–125: 280.1 → 263.1 ms in a held bank, 3.57 → 3.80 fps, for
+222 bytes** — all of it from removing per-row FIXED cost, none of it from
+drawing less.

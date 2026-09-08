@@ -100470,6 +100470,41 @@ loop already holds. That is a different trade from §88.3.2's refusal, which
 was a wireframe tower's 32 segments each running `cs_markrows` over the same
 hundred rows.
 
+###### 88.3.1.3.3 REFUSED — the row laying the UNION and not the view
+
+§88.3.1.3.1 leaves the row's `rep stosw` runs at ~600 cycles — 41% of it — and
+the mean span is 31 bytes of the view's 50 (§88.3.1.2), so the last thing to
+try is the one that reduces the WRITES: lay
+`union(last frame's span, this frame's band)`.
+
+It is CORRECT, for the same reason the span is the band and not the fill's
+range (§88.3.1.1): the union is every byte that can differ from what is on the
+glass — the crossing moved inside it, and last frame's span holds whatever an
+object drew — and outside it the row already holds the pattern this frame
+would lay. A row whose kind changed has `cs_fullspan`, so its union is the
+view. It passes `tests/skieshz.py` unchanged. It is also **+109 bytes and a
+regression in every scene that has anything in it**:
+
+| 20 flown frames | fused | + the narrow fill |
+|---|---|---|
+| `turnhold` | **263.1** | 270.1 (**+7.0**) |
+| `bank` | **246.1** | 248.6 (**+2.5**) |
+| `sparse` — the EMPTY turn | 77.6 | **71.3** (−6.3, 12.9 → 14.0 fps) |
+
+**The saving is proportional and the cost is fixed**, which is the whole
+shape of it. Obtaining the union costs ~340 cycles a row — three indexed
+reads, four compares, and u0/u1/the pixel mask in memory temporaries because
+the fused loop has no register left — and laying a byte fewer saves ~10. So it
+pays exactly when the union is under **16 bytes of the 50**. `sparse`'s is 3
+and it wins; `turnhold`'s is 31 and it loses, and it would still lose if the
+block were made twice as cheap (break-even would move only to 30).
+
+So the narrow fill is not refused for being dear. It is refused because **the
+mean span is too wide**, and the mean span is too wide because a mark is an
+object's box — which §88.3.2.1 measured and refused from the other side. The
+two are one wall seen twice.
+
+
 #### 88.3.2 Marks are per object, and off its vertices when it is whole
 
 The first build marked every polygon's bounding box and every segment's
