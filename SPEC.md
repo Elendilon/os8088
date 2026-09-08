@@ -107997,11 +107997,21 @@ sleep, not a frame that did not fit.
 **Those are the DEMO playing itself, and the headroom is not the same on every
 arm.** A *steered* game on the biggest board — VGA windowed, 448×403, five
 actors all moving and the score changing on every dot — is the heaviest case
-in the tree and measures **93–95%**, twice, on the same instrument. CGA and
-Hercules stay at 98–100% steered. It is the VGA windowed figure a change to
-the renderer has to be measured against, and `FPS_FLOOR` = 90% in
-`tests/dotdel.py` is set a fifth of a tick under it rather than under the
-demo's.
+in the tree. Measured on the same instrument:
+
+| arm, steered | alone | sharing four cores with two guests |
+|---|---|---|
+| CGA, Hercules | 98.4–100.2% | 98.4–100.0% |
+| **VGA windowed** | **91.7 / 93.2 / 95.1%** | **88.9 / 89.8%** |
+
+So `tests/dotdel.py`'s leg E carries a floor **per arm** — 95% on the two that
+have a whole tick to spare and 85% on VGA, four points under the worst of
+those readings. One number for all three was a number nobody had taken, and
+it read as a regression every time the VGA arm ran under load.
+
+That is a measurement and not a concession: **§93.5.3.1 says where the VGA
+frame goes**, and about 3 ms of each 6.9 ms actor band is *composing* rather
+than blitting. The floor comes down to meet the others when that is taken.
 
 It did not start there, and the things that were wrong are worth having
 written down because none of them was the sprite renderer:
