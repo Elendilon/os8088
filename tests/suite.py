@@ -2342,6 +2342,22 @@ SOAK = [
         " cs_boxlod not entered at all and nothing reaching cs_rect, which is"
         " that rung's whole feature",
         needs=("marty",), serial=True),
+    Row("skiesbank", "soak", py("tests/skiesbank.py"), 22.0,
+        "SPEC.md 88.5.4.6: the box impostor BANKS WITH THE WORLD. A solid too"
+        " small to tell apart is drawn as its box, and that box was an"
+        " AXIS-ALIGNED SCREEN RECTANGLE - the top was projected and only its"
+        " ROW kept, so the shape never tilted, and its height was the VERTICAL"
+        " PART of the projected up axis, which is |up2| cos r: at 50 degrees"
+        " of bank a building was drawn 6 pixels tall for a 12.5-pixel axis and"
+        " got the height back as the wings came level. The row pins ONE pose"
+        " over Paris and rolls the aeroplane under it, so the building, the"
+        " eye and the depth are identical and only the bank changes, and reads"
+        " the four corners the FILL was handed - keyed on the object, because"
+        " a roll moves the frustum and comparing the frame's first impostor at"
+        " each bank compares two different buildings. --clobber-bank NOPs the"
+        " two jumps that choose the quad, which is what shipped, and the six"
+        " banked checks go red while the two level ones stay green",
+        needs=("marty",), serial=True),
     Row("skiespitts", "soak", py("tests/skiespitts.py"), 34.0,
         "SPEC.md 88.7.2: the second aeroplane flies by its own CSP_ATT - the"
         " Pitts rolls right round and loops over the top and stays where the"

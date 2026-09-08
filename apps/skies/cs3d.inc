@@ -1541,8 +1541,9 @@ cs_boxlod:
     add cx, [cs_col1 + 4]
     cmp cx, CS_NEAR
     jl .out
-    call cs_project0                ; the top
-    mov [cs_by0], bx
+    call cs_project0                ; the top - BOTH of it (SPEC.md 88.5.4.6),
+    mov [cs_bx1], ax                ; because under bank the up axis leans
+    mov [cs_by0], bx                ; and its x is where the lean is
     mov ax, [cs_ocx]
     add ax, [cs_bw]
     mov bx, [cs_ocy]
@@ -1552,16 +1553,29 @@ cs_boxlod:
     jg .w
     mov ax, 1                       ; a pixel at least
 .w:
-    mov cx, [cs_bx0]
-    add cx, ax                      ; CX = x1
-    neg ax
-    add ax, [cs_bx0]                ; AX = x0
-    mov bx, [cs_by0]
-    mov dx, [cs_by1]
-    cmp bx, dx
-    jle .y
-    xchg bx, dx                     ; seen from below: the top is lower
-.y:
+    ; --- THE IMPOSTOR BANKS WITH THE WORLD (SPEC.md 88.5.4.6). The width is
+    ;     projected along the CAMERA's x, so its MAGNITUDE is right at any
+    ;     bank and only its direction is wrong; the screen-space horizontal
+    ;     is (cos r, -sin r) EXACTLY, because the up vector in camera space
+    ;     is the matrix's second column (m01, m11) = cos p (-sin r, cos r)
+    ;     and its perpendicular's own cos p divides out. So it is the
+    ;     frame's own sine and cosine and one multiply an axis - no square
+    ;     root, and nothing per object that is not already here.
+    mov [cs_bwp], ax
+    imul word [cs_cosr]             ; R = w (cos r, -sin r), ROUNDED: a
+    add ax, 1 << 14                 ; half-width is six pixels and a
+    adc dx, 0                       ; truncated 6 x 32767 >> 15 is five
+    shl ax, 1
+    rcl dx, 1
+    mov [cs_brx], dx
+    mov ax, [cs_bwp]
+    imul word [cs_sinr]
+    add ax, 1 << 14
+    adc dx, 0
+    shl ax, 1
+    rcl dx, 1
+    neg dx                          ; screen y grows DOWNWARD (88.5.4)
+    mov [cs_bry], dx
     ; --- AND REFUSE ONE THAT IS NOT SMALL (SPEC.md 88.5.4.1). The gate that
     ;     sent us here is on CSM_RAD, an ESTIMATE of the object's reach and
     ;     not the height of the rectangle actually drawn - which is the whole
@@ -1583,27 +1597,119 @@ cs_boxlod:
     ;     already drawn as the impostor keeps it until it grows CS_LODHYST
     ;     past them, so one sitting on the boundary does not change shape
     ;     every few metres.
+    ;     AND BOTH BOUNDS ARE THE BOX'S OWN, not the rectangle's bounding
+    ;     box (88.5.4.6): a banked impostor's box grows with the bank - a
+    ;     6 x 26 one is 23 x 27 at 45 degrees - so testing that would send a
+    ;     building to the polygon path for rolling, and back for levelling
+    ;     out. The width is the projected half-width doubled, and the height
+    ;     the LENGTH of the up axis rather than its vertical part, which is
+    ;     what shrank by cos r and made the building squat as it banked.
     mov di, [cs_obj]
     test word [di + CSO_FLAGS], CSO_BOXED
     mov di, 0                       ; ...the slack it has earned
     jz .lim
     mov di, CS_LODHYST
 .lim:
-    mov si, cx
-    sub si, ax
+    mov si, [cs_bwp]
+    shl si, 1
     sub si, di
     cmp si, CS_LODPX
     jg .out                         ; too wide...
-    mov si, dx
-    sub si, bx
-    sub si, di
-    cmp si, CS_LODTALL
+    mov ax, [cs_bx1]
+    sub ax, [cs_bx0]
+    jge .dx
+    neg ax
+.dx:
+    mov bx, [cs_by1]
+    sub bx, [cs_by0]
+    jge .dy
+    neg bx
+.dy:
+    cmp ax, bx                      ; |up2| as max + min/2: 0 to +6% of a
+    jae .mx                         ; length, against a bound that carries
+    xchg ax, bx                     ; CS_LODHYST of slack anyway - where a
+.mx:                                ; square root would be 200 cycles for a
+    shr bx, 1                       ; threshold nobody measures
+    add ax, bx
+    sub ax, di
+    cmp ax, CS_LODTALL
     jg .out                         ; ...or too tall
-    push ax
+    ; --- WINGS LEVEL AND NO LEAN: THE OLD RECTANGLE, to the pixel
+    ;     (SPEC.md 88.5.4.6). R horizontal and the up axis vertical is
+    ;     exactly the shape cs_rect draws, and cs_rect draws it for about
+    ;     half what the general polygon does - no sentinel pass over the
+    ;     rows, no four edges traced. So a frame flown straight and level
+    ;     costs what it cost before this and only a BANKED one pays, which
+    ;     is the frame nobody holds.
+    mov cx, [cs_brx]
+    mov dx, [cs_bry]
+    or dx, dx
+    jnz .quad
+    mov ax, [cs_bx1]
+    cmp ax, [cs_bx0]
+    jne .quad                       ; ...a leaning top is a quad even level:
+                                    ; the top is FURTHER than the base under
+                                    ; pitch, so an off-centre building's
+                                    ; verticals converge, which the polygon
+                                    ; path has always shown and this one
+                                    ; squared off
     mov al, CSI_WALL
     call cs_setink
-    pop ax
+    mov ax, [cs_bx0]
+    mov cx, ax
+    sub ax, [cs_brx]
+    add cx, [cs_brx]
+    mov bx, [cs_by0]
+    mov dx, [cs_by1]
+    cmp bx, dx
+    jle .rect
+    xchg bx, dx                     ; seen from below: the top is lower
+.rect:
     call cs_rect
+    jmp short .done
+    ; --- the four corners, into cs_pv. That is the FACE buffer and it is
+    ;     dead here: an impostor returns before cs_stackverts and a refusal
+    ;     goes to cs_faces, which rebuilds it per face. The order puts the
+    ;     rising edge on the left, which is cs_pwind = 0.
+.quad:
+    mov ax, [cs_bx0]
+    mov bx, [cs_by1]                ; the base
+    mov si, ax
+    add si, cx
+    mov [cs_pv + 0], si             ; v0 = base + R
+    mov si, bx
+    add si, dx
+    mov [cs_pv + 2], si
+    sub ax, cx
+    sub bx, dx
+    mov [cs_pv + 12], ax            ; v3 = base - R
+    mov [cs_pv + 14], bx
+    mov ax, [cs_bx1]
+    mov bx, [cs_by0]                ; the top
+    mov si, ax
+    add si, cx
+    mov [cs_pv + 4], si             ; v1 = top + R
+    mov si, bx
+    add si, dx
+    mov [cs_pv + 6], si
+    sub ax, cx
+    sub bx, dx
+    mov [cs_pv + 8], ax             ; v2 = top - R
+    mov [cs_pv + 10], bx
+    mov byte [cs_pwind], 0
+    mov ax, [cs_by0]
+    cmp ax, [cs_by1]
+    jle .wind
+    mov byte [cs_pwind], 1          ; seen from below: the top is lower, and
+.wind:                              ; the list runs the other way round
+    mov byte [cs_pwhole], 0         ; the impostor marks its own rows, where
+                                    ; cs_rect always did (88.4.4)
+    mov al, CSI_WALL
+    call cs_setink
+    mov si, cs_pv
+    mov cx, 4
+    call cs_poly
+.done:
     mov di, [cs_obj]
     or word [di + CSO_FLAGS], CSO_BOXED
     mov al, [cs_bshr]

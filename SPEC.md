@@ -101413,6 +101413,98 @@ told them apart was reading the **shadow** rather than the screen: the span
 set said the row was empty and the shadow said it was not, which is a
 composition that only a wrong x can produce.
 
+##### 88.5.4.6 The impostor BANKS WITH THE WORLD, and stopped compressing
+
+Reported from the air: *"when a building is drawing as a box lod it does not
+stay aligned to the ground when banking. It tilts slower than the ground, and
+it compresses into itself, so its height shrinks. The polygon faces correctly
+track the ground, and don't compress."* Both halves of that are one shortcut.
+
+§88.5.4 projects three points — the base centre C, the top centre C + h·M₁,
+and the point half the base's width to the right of C — and then draws **the
+rectangle they span**. That last step is where the world is lost, twice:
+
+* the top's projection had only its **row** kept. `cs_by0` was stored and the
+  x thrown away, so the impostor's sides were the screen's own vertical
+  whatever the horizon was doing. The polygon path tracks because its corners
+  are projected vertices; this one's corners were the screen's axes.
+* and the rectangle's height was therefore the **vertical part** of the
+  projected up axis rather than its length. The up axis in camera space is
+  h·M₁ and M₁'s screen projection is ∝ (−sin r, −cos r), so the vertical part
+  is |up₂|·cos r: **at 50° of bank a building was drawn 6 pixels tall where
+  its axis was 12.5**, and got the height back as the wings came level. That
+  is the compression, and it is why a roll made the skyline breathe.
+
+The same three points are enough for the right answer, and the fix is four
+stores and two multiplies:
+
+* **keep the top's x** (`cs_bx1`). The impostor's up axis is then the whole
+  projected axis, leaning with the world and, off-centre under pitch, leaning
+  the way the polygon path's verticals converge.
+* **turn the half-width onto the screen's horizontal**, which is `(cos r,
+  −sin r)` **exactly**. The up vector in camera space is the matrix's second
+  column, `(m01, m11) = cos p · (−sin r, cos r)`; its perpendicular's own
+  `cos p` divides out, so there is no square root and nothing per object that
+  is not already in `[cs_sinr]`/`[cs_cosr]`. The magnitude needs no fixing —
+  the width is projected along the **camera's** x, which no bank compresses —
+  only the direction. Both products are rounded, because a half-width is six
+  pixels and a truncated `6 × 32767 >> 15` is five.
+* and fill the four corners — base ± R, top ± R — as one convex quad through
+  `cs_poly` instead of `cs_rect`. They go in `cs_pv`, which is the FACE buffer
+  and dead here: an impostor returns before `cs_stackverts`, and a refusal
+  goes on to `cs_faces`, which rebuilds it per face.
+
+**Both size bounds move onto the box's own extents** rather than the drawn
+rectangle's bounding box. A banked impostor's box grows with the bank — a
+6 × 26 one is 23 × 27 at 45° — so testing that would send a building to the
+polygon path for rolling and back for levelling out, which is the shape change
+§88.5.4.4's hysteresis exists to prevent. The width is the projected
+half-width doubled; the height is the axis's LENGTH, taken as `max + min/2`
+(0 to +6% of a true length, against a bound that carries `CS_LODHYST` of slack
+anyway) where a square root would be 200 cycles for a threshold nobody
+measures.
+
+**WINGS LEVEL AND NO LEAN, IT IS STILL `cs_rect`.** R horizontal and the up
+axis vertical is exactly the shape that routine draws, and it draws it for
+about half what the general polygon does — no sentinel pass over the rows, no
+four edges traced. So the frame flown straight and level costs what it cost
+before this and only a banked one pays.
+
+**What it costs**, measured on MartyPC's 4.77 MHz 8088 against a Hercules,
+twelve pinned poses over Paris at three banks each, the scene composition
+identical in both arms and the sky/ground pass reset by poke before every
+reading so the frame is a function of the build and not of the fly-out:
+
+| pose | level | +30° | +50° |
+|---|---|---|---|
+| over the Champ de Mars | 169.8 → 171.2 (+0.8%) | 267.8 → 269.7 (+0.7%) | 278.4 → 281.0 (+1.0%) |
+| 800 m back | 189.4 → 190.3 (+0.5%) | 285.1 → 287.7 (+0.9%) | 284.1 → 286.4 (+0.8%) |
+| 2,400 m back | 146.2 → 147.7 (+1.0%) | 209.7 → 212.1 (+1.1%) | 214.0 → 217.0 (+1.4%) |
+| 4,000 m back | 79.3 → 81.3 (+2.5%) | 150.6 → 156.4 (+3.9%) | 156.0 → 158.6 (+1.7%) |
+
+One to three impostors are drawn in each, so the quad costs **1 to 2.5 ms**
+against the rectangle's — and `tests/skieslod.py` prices a boxed tower at
+**1.03 ms** marginal where the full path costs it 11.9, so the impostor is
+still worth what it was for. The worst row is the cheapest frame, where two
+impostors are a larger share of less work.
+
+`tests/skiesbank.py` is the gate and `--clobber-bank` the red run: it NOPs the
+two conditional jumps that choose the quad, so every impostor is the upright
+rectangle again — which is what shipped — and the six banked checks go red
+while the two level ones stay green. It is **keyed on the object**, because a
+roll moves the frustum and the frame's impostors are not the same set at every
+bank: comparing the first of each compares two different buildings, which
+reads exactly like the axis changing length. Its readings on the pinned pose
+are the defect in one line — at 50° the shipped impostor draws a 6-pixel side
+for a 12.5-pixel axis, and this one draws 12.5.
+
+The axis's LENGTH is deliberately not asserted to be constant across the bank.
+The top of a box is further from the eye than its base, so an off-centre
+building's verticals converge, and rolling moves the building across the
+frame: the pinned pose reads 9.1 px level, 10.6 at 30° and 12.5 at 50°, and
+the polygon path leans by the same rule. The honest invariant is that the axis
+is used **whole**, not that it is the same length.
+
 #### 88.5.8 "Buildings lean over", which was the horizon
 
 Reported off the machine with a photograph: a large dithered wedge standing

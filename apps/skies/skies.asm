@@ -2199,8 +2199,12 @@ cs_tpl:
     ZBYTE cs_bshr                  ; cs_boxlod's saved cs_pshr (88.5.4.3)
     ZWORD cs_bw                     ; cs_boxlod's half-width, and its
     ZWORD cs_bx0                    ; projected centre x, top row and base
-    ZWORD cs_by0                    ; row
-    ZWORD cs_by1
+    ZWORD cs_by0                    ; row - and the TOP's x with them, which
+    ZWORD cs_by1                    ; is where the bank shows (88.5.4.6)
+    ZWORD cs_bx1
+    ZWORD cs_bwp                    ; ...the half-width in PIXELS, and the
+    ZWORD cs_brx                    ; screen-space half-width vector it turns
+    ZWORD cs_bry                    ; into: w (cos r, -sin r)
     ZWORD cs_hzproc
     ZWORD cs_glyphproc
     ZWORD cs_lsh                    ; the walk trio: shallow, steep, vertical
