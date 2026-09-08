@@ -2578,6 +2578,13 @@ CS_SWOOPHI equ 900              ; DOWN from the top in sink
                                     ; ours
     ZWORD cs_dbtick                 ; again, so the photograph is of the
     ZBUF  cs_dcan, CSD_CANB         ; MOMENT and not of the wreckage
+    ZBUF  cs_doff, CSD_BLKS * CSD_ROWS * 2  ; ...and the device offset of every
+                                    ; row the strip is painted on, worked out
+                                    ; ONCE at cs_diag_on (SPEC.md 88.14.3) so
+                                    ; the ISR does no arithmetic - and worked
+                                    ; out ABOVE THE VIEW where the backend
+                                    ; leaves room, so a frame's blit cannot
+                                    ; overwrite the reading
 %endif
     ZWORD cs_adcx                   ; the attitude indicator: centre, the
     ZWORD cs_adcy                   ; bezel's radii, the window's half sizes

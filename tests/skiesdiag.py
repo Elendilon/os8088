@@ -69,7 +69,7 @@ def diagmap():
     for name, pat in (("cs_spguard2", r"mov si, cs_spguard2"),
                       ("cs_dtick", r"mov word \[cs_dtick\], 0"),
                       ("cs_dring", r"mov \[cs_dring \+ bx\], ax"),
-                      ("cs_devoff", r"mov si, \[cs_devoff \+ si\]"),
+                      ("cs_doff", r"mov si, \[cs_doff \+ si\]"),
                       ("cs_diag_isr", r"mov word \[es:8\*4\], cs_diag_isr")):
         m = re.search(r"^\s*\d+ [0-9A-F]{8} ([0-9A-F]+)\[([0-9A-F]{4})\].*"
                       + pat, text, re.M)
@@ -108,8 +108,8 @@ def main(argv):
         print("  SKIP: %s - run `make skiesdiag` first" % a.apps)
         return 2
     sym = diagmap()
-    print("    cs_diag_isr %04x  cs_dtick %04x  cs_devoff %04x"
-          % (sym["cs_diag_isr"], sym["cs_dtick"], sym["cs_devoff"]))
+    print("    cs_diag_isr %04x  cs_dtick %04x  cs_doff %04x"
+          % (sym["cs_diag_isr"], sym["cs_dtick"], sym["cs_doff"]))
 
     with os88ui.boot(a.image, apps=a.apps, machine=a.machine) as ui:
         m = ui.m
@@ -129,8 +129,11 @@ def main(argv):
               "int 08h points into the package (%04x:%04x)" % (vseg, voff))
 
         def devoff(row):
+            # cs_doff and NOT cs_devoff since SPEC.md 88.14.3: the strip is
+            # painted ABOVE the view where the backend leaves room, so a
+            # frame's blit cannot overwrite the reading
             return int.from_bytes(
-                m.readseg(seg, sym["cs_devoff"] + 2 * row, 2), "little")
+                m.readseg(seg, sym["cs_doff"] + 2 * row, 2), "little")
 
         def blocks():
             """The four painted words, read off the GLASS and not off bss."""

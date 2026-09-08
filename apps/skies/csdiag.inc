@@ -62,6 +62,7 @@ cs_diag_on:
     pop es
     pop di
     pop cx
+    call cs_diag_rows               ; where the strip goes (SPEC.md 88.14.3)
     pushf                           ; CLAUDE.md: pushf/cli ... popf, so an
     cli                             ; interrupt disabled here comes back
     mov ax, [es:8*4]
@@ -89,6 +90,103 @@ cs_diag_off:
     mov [es:8*4 + 2], ax
     popf
     pop es
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_diag_devo - the device byte offset of absolute device row AX, in AX
+;
+; cs_r_setup's arithmetic, duplicated rather than shared: that routine walks
+; the VIEW's rows and takes its row from [cs_vy], and what this wants is a
+; row ABOVE it. A diagnostic build may spend forty bytes to avoid changing a
+; hot routine's shape. Clobbers CX, DX.
+; -----------------------------------------------------------------------------
+cs_diag_devo:
+    cmp byte [cs_back], CSB_C160
+    je .c160
+    cmp byte [cs_back], CSB_HERC
+    je .herc
+    mov dx, ax                      ; CGA: bank = y & 1, 80 bytes a row
+    and dx, 1
+    push dx
+    shr ax, 1
+    mov cx, 80
+    mul cx
+    pop dx
+    jmp short .bank
+.herc:
+    mov dx, ax                      ; HERC: bank = y & 3, 90 bytes a row
+    and dx, 3
+    push dx
+    mov cl, 2
+    shr ax, cl
+    mov cx, 90
+    mul cx
+    pop dx
+    add ax, 5                       ; ...and the box starts at x = 40
+    jmp short .bank
+.c160:
+    mov cx, 160
+    mul cx
+    xor dx, dx
+.bank:
+    mov cl, 5
+    shl dx, cl
+    mov cl, 8
+    shl dx, cl
+    add ax, dx
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_diag_rows - WHERE THE STRIP GOES, once (SPEC.md 88.14.3)
+;
+; It used to go at the VIEW's top-left, on the view's own rows - and a frame's
+; blit writes the view's whole byte range for every dirty row, so the two
+; fought for the same bytes and a photograph of a machine that died mid-blit
+; is a MIXTURE. Two field photographs came back that way: a block whose three
+; rows disagreed, a blank fourth row that was not blank, and one block whose
+; lit pixels spanned SEVENTEEN columns of a sixteen-pixel field.
+;
+; So the strip goes ABOVE the view where the backend leaves room - a Hercules
+; puts the view at device row 74 (cs_vptab), so rows 4 to 39 are black from
+; fsx_enter's clear to the end of the bracket and nothing else ever writes
+; them. Row 4 and not row 0, because KFZ=1's kernel heartbeat owns rows 0-3
+; and the two instruments are meant to be readable together.
+;
+; Where there is no room - CGA and Mode X both put the view at row 0 - it
+; falls back to the view's own rows, which is exactly what it did before.
+; Preserves every register.
+; -----------------------------------------------------------------------------
+cs_diag_rows:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    push es
+    push ds
+    pop es
+    cld
+    mov bx, [cs_vy]
+    cmp bx, CSD_BLKS * CSD_ROWS + 4
+    jb .go                          ; no room above: the view's own rows
+    mov bx, 4
+.go:
+    mov di, cs_doff
+    mov cx, CSD_BLKS * CSD_ROWS
+.r:
+    push cx
+    mov ax, bx
+    call cs_diag_devo
+    stosw
+    inc bx
+    pop cx
+    loop .r
+    pop es
+    pop di
+    pop dx
+    pop cx
+    pop bx
     pop ax
     ret
 
@@ -270,7 +368,7 @@ cs_diag_paint:
 .row:
     mov si, di
     shl si, 1
-    mov si, [cs_devoff + si]
+    mov si, [cs_doff + si]          ; ABOVE the view where there is room
     cmp cx, 1                       ; the last row of a block is left BLANK,
     jne .put                        ; so four blocks read as four in a
     xor ax, ax                      ; photograph rather than as one smear

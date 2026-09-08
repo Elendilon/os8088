@@ -104460,6 +104460,48 @@ freeze that 8,000 pinned poses and 4,200 frames of continuous rolling under
 MartyPC could not reproduce — which is itself a finding: whatever it is, it
 is not a function of the drawn state alone.
 
+#### 88.14.3 The strip goes ABOVE the view, or the blit eats the reading
+
+Two field photographs of a frozen machine came back **unreadable in the same
+way**, and the reason is that the strip was painted at the VIEW's top-left —
+on the view's own rows, out of `cs_devoff`.
+
+`cs_blit` writes the view's whole byte range for every dirty row, and bytes 5
+and 6 of a Hercules row are exactly the sixteen pixels a block occupies. So
+the watchdog and the frame were writing the same bytes at 18.2 Hz and ~5 Hz
+respectively, and what a photograph of a machine that died mid-blit shows is
+a **mixture**. §88.14 knew about the flicker and called it the point — *"what
+survives is what was painted after the last frame that ever finished"* — but
+that sentence is only true if the last thing to write a row was the watchdog,
+and on a freeze it is a coin toss per row.
+
+The symptoms name themselves once you know: a block whose three rows should
+be identical and are not, a fourth row that should be blank and is not, and —
+the one that gave it away — a block whose lit pixels spanned **seventeen
+columns of a sixteen-pixel field**, which no word can do. That last reading
+cost a long detour into whether the capture's scale was 2x (it was: the
+panel's 640-pixel span, the sky's 50% dither phase and a native 720x348
+screenshot all agree).
+
+`cs_diag_rows` works the offsets out **once**, at `cs_diag_on`, into
+`cs_doff` — and it puts them **above the view where the backend leaves
+room**. `cs_vptab` gives a Hercules a view at device row **74**, so rows
+**4 to 39** are black from `fsx_enter`'s clear to the end of the bracket and
+nothing else ever writes them. Row 4 rather than row 0 because **`KFZ=1`'s
+kernel heartbeat owns rows 0 to 3** (§8, `khb_paint`), and the two
+instruments are meant to be photographed together. Where there is no room —
+CGA and Mode X both put the view at row 0 — it falls back to the view's own
+rows, which is what it always did.
+
+It is also FASTER in the ISR, which matters here: the offsets were a table
+lookup before and are a table lookup now, but the table is the watchdog's own
+rather than the raster's, so it costs `cs_diag_devo`'s forty bytes once at
+bracket entry and nothing per tick. Measured on a Hercules, 20 samples of all
+nine blocks with the guest paused: **0 mixed readings**, against 59 before.
+
+The shipped package is **byte-identical** — every line of it is inside
+`%ifdef CSDIAG`.
+
 #### 88.14.2 A private tree nothing rebuilds is a stale tree
 
 `tests/skiesdiag.py` assembles the `CSDIAG` package itself to take the four
