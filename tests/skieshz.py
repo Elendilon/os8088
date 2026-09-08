@@ -234,7 +234,12 @@ def main(argv):
                                         # reads as the horizon having drawn
                                         # hundreds of pixels, whatever it did
         lo = mp["cs_skyground"]
-        code = m.read(lin + lo, 0x400)
+        # 0x800 AND NOT 0x400: cs_skyground grew past a kilobyte when the band
+        # got a span pass and a fused row (88.3.1.1, 88.3.1.3), and a window
+        # that ends before the gate reads as "the code moved" rather than as
+        # the window being short. `cmp byte [cs_hzhave], 0` occurs once in the
+        # package, so a generous window cannot match the wrong site.
+        code = m.read(lin + lo, 0x800)
         gate = (b"\x80\x3E" + (base + off("cs_hzhave")).to_bytes(2, "little")
                 + b"\x00\x74")
         g = code.find(gate)

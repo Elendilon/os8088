@@ -600,6 +600,11 @@ cs_sdiff:
 ; -----------------------------------------------------------------------------
 cs_scene:
     mov word [cs_nvisn], 0
+    mov bl, [cs_setlod]             ; the Detail rung's SCALE is the frame's,
+    xor bh, bh                      ; and cs_range looked it up once an object
+    shl bx, 1                       ; - a table index and a push pair for an
+    mov bx, [cs_lodscl + bx]        ; answer that cannot change inside a frame
+    mov [cs_lodsc], bx
     mov si, cs_rwobj                ; the runway first...
     call cs_consider
     mov bx, [cs_airport]            ; ...then the PICKED LOCATION'S world
@@ -1066,11 +1071,10 @@ cs_consider:
     jae .far
     add ax, bx
     mov [cs_ddm], ax                ; the reach cs_scale wants is this + |dy|
-    push ax
     call cs_range                   ; AX = this object's range AT THIS DETAIL
     mov bx, ax                      ; (88.13.2), which is its own at Moderate
-    pop ax
-    sub ax, bx
+    mov ax, [cs_ddm]                ; (it was pushed round the call; the word
+    sub ax, bx                      ;  it was just stored in is cheaper)
     jbe .inrange
     ; --- out of range by AX metres: not looked at again for AX/16 ticks.
     ;     The aeroplane covers under 5 m a tick at VMAX, so the margin is
@@ -1194,18 +1198,22 @@ cs_consider:
     shl di, 1
     shl di, 1
     add di, cs_vkey                 ; DI = the new key's slot
+    ; The shift walks DOWN, so the source is the destination less four and
+    ; needs no register of its own: [di-4] and [di-2] address it, the load
+    ; the compare already makes IS the word the shift stores, and `sub di, 4`
+    ; at the bottom replaces the pair that maintained SI. 26 bytes against 29
+    ; and 116 cycles a shift against 131 - a held bank does 67 of them over
+    ; 15 filed objects, so it is 0.21 ms a frame (SPEC.md 88.5.2.3).
 .ins:
     cmp di, cs_vkey
     je .place
-    mov si, di
-    sub si, 4
-    cmp [si], cx                    ; the key above holds a NEARER object:
-    jge .place                      ; it stays; else it moves down
-    mov ax, [si]
+    mov ax, [di-4]                  ; the key above holds a NEARER object:
+    cmp ax, cx                      ; it stays; else it moves down, and the
+    jge .place                      ; word compared is the word moved
     mov [di], ax
-    mov ax, [si+2]
+    mov ax, [di-2]
     mov [di+2], ax
-    mov di, si
+    sub di, 4
     jmp short .ins
 .place:
     mov [di], cx
@@ -1227,35 +1235,28 @@ cs_consider:
 cs_lodscl: dw 154, 256, 410, 512
 cs_range:
     mov ax, [si + CSO_RANGE]
-    push bx
-    mov bl, [cs_setlod]
-    cmp bl, CSL_NEAR
+    cmp byte [cs_setlod], CSL_NEAR
     jne .scale
     test word [si + CSO_FLAGS], CSO_POI
-    jz .scale
-    pop bx                          ; a landmark keeps every metre of it
-    ret
+    jnz .out                        ; a landmark keeps every metre of it
 .scale:
-    xor bh, bh
-    shl bx, 1
-    mul word [cs_lodscl + bx]
+    cmp word [cs_lodsc], 256        ; MODERATE is the rung the simulator ships
+    je .out                         ; on and its scale is ONE: the multiply is
+    mul word [cs_lodsc]             ; an identity, and an 8086 imul is ~130
     mov al, ah                      ; (DX:AX) >> 8, and no range x 410 can
     mov ah, dl                      ; overflow it - 16,000 is the largest
-    pop bx
+.out:
     ret
 
 cs_lodat:
     mov ax, [si + CSO_LOD]
     or ax, ax
     jz .none                        ; 0 means "no far model", not "at zero"
-    push bx
-    mov bl, [cs_setlod]
-    xor bh, bh
-    shl bx, 1
-    mul word [cs_lodscl + bx]
+    cmp word [cs_lodsc], 256        ; ...the same identity (88.5.2.1)
+    je .none
+    mul word [cs_lodsc]
     mov al, ah
     mov ah, dl
-    pop bx
 .none:
     ret
 
@@ -2623,6 +2624,10 @@ cs_probe_edge:
     push ds
     pop es
     mov cx, di
+    cmp cx, CS_DBGSCR               ; the scratch is 112 rows (see its note)
+    jbe .cx
+    mov cx, CS_DBGSCR
+.cx:
     mov si, [cs_dbg_y0]
     shl si, 1
     mov di, si

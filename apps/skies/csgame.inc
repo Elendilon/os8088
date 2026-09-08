@@ -492,6 +492,14 @@ cs_hotkey:
 ;   F1  Detail Level    F2  Draw Distance   F3  Size (also -/+)
 ;   F4  Terrain fill    F5  Buildings fill  - each a toggle
 ;
+; The tables below carry a hole at 3 and 4 rather than a second dispatch: the
+; fill keys own those two indices and nothing else does.
+;
+; There WAS an F6 cycling the ADI's four modes, and it was an instrument
+; rather than a setting - the arm that measured 88.9.2.5. `Fast` won it
+; outright and is what the simulator draws now, so the key, the three other
+; modes and the byte behind them are gone (88.9.2.5).
+;
 ; Every one of them raises a TOAST (88.13.8), which is what makes a cycling
 ; key usable at all: a key that steps a ladder is no good if the glass does
 ; not say where the ladder now is.
@@ -509,7 +517,7 @@ cs_hotkeyx:
     mov cl, al
     xor ch, ch
     cmp al, 3
-    jae .fill
+    jae .fill                       ; 3 and 4 are the fills
     ; --- F1 F2 F3: one step up the ladder, and round at the top -----------
     mov bx, cx
     shl bx, 1
@@ -1074,7 +1082,7 @@ cs_toast:
     add di, 2                       ; package (SPEC.md 20), so a store through
                                     ; it lands in the wrong segment entirely
     cmp cl, 3
-    jae .fill
+    jae .fill                       ; 3 and 4 are the fills
     mov si, [cs_toastset + bx]      ; the setting's byte...
     mov al, [si]
     xor ah, ah
@@ -1138,8 +1146,8 @@ cs_toaststep:
     ret
 
 cs_toastlbl: dw cs_s_lbld, cs_s_llod, cs_s_lsize, cs_s_terr, cs_s_bld
-cs_toastset: dw cs_setbld, cs_setlod, cs_setsize
-cs_toastval: dw cs_i_bld, cs_i_lod, cs_i_size
+cs_toastset: dw cs_setbld, cs_setlod, cs_setsize, 0, 0
+cs_toastval: dw cs_i_bld, cs_i_lod, cs_i_size, 0, 0
 cs_g_fill:   db 'Fill', 0
 cs_g_wire:   db 'Wire', 0
 

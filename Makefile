@@ -5015,6 +5015,15 @@ skiesdiag: $(BUILD)/skiesdiag/apps360.img
 # rather than a gate - it asserts nothing.
 $(BUILD)/skiesprobe/apps360.img: $(SKIES_SRC) | $(BUILD)
 	@$(MAKE) --no-print-directory BUILD=$(BUILD)/skiesprobe CSDIAGDEF=-DCSPROBE $@
+
+# ...and the HORIZON's own counting build (SPEC.md 88.3.1.1), its own define
+# because CSPROBE's bss is already at APP_MAX_SIZE and this question needs
+# none of its arms.
+$(BUILD)/skieshz/apps360.img: $(SKIES_SRC) | $(BUILD)
+	@$(MAKE) --no-print-directory BUILD=$(BUILD)/skieshz CSDIAGDEF=-DCSHZPROBE $@
+.PHONY: skieshzprobe
+skieshzprobe: $(BUILD)/skieshz/apps360.img
+	@echo "skieshzprobe: $(BUILD)/skieshz/apps360.img"
 .PHONY: skiesprobe
 skiesprobe: $(BUILD)/skiesprobe/apps360.img
 	@echo "skiesprobe: $(BUILD)/skiesprobe/apps360.img - then"
