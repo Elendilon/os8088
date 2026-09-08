@@ -144,7 +144,18 @@ program could not claim a byte of memory**, which is fatal, and it would fail
 *after* a successful launch, at whatever moment the program first asks — a
 refusal that names memory and points nowhere near the cause.
 
-The fix is **eleven bytes and a routine that already exists**. `inst_of_seg`
+> **BUILT, and it is TWO arms rather than one — SPEC.md 50.3.4 is the
+> contract.** What this section missed is `mem_own`'s own standing requirement:
+> *"it has to answer during the ENTRY PROC, which is where an app sizes
+> itself"*, and the entry runs at `ld_start` step 8 while `I_SPTR` is published
+> at step 9. So `inst_of_seg` cannot answer for the re-homed program's **own
+> entry proc** — the same refusal this section is about, one step later.
+> `cmp bx, [ld_base]` is the other arm and costs 4 bytes: `[ld_base]` is the
+> kernel's word for *the segment the package being launched runs at*, cleared
+> on both the success and abort paths (§66.6.1). Measured: **20 bytes of
+> `.cold`, 0 of `.text`**.
+
+The fix is **a routine that already exists**. `inst_of_seg`
 (instance.inc:600) answers *"which live package instance is running at this
 segment?"* by walking `inst_tab` for a matching `I_SPTR`. `mem_own` gains one
 arm at `.no`:
@@ -662,11 +673,30 @@ program. 4.1.1 is the trace.
    real package; the fix closes it and pays 25 bytes to do so.
 
    a652b61 has the fix and the reasoning; port it first and separately.
-1. **`mem_own`'s `inst_of_seg` arm**, on its own, with a gate. It is
-   independently correct, it is the attribution primitive, and everything else
-   here depends on it.
+1. **`mem_own`'s arms** — **BUILT** (SPEC.md 50.3.4). Two, not one, and that
+   is the finding: `inst_of_seg` covers the program's life after step 9, and
+   `cmp bx, [ld_base]` covers the **entry proc**, which step 9 has not reached.
+   `mem_own`'s own header states that requirement (*"it has to answer during
+   the ENTRY PROC, which is where an app sizes itself"*) and §4.1 missed it —
+   with only the `inst_of_seg` arm a re-homed program would have been refused
+   memory at exactly the moment §4.1 says an app sizes itself, which is the
+   same defect one step later. Measured against HEAD by building both arms into
+   private trees: **20 bytes of `.cold`, 0 of `.text`, 0 of `.bss`** (estimate
+   was ~16 for one arm).
+
+   **AND IT CANNOT BE GATED ON ITS OWN.** This says *"with a gate"* and there
+   is no gate to write, by construction: both arms grant ownership only to a
+   segment the kernel has already RECORDED as this package's — `[ld_base]` or
+   `I_SPTR` — and nothing writes either of them to an inner part until step 3
+   below lands. A fixture that swaps DS to an arbitrary segment inside its own
+   carve and calls `OSAPI_MEM_CLAIM` is **still refused, correctly**, so it
+   cannot go red for the right reason (docs/WRITING-TESTS.md §1). What that
+   fixture *can* gate is the negative: that the fence was **not** widened into
+   a containment test, which is §4.1.1's trap. So steps 1–4 land together, and
+   the arm ships behind the rows in step 4 rather than a row of its own.
 2. `mem_reown_x`, and the `MC_OWN` re-stamp.
 3. `OSAPI_PKG_REHOME` and `ld_start`'s arm.
-4. `tests/rehome/`, the three gates.
+4. `tests/rehome/`, the four gates — including `rehomemove` (§9), and the
+   negative fixture above, which is what step 1 owes.
 5. `os88pkg.py`'s header agreement check.
 6. Only then, a real consumer.

@@ -65589,6 +65589,66 @@ cache, which no emulator here reaches by accident and which the 128KB machine
 to appear is a bug that reaches the field first.
 
 
+### 50.3.4 `mem_own` answers for a package that is not at its claim's BASE
+
+`mem_own` asks *"does a live claim START at ES, and is it owned by an instance
+slot?"*, and the second half of that question is what separates a region from
+anything else beginning at the same paragraph. **The first half is a proxy**,
+and §52.11.4 already found one caller it answers wrongly — a driver's second
+image, which runs in a claim its *resident* owns. `mem_own_drv` is that one
+level of indirection.
+
+**A package can be in the same position, and one is coming.** The parts
+standard (§20.12) loads a run of parts into one carve, and `op_seg` places part
+*i* at `op_base + (slack + offset)/16` where the head slack is the cluster
+alignment (§20.12.2). A part that is itself an executable image therefore
+begins **inside** the carve rather than at its base — equal by luck on a
+512-byte-cluster floppy and never on a hard disk. Every `OSAPI_MEM_CLAIM`,
+`_CLAIM_HI`, `_CLAIM_DMA`, `OSAPI_MEM_FREE`, `OSAPI_MEM_REGROW` and
+`OSAPI_MEM_MOVABLE` goes through this one fence, so such a package **could not
+claim one byte of memory** — and it would fail *after* a successful launch, at
+whatever moment it first asked, with a refusal that names memory and points
+nowhere near the cause.
+
+Two arms answer it, at the point where "no claim starts at ES" used to end the
+routine. They are two because the kernel knows the answer two different ways at
+two different times:
+
+| | when | how |
+|---|---|---|
+| **1** | the launch **in flight** | `cmp bx, [ld_base]` |
+| **2** | the rest of the package's life | `inst_of_seg` — is ES some live `KIND_PKG` instance's `I_SPTR`? |
+
+**Arm 1 exists because `mem_own` has to answer during the ENTRY PROC**, which
+is its own header's standing requirement and where an app sizes itself. The
+entry runs at `ld_start` step 8 and `I_SPTR` is published at step 9, so the
+instance table cannot answer yet. `[ld_base]` is the kernel's own word for *the
+segment the package being launched runs at*; it is cleared on **both** the
+success and abort paths (§66.6.1), so a stale value cannot grant ownership
+later, and ES is never 0. `cmp` of equal values clears CF, so both arms share
+one exit test.
+
+**Arm 2 is not a widening of the fence.** `I_SPTR` *is* the kernel's definition
+of "this package's segment", so asking it directly is a **narrower** question
+than the claim-base proxy standing in for it — a package can only name a
+segment it is actually executing at, ES being stamped by the API stub from the
+caller's own DS, and two instances of one package live at different bases and
+remain distinct owners. It also makes `mem_own` return `BX = ES` on that path,
+so the package's claims are owned by that segment and `mem_free_owner_x`'s
+teardown sweep frees them. The two halves agree.
+
+**Only the "no claim starts at ES" path reaches the arms**, and
+`mem_own_drv`'s refusal still goes straight to `.no`: a claim that *does* start
+at ES is by definition not the shape this is about, and routing one path rather
+than both saves re-loading BX (`mem_owner_of_x` leaves it alone on CF=1).
+
+**It costs no `.text` byte**, which is the scarce side — `KERN_CODE_MAX` is
+absolute and cannot be raised. `mem_own` is `.cold` and `inst_of_seg` is
+`.text`, so the call is far and goes through `cw_mem_disp`, the generic
+`call bp / retf` shim (§2.6.1), rather than earning a named one of its own at
+4 bytes of `.text`.
+
+
 ## 51. driver.inc — loadable drivers
 
 The kernel carries what every machine has. What only *some* machines have is
