@@ -55,18 +55,18 @@ def ui_passes(m, secs=2.0):
     on it, and that misreading cost this investigation two rounds. ui_task's
     step 0 READS [ui_rebootq] every pass, so a memory breakpoint on that byte
     is a pass counter; it is a DATA access, so unlike an exec breakpoint it
-    cannot fire on the 8088's prefetch."""
-    m.breakpoints([{"type": "mem", "addr": S("ui_rebootq")}])
-    n, t0 = 0, time.time()
-    while time.time() - t0 < secs:
-        if m.status()["state"] == "breakpoint":
-            n += 1
-            m.run()
-        else:
-            time.sleep(0.005)
-    m.breakpoints([])
-    m.run()
-    return n
+    cannot fire on the 8088's prefetch.
+
+    The pump is `bp_trace`'s, which counts the server's own stop sequence: the
+    hand-rolled one this replaces called every `"breakpoint"` it polled a pass,
+    including the stop it had just resumed past when the resume had not landed
+    by the next round trip. That could not flip THIS verdict - the freeze arm
+    is `n == 0` and a duplicate needs a real pass to duplicate - but the number
+    beside it is read as a rate, and a pass the machine did not make is not
+    one."""
+    with os88marty.bp_trace(m, {"type": "mem", "addr": S("ui_rebootq")}) as tr:
+        time.sleep(secs)
+    return tr.n
 
 
 def alive(m, label, secs=1.2, floor=[0]):

@@ -28,7 +28,14 @@ new stop exactly when it is stopped and `stops` is above the mark.
 **`make marty` is required** — the client falls back to `cycles` against an
 older binary, which is correct for the ordinary case but is not the fix.
 
-## 1. Class A — hand-rolled resume-and-poll. NOT fixed by the change
+## 1. Class A — hand-rolled resume-and-poll. DONE
+
+**All thirteen are converted to `bp_trace` and every row is green.** What
+follows is the survey as it was taken, with the outcome of each row beneath
+it: three of the eight predictions were wrong and the two biggest findings
+were not the ones ranked first, which is the usual shape and the reason the
+verdict column is worth keeping rather than deleting with the work.
+
 
 Thirteen sites in eight files poll `status()["state"]` or `stopped()` in a
 loop of their own and resume by hand. They do not go through `wait_stop`, so
@@ -49,6 +56,25 @@ whether it is worth touching.
 
 Two of these are instruments rather than rows (`os88span`, `winmove`), which
 is worse and not better: an instrument's wrong answer is read as a finding.
+
+### What the conversions actually found
+
+Baselines and results are one run each on this container, same build, same
+disks. Every row passed before and after; the numbers are what moved.
+
+| row | before | after | what it means |
+|---|---|---|---|
+| `clipkeep` | PARTIAL **4** drops | PARTIAL **27** | The under-count was not marginal: `stopped()` is true at the advance's own PAUSE, the IP read there is the pause point, and the `!= at` arm broke the inner loop on the FIRST advance of every round — so each round sampled `frames // 8` instead of forty of them and **the row ran on 104 frames where it meant 880**. WHOLLY stays 0 across the wider window, so the claim it makes is now made over ~7x the evidence |
+| `tmrepair` | KEPT **0** across 8 polls | KEPT **0** | Same defect, same 8x, and the answer does not move — which is the point: a zero from a window nobody looked at and a zero from a window that was watched read alike, and only one of them is a test |
+| `paintrate` | **537** samples/s | **895, 901** over two runs | The biggest surprise, and it is not a dedupe: the row's own docstring records the fixed kernel measuring **882**, so the hand-rolled pump was reading a third low and the converted one lands on the documented figure. One thread cannot both pace a nudge schedule and pump a breakpoint that fires 900 times a guest second. It is also 28s where it was 44 |
+| `paintblank` | 0 DECODED, **17** bands | 0 DECODED, **18** bands | One band hit per run that `advance()` swallowed: it stops AT a breakpoint and returns there, and the `m.run()` on the next line resumed it unclassified. The headline `0 DECODED` is unchanged, which is the assertion that matters — but it was being made by a counter that could drop a hit |
+| `paintwalk` | 9 chords | 9 chords | No change, and the exposure was a false FAIL rather than a false pass: a stop reported twice re-reads the same `pt_wx`/`pt_tox`, appends a chord whose end is its own start, and that chord fails the landing test. An intermittent red on a row about ink going where the hand did not |
+| `dispfreeze` | 180–191 passes | comparable | **The survey over-ranked this one.** The verdict is `n == 0` and a duplicate needs a real pass to duplicate, so it could never manufacture an ALIVE from a frozen machine. Converted for the count beside it and for the twelve lines |
+| `tools/os88span.py` | 82.20 ms | **82.19 ms** | Measurement identical, so the duplicate row was latent rather than active on this machine. The cumulative budget was not latent: the old collector sat out its whole 200-second allowance after the last hit, and the converted one returns 2 seconds after the operation goes quiet |
+| `tools/winmove.py` | 66 calls / 199.1 ms | **66 calls / 199.2 ms** | Identical, and the special case for "the first hit, which a loop opening with `run` resumes past" is gone rather than preserved — the trigger fires inside the block now, so the pump is watching before it is pulled |
+
+The two that moved most were ranked fourth and sixth. What ranked first could
+not have failed at all.
 
 ## 2. Class B — `run(); wait_stop()`. Fixed for free, and it mattered
 
