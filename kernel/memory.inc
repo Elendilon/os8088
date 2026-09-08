@@ -265,7 +265,13 @@ MEM_P_FATW_N equ 8              ; 18.8.4): MED, and it was LOW for one commit
                                 ; a name ending _N is a length, not a tag
 %ifdef KERN_SMALL
 MEM_P_VIEW  equ MEM_PG_LOW<<8 | 0x10    ; a Disk window's listing cache (SPEC.md
-MEM_P_VIEW_N equ VIEW_SLOTS     ; 22.1), kern_small only. LOW - "a little I/O,
+MEM_P_VIEW_N equ 4              ; 22.1), kern_small only. A LITERAL and not
+%if MEM_P_VIEW_N != VIEW_SLOTS  ; VIEW_SLOTS, because apps/os88api.inc mirrors
+%error "MEM_P_VIEW_N has drifted from VIEW_SLOTS"
+%endif                          ; it and t_mirror compares the two files as
+                                ; TEXT - MEM_P_FATW_N's shape exactly, which is
+                                ; 8 here and DVOL_MAX asserted beside it. LOW -
+                                ; "a little I/O,
                                 ; or a visible pause" - and the RANK is the
                                 ; part that needs an argument, because losing
                                 ; this is floppy I/O and MEM_P_FATW is MED for

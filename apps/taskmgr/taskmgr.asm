@@ -1306,6 +1306,7 @@ tm_s_tsave: db 'MenuSav', 0
 tm_s_tdrv:  db 'DrvImg', 0
 tm_s_tcopy: db 'CopyBuf', 0
 tm_s_tfatw: db 'FATwin', 0
+tm_s_tview: db 'DirView', 0     ; kern_small's listing cache (SPEC.md 50.6.5)
 tm_s_tasc:  db 'Assoc', 0
 tm_s_tclip: db 'Clipbrd', 0
 tm_s_twsav: db 'WinSave', 0
@@ -4074,6 +4075,11 @@ tm_htype:
     sub dx, MEM_P_FATW          ; became a range when they became a cache
     cmp dx, MEM_P_FATW_N        ; (SPEC.md 18.8.4)
     jb .fatw
+    mov dx, ax                  ; ...and a Disk window's LISTING cache, one per
+    sub dx, MEM_P_VIEW          ; fm_pool slot, which became a range when it
+    cmp dx, MEM_P_VIEW_N        ; became a cache on kern_small (SPEC.md 50.6.5).
+    jb .view                    ; On kern_big nothing is stamped with it and
+                                ; this compare simply never fires
     mov si, tm_ktab
 .scan:
     mov dx, [si]
@@ -4091,6 +4097,9 @@ tm_htype:
     jmp short .put
 .fatw:
     mov si, tm_s_tfatw
+    jmp short .put
+.view:
+    mov si, tm_s_tview
     jmp short .put
 .hex:
     call tm_put4x               ; AX is still the owner word
