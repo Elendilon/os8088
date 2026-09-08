@@ -1162,11 +1162,97 @@ cs_skyground:
     mov [di - 2], ax
 .r1:
     pop di
+    ; ===== THE BAND'S SPANS, IN A PASS OF THEIR OWN (SPEC.md 88.3.1.1) =====
+    ; A split row used to be given `cs_fullspan`, so a held bank marked and
+    ; CARRIED the whole view every frame - 5,600 bytes on a 400x112 Hercules
+    ; view - when what changes on it is the crossing's own byte and one
+    ; either side. The row still LAYS the whole view (the fill's fixed cost
+    ; is ~1,100 cycles a row against ~350 for the 50 bytes, so a narrower
+    ; fill buys almost nothing), but the span says what CHANGED, and that is
+    ; all cs_blit has to carry: last frame's set holds last frame's band and
+    ; whatever an object drew, and cs_blit copies the UNION of the two.
+    ;
+    ; IT IS A PASS OF ITS OWN BECAUSE OF WHERE THE TIME GOES. Built inline in
+    ; the fill loop below it is the same arithmetic and it cost 12.5 ms a
+    ; frame - 533 cycles a row - against a blit saving of 7.9, so the whole
+    ; change measured 280.2 ms against 280.1. Here every constant is hoisted
+    ; into a register, the walk is `lodsw`/`stosw`, and the row measures ~168
+    ; cycles: the same work for a third of the money. The 8088's fetch floor
+    ; is why - a row is priced by the BYTES of code it runs through.
+    mov al, [cs_wb0]                ; the pass's frame constants, once
+    xor ah, ah
+    mov [cs_hzlo], ax
+    add al, [cs_wbn]
+    dec al
+    mov [cs_hzhi], al               ; the view's first and last byte...
+    mov al, 3                       ; ...and the kind a row must have had.
+    cmp byte [cs_hzfull], 0         ; TWO things refuse the band: the A/B
+    jne .hk1                        ; knob, and Mode X - where cs_r_begin
+    cmp byte [cs_back], CSB_MODEX   ; sets every row to 3 precisely so that
+    jne .hk2                        ; nothing is "as it was", the two pages
+.hk1:                               ; alternating under it (88.3.1)
+    mov al, 0xFF
+.hk2:
+    mov [cs_hzsplit], al
+    push cx
+    push bx
+    push di
+    push bp
+    push es
+    mov dx, cx                      ; DX = the band's rows
+    mov si, bx
+    shl si, 1
+    mov di, si
+    add di, [cs_spcur]              ; DI -> this frame's span for the row
+    add si, cs_xl                   ; SI -> its crossing
+    add bx, cs_rowkind              ; BX -> its kind
+    push ds
+    pop es                          ; (ES is the SHADOW at this point)
+    mov bp, [cs_hzlo]
+    mov cl, [cs_kshift]
+    mov ch, [cs_hzsplit]
+    cld
+.hs:
+    lodsw                           ; the crossing, and 0x7FFF - the row the
+    or ax, ax                       ; horizon does not reach - clamps to the
+    jns .hs0                        ; last byte, which is where the fill's
+    xor ax, ax                      ; own cs_wx1+1 puts it too
+.hs0:
+    shr ax, cl                      ; AX = the crossing's byte, AH = 0
+    cmp ax, bp
+    ja .hs1
+    mov ax, bp
+    mov ah, al                      ; at or left of the view's first byte
+    jmp short .hs3
+.hs1:
+    cmp al, [cs_hzhi]
+    jb .hs2
+    mov al, [cs_hzhi]
+    mov ah, al                      ; at or past its last
+    jmp short .hs3
+.hs2:
+    mov ah, al
+    dec al
+    inc ah                          ; AL..AH = the byte and one either side
+.hs3:
+    cmp [bx], ch                    ; split last frame too? A row that was
+    je .hs4                         ; not has the whole view to carry, and
+    mov ax, [cs_fullspan]           ; cs_hzrows' .kind arm says so the same
+.hs4:                               ; way one row along
+    mov byte [bx], 3
+    inc bx
+    stosw
+    dec dx
+    jnz .hs
+    pop es
+    pop bp
+    pop di
+    pop bx
+    pop cx
 .b:
     push cx
     push bx
     push di
-    mov byte [cs_rowkind + bx], 3   ; split: refilled and carried every frame
     mov si, bx
     shl si, 1
     mov cx, [cs_xl + si]
@@ -1179,10 +1265,8 @@ cs_skyground:
 %ifdef CSHZPROBE
     call cs_probe_hz                ; what an incremental refill would cost
 %endif
-    mov ax, [cs_fullspan]           ; a split row goes over whole
-    add si, [cs_spcur]
-    mov [si], ax
-    mov di, bx
+    mov di, bx                      ; (the row's kind and span are the span
+                                    ;  pass's, above - 88.3.1.1)
     and di, 3                       ; DI = the row's phase in the pattern
     mov si, [cs_hzlt]
     add si, di

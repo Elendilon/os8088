@@ -197,75 +197,111 @@ than 1,326 cycles × the faces it removes. On `dflevel` that is 16.9 faces, so
 the budget is generous; on `runway` it is 3.4 and the budget is ~4,700 cycles
 for the whole object pass. Measure both.
 
-## 7. OPEN, AND THE BIGGEST THING HERE — the rolled horizon, and the ADI
+## 7. THE BIGGEST THING HERE — the rolled horizon, and the ADI: BOTH BUILT
 
 `tests/skiesprof.py` (SPEC.md 88.12.1) flies five profiles instead of pinning
 one, and every stage is bracketed at its call site so the accounting adds to
-99.9% of the loop. Two findings dwarf everything else in this file.
+99.9% of the loop. Two findings dwarfed everything else in this file, and both
+have been taken: the horizon's span pass (7.1, SPEC.md 88.3.1.1) and the ADI's
+erase table (7.2, SPEC.md 88.9.2.5). **What each of them LEFT is where the
+next reading goes** — 7.1.3 and 7.2's own tail — and in both cases the answer
+turned out to be the same shape: what is left is fixed cost a row rather than
+pixels.
 
-### 7.1 A banked turn is 1.7x a level one, and it is the SKY that does it — COUNTED
+### 7.1 BUILT — a banked turn is 1.7x a level one, and it is the SKY that does it
 
-| Hercules 8088, 24 flown frames | level | 45 deg held |
+| Hercules 8088, 20 flown frames | level | 45 deg held |
 |---|---|---|
-| frame | 164.5 ms | **282.8** |
-| `cs_skyground` | 8.76 | **47.77** (5.5x) |
-| `cs_blit` | 9.01 | **36.13** (4.0x) |
-| the two together | 17.8 ms, 10.8% | **75.9 ms, 26.8%** |
+| frame | 164.5 ms | **280.1** |
+| `cs_skyground` | 8.76 | **47.75** (5.5x) |
+| `cs_blit` | 9.01 | **36.17** (4.0x) |
+| the two together | 17.8 ms, 10.8% | **83.9 ms, 30%** |
 
-SPEC.md 88.3.1 predicts it in its own words — *"a row whose kind changed, and
-every split row, is refilled and marked whole"* — and a rolled horizon makes
+SPEC.md 88.3.1 predicted it in its own words - *"a row whose kind changed, and
+every split row, is refilled and marked whole"* - and a rolled horizon makes
 every row a split row. So the sky/ground pass refills the whole view and the
 blit then has the whole view to carry.
 
-**Nothing has ever been tried here**, and it is worth more banked than every
-item in §2, §3 and §6 put together. What to look at, in order:
-
-1. **A split row's refill is a full-width `rep stosw` pair either side of the
-   crossing.** It is already the cheap shape (88.4.1). What is dear is that
-   there are 112 of them where level flight has a handful.
-2. **The blit carries what the refill marked.** If a rolled row's ink is
-   unchanged from last frame's — and for most rows of a steady bank it IS,
-   the horizon having moved a pixel or two — then the mark is honest and the
-   COPY is not. A per-row comparison against the shadow before marking is one
-   `repe cmpsw` a row; that is the first thing to price.
-3. **The horizon moves by a bounded amount between frames.** A bank changes
-   the crossing x by a few pixels a row a frame. Refilling only the band the
-   crossing actually swept, rather than every split row whole, is the same
-   argument 88.3.1 already makes for last frame's span - applied to the
-   horizon instead of to objects.
-
 **COUNTED, with `CSHZPROBE`** (`make skieshzprobe`; SPEC.md 88.3.1.1), 20
-flown frames a profile, Hercules, the view 50 bytes wide:
+flown frames a profile, Hercules, the view 400x112 and so 50 bytes wide:
 
-| | split rows a frame | refilled today | INCREMENTAL | crossing did not move a BYTE |
+| | split rows a frame | carried today | the crossing's band | crossing did not move a BYTE |
 |---|---|---|---|---|
-| `turnhold` 45 deg held | **112 (every row)** | 2,323 B | **336 (14.5%)** | **112 of 112 - 100%** |
-| `rollsweep` 2 deg/frame | 109.1 | 2,178 | 441 (20.2%) | 64.5 (59%) |
+| `turnhold` 45 deg held | **112 (every row)** | 5,600 B | **336 (6.0%)** | **112 of 112 - 100%** |
+| `rollsweep` 2 deg/frame | 109.1 | 5,455 | 441 (8.1%) | 64.5 (59%) |
 | `bank` decaying | 29.1 | 1,452 | 123 (8.5%) | 12.6 (43%) |
 | `cruise` level | 1.0 | 50 | 3 (6.0%) | 1 (100%) |
 
-**In a HELD bank not one row's crossing moves a single byte and all 2,323 are
-refilled and carried anyway.** 336 is the floor of three bytes a row.
+**The first reading of that table was wrong in its biggest cell and looked
+right**: `cs_dbg_hzby` is a word, 112 x 50 x 20 is 112,000, and `turnhold`
+reported **2,323** - one wrap divided by the frames. Rows x `[cs_wbn]` is what
+caught it.
 
-**And it needs NO NEW STORAGE.** A split row's span is `cs_fullspan` today;
-make it the range actually refilled and next frame's `[cs_spprv]` for that row
-already CONTAINS last frame's crossing. So
+#### 7.1.1 What was built: the SPAN, in a pass of its own
 
-    refill range = union(last frame's span, this frame's crossing +- 1)
-    new span     = that same range
+A split row still LAYS the whole view; its **span** is the crossing's own byte
+and one either side. The span says what CHANGED, and `cs_blit` carries the
+union of this frame's set and last frame's - which holds last frame's band and
+whatever an object drew - so nothing is left on the glass. A row that was not
+split last frame gets `cs_fullspan`; Mode X is refused outright, `cs_r_begin`
+setting every kind to 3 there so that a kind of 3 tells you nothing.
 
-which objects then widen through `cs_markspan` as they always have. It is
-`cs_hzrows`' same-kind arm applied to the band, and the only new code is a
-byte-RANGE form of `cs_hzrow_sh` - Hercules, CGA and the 160x100 hack share
-it, and Mode X refills every row anyway.
+| | frame | `cs_skyground` | `cs_blit` |
+|---|---|---|---|
+| `turnhold`, before | 280.1 | 47.75 | 36.17 |
+| ...decided INLINE in the fill loop | 280.2 | 55.88 | 28.31 |
+| ...**decided in a pass of its own** | **276.0** | 51.70 | 28.37 |
+| `bank`, before | 256.0 | 34.60 | 33.39 |
+| ...**decided in a pass of its own** | **254.3** | 36.88 | 29.04 |
+| `cruise`, before | 164.3 | 8.77 | 9.95 |
+| ...decided in a pass of its own | 164.5 | 9.27 | 8.83 |
 
-**The gate is `tests/skieshz.py`**, and 88.3.3.1 is the field bug this exact
-loop produced once: a horizon that did not turn, because the band wrote each
-split row's span and nothing widened the set's row RANGE. Whatever is built
-here has to keep that range widening.
+Level flight is untouched - the band there is ONE row - and `cruise`'s 164.5
+against 164.3 is inside its own 4% spread.
 
-**Measure it against `turnhold`**, which lives in the rolled state, and check
-it against `bank`, which passes through it.
+**+125 bytes**, `tests/skieshz.py` is the gate, and `[cs_hzfull]` is the
+runtime A/B (the profiler takes `--hzfull 1`).
+
+**The lesson is the two middle rows.** Inline in the loop that was already
+walking those rows, the identical arithmetic cost **533 cycles a row** and the
+whole change measured **nothing**: 280.2 against 280.1. In a walk of its own,
+constants hoisted into registers and the rows stepped with `lodsw`/`stosw`, it
+is **~168**. Nothing was removed from the decision. What fell is the number of
+BYTES of code a row runs through, which on an 8088 is the price.
+
+#### 7.1.2 REFUSED - narrowing the fill's range
+
+The obvious companion is to lay only `union(last frame's span, this frame's
+band)`. It was built and measured, `cs_hzproc` bracketed at all 112 of its
+calls a frame:
+
+| `cs_hzrow_sh`, `turnhold` | ms a frame | cycles a row |
+|---|---|---|
+| the whole view - 50 bytes | 33.76 | 1,437 |
+| the union - typically 4 to 10 | 29.92 | 1,273 |
+
+**A tenth of the pixels is 11% of the time.** ~1,100 cycles of a split row's
+fill is fixed - the row offset, the crossing byte, the mask lookup, two
+`cs_fillrun` calls - and the 50 bytes it lays are ~350. Computing the union
+costs about what it saves, and it wants `cs_hzb0`/`cs_hzbn` threaded through
+all three row fillers.
+
+#### 7.1.3 ...so the next reading is the FIXED cost a row
+
+The horizon is now ~112 x (1,100 cycles of `cs_hzrow_sh` + ~300 of `cs_blit`'s
+per-row walk), and the pixels are almost free. Two things worth pricing:
+
+1. **`cs_hzrow_sh`'s prologue.** It recomputes the crossing's byte that the
+   span pass has just computed (`push cx / mov cl,[cs_kshift] / shr bx,cl /
+   pop cx`, ~61 cycles), and it reaches `cs_fillrun` twice by `call`.
+2. **A "this row is already right" skip is NOT available cheaply**, and the
+   trap is worth writing down: `cmp ax, dx` against last frame's span looks
+   like `cs_hzrows`' own skip and is WRONG - the band is the crossing's BYTE,
+   so a crossing that moves within one byte gives the same band while the
+   byte's split moves, which would quantise the horizon to 8 pixels of x. It
+   also never fires: in a held 45 degree bank the crossing moves ~4 pixels a
+   frame. A correct one wants last frame's crossing per row, `CS_MAXROW`
+   words of bss, to save a fill the measurement says is not there.
 
 ### 7.2 BUILT — the ADI is 41 ms a frame for as long as the attitude is moving
 

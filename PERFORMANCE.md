@@ -11777,3 +11777,84 @@ table.
 3. **The first `F6` after the bracket opens is swallowed**, so a script that
    steps the ladder has to settle first and then check it arrived — the mode
    byte is readable, so check it rather than counting presses.
+
+### Set 123 — CLEAR SKIES: the rolled horizon's span, and why the SAME code costs three times more inline (SPEC.md §88.3.1.1)
+
+`tests/skiesprof.py`, MartyPC, `os8088_5150_herc_gla`, the game's view 400×112
+and so 50 bytes wide on Hercules. Twenty flown frames of `turnhold` — a 45°
+bank HELD, so every row of the view is a split row for the whole run — and of
+`bank`, which decays out of one. Each stage is bracketed at its call site, so
+the numbers are one subtraction of the emulator's cycle counter and no arm is
+compared with another.
+
+**What a split row cost.** The band gave every split row `cs_fullspan`, so it
+was refilled AND carried whole:
+
+| | split rows a frame | carried | the crossing's band | crossing did not move a BYTE |
+|---|---|---|---|---|
+| `turnhold` | 112 — every row | 5,600 B | 336 (6.0%) | **112 of 112** |
+| `rollsweep` | 109.1 | 5,455 | 441 (8.1%) | 64.5 (59%) |
+| `bank` | 29.1 | 1,452 | 123 (8.5%) | 12.6 (43%) |
+| `cruise` | 1.0 | 50 | 3 (6.0%) | 1 (100%) |
+
+**THE HEADLINE IS NOT THE SAVING, IT IS THAT THE SAME DECISION HAS TWO
+PRICES.** The span decision — read the row's kind, take the crossing's byte,
+clamp it to the view, write the pair — was built first INLINE in the band's
+fill loop, which was already walking exactly those rows and already had the
+crossing in a register. It cost **12.5 ms a frame, 533 cycles a row**, and the
+whole change measured **280.2 ms against 280.1**: the blit's 7.9 ms saving
+spent entirely on the bookkeeping that produced it.
+
+Moved into a walk of its own immediately ahead of the fill loop — the view's
+first and last byte in a register, the shift count held in CL for the whole
+walk instead of being loaded and restored around the crossing 112 times, the
+rows stepped with `lodsw`/`stosw` instead of `mov di, si / add di, [cs_spcur]`
+— the identical decision costs **~168 cycles a row**. Nothing was taken out of
+it. What fell is the number of BYTES of code a row runs through, which is
+Part 2's `max(clocks, 4.34 × instruction bytes)` collecting on a loop that
+runs 112 times a frame.
+
+| Hercules 8088, 20 flown frames | frame | `cs_skyground` | `cs_blit` |
+|---|---|---|---|
+| `turnhold`, before | 280.1 | 47.75 | 36.17 |
+| ...decided inline | 280.2 | 55.88 | 28.31 |
+| ...**decided in a pass** | **276.0** | 51.70 | 28.37 |
+| `bank`, before | 256.0 | 34.60 | 33.39 |
+| ...**decided in a pass** | **254.3** | 36.88 | 29.04 |
+| `cruise`, before | 164.3 | 8.77 | 9.95 |
+| ...decided in a pass | 164.5 | 9.27 | 8.83 |
+
+**And the companion optimisation is REFUSED on its own measurement.** Laying
+only `union(last frame's span, this frame's band)` instead of the whole view
+was built and bracketed at all 112 calls of `cs_hzproc`:
+
+| `cs_hzrow_sh`, `turnhold` | ms a frame | cycles a row |
+|---|---|---|
+| the whole view — 50 bytes | 33.76 | 1,437 |
+| the union — typically 4 to 10 bytes | 29.92 | 1,273 |
+
+**A tenth of the pixels is 11% of the time.** ~1,100 cycles of a split row's
+fill is fixed — the row's offset, the crossing's byte (recomputed, the span
+pass having just done it), the mask lookup and two `cs_fillrun` calls — and
+the 50 bytes it lays are ~350 of it. `cs_blit`'s own per-row walk is ~300
+more. So after this change the rolled horizon is **112 rows × ~1,400 cycles of
+fixed cost**, and the pixels are nearly free: that is where the next reading
+goes, not at the fill's width.
+
+Three things worth not re-deriving:
+
+1. **`cs_dbg_hzby` is a WORD, and 112 × 50 × 20 is 112,000.** The first
+   reading of the table above said `turnhold` refilled **2,323 bytes a
+   frame** — one wrap of 65,536 divided by the frames — and `rollsweep` 2,178
+   for the same reason. Both are small, plausible numbers. Rows × `[cs_wbn]`
+   is what caught it, which is rule 3 of the summary in one line.
+2. **Writing the FILL's range as the row's span makes the span MONOTONIC.**
+   A row that was ever full stays full for ever, so the blit never comes back
+   down: 36.33 ms against 36.13, the change doing nothing but cost. The span
+   is what CHANGED; the fill is allowed to be wider than it.
+3. **A "this row is already right" skip is wrong and would not fire.**
+   `cmp ax, dx` against last frame's span is `cs_hzrows`' own skip and looks
+   free, but the band is the crossing's BYTE: a crossing that moves within one
+   byte gives the same band while the byte's own split moves, which quantises
+   the horizon to 8 pixels of x. It also never fired — in a held 45° bank the
+   crossing moves ~4 pixels a frame, so the byte changes every second one.

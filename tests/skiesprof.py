@@ -2,6 +2,7 @@
 """CLEAR SKIES' frame, broken down IN FLIGHT (SPEC.md 88.12.1).
 
     python3 tests/skiesprof.py [--profile cruise] [--frames 40] [--tier 2]
+                               [--adi off] [--hzfull 1]
 
 AN INSTRUMENT, NOT A GATE - registered as such in tests/unit/t_registry.py,
 and it asserts nothing.
@@ -34,7 +35,13 @@ is left at the top is the loop's own arithmetic.
 **TIERS, because a breakpoint on a hot symbol runs the guest at a fraction of
 its speed** (os88marty's BpTrace comment). Tier 1 is the frame's own stages,
 ~40 stops a frame. Tier 2 adds the per-object ones, ~300. Tier 3 adds the
-per-primitive ones, ~700. Run the tier that answers the question.
+per-primitive ones, ~700. Tier 5 is tier 1 plus the rolled horizon's band
+(SPEC.md 88.3.1.1) and NOT the object tiers - a breakpoint inside a loop that
+runs once a view row is dear enough alone. Run the tier that answers the
+question.
+
+`--hzfull 1` pokes `[cs_hzfull]`, which puts every split row back on the
+whole-view span: 88.3.1.1's A/B, on one binary and one flight.
 """
 import argparse
 import os
@@ -98,6 +105,12 @@ TIER4 = [                               # the panel's own internals
     ("cs_pdisc",    r"call cs_prect$",       "disc_row"),
     ("cs_pdisc",    r"call cs_elhw$",        "disc_hw"),
     ("cs_elhw",     r"call cs_isqrt$",       "hw_sqrt"),
+]
+TIER5 = [                               # the rolled horizon's own band
+    ("cs_skyground", r"call cs_hzrows$",     "hzrows"),      # above, below
+    ("cs_skyground", r"call \[cs_hzproc\]$", "hzproc"),
+    # ...and the SPAN PASS (88.3.1.1) is a walk of its own with no call in
+    # it, so what it costs is cs_skyground's own EXCLUSIVE time here
 ]
 TIER3 = [
     ("cs_faces",    r"call cs_axcull$",      "axcull"),
@@ -193,7 +206,8 @@ def main(argv):
     ap.add_argument("--apps", default="build/apps360.img")
     ap.add_argument("--profile", default="cruise", choices=sorted(PROFILES))
     ap.add_argument("--frames", type=int, default=30)
-    ap.add_argument("--tier", type=int, default=2, choices=(1, 2, 3, 4))
+    ap.add_argument("--tier", type=int, default=2,
+                    choices=(1, 2, 3, 4, 5))
     ap.add_argument("--warm", type=int, default=6,
                     help="frames flown before the trace arms, so the first "
                          "frame after a poke - which redraws the whole panel "
@@ -202,6 +216,9 @@ def main(argv):
                     choices=("full", "off", "fast", "small"),
                     help="cycle F6 to this ADI mode before arming "
                          "(SPEC.md 88.9.2.5)")
+    ap.add_argument("--hzfull", type=int, default=None, choices=(0, 1),
+                    help="poke cs_hzfull: 1 puts the rolled horizon back on "
+                         "the whole-row refill (SPEC.md 88.3.1.1's A/B)")
     ap.add_argument("--csv", help="write the per-frame table here")
     a = ap.parse_args(argv)
     os.chdir(ROOT)
@@ -213,9 +230,13 @@ def main(argv):
 
     find = sites()
     stages, raw = [], []            # (listing offset, kind, name)
-    for tier, rows in ((1, TIER1), (2, TIER2), (3, TIER3), (4, TIER4)):
-        if tier > a.tier:
-            break
+    # tier 5 is TIER1 plus the band's internals - never the object tiers, a
+    # breakpoint inside a 112-iteration loop being expensive enough alone
+    want = [1, 5] if a.tier == 5 else list(range(1, a.tier + 1))
+    for tier, rows in ((1, TIER1), (2, TIER2), (3, TIER3), (4, TIER4),
+                       (5, TIER5)):
+        if tier not in want:
+            continue
         for scope, pat, name in rows:
             hits = find(scope, pat)
             if not hits:
@@ -275,7 +296,8 @@ def main(argv):
         print("  backend %d, view %dx%d, ADI mode %d"
               % (w("cs_back") & 0xFF, w("cs_ww"), w("cs_wh"),
                  w("cs_setadi") & 0xFF))
-        print("  profile %s: %s" % (a.profile, P["what"]))
+        print("  profile %s: %s%s" % (a.profile, P["what"],
+              "" if a.hzfull is None else "  [cs_hzfull=%d]" % a.hzfull))
 
         # --- put the aeroplane where the profile wants it, ONCE -------------
         m.pause()
@@ -291,6 +313,8 @@ def main(argv):
             poke("cs_spd", (P.get("spd", 40) * 128).to_bytes(2, "little"))
         poke("cs_roll", ((P["roll"] * 65536 // 360) & 0xFFFF).to_bytes(2, "little"))
         poke("cs_thr", P["thr"].to_bytes(2, "little"))
+        if a.hzfull is not None:
+            poke("cs_hzfull", bytes([a.hzfull]))
         if P["pos"] is None:            # the runway start: it is ON the strip
             poke("cs_pitch", ((P["pitch"] * 65536 // 360) & 0xFFFF)
                  .to_bytes(2, "little"))
