@@ -41,8 +41,10 @@ long-lived claims had been left in the middle of the heap:
 What stands from it: §50.3's rule that a long-lived data claim mid-heap splits
 the heap, which is why `OSAPI_MEM_AVAIL` reports the largest run and why
 Tracker sizes its request from that figure. §66's compactor came later and
-moves only data claims whose holders opted in — a region's base is its CS and
-never moves — which is exactly the class the two offenders here were in.
+moves only claims whose holders opted in, which is exactly the class the two
+offenders here were in. (This used to add *"a region's base is its CS and never
+moves"*; §66.6.1 refuted it — a region moves when it is frameless, and
+`mem_region_reloc` is the kernel's half of it.)
 
 ---
 

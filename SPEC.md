@@ -30760,13 +30760,18 @@ so such a machine had no heap and could load nothing.
 Two consequences follow, and both are load-bearing:
 
 - **A region is claimed from the TOP of the heap downward** (`mem_claim_hi`)
-  while data claims grow up from the bottom, because a data claim can move
-  within its lifetime by being freed and re-claimed and **a region can never
-  move at all** — its base IS its CS, and relocating it would invalidate
-  `W_SEG`, `I_SPTR`, every `MB_SEG` in the menu bar and every claim owner
-  word. From one end they interleave and a long-lived data claim landing
-  mid-heap permanently splits the space a package can load into; from
-  opposite ends they meet only when the heap is genuinely full.
+  while data claims grow up from the bottom. From one end they interleave and
+  a long-lived data claim landing mid-heap permanently splits the space a
+  package can load into; from opposite ends they meet only when the heap is
+  genuinely full. **The second reason this used to give is retired**: it was
+  *"a region can never move at all — its base IS its CS, and relocating it
+  would invalidate `W_SEG`, `I_SPTR`, every `MB_SEG` in the menu bar and every
+  claim owner word"*, and **§66.6.1 answered it by rewriting exactly those
+  words** — `mem_rr_tab` names `wm_wins + W_SEG`, `inst_tab + I_SPTR`,
+  `menu_bar + MB_SEG` and `mem_tab + MC_OWN`, which is the list above turned
+  into four table rows. A region moves when it is FRAMELESS. **"Its base is a
+  CS" is not a reason a claim cannot move** — that inference is wrong wherever
+  it appears, and §50.3 says what the door split really was.
 - **The region's owner word is the instance SLOT**, not the segment, while a
   package's own data claims carry the segment (§50.2). `mem_free_rec` already
   releases both, so teardown needs no new code, and the Task Manager's HEAP
@@ -64828,14 +64833,29 @@ no free list can disagree with reality. First fit, restart past the overlap.
 
 **Two ends, one heap.** `mem_claim` fits from the bottom upward and is what
 data asks for; `mem_claim_hi` fits from the top downward and is what a
-package's REGION asks for (§20.1). The asymmetry is not tidiness: a data
-claim can move within its lifetime by being freed and re-claimed, and a
-region can never move at all, because its base is its CS. Allocated from one
-end they interleave, and one long-lived data claim landing mid-heap
-permanently splits the space a package can be loaded into — it then fails to
-load not because 8KB is not free but because 8KB is not CONTIGUOUS. From
-opposite ends they meet only when the heap is genuinely full, and either
-side may still use all of it when the other is not there.
+package's REGION asks for (§20.1). Allocated from one end they interleave, and
+one long-lived data claim landing mid-heap permanently splits the space a
+package can be loaded into — it then fails to load not because 8KB is not free
+but because 8KB is not CONTIGUOUS. From opposite ends they meet only when the
+heap is genuinely full, and either side may still use all of it when the other
+is not there.
+
+> **THE ASYMMETRY WAS A WORKAROUND, and it is worth saying so where it is
+> defined.** This paragraph used to justify it with *"a data claim can move
+> within its lifetime by being freed and re-claimed, and a region can never
+> move at all, because its base is its CS"* — the second half of which
+> **§66.6.1 refuted**: a region moves when it is FRAMELESS, and eighteen of
+> them in the tree do, every C package's among them. The split is what a heap
+> with **no region compaction** did to keep the immovable thing out of the
+> movable thing's way, and minimising the damage was the whole of it. With
+> regions movable it *mostly stops mattering*: a hole either end is a hole the
+> compactor can close. What survives is weaker and is a preference rather than
+> a rule — a claim whose base is a CS still costs more to move than one that is
+> only bytes (its holder's proc has to run, and `mem_region_reloc`'s ~70
+> compares with it), so putting one high still keeps it out of the busiest
+> traffic. **Do not read the door as a statement about whether a claim can
+> move**; `MC_RLOC` is the only thing that says that, and §50.3.2's rule below
+> is written for the same reason.
 
 **No owner may hold more than `MEM_OWNER_MAX` = 8 claims.** It does not
 shrink the table — the table is sized by what a machine can hold — and that
@@ -64946,10 +64966,16 @@ Rules for a package (none enforceable, all binding):
 
 ### 50.3.2 …and the top-down doors a driver never had
 
-§50.3's two ends are **movable data from the bottom, immovable regions from the
-top**, and the reason is stated there: *"a package region can NEVER move,
-because its base IS its CS"*, and *"one long-lived data claim landing mid-heap
+§50.3's two ends are **data from the bottom, regions from the top**, and the
+reason is stated there: *"one long-lived data claim landing mid-heap
 permanently splits the space a package can be loaded into."*
+
+> This section was written when the other reason was *"a package region can
+> NEVER move, because its base IS its CS"*, and **§66.6.1 refuted that** — a
+> region moves when it is frameless. §50.3 above now carries the correction and
+> what it costs this section: the doors are still worth having and the rule
+> below still holds, but *"immovable"* is not why. Read the rule as **where a
+> claim is cheapest to leave**, not as whether it may move.
 
 **A driver's ring is that claim.** The 8237 holds a sound buffer's page and
 offset in its own registers; a NIC's descriptors point into its rings. Neither

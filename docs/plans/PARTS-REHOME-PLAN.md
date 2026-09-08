@@ -256,6 +256,21 @@ reusable place on the heap, because `mem_claim_1`'s `.hi` arm starts at
 `[mem_top] - size` and walks down, so it is the first thing a top-down claim
 looks at.
 
+> **Do not read more into the door split than it holds.** It was a workaround
+> for a heap with **no region compaction** — keeping the immovable thing out of
+> the movable thing's way and minimising the damage when it could not be
+> avoided — and §66.6.1 removed the premise. §50.3 and §50.3.2 have been
+> corrected to say so; the sentence *"a package region can NEVER move, because
+> its base IS its CS"* was the founding one and is what sent this plan looking
+> for a defensive pin. With regions movable the split *mostly stops mattering*:
+> a hole either end is a hole the compactor can close. What survives is a
+> preference — a CS-based claim costs its holder's proc plus
+> `mem_region_reloc`'s walk to move where a data claim costs a `rep movsw`, so
+> high still keeps it out of the busiest traffic, and there is a fair argument
+> that a carve which BECOMES an executable segment belongs high for that
+> reason. It is not load-bearing here and §4.3.3 is why: the carve is safe
+> where it is because it is a region, not because of which door it came in by.
+
 #### 4.3.2 What the tree actually declares movable — the concern was RIGHT
 
 *"Everything except modules should be movable now"* is correct, and
