@@ -262,6 +262,12 @@ br_entry:
     mov si, br_menus
     call OSAPI_MENU_SET
     mov [br_win], bx
+    ; OUR REGION MAY MOVE (SPEC.md 66.6.1). Here, and not beside the
+    ; worker's declaration: a package with NO worker is the case that
+    ; moves most easily, and putting this at the spawn left exactly
+    ; those runs declaring nothing - measured, by the row that reads
+    ; MC_RLOC back out of the kernel's own table.
+    OS88_REGION_MOVABLE
 %ifdef OS88UI_SBDRAG
     pushf                           ; the entry still owes the loader
     push ax                         ; wm_create's CF (SPEC.md 13.10.7.1)

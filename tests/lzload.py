@@ -97,8 +97,15 @@ def main():
         # the plain arm that is build/; on --lz4only it is the private one,
         # and reading build/calc.o88 there would compare the guest's image
         # against a package another build produced.
-        for name, src in (("CALC.O88", t.img("calc.o88")),
-                          ("MINES.O88", t.img("mines.o88"))):
+        # ...and it is $(LZCDIR)'s copy, which is the one the disk CARRIES.
+        # `$(BUILD)/lzload360.img` is built from `$(BUILD)/lzc/*.o88` - packed
+        # `--compress=lz4` explicitly - and not from the shipped `build/*.o88`
+        # beside them. Reading the latter passed on the plain arm by accident:
+        # both are lz4 of the same .bin, so the two UNWRAP to the same image.
+        # On --lz4only the tree has no `calc.o88` at its root at all and the
+        # row died on FileNotFoundError, which read as a broken private tree.
+        for name, src in (("CALC.O88", t.img("lzc/calc.o88")),
+                          ("MINES.O88", t.img("lzc/mines.o88"))):
             before = dispcp.win_list(m, S)
             dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, name)
             after = dispcp.win_list(m, S)

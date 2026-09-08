@@ -26,10 +26,13 @@ belong in `os88test.py` - that runs rows, and these are about the RUN:
      rather than after them, and prints the command that fixes each one.
 
   2. THE WIDTH.  One instance per core is the measured ceiling and going past
-     it is slower, not broken.  The default here is CORES-1, and the missing
-     core is not caution - it is the one the operator's own check-in, an
-     editor, or a small side task runs on.  A soak sized to exactly fill the
-     box is a soak that anything else on the box perturbs.
+     it is slower, not broken.  The default here is ONE PER CORE.  It was
+     CORES-1, on the argument that the spare core is what the operator's own
+     check-in runs on - and `status` reads a FILE, so there was never a load
+     to leave room for.  What settled it is that every row width 4 was blamed
+     for has since been diagnosed and none of them was a starved guest
+     (`widths()` below has the four).  `os88test.py` run by HAND still leaves
+     one, for the difference that matters: somebody is at that keyboard.
 
   3. SURVIVING.  It runs under `setsid`, so it outlives the shell that
      started it, and every completed row is journalled - so `start --resume`
@@ -62,6 +65,7 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
+import os88build                                            # noqa: E402
 
 RUNS = os.path.join(ROOT, "build", "soak")
 
@@ -104,6 +108,25 @@ def requirements():
                 "every build. Without it nothing under build/ can be made.",
                 _apt("nasm")))
 
+    # THE SECOND ASSEMBLER, and it is not "a newer nasm" - it is the one half
+    # the people who build this tree actually have. CONTRIBUTING.md's floor is
+    # 2 and every box here answers 2.16, so nothing in any tier ever assembles
+    # under 3.x, where constructs 2.x takes are REFUSED (`t_nasm3`'s header
+    # has the incident). No distribution here packages one yet, so the fix is
+    # a build or a path - which is exactly why it is a capability and the row
+    # skips rather than failing.
+    req.append(("nasm3", bool(os88build.nasm3()),
+                "the `nasm3` row - the only thing that assembles this tree "
+                "with an nasm 3, which is what Homebrew installs and what "
+                "half the people building it have.",
+                "brew install nasm       (macOS: it is 3.x)\n"
+                "                  ...or build one and export "
+                "OS88_NASM3=<path>/nasm:\n"
+                "                     git clone --depth 1 -b nasm-3.02 "
+                "https://github.com/netwide-assembler/nasm.git\n"
+                "                     cd nasm && sh autogen.sh && "
+                "./configure && make"))
+
     # The shipped artefacts. `all` builds these and the fast tier reads them;
     # a soak against a half-built tree fails rows for the tree's reason.
     imgs = ["os8088-360.img", "apps360.img", "os8088.img", "apps.img"]
@@ -143,6 +166,17 @@ def requirements():
     req.append(("c64 disk", os.path.exists(B("c64360.img")),
                 "c64part and the C64 rows.",
                 "make c64disk"))
+    # A FIFTH, and the one that proves the list is worth keeping by hand:
+    # skiesdiag's is a private -DCSDIAG TREE rather than a disk `all` chose
+    # not to build, so nothing above would ever have named it. It went
+    # unbuilt and unnoticed because the row reported its own absence as a
+    # pass (tools/os88test.py's probe carries that account).
+    req.append(("skiesdiag tree",
+                os.path.exists(B("skiesdiag", "apps360.img")),
+                "skiesdiag - the ONLY test of Clear Skies' freeze watchdog "
+                "(SPEC.md 88.14), an instrument for a machine that has hard "
+                "frozen.",
+                "make skiesdiag"))
 
     # **AND EVERY ARTEFACT A ROW DECLARES.** The list above is hand-written
     # and names the four disks somebody noticed; `Row(wants=...)` is the
@@ -440,9 +474,21 @@ PREWARM = [
     ("build/weave.img", "weavedisk"),
     ("build/loom.img", "loomdisk"),
     ("build/c64360.img", "c64disk"),
+    ("build/skiesdiag/apps360.img", "skiesdiag"),      # ...and ALWAYS, below
     ("build/muptest.img", "build/muptest.img"),
     ("build/spantest.img", "spantest"),
 ]
+
+
+# **EXISTENCE IS NOT FRESHNESS** (docs/WRITING-TESTS.md 13 row 33). A PRIVATE
+# TREE is built by a recursive make into a directory of its own, and nothing
+# in the shipped graph depends on it - so an edit to apps/skies/ leaves
+# build/skiesdiag/ sitting there, existing, describing a package the guest has
+# not got. `skiesdiag` checks its own tree and FAILS naming it, which is the
+# behaviour row 33 asks for; this is what stops it having to. A no-op
+# `make skiesdiag` is 0.9s, so it is cheaper to always run than to reason
+# about.
+ALWAYS = {"skiesdiag"}
 
 
 def prewarm(verbose=True):
@@ -469,7 +515,7 @@ def prewarm(verbose=True):
 
     made, failed = [], []
     for art, target in PREWARM:
-        if os.path.exists(os.path.join(ROOT, art)):
+        if os.path.exists(os.path.join(ROOT, art)) and target not in ALWAYS:
             continue
         r = subprocess.run(["make", "-s", target], cwd=ROOT,
                            capture_output=True, text=True)
@@ -498,25 +544,43 @@ def _cores():
 
 
 def widths(cores, mj=None, hj=None):
-    """How wide to run, and WHY it is one less than the box.
+    """How wide to run: THE CORE COUNT, and why it used to be one less.
 
     Measured aggregate guest speed against a real 4.77 MHz 8088, four-core
     box: 3.4x at one instance, 13.1x at four, 13.9x at six, 13.4x at eight.
     It is FLAT past the core count - four to six buys 6% and six to eight
     LOSES 4% - so the core count is the ceiling and nothing above it is worth
-    paying for.  What three costs against four is not in that series and is
-    not claimed here; what it buys is measured, and is the reason for it:
-    twelve rows at width 3 with two extra CPU hogs passed 12/12 and ran 1.06x
-    slower than the same rows alone (docs/plans/SOAK-PARALLEL.md 1).
+    paying for.  That series has never been in dispute.  What was in dispute
+    is the last core, and it is settled now.
 
-    That last core is what a `status` poll, an editor, a `git log` or a small
-    side task runs on.  Leaving it is not politeness - a run sized to fill the
-    box exactly is one that anything else on the box perturbs, and every
-    perturbed row is an hour of somebody deciding whether the failure was
-    real.  `docs/plans/HANDOFF-SOAK-FINDINGS.md` is largely a list of people making
-    that decision.
+    **IT WAS CORES-1, AND THE ARGUMENT FOR THAT DID NOT SURVIVE ITS OWN
+    EVIDENCE.**  The reasoning was that a run sized to fill the box exactly is
+    one anything else perturbs, so the spare core is what a `status` poll, an
+    editor or a small side task runs on.  Two things retired it:
+
+      * `status` READS A FILE.  It was never the load the argument feared, and
+        nothing else in the workflow is either - `start` is detached and the
+        run is polled, not watched.
+      * the four rows that made docs/plans/SOAK-PARALLEL.md 15.2 conclude *"the
+        pass rate does NOT hold at width 4"* have every one been diagnosed
+        since, and **not one of them was a guest starved of CPU**.  Three were
+        the private-tree rebuild race (8.9) - a row's kernel being rewritten
+        underneath it, which width only made more likely to overlap - and the
+        fourth was an `EVT_MDOWN` dropped from a full ring behind a confirmed
+        button level (15.4).  Both are fixed at the cause.  Width was the
+        thing that exposed them and never the thing that broke them.
+
+    Since then this box has run the full soak at width 4 repeatedly and clean,
+    with no niced lane (15.1's proposal, which the same evidence retires: it
+    exists to buy the fourth core back, and the fourth core was never the
+    problem).  So the default fills the box, and 15.2's 16.8% off the wall
+    comes with it.
+
+    A row that genuinely cannot share the cores still says so - `alone=True`
+    is what that flag is for, and it is unaffected by this.  `--marty-jobs`
+    overrides for anyone who wants the old width back on a busy machine.
     """
-    return (mj if mj else max(1, cores - 1),
+    return (mj if mj else max(1, cores),
             hj if hj else max(2, cores))
 
 
@@ -1025,7 +1089,8 @@ def main():
     ap.add_argument("-x", "--exclude", metavar="GLOB", action="append",
                     default=[], help="drop rows matching (passed through)")
     ap.add_argument("--marty-jobs", type=int, default=None, dest="marty_jobs",
-                    help="emulator lane width (default: cores-1, see widths())")
+                    help="emulator lane width (default: one per core, "
+                         "see widths())")
     ap.add_argument("-j", type=int, default=None, help="host-side lane width")
     ap.add_argument("--resume", action="store_true",
                     help="continue the last run, excluding rows it reported")

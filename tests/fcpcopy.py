@@ -45,6 +45,7 @@ import sys
 sys.path.insert(0, "tools")
 sys.path.insert(0, "tests")
 import os88fixture                                       # noqa: E402
+import os88build
 import os88marty
 import os88mouse
 import os88sym
@@ -61,8 +62,12 @@ MACHINE = sys.argv[1] if len(sys.argv) > 1 else "os8088_5150_herc_gla_144"
 # knobs os88sym already has, or the symbol map will be the wrong kernel's:
 #   OS88_DEFINES=KERN_SMALL OS88_BUILD=build/smallk \
 #   OS88_SYSIMG=build/small.img python3 tests/fcpcopy.py
-SYS_IMG = os.environ.get("OS88_SYSIMG", "build/os8088.img")
-SRC_APPS = os.environ.get("OS88_APPSIMG", "build/apps.img")
+SYS_IMG = os88build.at(os.environ.get("OS88_SYSIMG", "build/os8088.img"))
+SRC_APPS = os88build.at(os.environ.get("OS88_APPSIMG", "build/apps.img"))
+                                # THE RUN'S TREE (tests/unit/t_artpath.py):
+                                # the fcpsmall arm overrides both to the small
+                                # pair, and shutil.copyfile reads SRC_APPS
+                                # itself - a use site launch() never sees
 OUT = os.path.abspath(os.path.join("build", "fcpcopy"))
 KERNEL_SEG = 0x0060
 MB_ENTSZ, MB_SEG, MB_XL, MB_XR = 12, 10, 6, 8

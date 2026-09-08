@@ -46,6 +46,8 @@ OUT = os.path.join(ROOT, "docs", "INDEX.md")
 GROUPS = [
     ("Windows", ["11", "20"],
      ["WM_", "ABOUT_SET"]),
+    ("Packages and the desktop", ["21", "26"],
+     ["PKG_", "DESK_"]),
     ("Menus and the menu bar", ["12", "59"],
      ["MENU_", "TOAST"]),
     ("Drawing", ["5", "25", "32", "39", "76"],
@@ -92,10 +94,12 @@ GROUP_NOTES = {
 INCLUDES = [
     ("os88ui.inc", "13, 75",
      "Buttons, check boxes, radio dots, scroll bars, group boxes, the "
-     "standard alert and the standard About card. Opt into the alert with "
-     "`%define OS88UI_ALERT`, the About card with `%define OS88UI_ABOUT`, the "
-     "scroll bar with `%define OS88UI_SCROLL` and its thumb-drag half with "
-     "`%define OS88UI_SBDRAG`."),
+     "standard alert, the standard About card and the drop-down. Opt into "
+     "the alert with `%define OS88UI_ALERT`, the About card with `%define "
+     "OS88UI_ABOUT`, the scroll bar with `%define OS88UI_SCROLL` and its "
+     "thumb-drag half with `%define OS88UI_SBDRAG`, and the drop-down - one "
+     "pick out of a short list, a Macintosh popup's gesture - with `%define "
+     "OS88UI_DROP` (SPEC.md 13.14)."),
     ("os88line.inc", "83",
      "A one-line text field: caret, horizontal scroll, focus, click-to-position "
      "and the editing keys. The caller owns a 20-byte block."),
@@ -339,6 +343,12 @@ DOC_KINDS = [
     ("docs/plans/completed/", "completed"),
     ("docs/plans/", "plan"),
     ("docs/history/", "history"),
+    # A REPORT is a measurement, not a description: true of the tree it was
+    # taken on and of no other, so it neither goes stale the way `docs/` does
+    # nor proposes anything the way `docs/plans/` does. It has to sit ABOVE
+    # the catch-all below, which is a prefix match in order - under it, every
+    # report would file itself as maintained reference.
+    ("docs/reports/", "report"),
     ("docs/", "reference"),
 ]
 
@@ -354,12 +364,22 @@ def doc_files():
 
     The git pathspec `docs/*.md` matches at any depth - a pathspec wildcard is
     not stopped by a `/` - so the one glob still reaches all four directories.
-    Do not "fix" it to `docs/**/*.md`, which git reads as a LITERAL `**`."""
+    Do not "fix" it to `docs/**/*.md`, which git reads as a LITERAL `**`.
+
+    **AND IT IS DE-DUPLICATED, because `ls-files` lists a CONFLICTED path once
+    per stage.** During an unresolved merge git holds three entries for a file
+    with a conflict in it - base, ours, theirs - and plain `ls-files` prints
+    the name three times (verified: a two-line synthetic conflict returns
+    `d/x.md` three times). Regenerating the index in that state wrote
+    `WRITING-TESTS.md` three times into the list and 17 where the answer is
+    15, and nothing caught it: `checkdocs` compares INDEX.md against what the
+    tool produces, so a wrong answer generated and committed together AGREES.
+    A set is the whole fix and it costs nothing in the ordinary case."""
     try:
         names = subprocess.check_output(
             ["git", "-C", ROOT, "ls-files", "docs/*.md"],
             text=True, stderr=subprocess.DEVNULL).split("\n")
-        names = [n for n in names if n]
+        names = sorted({n for n in names if n})
     except (OSError, subprocess.CalledProcessError):
         names = []
     if not names:
@@ -502,7 +522,10 @@ def build():
       "state and these are how it got there. `docs/plans/completed/` is the "
       "subset whose work has landed; what stays directly in `docs/plans/` "
       "still has work open. `docs/history/` is superseded or closed - a record "
-      "of a moment that has passed, and true of no tree you can check out.")
+      "of a moment that has passed, and true of no tree you can check out. "
+      "`docs/reports/` is a MEASUREMENT taken at a point in time: true of the "
+      "tree it was taken on, quotable with its date and its box, and never to "
+      "be read as a description of today.")
     w("")
     docs = doc_files()
     for kind, label in (
@@ -510,7 +533,9 @@ def build():
             ("plan", "*Plans with work still open - `docs/plans/` (%d):*"),
             ("completed", "*Design records for what shipped - "
                           "`docs/plans/completed/` (%d):*"),
-            ("history", "*Superseded and closed - `docs/history/` (%d):*")):
+            ("history", "*Superseded and closed - `docs/history/` (%d):*"),
+            ("report", "*Measurements, each true of the tree it was taken on "
+                       "- `docs/reports/` (%d):*")):
         names = [os.path.basename(n) for n, k in docs if k == kind]
         w(label % len(names) + " "
           + ", ".join("`%s`" % n for n in names))

@@ -53,6 +53,15 @@ Read first: [§11 wm.inc — windows](../SPEC.md#11-wminc--windows); [§20 Loada
 | `0x0488` | `OSAPI_WM_DISPLAY` | OSAPI_VIDEO FOR THE DISPLAY THIS WINDOW IS ON (SPEC.md 39.16.4). BX = your window... |
 | `0x03E0` | `OSAPI_WM_KEEPH` | BX = win ptr, AL = 0 clear / non-0 set: "my layout is FIXED... |
 
+### Packages and the desktop
+
+Read first: [§21 loader.inc](../SPEC.md#21-loaderinc); [§26 desk.inc — desktop drive icons](../SPEC.md#26-deskinc--desktop-drive-icons).
+
+| slot | call | takes |
+|---|---|---|
+| `0x0520` | `OSAPI_PKG_RUN` | ES:SI = a package image, byte for byte what the .O88 file holds, in a claim of YOURS... |
+| `0x0528` | `OSAPI_DESK_SVC` | AL = 1 add / 0 withdraw; ES:SI = a 65-byte record in YOUR segment (add only): +0 12 the caption, NUL (<= 11 chars) +12 13 the 8.3 file the zone... |
+
 ### Menus and the menu bar
 
 Read first: [§12 menu.inc](../SPEC.md#12-menuinc); [§59 toast.inc — the transient one-line message](../SPEC.md#59-toastinc--the-transient-one-line-message).
@@ -192,6 +201,7 @@ Read first: [§7 Concurrency model (read carefully — this is the crux)](../SPE
 | `0x0160` | `OSAPI_TASK_SPAWN` | AX = your worker's near entry (a plain `mov ax, my_worker`... |
 | `0x0168` | `OSAPI_TASK_ALIVE` | BX = YOUR window ptr; the gfx lock must NOT be held, and it must be YOUR WORKER calling - never a window callback... |
 | `0x0410` | `OSAPI_TASK_PARK` | a DRIVER's worker parks here for a heap compaction (SPEC.md 66.5.5), the way a package's parks at OSAPI_TASK_ALIVE... |
+| `0x0518` | `OSAPI_TASK_RESTARTABLE` | AX = a near offset in YOUR own image, 0 to withdraw. out CF=1 = you are not a live package instance. Preserves every register... |
 | `0x02F8` | `OSAPI_BOOT_TICKS` | out AX = how long this machine took to boot, in SYSTEM TICKS (18.2065 Hz, 54.925 ms each): the boot sector's first instruction to the first desktop... |
 
 ### Sound
@@ -259,7 +269,7 @@ A package `%include`s these itself; they are not kernel calls. Include them at t
 
 | include | SPEC | what it gives you |
 |---|---|---|
-| `apps/os88ui.inc` | §13, 75 | Buttons, check boxes, radio dots, scroll bars, group boxes, the standard alert and the standard About card. Opt into the alert with `%define OS88UI_ALERT`, the About card with `%define OS88UI_ABOUT`, the scroll bar with `%define OS88UI_SCROLL` and its thumb-drag half with `%define OS88UI_SBDRAG`. |
+| `apps/os88ui.inc` | §13, 75 | Buttons, check boxes, radio dots, scroll bars, group boxes, the standard alert, the standard About card and the drop-down. Opt into the alert with `%define OS88UI_ALERT`, the About card with `%define OS88UI_ABOUT`, the scroll bar with `%define OS88UI_SCROLL` and its thumb-drag half with `%define OS88UI_SBDRAG`, and the drop-down - one pick out of a short list, a Macintosh popup's gesture - with `%define OS88UI_DROP` (SPEC.md 13.14). |
 | `apps/os88line.inc` | §83 | A one-line text field: caret, horizontal scroll, focus, click-to-position and the editing keys. The caller owns a 20-byte block. |
 | `apps/os88text.inc` | §83 | The multi-line sibling of os88line.inc. Enter inserts a newline; no wrap, no selection, no undo. |
 | `apps/os88chart.inc` | §82 | A 4bpp offscreen canvas and all seven chart types - area, bar, column, line, pie, scatter, combination - plus a BMP writer. Shared by CHART.O88 and Sheet's chart window. |
@@ -284,6 +294,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | CHART | `apps/chart/chart.asm` | §82 | yes |
 | CWORD | `apps/cword/cword.asm` | §73.12 | yes |
 | CYCLONE 88 | `apps/cyclone/cyclone.asm` | §67 | yes |
+| FONT VIEWER | `apps/fontview/fontview.asm` | §90 | yes |
 | FPTEST | `apps/fptest/fptest.asm` |  | no |
 | FRACTAL | `apps/fractal/fractal.asm` | §40 | yes |
 | FROTZ | `apps/frotz/frotz.asm` | §61 | yes |
@@ -294,11 +305,14 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | MISSILE | `apps/missile/missile.asm` | §48 | yes |
 | MODPLUG | `apps/modplug/modplug.asm` | §56 | yes |
 | NOTEPAD | `apps/notepad/notepad.asm` | §27 | yes |
+| PACCMAN | `apps/paccman/paccman.asm` | §91 | yes |
+| PACMAN | `apps/pacman/pacman.asm` | §89 | yes |
 | PAINT | `apps/paint/paint.asm` | §42 | yes |
 | PIANO | `apps/piano/piano.asm` | §36 | yes |
-| RECORDER | `apps/recorder/recorder.asm` | §35 | yes |
+| RECORDER | `apps/recorder/recorder.asm` | §35 | no |
 | RUNCPM | `apps/runcpm/runcpm.asm` | §74 | yes |
 | SHEET | `apps/sheet/sheet.asm` | §81 | yes |
+| SKIES | `apps/skies/skies.asm` | §88 | yes |
 | SOLITAIRE | `apps/solitaire/solitaire.asm` | §43 | yes |
 | TAMEGRAM | `apps/tamegram/tamegram.asm` | §49 | yes |
 | TANK | `apps/tank/tank.asm` | §85 | yes |
@@ -306,6 +320,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | TEXPAD | `apps/texpad/texpad.asm` | §69 | yes |
 | TRACKER | `apps/tracker/tracker.asm` | §45 | yes |
 | TaskMgr | `apps/taskmgr/taskmgr.asm` | §28 | yes |
+| The Wire | `apps/thewire/thewire.asm` | §92 | no |
 | WEAVE | `apps/weave/weave.asm` | `docs/WEAVE-SPEC.md` | yes |
 | WIRE | `apps/wire/wire.asm` | §78 | no |
 | WORD | `apps/word/word.asm` | §68 | yes |
@@ -402,16 +417,23 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | 85 | TANK ATTACK — a wireframe tank duel in a foreign mode (`apps/tank/`) |
 | 86 | AUDIO PLAYER — background music from a streamed WAV (`apps/audio/`) |
 | 87 | Hibernate — the machine to a file on the hard disk, and back (`kernel/hiber.inc`, `HIBER.DRV`) |
+| 88 | CLEAR SKIES — a filled-polygon flight simulator in a foreign mode (`apps/skies/`) |
+| 89 | Pac-Man (`apps/pacman/pacman.asm`) |
+| 90 | FONT VIEWER — the system face browser (`apps/fontview/fontview.asm`) |
+| 91 | PACCMAN — pacman.c, written in C (`apps/paccman/`) |
+| 92 | THE WIRE — the online software library (`apps/thewire/thewire.asm`) |
 
 ## docs/
 
-**The DIRECTORY says what a document is, and the filename does not.** `docs/` describes how the system works today - instructions, contracts and maintained reference. Everything under `docs/plans/` is a design record: what was considered, including the options that were rejected, and it is never a description of what shipped - SPEC.md is the current state and these are how it got there. `docs/plans/completed/` is the subset whose work has landed; what stays directly in `docs/plans/` still has work open. `docs/history/` is superseded or closed - a record of a moment that has passed, and true of no tree you can check out.
+**The DIRECTORY says what a document is, and the filename does not.** `docs/` describes how the system works today - instructions, contracts and maintained reference. Everything under `docs/plans/` is a design record: what was considered, including the options that were rejected, and it is never a description of what shipped - SPEC.md is the current state and these are how it got there. `docs/plans/completed/` is the subset whose work has landed; what stays directly in `docs/plans/` still has work open. `docs/history/` is superseded or closed - a record of a moment that has passed, and true of no tree you can check out. `docs/reports/` is a MEASUREMENT taken at a point in time: true of the tree it was taken on, quotable with its date and its box, and never to be read as a description of today.
 
-*How it works today - `docs/` (15):* `BIFF-NOTES.md`, `C-TOOLCHAIN.md`, `C64-SPEC.md`, `FIELD-MACHINES.md`, `FIELD-NOTES.md`, `HEAP-CLAIMS.md`, `HERCULES-TESTING.md`, `KERNEL-MEMORY.md`, `LIVE-MEDIA.md`, `MARTYPC-DEBUG.md`, `README.md`, `TESTING.md`, `UPSTREAM.md`, `WEAVE-SPEC.md`, `WRITING-TESTS.md`
+*How it works today - `docs/` (19):* `BIFF-NOTES.md`, `C-TOOLCHAIN.md`, `C64-SPEC.md`, `FIELD-MACHINES.md`, `FIELD-NOTES.md`, `HEAP-CLAIMS.md`, `HERCULES-TESTING.md`, `IMAGER.md`, `KERNEL-MEMORY.md`, `LIVE-MEDIA.md`, `MARTYPC-DEBUG.md`, `PACCMAN-PORT-PLAN.md`, `README.md`, `TELNET-PLAN.md`, `TESTING.md`, `UPSTREAM.md`, `WEAVE-SPEC.md`, `WIRE-PLAN.md`, `WRITING-TESTS.md`
 
-*Plans with work still open - `docs/plans/` (9):* `HANDOFF-SOAK-FINDINGS.md`, `KERN-SMALL-CUT-PLAN.md`, `KERNEL-BYTE-QUEUE.md`, `LAST-DROP-BYTES.md`, `LAST-DROP-PERF.md`, `MONO-RECLAIM-PLAN.md`, `MOUSE-BOOT-FREEZE-PLAN.md`, `O88-COMPRESSION-PLAN.md`, `SOAK-PARALLEL.md`
+*Plans with work still open - `docs/plans/` (12):* `ARTFUL-PERF-PLAN.md`, `HANDOFF-SOAK-FINDINGS.md`, `HEAP-UNPIN-PLAN.md`, `KERN-SMALL-CUT-PLAN.md`, `KERNEL-BYTE-QUEUE.md`, `LAST-DROP-BYTES.md`, `LAST-DROP-PERF.md`, `MONO-RECLAIM-PLAN.md`, `MOUSE-BOOT-FREEZE-PLAN.md`, `O88-COMPRESSION-PLAN.md`, `SOAK-PARALLEL.md`, `UI-MENU-ELEMENT.md`
 
 *Design records for what shipped - `docs/plans/completed/` (65):* `ASSOC-PLAN.md`, `AUDIO-PLAN.md`, `BOOT-LADDER-PLAN.md`, `BOOT-PERF-PLAN.md`, `BROWSER-PLAN.md`, `C64-PORT-PLAN.md`, `CURSOR-PLAN.md`, `DBLCLICK-PLAN.md`, `DEBUG-PLAN.md`, `DISK-PERF-PLAN.md`, `DUAL-DISPLAY-PLAN.md`, `DUAL-DISPLAY-VGA.md`, `EGA-PLAN.md`, `FROTZ-PLAN.md`, `FSX-PLAN.md`, `FTP-PERF.md`, `GFX-FSX-PLAN.md`, `GFX-REWORK-PLAN.md`, `HANDOFF-DISK-IO.md`, `HANDOFF-FONTCHAR-SEAM.md`, `HANDOFF-KERNEL-SIZE-P2.md`, `HANDOFF-KERNEL-SIZE-P3.md`, `HANDOFF-KERNEL-SIZE-P4.md`, `HANDOFF-KERNEL-SIZE.md`, `HANDOFF-REDRAW.md`, `HANDOFF-SOUND-MEMORY.md`, `HANDOFF.md`, `HDD-PLAN.md`, `HDD-SPLIT-PLAN.md`, `HEAP-COMPACTION-PLAN.md`, `KERN-SMALL-CUT-BUILT.md`, `KERN-SMALL-MODULE-SPLIT.md`, `LINE-PERF-PLAN.md`, `MEMORY-PLAN.md`, `MOUSEUP-PLAN.md`, `NET-PLAN.md`, `NET-STACK-PLAN.md`, `NOTEPAD-NOTES.md`, `O88-MULTISEG-PLAN.md`, `ONDEMAND-PLAN.md`, `PAINT-1BPP-PLAN.md`, `PAINT-NOTES.md`, `PAINT-STROKE-PLAN.md`, `PROXY-PLAN.md`, `RUNCPM-PORT-PLAN.md`, `SAVEUNDER-LIVE-PLAN.md`, `SCHED-IDLE-PLAN.md`, `SDK-INCLUDE-SIZE.md`, `SETTINGS-COST.md`, `SNAP-PLAN.md`, `SNAPSHOT-PLAN.md`, `STACK-SLOTS-PLAN.md`, `STKBALANCE-KERNEL.md`, `TEXT-PLAN.md`, `TITLE-PLAN.md`, `TOAST-PLAN.md`, `UI-FREEZE-PLAN.md`, `UIHELPERS-PLAN.md`, `VMMOUSE-PLAN.md`, `WEAVE-PLAN.md`, `WINDOW-ANIM-PLAN.md`, `WINDOW-SIZING-PLAN.md`, `WMEVENT-PLAN.md`, `WORD-PLAN.md`, `XMEM-DRIVER-PLAN.md`
 
 *Superseded and closed - `docs/history/` (9):* `DUAL-DISPLAY-BUG2.md`, `HANDOFF-TESTS-A-STRADDLE.md`, `HANDOFF-TESTS-B-LAUNCH.md`, `HANDOFF-TESTS-C-FRESH.md`, `HANDOFF-TESTS.md`, `KERN-SPLIT-PLAN.md`, `SOUND-PLAN.md`, `TRACKER-PLAN.md`, `WM-ARTIFACTS.md`
+
+*Measurements, each true of the tree it was taken on - `docs/reports/` (2):* `KERNEL-BYTES-SINCE-SQUASH-2026-09-07.md`, `TIER-TIMINGS-2026-09-07.md`
 

@@ -938,8 +938,17 @@ void os88_onwake(void *win)
          * full - is transient, and RC_M_EXIT keeps wanting the wake until
          * it takes. */
         os88_gfx_lock();
-        if (os88_task_spawn(win) == 0)
+        if (os88_task_spawn(win) == 0) {
             rc_mode = RC_M_DEAD;
+            /* ...and the 64KB region stays movable (SPEC.md 66.6.2): the
+             * worker's whole loop is `if (rc_mode == RC_M_DEAD) close;
+             * task_alive; sleep`, every value a static, so a restart at the
+             * park inside os88_task_alive() costs one poll. This package is
+             * the largest single tenant on the machine and it is hired only
+             * on the way out, so the window in which the pin would apply is
+             * exactly the window in which the memory is most wanted. */
+            os88_task_restartable(1);
+        }
         os88_gfx_unlock();
     }
     if (rc_wants_wake())

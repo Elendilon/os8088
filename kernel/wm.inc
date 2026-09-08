@@ -102,6 +102,15 @@ WIN_SIZE equ 34                 ; NOT a power of two: never shift, multiply
 WIN_SIZE equ 28                 ; ...and kern_small stops where SPEC.md 13.7
 %endif                          ; left it
 MAX_WIN  equ 12                 ; mirrored in apps/os88api.inc (SPEC.md 11)
+WM_PKGD_MAX equ 8               ; how deep wm_pkgs records the nest (SPEC.md
+                                ; 66.6.1). Callbacks nest across packages - a
+                                ; callback may call OSAPI_WM_SHOW, which
+                                ; repaints, which dispatches another package's
+                                ; paint proc - and there is no bound on that in
+                                ; principle, so past this depth mem_frameless
+                                ; pins EVERY region rather than answer from an
+                                ; incomplete stack. Eight is three deeper than
+                                ; anything measured
 
 ; --- the title bar's two boxes (SPEC.md 11) ----------------------------------
 ; The close box on the left, the minimize box mirrored at the right, both the
@@ -316,8 +325,20 @@ wm_pkgcall:
     pop ax                      ; keeps the word above safe to push and pop
     cmp word [es:si+W_SEG], 0   ; (the cmp sets the flags the branch reads, so
     je .near                    ; the `and` above cannot reach it)
-    mov ds, [es:si+W_SEG]       ; DS = the package's own segment
+    mov ds, [es:si+W_SEG]       ; DS = the package's own segment...
+    call COLD_SEG:wm_nest_pushd_x   ; ...WHICH A FRAME IS ABOUT TO REFER TO
+                                ; (SPEC.md 66.6.1), and the push reads it from
+                                ; DS, so the segment costs no register here at
+                                ; all - AX and BX are the CALLBACK's
     call far [es:si+W_DISP]     ; ...and off to its dispatcher
+    push cs                     ; DS IS THE PACKAGE'S at the return, and `.out`
+    pop ds                      ; below restores the caller's, so borrowing it
+    call COLD_SEG:wm_nest_pop_x ; for two instructions costs nothing. ES is no
+                                ; safer - a callback may clobber it (SPEC.md
+                                ; 13). A CALLBACK ANSWERS IN THE FLAGS (an
+                                ; entry proc's CF, W_ONSIZE's), so the pop
+                                ; brackets its `dec` and `push cs`/`pop ds`
+                                ; writes none
     jmp short .out
 .near:
     call bp                     ; a kernel window: DS is already ours
@@ -5627,9 +5648,14 @@ wm_paint_dmg:
 
     cmp byte [wm_dmg_fs], 0
     jne .wins                   ; fullscreen: no zones to grow the rect to
-    call COLD_SEG:desk_dmg_zones_x ; AL = the zone mask; the rect grows to cover
-    mov [wm_dmg_zn], al         ; every zone it touched
-    or al, al
+    call COLD_SEG:desk_dmg_zones_x ; AX = the zone mask; the rect grows to cover
+    mov [wm_dmg_zn], ax         ; every zone it touched. A WORD since SPEC.md
+                                ; 26.7: the Wire zone's index is one past the
+                                ; last volume's and DVOL_MAX is 8, so its bit
+                                ; is bit 8 and no volume count makes it fit a
+                                ; byte. The two accessors are the same length
+                                ; either way (A1/A3 vs A0/A2)
+    or ax, ax
     jz .fill                    ; ...and a zone is redrawn WHOLE, so a window
     mov word [wm_dmg_stwin], 0  ; over one is damaged by something other than
                                 ; the move: 11.91.2's rect no longer describes
@@ -5643,7 +5669,7 @@ wm_paint_dmg:
     mov dx, [wm_dmg_y2]         ; be worked out here, from this rect's top-left
     call wm_dmg_gray            ; corner alone - see wm_dmg_bands
 .zones:
-    mov al, [wm_dmg_zn]
+    mov ax, [wm_dmg_zn]
     call COLD_SEG:desk_paint_mask_x ; the touched drive zones, whole
     mov ax, [wm_dmg_y2]         ; reached the strip? then the dither above
     cmp ax, [vid_dock_y0]       ; just ran over it, and whatever WAS covering
@@ -6278,7 +6304,9 @@ wm_dmg_shad dw 0                ; bit n = window n owes its DROP SHADOW and
                                 ; nothing else (SPEC.md 11.91.4). Never both:
                                 ; a window in wm_dmg_mask is redrawn whole and
                                 ; the shadow comes with it
-wm_dmg_zn   db 0                ; bit n = drive zone n must be redrawn
+wm_dmg_zn   dw 0                ; bit n = desktop zone n must be redrawn. A
+                                ; WORD, because zone DVOL_MAX is the Wire's
+                                ; (SPEC.md 26.7) and DVOL_MAX is 8
 wm_dmg_fs   db 0                ; 1 = a fullscreen window is over the chrome,
                                 ; so this pass draws windows and nothing else
 wm_dmg_dk   db 0                ; 1 = the dock strip really was drawn, so a
@@ -11722,10 +11750,109 @@ wm_noanim:
 wm_animon   db 1                ; 0 = Off, 1 = On
 
 ; -----------------------------------------------------------------------------
+; wm_nest_pushd / wm_nest_pop - WHICH IMAGES THE MACHINE IS EXECUTING IN
+; wm_nest_pushd in:  DS = the image being entered, ES = KERNEL_SEG
+; wm_nest_pop   in:  DS = KERNEL_SEG
+; both preserve every register and the FLAGS - a callback's answer is its CF.
+;
+; ONE STACK FOR BOTH KINDS OF IMAGE (SPEC.md 66.6.1, 66.6.3). A package region
+; and a driver image are the same question asked twice - may this block move
+; out from under a return address - and they were two stacks, two brackets and
+; two walks until the answers were found to be the same one. A segment in here
+; means a frame somewhere refers to it; past WM_PKGD_MAX the answer is "pin
+; everything", which is free and safe. mem_in_nest is the reader.
+;
+; A STACK AND NOT A DEPTH, and that is the whole difference between a feature
+; that fires and one that does not: a package reaches mem_claim only from
+; inside its own callback and `sbl_v_grant` CLAIMS from inside a driver verb,
+; so a global depth is non-zero at exactly the moment a compaction runs.
+;
+; **`pushf`/`cli` AND NOT A BARE `inc`.** driver.inc's service cell is reached
+; from snd_tick INSIDE IRQ0 (SPEC.md 34.5), so the read-modify-write can be
+; interrupted by another push/pop pair and lose the update - leaving a depth
+; that never returns to zero, and a machine that never compacts an image again.
+; The pop needs none: `dec byte [m]` is one instruction, and an 8086 takes an
+; interrupt only between two.
+;
+; THE PUSH IS ES-RELATIVE AND THE POP DS-RELATIVE, which is not an
+; inconsistency but what every call site can actually promise. Entering, DS has
+; just been loaded with the image and ES is the kernel at all seven sites;
+; returning, a verb may have clobbered ES (SPEC.md 13) and it is DS the site
+; puts back. .cold, so `cs:` is COLD_SEG and reaches neither.
+; -----------------------------------------------------------------------------
+section .cold
+wm_nest_pushd:
+    pushf
+    cli
+    push ax
+    push bx
+    push ds
+    pop ax                      ; AX = the image, at no register cost to the
+    mov bx, [es:wm_pkgd]        ; caller
+    cmp bx, WM_PKGD_MAX
+    jae .over                   ; deeper than wm_pkgs records: mem_in_nest
+    shl bx, 1                   ; pins every image rather than guess
+    mov [es:bx+wm_pkgs], ax
+.over:
+    inc word [es:wm_pkgd]
+    pop bx
+    pop ax
+    popf
+    ret
+
+wm_nest_pop:
+    pushf
+    dec word [wm_pkgd]
+    popf
+    ret
+
+; ...and the FAR entries, for the sites that are .text (wm_pkgcall itself,
+; vmmouse.inc, xmem.inc). SPEC.md 2.6.1: a far entry ends in `retf` and is
+; never near-called, so the pair above cannot simply be far-called - hence four
+; bytes each rather than a second copy. `call`/`retf` touch no flag.
+wm_nest_pushd_x:
+    call wm_nest_pushd
+    retf
+wm_nest_pop_x:
+    call wm_nest_pop
+    retf
+section .text
+
+; -----------------------------------------------------------------------------
 ; wm.inc .bss - window table + z-order (wm_init zeroes all of it as one run,
 ; so these three must stay contiguous and in this order)
 ; -----------------------------------------------------------------------------
 section .bss
+wm_pkgd:    resw 1              ; NESTING DEPTH OF KERNEL -> PACKAGE CALLS. A
+                                ; WORD for one byte's rent: both readers load
+                                ; it into a whole register and bound it against
+                                ; WM_PKGD_MAX, so a byte costs each of them a
+                                ; `xor` the word does not - and it leaves
+                                ; wm_pkgs word-aligned into the bargain.
+                                ; (SPEC.md 66.6.1), and wm_pkgs the SEGMENT at
+                                ; each level. A level naming a segment means a
+                                ; frame somewhere refers to that package's
+                                ; region - as a far-return CS, as OSAPI_SLOT's
+                                ; own `push ds`, or as anything the package
+                                ; pushed itself - and mem_can_move pins that
+                                ; region while it does.
+                                ;
+                                ; A STACK AND NOT A COUNT, which is the whole
+                                ; difference between a feature that fires and
+                                ; one that does not. A package reaches
+                                ; mem_claim only from inside its own callback,
+                                ; so a global depth is ALWAYS non-zero at the
+                                ; one moment a package-driven compaction runs,
+                                ; and a compactor resting on one would move a
+                                ; region only on a KERNEL-initiated claim.
+                                ; Recording which costs 16 bytes and lets
+                                ; package A's claim pack package B's region.
+                                ;
+                                ; The loader's entry call is NOT counted here:
+                                ; the only region a frame of it can refer to is
+                                ; the one being loaded, and [ld_base] names
+                                ; that one already
+wm_pkgs:    resw WM_PKGD_MAX
 wm_wins:    resb MAX_WIN * WIN_SIZE ; 12 windows x WIN_SIZE bytes
 wm_zord:    resb MAX_WIN            ; window indices, [0] = backmost
 wm_zn:      resb 1                  ; entries in wm_zord

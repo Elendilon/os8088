@@ -1058,7 +1058,10 @@ DRVM_IMG_SND equ 6              ; ceil(build/sound.drv   / 1024) - t_drvmem
 DRVM_IMG_HDD equ 8              ; ceil(build/hdd.drv     / 1024)   checks
 DRVM_IMG_ETH equ 18             ; ceil(build/ether.drv   / 1024)   every one
 DRVM_IMG_RAM equ 9              ; ceil(build/ramdisk.drv / 1024)   of these
-DRVM_IMG_NET equ 6              ; ceil(build/net.drv     / 1024)
+DRVM_IMG_NET equ 7              ; ceil(build/net.drv     / 1024) - SEVEN
+                                ; since SPEC.md 26.7 put the Wire's desktop
+                                ; icon in drivers/wirezone.inc, which both
+                                ; network drivers include
 DRVM_IMG_VMM equ 1              ; ceil(build/vmmouse.drv / 1024)
 
 DRVM_SND     equ DRVM_IMG_SND + 8 + 20    ; SBL_DMASZ (the DMA-visible double
@@ -1511,10 +1514,13 @@ drv_call:
                                 ; (SPEC.md 2.6 rule 2)
     pop es
     mov ds, [es:bx+DRVR_SEG]
+    call wm_nest_pushd          ; SPEC.md 66.6.3
     call far [es:bx+DRVR_DISP]
     pop es
     pop ds                      ; DS names the kernel again...
-    pop word [snd_inst]         ; ...so the stamp lands in the kernel
+    call wm_nest_pop            ; ...which is what the pop reads, so it needs
+    pop word [snd_inst]         ; no segment of its own; and the stamp lands
+                                ; in the kernel
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1549,9 +1555,11 @@ drv_svc_call_x:
     push ds
     pop es                      ; ES = KERNEL_SEG: what the driver reads the
     mov ds, [es:drv_fseg]       ; things it was handed through
+    call wm_nest_pushd          ; SPEC.md 66.6.3
     call far [es:drv_fptr]
     pop es
-    pop ds
+    pop ds                      ; ...and DS names the kernel again, which is
+    call wm_nest_pop            ; the segment the pop reads
     retf
 
 ; -----------------------------------------------------------------------------
@@ -1588,9 +1596,11 @@ drv_blk_call_x:
     push ds
     pop es
     mov ds, [es:drv_blkseg]
+    call wm_nest_pushd          ; SPEC.md 66.6.3
     call far [es:drv_blkfp]
     pop es
-    pop ds
+    pop ds                      ; ...and DS names the kernel again, which is
+    call wm_nest_pop            ; the segment the pop reads
     ret
 .none:
     pop ax
@@ -1718,11 +1728,13 @@ drv_fs_call:
                                 ; COLD_SEG here (SPEC.md 2.6 rule 1), and the
                                 ; push has to come before DS is spent below
     mov ds, [es:drv_fseg5]
+    call wm_nest_pushd          ; SPEC.md 66.6.3
     call far [es:drv_fptr5]     ; drv_fptr5/drv_fseg5 are adjacent and in that
     pop es                      ; order, so they ARE the far pointer - no
     pop ds                      ; staging like drv_blk_call's is needed
-    pop word [snd_inst]         ; ...and it touches no flag, so the driver's
-    ret                         ; CF still comes back out
+    call wm_nest_pop            ; ...and DS names the kernel again, which is
+    pop word [snd_inst]         ; the segment the pop reads. Neither touches a
+    ret                         ; flag, so the driver's CF still comes back out
 .none:
     pop di
     pop es
@@ -1815,9 +1827,11 @@ drv_cp_call_x:
                                 ; (SPEC.md 2.6 rule 2)
     pop es
     mov ds, [es:si+2]
+    call wm_nest_pushd          ; SPEC.md 66.6.3
     call far [es:si]
     pop es
-    pop ds
+    pop ds                      ; ...and DS names the kernel again, which is
+    call wm_nest_pop            ; the segment the pop reads
     pop word [snd_inst]
 .out:
     pop di
@@ -2471,11 +2485,22 @@ drv_load_row:
                                 ; the image. drv_bss GROWS instead, once it
                                 ; knows the figure
     mov bx, MEM_K_DRV
-    call mem_claim_hi_x           ; a driver's base IS its CS, so it can never
-    pop bx                      ; move: top-down, like a package's region
-    jc .nomem
+    call mem_claim_hi_x           ; a driver's base IS its CS - top-down, like
+    pop bx                      ; a package's region, and movable for the same
+    jc .nomem                   ; reason (SPEC.md 66.6.3)
     mov [bx+DRVR_SEG], dx       ; ...which also arms drv_call
     mov [bx+DRVR_KB], ax
+
+    push ax                     ; ...AND IT MAY MOVE. The proc is the KERNEL's,
+    push bx                     ; because every word that names a driver image
+    push dx                     ; is the kernel's - mem_region_reloc's table
+    mov bx, MEM_K_DRV           ; walk is all of them - and the claim's owner is
+    mov ax, mem_region_reloc    ; a kernel tag, so mem_reloc_call dispatches it
+    call mem_movable_x          ; through cw_mem_disp and not through a driver's
+    pop dx                      ; dispatcher. NO DECLARATION IS ASKED OF THE
+    pop bx                      ; DRIVER: mem_can_move asks the three facts
+    pop ax                      ; instead, of which the IVT scan is the one a
+                                ; declaration would have got wrong
 
     push bx                     ; the row - BX is the read's own destination
     mov es, dx                  ; offset, and the claim starts at ES:0000.

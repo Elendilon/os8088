@@ -34,6 +34,7 @@ S = os88sym.linear
 # GLaBIOS twins, which MartyPC bundles, when tools/martypc/roms/ is empty:
 # this tree cannot ship somebody else's ROM (tools/martypc/README.md).
 import os                                              # noqa: E402
+import os88build                                       # noqa: E402
 # THE MACHINE IS THE GLaBIOS TWIN, resolved rather than chosen here.
 # This used to be a conditional on whether the IBM ROM happened to be
 # in the checkout, which made the machine a property of the box - and
@@ -121,7 +122,7 @@ def main():
             rec = m.read(S("wm_wins") + wins2[-1] * dispcp.WIN_SIZE,
                          dispcp.WIN_SIZE)
             pseg = rec[22] | (rec[23] << 8)
-            img = os.path.getsize("build/browser.bin")
+            img = os.path.getsize(os88build.at("build/browser.bin"))
             m.key("Tab")
             os88marty.settle(m)
             m.type_text(args.form)
@@ -198,7 +199,7 @@ def main():
         # nothing else. The window is sizable (SPEC.md 11.1), so this drags
         # the grow box and checks the layout actually followed.
         if args.resize:
-            img2 = os.path.getsize("build/browser.bin")
+            img2 = os.path.getsize(os88build.at("build/browser.bin"))
             rec2 = m.read(S("wm_wins") + wins2[-1] * dispcp.WIN_SIZE,
                           dispcp.WIN_SIZE)
             pseg2 = rec2[22] | (rec2[23] << 8)

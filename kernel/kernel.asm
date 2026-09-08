@@ -2725,14 +2725,14 @@ dbg_reg_at:                     ; 0060:000E - THE DEBUG REGISTRY (SPEC.md 57)
 %macro OSAPI_XCELL 1                ; 8 bytes exactly
     push bp                         ; 55        the CALLER's, under the frame
     mov bp, %1                      ; BD lo hi
-    jmp near api_x                  ; E9 lo hi
+    jmp strict near api_x           ; E9 lo hi
     db 0
 %endmacro
 
 %macro OSAPI_NCELL 1                ; 8 bytes exactly
     push bp
     mov bp, %1
-    jmp near api_n
+    jmp strict near api_n
     db 0
 %endmacro
 
@@ -3838,7 +3838,65 @@ osapi_table:
                                   ;          displays - and nothing is written
     OSAPI_SLOT api_gfx_rest       ; 0x0510 - ...and put it back: same rect,
                                   ;          ES:SI = the buffer the save filled
-osapi_table_end:                  ; 0x0518
+    OSAPI_XCELL inst_restart_set  ; 0x0518 - X: AX = a near offset in YOUR own
+                                  ;          image, 0 to withdraw. out CF = 1 =
+                                  ;          you are not a live package
+                                  ;          instance.
+                                  ;          "IF YOU HAVE TO MOVE MY REGION,
+                                  ;          THROW MY WORKER'S STACK AWAY AND
+                                  ;          RE-ENTER IT HERE" (SPEC.md
+                                  ;          66.6.2). The one way past 66.6.1's
+                                  ;          limit - a worker's stack carries
+                                  ;          its own segment at depths nothing
+                                  ;          can find, so the answer is not to
+                                  ;          find them but to arrange for the
+                                  ;          stack not to matter.
+                                  ;          IT IS A WINDOW, NOT A PROPERTY,
+                                  ;          and the asymmetry against
+                                  ;          OSAPI_MEM_PARKSAFE is the thing to
+                                  ;          weigh: parksafe declared wrongly
+                                  ;          costs a missed optimisation, this
+                                  ;          costs a lost loop iteration - and
+                                  ;          if the worker was holding
+                                  ;          something, correctness
+    OSAPI_SLOT osapi_pkg_run      ; 0x0520 - run a package image that is
+                                  ;          ALREADY IN MEMORY (SPEC.md 21.5):
+                                  ;          ES:SI = the image in a claim of
+                                  ;          yours, DX:CX its length, DI a
+                                  ;          NUL 8.3 name in your own segment.
+                                  ;          A PLAIN SLOT and not an X cell:
+                                  ;          ES is an ARGUMENT here and an X
+                                  ;          stub would overwrite it with the
+                                  ;          caller's DS (SPEC.md 20.3), which
+                                  ;          is the one segment the image is
+                                  ;          least likely to be in
+    OSAPI_XCELL osapi_desk_svc      ; 0x0528 - X: a DRIVER registers the
+                                  ;          desktop SERVICE zone (SPEC.md
+                                  ;          26.7). in AL = 1 add / 0
+                                  ;          withdraw, ES:SI = a 39-byte
+                                  ;          record in the driver's own
+                                  ;          segment: a caption, the 8.3 file
+                                  ;          the zone launches out of SYSTEM/,
+                                  ;          its DRVC_* class, the verb the
+                                  ;          kernel calls to PAINT its icon,
+                                  ;          and the package's header name.
+                                  ;          out CF=1 refused - not a
+                                  ;          published driver (osapi_vol_add's
+                                  ;          own fence), a second registration
+                                  ;          (there is ONE zone), or a
+                                  ;          withdraw of somebody else's.
+                                  ;          The kernel keeps no glyph: a
+                                  ;          desktop icon whose picture lived
+                                  ;          in here would be carried by every
+                                  ;          machine, and most of them have no
+                                  ;          card to use it with.
+                                  ;          THE CELL IS IN BOTH KERNELS
+                                  ;          (SPEC.md 20.8 rule 4) and on
+                                  ;          kern_small the body is two
+                                  ;          instructions that refuse: there is
+                                  ;          no driver there that would
+                                  ;          register one
+osapi_table_end:                  ; 0x0530
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -3846,8 +3904,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 161 * 8
-%error "os8088 API jump table must be exactly 161 8-byte slots"
+%if OSAPI_TABLE_LEN != 164 * 8
+%error "os8088 API jump table must be exactly 164 8-byte slots"
 %endif
 
 ; =============================================================================
@@ -4082,6 +4140,18 @@ api_gfx_rest:
     stc
     ret
 %endif
+
+; osapi_pkg_run - slot 0x04F8's resident thunk (SPEC.md 21.5)
+;
+; The body is loader.inc's and loader.inc is `.cold`, so this is the ordinary
+; six bytes - and it is in BOTH kernels, body included, because a slot that
+; exists in one build and not another is an ABI that depends on a knob
+; (SPEC.md 20.8 rule 4). `call far` and `retf` touch no flags, so the CF the
+; body answers with is what the caller's `pop ds / retf` returns.
+; -----------------------------------------------------------------------------
+osapi_pkg_run:
+    call COLD_SEG:ldf_ld_pkg_run
+    ret
 
 ; -----------------------------------------------------------------------------
 ; api_file_find - slot 0x0348 (X). in CX = ordinal, ES:DI = a DSK_FIND_SZ
@@ -6211,6 +6281,14 @@ cw_icon_pen:            call icon_pen
                     retf
 cw_icon_draw16:         call icon_draw16
                     retf
+cw_inst_alloc:          call inst_alloc
+                    retf
+cw_inst_bind_win:       call inst_bind_win
+                    retf
+cw_inst_caller:         call inst_caller    ; OSAPI_PKG_RUN reads its name
+                    retf                    ; argument through the CALLING
+                                            ; instance's segment (SPEC.md
+                                            ; 21.5), and loader.inc is cold
 cw_inst_find_kind:      call inst_find_kind
                     retf
 cw_inst_fhome_idx:      call inst_fhome_idx
@@ -6264,6 +6342,16 @@ cw_task_yield:          call task_yield
                     retf
 cw_toast_show:          call toast_show
                     retf
+cw_ui_note:             call ui_note
+                    retf
+%ifdef KERN_BIG
+cw_ui_svc_open:         call ui_svc_open    ; the service zone's double-click
+                    retf                    ; (SPEC.md 26.7): desk.inc is cold
+                                            ; and ui_sys_open is not
+cw_drv_pkg_call:        call drv_pkg_call_x ; ...and its PAINT, which is the
+                    retf                    ; same door a package reaches a
+                                            ; driver by (SPEC.md 20.11)
+%endif
 cw_vga_xor_rect_vram:   call vga_xor_rect_vram
                     retf
 cw_vid_avail_test:      call vid_avail_test
@@ -6626,6 +6714,12 @@ osapi_vol_mount:  call COLD_SEG:osapi_vol_mount_x
               ret
 osapi_vol_paint:  call COLD_SEG:osapi_vol_paint_x
               ret
+osapi_desk_svc:   call COLD_SEG:osapi_desk_svc_x    ; SPEC.md 26.7, and the
+              ret                               ; same six bytes the four
+                                                ; volume slots above cost. In
+                                                ; BOTH kernels, like the cell:
+                                                ; on kern_small the body is
+                                                ; two instructions that refuse
 
 ; --- ...and driver.inc's (SPEC.md 51). Boot-time loading, the Control Panel
 ; pages and the class dispatch. One entry is reached from an ISR:

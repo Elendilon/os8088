@@ -71,6 +71,7 @@ import os88marty
 import os88mouse
 import os88parts
 import os88sym
+import os88geom                                              # noqa: E402
 import dispcp
 import msegsym
 
@@ -90,7 +91,8 @@ APPS_IMG = "build/mseg.img"
 O88 = "build/mseg.o88"
 LAZY = 6                            # a SEMANTIC index; everything else about
                                     # the row is read out of the package
-MEM_MAX, MC_SIZE, MC_SEG, MC_OWN = 32, 10, 0, 4
+MEM_MAX, MC_SIZE, MC_SEG, MC_OWN = (os88geom.MEM_MAX, os88geom.MC_SIZE,
+                                    os88geom.MC_SEG, os88geom.MC_OWN)
 fails = []
 
 

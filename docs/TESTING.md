@@ -138,15 +138,18 @@ where GLaBIOS gives a wrong clip index and carries on.
 **`tools/os88test.py` runs the tests; `tests/suite.py` is the list of them.**
 
 ```
-python3 tools/os88test.py fast      # every build. 48 rows, ~13s, host-side only
-python3 tools/os88test.py full      # BEFORE A MERGE. ~4 minutes
-python3 tools/os88test.py soak      # everything. No budget
+python3 tools/os88test.py fast      # a commit you keep. 48 rows, ~13s, host-side
+python3 tools/os88test.py full      # major work reaching the integration branch. ~4 min
+python3 tools/os88test.py soak      # everything. No budget - and rarely what you want
 python3 tools/os88test.py --list    # what is registered, and why
 python3 tools/os88test.py soak -k 'disp*'   # just the ones about displays
 ```
 
 `make` runs the `fast` tier itself, as a prerequisite of `all`; `make
-test-full` and `make test-soak` are the other two.
+test-full` and `make test-soak` are the other two. **When each of them is
+worth running is §"When to run which tier" below** — the two that cost real
+time are not per-commit gates, and running them as though they were is where
+this suite's time has actually gone.
 
 **RUNNING THE WHOLE SOAK IS `tools/os88soak.py`, NOT `make test-soak`** —
 that target runs the same rows serially:
@@ -161,7 +164,8 @@ python3 tools/os88soak.py stop
 `check` is worth typing on its own: a capability the box has not got makes a
 row skip, **and a skip is the box declining to answer, not a pass**. It names
 every gap, the rows it would silence, and the command that fixes each. The
-width is CORES-1 so a `status` poll has a core to run on; `start --resume`
+width is ONE PER CORE (SOAK-PARALLEL §4.2 — it was CORES-1, and `status` reads
+a file, so there was never a load to leave room for); `start --resume`
 after a reclaimed container re-runs only what did not finish. Before blaming
 a failure on contention read docs/plans/SOAK-PARALLEL.md §1: load does not
 make a row slow, it makes it less thorough at the same wall time.
@@ -170,19 +174,115 @@ make a row slow, it makes it less thorough at the same wall time.
 
 | tier | budget | what it does | when |
 |---|---|---|---|
-| `fast` | **30s** (uses ~13) | Host-side only, 48 rows. Reads what `make` just built and checks what breaks SILENTLY. | Every build |
-| `full` | **10 min** | `fast`, plus every knob kernel the Makefile stamps (84 rows in `tests/unit/t_buildmatrix.py`, read off `$(KNOBS)` so a new knob fails the day it is added) and `kern_small`, the C toolchain, and a boot to a desktop on both 1bpp adapters. 13 rows. | **Before a merge** |
-| `soak` | none | The other 229 gates in `tests/`, one subject each. | When you touched that subsystem |
+| `fast` | **30s** (uses ~9) | Host-side only, 25 rows. Reads what `make` just built and checks what breaks SILENTLY — and only what somebody who did NOT touch the subject can break. | A commit you are going to keep |
+| `full` | **3 min** (uses ~1¼) | One question: *did you obviously break the OS?* Boots to a desktop on both 1bpp adapters and on VGA, builds and boots `kern_small` on its 128KB floor machine, checks the mouse and keyboard, and builds a C package. 5 rows. | A major round of work reaching the integration branch |
+| `soak` | none | The other 301 gates in `tests/`, one subject each — every per-package and kernel-internal row, the 99-knob build matrix, and everything about the tree or the suite rather than the product. | The end of extensive kernel surgery — or when asked |
+
+**Both gates are deliberately narrow, and docs/WRITING-TESTS.md §2.1 and §2.2
+are the rules.** `fast` is the one tier nobody opts into, so a row about ONE
+package or about a kernel internal no package can reach is charged to every
+contributor who is not working on it. `full` asks only whether the OS is
+obviously broken, so a row about one package, about the build matrix, or about
+the suite's own instruments does not belong there either. Both kinds live in
+`soak`, one `-k` away, run by the person whose change would break them —
+including the 99-knob matrix, which means knob `%ifdef` arms now assemble at
+soak cadence rather than at every integration merge.
+
+The `when` column is the whole of §"When to run which tier" below, compressed
+to fit in a table. **Read that section before running a tier on a schedule of
+your own** — running all three at every step is not caution, it is spending
+two hours to be told what thirteen seconds already said.
 
 The tiers are cumulative. **The runner FAILS the tier when the wall clock
 overruns its budget**, green rows or not: a suite with no ceiling grows until
 it is too slow to run. Each row also declares its own `secs` and is reported
 when it overruns them, so the row that got slower is named.
 
+### When to run which tier
+
+**This section is the authority on when a tier is run. CLAUDE.md carries the
+short form and points here; nothing else in the tree may say otherwise.**
+
+A tier is not a ritual performed at every step — each one answers a different
+question, and the question is only asked at one point in the cycle. `full` is
+four minutes and the whole soak is nearly two hours; run them where an answer
+changes and nowhere else. The general principle underneath all three rows: a
+change is covered by the ROW that is about the thing it touched, not by the
+tier that contains it. `python3 tools/os88test.py soak -k 'disp*'` after a
+redraw change is minutes and is the right answer far more often than any
+tier is.
+
+**`fast` — at a commit you intend to keep.**
+
+Run it when you are about to commit to your own branch and the commit could
+change a byte under `build/`. For most work that means nothing extra to type:
+`all` depends on `test-fast`, so the `make` that produced the artifacts you
+are committing has already run it.
+
+It is **not** required for:
+
+* **a build you are not going to commit.** An experiment, an A/B, a knob
+  build taken to answer one question — none of them are going anywhere, and
+  the tier's rows read the SHIPPED artifacts. `make` already declines to run
+  it on a knob build for exactly that reason.
+* **a documentation-only commit.** `python3 tools/checkdocs.py` is that
+  commit's gate, and it is the one to run — a stale § citation is what such a
+  commit can actually break.
+* **a commit whose only change is the build number.** That is three bytes of
+  `.text` moving because the commit count moved (SPEC.md §14.2). No invariant
+  in the tier can see it and none can break on it.
+
+**`full` — when major work first reaches the integration branch.**
+
+Run it:
+
+* the **first time** a piece of major work merges from your feature branch
+  onto the integration branch; and
+* **again** when you come back to that branch later and land another large
+  round of work on it.
+
+That is the placement the tier was built for. A merge combines two trees
+nothing has ever run together, and what `full` adds over `fast` is every
+configuration a plain `make` does not build at all — the knob kernels,
+`kern_small`, the C toolchain, and a boot to a desktop on both 1bpp adapters.
+Those are answers about a whole tree, and a large round of work landing is
+when the tree last changed enough for the answer to move.
+
+Do **not** run it:
+
+* **on every commit to your own feature branch.** Nothing in a branch's
+  fortieth commit makes that answer different from its thirty-ninth, and the
+  branch is not what anybody else builds.
+* **on a minor bugfix onto the integration branch** — a one-line fix, a
+  greying predicate, a string, a comment. Run the row that is about the thing
+  you fixed instead.
+* **on a documentation-only commit or merge.** `checkdocs.py` is the gate.
+* **on a commit that only moves the build number.**
+
+**`soak` — at the end of extensive kernel surgery, or when asked.**
+
+Run the whole soak when:
+
+* you have finished a major piece of **kernel surgery** — the memory ladder,
+  the scheduler, the window manager, the disk path, the graphics layer, the
+  boot path — and are landing it. **At the END of that work, once**, not at
+  each wave inside it; or
+* somebody **asks** for it.
+
+Nothing else earns two hours. Mid-way through the surgery the right thing is
+a SUBJECT and not the tier: `python3 tools/os88test.py soak -k '<subject>'`
+runs the rows about the one thing you touched, in minutes, and is the answer
+you actually wanted; `python3 tools/os88test.py --list` names every row and
+what it is about, which is how you find the pattern to pass.
+
+The whole tier is `tools/os88soak.py`, never `make test-soak` (above), and a
+run that long has two standing obligations: hold a waiting task for its whole
+life, and report while it is in flight.
+
 ### Why `full` is CURATED and not "all of them"
 
 A MartyPC boot to a settled desktop is ~7.5 seconds and an emulator row is
-40–75 seconds, so ten minutes is about eight of them at `--marty-jobs 1`.
+40–75 seconds, so three minutes is about four of them at `--marty-jobs 1`.
 The default is 1 for arithmetic: N instances on an N-core box is the ceiling,
 and past it every row takes longer in HOST seconds, which is what `secs`,
 timeouts and `settle`'s patience are measured in (four rows: 175.6s at 1,

@@ -192,17 +192,37 @@ run whether the rest skipped or never existed.
 `os88soak.py check` says so before the hours rather than after them, names the
 rows that would skip, and prints the command that fixes each gap.
 
-### 4.2 The width is CORES-1, and the missing core is the point
+### 4.2 The width is ONE PER CORE — and it was CORES-1 for a year
 
 Measured aggregate guest speed on four cores: 3.4x at one instance, 13.1x at
 four, 13.9x at six, 13.4x at eight — **flat past the core count**: four to six
-buys 6% and six to eight *loses* 4%. What three costs against four is not in
-that series and is not claimed here.
+buys 6% and six to eight *loses* 4%. That series has never been in dispute and
+still sets the ceiling. What was in dispute is the LAST core.
 
-That last core is what a `status` poll, an editor or a small side task runs on.
-**A run sized to fill the box exactly is one that anything else on the box
-perturbs**, and every perturbed row is an hour of somebody deciding whether the
-failure was real.
+The argument for leaving it was that it is what a `status` poll, an editor or a
+small side task runs on — *a run sized to fill the box exactly is one that
+anything else on the box perturbs* — and every perturbed row is an hour of
+somebody deciding whether the failure was real. Two things retired it:
+
+* **`status` reads a FILE** (4 above). It was never the load the argument
+  feared, and nothing else in the workflow is either: `start` is detached, and
+  the rule has always been to check in with `status` rather than by running
+  rows beside the run.
+* **Every row width 4 was blamed for has been diagnosed, and not one was a
+  starved guest.** 15.2 read four failures at width 4 and concluded *"the pass
+  rate does not hold"*; three of them were the private-tree rebuild race (8.9),
+  a row's own kernel being rewritten underneath it, which width made more
+  likely to OVERLAP and did not cause; the fourth was an `EVT_MDOWN` dropped
+  from a full ring behind a confirmed button level (15.4). Both are fixed at
+  the cause, and the full soak has since run at width 4 clean and repeatedly.
+
+So `widths()` fills the box, 15.2's **16.8% off the wall** comes with it, and
+15.1's niced fourth slot is retired with the same evidence — it existed to buy
+that core back, and the core was never the problem.
+
+**`os88test.py` run by hand still leaves one**, and that is the one place the
+old argument survives intact: somebody is at that keyboard. `--marty-jobs`
+overrides either way.
 
 ### 4.3 Surviving an idle container — HOLD A WAITING TASK
 
@@ -714,6 +734,60 @@ point: `$OS88_TREE` reaches every sub-make a row spawns — the bug behind
 them. `plain().apply()` restores it for free, because `plain()`'s own
 directory *is* `at("build")`.
 
+**And it is EXISTENCE-CHECKED where `$OS88_TREE` is not.** The asymmetry is
+the point, and 8.11 is why it had to be there before this shipped. A run's
+tree is the WHOLE build and the only directory a soak may read, so a miss must
+say so where it happened — falling back to `build/` would half-run a soak
+against the directory the tree exists to avoid. A private tree is a **subset**,
+cut to the `targets` one row asked for: `tree(targets=("small",))` holds a
+kern_small and no 360KB pair at all. Redirecting every `build/...` string into
+it unconditionally would point 8.11's thirty-four sites at files it was never
+asked to build, an hour into a soak, as a `FileNotFoundError` naming a private
+tree — which is the exact shape of the bug those sites were converted to fix.
+So the private tree answers for what it HAS and everything else falls through
+to the run's, which still never falls back to `build/`.
+
+### 8.11 The two fixes that arrived from the other side, and how they compose
+
+Two commits landed on `elendilon` from a parallel session while 8.9 and 8.10
+were being written, and both belong here because a reader hitting one of these
+mechanisms should find all four in one place.
+
+**`89d0e5b` — the reader keeps a SHARED hold.** The same soak failure, reached
+from the symptom: `_Lock` was exclusive across the build and dropped after it,
+on the claim that the second row's `make` is a no-op in a finished tree. It
+downgrades to `LOCK_SH` and holds that for the reading process's life instead,
+so a row that wants to BUILD a tree waits for the rows READING it and two
+readers never wait for each other.
+
+**That is the belt and 8.9 is the braces, and it is worth being exact about
+which does what.** 8.9 is the cause: the second `make` was *never* a no-op,
+because the sweep ate `$(VIDSTAMP)` and make read its absence as a changed
+knob set. With the marker spared, a second `tree()` writes nothing at all
+(0.4 s, measured) and there is nothing for a hold to protect against — on a
+tree that is current. On one that is genuinely stale, which a frozen run
+cannot produce and an interactive session can, the hold is still what stops
+the rewrite. Neither makes the other redundant, and the cost of keeping both
+is that a row sharing a tree waits for its partner's whole run rather than its
+build.
+
+**`a30b6d9` — a row that opens a build artefact must resolve it.** Ten rows
+failed a 368-row soak on a missing artefact and nine of the ten already
+declared a `wants=`, so the fix everyone reached for was the one they had. The
+bug is one layer along: `at()` was called at the few places a path is USED —
+`launch` staging floppies, `scratch_disk`, `os88sym` — and a row that opens an
+artefact ITSELF is a use site none of those cover. With `$OS88_TREE` unset
+`at()` is the identity function, so it works perfectly by hand and fails only
+inside a soak, several frames from the cause, as `FileNotFoundError:
+'build/pinme.o88'`. **thirty-four call sites, across twenty-four files**, go through `at()` now, in four
+shapes of which only the first is a literal a scanner can see (a plain
+`open("build/x")`, an argparse DEFAULT the row later probes, an
+`os.path.join(ROOT, "build", ...)` carrying no `build/x` string at all, and a
+`TESTAPPS=` handed to `make test` after `BUILD=` had already been redirected).
+
+Those thirty-four sites are why 8.10's redirect is existence-checked rather
+than unconditional.
+
 ---
 
 ## 9. THE PRE-MERGE GATE — 402 s to 227 s, and no flag to remember
@@ -756,6 +830,11 @@ The old default's reasoning was arithmetic, not caution: guest cycle counts are
 exact at any width, but `settle`, `until` and a row's timeout were **host**
 seconds, so widening spent slack some rows had not got. §2 removed that — the
 waits are guest-denominated — so the default follows.
+
+**This is the gate's width and it stays CORES-1 while the soak's fills the
+box** (§4.2). The difference is not about the rows, which are the same rows:
+somebody is at the keyboard for a five-minute gate and nobody is for a
+two-hour detached run.
 
 ### 9.3 Two Makefile facts found on the way
 
@@ -1391,13 +1470,20 @@ module default as well as the environment. The header is corrected.
 
 ## 15. THE FOURTH CORE — a NICED emulator slot. NOT STARTED; measure first
 
-`widths()` returns `(mj = cores - 1, hj = cores)`, so **the host lane already
-runs at the full core count** and the reservation costs only the *emulator*
-slot. §1 explains what it buys: twelve rows at width 3 with two extra CPU hogs
-passed 12/12 and ran 1.06× slower than the same rows alone. That headroom is
-what a `status` poll, an editor, a `git log` or a small side task runs on, and
-a run sized to fill the box exactly is one that anything else on the box
-perturbs.
+> **SUPERSEDED — §4.2 is the answer now.** `widths()` returns
+> `(mj = cores, hj = cores)`: the reservation is gone and so is the case for a
+> niced slot, because the four rows this section was written to explain were
+> a build race and a dropped event rather than starved guests. The section is
+> kept because its measurement and its hazard are both still true of anyone
+> who reaches for `nice` again.
+
+`widths()` returned `(mj = cores - 1, hj = cores)`, so **the host lane already
+ran at the full core count** and the reservation cost only the *emulator*
+slot. §1 explains what that bought: twelve rows at width 3 with two extra CPU
+hogs passed 12/12 and ran 1.06× slower than the same rows alone. That headroom
+was what a `status` poll, an editor, a `git log` or a small side task ran on,
+on the argument that a run sized to fill the box exactly is one that anything
+else on the box perturbs.
 
 **What it costs is larger than the aggregate series makes it look.** Read
 per-instance rather than in total, on the four-core box those numbers were

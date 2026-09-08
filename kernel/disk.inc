@@ -4409,59 +4409,14 @@ dsk_fatw_claim:
 ; in the arena's floor. What it knew that this file must not forget is that the
 ; live window has a SECOND naming word, [dsk_fatseg]; dsk_fatw_demote below is
 ; where that now lives.
-section .text                   ; ...and dsk_dseg_reloc below still needs it:
-                                ; mem_reloc_call reaches a kernel proc through
-                                ; cw_mem_disp - `call bp` with CS = KERNEL_SEG
-                                ; - so BP has to be a .text offset. An INDIRECT
-                                ; transfer is the one class os88ovlchk cannot
-                                ; see, so nothing would have failed
-; -----------------------------------------------------------------------------
-; dsk_dseg_reloc - the KERNEL's half of a DONATED claim's move (SPEC.md 66.5.10.2)
-; in:  BX = the base it WAS at, DX = the base it is at now; DS = KERNEL_SEG
-; out: nothing (every register preserved)
-;
-; NOT A RELOCATION PROC: no claim names this in MC_RLOC, and it is not reached
-; through cw_mem_disp because some record asked for it. mem_reloc_call calls it
-; for EVERY move, before the owner's own proc, because the kernel is a holder
-; of claims it does not own - which is what osapi_vol_add's DX means (18.7).
-;
-; A DONATED claim has three naming words and the callback reaches one (66.5.10.1).
-; These are the other two: dsk_vtab's DV_SEG, where the donation is recorded,
-; and [dsk_dseg], where the listing is READ FROM - and the second equals the
-; first only while that volume is the one mounted. dsk_fatw_reloc's problem
-; exactly, one table along, and the scan is by VALUE for its reason: a
-; compaction can fire while a different volume is current.
-;
-; Every row, free ones included. A free row's DV_SEG is stale rather than
+; dsk_dseg_reloc lived here: the KERNEL's half of a DONATED claim's move
+; (SPEC.md 66.5.10.2). It walked dsk_vtab's DV_SEG by value and then the live
+; [dsk_dseg] - which is two rows of mem_rr_tab and nothing else, so it is two
+; rows of mem_rr_tab. What it knew that this file must not forget is WHY the
+; scan is by value and covers free rows too: a compaction can fire while a
+; different volume is current, and a free row's DV_SEG is stale rather than
 ; meaningless (6.1's clear leaves it alone), so writing the new base into one
-; costs a store and keeps the table honest; skipping it would need the kind
-; test, which is two more instructions to achieve nothing.
-;
-; .text, and 66.5.6.1 is why: cw_mem_disp is `call bp` with CS = KERNEL_SEG,
-; so BP has to be a .text offset. This sits above the section switch below for
-; that reason and not by accident.
-; -----------------------------------------------------------------------------
-dsk_dseg_reloc:
-    push ax
-    push cx
-    push si
-    mov si, dsk_vtab
-    mov cx, DVOL_MAX
-.scan:
-    cmp [si+DV_SEG], bx
-    jne .next
-    mov [si+DV_SEG], dx
-.next:
-    add si, DV_SIZE
-    loop .scan
-    cmp [dsk_dseg], bx          ; ...and the LIVE pointer, if the block being
-    jne .out                    ; moved is the mounted volume's
-    mov [dsk_dseg], dx
-.out:
-    pop si
-    pop cx
-    pop ax
-    ret
+; keeps the table honest where skipping it would need a kind test.
 section .cold                   ; ...and back, or every routine below joins it
 
 dsk_fatw_drop:
@@ -5474,6 +5429,10 @@ dsk_find_x:
     mov [dsk_fdord], cx
     mov bp, cx                  ; BP counts the ordinals still to skip
     mov ax, [dsk_cwd]
+    cmp byte [dsk_vkind], DVK_FILE
+    je .fsenum                  ; A REDIRECTED VOLUME (SPEC.md 62.9.17): no
+                                ; sectors to walk, so the driver is asked for
+                                ; the Nth entry instead
     call dsk_dirw_start_x
 .sector:
     call dsk_dirw_get_x           ; dsk_secbuf = the next directory sector, and
@@ -5521,6 +5480,40 @@ dsk_find_x:
     loop .entry                 ; listing's is DSK_DE_STRIDE and is narrower
     jmp short .sector
 
+.fsenum:
+    ; --- A REDIRECTED VOLUME: ONE FSV_ENUM, BY ORDINAL (SPEC.md 62.9.17) ----
+    ; fcp_scan's arm, one cell along and for the same reason: there are no
+    ; directory sectors here, no raw 32 bytes to filter and no dsk_synth to
+    ; run, so the driver is asked for the Nth entry of this folder and answers
+    ; with the same SPEC.md 19.1 staged entry dsk_synth would have built. That
+    ; is why this joins the sector arm at .stage rather than repeating its
+    ; tail: one copy of "what does the caller's buffer take from an entry".
+    ;
+    ; THE SPECIES FILTER ABOVE IS THE SECTOR ARM'S AND DOES NOT APPLY: deleted
+    ; entries, the dot links, long-name fragments and the volume label are
+    ; things a FAT directory holds and a driver's row array does not. Hidden
+    ; and system are the exception, and their fence is api_file_find's, above
+    ; BOTH arms - so a package still cannot find a system file on either.
+    mov cx, bp                  ; the ordinal (BP is this routine's own copy)
+    mov bp, FSV_ENUM
+    mov dx, ds                  ; DX:BX and not ES:BX (SPEC.md 51.8), and DS
+    mov bx, dsk_ent             ; because dsk_ent is `.bss`
+    push es                     ; **ES:DI IS THE CALLER'S BUFFER AND A DRIVER
+    push di                     ; OWNS EVERY REGISTER THE FSV ABI DOES NOT
+    call drv_fs_call            ; RESERVE** (SPEC.md 62.9). RAMDISK.DRV happens
+    pop di                      ; to preserve both and the cable's need not;
+    pop es                      ; `pop` leaves the flags, so the answer below
+    jnc .stage                  ; is still drv_fs_call's
+    or ax, ax
+    jz .jend2                   ; AX = 0 is "the driver publishes no FSV_ENUM"
+                                ; and is drv_fs_call's answer for an absent
+                                ; verb rather than the driver's - the same word
+                                ; an empty folder gives (62.9.7), so it becomes
+                                ; the end of the directory and never an error
+    jmp .ioerr                  ; ...and anything else is the driver's own
+.jend2:                         ; FERR_*, passed through
+    jmp .end
+
 .take:
     ; dsk_synth stages the display name, the type and the cluster into the
     ; kernel's own dsk_ent (SPEC.md 19) - the dsk_get_dir idiom, so the copy
@@ -5554,6 +5547,18 @@ dsk_find_x:
     mov dh, 0                   ; listing costs exactly what it cost before
 .plain:
     pop es
+    jmp short .staged
+.stage:
+    ; ...AND FSV_ENUM's ANSWER ARRIVES HERE (SPEC.md 62.9.17), with dsk_ent
+    ; already staged by the driver. There is no raw entry behind it, so the
+    ; two fields the sector arm reads out of one come from the staged form
+    ; instead: the size is dsk_ent's own dword, and the attribute is 0 -
+    ; which is what a redirected volume's entries are, the species bits
+    ; living in the driver's row and never on this side of the ABI.
+    mov ax, [dsk_ent+20]
+    mov dx, [dsk_ent+22]
+    xor cl, cl
+.staged:
     push ax
     push dx
     push cx
