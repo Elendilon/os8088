@@ -4000,6 +4000,17 @@ SOAK = [
         "SPEC.md 28.10: the Task Manager paints its own ground, so a repaint"
         "is not a 450ms white hole.",
         needs=("marty",), serial=True),
+    Row("tmcol2", "soak", py("tests/tmcol2.py"), 21.0,
+        "SPEC.md 28.1.2: on CGA the process list wraps into a SECOND COLUMN, "
+        "and that column has to carry rows. It shipped EMPTY from the day "
+        "two-column mode landed - the list took column 0's depth from the "
+        "memory view's, ~2.7 rows too generous, so tm_row_place refused the "
+        "surplus on tm_ylim INSIDE column 0 and tm_rows stopped there, on a "
+        "refusal the column-major order promises is monotone. Three rows of "
+        "thirteen, beside an empty column that still had its header. Counts "
+        "rows OFF THE GLASS: nothing about the window's shape was ever wrong, "
+        "so a geometry check passes on the broken build",
+        needs=("marty",), serial=True),
     Row("trackmove", "soak", py("tests/trackmove.py"), 150.0,
         "Compact the heap out from under a LOADED module (SPEC.md 66.5.2/45).",
         needs=("marty",), serial=True,

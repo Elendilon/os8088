@@ -41738,11 +41738,20 @@ content, because nothing is drawn above it there. On CGA that is 3 rows beside
 column carries its own copy of the header line, at `TM_C2_HDR_Y` for the later
 ones.
 
-`tm_row_place` is the single index→pixel mapping, used by both views, and the
-order is **column-major**: rows `0..[tm_colrows]-1` fill column 0, then
+`tm_row_place` is the single index→pixel mapping, used by every view, and the
+order is **column-major**: the rows below column 0's depth fill column 0, then
 `[tm_col2rows]` at a time fill each column after it. That is what makes "this
 row has no place" monotone — once one row is refused every later row is too,
 so a caller may stop rather than test the rest.
+
+**Column 0's depth is ONE PER PAGE, and it has to be** (§28.1.2). The three
+lists start at three different heights up the content, so the number of rows
+one column of the same frame holds is three different numbers:
+`[tm_pcolrows]` from `TM_ROW_Y` for the process list, `[tm_colrows]` from
+`TMM_ROW_Y` for the memory view, `[tm_hcolrows]` from `TMH_ROW_Y` for the heap
+page. All three are derived in `tm_layout` from the FRAME, never from the dock
+— on a screen where `TMM_ROWS` caps the height below what the band would
+allow, a dock-derived depth names rows the frame cannot show.
 
 **A column the layout does not have refuses the row, whatever the counts say.**
 `tm_row_place` tests the column it just derived against `[tm_cols]` before it
@@ -41756,10 +41765,14 @@ row index, so once one row is off the end every later one is too.
 
 Three traps:
 
-- **`[tm_cols]`, `[tm_colrows]`, `[tm_col2rows]` and `[tm_maxrow]` are set at
-  boot and must live OUTSIDE `tm_zero_beg..tm_zero_end`**, which `tm_kinit`
-  zeroes every time a window opens. `[tm_col2rows]` is a divisor, so getting
-  this wrong is a divide-by-zero on the first launch, not a layout glitch.
+- **`[tm_cols]`, the three column-0 depths, `[tm_col2rows]` and `[tm_maxrow]`
+  are derived once, before the window exists.** As a built-in that needed
+  saying out loud: a kind's `.bss` survived between instances, so `tm_kinit`
+  cleared the block by hand and wiped whatever `tm_init` had worked out at
+  boot — a divide-by-zero the first time the window opened, `[tm_col2rows]`
+  being the divisor. **A package has no such hazard** and the rule is retired
+  with the mechanism: the loader zeroes the image's bss once per launch,
+  before the entry proc runs, and `tm_init` runs inside it.
 - **Everything a row draws reads `[tm_rowx]`, never `[tm_cx]`** — the fill, the
   text, and *both halves* of a legend square. The frame and the interior of
   that square are drawn by different routines, and one of them reading `tm_cx`
@@ -41767,6 +41780,40 @@ Three traps:
 - **The chrome above the list is column 0's** and reads `[tm_cx]`: the maps,
   the bars and the caption lines. `tm_lfill` sets `[tm_rowx]` back to `[tm_cx]`
   itself rather than relying on running before the row loop.
+
+### 28.1.2 A shared column-0 depth costs the SECOND COLUMN, not a row
+
+The three pages' lists start at three different heights up the content —
+`TM_ROW_Y` is 97, `TMM_ROW_Y` is 67 and `TMH_ROW_Y` is 48 — so a depth cut for
+one of them is wrong for the other two, and **wrong in both directions**.
+
+Too deep is the expensive direction, and it is expensive out of all proportion
+to the error. `tm_row_place` places a row from the depth it is given and then
+clamps it against `[tm_ylim]`, the live frame — so a depth naming rows the
+frame has no height for does not merely lose those rows. It **breaks the
+monotonicity the column-major order promises**: the refusal lands inside column
+0, and `tm_rows` stops there, so every row after it — the whole of column 1
+included — is never reached. The second column keeps its header, because the
+header loop counts `[tm_cols]` and never asks `tm_row_place` anything, so the
+window shows an empty column beside a truncated one and looks like a drawing
+fault rather than a layout one.
+
+The process list is the page that shipped this way. It shared `[tm_colrows]`,
+cut from the memory view's `TMM_ROW_Y` — 30px higher, ~2.7 rows too generous —
+so on CGA a 13-row list drew **3 rows of 13**: three in column 0 and nothing at
+all in column 1, from the day two-column mode landed. `[tm_pcolrows]` is that
+page's own depth and restores the 3-beside-10 the geometry was designed for.
+
+Too shallow is the cheap direction and was found first: the heap page sharing
+`[tm_colrows]` wrapped early and left a map's height of white at the foot of
+column 0, which is a row that moved rather than a list that stopped. That is
+`[tm_hcolrows]` (§28.4), and it is the same defect one page along.
+
+The rule is therefore structural rather than a fix twice applied: **a page that
+starts its list at its own y owns its own column-0 depth**, and a fourth page
+would need a fourth. The bound `[tm_maxrow]` stays ONE word over all of them
+and is cut from the DEEPEST, so it never refuses a row a shallower page has a
+place for; the tight tests are `[tm_ylim]` and the `[tm_cols]` one above.
 
 ### 28.2 The process row is exactly the chunk span
 
@@ -42035,13 +42082,16 @@ now.
 derived from `TMM_ROW_Y`, so a list starting 30 px higher wraps into column 2
 with a map's height still unused at the foot of column 1. `[tm_hcolrows]` is
 the same arithmetic from `TMH_ROW_Y` (measured: 8 rows against the memory
-view's, on CGA), and `tm_row_place` picks between them the same way. **It is
-derived from the FRAME and never from the dock**, which is the trap:
+view's, on CGA), and `tm_row_place` picks between them the same way — between
+all **three** of them since §28.1.2, the process list having wanted the same
+treatment with the opposite sign and lost its whole second column to not
+having it. **It is derived from the FRAME and never from the dock**, which is
+the trap:
 `[tm_colrows]` is dock-derived and `TMM_ROWS` caps the frame height below
 what the dock allows, so on a tall screen a dock-derived depth names rows the
 frame cannot show — and `tm_row_place` would then wrap *past* rows `tm_ylim`
 had already refused, losing them instead of moving them into the next column.
-`[tm_maxrow]` takes the deeper of the two, so it never hides a row of any page
+`[tm_maxrow]` takes the deepest of them, so it never hides a row of any page
 — but it does name indices the shallower pages have no column for, and those
 are refused on `tm_row_place`'s column test (§28.1.1) rather than on the count.
 The rest holds: the performance list is bounded by its own `cmp si, TM_ROWS`,
@@ -52710,8 +52760,12 @@ which column 0 wraps into it — one row deeper, so one row fewer wraps.
 Measured on CGA: column 0 went from 5 rows to 6 and column 1 from 3 to 2, the
 window the same size, no blank strip. The **heap page is untouched** — it has
 neither map nor bar and starts at `TMH_ROW_Y` — and the **performance view**
-keeps its rows where they were, its list being bounded by `tm_ylim` on a short
-screen and by `TM_ROWS` = 13 against a frame that still holds 15 on a tall one.
+keeps its rows where they were: it starts at `TM_ROW_Y`, which the XMS bar is
+not above, so neither its origin nor its own `[tm_pcolrows]` moves, and its
+list is bounded by `TM_ROWS` = 13 against a frame that still holds 15 on a tall
+one. (That clause read "bounded by `tm_ylim` on a short screen" until §28.1.2,
+and a list bounded by `tm_ylim` is precisely the defect: the clamp is the last
+resort, not a depth, and reaching it stops the list mid-column.)
 
 `TM_STRMAX` now takes the **maximum** of its two candidate longest lines rather
 than naming the winner. Which line is longest has already changed twice — the

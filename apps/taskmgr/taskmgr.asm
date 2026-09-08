@@ -852,6 +852,31 @@ tm_layout:
     sub ax, [tm_xoff]           ; the list starts higher with no bar above it
     mov [tm_tpl+6], ax          ; the frame height the machine can take
 
+    ; --- how deep is the PROCESS list's column 0? -----------------------------
+    ; The same frame again, and this one starts LOWER than [tm_colrows] rather
+    ; than higher: TM_ROW_Y is under the graph, the RAM line and the bar, 30px
+    ; below the memory view's TMM_ROW_Y that the depth above is cut from.
+    ;
+    ; Sharing that depth is what SPEC.md 28.1's second column was lost to. It
+    ; named rows the frame has no height for, so tm_row_place placed them in
+    ; column 0 and then refused them on [tm_ylim] - and a refusal is MONOTONE
+    ; to the caller, which is the whole contract that lets tm_rows stop at the
+    ; first one. It stopped inside column 0, and every row after it, column 1
+    ; included, was never reached: on a CGA, three rows drawn of thirteen with
+    ; an empty second column beside them and its header already on the glass.
+    push ax
+    sub ax, TITLE_H + 1 + TM_ROW_Y
+    jbe .noprow
+    mov bl, TM_ROW_H
+    div bl                      ; AL = rows, and the quotient fits: the tallest
+    xor ah, ah                  ; frame here is 295px against an 11px pitch
+    jmp short .haveprow
+.noprow:
+    mov ax, 1                   ; a screen this short still gets one row
+.haveprow:
+    mov [tm_pcolrows], ax
+    pop ax
+
     ; --- how deep is the HEAP page's column 0? --------------------------------
     ; The same frame, but its list starts at TMH_ROW_Y instead of TMM_ROW_Y
     ; (SPEC.md 28.4) - there is no map and no bar above it - so it holds the
@@ -903,10 +928,14 @@ tm_layout:
                                 ; the performance list is bounded by its own
                                 ; `cmp si, TM_ROWS`, the memory list tests
                                 ; TMM_ROWS first, and tm_ylim clamps both
+%elifdef TMF_MEM
+    add ax, [tm_colrows]        ; ...and with no heap page the memory view's is
+                                ; the deeper of the two that are left: its list
+                                ; starts 30px above the process list's
 %else
-    add ax, [tm_colrows]        ; ...and with no heap page there is no deeper
-                                ; column 0 to take: column 0 is the one the
-                                ; two remaining lists share (SPEC.md 28.12)
+    add ax, [tm_pcolrows]       ; ...and with no memory view either there is
+                                ; one list on this window, so its own depth is
+                                ; the bound (SPEC.md 28.12)
 %endif
     cmp ax, TM_DEEPEST          ; never more than there is data for - and the
     jbe .rowcap                 ; DEEPEST list is the heap page's where this
@@ -4729,16 +4758,27 @@ tm_row_place:
     push dx
     push si
 
-    mov si, [tm_colrows]        ; column 0's depth, and the HEAP page has its
-                                ; own: its list starts 30px higher (no map, no
-                                ; bar), so the column takes more rows before
-                                ; it has to wrap. Sharing this one wrapped
-                                ; early and left a map's height of white at
-                                ; the foot
+    mov si, [tm_pcolrows]       ; column 0's depth, and it is ONE PER PAGE:
+                                ; the three lists start at three different
+                                ; heights up the content, so the number of
+                                ; rows one column of the frame holds is three
+                                ; different numbers. The process list is the
+                                ; LOWEST (a graph and a bar above it) and the
+                                ; heap page the highest (neither), and sharing
+                                ; a depth is wrong in both directions - the
+                                ; heap page wrapped early and left a map's
+                                ; height of white at the foot, the process
+                                ; list wrapped LATE and lost every row after
+                                ; the first one [tm_ylim] refused
+%ifdef TMF_MEM
+    cmp byte [tm_view], 0
+    je .depth
+    mov si, [tm_colrows]
 %ifdef TMF_HEAP
     cmp byte [tm_view], 2
     jne .depth
     mov si, [tm_hcolrows]
+%endif
 .depth:
 %endif
 
@@ -6763,7 +6803,12 @@ tm_barw     equ tm_usedk + 2  ; RAM bar black width, 0..TM_GW
 ; once per launch, before the entry proc runs, and tm_init runs inside it.
 tm_cols     equ tm_barw + 2  ; process-list columns, 1 or 2 (SPEC.md 28.1)
 tm_colrows  equ tm_cols + 2  ; rows in COLUMN 0, which starts under the maps
-tm_col2rows equ tm_colrows + 2  ; rows in each LATER column, which starts at the
+tm_pcolrows equ tm_colrows + 2  ; ...and the PROCESS list's own column 0, which
+                                ; starts under the graph and the bar as well -
+                                ; TM_ROW_Y against TMM_ROW_Y, 30px lower, so it
+                                ; wraps EARLIER. Per page, for tm_hcolrows'
+                                ; reason and with the opposite sign
+tm_col2rows equ tm_pcolrows + 2  ; rows in each LATER column, which starts at the
                                 ; top and so holds more - A DIVISOR, never 0
 tm_maxrow   equ tm_col2rows + 2  ; rows this SCREEN shows, <= TMM_ROWS: derived
                                 ; from [vid_dock_y0] so the window never
