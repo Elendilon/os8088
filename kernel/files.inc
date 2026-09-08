@@ -392,22 +392,39 @@ fm_kinit_x:
     push dx
     push si
 
+%ifdef KERN_SMALL
+    push bx                     ; THE PREVIOUS TENANT OF THIS KD_POOL BLOCK
+    push dx                     ; (22.6.1) IS FREED HERE, and on this kernel
+    mov dx, [di+FS_VSEG]        ; that is not tidiness: the cache is purgeable
+    or dx, dx                   ; and so owned by MEM_P_VIEW + this slot
+    jz .nostale                 ; (50.6), which mem_free_rec's owner walk
+    call fmv_owner              ; cannot reap - a tag is nobody's instance. A
+    call mem_free_x             ; window that closed left its claim standing,
+.nostale:                       ; and the block it names is about to be a
+    pop dx                      ; DIFFERENT window's. Shedding it then would
+    pop bx                      ; zero the new tenant's FS_VSEG
+%endif
     mov word [di+FS_VSEG], 0    ; the listing cache: VIEW_KB of the heap,
     mov byte [di+FS_VKB], 0     ; owned by THIS instance so its teardown
     mov byte [di+FS_IOFH], 0    ; ...and NOTHING in it yet, whatever the last
                                 ; tenant of this KD_POOL block left (22.6.1)
     push bx                     ; frees it (SPEC.md 50.2/50.4). fmv_fit
     push dx                     ; RE-claims it at DSK_VKB the moment this
+%ifdef KERN_SMALL
+    call fmv_owner              ; MEM_P_VIEW + the slot, off DI (SPEC.md 50.6)
+%else
     mov ax, si                  ; window lists a driver-backed volume (22.6)
     sub ax, inst_tab
     mov cl, 5
     shr ax, cl
     mov bx, ax
+%endif
     mov ax, VIEW_KB
     call mem_claim_x
     jc .nocache                 ; no room: the window still works, it just
     mov [di+FS_VSEG], dx        ; re-reads the global snapshot to paint
     mov byte [di+FS_VKB], VIEW_KB
+%ifndef KERN_SMALL
     mov ax, fm_reloc            ; ...and it is MOVABLE (SPEC.md 66.5.6) - with
     call mem_movable_x          ; the owner ALREADY IN BX, which is the whole
                                 ; fix (SPEC.md 66.5.6.2). fmv_movable derives
@@ -421,6 +438,10 @@ fm_kinit_x:
                                 ; a popf, so every Disk window on a floppy
                                 ; volume has carried a PINNED 3KB cache in
                                 ; the arena's floor since 66.5.6 landed
+%endif                          ; ...and on kern_small it is PURGEABLE instead,
+                                ; so it is never moved and never declared:
+                                ; mem_can_move refuses a cache outright, and
+                                ; the shed is what gives this one back
 .nocache:
     pop dx
     pop bx
@@ -945,12 +966,15 @@ fmv_fit:
     jc .out                     ; refused: no cache, and that is a normal
     mov [di+FS_VSEG], dx        ; path (SPEC.md 50.3)
     mov [di+FS_VKB], cl
-    call fmv_movable
+%ifndef KERN_SMALL
+    call fmv_movable            ; purgeable on kern_small, so never movable
+%endif
 .out:
     mov bx, [di+FS_VSEG]        ; fm_vseg is what every reader looks at, and
     mov [fm_vseg], bx           ; this may just have changed it
     jmp kretc_dx
 
+%ifndef KERN_SMALL
 ; -----------------------------------------------------------------------------
 ; fmv_movable - declare the view cache at DX relocatable (SPEC.md 66.5.6)
 ; in:  DX = the claim, DI = the state block that owns it
@@ -968,13 +992,29 @@ fmv_movable:
     popf
     ret
 
+%endif                          ; KERN_SMALL: nothing declares a purgeable claim
+
 ; -----------------------------------------------------------------------------
-; fmv_owner - the instance slot that owns this window's claim (internal)
+; fmv_owner - who owns this window's listing cache (internal)
 ; in:  DI = state block
 ; out: BX = the owner word mem_claim/mem_free want
 ; clobbers: BX (the output), flags
 ; -----------------------------------------------------------------------------
 fmv_owner:
+%ifdef KERN_SMALL
+    push ax                     ; THE TAG, AND OFF THE BLOCK IN DI (SPEC.md
+    push cx                     ; 50.6): a purgeable claim's owner IS its
+    mov ax, di                  ; request, so this cache is MEM_P_VIEW plus its
+    sub ax, fm_pool             ; fm_pool slot and not an instance at all -
+    mov cl, FS_SIZE             ; which also makes the answer independent of
+    div cl                      ; [fm_vinst], the ACTING window, so a shed can
+    mov ah, 0                   ; ask about a window that is not the one in
+    add ax, MEM_P_VIEW          ; front. AL = the slot and AH the remainder;
+    mov bx, ax                  ; FS_SIZE is not a power of two, so it is a
+    pop cx                      ; divide - and `div r/m8` takes its dividend
+    pop ax                      ; from AX alone, so DX is not in this at all
+    ret
+%else
     push ax
     mov ax, [fm_vinst]
     or ax, ax
@@ -991,6 +1031,48 @@ fmv_owner:
     mov bx, ax
     pop ax
     ret
+%endif
+
+%ifdef KERN_SMALL
+; -----------------------------------------------------------------------------
+; fmv_demote - the shed took a Disk window's listing cache (SPEC.md 50.6)
+; in:  BX = the MEM_P_VIEW owner whose block is going
+; out: nothing (all registers and the flags preserved)
+;
+; mem_pg_forget's `.view` arm, dsk_fatw_demote's twin: this claim has TWO
+; naming words and the protocol carries one. FS_VSEG in the window's own
+; KD_POOL block is the fact, and [fm_vseg] is the mirror every reader looks at
+; - republished by fm_vp_set on the next acting window, but a paint can come
+; first, so it is cleared here when it named this block.
+;
+; Zeroing them IS the notice, which is the whole of the purgeable contract:
+; files.inc's `.nocache` path is what a 0 there already means, and it is the
+; documented fallback rather than an error.
+; -----------------------------------------------------------------------------
+fmv_demote:
+    pushf
+    push ax
+    push dx
+    push si
+    mov ax, bx
+    sub ax, MEM_P_VIEW          ; AX = the fm_pool slot
+    mov dl, FS_SIZE
+    mul dl
+    add ax, fm_pool
+    mov si, ax
+    mov dx, [si+FS_VSEG]
+    mov word [si+FS_VSEG], 0
+    mov byte [si+FS_VKB], 0
+    cmp [fm_vseg], dx
+    jne .out
+    mov word [fm_vseg], 0
+.out:
+    pop si
+    pop dx
+    pop ax
+    popf
+    ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; fmv_load - mount a directory and fill ONE window's cache (SPEC.md 22.1)
@@ -8320,6 +8402,7 @@ section .text
 ; because the compactor knows a claim and not a window; fmv_mark's walk
 ; exactly, with the folder tests dropped.
 ; -----------------------------------------------------------------------------
+%ifndef KERN_SMALL              ; purgeable there, so it is shed and never moved
 fm_reloc:
     push ax
     push cx
@@ -8348,4 +8431,5 @@ fm_reloc:
     pop cx
     pop ax
     ret
+%endif                          ; KERN_SMALL - fm_reloc is kern_big's
 

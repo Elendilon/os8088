@@ -125,7 +125,7 @@ one it is joining:
   THE TREE AND ITS SUITE duplication, generated docs, and the gates'
                         own integrity - mirror, checkdocs, docindex,
                         registry, machines, qemuown, fixtures, layout,
-                        stkwalker
+                        deps, stkwalker
 
 The membership is whatever carries the tier `fast` below; the families are
 how to argue about a new one.  docs/WRITING-TESTS.md section 2.1 is the same
@@ -720,6 +720,20 @@ FAST = [
         "SOAK and not fast: the generator is the association layer's, and "
         "assocglyph beside it is already soak",
         needs=()),
+    Row("treesweep", "fast", py("tests/unit/t_treesweep.py"), 0.1,
+        "a MARKER is not a product, so tools/os88build.py's zero-length sweep "
+        "must never eat one. It ate all nineteen: every stamp the Makefile "
+        "creates with a bare `touch` is exactly zero bytes, so each tree() "
+        "call swept $(VIDSTAMP) and the next make - reading a missing stamp "
+        "as a CHANGED KNOB SET - deleted the kernel, both boot sectors and "
+        "six drivers and built them again. Two costs: the reuse os88build "
+        "advertises never happened (19.9s against 0.4s), and two rows sharing "
+        "a tree rebuilt it under each other's reader, which is msegnomem's "
+        "soak failure twice and paintpack's once. The ratchet is the MAKEFILE "
+        "- every `touch`ed target is read out of it - so a marker named a "
+        "third way fails here in a twentieth of a second rather than in a "
+        "soak row three hours in",
+        needs=()),
     Row("registry", "fast", py("tests/unit/t_registry.py"), 0.2,
         "every test in tests/ is registered in a tier or says why not - the row "
         "that stops this suite going back to a directory nobody can enumerate"),
@@ -798,6 +812,17 @@ FAST = [
         "pixel twice and flashes on the target machine, so every call site is "
         "registered in tests/textsites.txt with a reason and the count can only "
         "go down"),
+    Row("deps", "fast", py("tests/unit/t_deps.py"), 0.1,
+        "`make` MUST mean `all`. Adding the `deps` target near the top of the "
+        "Makefile made it the default goal, so `make` printed a dependency "
+        "report, built no floppy and exited 0 - a regression no tier could "
+        "see, because a build that succeeds and produces nothing looks "
+        "exactly like a build. Also guards the dependency preflight: that "
+        "`--check` cannot reach apt, that build.sh probes for libudev BEFORE "
+        "it clones - the ORDER being the whole fix, since the same probe "
+        "after the clone is the four-minute failure it exists to prevent - "
+        "and that its auto-repair stays gated on being root, so `make marty` "
+        "cannot apt-install on a contributor's own workstation"),
     Row("layout", "fast", py("tests/unit/t_layout.py"), 0.1,
         "SPEC.md 2.9: a GUEST ADDRESS IS NOT A FILE OFFSET. Stage 2 sits in "
         "front of .text in kernel.bin, so a host-side reader that indexes the "
@@ -830,6 +855,23 @@ FAST = [
     Row("checkreadme", "fast", py("tools/checkreadme.py", "readme.txt"), 0.1,
         "README.TXT's width and size rules - Note Pad refuses a file one byte "
         "too long and shows nothing at all"),
+    Row("readme8088", "soak", py("tests/unit/t_readme8088.py"), 0.1,
+        "README.TXT packs to exactly 8,088 bytes, because the machine is an "
+        "8088 (SPEC.md 20.13.4). A JOKE, PINNED - so NOTHING IS BROKEN when "
+        "this goes red: somebody edited the manual and the number came "
+        "loose, and the fix is the PROSE and never the constant in the test. "
+        "It is a size defended by nobody - no layout depends on it and a "
+        "byte either way costs the machine nothing - which is exactly why it "
+        "needs a row, or the next ordinary edit retires it silently. `soak` "
+        "and not `fast` because only an edit to that one file can break it, "
+        "so the person it is for is the person who touched it "
+        "(docs/WRITING-TESTS.md 2.1). It needs no build: the CRLF fold and "
+        "the LZ4 wrap are the two steps $(SYSDOCRAW)/$(SYSDOC) take, done "
+        "here to readme.txt itself, so a knob tree cannot make it red. The "
+        "shipped artefact is compared as well, but only when it is a FRESH "
+        "LZ4 one - `make PKGZ=` leaves it plain, `make PKGZ=lzb` leaves it "
+        "LZB, and one older than the source would report the same edit a "
+        "second time dressed as a build fault"),
     Row("ovlchk", "fast", py("tools/os88ovlchk.py"), 1.4,
         "no near call crosses a section boundary - it assembles cleanly and "
         "runs wrong"),
@@ -979,6 +1021,29 @@ FULL = [
         "does not build, and the one that had a `cc` capability with no row "
         "behind it while no C package assembled for two releases",
         needs=("cc",), serial=True, builds=True),
+    Row("martyresume", "soak", py("tests/martyresume.py"), 30.0,
+        "TELLING ONE STOP FROM THE NEXT, which `state` cannot do. A caller "
+        "that resumes a breakpoint and polls gets `\"breakpoint\"` both when "
+        "its resume has not landed and when the machine went round and "
+        "stopped again, and until the debug server carried a stop sequence "
+        "number every client invented its own answer: bp_count deduped on "
+        "`instructions` (which works by luck - machine.run() accumulates that "
+        "count at the END of a batch and returns EARLY at a breakpoint), a "
+        "helper polled the IP (which cannot work at all: a breakpoint that "
+        "fires repeatedly fires at the SAME address, and this row measures 8 "
+        "genuine stops carrying 8 identical IPs), and `wait_stop` tested "
+        "nothing and returned the stop that was ALREADY THERE - instantly, to "
+        "a caller that had just resumed past it, which is a green assertion "
+        "for a gesture that never happened across 100-odd call sites. It "
+        "asserts that one stop reads as one number however often it is "
+        "polled, that the stop already there does not answer a wait past it "
+        "and a real one does at exactly +1, that bp_count does not count the "
+        "stop it was handed, and that the `cycles` fallback still refuses a "
+        "stale stop on an emulator built before the field"
+        ". SOAK and not full: it gates the test INSTRUMENT and not the OS, so "
+        "it cannot answer that tier's question - martyconc's reason, and it "
+        "is the other row a change to tools/os88marty.py runs",
+        needs=("marty",)),
     Row("martyconc", "soak", py("tests/martyconc.py"), 20.0,
         "TWO EMULATORS AT ONCE, and every way that used to go wrong. It is "
         "here rather than in soak because it gates the INSTRUMENT the whole "
@@ -2912,6 +2977,22 @@ SOAK = [
         "surfacing twenty steps later. Ends with the same navigation run "
         "both ways on one machine: settle-and-hope against read-the-answer.",
         needs=("marty",), serial=True),
+    Row("bptrace", "soak", py("tests/bptrace.py"), 45.0,
+        "Can the harness drive the UI with BREAKPOINTS ARMED? It could not "
+        "until os88marty.bp_trace: every os88ui and os88mouse verb confirms "
+        "by reading guest state, and a guest stopped at a breakpoint "
+        "publishes nothing new - so an armed breakpoint does not mis-aim a "
+        "click, it makes the click's own PROOF unobtainable, and 78 files "
+        "under tests/ arming breakpoints could use none of that layer. It is "
+        "an A/B and has to be: a bare bp_exec must FAIL and name the CLOCK "
+        "(2.2s, against 332.1s and a wrong diagnosis before the os88mouse "
+        "guard), and the same symbols pumped must complete a path(), a "
+        "menu_pick() and a raw pointer move. Then the invariants the four "
+        "converted rows rest on - dedupe on `instructions`, `breakpoint` and "
+        "never `paused`, a cap that overflows instead of wedging, and an "
+        "on_hit that reads the .bss while the guest is still inside the "
+        "routine",
+        needs=("marty",), serial=True),
     Row("dispseam", "soak", py("tests/dispseam.py"), 300.0,
         "Does the one cell a display SEAM crosses still reach the glass?"
         "(SPEC.md 39.14.11) - it builds `make NOSEAMCUT=1` itself for the A/B"
@@ -3009,12 +3090,12 @@ SOAK = [
         "carry that bit, or a cell that set it unconditionally would pass. "
         "AND THEN IT OPENS README.TXT off the shipped system disk by "
         "double-clicking it (SPEC.md 20.14.2.1), which no fixture could stand "
-        "in for: the manual's reader has 16,384 bytes for 16,334 of text and "
-        "in-place expansion wants 16,413, so the field saw 'Too big' on a "
-        "file the machine had just reported as fitting. np_len is what says "
-        "it worked - an empty note and a full one look identical at every "
-        "zoom - and it reads 16,019, the CRLF file FOLDED, so 315 carriage "
-        "returns had to arrive to be dropped",
+        "in for: the manual's reader has 16,384 bytes for 14,722 of text, and "
+        "when it was 16,334 an in-place expansion wanting 16,413 made the "
+        "field see 'Too big' on a file the machine had just reported as "
+        "fitting. np_len is what says it worked - an empty note and a full "
+        "one look identical at every zoom - and it reads 14,427, the CRLF "
+        "file FOLDED, so 295 carriage returns had to arrive to be dropped",
         needs=("marty",), serial=True,
         wants=("build/lzfile360.img",)),
     Row("lzcomp", "soak", py("tests/lzcomp.py"), 150.0,
@@ -3413,8 +3494,8 @@ SOAK = [
         "SPEC.md 52.10.13: an install reproduces the source disk's WHOLE "
         "tree - the empty SYSTEM/APPDATA and SYSTEM/DOS/OS88NET.COM included, "
         "which one folder level could not reach - AND ITS BYTES (52.10.13.1). "
-        "README.TXT is compressed on the shipped floppy, 8,850 bytes against "
-        "16,304 expanded, and the installer had two copy shapes chosen by "
+        "README.TXT is compressed on the shipped floppy, 8,088 bytes against "
+        "14,722 expanded, and the installer had two copy shapes chosen by "
         "size: the small one used OSAPI_FILE_READ, which is the TRANSPARENT "
         "read, so the manual was installed EXPANDED with its directory hint "
         "gone while every file too big for the buffer was copied raw and "
@@ -4085,6 +4166,17 @@ SOAK = [
     Row("tmground", "soak", py("tests/tmground.py"), 60.0,
         "SPEC.md 28.10: the Task Manager paints its own ground, so a repaint"
         "is not a 450ms white hole.",
+        needs=("marty",), serial=True),
+    Row("tmcol2", "soak", py("tests/tmcol2.py"), 21.0,
+        "SPEC.md 28.1.2: on CGA the process list wraps into a SECOND COLUMN, "
+        "and that column has to carry rows. It shipped EMPTY from the day "
+        "two-column mode landed - the list took column 0's depth from the "
+        "memory view's, ~2.7 rows too generous, so tm_row_place refused the "
+        "surplus on tm_ylim INSIDE column 0 and tm_rows stopped there, on a "
+        "refusal the column-major order promises is monotone. Three rows of "
+        "thirteen, beside an empty column that still had its header. Counts "
+        "rows OFF THE GLASS: nothing about the window's shape was ever wrong, "
+        "so a geometry check passes on the broken build",
         needs=("marty",), serial=True),
     Row("trackmove", "soak", py("tests/trackmove.py"), 150.0,
         "Compact the heap out from under a LOADED module (SPEC.md 66.5.2/45).",

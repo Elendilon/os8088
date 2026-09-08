@@ -354,6 +354,34 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
   %define OS88_RTC 1
 %endif
 
+; SPEC.md 66's HEAP COMPACTOR is kern_big's (SPEC.md 66.0). The 128KB machine
+; keeps PURGING and gives up MOVING, which is a trade this tree measured both
+; halves of rather than assumed:
+;
+;   what it costs there is small and getting smaller. Its two biggest
+;   customers - a driver IMAGE and a driver's DONATED claim (SPEC.md
+;   66.6.3/66.5.10.2) - cannot exist on a kernel OS88_DRIVERS gates out, the
+;   association cache went with SPEC.md 54.0, and hibernate is kern_big's; so
+;   of the kernel's own claims only the menu save-under is left movable there,
+;   and it is 3.0KB alive for one menu;
+;
+;   and what made the case for keeping it - two 2KB Disk-window listing caches
+;   stranding 21.5KB of a 48.5KB arena between them - was answered at the
+;   CLAIM instead (SPEC.md 50.6.5): a cache that can be shed does not need to
+;   be moved, and shedding reaches 48.5KB where compacting reached 44.5.
+;
+; What goes with it is the whole feature and not the call: mem_can_move and
+; its five predicates, the seventeen mem_cp_* routines, mem_reloc_call,
+; mem_region_reloc's table walk, OSAPI_MEM_MOVABLE's body, the WORKER PARK
+; (SPEC.md 66.5) and sch_wk_restart. THE API SLOTS STAY - a small-built
+; package calls the same table at the same offsets (SPEC.md 24.5) - and
+; refuse, which is gfx_blit1's precedent on this kernel (SPEC.md 5.4.2.5).
+;
+; Resolved here for OS88_ASSOC's reason.
+%ifdef KERN_BIG
+  %define OS88_COMPACT 1
+%endif
+
 ; SPEC.md 22.3-22.5's Cut/Copy/Paste is an ON-DEMAND MODULE on kern_small
 ; (SPEC.md 2.8, docs/plans/completed/KERN-SMALL-MODULE-SPLIT.md 9.2 wave 1) and stays resident
 ; `.cold` on kern_big, which keeps its speed and its one contiguous boot read:

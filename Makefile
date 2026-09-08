@@ -1,11 +1,40 @@
 # =============================================================================
 # os8088 - build a bootable 1.44MB floppy image
 #
+#   make deps   install the host dependencies FIRST (see below)
 #   make        build build/os8088.img
 #   make run    boot it in QEMU
 #   make debug  boot it with QEMU waiting for gdb on :1234
 #   make clean
 # =============================================================================
+
+# THE FIRST THING TO TYPE on a box you have not built on. `make deps` installs
+# nasm, pkg-config + libudev-dev (which `make marty` needs and fails MINUTES IN
+# without, inside cargo on the serialport crate) and qemu, by running
+# tools/setup-linux.sh or tools/setup-macos.sh as the host requires. It is
+# IDEMPOTENT and about a fifth of a second when everything is already there,
+# so it is cheap to type when unsure - which is the point, the alternative
+# being a four-minute cargo build that ends on a missing 200KB header.
+#
+# `make deps-check` is the same question with no install: it reports and exits
+# nonzero if anything is missing.
+#
+# .DEFAULT_GOAL IS NOT DECORATION. `all` is 1,800 lines down, and make takes
+# the FIRST TARGET IN THE FILE as the default goal - so putting these two
+# rules up here, where a reader finds them, silently made `make` mean
+# `make deps`: a dependency report, no floppy built, exit 0. Naming the goal
+# costs one line and makes the position of every rule below it a layout
+# question rather than a behavioural one. tests/unit/t_deps.py guards it.
+.DEFAULT_GOAL := all
+
+.PHONY: deps deps-check
+deps:
+	@if [ "$$(uname -s)" = "Darwin" ]; then tools/setup-macos.sh; \
+	 else tools/setup-linux.sh; fi
+deps-check:
+	@if [ "$$(uname -s)" = "Darwin" ]; then \
+	     echo "deps-check: macOS - run tools/setup-macos.sh"; \
+	 else tools/setup-linux.sh --check; fi
 
 NASM  := nasm
 # The `pc` machine carries a `vmport` and a `vmmouse` by default, so a guest
@@ -826,9 +855,17 @@ VIDDEF += -DSTRAD_ALL
 endif
 
 # HEAPCOMPACT=0 removes the heap compactor (SPEC.md 66) - the BODY, not merely
-# the call, so the A/B measures the feature and not a branch around it. With it
-# off, mem_claim's retry loop is the shed-and-retry it was, every claim stays
-# where it was first placed, mem_can_move pins the lot - so mem_avail, which
+# the call, so the A/B measures the feature and not a branch around it.
+#
+# **IT IS A NO-OP ON kern_small**, which has no compactor to remove: SPEC.md
+# 66.0 compiles the whole feature out there behind OS88_COMPACT, and these
+# gates now sit INSIDE it. `make KERN_SMALL=1 HEAPCOMPACT=0` builds and is
+# byte-identical to `make KERN_SMALL=1` - it is not an error and not an A/B.
+# So are HEAPPARK=0 and HEAPPARKLK=0 there, and all three together; checked
+# rather than assumed.
+#
+# On kern_big, with it off, mem_claim's retry loop is the shed-and-retry it
+# was, every claim stays where it was first placed, mem_can_move pins the lot - so mem_avail, which
 # answers out of the compactor's plan (SPEC.md 66.10.3), reports the run this
 # heap really has - and OSAPI_MEM_MOVABLE records a handle nothing ever reads.
 # This is the reference build for tests/heapfrag and for any claim that
@@ -1921,19 +1958,31 @@ test-full: $(IMG) $(IMG120) $(IMG720) $(IMG360) \
            $(MEDIAIMG360) $(WEAVEWABS)
 	@python3 tools/os88test.py full
 
-# THIS TARGET RUNS THE TIER SERIALLY (`--marty-jobs 1`), which is right for
-# `make test-soak -k <subject>` after touching one thing and wrong for the
-# whole tier - hours of it, on one core of four. `tools/os88soak.py` is the
-# whole-tier command: it preflights the capabilities first (a skip is the box
-# declining to answer, not a pass), sizes the lanes off the box, runs
-# detached, and journals every row so a reclaimed container resumes rather
-# than restarts. docs/plans/SOAK-PARALLEL.md is the account.
+# THIS TARGET RUNS THE TIER SERIALLY (`--marty-jobs 1`), which is right for a
+# SCOPED run after touching one thing - `make test-soak SOAKARGS="-k 'disp*'"`
+# - and wrong for anything wider. `tools/os88soak.py` is the runner: it
+# preflights the capabilities first (a skip is the box declining to answer,
+# not a pass), sizes the lanes off the box, runs detached, and journals every
+# row so a reclaimed container resumes rather than restarts.
+# docs/plans/SOAK-PARALLEL.md is the account.
+#
+# WITH NO SOAKARGS THIS IS THE WHOLE TIER AND os88test.py REFUSES IT: the
+# whole tier runs only when the OWNER asks for it in as many words
+# (docs/TESTING.md, "When to run which tier"). That refusal is the target
+# working, not the build breaking.
 test-soak: $(IMG) $(IMG120) $(IMG720) $(IMG360) \
            $(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360) \
            $(MEDIAIMG360)
-	@echo "os88: this runs the soak SERIALLY. For the whole tier use"
-	@echo "      python3 tools/os88soak.py check   # then \`start\`"
-	@python3 tools/os88test.py soak
+	@echo "os88: this runs the soak in ONE FOREGROUND invocation, at the"
+	@echo "      runner's default emulator width (cores-1). SCOPE IT to what"
+	@echo "      you changed - make test-soak SOAKARGS=\"-k 'disp*'\" - and"
+	@echo "      for anything longer use the soak runner, which preflights"
+	@echo "      the box, builds the on-demand artefacts, runs one lane PER"
+	@echo "      CORE, detaches and journals every row so \`start --resume\`"
+	@echo "      picks up:  python3 tools/os88soak.py check   # then \`start\`"
+	@echo "      The WHOLE tier is the owner's to ask for and is refused"
+	@echo "      unscoped (docs/TESTING.md, When to run which tier)."
+	@python3 tools/os88test.py soak $(SOAKARGS)
 
 # The documentation gate (SPEC.md is the binding contract, so a citation that
 # names a heading which does not exist is a defect in it): a stale section
@@ -2944,8 +2993,8 @@ else
 	python3 tools/os88lz.py --wrap $@ --fmt $(PKGZ) $<
 endif
 
-# ...AND IT IS COMPRESSED ON THE DISKS (SPEC.md 20.13.4). 16,334 bytes of
-# CRLF prose is 8,861 wrapped, which is seven of a 360KB disk's 354 clusters,
+# ...AND IT IS COMPRESSED ON THE DISKS (SPEC.md 20.13.4). 14,722 bytes of
+# CRLF prose is 8,088 wrapped, which is seven of a 360KB disk's 354 clusters,
 # and Note Pad reads it whole through OSAPI_FILE_READ - so SPEC.md 20.14's
 # transparent read applies and nothing in np_load changes. TWO ARTEFACTS, and
 # the split is not tidiness:
@@ -2963,8 +3012,8 @@ endif
 #
 # WHAT IT DOES NOT BUY IS ROOM. checkreadme.py's 16KB limit is np_load's, and
 # np_load claims against the UNPACKED size that OSAPI_FILE_FIND reports
-# (SPEC.md 20.14.4) - so the manual has the same 50 bytes of headroom it had
-# before, and rule 2 there still measures the CRLF source rather than the file.
+# (SPEC.md 20.14.4) - so the manual has the same 1,662 bytes of headroom it
+# had before, and rule 2 there still measures the CRLF source, not the file.
 SYSDOCRAW := $(BUILD)/readme-plain.txt
 
 # --- WHAT THE 360KB SYSTEM DISK ALONE LEAVES OFF (SPEC.md 24.3) --------------
@@ -4958,6 +5007,18 @@ $(BUILD)/skiesdiag/apps360.img: $(SKIES_SRC) | $(BUILD)
 skiesdiag: $(BUILD)/skiesdiag/apps360.img
 	@echo "skiesdiag: $(BUILD)/skiesdiag/apps360.img - boot the SHIPPED"
 	@echo "           system disk with this as B: (SPEC.md 88.14)"
+
+# ...and the COUNTING build (SPEC.md 88.11.1), skiesdiag's shape exactly: the
+# counters and the four runtime A/B arms behind `%ifdef CSPROBE`, so the
+# SHIPPED package is byte-identical and `make && md5sum $(BUILD)/skies.bin`
+# says so. tests/skiescount.py is what drives it, and it is an INSTRUMENT
+# rather than a gate - it asserts nothing.
+$(BUILD)/skiesprobe/apps360.img: $(SKIES_SRC) | $(BUILD)
+	@$(MAKE) --no-print-directory BUILD=$(BUILD)/skiesprobe CSDIAGDEF=-DCSPROBE $@
+.PHONY: skiesprobe
+skiesprobe: $(BUILD)/skiesprobe/apps360.img
+	@echo "skiesprobe: $(BUILD)/skiesprobe/apps360.img - then"
+	@echo "            python3 tests/skiescount.py --scene dfangled"
 $(BUILD)/skies.bin: $(SKIES_SRC) | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/skies/ $(CSDIAGDEF) -o $@ apps/skies/skies.asm
 	@echo "skies: $(call FILESIZE,$@) bytes"

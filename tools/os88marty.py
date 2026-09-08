@@ -181,12 +181,14 @@ class Marty:
         self.f = self.s.makefile("rwb")
         self._lock = threading.Lock()   # cmd() is a request/reply PAIR
         self._log = []          # every input, stamped with its guest cycle
+        self._go = None         # the last resume's stop mark: see `go()`
         self.addr = "%s:%s" % (host, port)
         self.port = int(port)
         self.run_dir = None     # launch() fills these in; a bare attach has
         self.pid = None         # no run tree and no process of its own
         self._proc = None
         self._rec = None
+        self._pumping = 0   # bp_trace blocks in flight
         self._greet(timeout)
 
     def _greet(self, timeout):
@@ -518,14 +520,112 @@ class Marty:
 
     # --- execution -----------------------------------------------------------
 
+    # --- resuming, and telling ONE STOP FROM THE NEXT ------------------------
+    #
+    # `state` cannot do it. A stop and the SAME stop reported again both read
+    # `"breakpoint"`, and so does the next entry - so a caller that resumes and
+    # polls has no way, from the state alone, to tell "my resume has not landed"
+    # from "it landed, went round, and stopped again". Neither the address nor
+    # the registers help: a breakpoint that fires repeatedly fires at the SAME
+    # IP every time, by construction. Measured on a plain desktop with an
+    # `int 08h` breakpoint, 59 consecutive stops carried 59 identical
+    # `flat_ip`s - so "the IP has not moved" is true of a machine that never
+    # resumed and of one that did the whole lap, and a helper polling on it
+    # reads the second as the first.
+    #
+    # The debug server answers it directly instead: `stops` is a sequence
+    # number that counts every entry into a stopped state, and `run`'s reply
+    # carries `resumed_from`, which is that count as the resume found it. The
+    # rule is one comparison and has no cases:
+    #
+    #     a status is a NEW stop  <=>  it is stopped and stops > the mark
+    #
+    # `go()` hands back the mark and `wait_stop` defaults to the last one, so
+    # the 100-odd `run(); wait_stop()` pairs in tests/ get it without saying so.
+
     def run(self):
-        return self.cmd(cmd="run")
+        """Resume the guest. The reply is a status, plus `resumed_from`.
+
+        The raw verb: one round trip, no confirmation. It records the resume
+        MARK on this object (see `go`), so a `wait_stop` after it cannot come
+        back with the stop that was already there.
+        """
+        st = self.cmd(cmd="run")
+        self._go = self._mark(st, resumed=True)
+        return st
+
+    def go(self, limit=4.0):
+        """Resume, CONFIRM the guest was released, and answer the mark.
+
+            mark = m.go()
+            if m.wait_stop(30.0, since=mark) == "breakpoint": ...
+
+        The mark is the stop count the resume found. Any stop above it is a
+        new one; the stop that was already there is not, which is the whole
+        difference between this and `run()` plus a poll.
+
+        WHAT IT CONFIRMS is that the machine is executing, or that it stopped
+        again for a reason of its own - never that a resume silently did
+        nothing, which is a state this server has had (docs/MARTYPC-DEBUG.md:
+        a `run` that set `Running` itself skipped the breakpoint-flag clear and
+        advanced zero cycles, for ever, and it did not look wedged). A resume
+        that will not take is raised here, at the call that made it, instead of
+        20 lines later as a breakpoint that never fires.
+
+        It returns the mark rather than the status because the status is
+        already stale by the time it is read - the guest is running.
+        """
+        import time
+        t0, tries = time.time(), 1
+        st = self.run()
+        while time.time() - t0 < limit:
+            if st.get("state") == "running":
+                return self._go
+            if self._newer(st, self._go):
+                return self._go             # it stopped again on its own: the
+            st, tries = self.run(), tries + 1    # caller's wait sees that stop
+        raise MartyError(
+            "the guest would not resume: %d attempts over %.1fs left it %r at "
+            "%04X:%04X with the stop count unmoved at %s. A breakpoint the "
+            "resume itself re-hits, or a wedged execution state - `status` and "
+            "`read` answer either way, so nothing else here will look wrong."
+            % (tries, time.time() - t0, st.get("state"), st.get("cs", 0),
+               st.get("ip", 0), self._go))
+
+    def _mark(self, st, resumed=False):
+        """The stop count a later status is compared against.
+
+        `resumed_from` on a `run` reply is the exact answer. Without it - an
+        emulator built before the field - the guest CLOCK is the fallback, and
+        `cycles` is the one to use: nothing executes while the machine is
+        stopped, so a repeat report carries the same count and any real stop
+        carries a greater one. `instructions` is NOT a clock and must not be
+        used for this: `machine.run()` accumulates it once at the END of a
+        batch and returns early when a breakpoint hits, so every batch a stop
+        lands in is discarded from it.
+        """
+        if "resumed_from" in st and resumed:
+            return ("stops", int(st["resumed_from"]))
+        if "stops" in st:
+            return ("stops", int(st["stops"]))
+        return ("cycles", int(st.get("cycles", 0)))
+
+    @staticmethod
+    def _newer(st, mark):
+        """Is this status a stop the caller has not been told about yet?"""
+        if mark is None:
+            return st.get("state", "running") != "running"
+        field, at = mark
+        return (st.get("state", "running") != "running"
+                and int(st.get(field, 0)) > at)
 
     def pause(self):
         return self.cmd(cmd="pause")
 
     def step(self, n=1, over=False):
-        return self.cmd(cmd="step", n=n, over=over)
+        st = self.cmd(cmd="step", n=n, over=over)
+        self._go = self._mark(st)       # as `advance`: the step's own stop is
+        return st                       # not one a later wait is waiting for
 
     def reset(self):
         return self.cmd(cmd="reset")
@@ -580,13 +680,24 @@ class Marty:
         """
         return self.status().get("state") != "running"
 
-    def wait_stop(self, limit=20.0, poll=0.02, guest=None):
-        """Run until the guest stops, and answer WHY - or None on a timeout.
+    def wait_stop(self, limit=20.0, poll=0.02, guest=None, since=None):
+        """Run until the guest stops NEXT, and answer WHY - or None on a timeout.
 
             if m.wait_stop(10): ...          # a breakpoint hit (or a pause)
 
         Returns the state string, so a caller can tell a breakpoint from a
         machine somebody else paused.
+
+        NEXT, and that is the fix rather than the wording. `m.run()` and this
+        are two round trips, and between them the machine can still be sitting
+        on the stop that was there before - so the poll saw `"breakpoint"` and
+        returned AT ONCE, handing back the stop it was asked to wait past. The
+        caller reads that as its breakpoint firing, which is a green test for a
+        gesture that never happened. `since` is the mark to measure from and
+        defaults to the last `run`/`go`/`advance`/`step` on this object, so
+        every `run(); wait_stop()` pair in the tree gets the fix untouched; a
+        machine this object has never resumed has no mark, and then any stop
+        answers, as it always did.
 
         THE LIMIT IS GUEST TIME, converted at GUEST_BUDGET_RATIO.  This one
         matters more than it looks: `tests/dskwstage.py` reports *"dskw_write_x
@@ -597,14 +708,51 @@ class Marty:
         thing twice running.
         """
         import time
+        # A `bp_trace` PUMP OWNS THE STOPS, so a wait for one inside a block
+        # answers with whatever the pump was about to resume - a stop that
+        # belongs to the trace and not to the caller, arriving almost at once
+        # and meaning nothing. It is a wrong answer rather than a hang, which
+        # is worse, so it is refused here and the block's own verbs are named.
+        if getattr(self, "_pumping", 0) and since is None:
+            raise MartyError(
+                "wait_stop inside a bp_trace block: the pump is resuming every "
+                "stop, so this would answer with one of ITS hits rather than "
+                "with anything the caller asked for. Use `tr.wait(n, name)` to "
+                "block until the trace has recorded a hit, or `tr.until(cond)` "
+                "to stay in the block until the guest state says the work is "
+                "done.")
         budget = (guest if guest is not None else limit * GUEST_BUDGET_RATIO)
+        mark = self._go if since is None else since
         c0 = int(self.status().get("cycles", 0))
+        stuck = None
         while True:
             st = self.status()
-            if st.get("state") != "running":
+            if self._newer(st, mark):
                 return st.get("state")
             if (int(st.get("cycles", 0)) - c0) / GUEST_HZ > budget:
                 return None
+            # A STOPPED GUEST BURNS NO CYCLES, so the budget above cannot
+            # expire on one: a wait for a stop past the one already there
+            # would poll for ever. That is the failure this fix could have
+            # introduced in place of the one it removes, so it is named where
+            # it happens instead - `until()` refuses the same shape for the
+            # same reason. The grace is host time on purpose: what is being
+            # waited on here is another THREAD resuming the machine, which is
+            # not measured in guest cycles because the guest is not running.
+            if st.get("state", "running") != "running":
+                stuck = time.time() if stuck is None else stuck
+                if time.time() - stuck > max(10.0, limit):
+                    raise MartyError(
+                        "waited %.0fs for the guest to stop AGAIN, but it has "
+                        "been sitting at the SAME stop (%r at %04X:%04X, %s) "
+                        "the whole time and nothing is resuming it. A wait "
+                        "measures from the last run/go/advance/step on this "
+                        "object, so the stop that was already there does not "
+                        "answer it - a missing `m.run()` looks exactly like "
+                        "this." % (time.time() - stuck, st.get("state"),
+                                   st.get("cs", 0), st.get("ip", 0), mark))
+            else:
+                stuck = None
             time.sleep(poll)
 
     # --- input, through the REAL devices -------------------------------------
@@ -637,7 +785,9 @@ class Marty:
             kw["frames"] = frames
         if cycles is not None:
             kw["cycles"] = cycles
-        return self.cmd(**kw)
+        st = self.cmd(**kw)
+        self._go = self._mark(st)       # it ends STOPPED, and this reply is
+        return st                       # how the caller was told: `go()`
 
     def input_log(self):
         """Every input this session delivered, with the guest cycle it landed
@@ -2299,11 +2449,18 @@ def bp_count(m, target, act, arm=0.6, quiet=3.0, first=14.0, limit=120.0):
     states and is the wrong test here for exactly that reason - a wait wants
     either, a COUNT wants one.
 
-    **AND IT DEDUPES ON `instructions`.** `run()` and the `status()` after it
-    are two round trips and the resume has not always landed by the second, so
-    one stop is reported twice. A stop's instruction count is the guest's own
-    clock and cannot repeat, so it tells a repeat report from a second entry
-    and hides nothing real, because a real second entry has advanced it.
+    **AND IT COUNTS THE SERVER'S OWN STOP SEQUENCE.** `run()` and the
+    `status()` after it are two round trips and the resume has not always
+    landed by the second, so one stop is reported twice. `stops` is what tells
+    a repeat report from a second entry: the server increments it on every
+    ENTRY into a stopped state, so two reports of one stop carry one number and
+    nothing real is hidden. It used to dedupe on `instructions`, which worked
+    by luck and not by clock - `machine.run()` accumulates that count once at
+    the end of a batch and returns EARLY at a breakpoint, so the batch a stop
+    lands in never reaches it, and what made consecutive stops differ at all
+    was the single instruction the resume itself steps. `_mark`/`_newer` above
+    carry the rule, and `cycles` is the fallback for an emulator built before
+    the field.
 
     Both defects put their spare stop in whichever gesture was running, which
     in an A/B is a false failure of whichever half is meant to answer zero.
@@ -2312,14 +2469,22 @@ def bp_count(m, target, act, arm=0.6, quiet=3.0, first=14.0, limit=120.0):
     """
     seen, done = set(), []
     m.bp_exec(target)
+    # AND IT DOES NOT COUNT THE STOP IT WAS HANDED. A caller whose machine is
+    # already sitting at a breakpoint - the previous measurement's last one,
+    # say - used to have that stop counted as an entry this gesture made,
+    # before the gesture had even been armed. It is the same defect as the two
+    # above at the other end of the loop, and the same mark answers it: every
+    # stop this gesture makes is NEWER than the one the machine was found at.
+    mark = m._mark(m.status())
     threading.Thread(target=lambda: (time.sleep(arm), act(), done.append(1)),
                      daemon=True).start()
     t0, last = time.time(), None
     while time.time() - t0 < limit:
         st = m.status()                 # ONE call: the guest is stopped, so a
         if st.get("state", "running") == "breakpoint":   # second would be a
-            seen.add(st.get("instructions"))             # round trip for the
-            last = time.time()                           # same answer
+            if m._newer(st, mark):                       # round trip for the
+                seen.add(st.get("stops", st.get("cycles")))   # same answer
+                last = time.time()
             m.run()
             continue
         if done and last is not None and time.time() - last > quiet:
@@ -2330,6 +2495,348 @@ def bp_count(m, target, act, arm=0.6, quiet=3.0, first=14.0, limit=120.0):
     m.breakpoints([])
     m.run()
     return len(seen)
+
+
+# DRIVE THE UI WITH BREAKPOINTS ARMED. Until this existed the two were
+# mutually exclusive in practice, and the reason is worth stating because it
+# is not obvious: every verb in os88mouse and os88ui CONFIRMS what it did by
+# reading guest state - `to` polls the published `mouse_x` until it agrees,
+# `_edge` polls `mouse_btn`, `settle` watches pixels move - and a guest
+# stopped at a breakpoint publishes nothing new. So an armed breakpoint does
+# not make a click land in the wrong place, it makes the click's own PROOF
+# unobtainable, and the verb reports a machine that refused to go where it was
+# sent. `os88span.py` says the same thing from the other side: *"os88mouse
+# converges by reading [mouse_x] and re-sending, so it cannot drive a machine
+# that keeps stopping at a breakpoint."*
+#
+# The fix is a PUMP - something that resumes the guest at every hit while
+# recording it - and the only question was which side of it runs on the main
+# thread. `bp_count` below puts the pump there and the driving on a daemon,
+# which works and costs the caller its control flow: a gesture becomes a
+# lambda, and anything that wants to look at the screen between two clicks
+# cannot. Seventy-eight files in tests/ arm breakpoints and NONE of them can
+# use os88ui, which is the price of that shape.
+#
+# So this one is the other way round: the pump is the daemon and the `with`
+# body is ordinary code.
+#
+#     with os88marty.bp_trace(m, "wm_su_try", "gfx_restore") as tr:
+#         ui.raise_window(w)                  # os88ui verbs, unmodified
+#     print(tr.count("wm_su_try"), tr.ms("wm_su_try", "gfx_restore"))
+#
+# THREE THINGS MAKE IT WORK AND EACH ONE COST SOMEBODY A RUN:
+#
+#   `cmd()` IS ATOMIC. Two threads on one socket without its lock get each
+#     OTHER's replies - a `read` answered by a `regs` - and die on `KeyError`
+#     far from the cause. That lock has been there since tests/paintcull.py
+#     needed it; see cmd()'s own docstring.
+#
+#   IT RESUMES `breakpoint` AND NOTHING ELSE. `advance()` and `pause()` leave
+#     the guest `paused`, and a pump that treats "not running" as its business
+#     resumes a machine the main thread deliberately stopped - which is the
+#     main thread's own `advance` cut short from underneath it. bp_count
+#     learned this as a COUNTING error; here it would be a control one, which
+#     is worse.
+#
+#   IT DEDUPES ON THE SERVER'S `stops` SEQUENCE. `status` and the `run` after
+#     it are two round trips and the resume has not always landed by the next
+#     poll, so one stop reports twice and reads `"breakpoint"` both times.
+#     `_mark`/`_newer` above are the rule; this was written to dedupe on
+#     `instructions`, which is not a clock - `machine.run()` accumulates that
+#     count at the END of a batch and returns early when a breakpoint hits, so
+#     the batch a stop lands in never reaches it.
+#
+# WHAT IT CANNOT DO, said here rather than discovered: a hit costs two or
+# three round trips plus up to `poll` seconds of stopped guest, so a
+# breakpoint on a hot symbol - `gfx_hline` inside a repaint - runs the guest
+# at a small fraction of its speed and the wait around it fails on its host
+# backstop. That is a real ceiling and not a bug to be tuned away: arm the
+# narrowest symbol that answers the question, and reach for os88span.py's
+# arm-late pattern when one trigger packet is all the gesture needs.
+class BpTrace:
+    """The record a `bp_trace` block collects. See `bp_trace` below."""
+
+    def __init__(self, m, targets, regs=False, poll=0.005, cap=20000,
+                 on_hit=None):
+        self.m, self.regs_wanted, self.poll, self.cap = m, regs, poll, cap
+        # WHAT THE HAND-ROLLED PUMPS ACTUALLY DID, and the reason a count and
+        # a register set are not enough to replace them. tests/paintanchor.py
+        # reads four .bss words at every stop to collect the damage rect
+        # Paint armed; tests/paintcull.py reads six to answer WHY a path was
+        # not taken. Those reads are only valid WHILE THE GUEST IS STOPPED -
+        # the values are gone a microsecond after the resume - so they cannot
+        # be done from the body, and a trace without this is a trace those
+        # rows cannot use.
+        #
+        # It is called with (marty, record) on the PUMP's thread, before the
+        # resume, and whatever it returns is stored as the record's `hit` -
+        # so the guest read and the stop it belongs to arrive together rather
+        # than being paired up afterwards by index. It costs guest time,
+        # because the machine is stopped for the whole of it: keep it to the
+        # reads that must happen here.
+        #
+        # An exception in it is the trace's own, and is re-raised at the end
+        # of the block. Swallowing it would leave a row asserting over records
+        # that silently stopped being collected half way through.
+        #
+        # IT MAY ALSO CHANGE THE BREAKPOINT SET, and two converted rows do:
+        #
+        #   DISARM when the answer has arrived. `mm.breakpoints([])` from
+        #     inside the callback ends the stopping and lets the rest of the
+        #     gesture run at the guest's own speed - tests/blitcut.py wants
+        #     ONE matched entry/return pair out of a drag that would otherwise
+        #     stop on `kret_ret`, the shared epilogue ladder every routine
+        #     returns through, for the whole of it.
+        #   RE-ARM on something only this stop can name. tests/paintsu.py
+        #     stops at `wm_su_kb`, reads the RETURN ADDRESS off the guest's own
+        #     stack, and arms that - an address no caller could have known
+        #     before the call was made. The pump resumes into the new set with
+        #     nothing else to arrange.
+        #
+        # Both are ordinary commands through the atomic `cmd()`, and both take
+        # effect on the resume this callback is about to return into.
+        self.on_hit = on_hit
+        self.hits = []          # the kept records, at most `cap` of them
+        self.n = 0              # ...and how many there REALLY were
+        self.error = None       # what the pump died of, re-raised at exit
+        self._by_addr = {}
+        self._bps = []
+        for t in targets:
+            if isinstance(t, dict):             # a raw breakpoint dict
+                self._bps.append(t)
+                continue
+            addr = m.sym(t) if isinstance(t, str) else int(t)
+            self._by_addr.setdefault(addr & 0xFFFFF, t if isinstance(t, str)
+                                     else "%05X" % addr)
+            self._bps.append({"type": "exec", "addr": addr})
+        self._mark0 = None      # the mark __enter__'s resume found
+        self._stop = threading.Event()
+        self._thread = None
+        self._lock = threading.Lock()
+
+    # --- the pump ------------------------------------------------------------
+
+    def _pump(self):
+        mark = self._mark0                  # what `__enter__`'s resume found
+        while not self._stop.is_set():
+            try:
+                st = self.m.status()
+                # TWO TESTS, AND THEY ARE NOT THE SAME ONE.
+                #
+                # `_newer` asks whether this is a stop the trace has not been
+                # told about. It has to, because a stop and the SAME stop
+                # polled again both read `"breakpoint"` - the resume is two
+                # round trips and has not always landed by the next poll.
+                # This deduped on `instructions` and that was WRONG, not
+                # merely redundant: `machine.run()` accumulates that count at
+                # the END of a batch and returns early when a breakpoint hits,
+                # so every batch a stop lands in is discarded from it, and what
+                # separated two stops was the single instruction the resume
+                # itself steps. `stops` is the server's own sequence number
+                # and is exact (`_mark`/`_newer` above).
+                #
+                # `== "breakpoint"` then asks whether it is OURS. `advance()`
+                # and `pause()` from the body leave the guest `"paused"`, which
+                # is a new stop by the first test and is not this pump's to
+                # resume: resuming it would cut the body's own `advance` short
+                # from another thread.
+                if not self.m._newer(st, mark):
+                    self._stop.wait(self.poll)
+                    continue
+                if st.get("state") != "breakpoint":
+                    self._stop.wait(self.poll)
+                    continue
+                self._record(st)
+                mark = self.m._mark(self.m.run(), resumed=True)
+            except Exception as e:                  # the emulator went away,
+                self.error = e                      # or a symbol is wrong:
+                return                              # exit re-raises it
+        return
+
+    def _record(self, st):
+        flat = ((st.get("cs", 0) << 4) + st.get("ip", 0)) & 0xFFFFF
+        rec = {"name": self._by_addr.get(flat, "?%05X" % flat),
+               "addr": flat, "cycles": int(st.get("cycles", 0)),
+               "stops": st.get("stops"), "instructions": st.get("instructions"),
+               "cs": st.get("cs"), "ip": st.get("ip")}
+        if self.regs_wanted:
+            # ONE extra round trip, and only when asked. A register is what
+            # attributes a hit to a window (os88span.py's di=/bx= columns), so
+            # a trace that does not need one should not pay for it at every
+            # stop on a hot symbol. It is read BEFORE `on_hit` so a callback
+            # deciding what to look at can look at `rec["regs"]` to decide.
+            try:
+                rec["regs"] = self.m.regs()
+            except MartyError:
+                pass
+        if self.on_hit is not None:
+            rec["hit"] = self.on_hit(self.m, rec)
+        with self._lock:
+            self.n += 1
+            if len(self.hits) < self.cap:
+                self.hits.append(rec)
+
+    # --- what a caller asks it -----------------------------------------------
+
+    @property
+    def overflowed(self):
+        """Did the trace stop KEEPING hits? `n` is still the true count."""
+        return self.n > len(self.hits)
+
+    def count(self, name=None):
+        """How many stops, in total or at one symbol."""
+        if name is None:
+            return self.n
+        return sum(1 for h in self.hits if h["name"] == name)
+
+    def names(self):
+        """Every symbol that was reached, in the order first reached."""
+        out = []
+        for h in self.hits:
+            if h["name"] not in out:
+                out.append(h["name"])
+        return out
+
+    def first(self, name):
+        return next((h for h in self.hits if h["name"] == name), None)
+
+    def last(self, name):
+        return next((h for h in reversed(self.hits) if h["name"] == name), None)
+
+    def span(self, a, b):
+        """Guest cycles from the FIRST `a` to the LAST `b`, or None.
+
+        os88span.py's own shape: a repaint reaches its last mark several times
+        and the span being priced runs to the end of them.
+        """
+        i, j = self.first(a), self.last(b)
+        if i is None or j is None or j["cycles"] <= i["cycles"]:
+            return None
+        return j["cycles"] - i["cycles"]
+
+    def ms(self, a, b):
+        """...the same span in milliseconds on a 4.77MHz 8088."""
+        c = self.span(a, b)
+        return None if c is None else 1000.0 * c / GUEST_HZ
+
+    def until(self, cond, what="the answer", limit=60.0, required=True):
+        """Stay in the block until `cond()` is true. THE COMMON MISTAKE.
+
+            with os88marty.bp_trace(m, entry, ret, regs=True, on_hit=f) as tr:
+                mo.drag(x0, y0, x1, y1)
+                tr.until(lambda: bool(got), "a straddling canvas blit", 240)
+
+        A `with` block ends when its BODY ends, and a gesture returns when the
+        gesture is decoded - not when the work it triggers has run. On a
+        4.77 MHz 8088 those are seconds apart: a drag's mouse-up is confirmed
+        the moment `mouse_btn` agrees, and the repaint it started has not
+        begun. Exiting there clears the breakpoints before the thing being
+        traced ever executes, and the row then reports the KERNEL never doing
+        what it was watched for.
+
+        It cost both of the conversions this was factored out of, in the same
+        run and wearing the two symptoms you would expect: `blitcut` said "no
+        straddling canvas blit arrived in 240s" having recorded exactly one
+        entry and no return, and `paintsu` said the raise cache asks for
+        `None` KB. Neither sentence is about the harness.
+
+        `required=False` answers True/False instead of raising, for the case
+        where the work legitimately may not happen - `paintsu`'s uncover, whose
+        whole finding is that a canvas-sized blit does NOT run when the cache
+        put the picture back.
+        """
+        try:
+            until(self.m, lambda _: cond(), what, poll=0.1, limit=limit)
+            return True
+        except MartyError:
+            if self.error is not None:      # the pump died: THAT is the
+                raise self.error            # failure, not the timeout
+            if required:
+                raise
+            return False
+
+    def wait(self, n=1, name=None, limit=60.0):
+        """Block until `n` stops have been recorded (at `name`, if given).
+
+        For the gesture whose work happens AFTER the verb that started it has
+        already confirmed - a repaint that outlives the click's own proof.
+        Returns True, or False on the deadline.
+        """
+        t0 = time.time()
+        while time.time() - t0 < limit:
+            if self.error is not None:
+                raise self.error
+            if self.count(name) >= n:
+                return True
+            time.sleep(0.02)
+        return False
+
+    # --- the block -----------------------------------------------------------
+
+    def __enter__(self):
+        self.m.breakpoints(self._bps)
+        # `until()` raises on a guest that is not running, and it is RIGHT to:
+        # a stopped machine can never make a condition true, and saying so in
+        # two seconds beats timing out in sixty. Under a pump the same reading
+        # is a poll landing in a stop window that is about to end, so the
+        # counter tells the two apart. The stall check in `_Progress` is left
+        # alone and needs no help - it watches the CLOCK, and a pumped guest's
+        # clock keeps moving.
+        self.m._pumping += 1
+        # `go` and not `run`: it CONFIRMS the release and hands back the mark
+        # the pump compares against, so the stop the machine may already have
+        # been sitting at when the block opened is not charged to this trace -
+        # the third thing `bp_count` was found to be counting. It also raises
+        # here, at the call that made the resume, if the guest will not take
+        # one, instead of twenty lines later as a breakpoint that never fires.
+        self._mark0 = self.m.go()
+        self._thread = threading.Thread(target=self._pump, daemon=True)
+        self._thread.start()
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=10.0)
+        self.m._pumping = max(0, self.m._pumping - 1)
+        try:
+            self.m.breakpoints([])
+            self.m.run()
+        except MartyError:
+            if exc_type is None:
+                raise
+        # The pump's own death is invisible from the body - the verbs simply
+        # stop being able to confirm anything and fail wearing somebody else's
+        # symptom - so it is re-raised HERE, and only when the body did not
+        # already fail with something of its own.
+        if exc_type is None and self.error is not None:
+            raise self.error
+        return False
+
+
+def bp_trace(m, *targets, **kw):
+    """Arm breakpoints, PUMP them from a daemon, and record every stop.
+
+        with os88marty.bp_trace(m, "wm_su_try", "gfx_restore") as tr:
+            ui.raise_window(w)              # ordinary os88ui / os88mouse verbs
+        assert tr.count("wm_su_try") == 1
+
+    `targets` are anything `bp_exec` takes - kernel symbols or flat addresses
+    - plus raw `breakpoints()` dicts for the `mem`, `int` and `io` types. The
+    whole set is REPLACED on entry and CLEARED on exit, and the guest is left
+    running either way.
+
+    Keywords: `regs=True` records a full register set at every stop (one more
+    round trip each - it is what attributes a hit to a window); `on_hit` is
+    called `(m, record)` WHILE THE GUEST IS STOPPED and its answer kept as the
+    record's `hit`, which is how a row reads the .bss a stop was armed to look
+    at; `poll` is the pump's interval and so the mean latency of a resume,
+    default 5 ms; `cap` bounds what is KEPT, `tr.n` staying the true count and
+    `tr.overflowed` saying the two have parted.
+
+    Read the block comment above this class before arming anything hot.
+    """
+    return BpTrace(m, targets, **kw)
 
 
 # Wait for a machine that is BUSY WITHOUT DRAWING: anything holding the gfx
@@ -2374,7 +2881,14 @@ def until(m, cond, what="that condition", poll=1.0, limit=600.0, guest=None):
             prog.done("until")
             return time.time() - t0
         st = m.status()
-        if st["state"] != "running":
+        # ...unless a `bp_trace` block is pumping, in which case a stop is a
+        # poll that landed in a breakpoint window about to end, and this is a
+        # SPURIOUS raise rather than a diagnosis. The stall arm below stays
+        # armed either way and is the one that catches a pump that has died:
+        # it watches the CLOCK, and a machine nobody is resuming stops
+        # advancing it. Without this the same wait raises at random under a
+        # trace, which is the intermittent this harness spends its sessions on.
+        if st["state"] != "running" and not getattr(m, "_pumping", 0):
             raise MartyError(
                 "waited %.0f guest seconds for %s, but the guest is %r at "
                 "%04X:%04X and is not executing - a stopped machine can never "

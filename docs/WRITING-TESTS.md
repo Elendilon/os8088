@@ -55,8 +55,9 @@ that overruns one.
 **Choose the tier by what the row costs and how broadly it fails, never by
 how important you think it is.** The two expensive tiers are not run per
 commit — `full` runs when a major round of work reaches the integration
-branch and `soak` at the end of extensive kernel surgery (docs/TESTING.md,
-*When to run which tier*) — so a row put in `full` to make sure somebody sees
+branch, and `soak` is scoped to the rows a change can REACH, the whole tier
+running only when the owner asks for it (docs/TESTING.md, *When to run which
+tier*) — so a row put in `full` to make sure somebody sees
 it is a row that runs LESS often than you imagine, and one put in `soak` is
 still run by the person who touched its subject, which is who it is for.
 `soak` is a real answer and costs nobody any budget.
@@ -462,6 +463,41 @@ Rarely, and always for a stated reason:
 Even then, confirm afterwards by reading the state the click was supposed to
 change.
 
+### 6.2 A breakpoint and a UI verb: `os88marty.bp_trace`
+
+**They cannot be spelled one after the other**, and the reason is rule 2 above
+turned against you: every verb confirms by READING GUEST STATE, and a guest
+stopped at a breakpoint publishes nothing new. So an armed breakpoint does not
+send a click to the wrong place - it makes the click's own proof unobtainable,
+and the verb reports a machine that refused to go where it was sent.
+
+Put the breakpoints in a `bp_trace` block and the body is ordinary code:
+
+```python
+with os88marty.bp_trace(m, "wm_su_try", "gfx_restore") as tr:
+    ui.raise_window(w)                  # os88ui verbs, unmodified
+assert tr.count("wm_su_try") == 1
+```
+
+**Stay in the block until the work has RUN** - `tr.until(cond, what)`. A `with`
+block ends when its body ends, and a gesture returns when it is DECODED, not
+when the repaint it triggers has finished. Leaving there clears the
+breakpoints first and the row reports the kernel never doing the thing.
+
+The pump runs on a daemon and resumes at every hit. `regs=True` records a
+register set at each stop; `on_hit=f` is called while the guest is STOPPED and
+its answer kept, which is the only way to read a value that is true only
+inside the routine the breakpoint is on - a damage rect, `wm_clip_n`, a return
+address off the guest's own stack. Do NOT hand-roll the pump: it has two traps
+that have each cost a run, and `bp_trace` carries both fixes
+(docs/MARTYPC-DEBUG.md, *Driving the UI with breakpoints armed*).
+
+**Arm the narrowest symbol that answers the question.** Every hit costs two or
+three round trips plus the pump's poll interval of stopped guest, so a
+breakpoint on a hot symbol runs the machine at a fraction of its speed and the
+wait around it fails on its host backstop. When one packet is the whole
+gesture, `tools/os88span.py`'s arm-late pattern is cheaper still.
+
 ---
 
 ## 7. Waiting: the guest's clock, never the host's
@@ -532,6 +568,22 @@ load. `drv_owner` for the class is the signal, because `drv_publish` is reached
 from `drv_attach` and nothing else writes it.
 
 Read the kernel and find the write that happens LAST.
+
+**And a CONFIRMED INPUT is not a confirmed GESTURE — the same rule one layer
+down.** `os88mouse` proves every packet it sends: `to()` against the published
+cursor, `_edge()` against the guest's own `mouse_btn`. Neither proves that
+anything *acted*. `mouse_btn` is a LEVEL that `mou_isr` sets; what the UI acts
+on is an `EVT_MDOWN` in the ring, and SPEC.md 10.1 says what happens when that
+ring is full — `evq_push` drops a record. So a press can be confirmed at every
+layer the mouse has and still be a gesture that never happened, which is
+`hdboot` at a lane of four: pointer confirmed at (199,10), button confirmed
+down, and no menu on the screen after **182 ticks**.
+
+Wait on the state the gesture is FOR — `menu_dropd` for a menu, `ui_dragwin`
+for a drag — and let `os88ui.UI._edge_until` do the pressing, because the
+recovery is a **fresh edge** and not a longer wait or a re-sent packet: a
+Microsoft packet carries the LEVEL, so re-sending says what the guest already
+believes.
 
 ### 7.3 `settle` is expensive and often the wrong question
 
@@ -770,6 +822,13 @@ not. Each one can still happen today.
 | 44 | `skiesflat` reading the shadow after `advance(frames=200)`. `advance` is EXACT in guest time and stops at an arbitrary instruction — which, in a program that spends most of its frame in `cs_scene`, is usually **inside a half-drawn picture**: the ground painted and the tower not reached yet. Which half depends on the free-run phase, which depends on the HOST, so the row passed 5 times in 5 alone and failed 4 in 4 at three-way concurrency, on the same bytes and the same pinned pose — and the failure it printed was `the platform bar is drawn AT THE TOWER (nothing over x=100)`, which reads as the fix under test not working. Entry 39's rule for a different reason: 39 is about not waiting long enough, this is about not stopping in the right PLACE. **Stop where the frame is whole** — a breakpoint at the device copy (`cs_blit`), not a frame count | §7, §7.1 |
 | 45 | The `fast` tier at 55 rows and 62.7s of work, of which over half was one package's business (three SKIES rows, three FRACTAL, Paint's ink masks, the Weave family's two) or a kernel internal no package can reach (`.lowbss`'s order at 5.1s, the LZ codec at 4.7s, a `.bss` sentinel, the month mask). Nothing was wrong with any of them - they were being charged to the wrong person, on every build, for ever. The tier is the one nobody opts into, so the test is not "is this valuable" but "is it valuable to somebody who did not touch this" | §2.1 |
 | 46 | The `full` tier at 14 rows and 452s of row time, of which `buildmatrix` alone was 143s assembling 99 knob configurations — instruments, not the OS — while `weavesmoke` spent 73s opening one package's bundle and `martyconc` gated the emulator harness rather than the machine. A pre-merge smoke test that takes five minutes and is mostly about the tree rather than the product is one that gets skipped | §2.2 |
+| 47 | `hdboot` pressing a menu with the pointer and the button both CONFIRMED, and no menu for 182 ticks: the `EVT_MDOWN` was dropped from a full ring while the level stood | §7.2 |
+| 48 | Every `os88build.tree()` call sweeping `$(VIDSTAMP)` — a legitimately empty marker — so make rebuilt the whole kernel each time and two rows sharing a tree rebuilt it under each other | §5.2 |
+| 49 | Four rows hand-rolling the SAME breakpoint pump, each with the driving gesture on a daemon thread and the resume loop in `main` - because an armed breakpoint makes every `os88ui` and `os88mouse` verb unable to confirm, so the two could not be written one after the other. Two of the four counted a stop as *anything not running*, which makes the driving thread's own `advance()` and `pause()` read as entries that never happened - in `paintanchor` each one appended an EMPTY damage rect to the list its assertion is over. `paintsu` additionally carried `serialise(m)`, a monkey-patch wrapping `m.cmd` in a lock of its own, years after that lock landed IN `cmd`. **`os88marty.bp_trace` is the one pump**; and outside a trace an armed breakpoint now fails in 2.2s naming the clock, where it took **332.1s** and surfaced from `guest_sleep`'s stall arm - the only thing in the path that was watching | §6.2 |
+| 50 | ...and then 21 more sites in 16 files that armed a breakpoint and drove the mouse with NOTHING pumping it. Every one passed, and passed for a reason that is not a guarantee: the symbol under watch cannot be reached until the gesture has been decoded, so the ordering held right up until it would not have. `int0sweep` is the sharpest - it arms INT 0 across a whole UI sweep and was sound exactly as long as it was passing, because the first real divide error would have frozen the sweep at the step AFTER it; its own `check` then cleared the breakpoint set at the first fire, so a machine raising two reported one and swept the rest unarmed. **Not every such site is a defect**, and TWO are not: `paintrow`'s second one WANTS the machine stopped inside `pt_blit`, because that is the context its patch runs in; and `paintlzw`'s `paint_base` RETURNS with the guest held at `toast_show`, the whole decode bracket after it starting from that stop. Converting the second one reached the toast correctly and then timed out at 190s - the trace resumes on the way out, and two round trips of a free-running guest is past `pt_gif_in`. Both carry a comment saying why they are bare arms | §6.2 |
+| 51 | `skiesadi` waiting for a stop that had already happened AND could not happen again: `m.advance(frames=3)` then `m.wait_stop(3.0)`. `advance` ENDS STOPPED and takes the resume mark, so the wait asks for a SECOND stop nothing is coming to make - and a stopped guest burns no cycles, so it cannot even time out on its guest budget; it sat on the same stop until the host-time grace fired. Before the mark existed the same line returned AT ONCE with the stop it was asked to wait past, which is a green row for a gesture that never happened. `advance`'s own reply IS the answer - the server leaves a hit latched as `breakpoint` rather than overwriting it with `paused` - and a sweep of all 473 `advance(` sites found this shape exactly once | §7.2 |
+| 52 | ...and the same row's RED ARM had stopped running at all, silently. `--clobber-adi` puts the unguarded divide back by finding `mov bx,cx / call cs_cdiv` and overwriting it; `470bd4c` moved cos out of CX - sin owns that register - so the pattern matched nothing and the arm exited instead of asserting. The green arm stayed green throughout, so the row looked healthy while the only thing that proves it works was gone. **A red run is code too, and nothing runs it**: anchor a patch on the fewest bytes that identify the site, and re-run the red arm whenever the code under it moves | §1 |
+| 53 | `tests/skies.py`'s `until` documenting *"the guest's own clock, never the host's"* and calling `m.run()` inside the loop, so the guest free-runs across the pred read and the next advance: measured at **+6.0-6.4%** of the declared frames on an idle box, varying run to run, against **+0.1%** for the advances alone. The surplus decides how long a key is HELD - `until` releases the stick a block after liftoff - so a loaded box entered the climb at 584 units of pitch where an idle one entered at 874, and a climb assertion whose budget bought EXACTLY the 30 m it asked for went red at 27. Two rules in one incident: **a budget is not a requirement** - size it so the machine that behaves returns early and only a box that would have failed ever spends it - and **check what a helper's docstring promises against what it does**, because the next reader will believe it. It could not simply be made deterministic: `key` presses and releases with no guest cycles between them, so the guest must be executing for the keyboard to deliver both | §7 |
 
 ---
 

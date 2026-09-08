@@ -53,7 +53,7 @@ first of them fires in the first minute of a session.
 | **[docs/plans/completed/HANDOFF-KERNEL-SIZE-P3.md](docs/plans/completed/HANDOFF-KERNEL-SIZE-P3.md)** | taking the LAST kernel size pass, or running the parallel soak - its 3 is the how-to for that and belongs to anybody, not just a size pass. **Scope is settled and measured**: all 44 kernel files have been touched, so the question is which were never given a FINDER, and pass 2's own finding ids answer it - there is no `F-wm-`, `F-files-`, `F-vga12-`, `F-disk-`, `F-diskw-`, `F-fdlg-`, `F-mouse-`, `F-ui-`, `F-menu-` or `F-driver-`, and those ten are **65.7% of the kernel**. The case is one row: `ctrl.inc` gave pass 1 **5 bytes** and gave pass 2's finder **465**. What changed strategically is that the SEGMENT now binds and not the footprint - 9,162 left of `KERN_CODE_MAX`, which cannot be raised at all, against 38 steps of `KERN_BUDGET` - so a `.bss` byte is worth a `.text` byte and `wm.inc`'s 1,074 is the largest claim left. Its 6 is the fourteen times a check ran in pass 2 and nothing read its answer |
 | **[docs/plans/HANDOFF-SOAK-FINDINGS.md](docs/plans/HANDOFF-SOAK-FINDINGS.md)** | a row of the soak failing, or looking for work. It is the queue the kernel size pass 2 soak left: 235 rows against a kernel 4,661 bytes lighter, fifteen failures investigated, and **not one of them a regression in kernel behaviour** - so what is in it is what was ALREADY broken. Every item says what was ruled out and on what evidence, and it is worth opening BEFORE diagnosing a failure of your own, because most of them are already in there: three rows FAIL where they mean SKIP (the suite models tools and not artefacts, so "the wire disk has been built" cannot be said), install-then-boot is broken by the per-instance disk clones that make `--marty-jobs` safe, `cold_span` measures `.cold` to EOF and `.ovlw` sits after it - and that one's message says "rebuild before trusting this" about a build that is current, which cost a wrong diagnosis. It has now been worked through and the striking result is that **NOT ONE of the fifteen was a defect in shipped software** - four classifications in it were wrong and are corrected in place, including `trkscrl`, which this row called the one genuine product defect and which is a key the test's own include bound to something the application had already claimed. The largest single finding is not a row at all: PERFORMANCE.md's Hercules VRAM write cost is measured at N=8 against a quantity that needs N=48, and the documented ratio of 1.36 is really 1.671 |
 | **[docs/plans/SOAK-PARALLEL.md](docs/plans/SOAK-PARALLEL.md)** | running the WHOLE soak, or blaming a failure on contention. **BUILT** - `tools/os88soak.py` is the command (`check` / `start` / `status` / `stop`), and `make test-soak` is not: that runs the same rows serially. Its §1 is the measurement that overturns the standing theory, and it is the reason to open this before diagnosing anything: twelve rows at width 1 idle and at width 3 with **two extra CPU hogs** were **1.06x** slower and **12/12 passed in both arms**, so no timeout was ever going to fire and raising one would only make a stuck row sit there longer. What moves under load is the GUEST rate. The wait log recorded **118 waits in each arm - the same waits in the same scripts - at the same median HOST cost of 2.2s and a guest cost of 7.3s against 5.9s**, up to **-37%** per script: the same line of the same test takes the same wall time and hands the machine a third less work. **Contention does not make a row slow, it makes it LESS THOROUGH**, which is precisely why the wall times in every classification run showed nothing. So the waits hang off the GUEST clock now: a budget in guest seconds that a loaded box cannot shorten (17x headroom over the widest wait measured), and a guest that STOPS advancing fails its wait in **2.1s against 120** naming the machine rather than the condition. `OS88_WAITLOG` is how the numbers get re-derived rather than argued about, and the 194-file sweep B5 warns of is deliberately left behind `OS88_GUEST_PACE`. **Its §11 is where the suite's time actually goes**, and the finding is one number: **`settle` is 48% of a row** and two-thirds of every settle is its own floor - `stable` identical captures `quiet` apart is 2.0 host seconds before it can return, and the gap log says `stable` cannot come down (a change arrives after one whole quiet round **1 time in 19**, so halving it would end one settle mid-repaint per 48). **The floor is real, so the only way to spend less is not to settle** - which is what `tools/os88ui.py` is for. Four across-the-board cuts took the same four rows **269.2s -> 206.6s** with everything still passing (`dispnp` 73.8 -> 41.0, `dispthm` 81.2 -> 51.1): the screen bands went lazy, `Mouse.to` confirms each packet instead of sleeping 0.25s after it, the trailing settle came out of the navigation verbs (**2 of 401 call sites** read pixels within six lines of one), and the Control Panel verbs read `[cp_sel]`/`[vid_dmode]`/`[cp_wdirty]` instead - that last one being the SYSTEM.CFG write, where `time.sleep(1.0)` used to return mid-write on a busy box. **Then the log learned to name the CALL SITE**, which turned the totals into a work list with a very sharp head: **one line was 30% of all settle time** in a ten-row sample (`dispcalc`'s `typed`, 60 settles at 2.3s) - and what follows it is thirteen bytes of the Calculator's own composition buffer, so the screen was never the question. `os88marty.quiesce(m, read)` is settle's shape applied to those bytes - the same `stable` identical readings a fixed interval apart, over a handful of bytes instead of a framebuffer and over GUEST seconds instead of host ones - and it took **dispcalc 376.3s -> 197.2s**, 48%, with every assertion still passing. **56 settles in 34 files** are followed by a guest-memory read and no framebuffer read at all, so the pattern has a queue. Its §5 is the IBM ROM audit - **no registered row made the case**, all four are on GLaBIOS twins and `t_machines` keeps them there - and its §6 the two false greens found on the way, of which `dispcp` is the one to remember: a LIBRARY imported by 104 files, registered as a soak row, reporting `ok` in 0.1s against 60 declared. **Its §8 is the second phase and retires `tools/martylock.py`, which is DELETED** — do not go looking for a build lock. A row that wants a knob kernel builds into `build/trees/<knob>-<hash>/` (`tools/os88build.py`) instead of into `build/`, which is the whole of what `builds=True` was protecting and the whole of what the lock was for. `make BUILD=<dir>` has always worked and gives a BYTE-IDENTICAL image; nothing had to be invented. Two traps are written down there and both bit: **`make -n` is not a dry run of the PARSE** — `$(VIDSTAMP)`'s rule deletes `$(BUILD)/kernel.bin` and every boot sector when the knob set differs, so a `make -n` with a knob in it pointed at `build/` is a DESTRUCTIVE command — and a knob's make VARIABLE is not its nasm DEFINE (`VGADIRTY=1` compiles `-DVGA_DIRTY`), so the defines are derived rather than restated. Its audit answers "do we need this many builders": **19 of 52 are knobs**, 27 are an artefact that should just exist before the run, and six are not builds at all |
-| **[docs/WRITING-TESTS.md](docs/WRITING-TESTS.md)** | **ADDING A ROW TO THE SUITE — read it before writing the first line, not after the review.** How to register a row, and the four failures that keep coming back: a `secs` nobody measured (the compression family once declared **2,721 seconds** for rows that take **701**), a `builds=True` that writes the shared tree when a `wants=` or a private tree was the answer (four of eight such rows needed **no build at all**), a hand-rolled click at a remembered coordinate where `tools/os88ui.py` resolves it by name off the guest's own tables, and a `time.sleep` that hands the machine **37% less work** under load and fails looking like the thing under test. Its §1 is the one that decides whether the row is worth having — **break the thing on purpose and watch it go red** — because a green row that tests nothing is worse than no row: nobody investigates a pass, which is how `dispcp` (a LIBRARY) and `mkclick` (a GENERATOR) sat in the suite reporting `ok` in a tenth of a second. **§13 is the list of eighteen incidents the rules are made of**, kept because the abstract rule is forgettable and the corpse is not |
+| **[docs/WRITING-TESTS.md](docs/WRITING-TESTS.md)** | **ADDING A ROW TO THE SUITE — read it before writing the first line, not after the review.** How to register a row, and the four failures that keep coming back: a `secs` nobody measured (the compression family once declared **2,721 seconds** for rows that take **701**), a `builds=True` that writes the shared tree when a `wants=` or a private tree was the answer (four of eight such rows needed **no build at all**), a hand-rolled click at a remembered coordinate where `tools/os88ui.py` resolves it by name off the guest's own tables, and a `time.sleep` that hands the machine **37% less work** under load and fails looking like the thing under test. Its §1 is the one that decides whether the row is worth having — **break the thing on purpose and watch it go red** — because a green row that tests nothing is worse than no row: nobody investigates a pass, which is how `dispcp` (a LIBRARY) and `mkclick` (a GENERATOR) sat in the suite reporting `ok` in a tenth of a second. **§13 is the list of forty-eight incidents the rules are made of**, kept because the abstract rule is forgettable and the corpse is not |
 | **[docs/TESTING.md](docs/TESTING.md)** | concluding something is untestable, **or reaching for a test tier** — it is the matrix of what each emulator can and cannot do, with a recipe per capability, and its *When to run which tier* is the AUTHORITY on when `fast`, `full` and the soak are run. None of the three is a per-commit gate, and the Testing section below is only its short form |
 | **[docs/KERNEL-MEMORY.md](docs/KERNEL-MEMORY.md)** | spending any memory — the three rules and their guards, what `kernsize`'s lines mean, the ladder, task stacks and the standing gotchas (512-aligned bases, sections are not heap, rungs are not a design input). The budget ledger itself is `kernel/kernel.asm`'s `KERN_BUDGET` comment |
 | **[docs/HEAP-CLAIMS.md](docs/HEAP-CLAIMS.md)** | declaring a heap claim movable, or asking why a compaction achieved less than expected — one row per claim in the tree with its `MC_RLOC` verdict and the reason, including the packages that claim and have never declared (Word, Sheet, every C package — the C SDK cannot). `tools/heapmap.py` reads the fact off a running machine |
@@ -82,14 +82,31 @@ first of them fires in the first minute of a session.
 
 ## Commands
 
-Needs `nasm`, `python3`, and **`cargo` for `make marty`** (plus `libudev-dev`
-and `pkg-config` on Linux). `qemu-system-i386` is for the short list in
-Testing and nothing else. `tools/setup-macos.sh` installs the Mac set but
-**not Rust**, so `make marty` there wants `cargo` in front of it. No linker —
-everything is `nasm -f bin` flat binaries, deliberately, to keep Apple's
-Mach-O-only toolchain out of it.
+**`make deps` FIRST, on a box you have not built on** — it installs the lot
+and is ~0.2 s when they are already there. A fresh Linux container has
+`cargo` and `python3` and has *none* of `nasm`, `qemu` or `libudev-dev`, and
+the failure that costs is not the assembler's: `make marty` compiles most of
+MartyPC before cargo reaches `serialport` and dies on a missing `libudev.h`,
+so the missing dependency is reported four minutes late — which is why
+`tools/martypc/build.sh` now asks the same question in a few milliseconds
+BEFORE it clones anything, and repairs it in place when it is running as
+root on a box with apt.
+
+Needs `nasm`, `python3`, and **`cargo` for `make marty`** — plus
+`libudev-dev` and `pkg-config` on Linux, which is what `make deps`
+(`tools/setup-linux.sh`) is for; `--check` reports without installing.
+`qemu-system-i386` is for the short list in Testing and nothing else.
+`tools/setup-macos.sh` installs the Mac set but **not Rust**, so `make marty`
+there wants `cargo` in front of it — and `cargo` is the one thing `make deps`
+does not install on either platform, rustup being its own decision. No
+linker — everything is `nasm -f bin` flat binaries, deliberately, to keep
+Apple's Mach-O-only toolchain out of it.
 
 ```
+make deps     # install the host dependencies (nasm, qemu, pkg-config +
+              # libudev-dev). IDEMPOTENT and ~0.2s when satisfied, so type it
+              # rather than wonder. `make deps-check` reports and installs
+              # nothing
 make          # build every floppy image into build/ (also runs tools/checkdocs.py),
               # and packs the three Weave demo bundles (build/FORM/SHEET/PONG
               # .WAB) with tools/weavesim.py — docs/WEAVE-SPEC.md's reference
@@ -143,7 +160,7 @@ make test-soak   #   ENFORCED wall-clock budget — the runner FAILS fast over
                  #     reader, unreachable code, SPEC.md 6.6's
                  #     transparent-text ratchet, the doc gate, and that every
                  #     test in tests/ is registered somewhere or says why not.
-                 #     **25 rows, and the two things it deliberately does NOT
+                 #     **35 rows, and the two things it deliberately does NOT
                  #     cover are the rule** (docs/WRITING-TESTS.md 2.1): a row
                  #     about ONE package, and a kernel internal no package can
                  #     reach. `fast` is the one tier nobody opts into, so both
@@ -161,8 +178,11 @@ make test-soak   #   ENFORCED wall-clock budget — the runner FAILS fast over
                  #     and knob rot is not the OS being broken
                  #   soak no budget — the rest of tests/, one subject each:
                  #     `python3 tools/os88test.py soak -k 'disp*'`
-                 #   ...and the WHOLE soak is `tools/os88soak.py`, never this
-                 #   target: `make test-soak` runs it SERIALLY. See below.
+                 #   ...and the runner is `tools/os88soak.py`, never this
+                 #   target: `make test-soak` runs the rows SERIALLY. THE
+                 #   WHOLE TIER IS THE OWNER'S TO ASK FOR — both runners
+                 #   refuse it with no `-k`, and `--user-asked` carries the
+                 #   permission once it has been given. See below.
                  #   WHEN EACH ONE IS RUN is the Testing section below, and
                  #   docs/TESTING.md is the authority: NONE of the three is a
                  #   per-commit gate. Running all three at every step is how
@@ -192,10 +212,12 @@ python3 tools/os88soak.py status   #   `make test-soak` runs the same rows
               #   preflight: it names every capability gap, the rows that
               #   would SKIP because of it — a skip is the box declining to
               #   answer, not a pass — and the command that fixes each one.
-              #   The width is CORES-1 and the missing core is the point: it
-              #   is what a `status` poll or a small side task runs on, and a
-              #   run sized to fill the box exactly is one that anything else
-              #   on the box perturbs. `status` READS A FILE, so polling it
+              #   The width is ONE PER CORE. It was CORES-1, to leave the
+              #   operator a core, and that argument did not survive its own
+              #   evidence: `status` READS A FILE, and every row width 4 was
+              #   blamed for has since been diagnosed as a build race or a
+              #   dropped event rather than a starved guest
+              #   (docs/plans/SOAK-PARALLEL.md 4.2). So polling `status`
               #   cannot perturb the run; running rows beside it, or a `make`,
               #   can and does. It journals every row that reports, so
               #   `start --resume` after a container is reclaimed re-runs only
@@ -803,11 +825,37 @@ about the thing it touched, not by the tier that contains it** — after a
 redraw change `python3 tools/os88test.py soak -k 'disp*'` is minutes and is
 the right answer far more often than any tier is.
 
+**THE WHOLE SOAK TIER IS THE OWNER'S CALL AND RUNS ONLY WHEN THEY ASK FOR IT,
+IN AS MANY WORDS.** It is a permission rather than a judgement, and it is not
+reachable by reasoning about the change: two wordings that left the decision
+here were argued past within a day of each other, in opposite directions — *"at
+the end of extensive kernel surgery"* became *"I edited `kernel/`"*, and the
+reach test that replaced it became *"my change moves `kern_big`, so I cannot
+bound it"*. Whoever just did the work always wants to be sure, and the one to
+three hours land on somebody else's box. So `os88test.py soak` and
+`os88soak.py start` both REFUSE with no `-k`, and `--user-asked` is what
+carries the permission once it has been given. If you think the tier is
+warranted, say so in one line, run the rows you CAN name, and carry on.
+
+**WHAT to run is decided by what the BUILD says moved, never by how big the
+work felt.** Every row runs a built artefact, so an artefact your change left
+byte-identical cannot answer a question about it — those rows boot the same
+kernel off the same floppies and report yesterday's answer. Read it off the
+`KERN_BUDGET big <n>, small <n>` line `make` already printed, off the diff
+(code inside an `%ifdef KERN_SMALL` cannot move `kern_big`), or exactly, by
+building the other arm into a tree of its own (`make BUILD=<dir>`,
+`tools/os88build.py`) and `cmp`-ing — at ONE commit, since the build number is
+the commit count (SPEC.md §14.2). Then name the rows the change CANNOT reach:
+that list is usually short and easy to write, and its complement is the run.
+**A scope is not a different tool** — `tools/os88soak.py` takes `-k`/`-x`, so
+the preflight, frozen tree, parallel lanes, journal, `--resume` and pollable
+`status` are all there for ten rows as they are for 377.
+
 | tier | RUN IT | do NOT run it |
 |---|---|---|
 | `fast` | a commit you intend to keep, when it could change a byte under `build/` — and usually there is nothing extra to type, because `all` already ran it | a build you are not going to commit (an experiment, an A/B, a knob build — `make` skips it there itself); a **documentation-only** commit; a commit that only moves the **build number** |
 | `full` | major work reaching the INTEGRATION BRANCH — the first time a piece of it merges there, and again when you come back to that branch and land another large round | every commit on your own feature branch; a **minor bugfix** onto the integration branch; a documentation-only commit or merge; a build-number-only commit |
-| `soak` | the END of extensive KERNEL SURGERY, once, as it lands — or when you are asked for it | anything less than that. Mid-way through, run the SUBJECT (`soak -k '<subject>'`), never the tier |
+| `soak` | the rows your change can REACH, scoped with `-k` — minutes, and the answer to the question you actually have | **the WHOLE tier, ever, unless the owner has asked for it in as many words.** Not for kernel surgery, not at a merge, not because the reach cannot be bounded. Both runners REFUSE it unscoped; `--user-asked` carries the permission once given |
 
 `checkdocs.py` is the gate a documentation-only commit actually owes; a
 build-number-only commit is three bytes of `.text` moving because the commit
@@ -1113,6 +1161,78 @@ branch-specific rule anywhere else in this file, precisely so that removing it
 is a deletion rather than a search — the one other thing to take with it is
 the pointer to it, five lines under the map sentence at the top.
 
+### 0. `make deps` IS THE FIRST COMMAND OF A SESSION — before `make`, before `make marty`
+
+A fresh container has `cargo` and `python3` and **has neither `nasm` nor
+`qemu` nor `libudev-dev`**. `make deps` installs the set in about half a
+minute and is **~0.2 s when everything is already there**, so it is cheap to
+type when unsure — which is the point, because the alternative that keeps
+happening costs four minutes and ends with nothing built.
+
+```sh
+make deps          # or: tools/setup-linux.sh   (--check reports, installs nothing)
+```
+
+**This rule exists because the documentation did not work.** The dependency
+was already named three times — in the Commands section above, in a
+sixty-line subsection of docs/MARTYPC-DEBUG.md, and in
+`tools/os88soak.py`'s preflight — and *every* agent still typed `make marty`
+first, waited out most of a cargo build, and read one of those only after
+`serialport` failed on a missing 200 KB header. The transcript is always the
+same shape: *"MartyPC is still compiling. Let me wait on it rather than poll
+blindly… Missing libudev-dev/pkg-config — the Linux deps CLAUDE.md names.
+Installing and rebuilding."* Two builds where one would do, every time.
+
+Three things are wrong with prose as the mechanism here, and they are worth
+naming because the same three will defeat the next warning written the same
+way:
+
+1. **The cost lands minutes late.** `make marty` clones, patches and
+   compiles most of MartyPC before cargo reaches `serialport`, so the
+   missing header is reported long after the expensive part — to somebody
+   who has by then stopped provisioning a box and started debugging a build.
+2. **It was a parenthesis.** *"(plus `libudev-dev` and `pkg-config` on
+   Linux)"* is a fact inside a sentence about cargo. It is not a command,
+   and nobody types a parenthesis.
+3. **There was no one command to type.** The recipe was two `apt` calls
+   with *opposite* cures — one package wants the newer version a refreshed
+   index names, the other wanted an older one than the index names — which
+   is a thing to get right rather than a thing to run.
+
+So the fix is not more prose, and **you should not need this rule**: two
+forcing functions below it do the work, and they are the reason it is short.
+
+- **`tools/martypc/build.sh` checks first and, HERE, heals itself.**
+  `pkg-config --exists libudev` is exactly the probe the `serialport` crate
+  makes, costs a fraction of a second, and runs *before* the clone. The
+  repair is gated on **being root with apt** — which is this container and
+  is not a contributor's workstation, because a build script that
+  apt-installs behind somebody's back is a worse failure than the one it
+  prevents — so in this fork it fixes itself silently and everywhere else it
+  stops in about a second naming the command, rather than four minutes in.
+  `OS88_NO_PREFLIGHT=1` skips it. **That gating is why the change is safe to
+  send upstream**; this rule is the only part of the work that is not.
+- **`tools/setup-linux.sh` PROBES rather than transcribing.** Every cure in
+  docs/MARTYPC-DEBUG.md is a *fallback* behind a plain attempt, because
+  those cures go stale: that document pins qemu to a base noble version
+  because the `-updates` `.deb` used to 404, and on the archive of
+  2026-09-08 both fetch fine and the plain install is **8 seconds**. A
+  script that hard-coded the pin would install an older emulator for no
+  reason.
+
+Two facts about the container that are not in the general docs, because they
+are this environment's rather than the project's: it runs **as root**, so no
+`sudo` is needed and none is missing; and `apt-get update` prints
+`W: Some index files failed to download` **for a reason that is usually
+harmless** — two third-party PPAs 403 through the agent proxy while the main
+archive fetches perfectly. docs/MARTYPC-DEBUG.md offers that warning as the
+tell of the `_apt` sandbox trap; here it is not one, so judge a refresh by
+whether the install then works and not by that line.
+
+`cargo` is the one thing `make deps` deliberately does **not** install —
+Rust comes from rustup rather than the archive, and every container here
+already has it.
+
 ### 1. UNSHALLOW BEFORE YOU BELIEVE ANY ANSWER ABOUT ANCESTRY
 
 A fresh session gets a **shallow clone**, and on one `git merge-base`,
@@ -1220,9 +1340,18 @@ branch and again when you come back and land another large round of it. A
 minor bugfix, a documentation merge and a build-number commit do not move that
 answer; the rebuild-and-boot above is what they owe, and the row about the
 thing you changed is what tells you more than the tier would. The Testing
-section is the short form and docs/TESTING.md the authority. **A merge that
-lands extensive kernel surgery is also where the whole soak goes** — once, at
-the end of it, under fork rule 4's reporting.
+section is the short form and docs/TESTING.md the authority.
+
+**A merge is where the branch's soak goes — at the branch's OWN scope, and a
+merge is never a licence for the whole tier.** That is the owner's to ask for
+(docs/TESTING.md, §`soak` under *When to run which tier*), and both runners
+refuse it unscoped. A merge does not widen what a change can reach anyway: the
+merged tree carries the artefacts the branch already tested unless the merge
+itself moved one, and the `md5sum` below is what answers that. So run the rows
+the WORK can reach, once, under fork rule 4's reporting. **The instrument that
+wants is the paragraph immediately below**, which this fork has had all along:
+a change that leaves the shipped images identical has told you that no row
+running them can see it.
 
 When in doubt, build and `md5sum` the images against the ones you already had.
 **Do that comparison at ONE commit, though**: the About box's build number is

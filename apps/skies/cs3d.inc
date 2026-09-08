@@ -532,6 +532,9 @@ cs_scale:
     mov bx, ax
     pop cx
     pop ax
+    mov [cs_odx], ax                ; the offset in WORLD axes, before the
+    mov [cs_ody], bx                ; rotation: cs_axcull's input (88.5.12)
+    mov [cs_odz], cx
     call cs_rot
     mov [cs_scx], ax
     mov [cs_scy], bx
@@ -1412,6 +1415,9 @@ cs_drawobj:
     call cs_projall
 .full:
     call cs_wireclr                 ; the edges-once marks are an OBJECT's, and
+%ifdef CSPROBE
+    mov byte [cs_dbg_fobj], 0
+%endif
     call cs_faces                   ; a vertex index means nothing across two
     ; --- a solid under CS_EDGEPX pixels across keeps no outline: twelve
     ;     segments round a fifteen-pixel box cost more than the box, and at
@@ -2081,6 +2087,109 @@ cs_projall:
     ret
 
 ; -----------------------------------------------------------------------------
+; cs_axcull - is this STACK face pointing AWAY from the eye? (SPEC.md 88.5.12)
+;
+; The winding test (88.5.10) is exact and stays the authority, but it is taken
+; from the face's PROJECTED points - so a face it throws away has already been
+; counted, gathered into cs_pv and paid two `imul`s. 29-60% of walked faces are
+; thrown away that way.
+;
+; This decides the same thing FIRST and with NO MULTIPLY AT ALL. A side face of
+; an untapered level pair is an axis-aligned plane in WORLD space, so "the eye
+; is behind it" is one compare against the eye's own world position - and
+; cs_scale already has that offset, because the rotation's input IS it. (The
+; roundabout way to see the same thing: the face's outward normal in camera
+; space is a column of M, and dot(M0, C) = dot(M x, M d) = d.x for an
+; orthonormal M, so the camera-space dot product a normal test would take
+; reduces to the world offset that was there before the rotation.)
+;
+; It REFUSES rather than guesses, and every refusal falls through to the
+; winding: a TAPERED level pair tilts the plane (a pyramid, a dome's cap, a
+; setback), a face with no axis flag is not a stack side or cap, and CSF_NOCULL
+; is left alone.
+;
+; in:  [cs_fflags], [cs_fidx], [cs_mdl], [cs_odx/ody/odz], [cs_pshr]
+; out: CF = 1 the face points away and may be skipped whole. Clobbers
+;      AX, BX, CX, DX, DI - and PRESERVES SI, which is load-bearing: the
+;      caller falls through to `.cnt`, and that arm walks the face's indices
+;      with `lodsb` FROM THE SI IT ALREADY HAS. `.plain` reloads SI from
+;      [cs_fidx] and `.cnt` does not, so clobbering it here is invisible on
+;      every object that is WHOLE (88.3.2) and corrupts the near/side count
+;      on every object that is not - which is a handful of river pieces in
+;      one scene, drawn wrong in a 32x6 patch. The pixel A/B caught it; the
+;      verdict audit could not, both tests agreeing about a face whose
+;      indices were then read from the wrong place.
+; -----------------------------------------------------------------------------
+cs_axcull:
+    push si
+    mov dl, [cs_fflags]
+    test dl, CSF_NOCULL             ; a ground polygon is drawn either way
+    jnz .no
+%ifdef CSPROBE
+    and dl, [cs_axmask]             ; BISECT: one family of faces at a time
+%endif
+    test dl, CSF_AXES
+    jz .no
+    mov si, [cs_fidx]               ; the level: every one of the five faces
+    mov bl, [si]                    ; leads with an index in its own base
+    xor bh, bh                      ; level, so index >> 2 names it
+    shr bx, 1
+    shr bx, 1
+    mov si, [cs_mdl]
+    mov si, [si + CSM_VERTS]
+    mov ax, bx
+    shl bx, 1
+    add bx, ax
+    shl bx, 1                       ; BX = level x 6: (wx, h, wz)
+    add si, bx
+    mov cl, [cs_pshr]
+    test dl, CSF_TOP
+    jnz .top
+    xor di, di                      ; the x faces read wx, the z faces wz
+    test dl, CSF_PZ | CSF_MZ
+    jz .ax
+    mov di, 4
+.ax:
+    mov bx, si
+    add bx, di
+    mov ax, [bx]
+    cmp ax, [bx + 6]                ; TAPERED: the plane is not axis-aligned,
+    jne .no                         ; so this test does not apply to it
+    shl ax, cl                      ; the half-width at the object's scale -
+    mov cx, [cs_odx]                ; the scale rule (88.5.6) bounds it by the
+    test dl, CSF_PZ | CSF_MZ        ; radius, so this cannot overflow
+    jz .haved
+    mov cx, [cs_odz]
+.haved:
+    test dl, CSF_PX | CSF_PZ
+    jz .minus
+    neg ax                          ; +face: the eye is in front iff d < -w
+    cmp cx, ax
+    jl .no
+    pop si
+    stc
+    ret
+.minus:
+    cmp cx, ax                      ; -face: ...iff d > w
+    jg .no
+    pop si
+    stc
+    ret
+.top:
+    mov ax, [si + 2]                ; the cap: the eye is above it iff dy < -h
+    shl ax, cl
+    neg ax
+    cmp [cs_ody], ax
+    jl .no
+    pop si
+    stc
+    ret
+.no:
+    pop si
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
 ; cs_faces - every face of [cs_mdl]: near-clipped where it has to be, culled
 ;            by the sign of one cross product, filled
 ; -----------------------------------------------------------------------------
@@ -2102,6 +2211,21 @@ cs_faces:
     mov [cs_fflags], al
     add si, 3
     mov [cs_fidx], si
+    call cs_axcull                  ; pointing AWAY in WORLD space: skipped
+%ifdef CSPROBE                      ; before it is counted, gathered or
+    mov byte [cs_dbg_ax], 0         ; wound at all (88.5.12)
+    jnc .nax
+    mov byte [cs_dbg_ax], 1
+    inc word [cs_dbg_axcull]
+.nax:
+    cmp byte [cs_axoff], 0          ; AUDIT: compute, do not act
+    jne .noax
+    cmp byte [cs_dbg_ax], 0
+    jne .skip
+.noax:
+%else
+    jc .skip
+%endif
     cmp byte [cs_pwhole], 0         ; a whole object: no end is behind or
     jne .plain                      ; past a side, so the count is skipped
                                     ; (and .plain clears cs_fcut for it)
@@ -2149,6 +2273,10 @@ cs_faces:
     add di, 4
     loop .cp
 .fill:
+%ifdef CSPROBE
+    inc word [cs_dbg_fwalk]
+    call cs_probe_face
+%endif
     mov cx, [cs_pn]
     cmp cx, 3
     jb .skip
@@ -2224,8 +2352,33 @@ cs_faces:
                                     ; culls every face there is
     mov byte [cs_pwind], 1
     test byte [cs_fflags], CSF_NOCULL
+%ifdef CSPROBE
+    jnz .draw
+    inc word [cs_dbg_fcull]
+    cmp byte [cs_dbg_ax], 0         ; the winding culls it: did the axis test?
+    je .axmiss
+    inc word [cs_dbg_axagree]
+    jmp short .skip
+.axmiss:
+    inc word [cs_dbg_axmiss]
+    jmp short .skip
+%else
     jz .skip                        ; away, or edge-on
+%endif
 .draw:
+%ifdef CSPROBE
+    cmp byte [cs_dbg_ax], 0         ; the winding DRAWS it: the axis test must
+    je .axok                        ; not have culled it, or the picture moves
+    inc word [cs_dbg_axbad]
+    push ax
+    mov ax, [cs_mdl]
+    mov [cs_dbg_axmdl], ax
+    mov al, [cs_fflags]
+    xor ah, ah
+    mov [cs_dbg_axflg], ax
+    pop ax
+.axok:
+%endif
     mov al, [cs_fink]               ; --- IS THIS FILL WANTED? (88.13.3) The
     call cs_fillon                  ;     ink says what the face is made of;
     jc .wire                        ;     with it off the face is its OUTLINE
@@ -2233,6 +2386,14 @@ cs_faces:
     call cs_setink
     mov si, cs_pv
     mov cx, [cs_pn]
+%ifdef CSPROBE
+    inc word [cs_dbg_fpoly]
+    cmp byte [cs_dbg_fobj], 0
+    jne .nfo
+    mov byte [cs_dbg_fobj], 1
+    inc word [cs_dbg_ftr]
+.nfo:
+%endif
     call cs_poly
     jmp short .skip
 .wire:
@@ -2357,6 +2518,246 @@ cs_edgemark:
 .seen:
     stc
     ret
+
+%ifdef CSPROBE
+; -----------------------------------------------------------------------------
+; cs_probe_face - PROBE ONLY, A/B 4: with [cs_dupface] set, repeat the per-face
+;                 PREAMBLE - the gather of the face's projected vertices by
+;                 index, and the quad's diagonal cross that decides its winding
+;                 - into scratch, once more. The same instructions on the same
+;                 data, discarded, so the picture is untouched and the frame's
+;                 difference over the faces walked is what one face's preamble
+;                 costs. 29-40% of them are then thrown away by the winding,
+;                 which is what that number is wanted for.
+;                 Preserves everything.
+; -----------------------------------------------------------------------------
+cs_probe_face:
+    mov al, [cs_dupface]
+    or al, [cs_dupgath]
+    or al, [cs_duparea]
+    jnz .go
+    ret
+.go:
+    pushf
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    cmp byte [cs_fcut], 0
+    jne .out                        ; a clipped face's points are the
+    mov al, [cs_dupface]            ; clipper's, not the model's
+    or al, [cs_dupgath]
+    jz .area                        ; ...cs_duparea prices the CROSS alone
+    mov si, [cs_fidx]
+    mov cx, [cs_fn]
+    mov di, cs_dbg_pv
+    cld
+.cp:
+    lodsb
+    xor ah, ah
+    mov bx, ax
+    shl bx, 1
+    mov ax, [cs_sxv + bx]
+    mov [di], ax
+    mov ax, [cs_syv + bx]
+    mov [di+2], ax
+    add di, 4
+    loop .cp
+.area:
+    mov al, [cs_dupface]
+    or al, [cs_duparea]
+    jz .out                         ; ...and cs_dupgath the GATHER alone
+    cmp word [cs_fn], 4
+    jne .out
+    mov ax, [cs_dbg_pv + 8]         ; (x2 - x0)(y3 - y1)...
+    sub ax, [cs_dbg_pv]
+    mov bx, [cs_dbg_pv + 14]
+    sub bx, [cs_dbg_pv + 6]
+    imul bx
+    mov cx, ax
+    mov si, dx
+    mov ax, [cs_dbg_pv + 10]        ; ...minus (y2 - y0)(x3 - x1)
+    sub ax, [cs_dbg_pv + 2]
+    mov bx, [cs_dbg_pv + 12]
+    sub bx, [cs_dbg_pv + 4]
+    imul bx
+    sub cx, ax
+    sbb si, dx
+.out:
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    popf
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_probe_sh - PROBE ONLY: a SHALLOW segment about to be walked. Says whether
+;               it takes the run slice (six or more pixels a row) or the
+;               per-pixel arm, and for the per-pixel arm accumulates its
+;               pixels AND the DISTINCT BYTES they land in - which is
+;                   1 + |dy| + ((x0 & 7) + |dx|) / 8
+;               because DI moves on a y-step and on a mask wrap and nowhere
+;               else, and never revisits a byte. **The difference between the
+;               two is what a byte ACCUMULATOR could merge**, and it is the
+;               only arm where anything can: a steep or vertical line puts
+;               every pixel in a different row, 80 bytes apart.
+;               in: AX = x0, CX = |dx|+1, BP = 2|dy|.  Preserves everything.
+; -----------------------------------------------------------------------------
+cs_probe_sh:
+    pushf
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    mov dx, bp                      ; the slice's own test: CX > 6|dy|
+    shl dx, 1
+    add dx, bp
+    cmp cx, dx
+    ja .slice
+    inc word [cs_dbg_wsh]
+    add [cs_dbg_wshpx], cx
+    mov si, bp
+    shr si, 1                       ; SI = |dy|
+    inc si                          ; ...+ 1 for the first byte
+    mov dx, ax
+    and dx, 7                       ; the start's bit within its byte
+    mov di, cx
+    dec di                          ; DI = |dx|
+    add dx, di
+    shr dx, 1
+    shr dx, 1
+    shr dx, 1                       ; DX = the mask wraps
+    add si, dx
+    add [cs_dbg_wshby], si
+    jmp short .out
+.slice:
+    inc word [cs_dbg_wsl]
+.out:
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    popf
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_probe_edge - PROBE ONLY: count the traces cs_poly makes and how many of
+;                 them another face of the SAME object has already made, and
+;                 carry the two A/Bs that price the dedup test and its copy.
+;                 Called with the edge's ends in AX/BX and CX/DX, immediately
+;                 before `call cs_edge`. Preserves everything.
+; -----------------------------------------------------------------------------
+cs_probe_edge:
+    pushf
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    inc word [cs_dbg_etr]
+    mov si, bx                      ; the rows this trace covers, view-clipped
+    mov di, dx
+    cmp si, di
+    jle .ord
+    xchg si, di
+.ord:
+    or di, di
+    js .norow
+    cmp si, [cs_wh]
+    jge .norow
+    or si, si
+    jns .r1
+    xor si, si
+.r1:
+    cmp di, [cs_wh]
+    jl .r2
+    mov di, [cs_wh]
+    dec di
+.r2:
+    mov [cs_dbg_y0], si
+    sub di, si
+    inc di
+    add [cs_dbg_erow], di
+    jmp short .idx
+.norow:
+    xor di, di
+.idx:
+    cmp byte [cs_fcut], 0
+    je .look
+    inc word [cs_dbg_ecut]          ; a cut face has no model indices
+    jmp short .out
+.look:
+    ; --- A/B 2: with [cs_nomark] the index lookup and cs_edgemark are
+    ;     skipped, so the difference is what the DEDUP TEST costs - and a
+    ;     production version pays it on EVERY edge to save on one in seven
+    cmp byte [cs_nomark], 0
+    jne .out
+    mov bp, [cs_pn]                 ; the edge's index: i = pn - pei
+    mov si, bp
+    sub si, [cs_pei]
+    mov bx, si
+    inc bx
+    cmp bx, bp
+    jb .j
+    xor bx, bx
+.j:
+    mov bp, [cs_fidx]
+    add si, bp
+    mov al, [si]
+    mov si, bp
+    add si, bx
+    mov ah, [si]
+    push di
+    call cs_edgemark
+    pop di
+    jnc .out
+    inc word [cs_dbg_edup]
+    add [cs_dbg_edrow], di
+    ; --- A/B 3: with [cs_cpy] a duplicate ALSO pays the copy that would stand
+    ;     in for the trace it skips. Done INTO SCRATCH with the real trace
+    ;     still running after it, so the picture is untouched
+    cmp byte [cs_cpy], 0
+    je .out
+    or di, di
+    jz .out
+    push es
+    push ds
+    pop es
+    mov cx, di
+    mov si, [cs_dbg_y0]
+    shl si, 1
+    mov di, si
+    add si, cs_xr
+    add di, cs_dbg_scr
+    cld
+    rep movsw
+    pop es
+.out:
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    popf
+    ret
+%endif
 
 ; cs_wireclr - the object's edge marks, cleared. Preserves everything
 cs_wireclr:

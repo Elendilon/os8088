@@ -32789,25 +32789,27 @@ of them on a 5150 the machine takes the fast decoder. Both knobs stay on both
 sides (`make PKGZ=lzb COMPRESS=lzb`), and `tests/lzship.py --fmt lzb` builds
 and boots the whole set through it, so adding LZB later moves no layout.
 
-**What it is worth, on the geometry that binds** — the 360KB pair, measured:
+**What it is worth, on the geometry that binds** — the 360KB pair, and
+**no cluster totals are written down here.** They move with every package,
+driver, module and face on the disk, so a figure recorded beside them is wrong
+more often than it is right and is believed anyway; every `make` prints the
+live ones (`os88disk: build/os8088-360.img … n/354 clusters`) and `make PKGZ=`
+builds the arm to read them against.
 
-| disk | plain | LZ4 |
-|---|---:|---:|
-| system, of 354 clusters | 326 | **290** |
-| apps, of 354 clusters | 203 + a second floppy | **331**, `BEVERLY.MOD` on it |
+What the comparison says is not a percentage but a *disk*, twice over. The
+plain apps disk no longer fits this geometry at all and the compressed one
+does — and §24.4 gave `BEVERLY.MOD` a floppy of its own here because 116,085
+bytes is 114 of 354 clusters, where 42,177 bytes is 42, so the module rides the
+apps disk in `MEDIA/` and the two-disk split is gone. Those two are the file's
+own sizes and stay true; `build/media360.img` is still built and now carries a
+compressed copy of the same file, which is a duplicate rather than a
+requirement.
 
-The second row is the headline and it is a *disk* rather than a percentage:
-§24.4 gives `BEVERLY.MOD` a floppy of its own at this geometry because 116,085
-bytes is 114 of 354 clusters, and 42,177 bytes is 42 — so the module rides the
-apps disk in `MEDIA/` and the two-disk split is gone. `build/media360.img` is
-still built and now carries a compressed copy of the same file, which is a
-duplicate rather than a requirement.
-
-**`README.TXT` is compressed and gains no room by it.** 16,334 bytes of CRLF
-prose is 8,861, and Note Pad reads it whole through `OSAPI_FILE_READ`, so
+**`README.TXT` is compressed and gains no room by it.** 14,722 bytes of CRLF
+prose is 8,088, and Note Pad reads it whole through `OSAPI_FILE_READ`, so
 §20.14 applies and `np_load` is untouched — but `np_load` claims against the
 UNPACKED size §20.14.4 reports, so `NP_MAXKB`'s 16 KB still bounds the manual
-at 16,334 with the same 50 bytes of headroom. `tools/checkreadme.py` rule 2
+at 14,722 with the same 1,662 bytes of headroom. `tools/checkreadme.py` rule 2
 therefore keeps measuring the CRLF source and not the file. **The live CD
 carries a PLAIN copy** as its host-visible `README.TXT` (§80.2): a host that
 mounts the ISO to copy the raw image off it has to be able to read the
@@ -41788,11 +41790,20 @@ content, because nothing is drawn above it there. On CGA that is 3 rows beside
 column carries its own copy of the header line, at `TM_C2_HDR_Y` for the later
 ones.
 
-`tm_row_place` is the single index→pixel mapping, used by both views, and the
-order is **column-major**: rows `0..[tm_colrows]-1` fill column 0, then
+`tm_row_place` is the single index→pixel mapping, used by every view, and the
+order is **column-major**: the rows below column 0's depth fill column 0, then
 `[tm_col2rows]` at a time fill each column after it. That is what makes "this
 row has no place" monotone — once one row is refused every later row is too,
 so a caller may stop rather than test the rest.
+
+**Column 0's depth is ONE PER PAGE, and it has to be** (§28.1.2). The three
+lists start at three different heights up the content, so the number of rows
+one column of the same frame holds is three different numbers:
+`[tm_pcolrows]` from `TM_ROW_Y` for the process list, `[tm_colrows]` from
+`TMM_ROW_Y` for the memory view, `[tm_hcolrows]` from `TMH_ROW_Y` for the heap
+page. All three are derived in `tm_layout` from the FRAME, never from the dock
+— on a screen where `TMM_ROWS` caps the height below what the band would
+allow, a dock-derived depth names rows the frame cannot show.
 
 **A column the layout does not have refuses the row, whatever the counts say.**
 `tm_row_place` tests the column it just derived against `[tm_cols]` before it
@@ -41806,10 +41817,14 @@ row index, so once one row is off the end every later one is too.
 
 Three traps:
 
-- **`[tm_cols]`, `[tm_colrows]`, `[tm_col2rows]` and `[tm_maxrow]` are set at
-  boot and must live OUTSIDE `tm_zero_beg..tm_zero_end`**, which `tm_kinit`
-  zeroes every time a window opens. `[tm_col2rows]` is a divisor, so getting
-  this wrong is a divide-by-zero on the first launch, not a layout glitch.
+- **`[tm_cols]`, the three column-0 depths, `[tm_col2rows]` and `[tm_maxrow]`
+  are derived once, before the window exists.** As a built-in that needed
+  saying out loud: a kind's `.bss` survived between instances, so `tm_kinit`
+  cleared the block by hand and wiped whatever `tm_init` had worked out at
+  boot — a divide-by-zero the first time the window opened, `[tm_col2rows]`
+  being the divisor. **A package has no such hazard** and the rule is retired
+  with the mechanism: the loader zeroes the image's bss once per launch,
+  before the entry proc runs, and `tm_init` runs inside it.
 - **Everything a row draws reads `[tm_rowx]`, never `[tm_cx]`** — the fill, the
   text, and *both halves* of a legend square. The frame and the interior of
   that square are drawn by different routines, and one of them reading `tm_cx`
@@ -41817,6 +41832,40 @@ Three traps:
 - **The chrome above the list is column 0's** and reads `[tm_cx]`: the maps,
   the bars and the caption lines. `tm_lfill` sets `[tm_rowx]` back to `[tm_cx]`
   itself rather than relying on running before the row loop.
+
+### 28.1.2 A shared column-0 depth costs the SECOND COLUMN, not a row
+
+The three pages' lists start at three different heights up the content —
+`TM_ROW_Y` is 97, `TMM_ROW_Y` is 67 and `TMH_ROW_Y` is 48 — so a depth cut for
+one of them is wrong for the other two, and **wrong in both directions**.
+
+Too deep is the expensive direction, and it is expensive out of all proportion
+to the error. `tm_row_place` places a row from the depth it is given and then
+clamps it against `[tm_ylim]`, the live frame — so a depth naming rows the
+frame has no height for does not merely lose those rows. It **breaks the
+monotonicity the column-major order promises**: the refusal lands inside column
+0, and `tm_rows` stops there, so every row after it — the whole of column 1
+included — is never reached. The second column keeps its header, because the
+header loop counts `[tm_cols]` and never asks `tm_row_place` anything, so the
+window shows an empty column beside a truncated one and looks like a drawing
+fault rather than a layout one.
+
+The process list is the page that shipped this way. It shared `[tm_colrows]`,
+cut from the memory view's `TMM_ROW_Y` — 30px higher, ~2.7 rows too generous —
+so on CGA a 13-row list drew **3 rows of 13**: three in column 0 and nothing at
+all in column 1, from the day two-column mode landed. `[tm_pcolrows]` is that
+page's own depth and restores the 3-beside-10 the geometry was designed for.
+
+Too shallow is the cheap direction and was found first: the heap page sharing
+`[tm_colrows]` wrapped early and left a map's height of white at the foot of
+column 0, which is a row that moved rather than a list that stopped. That is
+`[tm_hcolrows]` (§28.4), and it is the same defect one page along.
+
+The rule is therefore structural rather than a fix twice applied: **a page that
+starts its list at its own y owns its own column-0 depth**, and a fourth page
+would need a fourth. The bound `[tm_maxrow]` stays ONE word over all of them
+and is cut from the DEEPEST, so it never refuses a row a shallower page has a
+place for; the tight tests are `[tm_ylim]` and the `[tm_cols]` one above.
 
 ### 28.2 The process row is exactly the chunk span
 
@@ -42085,13 +42134,16 @@ now.
 derived from `TMM_ROW_Y`, so a list starting 30 px higher wraps into column 2
 with a map's height still unused at the foot of column 1. `[tm_hcolrows]` is
 the same arithmetic from `TMH_ROW_Y` (measured: 8 rows against the memory
-view's, on CGA), and `tm_row_place` picks between them the same way. **It is
-derived from the FRAME and never from the dock**, which is the trap:
+view's, on CGA), and `tm_row_place` picks between them the same way — between
+all **three** of them since §28.1.2, the process list having wanted the same
+treatment with the opposite sign and lost its whole second column to not
+having it. **It is derived from the FRAME and never from the dock**, which is
+the trap:
 `[tm_colrows]` is dock-derived and `TMM_ROWS` caps the frame height below
 what the dock allows, so on a tall screen a dock-derived depth names rows the
 frame cannot show — and `tm_row_place` would then wrap *past* rows `tm_ylim`
 had already refused, losing them instead of moving them into the next column.
-`[tm_maxrow]` takes the deeper of the two, so it never hides a row of any page
+`[tm_maxrow]` takes the deepest of them, so it never hides a row of any page
 — but it does name indices the shallower pages have no column for, and those
 are refused on `tm_row_place`'s column test (§28.1.1) rather than on the count.
 The rest holds: the performance list is bounded by its own `cmp si, TM_ROWS`,
@@ -52760,8 +52812,12 @@ which column 0 wraps into it — one row deeper, so one row fewer wraps.
 Measured on CGA: column 0 went from 5 rows to 6 and column 1 from 3 to 2, the
 window the same size, no blank strip. The **heap page is untouched** — it has
 neither map nor bar and starts at `TMH_ROW_Y` — and the **performance view**
-keeps its rows where they were, its list being bounded by `tm_ylim` on a short
-screen and by `TM_ROWS` = 13 against a frame that still holds 15 on a tall one.
+keeps its rows where they were: it starts at `TM_ROW_Y`, which the XMS bar is
+not above, so neither its origin nor its own `[tm_pcolrows]` moves, and its
+list is bounded by `TM_ROWS` = 13 against a frame that still holds 15 on a tall
+one. (That clause read "bounded by `tm_ylim` on a short screen" until §28.1.2,
+and a list bounded by `tm_ylim` is precisely the defect: the clamp is the last
+resort, not a depth, and reaching it stops the list mid-column.)
 
 `TM_STRMAX` now takes the **maximum** of its two candidate longest lines rather
 than naming the winner. Which line is longest has already changed twice — the
@@ -65397,6 +65453,90 @@ FAT12 volume now** (§19.3). A driver is a file on it, the settings that say
 which drivers load are a file on it, and both are reached through the file
 API that already existed.
 
+#### 50.6.5 `MEM_P_VIEW` — the Disk window's listing cache is a CACHE on `kern_small`
+
+**A cache that can be SHED does not need to be MOVED**, and on the 128KB
+machine that is the better of the two: the shed gives the bytes back, where a
+move only rearranges them.
+
+The Disk window's listing cache (§22.1) is `VIEW_KB` — 2KB there — claimed per
+open window, up to `VIEW_SLOTS` = 4 of them. It was an ordinary claim owned by
+the window's instance slot and declared movable through `fm_reloc` (§66.5.6),
+and on the floor machine that made it the single worst thing in the arena.
+Measured on `os8088_5150_cga_128k` with A: and B: open:
+
+```
+13E0    2.0K inst0        movable     the A: window's cache
+1460   23.0K pg:DIRW      purgeable   the read-ahead
+1A20    2.0K inst1        movable     the B: window's cache
+1AA0    1.0K pg:FATW1     purgeable
+1AE0    6.0K pg:WSAVE0    purgeable
+```
+
+Shed every cache and the largest run is **23.0 KB** — the read-ahead's own
+hole, walled above by a 2KB claim. Two 2KB claims strand **21.5 KB of a
+48.5 KB heap**, and only a compaction reaches past them (§66.4), at 44.5 KB.
+As a cache the whole arena is reclaimable and the number is **48.5 KB**.
+
+**On `kern_big` it stays an ordinary movable instance-owned claim** and §66.5.6
+is unchanged. That kernel has the heap to keep a cache *and* a compactor to
+move it out of the way, so shedding one there would be paying floppy I/O for
+room it does not need. The `kern_small` kernel is the one with neither.
+
+##### 50.6.5.1 Rank `MEM_PG_LOW`, and why not `MEM_P_FATW`'s MED
+
+Losing one costs that window's repaints a directory re-read off the global
+snapshot (§22.1) — floppy I/O, which is what puts the FAT window at MED
+(§50.6.4). The difference is that **this one self-heals**: `fmv_fit`'s only
+caller is `fmv_store`, so the cache is re-claimed the next time a listing is
+stored into that window — a navigation, a refresh, a volume switch. A shed FAT
+window stays gone until its volume is remounted, and two volumes that alternate
+then evict each other for as long as it is (§18.8.1's 45 mounts). One is a
+visible pause; the other is seconds the user waits through.
+
+##### 50.6.5.2 Two naming words, and the tag is the owner
+
+§50.6 asks for exactly ONE kernel word naming the block. This claim has two —
+`FS_VSEG` in the window's own `KD_POOL` block, at `FS_SIZE` stride inside
+`fm_pool` rather than in a flat array of words, and the `[fm_vseg]` mirror
+every reader looks at. `mem_pg_own` has no stride column and carries one word,
+so the row exists to be MATCHED and `mem_pg_forget`'s `.view` arm hands the
+owner to **`fmv_demote`** — which is exactly what `MEM_P_FATW`'s `.fatw` arm
+already does with `dsk_fatw_demote`, and for the same reason. `fmv_demote`
+zeroes `FS_VSEG` and clears the mirror when it named that block; `fm_vp_set`
+republishes the mirror on the next acting window, but a paint can come first.
+
+The zero those writes leave IS the notice, which is the whole purgeable
+contract: `.nocache` is what a 0 there already means, and §22.1 calls it the
+documented fallback rather than an error. **The window keeps working** — rows,
+icons, sizes and the scroll bar all paint off the global snapshot.
+
+The owner becomes `MEM_P_VIEW + the window's fm_pool slot`, `MEM_P_WSAVE`'s
+shape (§11.96.3), because in §50.6 the tag IS the request. Two consequences:
+
+1. `fmv_owner` derives the owner from the **block** and no longer from
+   `[fm_vinst]`, so a shed can ask about a window that is not the acting one.
+2. **`mem_free_rec` no longer reaps it** — that walk is by owner and a tag is
+   nobody's instance (§50.4). The claim a closed window leaves is purgeable, so
+   it is never lost, but the block it names is about to become a *different*
+   window's; shedding it then would zero the new tenant's `FS_VSEG`. So
+   `fm_kinit` frees the previous tenant's claim before it zeroes the field,
+   which is the place §22.6.1 already worries about "whatever the last tenant
+   of this `KD_POOL` block left".
+
+##### 50.6.5.3 What it costs, and what it deletes
+
+**+12 bytes of `kern_small`** — `.text` **−35**, `.cold` **+47**, no rung
+crossed, `KERN_SIZE` unmoved — and `kern_big` assembles **byte-identical**. It
+is net-cheap because a purgeable claim is never moved, so `fm_reloc` (52 bytes
+of `.text`) and `fmv_movable` (14) are `kern_big`'s alone now and leave the
+tighter of the two rungs.
+
+The alternative priced against it was a **`KD_DONE` teardown hook** on the kind
+descriptor (§29.3) — architecturally the nicer answer, since a built-in kind is
+an app that ships with the kernel — and it measured **129 bytes** for the same
+job. It is not needed to make the cache purgeable and is a separate decision.
+
 ### 51.0 NOT ON `kern_small` — the whole mechanism is `kern_big`'s
 
 **`kern_small` cannot load a `.DRV` of any kind.** The `%ifdef OS88_DRIVERS`
@@ -77884,6 +78024,91 @@ refused, one step ahead of the purgeable shed (§50.6.2). That is where the
 cost belongs: at that instant the user has just asked for something, and a
 pause is what they are already expecting. Nothing walks the heap on a timer,
 at idle, or on a free.
+
+### 66.0 NOT ON `kern_small` — the 128KB machine keeps PURGING and gives up MOVING
+
+**`OS88_COMPACT` is `kern_big`'s**, resolved in `kernel.asm` above every
+`%include` beside `OS88_ASSOC`, `OS88_DRIVERS` and `OS88_RTC`. On `kern_small`
+every claim is born pinned and stays pinned; `mem_claim`'s refusal path is
+**shed and retry**, which is what it was before §66.4, and `OSAPI_MEM_MOVABLE`
+answers CF = 1.
+
+**Purging is untouched and is the half that matters there.** §50.6's shed
+reaches every cache in priority order on both kernels; what goes is the ability
+to MOVE a claim that is not a cache.
+
+#### 66.0.1 Why it costs that machine so little
+
+Its two biggest customers cannot exist there. A **driver image** (§66.6.3) and
+a driver's **donated claim** (§66.5.10.2) are the reason `mem_region_reloc`
+walks nine kernel tables, and `OS88_DRIVERS` gates the whole mechanism out
+(§51.0). The **association cache** — measured holding 40KB out of reach, and
+the case that put §66.5.6 in the tree — went with §54.0. **Hibernate** is
+`kern_big`'s. Of the kernel's own claims that reach a `kern_small` desktop at
+all, that leaves the **menu save-under**, measured at **3.0KB** and alive for
+exactly as long as a menu is down, and the **clipboard**.
+
+And the one case that did bite was answered at the CLAIM instead. Two 2KB Disk
+window listing caches sat either side of the directory read-ahead and stranded
+**21.5KB of a 48.5KB arena** between them; §50.6.5 makes them **purgeable**, and
+a cache that can be shed does not need to be moved — the shed reaches **48.5KB**
+where the compactor reached 44.5. That is the whole of the argument: the feature
+was earning its bytes on one population, and that population is better served by
+the cheaper mechanism.
+
+#### 66.0.2 What is compiled out, and what stays
+
+Out: `mem_can_move` and the five predicates only it asks (`mem_is_region`,
+`mem_frameless`, `mem_busy_seg`, `mem_in_nest`, `mem_in_xfer`), the seventeen
+`mem_cp_*` routines, `mem_reloc_call`, `mem_rr_walk` / `mem_region_reloc` /
+`mem_rr_tab`, `mem_compact`, `OSAPI_MEM_MOVABLE`'s body, the four kernel
+relocation procs (`menu_reloc`, `clip_reloc`, and `fm_reloc` / `fmv_movable`
+which §50.6.5 had already taken), the **worker park** (§66.5) entire —
+thirteen routines in `instance.inc`, `gfx_lock`'s two hooks and
+`sch_wk_restart` — and `[mem_pinseg]`, whose only reader was `mem_in_xfer`, so
+its writes in `disk.inc`, `clip.inc` and `hiber.inc` go with it.
+
+Stays: **everything about purging**. `mem_shed_one`, `mem_pg_own`,
+`mem_pg_forget`, `mem_pg_cheap`, `mem_rank_bh`, `mem_fatw_dirty`,
+`[mem_pg_rank]` and every `MEM_P_*` tag. `MC_RLOC` stays in the record too,
+published as 0 by `mem_claim_1` and read by nothing — so `tools/heapmap.py`
+still decodes a `kern_small` map and answers PINNED for every row, which is
+true.
+
+**The API slots stay and refuse**, which is `gfx_blit1`'s precedent on this
+kernel (§5.4.2.5): a small-built package calls the same table at the same
+offsets and runs on `kern_big` unchanged (§24.5). `OSAPI_MEM_MOVABLE`,
+`OSAPI_MEM_PARKSAFE` and `OSAPI_TASK_RESTARTABLE` are all promises a package
+MAY make and none is load-bearing — `crt0.asm` throws the answer away in as
+many words — and every caller already has a path for the refusal, because the
+owner fence could always refuse.
+
+#### 66.0.3 `mem_avail` still answers the question `mem_claim` answers
+
+§66.10.3 made the largest run `mem_cp_plan`'s, **because the refusal path
+compacts**. Here it sheds, so the answer is the biggest hole the shed leaves
+and `mem_bigrun` is that walk: the candidates are the arena floor and each
+barrier's end, a cache at or below the caller's rank is not a barrier, and
+`mem_pg_cheap` is the same predicate the total uses — so the run and the total
+cannot disagree. It is `O(MEM_MAX²)`, which is exactly what `mem_cp_plan` was.
+
+The contract is unchanged and it is the one that matters: **under-reporting
+here is not a safe error**, it is the only direction in which the error is
+invisible (§50.3).
+
+#### 66.0.4 What that machine gives up
+
+A claim that is not a cache is a barrier for as long as it is held, and three
+of them can be: the menu save-under while a menu is down, the clipboard, and
+every claim a package declares movable — Paint's canvas, Note Pad's document,
+ArtfulType's and Fractal's are all on the small apps disk (§24.5). The owner's
+decision is that **a 48.5KB machine runs one program at a time and the user
+manages that space**, which is the same judgement §24.5 already makes about
+what ships there.
+
+**`+1,536 bytes of heap`**, measured: `.text` −667, `.bss` −52, `.cold` −936,
+`.lowbss` −4, `KERN_SIZE` 79,872 → 78,336, free heap on the floor machine
+**48.5 → 50.0 KB**. `kern_big` assembles byte-identical.
 
 ### 66.1 Why the first design was wrong, twice
 
@@ -100177,6 +100402,82 @@ because it is what `cs_pwind` needs. Degenerate faces (two coincident
 vertices, a pyramid's apex quad) go through the same fill, which handles a
 zero-height row.
 
+##### 88.4.2.1 …and the FILL does NOT dedup a shared edge — measured, refused
+
+§88.13.3's outline draws each edge ONCE, because every edge of a closed solid
+is shared by two faces and outlining each front face in turn draws the shared
+ones twice. **The same redundancy is in the FILL**: `cs_poly` traces all four
+of a face's edges, so an edge between two front faces is scan-converted twice
+— the same Bresenham over the same rows, into the other face's chain. Asked
+as *"we have the data for both faces up front, so can one pass do both?"*,
+which is the indexed-face-set question one level up.
+
+**It is measured, on six scenes, and the RUNTIME version is refused.** The
+instrument is §88.11.1's `CSPROBE` build, and its rule is that **every term is
+priced by ADDING it, never by removing it**, so every arm draws the identical
+picture: `cs_edge` is idempotent (a chain takes the same value, `.both` takes
+min/max), so running every trace TWICE prices one trace exactly; the dedup
+test is priced by an arm that skips it; and the copy by doing it into scratch
+in front of the trace it would replace.
+
+**THE SCENE DECIDES THE ANSWER, and §88.12's pinned three are the wrong ones
+for this question.** `runway`, `city` and `tower` hold a distant skyline —
+LOD-boxed (§88.5.4), so no faces at all — and the polygons that cover the view
+there are the one-face FLAT models. A view standing among buildings is four
+times the tracing. The `df*` scenes are La Défense's six 110 m towers at
+~950 m, and the discriminator is the PITCH, exactly as the arithmetic says:
+**above the roofs a box shows two walls AND a roof — three faces meeting at
+three shared edges of twelve traced — and below them, two faces sharing one of
+eight.**
+
+| per frame, Hercules 4.77 MHz 8088 | runway | city | tower | dflevel | dfangled | dfsquare |
+|---|---|---|---|---|---|---|
+| eye vs. the roofs | — | — | — | below | above | above |
+| faces walked / back-culled | 9.0 / 3.4 | 15.8 / 4.5 | 14.6 / 5.6 | 28.1 / 16.9 | 28.1 / 11.2 | 28.1 / 11.2 |
+| edge traces | 20.2 | 31.5 | 27.0 | 40.5 | 63.0 | 67.5 |
+| …duplicates | 5.6% | 14.3% | 12.5% | **11.1%** | **23.2%** | **25.0%** |
+| rows a trace | 10.2 | 6.6 | 5.9 | 26.7 | 17.3 | 16.8 |
+| one trace | 1,352 cy | 1,285 | 1,119 | 2,866 | 2,121 | 1,902 |
+| **all the tracing there is** | 3.3% | 4.7% | 3.2% | **10.5%** | **11.0%** | **10.8%** |
+| **the duplicates — the whole prize** | 0.19% | 0.68% | 0.40% | 1.16% | **2.55%** | **2.69%** |
+| the dedup TEST, on every edge | 1.33 ms | 3.17 | 2.72 | 4.05 | 6.55 | 7.11 |
+| the COPY replacing a skipped trace | 0.10 ms | 0.30 | 0.16 | 1.37 | 1.71 | 2.02 |
+| **net, at runtime** | −1.12 ms | −2.26 | −2.10 | −2.73 | −1.76 | −2.42 |
+| **net, topology precomputed** | −0.02% | +0.29% | +0.14% | +0.35% | **+1.56%** | **+1.54%** |
+
+**A runtime dedup is a LOSS on every scene, and it is not close**: the test is
+295–501 cycles and is paid on 20–68 edges to save on 1–17, where a whole trace
+is 1,119–2,866. Bake the topology into the model instead — a flag beside each
+face index, so the test is a byte read of ~60 cycles — and the ceiling is
+**+1.56% of a frame** in the view it is best in, for a topology byte per
+face-edge over 122 models in a package that has already met `APP_MAX_SIZE` at
+a merge (§88.5.9). It is the CEILING of the idea and not an implementation:
+`docs/plans/SKIES-FRAME-PLAN.md` §2 carries it as priced-and-parked, beside
+the cull walk that is worth more for less.
+
+**Why this is small where §88.13.3's was large — 284.7 → 167.5 ms on Mode X —
+is the whole finding, and it is not about the sharing.** In WIREFRAME a
+duplicate edge is duplicate PIXELS: the second `cs_seg` walks the same span
+doing a read-modify-write per pixel over a line already on the glass. In a
+FILL the pixels were never duplicated — two front faces fill two different
+interiors, and `cs_polyrows_herc` lays a row as two masked end bytes and a
+`rep stosw` between, into the SHADOW (§88.3), which `cs_blit` carries to the
+card once. What a second trace repeats is the SPAN TABLE and nothing else.
+
+Three structural facts hold the prize where it is:
+
+  * **The vertex pipeline is ALREADY an indexed face set.** A model is verts,
+    faces of indices and edges of indices (§88.6); `cs_projall` transforms and
+    projects each vertex ONCE per object into `cs_sxv`/`cs_syv` and every face
+    reads them by index. The nine multiplies a vertex — the expensive part —
+    are already shared. Only the scan conversion is not.
+  * **A FLAT model has one face and so no shared edge at all**, and the
+    ground, the river, the runway and the roads are what covers the view: the
+    runway frame traces 206 rows from 20 edges and keeps 1.1 duplicates.
+  * **The LOD ladder removes faces before they can share one**: 13 objects in
+    the city frame produce 15.8 walked faces, because anything under about
+    six pixels is `cs_boxlod`'s rectangle (§88.5.4).
+
 #### 88.4.3 The walk is Tank's, without the per-pixel marks
 
 `cs_seg` is §85.3.2's walk with the dirty-span marks taken out of the pixel
@@ -100288,6 +100589,48 @@ executes it, so nothing else pays. `tests/skiesflat.py` is the gate and
 asks the direct question — stood on the Issy runway looking at the tower,
 the bar is a nine-pixel run at the tower's own x with nothing at the left —
 and `--clobber-flat` NOPs those four bytes and moves it to x = 0.
+
+##### 88.4.3.1 …and the per-pixel WRITE is not what a segment costs
+
+Asked of §88.13.3's outline dedup: *"why was the wireframe duplicating pixels
+when the shadow is not 8-aligned — is that somehow slower, and is the bigger
+win still out there?"* It is a fair question, because a 1bpp pixel is a bit and
+a bit is a read-modify-write of the byte around it, and a shallow line can hit
+the same byte up to eight times.
+
+**Measured** (§88.11.1's `cs_dblplot` arm: `or` is idempotent, so a second plot
+draws the identical picture and the frame's difference over the plot count is
+one plot, exactly):
+
+| per frame, wire, Hercules 8088 | dfangled | tower |
+|---|---|---|
+| segments taking the per-pixel shallow arm | 9.0 | 8.6 |
+| …the run SLICE (six pixels a row or more) | 23.6 | 21.6 |
+| …steep | 7.9 | 9.4 |
+| …vertical | 6.8 | 7.9 |
+| pixels plotted | 860.6 | 600.8 |
+| …shallow / steep / vertical | 188 / 327 / 345 | 133 / 226 / 242 |
+| **one `or [es:di], al`** | **14.5 cy** | **14.2** |
+| **every plot in the frame** | 2.62 ms (**1.5%**) | 1.79 ms (**0.9%**) |
+| plots an accumulator could merge | 120.4 (14.0%) | 54.0 (9.0%) |
+| **…what merging them is worth** | 0.37 ms (**0.21%**) | 0.16 ms (**0.08%**) |
+
+**The write is 14 cycles of a steep pixel's ~85** — the rest is the DDA's
+`add`/`jg` and the `loop`, which is why §88.4.3's walk was worth taking the
+span marks out of and why a byte accumulator is worth 0.2%. And **78% of the
+pixels are steep or vertical**, where consecutive pixels are 80 bytes apart and
+nothing can merge at all: a wireframe tower is made of steep lines. The only
+mergeable arm is a shallow line under six pixels a row, and above six the
+slice (§85.3.6) is already laying whole runs — 23.6 segments of 47.3 take it.
+
+**So the answer is that the fill and the wire were never doing the same thing.**
+The plot is cheap; a SEGMENT is not — ~2,400 cycles of clip, mark, DDA setup
+and dispatch before a pixel is written. §88.13.3's dedup was worth 16.7 ms
+because it removed whole segments, and on Mode X — where the figure was taken —
+a pixel is an `out` and a store rather than 14 cycles, so the pixel share there
+is much larger than it is here. Nothing about the shadow buffer's alignment is
+costing anything: the row middle is `rep stosw` on whatever alignment (§88.4.6)
+because the 8088's bus is eight bits wide.
 
 #### 88.4.7 A small solid keeps no outline
 
@@ -100745,6 +101088,107 @@ distance, so it compares against **3/2 of `CSM_RAD`** - over sqrt(2), a
 shift and an add. That is also a fix in its own right: with a bare compare
 it rejected points that really were over the water, and the Seine's diagonal
 corners are exactly where the two measures diverge most.
+
+#### 88.5.12 A stack face is culled against the EYE, before anything is gathered
+
+§88.5.10's winding test is exact and stays the authority. What it is not is
+EARLY: it reads the signed area of the face's PROJECTED points, so a face it
+throws away has already been counted against the near and side planes,
+gathered by index into `cs_pv`, and paid the two `imul`s of the diagonals'
+cross. Measured with §88.11.1's `cs_dupface` arm, a face's preamble is
+**1,326–1,478 cycles and 29–60% of walked faces are thrown away** — 1.25 ms of
+the `city` frame, 3.25 of `dfangled`, **4.96 of `dflevel`, which is 2.14%**.
+
+`cs_axcull` decides the same thing first, and **with no multiply at all.**
+
+A stack's side face is an axis-aligned plane in WORLD space when its level
+pair is untapered, so *"the eye is behind it"* is one compare against the eye's
+own world position:
+
+| face | drawn only when |
+|---|---|
+| +x | `d.x < −wx` |
+| −x | `d.x > wx` |
+| +z | `d.z < −wz` |
+| −z | `d.z > wz` |
+| the cap | `d.y < −h` |
+
+— where `d` is the object's offset FROM THE EYE, which `cs_scale` already has:
+**it is the input to the rotation.** `cs_scale` now files it (`cs_odx`,
+`cs_ody`, `cs_odz`, at the object's own scale, three stores).
+
+The roundabout way to see why that is the right quantity, which is worth
+writing down because it is not obvious: a camera-space normal test would take
+`dot(M₀, C)`, where `M₀` is the matrix column §88.5 already scales a level's
+corners by and `C` is the object's camera-space origin. `M` is orthonormal, so
+`dot(M x̂, M d) = dot(x̂, d) = d.x`. **The dot product reduces to the number
+that was there before the rotation.** Nine multiplies become nothing.
+
+Which face is which costs no image byte: every face already carries a flags
+byte and it was `0` on all of them, so `CS_SIDES`/`CS_TOP` set `CSF_PX`,
+`CSF_MX`, `CSF_PZ`, `CSF_MZ`, `CSF_TOP` in it. The level is the face's own
+first vertex index shifted right twice — all five faces of a level lead with an
+index in their base level — and the model's vert table is `(wx, h, wz)` per
+level, so the half-width is a word at a computed offset. The scale rule
+(§88.5.6) bounds a model's half-width by its radius and the radius by the
+scale, so `shl ax, cl` up to the object's scale cannot overflow, exactly as
+`cs_nearat` relies on.
+
+**It REFUSES rather than guesses, and every refusal falls through to the
+winding**, which is what makes it safe to put in front of a test with a
+photographed field bug behind it (§88.5.10). Three refusals: a **tapered**
+level pair (a pyramid, a dome's cap, a setback) tilts the plane out of the
+axis, so the two levels' half-widths are compared and an unequal pair is left
+alone; a face with **no axis flag** is not a stack side or cap; and
+**`CSF_NOCULL`** — a river is visible from either side — is untouched.
+
+A face it culls is skipped WHOLE: no `.cnt`, no `cs_fclip`, no gather, no
+cross, no `cs_pwind`. A face it passes costs the flags test it was going to
+pay for `CSF_NOCULL` anyway plus a compare.
+
+**What it costs is 143 bytes and what it buys is the back faces**, measured
+with `[cs_axoff]` — one image, one speed, the cull acting or computing and not
+acting, interleaved:
+
+| | runway | city | tower | dflevel | dfangled | dfsquare |
+|---|---|---|---|---|---|---|
+| the winding alone | 176.08 ms | 181.20 | 204.76 | 236.69 | 260.35 | 253.76 |
+| `cs_axcull` on | 175.05 | 180.55 | 204.12 | **231.05** | **256.64** | **250.09** |
+| | −0.58% | −0.35% | −0.32% | **−2.38%** | **−1.43%** | **−1.45%** |
+| faces walked, without → with | 112→70 | 196→168 | 182→154 | 350→140 | 350→210 | 350→210 |
+
+**`dflevel` is the case it is for and it is the ordinary one** — level flight
+among buildings, where a box shows two of its five faces: 350 faces walked
+become 140, the winding is left with **nothing to cull at all**, and the frame
+comes down 5.64 ms.
+
+##### 88.5.12.1 What verifying it cost, which is worth more than the 143 bytes
+
+Three things, in the order they were found:
+
+1. **`cs_axcull` MUST preserve SI, and the first build did not.** The caller
+   falls through to `.cnt`, and that arm walks the face's indices with `lodsb`
+   FROM THE SI IT ALREADY HAS — where `.plain` reloads it from `[cs_fidx]`. So
+   clobbering SI is invisible on every object that is WHOLE (§88.3.2) and
+   corrupts the near/side count on every object that is not, which in these
+   scenes is a handful of river pieces: one building drawn wrong in a 32×6
+   patch. **The verdict audit could not see it** — both tests agreed about the
+   face, and its indices were then read from the wrong place.
+2. **A pixel A/B of this program is NOT reproducible, and the control says so.**
+   Two arms that are byte-identical in behaviour AND speed — `[cs_axoff]` = 1
+   on both sides of the same image — differ in **2 runs of 6**, by 865 and 896
+   pixels, in the same lower-view band as every difference that was being
+   chased. The scene is pinned and the world paused, and it still moves. So a
+   framebuffer comparison is worth running (it is what found the SI bug) and it
+   cannot certify: **the gate is `cs_axcull`'s verdict against the winding's,
+   face by face on the guest** (§88.11.1's audit arm), which is 0 disagreements
+   over 12 scene-and-fill configurations.
+3. **The instrument's own bss is ZEROED, and `cs_axmask` defaults to 0.** With
+   the bisect mask added, `and dl, [cs_axmask]` cleared every axis bit, so the
+   cull was inert in BOTH arms of the A/B and six scenes read a tidy +0.06% of
+   nothing. What caught it was an ARM CHECK printed beside the timing — the
+   counters of what each arm actually did — and not the timing, which looked
+   perfectly reasonable. Any A/B that can silently measure nothing needs one.
 
 ##### 88.5.11.1 ...and `cs_pwhole` is OBSERVED, not predicted
 
@@ -103937,7 +104381,10 @@ the near plane CUT has no such indices, because `cs_pv` then holds points
 the clipper made, and that one is drawn whole. It needs **no per-model edge
 list** — the indices are the face's own — and it is worth having: over the
 city on Mode X, **167.5 ms against 184.2** for the same picture drawn twice
-over, where the solid is 284.7.
+over, where the solid is 284.7. **The FILL has the same redundancy and it is
+REFUSED** (§88.4.2.1): there a shared edge repeats a SPAN TABLE and not
+pixels — each face fills its own interior — so the whole prize is 0.19% to
+0.68% of a frame and the test that finds it costs three times that.
 
 **This is where the two bits stop resembling each other.** Buildings are
 tall and narrow, which is the outline's best case and the fill's worst:
@@ -104514,6 +104961,42 @@ naming controls, so a control added to the page cannot be forgotten there.
 row that is not painted never has `OS88UI_DR_DIS` written, so §13.14.5's
 refusal would not fire for it — but a row outside the count is reached by no
 walk on the page at all, so there is nothing to refuse.
+
+#### 88.11.1 `CSPROBE=1` — the COUNTING build, and why it adds instead of removing
+
+`tests/skiesperf.py` prices a stage by patching its call out. That answers
+*"what does this stage cost"* and it cannot answer *"how much of it is
+redundant"*, because **a NOPed call takes its consequences with it**: NOP
+`cs_edge` and the chains keep their +big/−big and the polygon's rows are never
+filled either, so the number is the tracing PLUS the fill it removed. Read
+`edge (in poly)` at 17.50 ms on `city` that way and 8.47 ms by adding, and the
+difference is the pixels.
+
+So `make skiesprobe` builds `apps/skies` with `-DCSPROBE` into
+`build/skiesprobe/`, `skiesdiag`'s shape exactly (§88.14), and every arm in it
+**adds** a term rather than removing one, so **every arm draws the identical
+picture**:
+
+| arm | what it prices |
+|---|---|
+| `cs_dbl` | every edge traced TWICE. `cs_edge` is idempotent — a chain takes the same value and `.both` takes min/max — so the frame's difference over the trace count is ONE trace, exactly |
+| `cs_nomark` | the index lookup and `cs_edgemark` skipped: what a runtime dedup TEST costs, paid on every edge (§88.4.2.1) |
+| `cs_cpy` | a duplicate ALSO pays the copy that would replace the trace it skips, done into scratch in front of the real one |
+| `cs_dupface` | every face repeats its PREAMBLE — the gather of its projected vertices by index and the quad's diagonal cross — into scratch. 29–60% of walked faces are then thrown away by the winding, so this is what an earlier cull could reach |
+
+Beside them are counters for the faces walked, back-culled, reaching `cs_poly`,
+refused off-view and taken by the two-row shortcut, and for the traces, their
+rows, and the duplicates among both. `tests/skiescount.py` drives it and
+**asserts nothing** — it is an instrument, registered as one.
+
+**The shipped package is byte-identical**: everything above is behind
+`%ifdef CSPROBE`, so `make` then `md5sum build/skies.bin` is the check, and it
+is the same md5 with the scaffolding in the tree as without it.
+
+Its scenes are §88.12's three plus three that stand among La Défense's six
+110 m towers at ~950 m — `dflevel`, `dfangled`, `dfsquare` — because the
+pinned three hold a distant, LOD-boxed skyline and are the wrong scenes for
+any question about building faces (§88.4.2.1's table).
 
 ### 88.14 The watchdog — `CSDIAG=1` (a diagnostic build)
 

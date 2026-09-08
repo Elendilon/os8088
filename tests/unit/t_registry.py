@@ -83,6 +83,14 @@ UNREGISTERED = {
                   "(docs/plans/SOAK-PARALLEL.md 14.2). Run it by hand when a field "
                   "sync question needs the module",
 
+    "skiescount.py": "an INSTRUMENT, not a test: it COUNTS CLEAR SKIES' faces "
+                     "and edges and prices each term by ADDING it - every arm "
+                     "draws the identical picture, where skiesperf.py's "
+                     "patch-out takes a stage's consequences with it - and "
+                     "asserts nothing (SPEC.md 88.11.1, 88.4.2.1). Needs "
+                     "`make skiesprobe`; it is where "
+                     "docs/plans/SKIES-FRAME-PLAN.md's numbers came from",
+
     "skiesperf.py": "an INSTRUMENT, not a test: it prices CLEAR SKIES' frame "
                     "on MartyPC to the cycle - a breakpoint on cs_render and "
                     "each drawing stage patched out for its delta, on a scene "
@@ -224,6 +232,34 @@ def _private_build(path):
                 or "BUILD=" in body)
 
 
+def _hand_defines(path):
+    """A module-level `DEFINES = ("X", ...)` beside a private tree.
+
+    **DERIVED, NEVER RESTATED** (docs/plans/SOAK-PARALLEL.md 8.4). A knob's
+    make VARIABLE and its nasm DEFINE are not the same string - `VGADIRTY=1`
+    compiles `-DVGA_DIRTY` - so `os88build` asks `make -n` for the mapping and
+    `Tree.apply()` sets it as os88sym's module default. A row that then types
+    the set out again has made a second copy of that mapping, and three rows
+    had: `["DISK_COUNTERS"]` twice and `("BOOT_PROFILE", "MOU_DIAG")` once,
+    against a derived set carrying `KERN_BIG` and `KERN_KNOB` beside each.
+
+    It ASSEMBLED, which is exactly why it survived - but as a different cache
+    key from the one `apply()` had just set, so each row re-assembled the
+    whole kernel a second time to reach the same answer. `fddpark` is the row
+    that died of this mirror going stale, and it is the reason the check is
+    here rather than in a comment.
+
+    An empty tuple is the converted shape (`DEFINES = ()`, filled from
+    `t.defines`), so only a NON-EMPTY literal is a finding.
+    """
+    try:
+        with open(path) as f:
+            body = f.read()
+    except OSError:
+        return False
+    return bool(re.search(r'^DEFINES\s*=\s*[\[(]\s*["\']', body, re.M))
+
+
 def main():
     reg = {}
     for r in suite.rows():
@@ -320,7 +356,19 @@ def main():
                   "builds=True and the runner gives it the tree to itself"
                   % ", ".join(makes),
                   got="builds=False", want="builds=True or wants=(...)")
-        elif r.builds and not makes and not priv \
+        for c in priv:
+            if _hand_defines(os.path.join(ROOT, c)):
+                check(False,
+                      "row %s hand-types the nasm defines its tree already "
+                      "knows" % r.name,
+                      "%s builds a private tree, so `Tree.apply()` has "
+                      "already derived the -D set from `make -n` and set it "
+                      "as os88sym's default. A literal `DEFINES = (...)` "
+                      "beside it is a second copy of the variable-to-define "
+                      "mapping, which is what fddpark died of; take "
+                      "`t.defines` instead" % c,
+                      got="DEFINES = (...)", want="DEFINES = t.defines")
+        if r.builds and not makes and not priv \
                 and r.name not in BUILDS_WITHOUT_MAKE:
             check(False, "row %s is builds=True and builds nothing" % r.name,
                   "the flag costs the row its parallelism, so a stale one is a "

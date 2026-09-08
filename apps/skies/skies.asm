@@ -227,6 +227,15 @@ CSM_SIZE  equ 14
 
 ; a face: db n, ink, flags, then n vertex indices
 CSF_NOCULL equ 1                ; a ground polygon: visible from either side
+; --- ...and which way a STACK face points, so it can be culled against the
+;     EYE'S OWN WORLD POSITION before anything is gathered or projected
+;     (SPEC.md 88.5.12). Free: the flags byte was 0 on every face -----------
+CSF_PX    equ 2                 ; the face whose outward normal is +x
+CSF_MX    equ 4                 ; ...-x
+CSF_PZ    equ 8                 ; ...+z
+CSF_MZ    equ 16                ; ...-z
+CSF_TOP   equ 32                ; ...+y, a stack's cap
+CSF_AXES  equ CSF_PX | CSF_MX | CSF_PZ | CSF_MZ | CSF_TOP
 
 ; --- an object (SPEC.md 88.6): sixteen bytes ----------------------------------
 CSO_MODEL equ 0                 ; word: the model
@@ -2135,6 +2144,9 @@ cs_tpl:
     ZBYTE cs_setsize                ; defaults are what shipped: every
     ZBYTE cs_setlod                 ; picture below the top of each list is
     ZBYTE cs_setfill                ; a trade the player asked for
+    ZWORD cs_odx                    ; the object's world offset from the EYE at
+    ZWORD cs_ody                    ; its own scale, BEFORE the rotation - the
+    ZWORD cs_odz                    ; axis cull's whole input (88.5.12)
     ZBYTE cs_modepref               ; the Mode menu's pick: 0 Mode X, 1 CGA
     ZBYTE cs_flydn                  ; the Fly button is pressed
     ZBYTE cs_donedn                 ; ...and the Settings page's Done
@@ -2280,6 +2292,47 @@ cs_tpl:
     ZWORD cs_wj                     ; ...and the edge's far end
     ZBUF  cs_eseen, CS_ESEEN        ; ...the edges drawn already, this object
     ZWORD cs_pn
+%ifdef CSPROBE
+    ZWORD cs_dbg_etr                ; PROBE ONLY: edges cs_poly actually traced
+    ZWORD cs_dbg_edup               ; ...of which a face of the SAME object
+    ZWORD cs_dbg_ecut               ; ...had already traced; and the cut faces
+    ZWORD cs_dbg_erow               ; ...and the rows those traces covered
+    ZWORD cs_dbg_edrow              ; ...of which a duplicate's
+    ZWORD cs_dbg_fwalk              ; ...faces cs_faces walked
+    ZWORD cs_dbg_fcull              ; ...of which the winding threw away
+    ZWORD cs_dbg_fpoly              ; ...and which reached cs_poly
+    ZWORD cs_dbg_fout               ; ...of those, off the view
+    ZWORD cs_dbg_fbox               ; ...one or two rows, so no trace at all
+    ZWORD cs_dbg_ftr                ; ...objects whose faces reached cs_poly
+    ZBYTE cs_dbg_fobj               ; ...(this one has)
+    ZBYTE cs_dbl                    ; the A/B: trace every edge TWICE
+    ZBYTE cs_nomark                 ; ...run the dedup TEST or not
+    ZBYTE cs_cpy                    ; ...and price the COPY that would replace
+    ZBUF  cs_dbg_scr, CS_MAXROW * 2 ; a skipped trace, done into scratch
+    ZWORD cs_dbg_y0                 ; ...the trace's first row, clipped
+    ZBYTE cs_dupface                ; ...and the A/B: repeat a face's GATHER
+    ZBUF  cs_dbg_pv, CS_MAXPV * 4   ; and its winding cross, into scratch
+    ZBYTE cs_dupgath                ; ...the GATHER alone
+    ZBYTE cs_duparea                ; ...the winding cross alone
+    ZBYTE cs_dblplot                ; ...and a 1bpp line's PLOT, done twice
+    ZWORD cs_dbg_wsh                ; segments walked per pixel (shallow)
+    ZWORD cs_dbg_wsl                ; ...taking the run slice instead
+    ZWORD cs_dbg_wst                ; ...steep
+    ZWORD cs_dbg_wvt                ; ...vertical
+    ZWORD cs_dbg_wshpx              ; pixels the per-pixel shallow arm plots
+    ZWORD cs_dbg_wshby              ; ...and the DISTINCT BYTES they land in:
+    ZWORD cs_dbg_wstpx              ; the difference is what an accumulator
+    ZWORD cs_dbg_wvtpx              ; could merge, and steep/vertical cannot
+    ZBYTE cs_axmask                 ; BISECT: which axis bits may cull
+    ZBYTE cs_axoff                  ; AUDIT: cs_axcull computes and does NOT
+    ZBYTE cs_dbg_ax                 ; act, so the winding decides every face
+    ZWORD cs_dbg_axcull             ; ...and the two verdicts are compared:
+    ZWORD cs_dbg_axagree            ; both cull
+    ZWORD cs_dbg_axmiss             ; the winding culls, the axis test does not
+    ZWORD cs_dbg_axbad              ; THE AXIS TEST CULLS A FACE THE WINDING
+    ZWORD cs_dbg_axmdl              ; DRAWS - the model it last happened on
+    ZWORD cs_dbg_axflg              ; ...and that face's flags
+%endif
     ZWORD cs_rx1                    ; cs_prect's
     ZWORD cs_rx2
     ZWORD cs_ry2

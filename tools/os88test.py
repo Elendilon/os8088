@@ -7,11 +7,42 @@
     python3 tools/os88test.py --list      # what is registered, and why
     python3 tools/os88test.py fast -k api # just the rows whose name matches
 
+THIS IS THE HAND-DRIVEN RUNNER: ONE INVOCATION, IN THE FOREGROUND, THAT YOU
+WAIT FOR.  For a whole tier - and for anything that is going to take more than
+a few minutes - the command is `tools/os88soak.py` (`check`, then `start`),
+which preflights the box, builds the on-demand artefacts, runs ONE LANE PER
+CORE, detaches so it survives your shell, and journals every row so
+`start --resume` picks up where a reclaimed container left off.
+
+**AND THE ONE MISTAKE THAT COSTS REAL TIME IS INVOKING THIS ONCE PER ROW.**
+An invocation has ~22 s of fixed cost before any row runs - python, the
+registry, the capability probe and the kernel-map identity check, which
+re-assembles the whole kernel to prove the map describes the binary under
+test.  That is paid once per CALL, not once per row, and it is invisible in
+the summary line because the runner reports row time.  Measured on the 24
+Clear Skies rows, 1,021 s of declared row time:
+
+    one call, `soak -k 'skies*'`          353.6 s   (lane of 3)
+    one call per row, `-k <one row>`     ~1,549 s   = 1,021 + 24 x 22
+
+A single row measured **45.0 s wall for a 23.0 s row**.  So pass a GLOB and
+let one call cover the family: `soak -k 'skies*'` (or several `-k`), never a
+loop over row names.  A development cycle that feels inexplicably slow is
+usually this, and it took a whole session to find the first time.
+
+THE LANE IS NOT 1, and two places in this tree said it was until somebody
+measured them.  `_default_mj()` below is CORES-1, and `make test-soak` passes
+no width at all - so both it and a bare `soak -k ...` already fan the emulator
+rows out.  `--marty-jobs` overrides per call and `$OS88_MARTY_JOBS` for a
+whole container, which is the one to set when SEVERAL AGENTS share a box:
+three agents each defaulting to three lanes oversubscribe a four-core machine
+without any of them knowing.
+
 WHEN EACH TIER IS RUN is docs/TESTING.md's `When to run which tier`, and it
 is the authority: none of the three is a per-commit gate.  `full` is four
 minutes and the whole soak is nearly two hours, so a change is covered by the
-ROW about the thing it touched (`soak -k '<subject>'`, minutes) far more often
-than by any tier.
+ROWS about the thing it touched - `soak -k '<subject>*'`, one call, minutes -
+far more often than by any tier.
 
 WHY THIS EXISTS.  This tree had ninety test scripts and no way to run them.
 Each one is a real gate - `tests/dockmark.py` and `tests/heapsame.py` are
@@ -477,6 +508,50 @@ def kernel_is_stale(rows):
     return None
 
 
+def _whole_tier_refusal(rows):
+    """Why an unscoped `soak` does not start, and what to do instead.
+
+    THE WHOLE TIER IS THE OWNER'S CALL AND NOBODY ELSE'S.  Two wordings of
+    that rule were tried and both were reasoned past inside a day: "at the end
+    of extensive kernel surgery" was read as "I edited kernel/", and the reach
+    test that replaced it ("run it when you cannot name what the change
+    misses") was read as "my change moves kern_big, so I cannot bound it".
+    Every wording that leaves a JUDGEMENT gets exercised in favour of running
+    it, and the run is one to three hours of somebody else's machine.
+
+    So this is not a judgement any more, it is a PERMISSION, and the flag that
+    carries it is a claim about the conversation rather than about the change:
+    passing --user-asked when the owner did not ask is a false statement, which
+    is a far higher bar than deciding that a diff felt significant.
+
+    Nothing is lost by stopping here - the tier has not started, and the two
+    ways forward are both in the message.
+    """
+    total = len(rows)
+    hours = sum(r.secs for r in rows) / 3600.0
+    return (
+        "\nos88test: REFUSING the whole soak tier - %d rows, %.1f declared "
+        "hours.\n"
+        "  The whole tier runs ONLY when the owner asks for it in as many "
+        "words.\n"
+        "  Nothing else licenses it: not kernel surgery, not a merge, not a "
+        "change\n"
+        "  whose reach you cannot bound, not a hunch that this one is worth "
+        "it.\n"
+        "\n"
+        "  RUN THE ROWS YOUR CHANGE CAN REACH instead - minutes, and it is "
+        "what\n"
+        "  answers the question you actually have:\n"
+        "      python3 tools/os88test.py --list | grep -i <subject>\n"
+        "      python3 tools/os88test.py soak -k '<glob>' [-k '<glob>' ...]\n"
+        "  Past a few minutes use tools/os88soak.py, which takes the same -k.\n"
+        "\n"
+        "  If you believe the whole tier is warranted, SAY SO AND ASK, then\n"
+        "  carry on without it.  When the owner has asked, pass --user-asked.\n"
+        "  docs/TESTING.md, \"When to run which tier\".\n\n"
+        % (total, hours))
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Run the os8088 regression suite.",
@@ -485,7 +560,11 @@ def main():
                     choices=["fast", "full", "soak"],
                     help="fast (every build), full (pre-merge), soak (everything)")
     ap.add_argument("-k", metavar="GLOB", action="append", default=[],
-                    help="only rows whose name matches (repeatable)")
+                    help="only rows whose name matches (repeatable). PASS A "
+                         "GLOB and cover the family in ONE call - `-k "
+                         "'skies*'` is 353s where a loop of 24 single-row "
+                         "calls is ~1,549s, because each call pays ~22s of "
+                         "fixed cost before any row runs. See the header.")
     ap.add_argument("-x", "--exclude", metavar="GLOB", action="append",
                     default=[],
                     help="drop rows whose name matches, AFTER -k (repeatable). "
@@ -507,6 +586,11 @@ def main():
                          "safety - see the header. Rows marked builds=True "
                          "(cannot share the TREE) or alone=True (cannot share "
                          "the CORES) run alone whatever this says.")
+    ap.add_argument("--user-asked", action="store_true", dest="user_asked",
+                    help="the OWNER asked, in as many words, for the WHOLE "
+                         "soak tier. Required to run `soak` with no -k: "
+                         "nothing else licenses it, and no reasoning about "
+                         "the change reaches it. See _whole_tier_refusal().")
     ap.add_argument("--list", action="store_true", help="print the registry and exit")
     ap.add_argument("--strict", action="store_true",
                     help="a missing capability is a FAILURE, not a skip")
@@ -518,6 +602,10 @@ def main():
 
     import suite
     rows = suite.rows()
+
+    if a.tier == "soak" and not a.k and not a.list and not a.user_asked:
+        sys.stderr.write(_whole_tier_refusal(rows))
+        return 2
 
     if a.list:
         w = max(len(r.name) for r in rows)

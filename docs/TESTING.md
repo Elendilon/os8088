@@ -138,11 +138,13 @@ where GLaBIOS gives a wrong clip index and carries on.
 **`tools/os88test.py` runs the tests; `tests/suite.py` is the list of them.**
 
 ```
-python3 tools/os88test.py fast      # a commit you keep. 48 rows, ~13s, host-side
+python3 tools/os88test.py fast      # a commit you keep. 35 rows, ~13s, host-side
 python3 tools/os88test.py full      # major work reaching the integration branch. ~4 min
-python3 tools/os88test.py soak      # everything. No budget - and rarely what you want
+python3 tools/os88test.py soak -k 'disp*'    # the rows about what you changed
+python3 tools/os88soak.py  start -k '<glob>'  # the runner, same -k, detached
+python3 tools/os88test.py soak      # REFUSED unscoped: the whole tier is the
+                                    # owner's to ask for (--user-asked)
 python3 tools/os88test.py --list    # what is registered, and why
-python3 tools/os88test.py soak -k 'disp*'   # just the ones about displays
 ```
 
 `make` runs the `fast` tier itself, as a prerequisite of `all`; `make
@@ -151,20 +153,26 @@ worth running is §"When to run which tier" below** — the two that cost real
 time are not per-commit gates, and running them as though they were is where
 this suite's time has actually gone.
 
-**RUNNING THE WHOLE SOAK IS `tools/os88soak.py`, NOT `make test-soak`** —
-that target runs the same rows serially:
+**RUNNING THE SOAK IS `tools/os88soak.py`, NOT `make test-soak`** — that
+target runs the same rows serially:
 
 ```
 python3 tools/os88soak.py check     # can this box answer? what would SKIP?
-python3 tools/os88soak.py start     # preflight, then run detached
+python3 tools/os88soak.py start -k '<glob>'   # preflight, then run detached
 python3 tools/os88soak.py status    # reads a file - SAFE to poll
 python3 tools/os88soak.py stop
 ```
 
+**`start` with no `-k` is the WHOLE tier and is refused** — it runs only when
+the owner asks for it in as many words, and `--user-asked` is what carries that
+permission (§"When to run which tier"). Everything else about the runner is the
+same at any scope.
+
 `check` is worth typing on its own: a capability the box has not got makes a
 row skip, **and a skip is the box declining to answer, not a pass**. It names
 every gap, the rows it would silence, and the command that fixes each. The
-width is CORES-1 so a `status` poll has a core to run on; `start --resume`
+width is ONE PER CORE (SOAK-PARALLEL §4.2 — it was CORES-1, and `status` reads
+a file, so there was never a load to leave room for); `start --resume`
 after a reclaimed container re-runs only what did not finish. Before blaming
 a failure on contention read docs/plans/SOAK-PARALLEL.md §1: load does not
 make a row slow, it makes it less thorough at the same wall time.
@@ -173,9 +181,9 @@ make a row slow, it makes it less thorough at the same wall time.
 
 | tier | budget | what it does | when |
 |---|---|---|---|
-| `fast` | **30s** (uses ~9) | Host-side only, 25 rows. Reads what `make` just built and checks what breaks SILENTLY — and only what somebody who did NOT touch the subject can break. | A commit you are going to keep |
+| `fast` | **30s** (uses ~9) | Host-side only, 35 rows. Reads what `make` just built and checks what breaks SILENTLY — and only what somebody who did NOT touch the subject can break. | A commit you are going to keep |
 | `full` | **3 min** (uses ~1¼) | One question: *did you obviously break the OS?* Boots to a desktop on both 1bpp adapters and on VGA, builds and boots `kern_small` on its 128KB floor machine, checks the mouse and keyboard, and builds a C package. 5 rows. | A major round of work reaching the integration branch |
-| `soak` | none | The other 301 gates in `tests/`, one subject each — every per-package and kernel-internal row, the 99-knob build matrix, and everything about the tree or the suite rather than the product. | The end of extensive kernel surgery — or when asked |
+| `soak` | none | The other 337 gates in `tests/`, one subject each — every per-package and kernel-internal row, the 99-knob build matrix, and everything about the tree or the suite rather than the product. | The rows your change can REACH, scoped with `-k`. The WHOLE tier only when the owner asks for it, in as many words — both runners refuse it otherwise |
 
 **Both gates are deliberately narrow, and docs/WRITING-TESTS.md §2.1 and §2.2
 are the rules.** `fast` is the one tier nobody opts into, so a row about ONE
@@ -210,6 +218,19 @@ change is covered by the ROW that is about the thing it touched, not by the
 tier that contains it. `python3 tools/os88test.py soak -k 'disp*'` after a
 redraw change is minutes and is the right answer far more often than any
 tier is.
+
+**ONE CALL, WITH A GLOB — never a loop over row names.** An `os88test.py`
+invocation costs ~22 s before any row runs (the registry, the capability
+probe, and the kernel-map identity check, which re-assembles the kernel to
+prove the map describes the binary under test), and that is paid per CALL.
+It does not show in the summary line, which reports row time. Measured on the
+24 Clear Skies rows, 1,021 s of declared row time: **353.6 s** as one
+`soak -k 'skies*'`, against **~1,549 s** as twenty-four single-row calls. A
+development cycle that feels inexplicably slow is usually that, and the
+emulator rows already fan out (docs/plans/SOAK-PARALLEL.md §4.2) so the one
+call is wide as well as cheaper. For a whole tier, or anything past a few
+minutes, use `tools/os88soak.py` instead — it preflights, detaches, runs one
+lane per core and resumes.
 
 **`fast` — at a commit you intend to keep.**
 
@@ -258,21 +279,106 @@ Do **not** run it:
 * **on a documentation-only commit or merge.** `checkdocs.py` is the gate.
 * **on a commit that only moves the build number.**
 
-**`soak` — at the end of extensive kernel surgery, or when asked.**
+**`soak` — scoped to the rows your change can reach. THE WHOLE TIER RUNS ONLY
+WHEN THE OWNER ASKS FOR IT, IN AS MANY WORDS.**
 
-Run the whole soak when:
+That is a **permission, not a judgement**, and it is the whole rule. Nothing
+else licenses the whole tier: not kernel surgery, not a merge, not a change
+whose reach you cannot bound, not a hunch that this one is worth it. It is one
+to three hours of somebody else's machine, and whether to spend them is theirs
+to decide. **Both runners enforce it** — `os88test.py soak` and
+`os88soak.py start`, each with no `-k`, refuse and print the two ways forward;
+`--user-asked` is what carries the permission once it has been given, and it is
+a claim about the CONVERSATION rather than about the change.
 
-* you have finished a major piece of **kernel surgery** — the memory ladder,
-  the scheduler, the window manager, the disk path, the graphics layer, the
-  boot path — and are landing it. **At the END of that work, once**, not at
-  each wave inside it; or
-* somebody **asks** for it.
+If you believe the whole tier is warranted, **say so in one line and carry on
+without it.** Being right about that is not the same as being allowed to spend
+the hours, and the owner is the one who knows what else the box is doing.
 
-Nothing else earns two hours. Mid-way through the surgery the right thing is
-a SUBJECT and not the tier: `python3 tools/os88test.py soak -k '<subject>'`
-runs the rows about the one thing you touched, in minutes, and is the answer
-you actually wanted; `python3 tools/os88test.py --list` names every row and
-what it is about, which is how you find the pattern to pass.
+**WHAT TO RUN INSTEAD — the rows your change can reach.** This is not a
+consolation prize; it is the answer to the question you actually have, in
+minutes rather than hours. Two questions get you there, and **neither is "was
+my change big"**: effort is not reach.
+
+**1. WHAT MOVED? Ask the build, not yourself.** Every row in every tier runs a
+BUILT ARTEFACT, so an artefact your change left byte-identical cannot answer a
+question about it — those rows boot the same kernel off the same floppies and
+report what they reported yesterday. Three readings, cheapest first:
+
+* **the line `make` already printed.** `kernbudget` is a `fast` row and prints
+  `KERN_BUDGET big <n>, small <n>` on every build, so one arm's size moving
+  while the other's does not is the first tell. (A size that moved proves
+  reach; a size that did not is not yet proof of identity.)
+* **the diff.** Code wholly inside an `%ifdef KERN_SMALL` cannot move
+  `kern_big`; a package's source cannot move the kernel at all; and a host tool
+  moves a shipped byte only if it is one of the five that write them
+  (`os88disk.py`, `os88pkg.py`, `os88drv.py`, and the two least obvious,
+  `os88mini.py` and `buildnum.py`, which generate prerequisites of the kernel).
+* **the hash, which is proof.** Build the other arm, or the base tree, and
+  compare — `make BUILD=build/base` gives a byte-identical build in a tree of
+  its own and `tools/os88build.py` does the same for a knob, so `cmp` settles
+  it. **Take both readings at ONE commit**: the build number is the commit
+  count (SPEC.md §14.2), so every commit moves three bytes of `.text` and every
+  image with them, and a comparison taken across a commit answers "everything
+  moved" and means nothing.
+
+A hash that matches is a STRONGER statement than any row can make — a row
+samples the behaviour of a binary, and the hash says it is the same binary. It
+never means *run nothing*: the arm you did move still owes its rows, and an
+`%ifdef` you added or widened owes `buildmatrix`, the only thing in the tree
+that assembles the 99 knob configurations no shipped artefact contains.
+
+**2. OF WHAT MOVED, WHAT CAN IT NOT REACH?** Write that list down. It is
+usually short and easy to write — *"nothing that does not build kern_small"*,
+*"nothing outside PAINT"*, *"nothing that never sets a mode"* — and its
+COMPLEMENT is the run. `python3 tools/os88test.py --list` names every row with
+what it is about, so `--list | grep -i <subject>` turns a subject into the
+names to pass; `-k` globs the row NAME and not the description.
+
+| what the build says moved | what answers it |
+|---|---|
+| **nothing under `build/`** — a document, a plan, a comment, harness code `make` never invokes | `python3 tools/checkdocs.py`, and the row about the harness if you changed the harness. No tier at all |
+| **one package** — its `.o88` and the floppies carrying it | that package's rows, one `-k` glob |
+| **one build arm, every shipped artefact byte-identical** — `kern_small`, a knob kernel, an `APP_SMALL` package | that arm's rows, plus the rows that ASSEMBLE the arm. For `kern_small` that is four rows that boot it (`smallboot`, `fcpsmall`, `dispclose-small`, `fdlgsmall`), three that assemble it (`buildmatrix`, `lowwin`, `bootfloor`) and `small128` in `full` — **13.6 declared minutes** |
+| **the shipped kernel, inside one subsystem** | that subsystem's family and a boot row — and `full` when the work reaches the integration branch |
+| **the shipped kernel, broadly** | the widest scope you can still NAME — several families in one call — and a line to the owner saying what you could not bound. **Not the tier**: that is theirs to ask for |
+
+**A SCOPE IS NOT A DIFFERENT TOOL, and wanting the runner is not a reason to
+run everything.** `tools/os88soak.py` takes `-k` and `-x` and passes them
+through, so the preflight, the frozen tree, one lane per core, the journal,
+`--resume` and a `status` that is safe to poll are all there for ten rows
+exactly as they are for 377:
+
+```
+python3 tools/os88soak.py start -k '*small*' -k buildmatrix -k lowwin -k bootfloor
+```
+
+`os88test.py soak -k` by hand is the right spelling for something short; past a
+few minutes use the runner. In EITHER case make it ONE call carrying several
+globs rather than a loop over row names — the ~22 s of fixed cost is paid per
+call.
+
+**WHY THIS IS A PERMISSION AND NOT A RULE ABOUT CHANGES.** Two wordings were
+tried and **both were reasoned past within a day of each other, in opposite
+directions**:
+
+* *"at the end of extensive kernel surgery"* was read as **"I edited
+  `kernel/`"**. `f0aff4c` gated heap compaction out of `kern_small` — 1,659
+  resident bytes, twelve files, a design document, and a commit message that
+  says in as many words that **`kern_big` assembles BYTE-IDENTICAL**. The whole
+  377-row tier ran for it, where seven rows touch `kern_small` at all: the
+  other 370 booted a kernel that had not changed off floppies that had not
+  changed.
+* *"run it when you cannot NAME what the change misses"* — the reach test that
+  replaced it — was read on the **very next run** as **"my change moves
+  `kern_big`, so I cannot bound it"**. Same door, other side.
+
+The lesson is not that the wordings were bad. It is that **any wording leaving
+the decision with the person who just did the work is exercised in favour of
+running it**, because that person has spent hours and wants to be sure, and the
+cost lands on somebody else's box. So the decision moved to the person who pays
+for it, and the two runners hold the door rather than the prose. What is left
+for the wording to do is what the two questions above do: pick the scope.
 
 The whole tier is `tools/os88soak.py`, never `make test-soak` (above), and a
 run that long has two standing obligations: hold a waiting task for its whole

@@ -506,6 +506,50 @@ class UI:
                 % ((w.title, x, y) + want + got))
         return self._refresh(w)
 
+    def _edge_until(self, cond, what, guest=T_SHORT, tries=3, snapshot=None,
+                    prep=None):
+        """A press the GUEST ACTED ON — and a retry that is a FRESH EDGE.
+
+        **A CONFIRMED LEVEL IS NOT A QUEUED EVENT.** `mo._edge(True)` proves
+        the guest's published `mouse_btn` carries the bit, and that is a fact
+        about `mou_isr` and nothing above it. What the UI acts on is an
+        `EVT_MDOWN` in the ring, and SPEC.md 10.1 says in as many words what
+        happens when that ring is full: `evq_push` DROPS a record. So the
+        button really is down, the machine really did see it, and no gesture
+        ever happened — which is the one explanation every reading of this
+        failure has been talked out of, because the press was "confirmed".
+
+        Measured, and it is why this exists rather than a longer wait:
+        `hdboot` at a lane of four pressed 'Builtins' at x=199 in [160,239],
+        y=10, with the pointer confirmed at (199,10) and the button confirmed
+        down, and no menu dropped in **ten guest seconds** — 182 ticks on a
+        machine that was not busy. Ten more would have changed nothing.
+
+        THE RETRY IS A RELEASE AND A SECOND PRESS, never a re-sent packet. A
+        Microsoft packet carries the button's LEVEL, so re-sending says what
+        the guest already believes and produces no second `EVT_MDOWN` at all —
+        `mo._edge`'s own docstring is explicit about that, and it is exactly
+        what makes it safe there and useless here. Only an edge queues an
+        event.
+
+        `prep` runs before each attempt, for the state a condition is read
+        against — `_grab` zeroes `ui_dragwin` so the second attempt cannot
+        confirm itself off the first one's residue.
+        """
+        for attempt in range(tries):
+            if prep is not None:
+                prep()
+            self.mo._edge(True)
+            try:
+                return self._wait(cond, what,
+                                  guest if attempt == tries - 1 else
+                                  min(guest, T_SHORT),
+                                  snapshot=snapshot)
+            except UIError:
+                if attempt == tries - 1:
+                    raise
+                self.mo._edge(False)    # ...so the next press IS an edge
+
     def _grab(self, w, gx, gy, guest=T_MOVE):
         """Press on a window's title bar, and CONFIRM the drag was taken.
 
@@ -537,12 +581,11 @@ class UI:
         self.mo.to(gx, gy)
         if self.mo.where()[2] & 1:      # a press that finds the button down
             self.mo._edge(False)        # is no edge at all
-        self.m.write(self._S("ui_dragwin"), b"\x00\x00")
-        self.mo._edge(True)
-        self._wait(
+        self._edge_until(
             lambda: self._word("ui_dragwin") == rec,
             "the window manager to take a title-bar press on %r (ui_dragwin "
             "= %#06x)" % (w.title, rec), guest,
+            prep=lambda: self.m.write(self._S("ui_dragwin"), b"\x00\x00"),
             snapshot=lambda: "ui_dragwin = %#06x, mouse_btn = %02x, pointer "
                              "%r, press aimed at (%d,%d)"
                              % (self._word("ui_dragwin"), self.mo.where()[2],

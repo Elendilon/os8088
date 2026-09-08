@@ -192,17 +192,37 @@ run whether the rest skipped or never existed.
 `os88soak.py check` says so before the hours rather than after them, names the
 rows that would skip, and prints the command that fixes each gap.
 
-### 4.2 The width is CORES-1, and the missing core is the point
+### 4.2 The width is ONE PER CORE — and it was CORES-1 for a year
 
 Measured aggregate guest speed on four cores: 3.4x at one instance, 13.1x at
 four, 13.9x at six, 13.4x at eight — **flat past the core count**: four to six
-buys 6% and six to eight *loses* 4%. What three costs against four is not in
-that series and is not claimed here.
+buys 6% and six to eight *loses* 4%. That series has never been in dispute and
+still sets the ceiling. What was in dispute is the LAST core.
 
-That last core is what a `status` poll, an editor or a small side task runs on.
-**A run sized to fill the box exactly is one that anything else on the box
-perturbs**, and every perturbed row is an hour of somebody deciding whether the
-failure was real.
+The argument for leaving it was that it is what a `status` poll, an editor or a
+small side task runs on — *a run sized to fill the box exactly is one that
+anything else on the box perturbs* — and every perturbed row is an hour of
+somebody deciding whether the failure was real. Two things retired it:
+
+* **`status` reads a FILE** (4 above). It was never the load the argument
+  feared, and nothing else in the workflow is either: `start` is detached, and
+  the rule has always been to check in with `status` rather than by running
+  rows beside the run.
+* **Every row width 4 was blamed for has been diagnosed, and not one was a
+  starved guest.** 15.2 read four failures at width 4 and concluded *"the pass
+  rate does not hold"*; three of them were the private-tree rebuild race (8.9),
+  a row's own kernel being rewritten underneath it, which width made more
+  likely to OVERLAP and did not cause; the fourth was an `EVT_MDOWN` dropped
+  from a full ring behind a confirmed button level (15.4). Both are fixed at
+  the cause, and the full soak has since run at width 4 clean and repeatedly.
+
+So `widths()` fills the box, 15.2's **16.8% off the wall** comes with it, and
+15.1's niced fourth slot is retired with the same evidence — it existed to buy
+that core back, and the core was never the problem.
+
+**`os88test.py` run by hand still leaves one**, and that is the one place the
+old argument survives intact: somebody is at that keyboard. `--marty-jobs`
+overrides either way.
 
 ### 4.3 Surviving an idle container — HOLD A WAITING TASK
 
@@ -629,6 +649,145 @@ cannot share the TREE, an `alone` row cannot share the CORES*) arriving from
 the other direction, and it is worth expecting more of as the remaining rows
 convert.
 
+### 8.9 A MARKER IS NOT A PRODUCT — the sweep that rebuilt every tree
+
+`_sweep_truncated` (8.4's sibling: an interrupted `make` leaves an output file
+created and empty, and an empty file is NEWER than everything it was built
+from, so make reports the tree up to date and the next consumer fails
+somewhere else entirely) deleted **every zero-length file** at the top of a
+tree, on the rule that *"a zero-length product is never legitimate here —
+every rule in the Makefile writes bytes."*
+
+That sentence is true of products and false of **markers**, and the Makefile
+has nineteen of them. Every knob stamp is created with a bare `touch` and is
+therefore exactly zero bytes — `$(VIDSTAMP)` above all, whose whole job is to
+answer *"was this directory built with these knobs?"*. So every `tree()` call
+swept the stamp, and the `make` that followed read its absence as **the knob
+set has changed** and did what 8.4 describes: deleted `kernel.bin`,
+`kernel-full.bin`, `kernel.sys`, both boot sectors and six drivers, then built
+the lot again.
+
+**Two costs, and the second is the one that took rows down.**
+
+The first is that the reuse this section advertises — *"a second call with the
+same knobs re-runs make over an up-to-date tree and returns in under a
+second"* — **never happened once**. Measured on `diskcnt-62f860de`, a warm
+`tree()`:
+
+| | a second `tree()` over an up-to-date tree |
+|---|---|
+| sweeping the marker | **19.9 s** — a whole kernel, again |
+| sparing it | **0.4 s**, and not one file in the tree written |
+
+The second is a **race**, and it is why this is in §8 rather than in a
+changelog. The lock serialises two `make`s and **cannot** serialise a `make`
+against the first row's *reader*: row A builds, releases, boots, and starts
+resolving symbols against `<tree>/kernel.bin` while row B — which was blocked
+on the lock — deletes and rewrites that very file. Four pairs share a tree:
+
+| tree | rows |
+|---|---|
+| `diskcnt` | `mseglazy`, `msegnomem` |
+| `noplane` | `blitplane`, `paintpack` |
+| `small` | `small128`, `smallboot` |
+| `fatwnone` / `vgadirty` | `fatwpin`, `vgadirty`, `t_registry` |
+
+That is **msegnomem's soak failure twice and paintpack's once**, every one of
+them passing when run alone — and os88sym's *"the file was written 1.8 s
+ago"* (12) is what named it, having been written for exactly this and never
+yet believed. Reproduced deliberately: the two `diskcnt` rows run cold and
+concurrent failed **2 times in 2**, and pass **cold and concurrent** with the
+marker spared. All eight rows above were then re-run the same way and pass.
+
+The fix is one condition — the test is what the file **is**, not how big it
+is — and the Makefile spells a marker two ways, both of which are now spared:
+`$(BUILD)/.<name>` for the sixteen knob stamps and `$(BUILD)/<name>.stamp` for
+the three fetch stamps. `tests/unit/t_treesweep.py` is the ratchet and it
+reads the **Makefile**, not a list of its own: every `touch`ed target is
+scraped out and asserted spared, so a marker named a third way fails in a
+twentieth of a second rather than in a soak row three hours in. Reverted on
+purpose, it goes red on all nineteen.
+
+### 8.10 `os88map` followed the RUN's tree, never the row's own
+
+The same run turned up a second cross-tree read, and it is 8.4's shape one
+variable along. `tools/os88map.py` resolves `build/mseg.bin` through
+`os88build.at()`, which follows **`$OS88_TREE`** — deliberately, because
+`$OS88_BUILD` names sub-directories (`build/smallk`) that hold a kernel and no
+packages at all. Correct for a frozen run, and blind to a row that has just
+built the package into a **private** tree: `mseglazy` booted its own tree's
+`MSEG.O88` and resolved its symbols against the shared `build/mseg.bin`, a day
+stale and genuinely different, then reported *"this map describes a DIFFERENT
+build"* about a file it had made correctly one directory along.
+
+So there is a third claim, and it needed a home of its own:
+
+| | what it answers | who owns it |
+|---|---|---|
+| `$OS88_TREE` | where the RUN's artefacts live | the runner (14.2) |
+| `$OS88_BUILD` | which KERNEL a symbol map describes | the row, per kernel |
+| `os88build._LOCAL` | where **this process's** artefacts live | `Tree.apply()` |
+
+It is a module global and **not** an environment variable, which is the whole
+point: `$OS88_TREE` reaches every sub-make a row spawns — the bug behind
+`at()`'s `build/trees/` guard — and a process-local answer reaches none of
+them. `plain().apply()` restores it for free, because `plain()`'s own
+directory *is* `at("build")`.
+
+**And it is EXISTENCE-CHECKED where `$OS88_TREE` is not.** The asymmetry is
+the point, and 8.11 is why it had to be there before this shipped. A run's
+tree is the WHOLE build and the only directory a soak may read, so a miss must
+say so where it happened — falling back to `build/` would half-run a soak
+against the directory the tree exists to avoid. A private tree is a **subset**,
+cut to the `targets` one row asked for: `tree(targets=("small",))` holds a
+kern_small and no 360KB pair at all. Redirecting every `build/...` string into
+it unconditionally would point 8.11's thirty-four sites at files it was never
+asked to build, an hour into a soak, as a `FileNotFoundError` naming a private
+tree — which is the exact shape of the bug those sites were converted to fix.
+So the private tree answers for what it HAS and everything else falls through
+to the run's, which still never falls back to `build/`.
+
+### 8.11 The two fixes that arrived from the other side, and how they compose
+
+Two commits landed on `elendilon` from a parallel session while 8.9 and 8.10
+were being written, and both belong here because a reader hitting one of these
+mechanisms should find all four in one place.
+
+**`89d0e5b` — the reader keeps a SHARED hold.** The same soak failure, reached
+from the symptom: `_Lock` was exclusive across the build and dropped after it,
+on the claim that the second row's `make` is a no-op in a finished tree. It
+downgrades to `LOCK_SH` and holds that for the reading process's life instead,
+so a row that wants to BUILD a tree waits for the rows READING it and two
+readers never wait for each other.
+
+**That is the belt and 8.9 is the braces, and it is worth being exact about
+which does what.** 8.9 is the cause: the second `make` was *never* a no-op,
+because the sweep ate `$(VIDSTAMP)` and make read its absence as a changed
+knob set. With the marker spared, a second `tree()` writes nothing at all
+(0.4 s, measured) and there is nothing for a hold to protect against — on a
+tree that is current. On one that is genuinely stale, which a frozen run
+cannot produce and an interactive session can, the hold is still what stops
+the rewrite. Neither makes the other redundant, and the cost of keeping both
+is that a row sharing a tree waits for its partner's whole run rather than its
+build.
+
+**`a30b6d9` — a row that opens a build artefact must resolve it.** Ten rows
+failed a 368-row soak on a missing artefact and nine of the ten already
+declared a `wants=`, so the fix everyone reached for was the one they had. The
+bug is one layer along: `at()` was called at the few places a path is USED —
+`launch` staging floppies, `scratch_disk`, `os88sym` — and a row that opens an
+artefact ITSELF is a use site none of those cover. With `$OS88_TREE` unset
+`at()` is the identity function, so it works perfectly by hand and fails only
+inside a soak, several frames from the cause, as `FileNotFoundError:
+'build/pinme.o88'`. **thirty-four call sites, across twenty-four files**, go through `at()` now, in four
+shapes of which only the first is a literal a scanner can see (a plain
+`open("build/x")`, an argparse DEFAULT the row later probes, an
+`os.path.join(ROOT, "build", ...)` carrying no `build/x` string at all, and a
+`TESTAPPS=` handed to `make test` after `BUILD=` had already been redirected).
+
+Those thirty-four sites are why 8.10's redirect is existence-checked rather
+than unconditional.
+
 ---
 
 ## 9. THE PRE-MERGE GATE — 402 s to 227 s, and no flag to remember
@@ -671,6 +830,11 @@ The old default's reasoning was arithmetic, not caution: guest cycle counts are
 exact at any width, but `settle`, `until` and a row's timeout were **host**
 seconds, so widening spent slack some rows had not got. §2 removed that — the
 waits are guest-denominated — so the default follows.
+
+**This is the gate's width and it stays CORES-1 while the soak's fills the
+box** (§4.2). The difference is not about the rows, which are the same rows:
+somebody is at the keyboard for a five-minute gate and nobody is for a
+two-hour detached run.
 
 ### 9.3 Two Makefile facts found on the way
 
@@ -1306,13 +1470,20 @@ module default as well as the environment. The header is corrected.
 
 ## 15. THE FOURTH CORE — a NICED emulator slot. NOT STARTED; measure first
 
-`widths()` returns `(mj = cores - 1, hj = cores)`, so **the host lane already
-runs at the full core count** and the reservation costs only the *emulator*
-slot. §1 explains what it buys: twelve rows at width 3 with two extra CPU hogs
-passed 12/12 and ran 1.06× slower than the same rows alone. That headroom is
-what a `status` poll, an editor, a `git log` or a small side task runs on, and
-a run sized to fill the box exactly is one that anything else on the box
-perturbs.
+> **SUPERSEDED — §4.2 is the answer now.** `widths()` returns
+> `(mj = cores, hj = cores)`: the reservation is gone and so is the case for a
+> niced slot, because the four rows this section was written to explain were
+> a build race and a dropped event rather than starved guests. The section is
+> kept because its measurement and its hazard are both still true of anyone
+> who reaches for `nice` again.
+
+`widths()` returned `(mj = cores - 1, hj = cores)`, so **the host lane already
+ran at the full core count** and the reservation cost only the *emulator*
+slot. §1 explains what that bought: twelve rows at width 3 with two extra CPU
+hogs passed 12/12 and ran 1.06× slower than the same rows alone. That headroom
+was what a `status` poll, an editor, a `git log` or a small side task ran on,
+on the argument that a run sized to fill the box exactly is one that anything
+else on the box perturbs.
 
 **What it costs is larger than the aggregate series makes it look.** Read
 per-instance rather than in total, on the four-core box those numbers were
@@ -1405,3 +1576,61 @@ three others plus an agent's `make` could plausibly reach it, and the message
 would then be read as a broken box rather than as a deprioritised slot working
 exactly as designed. **A niced lane probably wants its own, larger backstop**,
 and whatever it gets should say in its own words that the row was niced.
+
+### 15.4 A CONFIRMED LEVEL IS NOT A QUEUED EVENT — what width 4 was really exposing
+
+15.2's fork said the pass rate does not hold at width 4 and that the way to
+have the throughput is to confirm the inputs. Two rows were left after the
+first instalment (`de8add1`), and `hdboot` is the one that had been analysed
+and deliberately **not** converted, on this reasoning: `mo._edge(True)` only
+returns once the guest's own `mouse_btn` carries the bit, so the ISR *has* the
+press and re-sending cannot help. Every word of that is true and the
+conclusion was wrong.
+
+**What the machine was actually doing.** The row was made to say so rather
+than guessed at again, and it named itself on the second sample at width 4:
+
+```
+hdboot: FAIL - pressed 'Builtins' (cell 2 of 3) at x=199 in [160,239], y=10,
+and no menu dropped in 10 guest seconds. ... At the timeout: pointer (199,10)
+btn 0x1, menu_dropd 0, menu_cell 2, menu_y1 20.
+```
+
+The pointer is exactly where it was asked for, the button is **down**, and no
+menu is on the screen after **182 ticks** on a machine that is not busy. Ten
+more seconds would have changed nothing.
+
+`mouse_btn` is a **LEVEL** and `mou_isr` sets it. What the UI acts on is an
+`EVT_MDOWN` in the ring — and **SPEC.md 10.1 says in as many words what
+happens when that ring is full**: `evq_push` drops a record (the oldest,
+unless the oldest is an `EVT_WAKE`, which is a promise rather than a sample).
+So the press is real, the level is right, the machine saw it, and the gesture
+never happened. `ui.inc` carries the same fact from the other side in three
+places — *"fallback: the EVT_MUP was dropped (queue full) — the level still
+says so"*.
+
+That is why the `_edge` confirmation could not catch it, and it is one level
+below what 15.2 fixed: 15.2's rows sent a confirmed PACKET and no gesture;
+this one sends a confirmed **level** and no EVENT.
+
+**The retry has to be a fresh EDGE.** `mo._edge`'s own docstring is explicit
+that a Microsoft packet carries the button's LEVEL, so a re-sent packet says
+what the guest already believes — which is exactly what makes re-sending safe
+*there* and useless *here*. Only a release and a second press queue a second
+`EVT_MDOWN`. `os88ui.UI._edge_until` is that: press, wait for the guest to
+have ACTED, and on a timeout release and press again, with the first attempts
+on a short budget and the last on the caller's full one. `_grab` takes it too
+— it confirmed and never retried — and its `prep` zeroes `ui_dragwin` per
+attempt so a second try cannot confirm itself off the first one's residue.
+
+| `hdboot` at a lane of four | |
+|---|---|
+| before, confirmed level only | **1 FAIL / 2** |
+| after, `_edge_until` | **0 FAIL / 3** (and `uilayer` 0/3 beside it) |
+
+**The lesson generalises past the mouse.** Every layer here now has a
+confirmation and each proves only its own claim: `to()` proves the published
+cursor, `_edge()` proves `mouse_btn`, and neither proves that the kernel's
+event ring took anything. The only honest confirmation of a gesture is the
+state the gesture is *for* — `ui_dragwin` for a drag, `menu_dropd` for a menu
+— and a row that waits on anything else is waiting on a fact it already had.
