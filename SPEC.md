@@ -101471,9 +101471,13 @@ routine draws is **behind it**.
 **The oracle is the argument and not the picture, and that matters.** The
 obvious measurement — draw the frame twice, once with a `ret` poked over
 `cs_rwline`, and count the differing pixels — **does not repeat here**: the
-same build at the same pose gave 18, 816 and 2,038, because `m.advance`
-counts EMULATOR frames and a forced repaint lands a different number of guest
-frames each time. Pacing on `cs_frames` narrowed it and did not fix it. What
+same build at the same pose gave 18, 816 and 2,038. Pacing on `cs_frames`
+rather than on `m.advance`'s emulator frames narrowed it and did not fix it,
+and **docs/plans/SKIES-FRAME-PLAN.md §0.1 is the general statement of the
+same wall**, reached independently from the cull side: two arms
+byte-identical in behaviour *and* in speed differ in 2 runs of 6 by 865 and
+896 pixels, so the noise floor of a pixel A/B of this program is about 900
+and nothing below that can be certified with one. What
 does repeat exactly is what `cs_rwsegu` is HANDED, mapped back into the
 model's own `u` and judged against the end the aeroplane is really pointed
 at. Sixteen poses — on the strip at ±400 m and ±200 m from the middle, at
