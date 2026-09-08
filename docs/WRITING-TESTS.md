@@ -55,8 +55,9 @@ that overruns one.
 **Choose the tier by what the row costs and how broadly it fails, never by
 how important you think it is.** The two expensive tiers are not run per
 commit — `full` runs when a major round of work reaches the integration
-branch, and `soak` is scoped to the rows a change can REACH, whole only when
-its reach cannot be bounded (docs/TESTING.md, *When to run which tier*) — so a row put in `full` to make sure somebody sees
+branch, and `soak` is scoped to the rows a change can REACH, the whole tier
+running only when the owner asks for it (docs/TESTING.md, *When to run which
+tier*) — so a row put in `full` to make sure somebody sees
 it is a row that runs LESS often than you imagine, and one put in `soak` is
 still run by the person who touched its subject, which is who it is for.
 `soak` is a real answer and costs nobody any budget.

@@ -1958,23 +1958,31 @@ test-full: $(IMG) $(IMG120) $(IMG720) $(IMG360) \
            $(MEDIAIMG360) $(WEAVEWABS)
 	@python3 tools/os88test.py full
 
-# THIS TARGET RUNS THE TIER SERIALLY (`--marty-jobs 1`), which is right for
-# `make test-soak -k <subject>` after touching one thing and wrong for the
-# whole tier - hours of it, on one core of four. `tools/os88soak.py` is the
-# whole-tier command: it preflights the capabilities first (a skip is the box
-# declining to answer, not a pass), sizes the lanes off the box, runs
-# detached, and journals every row so a reclaimed container resumes rather
-# than restarts. docs/plans/SOAK-PARALLEL.md is the account.
+# THIS TARGET RUNS THE TIER SERIALLY (`--marty-jobs 1`), which is right for a
+# SCOPED run after touching one thing - `make test-soak SOAKARGS="-k 'disp*'"`
+# - and wrong for anything wider. `tools/os88soak.py` is the runner: it
+# preflights the capabilities first (a skip is the box declining to answer,
+# not a pass), sizes the lanes off the box, runs detached, and journals every
+# row so a reclaimed container resumes rather than restarts.
+# docs/plans/SOAK-PARALLEL.md is the account.
+#
+# WITH NO SOAKARGS THIS IS THE WHOLE TIER AND os88test.py REFUSES IT: the
+# whole tier runs only when the OWNER asks for it in as many words
+# (docs/TESTING.md, "When to run which tier"). That refusal is the target
+# working, not the build breaking.
 test-soak: $(IMG) $(IMG120) $(IMG720) $(IMG360) \
            $(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360) \
            $(MEDIAIMG360)
 	@echo "os88: this runs the soak in ONE FOREGROUND invocation, at the"
-	@echo "      runner's default emulator width (cores-1). For the whole"
-	@echo "      tier use the soak runner, which preflights the box, builds"
-	@echo "      the on-demand artefacts, runs one lane PER CORE, detaches"
-	@echo "      and journals every row so \`start --resume\` picks up:"
-	@echo "      python3 tools/os88soak.py check   # then \`start\`"
-	@python3 tools/os88test.py soak
+	@echo "      runner's default emulator width (cores-1). SCOPE IT to what"
+	@echo "      you changed - make test-soak SOAKARGS=\"-k 'disp*'\" - and"
+	@echo "      for anything longer use the soak runner, which preflights"
+	@echo "      the box, builds the on-demand artefacts, runs one lane PER"
+	@echo "      CORE, detaches and journals every row so \`start --resume\`"
+	@echo "      picks up:  python3 tools/os88soak.py check   # then \`start\`"
+	@echo "      The WHOLE tier is the owner's to ask for and is refused"
+	@echo "      unscoped (docs/TESTING.md, When to run which tier)."
+	@python3 tools/os88test.py soak $(SOAKARGS)
 
 # The documentation gate (SPEC.md is the binding contract, so a citation that
 # names a heading which does not exist is a defect in it): a stale section
