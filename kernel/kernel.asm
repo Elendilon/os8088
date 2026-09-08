@@ -2725,14 +2725,14 @@ dbg_reg_at:                     ; 0060:000E - THE DEBUG REGISTRY (SPEC.md 57)
 %macro OSAPI_XCELL 1                ; 8 bytes exactly
     push bp                         ; 55        the CALLER's, under the frame
     mov bp, %1                      ; BD lo hi
-    jmp near api_x                  ; E9 lo hi
+    jmp strict near api_x           ; E9 lo hi
     db 0
 %endmacro
 
 %macro OSAPI_NCELL 1                ; 8 bytes exactly
     push bp
     mov bp, %1
-    jmp near api_n
+    jmp strict near api_n
     db 0
 %endmacro
 
