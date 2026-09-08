@@ -1021,6 +1021,29 @@ FULL = [
         "does not build, and the one that had a `cc` capability with no row "
         "behind it while no C package assembled for two releases",
         needs=("cc",), serial=True, builds=True),
+    Row("martyresume", "soak", py("tests/martyresume.py"), 30.0,
+        "TELLING ONE STOP FROM THE NEXT, which `state` cannot do. A caller "
+        "that resumes a breakpoint and polls gets `\"breakpoint\"` both when "
+        "its resume has not landed and when the machine went round and "
+        "stopped again, and until the debug server carried a stop sequence "
+        "number every client invented its own answer: bp_count deduped on "
+        "`instructions` (which works by luck - machine.run() accumulates that "
+        "count at the END of a batch and returns EARLY at a breakpoint), a "
+        "helper polled the IP (which cannot work at all: a breakpoint that "
+        "fires repeatedly fires at the SAME address, and this row measures 8 "
+        "genuine stops carrying 8 identical IPs), and `wait_stop` tested "
+        "nothing and returned the stop that was ALREADY THERE - instantly, to "
+        "a caller that had just resumed past it, which is a green assertion "
+        "for a gesture that never happened across 100-odd call sites. It "
+        "asserts that one stop reads as one number however often it is "
+        "polled, that the stop already there does not answer a wait past it "
+        "and a real one does at exactly +1, that bp_count does not count the "
+        "stop it was handed, and that the `cycles` fallback still refuses a "
+        "stale stop on an emulator built before the field"
+        ". SOAK and not full: it gates the test INSTRUMENT and not the OS, so "
+        "it cannot answer that tier's question - martyconc's reason, and it "
+        "is the other row a change to tools/os88marty.py runs",
+        needs=("marty",)),
     Row("martyconc", "soak", py("tests/martyconc.py"), 20.0,
         "TWO EMULATORS AT ONCE, and every way that used to go wrong. It is "
         "here rather than in soak because it gates the INSTRUMENT the whole "

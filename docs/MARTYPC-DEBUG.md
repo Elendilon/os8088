@@ -970,7 +970,8 @@ is the client — a CLI, a REPL (address and no verb) and an importable
 | command | |
 |---|---|
 | `ping` | the emulator's pid — what `launch` checks against the one it spawned |
-| `status` | exec state, cycles, instructions, CS:IP |
+| `status` | exec state, `stops`, cycles, instructions, CS:IP |
+| | `stops` is a SEQUENCE NUMBER counting every entry into a stopped state, and `run` also answers `resumed_from` — the count as the resume found the machine. Two reports of one stop carry one number and a new stop carries a greater one, which is the only way to tell *"my resume has not landed"* from *"it landed and stopped again"* (below) |
 | `regs` / `setreg` | all sixteen-bit registers and flags |
 | `read` / `write` | memory, by flat `addr` or by `seg`+`off` |
 | `inb` / `outb` | I/O ports |
@@ -1016,6 +1017,22 @@ Load-bearing:
   what `Marty.stopped()` is), or `== "breakpoint"`. Five separate
   investigations here concluded "breakpoints do not fire in this build" and
   every one was the poll.
+- **A HIT AND THE SAME HIT AGAIN ALSO READ ALIKE — use `stops`, and never
+  the IP.** Having resumed a breakpoint, `"breakpoint"` on the next poll is
+  either the stop you just resumed past (the resume has not landed) or a
+  second entry, and the state cannot say which. **The address cannot either**,
+  and that is the trap worth carrying: a breakpoint that fires repeatedly
+  fires at the SAME address every time, so "the IP has not moved" is true of a
+  machine that never resumed and of one that went the whole way round — an
+  `int 08h` breakpoint on a plain desktop gives 59 consecutive stops at
+  59 identical `flat_ip`s. `status`'s `stops` is the answer, and
+  `Marty.go()`/`wait_stop(since=...)` are it applied: `go()` hands back the
+  mark its resume was measured from and a wait past that mark cannot come back
+  with the stop that was already there. `instructions` is NOT the fallback —
+  `machine.run()` accumulates it once at the END of a batch and returns early
+  at a breakpoint, so the batch a stop lands in never reaches the count;
+  `cycles` is the honest clock and is what `os88marty` uses against an
+  emulator built before the field. `tests/martyresume.py` is the row.
 - **`sym()` is FLAT; `execseg`'s `off` is an OFFSET.** `sym("wm_show")`
   answers `KERNEL_SEG*16 + offset`, so it pairs with `{"type": "exec",
   "addr": ...}`. Put it in an `execseg`'s `off` and the breakpoint is armed
@@ -1425,6 +1442,9 @@ offering upstream:
   was "not found" (above).
 - **`run` from a breakpoint advanced zero cycles** unless the transition went
   through `machine.run()`'s `BreakpointHit` arm (above).
+- **A stop and the next one were indistinguishable**, so every client invented
+  its own test and two of them were wrong (above). `status` carries `stops`
+  now, and `run` carries `resumed_from`.
 
 The server itself is the answer to the crate's own standing TODO — *"We
 don't have any backend to run an event loop. If we want to actually run the
