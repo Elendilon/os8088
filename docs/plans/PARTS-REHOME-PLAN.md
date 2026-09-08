@@ -159,11 +159,37 @@ That is not a widening of the fence — `I_SPTR` **is** the kernel's definition
 of "this package's segment", and asking it directly is a narrower question
 than the claim-base proxy that stands in for it today. It also makes
 `mem_own` return `BX = ES` on that path, so the program's claims are owned by
-Y and §3's teardown sweep frees them. The two halves agree.
+Y and 3's teardown sweep frees them. The two halves agree.
 
-**This arm is worth having on its own**, and it is the same primitive the
-attribution work wants: a segment can now be asked *"are you package X"*
-rather than *"are you the base of a claim"*.
+`mem_own` is `.cold` and `inst_of_seg` is `.text`, so the call is far — but it
+needs **no new wrapper**: `cw_mem_disp` is the generic one (`call bp / retf`,
+kernel.asm:6337) and `retf` leaves the flags alone. With BP and DI banked the
+arm is **~16 bytes of `.cold` and none of `.text`**.
+
+### 4.1.1 It is NOT the containment arm, and that one would hang
+
+`claude/skies-size-investigation` a652b61 built a different arm for a
+different question — `mem_own_in`, **69 bytes of `.cold`**: *"does some claim
+CONTAIN ES, and is that claim's owner itself a package?"*, returning the
+**primary's** segment. It exists so that a part running with **its own DS**
+can be identified, which is what a far-called code part needs.
+
+**It does not solve this case, and ported as-is it does not terminate.** Trace
+the re-homed program: nothing starts at Y, so `.no` is reached; `mem_own_in(Y)`
+finds the carve and returns its owner, which 3 re-stamped to **Y**; the arm
+then recurses into `mem_own(ES=Y)`, which reaches `.no` again, and again. The
+commit's own termination argument is *"a primary's own claim STARTS at it, so
+the call below always terminates on the arm above"* — and **the re-home is
+exactly what breaks that invariant**. The other two stampings do not hang but
+do not work either: to the instance slot, the recursion asks about segment
+0..11 and is refused; left at X, X has just been freed and is inside no claim.
+
+So the two arms are complementary, not duplicates, and this design needs only
+the cheap one. If containment is ever wanted back, **`inst_of_seg` must come
+first in `.no`** — which also repairs the termination proof on a stronger
+footing than the original, because the inner call then ends either at
+`mem_owner_of_x` (a claim starts there) or at `inst_of_seg` (it is a
+registered `I_SPTR`) and can reach neither twice.
 
 ### 4.2 What the loader may not do
 
@@ -362,7 +388,7 @@ Estimated, with the comparable each figure is taken from.
 | `.cold` | the slot body: `mem_own` fence, bank DX and AX, refuse a repeat | ~34 |
 | `.cold` | `ld_start`'s arm above, the bound test included | ~80 |
 | `.cold` | `mem_reown_x`, measured against `mem_free_owner_x`'s 20 | ~22 |
-| `.cold` | `mem_own`'s `inst_of_seg` arm (4.1) | ~12 |
+| `.cold` | `mem_own`'s `inst_of_seg` arm (4.1), through `cw_mem_disp` | ~16 |
 | | **total resident** | **~165** |
 
 Against the tree as it stands: `.text+.bss` has **8,407** left of
@@ -418,6 +444,10 @@ to relocate. §4.1 is eleven bytes and answers a better question.
 both are unnecessary; 5.2 has the reasoning and the eight bytes that replace
 them.
 
+**Porting a652b61's containment arm** — 69 bytes of `.cold` for a question
+this design does not ask, and it would recurse for ever on a re-homed
+program. 4.1.1 is the trace.
+
 ---
 
 ## 8. Risks, in the order they would bite
@@ -468,6 +498,15 @@ them.
 
 ## 10. Sequencing
 
+0. **`op_want`'s double subtraction**, which is a live bug on this branch and
+   has nothing to do with the rest of this. `op_bend` is the run's exact byte
+   end and `op_claim` subtracts `op_tail` from it again, so a run shorter than
+   the last body's sector padding **wraps the word**: measured here, a 61-byte
+   payload gives `op_want` **65,146** and `op_load` answers *"Cannot read my
+   parts"* for a package that is entirely correct. Nothing shipped is small
+   enough to hit it and the first test package written for this work will be.
+   a652b61 has the fix and the reasoning; port it, or re-derive it, first and
+   separately.
 1. **`mem_own`'s `inst_of_seg` arm**, on its own, with a gate. It is
    independently correct, it is the attribution primitive, and everything else
    here depends on it.
