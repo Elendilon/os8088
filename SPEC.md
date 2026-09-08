@@ -103154,6 +103154,113 @@ now that it is a latch, nothing else would ever release it.
 three change the line, so all three must change the key, or the strip is
 simply never repainted (§88.7.7's own lesson, one bit along).
 
+#### 88.7.12 A wing pays for its lift, and `CSP_DRAGK` never charged it
+
+The field flew four consequences of one omission:
+
+> *"Airspeed drops MUCH too slowly for everything except maybe the glider… I
+> should not be able to hang in the air at 100 m up for 2–3 minutes on 150
+> knots in a Cessna. The Cessna also maintains 60 knots level on 18%
+> throttle… it should not take 60% of the runway to come to a stop… For the
+> jet, it makes it almost impossible to land."*
+
+The model had **parasitic drag only** — `CSP_DRAGK`, proportional to v² — and
+that term *falls away as the speed falls*. At the Cessna's 150 knots it is
+15 units a tick, 2.13 m/s², which is right; at 60 knots it is 2, and at 30 it
+is well under one. So a slow aeroplane was an aeroplane that barely dragged,
+which is the opposite of the truth: below the minimum-drag speed a real wing
+costs MORE to fly, not less, because **induced drag rises as the speed
+falls**.
+
+`CSP_INDK` is that second term: `CSP_INDK / (v²/4)` a tick, added in the air
+only. The divisor is the quantity `[cs_qv]` that the parasitic term has
+already computed, so it costs one `div` and one `mul`.
+
+**It stops rising at the stall, and that is not a fudge.** Induced drag goes
+as the square of the LIFT, and a wing at its maximum lift coefficient is
+making all it ever will; past that it has departed, and charging it more is
+charging it for lift it is not producing. So the divisor is floored at the
+stall's own `q`. Without that floor the term runs away — at 10 m/s the
+Cessna reads **28 units a tick against 16 of full thrust**, so an aeroplane
+that got slow could never accelerate again, and a sweep of every throttle
+from 10% to 100% settled at **2 m/s** on all of them. That was measured, and
+very nearly shipped. `CS_INDMAX` = 64 remains as a backstop against a record
+whose numbers disagree with each other.
+
+**The two coefficients are derived, not chosen.** Total drag `A v² + B/v²` has
+its minimum where the two are equal, and that speed is an aeroplane's
+best-glide speed — about **1.35 × V_stall** for these. That fixes `CSP_INDK`
+against `CSP_DRAGK`; requiring the pair to still balance `CSP_THRUST` at
+`CSP_VMAX` then fixes `CSP_DRAGK`, which moves by a few per cent. **No top
+speed changes.**
+
+| | `CSP_DRAGK` | `CSP_INDK` | V_MAX→stall, power off |
+|---|---|---|---|
+| Cessna 172 | 689 → **669** | **703** | 96 s → **58 s** *(measured on the guest)* |
+| Pitts Special | 880 → **855** | **1440** | 60 s → **38 s** |
+| Fouga Magister | 138 → **137** | **651** | 292 s → 300 s |
+| Bijave (glider) | 1300 | **344** | 75 s → **45 s** |
+| Icon A5 | 1500 → **1400** | **710** | 42 s → **25 s** |
+
+The Cessna row is measured on the guest and the rest are the same integer
+arithmetic run on the host, which agrees with it to the tick — the guest's
+own decay from `CSP_VMAX` matched the model exactly, 9984 → 9684 over the
+first twenty ticks.
+
+**The drag curve itself**, read off the guest one tick at a time with the
+throttle shut, is the whole change in one table — the change in `[cs_spd]`
+over a tick IS the drag:
+
+| Cessna, level | drag a tick | | throttle to hold it |
+|---|---|---|---|
+| 48 kt (stall) | 5 | 0.71 m/s² | 32% |
+| 60 kt | 4 | 0.57 | **25%** — it was 13% |
+| 80 kt | 5 | 0.71 | 32% |
+| 100 kt | 7 | 1.00 | 44% |
+| 120 kt | 9 | 1.28 | 57% |
+| 152 kt (V_MAX) | 15 | 2.13 | 94% |
+
+The minimum is flat across 55–80 knots because the two terms are each only
+a handful of units and both truncate — that is the model's resolution, not a
+choice — and below the stall it is the floor rather than the formula.
+
+The glider is the row that explains the field's *"except maybe the glider"*:
+its `CSP_DRAGK` was already 1300 against the Cessna's 689 — nearly double, on
+an airframe that in life is the cleanest of the five — because a big
+parasitic number was the only way to make it bleed speed at all. It reads
+right for the wrong reason, and the induced term is what it should have been.
+
+**The Fouga does not move, and that is not a failure of the fix.** A jet that
+clean has almost no induced drag at the speeds it cruises: 100 → 51 m/s with
+the throttle shut takes **174 seconds and 11.9 km**, and no honest
+coefficient changes that. What a Fouga has instead is airbrakes.
+
+##### 88.7.12.1 …and the brake is an airbrake in the air
+
+§88.7.10 made the brake key the one that means STOP: it closes the throttle
+and stands on the wheels. In the air it now opens what the aeroplane has, at
+**half of `CSP_BRAKE`** — that number is sized for a wheel with the weight on
+it, and half of it is 1.56 m/s² on the Fouga, which is what a real speedbrake
+is worth.
+
+It is the difference between a jet you can land and one you cannot:
+
+| Fouga, throttle shut | time | distance |
+|---|---|---|
+| 100 → 51 m/s, no brake | 173.7 s | 11.9 km |
+| …brake held | **25.6 s** | **1.9 km** |
+| 190 → 51 m/s, no brake | 241.4 s | 21.0 km |
+| …brake held | **55.5 s** | **6.1 km** |
+
+No new key, no new record field, and the panel already shows the latch
+(§88.7.10.1), so the state is visible rather than remembered.
+
+**The runway complaint answers itself.** The braking figures were never
+wrong: from a 55-knot touchdown the Cessna stops in **110 m** with brakes,
+which is 11% of the strip. From 150 knots it takes **548 m**, which is the
+55–60% the field measured — the roll-out was long because the *approach* was
+fast, and the approach was fast because nothing bled the speed.
+
 ### 88.8 The session (`apps/skies/csgame.inc`)
 
 `cs_fsx_main` is the §53.1 bracket's exclusive main and has Tank's two rates:

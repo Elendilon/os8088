@@ -249,7 +249,7 @@ cs_p_c172:
     dw 28 * 128                     ; CSP_VROT     55 knots
     dw 78 * 128                     ; CSP_VMAX    150 knots, level at full power
     dw 16                           ; CSP_THRUST   2.2 m/s^2 at full throttle
-    dw 689                          ; CSP_DRAGK    balances THRUST at VMAX
+    dw 669                          ; CSP_DRAGK    balances THRUST at VMAX
     dw 3                            ; CSP_FRICT    rolling, on the ground
     dw 20                           ; CSP_BRAKE
     dw 546                          ; CSP_ROLLR    3 degrees a tick, held
@@ -268,6 +268,7 @@ cs_p_c172:
     dw 0                            ; CSP_LAUNCH   on the runway
     dw 0                            ; CSP_FLAGS
     dw cs_art_c172                  ; CSP_ART      SIDE ON (88.10.1)
+    dw 703                         ; CSP_INDK     the wing's own drag (88.7.12)
 cs_s_c172:   db 'CESSNA 172', 0
 
 ; --- the second row: a PITTS SPECIAL (SPEC.md 88.7.2), an aerobatic biplane.
@@ -282,7 +283,7 @@ cs_p_pitts:
     dw 88 * 128                     ; CSP_VMAX    171 knots, level at full power
     dw 26                           ; CSP_THRUST   3.7 m/s^2: 260 hp on half
                                     ;              the Cessna's weight
-    dw 880                          ; CSP_DRAGK    balances THRUST at VMAX
+    dw 855                          ; CSP_DRAGK    balances THRUST at VMAX
     dw 3                            ; CSP_FRICT    a taildragger on grass
     dw 23                           ; CSP_BRAKE
     dw 1820                         ; CSP_ROLLR   10 degrees a tick - 182 a
@@ -310,6 +311,7 @@ cs_p_pitts:
                                     ;              different VIEW and not only
                                     ;              a different aeroplane
                                     ;              (88.10.1)
+    dw 1440                        ; CSP_INDK     the wing's own drag (88.7.12)
 cs_s_pitts:  db 'PITTS SPECIAL', 0
 
 ; --- the third row: a FOUGA CM.170 MAGISTER (SPEC.md 88.7.5), the French jet
@@ -327,7 +329,7 @@ cs_p_fouga:
                                     ;             30,400, which is the whole
                                     ;             reason 16.7 came first (88.7.4)
     dw 19                           ; CSP_THRUST   2.7 m/s^2: 0.28 t/w
-    dw 138                          ; CSP_DRAGK    balances THRUST at VMAX
+    dw 137                          ; CSP_DRAGK    balances THRUST at VMAX
     dw 3                            ; CSP_FRICT
     dw 22                           ; CSP_BRAKE
     dw 1200                         ; CSP_ROLLR    6.6 degrees a tick ASKED
@@ -352,6 +354,7 @@ cs_p_fouga:
                                     ;              which is where a butterfly
                                     ;              tail is a butterfly tail
                                     ;              (88.10.1)
+    dw 651                         ; CSP_INDK     the wing's own drag (88.7.12)
 cs_s_fouga:  db 'FOUGA MAGISTER', 0
 
 ; --- the fourth row: a WASSMER WA-30 BIJAVE (SPEC.md 88.7.6), the French
@@ -393,6 +396,7 @@ cs_p_bijave:
                                     ;              a sailplane's identity is
                                     ;              its span, and a side view
                                     ;              hides all of it (88.10.1)
+    dw 344                         ; CSP_INDK     the wing's own drag (88.7.12)
 cs_s_bijave: db 'WASSMER BIJAVE', 0
 
 ; --- the fifth row: an ICON A5 (SPEC.md 88.7.7), the light sport amphibian.
@@ -413,7 +417,7 @@ cs_p_a5:
                                     ;              (1.5) it had - it is the
                                     ;              slowest aeroplane here and
                                     ;              was the slowest to get going
-    dw 1500                         ; CSP_DRAGK    balances THRUST at VMAX -
+    dw 1400                         ; CSP_DRAGK    balances THRUST at VMAX -
                                     ;              RE-DERIVED with it, so the
                                     ;              A5 accelerates harder and
                                     ;              still tops out at 95 knots:
@@ -448,6 +452,7 @@ cs_p_a5:
                                     ;              to the RIGHT - the one that
                                     ;              shows a hull is a hull
                                     ;              (88.10.1)
+    dw 710                         ; CSP_INDK     the wing's own drag (88.7.12)
 cs_s_a5:     db 'ICON A5', 0
 
 ; =============================================================================

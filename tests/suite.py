@@ -2580,6 +2580,26 @@ SOAK = [
         " tree AND keeps it current, which a capability cannot do",
         needs=("marty",), wants=("build/skiesdiag/apps360.img",),
         serial=True),
+    Row("skiesdrag", "soak", py("tests/skiesdrag.py"), 65.0,
+        "SPEC.md 88.7.12: A WING PAYS FOR ITS LIFT. The model had parasitic"
+        " drag only - CSP_DRAGK, going as v^2 - and that term falls away as"
+        " the speed falls, so a slow aeroplane barely dragged. The field flew"
+        " all four consequences: a Cessna holding 60 knots on 18% of its"
+        " power, hanging at 150 for minutes, most of the runway used on the"
+        " roll-out, and a jet that could not be landed. The oracle is the DRAG"
+        " CURVE read off the guest one tick at a time with the throttle shut -"
+        " the fall in cs_spd IS the drag - because a settled-speed sweep does"
+        " NOT repeat: below the stall the aeroplane dives and pins at the 1.25"
+        " VMAX cap, and a first version read 189 knots at every throttle from"
+        " 10% to 100% for exactly that reason. It checks that the curve has a"
+        " minimum with a rise on both sides (which a v^2 law can never"
+        " produce), that the term is FLOORED below the stall rather than"
+        " running away (without the floor the Cessna reads 28 units a tick at"
+        " 10 m/s against 16 of full thrust and can never accelerate again -"
+        " measured, and very nearly shipped), and that the brake is an"
+        " AIRBRAKE in the air. --clobber-ind zeroes CSP_INDK in the live"
+        " record and --clobber-air turns the brake test into a jmp",
+        needs=("marty",), serial=True),
     Row("skiesface", "soak", py("tests/skiesface.py"), 105.0,
         "SPEC.md 88.6.2.4: THE STRIPES ARE AHEAD OF THE AEROPLANE. cs_rwline"
         " walked the centreline one way only - from the aeroplane's own u"

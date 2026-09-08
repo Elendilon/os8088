@@ -393,7 +393,17 @@ CSP_ART    equ 42               ; word: ITS PICTURE (88.10.1) - the 1bpp band
                                 ; off a third table beside cs_planes and
                                 ; cs_plnames, so an aeroplane carries its own
                                 ; picture the way it carries its own cockpit
-CSP_SIZE   equ 44
+CSP_INDK   equ 44               ; INDUCED DRAG, the wing's own share
+                                ; (SPEC.md 88.7.12): drag = CSP_INDK / (v^2/4)
+                                ; a tick, which RISES as the speed falls -
+                                ; where CSP_DRAGK's v^2 falls away to nothing
+                                ; and lets an aeroplane hang at 60 knots on a
+                                ; fifth of its power. APPENDED and not put
+                                ; beside CSP_DRAGK where it belongs, because
+                                ; tests/skiesbody.py and tests/skiesfleet.py
+                                ; carry these offsets as literals and an
+                                ; insertion moves every field after it
+CSP_SIZE   equ 46
 
 CSPF_AMPHIB equ 0x0001          ; it may touch down on water, and where the
                                 ; location has some it STARTS there (88.7.7)
@@ -459,6 +469,11 @@ CS_GRAV    equ 69               ; 9.81 m/s^2 a tick, 16.7 (SPEC.md 88.7.4)
 CS_STALLSINK equ 24             ; 16.8 m/s of sink per 1 m/s under the stall
 CS_STALLDROP equ 60             ; the nose drops this much a tick, stalled
 CS_LIFTOFF equ 546              ; 3 degrees: the nose is up, and it flies
+CS_INDMAX  equ 64               ; ...and a backstop on it, 9.1 m/s^2. The
+                                ; real bound is the STALL's own q (88.7.12),
+                                ; which is what stops the term running away;
+                                ; this only catches a record whose numbers
+                                ; disagree with each other
 CS_RUDDER  equ 24               ; the rudder's yaw a tick, in the air
 CS_STEERK  equ 2                ; the nosewheel: hdg += v x this >> 7
 CS_LANDVS  equ -384             ; a landing sinks no faster than 3 m/s...
@@ -2494,6 +2509,11 @@ cs_tpl:
     ZWORD cs_vs                     ; ...and its vertical
     ZWORD cs_ht                     ; the ground moved this tick
     ZWORD cs_thr                    ; 0..100
+    ZWORD cs_qv                     ; v^2/4 in whole m^2/s^2, the quantity the
+                                    ; drag is made of - kept because the
+                                    ; INDUCED term divides by it and the
+                                    ; parasitic one has already multiplied it
+                                    ; away by the time the air path is reached
     ZWORD cs_thrust                 ; CSP_THRUST x thr / 100, kept current
     ZBYTE cs_state
     ZBYTE cs_stall
