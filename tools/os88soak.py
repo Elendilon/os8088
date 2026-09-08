@@ -7,13 +7,31 @@ and survivable.
     python3 tools/os88soak.py status    # cheap progress read - SAFE to poll
     python3 tools/os88soak.py stop      # end it, and take its emulators with it
 
-WHY THIS EXISTS.  `make test-soak` runs the soak SERIALLY - `os88test.py soak`
-defaults to `--marty-jobs 1` - so the one command in the Makefile is the slow
-one, and the parallel invocation lived in two handoff documents as a line to
-remember (`docs/plans/completed/HANDOFF-KERNEL-SIZE-P3.md` 3).  Anything a reader has to
-remember is something the next reader will not, which is the same sentence
-that put `alone=True` on a row instead of `-x` in a runbook.  This file is
-that line, made into the command.
+WHY THIS EXISTS.  The parallel invocation lived in two handoff documents as a
+line to remember (`docs/plans/completed/HANDOFF-KERNEL-SIZE-P3.md` 3), and anything a
+reader has to remember is something the next reader will not - the same
+sentence that put `alone=True` on a row instead of `-x` in a runbook.  This
+file is that line, made into the command.
+
+**IT IS NOT "THE PARALLEL ONE" ANY MORE, AND SAYING SO COST SOMEBODY HOURS.**
+This paragraph read *"`make test-soak` runs the soak SERIALLY - `os88test.py
+soak` defaults to `--marty-jobs 1`"* long after both halves stopped being
+true: `_default_mj()` has been CORES-1 since the parallel work landed, and the
+Makefile passes no width at all, so `make test-soak` has been running an
+emulator lane of 3 on a four-core box for as long as that sentence has been
+wrong.  A reader who believes it reaches for the wrong lever - and the shape
+to watch for is a per-commit habit of `os88test.py soak -k '<family>'` once
+PER ROW, which pays this runner's ~22 s of fixed cost (the kernel-map identity
+check re-assembles the kernel) twenty-four times over.  Measured on the 24
+Clear Skies rows, 1,021 s of declared row time:
+
+    one invocation, lane of 3      353.6 s   (24 passed)
+    one invocation, lane of 1     ~1,021 s
+    one invocation PER ROW        ~1,549 s   = 1,021 + 24 x 22
+
+What this file adds over `os88test.py soak` is therefore NOT parallelism.  It
+is the four things below - and, since the width change, one lane per core
+rather than cores-1.
 
 It also owns the four things a soak in a container gets wrong, none of which
 belong in `os88test.py` - that runs rows, and these are about the RUN:
