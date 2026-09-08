@@ -226,15 +226,11 @@ CSM_EDGES equ 12
 CSM_SIZE  equ 14
 
 ; a face: db n, ink, flags, then n vertex indices
-; --- the attitude indicator's four modes, cycled by F6 (SPEC.md 88.9.2.5) ---
-; It is 41 ms of a BANKED frame - 14% of it - and every millisecond of that is
-; the ERASE: the glass is a filled ellipse whose half-width is a square root a
-; row, taken again on every redraw for a radius that never changes in flight.
-CSADI_FULL  equ 0               ; the ellipse walked with a root a row
-CSADI_OFF   equ 1               ; not drawn at all - a performance option
-CSADI_FAST  equ 2               ; ...the same pixels off a table built once
-CSADI_SMALL equ 3               ; ...and a smaller glass in the same bezel
-CSADI_N     equ 4
+; --- the attitude indicator's half-width TABLE (SPEC.md 88.9.2.5) -----------
+; It was 41 ms of a BANKED frame - 14% of it - and every millisecond of that
+; was the ERASE: the glass is a filled ellipse whose half-width was a square
+; root a row, taken again on every redraw for a radius that never changes in
+; flight. It is taken once a layout now, into cs_adtab.
 CS_ADHMAX   equ 24              ; rows of half-glass the table can hold. The
                                 ; tallest bezel any cockpit declares is 20
                                 ; rows (CSK_ADRY), so the glass is 18; a taller
@@ -539,7 +535,6 @@ cs_entry:
     mov byte [cs_setbld], CSBL_MOD   ; the settings' defaults (88.13): all of
     mov byte [cs_setlod], CSL_MOD   ; them are what the simulator shipped
     mov byte [cs_setfill], CSFL_ALL  ; with, so a player who never opens the
-    mov byte [cs_setadi], CSADI_FULL ; ...and the ADI as it has always drawn
                                     ; page is flying exactly what they flew.
                                     ; Size is the fourth and cannot be set
                                     ; here: it is the ADAPTER's, and the
@@ -1991,7 +1986,6 @@ cs_setbytes: dw cs_setbld, cs_setlod, cs_setsize, cs_modepref
 cs_i_bld:    dw cs_s_bnone, cs_s_broad, cs_s_blow, cs_s_bmod, cs_s_bhigh
 cs_i_lod:    dw cs_s_lnear, cs_s_lmod, cs_s_lfar, cs_s_lultra
 cs_i_size:   dw cs_s_zsml, cs_s_zmod, cs_s_zful
-cs_i_adi:    dw cs_s_adfull, cs_s_adoff, cs_s_adfast, cs_s_adsml
 cs_i_mode:   dw cs_s_modex, cs_s_cga
 cs_i_mode160: dw cs_s_cga, cs_s_c160   ; a real CGA's two (SPEC.md 88.15.7)
 cs_sethk:    dw cs_s_hk1, cs_s_hk2, cs_s_hk3, 0   ; Mode has no hotkey
@@ -2005,11 +1999,6 @@ cs_s_setttl: db 'SETTINGS', 0
 cs_s_lbld:   db 'Detail Level', 0
 cs_s_llod:   db 'Draw Distance', 0
 cs_s_lsize:  db 'Size', 0
-cs_s_ladi:   db 'ADI', 0
-cs_s_adfull: db 'Full', 0
-cs_s_adoff:  db 'Off', 0
-cs_s_adfast: db 'Fast', 0
-cs_s_adsml:  db 'Small', 0
 cs_s_lmode:  db 'Mode', 0
 cs_s_lfill:  db 'Fill', 0
 cs_s_bnone:  db 'None', 0
@@ -2168,7 +2157,6 @@ cs_tpl:
                                     ; once a frame instead of once an object
     ZBYTE cs_setlod                 ; picture below the top of each list is
     ZBYTE cs_setfill                ; a trade the player asked for
-    ZBYTE cs_setadi                 ; ...and which ADI mode F6 has cycled to
     ZWORD cs_adtn                   ; the half-width table's rows, 0 = unbuilt
     ZBUF  cs_adtab, (CS_ADHMAX + 1) * 2
     ZWORD cs_odx                    ; the object's world offset from the EYE at

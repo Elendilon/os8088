@@ -11731,7 +11731,8 @@ else: a held attitude does not change, so the ADI stops redrawing.
 
 Set 121 found the attitude indicator at **41 ms a frame, 14% of a banked one**,
 for as long as the roll keeps moving. This is where that goes and what the
-four modes `F6` now cycles are worth.
+four modes `F6` cycled are worth. (`Fast` won and shipped; see the note
+below the table.)
 
 **Harness**: `tests/skiesprof.py --tier 4 --profile rollsweep --adi <mode>`,
 `os8088_5150_herc_gla`, 20 flown frames. `rollsweep` drives the bank **2° a
@@ -11763,6 +11764,10 @@ a redraw for 35 answers that were the same last frame.
 **`Fast` halves the erase for the IDENTICAL picture** — 0 differing pixels of
 5,040 over the instrument's own box. +254 bytes of image, of which 82 are the
 table.
+
+**`Fast` is what ships, and `F6` is gone** — the ladder was the instrument
+that took this table and it has answered. Removing it and the three other
+modes gave **107 bytes** back (§88.9.2.5).
 
 **Three things about measuring this that cost time:**
 

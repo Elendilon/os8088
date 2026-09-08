@@ -434,7 +434,7 @@ Two instrument traps, both of which cost a run:
    -61..174 of a 112-row view, so a host-side walk that trusts them reads 236
    rows and a negative `y0` reads in FRONT of the span array.
 
-### 7.2 BUILT — the ADI is 41 ms a frame for as long as the attitude is moving
+### 7.2 BUILT — the ADI was 41 ms a frame for as long as the attitude was moving
 
 The released bank decays 45 deg to 0 over 24 frames and the panel goes with it:
 **44.7 ms a frame while the roll is moving, 2.4 ms once it settles** - a cliff
@@ -450,20 +450,31 @@ pricing is HOW it redraws, and the answer was not the line at all: **90% of
 the ADI is the ERASE**, a filled ellipse whose half-width is a SQUARE ROOT A
 ROW, taken again on every redraw for a radius that cannot change in flight.
 
-**F6 now cycles four modes** (SPEC.md 88.9.2.5) and this is what they cost, on
-`skiesprof`'s `rollsweep`:
+**An F6 cycled four modes** to price it (SPEC.md 88.9.2.5), on `skiesprof`'s
+`rollsweep`:
 
 | | `cs_panel` mean | worst frame | the erase per redraw |
 |---|---|---|---|
-| `Full` | 22.43 ms | 44.88 | **30.8 ms** |
-| `Fast` | 15.84 | 33.41 | **14.6 ms** |
-| `Small` | 9.06 | 20.99 | **7.5 ms** |
-| `Off` | 4.28 | 8.31 | 0 |
+| `Full` - the root a row | 22.43 ms | 44.88 | **30.8 ms** |
+| **`Fast` - the table, and WHAT SHIPS** | **15.84** | **33.41** | **14.6 ms** |
+| `Small` - `Fast` + a half-radius glass | 9.06 | 20.99 | 7.5 ms |
+| `Off` - not drawn at all | 4.28 | 8.31 | 0 |
 
-`Fast` is the table and is **pixel-identical** - 0 differing of 5,040 over the
-instrument's box. `Small` is `Fast` plus a half-radius glass in the same
-bezel. `Off` is a performance option and the quickest way to price the
-instrument from the glass.
+Confirmed on the shipped default, same session, `rollsweep`, tier 1, twenty
+frames, the two arms of the new build reading identically: `cs_panel` **22.53
+-> 14.16 ms** mean and **44.80 -> 28.78** worst, the FRAME **243.2 -> 235.0**
+(4.11 -> 4.26 fps).
+
+**`Fast` is now the only path and the ladder is gone.** It is
+**pixel-identical** - 0 differing of 5,040 over the instrument's box - so it
+wins outright, where `Small` and `Off` buy their time by drawing less and are
+not choices a player should have to find. Removing the key, the three other
+modes and the byte behind them gave **107 bytes** back, and took
+`skiesprof`'s `--adi` with them.
+
+**The general shape is worth keeping**: a knob that exists only to measure
+an alternative is an INSTRUMENT, and once it has answered it comes out. It
+was never a setting.
 
 **What is left is `cs_prect`, one call a row.** Going further means laying
 those rows without its per-row loop and `cs_markspan`, or composing the

@@ -103729,7 +103729,7 @@ is inside the panel. **Both units are checked because both scale**, and a
 layout that is tidy on CGA can overlap on Hercules with nothing to show for
 it in a test that looks at one adapter.
 
-#### 88.9.2.5 …and the ADI is 41 ms of a banked frame, so F6 cycles four of it
+#### 88.9.2.5 …and the ADI was 41 ms of a banked frame, half of it a SQUARE ROOT A ROW
 
 `tests/skiesprof.py` flying a released 45° bank (§88.12.1) reads the panel at
 **44.7 ms a frame while the roll is moving and 2.4 ms once it settles** — a
@@ -103751,50 +103751,58 @@ released one (5.02 ms against 20.61) because a held attitude does not change.
 again on every redraw for a radius that cannot change in flight** — 35 roots a
 redraw for 35 answers that were the same last frame.
 
-`F6` cycles four modes, each raising a toast like every other hotkey (§88.13.8):
+**The root is taken ONCE A LAYOUT now.** `cs_adsize` fills `cs_adtab` from
+`cs_pface` — the only place `cs_adrx`/`cs_adry` can move — and `cs_addisc`
+lays `cs_pdisc`'s rows out of it. A bezel taller than `CS_ADHMAX` falls back
+to the roots, which is the only arm left and no cockpit in the tree reaches
+it (the tallest declares 20 rows and the glass is 18).
 
-| mode | what it is |
-|---|---|
-| `Full` | the ellipse walked with a root a row — what shipped, kept as the arm the others are measured against |
-| `Off` | not drawn at all: no erase, no line. A performance option, and the quickest way to price the instrument from the glass |
-| `Fast` | **the same pixels off a table built once.** `cs_adsize` fills `cs_adtab` from `cs_pface`, which is the only place `cs_adrx`/`cs_adry` can move, and `cs_addisc` lays `cs_pdisc`'s rows out of it |
-| `Small` | `Fast` plus a glass of half the radius **inside the same bezel** — the ring `cs_pface` drew is untouched, so what shrinks is the line and the black behind it |
-
-F6 takes F3's path — `cs_r_setup`, `cs_clearall`, `cs_scrclear` — because the
-glass and the table are laid out by `cs_pface` and a full face redraw is also
-the only thing that clears the old line when the mode goes to `Off`.
-
-**What the four cost**, on `tests/skiesprof.py`'s `rollsweep` — the bank driven
-2° a frame so the ADI's key moves every frame, which is the profile these
-modes have to be measured on because `bank` only passes through that state:
+**It was chosen by measurement, on an `F6` that cycled four modes**, and the
+key is gone now that it has answered. On `tests/skiesprof.py`'s `rollsweep` —
+the bank driven 2° a frame so the ADI's key moves every frame, which is the
+profile this has to be measured on because `bank` only passes through that
+state:
 
 | | `cs_panel`, mean | its worst frame | the erase, PER REDRAW |
 |---|---|---|---|
-| `Full` | 22.43 ms | 44.88 | **30.8 ms** |
-| `Fast` | 15.84 | 33.41 | **14.6 ms** |
-| `Small` | 9.06 | 20.99 | **7.5 ms** |
-| `Off` | 4.28 | 8.31 | 0 |
+| `Full` — the root a row | 22.43 ms | 44.88 | **30.8 ms** |
+| **`Fast` — the table, and what ships** | **15.84** | **33.41** | **14.6 ms** |
+| `Small` — `Fast` + a half-radius glass | 9.06 | 20.99 | 7.5 ms |
+| `Off` — not drawn at all | 4.28 | 8.31 | 0 |
 
-**`Fast` halves the erase for the identical picture** — 0 differing pixels of
+**`Fast` halves the erase for the IDENTICAL picture** — 0 differing pixels of
 5,040 over the instrument's own box, with the attitude held and the world
 paused so the redraw happens at the poked angle. (Unpaused it is not a valid
 comparison at all: the ADI redraws when its key changes, so the model has
 moved the roll on by the time it draws, and two shots of the SAME mode differ
-by 74 pixels.)
+by 74 pixels.) That is why it wins outright and the other three are not
+options a player should have to find: `Small` and `Off` buy their time by
+drawing less, and `Fast` buys its by not taking an answer twice.
 
-**What is left in `Fast` is `cs_prect`** — one call a row, 18.5 rows, and the
-root is gone. Going further means laying those rows without `cs_prect`'s own
-per-row loop and `cs_markspan`, or composing the instrument into a band and
-blitting it once (§5.9's shape); neither is done.
+**Confirmed on the shipped default**, same session, `rollsweep`, tier 1,
+twenty frames, with the two arms of the new build reading identically:
 
-**The frame MEAN is the wrong way to compare these modes** and the numbers
+| | control (`Full`) | **shipped (`Fast`)** |
+|---|---|---|
+| `cs_panel`, mean | 22.53 ms | **14.16 / 14.16** |
+| `cs_panel`, worst frame | 44.80 | **28.78** |
+| the FRAME, mean | 243.2 | **235.0** (4.11 → 4.26 fps) |
+| the FRAME, worst | 288.8 | **275.5** |
+
+**Removing the ladder gave 107 bytes back** — the four modes, `cs_setadi`,
+their four strings, the `cs_i_adi` table, the F6 arm of `cs_hotkeyx` and the
+sixth column of `cs_toastlbl`/`cs_toastset`/`cs_toastval`/`cs_cycn`.
+`tests/skiesprof.py`'s `--adi` went with them.
+
+**What is left is `cs_prect`** — one call a row, 18.5 rows, and the root is
+gone. Going further means laying those rows without `cs_prect`'s own per-row
+loop and `cs_markspan`, or composing the instrument into a band and blitting
+it once (§5.9's shape); neither is done.
+
+**The frame MEAN was the wrong way to compare the modes** and the numbers
 above are `cs_panel`'s for that reason: a roll sweep changes what is in the
-view, so `Small` reads a 161.8 ms frame against `Full`'s 254.6 for reasons
+view, so `Small` read a 161.8 ms frame against `Full`'s 254.6 for reasons
 that have nothing to do with the instrument.
-
-It is a LADDER like F1–F3 and not a toggle like F4–F5, so `cs_toastset`,
-`cs_toastval` and `cs_cycn` carry a hole at 3 and 4 rather than a second
-dispatch.
 
 #### 88.9.3 …and instruments that only look the part
 
@@ -104655,12 +104663,14 @@ at the top.**
 | `F3` | Size — Small, Moderate, Full (`-`/`+` are still the alternate) |
 | `F4` | Terrain fill, a toggle |
 | `F5` | Buildings fill, a toggle |
-| `F6` | ADI — Full, Off, Fast, Small (§88.9.2.5) |
 
-`F6` is a LADDER like `F1`–`F3` and not a toggle like `F4`–`F5`, so
 `cs_toastset`, `cs_toastval` and `cs_cycn` carry a hole at 3 and 4 rather than
-a second dispatch, and it takes `F3`'s repaint path because the ADI's glass and
-its table are laid out by `cs_pface`.
+a second dispatch: the fill keys own those two indices and nothing else does.
+
+**There was an `F6`** cycling the ADI's four modes, and it was an INSTRUMENT
+rather than a setting — the arm §88.9.2.5 measured them against. `Fast` won it
+outright, for the identical picture, so it is what the simulator draws and the
+key is gone with the three other modes and the byte behind them (§88.9.2.5).
 
 It was **a key a VALUE** — `F1` to `F5` the five detail rungs, `F6`/`F7` the
 fills, `F8` to `F10` the three draw distances — and that runs out. The detail

@@ -980,15 +980,16 @@ cs_adwin:
     mov bx, [cs_adcy]
     mov cx, [cs_adhw]
     mov dx, [cs_adhh]
-    cmp word [cs_adtn], 0           ; the table is built: walk it (88.9.2.5)
-    jne cs_addisc
-    jmp cs_pdisc                    ; ROUND: the glass is round, so the black
-                                    ; behind it is too (SPEC.md 88.9.6)
+    cmp word [cs_adtn], 0           ; the table is built: walk it (88.9.2.5).
+    jne cs_addisc                   ; A bezel too tall for it falls back here
+    jmp cs_pdisc                    ; - ROUND either way, because the glass is
+                                    ; round and so is the black behind it
+                                    ; (SPEC.md 88.9.6)
 
 ; -----------------------------------------------------------------------------
-; cs_adsize - the ADI's glass for the mode F6 is on, and the half-width TABLE
-;             (SPEC.md 88.9.2.5). Called from cs_pface once a layout, which is
-;             the only time cs_adrx/cs_adry can move.
+; cs_adsize - the ADI's half-width TABLE (SPEC.md 88.9.2.5). Called from
+;             cs_pface once a layout, which is the only time cs_adrx/cs_adry
+;             can move.
 ;
 ; **The erase is a square root a row and the radius never changes in flight.**
 ; cs_elhw is `sqrt(ry^2 - dy^2) . rx / ry`, and cs_pdisc takes it again on
@@ -1003,19 +1004,6 @@ cs_adsize:
     push dx
     push si
     mov word [cs_adtn], 0
-    cmp byte [cs_setadi], CSADI_SMALL
-    jne .nosml
-    mov ax, [cs_adhw]               ; a SMALL glass in the SAME bezel: the
-    shr ax, 1                       ; line and the black behind it shrink,
-    mov [cs_adhw], ax               ; the ring cs_pface drew does not
-    mov ax, [cs_adhh]
-    shr ax, 1
-    mov [cs_adhh], ax
-.nosml:
-    cmp byte [cs_setadi], CSADI_FULL
-    je .out                         ; FULL keeps the root a row, on purpose:
-    cmp byte [cs_setadi], CSADI_OFF ; it is the arm the others are measured
-    je .out                         ; against
     mov ax, [cs_adhh]
     or ax, ax
     jle .out
@@ -1092,9 +1080,6 @@ cs_k_adi:
 cs_d_adi:
     cmp word [cs_adry], 0           ; ...nor is it redrawn on the gate
     je .nadi
-    cmp byte [cs_setadi], CSADI_OFF ; F6 has turned it off (SPEC.md 88.9.2.5):
-    je .nadi                        ; no erase and no line, so the glass keeps
-                                    ; whatever cs_pface last left on it
     call cs_adwin                   ; the window over the last line
     ; --- the offset: nose up moves the horizon DOWN, a row per 1.4 degrees --
     mov ax, [cs_pitch]

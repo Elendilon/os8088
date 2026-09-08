@@ -2,7 +2,7 @@
 """CLEAR SKIES' frame, broken down IN FLIGHT (SPEC.md 88.12.1).
 
     python3 tests/skiesprof.py [--profile cruise] [--frames 40] [--tier 2]
-                               [--adi off] [--hzfull 1]
+                               [--hzfull 1]
 
 AN INSTRUMENT, NOT A GATE - registered as such in tests/unit/t_registry.py,
 and it asserts nothing.
@@ -108,10 +108,11 @@ TIER4 = [                               # the panel's own internals
 ]
 TIER5 = [                               # the rolled horizon's own band
     ("cs_skyground", r"call cs_hzrows$",     "hzrows"),      # above, below
-    ("cs_skyground", r"call \[cs_hzproc\]$", "hzproc"),
     # (cs_hzrow_sh's two runs were bracketed here until they were INLINED -
     #  SPEC.md 88.3.1.2 carries what they measured: 664 cycles a row for 49
-    #  bytes, of which ~350 were the stores)
+    #  bytes, of which ~350 were the stores - and `call [cs_hzproc]` was
+    #  bracketed here until 88.3.1.3 FUSED the band's row into cs_skyground
+    #  and deleted the vector, so the band is exclusive time here now)
     # ...and the SPAN PASS (88.3.1.1) is a walk of its own with no call in
     # it, so what it costs is cs_skyground's own EXCLUSIVE time here
 ]
@@ -227,10 +228,6 @@ def main(argv):
                     help="frames flown before the trace arms, so the first "
                          "frame after a poke - which redraws the whole panel "
                          "- is not one of the ones reported")
-    ap.add_argument("--adi", default=None,
-                    choices=("full", "off", "fast", "small"),
-                    help="cycle F6 to this ADI mode before arming "
-                         "(SPEC.md 88.9.2.5)")
     ap.add_argument("--hzfull", type=int, default=None, choices=(0, 1),
                     help="poke cs_hzfull: 1 puts the rolled horizon back on "
                          "the whole-row refill (SPEC.md 88.3.1.1's A/B)")
@@ -296,21 +293,8 @@ def main(argv):
         m.type_text("f")
         m.advance(frames=30)
         m.run()
-        if a.adi:
-            want_adi = ("full", "off", "fast", "small").index(a.adi)
-            m.advance(frames=60)    # ...and the first key press after the
-                                    # bracket opens is swallowed otherwise
-            for _ in range(9):      # F6 is a LADDER: step it round to the one
-                if (w("cs_setadi") & 0xFF) == want_adi:
-                    break
-                m.key("F6")
-                m.advance(frames=40)
-            if (w("cs_setadi") & 0xFF) != want_adi:
-                sys.exit("skiesprof: F6 did not reach ADI mode %s" % a.adi)
-            m.advance(frames=60)    # the face redraw F6 asks for
-        print("  backend %d, view %dx%d, ADI mode %d"
-              % (w("cs_back") & 0xFF, w("cs_ww"), w("cs_wh"),
-                 w("cs_setadi") & 0xFF))
+        print("  backend %d, view %dx%d"
+              % (w("cs_back") & 0xFF, w("cs_ww"), w("cs_wh")))
         print("  profile %s: %s%s" % (a.profile, P["what"],
               "" if a.hzfull is None else "  [cs_hzfull=%d]" % a.hzfull))
 
