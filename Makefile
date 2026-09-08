@@ -5604,6 +5604,55 @@ $(BUILD)/pkgbig.img: tests/pkgbig/mkfix.py tools/os88disk.py | $(BUILD)
 #   python3 tests/pkgfence.py            ...and the img+bss write-bound gate
 pkgbig: $(BUILD)/pkgbig.img
 
+# --- REHOME, the re-home's consumer (ON DEMAND: `make rehome`) --------------
+# SPEC.md 20.12.10: a package whose image is a LOADER that hands its identity
+# to one of its own parts and is then freed. A CAPABILITY GATE and not
+# software, so nothing shipped carries it - MSEG's standing exactly.
+#
+# TWO PARTS AND TWO SOURCES THAT AGREE BY CONSTRUCTION. rhprog.asm is a WHOLE
+# .o88 IMAGE - its own header, name, entry and bss - which os88pkg.py appends
+# as part 0 without validating (it is not a file, and nothing here treats it
+# as one); the kernel validates it at ld_start's step 8a instead. rhasset.bin
+# is part 1, and exists so the program can prove the loader's handoff named a
+# segment the standard really filled.
+#
+# THE PROGRAM PART IS NOT WRAPPED BY os88pkg.py. It is assembled to image +
+# bss - the bss ships inside it, SPEC.md 51.1.2's rule one format along -
+# because the kernel jumps to step 8 and not step 7 on this path and so never
+# zeroes it. tools/unit/t_rehome.py is the host-side check that those two
+# numbers still agree with the file's length.
+$(BUILD)/rhprog.bin: tests/rehome/rhprog.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ $<
+
+$(BUILD)/rhasset.bin: tests/rehome/rhasset.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ $<
+
+$(BUILD)/rehome.bin: tests/rehome/rehome.asm apps/os88api.inc apps/os88parts.inc apps/os88partsbody.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ $<
+
+$(BUILD)/rehome.o88: $(BUILD)/rehome.bin $(BUILD)/rhprog.bin \
+                     $(BUILD)/rhasset.bin tools/os88pkg.py \
+                     apps/os88parts.inc apps/os88partsbody.inc
+	python3 tools/os88pkg.py $(BUILD)/rehome.bin -o $@ \
+		--part $(BUILD)/rhprog.bin --part $(BUILD)/rhasset.bin
+
+# BOTH GEOMETRIES, for MSEG's reason and one more: at 360KB the clusters are
+# 1KB, so op_claim's head slack is non-zero and part 0's segment is NOT the
+# carve's base - which is the shape SPEC.md 50.3.4 exists for. At 1.44MB the
+# slack is zero whenever the image lands on a cluster, and REHOME's odd
+# three-sector image is what stops it landing on one.
+$(BUILD)/rehome.img: $(BUILD)/rehome.o88 tools/os88disk.py | $(BUILD)
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/rehome.o88
+	@python3 tools/os88disk.py --verify $@
+
+$(BUILD)/rehome360.img: $(BUILD)/rehome.o88 tools/os88disk.py | $(BUILD)
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/rehome.o88
+	@python3 tools/os88disk.py --verify $@
+
+#   make rehome                          builds both fixture disks
+#   python3 tests/rehome.py 360          runs the gate on MartyPC
+rehome: $(BUILD)/rehome.img $(BUILD)/rehome360.img
+
 # --- MSEG, the parts standard's consumer (ON DEMAND: `make mseg`) -----------
 # SPEC.md 20.12: a package that carries its parts in its own file. It is a
 # CAPABILITY GATE and not software, so nothing shipped carries it - the same
@@ -5695,6 +5744,8 @@ $(BUILD)/msegz360.img: $(BUILD)/msegzd/MSEG.O88 $(BUILD)/msegbig.o88 \
 	python3 tools/os88disk.py -o $@ --size 360 \
 		$(BUILD)/msegzd/MSEG.O88 $(BUILD)/msegbig.o88
 	@python3 tools/os88disk.py --verify $@
+
+.PHONY: rehome
 
 .PHONY: msegz
 msegz: $(BUILD)/msegz.img $(BUILD)/msegz360.img

@@ -61,6 +61,7 @@ Read first: [§21 loader.inc](../SPEC.md#21-loaderinc); [§26 desk.inc — deskt
 |---|---|---|
 | `0x0520` | `OSAPI_PKG_RUN` | ES:SI = a package image, byte for byte what the .O88 file holds, in a claim of YOURS... |
 | `0x0528` | `OSAPI_DESK_SVC` | AL = 1 add / 0 withdraw; ES:SI = a 65-byte record in YOUR segment (add only): +0 12 the caption, NUL (<= 11 chars) +12 13 the 8.3 file the zone... |
+| `0x0530` | `OSAPI_PKG_REHOME` | DX = the segment your program part's IMAGE starts at (op_seg answers it), AX = the bytes available there... |
 
 ### Menus and the menu bar
 

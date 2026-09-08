@@ -312,6 +312,19 @@ mechanism and no defensive pin.** Once `mem_reown_x` (§3) stamps the carve's
 `MC_OWN` from the loader's segment to the **instance slot**, every fence
 already lines up:
 
+> **CORRECTED BY THE BUILD, and the correction is the important half.**
+> `mem_is_region` tests `MC_SEG == I_SPTR`, and with a non-zero head slack
+> those DIFFER — the claim's base is the carve's and `I_SPTR` is the part's, a
+> cluster alignment apart (§20.12.2). So a re-homed carve is **not** a region
+> in that sense, `mem_rr_tab` would **not** rewrite `I_SPTR` on a move, and it
+> must stay **pinned**. Stamping `MC_OWN` with the instance SLOT is what
+> guarantees it: `mem_find_own` matches the caller's segment or the claim's
+> base, and a slot is neither, so `OSAPI_MEM_FREE` and `OSAPI_MEM_MOVABLE`
+> both refuse. SPEC.md 20.12.10.5 carries the whole picture, including the
+> **second shape** — a 512-byte-cluster volume gives a zero slack, the program
+> sits at the base, and then everything below IS true of it. Both are
+> coherent; only the first one needed protecting.
+
 * **`mem_can_move`** takes `cmp bx, INST_MAX / jb` → `mem_is_region`, which is
   `I_KIND & KIND_PKG` **and** `MC_SEG == I_SPTR`. After the re-home both hold,
   so the carve reaches `mem_frameless` — **the same arm SHEET's and every C
@@ -694,9 +707,22 @@ program. 4.1.1 is the trace.
    fixture *can* gate is the negative: that the fence was **not** widened into
    a containment test, which is §4.1.1's trap. So steps 1–4 land together, and
    the arm ships behind the rows in step 4 rather than a row of its own.
-2. `mem_reown_x`, and the `MC_OWN` re-stamp.
-3. `OSAPI_PKG_REHOME` and `ld_start`'s arm.
-4. `tests/rehome/`, the four gates — including `rehomemove` (§9), and the
-   negative fixture above, which is what step 1 owes.
+2. `mem_reown_x`, and the `MC_OWN` re-stamp — **BUILT** (SPEC.md 50.4.1), and
+   the new owner is the instance **SLOT** rather than the program's segment,
+   which §4.3.3 had the wrong way round. It is what makes the carve
+   unreachable to the program, and it has to be: `mem_rr_tab` rewrites
+   `I_SPTR` by matching the OLD BASE, and with a non-zero head slack `I_SPTR`
+   is the part's segment where the claim's base is the carve's.
+3. `OSAPI_PKG_REHOME` (0x0530) and `ld_start`'s step 8a — **BUILT**
+   (SPEC.md 20.12.10). Measured against HEAD: **`.text` +14, `.bss` +4,
+   `.cold` +166 = 184 resident**, against §6's estimate of ~165.
+4. `tests/rehome/` and `tests/rehome.py` — **BUILT**, one row at 360KB. It
+   found a real defect on its first run: the arm did not clear `[ld_rehome]`,
+   so step 8a re-fired on the way back and re-homed the program to itself
+   until `wm_create` ran out of window slots. And it was **broken on purpose**
+   to earn step 1 its gate — with `mem_own`'s arms disabled the title reads
+   `REHOMED 3/4 BA`, check 3 alone, which is §50.3.4's defect exactly.
+   Still to do: `rehomemove` (§9), and a `rehomeclose` of its own — the close
+   assertion currently rides inside this row.
 5. `os88pkg.py`'s header agreement check.
 6. Only then, a real consumer.

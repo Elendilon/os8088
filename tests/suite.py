@@ -1538,6 +1538,30 @@ SOAK = [
         "(assocopen's), and the refused comma is the leg that says the fix "
         "did not buy the repaint back with one nobody owes.",
         needs=("marty",), serial=True),
+    Row("rehome", "soak", py("tests/rehome.py", "360"), 45.0,
+        "SPEC.md 20.12.10: a LOADER hands its identity to one of its own "
+        "PARTS and is then FREED. REHOME.O88's image is a small parts reader "
+        "- it loads two parts, writes where it put them into the head of part "
+        "0's bss, calls OSAPI_PKG_REHOME and returns with NO window. "
+        "ld_start's step 8a then frees the loader's region, re-owns the carve "
+        "to the instance SLOT and runs step 8 AGAIN against part 0, which is "
+        "a whole .o88 image with its own header, name, entry and bss. SIX "
+        "ASSERTIONS, each red on a different half: the window and I_SPTR "
+        "belong to the PROGRAM and not the loader; the package's own title "
+        "counts four checks of its own - the handoff arrived, the asset is "
+        "where the loader said, it CAN claim memory (SPEC.md 50.3.4's whole "
+        "gate, and RED without mem_own's two arms) and it may NOT free or "
+        "unpin its own carve (20.12.10.5); the program's segment is the base "
+        "of NO claim, which is what stops assertion 2 passing by accident on "
+        "a geometry whose head slack is zero; the loader's region is GONE "
+        "from mem_tab and exactly one claim is left on that slot; that claim "
+        "is PINNED; and closing it returns the heap to byte-identical free "
+        "runs. 360KB BY DEFAULT because its 1KB clusters are what give the "
+        "run a non-zero head slack. It found a real defect on its first run: "
+        "the arm did not clear [ld_rehome], so step 8a re-fired on the way "
+        "back and re-homed the program to itself until wm_create ran out of "
+        "window slots. Needs `make rehome`.",
+        needs=("marty",), serial=True, wants=("build/rehome360.img",)),
     Row("multiseg", "soak", py("tests/multiseg.py", "1440"), 20.0,
         "SPEC.md 20.12: a package carries its parts in its OWN FILE and loads "
         "them ITSELF. The kernel parses none of it - all it learns is flags "

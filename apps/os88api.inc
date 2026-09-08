@@ -754,6 +754,35 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
                                  ; free the image your paint verb lives in.
                                  ; drivers/wirezone.inc is the worked example.
 
+; --- a LOADER hands its identity to one of its own PARTS (SPEC.md 20.12.10) ---
+; A package whose image is a small LOADER, whose parts include a full package
+; image, and which wants the kernel to treat that part as the program: the
+; loader's own region is freed, the parts carve is re-owned, and step 8 is run
+; again against the part. From the program's side it is an ordinary launch it
+; happens to be some paragraphs into - and its region is gone from the heap.
+;
+; CALL IT FROM YOUR ENTRY PROC AND RETURN CF=0 WITH BX=0. It only RECORDS: you
+; are still executing in the region this frees, so the kernel does the work
+; after you return. Everything you did before it - a claim, a toast, a sound
+; grant - survives, being stamped by INSTANCE and not by segment; a WINDOW does
+; not, and creating one makes the launch refuse.
+%define OSAPI_PKG_REHOME    KERNEL_SEG:0x0530   ; DX = the segment your program
+                                 ; part's IMAGE starts at (op_seg answers it),
+                                 ; AX = the bytes available there - the part's
+                                 ; own length plus whatever you left after it,
+                                 ; which is what the kernel bounds the part's
+                                 ; image + bss against.
+                                 ; THE PART IS A WHOLE .O88 IMAGE: magic,
+                                 ; version 3, link 0 and the three-byte
+                                 ; dispatcher, its own name and icon, its own
+                                 ; entry offset. The kernel does NOT zero its
+                                 ; bss - the bss ships inside the part, which
+                                 ; is where you write down what you loaded and
+                                 ; where you put it.
+                                 ; out CF=1 refused: you are not the entry proc
+                                 ; of the launch in flight, you have already
+                                 ; called it once, or DX = 0
+
 ; --- the clip region (SPEC.md 11.3) -------------------------------------------
 ; What replaced the wm_obscured veto for background painters. Arm it under
 ; the lock and every gfx_*/font_* call you make is cut to the part of YOUR

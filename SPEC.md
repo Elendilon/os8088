@@ -32778,6 +32778,164 @@ of it"*. It was describing the intent rather than the build: `op_load` carried
 `call op_unpack` unconditionally, and the sentence is true as of this section
 rather than before it.
 
+#### 20.12.10 A LOADER hands its identity to one of its own parts
+
+A parted package's image is the thing the kernel launches, and everything else
+in the file is a part it reads. §20.12.9 measured what that image costs a
+package that is nothing but a reader: **775 bytes for the parts standard
+alone**, plus a header, an icon and whatever the reader does — and then the
+whole of it stays resident, in a region the allocator rounds to the kilobyte,
+for as long as the program runs. On a package whose real body is itself a
+part, that is **2 KB of a 640 KB machine spent on a program that has finished
+its job.**
+
+`OSAPI_PKG_REHOME` (0x0530, an X cell) is the way out. The loader tells the
+kernel *"the program is at DX, not at me"*, returns, and:
+
+* its own region is **freed**;
+* the parts carve is **re-owned** so it outlives the segment that claimed it;
+* `[ld_base]` becomes the part, and `ld_start` **runs step 8 again** against it.
+
+From the program's side nothing is unusual: it is an ordinary entry proc, in an
+ordinary region, some paragraphs into a heap claim. From the heap's side the
+loader was never there.
+
+##### 20.12.10.1 The seam is step 8, and step 7 is deliberately not re-entered
+
+`ld_start` is three steps: **7** zeroes the bss, **8** far-calls the entry
+through the header's dispatcher, **9** registers and publishes the instance.
+The arm sits between 8 and 9, and it jumps back to `.call8` — the top of step
+8 — and **not** to step 7.
+
+That is load-bearing rather than an economy. Step 7 is `rep stosb` over
+`[ld_img]`..`[ld_img]+[ld_bss]`, and on this path **the bss arrived inside the
+part**, carrying whatever the loader wrote into it. Zeroing it would erase the
+one thing the program is waiting to read. It is also fewer bytes than looping
+through step 7 would have been.
+
+The ordinary launch pays **six bytes** for the whole feature — `cmp word
+[ld_rehome], 0 / jne .rehome` — and falls through into step 9 exactly as
+before. The arm is out of line below `.reg`.
+
+##### 20.12.10.2 The handoff needs no mechanism
+
+The loader has to tell the program where it put the other parts, and this is
+where a magic number, a stamp or a published block would normally go. **None is
+needed.** The program's bss ships inside its part (§51.1.2's rule, one format
+along) and the kernel does not zero it, so the loader simply **writes the
+vector into the head of the program's bss** before it calls `OSAPI_PKG_REHOME`.
+Both sides are the package author's own code and agree by construction; the
+kernel never sees it.
+
+##### 20.12.10.3 The fence is one compare
+
+`[ld_base]` is the segment of the package being launched right now, and 0 when
+none is (§66.6.1 made it cleared on both the success and the abort path). `ES`
+is stamped by the X stub from the caller's own DS. So `ES == [ld_base]` is
+exactly *"you are the entry proc of the launch in flight"*, which is the only
+caller this slot can have.
+
+It deliberately does **not** use `mem_own`: that fence answers for any live
+package, and any *other* package calling this would be re-homing somebody
+else's launch. Two more refusals: a **second** call (the arm has one
+`[ld_base]` to free by, so a second re-home would leak the first), and `DX = 0`.
+
+`[ld_rehome]` is cleared by **`ld_alloc`**, on every launch, rather than by the
+arm that consumes it — an entry proc can set the word and then return CF=1, and
+the arm never runs.
+
+##### 20.12.10.4 The part is validated as a package, not as a file
+
+The arm runs `ld_hdr_ok` — magic, version 3, link 0 and the three-byte
+dispatcher — and **not** `ld_check_hdr`, which is about the *file*: a part has
+no file size to be compared against, and the flags-bit arithmetic §20.12.3
+describes belongs to the container.
+
+What replaces it is one bound. `image + bss` must fit **`AX`, the bytes the
+loader says are available at `DX`** — the loader's word for what it actually
+put there, not the part's word for what it wants. §51.1.2's warning is the
+reason it is that way round: *the header is a FILE, and a foreign tool may
+write any `LD_H_BSS` it likes*. The `add`'s carry is the other half, each
+operand being a 16-bit header field whose sum is 17 bits.
+
+##### 20.12.10.5 The carve is re-owned to the SLOT, and stays PINNED
+
+The parts carve is claimed by the **loader**, through `OSAPI_MEM_CLAIM`, so its
+`MC_OWN` is the loader's segment — which is about to stop existing. Left alone
+it is either freed out from under the running program (the teardown sweeps by
+segment) or leaked for the session. `mem_reown_x` re-stamps it, and every other
+claim on that owner word, to the instance **SLOT** — which is how `ld_alloc`
+owns a region in the first place (§21 step 5).
+
+**The slot is not merely tidy: it is what keeps the carve pinned, and it must
+be.** `mem_find_own` matches `MC_OWN == the caller's segment` or `MC_SEG ==
+it`, and a slot is neither — so `OSAPI_MEM_FREE` and `OSAPI_MEM_MOVABLE` both
+**refuse the program its own carve**. That is the correct answer, because a
+move would corrupt it: `mem_rr_tab` rewrites `inst_tab + I_SPTR` by matching
+the **old base**, and `I_SPTR` is the *part's* segment where the claim's base is
+the *carve's* — the two differ by the run's cluster alignment (§20.12.2) — so a
+compaction would leave `I_SPTR` naming where the program used to be. A re-homed
+carve is therefore **not** a region in `mem_is_region`'s sense, and must not be
+made to look like one.
+
+The loader's own region is then freed **by base** (`mem_free_x` with `DX =
+[ld_base]`, `BX =` the slot) and not by owner: the re-owned carve is on the same
+owner word now and must not go with it.
+
+**THE CARVE HAS TWO SHAPES, and which one a launch gets is the VOLUME's
+cluster size rather than the package's doing.** `op_claim`'s head slack
+(§20.12.2) bridges the file's 512-byte part boundary to the cluster boundary
+`OSAPI_FILE_READ_AT` will start a read on — 1 KB on a 360KB disk, **512 bytes
+on a 1.44MB one, where it is therefore ZERO**. So:
+
+| head slack | the program sits | and the carve is |
+|---|---|---|
+| non-zero (1KB+ clusters) | **inside** the carve | not a region by `mem_is_region`: `MC_SEG != I_SPTR`. Unreachable to the program, pinned, and it must stay so |
+| zero (512-byte clusters) | **at** the carve's base | the program's region **in every sense** — `mem_is_region` holds, `mem_find_own`'s `MC_SEG == the caller's own segment` arm reaches it, and `mem_rr_tab` would rewrite `I_SPTR` correctly on a move |
+
+**Both are coherent, and for different reasons**, which is why neither the
+kernel nor the package needs to know which one it got. In the second shape a
+re-homed program may free or unpin its own carve exactly as any package may
+free or unpin its own region (§66.6.1) — that is not a hole the re-home opened,
+it is the ordinary right, arriving because the two really are the same block.
+What must never happen is the first shape being treated as the second, and
+`mem_reown_x` stamping the **slot** is what prevents it.
+
+`tests/rehome.py` asserts the shape its geometry implies rather than one
+outcome, and runs at **360KB** in the suite because that is the shape §50.3.4's
+fence exists for. On a 512-byte-cluster volume `mem_own`'s old claim-base proxy
+answers correctly by accident, so a 1.44MB-only row would have tested nothing.
+
+##### 20.12.10.6 What it refuses, and what survives
+
+**A re-homing entry may own no window.** Its region is about to be freed, so a
+window whose `W_SEG` named it would far-call a dead claim on its first repaint.
+`BX != 0` from the entry makes the launch abort.
+
+Everything else the loader did **survives untouched**, because it is stamped by
+**instance** and not by segment: the sound grant (`snd_inst`, set to the record
+around the call), the XMS release record, the toast. And `ld_unreserve` needs no
+change — it sweeps XMS by record, heap by **slot** (which now reaches the carve)
+and heap by `[ld_base]` (which now names the program).
+
+##### 20.12.10.7 The bill
+
+Measured against the tree it landed on, `.text` being the scarce side
+(`KERN_CODE_MAX` cannot be raised):
+
+| where | what |
+|---|---|
+| `.text` | the table cell (`OSAPI_XCELL`, 8 bytes) + its `call COLD_SEG:` thunk |
+| `.bss` | `ld_rehome` and `ld_rehsz` |
+| `.cold` | `osapi_pkg_rehome_x`, `ld_start`'s step 8a, `mem_reown_x`, and `ld_alloc`'s clear |
+
+`mem_reown_x` is `mem_free_owner_x` with one instruction changed, and
+deliberately a **second walk** rather than one walk with a flag: the obvious
+factoring — pass the new owner in AX and let 0 mean *free instead* — collides
+with **instance slot 0**, which is a real owner word. Thirteen bytes, and the
+collision would be silent.
+
+
 ### 20.13 COMPRESSION — flags bits 3 and 4, and one slot
 
 **A file may be compressed and the kernel expands it on the way in.**
@@ -65218,6 +65376,26 @@ placement reduces the fragmentation *created*, where compaction repairs it
 afterwards. The measurement that was asked for first did arrive, from the
 field: docs/FIELD-NOTES.md 2 is a refusal where the total and the largest run
 differed by more than 100KB.
+
+#### 50.4.1 `mem_reown` — the same walk, handing a claim to a new owner
+
+`mem_free_owner` releases every claim an owner holds. `mem_reown` walks the
+same table under the same `cli` and **re-stamps** `MC_OWN` instead of clearing
+`MC_SEG`: in BX the owner to match, DX the owner to write, every register
+preserved.
+
+It exists for §20.12.10's re-home, and the shape of that problem is why a free
+will not do. The parts carve is claimed by a **loader** whose segment is about
+to stop existing, and it is the block the program is now running in — so
+freeing it kills the program, and leaving it alone leaks it for the session
+under an owner word nothing will ever match again. Neither is a teardown
+question; the claim has a new owner, and this says so.
+
+**It is a second walk on purpose.** The obvious factoring — one walk, the new
+owner in AX, 0 meaning *free instead* — collides with **instance slot 0**,
+which `ld_slot` answers for the first package to launch and which is a
+perfectly real owner word. The saving is thirteen bytes and the collision would
+be silent.
 
 ### 50.4 Teardown
 

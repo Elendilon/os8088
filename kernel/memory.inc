@@ -3198,6 +3198,49 @@ mem_free_owner_x:
     ret
 
 ; -----------------------------------------------------------------------------
+; mem_reown - hand every claim an owner holds to a DIFFERENT owner (SPEC.md 50.4.1)
+;
+; in:       BX = the owner word to match, DX = the owner word to write
+; out:      nothing (all registers preserved)
+;
+; mem_free_owner_x above with one instruction changed, and deliberately a
+; SECOND WALK rather than one walk with a flag. The obvious factoring - pass
+; the new owner in AX and let 0 mean "free instead" - is a TRAP: `ld_slot`
+; answers 0 for instance slot 0, which is a real owner word, so the sentinel
+; collides with the first package that launches. Thirteen bytes, measured, and
+; the collision is silent.
+;
+; SPEC.md 20.12.10's re-home is the one caller: the parts carve is claimed by
+; the LOADER and outlives it, so without this the loader's teardown frees the
+; segment the program is now running in - or, if the teardown is skipped, the
+; carve is owned by a segment that no longer exists and is leaked for the
+; session. Both halves are why this is a re-stamp and not a free.
+; -----------------------------------------------------------------------------
+mem_reown_x:
+    push cx
+    push si
+    pushf
+    cli                         ; the walk-and-write, one window, exactly as
+                                ; mem_free_owner_x's is: a claim published
+                                ; between the compare and the store would keep
+                                ; the owner that is about to stop existing
+    mov si, mem_tab
+    mov cx, MEM_MAX
+.scan:
+    cmp word [ss:si+MC_SEG], 0
+    je .next
+    cmp [ss:si+MC_OWN], bx
+    jne .next
+    mov [ss:si+MC_OWN], dx
+.next:
+    add si, MC_SIZE
+    loop .scan
+    popf
+    pop si
+    pop cx
+    ret
+
+; -----------------------------------------------------------------------------
 ; mem_free_rec - mem_free_owner for an instance record pointer
 ; in:  DI = instance record ptr
 ; out: nothing (all registers preserved) - inst_rel_rec's twin
