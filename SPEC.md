@@ -107999,19 +107999,21 @@ arm.** A *steered* game on the biggest board — VGA windowed, 448×403, five
 actors all moving and the score changing on every dot — is the heaviest case
 in the tree. Measured on the same instrument:
 
-| arm, steered | alone | sharing four cores with two guests |
+| arm, steered | before §93.5.9 | after |
 |---|---|---|
-| CGA, Hercules | 98.4–100.2% | 98.4–100.0% |
-| **VGA windowed** | **91.7 / 93.2 / 95.1%** | **88.9 / 89.8%** |
+| CGA, Hercules | 98.4–100.2% | 98.4–100.2% |
+| **VGA windowed** | **91.7 / 93.2 / 95.1 / 96.6%** | **99.1 / 99.7 / 99.7%** |
+| VGA, in the bracket | 95.7–98.4% | 97.2 / 98.1 / 98.1% |
 
-So `tests/dotdel.py`'s leg E carries a floor **per arm** — 95% on the two that
-have a whole tick to spare and 85% on VGA, four points under the worst of
-those readings. One number for all three was a number nobody had taken, and
-it read as a regression every time the VGA arm ran under load.
+The VGA arm sat apart for exactly one round, on a floor of its own (85%
+against the others' 95%) and a note that it would come back up when the band
+composition was taken. **It was, and it did** — §93.5.9 — so `FPS_FLOOR` is
+0.95 on all three again, which is what leg E wanted in the first place.
 
-That is a measurement and not a concession: **§93.5.3.1 says where the VGA
-frame goes**, and about 3 ms of each 6.9 ms actor band is *composing* rather
-than blitting. The floor comes down to meet the others when that is taken.
+Worth keeping from that round: a **distribution** is what a floor has to be
+set from. One number for all three arms was a number nobody had taken, and a
+90% floor sat *inside* the VGA arm's eight-point swing, so it read as a
+regression every time that arm ran beside two other guests.
 
 It did not start there, and the things that were wrong are worth having
 written down because none of them was the sprite renderer:
