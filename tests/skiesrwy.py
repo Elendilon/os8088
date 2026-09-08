@@ -42,11 +42,17 @@ stripes at the far threshold, and that the last of them ends ON it.
 --clobber-rwy is the red run for the first (docs/WRITING-TESTS.md 1): it
 NOPs the three bytes of the `or cx, cx / jle` that the fix added and nothing
 else, so the compare is unsigned-only again - the code exactly as the field
-had it. --clobber-far is the red run for the second: it NOPs the nine bytes
-that test metres against the runway's length, putting the divide back in
-front of the guard. --clobber-thresh is the red run for the third: it pokes
-[cs_rwfar] onto the threshold itself, so .far draws the whole strip solid
-and its stripes will not fit - the picture that was reported.
+had it.
+
+--clobber-far NOPs the nine bytes that test metres against the runway's
+length, putting the divide back in front of the guard. IT NO LONGER GOES
+RED FROM THESE POSES and that is a finding rather than a broken arm:
+SPEC.md 88.6.2.4's facing space makes an aeroplane past the far threshold
+SHORT of the threshold behind it, so `js .zero` returns before the divide is
+reached at all. The guard stays - it is four instructions and the mirrored
+case can still get there - but the window it closes is no longer one an
+approach flies through. --clobber-thresh pokes [cs_rwfar] onto the threshold
+itself, which still collapses .far's stripes wherever it is reached.
 """
 import argparse
 import os
@@ -249,8 +255,15 @@ def main(argv):
         du, rwfar = uw("cs_rwdu"), uw("cs_rwfar")
         print("    --- a stripe is %d in Q15, the far run starts at %d"
               % (du, rwfar))
-        want = [(0, rwfar)] + [(rwfar + 2 * k * du, rwfar + (2 * k + 1) * du)
-                               for k in range(4)]
+        # SINCE 88.6.2.4 THIS IS THE NEAR-END CLAMP AND NOT .far. The walk
+        # runs in FACING SPACE, so an aeroplane past the far threshold and
+        # pointed back at it is short of the threshold BEHIND it: `js .zero`
+        # puts u at 0 and the four stripes land on the threshold it is
+        # aiming at, with the solid part running away down the rest. .far is
+        # now only reached from ON the strip, which is what the poses below
+        # the fence exercise.
+        want = [(2 * k * du, (2 * k + 1) * du) for k in range(4)] \
+            + [(8 * du, 32767)]
 
         def segments(t, y):
             """What cs_rwsegu is HANDED, stood t from the middle looking back:
@@ -281,10 +294,10 @@ def main(argv):
             print("      %5d m past the far end (%s): %s, %d frames"
                   % (t - hlen, what, segs[:5], drew))
             check(segs[:5] == want,
-                  "%.1f hlen out: solid to the far run, then its four stripes"
-                  % mult)
-            check(len(segs) > 4 and segs[4][1] == 32766,
-                  "...the last of them ending ON the threshold (%s)"
+                  "%.1f hlen out: four stripes at the threshold it is aiming "
+                  "at, then solid away down the rest" % mult)
+            check(len(segs) > 4 and segs[4][1] == 32767,
+                  "...the solid part running to the far end (%s)"
                   % (segs[4] if len(segs) > 4 else None,))
             check(drew > 0, "...AND THE MACHINE IS STILL RENDERING (%d frames)"
                   % drew)

@@ -2193,6 +2193,9 @@ cs_tpl:
     ZWORD cs_rwu                    ; cs_rwpt's u
     ZWORD cs_rwdu                   ; a runway stripe, on, in Q15 of the
                                     ; centreline (88.6.2); the pitch is twice
+    ZBYTE cs_rwrev                  ; the aeroplane is pointed at the NEAR
+                                    ; threshold, so the centreline is walked
+                                    ; in facing space (88.6.2.4)
     ZWORD cs_rwfar                  ; ...and where the FAR threshold's run of
                                     ; them starts, 32766 - (2 RW_NDASH - 1) du
                                     ; (88.6.2.3), so the last stripe ends ON it

@@ -101010,6 +101010,85 @@ walking towards.
 near one: it is red the moment the far threshold answers with one segment
 where the near one answers with five.
 
+#### 88.6.2.4 It drew the stripes behind the aeroplane
+
+The field reported it as *"I am still getting a blank runway sometimes — the
+centre line is more present, and if I land straight on the closest line
+draws, but ones further down the runway do not"*, flying **down the runway
+from the opposite side to the take-off**.
+
+§88.6.2 walks the stripes in **one direction only**: from the aeroplane's own
+`u` toward the far end, then a solid tail to `u` = 32767. That is right for a
+take-off roll from the near threshold, which is the only thing the first
+build could do — and it is exactly backwards after a landing from the far
+side, where the aeroplane rolls toward *decreasing* `u` and everything the
+routine draws is **behind it**.
+
+**The oracle is the argument and not the picture, and that matters.** The
+obvious measurement — draw the frame twice, once with a `ret` poked over
+`cs_rwline`, and count the differing pixels — **does not repeat here**: the
+same build at the same pose gave 18, 816 and 2,038, because `m.advance`
+counts EMULATOR frames and a forced repaint lands a different number of guest
+frames each time. Pacing on `cs_frames` narrowed it and did not fix it. What
+does repeat exactly is what `cs_rwsegu` is HANDED, mapped back into the
+model's own `u` and judged against the end the aeroplane is really pointed
+at. Sixteen poses — on the strip at ±400 m and ±200 m from the middle, at
+2 m, 30 m, 80 m and 140 m, facing each way:
+
+| | poses drawing the line behind the aeroplane |
+|---|---|
+| one-way walk (the code the field flew) | **7 of 16** |
+| facing space | **0 of 16** |
+
+The fix is to work in **facing space**. `u` = 0 is the threshold *behind* the
+aeroplane and 32767 the one it is pointed at, so the stripes are always the
+ones it is about to drive over, the solid part is always the runway behind
+it, and §88.6.2.3's `.far` case lands its four stripes on the threshold being
+approached whichever way round that is. Two changes carry it:
+
+```
+    mov ax, [cs_sinh]               ; cos(hdg - runway) - both sines and
+    imul word [cs_rwsin]            ; cosines are already computed for the
+    mov cx, dx                      ; frame, so the test is two multiplies
+    mov ax, [cs_cosh]               ; and an add
+    imul word [cs_rwcos]
+    add dx, cx
+    mov byte [cs_rwrev], 0
+    jns .ahead
+    mov byte [cs_rwrev], 1
+```
+
+— and `[cs_along]` is negated before the metres-from-the-end conversion, so
+everything downstream is unchanged. `cs_rwsegu` mirrors each segment back
+into the model's own `u` on the way out (`[a, b]` → `[32767 − b, 32767 − a]`),
+which is where the whole reversal costs anything at all: five instructions a
+segment, at most five segments a frame.
+
+**Facing space subsumes §88.6.2.3, and closes §88.6.2.2's window with it.**
+An aeroplane past the far threshold and pointed back at it is *short of the
+threshold behind it*, so `js .zero` fires: `u` is 0, the four stripes land on
+the threshold it is aiming at and the solid part runs away down the rest —
+which is the same picture `.far` was built to produce, reached by the near
+end's own clamp. `.far` is now only entered from ON the strip. It also means
+the divide `.zero` skips is no longer reached on an approach at all, so
+`tests/skiesrwy.py`'s `--clobber-far` arm stops going red from those poses;
+the four-instruction guard stays, because the mirrored case can still get
+there and it costs nothing.
+
+**Two other things the same walk found, and neither is this bug.** Beyond
+about 2,600 m from the runway's MIDPOINT the strip loses its outline and its
+centreline together — that is `cs_drawobj`'s `cmp cx, 2600 / ja .out`
+(§88.6.2.1's own size gate) doing what it says, and it is why a photograph
+from 2,500 m out at 400 m has neither line nor outline. And the pixel-diff
+runs, unreliable as they are, kept reading zero at one pose 80 m over the
+strip facing either way; that is not explained here and is still open.
+
+`tests/skiesface.py` is the gate and `--clobber-face` is the red arm: it NOPs
+the five bytes that set `[cs_rwrev]`, the walk is one-way again, and seven of
+the sixteen poses put the line behind the aeroplane. It exempts §88.6.2.3's
+run, which is anchored on the threshold rather than on the aeroplane and is
+`tests/skiesrwy.py`'s subject.
+
 #### 88.6.3 The tower stands 60 m back from the origin, out of the river
 
 The map's origin is the Eiffel Tower's square, and the tower's OBJECT was at

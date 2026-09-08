@@ -2881,10 +2881,33 @@ cs_ecopy:
 ;             costs one segment, as it did before. PAST THE FAR END but
 ;             inside those two, the stripes go at THAT threshold instead
 ;             (SPEC.md 88.6.2.3): the mirror of the near end's `js .zero`.
+;             It all runs in FACING SPACE (88.6.2.4) - u = 0 at the threshold
+;             behind the aeroplane - so the stripes are the ones ahead of it
+;             whichever way round it landed.
 ;             Runs after cs_edges, in its ink.
 ; -----------------------------------------------------------------------------
 cs_rwline:
     call cs_runway_xy               ; [cs_along], [cs_across]
+    ; --- WHICH THRESHOLD IS AHEAD (SPEC.md 88.6.2.4). Everything below works
+    ;     in FACING SPACE: u = 0 at the threshold behind the aeroplane and
+    ;     32767 at the one it is pointed at, so the stripes are always the
+    ;     ones it is about to drive over and the solid part is always the
+    ;     runway behind it. Land from the far side and roll back, and the old
+    ;     code drew the whole line BEHIND the aeroplane - measured at 300 m
+    ;     inside the strip, 11 pixels against 571 the other way round.
+    ;     cos(hdg - runway) is the whole of the test, and both sines and
+    ;     cosines are already computed for the frame; cs_rwsegu mirrors each
+    ;     segment back into the model's own u at the end.
+    mov ax, [cs_sinh]
+    imul word [cs_rwsin]
+    mov cx, dx
+    mov ax, [cs_cosh]
+    imul word [cs_rwcos]
+    add dx, cx
+    mov byte [cs_rwrev], 0
+    jns .ahead
+    mov byte [cs_rwrev], 1
+.ahead:
     mov si, [cs_airport]
     mov ax, [cs_py+1]
     sub ax, [si + CSA_ELEV]
@@ -2898,7 +2921,11 @@ cs_rwline:
     cmp ax, RW_DASHW
     jg .solid
     mov ax, [cs_along]
-    add ax, [si + CSA_HLEN]         ; AX = metres from the near end
+    cmp byte [cs_rwrev], 0          ; ...from the end BEHIND it (88.6.2.4)
+    je .fwd
+    neg ax
+.fwd:
+    add ax, [si + CSA_HLEN]         ; AX = metres from the end behind
     js .zero
     ; --- PAST THE FAR END, BEFORE THE DIVIDE (SPEC.md 88.6.2.2). The test
     ;     for it used to be on the QUOTIENT, and the quotient is
@@ -2978,6 +3005,14 @@ cs_rwline:
 ; cs_rwsegu - the centreline from u = AX to u = CX (Q15): scratch vertices
 ;             6 and 7, then the edge. Clobbers everything
 cs_rwsegu:
+    cmp byte [cs_rwrev], 0          ; facing space back into the model's own
+    je .fwd                         ; u: [a, b] -> [32767 - b, 32767 - a]
+    xchg ax, cx
+    neg ax
+    add ax, 32767
+    neg cx
+    add cx, 32767
+.fwd:
     push cx
     mov di, 12                      ; vertex 6
     call cs_rwpt

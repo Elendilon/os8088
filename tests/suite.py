@@ -2515,6 +2515,24 @@ SOAK = [
         " tree AND keeps it current, which a capability cannot do",
         needs=("marty",), wants=("build/skiesdiag/apps360.img",),
         serial=True),
+    Row("skiesface", "soak", py("tests/skiesface.py"), 105.0,
+        "SPEC.md 88.6.2.4: THE STRIPES ARE AHEAD OF THE AEROPLANE. cs_rwline"
+        " walked the centreline one way only - from the aeroplane's own u"
+        " toward the far end - which is right for a take-off roll from the"
+        " near threshold and exactly backwards after a landing from the far"
+        " side, where everything it drew was BEHIND the aeroplane. The field"
+        " reported it as a blank runway. THE ORACLE IS THE ARGUMENT AND NOT"
+        " THE PICTURE: a pixel diff of two renders does NOT repeat here (the"
+        " same build and pose gave 18, 816 and 2,038, because m.advance counts"
+        " emulator frames and a forced repaint lands a different number of"
+        " guest frames each time), so the row reads what cs_rwsegu is HANDED,"
+        " maps it back into the model's u with the guest's own [cs_rwrev],"
+        " and judges it against the end the aeroplane is REALLY pointed at -"
+        " which the row sets rather than reads, so a broken build cannot pass"
+        " by agreeing with itself. 88.6.2.3's threshold-anchored run is"
+        " exempt; that one is skiesrwy's. --clobber-face NOPs the five bytes"
+        " that set [cs_rwrev] and 7 of the 16 poses go behind",
+        needs=("marty",), serial=True),
     Row("skieskfz", "soak", py("tests/skieskfz.py"), 50.0,
         "SPEC.md 8.9.1: THE TWO INSTRUMENTS TOGETHER. A hard freeze wants"
         " both - KFZ=1's kernel heartbeat (SPEC.md 8.9), which says whether"
@@ -2682,8 +2700,10 @@ SOAK = [
         " not whether the machine survived, because surviving is the ROM's"
         " decision: under GLaBIOS vector 0 is the dummy handler, so the guest"
         " carries on with AX undefined and draws stripes from it."
-        " --clobber-far NOPs the nine bytes of the guard and the two rows past"
-        " the fence come back dashed from a garbage u. The same approach is"
+        " --clobber-far NOPs the nine bytes of the guard; since 88.6.2.4 that"
+        " arm no longer goes red from these poses, because facing space puts"
+        " an aeroplane past the far threshold SHORT of the one behind it and"
+        " js .zero returns before the divide. The same approach is"
         " where the centreline NEVER DASHED (SPEC.md 88.6.2.3): the near end"
         " has been clamped since the first build - js .zero puts the stripes"
         " at the threshold you are aiming at - and the far end had no such"
