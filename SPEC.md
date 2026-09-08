@@ -102461,6 +102461,47 @@ The engine is a speaker tone whose pitch follows the throttle
 beep, a crash a low blast; the tone is released at exit and `M` mutes all of
 it.
 
+##### 88.7.11.1 …and it belongs to no object, which is three stores and not one
+
+Reported from the air, on Hercules: after a crash the **upper part of the
+view** is wrong. It is §88.13.3.1's rule applied one caller short.
+
+`cs_seg` reads three words to decide what a segment owes the glass, and
+`cs_crackle` runs **after** `cs_scene` — so all three hold the LAST OBJECT
+DRAWN's values. `[cs_pinview]` would skip the clip; `[cs_pwhole]` would skip
+the marking outright; and with both zero, `cs_markacc` accumulates into an
+object box that `cs_drawobj` flushed a moment ago and resets for its first
+object next frame. **Either way the marks are lost**, and an unmarked run
+never reaches the glass (§88.3.1). The horizon takes all three stores and says
+why; the panel takes all three in `cs_pclip` and says why; `cs_crackle` took
+only the first.
+
+What that looks like is **a windshield with a hole in it**. A crack appears
+wherever something else marked the row — the ground's dither, a building, the
+horizon segment — and nowhere else. Over open sky, which on a 1bpp adapter is
+black and which nothing else draws on, no row is marked and the cracks up
+there were never drawn at all: the star and the ring stop dead at the horizon.
+It is worst on Hercules because that is where the sky is emptiest.
+
+The fix is the other two stores and the borrow put back, and it saves
+`[cs_pwhole]` beside the `[cs_pinview]` the routine already saved. `[cs_ownmk]`
+goes to −1 for the walk and back to 0 after it, which is what `cs_pclip` does.
+
+`tests/skiescrash.py` is the gate: it pins 300 m over Paris nose-down so the
+view has real sky above a real city below, crashes the aeroplane where it
+stands, and counts what the crash ADDS above the horizon row the guest itself
+reports in `[cs_hzy0]` — **129 lit pixels against 0**. `--clobber-crash` puts
+`cs_crackle` back as it shipped and that check goes red.
+
+**What the row deliberately does not ask** is whether a crack *outlives* the
+crash. That was tried — photograph the pose, crash, wait, re-pin, photograph
+again — and it reads the same 1,622 differing pixels with the fix and without
+it, so it is measuring the harness. `cs_hzrows` is incremental, so a teleport
+leaves the view partly stale by itself; and the poke that makes a capture
+deterministic (`cs_rowkind` to 0x83 and both span sets empty, which is
+`cs_clearall` by hand) forces a full refill and would erase exactly the
+leftover such a check is looking for. The two cannot both be had.
+
 #### 88.8.1 A paused aeroplane is silent
 
 Reported off the machine: pause with the engine running and **the tone runs

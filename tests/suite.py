@@ -2342,6 +2342,23 @@ SOAK = [
         " cs_boxlod not entered at all and nothing reaching cs_rect, which is"
         " that rung's whole feature",
         needs=("marty",), serial=True),
+    Row("skiescrash", "soak", py("tests/skiescrash.py"), 26.0,
+        "SPEC.md 88.7.11.1: the windshield is drawn WHOLE. cs_seg reads three"
+        " words to decide what a segment owes the glass, and cs_crackle runs"
+        " AFTER cs_scene, so all three hold the last object drawn's -"
+        " cs_pinview would skip the clip, cs_pwhole the marking outright, and"
+        " cs_markacc would accumulate into an object box cs_drawobj flushed a"
+        " moment ago. The horizon and the panel both take all three stores;"
+        " cs_crackle took only cs_pinview, so a crack appeared wherever"
+        " something ELSE had marked the row and nowhere else - and over open"
+        " sky, which on Hercules is the top of the view and is black, nothing"
+        " marks a row and the cracks up there were never drawn at all. The row"
+        " pins 300 m over Paris nose-down, crashes the aeroplane where it"
+        " stands and counts what the crash adds ABOVE the horizon the guest"
+        " itself reports in cs_hzy0: 129 lit pixels against 0."
+        " --clobber-crash puts cs_crackle back as it shipped and that check"
+        " goes red",
+        needs=("marty",), serial=True),
     Row("skiesbank", "soak", py("tests/skiesbank.py"), 22.0,
         "SPEC.md 88.5.4.6: the box impostor BANKS WITH THE WORLD. A solid too"
         " small to tell apart is drawn as its box, and that box was an"
