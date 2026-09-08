@@ -22,8 +22,11 @@ them - and then, over one frame:
      is the gate falling the right way;
   2b. ...and at DRAW DISTANCE = ULTRA the same four at the same place take
      the POLYGONS instead - cs_boxlod not entered at all and nothing
-     reaching cs_rect (88.13.2.1), which is that rung's whole feature;
-  2. the box reaches the glass - cs_rect once per tower - so a gate that
+     filling anything out of cs_boxlod (88.13.2.1), which is that rung's
+     whole feature;
+  2. the box reaches the glass - one fill per tower, counted by its CALL SITE
+     because an upright impostor is cs_rect and a banked one is a quad
+     through cs_poly (88.5.4.6) - so a gate that
      merely CALLED cs_boxlod and had it refuse would not pass this;
   3. and the frame is shorter for it: the marginal cost of the four is
      under 7 ms a tower, against the ~11.9 the full path costs them there;
@@ -291,8 +294,15 @@ def main(argv):
                 m.write(lin + objs + i * CSO_SIZE + CSO_SKIP, b"\x00\x00")
             m.run()
 
-        stages = ("cs_render", "cs_boxlod", "cs_stackverts", "cs_rect")
+        stages = ("cs_render", "cs_boxlod", "cs_stackverts", "cs_rect", "cs_poly")
         byoff = {mp[s]: s for s in stages}
+        # THE IMPOSTOR'S FILL IS COUNTED BY ITS CALL SITE and not by which
+        # primitive it is (SPEC.md 88.5.4.6): upright it is cs_rect, banked it
+        # is one quad through cs_poly, and cs_poly is what every FACE uses as
+        # well. So a hit counts as `fill' when its return address lands inside
+        # cs_boxlod - which is also what makes the Ultra arm below mean what it
+        # says, cs_rect no longer having exactly one caller.
+        lo, hi = mp["cs_boxlod"], mp["cs_stackverts"]
 
         def one_frame():
             """Every stage entered between one cs_render and the next."""
@@ -309,10 +319,16 @@ def main(argv):
                 m.run()
                 if m.wait_stop(60) is None:
                     break
-                nm = byoff.get(m.regs()["ip"])
+                r = m.regs()
+                nm = byoff.get(r["ip"])
                 if nm == "cs_render":
                     break
-                hits[nm] = hits.get(nm, 0) + 1
+                if nm in ("cs_rect", "cs_poly"):
+                    ret = int.from_bytes(m.read((r["ss"] << 4) + r["sp"], 2),
+                                         "little")
+                    nm = "fill" if lo <= ret < hi else None
+                if nm:
+                    hits[nm] = hits.get(nm, 0) + 1
             m.bp_exec()
             m.run()
             return hits
@@ -341,14 +357,14 @@ def main(argv):
         hits = one_frame()
         nbox = hits.get("cs_boxlod", 0)
         nstk = hits.get("cs_stackverts", 0)
-        nrect = hits.get("cs_rect", 0)
+        nrect = hits.get("fill", 0)
         check(nbox == len(towers) and nstk == 0,
               "at %d m every one of the %d takes the box: cs_boxlod %d, "
               "cs_stackverts %d (want %d and 0)"
               % (DIST, len(towers), nbox, nstk, len(towers)))
         check(nrect >= len(towers),
-              "and the box REACHES THE GLASS: cs_rect %d (want %d or more, "
-              "so a cs_boxlod that refused would not pass)"
+              "and the box REACHES THE GLASS: %d fills out of cs_boxlod "
+              "(want %d or more, so a cs_boxlod that refused would not pass)"
               % (nrect, len(towers)))
 
         # --- 2b: ...and DRAW DISTANCE = ULTRA turns the whole thing off ----
@@ -359,7 +375,7 @@ def main(argv):
         # size. The SAME towers at the SAME place, which is what makes this
         # about the rung and not about a layout: cs_boxlod is not entered at
         # all, cs_stackverts is entered once per tower, and nothing reaches
-        # cs_rect - that routine having exactly one caller.
+        # a fill out of cs_boxlod at all.
         m.pause()
         poke("cs_setlod", bytes([CSL_ULTRA]))
         for i in range(nobj):
@@ -368,11 +384,11 @@ def main(argv):
         m.advance(frames=6)
         m.run()
         uh = one_frame()
-        check(uh.get("cs_boxlod", 0) == 0 and uh.get("cs_rect", 0) == 0
+        check(uh.get("cs_boxlod", 0) == 0 and uh.get("fill", 0) == 0
               and uh.get("cs_stackverts", 0) >= len(towers),
-              "at Ultra the same %d take the POLYGONS: cs_boxlod %d, cs_rect "
-              "%d, cs_stackverts %d (want 0, 0 and %d or more)"
-              % (len(towers), uh.get("cs_boxlod", 0), uh.get("cs_rect", 0),
+              "at Ultra the same %d take the POLYGONS: cs_boxlod %d, impostor "
+              "fills %d, cs_stackverts %d (want 0, 0 and %d or more)"
+              % (len(towers), uh.get("cs_boxlod", 0), uh.get("fill", 0),
                  uh.get("cs_stackverts", 0), len(towers)))
         m.pause()
         poke("cs_setlod", bytes([CSL_MOD]))

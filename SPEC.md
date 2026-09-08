@@ -9550,6 +9550,56 @@ for it in every shipping kernel is §8.7.4: the margin that makes this path
 unreachable is a **measurement**, not a proof, and it has now gone stale twice
 — once in docs/FIELD-NOTES.md 29.6 and once in the Task Manager's heap page.
 
+### 8.9 The `KFZ=1` heartbeat, and what it must not do inside a bracket
+
+`KFZTRACE` is the kernel's own answer to "it froze": `khb_paint` writes
+fifteen bytes of kernel state straight into VRAM from IRQ0, twice a tick, at
+the top-left of the screen — four scan rows, four pixels a bit. It is painted
+from the timer because on the machine it exists for the timer is the last
+thing still running, so it is the only context able to report at all. The
+cells, left to right, are
+
+`beat · chain · kfz · sch_cur · sch_lock · gfx_lock_flag · gfx_lock_own ·
+SPhi · SPlo · bad · CShi · IPhi · IPlo · IMR · ISR`
+
+and the last five are the ones a hard freeze is read with: **IMR** says
+whether IRQ0 was masked off, **ISR** whether an EOI went missing (bit 0 is
+always set — this ISR is the one in service — so it is any *other* bit that
+means anything), **CS:IP** names where the machine was standing, and **beat
+against chain** says which side of the BIOS `int 08h` call it died on. A beat
+that stops while all of those read normally leaves the fourth answer: a
+reprogrammed PIT.
+
+#### 8.9.1 The 30-second report must not fire inside an fsx bracket
+
+Beside the strip there is a watchdog: `KHB_STUCK` = 546 ticks — thirty
+seconds — **with no `ui_task` pass**, after which one line of text is drawn
+naming the CS:IP, the mutex owner, three return addresses off the interrupted
+stack, and the PIC's two registers. The threshold is thirty seconds and not
+five because a healthy machine really can spend that long inside one pass;
+ModPlug's opening `W_PAINT` is the worked example.
+
+**Inside an fsx bracket `ui_task` does not run at all** (§53.1) — the app owns
+the machine — so "no pass" is the *defined* state there and never a symptom.
+Without a gate the report therefore fires half a minute into **every**
+bracket, every time, and the field found it exactly that way: `KFZ=1` under a
+flight simulator, with the line landing on top of the app's own instrument
+(§88.14.3).
+
+The collision is the least of it. The report **forces the gfx lock, the clip
+count, `gfx_dis` and `gfx_color` open** so that `font_run` can draw, and then
+draws into the KERNEL's framebuffer at `MBAR_H + 8` — while the app owns the
+video mode. In a Mode X or a CGA320 bracket that is a write into a mode the
+kernel is not driving, which is the one thing §79's blanker is careful never
+to do one feature along.
+
+The gate is one compare against `[fsx_task]`, which is `0xFF` when no bracket
+is up, and it **zeroes** the counter rather than merely holding it — so
+leaving a long bracket does not fire the report on the way out. A bracket
+that genuinely freezes is what §88.14's package-side watchdog is for, and the
+strip itself keeps painting either way: `khb_paint` is unconditional, above
+this test, and its rows 0-3 are clear of everything §88.14.3 puts at row 4.
+
 ## 9. mouse.inc — the pointer: serial and PS/2 mice, and the cursor
 
 - **COM1 (0x3F8, IRQ4 → int 0x0C) and COM2 (0x2F8, IRQ3 → int 0x0B)**, both
@@ -101861,6 +101911,226 @@ a frame up to the midpoint and **0 times past it** on the old code, and 30
 either side on the new. `tests/skiesrwy.py` walks both halves and
 `--clobber-rwy` takes the four bytes back out.
 
+#### 88.6.2.2 A long final divided by a word that was not there
+
+`cs_rwline`'s test for *past the far end* was taken on the QUOTIENT of a
+divide that the quotient does not fit in, and the state that reaches it is
+**leave the circuit and come back**.
+
+The centreline's parameter is `u`, the aeroplane's position along the runway
+in Q15 of the whole strip, and it was computed as
+
+```
+    mov ax, [cs_along]
+    add ax, [si + CSA_HLEN]         ; AX = metres from the near end
+    mov dx, 16384
+    mul dx
+    div word [si + CSA_HLEN]        ; u = metres x 16384 / hlen
+    cmp ax, 32000
+    jae .solid                      ; past the far end: one segment
+```
+
+`div word` on an 8086 puts the quotient in AX and **faults with INT 0 when it
+does not fit**. Here it stops fitting at `metres = 4 hlen` — twice the whole
+runway, so **one whole runway length past the far end** — and the `cmp` that
+was supposed to have refused the case long before never runs, because the
+instruction that would have produced its operand is the one that faults.
+
+The window is not exotic; it is a circuit. This code is only reached at all
+when the aeroplane is **below `RW_DASHH` = 150 m and within `RW_DASHW` = 300 m
+of the axis**, which is the description of a long final. Overfly the strip,
+turn back, and come down the extended centreline from more than a runway
+length out. At Issy, `hlen` = 500 m, so the fence is 1,000 m past the
+threshold and the whole of the approach beyond it divides by a word that is
+not there.
+
+**What the fault costs depends on the ROM, which is not ours to choose**, and
+that is the reason to fix it rather than to measure it. Under GLaBIOS, vector
+0 points at the BIOS's own dummy handler (`F000:FF23`), which sends an EOI and
+`iret`s — so the machine carries on, on an 8086, with the address the fault
+pushed being the one AFTER the `div` and with **AX undefined**. The centreline
+is then drawn from that: measured on a Hercules at Issy, stood on the extended
+centreline at 100 m and looking back, `cs_rwsegu` is handed
+
+| stood | what it should draw | what it drew |
+|---|---|---|
+| 250 m past the far end | `(0, 32767)` | `(0, 32767)` |
+| 1,250 m past | `(0, 32767)` | `(0,819) (1638,2457) (3276,4095) (4914,5733) (6552,32767)` |
+| 1,750 m past | `(0, 32767)` | `(16380,17199) … (22932,32767)` |
+
+— a strip that should carry one solid line carrying four stripes at the far
+threshold and a solid tail from three-quarters of the way along, or from
+halfway. The fault is not free either: the same 120-frame window renders
+**84 and 90 frames on the guard and 55 and 60 without it**.
+
+The fix is the test taken **before the multiply**, on metres rather than on
+`u`:
+
+```
+    mov bx, [si + CSA_HLEN]
+    shl bx, 1                       ; the runway's whole length
+    cmp ax, bx
+    jae .solid
+```
+
+Four instructions, no divide, and they answer the same question the old
+`cmp ax, 32000` was asking one step too late. That compare stays where it is
+and keeps its own meaning — the **last stripe's worth** of the strip, where a
+dashed run would have nothing left to draw — so the near case is unchanged
+and every frame that used to reach the divide legitimately still reaches it.
+
+`tests/skiesrwy.py` stands the aeroplane 250 m, 1,250 m and 1,750 m past the
+far end and reads what `cs_rwsegu` is handed; `--clobber-far` NOPs the nine
+bytes of the guard and the last two rows come back as the table above.
+
+#### 88.6.2.3 Coming back to the other threshold, it never dashed
+
+The field reported *"coming in for a landing, the runway lines are not
+changing back to their dashed mode after I get below solid-line height"*, and
+then the thing that identifies it: *"I have to leave, then come back, for it
+to happen."*
+
+That sentence is the whole diagnosis. At reset the aeroplane is stood at the
+**near** end of the strip, and `cs_rwline` clamps the near end — `js .zero`
+puts `u` at 0 when the aeroplane is short of the threshold, so the stripes go
+at the threshold you are aiming at and the solid part runs away from you down
+the rest. **The far end had no such case.** Past it the routine went to
+`.solid`, one segment end to end — which is right when you are high, or
+2 km off to the side, and wrong when you are on short final to that
+threshold. You can only ever meet the far end by taking off, flying a
+circuit and coming back, which is exactly the reproduction that was
+reported.
+
+Measured on a Hercules at Issy, flying a 3° slope in from each end and
+reading what `cs_rwsegu` is handed:
+
+| distance out | height | from the near end | from the far end |
+|---|---|---|---|
+| 2,600 m | 138 m | solid | solid |
+| 1,800 m | 96 m | `(0,819) (1638,2457) (3276,4095) (4914,5733)` + tail | `(0, 32767)` |
+| 300 m | 17 m | the same four stripes + tail | `(0, 32767)` |
+| over the threshold | 2 m | the same four stripes + tail | `(0, 32767)` |
+
+The fix is the near end's clamp, mirrored. `[cs_rwfar]` is
+`32766 − (2 RW_NDASH − 1) du`, computed once beside `[cs_rwdu]` when
+`cs_airport` builds the strip, and it is where a run of `RW_NDASH` stripes
+has to start for the last of them to end **on** the far threshold. Past the
+far end, low and near the axis, `cs_rwline` draws solid from the near end up
+to `[cs_rwfar]` and then re-enters its own dash loop there:
+
+```
+.far:
+    xor ax, ax
+    mov cx, [cs_rwfar]
+    call cs_rwsegu                  ; solid up to the stripes...
+    mov ax, [cs_rwfar]
+    mov cx, RW_NDASH                ; ...then the stripes at that threshold
+    jmp short .dash
+```
+
+**It costs nothing, and that was measured rather than argued.** The near end
+is four stripes and a solid tail; the far end is a solid head and four
+stripes — **five segments either way**, so the two approaches are the same
+price and §88.6.2's *"on the ground it is five segments and about 7 ms"*
+still describes both. Stood 1,250 m off the far threshold at 100 m, the same
+240-frame window renders **35 frames with the stripes and 35 with
+`[cs_rwfar]` poked to 32767 so they collapse back to one segment**. `.far`,
+the 14 bytes that compute `[cs_rwfar]` and §88.6.2.2's guard above it come to
+**46 bytes** of `SKIES.O88` between them, and two of `.bss`.
+
+`[cs_rwfar]` also replaces the bare `32000` that used to mean *the last
+stripe's worth of the strip* — the two are the same quantity, and naming it
+makes the hand-over seamless: the frame where the rolling aeroplane passes
+`[cs_rwfar]` is the frame where `.far` starts drawing the stripes it was
+walking towards.
+
+`tests/skiesrwy.py` flies both approaches and holds the far one against the
+near one: it is red the moment the far threshold answers with one segment
+where the near one answers with five.
+
+#### 88.6.2.4 It drew the stripes behind the aeroplane
+
+The field reported it as *"I am still getting a blank runway sometimes — the
+centre line is more present, and if I land straight on the closest line
+draws, but ones further down the runway do not"*, flying **down the runway
+from the opposite side to the take-off**.
+
+§88.6.2 walks the stripes in **one direction only**: from the aeroplane's own
+`u` toward the far end, then a solid tail to `u` = 32767. That is right for a
+take-off roll from the near threshold, which is the only thing the first
+build could do — and it is exactly backwards after a landing from the far
+side, where the aeroplane rolls toward *decreasing* `u` and everything the
+routine draws is **behind it**.
+
+**The oracle is the argument and not the picture, and that matters.** The
+obvious measurement — draw the frame twice, once with a `ret` poked over
+`cs_rwline`, and count the differing pixels — **does not repeat here**: the
+same build at the same pose gave 18, 816 and 2,038. Pacing on `cs_frames`
+rather than on `m.advance`'s emulator frames narrowed it and did not fix it,
+and **docs/plans/SKIES-FRAME-PLAN.md §0.1 is the general statement of the
+same wall**, reached independently from the cull side: two arms
+byte-identical in behaviour *and* in speed differ in 2 runs of 6 by 865 and
+896 pixels, so the noise floor of a pixel A/B of this program is about 900
+and nothing below that can be certified with one. What
+does repeat exactly is what `cs_rwsegu` is HANDED, mapped back into the
+model's own `u` and judged against the end the aeroplane is really pointed
+at. Sixteen poses — on the strip at ±400 m and ±200 m from the middle, at
+2 m, 30 m, 80 m and 140 m, facing each way:
+
+| | poses drawing the line behind the aeroplane |
+|---|---|
+| one-way walk (the code the field flew) | **7 of 16** |
+| facing space | **0 of 16** |
+
+The fix is to work in **facing space**. `u` = 0 is the threshold *behind* the
+aeroplane and 32767 the one it is pointed at, so the stripes are always the
+ones it is about to drive over, the solid part is always the runway behind
+it, and §88.6.2.3's `.far` case lands its four stripes on the threshold being
+approached whichever way round that is. Two changes carry it:
+
+```
+    mov ax, [cs_sinh]               ; cos(hdg - runway) - both sines and
+    imul word [cs_rwsin]            ; cosines are already computed for the
+    mov cx, dx                      ; frame, so the test is two multiplies
+    mov ax, [cs_cosh]               ; and an add
+    imul word [cs_rwcos]
+    add dx, cx
+    mov byte [cs_rwrev], 0
+    jns .ahead
+    mov byte [cs_rwrev], 1
+```
+
+— and `[cs_along]` is negated before the metres-from-the-end conversion, so
+everything downstream is unchanged. `cs_rwsegu` mirrors each segment back
+into the model's own `u` on the way out (`[a, b]` → `[32767 − b, 32767 − a]`),
+which is where the whole reversal costs anything at all: five instructions a
+segment, at most five segments a frame.
+
+**Facing space subsumes §88.6.2.3, and closes §88.6.2.2's window with it.**
+An aeroplane past the far threshold and pointed back at it is *short of the
+threshold behind it*, so `js .zero` fires: `u` is 0, the four stripes land on
+the threshold it is aiming at and the solid part runs away down the rest —
+which is the same picture `.far` was built to produce, reached by the near
+end's own clamp. `.far` is now only entered from ON the strip. It also means
+the divide `.zero` skips is no longer reached on an approach at all, so
+`tests/skiesrwy.py`'s `--clobber-far` arm stops going red from those poses;
+the four-instruction guard stays, because the mirrored case can still get
+there and it costs nothing.
+
+**Two other things the same walk found, and neither is this bug.** Beyond
+about 2,600 m from the runway's MIDPOINT the strip loses its outline and its
+centreline together — that is `cs_drawobj`'s `cmp cx, 2600 / ja .out`
+(§88.6.2.1's own size gate) doing what it says, and it is why a photograph
+from 2,500 m out at 400 m has neither line nor outline. And the pixel-diff
+runs, unreliable as they are, kept reading zero at one pose 80 m over the
+strip facing either way; that is not explained here and is still open.
+
+`tests/skiesface.py` is the gate and `--clobber-face` is the red arm: it NOPs
+the five bytes that set `[cs_rwrev]`, the walk is one-way again, and seven of
+the sixteen poses put the line behind the aeroplane. It exempts §88.6.2.3's
+run, which is anchored on the threshold rather than on the aeroplane and is
+`tests/skiesrwy.py`'s subject.
+
 #### 88.6.3 The tower stands 60 m back from the origin, out of the river
 
 The map's origin is the Eiffel Tower's square, and the tower's OBJECT was at
@@ -102450,6 +102720,157 @@ marking defect — the ink is somewhere it was not asked for either way. What
 told them apart was reading the **shadow** rather than the screen: the span
 set said the row was empty and the shadow said it was not, which is a
 composition that only a wrong x can produce.
+
+##### 88.5.4.6 The impostor BANKS WITH THE WORLD, and stopped compressing
+
+Reported from the air: *"when a building is drawing as a box lod it does not
+stay aligned to the ground when banking. It tilts slower than the ground, and
+it compresses into itself, so its height shrinks. The polygon faces correctly
+track the ground, and don't compress."* Both halves of that are one shortcut.
+
+§88.5.4 projects three points — the base centre C, the top centre C + h·M₁,
+and the point half the base's width to the right of C — and then draws **the
+rectangle they span**. That last step is where the world is lost, twice:
+
+* the top's projection had only its **row** kept. `cs_by0` was stored and the
+  x thrown away, so the impostor's sides were the screen's own vertical
+  whatever the horizon was doing. The polygon path tracks because its corners
+  are projected vertices; this one's corners were the screen's axes.
+* and the rectangle's height was therefore the **vertical part** of the
+  projected up axis rather than its length. The up axis in camera space is
+  h·M₁ and M₁'s screen projection is ∝ (−sin r, −cos r), so the vertical part
+  is |up₂|·cos r: **at 50° of bank a building was drawn 6 pixels tall where
+  its axis was 12.5**, and got the height back as the wings came level. That
+  is the compression, and it is why a roll made the skyline breathe.
+
+The same three points are enough for the right answer, and the fix is four
+stores and two multiplies:
+
+* **keep the top's x** (`cs_bx1`). The impostor's up axis is then the whole
+  projected axis, leaning with the world and, off-centre under pitch, leaning
+  the way the polygon path's verticals converge.
+* **turn the half-width onto the screen's horizontal**, which is `(cos r,
+  −sin r)` **exactly**. The up vector in camera space is the matrix's second
+  column, `(m01, m11) = cos p · (−sin r, cos r)`; its perpendicular's own
+  `cos p` divides out, so there is no square root and nothing per object that
+  is not already in `[cs_sinr]`/`[cs_cosr]`. The magnitude needs no fixing —
+  the width is projected along the **camera's** x, which no bank compresses —
+  only the direction. Both products are rounded, because a half-width is six
+  pixels and a truncated `6 × 32767 >> 15` is five.
+* and fill the four corners — base ± R, top ± R — as one convex quad through
+  `cs_poly` instead of `cs_rect`. They go in `cs_pv`, which is the FACE buffer
+  and dead here: an impostor returns before `cs_stackverts`, and a refusal
+  goes on to `cs_faces`, which rebuilds it per face.
+
+**Both size bounds move onto the box's own extents** rather than the drawn
+rectangle's bounding box. A banked impostor's box grows with the bank — a
+6 × 26 one is 23 × 27 at 45° — so testing that would send a building to the
+polygon path for rolling and back for levelling out, which is the shape change
+§88.5.4.4's hysteresis exists to prevent. The width is the projected
+half-width doubled; the height is the axis's LENGTH, taken as `max + min/2`
+(0 to +6% of a true length, against a bound that carries `CS_LODHYST` of slack
+anyway) where a square root would be 200 cycles for a threshold nobody
+measures.
+
+**WINGS LEVEL AND NO LEAN, IT IS STILL `cs_rect`.** R horizontal and the up
+axis vertical is exactly the shape that routine draws, and it draws it for
+about half what the general polygon does — no sentinel pass over the rows, no
+four edges traced. So the frame flown straight and level costs what it cost
+before this and only a banked one pays.
+
+**What it costs**, measured on MartyPC's 4.77 MHz 8088 against a Hercules,
+twelve pinned poses over Paris at three banks each, the scene composition
+identical in both arms and the sky/ground pass reset by poke before every
+reading so the frame is a function of the build and not of the fly-out. The
+figures are the SHIPPING build's, §88.5.4.7 included:
+
+| pose | level | +30° | +50° |
+|---|---|---|---|
+| over the Champ de Mars | 169.8 → 170.2 (+0.3%) | 267.8 → 270.0 (+0.8%) | 278.4 → 281.0 (+1.0%) |
+| 800 m back | 189.4 → 190.5 (+0.6%) | 285.1 → 288.1 (+1.1%) | 284.1 → 286.5 (+0.8%) |
+| 2,400 m back | 146.2 → 146.6 (+0.3%) | 209.7 → 212.1 (+1.1%) | 214.0 → 217.0 (+1.4%) |
+| 4,000 m back | 79.3 → 79.6 (+0.4%) | 150.6 → 156.5 (+3.9%) | 156.0 → 158.8 (+1.8%) |
+
+**The level column is noise**: §88.5.4.7 sends a level impostor back to
+`cs_rect`, and those four frames are **byte-identical to the build before this
+over the whole view** — same picture, same work, and the tenths are what a
+repeated reading of the same frame moves by. One to three impostors are drawn
+in each pose, so a BANKED quad costs **1 to 2.5 ms** against the rectangle's —
+and `tests/skieslod.py` prices a boxed tower at **1.03 ms** marginal where the
+full path costs it 11.9, so the impostor is still worth what it was for. The
+worst row is the cheapest frame, where two impostors are a larger share of
+less work.
+
+`tests/skiesbank.py` is the gate and `--clobber-bank` the red run: it NOPs the
+two conditional jumps that choose the quad, so every impostor is the upright
+rectangle again — which is what shipped — and the six banked checks go red
+while the two level ones stay green. It is **keyed on the object**, because a
+roll moves the frustum and the frame's impostors are not the same set at every
+bank: comparing the first of each compares two different buildings, which
+reads exactly like the axis changing length. Its readings on the pinned pose
+are the defect in one line — at 50° the shipped impostor draws a 6-pixel side
+for a 12.5-pixel axis, and this one draws 12.5.
+
+The axis's LENGTH is deliberately not asserted to be constant across the bank.
+The top of a box is further from the eye than its base, so an off-centre
+building's verticals converge, and rolling moves the building across the
+frame: the pinned pose reads 9.1 px level, 10.6 at 30° and 12.5 at 50°, and
+the polygon path leans by the same rule. The honest invariant is that the axis
+is used **whole**, not that it is the same length.
+
+##### 88.5.4.7 What the banked impostor costs, taken back
+
+§88.5.4.6 shipped correct and about a percent dearer, and the profile says
+where that percent is: **most of it is the shape**, which is the point of the
+fix — a 6 × 26 impostor at 50° of bank really does cover 12.5 rows where the
+compressed one covered 6, and those rows have to be filled and blitted. What
+is *not* the shape is `cs_poly`'s general machinery, and two things take that
+back without touching the picture.
+
+**Wings level, it is the rectangle again — byte for byte.** §88.5.4.6's fast
+path asked for R horizontal *and* no lean, and a lean is common: the top of a
+box is further from the eye than its base, so an off-centre building's
+verticals converge by a pixel or two and the quad was taken at level. But that
+lean is perspective the impostor has ALWAYS squared off, the reported defect
+is a banked one, and `cs_rect` is much the cheaper draw. So the test is on R
+alone: **`cs_bry` zero takes the rectangle**, level flight is byte-identical to
+the build before §88.5.4.6, and only a banked frame pays anything at all.
+
+**And a banked one needs no SENTINEL PASS.** `cs_poly` cannot know how many
+edges will touch a row, so it lays `+32767` down `cs_xl` and `−32768` down
+`cs_xr` over the whole row range and every edge takes a min or a max against
+them. That is two `rep stosw`, **about 25 cycles a row each on an 8088**, and
+for a shape this small it is most of what the fill costs to set up. A convex
+polygon with **no horizontal edge** does not need it: every row has exactly one
+left-chain edge and one right-chain edge, and `cs_edge`'s chain stores are
+unconditional — it is only the `both` side a horizontal edge takes that reads
+the value back. The impostor is a parallelogram whose caps are 2·Ry apart and
+whose sides are the projected axis, so with `cs_bry` non-zero **no edge is
+horizontal by construction**. `[cs_pnosent]` is that promise, read and cleared
+at `cs_poly`'s entry so it is a one-shot — a polygon that inherited it would
+take another polygon's leftovers for its own bounds — and `cs_boxlod` is the
+only caller that makes it. It withholds the promise in the one case that can
+still put a horizontal edge in the shape: a top and a base that project to the
+same row.
+
+**Two bytes of `.bss` and about thirty of code**, and no new raster primitive.
+A dedicated parallelogram filler was asked for and costed at ~150 bytes, and
+the profile refused it: with the skip turned off and on **by poke, on the same
+guest and the same frame**, `cs_poly` on one banked impostor is **16,808
+cycles against 16,376 at 30° and 19,009 against 18,525 at 50°** — the sentinel
+pass is **432 to 484 cycles, 2.6% of the fill**, and what is left of the
+machinery after it (four corners scanned for a bounding box, four edges
+classified) is a few hundred more. **The other 97% is the shape**: the rows
+the correct impostor covers, filled and blitted. There is no 150 bytes' worth
+of machinery to remove, and the edge tracing IS the shape.
+
+So the two changes are worth very different amounts and it is worth saying
+which is which. Widening the level fast path is the one that shows: it takes
+the level column of §88.5.4.6's table from +0.5…+2.5% to nothing, because the
+frame does the identical work. The sentinel skip is exact, free of any picture
+change, and **below what a 280 ms frame's repeat noise can resolve** — it is
+kept because it is measured and costs thirty bytes, not because a frame reads
+different for it.
 
 #### 88.5.8 "Buildings lean over", which was the horizon
 
@@ -103327,6 +103748,113 @@ now that it is a latch, nothing else would ever release it.
 three change the line, so all three must change the key, or the strip is
 simply never repainted (§88.7.7's own lesson, one bit along).
 
+#### 88.7.12 A wing pays for its lift, and `CSP_DRAGK` never charged it
+
+The field flew four consequences of one omission:
+
+> *"Airspeed drops MUCH too slowly for everything except maybe the glider… I
+> should not be able to hang in the air at 100 m up for 2–3 minutes on 150
+> knots in a Cessna. The Cessna also maintains 60 knots level on 18%
+> throttle… it should not take 60% of the runway to come to a stop… For the
+> jet, it makes it almost impossible to land."*
+
+The model had **parasitic drag only** — `CSP_DRAGK`, proportional to v² — and
+that term *falls away as the speed falls*. At the Cessna's 150 knots it is
+15 units a tick, 2.13 m/s², which is right; at 60 knots it is 2, and at 30 it
+is well under one. So a slow aeroplane was an aeroplane that barely dragged,
+which is the opposite of the truth: below the minimum-drag speed a real wing
+costs MORE to fly, not less, because **induced drag rises as the speed
+falls**.
+
+`CSP_INDK` is that second term: `CSP_INDK / (v²/4)` a tick, added in the air
+only. The divisor is the quantity `[cs_qv]` that the parasitic term has
+already computed, so it costs one `div` and one `mul`.
+
+**It stops rising at the stall, and that is not a fudge.** Induced drag goes
+as the square of the LIFT, and a wing at its maximum lift coefficient is
+making all it ever will; past that it has departed, and charging it more is
+charging it for lift it is not producing. So the divisor is floored at the
+stall's own `q`. Without that floor the term runs away — at 10 m/s the
+Cessna reads **28 units a tick against 16 of full thrust**, so an aeroplane
+that got slow could never accelerate again, and a sweep of every throttle
+from 10% to 100% settled at **2 m/s** on all of them. That was measured, and
+very nearly shipped. `CS_INDMAX` = 64 remains as a backstop against a record
+whose numbers disagree with each other.
+
+**The two coefficients are derived, not chosen.** Total drag `A v² + B/v²` has
+its minimum where the two are equal, and that speed is an aeroplane's
+best-glide speed — about **1.35 × V_stall** for these. That fixes `CSP_INDK`
+against `CSP_DRAGK`; requiring the pair to still balance `CSP_THRUST` at
+`CSP_VMAX` then fixes `CSP_DRAGK`, which moves by a few per cent. **No top
+speed changes.**
+
+| | `CSP_DRAGK` | `CSP_INDK` | V_MAX→stall, power off |
+|---|---|---|---|
+| Cessna 172 | 689 → **669** | **703** | 96 s → **58 s** *(measured on the guest)* |
+| Pitts Special | 880 → **855** | **1440** | 60 s → **38 s** |
+| Fouga Magister | 138 → **137** | **651** | 292 s → 300 s |
+| Bijave (glider) | 1300 | **344** | 75 s → **45 s** |
+| Icon A5 | 1500 → **1400** | **710** | 42 s → **25 s** |
+
+The Cessna row is measured on the guest and the rest are the same integer
+arithmetic run on the host, which agrees with it to the tick — the guest's
+own decay from `CSP_VMAX` matched the model exactly, 9984 → 9684 over the
+first twenty ticks.
+
+**The drag curve itself**, read off the guest one tick at a time with the
+throttle shut, is the whole change in one table — the change in `[cs_spd]`
+over a tick IS the drag:
+
+| Cessna, level | drag a tick | | throttle to hold it |
+|---|---|---|---|
+| 48 kt (stall) | 5 | 0.71 m/s² | 32% |
+| 60 kt | 4 | 0.57 | **25%** — it was 13% |
+| 80 kt | 5 | 0.71 | 32% |
+| 100 kt | 7 | 1.00 | 44% |
+| 120 kt | 9 | 1.28 | 57% |
+| 152 kt (V_MAX) | 15 | 2.13 | 94% |
+
+The minimum is flat across 55–80 knots because the two terms are each only
+a handful of units and both truncate — that is the model's resolution, not a
+choice — and below the stall it is the floor rather than the formula.
+
+The glider is the row that explains the field's *"except maybe the glider"*:
+its `CSP_DRAGK` was already 1300 against the Cessna's 689 — nearly double, on
+an airframe that in life is the cleanest of the five — because a big
+parasitic number was the only way to make it bleed speed at all. It reads
+right for the wrong reason, and the induced term is what it should have been.
+
+**The Fouga does not move, and that is not a failure of the fix.** A jet that
+clean has almost no induced drag at the speeds it cruises: 100 → 51 m/s with
+the throttle shut takes **174 seconds and 11.9 km**, and no honest
+coefficient changes that. What a Fouga has instead is airbrakes.
+
+##### 88.7.12.1 …and the brake is an airbrake in the air
+
+§88.7.10 made the brake key the one that means STOP: it closes the throttle
+and stands on the wheels. In the air it now opens what the aeroplane has, at
+**half of `CSP_BRAKE`** — that number is sized for a wheel with the weight on
+it, and half of it is 1.56 m/s² on the Fouga, which is what a real speedbrake
+is worth.
+
+It is the difference between a jet you can land and one you cannot:
+
+| Fouga, throttle shut | time | distance |
+|---|---|---|
+| 100 → 51 m/s, no brake | 173.7 s | 11.9 km |
+| …brake held | **25.6 s** | **1.9 km** |
+| 190 → 51 m/s, no brake | 241.4 s | 21.0 km |
+| …brake held | **55.5 s** | **6.1 km** |
+
+No new key, no new record field, and the panel already shows the latch
+(§88.7.10.1), so the state is visible rather than remembered.
+
+**The runway complaint answers itself.** The braking figures were never
+wrong: from a 55-knot touchdown the Cessna stops in **110 m** with brakes,
+which is 11% of the strip. From 150 knots it takes **548 m**, which is the
+55–60% the field measured — the roll-out was long because the *approach* was
+fast, and the approach was fast because nothing bled the speed.
+
 ### 88.8 The session (`apps/skies/csgame.inc`)
 
 `cs_fsx_main` is the §53.1 bracket's exclusive main and has Tank's two rates:
@@ -103347,6 +103875,60 @@ The engine is a speaker tone whose pitch follows the throttle
 (`OSAPI_SND_TONE`, re-issued when the throttle moves), a stall is a repeated
 beep, a crash a low blast; the tone is released at exit and `M` mutes all of
 it.
+
+##### 88.7.11.1 …and it belongs to no object, which is three stores and not one
+
+Reported from the air, on Hercules: after a crash the **upper part of the
+view** is wrong. It is §88.13.3.1's rule applied one caller short.
+
+`cs_seg` reads three words to decide what a segment owes the glass, and
+`cs_crackle` runs **after** `cs_scene` — so all three hold the LAST OBJECT
+DRAWN's values. `[cs_pinview]` would skip the clip; `[cs_pwhole]` would skip
+the marking outright; and with both zero, `cs_markacc` accumulates into an
+object box that `cs_drawobj` flushed a moment ago and resets for its first
+object next frame. **Either way the marks are lost**, and an unmarked run
+never reaches the glass (§88.3.1). The horizon takes all three stores and says
+why; the panel takes all three in `cs_pclip` and says why; `cs_crackle` took
+only the first.
+
+What that looks like is **a windshield with a hole in it**. A crack appears
+wherever something else marked the row — the ground's dither, a building, the
+horizon segment — and nowhere else. Over open sky, which on a 1bpp adapter is
+black and which nothing else draws on, no row is marked and the cracks up
+there were never drawn at all: the star and the ring stop dead at the horizon.
+It is worst on Hercules because that is where the sky is emptiest.
+
+The fix is the other two stores and the borrow put back, and it saves
+`[cs_pwhole]` beside the `[cs_pinview]` the routine already saved. `[cs_ownmk]`
+goes to −1 for the walk and back to 0 after it, which is what `cs_pclip` does.
+
+`tests/skiescrash.py` is the gate: it pins 300 m over Paris nose-down so the
+view has real sky above a real city below, crashes the aeroplane where it
+stands, and counts what the crash ADDS above the horizon row the guest itself
+reports in `[cs_hzy0]` — **129 lit pixels against 0**. `--clobber-crash` puts
+`cs_crackle` back as it shipped and that check goes red.
+
+**And it is also why a crack OUTLIVES the crash**, which is how it was
+reported — *"the lines in the sky are the leftovers from the crash, after
+reset"*, on every crash. `cs_blit` copies each row over **cur ∪ prv**, and the
+next frame's sky/ground pass refills only **prv**. So a crack run that was
+never marked itself, but that fell inside the PREVIOUS frame's span, reaches
+the glass once — and the moment the view moves on, no span covers it again and
+nothing can erase it. It is on the glass for the rest of the flight. That
+needs a MOVING view, which is why it happens on every real crash and on none
+of the pinned poses a test can hold still: eight scenarios were tried — the
+runway, teleports nose-up, nose-down and beside the tower, and real dives flown
+into the ground and into the Eiffel Tower — and not one stranded a pixel.
+
+So the gate does not chase the leftover; it asks the routine the rule.
+`tests/skiescrash.py`'s third check snapshots the shadow and the frame's span
+set **on either side of `cs_crackle`**, and every row whose bytes changed must
+have a span that covers them. The shipped routine changes **111 rows and
+leaves 75 of them outside their own span**, most with no span at all; the fixed
+one leaves none. It has to be taken on the FIRST crackle of the crash: on the
+second and every later one the crack is already in the shadow wherever nothing
+refilled it, so drawing it again changes only the rows something else marked,
+and a check taken there reads 51 rows and 0 loose on the broken build too.
 
 #### 88.8.1 A paused aeroplane is silent
 
@@ -105277,6 +105859,61 @@ a `build/`.
 freeze that 8,000 pinned poses and 4,200 frames of continuous rolling under
 MartyPC could not reproduce — which is itself a finding: whatever it is, it
 is not a function of the drawn state alone.
+
+#### 88.14.3 The strip goes above the view — and NOT for the reason first given
+
+**The correction comes first, because the wrong reason was published.** The
+strip used to be painted at the VIEW's top-left, out of `cs_devoff`, and this
+section's first version said `cs_blit` was overwriting it: the view is 640
+wide and bytes 5 and 6 of a Hercules row are exactly the sixteen pixels a
+block occupies, so the two were said to be fighting over the same bytes.
+
+**That is measurably false, and the field asked the question that caught it**
+— *"in this view size the width of the draw area is far from it; are we still
+blitting 512 even though we shrunk to 400?"* `cs_blit` copies a per-row
+**span** `[lo, hi]`, unioned over this frame's set and last frame's, and skips
+a row whose span is empty. Measured on a Hercules with the aeroplane
+manoeuvring, over **all 200 view rows**:
+
+| | |
+|---|---|
+| span bytes ever seen | **15 … 64** — the 400-wide window and nothing else |
+| view rows whose span ever reached byte 0 or 1 | **0** |
+| of the strip's 36 rows, those whose first 8 bytes changed | **0** |
+
+So the blit is exactly the drawn width, the answer to the field's question is
+*no, it does not blit the box*, and the watchdog's bytes were never touched on
+any row. The "59 mixed readings" the first version quoted were an artefact of
+the measuring script, which read the nine blocks with the guest **running** —
+the ISR repainted between two of its reads and it invented the mixture it went
+looking for. A sampler that pauses first reads them clean in the old position
+too.
+
+**What is genuinely in the way is the kernel, and that is the field's other
+report.** `KFZ=1`'s heartbeat owns device rows **0-3** (§8.9), and its
+30-second stuck report is drawn at `MBAR_H + 8` — row **28**, eight rows tall.
+Run both instruments together, which is the whole point of having them, and
+the report lands straight through the strip. §8.9.1 stops that report firing
+inside a bracket at all; putting the strip clear of it as well is belt and
+braces.
+
+`cs_diag_rows` therefore works the offsets out **once**, at `cs_diag_on`, into
+`cs_doff`, starting at `CSD_TOP` = **36**: clear of the heartbeat's rows 0-3,
+clear of the report's 28-35, and `36 + 9 × 4` = 72, which clears a Hercules
+view at device row **74** (`cs_vptab`) by two. Where there is no room — CGA
+and Mode X both put the view at row 0 — it falls back to the view's own rows,
+which is what it always did.
+
+**The field mixture that started this is still unexplained.** Two photographs
+of a frozen machine came back with a block whose three rows disagreed, a blank
+fourth row that was not blank, and — the one that cannot be a word at all — a
+block whose lit pixels spanned **seventeen columns of a sixteen-pixel field**.
+A machine that stopped inside `cs_diag_paint` explains ONE block half-written,
+not four. Moving the strip is one variable removed, not an answer; a wild
+write is the standing suspicion, and §88.14.1's four guards did not trip.
+
+The shipped package is **byte-identical** — every line of this is inside
+`%ifdef CSDIAG`.
 
 #### 88.14.2 A private tree nothing rebuilds is a stale tree
 

@@ -1548,8 +1548,9 @@ cs_boxlod:
     add cx, [cs_col1 + 4]
     cmp cx, CS_NEAR
     jl .out
-    call cs_project0                ; the top
-    mov [cs_by0], bx
+    call cs_project0                ; the top - BOTH of it (SPEC.md 88.5.4.6),
+    mov [cs_bx1], ax                ; because under bank the up axis leans
+    mov [cs_by0], bx                ; and its x is where the lean is
     mov ax, [cs_ocx]
     add ax, [cs_bw]
     mov bx, [cs_ocy]
@@ -1559,16 +1560,29 @@ cs_boxlod:
     jg .w
     mov ax, 1                       ; a pixel at least
 .w:
-    mov cx, [cs_bx0]
-    add cx, ax                      ; CX = x1
-    neg ax
-    add ax, [cs_bx0]                ; AX = x0
-    mov bx, [cs_by0]
-    mov dx, [cs_by1]
-    cmp bx, dx
-    jle .y
-    xchg bx, dx                     ; seen from below: the top is lower
-.y:
+    ; --- THE IMPOSTOR BANKS WITH THE WORLD (SPEC.md 88.5.4.6). The width is
+    ;     projected along the CAMERA's x, so its MAGNITUDE is right at any
+    ;     bank and only its direction is wrong; the screen-space horizontal
+    ;     is (cos r, -sin r) EXACTLY, because the up vector in camera space
+    ;     is the matrix's second column (m01, m11) = cos p (-sin r, cos r)
+    ;     and its perpendicular's own cos p divides out. So it is the
+    ;     frame's own sine and cosine and one multiply an axis - no square
+    ;     root, and nothing per object that is not already here.
+    mov [cs_bwp], ax
+    imul word [cs_cosr]             ; R = w (cos r, -sin r), ROUNDED: a
+    add ax, 1 << 14                 ; half-width is six pixels and a
+    adc dx, 0                       ; truncated 6 x 32767 >> 15 is five
+    shl ax, 1
+    rcl dx, 1
+    mov [cs_brx], dx
+    mov ax, [cs_bwp]
+    imul word [cs_sinr]
+    add ax, 1 << 14
+    adc dx, 0
+    shl ax, 1
+    rcl dx, 1
+    neg dx                          ; screen y grows DOWNWARD (88.5.4)
+    mov [cs_bry], dx
     ; --- AND REFUSE ONE THAT IS NOT SMALL (SPEC.md 88.5.4.1). The gate that
     ;     sent us here is on CSM_RAD, an ESTIMATE of the object's reach and
     ;     not the height of the rectangle actually drawn - which is the whole
@@ -1590,27 +1604,129 @@ cs_boxlod:
     ;     already drawn as the impostor keeps it until it grows CS_LODHYST
     ;     past them, so one sitting on the boundary does not change shape
     ;     every few metres.
+    ;     AND BOTH BOUNDS ARE THE BOX'S OWN, not the rectangle's bounding
+    ;     box (88.5.4.6): a banked impostor's box grows with the bank - a
+    ;     6 x 26 one is 23 x 27 at 45 degrees - so testing that would send a
+    ;     building to the polygon path for rolling, and back for levelling
+    ;     out. The width is the projected half-width doubled, and the height
+    ;     the LENGTH of the up axis rather than its vertical part, which is
+    ;     what shrank by cos r and made the building squat as it banked.
     mov di, [cs_obj]
     test word [di + CSO_FLAGS], CSO_BOXED
     mov di, 0                       ; ...the slack it has earned
     jz .lim
     mov di, CS_LODHYST
 .lim:
-    mov si, cx
-    sub si, ax
+    mov si, [cs_bwp]
+    shl si, 1
     sub si, di
     cmp si, CS_LODPX
     jg .out                         ; too wide...
-    mov si, dx
-    sub si, bx
-    sub si, di
-    cmp si, CS_LODTALL
+    mov ax, [cs_bx1]
+    sub ax, [cs_bx0]
+    jge .dx
+    neg ax
+.dx:
+    mov bx, [cs_by1]
+    sub bx, [cs_by0]
+    jge .dy
+    neg bx
+.dy:
+    cmp ax, bx                      ; |up2| as max + min/2: 0 to +6% of a
+    jae .mx                         ; length, against a bound that carries
+    xchg ax, bx                     ; CS_LODHYST of slack anyway - where a
+.mx:                                ; square root would be 200 cycles for a
+    shr bx, 1                       ; threshold nobody measures
+    add ax, bx
+    sub ax, di
+    cmp ax, CS_LODTALL
     jg .out                         ; ...or too tall
-    push ax
+    ; --- WINGS LEVEL: THE OLD RECTANGLE, and BYTE FOR BYTE the old picture
+    ;     (SPEC.md 88.5.4.7). With R horizontal the impostor's two caps are
+    ;     horizontal too, and the shape cs_rect draws differs from the quad
+    ;     only by the top's own LEAN - one or two pixels of the perspective
+    ;     the polygon path shows and this one has always squared off. The
+    ;     reported defect is a BANKED one, so level flight keeps the
+    ;     rectangle and pays nothing at all: no sentinel pass over the rows,
+    ;     no four edges traced. It is also what makes the quad's own fast
+    ;     path sound - a banked impostor's caps are 2 Ry apart and its sides
+    ;     the projected axis, so with Ry non-zero there is no horizontal
+    ;     edge left for cs_poly's sentinels to be needed by.
+    mov cx, [cs_brx]
+    mov dx, [cs_bry]
+    or dx, dx
+    jnz .quad
     mov al, CSI_WALL
     call cs_setink
-    pop ax
+    mov ax, [cs_bx0]
+    mov cx, ax
+    sub ax, [cs_brx]
+    add cx, [cs_brx]
+    mov bx, [cs_by0]
+    mov dx, [cs_by1]
+    cmp bx, dx
+    jle .rect
+    xchg bx, dx                     ; seen from below: the top is lower
+.rect:
     call cs_rect
+    jmp short .done
+    ; --- the four corners, into cs_pv. That is the FACE buffer and it is
+    ;     dead here: an impostor returns before cs_stackverts and a refusal
+    ;     goes to cs_faces, which rebuilds it per face. The order puts the
+    ;     rising edge on the left, which is cs_pwind = 0.
+.quad:
+    mov ax, [cs_bx0]
+    mov bx, [cs_by1]                ; the base
+    mov si, ax
+    add si, cx
+    mov [cs_pv + 0], si             ; v0 = base + R
+    mov si, bx
+    add si, dx
+    mov [cs_pv + 2], si
+    sub ax, cx
+    sub bx, dx
+    mov [cs_pv + 12], ax            ; v3 = base - R
+    mov [cs_pv + 14], bx
+    mov ax, [cs_bx1]
+    mov bx, [cs_by0]                ; the top
+    mov si, ax
+    add si, cx
+    mov [cs_pv + 4], si             ; v1 = top + R
+    mov si, bx
+    add si, dx
+    mov [cs_pv + 6], si
+    sub ax, cx
+    sub bx, dx
+    mov [cs_pv + 8], ax             ; v2 = top - R
+    mov [cs_pv + 10], bx
+    mov byte [cs_pwind], 0
+    mov ax, [cs_by0]
+    cmp ax, [cs_by1]
+    jle .wind
+    mov byte [cs_pwind], 1          ; seen from below: the top is lower, and
+.wind:                              ; the list runs the other way round
+    mov byte [cs_pwhole], 0         ; the impostor marks its own rows, where
+                                    ; cs_rect always did (88.4.4)
+    ; --- AND IT NEEDS NO SENTINEL PASS (SPEC.md 88.5.4.7). cs_poly cannot
+    ;     know how many edges will touch a row, so it lays +32767 down cs_xl
+    ;     and -32768 down cs_xr over the whole range and every edge takes a
+    ;     min or a max. This shape is a PARALLELOGRAM and Ry is not zero
+    ;     here, so no edge is horizontal and every row has exactly one left
+    ;     edge and one right: cs_edge's unconditional stores are already the
+    ;     answer. The one thing that can still put a horizontal edge in it is
+    ;     a top and a base that project to the SAME ROW, and that keeps the
+    ;     sentinels.
+    mov ax, [cs_by0]
+    cmp ax, [cs_by1]
+    je .sent
+    mov byte [cs_pnosent], 1
+.sent:
+    mov al, CSI_WALL
+    call cs_setink
+    mov si, cs_pv
+    mov cx, 4
+    call cs_poly
+.done:
     mov di, [cs_obj]
     or word [di + CSO_FLAGS], CSO_BOXED
     mov al, [cs_bshr]
@@ -3166,13 +3282,38 @@ cs_ecopy:
 ;             seen moving. Every endpoint is a point along the transformed
 ;             centreline (vertices 5 -> 4, at the object's scale), put into
 ;             scratch vertices 6 and 7 and drawn through cs_edge1, which
-;             near-clips it. Away from the runway - above RW_DASHH, beyond
-;             RW_DASHW of its axis, or past its far end - the line is solid
-;             from end to end and costs one segment, as it did before.
+;             near-clips it. Away from the runway - above RW_DASHH or beyond
+;             RW_DASHW of its axis - the line is solid from end to end and
+;             costs one segment, as it did before. PAST THE FAR END but
+;             inside those two, the stripes go at THAT threshold instead
+;             (SPEC.md 88.6.2.3): the mirror of the near end's `js .zero`.
+;             It all runs in FACING SPACE (88.6.2.4) - u = 0 at the threshold
+;             behind the aeroplane - so the stripes are the ones ahead of it
+;             whichever way round it landed.
 ;             Runs after cs_edges, in its ink.
 ; -----------------------------------------------------------------------------
 cs_rwline:
     call cs_runway_xy               ; [cs_along], [cs_across]
+    ; --- WHICH THRESHOLD IS AHEAD (SPEC.md 88.6.2.4). Everything below works
+    ;     in FACING SPACE: u = 0 at the threshold behind the aeroplane and
+    ;     32767 at the one it is pointed at, so the stripes are always the
+    ;     ones it is about to drive over and the solid part is always the
+    ;     runway behind it. Land from the far side and roll back, and the old
+    ;     code drew the whole line BEHIND the aeroplane - measured at 300 m
+    ;     inside the strip, 11 pixels against 571 the other way round.
+    ;     cos(hdg - runway) is the whole of the test, and both sines and
+    ;     cosines are already computed for the frame; cs_rwsegu mirrors each
+    ;     segment back into the model's own u at the end.
+    mov ax, [cs_sinh]
+    imul word [cs_rwsin]
+    mov cx, dx
+    mov ax, [cs_cosh]
+    imul word [cs_rwcos]
+    add dx, cx
+    mov byte [cs_rwrev], 0
+    jns .ahead
+    mov byte [cs_rwrev], 1
+.ahead:
     mov si, [cs_airport]
     mov ax, [cs_py+1]
     sub ax, [si + CSA_ELEV]
@@ -3186,13 +3327,32 @@ cs_rwline:
     cmp ax, RW_DASHW
     jg .solid
     mov ax, [cs_along]
-    add ax, [si + CSA_HLEN]         ; AX = metres from the near end
+    cmp byte [cs_rwrev], 0          ; ...from the end BEHIND it (88.6.2.4)
+    je .fwd
+    neg ax
+.fwd:
+    add ax, [si + CSA_HLEN]         ; AX = metres from the end behind
     js .zero
+    ; --- PAST THE FAR END, BEFORE THE DIVIDE (SPEC.md 88.6.2.2). The test
+    ;     for it used to be on the QUOTIENT, and the quotient is
+    ;     metres x 16384 / hlen: it leaves a word at 4 hlen - ONE whole
+    ;     runway length past the far end - and an 8086 answers a divide
+    ;     that does not fit with INT 0, having never produced the operand
+    ;     the compare below wanted. The window is a CIRCUIT: this code is
+    ;     only reached below RW_DASHH and within RW_DASHW of the axis, so
+    ;     overfly the strip, turn back, and come down the extended
+    ;     centreline from more than a runway length out. The test moves in
+    ;     front of the multiply, where it costs three instructions and
+    ;     cannot fault.
+    mov bx, [si + CSA_HLEN]
+    shl bx, 1                       ; the runway's whole length
+    cmp ax, bx
+    jae .far
     mov dx, 16384
     mul dx
     div word [si + CSA_HLEN]        ; AX = the aeroplane's u, Q15 of 2 hlen
-    cmp ax, 32000
-    jae .solid                      ; past the far end
+    cmp ax, [cs_rwfar]
+    jae .far                        ; ...and the last stripe's worth of it
     jmp short .u
 .zero:
     xor ax, ax
@@ -3225,6 +3385,24 @@ cs_rwline:
     pop cx
 .out:
     ret
+    ; --- PAST THE FAR END, LOW AND ON THE AXIS: DASHED AT THAT THRESHOLD
+    ;     (SPEC.md 88.6.2.3). The near end has been clamped since the first
+    ;     build - `js .zero` puts the stripes at the threshold you are
+    ;     aiming at - and the far end had no such case, so an approach to it
+    ;     drew ONE SOLID LINE from a runway length out to the flare. The
+    ;     field reported exactly that, and reported the state it needs:
+    ;     leave and come back, because at reset you are stood at the NEAR
+    ;     end and the only way to meet the far one is to fly a circuit.
+    ;     Solid from the near end up to [cs_rwfar], then the same four
+    ;     stripes ending ON the far threshold - five segments either way,
+    ;     so the two approaches cost the same
+.far:
+    xor ax, ax
+    mov cx, [cs_rwfar]
+    call cs_rwsegu
+    mov ax, [cs_rwfar]
+    mov cx, RW_NDASH
+    jmp short .dash
 .solid:
     xor ax, ax
     mov cx, 32767
@@ -3233,6 +3411,14 @@ cs_rwline:
 ; cs_rwsegu - the centreline from u = AX to u = CX (Q15): scratch vertices
 ;             6 and 7, then the edge. Clobbers everything
 cs_rwsegu:
+    cmp byte [cs_rwrev], 0          ; facing space back into the model's own
+    je .fwd                         ; u: [a, b] -> [32767 - b, 32767 - a]
+    xchg ax, cx
+    neg ax
+    add ax, 32767
+    neg cx
+    add cx, 32767
+.fwd:
     push cx
     mov di, 12                      ; vertex 6
     call cs_rwpt

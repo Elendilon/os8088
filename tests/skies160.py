@@ -361,6 +361,22 @@ def main(argv):
         check(wrong2 == 0,
               "...and every character cell survived the screen clear (%d did "
               "not)" % wrong2)
+        # THE NOSE IS LEVELLED FIRST, and that is the row's own bug rather
+        # than a concession. The claim here is that the SIZE CHANGE left the
+        # mode alone - "the picture is still there" - and the proxy for it is
+        # that the sky, the grass, the asphalt, the white marks and the
+        # strip's green are all on the glass at once. But the aeroplane got
+        # to this point by FLYING, and where it ends up is not something this
+        # row pins: at pitch +874 and 27 m the runway is in view and the
+        # reading is five colours, and at +1309 and 41 m it is behind and
+        # below and the reading is three. Both pictures are correct. The
+        # trajectory moved when SPEC.md 88.7.12 gave the wing induced drag -
+        # the aeroplane accelerates more slowly off the runway, so the stick
+        # is held back longer and the nose ends up higher - and the row went
+        # from failing 1 run in 6 to 4 in 6 without anything about the C160
+        # backend changing. So the pose is pinned for the reading instead.
+        m.write(lin + base + off("cs_pitch"), b"\x00\x00")
+        m.write(lin + base + off("cs_prate"), b"\x00\x00")
         for _ in range(6):
             m.advance(frames=20)
             m.run()

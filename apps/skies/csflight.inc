@@ -100,6 +100,15 @@ cs_runway_build:
     mul dx
     div word [si + CSA_HLEN]
     mov [cs_rwdu], ax
+    mov bx, ax                      ; ...and where the FAR threshold's run of
+    shl ax, 1                       ; stripes starts (88.6.2.3): back off
+    add ax, bx                      ; (2 RW_NDASH - 1) pitches from the end,
+    shl ax, 1                       ; so the last one ends ON the threshold
+    add ax, bx                      ; AX = 7 du
+    mov bx, 32766
+    sub bx, ax                      ; (no runway here is short enough to
+    mov [cs_rwfar], bx              ; underflow this: 7 du passes 32766 only
+                                    ; below an 88 m half-length)
     mov di, cs_rwobj
     mov word [di + CSO_MODEL], cs_rwmodel
     mov word [di + CSO_FAR], 0
@@ -361,6 +370,7 @@ cs_step:
     mov ax, [cs_spd]
     mul ax                          ; DX:AX = v^2 (16.16)
     mov ax, dx                      ; AX = v^2 in whole m^2/s^2
+    mov [cs_qv], ax                 ; ...kept for the induced term below
     mul word [di + CSP_DRAGK]
     mov bx, dx                      ; BX = the drag, a tick
     mov ax, [cs_thrust]
@@ -370,6 +380,61 @@ cs_step:
     jne .air
     jmp .ground
 .air:
+    ; --- THE WING'S OWN DRAG (SPEC.md 88.7.12), which a v^2 law has not got.
+    ;     CSP_DRAGK is parasitic drag and falls away as the square of the
+    ;     speed, so an aeroplane that is slow is an aeroplane that is barely
+    ;     dragging - and the field flew the consequence: a Cessna holding 60
+    ;     knots level on 18% of its power, hanging at 150 for minutes on end,
+    ;     and arriving over the threshold so fast that the roll-out took most
+    ;     of the runway. A real wing pays for lift, and that bill RISES as
+    ;     the speed falls: CSP_INDK / (v^2/4), added here.
+    ;
+    ;     IN THE AIR ONLY. On the ground the wheels carry the weight and the
+    ;     wing is not making the lift it would be charged for - and the
+    ;     rolling and braking figures below are already the field's.
+    mov ax, [di + CSP_INDK]
+    or ax, ax
+    jz .noind                       ; a record that has not got one
+    mov bx, [cs_qv]
+    ; --- ...AND IT STOPS RISING AT THE STALL. Induced drag goes as the
+    ;     square of the LIFT, and a wing at its maximum lift coefficient is
+    ;     making all it ever will - past that it has departed, and charging
+    ;     it more is charging it for lift it is not producing. Without this
+    ;     the term runs away: at 10 m/s the Cessna reads 28 units a tick
+    ;     against 16 of full thrust, so an aeroplane that got slow could
+    ;     NEVER accelerate again and every throttle from 10% to 100% settled
+    ;     at 2 m/s. Measured, and very nearly shipped.
+    mov ax, [di + CSP_VSTALL]
+    mul ax
+    cmp bx, dx
+    jae .qok
+    mov bx, dx                      ; the stall's own q is the floor
+.qok:
+    mov ax, [di + CSP_INDK]
+    or bx, bx
+    jz .noind                       ; a record with no stall speed either
+    xor dx, dx
+    div bx
+    cmp ax, CS_INDMAX
+    jbe .indok
+    mov ax, CS_INDMAX
+.indok:
+    sub cx, ax
+.noind:
+    ; --- ...AND THE BRAKE IS AN AIRBRAKE UP HERE (SPEC.md 88.7.12.1). The
+    ;     key that means STOP already closes the throttle and stands on the
+    ;     wheels (88.7.10); in the air it opens what the aeroplane has. Half
+    ;     of CSP_BRAKE, because that number is sized for a wheel with the
+    ;     weight on it - and the Fouga is the aeroplane this is for: 100 to
+    ;     51 m/s takes 174 seconds and 11.9 km without it and 25.6 s and
+    ;     1.9 km with, which is the difference between a jet you can land
+    ;     and one you cannot.
+    cmp byte [cs_kbrake], 0
+    je .noab
+    mov ax, [di + CSP_BRAKE]
+    sar ax, 1
+    sub cx, ax
+.noab:
     mov ax, [cs_pitch]
     push cx
     push di
