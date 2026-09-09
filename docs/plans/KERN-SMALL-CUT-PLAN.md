@@ -49,14 +49,31 @@ baseline moved under it while the rows were being re-priced.
 
 ```
 today       KERN_SIZE 78,336   heap floor 78.0 KB   free heap on 128KB = 50.0 KB
+CLEAN rows  KERN_SIZE 69,120   heap floor 69.0 KB   free heap on 128KB = 59.0 KB
 everything  KERN_SIZE 60,928   heap floor 61.0 KB   free heap on 128KB = 67.0 KB
                                ------------------------------------------------
-the cut     17,408 bytes = 22.2% of the footprint
+the clean cut  9,216 bytes  |  everything 17,408 = 22.2% of the footprint
 ```
 
-Six findings, of which the first three are new at this reading.
+**AND THE FIRST NUMBER IS NOT THE BINDING ONE.** 67.0 KB is what the
+*kernel* arithmetic allows. What a row actually costs is decided on the APPS
+disk, and §10 is that audit: five of the rows below have published API slots
+that packages shipped on the small floppies CALL AND DO NOT TEST — so the
+refusing stub they would become is not a graceful refusal, it is silent wrong
+output. **Taking only the rows that break nothing reaches 59.0 KB.**
 
-1. **The measurement method is now VALIDATED against a real gate, and it is
+Seven findings, of which the first four are new at this reading.
+
+1. **A ROW'S COST IS NOT WHAT THE DESKTOP LOSES, IT IS WHAT THE SHIPPED SMALL
+   PACKAGES LOSE — and no revision of this document had checked.** §10. Every
+   table here priced the kernel side alone, and the "refusing stub" idiom that
+   makes gating look cheap only works when the caller tests CF. Swept across
+   `apps/`, filtered to what `make smallapps` actually writes: **B4 is dead**
+   (Paint's pencil stroke IS `OSAPI_GFX_LINE`, and so is the menu checkmark in
+   `os88ui.inc`, which ~20 packages include), and B3, C6, C8 and C1 all have
+   untested callers on the small disks.
+
+2. **The measurement method is now VALIDATED against a real gate, and it is
    exact.** §9.1 is the check: the `gfx_line` family's symbol span is 1,503
    bytes, and a build with that family actually gated out measures `.text`
    38,756 → 37,261, which is **1,495 = 1,503 less the 8 bytes of `stc`/`ret`
@@ -64,29 +81,29 @@ Six findings, of which the first three are new at this reading.
    gate returns, not an estimate of it, wherever the row's symbols are
    contiguous.
 
-2. **§7's cap is 288 bytes now, not 2,816 — D2 spent it.** The FAT window is
+3. **§7's cap is 288 bytes now, not 2,816 — D2 spent it.** The FAT window is
    already at two sectors, so the boot overlay very nearly fills the region it
    lands in. This is not arithmetic on this page: `DSK_NENT 32→16` **fails to
    assemble**, on `kernel.asm:7090`, *"the boot overlay's window half has
    outgrown the FAT window plus the mount buffers"*.
 
-3. **D3 is not capped, it is IMPOSSIBLE**, and it should be struck rather than
+4. **D3 is not capped, it is IMPOSSIBLE**, and it should be struck rather than
    deferred. `files.inc:662` requires `DSK_NENT * DSK_DE_STRIDE` to be a
    multiple of 256, because `FS_IOFH` holds an icon base in one byte. At a
    stride of 24 that makes `DSK_NENT` a multiple of **32**, so the only legal
    value below today's is zero. §5.1.
 
-4. **There is still no big single win.** The largest symbol in the kernel is
+5. **There is still no big single win.** The largest symbol in the kernel is
    `osapi_table` at 1,312 bytes and the second is `sch_stacks` at 1,280, which
    is the task slices and not code. Below that it is a long tail of 40–200
    byte procedures. The cut has to come from removing whole *features*.
 
-5. **The hardware question yields almost nothing now.** It was worth ~4,700
+6. **The hardware question yields almost nothing now.** It was worth ~4,700
    bytes when this document opened and it is worth **1,651**, because A3, A4
    and A2 have all been built. What is left is the sound layer and the clock's
    residue. §2.
 
-6. **The heap COMPACTOR is not on this list**, and was costed rather than
+7. **The heap COMPACTOR is not on this list**, and was costed rather than
    assumed: **docs/plans/KERN-SMALL-NOCOMPACT.md**. What looks like a nicety
    on a small machine is what makes the small machine work.
 
@@ -272,21 +289,21 @@ path*, and §3.1's three are the second thing.**
 |---|---|---:|---|
 | B1 | **Raise cache / save-under** SPEC.md 11.96 (`wm_su*`) | **2,451** | raising a covered window goes from ~10 ms back to the **1,026 ms** SPEC.md 11.96 was written to fix. The buffer is a purgeable claim, so the saving is code only |
 | B2 | **Drag cache** SPEC.md 11.96.12 (`wm_dc*`, `wm_cov*`) | **484** | a window drag repaints what it uncovers |
-| B3 | **Icon renderer** SPEC.md 10 (`icons.inc`) | **1,060** | files get generic glyphs. `disk_icons` is a further 1,024 of `.lowbss` and is **capped — §7** |
-| B4 | **`gfx_line` family** (`gfx_linit`/`gfx_line`/`gfx_ls*`/`gfx_lstep*`) | **1,503** | four API slots become refusing stubs. **MEASURED, §9.1** — the only row here priced by building it |
+| B3 | **Icon renderer** SPEC.md 10 (`icons.inc`) | *1,060* | **BLOCKED — §10.** `OSAPI_ICON_DRAW`/`_PEN` are called untested by `os88ui.inc`, Paint and Solitaire. `disk_icons` is a further 1,024 of `.lowbss` and is **capped — §7** |
+| B4 | ~~**`gfx_line` family**~~ | ~~1,503~~ | **DEAD — §10.1.** Paint's stroke and the menu checkmark are both `OSAPI_GFX_LINE`, neither tests CF. The 1,503 is still the honest *size*; it is simply not available |
 | B5 | **Toast** SPEC.md 59 (`toast.inc`) | **458** | SPEC.md 47 rule 3 wants every refusal to say something the user can act on, and SPEC.md 59 is where three of them say it |
 | B6 | **Progress widget** SPEC.md 12.8 (`fprog.inc`) | **725** | long file operations go silent |
 | B7 | **Screen blanker** SPEC.md 64 (`blank.inc`) | **148** | |
-| | **subtotal** | **6,829** | |
+| | **subtotal** | **6,829** | of which **B4 is unavailable and B3 is blocked** — the clean total is **4,266** |
 
-**B4 is the best-value row in the document and the one to take first.** It is
-the largest single body that is not a feature anybody sees on a desktop: no
-kernel drawing path calls it — every caller of `gfx_ls_*` and `gfx_line_*` is
-inside the family itself — so the gate is four `stc`/`ret` stubs and nothing
-else. docs/plans/completed/GFX-FSX-PLAN.md already notes that **three apps
-carry their own Bresenham**, because SPEC.md 53.7's fsx bracket gives them no
-kernel drawing slot to call. What it costs is any package that draws a line
-through the published slot on this build.
+**B4 WAS RECOMMENDED AS THE ROW TO TAKE FIRST, AND IT IS DEAD.** The
+reasoning was that no *kernel* drawing path calls it — every caller of
+`gfx_ls_*` and `gfx_line_*` is inside the family itself — so the gate would be
+four `stc`/`ret` stubs and nothing else. That is true and it is the wrong
+question: the family exists for PACKAGES, and §10.1 is the sweep that should
+have come first. Paint's freehand stroke *is* one `OSAPI_GFX_LINE` per segment
+(SPEC.md 42.8), and Paint ships on both small floppies. The remaining rows in
+this group are graded against the same sweep now.
 
 ### 3.1 Three things that look like niceties and are not — do not cut these
 
@@ -343,12 +360,12 @@ left of those two is their resident stubs.
 |---|---|---:|---|
 | C1 | **FAT write path** SPEC.md 18.4–18.6 (`diskw.inc`) | **5,077** | a **read-only OS**: nothing saves, formats, renames or deletes |
 | C5 | **Built-in kinds** SPEC.md 14 (`apps.inc`) | **1,594** | Timer, About, Ball, Bounce. 240 of it is `app_tmr_pool`/`app_ball_pool` in `.lowbss` |
-| C6 | **Fullscreen exclusive** SPEC.md 53 (`fsx.inc`) | **788** | no game or demo can take the screen |
+| C6 | **Fullscreen exclusive** SPEC.md 53 (`fsx.inc`) | *788* | **BLOCKED — §10.** Cyclone, Missile and Paint call `OSAPI_FSX_RUN`/`_CAPS` untested; a package that believes it took the screen and did not is worse than one that cannot |
 | C7 | **The dock** SPEC.md 30 (`dock.inc`) | **717** | |
-| C8 | **Clipboard** SPEC.md 55 (`clip.inc`) | **159** | |
+| C8 | **Clipboard** SPEC.md 55 (`clip.inc`) | *159* | **CONDITIONAL — §10.** Every small caller tests `OSAPI_CLIP_SIZE`, but Sheet and TexPad do not test `_PUT` and five do not test `_GET`; wants a per-caller read before it is taken |
 | C2r | **File-dialog residue** SPEC.md 38 (`fdlg.inc`) | *330* | the module's resident stub. **Not separately takeable** — deleting it deletes the feature the module already made cheap |
 | C4r | **Copy/paste residue** SPEC.md 22.3 (`filecp.inc`) | *328* | as above |
-| | **subtotal (C1, C5–C8)** | **8,335** | |
+| | **subtotal (C1, C5–C8)** | **8,335** | of which only **C5 and C7 (2,311) are clean** |
 
 **C1 is 61% of the group on its own**, and it is the row that decides whether
 this build is an operating system or a viewer. It is also **refused by the
@@ -527,12 +544,12 @@ in between.
 ## 8. The whole list, added up
 
 ```
-A  hardware                        1,651
-B  display niceties                6,829
-C  features (C1, C5-C8)            8,335
-D  sizing constants                1,016
+A  hardware                        1,651     clean
+B  display niceties                6,829     4,266 clean, 1,503 dead, 1,060 blocked
+C  features (C1, C5-C8)            8,335     2,311 clean, 6,024 blocked
+D  sizing constants                1,016     clean
                                   ------
-   raw                            17,831
+   raw                            17,831     of which 9,244 is CLEAN
 ```
 
 Rungs round, so the tiers below are computed from the sections rather than
@@ -545,13 +562,22 @@ from that sum.
 | **today** | 78,336 | **50.0 KB** | measured on the machine |
 | A | 76,288 | **52.0 KB** | everything, minus sound and the clock bodies |
 | A + D | 75,264 | **53.0 KB** | …with smaller tables and six windows |
-| A + B + D | 68,608 | **59.5 KB** | …and no save-under, icons, `gfx_line`, toast, progress or blanker |
-| A + B + D + C5–C8 | 65,536 | **62.5 KB** | …and no dock, fullscreen, clipboard or built-in apps. **File writing intact** |
-| everything, C1 deleted | 60,928 | **67.0 KB** | a read-only browser with windows |
+| **every CLEAN row** (§10) | **69,120** | **59.0 KB** | …and no save-under, toast, progress, blanker, dock or built-in apps. **Nothing on the small floppies breaks** |
+| + the blocked rows, callers swept first | 65,536 | **62.5 KB** | …and no icons, fullscreen or clipboard — each conditional on §10's work |
+| + C1 deleted | 60,928 | **67.0 KB** | a read-only OS, and **five packages that think a save succeeded** |
 
-**The gap between the last two rows is 4.5 KB and it is the whole product
-question**, because §6 has established that `diskw.inc` cannot become a module.
-The choice is file writing or 4.5 KB, with nothing in between.
+**59.0 KB is the number to plan against**, and it is the one this document did
+not have before: it is everything that can be taken without a package on the
+small disks going quietly wrong. The rows between 59.0 and 62.5 are not
+refused — they are *unpriced*, because their real cost includes a sweep of
+their callers that nobody has done.
+
+**And the last row is worse than "a read-only OS" makes it sound.** §6
+establishes that `diskw.inc` cannot become a module, so C1 is delete-or-keep —
+but `OSAPI_FILE_WRITE` is called by Artful, Cyclone, Frotz, `os88chart.inc`
+and Paint **without testing CF**, so the failure mode is not a refusal the
+user can see, it is a save that reports success. Deleting C1 means a caller
+sweep first, exactly as B4 would have.
 
 ### 8.2 Where the last bytes would have to come from
 
@@ -625,3 +651,88 @@ one that matters, hull 3,250 against own 2,451 — must be priced at its own
 symbols, because the hull contains things a gate would have to keep. Every row
 above is priced at own symbols for that reason; B4's is the one place the two
 numbers agree, which is what made it the row worth building.
+
+---
+
+## 10. THE AUDIT THIS DOCUMENT NEVER DID: who CALLS the thing being gated
+
+Every revision of this document, including the re-pricing in §9, measured the
+**kernel** side of a row and stopped there. §6.2 even records the reassuring
+half of it — the refusing stub is nearly free, because the API cell is in both
+tables already and the bodies can share one `stc`/`ret`.
+
+**That is only true when the caller tests CF, and on the small floppies it
+mostly does not.**
+
+The sweep is mechanical: take the slots a candidate owns, find every
+`call OSAPI_*` in `apps/`, filter to what `make smallapps` actually writes
+(`SMALLOMIT` drops Browser, FTPD, Telnet, The Wire, ModPlug, Tracker, Audio,
+Tank, Skies), and look at whether a `jc`/`jnc` follows before anything clobbers
+the flags — `push`/`pop`/`mov` do not, which matters, because the register
+restore between the call and the test is this codebase's normal idiom.
+
+| slot | small callers that do NOT test CF | consequence |
+|---|---|---|
+| `OSAPI_GFX_LINE` | `os88ui.inc`, Paint, Sheet, Missile, cc | **no ink** |
+| `OSAPI_GFX_LINIT`/`_LSTEP`/`_LSTEPV` | Cyclone, Missile | **no ink** |
+| `OSAPI_ICON_DRAW` / `_PEN` | `os88ui.inc`, Paint, Solitaire | **no icon** |
+| `OSAPI_FSX_RUN` / `_CAPS` | Cyclone, Missile, Paint | believes it took the screen |
+| `OSAPI_FILE_WRITE` | Artful, Cyclone, Frotz, `os88chart.inc`, Paint | **a save that reports success** |
+| `OSAPI_CLIP_GET` | cc, Note Pad, Sheet, TexPad, Word | a paste of nothing, or of stale bytes |
+| `OSAPI_CLIP_PUT` | Sheet, TexPad | a copy that did not happen |
+
+**Three slots come out CLEAN, and the reason each is clean is worth keeping.**
+
+- **`OSAPI_WM_SAVEU` (B1) is not a refusal slot at all.** It is a package
+  *declaring* that its content does not change while it is not drawing
+  (SPEC.md 11.96.1), and `wm_saveu` **preserves the flags deliberately** —
+  *"Preserves the flags for wm_snap's reason: an entry proc calls this after
+  wm_create and the carry riding in is its own return value."* So the twelve
+  small callers that do not test CF are **correct**, not lucky: gated out, the
+  slot becomes a no-op and every package still works. B1 costs the **1,026 ms
+  raise** §3.2 argues about and nothing else, exactly as its row says.
+- **`OSAPI_TOAST` (B5) and `OSAPI_SND_TONE` (A1) degrade to the thing being
+  removed.** A toast that does not appear is what "no toast" means; silence is
+  what "no sound" means. An untested CF there costs nothing the row was not
+  already charging for.
+
+### 10.1 B4 is the worked example, and it was recommended
+
+The previous revision called `gfx_line` *"the best-value row in the document
+and the one to take first"*, on the grounds that no kernel path calls it. Both
+halves of that sentence are true and the conclusion is wrong, because the
+family is published API that exists **for packages**:
+
+- **Paint's freehand stroke is `OSAPI_GFX_LINE`** (`apps/paint/paint.asm:7520`,
+  ungated in the `APP_SMALL` arm), and it is SPEC.md 42.8's whole point —
+  *"on the field machine it is the difference between a pencil that follows the
+  mouse and one that cannot"*. It does not test CF, so the pencil would not
+  slow down, it would **stop leaving ink**. Paint is on the small SYSTEM disk
+  *and* the small APPS disk.
+- **The menu checkmark is two `OSAPI_GFX_LINE` calls** in `apps/os88ui.inc`,
+  which about twenty packages include — Task Manager and Note Pad among them,
+  both on the small disks. Every checked menu item loses its tick.
+- Missile and Cyclone drive the resumable walker (`_LINIT`/`_LSTEP`/`_LSTEPV`)
+  and both ship on small; only Tank, which also uses it, is in `SMALLOMIT`.
+
+So the row is **0 bytes available**, and its 1,503 stays in the tables only as
+the honest size of a body that cannot go.
+
+### 10.2 What this changes about the method
+
+§9.1 established that the *size* of a row is exact. §10 establishes that the
+size was never the binding quantity:
+
+> **A `kern_small` row is priced on the APPS disk, not in `kernsize`.** The
+> kernel arithmetic says what a gate returns; the caller sweep says whether the
+> gate may be built at all.
+
+Two rules for the next reading, and they cost minutes rather than a rebuild:
+
+1. **Before pricing a row, list the API slots it owns and grep `apps/` for
+   them**, filtered by `SMALLOMIT`. A row with no published slot (B2, B6, B7,
+   C5, C7 and every D row) is clean by construction and needs no sweep.
+2. **A slot whose callers do not test CF cannot become a refusing stub**
+   without a caller sweep landing first — and that sweep is package work in a
+   different tree from the kernel change, which is why it belongs in the
+   estimate rather than in the follow-up.
