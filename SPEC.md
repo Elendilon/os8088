@@ -101685,6 +101685,48 @@ previous horizon and both persisting until an object drew over them. That last
 part is the same fact from the other end: nothing repairs a band row's outer
 bytes except a mark, so once wrong they stay wrong until something marks them.
 
+###### 88.3.1.1.4 ATTEMPTED, NOT BUILT — the band row laying the UNION, and where it stopped
+
+§88.3.1.1.2 refused this once on a quantity §88.3.2.3's stepping mark has
+since moved: the union is **15.4 / 12.9 / 11.1 bytes at 5° / 12° / 20°**
+against a break-even of 16 (§88.3.2.3.3), so it should now pay. It was built
+and it is **NOT CORRECT**, and this is where it got to, so the next attempt
+starts from here rather than from scratch.
+
+**The shape.** `cs_fbdlt` is hoisted once a frame as the step from a row's
+pair in this frame's span set to the same row's in last frame's, so the union
+is two indexed reads and four compares inside the fused loop rather than a
+second walk — `cs_fbu` holds it as a packed pair, and all three of the row's
+runs start at its first byte and stop at its last. `cs_nonarrow` is the A/B.
+
+**THE GATE IS NOT `tests/skiesstale.py`.** An under-fill leaves the SHADOW
+wrong and the card faithfully matches it, so card-equals-shadow passes. The
+gate is a PIXEL IDENTITY A/B — the same profile, the same flight, one poke
+apart, compared frame for frame — and it is what found everything below.
+
+**Three defects it has already cost, all worth not repeating:**
+
+1. **`add di, [cs_fbu]` adds the PACKED PAIR as a word.** `cs_fbu` is
+   `(last << 8) | first`, so the row started 276 bytes along — and the picture
+   was still nearly right, surviving a fourteen-frame pixel A/B at four
+   differing pixels. A displacement that large should be obvious and was not.
+2. **`sub di, [cs_wb0]` reads a BYTE as a word**, and `cs_wb0`'s neighbour is
+   `cs_wbn`. Both of these want a byte register and an explicit `xor ah, ah`.
+3. With both fixed it is **6 frames in 14 differing, 1 to 2 pixels each, all
+   at the crossing's own byte** — the blend byte missing where the whole-row
+   fill has it. Bisecting `.fbw` back to the whole row does not move it, so it
+   is in the SPLIT arm's three runs and not in the one-pattern arm.
+
+**What is NOT the cause**, checked: the union itself (the differing byte is
+well inside it), `cs_fullspan`'s value, the row phase, the pixel mask, and the
+run counts as written — left is `byte − first`, right is `last − byte`, and
+both land where the arithmetic says.
+
+**Do not measure it until it is identical.** The cross-profile sweep the
+change needs — every one of `tests/skiesprof.py`'s profiles, both arms,
+because the cost is FIXED and the saving PROPORTIONAL so a busy scene is
+where it loses — is meaningless while the two arms draw different pictures.
+
 ##### 88.3.1.2 A split row's fill was 1,421 cycles and 350 of them were pixels
 
 §88.3.1.1 left the rolled horizon costing fixed work a row rather than

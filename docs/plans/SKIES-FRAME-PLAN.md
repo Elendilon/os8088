@@ -905,6 +905,15 @@ line below is measurement and documents.
   population is IDENTICAL in both arms (0 / 8 / 17.8 rows), because a stepped
   mark makes a row's span narrower and never makes a row UNMARKED - a diagonal
   crosses every row of its own extent. 7.1.12's refusal stands.
+- **C2. The narrow fill was BUILT and is NOT CORRECT** (SPEC.md 88.3.1.1.4),
+  reverted rather than left half-right in the hottest loop. It is 6 frames in
+  14 differing by 1-2 pixels, all at the crossing's own BLEND byte, in the
+  split arm and not the one-pattern arm. Two operand-size defects are already
+  found and written down; the residual is not. **Its gate is NOT
+  skiesstale.py** - an under-fill leaves the shadow wrong and the card
+  faithfully matches it - it is a pixel identity A/B, and the cross-profile
+  sweep the field asked for is meaningless until that passes, because both
+  arms have to draw the same picture before their times can be compared.
 - **D. WHERE THE FRAME ACTUALLY IS NOW.** At 12 degrees it is `cs_scene` 69%,
   `cs_skyground` 11%, `cs_blit` 10%, and a split row's 1,460 cycles are only
   ~350 pixels. Marking is no longer the lever: `cs_faces` and `cs_edges` are.
