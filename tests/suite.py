@@ -2411,6 +2411,15 @@ SOAK = [
         "in nineteen did, sealing the player in a box a 26-unit step cannot"
         "leave - and a player who somehow IS inside one can still drive out",
         needs=("marty",), serial=True),
+    Row("tanksmall", "soak", py("tests/tanksmall.py"), 30.0,
+        "SPEC.md 85.3.5.1: TANK's APP_SMALL arm plays on the 128KB floor"
+        "machine - the claim is GRANTED off its ladder, and the HUD template's"
+        "span store survives ridge transitions and a crack without falling"
+        "back to a panel drawn every frame. The only thing in the tree that"
+        "builds or drives that arm: tank/tankaim/tankspawn all run the SHIPPED"
+        "package, which compiles every path this row asserts on out",
+        needs=("marty",), wants=("build/smallapps360.img", "build/small360.img"),
+        serial=True),
     Row("skies", "soak", py("tests/skies.py"), 35.0,
         "SPEC.md 88: CLEAR SKIES draws and advances, takes off from the runway"
         " under full throttle and the stick, crashes when the nose is held"

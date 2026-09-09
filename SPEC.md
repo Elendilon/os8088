@@ -38201,7 +38201,7 @@ Eight packages fail that test:
 |---|---|
 | `BROWSER`, `FTPD`, `TELNET` | `ETHER.DRV`. The NIC is not in `$(SMALLDRIVERS)`, and §72's whole surface is driver verbs, so there is no socket to refuse on |
 | `MODPLUG`, `TRACKER`, `AUDIO` | `SOUND.DRV`, which a 128–256KB machine has nothing to spare for — the judgement that already took `RAMDISK.DRV` and `RAMPAGE.DRV` out of the small driver set |
-| `TANK`, `SKIES` | the fullscreen surface (§42.7, §81, §88). Each opens and draws its panel, and there is no *game* behind it without fsx |
+| `SKIES` | a **32KB heap claim** for its frame shadow (§88), against the 17.5KB largest run a claimant can have on the floor machine once `mem_claim` has shed the purgeable caches (§50.6.2). Unlike PAINT it cannot refuse in its own words: the claim is made INSIDE the fsx bracket, after the mode is set, so what a player gets is a mode switch, a black screen and a bounce back to the desktop |
 
 `RECORDER` was a fourth row of the sound group and is **not a row at all now**:
 it fails the same test and would still be omitted, but it is off the shipped
@@ -38215,6 +38215,28 @@ takes, so the row came out with the package rather than being kept as a note.
 that program's manual (§71.12), which is worse than no file at all on a disk
 the program is not on — and `BEVERLY.MOD` is the two removed players' module
 (§24.4).
+
+**`TANK` WAS THE OTHER HALF OF THAT ROW AND SHIPS NOW — as its SMALL BUILD**
+(§85.3.5.1) — a `make smallapps` SUBSTITUTION rather than this table's omission, and the
+reason it was omitted was wrong as written. `kern_small` has the whole of §53:
+the `%include` is unconditional, every `%ifdef KERN_BIG` inside `fsx.inc` is
+multi-display bookkeeping, `fsx_capstab`'s HERC (`0x0011`) and CGA (`0x000F`)
+rows are byte-identical in both kernels, and the API table is the same 165
+slots. Measured on `os8088_5150_cga_128k`: the menu read `Play`, `fsx_mode`
+switched the card, and what refused was `OSAPI_MEM_CLAIM` for `TK_SHKB` — 32KB
+of shadow and template against 17.5KB of arena. The template is a span store
+now and the claim is a ladder, so the requirement the machine cannot meet is
+gone rather than worked around. **The fullscreen surface was never what either
+package was missing**, and a row that names the wrong requirement is worse than
+no row: it sends the next reader to the kernel.
+
+The fix is an `APP_SMALL` arm and not a change to the package, because the span
+store costs the frame 4.2% and a machine with the heap should not pay it — so
+`SMALLPKGS` carries `TANK.O88` as a sixth substitution and the shipped `.o88`
+is byte-identical to what it was before any of this. **That is the shape to
+reach for when a package cannot meet a requirement**: an omission is what is
+left when substitution cannot work, and SKIES is still in that position only
+because nobody has taken its measurement.
 
 **112,441 bytes — 31% of a 360KB floppy, 113 of its 354 clusters — for eight
 programs that could not have started.** All eight move at every geometry now:
@@ -99124,6 +99146,201 @@ span set empty and would wipe a mark made earlier; and after the clear the
 shadow holds no dynamic pixel, so copying a rectangle over it loses nothing.
 Mode X has no shadow and no template and draws the whole panel every frame,
 which is what every frame did before and is the fast machine's to afford.
+
+#### 85.3.5.1 `APP_SMALL` — the template as a SPAN STORE, and a ladder for the claim
+
+§85.3.5's design is unchanged and **the shipped package is unchanged with it**,
+byte for byte: the template stays a second 16,000-byte frame buffer restored by
+one `rep movsw` a row, and the claim stays a flat 32KB. This section is the
+`APP_SMALL` arm (§27.16's mechanism), and it exists because that claim is what
+kept the package off the small disks (§24.5).
+
+**The measurement that makes it a trade.** On both shadow backends and in every
+state the game can be driven into — the crack drawn and the ridge settled
+included — the template holds **486–512 non-zero bytes of 16,000. Three per
+cent.** On the 128KB floor machine the largest run a claimant can have, once
+`mem_claim` has shed the purgeable caches (§50.6.2), is **20KB**, so a 32KB
+claim simply refuses; a shadow plus a span store is 18KB and fits.
+
+**The store.** `tk_tmrix[r]` is the pool offset of row *r*'s first record; rows
+are contiguous and ascending, so `tk_tmrix[r+1]` is where row *r*'s records end
+— which is why the array is one longer than the tallest viewport. A record is
+`db start, len` and then `len` bytes of the row. **Lit runs closer together
+than `TKT_GAP` = 4 are one span and the zeros between them are stored**: the
+panel's runs average under two bytes, so a two-byte header costs more than the
+gap it saves. Measured over the gap rule, deterministically: 4 and 3 are the
+size optimum, 16 buys 0.6% of frame time for 31% more pool, and 80 overflows.
+
+**There is no separate buffer to draw into, and that is the whole trick.** The
+template is written in exactly two places — `tk_tmupdate`'s items and
+`tk_ridge_tm`'s settle — and both run inside `tk_render` between `tk_r_begin`
+and the first dynamic drawing, which is the window §85.3.5's own induction is
+about: the shadow holds no dynamic pixel there, so **in that window the shadow
+IS the template**. An item is drawn into the shadow, where it has to end up
+anyway, and `tk_tmenc` re-encodes the rectangle's rows from it. `tk_tmcopy` and
+`tk_tmcpruns` are the shipped build's alone, the walks need no `tk_tseg`
+redirection, and the one rule that has to hold is that nothing calls
+`tk_tmenc` after a dynamic pixel has landed.
+
+**The scan is `rep scasb` and that is not a micro-optimisation.** The first
+build walked a row a byte at a time in a twenty-byte loop; on the 8088 an
+instruction costs `max(clocks, 4.34 x bytes)` (PERFORMANCE.md part 2), so that
+loop is FETCH-bound at ~87 cycles a byte, and re-encoding the ridge's 72-row
+band — 5,760 bytes of it — took the churn schedule's frame to **493 ms**. `rep
+scasb` is 15 cycles a byte and two bytes of code for the whole loop, so nothing
+is fetched per iteration; a row is ~95% zeros and the scan is three `rep scasb`
+runs a span. It took the same frame to **324 ms**. **Those two are frame
+readings and the stage lines beside them are not**: `tests/tankperf.py` prices
+a stage by patching it out, so the eleven of them sum to several times the
+frame — removing the encode removes the spans it would have made, and the
+restore with them — and a stage delta is an upper bound on that stage's share
+rather than a decomposition of it. What an encode actually costs is timed by
+breakpoint, below. **Every one of those `scasb`s needs `AL` zeroed in front of it** — AL
+carries the gap size on the loop-back paths and the record's start byte after
+an emit, and the build that forgot two of them assembled, ran, and drew a
+different picture.
+
+**The claim is a LADDER**: `TK_SHKB` 18, then 17, then 16, whichever
+`mem_claim` will give. 18KB leaves 2,432 bytes of pool against a measured high
+water of 2,132 — and **the 128KB machine takes that top rung**, measured on
+`os8088_5150_cga_128k` with `[tk_tmpl]` staying 1 through turns and a crack.
+17KB leaves 1,408, which holds the panel but not a settled ridge, so **a pool
+under `TKT_RIDGEMIN` = 2,048 never takes the ridge** — keeping §85.3.5's
+61–67 ms a frame and paying §85.3.8's 26, where letting it overflow instead
+dropped the template whole and paid both. 16KB is the shadow alone. A store
+that will not fit clears `[tk_tmpl]`, which is the flag Mode X already runs the
+whole game on, so the fallback is code every VGA exercises.
+
+**GIVING THE TEMPLATE UP HAS TO HAND BACK A CONSISTENT SCREEN, and clearing the
+flag does not.** `tk_tmenc`'s `.full` was one store and a `ret`, and that is a
+defect: from the instant `[tk_tmpl]` is 0 the clear lays no spans — it zeroes
+what a run covers and nothing else — so every pixel the template was holding
+outside that frame's runs is in no run, in no store, and beyond the reach of
+anything that could erase it. The panel heals, because `tk_hud`'s full path
+draws it whole and marks it; the **settled ridge does not**. Measured by poking
+that one byte with the ridge settled and changing nothing else: **410 stranded
+pixels**, the range line and ridge segments among them — reported from the
+field as *"the ridges in the background leave stale pixels that stick around if
+nothing else draws over them"*. `.full` now empties the store, zeroes the
+shadow and marks every row, so the frame repaints and the blit carries the
+erase to the glass: one whole-viewport blit, once, on a path already giving up
+61–67 ms a frame. **+39 bytes, and the shipped arm is byte-identical** — none
+of this exists there, `[tk_tmpl]` being set once in `tk_r_setup` and never
+cleared.
+
+**AND THE POOL FILLS MORE READILY THAN THE HIGH WATER SUGGESTS.** The 2,132 of
+2,432 above is a ridge transition and a template update every third frame, and
+it does **not** include the crack coming and going: `tk_tm_crack`'s strokes are
+span-expensive, and six rounds of `[tk_dead]` toggling with the ridge settled
+read **2,226 — 91% of the top rung** — with a longer run filling it outright.
+So the refusal is a path an ordinary game reaches, not a floor-machine
+curiosity, which is exactly why it has to be safe rather than merely correct
+about the flag.
+
+**What it costs, and why it is the small build's trade and not the package's**
+— `tests/tankperf.py --small` against a plain run, `os8088_5150_herc_gla`,
+scene `heavy`, cycle-exact, ONE kernel and ONE tree (a small-built package is
+not a second ABI, §27.16, so the kernel is held fixed and the difference is the
+package's). The two arms draw **byte-identical framebuffers** on both pinned
+scenes:
+
+| schedule | shipped (bitmap) | `APP_SMALL` (spans) | |
+|---|---|---|---|
+| nothing changing | 215.70 ms | 224.27 ms | **+4.0%**, all of it in `tk_clearspans` |
+| a ridge transition every 10 frames | 230.91 ms | 248.78 ms | +7.7% |
+| ...and a score change, both every 3 | 265.77 ms | 305.92 ms | +15.1% |
+
+That is a real loss and it is why this is an arm rather than a rewrite: a
+machine with 32KB of heap to spare should keep the buffer. The steady-state
+cost is the restore — the clear stores zeros over the run (cheaper than the old
+`rep movsw` by 4 ms) and lays the row's spans over them (+12 ms). Everything
+above that is `tk_tmenc`, which is per CHANGE and not per frame; the third row
+is the pathological alternation §85.3.8 already names as the case that cannot
+win.
+
+**The encode is ONE pass, and what makes it one is PARKING.** It used to size
+the hole with a length pass, shift the tail to fit, and then write the records
+— and the length pass measured **9.97 ms of a 27.62 ms encode, 36% of it**
+(breakpoints on `tk_tmenc` and its two stage labels, 101 encodes), to answer a
+question the writing pass answers again by arriving at it. `tk_tmenc` moves the
+rows ABOVE the range to the top of the pool instead, writes the new records
+straight into their final home, and brings the parked rows back down against
+wherever the pen finished. **Encoding into the pool's free tail would be
+simpler and does not fit**: it wants a transient of `tmlen` plus the new
+records, and at the measured high water — 2,349 of the top rung's 2,432 — a
+band encode overflows a pool the RESULT fits in. Parking wants no transient at
+all, its space condition staying `tmlen + delta <= cap`, exactly the one the
+two passes had. **Both moves have a fixed direction, so neither is tested
+for**: the park is always a RIGHT move, because `cap - M >= b` reduces to `cap
+>= tmlen`, the pool's own invariant, and the unpark always a LEFT one, because
+`[tk_tmceil]` is what keeps the pen below where the rows were parked. Grow or
+shrink, copy up or copy down — what the two-pass form decided per call is
+decided here by construction.
+
+What that costs is the SECOND move of the parked rows (533 bytes mean, 941
+worst: 2.17 ms) and a per-record ceiling test in the emit (~1.4 ms), because a
+single pass writes into the room it HAS rather than into room it measured
+first; a record that would pass `[tk_tmceil]` sets `[tk_tmovf]`, nothing more
+is written by that call or any later one, and `tk_tmenc` clears `[tk_tmpl]` as
+it always did. Against the 9.97 the scan cost, that is **27.62 → 22.33 ms an
+encode, −19%** — preamble and park 2.18, the row loop 17.85, unpark and length
+2.17, the index fixup 0.14 — the churn schedule's frame **323.67 → 305.92 ms,
+−5.5%**, and **99 bytes SMALLER**, `tk_tmrowlen` having gone with the pass it
+served — and a whole class of defect with it, because the two scans had to
+agree on the gap rule to the byte (the length pass sized the hole the put pass
+filled) and a divergence would have overrun the pool with nothing able to see
+it. The two builds draw byte-identical frames AND reach the same pool high
+water to the byte, which is what says the store's CONTENT is unchanged rather
+than only its size.
+
+**The size row reads backwards and that is the point.** `APP_SMALL` costs
+**+477 bytes of image** here where the other five arms save features; what it
+buys is 14KB of the claim, so `tests/unit/t_appsmall.py` weighs this package on
+**image + bss + claim** — 63,688 bytes against 50,327 — and reads a **21%**
+saving. A small build measured on the region alone would fail its own gate.
+
+#### 85.3.8.1 The template's ridge is redrawn at the TEMPLATE's heading
+
+`tk_ridge` drew at the live `[tk_pa]`, and one of its callers must not. When an
+item's key moves, `tk_tmitem` zeroes that item's rectangle and `tk_tmdrawset`
+redraws everything the zero took with it — the ridge among them, through
+`tk_tm_ridge`. What the zero took out was the ridge **the template holds**,
+which is at `[tk_rpa_tm]`; and `tk_ridge` was putting back the ridge at
+`[tk_pa]`.
+
+The two agree on nearly every frame and part on exactly one: `tk_tmupdate` runs
+**before** `tk_ridge_tm` (§85.3.5's own ordering — the template is brought
+current straight after the clear), so on a frame where an item's key *and* the
+heading both move, the item redraw goes first and paints at the new heading.
+Then `tk_ridge_tm` takes `.moving` and `tk_rdg_out` zeroes **`tk_sprdg`'s**
+runs, which record where the **old** ridge was. What the item redraw laid
+outside those runs is left behind: in no run, so no clear reaches it; marked
+only into `tk_spjunk`, which nobody reads. A detached ridge segment in the
+background, one frame's turn out of step, for the rest of the bracket.
+
+**`tk_rx0`/`tk_rx1` do not bound it, which is why one item's rectangle strands
+ink right across the band.** They decide *whether* a segment is drawn, never
+where it is cut (`tk_ridge`'s `.sg` loop), so a segment that merely overlaps
+the rectangle is drawn **whole**. That is deliberate — a clipped Bresenham
+would not reproduce the lattice §85.3.2 relies on — and it means the redraw's
+reach is the segment's, not the rectangle's.
+
+So `tk_ridge` draws at `[tk_rpa_draw]`: `tk_ridge_full` sets it from `[tk_pa]`,
+`tk_tm_ridge` from `[tk_rpa_tm]`. **+12 bytes on each arm.** Measured with
+`tests/tankperf.py`'s scene on `os8088_5150_herc_gla`, an item's key and the
+heading moved together for 40 rounds, against a from-scratch repaint: **51
+stale pixels → 0 on the shipped build, 9 → 0 on `APP_SMALL`.**
+
+**IT IS THE SHIPPED BUILD'S DEFECT FIRST**, and by the larger margin: there the
+stray ink lands in the template buffer and the clear re-lays it every frame, so
+it is permanent by construction, where on the small build only the item's own
+rows are re-encoded. Do not read the `APP_SMALL` figure as the size of it.
+
+**Fixing this alone made the small build WORSE**, 9 → 561, and the reason is
+worth keeping: it changes what gets encoded, a fuller pool refuses sooner, and
+§85.3.5.1's `.full` was stranding the whole template when it did. The two are
+independent defects that have to be fixed together, and a bisect that took
+either one on its own would have blamed it for the other's damage.
 
 #### 85.3.6 A shallow line with eight pixels to the row is sliced, not walked
 

@@ -394,7 +394,18 @@ make smallapps#   128KB floor machine, docs/history/KERN-SPLIT-PLAN.md). `smalla
               #   against 11,138**, which is 39.9% and the largest saving in
               #   the tree - it is the only one of the five that trades whole
               #   PAGES rather than features, and the memory view takes more
-              #   with it than the heap page does. `make smallapps` prints
+              #   with it than the heap page does. **TANK (§85.3.5.1) is the
+              #   sixth and it reads BACKWARDS**: its small arm is 477 bytes
+              #   BIGGER, because what it trades is a DATA STRUCTURE and not
+              #   a feature - the HUD template stops being a second
+              #   16,000-byte frame buffer and becomes a span store, which
+              #   takes the heap CLAIM from 32KB to 18/17/16 and is what puts
+              #   the package on the 128KB machine at all. It costs the frame
+              #   4.0%, which is exactly why it is an arm and not a rewrite;
+              #   the shipped .o88 is byte-identical to what it was before.
+              #   tests/unit/t_appsmall.py weighs that row on image + bss +
+              #   CLAIM, because on the region alone it would fail its own
+              #   gate. `make smallapps` prints
               #   every row (tools/os88pkgsize.py); quote it rather than this.
               #   IT IS NOT A SECOND ABI: a
               #   small-built package calls the same API table at the same
@@ -413,11 +424,19 @@ make smallapps#   128KB floor machine, docs/history/KERN-SPLIT-PLAN.md). `smalla
               #   test rather than a size one: eight packages that cannot
               #   reach a driver kern_small does not ship (Browser, FTPD,
               #   Telnet on ETHER.DRV; ModPlug, Recorder, Tracker, Audio on
-              #   SOUND.DRV) or a surface it has (Tank on fsx) are not on the
-              #   disk at all, because a package that merely wants heap can
-              #   REFUSE ITSELF in its own words and one that cannot reach its
-              #   driver can say nothing. The small SYSTEM disk carries
-              #   §24.3's core packages too, filtered the same way (§24.5.1)
+              #   SOUND.DRV), or that claim more than the machine has and
+              #   cannot say so (Skies, whose 32KB shadow is claimed INSIDE
+              #   the fsx bracket, so the refusal is a black screen), are not
+              #   on the disk at all - because a package that merely wants
+              #   heap can REFUSE ITSELF in its own words and one that cannot
+              #   reach its driver can say nothing. **TANK used to be in that
+              #   list under a reason that was WRONG**: kern_small has the
+              #   whole of §53, and what refused was a 32KB claim against the
+              #   arena. It is a SUBSTITUTION now rather than an omission -
+              #   §85.3.5.1's small arm - which is the shape to reach for
+              #   first: an omission is what is left when substitution cannot
+              #   work. The small SYSTEM disk carries §24.3's core
+              #   packages too, filtered the same way (§24.5.1)
 make emu      # THE THIRD KERNEL (§9.11.7): kern_emu, into build/emuk/, plus
               #   build/emu.img. It is kern_big PLUS §9.11's VMware absolute
               #   pointer and nothing else - the backdoor on port 0x5658 that

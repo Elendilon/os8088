@@ -4972,6 +4972,7 @@ $(BUILD)/solitair.o88: $(BUILD)/solitair.bin tools/os88pkg.py $(PKGZSTAMP)
 # 53.7). Several sources, because the raster, the geometry, the game and the
 # attract window are separate subjects and the tables are generated.
 $(BUILD)/tank.bin: apps/tank/tank.asm apps/tank/tkraster.inc \
+                    apps/tank/tktmpl.inc \
                     apps/tank/tk3d.inc apps/tank/tkgame.inc \
                     apps/tank/tkattr.inc apps/tank/tkhs.inc \
                     apps/tank/tksin.inc apps/tank/tkridge.inc \
@@ -8177,10 +8178,18 @@ small: $(BUILD)/small360.img $(BUILD)/small.img
 #   modplug, tracker,       SOUND.DRV, which a 128-256KB machine has nothing
 #   audio                   to spare for - the same judgement that took
 #                           RAMDISK.DRV and RAMPAGE.DRV out of $(SMALLDRIVERS)
-#   tank, skies             the fullscreen surface (SPEC.md 42.7/81, 88). Each
-#                           opens and draws its panel, and there is no GAME
-#                           behind it without fsx, so what ships is a menu that
-#                           leads nowhere
+#   skies                   a 32KB heap claim for its frame shadow, which the
+#                           128KB machine's 17.5KB of largest run cannot fund -
+#                           and, unlike PAINT, it cannot say so: the claim is
+#                           made INSIDE the fsx bracket, after the mode is set,
+#                           so the refusal is a black screen and a bounce back
+#                           to the desktop. TANK was this row's other half and
+#                           SHIPS NOW (SPEC.md 85.3.5.1): its template stopped
+#                           being a second 16,000-byte frame buffer, the claim
+#                           went 32KB to a ladder of 18/17/16, and it runs on
+#                           the floor machine. `kern_small` has fsx like every
+#                           other build - that was never what either of them
+#                           was missing
 #
 # RECORDER WAS THE FOURTH SOUND ROW AND IS NOT A ROW ANY MORE. It is off the
 # shipped apps disk entirely (SPEC.md 35.1), so it is not in $(APPS_TOOLS) for
@@ -8189,13 +8198,13 @@ small: $(BUILD)/small360.img $(BUILD)/small.img
 # omit list takes. The rule it would have failed is unchanged and would still
 # omit it if it came back.
 #
-# Nine programs that could not have started (SPEC.md 24.5 has the same
+# Eight programs that could not have started (SPEC.md 24.5 has the same
 # figures, re-measured together).
 SMALLOMIT := $(BUILD)/browser.o88 $(BUILD)/ftpd.o88 $(BUILD)/telnet.o88 \
              $(BUILD)/thewire.o88 \
              $(BUILD)/modplug.o88 $(BUILD)/tracker.o88 \
              $(BUILD)/audio.o88
-SMALLOMIT_GAMES := $(BUILD)/tank.o88 $(BUILD)/skies.o88
+SMALLOMIT_GAMES := $(BUILD)/skies.o88
 
 # ...and BROWSER.HTM with the browser, for the same reason one step along: a
 # .HTM is openable by nothing else on the machine (SPEC.md 71), and a manual
@@ -8216,7 +8225,17 @@ SMALLOMIT_DATA := apps/browser/browser.htm apps/tracker/beverly.mod
 # APPS: directly put it in BOTH folders for a cycle.
 SMALLPKGS     := $(SMALLAPPDIR)/notepad.o88 $(SMALLAPPDIR)/paint.o88 \
                  $(SMALLAPPDIR)/calc.o88 $(SMALLAPPDIR)/solitair.o88 \
-                 $(SMALLAPPDIR)/taskmgr.o88
+                 $(SMALLAPPDIR)/taskmgr.o88 $(SMALLAPPDIR)/tank.o88
+                                    # TANK is the one whose small build is
+                                    # BIGGER (SPEC.md 85.3.5.1): +576 bytes of
+                                    # image to turn the HUD template from a
+                                    # second 16,000-byte frame buffer into a
+                                    # span store, and 14KB off the heap claim
+                                    # that buys. The other five trade features;
+                                    # this one trades a data structure, so
+                                    # tests/unit/t_appsmall.py weighs it on
+                                    # image + bss + CLAIM rather than on the
+                                    # region alone
 SMALLBASE      = $(patsubst $(SMALLAPPDIR)/%,$(BUILD)/%,$(SMALLPKGS))
 
 # The substitution, ONE IDIOM used by all four lists below: drop the omitted
@@ -8473,12 +8492,32 @@ $(SMALLAPPDIR)/solitair.bin: apps/solitaire/solitaire.asm apps/os88api.inc \
 $(SMALLAPPDIR)/solitair.o88: $(SMALLAPPDIR)/solitair.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(SMALLAPPDIR)/solitair.bin -o $@
 
+$(SMALLAPPDIR)/tank.bin: apps/tank/tank.asm apps/tank/tkraster.inc \
+                         apps/tank/tktmpl.inc \
+                         apps/tank/tk3d.inc apps/tank/tkgame.inc \
+                         apps/tank/tkattr.inc apps/tank/tkhs.inc \
+                         apps/tank/tksin.inc apps/tank/tkridge.inc \
+                         apps/tank/tktan.inc apps/tank/tknib.inc \
+                         apps/tank/tkover.inc apps/tank/tklogo.inc \
+                         apps/os88api.inc apps/os88ui.inc $(SBSTAMP) | $(BUILD)
+	@mkdir -p $(SMALLAPPDIR)
+	$(NASM) -f bin -w+error -I apps/ -I apps/tank/ -DAPP_SMALL $(PKGSBDEF) \
+	        -o $@ apps/tank/tank.asm
+	@echo "tank (APP_SMALL): $(call FILESIZE,$@) bytes"
+
+$(SMALLAPPDIR)/tank.o88: $(SMALLAPPDIR)/tank.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(SMALLAPPDIR)/tank.bin -o $@
+
 smallapps: $(BUILD)/smallapps360.img $(BUILD)/smallapps.img
 	@python3 tools/os88pkgsize.py $(BUILD)/notepad.o88 $(SMALLAPPDIR)/notepad.o88
 	@python3 tools/os88pkgsize.py $(BUILD)/paint.o88 $(SMALLAPPDIR)/paint.o88
 	@python3 tools/os88pkgsize.py $(BUILD)/calc.o88 $(SMALLAPPDIR)/calc.o88
 	@python3 tools/os88pkgsize.py $(BUILD)/solitair.o88 $(SMALLAPPDIR)/solitair.o88
 	@python3 tools/os88pkgsize.py $(BUILD)/taskmgr.o88 $(SMALLAPPDIR)/taskmgr.o88
+	@python3 tools/os88pkgsize.py $(BUILD)/tank.o88 $(SMALLAPPDIR)/tank.o88
+	@echo "pkgsize: tank's small build is BIGGER by design (SPEC.md 85.3.5.1) -"
+	@echo "pkgsize:   its saving is the HEAP CLAIM, 32KB -> 18/17/16KB, which is"
+	@echo "pkgsize:   what puts it on the 128KB machine at all"
 
 # --fatcap 2 ON BOTH, exactly as the small SYSTEM disks above take it, and it
 # is not cosmetic on the 1.44MB one: kern_small's DSK_FAT_SECS is 2 and mount
