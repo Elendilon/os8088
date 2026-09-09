@@ -88,6 +88,14 @@ import os88parts as parts                                 # noqa: E402
 # the side of the comparison that was not getting it.
 ASM = ["boot/boot.asm", "boot/boothd.asm",
        "apps/os88api.inc", "apps/os88ui.inc",
+       # Clear Skies' world constants (SPEC.md 88.10.5): a WORLD PART is
+       # assembled on its own - it has to be, or it could not be laid at a
+       # fixed org - so it cannot see skies.asm's declarations, and
+       # cswdefs.inc is the two dozen it needs, written out a second time.
+       # Moving them out of skies.asm instead would take them away from the
+       # prose that explains what an ink or a face flag MEANS, which is the
+       # trade this file exists to make unnecessary.
+       "apps/skies/skies.asm", "apps/skies/cswdefs.inc",
        "drivers/os88drv.inc",
        # The screen saver's private ABI (SPEC.md 79.3): five verbs, the
        # settings block's four offsets, the mode bits and the minutes clamp,
