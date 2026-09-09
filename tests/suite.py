@@ -3683,6 +3683,14 @@ SOAK = [
         "The 360KB MEDIA DISK mounts, and the apps disk keeps MEDIA (SPEC.md"
         "24.4).",
         needs=("marty",), serial=True),
+    Row("mcseg", "soak", py("tests/mcseg.py"), 90.0,
+        "SPEC.md 48.16.1: Missile's SEGMENT arm - the one a trail takes when"
+        " mc_tr_lay will not lay a walk for it - draws and commits through"
+        " OSAPI_GFX_POINTS. The row exists because the arm does not run:"
+        " measured over 45 guest seconds of play, mc_tr_lay refused 0 of 39,"
+        " so it patches mc_tr_lay to stc/ret in the guest to force every trail"
+        " down it",
+        needs=("marty",), serial=True),
     Row("minexflag", "soak", py("tests/minexflag.py"), 50.0,
         "A wrong flag must not be drawn pixel-identical to a mine (SPEC.md "
         "23): the X over it is light red because a black one lands entirely "

@@ -64925,6 +64925,39 @@ full repaint replays it with the **scalar** one (`mc_redraw_trails` was left
 alone), so a disagreement between the two would show directly. **0 differing
 pixels** on VGA (of 224,961), CGA (of 129,485) and Hercules (of 236,160).
 
+#### 48.16.1 The SEGMENT arm lays its line itself now
+
+`mc_line` is the arm a trail takes when `mc_tr_lay` will not lay a walk for it —
+the Mode X surface (§53.7), or an endpoint off the content. It called
+`OSAPI_GFX_LINE`; it walks the line into the point list with `gfxe_wline` and
+commits it with one `OSAPI_GFX_POINTS` now (§5.12.5), which takes `apps/missile`
+to zero `OSAPI_GFX_LINE` call sites.
+
+**§5.6.5's dilation is three walks, which is what the kernel did.** The erase
+owes it because the trail is *drawn* in per-frame segments and *erased* as one
+long line, so the two Bresenhams disagree by a pixel. `gfxe_winit` has already
+put |dx| and |dy| in the block, so which axis is the minor one costs one
+compare, and the two extra walks are the same line offset ±1 along it.
+
+**THE ARM DOES NOT RUN, and that is measured rather than assumed.** Over 45
+guest seconds of live play `mc_tr_lay` was called **39 times and refused 0**, so
+`mc_line` was reached **0 times**; the batch (`mc_dsc_run`) ran 2,061 times in
+the same window and the trails it laid were 114 to 549 pixels, median 238. So
+this conversion is not a speed change — there is no speed here to win — it is
+what takes the last `gfx_line` caller out of the game.
+
+**What it is NOT is a fall back to `.own`.** That arm — Missile's own Bresenham,
+accumulating horizontal runs and flushing each through `mc_fillc` — still
+handles the Mode X surface and an off-content end, and it is what this whole
+section exists because of: a steep line costs it **one call a row**, so a median
+238-pixel trail would be 238 of them. The point list is one arrival per 96
+points instead.
+
+`tests/mcseg.py` is the gate, and it exists because the arm is unreachable in
+play: it patches `mc_tr_lay` to `stc`/`ret` in the running guest, which sends
+every trail down the segment arm, and then plays. Forced that way it reads 206
+commits, 880 points and 535 lit pixels of playfield.
+
 ### 48.17 The strip drew 29 cells to change one digit; a salvo redrew together
 
 The MartyPC log (PERFORMANCE.md Part 9, Set 9) is the first with a working

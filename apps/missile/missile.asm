@@ -6920,13 +6920,45 @@ mc_line:
     add cx, [mc_ox]
     add bx, [mc_oy]
     add dx, [mc_oy]
-    mov si, 0
-    cmp byte [mc_lfat], 0           ; the erase owes the dilation (5.6.5): we
-    je .thin                        ; DRAW in per-frame segments and erase in
-    mov si, 1                       ; one long line, and those two Bresenhams
-.thin:                              ; disagree by a pixel
-    call OSAPI_GFX_LINE
+    call .walk                      ; SPEC.md 48.16.1: the line is OURS now -
+    cmp byte [mc_lfat], 0           ; gfxe_wline into the point list, and one
+    je .ldone                       ; arrival commits it
+    mov si, [mc_lwk + GLS_DX]       ; the erase owes 5.6.5's dilation, and it
+    cmp si, [mc_lwk + GLS_DY]       ; is what the kernel did: THREE walks, one
+    jb .lsteep                      ; either side of the MINOR axis. The walk
+    dec bx                          ; block above has |dx| and |dy| in it
+    dec dx                          ; already, so which axis that is costs one
+    call .walk                   ; compare
+    add bx, 2
+    add dx, 2
+    call .walk
+    jmp short .ldone
+.lsteep:
+    dec ax
+    dec cx
+    call .walk
+    add ax, 2
+    add cx, 2
+    call .walk
+.ldone:
+    call gfxe_pput
     pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; .walk - one whole line into the point list; AX/BX/CX/DX preserved
+.walk:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    mov di, mc_lwk
+    call gfxe_wline
+    pop di
     pop dx
     pop cx
     pop bx
@@ -7978,6 +8010,8 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
     MWORD mc_lerr
     MWORD mc_lrun
     MBYTE mc_lfat                   ; the erase's one-pixel dilation
+    MBUF  mc_lwk, GLS_SZ            ; ...and the block mc_lwalk lays a whole
+                                    ; line with (SPEC.md 48.16.1)
     MWORD mc_numptr
     MBUF  mc_numbuf, 12
     MBUF  mc_wbuf, 16
