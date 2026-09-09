@@ -2469,6 +2469,46 @@ SOAK = [
         " cs_boxlod not entered at all and nothing reaching cs_rect, which is"
         " that rung's whole feature",
         needs=("marty",), serial=True),
+    Row("skiescrash", "soak", py("tests/skiescrash.py"), 26.0,
+        "SPEC.md 88.7.11.1: the windshield is drawn WHOLE. cs_seg reads three"
+        " words to decide what a segment owes the glass, and cs_crackle runs"
+        " AFTER cs_scene, so all three hold the last object drawn's -"
+        " cs_pinview would skip the clip, cs_pwhole the marking outright, and"
+        " cs_markacc would accumulate into an object box cs_drawobj flushed a"
+        " moment ago. The horizon and the panel both take all three stores;"
+        " cs_crackle took only cs_pinview, so a crack appeared wherever"
+        " something ELSE had marked the row and nowhere else - and over open"
+        " sky, which on Hercules is the top of the view and is black, nothing"
+        " marks a row and the cracks up there were never drawn at all. The row"
+        " pins 300 m over Paris nose-down, crashes the aeroplane where it"
+        " stands and counts what the crash adds ABOVE the horizon the guest"
+        " itself reports in cs_hzy0 - 129 lit pixels against 0 - and then"
+        " asks the routine the rule directly: the shadow and the frame's span"
+        " set are read on either side of cs_crackle, and every row whose bytes"
+        " changed must have a span that covers them. The shipped routine"
+        " changes 111 rows and leaves 75 outside their own span, most with no"
+        " span at all. THAT is also why a crack outlives the crash - cs_blit"
+        " copies cur UNION prv and the next frame refills only prv, so an"
+        " unmarked run that reached the glass inside the previous frame's span"
+        " can never be erased. --clobber-crash puts cs_crackle back as it"
+        " shipped and both checks go red",
+        needs=("marty",), serial=True),
+    Row("skiesbank", "soak", py("tests/skiesbank.py"), 22.0,
+        "SPEC.md 88.5.4.6: the box impostor BANKS WITH THE WORLD. A solid too"
+        " small to tell apart is drawn as its box, and that box was an"
+        " AXIS-ALIGNED SCREEN RECTANGLE - the top was projected and only its"
+        " ROW kept, so the shape never tilted, and its height was the VERTICAL"
+        " PART of the projected up axis, which is |up2| cos r: at 50 degrees"
+        " of bank a building was drawn 6 pixels tall for a 12.5-pixel axis and"
+        " got the height back as the wings came level. The row pins ONE pose"
+        " over Paris and rolls the aeroplane under it, so the building, the"
+        " eye and the depth are identical and only the bank changes, and reads"
+        " the four corners the FILL was handed - keyed on the object, because"
+        " a roll moves the frustum and comparing the frame's first impostor at"
+        " each bank compares two different buildings. --clobber-bank NOPs the"
+        " two jumps that choose the quad, which is what shipped, and the six"
+        " banked checks go red while the two level ones stay green",
+        needs=("marty",), serial=True),
     Row("skiespitts", "soak", py("tests/skiespitts.py"), 34.0,
         "SPEC.md 88.7.2: the second aeroplane flies by its own CSP_ATT - the"
         " Pitts rolls right round and loops over the top and stays where the"
@@ -2602,6 +2642,64 @@ SOAK = [
         " tree AND keeps it current, which a capability cannot do",
         needs=("marty",), wants=("build/skiesdiag/apps360.img",),
         serial=True),
+    Row("skiesdrag", "soak", py("tests/skiesdrag.py"), 65.0,
+        "SPEC.md 88.7.12: A WING PAYS FOR ITS LIFT. The model had parasitic"
+        " drag only - CSP_DRAGK, going as v^2 - and that term falls away as"
+        " the speed falls, so a slow aeroplane barely dragged. The field flew"
+        " all four consequences: a Cessna holding 60 knots on 18% of its"
+        " power, hanging at 150 for minutes, most of the runway used on the"
+        " roll-out, and a jet that could not be landed. The oracle is the DRAG"
+        " CURVE read off the guest one tick at a time with the throttle shut -"
+        " the fall in cs_spd IS the drag - because a settled-speed sweep does"
+        " NOT repeat: below the stall the aeroplane dives and pins at the 1.25"
+        " VMAX cap, and a first version read 189 knots at every throttle from"
+        " 10% to 100% for exactly that reason. It checks that the curve has a"
+        " minimum with a rise on both sides (which a v^2 law can never"
+        " produce), that the term is FLOORED below the stall rather than"
+        " running away (without the floor the Cessna reads 28 units a tick at"
+        " 10 m/s against 16 of full thrust and can never accelerate again -"
+        " measured, and very nearly shipped), and that the brake is an"
+        " AIRBRAKE in the air. --clobber-ind zeroes CSP_INDK in the live"
+        " record and --clobber-air turns the brake test into a jmp",
+        needs=("marty",), serial=True),
+    Row("skiesface", "soak", py("tests/skiesface.py"), 105.0,
+        "SPEC.md 88.6.2.4: THE STRIPES ARE AHEAD OF THE AEROPLANE. cs_rwline"
+        " walked the centreline one way only - from the aeroplane's own u"
+        " toward the far end - which is right for a take-off roll from the"
+        " near threshold and exactly backwards after a landing from the far"
+        " side, where everything it drew was BEHIND the aeroplane. The field"
+        " reported it as a blank runway. THE ORACLE IS THE ARGUMENT AND NOT"
+        " THE PICTURE: a pixel diff of two renders does NOT repeat here (the"
+        " same build and pose gave 18, 816 and 2,038, because m.advance counts"
+        " emulator frames and a forced repaint lands a different number of"
+        " guest frames each time), so the row reads what cs_rwsegu is HANDED,"
+        " maps it back into the model's u with the guest's own [cs_rwrev],"
+        " and judges it against the end the aeroplane is REALLY pointed at -"
+        " which the row sets rather than reads, so a broken build cannot pass"
+        " by agreeing with itself. 88.6.2.3's threshold-anchored run is"
+        " exempt; that one is skiesrwy's. --clobber-face NOPs the five bytes"
+        " that set [cs_rwrev] and 7 of the 16 poses go behind",
+        needs=("marty",), serial=True),
+    Row("skieskfz", "soak", py("tests/skieskfz.py"), 50.0,
+        "SPEC.md 8.9.1: THE TWO INSTRUMENTS TOGETHER. A hard freeze wants"
+        " both - KFZ=1's kernel heartbeat (SPEC.md 8.9), which says whether"
+        " IRQ0 was masked, whether an EOI went missing and which side of the"
+        " BIOS chain the machine died on; and Clear Skies' own watchdog"
+        " (SPEC.md 88.14), which says where in a frame it stopped - and they"
+        " are painted by different code into one framebuffer, so nothing but"
+        " a row that runs both says they fit. The claim the field found is"
+        " the second: the 30-second stuck report must NEVER ARM inside an fsx"
+        " bracket, because ui_task does not run in one at all (SPEC.md 53.1)"
+        " so `no pass in 30 seconds` is the DEFINED state there - and the"
+        " report forces the gfx lock, the clip count, gfx_dis and gfx_color"
+        " open and draws with font_run into the KERNEL's framebuffer while"
+        " the app owns the video mode. It builds its own kernel into a"
+        " PRIVATE TREE (docs/plans/SOAK-PARALLEL.md 8): a KFZ kernel left in"
+        " build/ makes every other emulator row die saying the map describes"
+        " a different kernel. --clobber-stuck NOPs the six bytes of the"
+        " bracket test and khb_stuck climbs to 782 against a threshold of 546",
+        needs=("marty",), wants=("build/skiesdiag/apps360.img",),
+        serial=True),
     Row("skiesadi", "soak", py("tests/skiesadi.py"), 30.0,
         "SPEC.md 88.9.2.2: THE HARD FREEZE, reduced to one instruction. The"
         " attitude indicator drew its horizon bar at t x tan(roll) and got"
@@ -2727,7 +2825,7 @@ SOAK = [
         " one (docs/WRITING-TESTS.md 13 entry 44)."
         " --clobber-flat NOPs the four bytes and the bar moves to x = 0",
         needs=("marty",), serial=True),
-    Row("skiesrwy", "soak", py("tests/skiesrwy.py"), 33.0,
+    Row("skiesrwy", "soak", py("tests/skiesrwy.py"), 50.0,
         "SPEC.md 88.6.2.1: the runway keeps its lines PAST ITS OWN MIDDLE."
         " cs_drawobj's size test opened `cmp cx, 2600 / ja .out` on the"
         " object's camera z, and ja is unsigned - so an origin BEHIND the eye"
@@ -2739,7 +2837,29 @@ SOAK = [
         " a row that walked only the far half could not tell a fix from a"
         " runway that had stopped being drawn at all; then once at 40 m,"
         " which is the other half of the report. --clobber-rwy takes the four"
-        " bytes of the guard back out and it reads 30, 30, 30, 0, 0, 0",
+        " bytes of the guard back out and it reads 30, 30, 30, 0, 0, 0."
+        " It then flies the LONG FINAL (SPEC.md 88.6.2.2), the same runway one"
+        " bug later: cs_rwline decided `past the far end` on the QUOTIENT of"
+        " metres x 16384 / hlen, which stops fitting in AX one whole runway"
+        " length past the far end, where an 8086 answers with INT 0 - and the"
+        " window is a circuit, this code being reached only below RW_DASHH and"
+        " within RW_DASHW of the axis. The check is what cs_rwsegu is HANDED,"
+        " not whether the machine survived, because surviving is the ROM's"
+        " decision: under GLaBIOS vector 0 is the dummy handler, so the guest"
+        " carries on with AX undefined and draws stripes from it."
+        " --clobber-far NOPs the nine bytes of the guard; since 88.6.2.4 that"
+        " arm no longer goes red from these poses, because facing space puts"
+        " an aeroplane past the far threshold SHORT of the one behind it and"
+        " js .zero returns before the divide. The same approach is"
+        " where the centreline NEVER DASHED (SPEC.md 88.6.2.3): the near end"
+        " has been clamped since the first build - js .zero puts the stripes"
+        " at the threshold you are aiming at - and the far end had no such"
+        " case, so it drew one solid line from a runway length out to the"
+        " flare. The field named the state as well as the symptom - leave and"
+        " come back, because at reset you are stood at the near end - and the"
+        " row reads the four stripes at the far threshold and that the last"
+        " ends ON it. --clobber-thresh pokes [cs_rwfar] onto the threshold so"
+        " they collapse, and every far row reads (0, 32767) again",
         needs=("marty",), serial=True),
     Row("skiesui", "soak", py("tests/skiesui.py"), 90.0,
         "SPEC.md 88.10's title page on the VGA machine: the two drop-downs"

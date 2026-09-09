@@ -20,6 +20,8 @@ price the same frame.
              centreline (88.6.2) at the height it is meant for
     city     300 m up over the Champ de Mars heading north-east: the tower,
              the Trocadero, the river and the far skyline together
+    citybank the same frame banked 30 right: what the box impostor (88.5.4)
+             costs when the world is not level
 """
 import argparse
 import os
@@ -43,6 +45,7 @@ SCENES = {                              # x, y, z (metres), heading (degrees), p
     "city": (150, 300, -900, 30, -5),
     "climb": (-2689, 40, -2409, 40, 5),  # 300 m down the runway, 40 m up
     "bank": (-2689, 80, -2409, 40, 5, 30),   # ...banked 30 right, for the ADI
+    "citybank": (150, 300, -900, 30, -5, 30),  # ...the city frame banked 30 right
 }
 
 

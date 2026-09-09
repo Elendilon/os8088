@@ -1819,12 +1819,26 @@ sch_isr:
     ; banked and put back below.
     mov ax, [khb_uipass]        ; HAS THE UI TASK COMPLETED A PASS? The old
     cmp ax, [khb_uilast]        ; trigger was "the mutex has been held N ticks"
-    je .khbheld                 ; and the field never tripped it - because the
+    je .khbnopass               ; and the field never tripped it - because the
     mov [khb_uilast], ax        ; loop takes and releases it every iteration.
-    mov word [khb_stuck], 0     ; A livelock is invisible to a held-lock timer
-    jmp .khbout                 ; and obvious to a progress one (NEAR: the
-                                ; report below put .khbout out of short range)
-.khbheld:
+.khbzero:                       ; A livelock is invisible to a held-lock timer
+    mov word [khb_stuck], 0     ; and obvious to a progress one (NEAR: the
+    jmp .khbout                 ; report below put .khbout out of short range)
+.khbnopass:
+    ; --- ...UNLESS AN fsx BRACKET IS UP (SPEC.md 8.9.1). ui_task does not run
+    ;     inside one AT ALL (SPEC.md 53.1) - the app owns the machine - so "no
+    ;     pass in 30 seconds" is the DEFINED state there and not a symptom.
+    ;     Without this the report fires half a minute into every bracket, every
+    ;     time: the field found it by running KFZ=1 under a flight simulator
+    ;     and watching the line land on top of the app's own instrument. It is
+    ;     worse than a collision - the report forces the gfx lock open and
+    ;     draws with font_run into the KERNEL's framebuffer while the app owns
+    ;     the video mode, which in a Mode X or CGA320 bracket is a write into a
+    ;     mode the kernel is not driving. [fsx_task] is 0xFF when no bracket is
+    ;     up (fsx.inc's house idiom), and the counter is ZEROED rather than
+    ;     merely held, so leaving a long bracket does not fire on the way out
+    cmp byte [fsx_task], 0xFF
+    jne .khbzero
     inc word [khb_stuck]
     cmp word [khb_stuck], KHB_STUCK
     jne .khbout                 ; ...and EXACTLY at the threshold, so the

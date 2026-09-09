@@ -226,6 +226,17 @@ CSM_EDGES equ 12
 CSM_SIZE  equ 14
 
 ; a face: db n, ink, flags, then n vertex indices
+; --- the attitude indicator's half-width TABLE (SPEC.md 88.9.2.5) -----------
+; It was 41 ms of a BANKED frame - 14% of it - and every millisecond of that
+; was the ERASE: the glass is a filled ellipse whose half-width was a square
+; root a row, taken again on every redraw for a radius that never changes in
+; flight. It is taken once a layout now, into cs_adtab.
+CS_ADHMAX   equ 24              ; rows of half-glass the table can hold. The
+                                ; tallest bezel any cockpit declares is 20
+                                ; rows (CSK_ADRY), so the glass is 18; a taller
+                                ; one ever added falls back to the roots, which
+                                ; is what cs_adsize's `ja .out` is for
+
 CSF_NOCULL equ 1                ; a ground polygon: visible from either side
 ; --- ...and which way a STACK face points, so it can be culled against the
 ;     EYE'S OWN WORLD POSITION before anything is gathered or projected
@@ -393,7 +404,17 @@ CSP_ART    equ 42               ; word: ITS PICTURE (88.10.1) - the 1bpp band
                                 ; off a third table beside cs_planes and
                                 ; cs_plnames, so an aeroplane carries its own
                                 ; picture the way it carries its own cockpit
-CSP_SIZE   equ 44
+CSP_INDK   equ 44               ; INDUCED DRAG, the wing's own share
+                                ; (SPEC.md 88.7.12): drag = CSP_INDK / (v^2/4)
+                                ; a tick, which RISES as the speed falls -
+                                ; where CSP_DRAGK's v^2 falls away to nothing
+                                ; and lets an aeroplane hang at 60 knots on a
+                                ; fifth of its power. APPENDED and not put
+                                ; beside CSP_DRAGK where it belongs, because
+                                ; tests/skiesbody.py and tests/skiesfleet.py
+                                ; carry these offsets as literals and an
+                                ; insertion moves every field after it
+CSP_SIZE   equ 46
 
 CSPF_AMPHIB equ 0x0001          ; it may touch down on water, and where the
                                 ; location has some it STARTS there (88.7.7)
@@ -459,6 +480,11 @@ CS_GRAV    equ 69               ; 9.81 m/s^2 a tick, 16.7 (SPEC.md 88.7.4)
 CS_STALLSINK equ 24             ; 16.8 m/s of sink per 1 m/s under the stall
 CS_STALLDROP equ 60             ; the nose drops this much a tick, stalled
 CS_LIFTOFF equ 546              ; 3 degrees: the nose is up, and it flies
+CS_INDMAX  equ 64               ; ...and a backstop on it, 9.1 m/s^2. The
+                                ; real bound is the STALL's own q (88.7.12),
+                                ; which is what stops the term running away;
+                                ; this only catches a record whose numbers
+                                ; disagree with each other
 CS_RUDDER  equ 24               ; the rudder's yaw a tick, in the air
 CS_STEERK  equ 2                ; the nosewheel: hdg += v x this >> 7
 CS_LANDVS  equ -384             ; a landing sinks no faster than 3 m/s...
@@ -2142,8 +2168,12 @@ cs_tpl:
                                     ; instructions (88.10)
     ZBYTE cs_setbld                 ; the four settings (88.13), and their
     ZBYTE cs_setsize                ; defaults are what shipped: every
+    ZWORD cs_lodsc                  ; the Detail rung's range SCALE, looked up
+                                    ; once a frame instead of once an object
     ZBYTE cs_setlod                 ; picture below the top of each list is
     ZBYTE cs_setfill                ; a trade the player asked for
+    ZWORD cs_adtn                   ; the half-width table's rows, 0 = unbuilt
+    ZBUF  cs_adtab, (CS_ADHMAX + 1) * 2
     ZWORD cs_odx                    ; the object's world offset from the EYE at
     ZWORD cs_ody                    ; its own scale, BEFORE the rotation - the
     ZWORD cs_odz                    ; axis cull's whole input (88.5.12)
@@ -2205,15 +2235,24 @@ cs_tpl:
     ZWORD cs_rwu                    ; cs_rwpt's u
     ZWORD cs_rwdu                   ; a runway stripe, on, in Q15 of the
                                     ; centreline (88.6.2); the pitch is twice
+    ZBYTE cs_rwrev                  ; the aeroplane is pointed at the NEAR
+                                    ; threshold, so the centreline is walked
+                                    ; in facing space (88.6.2.4)
+    ZWORD cs_rwfar                  ; ...and where the FAR threshold's run of
+                                    ; them starts, 32766 - (2 RW_NDASH - 1) du
+                                    ; (88.6.2.3), so the last stripe ends ON it
     ZBYTE cs_pgate                  ; the panel's rate gate (88.9.1)...
     ZWORD cs_plast                  ; ...and the tick the instruments last read
     ZWORD cs_pfan                   ; the fan's triangles left (88.5.9)
     ZBYTE cs_bshr                  ; cs_boxlod's saved cs_pshr (88.5.4.3)
     ZWORD cs_bw                     ; cs_boxlod's half-width, and its
     ZWORD cs_bx0                    ; projected centre x, top row and base
-    ZWORD cs_by0                    ; row
-    ZWORD cs_by1
-    ZWORD cs_hzproc
+    ZWORD cs_by0                    ; row - and the TOP's x with them, which
+    ZWORD cs_by1                    ; is where the bank shows (88.5.4.6)
+    ZWORD cs_bx1
+    ZWORD cs_bwp                    ; ...the half-width in PIXELS, and the
+    ZWORD cs_brx                    ; screen-space half-width vector it turns
+    ZWORD cs_bry                    ; into: w (cos r, -sin r)
     ZWORD cs_glyphproc
     ZWORD cs_lsh                    ; the walk trio: shallow, steep, vertical
     ZWORD cs_lst
@@ -2249,6 +2288,18 @@ cs_tpl:
                                     ; on it since is the previous span set's
                                     ; entry, not a bit here (88.3.1)
     ZWORD cs_fullspan               ; the span pair of a touched view row
+    ZBUF  cs_hzpat4, 8              ; the fused band's ink PAIR per row phase,
+                                    ; DL left DH right, built once a frame
+    ZWORD cs_hzend                  ; ...and where its walk of cs_xl stops
+    ZWORD cs_hzmm                   ; the crossing byte's pixel-mask index and
+    ZWORD cs_hzmt                   ; its table, both the ADAPTER's (88.3.1.2)
+    ZWORD cs_hzlo                   ; the band's span pass (88.3.1.1): the
+    ZBYTE cs_hzhi                   ; view's first and last BYTE, and the kind
+    ZBYTE cs_hzsplit                ; a row must have had to get a band rather
+                                    ; than the whole view - 3, or 0xFF where
+                                    ; nothing may be "as it was"
+    ZBYTE cs_hzfull                 ; ...set to put every split row back on
+                                    ; the whole-view span, which is the A/B
     ZWORD cs_slx                    ; the slice's (85.3.6): its first x, whole
     ZWORD cs_slq                    ; step, error, runs to go and last run
     ZWORD cs_slerr
@@ -2271,6 +2322,8 @@ cs_tpl:
     ZWORD cs_pvp                    ; ...its vertex list and edges to go
     ZWORD cs_pei
     ZBYTE cs_pwind                  ; ...and its winding (88.4.2)
+    ZBYTE cs_pnosent                ; the NEXT polygon needs no sentinel pass
+    ZBYTE cs_pnos                   ; (88.5.4.7), and this one did not
     ZBYTE cs_eside                  ; the chain an edge is on: 0 both, 1, 2
     ZWORD cs_lrunproc               ; the run a LINE's slice lays
     ZBUF  cs_pv, CS_MAXPV * 4       ; a projected face: (x, y) pairs
@@ -2280,6 +2333,14 @@ cs_tpl:
     ZWORD cs_wj                     ; ...and the edge's far end
     ZBUF  cs_eseen, CS_ESEEN        ; ...the edges drawn already, this object
     ZWORD cs_pn
+%ifdef CSHZPROBE                    ; ...its OWN define: CSPROBE's bss is
+    ZBUF  cs_hzpb, CS_MAXROW        ; already at APP_MAX_SIZE, and this
+    ZWORD cs_dbg_hzrow              ; question needs none of its arms
+    ZWORD cs_dbg_hzby               ; ...bytes the whole-row refill lays
+    ZWORD cs_dbg_hzinc              ; ...bytes an INCREMENTAL one would
+    ZWORD cs_dbg_hzsame             ; ...rows whose crossing did not move
+    ZWORD cs_dbg_hzmax              ; ...the widest single row's change
+%endif
 %ifdef CSPROBE
     ZWORD cs_dbg_etr                ; PROBE ONLY: edges cs_poly actually traced
     ZWORD cs_dbg_edup               ; ...of which a face of the SAME object
@@ -2296,7 +2357,13 @@ cs_tpl:
     ZBYTE cs_dbl                    ; the A/B: trace every edge TWICE
     ZBYTE cs_nomark                 ; ...run the dedup TEST or not
     ZBYTE cs_cpy                    ; ...and price the COPY that would replace
-    ZBUF  cs_dbg_scr, CS_MAXROW * 2 ; a skipped trace, done into scratch
+CS_DBGSCR equ 112               ; ...and the copy A/B's scratch is 112 rows,
+                                ; the HERCULES view - which is the machine
+                                ; every one of these arms is read on. The copy
+                                ; clamps to it: the probe build is at
+                                ; APP_MAX_SIZE and a buffer sized for a view
+                                ; nobody measures on costs the arms that are
+    ZBUF  cs_dbg_scr, CS_DBGSCR * 2
     ZWORD cs_dbg_y0                 ; ...the trace's first row, clipped
     ZBYTE cs_dupface                ; ...and the A/B: repeat a face's GATHER
     ZBUF  cs_dbg_pv, CS_MAXPV * 4   ; and its winding cross, into scratch
@@ -2482,6 +2549,11 @@ cs_tpl:
     ZWORD cs_vs                     ; ...and its vertical
     ZWORD cs_ht                     ; the ground moved this tick
     ZWORD cs_thr                    ; 0..100
+    ZWORD cs_qv                     ; v^2/4 in whole m^2/s^2, the quantity the
+                                    ; drag is made of - kept because the
+                                    ; INDUCED term divides by it and the
+                                    ; parasitic one has already multiplied it
+                                    ; away by the time the air path is reached
     ZWORD cs_thrust                 ; CSP_THRUST x thr / 100, kept current
     ZBYTE cs_state
     ZBYTE cs_stall
@@ -2622,6 +2694,13 @@ CS_SWOOPHI equ 900              ; DOWN from the top in sink
                                     ; ours
     ZWORD cs_dbtick                 ; again, so the photograph is of the
     ZBUF  cs_dcan, CSD_CANB         ; MOMENT and not of the wreckage
+    ZBUF  cs_doff, CSD_BLKS * CSD_ROWS * 2  ; ...and the device offset of every
+                                    ; row the strip is painted on, worked out
+                                    ; ONCE at cs_diag_on (SPEC.md 88.14.3) so
+                                    ; the ISR does no arithmetic - and worked
+                                    ; out ABOVE THE VIEW where the backend
+                                    ; leaves room, so a frame's blit cannot
+                                    ; overwrite the reading
 %endif
     ZWORD cs_adcx                   ; the attitude indicator: centre, the
     ZWORD cs_adcy                   ; bezel's radii, the window's half sizes
