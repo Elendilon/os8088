@@ -12590,3 +12590,200 @@ and 0 differing pixels across 554 frames**. That is what a commutative
 multiply and an unchanged sum order should give, and it is worth taking
 anyway: the sum order is only unchanged because integer addition wraps the
 same either way, which is an argument rather than an observation.
+
+### Set 134 — CLEAR SKIES: a row's SHAPE decides its bytes, and a gate one comparison too loose (SPEC.md §88.4.5.2, §88.4.5.3)
+
+Set 132 priced `cs_polyrows_herc` at 725 cycles and 148 bytes a row and said
+the only thing worth removing is ENCODED BYTES. The clamp gate took 25 of them
+out of line; this set censuses what is left **by arm**, because a fetch-bound
+loop only pays for the bytes a row actually executes. `turnhold`, six frames,
+279.5 rows a frame, each row measured `.row` to `.row` — **with the delta
+closed at the routine's `ret`**, without which the last row of one polygon
+runs into the first of the next and reads 38,478 cycles instead of 658, the
+same boundary error Set 132 found in the regression:
+
+| the row | a frame | share | cycles |
+|---|---|---|---|
+| multi, two bytes | 70.7 | 25.3% | 635 |
+| clipped multi, two bytes | 70.0 | 25.0% | 763 |
+| multi with a middle run | 63.3 | 22.7% | 728 |
+| ONE byte | 50.3 | 18.0% | 537 |
+| clipped multi with a middle | 21.0 | 7.5% | 828 |
+| clipped ONE byte | 4.2 | 1.5% | 658 |
+| **all** | **279.5** | | **685** |
+
+Two bytes or fewer is **43%** of every row, only 30% have a middle run at all,
+and an EMPTY row never happens — `cs_edge` leaves `xl <= xr` on every row it
+writes, so the `jg .nrow` guard has fired zero times in every census taken.
+
+**Finding 1: the one-byte arm was in the wrong place, twice.** It sat inline,
+jumped over by `jnz .multi`, so 80% of rows took a jump they did not need —
+and a taken jump flushes the 8088's prefetch queue. Worse, its fifteen bytes
+were fifteen bytes of the loop's SPAN: at 138 the backward `jle .row` was
+outside `rel8` and nasm was emitting `jnle $+5` / `jmp .row`, **five bytes and
+a second taken jump on every row of the program**. That is the kind of cost
+that never appears in a diff. Out of line the span is 122, the `jle` is two
+bytes, the common arm falls through, and with `cmp bp, 0` rewritten as the
+two-byte `or bp, bp` it is **−4 bytes a row for −4 bytes of image**:
+
+| tier 1, 16 frames | control | + the span |
+|---|---|---|
+| `turnhold` `cs_scene` | 166.04 ms | **165.09 / 165.24** |
+| `bank` | 151.27 | **150.31 / 150.53** |
+| `cruise` | 122.89 | **122.71 / 122.86** |
+
+**Finding 2, and it is the one worth remembering: the gate was one comparison
+too loose in each direction, and that was 32% of every row in the program.**
+§88.4.5.1 turned the clamp block on when the polygon's box was `<=` the left
+edge or `>=` the right. Touching is not crossing, and `cs_edge` proves it:
+the walker interpolates strictly BETWEEN an edge's endpoints, so every `xl`
+and `xr` lies inside the box, and a box whose left extreme IS `wx0` has no row
+needing the left clamp. Instrumented at the row loop's entry, reading the
+whole `cs_xl`/`cs_xr` range against the box the gate tested:
+
+| | clipped rows a frame | of which NEITHER end clamped |
+|---|---|---|
+| `turnhold` | 82.3 | **100%** |
+| `descend` | 8.1 | 78% |
+| `cruise` | 35.2 | 72% |
+| `climb` | 104.3 | 43% |
+
+**One polygon a frame in `turnhold` carried 81.6 of those rows.** On `jl`/`jg`
+the block is off for every row of that scene. Two things had to be checked
+before taking it: that the WHOLE-VIEW arm survives — it wants the box to touch
+BOTH edges at once, and nothing lands there because `cs_fclip` clips to the
+frustum, whose side crossings are at 4z ≈ 1,772 pixels, so `climb` keeps its
+5.5 whole-view rows a frame — and that a tie test for the case was worth its
+eight bytes. **It was not**: measured, it cost 0.1 ms of `cs_poly` and bought
+0.1 ms of nothing, so it came back out.
+
+Both, on the `cs_poly` bracket with the call counts identical in every arm:
+
+| tier 3, 16 frames | `cs_poly` control | + both | frame |
+|---|---|---|---|
+| `turnhold` | 49.09 ms | **47.79 / 47.79** | 253.7 → 252.6 |
+| `bank` | 36.54 | **35.52 / 35.22** | 244.7 → 243.9 |
+| `climb` | 18.27 | **17.72 / 17.72** | 151.8 → 151.4 |
+
+**569 frames over six pinned profiles are pixel-identical**, which is the only
+thing that can license a tighter gate — the change is an argument about what
+`cs_edge` can produce, and an argument is not evidence.
+
+**Two method notes.** The row COUNTS are not comparable between runs of the
+probe: it flies 40 rendered frames before arming, and a faster build takes
+fewer ticks to do that, so it arms in a different place — only the shares
+within one run mean anything, and the `calls` column of a same-session tier
+bracket is what says the two arms saw the same scene. And `cs_scene` at 16
+frames wanders about **0.3 ms between runs of the same code**, which is the
+size of the second finding: the `cs_poly` bracket, whose call count is
+identical in every arm, is the instrument that could see it.
+
+### Set 135 — CLEAR SKIES: the row loop split in two, and the register that was worth 11 bytes (SPEC.md §88.4.5.4)
+
+Set 134 made the clip gate exact, which left it never firing in `turnhold` —
+**four bytes on every row of the program to ask a question the polygon already
+answered.** The reason it could not simply go is that BP was where the answer
+lived, and BP is the one register the loop could use for something better.
+
+Moving the question to the caller (`cs_poly` picks `[cs_rowsprocc]` over
+`[cs_rowsproc]` once a polygon; `cs_rect` always takes the clamping one)
+turns `cs_polyrows_herc` into **one source assembled twice** — a `%macro` with
+`%%`-local labels — and BP then pays for the duplication three times over:
+
+| | bytes a row |
+|---|---|
+| the gate is gone | −4 |
+| BP counts the rows DOWN: `cmp bx, [cs_py1]` → `dec bp` | −3 |
+| `push bx` leaves BX dead, so `mov si,bx`/`and si,3` → `and bx,3` | −2 |
+| ...and `and bx, 3` leaves BH zero, retiring `xor bh, bh` | −2 |
+| **total** | **−11** |
+
+...plus, in the clipping arm, the clamp INLINE, so the 43-100% of clipped rows
+that need neither end moved fall through it rather than taking a jump out and
+a jump back — two fewer prefetch flushes.
+
+The last two rows are worth separating out because neither is about the split.
+They are what re-reading a loop for register pressure turns up: twelve
+instructions sit between `push bx` and the `mov bl, al` that rebuilds BX, so
+the pattern index had no business being computed in SI — and once `and bx, 3`
+is there, BH is provably zero and the `xor bh, bh` under it is dead. **It was
+not dead before**: a Hercules view is ~300 rows, so the row index really does
+reach BH, and that instruction was doing real work right up until the `and`
+arrived above it.
+
+Same-session control, NEW/BASE/NEW, on the `cs_poly` bracket with the call
+counts identical in every arm:
+
+| tier 3, 16 frames | `cs_poly` control | + the split | frame |
+|---|---|---|---|
+| `turnhold` | 47.79 ms | **44.98 / 44.98** | 252.4 → 249.4 (3.96 → **4.01 fps**) |
+| `bank` | 35.90 | **33.44 / 33.51** | 243.9 → 241.4 (4.10 → **4.14**) |
+| `climb` | 17.72 | **16.64 / 16.80** | 151.4 → 150.8 (6.60 → **6.64**) |
+
+**−2.4 to −2.8 ms**, against a costing of 1.4 — the estimate was made on the
+−6 bytes the split itself buys, and the other −5 came free with the rewrite.
+That is the opposite error to the usual one here: a prediction off the fetch
+floor is normally an UPPER bound (Set 132), and it undershot only because the
+byte count it was made against was the wrong one.
+
+It costs **+155 bytes of image** for the second expansion, plus six in
+`cs_poly`, eight in the two backend arms and a word of bss. **This is the
+first change in this round that buys speed with SIZE rather than by removing
+work**, and it was taken on the owner's decision with the trade stated
+beforehand — about 170 bytes for ~2.4 ms of a 250 ms frame.
+
+**653 frames over SEVEN pinned profiles are pixel-identical.** The gate's
+usual six do not include `climb`, and `climb` is the only one that reaches the
+whole-view arm or `cs_rect`'s dispatch at all — so a register reallocation
+gated on the six would have been gated on the arm it did not touch.
+
+### Set 136 — CLEAR SKIES: 2,560 bytes of RAM for the row's two ends, and the disk pays NOTHING (SPEC.md §88.4.5.5)
+
+The largest single block left in the row's fixed cost was **thirty bytes to
+turn two pixel x's into two byte indices and two sub-byte masks** — `and si,
+7`, three `shr`, a byte load, twice. The 8088 has no shift-by-3 shorter than
+three `shr`, and CL, the register that would make it one instruction, is the
+last byte.
+
+A word table indexed by x fixes it, and the shape is the point: `cs_lend[x] =
+(cs_hlm[x & 7] << 8) | (x >> 3)` is **exactly the AH:AL the left end wants**
+and `cs_rend` the CH:CL the right one does, so fifteen bytes become eight and
+twelve — **−10 a row**, both spans still inside `rel8` (101 and 113).
+
+**This was REFUSED in docs/plans/SKIES-FRAME-PLAN.md 7.5.4 and the refusal was wrong**,
+which is the finding worth keeping. The arithmetic that refused it was
+correct — 640 entries × 2 bytes × 2 tables is 2,560, against a 1,389-byte gap
+below `CS_VOCAB_AT` — and it never asked what that gap was protecting. Three
+facts, all cheap to check and none checked:
+
+| | |
+|---|---|
+| the bss ships inside the part as a run of ZEROS, and LZ4 is best at that | `skies.o88` is **43,717 bytes in both arms of the A/B — identical to the byte** |
+| what actually grows is the heap CLAIM | 49,216 → **51,776**, `CS_VOCAB_AT` 0xB400 → 0xBE00 |
+| `SKIES` is in `SMALLOMIT_GAMES` | the 128 KB floor machine never loads it at all |
+
+So the cost is 2.5 KB of a `kern_big` machine's heap, in a program that takes
+the whole screen and the whole scheduler for as long as it runs.
+
+Same-session control, NEW/BASE/NEW, `cs_poly` bracket, call counts identical
+in every arm:
+
+| tier 3, 16 frames | `cs_poly` control | + the tables | frame |
+|---|---|---|---|
+| `turnhold` | 44.90 ms | **42.96 / 42.96** | 249.3 → 247.6 (4.01 → **4.04 fps**) |
+| `bank` | 33.51 | **31.89 / 31.82** | 241.5 → 239.9 (4.14 → **4.17**) |
+| `climb` | 16.64 | **16.03 / 16.25** | 150.6 → 149.9 (6.64 → **6.67**) |
+
+**−1.6 to −1.9 ms** against a prediction of 2.3, which is Set 132's rule
+holding: a fetch-floor prediction is an upper bound. `x` cannot leave
+`[0, 639]` — the shadow row is 80 bytes and `cs_vptab`'s Hercules entry is a
+640-wide box that `cs_r_size`'s Full arm hands out whole — so 640 entries is
+exact rather than generous, and `cs_endtab` fills both beside `cs_ktabs` in
+`cs_r_setup`, ~4 ms once a bracket.
+
+**659 frames over seven pinned profiles are pixel-identical.**
+
+**The method note is the one to carry forward.** A size refusal is only as
+good as its account of where the size lands, and this one had three places to
+land — the file, the claim, and the floor machine — of which the refusal
+priced none. "It needs 2.5 KB and the gap is 1.4" was true and useless.

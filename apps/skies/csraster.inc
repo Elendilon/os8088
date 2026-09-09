@@ -230,6 +230,7 @@ cs_r_setup:
                                     ; hid it - a pointer only some arms fill
                                     ; is the shape to look for
     mov word [cs_rowsproc], cs_polyrows
+    mov word [cs_rowsprocc], cs_polyrows
     mov word [cs_glyphproc], cs_glyph_modex
     mov si, cs_lp_modex
     cmp byte [cs_back], CSB_MODEX
@@ -265,6 +266,7 @@ cs_r_setup:
     mov word [cs_inktab], cs_inkherc
     mov word [cs_hrunproc], cs_hrun_herc
     mov word [cs_rowsproc], cs_polyrows_herc
+    mov word [cs_rowsprocc], cs_polyrows_herc_c
     mov word [cs_lrunproc], cs_lrun_herc
     mov word [cs_glyphproc], cs_glyph_herc
     mov si, cs_lp_herc
@@ -286,6 +288,7 @@ cs_r_setup:
 
     call cs_devrows
     call cs_ktabs                   ; the projection tables for these scales
+    call cs_endtab                  ; ...and the row loop's end tables (88.4.5.5)
 
     ; --- the target: two VRAM pages, or one RAM shadow --------------------
     cmp byte [cs_back], CSB_MODEX
@@ -2070,14 +2073,32 @@ cs_poly:
     ;     STRICTLY inside the view has no row that needs clamping and no row
     ;     that spans the view - which is the row loop's whole 25-byte clamp
     ;     block, fetched 257 times a frame for an answer the polygon already
-    ;     has. STRICTLY inside, not merely inside: a row is a whole-view row
-    ;     when xl <= wx0 and xr >= wx1, and a box that reaches exactly to
-    ;     both edges is inside them and can still do it.
+    ;     has.
+    ;
+    ;     TOUCHING AN EDGE IS NOT REACHING PAST IT, and the first version of
+    ;     this test could not tell them apart. `cs_edge` interpolates
+    ;     strictly BETWEEN an edge's two endpoints - the above-view arm jumps
+    ;     n rows along the edge rather than extrapolating past it - so every
+    ;     xl and xr lies inside [bp, di], and a box with bp = wx0 has no row
+    ;     that needs the left clamp: clamping xl to wx0 when xl >= wx0 is a
+    ;     no-op. `jle`/`jge` therefore turned the block on for a box that
+    ;     merely touched, and MEASURED, that was ONE POLYGON A FRAME
+    ;     CARRYING 81.6 ROWS - 32% of every row in `turnhold` - not one of
+    ;     which was clamped at either end (88.4.5.3).
+    ;
+    ;     The WHOLE-VIEW row is what a strict test could lose - it wants
+    ;     xl <= wx0 and xr >= wx1, and with bp >= wx0 and di <= wx1 that can
+    ;     only be bp = wx0 AND di = wx1 - and it does not, because nothing
+    ;     lands there: `cs_fclip` clips to the FRUSTUM and not to the view,
+    ;     and 88.5.7 puts its side crossings at 4z, about 1,772 pixels, so a
+    ;     polygon that spans the view spans it by hundreds of pixels either
+    ;     side. The eight bytes that tested for the tie were measured and
+    ;     came back NEGATIVE - 0.1 ms of cs_poly against 0.1 ms of nothing -
     mov si, 1                       ; SI = 1: the general row loop
     cmp bp, [cs_wx0]
-    jle .mx3
+    jl .mx3                         ; a row can fall left of the view
     cmp di, [cs_wx1]
-    jge .mx3
+    jg .mx3                         ; ...or right of it
     xor si, si                      ; ...neither can happen: skip the block
 .mx3:
     mov [cs_pnoclip], si
@@ -2176,8 +2197,15 @@ cs_poly:
     jnz .e
     ; --- the rows: the backend's loop (88.4.6) -------------------------------
 .rows:
-    mov bp, [cs_pnoclip]            ; BP is free in every row loop (88.4.5.1)
+    ; --- TWO ROW LOOPS, and BP is what pays for the second (88.4.5.4). The
+    ;     general loop still reads BP as the flag; the Hercules pair does
+    ;     not, so it has BP for the row counter and the clamp inline -----
+    mov bp, [cs_pnoclip]
+    or bp, bp
+    jnz .rowsc
     jmp [cs_rowsproc]
+.rowsc:
+    jmp [cs_rowsprocc]
 .out:
 %ifdef CSPROBE
     inc word [cs_dbg_fout]
@@ -2230,66 +2258,66 @@ cs_polyrows:
     jle .row
     ret
 
-; cs_polyrows_herc - the same on Hercules with the run INLINE: no dispatch,
-;                    no second address computation, the ends blended by
-;                    old ^ ((old ^ pattern) & mask), and the middle a
-;                    `rep stosw` on whatever alignment - the 8088's bus is
-;                    eight bits wide, so an odd address costs it nothing.
-;                    Measured against the general loop: 2,000 cycles a
-;                    full-width row to ~1,100 (88.4.6)
-cs_polyrows_herc:
+; CS_POLYROW - the Hercules row loop, %1 = 1 for the arm that CLAMPS
+;
+; The run is INLINE: no dispatch, no second address computation, the ends
+; blended by old ^ ((old ^ pattern) & mask), and the middle a `rep stosw` on
+; whatever alignment - the 8088's bus is eight bits wide, so an odd address
+; costs it nothing. Measured against the general loop: 2,000 cycles a
+; full-width row to ~1,100 (88.4.6).
+;
+; IT IS ASSEMBLED TWICE and BP is what pays for that (88.4.5.4). The clamp
+; used to be a block behind `or bp, bp / jne`, which is four bytes on every
+; row of the program to ask a question the POLYGON already answered - and
+; this loop is FETCH-BOUND, so four bytes is seventeen cycles. With the
+; question moved to the caller BP is free: the row count goes in it, and the
+; clipping arm carries its clamp INLINE with no jump out and back, which the
+; rows that need neither end moved fall straight through (88.4.5.3 measured
+; that at 43-100% of a clipping polygon's rows).
+; -----------------------------------------------------------------------------
+%macro CS_POLYROW 1
     mov bx, [cs_py0]
     mov di, bx
     shl di, 1
     mov di, [cs_rowoff + di]
     add di, [cs_tbase]              ; DI = the row's base
     mov es, [cs_tseg]
-.row:
+    mov bp, [cs_py1]
+    sub bp, bx
+    inc bp                          ; BP = the rows, counted DOWN
+%%row:
     mov si, bx
     shl si, 1
     mov ax, [cs_xl + si]
     mov cx, [cs_xr + si]
-    ; --- THE CLAMP BLOCK IS 25 BYTES AND IT IS OUT OF LINE (88.4.5.1). This
-    ;     loop is FETCH-BOUND - a masked row executes 148 bytes, 642 cycles
-    ;     of the 8088's 4.34-a-byte floor against 725 measured - so what a
-    ;     row costs is what it ENCODES, and those 25 bytes are an answer
-    ;     cs_poly already has: BP is zero when no row of this polygon can
-    ;     reach a view edge, which was 91% of them (7 of 79 needed the box
-    ;     clamped at all). Four bytes and a jump NOT TAKEN in their place
-    cmp bp, 0
-    jne .clip
-.c2:
+%if %1
+    cmp ax, [cs_wx0]                ; the clamp, INLINE - and both jumps are
+    jle %%lo                        ; the rare way out of it
+    cmp cx, [cs_wx1]
+    jg %%hi
+%endif
+%%c2:
     cmp ax, cx
-    jg .nrow
+    jg %%nrow
     push bx
-    mov si, bx
-    and si, 3
-    mov dl, [cs_pat + si]           ; DL = the row's pattern
-    mov si, ax
-    and si, 7
-    shr ax, 1
-    shr ax, 1
-    shr ax, 1                       ; AL = the first byte...
-    mov ah, [cs_hlm + si]           ; ...AH = its mask
+    ; --- BX IS DEAD here until it is rebuilt as the address below, so the
+    ;     pattern index goes in BX and costs no SI at all - and the `and`
+    ;     leaves BH zero, which is what the `mov bl, al` below needs -----
+    and bx, 3
+    mov dl, [cs_pat + bx]           ; DL = the row's pattern
+    mov si, ax                      ; --- the two ends, one word table each
+    shl si, 1                       ;     (88.4.5.5): AL = the first byte and
+    mov ax, [cs_lend + si]          ;     AH = its mask, in ONE load
     mov si, cx
-    and si, 7
-    shr cx, 1
-    shr cx, 1
-    shr cx, 1                       ; CX = the last byte
-    mov dh, [cs_hrm + si]           ; DH = its mask
-    mov bl, al
-    xor bh, bh
+    shl si, 1
+    mov cx, [cs_rend + si]          ; CL = the last byte, CH = its mask
+    mov dh, ch                      ; DH = it, where the blend wants it...
+    xor ch, ch                      ; ...and CX the byte alone, which the
+                                    ; width and the run both need
+    mov bl, al                      ; (BH is 0 - the `and bx, 3` left it so)
     add bx, di                      ; BX = the first byte's address
     sub cl, al                      ; CX = bytes - 1
-    jnz .multi
-    and ah, dh                      ; one byte holds both ends
-    mov al, [es:bx]
-    xor al, dl
-    and al, ah
-    xor [es:bx], al
-    pop bx
-    jmp short .nrow
-.multi:
+    jz %%one
     mov al, [es:bx]
     xor al, dl
     and al, ah
@@ -2301,7 +2329,7 @@ cs_polyrows_herc:
     and al, dh
     xor [es:si], al                 ; the last
     dec cx
-    jz .done
+    jz %%done
     push di
     mov di, bx
     inc di
@@ -2309,32 +2337,45 @@ cs_polyrows_herc:
     mov ah, dl
     shr cx, 1
     rep stosw
-    jnc .even
+    jnc %%even
     stosb
-.even:
+%%even:
     pop di
-.done:
+%%done:
     pop bx
-.nrow:
+%%nrow:
     add di, 80
     inc bx
-    cmp bx, [cs_py1]
-    jle .row
+    dec bp
+    jnz %%row
     ret
-    ; --- ...and the block itself, reached only by a polygon whose box
-    ;     touches or crosses a view edge, and by every cs_rect ------------
-.clip:
-    cmp ax, [cs_wx0]
-    jg .c1
+    ; --- the one-byte row, out of the loop's span (88.4.5.2) --------------
+%%one:
+    and ah, dh                      ; one byte holds both ends
+    mov al, [es:bx]
+    xor al, dl
+    and al, ah
+    xor [es:bx], al
+    pop bx
+    jmp short %%nrow
+%if %1
+    ; --- ...and the two clamps with it, reached only by a row that really
+    ;     does reach a view edge -------------------------------------------
+%%hi:
+    mov cx, [cs_wx1]
+    jmp %%c2
+%%lo:
     cmp cx, [cs_wx1]
-    jl .c1a
+    jge %%full
+    mov ax, [cs_wx0]
+    jmp %%c2
     ; --- the whole view row: no masks, no ends, one store - the runway
     ;     under the wheels is forty of these a frame (88.5.5) ---------------
+%%full:
     push bx
     push di
-    mov si, bx
-    and si, 3
-    mov al, [cs_pat + si]
+    and bx, 3
+    mov al, [cs_pat + bx]
     mov ah, al
     add di, [cs_wb0]
     mov cx, [cs_wbn]
@@ -2342,15 +2383,52 @@ cs_polyrows_herc:
     rep stosw
     pop di
     pop bx
-    jmp .nrow
-.c1a:
-    mov ax, [cs_wx0]
-.c1:
-    cmp cx, [cs_wx1]
-    jle .cdone
-    mov cx, [cs_wx1]
-.cdone:
-    jmp .c2                         ; NEAR: the block sits past the loop now
+    jmp %%nrow
+%endif
+%endmacro
+
+; -----------------------------------------------------------------------------
+; cs_polyrows_herc   - the arm for a polygon no row of which can reach a view
+;                      edge, which cs_poly decides once (88.4.5.3)
+; cs_polyrows_herc_c - ...and the arm that clamps. cs_rect always takes this
+;                      one: its rows are clamped already, but a rectangle is
+;                      how the runway under the wheels is drawn
+; -----------------------------------------------------------------------------
+cs_polyrows_herc:
+    CS_POLYROW 0
+
+cs_polyrows_herc_c:
+    CS_POLYROW 1
+
+; -----------------------------------------------------------------------------
+; cs_endtab - the row loop's two END tables (88.4.5.5), built once a bracket
+;
+; cs_lend[x] = (cs_hlm[x & 7] << 8) | (x >> 3), and cs_rend the same with
+; cs_hrm. That is exactly the AH:AL the left end wants and the CH:CL the
+; right one does, so a masked end becomes ONE `mov` from a word table where
+; it was an `and`, three `shr` and a byte load - ten bytes a row off a loop
+; that is 80% fetch-bound. It is ~4 ms once, beside cs_ktabs, which is the
+; same shape: a table built at setup because the inner loop cannot afford it.
+; -----------------------------------------------------------------------------
+cs_endtab:
+    xor bx, bx                      ; BX = x
+    xor si, si                      ; SI = 2x
+    mov cl, 3
+.e:
+    mov ax, bx
+    shr ax, cl                      ; AL = x >> 3, and AH is 0 with it
+    mov di, bx
+    and di, 7
+    mov ah, [cs_hlm + di]
+    mov [cs_lend + si], ax
+    mov ah, [cs_hrm + di]
+    mov [cs_rend + si], ax
+    inc bx
+    inc si
+    inc si
+    cmp bx, CS_ENDN
+    jb .e
+    ret
 
 ; -----------------------------------------------------------------------------
 ; cs_hrun - one masked run of the current ink, opaque
@@ -2370,6 +2448,9 @@ cs_hrun:
     jmp [cs_hrunproc]
 
 ; --- the sub-byte masks the run's two ends need -------------------------------
+CS_ENDN equ 640                     ; cs_lend/cs_rend's length: a view's x
+                                    ; cannot leave [0, 639], the shadow row
+                                    ; being 80 bytes (88.4.5.5)
 cs_hlm:  db 0xFF, 0x7F, 0x3F, 0x1F, 0x0F, 0x07, 0x03, 0x01   ; 1bpp, pixels i..7
 cs_hrm:  db 0x80, 0xC0, 0xE0, 0xF0, 0xF8, 0xFC, 0xFE, 0xFF   ; 1bpp, pixels 0..i
 cs_clm:  db 0xFF, 0x3F, 0x0F, 0x03                           ; 2bpp, pixels i..3
@@ -2678,7 +2759,7 @@ cs_rect:
                                     ; drawn, forty whole-view rows a frame
                                     ; (88.5.5), and that test lives in the
                                     ; block BP skips
-    jmp [cs_rowsproc]
+    jmp [cs_rowsprocc]
 .out:
     ret
 
