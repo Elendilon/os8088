@@ -1198,16 +1198,34 @@ ld_start:
     ; inst_tab + I_SPTR by matching the OLD BASE, and I_SPTR is the part's
     ; segment where the claim's base is the carve's, so a move would leave
     ; I_SPTR naming where the program used to be (SPEC.md 66.6.1).
+    mov di, [ld_rec]            ; **ld_slot READS DI**, and this is where it
+                                ; comes from. Nothing else on this path sets
+                                ; it: step 8 above loaded it for
+                                ; cw_snd_disp_set and then far-called a
+                                ; PACKAGE, and a package's entry proc promises
+                                ; the kernel nothing about DI. Without this
+                                ; line the slot is computed from whatever the
+                                ; loader left there, mem_reown_x stamps a
+                                ; garbage owner word onto the carve, and
+                                ; mem_free_x below matches nothing - so the
+                                ; loader's region is never freed AND the
+                                ; program is refused every claim it makes,
+                                ; mem_own reading that word and finding
+                                ; neither an instance slot nor a driver.
+                                ; Clear Skies found it (SPEC.md 88.10.4);
+                                ; tests/rehome's loader clobbers DI on purpose
+                                ; now so it cannot come back
     call ld_slot                ; BX = this record's slot
     mov dx, bx                  ; DX = the owner to write...
     mov bx, [ld_base]           ; ...and BX the one to match: the loader's
     call mem_reown_x            ; segment, which every claim it made carries
 
     ; --- and the LOADER'S OWN REGION, freed ---------------------------------
-    call ld_slot                ; owned by the slot since step 5, so this is
-    mov dx, [ld_base]           ; one claim BY BASE and not a sweep - the
-    call mem_free_x             ; re-owned carve is on the same owner word now
-                                ; and must not go with it
+    mov di, [ld_rec]            ; ...and again, mem_reown_x having no reason to
+    call ld_slot                ; preserve DI. Owned by the slot since step 5,
+    mov dx, [ld_base]           ; so this is one claim BY BASE and not a sweep
+    call mem_free_x             ; - the re-owned carve is on the same owner
+                                ; word now and must not go with it
     mov ax, [ld_rehome]
     mov word [ld_rehome], 0     ; ONCE, AND THIS IS THE INSTRUCTION THAT SAYS
                                 ; SO. The cell's own "already asked" test only

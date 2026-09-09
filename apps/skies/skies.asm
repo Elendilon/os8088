@@ -52,59 +52,7 @@
                                 ; no worker: the whole flight is the bracket
                                 ; on task 0, and the attract window is still
 
-; --- embedded 16x16 icon (SPEC.md 20.2, flags bit 0) --------------------------
-; A high-wing single seen from above: the Cessna's own silhouette.
-;
-;   ................
-;   .......#........
-;   ......###.......
-;   ......###.......
-;   .......#........
-;   .......#........
-;   ###############.
-;   ###############.
-;   .......#........
-;   .......#........
-;   .......#........
-;   ......###.......
-;   .....#####......
-;   .......#........
-;   ................
-;   ................
-    OS88_ICON16
-    dw 0x0000                       ; 16 mask rows (white underlay)
-    dw 0x0100
-    dw 0x0380
-    dw 0x0380
-    dw 0x0100
-    dw 0x0100
-    dw 0xFFFE
-    dw 0xFFFE
-    dw 0x0100
-    dw 0x0100
-    dw 0x0100
-    dw 0x0380
-    dw 0x07C0
-    dw 0x0100
-    dw 0x0000
-    dw 0x0000
-    dw 0x0000                       ; 16 data rows (black pixels)
-    dw 0x0100
-    dw 0x0380
-    dw 0x0380
-    dw 0x0100
-    dw 0x0100
-    dw 0xFFFE
-    dw 0xFFFE
-    dw 0x0100
-    dw 0x0100
-    dw 0x0100
-    dw 0x0380
-    dw 0x07C0
-    dw 0x0100
-    dw 0x0000
-    dw 0x0000
-    OS88_ICON16_END
+%include "csicon.inc"
 
 ; =============================================================================
 ; Constants
@@ -556,10 +504,10 @@ cs_entry:
                                     ; adapter is not known until the window
                                     ; exists (below)
 
-    call cs_artload                 ; the title bands out of the image and into
-                                    ; a claim (88.10.2), before the window that
-                                    ; draws them exists. A refusal here is a
-                                    ; plainer page and not a failed launch
+    call cs_artload                 ; where the LOADER put the title bands
+                                    ; (88.10.4), before the window that draws
+                                    ; them exists. A refusal here is a plainer
+                                    ; page and not a failed launch
 
     mov al, KSC_SPACE               ; ARMING the scancode reader: the first
     call OSAPI_KEY_DOWN             ; answer is always "up" and this is where
@@ -643,61 +591,44 @@ cs_entry:
     ret
 
 ; -----------------------------------------------------------------------------
-; cs_artload - unpack the title bands into a claim (SPEC.md 88.10.2)
+; cs_artload - where the LOADER put the title bands (SPEC.md 88.10.4)
 ;
-; out: [cs_artseg] = the claim, or 0.  preserves every register
+; out: [cs_artseg] = the art part's base segment, or 0.  preserves every
+;      register
 ;
 ; The six bands are 10,480 bytes and no frame reads one: the title page draws
-; them and the fsx bracket never does. So the image carries them as ONE LZ4
-; STREAM of CS_ART_ZLEN bytes and this expands them ONCE, here, into a claim
-; of CS_ART_KB - which is 5,993 bytes of a 60KB segment (APP_MAX_SIZE) bought
-; for 11KB of a heap that has tens (SPEC.md 50.3), and for a launch that is
-; one decode longer. Nothing on a frame's path moved.
+; them and the fsx bracket never does. They used to be an LZ4 stream in the
+; IMAGE that this expanded into a claim of its own, which cost the package
+; 4,487 of a 60KB segment (APP_MAX_SIZE) for bytes nothing on a frame's path
+; ever touches. THEY ARE PART 0 NOW: an OP_COMP row that op_load reads and
+; expands into the parts carve before the entry proc does anything else, so
+; the image carries csart.inc's OFFSETS and not one byte of picture, and this
+; routine is the assignment that used to be a claim and a decode.
 ;
-; A BAND HOLDS NO POINTER, so there is nothing to relocate and this is the
-; whole of the change: what was a label in this segment is an offset into the
-; blob (csart.inc's equs), the plane records' CSP_ART goes on assembling
-; because an equ is a constant like any other, and the three blits read
-; ES = [cs_artseg] where they read ES = DS.
+; A BAND HOLDS NO POINTER, which is what made both moves free: what was a
+; label in this segment is an offset into the blob (csart.inc's equs), the
+; plane records' CSP_ART goes on assembling because an equ is a constant like
+; any other, and the three blits read ES = [cs_artseg].
 ;
-; BOTH REFUSALS ARE NORMAL PATHS (SPEC.md 20.6, 47). A heap too full and a
-; stream the kernel will not decode both leave [cs_artseg] at 0, and 0 is the
-; page the blit slot's own refusal already drew - the title lettered in the
-; 8x8 face and no aeroplane. The kernel frees the claim with the instance,
-; so there is nothing to undo on the way out.
+; A REFUSAL IS STILL A NORMAL PATH (SPEC.md 20.6, 47) and it is the SAME path:
+; op_seg answers 0 for a part that is not there, and 0 is the page the blit
+; slot's own refusal already drew - the title lettered in the 8x8 face and no
+; aeroplane. Nothing to undo on the way out: the carve is the kernel's to free
+; with the instance, exactly as the claim was.
 ; -----------------------------------------------------------------------------
 cs_artload:
     push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push es
-    mov ax, CS_ART_KB
-    call OSAPI_MEM_CLAIM            ; DX = the base segment
-    jc .none
-    mov es, dx
-    mov si, cs_art_z                ; DS:SI the stream, T word first...
-    mov cx, CS_ART_ZLEN
-    xor di, di                      ; ...ES:0 where it goes, and DI = 0 is the
-    xor bx, bx                      ; contract (SPEC.md 20.13.3). BX:DX is the
-    mov dx, CS_ART_SIZE             ; EXACT output, 32 bits, and ours is one
-    mov al, OSAPI_LZ_LZ4            ; word - so BX is zero and DX is the size,
-    call OSAPI_DECOMP               ; which is why DX is loaded AFTER the claim
-    jc .none                        ; answered in it
-    mov ax, es
+    xor ax, ax
+    cmp word [cs_hand + CSH_MAGIC], 'CS'
+    jne .set                        ; NO LOADER, NO ART - and that is a real
+                                    ; state rather than a paranoid one: this
+                                    ; image is a PART and the only thing that
+                                    ; starts it is csload.asm, so a zero magic
+                                    ; means the bss was zeroed by an ordinary
+                                    ; launch and there is no carve to point at
+    mov ax, [cs_hand + CSH_ART]
+.set:
     mov [cs_artseg], ax
-    jmp short .out
-.none:
-    mov word [cs_artseg], 0
-.out:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
     pop ax
     ret
 
@@ -2127,13 +2058,37 @@ cs_tpl:
 %include "cspanel.inc"
 %include "csart.inc"
 %include "csset.inc"        ; the settings, kept in SYSTEM\APPDATA (88.13.9)
+
+; =============================================================================
+; WHAT IS PAST THIS IMAGE (SPEC.md 88.10.4) - and it is not read from here
+;
+; THIS FILE IS PART 0. apps/skies/csload.asm is SKIES.O88's image: it carries
+; apps/os88parts.inc, reads the two parts, writes the handoff into the head of
+; the bss below, and hands its identity to this one through OSAPI_PKG_REHOME
+; (SPEC.md 20.12.10). Its region is then FREED, so the reader costs this
+; package nothing at all - not the 1,219 bytes of the standard's code, not the
+; table, not its own header.
+;
+; THE HANDOFF IS THE WHOLE INTERFACE, and it is four bytes. The kernel does not
+; zero a part, which is what lets a loader write into the head of a program's
+; bss and the program read it back; nothing was published, stamped or
+; registered to make that work.
+; =============================================================================
+CSH_MAGIC  equ 0                ; word: 'CS' - the loader ran
+CSH_ART    equ 2                ; word: where it put the title bands
+CSH_SIZE   equ 4
 %include "csdiag.inc"       ; CSDIAG=1 only: the watchdog (SPEC.md 88.14)
 
 ; =============================================================================
 ; .bss (SPEC.md 20.5: the loader zeroes CS_BSS bytes after the image, and
 ; every name below is an offset from os88_image_end)
 ; =============================================================================
-%assign CS_BSS 0
+cs_hand equ os88_image_end      ; THE HANDOFF IS THE FIRST THING IN THE BSS,
+                                ; which is what lets the loader write it
+                                ; knowing only LD_H_IMG - the part's own header
+                                ; field - and nothing about this file's layout
+                                ; (SPEC.md 20.12.10.2)
+%assign CS_BSS CSH_SIZE
 %macro ZWORD 1
 %1 equ os88_image_end + CS_BSS
 %assign CS_BSS CS_BSS + 2
@@ -2755,3 +2710,15 @@ CS_SWOOPHI equ 900              ; DOWN from the top in sink
 
     OS88_BSS CS_BSS
     OS88_IMAGE_END
+
+; --- AND THE BSS SHIPS INSIDE THE PART (SPEC.md 20.12.10, 51.1.2) -----------
+; This image is PART 0 of SKIES.O88 and the kernel does not zero a part: it
+; jumps to ld_start's step 8 and not step 7, precisely so the loader's handoff
+; at the head of these bytes survives. So they have to BE here.
+;
+; IT COSTS THE DISK ALMOST NOTHING. The row is OP_COMP and 13,777 of what
+; follows is a run of zeros, which is what LZ4 is best at (51.1.2's own
+; observation, one format along) - and it is what makes `image + bss` the
+; length csload.asm hands to OSAPI_PKG_REHOME, said by adding the part's own
+; two header fields rather than by a constant kept in step by hand.
+    times CS_BSS db 0

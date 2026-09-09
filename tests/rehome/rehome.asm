@@ -125,6 +125,21 @@ rh_entry:
     pop dx
     pop cx
     pop ax
+    mov di, 0xDEAD                  ; **DI IS CLOBBERED ON PURPOSE, and AFTER
+                                    ; the pops so nothing puts it back.** An
+                                    ; entry proc promises the kernel nothing
+                                    ; about DI, and ld_start's step 8a needs it
+                                    ; for ld_slot - which it did not set, so
+                                    ; the arm read whatever the loader happened
+                                    ; to leave and this fixture happened to
+                                    ; leave the right thing. Clear Skies'
+                                    ; loader did not, and its program was
+                                    ; refused every claim it made while the
+                                    ; loader's own region leaked (SPEC.md
+                                    ; 88.10.4). This line is what makes the row
+                                    ; see it: with step 8a's `mov di, [ld_rec]`
+                                    ; taken out, the carve comes back owned by
+                                    ; 0x06C0 and two claims stand on the slot
     ret
 
 ; --- the image is padded to an ODD number of sectors, deliberately ----------

@@ -105110,6 +105110,157 @@ cannot quietly ship art that does not come back.
 include and holds the tree's copy to it, which now covers the stream as well
 as the drawing.
 
+#### 88.10.3 …and then out of the image entirely, as PART 0
+
+§88.10.2 bought 5,993 bytes of the segment by packing the bands. **This gives
+back the other 4,487** — the stream itself — by taking them out of the image
+and making them a **part** of the file (§20.12).
+
+The reason it had to happen is a number: Clear Skies' `image + bss` was
+**61,100 of `APP_MAX_SIZE`'s 61,440**, with 340 bytes left — and the
+**diagnostic and probe builds were already 436 and 585 bytes OVER**, so `make
+skiesdiag` did not assemble at all and two registered rows were skipping. A
+package that cannot build its own instrument cannot be measured.
+
+**The change is smaller than §88.10.2's was.** A band holds no pointer, so the
+offsets in `csart.inc` were already offsets rather than labels and the blits
+already read `ES = [cs_artseg]`; the only thing that moves is where the bytes
+come from. `cs_artload` — a claim, a decode and two refusals — becomes
+`op_seg`:
+
+```
+cs_artload:
+    push ax
+    mov al, CS_PART_ART
+    call op_seg                 ; AX = the part's base segment, 0 = not there
+    mov [cs_artseg], ax
+    pop ax
+    ret
+```
+
+**The refusal is the same refusal.** `op_seg` answers 0 for a part that is not
+there, and 0 is the page the blit slot's own refusal already drew. The carve is
+the kernel's to free with the instance exactly as the claim was.
+
+**ONE COMPRESSOR, and that is the part worth copying.** `tools/csart.py` used
+to pack the stream and the package used to unpack it, so the two had to agree
+about the format for ever. The row is `OP_COMP` now: the generator writes the
+**raw** bands with `--raw` and `os88pkg.py` packs them, which is the same 4,487
+bytes by the same LZ4 and one place that decides it. `tests/unit/t_csart.py`
+still binds the `.inc` to the generator; the `.bin` is a build artefact and
+cannot drift.
+
+**`op_load` IS THE FIRST THING `cs_entry` DOES**, before even the `push si`
+that follows it — `SI` is an offset into the *kernel's* segment at a buffer the
+loader reuses on the next launch (§20.2), so nothing may clobber it first.
+
+**Its refusal is deliberately not tested**, which is a decision and not an
+oversight: the only part is the art, and a machine too full to carve 11KB
+should still fly. **That changes the day a code part exists** — a body that did
+not arrive is not a plainer page — and the comment at the call site says so.
+
+Measured: **image + bss 61,100 → 57,832**, so 340 bytes of headroom become
+**3,608** and both knob builds assemble again. The parts standard's own code is
+1,219 of the 4,487 (§20.12.9 is why it is not 2,536).
+
+##### 88.10.3.1 …and it costs the DISK, until the re-home
+
+A parted image **cannot be compressed**: a part's offset is measured from the
+start of the file and lives in a table inside the image, so compressing the
+image and laying out its parts are circular (`os88pkg.py` says so and declines).
+`SKIES.O88` was 37,534 bytes packed; parted it is **49,031** — **+11,497 on a
+360KB apps disk that had 8 of 354 clusters spare.**
+
+That is not a reason to refuse the change, it is the reason **§88.10.4's
+re-home lands with it**: once the image is a small loader and the program is
+itself an `OP_COMP` part, the large things in the file are compressed again and
+the disk cost comes back to something a 360KB floppy can pay. The two are one
+commit.
+
+#### 88.10.4 The image becomes a LOADER, and frees itself
+
+`apps/skies/csload.asm` is what the kernel launches now. It reads the parts,
+tells the program where the art went, calls `OSAPI_PKG_REHOME` (§20.12.10) and
+returns with **no window**. The kernel then frees its region and runs
+`apps/skies/skies.asm` — **part 0** — as the program, in the parts carve, with
+its own instance, window, name and icon. Nothing downstream knows there were
+two.
+
+**It is 1,343 bytes**, of which 64 are the icon and 32 the header, and it is
+gone by the time the title page paints. So the parts standard costs Clear
+Skies' segment **nothing at all** — not the 1,219 bytes of its code, not the
+table, not the loader's own header.
+
+| | image + bss | free of 61,440 |
+|---|---:|---:|
+| before §88.10.3 | 61,100 | 340 |
+| art out of the image | 57,832 | 3,608 |
+| **…and the reader out too** | **56,574** | **4,866** |
+
+`CSDIAG` and `CSPROBE` were 436 and 585 bytes **over** the ceiling; both
+assemble again with room to spare.
+
+##### 88.10.4.1 The bands are LAZY, and why that is not the shape it looks like
+
+The obvious table is two eager `OP_COMP` rows. **`op_size` refuses it**, and
+the number is exact: the run is bounded at **128 sectors** — one segment, which
+is `op_read`'s own arithmetic — and the program unpacks to 56,574 bytes, 111 of
+them. The bands' 10,480 make 131.
+
+So the bands are `OP_LAZY`, which takes them out of the run entirely; and a
+lazy row **cannot also be `OP_COMP`**, the two wanting the same `zkb` word
+(`apps/os88parts.inc` refuses the pair). `tools/csart.py` therefore packs the
+stream itself with `--stream` and `csl_art` expands it — which is exactly what
+the image used to do with the same bytes, one owner along.
+
+`csl_art` holds **two** of `MEM_OWNER_MAX`'s eight while it decodes and gives
+one straight back: `op_drop` releases the stream's claim once the bands are
+out of it. That matters more here than it usually does, because this image is
+about to stop existing — a slot it did not release would be the kernel's to
+free at teardown and held for the whole session.
+
+**Every refusal answers 0**, which is the plainer title page §88.10.2 already
+shipped: the title lettered in the 8x8 face and no aeroplane. A machine too
+full for 11KB still flies.
+
+##### 88.10.4.2 The handoff is four bytes, and the disk comes back
+
+`csload.asm` writes `'CS'` and the bands' segment into the **head of the
+program's bss**, which it finds at the part's own `LD_H_IMG`. The kernel does
+not zero a part (§20.12.10.1), which is the whole of what makes this work;
+nothing is published, stamped or registered. The program's `cs_artload` reads
+the two words back and tests the magic — a zero magic means an ordinary launch
+zeroed the bss and there is no carve to point at, which is a real state rather
+than a paranoid one.
+
+The program's bss **ships inside its part**, so `image + bss` is the part's own
+length and `csload.asm` hands that to `OSAPI_PKG_REHOME` by adding the two
+header fields rather than by a constant kept in step by hand. 13,695 of those
+bytes are a run of zeros, which is what LZ4 is best at (§51.1.2's observation,
+one format along).
+
+Measured on disk: **37,534 → 39,815**, `+2,281`. §88.10.3 alone was `+11,497`.
+
+##### 88.10.4.3 What it found in the kernel
+
+`ld_start`'s step 8a calls `ld_slot`, and **`ld_slot` reads `DI`** — which the
+arm never set. It was resting on the entry proc leaving `DI` alone, which is no
+contract at all: step 8 loads it for `cw_snd_disp_set` and then far-calls a
+*package*. `tests/rehome`'s loader happened to preserve it. `csload.asm` does
+not.
+
+What that cost was not subtle once seen. The carve came back stamped with a
+garbage owner word (`0x06C0`), so `mem_free_x` matched nothing and **the
+loader's region was never freed** — and `mem_own`, reading that word and
+finding neither an instance slot nor a driver, **refused the program every
+claim it made**. The visible symptom was a flight simulator that launched,
+opened its window, entered the full-screen bracket, took a mode — and rendered
+nothing, `cs_r_setup`'s 16KB shadow claim being the first thing to be refused.
+
+`tests/rehome/rehome.asm` clobbers `DI` on purpose now, **after its own pops so
+nothing puts it back**, and with the fix reverted the row reports the identical
+shape: no claim owned by the instance slot, and the heap not coming back.
+
 ### 88.13 The settings (SPEC.md 88.13)
 
 Four knobs, each of which trades picture for frame rate, on a **Settings**

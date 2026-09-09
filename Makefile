@@ -4988,7 +4988,9 @@ SKIES_SRC := apps/skies/skies.asm apps/skies/csraster.inc \
              apps/skies/cspanel.inc apps/skies/cssin.inc \
              apps/skies/csart.inc apps/skies/csdiag.inc \
              apps/skies/csset.inc $(CSWORLDS) \
-             apps/os88api.inc apps/os88ui.inc
+             apps/skies/csload.asm apps/skies/csicon.inc \
+             apps/os88api.inc apps/os88ui.inc \
+             apps/os88parts.inc apps/os88partsbody.inc
 # **THE PRIVATE TREE CARRIES THE SOURCES IT IS BUILT FROM**
 # (docs/WRITING-TESTS.md 13 row 33). The recursive make below is the RECIPE,
 # and a rule whose recipe builds a tree must name that tree's sources in its
@@ -5032,8 +5034,35 @@ $(BUILD)/skies.bin: $(SKIES_SRC) | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/skies/ $(CSDIAGDEF) -o $@ apps/skies/skies.asm
 	@echo "skies: $(call FILESIZE,$@) bytes"
 
-$(BUILD)/skies.o88: $(BUILD)/skies.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(BUILD)/skies.bin -o $@
+# THE TITLE BANDS ARE PART 0 (SPEC.md 88.10.3). tools/csart.py writes the
+# .inc - the offsets, which is all the image carries now - and with --raw the
+# UNPACKED bands, which os88pkg.py appends and compresses for the OP_COMP row.
+# ONE COMPRESSOR: the generator used to pack them itself and the package used
+# to unpack them itself, so the two had to agree about the format for ever.
+$(BUILD)/csart.bin: tools/csart.py tools/os88lz.py | $(BUILD)
+	python3 tools/csart.py -o apps/skies/csart.inc --stream $@
+	@echo "csart: $(call FILESIZE,$@) bytes of packed bands"
+
+# THE PACKAGE'S IMAGE IS THE LOADER (SPEC.md 88.10.4, 20.12.10). It reads the
+# two parts, tells the program where the art went, and hands its identity over;
+# the kernel then frees its region and runs apps/skies/skies.asm - part 0 -
+# as the program. So `skies.bin` is a PART now and not the image, and its bss
+# ships inside it because the kernel does not zero a part.
+#
+# AND THAT IS WHAT GETS THE DISK BACK. A parted image cannot be compressed
+# (os88pkg.py declines and says why), so with the body in the image SKIES.O88
+# went 37,534 -> 49,031 bytes on a 360KB disk with 8 clusters spare. The
+# loader is 1,343 bytes uncompressed and everything large is an OP_COMP part.
+$(BUILD)/csload.bin: apps/skies/csload.asm apps/skies/csicon.inc \
+                     apps/skies/csart.inc apps/os88api.inc \
+                     apps/os88parts.inc apps/os88partsbody.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/skies/ -o $@ apps/skies/csload.asm
+	@echo "csload: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/skies.o88: $(BUILD)/csload.bin $(BUILD)/skies.bin $(BUILD)/csart.bin \
+                    tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/csload.bin -o $@ \
+		--part $(BUILD)/skies.bin --part $(BUILD)/csart.bin
 
 $(BUILD)/arkanoid.bin: apps/arkanoid/arkanoid.asm apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ apps/arkanoid/arkanoid.asm

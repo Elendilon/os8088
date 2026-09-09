@@ -32,7 +32,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import os88build                                            # noqa: E402
 import os88marty                                            # noqa: E402
 import os88mouse                                            # noqa: E402
-import os88pkg                                              # noqa: E402
+import os88pkg
+import os88parts                                              # noqa: E402
 import os88sym                                              # noqa: E402
 import dispcp                                               # noqa: E402
 import os88geom                                             # noqa: E402
@@ -169,8 +170,20 @@ def _map(app, defines=()):
                        % (sub, {"solitaire": "solitair"}.get(app, app)))
     if not os.path.isabs(o88):
         o88 = os.path.join(ROOT, o88)
+    #
+    # ...AND A PART IS NOT THE IMAGE EITHER (SPEC.md 88.10.4). Clear Skies'
+    # image is a LOADER now: it reads the parts and hands its identity to
+    # part 0, which is what `apps/skies/skies.asm` assembles to. So a package
+    # whose image declares parts is compared against the PART, or this reports
+    # "build/ is BEHIND THE TREE" about a current tree for the second time in
+    # this routine's life - the same wrong diagnosis of the same right check,
+    # one container further in. RECOGNISED AND NOT DECLARED: the image says so
+    # itself, so nothing here holds a list of which packages are parted.
     try:
-        built = os88pkg.image_unwrap(open(o88, "rb").read())
+        raw = open(o88, "rb").read()
+        built = os88pkg.image_unwrap(raw)
+        if os88parts.table_at(built) is not None:
+            built = os88parts.part_bytes(raw, 0)
         fresh = open(bn, "rb").read()
     except OSError as e:
         sys.exit("dispapps: cannot compare %s against the tree (%s) - run "
