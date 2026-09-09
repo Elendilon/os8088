@@ -12787,3 +12787,69 @@ exact rather than generous, and `cs_endtab` fills both beside `cs_ktabs` in
 good as its account of where the size lands, and this one had three places to
 land — the file, the claim, and the floor machine — of which the refusal
 priced none. "It needs 2.5 KB and the gap is 1.4" was true and useless.
+
+### Set 137 — CLEAR SKIES: `cs_scale`, where a 32-bit shift turned out to be a per-FRAME constant (SPEC.md §88.5.6.3, §88.5.6.4)
+
+`cs_scale` was 14.6 ms a frame at 16.4 calls and had never been opened below
+the top. Bracketed by phase — the same probe shape as Set 133's, `turnhold`:
+
+| phase | cycles a call | |
+|---|---|---|
+| A the `pshr` ladder and the projection variant | 309 | 7.7% |
+| **B three `cs_sdiff` and the `cs_odx` stores** | **1,101** | **27.6%** |
+| C1 `cs_rot`'s prologue | 119 | |
+| C2/C3/C4 the three `cs_dot` | 726 / 737 / 767 | **55.8%** |
+| D the three `sar` to whole metres | 226 | 5.7% |
+| **total** | **3,994** | |
+
+**Finding 1, and it is arithmetic rather than a peephole.** Phase B built a
+32-bit `coordinate x 256`, subtracted the 32-bit 16.8 eye position and shifted
+the pair down `8 - pshr` — three times an object, 1,101 cycles for what is
+three subtractions. **The shift distributes, exactly:** `c x 256` is divisible
+by `2^s` for every `s <= 8`, so
+
+    (c * 256 - p) >> s   ==   (c << (8 - s))  -  ceil(p / 2^s)
+
+for every integer `c` and `p`, and `ceil(p / 2^s)` is `sar(p + 2^s - 1, s)` —
+**a property of the frame, not of the object**. So nine of them are computed
+once a frame (`cs_eyeshift`, three axes by three scales) and the call site is
+`shl ax, cl` and a word subtract. `cs_sdiff` is deleted, and so is the ladder
+inside it that tested `[cs_pshr]` on every one of three calls for an answer
+that could not change between them. **1,101 → 457 cycles**, at a cost of
+**+0.38 ms** on `cs_matrix`.
+
+**Finding 2 is Set 133 one subject along, with the registers the other way
+round.** `cs_rot`'s vector lived in `cs_rvx`/`cs_rvy`/`cs_rvz` and `cs_dot`
+read it back three times a row, three rows — nine loads, three `call`/`ret`s
+and an `add si, 6` a row around nine `MUL14`. In `cs_flatverts` the fix was to
+put the SCALAR in BX, because `imul bx` leaves BX alone; here the multiplicand
+must be AX and it is the matrix element that varies, so the vector needs three
+registers of its own. **CX, SI and BP** are free, DI accumulates, and the two
+finished rows park on the stack — a byte and a clock cheaper each way than the
+bss words, which are now gone. **2,365 → 1,979 cycles**, and `cs_rot` is 71%
+multiply where it was 59%.
+
+Same-session control, NEW/BASE/NEW, tier 3, call counts identical in every arm:
+
+| | `cs_scale` | `cs_matrix` | frame |
+|---|---|---|---|
+| `turnhold` | 14.53 → **10.99 / 10.99** ms | 1.15 → 1.53 | 247.4 → **244.1** (4.04 → **4.10 fps**) |
+| `bank` | 13.14 → **9.64 / 9.87** | 1.15 → 1.54 | 239.9 → **237.3** (4.17 → **4.21**) |
+| `climb` | 6.23 → **4.83 / 4.83** | 1.22 → 1.53 | 149.5 → **149.2** |
+
+A call is **4,229 → 3,199 cycles, −24%**, and the phase probe attributes −644
+to the origin and −386 to the rotation — which **sums to −1,030, the A/B's
+figure to the cycle**. That agreement is worth more than either number alone:
+the probe's own scene drifted between the two runs (5.8 calls a frame against
+19.0), so phases A and D moved for reasons that are not the change, and the
+two that did change still land on the total.
+
+**+148 bytes of image and +10 of bss.** `cs_eyeshift`'s `s = 8` group is a
+byte move rather than eight `sar`/`rcr` pairs — 28 bytes and 84 clocks, and
+the same trick `cs_sdiff`'s whole-metre arm always used.
+
+**649 frames over seven pinned profiles are pixel-identical.** An identity is
+a claim about every input, so it is the only kind of change where the gate is
+not a formality: `(A - B) >> s == A>>s - ceil(B/2^s)` is true, and
+`A>>s - (B>>s)` — the version anybody would write first — is off by one
+whenever `B` has low bits set.

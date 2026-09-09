@@ -1076,6 +1076,43 @@ exactly the kind §88.4.2.3 found in `cs_edge`, and it is ~45% of 11.82 ms.
 **BUILT, and it was the register the scalar sat in** - SPEC.md §88.5.6.2, and
 7.6.5 below.
 
+### 7.6.6 BUILT - `cs_scale`, and a shift that was a per-FRAME constant
+
+`cs_scale` was 14.6 ms at 16.4 calls and had never been opened. By phase,
+`turnhold`, 3,994 cycles a call:
+
+| | cycles a call | |
+|---|---|---|
+| A the `pshr` ladder and the projection variant | 309 | 7.7% |
+| **B three `cs_sdiff` and the stores** | **1,101** | **27.6%** |
+| C `cs_rot` - three `cs_dot`, nine `MUL14` | 2,349 | 58.8% |
+| D the three `sar` to whole metres | 226 | 5.7% |
+
+Two changes, and the first is arithmetic rather than a peephole (SPEC.md
+88.5.6.3): phase B built a 32-bit `coordinate x 256`, subtracted the 32-bit
+16.8 eye and shifted the pair down `8 - pshr`, three times an object. **The
+shift distributes exactly** - `(c*256 - p) >> s == (c << (8-s)) - ceil(p/2^s)`
+- and `ceil(p / 2^s)` is a property of the FRAME. Nine of them once a frame
+(`cs_eyeshift`) leaves `shl ax, cl` and a word subtract at the call site.
+`cs_sdiff` is deleted, ladder and all. **1,101 -> 457.**
+
+The second is 7.6.5's finding with the registers the other way round (88.5.6.4):
+`cs_rot`'s vector was in bss and `cs_dot` read it back nine times. Here the
+multiplicand must be AX and the MATRIX element varies, so the vector needs
+three registers of its own - CX, SI and BP, DI accumulating, the two finished
+rows on the stack. **2,365 -> 1,979**, and `cs_rot` is 71% multiply.
+
+`cs_scale` **14.53 -> 10.99 ms** (`turnhold`), `13.14 -> 9.76` (`bank`),
+`6.23 -> 4.83` (`climb`); `cs_matrix` +0.38 for the builder; the frame **4.04
+-> 4.10 fps** and `bank` **4.17 -> 4.21**. A call is 4,229 -> 3,199, -24%.
++148 bytes of image, +10 of bss. 649 frames on seven pinned profiles are
+pixel-identical.
+
+**What is left in it** is the two phases that did not change: A (the ladder and
+two table lookups) and D (three `sar` by CL to the whole-metre form the size
+tests want). Neither has an obvious lever - D's three shifts are what
+`cs_ocx/y/z` ARE - and together they are under 15% of a call now.
+
 ### 7.6.4 The precision ladder is already three rungs, and it costs nothing
 
 The sub-metre eye position exists because a runway rotated from whole metres

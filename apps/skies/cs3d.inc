@@ -201,42 +201,49 @@ cs_matrix:
     mov [cs_ny], ax
     mov ax, [cs_m + 14]
     mov [cs_nz], ax
+    call cs_eyeshift                ; ...and the eye, pre-shifted (88.5.6.3)
     ret
 
 ; -----------------------------------------------------------------------------
-; cs_rot - AX/BX/CX = a vector; out AX/BX/CX = M times it. Clobbers DX, SI, DI.
+; cs_rot - AX/BX/CX = a vector; out AX/BX/CX = M times it. Clobbers DX, SI,
+;          DI and BP - nothing from cs_scene down holds a value in BP.
+;
+; The vector used to be parked in cs_rvx/y/z and a cs_dot call read it back
+; three times a row, three rows: NINE loads, three call/rets and an
+; `add si, 6` a row around nine MUL14 (88.5.6.4).
 ; -----------------------------------------------------------------------------
-cs_rot:
-    mov [cs_rvx], ax
-    mov [cs_rvy], bx
-    mov [cs_rvz], cx
-    mov si, cs_m
-    call cs_dot
-    mov [cs_rox], ax
-    call cs_dot
-    mov [cs_roy], ax
-    call cs_dot
-    mov cx, ax
-    mov ax, [cs_rox]
-    mov bx, [cs_roy]
-    ret
-
-; cs_dot - SI = three matrix words; out AX = their dot with cs_rv*, SI += 6.
-; Clobbers BX, DX, DI.
-cs_dot:
-    mov ax, [cs_rvx]
-    mov bx, [si]
+; ONE ROW OF IT (88.5.6.4): %1 = the row's byte offset into cs_m. The vector
+; is in CX/SI/BP and stays there for all three rows - MUL14 is `imul bx`, so
+; the MULTIPLICAND has to be AX and the matrix element is what varies, which
+; is the opposite of cs_flatverts' arrangement and is why the vector wants
+; three registers of its own rather than one.
+%macro CS_ROTROW 1
+    mov ax, cx
+    mov bx, [cs_m + %1]
     MUL14
     mov di, ax
-    mov ax, [cs_rvy]
-    mov bx, [si+2]
+    mov ax, si
+    mov bx, [cs_m + %1 + 2]
     MUL14
     add di, ax
-    mov ax, [cs_rvz]
-    mov bx, [si+4]
+    mov ax, bp
+    mov bx, [cs_m + %1 + 4]
     MUL14
     add ax, di
-    add si, 6
+%endmacro
+
+cs_rot:
+    mov si, bx                      ; SI = y
+    mov bp, cx                      ; BP = z
+    mov cx, ax                      ; CX = x
+    CS_ROTROW 0
+    push ax                         ; the two finished rows park on the STACK,
+    CS_ROTROW 6                     ; a byte and a clock cheaper each way than
+    push ax                         ; the bss words they used to
+    CS_ROTROW 12
+    mov cx, ax
+    pop bx
+    pop ax
     ret
 
 ; cs_colscale - AX = a scalar, SI = the matrix column's first word, DI = three
@@ -412,6 +419,7 @@ cs_project2:
 cs_project4:
     CS_PROJ 4, 2000, 15
 cs_projtab: dw cs_project0, cs_project2, cs_project4
+cs_pshtab:  dw cs_psh, cs_psh + 6, cs_psh + 12   ; the eye pre-shifted (88.5.6.3)
 
     ; --- under the table's floor: a ground polygon's near plane is 4 m
     ;     (88.5.5), where k would not fit a word, so the two divides are
@@ -514,21 +522,29 @@ cs_scale:
     xor bh, bh
     mov ax, [cs_projtab + bx]       ; 0, 2, 4 are the table's byte offsets
     mov [cs_projp], ax
-    ; --- the origin from the 16.8 eye, at the scale ------------------------
-    mov bx, [cs_obj]
+    mov ax, [cs_pshtab + bx]        ; ...and the eye already shifted for it
+    mov [cs_pshp], ax
+    ; --- the origin from the 16.8 eye, at the scale. THE SHIFT DISTRIBUTES
+    ;     (88.5.6.3), so what used to be three cs_sdiff calls - each building
+    ;     a 32-bit `coordinate * 256`, subtracting the 32-bit position and
+    ;     shifting the pair down 8 - pshr - is a `shl` and a word subtract
+    ;     from the eye cs_eyeshift pre-shifted once for the whole frame ----
+    mov cl, [cs_pshr]               ; ...and the count is loaded ONCE for the
+    mov si, [cs_pshp]               ; three, where the ladder inside cs_sdiff
+    mov bx, [cs_obj]                ; ran per call for a per-OBJECT answer
     mov ax, [bx + CSO_X]
-    mov si, cs_px
-    call cs_sdiff
+    shl ax, cl
+    sub ax, [si]
     push ax
     mov ax, [bx + CSO_Z]
-    mov si, cs_pz
-    call cs_sdiff
+    shl ax, cl
+    sub ax, [si + 4]
     push ax
     mov ax, [bx + CSO_Y]
-    mov si, [cs_plane]
-    sub ax, [si + CSP_EYE]          ; the eye is that much above the wheels
-    mov si, cs_py
-    call cs_sdiff
+    mov bx, [cs_plane]              ; (the object's fields are all read now)
+    sub ax, [bx + CSP_EYE]          ; the eye is that much above the wheels
+    shl ax, cl
+    sub ax, [si + 2]
     mov bx, ax
     pop cx
     pop ax
@@ -555,39 +571,55 @@ cs_nearat:
     mov [cs_near], ax
     ret
 
-; cs_sdiff - AX = a whole-metre coordinate, SI -> a 16.8 position: out AX =
-;            (coordinate - position) in 1/2^[cs_pshr] metres. Clobbers CX, DX
-cs_sdiff:
-    mov dx, ax                      ; DX:AX = the coordinate, 16.8: the high
-    mov al, ah                      ; byte sign-extended up, the low one
-    cbw                             ; moved up (an `imul` by 256 was 145
-    xchg ax, dx                     ; cycles of this, three times an object)
-    mov ah, al
-    xor al, al
-    sub ax, [si]
-    sbb dx, [si + 2]
-    mov cl, [cs_pshr]               ; ...shifted down 8 - pshr: 4, 6 or 8,
-    cmp cl, 4                       ; unrolled (a loop of `sar`/`rcr` paid
-    je .s4                          ; 20 cycles a step in its own count)
-    cmp cl, 2
-    je .s6
-    mov al, ah                      ; whole metres: the middle two bytes
-    mov ah, dl
-    ret
-.s6:
+; -----------------------------------------------------------------------------
+; cs_eyeshift - the eye's position pre-shifted for each of the three scales
+;               (SPEC.md 88.5.6.3), nine words, once a frame
+;
+; cs_scale used to build `coordinate * 256` as a 32-bit value, subtract the
+; 16.8 position from it and shift the pair down 8 - pshr, three times an
+; OBJECT. The shift DISTRIBUTES, and exactly rather than approximately:
+; coordinate * 256 is divisible by 2^s, so
+;
+;     (c * 256 - p) >> s  ==  (c << (8 - s))  -  ceil(p / 2^s)
+;
+; for every c and p, and `ceil(p / 2^s)` is `sar(p + 2^s - 1, s)` - which
+; depends on the FRAME and not on the object. Nine of those a frame here
+; against three 32-bit builds and shifts per object there, and what is left
+; at the call site is `shl ax, cl` and a word subtract.
+;
+; `c << pshr` can overflow a word and that is allowed: the ladder guarantees
+; the DIFFERENCE fits, and two's complement arithmetic mod 65536 gives the
+; same low word either way - which is exactly what the 32-bit form did when
+; it took AX and threw DX away.
+; -----------------------------------------------------------------------------
+%macro CS_EYESH 1                   ; %1 = s, the shift for this scale
+    mov si, cs_px
+    mov cx, 3                       ; x, y, z - three consecutive ZDWORDs
+%%a:
+    mov ax, [si]
+    mov dx, [si + 2]
+    add ax, (1 << %1) - 1           ; ...the ceiling, before the shift
+    adc dx, 0
+%if %1 == 8
+    mov al, ah                      ; a shift of eight is the middle two
+    mov ah, dl                      ; bytes, which cs_sdiff knew as well
+%else
+%rep %1
     sar dx, 1
     rcr ax, 1
-    sar dx, 1
-    rcr ax, 1
-.s4:
-    sar dx, 1
-    rcr ax, 1
-    sar dx, 1
-    rcr ax, 1
-    sar dx, 1
-    rcr ax, 1
-    sar dx, 1
-    rcr ax, 1
+%endrep
+%endif
+    mov [di], ax
+    add di, 2
+    add si, 4
+    loop %%a
+%endmacro
+
+cs_eyeshift:
+    mov di, cs_psh
+    CS_EYESH 8                      ; whole metres...
+    CS_EYESH 6                      ; ...quarters...
+    CS_EYESH 4                      ; ...sixteenths
     ret
 
 ; =============================================================================

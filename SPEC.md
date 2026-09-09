@@ -103060,6 +103060,74 @@ differences and 0 differing pixels over 554 frames**. `cs_colscale` stays —
 `cs_stackverts` has three calls to it, and its column there is a genuine
 common factor rather than scaffolding.
 
+##### 88.5.6.3 The shift DISTRIBUTES, so the eye is pre-shifted once a frame
+
+`cs_scale` built the object's origin with three `cs_sdiff` calls, and each one
+made a 32-bit `coordinate x 256`, subtracted the 32-bit 16.8 eye position from
+it, and shifted the pair down `8 - pshr`. Measured, that block — three calls
+and the stores around them — was **1,101 cycles of `cs_scale`'s 3,994, 27.6%**,
+for what is arithmetically three subtractions.
+
+The shift distributes, and **exactly** rather than approximately. `c x 256` is
+divisible by `2^s` for every `s <= 8`, so
+
+    (c * 256 - p) >> s   ==   (c << (8 - s))  -  ceil(p / 2^s)
+
+for every integer `c` and `p`, with `>>` arithmetic throughout — and
+`ceil(p / 2^s)` is `sar(p + 2^s - 1, s)`, which depends on **the frame and not
+on the object**. So `cs_eyeshift` computes nine of them once a frame at the end
+of `cs_matrix` — three axes by three scales, `cs_psh` — `cs_scale` picks the
+group with `[cs_pshtab + bx]` beside the projection variant it already picked
+there, and what is left at the call site is `shl ax, cl` and a word subtract.
+`cs_sdiff` is deleted; so is its per-call ladder on `[cs_pshr]`, which ran
+three times an object for an answer that could not change between them.
+
+`c << pshr` can overflow a word and that is allowed: §88.5.6's ladder
+guarantees the DIFFERENCE fits, and two's complement arithmetic mod 65,536
+gives the same low word either way — which is exactly what the 32-bit form did
+when it took AX and threw DX away.
+
+**The block goes 1,101 cycles → 457**, and `cs_eyeshift` costs `cs_matrix`
+**+0.38 ms a frame** against the ~3.5 it gives back — nine values a frame
+against three 32-bit builds and shifts on every one of 16.4 objects. Its
+`s = 8` group is a byte move rather than eight `sar`/`rcr` pairs, which is
+what `cs_sdiff`'s own whole-metre arm always did.
+
+##### 88.5.6.4 `cs_rot` holds its vector in registers
+
+The other 59% of `cs_scale` is `cs_rot`, and 59% of THAT is the nine `MUL14` a
+3x3 rotation needs. The rest was the way they were reached: the vector went to
+`cs_rvx`/`cs_rvy`/`cs_rvz` and `cs_dot` read it back three times a row, three
+rows — **nine loads, three `call`/`ret`s and an `add si, 6` a row**.
+
+`MUL14` is `imul bx`, so the multiplicand has to be AX and the matrix element
+is what varies. That is the OPPOSITE of §88.5.6.2's arrangement in
+`cs_flatverts`, where one scalar served three multiplies from BX — here the
+vector needs three registers of its own, and there are exactly three free:
+**CX, SI and BP**, with DI accumulating. The two finished rows park on the
+STACK, a byte and a clock cheaper each way than the bss words they used to,
+and `cs_rvx`/`cs_rvy`/`cs_rvz`/`cs_rox`/`cs_roy` are all gone.
+
+`cs_rot` clobbers BP now. Nothing from `cs_scene` down through `cs_drawpass`
+and `cs_drawobj` holds a value in it, which is the same fact §88.4.5.4 rests
+on one subject along.
+
+**`cs_rot` goes 2,365 cycles → 1,979**, so it is **71% multiply** where it was
+59%. Together with §88.5.6.3 a `cs_scale` is **4,229 → 3,199 cycles, −24%**,
+and the phase probe attributes −644 to the origin and −386 to the rotation —
+which sums to the −1,030 the same-session A/B measures:
+
+| tier 3, 16 frames | `cs_scale` | `cs_matrix` | frame |
+|---|---|---|---|
+| `turnhold` | 14.53 → **10.99** ms | 1.15 → 1.53 | 247.4 → **244.1** (4.04 → 4.10 fps) |
+| `bank` | 13.14 → **9.76** | 1.15 → 1.54 | 239.9 → **237.3** (4.17 → 4.21) |
+| `climb` | 6.23 → **4.83** | 1.22 → 1.53 | 149.5 → **149.2** |
+
+**+148 bytes of image, +10 of bss** (`cs_psh` and `cs_pshp` in, `cs_rvx`,
+`cs_rvy`, `cs_rvz`, `cs_rox` and `cs_roy` out) and six of table. **649 frames
+over seven pinned profiles are pixel-identical**, which is what an identity
+claim has to be checked against rather than argued.
+
 #### 88.5.7 A line through a clamped point bends, so the sides clip too
 
 The projection clamps a point at ±4000 (§88.5.5: |cx| over 9z), and a

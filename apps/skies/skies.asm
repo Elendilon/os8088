@@ -2618,11 +2618,6 @@ CS_DBGSCR equ 112               ; ...and the copy A/B's scratch is 112 rows,
     ZWORD cs_nx                     ; the world's up vector in camera space:
     ZWORD cs_ny                     ; the matrix's second column (88.4.1)
     ZWORD cs_nz
-    ZWORD cs_rvx                    ; cs_rot's operand and result
-    ZWORD cs_rvy
-    ZWORD cs_rvz
-    ZWORD cs_rox
-    ZWORD cs_roy
     ZWORD cs_ex                     ; the eye, in whole metres, and the high
     ZWORD cs_exh                    ; words of x and z for the 32-bit cull
     ZWORD cs_ey
@@ -2717,6 +2712,11 @@ CS_DBGSCR equ 112               ; ...and the copy A/B's scratch is 112 rows,
     ZBUF  cs_rwmodel, CSM_SIZE
     ZBUF  cs_rwobj, CSO_SIZE
     ZWORD cs_rwax                   ; its along and across vectors
+    ; --- the eye's position PRE-SHIFTED for each of the three scales
+    ;     (88.5.6.3): three groups of {x', y', z'}, nine words, rebuilt once
+    ;     a frame by cs_eyeshift and read by cs_scale as a plain word -----
+    ZBUF  cs_psh, 18
+    ZWORD cs_pshp                   ; ...the group for THIS object's scale
     ZWORD cs_rwaz
     ZWORD cs_rwcx
     ZWORD cs_rwcz
