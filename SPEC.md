@@ -98920,6 +98920,49 @@ buys is 14KB of the claim, so `tests/unit/t_appsmall.py` weighs this package on
 **image + bss + claim** — 63,688 bytes against 50,327 — and reads a **21%**
 saving. A small build measured on the region alone would fail its own gate.
 
+#### 85.3.8.1 The template's ridge is redrawn at the TEMPLATE's heading
+
+`tk_ridge` drew at the live `[tk_pa]`, and one of its callers must not. When an
+item's key moves, `tk_tmitem` zeroes that item's rectangle and `tk_tmdrawset`
+redraws everything the zero took with it — the ridge among them, through
+`tk_tm_ridge`. What the zero took out was the ridge **the template holds**,
+which is at `[tk_rpa_tm]`; and `tk_ridge` was putting back the ridge at
+`[tk_pa]`.
+
+The two agree on nearly every frame and part on exactly one: `tk_tmupdate` runs
+**before** `tk_ridge_tm` (§85.3.5's own ordering — the template is brought
+current straight after the clear), so on a frame where an item's key *and* the
+heading both move, the item redraw goes first and paints at the new heading.
+Then `tk_ridge_tm` takes `.moving` and `tk_rdg_out` zeroes **`tk_sprdg`'s**
+runs, which record where the **old** ridge was. What the item redraw laid
+outside those runs is left behind: in no run, so no clear reaches it; marked
+only into `tk_spjunk`, which nobody reads. A detached ridge segment in the
+background, one frame's turn out of step, for the rest of the bracket.
+
+**`tk_rx0`/`tk_rx1` do not bound it, which is why one item's rectangle strands
+ink right across the band.** They decide *whether* a segment is drawn, never
+where it is cut (`tk_ridge`'s `.sg` loop), so a segment that merely overlaps
+the rectangle is drawn **whole**. That is deliberate — a clipped Bresenham
+would not reproduce the lattice §85.3.2 relies on — and it means the redraw's
+reach is the segment's, not the rectangle's.
+
+So `tk_ridge` draws at `[tk_rpa_draw]`: `tk_ridge_full` sets it from `[tk_pa]`,
+`tk_tm_ridge` from `[tk_rpa_tm]`. **+12 bytes on each arm.** Measured with
+`tests/tankperf.py`'s scene on `os8088_5150_herc_gla`, an item's key and the
+heading moved together for 40 rounds, against a from-scratch repaint: **51
+stale pixels → 0 on the shipped build, 9 → 0 on `APP_SMALL`.**
+
+**IT IS THE SHIPPED BUILD'S DEFECT FIRST**, and by the larger margin: there the
+stray ink lands in the template buffer and the clear re-lays it every frame, so
+it is permanent by construction, where on the small build only the item's own
+rows are re-encoded. Do not read the `APP_SMALL` figure as the size of it.
+
+**Fixing this alone made the small build WORSE**, 9 → 561, and the reason is
+worth keeping: it changes what gets encoded, a fuller pool refuses sooner, and
+§85.3.5.1's `.full` was stranding the whole template when it did. The two are
+independent defects that have to be fixed together, and a bisect that took
+either one on its own would have blamed it for the other's damage.
+
 #### 85.3.6 A shallow line with eight pixels to the row is sliced, not walked
 
 Bresenham's 1985 run-length slice, taken for a shallow line whose whole step

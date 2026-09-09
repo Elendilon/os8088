@@ -860,6 +860,9 @@ tk_tpl:
     ZBYTE tk_rtm_on                 ; the template holds a ridge (85.3.8)...
     ZBYTE tk_rpa_tm                 ; ...drawn at this heading...
     ZBYTE tk_rpa_last               ; ...and the heading of the last frame
+    ZBYTE tk_rpa_draw               ; the heading tk_ridge is drawing AT, which
+                                    ; is the live one for every caller but the
+                                    ; template's own redraw (85.3.8.1)
     ZWORD tk_rx0                    ; the columns tk_ridge draws between
     ZWORD tk_rx1
     ZBYTE tk_par

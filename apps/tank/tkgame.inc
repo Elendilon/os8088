@@ -2268,8 +2268,11 @@ tk_tmdrawset:
 ; and drawn into the shadow as every frame once did. A frame in the middle of
 ; a turn costs exactly what it did; a still one costs no ridge at all.
 ; =============================================================================
-tk_ridge_full:                      ; the whole width, then tk_ridge
-    xor ax, ax
+tk_ridge_full:                      ; the whole width, at the LIVE heading
+    mov al, [tk_pa]
+    mov [tk_rpa_draw], al
+tk_ridge_wide:                      ; ...and the same width at whatever heading
+    xor ax, ax                      ; [tk_rpa_draw] already names
     mov [tk_rx0], ax
     mov ax, [tk_vw]
     dec ax
@@ -2359,13 +2362,24 @@ tk_ridge_tm:
 
 ; tk_tm_ridge - the ridge as an ITEM: drawn again when another item's zero
 ;               took some of it, and only across that item's rectangle
+;
+; IT DRAWS AT [tk_rpa_tm], NOT AT [tk_pa] (85.3.8.1). What the zero took out was
+; the TEMPLATE's ridge, so the template's heading is what has to go back. The
+; two agree on nearly every frame and part on exactly one: tk_tmupdate runs
+; BEFORE tk_ridge_tm, so where an item's key and the heading both move this ran
+; with the NEW heading while [tk_sprdg] still described the old one - and
+; tk_rdg_out then zeroed the old runs, leaving what this drew outside them
+; uncleared, unmarked and unstored. A detached ridge segment in the background,
+; one frame's turn out of step, for the rest of the bracket.
 tk_tm_ridge:
     cmp byte [tk_rtm_on], 0
     je .o
+    mov al, [tk_rpa_tm]
+    mov [tk_rpa_draw], al
     mov si, [tk_tmcur]
     or si, si
     jnz .part
-    jmp tk_ridge_full
+    jmp tk_ridge_wide
 .part:
     mov cl, [tk_kshift]
     mov ax, [si+4]
