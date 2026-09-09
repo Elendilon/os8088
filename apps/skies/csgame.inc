@@ -1261,14 +1261,21 @@ cs_d_state:
     mov si, cs_s_crash
     cmp al, CS_ST_CRASH
     je .s
-    mov si, cs_s_flying
+    mov si, cs_s_stalled
     test ah, 1                      ; BIT 0 IS THE STALL (88.9.4.2) and the
-    jz .s                           ; cs_k_state packs cs_onwater in beside it
-    mov si, cs_s_stalled            ; so the strip repaints when a hull leaves
+    jnz .s                          ; cs_k_state packs cs_onwater in beside it
+                                    ; so the strip repaints when a hull leaves
                                     ; the water, and testing the whole byte
                                     ; read an amphibian AIRBORNE OFF THE WATER
                                     ; - which is how every A5 flight starts -
                                     ; as stalled, for the whole flight
+    mov si, cs_s_airbrake           ; ...AND BIT 2 IS THE AIRBRAKE (88.7.10.2):
+    test ah, 4                      ; the same latch the ground arm reads, and
+    jnz .s                          ; the strip said FLYING with it out, which
+    mov si, cs_s_flying             ; is the one state a pilot cannot see from
+                                    ; the window. A STALL OUTRANKS IT - the
+                                    ; brake is a thing you chose and the stall
+                                    ; is one that happened
 .s:
     push si
     mov bx, CS_PI_STATE
@@ -1431,6 +1438,7 @@ cs_s_dn:     db 'DN  ', 0        ; and not a signed number (88.7.6)
 cs_s_ground: db 'ON THE GROUND', 0
 cs_s_water:  db 'ON THE WATER ', 0
 cs_s_brakes: db 'BRAKES ON    ', 0
+cs_s_airbrake: db 'AIRBRAKE OUT ', 0
 cs_s_flying: db 'FLYING       ', 0
 cs_s_stalled: db 'STALL        ', 0
 cs_s_crash:  db 'CRASHED      ', 0
