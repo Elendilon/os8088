@@ -1031,6 +1031,10 @@ tk_tpl:
     ZBUF  tk_curft, TKC_SZ          ; walk block each, plus where it has got
     ZBUF  tk_curbh, TKC_SZ          ; to and what it still owes this glyph
     ZBUF  tk_curbt, TKC_SZ
+    ZBUF  tk_lgwk,  GLS_SZ          ; ...and one more walk block, for the logo
+                                    ; segments drawn WHOLE (SPEC.md 85.10.4):
+                                    ; the cursors above animate, this one just
+                                    ; lays a segment down and is done with it
     ZBUF  tk_pts, TK_PTMAX * 4      ; the attract cursors' points, stepped into
                                     ; here and committed in ONE arrival
                                     ; (SPEC.md 5.12.5). A full list commits

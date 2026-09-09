@@ -100393,6 +100393,43 @@ nothing overlaps a moving letter for longer than a frame anyway.
 
 ### 85.10 The attract window — one stroke, two cursors, and a band that blits
 
+#### 85.10.4 The logo's WHOLE segments are a walk too, not a line each
+
+The attract logo reaches the glass by two routes: two cursors that *animate*
+along a segment, and two places that lay a segment down **whole** — the draw-in
+(`tk_at_step`) and the full repaint (`tk_logo_full`). The cursors have walked
+app-side since §5.12.5; the whole ones were still one `OSAPI_GFX_LINE` each.
+
+They are `gfxe_wline` now — **a whole line is a walk of its full length**, which
+is eighteen bytes on top of the `GFXE_WALK` this package already carries
+(§5.12). What it buys is not the per-line cost, which nobody would notice on a
+path that runs once per attract cycle: it is that **the whole logo goes up in
+one arrival** instead of one far call a segment, because the point list commits
+itself when it fills rather than per line.
+
+`tk_lgwk` is the block they walk — one more `GLS_SZ`, kept apart from the four
+cursors' because these two lay a segment down and are done with it where the
+cursors carry state between frames. **+31 bytes of the package and no kernel
+byte**, and it takes `apps/tank` to zero `OSAPI_GFX_LINE` call sites.
+
+**THE LOGO'S DIAGONALS MOVE BY A PIXEL, and that is expected rather than a
+regression.** §5.6.7 says it in as many words: *"the walk runs in the CALLER's
+direction… `gfx_line` normalises downward so its pixel set is a property of the
+endpoint PAIR (§5.6.2); this cannot."* Measured over the logo's 200×46 area,
+**30 pixels of 9,200 differ**, every one of them on a diagonal stroke and every
+one a one-column shift — which is exactly the tie-break the two rasterisers
+disagree on and nothing else.
+
+What that buys, and it is worth more than the bytes: **the whole-segment draw
+now uses the same rasterisation as the cursors that animate along those same
+segments.** The gleam's tails lay `[tk_ctube]` back over the outline
+(§85.10.3), and until now they were walking where the outline had been drawn
+with `gfx_line` — two Bresenhams over one set of endpoints. They agree by
+construction now. *(Whether the old disagreement was visible is NOT established
+here: the logo's lit count moves as the gleam crosses it, so a drift
+measurement cannot separate accumulation from the animation without
+phase-locking the sample, and none was taken.)*
+
 The window is the half of this game that draws with the kernel's slots at all;
 everything else is past §53.7's fence. So it is also where §5.6.7's resumable
 walk finally gets a consumer in this package, and where §5.5's `gfx_scroll`

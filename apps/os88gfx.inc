@@ -623,6 +623,29 @@ gfxe_wstep:
     ret
 
 ; -----------------------------------------------------------------------------
+; gfxe_wline - the WHOLE line (x1,y1)-(x2,y2) into the point list, one call
+; in:  AX = x1, BX = y1, CX = x2, DX = y2; DI = a GLS_SZ block (in DS)
+; out: the block left at the far end - so an ERASE is `gfxe_wline` again with
+;      the paper ink and the same endpoints, which is exact by SPEC.md 5.6.2
+;      rather than dilated by 5.6.5; clobbers AX, BX, CX, DX, SI, BP, flags
+;
+; A WHOLE LINE IS A WALK OF ITS FULL LENGTH, which is the lattice's own claim
+; (SPEC.md 5.12's capability table) made into eighteen bytes: `gfxe_winit` has already reduced the line to
+; |dx| and |dy|, so the pixel count is the larger of them plus one and the walk
+; does the rest. It is the piece a program wants when it is NOT animating -
+; drawing a figure once - and it needs nothing GFXE_WALK did not already carry.
+; -----------------------------------------------------------------------------
+gfxe_wline:
+    call gfxe_winit
+    mov cx, [di + GLS_DX]
+    cmp cx, [di + GLS_DY]
+    jae .n
+    mov cx, [di + GLS_DY]
+.n:
+    inc cx
+    jmp gfxe_wstep              ; tail: its ret is ours
+
+; -----------------------------------------------------------------------------
 ; gfxe_wstepv - step MANY walks into the list, OSAPI_GFX_LSTEPV's shape
 ; in:  SI = an array of CX descriptors, each `dw block_offset, pixels`, the
 ;      blocks in DS too; CX = how many pairs (0 legal)

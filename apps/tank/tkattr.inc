@@ -537,18 +537,19 @@ tk_logo_full:
     mov bx, [tk_e1y]
     mov cx, [tk_e2x]
     mov dx, [tk_e2y]
-    xor si, si
-    call OSAPI_GFX_LINE
-    pop dx
-    pop cx
-    inc cx
-    jmp short .whole
+    mov di, tk_lgwk                 ; SPEC.md 85.10.4: a whole segment is a
+    call gfxe_wline                 ; walk of its full length, and the whole
+    pop dx                          ; LOGO goes up in one arrival - the list
+    pop cx                          ; commits itself when it fills, so what
+    inc cx                          ; used to be one far call a segment is now
+    jmp short .whole                ; a handful for the figure
 .next:
     inc word [tk_lgi]
     mov ax, [tk_lgi]
     cmp ax, TK_LGCELLS
     jb .cell
 .done:
+    call gfxe_pput                  ; the whole logo, in ONE arrival
     pop ax
     mov [tk_at_prog], ax
     pop ax
@@ -947,8 +948,8 @@ tk_at_step:
     mov bx, [tk_e1y]
     mov cx, [tk_e2x]
     mov dx, [tk_e2y]
-    xor si, si
-    call OSAPI_GFX_LINE
+    mov di, tk_lgwk                 ; SPEC.md 85.10.4, as above
+    call gfxe_wline
     inc word [tk_at_pseg]
     mov ax, [tk_at_pseg]
     cmp ax, [tk_lgnp]
@@ -959,9 +960,15 @@ tk_at_step:
 .dgo:
     pop cx
     loop .dseg
+    push si                         ; this step's segments, in ONE arrival
+    call gfxe_pput                  ; (SPEC.md 85.10.4) - it used to be one
+    pop si                          ; far call each
     jmp .scroll
 .done:
     pop cx
+    push si
+    call gfxe_pput
+    pop si
     mov byte [tk_at_glow], 1        ; the outline is whole: the gaps take over
     mov word [tk_lgi], 0
     call tk_lgarm
