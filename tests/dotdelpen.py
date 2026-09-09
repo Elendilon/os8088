@@ -318,18 +318,39 @@ def place(m, p, c, r):
     m.go()
 
 
+DIR_R, DIR_L = 0, 2
+
+
+def steer(m, p, d):
+    """Point Smiles at d, by the STATE and not by the keyboard.
+
+    This leg is about SPEC.md 93.7.4 - whether the tunnel wraps - and driving
+    it through dd_input made it a test of the input path as well, which is
+    what it kept failing on: the right-hand trial follows the left-hand one,
+    and a run where the ArrowRight never displaced the held ArrowLeft walked
+    him LEFT for the whole seven seconds and reported the tunnel.  The columns
+    said so plainly - 25 down to 18 under a key that means right - and it went
+    one run in two.  dd_want is what dd_input would have set.
+    """
+    base = p.seg << 4
+    m.pause()
+    m.write(base + p.names["dd_dir"], bytes([d]))
+    m.write(base + p.names["dd_want"], bytes([d]))
+    m.go()
+
+
 def leg_e(ui, p, say, secs=7.0, tries=4):
     """The tunnel row wraps in both directions."""
     m = ui.m
     fail = 0
-    for tag, start, key, want in (("left", 2, "ArrowLeft", lambda c: c >= 22),
-                                  ("right", 25, "ArrowRight", lambda c: c <= 5)):
+    for tag, start, dirn, want in (("left", 2, DIR_L, lambda c: c >= 22),
+                                   ("right", 25, DIR_R, lambda c: c <= 5)):
         ok = False
         for _ in range(tries):
             if not settle_play(m, p):
                 continue
             place(m, p, start, 14)
-            m.key(key, down=True, up=False)
+            steer(m, p, dirn)
             cols = set()
             reset = False
             t0 = time.time()
@@ -346,8 +367,11 @@ def leg_e(ui, p, say, secs=7.0, tries=4):
                     reset = True
                     break
                 cols.add(c)
-                time.sleep(0.06)
-            m.key(key, down=False, up=True)
+                steer(m, p, dirn)       # ...and he is STILL pointed that way:
+                time.sleep(0.06)        # dd_decide turns a ghost at a wall and
+                                        # Smiles stops, so a single poke would
+                                        # be a trial that ends at the first
+                                        # junction rather than at the tunnel
             if reset:
                 continue
             if any(want(c) for c in cols):
