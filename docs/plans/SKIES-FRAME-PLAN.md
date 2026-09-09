@@ -783,6 +783,54 @@ is the bounding boxes rather than the ink.
 3. **Neither half is worth building alone and the pair has never been
    measured.** That is the one experiment this round leaves open.
 
+#### 7.1.13 THE FIND - the blit carries 21x what changed, and it is worst LEVEL
+
+7.1.12 chased a cache and the check kept saying "the mark is a box". The field
+put it the other way round - *we are drawing no pixels and yet half the scene
+is marked dirty* - and that turns out to be measurable exactly, with no model
+at all. **SPEC.md 88.3.2.2 is the measurement.**
+
+At the `cs_blit` call site the shadow holds the NEW frame and **the card still
+holds the OLD one**. Differencing them across the view is the TRUE dirty set;
+`cs_blit`'s own rule says what it will carry. Six settled frames a point:
+
+| held roll | bytes CARRIED | bytes that DIFFER | waste |
+|---|---|---|---|
+| 0 deg - LEVEL | 267 | **11** | **24.2x** |
+| 5 deg | 1,184 | **44** | **27.0x** |
+| 12 deg - the field's | 2,603 | **125** | **20.9x** |
+
+**Level is the worst ratio of the three**, which is the part that reframes
+everything above: the looseness is not a bank defect, it is there all the time
+and a bank only inflates the boxes.
+
+**It is `cs_seg`, and it is a rectangle around a DIAGONAL.** After clipping, a
+segment marks min/max of its two ENDS in x and y and hands that box to
+`cs_markacc`. A line 400 px wide and 55 rows tall marks 55 x 50 bytes where
+its ink is one pixel a row.
+
+##### What to build, in order
+
+1. **Settle the 3 bytes.** The same scoring finds 3 bytes a frame that DIFFER
+   and are NOT carried, at 5 and 12 degrees and none level, at the view's
+   right edge. Either the host model's word rounding or stale pixels on the
+   glass. It is a correctness question and it uses the same instrument
+   everything below would be measured on, so it goes first.
+2. **A mark that STEPS.** Not 88.3.2.1's banded pass - `cs_markrows`' own row
+   loop with the byte pair interpolated, two adds a row on a loop that already
+   reads, compares and writes. 88.3.2.1's refusal was 16 bands over one object
+   at 45 degrees and its unit costs still stand (~50 cycles a row to mark,
+   ~4.5 a byte to carry, so 11 bytes a row to break even); what is new is that
+   the mark is **39 bytes a row wide where the ink is under 2**.
+3. **Then re-price the two refusals it unlocks** - 7.1.8's narrow fill, whose
+   own break-even is "under 16 bytes of the 50" against today's 31, and
+   7.1.12's cache, which finds nothing only because the box says every band
+   row has ink.
+
+The instrument is `dirty.py`'s shape and it should become a registered row:
+carried against differing is a RATCHET, and there is no way to make a mark
+looser without it going up.
+
 ## 7.4 WHERE cs_scene's 169 ms GOES
 
 Tier 2 over twelve flown frames of `turnhold`, with tier 3's sub-splits:

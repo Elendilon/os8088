@@ -102193,6 +102193,64 @@ possible case — ONE object, TWO segments, a box the size of the view and ink a
 few bytes wide — and it still loses. **The mark is per object and off its box,
 and that is settled.**
 
+##### 88.3.2.2 THE BLIT CARRIES 21x WHAT CHANGED — scored against the glass itself
+
+§88.3.2 and §88.3.2.1 settled that a mark is an object's box and refused two
+ways of tightening it, both priced by ARITHMETIC on what a tighter mark would
+save. Neither ever asked the question the other way round: **of the bytes
+`cs_blit` actually carries, how many needed to move?**
+
+That is measurable exactly and needs no model. At the `cs_blit` call site the
+shadow holds the NEW frame and **the card still holds the OLD one**, so
+differencing them across the view is the true dirty set, and `cs_blit`'s own
+rule — the union of the two span sets per row, `and al, 0xFE` / `or ah, 1` —
+says what it will carry. `slightbank`, Hercules, the view 112 rows x 50 bytes,
+six settled frames a point:
+
+| held roll | bytes CARRIED | bytes that DIFFER | waste | rows carried | rows differing |
+|---|---|---|---|---|---|
+| 0° — level | 267 | **11** | **24.2x** | 18.0 | 7.7 |
+| 5° | 1,184 | **44** | **27.0x** | 32.0 | 17.3 |
+| 12° — the field's own | 2,603 | **125** | **20.9x** | 66.6 | 41.1 |
+
+**Twenty-one times, and LEVEL is the worst ratio of the three.** This is not a
+bank defect: the box mark is that loose all the time, and a bank only makes
+the boxes bigger. Drawn — carried-and-identical against carried-and-changed —
+the 12° frame is a red slab across the whole band with a few dozen yellow
+bytes in it, which is the picture behind every argument in this family.
+
+**WHERE IT COMES FROM IS `cs_seg`, and it is a rectangle around a DIAGONAL.**
+After clipping, a segment marks `min/max` of its two ends in x and in y
+(csraster.inc, `cs_seg` at `.accept`) and hands that box to `cs_markacc`. A
+line 400 pixels wide and 55 rows tall therefore marks **55 x 50 bytes** where
+its ink is *one pixel per row*. THE SEINE is exactly that: two segments over
+7.3 km of ground, two rows thick at level and, at 12°, a box 52 rows deep
+(§88.3.1.3.5).
+
+**What this does NOT overturn.** §88.3.2.1 measured banded marking at +2.9 ms
+and its unit costs stand — a row is ~50 cycles to mark and ~4.5 a byte to
+carry, so a tighter mark must save 11 bytes on every row it touches. What is
+new is the size of the prize on the other side of that inequality: at 12° the
+carried set is 2,603 bytes against 125, so the mark is **39 bytes a row wide
+where the ink is under 2**, and the sum is over three times §88.3.2.1's own
+2,928 → 1,752. The banded pass was also 16 bands over ONE object at 45°; the
+shape this measurement argues for is a mark that STEPS — `cs_markrows`' own
+row loop with the byte pair interpolated, which is two adds a row on a loop
+that already reads, compares and writes — and it has never been built.
+
+**And the second consumer is the one that makes it worth doing.** A tight mark
+is not only blit bytes: §88.3.1.1.2's narrow fill "pays exactly when the union
+is under **16 bytes** of the 50" and today's union is 31 *because* the mark is
+a box; §88.3.1.3.4's row cache finds nothing because the box says every band
+row has ink. Three refusals, one brick.
+
+**One thing to settle first, and it is a CORRECTNESS question, not a speed
+one**: the same scoring finds **3 bytes a frame that DIFFER and are not
+carried** at 5° and 12°, and none at level — at the view's right edge. That is
+either the word-rounding in the host-side model of `cs_blit`'s walk or a real
+edge case leaving stale pixels on the glass, and it must be resolved before
+any of the above is built on the same instrument.
+
 #### 88.3.3 The blit looks only at the rows anything marked
 
 The two guard words before each span set hold the set's first and last
