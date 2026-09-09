@@ -112241,6 +112241,28 @@ This is deliberately **not** Cyclone's rule (§67), which misses a frame rather
 than chasing one. That is right for a game whose motion is *per frame*; this
 one's motion is per *tick*, so it catches up exactly.
 
+#### 93.6.4 A pen cannot flash on an adapter that has no pen
+
+The last two seconds of a pellet flash the frightened ghosts as a warning, and
+that flash was **a pen change**: `DD_INKFRI` (CLBLUE) on one phase and `CWHITE`
+on the other. On VGA that reads correctly. On Hercules and CGA it did nothing
+at all, and the reason is one line of §5.4.2.2 — `dd_pen` does not set a pen
+below 2 bpp, because a 1bpp band already means lit and unlit. Both phases
+therefore drew the *same lit pixels*, and the machine with the least margin for
+a mistake got no warning that the pellet was running out.
+
+**So on one plane the flash is an IMAGE and not a pen.** `SP_FRIDIM` is the two
+frightened bodies again with one pixel in two removed, and the flash phase
+selects them; the colour path is untouched and still swaps the two pens.
+
+**The dither is applied to the SCALED sprite, not to the master.** A
+checkerboard laid on the 16-row master and then put through `dd_spr_cut` is not
+a checkerboard afterwards — `dd_rmap` repeats and drops rows to reach the tile
+height, so a 16×9 Hercules tile turns an even chequer into bands. Dithering
+what the scaler has already produced puts the pattern at the screen's own
+resolution, which is the only place it means anything. It costs two more
+scaled sprites and nothing per frame.
+
 #### 93.6.1 …and the catch-up is capped
 
 `DD_MAXSTEP` is 4. A machine that was away — a long disk transfer, a modal
@@ -112696,6 +112718,42 @@ letters are typed over the still-running demo and Enter commits. **The write
 happens then**, not at close: a score is banked when the player finishes
 typing it, and a session ended any way but through the close box would
 otherwise drop a row the table had already shown.
+
+#### 93.12.4 The initials are typed on the BOARD, in a panel over it
+
+`dd_hs_offer` used to start the demo and repaint, so the sequence a player saw
+was: the game ends, `GAME OVER` sits on a frozen board for **four seconds**,
+the attract screen replaces it, and *then* `NEW HIGH SCORE:` appears down on
+the attract screen's play line. The field's report was not that the prompt was
+missing — it was that it arrived somewhere else: *"I was expecting the entry on
+the board screen, not the attract screen."*
+
+The score was made on that board and it is typed on that board. `dd_box_draw`
+is a panel centred on the **board** (not on the content box): an outline with a
+black inside, `GAME OVER` on its first line and, once `DDS_ENTER` is reached,
+the initials on its second. Three things follow:
+
+- **`DDS_ENTER` stops being an attract state.** `dd_is_attract` no longer
+  claims it, `dd_play_line` loses its initials arm and `dd_hs_prompt` is
+  deleted rather than left assembled. That one predicate is what put the
+  prompt on the attract screen.
+- **The board under the panel is FROZEN.** `dd_draw`'s box arm draws the panel
+  and nothing else — no pellet blink, no actors, no repair queue — because
+  every one of those would punch a hole in it. Nothing moves in these two
+  states anyway, so freezing costs nothing.
+- **The panel is drawn when `[dd_boxd]` says so**, not once a frame: a fill, a
+  frame and two lines of type for a picture identical to the last one is the
+  §93.5.6 mistake in a different place.
+
+`DD_OVERT` is **18 ticks** where it was 72. Four seconds of a frozen board with
+nothing happening on it was the wait the field asked to have shortened, and one
+second is what it asked for.
+
+**Game over does not repaint the board.** `dd_life_lost`'s `.over` set
+`dd_full`, so the last life redrew every wall and every dot — for a life count
+that had gone to zero and a panel that covers the middle. The line immediately
+above it already said why a *lost life* does not repaint, and the last life is
+a lost life; it sets `[dd_hudd]` and `[dd_boxd]` now.
 
 Two rules that fail *quietly* when they are got wrong, and are Cyclone's and
 Tank Attack's before they were this package's (§67.20, §85.9): the file lives

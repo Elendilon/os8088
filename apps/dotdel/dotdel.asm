@@ -183,7 +183,10 @@ DD_MAXSTEP  equ 4               ; the catch-up cap (SPEC.md 93.6.1)
 DD_READYT   equ 36              ; ~2.0 s of "READY!"
 DD_DIET     equ 32              ; the death spin
 DD_CLEART   equ 30              ; the level-clear flash
-DD_OVERT    equ 72              ; GAME OVER before the attract screen
+DD_OVERT    equ 18              ; GAME OVER alone, before the initials box
+                                ; (SPEC.md 93.12.4). It was 72 - four seconds
+                                ; of a frozen board with nothing to do - and
+                                ; the field asked for one
 DD_FRUITT   equ 170             ; how long a fruit waits to be taken
 DD_EATPAUSE equ 6               ; the freeze while a ghost's score shows
 
@@ -275,7 +278,7 @@ dd_paint:
     call dd_geom_win                ; the content box may have moved
     call dd_relayout_ck             ; ...and may have changed size or display
     call dd_spawn_ck                ; ...and the worker starts here, not at the
-    mov byte [dd_full], 1           ; entry proc (SPEC.md 20.6)
+    mov byte [dd_full], 1
     mov byte [dd_inpaint], 1
     call dd_draw
     mov byte [dd_inpaint], 0
@@ -1193,6 +1196,11 @@ dd_spct:     dw DD_PCTPAC, DD_PCTGH, DD_PCTFRI, DD_PCTEYE, DD_PCTTUN
     DBUFV  dd_ini, 4
     DBYTEV dd_inip
     DBUFV  dd_promptb, 32
+    DBYTEV dd_boxd                  ; the GAME OVER / initials panel owes a
+    DWORDV dd_boxx                  ; repaint, and where it is (SPEC.md 93.12.4)
+    DWORDV dd_boxy
+    DWORDV dd_boxw
+    DWORDV dd_boxh
     DWORDV dd_dbclus
     DBYTEV dd_dbdrv
     DBUFV  dd_dfind, OSAPI_FIND_SZ

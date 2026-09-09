@@ -277,7 +277,18 @@ dd_step:
     cmp al, DDS_ATTRACT
     je .attract
     cmp al, DDS_ENTER
-    je .attract                     ; the demo keeps running behind the prompt
+    je .rout                        ; ...and NOTHING happens here (SPEC.md
+                                    ; 93.12.4): the board is frozen under the
+                                    ; panel, so the only thing this state does
+                                    ; is take letters. It used to run the
+                                    ; ATTRACT stepper - which is the other half
+                                    ; of why the initials were typed on the
+                                    ; attract screen - and once the demo flag
+                                    ; stopped being set with it, that stepper
+                                    ; ran dd_collide over a Smiles nothing was
+                                    ; protecting: caught, dd_die, DDS_DIE, and
+                                    ; the game went round DIE -> OVER -> ENTER
+                                    ; -> DIE for ever
     cmp al, DDS_READY
     je .ready
     cmp al, DDS_PLAY
@@ -1768,8 +1779,13 @@ dd_life_lost:
     mov byte [dd_lives], 0
     mov byte [dd_state], DDS_OVER
     mov word [dd_tim], DD_OVERT
-    mov byte [dd_full], 1
-    ret
+    mov byte [dd_hudd], 1           ; ...AND NEITHER DOES GAME OVER. This set
+    mov byte [dd_boxd], 1           ; dd_full and repainted the whole board -
+    ret                             ; every wall, every dot - for a life count
+                                    ; that had gone to zero and a panel that
+                                    ; covers the middle of it. The line above
+                                    ; already says why a lost life does not,
+                                    ; and the last life is a lost life
 
 ; =============================================================================
 ; THE FRUIT (SPEC.md 93.9.2)
@@ -1917,7 +1933,18 @@ dd_anims:
     mov bx, [dd_anim]
     and bx, 2
     jz .fset
+    ; THE FLASH IS A PEN ON COLOUR AND AN IMAGE ON ONE PLANE (SPEC.md 93.6.4).
+    ; DD_INKFRI and CWHITE are two pens, and dd_pen does not set a pen at all
+    ; below 2 bpp - so on Hercules and CGA both halves of the flash drew the
+    ; same lit pixels and the warning never appeared. The dithered twin is the
+    ; same body with one pixel in two, which is the only "other colour" an
+    ; adapter with one plane has.
+    cmp byte [dd_bpp], 1
+    jbe .fdim
     mov al, CWHITE
+    jmp short .fset
+.fdim:
+    add byte [dd_img + si], SP_NFRIB
 .fset:
     mov [dd_inkof + si], al
     jmp short .gnext

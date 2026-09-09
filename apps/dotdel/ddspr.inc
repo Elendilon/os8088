@@ -46,9 +46,14 @@ SP_NPAC   equ 12
 ; Ghosts: skirt * 8 + big * 4 + look direction.
 SP_GHOST  equ SP_PAC + SP_NPAC
 SP_NGHOST equ 16
-; Frightened: skirt phase only - the face does not look anywhere.
+; Frightened: skirt phase only - the face does not look anywhere. Then the
+; SAME TWO AGAIN, dithered, which is the flash on an adapter with no pen
+; (SPEC.md 93.6.4): a colour machine flashes DD_INKFRI to CWHITE and one plane
+; has no pen to flash, so there the flash has to be a different IMAGE.
 SP_FRIGHT equ SP_GHOST + SP_NGHOST
-SP_NFRI   equ 2
+SP_NFRIB  equ 2                 ; the plain bodies...
+SP_FRIDIM equ SP_FRIGHT + SP_NFRIB   ; ...and their dithered twins
+SP_NFRI   equ SP_NFRIB * 2
 ; Eaten: eyes alone, by direction.
 SP_EYES   equ SP_FRIGHT + SP_NFRI
 SP_NEYES  equ 4
@@ -223,6 +228,48 @@ dd_spr_build:
     inc ch
     cmp ch, 2
     jb .fskirt
+
+    ; --- ...and the dithered twins (SPEC.md 93.6.4) -------------------------
+    ; THE SCALED SPRITE AND NOT THE MASTER. A checkerboard laid on the 16-row
+    ; master and then scaled is not a checkerboard afterwards - dd_rmap repeats
+    ; and drops rows, so a 16x9 Hercules tile turns it into bands. Dithering
+    ; what dd_spr_cut has already produced puts one lit pixel in two at the
+    ; SCREEN's resolution, which is the only place it means anything.
+    xor ch, ch
+.fdith:
+    mov al, ch
+    add al, SP_FRIGHT
+    xor ah, ah
+    mov bx, DD_SPRSZ
+    mul bx
+    mov si, dd_spr
+    add si, ax                      ; SI = the plain body
+    mov al, ch
+    add al, SP_FRIDIM
+    xor ah, ah
+    mul bx
+    mov di, dd_spr
+    add di, ax                      ; DI = where its twin goes
+    xor dx, dx                      ; DX = the output row
+.drow:
+    mov al, 0AAh                    ; ...alternating, so the rows interlock
+    test dl, 1
+    jz .dmask
+    mov al, 55h
+.dmask:
+    mov ah, al
+    and al, [si]
+    and ah, [si+1]
+    mov [di], al
+    mov [di+1], ah
+    add si, DD_SPRB
+    add di, DD_SPRB
+    inc dx
+    cmp dx, [dd_th]
+    jb .drow
+    inc ch
+    cmp ch, SP_NFRIB
+    jb .fdith
 
     ; --- eaten: the sockets themselves, as ink, with a hole for the pupil ---
     xor bl, bl

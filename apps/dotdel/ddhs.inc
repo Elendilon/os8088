@@ -203,9 +203,13 @@ dd_hs_offer:
     mov word [dd_ini], '  '
     mov byte [dd_ini + 2], ' '
     mov byte [dd_inip], 0
-    mov byte [dd_demo], 1           ; the demo keeps running behind the prompt
-    call dd_demo_reset
-    mov byte [dd_full], 1
+    mov byte [dd_boxd], 1           ; ...and the panel grows the prompt line.
+                                    ; NO demo and NO full repaint: the board
+                                    ; the score was made on stays exactly where
+                                    ; it is, frozen under the box (SPEC.md
+                                    ; 93.12.4). Starting the demo here is what
+                                    ; used to take the initials on the attract
+                                    ; screen a second after the game ended
     pop dx
     pop ax
     ret
@@ -234,7 +238,7 @@ dd_hs_key:
     xor bh, bh
     mov [dd_ini + bx], al
     inc byte [dd_inip]
-    mov byte [dd_blinkd], 1
+    mov byte [dd_boxd], 1
 .out:
     ret
 .back:
@@ -244,7 +248,7 @@ dd_hs_key:
     mov bl, [dd_inip]
     xor bh, bh
     mov byte [dd_ini + bx], ' '
-    mov byte [dd_blinkd], 1
+    mov byte [dd_boxd], 1
     ret
 .done:
     call dd_hs_commit
@@ -252,17 +256,16 @@ dd_hs_key:
     ret
 
 ; -----------------------------------------------------------------------------
-; dd_hs_prompt - the line the initials are typed on, where the play line goes
+; dd_box_str - dd_promptb = "NEW HIGH SCORE: AAA_", the panel's second line
+;              (SPEC.md 93.12.4). The STRING only: dd_box_line places it, which
+;              is what lets the panel measure it before it decides how wide to
+;              be.
 ; -----------------------------------------------------------------------------
-dd_hs_prompt:
+dd_box_str:
     push ax
     push bx
-    push cx
-    push dx
-    push si
     push di
-    mov si, dd_promptb
-    mov di, si
+    mov di, dd_promptb
     mov bx, dd_s_newhs
 .cp:
     mov al, [bx]
@@ -279,20 +282,9 @@ dd_hs_prompt:
     mov [di+1], al
     mov al, [dd_ini + 2]
     mov [di+2], al
-    mov byte [di+3], ' '
+    mov byte [di+3], '_'            ; where the next letter goes
     mov byte [di+4], 0
-    call OSAPI_FONT_WIDTH
-    mov cx, [dd_cw]
-    sub cx, ax
-    shr cx, 1
-    add cx, [dd_cx]
-    mov dx, [dd_ply]
-    mov ax, (CBLACK << 8) | DD_INKPLAY
-    call OSAPI_FONT_RUN
     pop di
-    pop si
-    pop dx
-    pop cx
     pop bx
     pop ax
     ret

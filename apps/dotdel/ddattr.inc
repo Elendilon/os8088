@@ -812,9 +812,10 @@ dd_play_line:
     push cx
     push dx
     push si
-    cmp byte [dd_state], DDS_ENTER
-    je .initials
-    mov si, dd_s_play
+    mov si, dd_s_play               ; ...and no DDS_ENTER arm: the initials are
+                                    ; typed on the BOARD now (SPEC.md 93.12.4),
+                                    ; so the attract screen never sees that
+                                    ; state at all
     mov al, DD_INKPLAY
     cmp byte [dd_blink], 0
     jne .ink
@@ -834,14 +835,6 @@ dd_play_line:
     pop cx
     pop ax
     ret
-.initials:
-    call dd_hs_prompt
-    pop si
-    pop dx
-    pop cx
-    pop ax
-    ret
-
 ; --- the title's own type -----------------------------------------------------
 ; One byte of character then seven rows of five cells, bit 4 leftmost.
 DD_NGLYPH equ 9

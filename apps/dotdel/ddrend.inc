@@ -2297,6 +2297,18 @@ dd_render:
 dd_is_attract:
     cmp byte [dd_state], DDS_ATTRACT
     je .yes
+    clc
+    ret
+.yes:
+    stc
+    ret
+
+; dd_is_box - CF = 1 while the GAME OVER / initials panel owns the screen
+;             (SPEC.md 93.12.4). DDS_ENTER used to be an ATTRACT state, which
+;             is exactly why the initials were typed on the attract screen.
+dd_is_box:
+    cmp byte [dd_state], DDS_OVER
+    je .yes
     cmp byte [dd_state], DDS_ENTER
     je .yes
     clc
@@ -2368,7 +2380,11 @@ dd_draw:
     inc word [dd_fulls]
     call dd_draw_all
     mov byte [dd_full], 0
-    jmp short .over
+    call dd_is_box                  ; ...AND THE PANEL GOES BACK ON TOP OF IT.
+    jnc .over                       ; A full repaint is legal while the panel is
+    mov byte [dd_boxd], 1           ; up - the window moved, or was uncovered -
+    call dd_box_draw                ; and dd_draw_all paints the whole board,
+    jmp short .over                 ; actors included, straight over it
 .parts:
     ; A FRAME IN WHICH NOTHING MOVED DRAWS NOTHING (SPEC.md 93.5.6). Paused,
     ; behind READY!, waiting on the board flash - the actors are where they
@@ -2383,6 +2399,8 @@ dd_draw:
     jz .stillok
     mov byte [dd_still], 0
 .stillok:
+    call dd_is_box                  ; GAME OVER / initials: the board is FROZEN
+    jc .box                         ; under the panel (SPEC.md 93.12.4)
     call dd_is_attract
     jc .attract
     call dd_pill_refresh
@@ -2396,6 +2414,26 @@ dd_draw:
     jmp short .over
 .attract:
     call dd_attract_draw
+    jmp short .over
+.box:
+    ; NOTHING OF THE BOARD is drawn here - not the pellets' blink, not the
+    ; actors, not the repair queue. They are all where they were when the game
+    ; ended, the panel is over them, and a frame that drew any of them would
+    ; punch a hole in it.
+    ;
+    ; THE HUD IS NOT THE BOARD, though, and it is the last life that has just
+    ; gone: it has its own column beside dd_bdx and cannot reach the panel, so
+    ; it draws here as it does anywhere else. Skipping it left a life on the
+    ; glass at zero lives, which is what dd_full used to hide.
+    cmp byte [dd_hudd], 0
+    je .boxp
+    call dd_hud_draw
+    mov byte [dd_hudd], 0
+.boxp:
+    cmp byte [dd_boxd], 0
+    je .out
+    call dd_box_draw
+    jmp short .out
 .over:
     call dd_overlay
 .out:
@@ -2861,8 +2899,6 @@ dd_overlay:
     mov al, [dd_state]
     cmp al, DDS_READY
     je .ready
-    cmp al, DDS_OVER
-    je .over
     cmp al, DDS_CLEAR
     je .clear
     cmp al, DDS_PLAY
@@ -2875,9 +2911,6 @@ dd_overlay:
     jmp short .put
 .ready:
     mov si, dd_s_ready
-    jmp short .put
-.over:
-    mov si, dd_s_over
     jmp short .put
 .clear:
     mov bx, [dd_anim]
@@ -2988,6 +3021,127 @@ dd_ov_spill:
 
 ; dd_centre_line - SI = a NUL string, centred on the board on the empty row
 ;                  below the ghost house, and banked so it can be taken down
+; -----------------------------------------------------------------------------
+; dd_box_draw - the GAME OVER / initials panel, centred on the BOARD
+;               (SPEC.md 93.12.4)
+;
+; An outlined box with a black inside, drawn OVER the board rather than instead
+; of it. The initials used to be typed on the ATTRACT screen, a moment after it
+; had replaced the board - so the field's report was not that the prompt was
+; missing but that it arrived somewhere else: *"I was expecting the entry on
+; the board screen, not the attract screen."* The score was made on this board
+; and it is typed on this board.
+;
+; It is drawn when [dd_boxd] says so and NOT once a frame. The board under it is
+; frozen for as long as it is up (dd_draw's own arm below), so nothing can
+; damage it, and a panel redrawn every tick would be a fill, a frame and two
+; lines of type for a picture identical to the last one.
+; Clobbers everything.
+; -----------------------------------------------------------------------------
+DD_BOXPX  equ 12                ; padding inside the outline, per axis...
+DD_BOXPY  equ 8
+DD_BOXGAP equ 6                 ; ...and between the two lines
+
+dd_box_draw:
+    mov byte [dd_boxd], 0
+    cmp byte [dd_ok], 0
+    je .out                         ; a surface too small for a board is too
+                                    ; small for a panel over one
+    ; --- the widest line decides the width ---------------------------------
+    mov si, dd_s_over
+    call dd_text_w
+    mov cx, ax
+    cmp byte [dd_state], DDS_ENTER
+    jne .wok
+    call dd_box_str
+    mov si, dd_promptb
+    call dd_text_w
+    cmp ax, cx
+    jbe .wok
+    mov cx, ax
+.wok:
+    add cx, DD_BOXPX * 2 + 2
+    cmp cx, [dd_mw]                 ; ...and the board is the ceiling
+    jbe .wfits
+    mov cx, [dd_mw]
+.wfits:
+    mov [dd_boxw], cx
+    mov ax, 8 + DD_BOXPY * 2 + 2
+    cmp byte [dd_state], DDS_ENTER
+    jne .hok
+    add ax, DD_BOXGAP + 8
+.hok:
+    mov [dd_boxh], ax
+    ; --- centred on the BOARD, which is not the content box ----------------
+    mov ax, [dd_mw]
+    sub ax, [dd_boxw]
+    shr ax, 1
+    add ax, [dd_bdx]
+    mov [dd_boxx], ax
+    mov ax, [dd_mh]
+    sub ax, [dd_boxh]
+    shr ax, 1
+    add ax, [dd_bdy]
+    mov [dd_boxy], ax
+    ; --- black inside, then the outline over it ----------------------------
+    mov al, CBLACK
+    call OSAPI_SET_COLOR
+    call dd_box_edge
+    call OSAPI_GFX_FILL
+    mov al, DD_INKTXT
+    call OSAPI_SET_COLOR
+    call dd_box_edge
+    call OSAPI_GFX_FRAME
+    ; --- and the lines ------------------------------------------------------
+    mov si, dd_s_over
+    mov bx, [dd_boxy]
+    add bx, DD_BOXPY + 1
+    call dd_box_line
+    cmp byte [dd_state], DDS_ENTER
+    jne .out
+    mov si, dd_promptb
+    mov bx, [dd_boxy]
+    add bx, DD_BOXPY + 1 + 8 + DD_BOXGAP
+    call dd_box_line
+.out:
+    ret
+
+; dd_box_edge - AX/BX/CX/DX = the panel, as the two fill/frame slots take it
+dd_box_edge:
+    mov ax, [dd_boxx]
+    mov bx, [dd_boxy]
+    mov cx, ax
+    add cx, [dd_boxw]
+    dec cx
+    mov dx, bx
+    add dx, [dd_boxh]
+    dec dx
+    ret
+
+; dd_box_line - the NUL string at SI, centred in the panel, its top row at BX
+dd_box_line:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    call dd_text_w
+    mov cx, [dd_boxw]
+    sub cx, ax
+    shr cx, 1
+    add cx, [dd_boxx]
+    mov dx, bx
+    mov bx, cx
+    mov al, DD_INKTXT
+    call dd_text
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 dd_centre_line:
     push ax
     push bx
