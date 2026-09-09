@@ -104552,6 +104552,62 @@ now that it is a latch, nothing else would ever release it.
 three change the line, so all three must change the key, or the strip is
 simply never repainted (§88.7.7's own lesson, one bit along).
 
+#### 88.7.10.2 The airbrake had no LINE, and every brake gains a half
+
+Two things off the machine, one report: *"Finally got to testing the air brake
+on the jet. It functions, but its message is not shown — so the state is
+ambiguous (continues to say FLYING). It's also still not slowing me down fast
+enough. Can we increase how much the brakes brake, across the board, by 50%?
+This may not be realistic but it feels better in a game."*
+
+**The line was a missing arm and nothing else.** `cs_k_state` has packed the
+brake latch as bit 2 since §88.7.10.1, so the strip already repaints the tick
+`B` is pressed in the air — `cs_d_state`'s `.air` arm just never read the
+bit, and drew `FLYING` either way. It reads it now, and the ordering is the
+whole of the design: **CRASHED, then STALL, then AIRBRAKE OUT, then FLYING.**
+A stall outranks the brake because the brake is a thing the pilot chose and
+the stall is one that happened — and a pilot pulling the airbrake into a
+stall wants to be told about the stall. Thirteen characters, like every other
+state line, so the cell does not move.
+
+**And `CSP_BRAKE` × 3/2, rounded to nearest, on all five records:**
+
+| | was | now | airbrake (`>> 1`) |
+|---|---|---|---|
+| Cessna 172 | 20 | **30** | 10 → 15 |
+| Pitts S-2B | 23 | **35** | 11 → 17 |
+| Fouga Magister | 22 | **33** | 11 → 16 |
+| Bijave | 15 | **23** | 7 → 11 |
+| ICON A5 | 18 | **27** | 9 → 13 |
+
+One number reaches all three surfaces — the wheel brake, the airbrake at half
+(§88.7.12.1) and the hull's own with no key (§88.7.7.2) — so *"across the
+board"* is one edit per record and nothing in `csflight.inc` moves. It is a
+GAME number and the record comments say so; the physical claim §88.7.12 makes
+about drag is untouched.
+
+What it buys, integrated tick for tick against the shipped model:
+
+| | was | now |
+|---|---|---|
+| 172 roll-out from 57 kt | 9.0 s, 131 m | **6.3 s, 91 m** |
+| Fouga roll-out from 86 kt | 12.4 s, 272 m | **8.6 s, 189 m** |
+| Fouga 150 → 90 kt, airbrake, throttle shut | 17.1 s, 1,053 m | **12.3 s, 756 m** |
+| A5 hull, VMAX → 1.3 × stall | 9.1 s, 335 m | **7.4 s, 273 m** |
+
+**The larger half of the gain is not in that table, and it is §88.7.10's own
+defect one surface up.** `B` closes the throttle on the GROUND and does not
+in the air, so the Fouga's airbrake was fighting its own engine: at 150 knots
+with the brake out, the net was **−14 units a tick at idle and +1 at 80%
+throttle — the aeroplane accelerated with the airbrake open.** At 33 it is
+−19 and −4, so the brake now wins at every throttle setting a landing uses.
+Closing the throttle in the air is deliberately NOT done: an airbrake you can
+hold against power is a normal thing to want, and taking it away would be a
+control change nobody asked for.
+
+`tests/skiesdrag.py` holds the airbrake's arithmetic and `tests/skiespanel.py`
+the line.
+
 #### 88.7.12 A wing pays for its lift, and `CSP_DRAGK` never charged it
 
 The field flew four consequences of one omission:
