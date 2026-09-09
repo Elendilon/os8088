@@ -26,7 +26,11 @@ Five questions, and each one has gone wrong at least once during the build
      tile.  An exhaustive host-side model of the arithmetic passed 800 cases
      against that build, because the model was written from the DESIGN and
      the byte column was missing only from the CODE.
-  E  THE FRAME IS THE TICK (SPEC.md 93.6).  Rendered frames per guest second
+  E  THE FRAME IS THE TICK (SPEC.md 93.6).  A window that a WHOLE REPAINT
+     fell into is taken again: that is 677 ms on a VGA and SPEC.md 93.5.3.1
+     names it as one of the two costs that are not per frame, so counting it
+     as one made this leg read anywhere from 82.7% to 99.7% on a single
+     build.  Rendered frames per guest second
      against the game's own tick counter, on a cycle-accurate 4.77 MHz 8088.
      This is the row's reason for existing: three separate things - a board
      walk, a `font_run` and a pair of divides - each took it to 60% while
@@ -64,7 +68,7 @@ PKG = "B:/GAMES/DOTDEL.O88"
 # ones are 5150s with the GLaBIOS twin, because the IBM ROM is not in the tree.
 # ...and the floor leg E fails under, PER ARM. See FPS_FLOOR below.
 ARMS = (
-    ("vga",  "os8088_xt_vga",        (16, 13), 0.95),
+    ("vga",  "os8088_xt_vga",        (16, 13), 0.90),
     ("cga",  "os8088_5150_cga_gla",  (8, 4),   0.95),
     ("herc", "os8088_5150_herc_gla", (16, 9),  0.95),
 )
@@ -85,10 +89,22 @@ CPU_HZ = 4772727.0
 # exactly one round, on the note that it would come back up when SPEC.md
 # 93.5.3.1's band composition was taken.
 #
-# It was, and it did: a band is 6.16 -> 4.69 ms and the arm now reads 99.1 /
-# 99.7 / 99.7 windowed and 97.2 / 98.1 / 98.1 in the bracket. All three hold
-# 0.95, which is what this row wanted in the first place - and the three
-# regressions it exists to catch each cost 35-45%.
+# It was, and it did - a band is 6.16 -> 4.69 ms - and the arm read 99.1 /
+# 99.7 / 99.7 windowed, so all three went to 0.95.
+#
+# THOSE THREE WERE THE TOP OF A SPREAD, and setting a floor from them was the
+# very mistake the paragraph above describes. With the window now retaken when
+# a whole repaint falls in it - which was itself hiding four points of noise -
+# the same arm reads 94.3 / 92.9 / 98.5: a mean of 95.2 and a spread of 5.6,
+# sitting ACROSS 0.95. Three samples is not a distribution, and three samples
+# that agree are the easiest kind to believe.
+#
+# So VGA is 0.90, 2.9 points under the worst clean reading, and CGA and
+# Hercules keep 0.95 on a spread of 98.4-100.2 that has held for six rounds.
+# The colour arm is not slower for a reason anyone has to fix: SPEC.md
+# 93.5.10's repair queue costs it 0.4 to 1.7 points, measured by an A/B in ONE
+# session - the same build and scene, a `ret` poked over the routine and back
+# - which is a twentieth of the spread and not what puts the arm here.
 FPS_FLOOR = 0.95                # ...the default, for an arm that names none
 
 
@@ -194,8 +210,7 @@ def leg_f(tag, ui, p, say):
     m.key("Enter")
     time.sleep(4)
     m.pause()
-    for n, v in (("dd_paused", 1), ("dd_pilon", 1), ("dd_pilt", 120),
-                 ("dd_full", 1)):
+    for n, v in (("dd_paused", 1), ("dd_full", 1)):
         m.write((seg << 4) + p.names[n], bytes([v]))
     m.go()
     time.sleep(1.5)
@@ -213,7 +228,13 @@ def leg_f(tag, ui, p, say):
     checked = 0
     for r in range(G_ROWS):
         for c in range(G_COLS):
-            if grid[r * G_COLS + c] not in (TT_DOT, TT_PILL):
+            # DOTS ONLY. A pellet BLINKS, and pinning it lit cannot be made
+            # reliable from the host: dd_pilt is a signed byte, so its ceiling
+            # is 127 ticks, and 1.5 host seconds is up to ~120 of them when the
+            # guest runs 4.4x real time. The four of them prove nothing here
+            # that 226 dots do not - both go through dd_band_rect - and
+            # tests/dotdelpen.py leg A is where the pellet refresh is read.
+            if grid[r * G_COLS + c] != TT_DOT:
                 continue
             if (c, r) in near:
                 continue                # an actor may be standing on it
@@ -357,9 +378,27 @@ def run_arm(tag, machine, want_tile, a, say, floor=FPS_FLOOR):
                 _w,_h,_d = m.fbuf(0)
                 _mm.write_png_rgb("/tmp/claude-0/-home-user-os8088/359b914f-5179-53b4-9f92-36c43b355829/scratchpad/dbg2_%s_%s.png" % (tag, what), _w, _h, _d)
                 say("DBG shot taken: state=%d frames=%d" % (p.b("dd_state"), p.w("dd_frames")))
-            c0, t0, f0 = m.status()["cycles"], p.w("dd_anim"), p.w("dd_frames")
-            time.sleep(8)
-            c1, t1, f1 = m.status()["cycles"], p.w("dd_anim"), p.w("dd_frames")
+            # A WHOLE REPAINT IS NOT A FRAME (SPEC.md 93.5.3.1). It is 677 ms
+            # on a VGA - twelve ticks - so a window that contains one loses
+            # steps to DD_MAXSTEP and reads as a game that cannot keep up:
+            # `ticks/s` falls to ~17.2 from 18.2, which is the tell. Five runs
+            # of ONE build read 82.7 / 90.8 / 94.6 / 94.7 / 95.9 that way,
+            # while an A/B of the change under suspicion - the same build and
+            # scene, a `ret` poked over the routine and back - put its real
+            # cost at 0.4 to 1.7 points. So the window is TAKEN AGAIN when a
+            # repaint fell in it, rather than the row reporting the repaint as
+            # a frame rate.
+            for attempt in range(4):
+                c0, t0, f0 = (m.status()["cycles"], p.w("dd_anim"),
+                              p.w("dd_frames"))
+                u0 = p.w("dd_fulls")
+                time.sleep(8)
+                c1, t1, f1 = (m.status()["cycles"], p.w("dd_anim"),
+                              p.w("dd_frames"))
+                if p.w("dd_fulls") == u0:
+                    break
+                say("%s %s: a whole repaint fell in the window - taking it "
+                    "again" % (tag, what))
             gs = (c1 - c0) / CPU_HZ
             ticks, frames = (t1 - t0) / gs, (f1 - f0) / gs
             share = frames / ticks if ticks else 0.0

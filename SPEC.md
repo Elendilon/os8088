@@ -108007,8 +108007,21 @@ in the tree. Measured on the same instrument:
 
 The VGA arm sat apart for exactly one round, on a floor of its own (85%
 against the others' 95%) and a note that it would come back up when the band
-composition was taken. **It was, and it did** — §93.5.9 — so `FPS_FLOOR` is
-0.95 on all three again, which is what leg E wanted in the first place.
+composition was taken. **It was, and it did** — §93.5.9 — so `FPS_FLOOR` went
+to 0.95 on all three.
+
+**And the three readings that justified that were the top of a spread.** Leg E
+was counting a whole repaint as a frame (§93.5.3.1 says it is not one), which
+hid four points of noise; with the window retaken when one falls in it, the
+same arm reads **94.3 / 92.9 / 98.5** — a mean of 95.2 across a spread of 5.6,
+sitting *across* the floor it had just been given. VGA is **0.90** now, 2.9
+points under the worst clean reading; CGA and Hercules keep 0.95 on a spread
+of 98.4–100.2 that has held for six rounds. §93.5.10's repair queue is 0.4 to
+1.7 points of that by same-session A/B and is not why the arm is where it is.
+
+Three samples is not a distribution, and three that agree are the easiest kind
+to believe — which is the same error this section had already written up one
+paragraph earlier.
 
 Worth keeping from that round: a **distribution** is what a floor has to be
 set from. One number for all three arms was a number nobody had taken, and a
@@ -108154,6 +108167,48 @@ the multiply without keeping that push made the height the product's high
 word, so `dec dx / jnz` walked the whole segment — the same catastrophe
 `dd_band_build`'s own comment describes one screen up. It costs one push/pop
 per rectangle instead of four pairs per row, so the win survives paying it.
+
+#### 93.5.10 A tile an actor has LEFT owes its own pen back
+
+§93.5.4's one-pen band is a fair compromise **while the actor is over the
+tile**, and the field accepted it as one. What was wrong with it is that it
+was **permanent**: the band covers where the actor was and where it is, so the
+vacated tile IS redrawn — in the actor's ink again — and once the actor is two
+tiles away no band covers it at all. The last band to touch a tile owned its
+colour for the rest of the level, so a ghost left a **trail** of its own
+colour down every corridor it walked.
+
+Measured on a VGA after twelve seconds of play: **24 of 228 dots not white and
+3 of 436 walls not blue**, all of them one ghost's magenta, in a contiguous
+line behind it — and it only accumulates.
+
+A tile that falls out of an actor's band is **queued**, and `DD_REPPF` = 2 a
+frame are put back with `dd_tile_put` in the pen their own content wants. Two
+things make that cheap enough to be the answer:
+
+* it is a **queue** and not a repaint on the spot, because a tile is ~2.5 ms
+  on a VGA and a burst of five actors crossing a boundary together would be
+  five of them on one frame. The latency it trades for that is invisible: a
+  tile that goes back to white one frame late is a tile the actor is still
+  standing next to;
+* the vacated set is computed against the band's **previous tile rect**, so
+  the queue only gains anything on the frames an actor crosses a tile
+  boundary — about one frame in four per actor, not every frame.
+
+A tile within one of any actor is skipped and re-queued (`dd_rep_covered`):
+repainting there would take the actor off the glass for a frame, which is the
+flicker §93.5.1 composes other actors into the band to avoid.
+
+**`dd_tile_put` now picks its pen from the tile's content** — `TT_WALL` and
+`TT_DOOR` get `DD_INKWALL`, everything else `DD_INKDOT`. It was always the
+dot's, which was true while the only caller was the pellet blink and wrong the
+moment a repaired WALL came back white.
+
+**The whole queue is compiled out at run time on one plane.** `dd_pen` is
+skipped entirely there (§5.4.2.2), where a band already means lit and unlit, so
+Hercules and CGA cannot have this defect — and both `dd_rep_vacated` and
+`dd_rep_run` return at a single `cmp byte [dd_bpp], 1` rather than let those
+two adapters pay two tile blits a frame for a fix they get nothing from.
 
 #### 93.5.9.1 …and the fast path forgot which BYTE the run starts in
 

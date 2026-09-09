@@ -1052,7 +1052,16 @@ dd_s_small:  db 'Window too small.', 0
     DBUFV  dd_alive, DD_NACT
     DBUFV  dd_shown, DD_NACT
     DBUFV  dd_img, DD_NACT
-    DBUFV  dd_limg, DD_NACT         ; ...and the image it was last DRAWN with
+    DBUFV  dd_limg, DD_NACT
+    DBUFV  dd_qc0, DD_NACT          ; the band rect each actor held LAST frame,
+    DBUFV  dd_qc1, DD_NACT          ; so the tiles it has since left can be put
+    DBUFV  dd_qr0, DD_NACT          ; back in their own pen (SPEC.md 93.5.10)
+    DBUFV  dd_qr1, DD_NACT
+    DBUFV  dd_qok, DD_NACT
+    DBUFV  dd_repc, DD_REPN         ; ...the ring of tiles that owe one
+    DBUFV  dd_repr, DD_REPN
+    DWORDV dd_reph
+    DWORDV dd_rept         ; ...and the image it was last DRAWN with
     DBUFV  dd_inkof, DD_NACT
     DBUFV  dd_nc0, DD_NACT          ; the tile rectangle of each actor's band
     DBUFV  dd_nc1, DD_NACT          ; for this frame (SPEC.md 93.5.1)

@@ -908,7 +908,15 @@ dd_tile_put:
     mov dx, [dd_pilh]
     call dd_band_rect
 .emit:
-    mov al, DD_INKDOT
+    mov al, DD_INKDOT               ; THE PEN THE TILE'S CONTENT WANTS. It was
+    mov ah, [dd_gt]                 ; always the dot's, which was true while
+    cmp ah, TT_WALL                 ; the only caller was the pellet blink -
+    je .pw                          ; and a repaired WALL came back white
+    cmp ah, TT_DOOR
+    jne .pen
+.pw:
+    mov al, DD_INKWALL
+.pen:
     call dd_pen
     push ds
     pop es
@@ -966,6 +974,181 @@ dd_dmg_tile:
 ; all (dd_walls_of draws every line OUTSIDE the corridor it outlines), so in
 ; the ordinary case those bytes are the zeros the band would have had anyway.
 ; =============================================================================
+
+; =============================================================================
+; THE REPAIR QUEUE (SPEC.md 93.5.10)
+;
+; A BAND GOES DOWN IN ONE PEN, and the tile an actor has LEFT keeps that pen
+; for ever. The band covers where the actor was and where it is, so the
+; vacated tile IS redrawn - in the actor's ink again - and once the actor is
+; two tiles away no band covers it at all. Measured on a VGA after twelve
+; seconds of play: 24 of 228 dots not white and 3 of 436 walls not blue, all
+; of them the pink ghost's magenta, in a contiguous trail behind it. The
+; field report was "note the trail of purple the purple ghost has left in his
+; wake", and the correction that came with it is the point - the blend is a
+; fine compromise WHILE the actor is over the tile, and what is wrong with it
+; is that it is permanent.
+;
+; So a tile that falls out of an actor's band is queued, and a couple a frame
+; are put back in the pen their own content wants. It is a QUEUE and not a
+; repaint on the spot because the cost is real - a tile is ~2.5 ms on a VGA -
+; and the latency is invisible: a tile that goes back to white one frame late
+; is a tile the actor is still standing next to.
+; =============================================================================
+
+DD_REPN   equ 64                ; tiles the ring holds
+DD_REPPF  equ 2                 ; ...and how many one frame puts back
+
+; -----------------------------------------------------------------------------
+; dd_rep_push - tile CL, CH owes a repaint. Preserves every register.
+; -----------------------------------------------------------------------------
+dd_rep_push:
+    push ax
+    push bx
+    push dx
+    mov dx, [dd_reph]
+.scan:
+    cmp dx, [dd_rept]               ; already owed? The ring is 64 and a frame
+    je .add                         ; queues a handful, so the walk is cheaper
+    mov bx, dx                      ; than the duplicate repaint would be
+    and bx, DD_REPN - 1
+    cmp [dd_repc + bx], cl
+    jne .next
+    cmp [dd_repr + bx], ch
+    je .out
+.next:
+    inc dx
+    jmp short .scan
+.add:
+    mov ax, [dd_rept]
+    sub ax, [dd_reph]
+    cmp ax, DD_REPN
+    jae .out                        ; full: this one waits for the next actor
+    mov bx, [dd_rept]               ; to cross it, which is a tile late rather
+    and bx, DD_REPN - 1             ; than a tile wrong for ever
+    mov [dd_repc + bx], cl
+    mov [dd_repr + bx], ch
+    inc word [dd_rept]
+.out:
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_rep_covered - CF = 1 when tile CL, CH is within one of any actor
+; A repaint there would take the actor off the glass for a frame, so it goes
+; back on the queue instead. Preserves every register.
+; -----------------------------------------------------------------------------
+dd_rep_covered:
+    push ax
+    push si
+    xor si, si
+.each:
+    mov al, cl                      ; the box is ONE TILE and may straddle, so
+    sub al, [dd_ac + si]            ; it covers [ac, ac+1] x [ar, ar+1] and no
+    cmp al, 1                       ; more. A ring of one around it instead put
+    ja .next                        ; every freshly vacated tile back on the
+    mov al, ch                      ; queue to bounce round again
+    sub al, [dd_ar + si]
+    cmp al, 1
+    jbe .yes
+.next:
+    inc si
+    cmp si, DD_NACT
+    jb .each
+    pop si
+    pop ax
+    clc
+    ret
+.yes:
+    pop si
+    pop ax
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_rep_run - put DD_REPPF of them back. Clobbers everything.
+; -----------------------------------------------------------------------------
+dd_rep_run:
+    cmp byte [dd_bpp], 1
+    jbe .out2                       ; ...and so nothing is ever queued there
+    push si
+    mov si, DD_REPPF
+.each:
+    mov ax, [dd_reph]
+    cmp ax, [dd_rept]
+    je .out
+    mov bx, ax
+    and bx, DD_REPN - 1
+    mov cl, [dd_repc + bx]
+    mov ch, [dd_repr + bx]
+    inc word [dd_reph]
+    call dd_rep_covered
+    jnc .put
+    call dd_rep_push                ; still under somebody: come back to it
+    jmp short .next
+.put:
+    call dd_tile_put
+.next:
+    dec si
+    jnz .each
+.out:
+    pop si
+.out2:
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_rep_vacated - the tiles actor SI's band held last frame and does not now
+; in:  SI = the actor, [dd_n*] its new rect. Clobbers everything but SI.
+; -----------------------------------------------------------------------------
+dd_rep_vacated:
+    cmp byte [dd_bpp], 1
+    jbe .none                       ; ONE PLANE HAS NO PEN AT ALL (SPEC.md
+    push si                         ; 5.4.2.2), so a band there already means
+    mov bx, si                      ; lit and unlit and nothing can be left in
+                                    ; the wrong colour. Hercules and CGA would
+                                    ; have paid two tile blits a frame for a
+                                    ; defect they cannot have
+    cmp byte [dd_qok + si], 0
+    je .bank                        ; nothing was banked yet
+    mov ch, [dd_qr0 + bx]
+.row:
+    mov cl, [dd_qc0 + bx]
+.col:
+    cmp cl, [dd_nc0 + bx]           ; still in the new rect? Then it is not
+    jb .push                        ; vacated and the band has just redrawn it
+    cmp cl, [dd_nc1 + bx]
+    ja .push
+    cmp ch, [dd_nr0 + bx]
+    jb .push
+    cmp ch, [dd_nr1 + bx]
+    jbe .next
+.push:
+    call dd_tile                    ; AN EMPTY TILE IS BLACK IN EVERY PEN, so
+    cmp al, TT_EMPTY                ; it owes nothing - and that is most of
+    je .next                        ; them: it is exactly the tiles Smiles has
+    call dd_rep_push                ; just EATEN, so his own trail is free
+.next:
+    inc cl
+    cmp cl, [dd_qc1 + bx]
+    jbe .col
+    inc ch
+    cmp ch, [dd_qr1 + bx]
+    jbe .row
+.bank:
+    mov al, [dd_nc0 + bx]
+    mov [dd_qc0 + bx], al
+    mov al, [dd_nc1 + bx]
+    mov [dd_qc1 + bx], al
+    mov al, [dd_nr0 + bx]
+    mov [dd_qr0 + bx], al
+    mov al, [dd_nr1 + bx]
+    mov [dd_qr1 + bx], al
+    mov byte [dd_qok + si], 1
+    pop si
+.none:
+    ret
 
 ; -----------------------------------------------------------------------------
 ; dd_actors_draw - the whole cast, one band each
@@ -1176,7 +1359,8 @@ dd_actor_emit:
     call dd_band_one                ; ...and this actor over them
     mov al, [dd_inkof + si]
     call dd_band_emit
-    mov byte [dd_shown + si], 1
+    call dd_rep_vacated             ; ...and the tiles it has LEFT owe their
+    mov byte [dd_shown + si], 1     ; own pen back (SPEC.md 93.5.10)
     mov al, [dd_img + si]
     mov [dd_limg + si], al
     ret
@@ -1795,9 +1979,12 @@ dd_forget:
     push si
     mov word [dd_ovw], 0
     mov word [dd_ovsi], 0
+    mov ax, [dd_rept]               ; a whole repaint puts every tile back in
+    mov [dd_reph], ax               ; its own pen, so nothing is owed
     xor si, si
 .a:
     mov byte [dd_shown + si], 0
+    mov byte [dd_qok + si], 0
     inc si
     cmp si, DD_NACT
     jb .a
@@ -1842,6 +2029,7 @@ dd_draw:
     call dd_pill_refresh
     call dd_fruit_draw
     call dd_actors_draw
+    call dd_rep_run                 ; the tiles the bands have left behind
     cmp byte [dd_hudd], 0
     je .over
     call dd_hud_draw
