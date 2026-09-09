@@ -127,6 +127,17 @@ TIER5 = [                               # the rolled horizon's own band
     # ...and the SPAN PASS (88.3.1.1) is a walk of its own with no call in
     # it, so what it costs is cs_skyground's own EXCLUSIVE time here
 ]
+TIER6 = [                               # the flight model's own calls (88.7)
+    ("cs_step",     r"call cs_msgage$",      "msgage"),
+    ("cs_step",     r"call \[di \+ CSP_ATT\]$", "attproc"),
+    ("cs_step",     r"call cs_lift$",        "lift"),
+    ("cs_step",     r"call cs_sin$",         "sin"),
+    ("cs_step",     r"call cs_cos$",         "cos"),
+    ("cs_step",     r"call cs_move$",        "move"),
+    ("cs_step",     r"call cs_fence$",       "fence"),
+    ("cs_step",     r"call cs_touch$",       "touch"),
+    ("cs_step",     r"call cs_collide$",     "collide"),
+]
 TIER3 = [
     ("cs_faces",    r"call cs_axcull$",      "axcull"),
     ("cs_faces",    r"call cs_fclip$",       "fclip"),
@@ -234,7 +245,7 @@ def main(argv):
     ap.add_argument("--profile", default="cruise", choices=sorted(PROFILES))
     ap.add_argument("--frames", type=int, default=30)
     ap.add_argument("--tier", type=int, default=2,
-                    choices=(1, 2, 3, 4, 5))
+                    choices=(1, 2, 3, 4, 5, 6))
     ap.add_argument("--warm", type=int, default=6,
                     help="frames flown before the trace arms, so the first "
                          "frame after a poke - which redraws the whole panel "
@@ -253,11 +264,13 @@ def main(argv):
 
     find = sites()
     stages, raw = [], []            # (listing offset, kind, name)
-    # tier 5 is TIER1 plus the band's internals - never the object tiers, a
-    # breakpoint inside a 112-iteration loop being expensive enough alone
-    want = [1, 5] if a.tier == 5 else list(range(1, a.tier + 1))
+    # tier 5 is TIER1 plus the band's internals, and tier 6 TIER1 plus the
+    # FLIGHT MODEL's - never the object tiers with either, a breakpoint
+    # inside a 112-iteration loop being expensive enough alone
+    want = ({5: [1, 5], 6: [1, 6]}.get(a.tier)
+            or list(range(1, a.tier + 1)))
     for tier, rows in ((1, TIER1), (2, TIER2), (3, TIER3), (4, TIER4),
-                       (5, TIER5)):
+                       (5, TIER5), (6, TIER6)):
         if tier not in want:
             continue
         for scope, pat, name in rows:

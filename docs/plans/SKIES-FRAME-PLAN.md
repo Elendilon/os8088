@@ -798,6 +798,36 @@ exactly" - and it is really the repair for a cone that refuses objects the
 frustum keeps. Any change that stops an object being cone-tested EVERY FRAME
 walks into 88.5.2.2, whatever else it is for.
 
+## 7.7 BUILT - the FLIGHT MODEL, which had no tier at all
+
+`cs_step` was 10.8 ms a frame at three calls and had never been opened, because
+`skiesprof` had no bracket table below it. Adding one - TIER6, nine rows, the
+flight model's own calls - answered it in a single run: **`cs_collide` is 5.92
+of the 10.77, 55%**, `cs_move` 1.00, the attitude proc 0.46, everything else
+under 0.9 together, and the model's own arithmetic 2.41.
+
+`cs_collide` walks every object in the world three times a frame asking x, then
+z, then y - and **the y question is the expensive one**, chasing the object to
+its model and the model to its vertex table to find the tallest level's height.
+`cs_ctop` holds that word per object now (SPEC.md 88.7.13), so the walk opens
+with one compare and 46 of Paris' 47 stop there.
+
+A WORLD-wide maximum was the first idea and the numbers killed it: the Eiffel
+Tower's 324 m against profiles that fly at 300, so one object would have kept
+the walk alive for the other 46.
+
+`cs_step` **10.77 -> 7.63 ms** (`turnhold`), 10.61 -> 7.63 (`bank`); the frame
+4.10 -> 4.15 fps and 4.21 -> 4.27. `climb` costs **+0.13** - on the runway the
+aeroplane is below everything, so the first compare never rejects - and that is
+the right way round. 256 bytes of bss out of the gap, no claim. The table is
+read back off a running machine and checked against the arithmetic it replaces,
+47 of 47.
+
+**The method note**: this is the first round here that started with an
+instrument rather than a reading, and the instrument was cheaper. Nine rows of
+`skiesprof` turned "10.8 ms, never opened" into "one call, 55%, here is which"
+before a line of the model was read.
+
 ## 7.5 THE POLYGON FILLER, taken apart - and one PARKED question about the algorithm
 
 `cs_scene` is 66% of a banked frame and `cs_poly` is the largest thing in it.

@@ -105683,6 +105683,55 @@ which is 11% of the strip. From 150 knots it takes **548 m**, which is the
 55–60% the field measured — the roll-out was long because the *approach* was
 fast, and the approach was fast because nothing bled the speed.
 
+#### 88.7.13 The collision walk's reject is the ALTITUDE, and it was tested last
+
+`cs_collide` walks every object in the picked location's world, three times a
+frame — once a tick — and asks three questions of each: is the aeroplane inside
+the footprint in x, in z, and below the top? It asked them in that order, and
+**the y question is the expensive one**: the top of an object is its base plus
+the height of its model's *tallest level*, which means chasing the object to
+its model, the model to its vertex table, and a multiply by six to index the
+last level. Every collidable object paid that to be told it was 250 m below.
+
+Measured with the profiler's flight-model tier (`--tier 6`), `turnhold`:
+`cs_collide` is **5.92 ms a frame of `cs_step`'s 10.77 — 55% of the flight
+model** — at 9,400 cycles a call over 47 objects, 35 of them collidable.
+
+**`cs_ctop` holds that word per object**, one for one with the location's
+object table, so the walk opens with `cmp bp, [di]` and everything else is
+behind it. `cs_ctopbuild` fills it at `cs_wldpick`'s success exit, which is
+the only place it can change — a location is picked before the bracket starts
+and the objects are world data. An object that cannot be hit at all carries
+**−32768**, so the same compare rejects it and the `CSO_COLLIDE` test leaves
+the walk entirely; `CSO_DENSE` stays, behind the altitude reject, because the
+build tier is a live setting.
+
+**A world-wide maximum would not have worked**, and the number says why: Paris'
+tallest collidable top is the Eiffel Tower's **324 m** and the pinned profiles
+fly at 300, so one object out of 47 would have kept the whole walk alive for
+the other 46. Per object, 46 of the 47 reject on the first compare.
+
+The table is `CS_WLD_MAX / CSO_SIZE` words — 256 bytes — and costs the claim
+nothing: it comes out of the gap below `CS_VOCAB_AT`, not out of the overlay.
+
+| tier 1, 16 frames | `cs_step` | frame |
+|---|---|---|
+| `turnhold` | 10.77 → **7.63** ms | 244.1 → **241.0** (4.10 → 4.15 fps) |
+| `bank` | 10.61 → **7.63** | 237.3 → **234.1** (4.21 → 4.27) |
+| `climb` | 9.57 → **9.70** | 148.6 → 148.7 |
+
+**`climb` is the honest cost and it is +0.13 ms.** On the runway the aeroplane
+is below everything, so the first compare never rejects and the walk pays it
+for nothing before doing the work it always did — where in the air 46 objects
+of 47 stop there. That is the trade the change makes, and it is the right way
+round: a frame on the ground is the cheapest one the program draws.
+
+`cs_ctop` is read back off a running machine and checked row by row against
+the arithmetic it replaces — **47 of 47 agree** — which is the gate that
+matters, because a table that is subtly wrong is an aeroplane that flies
+through a building. 647 frames over seven pinned profiles are pixel-identical
+and `skiescrash` passes with the rest of the soak's skies rows.
+
 ### 88.8 The session (`apps/skies/csgame.inc`)
 
 `cs_fsx_main` is the §53.1 bracket's exclusive main and has Tank's two rates:

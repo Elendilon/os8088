@@ -12853,3 +12853,60 @@ a claim about every input, so it is the only kind of change where the gate is
 not a formality: `(A - B) >> s == A>>s - ceil(B/2^s)` is true, and
 `A>>s - (B>>s)` — the version anybody would write first — is off by one
 whenever `B` has low bits set.
+
+### Set 138 — CLEAR SKIES: the flight model gets a tier, and 55% of it was one walk (SPEC.md §88.7.13)
+
+`cs_step` is 10.8 ms a frame at three calls and had never been opened at all —
+there was no profiler tier below it. Adding one (`skiesprof --tier 6`, TIER1
+plus the flight model's own calls) answered it in a single run:
+
+| `cs_step`'s calls, `turnhold` | ms a frame |
+|---|---|
+| **`cs_collide`** | **5.92** |
+| `cs_move` | 1.00 |
+| the aeroplane's own attitude proc | 0.46 |
+| `cs_sin` x3, `cs_cos`, `cs_lift`, `cs_fence`, `cs_msgage` | 0.81 together |
+| the model's own arithmetic (exclusive) | 2.41 |
+
+**One call was 55% of the flight model**, and what it does is walk every
+object in the picked location's world — three times a frame — asking whether
+the aeroplane is inside its footprint in x, in z, and below its top. It asked
+in that order, and **the y question is the expensive one**: an object's top is
+its base plus the height of its model's TALLEST LEVEL, so answering it chases
+the object to its model, the model to its vertex table, and multiplies by six
+to index the last level. Every collidable object paid that to be told it was
+250 m below.
+
+`cs_ctop` holds that word per object now — filled at `cs_wldpick`'s success
+exit, the only place it can change — so the walk opens with `cmp bp, [di]`.
+An object that cannot be hit carries **−32768**, so the same compare rejects a
+non-collider and the `CSO_COLLIDE` test leaves the loop entirely.
+
+**A world-wide maximum was the first idea and the numbers killed it.** Paris'
+tallest collidable top is the Eiffel Tower's **324 m** and every pinned profile
+flies at 300, so one object of 47 would have kept the whole walk alive for the
+other 46. Per object, 46 of the 47 now reject on the first compare.
+
+| tier 1, 16 frames | `cs_step` control | + the table | frame |
+|---|---|---|---|
+| `turnhold` | 10.77 ms | **7.63 / 7.63** | 244.1 → **241.0** (4.10 → **4.15 fps**) |
+| `bank` | 10.61 | **7.63 / 7.63** | 237.3 → **234.1** (4.21 → **4.27**) |
+| `climb` | 9.57 | **9.70 / 9.70** | 148.6 → 148.7 |
+
+**`climb` costing +0.13 ms is the honest half of it**, and it is the right way
+round: on the runway the aeroplane is below everything, so the new first
+compare never rejects and the walk pays it before doing the work it always
+did. A frame on the ground is the cheapest one the program draws.
+
+**The gate here is not the pixels.** A collision table that is subtly wrong is
+an aeroplane that flies through a building, and no screenshot shows that until
+it happens — so `cs_ctop` is read back off a running machine and checked row
+by row against the arithmetic it replaces (**47 of 47 agree**). 647 frames over
+seven pinned profiles are pixel-identical, and the soak's `skiescrash` passes
+with the other 28 skies rows.
+
+**The method note is that the tier paid for itself in one run.** Four rounds of
+this work have started by bracketing a routine's internals; this is the first
+where the bracket table did not exist, and adding nine rows to `skiesprof`
+turned "10.8 ms and never opened" into "one call, 55%, here is which" before
+any code was read. The instrument is cheaper than the reading.

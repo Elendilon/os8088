@@ -732,7 +732,8 @@ cs_wldpick:
     jc .no
     mov [cs_wldnow], al
 .out:
-    pop ax
+    call cs_ctopbuild               ; the collision walk's per-object ceiling
+    pop ax                          ; (88.7.13), which only a pick can change
     clc
     ret
 .no:
@@ -2712,6 +2713,13 @@ CS_DBGSCR equ 112               ; ...and the copy A/B's scratch is 112 rows,
     ZBUF  cs_rwmodel, CSM_SIZE
     ZBUF  cs_rwobj, CSO_SIZE
     ZWORD cs_rwax                   ; its along and across vectors
+    ; --- WHAT A CRASH NEEDS THE AEROPLANE TO BE BELOW, one word an object
+    ;     (88.7.13): cs_ctopbuild fills it when a location is picked, and
+    ;     -32768 stands for an object that cannot be hit at all, so the
+    ;     walk's first compare rejects a non-collider too. A world blob is
+    ;     CS_WLD_MAX bytes and an object twenty of them, so this cannot be
+    ;     short ---------------------------------------------------------
+    ZBUF  cs_ctop, (CS_WLD_MAX / CSO_SIZE) * 2
     ; --- the eye's position PRE-SHIFTED for each of the three scales
     ;     (88.5.6.3): three groups of {x', y', z'}, nine words, rebuilt once
     ;     a frame by cs_eyeshift and read by cs_scale as a plain word -----
