@@ -32901,12 +32901,31 @@ dispatcher — and **not** `ld_check_hdr`, which is about the *file*: a part has
 no file size to be compared against, and the flags-bit arithmetic §20.12.3
 describes belongs to the container.
 
-What replaces it is one bound. `image + bss` must fit **`AX`, the bytes the
-loader says are available at `DX`** — the loader's word for what it actually
-put there, not the part's word for what it wants. §51.1.2's warning is the
-reason it is that way round: *the header is a FILE, and a foreign tool may
-write any `LD_H_BSS` it likes*. The `add`'s carry is the other half, each
-operand being a 16-bit header field whose sum is 17 bits.
+What replaces it is **three** bounds, and the arm applies all of them to the
+same `image + bss`:
+
+1. the `add`'s **carry** — each operand is a 16-bit header field and the sum is
+   17 bits;
+2. **`APP_MAX_SIZE`**, the same 60KB ceiling every other package has. `ld_check_hdr`
+   applies it to a *file* and this path never goes near it, so without the test
+   a re-homed program would be bounded by a 16-bit word and nothing else — a
+   silent divergence between two ways of starting the same kind of program, and
+   the wrong direction to diverge in;
+3. **`AX`, the bytes the loader says are available at `DX`** — the loader's word
+   for what it actually put there, not the part's word for what it wants.
+   §51.1.2's warning is why it is that way round: *the header is a FILE, and a
+   foreign tool may write any `LD_H_BSS` it likes*.
+
+**And the same value is `I_SIZE`, which is not optional.** Step 9 publishes
+`[ld_need]`, and `ld_alloc` left the **loader's** region size in it — so without
+one store a re-homed program's `I_SIZE` is ~2 KB whatever it really is. That
+word is the bound in `inst_entry_ok`'s *"an entry inside its own image+bss"*
+fence, which is what **`OSAPI_FSX_RUN` is checked against** (§53.1): a
+full-screen package whose entry proc sits above the loader's old size is
+**refused**, after a launch that succeeded. Clear Skies — the package this
+mechanism exists for — is exactly that shape, and `tests/rehome.py` asserts the
+word. The value is the **program's** `image + bss` and not the carve's extent:
+the carve holds the other parts too, and they are not the region.
 
 ##### 20.12.10.5 The carve is re-owned to the SLOT, and stays PINNED
 

@@ -1154,12 +1154,36 @@ ld_start:
     mov [ld_bss], dx
     add ax, dx                  ; THE HEADER IS A FILE and a foreign tool may
     jc .abort                   ; write any LD_H_BSS it likes (SPEC.md 51.1.2's
-    cmp ax, [ld_rehsz]          ; own warning, one format along), so the bound
-    ja .abort                   ; is the LOADER's word for what it actually put
-                                ; there and not the part's word for what it
-                                ; wants. The carry is the other half: each
-                                ; operand is a 16-bit header field and the sum
-                                ; is 17 bits
+                                ; own warning, one format along). The carry is
+                                ; the first half of the fence: each operand is
+                                ; a 16-bit header field and the sum is 17 bits
+    cmp ax, APP_MAX_SIZE        ; ...AND THE SAME CEILING EVERY OTHER PACKAGE
+    ja .abort                   ; HAS. ld_check_hdr applies this to a file and
+                                ; this path never goes near it, so without the
+                                ; line a re-homed program would be bounded by
+                                ; the 16-bit word below and nothing else - a
+                                ; silent divergence between two ways of
+                                ; starting the same kind of program, and the
+                                ; wrong direction to diverge in
+    cmp ax, [ld_rehsz]          ; ...and the LOADER's word for what it actually
+    ja .abort                   ; put there, which is the bound the part's own
+                                ; header cannot be trusted for
+    mov [ld_need], ax           ; **I_SIZE, AND IT IS NOT OPTIONAL.** Step 9
+                                ; publishes this word and ld_alloc left the
+                                ; LOADER's region size in it - so without this
+                                ; line a re-homed program's I_SIZE is ~2KB
+                                ; whatever it really is. That word is the bound
+                                ; in inst.inc's "an entry inside its own
+                                ; image+bss" fence, which is what OSAPI_FSX_RUN
+                                ; is checked against (SPEC.md 53.1): a
+                                ; full-screen package whose entry proc sits
+                                ; above the loader's old size would be REFUSED,
+                                ; and Clear Skies - the package this whole
+                                ; mechanism is for - is exactly that shape.
+                                ; The value is the PROGRAM's image + bss, which
+                                ; is what the fence means by "its own", not the
+                                ; carve's extent: the carve holds the other
+                                ; parts too and they are not the region
     mov ax, [es:si+LD_H_ENTRY]
     mov [ld_ent], ax
 

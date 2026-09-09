@@ -169,6 +169,21 @@ with os88marty.launch(SYS_IMG, apps=APPS_IMG, machine=MACHINE) as m:
                 and struct.unpack_from("<H", r, os88geom.I_SPTR)[0] == wseg:
             inst = i
     say("instance slot %r has I_SPTR = %04X" % (inst, wseg))
+    if inst is not None:
+        rec = m.read(S("inst_tab") + inst * os88geom.I_RECSZ, os88geom.I_RECSZ)
+        isize = struct.unpack_from("<H", rec, os88geom.I_SIZE)[0]
+        say("I_SIZE = %d (want the PROGRAM's image + bss = %d)"
+            % (isize, P0_IMG + P0_BSS))
+        if isize != P0_IMG + P0_BSS:
+            fails.append(
+                "I_SIZE is %d and the program's image + bss is %d. Step 9 "
+                "publishes [ld_need], which ld_alloc filled with the LOADER's "
+                "region size - so the arm has to overwrite it. That word is "
+                "the bound in instance.inc's 'an entry inside its own "
+                "image+bss' fence, which is what OSAPI_FSX_RUN is checked "
+                "against (SPEC.md 53.1): a full-screen package whose entry "
+                "proc sits above the loader's old size is REFUSED, and Clear "
+                "Skies is exactly that shape" % (isize, P0_IMG + P0_BSS))
     if inst is None:
         fails.append(
             "no live KIND_PKG instance has I_SPTR = %04X, so step 9 published "
