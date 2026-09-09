@@ -41,7 +41,8 @@
 
 CS_PART_BODY equ 0              ; the program - a whole .o88 image (20.12.10)
 CS_PART_ART  equ 1              ; the title bands (88.10.3)
-CS_NPARTS    equ 2
+CS_PART_WLD0 equ 2              ; ...and the world streams (88.10.5)
+CS_NPARTS    equ CS_PART_WLD0 + CSH_NDIR
 
 ; --- the handoff, at the head of the PROGRAM's bss (SPEC.md 20.12.10.2) ------
 ; ONE PACKAGE, TWO SOURCES: apps/skies/skies.asm declares these and this file
@@ -49,7 +50,10 @@ CS_NPARTS    equ 2
 ; does not zero a part, which is the whole of what makes this work.
 CSH_MAGIC  equ 0                ; word: 'CS' - the loader ran
 CSH_ART    equ 2                ; word: where it put the title bands
-CSH_SIZE   equ 4
+CSH_CLB    equ 4                ; word: this volume's bytes per cluster
+CSH_WDIR   equ 6                ; 9 rows of (sector, packed length): the shared
+CSH_NDIR   equ 9                ; vocabulary and then the eight worlds
+CSH_SIZE   equ CSH_WDIR + CSH_NDIR * 4
 
 LD_H_IMG   equ 8                ; ...and the two header fields it reads them
 LD_H_BSS   equ 10               ; at, which are the FORMAT's and not ours
@@ -142,6 +146,35 @@ csl_entry:
     pop ax
     mov [es:di+CSH_ART], ax         ; header says
 
+    ; --- and the world DIRECTORY (SPEC.md 88.10.5) --------------------------
+    ; Nine rows of (sector, packed length), straight out of the part table -
+    ; which is in THIS image and about to stop existing, so the program cannot
+    ; read it for itself. The cluster size goes with them: it is the one thing
+    ; about the volume OSAPI_FILE_READ_AT needs and nothing in the program
+    ; could work out.
+    push ax
+    mov ax, [op_clb]
+    mov [es:di+CSH_CLB], ax
+    xor cx, cx                      ; CX = the row we are copying
+.dir:
+    mov ax, cx
+    add al, CS_PART_WLD0
+    call op_row                     ; SI -> the table row, AX preserved
+    mov ax, cx
+    shl ax, 1
+    shl ax, 1
+    add ax, CSH_WDIR
+    add ax, di
+    xchg ax, bx
+    mov ax, [si+OP_R_OFF]
+    mov [es:bx], ax
+    mov ax, [si+OP_R_LEN]
+    mov [es:bx+2], ax
+    inc cx
+    cmp cx, CSH_NDIR
+    jb .dir
+    pop ax
+
     ; --- and the hand-over ---------------------------------------------------
     ; AX is what the kernel bounds the part's image + bss against, so it is OUR
     ; word for what is actually there (SPEC.md 20.12.10.4). The part is padded
@@ -182,6 +215,16 @@ csl_entry:
                                     ;   csl_art below expands it, which is what
                                     ;   the image did with the same bytes
                                     ;   before 88.10.3 moved them out
+      ; --- and the WORLDS (SPEC.md 88.10.5): the shared vocabulary, then the
+      ;     eight world blobs, each an LZ4 stream tools/csworlds.py packed.
+      ;     ALL LAZY, and none of them is ever fetched by THIS image: what the
+      ;     program gets is a DIRECTORY of where each one sits in the file, and
+      ;     it reads the one it wants with OSAPI_FILE_READ_AT. A lazy row costs
+      ;     nothing until it is fetched and is not in the run, which is what
+      ;     keeps op_size's 128-sector bound clear (88.10.4.1).
+      %rep CSH_NDIR
+        OS88_PART OP_ASSET, OP_LAZY
+      %endrep
     OS88_PARTS_END
 
     OS88_BSS OP_BSS + CSL_BSS

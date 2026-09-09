@@ -5031,8 +5031,27 @@ skieshzprobe: $(BUILD)/skieshz/apps360.img
 skiesprobe: $(BUILD)/skiesprobe/apps360.img
 	@echo "skiesprobe: $(BUILD)/skiesprobe/apps360.img - then"
 	@echo "            python3 tests/skiescount.py --scene dfangled"
-$(BUILD)/skies.bin: $(SKIES_SRC) | $(BUILD)
-	$(NASM) -f bin -w+error -I apps/ -I apps/skies/ $(CSDIAGDEF) -o $@ apps/skies/skies.asm
+# --- THE WORLDS (SPEC.md 88.10.5) -------------------------------------------
+# Each of the eight assembled ON ITS OWN, at the overlay's fixed org, and
+# packed; plus the shared vocabulary they all point into. The streams are
+# NUMBERED and not named - cswN.z is directory row N, which is what
+# csload.asm hands the program - so the order lives in tools/csworlds.py and
+# nowhere else. cswidx.inc is the resident index it writes with them: the nine
+# locations' names, the world each stands in, where its record lands, and the
+# vocabulary's own addresses.
+CSWORLDS_Z := $(BUILD)/csw0.z $(BUILD)/csw1.z $(BUILD)/csw2.z \
+              $(BUILD)/csw3.z $(BUILD)/csw4.z $(BUILD)/csw5.z \
+              $(BUILD)/csw6.z $(BUILD)/csw7.z $(BUILD)/csw8.z
+
+$(BUILD)/cswidx.inc: tools/csworlds.py tools/os88lz.py $(CSWORLDS) \
+                     apps/skies/cswone.asm apps/skies/cswdefs.inc \
+                     apps/skies/cswmac.inc apps/skies/csvocab.inc | $(BUILD)
+	python3 tools/csworlds.py --out $(BUILD)
+
+$(CSWORLDS_Z): $(BUILD)/cswidx.inc ;
+
+$(BUILD)/skies.bin: $(SKIES_SRC) $(BUILD)/cswidx.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/skies/ -I $(BUILD)/ $(CSDIAGDEF) -o $@ apps/skies/skies.asm
 	@echo "skies: $(call FILESIZE,$@) bytes"
 
 # THE TITLE BANDS ARE PART 0 (SPEC.md 88.10.3). tools/csart.py writes the
@@ -5061,9 +5080,10 @@ $(BUILD)/csload.bin: apps/skies/csload.asm apps/skies/csicon.inc \
 	@echo "csload: $(call FILESIZE,$@) bytes"
 
 $(BUILD)/skies.o88: $(BUILD)/csload.bin $(BUILD)/skies.bin $(BUILD)/csart.bin \
-                    tools/os88pkg.py $(PKGZSTAMP)
+                    $(CSWORLDS_Z) tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/csload.bin -o $@ \
-		--part $(BUILD)/skies.bin --part $(BUILD)/csart.bin
+		--part $(BUILD)/skies.bin --part $(BUILD)/csart.bin \
+		$(foreach z,$(CSWORLDS_Z),--part $(z))
 
 $(BUILD)/arkanoid.bin: apps/arkanoid/arkanoid.asm apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ apps/arkanoid/arkanoid.asm
@@ -9123,7 +9143,13 @@ APPS := $(APPS_TOOLS) $(APPS_GAMES) $(APPS_DATA) $(APPS_SYS) $(APPS_DOS)
 # and tests/small128.py is such a row) it is a hard failure naming a file
 # nothing produced. A per-geometry package list has to be filtered in BOTH
 # places or in neither.
-APPS360 := $(APPS_TOOLS) $(APPS_GAMES) $(APPS_DATA_360) $(APPS_SYS) $(APPS_DOS)
+# --- 360KB LEAVES SHEET OFF, and only 360KB (SPEC.md 24.4's shape, one
+#     package along). That geometry has 354 clusters and Clear Skies' worlds
+#     became parts of its own file (88.10.5), which cost the disk what a
+#     spreadsheet takes back. The owner's call, pending a disk reorg; every
+#     other geometry carries the full list, and `make smallapps` is untouched.
+APPS_TOOLS_360 := $(filter-out $(BUILD)/sheet.o88,$(APPS_TOOLS))
+APPS360 := $(APPS_TOOLS_360) $(APPS_GAMES) $(APPS_DATA_360) $(APPS_SYS) $(APPS_DOS)
 
 # ...and the same list with the folder each package lands in. os88disk.py
 # reads a "DIR:" prefix per package, so the grouping lives here rather than
@@ -9164,7 +9190,7 @@ APPSARGS := $(addprefix APPS:,$(APPS_TOOLS)) \
 # AND IT IS PACKED NOW (SPEC.md 62.12): 11,653 bytes and 12 clusters, which is
 # what took this disk off THREE free clusters and put it on ten.
 # Being on this disk is the whole reason a user has it to hand.
-APPSARGS360 := $(addprefix APPS:,$(APPS_TOOLS)) \
+APPSARGS360 := $(addprefix APPS:,$(APPS_TOOLS_360)) \
                $(addprefix GAMES:,$(APPS_GAMES)) \
                $(addprefix MEDIA:,$(APPS_DATA_360)) \
                $(APPSYSARGS) \

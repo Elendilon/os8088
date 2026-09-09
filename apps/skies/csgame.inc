@@ -13,13 +13,30 @@ cs_cmd_fly:
     push ax
     push bx
     push cx
+    push dx                         ; ...and these four for cs_wldpick, which
+    push si                         ; reads a world in below: this routine's
+    push di                         ; header promises EVERY register back to a
+    push es                         ; menu, key or click handler
     cmp byte [cs_want], CSB_NONE
     je .out                         ; the same predicate the menu greyed on
+    mov al, [cs_apnow]              ; ...AND THE WORLD IS IN (SPEC.md 88.10.5).
+    call cs_wldpick                 ; Idempotent - it returns having done
+    jc .out                         ; nothing when the overlay already holds
+                                    ; this location's world, which is every
+                                    ; flight after the first. Picking a place
+                                    ; is setting the ROW; this is where the row
+                                    ; becomes a world, so a caller that changed
+                                    ; the row and nothing else still flies the
+                                    ; right country
     mov ax, cs_fsx_main
     mov bx, [cs_win]
     xor cx, cx                      ; no worker to keep: this loop IS the flight
     call OSAPI_FSX_RUN              ; the kernel repaints the desktop on the
 .out:                               ; way out (SPEC.md 53.6)
+    pop es
+    pop di
+    pop si
+    pop dx
     pop cx
     pop bx
     pop ax

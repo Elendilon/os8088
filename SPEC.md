@@ -105186,10 +105186,11 @@ returns with **no window**. The kernel then frees its region and runs
 its own instance, window, name and icon. Nothing downstream knows there were
 two.
 
-**It is 1,343 bytes**, of which 64 are the icon and 32 the header, and it is
+**It is 1,343 bytes** — 2,000 since §88.10.5 added the world directory and
+nine more table rows — of which 64 are the icon and 32 the header, and it is
 gone by the time the title page paints. So the parts standard costs Clear
-Skies' segment **nothing at all** — not the 1,219 bytes of its code, not the
-table, not the loader's own header.
+Skies' segment **nothing at all** — not its code, not the table, not the
+loader's own header.
 
 | | image + bss | free of 61,440 |
 |---|---:|---:|
@@ -105315,6 +105316,142 @@ which is what the overlay has to hold.
 The streams are packed by the build and shipped as `OP_LAZY` rows, for
 §88.10.4.1's reason one part along: a lazy row cannot be `OP_COMP`, and only
 one world is ever wanted.
+
+##### 88.10.5.2 WHAT SHIPPED: two addresses, and an assertion holding them
+
+The overlay is a **hole at the top of the program's bss** and nothing else:
+
+```
+CS_VOCAB_AT  equ 0xB400      ; the shared vocabulary, loaded once
+CS_VOCAB_MAX equ 576         ; ...its room
+CS_WLD_AT    equ CS_VOCAB_AT + CS_VOCAB_MAX
+CS_WLD_MAX   equ 2560        ; ...and the picked world's
+```
+
+`apps/skies/cswone.asm` is the wrapper each world is assembled through, `org
+CS_WLD_ORG` with the vocabulary padded to `CS_VOCAB_MAX` in front of it — so a
+world's near pointers, into its own models **and** into the eleven vocabulary
+symbols it names, are already the addresses the overlay will have. Nothing is
+relocated at run time and `cs_scene` keeps reading the world with `DS`.
+
+Both sides of that arithmetic have to agree or the pointers are wild and
+**nothing faults** — a world laid at one address and read at another is a world
+of plausible garbage. Two things make that safe:
+
+- **there is nothing to hold in step.** The four constants are declared in
+  `tools/csworlds.py` and nowhere else: `skies.asm` reads them out of the
+  generated `cswidx.inc` and `cswone.asm` takes them on the command line, so
+  the usual answer here — a mirror and a gate comparing it — is not needed.
+- **the program asserts the hole is still a hole.** Its bss ships inside the part
+  (§88.10.4.2), so it is emitted — and it is emitted as **three** `times` and
+  not one:
+
+  ```
+      times CS_BSS db 0                                            ; the ZWORDs
+      times (CS_VOCAB_AT - (os88_image_end - $$)) - CS_BSS db 0     ; the gap
+      times CS_VOCAB_MAX + CS_WLD_MAX db 0                          ; the overlay
+  ```
+
+  The middle line goes **negative** — and nasm refuses the file — the moment
+  the image plus the declared bss reaches `CS_VOCAB_AT`. One
+  `times OS88_BSS_SIZE` would not: the total stays positive while the ZWORD
+  chain quietly overlaps the vocabulary, which is a program whose every world
+  pointer is right and whose own state is being scribbled on. There is no
+  `%if` to write and there could not be — `CS_BSS` is a preprocessor
+  `%assign` and `os88_image_end - $$` is not one, so the two can only meet at
+  assembly time.
+
+  Broken on purpose from both sides (docs/WRITING-TESTS.md §1) — 1,500 bytes
+  of `ZBUF`, then 1,500 bytes of code — it reports `TIMES value -56 is
+  negative` either way. The gap is **1,444 bytes**, and it is the headroom for
+  the image and the ZWORD chain **together**.
+
+##### 88.10.5.3 The resident index is GENERATED, and CS_DEFPORT with it
+
+The launcher lists all nine locations **before any world is loaded**, so their
+names cannot live in the worlds — and a location's record cannot live in the
+program, because it is in the world. `tools/csworlds.py` writes
+`build/cswidx.inc` with the resident half of both:
+
+| | what |
+|---|---|
+| `cs_apnames` | the nine names, **copied out of the world blobs** rather than typed twice |
+| `cs_apwld` | which of the eight worlds each location stands in |
+| `cs_ports` | each record's address **inside the overlay**, `CS_WLD_AT + n` |
+| `cs_wstrraw` | the exact unpacked length of each stream (§88.10.5.4) |
+| the vocabulary's symbols | as absolute equs, the program naming seven and the worlds eleven |
+
+`CS_DEFPORT` is **derived** here, which is a fix and not a tidy-up: `skies.asm`
+carried it as a hand-kept `5` under a comment warning that moving Paris down
+the list would silently change which runway a fresh instance opens on.
+
+`cs_ports` is nine pointers into an overlay that holds **one** world, so eight
+of them are true only while that world is the one loaded. `[cs_airport]` is the
+live one, and `[cs_apnow]` — the ROW — is what a pick sets and what survives a
+swap. That is the reading order for anything outside the program too: name and
+world out of `cs_apnames`/`cs_apwld`, which are resident and true before any
+world is read; record out of `[cs_airport]`, after.
+
+##### 88.10.5.4 `OSAPI_DECOMP` is told what a stream expands to, and CHECKS it
+
+`cs_wldget` reads a stream cluster-aligned into a transient claim and expands
+it into the overlay at `ES:0`. The size it hands `OSAPI_DECOMP` is the
+**stream's own unpacked length** and not the overlay's room.
+
+This is `cs_wstrraw`'s whole reason, and it is written down because the failure
+is a silent one. `OSAPI_DECOMP` (§20.13.3) is given `BX:DX` = the exact expanded
+size and verifies it; the first build passed the overlay's ROOM instead —
+`CS_WLD_MAX`, 2,560, where `csw_paris` is **2,449**. (The vocabulary's arm was
+right by accident, `cswone.asm` padding that blob to `CS_VOCAB_MAX` exactly.)
+It writes the bytes and *then* reports the mismatch — so the overlay held a
+correct world, the record had its 47 objects, and `cs_wldpick` returned `CF=1`
+all the same. `[cs_wldnow]` stayed `0FFh` and `cs_cmd_fly`'s `jc .out` skipped
+**every** flight: a simulator that opened its window, took a mode and drew
+nothing.
+
+##### 88.10.5.5 What it cost, and the one thing it takes away
+
+| the nine worlds | bytes |
+|---|---:|
+| raw, as nine streams (the vocabulary padded to its 576) | 12,473 |
+| **packed, as shipped** | **9,813** |
+| largest single world (`csw_paris`) | 2,449 of `CS_WLD_MAX`'s 2,560 |
+
+§88.10.5.1 predicted 9,432 and 2,456; the 381 between them is the shared
+vocabulary being padded to `CS_VOCAB_MAX` before it is packed, which the
+estimate did not model — and padding it is what makes `cswone.asm` lay every
+world at the same address, so it is not a cost to take back.
+
+The segment, carrying §88.10.4's table on:
+
+| | image + bss | free of 61,440 |
+|---|---:|---:|
+| before §88.10.3 | 61,100 | 340 |
+| art out of the image | 57,832 | 3,608 |
+| …and the reader out too | 56,574 | 4,866 |
+| **…and the worlds out** | **49,216** | **12,224** |
+
+On disk: **39,815 → 43,717**. The nine streams are `OP_LAZY`, so they are not
+in the launch run and a flight costs one `OSAPI_FILE_READ_AT` and one
+`OSAPI_DECOMP` — paid once per world, `cs_wldpick` returning immediately when
+the overlay already holds the picked location's (which is every flight after
+the first, and both of Paris' runways for ever).
+
+**What it takes away is switching world without leaving the bracket.** The
+world is read at `cs_cmd_fly`, on the way in, so writing `[cs_airport]` mid-flight
+now names a record in a world that is not there. Three test rows did exactly
+that; they leave and re-enter instead, which is `[cs_apnow]` plus one `f`.
+`F TOGGLES`, so the transition is confirmed by reading state rather than
+counted in frames: **in the bracket** is `[cs_back] ≠ 0 AND [cs_quit] = 0`,
+`cs_back` being the mode the bracket took and never cleared on the way out.
+
+A world's own symbols went with the world. `cs_m_lcy_shd` and `cs_m_jfk_*` are
+not in the package's map any more, and `tools/csworlds.py`'s `world_map()` is
+what resolves one — `cswone.asm` mapped at the overlay's org, so what comes
+back is the address the guest will have. It uses nasm's `[map all]` rather than
+a listing, because a mesh is declared by a macro (`CS_PYR cs_m_lcy_shd, 28,
+306, 28`) and a listing renders the macro's *body*, `%1:` and all, so the
+label's own name never appears in the file.
 
 ### 88.13 The settings (SPEC.md 88.13)
 

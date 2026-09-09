@@ -441,14 +441,16 @@ def main(argv):
         # off cs_ports rather than assumed: the list is nine long and sorted by
         # its own names since SPEC.md 88.6.4, so Paris-Issy is not row 0 any
         # more and the next rename would move it again.
-        nports = (mp["cs_apnames"] - mp["cs_ports"]) // 2
-        ports = [int.from_bytes(m.readseg(seg, mp["cs_ports"] + 2 * i, 2), "little")
-                 for i in range(nports)]
-        recs = [mp["cs_a_issy"], mp["cs_a_lbg"]]
-        try:
-            LROW = [ports.index(r) for r in recs]
-        except ValueError:
-            sys.exit("skiesgeom: cs_a_issy/cs_a_lbg are not both in cs_ports")
+        # BY NAME, out of cs_apnames (SPEC.md 88.10.5): cs_a_issy and cs_a_lbg
+        # are symbols in the WORLD PART now, not in this program's map, and a
+        # record only exists while its world is in the overlay. The resident
+        # half is the names.
+        LROW = []
+        for want in ("ISSY", "LBG"):
+            row, _ = dispapps.skies_port(m, seg, mp, want)
+            if row is None:
+                sys.exit("skiesgeom: no %s in cs_apnames" % want)
+            LROW.append(row)
 
         airport = 0
         for sc in sorted(scenes, key=lambda n: SCENES[n][0]):
@@ -473,9 +475,18 @@ def main(argv):
                 mo.click(po[0] + 20, top + 1 + 12 * LROW[row] + 6)
                 m.advance(frames=20)
                 m.run()
-                check(w("cs_airport") == recs[row],
-                      "the Location list picked %s at row %d (cs_airport %04x)"
-                      % (("Paris-Issy", "Paris-LBG")[row], LROW[row], w("cs_airport")))
+                # cs_ports READ NOW and not banked before the pick: a
+                # record lives in the world overlay (SPEC.md 88.10.5), and
+                # both Paris runways stand in the same world - so once that
+                # world is in, the resident index's row for the one picked is
+                # exactly what cs_airport must hold.
+                rec = int.from_bytes(
+                    m.readseg(seg, mp["cs_ports"] + 2 * LROW[row], 2), "little")
+                check(byte("cs_apnow") == LROW[row] and w("cs_airport") == rec,
+                      "the Location list picked %s at row %d (cs_apnow %d, "
+                      "cs_airport %04x against %04x)"
+                      % (("Paris-Issy", "Paris-LBG")[row], LROW[row],
+                         byte("cs_apnow"), w("cs_airport"), rec))
                 m.type_text("f")
                 m.advance(frames=40)
                 m.run()

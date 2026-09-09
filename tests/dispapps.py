@@ -204,6 +204,34 @@ def _map(app, defines=()):
     return out
 
 
+def skies_port(m, seg, mp, want):
+    """The ROW in Clear Skies' location list whose name contains `want`.
+
+    A location's RECORD lives in the world overlay now (SPEC.md 88.10.5), so
+    only the loaded world has one and walking `cs_ports` for a name finds
+    exactly one place. `cs_apnames` is the resident half - nine name pointers,
+    which is what the launcher's own drop-down reads - so that is what a row
+    looking for NYC-JFK asks.
+
+    POKE `cs_apnow` WITH THE ANSWER, not `cs_airport`: picking a place is
+    setting the row, and cs_cmd_fly turns the row into a world on its way into
+    the bracket. A poked `cs_airport` names a record the overlay does not hold.
+    """
+    n = int.from_bytes(m.readseg(seg, mp["cs_drport"] + 10, 2), "little")
+    for i in range(n):
+        at = int.from_bytes(m.readseg(seg, mp["cs_apnames"] + 2 * i, 2),
+                            "little")
+        nm = ""
+        while True:
+            c = m.readseg(seg, at + len(nm), 1)[0]
+            if not c:
+                break
+            nm += chr(c)
+        if want in nm:
+            return i, nm
+    return None, None
+
+
 def colour_gif(src="build/OS8088.GIF", dst="/tmp/OS88COL.GIF"):
     """`src` with a FOUR-entry colour table, so SPEC.md 42.23.6 keeps it 4bpp.
 

@@ -84,6 +84,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import os88ui                                               # noqa: E402
 import dispapps                                             # noqa: E402
+import csworlds                                             # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CPS = 4772727.0
@@ -141,28 +142,24 @@ def main(argv):
         m.run()
 
         # --- NYC-JFK, by name out of the guest's own table -----------------
-        nport = int.from_bytes(m.readseg(seg, mp["cs_drport"] + 10, 2), "little")
-        port = None
-        for i in range(nport):
-            p = int.from_bytes(m.readseg(seg, mp["cs_ports"] + 2 * i, 2), "little")
-            q = int.from_bytes(m.readseg(seg, p, 2), "little")
-            nm = ""
-            while True:
-                c = m.readseg(seg, q + len(nm), 1)[0]
-                if not c:
-                    break
-                nm += chr(c)
-            if "JFK" in nm:
-                port = p
-        if port is None:
-            sys.exit("skieslod: no JFK in cs_ports")
+        # cs_apnames and not cs_ports: a record lives in the world OVERLAY now
+        # and only the loaded world has one (SPEC.md 88.10.5). The ROW is what
+        # a pick sets, and cs_cmd_fly turns it into a world.
+        row, _ = dispapps.skies_port(m, seg, mp, "JFK")
+        if row is None:
+            sys.exit("skieslod: no JFK in cs_apnames")
         m.pause()
-        poke("cs_airport", port.to_bytes(2, "little"))
+        poke("cs_apnow", bytes([row]))
         poke("cs_inited", b"\x00")
         m.run()
-        m.type_text("f")
-        m.advance(frames=140)
-        m.run()
+        m.type_text("f")                        # ONE f enters; the STATE says
+        for _ in range(30):                     # it landed, not a frame count
+            m.advance(frames=20)                # - and it is now a WORLD READ
+            m.run()                             # off the floppy as well as a
+            if byte("cs_back") and not byte("cs_quit"):
+                break                           # mode change (SPEC.md 88.10.5)
+        if not byte("cs_back") or byte("cs_quit"):
+            sys.exit("skieslod: the fsx bracket never took a mode")
 
         if a.clobber_lod:
             # `cmp cx, 5958` is 81 F9 46 17 and the `jae` after it 73 dd:
@@ -234,6 +231,11 @@ def main(argv):
             m.run()
             print("  (the tall bound put back to CS_LODPX: must fail)")
 
+        # THE RECORD, READ NOW - once cs_cmd_fly has put JFK's world in the
+        # overlay (SPEC.md 88.10.5). cs_ports is nine pointers into an
+        # overlay that holds one world, so eight of them are only true when
+        # that world is the one loaded; [cs_airport] is the live one.
+        port = word("cs_airport")
         objs = int.from_bytes(m.read(lin + port + CSA_OBJS, 2), "little")
         nobj = int.from_bytes(m.read(lin + port + CSA_NOBJ, 2), "little")
         # Every anonymous BOX in the table, whatever rung it belongs to -
@@ -248,7 +250,12 @@ def main(argv):
         # went green - --clobber-tall's dip landing at 2.6% against a 3%
         # bound. The checks below are tuned to four towers on the sight line
         # and the world may grow as many more as it likes.
-        want = tuple(mp[n] for n in ("cs_m_jfk_mid", "cs_m_jfk_dtn",
+        # THE WORLD'S MAP AND NOT THE PROGRAM'S: a mesh lives in the world
+        # stream now, so these four are not symbols of the package at all.
+        # csworlds.world_map lays csw_jfk out at the address cs_wldget puts
+        # it, which is the address the guest has.
+        wm = csworlds.world_map(csworlds.WORLD_OF["jfk"])
+        want = tuple(wm[n] for n in ("cs_m_jfk_mid", "cs_m_jfk_dtn",
                                      "cs_m_jfk_hi", "cs_m_jfk_lo"))
         rng0 = [int.from_bytes(m.read(lin + objs + i * CSO_SIZE + CSO_RANGE, 2),
                                "little") for i in range(nobj)]

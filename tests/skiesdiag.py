@@ -51,8 +51,16 @@ def diagmap():
     lst = os.path.join(ROOT, "build", "skiesdiag", "skies.lst")
     binp = os.path.join(ROOT, "build", "skiesdiag", "skies.map.bin")
     os.makedirs(os.path.dirname(lst), exist_ok=True)
+    # -I THE PRIVATE TREE, and it is the tree's own and not build/'s: the
+    # world index is GENERATED (SPEC.md 88.10.5), `make skiesdiag` writes a
+    # copy of it beside the package it builds, and the two are only the same
+    # file while nothing under apps/skies/ has moved. Reaching for build/'s
+    # would assemble the diag package against the shipped tree's addresses,
+    # which is the stale-tree failure the check below exists to catch,
+    # arriving through the include path instead.
     subprocess.check_call(
         ["nasm", "-f", "bin", "-w+error", "-I", "apps/", "-I", "apps/skies/",
+         "-I", os.path.join(ROOT, "build", "skiesdiag") + os.sep,
          "-DCSDIAG", "-l", lst, "-o", binp, "apps/skies/skies.asm"],
         cwd=ROOT)
     # ...AND THE PRIVATE TREE HELD TO IT, os88sym's rule one level down: the

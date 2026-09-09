@@ -27,8 +27,12 @@
 ;   CS_FAR 16000  metres: nothing further is transformed at all
 ; =============================================================================
 
-%include "cswmac.inc"           ; the macros, which emit nothing...
-%include "csvocab.inc"          ; ...and the tables they build against
+%include "cswmac.inc"           ; the macros, which emit nothing. The tables
+                                ; they build against are csvocab.inc, and that
+                                ; is NOT included here any more: it lives in
+                                ; the overlay now (SPEC.md 88.10.5), and
+                                ; build/cswidx.inc is where both this program
+                                ; and a world part learn its addresses
 
 ; =============================================================================
 ; The aeroplanes (SPEC.md 88.7): one row, and every constant the flight model
@@ -263,11 +267,9 @@ cs_s_a5:     db 'ICON A5', 0
 ; anything there but the two symbols the location table in skies.asm names.
 
 ; =============================================================================
-%include "csw_paris.inc"
-%include "csw_lcy.inc"
-%include "csw_jfk.inc"
-%include "csw_sfo.inc"
-%include "csw_mia.inc"
-%include "csw_vnlk.inc"
-%include "csw_sdu.inc"
-%include "csw_spx.inc"
+; THE WORLDS ARE NOT HERE (SPEC.md 88.10.5). Eight files stood at the foot of
+; this one, 11,904 bytes of models and object tables for nine countries, of
+; which exactly ONE is under the aeroplane at any moment. They are parts now:
+; packed by tools/csworlds.py, each assembled on its own at the overlay's
+; fixed org, and read into cs_wldat when a location is picked.
+; =============================================================================

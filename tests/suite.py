@@ -2413,7 +2413,7 @@ SOAK = [
         " held pixel for pixel against what they were, because fsx_run clears"
         " the clip region the handler armed",
         needs=("marty",), serial=True),
-    Row("skiesset", "soak", py("tests/skiesset.py"), 75.0,
+    Row("skiesset", "soak", py("tests/skiesset.py"), 90.0,
         "SPEC.md 88.13: the Settings page and its four knobs reaching the"
         " picture - Few files fewer objects and draws faster, a fill box"
         " clears its bit, the in-flight hotkeys do the same without the page,"
@@ -2437,7 +2437,10 @@ SOAK = [
         " the strip, which is the panel's key and not the byte. And"
         " 88.13.9's round trip: four settings picked on the page, Done, the"
         " window closed, the package opened again, and the file in"
-        " SYSTEM/APPDATA is what the new instance comes back with",
+        " SYSTEM/APPDATA is what the new instance comes back with."
+        " MEASURED at 88s in a lane of four since 88.10.5 made a second"
+        " world a disk read: the second-world ladder leaves and re-enters"
+        " the bracket twice, where it used to poke cs_airport",
         needs=("marty",), serial=True),
     Row("skiesocc", "soak", py("tests/skiesocc.py"), 26.0,
         "SPEC.md 88.13.7: the occlusion pass, and the only thing keeping its"
