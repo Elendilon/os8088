@@ -417,10 +417,10 @@ DIAGONAL AT ALL.
 #### 7.1.6 What is left, in the order the evidence ranks it
 
 1. ~~The narrow fill~~ - **BUILT AND REFUSED, 7.1.8 below.**
-2. **The horizon cache**, now that 7.1.5's `sparse` prices it properly: an
-   empty turn's 77.6 ms -> ~43 on nineteen frames in twenty, and NOTHING in a
-   busy one, for ~100 bytes and a second path through the band whose
-   correctness rests on the key covering every input to the picture.
+2. ~~The horizon cache~~ - **CHECKED AND REFUSED, 7.1.12 below.** 7.1.5's
+   `sparse` priced it on an empty turn; `slightbank` prices it on the case the
+   field asked about and it is worth **nothing at slight bank** and 2.5-4.5 ms
+   in a 10-25 degree window. A split row is an OCCUPIED row.
 4. **`cs_blit`'s own per-row walk**, ~300 cycles over rows that are mostly a
    few bytes now.
 
@@ -644,6 +644,128 @@ a stopped guest burns none - and the drift is entirely in which frames get
 flown. Build the control from the tree you are comparing against, run it
 beside the change, and treat any cross-session delta under ~2 ms on a 260 ms
 frame as unmeasured.
+
+#### 7.1.12 DESIGN CHECK, REFUSED - the banked row cache at SLIGHT bank
+
+The ask was the third case §7.1.5 never measured: *"slightly banked is not
+doing much different from level, as far as which rows need redrawn, and yet it
+is getting bank's full massive slowdown."* `slightbank` is that view built as
+a profile - 33 m over the Champ de Mars (the panel's ALT 00108 is FEET), the
+tower filling the view, 5 degrees of roll HELD - and the answer is four
+findings, of which the last two decide it. **SPEC.md 88.3.1.3.4 is the
+measurement; this is what to do about it, and the answer is nothing.**
+
+**1. There is no bank MODE - the cost is exactly the rows the horizon splits.**
+`cs_skyground` over a poked roll sweep is linear and in nothing else: **8.19 ms
++ 0.306 ms a split row**, every one of eight points within 1.3 ms, and 0.306 ms
+is 1,462 cycles - 88.3.1.2's split-row fill to 3%. 5 degrees splits 23 of 112
+rows and costs 15.89 ms against level's 8.73. **It is not getting bank's full
+slowdown**: 45 degrees splits all 112 and costs 41.79. What 5 degrees costs
+this frame is ~6 ms of **185.9**, which is **3.9%** - and at slight bank the
+frame is `cs_scene` at **72.1%**, not the horizon at 8.9%. The premise is worth
+correcting before anything is built on it.
+
+**2. The cache's population at slight bank is ZERO.** A split row is skippable
+when the crossing byte has not moved and nothing drew on the row - and last
+frame's span pair answers both, being the crossing's byte plus or minus one
+exactly when the row is clean. Measured off the set `cs_blit` is about to
+walk: **0 object-free rows at 2, 5 and 8 degrees**, 11-13% at 12-20, 0 again
+from 30. So **an angle gate would be gating an empty cache**, and the payout
+such a gate could harvest is at MEDIUM bank - the opposite end from the ask.
+
+The angle is the wrong gate anyway. `cs_matrix`'s second column is
+`(-sr.cp, cr.cp, sp)`, so the horizon is a function of **roll and pitch
+alone** - heading and position do not enter it, and a steady banked turn holds
+it pixel-still. The exact and free gate is *"did roll or pitch change since
+last frame"*: two words compared once a frame, nothing spent on the frames it
+fails, every angle covered including level.
+
+**3. ONE object's box is the wall, it is not the tower, and it is 88.3.2.1's
+own object.** Every `cs_markrows` call of one 5-degree frame, traced with its
+rows and byte range (the view is 112 rows of 50 bytes):
+
+| mark | rows | of the view | bytes | of the width | the object |
+|---|---|---|---|---|---|
+| **#0** | **50-72 (23)** | **21%** | **15-61 (47)** | **94%** | `CSM_FLAT` nv3 **nf0 ne2** `CSO_ROAD` |
+| #1 | 51-60 (10) | 9% | 35-51 (17) | 34% | `CSM_STACK` nv2 nf5 |
+| #2 | 41-59 (19) | 17% | 47-50 (4) | **8%** | `CSM_STACK` nv3 nf8 - **the tower** |
+
+Three calls make the whole frame and the band lies inside #0 entirely. **#2 is
+the tower** - the tallest thing in the world, filling the view in the
+screenshot that prompted this, marking four bytes of fifty. And #0 is
+`cs_m_axis`, **88.3.2.1's axis road**: three vertices, no faces, two edges, the
+same object and the same wall at 5 degrees instead of 45.
+
+**That closes the door 88.3.1.3.2 left open.** Its unblocking change was to
+mark from `cs_poly`'s per-row `cs_xl`/`cs_xr`, *"a compare-and-store on a pair
+the loop already holds"* - and **a polyline has no such loop**. `nf0` is the
+whole answer: what remains is 88.3.2.1's banded PASS, built, measured at
+**+2.9 ms**, refused.
+
+**4. And it is the INK, not the box.** A tighter mark can only unblock a row
+the box covers and the ink misses, so the ceiling of every marking change is
+the band with the road NOT DRAWN AT ALL. Poking its `CSO_RANGE` to zero so the
+cull drops it measures exactly that, both arms in one session (7.1.11):
+
+| held roll | band | free, road drawn | free, road **DROPPED** | mean span |
+|---|---|---|---|---|
+| 5 deg | 23 | **0.0** | **2.8** | 36.5 -> 12.5 |
+| 12 deg | 55 | 7.4 | 10.6 | 36.7 -> 14.9 |
+| 20 deg | 92 | 13.3 | 23.9 | 38.0 -> 12.8 |
+
+**Deleting the blocking object outright buys 2.8 rows of 23 at 5 degrees** -
+1.1 ms - with its mark's span down by two thirds. The other twenty are blocked
+by INK. **The horizon's band is where distant scenery projects**, so the rows a
+shallow horizon splits are the rows objects draw on; that is geometry and no
+marking scheme touches it. It is the one sentence under three separate
+refusals of the same row - 7.1.8's narrow fill, 88.3.2.1's banded marks and
+this cache all lose because **a split row is an OCCUPIED row**.
+
+##### What it is worth
+
+On this session's two unit costs - 1,462 cycles for the fill a cached row
+skips, ~390 more for the `cs_blit` row that then finds an empty span (88.3.6's
+518 against 129) - against ~35 cycles a band row for the width test behind the
+once-a-frame attitude gate:
+
+| held roll | band | free | the cache ALONE | ceiling with the road GONE |
+|---|---|---|---|---|
+| 5 deg | 23 | 0.0 | **-0.17 ms** | +1.0 |
+| 12 deg | 55 | 7.4 | **+2.5** | +3.7 |
+| 20 deg | 92 | 13.3 | **+4.5** | +8.6 |
+| 45 deg | 112 | 0 | -0.82 | - |
+
+Break-even is 1.9% of band rows. **88.3.2.1 refused finer marking against the
+wrong consumer** and that is still worth writing down: its arithmetic is *a row
+costs ~50 cycles to MARK and ~4.5 a byte to CARRY*, so a tighter mark must save
+eleven bytes on every row it touches, and banding the axis road saved 10.5. A
+row unblocked for the CACHE is worth 1,852 cycles, not 4.5 a byte, which moves
+the break-even to one row in thirty. But the DROPPED column caps what any mark
+can deliver, 88.3.2.1 measured the pass at +2.9 ms, and the pair is therefore
+net negative.
+
+##### Recommendation - DO NOT BUILD
+
+1. **The angle gate is the wrong gate.** `cs_matrix`'s second column is
+   `(-sr.cp, cr.cp, sp)`, so the horizon is a function of roll and pitch ALONE
+   - heading and position do not enter it, and a steady banked turn holds it
+   pixel-still. The exact and free gate is *"did roll or pitch change since
+   last frame"*: two words compared once a frame, nothing spent on the frames
+   it fails, every angle covered including level. Restricting by ANGLE would
+   gate a cache whose population is zero at the angles asked about.
+2. **The cache is worth nothing at slight bank** and ~2.5-4.5 ms in a 10-25
+   degree window on HELD frames, for ~100 bytes and a second path through the
+   band. Compare this round's landed changes: -2.3 to -3.2 ms each, for tens
+   of bytes, on every frame.
+3. **If it is ever built** it is a span-width test a band row inside
+   `cs_skyground`'s `.hs` pass, which already holds this frame's crossing byte
+   and is one pointer from last frame's set (`cs_spprv`). The `.hs` loop has
+   no spare register, so that pointer is a memory temporary - which is where
+   the ~35 cycles go.
+4. **It is not the first thing to do to this view.** At slight bank
+   `cs_scene` is 134.0 ms of 185.9 - `faces` 42.9, `drawobj` 117.3 inclusive,
+   `project#0` 16.8, `cull#1` 13.8 - against the horizon's 16.5. The horizon
+   is the right subject at 30 degrees and up; at 5 it is 8.9%.
 
 ## 7.4 WHERE cs_scene's 169 ms GOES
 

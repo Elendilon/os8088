@@ -187,6 +187,19 @@ PROFILES = {
              "marks an object's BOX (88.3.2) and a flat ground model "
              "kilometres across has an enormous one - it measured 0 of 112 "
              "rows object-free, same as turnhold, with WIDER spans"),
+    "slightbank": dict(
+        pos=(150, 33, -2000), hdg=30, pitch=0, roll=5, thr=100, spd=60,
+        hold=True,
+        what="LOW and BARELY BANKED - 33 m (the panel's 108 FEET) over the "
+             "Champ de Mars with 5 degrees of roll HELD, the tower filling "
+             "the view ahead. The third case 88.3.1.3.2 never measured, and "
+             "the answer is that there is no bank MODE: cs_skyground is "
+             "LINEAR in split rows (8.19 ms + 0.306 a row), so 5 degrees "
+             "splits 23 of 112 and costs 15.89 against level's 8.73 - 6 ms "
+             "of a 185.9 ms frame that is cs_scene at 72%. And the cache's "
+             "population here is ZERO: one ground object's box is 94% of the "
+             "view's width and covers the whole band, where the TOWER marks "
+             "four bytes of fifty (88.3.1.3.4)"),
     "climb": dict(
         pos=None, hdg=None, pitch=8, roll=0, thr=100, spd=40,
         what="full throttle from where cs_reset puts it on the Issy runway: "

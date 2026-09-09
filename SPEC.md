@@ -101853,6 +101853,137 @@ object's box — which §88.3.2.1 measured and refused from the other side. The
 two are one wall seen twice.
 
 
+###### 88.3.1.3.4 SLIGHT bank, and the cache's population is set by ONE object's box
+
+§88.3.1.3.2 priced the cache on an empty turn and a busy one, both at 45°. The
+field's question is the third case and the common one: **a shallow held bank
+low over the city**, which does not look like it should cost what a bank
+costs. `slightbank` is that profile — 33 m over the Champ de Mars, the tower
+filling the view, 5° of roll HELD — and the roll poked over a sweep with
+`cs_skyground` and `cs_blit` bracketed at their call sites, the split rows
+counted off `cs_rowkind` and the spans read out of the set `cs_blit` is about
+to walk:
+
+| held roll | split rows | of the view | object-free | `cs_skyground` | `cs_blit` |
+|---|---|---|---|---|---|
+| 0° | 1 | 1% | 0 | 8.73 ms | 15.70 |
+| 2° | 7 | 6% | 0 | 9.32 | 6.52 |
+| **5°** | **23** | **20%** | **0** | **15.89** | **14.42** |
+| 8° | 35 | 31% | 0 | 19.40 | 20.00 |
+| 12° | 55 | 49% | 7.3 (13%) | 24.27 | 22.93 |
+| 20° | 92 | 82% | 10.3 (11%) | 37.65 | 31.60 |
+| 30° | 112 | 100% | 0.1 | 42.26 | 34.29 |
+| 45° | 112 | 100% | 0 | 41.79 | 31.50 |
+
+**`cs_skyground` is LINEAR in split rows and in nothing else** — least squares
+over the eight puts it at **8.19 ms + 0.306 ms a split row**, every point
+within 1.3 ms, and 0.306 ms is **1,462 cycles**, which is §88.3.1.2's split-row
+fill (1,421) to 3%. There is no bank *mode*: a roll costs exactly the rows it
+splits, and it saturates at ~26° because the band has crossed the whole view.
+So a 5° bank is **20% of the view refilled whole every frame** and 15.89 ms
+against level's 8.73 — real, and 6 ms of a **185.9 ms** frame (`--tier 2`),
+which is **3.9%**. At slight bank this frame is not horizon-bound; it is
+`cs_scene` at 72.1%.
+
+**And the cache is empty exactly where it was hoped for.** A split row is
+skippable when the crossing byte has not moved and nothing drew on the row —
+last frame's span pair says both, being the crossing's byte ±1 when the row is
+clean. That population is **0 at 2°, 5° and 8°**, 11–13% at 12–20°, and 0
+again at 30° and up.
+
+**Three `cs_markrows` calls make the whole frame, and one of them is the
+wall.** Tracing every call of one 5° frame with its rows and its byte range,
+the view being 112 rows of 50 bytes:
+
+| mark | rows | of the view | bytes | of the width |
+|---|---|---|---|---|
+| **#0** | **50–72 (23)** | **21%** | **15–61 (47)** | **94%** |
+| #1 | 51–60 (10) | 9% | 35–51 (17) | 34% |
+| #2 | 41–59 (19) | 17% | 47–50 (4) | **8%** |
+
+The band at 5° sits inside mark #0 entirely. **The tower is #2** — the tallest
+thing in the world, filling the view, and it marks four bytes of fifty.
+
+**And #0 names itself.** Reading its object record at the mark: `CSM_FLAT`,
+three vertices, **no faces and two edges**, radius 4200, `CSO_ROAD`. That is
+`cs_m_axis` — **§88.3.2.1's axis road, the same object, the same wall, at 5°
+instead of 45°**. §88.3.1.3.2's diagnosis was right and this is what it costs
+at a shallow bank: one polyline whose ink is a few bytes has a box 94% of the
+view wide, and the horizon's whole band is inside it.
+
+**That closes the door §88.3.1.3.2 left open.** Its unblocking change was to
+mark from `cs_poly`'s per-row `cs_xl`/`cs_xr`, *"a compare-and-store on a pair
+the loop already holds"* — and a polyline has no such loop. `nf0` is the whole
+answer: the blocking object is not filled, so there are no per-row fill bounds
+to mark from, and what remains is §88.3.2.1's banded PASS, which was built,
+measured at **+2.9 ms**, and refused.
+
+**So restricting the cache by BANK ANGLE is gating an empty cache**, and the
+angle is the wrong gate anyway. The horizon is `(-sr·cp, cr·cp, sp)` and so a
+function of roll and pitch ALONE (§88.4.1) — heading and position do not enter
+it, and a steady banked turn therefore holds the horizon pixel-still. The
+exact, free gate is *"did roll or pitch change since last frame"*, one compare
+of two words, which costs nothing on the frames it fails and covers every
+angle including level.
+
+**What the cache is worth, on this session's two unit costs** — 1,462 cycles
+for the fill a cached row skips, ~390 more for the `cs_blit` row that then
+finds an empty span (§88.3.6's 518 against 129), against ~35 cycles a band row
+for the width test behind the once-a-frame attitude gate:
+
+| held roll | band | free today | worth today | worth if the band were unblocked |
+|---|---|---|---|---|
+| 5° | 23 | 0 | **−0.17 ms** | **+8.8 ms** |
+| 12° | 55 | 7.3 | +2.4 | +21.0 |
+| 20° | 92 | 10.3 | +3.6 | +35.1 |
+| 45° | 112 | 0 | −0.82 | +42.6 |
+
+Break-even is **1.9% of band rows**. Today the cache pays only in a 10–25°
+window, ~2–4 ms, and loses slightly everywhere else — which is not worth 100
+bytes and a second path through the band.
+
+**§88.3.2.1 refused finer marking against the wrong consumer, and that is
+worth writing down even though it does not rescue this.** Its arithmetic is *a
+row costs ~50 cycles to MARK and ~4.5 cycles a byte to CARRY*, so a tighter
+mark must save **11 bytes on every row it touches** to pay — and banding the
+axis road saved 10.5 and lost by 2.9 ms. That prices a tighter mark against
+`cs_blit` alone, because when it was measured there was nothing else buying. A
+row unblocked for the cache is worth **1,852 cycles**, not 4.5 a byte, so with
+the cache in place the break-even moves from *eleven bytes on every row* to
+**one row in thirty** — two orders of magnitude, on a pass that missed by half
+a byte.
+
+**But a tighter mark only unblocks a row the box covers and the INK misses**,
+and a shallow line crosses every row of its own extent exactly once. So the
+ceiling of every marking change is the band with the road **not drawn at
+all** — strictly better than any mark can be — and poking its `CSO_RANGE` to
+zero so the cull drops it measures exactly that, both arms in one session:
+
+| held roll | band | free, road drawn | free, road **DROPPED** | mean span |
+|---|---|---|---|---|
+| 5° | 23 | **0.0** | **2.8** | 36.5 → 12.5 |
+| 12° | 55 | 7.4 | 10.6 | 36.7 → 14.9 |
+| 20° | 92 | 13.3 | 23.9 | 38.0 → 12.8 |
+
+**Deleting the blocking object outright buys 2.8 rows of 23 at 5°** — 1.1 ms,
+where the mark's own span fell by two thirds. The other twenty are blocked by
+ink, not by boxes: **the horizon's band is where distant scenery projects**, so
+the rows a shallow horizon splits are the rows objects draw on. That is
+geometry and no marking scheme touches it, which is why `sparse` reads 112 of
+112 and every scene with a city in it reads nearly none.
+
+It is the one sentence that unifies three separate refusals of the same row —
+§88.3.1.1.2's narrow fill, §88.3.2.1's banded marks and this cache all lose
+because a split row is an *occupied* row.
+
+**Where that leaves it.** The cache alone, behind the attitude gate, is worth
+**−0.17 ms at 5°, +2.5 at 12° and +4.5 at 20°**, on held frames, for ~100
+bytes and a second path through the band. Pairing it with a marking change
+cannot beat the DROPPED column and §88.3.2.1 measured the marking pass at
+**+2.9 ms**, so the pair is net negative. **Not built**: it is worth nothing at
+the angle it was asked about, and at slight bank this frame is `cs_scene` at
+72.1% against the horizon's 8.9%.
+
 #### 88.3.6 cs_blit's row: 490 cycles of fixed cost against 40-49 a word
 
 `cs_blit` walks the union of the two span sets' row ranges. Breakpointing the
