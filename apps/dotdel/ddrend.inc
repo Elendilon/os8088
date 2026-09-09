@@ -739,8 +739,18 @@ dd_band_rect:
     and bx, 7                       ; BX = the bit offset into the first byte
     add bx, cx
     cmp bx, 16
-    ja .slow
+    ja .slow                        ; wider than two bytes: the general walk,
+                                    ; which finds its own first byte
     sub bx, cx                      ; ...the offset again
+    shr ax, 1                       ; AND THE BYTE COLUMN, which dd_bandrun
+    shr ax, 1                       ; does for itself and this path has to do
+    shr ax, 1                       ; too. Without it every rectangle landed at
+    add di, ax                      ; the LEFT EDGE of its band instead of at
+                                    ; its x: the title's cells all piled into
+                                    ; byte column 0, and every dot was drawn in
+                                    ; the band's leftmost tile - so dots went
+                                    ; missing where they belonged and turned up
+                                    ; inside the corners the band also covered
     mov ax, 0FFFFh
     neg cl
     add cl, 16                      ; CL = 16 - the width

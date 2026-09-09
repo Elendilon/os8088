@@ -108155,6 +108155,33 @@ word, so `dec dx / jnz` walked the whole segment — the same catastrophe
 `dd_band_build`'s own comment describes one screen up. It costs one push/pop
 per rectangle instead of four pairs per row, so the win survives paying it.
 
+#### 93.5.9.1 …and the fast path forgot which BYTE the run starts in
+
+§93.5.9's two-byte mask is built from the run's **bit** offset, and the byte
+column — `x >> 3`, which `dd_bandrun` adds to `DI` for itself — was left out
+of the path that replaced it. So every rectangle landed at the **left edge of
+its band** instead of at its x: the title's cells all piled into byte column 0
+as a narrow bar, and every dot was drawn in the band's leftmost tile, so dots
+went missing where they belonged and turned up inside the corners the same
+band covered. The field reported all three as separate bugs on VGA, and they
+are one instruction.
+
+**An exhaustive host-side model passed 800 cases against that build**, which
+is the part worth writing down. The model had the byte column, because it was
+written from the design; the code did not. Comparing a transcription against
+the algorithm it was transcribed from proves the two agree and says nothing
+about the object that ships — so a bit-level rewrite wants a check that reads
+the GLASS, and `tests/dotdel.py` leg F is that check: the grid comes out of
+the guest and the pixels off the screen, and a dot the grid puts at (c, r)
+must put ink inside tile (c, r).
+
+Three things that leg had to get right before it could accuse the code, each
+of which made it report a defect that was not there: the grid and the pixels
+must be read of ONE instant (Smiles eats between two reads), the blink must be
+pinned LIT (a pellet caught in its dark phase reads exactly like a misplaced
+one), and `dd_pilt` counts down with `jns`, so it is **signed** — pinning it
+to 250 is −6 and flips the phase every tick.
+
 #### 93.5.7.1 The list is where they ARE; the grid is whether they still are
 
 `dd_pills_flip` walks the pellet LIST, which is built when the board is

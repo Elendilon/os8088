@@ -15,6 +15,17 @@ Five questions, and each one has gone wrong at least once during the build
   D  THE BOARD IS CUT FROM THE SURFACE (SPEC.md 93.3).  The tile is what the
      adapter's own pixel shape and the live content box say it should be, and
      going fullscreen re-cuts it BIGGER and leaving puts it back.
+  F  EVERY DOT IS DRAWN IN ITS OWN TILE, and the title has a title in it
+     (SPEC.md 93.5.9.1).  The grid comes out of the guest and the pixels off
+     the glass, so nothing has to be compared against a second build: a dot
+     the grid puts at (c, r) must put ink inside tile (c, r), and the title's
+     ink must span its own box rather than pile up at one edge of it.
+     `dd_band_rect`'s fast path computed the BIT offset of a run and not its
+     BYTE column, so every rectangle landed at the left edge of its band -
+     the title's cells all in byte column 0, every dot in the band's leftmost
+     tile.  An exhaustive host-side model of the arithmetic passed 800 cases
+     against that build, because the model was written from the DESIGN and
+     the byte column was missing only from the CODE.
   E  THE FRAME IS THE TICK (SPEC.md 93.6).  Rendered frames per guest second
      against the game's own tick counter, on a cycle-accurate 4.77 MHz 8088.
      This is the row's reason for existing: three separate things - a board
@@ -140,6 +151,94 @@ def screen(m):
     return w, h, b"".join(bytes(r) for r in rows)
 
 
+TT_DOT, TT_PILL = 2, 3
+G_COLS, G_ROWS = 28, 31          # DD_COLS x DD_ROWS, the classic grid
+
+
+def _lit(d, w, h, per, x0, y0, x1, y1):
+    for y in range(max(y0, 0), min(y1, h)):
+        base = y * w
+        for x in range(max(x0, 0), min(x1, w)):
+            o = (base + x) * per
+            if any(d[o:o + per]):
+                return True
+    return False
+
+
+def leg_f(tag, ui, p, say):
+    """Every dot in its own tile, and a title that spans its own box."""
+    m = ui.m
+    fail = []
+    m.pause()
+    cx, cw = p.w("dd_cx"), p.w("dd_cw")
+    tity, tith, titw = p.w("dd_tity"), p.w("dd_tith"), p.w("dd_titw")
+    m.go()
+    titx = ((cx + (cw - titw) // 2) + 4) & ~7
+    w, h, d = screen(m)
+    per = len(d) // (w * h)
+    cols = [x for x in range(titx, titx + titw)
+            if _lit(d, w, h, per, x, tity, x + 1, tity + tith)]
+    span = (max(cols) - min(cols) + 1) if cols else 0
+    if span <= titw * 3 // 4:
+        fail.append("%s: the title's ink spans %d px of its %d-px box - it has "
+                    "collapsed towards one edge (SPEC.md 93.5.9.1)"
+                    % (tag, span, titw))
+    else:
+        say("%s: title spans %d of %d px" % (tag, span, titw))
+
+    # ...and now the board. FREEZE FIRST and pin the blink LIT: the grid and
+    # the pixels have to be of one instant (Smiles eats between two reads),
+    # and a pellet caught mid-blink reads exactly like a misplaced one.
+    # dd_pilt counts down with `jns`, so it is SIGNED and 250 is -6.
+    seg = p.seg
+    m.key("Enter")
+    time.sleep(4)
+    m.pause()
+    for n, v in (("dd_paused", 1), ("dd_pilon", 1), ("dd_pilt", 120),
+                 ("dd_full", 1)):
+        m.write((seg << 4) + p.names[n], bytes([v]))
+    m.go()
+    time.sleep(1.5)
+    m.pause()
+    tw, th = p.w("dd_tw"), p.w("dd_th")
+    bdx, bdy = p.w("dd_bdx"), p.w("dd_bdy")
+    grid = bytes(m.read((seg << 4) + p.names["dd_grid"], G_COLS * G_ROWS))
+    act = [(p.b("dd_ac", i), p.b("dd_ar", i)) for i in range(5)]
+    w, h, d = screen(m)
+    m.go()
+    per = len(d) // (w * h)
+    near = {(c + dc, r + dr) for c, r in act
+            for dc in (-1, 0, 1) for dr in (-1, 0, 1)}
+    missing = []
+    checked = 0
+    for r in range(G_ROWS):
+        for c in range(G_COLS):
+            if grid[r * G_COLS + c] not in (TT_DOT, TT_PILL):
+                continue
+            if (c, r) in near:
+                continue                # an actor may be standing on it
+            checked += 1
+            x0, y0 = bdx + c * tw, bdy + r * th
+            if not _lit(d, w, h, per, x0 + 1, y0 + 1, x0 + tw - 1, y0 + th - 1):
+                missing.append((c, r))
+    if missing:
+        fail.append("%s: %d of %d dots have no ink in their own tile - the "
+                    "first few at %s (SPEC.md 93.5.9.1)"
+                    % (tag, len(missing), checked, missing[:6]))
+    else:
+        say("%s: %d dots, every one in its own tile" % (tag, checked))
+    m.pause()
+    m.write((seg << 4) + p.names["dd_paused"], bytes([0]))
+    m.go()
+    m.key("Escape")                     # ...and hand the attract screen back:
+    time.sleep(3)                       # legs B and C both start from it
+    if p.b("dd_state") != 0:
+        fail.append("%s: Escape did not return to the attract screen "
+                    "(state %d), so the legs after this one start from the "
+                    "wrong place" % (tag, p.b("dd_state")))
+    return fail
+
+
 def run_arm(tag, machine, want_tile, a, say, floor=FPS_FLOOR):
     fail = []
     names = bss()
@@ -196,6 +295,9 @@ def run_arm(tag, machine, want_tile, a, say, floor=FPS_FLOOR):
             fail.append("%s: the demo's Smiles has not moved in %d ticks of "
                         "the game's own clock - the attract screen is a still "
                         "picture" % (tag, ticks))
+
+        # --- F: dots land in their own tiles, and the title is a title ------
+        fail += leg_f(tag, ui, p, say)
 
         # --- B: the play line blinks ----------------------------------------
         seen = set()
