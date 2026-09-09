@@ -1052,6 +1052,8 @@ dd_s_small:  db 'Window too small.', 0
     DBUFV  dd_y, DD_NACT * 2
     DBUFV  dd_ox, DD_NACT * 2       ; ...and where it was last DRAWN, whole px
     DBUFV  dd_oy, DD_NACT * 2
+    DBUFV  dd_pbx, DD_NACT * 2      ; ...banked per actor, because dd_actor_px
+    DBUFV  dd_pby, DD_NACT * 2      ; writes one pair and prep runs five times
     DBUFV  dd_dir, DD_NACT
     DBUFV  dd_want, DD_NACT
     DBUFV  dd_alive, DD_NACT

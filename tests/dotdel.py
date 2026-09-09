@@ -49,6 +49,8 @@ port off that disk bought.
 import argparse
 import os
 import struct
+import tempfile
+import subprocess
 import sys
 import time
 
@@ -179,6 +181,26 @@ def _lit(d, w, h, per, x0, y0, x1, y1):
             if any(d[o:o + per]):
                 return True
     return False
+
+
+def codeoff(name):
+    """The org-0 offset of a CODE label, the way dotdel.bss() reads a bss one.
+
+    The package is assembled at org 0 into one flat binary, so a label's
+    offset is what nasm emits for `dw <label>` - the same trick bss() plays,
+    without os88_image_end's bias.
+    """
+    src = open(os.path.join(ROOT, "apps/dotdel/dotdel.asm")).read()
+    probe = (src.replace("    OS88_IMAGE_END", "")
+             + "\ndd_cprobe:\n    dw %s\n    OS88_IMAGE_END\n" % name)
+    with tempfile.TemporaryDirectory() as td:
+        asm = os.path.join(td, "probe.asm")
+        binf = os.path.join(td, "probe.bin")
+        open(asm, "w").write(probe)
+        subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", "apps/",
+                        "-I", "apps/dotdel/", "-o", binf, asm],
+                       cwd=ROOT, check=True)
+        return struct.unpack("<H", open(binf, "rb").read()[-2:])[0]
 
 
 def leg_f(tag, ui, p, say):
@@ -376,6 +398,74 @@ def leg_g(tag, ui, p, say):
     return fail
 
 
+def leg_h(tag, ui, p, say, want=40):
+    """No band covers a wall tile that no box of its actor is on (93.5.13).
+
+    A band goes down in ONE pen, so every tile in it wears the actor's ink.
+    For a tile the actor is standing on that is the accepted price of 93.5.1 -
+    the field called it fine - and for one it is merely NEAR it is a bright
+    flash on a piece of maze nothing was ever on.  The union of two one-tile
+    boxes has a fourth corner that neither box touches whenever they differ on
+    BOTH axes, and in a one-tile corridor that corner is the maze's own.
+
+    dd_band_ground already answers "is there a wall in this rect" for free, so
+    a breakpoint on dd_band_walls sees exactly the bands that could be wrong,
+    and the rect it is composing says which kind it is: both spans > 1 is the
+    corner, one span is the actor's own lane.
+
+    BREAK IT ON PURPOSE without rebuilding: poke `clc / ret` (F8 C3) over
+    dd_split_ck so the split never fires.  On ONE build, same scene: **16
+    corner bands of 70 walled with it off, 0 of 71 with it on**.  What the
+    other ~55 are is the pen DOOR under a ghost that is standing on it, which
+    is the accepted case and the one the field called fine.
+
+    VGA ONLY, and that is the whole of the defect: one plane has no pen at all
+    (SPEC.md 5.4.2.2), so a band on Hercules or CGA already means lit and
+    unlit and there is nothing to miscolour.
+    """
+    m = ui.m
+    fail = []
+    off = codeoff("dd_band_walls")
+    base = (p.seg << 4) + p.names["dd_c0"]           # c0, c1, r0, r1: adjacent
+    bh = (p.seg << 4) + p.names["dd_bh"]
+    th = p.w("dd_th")
+
+    def rect(mm, rec):
+        # dd_tile_put REACHES dd_band_walls TOO, since SPEC.md 93.5.11 gave a
+        # repaired wall its own ground - and it does not set dd_c0..dd_r1, so
+        # the rect at such a stop is the last BAND's and says nothing about
+        # this one.  dd_bh is the tell: a band's height is its rect's, and a
+        # tile put's is one tile.
+        c0, c1, r0, r1 = struct.unpack("<4H", bytes(mm.read(base, 8)))
+        h = struct.unpack("<H", bytes(mm.read(bh, 2)))[0]
+        return (c0, c1, r0, r1, h == (r1 - r0 + 1) * th)
+
+    t0 = p.w("dd_anim")
+    with os88marty.bp_trace(m, {"type": "execseg", "seg": p.seg, "off": off},
+                            on_hit=rect, cap=want * 8) as tr:
+        deadline = time.time() + 120
+        while tr.n < want and time.time() < deadline:
+            time.sleep(0.5)
+    ticks = (p.w("dd_anim") - t0) & 0xFFFF
+    corners = [r for r in (h["hit"] for h in tr.hits)
+               if r and r[4] and r[1] > r[0] and r[3] > r[2]]
+    if not ticks:
+        fail.append("%s: the game's own clock did not advance - this leg read "
+                    "nothing" % tag)
+    elif tr.n < want:
+        fail.append("%s: only %d walled bands in %d ticks - this leg wants %d "
+                    "before it can say anything" % (tag, tr.n, ticks, want))
+    elif corners:
+        fail.append("%s: %d of %d walled bands cover a tile NO box of the "
+                    "actor is on - the maze's own corner, in the actor's pen "
+                    "(SPEC.md 93.5.13); rects %s"
+                    % (tag, len(corners), tr.n, corners[:6]))
+    else:
+        say("%s: %d walled bands in %d ticks, none of them a corner"
+            % (tag, tr.n, ticks))
+    return fail
+
+
 def run_arm(tag, machine, want_tile, a, say, floor=FPS_FLOOR):
     fail = []
     names = bss()
@@ -537,6 +627,10 @@ def run_arm(tag, machine, want_tile, a, say, floor=FPS_FLOOR):
 
         # --- G: the maze is all still there ---------------------------------
         fail += leg_g(tag, ui, p, say)
+
+        # --- H: ...and no band is about to take a piece of it ---------------
+        if tag == "vga":
+            fail += leg_h(tag, ui, p, say)
     return fail
 
 

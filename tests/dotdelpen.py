@@ -67,7 +67,7 @@ sys.path.insert(0, HERE)
 
 import os88build                                            # noqa: E402
 import os88sym                                              # noqa: E402
-from dotdel import PKG, bss, Probe                          # noqa: E402
+from dotdel import PKG, bss, Probe, codeoff                 # noqa: E402
 import os88ui                                               # noqa: E402
 
 MACHINE = "os8088_5150_herc_gla"
@@ -83,24 +83,6 @@ PEN_TILES = 5                   # of the pen's eighteen
 PEN_COLS = 2                    # ...spread over at least this many columns
 
 
-def codeoff(name):
-    """The org-0 offset of a CODE label, the way dotdel.bss() reads a bss one.
-
-    The package is assembled at org 0 into one flat binary, so a label's
-    offset is what nasm emits for `dw <label>` - the same trick bss() plays,
-    without os88_image_end's bias.
-    """
-    src = open(os.path.join(ROOT, "apps/dotdel/dotdel.asm")).read()
-    probe = (src.replace("    OS88_IMAGE_END", "")
-             + "\ndd_cprobe:\n    dw %s\n    OS88_IMAGE_END\n" % name)
-    with tempfile.TemporaryDirectory() as td:
-        asm = os.path.join(td, "probe.asm")
-        binf = os.path.join(td, "probe.bin")
-        open(asm, "w").write(probe)
-        subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", "apps/",
-                        "-I", "apps/dotdel/", "-o", binf, asm],
-                       cwd=ROOT, check=True)
-        return struct.unpack("<H", open(binf, "rb").read()[-2:])[0]
 
 
 def leg_a(ui, p, say):

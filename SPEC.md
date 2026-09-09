@@ -108262,6 +108262,62 @@ taught that routine to restore a wall. It costs **one compare** on any
 geometry whose tile is 8 rows or more, which is both other adapters and every
 fullscreen bracket.
 
+#### 93.5.13 A band may wear the actor's ink over a tile it is ON, not one it is NEAR
+
+§93.5.1's one-pen band is a compromise the field accepted for the tile under
+an actor — *"the dots changing colors while the ghost is above them looks
+fine"* — and refused for the maze: *"the corners... they flash brightly"*. The
+two are not the same claim, and the difference is exactly which tiles a band
+covers that no box of the actor's is on.
+
+A band is the union of two one-tile boxes, taken out to the tile grid. When
+those boxes differ on **both** axes the union has a fourth corner that neither
+box touches, and in a one-tile corridor that corner is the maze's own wall.
+So a ghost rounding a bend lit the corner in its own colour, and §93.5.10's
+queue could only put it back a few frames later — a bright flash on a piece of
+maze nothing was ever standing on.
+
+**Measured on a VGA, 859 bands over 243 frames of steered play:**
+
+| | bands | note |
+|---|---|---|
+| composed | 859 | 3.53 a frame |
+| holding a wall or door | 40 | **4.7%**, 3.0 a second |
+| …of those, the 2x2 corner | 16 | the defect — a tile no box is on |
+| …of those, the pen DOOR | 30 | a ghost standing on it — the accepted case |
+| …of those, Smiles | **0** | see below |
+
+**Not one of the forty was Smiles**, and that is the answer to "why only
+sometimes". §93.7.3 takes an actor's decision *inside* `dd_act_move`, standing
+on the tile origin, and spends the rest of the tick's budget along the new
+direction. Smiles' 100% divides the tile exactly — 256 units of budget into a
+256-unit tile — so he lands on every origin at the end of a tick and turns
+with a whole tick on one axis: his two boxes never differ on both, and his
+corners never flash. A ghost's 88% does not divide, so its turn almost always
+lands mid-tick and its two boxes differ on both axes. A turn is therefore a
+necessary condition and not a sufficient one, which is what makes it look
+intermittent from the glass.
+
+The fix is to emit the two **boxes** rather than their union, because a box
+only ever covers tiles the actor is passing over — so the fourth corner is not
+in either, and is never written at all. There is nothing to repair afterwards
+and no sub-frame window in which the wrong colour is on the glass. A/B'd on
+one build by poking `clc`/`ret` over `dd_split_ck`: **16 corner bands of 70
+walled with the split off, 0 of 71 with it on**, and the frame rate unmoved
+(96.9% windowed, 99.4% in the bracket, against 96.3–97.1% before it).
+
+`dd_split_ck` decides it in three tests, cheapest first, and only the last one
+costs anything: **one plane has no pen at all** (§5.4.2.2), so Hercules and CGA
+cannot have this defect and pay one compare for it; a union that spans one
+axis has no fourth corner; and `dd_rect_wall` is the same predicate
+`dd_band_ground` already takes for its ground, so asking it here is free of a
+new walk in the common case.
+
+The tile the two boxes **share** is drawn twice, and the actor is composed into
+both bands so that it is drawn identically both times — blanking it in the
+first and restoring it in the second is precisely the flicker §93.5.1 composes
+other actors into a band to avoid.
+
 #### 93.5.9.1 …and the fast path forgot which BYTE the run starts in
 
 §93.5.9's two-byte mask is built from the run's **bit** offset, and the byte

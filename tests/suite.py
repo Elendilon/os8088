@@ -1914,7 +1914,11 @@ SOAK = [
         "colour but whether it is THERE - by comparing the glass against the "
         "board picture the bands are copied out of, which caught a repaired "
         "corner coming back BLACK on VGA (93.5.11) and the overlay's 8-row "
-        "band eating the wall line under it on CGA (93.5.12). "
+        "band eating the wall line under it on CGA (93.5.12). Leg H is the "
+        "same subject one layer up and VGA only, because one plane has no pen "
+        "to get wrong: no band may cover a tile NO box of its actor is on, "
+        "which is what lit a maze corner in a ghost's colour every time one "
+        "rounded a bend (93.5.13). "
         "`--arm cga` is one adapter. At 360 KB it rides the "
         "ordinary apps disk, in the room the earlier Pac-Man port came off "
         "it to make (93.13)",

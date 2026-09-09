@@ -1300,6 +1300,11 @@ dd_actor_prep:
     mov ax, DD_ROWS - 1
 .rk:
     mov [dd_nr1 + bx], al
+    shl bx, 1                       ; ...and BANK the two boxes the union was
+    mov ax, [dd_px]                 ; made of: dd_actor_px writes one pair and
+    mov [dd_pbx + bx], ax           ; prep runs five times before the first
+    mov ax, [dd_py]                 ; emit, so by then they are actor 4's
+    mov [dd_pby + bx], ax
     mov byte [dd_uok + si], 1
     ret
 .none:
@@ -1376,7 +1381,6 @@ dd_actor_emit:
     mov [dd_r0], ax
     mov al, [dd_nr1 + bx]
     mov [dd_r1], ax
-    call dd_band_build              ; walls, dots, everybody else
     mov bx, si
     shl bx, 1
     mov cl, 4
@@ -1388,10 +1392,25 @@ dd_actor_emit:
     shr ax, cl
     mov [dd_sy], ax
     mov [dd_oy + bx], ax
-    mov al, [dd_img + si]
-    call dd_band_one                ; ...and this actor over them
-    mov al, [dd_inkof + si]
-    call dd_band_emit
+    call dd_split_ck                ; is there a tile in the union that NO box
+    jc .split                       ; of this actor's is on? (SPEC.md 93.5.13)
+    call dd_band_actor
+    jmp short .drawn
+.split:
+    mov bx, si
+    shl bx, 1
+    mov ax, [dd_pby + bx]
+    push ax
+    mov ax, [dd_pbx + bx]
+    pop bx
+    call dd_box_rect                ; where it WAS...
+    call dd_band_actor
+    mov ax, [dd_sy]
+    mov bx, ax
+    mov ax, [dd_sx]
+    call dd_box_rect                ; ...and where it IS. The actor goes in
+    call dd_band_actor              ; BOTH, so the tile they share is drawn
+.drawn:                             ; twice and identically rather than blanked
     call dd_rep_vacated             ; ...and the tiles it has LEFT owe their
     mov byte [dd_shown + si], 1     ; own pen back (SPEC.md 93.5.10)
     mov al, [dd_img + si]
@@ -1413,8 +1432,28 @@ dd_actor_emit:
 dd_wipe_old:
     mov bx, si
     shl bx, 1
-    mov ax, [dd_ox + bx]
+    mov ax, [dd_oy + bx]
     push ax
+    mov ax, [dd_ox + bx]
+    pop bx
+    call dd_box_rect
+    call dd_band_build
+    mov al, DD_INKDOT               ; nothing of this actor's is in it any more
+    call dd_band_emit
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_box_rect - [dd_c0/c1/r0/r1] = the tile rect a ONE-TILE box at (AX, BX)
+;               lies in, clamped to the board. Clobbers AX/BX/CX/DX.
+;
+; The TOP and LEFT are clamped as well as the bottom and right, and that is not
+; belt and braces: clamping only the far edge is what makes r1 < r0, and a
+; rectangle with a negative height is a band with a height of ZERO, which
+; dd_band_build then has to refuse (see its own note).
+; -----------------------------------------------------------------------------
+dd_box_rect:
+    push bx                         ; y
+    push ax                         ; x
     xor dx, dx
     div word [dd_tw]
     cmp ax, DD_COLS - 1
@@ -1428,34 +1467,90 @@ dd_wipe_old:
     xor dx, dx
     div word [dd_tw]
     cmp ax, DD_COLS - 1
-    jbe .c
+    jbe .c1
     mov ax, DD_COLS - 1
-.c:
+.c1:
     mov [dd_c1], ax
-    mov bx, si
-    shl bx, 1
-    mov ax, [dd_oy + bx]
+    pop ax                          ; y
     push ax
     xor dx, dx
     div word [dd_th]
-    cmp ax, DD_ROWS - 1             ; the TOP is clamped too, and that is not
-    jbe .r0                         ; belt and braces: clamping only the bottom
-    mov ax, DD_ROWS - 1             ; is what makes r1 < r0, and a rectangle
-.r0:                                ; with a negative height is a band with a
-    mov [dd_r0], ax                 ; height of zero
+    cmp ax, DD_ROWS - 1
+    jbe .r0
+    mov ax, DD_ROWS - 1
+.r0:
+    mov [dd_r0], ax
     pop ax
     add ax, [dd_th]
     dec ax
     xor dx, dx
     div word [dd_th]
     cmp ax, DD_ROWS - 1
-    jbe .r
+    jbe .r1
     mov ax, DD_ROWS - 1
-.r:
+.r1:
     mov [dd_r1], ax
-    call dd_band_build
-    mov al, DD_INKDOT               ; nothing of this actor's is in it any more
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_band_actor - build the band for [dd_c0..dd_c1] x [dd_r0..dd_r1], put actor
+;                 SI in it at [dd_sx],[dd_sy], and blit it in the actor's pen
+; Clobbers everything but SI.
+; -----------------------------------------------------------------------------
+dd_band_actor:
+    call dd_band_build              ; walls, dots, everybody else
+    mov al, [dd_img + si]
+    call dd_band_one                ; ...and this actor over them
+    mov al, [dd_inkof + si]
     call dd_band_emit
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_split_ck - CF = 1 when this band must go down as TWO, one per box
+;               (SPEC.md 93.5.13). in: the union in [dd_c0..dd_r1], SI = actor.
+;               Clobbers AX/CX. Preserves everything else.
+;
+; A BAND GOES DOWN IN ONE PEN, so every tile in it wears the actor's ink while
+; it is there - which is the honest price of SPEC.md 93.5.1 for a tile the
+; actor is ON, and is not honest at all for one it is merely NEAR. The union is
+; of two boxes, and when they differ on BOTH axes the rectangle that contains
+; them has a fourth corner that neither box touches. In a one-tile corridor
+; that corner is the maze's own, so a ghost rounding a bend lit the wall corner
+; in its colour for as long as the repair queue took to get to it.
+;
+; Emitting the two BOXES instead of their union leaves that corner out
+; altogether, because a box only ever covers tiles the actor is passing over.
+;
+; Measured on a VGA, 859 bands over 243 frames of play: 40 held a wall or a
+; door, 4.7%. Of those, 16 were the 2x2 corner this splits and 30 were the pen
+; DOOR under a ghost that was standing on it - the accepted case, and the one
+; the field called fine ("the dots changing colors while the ghost is above
+; them looks fine"). NOT ONE of the forty was Smiles: his speed divides the
+; tile exactly, so he lands on every origin at the end of a tick and turns with
+; the whole of the next tick's budget on one axis. A ghost at 88% does not, so
+; dd_act_move spends the rest of the tick along the NEW direction and the two
+; boxes differ on both axes. That is the whole of why the field saw it "only
+; sometimes".
+;
+; Three tests, cheapest first, and the last one is the only one that costs:
+; ONE PLANE HAS NO PEN AT ALL (SPEC.md 5.4.2.2), so Hercules and CGA cannot
+; have this defect and do not pay for it; a union on one axis has no fourth
+; corner to get wrong; and a corner that is corridor is drawn correctly by the
+; one band anyway.
+; -----------------------------------------------------------------------------
+dd_split_ck:
+    cmp byte [dd_bpp], 1
+    jbe .no
+    mov ax, [dd_c1]
+    cmp ax, [dd_c0]
+    jbe .no
+    mov ax, [dd_r1]
+    cmp ax, [dd_r0]
+    jbe .no
+    call dd_rect_wall               ; the same predicate dd_band_ground takes
+    ret                             ; for its ground, and no dearer
+.no:
+    clc
     ret
 
 ; -----------------------------------------------------------------------------
