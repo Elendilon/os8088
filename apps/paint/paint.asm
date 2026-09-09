@@ -3364,6 +3364,12 @@ pt_dmg_get:
     cmp byte [pt_selon], 0
     jne .out                        ; a live marquee wants the whole content:
 %endif                              ; putting it back is an XOR (SPEC.md 11.90.2)
+    cmp byte [pt_cvnew], 0          ; SPEC.md 11.90.3.2: a load replaced the
+    jne .out                        ; picture, so the rect the kernel would
+                                    ; answer is about what IT overpainted and
+                                    ; not about what we did. Leaving [pt_dall]
+                                    ; at 1 costs nothing extra: this IS the
+                                    ; resize's own paint, not a second one
     mov bx, [pt_win]
     call OSAPI_WM_DAMAGE
     jc .out                         ; the whole content, which is every path
@@ -3378,6 +3384,9 @@ pt_dmg_get:
     mov [pt_dy2], dx
     mov byte [pt_dall], 0
 .out:
+    mov byte [pt_cvnew], 0          ; spent, by whichever route: every one of
+                                    ; them leads to a paint that draws the
+                                    ; canvas at full extent
     pop dx
     pop cx
     pop bx
@@ -12675,6 +12684,10 @@ pt_repaint:
                                     ; last W_PAINT's damage rect - which would
                                     ; skip whichever parts that one owed and
                                     ; this one does not (SPEC.md 11.90.2)
+    mov byte [pt_cvnew], 0          ; ...and pt_blit_all below is exactly what
+                                    ; 11.90.3.2's flag was asking for, so a load
+                                    ; that failed before pt_wfollow and came
+                                    ; here instead does not leave one owed
     call pt_fsbed                   ; ...and it lays its own beds now: under
                                     ; WF_OWNBG nothing else does, and this
                                     ; routine's own comment already claimed
@@ -14728,6 +14741,17 @@ pt_adopt:
     call pt_sel_drop
     mov byte [pt_trunc], 0
     mov byte [pt_tred], 0
+    mov byte [pt_cvnew], 1          ; SPEC.md 11.90.3.2: THE CANVAS IS ABOUT TO
+                                    ; BECOME A DIFFERENT PICTURE, and the resize
+                                    ; pt_wfollow asks for at the end of the load
+                                    ; is a shrink or no change more often than
+                                    ; not - for which wm_damage answers the
+                                    ; empty rect, correctly, and pt_blit_dmg
+                                    ; then draws nothing over a canvas whose
+                                    ; every pixel is new. Here rather than at
+                                    ; either caller because this is the one
+                                    ; routine both readers go through, and
+                                    ; because the fact belongs to the CANVAS
     mov ax, [pt_pw]                 ; what the SCREEN can show...
     cmp ax, [pt_cwmax]
     jbe .w_ok
@@ -16990,6 +17014,12 @@ pt_ic_text:
     PTBYTE pt_dmoved                ; SPEC.md 11.90.3: this paint re-laid the
                                     ; content, so the ANCHORED parts owe
                                     ; themselves whatever the damage says
+    PTBYTE pt_cvnew                 ; SPEC.md 11.90.3.2: a LOAD replaced the
+                                    ; picture, so the next paint owes the whole
+                                    ; canvas whatever the damage says - which
+                                    ; is a different question from pt_dmoved's,
+                                    ; because a 448-wide picture into a
+                                    ; 448-wide canvas moves no layout at all
     PTBUF  pt_argp, 1               ; 1 = we were LAUNCHED to open pt_name
                                     ; (SPEC.md 54.5) and the first paint owes
                                     ; the load
