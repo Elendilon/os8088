@@ -878,10 +878,13 @@ line below is measurement and documents.
   reconstruction of `cs_blit`'s union rule, disagreeing with the real one at
   the edges by about the width of the real bug. Assert against the card and
   the shadow, never against a second implementation of the code under test.
-- **B. A mark that STEPS** - `cs_markrows`' own row loop with the byte pair
-  interpolated. Not 88.3.2.1's banded PASS. Its unit costs are the bar:
-  ~50 cycles a row to mark, ~4.5 a byte to carry, 11 bytes a row to break
-  even; the mark is ~39 bytes a row wide where the ink is under 2.
+- ~~**B. A mark that STEPS**~~ - **BUILT**, SPEC.md 88.3.2.3. `cs_markstep`
+  gives a thin diagonal's rows their own intervals; a gate (8 rows, 128
+  pixels) keeps everything else on its box, which leaves 88.3.2's tower
+  refusal intact. Settled (`--warm 18`): **frame -2.8 at 12 degrees, -3.9 at
+  20**, `cs_blit` down 13-15%, level a DEAD HEAT, `turnhold` NEUTRAL where
+  88.3.2.1's banded pass was 2.9 ms slower. 243 bytes of `.text`, 3 of
+  `.bss`. `cs_mknostep` is the A/B.
 - **B2. The two things B left on the table**, both measured on the same 12
   degree frame. **The SLOP is now the dominant term in a stepped mark** - a
   row's own interval is 1-2 bytes and the slop is 6, and the ladder says why
@@ -894,12 +897,11 @@ line below is measurement and documents.
   it fills between, which is 88.3.1.3.2's original proposal - B is the same
   idea for the segment path, and the polygon path is untouched.
 - **C. Then re-price what B unlocks** - 7.1.8's narrow fill and 7.1.12's
-  cache. **B has moved the number both were refused on**: the narrow fill
-  pays "when the union is under 16 bytes of the 50" and the mean span was 31
-  BECAUSE the mark was a box; carried is now 1,458 bytes over ~93 rows at 12
-  degrees, which is 16 - the break-even exactly. That makes C a measurement
-  rather than a prediction, and the cache's population is set by the same
-  marks.
+  cache. B has moved the number both were refused on - the narrow fill pays
+  "when the union is under 16 bytes of the 50" and the mean span was 31
+  BECAUSE the mark was a box - but **do not quote a carried figure as the new
+  one**: it is not a controlled quantity (88.3.2.3.2). Measure the mean span
+  as a poke A/B over one flight, the way B's frame numbers were taken.
 
 **The instruments, all host-side and none registered yet** (they live in a
 scratch directory; 7.1.13 says the one worth registering):
@@ -911,12 +913,19 @@ scratch directory; 7.1.13 says the one worth registering):
 | what ONE object actually lights | poke its `CSO_RANGE` to 0 so the cull refuses it, re-render, difference the glass - and RESTORE it between arms, or every later arm is a dropped arm |
 | the frame, level vs banked | `tests/skiesprof.py --roll N`, same profile |
 
-**Three traps this thread already paid for:** a stage compared with ITSELF at
+**Four traps this thread already paid for:** a stage compared with ITSELF at
 two angles is not a control (it read 7 ms where the frame moved 34); a probe
 that pokes the POSITION every frame freezes the scene, so "differ" collapses
-to ~3 and the waste ratio divides by nothing; and `cs_devoff` is a TABLE, not
+to ~3 and the waste ratio divides by nothing; `cs_devoff` is a TABLE, not
 a pointer - reading it as one puts every device row at the wrong offset and
-reports ~1,300 missed bytes a frame that are not there.
+reports ~1,300 missed bytes a frame that are not there; and **a profile
+TELEPORTS the aeroplane**, so for a dozen frames the span set carries rows the
+teleport dirtied and nothing has repainted. That last one put a block on the
+compare panel that no object had marked, and made every angle after the first
+read its predecessor's dirt. Settle ~18 frames, and never compare a carried
+figure taken off one arm with one taken off another - the same build at 12
+degrees reads 781, 1,509 and 2,696 depending only on where the aeroplane got
+to.
 
 ## 7.4 WHERE cs_scene's 169 ms GOES
 
