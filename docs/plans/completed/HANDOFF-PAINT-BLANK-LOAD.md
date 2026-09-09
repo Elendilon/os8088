@@ -1,15 +1,55 @@
-# HANDOFF — a picture that does not change the canvas WIDTH is never painted
+# HANDOFF — a picture that does not GROW Paint's window is never painted
 
-**Status: OPEN. Diagnosed to a crisp, cheap reproduction; root cause NOT
-found.** Everything below was measured on a cycle-accurate 5150 under
-MartyPC, on **both** CGA and VGA, against the tree at the commit that added
-SPEC.md §24.6's category disks.
+**Status: CLOSED. SPEC.md §11.90.3.2 is the fix and the contract; this file
+is the diagnosis behind it**, kept because the diagnosis was most of the work
+and because two of its own conclusions were wrong in ways worth not repeating.
+Everything below was measured on a cycle-accurate 5150 under MartyPC, on
+**both** CGA and VGA, against the tree at the commit that added SPEC.md §24.6's
+category disks.
 
 It was found by accident: `MEDIA/SAMPLE.BMP` on the new office disk (§24.6.2)
 was drawn 448 wide *because* 448 is `PT_CW_DEF`, and that turned out to be the
-one width that does not work. The sample ships at **466** as a recorded
-workaround (SPEC.md §24.6.2.1, and `tools/os88sample.py` says so at the
-constant). **This document is the bug; that width is not the fix.**
+one width that did not work. The sample shipped at **466** for one round as a
+recorded workaround, and is **back at 448** now (§24.6.2.1).
+
+**WHAT IT WAS.** §11.90.3.1 lets `wm_resize` answer `wm_damage` with the EMPTY
+rect — x1 = 1, x2 = 0, which §11.90.2 documents as *draw nothing* — for a
+window that did not grow and whose origin did not move. That is correct: the
+kernel painted over nothing that survived. Its safety argument enumerated
+Paint's `OSAPI_WM_RESIZE` call sites and found every one content-*preserving*
+(the size boxes, the full-screen exit). §54.10 then added two that are not:
+`pt_onwake` and `pt_ondlg` resize the window **after** a load has replaced the
+entire canvas. `pt_blit_dmg` was handed the empty rect and correctly drew
+nothing over a canvas whose every pixel was new. The fix is the app's, which
+is what §11.90.3.1's own last paragraph said it would have to be: `pt_adopt`
+raises `[pt_cvnew]` and `pt_dmg_get` spends it. 22 bytes of image, 1 of bss,
+kernel byte-identical.
+
+**TWO OF THIS DOCUMENT'S OWN CONCLUSIONS WERE WRONG**, and both are corrected
+in place below rather than deleted, because each was arrived at honestly from
+a table that really did sort that way:
+
+1. **§6's discriminator is wrong.** It is not `[pt_cw]` changing; it is *the
+   window did not GROW*, by either axis. A **300**-wide picture changes the
+   width, shrinks the window, and is blank — the row that was never taken, and
+   the one that would have settled it. §6's own VGA observation (a height
+   change, still blank) already contradicted the width theory and was recorded
+   as a puzzle rather than read as a refutation.
+2. **`PT_CW_MIN` is 50, not 448** (`WMIN_W - PT_CHROME_W`). A 440-wide picture
+   gives a **440** canvas; it failed by shrinking the window, not by being
+   clamped back up to 448. That wrong constant is what made the table look like
+   a statement about 448 specifically.
+
+**§7's shortlist was right about where to look and wrong about the order.**
+Item 1 — instrument the screen path, not the load path — is what finds it in
+one reading: `pt_dall` is 0 with an empty rect in the failing case and 1 in
+the working one, and adding the content origin back to that rect gives the
+kernel's own (1,0)..(0,0) sentinel, which names `wm_damage` directly. Items 3
+and 4 (`pt_layout`'s per-width state, `[pt_cols]`) were the width theory's
+children and had nothing in them. §9 was right that it reaches File > Open:
+confirmed on the glass, blank before the fix and drawn after.
+
+`tests/paintnogrow.py` is the regression row, on CGA and VGA.
 
 ---
 
@@ -20,10 +60,11 @@ decodes perfectly into the canvas and is then **never drawn on the screen**.
 The window sits white. Nothing about it looks like a failure: the toast says
 `Opened`.
 
-`PT_CW_DEF` is 448 and `PT_CW_MIN` clamps anything narrower back up to it, so
-**every picture 448 wide or less** is in this class on a fresh Paint. That
-includes the width a picture *saved out of a fresh Paint* has, so it is also
-the width that will not come back.
+`PT_CW_DEF` is 448, so on CGA **every picture 448 wide or less** is in this
+class on a fresh Paint — though not for the reason given here: `PT_CW_MIN` is
+**50**, and a narrower picture gives a narrower canvas that fails by SHRINKING
+the window. That includes the width a picture *saved out of a fresh Paint*
+has, so it is also the width that will not come back.
 
 ## 2. Reproduce it in two minutes
 
@@ -65,7 +106,8 @@ Every row is the same drawing through the same generator, only `W` differing.
 |---|---|---|
 | 448 x 110, 1bpp | 448 — unchanged | **blank** |
 | 448 x 110, **4bpp** | 448 — unchanged | **blank** |
-| 440 x 110, 1bpp | 448 — `PT_CW_MIN` clamps it back up | **blank** |
+| 440 x 110, 1bpp | ~~448 — `PT_CW_MIN` clamps it back up~~ **440** | **blank** |
+| *300 x 110, 1bpp — the row never taken* | *300* | ***blank*** |
 | 456 x 110, 1bpp | 456 | draws |
 | 466 x 110, 1bpp | 466 | draws |
 | `build/OS8088.GIF`, 466 x 110 | 466 | draws |
@@ -123,7 +165,7 @@ agree with each other. **The decode is not the bug.**
   466 takes `jbe .ok` and regrows **nothing** — and draws. So the
   discriminator is not the claim.
 
-## 6. What the discriminator actually is
+## 6. What the discriminator actually is — WRONG, see the header
 
 **`[pt_cw]` changing.** Nothing else in the table sorts it, and one further
 measurement pins it: on VGA a fresh canvas is 448x**280** and the 448x110
@@ -133,6 +175,14 @@ whatever a width change buys.
 
 So: something on the canvas-to-screen path is refreshed only when the canvas
 WIDTH moves, and the load path leaves it stale otherwise.
+
+> **This conclusion is wrong**, and the paragraph above it is why: the VGA
+> reading — a real height change, window visibly smaller, still blank — is a
+> REFUTATION of the width theory and is recorded here as a puzzle instead.
+> The rule is *the window did not GROW*, and the row that would have shown it
+> in one boot is a picture NARROWER than the default: 300 x 110 changes the
+> width, shrinks the window and is blank. §5's list of things ruled out is
+> sound; this section is where the evidence stopped being followed.
 
 ## 7. Where to look next
 

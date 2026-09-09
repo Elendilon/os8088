@@ -38415,49 +38415,46 @@ Two of the six were new work and the third was a format question:
   that one. Every mark in it is solid ink or the 50% dither, which is §39.4's
   classes, so nothing has to survive a colour reduction.
 
-#### 24.6.2.1 The width is 466 because 448 does not work — an OPEN Paint defect
+#### 24.6.2.1 The width is 448 again — the Paint defect it worked around is FIXED
 
 `PT_CW_DEF` is **448**, the canvas a fresh Paint starts with, and that was
-the obvious width for this picture: opening it would leave the window exactly
-the size the app had already chosen. **It is the one width that does not
-work**, and the defect is Paint's rather than the sample's.
+always the obvious width for this picture: opening it leaves the window
+exactly the size the app had already chosen. It shipped at **466** for one
+round because 448 was the one width that did not work, and that number was a
+**recorded workaround** rather than a preference. §11.90.3.2 is the fix, and
+the width is back.
 
-Measured on a cycle-accurate 5150, **CGA and VGA alike**: a BMP whose width
-leaves the canvas width *unchanged* decodes perfectly and then never reaches
-the screen. Everything says it worked — `pt_bw`/`pt_bh`/`pt_bpp`/`pt_bstr`
-all read right, `pt_adopt` takes the picture's height, the toast says
-`Opened`, and **the canvas rows really do hold the ink** (read back out of
-`pt_rowseg`/`pt_rowoff`: the frame's top row is solid, the strip's rows carry
-the shapes). The window stays white through a raise, a cover-and-uncover and
-a full window move.
+What it was: a picture that did not GROW Paint's window decoded perfectly
+into the canvas and was then never drawn — everything said it had worked
+(`pt_bw`/`pt_bh`/`pt_bpp`/`pt_bstr` all right, the canvas rows really holding
+the ink, the toast saying `Opened`) over a white window that survived a
+raise, a cover-and-uncover and a full move. `wm_resize` withholds the damage
+rect from a window that did not grow (§11.90.3.1) — correctly, nothing having
+painted over what survived — and §54.10's `pt_onwake` resizes *after* a load
+has replaced the entire canvas, which §11.90.3.1's safety argument predated.
 
-The variable is the canvas width and nothing else:
+**Two things this section had wrong, corrected in place**, because they are
+what a reader would otherwise carry forward:
 
-| picture | canvas after `pt_adopt` | on screen |
-|---|---|---|
-| 448 x 110, 1bpp | 448 — unchanged | **blank** |
-| 448 x 110, 4bpp | 448 — unchanged | **blank** |
-| 440 x 110, 1bpp | 448 — `PT_CW_MIN` clamps it back up | **blank** |
-| 456 x 110, 1bpp | 456 | draws |
-| 466 x 110, 1bpp | 466 | draws |
-| `OS8088.GIF`, 466 x 110 | 466 | draws |
+* The discriminator was **not** "the canvas width is unchanged". It is *the
+  window did not GROW*, by either axis. A **300**-wide picture changes the
+  width, shrinks the window, and was blank; and on VGA a 448 x 110 picture
+  into the 448 x 280 fresh canvas changes the **height** and was blank. CGA
+  only looks width-specific because `pt_chmax` clamps that machine's fresh
+  canvas to the picture's own height, so height cannot move there.
+* `PT_CW_MIN` is **50**, not 448 — `WMIN_W - PT_CHROME_W`. A 440-wide picture
+  gives a **440** canvas and failed by shrinking the window, not by being
+  clamped back up.
 
-So depth is not it, padding is not it (440 and 456 pad, 448 does not, and one
-of the padded pair fails), and the adapter is not it. **A picture that does
-not move the canvas width is not painted.** That reaches further than this
-sample: 448 is the width a picture saved out of a fresh Paint has, so it is
-also the width that will not come back.
+The width being 448 is now worth more than a nicer number: the shipped sample
+is a picture in the class that used to fail, so any machine that boots the
+office disk and opens it exercises the regression. `tests/paintnogrow.py` is
+the row that asserts it, on CGA and VGA.
 
-**Not fixed here**, because it is Paint's and this is a disk-layout change.
-The sample is 466 — `OS8088.GIF`'s width, the one picture in the tree already
-proven to open on all three adapters — and `tools/os88sample.py` says so at
-the constant, so the number is a recorded workaround rather than a magic one.
-When the defect is fixed, 448 is the nicer width and this may go back to it.
-
-**docs/plans/HANDOFF-PAINT-BLANK-LOAD.md is the handoff**: the two-minute
-reproduction, the guest state read back while the screen is white, the seven
-things ruled out (including the obvious `OSAPI_MEM_REGROW` theory, which is
-wrong), and the five places to look next.
+**docs/plans/completed/HANDOFF-PAINT-BLANK-LOAD.md** is the diagnosis record —
+the reproduction, the guest state read back while the screen was white, and
+the seven things ruled out, of which the canvas contents and
+`OSAPI_MEM_REGROW` are the two worth keeping.
 
 The other four applications need nothing. Font Viewer opens the `FONTS/`
 folder on the disk it was launched from rather than a document; Calculator

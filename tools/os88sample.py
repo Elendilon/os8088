@@ -54,28 +54,25 @@ import zlib
 # reason below.
 MAXW, MAXH = 594, 110
 
-# 466 AND NOT 448, WHICH IS A DEFECT IN PAINT AND NOT A PREFERENCE.
-# 448 is PT_CW_DEF, the canvas a fresh Paint starts with, and it was the
-# obvious width for exactly that reason - opening the picture would leave
-# the window the size the app had already chosen.  It is the one width that
-# does not work.  Measured on a cycle-accurate 5150, CGA and VGA alike:
-# a BMP whose width leaves the canvas width UNCHANGED decodes correctly -
-# pt_bw/pt_bh/pt_bpp/pt_bstr all read right, the toast says "Opened", and
-# the canvas rows really do hold the ink - and then never reaches the
-# screen.  The window stays white through a raise, a cover-and-uncover and
-# a full move.  448 fails; 440 fails too, because PT_CW_MIN clamps it back
-# up to 448; 456 and 466 both draw perfectly, and so does the shipped
-# 466-wide OS8088.GIF.  Depth is not the variable - a 4bpp copy of this
-# same picture at 448 is blank in the same way.
+# 448 - PT_CW_DEF, the canvas a fresh Paint starts with - so opening this
+# picture leaves the window exactly the size the app had already chosen.
 #
-# So the sample is 466, which is OS8088.GIF's width: the one picture in the
-# tree already proven to open on all three adapters.  When the Paint defect
-# is fixed this may go back to 448 - it is a nicer number here - but not
-# before, and not silently.
+# IT WAS 466 FOR A WHILE, and that was a recorded workaround for a Paint
+# defect rather than a preference: a picture that did not GROW Paint's window
+# decoded perfectly into the canvas and was then never drawn, so 448 - the
+# one width that leaves a fresh CGA window alone - opened white under a toast
+# saying "Opened".  SPEC.md 11.90.3.2 is the fix and the account: wm_resize
+# withholds the damage rect from a window that did not grow (11.90.3.1),
+# which is correct, and pt_onwake resizes AFTER a load has replaced the whole
+# canvas, which 11.90.3.1's safety argument predated.  pt_adopt raises
+# [pt_cvnew] now and pt_dmg_get spends it.
 #
-# docs/plans/HANDOFF-PAINT-BLANK-LOAD.md is the handoff (SPEC.md 24.6.2.1):
-# the reproduction, what was ruled out, and where to look.
-W, H = 466, 110
+# So the width is BACK to 448, which is what 24.6.2.1 said should happen when
+# the defect was fixed - and it is worth more here than a nicer number: the
+# shipped sample is now a picture in the class that used to fail, so a
+# machine that boots the office disk and opens it exercises the regression.
+# tests/paintnogrow.py is the row that asserts it.
+W, H = 448, 110
 
 INK, PAPER = 1, 0
 
