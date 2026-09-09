@@ -575,9 +575,18 @@ This is the root of three separate observations:
   a partial repaint whose first row is a fragment with no indent reads as a
   heading and files everything under it. `to_heap` captures whatever repaints
   the pump happens to straddle, so which frame is the full list is a timing
-  property of the box. **That is the thing to fix**, and it is in the test:
-  the row needs a frame it can prove is whole (a row count, or a capture
-  bracketed by the page's own paint) rather than the largest one it caught.
+  property of the box. **FIXED, the same afternoon.** The cause is one line
+  further down than "timing": `dispcells.Pump.serve` DROPS STOPS - its own
+  docstring says so, and says that a gate counting rare events here must RETRY
+  the gesture rather than fail on one observation. Caught in the act in a raw
+  capture, `'SYSTEM   3K'` arriving as `'M   3K'` because the stop for its
+  x=400 chunk never came. Losing any OTHER chunk cannot change this gate's
+  answer, so the test now drops any frame with a row missing its leftmost
+  chunk and `to_heap` retries until the capture ANSWERS instead of until the
+  clicks run out. Rated with `sample -j 1`: **3/3 failed before, 0/4 after**,
+  187.4s against 182.5. Verified still able to fail for the right reason -
+  stubbing `tm_wsown`'s `OSAPI_WM_OWNSEG` sends every raise cache back under
+  System and the PACKAGE leg goes red.
 * **`deskbench`'s scene is not reproducible to the pixel** — 78,821 / 78,825 /
   78,830 lit pixels across three runs of the same build, because
   `new_window` waits on `time.time()`.
