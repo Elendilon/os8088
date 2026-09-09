@@ -288,6 +288,40 @@ def leg_d(ui, p, say, ticks=40):
 TT_EMPTY, TT_PILL = 1, 3
 
 
+def no_hazard(m, p):
+    """Make the four of them EYES, which cannot catch anybody.
+
+    dd_collide skips GS_EYES outright, so this takes the hazard out of a leg
+    that is not about the hazard - and it has to be re-applied as the leg
+    samples, because a pair of eyes gets home in a couple of seconds and comes
+    back out as a ghost. Retrying a trial that a death cut short is not enough
+    on its own: placing Smiles beside the pen and walking him into it dies
+    four times out of four.
+    """
+    base = (p.seg << 4) + p.names["dd_gs"]
+    for i in range(4):
+        m.write(base + i, bytes([GS_EYES]))
+
+
+def settle_play(m, p, secs=6.0):
+    """Wait until the game is actually PLAYING, and keep Smiles in lives.
+
+    Nothing moves outside DDS_PLAY - dd_step decrements a timer in READY and
+    in DIE and never calls dd_act_move - so a trial that starts there proves
+    nothing about whatever it was testing.
+    """
+    t0 = time.time()
+    while time.time() - t0 < secs:
+        m.pause()
+        st = p.b("dd_state")
+        m.write((p.seg << 4) + p.names["dd_lives"], bytes([99]))
+        m.go()
+        if st == DDS_PLAY:
+            return True
+        time.sleep(0.2)
+    return False
+
+
 def place(m, p, c, r):
     """Put Smiles on the origin of tile (c, r) - all four position words."""
     seg = p.seg
@@ -302,46 +336,83 @@ def place(m, p, c, r):
     m.go()
 
 
-def leg_e(ui, p, say, secs=7.0):
+def leg_e(ui, p, say, secs=7.0, tries=4):
     """The tunnel row wraps in both directions."""
     m = ui.m
     fail = 0
     for tag, start, key, want in (("left", 2, "ArrowLeft", lambda c: c >= 22),
                                   ("right", 25, "ArrowRight", lambda c: c <= 5)):
-        place(m, p, start, 14)
-        m.key(key, down=True, up=False)
-        cols = set()
-        t0 = time.time()
-        while time.time() - t0 < secs:
-            m.pause()
-            cols.add(p.b("dd_ac", 0))
-            m.go()
-            time.sleep(0.06)
-        m.key(key, down=False, up=True)
-        if not any(want(c) for c in cols):
+        ok = False
+        for _ in range(tries):
+            if not settle_play(m, p):
+                continue
+            place(m, p, start, 14)
+            m.key(key, down=True, up=False)
+            cols = set()
+            reset = False
+            t0 = time.time()
+            while time.time() - t0 < secs:
+                m.pause()
+                c, r, st = p.b("dd_ac", 0), p.b("dd_ar", 0), p.b("dd_state")
+                no_hazard(m, p)
+                m.go()
+                # A DEATH PUTS HIM BACK ON THE START TILE, which is a
+                # different ROW - and a leg that watched only the column read
+                # that as "walked left and never came out", naming the tunnel
+                # for a trial that had stopped being about the tunnel.
+                if r != 14 or st != DDS_PLAY:
+                    reset = True
+                    break
+                cols.add(c)
+                time.sleep(0.06)
+            m.key(key, down=False, up=True)
+            if reset:
+                continue
+            if any(want(c) for c in cols):
+                say("     %-5s wrapped: columns %s" % (tag, sorted(cols)))
+                ok = True
+                break
             say("E  FAIL: walking %s off the tunnel row reached columns %s and "
                 "never came out the other side (SPEC.md 93.7.4)"
                 % (tag, sorted(cols)))
             fail = 1
-        else:
-            say("     %-5s wrapped: columns %s" % (tag, sorted(cols)))
+            break
+        if not ok and not fail:
+            say("E  FAIL: every %s trial was cut short by a death, with the "
+                "ghosts poked to EYES throughout - so something else is "
+                "resetting him" % tag)
+            fail = 1
     if not fail:
         say("E  ok: the tunnel wraps both ways")
     return fail
 
 
-def leg_f(ui, p, say):
+def leg_f(ui, p, say, tries=4):
     """A pellet that has been eaten is not lettered back in by the blink."""
     m = ui.m
     m.pause()
     pc, pr = p.b("dd_pilc", 0), p.b("dd_pilr", 0)
     tw, th = p.w("dd_tw"), p.w("dd_th")
     m.go()
-    place(m, p, pc, pr)
-    time.sleep(1.5)
-    m.pause()
-    tile = m.read((p.seg << 4) + p.names["dd_grid"] + pr * 28 + pc, 1)[0]
-    m.go()
+    tile = TT_PILL
+    for _ in range(tries):
+        if not settle_play(m, p):       # nothing MOVES outside DDS_PLAY, so
+            continue                    # a trial that starts in READY or DIE
+        place(m, p, pc, pr)             # eats nothing and blames the eater
+        t0 = time.time()
+        while time.time() - t0 < 1.5:
+            m.pause()
+            no_hazard(m, p)
+            m.go()
+            time.sleep(0.1)
+        m.pause()
+        tile = m.read((p.seg << 4) + p.names["dd_grid"] + pr * 28 + pc, 1)[0]
+        st = p.b("dd_state")
+        m.go()
+        if tile != TT_PILL:
+            break
+        if st == DDS_PLAY:
+            break                       # it really did not eat it
     if tile == TT_PILL:
         say("F  FAIL: standing on pellet 0 at (%d,%d) did not eat it" % (pc, pr))
         return 1
