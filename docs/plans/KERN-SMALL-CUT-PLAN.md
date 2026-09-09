@@ -848,3 +848,259 @@ Two rules for the next reading, and they cost minutes rather than a rebuild:
    without a caller sweep landing first — and that sweep is package work in a
    different tree from the kernel change, which is why it belongs in the
    estimate rather than in the follow-up.
+
+## 11. The resumable walker, moved into the APPS — priced and REFUSED
+
+The proposal, and it is a good one: `gfx_linit`/`gfx_lstep`/`gfx_lstepv` are
+driven by **games**, the shipped programs that monopolise the machine anyway,
+so duplicate the walker into a shared app-side include the way `os88ui.inc`
+already shares the widgets — **pay the RAM in the one program that is running
+instead of in every kernel for ever.** It sidesteps §10 completely: an app that
+carries its own walker does not call the slot, so there is no untested CF and
+no caller sweep to land first.
+
+**It is refused on measurement, and the arithmetic below is the whole of why.**
+The shape is right and this document says so; what defeats it is that the slot
+does not sell the thing the proposal would duplicate.
+
+### 11.1 The size, and the customer list
+
+Span `gfx_linit` → `gfx_ls_addr`, §9.1's method (the family is contiguous, so
+this is exact):
+
+| | `.text` | `.bss` | total |
+|---|---|---|---|
+| `kern_small` | **505** | 32 | **537** |
+| `kern_big` | **609** | 32 | **641** |
+
+`gfx_ls_addr` itself **stays**: `gfx_line`'s own `GFX_LFWALK` setup calls it,
+and `gfx_line` cannot go (§10.1). The three API cells stay too — the table is
+offset-addressed, so a removed slot keeps its cell pointing at the shared
+`stc`/`ret`, which is §6.2's usual near-zero.
+
+The customers are fewer than the grep suggests:
+
+| | `kern_small` | `kern_big` |
+|---|---|---|
+| Missile Command, Cyclone | yes | yes |
+| Tank (attract mode) | **no** — `SMALLOMIT_GAMES` | yes |
+| `SAVER.DRV`'s web | **no** — `SMALLDRIVERS = $(KMODS)` | yes |
+
+So on the floor machine the entire customer list is **two games**, which is
+what makes the proposal look so strong.
+
+### 11.2 Tank is not the precedent
+
+`apps/tank/tkraster.inc` is not a walker Tank chose to embed. Its own header
+says why it exists — there is *"NOT ONE kernel drawing slot among them, because
+SPEC.md 53.7 makes every one of them illegal the moment `fsx_mode` returns"* —
+and it writes the framebuffer directly (`add di, 80`), which is legal only for
+a program that has taken the whole screen. Tank's **windowed** half,
+`apps/tank/tkattr.inc`, calls `OSAPI_GFX_LINIT`/`_LSTEP` like everybody else.
+
+A windowed package cannot copy `tkraster.inc`. The clip region, the save-under
+and the display translation are all in the path it skips.
+
+### 11.3 What the slot sells is the MARGINAL PIXEL, not the Bresenham
+
+The arithmetic is about thirty bytes and free to duplicate — Missile already
+computes with the block's own x and y (SPEC.md 48.14), and its erase already
+depends on replaying its own walk exactly, which stays true if the walk is its
+own. **The correctness half of the proposal is fine.**
+
+What `gfx_lstep` sells is that it read-modify-writes the framebuffer inside one
+staging, so the second and subsequent pixels of a step cost almost nothing.
+SPEC.md 5.6.8 measured all three terms on the 5150:
+
+| | |
+|---|---|
+| arrival, removed by the batch | 128.7 µs × (N−1) |
+| block setup, which the batch does not remove | ~480 µs × N |
+| **marginal pixel** | **~175 µs** × pixels |
+| `OSAPI_GFX_PIXEL`, for comparison | **640.87 µs** |
+
+An app-side walker has to plot through a published slot, and **the marginal
+pixel is the one thing no published slot sells**:
+
+- **`OSAPI_GFX_PIXEL`** — 640.87 µs, **3.66×** the walker's marginal pixel.
+- **`OSAPI_GFX_SPANS`** is the primitive that *would* sell it, and it is
+  unreachable from both directions: `stc`/`ret` with no body on `kern_small`
+  (gfx_blit1's precedent, SPEC.md 5.4.2), and on `kern_big` it refuses outright
+  when a clip region is armed — which **every windowed package arms before it
+  draws**.
+- **`gfx_fill` on a 1×1 rect** is worse than `GFX_PIXEL`, and at the angles
+  these two draw a Bresenham's runs are one or two pixels.
+- **`gfx_blit1`** would need the app to compose a band, and both programs
+  *accumulate* — Cyclone erases nothing during a warp, Missile's erase replays
+  the identical walk — so a rectangular blit would wipe what it is drawing on.
+
+### 11.4 The bill, per frame, on the 5150
+
+| | kernel walker | app-side + `GFX_PIXEL` |
+|---|---|---|
+| Missile, 8 live blocks × ~3 px | 128.7 + 480×8 + 175×24 = **8.2 ms** | 640.87 × 24 = **15.4 ms** |
+| Missile's drain, `MC_DRNBUD` = 64 px over ~4 blocks | 128.7 + 480×4 + 175×64 = **13.2 ms** | 640.87 × 64 = **41.0 ms** |
+
+The drain alone is **+27.8 ms a frame against a 54.9 ms tick**. That is not a
+program that got slower; it is an effect that becomes a stall.
+
+### 11.5 The row that would unlock it, and why it does not pay either
+
+The blocker is one primitive, and it names itself: **give `gfx_spans` a
+`kern_small` body and make it survive an armed clip.** It is the right shape
+for a walk — a steep line is one interval per consecutive row, a shallow one is
+`dy+1` rows with long intervals, which is exactly the record layout.
+
+Measured on `kern_big`, the `gfx_spans` family is **320 bytes**. So `kern_small`
+would spend 320 to save 537, before any of the clip work — and the clip work is
+the part `gfx_spans` refuses on its own terms: *"an armed clip region and a
+second display both want the run re-cut per fragment, which is the whole of
+`gfx_clip_run` and `gfx_disp_run` again."*
+
+**Net at best ~200 bytes on `kern_small`, for a rewrite of two shipped games
+and a new kernel body on the build that has the least room for one.**
+
+### 11.6 And the `kern_big`-only variant, which is the tempting one
+
+`kern_big` already has the `gfx_spans` body, so its blocker is only the armed
+clip — and a walk is a *good* fit for spans, three consecutive rows of one
+interval being one call where the kernel walker charges a block setup. It is
+entirely possible that an app-side walker over a clip-aware `gfx_spans` is both
+**smaller and faster** on `kern_big`. That is not the objection.
+
+The objection is that **the app cannot ship only that path.** The same binary
+runs on both kernels — SPEC.md 11.102's rule, and `make smallapps` is a
+different *build* of a package, never a different ABI — so a package that walks
+app-side needs a `kern_small` fallback, and the fallback is §11.3's pixel loop
+at 41 ms a frame. So the choice is:
+
+- keep the kernel walker for `kern_small` and add an app-side one for
+  `kern_big` — **537 bytes still resident on the build that needs them**, two
+  code paths in each of two games, and a new clip-aware `gfx_spans`; or
+- take the pixel loop everywhere — 641 bytes off `kern_big`, 537 off
+  `kern_small`, and Missile's drain at 41 ms.
+
+Neither is worth it. The walker stays. It is not duplicate code — it is the
+only marginal pixel on the machine.
+
+## 12. …and the WHOLE line machinery app-side — the better row, and what it is really blocked on
+
+> **This section has been superseded by a plan of its own:
+> [docs/plans/GFX-EMBEDDABLE-PLAN.md](GFX-EMBEDDABLE-PLAN.md).** What is below
+> is the reading that opened it and two of its findings have since been
+> corrected there — `gfx_blit1` **does** honour the clip region (§2.3), so it is
+> a legal windowed commit, and its `kern_small` body is **not this row's cost**
+> (§2.4): nine shipped small-disk packages already call the slot and take a
+> fallback, so that decision stands on its own. Read §12 for the arithmetic that
+> made the case and the plan for the design.
+
+§11 answered the walker alone. The larger proposal is to move **all** of it —
+`gfx_line` included — into an embeddable library a package takes as much of as
+it uses, on the grounds that the per-call floor is then removable and a
+performance-critical caller gets the chance to optimise.
+
+**Two halves of that are right, and one is measured right in this repository
+already.** PERFORMANCE.md priced a candidate app-side rasteriser writing a 1bpp
+mask at **24.6 µs a pixel** against `gfx_line`'s **31.6** with the arrival
+removed — **1.29× faster** — because what it drops is *"everything `gfx_line`
+does that a caller compositing its own figure does not need: clipping, the ink,
+the dither table, the per-row `gfx_rowbase`."* The library is not a worse
+rasteriser. It is a better one.
+
+### 12.1 The size on the table
+
+Span `gfx_linit` → `gfx_blit4`, §9.1's method:
+
+| | `.text` | `.bss` | total |
+|---|---|---|---|
+| `kern_small` | **1,368** | 69 | **1,437** |
+| `kern_big` | **2,511** | 80 | **2,591** |
+
+3.6% of `kern_small`'s `.text`, 4.9% of `kern_big`'s. This is a bigger prize
+than every row in §8 except B1.
+
+### 12.2 `os88ui.inc` is NOT the obstacle it looks like
+
+37 files across **25 packages** include `os88ui.inc`, which is where the
+"everyone would have to embed it" objection comes from. It does not hold: the
+include's only line use is the **menu checkmark**, and that is two *fixed* ±45°
+strokes 4 and 5 pixels long (`apps/os88ui.inc:3986`, `:3993`). A glyph, or six
+`OSAPI_GFX_PIXEL` calls, replaces it — no library.
+
+The real general-line users on the small disks are **Paint, Sheet, Missile and
+Cyclone**, plus any C package through `apps/cc/os88thunk.asm`. Four programs
+and a thunk.
+
+**Nor is the floppy binding**, which the older reading assumed: `smallapps360.img`
+is **212 of 354 clusters** and `apps360.img` **317** — 142 and 37 clusters free.
+Compression has moved that number since §8 was written.
+
+### 12.3 What it IS blocked on: `kern_small` has no commit primitive
+
+A windowed package has **no framebuffer**. The only published framebuffer
+address on the machine is `FSI_SEG` in the fsx info block, and SPEC.md 53.7
+makes every kernel drawing slot illegal the moment `fsx_mode` returns — the two
+are mutually exclusive *by design*. `apps/tank/tkraster.inc` is what that
+permission looks like when it is granted, and Tank pays for it by owning the
+whole screen.
+
+So an app-side rasteriser has to hand its result back to a slot, and on
+`kern_small` **both batch slots are `stc`/`ret` with no body**:
+
+- `gfx_spans` — `kernel/vga12.inc`, *"kern_small carries the slot and no body"*
+- `gfx_blit1` — `kernel/kernel.asm:6542`, *"kern_small carries the SLOT and not
+  the body… The body was measured on this build and refused"*
+
+What is left is `OSAPI_GFX_PIXEL` at **640.87 µs** against `gfx_line`'s
+**37.1 µs a pixel**. **17.3×.**
+
+> **`kern_small` has no batch pixel primitive at all.** Removing `gfx_line`
+> from that build does not move the work into the apps — it removes the
+> capability from the machine.
+
+### 12.4 The row that unlocks it is already priced, and it INVERTS a standing refusal
+
+`gfx_blit1`'s lean body on `kern_small` is **+419 bytes**, built, measured and
+refused (SPEC.md 5.4.2.5, docs/plans/completed/PAINT-1BPP-PLAN.md Option B), on
+the owner's decision that *"the small build may stay slower"*.
+
+That refusal was weighed against Paint's canvas alone. Against this row it
+reads differently:
+
+| | bytes |
+|---|---:|
+| `gfx_blit1` lean body on `kern_small` | **+419** |
+| the line machinery it lets go | **−1,368** |
+| its `.bss` with it | **−69** |
+| **net** | **−1,018** |
+
+…and the rasteriser gets *faster*, and Paint's 1bpp canvas gets its fast path
+back on the build where it currently takes the 24× expansion fallback
+(SPEC.md 42.23.4). **If it survives §12.5 it is the best-value row in this
+document.** What is measured today is the rasterise half and the sizes; the
+commit half is arithmetic, so it is a candidate and not a finding.
+
+### 12.5 The four things to settle before building it
+
+1. **The commit is OPAQUE.** `gfx_blit1` writes the band's ground as well as
+   its ink. Paint (its own bitmap) and Sheet (a grid on fresh ground) are fine.
+   **Cyclone accumulates during a warp and Missile's trails sit over terrain** —
+   those two need a transparent commit or a read-modify-write, which
+   `gfx_blit1` does not do, so they may have to keep a walker and that is §11
+   again. **Price the row on Paint and Sheet; do not assume all four.**
+2. **The commit is priced by BAND AREA, not by pixel count.** A 127×32 line's
+   band is 508 bytes whether it holds 127 pixels or 4,064. A dense figure
+   amortises it; one long thin line does not. Measure a real figure.
+3. **Clip and ink come back.** The 24.6 µs is a rasteriser with none of them.
+   An app that needs them pays them back, and `gfx_blit1` still refuses an x or
+   a width off the byte grid (SPEC.md 5.4.2).
+4. **`os88ui.inc`'s checkmark has to land first**, or 25 packages still reach a
+   slot that is no longer there. It is a glyph, and it is a far smaller change
+   than this one — it can go on its own.
+
+### 12.6 On `kern_big` there is no enabling row at all
+
+`gfx_blit1`'s body already exists there, and it is in `.cold`
+(`kernel/kernel.asm:6537`, `call COLD_SEG:gbz_gfx_blit1`). So the commit
+primitive is present, the 2,511 + 80 is available with nothing to build first,
+and only §12.5's four questions stand between it and the row.
