@@ -58538,6 +58538,56 @@ the band move's 55, and the profile is 48.6% `pt_ex1` and 35.8%
 `sw_blit_row.abyte` — the expansion here and the decode in the kernel, two
 passes over every pixel that the band move makes zero.
 
+#### 42.23.8 A STROKE SEGMENT's screen half is a band out of the canvas too
+
+Paint rasterises a one-pixel stroke **twice**: `pt_lineseg` walks it into the
+canvas and the undo image — Paint's own Bresenham, over RAM Paint owns — and
+then the segment goes on the glass. §42.8 made that second half one
+`OSAPI_GFX_LINE` where it had been a `gfx_fill` a pixel, and that is what made
+the pencil follow the hand at all (docs/FIELD-NOTES.md 11).
+
+**Since the canvas is one bit a pixel (§42.23), the second rasterisation is not
+needed at all.** The canvas already holds the answer, so putting it on the glass
+is a COPY of the rect that changed. `pt_lnblit` computes that band from the
+segment's own two endpoints, snaps its left edge to the byte grid §42.23.4 wants
+(free — `PT_CV_X` is 48), and commits it with one `OSAPI_GFX_BLIT1`.
+
+**MEASURED on a 4.77 MHz 8088** (`tests/paintstroke.py`, an exec-breakpoint
+bracket around the call and nothing else, same nudge schedule, median of ~23
+segments):
+
+| the segment's screen half | guest cycles | µs | |
+|---|---:|---:|---|
+| `OSAPI_GFX_LINE` — §42.8's, now behind `PT_LNLINE` | 10,646 | 2,231 | was |
+| `pt_blit` of the same rect | 14,268 | 2,989 | **refused** |
+| `OSAPI_GFX_BLIT1` direct | **9,243** | **1,937** | ships |
+
+**The middle row is the finding.** Going through `pt_blit` is the obvious
+spelling and it is **34% worse than the line it replaces** — because `pt_blit`
+is the path for everything that *cannot know what it changed* and pays a clip,
+an inked-table band walk and a decode setup before it reaches a blit at all. A
+stroke segment knows exactly what it changed. Whoever next replaces a drawing
+call with "the blit we already have" should read that row first.
+
+**+84 bytes of Paint's image and 8 of its bss**, and no kernel byte. `pt_lndraw`
+is behind `PT_LNLINE` rather than deleted, so a default build carries none of
+it and the A/B still assembles.
+
+Two things fall out that are worth more than the 13%:
+
+- **`kern_small` gets it for free, and only since §5.4.2.5.1.** Before
+  `gfx_blit1` had a body on the small build this would have answered CF = 1 on
+  every segment and fallen to `pt_blit` — slower than what it replaced. The
+  floor machine is exactly the machine §42.8 exists for, so the order those two
+  landed in was load-bearing.
+- **Paint is off the `OSAPI_GFX_LINE` caller list**, which is
+  docs/plans/GFX-EMBEDDABLE-PLAN.md §8.1.5's first blocker on the line family
+  leaving the kernel at all.
+
+The screen cannot disagree with the canvas any more either: it is a copy of it
+rather than a second Bresenham that has to agree with the first, which is the
+concern §42.8's own `[pt_mono]` gate was written for.
+
 ### 42.25 The one-bit decoder is STRAIGHT-LINE, for §42.13.1.4's reason
 
 `pt_line_put` is the BMP and GIF decoders' inner loop — every row of every

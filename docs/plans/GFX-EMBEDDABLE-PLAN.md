@@ -639,7 +639,7 @@ Each is independently landable and each is a separate PR.
 | **1a ✅ DONE** | **`OSAPI_GFX_POINTS`** (§3.2.1, SPEC.md 5.6.9) — the slot that separates the six per-CALL concerns from the per-LINE Bresenham | **+167 / +221** measured; **165.96 µs a point** (Set 133), best route below 6.66 px a block a frame and better than the walk out to 37.7 | none — `tests/gfxpoints.py`, three cases, two breakages proven |
 | **2 ⏸ DEFERRED** | `os88ui.inc`'s checkmark → `GFX_POINTS` | one `gfx_line` caller of six, and the speed is a WASH | **§6.2**: it is Word alone and not 25 packages, so it enables nothing. Take it after wave 6 |
 | **3 ✅ DONE** | **`apps/os88gfx.inc`** — `GFXE_BAND` + `GFXE_LINE` (the Bresenham), **WIREFRAME** the first customer, and it is a **LIFT** rather than a new implementation (§8.2) | proves the lattice; **+18 bytes on the customer, ZERO kernel bytes** | none — the kernel is untouched, and `wirefps`/`wireflick` are the A/B that was already in the suite |
-| **4** | `GFXE_LINE_FAST` — **Paint on `kern_small`** takes the 4.9× it has never had | Paint's stroke 4.9× on the floor machine, +647 of Paint's own image | Paint's small build is size-sensitive (§24.5) |
+| **4 ✅ DONE, RE-SCOPED** | **Paint's stroke stops calling `OSAPI_GFX_LINE`** (SPEC.md 42.23.8) — its screen half is a band out of the 1bpp canvas it already owns. The wave as WRITTEN could not be built and §8.3 says why | **13% off the screen half** (10,646 → 9,243 cycles, measured), +84 bytes of Paint, no kernel byte — and Paint off the `gfx_line` caller list, which is wave 8's first blocker | none — ten Paint rows pass, `tests/paintstroke.py` is the number |
 | **5** | `GFXE_WALK` + `GFX_POINTS` on **Cyclone and Missile** | Missile's drain 2.6×; the rest a wash or better | **needs wave 3**: the app-side Bresenham is what they walk with |
 | **6** | gate `gfx_linit/lstep/lstepv` out of both kernels | **−537 / −641** | needs wave 5 landed |
 | **7** | retire `gfx_pixel` → `GFX_POINTS` with `CX = 1`, and the fallback in `gfx_points` simplifies with it (§6.1) | 12 bytes + the fallback arm's | needs the six callers moved |
@@ -851,6 +851,58 @@ four words). **No kernel byte moves and WIREFRAME does not ship** (SPEC.md
    in a shared library is worse than an absent one, so what it needs is written
    down instead. `gfxe_bclear` already takes the paper word in AX, so the half
    that a black ground actually needs is there.
+
+## 8.3 Wave 4, as built — the wave as WRITTEN could not be built
+
+Wave 4 was *"`GFXE_LINE_FAST` — Paint on `kern_small` takes the 4.9× it has
+never had"*, and it does not typecheck. **An app-side walker cannot reach the
+screen**: §2.1 is that a windowed package has no framebuffer, so a rasteriser in
+Paint's image can only write RAM Paint owns and something still has to commit
+it. Paint's line is on the *screen*, so `GFXE_LINE_FAST` has nothing to write
+into there.
+
+Looking properly at what Paint does dissolves it. **Paint rasterises a stroke
+TWICE**: `pt_lineseg` walks it into the 1bpp canvas and the undo image — an
+app-side Bresenham already, which is the very thing this plan proposes to give
+other programs — and then `pt_lndraw` draws the same segment through
+`OSAPI_GFX_LINE`. The canvas half needed nothing from this plan and the screen
+half needed no walker at all: **the canvas already holds the answer**, so the
+screen half is a COPY of the rect that changed.
+
+### 8.3.1 The obvious spelling is 34% WORSE than the line
+
+This is the part worth keeping, because §8.1.2 assumed it and it is wrong.
+*"Commit the damaged band with one `gfx_blit1`"* reads as *"call `pt_blit`,
+which Paint already has"*, and `pt_blit` costs **14,268 guest cycles** for a
+stroke segment against `OSAPI_GFX_LINE`'s **10,646**. `pt_blit` is the path for
+everything that **cannot know what it changed** — W_PAINT, undo, paste, a file
+load — so it pays a clip, an inked-table band walk and a decode setup before it
+reaches a blit. A stroke segment knows exactly what it changed.
+
+Computing the band from the segment's own two endpoints and going straight to
+`OSAPI_GFX_BLIT1` is **9,243** — 13% better than the line, and the route that
+ships. All three numbers are guest cycles off `tests/paintstroke.py`, an exec
+breakpoint on each side of the one call and nothing else in the window;
+PAINT-STROKE-PLAN §7 is the standing warning that produced the row rather than
+an estimate.
+
+### 8.3.2 Wave 1 is what makes it work on the floor machine
+
+Before `gfx_blit1` had a body on `kern_small` (SPEC.md 5.4.2.5.1, wave 1) this
+change would have answered CF = 1 on every segment and fallen to `pt_blit` —
+**slower than what it replaced**, on exactly the machine SPEC.md 42.8 exists
+for. The order those two waves landed in was load-bearing, and it was not
+planned that way: wave 1 was taken for nine other packages.
+
+### 8.3.3 What is still owed to `kern_small`'s Paint
+
+The 4.9× the wave was named for is **not delivered and is still available**. It
+is `pt_lineseg`'s, not the screen half's: Paint's canvas walk is a per-pixel
+read-modify-write and SPEC.md 5.6.4.1's interval walk emits RUNS, which in a
+1bpp canvas is a byte fill. That is pure app-side work over RAM Paint owns, it
+needs no slot and no kernel byte, and it is the one place in this plan where
+`GFXE_LINE_FAST` would earn its 647 bytes. It is not in wave 4 because wave 4's
+blocker was wave 8's, and this is not.
 
 ## 9. What is NOT settled — evidence still owed
 

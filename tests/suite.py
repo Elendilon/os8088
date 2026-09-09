@@ -2958,6 +2958,14 @@ SOAK = [
         "with no int 13h in it, and the assertion is a separation of an order"
         "of magnitude rather than a calibrated figure",
         needs=("marty",), serial=True),
+    Row("paintstroke", "soak", py("tests/paintstroke.py"), 60.0,
+        "SPEC.md 42.23.8: what a stroke segment's SCREEN half costs, in guest"
+        " cycles, bracketed between pt_lnblit and pt_segdo.fpdone so nothing"
+        " but the one call is in the window. It is why the screen half is a"
+        " band out of the canvas and not an OSAPI_GFX_LINE - and it carries"
+        " the refused middle route too, pt_blit of the same rect being 34%"
+        " WORSE than the line it would replace",
+        needs=("marty",), serial=True),
     Row("paintwalk", "soak", py("tests/paintwalk.py"), 30.0,
         "SPEC.md 42.8.3: a brush chord steps each axis exactly |d| times. The"
         "denominator lived in CX, which `loop` decrements, so a wide nib drew"
