@@ -985,6 +985,15 @@ only marginal pixel on the machine.
 
 ## 12. …and the WHOLE line machinery app-side — the better row, and what it is really blocked on
 
+> **This section has been superseded by a plan of its own:
+> [docs/plans/GFX-EMBEDDABLE-PLAN.md](GFX-EMBEDDABLE-PLAN.md).** What is below
+> is the reading that opened it and two of its findings have since been
+> corrected there — `gfx_blit1` **does** honour the clip region (§2.3), so it is
+> a legal windowed commit, and its `kern_small` body is **not this row's cost**
+> (§2.4): nine shipped small-disk packages already call the slot and take a
+> fallback, so that decision stands on its own. Read §12 for the arithmetic that
+> made the case and the plan for the design.
+
 §11 answered the walker alone. The larger proposal is to move **all** of it —
 `gfx_line` included — into an embeddable library a package takes as much of as
 it uses, on the grounds that the per-call floor is then removable and a
