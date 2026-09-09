@@ -1247,14 +1247,18 @@ gfx_ls_one:
     pop ax
 .nodisp:
 %endif
-    cmp byte [vid_mono], 0         ; 5.6.4's split: mono gets the per-pixel walk,
-    je .slow                    ; VGA is the fast machine and gets gfx_pixel
-    cmp byte [vid_planes], 1
-    jne .slow
+%ifdef GFX_VGA                  ; SPEC.md 5.6.4.5: the SAME two tests gfx_line
+    cmp byte [vid_mono], 0      ; and gfx_line_raw already gate this way, and
+    je .slow                    ; this copy was the one left as a runtime test.
+    cmp byte [vid_planes], 1    ; Without a VGA in the build both are constants
+    jne .slow                   ; and `.slow` is a branch nothing can take
+%endif
     call gfx_lstep_mono
+%ifdef GFX_VGA
     jmp short .back
 .slow:
     call gfx_lstep_slow
+%endif
 .back:
 %ifdef KERN_BIG
     cmp byte [vid_ndisp], 1     ; ...and back into virtual space before the
@@ -1275,6 +1279,7 @@ gfx_ls_one:
     cld
     rep movsw
     ret
+%ifdef GFX_VGA                  ; SPEC.md 5.6.4.5: gfx_pixel a step, for
 
 ; gfx_lstep_slow - one gfx_pixel a step. VGA's planar path, and any adapter
 ; whose renderer is not the 1bpp one; CX = steps.
@@ -1298,6 +1303,7 @@ gfx_lstep_slow:
     pop bx
     pop ax
     ret
+%endif                          ; GFX_VGA - SPEC.md 5.6.4.5
 
 ; gfx_ls_adv - one Bresenham step of the staged state. Clobbers AX only.
 gfx_ls_adv:
@@ -2430,6 +2436,7 @@ gfx_line_runs:
                                 ; THIS ARM, and nothing may go between the
                                 ; %endif and gfx_line_flush's label
 %endif
+%ifdef GFX_VGA                  ; SPEC.md 5.6.4.5: gfx_line_runs' flush,
 
 ; gfx_line_flush - internal: the open run, clipped to the box, as one rect.
 ; in:  SI = x, DX = y (the run's far end), [gfx_ln_rs] its near end
@@ -2479,6 +2486,7 @@ gfx_line_flush:
     pop dx
     pop cx
     ret
+%endif                          ; GFX_VGA - SPEC.md 5.6.4.5
 
 ; -----------------------------------------------------------------------------
 ; gfx_blit4 - draw a block of packed 4bpp pixels (SPEC.md 5.4/42)

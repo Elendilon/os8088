@@ -4437,6 +4437,45 @@ Nothing above the primitive can tell: `gfx_line`'s contract, its pixel set and
 its clipping are the same on both kernels, and the only difference is how long
 a line takes.
 
+#### 5.6.4.5 ...and neither is the VGA dispatch that chooses it
+
+5.6.4.4 takes `gfx_line_fast` out of `kern_small` and the same argument reaches
+two more things, which were left in because nothing pointed at them: **135
+bytes of `.text` that a build with no VGA cannot execute.**
+
+**`gfx_line_flush` (86) had no caller at all.** Its only two are inside
+`gfx_line_runs`, which is `%ifdef GFX_VGA`, and it is defined OUTSIDE that
+`%endif` on purpose - `.last` falls through into it, so its `ret` is
+`gfx_line`'s and the arm saves four bytes. On `kern_small` the arm is not
+assembled, so the label it falls into is reachable by nothing.
+
+**`gfx_lstep`'s mono/VGA dispatch and `gfx_lstep_slow` (49) were a RUNTIME
+test where the two routines beside them use a BUILD one.** `gfx_line` and
+`gfx_line_raw` both make the identical pair of compares - `[vid_mono]` then
+`[vid_planes]` - and both wrap it in `%ifdef GFX_VGA`; the comment at the
+first of them says *"gated the same way"*. `gfx_lstep`'s copy was not, so a
+1bpp-only build carried two compares, two jumps and a `gfx_pixel`-per-step
+loop for a branch it can never take.
+
+**The proof that both are dead is that the build succeeds without them**, on
+both kernels: an unreachable `call` is a link error the assembler raises, so
+`%ifdef`-ing a body out and assembling clean is a stronger statement than any
+reading of the source.
+
+**135 bytes crosses no rung** - the image rung goes 270 bytes spare to 405 -
+so `KERN_SIZE` does not move. It is slack returned rather than a heap gain,
+and the rung is not the reason to take it: the amortised price of a byte is a
+byte, and these were bytes no machine could use.
+
+**What this does NOT reach is the walk itself.** `gfx_linit`/`gfx_lstep`/
+`gfx_lstepv` and `gfx_lstep_mono` stay, because they are what Cyclone and
+Missile draw with and both ship on the small apps disk (24.5) - and they are
+not an optimisation over `gfx_line`, they are RESUMABILITY, which `gfx_line`
+cannot express: Cyclone extrudes its web a few pixels a spoke per frame and
+erases by replaying the identical walks, so *"the erase visits exactly the
+pixels the draw visited and no remnant is possible"* (5.6.7).
+
+
 #### 5.6.5 SI = 1, because a line drawn in segments is not the line
 
 The one thing that stops a caller replacing an incremental drawing path with
