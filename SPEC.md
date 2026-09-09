@@ -102398,9 +102398,27 @@ it. Both halves are load-bearing and both were found by
   zero reads **0xFF**, which is the span set's EMPTY sentinel: the row then
   says *nothing was drawn here* and the blit skips it entirely.
 
-Three bytes each side against a mark that was 39 bytes a row too wide is a
-trade at ~15 to 1, and it is what makes the row's interval provably a
+**Three is the floor and the ladder is the evidence** — the same 15-frame run
+at each width: **0 slop reads 232 stale rows, 1 reads 22, 2 reads 10, 3 reads
+0.** Three bytes each side against a mark that was 39 bytes a row too wide is
+a trade at ~15 to 1, and it is what makes the row's interval provably a
 superset of its ink rather than an argument about a divide.
+
+**And it leaves the slop as the DOMINANT TERM in a stepped mark.** A row's own
+interval is 1 to 2 bytes and the slop is 6, so the Seine's two segments
+overlapping read 10 to 13 bytes a row where their ink is one pixel. The next
+byte to be had there is arithmetic, not marking: a step rounded to nearest
+rather than truncated halves the drift the slop is covering, and the rest of
+it is `cs_seg`'s own Bresenham, which does not put a row's pixel where that
+row's top edge is.
+
+**The wide marks that remain are not segments at all.** Every mark of one 12°
+frame, named: `THE SEINE` twice, stepped, 14 and 51 rows; **`MONTMARTRE` a BOX
+of 18 rows x 16 bytes**; `LES INVALIDES` a box of 18 x 4. The two buildings are
+`CSM_STACK` models drawn as filled polygons, and `cs_poly` still hands
+`cs_markacc` its box — while `cs_poly`'s row loop **holds the exact per-row
+bounds it fills between**, which is §88.3.1.3.2's original proposal and now the
+largest mark left in the frame.
 
 **And the register discipline is the other half of the lesson.** At the call
 site AX and CX are the segment's x's, BX and DX its y's, SI and DI the ordered

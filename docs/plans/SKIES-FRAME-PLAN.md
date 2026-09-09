@@ -882,6 +882,17 @@ line below is measurement and documents.
   interpolated. Not 88.3.2.1's banded PASS. Its unit costs are the bar:
   ~50 cycles a row to mark, ~4.5 a byte to carry, 11 bytes a row to break
   even; the mark is ~39 bytes a row wide where the ink is under 2.
+- **B2. The two things B left on the table**, both measured on the same 12
+  degree frame. **The SLOP is now the dominant term in a stepped mark** - a
+  row's own interval is 1-2 bytes and the slop is 6, and the ladder says why
+  it cannot just be lowered (0 slop reads 232 stale rows, 1 reads 22, 2 reads
+  10, 3 reads 0): rounding the step to NEAREST rather than truncating halves
+  the drift it covers. And **the widest marks left are not segments** -
+  `MONTMARTRE` is a BOX of 18 rows x 16 bytes and `LES INVALIDES` 18 x 4,
+  both `CSM_STACK` buildings whose FILLED polygons still box-mark through
+  `cs_markacc`. `cs_poly`'s row loop already holds the exact per-row bounds
+  it fills between, which is 88.3.1.3.2's original proposal - B is the same
+  idea for the segment path, and the polygon path is untouched.
 - **C. Then re-price what B unlocks** - 7.1.8's narrow fill and 7.1.12's
   cache. **B has moved the number both were refused on**: the narrow fill
   pays "when the union is under 16 bytes of the 50" and the mean span was 31
