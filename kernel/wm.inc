@@ -101,7 +101,24 @@ WIN_SIZE equ 34                 ; NOT a power of two: never shift, multiply
 %else
 WIN_SIZE equ 28                 ; ...and kern_small stops where SPEC.md 13.7
 %endif                          ; left it
+%ifdef KERN_SMALL
+MAX_WIN  equ 6                  ; SIX windows on kern_small (SPEC.md 11.102).
+                                ; The SDK's copy STAYS AT 12, on MAX_TASKS'
+                                ; rule - but for a DIFFERENT reason, and the
+                                ; distinction is the whole of why this row is
+                                ; cheap: MAX_WIN sizes NO package buffer (it
+                                ; appears in apps/os88api.inc exactly once, as
+                                ; a bare equ, and there is deliberately no
+                                ; WIN_SIZE beside it). What it bounds is the
+                                ; INDEX a package may hand OSAPI_WM_OWNSEG,
+                                ; and every kernel site that takes one checks
+                                ; it against THIS value and answers CF=1. So a
+                                ; package built at 12 asking a 6-slot kernel
+                                ; for slot 11 gets a clean refusal, not a read
+                                ; past wm_wins
+%else
 MAX_WIN  equ 12                 ; mirrored in apps/os88api.inc (SPEC.md 11)
+%endif
 WM_PKGD_MAX equ 8               ; how deep wm_pkgs records the nest (SPEC.md
                                 ; 66.6.1). Callbacks nest across packages - a
                                 ; callback may call OSAPI_WM_SHOW, which

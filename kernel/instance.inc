@@ -43,9 +43,23 @@ I_CYC    equ 28                 ; dword: CPU cycles billed to this instance's
                                 ; window callbacks (SPEC.md 8.1), zeroed at
                                 ; alloc; lo word first
 I_RECSZ  equ 32                 ; power of two: index<<5 via CL
+%ifdef KERN_SMALL
+INST_MAX equ 6                  ; SIX running instances on kern_small
+                                ; (SPEC.md 11.102). The SDK's copy STAYS AT
+                                ; 12, on MAX_TASKS' and MEM_MAX's rule: it is
+                                ; SYS_SNAPSHOT_SIZE's input, taskmgr allocates
+                                ; that buffer and osapi_sys_snapshot_x fills
+                                ; it bounded by the KERNEL's figure, so a
+                                ; package built at 12 reading a 6-record
+                                ; snapshot OVER-allocates - which is safe -
+                                ; where shrinking the SDK to match would
+                                ; overflow that buffer on kern_big. One .o88
+                                ; runs on both kernels (SPEC.md 24)
+%else
 INST_MAX equ 12                 ; mirrored in apps/os88api.inc (SPEC.md 20.9
                                 ; buffer sizing) - change together, rebuild
                                 ; every .o88
+%endif
 
 INST_FNSZ equ 13                ; the per-instance Standard File name below:
                                 ; fdlg.inc's FD_NAMEMAX (12) plus the NUL, and
@@ -53,6 +67,7 @@ INST_FNSZ equ 13                ; the per-instance Standard File name below:
                                 ; because this file is included first
 
 KIND_ABOUT   equ 0
+%ifdef KERN_BIG
 KIND_TIMER   equ 1              ; (Note Pad was kind 1 until it became the
 KIND_BOUNCE  equ 2              ;  NOTEPAD package - SPEC.md 27; kind 1 was
                                 ;  the Clock until it gained its buttons and
@@ -63,6 +78,17 @@ KIND_CTRL    equ 4              ; (the Task Manager was kind 4 until it
 KIND_HIBER   equ 5              ; the Hibernate window (SPEC.md 87.1): the
                                 ; confirmation, and the boot-time question.
                                 ; kern_big only
+%else
+; SPEC.md 14.6: Timer and Bounce are not built here, so inst_kinds has two
+; fewer ROWS and every kind above them moves down two. THE INDEX IS THE TABLE
+; POSITION and nothing else - inst_launch multiplies it by KD_SIZE - so these
+; are not free-floating ids that may drift from the rows below.
+; **NOT AN ABI CHANGE**: the SDK publishes only KIND_PKG, bit 7 of SSI_KIND
+; (apps/os88api.inc), and every kernel use of a kind is by NAME, so no package
+; and no shipped .o88 can see this renumbering.
+KIND_FILES   equ 1
+KIND_CTRL    equ 2
+%endif
 KIND_PKG     equ 0x80           ; bit 7: package instance
 
 ; --- osapi_sys_snapshot's buffer, API slot 0x0298 (SPEC.md 20.9) ------------------
@@ -121,6 +147,7 @@ inst_kinds:                     ; indexed by KIND_* * 16; caps are binding
     dw app_tpl_about,  0,               0,             0,   0,                app_ttl_about
     dw inst_ico_about
     db 1, 0                     ; About: stateless singleton
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
     dw app_tpl_timer,  app_tmr_task,    app_tmr_pool,  TMR_SIZE, app_tmr_kinit, app_ttl_timer
     dw inst_ico_timer
     db 10, 0                    ; Timer: 10 x 16-byte time state, one task each
@@ -129,6 +156,7 @@ inst_kinds:                     ; indexed by KIND_* * 16; caps are binding
     dw app_tpl_bounce, app_bounce_task, app_ball_pool, 8,   app_bounce_kinit, app_ttl_bounce
     dw inst_ico_bounce
     db 10, 0                    ; Bounce: 10 x 8-byte ball state, one task each
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
     dw fm_tpl,         0,               fm_pool,       FS_SIZE,  fm_kinit,     fm_ttl
     dw inst_ico_disk
     db VIEW_SLOTS, WF_SIZABLE   ; Disk: FOUR windows, each with its own
@@ -203,6 +231,7 @@ inst_ico_about:
     dw 0x0000
     dw 0x0000
     dw 0x0000
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 
 ; inst_ico_timer - a stopwatch: crown on top, hands at 12 and 3
 ;   ......####......
@@ -305,6 +334,7 @@ inst_ico_bounce:
     dw 0x0000
     dw 0x7FFE
     dw 0x0000
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
 
 ; inst_ico_disk - a folder: the Disk window browses a volume, so it is
 ; the browser that gets an icon here, not the drive - desk.inc

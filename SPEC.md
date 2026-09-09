@@ -15520,6 +15520,118 @@ this belongs beside the other three facts the prologue hands down.
 **It is not the default.** It was, for a cycle; §5.9.6 is the whole of why it
 is not now, and §5.9.1 is what it buys the build that asks for it.
 
+### 11.102 The sizing constants a 128KB machine does not need
+
+`kern_small` cuts four bounds, and **not one of them changes the SDK**: every
+row shrinks the KERNEL and leaves `apps/os88api.inc` alone. That direction is
+the whole safety argument and `tests/unit/t_mirror.py`'s `DIVERGENT` block is
+where each is declared.
+
+| constant | kern_big | kern_small | what it bounds |
+|---|---:|---:|---|
+| `MAX_WIN` | 12 | **6** | windows open at once |
+| `MAX_TASKS` | 14 | **5** | task slots: four slices and the UI task |
+| `INST_MAX` | 12 | **6** | running instances |
+| `MEM_MAX` | 32 | **16** | heap claim records |
+
+**`KERN_SIZE` 76,800 -> 75,776 and the free heap on a 128KB machine 51.5 ->
+52.5 KB.** Sections: `.text` -44, `.bss` -516, `.lowbss` -360. `kern_big` is
+byte-identical.
+
+#### 11.102.1 THE SDK CARRIES THE LARGER VALUE, and there are two reasons why
+
+The rule is 51.0's, and three of the four rows are one instance of it: the
+constant is an input to a buffer-size `equ` the PACKAGE compiles into itself
+(`SYS_SNAPSHOT_SIZE`, `CLAIM_SNAPSHOT_SIZE`), the package allocates that buffer
+and `osapi_sys_snapshot_x` fills it bounded by **the kernel's own** figure. So
+a package built at 12 reading a 6-record snapshot over-allocates, which is
+safe, and shrinking the SDK to match would overflow that buffer on `kern_big`.
+`MAX_TASKS` is additionally pinned by `SS_TMAX` = 16, which exists because the
+unpinned version already bit: 8 -> 14 moved `SS_INST` by 30 bytes and a
+TASKMGR built against the old SDK was written past its own buffer by exactly
+that.
+
+**`MAX_WIN` is the fourth row and it is NOT that argument.** It sizes no
+package buffer at all - it appears in `apps/os88api.inc` exactly once, as a
+bare `equ`, and that file says why there is deliberately no `WIN_SIZE` beside
+it: *"the stride is 34 on one shipping kernel and 28 on the other, and a
+window INDEX never leaves the kernel anyway."* What it bounds is the index a
+package may hand `OSAPI_WM_OWNSEG`, and the kernel checks it against its own
+value before touching the table:
+
+```nasm
+wm_ownseg:  cmp al, MAX_WIN
+            jae .no                 ; .no: stc
+```
+
+Six kernel sites validate a package-supplied window reference that way. A
+package built at 12 asking a 6-slot kernel for slot 11 gets a clean refusal.
+
+#### 11.102.2 …and there is NO refusal on the snapshot path, on either side
+
+Worth stating because the SDK advertises one. `OSAPI_SYS_SNAPSHOT` answers
+`AX = MAX_TASKS, BX = INST_MAX`, the buffer carries `SS_NTASK`/`SS_NINST`, and
+the comment beside them says the point is *"so a stale SDK can SEE the
+mismatch"*. **Nothing reads any of it.** Neither field has a reader anywhere
+outside its own definition, and both call sites ignore the registers and walk
+with their own compiled-in bound - `apps/audio/apengine.inc` has the comment
+and the contradiction on consecutive lines:
+
+```nasm
+    call OSAPI_SYS_SNAPSHOT        ; AX = MAX_TASKS, BX = INST_MAX
+    mov cx, INST_MAX               ; ...and uses its own constant anyway
+```
+
+So the safety on this path is **structural over-allocation and not a check**.
+That is what makes the direction binding rather than merely preferred: a
+mismatch the safe way is invisible, and one the unsafe way is silent memory
+corruption in the package's own segment rather than a refusal it could report.
+
+#### 11.102.3 The partition is cut from the DECLARED classes, not from a count
+
+`SCH_PARTITION` goes six slices to **four - 128, 192, 256, 384** - and which
+four is decided by what the shipped packages declare in `LD_H_CLASS` (8.7),
+not by picking a number. The first cut tried was the 256 and a 192, and it is
+wrong: **the Task Manager declares `OS88_STACK_256`** and Paint, Calc, Chart
+and Mines take the 384 default, so `128, 192, 384` would leave TaskMgr holding
+the 384 and refuse Paint - the one pair the whole 128KB effort is about.
+
+What ships instead drops a **128 and a 192**, leaving TaskMgr -> 256,
+Paint -> 384 and Note Pad -> 192 each with a slice they can take, and the 128
+held by the idle task for the life of the machine (8.1.2). That is **three
+usable worker slices**.
+
+**And the heap binds long before they do**, which is what makes this cut safe
+rather than what makes it risky. Driven on the floor machine, Paint and the
+Task Manager both launch over one Disk window and Note Pad as a third is
+refused - **identically on the kernel before this change**, so it is not this
+row's doing. The arithmetic says why, and the trap in it is one this document
+records elsewhere and still walked into: `tools/os88pkgsize.py` prints
+*"before any heap claim"* on every line, and a first pass at this paragraph
+added the three REGIONS up to 44.8 KB and called it comfortable.
+
+| | bytes |
+|---|---:|
+| Paint (small) region | 24,774 |
+| ...and its 1bpp canvas claim (42.23) | ~14,540 |
+| one Disk window's view cache (`VIEW_KB` = 2) | 2,048 |
+| Task Manager (small) region | 6,693 |
+| **total** | **~48.1 KB of 52.5** |
+
+Note Pad wants 13,591 more and there are ~5.7 KB left. **So three concurrent
+programs was never fundable with Paint as one of them**, at any slice count -
+the task table has not been the binding constraint on this machine for some
+time, and four slices is more than the arena can fill.
+
+**`sch_clsbytes` does not change, and could not.** It is the package-visible
+vocabulary a header byte indexes, and it is a SEPARATE table from the
+partition: a package asks for a size, `task_spawn` gives it the smallest free
+slice at least that big, and a request no free slice can meet is a refusal
+(CF=1) that 20.6 already requires a package to degrade on. So re-cutting the
+slices cannot renumber what a package asked for, and cannot hand it a slice
+smaller than it declared.
+
+
 ## 12. menu.inc
 
 Menu bar: rows 0..MBAR_H-1, white, 1px black line at row MBAR_H-1. Its
@@ -22618,6 +22730,90 @@ right edge, not the sign of `ddx`. Every step that went left produced an
 inverted rect, which fills nothing. A flag-clobber between a compare and its
 branch is the failure this file's register discipline exists to prevent, and
 one screenshot found it.
+
+### 14.6 Timer and Bounce are `kern_big`'s, and so is the Builtins menu
+
+`kern_small` builds **one** of the three kinds in `apps.inc`: **About**. Timer
+and Bounce, their two window templates, their state pools, their icons, their
+kind-table rows and the whole **Builtins** menu are behind `%ifdef KERN_BIG`.
+
+**KERN_SIZE 78,336 -> 76,800, and the free heap on a 128KB machine 50.0 ->
+51.5 KB** (`tests/small128.py`). Sections: `.text` -318, `.bss` -11, `.cold`
+-1,030, `.lowbss` -240. `kern_big` is byte-identical.
+
+**What goes with them.** The two kinds are not only their own bodies: they are
+the only users of `apps.inc`'s task scaffolding, so `app_state_of`,
+`app_kind_open`, `app_kind_wait` and `app_kind_arm` leave with them - About is
+`KD_TASK` = 0 and never calls one. `app_tmr_pool` (160 bytes) and
+`app_ball_pool` (80) are the `.lowbss` half, and the two 64-byte icon bodies
+`inst_ico_timer` and `inst_ico_bounce` the `.text` one.
+
+**The Builtins menu goes because what is left of it duplicates a
+double-click.** It held Timer, Bounce and Disk (12.3.1); the first two do not
+exist on this build and the third opens a Disk window, which the desktop's own
+drive zones already do (26.1). So Locator's set drops to **one** cell, File,
+and the Disk window's own copy - the same menu with the same items, carried by
+`fm_menus` - drops with it. `ui_loc_base` is two entries here rather than
+three, and `UI_LOC_N` is its own length so the bound in `ui_dispatch` cannot
+drift from the table.
+
+#### 14.6.1 The kind index is a TABLE POSITION, and renumbering it is safe
+
+`inst_launch` multiplies `KIND_*` by `KD_SIZE` to reach a row of `inst_kinds`,
+so removing two rows moves every kind above them down two: on `kern_small`
+`KIND_FILES` is **1** and `KIND_CTRL` is **2**, against 3 and 4 on `kern_big`.
+
+**This is not an ABI change**, and the reason is worth stating rather than
+assuming, because a kind index looks exactly like the sort of number a package
+would hold. The SDK publishes **`KIND_PKG` alone** - bit 7 of `SSI_KIND`
+(`apps/os88api.inc`) - and every package use of a kind in this tree is a
+`test`/`and` against that one bit. Every kernel use is BY NAME. There is no
+`KIND_TIMER` in `apps/os88api.inc` to go stale, and no `.o88` can tell the two
+builds apart.
+
+`FMC_*` renumbers the same way and for the same reason: `FMC_PASTEIN` takes 22
+here, because the Builtins ids left and the ids below are reached by name
+rather than as a base plus an item (the note above `FMC_ICONS` is the same
+argument for the retired View menu). The one base-plus-item sum in the module
+is `fm_menu_base`'s, and every base in it is a value that did not move.
+
+#### 14.6.2 What the machine loses, and what it does not
+
+A `kern_small` desktop has no stopwatch and no bouncing ball, and its menu bar
+carries **System** and **File** where it carried System, File and Builtins.
+Nothing else in the kernel reaches Timer or Bounce: they are launched from the
+two menus and from nowhere else, and `app_launch` refusing a kind that does not
+exist is not a path any surface can reach, because no surface offers it.
+
+#### 14.6.3 About STAYS, and it was priced by gating it
+
+About is the third kind and the obvious next row, so it was built out and
+measured rather than estimated: **`.text` -228, `.cold` -70, 298 bytes** - and
+**`KERN_SIZE` does not move.** At 76,800 the image rung has 502 bytes spare and
+the cold rung 217, so About's 298 fit inside both and the free heap on a 128KB
+machine is **51.5 KB either way**. Removing it returns nothing to the machine
+today.
+
+That is not an argument that it is free to keep - the amortised price of a byte
+is a byte (CLAUDE.md's rung rule), and the 298 are slack the next change will
+find spent. It is the reason the trade is one-sided: About is what tells the
+machine's owner **which build, which adapter and which scheduler** they are
+running (14.2), on a machine whose whole purpose is being the small one, and it
+costs a rung crossing that has not happened.
+
+**Two things it turns out NOT to own**, both found by trying to gate it and
+both worth recording so the next reader does not re-derive them:
+
+- **`app_about_center` is the kernel's own dialog-centring helper**, not
+  About's. `ui_note_paint` centres both lines of every note and alert through
+  it (12.9), so it stays whichever way About goes - and with it
+  `apf_app_about_center`, its far thunk, which has to move out of the gated
+  block rather than into it.
+- **`%include "buildnum.inc"` sits inside About's data block**, and
+  `BUILD_NUM` is read by `clone.inc`, `ctrl.inc`, `diskw.inc`, `fdlg.inc` and
+  `filecp.inc` as well. Gating the block gates the include, and five modules
+  stop assembling; the include has to be lifted out first.
+
 
 ## 15. kernel.asm — boot sequence
 

@@ -44,8 +44,8 @@
 
 ; --- task table (SPEC.md 8) --------------------------------------------------
 %ifdef KERN_SMALL
-MAX_TASKS   equ 7               ; SIX worker slices and the UI task
-                                ; (docs/plans/KERN-SMALL-CUT-PLAN.md D1). The SDK's
+MAX_TASKS   equ 5               ; FOUR worker slices and the UI task
+                                ; (SPEC.md 11.102; it was 7 at D1). The SDK's
                                 ; copy STAYS AT 14, on SPEC.md 51.0's rule for
                                 ; MEM_P_FATW_N: apps/os88api.inc publishes this
                                 ; to packages and taskmgr sizes buffers from it
@@ -194,10 +194,9 @@ SCH_FRAME   equ 24              ; saved-frame size: 9 regs + IP/CS/FLAGS
 ; packages, so the binding resource is not this table.
 %macro SCH_PARTITION 0
     SCH_SLOT 128                ; the idle task's, for the life of the machine
-    SCH_SLOT 128                ; ...and the one sleeper slot left over
     SCH_SLOT 192                ; the modal class (STACK-SLOTS-PLAN 12.1)
-    SCH_SLOT 192
-    SCH_SLOT 256                ; Missile Command
+    SCH_SLOT 256                ; the Task Manager's declared class, and
+                                ; Missile's, Word's, Pac-Man's, Tamegram's
     SCH_SLOT SCH_STACK          ; ...and the top class, here for CC_STACK's
 %endmacro                       ; sake rather than for a program's
 %else
