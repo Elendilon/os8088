@@ -107,6 +107,28 @@ dd_pen:
 ; SPEC.md 6.1.10.1 is the rule that decides whether a PEN reaches its fast path
 ; - the plane bits of one colour must be a subset of the other's, which black
 ; paper always satisfies, and every pen in this package is on black.
+;
+; SO WHAT WOULD THE SWAP GIVE BACK? It was asked for as a SIZE question with a
+; floor on it - take it if it is worth a kilobyte - and the answer is measured
+; rather than guessed. `dd_font_get`, `dd_text`'s composer and the eight bss
+; fields that serve them, replaced by one `OSAPI_FONT_RUN`:
+;
+;   the image      19,654 -> 19,386 bytes      -268
+;   .bss           the glyph table's four fields and the line's four   -13
+;   the .o88 on a floppy, lz4    14,156 -> 13,930                     -226
+;
+; ~281 bytes of RAM and 226 of disk, which is a quarter of the floor it was
+; given, and 226 bytes is NO CLUSTERS on any geometry this ships on. A further
+; 48 come off `DD_BANDSZ` - text at DD_TEXTMAX is 272 bytes and is what pushes
+; the shared band past the 224 of SPEC.md 93.5.3's dot run - and 329 is still a
+; third of a kilobyte.
+;
+; The PERFORMANCE half of the question is affordable and is not what decides
+; it: nothing here letters per frame. The HUD draws on [dd_hudd], the title
+; once, the panel on [dd_boxd], so the 10-14% above is paid when the score
+; changes rather than 18.2 times a second. There is no argument against the
+; swap except that it does not reach the bar it was set, and the composer is
+; kept because it is already written and already measured.
 ; =============================================================================
 
 ; -----------------------------------------------------------------------------
@@ -2432,7 +2454,12 @@ dd_draw:
 .boxp:
     cmp byte [dd_boxd], 0
     je .out
+    cmp byte [dd_boxd], 2           ; ...and 2 is A LETTER, not the panel
+    je .boxi
     call dd_box_draw
+    jmp short .out
+.boxi:
+    call dd_box_ini
     jmp short .out
 .over:
     call dd_overlay
@@ -3130,6 +3157,9 @@ dd_box_line:
     sub cx, ax
     shr cx, 1
     add cx, [dd_boxx]
+    and cx, ~7                      ; dd_text rounds to the byte grid itself,
+    mov [dd_boxlx], cx              ; and what is banked has to be the pen it
+    mov [dd_boxly], bx              ; ACTUALLY used, not the one asked for
     mov dx, bx
     mov bx, cx
     mov al, DD_INKTXT
@@ -3139,6 +3169,39 @@ dd_box_line:
     pop cx
     pop bx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_box_ini - THE INITIALS AND NOTHING ELSE (SPEC.md 93.12.4.1)
+;
+; The panel is a fill, an outline and two lines of type, and a keystroke changes
+; four cells of the second one. Redrawing all of it per letter is what the field
+; reported as *"its flashing every time I type"* - the black fill lands, then
+; the outline, then the type, and the eye sees the box blink out and come back.
+;
+; The four cells go down where dd_box_line put them: it banks the pen it
+; actually used, and the initials start a whole number of CELLS along that line,
+; so adding dd_inioff * 8 keeps the byte grid gfx_blit1 wants. Nothing under
+; them is redrawn because nothing under them changed - the panel's inside is
+; black and dd_text composes its own ground.
+; Clobbers everything.
+; -----------------------------------------------------------------------------
+dd_box_ini:
+    mov byte [dd_boxd], 0
+    cmp byte [dd_ok], 0
+    je .out
+    call dd_box_str                 ; the three letters and the caret
+    mov si, dd_promptb
+    add si, [dd_inioff]
+    mov ax, [dd_inioff]
+    mov cl, 3
+    shl ax, cl
+    add ax, [dd_boxlx]
+    mov bx, ax
+    mov dx, [dd_boxly]
+    mov al, DD_INKTXT
+    call dd_text
+.out:
     ret
 
 ; -----------------------------------------------------------------------------

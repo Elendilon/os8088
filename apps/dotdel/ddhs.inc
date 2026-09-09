@@ -238,7 +238,11 @@ dd_hs_key:
     xor bh, bh
     mov [dd_ini + bx], al
     inc byte [dd_inip]
-    mov byte [dd_boxd], 1
+    mov byte [dd_boxd], 2           ; 2 = THE INITIALS ONLY (SPEC.md 93.12.4.1).
+                                    ; A keystroke that owed the whole panel
+                                    ; re-filled it black, re-drew its outline
+                                    ; and re-lettered both lines, so the field
+                                    ; saw the box flash on every letter typed
 .out:
     ret
 .back:
@@ -248,7 +252,7 @@ dd_hs_key:
     mov bl, [dd_inip]
     xor bh, bh
     mov byte [dd_ini + bx], ' '
-    mov byte [dd_boxd], 1
+    mov byte [dd_boxd], 2
     ret
 .done:
     call dd_hs_commit
@@ -276,6 +280,9 @@ dd_box_str:
     inc bx
     jmp short .cp
 .ini:
+    mov ax, di                      ; WHERE they start, so dd_box_ini can put
+    sub ax, dd_promptb              ; four cells down without measuring the
+    mov [dd_inioff], ax             ; sixteen in front of them
     mov al, [dd_ini]
     mov [di], al
     mov al, [dd_ini + 1]

@@ -1201,6 +1201,9 @@ dd_spct:     dw DD_PCTPAC, DD_PCTGH, DD_PCTFRI, DD_PCTEYE, DD_PCTTUN
     DWORDV dd_boxy
     DWORDV dd_boxw
     DWORDV dd_boxh
+    DWORDV dd_boxlx                 ; ...and where the PROMPT LINE went, so the
+    DWORDV dd_boxly                 ; initials can be redrawn without the panel
+    DWORDV dd_inioff                ; where they start inside dd_promptb
     DWORDV dd_dbclus
     DBYTEV dd_dbdrv
     DBUFV  dd_dfind, OSAPI_FIND_SZ

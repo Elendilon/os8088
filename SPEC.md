@@ -112763,6 +112763,38 @@ directory and deliberately not the instance's, while `FILE_FIND`, `_READ` and
 `_WRITE` all resolve in the instance's, so a quiet move is undone by the very
 next call and the save writes nothing at all while the load appears to work.
 
+#### 93.12.4.1 A keystroke draws the LETTER, not the panel
+
+`dd_hs_key` set `[dd_boxd]` on every letter and every backspace, so the whole
+panel came down and went back up: a black fill, an outline over it, `GAME OVER`
+re-lettered, and then the prompt line. The picture is nearly identical to the
+last one — four cells of the second line differ — but the fill lands first, so
+the eye sees the box blink out and come back. The field's report was exactly
+that: *"its flashing every time I type."*
+
+`[dd_boxd]` takes a second value. **1 is the panel and 2 is the initials**, and
+`dd_box_ini` draws the second with one `dd_text` of four cells: no fill, no
+frame, and the `GAME OVER` line untouched. The panel's inside is black and
+`dd_text` composes its own ground, so nothing under the four cells has to be
+taken down first.
+
+Two things make the placement free rather than a second centring calculation:
+
+- **`dd_box_line` banks the pen it actually used** — `[dd_boxlx]`/`[dd_boxly]`
+  — *after* its own `and cx, ~7`, because `dd_text` rounds down to the byte
+  grid and what a redraw has to match is where the type went, not where it was
+  asked to go. The prompt is the second and last line drawn, so the bank it
+  leaves behind is the prompt's.
+- **The initials start a whole number of CELLS along that line**, and
+  `dd_box_str` records where (`[dd_inioff]`) rather than the count being
+  written down twice. Eight times a cell offset is a multiple of 8, so the
+  four-cell pen is on the same byte grid the whole line was, and `gfx_blit1`
+  takes it directly.
+
+The caret is a trailing `_` after all three letters rather than a cursor at the
+insertion point, so the run is always exactly four cells whatever `[dd_inip]`
+is, and backspace redraws the same four.
+
 ### 93.13 What it does not ship on
 
 `kern_small` does not carry `gfx_blit1`'s body at all (§5.4.2.5) — the slot is
