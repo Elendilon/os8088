@@ -2559,6 +2559,25 @@ SOAK = [
         " two jumps that choose the quad, which is what shipped, and the six"
         " banked checks go red while the two level ones stay green",
         needs=("marty",), serial=True),
+    Row("skiesstale", "soak", py("tests/skiesstale.py"), 25.0,
+        "SPEC.md 88.3.1.1.3 and docs/FIELD-NOTES.md 40: A LINE OF THE PREVIOUS"
+        " HORIZON MUST NOT SURVIVE. A band row's span is the crossing's byte"
+        " and one either side, on the argument that the rest of the row is"
+        " what it was - and when the roll changes SIGN the two sides exchange,"
+        " so the fill lays the whole row mirrored about a crossing that has"
+        " barely moved and the span still claims three bytes. Every other row"
+        " is repaired by cs_hzrows' kind arm as the band sweeps past it; the"
+        " CENTRE row is the one the band never leaves, which is why the field"
+        " saw exactly ONE line - a blank one in the ground banking one way, a"
+        " filled one in the sky banking the other. The assertion needs NO"
+        " model of the blit: after cs_blit RETURNS the card must equal the"
+        " shadow over the whole view, which is the blit's one job, so this"
+        " cannot be fooled the way a host-side reconstruction of the union"
+        " rule was (88.3.2.2). It drives the bank +16 to -48 through zero;"
+        " --clobber holds cs_hzsides at cs_hzl, which is what shipped, and"
+        " reads the artefact being BORN at roll +0.0 and surviving every"
+        " frame after",
+        needs=("marty",), serial=True),
     Row("skiespitts", "soak", py("tests/skiespitts.py"), 34.0,
         "SPEC.md 88.7.2: the second aeroplane flies by its own CSP_ATT - the"
         " Pitts rolls right round and loops over the top and stays where the"

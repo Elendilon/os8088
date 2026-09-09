@@ -2479,6 +2479,11 @@ cs_hand equ os88_image_end      ; THE HANDOFF IS THE FIRST THING IN THE BSS,
     ZWORD cs_hzmt                   ; its table, both the ADAPTER's (88.3.1.2)
     ZWORD cs_hzlo                   ; the band's span pass (88.3.1.1): the
     ZBYTE cs_hzhi                   ; view's first and last BYTE, and the kind
+    ZWORD cs_hzsides                ; LAST frame's cs_hzl/cs_hzr as a pair: a
+                                    ; band row's narrow span rests on the
+                                    ; row's other bytes being what they were,
+                                    ; and a side swap breaks exactly that
+                                    ; (SPEC.md 88.3.1.1.3)
     ZBYTE cs_hzsplit                ; a row must have had to get a band rather
                                     ; than the whole view - 3, or 0xFF where
                                     ; nothing may be "as it was"

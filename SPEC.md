@@ -101646,6 +101646,45 @@ So the horizon's remaining cost is **fixed cost a row and not pixels**: about
 1,100 cycles in `cs_hzrow_sh` and ~300 in `cs_blit`'s own per-row walk, over
 112 rows, which is where the next reading should be taken.
 
+###### 88.3.1.1.3 A SIDE SWAP breaks the narrow span, and the CENTRE row is where it shows
+
+The narrow span rests on an argument: *the rest of the row is what it was.*
+`.hs` gives a band row the crossing's byte and one either side, the fill lays
+the row's whole width, and the difference is safe because everything outside
+the crossing's neighbourhood was laid the same way last frame.
+
+**When the roll changes sign that argument fails over the whole row.** The two
+sides are chosen per frame — in the flat form from whether the horizon rises
+or falls across the view, in the steep form from the sign of `nx` — so at the
+zero crossing `cs_hzl` and `cs_hzr` EXCHANGE. The fill then lays every band row
+mirrored about a crossing that has barely moved, and the span still claims
+three bytes.
+
+**Every other row is repaired and the centre row is not.** As the bank steepens
+the band sweeps outward, and a row leaving it changes kind, which `cs_hzrows`'
+`.kind` arm gives `cs_fullspan`. The band always contains the view's centre and
+at roll 0 it is that row alone, so **row 56 of 112 is the one row that is in
+the band on both sides of the crossing** — which is why the field's two
+photographs both show exactly one line, and why `tests/skiesstale.py` reads it
+being born at **roll +0.0** and never at any other frame.
+
+**The fix is one compare a frame.** `cs_hzl` and `cs_hzr` are adjacent bytes,
+so the pair is one word; `cs_hzsides` holds last frame's, and a difference
+forces `cs_hzsplit` to 0xFF — the mechanism §88.3.1.1 already has for Mode X
+and for the `cs_hzfull` A/B, which makes every band row take `cs_fullspan` for
+that one frame. **18 bytes of `.text` and 2 of `.bss`**, and it costs nothing
+at all on a frame where the sides do not move.
+
+What it is NOT is a whole-band repaint every frame: the sides swap once per
+roll reversal, so the cost is one frame's blit of the band, once, at the
+moment the wings pass level.
+
+**And the bug it closes is docs/FIELD-NOTES.md 40** — *"a blank line in the
+ground"* one way, *"a filled line in the sky"* the other, both carried from the
+previous horizon and both persisting until an object drew over them. That last
+part is the same fact from the other end: nothing repairs a band row's outer
+bytes except a mark, so once wrong they stay wrong until something marks them.
+
 ##### 88.3.1.2 A split row's fill was 1,421 cycles and 350 of them were pixels
 
 §88.3.1.1 left the rolled horizon costing fixed work a row rather than
@@ -102280,12 +102319,26 @@ lights FEWER pixels banked than level, because the diagonal runs out of the
 view, while marking twenty-six times the rows. **One object over-marks by 87x
 and that is most of the frame's 21x.**
 
-**One thing to settle first, and it is a CORRECTNESS question, not a speed
-one**: the same scoring finds **3 bytes a frame that DIFFER and are not
-carried** at 5° and 12°, and none at level — at the view's right edge. That is
-either the word-rounding in the host-side model of `cs_blit`'s walk or a real
-edge case leaving stale pixels on the glass, and it must be resolved before
-any of the above is built on the same instrument.
+**A CORRECTION, and the reason to distrust a modelled union.** This scoring
+first reported **1 to 3 bytes a frame that differ and are not carried**, at
+the view's right edge and never at level, which read as confirmation of
+docs/FIELD-NOTES.md 40's stale line. **It was the model, not the machine.**
+Reconstructing `cs_blit`'s union host-side — `min(lo, lo')`, `max(hi, hi')`,
+`and al, 0xFE`, `or ah, 1` — is a second implementation of the thing under
+test, and it disagreed with the first by a byte or two at the edges.
+
+The test that needs no model is one breakpoint later: **after `cs_blit`
+RETURNS, the card must equal the shadow over the whole view**, and any byte
+that does not is wrong on the glass by definition. That reads **0 rows over 30
+frames of a rolling bank** and 0 over a held one. So the carried/differ figures
+above stand — they are counted, not modelled — and the *missed* column is
+withdrawn.
+
+docs/FIELD-NOTES.md 40 is still OPEN and still real: it is reported from play
+with two photographs, it is sporadic, and the field's own account is that it
+**persists until an object draws over it**. What is now known is that a
+scripted 30-frame roll through both of §88.4.1's forms does not reach it, so
+whatever triggers it is not the bank alone.
 
 #### 88.3.3 The blit looks only at the rows anything marked
 

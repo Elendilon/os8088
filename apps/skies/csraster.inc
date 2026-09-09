@@ -1233,13 +1233,29 @@ cs_skyground:
     dec al
     mov [cs_hzhi], al               ; the view's first and last byte...
     mov al, 3                       ; ...and the kind a row must have had.
-    cmp byte [cs_hzfull], 0         ; TWO things refuse the band: the A/B
+    cmp byte [cs_hzfull], 0         ; THREE things refuse the band: the A/B
     jne .hk1                        ; knob, and Mode X - where cs_r_begin
     cmp byte [cs_back], CSB_MODEX   ; sets every row to 3 precisely so that
     jne .hk2                        ; nothing is "as it was", the two pages
 .hk1:                               ; alternating under it (88.3.1)
     mov al, 0xFF
 .hk2:
+    ; --- ...AND THE SIDES SWAPPING IS THE THIRD (SPEC.md 88.3.1.1.3) -------
+    ; A band row's span is the crossing's byte and one either side, on the
+    ; argument that everything else on the row is what it was. When the roll
+    ; changes sign the two sides EXCHANGE - the fill lays the whole row
+    ; mirrored about a crossing that has barely moved - and that argument
+    ; fails over the row's whole width. Every other row is repaired by
+    ; cs_hzrows' .kind arm as the band sweeps past it; the CENTRE row is the
+    ; one the band never leaves, which is why the field saw exactly one line
+    ; (docs/FIELD-NOTES.md 40). The pair is one word, cs_hzl and cs_hzr being
+    ; adjacent, and this costs one compare a frame.
+    mov dx, [cs_hzl]
+    cmp dx, [cs_hzsides]
+    mov [cs_hzsides], dx
+    je .hk3
+    mov al, 0xFF
+.hk3:
     mov [cs_hzsplit], al
     push cx
     push bx

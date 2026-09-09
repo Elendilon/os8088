@@ -866,10 +866,18 @@ line below is measurement and documents.
 
 **Open, in the order they should be taken:**
 
-- **A. The stale pixels** - docs/FIELD-NOTES.md 40. Reported from play AND
-  found by the instrument: 1-3 bytes a frame that differ and are not carried,
-  right edge, bank-dependent, none level. CORRECTNESS, and it is the same
-  scoring every other number here rests on.
+- ~~**A. The stale pixels**~~ - **FIXED**, SPEC.md 88.3.1.1.3, and
+  docs/FIELD-NOTES.md 40 is CLOSED. It is the narrow span meeting a SIDE SWAP:
+  at the zero crossing `cs_hzl`/`cs_hzr` exchange, the fill lays every band row
+  mirrored about a crossing that has barely moved, and the span still claims
+  three bytes. The centre row is the only row in the band on both sides of the
+  crossing, which is why the field saw exactly one line. 18 bytes of `.text`,
+  2 of `.bss`, one compare a frame; `tests/skiesstale.py` is the gate and its
+  `--clobber` reads the artefact being born at roll +0.0.
+  **The instrument that appeared to find it was WRONG** - a host-side
+  reconstruction of `cs_blit`'s union rule, disagreeing with the real one at
+  the edges by about the width of the real bug. Assert against the card and
+  the shadow, never against a second implementation of the code under test.
 - **B. A mark that STEPS** - `cs_markrows`' own row loop with the byte pair
   interpolated. Not 88.3.2.1's banded PASS. Its unit costs are the bar:
   ~50 cycles a row to mark, ~4.5 a byte to carry, 11 bytes a row to break
