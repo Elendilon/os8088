@@ -43725,6 +43725,90 @@ answer for that gesture: the mover covers *more* of the window than it did, so
 nothing was uncovered and nothing is owed, and `SAME` is what keeps that from
 being a window that simply stopped drawing.
 
+#### 28.10.3 The GRAPH is an element too — gated by the damage, drawn in RUNS
+
+§28.10.2 made every ROW ask the damage rect before it letters. The history
+graph was never asked at all: `tm_draw_perf` walked all `TM_GW` columns
+unconditionally, a `gfx_vline` for the white above the bar and another for the
+bar itself, so **any** damage anywhere in this window redrew the whole graph.
+The field reported it as *"uncover the RAM bar and the graph redraws with
+it"*, and that is exactly what it is — the bar is `TMC_BAR`, two `gfx_fill`s
+behind `tm_elchk_y`, and the graph sitting above it had no gate of any kind.
+Uncovering a 16 ms element cost 334 ms of a neighbour that nothing had
+touched.
+
+Measured on the drop of a window dragged off this one, with breakpoints inside
+the package; both columns are the same gesture on the same build, and every
+figure is a 4.77 MHz 8088:
+
+| step of `tm_draw_perf` | VGA | Hercules |
+|---|---:|---:|
+| the CPU + scheduler line | 3.0 ms | 3.0 ms |
+| **the graph frame and its columns** | **126.6 ms** | **333.9 ms** |
+| the RAM line and the bar's frame | 2.3 ms | 2.7 ms |
+| the bar's interior and the list header | 10.7 ms | 13.2 ms |
+
+`TM_GW` is 216, so that is up to **432 primitive calls for a 216×40 box**, and
+what it costs is the CALL and not the pixels: 333.9 ms over 432 is **773 µs**,
+which is PERFORMANCE.md's fixed part for a `gfx_*` call to the microsecond.
+**It is 2.6× dearer on a 1bpp adapter than on a VGA**, so the machine this
+project is calibrated for is the one it hurts — and there is no 1bpp defect
+under it to find, because `gfx_vline` IS a one-column `gfx_fill`
+(`kernel/vga12.inc`) and what differs is that arm's per-call floor.
+
+Two changes, both of them package code and no kernel bytes:
+
+* **The damage gate.** `tm_dmg_yhit` is `tm_elchk_y`'s band test with the key
+  half taken off, and `tm_graph` asks it: a damage rect that never crosses
+  rows `TM_GF_Y1`..`TM_GF_Y2` draws **no column at all**. When it does cross,
+  the damaged x range is intersected with the interior and only those columns
+  are walked, so uncovering a strip costs the strip. The bar's own FRAME gets
+  the same test, its interior having had one since §28.10.2.
+* **Runs, not columns.** Neighbouring columns of equal height go out as one
+  `OSAPI_GFX_FILL`. A run of one is the identical primitive on the identical
+  pixels — `gfx_vline` is that same one-column fill — so the worst case costs
+  what it always cost and there is no case to choose between.
+
+**`tm_draw_full` now invalidates the damage the way it already invalidates the
+keys.** `tm_rowck_clear` says *every keyed element is owed*; `tm_dmg_all` says
+the same to everything gated by a band, and it is the truth rather than a belt
+— both callers (`tm_click`'s view swap and `tm_abdismiss`) run
+`tm_clear_content` first. It is restored to `none` on the way out for
+§28.10.2's own reason: the worker's intervals run under `none`, where the keys
+alone decide.
+
+**The rule this is a second worked example of** is PERFORMANCE.md's first one.
+A 216×40 graph and a 217×9 bar are the same order of pixels and two orders of
+magnitude apart in cost, because one of them is 432 calls and the other is
+two. Nothing about the graph's *pixels* was ever the problem.
+
+**Measured, on the same drop as the table above**, the graph's step of
+`tm_draw_perf` is **333.9 → 30.5 ms** on Hercules and **126.6 → 27.8 ms** on a
+VGA — and the two adapters now land within 3 ms of each other, because what is
+left is the runs and there are the same number of them on either. On the
+gesture that was actually reported — uncovering only what lies *below* the
+graph — it is 216 columns against **none at all**. **+148 package bytes**
+(8,973 → 9,121) **and no kernel bytes.**
+
+`tests/tmgraph.py` is the gate, and it counts `tm_grun` minus `tm_col`,
+because the worker draws two columns of its own every `TM_INT` whatever the
+damage says. Four legs, each verified red against its own deliberate break:
+**BAR** (damage below the band draws 0 runs, 16 with the band test taken out),
+**CLAMP** (a narrow strip over a poked COMB draws 74 of 216, 215 with the x
+clamp taken out), **SWAP** (a view cycle draws the lot, 0 with `tm_dmg_all`
+taken out of `tm_draw_full`) and **COALESCE** (a flat ring is 3 runs, 215
+without the coalescing).
+
+**Two of those legs were green and testing something else first**, which is
+worth keeping because both mistakes are re-makeable. A cover dragged
+*sideways* damages every column it crossed — `wm_paint_dmg` is handed the
+union of where it was and where it is (§11.91) — so that leg passed on the
+coalescing while claiming the clamp; it drags DOWN now. And an idle machine's
+history coalesces the *whole* graph to about 22 runs, comfortably under any
+bound a partial strip could set, so with the clamp deleted the leg still
+passed; the ring is poked to a comb now, where no two neighbours are equal and
+a run is exactly a column.
+
 ### 28.11 …so the promise becomes a REPAIR, and the band is the doorway
 
 §11.96.1's promise is *"my content does not change while I am not drawing"*.
