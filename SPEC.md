@@ -22923,8 +22923,9 @@ same shape for less.
 
 #### 13.17.2 What it costs to draw, against the glyph it replaces
 
-**Six drawing calls for an unpicked row and nine for the picked one** — the
-ground, four for the ring, three for the dot, and the label. That is *more* than
+**Five drawing calls for an unpicked row and eight for the picked one** — a pen
+change, four for the ring, three for the dot, and the label. There is no ground
+fill (§13.17.4). That is *more* than
 `os88ui_glyph`'s normal path, which is one masked-sprite call plus the caller's
 own label, and the trade is taken on the owner's terms: this is drawn once and
 then sits there until someone interacts with it.
@@ -22940,6 +22941,51 @@ The same fact is why §47 gets simpler rather than merely smaller: `os88ui_glyph
 composes the disabled grey **row by row**, with a screen-absolute parity term,
 because a 50% stipple is something a mask pass has nowhere to put. Here the pen
 carries it to the ring, the dot and the label at once.
+
+#### 13.17.4 It BLANKS nothing, and a pick does not re-letter a row
+
+**The first version did both, and neither shows in a screenshot.** It filled the
+whole row white and then drew the ring, the dot and the label on top — five
+drawing calls later, which on a 4.77 MHz 8088 is about **four milliseconds of
+blank row on every repaint** — and `os88ui_radhit` redrew both changed rows
+whole, labels included, to move one dot. The final frame is identical either
+way, which is PERFORMANCE.md Part 1's *"invisible in an emulator"* exactly: a
+double-draw flash and a visible redraw, the two defects that cost this project
+bug after bug.
+
+**Nothing is erased, because nothing needs to be.**
+
+- The label is an **opaque `font_run`** (§6.1) — it lays its ground and its
+  glyph in the same pass, so there is no ground for anyone else to lay.
+- The ring is **four runs**, and its pixels are the same every time.
+- The dot is **three runs, drawn in the ground colour to clear it** rather than
+  blanked and left. `os88ui_raddot` takes no set-or-clear argument: it draws in
+  the ink when its row *is* the pick and in the ground when it is not, so the
+  caller writes `SEL` first and then names the two rows.
+
+No pixel is written by two of those, so **there is no interval in which any part
+of the row is blank.**
+
+**The caller owns the ground**, which is §13.14's contract rather than §13.15's:
+the pane is already filled by whoever laid it out — every Control Panel page
+does it with `os88ui_krect` — so filling it again here would be the second write
+this control exists not to make.
+
+**A pick therefore costs eight drawing calls and touches no text**: three to
+clear the old dot, three to set the new one, and a pen change each side.
+
+##### The gate reads CALLS, not pixels
+
+`tests/radio.py` records every `gfx_fill` one full `os88ui_rad` makes and fails
+on any rect wider than the box — a fill that wide is a fill that spans the label
+— and records every `font_run_x` during a press, failing on any inside the
+group's own rows. Both were verified red against the first version.
+
+**`font_run_x` and not `font_run`**, and that is the trap worth writing down:
+slot 0x0258's cell names the `_x` entry, so a breakpoint on `font_run` is one a
+package never reaches. The assertion was a **false green** on that symbol and
+only the deliberate breakage refusing to go red found it — docs/WRITING-TESTS.md
+§1 earning its place.
 
 #### 13.17.3 The press answers THREE things, not two
 

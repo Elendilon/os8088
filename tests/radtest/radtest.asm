@@ -152,9 +152,40 @@ rt_onclick:
     pop ax
     ret
 
+; -----------------------------------------------------------------------------
+; rt_onkey - W_ONKEY: any key redraws group A IN PLACE
+;
+; It exists for the harness rather than for a user: a driving row wants the
+; drawing calls one full `os88ui_rad` makes, and the only other way to get a
+; repaint is to move the window, which drags the WM's own painting into the
+; capture. A caller redrawing a control in place is a supported thing to do
+; (the gfx lock is held here exactly as it is in W_PAINT), so this asks for
+; nothing the library does not already promise.
+;
+; [rt_paints] is NOT touched: it counts W_PAINT, and a row asserting "the group
+; was not repainted" after a click must not be perturbed by this existing.
+; -----------------------------------------------------------------------------
+rt_onkey:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov bx, rt_a
+    xor di, di
+    call os88ui_rad
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 rt_tpl:
     dw 120, 30, 180, 108
-    dw rt_ttl, rt_paint, 0, rt_onclick
+    dw rt_ttl, rt_paint, rt_onkey, rt_onclick
 
 rt_ttl:  db 'Radio', 0
 

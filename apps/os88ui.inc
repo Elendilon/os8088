@@ -2850,12 +2850,91 @@ os88ui_rad:
     ret
 
 ; -----------------------------------------------------------------------------
-; os88ui_rad1 - ONE row, ground and all, so os88ui_radhit can repaint two
+; os88ui_rad_pen - internal: the pen this row draws in (SPEC.md 47 rule 1)
+; in:  BP = the record, SI = the row; out: the pen is set. AX and CX preserved
+; -----------------------------------------------------------------------------
+os88ui_rad_pen:
+    push ax
+    push cx
+    mov ax, 1
+    mov cx, si
+    jcxz .havebit
+.shift:
+    shl ax, 1                   ; (8086: no shift by an immediate but 1)
+    loop .shift
+.havebit:
+    test ax, [ds:bp+OS88UI_RD_DIS]
+    jnz .grey
+    test word [ds:bp+OS88UI_RD_DIS], OS88UI_RDGRP
+    jnz .grey
+    clc                         ; the PEN carries it, and it carries it to the
+    jmp short .set              ; ring, the dot and the label at once - which
+.grey:                          ; is why a fill-drawn mark needs no dither
+    stc                         ; table of its own, where os88ui_glyph composes
+.set:                           ; one row by row
+    UI_PEN
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_rad_dt - internal: the 6x6 rounded dot, in whatever the pen is
+; in:  BP = the record, DI = the row's y; the pen is already set
+;
+; Three runs, and it is drawn in the GROUND colour to clear rather than being
+; erased and left blank - which is the whole of SPEC.md 13.17.4.
+; -----------------------------------------------------------------------------
+os88ui_rad_dt:
+    mov ax, [ds:bp+OS88UI_RD_RECT+0]
+    add ax, 4
+    mov cx, ax
+    add cx, 3
+    mov bx, di
+    add bx, 3
+    mov dx, bx
+    UI_FILL                     ; the dot's top run
+
+    mov ax, [ds:bp+OS88UI_RD_RECT+0]
+    add ax, 3
+    mov cx, ax
+    add cx, 5
+    mov bx, di
+    add bx, 4
+    mov dx, di
+    add dx, 7
+    UI_FILL                     ; ...its body
+
+    mov ax, [ds:bp+OS88UI_RD_RECT+0]
+    add ax, 4
+    mov cx, ax
+    add cx, 3
+    mov bx, di
+    add bx, 8
+    mov dx, bx
+    UI_FILL                     ; ...and its bottom run
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_rad1 - ONE row, WITHOUT erasing anything first
 ; in:  BX = the record, SI = the row, 0-based; the gfx lock is held
 ; out: nothing; every register preserved
 ;
-; It reads OS88UI_RD_DIS rather than taking a flag argument, which is exactly
-; what lets the press half redraw a row without being handed the painter's DI.
+; NOTHING HERE IS DRAWN TWICE AND NOTHING IS BLANKED (SPEC.md 13.17.4). The
+; label is an OPAQUE font_run, so it lays its own ground in the same pass that
+; lays the glyph; the ring is four runs; the dot is three. No pixel is written
+; by two of them, so there is no interval in which the row is blank - which on
+; a 4.77 MHz 8088 is not a nicety, since a whole-row fill followed five drawing
+; calls later by the label is about four milliseconds of empty row, every
+; repaint, and PERFORMANCE.md Part 1 calls that class of defect invisible in an
+; emulator.
+;
+; THE CALLER OWNS THE GROUND, which is os88ui_drop's contract (SPEC.md 13.14)
+; rather than os88ui_chk's. The pane is already filled by whoever laid it out -
+; every Control Panel page does it with os88ui_krect - so filling it again here
+; would be the second write this routine exists not to make.
+;
+; It reads OS88UI_RD_DIS rather than taking a flag argument, which is what lets
+; the press half redraw without being handed the painter's DI.
 ;
 ; X IS RE-READ FROM THE RECORD at every step rather than held in a register.
 ; UI_FILL wants AX,BX,CX,DX = x1,y1,x2,y2, so a register holding x would be
@@ -2879,39 +2958,14 @@ os88ui_rad1:
     add ax, [ds:bp+OS88UI_RD_RECT+2]
     mov di, ax                  ; DI = this row's y, for the rest of the body
 
-    UI_WHITE                    ; --- its own ground, so a pick that MOVES
-    mov ax, [ds:bp+OS88UI_RD_RECT+0]    ; needs no repaint of anything above
-    mov cx, [ds:bp+OS88UI_RD_RECT+4]    ; or below it
-    mov bx, di
-    mov dx, di
-    add dx, [ds:bp+OS88UI_RD_PITCH]
-    dec dx
-    UI_FILL
-
-    mov ax, 1                   ; --- greyed? this row's bit, or the group's
-    mov cx, si
-    jcxz .havebit
-.shift:
-    shl ax, 1                   ; (8086: no shift by an immediate but 1)
-    loop .shift
-.havebit:
-    test ax, [ds:bp+OS88UI_RD_DIS]
-    jnz .grey
-    test word [ds:bp+OS88UI_RD_DIS], OS88UI_RDGRP
-    jnz .grey
-    clc                         ; SPEC.md 47 rule 1: the PEN carries it, and it
-    jmp short .pen              ; carries it to the ring, the dot and the label
-.grey:                          ; at once - which is why a fill-drawn mark
-    stc                         ; needs no dither table of its own, where
-.pen:                           ; os88ui_glyph composes one row by row
-    UI_PEN
+    call os88ui_rad_pen
 
     ; --- the ring: FOUR RUNS, never a frame ---------------------------------
     ; A frame would put a pixel in each corner and they would then have to be
     ; knocked out in the ground colour - four more fills AND two more pen
-    ; changes. Four runs that simply stop one pixel short are the same shape
-    ; for less, and every one of them is horizontal or vertical (SPEC.md 39.4:
-    ; a diagonal reads as noise on a 1bpp adapter).
+    ; changes, and one of them an erase. Four runs that simply stop one pixel
+    ; short are the same shape for less, and every one of them is horizontal
+    ; or vertical (SPEC.md 39.4: a diagonal reads as noise on 1bpp).
     mov ax, [ds:bp+OS88UI_RD_RECT+0]
     inc ax
     mov cx, ax
@@ -2948,34 +3002,7 @@ os88ui_rad1:
 
     cmp si, [ds:bp+OS88UI_RD_SEL]       ; --- the dot: 6x6, rounded the same
     jne .label                          ; way, and centred exactly - 1 + 2 + 6
-                                        ; + 2 + 1 is the box's own 12
-    mov ax, [ds:bp+OS88UI_RD_RECT+0]
-    add ax, 4
-    mov cx, ax
-    add cx, 3
-    mov bx, di
-    add bx, 3
-    mov dx, bx
-    UI_FILL                     ; the dot's top run
-
-    mov ax, [ds:bp+OS88UI_RD_RECT+0]
-    add ax, 3
-    mov cx, ax
-    add cx, 5
-    mov bx, di
-    add bx, 4
-    mov dx, di
-    add dx, 7
-    UI_FILL                     ; ...its body
-
-    mov ax, [ds:bp+OS88UI_RD_RECT+0]
-    add ax, 4
-    mov cx, ax
-    add cx, 3
-    mov bx, di
-    add bx, 8
-    mov dx, bx
-    UI_FILL                     ; ...and its bottom run
+    call os88ui_rad_dt                  ; + 2 + 1 is the box's own 12
 
 .label:
     mov ax, si                  ; --- the label, OPAQUE (SPEC.md 6.1) ---
@@ -2993,6 +3020,55 @@ os88ui_rad1:
     mov ah, CWHITE              ; os88ui_chk's convention, and it is why the
     UI_RUN                      ; label greys with the ring for free
 
+    clc
+    UI_PEN                      ; the pen back, always
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_raddot - ONE row's DOT and nothing else: not the ring, not the label
+; in:  BX = the record, SI = the row, 0-based; the gfx lock is held
+; out: nothing; every register preserved
+;
+; THE WHOLE POINT OF THE CONTROL'S REDRAW (SPEC.md 13.17.4). Moving a pick
+; changes six pixels' worth of shape in two rows and NOTHING ELSE - the rings
+; are identical, the labels are identical, the ground between them is
+; identical - so re-lettering either row would be re-drawing text that did not
+; change, which is exactly the class of waste SPEC.md 6.1 is about.
+;
+; It takes no "set or clear" argument: it draws in the ink when this row IS the
+; pick and in the ground when it is not, so the caller writes SEL first and
+; then names the two rows. The row that lost the pick has its dot painted
+; OVER in the ground colour rather than being blanked and left - one write,
+; no interval.
+; -----------------------------------------------------------------------------
+os88ui_raddot:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    mov bp, bx
+    mov ax, si
+    mul word [ds:bp+OS88UI_RD_PITCH]
+    add ax, [ds:bp+OS88UI_RD_RECT+2]
+    mov di, ax
+    cmp si, [ds:bp+OS88UI_RD_SEL]
+    je .ink
+    UI_WHITE                    ; a STORE, not a call: the ground colour is
+    jmp short .go               ; where gfx_color lives
+.ink:
+    call os88ui_rad_pen
+.go:
+    call os88ui_rad_dt
     clc
     UI_PEN                      ; the pen back, always
     pop bp
@@ -3062,9 +3138,9 @@ os88ui_radhit:
     mov [ds:bp+OS88UI_RD_SEL], si
     push si
     mov si, di
-    call os88ui_rad1            ; the row that LOST the pick...
+    call os88ui_raddot          ; the row that LOST the pick...
     pop si
-    call os88ui_rad1            ; ...and the one that has it now. Two rows, not
+    call os88ui_raddot          ; ...and the one that has it now. Two DOTS, not
     xor ax, ax                  ; the group: ZF = 1, CF = 0
     jmp short .out
 .swallow:

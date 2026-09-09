@@ -191,7 +191,59 @@ def main():
         check(u16(m.read(p.addr("rt_b") + 12, 2)) == 0,
               "...and group B's pick did not move")
 
-        # --- 5. A PRESS OUTSIDE IS NOT OURS ----------------------------------
+        # --- 5. NOTHING IS BLANKED, AND NOTHING IS DRAWN TWICE (13.17.4) -----
+        # THE ONE ASSERTION THAT WOULD HAVE CAUGHT THE FIRST VERSION. It filled
+        # the whole row white and then drew the ring, the dot and the label on
+        # top - five drawing calls later, which on the field machine is about
+        # four milliseconds of blank row, every repaint. A pixel comparison
+        # cannot see that: the FINAL frame is identical either way, which is
+        # PERFORMANCE.md Part 1's "invisible in an emulator" exactly.
+        #
+        # So this reads the CALLS instead. Every gfx_fill one full os88ui_rad
+        # makes is recorded with its rect; the ring and the dot both live inside
+        # the 12x12 box, so a fill wider than the box is a fill that spans the
+        # label, and there is no legitimate one.
+        #
+        # bp_trace AND NOT bp_exec, which is not a style choice: a plain
+        # breakpoint STOPS the guest, and a stop landing inside the 1200-baud
+        # mouse packet the click is still sending loses the release - the row
+        # then dies in os88mouse saying so, pointing at the harness. bp_trace
+        # pumps the stops from a daemon and leaves the guest running.
+        with os88marty.bp_trace(m, "gfx_fill", regs=True) as tr:
+            m.key("KeyA")               # rt_onkey redraws group A in place
+            time.sleep(2.0)
+        wide = [(h["regs"]["ax"], h["regs"]["bx"],
+                 h["regs"]["cx"] - h["regs"]["ax"] + 1)
+                for h in tr.hits
+                if h["regs"]["cx"] - h["regs"]["ax"] + 1 > BOX]
+        print("   %d gfx_fill(s) in one full paint of a 3-row group" % tr.n)
+        check(tr.n >= 12, "the key reached os88ui_rad at all (%d fills)" % tr.n)
+        check(not wide, "no fill is wider than the 12px box - nothing spans "
+                        "the label (%s)" % (wide[:2] if wide else "none"))
+
+        # --- 6. A PICK DOES NOT RE-LETTER EITHER ROW -------------------------
+        # font_run_x is the only way a PACKAGE's label reaches the screen, and
+        # the `_x` matters: slot 0x0258's cell names font_run_x, so a
+        # breakpoint on font_run is one a package never reaches. This assertion
+        # was a FALSE GREEN on that symbol until the deliberate breakage below
+        # refused to go red - docs/WRITING-TESTS.md 1 working as advertised.
+        #
+        # The menu bar's clock draws through font_run_x too, which is why the
+        # hits are filtered by y rather than simply counted.
+        ay0 = u16(m.read(p.addr("rt_a") + 2, 2))
+        ay1 = ay0 + 3 * pitch
+        with os88marty.bp_trace(m, "font_run_x", regs=True) as tr:
+            mo.click(ax + 4, ay + 4)    # back to row 0: a real move
+            time.sleep(2.0)
+        inside = [(h["regs"]["cx"], h["regs"]["dx"]) for h in tr.hits
+                  if ay0 <= h["regs"]["dx"] < ay1]
+        check(u16(m.read(p.addr("rt_a") + 12, 2)) == 0,
+              "the pick moved back to row 0")
+        check(not inside, "...and NO font_run_x landed in the group: the "
+                          "labels were not re-drawn (%s)"
+                          % (inside[:2] if inside else "none"))
+
+        # --- 7. A PRESS OUTSIDE IS NOT OURS ----------------------------------
         mv, sw = p.rw("rt_moved"), p.rw("rt_swall")
         mo.click(ax + 4, ay - 4)
         os88marty.settle(m)
