@@ -864,3 +864,93 @@ an UPPER bound where the operands are memory (88.4.5.1 predicted 3.6 ms and
 delivered 2.5), so 4.6 could be three. And `cs_edge` has three callers, two of
 them the rolled horizon's (csraster.inc), so the change is not confined to the
 polygon filler.
+
+## 7.6 THE VERTEX PIPELINE, taken apart - and it is MULTIPLY-bound only a third of the way
+
+`cs_scale` + `cs_project` + `cs_flatverts` + `cs_stackverts` is **46 ms of a
+254 ms frame** and nothing had opened it. The premise going in was that it is
+the one part of the program bound by the 8088's multiply unit rather than by
+its prefetch queue - `MUL14` is `imul bx` and three fixups, ~150 clocks against
+8 bytes - and that premise is **only a third true**.
+
+### 7.6.1 Every multiply the package executes, counted
+
+211 multiply and divide instructions exist in the image; what matters is how
+often each RUNS. Breakpointed all 211, `turnhold`, per frame:
+
+**885 multiplies and divides a frame, ~28.3 ms, 11% of the frame.**
+
+| routine | a frame | ~ms |
+|---|---|---|
+| `cs_colscale` | 218 | 6.86 |
+| `cs_dot` | 167 | 5.26 |
+| `cs_consider` | 108 | 3.39 |
+| `cs_project0` + `cs_project2` | 110 | 3.70 |
+| `cs_edge` | 39 | 1.44 |
+| `cs_cxing` | 37 | 1.20 |
+| `cs_step` | 40 | 1.20 |
+| `cs_faces` | 28 | 0.88 |
+| `cs_sizepx` | 29 | 0.85 |
+
+So of the vertex block's 46 ms, **~15.8 ms is multiplies and ~30 ms is the
+scaffolding around them** - and scaffolding is the removable kind. That
+inverts the reason for opening the block, and it is the finding.
+
+### 7.6.2 `cs_projall`, examined - 1,335 cycles a vertex, and it is SPREAD THIN
+
+The biggest of the four and the least multiply-bound (22%), so it was taken
+first. 41 vertices a frame reach the loop; the per-vertex phases:
+
+| | ms a frame | cycles a vertex |
+|---|---|---|
+| the loads and the near test | 1.02 | 119 |
+| **`CS_PROJ` itself** | **7.63** | **885** |
+| the stores, the flag, and the box or the side test | 3.06 | 355 |
+
+...and inside `CS_PROJ`, over 56.6 projections a frame:
+
+| | ms a frame | cycles a vertex |
+|---|---|---|
+| the depth test + **ROW SELECTION** | 2.03 | 171 |
+| the index shift | 0.12 | 10 |
+| `imul` kx, clamp, shift, add vcx | 3.55 | 299 |
+| `imul` ky, clamp, shift, add vcy | 3.84 | 324 |
+
+**There is no lever here, and that is worth writing down rather than
+rediscovering.** The two `imul` are ~318 of the 804 and are irreducible at
+this precision. What is left is 486 cycles spread over four things that are
+each 150 cycles or less: a piecewise depth-to-row index, two overflow clamps
+that §85.5.3 put there after a wrong-signed crossing, and two adds. **The
+largest single item is the row selection at 2.03 ms**, and no cheaper mapping
+suggests itself - the three ranges are what compress a 16,000 m depth into
+2,048 table rows.
+
+Two things ruled OUT on the way, both worth not re-checking:
+
+- **Nothing is projected for nobody.** `cs_projall` runs 8.8 times a frame,
+  exactly matching `cs_faces` - a box impostor takes `cs_boxlod` and never
+  enters here - so no vertex is transformed for an object that then draws as
+  a box.
+- **The three `cs_project0/2/4` copies are not duplication to merge.** They
+  differ in the depth shift, the clamp bound AND the post-multiply shift, and
+  the shift is a `%rep` of `shl`/`rcl` pairs because a variable-count 32-bit
+  shift is a loop that the macro's own note says was measured at 20 cycles a
+  step. Collapsing them would cost more than the indirect call saves.
+
+### 7.6.3 Where the evidence points instead
+
+Of the four, `cs_projall` had the lowest multiply share and turned out thin.
+The other three are the opposite shape, and `cs_colscale` is where the
+multiplies actually are:
+
+| | ms | per unit | multiply share |
+|---|---|---|---|
+| `cs_flatverts` (+ `cs_colscale`) | 11.82 | ~1,621 cycles a vertex | **~55%** |
+| `cs_scale` (+ `cs_rot`, `cs_dot`) | 14.12 | 4,185 cycles a call | ~32% |
+| `cs_stackverts` (+ `cs_colscale`) | 4.82 | | |
+
+`cs_flatverts` is the one to open next: **six `MUL14` a vertex** through two
+`cs_colscale` calls that each write three words to memory which the caller
+then reads back and adds - eight push/pops, two calls and twelve memory
+round-trips a vertex around 900 cycles of arithmetic. That is scaffolding of
+exactly the kind §88.4.2.3 found in `cs_edge`, and it is ~45% of 11.82 ms.
