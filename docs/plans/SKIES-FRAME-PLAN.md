@@ -892,6 +892,9 @@ often each RUNS. Breakpointed all 211, `turnhold`, per frame:
 | `cs_faces` | 28 | 0.88 |
 | `cs_sizepx` | 29 | 0.85 |
 
+(That is the top of the list and not all of it - `cs_project4` is below the
+cut and DOES run, 24.4 vertex projections a frame; see 7.6.4.)
+
 So of the vertex block's 46 ms, **~15.8 ms is multiplies and ~30 ms is the
 scaffolding around them** - and scaffolding is the removable kind. That
 inverts the reason for opening the block, and it is the finding.
@@ -954,3 +957,40 @@ multiplies actually are:
 then reads back and adds - eight push/pops, two calls and twelve memory
 round-trips a vertex around 900 cycles of arithmetic. That is scaffolding of
 exactly the kind §88.4.2.3 found in `cs_edge`, and it is ~45% of 11.82 ms.
+
+### 7.6.4 The precision ladder is already three rungs, and it costs nothing
+
+The sub-metre eye position exists because a runway rotated from whole metres
+**jumped a metre across between frames - 20 pixels at 22 m** (the note above
+`cs_scale`). The obvious question is whether the program is still paying for
+that when nothing is under the wheels, and the answer is no: `[cs_pshr]` is
+chosen PER OBJECT PER FRAME from its reach plus its radius - sixteenths inside
+~2,048 m with a radius under 1,024, quarters inside ~8,192 m with a radius
+under 4,096, whole metres beyond - and it selects the projection variant with
+it. Measured, objects a frame:
+
+| | objects | sixteenths | quarters | whole metres |
+|---|---|---|---|---|
+| `turnhold` | 17.2 | 20% | 57% | 23% |
+| `cruise` | 14.0 | 17% | 59% | 24% |
+| `climb` | 7.7 | **29%** | 57% | 14% |
+| `descend` | 10.8 | **0%** | 80% | 20% |
+
+...and by VERTEX, which is what the projection variant is picked for:
+
+| | projections a frame | `cs_project4` | `cs_project2` | `cs_project0` |
+|---|---|---|---|---|
+| `turnhold` | 94.2 | 26% | 41% | 33% |
+| `climb` | 80.2 | **47%** | 45% | 9% |
+
+All three rungs are in use every frame, `climb` - on the runway, the case the
+precision was built for - is 47% at the finest, and `descend` at 600 m never
+needs it at all. The ladder is doing exactly what it was written to do.
+
+**And it is free either way, which closes "spend less precision" as a lever.**
+The rung does NOT change the multiply count: `cs_rot` is nine `MUL14` and
+`cs_flatverts` six a vertex whatever it is. All it changes is `cs_sdiff`'s
+shift chain - a two-instruction byte shuffle at whole metres against four or
+six `sar`/`rcr` pairs - which is at most ~70 clocks an object, **~0.2 ms a
+frame** across the whole scene. The vertex pipeline's cost is the multiplies
+and the scaffolding, and both are scale-independent.
