@@ -2070,14 +2070,32 @@ cs_poly:
     ;     STRICTLY inside the view has no row that needs clamping and no row
     ;     that spans the view - which is the row loop's whole 25-byte clamp
     ;     block, fetched 257 times a frame for an answer the polygon already
-    ;     has. STRICTLY inside, not merely inside: a row is a whole-view row
-    ;     when xl <= wx0 and xr >= wx1, and a box that reaches exactly to
-    ;     both edges is inside them and can still do it.
+    ;     has.
+    ;
+    ;     TOUCHING AN EDGE IS NOT REACHING PAST IT, and the first version of
+    ;     this test could not tell them apart. `cs_edge` interpolates
+    ;     strictly BETWEEN an edge's two endpoints - the above-view arm jumps
+    ;     n rows along the edge rather than extrapolating past it - so every
+    ;     xl and xr lies inside [bp, di], and a box with bp = wx0 has no row
+    ;     that needs the left clamp: clamping xl to wx0 when xl >= wx0 is a
+    ;     no-op. `jle`/`jge` therefore turned the block on for a box that
+    ;     merely touched, and MEASURED, that was ONE POLYGON A FRAME
+    ;     CARRYING 81.6 ROWS - 32% of every row in `turnhold` - not one of
+    ;     which was clamped at either end (88.4.5.3).
+    ;
+    ;     The WHOLE-VIEW row is what a strict test could lose - it wants
+    ;     xl <= wx0 and xr >= wx1, and with bp >= wx0 and di <= wx1 that can
+    ;     only be bp = wx0 AND di = wx1 - and it does not, because nothing
+    ;     lands there: `cs_fclip` clips to the FRUSTUM and not to the view,
+    ;     and 88.5.7 puts its side crossings at 4z, about 1,772 pixels, so a
+    ;     polygon that spans the view spans it by hundreds of pixels either
+    ;     side. The eight bytes that tested for the tie were measured and
+    ;     came back NEGATIVE - 0.1 ms of cs_poly against 0.1 ms of nothing -
     mov si, 1                       ; SI = 1: the general row loop
     cmp bp, [cs_wx0]
-    jle .mx3
+    jl .mx3                         ; a row can fall left of the view
     cmp di, [cs_wx1]
-    jge .mx3
+    jg .mx3                         ; ...or right of it
     xor si, si                      ; ...neither can happen: skip the block
 .mx3:
     mov [cs_pnoclip], si
@@ -2256,8 +2274,8 @@ cs_polyrows_herc:
     ;     cs_poly already has: BP is zero when no row of this polygon can
     ;     reach a view edge, which was 91% of them (7 of 79 needed the box
     ;     clamped at all). Four bytes and a jump NOT TAKEN in their place
-    cmp bp, 0
-    jne .clip
+    or bp, bp                       ; ...`cmp bp, 0` is three bytes; this is
+    jne .clip                       ; two, and the same flag
 .c2:
     cmp ax, cx
     jg .nrow
@@ -2281,15 +2299,16 @@ cs_polyrows_herc:
     xor bh, bh
     add bx, di                      ; BX = the first byte's address
     sub cl, al                      ; CX = bytes - 1
-    jnz .multi
-    and ah, dh                      ; one byte holds both ends
-    mov al, [es:bx]
-    xor al, dl
-    and al, ah
-    xor [es:bx], al
-    pop bx
-    jmp short .nrow
-.multi:
+    ; --- THE ONE-BYTE ARM IS OUT OF LINE and this test is inverted, for two
+    ;     reasons that are both about the 8088's prefetch queue. A row that
+    ;     covers two bytes or more is 80% of them, so it is the one that must
+    ;     FALL THROUGH - a taken jump flushes the queue. And the fifteen
+    ;     bytes it used to jump over were fifteen bytes of the loop's SPAN:
+    ;     at 138 the backward `jle .row` was out of rel8 range and nasm was
+    ;     emitting `jnle $+5 / jmp .row`, FIVE bytes and a taken jump on
+    ;     every row of the program. Out of line the span is 120 and it is a
+    ;     two-byte `jle` again (88.4.5.2) -----------------------------------
+    jz .one
     mov al, [es:bx]
     xor al, dl
     and al, ah
@@ -2321,7 +2340,16 @@ cs_polyrows_herc:
     cmp bx, [cs_py1]
     jle .row
     ret
-    ; --- ...and the block itself, reached only by a polygon whose box
+    ; --- the one-byte row, out of the loop's span --------------------------
+.one:
+    and ah, dh                      ; one byte holds both ends
+    mov al, [es:bx]
+    xor al, dl
+    and al, ah
+    xor [es:bx], al
+    pop bx
+    jmp short .nrow
+    ; --- ...and the clamp itself, reached only by a polygon whose box
     ;     touches or crosses a view edge, and by every cs_rect ------------
 .clip:
     cmp ax, [cs_wx0]

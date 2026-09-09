@@ -12590,3 +12590,90 @@ and 0 differing pixels across 554 frames**. That is what a commutative
 multiply and an unchanged sum order should give, and it is worth taking
 anyway: the sum order is only unchanged because integer addition wraps the
 same either way, which is an argument rather than an observation.
+
+### Set 134 — CLEAR SKIES: a row's SHAPE decides its bytes, and a gate one comparison too loose (SPEC.md §88.4.5.2, §88.4.5.3)
+
+Set 132 priced `cs_polyrows_herc` at 725 cycles and 148 bytes a row and said
+the only thing worth removing is ENCODED BYTES. The clamp gate took 25 of them
+out of line; this set censuses what is left **by arm**, because a fetch-bound
+loop only pays for the bytes a row actually executes. `turnhold`, six frames,
+279.5 rows a frame, each row measured `.row` to `.row` — **with the delta
+closed at the routine's `ret`**, without which the last row of one polygon
+runs into the first of the next and reads 38,478 cycles instead of 658, the
+same boundary error Set 132 found in the regression:
+
+| the row | a frame | share | cycles |
+|---|---|---|---|
+| multi, two bytes | 70.7 | 25.3% | 635 |
+| clipped multi, two bytes | 70.0 | 25.0% | 763 |
+| multi with a middle run | 63.3 | 22.7% | 728 |
+| ONE byte | 50.3 | 18.0% | 537 |
+| clipped multi with a middle | 21.0 | 7.5% | 828 |
+| clipped ONE byte | 4.2 | 1.5% | 658 |
+| **all** | **279.5** | | **685** |
+
+Two bytes or fewer is **43%** of every row, only 30% have a middle run at all,
+and an EMPTY row never happens — `cs_edge` leaves `xl <= xr` on every row it
+writes, so the `jg .nrow` guard has fired zero times in every census taken.
+
+**Finding 1: the one-byte arm was in the wrong place, twice.** It sat inline,
+jumped over by `jnz .multi`, so 80% of rows took a jump they did not need —
+and a taken jump flushes the 8088's prefetch queue. Worse, its fifteen bytes
+were fifteen bytes of the loop's SPAN: at 138 the backward `jle .row` was
+outside `rel8` and nasm was emitting `jnle $+5` / `jmp .row`, **five bytes and
+a second taken jump on every row of the program**. That is the kind of cost
+that never appears in a diff. Out of line the span is 122, the `jle` is two
+bytes, the common arm falls through, and with `cmp bp, 0` rewritten as the
+two-byte `or bp, bp` it is **−4 bytes a row for −4 bytes of image**:
+
+| tier 1, 16 frames | control | + the span |
+|---|---|---|
+| `turnhold` `cs_scene` | 166.04 ms | **165.09 / 165.24** |
+| `bank` | 151.27 | **150.31 / 150.53** |
+| `cruise` | 122.89 | **122.71 / 122.86** |
+
+**Finding 2, and it is the one worth remembering: the gate was one comparison
+too loose in each direction, and that was 32% of every row in the program.**
+§88.4.5.1 turned the clamp block on when the polygon's box was `<=` the left
+edge or `>=` the right. Touching is not crossing, and `cs_edge` proves it:
+the walker interpolates strictly BETWEEN an edge's endpoints, so every `xl`
+and `xr` lies inside the box, and a box whose left extreme IS `wx0` has no row
+needing the left clamp. Instrumented at the row loop's entry, reading the
+whole `cs_xl`/`cs_xr` range against the box the gate tested:
+
+| | clipped rows a frame | of which NEITHER end clamped |
+|---|---|---|
+| `turnhold` | 82.3 | **100%** |
+| `descend` | 8.1 | 78% |
+| `cruise` | 35.2 | 72% |
+| `climb` | 104.3 | 43% |
+
+**One polygon a frame in `turnhold` carried 81.6 of those rows.** On `jl`/`jg`
+the block is off for every row of that scene. Two things had to be checked
+before taking it: that the WHOLE-VIEW arm survives — it wants the box to touch
+BOTH edges at once, and nothing lands there because `cs_fclip` clips to the
+frustum, whose side crossings are at 4z ≈ 1,772 pixels, so `climb` keeps its
+5.5 whole-view rows a frame — and that a tie test for the case was worth its
+eight bytes. **It was not**: measured, it cost 0.1 ms of `cs_poly` and bought
+0.1 ms of nothing, so it came back out.
+
+Both, on the `cs_poly` bracket with the call counts identical in every arm:
+
+| tier 3, 16 frames | `cs_poly` control | + both | frame |
+|---|---|---|---|
+| `turnhold` | 49.09 ms | **47.79 / 47.79** | 253.7 → 252.6 |
+| `bank` | 36.54 | **35.52 / 35.22** | 244.7 → 243.9 |
+| `climb` | 18.27 | **17.72 / 17.72** | 151.8 → 151.4 |
+
+**569 frames over six pinned profiles are pixel-identical**, which is the only
+thing that can license a tighter gate — the change is an argument about what
+`cs_edge` can produce, and an argument is not evidence.
+
+**Two method notes.** The row COUNTS are not comparable between runs of the
+probe: it flies 40 rendered frames before arming, and a faster build takes
+fewer ticks to do that, so it arms in a different place — only the shares
+within one run mean anything, and the `calls` column of a same-session tier
+bracket is what says the two arms saw the same scene. And `cs_scene` at 16
+frames wanders about **0.3 ms between runs of the same code**, which is the
+size of the second finding: the `cs_poly` bracket, whose call count is
+identical in every arm, is the instrument that could see it.

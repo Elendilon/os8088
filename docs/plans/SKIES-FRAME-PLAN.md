@@ -816,6 +816,81 @@ Where the remaining time is, `turnhold`, measured:
 | the edge loop's per-edge setup | 2.43 | |
 | the min/max pass, the box mark, the counter | 2.30 | |
 
+### 7.5.2 BUILT - the row census, and a gate one comparison too loose
+
+A fetch-bound loop only pays for the bytes a row EXECUTES, so the breakdown
+above is the wrong unit: a row's ARM is. `turnhold`, 279.5 rows a frame, each
+measured `.row` to `.row` with the delta closed at the routine's `ret`:
+
+| the row | a frame | share | cycles |
+|---|---|---|---|
+| multi, two bytes | 70.7 | 25.3% | 635 |
+| clipped multi, two bytes | 70.0 | 25.0% | 763 |
+| multi with a middle run | 63.3 | 22.7% | 728 |
+| ONE byte | 50.3 | 18.0% | 537 |
+| clipped multi with a middle | 21.0 | 7.5% | 828 |
+| clipped ONE byte | 4.2 | 1.5% | 658 |
+
+Two bytes or fewer is 43% of every row and an EMPTY row never happens at all.
+Two things came out of it, both built (SPEC.md 88.4.5.2, 88.4.5.3):
+
+- **the one-byte arm was inline**, so 80% of rows took a jump to skip it - and
+  its fifteen bytes put the loop's span at 138, where the backward `jle .row`
+  is out of `rel8` and nasm emits `jnle $+5` / `jmp .row`: five bytes and a
+  second taken jump on every row of the program. Out of line the span is 122.
+- **the clip gate tested `<=` and `>=`** where `cs_edge` only ever writes an
+  `xl`/`xr` INSIDE the box, so a box merely TOUCHING an edge turned the block
+  on for nothing. One polygon a frame, 81.6 rows, 32% of every row drawn, not
+  one of them clamped at either end.
+
+`cs_poly` 49.09 -> 47.79 ms (`turnhold`), 36.54 -> 35.37 (`bank`), 18.27 ->
+17.72 (`climb`); the frame moves by the same and the image is 4 bytes smaller.
+569 frames on six pinned profiles are pixel-identical.
+
+### 7.5.3 COSTED, NOT TAKEN - two row loops to free BP
+
+What is left in the loop's fixed cost, per row, after the two above:
+
+| | bytes | why it is there |
+|---|---|---|
+| `mov si,bx` / `shl si,1` / two array reads | 12 | the row's ends |
+| **`or bp,bp` / `jne .clip`** | **4** | the clip gate - and `turnhold` never takes it now |
+| `cmp ax,cx` / `jg .nrow` | 4 | an empty row, which never happens |
+| the pattern byte | 9 | `bx & 3` into `cs_pat` |
+| **the two ends** | **30** | `and si,7`, three `shr`, a mask each |
+| the address and the width | 10 | |
+| the two masked bytes | 24 | |
+| the middle run | 19 | 30% of rows |
+| **`cmp bx,[cs_py1]` / `jle`** | **6** | a disp16, because no register is free |
+
+**BP is the contested register.** It carries a per-row boolean that `turnhold`
+now never uses, and if it carried `cs_py1` instead the loop's compare would be
+`cmp bx, bp` - two bytes rather than four - and the gate would go entirely.
+That is **-6 bytes a row, about 26 cycles, ~1.4 ms a frame**, and the price is
+that the clip block has to move INLINE into a second copy of the loop, chosen
+by `cs_poly` through a second `[cs_rowsproc]`-style vector. Written as a
+`%macro` assembled twice it is one source and about **120 bytes of image**;
+the clipping copy also gets its clamp reordered so a row that needs neither
+end falls through it (measured: 43-100% of clipped rows need neither), which
+is two fewer prefetch flushes on the rows that still take it.
+
+Not taken here because it is the first change in this round that BUYS speed
+with SIZE rather than removing work, and 1.4 ms is 0.55% of the frame. It is
+written down so the next reader does not have to re-derive the register
+pressure.
+
+### 7.5.4 REFUSED - a table for the row's two ends
+
+The 30 bytes the two ends cost is the largest single block left, and a word
+table indexed by x - `(mask << 8) | (x >> 3)`, exactly the AH:AL the code
+wants - reduces it to 20 for `-10 bytes a row, ~2.3 ms`. It needs **2,560
+bytes** (two tables, 640 entries, the buffer being 80 bytes a row), and the
+package has **~1,416 bytes** of gap between `os88_image_end + CS_BSS` and
+`CS_VOCAB_AT` for the image and the ZWORD chain TOGETHER. Raising
+`CS_VOCAB_AT` grows the heap claim by the same amount on every machine that
+runs the program. A single 640-byte `x >> 3` table with the masks left alone
+is only **-2 bytes a row**, which is not worth 640 bytes of anybody's RAM.
+
 ### 7.5.1 PARKED - a fractional DDA instead of exact Bresenham
 
 **The one item left that is worth more than a millisecond is the STEPPING

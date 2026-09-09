@@ -101954,6 +101954,73 @@ they come from its one `cs_rect` call, which is why that caller keeps BP = 1.
 is drawn, and those are forty **whole-view rows** a frame (§88.5.5) whose
 test lives in the block BP skips.
 
+##### 88.4.5.2 The one-byte arm was fifteen bytes of the loop's SPAN
+
+A row's shape decides which bytes it fetches, so `cs_polyrows_herc` was
+censused by arm — `turnhold`, six frames, 279.5 rows a frame, each row's
+whole iteration measured from `.row` to `.row` with the delta **closed at the
+routine's `ret`** so that no delta spans two polygons (PERFORMANCE.md Set 132
+is why that matters):
+
+| the row | a frame | share | cycles |
+|---|---|---|---|
+| multi, two bytes | 70.7 | 25.3% | 635 |
+| clipped multi, two bytes | 70.0 | 25.0% | 763 |
+| multi with a middle run | 63.3 | 22.7% | 728 |
+| ONE byte | 50.3 | 18.0% | 537 |
+| clipped multi with a middle | 21.0 | 7.5% | 828 |
+| clipped ONE byte | 4.2 | 1.5% | 658 |
+
+**Two bytes or fewer is 43% of every row in the program** and an EMPTY row
+never happens at all — `cs_edge` leaves `xl <= xr` on every row it writes, so
+the `jg .nrow` guard has fired zero times in every census taken.
+
+The one-byte arm sat INLINE, jumped over by `jnz .multi`, and that was wrong
+twice. It is the rare arm — 80% of rows are two bytes or more — so the taken
+jump was on the common path, and a taken jump flushes the 8088's prefetch
+queue. And its fifteen bytes were fifteen bytes of the loop's **span**: at 138
+the backward `jle .row` was outside `rel8` and nasm was quietly emitting
+`jnle $+5` / `jmp .row` — **five bytes and a second taken jump on every row of
+the program**. Out of line the span is 122, the `jle` is two bytes again, and
+the common arm falls through. With `cmp bp, 0` written as the two-byte
+`or bp, bp` beside it that is **−4 bytes a row for −4 bytes of image**, and
+the frame's `cs_scene` reads **166.04 → 165.17 ms** in `turnhold` and
+**151.27 → 150.42** in `bank`.
+
+##### 88.4.5.3 Touching a view edge is not reaching past it
+
+§88.4.5.1's gate asked whether the polygon's box `<=` the left edge or `>=`
+the right. That is one comparison too loose in each direction, and it is a
+property of `cs_edge` that says so: the edge walker interpolates strictly
+BETWEEN an edge's two endpoints — its above-view arm jumps *n* rows **along**
+the edge rather than extrapolating past it, and its floored Bresenham lands
+exactly on the lower endpoint — so every `xl` and `xr` it writes lies inside
+the box. A box whose left extreme IS `wx0` therefore has no row that needs the
+left clamp, because clamping `xl` to `wx0` when `xl >= wx0` changes nothing.
+
+Measured, that was not a rounding case. In `turnhold` **one polygon a frame
+turned the block on and carried 81.6 rows — 32% of every row drawn — and not
+one of them was clamped at either end.** Across four profiles the "clipped but
+neither end clamped" share of clipped rows is 100% (`turnhold`), 78%
+(`descend`), 72% (`cruise`) and 43% (`climb`).
+
+The test is `jl`/`jg` now and the block is off for every row of `turnhold`.
+The case a strict test could lose is the WHOLE-VIEW row, which wants
+`xl <= wx0` and `xr >= wx1`; with `bp >= wx0` and `di <= wx1` that is only
+possible when the box touches both edges at once, `bp = wx0` AND `di = wx1`.
+**Nothing lands there**, because `cs_fclip` clips to the FRUSTUM and not to
+the view and §88.5.7 puts its side crossings at 4z — about 1,772 pixels — so a
+polygon that spans the view spans it by hundreds of pixels either side.
+`climb` keeps its whole-view rows on the strict test, 5.5 a frame, and the
+eight bytes that tested for the tie were **measured and came back negative**:
+0.1 ms of `cs_poly` against 0.1 ms of nothing.
+
+Both together, on the `cs_poly` bracket with the call counts identical in
+every arm: **49.09 → 47.79 ms** (`turnhold`), **36.54 → 35.37** (`bank`),
+**18.27 → 17.72** (`climb`), and the frame moves by the same. **569 frames
+over six pinned profiles are pixel-identical**, which is the only thing that
+can license a tighter gate.
+
 #### 88.4.6 The Hercules row loop and slice
 
 `cs_polyrows_herc` is §88.4.2's row loop with the run INLINE: no dispatch
