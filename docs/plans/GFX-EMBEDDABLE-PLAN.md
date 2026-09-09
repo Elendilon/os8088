@@ -1283,6 +1283,72 @@ cannot see that two of them are an A/B and a third is insurance — §9.1's rule
 again, one level along: a census is the right instrument for *what would break*
 and the wrong one for *what is work*.
 
+## 8.10 Missile, mapped — and its `gfx_line` arm exists for a reason wave 5 removed
+
+§3.3 named Missile *"the one the arithmetic most favours"* and §3.2's fourth
+option — an app walker committing `OSAPI_GFX_LINE(p_prev, p_now)` a segment — is
+what it proposed. **Missile already does exactly that**, and wave 5 has since
+made the premise underneath it false.
+
+**The structure.** A trail takes one of two arms, decided by `mc_tr_lay`:
+
+- **the walk** (`mc_iarm` = 1) — `gfxe_winit` + `gfxe_wstep` + `gfxe_pput` since
+  wave 5, and measured 33.5% cheaper than the kernel's;
+- **the segment path** (`mc_iarm` = 2, `.iseg`) — `mc_line(p_prev, p_now)` once
+  a frame, which IS §3.2's fourth option, hand-rolled;
+
+and its erase is `mc_line(start, current)` with `[mc_lfat]` set, one long
+**dilated** line, because §5.6.5: *"we DRAW in per-frame segments and erase in
+one long line, and those two Bresenhams disagree by a pixel."*
+
+**`mc_tr_lay` refuses — sending a trail to the segment path — for exactly two
+reasons**: the Mode X surface (§53.7, no kernel slot is legal), and *either
+endpoint off the content*. The second carries its own explanation:
+
+> *…not for a line with an end outside our content, where the kernel would clip
+> to the SCREEN and paint over the desktop.*
+
+**That is a statement about the KERNEL's line, and since wave 5 the walk is not
+the kernel's.** `gfx_points` resolves every point against `wm_clip_tab`
+(§5.6.9.1) and simply drops one no rect holds — so an off-content trail can take
+the walk arm now, and the whole segment path with it. This is §3.2's own
+argument one turn further along: it said the walker could move into the app
+because 5.6.7's reasoning was about the kernel holding the state; the same is
+true of this refusal, and for the same reason.
+
+### 8.10.1 …which matters because the DILATED erase has no good conversion
+
+The thin arm converts trivially: a per-frame segment is one to three pixels, and
+`GFX_POINTS` at 165.96 µs a point beats `gfx_line`'s flat ~986 µs a call by
+about 1.6×, on machinery Missile already carries.
+
+**The fat arm does not.** §5.6.5's dilation is the line plus one pixel either
+side of the minor axis — three times the points — so a 60-pixel trail erase is
+~30 ms through `GFX_POINTS` against ~9.5 ms as one dilated `gfx_line`. **3×
+worse**, and building `GFXE_WIDE` would not change that: the cost is the point
+count, not the code.
+
+So converting `mc_line` piecemeal leaves Missile on `gfx_line` for the erase and
+unblocks nothing. **Retiring the segment path retires both arms at once**, and
+the dilation with them — an erase that replays the walk is exact by
+construction, which is what §5.6.5 is a workaround for.
+
+### 8.10.2 What is owed before it is built
+
+**A measurement that could not be taken here.** `mc_line`'s traffic was
+instrumented over 30 guest seconds of scripted clicking and read **zero calls** —
+the attract state routes every trail through the batch — so how often the
+segment path runs in real play, and how long its lines are, is unmeasured. That
+decides whether this is worth doing at all, and the row wants a way to drive
+Missile into a live game rather than its attract loop.
+
+**And one behavioural risk to name.** `mc_clamp` is what keeps an off-content
+line off the desktop today. Moving those trails onto the walk arm makes
+`gfx_points`'s clip the thing that does it instead, which is correct in
+principle and is a real change to a game's core rendering, on the path
+docs/FIELD-NOTES.md has already had one trail defect on. It wants the
+measurement above first, not after.
+
 ## 9. What is NOT settled — evidence still owed
 
 1. **§4.2's layering claim is a design claim, not a measurement.** *"`GFXE_WALK`
