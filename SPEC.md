@@ -101714,6 +101714,115 @@ Three structural facts hold the prize where it is:
     the city frame produce 15.8 walked faces, because anything under about
     six pixels is `cs_boxlod`'s rectangle (§88.5.4).
 
+##### 88.4.2.2 The SENTINEL pass is retired, and one read-back is why it existed
+
+`cs_poly` used to lay `+32767` down `cs_xl` and `−32768` down `cs_xr` over
+every row of the polygon's range — two `rep stosw`, **1,265 cycles and 1.89 ms
+a frame** on `turnhold` — so that `cs_edge` could take a min or a max against
+them. §88.5.4.7 exempted the box impostor from it on the argument that a
+convex polygon with no horizontal edge never reads one back. **That argument
+is general, and what it was missing is that the read-back itself is
+removable.**
+
+**Only ONE thing ever read a chain back**: `cs_edge`'s HORIZONTAL arm, which
+took min/max because it could not know whether the chains had already reached
+that row. It does not need to know. **A convex polygon at its top row IS its
+top edge and at its bottom row its bottom edge** — the only two rows a
+horizontal edge can lie on — so that edge's two ends ARE the row's extent, and
+storing them outright is not just cheaper but more obviously right than
+taking extremes against whatever was there.
+
+With that store unconditional, nothing reads a chain back, and **the pass has
+no customer**: every row of a convex polygon gets one left-chain store and one
+right-chain store from the sloped edges, unconditional, and `cs_poly` reaches
+the row loop with `cs_xl`/`cs_xr` fully written whatever else happened.
+
+**Measured before it was touched**, which is what turned the argument into a
+decision: reading `cs_xl`/`cs_xr` back at `.rows` over the polygon's own row
+range and counting rows still holding a sentinel —
+
+| | polygons that laid sentinels | rows | rows left BARE |
+|---|---|---|---|
+| `turnhold` | 55 | 2,159 | **0** |
+| `cruise` | 80 | 592 | **0** |
+| `bank` | 62 | 1,876 | **0** |
+| `descend` | 12 | 27 | **0** |
+
+**209 polygons and 4,654 rows, and not one row depended on the pass.**
+
+Three things go with it: `[cs_pnosent]`/`[cs_pnos]` and §88.5.4.7's promise
+(the exemption is now universal), the `push ds`/`pop es` that only the
+`rep stosw` wanted, and `cs_edge`'s sloped **`both`** arm — which was already
+unreachable, `cs_poly` setting side 1 or 2 for every sloped edge, and which
+would have been the one place a future caller could rely on a sentinel that no
+longer exists. `cs_edge`'s contract says so now: side 0 is not an input, a
+horizontal edge is recognised from `BX = DX` inside the routine, and a caller
+that does not know its winding cannot use it.
+
+**What it is worth**, against a control run between two arms that read
+identically:
+
+| tier 1, 16 frames | control | + the removal |
+|---|---|---|
+| `turnhold` `cs_scene` | 172.23 ms | **170.50 / 170.12** |
+| `turnhold` frame | 259.7 | **257.8 / 257.8** |
+| `bank` `cs_scene` | 155.93 | **154.50 / 154.50** |
+| `cruise` `cs_scene` | 126.62 | **126.22 / 126.22** |
+
+**−1.9 ms and −100 bytes**, and unlike §88.4.5.1's clamp gate it pays on every
+profile, because every polygon laid a sentinel and none of them read one.
+1.89 ms was measured before the change and 1.9 came back, which is the one
+kind of prediction that is not an estimate: the pass was timed, not modelled.
+
+**The picture is identical over 557 frames** of the tick-driven scripted
+flight across six profiles — and getting that reading needed the instrument
+fixed twice, both worth writing down. `CSO_SEEN` is **self-perpetuating**
+(§88.5.1: seen last frame is filed without the cone, so it stays seen), and it
+is latched during the harness's UNPINNED warm-up, where two builds fly at
+their own frame rates: one `CSO_TERRAIN` object then differed on all 93 frames
+of `descend` while the pixels stayed identical. The latches have to be cleared
+at arming time, exactly as §88.5.2 says a teleport has to clear the skip
+counters. And a callback that raises inside a breakpoint trace does not fail —
+the guest is simply never resumed, and it reads as the change having hung the
+machine. **The control that separates those is the same build against
+itself**, which is why it is taken before any conclusion.
+
+##### 88.4.2.3 …and `cs_edge`'s two chains were one loop written twice
+
+`cs_edge` is **16.0 ms a frame** on `turnhold` over 30.2 edges, the largest
+single routine in the scene after the row filler, and it splits cleanly:
+
+| | ms a frame | |
+|---|---|---|
+| the setup — order, clip, the `idiv`, the above-view jump | 4.60 | 765 cycles a call; the jump arm runs on **12%** of them |
+| **the Bresenham stepping** | **13.48** | `83 + 90.0 × rows`, **689 row-stores a frame** |
+
+Two things came off it, and the first is the kind of duplicate that hides in
+plain sight. **`.left` and `.right` were the same thirty-six lines**, differing
+only in which array they stored to — and that array is also why each store cost
+**four bytes**: `mov [cs_xl + bx], si` carries a disp16, where `mov [bx], si`
+is two and `mov [bx + 2], si` is three. So BX becomes a **real pointer** (the
+base added once, at the dispatch) and the two arms become one loop: **three
+bytes off every two rows** on a loop that is fetch-bound like every other one
+here, and about fifty bytes of image off with the duplicate.
+
+**And q and r were reloaded from memory for nothing.** `.fl` computes them into
+AX and DX and stores them; `.inview` then read both back. Only the above-view
+arm clobbers them, and it is 12% of calls — so the reload moved into that arm,
+where the setup is CLOCK-bound (765 cycles against 217 of fetch floor) and
+36 clocks off 88% of calls is real.
+
+| tier 1, 16 frames | control | + both |
+|---|---|---|
+| `turnhold` `cs_scene` | 170.50 ms | **169.39 / 169.32** |
+| `bank` `cs_scene` | 154.80 | **153.92 / 154.07** |
+| `cruise` `cs_scene` | 126.22 | **125.88 / 125.88** |
+
+**−1.13 ms and −54 bytes**, 0 differing frames of 557 over six profiles. The
+duplicate is the part worth remembering: it had been two arms since the routine
+was written, it reads as a deliberate specialisation, and the only thing
+specialised was a constant.
+
 #### 88.4.3 The walk is Tank's, without the per-pixel marks
 
 `cs_seg` is §85.3.2's walk with the dirty-span marks taken out of the pixel
@@ -101781,6 +101890,69 @@ it took each from ~8,100 cycles to ~5,800. What is left of that is the
 face's own bookkeeping — the in-front count, the cross product, the copy
 into `cs_pv`, the ink — and a **five-thousand-cycle floor per polygon** is
 the number every level-of-detail decision in §88.5.4 is made against.
+
+##### 88.4.5.1 …and its clamp is 25 bytes of an answer it already has
+
+The row loop clamps every row's `xl`/`xr` to the view and tests whether the
+row spans it — 25 bytes at the top of a body that is **148 bytes long, of
+which 43 write pixels**. That block is the second-largest item in it and it
+is answerable ONCE, per polygon: every row's `xl`/`xr` lies between the
+box's own extremes, so a box **strictly** inside the view has no row that
+reaches either edge.
+
+**Strictly, not merely inside**, and the distinction is the whole
+correctness argument: a row is a whole-view row when `xl ≤ wx0` and
+`xr ≥ wx1`, and a box that reaches exactly to both edges is inside them and
+can still produce one. `cs_poly` therefore sets `[cs_pnoclip]` from
+`bp > wx0 && di < wx1`, and hands it to the row loop in **BP, which no row
+loop uses**.
+
+**What makes it worth 25 bytes rather than the clock cycles in them** is
+that this loop is FETCH-BOUND. A masked row executes 148 bytes, which at the
+8088's `max(clocks, 4.34 × bytes)` floor is **642 cycles against 725
+measured — 89%**. So the lever is the ENCODING and not the instruction
+count, and moving the block out of line for `cmp bp, 0`/`jne` is 20 bytes
+off every row: **148 → 128**.
+
+**What it is worth, and where it is worth nothing.** Measured against a
+control run between two arms that read identically:
+
+| tier 1, 16 frames | control | + the gate |
+|---|---|---|
+| `turnhold` `cs_scene` | 174.73 ms | **172.23 / 172.23** |
+| `turnhold` frame | 262.2 | **259.7 / 259.7** |
+| `bank` frame | 249.7 | 249.6 / 250.8 |
+| `cruise` frame | 163.7 | 163.8 / 163.8 |
+
+**−2.5 ms in a held bank and nothing anywhere else**, for **+33 bytes**, and
+the row counts say exactly why:
+
+| | poly rows a frame | still taking the block |
+|---|---|---|
+| `turnhold` | 257 | **61.4 — so 76% take the short body** |
+| `bank` | ~65 | 59.3 |
+| `cruise` | ~63 | 59.1 |
+| `descend` | ~10 | 9.8 |
+
+**In level flight the near buildings FILL the view**, so their boxes cross its
+edges and the clamp genuinely has to run; it is the banked case, where the
+rows are many and the shapes are diagonal and small, that has rows to spare.
+That also puts the prediction in its place: 87 cycles a row off 196 rows is
+3.6 ms and the frame gave 2.5, because 4.34 × bytes is a fetch floor and an
+upper bound wherever the row's operands are memory (PERFORMANCE.md Part 2).
+
+**The picture is identical**, checked the way §88.5.2.2 says a cull change has
+to be: the tick-driven scripted flight, which pins `[cs_last]` as well as the
+attitude so both builds see the same world at the same tick, reading the DRAWN
+set beside a hash of the 3D view. **0 differing frames of 276** over
+`turnhold`, `sparse` and `cruise`. `climb` is what covers the moved
+whole-view arm — 46.4 whole-view rows a frame there, §88.5.5's forty — and
+they come from its one `cs_rect` call, which is why that caller keeps BP = 1.
+
+`cs_rect` keeps the general path deliberately. Its rows are already clamped —
+`ax` and `cx` were, once — but a rectangle is how the runway under the wheels
+is drawn, and those are forty **whole-view rows** a frame (§88.5.5) whose
+test lives in the block BP skips.
 
 #### 88.4.6 The Hercules row loop and slice
 
@@ -102208,6 +102380,44 @@ tower and city frames were filling polygons that reached past the view. The shif
 fourteen cycles for fourteen, and the 11 keeps the word form with the
 comment that says why it may. `tests/skiesgeom.py` replays the projection
 on the host and `--clobber-proj` puts the word form back.
+
+##### 88.5.6.2 A flat model's vertices: the scalar goes in BX, and `cs_colscale` goes away
+
+`cs_flatverts` is `C + x M0 + z M2` — **six multiplies a vertex and nothing
+else is required**. It was 2,128 cycles a vertex, of which 936 were those six
+and 1,192 were the way they were reached: each column went through
+`cs_colscale`, which **writes its three products to `cs_col0`/`cs_col2`**, and
+the caller read all six back and added them. Two `call`/`ret`, eight
+push/pops, two reloads of a loop-invariant `[cs_pshr]` and twelve memory
+round-trips around 900 cycles of arithmetic.
+
+**`MUL14` is `imul bx`, so it clobbers AX and DX and leaves BX alone.** Put
+the scalar in BX and the matrix element in AX — a multiply is commutative, so
+the product is the same bit for bit — and one scalar serves all three of its
+multiplies with no save at all. What falls out of that:
+
+- `cs_colscale` is not called, so neither is `cs_col0`/`cs_col2` written: the
+  product goes straight to its output word. The x column **stores** into
+  `cs_cxv`/`cs_cyv`/`cs_czv` with the centre added, and the z column **adds
+  into** the same three words.
+- CL holds `[cs_pshr]` for the whole routine instead of being reloaded twice a
+  vertex, because nothing else needs CX any more.
+- BP is the vertex counter. Nothing on the path from `cs_scene` through
+  `cs_drawpass` and `cs_drawobj` holds a value in BP, which is what makes that
+  legal; `cs_flatverts` clobbers it, and SI, DI and CX, as it always did.
+
+A vertex is **1,394 cycles**, so the routine is now 62% multiply where it was
+44% — what is left is the arithmetic itself. It is −2.3 to −3.2 ms a frame and
++28 bytes, and those bytes come out of the gap ahead of `CS_VOCAB_AT` rather
+than out of the image (PERFORMANCE.md Set 133).
+
+**The sum order is unchanged only because it wraps the same either way.** The
+old form is `scx + x M0 + z M2` and the new one `(x M0 + scx) + z M2`; 16-bit
+addition is associative modulo 65,536, so every output word is identical. Six
+profiles pinned to the same tick and the same attitude read **0 drawn-set
+differences and 0 differing pixels over 554 frames**. `cs_colscale` stays —
+`cs_stackverts` has three calls to it, and its column there is a genuine
+common factor rather than scaffolding.
 
 #### 88.5.7 A line through a clamped point bends, so the sides clip too
 

@@ -59,10 +59,22 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "..", "tools"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import os88marty                                            # noqa: E402
+import os88build
+import os88parts
 import os88pkg                                              # noqa: E402
 import skies as skiestest                                   # noqa: E402
 
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# WHERE `cswidx.inc` IS. Clear Skies' resident world index is GENERATED
+# (SPEC.md 88.10.5.3), so it is not in apps/skies/ and nasm reaches it only
+# through the build tree - which the Makefile passes as `-I $(BUILD)/` and
+# every script that re-assembles for a LISTING has to pass too, or the tree
+# "does not assemble" and the message points at the package. os88build.at
+# honours $OS88_BUILD, so a frozen soak tree resolves to its own copy.
+CSWIDX = os.path.join(ROOT, os88build.at("build")) + os.sep
+
 CPS = 4772727                           # the 4.77 MHz clock: cycles a second
 PROBE = "build/skiesprobe"
 
@@ -101,6 +113,15 @@ def probemap():
     r = subprocess.run(["nasm", "-f", "bin", "-w+error", "-DCSPROBE",
                         "-I", os.path.join(ROOT, "apps") + os.sep,
                         "-I", os.path.join(ROOT, "apps", "skies") + os.sep,
+                        # ...and the PROBE TREE'S OWN cswidx.inc, not build/'s:
+                        # `make skiesprobe` recurses with BUILD=build/skiesprobe
+                        # and generates one there, so reaching for build/'s
+                        # would assemble this against the SHIPPED tree's
+                        # addresses - which is the stale-tree failure the
+                        # comparison below exists to catch, arriving through
+                        # the include path instead (skiesdiag's note one file
+                        # along, for the same reason)
+                        "-I", os.path.join(ROOT, PROBE) + os.sep,
                         "-o", bn, tmp], capture_output=True, text=True)
     if r.returncode:
         sys.exit("skiescount: the -DCSPROBE build does not assemble:\n"
@@ -121,7 +142,14 @@ def probemap():
             pass
     o88 = os.path.join(ROOT, PROBE, "skies.o88")
     try:
-        built = os88pkg.image_unwrap(open(o88, "rb").read())
+        raw = open(o88, "rb").read()
+        built = os88pkg.image_unwrap(raw)
+        # A PART IS NOT THE IMAGE (SPEC.md 88.10.4): the image is a LOADER now
+        # and `skies.asm` assembles to part 0, so an image that declares parts
+        # is compared against the PART - dispapps._map's rule, which this
+        # routine deliberately does not go through
+        if os88parts.table_at(built) is not None:
+            built = os88parts.part_bytes(raw, 0)
     except OSError as e:
         sys.exit("skiescount: %s (%s) - run `make skiesprobe`" % (o88, e))
     if built != fresh:
@@ -251,7 +279,8 @@ def main(argv):
         lst = tempfile.mkstemp(prefix="skiescount_", suffix=".lst")
         os.close(lst[0])
         subprocess.run(["nasm", "-f", "bin", "-w+error", "-DCSPROBE",
-                        "-I", "apps/", "-I", "apps/skies/", "-o", os.devnull,
+                        "-I", "apps/", "-I", "apps/skies/", "-I", CSWIDX,
+                        "-o", os.devnull,
                         "-l", lst[1], "apps/skies/skies.asm"], check=True)
         import re
         rx = re.compile(r"\s*\d+\s+([0-9A-F]{8})\s+([0-9A-F\[\]]+)\s+"

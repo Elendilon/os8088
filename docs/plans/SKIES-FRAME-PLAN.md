@@ -797,3 +797,250 @@ as one - "it is filed without the cone, which cs_drawobj's frustum repeats
 exactly" - and it is really the repair for a cone that refuses objects the
 frustum keeps. Any change that stops an object being cone-tested EVERY FRAME
 walks into 88.5.2.2, whatever else it is for.
+
+## 7.5 THE POLYGON FILLER, taken apart - and one PARKED question about the algorithm
+
+`cs_scene` is 66% of a banked frame and `cs_poly` is the largest thing in it.
+Three changes have landed off one breakdown (SPEC.md 88.4.5.1, 88.4.2.2,
+88.4.2.3) - `cs_scene` **174.73 -> 169.32 ms**, the frame **262.2 -> 256.8**,
+for **-121 bytes** - and all three were removing work the code already knew was
+unnecessary rather than trading space for speed.
+
+Where the remaining time is, `turnhold`, measured:
+
+| | ms a frame | |
+|---|---|---|
+| the row loop's fill | ~35.5 | `~421 + 101.5 x bytes`, 257 rows a frame at 2.1 bytes |
+| **`cs_edge`'s Bresenham stepping** | **~12.0** | `83 + ~83 x rows`, **689 row-stores a frame** |
+| `cs_edge`'s setup | 4.60 | of which the `idiv` is ~1.04 |
+| the edge loop's per-edge setup | 2.43 | |
+| the min/max pass, the box mark, the counter | 2.30 | |
+
+### 7.5.1 PARKED - a fractional DDA instead of exact Bresenham
+
+**The one item left that is worth more than a millisecond is the STEPPING
+ALGORITHM, and it is parked because the picture is the thing being spent.**
+
+`cs_edge` steps an exact integer Bresenham: `q = floor(dx/dy)` and a remainder
+`r`, and every row carries `x += q; err += r; if err >= dy then x++, err -= dy`.
+That is six instructions and ~13.5 bytes a row, on a loop whose cost IS its
+byte count (88.4.5.1). A 16.16 fractional DDA is three:
+
+    mov [bx], si            ; x, integer part
+    add di, bp              ; fraction += step.frac
+    adc si, ax              ; integer += step.int + carry
+
+**~6 bytes a row against ~13.5**, which at the 8088's 4.34-a-byte floor is
+~32 cycles a row over 689 rows a frame - **~4.6 ms predicted**, the largest
+single item nameable in the scene. The setup gets simpler too: one `div` of a
+shifted numerator instead of `idiv` plus the floor correction.
+
+**What it costs is what makes it a question rather than a task.** The user's
+own observation is that these lines are *better than any period DOS game's*,
+and that is the thing being traded. Two claims should be separated before
+anyone acts on this, because only one of them is obviously true:
+
+- **The accumulated drift is probably negligible and is MEASURABLE.** A
+  correctly rounded 16.16 step drifts at most `rows x 2^-16` pixels, which
+  over the tallest edge in the view (112 rows) is 0.0017 px. On that
+  arithmetic the picture should be identical or within one pixel on a
+  vanishing fraction of edges - so **the honest first step is to measure the
+  pixels, not to argue about them**, with the tick-driven six-profile gate
+  that every change in this round has used.
+- **Shared edges stay consistent**, which is the failure that would actually
+  show: two faces meeting along one edge must produce the SAME x per row or
+  the seam cracks or double-draws. Both algorithms are a pure function of the
+  two endpoints, so two polygons handed the same endpoints agree either way.
+  This is worth stating because it is the risk a reader will assume is fatal.
+
+So the shape of the investigation is: build it, run the pixel gate, and **let
+the count decide**. If it is 0 differing pixels the quality question never
+arises. If it is not, the trade is the user's and the bar is explicit - *"hard
+to give up for less than a big win"* - and ~4.6 ms of a 257 ms frame is 1.8%,
+which is probably not that bar on its own.
+
+**Two cautions for whoever picks this up.** A prediction off the fetch floor is
+an UPPER bound where the operands are memory (88.4.5.1 predicted 3.6 ms and
+delivered 2.5), so 4.6 could be three. And `cs_edge` has three callers, two of
+them the rolled horizon's (csraster.inc), so the change is not confined to the
+polygon filler.
+
+## 7.6 THE VERTEX PIPELINE, taken apart - and it is MULTIPLY-bound only a third of the way
+
+`cs_scale` + `cs_project` + `cs_flatverts` + `cs_stackverts` is **46 ms of a
+254 ms frame** and nothing had opened it. The premise going in was that it is
+the one part of the program bound by the 8088's multiply unit rather than by
+its prefetch queue - `MUL14` is `imul bx` and three fixups, ~150 clocks against
+8 bytes - and that premise is **only a third true**.
+
+### 7.6.1 Every multiply the package executes, counted
+
+211 multiply and divide instructions exist in the image; what matters is how
+often each RUNS. Breakpointed all 211, `turnhold`, per frame:
+
+**885 multiplies and divides a frame, ~28.3 ms, 11% of the frame.**
+
+| routine | a frame | ~ms |
+|---|---|---|
+| `cs_colscale` | 218 | 6.86 |
+| `cs_dot` | 167 | 5.26 |
+| `cs_consider` | 108 | 3.39 |
+| `cs_project0` + `cs_project2` | 110 | 3.70 |
+| `cs_edge` | 39 | 1.44 |
+| `cs_cxing` | 37 | 1.20 |
+| `cs_step` | 40 | 1.20 |
+| `cs_faces` | 28 | 0.88 |
+| `cs_sizepx` | 29 | 0.85 |
+
+(That is the top of the list and not all of it - `cs_project4` is below the
+cut and DOES run, 24.4 vertex projections a frame; see 7.6.4.)
+
+So of the vertex block's 46 ms, **~15.8 ms is multiplies and ~30 ms is the
+scaffolding around them** - and scaffolding is the removable kind. That
+inverts the reason for opening the block, and it is the finding.
+
+### 7.6.2 `cs_projall`, examined - 1,335 cycles a vertex, and it is SPREAD THIN
+
+The biggest of the four and the least multiply-bound (22%), so it was taken
+first. 41 vertices a frame reach the loop; the per-vertex phases:
+
+| | ms a frame | cycles a vertex |
+|---|---|---|
+| the loads and the near test | 1.02 | 119 |
+| **`CS_PROJ` itself** | **7.63** | **885** |
+| the stores, the flag, and the box or the side test | 3.06 | 355 |
+
+...and inside `CS_PROJ`, over 56.6 projections a frame:
+
+| | ms a frame | cycles a vertex |
+|---|---|---|
+| the depth test + **ROW SELECTION** | 2.03 | 171 |
+| the index shift | 0.12 | 10 |
+| `imul` kx, clamp, shift, add vcx | 3.55 | 299 |
+| `imul` ky, clamp, shift, add vcy | 3.84 | 324 |
+
+**There is no lever here, and that is worth writing down rather than
+rediscovering.** The two `imul` are ~318 of the 804 and are irreducible at
+this precision. What is left is 486 cycles spread over four things that are
+each 150 cycles or less: a piecewise depth-to-row index, two overflow clamps
+that §85.5.3 put there after a wrong-signed crossing, and two adds. **The
+largest single item is the row selection at 2.03 ms**, and no cheaper mapping
+suggests itself - the three ranges are what compress a 16,000 m depth into
+2,048 table rows.
+
+Two things ruled OUT on the way, both worth not re-checking:
+
+- **Nothing is projected for nobody.** `cs_projall` runs 8.8 times a frame,
+  exactly matching `cs_faces` - a box impostor takes `cs_boxlod` and never
+  enters here - so no vertex is transformed for an object that then draws as
+  a box.
+- **The three `cs_project0/2/4` copies are not duplication to merge.** They
+  differ in the depth shift, the clamp bound AND the post-multiply shift, and
+  the shift is a `%rep` of `shl`/`rcl` pairs because a variable-count 32-bit
+  shift is a loop that the macro's own note says was measured at 20 cycles a
+  step. Collapsing them would cost more than the indirect call saves.
+
+### 7.6.3 Where the evidence points instead
+
+Of the four, `cs_projall` had the lowest multiply share and turned out thin.
+The other three are the opposite shape, and `cs_colscale` is where the
+multiplies actually are:
+
+| | ms | per unit | multiply share |
+|---|---|---|---|
+| `cs_flatverts` (+ `cs_colscale`) | 11.82 | ~1,621 cycles a vertex | **~55%** |
+| `cs_scale` (+ `cs_rot`, `cs_dot`) | 14.12 | 4,185 cycles a call | ~32% |
+| `cs_stackverts` (+ `cs_colscale`) | 4.82 | | |
+
+`cs_flatverts` is the one to open next: **six `MUL14` a vertex** through two
+`cs_colscale` calls that each write three words to memory which the caller
+then reads back and adds - eight push/pops, two calls and twelve memory
+round-trips a vertex around 900 cycles of arithmetic. That is scaffolding of
+exactly the kind §88.4.2.3 found in `cs_edge`, and it is ~45% of 11.82 ms.
+
+**BUILT, and it was the register the scalar sat in** - SPEC.md §88.5.6.2, and
+7.6.5 below.
+
+### 7.6.4 The precision ladder is already three rungs, and it costs nothing
+
+The sub-metre eye position exists because a runway rotated from whole metres
+**jumped a metre across between frames - 20 pixels at 22 m** (the note above
+`cs_scale`). The obvious question is whether the program is still paying for
+that when nothing is under the wheels, and the answer is no: `[cs_pshr]` is
+chosen PER OBJECT PER FRAME from its reach plus its radius - sixteenths inside
+~2,048 m with a radius under 1,024, quarters inside ~8,192 m with a radius
+under 4,096, whole metres beyond - and it selects the projection variant with
+it. Measured, objects a frame:
+
+| | objects | sixteenths | quarters | whole metres |
+|---|---|---|---|---|
+| `turnhold` | 17.2 | 20% | 57% | 23% |
+| `cruise` | 14.0 | 17% | 59% | 24% |
+| `climb` | 7.7 | **29%** | 57% | 14% |
+| `descend` | 10.8 | **0%** | 80% | 20% |
+
+...and by VERTEX, which is what the projection variant is picked for:
+
+| | projections a frame | `cs_project4` | `cs_project2` | `cs_project0` |
+|---|---|---|---|---|
+| `turnhold` | 94.2 | 26% | 41% | 33% |
+| `climb` | 80.2 | **47%** | 45% | 9% |
+
+All three rungs are in use every frame, `climb` - on the runway, the case the
+precision was built for - is 47% at the finest, and `descend` at 600 m never
+needs it at all. The ladder is doing exactly what it was written to do.
+
+**And it is free either way, which closes "spend less precision" as a lever.**
+The rung does NOT change the multiply count: `cs_rot` is nine `MUL14` and
+`cs_flatverts` six a vertex whatever it is. All it changes is `cs_sdiff`'s
+shift chain - a two-instruction byte shuffle at whole metres against four or
+six `sar`/`rcr` pairs - which is at most ~70 clocks an object, **~0.2 ms a
+frame** across the whole scene. The vertex pipeline's cost is the multiplies
+and the scaffolding, and both are scale-independent.
+
+### 7.6.5 BUILT - `cs_flatverts`, and what a commutative multiply is worth
+
+Bracketed phase by phase (`bank`, 5.9 calls a frame of 4.5 vertices) the
+routine read **2,128 cycles a vertex**, of which the six `MUL14` are ~936:
+
+| phase | cycles a vertex |
+|---|---|
+| A the x setup | 155 |
+| **B `cs_colscale` (x M0)** | **683** |
+| C the z setup | 140 |
+| **D `cs_colscale` (z M2)** | **714** |
+| E the sum and the stores | 370 |
+| F the loop's advance | 66 |
+
+The 1,192 that is not the multiply is two `call`/`ret`, eight push/pops, two
+reloads of a loop-invariant `[cs_pshr]`, and twelve memory round-trips -
+`cs_colscale` writes its three products to `cs_col0`/`cs_col2` and the caller
+reads all six back and adds them.
+
+**`MUL14` is `imul bx`: it clobbers AX and DX and leaves BX alone.** Put the
+scalar in BX and the matrix element in AX - commutative, so the product is
+identical bit for bit - and one scalar serves all three of its multiplies with
+no save, no call and no scratch array. CL keeps `[cs_pshr]` for the whole
+routine, BP counts the vertices, the x column stores into the outputs and the
+z column adds into them.
+
+| tier 2, 16 frames | `cs_flatverts` | frame |
+|---|---|---|
+| `turnhold` | 11.87 -> **8.60 / 8.83** ms | 256.8 -> **253.7** |
+| `bank` | 10.04 -> **7.71 / 7.71** | 248.5 -> **245.9** |
+| `cruise` | 10.44 -> **7.53 / 7.37** | 162.6 -> **159.4** |
+
+**-2.3 to -3.2 ms, the frame moving by the same amount**, a vertex 2,128 ->
+1,394, and the routine now **62% multiply** where it was 44%. +28 bytes, out
+of the gap ahead of `CS_VOCAB_AT` rather than out of the image. The picture is
+bit-identical over 554 frames on six pinned profiles.
+
+**What this says about the rest of the pipeline.** The lever was not the
+multiply count and not the precision (7.6.4 above closed that) - it was
+that a three-product column had been factored into a routine whose only way of
+returning three words is memory. `cs_stackverts` has the same shape at three
+call sites and is 4.8 ms; `cs_scale`'s `cs_rot`/`cs_dot` is the same question
+asked of nine multiplies. Neither is as cheap as this one was, because
+`cs_stackverts` needs the column TWICE per level (`+col` and `-col` for the
+four corners) and so genuinely wants it stored, and `cs_rot` returns into
+three different destinations. `cs_colscale` stays for them.

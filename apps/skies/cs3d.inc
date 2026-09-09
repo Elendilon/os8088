@@ -1647,11 +1647,8 @@ cs_boxlod:
     ;     only by the top's own LEAN - one or two pixels of the perspective
     ;     the polygon path shows and this one has always squared off. The
     ;     reported defect is a BANKED one, so level flight keeps the
-    ;     rectangle and pays nothing at all: no sentinel pass over the rows,
-    ;     no four edges traced. It is also what makes the quad's own fast
-    ;     path sound - a banked impostor's caps are 2 Ry apart and its sides
-    ;     the projected axis, so with Ry non-zero there is no horizontal
-    ;     edge left for cs_poly's sentinels to be needed by.
+    ;     rectangle and pays nothing at all: no four edges traced, and none
+    ;     of cs_poly's own per-polygon setup.
     mov cx, [cs_brx]
     mov dx, [cs_bry]
     or dx, dx
@@ -1707,20 +1704,8 @@ cs_boxlod:
 .wind:                              ; the list runs the other way round
     mov byte [cs_pwhole], 0         ; the impostor marks its own rows, where
                                     ; cs_rect always did (88.4.4)
-    ; --- AND IT NEEDS NO SENTINEL PASS (SPEC.md 88.5.4.7). cs_poly cannot
-    ;     know how many edges will touch a row, so it lays +32767 down cs_xl
-    ;     and -32768 down cs_xr over the whole range and every edge takes a
-    ;     min or a max. This shape is a PARALLELOGRAM and Ry is not zero
-    ;     here, so no edge is horizontal and every row has exactly one left
-    ;     edge and one right: cs_edge's unconditional stores are already the
-    ;     answer. The one thing that can still put a horizontal edge in it is
-    ;     a top and a base that project to the SAME ROW, and that keeps the
-    ;     sentinels.
-    mov ax, [cs_by0]
-    cmp ax, [cs_by1]
-    je .sent
-    mov byte [cs_pnosent], 1
-.sent:
+    ; --- (this shape's own exemption from the sentinel pass is gone with
+    ;     the pass itself - SPEC.md 88.4.2.2 retires it for every polygon)
     mov al, CSI_WALL
     call cs_setink
     mov si, cs_pv
@@ -1837,52 +1822,61 @@ cs_stackverts:
 
 ; -----------------------------------------------------------------------------
 ; cs_flatverts - a FLAT model's (x, z) pairs: C + x M0 + z M2, six multiplies
+;
+; The six are all that has to be here, and for a long time they were about
+; half of what it cost: the columns went through cs_colscale, which WRITES
+; ITS THREE WORDS TO MEMORY, and the caller then read all six back and added
+; them - eight push/pops, two call/rets and twelve memory round-trips a
+; vertex around 900 cycles of arithmetic (88.5.6.2).
+;
+; What deletes the lot is which register the scalar sits in. MUL14 is
+; `imul bx`, so it clobbers AX and DX and LEAVES BX ALONE - put the scalar
+; in BX and the matrix element in AX (a multiply is commutative, so the
+; product is the same bit for bit) and one scalar serves all three of its
+; multiplies with no save at all. CL then holds [cs_pshr] for the whole
+; routine rather than being reloaded twice a vertex, BP is the counter, and
+; each product lands straight in its output word: the x column STORES and
+; the z column ADDS INTO the same word. cs_col0/cs_col2 are not touched.
 ; -----------------------------------------------------------------------------
 cs_flatverts:
     mov si, [cs_mdl]
-    mov cl, [si + CSM_NV]
-    xor ch, ch
-    mov [cs_nv], cx
+    mov bl, [si + CSM_NV]
+    xor bh, bh
+    mov [cs_nv], bx
+    mov bp, bx                      ; BP = the vertices left
     mov si, [si + CSM_VERTS]
     xor di, di
-.v:
-    push cx
-    push si
-    push di
     mov cl, [cs_pshr]               ; the pair at the object's scale (88.5.6)
-    mov ax, [si]
-    shl ax, cl
-    mov si, cs_m
-    mov di, cs_col0
-    call cs_colscale
-    pop di
-    pop si
-    push si
-    push di
-    mov cl, [cs_pshr]
-    mov ax, [si+2]
-    shl ax, cl
-    mov si, cs_m + 4
-    mov di, cs_col2
-    call cs_colscale
-    pop di
-    mov ax, [cs_scx]
-    add ax, [cs_col0]
-    add ax, [cs_col2]
+.v:
+    mov bx, [si]                    ; --- x M0, into the three outputs -------
+    shl bx, cl
+    mov ax, [cs_m]
+    MUL14
+    add ax, [cs_scx]
     mov [cs_cxv + di], ax
-    mov ax, [cs_scy]
-    add ax, [cs_col0 + 2]
-    add ax, [cs_col2 + 2]
+    mov ax, [cs_m + 6]
+    MUL14
+    add ax, [cs_scy]
     mov [cs_cyv + di], ax
-    mov ax, [cs_scz]
-    add ax, [cs_col0 + 4]
-    add ax, [cs_col2 + 4]
+    mov ax, [cs_m + 12]
+    MUL14
+    add ax, [cs_scz]
     mov [cs_czv + di], ax
+    mov bx, [si + 2]                ; --- z M2, added into them --------------
+    shl bx, cl
+    mov ax, [cs_m + 4]
+    MUL14
+    add [cs_cxv + di], ax
+    mov ax, [cs_m + 10]
+    MUL14
+    add [cs_cyv + di], ax
+    mov ax, [cs_m + 16]
+    MUL14
+    add [cs_czv + di], ax
     add di, 2
-    pop si
     add si, 4
-    pop cx
-    loop .v
+    dec bp
+    jnz .v
     ret
 
 ; -----------------------------------------------------------------------------

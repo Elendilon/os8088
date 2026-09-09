@@ -1850,8 +1850,12 @@ cs_hzrow_modex:
 ; cs_edge - trace one edge into cs_xl or cs_xr, one x per row
 ; in:  AX = x1, BX = y1, CX = x2, DX = y2 (box coords, |x| <= 4000ish);
 ;      [cs_eside] = 1 the polygon's LEFT chain (stores into cs_xl), 2 its
-;      right (cs_xr), 0 both by min/max (a horizontal edge, or a caller that
-;      does not know the winding)
+;      right (cs_xr) - and NOTHING ELSE. A horizontal edge is recognised
+;      here, from BX = DX, and lays both ends of its one row itself; there
+;      is no min/max arm for a sloped edge any more, because the only thing
+;      that read a chain back was what made the sentinel pass necessary
+;      (88.4.2.2), and a caller that does not know its winding cannot use
+;      this routine
 ; clobbers everything
 ;
 ; Bresenham's integer step: q = floor(dx/dy), r = dx - q dy, and per row
@@ -1873,13 +1877,14 @@ cs_edge:
     jle .ord
     xchg ax, cx
 .ord:
+    ; --- UNCONDITIONAL, which is what retires the sentinel pass (88.4.2.2).
+    ;     A convex polygon at its top row IS its top edge, and at its bottom
+    ;     row its bottom edge - those are the only two rows a horizontal edge
+    ;     can be on - so this pair is the row's extent and not a candidate
+    ;     for it. Taking min/max here is what needed a value to have been
+    ;     laid, and laying it was two `rep stosw` down every polygon
     shl bx, 1
-    cmp ax, [cs_xl + bx]
-    jge .h1
     mov [cs_xl + bx], ax
-.h1:
-    cmp cx, [cs_xr + bx]
-    jle .out
     mov [cs_xr + bx], cx
 .out:
     ret
@@ -1922,6 +1927,8 @@ cs_edge:
     add si, ax
     mov di, dx
     xor bx, bx
+    mov ax, [cs_eq]                 ; ...and THIS ARM is the only one that
+    mov dx, [cs_er]                 ; clobbers them, so the reload lives here
 .inview:
     mov cx, [cs_ey2]                ; the last row to trace, clipped
     cmp cx, [cs_wh]
@@ -1932,106 +1939,60 @@ cs_edge:
     sub cx, bx
     inc cx                          ; CX = rows to trace
     jle .out
-    shl bx, 1                       ; BX = the row's table offset
-    mov ax, [cs_eq]
-    mov dx, [cs_er]
+    shl bx, 1
+    ; --- BX BECOMES A REAL POINTER, and that is what merges the two chains
+    ;     into ONE loop (SPEC.md 88.4.2.3). The left arm and the right were
+    ;     the same 36 lines differing only in the array, and the array is
+    ;     also why each store cost FOUR bytes: `mov [cs_xl + bx], si` is a
+    ;     disp16, `mov [bx], si` is two bytes and `mov [bx + 2], si` three.
+    ;     This loop is fetch-bound like every other one here - 90 cycles a
+    ;     row over 689 rows a frame - so three bytes off every two rows is
+    ;     the whole of the saving, and about fifty bytes of image come off
+    ;     with the duplicate.
     mov bp, [cs_edy]
     cmp byte [cs_eside], 1
-    je .left
-    ja .right
-.both:
-    cmp si, [cs_xl + bx]
-    jge .n1
-    mov [cs_xl + bx], si
-.n1:
-    cmp si, [cs_xr + bx]
-    jle .n2
-    mov [cs_xr + bx], si
-.n2:
-    add si, ax
-    add di, dx
-    cmp di, bp
-    jb .n3
-    sub di, bp
-    inc si
-.n3:
-    inc bx
-    inc bx
-    loop .both
-    ret
-    ; the two chains, two rows an iteration: the 8088 charges a `loop` and
-    ; its refill about as much as the row's own work
-.left:
+    jne .rt
+    add bx, cs_xl
+    jmp short .step
+.rt:
+    add bx, cs_xr
+    ; the chain, two rows an iteration: the 8088 charges a `loop` and its
+    ; refill about as much as the row's own work
+.step:
     shr cx, 1
-    jnc .l0
-    mov [cs_xl + bx], si
+    jnc .s0
+    mov [bx], si
     add si, ax
     add di, dx
     cmp di, bp
-    jb .l1
+    jb .s1
     sub di, bp
     inc si
-.l1:
+.s1:
     inc bx
     inc bx
-.l0:
-    jcxz .lend
-.l2:
-    mov [cs_xl + bx], si
+.s0:
+    jcxz .send
+.s2:
+    mov [bx], si
     add si, ax
     add di, dx
     cmp di, bp
-    jb .l3
+    jb .s3
     sub di, bp
     inc si
-.l3:
-    mov [cs_xl + bx + 2], si
+.s3:
+    mov [bx + 2], si
     add si, ax
     add di, dx
     cmp di, bp
-    jb .l4
+    jb .s4
     sub di, bp
     inc si
-.l4:
+.s4:
     add bx, 4
-    loop .l2
-.lend:
-    ret
-.right:
-    shr cx, 1
-    jnc .r0
-    mov [cs_xr + bx], si
-    add si, ax
-    add di, dx
-    cmp di, bp
-    jb .r1
-    sub di, bp
-    inc si
-.r1:
-    inc bx
-    inc bx
-.r0:
-    jcxz .rend
-.r2:
-    mov [cs_xr + bx], si
-    add si, ax
-    add di, dx
-    cmp di, bp
-    jb .r3
-    sub di, bp
-    inc si
-.r3:
-    mov [cs_xr + bx + 2], si
-    add si, ax
-    add di, dx
-    cmp di, bp
-    jb .r4
-    sub di, bp
-    inc si
-.r4:
-    add bx, 4
-    loop .r2
-.rend:
+    loop .s2
+.send:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2046,11 +2007,6 @@ cs_poly:
     mov [cs_pn], cx
     mov [cs_pvp], si
     cld
-    xor al, al                      ; ...and the caller's promise that this
-    xchg al, [cs_pnosent]           ; one needs no sentinel pass, READ AND
-    mov [cs_pnos], al               ; CLEARED so it is a one-shot: a polygon
-                                    ; that inherited it would take another
-                                    ; polygon's leftovers for its own bounds
     ; --- the row range, and a cheap reject ----------------------------------
     mov bx, 0x7FFF                  ; BX = ymin, DX = ymax
     mov dx, -32768
@@ -2109,6 +2065,22 @@ cs_poly:
 .mx2:
     mov [cs_pbx0], ax
     mov [cs_pbx1], cx
+    ; --- ...AND WHETHER ANY ROW CAN REACH A VIEW EDGE (SPEC.md 88.4.5.1).
+    ;     Every row's xl/xr lies between the box's own extremes, so a box
+    ;     STRICTLY inside the view has no row that needs clamping and no row
+    ;     that spans the view - which is the row loop's whole 25-byte clamp
+    ;     block, fetched 257 times a frame for an answer the polygon already
+    ;     has. STRICTLY inside, not merely inside: a row is a whole-view row
+    ;     when xl <= wx0 and xr >= wx1, and a box that reaches exactly to
+    ;     both edges is inside them and can still do it.
+    mov si, 1                       ; SI = 1: the general row loop
+    cmp bp, [cs_wx0]
+    jle .mx3
+    cmp di, [cs_wx1]
+    jge .mx3
+    xor si, si                      ; ...neither can happen: skip the block
+.mx3:
+    mov [cs_pnoclip], si
     cmp byte [cs_pwhole], 0         ; a whole object's box was taken off its
     jne .marked                     ; vertices (88.3.2)
     push bx
@@ -2146,35 +2118,12 @@ cs_poly:
     mov [cs_xr + si + 2], cx
     jmp .rows
 .trace:
-    ; --- init the bounds over the rows --------------------------------------
-    push ds
-    pop es
-    mov cx, dx
-    sub cx, bx
-    inc cx
-    shl bx, 1
-    ; --- UNLESS THE CALLER SAYS THIS SHAPE DOES NOT NEED IT (SPEC.md
-    ;     88.5.4.7): a convex polygon with no HORIZONTAL edge has exactly one
-    ;     left-chain edge and one right-chain edge on every row, and
-    ;     cs_edge's chain stores are unconditional - it is the `both' side a
-    ;     horizontal edge takes that reads the value back and needs one to
-    ;     have been laid. Two `rep stosw` down the row range is 25 cycles a
-    ;     row EACH on an 8088, which for the box impostor (88.5.4.6) is most
-    ;     of what the shape costs to set up. The promise is the caller's to
-    ;     make and only cs_boxlod makes it.
-    cmp byte [cs_pnos], 0
-    jne .edges
-    mov di, cs_xl
-    add di, bx
-    mov ax, 0x7FFF
-    push cx
-    rep stosw
-    pop cx
-    mov di, cs_xr
-    add di, bx
-    mov ax, -32768
-    rep stosw
-.edges:
+    ; --- NO SENTINEL PASS, AND NO ES FOR IT (SPEC.md 88.4.2.2). Two
+    ;     `rep stosw` down the row range used to lay 0x7FFF and -32768 for
+    ;     cs_edge to take min/max against - which is why this wanted
+    ;     ES = DS at all. Nothing takes min/max against them now, and every
+    ;     row of a convex polygon gets one left-chain store and one
+    ;     right-chain store whatever else happens to it.
     ; --- every edge ---------------------------------------------------------
     mov si, [cs_pvp]
     mov cx, [cs_pn]
@@ -2227,6 +2176,7 @@ cs_poly:
     jnz .e
     ; --- the rows: the backend's loop (88.4.6) -------------------------------
 .rows:
+    mov bp, [cs_pnoclip]            ; BP is free in every row loop (88.4.5.1)
     jmp [cs_rowsproc]
 .out:
 %ifdef CSPROBE
@@ -2299,31 +2249,15 @@ cs_polyrows_herc:
     shl si, 1
     mov ax, [cs_xl + si]
     mov cx, [cs_xr + si]
-    cmp ax, [cs_wx0]
-    jg .c1
-    cmp cx, [cs_wx1]
-    jl .c1a
-    ; --- the whole view row: no masks, no ends, one store - the runway
-    ;     under the wheels is forty of these a frame (88.5.5) ---------------
-    push bx
-    push di
-    mov si, bx
-    and si, 3
-    mov al, [cs_pat + si]
-    mov ah, al
-    add di, [cs_wb0]
-    mov cx, [cs_wbn]
-    shr cx, 1
-    rep stosw
-    pop di
-    pop bx
-    jmp .nrow
-.c1a:
-    mov ax, [cs_wx0]
-.c1:
-    cmp cx, [cs_wx1]
-    jle .c2
-    mov cx, [cs_wx1]
+    ; --- THE CLAMP BLOCK IS 25 BYTES AND IT IS OUT OF LINE (88.4.5.1). This
+    ;     loop is FETCH-BOUND - a masked row executes 148 bytes, 642 cycles
+    ;     of the 8088's 4.34-a-byte floor against 725 measured - so what a
+    ;     row costs is what it ENCODES, and those 25 bytes are an answer
+    ;     cs_poly already has: BP is zero when no row of this polygon can
+    ;     reach a view edge, which was 91% of them (7 of 79 needed the box
+    ;     clamped at all). Four bytes and a jump NOT TAKEN in their place
+    cmp bp, 0
+    jne .clip
 .c2:
     cmp ax, cx
     jg .nrow
@@ -2387,6 +2321,36 @@ cs_polyrows_herc:
     cmp bx, [cs_py1]
     jle .row
     ret
+    ; --- ...and the block itself, reached only by a polygon whose box
+    ;     touches or crosses a view edge, and by every cs_rect ------------
+.clip:
+    cmp ax, [cs_wx0]
+    jg .c1
+    cmp cx, [cs_wx1]
+    jl .c1a
+    ; --- the whole view row: no masks, no ends, one store - the runway
+    ;     under the wheels is forty of these a frame (88.5.5) ---------------
+    push bx
+    push di
+    mov si, bx
+    and si, 3
+    mov al, [cs_pat + si]
+    mov ah, al
+    add di, [cs_wb0]
+    mov cx, [cs_wbn]
+    shr cx, 1
+    rep stosw
+    pop di
+    pop bx
+    jmp .nrow
+.c1a:
+    mov ax, [cs_wx0]
+.c1:
+    cmp cx, [cs_wx1]
+    jle .cdone
+    mov cx, [cs_wx1]
+.cdone:
+    jmp .c2                         ; NEAR: the block sits past the loop now
 
 ; -----------------------------------------------------------------------------
 ; cs_hrun - one masked run of the current ink, opaque
@@ -2707,6 +2671,13 @@ cs_rect:
     inc bx
     cmp bx, [cs_py1]
     jle .row
+    mov bp, 1                       ; THE GENERAL ROW LOOP (88.4.5.1). Its
+                                    ; rows are clamped already - ax and cx
+                                    ; were, once, above - but a RECTANGLE is
+                                    ; how the runway under the wheels is
+                                    ; drawn, forty whole-view rows a frame
+                                    ; (88.5.5), and that test lives in the
+                                    ; block BP skips
     jmp [cs_rowsproc]
 .out:
     ret
