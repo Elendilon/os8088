@@ -918,14 +918,16 @@ two angles is not a control (it read 7 ms where the frame moved 34); a probe
 that pokes the POSITION every frame freezes the scene, so "differ" collapses
 to ~3 and the waste ratio divides by nothing; `cs_devoff` is a TABLE, not
 a pointer - reading it as one puts every device row at the wrong offset and
-reports ~1,300 missed bytes a frame that are not there; and **a profile
-TELEPORTS the aeroplane**, so for a dozen frames the span set carries rows the
-teleport dirtied and nothing has repainted. That last one put a block on the
-compare panel that no object had marked, and made every angle after the first
-read its predecessor's dirt. Settle ~18 frames, and never compare a carried
-figure taken off one arm with one taken off another - the same build at 12
-degrees reads 781, 1,509 and 2,696 depending only on where the aeroplane got
-to.
+reports ~1,300 missed bytes a frame that are not there; and **a profile TELEPORTS
+the aeroplane onto a guest that has already flown**, which is not fixable by
+settling: the arm inherits `cs_rowkind`, the cull's `CSO_SKIP` and the SHADOW
+ITSELF, and nothing repaints a row nothing marks. That put blocks on the
+compare panel no object had marked, and made every angle after the first read
+its predecessor's world. The same build at 12 degrees read 781, 1,509 and
+2,696 carried bytes depending only on which arm it was. **ONE FRESH GUEST PER
+ANGLE** (`panel.py`) reads 797 and holds. `tests/skiesprof.py` was never
+affected - it launches its own machine per invocation - which is why its frame
+numbers stood while three versions of the carried column did not.
 
 ## 7.4 WHERE cs_scene's 169 ms GOES
 

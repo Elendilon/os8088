@@ -102389,15 +102389,22 @@ rows the teleport dirtied that nothing has repainted. The box arm inherits
 more of that dirt than the stepped one, so a short warm-up flatters the
 change.
 
-**It is worse for a CARRIED-BYTES figure, which is not a controlled quantity
-at all.** The same build at 12° reads **781** bytes run alone, **1,509** run
-after two other arms at `--warm 6`, and **2,696** at `--warm 18` — the
-aeroplane is in a different place each time and the scene is what sets the
-number. A carried figure taken off one arm cannot be compared with one taken
-off another; only a poke A/B over the same flight can, and even that inherits
-`CSO_SKIP` (§88.5.2) from whichever arm ran first. Read carried as INDICATIVE
-— it is −21 to −25% at 5-20° that way — and read the frame off
-`tests/skiesprof.py`, which matches its two arms frame for frame.
+**And a CARRIED-BYTES figure taken off a SHARED guest is not a measurement at
+all.** The same build at 12° reads **781** bytes when its arm runs first,
+**1,509** run after two others at `--warm 6`, and **2,696** at `--warm 18`.
+Settling did not fix it and made it worse, because settling is not the
+problem: **a teleported arm inherits everything a BOOT would have reset** —
+`cs_rowkind`, the cull's `CSO_SKIP` (§88.5.2), and the shadow itself, whose
+unmarked rows still hold the previous arm's picture. Nothing repaints a row
+nothing marks, so the arm renders a world that is partly the last one's, and
+`cs_hzrows`' kind arm then hands `cs_fullspan` to every row that flips.
+
+**One fresh guest per angle is the fix and the figure is stable**: 12° reads
+**797** and 20° **1,147**, against 2,696 and 3,299 on the shared machine. The
+frame A/B was never affected — `tests/skiesprof.py` launches its own machine
+per invocation, so its two arms are two clean boots — which is why the frame
+numbers above stand while three successive versions of the carried column did
+not.
 
 **243 bytes of `.text` and 3 of `.bss`**, and the region claim does not move.
 `cs_mknostep` is the A/B: set it and a thin diagonal's mark goes back on its
