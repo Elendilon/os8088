@@ -12677,3 +12677,62 @@ bracket is what says the two arms saw the same scene. And `cs_scene` at 16
 frames wanders about **0.3 ms between runs of the same code**, which is the
 size of the second finding: the `cs_poly` bracket, whose call count is
 identical in every arm, is the instrument that could see it.
+
+### Set 135 — CLEAR SKIES: the row loop split in two, and the register that was worth 11 bytes (SPEC.md §88.4.5.4)
+
+Set 134 made the clip gate exact, which left it never firing in `turnhold` —
+**four bytes on every row of the program to ask a question the polygon already
+answered.** The reason it could not simply go is that BP was where the answer
+lived, and BP is the one register the loop could use for something better.
+
+Moving the question to the caller (`cs_poly` picks `[cs_rowsprocc]` over
+`[cs_rowsproc]` once a polygon; `cs_rect` always takes the clamping one)
+turns `cs_polyrows_herc` into **one source assembled twice** — a `%macro` with
+`%%`-local labels — and BP then pays for the duplication three times over:
+
+| | bytes a row |
+|---|---|
+| the gate is gone | −4 |
+| BP counts the rows DOWN: `cmp bx, [cs_py1]` → `dec bp` | −3 |
+| `push bx` leaves BX dead, so `mov si,bx`/`and si,3` → `and bx,3` | −2 |
+| ...and `and bx, 3` leaves BH zero, retiring `xor bh, bh` | −2 |
+| **total** | **−11** |
+
+...plus, in the clipping arm, the clamp INLINE, so the 43-100% of clipped rows
+that need neither end moved fall through it rather than taking a jump out and
+a jump back — two fewer prefetch flushes.
+
+The last two rows are worth separating out because neither is about the split.
+They are what re-reading a loop for register pressure turns up: twelve
+instructions sit between `push bx` and the `mov bl, al` that rebuilds BX, so
+the pattern index had no business being computed in SI — and once `and bx, 3`
+is there, BH is provably zero and the `xor bh, bh` under it is dead. **It was
+not dead before**: a Hercules view is ~300 rows, so the row index really does
+reach BH, and that instruction was doing real work right up until the `and`
+arrived above it.
+
+Same-session control, NEW/BASE/NEW, on the `cs_poly` bracket with the call
+counts identical in every arm:
+
+| tier 3, 16 frames | `cs_poly` control | + the split | frame |
+|---|---|---|---|
+| `turnhold` | 47.79 ms | **44.98 / 44.98** | 252.4 → 249.4 (3.96 → **4.01 fps**) |
+| `bank` | 35.90 | **33.44 / 33.51** | 243.9 → 241.4 (4.10 → **4.14**) |
+| `climb` | 17.72 | **16.64 / 16.80** | 151.4 → 150.8 (6.60 → **6.64**) |
+
+**−2.4 to −2.8 ms**, against a costing of 1.4 — the estimate was made on the
+−6 bytes the split itself buys, and the other −5 came free with the rewrite.
+That is the opposite error to the usual one here: a prediction off the fetch
+floor is normally an UPPER bound (Set 132), and it undershot only because the
+byte count it was made against was the wrong one.
+
+It costs **+155 bytes of image** for the second expansion, plus six in
+`cs_poly`, eight in the two backend arms and a word of bss. **This is the
+first change in this round that buys speed with SIZE rather than by removing
+work**, and it was taken on the owner's decision with the trade stated
+beforehand — about 170 bytes for ~2.4 ms of a 250 ms frame.
+
+**653 frames over SEVEN pinned profiles are pixel-identical.** The gate's
+usual six do not include `climb`, and `climb` is the only one that reaches the
+whole-view arm or `cs_rect`'s dispatch at all — so a register reallocation
+gated on the six would have been gated on the arm it did not touch.

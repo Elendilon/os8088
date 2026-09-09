@@ -102021,6 +102021,64 @@ every arm: **49.09 → 47.79 ms** (`turnhold`), **36.54 → 35.37** (`bank`),
 over six pinned profiles are pixel-identical**, which is the only thing that
 can license a tighter gate.
 
+##### 88.4.5.4 Two row loops, because BP is the contested register
+
+After §88.4.5.3 the gate is exact, and in `turnhold` it never fires: `or bp,
+bp` / `jne` is then **four bytes on every row of the program to ask a question
+the polygon already answered**, and this loop is fetch-bound, so four bytes is
+seventeen cycles. What made that hard to remove is not the test — it is that
+BP was the only place to keep the answer, and BP is the one register the loop
+could use for something better.
+
+So the question moves to the caller. `cs_poly` reads `[cs_pnoclip]` once a
+polygon and jumps through **`[cs_rowsprocc]`** instead of `[cs_rowsproc]` when
+a row of it can reach a view edge; `cs_rect` always takes the clamping one,
+because its rows are already clamped but a rectangle is how the runway under
+the wheels is drawn and those are the WHOLE-VIEW rows. On the general
+(non-Hercules) loop both vectors are `cs_polyrows`, which still reads BP as
+the flag, so `cs_poly` sets it either way.
+
+`cs_polyrows_herc` and `cs_polyrows_herc_c` are then **one source assembled
+twice** (`%macro CS_POLYROW 1`, `%%`-local labels), and what BP buys is three
+things at once:
+
+- the gate is gone: **−4 bytes a row**;
+- BP holds the rows COUNTED DOWN, so `add di, 80` / `inc bx` / `cmp bx,
+  [cs_py1]` / `jle` becomes `add di, 80` / `inc bx` / `dec bp` / `jnz`:
+  **−3 bytes a row**;
+- the clipping arm carries its clamp INLINE, so a row that needs neither end
+  moved — 43-100% of them (§88.4.5.3) — falls straight through it instead of
+  taking a jump out and a jump back, **two fewer prefetch flushes**.
+
+Two more bytes came out of the same rewrite and are worth the note, because
+neither is about the split. `push bx` is followed by twelve instructions
+before BX is rebuilt as the byte address, so **BX is dead there** and the
+pattern index goes in it: `mov si, bx` / `and si, 3` / `mov dl, [cs_pat + si]`
+becomes `and bx, 3` / `mov dl, [cs_pat + bx]`, **−2 bytes**. And `and bx, 3`
+leaves BH zero, which is exactly what the `mov bl, al` below it needed
+`xor bh, bh` for — **−2 more**. (BH was NOT provably zero before: the row
+index reaches ~300 on a Hercules view, so that instruction was doing real
+work until the `and` arrived above it.)
+
+**−11 bytes on every row**, and the loop spans stay inside `rel8` — 111 for
+the plain arm and 126 for the clipping one, so both keep §88.4.5.2's two-byte
+back edge:
+
+| tier 3, 16 frames | `cs_poly` | frame |
+|---|---|---|
+| `turnhold` | 47.79 → **44.98** ms | 252.4 → **249.4** (3.96 → 4.01 fps) |
+| `bank` | 35.90 → **33.48** | 243.9 → **241.4** (4.10 → 4.14) |
+| `climb` | 17.72 → **16.72** | 151.4 → **150.8** (6.60 → 6.64) |
+
+It costs **+155 bytes of image** — the second expansion — plus six in
+`cs_poly`, eight in the two backend arms and a word of bss for the vector.
+That is the first change in this round that buys speed with SIZE rather than
+by removing work, and it is taken on the owner's decision with the trade
+stated: about 170 bytes for ~2.4 ms of a 250 ms frame. **653 frames over
+seven pinned profiles are pixel-identical** — the usual six plus `climb`,
+which is the only one that reaches the whole-view arm and `cs_rect`'s
+dispatch at all.
+
 #### 88.4.6 The Hercules row loop and slice
 
 `cs_polyrows_herc` is §88.4.2's row loop with the run INLINE: no dispatch

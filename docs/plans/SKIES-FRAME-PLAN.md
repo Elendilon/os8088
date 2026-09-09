@@ -847,7 +847,7 @@ Two things came out of it, both built (SPEC.md 88.4.5.2, 88.4.5.3):
 17.72 (`climb`); the frame moves by the same and the image is 4 bytes smaller.
 569 frames on six pinned profiles are pixel-identical.
 
-### 7.5.3 COSTED, NOT TAKEN - two row loops to free BP
+### 7.5.3 BUILT - two row loops to free BP
 
 What is left in the loop's fixed cost, per row, after the two above:
 
@@ -874,10 +874,29 @@ the clipping copy also gets its clamp reordered so a row that needs neither
 end falls through it (measured: 43-100% of clipped rows need neither), which
 is two fewer prefetch flushes on the rows that still take it.
 
-Not taken here because it is the first change in this round that BUYS speed
-with SIZE rather than removing work, and 1.4 ms is 0.55% of the frame. It is
-written down so the next reader does not have to re-derive the register
-pressure.
+**TAKEN, on the owner's decision, and it delivered nearly double the
+costing** (SPEC.md 88.4.5.4, PERFORMANCE.md Set 135): `cs_poly` 47.79 ->
+44.98 ms in `turnhold`, 35.90 -> 33.48 in `bank`, 17.72 -> 16.72 in `climb`,
+and the frame 3.96 -> 4.01 fps. It is the first change in this round that buys
+speed with SIZE rather than by removing work: **+155 bytes** of image for the
+second expansion, plus six in `cs_poly`, eight in the backend arms and a word
+of bss.
+
+The costing was -6 bytes a row and the delivery was **-11**, which is the
+opposite of this file's usual error - a prediction off the fetch floor is an
+UPPER bound - and it undershot because the byte count it was made against was
+the wrong one. Two of the five extra bytes have nothing to do with the split
+and are the part worth remembering: twelve instructions sit between `push bx`
+and the `mov bl, al` that rebuilds BX, so **BX is dead there** and the pattern
+index belongs in it rather than in SI (`and bx, 3` / `mov dl, [cs_pat + bx]`,
+-2), and `and bx, 3` then leaves BH zero, retiring the `xor bh, bh` under it
+(-2). That one was NOT dead before - a Hercules view is ~300 rows, so the row
+index really does reach BH.
+
+Gated on **seven** profiles rather than the usual six: `climb` is the only one
+that reaches the whole-view arm or `cs_rect`'s dispatch, so the six alone would
+have gated a register reallocation on the arm it did not touch. 653 frames,
+pixel-identical.
 
 ### 7.5.4 REFUSED - a table for the row's two ends
 
