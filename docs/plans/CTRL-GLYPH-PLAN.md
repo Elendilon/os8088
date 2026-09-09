@@ -100,9 +100,7 @@ none of them is a measurement.
 
 ## 3. What is NOT settled
 
-1. **The 21 direct calls have not been classified.** Which are a control that
-   wants naming, and which are genuinely one-off? Nothing here should invent a
-   shared routine with one caller.
+1. ~~**The 21 direct calls have not been classified.**~~ **DONE — §6.**
 2. **`os88ui_chk`'s record shape against `os88ui_glyph`'s registers.** The
    panel holds the pane's left edge in DI at every call site and carries the id
    in BH through `cp_dngly` precisely so DI stays free — a record-based control
@@ -155,6 +153,40 @@ the other way**, and the next author will copy it too.
 opt-in today, and a pane relying on the control to clear its ground needs its
 own fill. The gate is `tests/radio.py`'s shape — every `gfx_fill`'s rect and
 every `font_run_x`'s y across a toggle — **verified red first**.
+
+## 6. The census — every direct drawing call in `ctrl.inc`, classified
+
+Thirteen call sites, in six routines. The count in §1 is of *primitives named*;
+this is of *calls made*, and it is the one that decides work.
+
+| routine | sites | what it draws | verdict |
+|---|---:|---|---|
+| `cp_page` | 1 | the page pane's ground | **KEEP — this is the caller's job.** §13.14.6 says a control does not lay its own ground precisely so the pane can |
+| `cp_run` | 1 | a `font_run` wrapper | **KEEP.** It is already the shared spelling, and opaque |
+| `cp_divider` | 1 | the 1px rule between the two panes | **KEEP — genuinely one-off.** `gfx_vline` is already the primitive; wrapping one call in a name is not consolidation |
+| `cp_list` | 3 | **the category LIST BOX** — rows with the selected one inverted | **A CONTROL.** And it breaks §13.14.6 rule 1 today, in its own words: *"Erases the whole pane first, so this doubles as the redraw path when the selection moves"* — the exact defect §13.17.4 fixed in the radio, a pane-wide blank to move one highlight |
+| `cp_time_fld` (+`cp_time_rows`) | 3 | **the time/date SPIN FIELD** — a value with the selected one barred | **A CONTROL**, and the closest thing in the tree to a text field |
+| `cp_drv_arrow1` / `_arrfill` / `_tri` | 3 | **scroll arrows and a triangle** for the driver list | **A CONTROL THAT ALREADY EXISTS.** `OS88UI_SCROLL` is the second shared element (§13.10) and `ctrl.inc` does not include it at all — this is the clearest hit in the census |
+| `cp_drv_wipe` | 1 | clears one line | **rule 1 smell** — an erase helper is what a control needs when it blanks instead of overdrawing |
+
+### 6.1 What the census actually found
+
+**Three of the six are already right**, which is worth saying before the work is
+sized: the pane ground, the `font_run` wrapper and the divider are not
+hand-rolled controls, they are a caller doing its job and one genuine one-off.
+The brief's *"no UI element drawn from hand rolled unique code"* is **ten sites
+in three routines**, not twenty-one.
+
+**And the sharpest one needs no design at all.** The driver list hand-rolls
+scroll arrows while `OS88UI_SCROLL` has been the second shared element since
+§13.10 and `ctrl.inc` does not include the file's scroll half. That is a
+conversion with an existing answer, an existing gate and no look question —
+so it should go **first**, ahead of the two that need a control invented.
+
+**Two of the three carry §13.14.6 defects into the bargain.** `cp_list` blanks
+its whole pane to move a highlight and says so in its own comment; `cp_drv_wipe`
+exists to blank a line. Converting them is not only consolidation — it is the
+same fix §13.17.4 made, applied where a user actually sees it.
 
 ## 5. Sequencing
 
