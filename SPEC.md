@@ -102244,6 +102244,26 @@ is under **16 bytes** of the 50" and today's union is 31 *because* the mark is
 a box; §88.3.1.3.4's row cache finds nothing because the box says every band
 row has ink. Three refusals, one brick.
 
+**THE SWEEP, ONE POSITION AND ONE HEADING, ONLY THE BANK MOVING.** The
+readings above each came off a different placement, which is not a control —
+`(150, 33, −2000)` heading 30 for all four, six settled frames a point, the
+aircraft placed once and then flying:
+
+| held roll | bytes CARRIED | bytes that DIFFER | the Seine lights | on rows |
+|---|---|---|---|---|
+| 0° | **265** | 9 | 322 px | 10 |
+| 5° | **1,898** | 26 | 418 px | 32 |
+| 12° | **2,997** | 138 | 495 px | 58 |
+| 20° | **4,248** | 85 | 413 px | 88 |
+
+**Carried grows 16x from level to 20° and what actually changes does not.**
+The same sweep with the aircraft PINNED as well — a scene in which literally
+nothing moves — is the cleanest statement there is: **at 20° it carries 4,201
+bytes to the glass for THREE bytes of change**, and 281 for none at all at
+level. The frame-level waste ratio is noisy frame to frame (it is a small
+denominator) and is 20-70x across the sweep; the carried column is not noisy
+at all.
+
 **AND THE OBJECT IS DRAWN — it is 219 PIXELS.** The field's reading was that
 the Seine bounds half the view and is then culled away to nothing, which is
 close and not quite it. Rendering the same frame with the object dropped
