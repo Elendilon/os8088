@@ -1060,35 +1060,75 @@ than an error.
 `apps/cc/os88.h`'s not-wrapped list carried these three under *"a state block
 explicitly not yours to read"*; the reason has changed and so has the entry.
 
-## 8.6 Wave 2, priced — the checkmark has nowhere better to go
+## 8.6 Wave 2 — the checkmark, and the answer was already in the file
 
-Six call sites in three packages (§8.1.4.2), every one the identical two-stroke
-tick of about eight pixels. §8.1.3 assumed `GFX_BLIT1`, one band. **All four
-routes are worse than the two `gfx_line` calls they would replace**, on the
-published prices:
+Six call sites, three packages (§8.1.4.2), every one the identical two-stroke
+tick of about eight pixels. **The owner's decisions collapse it to ONE.**
 
-| route | what it costs | |
+| | |
+|---|---|
+| `apps/sheet` | **deferred** — Sheet needs a whole pass to catch up with the tree and that is its own work; when it lands it becomes a consumer of the shared menu, the way Word is, and its private tick disappears rather than being converted |
+| `apps/cword` | **deferred, likely permanently** — it was the C half of an A/B against the assembly port of Word and assembly won it decisively |
+| `apps/os88ui.inc` | the one that converts, and §6.2 already established it reaches **Word alone** |
+
+### 8.6.1 The pricing was WRONG, and the error was mine rather than a document's
+
+The first version of this section put two `gfx_line` calls at **~554 µs**, built
+from `GFX_LINE`'s 37.1 µs a pixel plus a 128.7 µs arrival. **That is the
+MARGINAL cost and the arrival, not the call.** PERFORMANCE.md Set 132 measured
+the thing itself on this exact geometry and says so in as many words:
+
+> `gfx_line` … is **near enough FLAT**: **986 µs a call at two pixels** and
+> 1,147 at eleven, *because a short line is its own fixed part and almost
+> nothing else.*
+
+So the tick costs **~1,972 µs**, not 554 — and every alternative was being
+measured against a bar 3.6× too low. Both numbers are in PERFORMANCE.md, one
+section apart. CLAUDE.md's own performance table carries the warning this
+walked into: *never quote 756 as a floor a design must beat.*
+
+### 8.6.2 …and there is a FIFTH route, already in this file, already shared
+
+`os88ui_chk` (§13.15) — the check box `apps/skies` opts into with
+`%define OS88UI_CHK` — does not draw a tick at all. It draws **a solid square
+inside the frame**, and its own comment gives the reason:
+
+> `; ...and the mark: a solid square inside it,`
+> `; which reads on one bit as a tick does not`
+
+That is **one `gfx_fill`**. Against the five routes, priced on measured figures
+rather than marginal ones:
+
+| route | cost | |
 |---|---:|---|
-| 2 × `GFX_LINE` — what ships | **~554 µs** | 2 arrivals of 128.7 plus ~4 px each at 37.1 |
-| `GFX_POINTS`, ~10 points | ~1,660 | 3× worse — a line is priced by its INK and points is 4.5× a pixel |
-| `GFX_SPRITE1` (`icon_draw_x`) | ~2,800 est. | the published 12×12 figure is 6.7 ms; five rows pro rata |
-| `GFX_BLIT1`, one band | ~250 | **cheapest, and it carries a hazard the plan did not price** |
+| 2 × `GFX_LINE` — what ships | **~1,972 µs** | measured, Set 132 |
+| **1 × `GFX_FILL` — the solid square** | **~756–900** | **the winner: no table, no buffer, no alignment constraint, and it already exists** |
+| `GFX_BLIT1`, one band | ~250 + a second far call for the pen | cheapest on paper, but see §8.6.3 |
+| `GFX_POINTS`, ~10 points | ~1,660 | a line is priced by its ink |
+| `GFX_SPRITE1` | never measured | and now does not need to be |
 
-**The blit1 hazard is the finding.** The tick's x is `mrect.x + 2` and
-`gfx_blit1`'s fast path wants a multiple of 8, so the band must snap DOWN — up
-to seven pixels **left of the menu rect's own edge, onto the menu frame**. An
-opaque band there paints over chrome the caller did not draw. Snapping up
-instead means widening to 16 and painting ground across the label's first
-columns, which is harmless only because the label is drawn afterwards — true
-today in all three packages and not a thing to rely on silently.
+**The solid square is the answer**, and it is better on four axes at once:
+roughly half the cost, one drawing call, zero bytes of table, no geometry
+constraint — and it is a LOOK improvement the owner asked for, on a mark that
+one-bit adapters render badly today. It also makes the two shared controls agree
+with each other, which they do not now.
 
-So wave 2 is **held rather than done**, and that is a decision with an argument
-rather than a deferral: its speed is a wash at best, its only consumer is wave
-8, and the one route that would pay needs a per-package proof that the snapped
-band stays inside the menu. **Decide it in wave 8**, where the tick can be
-bracketed in situ instead of extrapolated — the 2,800 µs above is pro rata off
-a doc comment and is the weakest number in this file.
+### 8.6.3 Why `GFX_BLIT1` loses even though it is cheapest
 
+The alignment hazard is worse than §8.6's first version knew, and the fix the
+owner offered — *require the label to be drawn after the ground* — solves the
+wrong edge.
+
+`MRECT.x` is `MN_RECT.x + 8n + 4` (`apps/os88ui.inc:3639`, *"the panel starts
+4px left of the title"*), and §11.94 snaps a window's content origin to 8 — so
+**the panel's left edge sits at 4 mod 8** and the tick at 6. Snapping the band
+down to the byte grid starts it **4 pixels left of the panel**, over the frame
+and the desktop beneath it; snapping up starts it *after* the tick's first two
+columns and loses them. The label-order rule fixes the RIGHT edge, which was
+never the binding one. The Help row's own arm (`:3705`) puts `MRECT.x` at an
+arbitrary value besides.
+
+A fill has no such edge, which is most of why it wins.
 ## 8.7 Wave 7, as built — and there were never any kernel bytes in it
 
 The wave was *"retire `gfx_pixel` → `GFX_POINTS` with `CX = 1`… 12 bytes + the
@@ -1199,6 +1239,35 @@ The same shape is why §8.1.4.2's census exists at all: §8.1.4.1's routing tabl
 had Sheet composing a grid and Cyclone calling `gfx_line`, and both survived
 several revisions of this document because a table of programs is exactly the
 kind of thing that reads as checked.
+
+### 9.1.1 The same rule for NUMBERS, and this one was self-inflicted
+
+§8.6 priced the menu tick at 554 µs from `GFX_LINE`'s **marginal** 37.1 µs a
+pixel plus its arrival, while PERFORMANCE.md Set 132 — one part of the same
+file — had measured the call itself at **986 µs at two pixels** and said
+explicitly that *a short line is its own fixed part and almost nothing else.*
+Every alternative was then judged against a bar 3.6× too low, and the section
+concluded "nowhere better to go" when the answer was twice as good.
+
+> **A marginal rate is not a call cost, and a summary table is not a
+> measurement.** Before pricing anything against a primitive, find the SET that
+> measured that primitive at the size you are about to use it, not the per-unit
+> figure a briefing quotes.
+
+CLAUDE.md's performance table already carries the warning in the general form —
+*never quote 756 as a floor a design must beat* — and this is what walking into
+it looks like from the inside: the arithmetic was tidy, internally consistent,
+and wrong.
+
+### 9.1.2 …and the fifth option was in the file being edited
+
+`os88ui_chk` draws its mark as **a solid square** and carries the reason in a
+comment — *"which reads on one bit as a tick does not"* — eight hundred lines
+above the tick this plan was trying to find a home for, in the same file.
+Neither the census nor the four-route table found it, because both were built
+by asking *"who calls `gfx_line`"* rather than *"what else in this file draws a
+mark"*. A caller census is the right instrument for a REMOVAL and the wrong one
+for a REPLACEMENT, and §8.6 was quietly doing the second.
 
 ## 10. Method, and how to re-derive any of it
 
