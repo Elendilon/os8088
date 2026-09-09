@@ -202,11 +202,41 @@ at the top the way `OS88UI_BARONLY` already defines `OS88UI_NOBTN`.
 |---|---|---|---:|
 | `GFXE_BAND` | — | compose into your own 1bpp band; commit with `OSAPI_GFX_BLIT1`. **The pixel primitive lives here** — a bit-set, not a slot | ~80 |
 | `GFXE_LINE` | `GFXE_BAND`¹ | Bresenham + the 1bpp per-pixel walk (`gfx_line_mono`'s body) | ~350 |
-| `GFXE_LINE_FAST` | `GFXE_LINE` | SPEC.md 5.6.4.1's interval walk, **4.9×** | **647** |
+| `GFXE_LINE_FAST` | `GFXE_LINE` | SPEC.md 5.6.4.1's interval walk, **4.9×**. **Not one choice — §4.1.1** | **647**, or ~350 |
 | `GFXE_WIDE` | `GFXE_LINE` | 5.6.5/5.6.6 dilation — the three-pass and the three-column mask walk | ~130 |
 | `GFXE_RUNS` | `GFXE_LINE` | major-axis run coalescing, for a **4bpp** target | ~223 |
 | `GFXE_WALK` | `GFXE_LINE` | resumable state: `linit`, `lstep`, replay-to-erase | ~230 |
 | `GFXE_WALK_BATCH` | `GFXE_WALK` | `lstepv`'s many-walks-one-arrival | ~60 |
+
+### 4.1.1 `GFXE_LINE_FAST` is not one choice — the menu is already measured
+
+**[docs/plans/completed/LINE-PERF-PLAN.md](completed/LINE-PERF-PLAN.md) is
+`gfx_line_fast`'s design record and its LINE-PERF-PLAN §5.2 is a gift to this plan**: it
+prices three ways of making the fast walk *smaller* against exactly what each
+costs in speed, on the 5150, with `tools/os88linecost.py pieces` as the
+instrument. In the kernel those were rejected — a kernel cannot ask the caller
+which trade it wants. **A library can**, and that is what turns the owner's
+*"keep the optimisation or gate it out"* into a dial:
+
+| sub-capability | bytes | what dropping it costs |
+|---|---:|---|
+| the eight octant loop bodies | 324 | dropping all of them is **no fast walk at all** — back to `GFXE_LINE` |
+| four steep bodies behind one indirect jump | ~38 | **+6%** on a 32×127 line, **+24%** on a 45° one; the steep/shallow spread goes 1.18× → 1.47× |
+| ink specialisation (an ink-independent plot: two RMWs a pixel) | ~148 | **+25% steep, +30% shallow, on every line** |
+| the black loops | ~148 | **every erase back to 723 cyc/px — 4.8×**. Free for a package that never erases |
+| `gfx_lf_wide3` (5.6.6.1's dilated steep) | 71 | `GFXE_WIDE`'s fast arm; a thin-only caller never wanted it |
+| the eligibility setup | 161 | **not droppable** — LINE-PERF-PLAN §5.1 explains why the two octant blocks are mirror images that cannot share code on an 8086 |
+
+So **Sheet, which draws grid lines in one ink and never erases**, plausibly
+takes `GFXE_LINE_FAST` at ~350 bytes rather than 647. **Cyclone, whose whole
+warp is a draw/erase pair**, must keep the black loops. This is the per-package
+conversation the owner asked for, and it is already priced.
+
+LINE-PERF-PLAN §4.5 also records the one thing measured and **refused**, so
+nobody costs it again: *accumulating a framebuffer byte* — one RMW per byte
+rather than per pixel — is worth **10%**, not the 8× the store count suggests,
+because at 127×32 the row changes every fourth pixel and the byte must be spent
+then anyway.
 
 ¹ `GFXE_LINE` implies `GFXE_BAND` only in compose mode. A caller that wants a
 line drawn **directly** takes `GFXE_LINE_DIRECT` instead, which is a thin
