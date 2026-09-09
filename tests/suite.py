@@ -4248,6 +4248,19 @@ SOAK = [
         "the part - 225 cells put on the glass became 0, against 549 for a "
         "whole repaint. CELLS and not calls (11.3.3).",
         needs=("marty",), serial=True),
+    Row("tmgraph", "soak", py("tests/tmgraph.py"), 90.0,
+        "SPEC.md 28.10.3: the Task Manager's history graph is damage-gated "
+        "and run-coded. It was 216 columns at up to two primitive calls each "
+        "on EVERY paint whatever the damage said, so uncovering the RAM bar "
+        "underneath it cost 333.9ms of a Hercules for ~16ms of bar. Counts "
+        "tm_grun (the whole of the graph's drawing) MINUS tm_col (the "
+        "worker's own two columns an interval, which arrive regardless): 0 "
+        "runs for damage below the band, a clamped count for a narrow strip "
+        "across it, and 3 for a flat ring where nothing coalesced is 215. "
+        "CALLS and not pixels, for 28.11.2's reason - this page moves every "
+        "TM_INT by construction, so two captures never agree and `settle` "
+        "never returns",
+        needs=("marty",), serial=True),
     Row("tmrepair", "soak", py("tests/tmrepair.py"), 80.0,
         "SPEC.md 28.11: the Task Manager's quiet pages hold a raise cache by "
         "REPAIRING at the restore - a whole-content band, and tm_update "
