@@ -548,7 +548,41 @@ blit. Weave's 44–64 calls at 35–50 ms become **one** blit; Mines' X becomes 
 bit-sets. So the sequence is *give the callers somewhere better to go, then
 retire the slot* — and the 12 bytes are the least of what that is worth.
 
-### 6.2 `os88ui.inc` is not an obstacle, and its `UI_PIXEL` is dead
+### 6.2 `os88ui.inc` is not an obstacle — and it is ONE package, not 25
+
+**CORRECTED, and the correction shrinks wave 2 to almost nothing.** Every
+earlier revision of this document said the checkmark reached the 25 packages
+that include `os88ui.inc`. It does not: both `OSAPI_GFX_LINE` call sites sit
+inside `%ifdef OS88UI_MENU` (`apps/os88ui.inc:3469`–`4584`), the in-window menu
+element is **opt-in**, and `apps/word/word.asm:20802` is the only file in the
+tree that defines it.
+
+So `OSAPI_GFX_LINE`'s shipped caller list is **six programs**, not
+twenty-five-plus-four: **Paint, Sheet, Missile, Cyclone, Word** (through the
+menu element) and **cword** (the same checkmark again, in C), with **Tank** on
+`kern_big` and `wire` not shipping at all.
+
+**And that moves wave 2 off the critical path.** Removing the checkmark's two
+calls no longer unblocks a crowd; it removes one caller of six, and `gfx_line`
+cannot leave until Paint, Sheet, Missile and Cyclone have gone too. Wave 2 is
+therefore **deferred to after wave 6**, where it is a tidy-up rather than an
+enabler — and its implementation should be reconsidered there rather than
+taken from §8.1.3, because two things it assumed are false:
+
+- **The speed is a WASH, not 2×.** The mark is seven distinct pixels, so
+  `GFX_POINTS` draws it in 335 + 7×166 = **~1,497 µs** against the two lines'
+  **~1,680** — and a `blit1` band's ~785 is a saving on something drawn once
+  per menu open.
+- **`blit1` cannot express the DISABLED mark on a 1bpp adapter.** The pen there
+  is `OSAPI_GFX_PEN` CF=1 — `CDGRAY` *and* `[gfx_dis]` — and §39.4 makes that a
+  checkerboard, which is §47's whole point. `gfx_blit1` ignores the pen on
+  1bpp, so the dither would have to be composed into the band from the mark's
+  screen-absolute `(x+y)` parity. `GFX_POINTS` has no such problem: it runs the
+  same ink path as `gfx_pixel`, dither test included, which
+  `tests/gfxpoints.py` case 2 is the proof of.
+
+So when wave 2 is taken, **`GFX_POINTS` is the primitive** — same pixels, same
+pen, no new failure mode on the build where greying is hardest.
 
 37 files across **25 packages** include `os88ui.inc`, which is where the
 "everyone would embed a rasteriser" objection comes from. It does not hold:
@@ -599,19 +633,19 @@ each — and they are what a future C rasteriser would plot through anyway.
 
 Each is independently landable and each is a separate PR.
 
-| wave | what | prize | risk |
+| wave | what | prize | risk / blocker |
 |---|---|---|---|
-| **0** | `os88ui.inc`'s checkmark → one `OSAPI_GFX_BLIT1` band. **Sequenced AFTER `gfx_blit1` lands on `kern_small`** (§2.4), which is happening for its own reasons | takes `OSAPI_GFX_LINE`'s caller list from **25 packages to four programs**, and the checkmark gets **~2× faster** — ~780 µs against today's two `gfx_line` calls at ~1.68 ms | the band's x must be on the byte grid (SPEC.md 5.4.2) and the check column is `MRECT+2`, so compose a 16px band at the enclosing 8-aligned column with the mark shifted inside it |
-| **1** | ~~`apps/os88gfx.inc`~~ → **`gfx_blit1` on `kern_small`. BUILT** (SPEC.md 5.4.2.5.1): the pen, the second display, the VGA ports, the split pass and the port teardown each `%ifdef`'d out | **+472** measured (`.text` +16, `.cold` +456), one cold rung; `kern_big` BYTE-IDENTICAL; nine shipped small-disk packages stop taking a fallback and Paint's one-bit canvas stops being 24× | none left — `tests/paint1small.py` is the gate and asks the RUNNING machine, because the thunk pointing at a body is not the claim |
-| **1.5** | `apps/os88gfx.inc` with `GFXE_BAND` + `GFXE_LINE`; **Sheet** is the first customer, compose mode, nothing gated out of the kernel | proves the lattice; ~350 bytes of Sheet | none — the kernel is untouched |
-| **2** | `GFXE_LINE_FAST`; **Paint on `kern_small`** takes it | Paint's stroke **4.9×** on the floor machine, +647 of Paint's own image | Paint's small build is size-sensitive (§24.5) |
-| **3** | `GFXE_WALK` on **Missile's drain only** — §3.2 is BENCHED (Set 132) and the drain is 2.6× better app-side; its missiles and Cyclone's warp are 1.4× worse and stay on the kernel walk | ~230, and 14.5 ms a frame off the drain | a package on both paths at once — Missile would carry the library AND call the slot |
-| **3.5** | **`OSAPI_GFX_POINTS` (§3.2.1)** — the slot that separates the six per-CALL concerns from the per-LINE Bresenham. **Take this before wave 4**: it makes wave 4 a net win at every n instead of a trade | **~+150, and it retires the walker** | estimated, not built. Its inner loop is `gfx_lstep_mono`'s with the advance replaced |
-| **4** | gate `gfx_linit/lstep/lstepv` out of both kernels | **−537 / −641**, or **~−385 / −470 net** behind wave 3.5 | **Set 132 narrows this to one question and wave 3.5 dissolves it.** Against today's slots the walk wins only at 1.3–4.2 px a block a frame, so removing it is a trade; with `GFX_POINTS` in front of it nothing loses at any n |
-| **5** | gate `gfx_line_fast`, `gfx_line_runs`, `gfx_lf_wide3` out of `kern_big` | **−874** from `kern_big` alone | Paint and Sheet must be on the library first |
-| **6** | gate `gfx_line` itself | the remainder, ~660 / ~800 | blocked on §7 outright |
+| **1 ✅ DONE** | **`gfx_blit1` on `kern_small`** (SPEC.md 5.4.2.5.1) — the pen, the second display, the VGA ports, the split pass and the port teardown each `%ifdef`'d out | **+472** measured; `kern_big` BYTE-IDENTICAL; nine shipped small-disk packages stop taking a fallback and Paint's one-bit canvas stops being 24× | none — `tests/paint1small.py` asks the RUNNING machine, because a thunk pointing at a body is not the claim |
+| **1a ✅ DONE** | **`OSAPI_GFX_POINTS`** (§3.2.1, SPEC.md 5.6.9) — the slot that separates the six per-CALL concerns from the per-LINE Bresenham | **+167 / +221** measured; **165.96 µs a point** (Set 133), best route below 6.66 px a block a frame and better than the walk out to 37.7 | none — `tests/gfxpoints.py`, three cases, two breakages proven |
+| **2 ⏸ DEFERRED** | `os88ui.inc`'s checkmark → `GFX_POINTS` | one `gfx_line` caller of six, and the speed is a WASH | **§6.2**: it is Word alone and not 25 packages, so it enables nothing. Take it after wave 6 |
+| **3** | **`apps/os88gfx.inc`** — `GFXE_BAND` + `GFXE_LINE` (the Bresenham), **Sheet** the first customer | proves the lattice; nothing leaves the kernel yet | none — the kernel is untouched |
+| **4** | `GFXE_LINE_FAST` — **Paint on `kern_small`** takes the 4.9× it has never had | Paint's stroke 4.9× on the floor machine, +647 of Paint's own image | Paint's small build is size-sensitive (§24.5) |
+| **5** | `GFXE_WALK` + `GFX_POINTS` on **Cyclone and Missile** | Missile's drain 2.6×; the rest a wash or better | **needs wave 3**: the app-side Bresenham is what they walk with |
+| **6** | gate `gfx_linit/lstep/lstepv` out of both kernels | **−537 / −641** | needs wave 5 landed |
+| **7** | retire `gfx_pixel` → `GFX_POINTS` with `CX = 1`, and the fallback in `gfx_points` simplifies with it (§6.1) | 12 bytes + the fallback arm's | needs the six callers moved |
+| **8** | gate `gfx_line_fast`, `gfx_line_runs`, `gfx_lf_wide3` out of `kern_big`, then `gfx_line` itself | **−874**, then the remainder | needs waves 3, 4, 2 and Paint's stroke MEASURED against today's 13.03 ms chord |
 
-**Waves 0–3 take nothing out of either kernel.** That is deliberate: every one
+**Waves 1–5 take nothing out of either kernel** (wave 1 ADDS to `kern_small` and wave 1a to both). That is deliberate: every one
 of them is reversible and none of them can break a shipped program, so the
 whole risky half of the plan is waves 4–6 and each of those is gated on a
 program actually being on the library first.
