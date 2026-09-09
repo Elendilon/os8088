@@ -108390,6 +108390,91 @@ report reasonably guessed otherwise: the title screen already shares
 `dd_dots_blit` with the game. There is no duplicate to collapse and no second
 place a fix has to be made — there was one line of divergence.
 
+#### 93.5.14 The tile range of a band is walked out, never divided
+
+`dd_actor_prep` reduces the pixel union of an actor's two boxes to the tile
+rectangle that contains it. It used to do that with **four 16-bit `DIV`s** —
+`dd_bx0/dd_bx1` by `[dd_tw]`, `dd_by0/dd_by1` by `[dd_th]` — which is about
+160 cycles each on an 8088, five actors a frame, twenty divides a frame for
+an answer the program already holds.
+
+It holds it because §93.7's mover carries it. `dd_advance` keeps `dd_ac`/`dd_ar`
+— the tile an actor is in — and `dd_acx`/`dd_ary` — **that tile's own origin,
+in the same 1/16 px the position is in** — in lockstep with `dd_x`/`dd_y`, and
+every write to a position in the program is either `dd_advance`'s or
+`dd_put_tile`'s, which is what makes the pairing an invariant rather than a
+convention. So the tile of any pixel *near the actor* is the actor's own tile
+plus a small offset, and the offset is found by comparing rather than dividing:
+
+- the union opens at `min(px, nx)`, which `dd_actor_px` has already refused to
+  let fall more than one tile back — so the first column is `dd_ac`, or
+  `dd_ac - 1` when the union opens before `dd_acx`. **One compare.**
+- it closes at `max(px, nx) + tw - 1`, which for the same reason cannot reach
+  beyond `dd_acx + 3·tw - 2` — so the last column is `dd_ac`, `+1` or `+2`.
+  **Two compares.**
+
+Six compares an axis-pair where there were four divides, and the answer is
+*identical* rather than approximate: the walk computes `floor(v / tw)` exactly
+over the only range the value can occupy. `tests/dotdel.py` leg J is what says
+so, checking every call at `dd_actor_prep.banked` — the one point where the
+union that went in and the range that came out are both readable — against a
+host-side divide.
+
+**The teleport refusal is what bounds the walk**, so it is load-bearing here
+and not only in §93.5.1: a step longer than a tile takes `dd_actor_px`'s
+`.fresh` arm, which sets the old box to the new one, and the union is then one
+box wide.
+
+#### 93.5.15 A band is the pixel union; only its x is on the tile grid
+
+§93.5.1's band is the union of where an actor was drawn and where it is. That
+union was then rounded **out to the tile grid on both axes**, and only one of
+those axes had a reason.
+
+`gfx_blit1` takes a band whose x is a byte column and whose width is a whole
+number of bytes (§5.4.2.2). A tile is a multiple of 8 wide (§93.3), so tile
+rounding satisfied that — but it satisfied it with room to spare, and **y has
+no such rule at all**. On a VGA, where the tile is 16×13, an actor stepping
+four pixels down produced a band of **26 rows where 17 were owed**, and one
+stepping four pixels sideways a band of 32 columns where 24 were.
+
+Measured over 1,155 bands on a 4.77 MHz 8088
+(`docs/reports/DOTDEL-FRAME-PROFILE-2026-09-09.md`), the rounding cost **36%
+of every band's pixels on VGA** and 30% on Hercules, and the band is what the
+blit, the ground copy and both sprite composers are all priced by — 21.5 ms
+of a 29.9 ms frame. On CGA, where the tile is 8×4 and about the size of a
+step, it cost 10% and the change buys almost nothing.
+
+So the band now carries **two rectangles rather than one**:
+
+- `[dd_c0..dd_c1] × [dd_r0..dd_r1]`, the TILE range it overlaps. This is what
+  the composers ITERATE — which dots to consider, whether a wall is in reach
+  (§93.5.13) — and it is unchanged.
+- `[dd_ux0..dd_ux1] × [dd_uy0..dd_uy1]`, the PIXEL rectangle it must hold.
+  This is what is composed, blitted and therefore paid for. `dd_band_build`
+  cuts the band to it, rounding **x** out to byte columns and **y** not at all.
+
+Three things fall out, and the third is the one that needs code:
+
+1. `dd_band_build` stops multiplying. It used four `MUL`s to turn tiles into
+   pixels; both rectangles now arrive ready, so it shifts and subtracts.
+2. `dd_band_one` and `dd_band_others` need nothing. The first already clipped
+   a sprite to an arbitrary band rectangle — that is how an actor half out of
+   its own band was drawn — and the second already tested against the band's
+   pixels rather than its tiles, so it composes fewer neighbours for free.
+3. **An item on a tile the band only partly covers has to be clipped**, which
+   is `dd_item_rect`'s job. The tile grid no longer starts at the band's own
+   corner: tile `(c0, r0)` opens above and to the left of it, both offsets are
+   `<= 0`, and a dot near the edge of the union is now half in it. A
+   rectangle is uniform, so clipping one moves the counts and nothing else.
+
+**The clip is in `dd_item_rect` and deliberately not in `dd_band_rect`**, even
+though the second is where a general clip belongs. Four other bands in this
+program call `dd_band_rect` — the dot run, the title's glyph grid, the HUD's
+— and they are built to fit exactly what goes in them; not all of them set
+`dd_bh` at all, so a clip there would read a stale height and silently drop
+rows of somebody else's text.
+
 #### 93.5.9.1 …and the fast path forgot which BYTE the run starts in
 
 §93.5.9's two-byte mask is built from the run's **bit** offset, and the byte
@@ -108674,6 +108759,23 @@ One tile takes `DD_TILET` = 4 ticks at 100%, so the game runs at the same
 CGA's 8 × 4 board and a fullscreen VGA's 16 × 15 one play at identical speed.
 Everything else is a percentage of that: a roaming ghost 88, a frightened one
 60, a returning pair of eyes 190, and anybody in the tunnel 55.
+
+##### 93.7.5 …and a percentage is resolved once, not scaled per tick
+
+There are **five** of those percentages and **two** axes, so there are ten
+answers and they change only when the tile size does. `dd_axis_step` used to
+compute one of the ten on every call — `MUL` by the percentage, `DIV` by 100 —
+which on an 8088 is about 300 cycles, five actors a tick, for a constant.
+
+`dd_layout` resolves all ten where it is already deciding the tile size, into
+`dd_stpx`/`dd_stpy`; `dd_speed_of` answers with an **index** (`SPD_PAC`,
+`SPD_GH`, `SPD_FRI`, `SPD_EYE`, `SPD_TUN`) rather than a percentage, because a
+percentage is a thing to divide by and an index is a thing to look up; and
+`dd_axis_step` is a shift and a load. The percentages survive as `DD_PCT*` in
+one table, `dd_spct`, which `dd_layout` is the only reader of.
+
+The rounding rule moves with the arithmetic and still holds: a speed that
+rounds down to zero is forced to 1, because a zero step is a frozen actor.
 
 #### 93.7.2 Steering is polled, not evented
 

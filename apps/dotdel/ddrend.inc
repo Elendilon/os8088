@@ -1288,40 +1288,76 @@ dd_actor_prep:
     add ax, [dd_th]
     dec ax
     mov [dd_by1], ax
-    ; --- ...taken out to the tile grid --------------------------------------
+    ; --- ...taken out to the tile grid, WITHOUT DIVIDING (SPEC.md 93.5.14) --
+    ; dd_advance carries dd_ac/dd_acx along with the position (SPEC.md 93.7),
+    ; so the tile this actor is in and that tile's OWN pixel origin are both
+    ; known before this routine starts - and every write to dd_x/dd_y in the
+    ; program is either dd_advance's or dd_put_tile's, which is what makes
+    ; that an invariant rather than a hope.  dd_actor_px has already refused
+    ; a step longer than a tile as a TELEPORT, so the union reaches ONE tile
+    ; back and TWO forward at most, and the range is three compares an axis
+    ; where it was two 16-bit DIVs.  Four of those ran five times a frame at
+    ; ~160 cycles each and were a quarter of dd_actor_prep
+    ; (docs/reports/DOTDEL-FRAME-PROFILE-2026-09-09.md).
     mov bx, si
-    mov ax, [dd_bx0]
-    xor dx, dx
-    div word [dd_tw]
-    cmp ax, DD_COLS - 1
-    jbe .c0
-    mov ax, DD_COLS - 1
-.c0:
-    mov [dd_nc0 + bx], al
+    shl bx, 1
+    mov cl, 4
+    mov di, [dd_acx + bx]
+    shr di, cl                      ; DI = the pixel x of the tile SI is in
+    mov dl, [dd_ac + si]            ; DL = the first column, DH the last
+    mov dh, dl
+    cmp [dd_bx0], di
+    jae .c0
+    dec dl                          ; the union opens in the tile BEFORE it
+    jns .c0
+    xor dl, dl                      ; column 0 cannot, its origin being 0 -
+.c0:                                ; but a wrong band is a corrupted screen
     mov ax, [dd_bx1]
-    xor dx, dx
-    div word [dd_tw]
-    cmp ax, DD_COLS - 1
-    jbe .ck
-    mov ax, DD_COLS - 1
+    add di, [dd_tw]
+    cmp ax, di
+    jb .ck
+    inc dh
+    add di, [dd_tw]
+    cmp ax, di
+    jb .ck
+    inc dh
 .ck:
-    mov [dd_nc1 + bx], al
-    mov ax, [dd_by0]
-    xor dx, dx
-    div word [dd_th]
-    cmp ax, DD_ROWS - 1
-    jbe .r0
-    mov ax, DD_ROWS - 1
+    cmp dh, DD_COLS - 1
+    jbe .ckok
+    mov dh, DD_COLS - 1
+.ckok:
+    mov bx, si
+    mov [dd_nc0 + bx], dl
+    mov [dd_nc1 + bx], dh
+    shl bx, 1                       ; --- and the same on y ------------------
+    mov cl, 4
+    mov di, [dd_ary + bx]
+    shr di, cl
+    mov dl, [dd_ar + si]
+    mov dh, dl
+    cmp [dd_by0], di
+    jae .r0
+    dec dl
+    jns .r0
+    xor dl, dl
 .r0:
-    mov [dd_nr0 + bx], al
     mov ax, [dd_by1]
-    xor dx, dx
-    div word [dd_th]
-    cmp ax, DD_ROWS - 1
-    jbe .rk
-    mov ax, DD_ROWS - 1
+    add di, [dd_th]
+    cmp ax, di
+    jb .rk
+    inc dh
+    add di, [dd_th]
+    cmp ax, di
+    jb .rk
+    inc dh
 .rk:
-    mov [dd_nr1 + bx], al
+    cmp dh, DD_ROWS - 1
+    jbe .rkok
+    mov dh, DD_ROWS - 1
+.rkok:
+    mov bx, si
+    mov [dd_nr0 + bx], dl
+    mov [dd_nr1 + bx], dh
     shl bx, 1                       ; ...and BANK the two boxes the union was
     mov ax, [dd_px]                 ; made of. dd_actor_px writes ONE pair and
     mov [dd_pbx + bx], ax           ; prep runs five times before the first
@@ -1331,6 +1367,22 @@ dd_actor_prep:
                                     ; every frame, which is what the maze's
                                     ; top-left corner looked like when this
                                     ; block was left out
+    mov ax, [dd_bx0]                ; ...and the PIXEL union itself, which is
+    mov [dd_bux0 + bx], ax          ; what the band is CUT to (SPEC.md 93.5.15)
+    mov ax, [dd_bx1]                ; rather than the tile rectangle above
+    mov [dd_bux1 + bx], ax
+    mov ax, [dd_by0]
+    mov [dd_buy0 + bx], ax
+    mov ax, [dd_by1]
+    mov [dd_buy1 + bx], ax
+.banked:                            ; ...and a name for the one moment BOTH
+                                    ; halves are readable: the pixel union in
+                                    ; dd_bx0/dd_bx1/dd_by0/dd_by1 and the tile
+                                    ; range it was reduced to, before the next
+                                    ; actor's prep overwrites the first pair.
+                                    ; tests/dotdel.py leg J is what checks the
+                                    ; divide-free reduction against a divide,
+                                    ; and it emits no byte
     mov byte [dd_uok + si], 1
     ret
 .none:
@@ -1409,6 +1461,14 @@ dd_actor_emit:
     mov [dd_r1], ax
     mov bx, si
     shl bx, 1
+    mov ax, [dd_bux0 + bx]          ; ...and the PIXEL rect inside it, which is
+    mov [dd_ux0], ax                ; what is actually composed and blitted
+    mov ax, [dd_bux1 + bx]          ; (SPEC.md 93.5.15)
+    mov [dd_ux1], ax
+    mov ax, [dd_buy0 + bx]
+    mov [dd_uy0], ax
+    mov ax, [dd_buy1 + bx]
+    mov [dd_uy1], ax
     mov cl, 4
     mov ax, [dd_x + bx]
     shr ax, cl
@@ -1481,6 +1541,28 @@ dd_wipe_old:
 dd_box_rect:
     push bx                         ; y
     push ax                         ; x
+    push ax                         ; ...and the PIXEL rect with it (SPEC.md
+    push bx                         ; 93.5.15), which for a ONE-TILE box needs
+    mov [dd_ux0], ax                ; no divide at all: it IS the box
+    add ax, [dd_tw]
+    dec ax
+    cmp ax, [dd_mw]
+    jb .ux1
+    mov ax, [dd_mw]
+    dec ax
+.ux1:
+    mov [dd_ux1], ax
+    mov [dd_uy0], bx
+    add bx, [dd_th]
+    dec bx
+    cmp bx, [dd_mh]
+    jb .uy1
+    mov bx, [dd_mh]
+    dec bx
+.uy1:
+    mov [dd_uy1], bx
+    pop bx
+    pop ax
     xor dx, dx
     div word [dd_tw]
     cmp ax, DD_COLS - 1
@@ -1630,25 +1712,42 @@ dd_tile_free:
 ; out: [dd_bx0]/[dd_by0]/[dd_bw]/[dd_bh]/[dd_rb]. Clobbers all but SI.
 ; -----------------------------------------------------------------------------
 dd_band_build:
-    mov ax, [dd_c0]
-    mul word [dd_tw]
+    ; THE BAND IS THE PIXEL UNION, NOT THE TILE RECTANGLE (SPEC.md 93.5.15).
+    ; Only x has to be on the byte grid, because that is gfx_blit1's contract;
+    ; y was rounded out to a whole tile for no reason the blit has, and on a
+    ; VGA that was 26 rows where 17 were owed. The tile range is still what
+    ; the composers ITERATE - it is one rectangle out, and this one is cut
+    ; from it.
+    ; EVERY FIELD IS STORED BEFORE ANYTHING IS REFUSED. dd_band_actor calls
+    ; dd_band_one and dd_band_emit whether this routine built a band or not,
+    ; so a `.none` that returns early leaves the PREVIOUS band's base, stride
+    ; and origin standing - and the actor is then composed into it and blitted
+    ; where that one was. A degenerate rectangle becomes a zero here and the
+    ; guards below refuse the zero, which is what the old tile arithmetic did
+    ; by construction and this has to do on purpose.
+    mov ax, [dd_ux0]
+    and ax, ~7                      ; ...out to the byte column each side
     mov [dd_bx0], ax
-    mov ax, [dd_c1]
-    sub ax, [dd_c0]
-    inc ax
-    mul word [dd_tw]
-    mov [dd_bw], ax
+    mov bx, [dd_ux1]
+    or bx, 7
+    inc bx
+    sub bx, ax
+    jg .wok
+    xor bx, bx
+.wok:
+    mov [dd_bw], bx
     mov cl, 3
-    shr ax, cl
-    mov [dd_rb], ax
-    mov ax, [dd_r0]
-    mul word [dd_th]
+    shr bx, cl
+    mov [dd_rb], bx
+    mov ax, [dd_uy0]
     mov [dd_by0], ax
-    mov ax, [dd_r1]
-    sub ax, [dd_r0]
-    inc ax
-    mul word [dd_th]
-    mov [dd_bh], ax
+    mov bx, [dd_uy1]
+    sub bx, ax
+    jge .hok
+    mov bx, -1
+.hok:
+    inc bx
+    mov [dd_bh], bx
     mov word [dd_bbase], dd_band
     ; A DEGENERATE RECTANGLE IS REFUSED HERE, and it has to be refused rather
     ; than clamped: dd_band_walls copies dd_bh rows with `dec dx / jnz`, so a
@@ -1800,13 +1899,28 @@ dd_band_walls:
 ; Clobbers everything but SI.
 ; -----------------------------------------------------------------------------
 dd_band_items:
+    ; THE TILE GRID NO LONGER STARTS AT THE BAND'S CORNER (SPEC.md 93.5.15).
+    ; The band is cut to the pixel union, so tile (c0, r0) opens ABOVE and to
+    ; the LEFT of it - both offsets are <= 0 - and an item on a tile the band
+    ; only partly covers is clipped by dd_band_rect rather than skipped. Two
+    ; multiplies once a band, where every row of every item used to carry one.
+    mov ax, [dd_c0]
+    mul word [dd_tw]
+    sub ax, [dd_bx0]
+    mov [dd_ix0], ax
+    mov ax, [dd_r0]
+    mul word [dd_th]
+    sub ax, [dd_by0]
+    mov [dd_iy0], ax
     mov ax, [dd_r0]
     mov [dd_ir], ax
-    mov word [dd_iy], 0             ; the tile's origin INSIDE the band, walked
+    mov ax, [dd_iy0]
+    mov [dd_iy], ax                 ; the tile's origin INSIDE the band, walked
 .row:                               ; along rather than multiplied out
     mov ax, [dd_c0]
     mov [dd_ic], ax
-    mov word [dd_ix], 0
+    mov ax, [dd_ix0]
+    mov [dd_ix], ax
 .col:
     mov cl, [dd_ic]
     mov ch, [dd_ir]
@@ -1883,7 +1997,53 @@ dd_band_items:
 dd_item_rect:
     add ax, [dd_ix]
     add bx, [dd_iy]
+    ; --- ...AND CLIPPED TO THE BAND (SPEC.md 93.5.15) -----------------------
+    ; The band is the pixel union now, so a tile it only partly covers puts an
+    ; item's rectangle over an edge. THIS is the routine that clips and not
+    ; dd_band_rect, because the four other bands in this program - the dot
+    ; run, the title's glyph grid, the HUD's - are built to fit what goes in
+    ; them and do not all set dd_bh at all; a clip there would read a stale
+    ; height. A rectangle is uniform, so nothing but the counts moves.
+    push si
+    push di
+    or bx, bx
+    jns .ytop
+    add dx, bx                      ; rows above the band
+    jle .none
+    xor bx, bx
+.ytop:
+    mov di, bx
+    add di, dx
+    sub di, [dd_bh]
+    jle .yok
+    sub dx, di                      ; ...and rows below it
+    jle .none
+.yok:
+    or ax, ax
+    jns .xleft
+    add cx, ax                      ; columns left of it
+    jle .none
+    xor ax, ax
+.xleft:
+    mov si, cx                      ; the width, while CL is the shift count
+    mov di, [dd_rb]                 ; the band in PIXELS: dd_bw is not set by
+    mov cl, 3                       ; dd_tile_put and dd_rb always is
+    shl di, cl
+    mov cx, si
+    mov si, ax
+    add si, cx
+    sub si, di
+    jle .xok
+    sub cx, si                      ; ...and columns right of it
+    jle .none
+.xok:
+    pop di
+    pop si
     jmp dd_band_rect
+.none:
+    pop di
+    pop si
+    ret
 
 ; -----------------------------------------------------------------------------
 ; dd_band_others - every actor but SI whose box meets this band

@@ -876,6 +876,11 @@ dd_s_hshead: db 'HIGH SCORES', 0
 dd_s_newhs:  db 'NEW HIGH SCORE: ', 0
 dd_s_small:  db 'Window too small.', 0
 
+; The five speeds, as percentages, in SPD_* order (SPEC.md 93.7.5). This is
+; the only place the percentages are still numbers rather than an index -
+; dd_layout reads them once and dd_axis_step reads the answers.
+dd_spct:     dw DD_PCTPAC, DD_PCTGH, DD_PCTFRI, DD_PCTEYE, DD_PCTTUN
+
 ; =============================================================================
 ; .bss (SPEC.md 20.5: the loader zeroes DD_BSS bytes after the image, and every
 ; name below is an offset from os88_image_end)
@@ -944,6 +949,9 @@ dd_s_small:  db 'Window too small.', 0
     DWORDV dd_hgap                  ; ...and the gap between its groups
     DWORDV dd_spx                   ; one tick of travel, 1/16 px, per axis
     DWORDV dd_spy
+    DWORDV dd_spdi                  ; which of the five speeds an actor is on
+    DBUFV  dd_stpx, SPD_N * 2       ; ...and the ten answers, resolved once in
+    DBUFV  dd_stpy, SPD_N * 2       ; dd_relayout (SPEC.md 93.7.5)
     DWORDV dd_twS                   ; a tile, in the same 1/16 px
     DWORDV dd_thS
     DWORDV dd_mwS                   ; ...and the board's width, for the tunnel
@@ -1020,10 +1028,16 @@ dd_s_small:  db 'Window too small.', 0
     DWORDV dd_c1
     DWORDV dd_r0
     DWORDV dd_r1
+    DWORDV dd_ux0                   ; ...and the PIXEL rect it has to hold,
+    DWORDV dd_ux1                   ; which is a sub-rectangle of that one
+    DWORDV dd_uy0                   ; (SPEC.md 93.5.15)
+    DWORDV dd_uy1
     DWORDV dd_ic                    ; ...and the tile of it being composed
     DWORDV dd_ir
-    DWORDV dd_ix                    ; ...at this origin inside the band
-    DWORDV dd_iy
+    DWORDV dd_ix                    ; ...at this origin inside the band, which
+    DWORDV dd_iy                    ; is <= 0 once the band is cut to the union
+    DWORDV dd_ix0                   ; ...the value dd_ix restarts each row at
+    DWORDV dd_iy0
     DBYTEV dd_sh2                   ; 8 - [dd_ssh], out of the row loop
 
 ; --- the HUD --------------------------------------------------------------------
@@ -1056,6 +1070,10 @@ dd_s_small:  db 'Window too small.', 0
     DBUFV  dd_pbx, DD_NACT * 2      ; where each actor was DRAWN, banked per
     DBUFV  dd_pby, DD_NACT * 2      ; actor because dd_actor_px writes one pair
                                     ; and prep runs five times before an emit
+    DBUFV  dd_bux0, DD_NACT * 2     ; ...and the PIXEL union of the two boxes,
+    DBUFV  dd_bux1, DD_NACT * 2     ; banked for the same reason.  The tile
+    DBUFV  dd_buy0, DD_NACT * 2     ; range beside it is what the composers
+    DBUFV  dd_buy1, DD_NACT * 2     ; iterate; this is what is DRAWN
     DWORDV dd_fx                    ; ...and the tile box dd_tile_free tests
     DWORDV dd_fy
     DBUFV  dd_dir, DD_NACT
@@ -1136,7 +1154,6 @@ dd_s_small:  db 'Window too small.', 0
     DWORDV dd_frames                ; frames drawn - the check on SPEC.md 93.6
     DWORDV dd_fulls                 ; ...and how many of them were WHOLE ones
     DWORDV dd_last                  ; the tick the last logic step was for
-    DWORDV dd_pct
     DWORDV dd_rem
     DBYTEV dd_fruits
     DWORDV dd_fruit

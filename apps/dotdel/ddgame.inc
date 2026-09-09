@@ -78,6 +78,15 @@ DD_PCTGH  equ 88                ; a roaming ghost
 DD_PCTFRI equ 60                ; ...frightened
 DD_PCTEYE equ 190               ; ...and eyes, which go home fast
 DD_PCTTUN equ 55                ; anybody in the tunnel
+; ...and the same five as an INDEX, because a percentage is a thing to divide
+; by and an index is a thing to look up (SPEC.md 93.7.5). dd_relayout resolves
+; each one against both axes once; dd_axis_step reads the answer.
+SPD_PAC   equ 0
+SPD_GH    equ 1
+SPD_FRI   equ 2
+SPD_EYE   equ 3
+SPD_TUN   equ 4
+SPD_N     equ 5
 
 DD_GLANCE equ 5                 ; ticks a glance lasts
 DD_PENWAIT equ 55               ; ...and ticks a ghost that got home as eyes
@@ -426,8 +435,8 @@ dd_input:
 ; -----------------------------------------------------------------------------
 dd_act_move:
     push si
-    call dd_speed_of                ; AX = percent for this actor right now
-    mov [dd_pct], ax
+    call dd_speed_of                ; AX = which of the five speeds this actor
+    mov [dd_spdi], ax               ; is on right now (SPEC.md 93.7.5)
     ; the budget, in 1/16 px along whichever axis it is on
     call dd_axis_step               ; AX = 1/16 px this tick along dir
     mov [dd_rem], ax
@@ -637,29 +646,29 @@ dd_advance:
 
 ; -----------------------------------------------------------------------------
 ; dd_axis_step - AX = how far actor SI moves this tick, in 1/16 px, along the
-;                axis it is on. [dd_pct] is its speed as a percentage.
+;                axis it is on. [dd_spdi] is which of the five speeds it is on.
 ; -----------------------------------------------------------------------------
 dd_axis_step:
     push bx
     push cx
     push dx
+    ; A LOOKUP, NOT A MUL AND A DIV (SPEC.md 93.7.5). There are five speeds in
+    ; this game and two axes, so the ten answers are resolved once in
+    ; dd_relayout and this is an index into them - where it used to be a
+    ; 16-bit multiply and a 16-bit divide per actor per tick, about 300 cycles
+    ; five times a tick for one of ten constants.
+    mov bx, [dd_spdi]
+    shl bx, 1
     mov al, [dd_dir + si]
     cmp al, DIR_D
     je .vert
     cmp al, DIR_U
     je .vert
-    mov ax, [dd_spx]
-    jmp short .scale
+    mov ax, [dd_stpx + bx]
+    jmp short .out
 .vert:
-    mov ax, [dd_spy]
-.scale:
-    mul word [dd_pct]
-    mov bx, 100
-    div bx
-    or ax, ax
-    jnz .out
-    mov ax, 1                       ; never nothing: a rounded-down speed that
-.out:                               ; reached zero would be a frozen actor
+    mov ax, [dd_stpy + bx]
+.out:
     pop dx
     pop cx
     pop bx
@@ -680,16 +689,16 @@ dd_speed_of:
     je .eyes
     cmp al, GS_FRIGHT
     je .fri
-    mov ax, DD_PCTGH
+    mov ax, SPD_GH
     jmp short .tun
 .fri:
-    mov ax, DD_PCTFRI
+    mov ax, SPD_FRI
     jmp short .tun
 .eyes:
-    mov ax, DD_PCTEYE
+    mov ax, SPD_EYE
     jmp short .out
 .pac:
-    mov ax, DD_PCTPAC
+    mov ax, SPD_PAC
 .tun:
     ; the tunnel is slow for everybody but a pair of eyes
     push ax
@@ -705,7 +714,7 @@ dd_speed_of:
     jmp short .out
 .intun:
     pop ax
-    mov ax, DD_PCTTUN
+    mov ax, SPD_TUN
 .out:
     pop cx
     pop bx

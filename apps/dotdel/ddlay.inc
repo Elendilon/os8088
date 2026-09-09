@@ -221,6 +221,44 @@ dd_layout:
     div bl
     xor ah, ah
     mov [dd_spy], ax
+    ; --- ...and the five speeds against both axes, ONCE (SPEC.md 93.7.5) ----
+    ; dd_axis_step used to scale dd_spx/dd_spy by a percentage with a MUL and
+    ; a DIV, per actor per tick.  There are five speeds in this game, so there
+    ; are ten answers; they are resolved here, where the tile size is being
+    ; decided anyway, and dd_axis_step indexes them.
+    push si
+    xor si, si
+.spd:
+    mov bx, si
+    shl bx, 1
+    push bx
+    mov ax, [dd_spx]
+    mul word [dd_spct + bx]
+    mov cx, 100                     ; MUL has set DX:AX and DIV wants both:
+    div cx                          ; clearing DX here would discard the high
+                                    ; half of the product
+    or ax, ax
+    jnz .sxok
+    mov ax, 1                       ; never nothing: a rounded-down speed that
+.sxok:                              ; reached zero would be a frozen actor
+    pop bx
+    push bx
+    mov [dd_stpx + bx], ax
+    mov ax, [dd_spy]
+    mul word [dd_spct + bx]
+    mov cx, 100                     ; MUL has set DX:AX and DIV wants both:
+    div cx                          ; clearing DX here would discard the high
+                                    ; half of the product
+    or ax, ax
+    jnz .syok
+    mov ax, 1
+.syok:
+    pop bx
+    mov [dd_stpy + bx], ax
+    inc si
+    cmp si, SPD_N
+    jb .spd
+    pop si
     ; the sub-pixel extent of one tile, which every wrap and every centring
     ; test below is measured in
     mov ax, [dd_tw]
