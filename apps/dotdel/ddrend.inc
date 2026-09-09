@@ -1322,6 +1322,15 @@ dd_actor_prep:
     mov ax, DD_ROWS - 1
 .rk:
     mov [dd_nr1 + bx], al
+    shl bx, 1                       ; ...and BANK the two boxes the union was
+    mov ax, [dd_px]                 ; made of. dd_actor_px writes ONE pair and
+    mov [dd_pbx + bx], ax           ; prep runs five times before the first
+    mov ax, [dd_py]                 ; emit, so by then they are actor 4's -
+    mov [dd_pby + bx], ax           ; and dd_box_rect on an unbanked zero is a
+                                    ; band at tile (0,0) in the actor's pen,
+                                    ; every frame, which is what the maze's
+                                    ; top-left corner looked like when this
+                                    ; block was left out
     mov byte [dd_uok + si], 1
     ret
 .none:
@@ -1408,12 +1417,27 @@ dd_actor_emit:
     shr ax, cl
     mov [dd_oy + bx], ax
     call dd_split_ck                ; is there a WALL in the union that no box
-    pushf                           ; of this actor's is on? (SPEC.md 93.5.13)
+    jc .split                       ; of this actor's is on? (SPEC.md 93.5.13)
     call dd_band_actor
-    popf
-    jnc .drawn
-    call dd_wall_push               ; ...then it owes its own pen back, on the
-.drawn:                             ; NEXT frame and not this one
+    jmp short .drawn
+.split:
+    mov bx, si
+    shl bx, 1
+    mov ax, [dd_pby + bx]
+    push ax
+    mov ax, [dd_pbx + bx]
+    pop bx
+    call dd_box_rect                ; where it WAS...
+    call dd_band_actor
+    mov bx, si
+    shl bx, 1
+    mov ax, [dd_oy + bx]            ; ...and where it IS - off dd_ox/dd_oy and
+    push ax                         ; not dd_sx/dd_sy, which dd_band_actor has
+    mov ax, [dd_ox + bx]            ; just handed to dd_band_others
+    pop bx
+    call dd_box_rect
+    call dd_band_actor              ; The actor goes in BOTH, so the tile they
+.drawn:                             ; share is drawn twice and identically
     call dd_rep_vacated             ; ...and the tiles it has LEFT owe their
     mov byte [dd_shown + si], 1     ; own pen back (SPEC.md 93.5.10)
     mov al, [dd_img + si]
@@ -1550,75 +1574,6 @@ dd_split_ck:
     clc
     ret
 
-; -----------------------------------------------------------------------------
-; dd_wall_fix - put back every WALL or DOOR tile in the band that no actor's
-;               box is on, in the pen its own content wants
-; Clobbers everything but SI. Runs on ~5% of frames (SPEC.md 93.5.13).
-;
-; WHY THIS AND NOT TWO BANDS. Emitting the two boxes instead of their union
-; leaves the corner out altogether and is the tidier answer, and it was built
-; and MEASURED and is too dear: a split path is 11.18 ms against a single
-; band's ~5, and a windowed VGA frame is already about 90% of the 54.9 ms
-; tick - so the extra six do not cost six, they cost the WHOLE FRAME, which
-; then misses its tick. At 5.2% of frames that is the 5 points an A/B put on
-; it (92.7% against 97.7% with the same check running and the split disabled).
-;
-; One tile put is ~2.5 ms and fits, and what it trades is that the corner is
-; briefly wrong WITHIN the frame - the band writes it in the actor's pen and
-; this overwrites it a couple of milliseconds later, against 55 ms of frame.
-; The field defect was a corner that stayed wrong for as long as the actor
-; was near, which is hundreds of milliseconds (SPEC.md 93.5.10's queue defers
-; any tile within one of an actor, and a corner beside a ghost is always
-; that).
-;
-; A TILE AN ACTOR IS STANDING ON IS LEFT ALONE, and that is the pen DOOR: it
-; is 30 of the 40 walled bands measured, a ghost passing through it, and
-; blanking it would take the ghost off the glass for a frame. The test is the
-; BOX and not a ring of one tile, because the corner this exists for is
-; adjacent to the actor by construction.
-; -----------------------------------------------------------------------------
-dd_wall_push:
-    mov al, [dd_c0]
-    mov [dd_fwc], al
-    mov al, [dd_c1]
-    mov [dd_fwc1], al
-    mov al, [dd_r0]
-    mov [dd_fwr], al
-    mov al, [dd_r1]
-    mov [dd_fwr1], al
-.row:
-    mov al, [dd_c0]
-    mov [dd_fwc], al
-.col:
-    mov cl, [dd_fwc]
-    mov ch, [dd_fwr]
-    call dd_tile
-    cmp al, TT_WALL
-    je .maybe
-    cmp al, TT_DOOR
-    jne .next
-.maybe:
-    call dd_tile_free               ; nobody's box on it?
-    jnc .next
-    mov cl, [dd_fwc]
-    mov ch, [dd_fwr]
-    call dd_rep_push
-.next:
-    inc byte [dd_fwc]
-    mov al, [dd_fwc]
-    cmp al, [dd_fwc1]
-    jbe .col
-    inc byte [dd_fwr]
-    mov al, [dd_fwr]
-    cmp al, [dd_fwr1]
-    jbe .row
-    ret
-
-; -----------------------------------------------------------------------------
-; dd_tile_free - CF = 1 when NO actor's box overlaps tile (CL, CH)
-; The box is [dd_ox, dd_ox + dd_tw) x [dd_oy, dd_oy + dd_th) in board pixels -
-; where each actor is being DRAWN this frame, which is what is on the glass.
-; Clobbers AX/BX/DX. Preserves CX/SI.
 ; -----------------------------------------------------------------------------
 dd_tile_free:
     push cx

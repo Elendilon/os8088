@@ -70,14 +70,16 @@ PKG = "B:/GAMES/DOTDEL.O88"
 # ones are 5150s with the GLaBIOS twin, because the IBM ROM is not in the tree.
 # ...and the floor leg E fails under, PER ARM. See FPS_FLOOR below.
 ARMS = (
-    # VGA's windowed floor is 0.88 and came down from 0.90 for a MEASUREMENT
-    # and not for a regression - which is the distinction, because it was
-    # first lowered to 0.85 to make room for one and the soak was right to go
-    # red at 78.0%. The build that ships SPEC.md 93.5.13 reads 97.6, 90.5 and
-    # 97.9 against 96.3 and 97.1 before it; 0.88 sits under the outlier of
-    # three and well over what a real regression does, which is the 60s and
-    # 70s (93.5.3, and the 78.0 that caught 93.5.13.2's first spelling).
-    ("vga",  "os8088_xt_vga",        (16, 13), 0.88),
+    # VGA's windowed floor is 0.80, and it is DOWN 17 points from where this
+    # row started because SPEC.md 93.5.13.3 bought something with them: the
+    # maze's corner is never written in an actor's pen at all, where before it
+    # was written and put back a few ms later and the field saw the few ms.
+    # Six samples of the build that does it read 83.6, 86.1, 87.1, 87.1, 88.5
+    # and 88.7 against 97.6, 97.9 and 90.5 for the one that repaired instead.
+    # THE COST IS THE POINT OF THE ROW, so it is written down rather than
+    # absorbed: 0.80 sits under the worst of six and well over what a real
+    # regression does (93.5.3's 60s, and the 78.0 that caught 93.5.13.2).
+    ("vga",  "os8088_xt_vga",        (16, 13), 0.80),
     ("cga",  "os8088_5150_cga_gla",  (8, 4),   0.95),
     ("herc", "os8088_5150_herc_gla", (16, 9),  0.95),
 )
@@ -405,7 +407,7 @@ def leg_g(tag, ui, p, say):
     return fail
 
 
-def leg_h(tag, ui, p, say, frames=20, cap=2):
+def leg_h(tag, ui, p, say, frames=20, cap=5):
     """No WALL tile is left in the wrong pen at the END of a frame.
 
     A band goes down in ONE pen, so every tile in it wears the actor's ink.

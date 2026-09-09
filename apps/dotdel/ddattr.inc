@@ -384,6 +384,15 @@ dd_attract_draw:
     je .out
     call dd_pill_refresh
     call dd_actors_draw
+    call dd_rep_run                 ; ...AND THE TILES THEY LEFT (SPEC.md
+                                    ; 93.5.10). The demo is the same cast
+                                    ; through the same dd_actors_draw, so it
+                                    ; has the same one-pen band and queues the
+                                    ; same tiles - and the drain was on the
+                                    ; PLAY path only, so nothing on the title
+                                    ; screen ever put one back. The field saw
+                                    ; it as "the attract screen still has most
+                                    ; of the bugs we have been fixing".
 .out:
     ret
 

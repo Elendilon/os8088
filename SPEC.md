@@ -108349,6 +108349,47 @@ the tick and fullscreen 99.1–99.6%, against 96.3–97.1 before the corner work
 `tests/dotdel.py` leg H is the gate and reads the glass at `dd_draw`'s entry,
 where a frame is finished.
 
+##### 93.5.13.3 …and repairing it a few milliseconds later is still a flicker
+
+§93.5.13.2's queue put the corner back on the frame that dirtied it —
+`dd_rep_run` drains after `dd_actors_draw` in the same `dd_draw` — so the
+corner was written in the actor's pen and overwritten a couple of
+milliseconds afterwards. **A gate that samples at a frame boundary reads that
+as clean**, and `tests/dotdel.py` leg H did: 0 wrong over 20 finished frames,
+while the field kept reporting *"the corners are still flickering"*. Sampling
+at `dd_rep_run`'s entry instead — mid-frame, after the actors have drawn —
+catches corners in the actor's pen that the boundary census cannot see. **A
+couple of milliseconds, three times a second, is a flicker on a CRT**; the
+refresh samples it often enough to be seen.
+
+So the corner must never be written at all, which is §93.5.13.1's split, and
+that section's costing is confirmed rather than overturned. Six samples of the
+windowed VGA arm: **83.6, 86.1, 87.1, 87.1, 88.5, 88.7** against **97.6, 97.9
+and 90.5** for the build that repaired instead — about **ten points of the
+tick, 18.2 fps to 15.9**. Fullscreen is unaffected (97–99%) because its frame
+has room, and Hercules and CGA pay a single compare: one plane has no pen
+(§5.4.2.2).
+
+**That is the trade and it is the owner's**, not something to absorb into a
+floor: the row's VGA floor is 0.80 with the distribution written beside it.
+What the ten points buy is that the mid-frame census reads **0 of 14,400
+wall-tile readings** in the actor's pen, where the repairing build showed them.
+
+##### 93.5.13.4 The attract screen is the same renderer, minus one call
+
+The demo runs `dd_actors_draw` — the same cast through the same one-pen band —
+so it queues the same tiles for the same reason. What it did not do was drain
+them: `dd_rep_run` was on `dd_draw`'s play path only, so nothing on the title
+screen ever put a tile back and a dot a ghost had crossed kept its colour for
+the rest of the demo. The field read it as *"the attract screen still has most
+of the bugs we've been fixing"*.
+
+It is **one call** and not a second renderer, which is worth saying because the
+report reasonably guessed otherwise: the title screen already shares
+`dd_actors_draw`, `dd_pill_refresh`, `dd_pills_blit`, `dd_walls_blit` and
+`dd_dots_blit` with the game. There is no duplicate to collapse and no second
+place a fix has to be made — there was one line of divergence.
+
 #### 93.5.9.1 …and the fast path forgot which BYTE the run starts in
 
 §93.5.9's two-byte mask is built from the run's **bit** offset, and the byte
