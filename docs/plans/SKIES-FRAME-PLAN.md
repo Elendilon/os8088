@@ -840,6 +840,60 @@ The instrument is `dirty.py`'s shape and it should become a registered row:
 carried against differing is a RATCHET, and there is no way to make a mark
 looser without it going up.
 
+##### 7.1.13.1 STATE OF THIS THREAD - what is measured, what is open, what to type
+
+Written down so it can be picked up cold. **Nothing has been BUILT** - every
+line below is measurement and documents.
+
+**Settled, and quotable:**
+
+1. A 5 degree bank costs the FRAME 34.2 ms in this scene (151.8 -> 186.0,
+   6.59 -> 5.38 fps) and `cs_skyground` is **27%** of it; `cs_blit` 32%,
+   `cs_scene` 35%, the vertex pipeline 0 (88.3.1.3.5).
+2. `cs_skyground` is linear in split rows: **8.19 ms + 0.306 a row**, and
+   0.306 ms is 1,462 cycles (88.3.1.3.4).
+3. The field's "slightly banked" was **12 degrees**, from its own photograph:
+   the horizon's screen slope is tan(roll) x scly/sclx, so 54 rows over 398 px
+   is 11.9 - and that crosses 55 of the view's 112 rows.
+4. **THE FIND.** Scored against the glass, one position and heading with only
+   the bank moving: carried **265 / 1,898 / 2,997 / 4,248** bytes at 0 / 5 /
+   12 / 20 degrees while what DIFFERS stays under 140. Pinned so that nothing
+   moves at all, 20 degrees carries **4,201 bytes for THREE** (88.3.2.2).
+5. It is `cs_seg`: a clipped segment marks min/max of its two ENDS, so a
+   DIAGONAL marks its whole rectangle. THE SEINE lights 322-495 pixels at
+   every angle and its box goes 2 rows to 88 across the sweep.
+6. The row cache is **refused** (7.1.12) and its refusal is not the mark's.
+
+**Open, in the order they should be taken:**
+
+- **A. The stale pixels** - docs/FIELD-NOTES.md 40. Reported from play AND
+  found by the instrument: 1-3 bytes a frame that differ and are not carried,
+  right edge, bank-dependent, none level. CORRECTNESS, and it is the same
+  scoring every other number here rests on.
+- **B. A mark that STEPS** - `cs_markrows`' own row loop with the byte pair
+  interpolated. Not 88.3.2.1's banded PASS. Its unit costs are the bar:
+  ~50 cycles a row to mark, ~4.5 a byte to carry, 11 bytes a row to break
+  even; the mark is ~39 bytes a row wide where the ink is under 2.
+- **C. Then re-price what B unlocks** - 7.1.8's narrow fill (break-even
+  "under 16 bytes of the 50", today's union 31) and 7.1.12's cache.
+
+**The instruments, all host-side and none registered yet** (they live in a
+scratch directory; 7.1.13 says the one worth registering):
+
+| what it answers | shape |
+|---|---|
+| carried vs actually-changed, per angle | diff the shadow against the CARD at the `cs_blit` call site - the card still holds the old frame |
+| which object marks what, named | breakpoint `cs_markrows` with `regs`, read SI/DI and `cs_mklo`/`cs_mkhi`, name it through `[cs_obj] + CSO_NAME` |
+| what ONE object actually lights | poke its `CSO_RANGE` to 0 so the cull refuses it, re-render, difference the glass - and RESTORE it between arms, or every later arm is a dropped arm |
+| the frame, level vs banked | `tests/skiesprof.py --roll N`, same profile |
+
+**Three traps this thread already paid for:** a stage compared with ITSELF at
+two angles is not a control (it read 7 ms where the frame moved 34); a probe
+that pokes the POSITION every frame freezes the scene, so "differ" collapses
+to ~3 and the waste ratio divides by nothing; and `cs_devoff` is a TABLE, not
+a pointer - reading it as one puts every device row at the wrong offset and
+reports ~1,300 missed bytes a frame that are not there.
+
 ## 7.4 WHERE cs_scene's 169 ms GOES
 
 Tier 2 over twelve flown frames of `turnhold`, with tier 3's sub-splits:

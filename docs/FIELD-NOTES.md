@@ -19,8 +19,8 @@ Two rules the entries exist to serve:
   audio report sat here for months as a 5150 report and had come off PCem;
   the 5150 has no sound card.
 
-**Still open:** 3 (mechanism D), 10, 14, 19, 24.2, 28, 32, and one residual
-each in 33 and 37.
+**Still open:** 3 (mechanism D), 10, 14, 19, 24.2, 28, 32, **40**, and one
+residual each in 33 and 37.
 
 ---
 
@@ -902,3 +902,50 @@ QEMU so no failure path runs there, and QEMU does not model the translate bit
 either — measured, by clearing it on purpose and watching `ps2mouse` stay
 green. Confirmed fixed on both machines: the 286 types correctly and the
 Packard Bell's mouse is untouched.
+
+---
+
+## 40. A line of the PREVIOUS horizon survives at the RIGHT edge of the view (OPEN — Clear Skies, SPEC.md §88.3.2.2)
+
+**Reported from play, and the report is a diagnosis**: banking one way leaves
+*"a blank line in the ground"*, banking the other leaves *"a filled line in the
+sky"* — both at the **right-hand side of the view**, and both **carried from
+where the horizon was on the previous frame**. So it is one row's worth of the
+old sky/ground split that never reached the glass, and its polarity follows
+the direction of the roll, which is what says it is the horizon's own row and
+not an object's.
+
+**It was found independently by the instrument in the same week**, which is the
+useful part: scoring every byte `cs_blit` carries against a difference of the
+shadow and the card (§88.3.2.2) reports **1 to 3 bytes a frame that DIFFER and
+are NOT carried**, at the view's **right edge**, at 5°, 12° and 20° of bank and
+**none at all level**. Two independent observations of the same thing, one on
+the glass and one in the arithmetic.
+
+**What is known.**
+
+- It is at the right edge only, and it is bank-dependent — nothing at 0°.
+- It is one ROW, not a block, and its content is the previous frame's.
+- The row is inside the horizon's band (`cs_rowkind` = 3), so it is not the
+  kind-change path: §88.3.1.1's `.hs3` gives a row whose kind CHANGED the
+  whole view (`cs_fullspan`), and a row that was split and still is keeps the
+  narrow span — the crossing's byte and one either side.
+- `cs_blit` takes `min(lo, lo')`/`max(hi, hi')` of the two sets, so an
+  ordinary crossing that MOVED is covered by the bounding interval even when
+  it jumps many bytes.
+
+**What has NOT been established** — and the next step is to read it rather
+than reason about it: which row, which byte, and what that row's `cs_xl`,
+kind and two spans were. The suspicion on the evidence so far is
+§88.3.1.1's two CLAMPS: a crossing at or past the view's last byte is given
+the one-byte span `[cs_hzhi, cs_hzhi]` and a crossing at or left of its first
+is given `[cs_wb0, cs_wb0]`, while the FILL for the same row lays the whole
+row with one side's pattern (`.fbw`). A band row that goes from clamped to
+clamped while its SIDE changes therefore changes over its whole width and is
+marked one byte — but that has not been shown to be the case that fires.
+
+**Why it matters beyond itself**: the instrument that found it is the one
+every measurement in §88.3.2.2 and docs/plans/SKIES-FRAME-PLAN.md 7.1.13
+rests on, so this has to be resolved before a marking change is measured on
+the same scoring.
+
