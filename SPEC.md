@@ -22618,6 +22618,38 @@ that reason.
 `os88ui_drop` calls pass `xor di, di`, so it has never greyed one. This was
 live in exactly one package and latent for every future caller.
 
+### 13.14.6 The two drawing rules a NEW shared element must follow
+
+PERFORMANCE.md Part 6 rules 1 and 2, in the shape a control author meets them.
+They are written here because the general statement **did not fire**: both were
+broken in the first version of §13.17 by someone who had just read them, because
+the working code next door does it the other way.
+
+1. **Never fill a ground and then draw on it.** To clear something, draw its
+   replacement over it in the right colour — one write, no interval. A fill
+   followed by the real content five drawing calls later is ~4 ms of blank on a
+   4.77 MHz 8088, every repaint. Text is free: `font_run` is opaque and lays
+   ground and glyph in one pass (§6.1), so a label never needs a ground laid
+   for it.
+2. **A change redraws what changed.** A control that knows its own old and new
+   state redraws the difference and not the row — `os88ui_raddot` is six pixels'
+   worth of dot and touches no text, where redrawing the row would re-letter a
+   label that did not change.
+
+…and **the caller owns the pane's ground** (§13.14's contract). Filling it again
+inside a control is exactly the second write rule 1 forbids.
+
+**Neither defect shows in a screenshot** — the final frame is identical — so a
+gate for a control reads the **calls**: `tests/radio.py` records every
+`gfx_fill`'s rect and every `font_run_x`'s y. PERFORMANCE.md Part 1 is why. A
+double-draw flash and a visible redraw are two of the three things an emulator
+cannot show, and this project has paid for both repeatedly.
+
+**§13.15 does not follow rule 1** — it fills its whole rect white and then draws
+frame, mark and label over it. It is named here rather than quietly changed
+because it is the file's most-copied routine and the next author will copy it
+too; **§13.17 is the one to follow.**
+
 ### 13.15 The CHECK BOX — the fourth shared element (`OS88UI_CHK`)
 
 `%define OS88UI_CHK` before the include and it costs a dozen bytes of record

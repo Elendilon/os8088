@@ -55,6 +55,38 @@
 ; (SPEC.md 22) applied everywhere at once.
 ;
 ; REGISTERS: every routine preserves everything except its documented output.
+;
+; --- DRAWING RULES FOR A NEW CONTROL, and both of them get broken -----------
+; They are PERFORMANCE.md Part 6 rules 1 and 2 in the shape a control author
+; meets them, and they are here because the general statement did not fire:
+; both were broken in the first version of os88ui_rad by someone who had just
+; read them, because the working code next door does it the other way.
+;
+;   1. NEVER FILL A GROUND AND THEN DRAW ON IT. To clear something, draw its
+;      replacement over it in the right colour - one write, no interval. A
+;      fill followed by the real content five drawing calls later is ~4ms of
+;      BLANK on a 4.77MHz 8088, every repaint. Text is free here: font_run is
+;      opaque and lays ground and glyph in one pass (SPEC.md 6.1), so a label
+;      never needs a ground laid for it.
+;
+;   2. A CHANGE REDRAWS WHAT CHANGED. A control that knows its own old and new
+;      state redraws the difference and not the row - os88ui_raddot is six
+;      pixels' worth of dot and touches no text, where redrawing the row would
+;      re-letter a label that did not change.
+;
+;   ...and the CALLER owns the pane's ground (os88ui_drop's contract). Filling
+;   it again inside a control is exactly the second write rule 1 forbids.
+;
+; NEITHER DEFECT SHOWS IN A SCREENSHOT - the final frame is identical - so a
+; gate for a control reads the CALLS (tests/radio.py records every gfx_fill's
+; rect and every font_run_x's y). PERFORMANCE.md Part 1 is why: a double-draw
+; flash and a visible redraw are two of the three things an emulator cannot
+; show, and this project has paid for both repeatedly.
+;
+; os88ui_chk (SPEC.md 13.15) DOES NOT FOLLOW RULE 1 - it fills its whole rect
+; white and then draws frame, mark and label over it. It is named here rather
+; than quietly fixed because it is the file's most-copied routine and the next
+; author will copy it too: os88ui_rad (13.17.4) is the one to follow.
 ; =============================================================================
 
 %ifdef OS88UI_KERNEL

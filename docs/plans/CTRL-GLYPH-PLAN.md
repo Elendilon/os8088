@@ -135,6 +135,27 @@ once then it sits there until they interact with it. So we can pick the best
 form, not simply the most performant."* The performance column is there to catch
 a **regression**, not to choose the design.
 
+## 4.1 OWED, and the owner has asked for it: `os88ui_chk` breaks the same two rules
+
+`os88ui_rad` was written wrong by copying `os88ui_chk`, so naming the rules
+(§13.14.6) is only half the fix — **the routine that gets copied still does it
+the other way**, and the next author will copy it too.
+
+- **Rule 1.** `os88ui_chk` does `UI_WHITE` + `UI_FILL` of its **whole rect** and
+  then draws the frame, the mark and the label over it: ~4 ms of blank row on a
+  4.77 MHz 8088, every repaint. Fix: drop the ground fill (the caller owns the
+  pane, §13.14's contract), let the opaque `font_run` carry the label's ground,
+  and always draw the mark area — ink when on, ground when off — so it
+  self-clears.
+- **Rule 2.** `os88ui_chkhit` calls `os88ui_chk` to redraw the **whole control**
+  on a toggle, re-lettering a label that did not change. Fix: an
+  `os88ui_chkmark` twin of `os88ui_raddot` — the mark area and nothing else.
+
+**Callers to check before it lands**: `apps/skies` is the only `OS88UI_CHK`
+opt-in today, and a pane relying on the control to clear its ground needs its
+own fill. The gate is `tests/radio.py`'s shape — every `gfx_fill`'s rect and
+every `font_run_x`'s y across a toggle — **verified red first**.
+
 ## 5. Sequencing
 
 1. Census the 21 direct calls (§3 item 1) — this is reading, and it decides the

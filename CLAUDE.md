@@ -770,7 +770,12 @@ The rules that fall out:
    refactor.** Check yourself against that table.
 2. **Nothing writes a pixel twice.** The erase-then-letter pair is the
    canonical violation and `font_run` (§6.1) is the answer: one decision per
-   cell, so the line is never momentarily blank.
+   cell, so the line is never momentarily blank. **It is not only about text:**
+   to clear anything, draw its replacement over it in the right colour rather
+   than filling a ground first — a fill followed by the real content a few
+   drawing calls later is milliseconds of visible blank. Writing a shared
+   control is where this keeps getting missed, so §13.14.6 states it again at
+   the point of use and names the routine that gets copied and breaks it.
 3. **Size every range from the slowest machine it will run on.** A constant
    sized while looking at QEMU encodes the wrong range and fails structurally,
    not proportionally: 16-bit counters lap into small plausible numbers. Fold
