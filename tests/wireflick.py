@@ -18,9 +18,34 @@ and the draw has fewer, and how many fewer, how often, is the flicker. The
 numbers below are that distribution per draw order: the FLOOR is the emptiest
 frame a viewer sees and `blank` is the fraction of frames under half full.
 
-It is a MEASUREMENT and not a gate. 78.5's three orders are a trade with no
-free corner, so there is no threshold to assert - the point is to put numbers
-on a choice the reader makes by looking.
+78.5's three orders are a trade with no free corner, so THOSE THREE are a
+measurement and not a gate - the point is to put numbers on a choice the reader
+makes by looking, and there is no threshold to assert between them.
+
+**ONE NUMBER IS ASSERTED and it is not a flicker one** (SPEC.md 5.12.3). Since
+wave 3 of docs/plans/GFX-EMBEDDABLE-PLAN.md the Composed mode is
+`apps/os88gfx.inc` - the shared embeddable graphics library - rather than code
+of wire's own, so a defect there reaches every future customer of the library
+and not just this instrument. What is checked is that **the same figure is on
+the glass**: Composed's FULLEST frame must be within 15% of `Edge at a time`'s,
+those two being the same twelve edges by two different routes. A `gfxe_line`
+that plotted nothing, into the wrong rows, or that lost the wrap into the next
+byte drops it immediately.
+
+**THE FLICKER NUMBERS ARE STILL NOT A GATE, and one draft of this file made
+them one and had to take it back.** `floor` and `under half` are a sample of a
+free-running animation: the run that measured Composed at floor 74% and `under
+half` 0% measured it at 30% and 6% an hour later, on the same build - and
+`Edge at a time`, which nothing had touched, moved 63% -> 39% in the same pair.
+A frame is sampled by advancing one and pausing, so what moves under host load
+is WHERE IN THE COMPOSITION the pause lands, which is
+docs/plans/SOAK-PARALLEL.md 1's finding in miniature. The fullest frame does
+not move that way - it is the figure and not the phase - which is exactly why
+it is the one that can be asserted.
+
+Broken on purpose to check it goes red (docs/WRITING-TESTS.md 1): stubbing
+`gfxe_line` an immediate `ret` takes Composed's fullest frame to 42 against
+`Edge at a time`'s 369 - 11%, where the gate wants 85%.
 
 **ON THE GLaBIOS TWIN**, `os8088_5150_herc_gla`, because `os8088_5150_herc`
 wants the IBM ROM this repo cannot ship. Checked with that ROM dropped in
@@ -136,6 +161,21 @@ def main(argv):
         print("| %s | %.0f%% | %.0f%% | %.0f%% | %.1f |"
               % (name, 100.0 * floor / full, 100.0 * mean / full,
                  100.0 * blank, fps))
+
+    # --- and ONE number is a gate, because Composed is the library's. The
+    # flicker columns above are deliberately not - see the header.
+    by = dict((r[0], r) for r in out)
+    ref = by["Edge at a time"][1]
+    full = by["Composed"][1]
+    print()
+    if not 0.85 * ref <= full <= 1.15 * ref:
+        print("FAIL: Composed's fullest frame is %d against Edge at a time's "
+              "%d, more than 15%% out - apps/os88gfx.inc is not drawing the "
+              "same figure the kernel's own lines draw" % (full, ref))
+        return 1
+    print("ok: Composed's fullest frame %d against Edge at a time's %d "
+          "(%+.0f%%) - apps/os88gfx.inc draws the same figure"
+          % (full, ref, 100.0 * (full - ref) / ref))
     return 0
 
 

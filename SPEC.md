@@ -5781,6 +5781,129 @@ The intersect lives in `vga12.inc` rather than `wm.inc` because `vga12.inc` is
 references, and a `gfx_*` primitive is not left forward near-calling a `wm_*`
 helper. The union has only window-manager callers and stays there.
 
+### 5.12 `apps/os88gfx.inc` — the EMBEDDABLE graphics library
+
+Drawing code that lives in the **package** rather than in the kernel, taken one
+capability at a time. It is `apps/os88ui.inc`'s idiom applied to graphics, and
+`docs/plans/GFX-EMBEDDABLE-PLAN.md` is the design record.
+
+The premise is the owner's: *duplicate code only used by apps that monopolise
+the machine anyway, instead of permanently spending kernel RAM on them.* Two
+measured facts make it a straight win rather than a size trade — an app-side
+rasteriser is **faster** than the slot (24.6 µs a pixel against `gfx_line`'s
+31.6 with the arrival removed, PERFORMANCE.md Set 132), and **`kern_small` has
+never had `gfx_line_fast`** (5.6.4.1 is `%ifdef KERN_BIG`, 647 bytes), so in a
+library the floor machine can BUY a capability the kernel never gave it.
+
+**THE LATTICE RULE, as set:** *wanting one capability should not drag in unused
+others — so walk drags in "how to draw a line", but "how to draw a line" does
+not drag in the walk.* Every capability is a `%define` before the `%include`,
+an implication is a `%define` at the top of the file, and an arm nobody asked
+for emits nothing.
+
+```
+    %define GFXE_BAND_W   128        ; a multiple of 8
+    %define GFXE_BAND_H   128
+    %define GFXE_BAND_BUF my_mask    ; GFXE_BAND_SZ bytes, in YOUR bss
+    %define GFXE_LINE                ; implies GFXE_BAND
+    %include "os88gfx.inc"
+```
+
+It goes **at the end of your code, just before `OS88_BSS`** — os88ui.inc's rule
+and for os88ui.inc's reason (20.2's fixed image offsets).
+
+| capability | implies | what it is |
+|---|---|---|
+| `GFXE_BAND` | — | compose into your own 1bpp band; commit it with one `OSAPI_GFX_BLIT1`. **The pixel primitive lives here** — a bit-set, not a slot |
+| `GFXE_LINE` | `GFXE_BAND` | Bresenham, whole line, into the band |
+
+```
+gfxe_bnew     AX = x, DX = y            seed the running bounds
+gfxe_bfold    SI = x[], DI = y[], CX    widen them by a whole vertex array
+gfxe_bsize                              close them into a band; CF = 1 = TOO BIG
+gfxe_bclear   AX = the paper word       paper the band's rows
+gfxe_bpix     AX = x, DX = y            one pixel, band coords, NO CLIPPING
+gfxe_bput                               the band onto the glass; CF = BLIT1's
+gfxe_line     AX,BX -> CX,DX            one line, band coords, NO CLIPPING
+              [gfxe_bx0]/[gfxe_by0]/[gfxe_bw]/[gfxe_bh]  the band gfxe_bsize made
+```
+
+The library's own state is **fifteen words in the IMAGE**, not in bss: a package
+image is copied into the instance's own region and is writable, so an image word
+is per-instance exactly as a bss word is, and the caller does not have to find
+offsets for it. **The band itself is the caller's**, because only the caller
+knows how big a band it can afford and only the caller can put it in bss.
+
+#### 5.12.1 The row step is decided at ASSEMBLY time
+
+A power-of-two `GFXE_BAND_ST` gets a shift and anything else gets a `mul`,
+picked by a `%if` on the constant. It is once a **line**, not once a pixel, so
+even the multiply is noise against the walk — what the `%if` buys is that a
+caller who sizes a band conveniently is not paying for one who did not.
+
+#### 5.12.2 The ink polarity, and the one deliberately NOT there
+
+A band is composed on **lit paper and inked by CLEARING bits**. `1 = a lit
+pixel` is `OSAPI_GFX_BLIT1`'s own convention (5.4.2) and 42.23 measured it the
+right way round to store: it agrees with the BMP palette AND takes `rep stosw`'s
+12.5 clocks a byte for the ground instead of a complementing loop's 17 — the
+intuitive polarity costs **36% of every clear for ever**.
+
+The plot walks a **zero** through a field of ones in BL (`mov bl, 07Fh` then
+`ror`), advances it with `stc`/`rcr` and takes the carry OUT of that rotate as
+the wrap into the next byte. That is one instruction for the advance and one
+branch for the wrap, and it is the whole reason a band composer beats a
+per-pixel slot.
+
+**The opposite polarity — ink that SETS bits, for white on a black ground — is
+six lines under a `%if` and is NOT in the file**, because an untested arm in a
+shared library is worse than an absent one. What it needs is written down rather
+than guessed at: BL walks a **one** (`mov bl, 080h`), the combine is `or`, and
+the two wrap branches invert sense because the carry out of the rotate is then
+the bit that just left. `gfxe_bclear` takes the paper word in AX already, so
+that half needs nothing.
+
+#### 5.12.3 WIREFRAME is the first customer, and it is a LIFT
+
+78.8's band composer and 78.8's Bresenham were **written in `apps/wire/`** and
+are this file's now. What stayed in the program is what is genuinely the
+program's: the vertex-to-band mapping, the object-area refusal (5.12.4) and the
+record of which band is on the glass (78.8.2).
+
+Measured: the package's image goes **2,750 → 2,802** and its bss **2,232 →
+2,198**, so the first customer pays **+18 bytes** — thirty of the fifty-two are
+the library's state words moving out of bss into the image, which is a wash, and
+the rest is the seams. Nothing else in the tree moves: WIREFRAME does not ship
+(78.9), no kernel byte changes, and `wirefps` and `wireflick` are the A/B.
+
+**AND THE BAND IS BYTE-IDENTICAL.** The projected vertices are a pure function
+of the shape, the size and the two angles, so at the same four the composer must
+produce the same bytes — which is the A/B that says the library REPRODUCES the
+private implementation rather than merely drawing something plausible. Read back
+off a running machine with the angles pinned, the band's own rect and a digest
+of its 2,048 bytes agree exactly across the two builds, on all three shapes.
+(The FIRST sample after writing the angles differs on both builds
+independently — the composer can run either side of the write — which is why
+the reading is taken on the second.)
+
+`tests/wireflick.py` is the durable half of that, and the useful thing about it
+is which number it gates. Composed's **fullest** frame must be within 15% of
+`Edge at a time`'s: the same twelve edges by two routes, one the library's and
+one `OSAPI_GFX_LINE`'s. Its **flicker** numbers are explicitly not a gate —
+`floor` and `under half` are a sample of a free-running animation and move by
+half their range with host load, on modes nothing has touched.
+
+#### 5.12.4 There are TWO refusals and they are about different things
+
+`gfxe_bsize` refuses a band the **buffer** cannot hold. A program refuses a band
+its **window** will not allow — WIREFRAME's object-area test, where the status
+strip lives directly under the rows a band would cover. The library knows the
+first and cannot know the second, so the second stays in the program.
+
+Both must answer **before** a blit is spent, which is why sizing is a separate
+call from committing: refusing is a normal path (PERFORMANCE.md rule 6) and it
+is far cheaper than clipping.
+
 ## 6. font.inc
 
 `font_init` runs **after** `vid_setmode` (§39.6): zero ES:BP, then int 10h

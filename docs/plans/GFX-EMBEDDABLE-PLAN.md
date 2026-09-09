@@ -638,7 +638,7 @@ Each is independently landable and each is a separate PR.
 | **1 ✅ DONE** | **`gfx_blit1` on `kern_small`** (SPEC.md 5.4.2.5.1) — the pen, the second display, the VGA ports, the split pass and the port teardown each `%ifdef`'d out | **+472** measured; `kern_big` BYTE-IDENTICAL; nine shipped small-disk packages stop taking a fallback and Paint's one-bit canvas stops being 24× | none — `tests/paint1small.py` asks the RUNNING machine, because a thunk pointing at a body is not the claim |
 | **1a ✅ DONE** | **`OSAPI_GFX_POINTS`** (§3.2.1, SPEC.md 5.6.9) — the slot that separates the six per-CALL concerns from the per-LINE Bresenham | **+167 / +221** measured; **165.96 µs a point** (Set 133), best route below 6.66 px a block a frame and better than the walk out to 37.7 | none — `tests/gfxpoints.py`, three cases, two breakages proven |
 | **2 ⏸ DEFERRED** | `os88ui.inc`'s checkmark → `GFX_POINTS` | one `gfx_line` caller of six, and the speed is a WASH | **§6.2**: it is Word alone and not 25 packages, so it enables nothing. Take it after wave 6 |
-| **3** | **`apps/os88gfx.inc`** — `GFXE_BAND` + `GFXE_LINE` (the Bresenham), **Sheet** the first customer | proves the lattice; nothing leaves the kernel yet | none — the kernel is untouched |
+| **3 ✅ DONE** | **`apps/os88gfx.inc`** — `GFXE_BAND` + `GFXE_LINE` (the Bresenham), **WIREFRAME** the first customer, and it is a **LIFT** rather than a new implementation (§8.2) | proves the lattice; **+18 bytes on the customer, ZERO kernel bytes** | none — the kernel is untouched, and `wirefps`/`wireflick` are the A/B that was already in the suite |
 | **4** | `GFXE_LINE_FAST` — **Paint on `kern_small`** takes the 4.9× it has never had | Paint's stroke 4.9× on the floor machine, +647 of Paint's own image | Paint's small build is size-sensitive (§24.5) |
 | **5** | `GFXE_WALK` + `GFX_POINTS` on **Cyclone and Missile** | Missile's drain 2.6×; the rest a wash or better | **needs wave 3**: the app-side Bresenham is what they walk with |
 | **6** | gate `gfx_linit/lstep/lstepv` out of both kernels | **−537 / −641** | needs wave 5 landed |
@@ -735,19 +735,58 @@ call the slot and take a fallback, so it is a decision standing on its own.
 **That is ~1 KB off the floor machine and 2.2 KB off `kern_big`**, where
 `KERN_CODE_MAX` — the guard that cannot be raised — is what binds.
 
-### 8.1.4.1 Which route each program takes
+### 8.1.4.1 Which route each program takes — RECUT ON THE CENSUS
+
+The first version of this table was written from the plan's assumptions and
+**two of its rows were wrong**. Wave 3 walked every call site in the tree
+instead; §8.1.4.2 is the census and this is what it says.
 
 | program | what it draws | route |
 |---|---|---|
 | **Paint** | a stroke into a 1bpp canvas it owns | **compose + `GFX_BLIT1`** — no plot slot at all, and ~4× faster than today |
-| **Sheet** | a grid on fresh ground | compose + `GFX_BLIT1`, or `GFX_POINTS` if the damaged band is sparser than the grid |
-| **Cyclone** | eight accumulating warp walks, a few px a frame | **`GFX_POINTS`** |
+| **`wire`** | one call an edge, a whole figure a frame | **`GFXE_BAND` + `GFXE_LINE`** — BUILT, wave 3. It is the figure caller the plan thought Sheet was |
+| **Tank `tkattr.inc`**, **`SAVER.DRV`'s cube** | edges, `kern_big` only | `GFXE_BAND` + `GFXE_LINE`, the same shape as `wire`'s |
 | **Missile** | trails and the drain, 1–16 px a block a frame | **`GFX_POINTS`** — one call covers both effects, which is what §3.2's per-effect problem dissolves into |
-| **`os88ui.inc`, `cword`** | a checkmark | **`GFX_BLIT1`**, one band (§8.1.3) |
-| **Tank `tkattr.inc`, `SAVER.DRV`, `wire`** | `kern_big` only | `GFX_POINTS` |
+| **Cyclone**, **`SAVER.DRV`'s web** | accumulating warp walks, a few px a frame | **`GFX_POINTS`** — and NEITHER is a `gfx_line` caller (§8.1.4.2), so neither blocks wave 8 |
+| **`os88ui.inc`, Sheet, `cword`** | a checkmark, three separate copies of it | **`GFX_BLIT1`**, one band (§8.1.3) |
 
 **`GFX_POINTS` is the plot primitive and `GFX_BLIT1` the commit primitive**,
 and no program in the tree needs a third.
+
+### 8.1.4.2 The census — every `gfx_line` and `gfx_lstep` caller in the tree
+
+Nobody had written this down, and the plan had guessed twice.
+
+| caller | what it draws | kind |
+|---|---|---|
+| `apps/os88ui.inc:3986`, `:3993` | a menu checkmark, two strokes of ≤8 px | **tick** |
+| `apps/sheet/sheet.asm:4481`, `:4491` | the SAME checkmark, its own copy | **tick** |
+| `apps/cword/cwdrop.c:195`, `:196` | the same checkmark again, in C (§8.1.3) | **tick** |
+| `apps/paint/paint.asm:7520` | one stroke segment (SPEC.md 42.8) | **figure** |
+| `apps/missile/missile.asm:6904` | a trail, and the drain's erase | **figure** |
+| `apps/wire/wire.asm:533` | one an edge — modes 0–2 only since wave 3 | **figure** |
+| `apps/tank/tkattr.inc:536`, `:946` | `kern_big`, inside an fsx bracket | **figure** |
+| `drivers/saver/svcube.inc:584` | the cube saver's edges | **figure** |
+| `apps/cc/os88thunk.asm:225` | `os88_gfx_line()` — every C caller | **SDK** |
+| `apps/missile/missile.asm:4421`, `:4462` | `LSTEP` / `LSTEPV` | **walk** |
+| `apps/cyclone/cyclone.asm:2328` | `LSTEPV`, eight warps in one call | **walk** |
+| `apps/tank/tkattr.inc:370` | `LSTEP` | **walk** |
+| `drivers/saver/svshape.inc:352` | `LSTEPV`, the web arriving at once | **walk** |
+
+Three corrections fall out of it:
+
+1. **Sheet is a TICK caller, not a grid caller.** Both its `gfx_line` calls are
+   `sh_menu`'s checkmark and it draws its grid with `gfx_fill` — which is right,
+   a horizontal or vertical rule is a rect. The plan had it composing a grid.
+2. **Cyclone does not call `gfx_line` at all**, only `LSTEPV`. It is on the WALK
+   list and it does not block wave 8.
+3. **`SAVER.DRV` is on BOTH lists** — `svcube.inc` draws edges with `gfx_line`
+   and `svshape.inc` walks with `LSTEPV`. The plan had it under points alone.
+
+And the count worth noticing: **the tick is six call sites in three packages**,
+the single largest group, and every one of them is the identical two-stroke
+mark. It does not consolidate — each package carries its own copy — but it does
+mean wave 2 is three edits rather than the one §6.2 left it as.
 
 ### 8.1.5 What has to convert before `gfx_line` can go
 
@@ -762,7 +801,58 @@ Two carry a risk worth naming:
   is Paint's to embed — which is wave 2's upside on `kern_small`, and on
   `kern_big` it is a thing Paint currently gets free and would have to choose.
 
-## 9. What is NOT settled — evidence owed before wave 3
+## 8.2 Wave 3, as built — and the first customer was already carrying the library
+
+**Sheet was the wrong first customer and WIREFRAME was the right one**, for a
+reason the plan could not have guessed and should have checked: `apps/wire/`
+**already had `GFXE_BAND` and `GFXE_LINE`, hand-rolled** (SPEC.md 78.8). Its
+"Composed" draw mode folds the two figures' vertex arrays into a union bound,
+snaps the band onto the byte grid, papers it, ANDs the twelve edges out of it
+with its own Bresenham and commits it with one `OSAPI_GFX_BLIT1`.
+
+So wave 3 is a **lift**, and that is the strongest form the proof could have
+taken: the first customer's code did not have to be invented, so the library's
+shape was decided by working code rather than by this document. §1.2's finding —
+*the kernel carries the same capability twice because the two halves were built
+at different times* — turns out to be true one level out as well.
+
+**What moved and what did not.** The cut is the one §5.12.4 names:
+
+| stayed in `apps/wire/` | moved to `apps/os88gfx.inc` |
+|---|---|
+| `wr_mpt` — vertex to band coordinates | the running bounds (`wr_bspan` → `gfxe_bfold`) |
+| the object-area refusal — the status strip lives under those rows | the margin, the byte grid, the two capacity refusals |
+| `[wr_gb*]` — which band is ON THE GLASS (78.8.2) | the paper, the plot, the Bresenham (`wr_mline` → `gfxe_line`) |
+| modes 0–2, which still call `OSAPI_GFX_LINE` | the commit (`OSAPI_GFX_BLIT1`, the stride, the four numbers) |
+
+**Measured**: image **2,750 → 2,802**, bss **2,232 → 2,198**. The customer pays
+**+18 bytes** — thirty of the fifty-two are the library's fifteen state words
+moving out of bss and into the image, which is a wash and not a cost, and the
+rest is the seams (`gfxe_bfold` takes a count where `wr_bspan` read `[wr_nv]`
+itself, and `gfxe_line` takes its endpoints in registers where `wr_mline` read
+four words). **No kernel byte moves and WIREFRAME does not ship** (SPEC.md
+78.9), so the risk of wave 3 is exactly zero and the two rows that answer it
+(`wirefps`, `wireflick`) were already in the suite.
+
+### 8.2.1 Three things the lattice made the library decide
+
+1. **The row step is an assembly-time choice, not a runtime one.** A
+   power-of-two `GFXE_BAND_ST` gets a shift and anything else gets a `mul`,
+   picked by a `%if` on the constant. It is once a line, not once a pixel — so
+   the `%if` is not a speed argument, it is the argument that a caller who sizes
+   a band conveniently should not pay for one who did not.
+2. **The band buffer is the CALLER's and the state is the LIBRARY's.** Only the
+   caller knows how big a band it can afford and only the caller can put one in
+   bss; but the fifteen words the library needs go in the **image**, where a
+   package's writable copy is per-instance exactly as bss is, so a customer does
+   not have to find offsets for them.
+3. **The opposite ink polarity is DOCUMENTED AND ABSENT** (SPEC.md 5.12.2). It is
+   six lines under a `%if` and it would have been free to write; an untested arm
+   in a shared library is worse than an absent one, so what it needs is written
+   down instead. `gfxe_bclear` already takes the paper word in AX, so the half
+   that a black ground actually needs is there.
+
+## 9. What is NOT settled — evidence still owed
 
 1. **§4.2's layering claim is a design claim, not a measurement.** *"`GFXE_WALK`
    is `GFXE_LINE`'s recurrence with the state in the caller's block"* has to be

@@ -4428,7 +4428,7 @@ $(BUILD)/hello.o88: $(BUILD)/hello.bin tools/os88pkg.py $(PKGZSTAMP)
 # OSAPI_GFX_LINE, and a frame-rate readout, so 5.6.4.1's walk can be SEEN
 # rather than only measured. wiresin.inc is a generated constant table and is
 # committed - there is no sine in NASM and no float on the target.
-$(BUILD)/wire.bin: apps/wire/wire.asm apps/wire/wiresin.inc apps/os88api.inc | $(BUILD)
+$(BUILD)/wire.bin: apps/wire/wire.asm apps/wire/wiresin.inc apps/os88api.inc apps/os88gfx.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/wire/ -o $@ apps/wire/wire.asm
 	@echo "wire:   $(call FILESIZE,$@) bytes"
 
