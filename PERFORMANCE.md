@@ -12419,3 +12419,70 @@ for the code around it as well. The two arms agree to 0.01 ms.
 survived every rebuild and every timing; what it had stopped doing was drawing
 three landmarks and a road. **A cull change is not measured in milliseconds
 until it has been measured in pixels.**
+
+---
+
+### Set 132 — the resumable walk against an APP-SIDE walker plotting `OSAPI_GFX_LINE` (docs/plans/GFX-EMBEDDABLE-PLAN.md 3.2)
+
+| | |
+|---|---|
+| machine | **MartyPC**, cycle-accurate IBM 5150/XT, 4.77 MHz 8088 |
+| adapter | `os8088_5150_herc_gla` |
+| harness | `tests/gfxbench`, six new rows: `kwalk n=N x8` / `aline n=N x8` |
+| subject | eight live walks stepping N pixels a frame, two ways |
+| date | 2026-09-09 |
+
+docs/plans/GFX-EMBEDDABLE-PLAN.md 3.2 asks whether a package holding its own
+Bresenham can plot through `OSAPI_GFX_LINE` — one call a frame-segment,
+`(p_prev, p_now)` — instead of asking the kernel to step a block the kernel
+holds. SPEC.md 5.6.2 makes a line's pixel set a pure function of the endpoint
+PAIR, so replaying the same segments erases exactly what they drew; the
+question was never correctness, it was cost.
+
+#### The rows
+
+| pixels a block a frame | `gfx_lstepv` x8 | 8 x `gfx_line` | |
+|---:|---:|---:|---|
+| 1 | **5,243.9 µs** | 7,884.8 | kernel **1.50x** |
+| 3 | **7,703.8** | 10,496.9 | kernel **1.36x** |
+| 10 | 16,271.5 | **9,179.6** | app **1.77x** |
+
+**The two sides have different SHAPES, and that is the whole finding.** The
+kernel walk is linear and agrees with SPEC.md 5.6.8 to within 3% — a fitted
+intercept of **4,013 µs** for eight blocks (5.6.8's ~480 µs a block setup x 8 =
+3,840) and **1,230 µs** a pixel across the eight (5.6.8's ~175 x 8 = 1,400,
+measured 154 a pixel a block). The `gfx_line` side is **near enough FLAT**:
+986 µs a call at two pixels and 1,147 at eleven, because a short line is its
+own fixed part and almost nothing else.
+
+**So the crossover is at about FOUR pixels a block a frame**, from the kernel's
+own line against the app's flat band: (9,180 − 4,013) / 1,230 = **4.2**. The
+plan predicted 2, on a `gfx_line` fixed part of 714 µs taken from the intercept
+of a 127-pixel row; the real fixed part for a SHORT line on this geometry is
+**~1,150 µs**, and that is the correction.
+
+#### What it decides
+
+- **Missile Command's drain is well past the crossover.** `MC_DRNBUD` is 64
+  pixels a frame over ~4 blocks — sixteen a block — where the kernel walk
+  models at 4,013 + 1,230x16 = **23.7 ms** against a measured app-side
+  **9.2 ms**. **2.6x, to the app.**
+- **An ordinary trail is not.** One to three pixels a block a frame is what
+  Cyclone's warp and Missile's missiles do, and there the kernel walk is
+  **1.36–1.50x** ahead. Removing `gfx_lstep` outright would cost them that.
+
+So GFX-EMBEDDABLE-PLAN's wave 4 is **not free**, and the plan says so now: the
+walk earns its 537/641 bytes on fine-grained animation and loses on coarse.
+
+#### One anomaly, left named rather than explained
+
+`aline` is **non-monotonic**: a four-row segment is 1,312 µs a call and an
+eleven-row one 1,147. Both are steep (dx = 1), so it is not the octant
+dispatch; a `gfx_line_fast` eligibility refusal on one and not the other is the
+obvious suspect and was not run down. It does not move the finding — the app
+side is flat to ±15% across the range either way — but it is the kind of thing
+Set 116's ICON_DRAW note was: worth its own look, and cheaper to write down
+than to rediscover. The row was first built ADVANCING each iteration's
+segments down the sandbox, and reads the same either way, so it is not the
+clip region.
+

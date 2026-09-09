@@ -232,25 +232,42 @@ segment is written twice** (PERFORMANCE.md rule 2, in miniature — idempotent
 in both directions, but say it out loud); and the arithmetic below is
 ARITHMETIC.
 
-**The comparison, Missile's eight live blocks** (`gfx_lstepv` terms from
-SPEC.md 5.6.8, `gfx_line` terms from PERFORMANCE.md's 127×32 row):
+#### MEASURED — PERFORMANCE.md Set 132, Hercules 5150
 
-| pixels a block a frame | kernel `gfx_lstepv` | app walker + `GFX_LINE` a segment |
-|---:|---:|---:|
-| 1 | **5.4 ms** | 6.0 ms |
-| 3 | 8.2 ms | **6.5 ms** |
-| 10 | 18.0 ms | **8.2 ms** |
+This was arithmetic when it was written and it has since been benched
+(`tests/gfxbench`, six rows `kwalk n=N x8` / `aline n=N x8`). **The prediction
+was directionally right and its crossover was wrong:**
 
-The crossover is around **two pixels a block a frame**, and it is entirely the
-two fixed parts trading against the two marginals: the walk charges ~480 µs a
-block and 175 µs a pixel, `gfx_line` charges ~714 µs a call and 31.6 µs a
-pixel. **Missile's drain moves 64 pixels over ~4 blocks — 16 a block — which is
-the far right of that table.**
+| pixels a block a frame | kernel `gfx_lstepv` | app walker + `GFX_LINE` a segment | |
+|---:|---:|---:|---|
+| 1 | **5,243.9 µs** | 7,884.8 | kernel **1.50×** |
+| 3 | **7,703.8** | 10,496.9 | kernel **1.36×** |
+| 10 | 16,271.5 | **9,179.6** | app **1.77×** |
 
-**This is unmeasured and it is the single most valuable thing to bench**
-(this plan's 9.1): if it holds, `GFXE_WALK` is pure app-side arithmetic over a slot that
-already exists, and the kernel's 537/641 bytes go with nothing built to
-replace them.
+**The two sides have different shapes, and that is the finding.** The kernel
+walk is LINEAR and agrees with SPEC.md 5.6.8 to within 3% — a fitted intercept
+of 4,013 µs for eight blocks against 5.6.8's 480×8, and 154 µs a pixel a block
+against its ~175. The `gfx_line` side is **FLAT**: 986 µs a call at two pixels
+and 1,147 at eleven, because a short line is its own fixed part and little
+else.
+
+So the crossover is **about FOUR pixels a block a frame** — (9,180 − 4,013) /
+1,230 = 4.2 — and not the two this section predicted. The error was the
+`gfx_line` fixed part: 714 µs, taken from the intercept of a 127-pixel row,
+where a SHORT line on this geometry costs **~1,150**.
+
+**What it decides, and it is not what was hoped:**
+
+- **Missile's drain wins app-side, decisively.** `MC_DRNBUD` is 64 pixels a
+  frame over ~4 blocks — sixteen a block — modelling at **23.7 ms** for the
+  kernel walk against a measured **9.2 ms**. **2.6×.**
+- **An ordinary trail loses.** One to three pixels a block a frame is what
+  Cyclone's warp and Missile's own missiles do, and the kernel walk is
+  **1.36–1.50×** ahead there.
+
+**So wave 4 is not free.** The walk earns its 537/641 bytes on fine-grained
+animation and loses them on coarse, and no single answer serves both programs:
+see 8's revised wave 4.
 
 ### 3.3 So the per-program answer, restated
 
@@ -457,8 +474,8 @@ Each is independently landable and each is a separate PR.
 | **0** | `os88ui.inc`'s checkmark → glyph or `ICON_DRAW` record | 0 bytes; takes `OSAPI_GFX_LINE`'s caller list from 25 packages to four programs | none — 25 packages, one include |
 | **1** | `apps/os88gfx.inc` with `GFXE_BAND` + `GFXE_LINE`; **Sheet** is the first customer, compose mode, nothing gated out of the kernel | proves the lattice; ~350 bytes of Sheet | none — the kernel is untouched |
 | **2** | `GFXE_LINE_FAST`; **Paint on `kern_small`** takes it | Paint's stroke **4.9×** on the floor machine, +647 of Paint's own image | Paint's small build is size-sensitive (§24.5) |
-| **3** | **Bench §3.2 FIRST** (`gfxbench`/`tests/linetest` already have the rows), then `GFXE_WALK` on **Cyclone and Missile** | ~230 each, and possibly **faster than today** | §3.2 is arithmetic — the bench is the wave's own gate |
-| **4** | gate `gfx_linit/lstep/lstepv` out of both kernels | **−537 / −641** | needs wave 3 landed *and* the C surface settled (§7) |
+| **3** | `GFXE_WALK` on **Missile's drain only** — §3.2 is BENCHED (Set 132) and the drain is 2.6× better app-side; its missiles and Cyclone's warp are 1.4× worse and stay on the kernel walk | ~230, and 14.5 ms a frame off the drain | a package on both paths at once — Missile would carry the library AND call the slot |
+| **4** | gate `gfx_linit/lstep/lstepv` out of both kernels | **−537 / −641** | **REFUSED on Set 132 as written**: at 1–3 px a block a frame the kernel walk is 1.36–1.50× ahead, so this costs Cyclone's warp and Missile's missiles real frames. It needs those two restructured to step COARSELY (fewer, longer segments), which changes the animation and is the owner's call, not this plan's |
 | **5** | gate `gfx_line_fast`, `gfx_line_runs`, `gfx_lf_wide3` out of `kern_big` | **−874** from `kern_big` alone | Paint and Sheet must be on the library first |
 | **6** | gate `gfx_line` itself | the remainder, ~660 / ~800 | blocked on §7 outright |
 
@@ -481,12 +498,14 @@ program actually being on the library first.
 3. **Clip and ink come back.** The 24.6 µs is a rasteriser with no clipping, no
    ink and no dither. A caller that needs them pays them, and `gfx_blit1` still
    refuses an x off the byte grid.
-4. **§3.2 is arithmetic and is the single most valuable thing to bench.** An
-   app-side walker plotting `OSAPI_GFX_LINE` a segment against today's
-   `gfx_lstepv`, at 1, 3 and 10 pixels a block a frame, on a Hercules 5150.
-   If it holds, wave 4 needs nothing built to replace what it removes; if the
-   crossover is further right than two pixels, Cyclone stays on the kernel
-   walker and only Missile moves.
+4. ~~§3.2 is arithmetic and is the single most valuable thing to bench.~~
+   **DONE — PERFORMANCE.md Set 132**, and the second half of that sentence is
+   what happened: the crossover is at **four** pixels a block a frame, so
+   Cyclone stays on the kernel walker and only Missile's DRAIN moves. What is
+   owed now is smaller and named in 8's wave 3: whether a package carrying the
+   library for one effect and calling the slot for another is a shape worth
+   having, or whether Missile should step its missiles coarsely so the whole
+   program can leave.
 5. **Nothing here has been measured on the glass.** Every µs figure is quoted
    from PERFORMANCE.md's 5150 sets; every byte figure is from this tree's map.
    No wave has been built.

@@ -1353,6 +1353,7 @@ gb_prims:
     ; field figures imply (570 us a pixel stepping one call per missile
     ; against 160 in the drain). That gap is unexplained, and settling it is
     ; what these two rows are for.
+    mov word [gb_lsn], 1            ; the two rows below predate 3.2
     call gb_lsinit                  ; walks are 126 px long and each row steps
     mov word [bl_n], 100            ; one pixel per iteration, so 100 cannot
     mov word [bl_body], gb_b_lstep8 ; run one off its end
@@ -1372,6 +1373,44 @@ gb_prims:
     mov dx, [bl_last+2]
     mov [gb_tlsv8], ax
     mov [gb_tlsv8+2], dx
+
+    mov word [gb_lsn], 1           ; --- 3.2 at n = 1: the KERNEL walk, then
+    call gb_lsinit                  ; the APP-side plot over the same rows.
+    mov word [bl_n], 100             ; n * iterations <= the walk's own 126
+    mov word [bl_body], gb_b_lstepv8
+    mov si, gb_r_lsv1
+    xor al, al
+    call bl_run
+    call gb_lsinit
+    mov word [bl_body], gb_b_line8n
+    mov si, gb_r_lin1
+    xor al, al
+    call bl_run
+    mov word [gb_lsn], 3           ; --- 3.2 at n = 3: the KERNEL walk, then
+    call gb_lsinit                  ; the APP-side plot over the same rows.
+    mov word [bl_n], 40             ; n * iterations <= the walk's own 126
+    mov word [bl_body], gb_b_lstepv8
+    mov si, gb_r_lsv3
+    xor al, al
+    call bl_run
+    call gb_lsinit
+    mov word [bl_body], gb_b_line8n
+    mov si, gb_r_lin3
+    xor al, al
+    call bl_run
+    mov word [gb_lsn], 10           ; --- 3.2 at n = 10: the KERNEL walk, then
+    call gb_lsinit                  ; the APP-side plot over the same rows.
+    mov word [bl_n], 12             ; n * iterations <= the walk's own 126
+    mov word [bl_body], gb_b_lstepv8
+    mov si, gb_r_lsv10
+    xor al, al
+    call bl_run
+    call gb_lsinit
+    mov word [bl_body], gb_b_line8n
+    mov si, gb_r_lin10
+    xor al, al
+    call bl_run
+    mov word [gb_lsn], 1            ; leave it as every row before 3.2 found it
     call gb_boxfull
     mov word [bl_n], 6
     mov word [bl_body], gb_b_fill   ; RESTORE it: this used to be carried over
@@ -2409,12 +2448,13 @@ gb_lsinit:
     inc word [gb_lsi]
     cmp word [gb_lsi], GB_NWALK
     jb .next
-    mov di, gb_lsdsc                ; (block, count) pairs, one pixel each
+    mov di, gb_lsdsc                ; (block, count) pairs, [gb_lsn] pixels each
     mov ax, gb_lsblk
-    mov cx, GB_NWALK
+    mov bx, [gb_lsn]                ; BX is banked at the top of this proc, and
+    mov cx, GB_NWALK                ; the count is the only thing 3.2 varies
 .d:
     mov [di], ax
-    mov word [di+2], 1
+    mov [di+2], bx
     add ax, GLS_SZ
     add di, 4
     loop .d
@@ -2441,6 +2481,45 @@ gb_b_lstepv8:                       ; one arrival for the same eight
     mov di, gb_lsdsc
     mov cx, GB_NWALK
     call OSAPI_GFX_LSTEPV
+    ret
+
+; gb_b_line8n - docs/plans/GFX-EMBEDDABLE-PLAN.md 3.2's OTHER side: what an
+; APP-SIDE walker costs to PLOT. The Bresenham itself is ~30 bytes and is not
+; the question; what is, is that an app holding its own state knows this
+; frame's segment ENDPOINTS, so it draws the segment with one gfx_line instead
+; of asking the kernel to step a block the kernel holds. SPEC.md 5.6.2 makes a
+; line's pixel set a pure function of the endpoint PAIR, so replaying the same
+; segments erases exactly what they drew - which is the property SPEC.md 5.6.7's
+; resumable walk exists to provide, and it is one the KERNEL has to provide
+; only while the kernel is what holds the state.
+;
+; Eight segments of [gb_lsn] rows, one a walk, on gb_lsinit's own 8px spread
+; and leaning one column so the geometry is the walks' near enough.
+;
+; It draws the SAME eight segments every iteration, which is gb_b_lsteep's own
+; convention and is deliberate: an earlier version advanced them down the
+; sandbox to mirror what a walk does, and the row came out NON-MONOTONIC -
+; n=3 dearer per iteration than n=10 - because how much of a segment the clip
+; region kept then varied with n. A line costs what it costs wherever it is
+; (PERFORMANCE.md Set 100), so holding the position still leaves the segment
+; LENGTH as the only thing 3.2 varies.
+gb_b_line8n:
+    mov di, 0
+.next:
+    mov ax, di
+    mov cl, 3
+    shl ax, cl
+    add ax, [gb_x]
+    mov cx, ax
+    inc cx
+    mov bx, [gb_y]                  ; the SAME eight segments every iteration,
+    mov dx, bx                      ; which is gb_b_lsteep's own convention:
+    add dx, [gb_lsn]                ; a line costs what it costs wherever it is
+    xor si, si                      ; thin: the walk does not dilate either
+    call OSAPI_GFX_LINE
+    inc di
+    cmp di, GB_NWALK
+    jb .next
     ret
 
 ; The two line geometries, transposed so the pixel counts match: 32 across by
@@ -3306,6 +3385,12 @@ gb_r_blit1c:db 'GFX_BLIT1 128x128 pen', 0
 gb_r_mclr: db 'clear mask 2048', 0
 gb_r_ls8:  db 'GFX_LSTEP x8 (8 calls)', 0
 gb_r_lsv8: db 'GFX_LSTEPV x8 (1 call)', 0
+gb_r_lsv1: db 'kwalk n=1 x8', 0
+gb_r_lin1: db 'aline n=1 x8', 0
+gb_r_lsv3: db 'kwalk n=3 x8', 0
+gb_r_lin3: db 'aline n=3 x8', 0
+gb_r_lsv10: db 'kwalk n=10 x8', 0
+gb_r_lin10: db 'aline n=10 x8', 0
 gb_r_frow: db 'GFX_FILL 256x1', 0
 gb_r_fr:   db 'GFX_FRAME 64x64', 0
 gb_r_gy:   db 'GFX_FILL_GRAY 64x64', 0
@@ -3544,6 +3629,10 @@ gb_tbpw     equ os88_image_end + 208   ; dword: ...and the same bytes wide,
                                        ;        which separates the per-ROW part
 gb_trundis  equ os88_image_end + 200   ; dword: a DISABLED run (SPEC.md 6.1.12),
                                        ;        against gb_trun beside it
+gb_lsn      equ os88_image_end + 212   ; word: pixels a walk steps per row
+                                       ;       iteration - 1 is what every row
+                                       ;       before docs/plans/GFX-EMBEDDABLE-PLAN.md
+                                       ;       3.2 used
 gb_lsdsc    equ os88_image_end + GB_O_SCAL   ; GB_NWALK (block, count) pairs
 gb_lsblk    equ os88_image_end + GB_O_SCAL + GB_NWALK * 4  ; ...and walk states
 gb_syskb    equ os88_image_end + GB_O_SYSKB    ; SYSKB_SIZE bytes
