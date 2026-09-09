@@ -103851,8 +103851,9 @@ back to level on its own.
 
 **A water strip is a runway made of water** — `CSA_WX`, `CSA_WZ`,
 `CSA_WHDG`, `CSA_WLEN`, `CSA_WWID` and the water's own name, in exactly the
-four numbers the runway has, so `cs_runway_xy` and `cs_water_xy` are two
-wrappers over one `cs_local_xy`. It is where `cs_reset` puts the aeroplane,
+four numbers the runway has, so the same `cs_local_xy` served both — until
+§88.7.7.1 stopped testing a landing against the rectangle and §88.7.7.4 took
+the water half out. It is where `cs_reset` puts the aeroplane,
 hull in, pointing along it, and `CSA_WLEN` = 0 is a place with no water an
 amphibian could use; **all nine locations have one.** §88.7.7.1 is why it is
 no longer what a LANDING is tested against.
@@ -103927,7 +103928,8 @@ with nothing on the glass to say where the edge was.
 now** (`cs_inwater`), and the reason that is affordable is one line:
 **`cs_touch` fires once, at the tick the wheels meet the ground.** The
 "not a polygon test" the old note made a virtue of was buying nothing —
-`cs_water_xy`'s own comment already said *"this runs once, at a touchdown"*.
+the strip transform's own comment already said *"this runs once, at a
+touchdown"* (§88.7.7.4 has since deleted that routine).
 Measured over all nine worlds: at most **20 water faces**, every one of them
 a quad, **80 vertices** in the worst world (Miami), against 12–39 objects.
 An object is Manhattan-rejected on its `CSM_RAD` before any face is walked,
@@ -104029,6 +104031,34 @@ that shows it: red on LBG, LCY, SFO and Issy, green on SDU. The row also
 holds the spawn point to §88.7.7.1's own point-in-polygon, because `cs_reset`
 sets `[cs_onwater]` = 1 without asking and an A5 whose strip has been moved
 off the river would float on grass in silence.
+
+#### 88.7.7.4 `cs_water_xy` went with the rectangle, eight months late
+
+§88.7.7.1 replaced the strip's rectangle with a point-in-polygon over the
+drawn river, and the routine that put the aeroplane in the strip's own
+coordinates — `cs_water_xy`, the water half of the pair §88.7.7 was built
+around — stopped having a caller that day and stayed in the image anyway.
+`CSA_WHDG` is read in exactly one place now, `cs_reset`'s spawn, which needs
+a sine and a cosine and not a coordinate transform.
+
+**36 bytes**: 34 of routine and the 2 of `cs_runway_xy`'s `jmp short
+cs_local_xy`, which is a jump to the next instruction once the routine
+between them is gone. `cs_local_xy` stays, entered by fallthrough and by
+nothing else — the label and its register contract are what a second strip
+would enter at, and they cost nothing.
+
+**It is not disk and it is not a rung; it is SEGMENT.** `build/skies.bin` is
+padded out to cover the overlay at `CS_VOCAB_AT` (§88.10.5), so the part is
+49,216 bytes either way and the floppy does not move. What moves is the top
+of the program's own code, and `APP_MAX_SIZE` — 60 KB of one segment — is
+what Clear Skies is actually short of: the `CSDIAG=1` arm is over it by
+hundreds of bytes and cannot be built.
+
+**Nothing here found it.** `tests/unit/t_deadcode.py` is the kernel's, and
+there is no package equivalent; a package's unreachable code costs its own
+segment and nobody else's, which is exactly why it goes unnoticed until that
+segment is the binding constraint. It was found by reading the callers of
+`CSA_WHDG` while §88.7.7.3 was being written.
 
 #### 88.7.8 THE ELEVATOR IS A BODY RATE, and it was a world one
 
