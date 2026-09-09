@@ -4954,6 +4954,7 @@ $(BUILD)/solitair.o88: $(BUILD)/solitair.bin tools/os88pkg.py $(PKGZSTAMP)
 # 53.7). Several sources, because the raster, the geometry, the game and the
 # attract window are separate subjects and the tables are generated.
 $(BUILD)/tank.bin: apps/tank/tank.asm apps/tank/tkraster.inc \
+                    apps/tank/tktmpl.inc \
                     apps/tank/tk3d.inc apps/tank/tkgame.inc \
                     apps/tank/tkattr.inc apps/tank/tkhs.inc \
                     apps/tank/tksin.inc apps/tank/tkridge.inc \
@@ -8146,10 +8147,18 @@ small: $(BUILD)/small360.img $(BUILD)/small.img
 #   modplug, tracker,       SOUND.DRV, which a 128-256KB machine has nothing
 #   audio                   to spare for - the same judgement that took
 #                           RAMDISK.DRV and RAMPAGE.DRV out of $(SMALLDRIVERS)
-#   tank, skies             the fullscreen surface (SPEC.md 42.7/81, 88). Each
-#                           opens and draws its panel, and there is no GAME
-#                           behind it without fsx, so what ships is a menu that
-#                           leads nowhere
+#   skies                   a 32KB heap claim for its frame shadow, which the
+#                           128KB machine's 17.5KB of largest run cannot fund -
+#                           and, unlike PAINT, it cannot say so: the claim is
+#                           made INSIDE the fsx bracket, after the mode is set,
+#                           so the refusal is a black screen and a bounce back
+#                           to the desktop. TANK was this row's other half and
+#                           SHIPS NOW (SPEC.md 85.3.5.1): its template stopped
+#                           being a second 16,000-byte frame buffer, the claim
+#                           went 32KB to a ladder of 18/17/16, and it runs on
+#                           the floor machine. `kern_small` has fsx like every
+#                           other build - that was never what either of them
+#                           was missing
 #
 # RECORDER WAS THE FOURTH SOUND ROW AND IS NOT A ROW ANY MORE. It is off the
 # shipped apps disk entirely (SPEC.md 35.1), so it is not in $(APPS_TOOLS) for
@@ -8158,13 +8167,13 @@ small: $(BUILD)/small360.img $(BUILD)/small.img
 # omit list takes. The rule it would have failed is unchanged and would still
 # omit it if it came back.
 #
-# Nine programs that could not have started (SPEC.md 24.5 has the same
+# Eight programs that could not have started (SPEC.md 24.5 has the same
 # figures, re-measured together).
 SMALLOMIT := $(BUILD)/browser.o88 $(BUILD)/ftpd.o88 $(BUILD)/telnet.o88 \
              $(BUILD)/thewire.o88 \
              $(BUILD)/modplug.o88 $(BUILD)/tracker.o88 \
              $(BUILD)/audio.o88
-SMALLOMIT_GAMES := $(BUILD)/tank.o88 $(BUILD)/skies.o88
+SMALLOMIT_GAMES := $(BUILD)/skies.o88
 
 # ...and BROWSER.HTM with the browser, for the same reason one step along: a
 # .HTM is openable by nothing else on the machine (SPEC.md 71), and a manual

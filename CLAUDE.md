@@ -412,11 +412,19 @@ make smallapps#   128KB floor machine, docs/history/KERN-SPLIT-PLAN.md). `smalla
               #   test rather than a size one: eight packages that cannot
               #   reach a driver kern_small does not ship (Browser, FTPD,
               #   Telnet on ETHER.DRV; ModPlug, Recorder, Tracker, Audio on
-              #   SOUND.DRV) or a surface it has (Tank on fsx) are not on the
-              #   disk at all, because a package that merely wants heap can
-              #   REFUSE ITSELF in its own words and one that cannot reach its
-              #   driver can say nothing. The small SYSTEM disk carries
-              #   §24.3's core packages too, filtered the same way (§24.5.1)
+              #   SOUND.DRV), or that claim more than the machine has and
+              #   cannot say so (Skies, whose 32KB shadow is claimed INSIDE
+              #   the fsx bracket, so the refusal is a black screen), are not
+              #   on the disk at all - because a package that merely wants
+              #   heap can REFUSE ITSELF in its own words and one that cannot
+              #   reach its driver can say nothing. **TANK used to be in that
+              #   list under a reason that was WRONG**: kern_small has the
+              #   whole of §53, and what refused was a 32KB claim against
+              #   17.5KB of arena. §85.3.5.1 made its HUD template a span
+              #   store - 486-512 lit bytes were living in a second
+              #   16,000-byte frame buffer - and the claim a ladder, and it
+              #   ships now. The small SYSTEM disk carries §24.3's core
+              #   packages too, filtered the same way (§24.5.1)
 make emu      # THE THIRD KERNEL (§9.11.7): kern_emu, into build/emuk/, plus
               #   build/emu.img. It is kern_big PLUS §9.11's VMware absolute
               #   pointer and nothing else - the backdoor on port 0x5658 that

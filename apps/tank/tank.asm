@@ -187,8 +187,41 @@ TK_LASTB  equ 79                ; the last byte of a viewport row - and it is
                                 ; 640 at 1bpp and 320 Mode X byte-addresses are
                                 ; each 80 bytes
 TK_SHSEG  equ 16000             ; the CGA/Hercules shadow, in bytes
-TK_SHKB   equ 32                ; ...as a claim, with the HUD TEMPLATE in its
-                                ; second half (SPEC.md 85.3.5)
+; --- THE CLAIM IS A LADDER (SPEC.md 85.3.5.1) ---------------------------------
+; It was a flat 32KB while the template was a second frame buffer, and that
+; claim is the whole reason SPEC.md 24.5 kept this package off the small disks.
+; The span store needs 2,132 bytes at its measured high water, so the shadow
+; and a comfortable pool want 18KB - and the 128KB floor machine has 17.5 free
+; once mem_claim has shed its purgeable caches. So the package asks for what it
+; would LIKE and takes what the machine has, in three rungs:
+;
+;   18KB  2,432 bytes of pool - 14% over the high water. What a 256KB machine
+;         and up gets, and what every measurement in SPEC.md 85.3.5.1 is on
+;   17KB  1,408 bytes. The panel and a still ridge fit; a ridge transition can
+;         fill it, and then tk_tmenc clears [tk_tmpl] and the rest of the
+;         bracket runs the Mode X regime - the panel drawn every frame
+;   16KB  the shadow alone, [tk_tmpl] = 0 from the start: the pre-85.3.5 game,
+;         which is what the 128KB machine could not have at all before this
+;
+; A RUNG IS NOT A FEATURE HERE. The rungs are what the ladder asks for, in
+; order; the game is the same game on all three and only the panel's cost
+; moves. Nothing else in this package is sized against them.
+TK_SHKB   equ 18                ; the rung it would like...
+TK_SHKB2  equ 17                ; ...and the two it will settle for
+TK_SHKB3  equ 16
+TKT_RIDGEMIN equ 2048           ; A POOL SMALLER THAN THIS NEVER TAKES THE
+                                ; RIDGE (SPEC.md 85.3.5.1). Measured: the six
+                                ; panel items encode to ~1,050 bytes and a
+                                ; settled ridge adds 800-1,100 more, so the
+                                ; 17KB rung's 1,408 holds the panel and cannot
+                                ; hold both. Refusing the ridge THERE keeps
+                                ; 85.3.5's 61-67 ms a frame and pays 85.3.8's
+                                ; 26; letting it overflow instead dropped the
+                                ; template whole and paid both
+TKT_GAP   equ 4                 ; lit runs closer than this are ONE span, the
+                                ; zeros between them stored: the panel's runs
+                                ; average under two bytes, so a two-byte header
+                                ; costs more than the gap it saves
 
 ; --- gameplay -----------------------------------------------------------------
 TK_TURN   equ 2                 ; angle units per TICK at full lock
@@ -722,6 +755,7 @@ tk_tpl:
 %include "tkover.inc"
 %include "tkhs.inc"
 %include "tkraster.inc"
+%include "tktmpl.inc"
 %include "tk3d.inc"
 %include "tkgame.inc"
 %include "tkattr.inc"
@@ -781,6 +815,7 @@ tk_tpl:
     ZWORD tk_page1
     ZBYTE tk_npage
     ZWORD tk_shseg
+    ZBYTE tk_shkb                   ; the ladder rung the claim came off
     ZWORD tk_tmseg                  ; the template: the claim's second half
     ZBYTE tk_tmpl                   ; ...and whether this backend has one
     ZWORD tk_tmsave                 ; tk_spcur, while an item draws
@@ -790,6 +825,17 @@ tk_tpl:
     ZBUF  tk_tmovl, 7               ; ...and which rectangles meet which
     ZBYTE tk_tmbits
     ZWORD tk_tmcur                  ; the rectangle being redrawn, or 0
+    ZBUF  tk_tmrix, (TK_MAXROW + 1) * 2 ; row r's records start at pool
+                                    ; [tk_tmrix[r]] and end at [tk_tmrix[r+1]],
+                                    ; which is why there is one more of these
+                                    ; than there are rows (SPEC.md 85.3.5.1)
+    ZWORD tk_tmlen                  ; the pool's bytes in use...
+    ZWORD tk_tmcap                  ; ...and how many it has, which is the rung
+                                    ; the claim came off (SPEC.md 85.3.5.1)
+    ZWORD tk_tmr0                   ; the rows tk_tmenc is rebuilding...
+    ZWORD tk_tmr1
+    ZWORD tk_tmp0                   ; ...and where their records go
+    ZWORD tk_tmpen                  ; the pool pen, while a row is written
     ZBYTE tk_rtm_on                 ; the template holds a ridge (85.3.8)...
     ZBYTE tk_rpa_tm                 ; ...drawn at this heading...
     ZBYTE tk_rpa_last               ; ...and the heading of the last frame

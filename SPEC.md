@@ -37966,7 +37966,7 @@ Eight packages fail that test:
 |---|---|
 | `BROWSER`, `FTPD`, `TELNET` | `ETHER.DRV`. The NIC is not in `$(SMALLDRIVERS)`, and §72's whole surface is driver verbs, so there is no socket to refuse on |
 | `MODPLUG`, `TRACKER`, `AUDIO` | `SOUND.DRV`, which a 128–256KB machine has nothing to spare for — the judgement that already took `RAMDISK.DRV` and `RAMPAGE.DRV` out of the small driver set |
-| `TANK`, `SKIES` | the fullscreen surface (§42.7, §81, §88). Each opens and draws its panel, and there is no *game* behind it without fsx |
+| `SKIES` | a **32KB heap claim** for its frame shadow (§88), against the 17.5KB largest run a claimant can have on the floor machine once `mem_claim` has shed the purgeable caches (§50.6.2). Unlike PAINT it cannot refuse in its own words: the claim is made INSIDE the fsx bracket, after the mode is set, so what a player gets is a mode switch, a black screen and a bounce back to the desktop |
 
 `RECORDER` was a fourth row of the sound group and is **not a row at all now**:
 it fails the same test and would still be omitted, but it is off the shipped
@@ -37980,6 +37980,19 @@ takes, so the row came out with the package rather than being kept as a note.
 that program's manual (§71.12), which is worse than no file at all on a disk
 the program is not on — and `BEVERLY.MOD` is the two removed players' module
 (§24.4).
+
+**`TANK` WAS THE OTHER HALF OF THAT ROW AND SHIPS NOW** (§85.3.5.1), and the
+reason it was omitted was wrong as written. `kern_small` has the whole of §53:
+the `%include` is unconditional, every `%ifdef KERN_BIG` inside `fsx.inc` is
+multi-display bookkeeping, `fsx_capstab`'s HERC (`0x0011`) and CGA (`0x000F`)
+rows are byte-identical in both kernels, and the API table is the same 165
+slots. Measured on `os8088_5150_cga_128k`: the menu read `Play`, `fsx_mode`
+switched the card, and what refused was `OSAPI_MEM_CLAIM` for `TK_SHKB` — 32KB
+of shadow and template against 17.5KB of arena. The template is a span store
+now and the claim is a ladder, so the requirement the machine cannot meet is
+gone rather than worked around. **The fullscreen surface was never what either
+package was missing**, and a row that names the wrong requirement is worse than
+no row: it sends the next reader to the kernel.
 
 **112,441 bytes — 31% of a 360KB floppy, 113 of its 354 clusters — for eight
 programs that could not have started.** All eight move at every geometry now:
@@ -98549,6 +98562,82 @@ span set empty and would wipe a mark made earlier; and after the clear the
 shadow holds no dynamic pixel, so copying a rectangle over it loses nothing.
 Mode X has no shadow and no template and draws the whole panel every frame,
 which is what every frame did before and is the fast machine's to afford.
+
+#### 85.3.5.1 The template is a SPAN STORE, and the claim is a ladder
+
+§85.3.5's design is unchanged and this is where its bytes live. **The template
+was a second 16,000-byte frame buffer carrying 486-512 non-zero bytes** — three
+per cent — in every state the game can be driven into, the crack drawn and the
+ridge settled included. The 32KB claim that made is why §24.5 kept this package
+off the small disks, and on the 128KB floor machine the largest run a claimant
+can have, once `mem_claim` has shed the purgeable caches (§50.6.2), is 17.5KB.
+
+**The store.** `tk_tmrix[r]` is the pool offset of row *r*'s first record; rows
+are contiguous and ascending, so `tk_tmrix[r+1]` is where row *r*'s records end
+— which is why the array is one longer than the tallest viewport. A record is
+`db start, len` and then `len` bytes of the row. **Lit runs closer together
+than `TKT_GAP` = 4 are one span and the zeros between them are stored**: the
+panel's runs average under two bytes, so a two-byte header costs more than the
+gap it saves. Measured over the gap rule, deterministically: 4 and 3 are the
+size optimum, 16 buys 0.6% of frame time for 31% more pool, and 80 overflows.
+
+**There is no separate buffer to draw into, and that is the whole trick.** The
+template is written in exactly two places — `tk_tmupdate`'s items and
+`tk_ridge_tm`'s settle — and both run inside `tk_render` between `tk_r_begin`
+and the first dynamic drawing, which is the window §85.3.5's own induction is
+about: the shadow holds no dynamic pixel there, so **in that window the shadow
+IS the template**. An item is drawn into the shadow, where it has to end up
+anyway, and `tk_tmenc` re-encodes the rectangle's rows from it. `tk_tmcopy` and
+`tk_tmcpruns` are gone with the buffer they moved between, the walks need no
+`tk_tseg` redirection, and the one rule that has to hold is that nothing calls
+`tk_tmenc` after a dynamic pixel has landed.
+
+**The scan is `rep scasb` and that is not a micro-optimisation.** The first
+build walked a row a byte at a time in a twenty-byte loop; on the 8088 an
+instruction costs `max(clocks, 4.34 x bytes)` (PERFORMANCE.md part 2), so that
+loop is FETCH-bound at ~87 cycles a byte and re-encoding the ridge's 72-row
+band — 5,760 bytes, twice, once to size the hole and once to fill it — priced
+at **416 ms of a 493 ms frame**. `rep scasb` is 15 cycles a byte and two bytes
+of code for the whole loop, so nothing is fetched per iteration; a row is ~95%
+zeros and the scan is three `rep scasb` runs a span. It took the same frame to
+324 ms. **Every one of those `scasb`s needs `AL` zeroed in front of it** — AL
+carries the gap size on the loop-back paths and the record's start byte after
+an emit, and the build that forgot two of them assembled, ran, and drew a
+different picture.
+
+**The claim is a LADDER**: `TK_SHKB` 18, then 17, then 16, whichever
+`mem_claim` will give. 18KB leaves 2,432 bytes of pool against a measured high
+water of 2,132; 17KB leaves 1,408, which holds the panel but not a settled
+ridge, so **a pool under `TKT_RIDGEMIN` = 2,048 never takes the ridge** —
+keeping §85.3.5's 61-67 ms a frame and paying §85.3.8's 26, where letting it
+overflow instead dropped the template whole and paid both. 16KB is the shadow
+alone and the pre-§85.3.5 game. A store that will not fit clears `[tk_tmpl]`,
+which is the flag Mode X already runs the whole game on, so the fallback is
+code every VGA exercises.
+
+**What it costs, measured** — `tests/tankperf.py`, `os8088_5150_herc_gla`,
+scene `heavy`, cycle-exact, and the two builds draw **byte-identical
+framebuffers** on both pinned scenes:
+
+| schedule | bitmap template | span store | |
+|---|---|---|---|
+| nothing changing | 215.18 ms | 224.26 ms | **+4.2%**, all of it in `tk_clearspans` |
+| a ridge transition every 10 frames | 230.91 ms | 256.13 ms | +10.9% |
+| ...and a score change, both every 3 | 265.76 ms | 323.65 ms | +21.8% |
+
+The steady-state cost is the restore: the clear stores zeros over the run
+(cheaper than the old `rep movsw` by 4 ms) and lays the row's spans over them
+(+12 ms). Everything above that is `tk_tmenc`, which is per CHANGE and not per
+frame — the third row is the pathological alternation §85.3.8 already names as
+the case that cannot win. **What is still open is the encode's second pass**:
+it scans the row range once to size the hole and once to fill it, and a
+single-pass form that encodes into the pool's free tail and then moves the
+blob would halve it, at the price of a transient `tmlen + L` the top rung can
+afford and the middle one cannot.
+
+**What it buys** is one line: `TANK.O88` runs on the 128KB machine, where it
+used to switch the video mode, fail the claim and bounce back to the desktop
+with no message at all.
 
 #### 85.3.6 A shallow line with eight pixels to the row is sliced, not walked
 

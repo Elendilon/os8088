@@ -26,8 +26,25 @@ by poke, so two builds price the same frame.
     heavy   eight pieces inside 2,300 units, the enemy at 900: the cluster
             SPEC.md 85.6.6.3 exists to stop being dealt
     live    what tk_newgame deals, eight fresh games, still and turning
+
+`live` IS THE RNG ARM AND MAY NOT BE COMPARED ACROSS BUILDS. tk_newgame deals
+off a stream seeded from the tick, and the simulation advances once per ELAPSED
+tick (tk_steps), so a slower build steps the world further per frame and prices
+a different scene. Two `live` runs of the SAME build read 8.6 fps and 2.3 on
+CGA and, on Hercules, moved the other way - which is a measurement of the
+dealer, not of the code. `fixed` and `heavy` pin the deal, pause the world and
+place the enemy by poke, so they are the arms an A/B is run on.
+
+    --json PATH     write the run's numbers, for --compare
+    --compare A B   print one build's numbers against another's, from two such
+                    files. THE TWO RUNS MUST NAME THE SAME machine, scene,
+                    frames and churn, and this refuses them if they do not
+    --churn N       add 1,000 to the score every N frames, which moves the
+                    scores item's KEY and so drives SPEC.md 85.3.5's template
+                    update - the one path a paused world never reaches
 """
 import argparse
+import json
 import os
 import random
 import re
@@ -70,7 +87,7 @@ def sites(lst):
     rx = re.compile(r"\s*\d+\s+([0-9A-F]{8})\s+([0-9A-F\[\]]+)\s+(?:<\d+>\s*)?(.*)$")
     lab = re.compile(r"\s*\d+\s+(?:[0-9A-F]{8}\s+(?:[0-9A-F()\-\[\]]+\s+)?)?(?:<\d+>\s*)?([A-Za-z_][A-Za-z0-9_]*):")
 
-    def find(pat, nth=0, within=None):
+    def find(pat, nth=0, within=None, optional=False):
         hits, scope = [], within is None
         for L in lines:
             if within:
@@ -84,6 +101,8 @@ def sites(lst):
                 b = bytes.fromhex(m.group(2).replace("[", "").replace("]", ""))
                 hits.append((int(m.group(1), 16), b))
         if len(hits) <= nth:
+            if optional:
+                return None
             sys.exit("tankperf: no site matches %r in the listing" % pat)
         return hits[nth]
 
@@ -103,7 +122,50 @@ def sites(lst):
                         + nop(*find(r"call tk_drawtype", 2)))
     s["drawmovers"] = nop(*find(r"call tk_drawmovers"))
     s["hud"] = nop(*find(r"call tk_hud$"))
+    s["tmupdate"] = nop(*find(r"call tk_tmupdate"))
+    sp = find(r"call tk_tmspans", optional=True)
+    if sp:                              # the span store's restore alone, so
+        s["tmspans"] = nop(*sp)         # `clearspans` minus this is the zero
+
+    enc = [find(r"call tk_tmenc$", optional=True),
+           find(r"call tk_tmencband", 0, optional=True),
+           find(r"call tk_tmencband", 1, optional=True)]
+    enc = [e for e in enc if e]
+    if enc:                             # SPEC.md 85.3.5.1's re-encode, which
+        t = ()                          # only the span-store build has
+        for e in enc:
+            t += nop(*e)
+        s["tmenc"] = t
     return s
+
+
+def compare(pa, pb):
+    """Two --json runs, side by side. The pairing is CHECKED, not assumed."""
+    A, B = json.load(open(pa)), json.load(open(pb))
+    for k in ("machine", "scene", "frames", "churn", "turn_every"):
+        if A[k] != B[k]:
+            sys.exit("tankperf: these runs are not comparable - %s is %r in %s "
+                     "and %r in %s" % (k, A[k], pa, B[k], pb))
+    print("  %s, scene %s, %d exact frames%s%s"
+          % (A["machine"], A["scene"], A["frames"],
+             (", churn every %d" % A["churn"]) if A["churn"] else "",
+             (", turning every %d" % A["turn_every"]) if A["turn_every"] else ""))
+    print("  %-14s %10s %10s %10s" % ("", A["name"], B["name"], "delta"))
+    print("  %-14s %9.2f %9.2f %9.2f ms  (%+.1f%%)"
+          % ("frame", A["frame_ms"], B["frame_ms"], B["frame_ms"] - A["frame_ms"],
+             100.0 * (B["frame_ms"] - A["frame_ms"]) / A["frame_ms"]))
+    for k in sorted(set(A["stages"]) | set(B["stages"])):
+        va, vb = A["stages"].get(k), B["stages"].get(k)
+        if va is None or vb is None:
+            print("  %-14s %s" % (k, "only in one run"))
+            continue
+        print("  %-14s %9.2f %9.2f %9.2f ms" % ("  " + k, va, vb, vb - va))
+    for k in ("claim_kb", "pool_max", "pool_cap"):
+        va, vb = A.get(k), B.get(k)
+        if va or vb:
+            print("  %-14s %9s %9s" % (k, va if va is not None else "-",
+                                       vb if vb is not None else "-"))
+    return 0
 
 
 def main(argv):
@@ -115,12 +177,25 @@ def main(argv):
     ap.add_argument("--frames", type=int, default=12)
     ap.add_argument("--games", type=int, default=8)
     ap.add_argument("--verbose", action="store_true", help="print every frame")
+    ap.add_argument("--name", help="what to call this build in a --compare")
+    ap.add_argument("--shot", help="write the pinned scene's frame here. The "
+                    "scene is pinned, so TWO BUILDS MUST PRODUCE THE SAME "
+                    "PICTURE and a pixel diff is the correctness gate a timing "
+                    "run gets for free")
+    ap.add_argument("--json", help="write this run's numbers to a file")
+    ap.add_argument("--compare", nargs=2, metavar=("A", "B"),
+                    help="print two --json runs against each other and exit")
+    ap.add_argument("--churn", type=int, default=0,
+                    help="score +1000 every N frames: the template UPDATE path, "
+                         "which a paused world never otherwise reaches")
     ap.add_argument("--turn-every", type=int, default=0,
                     help="pinned scenes: turn the heading by TK_TURN every N frames "
                          "(1 = every frame, so the ridge never settles; 2 = the "
                          "alternation SPEC.md 85.3.8 calls the case that cannot win)")
     a = ap.parse_args(argv)
     os.chdir(ROOT)
+    if a.compare:
+        return compare(a.compare[0], a.compare[1])
     lst = listing()
     S = sites(lst)
     os.unlink(lst)
@@ -146,6 +221,25 @@ def main(argv):
                 poke("tk_ocool", b"\xff", k)
 
         turn = [0]
+        churn = [0]
+        pool = [None]
+        syms = dispapps._map("tank")
+        has_pool = "tk_tmlen" in syms
+
+        def kb():
+            """The claim's KB as the RUN took it - SPEC.md 85.3.5.1's ladder
+            means the source names three rungs and the machine picks one."""
+            if "tk_shkb" not in syms:
+                return 32                   # the flat claim, before the ladder
+            return m.readseg(seg, base + off("tk_shkb"), 1)[0]
+
+        def cap():
+            return w("tk_tmcap") if "tk_tmcap" in syms else None
+          # the span store (SPEC.md
+                                               # 85.3.5.1); the build that kept
+                                               # a second frame buffer has no
+                                               # such word, and a compare
+                                               # across the two says "-"
 
         def frames(n):
             """n consecutive frames, ms each, by a breakpoint on tk_render."""
@@ -162,6 +256,14 @@ def main(argv):
                     if turn[0] % a.turn_every == 0:
                         pa = m.readseg(seg, base + off("tk_pa"), 1)[0]
                         poke("tk_pa", bytes([(pa + 2) & 0xFF]))
+                if a.churn:
+                    churn[0] += 1
+                    if churn[0] % a.churn == 0:
+                        sc = (w("tk_score") + 1000) & 0xFFFF
+                        poke("tk_score", sc.to_bytes(2, "little"))
+                if has_pool:
+                    v = w("tk_tmlen")
+                    pool[0] = v if pool[0] is None else max(pool[0], v)
                 m.run()
                 if m.wait_stop(20) is None:
                     sys.exit("tankperf: the frame never came")
@@ -240,6 +342,17 @@ def main(argv):
                                                 # a twelve-frame mean by 17 ms
         base_ms = ms()
         print("  frame: %.2f ms (%.2f fps), mean of %d exact frames" % (base_ms, 1000 / base_ms, a.frames))
+        if a.shot:
+            wpx, hpx, data = m.fbuf(None)
+            os88marty.write_png_rgb(a.shot, wpx, hpx, data)
+            lit = sum(1 for i in range(0, len(data), 3)
+                      if data[i:i + 3] != b"\x00\x00\x00")
+            print("  %s: %dx%d, %d lit (%.2f%%)"
+                  % (a.shot, wpx, hpx, lit, 100.0 * lit / (wpx * hpx)))
+        rec = {"name": a.name or os.path.basename(a.apps), "machine": a.machine,
+               "scene": a.scene, "frames": a.frames, "churn": a.churn,
+               "turn_every": a.turn_every, "frame_ms": base_ms, "stages": {},
+               "claim_kb": kb(), "pool_cap": cap()}
 
         def patch(site, on):
             for i in range(0, len(site), 3):
@@ -256,6 +369,7 @@ def main(argv):
             patch(site, True)
             t = ms()
             patch(site, False)
+            rec["stages"][name] = base_ms - t
             print("  without %-12s %7.2f ms  (%+7.2f, %4.1f%% of the frame)"
                   % (name, t, t - base_ms, 100 * (base_ms - t) / base_ms))
         for name in ("walk", "hrun"):
@@ -268,6 +382,16 @@ def main(argv):
             patch(S[name], False)
         print("  no pixel drawn: %.2f ms; and no clear or blit: %.2f ms - the floor"
               % (t, t2))
+        if pool[0] is not None:
+            rec["pool_max"] = pool[0]
+            print("  span store: %d bytes of %s at its high water (%.0f%%)"
+                  % (pool[0], rec["pool_cap"],
+                     100.0 * pool[0] / max(rec["pool_cap"] or 1, 1)))
+        print("  claim: %s KB" % rec["claim_kb"])
+        if a.json:
+            with open(a.json, "w") as f:
+                json.dump(rec, f, indent=1)
+            print("  wrote %s" % a.json)
 
 
 if __name__ == "__main__":
