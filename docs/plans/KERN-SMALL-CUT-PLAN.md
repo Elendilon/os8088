@@ -982,3 +982,116 @@ at 41 ms a frame. So the choice is:
 
 Neither is worth it. The walker stays. It is not duplicate code — it is the
 only marginal pixel on the machine.
+
+## 12. …and the WHOLE line machinery app-side — the better row, and what it is really blocked on
+
+§11 answered the walker alone. The larger proposal is to move **all** of it —
+`gfx_line` included — into an embeddable library a package takes as much of as
+it uses, on the grounds that the per-call floor is then removable and a
+performance-critical caller gets the chance to optimise.
+
+**Two halves of that are right, and one is measured right in this repository
+already.** PERFORMANCE.md priced a candidate app-side rasteriser writing a 1bpp
+mask at **24.6 µs a pixel** against `gfx_line`'s **31.6** with the arrival
+removed — **1.29× faster** — because what it drops is *"everything `gfx_line`
+does that a caller compositing its own figure does not need: clipping, the ink,
+the dither table, the per-row `gfx_rowbase`."* The library is not a worse
+rasteriser. It is a better one.
+
+### 12.1 The size on the table
+
+Span `gfx_linit` → `gfx_blit4`, §9.1's method:
+
+| | `.text` | `.bss` | total |
+|---|---|---|---|
+| `kern_small` | **1,368** | 69 | **1,437** |
+| `kern_big` | **2,511** | 80 | **2,591** |
+
+3.6% of `kern_small`'s `.text`, 4.9% of `kern_big`'s. This is a bigger prize
+than every row in §8 except B1.
+
+### 12.2 `os88ui.inc` is NOT the obstacle it looks like
+
+37 files across **25 packages** include `os88ui.inc`, which is where the
+"everyone would have to embed it" objection comes from. It does not hold: the
+include's only line use is the **menu checkmark**, and that is two *fixed* ±45°
+strokes 4 and 5 pixels long (`apps/os88ui.inc:3986`, `:3993`). A glyph, or six
+`OSAPI_GFX_PIXEL` calls, replaces it — no library.
+
+The real general-line users on the small disks are **Paint, Sheet, Missile and
+Cyclone**, plus any C package through `apps/cc/os88thunk.asm`. Four programs
+and a thunk.
+
+**Nor is the floppy binding**, which the older reading assumed: `smallapps360.img`
+is **212 of 354 clusters** and `apps360.img` **317** — 142 and 37 clusters free.
+Compression has moved that number since §8 was written.
+
+### 12.3 What it IS blocked on: `kern_small` has no commit primitive
+
+A windowed package has **no framebuffer**. The only published framebuffer
+address on the machine is `FSI_SEG` in the fsx info block, and SPEC.md 53.7
+makes every kernel drawing slot illegal the moment `fsx_mode` returns — the two
+are mutually exclusive *by design*. `apps/tank/tkraster.inc` is what that
+permission looks like when it is granted, and Tank pays for it by owning the
+whole screen.
+
+So an app-side rasteriser has to hand its result back to a slot, and on
+`kern_small` **both batch slots are `stc`/`ret` with no body**:
+
+- `gfx_spans` — `kernel/vga12.inc`, *"kern_small carries the slot and no body"*
+- `gfx_blit1` — `kernel/kernel.asm:6542`, *"kern_small carries the SLOT and not
+  the body… The body was measured on this build and refused"*
+
+What is left is `OSAPI_GFX_PIXEL` at **640.87 µs** against `gfx_line`'s
+**37.1 µs a pixel**. **17.3×.**
+
+> **`kern_small` has no batch pixel primitive at all.** Removing `gfx_line`
+> from that build does not move the work into the apps — it removes the
+> capability from the machine.
+
+### 12.4 The row that unlocks it is already priced, and it INVERTS a standing refusal
+
+`gfx_blit1`'s lean body on `kern_small` is **+419 bytes**, built, measured and
+refused (SPEC.md 5.4.2.5, docs/plans/completed/PAINT-1BPP-PLAN.md Option B), on
+the owner's decision that *"the small build may stay slower"*.
+
+That refusal was weighed against Paint's canvas alone. Against this row it
+reads differently:
+
+| | bytes |
+|---|---:|
+| `gfx_blit1` lean body on `kern_small` | **+419** |
+| the line machinery it lets go | **−1,368** |
+| its `.bss` with it | **−69** |
+| **net** | **−1,018** |
+
+…and the rasteriser gets *faster*, and Paint's 1bpp canvas gets its fast path
+back on the build where it currently takes the 24× expansion fallback
+(SPEC.md 42.23.4). **If it survives §12.5 it is the best-value row in this
+document.** What is measured today is the rasterise half and the sizes; the
+commit half is arithmetic, so it is a candidate and not a finding.
+
+### 12.5 The four things to settle before building it
+
+1. **The commit is OPAQUE.** `gfx_blit1` writes the band's ground as well as
+   its ink. Paint (its own bitmap) and Sheet (a grid on fresh ground) are fine.
+   **Cyclone accumulates during a warp and Missile's trails sit over terrain** —
+   those two need a transparent commit or a read-modify-write, which
+   `gfx_blit1` does not do, so they may have to keep a walker and that is §11
+   again. **Price the row on Paint and Sheet; do not assume all four.**
+2. **The commit is priced by BAND AREA, not by pixel count.** A 127×32 line's
+   band is 508 bytes whether it holds 127 pixels or 4,064. A dense figure
+   amortises it; one long thin line does not. Measure a real figure.
+3. **Clip and ink come back.** The 24.6 µs is a rasteriser with none of them.
+   An app that needs them pays them back, and `gfx_blit1` still refuses an x or
+   a width off the byte grid (SPEC.md 5.4.2).
+4. **`os88ui.inc`'s checkmark has to land first**, or 25 packages still reach a
+   slot that is no longer there. It is a glyph, and it is a far smaller change
+   than this one — it can go on its own.
+
+### 12.6 On `kern_big` there is no enabling row at all
+
+`gfx_blit1`'s body already exists there, and it is in `.cold`
+(`kernel/kernel.asm:6537`, `call COLD_SEG:gbz_gfx_blit1`). So the commit
+primitive is present, the 2,511 + 80 is available with nothing to build first,
+and only §12.5's four questions stand between it and the row.
