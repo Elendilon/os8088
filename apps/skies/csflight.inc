@@ -1453,7 +1453,8 @@ cs_touch:
 ;
 ; A point-in-polygon test over the location's own CSI_RIVER faces, and what
 ; makes it affordable is that cs_touch FIRES ONCE, at the tick the wheels meet
-; the ground - which cs_water_xy's own comment said before this was written.
+; the ground - which the strip transform's own comment said before this was
+; written, and that routine is gone with the claim (SPEC.md 88.7.7.4).
 ; At most 20 water faces in any world here and every one a quad, behind a
 ; Manhattan reject on the object's CSM_RAD.
 ;
@@ -1648,33 +1649,21 @@ cs_wedge:
     ret
 
 ; cs_runway_xy - the aeroplane in the runway's coordinates: along its heading
-; and across it, whole metres
+; and across it, whole metres.  Falls INTO cs_local_xy, which had a second
+; caller until 88.7.7.1: cs_water_xy did the same for the water strip, and
+; that whole transform went when a landing stopped being tested against the
+; strip's rectangle at all (SPEC.md 88.7.7.4).
 cs_runway_xy:
     mov si, [cs_airport]
     mov ax, [si + CSA_X]
     mov bx, [si + CSA_Z]
     mov cx, [cs_rwsin]              ; the runway's, already computed
     mov dx, [cs_rwcos]
-    jmp short cs_local_xy
-
-; cs_water_xy - and the WATER STRIP's (SPEC.md 88.7.7), whose sine and cosine
-; are taken here rather than cached: this runs once, at a touchdown
-cs_water_xy:
-    mov si, [cs_airport]
-    mov ax, [si + CSA_WHDG]
-    call cs_sin
-    push ax
-    mov si, [cs_airport]
-    mov ax, [si + CSA_WHDG]
-    call cs_cos
-    mov dx, ax
-    pop cx
-    mov si, [cs_airport]
-    mov ax, [si + CSA_WX]
-    mov bx, [si + CSA_WZ]
 
 ; cs_local_xy - AX/BX = a strip's centre, CX/DX = the sine and cosine of its
-; heading: the aeroplane in ITS coordinates, into [cs_along]/[cs_across]
+; heading: the aeroplane in ITS coordinates, into [cs_along]/[cs_across].
+; Entered by FALLTHROUGH and by nothing else; the label and this contract
+; stay because they are what a second strip would enter at.
 cs_local_xy:
     mov [cs_lsn], cx
     mov [cs_lcs], dx
