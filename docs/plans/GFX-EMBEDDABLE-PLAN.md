@@ -798,18 +798,74 @@ the single largest group, and every one of them is the identical two-stroke
 mark. It does not consolidate — each package carries its own copy — but it does
 mean wave 2 is three edits rather than the one §6.2 left it as.
 
-### 8.1.5 What has to convert before `gfx_line` can go
+### 8.1.5 What has to convert before `gfx_line` can go — RECUT
 
-`os88ui.inc` and `cword` (the checkmark, §8.1.3), then **Paint, Sheet, Missile,
-Cyclone**, and on `kern_big` **Tank's `tkattr.inc`**, `SAVER.DRV` and `wire`.
-Two carry a risk worth naming:
+The first version of this list named Paint, Sheet and Cyclone. **Paint is done
+(wave 4), Cyclone never called `gfx_line` at all, and Sheet is a tick and not a
+figure** (§8.1.4.2). What is actually left:
 
-- **Paint's stroke is SPEC.md 42.8** and is the one place a line's speed is the
-  product. Its app-side replacement must be measured against today's 13.03 ms
-  45° chord before `gfx_line` is gated, not after.
-- **`gfx_line_fast` is `kern_big`'s alone** (647 bytes, 4.9×). In the library it
-  is Paint's to embed — which is wave 2's upside on `kern_small`, and on
-  `kern_big` it is a thing Paint currently gets free and would have to choose.
+| | what it draws | |
+|---|---|---|
+| `apps/os88ui.inc`, Sheet, `cword` | the same tick, three copies | **wave 2**, held (§8.6) |
+| `apps/missile/missile.asm` `mc_line` | trails, and the drain's erase | a **figure**, and the speed gate below |
+| `apps/wire/wire.asm` modes 0–2 | one call an edge | see below — this one is special |
+| `apps/tank/tkattr.inc` ×2, `drivers/saver/svcube.inc` | edges, `kern_big` only | figures |
+| `apps/cc/os88thunk.asm` | `os88_gfx_line()` | retires when its callers do |
+
+**THE "MEASURE PAINT" GATE IS DISCHARGED — and asking WHO INHERITS IT is where
+two documents turn out to be stale, this one included.**
+
+Paint's screen half is a `gfx_blit1` band now and its canvas half never went
+through the kernel, so a default `PAINT.O88` contains no `OSAPI_GFX_LINE` call
+at all (`pt_lndraw` is behind `PT_LNLINE`, and `pt_lndraw` is absent from the
+default build's map). Half B's Paint gate is simply spent.
+
+The obvious next move is to ask `gfx_line_fast`'s own design record who else
+cares, and **[LINE-PERF-PLAN](completed/LINE-PERF-PLAN.md) answers with `wire`
+at 18.2 fps against 8.1 and with Missile Command's trails changing pace — and
+does not mention Paint at all.** That is not because Paint was not a consumer.
+It is because that document was written before §42.8 existed, and a design
+record does not get updated when a *new* program starts using the thing it
+describes. Reading it as a list of consumers is exactly the error this section
+was correcting one level up.
+
+**The code settles it in nine lines.** `gfx_line_fast` is reached on 1bpp
+`kern_big` (`vid_mono`, `vid_planes == 1`) and refuses only three shapes: a
+wide line (`[gfx_ln_wide]`), the **dither** ink class (§39.4 makes that a
+per-pixel decision), and a line outside the clip box. Everything else takes it.
+So the consumer set is not a list anybody wrote down — it is *every thin,
+solid, in-box `gfx_line` call on a 1bpp machine*, which was Paint's stroke,
+is Missile's thin trail draws, `wire`'s edges, Tank's, `SAVER.DRV`'s and all
+three ticks.
+
+**Which makes wave 4 worth more to wave 8 than it looks**: it did not only
+discharge a gate, it **removed the busiest consumer** of the bytes half A
+proposes to take. What wave 8 owes now is a measurement of the ones that are
+left, and `wire` is the one with a published before-and-after to check against.
+
+**And WIREFRAME is not just a caller — it is the SUBJECT.** §78's opening is
+*"it exists to be the thing SPEC.md 5.6.4.1 was built for, and to say out loud
+whether it worked."* Gating `gfx_line_fast` out of `kern_big` deletes the
+comparison its status strip reports. That is not a reason to refuse wave 8, but
+it is a cost the wave pays and `GFXWALK=1`'s shape is the answer: the knob has
+to compile the fast walk back, or the instrument loses its subject.
+
+### 8.1.5.1 Wave 8 is TWO changes and only one of them needs a conversion
+
+This was never stated and it changes the order:
+
+- **Half A — gate `gfx_line_fast`, `gfx_line_runs`, `gfx_lf_wide3` out of
+  `kern_big` (−874).** No caller converts; `gfx_line` stays and simply gets
+  **4.9× slower** for everyone still on it. So half A is *worse* the more
+  callers remain, which is the opposite of half B.
+- **Half B — gate `gfx_line` itself.** Needs every caller in the table above
+  moved first, on wave 6's own evidence: a refusing stub is free only when the
+  caller tests CF, and none of these do.
+
+Half A is therefore the one to measure and half B the one to sequence, and
+doing A first — the obvious order, since it needs no app changes — is the wrong
+one: it charges the remaining callers the full 4.9× for as long as the
+conversions take.
 
 ## 8.2 Wave 3, as built — and the first customer was already carrying the library
 
@@ -1109,6 +1165,40 @@ one converts:
    concerns left behind"* before either is quoted again.
 
 ---
+
+## 9.1 A design record names what it MEASURED, not what uses the thing
+
+Worth stating on its own, because it caught this plan twice in one session and
+the second time it was this plan doing the catching.
+
+§8.1.5 said *"measure Paint before gating `gfx_line`"*. Wave 4 discharged it,
+and the natural next question — *who inherits that gate?* — was answered by
+opening `gfx_line_fast`'s own design record, which names `apps/wire` and
+Missile Command **and does not mention Paint**. Taken at face value that reads
+as *"Paint was never a consumer"*, which is false: LINE-PERF-PLAN predates
+SPEC.md §42.8, and **a design record is written once, at the landing, and is
+never revised when a later program starts using what it describes.**
+docs/README.md already says a `completed/` plan is *how something got there and
+never what it does* — this is the sharp edge of that.
+
+**The check that settled it was nine lines of `kernel/vga12.inc`**: the
+eligibility gate. A primitive's consumer set is a property of its refusal
+conditions, not of any prose — `gfx_line_fast` refuses a wide line, the dither
+ink class and a line outside the clip box, and takes everything else on a 1bpp
+`kern_big`. That is a question the code answers exactly and that no document
+can answer at all, because the answer changes every time a caller is added.
+
+The rule that falls out, for anything in this tree:
+
+> **When a plan asks "who uses X", read X's REFUSALS, not X's plan.** The plan
+> tells you who was measured on the day; the refusals tell you who qualifies
+> today. Where the two disagree, the plan is the stale one — always, and
+> silently, because nothing fails when it goes wrong.
+
+The same shape is why §8.1.4.2's census exists at all: §8.1.4.1's routing table
+had Sheet composing a grid and Cyclone calling `gfx_line`, and both survived
+several revisions of this document because a table of programs is exactly the
+kind of thing that reads as checked.
 
 ## 10. Method, and how to re-derive any of it
 
