@@ -1719,7 +1719,16 @@ cs_markacc:
 ; the border and the blit would carry it.
 ; -----------------------------------------------------------------------------
 CS_MKD_ROWS equ 8               ; a segment shallower than this has a tight
-CS_MKD_PX   equ 64              ; box already, and so has a narrower one
+CS_MKD_PX   equ 128             ; box already, and so has a narrower one.
+                                ; 128 PIXELS IS 16 BYTES AND THE BREAK-EVEN
+                                ; IS 8: a stepped row costs its own 1-2 bytes
+                                ; plus 2 x CS_MKD_SLOP, so a box narrower
+                                ; than ~8 bytes is already CHEAPER than
+                                ; stepping it. This is MARGIN over that and
+                                ; nothing more - it measured identically to
+                                ; 64 on every angle, because what the gate
+                                ; actually turns away at level is the ROW
+                                ; test: a level Seine is two rows
 CS_MKD_SLOP equ 3               ; bytes either side of the stepped interval,
                                 ; and the ends are pulled this far inside the
                                 ; view so the widening can never name a byte

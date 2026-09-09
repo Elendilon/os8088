@@ -102364,20 +102364,40 @@ tower's thirty-two near-vertical edges fail the pixel test and keep the box
 they always had.
 
 **Measured, one build, one flight, a poke apart** (`--nostep` on
-`tests/skiesprof.py`, `slightbank`, 16 flown frames, Hercules):
+`tests/skiesprof.py`, `slightbank`, 16 flown frames after **`--warm 18`**,
+Hercules):
 
-| held roll | frame, box | frame, STEPPED | delta | `cs_blit` | bytes CARRIED |
-|---|---|---|---|---|---|
-| 0° | 150.3 ms | 151.8 | +1.5 (noise) | 5.44 → 5.49 | 265 → 265 |
-| 5° | 186.0 | **184.3** | **−1.7** | 16.33 → **14.58** | 1,919 → **482** |
-| 12° | 214.0 | **210.3** | **−3.7** | 23.17 → **18.62** | 2,997 → **1,458** |
-| 20° | 257.1 | **251.0** | **−6.1** | 30.20 → **23.56** | 4,248 → **1,588** |
-| 45° `turnhold` | 241.0 | 241.2 | +0.2 (neutral) | 27.55 → 26.52 | — |
+| held roll | frame, box | frame, STEPPED | delta | `cs_blit` |
+|---|---|---|---|---|
+| 0° | 140.6 ms | 140.5 | **0.0** | 5.66 → 5.48 |
+| 12° | 216.3 | **213.5** | **−2.8** | 24.49 → **21.19** |
+| 20° | 257.0 | **253.1** | **−3.9** | 32.22 → **27.32** |
+| 45° `turnhold` | 241.0 | 241.2 | +0.2 (neutral) | 27.55 → 26.52 |
 
-**`cs_blit` falls 11 to 22% and the frame 1 to 6 ms**, and — the part that
+**`cs_blit` falls 13 to 15% and the frame 2.8 to 3.9 ms**, and — the part that
 matters against §88.3.2.1 — **`turnhold` is NEUTRAL**, where the banded pass
-was 2.9 ms slower. The marking cost shows up where it should, `cs_scene`
-+0.8 to +1.2 ms, and is paid back three to five times over.
+was 2.9 ms slower. Level is a dead heat because the gate turns everything away
+there: a level Seine is TWO ROWS.
+
+###### 88.3.2.3.2 THE WARM-UP IS PART OF THE MEASUREMENT — and the first numbers were 30% high
+
+The same A/B at `--warm 6` reads **−3.7 at 12° and −6.1 at 20°**, against
+−2.8 and −3.9 settled. Both arms share the warm-up so the SIGN and the
+mechanism are sound either way, but the magnitude is not: a profile TELEPORTS
+the aeroplane, and for a dozen frames afterwards the span set still carries
+rows the teleport dirtied that nothing has repainted. The box arm inherits
+more of that dirt than the stepped one, so a short warm-up flatters the
+change.
+
+**It is worse for a CARRIED-BYTES figure, which is not a controlled quantity
+at all.** The same build at 12° reads **781** bytes run alone, **1,509** run
+after two other arms at `--warm 6`, and **2,696** at `--warm 18` — the
+aeroplane is in a different place each time and the scene is what sets the
+number. A carried figure taken off one arm cannot be compared with one taken
+off another; only a poke A/B over the same flight can, and even that inherits
+`CSO_SKIP` (§88.5.2) from whichever arm ran first. Read carried as INDICATIVE
+— it is −21 to −25% at 5-20° that way — and read the frame off
+`tests/skiesprof.py`, which matches its two arms frame for frame.
 
 **243 bytes of `.text` and 3 of `.bss`**, and the region claim does not move.
 `cs_mknostep` is the A/B: set it and a thin diagonal's mark goes back on its
