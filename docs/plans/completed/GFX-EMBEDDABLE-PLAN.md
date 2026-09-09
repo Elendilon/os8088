@@ -1197,30 +1197,53 @@ which reads on one bit as a tick does not"*. §39.4 is why: grey rounds to black
 and a thin diagonal reads as noise on both 1bpp adapters, which are the machines
 this OS is for.
 
-### 8.8.1 What it costs today, measured
+### 8.8.1 What it costs today, measured — AND WHAT OF IT WOULD ACTUALLY GO
 
-Per copy, from the kernel's own listing (`.cold`, `kern_big`):
+Per copy, from the kernel's own listing (`.cold`, `kern_big`), re-measured
+after wave 8 — **two figures in the first version of this table were wrong and
+are corrected here**:
 
-| | bytes |
-|---|---:|
-| `os88ui_glyph` | 244 |
-| `os88ui_gdn` | 20 |
-| `os88ui_glyph_f` (the far entry) | 27 |
-| `os88ui_grec` + `os88ui_grec_d` (the sprite record and its staging) | 50 |
-| four 12×12 bitmaps (`_roff`, `_ron`, `_coff`, `_con`) | 96 |
-| **total** | **437** |
+| | bytes | fate under a conversion |
+|---|---:|---|
+| `os88ui_glyph` | 244 | **most of it goes** — see below |
+| `os88ui_grec` + `os88ui_grec_d` (the sprite record and its staging) | 50 | **goes** |
+| four 12×12 bitmaps (`_roff`, `_ron`, `_coff`, `_con`) | 96 | **goes** |
+| `os88ui_gdn` | 20 | **STAYS** — a fill-drawn glyph still has to ask "is it pressed?" |
+| `os88ui_glyph_f` (the far entry) | **4** | **STAYS** — it is `call` + `retf`, and this table first said 27 |
+| **block today** | **414** | of which **146 is an outright delete** before a line of the body is touched |
 
-**And the kernel is one copy of twenty-seven.** The block is inside
-`%ifndef OS88UI_NOBTN`, and 26 of the 33 files that include `os88ui.inc` do not
-opt out — so the same 437 bytes sit in twenty-six package images as well as in
-the kernel's `.cold`.
+**The 244 is bitmap machinery almost end to end**, which is what makes this a
+removal rather than a swap: the per-row dither compose (`.gdith`/`.gdata`), the
+record staging, the `UI_ICON` call and the `.gpix` per-pixel fallback all exist
+to put a *bitmap* on the screen. A mark drawn with `UI_FILL` needs none of the
+four.
+
+**And one of them gets strictly better rather than merely smaller.** The dither
+compose is there because, in `os88ui_glyph`'s own words, *"on a 1bpp adapter a
+grey is a 50% STIPPLE that a mask pass has nowhere to put, so the caller lays it
+into the data rows"* — it hand-composes §47's disabled grey, row by row, with a
+screen-absolute parity term. A fill takes its grey from the **pen**, so the whole
+of that becomes `stc` / `UI_PEN`, which is what `os88ui_chk` already does.
+
+**The kernel is one copy of TWENTY-THREE** (this first said twenty-seven): the
+block is inside `%ifndef OS88UI_NOBTN`, and of the packages and drivers that
+include `os88ui.inc`, **22 carry it and 10 opt out**.
 
 ### 8.8.2 What a conversion might return — ESTIMATE, and the shape of the doubt
 
 **If only the CHECK boxes convert**: the two check bitmaps go (−48) and a
-frame-and-fill arm arrives (+30 to +50), while the sprite path, the record and
-the per-pixel fallback all stay for the radio. **Net ≈ zero.** Not worth doing
-for bytes, only for the look.
+frame-and-fill arm arrives, while the sprite path, the record and the per-pixel
+fallback all stay for the radio. **Net ≈ zero.**
+
+**And it is worse than that, on the evidence the first version of this section
+did not go and get.** The Control Panel's glyph call sites are **ten RADIO rows
+against three CHECK rows** — Display's three, Sound's two, Scheduling's two,
+the adapter row, the desktop row and `cp_dngly`'s shared arm are all radios; the
+checks are the 12-hour clock, the seconds in the menu bar, and a driver row. So
+converting the check boxes alone touches **under a quarter** of the panel and
+leaves the other three quarters drawn the old way: one page with two mark styles
+on it, which is a worse answer than doing nothing. **Check-only is not a small
+version of this change, it is a different and bad one.**
 
 **If the RADIO converts too**: all four bitmaps (−96), the record and its
 staging (−50), and most of `os88ui_glyph` — the sprite pass and the `.gpix`
@@ -1240,9 +1263,18 @@ calls for one glyph — because a 12×12 point buffer is 576 bytes in each of ~2
 packages. A mark drawn with fills needs no buffer, so the same change deletes
 the loop instead of feeding it.
 
+**`os88ui_chk` IS NOT A DROP-IN, and the sentence above is about a look rather
+than a call.** It draws its own ground, its frame, its mark **and its label**,
+off a record at BX; `os88ui_glyph` takes CX/DX/AL/AH, draws a bare 12×12 and
+nothing else, and every Control Panel page letters its own labels beside it
+(§8.8's `cp_dngly` carries the id in BH for exactly that reason). So the work is
+a **new fill-drawn body in `os88ui_glyph`'s own signature** — the shape borrowed
+from `os88ui_chk`, not the code — and the arrival above is priced against the
+wrong routine.
+
 **This is an estimate against a measured base, not a measurement.** The honest
 figure comes from building it; §10's method (per-symbol map, reconciled against
-the section lengths) is how, and the 437 above already came off it.
+the section lengths) is how, and the 414 above came off it.
 
 ## 8.9 Wave 8's caller list is much shorter than it looks — THREE apps had already built it
 
