@@ -56,7 +56,7 @@ cs_p_c172:
     dw 16                           ; CSP_THRUST   2.2 m/s^2 at full throttle
     dw 669                          ; CSP_DRAGK    balances THRUST at VMAX
     dw 3                            ; CSP_FRICT    rolling, on the ground
-    dw 20                           ; CSP_BRAKE
+    dw 30                           ; CSP_BRAKE    20 x 3/2 (88.7.10.2)
     dw 546                          ; CSP_ROLLR    3 degrees a tick, held
     dw 146                          ; CSP_ROLLL    0.8 a tick back to level
     dw 146                          ; CSP_PITCHR   0.8 a tick, held
@@ -90,7 +90,7 @@ cs_p_pitts:
                                     ;              the Cessna's weight
     dw 855                          ; CSP_DRAGK    balances THRUST at VMAX
     dw 3                            ; CSP_FRICT    a taildragger on grass
-    dw 23                           ; CSP_BRAKE
+    dw 35                           ; CSP_BRAKE    23 x 3/2 (88.7.10.2)
     dw 1820                         ; CSP_ROLLR   10 degrees a tick - 182 a
                                     ;              second, and the real one
                                     ;              manages 240
@@ -136,7 +136,8 @@ cs_p_fouga:
     dw 19                           ; CSP_THRUST   2.7 m/s^2: 0.28 t/w
     dw 137                          ; CSP_DRAGK    balances THRUST at VMAX
     dw 3                            ; CSP_FRICT
-    dw 22                           ; CSP_BRAKE
+    dw 33                           ; CSP_BRAKE    22 x 3/2 (88.7.10.2) - and
+                                    ;              this is the airbrake too
     dw 1200                         ; CSP_ROLLR    6.6 degrees a tick ASKED
                                     ;              FOR; the lag decides when
                                     ;              it arrives
@@ -182,7 +183,7 @@ cs_p_bijave:
                                     ;              at two degrees down and
                                     ;              22 m/s, which is 28:1
     dw 8                            ; CSP_FRICT    a skid on grass
-    dw 15                           ; CSP_BRAKE    the wheel brake
+    dw 23                           ; CSP_BRAKE    the wheel brake, 15 x 3/2
     dw 546                          ; CSP_ROLLR    3 degrees a tick: a long
                                     ;              wing is slow in roll
     dw 60                           ; CSP_ROLLL    ...and comes back gently
@@ -231,7 +232,8 @@ cs_p_a5:
                                     ;              which is the same one-under
                                     ;              margin 1201/11 had
     dw 3                            ; CSP_FRICT    on land; DOUBLED on water
-    dw 18                           ; CSP_BRAKE    on the wheels with B - and
+    dw 27                           ; CSP_BRAKE    18 x 3/2 (88.7.10.2), on
+                                    ;              the wheels with B - and
                                     ;              on the WATER always, with
                                     ;              no key, because a hull is
                                     ;              a brake (88.7.7.2)
