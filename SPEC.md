@@ -102062,6 +102062,44 @@ fourteen cycles for fourteen, and the 11 keeps the word form with the
 comment that says why it may. `tests/skiesgeom.py` replays the projection
 on the host and `--clobber-proj` puts the word form back.
 
+##### 88.5.6.2 A flat model's vertices: the scalar goes in BX, and `cs_colscale` goes away
+
+`cs_flatverts` is `C + x M0 + z M2` — **six multiplies a vertex and nothing
+else is required**. It was 2,128 cycles a vertex, of which 936 were those six
+and 1,192 were the way they were reached: each column went through
+`cs_colscale`, which **writes its three products to `cs_col0`/`cs_col2`**, and
+the caller read all six back and added them. Two `call`/`ret`, eight
+push/pops, two reloads of a loop-invariant `[cs_pshr]` and twelve memory
+round-trips around 900 cycles of arithmetic.
+
+**`MUL14` is `imul bx`, so it clobbers AX and DX and leaves BX alone.** Put
+the scalar in BX and the matrix element in AX — a multiply is commutative, so
+the product is the same bit for bit — and one scalar serves all three of its
+multiplies with no save at all. What falls out of that:
+
+- `cs_colscale` is not called, so neither is `cs_col0`/`cs_col2` written: the
+  product goes straight to its output word. The x column **stores** into
+  `cs_cxv`/`cs_cyv`/`cs_czv` with the centre added, and the z column **adds
+  into** the same three words.
+- CL holds `[cs_pshr]` for the whole routine instead of being reloaded twice a
+  vertex, because nothing else needs CX any more.
+- BP is the vertex counter. Nothing on the path from `cs_scene` through
+  `cs_drawpass` and `cs_drawobj` holds a value in BP, which is what makes that
+  legal; `cs_flatverts` clobbers it, and SI, DI and CX, as it always did.
+
+A vertex is **1,394 cycles**, so the routine is now 62% multiply where it was
+44% — what is left is the arithmetic itself. It is −2.3 to −3.2 ms a frame and
++28 bytes, and those bytes come out of the gap ahead of `CS_VOCAB_AT` rather
+than out of the image (PERFORMANCE.md Set 133).
+
+**The sum order is unchanged only because it wraps the same either way.** The
+old form is `scx + x M0 + z M2` and the new one `(x M0 + scx) + z M2`; 16-bit
+addition is associative modulo 65,536, so every output word is identical. Six
+profiles pinned to the same tick and the same attitude read **0 drawn-set
+differences and 0 differing pixels over 554 frames**. `cs_colscale` stays —
+`cs_stackverts` has three calls to it, and its column there is a genuine
+common factor rather than scaffolding.
+
 #### 88.5.7 A line through a clamped point bends, so the sides clip too
 
 The projection clamps a point at ±4000 (§88.5.5: |cx| over 9z), and a

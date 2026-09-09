@@ -12530,3 +12530,62 @@ trace never resumes the machine, and CSO_SEEN latched during an UNPINNED
 warm-up made one terrain object differ on all 93 frames of `descend` with the
 pixels identical. The same build against itself is what separates those, and
 it is taken before any conclusion.
+
+### Set 133 — CLEAR SKIES: which REGISTER the scalar sits in, and a third of `cs_flatverts` (SPEC.md §88.5.6.2)
+
+docs/plans/SKIES-FRAME-PLAN.md §7.6.3 ranked the vertex pipeline by multiply share and put
+`cs_flatverts` at the head of it. Bracketed phase by phase — `bank`, 7 frames,
+5.9 calls a frame of 4.5 vertices each — it read:
+
+| phase | ms a frame | cycles a vertex |
+|---|---|---|
+| the prologue (once a call) | 0.14 | — |
+| A the x setup | 0.86 | 155 |
+| **B `cs_colscale` (x M0)** | **3.78** | **683** |
+| C the z setup | 0.78 | 140 |
+| **D `cs_colscale` (z M2)** | **3.93** | **714** |
+| E the sum and the stores | 2.04 | 370 |
+| F the loop's advance | 0.29 | 66 |
+| **total** | **11.81** | **2,128** |
+
+Six `MUL14` a vertex is ~144 clocks each, so **936 of the 2,128 is the
+multiply and 1,192 is not**: two `call`/`ret`, eight push/pops, two reloads of
+a loop-invariant `[cs_pshr]`, and — the largest single item — **twelve memory
+round-trips**, `cs_colscale` writing three words to `cs_col0`/`cs_col2` that
+the caller then reads back and adds.
+
+**What deletes the lot is which register the scalar sits in.** `MUL14` is
+`imul bx`, so it clobbers AX and DX and **leaves BX alone**. Put the scalar in
+BX and the matrix element in AX — a multiply is commutative, so the product is
+the same bit for bit — and one scalar serves all three of its multiplies with
+no save, no call and no scratch array. CL then holds `[cs_pshr]` for the whole
+routine, BP is the counter, and each product lands straight in its output
+word: the x column STORES, the z column ADDS INTO the same word.
+
+Same-session control, NEW/BASE/NEW, tier 2, 16 frames:
+
+| | `cs_flatverts` | | frame | |
+|---|---|---|---|---|
+| | control | + BX | control | + BX |
+| `turnhold` | 11.87 ms | **8.60 / 8.83** | 256.8 ms | **253.7 / 253.7** |
+| `bank` | 10.04 | **7.71 / 7.71** | 248.5 | **245.9 / 245.9** |
+| `cruise` | 10.44 | **7.53 / 7.37** | 162.6 | **159.5 / 159.2** |
+
+**−2.3 to −3.2 ms, and the whole frame moves by the same amount** — the frame
+is 3.89 → 3.94 fps in `turnhold` and 6.15 → 6.28 in `cruise`. A vertex is
+**2,128 → 1,394 cycles**, so what is left is **62% multiply** where it was
+44%: the scaffolding is gone and the arithmetic is what remains.
+
+The predicted saving was ~4.0 ms and 2.8 delivered, which is Set 132's rule
+again — a prediction off the fetch floor is an UPPER bound. The routine grew
+**+28 bytes**, and they come out of the declared gap ahead of `CS_VOCAB_AT`,
+so the package image is the same 49,216 bytes it was.
+
+**The gate is that the picture cannot have moved at all**, and it did not:
+`tickscript.py` over six profiles — `turnhold`, `sparse`, `cruise`, `bank`,
+`rollsweep`, `descend` — with `[cs_last]` and the attitude pinned so both
+builds see the same world at the same tick, reads **0 drawn-set differences
+and 0 differing pixels across 554 frames**. That is what a commutative
+multiply and an unchanged sum order should give, and it is worth taking
+anyway: the sum order is only unchanged because integer addition wraps the
+same either way, which is an argument rather than an observation.

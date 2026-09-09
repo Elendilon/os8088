@@ -958,6 +958,9 @@ then reads back and adds - eight push/pops, two calls and twelve memory
 round-trips a vertex around 900 cycles of arithmetic. That is scaffolding of
 exactly the kind §88.4.2.3 found in `cs_edge`, and it is ~45% of 11.82 ms.
 
+**BUILT, and it was the register the scalar sat in** - SPEC.md §88.5.6.2, and
+7.6.5 below.
+
 ### 7.6.4 The precision ladder is already three rungs, and it costs nothing
 
 The sub-metre eye position exists because a runway rotated from whole metres
@@ -994,3 +997,50 @@ shift chain - a two-instruction byte shuffle at whole metres against four or
 six `sar`/`rcr` pairs - which is at most ~70 clocks an object, **~0.2 ms a
 frame** across the whole scene. The vertex pipeline's cost is the multiplies
 and the scaffolding, and both are scale-independent.
+
+### 7.6.5 BUILT - `cs_flatverts`, and what a commutative multiply is worth
+
+Bracketed phase by phase (`bank`, 5.9 calls a frame of 4.5 vertices) the
+routine read **2,128 cycles a vertex**, of which the six `MUL14` are ~936:
+
+| phase | cycles a vertex |
+|---|---|
+| A the x setup | 155 |
+| **B `cs_colscale` (x M0)** | **683** |
+| C the z setup | 140 |
+| **D `cs_colscale` (z M2)** | **714** |
+| E the sum and the stores | 370 |
+| F the loop's advance | 66 |
+
+The 1,192 that is not the multiply is two `call`/`ret`, eight push/pops, two
+reloads of a loop-invariant `[cs_pshr]`, and twelve memory round-trips -
+`cs_colscale` writes its three products to `cs_col0`/`cs_col2` and the caller
+reads all six back and adds them.
+
+**`MUL14` is `imul bx`: it clobbers AX and DX and leaves BX alone.** Put the
+scalar in BX and the matrix element in AX - commutative, so the product is
+identical bit for bit - and one scalar serves all three of its multiplies with
+no save, no call and no scratch array. CL keeps `[cs_pshr]` for the whole
+routine, BP counts the vertices, the x column stores into the outputs and the
+z column adds into them.
+
+| tier 2, 16 frames | `cs_flatverts` | frame |
+|---|---|---|
+| `turnhold` | 11.87 -> **8.60 / 8.83** ms | 256.8 -> **253.7** |
+| `bank` | 10.04 -> **7.71 / 7.71** | 248.5 -> **245.9** |
+| `cruise` | 10.44 -> **7.53 / 7.37** | 162.6 -> **159.4** |
+
+**-2.3 to -3.2 ms, the frame moving by the same amount**, a vertex 2,128 ->
+1,394, and the routine now **62% multiply** where it was 44%. +28 bytes, out
+of the gap ahead of `CS_VOCAB_AT` rather than out of the image. The picture is
+bit-identical over 554 frames on six pinned profiles.
+
+**What this says about the rest of the pipeline.** The lever was not the
+multiply count and not the precision (7.6.4 above closed that) - it was
+that a three-product column had been factored into a routine whose only way of
+returning three words is memory. `cs_stackverts` has the same shape at three
+call sites and is 4.8 ms; `cs_scale`'s `cs_rot`/`cs_dot` is the same question
+asked of nine multiplies. Neither is as cheap as this one was, because
+`cs_stackverts` needs the column TWICE per level (`+col` and `-col` for the
+four corners) and so genuinely wants it stored, and `cs_rot` returns into
+three different destinations. `cs_colscale` stays for them.
