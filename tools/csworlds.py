@@ -39,7 +39,9 @@ import os88lz                                                  # noqa: E402
 # the command line, so there is no mirror to hold in step - which matters more
 # than usual here: a world laid at one address and read at another is a world
 # of wild pointers, and nothing would fault.
-CS_VOCAB_AT = 0xB400            # where the overlay begins in the segment
+CS_VOCAB_AT = 0xBE00            # where the overlay begins in the segment
+                                # (0xB400 until SPEC.md 88.4.5.5 put the row
+                                #  loop's two 1,280-byte END TABLES under it)
 CS_VOCAB_MAX = 576              # ...the shared vocabulary's room in it...
 CS_WLD_MAX = 2560               # ...and the picked world's
 CS_WLD_AT = CS_VOCAB_AT + CS_VOCAB_MAX

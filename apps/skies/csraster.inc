@@ -288,6 +288,7 @@ cs_r_setup:
 
     call cs_devrows
     call cs_ktabs                   ; the projection tables for these scales
+    call cs_endtab                  ; ...and the row loop's end tables (88.4.5.5)
 
     ; --- the target: two VRAM pages, or one RAM shadow --------------------
     cmp byte [cs_back], CSB_MODEX
@@ -2304,18 +2305,15 @@ cs_polyrows:
     ;     leaves BH zero, which is what the `mov bl, al` below needs -----
     and bx, 3
     mov dl, [cs_pat + bx]           ; DL = the row's pattern
-    mov si, ax
-    and si, 7
-    shr ax, 1
-    shr ax, 1
-    shr ax, 1                       ; AL = the first byte...
-    mov ah, [cs_hlm + si]           ; ...AH = its mask
+    mov si, ax                      ; --- the two ends, one word table each
+    shl si, 1                       ;     (88.4.5.5): AL = the first byte and
+    mov ax, [cs_lend + si]          ;     AH = its mask, in ONE load
     mov si, cx
-    and si, 7
-    shr cx, 1
-    shr cx, 1
-    shr cx, 1                       ; CX = the last byte
-    mov dh, [cs_hrm + si]           ; DH = its mask
+    shl si, 1
+    mov cx, [cs_rend + si]          ; CL = the last byte, CH = its mask
+    mov dh, ch                      ; DH = it, where the blend wants it...
+    xor ch, ch                      ; ...and CX the byte alone, which the
+                                    ; width and the run both need
     mov bl, al                      ; (BH is 0 - the `and bx, 3` left it so)
     add bx, di                      ; BX = the first byte's address
     sub cl, al                      ; CX = bytes - 1
@@ -2403,6 +2401,36 @@ cs_polyrows_herc_c:
     CS_POLYROW 1
 
 ; -----------------------------------------------------------------------------
+; cs_endtab - the row loop's two END tables (88.4.5.5), built once a bracket
+;
+; cs_lend[x] = (cs_hlm[x & 7] << 8) | (x >> 3), and cs_rend the same with
+; cs_hrm. That is exactly the AH:AL the left end wants and the CH:CL the
+; right one does, so a masked end becomes ONE `mov` from a word table where
+; it was an `and`, three `shr` and a byte load - ten bytes a row off a loop
+; that is 80% fetch-bound. It is ~4 ms once, beside cs_ktabs, which is the
+; same shape: a table built at setup because the inner loop cannot afford it.
+; -----------------------------------------------------------------------------
+cs_endtab:
+    xor bx, bx                      ; BX = x
+    xor si, si                      ; SI = 2x
+    mov cl, 3
+.e:
+    mov ax, bx
+    shr ax, cl                      ; AL = x >> 3, and AH is 0 with it
+    mov di, bx
+    and di, 7
+    mov ah, [cs_hlm + di]
+    mov [cs_lend + si], ax
+    mov ah, [cs_hrm + di]
+    mov [cs_rend + si], ax
+    inc bx
+    inc si
+    inc si
+    cmp bx, CS_ENDN
+    jb .e
+    ret
+
+; -----------------------------------------------------------------------------
 ; cs_hrun - one masked run of the current ink, opaque
 ; in:  AX = x1 <= CX = x2 (box coords, inside the row), BX = the row
 ; clobbers everything. The row's pattern is the ink's byte for row & 3.
@@ -2420,6 +2448,9 @@ cs_hrun:
     jmp [cs_hrunproc]
 
 ; --- the sub-byte masks the run's two ends need -------------------------------
+CS_ENDN equ 640                     ; cs_lend/cs_rend's length: a view's x
+                                    ; cannot leave [0, 639], the shadow row
+                                    ; being 80 bytes (88.4.5.5)
 cs_hlm:  db 0xFF, 0x7F, 0x3F, 0x1F, 0x0F, 0x07, 0x03, 0x01   ; 1bpp, pixels i..7
 cs_hrm:  db 0x80, 0xC0, 0xE0, 0xF0, 0xF8, 0xFC, 0xFE, 0xFF   ; 1bpp, pixels 0..i
 cs_clm:  db 0xFF, 0x3F, 0x0F, 0x03                           ; 2bpp, pixels i..3

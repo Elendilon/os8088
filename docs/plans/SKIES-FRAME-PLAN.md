@@ -898,17 +898,38 @@ that reaches the whole-view arm or `cs_rect`'s dispatch, so the six alone would
 have gated a register reallocation on the arm it did not touch. 653 frames,
 pixel-identical.
 
-### 7.5.4 REFUSED - a table for the row's two ends
+### 7.5.4 BUILT - a table for the row's two ends, and a refusal that priced nothing
 
 The 30 bytes the two ends cost is the largest single block left, and a word
-table indexed by x - `(mask << 8) | (x >> 3)`, exactly the AH:AL the code
-wants - reduces it to 20 for `-10 bytes a row, ~2.3 ms`. It needs **2,560
-bytes** (two tables, 640 entries, the buffer being 80 bytes a row), and the
-package has **~1,416 bytes** of gap between `os88_image_end + CS_BSS` and
-`CS_VOCAB_AT` for the image and the ZWORD chain TOGETHER. Raising
-`CS_VOCAB_AT` grows the heap claim by the same amount on every machine that
-runs the program. A single 640-byte `x >> 3` table with the masks left alone
-is only **-2 bytes a row**, which is not worth 640 bytes of anybody's RAM.
+table indexed by x - `(mask << 8) | (x >> 3)`, exactly the AH:AL the left end
+wants and the CH:CL the right one does - reduces it to 20 for **-10 bytes a
+row**. It needs **2,560 bytes** (two tables, 640 entries; a view's x cannot
+leave [0, 639] because the shadow row is 80 bytes and `cs_vptab`'s Hercules
+box is 640 wide, so that is exact rather than generous).
+
+**BUILT** (SPEC.md 88.4.5.5, PERFORMANCE.md Set 136): `cs_poly` 44.90 ->
+42.96 ms in `turnhold`, 33.51 -> 31.86 in `bank`, 16.64 -> 16.14 in `climb`;
+the frame 4.01 -> 4.04 fps and 4.14 -> 4.17. `cs_endtab` fills both beside
+`cs_ktabs`, ~4 ms once a bracket.
+
+**AND THE REFUSAL THIS SECTION USED TO CARRY IS THE THING TO REMEMBER.** It
+read: *"it needs 2,560 bytes and the package has ~1,416 of gap below
+`CS_VOCAB_AT`; raising it grows the heap claim on every machine that runs the
+program."* Every clause was true and the conclusion was wrong, because it
+never asked WHERE the size lands - and there were three places, all cheap to
+check:
+
+| | |
+|---|---|
+| the DISK | the bss ships inside the part as a run of zeros and LZ4 is best at that: `skies.o88` is **43,717 bytes in both arms of the A/B, identical to the byte** |
+| the CLAIM | 49,216 -> **51,776**, `CS_VOCAB_AT` 0xB400 -> 0xBE00 - which is the real cost, and it is 2.5 KB of a kern_big machine's heap |
+| the FLOOR MACHINE | `SKIES` is in `SMALLOMIT_GAMES` and never reaches the 128 KB disks at all, so it pays nothing |
+
+A size refusal is only as good as its account of where the size lands. This
+one priced none of the three.
+
+A single 640-byte `x >> 3` table with the masks left alone would have been
+only **-2 bytes a row**, and that one really is not worth 640 bytes.
 
 ### 7.5.1 PARKED - a fractional DDA instead of exact Bresenham
 

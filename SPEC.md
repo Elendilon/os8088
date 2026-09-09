@@ -102079,6 +102079,49 @@ seven pinned profiles are pixel-identical** — the usual six plus `climb`,
 which is the only one that reaches the whole-view arm and `cs_rect`'s
 dispatch at all.
 
+##### 88.4.5.5 The two ends become one word table each
+
+What is left of the row's fixed cost after §88.4.5.4 is dominated by one
+block: **thirty bytes to turn two pixel x's into two byte indices and two
+sub-byte masks**, on every row, `and si, 7` / three `shr` / a byte load per
+end. The 8088 has no shift-by-3 shorter than three `shr`, and CL — the one
+register that would make it one instruction — is the last byte.
+
+So it becomes a table, and the shape of the table is the point: `cs_lend[x] =
+(cs_hlm[x & 7] << 8) | (x >> 3)` is **exactly the AH:AL the left end wants**,
+and `cs_rend` the same with `cs_hrm` is the CH:CL the right one does. Fifteen
+bytes become eight and twelve:
+
+    mov si, ax          mov si, cx
+    shl si, 1           shl si, 1
+    mov ax, [cs_lend + si]   mov cx, [cs_rend + si]
+                        mov dh, ch
+                        xor ch, ch
+
+**−10 bytes a row**, and both loop spans stay inside `rel8` (101 and 116).
+
+`x` cannot leave `[0, 639]`: the shadow row is 80 bytes and `cs_vptab`'s
+Hercules entry is a 640-wide box, which `cs_r_size`'s Full arm gives out
+whole and never exceeds. So 640 entries is exact rather than generous, and
+the pair is **2,560 bytes**.
+
+**That is RAM and not disk**, which is what makes it affordable. The bss ships
+inside the part as a run of zeros (§20.12.10) and LZ4 is best at exactly that,
+so `SKIES.O88` does not measurably grow; what grows is the heap claim, from
+49,216 bytes to 51,776. `CS_VOCAB_AT` moves 0xB400 → 0xBE00 to make room —
+the overlay's address is part of the contract with `tools/csworlds.py`, so
+that constant is where the claim is sized. Clear Skies takes the whole machine
+for as long as it runs, it is in `SMALLOMIT_GAMES` so the 128 KB floor machine
+never loads it at all, and a `kern_big` desktop has the 2.5 KB many times
+over. **This is a memory-for-speed trade taken on the owner's decision**, and
+the reason it is worth recording is that the arithmetic said no first: it was
+refused against the 1,389-byte gap below `CS_VOCAB_AT` before anybody asked
+what the gap was actually protecting.
+
+`cs_endtab` builds both beside `cs_ktabs` in `cs_r_setup` — the same shape one
+subject along, a table built at setup because the inner loop cannot afford the
+arithmetic — at about 4 ms once a bracket.
+
 #### 88.4.6 The Hercules row loop and slice
 
 `cs_polyrows_herc` is §88.4.2's row loop with the run INLINE: no dispatch

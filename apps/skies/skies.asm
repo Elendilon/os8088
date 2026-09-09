@@ -2638,6 +2638,13 @@ CS_DBGSCR equ 112               ; ...and the copy A/B's scratch is 112 rows,
     ZWORD cs_mdl
     ZWORD cs_obj
     ZBYTE cs_pass
+    ; --- THE ROW LOOP'S TWO END TABLES (88.4.5.5), 640 entries each: a
+    ;     view's x cannot leave [0, 639] because the shadow row is 80 bytes
+    ;     and cs_vptab's Hercules box is 640 wide. 2,560 bytes of the CLAIM
+    ;     and near enough nothing of the disk - the bss ships inside the
+    ;     part as a run of zeros and LZ4 is best at exactly that ---------
+    ZBUF  cs_lend, CS_ENDN * 2      ; (mask << 8) | (x >> 3), the left end
+    ZBUF  cs_rend, CS_ENDN * 2      ; ...and the right
     ZBUF  cs_col0, 6                ; the three scaled columns (88.5)
     ZBUF  cs_col1, 6
     ZBUF  cs_col2, 6

@@ -12736,3 +12736,54 @@ beforehand — about 170 bytes for ~2.4 ms of a 250 ms frame.
 usual six do not include `climb`, and `climb` is the only one that reaches the
 whole-view arm or `cs_rect`'s dispatch at all — so a register reallocation
 gated on the six would have been gated on the arm it did not touch.
+
+### Set 136 — CLEAR SKIES: 2,560 bytes of RAM for the row's two ends, and the disk pays NOTHING (SPEC.md §88.4.5.5)
+
+The largest single block left in the row's fixed cost was **thirty bytes to
+turn two pixel x's into two byte indices and two sub-byte masks** — `and si,
+7`, three `shr`, a byte load, twice. The 8088 has no shift-by-3 shorter than
+three `shr`, and CL, the register that would make it one instruction, is the
+last byte.
+
+A word table indexed by x fixes it, and the shape is the point: `cs_lend[x] =
+(cs_hlm[x & 7] << 8) | (x >> 3)` is **exactly the AH:AL the left end wants**
+and `cs_rend` the CH:CL the right one does, so fifteen bytes become eight and
+twelve — **−10 a row**, both spans still inside `rel8` (101 and 113).
+
+**This was REFUSED in docs/plans/SKIES-FRAME-PLAN.md 7.5.4 and the refusal was wrong**,
+which is the finding worth keeping. The arithmetic that refused it was
+correct — 640 entries × 2 bytes × 2 tables is 2,560, against a 1,389-byte gap
+below `CS_VOCAB_AT` — and it never asked what that gap was protecting. Three
+facts, all cheap to check and none checked:
+
+| | |
+|---|---|
+| the bss ships inside the part as a run of ZEROS, and LZ4 is best at that | `skies.o88` is **43,717 bytes in both arms of the A/B — identical to the byte** |
+| what actually grows is the heap CLAIM | 49,216 → **51,776**, `CS_VOCAB_AT` 0xB400 → 0xBE00 |
+| `SKIES` is in `SMALLOMIT_GAMES` | the 128 KB floor machine never loads it at all |
+
+So the cost is 2.5 KB of a `kern_big` machine's heap, in a program that takes
+the whole screen and the whole scheduler for as long as it runs.
+
+Same-session control, NEW/BASE/NEW, `cs_poly` bracket, call counts identical
+in every arm:
+
+| tier 3, 16 frames | `cs_poly` control | + the tables | frame |
+|---|---|---|---|
+| `turnhold` | 44.90 ms | **42.96 / 42.96** | 249.3 → 247.6 (4.01 → **4.04 fps**) |
+| `bank` | 33.51 | **31.89 / 31.82** | 241.5 → 239.9 (4.14 → **4.17**) |
+| `climb` | 16.64 | **16.03 / 16.25** | 150.6 → 149.9 (6.64 → **6.67**) |
+
+**−1.6 to −1.9 ms** against a prediction of 2.3, which is Set 132's rule
+holding: a fetch-floor prediction is an upper bound. `x` cannot leave
+`[0, 639]` — the shadow row is 80 bytes and `cs_vptab`'s Hercules entry is a
+640-wide box that `cs_r_size`'s Full arm hands out whole — so 640 entries is
+exact rather than generous, and `cs_endtab` fills both beside `cs_ktabs` in
+`cs_r_setup`, ~4 ms once a bracket.
+
+**659 frames over seven pinned profiles are pixel-identical.**
+
+**The method note is the one to carry forward.** A size refusal is only as
+good as its account of where the size lands, and this one had three places to
+land — the file, the claim, and the floor machine — of which the refusal
+priced none. "It needs 2.5 KB and the gap is 1.4" was true and useless.
