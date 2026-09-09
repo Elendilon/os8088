@@ -2192,6 +2192,27 @@ SOAK = [
         "[ch_seg] stale and the move count at 0. Needs `cc`",
         needs=("marty", "cc"), serial=True,
         wants=("build/cmemmove360.img",)),
+    Row("gfxpoints", "soak", py("tests/gfxpoints.py"), 45.0,
+        "SPEC.md 5.6.9: gfx_points draws the SAME pixels as a gfx_pixel loop. "
+        "The slot exists to REPLACE that loop, so the only claim worth gating "
+        "is that it IS it - tests/ptstest lays one coordinate set down twice, "
+        "band A through OSAPI_GFX_POINTS and band B PT_DY rows lower one "
+        "gfx_pixel a point, and the row requires the two equal. No golden "
+        "image and no reference build: the comparison is inside one frame. "
+        "Three cases, because the draw branches three ways - a solid ink, a "
+        "DITHER ink (the (x+y) parity arm), and a solid one with the window's "
+        "clip region ARMED. VERIFIED TO FAIL: drawing every other point takes "
+        "all three red and dropping the dither arm takes case 2 red alone. "
+        "VERIFIED NOT TO COVER 5.6.9.1's box invalidation, which is written "
+        "in the row's own docstring with what would - a row that claims "
+        "coverage it has not got is worse than one that names the gap, and "
+        "this one was a FALSE GREEN twice before it caught anything (white "
+        "ink on white content; then a pattern whose second half repeated its "
+        "first). SOAK and not fast or full: it is one kernel slot, it wants "
+        "an emulator, and 'did you obviously break the OS' is not what it "
+        "asks",
+        needs=("marty",), serial=True,
+        wants=("build/ptstest360.img",)),
     Row("regmove", "soak", py("tests/regmove.py"), 130.0,
         "A package's REGION moves and the package keeps working (SPEC.md "
         "66.6.1). 66.6 said since it was written that a region can never move "

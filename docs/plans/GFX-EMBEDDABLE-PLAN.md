@@ -479,7 +479,7 @@ system disk.
 | **Tank** | ✓ | ✓ | | | **no** (`SMALLOMIT_GAMES`) | `WALK` for `tkattr.inc`; `tkraster.inc` is unaffected |
 | **Skies, Telnet, The Wire** | | | | ✓ | **no** (`SMALLOMIT`) | — |
 | **`SAVER.DRV`** | | ✓ | ✓ | | **no** (`SMALLDRIVERS = $(KMODS)`) | `WALK_BATCH` on `kern_big` |
-| **`os88ui.inc`** | ✓ (checkmark) | | (macro, **0 users**) | | 25 packages | **neither** — see §6.1 |
+| **`os88ui.inc`** | ✓ (checkmark) | | (macro, **0 users**) | | 25 packages | **neither** — see §6.2 |
 | **`apps/cc`** | ✓ | ✓ | ✓ | ✓ | yes | the C SDK is its own question (§7) |
 
 ---
@@ -519,13 +519,36 @@ stands.**
    `gfx_fill` arrival. That is a documentation defect, and SPEC.md 5.6's entry
    for it should say so in one line whatever else is decided.
 
+### 6.1 …and `GFX_POINTS` is where it goes — which deletes the fallback too
+
+The owner's framing, and it is the one that makes the retirement free rather
+than merely cheap: **a collection of pixels is a pixel, with one of them in
+it.** `gfx_pixel` is `OSAPI_GFX_POINTS` with `CX = 1` and a two-word array, so
+the 12-byte wrapper and its slot have a destination and not just an exit.
+
+It also reaches back into `gfx_points` itself. That routine's `kern_big` arm
+calls `gfx_pixel` for a planar adapter or a second display (SPEC.md 5.6.9.2),
+and PERFORMANCE.md Set 133 measured what that arm and the three gates in front
+of it cost: `kern_big` came out **56 bytes over the estimate** and `kern_small`
+only 17, and the difference is exactly them. Retiring `gfx_pixel` means that
+fallback cannot call it — so the arm becomes `gfx_fill` on a 1×1 rect
+directly, which is all `gfx_pixel` ever was, and the wrapper's bytes are
+absorbed rather than moved.
+
+**The gates themselves stay**, and it is worth being exact about why: they are
+the ADAPTER dispatch, not a `gfx_pixel` artefact. A planar point is genuinely
+different work, and a slot that took one body for both would be `gfx_fill` a
+point at 539.52 µs — which is the whole win given away. On `kern_small` they
+already compile out (§5.6.9.2), so that build carries neither the gates nor
+the arm today.
+
 **The library's answer is better than either keeping or retiring it**: under
 `GFXE_BAND` a pixel is a bit-set in the app's own band and the commit is one
 blit. Weave's 44–64 calls at 35–50 ms become **one** blit; Mines' X becomes 20
 bit-sets. So the sequence is *give the callers somewhere better to go, then
 retire the slot* — and the 12 bytes are the least of what that is worth.
 
-### 6.1 `os88ui.inc` is not an obstacle, and its `UI_PIXEL` is dead
+### 6.2 `os88ui.inc` is not an obstacle, and its `UI_PIXEL` is dead
 
 37 files across **25 packages** include `os88ui.inc`, which is where the
 "everyone would embed a rasteriser" objection comes from. It does not hold:

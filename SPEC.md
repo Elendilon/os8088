@@ -4831,6 +4831,14 @@ first point, so the first one always takes the `.miss` arm and re-resolves.
 Without it a call whose first point happens to fall inside a stale rect draws
 through a clip nobody set — which is invisible until two windows overlap.
 
+The exposure is one-sided, and worth stating because it says what a gate for
+this has to arrange: the `.miss` arm re-resolves a box that is too SMALL, so
+only an over-large one is a defect. That needs a call with the region disarmed
+— whose box is the whole screen — followed by one with it armed whose points
+fall outside the armed region. `tests/gfxpoints.py` does **not** reach it and
+says so; its three cases all draw inside the window's content, where the stale
+box and the correct one give the same pixels.
+
 ##### 5.6.9.2 What takes the fallback
 
 The fast path wants a **1bpp adapter and ONE display**. A second display would

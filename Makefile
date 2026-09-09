@@ -5297,6 +5297,21 @@ $(BUILD)/regpin360.img: $(BUILD)/filler.o88 $(BUILD)/sheet.o88 \
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/filler.o88 \
 		$(BUILD)/pinme.o88 $(BUILD)/paint.o88 $(BUILD)/sheet.o88
 
+# PTSTEST - the differential gate for SPEC.md 5.6.9's gfx_points: the same
+# coordinate set drawn through the new slot and through OSAPI_GFX_PIXEL, into
+# two bands the host compares. A disk of its own because it is the only thing
+# on it: the row wants a bare desktop, and anything else open would move the
+# window it measures.
+$(BUILD)/ptstest.bin: tests/ptstest/ptstest.asm apps/os88api.inc | $(BUILD)
+	nasm -f bin -w+error -I apps/ -o $@ $<
+	@echo "ptstest: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/ptstest.o88: $(BUILD)/ptstest.bin tools/os88pkg.py | $(BUILD)
+	python3 tools/os88pkg.py $< -o $@
+
+$(BUILD)/ptstest360.img: $(BUILD)/ptstest.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/ptstest.o88
+
 # ...and the SHIPPED packages that declare it, for tests/regapp.py
 # (SPEC.md 66.6.2). One disk for all of them: the row takes --app, and a
 # package per image would be five builds of the same three spacers.
