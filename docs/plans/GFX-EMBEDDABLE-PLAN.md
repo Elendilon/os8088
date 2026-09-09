@@ -149,33 +149,121 @@ plan should be priced with `gfx_blit1` present on both builds.
 
 ---
 
-## 3. The two modes, and which programs fit which
+## 3. The commit is a FOUR-WAY choice, and all four are published and measured
 
-The library has to offer both, and the capability split in §4 falls out of it.
+The first draft of this section said *"the band commit is opaque, and that is
+the sharp edge of the plan."* **Both halves of that were wrong.** There is a
+transparent commit; and for the figures these programs draw it is the *worst*
+of the four options, not the escape hatch. What follows is the whole published
+surface with a measured price on each row.
 
-| | **compose-and-commit** | **direct** |
+| mode | slot | transparent? | priced per | measured, 5150 |
+|---|---|:-:|---|---|
+| **opaque band** | `OSAPI_GFX_BLIT1` | no | band **AREA** | **0.40–0.77 µs/px** — `BLIT1 632×8` 2.02 ms, `BLIT1 224×8 1bpp` 1.21 ms, `GFX_BLIT1 128×128` 12.59 ms |
+| **masked band** | `OSAPI_ICON_DRAW` | **YES** | band **AREA** | **~39–47 µs/px** — a 12×12 is **6.7 ms** and a 16×16 **~10 ms**, both Hercules |
+| **whole line** | `OSAPI_GFX_LINE` | yes | **INK** pixel | **37.1 µs/px**, of which ~714 µs is fixed |
+| **one pixel** | `OSAPI_GFX_PIXEL` | yes | **INK** pixel | **640.87 µs** |
+
+**The two units are the point.** A band is priced by its AREA whatever it
+carries; a line and a pixel by the INK they lay down. So the mode is chosen by
+the figure's DENSITY, and that is a per-app fact rather than a per-library one.
+
+Worked, on the 127×32 line PERFORMANCE.md already benches — 127 ink pixels in a
+4,064-pixel band:
+
+| | |
+|---|---:|
+| opaque band (`GFX_BLIT1`) | **~3.1 ms** |
+| direct (`GFX_LINE`) | **4.7 ms** |
+| masked band (`ICON_DRAW`) | **~158 ms** |
+
+**For a sparse figure the transparent band is 34× worse than the thing it was
+supposed to rescue.** It is not a general-purpose escape; it is what it was
+built for — a *small dense* glyph, a 12×12 control.
+
+### 3.1 …and the published masked band is capped, by a BUFFER rather than by the renderer
+
+Worth writing down because the code and the SDK comment disagree, and the
+reason matters if anyone wants to lift it:
+
+- **`icon_draw`, the kernel-internal entry, has no cap at all.** It reads
+  `wwords` and `rows` as plain bytes into `[ico_ww]`/`[ico_h]`, and every
+  stride, clip and row advance is computed from them. The 1bpp pass is a real
+  masked read-modify-write — `ico_bbop` selects `or` (white) or `and-not`
+  (black) per byte.
+- **`icon_draw_x`, the API entry, refuses everything but 16×16.**
+  `cmp al, ICO_STAGE_WW / jne .refuse` and `cmp ah, ICO_STAGE_H / ja .refuse`,
+  because the record is copied into a **66-byte staging buffer**
+  (`ICO_STAGE_SZ = 2 + 16 × 4`) — the package's record lives in the package's
+  segment and ES is the kernel's.
+
+Lifting it is therefore not a renderer change. Two shapes, neither costed:
+widen the stage (a 64×64 one is **1,026 bytes of `.bss`**, on the build with
+least to give), or render straight out of the caller's segment with no stage
+at all — which is what `gfx_blit1` already does. **Neither is worth doing for
+this plan**, because §3's table says a general masked band is the wrong answer
+for the figures in question anyway.
+
+### 3.2 The fourth option — and it may retire the walker outright
+
+This is the answer to *"is keeping the walker inside the app on the table?"*
+**Yes, and it does not need a band at all.**
+
+`gfx_lstep` exists because of SPEC.md 5.6.7: a trail is drawn a couple of
+pixels a frame and erased as one long line, and *"Bresenham over the whole line
+does not visit the union of the per-frame segments"*. **That argument is about
+the KERNEL holding the state.** Once the app holds it — which is the whole
+proposal — the app knows *this frame's* segment endpoints, and
+
+```
+    OSAPI_GFX_LINE(p_prev, p_now)      ; this frame's segment, in ink
+    ...later...
+    OSAPI_GFX_LINE(p_prev, p_now)      ; the identical segment, in paper
+```
+
+is **exact**: `gfx_line`'s pixel set is a pure function of the endpoint pair
+(SPEC.md 5.6.2), so an erase replaying the same segments replays the same
+pixels. No band, no shadow, no opacity question, and the union that 5.6.7 says
+whole-line Bresenham misses is drawn segment by segment, which is precisely
+what it is.
+
+Two costs to name: adjacent segments share an endpoint, so **one pixel a
+segment is written twice** (PERFORMANCE.md rule 2, in miniature — idempotent
+in both directions, but say it out loud); and the arithmetic below is
+ARITHMETIC.
+
+**The comparison, Missile's eight live blocks** (`gfx_lstepv` terms from
+SPEC.md 5.6.8, `gfx_line` terms from PERFORMANCE.md's 127×32 row):
+
+| pixels a block a frame | kernel `gfx_lstepv` | app walker + `GFX_LINE` a segment |
+|---:|---:|---:|
+| 1 | **5.4 ms** | 6.0 ms |
+| 3 | 8.2 ms | **6.5 ms** |
+| 10 | 18.0 ms | **8.2 ms** |
+
+The crossover is around **two pixels a block a frame**, and it is entirely the
+two fixed parts trading against the two marginals: the walk charges ~480 µs a
+block and 175 µs a pixel, `gfx_line` charges ~714 µs a call and 31.6 µs a
+pixel. **Missile's drain moves 64 pixels over ~4 blocks — 16 a block — which is
+the far right of that table.**
+
+**This is unmeasured and it is the single most valuable thing to bench**
+(this plan's 9.1): if it holds, `GFXE_WALK` is pure app-side arithmetic over a slot that
+already exists, and the kernel's 537/641 bytes go with nothing built to
+replace them.
+
+### 3.3 So the per-program answer, restated
+
+| program | figure | mode |
 |---|---|---|
-| how | rasterise into the app's own 1bpp band, one `OSAPI_GFX_BLIT1` | one kernel slot per primitive |
-| per pixel | **24.6 µs** + the band's blit, amortised over the figure | `GFX_PIXEL` **640.87 µs**; `GFX_LINE` **37.1 µs** |
-| ground | **OPAQUE** — the band's paper is written too | leaves what is underneath |
-| costs | a band claim, and the app owns the ground | nothing |
-| fits | Paint (own bitmap), Sheet (grid on fresh ground), any full-window repaint | anything drawing *over* something it did not paint |
+| **Paint** | dense, own bitmap | opaque band, or `GFX_LINE` direct as today |
+| **Sheet** | grid on fresh ground | opaque band |
+| **Cyclone** | sparse, accumulating | **app walker + `GFX_LINE` a segment** — §3.2, no band, no shadow |
+| **Missile** | sparse, over terrain | **app walker + `GFX_LINE` a segment** — and it is the one the arithmetic most favours |
+| **Mines, Word, Weave** | small dense marks | opaque band, or `ICON_DRAW` where it fits 16×16 |
 
-**The opaque commit is the sharp edge of the whole plan.** Two shipped programs
-are on the wrong side of it:
-
-- **Cyclone** accumulates during a warp — *"NOTHING IS ERASED: the animation
-  accumulates"* — so a band commit would wipe each frame's predecessors unless
-  the app keeps a full-window shadow.
-- **Missile** draws trails *over terrain* it did not paint, and its erase
-  replays the identical walk.
-
-Both can be answered — a full-window 1bpp shadow is ~14.2 KB at 448×258
-(PAINT-1BPP-PLAN's measured figure) and is *heap paid while running*, which is
-precisely the owner's premise — but it is a real cost and it is theirs to
-decide, not this document's. `OSAPI_ICON_DRAW` is the only **transparent** 1bpp
-commit on the machine and it is capped at 16 px a row, so it is not a general
-answer.
+**No program in the tree needs a full-window shadow**, which is what the first
+draft of this section thought Cyclone and Missile would have to carry.
 
 ---
 
@@ -269,8 +357,8 @@ system disk.
 |---|:-:|:-:|:-:|:-:|:-:|---|
 | **Paint** | ✓ | | | ✓ + `SPANS` | yes | `LINE` + **`LINE_FAST`** + `WIDE` — §42.8's stroke is the reason, and 4.9× is new to this build |
 | **Sheet** | ✓ | | | | yes | `LINE` only; grid on fresh ground, so compose mode fits |
-| **Cyclone** | ✓ | ✓ (`LINIT`,`LSTEPV`) | | | yes | `WALK_BATCH`; **§3's shadow question is Cyclone's** |
-| **Missile** | ✓ | ✓ (all three) | ✓ | | yes | `WALK_BATCH`; same question, plus terrain |
+| **Cyclone** | ✓ | ✓ (`LINIT`,`LSTEPV`) | | | yes | `WALK` + `LINE_DIRECT` — §3.2, no band |
+| **Missile** | ✓ | ✓ (all three) | ✓ | | yes | `WALK` + `LINE_DIRECT`; the case §3.2's arithmetic most favours |
 | **Mines** | | | ✓ (two 10px diagonals) | | yes | `BAND` alone — the X becomes 20 bit-sets and one blit |
 | **Word** | | | ✓ (one pixel) | ✓ | yes | `BAND`; it already blits |
 | **Weave** | | | ✓ (44–64 calls, **35–50 ms**) | ✓ | yes | `BAND` — the biggest single win in this column |
@@ -283,7 +371,13 @@ system disk.
 
 ---
 
-## 6. `gfx_pixel`, priced honestly — it is not what it looks like
+## 6. `gfx_pixel` — DEFERRED, and priced here so the deferral is informed
+
+**This is a separate piece of work and comes AFTER the line waves**, by the
+owner's decision. It is recorded here rather than started because the pricing
+below is what makes the sequencing obviously right: `GFXE_BAND` is what gives
+the callers somewhere better to go, so retiring the slot before the library
+exists would be a caller sweep with no destination.
 
 The proposal is to retire `OSAPI_GFX_PIXEL` outright as a benchmarking relic
 that confuses readers. **Three corrections, and the conclusion still mostly
@@ -360,10 +454,10 @@ Each is independently landable and each is a separate PR.
 
 | wave | what | prize | risk |
 |---|---|---|---|
-| **0** | `os88ui.inc`'s checkmark → glyph; document `GFX_PIXEL`'s 640.87 µs in SPEC.md 5.6 | 0 bytes; unblocks everything | none — 25 packages, one include |
+| **0** | `os88ui.inc`'s checkmark → glyph or `ICON_DRAW` record | 0 bytes; takes `OSAPI_GFX_LINE`'s caller list from 25 packages to four programs | none — 25 packages, one include |
 | **1** | `apps/os88gfx.inc` with `GFXE_BAND` + `GFXE_LINE`; **Sheet** is the first customer, compose mode, nothing gated out of the kernel | proves the lattice; ~350 bytes of Sheet | none — the kernel is untouched |
 | **2** | `GFXE_LINE_FAST`; **Paint on `kern_small`** takes it | Paint's stroke **4.9×** on the floor machine, +647 of Paint's own image | Paint's small build is size-sensitive (§24.5) |
-| **3** | `GFXE_WALK` / `GFXE_WALK_BATCH`; **Cyclone and Missile**, and §3's shadow question answered on the glass | ~580 each | the opaque commit — this is the wave that can fail |
+| **3** | **Bench §3.2 FIRST** (`gfxbench`/`tests/linetest` already have the rows), then `GFXE_WALK` on **Cyclone and Missile** | ~230 each, and possibly **faster than today** | §3.2 is arithmetic — the bench is the wave's own gate |
 | **4** | gate `gfx_linit/lstep/lstepv` out of both kernels | **−537 / −641** | needs wave 3 landed *and* the C surface settled (§7) |
 | **5** | gate `gfx_line_fast`, `gfx_line_runs`, `gfx_lf_wide3` out of `kern_big` | **−874** from `kern_big` alone | Paint and Sheet must be on the library first |
 | **6** | gate `gfx_line` itself | the remainder, ~660 / ~800 | blocked on §7 outright |
@@ -387,8 +481,12 @@ program actually being on the library first.
 3. **Clip and ink come back.** The 24.6 µs is a rasteriser with no clipping, no
    ink and no dither. A caller that needs them pays them, and `gfx_blit1` still
    refuses an x off the byte grid.
-4. **The opaque commit, on Cyclone and Missile specifically** (§3). This is the
-   one that decides whether wave 3 exists.
+4. **§3.2 is arithmetic and is the single most valuable thing to bench.** An
+   app-side walker plotting `OSAPI_GFX_LINE` a segment against today's
+   `gfx_lstepv`, at 1, 3 and 10 pixels a block a frame, on a Hercules 5150.
+   If it holds, wave 4 needs nothing built to replace what it removes; if the
+   crossover is further right than two pixels, Cyclone stays on the kernel
+   walker and only Missile moves.
 5. **Nothing here has been measured on the glass.** Every µs figure is quoted
    from PERFORMANCE.md's 5150 sets; every byte figure is from this tree's map.
    No wave has been built.
@@ -416,3 +514,15 @@ Timings are PERFORMANCE.md's, all from the field 5150:
 `GFX_PIXEL` 640.87 µs, `GFX_LINE` 37.1 µs a pixel (31.6 less the arrival), the
 candidate mask rasteriser 24.6, the walk's marginal pixel ~175, its block setup
 ~480, an arrival 128.7.
+
+---
+
+## 11. Sequencing, as decided
+
+1. **The line waves first** (§8 waves 0–6). `gfx_pixel` (§6) is a different
+   piece of work and follows them.
+2. **Keeping the walker inside the app is fully in scope** and is `GFXE_WALK`.
+   §3.2 is what it plots through, and the answer is likely to be
+   `OSAPI_GFX_LINE` a segment rather than a band.
+3. **`gfx_blit1` on `kern_small` is not this plan's to justify** — it is
+   already wanted for its own reasons (§2.4), and this plan assumes it.
