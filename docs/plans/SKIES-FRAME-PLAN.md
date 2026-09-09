@@ -809,6 +809,15 @@ segment marks min/max of its two ENDS in x and y and hands that box to
 `cs_markacc`. A line 400 px wide and 55 rows tall marks 55 x 50 bytes where
 its ink is one pixel a row.
 
+**The object IS drawn, and it is 219 pixels.** The field's reading was that it
+bounds half the view and is then culled to nothing; the truth is one step
+short of that. Dropping it (`CSO_RANGE` = 0) and differencing the glass:
+**310 pixels on 2 rows level, 219 pixels on 47 rows at 12** - `CSI_MARK` is
+solid white on Hercules, so it is a **one-pixel-per-row hairline** corner to
+corner. Against a mark of 52 rows x 46 bytes that is **87x its own ink**, and
+it lights FEWER pixels banked than level because the diagonal runs out of the
+view. One object accounts for most of the frame's 21x.
+
 ##### What to build, in order
 
 1. **Settle the 3 bytes.** The same scoring finds 3 bytes a frame that DIFFER

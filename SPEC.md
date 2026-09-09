@@ -102244,6 +102244,22 @@ is under **16 bytes** of the 50" and today's union is 31 *because* the mark is
 a box; §88.3.1.3.4's row cache finds nothing because the box says every band
 row has ink. Three refusals, one brick.
 
+**AND THE OBJECT IS DRAWN — it is 219 PIXELS.** The field's reading was that
+the Seine bounds half the view and is then culled away to nothing, which is
+close and not quite it. Rendering the same frame with the object dropped
+(`CSO_RANGE` = 0, so the cull refuses it) and differencing the glass:
+
+| held roll | the Seine lights | on | its MARK | over-mark |
+|---|---|---|---|---|
+| 0° | **310 pixels** | 2 rows | 2 × 48 B = 768 px | **2.5x** |
+| 12° | **219 pixels** | 47 rows | 52 × 46 B = 19,136 px | **87x** |
+
+`CSI_MARK` on Hercules is `FF FF FF FF`, so it draws solid white and it is
+plainly there — **a one-pixel-per-row hairline** running corner to corner. It
+lights FEWER pixels banked than level, because the diagonal runs out of the
+view, while marking twenty-six times the rows. **One object over-marks by 87x
+and that is most of the frame's 21x.**
+
 **One thing to settle first, and it is a CORRECTNESS question, not a speed
 one**: the same scoring finds **3 bytes a frame that DIFFER and are not
 carried** at 5° and 12°, and none at level — at the view's right edge. That is
