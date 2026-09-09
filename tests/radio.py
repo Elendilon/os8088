@@ -41,7 +41,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "tools"))
 sys.path.insert(0, HERE)
-import os88marty, os88mouse, os88sym, os88geom, dispcp          # noqa: E402
+import os88marty, os88mouse, os88sym, os88geom, os88build, dispcp   # noqa: E402
 from cycweb import Pkg, u16, shot                               # noqa: E402
 
 BOX = 12                        # OS88UI_RDBOX
@@ -69,7 +69,7 @@ def pkg_syms(src, incs=("apps/",)):
             f = ln.split()
             if len(f) == 3 and all(c in "0123456789ABCDEF" for c in f[0]):
                 syms[f[2]] = int(f[0], 16)
-        return syms
+        return syms, open(bp, "rb").read()
 
 
 def ring(px, W, x, y):
@@ -92,7 +92,22 @@ def main():
     a = ap.parse_args()
     S = os88sym.linear
 
-    syms = pkg_syms("tests/radtest/radtest.asm")
+    syms, image = pkg_syms("tests/radtest/radtest.asm")
+    # THE DISK MUST CARRY WHAT THE SYMBOLS DESCRIBE. `make` does not build
+    # radtest - it has its own target - so editing os88ui.inc and re-running
+    # this reads a FRESH symbol table against a STALE image, and every bss
+    # offset is wrong by however much the library moved. It does not look like
+    # that: the pixels are all correct (they come off the screen) and only the
+    # counters are nonsense, so it reads as the press half being broken. It
+    # cost one wrong diagnosis; os88sym refuses the same way for the kernel.
+    try:
+        built = open(os88build.at("build/radtest.bin"), "rb").read()
+    except OSError:
+        sys.exit("radio: no build/radtest.bin - run `make radtest`")
+    if built != image:
+        sys.exit("radio: build/radtest.bin is %d bytes and the source "
+                 "assembles to %d - the disk is BEHIND THE TREE. "
+                 "Run `make radtest`." % (len(built), len(image)))
     with os88marty.launch(a.image, apps=a.apps, machine=a.machine,
                           boot=False) as m:
         m.run()

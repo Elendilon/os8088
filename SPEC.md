@@ -22650,6 +22650,59 @@ frame, mark and label over it. It is named here rather than quietly changed
 because it is the file's most-copied routine and the next author will copy it
 too; **§13.17 is the one to follow.**
 
+#### 13.15.1 `os88ui_glyph` draws with FILLS now, and shares the radio's shape
+
+It used to be four 12×12 **bitmaps** put down through the masked sprite pass
+(§25.6), with a per-pixel fallback for a control a clip fragment cut. All of it
+is gone — the pictures, the sprite record and its staging, the per-row dither
+compose, and the 45-to-65-call `.gpix` arm.
+
+**Measured, and the estimate it replaces was optimistic.** `os88ui.inc`
+assembles to **707 bytes where it was 823** — so every one of the twenty-two
+package images carrying it loses **116 bytes**, about **2.5 KB of floppy across
+the tree**. The kernel splits, because its bitmaps were `.text` DATA and its
+body is `.cold` code: **`.text` −146** — the section `KERN_CODE_MAX` bounds and
+that cannot be raised at all — against **`.cold` +45**. docs/plans/completed/GFX-EMBEDDABLE-PLAN.md 8.8.2's
+*"−200 to −300 of `.cold` per copy"* was **wrong on both the size and the section**, and the
+reason is worth keeping: a fill-drawn shape is CODE where four bitmaps are
+DATA, and code does not shrink the way a table does.
+
+**What it costs is calls** — eight for a set radio against the sprite pass's one
+— and that trade is the owner's, taken on the ground that a control glyph is
+drawn once and then sits there until someone interacts with it.
+
+**The position is held in DI and SI, and that is worth 116 bytes rather than
+four.** `UI_FILL` wants AX, BX, CX and DX, so an x or y living in any of them is
+pushed and popped around every run; held clear of all four it is a `lea` per
+argument and no stack at all. The first version did it the other way and the
+whole conversion came out **60 bytes worse than the bitmaps it removed**.
+
+**The clipped case is where it wins outright.** `ico_core` clips an icon *whole*,
+so a cut control used to cost 45–65 drawing calls and 24–34 ms (PERFORMANCE.md
+Set 83). A fill clips per pixel, so there is no second path here at all — one
+cost instead of two, and the bad one went with the code that had it.
+
+**There is ONE radio look in the file, not two.** `os88ui_gring` and
+`os88ui_gdot` are §13.17.1's shape as shared routines: `os88ui_rad` draws a
+*group* of them with labels, `os88ui_glyph` draws one bare one at CX/DX, and
+neither carries a copy that can drift from the other. The CHECK arm is a square
+frame and a solid square mark, which is `os88ui_chk`'s own look and §13.16.2.1's
+finding — *"a solid square, which reads on one bit as a tick does not"*. **So the
+two shared controls agree at last**, which was §8.8's whole complaint.
+
+**The box is still cleared unconditionally**, and that is this routine's one
+deliberate departure from §13.14.6 rule 1. It is a published contract twenty-two
+packages rest on: a glyph is redrawn *in place* when a selection moves, and its
+caller is not required to have laid a clean ground. At 12×12 with the shape one
+call behind it, the interval is under a millisecond, where the row-wide fill
+§13.17.4 removed was about four. **§13.17 is the one that needs no clear at
+all**, because it owns its group and can redraw the dot alone.
+
+**No call site changed.** `OS88UI_GRADIO`, `OS88UI_GCHECK`, `OS88UI_GON` and
+`OS88UI_GDOWN` mean what they meant and arrive in the same registers, so the
+Control Panel's fifteen glyphs and every other caller in the tree were converted
+by the body being rewritten under them.
+
 ### 13.15 The CHECK BOX — the fourth shared element (`OS88UI_CHK`)
 
 `%define OS88UI_CHK` before the include and it costs a dozen bytes of record
