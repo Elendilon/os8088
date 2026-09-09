@@ -896,12 +896,19 @@ line below is measurement and documents.
   `cs_markacc`. `cs_poly`'s row loop already holds the exact per-row bounds
   it fills between, which is 88.3.1.3.2's original proposal - B is the same
   idea for the segment path, and the polygon path is untouched.
-- **C. Then re-price what B unlocks** - 7.1.8's narrow fill and 7.1.12's
-  cache. B has moved the number both were refused on - the narrow fill pays
-  "when the union is under 16 bytes of the 50" and the mean span was 31
-  BECAUSE the mark was a box - but **do not quote a carried figure as the new
-  one**: it is not a controlled quantity (88.3.2.3.2). Measure the mean span
-  as a poke A/B over one flight, the way B's frame numbers were taken.
+- ~~**C. Re-price what B unlocks**~~ - **MEASURED**, SPEC.md 88.3.2.3.3, one
+  fresh guest per point. **The narrow fill flips and the cache does not.** The
+  union is **15.4 / 12.9 / 11.1 bytes at 5 / 12 / 20 degrees** stepped against
+  35-39 boxed, and 7.1.8's break-even is 16 - but on its own unit costs (~340
+  cycles a row to obtain the union, ~10 saved a byte not laid) that is only
+  **+0.4 ms at 12 degrees and +0.9 at 20**, against +109 bytes. The cache's
+  population is IDENTICAL in both arms (0 / 8 / 17.8 rows), because a stepped
+  mark makes a row's span narrower and never makes a row UNMARKED - a diagonal
+  crosses every row of its own extent. 7.1.12's refusal stands.
+- **D. WHERE THE FRAME ACTUALLY IS NOW.** At 12 degrees it is `cs_scene` 69%,
+  `cs_skyground` 11%, `cs_blit` 10%, and a split row's 1,460 cycles are only
+  ~350 pixels. Marking is no longer the lever: `cs_faces` and `cs_edges` are.
+  7.5 and 7.6 are where those were taken apart.
 
 **The instruments, all host-side and none registered yet** (they live in a
 scratch directory; 7.1.13 says the one worth registering):

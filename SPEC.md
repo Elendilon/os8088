@@ -102455,6 +102455,43 @@ rows in one 25-second run**. An under-mark IS a stale byte, so §88.3.1.1.3's
 gate is this change's correctness net as well as its own, which is why it was
 built first.
 
+###### 88.3.2.3.3 WHAT THE TIGHTER MARKS UNLOCK — one of the two refusals, and only just
+
+§88.3.1.1.2's narrow fill and §88.3.1.3.4's row cache were both refused on
+numbers the box mark set. Re-measured with the stepping mark, **one fresh
+guest per point** (§88.3.2.3.2), four settled frames each:
+
+| held roll | mark | mean union | marked rows | split rows | object-free |
+|---|---|---|---|---|---|
+| 5° | box | 36.6 B | 31.0 | 23 | **0 (0%)** |
+| 5° | **stepped** | **15.4 B** | 31.0 | 23 | **0 (0%)** |
+| 12° | box | 39.1 | 60.0 | 55 | 8 (14%) |
+| 12° | **stepped** | **12.9** | 60.0 | 55 | 8 (14%) |
+| 20° | box | 35.3 | 96.8 | 92 | 17.8 (19%) |
+| 20° | **stepped** | **11.1** | 96.5 | 92 | 17.5 (19%) |
+
+**The narrow fill's break-even is met and the cache's is not, and the reason
+is the same fact.** A stepped mark makes a row's span NARROWER; it does not
+make a row UNMARKED, because a diagonal crosses every row of its own extent.
+So:
+
+- **The narrow fill flips.** It "pays exactly when the union is under 16
+  bytes of the 50", and the union is now **11.1 to 15.4** where it was 31.
+  On §88.3.1.1.2's own two unit costs — ~340 cycles a row to obtain the
+  union, ~10 saved a byte not laid — that is **+31 cycles a row at 12° and
+  +49 at 20°**, so **~0.4 ms and ~0.9 ms**. It has crossed from losing to
+  winning and it is worth about a tenth of what the mark itself was;
+  docs/plans/SKIES-FRAME-PLAN.md 7.1.8 also priced it at **+109 bytes**.
+- **The cache does not move at all.** Object-free rows read IDENTICALLY in
+  both arms — 0 at 5°, 8 at 12°, 17.8 at 20° — which is the sharpest
+  statement of what stepping did and did not do. §88.3.1.3.4's refusal
+  stands unchanged.
+
+**And the frame is not marking-bound any more.** At 12° it is `cs_scene`
+**69%**, `cs_skyground` 11% and `cs_blit` 10%; a split row's fill is ~1,460
+cycles of which only ~350 are the pixels the narrow fill can take. Multi-
+millisecond work is in `cs_faces` and `cs_edges` now, not in what gets marked.
+
 #### 88.3.3 The blit looks only at the rows anything marked
 
 The two guard words before each span set hold the set's first and last
