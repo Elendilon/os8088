@@ -601,41 +601,47 @@ both, delete the `gfx_line` family, put the checkmark on `blit1`, build the
 library, and let apps plot through spans. **That is the right shape and four
 things move the arithmetic.**
 
-### 8.1.1 `gfx_spans` does not work from a window as it stands
+### 8.1.1 `GFX_POINTS` needs the clip region — and `gfx_ls_box` is where it comes from
 
-```
-gfx_spans:
-    cmp word [wm_clip_n], 0     ; an armed region, or...
-    jne .no
-    cmp byte [vid_ndisp], 1     ; ...a second display: both re-cut the run
-    ja .no
-```
+A points slot is not exempt from §3.2.1's six: the clip region and the cursor
+bind it exactly as they bind `gfx_pixel`. **The cheap answer is the walker's
+own, and it is a piece the removal was about to take with it.**
 
-**Every windowed package arms a clip region before it draws**, so as the
-library's plot primitive `gfx_spans` refuses on the first call. Its own comment
-prices the fix as *"the whole of `gfx_clip_run` and `gfx_disp_run` again"* —
-and that is true only of the way `gfx_fill` does it.
+`gfx_ls_box` (**173** small / **183** big) resolves *the clip rect containing a
+point*, hands back an EMPTY box when none does — so the caller skips that pixel
+and re-resolves at the next — and already scans in virtual space so a second
+display works (SPEC.md 39.14.9). `gfx_ls_addr` (**29**) turns a point into a
+byte and a bit mask through `gfx_rowbase`. Between them that is the whole of
+what a points loop does per point, and `gfx_lstep_mono` is the worked example.
 
-**The cheap way is the walker's own, and that is the thing the plan was about
-to throw away.** `gfx_ls_box` (173 small / 183 big) resolves *the clip rect
-containing a point*, hands back an EMPTY box when none does, and already scans
-in virtual space so a second display works (SPEC.md 39.14.9). Per span row:
-resolve the box, clip the interval to it, skip an empty one. **~40–60 bytes on
-top of the existing body, estimated** — not a re-implementation.
+> **So `gfx_ls_box` and `gfx_ls_addr` STAY, and the rest of the family goes.**
+> They are inside the 1,377 / 2,520 the line family measures, which is why the
+> removal is **1,175 / 2,308** and not the headline figure.
 
-> **So `gfx_ls_box` stays and the rest of the walker goes.** It is what gives
-> both new slots their clip handling on both kernels.
+`gfx_ls_addr` was staying regardless — `gfx_line` shares it — but `gfx_ls_box`
+has only the walker's two call sites today (`kernel/vga12.inc:1354`, `:1366`),
+so without this it would have left with it.
 
-### 8.1.2 Spans alone does not serve the walkers — points is a separate slot
+### 8.1.2 `gfx_spans` is NOT in this — and that is a simplification
 
-`gfx_spans` is **consecutive rows, one x-interval each**. That is a figure:
-Paint's stroke, Sheet's grid, any polygon. It is not eight scattered walks
-stepping one to three pixels — those are 8 separate spans calls and 8 arrivals
-again, which is the cost §3.2 set out to remove. `GFX_POINTS` (§3.2.1) takes
-all of them in one call, and shares `gfx_ls_box`/`gfx_ls_addr` with spans.
+The sibling slot stays exactly where it is: a body on `kern_big`, `stc`/`ret`
+on `kern_small`, refusing under an armed clip on both (§2.2). Nothing here
+needs it. **Spans is consecutive rows with one x-interval each** — what a
+polygon rasteriser emits — and it would have had to be given clip handling and
+a `kern_small` body to serve as a plot primitive. Points needs neither: it is
+one new body, and its clip comes from a routine that already exists.
 
-**The library wants both, and they are cheap together**: figures go through
-spans, walks through points.
+**What a figure-shaped app does instead is COMPOSE**, which is the second half
+of the owner's own sentence and is the better answer where it applies:
+
+- **Paint** already keeps its canvas as a 1bpp bitmap (SPEC.md 42.23). Its
+  stroke rasterises into RAM it owns — no slot at all — and commits the damaged
+  band with one `gfx_blit1` at 0.40–0.77 µs a band pixel. A 45° chord's band is
+  a few thousand pixels, so it is **~3 ms against today's 13.03** (estimated
+  from Set 132's blit1 rows), and the rasterising in between is the 24.6 µs a
+  pixel §0 measured.
+- **A walk** has no band worth committing — two or three pixels scattered over
+  eight places — so it plots, and that is `GFX_POINTS`.
 
 ### 8.1.3 `cword` reimplemented the SAME checkmark in C
 
@@ -658,20 +664,32 @@ comparable.
 | | `kern_small` | `kern_big` |
 |---|---:|---:|
 | `gfx_blit1` body — **measured**, SPEC.md 5.4.2.5 | +419 | 0, it is there |
-| `gfx_spans` body — lean arm on small, blit1's Option B precedent | +200…250 | 0, it is there |
-| clip via `gfx_ls_box`, both slots | +40…60 | +40…60 |
-| `GFX_POINTS` (§3.2.1) | +150 | +165 |
+| `GFX_POINTS` (§3.2.1) — body, X stub, planar arm; clip and addressing reused | +150 | +165 |
 | the line family — **measured** at 1,377 / 2,520 `.text`… | | |
-| …less `gfx_ls_box` and `gfx_ls_addr`, which both stay | **−1,175** | **−2,308** |
+| …less `gfx_ls_box` and `gfx_ls_addr`, which both stay (§8.1.1) | **−1,175** | **−2,308** |
 | `.bss` freed with it — **measured** | ~−61 | ~−72 |
-| **net, `blit1` charged here** | **~−415** | **~−2,155** |
-| **net, `blit1` charged to its own case (§2.4)** | **~−835** | **~−2,155** |
+| **net, `blit1` charged here** | **~−667** | **~−2,215** |
+| **net, `blit1` charged to its own case (§2.4)** | **~−1,086** | **~−2,215** |
 
 `blit1` belongs in the second row: nine shipped small-disk packages already
 call the slot and take a fallback, so it is a decision standing on its own.
 
-**On `kern_big` this is 2.1 KB of `.text`**, and `KERN_CODE_MAX` — the guard
-that cannot be raised — is what binds that build.
+**That is ~1 KB off the floor machine and 2.2 KB off `kern_big`**, where
+`KERN_CODE_MAX` — the guard that cannot be raised — is what binds.
+
+### 8.1.4.1 Which route each program takes
+
+| program | what it draws | route |
+|---|---|---|
+| **Paint** | a stroke into a 1bpp canvas it owns | **compose + `GFX_BLIT1`** — no plot slot at all, and ~4× faster than today |
+| **Sheet** | a grid on fresh ground | compose + `GFX_BLIT1`, or `GFX_POINTS` if the damaged band is sparser than the grid |
+| **Cyclone** | eight accumulating warp walks, a few px a frame | **`GFX_POINTS`** |
+| **Missile** | trails and the drain, 1–16 px a block a frame | **`GFX_POINTS`** — one call covers both effects, which is what §3.2's per-effect problem dissolves into |
+| **`os88ui.inc`, `cword`** | a checkmark | **`GFX_BLIT1`**, one band (§8.1.3) |
+| **Tank `tkattr.inc`, `SAVER.DRV`, `wire`** | `kern_big` only | `GFX_POINTS` |
+
+**`GFX_POINTS` is the plot primitive and `GFX_BLIT1` the commit primitive**,
+and no program in the tree needs a third.
 
 ### 8.1.5 What has to convert before `gfx_line` can go
 
