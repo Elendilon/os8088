@@ -1036,8 +1036,19 @@ gfx_hline:
     ret
 
 
+%ifdef GFX_WALK
 ; =============================================================================
-; SPEC.md 5.6.7 - the RESUMABLE walk
+; SPEC.md 5.6.7 - the RESUMABLE walk - A KNOB SINCE SPEC.md 5.12.6
+;
+; NOT COMPILED unless GFX_WALK is defined. Every program in the tree that
+; walked - Cyclone, Missile, Tank's attract cursors and SAVER.DRV's growing
+; figure - steps apps/os88gfx.inc's `GFXE_WALK` in its own image now and
+; commits through gfx_points, so nothing here has a caller. The three slots
+; below answer CF = 1, gfx_blit1's and gfx_spans's precedent (5.4.2).
+;
+; The knob is what keeps this assembling and is the A/B PERFORMANCE.md Set 132
+; came off - `BAND=1`'s shape and for `BAND=1`'s reason. tests/gfxbench's
+; `kwalk` rows and tests/linetest's scalar arm need it.
 ;
 ; gfx_line answers "draw this whole line". These two answer "draw the next N
 ; pixels of this line", and the difference is what lets a caller ERASE
@@ -1191,9 +1202,29 @@ gfx_lstepv:
     pop bx
     pop ax
     ret
+%endif ; GFX_WALK
 
-; gfx_ls_ink - resolve [gfx_color] to the 1bpp class once (00 / FF / 01)
-; clobbers AX
+%ifndef GFX_WALK
+; -----------------------------------------------------------------------------
+; SPEC.md 5.6.7's three slots, WITHOUT A BODY (SPEC.md 5.12.6)
+;
+; The capability lives in apps/os88gfx.inc's `GFXE_WALK` now, in the image of
+; whichever program wants it, and gfx_points is what it commits through. The
+; cells stay - the table is offset-addressed and a slot number is a published
+; constant (20.3) - and they answer CF = 1, which is what gfx_blit1 on
+; kern_small and gfx_spans already mean by it.
+;
+; A package that walks and does NOT test CF gets no pixels rather than wrong
+; ones, which is the failure mode KERN-SMALL-CUT-PLAN 10 is about; every one
+; in this tree was converted before the bodies went (5.12.5).
+; -----------------------------------------------------------------------------
+gfx_linit:
+gfx_lstep:
+gfx_lstepv:
+    stc
+    ret
+%endif
+
 ; -----------------------------------------------------------------------------
 ; gfx_points - draw a set of pixels the CALLER computed (SPEC.md 5.6.9)
 ; in:       ES:SI = CX records of two words each, x then y; CX = how many
@@ -1318,12 +1349,15 @@ gfx_points:
     pop ax
     ret
 
+; gfx_ls_ink - resolve [gfx_color] to the 1bpp class once (00 / FF / 01)
+; clobbers AX
 gfx_ls_ink:
     mov al, [gfx_color]
     call gfx_ink
     mov [gfx_ln_ink], al
     ret
 
+%ifdef GFX_WALK
 ; gfx_ls_one - stage the block at ES:DI in, walk CX pixels, stage it back
 ; in:  ES:DI = the caller's block, CX = pixels (non-zero), [gfx_ln_ink] set
 ; clobbers AX/BX/DX/SI/DI/BP/ES; CX is spent
@@ -1561,6 +1595,8 @@ gfx_lstep_mono:
     pop bx
     pop ax
     ret
+
+%endif ; GFX_WALK
 
 ; gfx_ls_addr - DI = the framebuffer byte for (SI,DX), BL = its bit
 ; clobbers AX/CX, and DI/BL are outputs
@@ -6003,6 +6039,7 @@ gfx_ln_flg      resb 1          ; ...and LF_STEEP / LF_WHITE / LF_XPOS, which
 gfx_ln_ink      resb 1          ; mono path: gfx_ink's 00 / FF / 01
 gfx_ln_wide     resb 1          ; 1 = the 1bpp three-column walk (5.6.6)
 gfx_ln_majx     resb 1          ; runs path: 1 = the major axis is x
+%ifdef GFX_WALK
 gfx_ls_x        resw 1          ; 5.6.7's staged walk state - the caller's
 gfx_ls_y        resw 1          ; block, copied in and back out (20.8 rule 3,
 gfx_ls_err      resw 1          ; and forced here as well as preferred: the
@@ -6011,6 +6048,7 @@ gfx_ls_dy       resw 1
 gfx_ls_sx       resw 1
 gfx_ls_sy       resw 1
 gfx_ls_e2       resw 1
+%endif
 gfx_ls_bx1      resw 1          ; the clip rect the walk is inside, re-resolved
 gfx_ls_by1      resw 1          ; only when a pixel steps out of it - a step is
 gfx_ls_bx2      resw 1          ; a handful of pixels, so this is one list walk
@@ -6021,8 +6059,10 @@ gfx_pt_cseg     resw 1          ; SPEC.md 5.6.9: gfx_points' array segment.
                                 ; ES is the framebuffer inside its loop, so
                                 ; the caller's cannot stay there - the word
                                 ; below is the same problem for the walk
+%ifdef GFX_WALK
 gfx_ls_cseg     resw 1          ; ...and where the caller's block came from,
 gfx_ls_coff     resw 1          ; because ES cannot hold it across the walk
+%endif
 
 vgas_col         resw 1          ; gfx_scroll (SPEC.md 5.5): left byte column
 vgas_nb          resw 1          ;   bytes per row

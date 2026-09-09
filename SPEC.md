@@ -5976,6 +5976,46 @@ segment** of a glyph and now spend one per wake.
 measurement — `SV_HACT` descriptors of at most `SV_HPX` pixels is an exact
 bound, so `SV_PTMAX` is their product and cannot be forced.
 
+#### 5.12.6 …so §5.6.7's three slots have NO BODY on a stock kernel
+
+**Every walker in the tree converted (§5.12.5), so `gfx_linit`, `gfx_lstep` and
+`gfx_lstepv` have no caller** — and the bodies are gone, behind `GFXWALK=1`.
+The three cells stay, because the table is offset-addressed and a slot number
+is a published constant (§20.3), and they answer **CF = 1**, which is what
+`gfx_blit1` on `kern_small` and `gfx_spans` already mean by it (§5.4.2).
+
+Four internals go with them — `gfx_ls_one`, `gfx_lstep_mono`, `gfx_lstep_slow`,
+`gfx_ls_adv` — and ten `.bss` words. **`gfx_ls_ink`, `gfx_ls_box` and
+`gfx_ls_addr` STAY**: `gfx_points` calls all three, which is §5.12.5's point
+seen from the kernel side — the six per-call concerns did not move, so the
+routines that answer them did not either.
+
+| | `.text` | `.bss` | |
+|---|---:|---:|---|
+| `kern_small` | **−493** | −20 | |
+| `kern_big` | **−597** | −20 | and it **uncrosses an image rung** — 512 bytes of every machine's RAM, back |
+
+**What it cost is in the apps and it is not resident**: ~240 bytes of image and
+a point list each, in four programs, only while one of them is running
+(§5.12.5.2). That is docs/plans/GFX-EMBEDDABLE-PLAN.md's whole premise made
+good rather than asserted — *duplicate code only used by apps that monopolise
+the machine anyway, instead of permanently spending kernel RAM on them* — and
+the programs got **faster** doing it.
+
+##### The refusal is only safe because every caller moved FIRST
+
+KERN-SMALL-CUT-PLAN §10 is the standing warning: a refusing stub is free only
+when the caller tests CF, and on the small floppies it mostly does not. A
+package that walked and ignored CF would get **no pixels** rather than wrong
+ones — a figure that is simply absent, which is the class of defect
+PERFORMANCE.md says an emulator cannot show. So the order was: convert all four
+walkers, land that, and only then take the bodies out.
+
+`GFXWALK=1` is what keeps the kernel path assembling and is the A/B
+PERFORMANCE.md Set 132 came off — `BAND=1`'s shape and for `BAND=1`'s reason.
+`tests/gfxbench`'s `kwalk` rows and `tests/linetest`'s walk fans need it, and
+both files say so at the top.
+
 ## 6. font.inc
 
 `font_init` runs **after** `vid_setmode` (§39.6): zero ES:BP, then int 10h

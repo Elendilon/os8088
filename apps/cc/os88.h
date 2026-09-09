@@ -122,8 +122,11 @@
  *     slot until it returns. The rules are the whole feature and none of them
  *     is checkable from C. (OSAPI_FULLSCREEN, the WINDOW latch of SPEC.md
  *     11.2, is a different thing and IS wrapped: os88_fullscreen() below.)
- *   OSAPI_GFX_LINIT / LSTEP / LSTEPV      a resumable Bresenham whose state
- *     block is explicitly not yours to read (SPEC.md 5.6.7).
+ *   OSAPI_GFX_LINIT / LSTEP / LSTEPV      RETIRED - a stock kernel carries the
+ *     three cells and no body and answers CF=1 (SPEC.md 5.12.6). The
+ *     resumable walk is apps/os88gfx.inc's `GFXE_WALK` now, which is NASM and
+ *     so out of C's reach; a C package that wants one writes the recurrence
+ *     itself and commits with os88_gfx_points().
  *   OSAPI_SYS_SNAPSHOT / CLAIM_SNAPSHOT / SYS_KB   buffer layouts that the
  *     kernel renumbers; for the Task Manager, not for applications.
  *   OSAPI_VOL_* / OSAPI_FS_* / OSAPI_DRV_CFG / OSAPI_FILE_*_SYS   fenced on

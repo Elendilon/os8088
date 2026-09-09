@@ -15,6 +15,13 @@
 ; that the Hercules column and the CGA column are the SAME measurement. It runs
 ; on VGA too, where it prices the planar path for contrast.
 ;
+; **THE `kwalk` ROWS NEED `GFXWALK=1`** (SPEC.md 5.12.6). A stock kernel has
+; carried gfx_linit/lstep/lstepv as three cells with no body since the
+; resumable walk moved into apps/os88gfx.inc, so on one those rows time a
+; `stc`/`ret` and the number is meaningless rather than merely small. They are
+; the kernel arm of PERFORMANCE.md Set 132 and the `aline`/`pts` rows beside
+; them are the app-side arm, which is what makes the knob worth having.
+;
 ;   make bench
 ;   make test VIDEO=herc HERCSEG=0x7000 TESTAPPS=build/bench.img
 ;   make test VIDEO=cga                 TESTAPPS=build/bench.img

@@ -641,7 +641,7 @@ Each is independently landable and each is a separate PR.
 | **3 ✅ DONE** | **`apps/os88gfx.inc`** — `GFXE_BAND` + `GFXE_LINE` (the Bresenham), **WIREFRAME** the first customer, and it is a **LIFT** rather than a new implementation (§8.2) | proves the lattice; **+18 bytes on the customer, ZERO kernel bytes** | none — the kernel is untouched, and `wirefps`/`wireflick` are the A/B that was already in the suite |
 | **4 ✅ DONE, RE-SCOPED** | **Paint's stroke stops calling `OSAPI_GFX_LINE`** (SPEC.md 42.23.8) — its screen half is a band out of the 1bpp canvas it already owns. The wave as WRITTEN could not be built and §8.3 says why | **13% off the screen half** (10,646 → 9,243 cycles, measured), +84 bytes of Paint, no kernel byte — and Paint off the `gfx_line` caller list, which is wave 8's first blocker | none — ten Paint rows pass, `tests/paintstroke.py` is the number |
 | **5 ✅ DONE** | `GFXE_WALK` + `GFX_POINTS` on **Cyclone, Missile, Tank and `SAVER.DRV`** — the plan named two and there are FOUR (§8.1.4.2) | **Missile −33.5%, Cyclone −9.2%** median, measured; ~1,117 bytes across four package images and 1,024 of their bss, no kernel byte | none — nine rows pass, and `tests/gfxewalk.py` is the one thing no picture can show |
-| **6** | gate `gfx_linit/lstep/lstepv` out of both kernels | **−537 / −641** | wave 5 is landed; what is left is `tests/linetest` and `tests/gfxbench`, which call the slots to MEASURE them |
+| **6 ✅ DONE** | gate `gfx_linit/lstep/lstepv` out of both kernels (SPEC.md 5.12.6), behind `GFXWALK=1` | **−513 / −617** measured, and `kern_big` **UNCROSSES AN IMAGE RUNG** — 512 bytes of every machine's RAM back | none — every walker moved in wave 5 first, which is the only thing that makes a refusing stub safe |
 | **7** | retire `gfx_pixel` → `GFX_POINTS` with `CX = 1`, and the fallback in `gfx_points` simplifies with it (§6.1) | 12 bytes + the fallback arm's | needs the six callers moved |
 | **8** | gate `gfx_line_fast`, `gfx_line_runs`, `gfx_lf_wide3` out of `kern_big`, then `gfx_line` itself | **−874**, then the remainder | needs waves 3, 4, 2 and Paint's stroke MEASURED against today's 13.03 ms chord |
 
@@ -968,6 +968,31 @@ also makes it **invisible**: break Cyclone's list down to four points and the
 picture is identical — 5,207 points either way — while the arrivals go
 133 → 1,317. `[gfxe_pflush]` counts them and `tests/gfxewalk.py` asserts 0,
 which is the one thing about this wave that no screenshot can show.
+
+## 8.5 Wave 6, as built — and the estimate was good to 4%
+
+`.text` **−493 / −597** and `.bss` **−20** either side, against the plan's
+−537 / −641 — the shortfall being that `gfx_ls_ink`, `gfx_ls_box` and
+`gfx_ls_addr` stay, which §8.1.1 already said they would. `kern_big`
+**uncrosses an image rung**, so the change is worth a further 512 bytes of
+every machine's RAM on top of the sum.
+
+**The order was the whole safety argument.** KERN-SMALL-CUT-PLAN §10 is the
+standing finding that a refusing stub is only free when the caller tests CF,
+and on the small floppies it mostly does not — a package that walked and
+ignored CF would get **no pixels rather than wrong ones**, which is exactly the
+class of defect an emulator cannot show. So wave 5 converted all four walkers
+and landed; only then did the bodies go.
+
+`GFXWALK=1` compiles them back, which is `BAND=1`'s shape and for `BAND=1`'s
+reason: it is the only thing keeping the kernel path assembling, and it is the
+A/B PERFORMANCE.md Set 132 came off. Two instruments need it — `tests/gfxbench`'s
+`kwalk` rows and `tests/linetest`'s walk fans — and both say so at the top of
+the file, because a bench row that times a `stc`/`ret` reports a number rather
+than an error.
+
+`apps/cc/os88.h`'s not-wrapped list carried these three under *"a state block
+explicitly not yours to read"*; the reason has changed and so has the entry.
 
 ## 9. What is NOT settled — evidence still owed
 

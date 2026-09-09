@@ -8,6 +8,13 @@
 ; framebuffer dump compared BYTE FOR BYTE against the same fan drawn by a
 ; kernel built without the change.
 ;
+; **THE WALK ARMS NEED `GFXWALK=1`** (SPEC.md 5.12.6). A stock kernel has
+; carried the three cells and no body since the resumable walk moved into
+; apps/os88gfx.inc, so lt_vecfan and the chunked scalar fan draw NOTHING on
+; one - the slots answer CF=1. `make GFXWALK=1 ...` is the kernel this half
+; of the file is about. The DILATED fan (5.6.6), which is what this package
+; was built for, is gfx_line's and needs no knob.
+;
 ;   make bench   (or just: make test ... TESTAPPS=build/linetest.img)
 ;   make test VIDEO=herc HERCSEG=0x7000 TESTAPPS=build/linetest.img
 ;   ...launch it, then
