@@ -102229,8 +102229,11 @@ so a two-segment object pays the row walk twice where it paid once.
 This is §88.3.2's refusal re-derived from the other end. That one measured a
 wireframe tower's 32 segments and lost by 45 ms; this one is the friendliest
 possible case — ONE object, TWO segments, a box the size of the view and ink a
-few bytes wide — and it still loses. **The mark is per object and off its box,
-and that is settled.**
+few bytes wide — and it still loses. **The mark is per object and off its
+box** — for everything but a thin diagonal, which §88.3.2.3 has since made
+step instead, at −1.7 to −6.1 ms and NEUTRAL on this very profile. What is
+settled is the PASS, not the mark: sixteen bands with a divide and a call each
+lose; one `add` a row inside the loop that was already walking them does not.
 
 ##### 88.3.2.2 THE BLIT CARRIES 21x WHAT CHANGED — scored against the glass itself
 
@@ -102339,6 +102342,73 @@ with two photographs, it is sporadic, and the field's own account is that it
 **persists until an object draws over it**. What is now known is that a
 scripted 30-frame roll through both of §88.4.1's forms does not reach it, so
 whatever triggers it is not the bank alone.
+
+##### 88.3.2.3 BUILT — the mark that STEPS, and §88.3.2.1's refusal was of the wrong shape
+
+§88.3.2.2 measured the waste and named `cs_seg` as where it comes from: a
+clipped segment marks `min/max` of its two ENDS in x and in y, so a diagonal
+marks its whole rectangle. `cs_markstep` marks each row's OWN interval
+instead.
+
+**It is not §88.3.2.1's banded pass.** That was sixteen bands, a separate walk
+with its own divide and call per band, and it lost by 2.9 ms. This is one
+`add` a row inside a loop that already reads, compares and writes a pair — the
+byte column is MONOTONIC along a segment, so a row's interval is the column at
+its top edge and the column at the next row's, and an 8.8 accumulator stepped
+once a row gives both. One divide per SEGMENT, not per band.
+
+**A gate decides, from two numbers already in registers**: a segment shorter
+than `CS_MKD_ROWS` = 8 rows or narrower than `CS_MKD_PX` = 64 pixels has a
+tight box already. That is what keeps §88.3.2's refusal intact — a wireframe
+tower's thirty-two near-vertical edges fail the pixel test and keep the box
+they always had.
+
+**Measured, one build, one flight, a poke apart** (`--nostep` on
+`tests/skiesprof.py`, `slightbank`, 16 flown frames, Hercules):
+
+| held roll | frame, box | frame, STEPPED | delta | `cs_blit` | bytes CARRIED |
+|---|---|---|---|---|---|
+| 0° | 150.3 ms | 151.8 | +1.5 (noise) | 5.44 → 5.49 | 265 → 265 |
+| 5° | 186.0 | **184.3** | **−1.7** | 16.33 → **14.58** | 1,919 → **482** |
+| 12° | 214.0 | **210.3** | **−3.7** | 23.17 → **18.62** | 2,997 → **1,458** |
+| 20° | 257.1 | **251.0** | **−6.1** | 30.20 → **23.56** | 4,248 → **1,588** |
+| 45° `turnhold` | 241.0 | 241.2 | +0.2 (neutral) | 27.55 → 26.52 | — |
+
+**`cs_blit` falls 11 to 22% and the frame 1 to 6 ms**, and — the part that
+matters against §88.3.2.1 — **`turnhold` is NEUTRAL**, where the banded pass
+was 2.9 ms slower. The marking cost shows up where it should, `cs_scene`
++0.8 to +1.2 ms, and is paid back three to five times over.
+
+**243 bytes of `.text` and 3 of `.bss`**, and the region claim does not move.
+`cs_mknostep` is the A/B: set it and a thin diagonal's mark goes back on its
+box.
+
+###### 88.3.2.3.1 THE SLOP IS NOT A ROUNDING FUDGE — it is what the gate measured
+
+The interval is widened `CS_MKD_SLOP` = 3 bytes each side, and the ends are
+pulled 3 inside the view first so the widening can never name a byte outside
+it. Both halves are load-bearing and both were found by
+`tests/skiesstale.py` rather than reasoned out:
+
+- **Without any slop, 232 rows a run go stale.** The 8.8 divide truncates,
+  and `cs_seg`'s own Bresenham does not put a row's pixel where that row's top
+  edge is; at one byte each side it is 22 rows, at three it is **0**.
+- **Widening WITHOUT the inward pull is worse than not widening at all** — 442
+  rows — because a low byte of 15 widened to 11 is fine but one widened past
+  zero reads **0xFF**, which is the span set's EMPTY sentinel: the row then
+  says *nothing was drawn here* and the blit skips it entirely.
+
+Three bytes each side against a mark that was 39 bytes a row too wide is a
+trade at ~15 to 1, and it is what makes the row's interval provably a
+superset of its ink rather than an argument about a divide.
+
+**And the register discipline is the other half of the lesson.** At the call
+site AX and CX are the segment's x's, BX and DX its y's, SI and DI the ordered
+rows — every one of them wanted. The first draft measured the row span into
+AX, which is x1, and the marks landed somewhere else entirely: **433 stale
+rows in one 25-second run**. An under-mark IS a stale byte, so §88.3.1.1.3's
+gate is this change's correctness net as well as its own, which is why it was
+built first.
 
 #### 88.3.3 The blit looks only at the rows anything marked
 

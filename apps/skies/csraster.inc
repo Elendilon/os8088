@@ -1699,6 +1699,175 @@ cs_markacc:
     pop ax
     ret
 
+; -----------------------------------------------------------------------------
+; cs_markstep - AX/BX and CX/DX are a CLIPPED segment's two ends: widen each
+;               row's OWN span by the bytes the segment covers on THAT row,
+;               where cs_markacc hands every row of the box to cs_markrows
+;               (SPEC.md 88.3.2.2)
+; preserves AX, BX, CX, DX
+;
+; The byte column is MONOTONIC along a segment, so a row's interval is the
+; column at its top edge and the column at the next row's - one 8.8
+; accumulator and one `add` a row on a loop that reads, compares and writes a
+; pair anyway. That is ~26 cycles a row more than cs_markrows' body, against
+; a blit that carries 4.5 cycles a byte and was being given the whole box.
+;
+; THE ENDS ARE PULLED A BYTE INSIDE THE VIEW FIRST, once, and the interval is
+; then widened a byte on the side the truncating divide can lag. Without that
+; pull a widened span can name a byte OUTSIDE the view - and cs_hzrows' erase
+; arm takes the span at its word, so it would lay a sky or ground byte into
+; the border and the blit would carry it.
+; -----------------------------------------------------------------------------
+CS_MKD_ROWS equ 8               ; a segment shallower than this has a tight
+CS_MKD_PX   equ 64              ; box already, and so has a narrower one
+CS_MKD_SLOP equ 3               ; bytes either side of the stepped interval,
+                                ; and the ends are pulled this far inside the
+                                ; view so the widening can never name a byte
+                                ; outside it - which cs_hzrows' erase arm
+                                ; would lay a pattern byte into, and 0xFF is
+                                ; the EMPTY sentinel besides
+cs_markstep:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    cmp bx, dx                      ; the TOP end first
+    jle .ord
+    xchg ax, cx
+    xchg bx, dx
+.ord:
+    mov si, [cs_spcur]              ; the set's row range takes the segment,
+    cmp bx, [si - 4]                ; which is what cs_markrows would have
+    jge .r0                         ; done for it (88.3.3.1)
+    mov [si - 4], bx
+.r0:
+    cmp dx, [si - 2]
+    jle .r1
+    mov [si - 2], dx
+.r1:
+    mov di, dx
+    sub di, bx                      ; DI = dy, at least CS_MKD_ROWS
+    mov bp, cx                      ; the two ends as BYTES
+    mov cl, [cs_kshift]
+    shr ax, cl
+    shr bp, cl
+    mov cl, [cs_wb0]                ; ...pulled CS_MKD_SLOP inside the view
+    xor ch, ch
+    add cx, CS_MKD_SLOP
+    cmp ax, cx
+    jge .l0
+    mov ax, cx
+.l0:
+    cmp bp, cx
+    jge .l1
+    mov bp, cx
+.l1:
+    mov cl, [cs_wb0]
+    add cl, [cs_wbn]
+    sub cl, CS_MKD_SLOP + 1
+    cmp ax, cx
+    jle .h0
+    mov ax, cx
+.h0:
+    cmp bp, cx
+    jle .h1
+    mov bp, cx
+.h1:
+    mov [cs_mkb2], bp               ; the BOTTOM end's byte, kept exact: the
+                                    ; accumulator is truncated at every step
+                                    ; and a shallow segment's last row is a
+                                    ; whole step wide, so stepping into it
+                                    ; under-marks by up to that
+    sub bp, ax                      ; BP = the byte span, signed, |BP| < 128
+    mov cx, ax                      ; CX = the top end's byte
+    mov ax, bp
+    mov ah, al
+    xor al, al                      ; AX = the span << 8, exact for |BP| < 128
+    cwd
+    idiv di                         ; AX = the step a row, 8.8 signed
+    mov si, ax
+    mov dh, cl
+    xor dl, dl                      ; DX = the top byte, 8.8
+    mov cx, di                      ; CX = dy rows stepped...
+    mov di, bx
+    shl di, 1
+    add di, [cs_spcur]              ; DI -> the top row's pair
+    or si, si
+    js .neg
+.pos:                               ; the column RISES down the segment
+    mov bl, dh
+    add dx, si
+    mov bh, dh
+    sub bl, CS_MKD_SLOP             ; SLOP EITHER SIDE, and both sides need it:
+    add bh, CS_MKD_SLOP             ; the divide truncates, and cs_seg's own
+                                    ; Bresenham does not put a row's pixel
+                                    ; exactly where the row's top edge is.
+                                    ; The ends were pulled one inside the view
+                                    ; above so neither can leave it
+    mov ax, [di]
+    cmp al, bl
+    jbe .p1
+    mov al, bl
+.p1:
+    cmp ah, bh
+    jae .p2
+    mov ah, bh
+.p2:
+    mov [di], ax
+    inc di
+    inc di
+    LOOPF .pos
+    jmp short .last
+.neg:                               ; ...or FALLS down it
+    mov bh, dh
+    add dx, si
+    mov bl, dh
+    sub bl, CS_MKD_SLOP
+    add bh, CS_MKD_SLOP
+    mov ax, [di]
+    cmp al, bl
+    jbe .n1
+    mov al, bl
+.n1:
+    cmp ah, bh
+    jae .n2
+    mov ah, bh
+.n2:
+    mov [di], ax
+    inc di
+    inc di
+    LOOPF .neg
+.last:                              ; the row the segment ENDS on: from where
+    mov bl, dh                      ; the accumulator got to, to the end's
+    mov bh, [cs_mkb2]               ; TRUE byte - which is the whole of that
+    cmp bl, bh                      ; row's ink and no more
+    jbe .z0
+    xchg bl, bh
+.z0:
+    sub bl, CS_MKD_SLOP
+    add bh, CS_MKD_SLOP
+    mov ax, [di]
+    cmp al, bl
+    jbe .z1
+    mov al, bl
+.z1:
+    cmp ah, bh
+    jae .z2
+    mov ah, bh
+.z2:
+    mov [di], ax
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ; cs_inkpat - AL = an ink; out SI = its four pattern bytes
 cs_inkpat:
     xor ah, ah
@@ -2963,7 +3132,37 @@ cs_seg:
     xchg si, di
 .mk:
     cmp byte [cs_ownmk], 0          ; the scene's segments go into their
-    je .acc                         ; object's box, marked once (88.3.2);
+    jne .own                        ; object's box, marked once (88.3.2);
+    ; --- ...UNLESS IT IS A THIN DIAGONAL (SPEC.md 88.3.2.2) ---------------
+    ; A box is the wrong shape for a diagonal and the waste is measured: at
+    ; 12 degrees of bank THE SEINE lights 495 pixels and its box is 52 rows
+    ; of 46 bytes. The gate is the two numbers already to hand - a segment
+    ; that is shallow in ROWS or narrow in BYTES has a tight box already,
+    ; and only one long in BOTH is worth a walk of its own. The tower's
+    ; thirty-two near-vertical edges fail the byte test, which is what
+    ; 88.3.2 refused per-segment marking over.
+    ; BP IS THE ONLY REGISTER FREE HERE and that is the whole shape of the
+    ; test: AX and CX are the segment's x's, BX and DX its y's, SI and DI the
+    ; ordered rows, and cs_markstep needs every one of them. The first draft
+    ; measured the row span into AX, which is x1, and the marks landed
+    ; somewhere else entirely - caught by tests/skiesstale.py in one run,
+    ; 433 stale rows, because an under-mark IS a stale byte.
+    mov bp, di
+    sub bp, si
+    cmp bp, CS_MKD_ROWS
+    jb .acc
+    mov bp, cx                      ; the width in PIXELS: a byte compare
+    sub bp, ax                      ; would want a register there is not one
+    jge .g0                         ; of
+    neg bp
+.g0:
+    cmp bp, CS_MKD_PX
+    jb .acc
+    cmp byte [cs_mknostep], 0       ; the A/B, and the box mark is what
+    jne .acc                        ; shipped before 88.3.2.2
+    call cs_markstep
+    jmp short .mk1
+.own:
     call cs_markrows                ; the panel's mark their own rows
     jmp short .mk1
 .acc:

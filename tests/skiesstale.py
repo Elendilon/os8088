@@ -49,6 +49,9 @@ def main(argv):
     ap.add_argument("--machine", default="os8088_5150_herc_gla")
     ap.add_argument("--image", default="build/os8088-360.img")
     ap.add_argument("--apps", default="build/apps360.img")
+    ap.add_argument("--nostep", action="store_true",
+                    help="poke cs_mknostep: a thin diagonal's mark goes back "
+                         "on its BOX (SPEC.md 88.3.2.2's A/B)")
     ap.add_argument("--clobber", action="store_true",
                     help="hold cs_hzsides at cs_hzl, which is the behaviour "
                          "before 88.3.1.1.3 - this row must then FAIL")
@@ -103,6 +106,8 @@ def main(argv):
                          .to_bytes(2, "little"))
                     poke("cs_state", b"\x01")
                     poke("cs_thr", (100).to_bytes(2, "little"))
+                if a.nostep:
+                    poke("cs_mknostep", b"\x01")
                 r = START + STEP * frames[0]
                 poke("cs_roll", (int(r * 65536 / 360) & 0xFFFF)
                      .to_bytes(2, "little"))

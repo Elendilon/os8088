@@ -270,6 +270,9 @@ def main(argv):
                          "one scene from one place, so the only honest "
                          "control for a rolled frame is the SAME scene "
                          "level (SPEC.md 88.3.1.3.5)")
+    ap.add_argument("--nostep", type=int, default=None, choices=(0, 1),
+                    help="poke cs_mknostep: 1 puts a thin diagonal's mark "
+                         "back on its BOX (SPEC.md 88.3.2.2's A/B)")
     ap.add_argument("--csv", help="write the per-frame table here")
     a = ap.parse_args(argv)
     os.chdir(ROOT)
@@ -358,6 +361,8 @@ def main(argv):
         poke("cs_thr", P["thr"].to_bytes(2, "little"))
         if a.hzfull is not None:
             poke("cs_hzfull", bytes([a.hzfull]))
+        if a.nostep is not None:
+            poke("cs_mknostep", bytes([a.nostep]))
         if P["pos"] is None:            # the runway start: it is ON the strip
             poke("cs_pitch", ((P["pitch"] * 65536 // 360) & 0xFFFF)
                  .to_bytes(2, "little"))

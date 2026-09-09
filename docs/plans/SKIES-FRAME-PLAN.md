@@ -882,8 +882,13 @@ line below is measurement and documents.
   interpolated. Not 88.3.2.1's banded PASS. Its unit costs are the bar:
   ~50 cycles a row to mark, ~4.5 a byte to carry, 11 bytes a row to break
   even; the mark is ~39 bytes a row wide where the ink is under 2.
-- **C. Then re-price what B unlocks** - 7.1.8's narrow fill (break-even
-  "under 16 bytes of the 50", today's union 31) and 7.1.12's cache.
+- **C. Then re-price what B unlocks** - 7.1.8's narrow fill and 7.1.12's
+  cache. **B has moved the number both were refused on**: the narrow fill
+  pays "when the union is under 16 bytes of the 50" and the mean span was 31
+  BECAUSE the mark was a box; carried is now 1,458 bytes over ~93 rows at 12
+  degrees, which is 16 - the break-even exactly. That makes C a measurement
+  rather than a prediction, and the cache's population is set by the same
+  marks.
 
 **The instruments, all host-side and none registered yet** (they live in a
 scratch directory; 7.1.13 says the one worth registering):

@@ -2409,6 +2409,12 @@ cs_hand equ os88_image_end      ; THE HANDOFF IS THE FIRST THING IN THE BSS,
     ZBYTE cs_pinside                ; ...no vertex can be past a side (88.5.7)
     ZBYTE cs_pwhole                 ; ...nor behind the near plane: WHOLE, its
                                     ; box off its vertices (88.3.2)
+    ZWORD cs_mkb2                   ; cs_markstep's bottom end, kept exact - a
+                                    ; WORD because the store is `mov [x], bp`
+                                    ; and a byte one would write the neighbour
+    ZBYTE cs_mknostep               ; set to put a thin diagonal's mark back on
+                                    ; its BOX, which is what shipped before
+                                    ; SPEC.md 88.3.2.2 - the A/B, poked
     ZBYTE cs_pinview                ; ...and that box inside the view
     ZWORD cs_obx0                   ; a whole object's projected x range
     ZWORD cs_obx1
