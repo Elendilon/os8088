@@ -22676,6 +22676,47 @@ bottom inside the content. A golden rect would be a window size written down;
 this is arithmetic the table already carries, and it goes red on a bar height
 one pixel out.
 
+#### 13.16.2.1 The tick is a SOLID SQUARE, and `os88ui_chk` already knew
+
+A checked item's mark was two `OSAPI_GFX_LINE` calls — a short down-stroke and
+a long up-stroke, the shape of a hand-drawn tick. **It is one `gfx_fill` of a
+5×5 square now**, `OS88UI_MN_CKX`/`CKY`/`CKW`, centred in the 8-pixel check
+column and on the 8-pixel glyph row.
+
+**The argument was written in this file eight hundred lines earlier and nobody
+had joined it up.** §13.15's `os88ui_chk` draws its own mark as a solid square
+and says why in a comment: *"which reads on one bit as a tick does not"*. §39.4
+is the reason — grey rounds to black and a thin diagonal is single scattered
+pixels on both 1bpp adapters, which are the machines this OS is for. Photographed
+on a Hercules, the two marks side by side:
+
+```
+      before (two gfx_line)        after (one gfx_fill)
+      ......#.##..##.##.###        .#####..##..##.##.###
+      .....#..##..##..###.#        .#####..##..##..###.#
+      .#..#...##..##..##..#        .#####..##..##..##..#
+      .#.#....##.##...##...        .#####..##.##...##...
+      ..#....#####...####..        .#####.#####...####..
+```
+
+**It is also cheaper, though that is not why it was taken.** Two short
+`gfx_line` calls are **~1,972 µs** on the target machine — PERFORMANCE.md Set
+132 measures a short line at 986 µs a call, *"because a short line is its own
+fixed part and almost nothing else"* — against roughly 800 for one fill. A menu
+is drawn once and then sits there until somebody interacts with it, so the
+milliseconds decide nothing here; **the form does**, and the form happens to be
+the faster one as well.
+
+**The pen needs no handling.** `gfx_pen_cf` has already put CBLACK or CDGRAY in
+`[gfx_color]` for the row (§47 rule 1), and a fill reads the same word the line
+did, so the greying carries over unchanged.
+
+It costs **−27 bytes** in the one package that uses this element, and no kernel
+byte: the whole menu block is `%ifdef OS88UI_MENU` and `apps/word` is its only
+definer (§6.2 of docs/plans/GFX-EMBEDDABLE-PLAN.md). It also takes
+`apps/os88ui.inc` to **zero `OSAPI_GFX_LINE` call sites**, which is one of the
+conversions that plan's wave 8 needs.
+
 #### 13.16.3 …and the drawing and the hit test
 
 Wave 2: `os88ui_mnbar`, `os88ui_mntxor`, `os88ui_mntitler`, `os88ui_mndraw`,

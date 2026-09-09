@@ -3538,6 +3538,9 @@ OS88UI_MN_WIN    equ 14
 OS88UI_MN_OPEN   equ 16
 OS88UI_MN_HOT    equ 17
 OS88UI_MN_INK    equ 18
+OS88UI_MN_CKX    equ 2           ; SPEC.md 13.16.2: the tick column's mark -
+OS88UI_MN_CKY    equ 3           ; a solid square, centred in the 8px column
+OS88UI_MN_CKW    equ 5           ; and on the 8px glyph row, os88ui_chk's size
 OS88UI_MN_MRECT  equ 20
 OS88UI_MN_ABOX   equ 28
 OS88UI_MN_SEG    equ 36
@@ -3973,25 +3976,15 @@ os88ui_mndraw:
 .chkd:
     pop bx
     jnc .nochk
-    mov ax, [ds:bp+OS88UI_MN_MRECT]
-    add ax, 2
-    mov bx, di
-    add bx, 5
-    mov cx, [ds:bp+OS88UI_MN_MRECT]
-    add cx, 3
-    mov dx, di
-    add dx, 7
-    push si
-    xor si, si
-    call OSAPI_GFX_LINE             ; the check's short down-stroke...
-    mov ax, cx
-    mov bx, dx
-    mov cx, [ds:bp+OS88UI_MN_MRECT]
-    add cx, 7
-    mov dx, di
-    add dx, 3
-    call OSAPI_GFX_LINE             ; ...and its long up-stroke
-    pop si
+    mov ax, [ds:bp+OS88UI_MN_MRECT]     ; A SOLID SQUARE, not a tick
+    add ax, OS88UI_MN_CKX              ; (SPEC.md 13.16.2) - os88ui_chk's own
+    mov bx, di                         ; mark and its own reason, which is that
+    add bx, OS88UI_MN_CKY              ; a thin diagonal READS AS NOISE on the
+    mov cx, ax                         ; two 1bpp adapters this OS is for
+    add cx, OS88UI_MN_CKW - 1          ; (SPEC.md 39.4). The pen is already the
+    mov dx, bx                         ; row's - gfx_pen_cf set [gfx_color] to
+    add dx, OS88UI_MN_CKW - 1          ; CBLACK or CDGRAY above - so a fill
+    UI_FILL                            ; inherits the greying for free
 .nochk:
     ; the label
     mov cx, [ds:bp+OS88UI_MN_MRECT]

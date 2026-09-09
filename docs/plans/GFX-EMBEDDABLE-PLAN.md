@@ -1170,6 +1170,72 @@ one converts:
   cword one byte over its 61,440 budget, and reverted once that was noticed —
   the right outcome twice over.
 
+## 8.8 FOLLOW-ON, not this plan's: the two shared controls do not agree
+
+Wave 2 turned up something that belongs to whoever next touches
+`apps/os88ui.inc` rather than to the graphics library, and it is recorded here
+because this is where the measurement was taken.
+
+**`os88ui.inc` carries TWO check boxes that look nothing like each other.**
+
+| | what it draws | how |
+|---|---|---|
+| `os88ui_chk` (§13.15) — `apps/skies` opts in | a frame, and the mark is **a solid square** | three `gfx_fill`/`gfx_frame` calls, no data at all |
+| `os88ui_glyph` (§13.x) — the Control Panel's | a 12×12 box with an **X** in it | four bitmaps, a masked-sprite pass, and a 44–64-call per-pixel fallback |
+
+The owner's reading is that the first is much better on the glass, and
+`os88ui_chk`'s own comment already carries the argument — *"a solid square …
+which reads on one bit as a tick does not"*. §39.4 is why: grey rounds to black
+and a thin diagonal reads as noise on both 1bpp adapters, which are the machines
+this OS is for.
+
+### 8.8.1 What it costs today, measured
+
+Per copy, from the kernel's own listing (`.cold`, `kern_big`):
+
+| | bytes |
+|---|---:|
+| `os88ui_glyph` | 244 |
+| `os88ui_gdn` | 20 |
+| `os88ui_glyph_f` (the far entry) | 27 |
+| `os88ui_grec` + `os88ui_grec_d` (the sprite record and its staging) | 50 |
+| four 12×12 bitmaps (`_roff`, `_ron`, `_coff`, `_con`) | 96 |
+| **total** | **437** |
+
+**And the kernel is one copy of twenty-seven.** The block is inside
+`%ifndef OS88UI_NOBTN`, and 26 of the 33 files that include `os88ui.inc` do not
+opt out — so the same 437 bytes sit in twenty-six package images as well as in
+the kernel's `.cold`.
+
+### 8.8.2 What a conversion might return — ESTIMATE, and the shape of the doubt
+
+**If only the CHECK boxes convert**: the two check bitmaps go (−48) and a
+frame-and-fill arm arrives (+30 to +50), while the sprite path, the record and
+the per-pixel fallback all stay for the radio. **Net ≈ zero.** Not worth doing
+for bytes, only for the look.
+
+**If the RADIO converts too**: all four bitmaps (−96), the record and its
+staging (−50), and most of `os88ui_glyph` — the sprite pass and the `.gpix`
+per-pixel loop both exist only to put a *bitmap* on the screen. Call it
+**−200 to −300 of `.cold` per copy**, which is `KERN_SIZE` and the cold rung
+rather than `KERN_BUDGET`, plus the same again in twenty-six package images.
+
+**The doubt is the radio, and it is a look question rather than a size one.** A
+radio is a circle with a dot, and §39.4 says a ring is dotted on 1bpp — so it is
+already the glyph that renders worst. What it becomes in a fill-drawn scheme (a
+diamond? a smaller square? a frame with a different inset?) is the owner's call,
+and the byte figure above is worth exactly as much as that decision.
+
+**And it would retire wave 7's one refusal.** §8.7 declined to convert
+`os88ui_glyph`'s `.gpix` loop — the biggest pixel loop in the tree, 44–64 far
+calls for one glyph — because a 12×12 point buffer is 576 bytes in each of ~25
+packages. A mark drawn with fills needs no buffer, so the same change deletes
+the loop instead of feeding it.
+
+**This is an estimate against a measured base, not a measurement.** The honest
+figure comes from building it; §10's method (per-symbol map, reconciled against
+the section lengths) is how, and the 437 above already came off it.
+
 ## 9. What is NOT settled — evidence still owed
 
 1. **§4.2's layering claim is a design claim, not a measurement.** *"`GFXE_WALK`
