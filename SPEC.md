@@ -101878,12 +101878,15 @@ to walk:
 **`cs_skyground` is LINEAR in split rows and in nothing else** — least squares
 over the eight puts it at **8.19 ms + 0.306 ms a split row**, every point
 within 1.3 ms, and 0.306 ms is **1,462 cycles**, which is §88.3.1.2's split-row
-fill (1,421) to 3%. There is no bank *mode*: a roll costs exactly the rows it
-splits, and it saturates at ~26° because the band has crossed the whole view.
-So a 5° bank is **20% of the view refilled whole every frame** and 15.89 ms
-against level's 8.73 — real, and 6 ms of a **185.9 ms** frame (`--tier 2`),
-which is **3.9%**. At slight bank this frame is not horizon-bound; it is
-`cs_scene` at 72.1%.
+fill (1,421) to 3%. There is no bank *mode* in this stage: a roll costs exactly
+the rows it splits, and it saturates at ~26° because the band has crossed the
+whole view. So a 5° bank is **20% of the view refilled whole every frame**,
+15.89 ms against level's 8.73.
+
+**Do NOT read that 7 ms as what the bank costs the frame** — one stage against
+itself is not a control, and §88.3.1.3.5 takes the real one: the same scene
+level is **151.8 ms** and at 5° **186.0**, so the bank costs **34.2 ms** and
+this stage is a quarter of it.
 
 **And the cache is empty exactly where it was hoped for.** A split row is
 skippable when the crossing byte has not moved and nothing drew on the row —
@@ -101978,11 +101981,85 @@ because a split row is an *occupied* row.
 
 **Where that leaves it.** The cache alone, behind the attitude gate, is worth
 **−0.17 ms at 5°, +2.5 at 12° and +4.5 at 20°**, on held frames, for ~100
-bytes and a second path through the band. Pairing it with a marking change
-cannot beat the DROPPED column and §88.3.2.1 measured the marking pass at
-**+2.9 ms**, so the pair is net negative. **Not built**: it is worth nothing at
-the angle it was asked about, and at slight bank this frame is `cs_scene` at
-72.1% against the horizon's 8.9%.
+bytes and a second path through the band. **Not built as a cache** — but read
+§88.3.1.3.5 before concluding anything from that, because it takes the control
+this section did not (the same scene LEVEL) and finds the cache is a quarter of
+what a bank costs, that the field's "slight" bank is 12° and not 5, and that
+one object's mark goes from **2 rows to 52** across it. The refusal above is
+the cache's; it is not a refusal of tightening the mark, which is the thing all
+four refusals in this family turn out to rest on.
+
+###### 88.3.1.3.5 WHAT A BANK ACTUALLY COSTS — one object's BOX goes 2 rows to 52
+
+§88.3.1.3.4 measured `cs_skyground` across a roll sweep and read its 8.73 →
+15.89 as *what 5° costs*. **That was the wrong control** — one stage against
+itself is not a frame — and the field said so: a slight bank *feels* like a
+different machine and 7 ms of 186 cannot be it. `--roll` overrides a profile's
+bank and changes nothing else, so the honest control is the SAME scene from
+the SAME place level. `slightbank`, tier 2, 16 flown frames each:
+
+| | roll 0° | roll 5° | delta |
+|---|---|---|---|
+| **frame** | **151.8 ms (6.59 fps)** | **186.0 ms (5.38 fps)** | **+34.2 (+23%)** |
+| `cs_skyground` | 7.33 | 16.48 | +9.15 — **27%** |
+| `cs_blit` | 5.49 | 16.33 | **+10.84 — 32%** |
+| `cs_scene` | 122.19 | 134.00 | **+11.81 — 35%** |
+| the vertex pipeline | 37.6 | 37.5 | **−0.1** |
+
+**The horizon is a quarter of it**, and the pipeline that does the rotating
+does not move at all — a rotation costs the same whatever the angle.
+
+**AND "SLIGHTLY BANKED" IS NOT 5°.** The horizon's screen slope is
+tan(roll) × scly/sclx (§88.4.1), so a photograph gives the bank exactly: the
+field's own frame drops **54 rows over 398 pixels**, which is **11.9°** — and
+at that angle the horizon crosses **55 of the view's 112 rows**. A tilt one
+would call barely perceptible is half the view.
+
+**WHERE IT GOES IS ONE OBJECT'S BOUNDING BOX.** Every `cs_markrows` call of
+one settled frame, named from its object record, the same scene level and at
+the field's angle:
+
+| what marks | level | at 12° |
+|---|---|---|
+| **THE SEINE** | **2 rows** × 48 bytes | **52 rows** × 46 bytes |
+| MONTMARTRE | 6 rows × 17 | 18 rows × 16 |
+| LES INVALIDES | 18 rows × 3 | 19 rows × 4 |
+| rows the horizon splits | **1** | **55** |
+| **rows carried by NOTHING** | **94 of 112** | **52 of 112** |
+| split rows nothing drew on | 0 | 7 |
+
+**One object goes from marking two rows to marking fifty-two.** `cs_m_axis`
+is the Seine: a 400-pixel-wide ribbon two rows thick at level, and rotating a
+wide thin thing by 12° gives a **box** 55 rows tall while its **ink** stays two
+rows thick. `cs_markrows` marks the box (§88.3.2), so `cs_blit` then carries
+the whole wedge — which is what `tools`' overlay of the span set on the frame
+shows as a red block over a picture that is a thin diagonal and a spire.
+
+**So the field's premise is right and this is the shape of it**: a roll turns
+WIDTH into ROWS, every layer here is priced per row, and what actually grows
+is the bounding boxes rather than the ink. `cs_poly` walks more rows,
+`cs_edges` walks more rows, `cs_markrows` marks more rows off a taller box,
+`cs_blit` carries them, and `cs_skyground` refills every row the horizon now
+crosses.
+
+**AND IT COUPLES THE THREE REFUSALS INTO ONE WALL.** Each was refused on its
+own and each was refused BECAUSE OF ANOTHER:
+
+1. §88.3.1.1.2's **narrow fill** loses because it "pays exactly when the union
+   is under 16 bytes of the 50" and the mean span is 31.
+2. The mean span is 31 **because a mark is a box** (§88.3.2.1).
+3. §88.3.2.1's **banded marks** lose because a tighter mark only buys
+   `cs_blit` bytes at 4.5 cycles each — it was priced against the blit alone.
+4. §88.3.1.3.4's **row cache** finds nothing because a row with any ink on it
+   must be refilled to erase last frame's — and the box says every band row
+   has ink.
+
+**The load-bearing brick is the box**, and the Seine at 2 → 52 rows is a case
+26× more extreme than the 45° `turnhold` frame §88.3.2.1 was measured on. That
+refusal should not be inherited at slight bank without being re-measured
+there, and if a mark became tight then item 1 flips with it: a tight union on
+these rows is single-digit bytes, well under its own 16-byte break-even. **The
+pair has never been measured; neither half is worth building alone.**
 
 #### 88.3.6 cs_blit's row: 490 cycles of fixed cost against 40-49 a word
 

@@ -188,18 +188,16 @@ PROFILES = {
              "kilometres across has an enormous one - it measured 0 of 112 "
              "rows object-free, same as turnhold, with WIDER spans"),
     "slightbank": dict(
-        pos=(150, 33, -2000), hdg=30, pitch=0, roll=5, thr=100, spd=60,
+        pos=(150, 33, -2000), hdg=30, pitch=0, roll=12, thr=100, spd=60,
         hold=True,
-        what="LOW and BARELY BANKED - 33 m (the panel's 108 FEET) over the "
-             "Champ de Mars with 5 degrees of roll HELD, the tower filling "
-             "the view ahead. The third case 88.3.1.3.2 never measured, and "
-             "the answer is that there is no bank MODE: cs_skyground is "
-             "LINEAR in split rows (8.19 ms + 0.306 a row), so 5 degrees "
-             "splits 23 of 112 and costs 15.89 against level's 8.73 - 6 ms "
-             "of a 185.9 ms frame that is cs_scene at 72%. And the cache's "
-             "population here is ZERO: one ground object's box is 94% of the "
-             "view's width and covers the whole band, where the TOWER marks "
-             "four bytes of fifty (88.3.1.3.4)"),
+        what="LOW and BARELY BANKED - 33 m (the panel's 108 FEET) at 117 "
+             "knots over Paris, the tower a spire ON THE HORIZON and the sky "
+             "above it empty, banked 12 degrees and HELD. THE ANGLE IS THE "
+             "FIELD'S OWN, derived from its screenshot rather than guessed: "
+             "the horizon's screen slope is tan(roll) x scly/sclx (88.4.1), "
+             "and 54 rows of drop over 398 px is 11.9 degrees. That is what "
+             "a barely-perceptible tilt is - HALF THE VIEW'S ROWS split "
+             "(88.3.1.3.5). Use --roll to walk it; 0 is the control"),
     "climb": dict(
         pos=None, hdg=None, pitch=8, roll=0, thr=100, spd=40,
         what="full throttle from where cs_reset puts it on the Issy runway: "
@@ -266,10 +264,18 @@ def main(argv):
     ap.add_argument("--hzfull", type=int, default=None, choices=(0, 1),
                     help="poke cs_hzfull: 1 puts the rolled horizon back on "
                          "the whole-row refill (SPEC.md 88.3.1.1's A/B)")
+    ap.add_argument("--roll", type=float, default=None,
+                    help="override the profile's bank, everything else the "
+                         "same. THE A/B FOR WHAT A BANK COSTS: a profile is "
+                         "one scene from one place, so the only honest "
+                         "control for a rolled frame is the SAME scene "
+                         "level (SPEC.md 88.3.1.3.5)")
     ap.add_argument("--csv", help="write the per-frame table here")
     a = ap.parse_args(argv)
     os.chdir(ROOT)
-    P = PROFILES[a.profile]
+    P = dict(PROFILES[a.profile])
+    if a.roll is not None:
+        P["roll"] = a.roll
     MP = dispapps._map("skies")
 
     def off(n):
@@ -347,7 +353,8 @@ def main(argv):
                  .to_bytes(2, "little"))
             poke("cs_state", b"\x01")
             poke("cs_spd", (P.get("spd", 40) * 128).to_bytes(2, "little"))
-        poke("cs_roll", ((P["roll"] * 65536 // 360) & 0xFFFF).to_bytes(2, "little"))
+        poke("cs_roll", ((int(P["roll"] * 65536 / 360)) & 0xFFFF)
+             .to_bytes(2, "little"))
         poke("cs_thr", P["thr"].to_bytes(2, "little"))
         if a.hzfull is not None:
             poke("cs_hzfull", bytes([a.hzfull]))
@@ -365,7 +372,7 @@ def main(argv):
         m.run()
         m.advance(frames=a.warm * 8)        # fly a little before arming
 
-        rollv = ((P["roll"] * 65536 // 360) & 0xFFFF).to_bytes(2, "little")
+        rollv = ((int(P["roll"] * 65536 / 360)) & 0xFFFF).to_bytes(2, "little")
         hold = P.get("hold", False)
         sweep = P.get("sweep", 0)
         swept = [P["roll"]]
@@ -390,7 +397,7 @@ def main(argv):
                 poke("cs_roll", rollv)
             if sweep:               # drive the bank so the ADI's key moves
                 swept[0] = (swept[0] + sweep) % 360
-                poke("cs_roll", ((swept[0] * 65536 // 360) & 0xFFFF)
+                poke("cs_roll", ((int(swept[0] * 65536 / 360)) & 0xFFFF)
                      .to_bytes(2, "little"))
             state.append(dict(
                 roll=sw("cs_roll") * 360.0 / 65536,

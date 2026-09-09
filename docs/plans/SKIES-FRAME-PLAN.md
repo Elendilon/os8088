@@ -417,10 +417,11 @@ DIAGONAL AT ALL.
 #### 7.1.6 What is left, in the order the evidence ranks it
 
 1. ~~The narrow fill~~ - **BUILT AND REFUSED, 7.1.8 below.**
-2. ~~The horizon cache~~ - **CHECKED AND REFUSED, 7.1.12 below.** 7.1.5's
-   `sparse` priced it on an empty turn; `slightbank` prices it on the case the
-   field asked about and it is worth **nothing at slight bank** and 2.5-4.5 ms
-   in a 10-25 degree window. A split row is an OCCUPIED row.
+2. ~~The horizon cache~~ - **CHECKED AND REFUSED, 7.1.12 below**, and what
+   the check FOUND is item 5. A split row is an OCCUPIED row.
+5. **THE MARK, at slight bank** (7.1.12.1) - the open one. A 5 degree bank
+   costs the frame 34.2 ms and the horizon is 27% of it; one object's mark
+   goes 2 rows to 52 across 12 degrees while its ink stays two rows thick.
 4. **`cs_blit`'s own per-row walk**, ~300 cycles over rows that are mostly a
    few bytes now.
 
@@ -645,7 +646,7 @@ flown. Build the control from the tree you are comparing against, run it
 beside the change, and treat any cross-session delta under ~2 ms on a 260 ms
 frame as unmeasured.
 
-#### 7.1.12 DESIGN CHECK, REFUSED - the banked row cache at SLIGHT bank
+#### 7.1.12 DESIGN CHECK - the banked row cache at SLIGHT bank, and where the money really is
 
 The ask was the third case §7.1.5 never measured: *"slightly banked is not
 doing much different from level, as far as which rows need redrawn, and yet it
@@ -744,28 +745,43 @@ the break-even to one row in thirty. But the DROPPED column caps what any mark
 can deliver, 88.3.2.1 measured the pass at +2.9 ms, and the pair is therefore
 net negative.
 
-##### Recommendation - DO NOT BUILD
+##### 7.1.12.1 …and then the CONTROL was taken, and it moved the answer
 
-1. **The angle gate is the wrong gate.** `cs_matrix`'s second column is
-   `(-sr.cp, cr.cp, sp)`, so the horizon is a function of roll and pitch ALONE
-   - heading and position do not enter it, and a steady banked turn holds it
-   pixel-still. The exact and free gate is *"did roll or pitch change since
-   last frame"*: two words compared once a frame, nothing spent on the frames
-   it fails, every angle covered including level. Restricting by ANGLE would
-   gate a cache whose population is zero at the angles asked about.
-2. **The cache is worth nothing at slight bank** and ~2.5-4.5 ms in a 10-25
-   degree window on HELD frames, for ~100 bytes and a second path through the
-   band. Compare this round's landed changes: -2.3 to -3.2 ms each, for tens
-   of bytes, on every frame.
-3. **If it is ever built** it is a span-width test a band row inside
-   `cs_skyground`'s `.hs` pass, which already holds this frame's crossing byte
-   and is one pointer from last frame's set (`cs_spprv`). The `.hs` loop has
-   no spare register, so that pointer is a memory temporary - which is where
-   the ~35 cycles go.
-4. **It is not the first thing to do to this view.** At slight bank
-   `cs_scene` is 134.0 ms of 185.9 - `faces` 42.9, `drawobj` 117.3 inclusive,
-   `project#0` 16.8, `cull#1` 13.8 - against the horizon's 16.5. The horizon
-   is the right subject at 30 degrees and up; at 5 it is 8.9%.
+Everything above prices `cs_skyground` against ITSELF at two angles, which is
+not a frame. **SPEC.md 88.3.1.3.5 takes the real control** - `--roll` on the
+same scene from the same place - and three things change:
+
+1. **A 5 degree bank costs the FRAME 34.2 ms**, 151.8 -> 186.0 (6.59 -> 5.38
+   fps), and the horizon is **27% of it**. `cs_blit` is 32% and `cs_scene`
+   35%; the vertex pipeline, which does the rotating, is **0**.
+2. **"Slightly banked" was 12 degrees, not 5.** The horizon's screen slope is
+   tan(roll) x scly/sclx, so the field's photograph gives its own bank: 54
+   rows over 398 px is 11.9 degrees, and that crosses **55 of 112 rows**.
+3. **One object's mark goes from 2 rows to 52.** The Seine is a 400-px-wide
+   ribbon two rows thick; rotated 12 degrees its INK is still two rows thick
+   and its BOX is 55 rows tall. Level, 94 of 112 rows are carried by nothing
+   at all; banked, 52.
+
+So the field's premise - *the same rows change* - is CORRECT, and what grows
+is the bounding boxes rather than the ink.
+
+##### Recommendation - the cache is not the lever; the BOX is
+
+1. **Do not build the cache**, and do not gate it by angle. It attacks 27% of
+   what a bank costs and finds 0 of 23 rows at 5 degrees and 7 of 55 at 12.
+   The angle is the wrong gate anyway: the horizon is `(-sr.cp, cr.cp, sp)`,
+   a function of roll and pitch ALONE, so *"did roll or pitch change"* is
+   exact, free, and covers every angle including level.
+2. **Re-measure the MARK at slight bank before inheriting 88.3.2.1's
+   refusal.** That was one object at 45 degrees saving 10.5 bytes a row
+   against an 11-byte break-even, priced against `cs_blit` alone. Here the
+   same object is 2 rows -> 52, which is a case 26x more extreme, and the
+   ceiling is no longer just blit bytes: 88.3.1.1.2's narrow fill "pays
+   exactly when the union is under 16 bytes of the 50" and today's union is
+   31 **because** the mark is a box. Tighten the mark and that refusal flips
+   with it.
+3. **Neither half is worth building alone and the pair has never been
+   measured.** That is the one experiment this round leaves open.
 
 ## 7.4 WHERE cs_scene's 169 ms GOES
 
