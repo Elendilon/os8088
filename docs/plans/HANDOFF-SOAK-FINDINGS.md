@@ -558,6 +558,26 @@ This is the root of three separate observations:
   eight-row slice with three guests on four cores (205.4 s) — and stands with
   the same caveat, which is now a demonstrated one rather than a hedge: **one
   passing run is not a classification.** Neither row is marked `alone=True`.
+
+  **AND THE `tmowner` HALF IS WRONG TOO, on the same evidence and measured the
+  same way.** Rated on 2026-09-09 with `os88bisect.py sample -j 1` — one run at
+  a time, so every run is alone on the box — it is **3/3 FAILED at `e5192ac`**,
+  a tree with nothing of the rating session's in it, and 3/3 failed at the
+  merge above it. Two single direct runs taken the same afternoon came back
+  PASS at `e5192ac` and FAIL at the merge, which is exactly the reading that
+  makes an intermittent look like a regression: it is **1 pass in 4** at the
+  base, and the passing one is the one that arrives first. So it is not
+  contention, it is not `alone=True`'s to fix, and it has **degraded since this
+  section was written** — the row it describes passed alone then and does not
+  now. The failing leg is KERNEL, and the sentence it fails with is the tell:
+  *"its cache belongs under System - it is under 'Read 2000  63K HIGH'"* names
+  a CLAIM ROW as the heading, which is `group_in`'s own documented hazard —
+  a partial repaint whose first row is a fragment with no indent reads as a
+  heading and files everything under it. `to_heap` captures whatever repaints
+  the pump happens to straddle, so which frame is the full list is a timing
+  property of the box. **That is the thing to fix**, and it is in the test:
+  the row needs a frame it can prove is whole (a row count, or a capture
+  bracketed by the page's own paint) rather than the largest one it caught.
 * **`deskbench`'s scene is not reproducible to the pixel** — 78,821 / 78,825 /
   78,830 lit pixels across three runs of the same build, because
   `new_window` waits on `time.time()`.
@@ -1206,7 +1226,7 @@ the same one — run it again, on purpose, with one variable moved.
 | rows run | 235 (pass A) + 5 (rate rows, serial) + 13 (C toolchain) |
 | failures investigated | 15 |
 | **regressions in kernel behaviour** | **0** |
-| host-timing artefacts (B5) | 3 — `dispmine`, `tmowner` (both pass alone), `weavepack` |
+| host-timing artefacts (B5) | 1 — `weavepack`. **`dispmine` and `tmowner` are BOTH struck from this row** (A5, and the correction above): each is an intermittent whose classification rested on one passing re-run, and `tmowner` is 1 pass in 4 alone at a base that predates the session that re-rated it |
 | harness regressions, from a host-side commit (B1) | 3 — `hdboot`, `knobhd`, `blitcut` |
 | pre-existing, identical at both ends | 4 — `trkscrl`, `dispcheck`, `dispcold`, `dispreboot` |
 | missing artefact or registration (B4) | 3 — `weavegame`, `wireflick`, `fdlggrey` |
