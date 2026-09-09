@@ -941,6 +941,7 @@ dd_s_small:  db 'Window too small.', 0
     DWORDV dd_bdy                   ; grid, which gfx_blit1 requires)
     DWORDV dd_hx                    ; the HUD column
     DWORDV dd_hy
+    DWORDV dd_hgap                  ; ...and the gap between its groups
     DWORDV dd_spx                   ; one tick of travel, 1/16 px, per axis
     DWORDV dd_spy
     DWORDV dd_twS                   ; a tile, in the same 1/16 px

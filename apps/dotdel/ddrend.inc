@@ -39,6 +39,15 @@
 ; =============================================================================
 
 DD_HUDROW equ 10                ; the HUD's line pitch, px
+DD_HUDGAP equ 10                ; ...and the gap BETWEEN groups, which is a
+DD_HUDGAPMIN equ 4              ; whole blank line where a row's own leading is
+                                ; 2px: a label and its number are a PAIR and
+                                ; read as one, and the field asked for the
+                                ; pairs to be told apart. dd_layout drops to
+                                ; the MIN when the column would not fit, which
+                                ; is the small-window CGA case - it has 44px
+                                ; of room under the lives and the wide gap
+                                ; wants 18 of them
 
 ; The pen each actor draws in on a colour adapter. Index 0 is Smiles.
 dd_ink:    db CYELLOW, CRED, CLMAGENTA, CLCYAN, CBROWN
@@ -2542,7 +2551,7 @@ dd_hud_num:
 dd_hud_gap:
     push ax
     mov ax, [dd_hrow]
-    add ax, 4
+    add ax, [dd_hgap]
     mov [dd_hrow], ax
     pop ax
     ret

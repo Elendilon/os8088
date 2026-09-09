@@ -189,6 +189,21 @@ dd_layout:
     add ax, 6
     mov [dd_hy], ax
 
+    ; --- and how far apart the HUD's GROUPS sit -----------------------------
+    ; Seven rows of DD_HUDROW (three label/number pairs and the lives label),
+    ; three gaps between the groups, the lives band itself and dd_hy's own 6.
+    ; NOTHING CHECKS THE HUD'S HEIGHT anywhere else - the column just runs
+    ; down from dd_hy - so the wide gap is taken only when the arithmetic says
+    ; it lands inside the content box, and a window too short for it gets the
+    ; spacing it had before rather than a lives row off the bottom.
+    mov word [dd_hgap], DD_HUDGAP
+    mov ax, 6 + DD_HUDROW * 7 + DD_HUDGAP * 3
+    add ax, [dd_th]
+    cmp ax, [dd_ch]
+    jbe .hgapok
+    mov word [dd_hgap], DD_HUDGAPMIN
+.hgapok:
+
     ; --- the sub-pixel speeds (SPEC.md 93.7.1) ------------------------------
     ; One tile in DD_TILET ticks, so the game runs at the same TILES per
     ; second on every adapter and the pixel rate follows the tile.
