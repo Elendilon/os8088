@@ -394,7 +394,7 @@ make smallapps#   128KB floor machine, docs/history/KERN-SPLIT-PLAN.md). `smalla
               #   the tree - it is the only one of the five that trades whole
               #   PAGES rather than features, and the memory view takes more
               #   with it than the heap page does. **TANK (§85.3.5.1) is the
-              #   sixth and it reads BACKWARDS**: its small arm is 576 bytes
+              #   sixth and it reads BACKWARDS**: its small arm is 477 bytes
               #   BIGGER, because what it trades is a DATA STRUCTURE and not
               #   a feature - the HUD template stops being a second
               #   16,000-byte frame buffer and becomes a span store, which

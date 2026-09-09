@@ -76,97 +76,34 @@ tk_tmreset:
 ; The first build walked a row a byte at a time in a twenty-byte loop. On the
 ; 8088 an instruction costs max(clocks, 4.34 x its bytes), so that loop is
 ; FETCH-bound at ~87 cycles a byte, and re-encoding the ridge's 72-row band -
-; 5,760 bytes, twice, once to size the hole and once to fill it - priced at
-; 416 ms of a 493 ms frame under tests/tankperf.py's churn schedule. A hitch
-; that size on every turn is worse than the 26 ms a frame SPEC.md 85.3.8's
-; template was buying back.
+; 5,760 bytes of it - took the churn schedule's frame to 493 ms. A hitch that
+; size on every turn is worse than the 26 ms a frame SPEC.md 85.3.8's template
+; was buying back.
 ;
 ; `rep scasb` is 15 cycles a byte and TWO BYTES of code for the whole loop, so
 ; nothing is fetched per iteration at all. A row is ~95% zeros, so the scan is
 ; three `rep scasb` runs a span - to the next lit byte, past the lit bytes, and
-; over the gap that follows - and no per-byte instruction at all.
+; over the gap that follows - and no per-byte instruction at all. The same
+; frame came back to 324 ms.
 ;
-; Both take DS = ES = the shadow and SI = the row's base, and the two SCANS
-; MUST STAY IDENTICAL: the length pass sizes the hole the put pass fills, so a
-; gap rule that differed between them would overrun the pool with nothing able
-; to see it.
+; THERE IS ONE SCAN. There were two - a length pass to size the hole and a put
+; pass to fill it - and the length pass measured 9.97 ms of a 27.62 ms encode,
+; 36% of it, for an answer the put pass then recomputes by arriving at it.
+; tk_tmenc parks the rows above the range at the top of the pool instead and
+; writes the new records straight into their final home. What that costs is a
+; SECOND move of the parked rows (533 bytes mean, 2.17 ms) and the per-record
+; ceiling test in `.emit` (~1.4 ms), against the scan it deletes: 27.62 ->
+; 22.33 ms an encode, and 99 bytes off the package.
 ; -----------------------------------------------------------------------------
-
-; -----------------------------------------------------------------------------
-; tk_tmrowlen - how many pool bytes one row's records would take
-; in:  DS = ES = the shadow, SI = the row's offset in it
-; out: AX = the bytes.  Every other register preserved
-; -----------------------------------------------------------------------------
-tk_tmrowlen:
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
-    xor bx, bx                      ; BX = the bytes so far
-    mov bp, si
-    add bp, TK_LASTB + 1            ; BP = one past the row
-.seek:
-    mov di, si
-    mov cx, bp
-    sub cx, si
-    jcxz .done
-    xor al, al
-    repe scasb                      ; to the next lit byte
-    je .done                        ; ...and there was none
-    dec di
-    mov dx, di                      ; DX = the span's first lit byte
-.grow:
-    mov si, di                      ; SI = a lit byte
-    mov cx, bp
-    sub cx, si
-    mov di, si
-    xor al, al                      ; scasb's needle, and AL is the gap
-    repne scasb                     ; past the lit bytes
-    jne .rowend                     ; the row ended while still lit
-    dec di
-    mov si, di                      ; SI = one past the last lit byte
-    mov cx, bp
-    sub cx, si
-    jcxz .close
-    mov di, si
-    xor al, al                      ; scasb's needle, and AL is the gap
-    repe scasb                      ; over the gap
-    je .close                       ; zeros to the row's end
-    dec di                          ; DI = the next lit byte
-    mov ax, di
-    sub ax, si                      ; AX = the gap
-    cmp ax, TKT_GAP
-    jb .grow                        ; short: the span carries on
-    mov cx, si                      ; long: close this one and open another
-    sub cx, dx
-    add bx, cx
-    add bx, 2
-    mov dx, di
-    jmp short .grow
-.rowend:
-    mov si, bp
-.close:
-    mov cx, si
-    sub cx, dx
-    add bx, cx
-    add bx, 2                       ; the span's bytes and its header
-.done:
-    mov ax, bx
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
 
 ; -----------------------------------------------------------------------------
 ; tk_tmrowput - one row's records, written
 ; in:  DS = ES = the shadow, SI = the row's offset in it; [tk_tmpen] = the pool
-;      pen, which this advances past the records
-; out: nothing.  Every register preserved
+;      pen, which this advances past the records; [tk_tmceil] = the first pool
+;      offset it may NOT write
+; out: nothing.  Every register preserved. [tk_tmovf] is set - and NOTHING more
+;      is written, here or in any later call - if a record would pass the
+;      ceiling; tk_tmenc abandons the template when it sees that
 ;
 ; ES IS THE SHADOW HERE AND NOT THE POOL, because the scan is scasb's; the pool
 ; is ES only across each emit, which is per SPAN rather than per byte.
@@ -237,6 +174,15 @@ tk_tmrowput:
     push di
     mov cx, si
     sub cx, dx                      ; CX = the span's bytes
+    cmp byte [cs:tk_tmovf], 0       ; ...and is there room for them? The single
+    jne .noroom                     ; pass writes into the room it HAS, because
+    push ax                         ; it cannot size the hole in advance
+    mov ax, [cs:tk_tmpen]
+    add ax, cx
+    add ax, 2                       ; the record is a header and its bytes
+    cmp ax, [cs:tk_tmceil]
+    pop ax
+    ja .over
     mov ax, dx
     sub ax, bp
     add ax, TK_LASTB + 1            ; AL = its start within the row
@@ -252,6 +198,12 @@ tk_tmrowput:
     pop di
     pop si
     ret
+.over:
+    mov byte [cs:tk_tmovf], 1
+.noroom:
+    pop di                          ; nothing written, and nothing will be
+    pop si
+    ret
 
 ; -----------------------------------------------------------------------------
 ; tk_tmenc - rebuild the store for rows AX..BX out of what the shadow holds
@@ -263,6 +215,26 @@ tk_tmrowput:
 ; row's records are one list where the rectangle is a sub-range of it. That is
 ; correct for the same reason the routine may be called at all: in this window
 ; the shadow row holds template content across its whole width.
+;
+; ONE PASS, BY PARKING. The rows ABOVE the range are moved to the top of the
+; pool first; the new records are then written straight into their final home;
+; and the parked rows come back down against wherever the pen finished. The
+; size of the hole is learnt by ARRIVING at it, so the length pass that used to
+; measure it - 9.97 ms of a 27.6 ms encode, 36%, for an answer the put pass
+; recomputed anyway - is gone, and tk_tmrowlen with it.
+;
+; ENCODING INTO THE FREE TAIL WOULD BE SIMPLER AND DOES NOT FIT: it needs a
+; transient of tmlen + the new records, and at the measured high water (2,132
+; of the top rung's 2,432) a band encode overflows a pool the result fits in.
+; Parking needs no transient at all - the space condition stays tmlen + delta
+; <= cap, exactly the one the two-pass had.
+;
+; BOTH MOVES HAVE A FIXED DIRECTION, so neither needs a test. The park is
+; always a RIGHT move, because cap - M >= b reduces to cap >= tmlen, the pool's
+; own invariant; the unpark is always a LEFT one, because the pen may not pass
+; cap - M and [tk_tmceil] is what holds it there. Grow or shrink, copy up or
+; copy down - what the two-pass decided per call is decided here by
+; construction.
 ; -----------------------------------------------------------------------------
 tk_tmenc:
     cmp byte [tk_tmpl], 0
@@ -281,100 +253,38 @@ tk_tmenc:
     mov [tk_tmr0], ax
     mov [tk_tmr1], bx
 
-    ; --- pass 1: how much room the new records want -------------------------
-    mov si, ax
-    shl si, 1
-    add si, tk_rowoff
-    mov cx, bx
-    sub cx, ax
-    inc cx                          ; CX = the rows
-    xor bp, bp                      ; BP = the bytes they want
-.p1:
-    push cx
-    push si
-    mov si, [si]
-    push ds
-    push es
-    mov ds, [tk_shseg]              ; DS AND ES: the scan is scasb's, so the
-    mov es, [cs:tk_shseg]           ; shadow has to be both
-    call tk_tmrowlen
-    pop es
-    pop ds
-    add bp, ax
-    pop si
-    inc si
-    inc si
-    pop cx
-    loop .p1
-
-    ; --- the hole they have now, and the difference -------------------------
-    mov bx, [tk_tmr0]
+    ; --- park the rows above the range at the top of the pool ---------------
     shl bx, 1
-    mov ax, [tk_tmrix + bx]         ; AX = where row r0's records start
-    mov [tk_tmp0], ax
-    mov bx, [tk_tmr1]
-    shl bx, 1
-    mov si, [tk_tmrix + bx + 2]     ; SI = where row r1's records end
-    mov cx, si
-    sub cx, ax                      ; CX = the hole they have
-    mov bx, bp
-    sub bx, cx                      ; BX = the change, signed
-    mov dx, [tk_tmlen]
-    add dx, bx
-    cmp dx, [tk_tmcap]              ; the rung the claim came off, not a
-    ja .full                        ; constant (SPEC.md 85.3.5.1)
-    mov [tk_tmlen], dx
-    or bx, bx
-    jz .place                       ; the same size: nothing after it moves
-
-    ; --- shift what follows, and its indices with it ------------------------
-    mov cx, dx
-    sub cx, bx                      ; CX = the OLD pool length...
-    sub cx, si                      ; ...and so the tail's bytes
-    jcxz .fixup
+    mov si, [tk_tmrix + bx + 2]     ; SI = where they start today
+    mov cx, [tk_tmlen]
+    sub cx, si                      ; CX = M, their bytes
+    mov [tk_tmmid], cx
+    mov di, [tk_tmcap]
+    mov dx, di
+    sub dx, cx                      ; cap - M: where they go, and the first
+    mov [tk_tmceil], dx             ; pool byte the encode may NOT write
+    shl ax, 1
+    mov bx, ax
+    mov ax, [tk_tmrix + bx]
+    mov [tk_tmpen], ax              ; the pen starts where row r0's records do
+    mov byte [tk_tmovf], 0
+    jcxz .parked
+    add si, cx
+    dec si                          ; the LAST byte of each: dst > src, so the
+    dec di                          ; move runs backwards
     push ds
     push es
     mov ax, [tk_tmseg]
     mov ds, ax
     mov es, ax
-    or bx, bx
-    js .down
-    mov di, si                      ; growing: from the top down
-    add di, cx
-    add di, bx
-    dec di
-    add si, cx
-    dec si
     std
     rep movsb
     cld
-    jmp short .shifted
-.down:
-    mov di, si                      ; shrinking: from the bottom up
-    add di, bx
-    cld
-    rep movsb
-.shifted:
     pop es
     pop ds
-.fixup:
-    mov si, [tk_tmr1]
-    shl si, 1
-    add si, tk_tmrix
-    add si, 2                       ; SI -> tk_tmrix[r1 + 1]
-    mov cx, [tk_vh]
-    sub cx, [tk_tmr1]               ; ...and there are vh - r1 of them
-    jcxz .place
-.fx:
-    add [si], bx
-    inc si
-    inc si
-    loop .fx
+.parked:
 
-    ; --- pass 2: the records themselves -------------------------------------
-.place:
-    mov ax, [tk_tmp0]
-    mov [tk_tmpen], ax              ; the pool pen, which tk_tmrowput advances
+    ; --- the records, written straight into their final home ----------------
     mov si, [tk_tmr0]
     shl si, 1
     mov bx, si
@@ -383,7 +293,7 @@ tk_tmenc:
     mov cx, [tk_tmr1]
     sub cx, [tk_tmr0]
     inc cx
-.p2:
+.p:
     mov ax, [tk_tmpen]
     mov [bx], ax                    ; row r's records start where the pen is
     push cx
@@ -392,8 +302,8 @@ tk_tmenc:
     mov si, [si]
     push ds
     push es
-    mov ds, [tk_shseg]
-    mov es, [cs:tk_shseg]
+    mov ds, [tk_shseg]              ; DS AND ES: the scan is scasb's, so the
+    mov es, [cs:tk_shseg]           ; shadow has to be both
     call tk_tmrowput
     pop es
     pop ds
@@ -404,7 +314,46 @@ tk_tmenc:
     inc bx
     inc bx
     pop cx
-    loop .p2
+    loop .p
+    cmp byte [tk_tmovf], 0
+    jne .full                       ; the pool filled: nothing was written past
+                                    ; the ceiling and nothing more will be
+    ; --- the parked rows, back down against what the pen reached ------------
+.unpark:
+    mov cx, [tk_tmmid]
+    mov di, [tk_tmpen]
+    mov ax, di
+    add ax, cx                      ; AX = the pool's new length...
+    mov bx, ax
+    sub bx, [tk_tmlen]              ; ...BX = the change, signed
+    mov [tk_tmlen], ax
+    jcxz .fixup
+    mov si, [tk_tmcap]
+    sub si, cx
+    push ds
+    push es
+    mov ax, [tk_tmseg]
+    mov ds, ax
+    mov es, ax
+    cld
+    rep movsb                       ; a LEFT move, the ceiling having kept the
+    pop es                          ; pen below where they were parked
+    pop ds
+.fixup:
+    or bx, bx
+    jz .out                         ; the same size: nothing after it moved
+    mov si, [tk_tmr1]
+    shl si, 1
+    add si, tk_tmrix
+    add si, 2                       ; SI -> tk_tmrix[r1 + 1]
+    mov cx, [tk_vh]
+    sub cx, [tk_tmr1]               ; ...and there are vh - r1 of them
+    jcxz .out
+.fx:
+    add [si], bx
+    inc si
+    inc si
+    loop .fx
 .out:
     ret
 .full:

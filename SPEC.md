@@ -98806,12 +98806,17 @@ redirection, and the one rule that has to hold is that nothing calls
 **The scan is `rep scasb` and that is not a micro-optimisation.** The first
 build walked a row a byte at a time in a twenty-byte loop; on the 8088 an
 instruction costs `max(clocks, 4.34 x bytes)` (PERFORMANCE.md part 2), so that
-loop is FETCH-bound at ~87 cycles a byte and re-encoding the ridge's 72-row
-band — 5,760 bytes, twice, once to size the hole and once to fill it — priced
-at **416 ms of a 493 ms frame**. `rep scasb` is 15 cycles a byte and two bytes
-of code for the whole loop, so nothing is fetched per iteration; a row is ~95%
-zeros and the scan is three `rep scasb` runs a span. It took the same frame to
-324 ms. **Every one of those `scasb`s needs `AL` zeroed in front of it** — AL
+loop is FETCH-bound at ~87 cycles a byte, and re-encoding the ridge's 72-row
+band — 5,760 bytes of it — took the churn schedule's frame to **493 ms**. `rep
+scasb` is 15 cycles a byte and two bytes of code for the whole loop, so nothing
+is fetched per iteration; a row is ~95% zeros and the scan is three `rep scasb`
+runs a span. It took the same frame to **324 ms**. **Those two are frame
+readings and the stage lines beside them are not**: `tests/tankperf.py` prices
+a stage by patching it out, so the eleven of them sum to several times the
+frame — removing the encode removes the spans it would have made, and the
+restore with them — and a stage delta is an upper bound on that stage's share
+rather than a decomposition of it. What an encode actually costs is timed by
+breakpoint, below. **Every one of those `scasb`s needs `AL` zeroed in front of it** — AL
 carries the gap size on the loop-back paths and the record's start byte after
 an emit, and the build that forgot two of them assembled, ran, and drew a
 different picture.
@@ -98837,8 +98842,8 @@ scenes:
 | schedule | shipped (bitmap) | `APP_SMALL` (spans) | |
 |---|---|---|---|
 | nothing changing | 215.70 ms | 224.27 ms | **+4.0%**, all of it in `tk_clearspans` |
-| a ridge transition every 10 frames | 230.91 ms | 256.14 ms | +10.9% |
-| ...and a score change, both every 3 | 265.77 ms | 323.67 ms | +21.8% |
+| a ridge transition every 10 frames | 230.91 ms | 248.78 ms | +7.7% |
+| ...and a score change, both every 3 | 265.77 ms | 305.92 ms | +15.1% |
 
 That is a real loss and it is why this is an arm rather than a rewrite: a
 machine with 32KB of heap to spare should keep the buffer. The steady-state
@@ -98846,16 +98851,48 @@ cost is the restore — the clear stores zeros over the run (cheaper than the ol
 `rep movsw` by 4 ms) and lays the row's spans over them (+12 ms). Everything
 above that is `tk_tmenc`, which is per CHANGE and not per frame; the third row
 is the pathological alternation §85.3.8 already names as the case that cannot
-win. **What is still open is the encode's second pass**: a single-pass form
-that encodes into the pool's free tail and then moves the blob would halve it,
-at the price of a transient `tmlen + L` the top rung can afford and the middle
-one cannot.
+win.
+
+**The encode is ONE pass, and what makes it one is PARKING.** It used to size
+the hole with a length pass, shift the tail to fit, and then write the records
+— and the length pass measured **9.97 ms of a 27.62 ms encode, 36% of it**
+(breakpoints on `tk_tmenc` and its two stage labels, 101 encodes), to answer a
+question the writing pass answers again by arriving at it. `tk_tmenc` moves the
+rows ABOVE the range to the top of the pool instead, writes the new records
+straight into their final home, and brings the parked rows back down against
+wherever the pen finished. **Encoding into the pool's free tail would be
+simpler and does not fit**: it wants a transient of `tmlen` plus the new
+records, and at the measured high water — 2,349 of the top rung's 2,432 — a
+band encode overflows a pool the RESULT fits in. Parking wants no transient at
+all, its space condition staying `tmlen + delta <= cap`, exactly the one the
+two passes had. **Both moves have a fixed direction, so neither is tested
+for**: the park is always a RIGHT move, because `cap - M >= b` reduces to `cap
+>= tmlen`, the pool's own invariant, and the unpark always a LEFT one, because
+`[tk_tmceil]` is what keeps the pen below where the rows were parked. Grow or
+shrink, copy up or copy down — what the two-pass form decided per call is
+decided here by construction.
+
+What that costs is the SECOND move of the parked rows (533 bytes mean, 941
+worst: 2.17 ms) and a per-record ceiling test in the emit (~1.4 ms), because a
+single pass writes into the room it HAS rather than into room it measured
+first; a record that would pass `[tk_tmceil]` sets `[tk_tmovf]`, nothing more
+is written by that call or any later one, and `tk_tmenc` clears `[tk_tmpl]` as
+it always did. Against the 9.97 the scan cost, that is **27.62 → 22.33 ms an
+encode, −19%** — preamble and park 2.18, the row loop 17.85, unpark and length
+2.17, the index fixup 0.14 — the churn schedule's frame **323.67 → 305.92 ms,
+−5.5%**, and **99 bytes SMALLER**, `tk_tmrowlen` having gone with the pass it
+served — and a whole class of defect with it, because the two scans had to
+agree on the gap rule to the byte (the length pass sized the hole the put pass
+filled) and a divergence would have overrun the pool with nothing able to see
+it. The two builds draw byte-identical frames AND reach the same pool high
+water to the byte, which is what says the store's CONTENT is unchanged rather
+than only its size.
 
 **The size row reads backwards and that is the point.** `APP_SMALL` costs
-**+576 bytes of image** here where the other five arms save features; what it
+**+477 bytes of image** here where the other five arms save features; what it
 buys is 14KB of the claim, so `tests/unit/t_appsmall.py` weighs this package on
-**image + bss + claim** and reads a 26% saving. A small build measured on the
-region alone would fail its own gate.
+**image + bss + claim** — 63,688 bytes against 50,327 — and reads a **21%**
+saving. A small build measured on the region alone would fail its own gate.
 
 #### 85.3.6 A shallow line with eight pixels to the row is sliced, not walked
 

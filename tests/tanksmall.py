@@ -32,8 +32,8 @@ row (docs/WRITING-TESTS.md 1):
                     with the most reach: the store is rebuilt by tk_tmenc on
                     every template change, and an encode that will not fit
                     clears this byte and drops the panel back to being drawn
-                    every frame. Break the gap rule, the pool size or the
-                    two-pass arithmetic and it lands here
+                    every frame. Break the gap rule, the pool size or
+                    tk_tmenc's park/encode/unpark arithmetic and it lands here
   the pool          `tk_tmlen` <= `tk_tmcap`, which is the invariant tk_tmenc
                     is supposed to enforce rather than a budget
   it DRAWS          tk_frames climbs, and the glass differs between two
