@@ -958,6 +958,27 @@ second display both want the run re-cut per fragment, which is the whole of
 `gfx_clip_run` and `gfx_disp_run` again."*
 
 **Net at best ~200 bytes on `kern_small`, for a rewrite of two shipped games
-and a new kernel body on the build that has the least room for one.** The
-walker stays. It is not duplicate code — it is the only marginal pixel on the
-machine.
+and a new kernel body on the build that has the least room for one.**
+
+### 11.6 And the `kern_big`-only variant, which is the tempting one
+
+`kern_big` already has the `gfx_spans` body, so its blocker is only the armed
+clip — and a walk is a *good* fit for spans, three consecutive rows of one
+interval being one call where the kernel walker charges a block setup. It is
+entirely possible that an app-side walker over a clip-aware `gfx_spans` is both
+**smaller and faster** on `kern_big`. That is not the objection.
+
+The objection is that **the app cannot ship only that path.** The same binary
+runs on both kernels — SPEC.md 11.102's rule, and `make smallapps` is a
+different *build* of a package, never a different ABI — so a package that walks
+app-side needs a `kern_small` fallback, and the fallback is §11.3's pixel loop
+at 41 ms a frame. So the choice is:
+
+- keep the kernel walker for `kern_small` and add an app-side one for
+  `kern_big` — **537 bytes still resident on the build that needs them**, two
+  code paths in each of two games, and a new clip-aware `gfx_spans`; or
+- take the pixel loop everywhere — 641 bytes off `kern_big`, 537 off
+  `kern_small`, and Missile's drain at 41 ms.
+
+Neither is worth it. The walker stays. It is not duplicate code — it is the
+only marginal pixel on the machine.
