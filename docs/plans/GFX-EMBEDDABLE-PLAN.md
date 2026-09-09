@@ -1,8 +1,18 @@
 # GFX-EMBEDDABLE-PLAN.md — the graphics library a package embeds
 
-**Status: RESEARCH. Nothing built.** Sizes and the one performance claim that
-matters are measured on this tree and reconciled (§10); everything costed as a
-*wave* is an estimate against a measured comparable and says so.
+**Status: BUILT, waves 1–7. SPEC.md §5.12 is the contract and this file is now
+the design record behind it.** `apps/os88gfx.inc` ships; `kern_small` gave back
+`.text` −493 and `kern_big` −597, and `kern_big` uncrossed an image rung with
+it. Wave 2 is HELD with its arithmetic written down (§8.6) and wave 8 is the
+one still open.
+
+**§8.2 to §8.7 are what each wave actually found, and they are the part worth
+reading**: four of the seven landed somewhere other than where this document
+pointed, and every headline figure below the wave table is now guest cycles off
+a breakpoint bracket rather than arithmetic (PERFORMANCE.md Set 134). Where a
+figure is still an estimate — §4.1's size table for the unbuilt capabilities,
+and wave 8's — §9 says so, and §9 item 6 says why that table is wrong on the
+high side.
 
 `gfx_embeddable` is an app-side graphics library in the shape of
 `apps/os88ui.inc` — a `%include` a package opts into capability by capability.

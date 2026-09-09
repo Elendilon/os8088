@@ -12584,7 +12584,89 @@ marginal, and a loop that skipped every point could not cost that — and not
 that the pixels land where they should. The body is `gfx_lstep_mono`'s
 verbatim, which is an argument and not a check.
 
-**Nothing shipped calls the slot** (`grep OSAPI_GFX_POINTS apps/ drivers/` is
-empty but for the SDK define), so it is inert on every floppy in the tree until
-a package is converted. The gate is owed before one is.
+~~**Nothing shipped calls the slot**~~ — true when this set was taken and false
+since: Cyclone, Missile, Tank, `SAVER.DRV` and Mines all commit through it now
+(SPEC.md 5.12.5, 5.13), and Set 134 is what they cost.
 
+
+### Set 134 — the embeddable library BUILT: what four programs and two kernels actually did (SPEC.md 5.12, docs/plans/GFX-EMBEDDABLE-PLAN.md waves 3-7)
+
+| | |
+|---|---|
+| machine | **MartyPC**, cycle-accurate IBM 5150/XT, 4.77 MHz 8088 |
+| adapter | `os8088_5150_herc_gla` — the GLaBIOS twin; the IBM ROM is not in this tree |
+| harness | exec-breakpoint brackets around the one call under test, guest cycles from the emulator's own counter. `tests/paintstroke.py` is the one that shipped as a row |
+| subject | every headline figure waves 3–7 are quoted on |
+
+**Everything here is GUEST CYCLES between two breakpoints, not arithmetic.**
+Set 132's window was the thing this set was supposed to resolve and it did,
+twice in the same direction: the model over-predicted the win in both places it
+was checked.
+
+#### 134.1 The stroke's screen half (SPEC.md 42.23.8)
+
+Paint rasterises a one-pixel stroke twice — into its 1bpp canvas, then onto the
+glass. Bracketed between the call and its return, median of ~23 segments:
+
+| route | cycles | µs | |
+|---|---:|---:|---|
+| `OSAPI_GFX_LINE` — §42.8's | 10,646 | 2,231 | was |
+| `pt_blit` of the segment's rect | 14,268 | 2,989 | **refused, +34%** |
+| `OSAPI_GFX_BLIT1` direct | **9,243** | **1,937** | ships, −13% |
+
+**The middle row is the one to remember.** *"Commit the damaged band with one
+blit"* reads as *"call `pt_blit`, which the program already has"* — and
+`pt_blit` is the path for everything that **cannot know what it changed**, so
+it pays a clip, an inked-table band walk and a decode setup before it reaches a
+blit at all. A stroke segment knows exactly what it changed. The same trap is
+waiting wherever a program has a general repaint routine and a specific one is
+called for.
+
+#### 134.2 Pixels a block a frame — the reading the walk's window needed
+
+Read off the descriptor arrays `gfx_lstepv` was actually handed, over ~14 guest
+seconds of play:
+
+| | live blocks a call | pixels a call | **pixels a BLOCK** |
+|---|---:|---:|---:|
+| Cyclone | 10.43 | 38.68 | **3.71** |
+| Missile | 3.64 | 10.08 | **2.77** |
+
+Both inside `GFX_POINTS`'s best-route window (≤ 6.66, Set 133), Missile further
+in — and **that ordering predicted the result**, which is the only part of the
+model that survived intact.
+
+#### 134.3 …and what the conversion was worth
+
+Guest cycles inside one batch-step call, bracketed entry to exit:
+
+| | before | after | |
+|---|---:|---:|---:|
+| Cyclone `cy_dsc_run`, median | 75,537 | 68,596 | **−9.2%** |
+| …mean | 66,872 | 58,759 | −12.1% |
+| Missile `mc_dsc_run`, median | 18,429 | 12,250 | **−33.5%** |
+| …mean | 13,589 | 10,110 | −25.6% |
+
+**The arithmetic predicted −41% and −47%.** It is right about the ordering and
+about the sign and wrong about the size, in both cases the same way: a point
+committed through `gfx_points` costs more than Set 133's marginal 165.96 µs when
+the points are SCATTERED, because `gfx_ls_box` re-resolves and every point pays
+a full `gfx_ls_addr`, where the walk carried its framebuffer byte and bit mask
+forward. Set 133 measured eight walks stepping in step; a game's warp does not.
+
+#### 134.4 What it bought the kernel, and what it cost the apps
+
+| | `.text` | `.bss` |
+|---|---:|---:|
+| `kern_small` | **−493** | −20 |
+| `kern_big` | **−597** | −20 |
+
+`kern_big` **uncrosses an image rung** with it, so a further 512 bytes of every
+machine's RAM come back on top of the sum.
+
+Against, in four package images and none of it resident: Cyclone +238 and 384
+of bss, Missile +251 and 384, Tank +236 and 256, `SAVER.DRV` +392 (a driver's
+bss ships inside its image). **That is the premise made good rather than
+asserted** — duplicate code only used by programs that monopolise the machine
+anyway, instead of permanently spending kernel RAM on them — and the programs
+got faster doing it.
