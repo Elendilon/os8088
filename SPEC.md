@@ -3894,12 +3894,53 @@ clip to the display and `rep movsw` a row, plus three `.cold` shims
 (`cw_cur_unlazy`, `cw_wm_clip_rows`, `cw_gfx_rowbase`) — and it measured
 **+419 bytes** (`.text` +16, `.cold` +403), one `.cold` rung crossed,
 `KERN_SIZE` 80,896 → 81,408, with the undo above at **149 ms** on that build.
-It is not shipped: §39.27.4 says a `kern_small` byte is banked and not
-budgeted, and the owner's decision is that the small build may stay slower
+It was not shipped: §39.27.4 says a `kern_small` byte is banked and not
+budgeted, and the decision then was that the small build may stay slower
 here — the slowness that was reported was `kern_big`'s, and `kern_big`'s was
-the width cliff. The `%ifdef KERN_BIG` around the body stands, the stub
-stands, and this paragraph is what a future decision the other way has to
-read first: the bytes, and the 24×.
+the width cliff.
+
+##### 5.4.2.5.1 …and that refusal is REVERSED — the body ships on both builds
+
+The decision was the owner's and so is the reversal, on a fact the first
+reading did not weigh: **`OSAPI_GFX_BLIT1` has fourteen callers and nine of
+them ship on the small disks** — `arkanoid`, `artful`, `cc`, `os88type`,
+`pacman`, `paint`, `weave`, `word`, and any C package through the thunk. The
+slot was not Paint's alone by the time the refusal was re-read, and every one
+of those nine took a fallback on the build that has least to spare.
+
+What ships is the same variant that was built and measured, and it is one gate
+and a set of `%ifdef`s rather than a second routine:
+
+| compiled out of `kern_small` | guard |
+|---|---|
+| the whole `.pen` proc — §5.4.2.2's Set/Reset arithmetic and §5.4.2.2.1's split | `GFX_VGA` |
+| its call site, its two flags' clearing, and the ports it issues | `GFX_VGA` |
+| §5.4.2.2.1's complemented SECOND PASS in the emit | `GFX_VGA` |
+| the port teardown at `.done` | `GFX_VGA` |
+| `vid_span_one`, `gfx_disp_enter` and the `gfx_dnest` unwind | `KERN_BIG` |
+
+`GFX_VGA` is defined exactly when `KERN_BIG` is (`kernel.asm`), so the two
+names are one gate read two ways; each is written where it sits. Three `.cold`
+shims move out of their own `%ifdef KERN_BIG` and serve both builds —
+`cw_cur_unlazy`, `cw_gfx_rowbase`, `cw_wm_clip_rows` — while
+`cw_gfx_disp_enter` and `cw_vid_span_one` stay `kern_big`'s, being the display
+half.
+
+**Measured on this tree**, `kern_small` against the build before it:
+`.text` **+16**, `.cold` **+456**, **one `.cold` rung crossed**, the image
+92,980 → 93,492. `kern_big` is **BYTE-IDENTICAL** — the guards it does not
+take change nothing it emits, proven by `cmp` at one commit.
+
+**`tests/paint1small.py` is the gate**, and it exists because the assembler
+cannot answer the question: `gfx_blit1` could return CF = 1 from any argument
+refusal and Paint would fall back exactly as before, silently and at the same
+24×. It opens Paint on `kern_small`, strokes, undoes, and reads `pt_line` —
+the buffer the fallback expands each row into and the fast path never touches.
+It is `paint1blit`'s technique and a file of its own for one reason: **that
+build has no file association** (§54.0), so double-clicking a `.BMP` launches
+nothing and Paint has to be opened directly, on the canvas it makes itself.
+Verified to fail with `stc`/`ret` poked over the thunk, which is the state the
+kernel shipped in until this.
 
 ### 5.4.3 `gfx_blitp` — a block that is already framebuffer bytes
 

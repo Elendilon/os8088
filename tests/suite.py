@@ -3845,13 +3845,33 @@ SOAK = [
         "CONTROL that must DIFFER, or a rect that missed the palette would "
         "pass the first two.",
         needs=("marty",)),
+    Row("paint1small", "soak", py("tests/paint1small.py"), 60.0,
+        "SPEC.md 5.4.2.5.1: kern_small has a gfx_blit1 BODY now, and Paint "
+        "TAKES it. That the thunk points somewhere is not the claim - the "
+        "routine could answer CF = 1 from any argument refusal and Paint "
+        "would fall back exactly as before, silently and at the same 24x, so "
+        "this asks the running machine. The oracle is pt_line, which the "
+        "fallback expands each canvas row into and the fast path never "
+        "touches: a sentinel there survives one and not the other, and it "
+        "needs no instrumentation in the product. A FILE OF ITS OWN rather "
+        "than an arm of paint1blit because kern_small has no file "
+        "association (SPEC.md 54.0) - double-clicking a .BMP launches "
+        "nothing there, so Paint is opened directly on the canvas it makes "
+        "itself. VERIFIED TO FAIL with stc/ret poked over the thunk, which "
+        "is the state that kernel shipped in until wave 1 of "
+        "docs/plans/GFX-EMBEDDABLE-PLAN.md. It builds nothing: `make small` "
+        "is what it reads, the same tree small128 and smallboot want",
+        needs=("marty",), serial=True,
+        wants=("build/small360.img", "build/smallk/kernel.bin")),
     Row("paint1blit", "soak",
         py("tests/paint1blit.py"), 90.0,
         "SPEC.md 42.23.4: the TWO paths a one-bit canvas reaches the screen"
         "by, compared. kern_big has gfx_blit1 and blits the band straight in;"
-        "kern_small carries the SLOT AND NOT THE BODY (5.4.2), so Paint"
-        "expands each row for gfx_blit4 instead - and the two must draw the"
-        "same picture to the pixel. Neither arm alone would catch a wrong"
+        "a REFUSED gfx_blit1 sends Paint to expand each row for"
+        "gfx_blit4 instead - and the two must draw the same picture to the"
+        "pixel. It forces that refusal by poking stc/ret over the thunk, so"
+        "it is untouched by 5.4.2.5.1 giving kern_small a body; paint1small"
+        "is what says THAT build takes the fast path. Neither arm alone would catch a wrong"
         "one: the fast path could draw a plausible picture one row or one"
         "byte out, and the fallback is what every other 1bpp row already"
         "exercises. The fixture is BUILT here, every byte differing from its"

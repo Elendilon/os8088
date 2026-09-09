@@ -602,7 +602,8 @@ Each is independently landable and each is a separate PR.
 | wave | what | prize | risk |
 |---|---|---|---|
 | **0** | `os88ui.inc`'s checkmark → one `OSAPI_GFX_BLIT1` band. **Sequenced AFTER `gfx_blit1` lands on `kern_small`** (§2.4), which is happening for its own reasons | takes `OSAPI_GFX_LINE`'s caller list from **25 packages to four programs**, and the checkmark gets **~2× faster** — ~780 µs against today's two `gfx_line` calls at ~1.68 ms | the band's x must be on the byte grid (SPEC.md 5.4.2) and the check column is `MRECT+2`, so compose a 16px band at the enclosing 8-aligned column with the mark shifted inside it |
-| **1** | `apps/os88gfx.inc` with `GFXE_BAND` + `GFXE_LINE`; **Sheet** is the first customer, compose mode, nothing gated out of the kernel | proves the lattice; ~350 bytes of Sheet | none — the kernel is untouched |
+| **1** | ~~`apps/os88gfx.inc`~~ → **`gfx_blit1` on `kern_small`. BUILT** (SPEC.md 5.4.2.5.1): the pen, the second display, the VGA ports, the split pass and the port teardown each `%ifdef`'d out | **+472** measured (`.text` +16, `.cold` +456), one cold rung; `kern_big` BYTE-IDENTICAL; nine shipped small-disk packages stop taking a fallback and Paint's one-bit canvas stops being 24× | none left — `tests/paint1small.py` is the gate and asks the RUNNING machine, because the thunk pointing at a body is not the claim |
+| **1.5** | `apps/os88gfx.inc` with `GFXE_BAND` + `GFXE_LINE`; **Sheet** is the first customer, compose mode, nothing gated out of the kernel | proves the lattice; ~350 bytes of Sheet | none — the kernel is untouched |
 | **2** | `GFXE_LINE_FAST`; **Paint on `kern_small`** takes it | Paint's stroke **4.9×** on the floor machine, +647 of Paint's own image | Paint's small build is size-sensitive (§24.5) |
 | **3** | `GFXE_WALK` on **Missile's drain only** — §3.2 is BENCHED (Set 132) and the drain is 2.6× better app-side; its missiles and Cyclone's warp are 1.4× worse and stay on the kernel walk | ~230, and 14.5 ms a frame off the drain | a package on both paths at once — Missile would carry the library AND call the slot |
 | **3.5** | **`OSAPI_GFX_POINTS` (§3.2.1)** — the slot that separates the six per-CALL concerns from the per-LINE Bresenham. **Take this before wave 4**: it makes wave 4 a net win at every n instead of a trade | **~+150, and it retires the walker** | estimated, not built. Its inner loop is `gfx_lstep_mono`'s with the advance replaced |
@@ -686,7 +687,7 @@ comparable.
 
 | | `kern_small` | `kern_big` |
 |---|---:|---:|
-| `gfx_blit1` body — **measured**, SPEC.md 5.4.2.5 | +419 | 0, it is there |
+| `gfx_blit1` body — **BUILT**, SPEC.md 5.4.2.5.1 | **+472** | 0, it is there |
 | `GFX_POINTS` (§3.2.1) — body, X stub, planar arm; clip and addressing reused | +150 | +165 |
 | the line family — **measured** at 1,377 / 2,520 `.text`… | | |
 | …less `gfx_ls_box` and `gfx_ls_addr`, which both stay (§8.1.1) | **−1,175** | **−2,308** |

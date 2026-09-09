@@ -19,7 +19,11 @@ shipped is the memory win in full (448×258 goes 56.6 KB → **14.2 KB**,
 measured on a Hercules under MartyPC) with `gfx_blit4` drawing it a row at a
 time; the fast path is a dozen bytes in Paint once the kernel's two row-skips
 are made sign-aware. Option B was later built lean, measured and refused
-(above).
+(above) — **and then SHIPPED**, when wave 1 of
+docs/plans/GFX-EMBEDDABLE-PLAN.md reversed that decision on a fact this page
+never weighed: `OSAPI_GFX_BLIT1` has fourteen callers and NINE ship on the
+small disks, so the slot had stopped being Paint's alone. SPEC.md 5.4.2.5.1
+is what shipped and what it measured.
 
 Two things the build settled that this page only guessed at. **Every 1bpp arm
 turned out to be the planar arm with the plane loop removed** — eight pixels
@@ -429,12 +433,15 @@ a measurement.
    the fallback was believed cheap enough; measured, it is 1,309 ms against
    55 for the same rows, and a lean body for `kern_small` costs +419 bytes
    rather than the ~730 priced here, the two-display and pen arms being
-   `kern_big`'s. The owner's decision is that the small build may stay
-   slower. ~~The earlier verdict:~~ **NEITHER, AND THE QUESTION DISSOLVED.**
+   `kern_big`'s. The decision then was that the small build may stay
+   slower; **it has since been reversed and the body SHIPS on both builds**
+   (SPEC.md 5.4.2.5.1, measured at +472 on this tree with `kern_big`
+   byte-identical), because the slot had acquired eight more small-disk
+   callers than Paint. ~~The earlier verdict:~~ **NEITHER, AND THE QUESTION DISSOLVED.**
    It was posed as ~730 kernel bytes (give `kern_small` the `gfx_blit1` body)
    against ~340 package bytes (the expansion fallback) — on the belief that
    `kern_big` could not use `gfx_blit1` either, because of the negative
    stride. Once that turned out to be wrong, `kern_big` takes the fast path
    for nothing and `kern_small` takes the fallback that had to exist anyway.
-   Option B is still available if `kern_small`'s repaint ever justifies 730
-   bytes, but nothing now depends on it.
+   Option B was still available if `kern_small`'s repaint ever justified the
+   bytes; it did, and it is built.
