@@ -22842,6 +22842,124 @@ seven application-side routines — `wd_mact`, `wd_mfire`, `wd_mchk`,
 `wd_mrepair`, `wd_mwinitem` and the two BP-setting wrappers the gesture's
 callers use.
 
+### 13.17 The RADIO GROUP — the sixth shared element (`OS88UI_RAD`)
+
+`%define OS88UI_RAD` before the include; a package that does not costs nothing
+at all, which is §13.15's rule and the shape of the whole file.
+
+**Measured, both halves.** Opting in is **452 bytes** of image (`os88ui.inc`
+assembles to 823 bytes without it and 1,275 with, in the same one-line package);
+not opting in is **zero, and it is checked rather than asserted** — `kernel.bin`
+and every shipped `.o88` are byte-identical to the tree before the control
+existed. `tests/radtest` is the only thing in the tree that defines
+`OS88UI_RAD`, which is what keeps the control assembling and what makes that
+A/B meaningful.
+
+**The include goes AFTER `OS88_HEADER`**, which is where every package already
+puts it (`apps/skies`): `os88ui.inc` emits code, and the header has to be the
+image's first bytes, so an include in front of it puts a `mov` where the name
+belongs and `os88pkg` refuses the package.
+
+**It is a GROUP and not a button.** A check box is independent and a radio is
+not — picking one unpicks a sibling — so a control that draws one button cannot
+do the only thing a radio is for. The record is therefore the whole group, which
+is §13.14's shape and deliberately so: a drop-down *is* "one pick out of a short
+list" and so is this, so the two carry the same three fields (`ITEMS`, `N`,
+`SEL`) and differ in presentation. A caller can change its mind about which
+control a setting wears without touching its data.
+
+It also buys the redraw. `os88ui_radhit` knows the old pick and the new one, so
+it repaints **exactly two rows** and never the group — which matters here rather
+than in the abstract: PERFORMANCE.md Part 2 prices a drawing call's fixed part
+at ~756 µs on the field machine, so repainting a five-row group to move one dot
+is tens of milliseconds.
+
+| offset | field | |
+|---:|---|---|
+| 0 | `OS88UI_RD_RECT` | `dw x1,y1,x2,y2`, inclusive, SCREEN — row *i* is `PITCH` tall from `y1`, and `x2` is where the labels' ground ends |
+| 8 | `OS88UI_RD_ITEMS` | near pointers to NUL strings, `AMENU_ITEMS`' shape |
+| 10 | `OS88UI_RD_N` | 1 … `OS88UI_RDMAX` (8) |
+| 12 | `OS88UI_RD_SEL` | the pick, 0-based |
+| 14 | `OS88UI_RD_PITCH` | row to row, in pixels |
+| 16 | `OS88UI_RD_DIS` | bit *i* greys item *i* (§47 rule 2); **bit 15 is the whole group** |
+| | `OS88UI_RD_SIZE` | 18 |
+
+**The pitch is in the RECORD and not a library constant**, which is the one
+field §13.15 would not have predicted: the first caller that wanted this control
+is the Control Panel, and *its own pages disagree* — 16 on Sound, 20 on
+Scheduling, 16 on Time. A constant would have moved existing pixels to save two
+bytes.
+
+**Bit 15 is written by the painter and read by the press half**, which is
+§13.14.5's trick one control along: `os88ui_rad` banks its own `DI` into that bit
+so `os88ui_radhit` can refuse a greyed group without being handed a flag the
+caller would otherwise have to supply twice and keep in step.
+
+#### 13.17.1 The look — a rounded box, and every reason is a constraint
+
+A **12×12 rounded box** — a rectangle with one pixel off each corner — with a
+**6×6 rounded dot** in the middle when it is picked. Twelve is `OS88UI_GW`, so a
+call site converted from §13.15's glyph keeps its geometry to the pixel.
+
+Three things decided the shape and none of them is taste:
+
+- **It must not be a square.** `os88ui_chk`'s mark is a solid square, and a
+  radio that is also square says nothing about being one-of-many. At 12 px a
+  one-pixel corner cut is what a circle rasterises to, and it is what small 1bpp
+  interfaces have always drawn.
+- **It must not be a thin diagonal or a dither** (§39.4): grey rounds to black
+  on both 1bpp adapters, so a dithered ring reads as dotted and a diagonal reads
+  as noise. Every edge here is a horizontal or vertical **run**.
+- **The ring is ONE pixel because `os88ui_chk`'s frame is one pixel.** A heavier
+  ring is more legible when greyed and would be the odd control out in a column
+  carrying both; matching the neighbour won.
+
+**The ring is four RUNS, never a frame.** `gfx_frame` puts a pixel in each
+corner, which would then have to be knocked out in the ground colour — four more
+fills *and* two more pen changes. Four runs that stop one pixel short are the
+same shape for less.
+
+**The dot is centred exactly**: 1 + 2 + 6 + 2 + 1 is the box's own 12.
+
+#### 13.17.2 What it costs to draw, against the glyph it replaces
+
+**Six drawing calls for an unpicked row and nine for the picked one** — the
+ground, four for the ring, three for the dot, and the label. That is *more* than
+`os88ui_glyph`'s normal path, which is one masked-sprite call plus the caller's
+own label, and the trade is taken on the owner's terms: this is drawn once and
+then sits there until someone interacts with it.
+
+**What it wins back is the other path, and that is the honest headline.**
+`os88ui_glyph` cannot draw a control a clip fragment's edge cuts — `ico_core`
+clips an icon whole (§25.6) — so it falls to `.gpix`, **one drawing call per set
+bit: 45 to 65 of them, 24–34 ms for one control** (PERFORMANCE.md Set 83). A
+fill clips per pixel, so this control has no such path and no such twin to keep
+in step. **One cost instead of two, and the bad one is gone.**
+
+The same fact is why §47 gets simpler rather than merely smaller: `os88ui_glyph`
+composes the disabled grey **row by row**, with a screen-absolute parity term,
+because a 50% stipple is something a mask pass has nowhere to put. Here the pen
+carries it to the ring, the dot and the label at once.
+
+#### 13.17.3 The press answers THREE things, not two
+
+    CF = 1   the press was not ours — and nothing else means anything
+    CF = 0   it was ours, and then:
+      ZF = 1   the pick MOVED. OS88UI_RD_SEL is the new one, the two rows that
+               changed are already redrawn, and there is nothing to repaint
+      ZF = 0   swallowed: the pick already made, a greyed row, or the slack
+               below the last row inside the rect. Nothing drawn
+
+**The third answer is the one a caller needs and `os88ui_chkhit` does not
+have.** Re-applying a mode the machine is already in is not free — the Control
+Panel's Display rows re-probe an adapter — so "ours, and nothing changed" has to
+be distinguishable from "ours, act on it". `pop` writes no flags, so the answer
+set before the epilogue survives it.
+
+`os88ui_radhit` guards its own division: a `PITCH` of zero is a caller's bug and
+`div` answers one with **INT 0**, so five bytes turn a crash into a press that
+does nothing.
+
 ## 14. apps.inc
 
 The built-in app **kinds**: About, Timer, Bounce. Nothing is

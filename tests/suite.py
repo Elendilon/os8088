@@ -3968,6 +3968,15 @@ SOAK = [
         "decoder, pt_line_put's packing into four planes and gfx_blitp are"
         "all inside one answer",
         needs=("marty",), serial=True),
+    Row("radio", "soak", py("tests/radio.py"), 45.0,
+        "SPEC.md 13.17: does os88ui_rad draw a RADIO - corners clear, a"
+        "centred dot - and does its press answer three things? On HERCULES,"
+        "because 13.17.1's shape rule is a 1bpp rule (SPEC.md 39.4) and a VGA"
+        "pass would prove nothing about it. Needs `make radtest`, which is"
+        "also the ONLY thing in the tree defining OS88UI_RAD - so this row is"
+        "what keeps the control assembling",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/radtest360.img",)),
     Row("blitp", "soak", py("tests/blitp.py"), 120.0,
         "SPEC.md 5.4.3: does gfx_blitp put the bytes where it was given them?"
         "Reads the four PLANES rather than the rendered frame - which below"

@@ -5243,6 +5243,24 @@ $(BUILD)/trackmove360.img: $(BUILD)/heapfrag.o88 $(BUILD)/tracker.o88 \
 		$(BUILD)/tracker.o88 apps/tracker/beverly.mod
 
 # --- the FILLER, and the region mover's disk (SPEC.md 66.6.1) ---------------
+# tests/radtest is the RADIO GROUP's gate (SPEC.md 13.17). It is the only thing
+# in the tree that defines OS88UI_RAD, which is deliberate twice over: it is
+# what keeps the control ASSEMBLING, and it is what makes the opt-in claim
+# checkable - every shipped image must stay byte-identical to the build before
+# the control existed, and does.
+$(BUILD)/radtest.bin: tests/radtest/radtest.asm apps/os88api.inc apps/os88ui.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/radtest/radtest.asm
+	@echo "radtest: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/radtest.o88: $(BUILD)/radtest.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/radtest.bin -o $@
+
+$(BUILD)/radtest360.img: $(BUILD)/radtest.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/radtest.o88
+
+.PHONY: radtest
+radtest: $(BUILD)/radtest360.img
+
 # tests/filler is an instrument with no assertions of its own: it takes the
 # arena down to a few tens of KB and, on a keypress, asks for one KB more than
 # the largest run. tests/heapfrag cannot do that job - its comb is sized from

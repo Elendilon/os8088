@@ -923,8 +923,22 @@ copies of the same 26-byte beep frame** — 182 bytes. `cy_kbdrain` is the fix
 and it takes every repeat of the three keys every time it looks, because
 §`cy_kbdrain` establishes there is no safe threshold.
 
-So the first question is whether the drain has a gap, not whether something
-new got deep.
+**…and the owner reports NO BEEPS — "just sudden death" — while holding exactly
+the pair this game asks for (one arrow and space).** That is the datum that
+matters most in this entry, because **it eliminates the mechanism above rather
+than confirming it**: the beep is what a FULL buffer produces, so silence means
+`cy_kbdrain` is doing its job and the buffer never fills. The nesting cannot be
+happening, and 40.2's first question is answered before it is asked.
+
+**So something else is running away, and there is no evidence yet for what.**
+What is left in the frame: a real recursion or an unbounded loop reached only in
+play; an ISR path that is not the keyboard's; or simply that 1.28× is not enough
+margin for the ordinary deepest chain plus a normal interrupt on a bad tick —
+which the numbers below make a live possibility rather than a fallback.
+
+**PARKED at the owner's direction** ("one thing at a time"), with the three ways
+out named as the owner named them: lower Cyclone's stack usage, move it to the
+256 class, or catch whatever is running away.
 
 ### 40.1 …but this branch made the margin 32% thinner, and that is measured
 
@@ -956,9 +970,9 @@ coincidence because the other number is bigger.
 
 ### 40.2 Where to look, in order
 
-1. **Does `cy_kbdrain` still run on every path?** It is the designed fix and
-   the reported symptom is the one it was written against. A path that reaches
-   the render loop without draining is the whole bug.
+1. ~~**Does `cy_kbdrain` still run on every path?**~~ **ANSWERED NO by the
+   absence of beeps** — see above. Left here struck through rather than deleted,
+   because it is the obvious first guess and the next reader will have it too.
 2. **Give the walk chain its 20 bytes back.** `gfxe_pput` is +10 at the
    bottom of a five-deep chain; `gfxe_padd` calling it on a full list could be
    a tail `jmp` (+0 rather than +2), and `cy_dsc_run`'s five pushes were two.

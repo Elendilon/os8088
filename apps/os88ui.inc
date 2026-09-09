@@ -2711,6 +2711,379 @@ os88ui_chkhit:
 
 %endif                          ; OS88UI_CHK
 
+%ifdef OS88UI_RAD
+; =============================================================================
+; THE RADIO GROUP - the SIXTH shared element (OS88UI_RAD), SPEC.md 13.17
+;
+; Opt in with `%define OS88UI_RAD` before the include; a package that does not
+; costs NOTHING AT ALL, which is os88ui_chk's rule and the whole shape of this
+; file.
+;
+; --- WHY IT IS A GROUP AND NOT A BUTTON --------------------------------------
+; A check box is independent and a radio is not: picking one UNPICKS a sibling,
+; so a control that draws one button cannot do the only thing a radio is for.
+; The record is therefore the whole GROUP - which is os88ui_drop's shape
+; (SPEC.md 13.14), and deliberately: a drop-down IS "one pick out of a short
+; list" and so is this, so the two carry the same three fields (ITEMS, N, SEL)
+; and differ in presentation. A caller can change its mind about which control
+; a setting wears without changing its data.
+;
+; It also buys the redraw. `os88ui_radhit` knows both the old pick and the new
+; one, so it repaints EXACTLY TWO ROWS and never the group - which matters
+; here rather than in the abstract: PERFORMANCE.md prices a drawing call's
+; fixed part at ~756us on the field machine, so a five-row group repainted
+; whole is tens of milliseconds to move one dot.
+;
+; --- THE LOOK, and why it is not the check box's square ----------------------
+; A 12x12 ROUNDED BOX - a rectangle with one pixel off each corner - with a
+; 6x6 rounded dot in the middle when it is picked. It is the same 12 as
+; OS88UI_GW, so a converted call site keeps its geometry to the pixel.
+;
+; Three things decided the shape and none of them is taste:
+;
+;   - IT MUST NOT BE A SQUARE. os88ui_chk's mark is a solid square and a radio
+;     that is also square says nothing about being one-of-many. At 12px a
+;     one-pixel corner cut is what a circle rasterises to, and it is what small
+;     1bpp interfaces have always drawn.
+;   - IT MUST NOT BE A THIN DIAGONAL OR A DITHER. SPEC.md 39.4: grey rounds to
+;     black on both 1bpp adapters, so a dithered ring reads as dotted and a
+;     diagonal reads as noise. Every edge here is a horizontal or vertical RUN.
+;   - THE RING IS ONE PIXEL because os88ui_chk's frame is one pixel. A heavier
+;     ring is more legible greyed and would be the odd control out in a column
+;     that has both; matching the neighbour won.
+;
+; --- WHAT IT COSTS TO DRAW, honestly -----------------------------------------
+; Six drawing calls for an unpicked row and nine for the picked one - the
+; ground, four runs for the ring, three for the dot, and the label. That is
+; MORE than os88ui_glyph's normal path, which is ONE masked-sprite call plus
+; the caller's own label, and the trade is taken on the owner's terms: this is
+; drawn once and then sits there until someone interacts with it.
+;
+; What it wins back is the OTHER path. os88ui_glyph cannot draw a control a
+; clip fragment's edge cuts - ico_core clips an icon WHOLE - so it falls to
+; `.gpix`, ONE DRAWING CALL PER SET BIT: 45 to 65 of them, 24-34 ms for one
+; control (PERFORMANCE.md Set 83). A fill clips per pixel, so this control has
+; no such path and no such twin to keep in step. One cost instead of two, and
+; the bad one is gone.
+;
+; --- THE RECORD, in YOUR data (one per GROUP) -------------------------------
+;   my_radio:
+;       dw 0, 0, 0, 0           ; OS88UI_RD_RECT: the WHOLE clickable area,
+;                               ; {x1,y1,x2,y2} inclusive, SCREEN coords - fill
+;                               ; it in your painter from OSAPI_WM_CONTENT,
+;                               ; since a window moves. Row i is PITCH tall
+;                               ; from y1; x2 is where the labels' ground ends
+;       dw my_items             ; OS88UI_RD_ITEMS: near ptrs to NUL strings,
+;                               ; an app menu's AMENU_ITEMS shape
+;       dw 3                    ; OS88UI_RD_N: how many, 1..OS88UI_RDMAX
+;       dw 0                    ; OS88UI_RD_SEL: the pick, 0-based - yours to
+;                               ; read after a press and to set before a paint
+;       dw 16                   ; OS88UI_RD_PITCH: row to row, in pixels. IN
+;                               ; THE RECORD and not a constant because it
+;                               ; varies by PAGE in the first caller that
+;                               ; wanted it - the Control Panel's are 16, 20
+;                               ; and 16 - so a library constant would have
+;                               ; moved existing pixels to save two bytes
+;       dw 0                    ; OS88UI_RD_DIS: bit i greys item i (SPEC.md 47
+;                               ; rule 2), and BIT 15 IS THE WHOLE GROUP -
+;                               ; os88ui_rad writes that bit from its own DI so
+;                               ; the press half can refuse without being
+;                               ; passed a flag it would have to be given
+;                               ; twice. os88ui_drop's OS88UI_DR_DIS is the
+;                               ; same trick and is why this is not new
+;
+; --- USING IT ----------------------------------------------------------------
+;   in W_PAINT:      BX = my_radio, DI = flags (OS88UI_DIS greys ALL of it, on
+;                    top of the per-item bits), and `call os88ui_rad`. It fills
+;                    its own ground and draws its own labels
+;   in W_ONCLICK:    BX = my_radio, CX/DX = the point, `call os88ui_radhit`.
+;                    out CF = 1 the press was not ours - and NOTHING ELSE means
+;                    anything in that case. CF = 0 it was ours, and then
+;                    ZF = 1 exactly when the pick MOVED: the two rows that
+;                    changed have been redrawn where they stand, so there is
+;                    nothing to repaint, and OS88UI_RD_SEL is the new pick.
+;                    ZF = 0 is a press on the pick that was already made, or on
+;                    a greyed row - ours, swallowed, nothing drawn and nothing
+;                    for the caller to act on
+; =============================================================================
+OS88UI_RD_RECT  equ 0
+OS88UI_RD_ITEMS equ 8
+OS88UI_RD_N     equ 10
+OS88UI_RD_SEL   equ 12
+OS88UI_RD_PITCH equ 14
+OS88UI_RD_DIS   equ 16
+OS88UI_RD_SIZE  equ 18
+
+OS88UI_RDBOX    equ 12          ; the ring's box - OS88UI_GW, so a converted
+                                ; call site keeps its geometry to the pixel
+OS88UI_RDGAP    equ 6           ; ...and the label's margin, os88ui_chk's
+OS88UI_RDMAX    equ 8           ; bits 0..7 of OS88UI_RD_DIS; 15 is the group
+OS88UI_RDGRP    equ 0x8000      ; ...that bit, by name
+
+; -----------------------------------------------------------------------------
+; os88ui_rad - draw the whole group as it stands
+; in:  BX = the record, DI = flags (OS88UI_DIS); the gfx lock is held
+; out: nothing; every register preserved
+; -----------------------------------------------------------------------------
+os88ui_rad:
+    push ax
+    push cx
+    push si
+    mov si, [bx+OS88UI_RD_DIS]  ; bank the group's own bit from DI FIRST, so
+    and si, 0x7FFF              ; the press half reads what the paint decided
+    test di, OS88UI_DIS         ; (SPEC.md 13.14.5's trick, one control along)
+    jz .live
+    or si, OS88UI_RDGRP
+.live:
+    mov [bx+OS88UI_RD_DIS], si
+    xor si, si
+    mov cx, [bx+OS88UI_RD_N]
+    jcxz .out                   ; a group of none draws nothing, rather than
+.row:                           ; `loop` wrapping the count round to 65,536
+    call os88ui_rad1
+    inc si
+    loop .row
+.out:
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_rad1 - ONE row, ground and all, so os88ui_radhit can repaint two
+; in:  BX = the record, SI = the row, 0-based; the gfx lock is held
+; out: nothing; every register preserved
+;
+; It reads OS88UI_RD_DIS rather than taking a flag argument, which is exactly
+; what lets the press half redraw a row without being handed the painter's DI.
+;
+; X IS RE-READ FROM THE RECORD at every step rather than held in a register.
+; UI_FILL wants AX,BX,CX,DX = x1,y1,x2,y2, so a register holding x would be
+; pushed and popped around all seven of them; a memory read through BP is one
+; instruction, no register, and cannot get out of step.
+; -----------------------------------------------------------------------------
+os88ui_rad1:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    mov bp, bx                  ; BP = the record. A VALUE, never an address:
+                                ; SS is not DS in a package or in the kernel,
+                                ; so every read below carries `ds:`
+
+    mov ax, si                  ; --- the row's top ---
+    mul word [ds:bp+OS88UI_RD_PITCH]
+    add ax, [ds:bp+OS88UI_RD_RECT+2]
+    mov di, ax                  ; DI = this row's y, for the rest of the body
+
+    UI_WHITE                    ; --- its own ground, so a pick that MOVES
+    mov ax, [ds:bp+OS88UI_RD_RECT+0]    ; needs no repaint of anything above
+    mov cx, [ds:bp+OS88UI_RD_RECT+4]    ; or below it
+    mov bx, di
+    mov dx, di
+    add dx, [ds:bp+OS88UI_RD_PITCH]
+    dec dx
+    UI_FILL
+
+    mov ax, 1                   ; --- greyed? this row's bit, or the group's
+    mov cx, si
+    jcxz .havebit
+.shift:
+    shl ax, 1                   ; (8086: no shift by an immediate but 1)
+    loop .shift
+.havebit:
+    test ax, [ds:bp+OS88UI_RD_DIS]
+    jnz .grey
+    test word [ds:bp+OS88UI_RD_DIS], OS88UI_RDGRP
+    jnz .grey
+    clc                         ; SPEC.md 47 rule 1: the PEN carries it, and it
+    jmp short .pen              ; carries it to the ring, the dot and the label
+.grey:                          ; at once - which is why a fill-drawn mark
+    stc                         ; needs no dither table of its own, where
+.pen:                           ; os88ui_glyph composes one row by row
+    UI_PEN
+
+    ; --- the ring: FOUR RUNS, never a frame ---------------------------------
+    ; A frame would put a pixel in each corner and they would then have to be
+    ; knocked out in the ground colour - four more fills AND two more pen
+    ; changes. Four runs that simply stop one pixel short are the same shape
+    ; for less, and every one of them is horizontal or vertical (SPEC.md 39.4:
+    ; a diagonal reads as noise on a 1bpp adapter).
+    mov ax, [ds:bp+OS88UI_RD_RECT+0]
+    inc ax
+    mov cx, ax
+    add cx, OS88UI_RDBOX - 3
+    mov bx, di
+    mov dx, di
+    UI_FILL                     ; top
+
+    mov ax, [ds:bp+OS88UI_RD_RECT+0]
+    inc ax
+    mov cx, ax
+    add cx, OS88UI_RDBOX - 3
+    mov bx, di
+    add bx, OS88UI_RDBOX - 1
+    mov dx, bx
+    UI_FILL                     ; bottom
+
+    mov ax, [ds:bp+OS88UI_RD_RECT+0]
+    mov cx, ax
+    mov bx, di
+    inc bx
+    mov dx, di
+    add dx, OS88UI_RDBOX - 2
+    UI_FILL                     ; left
+
+    mov ax, [ds:bp+OS88UI_RD_RECT+0]
+    add ax, OS88UI_RDBOX - 1
+    mov cx, ax
+    mov bx, di
+    inc bx
+    mov dx, di
+    add dx, OS88UI_RDBOX - 2
+    UI_FILL                     ; right
+
+    cmp si, [ds:bp+OS88UI_RD_SEL]       ; --- the dot: 6x6, rounded the same
+    jne .label                          ; way, and centred exactly - 1 + 2 + 6
+                                        ; + 2 + 1 is the box's own 12
+    mov ax, [ds:bp+OS88UI_RD_RECT+0]
+    add ax, 4
+    mov cx, ax
+    add cx, 3
+    mov bx, di
+    add bx, 3
+    mov dx, bx
+    UI_FILL                     ; the dot's top run
+
+    mov ax, [ds:bp+OS88UI_RD_RECT+0]
+    add ax, 3
+    mov cx, ax
+    add cx, 5
+    mov bx, di
+    add bx, 4
+    mov dx, di
+    add dx, 7
+    UI_FILL                     ; ...its body
+
+    mov ax, [ds:bp+OS88UI_RD_RECT+0]
+    add ax, 4
+    mov cx, ax
+    add cx, 3
+    mov bx, di
+    add bx, 8
+    mov dx, bx
+    UI_FILL                     ; ...and its bottom run
+
+.label:
+    mov ax, si                  ; --- the label, OPAQUE (SPEC.md 6.1) ---
+    shl ax, 1                   ; SI is still the ROW here; it becomes the
+    add ax, [ds:bp+OS88UI_RD_ITEMS]     ; string only now that nothing else
+    mov si, ax                          ; wants the index
+    mov si, [si]
+    mov cx, [ds:bp+OS88UI_RD_RECT+0]
+    add cx, OS88UI_RDBOX + OS88UI_RDGAP
+    mov dx, [ds:bp+OS88UI_RD_PITCH]     ; centred in the row, os88ui_chk's
+    sub dx, 7                           ; arithmetic
+    sar dx, 1
+    add dx, di
+    mov al, CBLACK              ; the DIS state rides on the pen, not on AL -
+    mov ah, CWHITE              ; os88ui_chk's convention, and it is why the
+    UI_RUN                      ; label greys with the ring for free
+
+    clc
+    UI_PEN                      ; the pen back, always
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_radhit - a press: the row under it becomes the pick and TWO rows are
+;                 redrawn where they stand
+; in:  BX = the record, CX = x, DX = y; the gfx lock is held
+; out: CF = 1 the press was not ours, and nothing else means anything.
+;      CF = 0 it was ours, and ZF = 1 exactly when the pick MOVED - in which
+;      case OS88UI_RD_SEL is the new one and the screen is already right.
+;      ZF = 0 is a press on the pick already made, on a greyed row, or on the
+;      slack below the last row: ours, swallowed, nothing drawn.
+;      Every register preserved.
+;
+; `pop` writes no flags, so the answer set before the epilogue survives it.
+; -----------------------------------------------------------------------------
+os88ui_radhit:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    call os88ui_bhit            ; the button's own hit test: the rect is at the
+    jc .no                      ; same offset and means the same thing
+    mov bp, bx
+    test word [ds:bp+OS88UI_RD_DIS], OS88UI_RDGRP
+    jnz .swallow                ; greyed whole (SPEC.md 13.14.5): it is still
+                                ; ours, and nothing happens
+    cmp word [ds:bp+OS88UI_RD_PITCH], 0
+    je .swallow                 ; a pitch of zero is a caller's bug, and `div`
+                                ; answers one with INT 0 - five bytes turn a
+                                ; crash into a press that does nothing
+    mov ax, dx
+    sub ax, [ds:bp+OS88UI_RD_RECT+2]
+    xor dx, dx
+    div word [ds:bp+OS88UI_RD_PITCH]
+    cmp ax, [ds:bp+OS88UI_RD_N]
+    jae .swallow                ; inside the rect but below the last row
+    mov si, ax
+
+    mov ax, 1                   ; ...and this row may be greyed on its own
+    mov cx, si
+    jcxz .hb
+.hs:
+    shl ax, 1
+    loop .hs
+.hb:
+    test ax, [ds:bp+OS88UI_RD_DIS]
+    jnz .swallow
+
+    cmp si, [ds:bp+OS88UI_RD_SEL]
+    je .swallow                 ; already the pick: ours, and NOT a change -
+                                ; which is the distinction a caller acting on
+                                ; the answer needs, since re-applying a mode
+                                ; the machine is already in is not free
+    mov di, [ds:bp+OS88UI_RD_SEL]
+    mov [ds:bp+OS88UI_RD_SEL], si
+    push si
+    mov si, di
+    call os88ui_rad1            ; the row that LOST the pick...
+    pop si
+    call os88ui_rad1            ; ...and the one that has it now. Two rows, not
+    xor ax, ax                  ; the group: ZF = 1, CF = 0
+    jmp short .out
+.swallow:
+    mov ax, 1
+    or ax, ax                   ; ZF = 0, CF = 0
+    jmp short .out
+.no:
+    stc
+.out:
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+%endif                          ; OS88UI_RAD
+
 %ifdef OS88UI_DROP
 ; =============================================================================
 ; THE DROP-DOWN (SPEC.md 13.14): one pick out of a short list
