@@ -1882,15 +1882,21 @@ fm_items_edit:
 fm_items_nav:
     dw fm_s_newwin, fm_s_opennew
     dw fm_s_refr, fm_s_up, fm_s_rootf, fm_s_drva, fm_s_drvb
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 fm_items_built:
     dw menu_s_timer, menu_s_bounce, menu_s_disk
+%endif                          ; KERN_BIG - SPEC.md 14.6
 
 fm_menus:
     dw menu_loc_name            ; AM_NAME: still 'Locator' (SPEC.md 12.3)
     dw fm_oncmd                 ; AM_ONCMD: our own handler - the resident
                                 ; thunk, like fm_tpl's three above
+%ifdef KERN_BIG
     dw 4                        ; AM_COUNT (MENU_APPMAX is 5: one cell spare,
                                 ; since SPEC.md 22.15 retired View)
+%else
+    dw 3                        ; AM_COUNT: no Builtins cell (SPEC.md 14.6)
+%endif
     dw fm_s_mfile, fm_items_file, FM_NFILE  ; 'Close Window' retired: the app-name
                                         ; cell carries Close now (SPEC.md
                                         ; 12.7), and a Disk window OWNS that
@@ -1909,7 +1915,9 @@ fm_menus:
                                         ; menu is where you GO, and the word
                                         ; also named the object three of the
                                         ; File menu's items act ON
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
     dw fm_s_mbuilt, fm_items_built, 3
+%endif                          ; KERN_BIG - SPEC.md 14.6
 section .cold                   ; ...and back to cold code
 
 
@@ -4003,12 +4011,21 @@ FMC_ICONS   equ 21              ; retired View: the context menu (fm_cxc_dir)
                                 ; that produced it left fm_menu_base and every
                                 ; other base is a VALUE that did not move
                                 ; (SPEC.md 12.7's FMC_CLOSEW reasoning)
+%ifdef KERN_BIG
 FMC_TIMER   equ 22              ; Builtins (SPEC.md 12.3.1) - the same three
 FMC_BOUNCE  equ 23              ; commands Locator's own Builtins menu has,
 FMC_DISK    equ 24              ; in the same order. Restart is NOT among them
                                 ; any more: it moved to the System menu, which
                                 ; is cell 0 of every application, so a Disk
                                 ; window reaches it there like everything else
+%endif                          ; KERN_BIG - SPEC.md 14.6: no Builtins menu on
+                                ; this build, so the three ids leave and
+                                ; FMC_PASTEIN takes 22. SAFE because the ids
+                                ; below are reached BY NAME (see FMC_ICONS
+                                ; above): the only base+item sum in the module
+                                ; is fm_menu_base's, and every base there is a
+                                ; VALUE that did not move
+%ifdef KERN_BIG
 FMC_PASTEIN equ 25              ; no menu CELL of its own: the context menu's
                                 ; "paste into the folder under the pointer"
                                 ; (SPEC.md 22.3), which the bar cannot offer
@@ -4016,6 +4033,10 @@ FMC_PASTEIN equ 25              ; no menu CELL of its own: the context menu's
                                 ; PAST every menu's range so no base + item
                                 ; sum can reach it by accident.
 FMC_COUNT   equ 26
+%else
+FMC_PASTEIN equ 22
+FMC_COUNT   equ 23
+%endif
 
 ; --- how much of the acting window did the command change? (SPEC.md 22.13) ---
 ; fm_docmd stamps FMD_ALL before every dispatch, so a body that says nothing -
@@ -4027,10 +4048,16 @@ FMD_NONE    equ 2               ; not one pixel of THIS window - the command
                                 ; posted work for another window entirely, or
                                 ; found nothing to act on
 
+%ifdef KERN_BIG
 FM_NMENUS   equ 4               ; = fm_menus' AM_COUNT (MENU_APPMAX is 5 and
                                 ; one cell is spare since SPEC.md 22.15)
 fm_menu_base:
     db FMC_OPEN, FMC_CUT, FMC_NEWWIN, FMC_TIMER
+%else
+FM_NMENUS   equ 3               ; = fm_menus' AM_COUNT (SPEC.md 14.6)
+fm_menu_base:
+    db FMC_OPEN, FMC_CUT, FMC_NEWWIN
+%endif
 
 ; The jump table. Every entry records WHICH SIDE OF THE GFX LOCK it is on,
 ; because fm_oncmd runs under that lock and the lock is a non-recursive spin
@@ -4080,9 +4107,11 @@ fm_jmp:
     dw fm_c_drvb                ; inline (fmv_load, drive 1)
     dw fm_c_list                ; inline (FS_VIEW = 0) - context menu and the
     dw fm_c_icons               ; inline (FS_VIEW = 1)   in-window button only
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
     dw fm_c_timer               ; POSTED - app_launch takes the lock
     dw fm_c_bounce              ; POSTED - app_launch takes the lock
     dw fm_c_disk                ; POSTED - ui_cmd takes the lock
+%endif                          ; KERN_BIG - SPEC.md 14.6
     dw fm_c_pastein             ; inline (fm_c_paste with another target), forever
 section .cold                   ; ...and back to cold code
 
@@ -5031,6 +5060,7 @@ fm_nw_full:
                                 ; second copy of it
 
 fm_c_nop equ fm_nw_none         ; the File menu's separator (SPEC.md 22.12)
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
                                 ; - MENU_DIS, so nothing can select it, and
                                 ; its body was fm_nw_none's to the byte. It is
                                 ; only ever named by fm_jmp's dw table, which
@@ -5056,6 +5086,7 @@ fm_c_bounce:                    ; Builtins > Bounce
     call KERNEL_SEG:inst_launch_post
 fm_c_elsewhere:                 ; a builtin opened SOMEBODY ELSE'S window,
     jmp short fm_nw_none        ; so this one is untouched - the same no-op
+%endif                          ; KERN_BIG - SPEC.md 14.6
 
 fm_c_refresh:                   ; Nav > Refresh
     jmp fm_reload

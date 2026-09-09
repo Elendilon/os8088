@@ -389,7 +389,7 @@ left of those two is their resident stubs.
 | # | option | HEAP | what it costs |
 |---|---|---:|---|
 | C1 | **FAT write path** SPEC.md 18.4–18.6 (`diskw.inc`) | **5,077** | a **read-only OS**: nothing saves, formats, renames or deletes |
-| C5 | **Built-in kinds** SPEC.md 14 (`apps.inc`) | **1,594** | Timer, About, Ball, Bounce. 240 of it is `app_tmr_pool`/`app_ball_pool` in `.lowbss` |
+| C5 | ~~**Built-in kinds** SPEC.md 14 (`apps.inc`)~~ | ~~1,594~~ | **BUILT — SPEC.md 14.6.** Timer, Bounce and the Builtins menu are gated; `KERN_SIZE` 78,336 → **76,800**, free heap 50.0 → **51.5 KB** measured on the floor machine. About stays and was priced by gating it: **298 bytes that cross no rung** (14.6.3) |
 | C6 | **Fullscreen exclusive** SPEC.md 53 (`fsx.inc`) | *788* | **BLOCKED — §10.** Cyclone, Missile and Paint call `OSAPI_FSX_RUN`/`_CAPS` untested; a package that believes it took the screen and did not is worse than one that cannot |
 | C7 | **The dock** SPEC.md 30 (`dock.inc`) | **717** | |
 | C8 | **Clipboard** SPEC.md 55 (`clip.inc`) | *159* | **CONDITIONAL — §10.** Every small caller tests `OSAPI_CLIP_SIZE`, but Sheet and TexPad do not test `_PUT` and five do not test `_GET`; wants a per-caller read before it is taken |
@@ -589,7 +589,8 @@ from that sum.
 
 | take | `KERN_SIZE` | free heap | what still works |
 |---|---:|---:|---|
-| **today** | 78,336 | **50.0 KB** | measured on the machine |
+| ~~today~~ | ~~78,336~~ | ~~50.0 KB~~ | superseded by the row below |
+| **today (C5 built)** | **76,800** | **51.5 KB** | measured on the floor machine, `tests/small128.py` |
 | A | 76,800 | **51.5 KB** | everything, minus the sound layer (A2r is dead — §2.2) |
 | A + D | 75,776 | **52.5 KB** | …with smaller tables and six windows |
 | **every CLEAN row** (§10) | **69,632** | **58.5 KB** | …and no save-under, toast, progress, blanker, dock or built-in apps. **Nothing on the small floppies breaks** |

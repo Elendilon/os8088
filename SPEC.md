@@ -22619,6 +22619,90 @@ inverted rect, which fills nothing. A flag-clobber between a compare and its
 branch is the failure this file's register discipline exists to prevent, and
 one screenshot found it.
 
+### 14.6 Timer and Bounce are `kern_big`'s, and so is the Builtins menu
+
+`kern_small` builds **one** of the three kinds in `apps.inc`: **About**. Timer
+and Bounce, their two window templates, their state pools, their icons, their
+kind-table rows and the whole **Builtins** menu are behind `%ifdef KERN_BIG`.
+
+**KERN_SIZE 78,336 -> 76,800, and the free heap on a 128KB machine 50.0 ->
+51.5 KB** (`tests/small128.py`). Sections: `.text` -318, `.bss` -11, `.cold`
+-1,030, `.lowbss` -240. `kern_big` is byte-identical.
+
+**What goes with them.** The two kinds are not only their own bodies: they are
+the only users of `apps.inc`'s task scaffolding, so `app_state_of`,
+`app_kind_open`, `app_kind_wait` and `app_kind_arm` leave with them - About is
+`KD_TASK` = 0 and never calls one. `app_tmr_pool` (160 bytes) and
+`app_ball_pool` (80) are the `.lowbss` half, and the two 64-byte icon bodies
+`inst_ico_timer` and `inst_ico_bounce` the `.text` one.
+
+**The Builtins menu goes because what is left of it duplicates a
+double-click.** It held Timer, Bounce and Disk (12.3.1); the first two do not
+exist on this build and the third opens a Disk window, which the desktop's own
+drive zones already do (26.1). So Locator's set drops to **one** cell, File,
+and the Disk window's own copy - the same menu with the same items, carried by
+`fm_menus` - drops with it. `ui_loc_base` is two entries here rather than
+three, and `UI_LOC_N` is its own length so the bound in `ui_dispatch` cannot
+drift from the table.
+
+#### 14.6.1 The kind index is a TABLE POSITION, and renumbering it is safe
+
+`inst_launch` multiplies `KIND_*` by `KD_SIZE` to reach a row of `inst_kinds`,
+so removing two rows moves every kind above them down two: on `kern_small`
+`KIND_FILES` is **1** and `KIND_CTRL` is **2**, against 3 and 4 on `kern_big`.
+
+**This is not an ABI change**, and the reason is worth stating rather than
+assuming, because a kind index looks exactly like the sort of number a package
+would hold. The SDK publishes **`KIND_PKG` alone** - bit 7 of `SSI_KIND`
+(`apps/os88api.inc`) - and every package use of a kind in this tree is a
+`test`/`and` against that one bit. Every kernel use is BY NAME. There is no
+`KIND_TIMER` in `apps/os88api.inc` to go stale, and no `.o88` can tell the two
+builds apart.
+
+`FMC_*` renumbers the same way and for the same reason: `FMC_PASTEIN` takes 22
+here, because the Builtins ids left and the ids below are reached by name
+rather than as a base plus an item (the note above `FMC_ICONS` is the same
+argument for the retired View menu). The one base-plus-item sum in the module
+is `fm_menu_base`'s, and every base in it is a value that did not move.
+
+#### 14.6.2 What the machine loses, and what it does not
+
+A `kern_small` desktop has no stopwatch and no bouncing ball, and its menu bar
+carries **System** and **File** where it carried System, File and Builtins.
+Nothing else in the kernel reaches Timer or Bounce: they are launched from the
+two menus and from nowhere else, and `app_launch` refusing a kind that does not
+exist is not a path any surface can reach, because no surface offers it.
+
+#### 14.6.3 About STAYS, and it was priced by gating it
+
+About is the third kind and the obvious next row, so it was built out and
+measured rather than estimated: **`.text` -228, `.cold` -70, 298 bytes** - and
+**`KERN_SIZE` does not move.** At 76,800 the image rung has 502 bytes spare and
+the cold rung 217, so About's 298 fit inside both and the free heap on a 128KB
+machine is **51.5 KB either way**. Removing it returns nothing to the machine
+today.
+
+That is not an argument that it is free to keep - the amortised price of a byte
+is a byte (CLAUDE.md's rung rule), and the 298 are slack the next change will
+find spent. It is the reason the trade is one-sided: About is what tells the
+machine's owner **which build, which adapter and which scheduler** they are
+running (14.2), on a machine whose whole purpose is being the small one, and it
+costs a rung crossing that has not happened.
+
+**Two things it turns out NOT to own**, both found by trying to gate it and
+both worth recording so the next reader does not re-derive them:
+
+- **`app_about_center` is the kernel's own dialog-centring helper**, not
+  About's. `ui_note_paint` centres both lines of every note and alert through
+  it (12.9), so it stays whichever way About goes - and with it
+  `apf_app_about_center`, its far thunk, which has to move out of the gated
+  block rather than into it.
+- **`%include "buildnum.inc"` sits inside About's data block**, and
+  `BUILD_NUM` is read by `clone.inc`, `ctrl.inc`, `diskw.inc`, `fdlg.inc` and
+  `filecp.inc` as well. Gating the block gates the include, and five modules
+  stop assembling; the include has to be lifted out first.
+
+
 ## 15. kernel.asm — boot sequence
 
 Keep the 0x0000 cold entry. At 0x0010 the retired syscall gate is replaced
