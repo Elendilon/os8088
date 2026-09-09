@@ -56823,6 +56823,59 @@ What the *application* owes itself across its own resize remains the
 application's to know — §42.19.3 is Paint's answer, and the reason it cannot be
 `[pt_szchg]`.
 
+#### 11.90.3.2 ...and the resize that REPLACES the content is the trap in it
+
+§11.90.3.1's safety argument enumerated Paint's `OSAPI_WM_RESIZE` call sites
+and found every one of them content-*preserving* — the size boxes and the
+full-screen exit resize a window *around* a picture that is still the picture
+that was there, which is exactly why withholding the rect is free. §54.10 then
+added two that are not: `pt_onwake` and `pt_ondlg` resize the window **after**
+a load has replaced the entire canvas.
+
+For those, "every surviving pixel is still its own" is true of the KERNEL and
+false of the DOCUMENT. `wm_damage` answers the empty rect — x1 = 1, x2 = 0,
+which §11.90.2 documents as *draw nothing* — `pt_blit_dmg` draws nothing, and a
+picture that decoded perfectly into the canvas never reaches the glass. The
+toast says `Opened` over a white window.
+
+**It fires whenever the window does not GROW in either axis and its origin does
+not move**, so it is neither about the width nor about the picture. Measured on
+a 4.77 MHz 8088 under MartyPC, the same drawing through the same generator:
+
+| picture | canvas after `pt_adopt` | window | on screen |
+|---|---|---|---|
+| 448 x 110, CGA (a 448 x 110 canvas) | unchanged | unchanged | **blank** |
+| 448 x 110, VGA (a 448 x 280 canvas) | height 280 → 110 | shrinks | **blank** |
+| 440 x 110, CGA | width 448 → 440 | shrinks | **blank** |
+| 300 x 110, CGA | width 448 → 300 | shrinks | **blank** |
+| 456 x 110, CGA | width 448 → 456 | grows | draws |
+| 466 x 110, CGA | width 448 → 466 | grows | draws |
+
+`PT_CW_DEF` is 448 and `pt_geom` clamps the fresh canvas to the screen, so on
+CGA **every picture 448 wide or narrower** is in it — and 448 is the width of
+anything drawn in a fresh Paint and saved, so `draw → Save As → reopen` is in
+it too, by `pt_ondlg`'s copy of the same three lines.
+
+**The fix is the application's, which is what §11.90.3.1's last paragraph
+already said it would have to be**: only the app knows whether its own content
+survived its own resize, and there is no rect the kernel can compute that
+answers it. So `pt_adopt` — the one routine that means *the canvas is now a
+different picture*, and the one both readers go through — raises `[pt_cvnew]`,
+and `pt_dmg_get` consumes it by leaving `[pt_dall]` at 1 and not asking
+`OSAPI_WM_DAMAGE` at all. **Nothing is drawn twice**: the resize's own
+`W_PAINT` *is* that full repaint, so the load costs exactly the one paint it
+already made, and the size boxes, the full-screen exit and `cal_hist_toggle`
+keep §11.90.3.1's saving in full. `pt_repaint` clears the flag as well, for the
+load that failed before `pt_wfollow` and so never resized.
+
+Two things it deliberately is not. It is **not** `[pt_dmoved]`: `pt_anch` asks
+whether the LAYOUT moved (§42.19.3), and a 448-wide picture into a 448-wide
+canvas moves nothing while replacing everything — which is why the furniture
+was redrawn in three of the four failing rows above and the canvas never was.
+And it is **not** a kernel change: withholding the rect is correct, because
+`wm_damage`'s answer is a FLOOR and not a ceiling — a package under `WF_OWNBG`
+may always draw more than it owes, and this one now does.
+
 ### 42.20 The content area may be WIDER than the canvas, and usually is
 
 **This is the decision docs/plans/completed/SAVEUNDER-LIVE-PLAN.md §28 records and stops

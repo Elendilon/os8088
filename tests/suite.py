@@ -3871,6 +3871,31 @@ SOAK = [
         "expansion into pt_line and gfx_blit4, on the machine whose every"
         "other canvas is four planes",
         needs=("marty",), serial=True),
+    Row("paintnogrow", "soak",
+        py("tests/paintnogrow.py"), 45.0,
+        "SPEC.md 11.90.3.2: does a LOAD that does not GROW the window reach "
+        "the glass? 11.90.3.1 lets wm_resize answer wm_damage with the EMPTY "
+        "rect for a window that did not grow with its origin unmoved - true "
+        "of every resize Paint made when that was written, and FALSE of the "
+        "two 54.10 added, where pt_onwake and pt_ondlg resize AFTER a load "
+        "has replaced the whole canvas. PT_CW_DEF is 448, so every picture "
+        "448 wide or narrower decoded perfectly and was never drawn: a white "
+        "window under a toast saying 'Opened'. THE TWO ARMS ARE THE ROW - a "
+        "466-wide picture GROWS the window, takes .norz, and drew correctly "
+        "throughout, so a Paint that draws nothing fails both and THIS defect "
+        "fails only the first. The oracle is the SCREEN and not the canvas: "
+        "paint1load compares the canvas against the file byte for byte and "
+        "was green the whole time, because the canvas was never wrong",
+        needs=("marty",), serial=True),
+    Row("paintnogrow-vga", "soak",
+        py("tests/paintnogrow.py", "--machine", "os8088_xt_vga"), 55.0,
+        "...and the same bug by the OTHER AXIS, which is the leg that killed "
+        "the width theory: a VGA's fresh canvas is 448x280, so a 448x96 "
+        "picture shrinks the HEIGHT - the window visibly gets smaller and the "
+        "predicate fires just the same. It is 'the window did not grow', not "
+        "'the width did not change', and no CGA arm can say so because "
+        "pt_chmax clamps that machine's fresh canvas to the picture's height",
+        needs=("marty",), serial=True),
     Row("paintrz-1bpp", "soak",
         py("tests/paintrz.py", "--machine", "os8088_5150_herc_gla"), 120.0,
         "...and the ONE-BIT canvas, which is a different move: one run of"
