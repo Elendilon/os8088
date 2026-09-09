@@ -101463,6 +101463,69 @@ face's own bookkeeping — the in-front count, the cross product, the copy
 into `cs_pv`, the ink — and a **five-thousand-cycle floor per polygon** is
 the number every level-of-detail decision in §88.5.4 is made against.
 
+##### 88.4.5.1 …and its clamp is 25 bytes of an answer it already has
+
+The row loop clamps every row's `xl`/`xr` to the view and tests whether the
+row spans it — 25 bytes at the top of a body that is **148 bytes long, of
+which 43 write pixels**. That block is the second-largest item in it and it
+is answerable ONCE, per polygon: every row's `xl`/`xr` lies between the
+box's own extremes, so a box **strictly** inside the view has no row that
+reaches either edge.
+
+**Strictly, not merely inside**, and the distinction is the whole
+correctness argument: a row is a whole-view row when `xl ≤ wx0` and
+`xr ≥ wx1`, and a box that reaches exactly to both edges is inside them and
+can still produce one. `cs_poly` therefore sets `[cs_pnoclip]` from
+`bp > wx0 && di < wx1`, and hands it to the row loop in **BP, which no row
+loop uses**.
+
+**What makes it worth 25 bytes rather than the clock cycles in them** is
+that this loop is FETCH-BOUND. A masked row executes 148 bytes, which at the
+8088's `max(clocks, 4.34 × bytes)` floor is **642 cycles against 725
+measured — 89%**. So the lever is the ENCODING and not the instruction
+count, and moving the block out of line for `cmp bp, 0`/`jne` is 20 bytes
+off every row: **148 → 128**.
+
+**What it is worth, and where it is worth nothing.** Measured against a
+control run between two arms that read identically:
+
+| tier 1, 16 frames | control | + the gate |
+|---|---|---|
+| `turnhold` `cs_scene` | 174.73 ms | **172.23 / 172.23** |
+| `turnhold` frame | 262.2 | **259.7 / 259.7** |
+| `bank` frame | 249.7 | 249.6 / 250.8 |
+| `cruise` frame | 163.7 | 163.8 / 163.8 |
+
+**−2.5 ms in a held bank and nothing anywhere else**, for **+33 bytes**, and
+the row counts say exactly why:
+
+| | poly rows a frame | still taking the block |
+|---|---|---|
+| `turnhold` | 257 | **61.4 — so 76% take the short body** |
+| `bank` | ~65 | 59.3 |
+| `cruise` | ~63 | 59.1 |
+| `descend` | ~10 | 9.8 |
+
+**In level flight the near buildings FILL the view**, so their boxes cross its
+edges and the clamp genuinely has to run; it is the banked case, where the
+rows are many and the shapes are diagonal and small, that has rows to spare.
+That also puts the prediction in its place: 87 cycles a row off 196 rows is
+3.6 ms and the frame gave 2.5, because 4.34 × bytes is a fetch floor and an
+upper bound wherever the row's operands are memory (PERFORMANCE.md Part 2).
+
+**The picture is identical**, checked the way §88.5.2.2 says a cull change has
+to be: the tick-driven scripted flight, which pins `[cs_last]` as well as the
+attitude so both builds see the same world at the same tick, reading the DRAWN
+set beside a hash of the 3D view. **0 differing frames of 276** over
+`turnhold`, `sparse` and `cruise`. `climb` is what covers the moved
+whole-view arm — 46.4 whole-view rows a frame there, §88.5.5's forty — and
+they come from its one `cs_rect` call, which is why that caller keeps BP = 1.
+
+`cs_rect` keeps the general path deliberately. Its rows are already clamped —
+`ax` and `cx` were, once — but a rectangle is how the runway under the wheels
+is drawn, and those are forty **whole-view rows** a frame (§88.5.5) whose
+test lives in the block BP skips.
+
 #### 88.4.6 The Hercules row loop and slice
 
 `cs_polyrows_herc` is §88.4.2's row loop with the run INLINE: no dispatch

@@ -2109,6 +2109,22 @@ cs_poly:
 .mx2:
     mov [cs_pbx0], ax
     mov [cs_pbx1], cx
+    ; --- ...AND WHETHER ANY ROW CAN REACH A VIEW EDGE (SPEC.md 88.4.5.1).
+    ;     Every row's xl/xr lies between the box's own extremes, so a box
+    ;     STRICTLY inside the view has no row that needs clamping and no row
+    ;     that spans the view - which is the row loop's whole 25-byte clamp
+    ;     block, fetched 257 times a frame for an answer the polygon already
+    ;     has. STRICTLY inside, not merely inside: a row is a whole-view row
+    ;     when xl <= wx0 and xr >= wx1, and a box that reaches exactly to
+    ;     both edges is inside them and can still do it.
+    mov si, 1                       ; SI = 1: the general row loop
+    cmp bp, [cs_wx0]
+    jle .mx3
+    cmp di, [cs_wx1]
+    jge .mx3
+    xor si, si                      ; ...neither can happen: skip the block
+.mx3:
+    mov [cs_pnoclip], si
     cmp byte [cs_pwhole], 0         ; a whole object's box was taken off its
     jne .marked                     ; vertices (88.3.2)
     push bx
@@ -2227,6 +2243,7 @@ cs_poly:
     jnz .e
     ; --- the rows: the backend's loop (88.4.6) -------------------------------
 .rows:
+    mov bp, [cs_pnoclip]            ; BP is free in every row loop (88.4.5.1)
     jmp [cs_rowsproc]
 .out:
 %ifdef CSPROBE
@@ -2299,31 +2316,15 @@ cs_polyrows_herc:
     shl si, 1
     mov ax, [cs_xl + si]
     mov cx, [cs_xr + si]
-    cmp ax, [cs_wx0]
-    jg .c1
-    cmp cx, [cs_wx1]
-    jl .c1a
-    ; --- the whole view row: no masks, no ends, one store - the runway
-    ;     under the wheels is forty of these a frame (88.5.5) ---------------
-    push bx
-    push di
-    mov si, bx
-    and si, 3
-    mov al, [cs_pat + si]
-    mov ah, al
-    add di, [cs_wb0]
-    mov cx, [cs_wbn]
-    shr cx, 1
-    rep stosw
-    pop di
-    pop bx
-    jmp .nrow
-.c1a:
-    mov ax, [cs_wx0]
-.c1:
-    cmp cx, [cs_wx1]
-    jle .c2
-    mov cx, [cs_wx1]
+    ; --- THE CLAMP BLOCK IS 25 BYTES AND IT IS OUT OF LINE (88.4.5.1). This
+    ;     loop is FETCH-BOUND - a masked row executes 148 bytes, 642 cycles
+    ;     of the 8088's 4.34-a-byte floor against 725 measured - so what a
+    ;     row costs is what it ENCODES, and those 25 bytes are an answer
+    ;     cs_poly already has: BP is zero when no row of this polygon can
+    ;     reach a view edge, which was 91% of them (7 of 79 needed the box
+    ;     clamped at all). Four bytes and a jump NOT TAKEN in their place
+    cmp bp, 0
+    jne .clip
 .c2:
     cmp ax, cx
     jg .nrow
@@ -2387,6 +2388,36 @@ cs_polyrows_herc:
     cmp bx, [cs_py1]
     jle .row
     ret
+    ; --- ...and the block itself, reached only by a polygon whose box
+    ;     touches or crosses a view edge, and by every cs_rect ------------
+.clip:
+    cmp ax, [cs_wx0]
+    jg .c1
+    cmp cx, [cs_wx1]
+    jl .c1a
+    ; --- the whole view row: no masks, no ends, one store - the runway
+    ;     under the wheels is forty of these a frame (88.5.5) ---------------
+    push bx
+    push di
+    mov si, bx
+    and si, 3
+    mov al, [cs_pat + si]
+    mov ah, al
+    add di, [cs_wb0]
+    mov cx, [cs_wbn]
+    shr cx, 1
+    rep stosw
+    pop di
+    pop bx
+    jmp .nrow
+.c1a:
+    mov ax, [cs_wx0]
+.c1:
+    cmp cx, [cs_wx1]
+    jle .cdone
+    mov cx, [cs_wx1]
+.cdone:
+    jmp .c2                         ; NEAR: the block sits past the loop now
 
 ; -----------------------------------------------------------------------------
 ; cs_hrun - one masked run of the current ink, opaque
@@ -2707,6 +2738,13 @@ cs_rect:
     inc bx
     cmp bx, [cs_py1]
     jle .row
+    mov bp, 1                       ; THE GENERAL ROW LOOP (88.4.5.1). Its
+                                    ; rows are clamped already - ax and cx
+                                    ; were, once, above - but a RECTANGLE is
+                                    ; how the runway under the wheels is
+                                    ; drawn, forty whole-view rows a frame
+                                    ; (88.5.5), and that test lives in the
+                                    ; block BP skips
     jmp [cs_rowsproc]
 .out:
     ret

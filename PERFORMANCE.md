@@ -12418,3 +12418,68 @@ for the code around it as well. The two arms agree to 0.01 ms.
 survived every rebuild and every timing; what it had stopped doing was drawing
 three landmarks and a road. **A cull change is not measured in milliseconds
 until it has been measured in pixels.**
+
+### Set 132 — CLEAR SKIES: `cs_poly` taken apart, and a row loop that is 89% ENCODING (SPEC.md §88.4.5.1)
+
+Set 130's cull work left `cs_scene` at 67% of a banked frame, and the parts
+round (§88.10.5) changed none of it — the worlds became lazy parts and the
+frame is **identical to 0.3 ms on every stage**, which is what a bss overlay
+was for. What HAS changed rank is `cs_poly`: §88.5.4.6's banked impostor
+covers 12.5 rows where the compressed one covered 6, so the row filler is now
+the largest single exclusive term in the program.
+
+**Where `cs_poly`'s 40 ms goes**, `turnhold`, 14.2 calls a frame of which half
+exit at the bounding-box reject:
+
+| phase | ms a frame | cycles a call |
+|---|---|---|
+| the min/max pass + the rejects | 1.58 | 1,029 |
+| the box mark | 0.68 | 444 |
+| the one-or-two-row test | 0.04 | 28 |
+| the sentinel pass (§88.5.4.7) | 1.89 | 1,265 |
+| the edge loop (`cs_edge` is 13.5 of it) | 17.71 | 11,524 |
+| **the ROW LOOP** | **37.96** | **25,084** |
+
+**A row is 725 cycles and 2.1 bytes wide.** Regressed over 1,800 rows with the
+deltas reset at each polygon — the first attempt let a delta span from one
+polygon's last row to the next one's first, folded a whole edge loop into a
+row, and read a **negative cost a byte**:
+
+    whole iteration   509 + 101.5 x bytes     70% of it fixed
+    the storing body   49 +  93.1 x bytes
+
+So **480 cycles of every row is bookkeeping and 245 is storing**. The mean row
+is 17 pixels while the median polygon BOX is 45 wide by 36 tall, and those
+only reconcile one way: **a banked polygon is diagonal** — a wide box with
+narrow rows. It is the same geometry that makes `cs_markrows` 9.25 ms in a
+bank against 2.04 level.
+
+**AND THE LOOP IS FETCH-BOUND, which decides what a fix may look like.** A
+masked row executes **148 bytes**; at the 8088's `max(clocks, 4.34 x bytes)`
+floor that is **642 cycles against 725 measured — 89%**. Removing clock cycles
+from this loop buys nothing. Removing ENCODED BYTES buys 4.34 each.
+
+| a row's 148 bytes | bytes | cycles of floor |
+|---|---|---|
+| loop head + the `cs_xl`/`cs_xr` read | 12 | 52 |
+| **the CLAMPS** | **25** | **108** |
+| the empty-row test | 4 | 17 |
+| the pattern byte | 10 | 43 |
+| first byte + its mask | 15 | 65 |
+| last byte + its mask | 15 | 65 |
+| address + width | 10 | 43 |
+| **the STORES** | 43 | 187 |
+| pop + advance + loop test | 14 | 61 |
+
+**Only 43 of 148 bytes write pixels.** §88.4.5.1 takes the 25 out of line
+behind BP: **148 -> 128 bytes**, `cs_scene` **174.73 -> 172.23 ms** and the
+frame **262.2 -> 259.7** on `turnhold`, for **+33 bytes** — and **nothing at
+all** on `bank`, `cruise` or `descend`, because in level flight the near
+buildings fill the view and 59 of ~63 rows a frame still need the clamp,
+where a held bank runs 257 rows and 76% of them skip it.
+
+**Two things this set is a worked example of.** A delta that crosses a
+structure boundary measures the boundary — the negative slope above was the
+finding that said so, not a noisy fit. And a prediction off a fetch floor is
+an UPPER bound: 3.6 ms predicted, 2.5 delivered, because 4.34 x bytes is only
+reached when the operands are registers.
