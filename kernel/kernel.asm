@@ -6672,28 +6672,42 @@ fdlg_reap:
 ; below it is unreachable. It is written anyway rather than as a far `jmp`,
 ; because a thunk that is not shaped like every other thunk here is one a
 ; future reader has to stop and check.
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 app_tmr_kinit:        call COLD_SEG:app_tmr_kinit_x
                     ret
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 app_bounce_kinit:     call COLD_SEG:app_bounce_kinit_x
                     ret
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
 app_about_paint:      call COLD_SEG:app_about_paint_x
                     ret
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 app_tmr_paint:        call COLD_SEG:app_tmr_paint_x
                     ret
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 app_tmr_onclick:      call COLD_SEG:app_tmr_onclick_x
                     ret
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
 %ifdef KERN_BIG
 app_tmr_onup:         call COLD_SEG:app_tmr_onup_x
                     ret
 app_tmr_ondrag:       call COLD_SEG:app_tmr_ondrag_x
                     ret
 %endif
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 app_bounce_paint:     call COLD_SEG:app_bounce_paint_x
                     ret
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 app_tmr_task:         call COLD_SEG:app_tmr_task_x
                     ret                     ; never reached (inst_task_die)
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 app_bounce_task:      call COLD_SEG:app_bounce_task_x
                     ret                     ; never reached (inst_task_die)
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
 ; ...and the one with near callers of its own: app_about_paint calls it four
 ; times from inside .cold, so the body keeps a near `ret` and apf_ is the pad
 ; that owes the far one (SPEC.md 2.6's original two-call shape).

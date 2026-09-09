@@ -139,7 +139,7 @@ _MIRROR = {
     # first `equ` in the file - which is what it did, and which made the guard
     # agree with itself while every kern_small script decoded garbage.
     "WIN_SIZE": ("kernel/wm.inc", {"big": 34, "small": 28}),
-    "MAX_WIN": ("kernel/wm.inc", 12),
+    "MAX_WIN": ("kernel/wm.inc", {"big": 12, "small": 6}),
     "W_FLAGS": ("kernel/wm.inc", 0),
     "W_X": ("kernel/wm.inc", 2),
     "W_Y": ("kernel/wm.inc", 4),
@@ -181,7 +181,7 @@ _MIRROR = {
     "I_NAME": ("kernel/instance.inc", 12),
     "I_CYC": ("kernel/instance.inc", 28),
     "I_RECSZ": ("kernel/instance.inc", 32),
-    "INST_MAX": ("kernel/instance.inc", 12),
+    "INST_MAX": ("kernel/instance.inc", {"big": 12, "small": 6}),
     # kernel/dock.inc - the strip (SPEC.md 30)
     "DOCK_H": ("kernel/dock.inc", 24),
     "DOCK_X0": ("kernel/dock.inc", 8),
@@ -294,7 +294,7 @@ _MIRROR = {
     # PER ARM (docs/plans/KERN-SMALL-CUT-PLAN.md D1/D7): kern_small holds TWENTY claim records. The SDK
     # keeps the LARGER value, so a package over-allocates rather than
     # the kernel overflowing what it was handed (SPEC.md 51.0.0).
-    "MEM_MAX": ("kernel/memory.inc", {"big": 32, "small": 20}),
+    "MEM_MAX": ("kernel/memory.inc", {"big": 32, "small": 16}),
     "MC_SEG": ("kernel/memory.inc", 0),
     "MC_PARA": ("kernel/memory.inc", 2),
     "MC_OWN": ("kernel/memory.inc", 4),
@@ -377,7 +377,7 @@ _MIRROR = {
     # PER ARM (docs/plans/KERN-SMALL-CUT-PLAN.md D1/D7): kern_small has SIX worker slices and the UI task. The SDK
     # keeps the LARGER value, so a package over-allocates rather than
     # the kernel overflowing what it was handed (SPEC.md 51.0.0).
-    "MAX_TASKS": ("kernel/sched.inc", {"big": 14, "small": 7}),
+    "MAX_TASKS": ("kernel/sched.inc", {"big": 14, "small": 5}),
 }
 
 def _armval(name):
