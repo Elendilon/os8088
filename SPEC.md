@@ -108475,6 +108475,23 @@ program call `dd_band_rect` — the dot run, the title's glyph grid, the HUD's
 `dd_bh` at all, so a clip there would read a stale height and silently drop
 rows of somebody else's text.
 
+**Every field of the band is stored before anything is refused**, and that is
+the part to keep. `dd_band_actor` calls `dd_band_one` and `dd_band_emit`
+whether a band was built or not, so a `dd_band_build` that returns early on a
+degenerate rectangle leaves the PREVIOUS band's base, stride and origin
+standing — and the actor is then composed into that buffer and blitted where
+that one was. The tile arithmetic could not do this, having stored its five
+fields before it had anything to refuse; the pixel version has to do it on
+purpose. It reached the field as a Hercules arm reporting negative frame rates.
+
+**What the two rectangles bought**, VGA, windowed, playing, on a
+cycle-accurate 4.77 MHz 8088: mean band **460 px → 303**, bands spanning three
+tiles **20.8% → none**, `gfx_blit1` **12.69 ms a frame → 10.05**, and the whole
+frame **49.59 ms → 44.42** of a 54.93 ms tick. The band now measures **96% of
+its own union**, so what is left is the byte-column rounding and nothing else.
+Hercules goes 34.43 → 33.64 and CGA barely moves, its 8×4 tile being about the
+size of a step already.
+
 #### 93.5.9.1 …and the fast path forgot which BYTE the run starts in
 
 §93.5.9's two-byte mask is built from the run's **bit** offset, and the byte
