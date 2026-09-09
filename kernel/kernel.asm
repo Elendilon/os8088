@@ -3924,7 +3924,20 @@ osapi_table:
                                   ;          instructions that refuse: there is
                                   ;          no driver there that would
                                   ;          register one
-osapi_table_end:                  ; 0x0530
+    OSAPI_XCELL osapi_pkg_rehome  ; 0x0530 - X: a LOADER hands its identity to
+                                  ;          one of its own parts (SPEC.md
+                                  ;          20.12.10). in DX = the segment the
+                                  ;          program's image starts at, AX =
+                                  ;          the bytes available there.
+                                  ;          out CF=1 refused - not the entry
+                                  ;          proc of the launch in flight, a
+                                  ;          second call, or DX = 0.
+                                  ;          IT ONLY RECORDS: the loader is
+                                  ;          still running in the region this
+                                  ;          frees, so the work is ld_start's
+                                  ;          step 8a, one instruction after
+                                  ;          this returns
+osapi_table_end:                  ; 0x0538
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -3932,8 +3945,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 164 * 8
-%error "os8088 API jump table must be exactly 164 8-byte slots"
+%if OSAPI_TABLE_LEN != 165 * 8
+%error "os8088 API jump table must be exactly 165 8-byte slots"
 %endif
 
 ; =============================================================================
@@ -6659,28 +6672,42 @@ fdlg_reap:
 ; below it is unreachable. It is written anyway rather than as a far `jmp`,
 ; because a thunk that is not shaped like every other thunk here is one a
 ; future reader has to stop and check.
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 app_tmr_kinit:        call COLD_SEG:app_tmr_kinit_x
                     ret
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 app_bounce_kinit:     call COLD_SEG:app_bounce_kinit_x
                     ret
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
 app_about_paint:      call COLD_SEG:app_about_paint_x
                     ret
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 app_tmr_paint:        call COLD_SEG:app_tmr_paint_x
                     ret
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 app_tmr_onclick:      call COLD_SEG:app_tmr_onclick_x
                     ret
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
 %ifdef KERN_BIG
 app_tmr_onup:         call COLD_SEG:app_tmr_onup_x
                     ret
 app_tmr_ondrag:       call COLD_SEG:app_tmr_ondrag_x
                     ret
 %endif
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 app_bounce_paint:     call COLD_SEG:app_bounce_paint_x
                     ret
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 app_tmr_task:         call COLD_SEG:app_tmr_task_x
                     ret                     ; never reached (inst_task_die)
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 app_bounce_task:      call COLD_SEG:app_bounce_task_x
                     ret                     ; never reached (inst_task_die)
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
 ; ...and the one with near callers of its own: app_about_paint calls it four
 ; times from inside .cold, so the body keeps a near `ret` and apf_ is the pad
 ; that owes the far one (SPEC.md 2.6's original two-call shape).
@@ -6810,6 +6837,8 @@ osapi_mem_claim_dma_hi: call COLD_SEG:mmf_osapi_mem_claim_dma_hi
 osapi_mem_free:       call COLD_SEG:mmf_osapi_mem_free
                   ret
 osapi_mem_movable:    call COLD_SEG:osapi_mem_movable_x
+                  ret
+osapi_pkg_rehome:     call COLD_SEG:osapi_pkg_rehome_x
                   ret
 osapi_mem_regrow:     call COLD_SEG:osapi_mem_regrow_x
                   ret

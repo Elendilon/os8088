@@ -507,13 +507,13 @@ def main(argv):
         # objects differ on the glass by thousands of pixels, and a same-rung
         # CONTROL reads the same thousands. The cull's own count is exact.
         #
-        # SELF-CONTAINED, and it puts the world back. The default location is
-        # Paris-Issy and nothing there is CSO_DENSE, so a check that stayed on
-        # it would only ever take its equal branch - and the other branch is
-        # the one the rung exists for. The world with a dense city is found by
-        # walking cs_ports, so this does not go stale when a second location
-        # grows one, and everything after here still runs on the world the
-        # checks above measured.
+        # SELF-CONTAINED, and it puts the world back. The equal branch used to
+        # come from a location with no CSO_DENSE object in it and is
+        # SYNTHESISED now - see dense_bits below - and the second world is
+        # picked out of cs_apwld rather than found by walking cs_ports for a
+        # dense one, both for the same reason: a location's record lives in
+        # the world overlay (SPEC.md 88.10.5), so only the loaded world has
+        # one to read.
         def dense_in(rec):
             objs = int.from_bytes(m.read(lin + rec + 18, 2), "little")
             nobj = int.from_bytes(m.read(lin + rec + 20, 2), "little")
@@ -521,23 +521,55 @@ def main(argv):
                        if int.from_bytes(m.read(lin + o + 16, 2), "little")
                        & 0x0200)
 
-        def go(rec):
-            """Fly `rec`'s world - by POKING cs_airport, without leaving.
+        def inside():
+            """In the bracket, on the two bytes that actually say so.
 
-            cs_scene reads [cs_airport] every frame, so the object table
-            switches at once; only cs_runway_build and the aeroplane's start
-            are behind, and neither matters to a count taken at three rungs
-            with the camera pinned - the stale runway is one object present
-            identically in all three. The first version toggled the bracket
-            with F and fixed frame advances, and F TOGGLES: one that had not
-            landed left the row on the other side of the bracket, and every
-            check after it read a world that was not being drawn. Under a
-            loaded lane that is what happened, Detail Level = None filing 0
-            objects because nothing was flying.
+            cs_back is NOT cleared on the way out - it is the mode the
+            bracket took and cs_diag reads it after - so "cs_back is set" is
+            true on both sides and cannot be the test. cs_quit is: cs_input
+            latches it to leave and cs_fsx_main clears it on entry, so the
+            PAIR is exact.
             """
+            return byte("cs_back") != 0 and byte("cs_quit") == 0
+
+        def toggle(want, who):
+            """One `f`, then WAIT FOR IT - never a second one on a timer.
+
+            F TOGGLES, so a press the guest has not read yet and a press it
+            read twice are the same picture from out here: the row ends up on
+            the other side of the bracket and every check after it reads a
+            world that is not being drawn. Under a loaded lane that is
+            exactly what happened, Detail Level = None filing 0 objects
+            because nothing was flying. So the key goes in once and the STATE
+            is what says it landed (tests/skiesrad.py's shape).
+            """
+            m.type_text("f")
+            for _ in range(30):
+                m.advance(frames=20)
+                m.run()
+                if inside() == want:
+                    return
+            sys.exit("skiesset: %s - cs_back %d, quit %d"
+                     % (who, byte("cs_back"), byte("cs_quit")))
+
+        def go(row):
+            """Fly `row`'s world - OUT of the bracket, pick, and back in.
+
+            THE ROW AND NOT THE RECORD (SPEC.md 88.10.5). A location's record
+            lives in the world OVERLAY now and only the picked location's
+            world is resident, so poking cs_airport at a record in a world
+            that is not loaded reads whatever the loaded one happens to have
+            at that offset. cs_cmd_fly is what turns a row into a world -
+            idempotent, so it costs nothing when the world is already in -
+            and `f` is the only way to reach it, which makes leaving and
+            coming back the only way to change country.
+            """
+            toggle(False, "the bracket would not let go")
             m.pause()
-            m.write(lin + base + off("cs_airport"), rec.to_bytes(2, "little"))
+            m.write(lin + base + off("cs_apnow"), bytes([row]))
+            m.write(lin + base + off("cs_inited"), b"\x00")
             m.run()
+            toggle(True, "the bracket would not take the new world")
 
         def at_level(k):
             bld(k)
@@ -603,15 +635,27 @@ def main(argv):
               "equal branch (%d left)" % dense_in(home))
         rungs(home, "the same world with its dense bits off")
         dense_bits(home, True)
+        # ...AND THE SAME LADDER ON A SECOND WORLD, which is a different
+        # question: the checks above ran on one object table, and this one
+        # says the cull reads whatever the OVERLAY holds rather than
+        # something it read once at launch. Picked out of cs_apwld and not
+        # cs_ports (SPEC.md 88.10.5): only the picked location's world is
+        # resident, so eight of cs_ports' nine pointers name whatever the
+        # loaded world has at that offset, while cs_apwld - which world each
+        # location stands in - is resident and true before any world is read.
         nport = int.from_bytes(m.readseg(seg, mp["cs_drport"] + 10, 2), "little")
-        for i in range(nport):
-            rec = int.from_bytes(m.readseg(seg, mp["cs_ports"] + 2 * i, 2),
-                                 "little")
-            if rec != home and dense_in(rec):
-                go(rec)
-                rungs(rec, "another world with a dense city")
-                go(home)
-                break
+        home_row = byte("cs_apnow")
+        home_wld = m.readseg(seg, mp["cs_apwld"] + home_row, 1)[0]
+        away = next((i for i in range(nport)
+                     if m.readseg(seg, mp["cs_apwld"] + i, 1)[0] != home_wld),
+                    None)
+        check(away is not None,
+              "there is a second world to fly to (%d location(s), all in "
+              "world %d)" % (nport, home_wld))
+        if away is not None:
+            go(away)
+            rungs(w("cs_airport"), "a second world, read into the overlay")
+            go(home_row)
         bld(CSBL_HIGH)
         m.advance(frames=40)
         m.run()

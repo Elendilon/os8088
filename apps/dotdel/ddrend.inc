@@ -91,7 +91,7 @@ dd_pen:
 ; in the present tense - and it is about THIRTY TIMES out.
 ;
 ; Measured in situ, the same string at the same place with the same pen, on a
-; cycle-accurate 4.77 MHz 8088 (PERFORMANCE.md Set 122):
+; cycle-accurate 4.77 MHz 8088 (PERFORMANCE.md Set 137):
 ;
 ;                          band, as first written   band, cell-outer   font_run
 ;   VGA 640x480                        12.882 ms           4.887 ms    5.422 ms

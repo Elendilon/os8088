@@ -31,8 +31,8 @@
 ; =============================================================================
 
 %ifdef KERN_SMALL
-MEM_MAX     equ 20              ; TWENTY heap claims on kern_small
-                                ; (docs/plans/KERN-SMALL-CUT-PLAN.md D7). The SDK's
+MEM_MAX     equ 16              ; SIXTEEN heap claims on kern_small
+                                ; (SPEC.md 11.102; it was 20 at D7). The SDK's
                                 ; copy STAYS AT 32, on MAX_TASKS' rule:
                                 ; apps/os88api.inc derives
                                 ; CLAIM_SNAPSHOT_SIZE from it and taskmgr
@@ -3198,6 +3198,49 @@ mem_free_owner_x:
     ret
 
 ; -----------------------------------------------------------------------------
+; mem_reown - hand every claim an owner holds to a DIFFERENT owner (SPEC.md 50.4.1)
+;
+; in:       BX = the owner word to match, DX = the owner word to write
+; out:      nothing (all registers preserved)
+;
+; mem_free_owner_x above with one instruction changed, and deliberately a
+; SECOND WALK rather than one walk with a flag. The obvious factoring - pass
+; the new owner in AX and let 0 mean "free instead" - is a TRAP: `ld_slot`
+; answers 0 for instance slot 0, which is a real owner word, so the sentinel
+; collides with the first package that launches. Thirteen bytes, measured, and
+; the collision is silent.
+;
+; SPEC.md 20.12.10's re-home is the one caller: the parts carve is claimed by
+; the LOADER and outlives it, so without this the loader's teardown frees the
+; segment the program is now running in - or, if the teardown is skipped, the
+; carve is owned by a segment that no longer exists and is leaked for the
+; session. Both halves are why this is a re-stamp and not a free.
+; -----------------------------------------------------------------------------
+mem_reown_x:
+    push cx
+    push si
+    pushf
+    cli                         ; the walk-and-write, one window, exactly as
+                                ; mem_free_owner_x's is: a claim published
+                                ; between the compare and the store would keep
+                                ; the owner that is about to stop existing
+    mov si, mem_tab
+    mov cx, MEM_MAX
+.scan:
+    cmp word [ss:si+MC_SEG], 0
+    je .next
+    cmp [ss:si+MC_OWN], bx
+    jne .next
+    mov [ss:si+MC_OWN], dx
+.next:
+    add si, MC_SIZE
+    loop .scan
+    popf
+    pop si
+    pop cx
+    ret
+
+; -----------------------------------------------------------------------------
 ; mem_free_rec - mem_free_owner for an instance record pointer
 ; in:  DI = instance record ptr
 ; out: nothing (all registers preserved) - inst_rel_rec's twin
@@ -3683,7 +3726,7 @@ osapi_cm_caps_x:
 mem_own:
     mov bx, es                       ; a claim that starts exactly here...
     call mem_owner_of_x              ; ...and BX is now WHOSE it is. The walk
-    jc .no                           ; that used to be written out here also
+    jc .noclaim                      ; that used to be written out here also
                                      ; carried on past a record whose base
                                      ; matched but whose owner failed all
                                      ; three tests below - unreachable, since
@@ -3710,6 +3753,52 @@ mem_own:
     mov bx, es                       ; the OWNER WORD is that same segment -
     clc                              ; the walk above spent BX on the answer
     ret                              ; to a different question
+.noclaim:
+    ; NO CLAIM STARTS AT ES, which used to end it - and a RE-HOMED PROGRAM
+    ; (SPEC.md 50.3.4) is the case where that is the wrong answer. Its
+    ; segment is a PART inside the parts carve, not the base of the carve:
+    ; op_seg places part i at op_base + (slack + offset)/16 and the head slack
+    ; is the cluster alignment (SPEC.md 20.12.2), so it equals a claim base by
+    ; luck on a 512-byte-cluster floppy and never on a hard disk. Without this
+    ; a re-homed program could not claim one byte of memory, and it would fail
+    ; AFTER a successful launch, at whatever moment it first asked.
+    ;
+    ; BX IS STILL ES: mem_owner_of_x leaves it alone on its CF=1 path, and
+    ; only that path arrives here - mem_own_drv's refusal below still goes to
+    ; .no, correctly, because a claim starting at ES is by definition not the
+    ; shape this arm is about.
+    push di                          ; inst_of_seg's output. mem_own promises
+    push bp                          ; BX and the flags, and nothing else
+    cmp bx, [ld_base]                ; --- 1. THE LAUNCH IN FLIGHT. This is
+    je .nout                         ; what the header's "it has to answer
+                                     ; during the ENTRY PROC" needs on this
+                                     ; path: step 9 publishes I_SPTR and the
+                                     ; entry proc runs at step 8, so the
+                                     ; instance table cannot answer yet - and
+                                     ; [ld_base] is the kernel's own word for
+                                     ; "the segment the package being launched
+                                     ; runs at", cleared on BOTH the success
+                                     ; and abort paths (SPEC.md 66.6.1), so a
+                                     ; stale value cannot grant ownership
+                                     ; later and ES is never 0.
+                                     ; CF IS ALREADY 0 HERE - `cmp` of equal
+                                     ; values clears it - which is why this
+                                     ; arm and the next share one exit test
+    mov bp, inst_of_seg              ; --- 2. ...AND THE REST OF ITS LIFE.
+    call KERNEL_SEG:cw_mem_disp      ; inst_of_seg is .text and this is the
+                                     ; generic shim (`call bp / retf`), so the
+                                     ; arm costs no .text byte at all - which
+                                     ; is the scarce side, KERN_CODE_MAX being
+                                     ; absolute. Not a WIDENING of the fence:
+                                     ; I_SPTR *is* the kernel's definition of
+                                     ; "this package's segment", and asking it
+                                     ; directly is narrower than the claim-base
+                                     ; proxy that stands in for it above
+.nout:
+    pop bp                           ; `pop` writes no flag, so the answer
+    pop di                           ; survives both of them
+    jnc .yes                         ; ...and .yes re-reads ES for the owner
+                                     ; word, which is what both arms mean
 .no:
     stc
     ret

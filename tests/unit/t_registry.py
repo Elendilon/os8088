@@ -83,6 +83,15 @@ UNREGISTERED = {
                   "(docs/plans/SOAK-PARALLEL.md 14.2). Run it by hand when a field "
                   "sync question needs the module",
 
+    "skiesprof.py": "an INSTRUMENT, not a test: it breaks CLEAR SKIES' frame "
+                    "down IN FLIGHT - five moving profiles, every stage "
+                    "bracketed at its CALL SITE so the accounting is exact "
+                    "and adds to 99.9% of the loop - and asserts nothing "
+                    "(SPEC.md 88.12.1). It is the only one of the three that "
+                    "measures a frame which had to step the flight model, "
+                    "redraw a changed panel field or refill a rolled horizon; "
+                    "skiesperf and skiescount both pause the world",
+
     "skiescount.py": "an INSTRUMENT, not a test: it COUNTS CLEAR SKIES' faces "
                      "and edges and prices each term by ADDING it - every arm "
                      "draws the identical picture, where skiesperf.py's "

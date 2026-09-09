@@ -61,6 +61,7 @@ Read first: [§21 loader.inc](../SPEC.md#21-loaderinc); [§26 desk.inc — deskt
 |---|---|---|
 | `0x0520` | `OSAPI_PKG_RUN` | ES:SI = a package image, byte for byte what the .O88 file holds, in a claim of YOURS... |
 | `0x0528` | `OSAPI_DESK_SVC` | AL = 1 add / 0 withdraw; ES:SI = a 65-byte record in YOUR segment (add only): +0 12 the caption, NUL (<= 11 chars) +12 13 the 8.3 file the zone... |
+| `0x0530` | `OSAPI_PKG_REHOME` | DX = the segment your program part's IMAGE starts at (op_seg answers it), AX = the bytes available there... |
 
 ### Menus and the menu bar
 
@@ -278,6 +279,7 @@ A package `%include`s these itself; they are not kernel calls. Include them at t
 | `apps/os88pit.inc` | §72.15.1 | `pit_now`: a 32-bit clock in 838ns units off the 8253 and the BIOS tick, good for an hour before it wraps. Sub-tick timing for a profiler. |
 | `apps/os88type.inc` | §6.3, 6.5 | Proportional type: composes a row of glyphs from an `.F88` face into a 1bpp band in your own RAM and puts it up with one `OSAPI_GFX_BLIT1`. |
 | `apps/os88parts.inc` | §20.12 | Package parts: named, sized parts inside one `.O88` - claimed, loaded on demand, optionally into XMS, and refused with an arithmetic the package states itself. A package over 64KB is still a package. |
+| `apps/os88partsbody.inc` | §20.12.9 | The parts standard's CODE, and you do not include it: OS88_PARTS_END emits it after your table, gated on the OP_HAS_* flags the table itself derived. One plain part carries 1,018 bytes of it where every consumer used to carry 2,536. |
 
 ## Packages, and what to read them for
 
@@ -313,6 +315,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | RECORDER | `apps/recorder/recorder.asm` | §35 | no |
 | RUNCPM | `apps/runcpm/runcpm.asm` | §74 | yes |
 | SHEET | `apps/sheet/sheet.asm` | §81 | yes |
+| SKIES | `apps/skies/csload.asm` | §88 | no |
 | SKIES | `apps/skies/skies.asm` | §88 | yes |
 | SOLITAIRE | `apps/solitaire/solitaire.asm` | §43 | yes |
 | TAMEGRAM | `apps/tamegram/tamegram.asm` | §49 | yes |
@@ -431,9 +434,9 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 
 *How it works today - `docs/` (19):* `BIFF-NOTES.md`, `C-TOOLCHAIN.md`, `C64-SPEC.md`, `FIELD-MACHINES.md`, `FIELD-NOTES.md`, `HEAP-CLAIMS.md`, `HERCULES-TESTING.md`, `IMAGER.md`, `KERNEL-MEMORY.md`, `LIVE-MEDIA.md`, `MARTYPC-DEBUG.md`, `PACCMAN-PORT-PLAN.md`, `README.md`, `TELNET-PLAN.md`, `TESTING.md`, `UPSTREAM.md`, `WEAVE-SPEC.md`, `WIRE-PLAN.md`, `WRITING-TESTS.md`
 
-*Plans with work still open - `docs/plans/` (15):* `ARTFUL-PERF-PLAN.md`, `HANDOFF-SOAK-FINDINGS.md`, `HANDOFF-STOP-DETECTION.md`, `HEAP-UNPIN-PLAN.md`, `KERN-SMALL-CUT-PLAN.md`, `KERN-SMALL-NOCOMPACT.md`, `KERNEL-BYTE-QUEUE.md`, `LAST-DROP-BYTES.md`, `LAST-DROP-PERF.md`, `MONO-RECLAIM-PLAN.md`, `MOUSE-BOOT-FREEZE-PLAN.md`, `O88-COMPRESSION-PLAN.md`, `SKIES-FRAME-PLAN.md`, `SOAK-PARALLEL.md`, `UI-MENU-ELEMENT.md`
+*Plans with work still open - `docs/plans/` (17):* `ARTFUL-PERF-PLAN.md`, `GFX-EMBEDDABLE-PLAN.md`, `HANDOFF-SOAK-FINDINGS.md`, `HANDOFF-STOP-DETECTION.md`, `HEAP-UNPIN-PLAN.md`, `KERN-SMALL-CUT-PLAN.md`, `KERN-SMALL-NOCOMPACT.md`, `KERNEL-BYTE-QUEUE.md`, `LAST-DROP-BYTES.md`, `LAST-DROP-PERF.md`, `MONO-RECLAIM-PLAN.md`, `MOUSE-BOOT-FREEZE-PLAN.md`, `O88-COMPRESSION-PLAN.md`, `PARTS-REHOME-PLAN.md`, `SKIES-FRAME-PLAN.md`, `SOAK-PARALLEL.md`, `UI-MENU-ELEMENT.md`
 
-*Design records for what shipped - `docs/plans/completed/` (66):* `ASSOC-PLAN.md`, `AUDIO-PLAN.md`, `BOOT-LADDER-PLAN.md`, `BOOT-PERF-PLAN.md`, `BROWSER-PLAN.md`, `C64-PORT-PLAN.md`, `CURSOR-PLAN.md`, `DBLCLICK-PLAN.md`, `DEBUG-PLAN.md`, `DISK-PERF-PLAN.md`, `DUAL-DISPLAY-PLAN.md`, `DUAL-DISPLAY-VGA.md`, `EGA-PLAN.md`, `FROTZ-PLAN.md`, `FSX-PLAN.md`, `FTP-PERF.md`, `GFX-FSX-PLAN.md`, `GFX-REWORK-PLAN.md`, `HANDOFF-DISK-IO.md`, `HANDOFF-DOTDEL-TEXT.md`, `HANDOFF-FONTCHAR-SEAM.md`, `HANDOFF-KERNEL-SIZE-P2.md`, `HANDOFF-KERNEL-SIZE-P3.md`, `HANDOFF-KERNEL-SIZE-P4.md`, `HANDOFF-KERNEL-SIZE.md`, `HANDOFF-REDRAW.md`, `HANDOFF-SOUND-MEMORY.md`, `HANDOFF.md`, `HDD-PLAN.md`, `HDD-SPLIT-PLAN.md`, `HEAP-COMPACTION-PLAN.md`, `KERN-SMALL-CUT-BUILT.md`, `KERN-SMALL-MODULE-SPLIT.md`, `LINE-PERF-PLAN.md`, `MEMORY-PLAN.md`, `MOUSEUP-PLAN.md`, `NET-PLAN.md`, `NET-STACK-PLAN.md`, `NOTEPAD-NOTES.md`, `O88-MULTISEG-PLAN.md`, `ONDEMAND-PLAN.md`, `PAINT-1BPP-PLAN.md`, `PAINT-NOTES.md`, `PAINT-STROKE-PLAN.md`, `PROXY-PLAN.md`, `RUNCPM-PORT-PLAN.md`, `SAVEUNDER-LIVE-PLAN.md`, `SCHED-IDLE-PLAN.md`, `SDK-INCLUDE-SIZE.md`, `SETTINGS-COST.md`, `SNAP-PLAN.md`, `SNAPSHOT-PLAN.md`, `STACK-SLOTS-PLAN.md`, `STKBALANCE-KERNEL.md`, `TEXT-PLAN.md`, `TITLE-PLAN.md`, `TOAST-PLAN.md`, `UI-FREEZE-PLAN.md`, `UIHELPERS-PLAN.md`, `VMMOUSE-PLAN.md`, `WEAVE-PLAN.md`, `WINDOW-ANIM-PLAN.md`, `WINDOW-SIZING-PLAN.md`, `WMEVENT-PLAN.md`, `WORD-PLAN.md`, `XMEM-DRIVER-PLAN.md`
+*Design records for what shipped - `docs/plans/completed/` (67):* `ASSOC-PLAN.md`, `AUDIO-PLAN.md`, `BOOT-LADDER-PLAN.md`, `BOOT-PERF-PLAN.md`, `BROWSER-PLAN.md`, `C64-PORT-PLAN.md`, `CURSOR-PLAN.md`, `DBLCLICK-PLAN.md`, `DEBUG-PLAN.md`, `DISK-PERF-PLAN.md`, `DUAL-DISPLAY-PLAN.md`, `DUAL-DISPLAY-VGA.md`, `EGA-PLAN.md`, `FROTZ-PLAN.md`, `FSX-PLAN.md`, `FTP-PERF.md`, `GFX-FSX-PLAN.md`, `GFX-REWORK-PLAN.md`, `HANDOFF-DISK-IO.md`, `HANDOFF-DOTDEL-TEXT.md`, `HANDOFF-FONTCHAR-SEAM.md`, `HANDOFF-KERNEL-SIZE-P2.md`, `HANDOFF-KERNEL-SIZE-P3.md`, `HANDOFF-KERNEL-SIZE-P4.md`, `HANDOFF-KERNEL-SIZE.md`, `HANDOFF-PAINT-BLANK-LOAD.md`, `HANDOFF-REDRAW.md`, `HANDOFF-SOUND-MEMORY.md`, `HANDOFF.md`, `HDD-PLAN.md`, `HDD-SPLIT-PLAN.md`, `HEAP-COMPACTION-PLAN.md`, `KERN-SMALL-CUT-BUILT.md`, `KERN-SMALL-MODULE-SPLIT.md`, `LINE-PERF-PLAN.md`, `MEMORY-PLAN.md`, `MOUSEUP-PLAN.md`, `NET-PLAN.md`, `NET-STACK-PLAN.md`, `NOTEPAD-NOTES.md`, `O88-MULTISEG-PLAN.md`, `ONDEMAND-PLAN.md`, `PAINT-1BPP-PLAN.md`, `PAINT-NOTES.md`, `PAINT-STROKE-PLAN.md`, `PROXY-PLAN.md`, `RUNCPM-PORT-PLAN.md`, `SAVEUNDER-LIVE-PLAN.md`, `SCHED-IDLE-PLAN.md`, `SDK-INCLUDE-SIZE.md`, `SETTINGS-COST.md`, `SNAP-PLAN.md`, `SNAPSHOT-PLAN.md`, `STACK-SLOTS-PLAN.md`, `STKBALANCE-KERNEL.md`, `TEXT-PLAN.md`, `TITLE-PLAN.md`, `TOAST-PLAN.md`, `UI-FREEZE-PLAN.md`, `UIHELPERS-PLAN.md`, `VMMOUSE-PLAN.md`, `WEAVE-PLAN.md`, `WINDOW-ANIM-PLAN.md`, `WINDOW-SIZING-PLAN.md`, `WMEVENT-PLAN.md`, `WORD-PLAN.md`, `XMEM-DRIVER-PLAN.md`
 
 *Superseded and closed - `docs/history/` (9):* `DUAL-DISPLAY-BUG2.md`, `HANDOFF-TESTS-A-STRADDLE.md`, `HANDOFF-TESTS-B-LAUNCH.md`, `HANDOFF-TESTS-C-FRESH.md`, `HANDOFF-TESTS.md`, `KERN-SPLIT-PLAN.md`, `SOUND-PLAN.md`, `TRACKER-PLAN.md`, `WM-ARTIFACTS.md`
 

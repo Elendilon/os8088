@@ -374,7 +374,12 @@ FAST = [
         " enough to notice: an A5 takes 42 seconds of guest time to reach 95"
         " knots. The row integrates the model's own drag at VMAX and at three"
         " quarters of it, holds the speeds in order (the sailplane's"
-        " unreachable VROT exempt), and checks each record still declares its"
+        " unreachable VROT exempt), and since 88.7.12 integrates BOTH"
+        " terms - the wing's own drag rises as the aeroplane slows, so a"
+        " VMAX balance struck against the parasitic half alone over-states"
+        " the thrust left at the top end, and the induced term must still"
+        " leave an aeroplane able to hold 1.1 x its stall, which the first"
+        " build of it did not. It also checks each record still declares its"
         " fields in CSP_ order, without which every value below a new row"
         " would be read off by one. It was written for the change the field"
         " asked for - a quarter more thrust in the A5 - and raising that"
@@ -426,6 +431,23 @@ FAST = [
         " Nine locations and eight worlds since 88.6.4, and it walks them all. "
         "SOAK and not fast: CLEAR SKIES is ONE package, so this belongs "
         "beside a change to it - `soak -k 'cs*'`"),
+    Row("csamph", "soak", py("tests/unit/t_csamph.py"), 1.0,
+        "SPEC.md 88.7.7.3: the A5 starts FACING THE CITY, and floating."
+        " CSA_WHDG picks both which end of the water strip the hull sits on"
+        " and which way the nose points, and three of the nine were laid the"
+        " wrong way round - at LBG the nearest POI, Notre-Dame at 889 m, was"
+        " 164 degrees behind. Nothing else can see it: the strip's extents"
+        " are half-extents about its centre, so a reversed strip is the SAME"
+        " rectangle and 88.7.7.1's landing test is over the drawn river"
+        " anyway. Comparative, because Rio's landmarks stand on both sides of"
+        " the water and no heading wins it: reversing a strip may not improve"
+        " the mean turn to that location's distinct POIs by more than 45"
+        " degrees (the largest gain available with the strips laid right is"
+        " Rio's 29.9; laying one wrong gains 76.2 or more). It also holds the"
+        " spawn to 88.7.7.1's point-in-polygon, cs_reset setting [cs_onwater]"
+        " without asking. --clobber-hdg <loc> is the red arm. "
+        "SOAK and not fast: CLEAR SKIES is ONE package, so this belongs "
+        "beside a change to it - `soak -k 'cs*'`"),
     Row("csrad", "soak", py("tests/unit/t_csrad.py"), 2.0,
         "SPEC.md 88.5.11: no CLEAR SKIES model declares a CSM_RAD smaller"
         " than its own vertices need. Three things read that bound and"
@@ -435,7 +457,11 @@ FAST = [
         " trusts it to say an object is wholly in front of the near plane and"
         " cs_edge1 then draws each edge out of cs_sxv without testing cs_fv,"
         " so a vertex never projected this frame drew a line from whatever"
-        " the last object left in its slot - unclipped, across the cockpit. "
+        " the last object left in its slot - unclipped, across the cockpit."
+        " Since 88.10.5 the models are in the WORLD PARTS and not in"
+        " build/skies.bin, so it walks the eight overlays plus the resident"
+        " image - 161 models; its own `< 60 in the map` sentinel is what"
+        " caught the split disarming it. "
         "SOAK and not fast: CLEAR SKIES is ONE package, so this belongs "
         "beside a change to it - `soak -k 'cs*'`"),
     Row("csworlds", "soak", py("tests/unit/t_csworlds.py"), 2.0,
@@ -631,6 +657,18 @@ FAST = [
     Row("image", "fast", py("tests/unit/t_image.py"), 0.1,
         "the shipped floppies read by an independent FAT12 walker: contiguity, "
         "the standard BPB, SPEC.md 19.6's attributes"),
+    Row("catdisk", "fast", py("tests/unit/t_catdisk.py"), 0.1,
+        "SPEC.md 24.6's three category disks, checked for the one thing they "
+        "ARE: packages at the ROOT with no folder to click into, MEDIA/ and "
+        "SYSTEM/APPDATA/ present because --folder made them, a warm ASSOC.DAT "
+        "whose every row names the root, and WORD.OVL beside WORD.O88. "
+        "`image`, `diskverify` and `pkg` all read these disks already and all "
+        "three pass on one whose layout is wrong - they are about format, "
+        "contiguity and file identity, and none of them about contents. "
+        "Measured at 0.016s; declared 0.1 for the floor every row here has. "
+        "Membership is deliberately NOT pinned (SPEC.md 24.6.1 makes it a "
+        "decision with a date on it), so re-curating a disk does not turn "
+        "this row red"),
     Row("pkg", "fast", py("tests/unit/t_pkg.py"), 0.1,
         "package/driver/module headers, and every file on every image proved "
         "identical to the artifact it was built from"),
@@ -1538,6 +1576,68 @@ SOAK = [
         "(assocopen's), and the refused comma is the leg that says the fix "
         "did not buy the repaint back with one nobody owes.",
         needs=("marty",), serial=True),
+    Row("rehome", "soak", py("tests/rehome.py", "360"), 45.0,
+        "SPEC.md 20.12.10: a LOADER hands its identity to one of its own "
+        "PARTS and is then FREED. REHOME.O88's image is a small parts reader "
+        "- it loads two parts, writes where it put them into the head of part "
+        "0's bss, calls OSAPI_PKG_REHOME and returns with NO window. "
+        "ld_start's step 8a then frees the loader's region, re-owns the carve "
+        "to the instance SLOT and runs step 8 AGAIN against part 0, which is "
+        "a whole .o88 image with its own header, name, entry and bss. SIX "
+        "ASSERTIONS, each red on a different half: the window and I_SPTR "
+        "belong to the PROGRAM and not the loader; the package's own title "
+        "counts four checks of its own - the handoff arrived, the asset is "
+        "where the loader said, it CAN claim memory (SPEC.md 50.3.4's whole "
+        "gate, and RED without mem_own's two arms) and it may NOT free or "
+        "unpin its own carve (20.12.10.5); the program's segment is the base "
+        "of NO claim, which is what stops assertion 2 passing by accident on "
+        "a geometry whose head slack is zero; the loader's region is GONE "
+        "from mem_tab and exactly one claim is left on that slot; that claim "
+        "is PINNED; and closing it returns the heap to byte-identical free "
+        "runs. 360KB BY DEFAULT because its 1KB clusters are what give the "
+        "run a non-zero head slack. It found a real defect on its first run: "
+        "the arm did not clear [ld_rehome], so step 8a re-fired on the way "
+        "back and re-homed the program to itself until wm_create ran out of "
+        "window slots. Needs `make rehome`.",
+        needs=("marty",), serial=True, wants=("build/rehome360.img",)),
+    Row("rehomemove", "soak", py("tests/rehomemove.py"), 75.0,
+        "SPEC.md 20.12.10.5 and 66.6.1: the block a re-homed program is left "
+        "running in is an ORDINARY MOVABLE REGION afterwards, and the one "
+        "word no other package has to fix, gets fixed. 1.44MB IS THE "
+        "EXPERIMENT: a 512-byte-cluster volume gives op_claim a ZERO head "
+        "slack, so the program sits AT the carve's base and only then does "
+        "mem_is_region hold, mem_find_own reach it and OSAPI_MEM_MOVABLE "
+        "take - at 360KB the same package is refused, correctly, and there "
+        "is nothing to move. tests/filler forces the compaction, "
+        "tests/regmove.py's own idiom. FIVE ASSERTIONS: the claim moved at "
+        "all; the package's proc was CALLED; the kernel's words followed "
+        "(I_SPTR, claim owners); THE PACKAGE'S OWN WORD followed - the "
+        "loader's handoff names the asset by absolute segment and the asset "
+        "is INSIDE the carve, so nothing in the kernel knows that word "
+        "exists; and the window is still findable by title, which is W_SEG "
+        "read back. The fourth assertion is about the ADDRESS and not the "
+        "bytes, and the break-it-on-purpose run is why: a compaction does "
+        "not scrub what it copied from, so a vector the proc never fixed "
+        "still reads the signature off the old copy. Broken on purpose with "
+        "rp_reloc stubbed to `ret` it reports [rp_moved] = 0, the vector "
+        "outside the new extent and a zero delta. Needs `make rehome`.",
+        needs=("marty",), serial=True, wants=("build/rehomemove.img",)),
+    Row("rehomeabort", "soak", py("tests/rehomeabort.py"), 40.0,
+        "SPEC.md 20.12.10.6: a re-homed program REFUSES ITSELF, and nothing "
+        "leaks. THE ONE UNWIND PATH NOTHING ELSE REACHES - by the time this "
+        "entry proc runs, step 8a has freed the LOADER's region, re-owned the "
+        "carve to the instance SLOT and pointed [ld_base] at the program, so "
+        "ld_unreserve has to clean up an arrangement no ordinary launch "
+        "produces: the carve has no segment owner at all, and `call ld_slot / "
+        "call mem_free_owner_x` is the ONLY sweep that reaches it. The disk "
+        "is the same source built -DRH_ABORT, so every check runs first and a "
+        "failure here cannot be a package that never got going. THREE "
+        "ASSERTIONS: ld_status is 4 and no window survived; no instance is "
+        "left live; and the heap comes back BYTE FOR BYTE. Broken on purpose "
+        "with that sweep removed it names the leftover claim - 2KB owned by "
+        "an instance slot - which is invisible from the glass and is why this "
+        "is a row rather than an argument. Needs `make rehome`.",
+        needs=("marty",), serial=True, wants=("build/rehomeabort.img",)),
     Row("multiseg", "soak", py("tests/multiseg.py", "1440"), 20.0,
         "SPEC.md 20.12: a package carries its parts in its OWN FILE and loads "
         "them ITSELF. The kernel parses none of it - all it learns is flags "
@@ -2373,6 +2473,15 @@ SOAK = [
         "in nineteen did, sealing the player in a box a 26-unit step cannot"
         "leave - and a player who somehow IS inside one can still drive out",
         needs=("marty",), serial=True),
+    Row("tanksmall", "soak", py("tests/tanksmall.py"), 30.0,
+        "SPEC.md 85.3.5.1: TANK's APP_SMALL arm plays on the 128KB floor"
+        "machine - the claim is GRANTED off its ladder, and the HUD template's"
+        "span store survives ridge transitions and a crack without falling"
+        "back to a panel drawn every frame. The only thing in the tree that"
+        "builds or drives that arm: tank/tankaim/tankspawn all run the SHIPPED"
+        "package, which compiles every path this row asserts on out",
+        needs=("marty",), wants=("build/smallapps360.img", "build/small360.img"),
+        serial=True),
     Row("skies", "soak", py("tests/skies.py"), 35.0,
         "SPEC.md 88: CLEAR SKIES draws and advances, takes off from the runway"
         " under full throttle and the stick, crashes when the nose is held"
@@ -2413,7 +2522,7 @@ SOAK = [
         " held pixel for pixel against what they were, because fsx_run clears"
         " the clip region the handler armed",
         needs=("marty",), serial=True),
-    Row("skiesset", "soak", py("tests/skiesset.py"), 75.0,
+    Row("skiesset", "soak", py("tests/skiesset.py"), 90.0,
         "SPEC.md 88.13: the Settings page and its four knobs reaching the"
         " picture - Few files fewer objects and draws faster, a fill box"
         " clears its bit, the in-flight hotkeys do the same without the page,"
@@ -2437,7 +2546,10 @@ SOAK = [
         " the strip, which is the panel's key and not the byte. And"
         " 88.13.9's round trip: four settings picked on the page, Done, the"
         " window closed, the package opened again, and the file in"
-        " SYSTEM/APPDATA is what the new instance comes back with",
+        " SYSTEM/APPDATA is what the new instance comes back with."
+        " MEASURED at 88s in a lane of four since 88.10.5 made a second"
+        " world a disk read: the second-world ladder leaves and re-enters"
+        " the bracket twice, where it used to poke cs_airport",
         needs=("marty",), serial=True),
     Row("skiesocc", "soak", py("tests/skiesocc.py"), 26.0,
         "SPEC.md 88.13.7: the occlusion pass, and the only thing keeping its"
@@ -2468,6 +2580,46 @@ SOAK = [
         " ULTRA the same towers at the same place take the POLYGONS instead,"
         " cs_boxlod not entered at all and nothing reaching cs_rect, which is"
         " that rung's whole feature",
+        needs=("marty",), serial=True),
+    Row("skiescrash", "soak", py("tests/skiescrash.py"), 26.0,
+        "SPEC.md 88.7.11.1: the windshield is drawn WHOLE. cs_seg reads three"
+        " words to decide what a segment owes the glass, and cs_crackle runs"
+        " AFTER cs_scene, so all three hold the last object drawn's -"
+        " cs_pinview would skip the clip, cs_pwhole the marking outright, and"
+        " cs_markacc would accumulate into an object box cs_drawobj flushed a"
+        " moment ago. The horizon and the panel both take all three stores;"
+        " cs_crackle took only cs_pinview, so a crack appeared wherever"
+        " something ELSE had marked the row and nowhere else - and over open"
+        " sky, which on Hercules is the top of the view and is black, nothing"
+        " marks a row and the cracks up there were never drawn at all. The row"
+        " pins 300 m over Paris nose-down, crashes the aeroplane where it"
+        " stands and counts what the crash adds ABOVE the horizon the guest"
+        " itself reports in cs_hzy0 - 129 lit pixels against 0 - and then"
+        " asks the routine the rule directly: the shadow and the frame's span"
+        " set are read on either side of cs_crackle, and every row whose bytes"
+        " changed must have a span that covers them. The shipped routine"
+        " changes 111 rows and leaves 75 outside their own span, most with no"
+        " span at all. THAT is also why a crack outlives the crash - cs_blit"
+        " copies cur UNION prv and the next frame refills only prv, so an"
+        " unmarked run that reached the glass inside the previous frame's span"
+        " can never be erased. --clobber-crash puts cs_crackle back as it"
+        " shipped and both checks go red",
+        needs=("marty",), serial=True),
+    Row("skiesbank", "soak", py("tests/skiesbank.py"), 22.0,
+        "SPEC.md 88.5.4.6: the box impostor BANKS WITH THE WORLD. A solid too"
+        " small to tell apart is drawn as its box, and that box was an"
+        " AXIS-ALIGNED SCREEN RECTANGLE - the top was projected and only its"
+        " ROW kept, so the shape never tilted, and its height was the VERTICAL"
+        " PART of the projected up axis, which is |up2| cos r: at 50 degrees"
+        " of bank a building was drawn 6 pixels tall for a 12.5-pixel axis and"
+        " got the height back as the wings came level. The row pins ONE pose"
+        " over Paris and rolls the aeroplane under it, so the building, the"
+        " eye and the depth are identical and only the bank changes, and reads"
+        " the four corners the FILL was handed - keyed on the object, because"
+        " a roll moves the frustum and comparing the frame's first impostor at"
+        " each bank compares two different buildings. --clobber-bank NOPs the"
+        " two jumps that choose the quad, which is what shipped, and the six"
+        " banked checks go red while the two level ones stay green",
         needs=("marty",), serial=True),
     Row("skiespitts", "soak", py("tests/skiespitts.py"), 34.0,
         "SPEC.md 88.7.2: the second aeroplane flies by its own CSP_ATT - the"
@@ -2602,6 +2754,64 @@ SOAK = [
         " tree AND keeps it current, which a capability cannot do",
         needs=("marty",), wants=("build/skiesdiag/apps360.img",),
         serial=True),
+    Row("skiesdrag", "soak", py("tests/skiesdrag.py"), 65.0,
+        "SPEC.md 88.7.12: A WING PAYS FOR ITS LIFT. The model had parasitic"
+        " drag only - CSP_DRAGK, going as v^2 - and that term falls away as"
+        " the speed falls, so a slow aeroplane barely dragged. The field flew"
+        " all four consequences: a Cessna holding 60 knots on 18% of its"
+        " power, hanging at 150 for minutes, most of the runway used on the"
+        " roll-out, and a jet that could not be landed. The oracle is the DRAG"
+        " CURVE read off the guest one tick at a time with the throttle shut -"
+        " the fall in cs_spd IS the drag - because a settled-speed sweep does"
+        " NOT repeat: below the stall the aeroplane dives and pins at the 1.25"
+        " VMAX cap, and a first version read 189 knots at every throttle from"
+        " 10% to 100% for exactly that reason. It checks that the curve has a"
+        " minimum with a rise on both sides (which a v^2 law can never"
+        " produce), that the term is FLOORED below the stall rather than"
+        " running away (without the floor the Cessna reads 28 units a tick at"
+        " 10 m/s against 16 of full thrust and can never accelerate again -"
+        " measured, and very nearly shipped), and that the brake is an"
+        " AIRBRAKE in the air. --clobber-ind zeroes CSP_INDK in the live"
+        " record and --clobber-air turns the brake test into a jmp",
+        needs=("marty",), serial=True),
+    Row("skiesface", "soak", py("tests/skiesface.py"), 105.0,
+        "SPEC.md 88.6.2.4: THE STRIPES ARE AHEAD OF THE AEROPLANE. cs_rwline"
+        " walked the centreline one way only - from the aeroplane's own u"
+        " toward the far end - which is right for a take-off roll from the"
+        " near threshold and exactly backwards after a landing from the far"
+        " side, where everything it drew was BEHIND the aeroplane. The field"
+        " reported it as a blank runway. THE ORACLE IS THE ARGUMENT AND NOT"
+        " THE PICTURE: a pixel diff of two renders does NOT repeat here (the"
+        " same build and pose gave 18, 816 and 2,038, because m.advance counts"
+        " emulator frames and a forced repaint lands a different number of"
+        " guest frames each time), so the row reads what cs_rwsegu is HANDED,"
+        " maps it back into the model's u with the guest's own [cs_rwrev],"
+        " and judges it against the end the aeroplane is REALLY pointed at -"
+        " which the row sets rather than reads, so a broken build cannot pass"
+        " by agreeing with itself. 88.6.2.3's threshold-anchored run is"
+        " exempt; that one is skiesrwy's. --clobber-face NOPs the five bytes"
+        " that set [cs_rwrev] and 7 of the 16 poses go behind",
+        needs=("marty",), serial=True),
+    Row("skieskfz", "soak", py("tests/skieskfz.py"), 50.0,
+        "SPEC.md 8.9.1: THE TWO INSTRUMENTS TOGETHER. A hard freeze wants"
+        " both - KFZ=1's kernel heartbeat (SPEC.md 8.9), which says whether"
+        " IRQ0 was masked, whether an EOI went missing and which side of the"
+        " BIOS chain the machine died on; and Clear Skies' own watchdog"
+        " (SPEC.md 88.14), which says where in a frame it stopped - and they"
+        " are painted by different code into one framebuffer, so nothing but"
+        " a row that runs both says they fit. The claim the field found is"
+        " the second: the 30-second stuck report must NEVER ARM inside an fsx"
+        " bracket, because ui_task does not run in one at all (SPEC.md 53.1)"
+        " so `no pass in 30 seconds` is the DEFINED state there - and the"
+        " report forces the gfx lock, the clip count, gfx_dis and gfx_color"
+        " open and draws with font_run into the KERNEL's framebuffer while"
+        " the app owns the video mode. It builds its own kernel into a"
+        " PRIVATE TREE (docs/plans/SOAK-PARALLEL.md 8): a KFZ kernel left in"
+        " build/ makes every other emulator row die saying the map describes"
+        " a different kernel. --clobber-stuck NOPs the six bytes of the"
+        " bracket test and khb_stuck climbs to 782 against a threshold of 546",
+        needs=("marty",), wants=("build/skiesdiag/apps360.img",),
+        serial=True),
     Row("skiesadi", "soak", py("tests/skiesadi.py"), 30.0,
         "SPEC.md 88.9.2.2: THE HARD FREEZE, reduced to one instruction. The"
         " attitude indicator drew its horizon bar at t x tan(roll) and got"
@@ -2727,7 +2937,7 @@ SOAK = [
         " one (docs/WRITING-TESTS.md 13 entry 44)."
         " --clobber-flat NOPs the four bytes and the bar moves to x = 0",
         needs=("marty",), serial=True),
-    Row("skiesrwy", "soak", py("tests/skiesrwy.py"), 33.0,
+    Row("skiesrwy", "soak", py("tests/skiesrwy.py"), 50.0,
         "SPEC.md 88.6.2.1: the runway keeps its lines PAST ITS OWN MIDDLE."
         " cs_drawobj's size test opened `cmp cx, 2600 / ja .out` on the"
         " object's camera z, and ja is unsigned - so an origin BEHIND the eye"
@@ -2739,7 +2949,29 @@ SOAK = [
         " a row that walked only the far half could not tell a fix from a"
         " runway that had stopped being drawn at all; then once at 40 m,"
         " which is the other half of the report. --clobber-rwy takes the four"
-        " bytes of the guard back out and it reads 30, 30, 30, 0, 0, 0",
+        " bytes of the guard back out and it reads 30, 30, 30, 0, 0, 0."
+        " It then flies the LONG FINAL (SPEC.md 88.6.2.2), the same runway one"
+        " bug later: cs_rwline decided `past the far end` on the QUOTIENT of"
+        " metres x 16384 / hlen, which stops fitting in AX one whole runway"
+        " length past the far end, where an 8086 answers with INT 0 - and the"
+        " window is a circuit, this code being reached only below RW_DASHH and"
+        " within RW_DASHW of the axis. The check is what cs_rwsegu is HANDED,"
+        " not whether the machine survived, because surviving is the ROM's"
+        " decision: under GLaBIOS vector 0 is the dummy handler, so the guest"
+        " carries on with AX undefined and draws stripes from it."
+        " --clobber-far NOPs the nine bytes of the guard; since 88.6.2.4 that"
+        " arm no longer goes red from these poses, because facing space puts"
+        " an aeroplane past the far threshold SHORT of the one behind it and"
+        " js .zero returns before the divide. The same approach is"
+        " where the centreline NEVER DASHED (SPEC.md 88.6.2.3): the near end"
+        " has been clamped since the first build - js .zero puts the stripes"
+        " at the threshold you are aiming at - and the far end had no such"
+        " case, so it drew one solid line from a runway length out to the"
+        " flare. The field named the state as well as the symptom - leave and"
+        " come back, because at reset you are stood at the near end - and the"
+        " row reads the four stripes at the far threshold and that the last"
+        " ends ON it. --clobber-thresh pokes [cs_rwfar] onto the threshold so"
+        " they collapse, and every far row reads (0, 32767) again",
         needs=("marty",), serial=True),
     Row("skiesui", "soak", py("tests/skiesui.py"), 90.0,
         "SPEC.md 88.10's title page on the VGA machine: the two drop-downs"
@@ -3710,6 +3942,31 @@ SOAK = [
         "expansion into pt_line and gfx_blit4, on the machine whose every"
         "other canvas is four planes",
         needs=("marty",), serial=True),
+    Row("paintnogrow", "soak",
+        py("tests/paintnogrow.py"), 45.0,
+        "SPEC.md 11.90.3.2: does a LOAD that does not GROW the window reach "
+        "the glass? 11.90.3.1 lets wm_resize answer wm_damage with the EMPTY "
+        "rect for a window that did not grow with its origin unmoved - true "
+        "of every resize Paint made when that was written, and FALSE of the "
+        "two 54.10 added, where pt_onwake and pt_ondlg resize AFTER a load "
+        "has replaced the whole canvas. PT_CW_DEF is 448, so every picture "
+        "448 wide or narrower decoded perfectly and was never drawn: a white "
+        "window under a toast saying 'Opened'. THE TWO ARMS ARE THE ROW - a "
+        "466-wide picture GROWS the window, takes .norz, and drew correctly "
+        "throughout, so a Paint that draws nothing fails both and THIS defect "
+        "fails only the first. The oracle is the SCREEN and not the canvas: "
+        "paint1load compares the canvas against the file byte for byte and "
+        "was green the whole time, because the canvas was never wrong",
+        needs=("marty",), serial=True),
+    Row("paintnogrow-vga", "soak",
+        py("tests/paintnogrow.py", "--machine", "os8088_xt_vga"), 55.0,
+        "...and the same bug by the OTHER AXIS, which is the leg that killed "
+        "the width theory: a VGA's fresh canvas is 448x280, so a 448x96 "
+        "picture shrinks the HEIGHT - the window visibly gets smaller and the "
+        "predicate fires just the same. It is 'the window did not grow', not "
+        "'the width did not change', and no CGA arm can say so because "
+        "pt_chmax clamps that machine's fresh canvas to the picture's height",
+        needs=("marty",), serial=True),
     Row("paintrz-1bpp", "soak",
         py("tests/paintrz.py", "--machine", "os8088_5150_herc_gla"), 120.0,
         "...and the ONE-BIT canvas, which is a different move: one run of"
@@ -4098,6 +4355,19 @@ SOAK = [
         "SPEC.md 28.10.2: a partial repaint of the Task Manager draws only "
         "the part - 225 cells put on the glass became 0, against 549 for a "
         "whole repaint. CELLS and not calls (11.3.3).",
+        needs=("marty",), serial=True),
+    Row("tmgraph", "soak", py("tests/tmgraph.py"), 90.0,
+        "SPEC.md 28.10.3: the Task Manager's history graph is damage-gated "
+        "and run-coded. It was 216 columns at up to two primitive calls each "
+        "on EVERY paint whatever the damage said, so uncovering the RAM bar "
+        "underneath it cost 333.9ms of a Hercules for ~16ms of bar. Counts "
+        "tm_grun (the whole of the graph's drawing) MINUS tm_col (the "
+        "worker's own two columns an interval, which arrive regardless): 0 "
+        "runs for damage below the band, a clamped count for a narrow strip "
+        "across it, and 3 for a flat ring where nothing coalesced is 215. "
+        "CALLS and not pixels, for 28.11.2's reason - this page moves every "
+        "TM_INT by construction, so two captures never agree and `settle` "
+        "never returns",
         needs=("marty",), serial=True),
     Row("tmrepair", "soak", py("tests/tmrepair.py"), 80.0,
         "SPEC.md 28.11: the Task Manager's quiet pages hold a raise cache by "

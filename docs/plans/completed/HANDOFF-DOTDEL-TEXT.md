@@ -185,7 +185,7 @@ file is in `completed/`.*
 **§5's experiment 1 was run, in situ, with a breakpoint pair on the package's
 own `dd_play_line` and the guest's cycle counter** — the same string, the same
 place, the same pen, three builds differing only in `dd_text`. PERFORMANCE.md
-**Set 122** is the record and SPEC.md §93.5.5 the conclusion.
+**Set 137** is the record and SPEC.md §93.5.5 the conclusion.
 
 | adapter | band, as first written | band, cell-outer | `OSAPI_FONT_RUN` |
 |---|---:|---:|---:|

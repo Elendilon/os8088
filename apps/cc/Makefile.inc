@@ -69,10 +69,12 @@ CC_SC       := $(BUILD)/cc/SmallerC
 CC_SMLRCC   := $(CC_SC)/smlrcc
 CC_SCINC    := $(CC_SC)/v0100/include
 
-# Every C package depends on these four: the SDK header, the two runtime
-# assemblies, and the SDK the runtime is written against.
+# Every C package depends on these five: the SDK header, the two runtime
+# assemblies, and the SDK the runtime is written against - which is two
+# files since SPEC.md 20.12.9, the parts standard's code having moved into
+# apps/os88partsbody.inc so it can be emitted after the package's table.
 CC_RUNTIME  := $(CC_DIR)/os88.h $(CC_DIR)/crt0.asm $(CC_DIR)/os88thunk.asm \
-               apps/os88api.inc apps/os88parts.inc
+               apps/os88api.inc apps/os88parts.inc apps/os88partsbody.inc
 
 # CC_MAXFRAME is tools/cc8086.py's --max-frame (SPEC.md 73.8). 96 is the
 # tool's own default and it is a SMELL THRESHOLD, not a budget: a 96-byte

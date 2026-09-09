@@ -236,10 +236,14 @@ tk_clearall:
     rep stosw
     cmp byte [tk_tmpl], 0
     je .fr
-    mov es, [tk_tmseg]              ; ...and the template beside it
+%ifdef APP_SMALL
+    call tk_tmreset                 ; ...and the template's store emptied to
+%else                               ; match it (SPEC.md 85.3.5.1) - where the
+    mov es, [tk_tmseg]              ; shipped build zeroes the second buffer
     xor di, di
     mov cx, TK_SHSEG / 2
     rep stosw
+%endif
 .fr:
     ret
 
@@ -2141,11 +2145,13 @@ tk_tmitem:
     push bp                         ; the movers count words in BP
     call tk_tmzero
     pop bp
+%ifndef APP_SMALL
     mov ax, [tk_tmseg]              ; the walks draw into the TEMPLATE...
     mov [tk_tseg], ax
-    mov ax, [tk_spcur]              ; ...and mark a set nobody reads
-    mov [tk_tmsave], ax
-    mov word [tk_spcur], tk_spjunk
+%endif                              ; ...or, on the small build, into the
+    mov ax, [tk_spcur]              ; SHADOW, which in this window IS the
+    mov [tk_tmsave], ax             ; template (SPEC.md 85.3.5.1)
+    mov word [tk_spcur], tk_spjunk  ; - and mark a set nobody reads
     ; EVERY ITEM WHOSE RECTANGLE MEETS THIS ONE IS DRAWN AGAIN, this one
     ; included: the zero above took their pixels inside it with it. The
     ; crack's rectangle holds the whole sight, which is how the sight was
@@ -2160,6 +2166,16 @@ tk_tmitem:
     mov word [tk_tmcur], 0          ; below ran a garbage rectangle for ever
     mov ax, [tk_tmsave]
     mov [tk_spcur], ax
+%ifdef APP_SMALL
+    call tk_tmrect                  ; THE STORE, rebuilt over the rectangle's
+    push bp                         ; rows - and no copy, because the drawing
+    push si                         ; landed in the shadow already (85.3.5.1)
+    mov ax, [si]
+    mov bx, [si+2]
+    call tk_tmenc
+    pop si
+    pop bp
+%else
     mov ax, [tk_shseg]
     mov [tk_tseg], ax
     call tk_tmrect
@@ -2167,8 +2183,9 @@ tk_tmitem:
     call tk_tmcopy                  ; the rectangle, template -> shadow
     pop bp
     call tk_tmrect
-    call tk_tmmark                  ; ...and into this frame's spans
-.same:
+%endif
+    call tk_tmmark                  ; ...and the rectangle into this frame's
+.same:                              ; spans, so the blit carries it
     ret
 
 ; tk_tmrect - SI -> item BP's rectangle
@@ -2251,8 +2268,11 @@ tk_tmdrawset:
 ; and drawn into the shadow as every frame once did. A frame in the middle of
 ; a turn costs exactly what it did; a still one costs no ridge at all.
 ; =============================================================================
-tk_ridge_full:                      ; the whole width, then tk_ridge
-    xor ax, ax
+tk_ridge_full:                      ; the whole width, at the LIVE heading
+    mov al, [tk_pa]
+    mov [tk_rpa_draw], al
+tk_ridge_wide:                      ; ...and the same width at whatever heading
+    xor ax, ax                      ; [tk_rpa_draw] already names
     mov [tk_rx0], ax
     mov ax, [tk_vw]
     dec ax
@@ -2262,6 +2282,13 @@ tk_ridge_full:                      ; the whole width, then tk_ridge
 tk_ridge_tm:
     cmp byte [tk_tmpl], 0
     je tk_ridge_full                ; Mode X: every frame, as before
+%ifdef APP_SMALL
+    cmp word [tk_tmcap], TKT_RIDGEMIN
+    jb tk_ridge_full                ; ...and so does a pool too small to hold
+                                    ; the ridge beside the panel (85.3.5.1):
+                                    ; refusing it here is what keeps the PANEL
+                                    ; in the template on the 128KB machine
+%endif
     mov al, [tk_pa]
     mov ah, [tk_rpa_last]
     mov [tk_rpa_last], al
@@ -2282,8 +2309,10 @@ tk_ridge_tm:
     mov ax, 0x00FF
     cld
     rep stosw
-    mov ax, [tk_tmseg]
-    mov [tk_tseg], ax
+%ifndef APP_SMALL
+    mov ax, [tk_tmseg]              ; the ridge draws into the TEMPLATE, or on
+    mov [tk_tseg], ax               ; the small build into the SHADOW, which in
+%endif                              ; this window is the template (85.3.5.1)
     mov ax, [tk_spcur]
     mov [tk_tmsave], ax
     mov word [tk_spcur], tk_sprdg
@@ -2292,9 +2321,14 @@ tk_ridge_tm:
     call tk_tmdrawset               ; the items the zero took, drawn again
     mov ax, [tk_tmsave]
     mov [tk_spcur], ax
+%ifndef APP_SMALL
     mov ax, [tk_shseg]
     mov [tk_tseg], ax
+%endif
     mov byte [tk_rtm_on], 1
+%ifdef APP_SMALL
+    call tk_tmencband               ; the band's rows back into the store
+%endif
     call tk_rdg_union               ; tk_spans2 = the old runs and the new
     jmp tk_rdg_apply                ; template -> shadow over them, marked
 .moving:
@@ -2302,17 +2336,24 @@ tk_ridge_tm:
     je .dyn
     call tk_rdg_out                 ; MOVING: the template must hold no ridge
     call tk_rdg_touch
+%ifndef APP_SMALL
     mov ax, [tk_tmseg]
     mov [tk_tseg], ax
+%endif
     mov ax, [tk_spcur]
     mov [tk_tmsave], ax
     mov word [tk_spcur], tk_spjunk
     call tk_tmdrawset
     mov ax, [tk_tmsave]
     mov [tk_spcur], ax
+%ifndef APP_SMALL
     mov ax, [tk_shseg]
     mov [tk_tseg], ax
+%endif
     mov byte [tk_rtm_on], 0
+%ifdef APP_SMALL
+    call tk_tmencband               ; ...and the band without it in the store
+%endif
     call tk_rdg_apply
 .dyn:
     jmp tk_ridge_full               ; into the shadow, as every frame once did
@@ -2321,13 +2362,24 @@ tk_ridge_tm:
 
 ; tk_tm_ridge - the ridge as an ITEM: drawn again when another item's zero
 ;               took some of it, and only across that item's rectangle
+;
+; IT DRAWS AT [tk_rpa_tm], NOT AT [tk_pa] (85.3.8.1). What the zero took out was
+; the TEMPLATE's ridge, so the template's heading is what has to go back. The
+; two agree on nearly every frame and part on exactly one: tk_tmupdate runs
+; BEFORE tk_ridge_tm, so where an item's key and the heading both move this ran
+; with the NEW heading while [tk_sprdg] still described the old one - and
+; tk_rdg_out then zeroed the old runs, leaving what this drew outside them
+; uncleared, unmarked and unstored. A detached ridge segment in the background,
+; one frame's turn out of step, for the rest of the bracket.
 tk_tm_ridge:
     cmp byte [tk_rtm_on], 0
     je .o
+    mov al, [tk_rpa_tm]
+    mov [tk_rpa_draw], al
     mov si, [tk_tmcur]
     or si, si
     jnz .part
-    jmp tk_ridge_full
+    jmp tk_ridge_wide
 .part:
     mov cl, [tk_kshift]
     mov ax, [si+4]
@@ -2389,8 +2441,13 @@ tk_rdg_out:
     ret
 
 ; tk_tmzruns - zero the template over the runs of SI, BP rows, BX -> tk_rowoff
+;              (the SHADOW on the small build - see tk_tmzero)
 tk_tmzruns:
+%ifdef APP_SMALL
+    mov es, [tk_shseg]
+%else
     mov es, [tk_tmseg]
+%endif
     cld
 .r:
     lodsw
@@ -2415,6 +2472,7 @@ tk_tmzruns:
     jnz .r
     ret
 
+%ifndef APP_SMALL
 ; tk_tmcpruns - template -> shadow over the runs of SI, BP rows, BX -> tk_rowoff
 tk_tmcpruns:
     mov es, [tk_shseg]
@@ -2446,6 +2504,7 @@ tk_tmcpruns:
     dec bp
     jnz .r
     ret
+%endif
 
 ; tk_rdg_touch - [tk_tmbits] = the six panel items whose rectangle meets a
 ;                run of tk_spans2 inside the band: the ones a zero over it took
@@ -2523,9 +2582,12 @@ tk_rdg_union:
     ret
 
 ; tk_rdg_apply - template -> shadow over tk_spans2's band runs, and those runs
-;                into this frame's span set so the blit carries them
+;                into this frame's span set so the blit carries them. THE COPY
+;                IS THE SHIPPED BUILD'S ONLY: 85.3.5.1 puts the drawing in the
+;                shadow to begin with, so there the mark is all that is left
 tk_rdg_apply:
     call tk_rdg_band
+%ifndef APP_SMALL
     push cx
     push dx
     push si
@@ -2536,6 +2598,11 @@ tk_rdg_apply:
     shl di, 1
     add di, [tk_spcur]              ; ...in this frame's set
     pop cx
+%else
+    mov di, dx                      ; DI = the band's first row...
+    shl di, 1
+    add di, [tk_spcur]              ; ...in this frame's set
+%endif
 .r:
     mov ax, [si]
     cmp al, [di]
@@ -2556,8 +2623,12 @@ tk_rdg_apply:
 ; A RECTANGLE is four words: row0, row1, byte0, byte1, all inclusive and all
 ; clamped to the viewport by tk_tmreg. The byte pair is rounded out to whole
 ; WORDS by the two movers, as the clear and the blit round theirs.
-tk_tmzero:                          ; zero it in the template
+tk_tmzero:                          ; zero it - in the template, or on the
+%ifdef APP_SMALL                    ; small build in the SHADOW, which in the
+    mov es, [tk_shseg]              ; template's own window IS the template
+%else
     mov es, [tk_tmseg]
+%endif
     mov dx, [si+4]
     and dl, 0xFE
     mov bp, [si+6]
@@ -2587,6 +2658,7 @@ tk_tmzero:                          ; zero it in the template
 .done:
     ret
 
+%ifndef APP_SMALL
 tk_tmcopy:                          ; template -> shadow, the same rectangle
     push ds
     mov es, [tk_shseg]
@@ -2620,6 +2692,7 @@ tk_tmcopy:                          ; template -> shadow, the same rectangle
 .done:
     pop ds
     ret
+%endif
 
 tk_tmmark:                          ; the rectangle into [tk_spcur]
     mov bx, [si]

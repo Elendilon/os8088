@@ -570,6 +570,35 @@ def lay_out_parts(out: bytearray, table: int, rows: int, parts,
             fail(f"part {i}: {len(body)} bytes. A part is reached through a "
                  "SEGMENT, so it is addressed by a 16-bit offset and 65,535 "
                  "is the ceiling (SPEC.md 20.12)")
+        # A PART THAT IS ITSELF A PACKAGE IMAGE has one extra rule, and it is
+        # checked here rather than left to fail at launch. SPEC.md 20.12.10's
+        # re-home hands the kernel `image + bss` as the bytes available at the
+        # part, and the kernel refuses the part's own header fields past that
+        # (20.12.10.4) - so the bss has to SHIP INSIDE the part, exactly as a
+        # driver's does (51.1.2), because ld_start jumps to step 8 and never
+        # to step 7 on that path and so never zeroes it. An unpadded part is a
+        # package that loads and then writes its bss over whatever follows it
+        # in the carve.
+        #
+        # RECOGNISED, NOT DECLARED: nothing on the command line says "this
+        # part is a program", and nothing needs to - a part beginning 'O8'
+        # with version 3 is one, and a part that is not one matches neither
+        # byte. So the rule reaches every future consumer for free, and the
+        # one shape it cannot help is a part that is compressed (its length
+        # here is the UNPACKED figure, which is the one the rule is about, so
+        # it works there too).
+        if len(body) >= 12 and body[:2] == b"O8" and body[2] == 3:
+            pimg, pbss = struct.unpack_from("<HH", body, 8)
+            if pimg + pbss != len(body):
+                fail(f"part {i} is a v3 package image (SPEC.md 20.12.10) and "
+                     f"its header says image {pimg} + bss {pbss} = "
+                     f"{pimg + pbss}, but the file is {len(body)} bytes. A "
+                     "part is not zeroed by the loader - ld_start jumps to "
+                     "step 8 and not step 7 - so its bss must SHIP INSIDE it "
+                     "(SPEC.md 51.1.2's rule, one format along). Pad the "
+                     "source with `times OS88_BSS_SIZE db 0` after "
+                     "OS88_IMAGE_END" + ("" if pimg + pbss <= len(body) else
+                     ", or the part is TRUNCATED"))
         # ...and OP_COMP is where the disk bytes stop being the memory bytes.
         # STRICT, like --compress and unlike --compress-if: a row carrying the
         # flag is a decision the package's author wrote down, so a part that
