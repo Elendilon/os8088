@@ -437,6 +437,48 @@ inst_init:
     retf                        ; FAR: kmain reaches this through OVLGATE1
 section .text
 
+; -----------------------------------------------------------------------------
+; inst_of_seg - which live package instance is running at this segment?
+; in:  BX = a segment
+; out: CF = 0, DI = the first live KIND_PKG record whose I_SPTR matches;
+;      CF = 1 = none does (DI = one past the table)
+; clobbers: DI (the output), flags. CX is banked.
+;
+; Two routines asked this - inst_parksafe_set of the caller's own ES, and
+; inst_seg_parked of a candidate block - and neither could say it directly.
+;
+; IT SITS ABOVE THE OS88_COMPACT GATE, and it used to sit inside it: both of
+; those callers are the worker park's, so it was the compactor's routine by
+; accident of who asked first. mem_own's second arm (SPEC.md 66.6.2) is the
+; third caller and has nothing to do with compaction - it is what answers for
+; a RE-HOMED package, whose segment is not its claim's base (20.12.10) - and
+; the re-home is a memory feature, so refusing it on the memory-constrained
+; kernel would be backwards. kern_small pays this routine's bytes and gets a
+; loader that frees its own region.
+; -----------------------------------------------------------------------------
+inst_of_seg:
+    push cx
+    mov di, inst_tab
+    mov cx, INST_MAX
+.scan:
+    cmp byte [di+I_STATE], 0
+    je .next
+    test byte [di+I_KIND], KIND_PKG
+    jz .next
+    cmp [di+I_SPTR], bx
+    je .hit
+.next:
+    add di, I_RECSZ
+    loop .scan
+    pop cx
+    stc
+    ret
+.hit:
+    pop cx
+    clc
+    ret
+
+
 %ifdef OS88_COMPACT             ; THE WORKER PARK (SPEC.md 66.5) IS THE
                                 ; COMPACTOR'S, and on kern_small there is no
                                 ; compactor to park FOR (SPEC.md 66.0). Thirteen
@@ -585,38 +627,6 @@ inst_park_me:
 .no:
     pop ax
     stc
-    ret
-
-; -----------------------------------------------------------------------------
-; inst_of_seg - which live package instance is running at this segment?
-; in:  BX = a segment
-; out: CF = 0, DI = the first live KIND_PKG record whose I_SPTR matches;
-;      CF = 1 = none does (DI = one past the table)
-; clobbers: DI (the output), flags. CX is banked.
-;
-; Two routines asked this - inst_parksafe_set of the caller's own ES, and
-; inst_seg_parked of a candidate block - and neither could say it directly.
-; -----------------------------------------------------------------------------
-inst_of_seg:
-    push cx
-    mov di, inst_tab
-    mov cx, INST_MAX
-.scan:
-    cmp byte [di+I_STATE], 0
-    je .next
-    test byte [di+I_KIND], KIND_PKG
-    jz .next
-    cmp [di+I_SPTR], bx
-    je .hit
-.next:
-    add di, I_RECSZ
-    loop .scan
-    pop cx
-    stc
-    ret
-.hit:
-    pop cx
-    clc
     ret
 
 ; -----------------------------------------------------------------------------

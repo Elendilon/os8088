@@ -65921,11 +65921,29 @@ teardown sweep frees them. The two halves agree.
 at ES is by definition not the shape this is about, and routing one path rather
 than both saves re-loading BX (`mem_owner_of_x` leaves it alone on CF=1).
 
-**It costs no `.text` byte**, which is the scarce side — `KERN_CODE_MAX` is
-absolute and cannot be raised. `mem_own` is `.cold` and `inst_of_seg` is
-`.text`, so the call is far and goes through `cw_mem_disp`, the generic
-`call bp / retf` shim (§2.6.1), rather than earning a named one of its own at
-4 bytes of `.text`.
+**It costs no `.text` byte on `kern_big`**, which is the scarce side —
+`KERN_CODE_MAX` is absolute and cannot be raised. `mem_own` is `.cold` and
+`inst_of_seg` is `.text`, so the call is far and goes through `cw_mem_disp`,
+the generic `call bp / retf` shim (§2.6.1), rather than earning a named one of
+its own at 4 bytes of `.text`.
+
+**On `kern_small` it costs 34, and that is `inst_of_seg` itself.** The routine
+had lived inside `%ifdef OS88_COMPACT`, because both of its callers were the
+worker park's (§66.5) and it was the compactor's by accident of who asked
+first; arm 2 is the third caller and has nothing to do with compaction. It is
+compiled on both kernels now, measured: `.text`+`.bss` **43,593 → 43,627**.
+
+Gating arm 2 instead was measured as the alternative and is **not** one, because
+the re-home is not gated: `ld_start`'s step 8a and `osapi_pkg_rehome_x` are
+both unconditional, and the API slot stays on `kern_small` by §24.5's own rule.
+A small kernel with arm 2 gated out would re-home a package successfully and
+then **refuse it every claim it made afterwards** — which is exactly the
+failure §88.10.4.3 records reaching the same state by a different route, and
+it presents as a program that launches, opens its window and then does
+nothing. Half a feature is not the cheap option. And
+the direction is the other way round anyway: the re-home hands a program its
+loader's whole region back, so the machine with least memory is the one that
+wants it most.
 
 
 ## 51. driver.inc — loadable drivers
