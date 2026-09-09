@@ -7976,6 +7976,47 @@ Revisit after the next upstream squash (docs/UPSTREAM.md): the branch is
 disposable at that boundary, so this is the natural point to either take the
 pair or drop it.
 
+### 7.1.4.5 A BAND asks about its own rectangle, not about the screen
+
+`gfx_blit1` spent the deferred hide unconditionally, under a comment that was
+true and useless: *"this may write any pixel on the screen"*. It may not. The
+caller has already decided every bit of the band (§5.4.2), so the routine knows
+exactly which pixels it is about to write — `AX,BX` to `AX+CX-1,BX+DX-1` — and
+that is the rectangle the question should be asked about.
+
+**What the unconditional spend cost is the hide AND the show.** `gfx_unlock`
+redraws the arrow only when the hide was spent (§7.1.4.1), so a band blit that
+hides the arrow makes the unlock draw it back; on a planar VGA that pair is
+**3.2 ms**, and a real-time package puts up five bands a frame. Measured on
+DOT DELIRIUM with the pointer parked at (4,4) — the desktop, well outside the
+window — `cursor_show` was reached in **165 frames of 165**, at **6.5% of the
+frame** (`docs/reports/DOTDEL-FRAME-PROFILE-2026-09-09.md`).
+
+`cur_lazyrect` is that question. It is **not** `cur_lazyck` with different
+arguments, and the difference is what makes it worth its bytes:
+
+| | asks about | right for |
+|---|---|---|
+| `cur_unlazy` | nothing — always spends | a primitive that cannot bound itself |
+| `cur_lazyck` | the armed REGION (§7.1.4.2) | a painter drawing an unknown amount inside its window |
+| `cur_lazyrect` | THE RECTANGLE ABOUT TO BE WRITTEN | a band, which knows |
+
+The region is the whole content rect, so for a game whose window is the board
+it answers *"reachable"* for a pointer resting anywhere on it — while the band
+in hand is two tiles wide. The rectangle answers *"no"* for every frame but the
+few the arrow is genuinely in the way of.
+
+**A superset is the safe error**, as everywhere else in §7.1.4: the cell is
+taken off the hot spot unclamped (§7.2.2), and an armed clip region can only
+make the real write a subset of the rectangle tested — so the mistake this can
+make is a redundant hide, and never §7.1.4's permanent smear. The test is in
+VIRTUAL coordinates (§39.14.9) and therefore sits **above** the display
+resolution, which is where the unconditional spend already was and for the same
+reason: nothing that answers the questions below it may be read stale.
+
+kern_big only. `gfx_blit1` is `stc`/`ret` on kern_small (§5.4.2.5), so there is
+no caller there and the routine is not assembled.
+
 ### 7.1.5 The hide must be spent ABOVE the `[vid_mono]` dispatch
 
 `gfx_xor_rect`'s `cur_unlazy` sat **below** its `cmp byte [vid_mono], 0`, so on
