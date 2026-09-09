@@ -285,6 +285,86 @@ category. Whether Cyclone's warp and Missile's missiles sit inside it is a
 reading nobody has taken, and it is now the cheapest thing left to measure
 (this plan's 9.1).
 
+### 3.2.1 Why an app must call a slot at all — and the slot that is MISSING
+
+It is not only adapter genericity. Six things stand between a package and the
+framebuffer, and two of them are the ones that bind:
+
+| | |
+|---|---|
+| the adapter | VGA planar against two 1bpp cards, three strides, three framebuffer segments (SPEC.md 39) — the one everybody thinks of, and the easiest to abstract |
+| **the CLIP REGION** | a window's content is partly covered by other windows; `wm_clip_tab` is a LIST of rects and every primitive re-runs itself per rect (SPEC.md 11.3) |
+| **the CURSOR** | the arrow is IN the framebuffer with a save-under, so anything that writes pixels must first make the kernel take it down, or `gfx_unlock` paints the stale save-under back over the ink (SPEC.md 7.1.4) |
+| the display | an extended desktop resolves virtual coordinates to a display and cuts a shape at the seam (SPEC.md 39.14) |
+| the gfx lock | pre-emptive multitasking: another task may be inside a primitive (SPEC.md 7) |
+| the address | `FSI_SEG` is the only published framebuffer and it is fsx-only (§2.1) |
+
+The clip region and the cursor are **dynamic** — they change as the user drags
+a window or moves the mouse — which is why "just tell the app the stride" was
+never the answer.
+
+**But none of that requires the kernel to hold the WALK.** Those six are
+per-CALL concerns; the Bresenham is per-LINE. The slot that separates them
+cleanly does not exist:
+
+> **`OSAPI_GFX_POINTS` — `ES:SI` = CX coordinate pairs, plot every one in
+> `[gfx_color]`.** The app computes the points; the kernel does the six things
+> above, once for the call and once per point.
+
+`GFX_SPANS` is its sibling and not its substitute: spans are CONSECUTIVE rows
+with one x-interval each, which is what a polygon rasteriser emits. A walk, a
+particle, a scatter plot emit arbitrary points.
+
+#### What it would cost, in time
+
+The inner loop already exists — `gfx_lstep_mono`'s body IS this, with the
+Bresenham advance where the "read the next pair" would go: `gfx_ls_box` once,
+then per point the four-compare box test, the `.miss` re-resolve, `gfx_ls_addr`
+and the read-modify-write. So the marginal is the walk's own **154 µs**
+(Set 132's fit; SPEC.md 5.6.8's 160–195) plus a full `gfx_ls_addr` where the
+walk sometimes steps its address incrementally — **call it ~170 µs a point,
+estimated against a measured comparable**.
+
+Eight blocks stepping n pixels, against Set 132's measured rows:
+
+| pixels a block a frame | `gfx_lstepv` x8 | 8 × `GFX_PIXEL` | 8 × `GFX_LINE` | **`GFX_POINTS`** |
+|---:|---:|---:|---:|---:|
+| 1 | 5,243.9 | 4,316 | 7,884.8 | **~1,502** |
+| 3 | 7,703.8 | 12,948 | 10,496.9 | **~4,222** |
+| 10 | 16,271.5 | 43,162 | **9,179.6** | ~13,742 |
+
+**It is the best route below about 6.6 pixels a block a frame, `gfx_line` above
+it — and `gfx_lstep` is then never the best at any n.** What it removes is the
+walk's whole **~480 µs a block**, because that figure is *staging the caller's
+Bresenham state in and back out* and a points list has no state to stage.
+
+It also makes the erase exact for nothing: the app replays the same coordinate
+list in the paper colour. That is stronger than `gfx_line`'s endpoint-pair
+guarantee (SPEC.md 5.6.2) — it is literally the same points.
+
+#### What it would cost, in bytes
+
+Estimates against measured comparables, `kern_small`:
+
+| | bytes |
+|---|---:|
+| the 1bpp body — prologue, the ES:SI cursor and count, the box test and `.miss` re-resolve, the RMW draw, the loop | **~115–140** |
+| the X-stub entry | ~10 |
+| a `kern_big` planar arm — `call gfx_pixel` a point when `[vid_planes] != 1`, which costs a planar caller nothing it does not pay today | ~15 |
+| **reused, not written**: `gfx_ls_box` (173), `gfx_ls_addr` (29), `gfx_rowbase` | 0 |
+| the API cell | 0 — the table is offset-addressed and a cell exists either way |
+| **the walker it retires** | **−537 / −641** |
+| **net** | **~−385 `kern_small`, ~−470 `kern_big`** |
+
+`gfx_ls_box` is the walker's alone (`kernel/vga12.inc:1354`, `:1366` are its
+only callers) so it goes with it; `gfx_ls_addr` is shared with `gfx_line` and
+stays whatever happens.
+
+**This is the best row in the document if it survives**, and what it is not yet
+is built or measured. It would also be **the first batch pixel primitive
+`kern_small` has ever had** — `gfx_spans` and `gfx_blit1` are both `stc`/`ret`
+there today (§2.2, §2.4).
+
 ### 3.3 So the per-program answer, restated
 
 | program | figure | mode |
@@ -491,7 +571,8 @@ Each is independently landable and each is a separate PR.
 | **1** | `apps/os88gfx.inc` with `GFXE_BAND` + `GFXE_LINE`; **Sheet** is the first customer, compose mode, nothing gated out of the kernel | proves the lattice; ~350 bytes of Sheet | none — the kernel is untouched |
 | **2** | `GFXE_LINE_FAST`; **Paint on `kern_small`** takes it | Paint's stroke **4.9×** on the floor machine, +647 of Paint's own image | Paint's small build is size-sensitive (§24.5) |
 | **3** | `GFXE_WALK` on **Missile's drain only** — §3.2 is BENCHED (Set 132) and the drain is 2.6× better app-side; its missiles and Cyclone's warp are 1.4× worse and stay on the kernel walk | ~230, and 14.5 ms a frame off the drain | a package on both paths at once — Missile would carry the library AND call the slot |
-| **4** | gate `gfx_linit/lstep/lstepv` out of both kernels | **−537 / −641** | **Set 132 narrows this to one question**: the walk beats both published alternatives only at **1.3–4.2 px a block a frame**. Read what Cyclone and Missile actually step (this plan's 9.1); outside that window they lose nothing by leaving, and a program that spans it — Missile does, `MC_DRN_RATE` being jittered — picks per effect |
+| **3.5** | **`OSAPI_GFX_POINTS` (§3.2.1)** — the slot that separates the six per-CALL concerns from the per-LINE Bresenham. **Take this before wave 4**: it makes wave 4 a net win at every n instead of a trade | **~+150, and it retires the walker** | estimated, not built. Its inner loop is `gfx_lstep_mono`'s with the advance replaced |
+| **4** | gate `gfx_linit/lstep/lstepv` out of both kernels | **−537 / −641**, or **~−385 / −470 net** behind wave 3.5 | **Set 132 narrows this to one question and wave 3.5 dissolves it.** Against today's slots the walk wins only at 1.3–4.2 px a block a frame, so removing it is a trade; with `GFX_POINTS` in front of it nothing loses at any n |
 | **5** | gate `gfx_line_fast`, `gfx_line_runs`, `gfx_lf_wide3` out of `kern_big` | **−874** from `kern_big` alone | Paint and Sheet must be on the library first |
 | **6** | gate `gfx_line` itself | the remainder, ~660 / ~800 | blocked on §7 outright |
 
