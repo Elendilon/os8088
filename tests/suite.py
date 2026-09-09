@@ -657,6 +657,18 @@ FAST = [
     Row("image", "fast", py("tests/unit/t_image.py"), 0.1,
         "the shipped floppies read by an independent FAT12 walker: contiguity, "
         "the standard BPB, SPEC.md 19.6's attributes"),
+    Row("catdisk", "fast", py("tests/unit/t_catdisk.py"), 0.1,
+        "SPEC.md 24.6's three category disks, checked for the one thing they "
+        "ARE: packages at the ROOT with no folder to click into, MEDIA/ and "
+        "SYSTEM/APPDATA/ present because --folder made them, a warm ASSOC.DAT "
+        "whose every row names the root, and WORD.OVL beside WORD.O88. "
+        "`image`, `diskverify` and `pkg` all read these disks already and all "
+        "three pass on one whose layout is wrong - they are about format, "
+        "contiguity and file identity, and none of them about contents. "
+        "Measured at 0.016s; declared 0.1 for the floor every row here has. "
+        "Membership is deliberately NOT pinned (SPEC.md 24.6.1 makes it a "
+        "decision with a date on it), so re-curating a disk does not turn "
+        "this row red"),
     Row("pkg", "fast", py("tests/unit/t_pkg.py"), 0.1,
         "package/driver/module headers, and every file on every image proved "
         "identical to the artifact it was built from"),

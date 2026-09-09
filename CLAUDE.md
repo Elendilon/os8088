@@ -1121,8 +1121,8 @@ checking all four. This is the rule for the on-demand APPLICATION floppies too
 `weavedisk`, `loomdisk`, `allapps` — which were three-geometry until 1.2MB
 reached them.
 
-**Nine images, not seven.** The system and apps disks in four geometries each,
-plus `build/media360.img` — `BEVERLY.MOD` is data rather than software and
+**Twelve images, not nine.** The system and apps disks in four geometries
+each, plus FOUR more that exist at 360KB alone. `build/media360.img` — `BEVERLY.MOD` is data rather than software and
 was 114 of a 360KB disk's 354 clusters before packages were compressed, so at
 that geometry it rides a disk of its own (§24.4). **It is not on `apps360.img`
 as well any more, and cannot be**: lz4-packed it is 42 clusters and that disk
@@ -1131,7 +1131,20 @@ FONTVIEW off buys 27. At 360KB the module is a disk SWAP, which is what §24.4
 was always for; `tests/lzship.py` carries both halves on one scratch image
 because the harness cannot change a floppy under a running guest. Every other
 apps disk carries it in `MEDIA/`, which is why
-there is no 720KB or 1.2MB media disk to go with it. The **core packages** ship on the system disk too, a second
+there is no 720KB or 1.2MB media disk to go with it.
+**And `office360.img`, `network360.img` and `games360.img` (§24.6)**, which are
+the same pressure met with a shape that scales: 354 clusters is the geometry
+that runs out first and this project keeps making applications, so the answer
+is a disk per SUBJECT — one category of program at the ROOT of the volume
+(no `APPS/` to click into when choosing the disk already said what you came
+for), the documents those programs open in `MEDIA/`, a pre-made
+`SYSTEM/APPDATA/`, and a warm `ASSOC.DAT` that costs nothing because
+`os88disk.py` writes one for any packages it is handed. `apps360.img` is
+unchanged in kind and is now **a curated selection out of those three plus
+the packages that live nowhere else** — and §24.6.1 is the rule that matters
+about it: **being curated onto it is a decision with a date on it, remade
+every time this geometry runs out**, never a property of the package. The
+**core packages** ship on the system disk too, a second
 copy and never a move (§24.3), and an application's own state goes in
 `SYSTEM/APPDATA/` rather than beside the user's documents (§19.9).
 **`THEWIRE.O88` is the exception to both halves of that** (§92): it is a
@@ -1268,10 +1281,16 @@ repository", which is where the branch already lives, and do nothing.
 
 ### 3. SEND the 360KB set after every commit, without being asked
 
-`build/os8088-360.img`, `build/apps360.img` and `build/media360.img` — all
-three: `media360.img` is the module's own disk at that geometry (§24.4), and
-the owner wants the full set every time rather than a judgement about which
-disks a change could reach.
+**All SIX of them** — `build/os8088-360.img`, `build/apps360.img`,
+`build/media360.img`, `build/office360.img`, `build/network360.img` and
+`build/games360.img`. The owner wants the full set every time rather than a
+judgement about which disks a change could reach, and the set is exactly the
+360KB images `all` builds: system, apps, the module's own disk (§24.4) and
+the three category disks (§24.6). It was three until the category disks
+landed and it will grow again — **`$(SHIPIMGS)` in the Makefile is the
+list**, filtered to the 360KB ones. Do NOT reach for `ls build/*360*.img`:
+that also catches `c64360`, `weave360`, `loom360` and `wire360`, which are
+on-demand disks `all` never builds and a soak leaves lying in `build/`.
 
 **"Send" means ATTACH THE FILES.** A path into the session's own `build/` or
 scratch directory is not a delivery: those live in a container the owner
