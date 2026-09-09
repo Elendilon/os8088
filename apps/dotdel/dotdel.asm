@@ -1039,6 +1039,11 @@ dd_s_small:  db 'Window too small.', 0
     DWORDV dd_ovx                   ; the overlay line, banked so it can be
     DWORDV dd_ovy                   ; taken down again
     DWORDV dd_ovw
+    DBYTEV dd_ovc0                  ; ...and the tiles its 8 rows SPILT on to,
+    DBYTEV dd_ovc1                  ; which is none of them until a tile is
+    DBYTEV dd_ovr0                  ; shorter than the band (dd_ov_spill)
+    DBYTEV dd_ovr1
+    DBYTEV dd_ovcc                  ; ...and the column the walk is at
     DBUFV  dd_numbuf, DD_NUMW + 2
     DBYTEV dd_ltmp
 

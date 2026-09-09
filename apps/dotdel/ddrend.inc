@@ -838,9 +838,20 @@ dd_bandrun:
 
 ; -----------------------------------------------------------------------------
 ; dd_tile_put - put tile (CL, CH) back on the glass exactly as the board says
-;               it should look: black, with its dot or pellet if it has one
+;               it should look: its own ground, with its dot or pellet on it
 ; Clobbers everything BUT SI. This is the one "undo whatever was drawn there"
 ; primitive - a blinking pellet, a vanished fruit, a score that has been read.
+;
+; THE GROUND IS NOT ALWAYS BLACK, and it took the repair queue to find that
+; out. This routine was written for the pellet blink, where the tile is a
+; corridor and a corridor holds no wall ink at all (dd_walls_of draws every
+; line OUTSIDE the tile it outlines, SPEC.md 93.2.1) - so zeros were the whole
+; picture and nobody noticed the assumption. SPEC.md 93.5.10's queue then
+; started handing it WALL tiles, because a turn puts the corner's wall tile in
+; the actor's 2x2 band and the queue owes every tile that band has left. A
+; zeroed band took the corner off the glass, which is exactly the defect
+; dd_band_ground's wall arm was written to fix, one routine along: "corners
+; are back to disappearing".
 ;
 ; SI IS PRESERVED, and that is a bug fix rather than a courtesy. `.emit` loads
 ; SI with the band's address, and dd_pills_blit walks the pellet list with SI
@@ -863,13 +874,34 @@ dd_tile_put:
     mov cl, 3
     shr ax, cl
     mov [dd_rb], ax
-    mul word [dd_th]
-    mov cx, ax
-    cmp cx, DD_BANDSZ
+    mov bx, [dd_th]
+    mul bx
+    cmp ax, DD_BANDSZ
     jbe .fits
-    mov cx, DD_BANDSZ
+    mov ax, DD_BANDSZ               ; a tile that would not FIT loses rows off
+    xor dx, dx                      ; the bottom rather than the next variable
+    div word [dd_rb]                ; along - dd_band_build's rule, and the
+    mov bx, ax                      ; same reason
+    mul word [dd_rb]
 .fits:
+    mov cx, ax
     mov word [dd_bbase], dd_band
+    mov [dd_bh], bx                 ; ...which dd_band_walls counts down
+    mov ax, [dd_gx]
+    mov [dd_bx0], ax
+    mov ax, [dd_gy]
+    mov [dd_by0], ax
+    mov al, [dd_gt]
+    cmp al, TT_WALL
+    je .wall
+    cmp al, TT_DOOR
+    jne .black
+.wall:
+    cmp word [dd_bdseg], 0          ; no picture claimed yet: black is all
+    je .black                       ; there is to put back
+    call dd_band_walls
+    jmp short .item
+.black:
     mov di, dd_band
     xor al, al
     push es
@@ -878,6 +910,7 @@ dd_tile_put:
     cld
     rep stosb
     pop es
+.item:
     mov al, [dd_gt]
     cmp al, TT_DOT
     je .dot
@@ -2548,8 +2581,82 @@ dd_overlay:
     mov dx, bx
     add dx, 7
     call OSAPI_GFX_FILL
+    call dd_ov_spill
     mov word [dd_ovw], 0
     mov byte [dd_frdirty], 1        ; ...and the fruit shares that row
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_ov_spill - the overlay's band is EIGHT ROWS and a tile need not be
+;
+; The line sits on DD_FRUITR, the one board row that is empty in every layout,
+; which is what makes black the whole erase - THERE. It is not the whole erase
+; anywhere else, and dd_centre_line already knows the band may not fit: when
+; [dd_th] is under 8 it gives up centring and starts at the tile's top, so the
+; other four rows land on the row BELOW. Under the ghost house those tiles are
+; WALL, and the fill took the wall's own line off the glass for the rest of the
+; level - one pixel high, six tiles wide, and permanent.
+;
+; It is the corner defect one row along and it takes the same answer: put the
+; tile back rather than black it, now that dd_tile_put restores a wall's
+; picture. It costs NOTHING on VGA or Hercules, whose tiles are 8 rows or more
+; so the band fits and the walk is one compare - this is a small-window CGA
+; defect, which is why twelve seconds of colour census never saw it.
+; Clobbers everything.
+; -----------------------------------------------------------------------------
+dd_ov_spill:
+    mov ax, [dd_th]
+    cmp ax, 8
+    jae .out                        ; the band fits its own row
+    mov ax, [dd_ovy]
+    sub ax, [dd_bdy]
+    js .out
+    add ax, 7
+    xor dx, dx
+    div word [dd_th]
+    cmp ax, DD_ROWS - 1
+    jbe .r1
+    mov ax, DD_ROWS - 1
+.r1:
+    mov [dd_ovr1], al
+    cmp al, DD_FRUITR               ; the band reaches no further than the row
+    jbe .out                        ; it was drawn on
+    mov byte [dd_ovr0], DD_FRUITR + 1
+    mov ax, [dd_ovx]
+    sub ax, [dd_bdx]
+    jns .x0                         ; dd_centre_line rounds the pen DOWN to a
+    xor ax, ax                      ; byte column, so the line can start up to
+.x0:                                ; seven pixels left of the board
+    xor dx, dx
+    div word [dd_tw]
+    mov [dd_ovc0], al
+    mov ax, [dd_ovx]
+    add ax, [dd_ovw]
+    dec ax
+    sub ax, [dd_bdx]
+    xor dx, dx
+    div word [dd_tw]
+    cmp ax, DD_COLS - 1
+    jbe .c1
+    mov ax, DD_COLS - 1
+.c1:
+    mov [dd_ovc1], al
+.row:
+    mov al, [dd_ovc0]
+    mov [dd_ovcc], al
+.col:
+    mov cl, [dd_ovcc]               ; dd_tile_put owns [dd_gc]/[dd_gr], so the
+    mov ch, [dd_ovr0]               ; walk keeps its own cursor
+    call dd_tile_put
+    inc byte [dd_ovcc]
+    mov al, [dd_ovcc]
+    cmp al, [dd_ovc1]
+    jbe .col
+    inc byte [dd_ovr0]
+    mov al, [dd_ovr0]
+    cmp al, [dd_ovr1]
+    jbe .row
 .out:
     ret
 

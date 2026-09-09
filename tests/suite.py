@@ -1901,7 +1901,7 @@ SOAK = [
         "it. In soak and not fast for docs/WRITING-TESTS.md 2.1's reason: it "
         "is about one package",
         needs=("nasm",)),
-    Row("dotdel", "soak", py("tests/dotdel.py"), 170.0,
+    Row("dotdel", "soak", py("tests/dotdel.py"), 230.0,
         "DOT DELIRIUM on the glass, on all three adapters (SPEC.md 93): the "
         "title screen's four compositors, the blink, Enter starting a game "
         "that actually EATS, the tile cut from each adapter's own pixel shape "
@@ -1909,7 +1909,13 @@ SOAK = [
         "the reason the row exists - RENDERED FRAMES against the game's own "
         "tick counter on a cycle-accurate 4.77 MHz 8088. A board walk, a "
         "`font_run` and a pair of divides each took it to ~60% while "
-        "everything still LOOKED right (93.5.3). `--arm cga` is one adapter. At 360 KB it rides the "
+        "everything still LOOKED right (93.5.3). Leg G then asks the one "
+        "question a colour census cannot - not whether a wall is the wrong "
+        "colour but whether it is THERE - by comparing the glass against the "
+        "board picture the bands are copied out of, which caught a repaired "
+        "corner coming back BLACK on VGA (93.5.11) and the overlay's 8-row "
+        "band eating the wall line under it on CGA (93.5.12). "
+        "`--arm cga` is one adapter. At 360 KB it rides the "
         "ordinary apps disk, in the room the earlier Pac-Man port came off "
         "it to make (93.13)",
         needs=("marty", "nasm"), serial=True),

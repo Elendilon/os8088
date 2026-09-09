@@ -108210,6 +108210,58 @@ Hercules and CGA cannot have this defect — and both `dd_rep_vacated` and
 `dd_rep_run` return at a single `cmp byte [dd_bpp], 1` rather than let those
 two adapters pay two tile blits a frame for a fix they get nothing from.
 
+#### 93.5.11 …and a repaired tile owes its own GROUND, not black
+
+§93.5.10 fixed the pen a repaired tile comes back in and left the **picture**
+wrong. `dd_tile_put` composes a zeroed band and stamps the tile's dot or
+pellet into it, and that was the whole truth while its only callers were the
+pellet blink and the fruit: both of those tiles are **corridor**, and a
+corridor tile holds no wall ink at all, because `dd_walls_of` draws every line
+*outside* the tile it outlines (§93.2.1). The zeros were the picture, and
+nobody noticed there was an assumption in them.
+
+The queue then started handing it `TT_WALL` tiles. A **turn** makes the band a
+2x2 block whose diagonal member is the corner's wall tile (§93.5.1), so the
+corner is queued the moment the actor leaves it — and repainting it as an
+empty band took it off the glass for the rest of the level. The field report
+was *"corners are back to disappearing"*, and it is the same defect
+`dd_band_ground`'s wall arm was written to fix one routine along.
+
+So `dd_tile_put` takes the same arm: a `TT_WALL` or `TT_DOOR` tile has its
+ground copied out of the board picture by `dd_band_walls` rather than zeroed.
+It is the routine that was already there and it needs `[dd_bx0]`/`[dd_by0]`/
+`[dd_bh]`, which are the tile's own origin and height, so the cost is four
+stores and a compare on the tiles that do not want it.
+
+**Measured on a VGA after twenty seconds of play, against the board picture
+itself: 108 wall-ink pixels black in 2 tiles before, 0 after.** The instrument
+is `tests/dotdel.py`'s leg G, and its existence is the finding: the colour
+census that caught §93.5.10's trail **could not see this at all**, because it
+skipped a tile with no lit pixel in it — and most wall tiles legitimately have
+none, so a blacked corner is indistinguishable from an ordinary one. Asking
+"is that wall the wrong colour" is a different question from "is that wall
+there", and the second one needs `dd_bdseg` as ground truth.
+
+#### 93.5.12 The overlay's band is EIGHT ROWS and a tile need not be
+
+Leg G found a second one, older and on a different adapter. `dd_centre_line`
+puts READY!/PAUSED/GAME OVER on `DD_FRUITR`, the one board row that is empty
+in every layout, which is what makes **black the whole erase** when it comes
+down. It is not the whole erase anywhere else, and the routine already knows
+the band may not fit: when `[dd_th]` is under 8 it gives up centring and
+starts at the tile's top, so the other four rows land on the row **below**.
+
+Under the ghost house those tiles are wall, and the fill took the wall's own
+line off the glass for the rest of the level — **48 pixels, one high and six
+tiles wide, permanent**, on a windowed CGA where the tile is 8x4. VGA and
+Hercules never see it: their tiles are 8 rows or more and the band fits.
+
+`dd_ov_spill` walks the tile rows the band reached beyond `DD_FRUITR` and puts
+each tile back with `dd_tile_put` — which is only correct because §93.5.11
+taught that routine to restore a wall. It costs **one compare** on any
+geometry whose tile is 8 rows or more, which is both other adapters and every
+fullscreen bracket.
+
 #### 93.5.9.1 …and the fast path forgot which BYTE the run starts in
 
 §93.5.9's two-byte mask is built from the run's **bit** offset, and the byte

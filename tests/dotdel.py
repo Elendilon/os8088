@@ -167,7 +167,7 @@ def screen(m):
     return w, h, b"".join(bytes(r) for r in rows)
 
 
-TT_DOT, TT_PILL = 2, 3
+TT_WALL, TT_DOT, TT_PILL, TT_DOOR = 0, 2, 3, 4
 G_COLS, G_ROWS = 28, 31          # DD_COLS x DD_ROWS, the classic grid
 
 
@@ -257,6 +257,122 @@ def leg_f(tag, ui, p, say):
         fail.append("%s: Escape did not return to the attract screen "
                     "(state %d), so the legs after this one start from the "
                     "wrong place" % (tag, p.b("dd_state")))
+    return fail
+
+
+def leg_g(tag, ui, p, say):
+    """Every pixel the BOARD PICTURE says is wall ink is still on the glass.
+
+    THE GROUND TRUTH IS dd_bdseg - the 1bpp board picture every band's wall
+    arm is copied out of - so this asks the one question a colour census
+    cannot: not "is that wall the wrong colour" but "is that wall THERE".
+    tests/dotdel.py's own leg F and the colour census both skip a tile with no
+    lit pixel in it, because most wall tiles legitimately have none (dd_walls_of
+    draws every line OUTSIDE the corridor it outlines), and a blacked corner
+    looks exactly like one of those.
+
+    BREAK IT ON PURPOSE, two ways, and both of them shipped:
+
+      * Take dd_tile_put's wall arm out - the `.wall` branch that calls
+        dd_band_walls - and the maze loses a corner every time an actor turns
+        on one: 108 ink pixels in 2 tiles, measured on a VGA over twenty
+        seconds of play.  SPEC.md 93.5.10's repair queue hands dd_tile_put
+        the corner tile of every turn, and a zeroed band is a corner off the
+        glass for the rest of the level ("corners are back to disappearing").
+      * Take the dd_ov_spill call out of dd_overlay's erase and the CGA arm
+        reads 48 gone in 6 tiles - the whole top pixel row of the wall under
+        the ghost house.  The overlay's band is 8 rows and a CGA tile is 4.
+
+    It plays 145 of the game's own ticks first, which is what buys the turns:
+    a corner only enters a band when somebody turns on it, so this leg is as
+    thorough as the play it watched and no more (which is why the wait is on
+    dd_anim and not on the host clock).
+
+    Neither is visible on the other two arms, which is why this runs on all
+    three: the queue is gated off below 2 bpp and the spill needs a tile
+    shorter than the band.
+    """
+    m = ui.m
+    fail = []
+    m.pause()
+    m.write((p.seg << 4) + p.names["dd_lives"], bytes([99]))
+    st = p.b("dd_state")
+    m.go()
+    if st == 0:                         # a game that ended: start another
+        m.key("Enter")
+        deadline = time.time() + 20
+        while p.b("dd_state") == 0 and time.time() < deadline:
+            time.sleep(0.2)
+    # ...and let the cast cross some corners, over the GAME'S OWN CLOCK. A
+    # host sleep here hands a loaded lane a third less play (incident 54), and
+    # what this leg wants is TURNS TAKEN - the corner tile only enters a band
+    # when an actor turns on it, so a lane that got fewer of them is a lane
+    # that read less of the maze while reporting the same number.
+    t0 = p.w("dd_anim")
+    deadline = time.time() + 60
+    while (p.w("dd_anim") - t0) & 0xFFFF < 145 and time.time() < deadline:
+        time.sleep(0.25)
+    ticks = (p.w("dd_anim") - t0) & 0xFFFF
+    m.pause()
+    tw, th = p.w("dd_tw"), p.w("dd_th")
+    bdx, bdy = p.w("dd_bdx"), p.w("dd_bdy")
+    sb, bdseg, mh = p.w("dd_sb"), p.w("dd_bdseg"), p.w("dd_mh")
+    ovw, ovx, ovy = p.w("dd_ovw"), p.w("dd_ovx"), p.w("dd_ovy")
+    grid = bytes(m.read((p.seg << 4) + p.names["dd_grid"], G_COLS * G_ROWS))
+    pic = bytes(m.read(bdseg << 4, sb * mh))
+    act = [(p.b("dd_ac", i), p.b("dd_ar", i)) for i in range(5)]
+    w, h, d = screen(m)
+    m.go()
+    per = len(d) // (w * h)
+    # AN ACTOR IS ALLOWED TO COVER A WALL, and so is a banner that is still up
+    skip = set((c + dc, r + dr) for c, r in act
+               for dc in (-2, -1, 0, 1, 2) for dr in (-2, -1, 0, 1, 2))
+    if ovw:
+        for r in range((ovy - bdy) // th, (ovy - bdy + 7) // th + 1):
+            for c in range((ovx - bdx) // tw, (ovx - bdx + ovw - 1) // tw + 1):
+                skip.add((c, r))
+    tot = miss = nt = 0
+    bad = []
+    for r in range(G_ROWS):
+        for c in range(G_COLS):
+            if grid[r * G_COLS + c] not in (TT_WALL, TT_DOOR):
+                continue
+            if (c, r) in skip:
+                continue
+            nt += 1
+            here = 0
+            for y in range(r * th, (r + 1) * th):
+                if bdy + y >= h:
+                    break
+                row = y * sb
+                for x in range(c * tw, (c + 1) * tw):
+                    if not (pic[row + (x >> 3)] >> (7 - (x & 7))) & 1:
+                        continue
+                    tot += 1
+                    o = ((bdy + y) * w + (bdx + x)) * per
+                    if not any(d[o:o + per]):
+                        miss += 1
+                        here += 1
+            if here:
+                bad.append((c, r))
+    if not tot:
+        fail.append("%s: the board picture has no wall ink at all in %d "
+                    "tiles - this leg read nothing" % (tag, G_COLS * G_ROWS))
+    elif miss:
+        fail.append("%s: %d of %d wall-ink pixels are BLACK on the glass, in "
+                    "%d of %d tiles %s - something drew over the maze and put "
+                    "back an empty tile (SPEC.md 93.5.10, 93.5.11) "
+                    "[state %d tile %dx%d board %dx%d at %d,%d ovw %d "
+                    "actors %s]"
+                    % (tag, miss, tot, len(bad), nt, bad[:8], p.b("dd_state"),
+                       tw, th, p.w("dd_mw"), mh, bdx, bdy, ovw, act))
+    elif ticks < 145:
+        fail.append("%s: the game's own clock advanced %d ticks in 60 host "
+                    "seconds - the guest is not running, so an intact maze "
+                    "here proves nothing" % (tag, ticks))
+    else:
+        say("%s: all %d wall-ink pixels over %d wall tiles still on the glass, "
+            "after %d ticks of play" % (tag, tot, nt, ticks))
     return fail
 
 
@@ -418,6 +534,9 @@ def run_arm(tag, machine, want_tile, a, say, floor=FPS_FLOOR):
             fail.append("%s: leaving the bracket left the tile at %dx%d, not "
                         "the window's %dx%d" % (tag, back[0], back[1],
                                                 tile[0], tile[1]))
+
+        # --- G: the maze is all still there ---------------------------------
+        fail += leg_g(tag, ui, p, say)
     return fail
 
 
