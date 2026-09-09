@@ -38177,7 +38177,8 @@ that program's manual (§71.12), which is worse than no file at all on a disk
 the program is not on — and `BEVERLY.MOD` is the two removed players' module
 (§24.4).
 
-**`TANK` WAS THE OTHER HALF OF THAT ROW AND SHIPS NOW** (§85.3.5.1), and the
+**`TANK` WAS THE OTHER HALF OF THAT ROW AND SHIPS NOW — as its SMALL BUILD**
+(§85.3.5.1) — a `make smallapps` SUBSTITUTION rather than this table's omission, and the
 reason it was omitted was wrong as written. `kern_small` has the whole of §53:
 the `%include` is unconditional, every `%ifdef KERN_BIG` inside `fsx.inc` is
 multi-display bookkeeping, `fsx_capstab`'s HERC (`0x0011`) and CGA (`0x000F`)
@@ -38189,6 +38190,14 @@ now and the claim is a ladder, so the requirement the machine cannot meet is
 gone rather than worked around. **The fullscreen surface was never what either
 package was missing**, and a row that names the wrong requirement is worse than
 no row: it sends the next reader to the kernel.
+
+The fix is an `APP_SMALL` arm and not a change to the package, because the span
+store costs the frame 4.2% and a machine with the heap should not pay it — so
+`SMALLPKGS` carries `TANK.O88` as a sixth substitution and the shipped `.o88`
+is byte-identical to what it was before any of this. **That is the shape to
+reach for when a package cannot meet a requirement**: an omission is what is
+left when substitution cannot work, and SKIES is still in that position only
+because nobody has taken its measurement.
 
 **112,441 bytes — 31% of a 360KB floppy, 113 of its 354 clusters — for eight
 programs that could not have started.** All eight move at every geometry now:
@@ -98759,14 +98768,20 @@ shadow holds no dynamic pixel, so copying a rectangle over it loses nothing.
 Mode X has no shadow and no template and draws the whole panel every frame,
 which is what every frame did before and is the fast machine's to afford.
 
-#### 85.3.5.1 The template is a SPAN STORE, and the claim is a ladder
+#### 85.3.5.1 `APP_SMALL` — the template as a SPAN STORE, and a ladder for the claim
 
-§85.3.5's design is unchanged and this is where its bytes live. **The template
-was a second 16,000-byte frame buffer carrying 486-512 non-zero bytes** — three
-per cent — in every state the game can be driven into, the crack drawn and the
-ridge settled included. The 32KB claim that made is why §24.5 kept this package
-off the small disks, and on the 128KB floor machine the largest run a claimant
-can have, once `mem_claim` has shed the purgeable caches (§50.6.2), is 17.5KB.
+§85.3.5's design is unchanged and **the shipped package is unchanged with it**,
+byte for byte: the template stays a second 16,000-byte frame buffer restored by
+one `rep movsw` a row, and the claim stays a flat 32KB. This section is the
+`APP_SMALL` arm (§27.16's mechanism), and it exists because that claim is what
+kept the package off the small disks (§24.5).
+
+**The measurement that makes it a trade.** On both shadow backends and in every
+state the game can be driven into — the crack drawn and the ridge settled
+included — the template holds **486–512 non-zero bytes of 16,000. Three per
+cent.** On the 128KB floor machine the largest run a claimant can have, once
+`mem_claim` has shed the purgeable caches (§50.6.2), is **20KB**, so a 32KB
+claim simply refuses; a shadow plus a span store is 18KB and fits.
 
 **The store.** `tk_tmrix[r]` is the pool offset of row *r*'s first record; rows
 are contiguous and ascending, so `tk_tmrix[r+1]` is where row *r*'s records end
@@ -98784,8 +98799,8 @@ and the first dynamic drawing, which is the window §85.3.5's own induction is
 about: the shadow holds no dynamic pixel there, so **in that window the shadow
 IS the template**. An item is drawn into the shadow, where it has to end up
 anyway, and `tk_tmenc` re-encodes the rectangle's rows from it. `tk_tmcopy` and
-`tk_tmcpruns` are gone with the buffer they moved between, the walks need no
-`tk_tseg` redirection, and the one rule that has to hold is that nothing calls
+`tk_tmcpruns` are the shipped build's alone, the walks need no `tk_tseg`
+redirection, and the one rule that has to hold is that nothing calls
 `tk_tmenc` after a dynamic pixel has landed.
 
 **The scan is `rep scasb` and that is not a micro-optimisation.** The first
@@ -98803,37 +98818,44 @@ different picture.
 
 **The claim is a LADDER**: `TK_SHKB` 18, then 17, then 16, whichever
 `mem_claim` will give. 18KB leaves 2,432 bytes of pool against a measured high
-water of 2,132; 17KB leaves 1,408, which holds the panel but not a settled
-ridge, so **a pool under `TKT_RIDGEMIN` = 2,048 never takes the ridge** —
-keeping §85.3.5's 61-67 ms a frame and paying §85.3.8's 26, where letting it
-overflow instead dropped the template whole and paid both. 16KB is the shadow
-alone and the pre-§85.3.5 game. A store that will not fit clears `[tk_tmpl]`,
-which is the flag Mode X already runs the whole game on, so the fallback is
-code every VGA exercises.
+water of 2,132 — and **the 128KB machine takes that top rung**, measured on
+`os8088_5150_cga_128k` with `[tk_tmpl]` staying 1 through turns and a crack.
+17KB leaves 1,408, which holds the panel but not a settled ridge, so **a pool
+under `TKT_RIDGEMIN` = 2,048 never takes the ridge** — keeping §85.3.5's
+61–67 ms a frame and paying §85.3.8's 26, where letting it overflow instead
+dropped the template whole and paid both. 16KB is the shadow alone. A store
+that will not fit clears `[tk_tmpl]`, which is the flag Mode X already runs the
+whole game on, so the fallback is code every VGA exercises.
 
-**What it costs, measured** — `tests/tankperf.py`, `os8088_5150_herc_gla`,
-scene `heavy`, cycle-exact, and the two builds draw **byte-identical
-framebuffers** on both pinned scenes:
+**What it costs, and why it is the small build's trade and not the package's**
+— `tests/tankperf.py --small` against a plain run, `os8088_5150_herc_gla`,
+scene `heavy`, cycle-exact, ONE kernel and ONE tree (a small-built package is
+not a second ABI, §27.16, so the kernel is held fixed and the difference is the
+package's). The two arms draw **byte-identical framebuffers** on both pinned
+scenes:
 
-| schedule | bitmap template | span store | |
+| schedule | shipped (bitmap) | `APP_SMALL` (spans) | |
 |---|---|---|---|
-| nothing changing | 215.18 ms | 224.26 ms | **+4.2%**, all of it in `tk_clearspans` |
-| a ridge transition every 10 frames | 230.91 ms | 256.13 ms | +10.9% |
-| ...and a score change, both every 3 | 265.76 ms | 323.65 ms | +21.8% |
+| nothing changing | 215.70 ms | 224.27 ms | **+4.0%**, all of it in `tk_clearspans` |
+| a ridge transition every 10 frames | 230.91 ms | 256.14 ms | +10.9% |
+| ...and a score change, both every 3 | 265.77 ms | 323.67 ms | +21.8% |
 
-The steady-state cost is the restore: the clear stores zeros over the run
-(cheaper than the old `rep movsw` by 4 ms) and lays the row's spans over them
-(+12 ms). Everything above that is `tk_tmenc`, which is per CHANGE and not per
-frame — the third row is the pathological alternation §85.3.8 already names as
-the case that cannot win. **What is still open is the encode's second pass**:
-it scans the row range once to size the hole and once to fill it, and a
-single-pass form that encodes into the pool's free tail and then moves the
-blob would halve it, at the price of a transient `tmlen + L` the top rung can
-afford and the middle one cannot.
+That is a real loss and it is why this is an arm rather than a rewrite: a
+machine with 32KB of heap to spare should keep the buffer. The steady-state
+cost is the restore — the clear stores zeros over the run (cheaper than the old
+`rep movsw` by 4 ms) and lays the row's spans over them (+12 ms). Everything
+above that is `tk_tmenc`, which is per CHANGE and not per frame; the third row
+is the pathological alternation §85.3.8 already names as the case that cannot
+win. **What is still open is the encode's second pass**: a single-pass form
+that encodes into the pool's free tail and then moves the blob would halve it,
+at the price of a transient `tmlen + L` the top rung can afford and the middle
+one cannot.
 
-**What it buys** is one line: `TANK.O88` runs on the 128KB machine, where it
-used to switch the video mode, fail the claim and bounce back to the desktop
-with no message at all.
+**The size row reads backwards and that is the point.** `APP_SMALL` costs
+**+576 bytes of image** here where the other five arms save features; what it
+buys is 14KB of the claim, so `tests/unit/t_appsmall.py` weighs this package on
+**image + bss + claim** and reads a 26% saving. A small build measured on the
+region alone would fail its own gate.
 
 #### 85.3.6 A shallow line with eight pixels to the row is sliced, not walked
 

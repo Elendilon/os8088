@@ -35,6 +35,20 @@ CGA and, on Hercules, moved the other way - which is a measurement of the
 dealer, not of the code. `fixed` and `heavy` pin the deal, pause the world and
 place the enemy by poke, so they are the arms an A/B is run on.
 
+    --small         price the APP_SMALL arm (SPEC.md 85.3.5.1) - the HUD
+                    template as a span store and the claim as a ladder. This
+                    and a plain run are the two halves of that section's table:
+
+                      tankperf.py --scene heavy --frames 6 --json a.json
+                      tankperf.py --scene heavy --frames 6 --small \
+                                  --apps build/smallapps360.img --json b.json
+                      tankperf.py --compare a.json b.json
+
+                    LEAVE --image ALONE for the small arm. A small-built
+                    package is not a second ABI (SPEC.md 27.16), so it runs on
+                    the ordinary kernel - and holding the kernel, the machine
+                    and the scene all fixed is what makes the difference the
+                    PACKAGE's
     --json PATH     write the run's numbers, for --compare
     --compare A B   print one build's numbers against another's, from two such
                     files. THE TWO RUNS MUST NAME THE SAME machine, scene,
@@ -68,12 +82,13 @@ HEAVY = [                               # (type, x, z) about a player at the
     (3, 0, 3200), (1, -900, 3800), (2, 900, 4200), (1, 300, 5200)]    # +z
 
 
-def listing():
+def listing(small=False):
     """Assemble the tree's Tank with a listing, into a temp file."""
     fd, lst = tempfile.mkstemp(prefix="tankperf_", suffix=".lst")
     os.close(fd)
     r = subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", "apps/",
-                        "-I", "apps/tank/", "-o", os.devnull, "-l", lst,
+                        "-I", "apps/tank/"] + (["-DAPP_SMALL"] if small else []) +
+                       ["-o", os.devnull, "-l", lst,
                         "apps/tank/tank.asm"], capture_output=True, text=True)
     if r.returncode:
         sys.exit("tankperf: the tree does not assemble:\n" + r.stderr[:400])
@@ -177,6 +192,13 @@ def main(argv):
     ap.add_argument("--frames", type=int, default=12)
     ap.add_argument("--games", type=int, default=8)
     ap.add_argument("--verbose", action="store_true", help="print every frame")
+    ap.add_argument("--small", action="store_true",
+                    help="price the APP_SMALL arm (SPEC.md 85.3.5.1) instead - "
+                         "the span store and the claim ladder. Pair it with "
+                         "--apps build/smallapps360.img and leave --image ALONE: "
+                         "a small-built package is not a second ABI, so it runs "
+                         "on the ordinary kernel, and holding that fixed is what "
+                         "makes the A/B about the package")
     ap.add_argument("--name", help="what to call this build in a --compare")
     ap.add_argument("--shot", help="write the pinned scene's frame here. The "
                     "scene is pinned, so TWO BUILDS MUST PRODUCE THE SAME "
@@ -196,13 +218,14 @@ def main(argv):
     os.chdir(ROOT)
     if a.compare:
         return compare(a.compare[0], a.compare[1])
-    lst = listing()
+    lst = listing(a.small)
     S = sites(lst)
     os.unlink(lst)
+    ARM = ("-DAPP_SMALL",) if a.small else ()
 
     def off(n):
-        return dispapps.bss_off("tank", n)
-    render = dispapps._map("tank")["tk_render"]
+        return dispapps.bss_off("tank", n, small=a.small)
+    render = dispapps._map("tank", ARM)["tk_render"]
 
     with os88marty.launch(a.image, apps=a.apps, machine=a.machine) as m:
         slot, seg, base = tanktest.open_game(m)
@@ -223,7 +246,7 @@ def main(argv):
         turn = [0]
         churn = [0]
         pool = [None]
-        syms = dispapps._map("tank")
+        syms = dispapps._map("tank", ARM)
         has_pool = "tk_tmlen" in syms
 
         def kb():
@@ -352,6 +375,7 @@ def main(argv):
         rec = {"name": a.name or os.path.basename(a.apps), "machine": a.machine,
                "scene": a.scene, "frames": a.frames, "churn": a.churn,
                "turn_every": a.turn_every, "frame_ms": base_ms, "stages": {},
+               "arm": "APP_SMALL" if a.small else "shipped",
                "claim_kb": kb(), "pool_cap": cap()}
 
         def patch(site, on):

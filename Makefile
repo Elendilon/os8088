@@ -8194,7 +8194,17 @@ SMALLOMIT_DATA := apps/browser/browser.htm apps/tracker/beverly.mod
 # APPS: directly put it in BOTH folders for a cycle.
 SMALLPKGS     := $(SMALLAPPDIR)/notepad.o88 $(SMALLAPPDIR)/paint.o88 \
                  $(SMALLAPPDIR)/calc.o88 $(SMALLAPPDIR)/solitair.o88 \
-                 $(SMALLAPPDIR)/taskmgr.o88
+                 $(SMALLAPPDIR)/taskmgr.o88 $(SMALLAPPDIR)/tank.o88
+                                    # TANK is the one whose small build is
+                                    # BIGGER (SPEC.md 85.3.5.1): +576 bytes of
+                                    # image to turn the HUD template from a
+                                    # second 16,000-byte frame buffer into a
+                                    # span store, and 14KB off the heap claim
+                                    # that buys. The other five trade features;
+                                    # this one trades a data structure, so
+                                    # tests/unit/t_appsmall.py weighs it on
+                                    # image + bss + CLAIM rather than on the
+                                    # region alone
 SMALLBASE      = $(patsubst $(SMALLAPPDIR)/%,$(BUILD)/%,$(SMALLPKGS))
 
 # The substitution, ONE IDIOM used by all four lists below: drop the omitted
@@ -8451,12 +8461,32 @@ $(SMALLAPPDIR)/solitair.bin: apps/solitaire/solitaire.asm apps/os88api.inc \
 $(SMALLAPPDIR)/solitair.o88: $(SMALLAPPDIR)/solitair.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(SMALLAPPDIR)/solitair.bin -o $@
 
+$(SMALLAPPDIR)/tank.bin: apps/tank/tank.asm apps/tank/tkraster.inc \
+                         apps/tank/tktmpl.inc \
+                         apps/tank/tk3d.inc apps/tank/tkgame.inc \
+                         apps/tank/tkattr.inc apps/tank/tkhs.inc \
+                         apps/tank/tksin.inc apps/tank/tkridge.inc \
+                         apps/tank/tktan.inc apps/tank/tknib.inc \
+                         apps/tank/tkover.inc apps/tank/tklogo.inc \
+                         apps/os88api.inc apps/os88ui.inc $(SBSTAMP) | $(BUILD)
+	@mkdir -p $(SMALLAPPDIR)
+	$(NASM) -f bin -w+error -I apps/ -I apps/tank/ -DAPP_SMALL $(PKGSBDEF) \
+	        -o $@ apps/tank/tank.asm
+	@echo "tank (APP_SMALL): $(call FILESIZE,$@) bytes"
+
+$(SMALLAPPDIR)/tank.o88: $(SMALLAPPDIR)/tank.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(SMALLAPPDIR)/tank.bin -o $@
+
 smallapps: $(BUILD)/smallapps360.img $(BUILD)/smallapps.img
 	@python3 tools/os88pkgsize.py $(BUILD)/notepad.o88 $(SMALLAPPDIR)/notepad.o88
 	@python3 tools/os88pkgsize.py $(BUILD)/paint.o88 $(SMALLAPPDIR)/paint.o88
 	@python3 tools/os88pkgsize.py $(BUILD)/calc.o88 $(SMALLAPPDIR)/calc.o88
 	@python3 tools/os88pkgsize.py $(BUILD)/solitair.o88 $(SMALLAPPDIR)/solitair.o88
 	@python3 tools/os88pkgsize.py $(BUILD)/taskmgr.o88 $(SMALLAPPDIR)/taskmgr.o88
+	@python3 tools/os88pkgsize.py $(BUILD)/tank.o88 $(SMALLAPPDIR)/tank.o88
+	@echo "pkgsize: tank's small build is BIGGER by design (SPEC.md 85.3.5.1) -"
+	@echo "pkgsize:   its saving is the HEAP CLAIM, 32KB -> 18/17/16KB, which is"
+	@echo "pkgsize:   what puts it on the 128KB machine at all"
 
 # --fatcap 2 ON BOTH, exactly as the small SYSTEM disks above take it, and it
 # is not cosmetic on the 1.44MB one: kern_small's DSK_FAT_SECS is 2 and mount

@@ -126,6 +126,7 @@ tk_r_setup:
                                     ; with the least heap to lose. The claim is
                                     ; not movable (nothing declares it so), so
                                     ; the segment is still good next time
+%ifdef APP_SMALL
     mov ax, TK_SHKB                 ; THE LADDER (SPEC.md 85.3.5.1): the rung
     call OSAPI_MEM_CLAIM            ; it would like, then the two it will
     jnc .got                        ; settle for. The kernel frees the claim
@@ -137,22 +138,32 @@ tk_r_setup:
     jc .noshadow
 .got:
     mov [tk_shkb], al               ; the rung, for tk_tmcap below
-    mov [tk_shseg], dx
-.haveshadow:
+%else
+    mov ax, TK_SHKB
+    call OSAPI_MEM_CLAIM            ; 32KB, and the kernel frees it with the
+    jc .noshadow                    ; instance (SPEC.md 50.3) - no teardown
+%endif
+    mov [tk_shseg], dx              ; hook of our own, which is what makes the
+.haveshadow:                        ; reuse above the whole of the lifetime
     mov [tk_tseg], dx
-    add dx, TK_SHSEG / 16           ; the template's SPAN POOL is what is left
-    mov [tk_tmseg], dx              ; of the claim, and how much of it there is
-    mov al, [tk_shkb]               ; is the rung the claim came off
-    mov ah, 0
+    add dx, TK_SHSEG / 16           ; the template - the claim's second half on
+    mov [tk_tmseg], dx              ; the shipped build, its SPAN POOL on the
+                                    ; small one (SPEC.md 85.3.5/85.3.5.1)
+%ifdef APP_SMALL
+    mov al, [tk_shkb]               ; ...and how much pool there is, which is
+    mov ah, 0                       ; the rung the claim came off
     mov cl, 10
     shl ax, cl                      ; AX = the claim's bytes (8086: a variable
     sub ax, TK_SHSEG                ; shift, since `shl ax, 10` is 186 and up)
     mov [tk_tmcap], ax
+%endif
     mov byte [tk_tmpl], 1
+%ifdef APP_SMALL
     or ax, ax                       ; the bottom rung is the shadow alone, and
     jnz .tmok                       ; the pre-85.3.5 game with it
     mov byte [tk_tmpl], 0
 .tmok:
+%endif
     mov word [tk_page0], 0
     mov word [tk_page1], 0
     cmp byte [tk_back], TKB_CGA
@@ -362,11 +373,38 @@ tk_clearspans:
     cld
     cmp byte [tk_tmpl], 0
     je .zrow
-    ; --- a shadow backend: zeros, and then the TEMPLATE's SPANS over them ---
-    ; (SPEC.md 85.3.5.1). It was one rep movsw out of a second frame buffer
-    ; until that buffer was measured carrying 512 bytes of picture in 16,000.
-    ; An EMPTY row - 83 of the 200 - is now cheaper than it was, the segment
-    ; load and the two DS pushes having gone with the buffer.
+%ifndef APP_SMALL
+    ; --- a shadow backend: the TEMPLATE's bytes over every run, not zeros ---
+    ; (SPEC.md 85.3.5)
+.trow:
+    lodsw                           ; AL = lo, AH = hi
+    cmp al, ah
+    ja .tnext
+    and al, 0xFE                    ; even..odd, so the run is whole words
+    or ah, 1
+    sub ah, al
+    shr ah, 1
+    mov cl, ah
+    xor ch, ch
+    inc cx                          ; CX = words
+    xor ah, ah
+    mov di, [bx]
+    add di, ax                      ; the same offset in template and shadow
+    push si
+    mov si, di
+    push ds
+    mov ds, [tk_tmseg]
+    rep movsw
+    pop ds
+    pop si
+.tnext:
+%else
+    ; --- APP_SMALL: zeros, and then the TEMPLATE's SPANS over them ----------
+    ; (SPEC.md 85.3.5.1). One rep movsw out of a second frame buffer is what
+    ; the shipped build still does; this is what a machine that cannot afford
+    ; the buffer pays instead. An EMPTY row - 83 of the 200 - is CHEAPER than
+    ; it is there, the segment load and the two DS pushes having gone with the
+    ; buffer; a row with spans in it is dearer, and the frame is +4.0%.
 .trow:
     lodsw                           ; AL = lo, AH = hi
     cmp al, ah
@@ -389,12 +427,12 @@ tk_clearspans:
     mov di, [bx + (tk_tmrix - tk_rowoff) + 2]   ; index in both arrays - and a
     cmp ax, di                      ; row with none pays this compare and no
     je .tnext                       ; call at all. They are HANDED ON in AX and
-    call tk_tmspans                 ; DI rather than read twice.
-                                    ; AX, CX, DX and DI are dead
-                                    ; here - the next turn of the loop reloads
-                                    ; every one of them - so the callee keeps
-                                    ; only SI, BX and BP
+    call tk_tmspans                 ; DI rather than read twice: AX, CX, DX and
+                                    ; DI are all dead here, the next turn of
+                                    ; the loop reloading every one, so the
+                                    ; callee keeps only SI, BX and BP
 .tnext:
+%endif
     inc bx
     inc bx
     dec bp
