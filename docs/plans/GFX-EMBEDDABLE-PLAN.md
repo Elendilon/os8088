@@ -543,21 +543,32 @@ four programs.
 
 ---
 
-## 7. The C SDK is a separate decision
+## 7. The C SDK converts WITH the rework, and it is the small half
 
-`apps/cc/os88.h` publishes `os88_gfx_pixel`, `os88_gfx_line`,
-`os88_gfx_linit/lstep/lstepv`. A C package cannot `%include` a NASM library, so
-`gfx_embeddable` reaches C only as either
+An earlier revision of this section had `apps/cc/` as an outside constraint —
+*"the kernel keeps a `gfx_line` body for as long as any C package wants one"*.
+**That is wrong and the correction is the owner's: `apps/cc/` is ours exactly
+as `apps/` is.** `os88.h`, `os88thunk.asm` and every C package in the tree are
+in this rework, not around it.
 
-- **a linkable object** compiled from a C source of its own — which is new
-  ground for this SDK, or
-- **the thunks staying exactly as they are**, calling the kernel slots.
+And the conversion is **smaller than the assembly side**, because the whole C
+line surface has one real caller:
 
-**The second is the answer for now**, and it means the kernel keeps a `gfx_line`
-body for as long as any C package wants one — so §8's waves are about
-*shrinking* the kernel's line surface, not deleting it, unless the C surface is
-withdrawn first. That is a decision to take deliberately and it is not this
-plan's to take.
+| thunk | in-tree callers | what happens |
+|---|---|---|
+| `os88_gfx_line` | **one**: `cword`'s menu checkmark, `cwdrop.c:195`–`:196` — the same two strokes as `os88ui.inc` | moves to `os88_gfx_blit1`, **already published** at `os88.h:513`; the thunk is then withdrawn |
+| `os88_gfx_linit` / `_lstep` / `_lstepv` | **none** — the header declares them and no `.c` in the tree calls one (`cwuitest.c` is a host-side stub) | withdrawn with the walker, free |
+| `os88_gfx_pixel` | two, both `cword` chrome — `cwchrome.c:94`, `:468` | §6's deferred question, and `GFX_POINTS` is where it lands |
+
+**So there is no C blocker and there never was one to weigh.** What a C
+package cannot do is `%include` the NASM library — so if a C program ever wants
+to *rasterise* rather than call a slot, it needs a C `gfx_embeddable`. Nothing
+in the tree wants that today: `cword` draws a checkmark, and a checkmark is a
+band.
+
+Two new slots reach C for free — `os88_gfx_spans` and `os88_gfx_points` are
+`os88thunk.asm` entries of the same shape as `os88_gfx_blit1`, a few bytes
+each — and they are what a future C rasteriser would plot through anyway.
 
 ---
 
@@ -582,6 +593,98 @@ whole risky half of the plan is waves 4–6 and each of those is gated on a
 program actually being on the library first.
 
 ---
+
+## 8.1 THE END STATE, and the four things that move it off the obvious version
+
+The obvious reading of §8 is: add `blit1` to `kern_small`, add `gfx_spans` to
+both, delete the `gfx_line` family, put the checkmark on `blit1`, build the
+library, and let apps plot through spans. **That is the right shape and four
+things move the arithmetic.**
+
+### 8.1.1 `gfx_spans` does not work from a window as it stands
+
+```
+gfx_spans:
+    cmp word [wm_clip_n], 0     ; an armed region, or...
+    jne .no
+    cmp byte [vid_ndisp], 1     ; ...a second display: both re-cut the run
+    ja .no
+```
+
+**Every windowed package arms a clip region before it draws**, so as the
+library's plot primitive `gfx_spans` refuses on the first call. Its own comment
+prices the fix as *"the whole of `gfx_clip_run` and `gfx_disp_run` again"* —
+and that is true only of the way `gfx_fill` does it.
+
+**The cheap way is the walker's own, and that is the thing the plan was about
+to throw away.** `gfx_ls_box` (173 small / 183 big) resolves *the clip rect
+containing a point*, hands back an EMPTY box when none does, and already scans
+in virtual space so a second display works (SPEC.md 39.14.9). Per span row:
+resolve the box, clip the interval to it, skip an empty one. **~40–60 bytes on
+top of the existing body, estimated** — not a re-implementation.
+
+> **So `gfx_ls_box` stays and the rest of the walker goes.** It is what gives
+> both new slots their clip handling on both kernels.
+
+### 8.1.2 Spans alone does not serve the walkers — points is a separate slot
+
+`gfx_spans` is **consecutive rows, one x-interval each**. That is a figure:
+Paint's stroke, Sheet's grid, any polygon. It is not eight scattered walks
+stepping one to three pixels — those are 8 separate spans calls and 8 arrivals
+again, which is the cost §3.2 set out to remove. `GFX_POINTS` (§3.2.1) takes
+all of them in one call, and shares `gfx_ls_box`/`gfx_ls_addr` with spans.
+
+**The library wants both, and they are cheap together**: figures go through
+spans, walks through points.
+
+### 8.1.3 `cword` reimplemented the SAME checkmark in C
+
+`apps/cword/cwdrop.c:195` is `os88_gfx_line(cw_m_x1+2, y+5, cw_m_x1+3, y+7, 0)`
+and `:196` the up-stroke — the identical geometry to `apps/os88ui.inc:3986`. A
+C package cannot `%include` a NASM library, but it does not need to here:
+**`os88_gfx_blit1` is already published** (`apps/cc/os88.h:513`). So wave 0 is
+two packages rather than one, and landing both **retires the C
+`os88_gfx_line` thunk**, which then has no in-tree caller at all.
+
+(`os88_gfx_pixel` still has two — `cwchrome.c:94`, `:468` — and that is §6's
+deferred question, not this one's. §7 is the whole C surface, and it converts
+with everything else rather than constraining it.)
+
+### 8.1.4 The arithmetic, corrected
+
+Measured where the table says measured; the rest estimated against a measured
+comparable.
+
+| | `kern_small` | `kern_big` |
+|---|---:|---:|
+| `gfx_blit1` body — **measured**, SPEC.md 5.4.2.5 | +419 | 0, it is there |
+| `gfx_spans` body — lean arm on small, blit1's Option B precedent | +200…250 | 0, it is there |
+| clip via `gfx_ls_box`, both slots | +40…60 | +40…60 |
+| `GFX_POINTS` (§3.2.1) | +150 | +165 |
+| the line family — **measured** at 1,377 / 2,520 `.text`… | | |
+| …less `gfx_ls_box` and `gfx_ls_addr`, which both stay | **−1,175** | **−2,308** |
+| `.bss` freed with it — **measured** | ~−61 | ~−72 |
+| **net, `blit1` charged here** | **~−415** | **~−2,155** |
+| **net, `blit1` charged to its own case (§2.4)** | **~−835** | **~−2,155** |
+
+`blit1` belongs in the second row: nine shipped small-disk packages already
+call the slot and take a fallback, so it is a decision standing on its own.
+
+**On `kern_big` this is 2.1 KB of `.text`**, and `KERN_CODE_MAX` — the guard
+that cannot be raised — is what binds that build.
+
+### 8.1.5 What has to convert before `gfx_line` can go
+
+`os88ui.inc` and `cword` (the checkmark, §8.1.3), then **Paint, Sheet, Missile,
+Cyclone**, and on `kern_big` **Tank's `tkattr.inc`**, `SAVER.DRV` and `wire`.
+Two carry a risk worth naming:
+
+- **Paint's stroke is SPEC.md 42.8** and is the one place a line's speed is the
+  product. Its app-side replacement must be measured against today's 13.03 ms
+  45° chord before `gfx_line` is gated, not after.
+- **`gfx_line_fast` is `kern_big`'s alone** (647 bytes, 4.9×). In the library it
+  is Paint's to embed — which is wave 2's upside on `kern_small`, and on
+  `kern_big` it is a thing Paint currently gets free and would have to choose.
 
 ## 9. What is NOT settled — evidence owed before wave 3
 
