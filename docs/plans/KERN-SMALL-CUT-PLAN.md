@@ -429,17 +429,20 @@ re-assembling**, which is why three of them moved and one of them died.
 
 | # | option | HEAP | note |
 |---|---|---:|---|
-| D5 | **`MAX_WIN` 12 → 6** | **414** | `.text` −36, `.bss` −378. Was priced at ~264. **Mirrored in `apps/os88api.inc`** — an ABI change, gated by `tests/unit/t_mirror.py` |
+| D5 | **`MAX_WIN` 12 → 6** | **414** | `.text` −36, `.bss` −378. Was priced at ~264. **Not an ABI risk — §5.2.** `MAX_WIN` sizes no package buffer, and the kernel bounds-checks every index a package hands it |
 | D1b | **Partition −256 −192** (5 worker slices) | **448** | `.lowbss`. `SCH_PARTITION` is 128/128/192/192/256/384 today; `SCH_STACK` must stay the largest class, so the 384 slot cannot go |
-| D6 | **`INST_MAX` 12 → 6** | **114** | `.bss` only. Was priced at ~270 — **less than half**. Same mirror, same gate |
+| D6 | **`INST_MAX` 12 → 6** | **114** | `.bss` only. Was priced at ~270 — **less than half**. Sizes `SYS_SNAPSHOT_SIZE`, so it is D1/D7's shape exactly: the kernel may shrink, the SDK may not (§5.2) |
 | D7b | **`MEM_MAX` 20 → 16** | **40** | sixteen heap claims. Not worth the risk of refusing a claim on a busy heap |
 | D3 | ~~**`disk_dir` 32 → 16**~~ | — | **IMPOSSIBLE — §5.1** |
 | | **subtotal** | **1,016** | |
 
-D5 and D6 are worth the least and cost the most process: they are published to
+~~D5 and D6 are worth the least and cost the most process: they are published to
 packages, so moving them means every `.o88` is built against a different bound
-and the "one `.o88` serves both kernels" property is at risk. **Take them
-last, or not at all.**
+and the "one `.o88` serves both kernels" property is at risk.~~ **WRONG, and
+§5.2 is the correction**: the property is not at risk in the direction these
+rows go, and the project has already taken this decision twice — `MAX_TASKS`
+is 7 here against the SDK's 14 (D1) and `MEM_MAX` 20 against 32 (D7), both
+built, both live entries in `tests/unit/t_mirror.py`'s `DIVERGENT` block.
 
 ### 5.1 D3 is impossible, and the reason is not the boot overlay
 
@@ -458,6 +461,84 @@ kernel/kernel.asm:7090: error: the boot overlay's window half has outgrown
 and since `gcd(3, 32) = 1` that means **`DSK_NENT` must be a multiple of 32**.
 The only legal value below 32 is 0. The row is struck rather than deferred;
 listing more than 32 files per volume would be legal, listing fewer is not.
+
+### 5.2 What a mirrored constant actually breaks, and which way
+
+The rows above were carried as *"an ABI change"* on the strength of the word
+**mirrored**. Read against the code, the mirrored constants are **three
+different risk classes**, and only one of them is about the ABI at all.
+
+**Class 1 — it sizes a buffer the PACKAGE allocates and the KERNEL fills.**
+`INST_MAX` and `MEM_MAX` are inputs to equs the package compiles into itself:
+
+```
+SYS_SNAPSHOT_SIZE   equ SS_INST + INST_MAX * SSI_RECSZ
+CLAIM_SNAPSHOT_SIZE equ MEM_MAX * CLS_RECSZ
+```
+
+`osapi_sys_snapshot_x` then fills that buffer bounded by **the kernel's own**
+`INST_MAX`. So the failure is a write past the end of a buffer *in the
+package's segment*, and it is **directional**:
+
+| | effect |
+|---|---|
+| kernel value **larger** than the SDK's | records the package never reserved — **overrun** |
+| kernel value **smaller** | short write; untouched records stay 0, which reads as `SSI_STATE` = free — **benign** |
+
+`tests/unit/t_mirror.py`'s `DIVERGENT` block states the rule and already
+carries two of these: *"The SDK carries the LARGER value and the kernel may be
+smaller… Shrinking the SDK's copy to match kern_small would overflow that
+buffer on kern_big."* **Every D row here shrinks the kernel and leaves the SDK
+alone, which is the safe direction by construction.**
+
+**Class 2 — `MAX_TASKS` is additionally pinned.** `SS_TMAX equ 16` fixes the
+layout so the count can move without moving an offset, and it exists because
+the unpinned version already bit: *"8 -> 14 moved `SS_INST` by 30 bytes, and a
+TASKMGR built against the old SDK was written past its own buffer by exactly
+that."*
+
+**Class 3 — `MAX_WIN` sizes nothing.** It appears in `apps/os88api.inc`
+exactly once, as a bare `equ`, and the file says why there is no `WIN_SIZE`
+beside it: *"the stride is 34 on one shipping kernel and 28 on the other, and
+a window INDEX never leaves the kernel anyway."* Its one code user in the tree
+is Telnet's `tz_wmap` (and Telnet is in `SMALLOMIT`), which polls
+`OSAPI_WM_OWNSEG` per slot — and the kernel bounds-checks against **its own**
+`MAX_WIN` before touching the table:
+
+```nasm
+wm_ownseg:  cmp al, MAX_WIN
+            jae .no                 ; .no: stc
+```
+
+Six kernel sites validate a package-supplied window reference that way. So a
+package built at 12 asking a 6-slot kernel for slot 11 gets a clean refusal.
+
+#### 5.2.1 THERE IS NO REFUSAL ON THE SNAPSHOT PATH — on either side
+
+The SDK advertises one. `OSAPI_SYS_SNAPSHOT` answers `AX = MAX_TASKS,
+BX = INST_MAX`, the buffer carries `SS_NTASK`/`SS_NINST`, and the comment
+beside them says the point is *"so a stale SDK can SEE the mismatch"*.
+
+**Nothing reads any of it.** `SS_NTASK` and `SS_NINST` have no reader anywhere
+outside their own definition, and both call sites ignore the registers and
+walk with their own compiled-in bound. `apps/audio/apengine.inc` is the
+specimen, because the comment and the next instruction disagree in one line:
+
+```nasm
+    call OSAPI_SYS_SNAPSHOT        ; AX = MAX_TASKS, BX = INST_MAX
+    mov cx, INST_MAX               ; ...and uses its own constant anyway
+```
+
+TaskMgr is the same (`mov cx, MEM_MAX`, `cmp bx, INST_MAX`, `mov cx,
+MAX_TASKS`). **So the safety here is structural over-allocation and not a
+check** — a mismatch in the safe direction is invisible, and one in the unsafe
+direction is silent memory corruption rather than a refusal. That is the same
+finding as §10's one layer down: the mechanism that makes a change look safe
+is only safe because of what the callers do, and nobody had looked.
+
+**What each row therefore owes** is a `DIVERGENT` entry with its reason — the
+gate pairs by name, so an intended divergence must be declared or the build
+fails — and nothing else. D5's reason is class 3, D6's is class 1.
 
 ---
 
