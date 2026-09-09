@@ -98832,6 +98832,32 @@ dropped the template whole and paid both. 16KB is the shadow alone. A store
 that will not fit clears `[tk_tmpl]`, which is the flag Mode X already runs the
 whole game on, so the fallback is code every VGA exercises.
 
+**GIVING THE TEMPLATE UP HAS TO HAND BACK A CONSISTENT SCREEN, and clearing the
+flag does not.** `tk_tmenc`'s `.full` was one store and a `ret`, and that is a
+defect: from the instant `[tk_tmpl]` is 0 the clear lays no spans — it zeroes
+what a run covers and nothing else — so every pixel the template was holding
+outside that frame's runs is in no run, in no store, and beyond the reach of
+anything that could erase it. The panel heals, because `tk_hud`'s full path
+draws it whole and marks it; the **settled ridge does not**. Measured by poking
+that one byte with the ridge settled and changing nothing else: **410 stranded
+pixels**, the range line and ridge segments among them — reported from the
+field as *"the ridges in the background leave stale pixels that stick around if
+nothing else draws over them"*. `.full` now empties the store, zeroes the
+shadow and marks every row, so the frame repaints and the blit carries the
+erase to the glass: one whole-viewport blit, once, on a path already giving up
+61–67 ms a frame. **+39 bytes, and the shipped arm is byte-identical** — none
+of this exists there, `[tk_tmpl]` being set once in `tk_r_setup` and never
+cleared.
+
+**AND THE POOL FILLS MORE READILY THAN THE HIGH WATER SUGGESTS.** The 2,132 of
+2,432 above is a ridge transition and a template update every third frame, and
+it does **not** include the crack coming and going: `tk_tm_crack`'s strokes are
+span-expensive, and six rounds of `[tk_dead]` toggling with the ridge settled
+read **2,226 — 91% of the top rung** — with a longer run filling it outright.
+So the refusal is a path an ordinary game reaches, not a floor-machine
+curiosity, which is exactly why it has to be safe rather than merely correct
+about the flag.
+
 **What it costs, and why it is the small build's trade and not the package's**
 — `tests/tankperf.py --small` against a plain run, `os8088_5150_herc_gla`,
 scene `heavy`, cycle-exact, ONE kernel and ONE tree (a small-built package is

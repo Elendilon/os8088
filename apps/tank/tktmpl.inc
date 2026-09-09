@@ -356,9 +356,44 @@ tk_tmenc:
     loop .fx
 .out:
     ret
+; -----------------------------------------------------------------------------
+; .full - the pool would not hold the store, so the template is ABANDONED
+;
+; DROPPING THE FLAG IS NOT ENOUGH, and that was this routine's whole body. From
+; the instant [tk_tmpl] is 0 the clear lays no spans - it zeroes what a run
+; covers and nothing else - so every pixel the template was holding OUTSIDE
+; this frame's runs is stranded in the shadow for the rest of the bracket: in
+; no run, in no store, and so beyond the reach of anything that could erase it.
+; The panel heals, because tk_hud's full path draws it whole and marks it; the
+; SETTLED RIDGE does not, and neither does anything the live frame happens not
+; to cover. Measured on os8088_5150_herc_gla by poking this byte with the ridge
+; settled: 410 pixels stranded, the range line and ridge segments among them -
+; the "stale ridges in the background" the field reported.
+;
+; So the shadow goes back to zero and every row is marked, which makes this
+; frame one whole-viewport blit and every frame after it the pre-85.3.5 game.
+; It costs 16,000 bytes of stores ONCE in a bracket, on a path that is already
+; giving up 61-67 ms a frame (85.3.5), and it cannot be reached twice.
+; -----------------------------------------------------------------------------
 .full:
+    push es
     mov byte [tk_tmpl], 0           ; back to a panel that is drawn every frame,
-    ret                             ; which is what Mode X has always done
+    mov byte [tk_rtm_on], 0         ; which is what Mode X has always done - and
+    call tk_tmreset                 ; the template holds no ridge now either
+    mov es, [tk_shseg]
+    xor di, di
+    mov cx, TK_SHSEG / 2
+    xor ax, ax
+    cld
+    rep stosw                       ; ...the shadow with nothing stranded in it
+    push ds
+    pop es
+    mov di, [tk_spcur]
+    mov cx, [tk_vh]
+    mov ax, TK_LASTB << 8           ; lo = 0, hi = TK_LASTB: every row whole, so
+    rep stosw                       ; the blit carries the erase to the glass
+    pop es
+    ret
 
 ; -----------------------------------------------------------------------------
 ; tk_tmencband - the ridge's own band, re-encoded (SPEC.md 85.3.8)
