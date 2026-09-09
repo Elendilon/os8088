@@ -902,3 +902,72 @@ QEMU so no failure path runs there, and QEMU does not model the translate bit
 either — measured, by clearing it on purpose and watching `ps2mouse` stay
 green. Confirmed fixed on both machines: the 286 types correctly and the
 Packard Bell's mouse is untouched.
+
+## 40. Cyclone overflows its task stack (OPEN — reported by the owner; a KNOWN mechanism plus 20 bytes this branch added)
+
+Reported as *"Cyclone is overflowing its stack… performant, near as I can
+tell, until it overflows."* Paint, Missile Command and Tank were exercised
+alongside it and none of them does it.
+
+**The mechanism is already known and already written down, in
+`apps/cyclone/cyclone.asm`'s `cy_kbdrain` header.** A held key refills the
+BIOS's 16-entry buffer at ~10/s; the UI task takes exactly ONE key per pass
+(`kernel/ui.inc`); two keys held is ~20/s against a pass rate this game's own
+lock holds put near 18. A full buffer makes the BIOS **beep**, and the beep is
+`call F000:E8C0` — two `loop $` delays run with **interrupts enabled** — so
+every IRQ1 arriving inside it nests another `int 09h` and another beep on
+whichever task stack is current. Measured on a cycle-accurate 5150 when it was
+first chased: the buffer went 0 → 9 → 15 pending inside one second of held
+arrow-plus-fire, and the machine halted in `sch_stkdie` with **seven nested
+copies of the same 26-byte beep frame** — 182 bytes. `cy_kbdrain` is the fix
+and it takes every repeat of the three keys every time it looks, because
+§`cy_kbdrain` establishes there is no safe threshold.
+
+So the first question is whether the drain has a gap, not whether something
+new got deep.
+
+### 40.1 …but this branch made the margin 32% thinner, and that is measured
+
+`docs/plans/completed/GFX-EMBEDDABLE-PLAN.md`'s wave 5 (`94dd890`) moved
+Cyclone's resumable walk into `apps/os88gfx.inc`. `cy_dsc_run` used to push two
+registers and far-call `OSAPI_GFX_LSTEPV`; it now pushes five and calls
+`gfxe_wstepv` → `gfxe_wstep` → `gfxe_padd` → `gfxe_pput` → `OSAPI_GFX_POINTS`,
+four app-side frames where there was one far call.
+
+`tools/stkdepth.py` on the package either side of that commit:
+
+| | before | after | |
+|---|---:|---:|---|
+| `cy_worker` (the slice this runs on) | **66** | **86** | +20 |
+| `cy_onkey` / `cy_onclick` (deepest roots) | 76 | 96 | +20 |
+| `cy_fsx_main` | 70 | 88 | +18 |
+
+`tests/unit/t_stkclass.py` reads the consequence in one line — **`thinnest
+cyclone 1.28x (86 + 64 in 192)`**. Before the conversion the same slice was
+`66 + 64 in 192`, which is **1.48×**. So Cyclone went from comfortable to the
+thinnest margin in the tree, level with Frotz's 1.26× (docs/plans/completed/STACK-SLOTS-PLAN.md
+§12), and it did so on this branch.
+
+**Twenty bytes is not 182**, so the beep chain remains the mechanism that can
+actually exhaust a slice. But 20 of a 62-byte margin is a third of it, and a
+nesting failure is exactly the shape that turns "nearly enough headroom" into a
+halt — so this is a contributing cause and must not be written off as
+coincidence because the other number is bigger.
+
+### 40.2 Where to look, in order
+
+1. **Does `cy_kbdrain` still run on every path?** It is the designed fix and
+   the reported symptom is the one it was written against. A path that reaches
+   the render loop without draining is the whole bug.
+2. **Give the walk chain its 20 bytes back.** `gfxe_pput` is +10 at the
+   bottom of a five-deep chain; `gfxe_padd` calling it on a full list could be
+   a tail `jmp` (+0 rather than +2), and `cy_dsc_run`'s five pushes were two.
+   `tools/stkdepth.py` also names 2 bytes `cy_web_repair` pushes and never
+   uses.
+3. **Only then consider the class.** Cyclone is on 192; the next class is 384
+   and `SCH_STACK` is the ceiling. Moving it is the expensive answer and the
+   one that hides both of the above.
+
+`tools/stkwater.py` measures what a slice actually reached, and
+`tools/cyunwind` is Cyclone's own unwinder from the first investigation —
+neither needs an emulator run to be set up specially.
