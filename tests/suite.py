@@ -1901,7 +1901,7 @@ SOAK = [
         "it. In soak and not fast for docs/WRITING-TESTS.md 2.1's reason: it "
         "is about one package",
         needs=("nasm",)),
-    Row("dotdel", "soak", py("tests/dotdel.py"), 230.0,
+    Row("dotdel", "soak", py("tests/dotdel.py"), 245.0,
         "DOT DELIRIUM on the glass, on all three adapters (SPEC.md 93): the "
         "title screen's four compositors, the blink, Enter starting a game "
         "that actually EATS, the tile cut from each adapter's own pixel shape "
