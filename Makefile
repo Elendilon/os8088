@@ -3316,7 +3316,8 @@ $(BUILD)/saver.bin: drivers/saver/saver.asm drivers/saver/svcube.inc \
                     drivers/saver/svstars.inc drivers/saver/svshape.inc \
                     drivers/saver/svfish.inc drivers/saver/svcfg.inc \
                     apps/wire/wiresin.inc drivers/os88drv.inc apps/os88api.inc \
-                    apps/os88ui.inc apps/os88line.inc | $(BUILD)
+                    apps/os88ui.inc apps/os88line.inc apps/os88gfx.inc \
+                    | $(BUILD)
 	$(NASM) -f bin -w+error $(SAVDEF) -I drivers/ -I apps/ -I drivers/saver/ \
 		-I apps/wire/ -o $@ drivers/saver/saver.asm
 	@echo "saver:  $(call FILESIZE,$@) bytes"
@@ -4960,7 +4961,7 @@ $(BUILD)/tank.bin: apps/tank/tank.asm apps/tank/tkraster.inc \
                     apps/tank/tktan.inc apps/tank/tknib.inc \
                     apps/tank/tkover.inc apps/tank/tklogo.inc \
                     apps/os88api.inc \
-                    apps/os88ui.inc | $(BUILD)
+                    apps/os88ui.inc apps/os88gfx.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/tank/ -o $@ apps/tank/tank.asm
 	@echo "tank:  $(call FILESIZE,$@) bytes"
 
@@ -5102,7 +5103,7 @@ $(BUILD)/arkanoid.o88: $(BUILD)/arkanoid.bin tools/os88pkg.py $(PKGZSTAMP)
 # numbers; the palette cycles per wave the way SETCOL does, drawn only from
 # colours that survive SPEC.md 39.4's reduction to three inks. No heap claim:
 # every array is sized by the arcade's object counts and fits the package bss.
-$(BUILD)/missile.bin: apps/missile/missile.asm apps/os88api.inc | $(BUILD)
+$(BUILD)/missile.bin: apps/missile/missile.asm apps/os88api.inc apps/os88gfx.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ apps/missile/missile.asm
 	@echo "missile: $(call FILESIZE,$@) bytes"
 
@@ -5175,7 +5176,7 @@ $(CYCSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.cycpkg*
 	@touch $@
 
-$(BUILD)/cyclone.bin: apps/cyclone/cyclone.asm apps/os88api.inc $(CYCSTAMP) | $(BUILD)
+$(BUILD)/cyclone.bin: apps/cyclone/cyclone.asm apps/os88api.inc apps/os88gfx.inc $(CYCSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ $(CYCFLAGS) -o $@ apps/cyclone/cyclone.asm
 	@echo "cyclone: $(call FILESIZE,$@) bytes"
 

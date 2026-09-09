@@ -5904,6 +5904,78 @@ Both must answer **before** a blit is spent, which is why sizing is a separate
 call from committing: refusing is a normal path (PERFORMANCE.md rule 6) and it
 is far cheaper than clipping.
 
+#### 5.12.5 `GFXE_WALK` — the resumable walk, in the caller's image
+
+§5.6.7's walk answers *"draw the next N pixels of this line"*, so a caller that
+holds the state can erase exactly what it drew. **`GFXE_WALK` is that
+recurrence in the package**, plotting through `OSAPI_GFX_POINTS` (§5.6.9).
+
+```
+gfxe_winit    AX,BX -> CX,DX; DI = a GLS_SZ block   OSAPI_GFX_LINIT's arithmetic
+gfxe_wstep    DI = the block, CX = pixels           append the next CX
+gfxe_wstepv   SI = `dw block, count` array, CX      OSAPI_GFX_LSTEPV's shape
+```
+
+**THE BLOCK LAYOUT IS THE KERNEL'S, unchanged** (`GLS_X`, `GLS_Y`, `GLS_ERR`,
+`GLS_DX`, `GLS_DY`, `GLS_SX`, `GLS_SY`). That is not laziness: a program
+converting from the slots changes the CALL and nothing else, and its own
+arithmetic on the block's x and y keeps working — §48.14 has Missile Command
+doing exactly that. `tests/unit/t_mirror.py` is what keeps the two copies equal.
+
+**WHAT DOES NOT COME WITH IT IS THE INTERESTING PART.** The kernel's walk
+carries a clip rect, a framebuffer byte and bit mask, the second display's
+translation (§39.14.5) and the cursor's save-under — and **none of that moves
+into the app**, because `gfx_points` does every one of them at the commit. So
+the app-side walk is *pure arithmetic over the caller's own words*: a fifth of
+the size docs/plans/GFX-EMBEDDABLE-PLAN.md §4.1 costed, and it can step x with
+`add si, [di + GLS_SX]` where the kernel needs a branch (its `sx` also has to
+move a bit mask and a byte pointer).
+
+#### 5.12.5.1 A full point list COMMITS ITSELF
+
+The list is a **batching window, not a bound**. `gfxe_padd` on a full list
+commits it and carries on, so a buffer sized too small costs an arrival and
+never a pixel, and no caller carries a second path. `[gfxe_pflush]` counts the
+forced commits; a program whose worst frame has been thought about reads 0, and
+`tests/gfxewalk.py` is what asserts that. Break Cyclone's list down to four
+points and the picture is **identical** — 5,207 points either way — while the
+arrivals go 133 → 1,317. Nothing but that counter can see it.
+
+#### 5.12.5.2 What it measured, and what it costs
+
+Guest cycles inside one batch-step call, bracketed entry to exit, on
+`os8088_5150_herc_gla`:
+
+| | before | after | |
+|---|---:|---:|---:|
+| Cyclone `cy_dsc_run`, median | 75,537 | **68,596** | −9.2% |
+| …mean | 66,872 | 58,759 | −12.1% |
+| Missile `mc_dsc_run`, median | 18,429 | **12,250** | −33.5% |
+| …mean | 13,589 | 10,110 | −25.6% |
+
+The spread between the two is the plan's own window, measured: Cyclone steps
+**3.71 pixels a block a frame** and Missile **2.77**, against a break-even
+around 6.66 — so both are inside it and Missile, with fewer pixels per block,
+is further in. Those two numbers had never been taken; a walk of thirty pixels
+a block would have gone the other way.
+
+**The four programs that converted**, and what each paid in its own image
+(none of it kernel RAM):
+
+| | image | point list |
+|---|---:|---:|
+| Cyclone | +238 | 384 (bss) |
+| Missile | +251 | 384 (bss) |
+| Tank `tkattr.inc` | +236 | 256 (bss) |
+| `SAVER.DRV` `svshape.inc` | +392 | 320, **inside the image** — a driver's bss ships there (§51) |
+
+Tank's is not only a size change: its letter cursors spent **one arrival per
+segment** of a glyph and now spend one per wake.
+
+`SAVER.DRV` is the one place the list can be sized by arithmetic rather than by
+measurement — `SV_HACT` descriptors of at most `SV_HPX` pixels is an exact
+bound, so `SV_PTMAX` is their product and cannot be forced.
+
 ## 6. font.inc
 
 `font_init` runs **after** `vid_setmode` (§39.6): zero ES:BP, then int 10h

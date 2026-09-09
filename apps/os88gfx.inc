@@ -49,12 +49,19 @@
 ;                 not a slot - and so does the running-bounds bookkeeping that
 ;                 turns a figure into the smallest band that covers it.
 ;   GFXE_LINE     Bresenham, whole line, into the band. Implies GFXE_BAND.
+;   GFXE_POINTS   the other sink: a point array of your own, committed with
+;                 one OSAPI_GFX_POINTS (SPEC.md 5.6.9). For a SPARSE figure -
+;                 a few pixels scattered over a large area - where a band
+;                 would be mostly paper.
+;   GFXE_WALK     SPEC.md 5.6.7's RESUMABLE walk, in your image: "draw the
+;                 next N pixels of this line", state in a block you own, so
+;                 the erase replays exactly what the draw laid down. Implies
+;                 GFXE_POINTS, because that is what it plots through.
 ;
-; Later waves add GFXE_LINE_FAST (SPEC.md 5.6.4.1's interval walk, 4.9x),
-; GFXE_WIDE (5.6.5's dilation), GFXE_WALK (the resumable recurrence, plotting
-; through OSAPI_GFX_POINTS) and GFXE_POINTS (the point-array sink). The plan's
-; 4.1 is the table and 4.1.1 the sub-dial inside GFXE_LINE_FAST, which is
-; already priced against what dropping each piece costs in speed.
+; Later waves add GFXE_LINE_FAST (SPEC.md 5.6.4.1's interval walk, 4.9x) and
+; GFXE_WIDE (5.6.5's dilation). The plan's 4.1 is the table and 4.1.1 the
+; sub-dial inside GFXE_LINE_FAST, which is already priced against what
+; dropping each piece costs in speed.
 ;
 ; --- THE INK POLARITY, and the one that is DELIBERATELY NOT HERE ------------
 ; A band is composed on LIT paper and inked by CLEARING bits: 1 = a lit pixel
@@ -83,6 +90,12 @@
   %define GFXE_BAND                     ; the lattice, downward only: a line
 %endif                                  ; needs somewhere to land, a band does
                                         ; not need a line
+%ifdef GFXE_WALK
+  %define GFXE_POINTS                   ; ...and a walk needs somewhere too.
+%endif                                  ; A BAND is the wrong one for it: two
+                                        ; or three pixels scattered over eight
+                                        ; places is a band that is almost all
+                                        ; paper (docs/plans/GFX-EMBEDDABLE-PLAN.md 8.1.2)
 
 %ifdef GFXE_BAND
 
@@ -411,6 +424,232 @@ gfxe_line:
     ret
 %endif ; GFXE_LINE
 
+%ifdef GFXE_POINTS
+; =============================================================================
+; GFXE_POINTS - the SPARSE sink: your own point array, one OSAPI_GFX_POINTS
+;
+; The caller declares, before the %include:
+;   GFXE_PT_BUF   the address of GFXE_PT_MAX * 4 bytes, yours
+;   GFXE_PT_MAX   how many points it holds
+;
+; WHY A SLOT HERE AND A BIT-SET IN GFXE_BAND. A band is priced by its AREA and
+; a point list by the INK it lays down, so the right sink is decided by the
+; figure and not by taste: a stroke or a grid fills its band and commits at
+; 0.40-0.77 us a band pixel, while a walk two or three pixels wide over eight
+; places would commit a band that is almost entirely paper. OSAPI_GFX_POINTS
+; is 165.96 us a point (PERFORMANCE.md Set 133) and carries the clip region,
+; the cursor's save-under, the adapter and the second display for you - the
+; six per-call concerns of docs/plans/GFX-EMBEDDABLE-PLAN.md 3.2.1 - which is
+; exactly why an app-side rasteriser cannot simply write pixels itself.
+;
+; A FULL LIST COMMITS ITSELF and the caller never finds out. That is what
+; makes the size a TUNING choice rather than a correctness one: the buffer is
+; a batching window, so one too small costs an extra arrival and never a
+; pixel, and there is no second path for a caller to carry. [gfxe_pflush]
+; counts the forced commits, so a test can assert 0 to say the buffer is
+; sized for the worst frame - and the picture is right either way.
+; =============================================================================
+  %ifndef GFXE_PT_BUF
+    %error "os88gfx.inc: GFXE_POINTS wants GFXE_PT_BUF - GFXE_PT_MAX*4 bytes"
+  %endif
+  %ifndef GFXE_PT_MAX
+    %error "os88gfx.inc: GFXE_POINTS wants GFXE_PT_MAX"
+  %endif
+  %if GFXE_PT_MAX < 1
+    %error "os88gfx.inc: GFXE_PT_MAX must be at least 1"
+  %endif
+
+; gfxe_pnew - empty the list; clobbers nothing
+gfxe_pnew:
+    mov word [gfxe_pn], 0
+    ret
+
+; gfxe_padd - append one point; AX = x, DX = y (screen px); clobbers BX, flags
+; A FULL list is committed here and the caller carries on - see above. That
+; costs an arrival and nothing else, and everything live is banked across it
+; because this is called from inside gfxe_wstep's loop.
+gfxe_padd:
+    mov bx, [gfxe_pn]
+    cmp bx, GFXE_PT_MAX
+    jae .full
+    add bx, bx
+    add bx, bx
+    mov [GFXE_PT_BUF + bx], ax
+    mov [GFXE_PT_BUF + bx + 2], dx
+    inc word [gfxe_pn]
+    ret
+.full:
+    inc word [gfxe_pflush]
+    push ax
+    push cx
+    push dx
+    push si
+    call gfxe_pput
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    jmp gfxe_padd               ; ...and now there is room, GFXE_PT_MAX >= 1
+
+; gfxe_pput - the list onto the glass, ONE arrival, and empty it again
+; in:  the gfx lock held, the clip armed, [gfx_color] the ink
+; out: nothing; clobbers CX, SI, flags
+gfxe_pput:
+    mov cx, [gfxe_pn]
+    or cx, cx
+    jz .out
+    mov word [gfxe_pn], 0
+    mov si, GFXE_PT_BUF
+    call OSAPI_GFX_POINTS       ; an X slot: it puts OUR segment in ES itself
+.out:
+    ret
+%endif ; GFXE_POINTS
+
+%ifdef GFXE_WALK
+; =============================================================================
+; GFXE_WALK - SPEC.md 5.6.7's resumable walk, in the caller's image
+;
+; THE BLOCK LAYOUT IS THE KERNEL'S, unchanged (GLS_X, GLS_Y, GLS_ERR, GLS_DX,
+; GLS_DY, GLS_SX, GLS_SY; GLS_SZ bytes). That is not laziness - a program
+; converting from OSAPI_GFX_LINIT/LSTEP changes the CALL and nothing else, its
+; own arithmetic on the block's x and y keeps working (SPEC.md 48.14 has
+; Missile Command doing exactly that), and gfx_linit is still the slot that
+; sets one up.
+;
+; WHAT IS NOT HERE IS THE INTERESTING PART. The kernel's walk carries a clip
+; rect, a framebuffer byte and bit, the second display's translation and the
+; cursor - and NONE of that comes with it, because OSAPI_GFX_POINTS does every
+; one of them at the commit. So the app-side walk is PURE ARITHMETIC over the
+; caller's own words, which is why it is a fifth of the size the plan costed
+; and why it can be a `add si, [di + GLS_SX]` where the kernel needs a branch
+; (its sx also has to move a bit mask and a byte pointer).
+;
+; The blocks and the descriptor array are in DS, not ES - the callers this
+; replaces all set ES = DS before the call anyway, and dropping the override
+; is worth more than the generality.
+; =============================================================================
+GLS_X   equ 0                   ; SPEC.md 5.6.7's block, mirrored from
+GLS_Y   equ 2                   ; kernel/kernel.asm - tests/unit/t_mirror.py
+GLS_ERR equ 4                   ; is what keeps the two the same
+GLS_DX  equ 6
+GLS_DY  equ 8
+GLS_SX  equ 10
+GLS_SY  equ 12
+
+; -----------------------------------------------------------------------------
+; gfxe_winit - set a walk block up for the line (x1,y1)-(x2,y2)
+; in:  AX = x1, BX = y1, CX = x2, DX = y2; DI = a GLS_SZ-byte block (in DS)
+; out: the block; preserves every register
+;
+; OSAPI_GFX_LINIT's arithmetic, exactly - it has to be, or a block set up one
+; way and stepped the other walks a different line. The kernel's version is a
+; slot only because the kernel's walk was; there is nothing in it that needs
+; the kernel at all.
+;
+; THE WALK RUNS IN THE CALLER'S DIRECTION and is not normalised downward the
+; way gfx_line's pixel set is (SPEC.md 5.6.2), because the caller is drawing
+; outward from a fixed point and needs step 1 to be next to it. Two blocks
+; built from the same endpoints agree by construction, which is all a
+; draw/erase pair needs.
+; -----------------------------------------------------------------------------
+gfxe_winit:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov [di + GLS_X], ax
+    mov [di + GLS_Y], bx
+    mov word [di + GLS_SX], 1
+    sub cx, ax
+    jns .dxok
+    neg cx
+    mov word [di + GLS_SX], -1
+.dxok:
+    mov [di + GLS_DX], cx
+    mov word [di + GLS_SY], 1
+    sub dx, bx
+    jns .dyok
+    neg dx
+    mov word [di + GLS_SY], -1
+.dyok:
+    mov [di + GLS_DY], dx
+    sub cx, dx                      ; err = dx - dy, exactly gfx_line's
+    mov [di + GLS_ERR], cx
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; gfxe_wstep - append the next CX pixels of one walk to the point list
+; in:  DI = the block (in DS), CX = how many (0 legal, does nothing)
+; out: the block advanced; clobbers AX, BX, CX, DX, SI, BP, flags
+;
+; The CURRENT point is appended first and the walk advances after, so N then M
+; pixels are exactly the N+M one call would have appended - 5.6.7's contract,
+; and what a draw/erase pair rests on.
+; -----------------------------------------------------------------------------
+gfxe_wstep:
+    or cx, cx
+    jnz .go                     ; not `jcxz`: every conditional jump on an 8086
+    ret                         ; is rel8 and the body below is longer
+.go:
+    mov si, [di + GLS_X]
+    mov dx, [di + GLS_Y]
+    mov bp, [di + GLS_ERR]
+.px:
+    mov ax, si
+    call gfxe_padd              ; clobbers BX only
+    mov ax, bp
+    add ax, ax                  ; e2 = 2 * err
+    mov bx, [di + GLS_DY]
+    neg bx
+    cmp ax, bx                  ; e2 > -dy: step x
+    jle .noxs
+    sub bp, [di + GLS_DY]
+    add si, [di + GLS_SX]       ; sx is +1 or -1 as a WORD, so no branch
+.noxs:
+    cmp ax, [di + GLS_DX]       ; e2 < dx: step y, EITHER WAY (5.6.7)
+    jge .noys
+    add bp, [di + GLS_DX]
+    add dx, [di + GLS_SY]
+.noys:
+    dec cx
+    jnz .px
+    mov [di + GLS_X], si
+    mov [di + GLS_Y], dx
+    mov [di + GLS_ERR], bp
+    ret
+
+; -----------------------------------------------------------------------------
+; gfxe_wstepv - step MANY walks into the list, OSAPI_GFX_LSTEPV's shape
+; in:  SI = an array of CX descriptors, each `dw block_offset, pixels`, the
+;      blocks in DS too; CX = how many pairs (0 legal)
+; out: every block advanced; clobbers everything but the segments
+;
+; A descriptor with a zero count is legal and skipped, so a caller may build
+; the array once and vary what it asks for - the slot's own contract, kept, so
+; that a conversion is one line.
+; -----------------------------------------------------------------------------
+gfxe_wstepv:
+    or cx, cx
+    jnz .go
+    ret
+.go:
+    mov [gfxe_wn], cx
+    mov [gfxe_wp], si
+.each:
+    mov si, [gfxe_wp]
+    mov di, [si]
+    mov cx, [si + 2]
+    add word [gfxe_wp], 4
+    call gfxe_wstep
+    dec word [gfxe_wn]
+    jnz .each
+    ret
+%endif ; GFXE_WALK
+
 ; --- the library's own state, in the IMAGE (see the header) ------------------
 %ifdef GFXE_BAND
 gfxe_mnx:   dw 0                    ; the running bounds gfxe_bfold widens
@@ -421,6 +660,14 @@ gfxe_bx0:   dw 0                    ; ...closed by gfxe_bsize into the band
 gfxe_by0:   dw 0
 gfxe_bw:    dw 0
 gfxe_bh:    dw 0
+%endif
+%ifdef GFXE_POINTS
+gfxe_pn:    dw 0                    ; how many points are in the list...
+gfxe_pflush: dw 0                   ; ...and how often a full one committed
+%endif                              ; itself (see GFXE_POINTS above)
+%ifdef GFXE_WALK
+gfxe_wn:    dw 0                    ; gfxe_wstepv's cursor over the descriptors
+gfxe_wp:    dw 0
 %endif
 %ifdef GFXE_LINE
 gfxe_lx1:   dw 0                    ; gfxe_line's working set

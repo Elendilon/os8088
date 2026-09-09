@@ -1978,6 +1978,14 @@ SOAK = [
         "so the broken build scores zero. `--small --img build/small360.img` "
         "is trigger A, and wants `make small` first.",
         needs=("marty",), serial=True),
+    Row("gfxewalk", "soak", py("tests/gfxewalk.py"), 90.0,
+        "SPEC.md 5.12.5: Cyclone's warp and Missile's trails step the"
+        " resumable walk in their OWN images now (apps/os88gfx.inc) and commit"
+        " through OSAPI_GFX_POINTS. Two things no picture can show: that the"
+        " commit is actually happening, and that each program's point list"
+        " holds its worst frame - a list that fills commits itself, so one"
+        " sized too small is a silent extra arrival a frame, for ever",
+        needs=("marty",), serial=True),
     Row("cycweb", "soak", py("tests/cycweb.py"), 40.0,
         "Does the claw eat the web it slides over? (SPEC.md 67.5.3.1)",
         needs=("marty",), serial=True),

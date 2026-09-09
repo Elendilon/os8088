@@ -640,8 +640,8 @@ Each is independently landable and each is a separate PR.
 | **2 ⏸ DEFERRED** | `os88ui.inc`'s checkmark → `GFX_POINTS` | one `gfx_line` caller of six, and the speed is a WASH | **§6.2**: it is Word alone and not 25 packages, so it enables nothing. Take it after wave 6 |
 | **3 ✅ DONE** | **`apps/os88gfx.inc`** — `GFXE_BAND` + `GFXE_LINE` (the Bresenham), **WIREFRAME** the first customer, and it is a **LIFT** rather than a new implementation (§8.2) | proves the lattice; **+18 bytes on the customer, ZERO kernel bytes** | none — the kernel is untouched, and `wirefps`/`wireflick` are the A/B that was already in the suite |
 | **4 ✅ DONE, RE-SCOPED** | **Paint's stroke stops calling `OSAPI_GFX_LINE`** (SPEC.md 42.23.8) — its screen half is a band out of the 1bpp canvas it already owns. The wave as WRITTEN could not be built and §8.3 says why | **13% off the screen half** (10,646 → 9,243 cycles, measured), +84 bytes of Paint, no kernel byte — and Paint off the `gfx_line` caller list, which is wave 8's first blocker | none — ten Paint rows pass, `tests/paintstroke.py` is the number |
-| **5** | `GFXE_WALK` + `GFX_POINTS` on **Cyclone and Missile** | Missile's drain 2.6×; the rest a wash or better | **needs wave 3**: the app-side Bresenham is what they walk with |
-| **6** | gate `gfx_linit/lstep/lstepv` out of both kernels | **−537 / −641** | needs wave 5 landed |
+| **5 ✅ DONE** | `GFXE_WALK` + `GFX_POINTS` on **Cyclone, Missile, Tank and `SAVER.DRV`** — the plan named two and there are FOUR (§8.1.4.2) | **Missile −33.5%, Cyclone −9.2%** median, measured; ~1,117 bytes across four package images and 1,024 of their bss, no kernel byte | none — nine rows pass, and `tests/gfxewalk.py` is the one thing no picture can show |
+| **6** | gate `gfx_linit/lstep/lstepv` out of both kernels | **−537 / −641** | wave 5 is landed; what is left is `tests/linetest` and `tests/gfxbench`, which call the slots to MEASURE them |
 | **7** | retire `gfx_pixel` → `GFX_POINTS` with `CX = 1`, and the fallback in `gfx_points` simplifies with it (§6.1) | 12 bytes + the fallback arm's | needs the six callers moved |
 | **8** | gate `gfx_line_fast`, `gfx_line_runs`, `gfx_lf_wide3` out of `kern_big`, then `gfx_line` itself | **−874**, then the remainder | needs waves 3, 4, 2 and Paint's stroke MEASURED against today's 13.03 ms chord |
 
@@ -904,6 +904,71 @@ needs no slot and no kernel byte, and it is the one place in this plan where
 `GFXE_LINE_FAST` would earn its 647 bytes. It is not in wave 4 because wave 4's
 blocker was wave 8's, and this is not.
 
+## 8.4 Wave 5, as built — and §9 item 4 is ANSWERED
+
+**The measurement §9 asked for, first**, because it is what decides the wave
+and nothing had taken it. Pixels a block a frame, read off the descriptor
+arrays `gfx_lstepv` was actually handed:
+
+| | live blocks a call | pixels a call | **pixels a BLOCK** |
+|---|---:|---:|---:|
+| Cyclone | 10.43 | 38.68 | **3.71** |
+| Missile | 3.64 | 10.08 | **2.77** |
+
+Both are inside `GFX_POINTS`'s best-route window (≤ 6.66, Set 133), and
+Missile — fewer pixels per block — is further in. **That ordering predicts the
+result and the result confirms it**: Missile's batch step is 33.5% cheaper and
+Cyclone's 9.2%. A program stepping thirty pixels a block would have gone the
+other way, which is exactly why the reading had to be taken rather than assumed.
+
+### 8.4.1 The plan named two programs and there are FOUR
+
+§8.1.4.2's census is what caught it: `apps/tank/tkattr.inc` and
+`drivers/saver/svshape.inc` step the walk too, both `kern_big`-only, and **wave
+6 cannot gate anything out of the kernel until all four have moved**. They are
+converted here.
+
+Tank's is the one where the change is not mainly about size: its letter cursors
+called `OSAPI_GFX_LSTEP` **once per segment of a glyph**, so a wake spent an
+arrival a segment and now spends one for the wake.
+
+`SAVER.DRV` is the one place a point list can be sized by ARITHMETIC —
+`SV_HACT` descriptors of at most `SV_HPX` pixels is an exact bound, so
+`SV_PTMAX` is their product and can never be forced to commit early.
+
+### 8.4.2 `gfx_linit` had to move too, and it is thirty bytes
+
+Wave 6 gates `linit`, `lstep` and `lstepv`, so `GFXE_WALK` needs the block
+setup as well. It is `OSAPI_GFX_LINIT`'s arithmetic verbatim — it has to be, or
+a block set up one way and stepped the other walks a different line — and there
+was never anything in it that needed the kernel.
+
+### 8.4.3 The walk is a fifth of what §4.1 costed, and here is why
+
+§4.1 put `GFXE_WALK` at ~230 bytes and §4.2 predicted ~580 for a package taking
+it. The real thing is far smaller, and the reason is the one §3.2.1 was written
+about from the other side: **the kernel's walk carries a clip rect, a
+framebuffer byte and bit mask, the second display's translation and the
+cursor's save-under, and `OSAPI_GFX_POINTS` does every one of them at the
+commit.** So what moves into the app is only the recurrence — and it gets
+*cheaper* in the move, because an app-side walk steps x with
+`add si, [di + GLS_SX]` where the kernel needs a branch (its `sx` also has to
+move a bit mask and a byte pointer).
+
+That is the lattice's own claim (§4.2) coming out true for a reason the
+document did not have: not that `GFXE_WALK` is `GFXE_LINE`'s recurrence — it is
+not, it plots to a different sink — but that a slot which does the six per-call
+concerns lets the app-side half be arithmetic and nothing else.
+
+### 8.4.4 A full point list commits itself
+
+The list is a batching window rather than a bound, so a buffer sized too small
+costs an arrival and never a pixel. That makes the size a tuning choice, and it
+also makes it **invisible**: break Cyclone's list down to four points and the
+picture is identical — 5,207 points either way — while the arrivals go
+133 → 1,317. `[gfxe_pflush]` counts them and `tests/gfxewalk.py` asserts 0,
+which is the one thing about this wave that no screenshot can show.
+
 ## 9. What is NOT settled — evidence still owed
 
 1. **§4.2's layering claim is a design claim, not a measurement.** *"`GFXE_WALK`
@@ -917,17 +982,26 @@ blocker was wave 8's, and this is not.
    ink and no dither. A caller that needs them pays them, and `gfx_blit1` still
    refuses an x off the byte grid.
 4. ~~§3.2 is arithmetic and is the single most valuable thing to bench.~~
-   **DONE — PERFORMANCE.md Set 132.** What it left owed is one cheap reading
-   and it is now the top of this list: **instrument Cyclone and Missile for
-   the pixels-a-block-a-frame they actually step.** The walk's window is
-   1.3–4.2; a counter in `cy_warp_render` and in Missile's `mc_dsc` build is
-   one rebuild and it decides wave 4 outright. Missile spans the window inside
-   ONE `gfx_lstepv` call — `MC_DRN_RATE` is jittered per trail and `MC_DRNBUD`
-   caps the queue at 64 a frame — so the answer there is per EFFECT, not per
-   program.
-5. **Nothing here has been measured on the glass.** Every µs figure is quoted
-   from PERFORMANCE.md's 5150 sets; every byte figure is from this tree's map.
-   No wave has been built.
+   ~~**DONE — PERFORMANCE.md Set 132.** …instrument Cyclone and Missile for
+   the pixels-a-block-a-frame they actually step.~~ **ANSWERED — §8.4.**
+   Cyclone steps **3.71** pixels a block a frame and Missile **2.77**, read off
+   the descriptor arrays `gfx_lstepv` was actually handed rather than off a
+   counter in either program. Both are inside the ≤ 6.66 window, and the
+   ordering predicted the result.
+5. ~~**Nothing here has been measured on the glass.** …No wave has been
+   built.~~ **Waves 1, 1a, 3, 4 and 5 are built and every headline number in
+   them is guest cycles off a breakpoint bracket on `os8088_5150_herc_gla`, not
+   arithmetic.** What is still quoted rather than measured is the *unbuilt*
+   half: §4.1's byte table for `GFXE_LINE_FAST`, `GFXE_WIDE` and `GFXE_RUNS`,
+   and waves 6–8's kernel savings.
+
+6. **§4.1's size table is now known to be wrong on the high side, for one
+   reason that generalises.** `GFXE_WALK` came out a fifth of its ~230 estimate
+   because `OSAPI_GFX_POINTS` keeps the clip, the cursor, the adapter and the
+   display in the kernel (§8.4.3). Every other row of that table was costed the
+   same way — as *"the kernel's routine, moved"* — so `GFXE_WIDE` and
+   `GFXE_RUNS` should be re-costed as *"the arithmetic, with the six per-call
+   concerns left behind"* before either is quoted again.
 
 ---
 

@@ -194,7 +194,9 @@ MC_DHEXT    equ 6                   ; probes mc_drn_hold spends walking the
 MC_DRNBUD   equ 64                  ; pixels a frame across the whole queue -
                                     ; the cap that stops one explosion's worth
                                     ; of dead missiles landing in one frame
-MC_DSCMAX   equ 16                  ; walks handed to OSAPI_GFX_LSTEPV at once
+MC_DSCMAX   equ 16                  ; walks handed to the batch step at once
+MC_PTMAX    equ 96                  ; ...and the point list os88gfx.inc steps
+                                    ; into, which is what commits them
 %if MC_MAXICBM > MC_DSCMAX || MC_MAXABM > MC_DSCMAX || MC_MAXDRN > MC_DSCMAX
   %error "mc_dsc holds fewer walks than one batch can produce"
 %endif
@@ -4399,7 +4401,7 @@ mc_tr_lay:
     add dx, [mc_oy]
     push ds
     pop es
-    call OSAPI_GFX_LINIT
+    call gfxe_winit                 ; SPEC.md 5.12.5: the block is ours
     clc
     jmp short .out
 .no:
@@ -4414,12 +4416,27 @@ mc_tr_lay:
 
 ; mc_tr_step - draw the next CX pixels of the walk at DI in the current pen
 ; in:  gfx lock held; preserves all registers
+;
+; The WALK is ours now and the pixels go up through OSAPI_GFX_POINTS
+; (SPEC.md 5.12.5) - so this is gfxe_wstep plus a commit, and the commit is
+; the only thing that costs an arrival.
 mc_tr_step:
-    push es
-    push ds
-    pop es
-    call OSAPI_GFX_LSTEP
-    pop es
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    call gfxe_wstep
+    call gfxe_pput
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -4450,20 +4467,27 @@ mc_dsc_add:
     ret
 
 mc_dsc_run:
+    push ax
+    push bx
     push cx
+    push dx
+    push si
     push di
-    push es
+    push bp
     mov cx, [mc_dscn]
     jcxz .out
     mov word [mc_dscn], 0
-    mov di, mc_dsc
-    push ds
-    pop es
-    call OSAPI_GFX_LSTEPV
-.out:
-    pop es
+    mov si, mc_dsc
+    call gfxe_wstepv                ; SPEC.md 5.12.5: the walk is arithmetic
+    call gfxe_pput                  ; over our own blocks, and one arrival
+.out:                               ; commits every pixel it stepped
+    pop bp
     pop di
+    pop si
+    pop dx
     pop cx
+    pop bx
+    pop ax
     ret
 
 ; mc_tr_need - how much of a walk the head has reached
@@ -7792,7 +7816,14 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
     MWORD mc_drncnt
     MWORD mc_drngx                  ; mc_drn_push's two damage arguments,
     MWORD mc_drnbx                  ; which no register was left for
-    MBUF  mc_dsc,    MC_DSCMAX * 4  ; the batch: `dw block, pixels` pairs
+    MBUF  mc_dsc,    MC_DSCMAX * 4  ; the batch: `dw block, pixels` pairs...
+    MBUF  mc_pts,    MC_PTMAX * 4   ; ...and the points it steps into, which go
+                                    ; up in one OSAPI_GFX_POINTS (SPEC.md
+                                    ; 5.12.5). A full list commits itself, so
+                                    ; the size is a tuning choice and never a
+                                    ; correctness one - measured, a batch is
+                                    ; 10.1 pixels on average, and MC_DRNBUD
+                                    ; caps the drain's queue at 64 a frame
     MWORD mc_dscn
     MWORD mc_dhent                  ; mc_drn_hold's workings (SPEC.md 48.19):
     MWORD mc_dhn                    ; the entry, the step, the line's two
@@ -7950,6 +7981,15 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
     MWORD mc_numptr
     MBUF  mc_numbuf, 12
     MBUF  mc_wbuf, 16
+
+; --- the embeddable graphics library (SPEC.md 5.12) ---------------------------
+; SPEC.md 5.6.7's resumable walk, in our image: pure arithmetic over blocks we
+; already owned, with OSAPI_GFX_POINTS doing the clip region, the cursor, the
+; adapter and the second display at the commit.
+%define GFXE_WALK                   ; ...which implies GFXE_POINTS
+%define GFXE_PT_BUF mc_pts
+%define GFXE_PT_MAX MC_PTMAX
+%include "os88gfx.inc"
 
     OS88_BSS MC_BSS
     OS88_IMAGE_END

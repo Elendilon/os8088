@@ -303,8 +303,10 @@ tk_cur_init:
     mov bx, [tk_e1y]
     mov cx, [tk_e2x]
     mov dx, [tk_e2y]
-    call OSAPI_GFX_LINIT
+    call gfxe_winit                 ; SPEC.md 5.12.5: the block is ours
     ret
+
+TK_PTMAX    equ 64              ; the point list the letter cursors step into
 
 ; tk_cur_next - move cursor SI onto the next segment its direction gives
 tk_cur_next:
@@ -363,11 +365,11 @@ tk_cur_adv:
     mov [tk_cn], ax
     mov al, [tk_cink]
     call OSAPI_SET_COLOR
-    push ds
-    pop es
-    mov di, si
-    mov cx, [tk_cn]
-    call OSAPI_GFX_LSTEP
+    push si                         ; SPEC.md 5.12.5: the walk is ours, and
+    mov di, si                      ; gfxe_wstep clobbers SI where the slot it
+    mov cx, [tk_cn]                 ; replaces preserved everything
+    call gfxe_wstep
+    pop si
     mov ax, [tk_cn]
     add [si + TKC_PIX], ax
     sub [tk_cadv], ax
@@ -377,7 +379,10 @@ tk_cur_adv:
     call tk_cur_next
     jmp short .more
 .out:
-    ret
+    push si                         ; ...and ONE arrival for the whole wake,
+    call gfxe_pput                  ; where this used to spend one a SEGMENT.
+    pop si                          ; The ink is [tk_cink] throughout, set once
+    ret                             ; at entry, so the batch is legal
 
 ; -----------------------------------------------------------------------------
 ; tk_lgarm - both gaps to the bottom-left of the cell [tk_lgi] is on
