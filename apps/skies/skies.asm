@@ -2504,8 +2504,6 @@ cs_hand equ os88_image_end      ; THE HANDOFF IS THE FIRST THING IN THE BSS,
     ZWORD cs_pvp                    ; ...its vertex list and edges to go
     ZWORD cs_pei
     ZBYTE cs_pwind                  ; ...and its winding (88.4.2)
-    ZBYTE cs_pnosent                ; the NEXT polygon needs no sentinel pass
-    ZBYTE cs_pnos                   ; (88.5.4.7), and this one did not
     ZWORD cs_pnoclip                ; ...and whether ANY row of it can reach a
                                     ; view edge (88.4.5.1): 0 when none can,
                                     ; which the row loop takes in BP

@@ -1850,8 +1850,12 @@ cs_hzrow_modex:
 ; cs_edge - trace one edge into cs_xl or cs_xr, one x per row
 ; in:  AX = x1, BX = y1, CX = x2, DX = y2 (box coords, |x| <= 4000ish);
 ;      [cs_eside] = 1 the polygon's LEFT chain (stores into cs_xl), 2 its
-;      right (cs_xr), 0 both by min/max (a horizontal edge, or a caller that
-;      does not know the winding)
+;      right (cs_xr) - and NOTHING ELSE. A horizontal edge is recognised
+;      here, from BX = DX, and lays both ends of its one row itself; there
+;      is no min/max arm for a sloped edge any more, because the only thing
+;      that read a chain back was what made the sentinel pass necessary
+;      (88.4.2.2), and a caller that does not know its winding cannot use
+;      this routine
 ; clobbers everything
 ;
 ; Bresenham's integer step: q = floor(dx/dy), r = dx - q dy, and per row
@@ -1873,13 +1877,14 @@ cs_edge:
     jle .ord
     xchg ax, cx
 .ord:
+    ; --- UNCONDITIONAL, which is what retires the sentinel pass (88.4.2.2).
+    ;     A convex polygon at its top row IS its top edge, and at its bottom
+    ;     row its bottom edge - those are the only two rows a horizontal edge
+    ;     can be on - so this pair is the row's extent and not a candidate
+    ;     for it. Taking min/max here is what needed a value to have been
+    ;     laid, and laying it was two `rep stosw` down every polygon
     shl bx, 1
-    cmp ax, [cs_xl + bx]
-    jge .h1
     mov [cs_xl + bx], ax
-.h1:
-    cmp cx, [cs_xr + bx]
-    jle .out
     mov [cs_xr + bx], cx
 .out:
     ret
@@ -1937,28 +1942,7 @@ cs_edge:
     mov dx, [cs_er]
     mov bp, [cs_edy]
     cmp byte [cs_eside], 1
-    je .left
-    ja .right
-.both:
-    cmp si, [cs_xl + bx]
-    jge .n1
-    mov [cs_xl + bx], si
-.n1:
-    cmp si, [cs_xr + bx]
-    jle .n2
-    mov [cs_xr + bx], si
-.n2:
-    add si, ax
-    add di, dx
-    cmp di, bp
-    jb .n3
-    sub di, bp
-    inc si
-.n3:
-    inc bx
-    inc bx
-    loop .both
-    ret
+    jne .right
     ; the two chains, two rows an iteration: the 8088 charges a `loop` and
     ; its refill about as much as the row's own work
 .left:
@@ -2046,11 +2030,6 @@ cs_poly:
     mov [cs_pn], cx
     mov [cs_pvp], si
     cld
-    xor al, al                      ; ...and the caller's promise that this
-    xchg al, [cs_pnosent]           ; one needs no sentinel pass, READ AND
-    mov [cs_pnos], al               ; CLEARED so it is a one-shot: a polygon
-                                    ; that inherited it would take another
-                                    ; polygon's leftovers for its own bounds
     ; --- the row range, and a cheap reject ----------------------------------
     mov bx, 0x7FFF                  ; BX = ymin, DX = ymax
     mov dx, -32768
@@ -2162,35 +2141,12 @@ cs_poly:
     mov [cs_xr + si + 2], cx
     jmp .rows
 .trace:
-    ; --- init the bounds over the rows --------------------------------------
-    push ds
-    pop es
-    mov cx, dx
-    sub cx, bx
-    inc cx
-    shl bx, 1
-    ; --- UNLESS THE CALLER SAYS THIS SHAPE DOES NOT NEED IT (SPEC.md
-    ;     88.5.4.7): a convex polygon with no HORIZONTAL edge has exactly one
-    ;     left-chain edge and one right-chain edge on every row, and
-    ;     cs_edge's chain stores are unconditional - it is the `both' side a
-    ;     horizontal edge takes that reads the value back and needs one to
-    ;     have been laid. Two `rep stosw` down the row range is 25 cycles a
-    ;     row EACH on an 8088, which for the box impostor (88.5.4.6) is most
-    ;     of what the shape costs to set up. The promise is the caller's to
-    ;     make and only cs_boxlod makes it.
-    cmp byte [cs_pnos], 0
-    jne .edges
-    mov di, cs_xl
-    add di, bx
-    mov ax, 0x7FFF
-    push cx
-    rep stosw
-    pop cx
-    mov di, cs_xr
-    add di, bx
-    mov ax, -32768
-    rep stosw
-.edges:
+    ; --- NO SENTINEL PASS, AND NO ES FOR IT (SPEC.md 88.4.2.2). Two
+    ;     `rep stosw` down the row range used to lay 0x7FFF and -32768 for
+    ;     cs_edge to take min/max against - which is why this wanted
+    ;     ES = DS at all. Nothing takes min/max against them now, and every
+    ;     row of a convex polygon gets one left-chain store and one
+    ;     right-chain store whatever else happens to it.
     ; --- every edge ---------------------------------------------------------
     mov si, [cs_pvp]
     mov cx, [cs_pn]

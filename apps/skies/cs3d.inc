@@ -1647,11 +1647,8 @@ cs_boxlod:
     ;     only by the top's own LEAN - one or two pixels of the perspective
     ;     the polygon path shows and this one has always squared off. The
     ;     reported defect is a BANKED one, so level flight keeps the
-    ;     rectangle and pays nothing at all: no sentinel pass over the rows,
-    ;     no four edges traced. It is also what makes the quad's own fast
-    ;     path sound - a banked impostor's caps are 2 Ry apart and its sides
-    ;     the projected axis, so with Ry non-zero there is no horizontal
-    ;     edge left for cs_poly's sentinels to be needed by.
+    ;     rectangle and pays nothing at all: no four edges traced, and none
+    ;     of cs_poly's own per-polygon setup.
     mov cx, [cs_brx]
     mov dx, [cs_bry]
     or dx, dx
@@ -1707,20 +1704,8 @@ cs_boxlod:
 .wind:                              ; the list runs the other way round
     mov byte [cs_pwhole], 0         ; the impostor marks its own rows, where
                                     ; cs_rect always did (88.4.4)
-    ; --- AND IT NEEDS NO SENTINEL PASS (SPEC.md 88.5.4.7). cs_poly cannot
-    ;     know how many edges will touch a row, so it lays +32767 down cs_xl
-    ;     and -32768 down cs_xr over the whole range and every edge takes a
-    ;     min or a max. This shape is a PARALLELOGRAM and Ry is not zero
-    ;     here, so no edge is horizontal and every row has exactly one left
-    ;     edge and one right: cs_edge's unconditional stores are already the
-    ;     answer. The one thing that can still put a horizontal edge in it is
-    ;     a top and a base that project to the SAME ROW, and that keeps the
-    ;     sentinels.
-    mov ax, [cs_by0]
-    cmp ax, [cs_by1]
-    je .sent
-    mov byte [cs_pnosent], 1
-.sent:
+    ; --- (this shape's own exemption from the sentinel pass is gone with
+    ;     the pass itself - SPEC.md 88.4.2.2 retires it for every polygon)
     mov al, CSI_WALL
     call cs_setink
     mov si, cs_pv

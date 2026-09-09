@@ -12478,8 +12478,35 @@ all** on `bank`, `cruise` or `descend`, because in level flight the near
 buildings fill the view and 59 of ~63 rows a frame still need the clamp,
 where a held bank runs 257 rows and 76% of them skip it.
 
-**Two things this set is a worked example of.** A delta that crosses a
+**...and the sentinel pass is retired outright (§88.4.2.2).** The other two
+items the breakdown named came out very differently from how they were
+estimated. The edge loop's own per-edge setup is **2.43 ms**, not the 4.2 a
+cross-run subtraction had given it - `cs_edge` itself is **16.02 ms over 30.2
+edges** and is the real weight there. And the sentinel pass, at 1.89 ms, had
+**no customer at all**: reading `cs_xl`/`cs_xr` back at `.rows` over each
+polygon's own row range found **0 rows left bare of 4,654, over 209
+polygons** on four profiles. The only thing that ever read a chain back was
+`cs_edge`'s horizontal arm, and a convex polygon at its top row IS its top
+edge - so that store is unconditional now, nothing reads back, and the pass,
+its `[cs_pnosent]` promise, the `push ds`/`pop es` that only the `rep stosw`
+wanted and `cs_edge`'s already-unreachable sloped `both` arm all go:
+
+| tier 1, 16 frames | control | + the removal |
+|---|---|---|
+| `turnhold` `cs_scene` | 172.23 ms | **170.50 / 170.12** |
+| `bank` `cs_scene` | 155.93 | **154.50 / 154.50** |
+| `cruise` `cs_scene` | 126.62 | **126.22 / 126.22** |
+
+**-1.9 ms and -100 BYTES**, on every profile rather than only the banked one,
+and 0 differing frames of 557 across six profiles.
+
+**Three things this set is a worked example of.** A delta that crosses a
 structure boundary measures the boundary — the negative slope above was the
 finding that said so, not a noisy fit. And a prediction off a fetch floor is
 an UPPER bound: 3.6 ms predicted, 2.5 delivered, because 4.34 x bytes is only
-reached when the operands are registers.
+reached when the operands are registers. **And an instrument that hangs the
+guest is not the change hanging it**: a callback raising inside a breakpoint
+trace never resumes the machine, and CSO_SEEN latched during an UNPINNED
+warm-up made one terrain object differ on all 93 frames of `descend` with the
+pixels identical. The same build against itself is what separates those, and
+it is taken before any conclusion.

@@ -101395,6 +101395,79 @@ Three structural facts hold the prize where it is:
     the city frame produce 15.8 walked faces, because anything under about
     six pixels is `cs_boxlod`'s rectangle (§88.5.4).
 
+##### 88.4.2.2 The SENTINEL pass is retired, and one read-back is why it existed
+
+`cs_poly` used to lay `+32767` down `cs_xl` and `−32768` down `cs_xr` over
+every row of the polygon's range — two `rep stosw`, **1,265 cycles and 1.89 ms
+a frame** on `turnhold` — so that `cs_edge` could take a min or a max against
+them. §88.5.4.7 exempted the box impostor from it on the argument that a
+convex polygon with no horizontal edge never reads one back. **That argument
+is general, and what it was missing is that the read-back itself is
+removable.**
+
+**Only ONE thing ever read a chain back**: `cs_edge`'s HORIZONTAL arm, which
+took min/max because it could not know whether the chains had already reached
+that row. It does not need to know. **A convex polygon at its top row IS its
+top edge and at its bottom row its bottom edge** — the only two rows a
+horizontal edge can lie on — so that edge's two ends ARE the row's extent, and
+storing them outright is not just cheaper but more obviously right than
+taking extremes against whatever was there.
+
+With that store unconditional, nothing reads a chain back, and **the pass has
+no customer**: every row of a convex polygon gets one left-chain store and one
+right-chain store from the sloped edges, unconditional, and `cs_poly` reaches
+the row loop with `cs_xl`/`cs_xr` fully written whatever else happened.
+
+**Measured before it was touched**, which is what turned the argument into a
+decision: reading `cs_xl`/`cs_xr` back at `.rows` over the polygon's own row
+range and counting rows still holding a sentinel —
+
+| | polygons that laid sentinels | rows | rows left BARE |
+|---|---|---|---|
+| `turnhold` | 55 | 2,159 | **0** |
+| `cruise` | 80 | 592 | **0** |
+| `bank` | 62 | 1,876 | **0** |
+| `descend` | 12 | 27 | **0** |
+
+**209 polygons and 4,654 rows, and not one row depended on the pass.**
+
+Three things go with it: `[cs_pnosent]`/`[cs_pnos]` and §88.5.4.7's promise
+(the exemption is now universal), the `push ds`/`pop es` that only the
+`rep stosw` wanted, and `cs_edge`'s sloped **`both`** arm — which was already
+unreachable, `cs_poly` setting side 1 or 2 for every sloped edge, and which
+would have been the one place a future caller could rely on a sentinel that no
+longer exists. `cs_edge`'s contract says so now: side 0 is not an input, a
+horizontal edge is recognised from `BX = DX` inside the routine, and a caller
+that does not know its winding cannot use it.
+
+**What it is worth**, against a control run between two arms that read
+identically:
+
+| tier 1, 16 frames | control | + the removal |
+|---|---|---|
+| `turnhold` `cs_scene` | 172.23 ms | **170.50 / 170.12** |
+| `turnhold` frame | 259.7 | **257.8 / 257.8** |
+| `bank` `cs_scene` | 155.93 | **154.50 / 154.50** |
+| `cruise` `cs_scene` | 126.62 | **126.22 / 126.22** |
+
+**−1.9 ms and −100 bytes**, and unlike §88.4.5.1's clamp gate it pays on every
+profile, because every polygon laid a sentinel and none of them read one.
+1.89 ms was measured before the change and 1.9 came back, which is the one
+kind of prediction that is not an estimate: the pass was timed, not modelled.
+
+**The picture is identical over 557 frames** of the tick-driven scripted
+flight across six profiles — and getting that reading needed the instrument
+fixed twice, both worth writing down. `CSO_SEEN` is **self-perpetuating**
+(§88.5.1: seen last frame is filed without the cone, so it stays seen), and it
+is latched during the harness's UNPINNED warm-up, where two builds fly at
+their own frame rates: one `CSO_TERRAIN` object then differed on all 93 frames
+of `descend` while the pixels stayed identical. The latches have to be cleared
+at arming time, exactly as §88.5.2 says a teleport has to clear the skip
+counters. And a callback that raises inside a breakpoint trace does not fail —
+the guest is simply never resumed, and it reads as the change having hung the
+machine. **The control that separates those is the same build against
+itself**, which is why it is taken before any conclusion.
+
 #### 88.4.3 The walk is Tank's, without the per-pixel marks
 
 `cs_seg` is §85.3.2's walk with the dirty-span marks taken out of the pixel
