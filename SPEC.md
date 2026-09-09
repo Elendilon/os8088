@@ -6016,6 +6016,46 @@ PERFORMANCE.md Set 132 came off — `BAND=1`'s shape and for `BAND=1`'s reason.
 `tests/gfxbench`'s `kwalk` rows and `tests/linetest`'s walk fans need it, and
 both files say so at the top.
 
+### 5.13 `gfx_pixel` and `gfx_points` — which to reach for
+
+`OSAPI_GFX_PIXEL` costs **640.87 µs** on the field machine and `OSAPI_GFX_POINTS`
+**165.96** a point (PERFORMANCE.md Sets 132, 133), so the rule is one line:
+
+> **A loop that plots more than two or three pixels wants `GFX_POINTS`.**
+> A single pixel wants `GFX_PIXEL`, and always will.
+
+`gfx_pixel` **stays in the kernel**. It is nine instructions — *a pixel is a
+1×1 solid rect*, `gfx_fill` clips and dispatches itself — and any shim that
+routed it through `gfx_points` would be LONGER than the body it replaced, as
+well as slower for the one case it exists for. Retiring it was priced in
+docs/plans/GFX-EMBEDDABLE-PLAN.md §6 at twelve bytes and that is what it is.
+
+**`gfx_points` keeps its general arm too, and that is not a fallback to
+`gfx_pixel` — it is the same three instructions inlined.** The fast path is
+1bpp, one display, one plane; a VGA or an extended desktop needs the general
+route, and removing the gates would cost every 1bpp machine the 3.9× the fast
+path buys. What DID go with `gfx_pixel`'s retirement being refused is the
+duplication: the arm calls `gfx_pixel`, which is already the shortest spelling
+of it.
+
+#### 5.13.1 Where the loops were, and the one that is REFUSED
+
+| | pixels a call | route |
+|---|---:|---|
+| `apps/mines` — the wrong-flag X (§23) | 20 | **`GFX_POINTS`** — 12.8 ms → one arrival, per wrongly flagged cell of a lost board, and a board can carry several |
+| `apps/cc` — the C SDK | — | **`os88_gfx_points()` is published** (§73), so a C package has the plot primitive too |
+| `apps/os88ui.inc` `.gpix` — the CUT glyph (§11.3) | 44–64 | **REFUSED**, and the reason is where the buffer would live |
+| `apps/word` — the decimal tab's point | 1 | stays: one pixel is one call either way |
+| `apps/cword` — the ruler's fallback ticks | ~75 | stays, and it is now UNREACHABLE — §5.4.2.5.1 gave `kern_small` a `gfx_blit1` body, so the composed band no longer refuses on any shipped kernel |
+
+**`os88ui.inc`'s is the interesting refusal.** It is the biggest loop of the
+five — 44 to 64 far calls for one 12×12 glyph — and it is exactly the case
+`GFX_POINTS` was made for. But `os88ui.inc` is included by about twenty-five
+packages, so a 12×12 point buffer is **576 bytes in every one of them**, for a
+path that only runs when a control straddles a clip boundary. A shared include
+is the one place where a per-caller buffer is the wrong shape, and that is a
+property of the file rather than of the loop.
+
 ## 6. font.inc
 
 `font_init` runs **after** `vid_setmode` (§39.6): zero ES:BP, then int 10h

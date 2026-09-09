@@ -637,12 +637,12 @@ Each is independently landable and each is a separate PR.
 |---|---|---|---|
 | **1 ✅ DONE** | **`gfx_blit1` on `kern_small`** (SPEC.md 5.4.2.5.1) — the pen, the second display, the VGA ports, the split pass and the port teardown each `%ifdef`'d out | **+472** measured; `kern_big` BYTE-IDENTICAL; nine shipped small-disk packages stop taking a fallback and Paint's one-bit canvas stops being 24× | none — `tests/paint1small.py` asks the RUNNING machine, because a thunk pointing at a body is not the claim |
 | **1a ✅ DONE** | **`OSAPI_GFX_POINTS`** (§3.2.1, SPEC.md 5.6.9) — the slot that separates the six per-CALL concerns from the per-LINE Bresenham | **+167 / +221** measured; **165.96 µs a point** (Set 133), best route below 6.66 px a block a frame and better than the walk out to 37.7 | none — `tests/gfxpoints.py`, three cases, two breakages proven |
-| **2 ⏸ DEFERRED** | `os88ui.inc`'s checkmark → `GFX_POINTS` | one `gfx_line` caller of six, and the speed is a WASH | **§6.2**: it is Word alone and not 25 packages, so it enables nothing. Take it after wave 6 |
+| **2 ⏸ HELD, and now PRICED** | the menu checkmark → anything but `gfx_line` | nothing on its own | **§8.6**: all four routes are worse or riskier than the two lines it would replace, and the only consumer is wave 8. Decide it THERE, with the tick measured in situ |
 | **3 ✅ DONE** | **`apps/os88gfx.inc`** — `GFXE_BAND` + `GFXE_LINE` (the Bresenham), **WIREFRAME** the first customer, and it is a **LIFT** rather than a new implementation (§8.2) | proves the lattice; **+18 bytes on the customer, ZERO kernel bytes** | none — the kernel is untouched, and `wirefps`/`wireflick` are the A/B that was already in the suite |
 | **4 ✅ DONE, RE-SCOPED** | **Paint's stroke stops calling `OSAPI_GFX_LINE`** (SPEC.md 42.23.8) — its screen half is a band out of the 1bpp canvas it already owns. The wave as WRITTEN could not be built and §8.3 says why | **13% off the screen half** (10,646 → 9,243 cycles, measured), +84 bytes of Paint, no kernel byte — and Paint off the `gfx_line` caller list, which is wave 8's first blocker | none — ten Paint rows pass, `tests/paintstroke.py` is the number |
 | **5 ✅ DONE** | `GFXE_WALK` + `GFX_POINTS` on **Cyclone, Missile, Tank and `SAVER.DRV`** — the plan named two and there are FOUR (§8.1.4.2) | **Missile −33.5%, Cyclone −9.2%** median, measured; ~1,117 bytes across four package images and 1,024 of their bss, no kernel byte | none — nine rows pass, and `tests/gfxewalk.py` is the one thing no picture can show |
 | **6 ✅ DONE** | gate `gfx_linit/lstep/lstepv` out of both kernels (SPEC.md 5.12.6), behind `GFXWALK=1` | **−513 / −617** measured, and `kern_big` **UNCROSSES AN IMAGE RUNG** — 512 bytes of every machine's RAM back | none — every walker moved in wave 5 first, which is the only thing that makes a refusing stub safe |
-| **7** | retire `gfx_pixel` → `GFX_POINTS` with `CX = 1`, and the fallback in `gfx_points` simplifies with it (§6.1) | 12 bytes + the fallback arm's | needs the six callers moved |
+| **7 ✅ DONE, RE-SCOPED** | the PIXEL LOOPS move to `GFX_POINTS`, and `gfx_pixel` STAYS (SPEC.md 5.13) | Mines' wrong-flag X 20 calls → 1; `os88_gfx_points()` published to C. **No kernel bytes, and §8.7 says why there were never any to get** | none — `minexflag` is the row and it is exactly this path |
 | **8** | gate `gfx_line_fast`, `gfx_line_runs`, `gfx_lf_wide3` out of `kern_big`, then `gfx_line` itself | **−874**, then the remainder | needs waves 3, 4, 2 and Paint's stroke MEASURED against today's 13.03 ms chord |
 
 **Waves 1–5 take nothing out of either kernel** (wave 1 ADDS to `kern_small` and wave 1a to both). That is deliberate: every one
@@ -993,6 +993,76 @@ than an error.
 
 `apps/cc/os88.h`'s not-wrapped list carried these three under *"a state block
 explicitly not yours to read"*; the reason has changed and so has the entry.
+
+## 8.6 Wave 2, priced — the checkmark has nowhere better to go
+
+Six call sites in three packages (§8.1.4.2), every one the identical two-stroke
+tick of about eight pixels. §8.1.3 assumed `GFX_BLIT1`, one band. **All four
+routes are worse than the two `gfx_line` calls they would replace**, on the
+published prices:
+
+| route | what it costs | |
+|---|---:|---|
+| 2 × `GFX_LINE` — what ships | **~554 µs** | 2 arrivals of 128.7 plus ~4 px each at 37.1 |
+| `GFX_POINTS`, ~10 points | ~1,660 | 3× worse — a line is priced by its INK and points is 4.5× a pixel |
+| `GFX_SPRITE1` (`icon_draw_x`) | ~2,800 est. | the published 12×12 figure is 6.7 ms; five rows pro rata |
+| `GFX_BLIT1`, one band | ~250 | **cheapest, and it carries a hazard the plan did not price** |
+
+**The blit1 hazard is the finding.** The tick's x is `mrect.x + 2` and
+`gfx_blit1`'s fast path wants a multiple of 8, so the band must snap DOWN — up
+to seven pixels **left of the menu rect's own edge, onto the menu frame**. An
+opaque band there paints over chrome the caller did not draw. Snapping up
+instead means widening to 16 and painting ground across the label's first
+columns, which is harmless only because the label is drawn afterwards — true
+today in all three packages and not a thing to rely on silently.
+
+So wave 2 is **held rather than done**, and that is a decision with an argument
+rather than a deferral: its speed is a wash at best, its only consumer is wave
+8, and the one route that would pay needs a per-package proof that the snapped
+band stays inside the menu. **Decide it in wave 8**, where the tick can be
+bracketed in situ instead of extrapolated — the 2,800 µs above is pro rata off
+a doc comment and is the weakest number in this file.
+
+## 8.7 Wave 7, as built — and there were never any kernel bytes in it
+
+The wave was *"retire `gfx_pixel` → `GFX_POINTS` with `CX = 1`… 12 bytes + the
+fallback arm's"*. Two things about that turn out to be wrong once the code is
+in front of you.
+
+**`gfx_pixel` is nine instructions** — *a pixel is a 1×1 solid rect*, and
+`gfx_fill` clips and dispatches itself. A shim that staged one record and
+entered `gfx_points` would be **longer than the body it replaced**, and slower
+for the single-pixel case that is the only reason the slot exists. So the slot
+stays, and §6's twelve bytes were an accurate price for something not worth
+buying.
+
+**And `gfx_points`'s general arm is not a fallback that can be deleted.** The
+fast path is 1bpp / one display / one plane; a VGA or an extended desktop needs
+the general route, and dropping the gates would cost every 1bpp machine the
+3.9× the fast path buys. What the arm calls is `gfx_pixel`, which is already
+the shortest spelling of the three instructions it needs.
+
+**What the wave really is, and it is worth having: the LOOPS.** `GFX_PIXEL` is
+640.87 µs and `GFX_POINTS` 165.96 a point, so a loop that plots more than two
+or three pixels is paying an arrival each. There are five such sites and only
+one converts:
+
+- **`apps/mines`'s wrong-flag X** — twenty far calls, **12.8 ms per wrongly
+  flagged cell of a lost board**, and a board can carry several. One arrival
+  now, for +13 bytes of image and 80 of bss.
+- **the C SDK** gains `os88_gfx_points()`, so a C package has the plot
+  primitive at all — §7's content, and useful past this wave.
+- **`os88ui.inc`'s `.gpix`** is the biggest loop of the five, 44–64 calls for
+  one 12×12 glyph, and it is **REFUSED**: the file is included by ~25 packages,
+  so a 12×12 point buffer is 576 bytes in every one of them, for a path that
+  runs only when a control straddles a clip boundary. A shared include is the
+  one place a per-caller buffer is the wrong shape.
+- **`apps/word`'s decimal-tab point** is one pixel; one call either way.
+- **`apps/cword`'s ruler fallback** is ~75 pixel calls and **is now
+  unreachable**: wave 1 gave `kern_small` a `gfx_blit1` body, so the composed
+  band no longer refuses on any shipped kernel. It was converted, found to push
+  cword one byte over its 61,440 budget, and reverted once that was noticed —
+  the right outcome twice over.
 
 ## 9. What is NOT settled — evidence still owed
 

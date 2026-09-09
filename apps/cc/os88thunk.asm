@@ -181,6 +181,23 @@ _os88_gfx_pixel:
     pop bp
     ret
 
+; void os88_gfx_points(const void *pts, int n) - SI = the array, CX = n.
+; SPEC.md 5.6.9: n records of two ints each, x then y, IN OUR SEGMENT - so the
+; C passes a plain pointer to a static `int[]` and there is no segment to think
+; about, os88_gfx_fill_pat's shape. It is the plot primitive: one arrival for
+; a whole set of pixels the program computed, against os88_gfx_pixel's one far
+; call EACH at ~640us on the field machine.
+_os88_gfx_points:
+    push bp
+    mov bp, sp
+    push si
+    mov si, [bp+4]
+    mov cx, [bp+6]
+    call OSAPI_GFX_POINTS
+    pop si
+    pop bp
+    ret
+
 ; void os88_gfx_hline(int x1, int x2, int y) - AX = x1, BX = x2, DX = y.
 _os88_gfx_hline:
     push bp

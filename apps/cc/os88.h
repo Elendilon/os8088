@@ -476,6 +476,16 @@ void os88_set_color(int colour);                 /* ONE global pen for the
                                                   * the same lock hold as the
                                                   * drawing it colours */
 void os88_gfx_pixel(int x, int y);
+void os88_gfx_points(const void *pts, int n);    /* SPEC.md 5.6.9: n records
+                                                  * of two ints, x then y, in
+                                                  * a static of yours. THE
+                                                  * PLOT PRIMITIVE - one
+                                                  * arrival for a whole set of
+                                                  * pixels you computed, where
+                                                  * os88_gfx_pixel is one far
+                                                  * call EACH. A loop that
+                                                  * plots more than two or
+                                                  * three points wants this */
 void os88_gfx_hline(int x1, int x2, int y);
 void os88_gfx_vline(int x, int y1, int y2);
 void os88_gfx_fill(int x1, int y1, int x2, int y2);
