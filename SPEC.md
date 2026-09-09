@@ -105261,6 +105261,61 @@ nothing, `cs_r_setup`'s 16KB shadow claim being the first thing to be refused.
 nothing puts it back**, and with the fix reverted the row reports the identical
 shape: no claim owned by the instance slot, and the heap not coming back.
 
+#### 88.10.5 The worlds, and what makes one assemble on its own
+
+The nine locations' worlds are **11,904 bytes** — the models, the object tables
+and the names of nine countries — and exactly one of them is under the
+aeroplane at any moment. They are the last large thing in the segment, and
+taking them out is worth **~8,800 bytes** of it.
+
+What that needs is a **world that can be laid at a fixed org**, so the picked
+one can be read into an overlay in the bss and every near pointer inside it
+still resolves. A world is data the renderer walks with `DS` — `cs_scene` reads
+`[si + CSO_MODEL]` and then `[di + CSM_TYPE]` — and `cs_scene` is 169 ms a
+frame, so addressing it through a segment instead would put an override on the
+hottest path in the program. The overlay is what avoids that.
+
+**A world's ties to the rest of the program are eleven symbols**, counted with
+comments stripped: `cs_e_road1..4`, `cs_f_box`, `cs_f_hill`, `cs_f_rib1..3`,
+`cs_f_sacre` and `cs_n_bldg` — every one of them in the **shared world
+vocabulary**, 564 bytes of face tables, edge lists, anonymous models and two
+names. So `csworld.inc` became three files:
+
+| file | what | where it ends up |
+|---|---|---|
+| `cswmac.inc` | the world-building macros | emits nothing; read by both assemblies |
+| `csvocab.inc` | the shared vocabulary, 564 bytes | the head of the overlay, loaded once |
+| `csworld.inc` | the aeroplanes | stays resident |
+
+and `cswdefs.inc` is the twenty-four constants a world file needs — a **second
+copy on purpose**, held to `skies.asm` by `tests/unit/t_mirror.py`, because
+moving them would take two dozen constants away from the prose that explains
+what an ink or a face flag means.
+
+The split is a pure refactor: `build/skies.bin` came out **byte-identical**,
+checked with `cmp`.
+
+##### 88.10.5.1 What the packing measurement said
+
+The worlds are shipped as their own parts, so the question is what that costs a
+360KB disk with **5,120 bytes free**. Measured rather than argued:
+
+| the nine worlds | bytes |
+|---|---:|
+| raw | 11,904 |
+| **their share of the packed program part today** | **8,223** |
+| packed as ONE stream | 8,470 |
+| packed per-world, nine streams | 9,432 |
+
+**Per-world costs +1,209**, and it is the shape worth paying for: a location
+change expands ~2,400 bytes straight into the overlay instead of unpacking all
+nine into a 12.5KB transient buffer first. The largest world is **2,456 bytes**,
+which is what the overlay has to hold.
+
+The streams are packed by the build and shipped as `OP_LAZY` rows, for
+§88.10.4.1's reason one part along: a lazy row cannot be `OP_COMP`, and only
+one world is ever wanted.
+
 ### 88.13 The settings (SPEC.md 88.13)
 
 Four knobs, each of which trades picture for frame rate, on a **Settings**
