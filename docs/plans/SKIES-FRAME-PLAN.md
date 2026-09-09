@@ -905,15 +905,8 @@ line below is measurement and documents.
   population is IDENTICAL in both arms (0 / 8 / 17.8 rows), because a stepped
   mark makes a row's span narrower and never makes a row UNMARKED - a diagonal
   crosses every row of its own extent. 7.1.12's refusal stands.
-- **C2. The narrow fill was BUILT and is NOT CORRECT** (SPEC.md 88.3.1.1.4),
-  reverted rather than left half-right in the hottest loop. It is 6 frames in
-  14 differing by 1-2 pixels, all at the crossing's own BLEND byte, in the
-  split arm and not the one-pattern arm. Two operand-size defects are already
-  found and written down; the residual is not. **Its gate is NOT
-  skiesstale.py** - an under-fill leaves the shadow wrong and the card
-  faithfully matches it - it is a pixel identity A/B, and the cross-profile
-  sweep the field asked for is meaningless until that passes, because both
-  arms have to draw the same picture before their times can be compared.
+- **C2. The narrow fill was BUILT and is NOT CORRECT** - 7.1.14 below is the
+  whole attempt, code included, so the next go starts from there.
 - **D. WHERE THE FRAME ACTUALLY IS NOW.** At 12 degrees it is `cs_scene` 69%,
   `cs_skyground` 11%, `cs_blit` 10%, and a split row's 1,460 cycles are only
   ~350 pixels. Marking is no longer the lever: `cs_faces` and `cs_edges` are.
@@ -944,6 +937,193 @@ its predecessor's world. The same build at 12 degrees read 781, 1,509 and
 ANGLE** (`panel.py`) reads 797 and holds. `tests/skiesprof.py` was never
 affected - it launches its own machine per invocation - which is why its frame
 numbers stood while three versions of the carried column did not.
+
+#### 7.1.14 THE NARROW FILL - built, wrong, reverted, and written down whole
+
+SPEC.md 88.3.1.1.4 is the summary. This is everything else, kept because the
+next attempt should not have to re-derive any of it.
+
+##### Why it was worth trying again
+
+88.3.1.1.2 refused it on a quantity that has since moved. It "pays exactly
+when the union is under 16 BYTES of the 50" and the union was 31; with
+88.3.2.3's stepping mark it is **15.4 / 12.9 / 11.1 at 5 / 12 / 20 degrees**
+(88.3.2.3.3), so the break-even is met at every angle that has a band.
+
+##### What it costs and what it should save
+
+On 88.3.1.1.2's own two unit costs - ~340 cycles a row to obtain the union,
+~10 saved a byte not laid - a union of 12.9 is **+31 cycles a row at 12
+degrees and +49 at 20**, so **~0.4 ms and ~0.9 ms**. The 340 was measured
+BEFORE 88.3.1.3.1 fused the band loop, and the version below is cheaper than
+that (the row's index is already in SI), so treat 0.4-0.9 as a floor rather
+than an estimate. 7.1.8 measured the old one at **+109 bytes**.
+
+##### THE GATE IS NOT `tests/skiesstale.py`
+
+An under-fill leaves the SHADOW wrong and the card faithfully matches it, so
+card-equals-shadow passes. The gate is a **pixel identity A/B**: the same
+profile, the same flight, one `cs_nonarrow` poke apart, compared frame for
+frame off `m.vram("herc")`. Do not register it as a soak row until the change
+exists - with the fill reverted both arms are identical and it would be a
+green row that tests nothing (docs/WRITING-TESTS.md 1).
+
+##### And the measurement it needs, which was never run
+
+**Every profile, both arms** - the cost is FIXED and the saving PROPORTIONAL,
+so a busy scene is where it loses, and 7.1.8's own numbers say so: turnhold
+**+7.0 ms**, bank +2.5, sparse **-6.3**. One fresh guest per point
+(88.3.2.3.2). None of that has been done, because two arms that draw
+different pictures cannot have their times compared.
+
+##### Three defects found, and the two that are already fixed below
+
+1. **`add di, [cs_fbu]` adds the PACKED PAIR as a word.** `cs_fbu` is
+   `(last << 8) | first`, so the row started 276 bytes along - and the picture
+   was STILL NEARLY RIGHT, surviving a fourteen-frame pixel A/B at four
+   differing pixels. A displacement that large should be obvious and is not,
+   which is the trap worth remembering.
+2. **`sub di, [cs_wb0]` reads a BYTE as a word**, and `cs_wb0`'s neighbour is
+   `cs_wbn`. Both of these want a byte register and an explicit `xor ah, ah`.
+3. **The residual, unfixed**: 6 frames in 14 differ by 1-2 pixels, every one
+   at the crossing's own BLEND byte, which the narrow arm is missing where the
+   whole-row arm has it. Bisecting `.fbw` back to the whole row does **not**
+   move it, so it is in the SPLIT arm's three runs.
+
+**Ruled out for the residual**, each checked: the union itself (the differing
+byte is well inside it), `cs_fullspan`'s value (it is `(wb0, wb0+wbn-1)`), the
+row phase, the pixel mask (taken before the shift, unchanged), and the run
+counts as written - left is `byte - first`, right is `last - byte`, and both
+land where the arithmetic says.
+
+**The next diagnostic, which was not run**: instrument the split arm rather
+than its output. Breakpoint each `FILLRUN` and the blend `stosb` and log DI
+and CX per row for one differing row. Three passes of reading the source did
+not find it; one run of that would.
+
+##### The code, as it stood when it was reverted
+
+`cs_fbu` (ZWORD, the packed union), `cs_fbdlt` (ZWORD, this frame's span set
+to last frame's) and `cs_nonarrow` (ZBYTE, the A/B) go in `skies.asm`'s bss.
+The comments below were written during the debugging and mention the defects
+they were found by:
+
+```
+    --- apps/skies/csraster.inc	2026-09-09 23:18:14.294704907 +0000
+    +++ /tmp/claude-0/-home-user-os8088/46586853-8656-50bd-85d0-a528956ae697/scratchpad/cs.narrow	2026-09-09 23:15:35.895259506 +0000
+    @@ -1257,6 +1257,10 @@
+         mov al, 0xFF
+     .hk3:
+         mov [cs_hzsplit], al
+    +    mov ax, [cs_spprv]              ; ...and the step from a row's pair in THIS
+    +    sub ax, [cs_spcur]              ; frame's set to the same row's in last
+    +    mov [cs_fbdlt], ax              ; frame's, so the fill's union is one
+    +                                    ; `add` and not a second index (88.3.1.1.4)
+         push cx
+         push bx
+         push di
+    @@ -1343,10 +1347,40 @@
+         mov ax, [cs_wx1]                ; untouched inside the band: the crossing
+         inc ax                          ; is off the right, so the row is the
+     .fb0:                               ; left side's
+    +    ; --- THE ROW'S UNION (SPEC.md 88.3.1.1.4) -----------------------------
+    +    ; The row is laid over union(this frame's band mark, last frame's whole
+    +    ; span) instead of its whole width. That is exactly cs_blit's own rule
+    +    ; one stage earlier and it rests on the same argument: outside the union
+    +    ; the row already holds what this frame would lay. The two places that
+    +    ; argument fails both hand the row cs_fullspan first - a kind change
+    +    ; (cs_hzrows' .kind arm) and a SIDE SWAP (88.3.1.1.3) - so the union is
+    +    ; the view there and the fill is the whole row again.
+         mov bx, si
+    -    sub bx, cs_xl + 2               ; BX = the row's phase, doubled - SI is
+    -    and bx, 6                       ; the row counter here, and lodsw has
+    -    mov dx, [cs_hzpat4 + bx]        ; already stepped it
+    +    sub bx, cs_xl + 2               ; BX = the row, doubled
+    +    mov bp, bx
+    +    add bx, [cs_spcur]
+    +    mov dx, [bx]                    ; DL/DH = this frame's - never empty, the
+    +    add bx, [cs_fbdlt]              ; span pass has just written it
+    +    mov cx, [bx]                    ; CL/CH = last frame's
+    +    cmp cl, 0xFF
+    +    je .fbu2                        ; last frame drew nothing on the row
+    +    cmp cl, dl
+    +    jae .fbu1
+    +    mov dl, cl
+    +.fbu1:
+    +    cmp ch, dh
+    +    jbe .fbu2
+    +    mov dh, ch
+    +.fbu2:
+    +    cmp byte [cs_nonarrow], 0       ; the A/B: the whole view, which is what
+    +    je .fbu3                        ; shipped before 88.3.1.1.4
+    +    mov dx, [cs_fullspan]
+    +.fbu3:
+    +    mov [cs_fbu], dx                ; DL = the first byte, DH = the last
+    +    mov bx, bp
+    +    and bx, 6                       ; BX = the row's phase, doubled
+    +    mov dx, [cs_hzpat4 + bx]        ; (SI is the row counter here, and lodsw
+    +                                    ;  has already stepped it)
+         cmp ax, [cs_wx0]
+         jg .fb1
+         mov dl, dh                      ; wholly the right pattern
+    @@ -1362,10 +1396,16 @@
+         shr ax, cl                      ; AX = the crossing's byte
+         mov bp, ax
+         mov cx, ax
+    -    sub cx, [cs_wb0]                ; CX = the bytes wholly left of it
+    -    mov al, dl
+    -    mov ah, dl
+    -    push di
+    +    sub cl, [cs_fbu]                ; CX = the bytes of the union left of it
+    +    xor ch, ch
+    +    mov ax, bp                      ; ...and the union's first byte is where
+    +    sub al, [cs_wb0]                ; the row starts now. BOTH OF THESE ARE
+    +    xor ah, ah                      ; BYTE reads: cs_fbu is a PAIR in one word
+    +    sub ax, cx                      ; and cs_wb0's neighbour is cs_wbn, so a
+    +    push di                         ; word `add di, [cs_fbu]` put the row 276
+    +    add di, ax                      ; bytes along and the picture was still
+    +    mov al, dl                      ; nearly right, which is how it survived
+    +    mov ah, dl                      ; a fourteen-frame pixel A/B at 4 pixels
+         FILLRUN                         ; the left run - DI lands ON the crossing
+         mov al, bl                      ; the crossing's byte: the two patterns
+         mov ah, al                      ; through the mask and its complement
+    @@ -1374,22 +1414,27 @@
+         and ah, dl
+         or al, ah
+         stosb
+    -    mov cx, [cs_wb0]                ; the right run: the bytes after it
+    -    add cx, [cs_wbn]
+    +    mov cl, [cs_fbu+1]              ; the right run: to the union's last byte
+    +    xor ch, ch
+         sub cx, bp
+    -    dec cx
+         mov al, dh
+         mov ah, dh
+         FILLRUN
+         pop di
+         jmp short .fbn
+     .fbw:
+    -    mov al, dl                      ; a whole view row of one pattern
+    -    mov ah, dl
+    -    mov cx, [cs_wbn]
+    -    shr cx, 1
+    +    mov cl, [cs_fbu+1]              ; the union, all one pattern
+    +    sub cl, [cs_fbu]
+    +    xor ch, ch
+    +    inc cx
+    +    mov al, [cs_fbu]
+    +    sub al, [cs_wb0]
+    +    xor ah, ah
+         push di
+    -    rep stosw
+    +    add di, ax
+    +    mov al, dl
+    +    mov ah, dl
+    +    FILLRUN
+         pop di
+     .fbn:
+         add di, 80
+```
 
 ## 7.4 WHERE cs_scene's 169 ms GOES
 
