@@ -325,7 +325,9 @@ cs_a_lcy:
     dw -690                         ; CSA_SPAWN    60 m in from the threshold
     dw cs_ot_lcy, CS_N_LCY          ; CSA_OBJS, CSA_NOBJ
     dw 7150, 275                 ; CSA_WX, CSA_WZ: THE WATER STRIP
-    dw 17294                        ; CSA_WHDG    (88.7.7) - THE THAMES
+    dw 50062                        ; CSA_WHDG    (88.7.7) - THE THAMES,
+                                    ; 275 and not 95: upstream, toward the
+                                    ; Tower and Westminster (88.7.7.3)
     dw 800                          ; CSA_WLEN    half its length...
     dw 100                           ; CSA_WWID    ...and half its width
     dw cs_n_lcy_th              ; CSA_WNAME
