@@ -31,8 +31,8 @@
 ; =============================================================================
 
 %ifdef KERN_SMALL
-MEM_MAX     equ 20              ; TWENTY heap claims on kern_small
-                                ; (docs/plans/KERN-SMALL-CUT-PLAN.md D7). The SDK's
+MEM_MAX     equ 16              ; SIXTEEN heap claims on kern_small
+                                ; (SPEC.md 11.102; it was 20 at D7). The SDK's
                                 ; copy STAYS AT 32, on MAX_TASKS' rule:
                                 ; apps/os88api.inc derives
                                 ; CLAIM_SNAPSHOT_SIZE from it and taskmgr

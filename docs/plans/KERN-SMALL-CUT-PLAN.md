@@ -429,12 +429,12 @@ re-assembling**, which is why three of them moved and one of them died.
 
 | # | option | HEAP | note |
 |---|---|---:|---|
-| D5 | **`MAX_WIN` 12 → 6** | **414** | `.text` −36, `.bss` −378. Was priced at ~264. **Not an ABI risk — §5.2.** `MAX_WIN` sizes no package buffer, and the kernel bounds-checks every index a package hands it |
-| D1b | **Partition −256 −192** (5 worker slices) | **448** | `.lowbss`. `SCH_PARTITION` is 128/128/192/192/256/384 today; `SCH_STACK` must stay the largest class, so the 384 slot cannot go |
-| D6 | **`INST_MAX` 12 → 6** | **114** | `.bss` only. Was priced at ~270 — **less than half**. Sizes `SYS_SNAPSHOT_SIZE`, so it is D1/D7's shape exactly: the kernel may shrink, the SDK may not (§5.2) |
-| D7b | **`MEM_MAX` 20 → 16** | **40** | sixteen heap claims. Not worth the risk of refusing a claim on a busy heap |
+| D5 | ~~**`MAX_WIN` 12 → 6**~~ | ~~414~~ | **BUILT — SPEC.md 11.102** |
+| D1b | ~~**Partition** −128 −192 (4 slices)~~ | ~~320~~ | **BUILT.** Priced at −448 by dropping the 256 and a 192, and that was WRONG: the Task Manager declares `OS88_STACK_256` and Paint takes the 384 default, so `128/192/384` would have refused that pair. Ships as `128/192/256/384` (SPEC.md 11.102.3) |
+| D6 | ~~**`INST_MAX` 12 → 6**~~ | ~~114~~ | **BUILT — SPEC.md 11.102** |
+| D7b | ~~**`MEM_MAX` 20 → 16**~~ | ~~40~~ | **BUILT — SPEC.md 11.102** |
 | D3 | ~~**`disk_dir` 32 → 16**~~ | — | **IMPOSSIBLE — §5.1** |
-| | **subtotal** | **1,016** | |
+| | **the batch, measured** | **1,024** | `KERN_SIZE` 76,800 → **75,776**, free heap 51.5 → **52.5 KB** on the floor machine |
 
 ~~D5 and D6 are worth the least and cost the most process: they are published to
 packages, so moving them means every `.o88` is built against a different bound
@@ -671,7 +671,7 @@ from that sum.
 | take | `KERN_SIZE` | free heap | what still works |
 |---|---:|---:|---|
 | ~~today~~ | ~~78,336~~ | ~~50.0 KB~~ | superseded by the row below |
-| **today (C5 built)** | **76,800** | **51.5 KB** | measured on the floor machine, `tests/small128.py` |
+| **today (C5 + the D batch built)** | **75,776** | **52.5 KB** | measured on the floor machine, `tests/small128.py` |
 | A | 76,800 | **51.5 KB** | everything, minus the sound layer (A2r is dead — §2.2) |
 | A + D | 75,776 | **52.5 KB** | …with smaller tables and six windows |
 | **every CLEAN row** (§10) | **69,632** | **58.5 KB** | …and no save-under, toast, progress, blanker, dock or built-in apps. **Nothing on the small floppies breaks** |

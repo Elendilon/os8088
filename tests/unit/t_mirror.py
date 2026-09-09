@@ -158,9 +158,27 @@ DIVERGENT = {
                  "taskmgr sizes SS_TSTATE from it, so a package built at 14 "
                  "reading a 7-slot snapshot over-allocates and is safe, where "
                  "the reverse overflows",
-    "MEM_MAX": "kern_small has 20 claim records "
-               "(docs/plans/KERN-SMALL-CUT-PLAN.md D7) and the SDK keeps 32, which "
+    "MEM_MAX": "kern_small has 16 claim records "
+               "(SPEC.md 11.102) and the SDK keeps 32, which "
                "is CLAIM_SNAPSHOT_SIZE's input - same direction, same reason",
+    "INST_MAX": "kern_small runs 6 instances (SPEC.md 11.102) and the SDK "
+                "keeps 12: it is SYS_SNAPSHOT_SIZE's input and "
+                "osapi_sys_snapshot_x fills that buffer bounded by the "
+                "KERNEL's figure, so a package built at 12 reading a 6-record "
+                "snapshot over-allocates and is safe - same direction, same "
+                "reason as MAX_TASKS and MEM_MAX above",
+    # ...and one that is NOT the buffer argument, which is why it has its own
+    # sentence rather than "same reason".
+    "MAX_WIN": "kern_small has 6 window slots (SPEC.md 11.102) and the SDK "
+               "keeps 12 - but MAX_WIN SIZES NO PACKAGE BUFFER. It appears in "
+               "apps/os88api.inc exactly once, as a bare equ, and that file "
+               "says why there is deliberately no WIN_SIZE beside it: the "
+               "stride differs between the two kernels and a window index "
+               "never leaves the kernel. What it bounds is the INDEX a "
+               "package may hand OSAPI_WM_OWNSEG, and six kernel sites check "
+               "one against the kernel's OWN MAX_WIN and answer CF=1 - so the "
+               "SDK's larger value costs a package a refusal it already has "
+               "to handle, never a read past wm_wins",
 }
 
 # --- constants mirrored under DIFFERENT NAMES --------------------------------

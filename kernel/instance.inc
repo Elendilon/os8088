@@ -43,9 +43,23 @@ I_CYC    equ 28                 ; dword: CPU cycles billed to this instance's
                                 ; window callbacks (SPEC.md 8.1), zeroed at
                                 ; alloc; lo word first
 I_RECSZ  equ 32                 ; power of two: index<<5 via CL
+%ifdef KERN_SMALL
+INST_MAX equ 6                  ; SIX running instances on kern_small
+                                ; (SPEC.md 11.102). The SDK's copy STAYS AT
+                                ; 12, on MAX_TASKS' and MEM_MAX's rule: it is
+                                ; SYS_SNAPSHOT_SIZE's input, taskmgr allocates
+                                ; that buffer and osapi_sys_snapshot_x fills
+                                ; it bounded by the KERNEL's figure, so a
+                                ; package built at 12 reading a 6-record
+                                ; snapshot OVER-allocates - which is safe -
+                                ; where shrinking the SDK to match would
+                                ; overflow that buffer on kern_big. One .o88
+                                ; runs on both kernels (SPEC.md 24)
+%else
 INST_MAX equ 12                 ; mirrored in apps/os88api.inc (SPEC.md 20.9
                                 ; buffer sizing) - change together, rebuild
                                 ; every .o88
+%endif
 
 INST_FNSZ equ 13                ; the per-instance Standard File name below:
                                 ; fdlg.inc's FD_NAMEMAX (12) plus the NUL, and
