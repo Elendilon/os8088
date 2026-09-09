@@ -1236,6 +1236,53 @@ the loop instead of feeding it.
 figure comes from building it; §10's method (per-symbol map, reconciled against
 the section lengths) is how, and the 437 above already came off it.
 
+## 8.9 Wave 8's caller list is much shorter than it looks — THREE apps had already built it
+
+The owner's instinct was that WIREFRAME is the place to start and that whatever
+is done there ports cleanly into `SAVER.DRV`'s cube, *"wireframe except
+fullscreen and bouncing around"*. Both halves are right and both are **already
+done** — by the programs themselves, before this plan existed.
+
+| | its composite | what its `gfx_line` calls are |
+|---|---|---|
+| `apps/wire` | mode 3, SPEC.md 78.8 — **this plan's library was lifted out of it** (§8.2) | modes 0–2, the **control arm**: they exist to be compared against mode 3 and against the kernel's own walk |
+| `drivers/saver` `svcube.inc` | SPEC.md 79.5.6 — a 128×128 mask, `or`-plotted, blitted whole; it is the **default** | `sv_cube_edge1`, reached only when `OSAPI_GFX_BLIT1` answers CF = 1, under a comment saying *"which on a kern_big machine with these arguments it cannot — so this is insurance and not a path"* |
+| `apps/paint` | SPEC.md 42.23's 1bpp canvas | converted in wave 4 |
+
+**That is the same shape three times, and it is the plan's central claim
+arriving from the other direction.** Nobody was told to write a band composer;
+three separate programs did, because composing and committing once is what a
+figure wants on this machine. The library's job was never to invent the
+capability — it was to stop it being written a fourth time.
+
+### 8.9.1 …and wave 1 made `SAVER.DRV`'s fallback unreachable
+
+`sv_cube_edge1`'s comment says the refusal *"cannot"* happen on a `kern_big`
+machine. Since SPEC.md 5.4.2.5.1 gave `kern_small` a `gfx_blit1` body it cannot
+happen there either, so the arm is dead on **every shipped kernel** — the third
+time wave 1 has done that to a `gfx_blit1` refusal path (`apps/cword`'s ruler
+was the second, §8.7).
+
+### 8.9.2 What is actually left
+
+| caller | |
+|---|---|
+| `apps/os88ui.inc` | ✅ **converted** — the tick is a solid square (SPEC.md 13.16.2.1) |
+| `apps/paint` | ✅ converted, wave 4 |
+| `apps/missile` `mc_line` | **a real conversion, and the only speed-critical one** — trails and the drain's erase |
+| `apps/tank` `tkattr.inc` ×2 | **a real conversion** — the attract logo's letter segments, `kern_big` only |
+| `apps/wire` modes 0–2 | a control arm; gating `gfx_line` deletes what the instrument measures |
+| `drivers/saver` `sv_cube_edge1` | dead insurance (§8.9.1) |
+| `apps/sheet`, `apps/cword` | deferred by the owner (§8.6) |
+| `apps/cc/os88thunk.asm` | retires when `cword` does |
+
+**So wave 8's conversion work is Missile and Tank**, and everything else is a
+decision rather than a port. That is a far smaller wave than §8.1.5 describes,
+and the reason it looked big is that a caller census counts call sites and
+cannot see that two of them are an A/B and a third is insurance — §9.1's rule
+again, one level along: a census is the right instrument for *what would break*
+and the wrong one for *what is work*.
+
 ## 9. What is NOT settled — evidence still owed
 
 1. **§4.2's layering claim is a design claim, not a measurement.** *"`GFXE_WALK`
