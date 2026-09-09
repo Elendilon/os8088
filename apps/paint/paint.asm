@@ -7464,11 +7464,7 @@ pt_segdo:
     mov [pt_noscr], al              ; live pass drew this ink. Clearing it here
     or al, al                       ; drew it again - a double-draw on the
     jnz .fpdone                     ; DEFAULT pencil on the 1bpp machine this
-%ifdef PT_LNLINE
-    call pt_lndraw                  ; whole path exists for - and left the flag
-%else
-    call pt_lnblit
-%endif
+    call pt_lnblit                  ; whole path exists for - and left the flag
 .fpdone:                            ; at 0 for the .perpix chords after it
     pop ax                          ; the walk writes the canvas and the undo
     ret                             ; image; the screen is the one call above
@@ -7501,40 +7497,6 @@ pt_lcany:
     stc
     ret
 
-; pt_lndraw - the segment's screen half, in one call: THE ARM THAT WAS
-; in:  [pt_lsx0],[pt_lsy0] = the start, [pt_wx],[pt_wy] = the end; lock held
-; out: nothing; preserves all registers
-;
-; What this path did until SPEC.md 42.23.8, and it is behind `PT_LNLINE`
-; rather than deleted because it is the A/B the replacement is quoted against
-; (`tests/paintstroke.py`) and the only thing keeping this route assembling.
-; A default build emits none of it.
-%ifdef PT_LNLINE
-pt_lndraw:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    mov al, [pt_ink]
-    call OSAPI_SET_COLOR
-    mov ax, [pt_lsx0]
-    add ax, [pt_cx0]
-    mov bx, [pt_lsy0]
-    add bx, [pt_cy0]
-    mov cx, [pt_wx]
-    add cx, [pt_cx0]
-    mov dx, [pt_wy]
-    add dx, [pt_cy0]
-    xor si, si                      ; thin: nothing here erases a line drawn in
-    call OSAPI_GFX_LINE             ; segments, so 5.6.5's dilation is not owed
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-%endif
 
 ; -----------------------------------------------------------------------------
 ; pt_lnblit - the segment's screen half, as a BAND OUT OF THE CANVAS
@@ -7550,7 +7512,7 @@ pt_lndraw:
 ; runs, and a stroke segment between two mouse reports is a few pixels square.
 ;
 ; It is also what takes Paint off the OSAPI_GFX_LINE caller list, which is
-; docs/plans/GFX-EMBEDDABLE-PLAN.md 8.1.5's first blocker on the line family
+; docs/plans/completed/GFX-EMBEDDABLE-PLAN.md 8.1.5's first blocker on the line family
 ; leaving the kernel at all.
 ; -----------------------------------------------------------------------------
 pt_lnblit:

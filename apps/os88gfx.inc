@@ -1,7 +1,7 @@
 ; =============================================================================
 ; os8088 - apps/os88gfx.inc
 ;
-; THE EMBEDDABLE GRAPHICS LIBRARY (docs/plans/GFX-EMBEDDABLE-PLAN.md): drawing
+; THE EMBEDDABLE GRAPHICS LIBRARY (docs/plans/completed/GFX-EMBEDDABLE-PLAN.md): drawing
 ; code that lives in the PACKAGE rather than in the kernel, taken capability by
 ; capability, so a program pays for what it draws and a machine that runs none
 ; of those programs pays nothing at all.
@@ -95,7 +95,7 @@
 %endif                                  ; A BAND is the wrong one for it: two
                                         ; or three pixels scattered over eight
                                         ; places is a band that is almost all
-                                        ; paper (docs/plans/GFX-EMBEDDABLE-PLAN.md 8.1.2)
+                                        ; paper (docs/plans/completed/GFX-EMBEDDABLE-PLAN.md 8.1.2)
 
 %ifdef GFXE_BAND
 
@@ -439,7 +439,7 @@ gfxe_line:
 ; places would commit a band that is almost entirely paper. OSAPI_GFX_POINTS
 ; is 165.96 us a point (PERFORMANCE.md Set 133) and carries the clip region,
 ; the cursor's save-under, the adapter and the second display for you - the
-; six per-call concerns of docs/plans/GFX-EMBEDDABLE-PLAN.md 3.2.1 - which is
+; six per-call concerns of docs/plans/completed/GFX-EMBEDDABLE-PLAN.md 3.2.1 - which is
 ; exactly why an app-side rasteriser cannot simply write pixels itself.
 ;
 ; A FULL LIST COMMITS ITSELF and the caller never finds out. That is what

@@ -23,7 +23,7 @@ measurement and not a gate - the point is to put numbers on a choice the reader
 makes by looking, and there is no threshold to assert between them.
 
 **ONE NUMBER IS ASSERTED and it is not a flicker one** (SPEC.md 5.12.3). Since
-wave 3 of docs/plans/GFX-EMBEDDABLE-PLAN.md the Composed mode is
+wave 3 of docs/plans/completed/GFX-EMBEDDABLE-PLAN.md the Composed mode is
 `apps/os88gfx.inc` - the shared embeddable graphics library - rather than code
 of wire's own, so a defect there reaches every future customer of the library
 and not just this instrument. What is checked is that **the same figure is on
@@ -69,9 +69,9 @@ import dispcp                                               # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WR_OX0, WR_OY0, WR_OW, WR_OH = 16, 18, 20, 22       # apps/wire's own bss
-MENU_DRAW = (0, 0)                                  # menu 2's three items
-ORDERS = ["Whole figure", "Edge at a time", "Edge, then repair",
-          "Composed"]                          # SPEC.md 78.8
+WR_FULL_MIN = 250                           # a drawn cube is ~380 lit
+ORDERS = ["Composed"]                       # SPEC.md 78.5.1: the other three
+                                            # went with the line primitive
 
 
 def ink(m, rig_seg, geom, fbseg, stride, banks):
@@ -130,9 +130,8 @@ def main(argv):
 
         out = []
         for mode, name in enumerate(ORDERS):
-            m.pause()
-            m.write((seg << 4) + base + 39, bytes([mode]))   # wr_mode
-            m.run()
+            del mode                        # there is one order and no
+                                            # [wr_mode] to select it with
             m.advance(frames=110)               # let the order take effect,
             m.run()                             # and wr_fps re-settle
             samples = []
@@ -165,17 +164,15 @@ def main(argv):
     # --- and ONE number is a gate, because Composed is the library's. The
     # flicker columns above are deliberately not - see the header.
     by = dict((r[0], r) for r in out)
-    ref = by["Edge at a time"][1]
-    full = by["Composed"][1]
+    full, floor = by["Composed"][1], by["Composed"][2]
     print()
-    if not 0.85 * ref <= full <= 1.15 * ref:
-        print("FAIL: Composed's fullest frame is %d against Edge at a time's "
-              "%d, more than 15%% out - apps/os88gfx.inc is not drawing the "
-              "same figure the kernel's own lines draw" % (full, ref))
+    if full < WR_FULL_MIN:
+        print("FAIL: Composed's fullest frame is %d lit pixels, under the %d "
+              "floor - apps/os88gfx.inc is not drawing the figure"
+              % (full, WR_FULL_MIN))
         return 1
-    print("ok: Composed's fullest frame %d against Edge at a time's %d "
-          "(%+.0f%%) - apps/os88gfx.inc draws the same figure"
-          % (full, ref, 100.0 * (full - ref) / ref))
+    print("ok: Composed's fullest frame %d lit, emptiest %d (%.0f%%)"
+          % (full, floor, 100.0 * floor / full))
     return 0
 
 

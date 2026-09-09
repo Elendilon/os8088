@@ -227,23 +227,6 @@ CC_T_RECT _os88_gfx_fill_gray, OSAPI_GFX_FILL_GRAY
 CC_T_RECT _os88_gfx_xor_rect,  OSAPI_GFX_XOR_RECT
 CC_T_RECT _os88_gfx_xor_fill,  OSAPI_GFX_XOR_FILL
 
-; void os88_gfx_line(int x1,int y1,int x2,int y2,int dilate) - SPEC.md 5.6.
-; SI = 0 thin / 1 dilated by a pixel either side of the minor axis, which is
-; what an erase owes a line that was DRAWN in per-frame segments (5.6.5).
-_os88_gfx_line:
-    push bp
-    mov bp, sp
-    push si
-    mov ax, [bp+4]
-    mov bx, [bp+6]
-    mov cx, [bp+8]
-    mov dx, [bp+10]
-    mov si, [bp+12]
-    call OSAPI_GFX_LINE
-    pop si
-    pop bp
-    ret
-
 ; void os88_gfx_fill_pat(int x1,int y1,int x2,int y2,const void *pat8)
 ; SI = 8 pattern bytes IN OUR SEGMENT (SPEC.md 20.9) - DS-relative, so the C
 ; passes a plain pointer to a static and there is no segment to think about.

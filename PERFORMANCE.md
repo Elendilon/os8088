@@ -1262,9 +1262,9 @@ list to check yourself against.
 | Missile Command explosion (1bpp / 8088) | a full disc **every** frame for 27 frames plus 12 ring erases — ~750 fills a burst, 124 ms a frame in a busy wave | three drawn states, five-rect discs — 22 fills a burst, 7.9 ms | §48.8 |
 | Missile Command terrain repair | `[mc_gdirty]`, one byte: the whole ground band, six cities and three bases — **143 ms**, five times in 86 frames | a damage **span**: 16.5 ms, byte-identical to a full repaint | §48.9 |
 | Missile Command score strip | the whole strip blanked and re-lettered on every kill | three `font_run` fields, space-padded — no blank interval | §48.9, §6.1 |
-| Missile Command missile trails | an app-side Bresenham emitting one `gfx_hline` per **row** — a whole-trail erase was 267 fills, ~310 ms, a five-tick stall | one `gfx_line`: 59 ms worst frame, and the busy frame whole went 190 ms → **43.5 ms** | §5.6, §48.8.3 |
+| Missile Command missile trails | an app-side Bresenham emitting one `gfx_hline` per **row** — a whole-trail erase was 267 fills, ~310 ms, a five-tick stall | one `gfx_line`: 59 ms worst frame, and the busy frame whole went 190 ms → **43.5 ms**. **Since §48.16.1 it is an app-side walk committed through `OSAPI_GFX_POINTS`** — `gfx_line` is retired (§5.12.7) — which is 165.96 µs a point against a flat ~986 a call, so a per-frame segment of one to three pixels is ~1.6× cheaper still and the ERASE is an exact replay rather than §5.6.5's dilation. The 43.5 ms figure has not been re-taken | §5.6, §48.8.3, §48.16.1 |
 | Missile Command fullscreen | the §11.2 fullscreen WINDOW — still in the z-order, still pre-empted, so **6.2 ms of `gfx_lock`+`wm_clip_set` and 5.7 ms of `gfx_unlock` on every frame**, 21.8% of a session | §53.7's same-mode bracket: `lok` and `unl` measured at **0**, and the double cursor goes with them | §48.13 |
-| A dilated STEEP line | three Bresenham walks over the same pixels — 37.8 ms of a 73.5 ms Missile Command frame | one walk writing a three-bit mask: **1.91×**, measured in guest instructions by `gfxbench`'s transposed pair after `linetest`'s host-time 1.3–1.9× settled nothing | §5.6.6 |
+| ~~A dilated STEEP line~~ | three Bresenham walks over the same pixels — 37.8 ms of a 73.5 ms Missile Command frame | one walk writing a three-bit mask: **1.91×**, measured in guest instructions by `gfxbench`'s transposed pair after `linetest`'s host-time 1.3–1.9× settled nothing. **RETIRED with the primitive** (§5.12.7): dilation existed because a draw and an erase were two different Bresenhams that disagree by a pixel, and an app-side walk erases by REPLAYING the draw, which is exact. The row is kept because 1.91× is what the workaround was worth, and a reader meeting `[mc_lfat]` in an old set needs it | §5.6.6, §5.12.7 |
 | Missile Command crosshair | 8 `gfx_xor_fill` **every frame** whether the mouse moved or not — **8.6 ms of a 55 ms tick**, idle frames included | 0 unless it moved or something drew through it; 4 signed compares per primitive otherwise, and the screen is byte-identical | §48.11 |
 | Missile Command burst life | grow, peak, **collapse**, gone — 39 fills a burst, and the collapse alone is 42% of it for one visible state | grow and hold, with the life cut 27→21 frames so Σr (all a burst's lethality) is preserved to 3.3%: 25 fills, **18.3 → 12.4 ms a frame** | §48.12 |
 | FTPD's Setup page, a click that moves the CARET | `FDD_PAGE`, so `fd_spend` answered a 1px bar with `fd_draw_setup`: `fd_clear_content` and every field, label, tick and help line. Measured on a cycle-accurate 5150/CGA by `tests/ftpdflick.py`, the same scripted session through both builds - within the same field **9 frames = 133.5 ms**, into another field **9 = 133.6 ms**, back onto a character **10 = 150.3 ms**, onto the page background **9 = 133.5 ms**, a tick's release with a field focused **10 = 150.3 ms** - each flashing **~4,300 transient pixels** over a rect that is the whole content box | the two cells the bar leaves and arrives at: one opaque `font_run` of the character it covered (or an 8x8 white fill past the end of the text) and one 1px `gfx_fill`. **1 frame = 0 ms, 15 px changed, 0 transient** for a caret move, and the tick's release is §77.44's box alone at **16.7 ms**. Every transient pixel left is the mouse pointer's own cell (§7.1). The window's rendered pixels after each of six gestures: **0 differing** against the old build | §77.45 |
@@ -1590,40 +1590,35 @@ worth taking:
 | `gfxbench: GFX_FILL 64x64 clipped` | **what §11.3's clip region costs a covered background window.** `WM_CLIP_SET+CLEAR` was measured; drawing *under* one never was. It sits next to its own unclipped row, so the gap is the answer | a little over the unclipped row plus the `SET+CLEAR` cell. Much more and `gfx_clip_run`'s re-entry is dearer than the region arithmetic it saves |
 | `gfxbench:` the whole **fullscreen block** | **whether a primitive costs what it costs wherever it is drawn.** Same code, same sandbox, different place on the glass, no chrome around it. The rows carry the same labels as their windowed twins so they diff by name | the primitives to be **boring** — landing on their twins. One that does not has found something position-dependent nobody believed was |
 | `sysbench: boot ticks` / `boot ms` | **how long the machine takes to boot** (§15.4) — the one thing this project could never measure, because it is over before a package can run. On a floppy machine it is mostly the 125-sector kernel read, and Sets 17/18 took it from 39.88 s to **9.94 s** by fixing §18.91's `AL` bug in both transfer loops - so 238 ms a sector is the number this row was written against and NOT the one to expect now | a number at last. Resolution is one tick, 54.925 ms, which on a boot measured in seconds is quantisation rather than noise |
-| `gfxbench: GFX_LSTEP x8` vs **`GFX_LSTEPV x8`** | **§5.6.8's batching, which was argued from §5.7's floor and never measured.** The two rows draw the identical eight pixels and differ only in arriving eight times or once | it already contradicted its own prediction: **118** in instructions, not the ~800 the floor implies, because `gfx_lstep` is not a rect primitive and its arrival is a far-call cell rather than `vga_rect_setup`. Expect higher than 118 on iron — far-call cells are 46.7 µs for ~7 instructions — but §5.6.8's own field figures imply **356**, and nothing reconciles that yet. **This is the row most likely to find something** |
-| `gfxbench:` the four **`GFX_LINE`** rows | **§5.6.6's dilated-line optimisation, in microseconds.** The instruction answer is already in (below); this is the duration. The two geometries are the same line transposed, 128 pixels each, so the pair checks itself | the two **thin** rows to match; `line shal fat/thin` near **300** (three walks, the control); `line steep fat/thin` near **156**, which is the claim |
+| ~~`gfxbench: GFX_LSTEP x8` vs `GFX_LSTEPV x8`~~ and ~~the four `GFX_LINE` rows~~ | **RETIRED, subject and all.** SPEC.md §5.12.7 took `gfx_line` and §5.6.7's resumable walk out of both kernels, so §5.6.6's dilation and §5.6.8's batching are questions about code that no longer exists. The five derived rows that decomposed them went too — a ratio whose inputs are gone divides uninitialised memory, which is Part 6 rule 3 exactly | nothing, now. What a field set should carry in their place is below |
+| `gfxbench: GFX_POINTS 8 pts` and **`24 pts`** | **what a committed POINT costs**, on the slot every app-side walker in the tree now goes through (§5.12.5). Two lengths is the whole measurement: `arrival + N × marginal` is two unknowns, so two readings determine it and any longer commit is read off the fit | an arrival near a far-call cell's **46.7 µs** plus §5.7's entry, and a marginal near Set 133's **165.96 µs** a point. A marginal much above that and a composing program should be committing a BAND instead |
+| `gfxbench:` `clear mask 2048` / `mask line 127x32` / **`GFX_BLIT1 128x128`** | **the band composer end to end** (§5.9, §5.12.2) — clear, rasterise, commit, which is what `GFXE_BAND` does and what four programs plus `SAVER.DRV` draw every frame through. The rows predate the library and were written as the app-side arm of an argument against `gfx_line`; the argument is settled and the arm is now the standard path | `mask line` well under the retired `GFX_LINE shallow thin` (Set 133 fitted **24.6 µs** a pixel against 31.6), and `GFX_BLIT1 128x128 pen` to land **exactly on** its unpenned twin on both 1bpp adapters — a gap there is a bug, since a 1bpp band already means lit and unlit |
 | `sysbench:` the **hard-disk block** | **§52's driver on real spinning MFM, which has never been measured** — and the first hard-disk twin of the floppy rows. Read-only by construction: it mounts, walks the FAT, reads one file and puts the volume back, because the disk it will run against is somebody's DOS 3.3 install (docs/FIELD-MACHINES.md) | anything at all — **and it has since been measured: 74,553 B/s against the floppy's 21,307, 3.5x** (Set 24). The floppy figure moved twice while this row said 7,457: check which side of Set 17 (the `AL` fix) AND of Sets 22/24 (§18.95's cache) a figure comes from before comparing anything to it. `HDD FILE_DFREE` is the one to watch — the 9-sector FAT window (§18.8) has to page across a 41-sector FAT, which is what §18.8.1 was written against |
 
 None of them says anything on an emulator, and two say so loudly: under
 `-icount` both shift rows measure identically and the derived per-bit line
 reads **0**, which is correct and is the caution block in miniature.
 
-**The two decomposed `lstep` rows are WRONG in the first field set that
-carries them, and they are recoverable by hand.** `lstep arrival us x100` and
-`lstep pixel us x100` were computed with a raw `sub`/`sbb`, which **underflows
-whenever the vector row measures larger than the scalar one** — which is what
-noise does the moment the two are close, and the whole point of the pair is
-that they might be. What comes out is a nine-digit number (a sighting run
-printed `514229986` and `385674937`), so it does not hide, but it is exactly
-Part 6 rule 3's failure: arithmetic that looks like a measurement. Both
-subtractions go through the floored `gb_sub` now, and an inverted pair reports
-an arrival of **0** and gives the whole cost to the pixel, which is what "the
-batching saved nothing measurable" honestly means.
+**The two decomposed `lstep` rows were WRONG in the first field set that
+carried them, and the reason outlived the rows — which is why this stays.**
+`lstep arrival us x100` and `lstep pixel us x100` were computed with a raw
+`sub`/`sbb`, which **underflows whenever the vector row measures larger than
+the scalar one** — which is what noise does the moment the two are close, and
+the whole point of the pair is that they might be. What comes out is a
+nine-digit number (a sighting run printed `514229986` and `385674937`), so it
+does not hide, but it is exactly Part 6 rule 3's failure: arithmetic that looks
+like a measurement. Every subtraction in the derived block goes through the
+floored `gb_sub`, and an inverted pair reports a term of **0** rather than four
+billion.
 
-Nothing is lost, because **both inputs are printed as their own rows in the
-same report**. Take `R_A` = `GFX_LSTEP x8 (8 calls)` and `R_B` =
-`GFX_LSTEPV x8 (1 call)`, both µs × 100 per iteration, and redo the two lines:
-
-| | |
-|---|---|
-| arrival, µs × 100 | `(R_A − R_B) / 7` |
-| pixel, µs × 100 | `(R_B − arrival) / 8` |
-
-That is the same pair of equations the harness solves — `R_A = 100(8a + 8p)`,
-`R_B = 100(a + 8p)` — so a set taken with the broken build is a complete set
-with two rows to recompute, not a set to retake. If `R_B > R_A` the equations
-have no positive solution and the answer is the floored one: arrival 0, pixel
-`R_B / 8`.
+**Both rows are gone with §5.12.7** — `gfx_lstep` and `gfx_lstepv` answer
+CF = 1 now — and their three companions went with them, which is the same rule
+one turn further on: *a derived row dies with its inputs.* Left in place they
+would have divided uninitialised `.bss`, which is the identical failure with
+nothing at all behind the number. The recovery arithmetic that stood here is
+dropped because there is no set left to recover; what a decomposition of the
+surviving slot looks like is the `GFX_POINTS` pair above, and it is two rows
+rather than a derived one on purpose.
 
 **Reading the fullscreen pairs had one trap, and §32's removal retired it.**
 `[bb_mono]` was one-way and `bb_mono_chk` five instructions cheaper once it
@@ -12422,7 +12417,7 @@ until it has been measured in pixels.**
 
 ---
 
-### Set 132 — the resumable walk against an APP-SIDE walker plotting `OSAPI_GFX_LINE` (docs/plans/GFX-EMBEDDABLE-PLAN.md 3.2)
+### Set 132 — the resumable walk against an APP-SIDE walker plotting `OSAPI_GFX_LINE` (docs/plans/completed/GFX-EMBEDDABLE-PLAN.md 3.2)
 
 | | |
 |---|---|
@@ -12432,7 +12427,7 @@ until it has been measured in pixels.**
 | subject | eight live walks stepping N pixels a frame, two ways |
 | date | 2026-09-09 |
 
-docs/plans/GFX-EMBEDDABLE-PLAN.md 3.2 asks whether a package holding its own
+docs/plans/completed/GFX-EMBEDDABLE-PLAN.md 3.2 asks whether a package holding its own
 Bresenham can plot through `OSAPI_GFX_LINE` — one call a frame-segment,
 `(p_prev, p_now)` — instead of asking the kernel to step a block the kernel
 holds. SPEC.md 5.6.2 makes a line's pixel set a pure function of the endpoint
@@ -12560,7 +12555,7 @@ is that the body IS `gfx_lstep_mono`'s with the Bresenham advance replaced.
 
 > **So `gfx_lstep` is no longer the best route at any n a shipped program
 > uses**, which is what Set 132 said it would take and what
-> docs/plans/GFX-EMBEDDABLE-PLAN.md wave 4 was waiting on.
+> docs/plans/completed/GFX-EMBEDDABLE-PLAN.md wave 4 was waiting on.
 
 #### What it cost
 
@@ -12589,7 +12584,7 @@ since: Cyclone, Missile, Tank, `SAVER.DRV` and Mines all commit through it now
 (SPEC.md 5.12.5, 5.13), and Set 134 is what they cost.
 
 
-### Set 134 — the embeddable library BUILT: what four programs and two kernels actually did (SPEC.md 5.12, docs/plans/GFX-EMBEDDABLE-PLAN.md waves 3-7)
+### Set 134 — the embeddable library BUILT: what four programs and two kernels actually did (SPEC.md 5.12, docs/plans/completed/GFX-EMBEDDABLE-PLAN.md waves 3-7)
 
 | | |
 |---|---|

@@ -294,31 +294,6 @@ void os88_task_alive(void *win) { (void)win; }
 int  os88_peek(unsigned seg, unsigned off) { (void)seg; (void)off; return 0; }
 void os88_gfx_pen(int disabled) { (void)disabled; }
 void os88_gfx_vline(int x, int y1, int y2) { os88_gfx_fill(x, y1, x, y2); }
-/* The arbitrary-angle line (SPEC.md 5.6), which the menu check is two of. The
- * model is a Bresenham walk rather than a bounding fill: the harness audits the
- * glass cell for cell, and a stub that blackened the whole box would report a
- * check mark as damage over the label beside it. */
-void os88_gfx_line(int x1, int y1, int x2, int y2, int dilate)
-{
-    int dx, dy, sx, sy, err, e2;
-
-    (void)dilate;
-    n_fill++;                           /* one drawing call, whatever it draws */
-    dx = x2 > x1 ? x2 - x1 : x1 - x2;
-    dy = y2 > y1 ? y2 - y1 : y1 - y2;
-    sx = x1 < x2 ? 1 : -1;
-    sy = y1 < y2 ? 1 : -1;
-    err = dx - dy;
-    for (;;) {
-        if (x1 >= 0 && x1 < GW * 8 && y1 >= 0 && y1 < GH)
-            pixline[x1][y1] = 1;
-        if (x1 == x2 && y1 == y2)
-            break;
-        e2 = err * 2;
-        if (e2 > -dy) { err -= dy; x1 += sx; }
-        if (e2 <  dx) { err += dx; y1 += sy; }
-    }
-}
 void os88_gfx_pixel(int x, int y) { os88_gfx_fill(x, y, x, y); }
 void os88_font_char_xparent(int x, int y, int ch)
 { char b[2]; b[0] = (char)ch; b[1] = 0; os88_font_str_xparent(x, y, b); }

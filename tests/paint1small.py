@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """SPEC.md 5.4.2.5: `kern_small` has a `gfx_blit1` body, and Paint TAKES it.
 
-Wave 1 of docs/plans/GFX-EMBEDDABLE-PLAN.md reversed a recorded refusal: the
+Wave 1 of docs/plans/completed/GFX-EMBEDDABLE-PLAN.md reversed a recorded refusal: the
 128 KB build carried the SLOT and not the BODY, so Paint's one-bit canvas
 (SPEC.md 42.23) - the thing that build exists for - reached the screen through
 `pt_ex1` and `gfx_blit4` a row at a time, at 24x the cost.  The thunk points at

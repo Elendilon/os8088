@@ -5785,7 +5785,7 @@ helper. The union has only window-manager callers and stays there.
 
 Drawing code that lives in the **package** rather than in the kernel, taken one
 capability at a time. It is `apps/os88ui.inc`'s idiom applied to graphics, and
-`docs/plans/GFX-EMBEDDABLE-PLAN.md` is the design record.
+`docs/plans/completed/GFX-EMBEDDABLE-PLAN.md` is the design record.
 
 The premise is the owner's: *duplicate code only used by apps that monopolise
 the machine anyway, instead of permanently spending kernel RAM on them.* Two
@@ -5927,7 +5927,7 @@ carries a clip rect, a framebuffer byte and bit mask, the second display's
 translation (§39.14.5) and the cursor's save-under — and **none of that moves
 into the app**, because `gfx_points` does every one of them at the commit. So
 the app-side walk is *pure arithmetic over the caller's own words*: a fifth of
-the size docs/plans/GFX-EMBEDDABLE-PLAN.md §4.1 costed, and it can step x with
+the size docs/plans/completed/GFX-EMBEDDABLE-PLAN.md §4.1 costed, and it can step x with
 `add si, [di + GLS_SX]` where the kernel needs a branch (its `sx` also has to
 move a bit mask and a byte pointer).
 
@@ -5979,7 +5979,9 @@ bound, so `SV_PTMAX` is their product and cannot be forced.
 #### 5.12.6 …so §5.6.7's three slots have NO BODY on a stock kernel
 
 **Every walker in the tree converted (§5.12.5), so `gfx_linit`, `gfx_lstep` and
-`gfx_lstepv` have no caller** — and the bodies are gone, behind `GFXWALK=1`.
+`gfx_lstepv` have no caller** — and the bodies are gone. They stood behind a
+`GFXWALK=1` knob for one wave; §5.12.7 deleted the knob along with the line
+family it was the A/B for.
 The three cells stay, because the table is offset-addressed and a slot number
 is a published constant (§20.3), and they answer **CF = 1**, which is what
 `gfx_blit1` on `kern_small` and `gfx_spans` already mean by it (§5.4.2).
@@ -5997,7 +5999,7 @@ routines that answer them did not either.
 
 **What it cost is in the apps and it is not resident**: ~240 bytes of image and
 a point list each, in four programs, only while one of them is running
-(§5.12.5.2). That is docs/plans/GFX-EMBEDDABLE-PLAN.md's whole premise made
+(§5.12.5.2). That is docs/plans/completed/GFX-EMBEDDABLE-PLAN.md's whole premise made
 good rather than asserted — *duplicate code only used by apps that monopolise
 the machine anyway, instead of permanently spending kernel RAM on them* — and
 the programs got **faster** doing it.
@@ -6011,10 +6013,53 @@ ones — a figure that is simply absent, which is the class of defect
 PERFORMANCE.md says an emulator cannot show. So the order was: convert all four
 walkers, land that, and only then take the bodies out.
 
-`GFXWALK=1` is what keeps the kernel path assembling and is the A/B
-PERFORMANCE.md Set 132 came off — `BAND=1`'s shape and for `BAND=1`'s reason.
-`tests/gfxbench`'s `kwalk` rows and `tests/linetest`'s walk fans need it, and
-both files say so at the top.
+**PERFORMANCE.md Set 132 was taken while the knob still existed and cannot be
+re-taken**, which is worth stating rather than leaving a reader to discover:
+those figures are a record of a kernel this tree no longer builds. Nothing
+depends on repeating them — every consumer of the comparison went with the
+subject (§5.12.7) — and keeping a knob alive to make a comparison nothing can
+act on is what §5.12.7 refused.
+
+#### 5.12.7 …and then §5.6's LINE FAMILY went with them
+
+Every caller converted, so the bodies went. **`gfx_line`, `gfx_line_raw`,
+`gfx_line_mono`, `gfx_line_fast`, `gfx_line_runs`, `gfx_lf_wide3`, `gfx_lm_pre`
+and `gfx_line_flush` are gone**, along with §5.6.7's walk and the `GFXWALK`
+knob that §5.12.6 kept it behind — a knob that compiles a comparison nothing
+can make any more is dead code with a switch on it.
+
+The four cells stay and answer **CF = 1**: `gfx_line` (0x02E0), `gfx_linit`,
+`gfx_lstep`, `gfx_lstepv`. The table is offset-addressed and a slot number is a
+published constant (§20.3).
+
+| | `.text` | `.bss` | |
+|---|---:|---:|---|
+| `kern_small` | **−659** | −36 | `gfx_line_fast`, `_runs` and `lf_wide3` were `%ifdef KERN_BIG`, so it had less to give |
+| `kern_big` | **−1,672** | −47 | and it **uncrosses FOUR image rungs** — **2,048 bytes of every machine's RAM**, back |
+
+**WHAT STAYED IS THE INTERESTING HALF.** `gfx_ls_ink`, `gfx_ls_box`,
+`gfx_ls_addr` and `gfx_ls_lx`/`gfx_ls_ly` are all still here, and `gfx_points`
+is why: the clip rect a point falls in, its byte and bit, the ink class and the
+second display's translation. That is §5.12.5's finding seen from the kernel
+side — **the six per-call concerns did not move into the apps, so the routines
+that answer them did not either.** Of `gfx_line`'s whole working set exactly one
+byte survives, `[gfx_ln_ink]`, and `gfx_points` is its only reader.
+
+##### What went with it, outside the kernel
+
+- **`tests/linetest`** — deleted. Its entire subject was §5.6.6's dilated
+  three-column walk; there is nothing left for it to compare.
+- **`tests/gfxbench`'s line and walk rows** — deleted. A bench row that times a
+  `stc`/`ret` reports a number rather than an error. `OSAPI_GFX_POINTS`
+  survived, and its rows went with them too, because they only existed to be
+  read *against* the walk — a figure that says *"cheaper than the walk"* says
+  nothing once there is no walk. **They were rebuilt on the slot's own terms**:
+  8 points and 24, which is two unknowns and two readings, so `arrival + N ×
+  marginal` is determined and every longer commit is read off the fit. That
+  number is what every app-side walker in the tree now pays (§5.12.5), so it
+  had to be a row rather than a note.
+- **`apps/paint`'s `PT_LNLINE` arm** — deleted. It was the A/B §42.23.8 was
+  measured with, and that measurement cannot be repeated.
 
 ### 5.13 `gfx_pixel` and `gfx_points` — which to reach for
 
@@ -6028,7 +6073,7 @@ both files say so at the top.
 1×1 solid rect*, `gfx_fill` clips and dispatches itself — and any shim that
 routed it through `gfx_points` would be LONGER than the body it replaced, as
 well as slower for the one case it exists for. Retiring it was priced in
-docs/plans/GFX-EMBEDDABLE-PLAN.md §6 at twelve bytes and that is what it is.
+docs/plans/completed/GFX-EMBEDDABLE-PLAN.md §6 at twelve bytes and that is what it is.
 
 **`gfx_points` keeps its general arm too, and that is not a fallback to
 `gfx_pixel` — it is the same three instructions inlined.** The fast path is
@@ -22713,7 +22758,7 @@ did, so the greying carries over unchanged.
 
 It costs **−27 bytes** in the one package that uses this element, and no kernel
 byte: the whole menu block is `%ifdef OS88UI_MENU` and `apps/word` is its only
-definer (§6.2 of docs/plans/GFX-EMBEDDABLE-PLAN.md). It also takes
+definer (§6.2 of docs/plans/completed/GFX-EMBEDDABLE-PLAN.md). It also takes
 `apps/os88ui.inc` to **zero `OSAPI_GFX_LINE` call sites**, which is one of the
 conversions that plan's wave 8 needs.
 
@@ -58774,7 +58819,7 @@ Two things fall out that are worth more than the 13%:
   floor machine is exactly the machine §42.8 exists for, so the order those two
   landed in was load-bearing.
 - **Paint is off the `OSAPI_GFX_LINE` caller list**, which is
-  docs/plans/GFX-EMBEDDABLE-PLAN.md §8.1.5's first blocker on the line family
+  docs/plans/completed/GFX-EMBEDDABLE-PLAN.md §8.1.5's first blocker on the line family
   leaving the kernel at all.
 
 The screen cannot disagree with the canvas any more either: it is a copy of it
@@ -95556,6 +95601,28 @@ and not a flicker one: the erase still precedes the draw inside it.
 So the ordering is the caller's, which is what this menu is: three orders, one
 program, and the reader picks.
 
+#### 78.5.1 …and three of the four orders are DELETED
+
+The menu is gone and so are `wr_edges`, `wr_edge1`, `wr_pairs`, the whole-figure
+and repair arms, `[wr_mode]` and the four words remembering the band on the
+glass. **Composed is the only order left**, because it is the only one that does
+not call the line primitive and §5.12.7 took that out.
+
+It is not a loss the figures argue against: composed already beat all three on
+both counts §78.5 measures — **74% floor, 90% mean, zero frames under half**,
+against `Edge at a time`'s 63/82/0 and `Whole figure`'s 1/47/52. What §78.5's
+numbers are for now is the finding, which is worth keeping and is not worth
+three code paths.
+
+**A band erases by covering**, so nothing was lost with the erase orders either:
+the band is sized to hold the frame on the glass *and* the frame replacing it,
+and one `gfx_blit1` does both. A refusal — from `wr_compose` when the figure
+will not fit, or from `wr_put` when `gfx_blit1` says no — now **leaves the last
+frame up**, which is a dropped frame and not a wrong one: neither has drawn
+anything by then, and `[wr_ex]`/`[wr_ey]` still describe what is on the glass.
+
+**−380 bytes of the package and 8 of its bss.**
+
 ### 78.8 A fourth order: COMPOSED, and put down in one call
 
 §78.5 offers three orders and says none of them is free, because whichever one
@@ -96457,9 +96524,44 @@ few bytes — and it is every `gfx_blit1` in the OS, Word's text bands
 included, so the odd-width carry (`shr cx, 1` / `rep movsw` / `jnc` /
 `movsb`) is load-bearing on every caller.
 
-**§78.5's order is kept as the refusal path**, taken when `gfx_blit1` answers
-CF = 1 — which with these arguments on a `kern_big` machine it cannot, and the
-saver runs nowhere else. It is insurance, and it costs a branch.
+**§78.5's order was kept as the refusal path** for six waves, taken when
+`gfx_blit1` answers CF = 1. §79.5.6.1 deleted it.
+
+#### 79.5.6.1 The refusal path is DELETED, and the refusal cannot happen
+
+The insurance above cost a branch and **186 bytes** of `SAVER.DRV` —
+`sv_cube_edge1`, `sv_cube_pairs`, `sv_cube_edges`, `sv_cube_boxclr` and the
+`[sv_cbok]` that armed them — and what it insured against is a refusal
+`gfx_blit1_x` does not issue for these arguments. The primitive refuses exactly
+four things (§5.4.2), and this call makes none of them:
+
+| it refuses | this call |
+|---|---|
+| `x` not a multiple of 8 | forced onto the byte grid — the first bullet above |
+| `cx` = 0 | `SV_CBW` = 128, an assembly-time constant |
+| `dx` = 0 | `SV_CBH` = 128, the same |
+| `dx` > 255 | 128 |
+
+**None of the four is data-dependent**: three are `equ`s and the fourth is a
+build-time forcing. That is what makes the deletion a deletion rather than a
+trade — there is no input the saver can be handed that reaches the arm, so
+keeping it assembled was keeping a path nothing could ever take.
+
+The machine where it *could* fire is gone as well, and had been for a while:
+`gfx_blit1` was `stc`/`ret` on `kern_small` until §5.4.2.5.1 gave that build the
+body, and the saver has never shipped there (§24.5). So the premium had been
+paid on a policy with no covered event since before the driver existed.
+
+**Deleting it is also what let §5.12.7 retire `OSAPI_GFX_LINE`**, this arm being
+the saver's last call site — which is the more interesting half: an insurance
+path had quietly become the reason a kernel routine stayed resident, so the
+branch was not costing a branch, it was costing 1,672 bytes of `.text` on every
+machine. A refusal path priced at its own size is priced wrong whenever it is
+the last consumer of something.
+
+**What replaces it is nothing.** `sv_cube_step` composes, calls `sv_cube_put`
+and carries on; a CF = 1 it cannot get would leave the previous frame standing,
+which is the cheapest failure a screen saver has.
 
 #### 79.5.2 Two things the emulator showed and the arithmetic did not
 
@@ -98203,6 +98305,24 @@ overrun corrupts a value; this one corrupts an *address*, and the next large
 `ch_bars_draw`'s own header warns about from the other direction (§82.1), and
 it is worth knowing that bss adjacency can arrange it without anyone loading a
 segment register wrongly at all.
+
+### 81.30 The menu tick is a SOLID SQUARE
+
+Sheet draws its own menus (§81), so it carried its own copy of the checked-item
+mark: two `OSAPI_GFX_LINE` calls in the shape of a tick. **It is one
+`OSAPI_GFX_FILL` of a 5×5 square now**, `SH_MCHKX`/`SH_MCHKY`/`SH_MCHKS`,
+centred in the 8-pixel check column and on the row's 8-pixel glyph line.
+
+The reason is §13.16.2.1's and §13.15's before it — *"a solid square … which
+reads on one bit as a tick does not"* — and §39.4 is why: grey rounds to black
+and a thin diagonal is single scattered pixels on both 1bpp adapters. The pen is
+already the row's, set by the highlight branch above, so the mark still inverts
+with the row exactly as the text does.
+
+It is also what took Sheet off `OSAPI_GFX_LINE`, which §5.12.7 needed. **Sheet's
+own catch-up pass is still owed** and this is not it: when that lands Sheet
+becomes a consumer of `os88ui.inc`'s shared menu (§13.16) the way Word is, and
+this copy goes with the rest of its private menu code.
 
 ## 82. CHART — charting, and the buffer both halves draw into (`apps/chart/chart.asm`, `apps/os88chart.inc`)
 

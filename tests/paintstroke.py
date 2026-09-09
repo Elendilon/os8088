@@ -17,7 +17,7 @@ bracket contains one far call and nothing else, so what it reads is the thing a
 change to the screen half moves and nothing that a change to the screen half
 does not.
 
-WHAT IT IS FOR. docs/plans/GFX-EMBEDDABLE-PLAN.md wave 4 asks whether the
+WHAT IT IS FOR. docs/plans/completed/GFX-EMBEDDABLE-PLAN.md wave 4 asks whether the
 screen half can stop being `OSAPI_GFX_LINE` - which it must before the line
 family can leave the kernel at all (that plan's 8.1.5) - and the honest way to
 answer it is to price both routes on the machine this OS is for rather than

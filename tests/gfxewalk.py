@@ -3,7 +3,7 @@
 
     make && python3 tests/gfxewalk.py [--machine os8088_5150_herc_gla]
 
-Since wave 5 of docs/plans/GFX-EMBEDDABLE-PLAN.md, Cyclone's warp and Missile's
+Since wave 5 of docs/plans/completed/GFX-EMBEDDABLE-PLAN.md, Cyclone's warp and Missile's
 trails step SPEC.md 5.6.7's resumable walk in their OWN images - apps/os88gfx.inc's
 `GFXE_WALK` - and commit the pixels through `OSAPI_GFX_POINTS`. Two things
 about that arrangement can be wrong in a way no picture shows, and this row is

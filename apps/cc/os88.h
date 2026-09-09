@@ -493,7 +493,6 @@ void os88_gfx_frame(int x1, int y1, int x2, int y2);
 void os88_gfx_fill_gray(int x1, int y1, int x2, int y2);   /* 50% dither */
 void os88_gfx_xor_rect(int x1, int y1, int x2, int y2);
 void os88_gfx_xor_fill(int x1, int y1, int x2, int y2);
-void os88_gfx_line(int x1, int y1, int x2, int y2, int dilate);  /* 5.6 */
 
 /* The 8 pattern bytes are yours and are SCREEN-aligned, so two rects that
  * abut tile seamlessly. A set bit is WHITE, bit 7 is leftmost. */

@@ -20,7 +20,7 @@ measured on a Hercules under MartyPC) with `gfx_blit4` drawing it a row at a
 time; the fast path is a dozen bytes in Paint once the kernel's two row-skips
 are made sign-aware. Option B was later built lean, measured and refused
 (above) — **and then SHIPPED**, when wave 1 of
-docs/plans/GFX-EMBEDDABLE-PLAN.md reversed that decision on a fact this page
+docs/plans/completed/GFX-EMBEDDABLE-PLAN.md reversed that decision on a fact this page
 never weighed: `OSAPI_GFX_BLIT1` has fourteen callers and NINE ship on the
 small disks, so the slot had stopped being Paint's alone. SPEC.md 5.4.2.5.1
 is what shipped and what it measured.

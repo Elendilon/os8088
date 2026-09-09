@@ -173,9 +173,15 @@ static void ch_cross(int rx, int ry, int colour)
  *
  * in:  win - the window record; the gfx lock is held in every caller
  * out: nothing */
+#define CH_DIAG  12                     /* points in the band's diagonal */
+static int ch_diag[CH_DIAG * 2];        /* ...and where they go: a static,
+                                         * because SPEC.md 73 rule 1 forbids
+                                         * taking the address of an automatic */
+
 static void ch_draw(void *win)
 {
     int x, y, right;
+    int i, np;
 
     /* ch_org and ch_sz are STATIC because `&automatic` is refused at build
      * time (73.5). Verified rather than assumed: making just this one an
@@ -210,13 +216,25 @@ static void ch_draw(void *win)
 
     /* The graphics band: a 50% dither, a frame around it, and a diagonal
      * through it. Three shapes rather than one because the point is to prove
-     * three different thunks pushed four arguments each in the right order -
-     * a swapped x2/y1 gives an empty or inverted rect, which is visible. */
+     * three different thunks pushed their arguments in the right order - a
+     * swapped x2/y1 gives an empty or inverted rect, which is visible.
+     *
+     * The diagonal is os88_gfx_points (SPEC.md 5.6.9) since SPEC.md 5.12.7
+     * retired the line slot, and it earns its place twice over: it is the only
+     * thing in the tree that calls the POINTS thunk from C, and a thunk that
+     * pushed the pointer and the count the wrong way round draws nothing at
+     * all, which is as visible as an inverted rect. */
     y += 12;
     os88_gfx_fill_gray(x, y, right, y + 21);
     os88_set_color(OS88_BLACK);
     os88_gfx_frame(x, y, right, y + 21);
-    os88_gfx_line(x + 2, y + 19, right - 2, y + 2, 0);
+    np = 0;
+    for (i = 0; i < CH_DIAG; i++) {
+        ch_diag[np] = x + 2 + i * 2;
+        ch_diag[np + 1] = y + 19 - i;
+        np = np + 2;
+    }
+    os88_gfx_points(ch_diag, CH_DIAG);
 
     /* A solid black tab at the left end of the band, so a 1bpp adapter (where
      * the dither is the only grey there is) still shows something filled. */

@@ -1464,7 +1464,7 @@ SOAK = [
         wants=("build/weave360.img",)),
     Row("weavegame", "soak", py("tests/weavegame.py"), 50.0,
         "WEAVE-SPEC 6.10, 12.3, 14: PONG.WAB under MartyPC, and it asks "
-        "wirefps's and wireflick's two questions of a sprite canvas "
+        "wireflick's two questions of a sprite canvas "
         "(SPEC.md 78.9). HOW MANY GFX CALLS A FRAME, read out of WEAVE.WSM's "
         "own frames and blits counters - the only honest way to price a "
         "redraw here (CLAUDE.md: a redraw costs what it CALLS), and 14 "
@@ -1479,7 +1479,7 @@ SOAK = [
         "ontick, and the row reads its y out of the canvas claim before and "
         "after the frames - the module shipped waves 5-7 delivering ONE "
         "ontick per start() (6.10.6) and no counter showed it. No threshold "
-        "on TIME - wirefps's rule, that a number which fails a build when a "
+        "on TIME - wireflick's rule, that a number which fails a build when a "
         "harness gets slower teaches nobody anything - so the fps is printed "
         "and the FIELD RUN (docs/FIELD-MACHINES.md, WEAVE-PLAN 4.2) is what "
         "turns it into a claim. 50s is 34s MEASURED plus room for the one "
@@ -2953,11 +2953,6 @@ SOAK = [
         "frame - the flicker measured rather than argued about",
         needs=("marty", "wiredisk"), serial=True,
         wants=("build/wire360.img",)),
-    Row("wirefps", "soak", py("tests/wirefps.py"), 30.0,
-        "What SPEC.md 5.6.4.1 is worth to a program that draws lines - apps/wire"
-        "reading its own frame rate, with the dispatch poked out and back",
-        needs=("marty", "wiredisk"), serial=True, alone=True,
-        wants=("build/wire360.img",)),
     Row("paintrate", "soak", py("tests/paintrate.py"), 60.0,
         "SPEC.md 42.8.1: is Paint's brush stroke still sampled at the TICK? The"
         "facets in a hand-drawn curve were one 55ms sleep each. On the GLaBIOS"
@@ -3026,11 +3021,6 @@ SOAK = [
     Row("evqfull", "soak", py("tests/evqfull.py"), 20.0,
         "SPEC.md 10.1: a full event ring discards its OLDEST input, and never"
         "a coalesced WAKE - asked of evq_push directly, with the CPU parked",
-        needs=("marty",), serial=True),
-    Row("linefast", "soak", py("tests/linefast.py"), 90.0,
-        "Does SPEC.md 5.6.4.1's fast walk lay 5.6.4's pixels? Both inks, all"
-        "eight octants, clipped and not - against the same kernel with the"
-        "dispatch poked out",
         needs=("marty",), serial=True),
     Row("dispmine", "soak", py("tests/dispmine.py"), 30.0,
         "Can Minesweeper's bottom row be PLAYED on a CGA? (SPEC.md 11.93)",
@@ -3883,7 +3873,7 @@ SOAK = [
         "nothing there, so Paint is opened directly on the canvas it makes "
         "itself. VERIFIED TO FAIL with stc/ret poked over the thunk, which "
         "is the state that kernel shipped in until wave 1 of "
-        "docs/plans/GFX-EMBEDDABLE-PLAN.md. It builds nothing: `make small` "
+        "docs/plans/completed/GFX-EMBEDDABLE-PLAN.md. It builds nothing: `make small` "
         "is what it reads, the same tree small128 and smallboot want",
         needs=("marty",), serial=True,
         wants=("build/small360.img", "build/smallk/kernel.bin")),

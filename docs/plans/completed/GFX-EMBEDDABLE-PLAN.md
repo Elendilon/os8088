@@ -1,18 +1,26 @@
 # GFX-EMBEDDABLE-PLAN.md — the graphics library a package embeds
 
-**Status: BUILT, waves 1–7. SPEC.md §5.12 is the contract and this file is now
-the design record behind it.** `apps/os88gfx.inc` ships; `kern_small` gave back
-`.text` −493 and `kern_big` −597, and `kern_big` uncrossed an image rung with
-it. Wave 2 is HELD with its arithmetic written down (§8.6) and wave 8 is the
-one still open.
+**Status: BUILT, all eight waves. SPEC.md §5.12 is the contract and this file is
+now the design record behind it.** `apps/os88gfx.inc` ships and **the whole
+`gfx_line` family is out of both kernels** (§5.12.7): `kern_big` `.text`
+50,688 → **49,016** with `.bss` −47, `kern_small` −659 and −36, and the image
+rung uncrosses **four steps of 512 — 2,048 bytes of every machine's RAM**. What
+is left in this file that is not built is §8.8, and that one says in its own
+title that it is not this plan's.
 
-**§8.2 to §8.7 are what each wave actually found, and they are the part worth
-reading**: four of the seven landed somewhere other than where this document
+**§8.2 to §8.11 are what each wave actually found, and they are the part worth
+reading**: five of the eight landed somewhere other than where this document
 pointed, and every headline figure below the wave table is now guest cycles off
 a breakpoint bracket rather than arithmetic (PERFORMANCE.md Set 134). Where a
-figure is still an estimate — §4.1's size table for the unbuilt capabilities,
-and wave 8's — §9 says so, and §9 item 6 says why that table is wrong on the
-high side.
+figure is still an estimate — §4.1's size table for the capabilities nothing
+built, and §8.8's — §9 says so, and §9 item 6 says why that table is wrong on
+the high side.
+
+**Two of the eight waves were won by not writing the code.** Wave 2's checkmark
+went to a shape `apps/skies` had already written for a different reason (§8.6.2)
+and wave 8's last two callers were deleted rather than ported (§8.11.1) — so the
+plan's own best moves were both *finding* something, and §9.1 is the rule that
+came out of missing one of them for six waves.
 
 `gfx_embeddable` is an app-side graphics library in the shape of
 `apps/os88ui.inc` — a `%include` a package opts into capability by capability.
@@ -651,9 +659,9 @@ Each is independently landable and each is a separate PR.
 | **3 ✅ DONE** | **`apps/os88gfx.inc`** — `GFXE_BAND` + `GFXE_LINE` (the Bresenham), **WIREFRAME** the first customer, and it is a **LIFT** rather than a new implementation (§8.2) | proves the lattice; **+18 bytes on the customer, ZERO kernel bytes** | none — the kernel is untouched, and `wirefps`/`wireflick` are the A/B that was already in the suite |
 | **4 ✅ DONE, RE-SCOPED** | **Paint's stroke stops calling `OSAPI_GFX_LINE`** (SPEC.md 42.23.8) — its screen half is a band out of the 1bpp canvas it already owns. The wave as WRITTEN could not be built and §8.3 says why | **13% off the screen half** (10,646 → 9,243 cycles, measured), +84 bytes of Paint, no kernel byte — and Paint off the `gfx_line` caller list, which is wave 8's first blocker | none — ten Paint rows pass, `tests/paintstroke.py` is the number |
 | **5 ✅ DONE** | `GFXE_WALK` + `GFX_POINTS` on **Cyclone, Missile, Tank and `SAVER.DRV`** — the plan named two and there are FOUR (§8.1.4.2) | **Missile −33.5%, Cyclone −9.2%** median, measured; ~1,117 bytes across four package images and 1,024 of their bss, no kernel byte | none — nine rows pass, and `tests/gfxewalk.py` is the one thing no picture can show |
-| **6 ✅ DONE** | gate `gfx_linit/lstep/lstepv` out of both kernels (SPEC.md 5.12.6), behind `GFXWALK=1` | **−513 / −617** measured, and `kern_big` **UNCROSSES AN IMAGE RUNG** — 512 bytes of every machine's RAM back | none — every walker moved in wave 5 first, which is the only thing that makes a refusing stub safe |
+| **6 ✅ DONE** | gate `gfx_linit/lstep/lstepv` out of both kernels (SPEC.md 5.12.6) | **−513 / −617** measured, and `kern_big` **UNCROSSES AN IMAGE RUNG** — 512 bytes of every machine's RAM back | none — every walker moved in wave 5 first, which is the only thing that makes a refusing stub safe. (It landed behind `GFXWALK=1`; wave 8 deleted the knob) |
 | **7 ✅ DONE, RE-SCOPED** | the PIXEL LOOPS move to `GFX_POINTS`, and `gfx_pixel` STAYS (SPEC.md 5.13) | Mines' wrong-flag X 20 calls → 1; `os88_gfx_points()` published to C. **No kernel bytes, and §8.7 says why there were never any to get** | none — `minexflag` is the row and it is exactly this path |
-| **8** | gate `gfx_line_fast`, `gfx_line_runs`, `gfx_lf_wide3` out of `kern_big`, then `gfx_line` itself | **−874**, then the remainder | needs waves 3, 4, 2 and Paint's stroke MEASURED against today's 13.03 ms chord |
+| **8 ✅ DONE** | **the whole `gfx_line` family out of both kernels** (SPEC.md 5.12.7), and `GFXWALK` with it | **−659 / −1,672 `.text`**, −36 / −47 `.bss`, and `kern_big` **UNCROSSES FOUR IMAGE RUNGS** — **2,048 bytes of every machine's RAM** | none — every caller was converted first (§8.11) |
 
 **Waves 1–5 take nothing out of either kernel** (wave 1 ADDS to `kern_small` and wave 1a to both). That is deliberate: every one
 of them is reversible and none of them can break a shipped program, so the
@@ -1348,6 +1356,56 @@ line off the desktop today. Moving those trails onto the walk arm makes
 principle and is a real change to a game's core rendering, on the path
 docs/FIELD-NOTES.md has already had one trail defect on. It wants the
 measurement above first, not after.
+
+## 8.11 Wave 8, as built — and the last two callers were not conversions
+
+`gfx_line`, `gfx_line_raw`, `gfx_line_mono`, `gfx_line_fast`, `gfx_line_runs`,
+`gfx_lf_wide3`, `gfx_lm_pre` and `gfx_line_flush` are out of both kernels, with
+§5.6.7's walk and the `GFXWALK` knob §8.5 had kept it behind — **a knob that
+compiles a comparison nothing can make any more is dead code with a switch on
+it**, which is the owner's call and the right one.
+
+| | `.text` | `.bss` | |
+|---|---:|---:|---|
+| `kern_small` | **−659** | −36 | the fast walk and the runs path were `%ifdef KERN_BIG` |
+| `kern_big` | **−1,672** | −47 | and **four image rungs**: 2,048 bytes of every machine's RAM |
+
+Of `gfx_line`'s whole working set exactly **one byte** survives — `[gfx_ln_ink]`
+— and `gfx_points` is its only reader. `gfx_ls_ink`, `gfx_ls_box`, `gfx_ls_addr`
+and `gfx_ls_lx`/`ly` stay for the same reason (§5.12.7).
+
+### 8.11.1 The last four callers, and only two were code to convert
+
+**Sheet and `cword`** were deferred (§8.6), but Sheet *ships* — so its private
+tick had to go before the slot could, and it is the same one-`gfx_fill` solid
+square (§81.30, §13.16.2.1). `cword`'s went with it, which retired the C
+`os88_gfx_line` thunk, its header declaration and the host-test's model of it.
+Neither needed the big Sheet pass; both are ten lines.
+
+**`apps/wire`'s modes 0–2 and `SAVER.DRV`'s `sv_cube_edge1` were DELETED, not
+ported** (§78.5.1, §79.5.6.1). Wire's three orders were an A/B against its own
+composite, and the composite already won both of §78.5's counts; saver's arm was
+insurance against a `gfx_blit1` refusal that cannot happen — `gfx_blit1_x`
+refuses four things and that call makes none of them, and wave 1 removed the
+last machine where it could. −380 bytes of wire, −186 of saver.
+
+### 8.11.2 Three instruments lost their subject and went with it
+
+`tests/linetest` (§5.6.6's dilated walk), `tests/wirefps` (what §5.6.4.1 was
+worth) and `tests/linefast` (that the fast walk drew the same pixels) all
+measured something that no longer exists, as did `gfxbench`'s line and walk
+rows and Paint's `PT_LNLINE` arm. **A bench row that times a `stc`/`ret` reports
+a number rather than an error**, which is worse than no row.
+
+**`OSAPI_GFX_POINTS` lost its `pts` bench rows with the walk** — they only ever
+existed to be read *against* it, and *"cheaper than the walk"* is not a
+measurement once there is no walk. It is the slot every app-side walker in the
+tree commits through (§5.12.5), so leaving it unmeasured would have made the
+library's own commit the one cost nobody could quote. **Two rows replace them**
+(8 points and 24): two unknowns, two readings, `arrival + N × marginal`
+determined, every longer commit off the fit. The dead scaffolding went with the
+rows it fed — `gb_lsinit`, `gb_b_lstep8`, `gb_b_lstepv8`, `gb_b_line8n`,
+`gb_b_lsteep`, `gb_b_lshal`, twelve row labels and four `.bss` reservations.
 
 ## 9. What is NOT settled — evidence still owed
 
