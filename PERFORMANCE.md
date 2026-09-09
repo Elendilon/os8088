@@ -12500,6 +12500,26 @@ wanted and `cs_edge`'s already-unreachable sloped `both` arm all go:
 **-1.9 ms and -100 BYTES**, on every profile rather than only the banked one,
 and 0 differing frames of 557 across six profiles.
 
+**...and `cs_edge`'s two chains were ONE loop written twice (§88.4.2.3).** At
+16.0 ms a frame it is the largest routine in the scene after the row filler,
+and it splits into a **4.60 ms setup** (765 cycles a call; its above-view arm
+runs on 12% of them) and **13.48 ms of Bresenham stepping** at `83 + 90.0 x
+rows` over **689 row-stores a frame**. `.left` and `.right` were the same
+thirty-six lines differing only in the array - and the array was also why each
+store cost FOUR bytes, `mov [cs_xl + bx], si` carrying a disp16 where
+`mov [bx], si` is two. BX becomes a real pointer, the arms become one loop,
+and the reload of q and r moves into the only arm that clobbers them:
+
+| tier 1, 16 frames | control | + both |
+|---|---|---|
+| `turnhold` `cs_scene` | 170.50 ms | **169.39 / 169.32** |
+| `bank` `cs_scene` | 154.80 | **153.92 / 154.07** |
+| `cruise` `cs_scene` | 126.22 | **125.88 / 125.88** |
+
+**-1.13 ms and -54 bytes.** The duplicate is the part worth remembering: two
+arms since the routine was written, reading as a deliberate specialisation,
+and the only thing specialised was a constant.
+
 **Three things this set is a worked example of.** A delta that crosses a
 structure boundary measures the boundary — the negative slope above was the
 finding that said so, not a noisy fit. And a prediction off a fetch floor is

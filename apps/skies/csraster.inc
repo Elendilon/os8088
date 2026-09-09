@@ -1927,6 +1927,8 @@ cs_edge:
     add si, ax
     mov di, dx
     xor bx, bx
+    mov ax, [cs_eq]                 ; ...and THIS ARM is the only one that
+    mov dx, [cs_er]                 ; clobbers them, so the reload lives here
 .inview:
     mov cx, [cs_ey2]                ; the last row to trace, clipped
     cmp cx, [cs_wh]
@@ -1937,85 +1939,60 @@ cs_edge:
     sub cx, bx
     inc cx                          ; CX = rows to trace
     jle .out
-    shl bx, 1                       ; BX = the row's table offset
-    mov ax, [cs_eq]
-    mov dx, [cs_er]
+    shl bx, 1
+    ; --- BX BECOMES A REAL POINTER, and that is what merges the two chains
+    ;     into ONE loop (SPEC.md 88.4.2.3). The left arm and the right were
+    ;     the same 36 lines differing only in the array, and the array is
+    ;     also why each store cost FOUR bytes: `mov [cs_xl + bx], si` is a
+    ;     disp16, `mov [bx], si` is two bytes and `mov [bx + 2], si` three.
+    ;     This loop is fetch-bound like every other one here - 90 cycles a
+    ;     row over 689 rows a frame - so three bytes off every two rows is
+    ;     the whole of the saving, and about fifty bytes of image come off
+    ;     with the duplicate.
     mov bp, [cs_edy]
     cmp byte [cs_eside], 1
-    jne .right
-    ; the two chains, two rows an iteration: the 8088 charges a `loop` and
-    ; its refill about as much as the row's own work
-.left:
+    jne .rt
+    add bx, cs_xl
+    jmp short .step
+.rt:
+    add bx, cs_xr
+    ; the chain, two rows an iteration: the 8088 charges a `loop` and its
+    ; refill about as much as the row's own work
+.step:
     shr cx, 1
-    jnc .l0
-    mov [cs_xl + bx], si
+    jnc .s0
+    mov [bx], si
     add si, ax
     add di, dx
     cmp di, bp
-    jb .l1
+    jb .s1
     sub di, bp
     inc si
-.l1:
+.s1:
     inc bx
     inc bx
-.l0:
-    jcxz .lend
-.l2:
-    mov [cs_xl + bx], si
+.s0:
+    jcxz .send
+.s2:
+    mov [bx], si
     add si, ax
     add di, dx
     cmp di, bp
-    jb .l3
+    jb .s3
     sub di, bp
     inc si
-.l3:
-    mov [cs_xl + bx + 2], si
+.s3:
+    mov [bx + 2], si
     add si, ax
     add di, dx
     cmp di, bp
-    jb .l4
+    jb .s4
     sub di, bp
     inc si
-.l4:
+.s4:
     add bx, 4
-    loop .l2
-.lend:
-    ret
-.right:
-    shr cx, 1
-    jnc .r0
-    mov [cs_xr + bx], si
-    add si, ax
-    add di, dx
-    cmp di, bp
-    jb .r1
-    sub di, bp
-    inc si
-.r1:
-    inc bx
-    inc bx
-.r0:
-    jcxz .rend
-.r2:
-    mov [cs_xr + bx], si
-    add si, ax
-    add di, dx
-    cmp di, bp
-    jb .r3
-    sub di, bp
-    inc si
-.r3:
-    mov [cs_xr + bx + 2], si
-    add si, ax
-    add di, dx
-    cmp di, bp
-    jb .r4
-    sub di, bp
-    inc si
-.r4:
-    add bx, 4
-    loop .r2
-.rend:
+    loop .s2
+.send:
     ret
 
 ; -----------------------------------------------------------------------------

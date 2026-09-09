@@ -101468,6 +101468,42 @@ the guest is simply never resumed, and it reads as the change having hung the
 machine. **The control that separates those is the same build against
 itself**, which is why it is taken before any conclusion.
 
+##### 88.4.2.3 …and `cs_edge`'s two chains were one loop written twice
+
+`cs_edge` is **16.0 ms a frame** on `turnhold` over 30.2 edges, the largest
+single routine in the scene after the row filler, and it splits cleanly:
+
+| | ms a frame | |
+|---|---|---|
+| the setup — order, clip, the `idiv`, the above-view jump | 4.60 | 765 cycles a call; the jump arm runs on **12%** of them |
+| **the Bresenham stepping** | **13.48** | `83 + 90.0 × rows`, **689 row-stores a frame** |
+
+Two things came off it, and the first is the kind of duplicate that hides in
+plain sight. **`.left` and `.right` were the same thirty-six lines**, differing
+only in which array they stored to — and that array is also why each store cost
+**four bytes**: `mov [cs_xl + bx], si` carries a disp16, where `mov [bx], si`
+is two and `mov [bx + 2], si` is three. So BX becomes a **real pointer** (the
+base added once, at the dispatch) and the two arms become one loop: **three
+bytes off every two rows** on a loop that is fetch-bound like every other one
+here, and about fifty bytes of image off with the duplicate.
+
+**And q and r were reloaded from memory for nothing.** `.fl` computes them into
+AX and DX and stores them; `.inview` then read both back. Only the above-view
+arm clobbers them, and it is 12% of calls — so the reload moved into that arm,
+where the setup is CLOCK-bound (765 cycles against 217 of fetch floor) and
+36 clocks off 88% of calls is real.
+
+| tier 1, 16 frames | control | + both |
+|---|---|---|
+| `turnhold` `cs_scene` | 170.50 ms | **169.39 / 169.32** |
+| `bank` `cs_scene` | 154.80 | **153.92 / 154.07** |
+| `cruise` `cs_scene` | 126.22 | **125.88 / 125.88** |
+
+**−1.13 ms and −54 bytes**, 0 differing frames of 557 over six profiles. The
+duplicate is the part worth remembering: it had been two arms since the routine
+was written, it reads as a deliberate specialisation, and the only thing
+specialised was a constant.
+
 #### 88.4.3 The walk is Tank's, without the per-pixel marks
 
 `cs_seg` is §85.3.2's walk with the dirty-span marks taken out of the pixel
