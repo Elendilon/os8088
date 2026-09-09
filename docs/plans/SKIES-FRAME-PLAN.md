@@ -797,3 +797,70 @@ as one - "it is filed without the cone, which cs_drawobj's frustum repeats
 exactly" - and it is really the repair for a cone that refuses objects the
 frustum keeps. Any change that stops an object being cone-tested EVERY FRAME
 walks into 88.5.2.2, whatever else it is for.
+
+## 7.5 THE POLYGON FILLER, taken apart - and one PARKED question about the algorithm
+
+`cs_scene` is 66% of a banked frame and `cs_poly` is the largest thing in it.
+Three changes have landed off one breakdown (SPEC.md 88.4.5.1, 88.4.2.2,
+88.4.2.3) - `cs_scene` **174.73 -> 169.32 ms**, the frame **262.2 -> 256.8**,
+for **-121 bytes** - and all three were removing work the code already knew was
+unnecessary rather than trading space for speed.
+
+Where the remaining time is, `turnhold`, measured:
+
+| | ms a frame | |
+|---|---|---|
+| the row loop's fill | ~35.5 | `~421 + 101.5 x bytes`, 257 rows a frame at 2.1 bytes |
+| **`cs_edge`'s Bresenham stepping** | **~12.0** | `83 + ~83 x rows`, **689 row-stores a frame** |
+| `cs_edge`'s setup | 4.60 | of which the `idiv` is ~1.04 |
+| the edge loop's per-edge setup | 2.43 | |
+| the min/max pass, the box mark, the counter | 2.30 | |
+
+### 7.5.1 PARKED - a fractional DDA instead of exact Bresenham
+
+**The one item left that is worth more than a millisecond is the STEPPING
+ALGORITHM, and it is parked because the picture is the thing being spent.**
+
+`cs_edge` steps an exact integer Bresenham: `q = floor(dx/dy)` and a remainder
+`r`, and every row carries `x += q; err += r; if err >= dy then x++, err -= dy`.
+That is six instructions and ~13.5 bytes a row, on a loop whose cost IS its
+byte count (88.4.5.1). A 16.16 fractional DDA is three:
+
+    mov [bx], si            ; x, integer part
+    add di, bp              ; fraction += step.frac
+    adc si, ax              ; integer += step.int + carry
+
+**~6 bytes a row against ~13.5**, which at the 8088's 4.34-a-byte floor is
+~32 cycles a row over 689 rows a frame - **~4.6 ms predicted**, the largest
+single item nameable in the scene. The setup gets simpler too: one `div` of a
+shifted numerator instead of `idiv` plus the floor correction.
+
+**What it costs is what makes it a question rather than a task.** The user's
+own observation is that these lines are *better than any period DOS game's*,
+and that is the thing being traded. Two claims should be separated before
+anyone acts on this, because only one of them is obviously true:
+
+- **The accumulated drift is probably negligible and is MEASURABLE.** A
+  correctly rounded 16.16 step drifts at most `rows x 2^-16` pixels, which
+  over the tallest edge in the view (112 rows) is 0.0017 px. On that
+  arithmetic the picture should be identical or within one pixel on a
+  vanishing fraction of edges - so **the honest first step is to measure the
+  pixels, not to argue about them**, with the tick-driven six-profile gate
+  that every change in this round has used.
+- **Shared edges stay consistent**, which is the failure that would actually
+  show: two faces meeting along one edge must produce the SAME x per row or
+  the seam cracks or double-draws. Both algorithms are a pure function of the
+  two endpoints, so two polygons handed the same endpoints agree either way.
+  This is worth stating because it is the risk a reader will assume is fatal.
+
+So the shape of the investigation is: build it, run the pixel gate, and **let
+the count decide**. If it is 0 differing pixels the quality question never
+arises. If it is not, the trade is the user's and the bar is explicit - *"hard
+to give up for less than a big win"* - and ~4.6 ms of a 257 ms frame is 1.8%,
+which is probably not that bar on its own.
+
+**Two cautions for whoever picks this up.** A prediction off the fetch floor is
+an UPPER bound where the operands are memory (88.4.5.1 predicted 3.6 ms and
+delivered 2.5), so 4.6 could be three. And `cs_edge` has three callers, two of
+them the rolled horizon's (csraster.inc), so the change is not confined to the
+polygon filler.
