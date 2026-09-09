@@ -2971,6 +2971,27 @@ GLS_SZ    equ 14                 ; the walk state, in YOUR bss
 ; the clip region, so you cannot leak dithered text into the next painter. Put
 ; the pen back with a `clc` call when the control is drawn, all the same - the
 ; next thing YOU draw in this hold would otherwise come out disabled.
+%define OSAPI_GFX_POINTS    KERNEL_SEG:0x0538   ; ES:SI = CX records of two
+                                 ; words each, x then y (screen px); CX = how
+                                 ; many, 0 legal and does nothing.
+                                 ; [gfx_color] is the ink; hold the lock.
+                                 ; Preserves every register.
+                                 ;
+                                 ; DRAW THESE PIXELS - where OSAPI_GFX_LINE is
+                                 ; "draw this line" and the walk above is
+                                 ; "draw the next N of it". You decided which
+                                 ; ones; the kernel does the clip region, the
+                                 ; cursor's save-under, the adapter and the
+                                 ; display. A point outside every clip rect is
+                                 ; SKIPPED, not refused, so a partly covered
+                                 ; window needs no arithmetic of yours.
+                                 ;
+                                 ; It is the cheap way to plot a figure you
+                                 ; rasterised yourself: one arrival for the
+                                 ; whole set, and per point what a walk step
+                                 ; costs WITHOUT the ~480us it spends staging
+                                 ; a Bresenham block in and back out
+                                 ; (SPEC.md 5.6.8, 5.6.9).
 %define OSAPI_GFX_PEN       KERNEL_SEG:0x0310   ; CF = 0 live (CBLACK, flag
                                  ; clear) / CF = 1 disabled (CDGRAY, flag
                                  ; set). Preserves every register.

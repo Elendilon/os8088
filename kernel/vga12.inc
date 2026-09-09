@@ -1194,6 +1194,130 @@ gfx_lstepv:
 
 ; gfx_ls_ink - resolve [gfx_color] to the 1bpp class once (00 / FF / 01)
 ; clobbers AX
+; -----------------------------------------------------------------------------
+; gfx_points - draw a set of pixels the CALLER computed (SPEC.md 5.6.9)
+; in:       ES:SI = CX records of two words each, x then y; CX = how many
+;           (0 legal, does nothing); [gfx_color] = the ink; the lock held
+; out:      nothing; preserves every register
+;
+; gfx_line answers "draw this line" and 5.6.7's walk "draw the next N pixels of
+; it"; this answers "draw THESE pixels". The body is gfx_lstep_mono's with
+; "read the next pair" where the Bresenham advance is - so a point costs the
+; walk's marginal pixel and the call costs one arrival, where a walk step also
+; pays ~480us of staging its caller's state in and back out (5.6.8).
+;
+; ES is needed twice - the caller's array and the framebuffer - so the segment
+; is banked in .bss the way gfx_ls_one banks the block's, and the array cursor
+; rides in BP because gfx_ls_addr wants the x in SI.
+; -----------------------------------------------------------------------------
+gfx_points:
+    or cx, cx                   ; nothing to draw is answered BEFORE anything
+    jnz .work                   ; is pushed and before the arrow comes down -
+    ret                         ; no pixel is written, so no hide is owed. It
+                                ; is also why this is not `jcxz .out`: every
+                                ; conditional jump on an 8086 is rel8 and the
+                                ; body below is longer than one reaches
+.work:
+    CURUNLAZY                   ; this may write any pixel on the screen, so
+                                ; the deferred hide is owed (SPEC.md 7.1.4) -
+                                ; and owed HERE, above everything that reads
+                                ; state the arrow's removal could change
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push es
+%ifdef GFX_VGA                  ; GFX_VGA is defined exactly when KERN_BIG is
+    cmp byte [vid_ndisp], 1     ; (kernel.asm:445), so ONE gate covers both a
+    ja .slow                    ; second display - which resolves per POINT
+    cmp byte [vid_mono], 0      ; (39.14) - and a planar adapter. Neither test
+    je .slow                    ; survives kern_small's assembly, so that build
+    cmp byte [vid_planes], 1    ; gets the fast arm alone and `.slow` is a
+    jne .slow                   ; branch nothing can take (SPEC.md 5.6.4.5's
+    jmp short .fast             ; shape one routine along)
+
+    ; SPEC.md 5.6.9.2: one gfx_pixel a point - it clips, resolves the display
+    ; and draws on a planar adapter itself. It sits HERE, between the gates and
+    ; the body, because every conditional jump on an 8086 is rel8 and the fast
+    ; loop is longer than one reaches; the way back out is a near jmp, which
+    ; has no such limit. gfx_ls_box's own comment is this trap one file up.
+.slow:
+    mov [gfx_pt_cseg], es
+    mov bp, si
+    mov si, cx                  ; the count moves out of CX: gfx_pixel takes
+.sp:                            ; its x THERE, which is gfx_lstep_slow's idiom
+    mov es, [gfx_pt_cseg]
+    mov cx, [es:bp]
+    mov dx, [es:bp+2]
+    add bp, 4
+    call gfx_pixel
+    dec si
+    jnz .sp
+    jmp .out
+.fast:
+%endif
+    mov [gfx_pt_cseg], es       ; the array's segment, banked BEFORE anything
+    call gfx_ls_ink             ; else runs: ES is about to become the
+    mov bp, si                  ; framebuffer's, and BP the cursor
+    mov word [gfx_ls_bx1], 1    ; SPEC.md 5.6.9.1: an EMPTY box, so the first
+    mov word [gfx_ls_bx2], 0    ; point cannot match whatever the last caller
+                                ; left here and must re-resolve
+.each:
+    mov es, [gfx_pt_cseg]       ; --- the point, out of the caller's segment
+    mov si, [es:bp]
+    mov dx, [es:bp+2]
+    add bp, 4
+    mov es, [vid_rseg]          ; --- and the framebuffer, for the draw
+    cmp si, [gfx_ls_bx1]        ; still inside the resolved rect?
+    jl .miss
+    cmp si, [gfx_ls_bx2]
+    jg .miss
+    cmp dx, [gfx_ls_by1]
+    jl .miss
+    cmp dx, [gfx_ls_by2]
+    jle .have
+.miss:
+    call gfx_ls_box             ; ...no: the rect that holds it, if any - and
+    cmp si, [gfx_ls_bx1]        ; an EMPTY box if none does, which skips the
+    jl .next                    ; point and leaves the next one to re-resolve
+    cmp si, [gfx_ls_bx2]
+    jg .next
+    cmp dx, [gfx_ls_by1]
+    jl .next
+    cmp dx, [gfx_ls_by2]
+    jg .next
+.have:
+    call gfx_ls_addr            ; DI = the byte, BL = its bit
+    mov al, [gfx_ln_ink]
+    cmp al, 1                   ; the dither class: lit where (x+y) is even
+    jne .solid
+    mov ax, si
+    xor ax, dx
+    and al, 1
+    dec al
+.solid:
+    and al, bl
+    mov ah, bl
+    not ah
+    and ah, [es:di]
+    or  ah, al
+    mov [es:di], ah
+.next:
+    loop .each
+.out:
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 gfx_ls_ink:
     mov al, [gfx_color]
     call gfx_ink
@@ -5893,6 +6017,10 @@ gfx_ls_bx2      resw 1          ; a handful of pixels, so this is one list walk
 gfx_ls_by2      resw 1          ; per CALL in every case that matters
 gfx_ls_vx       resw 1          ; ...and the point in VIRTUAL space, which is
 gfx_ls_vy       resw 1          ; what wm_clip_tab is in (SPEC.md 39.14.9)
+gfx_pt_cseg     resw 1          ; SPEC.md 5.6.9: gfx_points' array segment.
+                                ; ES is the framebuffer inside its loop, so
+                                ; the caller's cannot stay there - the word
+                                ; below is the same problem for the walk
 gfx_ls_cseg     resw 1          ; ...and where the caller's block came from,
 gfx_ls_coff     resw 1          ; because ES cannot hold it across the walk
 

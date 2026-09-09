@@ -1386,6 +1386,11 @@ gb_prims:
     mov si, gb_r_lin1
     xor al, al
     call bl_run
+    call gb_ptsinit                 ; ...and the same pixels handed over whole
+    mov word [bl_body], gb_b_points
+    mov si, gb_r_pts1
+    xor al, al
+    call bl_run
     mov word [gb_lsn], 3           ; --- 3.2 at n = 3: the KERNEL walk, then
     call gb_lsinit                  ; the APP-side plot over the same rows.
     mov word [bl_n], 40             ; n * iterations <= the walk's own 126
@@ -1396,6 +1401,11 @@ gb_prims:
     call gb_lsinit
     mov word [bl_body], gb_b_line8n
     mov si, gb_r_lin3
+    xor al, al
+    call bl_run
+    call gb_ptsinit                 ; ...and the same pixels handed over whole
+    mov word [bl_body], gb_b_points
+    mov si, gb_r_pts3
     xor al, al
     call bl_run
     mov word [gb_lsn], 10           ; --- 3.2 at n = 10: the KERNEL walk, then
@@ -1410,6 +1420,7 @@ gb_prims:
     mov si, gb_r_lin10
     xor al, al
     call bl_run
+
     mov word [gb_lsn], 1            ; leave it as every row before 3.2 found it
     call gb_boxfull
     mov word [bl_n], 6
@@ -2503,6 +2514,50 @@ gb_b_lstepv8:                       ; one arrival for the same eight
 ; region kept then varied with n. A line costs what it costs wherever it is
 ; (PERFORMANCE.md Set 100), so holding the position still leaves the segment
 ; LENGTH as the only thing 3.2 varies.
+; gb_ptsinit / gb_b_points - docs/plans/GFX-EMBEDDABLE-PLAN.md 3.2.1's THIRD
+; route: the app-side walker hands the kernel the pixels it computed, one call
+; for all eight walks. The array is the same 8 x [gb_lsn] points the two rows
+; above lay down, so the three are drawing the same thing three ways.
+gb_ptsinit:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    mov di, gb_pts
+    xor bx, bx
+.w:
+    mov ax, bx
+    mov cl, 3
+    shl ax, cl
+    add ax, [gb_x]              ; gb_lsinit's own 8px spread
+    mov cx, [gb_lsn]
+    mov dx, [gb_y]
+.p:
+    mov [di], ax
+    mov [di+2], dx
+    add di, 4
+    inc dx
+    loop .p
+    inc bx
+    cmp bx, GB_NWALK
+    jb .w
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+gb_b_points:
+    mov si, gb_pts              ; an X slot: the stub puts our DS in ES itself
+    mov cx, [gb_lsn]
+    shl cx, 1
+    shl cx, 1
+    shl cx, 1                   ; GB_NWALK = 8 points a step
+    call OSAPI_GFX_POINTS
+    ret
+
 gb_b_line8n:
     mov di, 0
 .next:
@@ -3391,6 +3446,8 @@ gb_r_lsv3: db 'kwalk n=3 x8', 0
 gb_r_lin3: db 'aline n=3 x8', 0
 gb_r_lsv10: db 'kwalk n=10 x8', 0
 gb_r_lin10: db 'aline n=10 x8', 0
+gb_r_pts1: db 'pts n=1 x8', 0
+gb_r_pts3: db 'pts n=3 x8', 0
 gb_r_frow: db 'GFX_FILL 256x1', 0
 gb_r_fr:   db 'GFX_FRAME 64x64', 0
 gb_r_gy:   db 'GFX_FILL_GRAY 64x64', 0
@@ -3541,6 +3598,21 @@ GB_O_MASKA  equ GB_O_PLANAR + GB_BLITPZ
 GB_O_MASKB  equ GB_O_MASKA + GB_MSZ
 GB_BSS_OWN  equ ((GB_O_MASKB + GB_MSZ + 511) / 512) * 512   ; benchlib's base must be
                                         ; 512-ALIGNED: bl_out is an int 13h target
+
+; docs/plans/GFX-EMBEDDABLE-PLAN.md 3.2.1's coordinate array - eight walks'
+; worth of points at the widest n the POINTS rows use, which is 3.
+;
+; IN THE IMAGE and not the bss, and capped at 3 rather than the 10 the kwalk
+; and aline rows reach - neither is a style choice. GB_BSS_OWN's 512-rounding
+; has exactly TWO bytes of slack, so any bss addition buys a whole step and
+; puts the package 52 bytes over APP_MAX_SIZE; and this package is close
+; enough to that ceiling that 320 bytes of image does not fit either. Two
+; points fit `arrival + N x marginal` EXACTLY, which is the whole shape of the
+; row, so n=10 is read off the fit rather than measured. gb_ptsinit overwrites
+; every byte before a row reads one, so what is stored here does not matter.
+GB_PTSN     equ 3
+GB_PTSZ     equ GB_NWALK * GB_PTSN * 4
+gb_pts:     times GB_PTSZ db 0
 
     align 512                   ; ...and os88_image_end likewise, which this
                                 ; costs up to 511 bytes of image and buys the

@@ -3937,7 +3937,15 @@ osapi_table:
                                   ;          frees, so the work is ld_start's
                                   ;          step 8a, one instruction after
                                   ;          this returns
-osapi_table_end:                  ; 0x0538
+    OSAPI_XCELL gfx_points        ; 0x0538 - X: draw a set of pixels the CALLER
+                                  ;          computed (SPEC.md 5.6.9). ES:SI =
+                                  ;          CX records of two words each, x
+                                  ;          then y; CX = how many, 0 legal.
+                                  ;          [gfx_color] is the ink and the
+                                  ;          lock is held. Preserves every
+                                  ;          register; a point outside every
+                                  ;          clip rect is SKIPPED, not refused
+osapi_table_end:                  ; 0x0540
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -3945,8 +3953,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 165 * 8
-%error "os8088 API jump table must be exactly 165 8-byte slots"
+%if OSAPI_TABLE_LEN != 166 * 8
+%error "os8088 API jump table must be exactly 166 8-byte slots"
 %endif
 
 ; =============================================================================

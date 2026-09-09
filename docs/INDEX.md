@@ -105,6 +105,7 @@ Read first: [§5 vga12.inc](../SPEC.md#5-vga12inc); [§25 icons.inc — icon for
 | `0x0300` | `OSAPI_GFX_LINIT` | AX/BX = x1/y1, CX/DX = x2/y2, ES:DI = a GLS_SZ block (X - it is yours). Sets the walk up at (x1,y1). Preserves all. |
 | `0x0308` | `OSAPI_GFX_LSTEP` | ES:DI = the block, CX = how many pixels to draw in [gfx_color]; the block advances by exactly that many. CX = 0 is legal and does nothing. Lock held... |
 | `0x0318` | `OSAPI_GFX_LSTEPV` | ES:DI = the array, CX = how many pairs. Identical to CX separate OSAPI_GFX_LSTEP calls in one pen. Lock held. Preserves all. |
+| `0x0538` | `OSAPI_GFX_POINTS` | ES:SI = CX records of two words each, x then y (screen px); CX = how many, 0 legal and does nothing. [gfx_color] is the ink; hold the lock... |
 | `0x0310` | `OSAPI_GFX_PEN` | CF = 0 live (CBLACK, flag clear) / CF = 1 disabled (CDGRAY, flag set). Preserves every register. |
 
 ### Text and fonts

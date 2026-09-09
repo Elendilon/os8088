@@ -12518,3 +12518,73 @@ than to rediscover. The row was first built ADVANCING each iteration's
 segments down the sandbox, and reads the same either way, so it is not the
 clip region.
 
+---
+
+### Set 133 — `gfx_points` BUILT and measured (SPEC.md 5.6.9)
+
+| | |
+|---|---|
+| machine | **MartyPC**, cycle-accurate IBM 5150/XT, 4.77 MHz 8088 |
+| adapter | `os8088_5150_herc_gla` |
+| harness | `tests/gfxbench`, rows `pts n=1 x8` / `pts n=3 x8` |
+| subject | the same eight walks Set 132 stepped, handed over as coordinates |
+| date | 2026-09-09 |
+
+Set 132 ended by naming the slot that was missing. It is built:
+
+| | |
+|---|---:|
+| `pts n=1 x8` — 8 points | **1,662.69 µs** |
+| `pts n=3 x8` — 24 points | **4,317.97 µs** |
+| fitted **per point** | **165.96 µs** |
+| fitted **arrival** | **335.0 µs** |
+
+Two points fit `arrival + N x marginal` exactly, which is the whole shape of
+the row. **The marginal was estimated at ~170 µs from the walk's own 154 plus a
+full `gfx_ls_addr`; it measures 165.96** — 2.4% out, and the reason it is close
+is that the body IS `gfx_lstep_mono`'s with the Bresenham advance replaced.
+
+#### Against the three routes Set 132 measured
+
+| pixels a block a frame | `gfx_lstepv` x8 | 8 x `GFX_PIXEL` | 8 x `GFX_LINE` | **`GFX_POINTS`** |
+|---:|---:|---:|---:|---:|
+| 1 | 5,243.8 | 4,316.3 | 7,884.7 | **1,662.7** |
+| 3 | 7,704.2 | 12,949.0 | 10,497.0 | **4,318.0** |
+| 10 | 16,272.0 | 43,163.2 | **9,180.0** | 13,611.5 *(fit)* |
+
+- **It is the best route below 6.66 pixels a block a frame** — Set 132
+  predicted 6.6 from the estimated marginal.
+- **It beats the resumable walk out to 37.7**, which is past anything in the
+  tree. `MC_DRNBUD` caps Missile's drain at 64 pixels a frame over ~4 blocks,
+  which is sixteen.
+
+> **So `gfx_lstep` is no longer the best route at any n a shipped program
+> uses**, which is what Set 132 said it would take and what
+> docs/plans/GFX-EMBEDDABLE-PLAN.md wave 4 was waiting on.
+
+#### What it cost
+
+Per-symbol from `[map all]`, reconciled against the section lengths:
+
+| | `.text` | + cell | + `.bss` | total |
+|---|---:|---:|---:|---:|
+| `kern_small` | **157** | 8 | 2 | **167** |
+| `kern_big` | **211** | 8 | 2 | **221** |
+
+Estimated at +150 / +165. `kern_small` is 17 over; `kern_big` is 56 over,
+because the `gfx_pixel` fallback arm and the three gates in front of it cost
+more than the estimate allowed. Both reuse `gfx_ls_box`, `gfx_ls_addr` and
+`gfx_rowbase` and add nothing to them.
+
+#### What is NOT established
+
+**There is no correctness gate yet.** What the rows establish is that the draw
+path *executes* — 165.96 µs a point is within 8% of the walk's own measured
+marginal, and a loop that skipped every point could not cost that — and not
+that the pixels land where they should. The body is `gfx_lstep_mono`'s
+verbatim, which is an argument and not a check.
+
+**Nothing shipped calls the slot** (`grep OSAPI_GFX_POINTS apps/ drivers/` is
+empty but for the SDK define), so it is inert on every floppy in the tree until
+a package is converted. The gate is owed before one is.
+

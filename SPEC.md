@@ -4789,6 +4789,58 @@ is the agreement PERFORMANCE.md Part 6 rule 7 asks for. What this section
 adds is the *size* of the per-call part, and it is smaller than the pixel it
 guards.
 
+#### 5.6.9 `gfx_points` — a set of pixels the CALLER computed (0x0538)
+
+```
+in:       ES:SI = CX records of two words each, x then y (screen px)
+          CX    = how many. 0 is legal and does nothing
+          [gfx_color] = the ink; the gfx lock held
+out:      nothing; preserves every register
+```
+
+An **X slot**: the array is in the caller's own segment.
+
+`gfx_line` answers *"draw this line"* and §5.6.7's walk answers *"draw the next
+N pixels of it"*. This answers **"draw these pixels"**, and the difference is
+that the caller has already decided which ones. It exists because the six
+things that stand between a package and the framebuffer — the adapter, the
+CLIP REGION, the CURSOR's save-under, the display, the lock, and the fact that
+§53.7 publishes no framebuffer to a windowed program — are all per-CALL, while
+a Bresenham is per-LINE. Nothing made the kernel the right place to keep the
+walk except that there was no slot which took the pixels.
+
+**What it costs is the walk's own marginal pixel and nothing else.** §5.6.8
+measures a walk step at ~480 µs of per-block setup plus ~175 µs a pixel, and
+the whole of that 480 is *staging the caller's Bresenham state in and back
+out*. A points array has no state to stage, so the per-call part is one
+arrival and one ink resolve.
+
+**The body is `gfx_lstep_mono`'s**, with "read the next pair" where the
+Bresenham advance is: `gfx_ls_box` resolves the clip rect containing the point
+and answers an EMPTY box when none does, `gfx_ls_addr` turns the point into a
+byte and a bit mask through `gfx_rowbase`, and the draw is the same
+read-modify-write under the same dither test. **A point outside every rect is
+skipped, not refused** — the box is re-resolved at the next one, exactly as the
+walk does.
+
+##### 5.6.9.1 The box is invalidated on entry, and that is not a nicety
+
+`gfx_ls_bx1..by2` is whatever the last caller left in it, and the region may
+have been re-armed since. The loop therefore stores an EMPTY box before the
+first point, so the first one always takes the `.miss` arm and re-resolves.
+Without it a call whose first point happens to fall inside a stale rect draws
+through a clip nobody set — which is invisible until two windows overlap.
+
+##### 5.6.9.2 What takes the fallback
+
+The fast path wants a **1bpp adapter and ONE display**. A second display would
+need the point resolved per point (§39.14) and a planar one is `gfx_pixel`'s
+work either way, so both fall back to a `gfx_pixel` loop — correct, and exactly
+what the caller would have paid without this slot. On `kern_small` neither test
+survives the assembly: that build has no VGA (§39.27) and no second display, so
+the gates are constants and the fallback is a branch nothing can take, which is
+§5.6.4.5's shape one routine along.
+
 ### 5.7 The per-call floor — what a small drawing call spends
 
 **A drawing call costs almost the same whatever it draws**, and the field
