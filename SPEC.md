@@ -8017,6 +8017,49 @@ reason: nothing that answers the questions below it may be read stale.
 kern_big only. `gfx_blit1` is `stc`/`ret` on kern_small (§5.4.2.5), so there is
 no caller there and the routine is not assembled.
 
+#### 7.1.4.5.1 …and what is left is the EAGER spend, which is load-bearing
+
+With the pointer **on** the window this buys nothing, and the reason is one
+line above it in the same frame: `wm_clip_set` spends the hide itself, for the
+whole hold, against the window's whole region (§7.1.4.2). By the time a band
+reaches `gfx_blit1_x` the promise is already gone, so the rectangle test
+short-circuits at its first compare and the unlock still owes a `cursor_show`.
+
+**That eager spend cannot simply be dropped**, and the measurement that made it
+look attractive was a misattribution worth recording. The frame profile put
+`wm_clip_set` at 3.11 ms on VGA against 1.74 on the 1bpp adapters, and an
+occlusion walk over window records is arithmetic that cannot be
+adapter-dependent. Broken down on its own symbols, the routine is:
+
+| | ms |
+|---|---:|
+| entry → `wm_clip_seed` (the content rect, `wm_bord`) | 0.406 |
+| `wm_clip_seed` | 0.040 |
+| **`wm_clip_occl` — the occlusion walk** | **0.169** |
+| `wm_su_drop` | 0.135 |
+| `cur_lazyck`'s own test | 0.131 |
+
+— about **0.88 ms**, and the rest of the 3.11 was `cursor_hide` inside the
+span. **So caching the occlusion walk is worth 0.169 ms and is not worth
+building**; the money is the hide, and it is spent here because the whole-shape
+clippers rely on it having been. `fnt_unlazy` (`kernel/font.inc`) is the plain
+statement of that contract —
+
+```
+fnt_unlazy:
+    cmp word [wm_clip_n], 0
+    jne .out                    ; a region is armed: do nothing
+    CURUNLAZY
+```
+
+— and `ico_core` calls `cur_unlazy` at all. Removing the eager spend without
+giving each of them its own rectangle would leave every clock tick, Timer
+refresh and Task Manager repaint drawing straight through the arrow: §7.1.4's
+permanent smear, on the hottest text path in the system. Taking it means
+`gfx_clip_run` (which already holds the primitive's rect in `gfx_cl_x1..y2`)
+and the whole-shape family each asking `cur_lazyrect` for themselves — a
+change worth costing, and a bigger one than it looks.
+
 ### 7.1.5 The hide must be spent ABOVE the `[vid_mono]` dispatch
 
 `gfx_xor_rect`'s `cur_unlazy` sat **below** its `cmp byte [vid_mono], 0`, so on
