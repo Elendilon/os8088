@@ -102095,11 +102095,23 @@ until one of them hid a mountain the eye can see. With the square root the
 same frame is **201.1 ms against 225.7**, and several of NEPAL's hand-set
 radii come DOWN - the wall 2,600 to 2,062 - because an exact bound is
 tighter than the estimates that were there.
-`tests/unit/t_csrad.py` decodes every model out of `build/skies.bin` and
-fails the build if any declares less than its own vertices need, which is
-what makes the sentence in `cs_sizepx`'s comment a fact rather than a claim:
-it has been written down since the routine was, and was false of the data
-the whole time.
+`tests/unit/t_csrad.py` decodes every model and fails the build if any
+declares less than its own vertices need, which is what makes the sentence
+in `cs_sizepx`'s comment a fact rather than a claim: it has been written
+down since the routine was, and was false of the data the whole time.
+
+**§88.10.5 DISARMED IT, and the guard it wrote for itself is the only
+reason that was visible.** The models left `build/skies.bin` when the worlds
+became parts, so `dispapps._map('skies')` went from 122 `cs_m_*` to **two** —
+and the row's own *"%d models in the map, it does not describe this package"*
+sentinel is what turned that into a red row instead of a green one walking
+nothing. It lays each world into the image the way `cs_wldget` does now
+(`csworlds.overlay`, `t_csworld.py`'s reader) and walks all eight plus the
+resident image: **161 models**, deduplicated by address because the shared
+vocabulary is laid at one address in every world's map. Its second bug was
+`t_csworld.py`'s own, one field along — `CSM_VERTS` read through a SIGNED
+word, so every model in an overlay at 0xB400 and up had a negative vertex
+pointer and was skipped by the `0 < vp` guard.
 
 **Euclidean and not Manhattan, and that was measured rather than assumed.**
 The first fix raised every model to `max(|x| + |y| + |z|)`, which serves
@@ -103967,6 +103979,57 @@ A5 planes and flies. It composes with §88.7.10 for free: `B` closes the
 throttle, so the key that means STOP works on the water too, where there is
 nothing for it to squeeze.
 
+#### 88.7.7.3 A water strip has TWO ends, and three of them faced the wrong way
+
+Reported off the machine, flying the A5 at Paris-Le Bourget: *"I have to turn
+all the way around to get to the POIs."*
+
+`CSA_WHDG` does two jobs in `cs_reset` and neither of them is drawing. It
+decides **which end of the strip the hull sits on** — the spawn is
+`-(CSA_WLEN - 60)` metres along it from `CSA_WX`/`CSA_WZ`, the same 60-metre
+threshold offset `CSA_SPAWN` gives a runway — and it decides **which way the
+nose points**. So a strip declared along its own axis in the wrong direction
+starts the session at the far end looking away from everything the world was
+built for, and there is no other symptom: `CSA_WLEN` and `CSA_WWID` are
+half-extents about the centre, so the reversed strip is *the same rectangle*
+and §88.7.7.1's landing test — which is over the drawn river anyway, not the
+rectangle — cannot tell the two apart. Nothing in the picture changes. The
+only way to notice is to fly it.
+
+Three of the nine were laid the wrong way round, and LBG was the worst of
+them: the nearest point of interest, **Notre-Dame at 889 metres, was 164
+degrees behind the nose**, and so was every other one — the Louvre at 169,
+the Arc de Triomphe at 173, La Défense at 172.
+
+| | was | now | mean turn to the POIs, was → now |
+|---|---|---|---|
+| Paris-LBG, the Seine | 125 | **305** | 155.3 → **16.1** |
+| London City, the Thames | 095 | **275** | 172.6 → **5.8** |
+| San Francisco, the Bay | 090 | **270** | 97.0 → **20.9** |
+
+**Santos Dumont is deliberately left alone**, and it is what stopped this
+being "point every strip at the city". Rio's landmarks stand on *both* sides
+of the water: as it is, Sugarloaf and Morro da Urca are 40 degrees off the
+nose and Corcovado is behind; reversed, Christ the Redeemer is 27 off and the
+other two are behind. That is a scene, not a defect, and no heading wins it.
+The other five — Cairo, Miami, Lukla, JFK and Paris-Issy — were already
+right; Issy's mean turn is 26.7 degrees and it takes off along the Seine
+straight at the tower.
+
+`tests/unit/t_csamph.py` is the gate, host-side over the world overlays in a
+few seconds, and it is comparative for exactly the Rio reason: **reversing a
+strip must not improve the mean turn to that location's distinct points of
+interest by more than 45 degrees.** One entry per NAME, because the Golden
+Gate is four objects and Christ the Redeemer three and a per-object mean
+would weight a location by how finely its landmarks happen to be modelled.
+The margin is defended by the numbers either side of it — with the strips
+laid right the largest gain available anywhere is Rio's 29.9, and laying any
+of the four wrong gains 76.2 or more — and `--clobber-hdg <loc>` is the arm
+that shows it: red on LBG, LCY, SFO and Issy, green on SDU. The row also
+holds the spawn point to §88.7.7.1's own point-in-polygon, because `cs_reset`
+sets `[cs_onwater]` = 1 without asking and an A5 whose strip has been moved
+off the river would float on grass in silence.
+
 #### 88.7.8 THE ELEVATOR IS A BODY RATE, and it was a world one
 
 Reported off the glass, and it is one defect with two faces:
@@ -104259,6 +104322,16 @@ right for the wrong reason, and the induced term is what it should have been.
 clean has almost no induced drag at the speeds it cruises: 100 → 51 m/s with
 the throttle shut takes **174 seconds and 11.9 km**, and no honest
 coefficient changes that. What a Fouga has instead is airbrakes.
+
+`tests/unit/t_csplane.py` integrates **both terms** now, and that is a
+correction to the row and not an addition to it: it struck the VMAX balance
+against the parasitic half alone, which over-states the thrust left at the
+top end once a second term exists. It also gained the check the first build
+of this needed and did not have — **an aeroplane must be able to hold 1.1 ×
+its own stall**, which is the shape of the regression the stall floor above
+exists to prevent, and it reads 5 of 16 in a Cessna and 8 of 26 in a Pitts.
+`CSP_INDK` was appended to the record rather than inserted, so `FIELDS` in
+that row is the mirror that had to move with it.
 
 ##### 88.7.12.1 …and the brake is an airbrake in the air
 
