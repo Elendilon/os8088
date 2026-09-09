@@ -265,9 +265,25 @@ where a SHORT line on this geometry costs **~1,150**.
   Cyclone's warp and Missile's own missiles do, and the kernel walk is
   **1.36–1.50×** ahead there.
 
-**So wave 4 is not free.** The walk earns its 537/641 bytes on fine-grained
-animation and loses them on coarse, and no single answer serves both programs:
-see 8's revised wave 4.
+**And `gfx_line` is not the only thing an app-side walker can plot through.**
+The same run reads **`GFX_PIXEL` at 539.52 µs**, and a walker that owns its
+state knows every pixel's coordinates:
+
+| pixels a block a frame | `gfx_lstepv` x8 | 8 × `GFX_PIXEL` | 8 × `GFX_LINE` | best |
+|---:|---:|---:|---:|---|
+| 1 | 5,243.9 | **4,316** | 7,884.8 | **PIXEL**, 1.21× |
+| 3 | **7,703.8** | 12,948 | 10,496.9 | **walk** |
+| 10 | 16,271.5 | 43,162 | **9,179.6** | **LINE**, 1.77× |
+
+> **`gfx_lstep` is the best of the three only between about 1.3 and 4.2 pixels
+> a block a frame.** Below that its per-block setup costs more than a whole
+> `gfx_pixel`; above it, its 154 µs marginal pixel costs more than amortising
+> one `gfx_line` across the segment.
+
+That is what the slot's 537/641 bytes actually buy — a **window**, not a
+category. Whether Cyclone's warp and Missile's missiles sit inside it is a
+reading nobody has taken, and it is now the cheapest thing left to measure
+(this plan's 9.1).
 
 ### 3.3 So the per-program answer, restated
 
@@ -471,11 +487,11 @@ Each is independently landable and each is a separate PR.
 
 | wave | what | prize | risk |
 |---|---|---|---|
-| **0** | `os88ui.inc`'s checkmark → glyph or `ICON_DRAW` record | 0 bytes; takes `OSAPI_GFX_LINE`'s caller list from 25 packages to four programs | none — 25 packages, one include |
+| **0** | `os88ui.inc`'s checkmark → one `OSAPI_GFX_BLIT1` band. **Sequenced AFTER `gfx_blit1` lands on `kern_small`** (§2.4), which is happening for its own reasons | takes `OSAPI_GFX_LINE`'s caller list from **25 packages to four programs**, and the checkmark gets **~2× faster** — ~780 µs against today's two `gfx_line` calls at ~1.68 ms | the band's x must be on the byte grid (SPEC.md 5.4.2) and the check column is `MRECT+2`, so compose a 16px band at the enclosing 8-aligned column with the mark shifted inside it |
 | **1** | `apps/os88gfx.inc` with `GFXE_BAND` + `GFXE_LINE`; **Sheet** is the first customer, compose mode, nothing gated out of the kernel | proves the lattice; ~350 bytes of Sheet | none — the kernel is untouched |
 | **2** | `GFXE_LINE_FAST`; **Paint on `kern_small`** takes it | Paint's stroke **4.9×** on the floor machine, +647 of Paint's own image | Paint's small build is size-sensitive (§24.5) |
 | **3** | `GFXE_WALK` on **Missile's drain only** — §3.2 is BENCHED (Set 132) and the drain is 2.6× better app-side; its missiles and Cyclone's warp are 1.4× worse and stay on the kernel walk | ~230, and 14.5 ms a frame off the drain | a package on both paths at once — Missile would carry the library AND call the slot |
-| **4** | gate `gfx_linit/lstep/lstepv` out of both kernels | **−537 / −641** | **REFUSED on Set 132 as written**: at 1–3 px a block a frame the kernel walk is 1.36–1.50× ahead, so this costs Cyclone's warp and Missile's missiles real frames. It needs those two restructured to step COARSELY (fewer, longer segments), which changes the animation and is the owner's call, not this plan's |
+| **4** | gate `gfx_linit/lstep/lstepv` out of both kernels | **−537 / −641** | **Set 132 narrows this to one question**: the walk beats both published alternatives only at **1.3–4.2 px a block a frame**. Read what Cyclone and Missile actually step (this plan's 9.1); outside that window they lose nothing by leaving, and a program that spans it — Missile does, `MC_DRN_RATE` being jittered — picks per effect |
 | **5** | gate `gfx_line_fast`, `gfx_line_runs`, `gfx_lf_wide3` out of `kern_big` | **−874** from `kern_big` alone | Paint and Sheet must be on the library first |
 | **6** | gate `gfx_line` itself | the remainder, ~660 / ~800 | blocked on §7 outright |
 
@@ -499,13 +515,14 @@ program actually being on the library first.
    ink and no dither. A caller that needs them pays them, and `gfx_blit1` still
    refuses an x off the byte grid.
 4. ~~§3.2 is arithmetic and is the single most valuable thing to bench.~~
-   **DONE — PERFORMANCE.md Set 132**, and the second half of that sentence is
-   what happened: the crossover is at **four** pixels a block a frame, so
-   Cyclone stays on the kernel walker and only Missile's DRAIN moves. What is
-   owed now is smaller and named in 8's wave 3: whether a package carrying the
-   library for one effect and calling the slot for another is a shape worth
-   having, or whether Missile should step its missiles coarsely so the whole
-   program can leave.
+   **DONE — PERFORMANCE.md Set 132.** What it left owed is one cheap reading
+   and it is now the top of this list: **instrument Cyclone and Missile for
+   the pixels-a-block-a-frame they actually step.** The walk's window is
+   1.3–4.2; a counter in `cy_warp_render` and in Missile's `mc_dsc` build is
+   one rebuild and it decides wave 4 outright. Missile spans the window inside
+   ONE `gfx_lstepv` call — `MC_DRN_RATE` is jittered per trail and `MC_DRNBUD`
+   caps the queue at 64 a frame — so the answer there is per EFFECT, not per
+   program.
 5. **Nothing here has been measured on the glass.** Every µs figure is quoted
    from PERFORMANCE.md's 5150 sets; every byte figure is from this tree's map.
    No wave has been built.

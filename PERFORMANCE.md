@@ -12467,12 +12467,44 @@ of a 127-pixel row; the real fixed part for a SHORT line on this geometry is
   pixels a frame over ~4 blocks — sixteen a block — where the kernel walk
   models at 4,013 + 1,230x16 = **23.7 ms** against a measured app-side
   **9.2 ms**. **2.6x, to the app.**
-- **An ordinary trail is not.** One to three pixels a block a frame is what
-  Cyclone's warp and Missile's missiles do, and there the kernel walk is
-  **1.36–1.50x** ahead. Removing `gfx_lstep` outright would cost them that.
+- **An ordinary trail is not — but the band is narrow.** One to three pixels a
+  block a frame is what Cyclone's warp and Missile's missiles do, and the walk
+  leads there against `gfx_line`; against `GFX_PIXEL` it leads only above
+  ~1.3 a block. **What `gfx_lstep` is actually worth is a window of two to
+  four pixels a block a frame**, and whether the two programs sit in it is a
+  reading nobody has taken - `MC_DRN_RATE` is jittered per trail and
+  `MC_DRNBUD` caps the queue at 64 a frame, so Missile spans the whole range
+  inside one `gfx_lstepv` call.
 
 So GFX-EMBEDDABLE-PLAN's wave 4 is **not free**, and the plan says so now: the
 walk earns its 537/641 bytes on fine-grained animation and loses on coarse.
+
+#### The THIRD route, off the same run's own rows — and it moves the answer
+
+`aline` is not the only thing an app-side walker can plot through. The same
+report carries **`GFX_PIXEL` at 539.52 µs**, and a walker that owns its state
+knows each pixel's coordinates, so eight blocks stepping N pixels is 8N of
+them. Against the walk's fitted `4,013 + 1,230N`:
+
+| pixels a block a frame | `gfx_lstepv` x8 | 8 x `GFX_PIXEL` | 8 x `GFX_LINE` | best |
+|---:|---:|---:|---:|---|
+| 1 | 5,243.9 | **4,316** | 7,884.8 | **PIXEL**, 1.21x |
+| 3 | **7,703.8** | 12,948 | 10,496.9 | **walk** |
+| 10 | 16,271.5 | 43,162 | **9,179.6** | **LINE**, 1.77x |
+
+**The walk is the best of the three only between about 1.3 and 4.2 pixels a
+block a frame** — `4,013 / (4,316 − 1,230)` at the bottom and
+`(9,200 − 4,013) / 1,230` at the top. Below it the per-block setup is bigger
+than a whole `gfx_pixel`; above it the 154 µs marginal pixel is bigger than
+amortising one `gfx_line` over the segment.
+
+The walk's own decomposition checks out against SPEC.md 5.6.8 exactly: the
+report's derived rows read **`lstep arrival` 142.49 µs** and **`lstep pixel`
+637.70**, and 142.49 + 8 x 637.70 = **5,244** against a measured 5,243.9 for
+`kwalk n=1 x8`. 5.6.8's own point — *"a one-pixel walk costs what a pixel
+costs, because it is one"* — is why the bottom of the band exists at all: at
+N=1 the walk IS eight pixels with a staging round each, and the staging is
+what `GFX_PIXEL` does not pay.
 
 #### One anomaly, left named rather than explained
 
