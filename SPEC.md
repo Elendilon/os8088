@@ -38283,6 +38283,212 @@ five become **`CALC.O88`, `NOTEPAD.O88`, `PAINT.O88`** (Browser and Telnet
 omitted) beside `GAMES/MINES.O88`, and the disk sits at 224 of 354 clusters
 with 130KB free.
 
+### 24.6 THE CATEGORY DISKS — a floppy per subject, at 360KB alone
+
+`build/office360.img`, `build/network360.img` and `build/games360.img` are
+three data floppies built by `all` beside the system, apps and media disks.
+Each carries **one category of application at the root of the volume**, the
+documents those applications open in `MEDIA/`, and a pre-made
+`SYSTEM/APPDATA/`.
+
+**They exist for §24.4's reason, one step on.** The media disk was one file
+moved off one geometry; this is the same pressure met with a shape that
+scales. A 360KB volume is 354 clusters and it is the geometry that runs out
+first — §24.3.1 dropped Telnet from the system disk, §24.3.1.1 dropped Paint,
+§88.6.4 put `BEVERLY.MOD` back on a disk of its own, and this branch's apps
+disk has stood at zero free clusters twice. Meanwhile the project keeps
+making applications, which is not going to stop. Answering that one package
+at a time means the disk's contents are decided by what happened to be added
+last; answering it with **a disk per subject** means a user who wants to
+write a document puts in the office disk and everything on it is for writing
+documents.
+
+**360KB only, and that is the same rule the media disk follows** — a disk
+exists exactly where the apps disk had to give something up, and 1.44MB,
+1.2MB and 720KB have not. Those three geometries carry one apps disk with
+everything on it and gain nothing from three.
+
+| disk | at the root | `MEDIA/` |
+|---|---|---|
+| `office360` | ArtfulType, Calculator, Chart, Font Viewer, Paint, Sheet, TeXPad, Word (+ `WORD.OVL`) | `PAPER.TEX`, `GUIDE.TEX`, `SALES.SLK`, `WRITING.MD`, `WELCOME.DOC`, `SAMPLE.BMP` |
+| `network360` | Browser, FTPD, Telnet, The Wire (+ `SYSTEM/DOS/OS88NET.COM`) | `BROWSER.HTM` |
+| `games360` | every package in the apps disk's `GAMES/` | — |
+
+**The packages are at the ROOT, with no `APPS/` over them.** The apps disk
+sorts a mixed bag into folders because it *is* a mixed bag; a category disk
+has been sorted already by the act of choosing it, and a folder there is one
+double-click charged for nothing. **Nothing in the kernel changed for this
+and nothing had to**: `assoc_dfold`'s build-time folder already has 0 for
+"the root" (§54.4.2), and `os88disk.py` writes a root package's `ASSOC.DAT`
+row with cluster 0, which is the FAT convention `dsk_dotdot` already reads.
+
+**`WORD.OVL` rides the root beside `WORD.O88`** and has to: the overlay is
+resolved with `OSAPI_FILE_HERE`/`_GOTO` in the package's *own* folder
+(§68.4), so a copy anywhere else is a Word that refuses its own second
+segment. "Packages at the root" is a statement about the whole file set, not
+only about the `.O88`s.
+
+**`OS88NET.COM` stays in `SYSTEM/DOS/`** on the network disk, exactly as
+§24.2 puts it on the apps disks. It is an MS-DOS `.COM` for the machine at
+the *other* end of the parallel cable; a `.COM` sitting at the root beside
+four `.O88`s invites a double-click that gives `Bad package`, which reads as
+a broken file rather than as a file for another computer.
+
+**`THEWIRE.O88` is on the network disk and is still a `SYSAPP`.** The desktop
+zone launches it out of the *boot* volume's `SYSTEM/` (§26.7, §92.11), so the
+copy that runs when the zone is clicked is never this one — but this one is a
+package like any other and opens on a double-click, which is what a disk
+labelled "network" is for. The argument that keeps it off the apps disks is
+that geometry being full to its last cluster, and it does not reach a disk
+with 285 clusters spare.
+
+**The `ASSOC.DAT` is warm on all three, for nothing.** `os88disk.py` builds
+the volume's icon and association cache out of the packages it is handed
+(§54.7), so mounting any of these seeds the machine's icons and extension
+hints from *this* volume and lists its folders with no header read per
+package. That is not a flag these disks pass — it is what the tool does with
+any package — so the whole of what they did to get it was carry their
+packages through the same argument list.
+
+**`SYSTEM/APPDATA/` is pre-made on all three** (§19.9). A folder otherwise
+exists only because a file named one, so an application that had to create
+its own would have to handle "the disk is full" on a path nobody tests. The
+games disk is the one that most needs it and the one where it would otherwise
+never appear. `MEDIA/` is passed the same way and for the same reason —
+it is where a File Open starts and where a Save defaults to (§38.10), so it
+must exist whether or not anything shipped into it, which is why the games
+disk has an empty one.
+
+Measured with `python3 tools/os88disk.py --verify`, of 354 clusters:
+**office 168, network 69, games 108**. The headroom is the point rather than
+a happy result — the disk this replaces was at 354 of 354.
+
+#### 24.6.1 What stays on the apps disk is a decision remade every time
+
+`apps360.img` is unchanged in kind and is still built. What it carries is now
+**a curated selection out of the three category disks, plus the packages that
+live nowhere else** — Fractal, Hello, ModPlug, Note Pad, Piano, Tracker,
+Audio and the games, none of which has a disk of its own.
+
+**Being curated onto it is not a property of a package, it is a decision with
+a date on it.** ArtfulType and TeXPad are on both disks today because a
+general disk with no writer on it is a poor general disk; that is the
+owner's call and it gets remade the next time this geometry runs out. The
+row to read is the Makefile's `APPS_TOOLS_360`, not a list here — a package
+list in prose goes stale the next time anything ships, and the enforcement is
+`os88disk.py` refusing an image that does not fit.
+
+#### 24.6.2 One sample document per application
+
+Every application on a category disk opens its File dialog on something.
+That is the rule `BROWSER.HTM` (§71.12) and the `.TEX` pair (§69.6) are
+already on the apps disk for, applied to a disk whose whole subject is
+documents — and on this system a sample document **documents the application
+it opens in**: `WELCOME.DOC` is a letter Word sets, `GUIDE.TEX` is TeXPad's
+markup written up in that markup, `BROWSER.HTM` is the browser's manual.
+
+Two of the six were new work and the third was a format question:
+
+* **`SALES.SLK` is two applications' sample.** Chart reads exactly the SYLK,
+  DIF and BIFF files Sheet writes (§82), and **Chart's only launch path is
+  `File > Open`** — it declares no association at all — so the one thing it
+  must have on its disk is a spreadsheet. The file is laid out for both:
+  column A is text, so the first *numeric* column `ct_finalize` charts is B;
+  the twelve months are twelve bars; and the summary block sits out at column
+  F, where `ct_mincol` cannot pick it up as a thirteenth bar four times the
+  height of the rest. It carries real `;E` formulas beside the cached `;K`
+  values, so what loads is a spreadsheet rather than a table of numbers.
+* **`WRITING.MD` is ArtfulType's**, and it is `GUIDE.TEX`'s idea in the other
+  markup: a short document about writing in ArtfulType, using each mark it
+  renders (`#` headings, `**bold**`, `*italic*`, `` `code` ``, `~~strike~~`,
+  `[text](url)`) to say what that mark does.
+* **`SAMPLE.BMP` is Paint's, and it is GENERATED** by
+  `tools/os88sample.py` — never committed, for the reason `tools/os88logo.py`
+  gives for the logo and `fonts/*.f8` gives for the faces: a bitmap's defects
+  are entirely visual, and a blob in the tree is one nobody can review or
+  re-derive. It is **466 x 110 and 1bpp**. 110 is CGA's ceiling (§42,
+  `pt_adopt` crops rather than scales, and `os88logo.py`'s `LOGO_MAXH`
+  carries the derivation). One bit is both the smallest file and the only
+  depth already right on the two 1bpp adapters, and its two palette entries
+  are a dark/light pair so `pt_mono2` takes §42.23's one-bit canvas path — a
+  1bpp BMP whose palette were red on blue would pass the depth test and fail
+  that one. Every mark in it is solid ink or the 50% dither, which is §39.4's
+  classes, so nothing has to survive a colour reduction.
+
+#### 24.6.2.1 The width is 466 because 448 does not work — an OPEN Paint defect
+
+`PT_CW_DEF` is **448**, the canvas a fresh Paint starts with, and that was
+the obvious width for this picture: opening it would leave the window exactly
+the size the app had already chosen. **It is the one width that does not
+work**, and the defect is Paint's rather than the sample's.
+
+Measured on a cycle-accurate 5150, **CGA and VGA alike**: a BMP whose width
+leaves the canvas width *unchanged* decodes perfectly and then never reaches
+the screen. Everything says it worked — `pt_bw`/`pt_bh`/`pt_bpp`/`pt_bstr`
+all read right, `pt_adopt` takes the picture's height, the toast says
+`Opened`, and **the canvas rows really do hold the ink** (read back out of
+`pt_rowseg`/`pt_rowoff`: the frame's top row is solid, the strip's rows carry
+the shapes). The window stays white through a raise, a cover-and-uncover and
+a full window move.
+
+The variable is the canvas width and nothing else:
+
+| picture | canvas after `pt_adopt` | on screen |
+|---|---|---|
+| 448 x 110, 1bpp | 448 — unchanged | **blank** |
+| 448 x 110, 4bpp | 448 — unchanged | **blank** |
+| 440 x 110, 1bpp | 448 — `PT_CW_MIN` clamps it back up | **blank** |
+| 456 x 110, 1bpp | 456 | draws |
+| 466 x 110, 1bpp | 466 | draws |
+| `OS8088.GIF`, 466 x 110 | 466 | draws |
+
+So depth is not it, padding is not it (440 and 456 pad, 448 does not, and one
+of the padded pair fails), and the adapter is not it. **A picture that does
+not move the canvas width is not painted.** That reaches further than this
+sample: 448 is the width a picture saved out of a fresh Paint has, so it is
+also the width that will not come back.
+
+**Not fixed here**, because it is Paint's and this is a disk-layout change.
+The sample is 466 — `OS8088.GIF`'s width, the one picture in the tree already
+proven to open on all three adapters — and `tools/os88sample.py` says so at
+the constant, so the number is a recorded workaround rather than a magic one.
+When the defect is fixed, 448 is the nicer width and this may go back to it.
+
+**docs/plans/HANDOFF-PAINT-BLANK-LOAD.md is the handoff**: the two-minute
+reproduction, the guest state read back while the screen is white, the seven
+things ruled out (including the obvious `OSAPI_MEM_REGROW` theory, which is
+wrong), and the five places to look next.
+
+The other four applications need nothing. Font Viewer opens the `FONTS/`
+folder on the disk it was launched from rather than a document; Calculator
+has no file format at all.
+
+**All six are lz4-wrapped like every other shipped data file** (§20.13.5),
+and the condition was checked per file rather than assumed of the folder:
+`sh_doread_sylk`, `ct_load_common`, ArtfulType's `at_doread`, `pt_bmp_in` and
+`wd_doread` all read whole with `OSAPI_FILE_READ` and none uses `READ_AT`,
+which is what §20.14.3 makes the condition for a transparent read. A file
+that used `READ_AT` would read its own compressed bytes and report a corrupt
+document rather than a wrong one.
+
+#### 24.6.3 CHART comes off the 360KB apps disk, for a reason that is not size
+
+Sheet came off that disk at §88.10.5 because Clear Skies' worlds cost it what
+a spreadsheet takes back — an arithmetic decision. **Chart follows it now,
+and the reason is different in kind.** A chart viewer whose only launch path
+is `File > Open` is a program with nothing to open once the spreadsheet it
+reads is on another floppy: the two belong on the same disk, and that disk is
+the office one. Ten clusters is what it happens to cost; it is not why.
+
+Every other geometry carries the full list, and `make smallapps` is
+untouched.
+
+#### 24.6.4 Delivery
+
+The 360KB set is **six disks** now — system, apps, media, office, network and
+games — and docs/FIELD-MACHINES.md's standing rule for the `Elendilon/os8088`
+fork sends all six.
+
 ## 25. icons.inc — icon format, draw routine, built-in library
 
 1-bit icons with a mask, classic Mac style, drawn exactly like the mouse

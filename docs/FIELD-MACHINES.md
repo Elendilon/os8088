@@ -433,7 +433,7 @@ Three things are left off the 360 KB disk by that arithmetic:
 
 | | | why |
 |---|---|---|
-| `MEDIA/BEVERLY.MOD` | 42 cl lz4-packed (114 plain) | data rather than software: Tracker and ModPlug launch with nothing to open. `apps360.img` carries it in `MEDIA/` (§20.13.5) — swap that disk in when the module is the point |
+| `MEDIA/BEVERLY.MOD` | 42 cl lz4-packed (114 plain) | data rather than software: Tracker and ModPlug launch with nothing to open. It is on `media360.img` ALONE at this geometry — lz4 briefly made the split unnecessary and §88.6.4 un-collapsed it — so swap that disk in when the module is the point |
 | `BIGFILE.DAT` | 104 cl | sysbench's cache-capacity sweep and the DOS read-rate cross-check; sysbench says so and skips those rows. It is on the `make field` disks |
 | `README.TXT` | 9 cl | the manual, on a disk that is for running |
 
@@ -676,10 +676,13 @@ discovered later in a number that moved for no visible reason.
 
 The ordinary case, as distinct from a field run, is CLAUDE.md's "Working in
 this fork" — the fork owner's standing preference, not a property of the
-project. The part that is this register's: **the 360 KB set is THREE disks**
-— `build/os8088-360.img`, `build/apps360.img` and `build/media360.img` — the
-geometry because it is what the register's machines read. Since the disks
-are lz4-packed (§20.13.5) `apps360.img` carries `BEVERLY.MOD` itself and the
-media disk is a second copy of it; the owner's standing rule is still all
-three. "Send" means attach the files: a path into a session's `build/` is in
-a container the owner cannot reach.
+project. The part that is this register's: **the 360 KB set is SIX disks**
+— `build/os8088-360.img`, `build/apps360.img`, `build/media360.img` and the
+three category disks `office360.img`, `network360.img` and `games360.img`
+(§24.6) — the geometry because it is what the register's machines read.
+`apps360.img` does **not** carry `BEVERLY.MOD`: lz4 made the two-disk split
+unnecessary for a while and §88.6.4 un-collapsed it when CLEAR SKIES took the
+clusters back, so the module is on the media disk alone again and the swap is
+real. The owner's standing rule is all six, and the set is exactly what
+`ls build/*360*.img` prints. "Send" means attach the files: a path into a
+session's `build/` is in a container the owner cannot reach.

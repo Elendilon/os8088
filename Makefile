@@ -78,6 +78,32 @@ APPSIMG360 := $(BUILD)/apps360.img
 # is no media.img and no media720.img, because at those sizes the apps disk
 # still holds it and a disk with one file on it is a swap bought for nothing.
 MEDIAIMG360 := $(BUILD)/media360.img
+# ...and the CATEGORY DISKS (SPEC.md 24.6), which exist at 360KB alone for
+# the media disk's reason one step on: this project keeps making applications
+# and 354 clusters is the geometry that runs out first, so the answer that
+# scales is a disk per SUBJECT rather than one more package pushed off the
+# end of a single apps disk. Each is a whole category - office, network,
+# games - with its packages AT THE ROOT and the documents they open in
+# MEDIA/, because a user who reached for the office disk has already said
+# what they came for and should not then have to open a folder to find it.
+#
+# APPS360 IS UNCHANGED IN KIND and is still built: it is the general disk,
+# and what it carries is now a CURATED selection out of these three plus the
+# packages that live nowhere else. Which packages are curated onto it is a
+# decision that gets remade every time the geometry runs out again.
+OFFICEIMG360  := $(BUILD)/office360.img
+NETWORKIMG360 := $(BUILD)/network360.img
+GAMESIMG360   := $(BUILD)/games360.img
+
+# ...and all twelve in one list, because it appeared in FOUR places (`all`
+# and the three tiers) and each of those had to be edited by hand the first
+# time a disk was added. A shipped image that is in `all` and in none of the
+# tiers is one no gate ever reads, which is the failure this prevents rather
+# than tidies: t_image and t_diskverify walk what `make` built.
+SHIPIMGS := $(IMG) $(IMG120) $(IMG720) $(IMG360) \
+            $(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360) \
+            $(MEDIAIMG360) $(OFFICEIMG360) $(NETWORKIMG360) $(GAMESIMG360)
+
 BOX   := /Applications/86Box.app/Contents/MacOS/86Box
 
 # RESET= clears a machine's non-volatile state on the way in, and it reaches
@@ -1873,9 +1899,7 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm
 # paragraph, only when the compiler is absent, never an error.
 WEAVEDEMOS := apps/weave/demos
 WEAVEWABS  := $(BUILD)/FORM.WAB $(BUILD)/SHEET.WAB $(BUILD)/PONG.WAB
-all: checkdocs $(IMG) $(IMG120) $(IMG720) $(IMG360) \
-     $(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360) \
-     $(MEDIAIMG360) $(BUILD)/wire.o88 $(BUILD)/recorder.o88 \
+all: checkdocs $(SHIPIMGS) $(BUILD)/wire.o88 $(BUILD)/recorder.o88 \
      $(WEAVEWABS) $(BUILD)/.weave-hostchecks \
      cc-note test-fast
 # wire.o88 is named here and NOWHERE else in `all`, because WIREFRAME is built
@@ -1943,9 +1967,7 @@ all: checkdocs $(IMG) $(IMG120) $(IMG720) $(IMG360) \
 # redraw change kept the picture (SPEC.md 12.9's argument). Skipping is right
 # rather than passing the defines through: the other nine tests are about the
 # SHIPPED artifacts, and a knob build is not one.
-test-fast: $(IMG) $(IMG120) $(IMG720) $(IMG360) \
-           $(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360) \
-           $(MEDIAIMG360) $(WEAVEWABS)
+test-fast: $(SHIPIMGS) $(WEAVEWABS)
 ifeq ($(KNOBS),)
 	@OS88_PKGDEFS="$(PKGSBDEF)" python3 tools/os88test.py fast
 else
@@ -1953,9 +1975,7 @@ else
 	@echo "          tier reads the shipped artifacts. Run a plain \`make\`."
 endif
 
-test-full: $(IMG) $(IMG120) $(IMG720) $(IMG360) \
-           $(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360) \
-           $(MEDIAIMG360) $(WEAVEWABS)
+test-full: $(SHIPIMGS) $(WEAVEWABS)
 	@python3 tools/os88test.py full
 
 # THIS TARGET RUNS THE TIER SERIALLY (`--marty-jobs 1`), which is right for a
@@ -1970,9 +1990,7 @@ test-full: $(IMG) $(IMG120) $(IMG720) $(IMG360) \
 # whole tier runs only when the OWNER asks for it in as many words
 # (docs/TESTING.md, "When to run which tier"). That refusal is the target
 # working, not the build breaking.
-test-soak: $(IMG) $(IMG120) $(IMG720) $(IMG360) \
-           $(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360) \
-           $(MEDIAIMG360)
+test-soak: $(SHIPIMGS)
 	@echo "os88: this runs the soak in ONE FOREGROUND invocation, at the"
 	@echo "      runner's default emulator width (cores-1). SCOPE IT to what"
 	@echo "      you changed - make test-soak SOAKARGS=\"-k 'disp*'\" - and"
@@ -7190,10 +7208,23 @@ $(BUILD)/word.bin: $(WORDSRC) apps/os88api.inc apps/os88ui.inc apps/os88type.inc
 # and it packaged a stale image while the cut silently succeeded. That reads
 # exactly like the feature under test being broken - it cost a debugging pass
 # on a ruler that was already correct.
-$(BUILD)/word.o88: $(BUILD)/word.bin tools/os88ovl.py tools/os88pkg.py
+#
+# $(OS88PKG) AND NOT A BARE os88pkg.py, since SPEC.md 24.6 put WORD.O88 on a
+# shipped floppy. That macro is what carries $(PKGZARG), so this rule was the
+# one shipping package in the tree that came out of a `make PKGZ=lz4` build
+# UNCOMPRESSED - which nothing noticed while Word had a disk of its own and
+# no `all` target built it. Measured: 51,407 bytes against 40,194, which is
+# 11 clusters of a 354-cluster office disk. Assembly packs badly (78.2%
+# where the .TEX pair is 40%), so this is the smallest win of any package on
+# the disk and it is still eleven clusters somebody else does not have to
+# find later. $(PKGZSTAMP) goes with it: the stamp's name
+# carries the format, so `make PKGZ=lzb` after an lz4 build rebuilds instead
+# of finding an lz4 package up to date and shipping it on an LZB disk
+# (SPEC.md 20.13.3's refusal, reported as 'Bad package').
+$(BUILD)/word.o88: $(BUILD)/word.bin tools/os88ovl.py tools/os88pkg.py $(PKGZSTAMP)
 	python3 tools/os88ovl.py $(BUILD)/word.bin -o $(BUILD)/WORD.OVL \
 		--trim $(BUILD)/word.trim.bin
-	python3 tools/os88pkg.py $(BUILD)/word.trim.bin -o $@
+	$(OS88PKG) $(BUILD)/word.trim.bin -o $@
 
 $(BUILD)/WORD.OVL: $(BUILD)/word.o88 ;
 
@@ -9015,6 +9046,26 @@ APPS_DATA := apps/tracker/beverly.mod apps/texpad/PAPER.TEX \
 MEDIA_DISK_DATA := apps/tracker/beverly.mod
 APPS_DATA_360   := $(filter-out $(MEDIA_DISK_DATA),$(APPS_DATA))
 
+# --- and the CATEGORY DISKS' documents (SPEC.md 24.6.2) ----------------------
+# One per application on the disk, so no program there opens its File dialog
+# on an empty folder. That is the rule BROWSER.HTM and the .TEX pair are
+# already here for, applied to a disk whose whole subject is documents.
+#
+# SALES.SLK IS TWO APPLICATIONS' SAMPLE, which is why the office list is
+# shorter than the office package list: Chart reads exactly the SYLK, DIF and
+# BIFF files Sheet writes (SPEC.md 82), and Chart's ONLY launch path is File >
+# Open - it declares no association at all - so the one thing it must have on
+# its disk is a spreadsheet. The file is laid out for both: column A is text,
+# so the first NUMERIC column Chart charts is B, and the summary block sits
+# out at column F where it cannot become a thirteenth bar.
+#
+# FONTVIEW gets none and needs none - it opens the FONTS/ folder on the disk
+# it was launched from, not a document - and CALC has no file format at all.
+OFFICE_DATA := apps/texpad/PAPER.TEX apps/texpad/GUIDE.TEX \
+               apps/sheet/SALES.SLK apps/artful/WRITING.MD \
+               $(BUILD)/WELCOME.DOC $(BUILD)/SAMPLE.BMP
+NETWORK_DATA := apps/browser/browser.htm
+
 # ...UNLESS THE DISK IS COMPRESSED, and this is the single most visible thing
 # compression buys this project (docs/plans/O88-COMPRESSION-PLAN.md 13.4). BEVERLY.MOD
 # is 116,085 bytes and 114 of a 360KB disk's 354 clusters, which is the whole
@@ -9048,9 +9099,24 @@ ifneq ($(PKGZ),)
 # It is one cluster, so the next person to add anything is in this decision
 # too: 42 is the whole of the slack, and it came from a file rather than from
 # a package getting smaller.
-APPS_DATA_360 := $(ZDATA)/PAPER.TEX $(ZDATA)/GUIDE.TEX $(ZDATA)/DEMO.HTM
+# BROWSER.HTM AND NOT DEMO.HTM, which this arm had wrong from the day
+# compression shipped. SPEC.md 71.12 swapped the testbed for the manual in
+# the PLAIN arm above and this copy was not moved with it - and because PKGZ
+# defaults to lz4, this arm is the one that ships, so all four apps disks
+# went out carrying the renderer's stress page in place of the one document
+# a new user is meant to open first. A list held in two arms is a list that
+# drifts in the arm nobody builds by hand; the comment thirty lines up said
+# what the file should be for a year while the build said otherwise.
+APPS_DATA_360 := $(ZDATA)/PAPER.TEX $(ZDATA)/GUIDE.TEX $(ZDATA)/BROWSER.HTM
 APPS_DATA     := $(ZDATA)/BEVERLY.MOD $(APPS_DATA_360)
 MEDIA_DISK_DATA := $(ZDATA)/BEVERLY.MOD
+# ...and the category disks' documents, which have to be redefined HERE as
+# well and not only above: this block REPLACES the lists rather than adding
+# to them, so a list defined only in the plain arm ships uncompressed
+# alongside eleven packed files and nothing says so.
+OFFICE_DATA  := $(ZDATA)/PAPER.TEX $(ZDATA)/GUIDE.TEX $(ZDATA)/SALES.SLK \
+                $(ZDATA)/WRITING.MD $(ZDATA)/WELCOME.DOC $(ZDATA)/SAMPLE.BMP
+NETWORK_DATA := $(ZDATA)/BROWSER.HTM
 endif
 
 $(ZDATA)/BEVERLY.MOD: apps/tracker/beverly.mod tools/os88lz.py $(PKGZSTAMP) | $(BUILD)
@@ -9065,9 +9131,47 @@ $(ZDATA)/GUIDE.TEX: apps/texpad/GUIDE.TEX tools/os88lz.py $(PKGZSTAMP) | $(BUILD
 	@mkdir -p $(ZDATA)
 	python3 tools/os88lz.py --wrap $@ --fmt $(PKGZ) $<
 
-$(ZDATA)/DEMO.HTM: tests/htm/demo.htm tools/os88lz.py $(PKGZSTAMP) | $(BUILD)
+$(ZDATA)/BROWSER.HTM: apps/browser/browser.htm tools/os88lz.py $(PKGZSTAMP) | $(BUILD)
 	@mkdir -p $(ZDATA)
 	python3 tools/os88lz.py --wrap $@ --fmt $(PKGZ) $<
+
+# THERE IS NO $(ZDATA)/DEMO.HTM. The testbed ships on no floppy (SPEC.md
+# 71.12) and the four browser rows that open it want the PLAIN file on
+# `make browsertest`'s disk ($(BUILD)/DEMO.HTM, up beside BRFILES), so a
+# wrapped copy would be a build artefact with no reader.
+
+# The OFFICE DISK's four remaining documents (SPEC.md 24.6.2), wrapped the
+# same way and for the same reason: every one is read WHOLE with
+# OSAPI_FILE_READ - Sheet's sh_doread_sylk, Chart's ct_load_common,
+# ArtfulType's at_doread, Paint's pt_bmp_in, Word's wd_doread - and never
+# with READ_AT, which SPEC.md 20.14.3 makes the condition for a transparent
+# read. A file that used READ_AT would read its own compressed bytes and
+# report a corrupt document rather than a wrong one, so the condition is
+# checked per file and not assumed of the folder.
+$(ZDATA)/SALES.SLK: apps/sheet/SALES.SLK tools/os88lz.py $(PKGZSTAMP) | $(BUILD)
+	@mkdir -p $(ZDATA)
+	python3 tools/os88lz.py --wrap $@ --fmt $(PKGZ) $<
+
+$(ZDATA)/WRITING.MD: apps/artful/WRITING.MD tools/os88lz.py $(PKGZSTAMP) | $(BUILD)
+	@mkdir -p $(ZDATA)
+	python3 tools/os88lz.py --wrap $@ --fmt $(PKGZ) $<
+
+$(ZDATA)/WELCOME.DOC: $(BUILD)/WELCOME.DOC tools/os88lz.py $(PKGZSTAMP) | $(BUILD)
+	@mkdir -p $(ZDATA)
+	python3 tools/os88lz.py --wrap $@ --fmt $(PKGZ) $<
+
+$(ZDATA)/SAMPLE.BMP: $(BUILD)/SAMPLE.BMP tools/os88lz.py $(PKGZSTAMP) | $(BUILD)
+	@mkdir -p $(ZDATA)
+	python3 tools/os88lz.py --wrap $@ --fmt $(PKGZ) $<
+
+# Paint's sample is DRAWN rather than committed (tools/os88sample.py's own
+# header carries the argument, which is os88logo.py's): a bitmap's defects
+# are entirely visual and a blob in the tree is one nobody can review. The
+# other four office documents are text and ARE committed, in the folder of
+# the application that reads them - apps/sheet/SALES.SLK, apps/artful/
+# WRITING.MD, apps/texpad/*.TEX - which is where PAPER.TEX already lived.
+$(BUILD)/SAMPLE.BMP: tools/os88sample.py fonts/tallx.f8 tools/os88font.py | $(BUILD)
+	python3 tools/os88sample.py -o $@
 
 # The Task Manager, in SYSTEM/ and not in the root, because that is where
 # ui_tm_open looks (SPEC.md 28.3). Not in APPS_TOOLS - it is not a program to
@@ -9143,12 +9247,23 @@ APPS := $(APPS_TOOLS) $(APPS_GAMES) $(APPS_DATA) $(APPS_SYS) $(APPS_DOS)
 # and tests/small128.py is such a row) it is a hard failure naming a file
 # nothing produced. A per-geometry package list has to be filtered in BOTH
 # places or in neither.
-# --- 360KB LEAVES SHEET OFF, and only 360KB (SPEC.md 24.4's shape, one
-#     package along). That geometry has 354 clusters and Clear Skies' worlds
-#     became parts of its own file (88.10.5), which cost the disk what a
-#     spreadsheet takes back. The owner's call, pending a disk reorg; every
-#     other geometry carries the full list, and `make smallapps` is untouched.
-APPS_TOOLS_360 := $(filter-out $(BUILD)/sheet.o88,$(APPS_TOOLS))
+# --- 360KB LEAVES SHEET AND CHART OFF, and only 360KB (SPEC.md 24.6.3).
+#     Sheet went first: that geometry has 354 clusters and Clear Skies'
+#     worlds became parts of its own file (88.10.5), which cost the disk
+#     what a spreadsheet takes back. CHART follows it now that OFFICE360
+#     exists, and the reason is different in kind - it is not that the disk
+#     is short of 10 clusters, it is that a chart viewer whose ONLY launch
+#     path is File > Open (it declares no association at all) is a program
+#     with nothing to open once the spreadsheet it reads is on another
+#     floppy. The two belong on the same disk, and that disk is the office
+#     one.
+#
+#     THE ROW HERE IS "CURATED ONTO APPS360", NOT "SHIPS AT ALL", and it
+#     gets remade every time this geometry runs out (SPEC.md 24.6.1):
+#     ARTFUL and TEXPAD stay for now, on the general disk as well as the
+#     office one. Every other geometry carries the full list, and
+#     `make smallapps` is untouched.
+APPS_TOOLS_360 := $(filter-out $(BUILD)/sheet.o88 $(BUILD)/chart.o88,$(APPS_TOOLS))
 APPS360 := $(APPS_TOOLS_360) $(APPS_GAMES) $(APPS_DATA_360) $(APPS_SYS) $(APPS_DOS)
 
 # ...and the same list with the folder each package lands in. os88disk.py
@@ -9230,6 +9345,111 @@ $(APPSIMG360): $(APPS360) tools/os88disk.py
 # apps disk had to drop the module, and 1.2MB is not such a geometry.
 $(MEDIAIMG360): $(MEDIA_DISK_DATA) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(MEDIAARGS360)
+
+# =============================================================================
+# THE CATEGORY DISKS (SPEC.md 24.6) - office360, network360, games360
+# =============================================================================
+# 360KB ONLY, for the media disk's reason one step on. 354 clusters is the
+# geometry that runs out first and this project keeps making applications, so
+# the answer that scales is a disk per SUBJECT: a user who wants to write a
+# document puts the office disk in and everything on it is for writing
+# documents. The other three geometries have room for one apps disk and gain
+# nothing from three.
+#
+# THREE THINGS ARE TRUE OF ALL THREE, and each is a decision:
+#
+#   1. THE PACKAGES ARE AT THE ROOT, with no APPS/ or GAMES/ over them. The
+#      apps disk sorts a mixed bag into folders because it IS a mixed bag;
+#      a category disk has already been sorted by the act of choosing it,
+#      and a folder there is one double-click charged for nothing. The
+#      kernel needs no change for it - assoc_dfold's build-time folder
+#      already has 0 for "the root" (kernel/assoc.inc), and os88disk.py
+#      writes a root package's ASSOC.DAT row with cluster 0, which is the
+#      FAT convention the open path already reads.
+#
+#   2. MEDIA/ CARRIES THE DOCUMENTS THOSE PACKAGES OPEN (24.6.2). It is
+#      where a File Open starts and where a Save defaults to (SPEC.md
+#      38.10), so it has to exist whatever is in it - which is why
+#      MEDIAFOLDER is passed even on the games disk, where nothing ships
+#      into it.
+#
+#   3. SYSTEM/APPDATA/ IS PRE-MADE (SPEC.md 19.9). A program's own state -
+#      a high-score table, a window position, a preference - goes there
+#      rather than beside the user's documents, and a folder otherwise
+#      exists only because a file named one, so an application that had to
+#      create its own would have to handle "the disk is full" on a path
+#      nobody tests. The games disk is the one that most needs it and the
+#      one where it would otherwise never appear.
+#
+# AND THE ASSOC.DAT IS WARM ON EVERY ONE OF THEM, for nothing: os88disk.py
+# builds the volume's icon+association cache out of the packages it is given
+# (SPEC.md 54.7), so mounting any of these disks seeds the machine's icons
+# and extension hints from THIS volume, and its folders list without a
+# header read per package. That is not a flag - it is what the tool does
+# with any package it is handed - so the only thing these disks had to do to
+# get it was carry their packages through the same argument list.
+
+# --- office360 ---------------------------------------------------------------
+# WORD.OVL RIDES THE ROOT BESIDE WORD.O88 and has to: the overlay is resolved
+# with OSAPI_FILE_HERE/_GOTO in the package's OWN folder (SPEC.md 68.4's
+# loader, hdtool.inc's shape), so a copy anywhere else is a Word that refuses
+# its own second segment. It is the reason "packages at the root" is a
+# statement about the whole file set and not only about the .O88s.
+#
+# FONTVIEW and CALC are here as accessories rather than as document
+# applications - a typeface browser and a calculator are what a desk with a
+# spreadsheet on it wants next - and NOTEPAD is deliberately NOT (the owner's
+# call): ArtfulType and TeXPad and Word are three writers already, and a
+# fourth that is none of them is the row this disk would drop first.
+OFFICE_PKGS := $(BUILD)/artful.o88 $(BUILD)/calc.o88 $(BUILD)/chart.o88 \
+               $(BUILD)/fontview.o88 $(BUILD)/paint.o88 $(BUILD)/sheet.o88 \
+               $(BUILD)/texpad.o88 $(BUILD)/word.o88
+OFFICE360 := $(OFFICE_PKGS) $(BUILD)/WORD.OVL $(OFFICE_DATA)
+OFFICEARGS360 := $(OFFICE_PKGS) $(BUILD)/WORD.OVL \
+                 $(addprefix MEDIA:,$(OFFICE_DATA)) \
+                 $(MEDIAFOLDER) $(APPDATAFOLDER)
+
+# --- network360 --------------------------------------------------------------
+# THEWIRE.O88 IS ON THIS DISK AND IS STILL A SYSAPP. The desktop zone launches
+# it out of the BOOT volume's SYSTEM/ (SPEC.md 26.7, 92.11), so the copy that
+# runs when you click the zone is never this one - but this one is a package
+# like any other and opens on a double-click, which is what a disk labelled
+# "network" is for. It is 10KB on a disk with 200 clusters spare, so the
+# argument that kept it off the apps disk (that geometry being full to its
+# last cluster) does not reach here.
+#
+# OS88NET.COM GOES IN SYSTEM/DOS/, exactly as it does on the apps disks
+# (SPEC.md 24.2), and NOT at the root: it is an MS-DOS .COM for the machine
+# at the OTHER END of the parallel cable, and a .COM sitting beside four
+# .O88s invites a double-click that gives 'Bad package' - which reads as a
+# broken file rather than as a file for another computer. The root of this
+# disk is for programs that run on this machine.
+NETWORK_PKGS := $(BUILD)/browser.o88 $(BUILD)/ftpd.o88 $(BUILD)/telnet.o88 \
+                $(BUILD)/thewire.o88
+NETWORK360 := $(NETWORK_PKGS) $(NETWORK_DATA) $(APPS_DOS)
+NETWORKARGS360 := $(NETWORK_PKGS) \
+                  $(addprefix MEDIA:,$(NETWORK_DATA)) \
+                  $(addprefix SYSTEM/DOS:,$(APPS_DOS)) \
+                  $(MEDIAFOLDER) $(APPDATAFOLDER)
+
+# --- games360 ----------------------------------------------------------------
+# EVERY package in GAMES/, and derived from $(APPS_GAMES) rather than listed
+# again: the whole point of the folder is that it is the list, so a game
+# added there is on this disk with nothing else to edit. There is nothing to
+# put in MEDIA/ - no game here reads a document - and the folder is made
+# anyway, because a Save As from a game that wants to write a replay or a
+# board must land somewhere that exists (SPEC.md 38.10).
+GAMES360 := $(APPS_GAMES)
+GAMESARGS360 := $(APPS_GAMES) $(MEDIAFOLDER) $(APPDATAFOLDER)
+
+$(OFFICEIMG360): $(OFFICE360) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(OFFICEARGS360)
+
+$(NETWORKIMG360): $(NETWORK360) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(NETWORKARGS360)
+
+$(GAMESIMG360): $(GAMES360) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(GAMESARGS360)
 
 # =============================================================================
 # A COMPRESSED 360KB SET (ON DEMAND): `make zset ZFMT=lz4` / `ZFMT=lzb`
