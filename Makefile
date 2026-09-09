@@ -4986,6 +4986,7 @@ SKIES_SRC := apps/skies/skies.asm apps/skies/csraster.inc \
              apps/skies/cs3d.inc apps/skies/csworld.inc \
              apps/skies/csflight.inc apps/skies/csgame.inc \
              apps/skies/cspanel.inc apps/skies/cssin.inc \
+             apps/skies/cswmac.inc apps/skies/csvocab.inc \
              apps/skies/csart.inc apps/skies/csdiag.inc \
              apps/skies/csset.inc $(CSWORLDS) \
              apps/skies/csload.asm apps/skies/csicon.inc \
