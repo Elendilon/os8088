@@ -70,7 +70,14 @@ PKG = "B:/GAMES/DOTDEL.O88"
 # ones are 5150s with the GLaBIOS twin, because the IBM ROM is not in the tree.
 # ...and the floor leg E fails under, PER ARM. See FPS_FLOOR below.
 ARMS = (
-    ("vga",  "os8088_xt_vga",        (16, 13), 0.90),
+    # VGA's windowed floor is 0.88 and came down from 0.90 for a MEASUREMENT
+    # and not for a regression - which is the distinction, because it was
+    # first lowered to 0.85 to make room for one and the soak was right to go
+    # red at 78.0%. The build that ships SPEC.md 93.5.13 reads 97.6, 90.5 and
+    # 97.9 against 96.3 and 97.1 before it; 0.88 sits under the outlier of
+    # three and well over what a real regression does, which is the 60s and
+    # 70s (93.5.3, and the 78.0 that caught 93.5.13.2's first spelling).
+    ("vga",  "os8088_xt_vga",        (16, 13), 0.88),
     ("cga",  "os8088_5150_cga_gla",  (8, 4),   0.95),
     ("herc", "os8088_5150_herc_gla", (16, 9),  0.95),
 )
@@ -398,71 +405,185 @@ def leg_g(tag, ui, p, say):
     return fail
 
 
-def leg_h(tag, ui, p, say, want=40):
-    """No band covers a wall tile that no box of its actor is on (93.5.13).
+def leg_h(tag, ui, p, say, frames=20, cap=2):
+    """No WALL tile is left in the wrong pen at the END of a frame.
 
     A band goes down in ONE pen, so every tile in it wears the actor's ink.
     For a tile the actor is standing on that is the accepted price of 93.5.1 -
-    the field called it fine - and for one it is merely NEAR it is a bright
-    flash on a piece of maze nothing was ever on.  The union of two one-tile
-    boxes has a fourth corner that neither box touches whenever they differ on
-    BOTH axes, and in a one-tile corridor that corner is the maze's own.
+    the field called it fine - and for the maze's own corner, which the union
+    of two boxes covers when they differ on both axes and neither box is on,
+    it is a bright flash on something nothing was ever standing on.
 
-    dd_band_ground already answers "is there a wall in this rect" for free, so
-    a breakpoint on dd_band_walls sees exactly the bands that could be wrong,
-    and the rect it is composing says which kind it is: both spans > 1 is the
-    corner, one span is the actor's own lane.
+    SPEC.md 93.5.13 queues that corner and 93.5.10's drain puts it back on the
+    NEXT frame, so what this asserts is not "never wrong" but "never wrong for
+    long": a reading is taken at dd_draw's entry, where the previous frame is
+    finished, and no single tile may be wrong in more than `cap` of them.
 
-    BREAK IT ON PURPOSE without rebuilding: poke `clc / ret` (F8 C3) over
-    dd_split_ck so the split never fires.  On ONE build, same scene: **16
-    corner bands of 70 walled with it off, 0 of 71 with it on**.  What the
-    other ~55 are is the pen DOOR under a ghost that is standing on it, which
-    is the accepted case and the one the field called fine.
+    It excludes only tiles an actor's BOX is on - not a ring of two, which is
+    what the colour census does and why the census could never see this at
+    all: the corner is adjacent to the actor by construction.
 
-    VGA ONLY, and that is the whole of the defect: one plane has no pen at all
-    (SPEC.md 5.4.2.2), so a band on Hercules or CGA already means lit and
-    unlit and there is nothing to miscolour.
+    BREAK IT ON PURPOSE: poke `clc / ret` (F8 C3) over dd_split_ck so the
+    corner is never queued.  It then stays wrong until the actor is two tiles
+    away and this reads the same tile wrong in a dozen consecutive frames.
+    Put dd_rep_covered's ring-of-one test back and it goes red the same way,
+    that ring being what deferred the repair for as long as anybody was near.
+
+    VGA ONLY: one plane has no pen at all (SPEC.md 5.4.2.2).
     """
     m = ui.m
     fail = []
-    off = codeoff("dd_band_walls")
-    base = (p.seg << 4) + p.names["dd_c0"]           # c0, c1, r0, r1: adjacent
-    bh = (p.seg << 4) + p.names["dd_bh"]
-    th = p.w("dd_th")
-
-    def rect(mm, rec):
-        # dd_tile_put REACHES dd_band_walls TOO, since SPEC.md 93.5.11 gave a
-        # repaired wall its own ground - and it does not set dd_c0..dd_r1, so
-        # the rect at such a stop is the last BAND's and says nothing about
-        # this one.  dd_bh is the tell: a band's height is its rect's, and a
-        # tile put's is one tile.
-        c0, c1, r0, r1 = struct.unpack("<4H", bytes(mm.read(base, 8)))
-        h = struct.unpack("<H", bytes(mm.read(bh, 2)))[0]
-        return (c0, c1, r0, r1, h == (r1 - r0 + 1) * th)
-
-    t0 = p.w("dd_anim")
-    with os88marty.bp_trace(m, {"type": "execseg", "seg": p.seg, "off": off},
-                            on_hit=rect, cap=want * 8) as tr:
-        deadline = time.time() + 120
-        while tr.n < want and time.time() < deadline:
-            time.sleep(0.5)
-    ticks = (p.w("dd_anim") - t0) & 0xFFFF
-    corners = [r for r in (h["hit"] for h in tr.hits)
-               if r and r[4] and r[1] > r[0] and r[3] > r[2]]
-    if not ticks:
-        fail.append("%s: the game's own clock did not advance - this leg read "
-                    "nothing" % tag)
-    elif tr.n < want:
-        fail.append("%s: only %d walled bands in %d ticks - this leg wants %d "
-                    "before it can say anything" % (tag, tr.n, ticks, want))
-    elif corners:
-        fail.append("%s: %d of %d walled bands cover a tile NO box of the "
-                    "actor is on - the maze's own corner, in the actor's pen "
-                    "(SPEC.md 93.5.13); rects %s"
-                    % (tag, len(corners), tr.n, corners[:6]))
+    if not settle_playing(m, p):
+        say("%s: not playing - leg H skipped its sample" % tag)
+        return fail
+    m.pause()
+    tw, th = p.w("dd_tw"), p.w("dd_th")
+    bdx, bdy = p.w("dd_bdx"), p.w("dd_bdy")
+    sb, bdseg, mh = p.w("dd_sb"), p.w("dd_bdseg"), p.w("dd_mh")
+    pic = bytes(m.read(bdseg << 4, sb * mh))
+    m.breakpoints([{"type": "execseg", "seg": p.seg,
+                    "off": codeoff("dd_draw")}])
+    wrong = {}
+    seen = took = 0
+    for _ in range(frames):
+        m.go()
+        if not m.wait_stop(20.0):
+            break
+        grid = bytes(m.read((p.seg << 4) + p.names["dd_grid"], G_COLS * G_ROWS))
+        box = [(p.w("dd_ox", i), p.w("dd_oy", i)) for i in range(5)]
+        w, h, d = screen(m)
+        per = len(d) // (w * h)
+        took += 1
+        for r in range(G_ROWS):
+            for c in range(G_COLS):
+                if grid[r * G_COLS + c] not in (TT_WALL, TT_DOOR):
+                    continue
+                x0, y0 = c * tw, r * th
+                if any(bx < x0 + tw and x0 < bx + tw and
+                       by < y0 + th and y0 < by + th for bx, by in box):
+                    continue            # somebody is standing on it
+                cs = set()
+                for y in range(y0, y0 + th):
+                    if bdy + y >= h:
+                        break
+                    for x in range(x0, x0 + tw):
+                        if not (pic[y * sb + (x >> 3)] >> (7 - (x & 7))) & 1:
+                            continue
+                        o = ((bdy + y) * w + (bdx + x)) * per
+                        px = tuple(d[o:o + per])
+                        if any(px):
+                            cs.add(px)
+                if not cs:
+                    continue
+                seen += 1
+                if not any(q[2] > q[0] and q[2] > q[1] for q in cs):
+                    wrong[(c, r)] = wrong.get((c, r), 0) + 1
+    m.breakpoints([])
+    m.go()
+    stuck = sorted(((n, t) for t, n in wrong.items()), reverse=True)[:6]
+    if took < frames // 2 or not seen:
+        fail.append("%s: only %d finished frames and %d wall readings - this "
+                    "leg read nothing" % (tag, took, seen))
+    elif stuck and stuck[0][0] > cap:
+        fail.append("%s: wall tile %s is in the actor's pen in %d of %d "
+                    "finished frames (cap %d) - it is not being put back "
+                    "(SPEC.md 93.5.13); the rest: %s"
+                    % (tag, stuck[0][1], stuck[0][0], took, cap, stuck[1:]))
     else:
-        say("%s: %d walled bands in %d ticks, none of them a corner"
-            % (tag, tr.n, ticks))
+        say("%s: %d wall readings over %d finished frames, %d wrong, worst "
+            "tile %d frame(s)" % (tag, seen, took, sum(wrong.values()),
+                                  stuck[0][0] if stuck else 0))
+    return fail
+
+
+def settle_playing(m, p, secs=20.0):
+    """Wait until the game is PLAYING, keeping Smiles in lives while we do."""
+    t0 = time.time()
+    while time.time() - t0 < secs:
+        m.pause()
+        st = p.b("dd_state")
+        m.write((p.seg << 4) + p.names["dd_lives"], bytes([99]))
+        m.go()
+        if st == 2:                     # DDS_PLAY
+            return True
+        if st == 0:                     # a game that ended: start another
+            m.key("Enter")
+        time.sleep(0.3)
+    return False
+
+
+def leg_i(tag, ui, p, say, floor=0.15):
+    """THE CAST IS ON THE GLASS.  Lit pixels inside each actor's own box.
+
+    Eight legs of this row watched the dots, the maze, the title, the tile and
+    the frame rate, and NOT ONE of them looked at Smiles or a ghost - so a
+    refactor that drew every actor at the wrong position, clipped it to
+    nothing and left the whole cast invisible passed all of them, on all
+    three adapters, and reached the field.  This is that hole.
+
+    The check is deliberately crude, because the defect it exists for is
+    crude: a sprite fills a good share of its own tile and a corridor tile is
+    black with at most a dot in it.  Fifteen readings, five actors on each of
+    the three adapters, on the build that fixed it against the one that did
+    not:
+
+        drawing : 46 49 49 52 57 59 59 59 60 65 66 69 70 76 82   (min 46%)
+        not     :  0  0  0  0  0  0  0  0  0  0  4  4 22 28 41
+
+    The floor is **15%** - three times under the lowest a drawn actor has
+    read, and clear of the 0-4% an undrawn one leaves.  It is deliberately not
+    put in the 41-46 gap: those two ends are one sample each and the high
+    "not" readings are not noise but a real thing - an actor standing inside
+    somebody ELSE's band is drawn by it, which is SPEC.md 93.5.1 working.  A
+    build with this defect still fails, because the other four read zero.
+
+    GS_EYES is skipped: a pair of eyes is a fraction of the sprite it comes
+    from, so it is the one state where a low reading is correct.
+
+    BREAK IT ON PURPOSE: hoist dd_band_actor's dd_sx/dd_sy stores above its
+    `call dd_band_build`.  dd_band_others walks the other four through that
+    same pair, so the self actor is then composed at the last of them and
+    clipped away.
+    """
+    m = ui.m
+    fail = []
+    if not settle_playing(m, p):
+        say("%s: not playing after 20s - leg I skipped its sample" % tag)
+        return fail
+    m.pause()
+    tw, th = p.w("dd_tw"), p.w("dd_th")
+    bdx, bdy = p.w("dd_bdx"), p.w("dd_bdy")
+    boxes = [(p.w("dd_x", i) >> 4, p.w("dd_y", i) >> 4, p.b("dd_alive", i),
+              p.b("dd_gs", i) if i else 0) for i in range(5)]
+    w, h, d = screen(m)
+    m.go()
+    per = len(d) // (w * h)
+    seen = []
+    for i, (x, y, alive, gs) in enumerate(boxes):
+        if not alive or gs == 4:        # GS_EYES: a fraction of a sprite
+            continue
+        lit = 0
+        for yy in range(y, y + th):
+            if bdy + yy >= h:
+                break
+            for xx in range(x, x + tw):
+                if bdx + xx >= w:
+                    break
+                o = ((bdy + yy) * w + (bdx + xx)) * per
+                if any(d[o:o + per]):
+                    lit += 1
+        seen.append((i, lit / float(tw * th)))
+    dark = [(i, f) for i, f in seen if f < floor]
+    if not seen:
+        fail.append("%s: no actor is alive - leg I read nothing" % tag)
+    elif dark:
+        fail.append("%s: actor(s) %s have under %.0f%% of their own box lit "
+                    "(%s) - they are not being drawn (SPEC.md 93.5.1)"
+                    % (tag, [i for i, _ in dark], 100 * floor,
+                       ["%d:%.0f%%" % (i, 100 * f) for i, f in dark]))
+    else:
+        say("%s: all %d actors on the glass (%s of their own box lit)"
+            % (tag, len(seen), ", ".join("%.0f%%" % (100 * f) for _, f in seen)))
     return fail
 
 
@@ -631,6 +752,9 @@ def run_arm(tag, machine, want_tile, a, say, floor=FPS_FLOOR):
         # --- H: ...and no band is about to take a piece of it ---------------
         if tag == "vga":
             fail += leg_h(tag, ui, p, say)
+
+        # --- I: ...and the cast is actually on it ---------------------------
+        fail += leg_i(tag, ui, p, say)
     return fail
 
 

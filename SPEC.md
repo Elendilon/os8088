@@ -108267,15 +108267,12 @@ fullscreen bracket.
 §93.5.1's one-pen band is a compromise the field accepted for the tile under
 an actor — *"the dots changing colors while the ghost is above them looks
 fine"* — and refused for the maze: *"the corners... they flash brightly"*. The
-two are not the same claim, and the difference is exactly which tiles a band
-covers that no box of the actor's is on.
+two are not the same claim, and the difference is which tiles a band covers
+that no box of the actor's is on.
 
 A band is the union of two one-tile boxes, taken out to the tile grid. When
 those boxes differ on **both** axes the union has a fourth corner that neither
 box touches, and in a one-tile corridor that corner is the maze's own wall.
-So a ghost rounding a bend lit the corner in its own colour, and §93.5.10's
-queue could only put it back a few frames later — a bright flash on a piece of
-maze nothing was ever standing on.
 
 **Measured on a VGA, 859 bands over 243 frames of steered play:**
 
@@ -108283,40 +108280,74 @@ maze nothing was ever standing on.
 |---|---|---|
 | composed | 859 | 3.53 a frame |
 | holding a wall or door | 40 | **4.7%**, 3.0 a second |
-| …of those, the 2x2 corner | 16 | the defect — a tile no box is on |
-| …of those, the pen DOOR | 30 | a ghost standing on it — the accepted case |
-| …of those, Smiles | **0** | see below |
+| …the 2x2 corner | 16 | the defect — a tile no box is on |
+| …the pen DOOR | 30 | a ghost standing on it — the accepted case |
+| …belonging to Smiles | **0** | see below |
 
 **Not one of the forty was Smiles**, and that is the answer to "why only
 sometimes". §93.7.3 takes an actor's decision *inside* `dd_act_move`, standing
 on the tile origin, and spends the rest of the tick's budget along the new
 direction. Smiles' 100% divides the tile exactly — 256 units of budget into a
-256-unit tile — so he lands on every origin at the end of a tick and turns
-with a whole tick on one axis: his two boxes never differ on both, and his
-corners never flash. A ghost's 88% does not divide, so its turn almost always
-lands mid-tick and its two boxes differ on both axes. A turn is therefore a
-necessary condition and not a sufficient one, which is what makes it look
-intermittent from the glass.
+256-unit tile — so he lands on every origin at a tick boundary and turns with
+a whole tick on one axis; his two boxes never differ on both. A ghost's 88%
+does not divide. A turn is therefore necessary and not sufficient, which is
+what makes it look intermittent from the glass.
 
-The fix is to emit the two **boxes** rather than their union, because a box
-only ever covers tiles the actor is passing over — so the fourth corner is not
-in either, and is never written at all. There is nothing to repair afterwards
-and no sub-frame window in which the wrong colour is on the glass. A/B'd on
-one build by poking `clc`/`ret` over `dd_split_ck`: **16 corner bands of 70
-walled with the split off, 0 of 71 with it on**, and the frame rate unmoved
-(96.9% windowed, 99.4% in the bracket, against 96.3–97.1% before it).
+##### 93.5.13.1 …and the tidy answer is the one that does not fit
 
-`dd_split_ck` decides it in three tests, cheapest first, and only the last one
-costs anything: **one plane has no pen at all** (§5.4.2.2), so Hercules and CGA
-cannot have this defect and pay one compare for it; a union that spans one
-axis has no fourth corner; and `dd_rect_wall` is the same predicate
-`dd_band_ground` already takes for its ground, so asking it here is free of a
-new walk in the common case.
+The obvious fix is to emit the two **boxes** rather than their union: a box
+only covers tiles the actor is passing over, so the fourth corner is in
+neither and is never written at all. **It was built, measured and withdrawn.**
 
-The tile the two boxes **share** is drawn twice, and the actor is composed into
-both bands so that it is drawn identically both times — blanking it in the
-first and restoring it in the second is precisely the flicker §93.5.1 composes
-other actors into a band to avoid.
+A split path is **11.18 ms** against a single band's ~5 (median of 41, paired
+at `dd_actor_emit.split` and `.drawn`), and the frames it fires on are the 2x2
+turn frames — already the heaviest a band gets. A windowed VGA frame is
+about 90% of the 54.9 ms tick, so the extra six do not cost six: they cost the
+**whole frame**, which then misses its tick.
+
+That is the general shape and it is worth writing down: **on a machine whose
+frame is nearly full, the cost of extra work is not the work, it is a dropped
+frame** — and a repair on the very frame that needed it is always landing on
+the fullest one. A single tile put instead of a second band (2.5 ms rather
+than 6) measured no better for the same reason.
+
+So the corner is **queued** and put back on the NEXT frame, out of §93.5.10's
+existing `DD_REPPF` = 2 drain, which is work the frame was going to do anyway.
+`dd_split_ck` decides it in three tests, cheapest first: one plane has no pen
+at all (§5.4.2.2), so Hercules and CGA pay a single compare; a union spanning
+one axis has no fourth corner; and `dd_rect_wall` is the predicate
+`dd_band_ground` already takes for its ground.
+
+##### 93.5.13.2 The queue was slow because of a RING
+
+Queueing the corner is only worth anything because §93.5.10's `dd_rep_covered`
+was fixed at the same time. It deferred any tile **within one tile** of any
+actor, on the reasoning that repainting under somebody takes them off the
+glass for a frame — and the corner this section is about is adjacent to the
+actor *by construction*, so it was deferred, re-queued and deferred again
+until the ghost was two tiles away. That is the hundreds of milliseconds the
+field saw it wrong for.
+
+The test is the actor's **box** now (`dd_tile_free`), which is the exact
+question that reasoning was asking. The pen door under a ghost — 30 of the 40
+walled bands — is still left alone, and still looks fine.
+
+**But the ring may only come off a WALL**, and that is the second half of the
+fix rather than a detail. Making the test exact for *everything* changed what
+the drain does with the rest of the queue — which is mostly Smiles' own dot
+trail: under the ring `dd_rep_run` popped a tile near an actor, found it
+covered and re-queued it **without drawing**, and exact it draws. Two tiles a
+frame, every frame, is ~5 ms a windowed VGA frame has not got, and the soak
+read **78.0% of the tick** for it. A dot is in no hurry — that is §93.5.10's
+own latency argument — so it keeps the ring; a wall takes the box, and there
+are ~0.05 of those a frame against the trail's two.
+
+**Measured after, on VGA, three runs: 9,592–9,594 wall-tile readings over 20
+finished frames each, 0 wrong in every one**, against a defect that held the
+same tile wrong for a dozen frames together; windowed 97.6 / 90.5 / 97.9% of
+the tick and fullscreen 99.1–99.6%, against 96.3–97.1 before the corner work.
+`tests/dotdel.py` leg H is the gate and reads the glass at `dd_draw`'s entry,
+where a frame is finished.
 
 #### 93.5.9.1 …and the fast path forgot which BYTE the run starts in
 

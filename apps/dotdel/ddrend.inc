@@ -1075,18 +1075,25 @@ dd_rep_push:
 ; -----------------------------------------------------------------------------
 dd_rep_covered:
     push ax
-    push si
-    xor si, si
-.each:
-    mov al, cl                      ; the box is ONE TILE and may straddle, so
-    sub al, [dd_ac + si]            ; it covers [ac, ac+1] x [ar, ar+1] and no
-    cmp al, 1                       ; more. A ring of one around it instead put
-    ja .next                        ; every freshly vacated tile back on the
-    mov al, ch                      ; queue to bounce round again
-    sub al, [dd_ar + si]
-    cmp al, 1
-    jbe .yes
-.next:
+    call dd_tile                    ; A WALL IS TESTED ON THE BOX, EVERYTHING
+    cmp al, TT_WALL                 ; ELSE ON THE RING, and the split is the
+    je .exact                       ; whole of what this costs.
+    cmp al, TT_DOOR
+    je .exact
+    pop ax
+    push ax
+    push si                         ; the RING, for a dot or a pellet: a tile
+    xor si, si                      ; within one of an actor is left for later,
+.each:                              ; which is cheap because dd_rep_run then
+    mov al, cl                      ; re-queues it INSTEAD OF DRAWING it. Most
+    sub al, [dd_ac + si]            ; of the queue is Smiles' own trail and it
+    cmp al, 1                       ; is in no hurry - 93.5.10's latency
+    ja .next                        ; argument - so making this exact made the
+    mov al, ch                      ; drain draw two tiles EVERY frame where it
+    sub al, [dd_ar + si]            ; had drawn almost none, and a windowed VGA
+    cmp al, 1                       ; frame has no room for 5 ms it did not
+    jbe .yes                        ; have before: the soak read 78.0% of the
+.next:                              ; tick against 96.3 before the corner work
     inc si
     cmp si, DD_NACT
     jb .each
@@ -1099,6 +1106,12 @@ dd_rep_covered:
     pop ax
     stc
     ret
+.exact:                             ; ...and a WALL is the corner 93.5.13 owes,
+    pop ax                          ; which is beside the actor BY CONSTRUCTION
+    call dd_tile_free               ; and so is deferred for ever by that ring.
+    cmc                             ; The box is the question the ring was
+    ret                             ; asking, and there are ~0.05 of these a
+                                    ; frame against the trail's two
 
 ; -----------------------------------------------------------------------------
 ; dd_rep_run - put DD_REPPF of them back. Clobbers everything.
@@ -1300,11 +1313,6 @@ dd_actor_prep:
     mov ax, DD_ROWS - 1
 .rk:
     mov [dd_nr1 + bx], al
-    shl bx, 1                       ; ...and BANK the two boxes the union was
-    mov ax, [dd_px]                 ; made of: dd_actor_px writes one pair and
-    mov [dd_pbx + bx], ax           ; prep runs five times before the first
-    mov ax, [dd_py]                 ; emit, so by then they are actor 4's
-    mov [dd_pby + bx], ax
     mov byte [dd_uok + si], 1
     ret
 .none:
@@ -1386,31 +1394,17 @@ dd_actor_emit:
     mov cl, 4
     mov ax, [dd_x + bx]
     shr ax, cl
-    mov [dd_sx], ax
-    mov [dd_ox + bx], ax
-    mov ax, [dd_y + bx]
+    mov [dd_ox + bx], ax            ; where it is being DRAWN, which is what the
+    mov ax, [dd_y + bx]             ; next frame's union is against
     shr ax, cl
-    mov [dd_sy], ax
     mov [dd_oy + bx], ax
-    call dd_split_ck                ; is there a tile in the union that NO box
-    jc .split                       ; of this actor's is on? (SPEC.md 93.5.13)
+    call dd_split_ck                ; is there a WALL in the union that no box
+    pushf                           ; of this actor's is on? (SPEC.md 93.5.13)
     call dd_band_actor
-    jmp short .drawn
-.split:
-    mov bx, si
-    shl bx, 1
-    mov ax, [dd_pby + bx]
-    push ax
-    mov ax, [dd_pbx + bx]
-    pop bx
-    call dd_box_rect                ; where it WAS...
-    call dd_band_actor
-    mov ax, [dd_sy]
-    mov bx, ax
-    mov ax, [dd_sx]
-    call dd_box_rect                ; ...and where it IS. The actor goes in
-    call dd_band_actor              ; BOTH, so the tile they share is drawn
-.drawn:                             ; twice and identically rather than blanked
+    popf
+    jnc .drawn
+    call dd_wall_push               ; ...then it owes its own pen back, on the
+.drawn:                             ; NEXT frame and not this one
     call dd_rep_vacated             ; ...and the tiles it has LEFT owe their
     mov byte [dd_shown + si], 1     ; own pen back (SPEC.md 93.5.10)
     mov al, [dd_img + si]
@@ -1499,6 +1493,15 @@ dd_box_rect:
 ; -----------------------------------------------------------------------------
 dd_band_actor:
     call dd_band_build              ; walls, dots, everybody else
+    mov bx, si                      ; [dd_sx]/[dd_sy] ARE dd_band_others' OWN
+    shl bx, 1                       ; CURSOR - it walks the other four through
+    mov cl, 4                       ; them - so this actor's position is put in
+    mov ax, [dd_x + bx]             ; AFTER the build and never before it. Set
+    shr ax, cl                      ; ahead of it, dd_band_one drew this actor
+    mov [dd_sx], ax                 ; at the LAST OTHER ACTOR's position, which
+    mov ax, [dd_y + bx]             ; is outside the band, so it clipped to
+    shr ax, cl                      ; nothing and the whole cast went invisible
+    mov [dd_sy], ax                 ; on every adapter
     mov al, [dd_img + si]
     call dd_band_one                ; ...and this actor over them
     mov al, [dd_inkof + si]
@@ -1506,37 +1509,22 @@ dd_band_actor:
     ret
 
 ; -----------------------------------------------------------------------------
-; dd_split_ck - CF = 1 when this band must go down as TWO, one per box
+; dd_split_ck - CF = 1 when this band covers a WALL no box of the actor is on
 ;               (SPEC.md 93.5.13). in: the union in [dd_c0..dd_r1], SI = actor.
 ;               Clobbers AX/CX. Preserves everything else.
 ;
 ; A BAND GOES DOWN IN ONE PEN, so every tile in it wears the actor's ink while
-; it is there - which is the honest price of SPEC.md 93.5.1 for a tile the
-; actor is ON, and is not honest at all for one it is merely NEAR. The union is
-; of two boxes, and when they differ on BOTH axes the rectangle that contains
-; them has a fourth corner that neither box touches. In a one-tile corridor
-; that corner is the maze's own, so a ghost rounding a bend lit the wall corner
-; in its colour for as long as the repair queue took to get to it.
+; it is there - the honest price of SPEC.md 93.5.1 for a tile the actor is ON,
+; and not honest at all for one it is merely NEAR. The union is of two boxes,
+; and when they differ on BOTH axes the rectangle containing them has a fourth
+; corner neither box touches. In a one-tile corridor that corner is the maze's
+; own, so a ghost rounding a bend lit the wall corner in its colour.
 ;
-; Emitting the two BOXES instead of their union leaves that corner out
-; altogether, because a box only ever covers tiles the actor is passing over.
-;
-; Measured on a VGA, 859 bands over 243 frames of play: 40 held a wall or a
-; door, 4.7%. Of those, 16 were the 2x2 corner this splits and 30 were the pen
-; DOOR under a ghost that was standing on it - the accepted case, and the one
-; the field called fine ("the dots changing colors while the ghost is above
-; them looks fine"). NOT ONE of the forty was Smiles: his speed divides the
-; tile exactly, so he lands on every origin at the end of a tick and turns with
-; the whole of the next tick's budget on one axis. A ghost at 88% does not, so
-; dd_act_move spends the rest of the tick along the NEW direction and the two
-; boxes differ on both axes. That is the whole of why the field saw it "only
-; sometimes".
-;
-; Three tests, cheapest first, and the last one is the only one that costs:
-; ONE PLANE HAS NO PEN AT ALL (SPEC.md 5.4.2.2), so Hercules and CGA cannot
-; have this defect and do not pay for it; a union on one axis has no fourth
-; corner to get wrong; and a corner that is corridor is drawn correctly by the
-; one band anyway.
+; Three tests, cheapest first, and only the last one costs: ONE PLANE HAS NO
+; PEN AT ALL (SPEC.md 5.4.2.2), so Hercules and CGA cannot have this defect
+; and pay a single compare; a union spanning one axis has no fourth corner;
+; and dd_rect_wall is the predicate dd_band_ground already takes for its
+; ground, so asking it here walks no new tiles in the common case.
 ; -----------------------------------------------------------------------------
 dd_split_ck:
     cmp byte [dd_bpp], 1
@@ -1547,10 +1535,129 @@ dd_split_ck:
     mov ax, [dd_r1]
     cmp ax, [dd_r0]
     jbe .no
-    call dd_rect_wall               ; the same predicate dd_band_ground takes
-    ret                             ; for its ground, and no dearer
+    call dd_rect_wall
+    ret
 .no:
     clc
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_wall_fix - put back every WALL or DOOR tile in the band that no actor's
+;               box is on, in the pen its own content wants
+; Clobbers everything but SI. Runs on ~5% of frames (SPEC.md 93.5.13).
+;
+; WHY THIS AND NOT TWO BANDS. Emitting the two boxes instead of their union
+; leaves the corner out altogether and is the tidier answer, and it was built
+; and MEASURED and is too dear: a split path is 11.18 ms against a single
+; band's ~5, and a windowed VGA frame is already about 90% of the 54.9 ms
+; tick - so the extra six do not cost six, they cost the WHOLE FRAME, which
+; then misses its tick. At 5.2% of frames that is the 5 points an A/B put on
+; it (92.7% against 97.7% with the same check running and the split disabled).
+;
+; One tile put is ~2.5 ms and fits, and what it trades is that the corner is
+; briefly wrong WITHIN the frame - the band writes it in the actor's pen and
+; this overwrites it a couple of milliseconds later, against 55 ms of frame.
+; The field defect was a corner that stayed wrong for as long as the actor
+; was near, which is hundreds of milliseconds (SPEC.md 93.5.10's queue defers
+; any tile within one of an actor, and a corner beside a ghost is always
+; that).
+;
+; A TILE AN ACTOR IS STANDING ON IS LEFT ALONE, and that is the pen DOOR: it
+; is 30 of the 40 walled bands measured, a ghost passing through it, and
+; blanking it would take the ghost off the glass for a frame. The test is the
+; BOX and not a ring of one tile, because the corner this exists for is
+; adjacent to the actor by construction.
+; -----------------------------------------------------------------------------
+dd_wall_push:
+    mov al, [dd_c0]
+    mov [dd_fwc], al
+    mov al, [dd_c1]
+    mov [dd_fwc1], al
+    mov al, [dd_r0]
+    mov [dd_fwr], al
+    mov al, [dd_r1]
+    mov [dd_fwr1], al
+.row:
+    mov al, [dd_c0]
+    mov [dd_fwc], al
+.col:
+    mov cl, [dd_fwc]
+    mov ch, [dd_fwr]
+    call dd_tile
+    cmp al, TT_WALL
+    je .maybe
+    cmp al, TT_DOOR
+    jne .next
+.maybe:
+    call dd_tile_free               ; nobody's box on it?
+    jnc .next
+    mov cl, [dd_fwc]
+    mov ch, [dd_fwr]
+    call dd_rep_push
+.next:
+    inc byte [dd_fwc]
+    mov al, [dd_fwc]
+    cmp al, [dd_fwc1]
+    jbe .col
+    inc byte [dd_fwr]
+    mov al, [dd_fwr]
+    cmp al, [dd_fwr1]
+    jbe .row
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_tile_free - CF = 1 when NO actor's box overlaps tile (CL, CH)
+; The box is [dd_ox, dd_ox + dd_tw) x [dd_oy, dd_oy + dd_th) in board pixels -
+; where each actor is being DRAWN this frame, which is what is on the glass.
+; Clobbers AX/BX/DX. Preserves CX/SI.
+; -----------------------------------------------------------------------------
+dd_tile_free:
+    push cx
+    push si
+    push di
+    mov al, cl                      ; the tile's own pixel box
+    xor ah, ah
+    mul word [dd_tw]
+    mov [dd_fx], ax
+    mov al, ch
+    xor ah, ah
+    mul word [dd_th]
+    mov [dd_fy], ax
+    xor si, si
+.each:
+    cmp byte [dd_alive + si], 0
+    je .next
+    mov di, si
+    shl di, 1
+    mov ax, [dd_ox + di]            ; actor right > tile left?
+    add ax, [dd_tw]
+    cmp ax, [dd_fx]
+    jbe .next
+    mov ax, [dd_fx]                 ; tile right > actor left?
+    add ax, [dd_tw]
+    cmp ax, [dd_ox + di]
+    jbe .next
+    mov ax, [dd_oy + di]
+    add ax, [dd_th]
+    cmp ax, [dd_fy]
+    jbe .next
+    mov ax, [dd_fy]
+    add ax, [dd_th]
+    cmp ax, [dd_oy + di]
+    jbe .next
+    pop di                          ; somebody is on it
+    pop si
+    pop cx
+    clc
+    ret
+.next:
+    inc si
+    cmp si, DD_NACT
+    jb .each
+    pop di
+    pop si
+    pop cx
+    stc
     ret
 
 ; -----------------------------------------------------------------------------

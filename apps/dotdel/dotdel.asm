@@ -1052,8 +1052,12 @@ dd_s_small:  db 'Window too small.', 0
     DBUFV  dd_y, DD_NACT * 2
     DBUFV  dd_ox, DD_NACT * 2       ; ...and where it was last DRAWN, whole px
     DBUFV  dd_oy, DD_NACT * 2
-    DBUFV  dd_pbx, DD_NACT * 2      ; ...banked per actor, because dd_actor_px
-    DBUFV  dd_pby, DD_NACT * 2      ; writes one pair and prep runs five times
+    DBYTEV dd_fwc                   ; the wall-tile repair's walk (93.5.13)
+    DBYTEV dd_fwr
+    DBYTEV dd_fwc1
+    DBYTEV dd_fwr1
+    DWORDV dd_fx                    ; ...and the tile box dd_tile_free tests
+    DWORDV dd_fy
     DBUFV  dd_dir, DD_NACT
     DBUFV  dd_want, DD_NACT
     DBUFV  dd_alive, DD_NACT
