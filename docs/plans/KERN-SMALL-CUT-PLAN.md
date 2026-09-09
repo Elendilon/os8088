@@ -42,25 +42,25 @@ The ask, in the requester's words:
 
 ## 0. The verdict, up front
 
-**The whole list, taken, lands at 67.0 KB of free heap — and it costs the
-ability to write a file.** That is 3 KB better than the previous revision of
+**The whole list, taken, lands at 66.5 KB of free heap — and it costs the
+ability to write a file.** That is 1.5 KB better than the previous revision of
 this document predicted, and none of the improvement is new cutting: the
 baseline moved under it while the rows were being re-priced.
 
 ```
 today       KERN_SIZE 78,336   heap floor 78.0 KB   free heap on 128KB = 50.0 KB
-CLEAN rows  KERN_SIZE 69,120   heap floor 69.0 KB   free heap on 128KB = 59.0 KB
-everything  KERN_SIZE 60,928   heap floor 61.0 KB   free heap on 128KB = 67.0 KB
+CLEAN rows  KERN_SIZE 69,632   heap floor 69.5 KB   free heap on 128KB = 58.5 KB
+everything  KERN_SIZE 61,440   heap floor 61.5 KB   free heap on 128KB = 66.5 KB
                                ------------------------------------------------
-the clean cut  9,216 bytes  |  everything 17,408 = 22.2% of the footprint
+the clean cut  8,704 bytes  |  everything 16,896 = 21.6% of the footprint
 ```
 
-**AND THE FIRST NUMBER IS NOT THE BINDING ONE.** 67.0 KB is what the
+**AND THE FIRST NUMBER IS NOT THE BINDING ONE.** 66.5 KB is what the
 *kernel* arithmetic allows. What a row actually costs is decided on the APPS
 disk, and §10 is that audit: five of the rows below have published API slots
 that packages shipped on the small floppies CALL AND DO NOT TEST — so the
 refusing stub they would become is not a graceful refusal, it is silent wrong
-output. **Taking only the rows that break nothing reaches 59.0 KB.**
+output. **Taking only the rows that break nothing reaches 58.5 KB.**
 
 Seven findings, of which the first four are new at this reading.
 
@@ -98,10 +98,10 @@ Seven findings, of which the first four are new at this reading.
    is the task slices and not code. Below that it is a long tail of 40–200
    byte procedures. The cut has to come from removing whole *features*.
 
-6. **The hardware question yields almost nothing now.** It was worth ~4,700
-   bytes when this document opened and it is worth **1,651**, because A3, A4
-   and A2 have all been built. What is left is the sound layer and the clock's
-   residue. §2.
+6. **The hardware question is SPENT.** It was worth ~4,700 bytes when this
+   document opened and it is worth **1,110** — the sound layer, and nothing
+   else. A3, A4 and A2 are built, and A2r, the residue this revision first
+   carried as a live row, turns out to be the SOFTWARE clock: §2.2.
 
 7. **The heap COMPACTOR is not on this list**, and was costed rather than
    assumed: **docs/plans/KERN-SMALL-NOCOMPACT.md**. What looks like a nicety
@@ -257,8 +257,8 @@ What is actually still on the table:
 | # | option | HEAP | `.text` | `.bss` | what it costs |
 |---|---|---:|---:|---:|---|
 | A1 | **Sound layer** SPEC.md 34 (`snd.inc`) | **1,110** | 834 | 276 | no PC-speaker tone or PCM at all. 256 of the `.bss` is `snd_xlat` |
-| A2r | **Clock residue** SPEC.md 37 (`clock.inc`) | **541** | 507 | 34 | the ladder's *probes* are gated; these are the read/write bodies and the bar's formatting, selected at run time off `[clk_tier]` |
-| | **subtotal** | **1,651** | | | |
+| A2r | ~~**Clock residue** SPEC.md 37 (`clock.inc`)~~ | ~~541~~ | — | — | **DEAD — §2.2.** There is no hardware left in it: all four rungs are already out of the assembly, and the 507 bytes are the SOFTWARE clock — the menu bar's cell, file timestamps and toast placement |
+| | **subtotal** | **1,110** | | | of which A2r is unavailable — A1 is the whole group |
 
 **A1 is deferred at the owner's instruction** — *"keep pc speaker for this
 round - we may cut it later, but for now."* Worth recording for whoever picks
@@ -268,15 +268,45 @@ here. What the speaker actually needs is the tone path and `snd_xlat`'s 256
 bytes of PCM rescale, so A1 splits and the already-unreachable half is the
 cheaper one to take.
 
-**A2r is a different row from the A2 that was built**, and it is worth being
-precise about, because the completed companion's §1 measured `CLK_FORCE` at
-44–51 bytes and that measurement stands. What was gated is `clk_probe`'s
-five `CLK_TRY` sites, which live in `.ovlw` — and gating them is what unlocked
-D2. The **541 bytes left are in `.text`**: the per-rung read and write bodies,
-which are dispatched at run time and are gated by nothing. SPEC.md 37.0.1
-already says no rung is reachable on a 128KB machine, so on this build those
-bodies are dispatched off a `[clk_tier]` that is always 0. **This is the
-cheapest row in the document with a contract already behind it.**
+### 2.2 A2r is DEAD, and it is this document's own stale sentence
+
+A2r was carried into this revision as *"the per-rung read and write bodies,
+which are dispatched at run time and are gated by nothing"*, and recommended
+as *"the cheapest row in the document with a contract already behind it"*.
+**That sentence was true at build 376 and A2's own build made it false.** It
+was re-published rather than re-checked, which is the failure this document
+warns about in its own header.
+
+`clock.inc` compiles `%define CLK_TRY(n) 0` when `OS88_RTC` is undefined, and
+the comment beside it says what that costs: *"every rung's body is out of the
+assembly too"*. Checked against the symbol map rather than the source —
+`clk_at_read`, `clk_at_get`, `clk_ns_read`, `clk_ns_get`, `clk_rp_get`,
+`clk_bios_read` and all three probes are **ABSENT from the kern_small
+build**. There is no hardware clock code left to gate.
+
+**What the 507 bytes of `.text` actually are is the SOFTWARE clock**, and
+three things render off it:
+
+| symbol | bytes | who needs it |
+|---|---:|---|
+| `clk_fmt` + the formatters (`clk_put_mon`, `clk_put2/4`, `clk_h12h`, `clk_ampm`, `clk_mnames`, `str_len`) | 240 | **`menu.inc:1513` — the menu bar's clock cell**, and `toast.inc:428`, whose gap arithmetic is the clock's own length |
+| `clk_tick` + `clk_inc_sec` + `clk_mlen` | 201 | `ui.inc:709` — advancing the clock off the **BIOS tick**, which is rung 0 and is the one that still works |
+| `clk_snapshot` | 30 | **`diskw.inc:3654` (`dskw_now`) — every file's FAT timestamp**, and `ctrl.inc:3510`, the Control Panel's Date & Time page |
+
+So gating it does not remove a dead hardware path. It removes the clock from
+the menu bar, breaks toast placement, and puts a garbage date on every file
+the machine saves. **0 bytes available.**
+
+Even the RTC-only `.bss` is not free: all eight bytes (`clk_cent`, `clk_rb`,
+`clk_rbin`, `clk_rpep`, `clk_rp24`, `clk_rtc`, `clk_tier`, `clk_dirty`) are
+still read from `ctrl.inc` and `hiber.inc`, so taking them means editing the
+Control Panel page as well — five bytes for a page edit.
+
+**The general lesson is §10's, one document earlier than §10.** A2r was priced
+off a *sentence in this file* rather than off the tree, exactly as B4 was
+priced off the kernel and not the apps disk. The rule that catches both:
+**re-derive a row before re-publishing it, especially when the row's own
+companion says the thing it depends on was built.**
 
 ---
 
@@ -544,12 +574,12 @@ in between.
 ## 8. The whole list, added up
 
 ```
-A  hardware                        1,651     clean
+A  hardware                        1,110     clean (A1 only; A2r is dead)
 B  display niceties                6,829     4,266 clean, 1,503 dead, 1,060 blocked
 C  features (C1, C5-C8)            8,335     2,311 clean, 6,024 blocked
 D  sizing constants                1,016     clean
                                   ------
-   raw                            17,831     of which 9,244 is CLEAN
+   raw                            17,290     of which 8,703 is CLEAN
 ```
 
 Rungs round, so the tiers below are computed from the sections rather than
@@ -560,15 +590,15 @@ from that sum.
 | take | `KERN_SIZE` | free heap | what still works |
 |---|---:|---:|---|
 | **today** | 78,336 | **50.0 KB** | measured on the machine |
-| A | 76,288 | **52.0 KB** | everything, minus sound and the clock bodies |
-| A + D | 75,264 | **53.0 KB** | …with smaller tables and six windows |
-| **every CLEAN row** (§10) | **69,120** | **59.0 KB** | …and no save-under, toast, progress, blanker, dock or built-in apps. **Nothing on the small floppies breaks** |
-| + the blocked rows, callers swept first | 65,536 | **62.5 KB** | …and no icons, fullscreen or clipboard — each conditional on §10's work |
-| + C1 deleted | 60,928 | **67.0 KB** | a read-only OS, and **five packages that think a save succeeded** |
+| A | 76,800 | **51.5 KB** | everything, minus the sound layer (A2r is dead — §2.2) |
+| A + D | 75,776 | **52.5 KB** | …with smaller tables and six windows |
+| **every CLEAN row** (§10) | **69,632** | **58.5 KB** | …and no save-under, toast, progress, blanker, dock or built-in apps. **Nothing on the small floppies breaks** |
+| + the blocked rows, callers swept first | 66,048 | **62.0 KB** | …and no icons, fullscreen or clipboard — each conditional on §10's work |
+| + C1 deleted | 61,440 | **66.5 KB** | a read-only OS, and **five packages that think a save succeeded** |
 
-**59.0 KB is the number to plan against**, and it is the one this document did
+**58.5 KB is the number to plan against**, and it is the one this document did
 not have before: it is everything that can be taken without a package on the
-small disks going quietly wrong. The rows between 59.0 and 62.5 are not
+small disks going quietly wrong. The rows between 58.5 and 62.0 are not
 refused — they are *unpriced*, because their real cost includes a sweep of
 their callers that nobody has done.
 
