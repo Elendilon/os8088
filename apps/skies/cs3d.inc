@@ -1879,7 +1879,15 @@ cs_flatverts:
     mov si, [si + CSM_VERTS]
     xor di, di
     mov cl, [cs_pshr]               ; the pair at the object's scale (88.5.6)
+%ifdef CSPROBE
+    mov byte [cs_dbg_fvfirst], 1    ; the first vertex has no predecessor
+%endif
 .v:
+%ifdef CSPROBE
+    push cx
+    call cs_probe_fv
+    pop cx
+%endif
     mov bx, [si]                    ; --- x M0, into the three outputs -------
     shl bx, cl
     mov ax, [cs_m]
@@ -2686,6 +2694,86 @@ cs_probe_sh:
     pop dx
     pop cx
     pop bx
+    pop ax
+    popf
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_probe_mstab - PROBE ONLY: is cs_m the SAME MATRIX as last frame?
+;                  SPEC.md 88.5.13.2's whole question. A per-frame
+;                  partial-product table pays from the SECOND frame of a
+;                  stable matrix and loses on the first, so what decides it
+;                  is not the table's cost but how often the answer is
+;                  "unchanged". The matrix is a function of (roll, pitch,
+;                  heading) alone, and this counts how often all three hold.
+;                  Preserves everything.
+; -----------------------------------------------------------------------------
+cs_probe_mstab:
+    pushf
+    push ax
+    push cx
+    push si
+    push di
+    push ds
+    push es
+    inc word [cs_dbg_mfr]
+    push ds
+    pop es
+    mov si, cs_m
+    mov di, cs_dbg_mprev
+    mov cx, 9
+    cld
+    repe cmpsw
+    jne .moved
+    inc word [cs_dbg_mstab]
+.moved:
+    mov si, cs_m
+    mov di, cs_dbg_mprev
+    mov cx, 9
+    rep movsw
+    pop es
+    pop ds
+    pop di
+    pop si
+    pop cx
+    pop ax
+    popf
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_probe_fv - PROBE ONLY: a FLAT model's vertex about to be transformed.
+;               cs_flatverts spends SIX multiplies a vertex - x M0 into three
+;               components and z M2 into three - where cs_stackverts' column
+;               trick spends nine a LEVEL and gets four vertices out of it by
+;               adding (88.5.6.2). The cheap version of that here is reuse:
+;               if this vertex's x equals the last one's, its three products
+;               are the last one's too. This counts how often that is true,
+;               because a compare costs 4 cycles and three imuls cost ~420.
+;               in: SI = the vertex pair. Preserves everything.
+; -----------------------------------------------------------------------------
+cs_probe_fv:
+    pushf
+    push ax
+    inc word [cs_dbg_fvn]
+    cmp byte [cs_dbg_fvfirst], 0
+    je .cmp
+    mov byte [cs_dbg_fvfirst], 0
+    jmp short .save
+.cmp:
+    mov ax, [si]
+    cmp ax, [cs_dbg_fvpx]
+    jne .zx
+    inc word [cs_dbg_fvx]
+.zx:
+    mov ax, [si + 2]
+    cmp ax, [cs_dbg_fvpz]
+    jne .save
+    inc word [cs_dbg_fvz]
+.save:
+    mov ax, [si]
+    mov [cs_dbg_fvpx], ax
+    mov ax, [si + 2]
+    mov [cs_dbg_fvpz], ax
     pop ax
     popf
     ret

@@ -596,6 +596,9 @@ cs_render:
     call cs_r_begin
     CSSTAGE 2
     call cs_matrix
+%ifdef CSPROBE
+    call cs_probe_mstab             ; ...and is it the same one as last frame?
+%endif
     mov ax, [cs_px+1]               ; the eye, in whole metres
     mov [cs_ex], ax
     cwd

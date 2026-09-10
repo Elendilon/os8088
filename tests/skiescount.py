@@ -282,7 +282,9 @@ def main(argv):
                   "cs_dbg_wshpx", "cs_dbg_wshby", "cs_dbg_wstpx",
                   "cs_dbg_wvtpx", "cs_dbg_wslrow", "cs_dbg_wslpx",
                   "cs_dbg_prow", "cs_dbg_ppx", "cs_dbg_pby",
-                  "cs_dbg_pby2", "cs_dbg_pby4", "cs_dbg_pby8"):
+                  "cs_dbg_pby2", "cs_dbg_pby4", "cs_dbg_pby8",
+                  "cs_dbg_mfr", "cs_dbg_mstab",
+                  "cs_dbg_fvn", "cs_dbg_fvx", "cs_dbg_fvz"):
             m.write(lin + base + off(n), b"\x00\x00")
         N = a.count_frames
         # --- WITH --fly THE BANK IS RE-PINNED EVERY FRAME ------------------
@@ -356,6 +358,15 @@ def main(argv):
               "<=8 %.1f (%.0f%%)  <== the SHAPE, which a mean hides"
               % (b2 / N, 100.0 * b2 / max(prow, 1), b4 / N,
                  100.0 * b4 / max(prow, 1), b8 / N, 100.0 * b8 / max(prow, 1)))
+        mfr, mst = w("cs_dbg_mfr"), w("cs_dbg_mstab")
+        print("  MATRIX unchanged in %d of %d frames (%.0f%%) <== a per-frame "
+              "table pays from the SECOND stable frame (88.5.13.2)"
+              % (mst, mfr, 100.0 * mst / max(mfr, 1)))
+        fvn, fvx, fvz = w("cs_dbg_fvn"), w("cs_dbg_fvx"), w("cs_dbg_fvz")
+        print("  FLAT vertices %.1f a frame; x matches the previous vertex's "
+              "%.1f (%.0f%%), z %.1f (%.0f%%) <== three imuls each, already "
+              "to hand" % (fvn / N, fvx / N, 100.0 * fvx / max(fvn, 1),
+                           fvz / N, 100.0 * fvz / max(fvn, 1)))
 
         # --- the tick wait out, for the whole run (skiesperf.py's rule: a
         #     frame faster than a tick reads 55 ms and every arm reads it) ---

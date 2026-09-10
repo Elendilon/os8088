@@ -2586,6 +2586,15 @@ CS_DBGSCR equ 112               ; ...and the copy A/B's scratch is 112 rows,
     ZWORD cs_dbg_pby8               ; ...and <= 8, because a MEAN hides a
                                     ; bimodal distribution and the two want
                                     ; different answers
+    ZWORD cs_dbg_mfr                ; frames, and the ones whose MATRIX was
+    ZWORD cs_dbg_mstab              ; unchanged (88.5.13.2's whole question)
+    ZBUF  cs_dbg_mprev, 9 * 2       ; ...last frame's copy of it
+    ZWORD cs_dbg_fvn                ; a FLAT model's vertices, and the ones
+    ZWORD cs_dbg_fvx                ; whose x - or z - is the PREVIOUS
+    ZWORD cs_dbg_fvz                ; vertex's, so three imuls are already to
+    ZWORD cs_dbg_fvpx               ; hand. The running pair, and a flag for
+    ZWORD cs_dbg_fvpz               ; the first vertex of a model, which has
+    ZBYTE cs_dbg_fvfirst            ; no predecessor to match
     ZBYTE cs_axmask                 ; BISECT: which axis bits may cull
     ZBYTE cs_axoff                  ; AUDIT: cs_axcull computes and does NOT
     ZBYTE cs_dbg_ax                 ; act, so the winding decides every face

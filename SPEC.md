@@ -104232,18 +104232,18 @@ per-call costs above:
 
 | | multiplies a frame |
 |---|---|
-| `cs_flatverts` (6 a vertex, inlined `MUL14`) | ~186 |
-| `cs_projall`'s proc (2 a vertex) | 106 |
-| `cs_rot` (9 an object) | 97 |
-| `cs_colscale` (3 a column) | 81 |
-| **total** | **~470** |
+| `cs_flatverts` (6 a vertex, **20.0 vertices a frame** counted) | 120 |
+| `cs_projall`'s proc (2 a vertex, 53 vertices) | 106 |
+| `cs_rot` (9 an object, 10.8 objects) | 97 |
+| `cs_colscale` (3 a column, 27 columns) | 81 |
+| **total** | **~404** |
 
-At ~140 cycles that is **13.8 ms - 35% of the block and 9.8% of a level
-frame.** The other 65% is the per-vertex and per-object loops around them:
+At ~140 cycles that is **11.9 ms - 30% of the block and 8.5% of a level
+frame.** The other 70% is the per-vertex and per-object loops around them:
 `cs_projall`'s own 794 cycles a vertex, the projection proc's 604 that are
 not its two multiplies, `cs_rot`'s 812 and `cs_colscale`'s 262.
 
-**So "make the multiplies cheaper" reaches a third of it at most**, and the
+**So "make the multiplies cheaper" reaches under a third of it**, and the
 pipeline has already had eight passes on the OTHER two thirds - §88.5.6's
 16.8 scale, §88.5.6.2's removal of `cs_colscale` from the flat path,
 §88.5.6.3's distributed shift, §88.5.6.4's registers, §88.5.7's object-level
@@ -104256,21 +104256,55 @@ never been touched.
 Every one of those ~470 multiplies has a matrix element as one operand, and
 `cs_m` is built ONCE a frame (§88.5). Nothing exploits that.
 
-The obvious way to - a per-frame partial-product table for each element, so
-`m x v` becomes two byte-indexed lookups, a shift and an add at ~60 cycles
-against ~140 - is **costed and NOT taken as it stands**: nine elements of 256
-words is **4,608 bytes** of table, and building them is ~2,300 entries of
-add at ~20 cycles = **~9.6 ms a frame** against a saving of ~470 x 80 =
-**~8.3 ms**. It loses outright when the matrix moves every frame, which is
-what a turn is.
+**THE PREDICATE HOLDS AND THE BODY DOES NOT.** Both halves were measured
+rather than argued, and they answer in opposite directions.
 
-What makes it interesting rather than dead is that **the matrix does not move
-in the cruise**: it is a function of (roll, pitch, heading) alone, so a table
-built when those change and reused while they do not pays from the second
-frame onward. That is a rebuild predicate and a staleness flag, not a
-rewrite - but it is a 4.6 KB claim on a machine whose floor is 128 KB, and
-the arithmetic above is an ESTIMATE against a measured comparable rather
-than a measurement. It wants costing properly before a byte is written.
+The predicate is that the matrix is still there next frame, and it is:
+`cs_dbg_mstab` counts it at **25 of 25 frames level - three separate runs
+agreeing exactly - and 13 of 25 at 12 degrees of bank**, a bank turning the
+aeroplane so the heading moves under it. A table built when (roll, pitch,
+heading) change and kept while they do not would be reused on nearly every
+level frame and half the banked ones.
+
+The body is where it dies. An EXACT `(m x v) >> 15` from two partial-product
+tables needs the high byte's product shifted left eight and added to the low
+byte's **in 32 bits** before the shift - the biased signed index, two DWORD
+loads, three byte moves for the shift, a second index, a 32-bit add and the
+final shift. Assembled and counted rather than estimated, as §88.4.6.4's
+candidate was: **`MUL14` is 8 bytes and the table form is 52.** At the
+8088's 4.34-cycles-a-byte fetch floor that is **226 cycles of fetch before a
+single table read**, against `imul bx`'s ~140 all in. It is **twice as slow
+per use**, so the rebuild cost - the thing the first costing worried about,
+at ~9.6 ms a frame - never even enters the arithmetic. The 4,608 bytes are
+not the objection either (§24.5 leaves Clear Skies off the 128 KB machine
+entirely, so its heap is not the tight one).
+
+This is the THIRD time on this program that a table has lost to the
+instruction it was replacing, and always the same way: **the index
+arithmetic costs what the operation costs.** §88.4.6.4's fill row was 88
+bytes against 85, §88.4.6.2's line run was the one exception and won only
+because the body it replaced was built for a different case.
+
+##### 88.5.13.3 …and REFUSED: reusing a flat vertex's products, for want of customers
+
+`cs_flatverts` spends **six multiplies a vertex** - `x M0` into three
+components and `z M2` into three - where `cs_stackverts`' column trick
+spends nine a LEVEL and gets four vertices out of it by adding
+(§88.5.6.2). The cheap version of that trick here is reuse: if a vertex's
+`x` equals the previous one's, its three products are already to hand, and
+the test is **7 bytes and ~30 cycles against three `imul` at ~420**.
+
+It has no customers. `cs_dbg_fvx`/`fvz` count **20.0 flat vertices a frame,
+of which x matches the previous vertex's 0% of the time and z 4%** - the
+same on all four flights measured. The whole prize is 0.8 vertices x 3
+multiplies = **0.07 ms**. A flat model's vertices are an arbitrary outline,
+not a grid, and consecutive ones share a coordinate essentially never.
+
+**So the vertex pipeline is at its floor for now**: 30% of it is multiplies
+that cannot be made cheaper on this instruction set, and the other 70% is
+loops that have had eight passes (§88.5.6 through §88.5.12). What is left is
+not a cheaper multiply but FEWER of them, and that is an LOD or a
+visibility question rather than an arithmetic one.
 
 ##### 88.5.12.1 What verifying it cost, which is worth more than the 143 bytes
 
