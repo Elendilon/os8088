@@ -12965,6 +12965,47 @@ at **52.5 KB free** (`tests/small128.py`). That is the trade stated rather than
 buried: the floor machine is also the machine a 36% faster point loop is worth
 most to.
 
+#### 136.3.1 Where the +329 went, since it is NOT what a move costs
+
+The obvious model — a routine moves from A to B, so B grows and A shrinks —
+predicts about zero, and it is right about the part it describes. Symbol spans,
+both builds:
+
+| | before | after | |
+|---|---:|---:|---:|
+| the early-out | 5 | 5 | |
+| prologue, the VGA gates and `.slow` | 72 | 74 | +2, the `push ds`/`pop ds` |
+| setup and the class dispatch | 21 | 44 | +23 |
+| **the loop** | **104** | **394** | **+290** — 146 dither, 125 paper, 123 ink |
+| epilogue | 9 | 10 | +1 |
+| `gfx_pt_box` + `gfx_pt_row` | 0 | 26 | +26 |
+| `gfx_bitset` + `gfx_bitclr` | 0 | 16 | +16 |
+| `gfx_ls_ink` | 10 | 10 | |
+| **`gfx_ls_addr`** | **29** | **0** | **−29** |
+| **total** | **250** | **579** | **+329** |
+
+**ONE loop went 104 → 123 bytes**, and that is the number the move model is
+about: +19 despite absorbing `gfx_ls_addr`'s body *and* `gfx_rowbase`'s fast
+path, because it gave back a call, a `push`/`pop` pair, the per-point class
+test and five instructions of commit. Take the 29 bytes of `gfx_ls_addr` off
+that and the inlining is **−10 bytes net**, exactly as it ought to be.
+
+**+290 of the +329 is the loop being emitted THREE TIMES**, which is not a move
+at all. That is the price of the one-instruction commit, and it is the change
+that bought the most.
+
+Two smaller terms have nothing to give back by construction. **`gfx_rowbase` is
+not deleted** — its own comment calls it *the fixed cost of every drawing call
+in the machine*, and `gfx_fill`, `font_char` and the rest still call it — so
+inlining its fast path here is pure addition. And the bit tables replace a
+shift that was *inside* the loop, so they add 16 while removing bytes from a
+body that is then emitted three times.
+
+**If the `kern_small` rung is the binding cost**, the lever is the expansion
+and not the inlining: emitting only the general loop there would give back ~248
+bytes and keep everything else. It is not proposed, because the floor machine
+is the one a 36% faster point loop is worth most to.
+
 #### 136.4 The pixels are gated, not asserted
 
 `tests/mcperf.py` hashes the screen 400 deterministic frames into a Missile

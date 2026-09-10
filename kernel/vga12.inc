@@ -1234,6 +1234,12 @@ gfx_points:
     mov bx, [vid_rseg]          ; BX = the framebuffer's
     mov ds, dx                  ; --- and from here DS is the CALLER's, so
     mov es, bx                  ;     every kernel word is `cs:`
+    ; THE CLASS IS DISPATCHED ONCE A CALL, and both of these assemble to five
+    ; bytes rather than two: a whole loop expansion stands between here and
+    ; either target, which is well past rel8, so nasm turns each into the
+    ; jump-around-a-near-jmp an 8086 needs (`75 03 / E9 xx xx`). That is the
+    ; right encoding and it is worth knowing it is there - it is four bytes and
+    ; a few clocks on the ARRIVAL, and nothing at all on a point.
     cmp al, 0xFF
     je .ink
     or al, al
