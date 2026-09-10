@@ -103188,6 +103188,103 @@ asks the direct question — stood on the Issy runway looking at the tower,
 the bar is a nine-pixel run at the tower's own x with nothing at the left —
 and `--clobber-flat` NOPs those four bytes and moves it to x = 0.
 
+##### 88.4.6.2 A short sliced run is two ORs off one table
+
+§88.4.6's row body is built for a LONG run - two mask-table reads, both ends
+computed from x with three shifts each, three pushes and two pops, and a `rep
+stosb` for the whole bytes between. It is **129 bytes and ~785 cycles**
+whatever it lays down, which is the right trade at the 167 pixels a run a
+level flight puts through it and the wrong one at the 6.9 a bank does
+(§88.4.6.3).
+
+A run of **8 pixels or fewer spans at most TWO BYTES from any bit**, so it
+needs neither end computed nor a `rep`: one word off a 64-entry table indexed
+by `(x & 7) * 8 + (run - 1)` gives both bytes' bits at once, and two ORs lay
+them. **The second OR is unconditional**, which is what keeps the body
+branch-free: the table's high byte is 0 for a run that does not cross, and
+`or` with 0 writes back the byte that was already there. `DI + 1` cannot leave
+the claim - the widest 1bpp shadow here is 200 rows of 80 bytes against
+`CS_SHKB`'s 16,384 - and the run is clipped to the view before it arrives, so
+the byte it touches is inside the row in every case.
+
+`cs_srm` is computed by NASM from the same MSB-first convention `cs_hlm` and
+`cs_hrm` are written in, so there is no table to keep in step by hand and no
+generator to run: **128 bytes of data and 37 of body**, against the 65 bytes
+of `.row` + `.multi` it stands in for.
+
+**The gate is q, and it is one compare a SEGMENT.** Every row's run is `q` or
+`q + 1` and the half runs at the ends are `q / 2 + 1`, so `q <= 7` bounds all
+of them at 8 - and the slice is only entered at `q >= 6` (§88.4.3's six
+pixels a row), so the body's whole band is **q in 6..7**. `.flat` never
+reaches the test: its single run is the whole line.
+
+`[cs_slnoshort]` puts a short run back on the general body. It is a RUNTIME
+byte rather than a build knob for a reason the A/B needs: **both arms have to
+be the same binary**, or a picture comparison cannot tell a drawing difference
+from a layout one.
+
+###### 88.4.6.2.1 …and proving it draws the same picture took three tries
+
+The body is 37 bytes and the instrument to check it was the hard half. Three
+harness designs each made a CORRECT renderer look broken, and each failure is
+worth knowing because none of them is specific to this change:
+
+1. **A flying profile is not an A/B.** A faster renderer takes a different
+   number of simulation ticks per frame, so the aeroplane ends up somewhere
+   else. It read 4 frames in 14 differing, and the two pictures were **the
+   same two pictures swapped**, one frame apart.
+2. **The renderer is INCREMENTAL, so the card is a function of the frame
+   HISTORY and not of this frame's state.** Two runs of the SAME arm laid
+   **113 rows and 132**, because the host-timed window before the trace armed
+   left different rows dirty.
+3. Pinned, paused, every row forced dirty and reading the SHADOW rather than
+   the card, two launches STILL differed.
+
+What answers it is **A/B/A inside one guest**: one paused scene, three
+consecutive full repaints at one roll - arm A, arm B, arm A - and **A == A is
+checked at every point**, so a frame that is not reproducible is DISCARDED
+rather than reported as a difference. On that instrument the body reads
+**113 of 113 points identical, zero differing bytes**, over `slightbank`,
+`turnhold`, `sparse` and `descend` at every roll from 2 to 30 degrees, with 3
+points discarded by their own self-control.
+
+Neither `tests/skiesstale.py` nor any timing row can stand in for it: an
+under-fill leaves the SHADOW wrong and the card faithfully matches it, and a
+body that draws less is FASTER.
+
+##### 88.4.6.3 What a bank does to a run, measured
+
+The census that sized §88.4.6.2, taken on `slightbank` flying with the bank
+held, 16 counted frames and one fresh guest an angle
+(`tests/skiescount.py --fly`, `cs_dbg_wslrow`/`cs_dbg_wslpx`):
+
+| roll | sliced px | sliced RUNS | px a run | walked px |
+|---|---|---|---|---|
+| 0 | 670.1 | 4.0 | 167.5 | 0.0 |
+| 5 | 670.0 | 43.0 | 15.6 | 0.0 |
+| 12 | 652.0 | 94.2 | 6.9 | 3.1 |
+| 20 | 1.1 | 0.2 | 5.7 | 635.7 |
+
+**The same ~670 pixels are drawn at every bank**; what the tilt changes is the
+number of RUNS they are laid in. That is §88.3.1's "priced by the row and not
+the pixel" in the one place the pixel count is held constant by construction.
+
+A run's cost falls out of the same table by SUBTRACTION, with the pixel count,
+the object count and the `cs_seg` call count all fixed: roll 0 to 12 is
+**+90.2 runs for +14.83 ms of `cs_edges` = 785 cycles a run**, and roll 0 to 5
+is **+39.0 runs for +6.26 ms = 766**. §85.3.6 reached "some 800" for Tank's
+row by counting its bytes and its memory accesses; this is a second source by
+a different method on a different program. What is left over is `cs_edges`'
+FIXED part - `cs_seg` entered 15 times, most of them clipped away, and the
+marking - and it is **~7.0 ms at every angle**, which is why the stage reads
+7.70 at level where its four runs are worth 0.66.
+
+The census also settles what a bank does NOT do here: **there are no steep and
+no vertical line draws at any angle in this scene**, because these buildings
+are drawn as filled faces and never as outlines. A bank taking every upright
+edge off `%1_vt` is an argument from the renderer's shape with no customers in
+it.
+
 ##### 88.4.3.1 …and the per-pixel WRITE is not what a segment costs
 
 Asked of §88.13.3's outline dedup: *"why was the wireframe duplicating pixels

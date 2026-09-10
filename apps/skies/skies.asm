@@ -2412,6 +2412,8 @@ cs_hand equ os88_image_end      ; THE HANDOFF IS THE FIRST THING IN THE BSS,
     ZWORD cs_mkb2                   ; cs_markstep's bottom end, kept exact - a
                                     ; WORD because the store is `mov [x], bp`
                                     ; and a byte one would write the neighbour
+    ZBYTE cs_slnoshort              ; set to put a SHORT sliced run back on the
+                                    ; general row body (88.4.6.2's A/B)
     ZBYTE cs_mknostep               ; set to put a thin diagonal's mark back on
                                     ; its BOX, which is what shipped before
                                     ; SPEC.md 88.3.2.2 - the A/B, poked

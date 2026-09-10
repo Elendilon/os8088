@@ -270,6 +270,10 @@ def main(argv):
                          "one scene from one place, so the only honest "
                          "control for a rolled frame is the SAME scene "
                          "level (SPEC.md 88.3.1.3.5)")
+    ap.add_argument("--noshort", type=int, default=None, choices=(0, 1),
+                    help="poke [cs_slnoshort]: 1 puts a SHORT sliced run back "
+                         "on the general row body, which is what shipped "
+                         "before SPEC.md 88.4.6.2. The A/B, on one binary")
     ap.add_argument("--nostep", type=int, default=None, choices=(0, 1),
                     help="poke cs_mknostep: 1 puts a thin diagonal's mark "
                          "back on its BOX (SPEC.md 88.3.2.2's A/B)")
@@ -363,6 +367,8 @@ def main(argv):
             poke("cs_hzfull", bytes([a.hzfull]))
         if a.nostep is not None:
             poke("cs_mknostep", bytes([a.nostep]))
+        if a.noshort is not None:
+            poke("cs_slnoshort", bytes([a.noshort]))
         if P["pos"] is None:            # the runway start: it is ON the strip
             poke("cs_pitch", ((P["pitch"] * 65536 // 360) & 0xFFFF)
                  .to_bytes(2, "little"))

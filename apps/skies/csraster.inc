@@ -2645,6 +2645,37 @@ cs_hrun:
 CS_ENDN equ 640                     ; cs_lend/cs_rend's length: a view's x
                                     ; cannot leave [0, 639], the shadow row
                                     ; being 80 bytes (88.4.5.5)
+; cs_srm - THE SHORT RUN'S MASK PAIR (88.4.6.2), 64 words indexed by
+;          (x & 7) * 8 + (run - 1): the low byte is the first byte's bits and
+;          the high byte the second's, 0 there when the run does not cross.
+;          NASM computes it from the same MSB-first convention cs_hlm and
+;          cs_hrm are written in, so there is no table to keep in step by
+;          hand and no generator to run.
+cs_srm:
+%assign csb 0
+%rep 8
+  %assign csq 1
+  %rep 8
+    %assign csm1 0
+    %assign csm2 0
+    %assign csi 0
+    %rep 8
+      %if csi < csq
+        %assign csp csb + csi
+        %if csp < 8
+          %assign csm1 csm1 | (0x80 >> csp)
+        %else
+          %assign csm2 csm2 | (0x80 >> (csp - 8))
+        %endif
+      %endif
+      %assign csi csi + 1
+    %endrep
+    dw csm1 | (csm2 << 8)
+    %assign csq csq + 1
+  %endrep
+  %assign csb csb + 1
+%endrep
+
 cs_hlm:  db 0xFF, 0x7F, 0x3F, 0x1F, 0x0F, 0x07, 0x03, 0x01   ; 1bpp, pixels i..7
 cs_hrm:  db 0x80, 0xC0, 0xE0, 0xF0, 0xF8, 0xFC, 0xFE, 0xFF   ; 1bpp, pixels 0..i
 cs_clm:  db 0xFF, 0x3F, 0x0F, 0x03                           ; 2bpp, pixels i..3
@@ -3606,11 +3637,23 @@ cs_slice_herc:
     inc ax                          ; the half runs: q/2 + 1 ...
     mov [cs_slfin], ax
     or bp, bp                       ; ...and the first loses one when there is
-    jnz .row                        ; nothing fractional and q is even, so the
+    jnz .go                         ; nothing fractional and q is even, so the
     test byte [cs_slq], 1           ; pixel count still comes to |dx|+1
-    jnz .row
+    jnz .go
     dec ax
-    jmp short .row
+.go:
+    ; --- A SHORT RUN TAKES A BODY OF ITS OWN (SPEC.md 88.4.6.2) ------------
+    ; Every row's run is q or q+1, and the half runs at the ends are q/2+1,
+    ; so q <= 7 bounds all of them at 8 - and 8 pixels from any bit span at
+    ; most TWO BYTES. That is one mask pair off a table and two ORs, against
+    ; .row's two table reads, two end computations and three pushes. The
+    ; test is one compare on a word already stored, paid once a SEGMENT.
+    cmp word [cs_slq], 7
+    ja .long
+    cmp byte [cs_slnoshort], 0      ; ...and the A/B is a RUNTIME byte, not a
+    je .srow                        ; knob: one binary, both arms, so a
+.long:                              ; picture comparison cannot be a build
+    jmp short .row                  ; difference. It is one test a SEGMENT
 .flat:
     mov ax, cx                      ; dy = 0: one run of every pixel
     mov word [cs_slcnt], 0
@@ -3669,6 +3712,47 @@ cs_slice_herc:
     jmp short .row
 .done:
     ret
+    ; --- THE SHORT-RUN BODY (88.4.6.2) -------------------------------------
+    ; in: AX = this row's run (1..8), SI = its first x, BX = the row base,
+    ;     DX = the error, BP = the adjust-up, ES = the target
+    ; It carries the next row's first x in SI by ADDING the run, which is
+    ; what .row's push / add / push computes the long way round.
+.srow:
+    mov di, si
+    and di, 7                       ; the bit within its byte...
+    shl di, 1
+    shl di, 1
+    shl di, 1
+    add di, ax
+    dec di
+    shl di, 1                       ; ...times 8, plus run-1, a word index
+    mov cx, [cs_srm + di]           ; CL = the first byte's bits, CH = the
+    mov di, si                      ; second's
+    shr di, 1
+    shr di, 1
+    shr di, 1
+    add di, bx
+    or [es:di], cl
+    ; ...AND THE SECOND OR IS UNCONDITIONAL, which is what makes the body
+    ; branch-free: CH is 0 for a run that does not cross, and `or` with 0
+    ; writes back the byte that was already there. DI+1 cannot leave the
+    ; claim - the widest 1bpp shadow here is 200 rows of 80 bytes and
+    ; CS_SHKB is 16,384, so 384 bytes stand past the last of them.
+    or [es:di + 1], ch
+    add si, ax                      ; the next row's first x
+    add bx, [cs_ystep]
+    dec word [cs_slcnt]
+    js .done
+    jz .sfin
+    mov ax, [cs_slq]
+    add dx, bp
+    jle .srow
+    inc ax
+    sub dx, [cs_e2]
+    jmp short .srow
+.sfin:
+    mov ax, [cs_slfin]
+    jmp short .srow
 
 %macro CS_HWALKS 1
 %1_sh:
