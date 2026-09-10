@@ -903,7 +903,7 @@ either — measured, by clearing it on purpose and watching `ps2mouse` stay
 green. Confirmed fixed on both machines: the 286 types correctly and the
 Packard Bell's mouse is untouched.
 
-## 40. Cyclone overflows its task stack (OPEN — reported by the owner; a KNOWN mechanism plus 20 bytes this branch added)
+## 40. Cyclone overflows its task stack (OPEN — REPRODUCED, and the Sound Blaster is the term: 40.2.5)
 
 Reported as *"Cyclone is overflowing its stack… performant, near as I can
 tell, until it overflows."* Paint, Missile Command and Tank were exercised
@@ -1106,8 +1106,8 @@ boot probe finds it.
 
 That is the term nothing has measured, and the reason is structural rather
 than an oversight: **`stkdiag` never plays a note.** The 52 above is the sound
-driver *resident and idle*. Cyclone plays sound continuously. An IRQ 7
-completion landing on `cy_worker`'s slice mid-walk is a frame that
+driver *resident and idle*. Cyclone plays sound continuously. A driver frame
+landing on `cy_worker`'s slice mid-walk is something that
 
 - the panel cannot see, because the panel is silent;
 - the container cannot produce, because **no machine in
@@ -1126,11 +1126,93 @@ be written before it can be booted (four lines of TOML, plus its GLaBIOS twin
 — `tools/martypc/configs/os8088_machines.toml`'s own rule), and then the
 repro re-taken with Cyclone actually making noise.
 
+**That run has been taken and 40.2.5 is it.** Two things in the paragraphs
+above are wrong and are corrected there rather than here, because how they
+were wrong is the useful part: this was written as an **IRQ 7** completion,
+and it is IRQ **0**; and the *"114 of 192"* every one of these sections
+reasons against is **the title screen**.
+
 **A note on this branch's own contribution.** SPEC.md 5.6.9.3's first version
 made `gfx_points` cost its caller **34 bytes where the routine it replaced cost
 26** — a `push ds` and a wrapper. On a margin this thin that is material, and
 the reboot symptom appeared on that build. It is back to 26, measured; the
 branch's other contribution, wave 5's +20 to `cy_worker`, stands and is 40.1.
+
+### 40.2.5 REPRODUCED — and it needs the card
+
+**`os8088_5150_herc_sb` now exists** (the first MartyPC machine here pairing a
+1bpp adapter with a sound card) and the reporter's own procedure reproduces on
+it. Full account and provenance:
+`docs/reports/CYCLONE-STACK-2026-09-10.md`.
+
+| MartyPC, IBM `27 OCT 82`, Hercules 720 | slot 4 (`cy_worker`, 192) | outcome |
+|---|---|---|
+| **no card** | **164 / 192** — three runs, identical to the byte | **survived 3/3** |
+| **SB 2.0** | 184, 188 sampled before the panel | **PANIC 3/3** at 12 s, 10 s, 23 s |
+
+`STACK OVERFLOW  TASK 04  SP 172C`.
+
+#### Two harness faults had to be fixed first, and one invalidates this document's own arithmetic
+
+**The repro was never in the game.** Cyclone's title screen says
+`PRESS ENTER TO START`; the script pressed Space and sat on the title for the
+whole of every run. **So "114 of 192, flat" in 40.2.1 is the TITLE SCREEN**,
+and every piece of arithmetic in 40.2.1 and 40.2.3 built on it — *"+20 leaves
+58 free"*, *"+32 leaves 46 free"* — was subtracting from the wrong number.
+In play and with no card it is **164**, and the machine is **28 bytes** under
+the canary before anything else happens. That is why this document kept
+hunting for eighty bytes it did not need.
+
+The reporter's procedure named the step (*"Enter game"*) and the script
+skipped it. **A repro that does not perform every line of the report is not
+the repro**, and it fails silently by producing plausible numbers.
+
+**And the machine did not exist.** Seven MartyPC machines carry a Sound
+Blaster and every one is CGA or VGA.
+
+#### The mechanism, from the driver's source
+
+An SB 2.0 carries an OPL2, so `drivers/sound/sound.asm`'s attach publishes
+**both** halves — `DSV_TONE = opl_tone` and `DSV_TICK = sbl_tick` — and both
+are entered **from inside IRQ 0 at IF = 0, on whichever slice the tick
+interrupted**:
+
+- **`DSV_TICK`** is called from `snd_tick` **every tick, playing or not**
+  (`drivers/os88drv.inc` says so at its definition), so it is a constant
+  addition to every slice. It is what the idle floor sees: 32 without a card
+  and 52 with one.
+- **`DSV_TONE`** turns `snd_tone_out`'s *near tail jump* to `spk_tone` into
+  `drv_svc_call`, **a far call into the driver**, on a path its own comment
+  says is *"reached from `snd_tick`'s expiry path, so this can run INSIDE IRQ0
+  at IF=0."* Cyclone fires a tone every few frames.
+
+**So it is IRQ 0 and not IRQ 7.** Cyclone plays no stream and the card's own
+interrupt is not on this path at all; what changes is that two service
+pointers which are null on a cardless machine are not null here.
+
+The second one is **asynchronous to the walk**, which is the account of the
+varying symptom this document has wanted since it opened: identical starts
+panic at 12 s, 10 s and 23 s, and a clean panel, a corrupted screen and a hard
+reboot are **three landing sites rather than three bugs**.
+
+#### The two SPs are one event at two moments
+
+Slot 4 runs **5,974 … 6,166**. The field panel's `0x1788` = 6,024 is **50
+bytes above** the base and this repro's `0x172C` = 5,932 is **42 below** it —
+`sch_diepanel` prints the *parked* SP, so whether it reads healthy is a matter
+of when `sch_switch` looked. 40.2.0 decoded a healthy SP off a machine that
+had just died, and that is why.
+
+#### What it does not settle
+
+- **Which service call dominates.** `DSV_TICK` is constant, `DSV_TONE` is the
+  race, and the A/B turns both on together. `snd_route` (SPEC.md 34.8) may
+  separate them without a build.
+- **The fix.** Nothing here proposes one, and the honest framing has changed:
+  `cy_worker` runs at **85% of its class with no card in the machine**. That
+  is a margin question first and a driver question second — which puts 40.2's
+  item 2 (give the walk chain its 20 bytes back) back at the top rather than
+  at the bottom.
 
 ### 40.2 Where to look, in order
 
