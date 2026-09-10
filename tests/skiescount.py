@@ -284,7 +284,9 @@ def main(argv):
                   "cs_dbg_prow", "cs_dbg_ppx", "cs_dbg_pby",
                   "cs_dbg_pby2", "cs_dbg_pby4", "cs_dbg_pby8",
                   "cs_dbg_mfr", "cs_dbg_mstab",
-                  "cs_dbg_fvn", "cs_dbg_fvx", "cs_dbg_fvz"):
+                  "cs_dbg_fvn", "cs_dbg_fvx", "cs_dbg_fvz",
+                  "cs_dbg_pvobj", "cs_dbg_pvobje", "cs_dbg_pvedge",
+                  "cs_dbg_pvfree"):
             m.write(lin + base + off(n), b"\x00\x00")
         N = a.count_frames
         # --- WITH --fly THE BANK IS RE-PINNED EVERY FRAME ------------------
@@ -362,6 +364,13 @@ def main(argv):
         print("  MATRIX unchanged in %d of %d frames (%.0f%%) <== a per-frame "
               "table pays from the SECOND stable frame (88.5.13.2)"
               % (mst, mfr, 100.0 * mst / max(mfr, 1)))
+        pvo, pvoe = w("cs_dbg_pvobj"), w("cs_dbg_pvobje")
+        pve, pvf = w("cs_dbg_pvedge"), w("cs_dbg_pvfree")
+        print("  PROJECTED vertices %.1f a frame over %.1f objects; %.1f of "
+              "them (%.0f%%) are in a model that DRAWS EDGES and so cannot be "
+              "skipped whatever cs_axcull culls (%.1f of %.1f objects)"
+              % ((pve + pvf) / N, pvo / N, pve / N,
+                 100.0 * pve / max(pve + pvf, 1), pvoe / N, pvo / N))
         fvn, fvx, fvz = w("cs_dbg_fvn"), w("cs_dbg_fvx"), w("cs_dbg_fvz")
         print("  FLAT vertices %.1f a frame; x matches the previous vertex's "
               "%.1f (%.0f%%), z %.1f (%.0f%%) <== three imuls each, already "

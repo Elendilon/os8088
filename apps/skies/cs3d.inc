@@ -1923,6 +1923,9 @@ cs_flatverts:
 ; cs_projall - project every vertex in front of the near plane, flag the rest
 ; -----------------------------------------------------------------------------
 cs_projall:
+%ifdef CSPROBE
+    call cs_probe_pv                ; ...and could ANY of these be skipped?
+%endif
     mov byte [cs_pwhole], 0
     mov byte [cs_pinview], 0
     mov cx, [cs_nv]
@@ -2693,6 +2696,47 @@ cs_probe_sh:
     pop si
     pop dx
     pop cx
+    pop bx
+    pop ax
+    popf
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_probe_pv - PROBE ONLY: this object's vertices, split by whether its
+;               model draws EDGES. cs_projall runs BEFORE cs_faces, so every
+;               vertex is projected before cs_axcull (88.5.12) has culled a
+;               single face - and the obvious thought is to cull first and
+;               project only what survives. It is blocked for any model with
+;               edges: cs_edges walks EVERY entry of CSM_EDGES and cs_edge1
+;               reads both endpoints' cs_sxv, so an edge-bearing model needs
+;               all of them however many faces are culled. This counts which
+;               side of that line the frame's vertices fall on.
+;               Preserves everything.
+; -----------------------------------------------------------------------------
+cs_probe_pv:
+    pushf
+    push ax
+    push bx
+    push si
+    mov si, [cs_mdl]
+    mov ax, [cs_nv]                 ; ...which is the vertex COUNT: both
+                                    ; cs_stackverts (levels x 4) and
+                                    ; cs_flatverts (CSM_NV) store it that way,
+                                    ; and the first draft of this probe halved
+                                    ; it as if it were an index stride and
+                                    ; reported 31.8 vertices a frame where the
+                                    ; projection's own bracket counts 53 in
+                                    ; front of the near plane alone
+    inc word [cs_dbg_pvobj]
+    cmp byte [si + CSM_NE], 0
+    je .free
+    add [cs_dbg_pvedge], ax
+    inc word [cs_dbg_pvobje]
+    jmp short .out
+.free:
+    add [cs_dbg_pvfree], ax
+.out:
+    pop si
     pop bx
     pop ax
     popf

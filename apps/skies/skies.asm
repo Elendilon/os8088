@@ -2595,6 +2595,10 @@ CS_DBGSCR equ 112               ; ...and the copy A/B's scratch is 112 rows,
     ZWORD cs_dbg_fvpx               ; hand. The running pair, and a flag for
     ZWORD cs_dbg_fvpz               ; the first vertex of a model, which has
     ZBYTE cs_dbg_fvfirst            ; no predecessor to match
+    ZWORD cs_dbg_pvobj              ; objects reaching cs_projall, and the
+    ZWORD cs_dbg_pvobje             ; ones whose model draws EDGES...
+    ZWORD cs_dbg_pvedge             ; ...their vertices, which cannot be
+    ZWORD cs_dbg_pvfree             ; skipped, against the ones that could
     ZBYTE cs_axmask                 ; BISECT: which axis bits may cull
     ZBYTE cs_axoff                  ; AUDIT: cs_axcull computes and does NOT
     ZBYTE cs_dbg_ax                 ; act, so the winding decides every face

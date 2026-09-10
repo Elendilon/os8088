@@ -104303,8 +104303,52 @@ not a grid, and consecutive ones share a coordinate essentially never.
 **So the vertex pipeline is at its floor for now**: 30% of it is multiplies
 that cannot be made cheaper on this instruction set, and the other 70% is
 loops that have had eight passes (§88.5.6 through §88.5.12). What is left is
-not a cheaper multiply but FEWER of them, and that is an LOD or a
-visibility question rather than an arithmetic one.
+not a cheaper multiply but FEWER of them, and §88.5.13.4 is how far that
+goes.
+
+##### 88.5.13.4 The cull is built; what it does not gate is the PROJECTION
+
+§88.5.12's `cs_axcull` is the cull and it is a good one - no multiply at all,
+faces walked 350 -> 140 on `dflevel`, the frame down 2.38%. What it moved the
+cull ahead of is **the GATHER**, and that is not the same thing as the
+projection. `cs_drawobj`'s order is
+
+    cs_stackverts / cs_flatverts  ->  cs_projall  ->  cs_faces (cs_axcull)
+
+so **every vertex is projected before a single face is culled** - and
+`cs_axcull` needs no projected data at all, deciding on `cs_odx`/`ody`/`odz`,
+the world offset the rotation already had. The information to skip work
+arrives one stage after the work.
+
+**It is half blocked by the OUTLINES.** `cs_edges` walks every entry of
+`CSM_EDGES` unconditionally and `cs_edge1` reads both endpoints' `cs_sxv`, so
+a model that draws edges needs all of its vertices however many of its faces
+are culled. Counted (`cs_dbg_pvedge`/`pvfree`), over `slightbank` flying and
+`city`:
+
+| scene | vertices to `cs_projall` | in an edge-drawing model |
+|---|---|---|
+| slightbank, level | 65.3 | 19.5 (**30%**) |
+| slightbank, 12 degrees | 64.3 | 18.9 (**29%**) |
+| city | 61.5 | 32.3 (**53%**) |
+
+(65.3 reach `cs_projall` and §88.5.13's bracket counts 53 PROJECTED: the
+difference is the vertices behind the near plane, which take `.behind`.)
+
+So 47-71% of them are structurally available, and within that only the ones
+whose EVERY face is culled can actually be skipped - which is a corner or two
+of a box depending on the view, and is **not measured here**. At 1,678 cycles
+a vertex the whole projection is 18.6 ms, so the ceiling is a few percent of
+a level frame and the achievable figure is under it.
+
+**And the mechanism is invasive**, which is the other half of why this is
+written down rather than built: `cs_axcull` would have to run as a per-face
+PRE-PASS with its verdicts stored, and `cs_projall` accumulates the object's
+BOX (`cs_obx0`/`obx1`/`oby0`/`oby1`) from every projected vertex for the
+blit's dirty mark (§88.3.2) - a box built from a subset is an under-mark, and
+an under-mark is a stale pixel, which is the defect class of §88.3.1.1.3 and
+docs/FIELD-NOTES.md 40. Whoever takes it should measure the every-face-culled
+share FIRST; it is one more probe and it decides the whole thing.
 
 ##### 88.5.12.1 What verifying it cost, which is worth more than the 143 bytes
 
