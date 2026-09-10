@@ -1070,11 +1070,61 @@ That matters twice over, and in the two places the reasoning was weakest:
   boot floppy says**, and it is cheaper than any run.
 
 Neither is confirmed. What is confirmed is that the box this was diagnosed on
-differs from the box that reproduces by four devices, and that
-docs/plans/completed/STACK-SLOTS-PLAN.md §9's readings are the **iron** 5150's
-and the Packard Bell 286's — **there has never been one for this machine.**
-`make stkdiag` and its 360KB disk are the answer to that and to candidate 1
-together.
+differs from the box that reproduces by four devices.
+
+### 40.2.3 Candidate 1 is MEASURED, and it is a quarter of the term
+
+**`make stkdiag` has been run on the reporting machine**
+(`docs/reports/STKDIAG-PC5150-2026-09-10.md`, arm 1, Hercules 720). The floor
+is **52 against the container MartyPC's 32** — and the BIOS is controlled, the
+reporter having supplied the genuine `27 OCT 82` ROM so that MartyPC ran the
+same 8,192 bytes: `ROM int08` reads **17 on both** and the floor did not move
+with it.
+
+**So the machine costs a slice twenty more bytes than the box this was
+diagnosed on, and twenty is not eighty.** `cy_worker` read **114 of 192** on
+MartyPC with both keys held, flat; +20 is ~134 and leaves 58 free. Even
+against the **iron** 5150's 64 — the deepest floor any machine here has
+recorded — it is ~146 and 46 free.
+
+**Candidate 1 is therefore closed as the explanation and kept as a term.**
+Which is what the run was for: it was the cheapest of the three and it was
+going to either close this or eliminate the line, and it eliminated it.
+
+Two things the same panel rules out on its own rows, both on a third machine
+now: **the mouse** (`+mouse` is +2 here, +0 on MartyPC — SPEC.md 9.10 working,
+and the ISR's own stack reads the 30 STACK-SLOTS-PLAN §9.9.1 predicts for a
+1bpp adapter) and **the keyboard** (`+keys` +0, which is §9.4's finding again).
+
+### 40.2.4 What is left, and it is the sound card
+
+The reporter runs **fresh OS disks every time**, so no `SYSTEM.CFG` survives a
+session and **no driver is ever ticked** — the hard disk is present and never
+mounted, the NIC never brought up. The one exception is `SOUND.DRV`, which
+**auto-mounts** because the Sound Blaster 2.0 is real on that machine and the
+boot probe finds it.
+
+That is the term nothing has measured, and the reason is structural rather
+than an oversight: **`stkdiag` never plays a note.** The 52 above is the sound
+driver *resident and idle*. Cyclone plays sound continuously. An IRQ 7
+completion landing on `cy_worker`'s slice mid-walk is a frame that
+
+- the panel cannot see, because the panel is silent;
+- the container cannot produce, because **no machine in
+  `os8088_machines.toml` pairs Hercules with a Sound Blaster** — all seven SB
+  machines are CGA or VGA; and
+- no arithmetic off these numbers can bound, because it is a nesting depth and
+  not a constant.
+
+It also fits the varying symptom better than the floor does: a sound IRQ is
+**asynchronous to the walk**, so whether it lands inside the deepest chain is
+a race — which is a clean account of why the same build panics cleanly one
+time, corrupts the screen another, and reaches `F000:FFF0` a third.
+
+**The next run is therefore a Hercules + Sound Blaster machine**, which has to
+be written before it can be booted (four lines of TOML, plus its GLaBIOS twin
+— `tools/martypc/configs/os8088_machines.toml`'s own rule), and then the
+repro re-taken with Cyclone actually making noise.
 
 **A note on this branch's own contribution.** SPEC.md 5.6.9.3's first version
 made `gfx_points` cost its caller **34 bytes where the routine it replaced cost

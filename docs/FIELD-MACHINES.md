@@ -376,21 +376,47 @@ reproducing anything on a different one:
   report differs from a container repro, **ask what `SYSTEM.CFG` says** before
   looking anywhere else.
 
-### No stack reading has ever been taken on it
+### Its interrupt floor is 52 — twenty deeper than the container, twelve shallower than the iron
 
-docs/plans/completed/STACK-SLOTS-PLAN.md §9 has `FLOOR MAX` for the **iron**
-5150 (118 as shipped / 100 with `MOUPRIV`, then 112 Hercules and 98 CGA after
-the fixes) and for the Packard Bell 286 (90 / 74). **There is no reading for
-this machine**, and it is not safe to borrow the iron's: this one carries a
-Sound Blaster, a NIC, an ST11M option ROM on IRQ 5 and a clock card the iron
-5150 also has but MartyPC does not — every one of them a candidate for a
-deeper interrupt floor or a live task the container has never spawned.
+**Taken 2026-09-10**, arm 1, Hercules 720, and the full three-machine table is
+`docs/reports/STKDIAG-PC5150-2026-09-10.md`.
 
-That reading is **candidate 1** of docs/FIELD-NOTES.md 40.2.1, and it is one
-boot: `make stkdiag`, boot `stkdiag360.img`, touch nothing for 30 seconds,
-photograph the panel. Three arms ship — as-shipped, `NOMOUPRIV=1`,
-`NOCHAINPRIV=1` — and they no longer nest, so arm 1 alone is a complete
-answer to *"how deep is the floor here"*.
+| slot 1 — the floor | |
+|---|---|
+| MartyPC `os8088_5150_herc(_gla)`, either BIOS | **32** |
+| **this machine** | **52** |
+| the iron 5150 Hercules (STACK-SLOTS-PLAN §9.8.2, arm 2-or-3) | **64** |
+
+**The BIOS is controlled and is not the difference.** The owner supplied the
+genuine `27 OCT 82` ROM, so MartyPC ran the same 8,192 bytes: `ROM int08`
+reads **17 on both emulators** (GLaBIOS is 20) and the floor stayed at 32.
+Whatever makes this machine deeper is the machine.
+
+`ROM int08` 17, `mouse ISR own stack` 30 (the STACK-SLOTS-PLAN §9.9.1 figure for a 1bpp
+adapter), `+mouse` +2, `+keys` +0, `ticks that did NOT chain` 0.
+
+Two cautions on quoting it. **Read `FLOOR, idle`, not the deepest slice** —
+the panel labels the row and STACK-SLOTS-PLAN §9.8.2 is why; the 106 in slot 12 is the panel's
+own painter. And the iron's 64 is an **arm 2-or-3** reading where this is
+arm 1 (STACK-SLOTS-PLAN §7.5 lists the 5150's arm-3 run as still wanted), so twelve is the
+nearest comparison rather than an exact one.
+
+`make stkdiag` re-takes it: boot `stkdiag360.img` in A:, touch nothing for
+30 seconds, follow the panel's two prompts, photograph at DONE. Three arms
+ship — as-shipped, `NOMOUPRIV=1`, `NOCHAINPRIV=1` — and they no longer nest,
+so arm 1 alone is a complete answer.
+
+### The Sound Blaster is real here and `SOUND.DRV` auto-mounts
+
+Stated by the owner, who runs **fresh OS disks every time** — so no
+`SYSTEM.CFG` survives a session and no driver is ever ticked, and the hard
+disk is present but never mounted. The sound driver is the exception: the
+card is there and the boot probe finds it.
+
+That matters because **`stkdiag` never plays a note**, so the 52 above is the
+driver resident and idle. Nothing here has measured what a *playing* card
+costs the slice it interrupts, and **no machine in `os8088_machines.toml`
+pairs Hercules with a Sound Blaster** — the seven SB machines are CGA or VGA.
 
 ---
 

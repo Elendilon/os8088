@@ -518,7 +518,9 @@ come off** — an IBM PC 5150 on the 10/27/82 ROM, Hercules, serial mouse, SB2.0
 NE1000, a SixPakPlus carrying the other 384KB and §37.90's rung-2 clock, and an
 ST-225 on a real ST11M: the only profile here with **everything** switched on at
 once, where every other one isolates a single thing. docs/FIELD-MACHINES.md
-carries it, and **no stack reading has ever been taken on it**),
+carries it, and its interrupt floor is **52** against the container MartyPC's
+32 and the iron 5150's 64 — the BIOS controlled by running the same 27 OCT 82
+ROM on both emulators, `docs/reports/STKDIAG-PC5150-2026-09-10.md`),
 `xt-mfm` (a 20MB ST-225 on a Xebec MFM controller — the machine to install
 and hibernate on; `build/mfm20.img` is created blank and kept),
 `xt-cga`, `xt-hercules`, `xt-ega`, `xt-multimon`, `xt-sound`,
