@@ -12805,11 +12805,66 @@ the ones laying a whole new trail at once — many SCATTERED points through
 `gfx_points`, which is Set 134.3's own explanation for its over-prediction. The
 busiest frames are the ones with a launch in them.
 
-**Nothing has been changed on the strength of this**, and the obvious lever is
-named rather than pulled: §48.15's drain budget (`[mc_drnbud]`) is what bounds
-how much trail a frame lays, and it was calibrated against the kernel walk's
-per-pixel cost. A budget that no longer matches the commit it is spending is
-the mechanism a re-tune would go after.
+**The lever is §48.15's drain budget** — `MC_DRNBUD` bounds how much trail a
+frame erases and was calibrated against the kernel walk's per-pixel cost, so a
+budget that no longer matches the commit it is spending is the mechanism.
+**135.5 is that re-tune, and it took the count back to 57 against the
+pre-conversion 56** for one frame in four hundred of extra smoke.
+
+#### 135.5 The re-tune: `MC_DRNBUD` 64 -> 32, and what fixed it
+
+135.4 named the drain budget as the lever and did not pull it. Pulling it
+needed one more measurement first — **which producer fills the expensive
+batches** — because `mc_dsc_add` has three callers and re-tuning the wrong one
+would have been a look change for nothing. `mc_dsc_run`'s median against the
+pixels it was handed:
+
+| pixels in the batch | kernel walk | app walk | | cyc/px, kernel | cyc/px, app |
+|---|---:|---:|---:|---:|---:|
+| 1–8 | 21,665 | **13,425** | **−38%** | 3,710 | 2,307 |
+| 9–16 | 28,679 | **19,639** | **−32%** | 2,662 | 1,823 |
+| 17–32 | 29,423 | 37,309 | **+27%** | 1,205 | 1,530 |
+| 33–64 | 53,649 | 75,503 | **+41%** | 1,082 | 1,523 |
+
+**The crossover is between 16 and 17 pixels, and it is an AMORTISATION
+difference rather than a constant one.** The kernel walk's cost per pixel falls
+by 3.4x across that range because it carried a framebuffer byte and bit mask
+forward; `gfx_points` re-resolves per point and stays near 1,500 whatever the
+batch. So a big batch is exactly where the conversion loses, and `MC_DRNBUD` =
+64 put every drain batch there — the other two producers add a missile's speed
+each and never leave the 1–16 rows.
+
+The sweep, busy scenario, everything else fixed:
+
+| `MC_DRNBUD` | 400 frames | p90 | p95 | p99 | over one tick | smoke frames |
+|---|---:|---:|---:|---:|---:|---:|
+| *(kernel walk, 64)* | 68,802,005 | 285,806 | 315,964 | 432,172 | **56** | 240 |
+| 64 — as shipped | 68,541,774 | 291,916 | 330,576 | 449,380 | **60** | 240 |
+| 48 | 68,465,106 | 286,012 | 330,656 | 445,060 | 59 | — |
+| **32 — taken** | **68,298,000** | 280,396 | 320,130 | 387,172 | **57** | **241** |
+| 24 | 67,530,664 | 266,932 | 313,866 | 418,266 | 43 | 263 |
+| 16 | 66,660,576 | 247,996 | 294,940 | 404,298 | 30 | — |
+
+**32 is not the empirical optimum and is deliberately not chosen as one.** 24
+and 16 fix the deadline further — 43 and 30 against the pre-conversion 56 — and
+both cross a line: `MC_DRNRATE` is 24, the per-trail cap, and a budget at or
+below it caps a SINGLE trail's drain, which is a different promise from the
+one this constant makes (SPEC.md 48.15). 16 costs 23 extra frames of smoke on
+screen for it. **32 is the smallest value that leaves the per-trail rate
+alone**, and `%if MC_DRNBUD < MC_DRNRATE` now refuses the build below it.
+
+**Its cost is one frame in four hundred** (240 → 241 with the queue non-empty)
+and one more queue entry alive at once (5 → 6, against `MC_MAXDRN` = 16). The
+calm scenario comes out ahead of the tree it came from on both counts: **21
+frames over a tick against 24**, 187 smoke frames against 186.
+
+**The surprise is that it does LESS work.** The same pixels erased on a smaller
+per-frame budget is 0.4% cheaper overall, and repeatably so across the whole
+sweep — 68.54M at 64 down to 66.66M at 16, monotonically. A trail that drains
+more slowly is more likely to be under a burst when one arrives, and SPEC.md
+48.19 gives those pixels to the burst: slower draining sheds work to a routine
+that was going to run anyway. Nothing in 135.4's reasoning predicted that, and
+it is the reason the re-tune has no downside to weigh beyond the smoke.
 
 **And the conversion is still the right trade**, which this set does not
 disturb: it took **−597 bytes of `.text` and an image rung** out of `kern_big`

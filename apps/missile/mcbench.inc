@@ -90,6 +90,8 @@ mc_bench:
                                     ; bases, wave 1, M_READY for 16 frames
     mov word [mc_bfr], 0
     mov word [mc_bck], 0
+    mov word [mc_bdrnf], 0
+    mov word [mc_bdrnx], 0
     call OSAPI_GET_TICKS
     mov [mc_bt0], ax
 
@@ -104,6 +106,21 @@ mc_b_top:                           ; <-- the host brackets these two, and the
     call mc_update
     call mc_render
     inc word [mc_bfr]
+    ; ...AND WHAT THE DRAIN IS COSTING THE PICTURE. MC_DRNBUD trades a frame's
+    ; peak against how long dead smoke lingers (SPEC.md 48.15 promises "gone in
+    ; well under a second"), so a re-tune that only reports cycles is choosing
+    ; on half the evidence. [mc_drnq] non-empty IS smoke still on the screen;
+    ; counting the frames it is non-empty for makes the look side a number.
+    ; Outside the bracket below would be wrong - it is inside, and it is nine
+    ; instructions charged to BOTH arms equally.
+    cmp word [mc_drnq], 0
+    je .noq
+    inc word [mc_bdrnf]
+    mov ax, [mc_drnq]
+    cmp ax, [mc_bdrnx]
+    jbe .noq
+    mov [mc_bdrnx], ax
+.noq:
 mc_b_end:
     ; STKBALANCE-OK: mc_b_top and mc_b_end are BRACKET MARKERS, not entry
     ; points - the host arms a breakpoint on each and the span between them is
@@ -358,6 +375,9 @@ mc_bfr:     dw 0                    ; frames run so far
 mc_bt0:     dw 0                    ; ticks at the start
 mc_bticks:  dw 0                    ; ...and the run's duration in them
 mc_bck:     dw 0                    ; the end-state checksum
+mc_bdrnf:   dw 0                    ; frames with the drain queue NON-EMPTY -
+                                    ; dead smoke still on the screen
+mc_bdrnx:   dw 0                    ; ...and the deepest that queue ever got
 
 ; --- and the message LAST, with its two fields COUNTED ----------------------
 ; mc_bhex writes four bytes and the offsets were hand-counted wrong the first

@@ -129,6 +129,9 @@ def main():
                     help="MC_BFIRE: a scripted shot every N frames. Must "
                          "match the MCBFIRE= the disk was built with - the "
                          "staleness check below compares the two")
+    ap.add_argument("--drnbud", type=int, default=0,
+                    help="MC_DRNBUD the disk was built with (MCDRNBUD=), so "
+                         "the staleness check matches")
     ap.add_argument("--dump", default="",
                     help="write run 0's per-frame cycles to this file, one a "
                          "line. BOTH ARMS PLAY THE SAME GAME (mc_bsum proves "
@@ -142,7 +145,8 @@ def main():
     a = ap.parse_args()
     S = os88sym.linear
 
-    defs = ["MC_BENCH"] + (["MC_BFIRE=%d" % a.fire] if a.fire else [])
+    defs = ["MC_BENCH"] + (["MC_BFIRE=%d" % a.fire] if a.fire else []) \
+        + (["MC_DRNBUD=%d" % a.drnbud] if a.drnbud else [])
     syms, image = pkg_syms("apps/missile/missile.asm",
                            ("apps/", "apps/missile/"), defs)
     try:
@@ -233,7 +237,8 @@ def main():
                 else:
                     i += 1
             out.append(dict(per=per, frames=p.rw("mc_bfr"),
-                            ticks=p.rw("mc_bticks"), sum=p.rw("mc_bck")))
+                            ticks=p.rw("mc_bticks"), sum=p.rw("mc_bck"),
+                            drnf=p.rw("mc_bdrnf"), drnx=p.rw("mc_bdrnx")))
 
         # --- THE CONVERTED CALL'S OWN SHARE, in the same deterministic run ---
         # PERFORMANCE.md Set 134.3 priced `mc_dsc_run` alone. What a whole
@@ -247,13 +252,24 @@ def main():
             D0 = base + syms["mc_dsc_run"]
             D1 = base + syms["mc_dsc_run.out"]
             DN = base + syms["mc_dscn"]
-            # ...and HOW MANY WALKS each call was handed, read at the entry
-            # stop. Set 134.2 had to measure this separately and for the same
-            # reason: the conversion's win is not a constant, it is a function
-            # of the batch, and a per-call figure without it cannot be
-            # compared with a per-call figure from another scenario.
+            DB = base + syms["mc_dsc"]
+            # ...and WHAT each call was handed, read at the entry stop: how
+            # many walks, and how many PIXELS between them. Set 134.2 had to
+            # measure blocks separately and for the same reason - the
+            # conversion's win is not a constant, it is a function of the
+            # batch. The pixels are what say WHICH producer filled it: the
+            # drain is bounded at MC_DRNBUD across the whole queue and the two
+            # trail steps add a missile's speed each, so a big batch is a
+            # drain batch and a small one is not.
             def blocks(mm, rec):
-                return u16(mm.read(DN, 2)) if rec["addr"] == D0 else None
+                if rec["addr"] != D0:
+                    return None
+                n = u16(mm.read(DN, 2))
+                if not n:
+                    return (0, 0)
+                raw = mm.read(DB, 4 * n)        # `dw block, pixels` pairs
+                px = sum(u16(raw[i * 4 + 2:i * 4 + 4]) for i in range(n))
+                return (n, px)
             done = p.rw("mc_bdone")
             with os88marty.bp_trace(m, D0, D1, cap=24 * FRAMES,
                                     on_hit=blocks) as tr:
@@ -262,19 +278,21 @@ def main():
                          "the mc_dsc_run pass", 1800)
             h, calls, cyc, i, blk, empty = tr.hits, 0, 0, 0, 0, 0
             span = []
+            pix = []
             while i + 1 < len(h):
                 if h[i]["addr"] == D0 and h[i + 1]["addr"] == D1:
                     d = h[i + 1]["cycles"] - h[i]["cycles"]
                     cyc += d
                     span.append(d)
-                    n = h[i].get("hit") or 0
+                    n, px = h[i].get("hit") or (0, 0)
                     blk += n
+                    pix.append((px, d))
                     empty += (n == 0)
                     calls += 1
                     i += 2
                 else:
                     i += 1
-            dsc = (calls, cyc, blk, empty, span)
+            dsc = (calls, cyc, blk, empty, span, pix)
 
     print()
     if a.label:
@@ -300,6 +318,11 @@ def main():
     tot = sum(out[0]["per"])
     print("   whole run: %d frames, %d cycles, %.2f guest seconds"
           % (len(out[0]["per"]), tot, tot / HZ))
+    print()
+    print("   drain: %d of %d frames had smoke still clearing (%.1f%%), "
+          "deepest queue %d"
+          % (out[0]["drnf"], FRAMES, 100.0 * out[0]["drnf"] / FRAMES,
+             out[0]["drnx"]))
     print()
     tail(out[0]["per"], "frame cycles")
     # ...AND THE ONLY THRESHOLD THE GAME HAS. Everything else here is a cost;
@@ -337,7 +360,7 @@ def main():
         print()
 
     if dsc is not None:
-        calls, cyc, blk, empty, span = dsc
+        calls, cyc, blk, empty, span, pix = dsc
         live = calls - empty
         print("   mc_dsc_run - THE CONVERTED CALL (SPEC.md 5.12.5)")
         print("     %d calls over %d frames (%.2f a frame), of which %d were "
@@ -362,6 +385,21 @@ def main():
             print("     non-empty calls: median %d, mean %d, min %d, max %d"
                   % (m2, a2, l2, h2))
             tail(ne, "non-empty")
+        # COST AGAINST PIXELS, which is what decides whether a re-tune has a
+        # knob to turn. A drain batch is up to MC_DRNBUD pixels; a trail step
+        # is a missile's speed. If the arms only part at the big end, the
+        # budget is the lever; if they part everywhere, it is not.
+        buckets = ((1, 8), (9, 16), (17, 32), (33, 64), (65, 128), (129, 9999))
+        print("     pixels in the batch -> calls, median cycles, cycles/pixel")
+        for lo_, hi_ in buckets:
+            v = [d for px, d in pix if lo_ <= px <= hi_]
+            if not v:
+                continue
+            q = [px for px, d in pix if lo_ <= px <= hi_]
+            m3 = pct(v, 50)
+            print("       %4d-%-5s  %4d calls   median %7d   %6.0f cyc/px"
+                  % (lo_, hi_ if hi_ < 9999 else "up", len(v), m3,
+                     m3 / (sum(q) / float(len(q))) if q else 0))
         print()
 
     if FAIL:

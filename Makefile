@@ -5292,7 +5292,8 @@ $(BUILD)/mcbench.bin: apps/missile/missile.asm apps/missile/mcbench.inc \
                       apps/os88api.inc apps/os88ui.inc apps/os88gfx.inc \
                       | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/missile/ -DMC_BENCH \
-		$(if $(MCBFIRE),-DMC_BFIRE=$(MCBFIRE)) -o $@ \
+		$(if $(MCBFIRE),-DMC_BFIRE=$(MCBFIRE)) \
+		$(if $(MCDRNBUD),-DMC_DRNBUD=$(MCDRNBUD)) -o $@ \
 		apps/missile/missile.asm
 	@echo "mcbench: $(call FILESIZE,$@) bytes"
 

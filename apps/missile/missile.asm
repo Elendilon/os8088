@@ -191,9 +191,29 @@ MC_DHEXT    equ 6                   ; probes mc_drn_hold spends walking the
                                     ; Chebyshev square back to the DISC. The
                                     ; gap is at most 0.41r and r is 13, so
                                     ; six is exactly it
-MC_DRNBUD   equ 64                  ; pixels a frame across the whole queue -
+%ifndef MC_DRNBUD                       ; -DMC_DRNBUD=<n> sweeps it; the default
+MC_DRNBUD   equ 32                      ; is what ships, and tests/mcperf.py is
+%endif                                  ; the instrument (PERFORMANCE.md 135.5)
+                                    ; pixels a frame across the whole queue -
                                     ; the cap that stops one explosion's worth
-                                    ; of dead missiles landing in one frame
+                                    ; of dead missiles landing in one frame.
+                                    ; It was 64, which was right for the
+                                    ; KERNEL walk: SPEC.md 5.12.5 moved the
+                                    ; commit to OSAPI_GFX_POINTS, whose cost
+                                    ; per pixel does not amortise the way the
+                                    ; kernel walk's carried framebuffer byte
+                                    ; did, so a 64-pixel batch went from
+                                    ; 53,649 cycles to 75,503 while a 16-pixel
+                                    ; one went 28,679 to 19,639. 32 is the
+                                    ; SMALLEST value that still lets one dead
+                                    ; trail drain at its full MC_DRNRATE, so
+                                    ; SPEC.md 48.15's per-trail promise is
+                                    ; untouched and only the multi-trail case
+                                    ; is slower - measured at ONE frame in 400
+                                    ; with smoke still on the screen
+%if MC_DRNBUD < MC_DRNRATE
+  %error "missile: MC_DRNBUD below MC_DRNRATE caps a SINGLE trail's drain, which is SPEC.md 48.15's per-trail promise and not the batch cap this constant is"
+%endif
 MC_DSCMAX   equ 16                  ; walks handed to the batch step at once
 MC_PTMAX    equ 96                  ; ...and the point list os88gfx.inc steps
                                     ; into, which is what commits them

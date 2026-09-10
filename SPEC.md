@@ -65325,6 +65325,55 @@ Verified the §48.14 way, after letting the queue empty: **0 differing pixels**
 in the game window against a forced full repaint, mid-game with live trails,
 on VGA (of 224,961) and CGA (of 129,485).
 
+#### 48.15.1 `MC_DRNBUD` was 64 and is 32: the budget outlived the cost it was set against
+
+The drain spends its budget through `mc_dsc_add`, so §5.12.5 moved the commit
+under it from the kernel's walk to `OSAPI_GFX_POINTS` — and **the two do not
+have the same shape**. Measured deterministically (PERFORMANCE.md Set 135.5),
+`mc_dsc_run`'s median by how many pixels the batch held:
+
+| pixels in the batch | kernel walk | app walk | |
+|---|---:|---:|---:|
+| 1–8 | 21,665 | **13,425** | **−38%** |
+| 9–16 | 28,679 | **19,639** | **−32%** |
+| 17–32 | 29,423 | 37,309 | **+27%** |
+| 33–64 | 53,649 | 75,503 | **+41%** |
+
+**The crossover is between 16 and 17 pixels**, and 64 put every drain batch the
+wrong side of it: the kernel walk carried a framebuffer byte and bit mask
+forward, so its cost per pixel fell from 3,710 to 1,082 across that range,
+where a point committed through `gfx_points` re-resolves and stays near 1,500.
+
+`MC_DRNBUD` was **64** because that was right for the old commit. It is **32**,
+which is not an empirical pick: **it is the smallest value that still lets one
+dead trail drain at its full `MC_DRNRATE`**, so §48.15's per-trail promise —
+*about eight times the rate it was drawn at* — is untouched and only the
+multi-trail case is slower. A `%if MC_DRNBUD < MC_DRNRATE` refuses the build
+below that line, because the two constants answer different questions and the
+smaller one silently becomes the answer to both.
+
+**What it fixes and what it costs**, both measured on one game run twice:
+
+| busy scenario | over one tick | frames with smoke clearing | 400 frames |
+|---|---:|---:|---:|
+| kernel walk, budget 64 | 56 of 400 | 240 | 68,802,005 |
+| app walk, budget 64 | **60** | 240 | 68,541,774 |
+| **app walk, budget 32** | **57** | **241** | **68,298,000** |
+
+So the deadline regression §135.4 found is gone — 60 back to 57 against the
+pre-conversion 56 — and it costs **one frame in four hundred** with dead smoke
+still on the screen, with the queue reaching 6 entries where it reached 5
+(`MC_MAXDRN` is 16, so nothing is near overflowing). The calmer scenario is
+better than the tree it came from on both counts: 21 frames over a tick against
+24, and 187 smoke frames against 186.
+
+**And it does LESS WORK, which is the part worth understanding rather than
+banking.** A smaller budget erasing the same pixels ought to cost the same
+overall and it costs 0.4% less, because a trail that drains more slowly is more
+likely to be sitting under a burst when one arrives — and §48.19 gives those
+pixels to the burst. Slower draining sheds work to a routine that was going to
+run anyway.
+
 ### 48.16 Every trail in one call — but the arriving was NOT the cost
 
 The field log after §48.14 and §48.15 (PERFORMANCE.md Part 9, Set 6) says the
