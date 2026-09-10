@@ -119,6 +119,8 @@ DD_COLS   equ 28                ; the classic grid, on every adapter
 DD_ROWS   equ 31
 DD_HUDW   equ 88                ; the HUD column, 11 cells wide
 DD_TWMAX  equ 16                ; the tile ceiling: 28*16 = 448, and a sprite
+DD_TWMIN  equ 8                 ; ...and its floor: under eight a ghost has no
+                                ; face and Smiles has no mouth (SPEC.md 93.3.3)
 DD_THMAX  equ 16                ; row is then TWO bytes, which is what keeps
                                 ; the composer's inner loop a word wide
 DD_SPRB   equ (DD_TWMAX / 8)    ; bytes in one scaled sprite row
@@ -996,6 +998,7 @@ dd_spct:     dw DD_PCTPAC, DD_PCTGH, DD_PCTFRI, DD_PCTEYE, DD_PCTTUN
 
 ; --- the sprite set ------------------------------------------------------------
     DBUFV  dd_rmap, DD_THMAX
+    DBUFV  dd_cmap, DD_TWMAX       ; ...and its column twin (SPEC.md 93.3.3)
     DBUFV  dd_spr, DD_NSPR * DD_SPRSZ
     DBUFV  dd_w0, DD_MSZ            ; three 16x16 scratch masters, plus one the
     DBUFV  dd_w1, DD_MSZ            ; row shifters build into

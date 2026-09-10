@@ -75,6 +75,7 @@ DD_MSZ    equ 32
 ; -----------------------------------------------------------------------------
 dd_spr_build:
     call dd_rowmap                  ; which master row each output row takes
+    call dd_colmap                  ; ...and which column each output column
     ; --- Smiles ------------------------------------------------------------
     ; RIGHT is drawn and the other three are made out of it: LEFT is its
     ; mirror, DOWN and UP its two quarter turns.
@@ -408,13 +409,13 @@ dd_spr_cut:
     mov ah, [si + bx + 1]
     cmp word [dd_tw], 16
     je .wide
-    call dd_squash
-    mov ah, 0                       ; ...and the row is still DD_SPRB bytes:
-.wide:                              ; a narrow image is a wide one with an
-    mov [di], al                    ; empty second byte, so every reader
-    mov [di+1], ah                  ; strides by the same constant. It used to
-    add di, DD_SPRB                 ; pack narrow rows one byte apart while
-.next:                              ; dd_band_one read them two apart, which is
+    call dd_ccut                    ; ANY width, through dd_cmap - it was 16
+.wide:                              ; or exactly half, and the tile is neither
+    mov [di], al                    ; now (SPEC.md 93.3.3). A narrow image is
+    mov [di+1], ah                  ; a wide one with the spare bits clear, so
+    add di, DD_SPRB                 ; every reader strides by DD_SPRB. It used
+.next:                              ; to pack narrow rows one byte apart while
+                                    ; dd_band_one read them two apart, which is
                                     ; why a CGA's actors were noise
     inc cx
     cmp cx, [dd_th]
@@ -428,32 +429,82 @@ dd_spr_cut:
     ret
 
 ; -----------------------------------------------------------------------------
-; dd_squash - AL = the eight even columns of the sixteen in AL:AH, which is
-;             nearest-neighbour at exactly half width
-; in:  AL = the left byte, AH = the right. Preserves BX/CX/DX/SI/DI.
+; dd_colmap - dd_cmap[j] = the master column output column j takes, j < [dd_tw]
+; dd_rowmap's twin, and it exists for the same reason: the tile is no longer
+; the master's own width or exactly half of it (SPEC.md 93.3.3).
 ; -----------------------------------------------------------------------------
-dd_squash:
+dd_colmap:
+    push ax
+    push bx
     push cx
     push dx
-    mov dh, al
-    mov dl, ah
-    xor al, al
-    mov cx, 4
-.l:
-    shl al, 1
-    shl dh, 1                       ; the next source column into CF...
-    adc al, 0                       ; ...and into the output
-    shl dh, 1                       ; ...and its odd partner is dropped
-    loop .l
-    mov cx, 4
-.r:
-    shl al, 1
-    shl dl, 1
-    adc al, 0
-    shl dl, 1
-    loop .r
+    push di
+    mov di, dd_cmap
+    xor cx, cx
+.each:
+    mov ax, cx
+    mov bl, 16
+    mul bl                          ; AX = j * 16, and an 8-bit MUL leaves DX
+    xor dx, dx                      ; ALONE - which a 16-bit DIV then reads
+    div word [dd_tw]
+    mov [di], al
+    inc di
+    inc cx
+    cmp cx, [dd_tw]
+    jb .each
+    pop di
     pop dx
     pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_ccut - one master row cut to [dd_tw] columns through dd_cmap
+; in:  AL = the master's left byte (bit 7 is column 0), AH = its right
+; out: AL/AH the same packing, [dd_tw] columns wide, the rest clear
+; Preserves BX/CX/DX/SI/DI.
+;
+; It replaces dd_squash, which was nearest-neighbour at exactly half width and
+; nothing else - the only two tile widths that existed. A 16-bit big-endian
+; word is the natural shape here: column c is bit 15-c, so taking a column is
+; one variable SHL and a sign test.
+; -----------------------------------------------------------------------------
+dd_ccut:
+    push bx
+    push cx
+    push dx
+    push si
+    mov bh, al                      ; BX = the row, bit 15 = column 0
+    mov bl, ah
+    xor dx, dx                      ; DX = the output, built from the left
+    xor si, si
+    mov cx, [dd_tw]
+.col:
+    push cx
+    mov cl, [dd_cmap + si]
+    xor ch, ch
+    mov ax, bx
+    shl ax, cl                      ; the column it takes, into bit 15
+    add dx, dx                      ; ...and the output makes room for it
+    or ax, ax
+    jns .zero
+    inc dx
+.zero:
+    pop cx
+    inc si
+    loop .col
+    mov cx, 16
+    sub cx, [dd_tw]                 ; left-justify: column 0 must be bit 15
+    jcxz .just
+    shl dx, cl
+.just:
+    mov al, dh
+    mov ah, dl
+    pop si
+    pop dx
+    pop cx
+    pop bx
     ret
 
 ; =============================================================================

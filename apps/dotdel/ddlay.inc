@@ -96,42 +96,46 @@ dd_layout:
     xor ah, ah
     mov [dd_asp], ax
 
-    ; --- the tile width: 16 when it fits the width AND stays near square ----
-    ; near square is  tw * 100 * 10  <=  th * aspect * 13
-    mov word [dd_tw], DD_TWMAX
-    mov ax, DD_COLS * DD_TWMAX + DD_HUDW
-    cmp ax, [dd_cw]
-    ja .narrow
+    ; --- the tile width: THE ARCADE'S TILE, not a square one (93.3.3) ------
+    ; The reference is 0.964 wide for 1 tall on the glass - a 28x31 maze of
+    ; 8x8 tiles on a portrait monitor whose pixels are 0.964 as wide as tall -
+    ; and the board's ratio is the tile's times 28/31, so a tile of 0.964 is a
+    ; board of 0.871, which is what the machine in the arcade looked like.
+    ;
+    ; The height is already chosen, so the width follows from it:
+    ;   tw = th * aspect / 100 * 0.96
+    ; and the SQUARE-ISH CAP THAT USED TO FOLLOW IS GONE. It existed to stop a
+    ; tall tile, and a tall tile is now the point.
     mov ax, [dd_th]
-    mul word [dd_asp]               ; at most 16 * 240 = 3,840
-    mov bx, 13
-    mul bx                          ; at most 49,920 - still one word
-    cmp ax, DD_TWMAX * 1000
-    jae .twok
-.narrow:
-    mov word [dd_tw], 8
-    mov ax, DD_COLS * 8 + DD_HUDW
+    mul word [dd_asp]               ; at most 16 * 240 = 3,840, so DX = 0 and
+    mov bx, 96                      ; the second MUL may use AX alone
+    mul bx                          ; at most 368,640 - DX:AX, which DIV reads
+    mov bx, 10000
+    div bx
+    cmp ax, DD_TWMAX
+    jbe .twhi
+    mov ax, DD_TWMAX                ; the master is 16 and nothing scales up
+.twhi:
+    cmp ax, DD_TWMIN
+    jae .twlo
+    mov ax, DD_TWMIN                ; ...and under this a ghost has no face
+.twlo:
+    mov [dd_tw], ax
+    ; ...and it still has to FIT, which on a narrow box wins over the shape
+    mov bx, DD_COLS
+    mul bx
+    add ax, DD_HUDW
     cmp ax, [dd_cw]
-    ja .tiny
-.twok:
-    ; --- and cap the height, so a tile cannot be much TALLER than square ----
-    ; th  <=  tw * 100 * 13 / (aspect * 10)
-    mov ax, [dd_tw]
-    mov bx, 1300
-    mul bx                          ; at most 20,800
-    mov bx, [dd_asp]
-    mov cx, bx
-    shl bx, 1
-    shl bx, 1
-    shl bx, 1
-    add bx, cx
-    add bx, cx                      ; BX = aspect * 10, without a second mul
-    div bx                          ; AX = the tallest square-ish tile
-    cmp ax, [dd_th]
-    jae .hok
-    cmp ax, 3
+    jbe .hok
+    mov ax, [dd_cw]
+    sub ax, DD_HUDW
+    jbe .tiny
+    xor dx, dx
+    mov bx, DD_COLS
+    div bx
+    cmp ax, DD_TWMIN
     jb .tiny
-    mov [dd_th], ax
+    mov [dd_tw], ax
 .hok:
 
     ; --- the derived extents ------------------------------------------------

@@ -111333,6 +111333,100 @@ times that. The two knobs are not independent: narrowing the tile narrows the
 the dock — and `[dd_th]` = 10 wants 310. It is 26 lines short and there is
 nowhere on that screen to find them.
 
+#### 93.3.3 EXPERIMENT: the tile is cut to the ARCADE's ratio, not to square
+
+**This is a branch, and it may be abandoned.** `§93.3.2` establishes that the
+board's shape is the tile's times 28/31, that the arcade's is **0.871 : 1**,
+and that the only board this game draws which comes near it is a **fullscreen**
+Hercules. Windowed, the tile would have to be about **13** wide against 9 tall
+on that adapter — and `[dd_tw]` was a multiple of eight, so 16 or 8, either 19%
+too wide or a board of a quarter the area.
+
+So this arm gives up the multiple of eight. The width now follows the height:
+
+```
+    tw = th * aspect / 100 * 0.96          clamped to [DD_TWMIN, DD_TWMAX]
+```
+
+and the square-ish **height cap is deleted** — it existed to stop a tall tile,
+and a tall tile is the point. What each adapter gets:
+
+| | tile | board px | board on the glass | vs 0.871 |
+|---|---|---|---|---|
+| VGA windowed | 12 × 13 | 336 × 403 | 0.83 : 1 | −4% |
+| Hercules windowed | 13 × 9 | 364 × 279 | 0.84 : 1 | −3% |
+| EGA windowed | 11 × 9 | 308 × 279 | 0.81 : 1 | −7% |
+| CGA windowed | 9 × 4 | 252 × 124 | 0.85 : 1 | −3% |
+| Hercules fullscreen | 16 × 11 | 448 × 341 | 0.85 : 1 | −3% |
+
+**`dd_squash` is replaced by `dd_ccut`.** The scaler handled exactly two widths
+— the master's own and half of it — because those were the only two that
+existed. `dd_cmap` is `dd_rowmap`'s column twin, and `dd_ccut` reads a master
+row as a 16-bit big-endian word where column *c* is bit 15−*c*, so taking a
+column is one variable `SHL` and a sign test. It runs at layout, ~49 ms for
+all thirty-five images on a 4.77 MHz 8088, and never in a frame.
+
+**What the multiple of eight was buying, and what giving it up costs.** §93.3's
+own note lists it as removing one case; it removes four, and three of them
+degrade into paths that already exist rather than breaking:
+
+1. **A band cut on the tile grid was also cut on the byte grid**, so every tile
+   a band touched was wholly inside it and a dot was drawn or not drawn. Now
+   the round-out reaches part-way into the neighbouring tile, which is the
+   partial-dot artefact §93.5.1's note describes.
+2. **`dd_band_one`'s two-stores-a-row fast path** assumed an actor moving
+   vertically sits on a byte column for its whole journey. It is now taken on
+   one column in `8/gcd(tw,8)` instead of all of them.
+3. **The band is wider**, by up to 7 px each side, on the cost the profile
+   says dominates a frame.
+4. **The one-pen rule (§93.5.4)** — a band is put down in one colour, so a
+   wall rounded into it is drawn in the actor's ink. Invisible on the two 1bpp
+   adapters, a real artefact on a VGA.
+
+Every one of those is a cost this arm has to be *measured* against, not an
+argument against trying it.
+
+**AND THERE IS A FIFTH, WHICH IS WHAT ACTUALLY BROKE IT.** The multiple of
+eight was not only buying invariants, it was buying *arithmetic*: the renderer
+converts pixels to bytes with a truncating `shr ax, 3` in **18 places**, and
+`[dd_tw]` is read in **37**. `dd_tile_put` is the first one a picture shows —
+it sets a tile's own band stride to `tw >> 3`, which for a 13-px tile is **one
+byte**, so a tile is composed 8 px wide and its dot lands outside it. Most of
+the board's pellets simply vanish. Every one of those sites has to become
+round-out-with-an-origin-adjust, and the band's x has to be floored to a byte
+with the tile offset carried separately. That is a sweep of the redraw layer,
+not a tile-width change, and it is where this arm stopped.
+
+**The cheap route exists and it is legal.** Deleting the height cap is the
+half of this that costs nothing, and on a Hercules it lets `[dd_th]` stay 9
+while `[dd_tw]` falls to **8** — a board of **224 × 279**, taller than wide in
+pixels, every dot present, no new path taken anywhere. Which of the two is
+right depends on a question §93.3.2 did not think to ask: whether the display
+applies the 4:3 correction the `dd_aspect` table assumes.
+
+##### 93.3.3.1 Physical or pixel — the table is a claim about the MONITOR
+
+`dd_aspect` = {100, 155, 240, 137} is *pixel height ÷ pixel width × 100* on a
+**4:3 monitor**. Every ratio in §93.3.2 rests on it. But the field measured the
+windowed Hercules board as **1.58 times wider than tall** — and on a 4:3
+display 448 × 279 Hercules pixels are 1.04 : 1, very nearly square. 1.58 is
+close to the raw pixel ratio of 1.606, so **that display is not applying the
+correction**, and on it the table is wrong in every row.
+
+The two readings give opposite answers, which is why this is written down
+rather than decided:
+
+| target | Hercules windowed | tile | board |
+|---|---|---|---|
+| physical (4:3) | 13 × 9 | 0.93 : 1 | 0.84 : 1 — needs the sweep above |
+| pixel (square) | 8 × 9 | 0.89 : 1 | 0.80 : 1 — **legal, and it draws** |
+
+**CGA is the row where it matters most**, and the field's instinct that it
+"may need its own number" is right: 640 × 200 on a 4:3 monitor really is
+squashed 2.4 : 1, so its physical and pixel readings are further apart than any
+other adapter's. The table is per-adapter precisely so that each row can be a
+measured number rather than a derived one.
+
 ### 93.4 Two surfaces, one renderer
 
 `dd_geom_win` banks the content box from `wm_content`/`wm_geom` and the depth
