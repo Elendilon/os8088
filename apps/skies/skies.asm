@@ -732,7 +732,8 @@ cs_wldpick:
     jc .no
     mov [cs_wldnow], al
 .out:
-    pop ax
+    call cs_ctopbuild               ; the collision walk's per-object ceiling
+    pop ax                          ; (88.7.13), which only a pick can change
     clc
     ret
 .no:
@@ -2408,6 +2409,26 @@ cs_hand equ os88_image_end      ; THE HANDOFF IS THE FIRST THING IN THE BSS,
     ZBYTE cs_pinside                ; ...no vertex can be past a side (88.5.7)
     ZBYTE cs_pwhole                 ; ...nor behind the near plane: WHOLE, its
                                     ; box off its vertices (88.3.2)
+    ZWORD cs_mkb2                   ; cs_markstep's bottom end, kept exact - a
+                                    ; WORD because the store is `mov [x], bp`
+                                    ; and a byte one would write the neighbour
+    ZBUF  cs_mkslo, CS_MKT_N        ; THE STEPPED MARK'S SLOP, WIDENED AND
+    ZBUF  cs_mkshi, CS_MKT_N        ; CLAMPED IN ONE READ (SPEC.md 88.3.2.3.6):
+                                    ; cs_mkslo[c] = max(wb0, c - CS_MKD_SLOP)
+                                    ; and cs_mkshi[c] = min(wb0+wbn-1,
+                                    ; c + CS_MKD_SLOP), built once a bracket by
+                                    ; cs_mktabs. A byte column is never above
+                                    ; 79 on ANY backend - every row is 80 bytes
+                                    ; there - so 96 entries is the bound plus
+                                    ; sixteen, and the overrun is benign
+                                    ; besides: both tables hold CLAMPED
+                                    ; columns, so reading one for the other
+                                    ; still names a byte of the view
+    ZBYTE cs_slnoshort              ; set to put a SHORT sliced run back on the
+                                    ; general row body (88.4.6.2's A/B)
+    ZBYTE cs_mknostep               ; set to put a thin diagonal's mark back on
+                                    ; its BOX, which is what shipped before
+                                    ; SPEC.md 88.3.2.2 - the A/B, poked
     ZBYTE cs_pinview                ; ...and that box inside the view
     ZWORD cs_obx0                   ; a whole object's projected x range
     ZWORD cs_obx1
@@ -2478,6 +2499,11 @@ cs_hand equ os88_image_end      ; THE HANDOFF IS THE FIRST THING IN THE BSS,
     ZWORD cs_hzmt                   ; its table, both the ADAPTER's (88.3.1.2)
     ZWORD cs_hzlo                   ; the band's span pass (88.3.1.1): the
     ZBYTE cs_hzhi                   ; view's first and last BYTE, and the kind
+    ZWORD cs_hzsides                ; LAST frame's cs_hzl/cs_hzr as a pair: a
+                                    ; band row's narrow span rests on the
+                                    ; row's other bytes being what they were,
+                                    ; and a side swap breaks exactly that
+                                    ; (SPEC.md 88.3.1.1.3)
     ZBYTE cs_hzsplit                ; a row must have had to get a band rather
                                     ; than the whole view - 3, or 0xFF where
                                     ; nothing may be "as it was"
@@ -2562,6 +2588,35 @@ CS_DBGSCR equ 112               ; ...and the copy A/B's scratch is 112 rows,
     ZWORD cs_dbg_wshby              ; ...and the DISTINCT BYTES they land in:
     ZWORD cs_dbg_wstpx              ; the difference is what an accumulator
     ZWORD cs_dbg_wvtpx              ; could merge, and steep/vertical cannot
+    ZWORD cs_dbg_wslrow             ; the SLICED segments' runs (= rows) and
+    ZWORD cs_dbg_wslpx              ; pixels: a row is the unit that is paid
+    ZWORD cs_dbg_prow               ; ...and the FILL's rows, pixels and the
+    ZWORD cs_dbg_ppx                ; BYTES they span - the same question
+    ZWORD cs_dbg_pby                ; asked of the bigger stage
+    ZWORD cs_dbg_pby2               ; rows spanning <= 2 bytes...
+    ZWORD cs_dbg_pby4               ; ...<= 4...
+    ZWORD cs_dbg_pby8               ; ...and <= 8, because a MEAN hides a
+                                    ; bimodal distribution and the two want
+                                    ; different answers
+    ZWORD cs_dbg_mfr                ; frames, and the ones whose MATRIX was
+    ZWORD cs_dbg_mstab              ; unchanged (88.5.13.2's whole question)
+    ZBUF  cs_dbg_mprev, 9 * 2       ; ...last frame's copy of it
+    ZWORD cs_dbg_fvn                ; a FLAT model's vertices, and the ones
+    ZWORD cs_dbg_fvx                ; whose x - or z - is the PREVIOUS
+    ZWORD cs_dbg_fvz                ; vertex's, so three imuls are already to
+    ZWORD cs_dbg_fvpx               ; hand. The running pair, and a flag for
+    ZWORD cs_dbg_fvpz               ; the first vertex of a model, which has
+    ZBYTE cs_dbg_fvfirst            ; no predecessor to match
+    ZWORD cs_dbg_pvobj              ; objects reaching cs_projall, and the
+    ZWORD cs_dbg_pvobje             ; ones whose model draws EDGES...
+    ZWORD cs_dbg_pvedge             ; ...their vertices, which cannot be
+    ZWORD cs_dbg_pvfree             ; skipped, against the ones that could
+    ZWORD cs_dbg_pvnv               ; ...this object's vertex count, and
+    ZBYTE cs_dbg_pvne               ; whether its model draws edges
+    ZBUF  cs_dbg_used, CS_MAXV      ; one byte a vertex: did any face that
+                                    ; SURVIVED cs_axcull want it?
+    ZWORD cs_dbg_vcand              ; vertices in edge-free models, and the
+    ZWORD cs_dbg_vunused            ; ones no surviving face wanted
     ZBYTE cs_axmask                 ; BISECT: which axis bits may cull
     ZBYTE cs_axoff                  ; AUDIT: cs_axcull computes and does NOT
     ZBYTE cs_dbg_ax                 ; act, so the winding decides every face
@@ -2618,11 +2673,6 @@ CS_DBGSCR equ 112               ; ...and the copy A/B's scratch is 112 rows,
     ZWORD cs_nx                     ; the world's up vector in camera space:
     ZWORD cs_ny                     ; the matrix's second column (88.4.1)
     ZWORD cs_nz
-    ZWORD cs_rvx                    ; cs_rot's operand and result
-    ZWORD cs_rvy
-    ZWORD cs_rvz
-    ZWORD cs_rox
-    ZWORD cs_roy
     ZWORD cs_ex                     ; the eye, in whole metres, and the high
     ZWORD cs_exh                    ; words of x and z for the 32-bit cull
     ZWORD cs_ey
@@ -2717,6 +2767,18 @@ CS_DBGSCR equ 112               ; ...and the copy A/B's scratch is 112 rows,
     ZBUF  cs_rwmodel, CSM_SIZE
     ZBUF  cs_rwobj, CSO_SIZE
     ZWORD cs_rwax                   ; its along and across vectors
+    ; --- WHAT A CRASH NEEDS THE AEROPLANE TO BE BELOW, one word an object
+    ;     (88.7.13): cs_ctopbuild fills it when a location is picked, and
+    ;     -32768 stands for an object that cannot be hit at all, so the
+    ;     walk's first compare rejects a non-collider too. A world blob is
+    ;     CS_WLD_MAX bytes and an object twenty of them, so this cannot be
+    ;     short ---------------------------------------------------------
+    ZBUF  cs_ctop, (CS_WLD_MAX / CSO_SIZE) * 2
+    ; --- the eye's position PRE-SHIFTED for each of the three scales
+    ;     (88.5.6.3): three groups of {x', y', z'}, nine words, rebuilt once
+    ;     a frame by cs_eyeshift and read by cs_scale as a plain word -----
+    ZBUF  cs_psh, 18
+    ZWORD cs_pshp                   ; ...the group for THIS object's scale
     ZWORD cs_rwaz
     ZWORD cs_rwcx
     ZWORD cs_rwcz

@@ -2559,6 +2559,44 @@ SOAK = [
         " two jumps that choose the quad, which is what shipped, and the six"
         " banked checks go red while the two level ones stay green",
         needs=("marty",), serial=True),
+    Row("skiesstale", "soak", py("tests/skiesstale.py"), 25.0,
+        "SPEC.md 88.3.1.1.3 and docs/FIELD-NOTES.md 40: A LINE OF THE PREVIOUS"
+        " HORIZON MUST NOT SURVIVE. A band row's span is the crossing's byte"
+        " and one either side, on the argument that the rest of the row is"
+        " what it was - and when the roll changes SIGN the two sides exchange,"
+        " so the fill lays the whole row mirrored about a crossing that has"
+        " barely moved and the span still claims three bytes. Every other row"
+        " is repaired by cs_hzrows' kind arm as the band sweeps past it; the"
+        " CENTRE row is the one the band never leaves, which is why the field"
+        " saw exactly ONE line - a blank one in the ground banking one way, a"
+        " filled one in the sky banking the other. The assertion needs NO"
+        " model of the blit: after cs_blit RETURNS the card must equal the"
+        " shadow over the whole view, which is the blit's one job, so this"
+        " cannot be fooled the way a host-side reconstruction of the union"
+        " rule was (88.3.2.2). It drives the bank +16 to -48 through zero;"
+        " --clobber holds cs_hzsides at cs_hzl, which is what shipped, and"
+        " reads the artefact being BORN at roll +0.0 and surviving every"
+        " frame after",
+        needs=("marty",), serial=True),
+    Row("skiesspan", "soak", py("tests/skiesspan.py"), 25.0,
+        "SPEC.md 88.3.2.3.6 and docs/FIELD-NOTES.md 41: A STORED SPAN MUST"
+        " NAME A BYTE OF THE VIEW. cs_hzrows' erase arm and cs_blit both take"
+        " the span at its word - the first refills [lo,hi] as ABSOLUTE bytes"
+        " of the row, the second copies the same range to the card - so"
+        " neither clamps, and a pair naming a byte outside the view lays a"
+        " ground byte into the box border. One whose low byte BORROWS past"
+        " zero is worse: cs_hzrows reads an unsigned 252 and refills a quarter"
+        " of the way into a row three lines down. It is a one-frame invariant,"
+        " so it needs no A/B and runs in FLIGHT, and it asserts the HARM"
+        " beside the pair - the border beside the view must stay black. Two"
+        " profiles in one guest, slightbank (33 m up, so most of the view is"
+        " ground, which is what turns an escaped pair into visible ink) and"
+        " rollsweep (2 degrees a frame, which walks a mark onto the edge over"
+        " and over). It reads 17 frames of 30 and 1,428 border bytes on the"
+        " build that merely DELETED 88.3.2.3.4's endpoint clamp, and clean on"
+        " the one that clamps the widened output instead; NOSTEP=1 is clean"
+        " on both, so it is the stepped mark's widening and nothing else",
+        needs=("marty",), serial=True),
     Row("skiespitts", "soak", py("tests/skiespitts.py"), 34.0,
         "SPEC.md 88.7.2: the second aeroplane flies by its own CSP_ATT - the"
         " Pitts rolls right round and loops over the top and stays where the"

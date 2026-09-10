@@ -5062,10 +5062,18 @@ CSWORLDS_Z := $(BUILD)/csw0.z $(BUILD)/csw1.z $(BUILD)/csw2.z \
               $(BUILD)/csw3.z $(BUILD)/csw4.z $(BUILD)/csw5.z \
               $(BUILD)/csw6.z $(BUILD)/csw7.z $(BUILD)/csw8.z
 
+# A DIAG TREE MOVES THE OVERLAY UP, and only a diag tree. `CSDIAGDEF` is empty
+# for every shipped build and set for skiesdiag/skiesprobe/skieshz, whose extra
+# image and counters spend the growth headroom under the shipped 0xBE00 - the
+# -DCSPROBE arm outgrew it by 331 bytes and stopped ASSEMBLING, which nothing in
+# `all` builds and so nothing in `all` could catch. It costs those trees a
+# bigger heap claim and costs the floppies nothing.
+CSVOCABAT := $(if $(CSDIAGDEF),--vocab-at 0xC200,)
+
 $(BUILD)/cswidx.inc: tools/csworlds.py tools/os88lz.py $(CSWORLDS) \
                      apps/skies/cswone.asm apps/skies/cswdefs.inc \
                      apps/skies/cswmac.inc apps/skies/csvocab.inc | $(BUILD)
-	python3 tools/csworlds.py --out $(BUILD)
+	python3 tools/csworlds.py --out $(BUILD) $(CSVOCABAT)
 
 $(CSWORLDS_Z): $(BUILD)/cswidx.inc ;
 

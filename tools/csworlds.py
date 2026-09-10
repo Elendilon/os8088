@@ -42,6 +42,18 @@ import os88lz                                                  # noqa: E402
 CS_VOCAB_AT = 0xBE00            # where the overlay begins in the segment
                                 # (0xB400 until SPEC.md 88.4.5.5 put the row
                                 #  loop's two 1,280-byte END TABLES under it)
+                                # --- AND A DIAG TREE RAISES IT (`--vocab-at`).
+                                # The gap below it is the growth headroom for
+                                # the image and the ZWORD chain TOGETHER
+                                # (skies.asm's three `times`), and a -DCSPROBE
+                                # build spends BOTH - counters in the chain and
+                                # probe bodies in the image. It outgrew the gap
+                                # by 331 bytes and the instrument stopped
+                                # ASSEMBLING, which is a rot no shipped gate can
+                                # see: nothing in `all` builds these trees. The
+                                # shipped address is untouched, and a diag tree
+                                # only pays a bigger heap claim - it is not on a
+                                # floppy and no machine has to fit it.
 CS_VOCAB_MAX = 576              # ...the shared vocabulary's room in it...
 CS_WLD_MAX = 2560               # ...and the picked world's
 CS_WLD_AT = CS_VOCAB_AT + CS_VOCAB_MAX
@@ -203,9 +215,22 @@ def cstr(blob, at):
 
 
 def main(argv):
+    global CS_VOCAB_AT, CS_WLD_AT
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=os.path.join(ROOT, "build"))
+    ap.add_argument("--vocab-at", type=lambda v: int(v, 0), default=None,
+                    help="move the overlay UP, for a diag build whose extra "
+                         "image and counters no longer fit under the shipped "
+                         "0x%04X. Never pass it for a shipped tree."
+                         % CS_VOCAB_AT)
     a = ap.parse_args(argv)
+    if a.vocab_at is not None:
+        if a.vocab_at < CS_VOCAB_AT:
+            sys.exit("csworlds: --vocab-at 0x%04X is BELOW the shipped 0x%04X, "
+                     "which would shrink the gap rather than grow it"
+                     % (a.vocab_at, CS_VOCAB_AT))
+        CS_VOCAB_AT = a.vocab_at
+        CS_WLD_AT = CS_VOCAB_AT + CS_VOCAB_MAX
     os.makedirs(a.out, exist_ok=True)
 
     blobs, syms, vocab, vsyms = {}, {}, None, None

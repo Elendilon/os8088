@@ -1,7 +1,17 @@
 #!/usr/bin/env python3
 """CLEAR SKIES' faces and edges, COUNTED - and each term priced by ADDING it.
 
+**COUNT WITH --fly, PRICE WITHOUT IT.** The two halves of this file want
+opposite things from the machine. A POPULATION is what the program actually
+draws, so it has to be flying - pinned, `slightbank` at 12 degrees puts 2.2
+segments a frame into a line body where flying puts 15. A PRICE is a
+whole-frame difference between two arms, so both arms have to see the same
+scene - flying, this file's own resolution goes to 26-43 ms on a 217 ms
+frame and nothing resolves at all. Pinned, the same terms come back at +/-16
+to +/-111 cycles. So --fly skips the pricing half and says so.
+
     python3 tests/skiescount.py [--scene city] [--machine os8088_5150_herc_gla]
+                                [--roll 12]
 
 AN INSTRUMENT, NOT A GATE - registered as such in tests/unit/t_registry.py,
 and it asserts nothing. `tests/skiesperf.py` prices a STAGE by patching its
@@ -89,6 +99,13 @@ SCENES = {                              # x, y, z (metres), heading, pitch[, rol
     "dfsquare": (-3940, 300, 2600, 0, -12),     # nose on, eye above the roofs
     "dfangled": (-4600, 300, 2900, 45, -12),    # 45 deg off, eye above
     "dflevel": (-4600, 60, 2900, 45, 0),        # 45 deg off, eye BELOW them
+    # --- THE BANK'S OWN SCENE, tests/skiesprof.py's `slightbank` profile to
+    #     the metre, so a population counted here sits beside a stage timed
+    #     there. Its subject is the LINE WALK and not the faces: a bank takes
+    #     every ground-hugging segment off the run slice (SPEC.md 88.4.3, six
+    #     pixels a row) and onto the per-pixel arm, and `--roll` is what walks
+    #     that. 0 is the control and is where the slice still has them all ---
+    "slightbank": (150, 33, -2000, 30, 0, 12),
 }
 
 
@@ -172,6 +189,31 @@ def main(argv):
                     help="[cs_setfill]: `wire` clears both bits, so every face "
                          "is its OUTLINE (SPEC.md 88.13.3) and the frame is "
                          "segments rather than polygons")
+    ap.add_argument("--fly", action="store_true",
+                    help="do NOT pause the world after the teleport: fly it, "
+                         "with the bank HELD, the way tests/skiesprof.py's "
+                         "profiles do. **A PAUSED SCENE IS NOT THE FLYING "
+                         "ONE and the counts do not transfer** - `slightbank` "
+                         "paused at 12 degrees puts 2.2 segments a frame into "
+                         "a line body and flying puts 15 into cs_seg, so a "
+                         "population counted with the world stopped prices a "
+                         "renderer nobody runs. Pinning is right for an A/B "
+                         "where both arms must draw the IDENTICAL picture; it "
+                         "is wrong for a census")
+    ap.add_argument("--price", action="store_true",
+                    help="with --fly: take the per-term A/Bs anyway. They "
+                         "will not resolve - see the note on --fly - and this "
+                         "is here so that claim can be re-checked rather than "
+                         "believed")
+    ap.add_argument("--spd", type=int, default=60,
+                    help="with --fly: metres a second (slightbank's 60)")
+    ap.add_argument("--thr", type=int, default=100,
+                    help="with --fly: the throttle (slightbank's 100)")
+    ap.add_argument("--roll", type=float, default=None,
+                    help="override the scene's bank, in degrees. The whole "
+                         "point of the `slightbank` scene: the shallow arm's "
+                         "population is a function of it and of nothing else "
+                         "in the scene")
     a = ap.parse_args(argv)
     os.chdir(ROOT)
     MP = probemap()
@@ -203,15 +245,29 @@ def main(argv):
         if sc:
             x, y, z, hdg, pitch = sc[:5]
             roll = sc[5] if len(sc) > 5 else 0
+            if a.roll is not None:
+                roll = a.roll
             for n, v in (("cs_px", x), ("cs_py", y), ("cs_pz", z)):
                 poke(n, ((v * 256) & 0xFFFFFFFF).to_bytes(4, "little"))
             poke("cs_hdg", ((hdg * 65536 // 360) & 0xFFFF).to_bytes(2, "little"))
             poke("cs_pitch", ((pitch * 65536 // 360) & 0xFFFF).to_bytes(2, "little"))
-            poke("cs_roll", ((roll * 65536 // 360) & 0xFFFF).to_bytes(2, "little"))
+            poke("cs_roll",
+                 (int(roll * 65536 / 360) & 0xFFFF).to_bytes(2, "little"))
             poke("cs_state", b"\x01")
+            if a.fly:
+                poke("cs_spd", (a.spd * 128).to_bytes(2, "little"))
+                poke("cs_thr", a.thr.to_bytes(2, "little"))
+        # cs_axmask IS ZERO IN BSS and `and dl, [cs_axmask]` is what decides
+        # a face, so a -DCSPROBE build has cs_axcull INERT until this is
+        # poked - every face passes, every vertex reads as wanted, and a
+        # census of what the cull reaches comes back all zeros. This file's
+        # own docstring has said so since the day it was written and this
+        # is the line that acts on it.
+        poke("cs_axmask", b"\xFF")
         poke("cs_setfill", bytes([{"all": 3, "terrain": 1, "bldg": 2,
                                    "wire": 0}[a.fill]]))
-        poke("cs_pause", b"\x01")
+        if not a.fly:
+            poke("cs_pause", b"\x01")
         ap_ = w("cs_airport")           # a poke is a teleport: SPEC.md 88.5.2's
         objs = int.from_bytes(m.read(lin + ap_ + 18, 2), "little")
         nobj = int.from_bytes(m.read(lin + ap_ + 20, 2), "little")
@@ -231,13 +287,35 @@ def main(argv):
                   "cs_dbg_fpoly", "cs_dbg_fout", "cs_dbg_fbox", "cs_dbg_ftr",
                   "cs_dbg_wsh", "cs_dbg_wsl", "cs_dbg_wst", "cs_dbg_wvt",
                   "cs_dbg_wshpx", "cs_dbg_wshby", "cs_dbg_wstpx",
-                  "cs_dbg_wvtpx"):
+                  "cs_dbg_wvtpx", "cs_dbg_wslrow", "cs_dbg_wslpx",
+                  "cs_dbg_prow", "cs_dbg_ppx", "cs_dbg_pby",
+                  "cs_dbg_pby2", "cs_dbg_pby4", "cs_dbg_pby8",
+                  "cs_dbg_mfr", "cs_dbg_mstab",
+                  "cs_dbg_fvn", "cs_dbg_fvx", "cs_dbg_fvz",
+                  "cs_dbg_pvobj", "cs_dbg_pvobje", "cs_dbg_pvedge",
+                  "cs_dbg_pvfree", "cs_dbg_vcand", "cs_dbg_vunused"):
             m.write(lin + base + off(n), b"\x00\x00")
         N = a.count_frames
+        # --- WITH --fly THE BANK IS RE-PINNED EVERY FRAME ------------------
+        # 88.7.5's easing rolls the bank out over the ticks, so a census that
+        # teleported to 12 degrees and then flew twelve frames would be
+        # counting a scene that was already back near level by the end. The
+        # breakpoint is cs_render's own entry, so this pins the roll the
+        # frame's cs_matrix is about to read - skiesprof.py pins at the call
+        # to cs_matrix itself, one step further in, which differs only by the
+        # easing inside a single frame and cannot move a population.
+        rollv = None
+        if a.fly and sc:
+            rollv = (int((a.roll if a.roll is not None
+                          else (sc[5] if len(sc) > 5 else 0)) * 65536 / 360)
+                     & 0xFFFF).to_bytes(2, "little")
+            poke("cs_roll", rollv)
         m.run()
         for _ in range(N):
             if m.wait_stop(20) is None:
                 sys.exit("skiescount: the frame never came")
+            if rollv is not None:
+                poke("cs_roll", rollv)
             m.run()
         m.wait_stop(20)
         m.bp_exec()
@@ -273,13 +351,57 @@ def main(argv):
               "(%.1f%% of all) could merge into one write"
               % (shby / N, (shpx - shby) / N,
                  100.0 * (shpx - shby) / max(px, 1)))
+        slrow, slpx = w("cs_dbg_wslrow"), w("cs_dbg_wslpx")
+        print("    the SLICED ones lay %.1f pixels in %.1f RUNS (%.1f px a run)"
+              " <== a run is ~130 bytes whatever it lays"
+              % (slpx / N, slrow / N, slpx / max(slrow, 1)))
+        prow, ppx = w("cs_dbg_prow"), w("cs_dbg_pby")
+        pby = w("cs_dbg_pby")
+        px2 = w("cs_dbg_ppx")
+        b2, b4, b8 = w("cs_dbg_pby2"), w("cs_dbg_pby4"), w("cs_dbg_pby8")
+        print("  POLYGON FILL/frame: %.1f rows, %.1f pixels, %.1f BYTES "
+              "(%.1f px a row, %.2f bytes a row)"
+              % (prow / N, px2 / N, pby / N, px2 / max(prow, 1),
+                 pby / max(prow, 1)))
+        print("    rows spanning <=2 bytes %.1f (%.0f%%), <=4 %.1f (%.0f%%), "
+              "<=8 %.1f (%.0f%%)  <== the SHAPE, which a mean hides"
+              % (b2 / N, 100.0 * b2 / max(prow, 1), b4 / N,
+                 100.0 * b4 / max(prow, 1), b8 / N, 100.0 * b8 / max(prow, 1)))
+        mfr, mst = w("cs_dbg_mfr"), w("cs_dbg_mstab")
+        print("  MATRIX unchanged in %d of %d frames (%.0f%%) <== a per-frame "
+              "table pays from the SECOND stable frame (88.5.13.2)"
+              % (mst, mfr, 100.0 * mst / max(mfr, 1)))
+        pvo, pvoe = w("cs_dbg_pvobj"), w("cs_dbg_pvobje")
+        pve, pvf = w("cs_dbg_pvedge"), w("cs_dbg_pvfree")
+        print("  PROJECTED vertices %.1f a frame over %.1f objects; %.1f of "
+              "them (%.0f%%) are in a model that DRAWS EDGES and so cannot be "
+              "skipped whatever cs_axcull culls (%.1f of %.1f objects)"
+              % ((pve + pvf) / N, pvo / N, pve / N,
+                 100.0 * pve / max(pve + pvf, 1), pvoe / N, pvo / N))
+        vc, vu = w("cs_dbg_vcand"), w("cs_dbg_vunused")
+        print("    of the %.1f in an edge-free model, %.1f (%.0f%%) are wanted "
+              "by NO face that survives cs_axcull <== the only ones a "
+              "cull-before-project could skip (%.0f%% of ALL projected)"
+              % (vc / N, vu / N, 100.0 * vu / max(vc, 1),
+                 100.0 * vu / max(pve + pvf, 1)))
+        fvn, fvx, fvz = w("cs_dbg_fvn"), w("cs_dbg_fvx"), w("cs_dbg_fvz")
+        print("  FLAT vertices %.1f a frame; x matches the previous vertex's "
+              "%.1f (%.0f%%), z %.1f (%.0f%%) <== three imuls each, already "
+              "to hand" % (fvn / N, fvx / N, 100.0 * fvx / max(fvn, 1),
+                           fvz / N, 100.0 * fvz / max(fvn, 1)))
 
         # --- the tick wait out, for the whole run (skiesperf.py's rule: a
         #     frame faster than a tick reads 55 ms and every arm reads it) ---
         lst = tempfile.mkstemp(prefix="skiescount_", suffix=".lst")
         os.close(lst[0])
+        # ...and the PROBE TREE'S OWN cswidx.inc, exactly as probemap() above
+        # says. This site read `build/`'s - the SHIPPED overlay address - and
+        # got away with it until the probe build outgrew the gap under it and
+        # `times` went negative. One of the two nasm calls in this file had
+        # learned the lesson and the other had not.
         subprocess.run(["nasm", "-f", "bin", "-w+error", "-DCSPROBE",
-                        "-I", "apps/", "-I", "apps/skies/", "-I", CSWIDX,
+                        "-I", "apps/", "-I", "apps/skies/",
+                        "-I", os.path.join(ROOT, PROBE) + os.sep,
                         "-o", os.devnull,
                         "-l", lst[1], "apps/skies/skies.asm"], check=True)
         import re
@@ -323,9 +445,13 @@ def main(argv):
             m.bp_exec()
             return sum(out) / len(out)
 
+        spreads = []                    # every "nothing changed" difference
+
         def ab(name):
             """The arm off and on, twice each and INTERLEAVED, so drift
-            cannot land on one of them."""
+            cannot land on one of them - and the WITHIN-ARM spread of each
+            pair is kept, because two readings of the SAME arm differing is
+            the instrument telling you what it cannot resolve."""
             r = {}
             for arm in (0, 1, 0, 1):
                 m.pause()
@@ -335,68 +461,172 @@ def main(argv):
             m.pause()
             m.write(lin + base + off(name), b"\x00")
             m.run()
+            spreads.append(abs(r[0][0] - r[0][1]))
+            spreads.append(abs(r[1][0] - r[1][1]))
             return sum(r[0]) / 2.0, sum(r[1]) / 2.0
 
+        def nullab():
+            """THE INSTRUMENT'S OWN RESOLUTION: four groups of frames with
+            NOTHING poked between them, split as if they were two arms. What
+            comes back is what this machine, this scene and this frame count
+            report as a difference when there is no difference."""
+            r = {0: [], 1: []}
+            for arm in (0, 1, 0, 1):
+                m.pause()
+                m.run()
+                r[arm].append(frames(a.frames))
+            spreads.append(abs(r[0][0] - r[0][1]))
+            spreads.append(abs(r[1][0] - r[1][1]))
+            return abs(sum(r[1]) / 2.0 - sum(r[0]) / 2.0)
+
+        def res():
+            """The largest difference seen where there was none to see."""
+            return max([RES0] + spreads)
+
+        def price(dlt, cnt, added=True):
+            """A PER-UNIT price, or a sentence saying why there is not one.
+
+            **An A/B is a WHOLE-FRAME difference divided by a PER-FRAME
+            COUNT**, so its per-unit error is the frame resolution over that
+            count - and with a handful of anything a frame, that error is
+            bigger than the answer. This file used to divide anyway and print
+            the result with no warning at all: on `slightbank` at 12 degrees
+            it read a dedup TEST at **-283 cycles an edge**, a winding cross
+            at **-1031**, and ONE `or [es:di], al` at **2819.3** against a
+            true cost near 13. Every one of those is impossible, and every one
+            looked like a measurement. The counts are in the hundreds on the
+            scenes this tool was written for (`city`, the `df*` three) and in
+            single figures on the ones `--fly` and `--roll` opened up.
+
+            A NEGATIVE delta for an ADDED term is the loudest case and is
+            reported as such: the term cannot have made the machine faster.
+            """
+            R = res()
+            if cnt < 0.5:
+                return "no count to divide by"
+            err = R / cnt / 1000.0 * CPS
+            if added and dlt < 0:
+                return ("NOT RESOLVED (%.2f ms FASTER with the term added, "
+                        "which it cannot be; %.1f a frame over a %.2f ms "
+                        "resolution is +/-%.0f cycles)" % (-dlt, cnt, R, err))
+            if abs(dlt) < 2 * R:
+                return ("NOT RESOLVED (%.2f ms against a %.2f ms resolution; "
+                        "%.1f a frame makes that +/-%.0f cycles)"
+                        % (dlt, R, cnt, err))
+            return ("%.0f +/- %.0f cycles"
+                    % (dlt / cnt / 1000.0 * CPS, err))
+
+        def solid(dlt, cnt, added=True):
+            return not price(dlt, cnt, added).startswith(("NOT RESOLVED", "no "))
+
+        # --- AND --fly CANNOT BE PRICED, only counted -----------------------
+        # Every A/B below is a WHOLE-FRAME difference between two arms, so it
+        # needs both arms to see the same scene - and --fly is the world
+        # moving between them. Measured on `slightbank` at 12 degrees flying:
+        # the resolution is **26 to 43 ms on a 217 ms frame**, so nothing
+        # resolves and the section costs a quarter of an hour to say so.
+        # Pinned, the same scene's terms come back at +/-16 to +/-111 cycles.
+        # THE TWO MODES ANSWER DIFFERENT QUESTIONS: --fly is for a POPULATION
+        # (what does the machine actually draw), pinned is for a PRICE (what
+        # does one of them cost), and 7.1.15.1 is the same lesson from the
+        # other side - a paused census is not the flying one.
+        if a.fly and not a.price:
+            print("  --- the per-term A/Bs are SKIPPED under --fly ---")
+            print("  An A/B needs both arms to see the SAME SCENE and --fly is "
+                  "the world moving between them: measured, the resolution "
+                  "goes to 26-43 ms on a 217 ms frame, so no term resolves "
+                  "and finding that out costs ~15 minutes. Run WITHOUT --fly "
+                  "for a price (pinned, the same terms read +/-16 to +/-111 "
+                  "cycles) and WITH it for a population. `--price` takes them "
+                  "anyway.")
+            return
+
+        RES0 = nullab()
         base_ms, twice = ab("cs_dbl")
         per = (twice - base_ms) / max(tr / N, 1)
         print("  frame: %.2f ms (%.2f fps), mean of %d exact frames, the tick "
               "wait patched out" % (base_ms, 1000 / base_ms, a.frames))
-        print("  ONE cs_edge trace = %.3f ms (%.0f cycles); ALL %d of them = "
-              "%.2f ms (%.1f%% of the frame)"
-              % (per, per / 1000 * CPS, round(tr / N), per * tr / N,
+        print("  RESOLUTION: %.2f ms - the largest difference this scene "
+              "reports where NOTHING changed (null A/B %.2f, worst within-arm "
+              "spread %.2f). A term smaller than twice it has no per-unit "
+              "price here, however confidently one could be divided out"
+              % (res(), RES0, max(spreads) if spreads else 0.0))
+        print("  ONE cs_edge trace = %s; ALL %d of them = %.2f ms (%.1f%%)"
+              % (price(twice - base_ms, tr / N), round(tr / N), per * tr / N,
                  100 * per * (tr / N) / base_ms))
         print("    the %.1f DUPLICATES = %.2f ms (%.2f%%) <== the whole prize"
               % (dup / N, per * dup / N, 100 * per * (dup / N) / base_ms))
         t0, t1 = ab("cs_nomark")         # arm 1 SKIPS the test, so t1 < t0
         tst = (t0 - t1) / max(tr / N, 1)
-        print("    the dedup TEST = %.0f cycles an edge, %.2f ms a frame (paid "
-              "on every edge)" % (tst / 1000 * CPS * 1000 / 1000, tst * tr / N))
+        print("    the dedup TEST = %s an edge, %.2f ms a frame (paid on every "
+              "edge)" % (price(t0 - t1, tr / N), tst * tr / N))
         c0_, c1_ = ab("cs_cpy")
         cpe = (c1_ - c0_) / max(dup / N, 1)
-        print("    the COPY that replaces a skipped trace = %.0f cycles a "
-              "duplicate, %.2f ms a frame"
-              % (cpe / 1000 * CPS, cpe * dup / N))
+        print("    the COPY that replaces a skipped trace = %s a duplicate, "
+              "%.2f ms a frame" % (price(c1_ - c0_, dup / N), cpe * dup / N))
         save = per * dup / N
-        print("    ==> NET at runtime: save %.2f, test %.2f, copy %.2f = "
-              "%+.2f ms (%+.2f%%)"
-              % (save, tst * tr / N, cpe * dup / N,
-                 save - tst * tr / N - cpe * dup / N,
-                 100 * (save - tst * tr / N - cpe * dup / N) / base_ms))
+        net = save - tst * tr / N - cpe * dup / N
         stat = 60.0 / CPS * 1000        # a precomputed flag: a byte read + a branch
-        print("    ==> NET with the topology PRECOMPUTED per model (~60 cycles "
-              "a flag): %+.2f ms (%+.2f%%)"
-              % (save - stat * tr / N - cpe * dup / N,
-                 100 * (save - stat * tr / N - cpe * dup / N) / base_ms))
+        netp = save - stat * tr / N - cpe * dup / N
+        # THE NET IS ONLY AS GOOD AS ITS WORST TERM, and it is three A/Bs
+        # deep - so it is not printed at all when one of them did not resolve.
+        # A net assembled from unresolved parts is the most confident-looking
+        # number in the file and the least true.
+        parts = ((twice - base_ms, tr / N, "the trace"),
+                 (t0 - t1, tr / N, "the dedup test"),
+                 (c1_ - c0_, dup / N, "the copy"))
+        weak = [w for d, c, w in parts if not solid(d, c)]
+        if weak:
+            print("    ==> NET: NOT REPORTED - %s did not resolve, and a net "
+                  "of three A/Bs is only as good as its worst term"
+                  % " and ".join(weak))
+        else:
+            print("    ==> NET at runtime: save %.2f, test %.2f, copy %.2f = "
+                  "%+.2f ms (%+.2f%%)"
+                  % (save, tst * tr / N, cpe * dup / N, net,
+                     100 * net / base_ms))
+            print("    ==> NET with the topology PRECOMPUTED per model (~60 "
+                  "cycles a flag): %+.2f ms (%+.2f%%)"
+                  % (netp, 100 * netp / base_ms))
         g0, g1 = ab("cs_dupgath")
         a0_, a1_ = ab("cs_duparea")
         f0, f1 = ab("cs_dupface")
         fpre = (f1 - f0) / max(fw / N, 1)
         print("  a face's PREAMBLE (its gather by index + the winding cross) = "
-              "%.0f cycles, %.2f ms a frame over %.1f walked"
-              % (fpre / 1000 * CPS, fpre * fw / N, fw / N))
+              "%s, %.2f ms a frame over %.1f walked"
+              % (price(f1 - f0, fw / N), fpre * fw / N, fw / N))
         gth = (g1 - g0) / max(fw / N, 1)
         are = (a1_ - a0_) / max(fw / N, 1)
-        print("      of which the GATHER %.0f cycles and the CROSS %.0f "
-              "(%.0f measured whole)"
-              % (gth / 1000 * CPS, are / 1000 * CPS, fpre / 1000 * CPS))
-        print("    the %.1f BACK-CULLED faces = %.2f ms (%.2f%%) <== what an "
-              "earlier cull could reach"
-              % (fc / N, fpre * fc / N, 100 * fpre * (fc / N) / base_ms))
-        print("      ...of which reordering alone - the CROSS off the indices "
-              "BEFORE the gather - reaches %.2f ms (%.2f%%)"
-              % (gth * fc / N, 100 * gth * (fc / N) / base_ms))
+        print("      of which the GATHER %s and the CROSS %s"
+              % (price(g1 - g0, fw / N), price(a1_ - a0_, fw / N)))
+        if solid(f1 - f0, fw / N):
+            print("    the %.1f BACK-CULLED faces = %.2f ms (%.2f%%) <== what "
+                  "an earlier cull could reach"
+                  % (fc / N, fpre * fc / N, 100 * fpre * (fc / N) / base_ms))
+        else:
+            print("    the %.1f BACK-CULLED faces: NOT REPORTED - the preamble "
+                  "it is priced from did not resolve" % (fc / N))
+        if solid(g1 - g0, fw / N):
+            print("      ...of which reordering alone - the CROSS off the "
+                  "indices BEFORE the gather - reaches %.2f ms (%.2f%%)"
+                  % (gth * fc / N, 100 * gth * (fc / N) / base_ms))
         if px:
             p0, p1 = ab("cs_dblplot")
             ppl = (p1 - p0) / max(px / N, 1)
             print("  --- THE 1bpp PLOT ---")
-            print("  ONE `or [es:di],al` plot = %.1f cycles; ALL %.0f of them = "
-                  "%.2f ms (%.1f%% of the frame)"
-                  % (ppl / 1000 * CPS, px / N, ppl * px / N,
+            print("  ONE `or [es:di],al` plot = %s; ALL %.0f of them = %.2f ms "
+                  "(%.1f%%)"
+                  % (price(p1 - p0, px / N), px / N, ppl * px / N,
                      100 * ppl * (px / N) / base_ms))
-            print("    the %.1f MERGEABLE plots = %.2f ms (%.2f%%) <== the "
-                  "ceiling of a byte accumulator"
-                  % ((shpx - shby) / N, ppl * (shpx - shby) / N,
-                     100 * ppl * ((shpx - shby) / N) / base_ms))
+            if solid(p1 - p0, px / N):
+                print("    the %.1f MERGEABLE plots = %.2f ms (%.2f%%) <== the "
+                      "ceiling of a byte accumulator"
+                      % ((shpx - shby) / N, ppl * (shpx - shby) / N,
+                         100 * ppl * ((shpx - shby) / N) / base_ms))
+            else:
+                print("    the %.1f MERGEABLE plots: NOT REPORTED - the plot "
+                      "it is priced from did not resolve"
+                      % ((shpx - shby) / N))
 
 
 if __name__ == "__main__":

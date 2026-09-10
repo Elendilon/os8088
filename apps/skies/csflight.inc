@@ -1697,37 +1697,22 @@ cs_local_xy:
 ; -----------------------------------------------------------------------------
 ; cs_collide - the aeroplane against every CSO_COLLIDE box (SPEC.md 88.6)
 ; -----------------------------------------------------------------------------
-cs_collide:
-    mov si, [cs_airport]            ; the PICKED location's world (88.6.4):
-    mov cx, [si + CSA_NOBJ]         ; a tower in Paris is not in the way of
-    mov si, [si + CSA_OBJS]         ; an aeroplane over Manhattan
+cs_ctopbuild:
+    ; --- one word an object: the height a crash needs the aeroplane to be
+    ;     BELOW - the tallest level's top above the object's base - or
+    ;     -32768 for an object that cannot be hit at all (88.7.13). Called
+    ;     when a location is picked, which is the only time it can change.
+    push si
+    mov si, [cs_airport]
+    mov cx, [si + CSA_NOBJ]
+    mov si, [si + CSA_OBJS]
+    mov di, cs_ctop
     jcxz .out
 .o:
-    mov ax, [si + CSO_FLAGS]
-    test ax, CSO_COLLIDE
-    jz .next
-    test ax, CSO_DENSE              ; ...AND YOU CANNOT HIT WHAT THE RUNG DOES
-    jz .solid                       ; NOT DRAW (88.13.1.4): a High tier is not
-    cmp byte [cs_setbld], CSBL_HIGH ; in the world below High, and this walker
-    jne .next                       ; reads the table and never the ladder, so
-.solid:                             ; without it Manhattan's twelve kill a
-                                    ; player at Moderate out of clear air
-    mov ax, [cs_px+1]
-    sub ax, [si + CSO_X]
-    jns .x1
-    neg ax
-.x1:
+    mov ax, -32768                  ; py >= this always, so the walk skips it
+    test word [si + CSO_FLAGS], CSO_COLLIDE
+    jz .put
     mov bx, [si + CSO_MODEL]
-    mov di, [bx + CSM_VERTS]        ; level 0: wx, h, wz
-    cmp ax, [di]
-    jge .next
-    mov ax, [cs_pz+1]
-    sub ax, [si + CSO_Z]
-    jns .z1
-    neg ax
-.z1:
-    cmp ax, [di+4]
-    jge .next
     mov al, [bx + CSM_NV]           ; the tallest level is the last
     xor ah, ah
     dec ax
@@ -1735,14 +1720,73 @@ cs_collide:
     shl ax, 1
     add ax, dx
     shl ax, 1                       ; x 6
-    add di, ax
-    mov ax, [di+2]
+    add ax, [bx + CSM_VERTS]
+    mov bx, ax
+    mov ax, [bx + 2]                ; ...that level's height, over the base
     add ax, [si + CSO_Y]
-    cmp [cs_py+1], ax
+.put:
+    mov [di], ax
+    add di, 2
+    add si, CSO_SIZE
+    loop .o
+.out:
+    pop si
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_collide - has the aeroplane hit anything? (SPEC.md 88.7.13)
+;
+; THE ALTITUDE IS THE REJECT AND IT USED TO BE TESTED LAST. The walk went
+; x, then z, then y - and the y test is the expensive one, chasing the object
+; to its model and the model to its vertex table to find the tallest level.
+; So every collidable object paid two pointer loads and a multiply-by-six to
+; ask a question about height that a single word could answer, three times a
+; frame, on all 47 of them.
+;
+; cs_ctop holds that word per object now, so the walk opens with `cmp bp,
+; [di]` and 46 of Paris' 47 take it at 300 m - the Eiffel Tower's 324 being
+; the one that does not, which is also why a WORLD-wide maximum would not
+; have worked: one tall object keeps the whole walk alive for everything else.
+; -----------------------------------------------------------------------------
+cs_collide:
+    mov si, [cs_airport]
+    mov cx, [si + CSA_NOBJ]         ; the PICKED location's world (88.6.4):
+    mov si, [si + CSA_OBJS]         ; a tower in Paris is not in the way of
+    jcxz .out                       ; an aeroplane over Manhattan
+    mov bp, [cs_py+1]               ; the whole-metre altitude, and the x with
+    mov dx, [cs_px+1]               ; it: both are the WALK's invariants
+    mov di, cs_ctop
+.o:
+    cmp bp, [di]                    ; ABOVE everything this object has? Then
+    jge .next                       ; nothing to test - and a non-collider
+                                    ; carries -32768, so it lands here too
+    test word [si + CSO_FLAGS], CSO_DENSE
+    jz .solid                       ; ...AND YOU CANNOT HIT WHAT THE RUNG DOES
+    cmp byte [cs_setbld], CSBL_HIGH ; NOT DRAW (88.13.1.4): a High tier is not
+    jne .next                       ; in the world below High, and this walker
+.solid:                             ; reads the table and never the ladder, so
+                                    ; without it Manhattan's twelve kill a
+                                    ; player at Moderate out of clear air
+    mov ax, dx
+    sub ax, [si + CSO_X]
+    jns .x1
+    neg ax
+.x1:
+    mov bx, [si + CSO_MODEL]
+    mov bx, [bx + CSM_VERTS]        ; level 0: wx, h, wz
+    cmp ax, [bx]
+    jge .next
+    mov ax, [cs_pz+1]
+    sub ax, [si + CSO_Z]
+    jns .z1
+    neg ax
+.z1:
+    cmp ax, [bx+4]
     jge .next
     mov si, [si + CSO_NAME]
     jmp cs_crash
 .next:
+    add di, 2
     add si, CSO_SIZE
     loop .o
 .out:
