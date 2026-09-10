@@ -89,9 +89,13 @@ ARMS = (
     # THE COST IS THE POINT OF THE ROW, so it is written down rather than
     # absorbed: 0.80 sits under the worst of six and well over what a real
     # regression does (93.5.3's 60s, and the 78.0 that caught 93.5.13.2).
-    ("vga",  "os8088_xt_vga",        (16, 13), 0.80),
+    # THE BRANCH'S TILES (SPEC.md 93.3.3): square-ish in PIXELS, nine tall for
+    # every eight wide, so the board is the arcade's 28:31 rather than 1.6x
+    # wider than tall.  CGA is the one that cannot reach it - 640x200 has not
+    # got 279 lines to give 31 rows of nine - and it is left at what fits.
+    ("vga",  "os8088_xt_vga",        (8, 9),  0.80),
     ("cga",  "os8088_5150_cga_gla",  (8, 4),   0.95),
-    ("herc", "os8088_5150_herc_gla", (16, 9),  0.95),
+    ("herc", "os8088_5150_herc_gla", (8, 9),  0.95),
 )
 
 TICK_HZ = 18.2065
@@ -741,7 +745,13 @@ def run_arm(tag, machine, want_tile, a, say, floor=FPS_FLOOR):
                 m.key("KeyF")
                 time.sleep(3)
                 big = (p.w("dd_tw"), p.w("dd_th"))
-                if big[0] * big[1] <= tile[0] * tile[1]:
+                # BIGGER OR THE SAME, not strictly bigger (SPEC.md 93.3.3.1).
+                # Under Square Pixels the tile wants tw ~ th and the only two
+                # widths are 8 and 16, so a Hercules at th = 11 fullscreen
+                # gets the same 8x9 it has windowed: the shape rule caps it
+                # before the surface does.  A SMALLER tile would still mean
+                # the bracket never re-cut, which is what this is for.
+                if big[0] * big[1] < tile[0] * tile[1]:
                     fail.append("%s: the bracket's tile is %dx%d against the "
                                 "window's %dx%d - fullscreen did not re-cut "
                                 "the board from its own surface (SPEC.md "

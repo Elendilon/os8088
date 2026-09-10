@@ -63,7 +63,28 @@
 
 ; Pixel aspect as (pixel height / pixel width) * 100, indexed by VID_* kind:
 ; VGA, Hercules, CGA, EGA.
-dd_aspect: db 100, 155, 240, 137
+;
+; TWO TABLES, AND IT IS A RUNTIME CHOICE (SPEC.md 93.3.3.1). The number is a
+; claim about the MONITOR, and the monitor is not something a program can ask
+; about: a 4:3 Hercules tube really does make a pixel 1.55x taller than wide,
+; and an emulator showing the same 720x348 in a square-pixel window really does
+; not. Both are true of somebody, so Game has an item for each.
+;
+; The table is read in exactly two places and BOTH follow the choice, which is
+; why this is one number and not two: the tile's shape, and the vertical step
+; that makes across and down the same speed (93.7.6).
+;
+; CGA IS 240 IN BOTH, and it earned the exception. 640x200 has not got 279
+; lines, so its tile stays 8x4 whatever this says and the value only reaches
+; the SPEED there - where at 100 a returning pair of eyes moved 60 of a tile's
+; 64 sixteenths in one tick. That is dd_advance being asked to find two
+; crossings in one step, and what it looks like is not a fast ghost: the demo
+; froze, the score went backwards and the frame fell to 24% of a tick. At 240
+; it is 24 of 64, and 240 is what a real CGA monitor does anyway.
+dd_asp43:  db 100, 155, 240, 137    ; a 4:3 tube
+dd_asppx:  db 100, 100, 240, 100    ; ...and what a square-pixel window shows
+DD_ASPPIX equ 1                 ; ...and 1 = the first three are what the GLASS
+                                ; shows, not what a 4:3 tube would
 
 ; -----------------------------------------------------------------------------
 ; dd_layout - fill every derived geometry word from dd_cx/cy/cw/ch + dd_vkind
@@ -92,50 +113,59 @@ dd_layout:
     jb .kok
     xor bx, bx
 .kok:
-    mov al, [dd_aspect + bx]
+    mov si, dd_asp43
+    cmp byte [dd_aspix], 0
+    je .asptab
+    mov si, dd_asppx
+.asptab:
+    mov al, [si + bx]
     xor ah, ah
     mov [dd_asp], ax
 
-    ; --- the tile width: THE ARCADE'S TILE, not a square one (93.3.3) ------
-    ; The reference is 0.964 wide for 1 tall on the glass - a 28x31 maze of
-    ; 8x8 tiles on a portrait monitor whose pixels are 0.964 as wide as tall -
-    ; and the board's ratio is the tile's times 28/31, so a tile of 0.964 is a
-    ; board of 0.871, which is what the machine in the arcade looked like.
+    ; --- the tile is within 1.2x of square ON THE GLASS, and as large as ---
+    ; fits (SPEC.md 93.3.3). It was 1.3x, and the whole of what that extra
+    ; tenth allowed was a windowed Hercules keeping a 16-wide tile against a
+    ; 9-tall one: 1.147 on a 4:3 tube, which is fine, and 1.78 on a square
+    ; pixel display, which is a board 1.6 times wider than tall to look at.
     ;
-    ; The height is already chosen, so the width follows from it:
-    ;   tw = th * aspect / 100 * 0.96
-    ; and the SQUARE-ISH CAP THAT USED TO FOLLOW IS GONE. It existed to stop a
-    ; tall tile, and a tall tile is now the point.
-    mov ax, [dd_th]
-    mul word [dd_asp]               ; at most 16 * 240 = 3,840, so DX = 0 and
-    mov bx, 96                      ; the second MUL may use AX alone
-    mul bx                          ; at most 368,640 - DX:AX, which DIV reads
-    mov bx, 10000
-    div bx
-    cmp ax, DD_TWMAX
-    jbe .twhi
-    mov ax, DD_TWMAX                ; the master is 16 and nothing scales up
-.twhi:
-    cmp ax, DD_TWMIN
-    jae .twlo
-    mov ax, DD_TWMIN                ; ...and under this a ghost has no face
-.twlo:
-    mov [dd_tw], ax
-    ; ...and it still has to FIT, which on a narrow box wins over the shape
-    mov bx, DD_COLS
-    mul bx
-    add ax, DD_HUDW
+    ; BOTH TESTS READ [dd_asp], so both follow the Game menu's choice, and that
+    ; is the whole mechanism - the rest of this file did not have to change.
+    ; A Hercules at 155 comes out 16x9 exactly as it always did, and at 100 it
+    ; comes out 8x9: a board of 224x279 against the arcade's 224x248.
+    mov word [dd_tw], DD_TWMAX
+    mov ax, DD_COLS * DD_TWMAX + DD_HUDW
     cmp ax, [dd_cw]
-    jbe .hok
-    mov ax, [dd_cw]
-    sub ax, DD_HUDW
-    jbe .tiny
-    xor dx, dx
-    mov bx, DD_COLS
+    ja .narrow
+    mov ax, [dd_th]
+    mul word [dd_asp]               ; at most 16 * 240 = 3,840
+    mov bx, 12
+    mul bx                          ; at most 46,080 - still one word
+    cmp ax, DD_TWMAX * 1000
+    jae .twok
+.narrow:
+    mov word [dd_tw], DD_TWMIN
+    mov ax, DD_COLS * DD_TWMIN + DD_HUDW
+    cmp ax, [dd_cw]
+    ja .tiny
+.twok:
+    ; --- and cap the height by the same tolerance the other way ------------
+    ; th  <=  tw * 100 * 12 / (aspect * 10)
+    mov ax, [dd_tw]
+    mov bx, 1200
+    mul bx                          ; at most 19,200
+    mov bx, [dd_asp]
+    mov cx, bx
+    shl bx, 1
+    shl bx, 1
+    shl bx, 1
+    add bx, cx
+    add bx, cx                      ; BX = aspect * 10, without a second mul
     div bx
-    cmp ax, DD_TWMIN
+    cmp ax, [dd_th]
+    jae .hok
+    cmp ax, 3
     jb .tiny
-    mov [dd_tw], ax
+    mov [dd_th], ax
 .hok:
 
     ; --- the derived extents ------------------------------------------------
@@ -280,8 +310,24 @@ dd_layout:
     add ax, cx                      ; ...to NEAREST, and 12,220 cannot carry
     div word [dd_asp]               ; out of AX, so the MUL's DX still stands
     or ax, ax
-    jnz .syok
+    jnz .synz
     mov ax, 1
+.synz:
+    ; ...AND NEVER MORE THAN HALF A TILE (SPEC.md 93.7.6). dd_advance finds one
+    ; crossing per step, so a step near a whole tile asks it to find two - and
+    ; what that looks like is not a fast ghost, it is a frozen demo and a score
+    ; going backwards. The margin used to be 1.7x by arithmetic; it is enforced
+    ; here now, because the arithmetic changed under it once.
+    mov cx, [dd_th]
+    mov bx, 8
+    push ax
+    mov ax, cx
+    mul bx                          ; AX = th * 8, which is half a tile in
+    mov cx, ax                      ; sixteenths
+    pop ax
+    cmp ax, cx
+    jbe .syok
+    mov ax, cx
 .syok:
     pop bx
     mov [dd_stpy + bx], ax

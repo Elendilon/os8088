@@ -241,6 +241,11 @@ dd_entry:
     call OSAPI_WM_ONRESIZE          ; the box moved under us - a drag across a
                                     ; display seam is the case that matters
                                     ; (SPEC.md 93.4)
+    mov byte [dd_aspix], 1          ; SQUARE PIXELS by default (93.3.3.1): it
+                                    ; is what an emulator window shows, it is
+                                    ; what the field's overlay of the real
+                                    ; machine matched, and a 4:3 tube is one
+                                    ; menu item away
     mov byte [dd_snd], 1            ; ON by default: a maze chase that has to be
                                     ; switched on from a menu before it makes a
                                     ; sound is one that has none, and Game ->
@@ -496,6 +501,10 @@ dd_oncmd:
     je .full
     cmp al, 3
     je .sound
+    cmp al, 4
+    je .sqpx
+    cmp al, 5
+    je .asp43
     jmp short .out2
 .new:
     call dd_new_game
@@ -512,6 +521,22 @@ dd_oncmd:
                                     ; It does not return until the game does
 .sound:
     xor byte [dd_snd], 1
+    jmp short .out2
+.sqpx:
+    mov al, 1
+    jmp short .aspset
+.asp43:
+    xor al, al
+.aspset:
+    ; THE TILE AND THE SPEEDS BOTH FOLLOW IT, so this is a re-layout and not a
+    ; repaint. dd_relayout_ck decides from what MOVED and nothing has, so the
+    ; banked card kind is poisoned to force its .redo arm - which re-cuts the
+    ; tile, re-claims the picture, re-builds all thirty-five sprites and
+    ; re-snaps every actor into the new units.
+    cmp al, [dd_aspix]
+    je .out2                        ; already that way: no flash, no re-cut
+    mov [dd_aspix], al
+    mov byte [dd_lvkind], 0FFh
 .out2:
     call dd_repaint_now
     pop es
@@ -563,6 +588,13 @@ dd_repaint_now:
     jc .gone                        ; armed (SPEC.md 11.3)
     mov byte [dd_inpaint], 1
     call dd_geom_win
+    call dd_relayout_ck             ; ...and dd_paint's other half, which this
+                                    ; did not have: a menu command can change
+                                    ; what the layout is CUT FROM and not one
+                                    ; coordinate, so poisoning the banked card
+                                    ; kind did nothing until the next resize
+                                    ; (SPEC.md 93.3.3.1). It is four compares
+                                    ; when nothing moved.
     call dd_draw
     mov byte [dd_inpaint], 0
     call OSAPI_WM_CLIP_CLEAR
@@ -840,16 +872,22 @@ dd_tpl:
 
 ; --- the app menu set (SPEC.md 12.2) ------------------------------------------
     OS88_MENUSET dd_menus, dd_name, dd_oncmd
-        OS88_MENU dd_m_game, dd_i_game, 4
+        OS88_MENU dd_m_game, dd_i_game, 6
     OS88_MENUSET_END dd_menus
 
 dd_name:    db 'Dot Delirium', 0
 dd_m_game:  db 'Game', 0
-dd_i_game:  dw dd_it_new, dd_it_pause, dd_it_full, dd_it_snd
+dd_i_game:  dw dd_it_new, dd_it_pause, dd_it_full, dd_it_snd, \
+               dd_it_sqpx, dd_it_43
 dd_it_new:   db 'New Game', 0
 dd_it_pause: db 'Pause', 0
 dd_it_full:  db 'Full Screen', 0
 dd_it_snd:   db 'Sound', 0
+; TWO ITEMS AND NOT A TOGGLE, because an app menu has no check mark (SPEC.md
+; 12.2's OS88_MENU is a title and a list) - so a single "Aspect" would give the
+; player no way to see which one is on, and the board itself is the indicator.
+dd_it_sqpx:  db 'Square Pixels', 0
+dd_it_43:    db '4:3 Monitor', 0
 
 dd_ttl:     db 'Dot Delirium', 0
 
@@ -925,6 +963,8 @@ dd_spct:     dw DD_PCTPAC, DD_PCTGH, DD_PCTFRI, DD_PCTEYE, DD_PCTTUN
     DBYTEV dd_abon                  ; the About card is up
     DBYTEV dd_hasfoc
     DBYTEV dd_snd
+    DBYTEV dd_aspix                 ; 1 = the display shows SQUARE PIXELS, 0 =
+                                    ; it is a 4:3 tube (SPEC.md 93.3.3.1)
     DBYTEV dd_wakph                 ; the dot's warble (SPEC.md 93.10.1): which
     DBYTEV dd_wakt                  ; way round this bite is, how long until
     DWORDV dd_wak2                  ; its second syllable, and what that is

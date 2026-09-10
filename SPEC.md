@@ -111421,11 +111421,60 @@ rather than decided:
 | physical (4:3) | 13 × 9 | 0.93 : 1 | 0.84 : 1 — needs the sweep above |
 | pixel (square) | 8 × 9 | 0.89 : 1 | 0.80 : 1 — **legal, and it draws** |
 
-**CGA is the row where it matters most**, and the field's instinct that it
-"may need its own number" is right: 640 × 200 on a 4:3 monitor really is
-squashed 2.4 : 1, so its physical and pixel readings are further apart than any
-other adapter's. The table is per-adapter precisely so that each row can be a
-measured number rather than a derived one.
+**Neither reading is wrong, so it is a RUNTIME CHOICE.** The monitor is not
+something a program can ask about: a 4:3 Hercules tube really does make a pixel
+1.55× taller than wide, and an emulator showing the same 720 × 348 in a
+square-pixel window really does not. Both are true of somebody, so `Game` has
+an item for each — **Square Pixels** and **4:3 Monitor** — and `[dd_aspix]`
+picks between `dd_asp43` and `dd_asppx`. **Square Pixels is the default**: it
+is what an emulator window shows, and it is what the field's overlay of the
+real machine matched.
+
+Two items and not a toggle, because §12.2's `OS88_MENU` is a title and a list
+with no check mark, so one "Aspect" item would leave the player no way to see
+which is on. The board is the indicator.
+
+Picking one is a **re-layout and not a repaint** — the tile's shape and the
+vertical step both follow the number. `dd_relayout_ck` decides from what
+*moved*, and nothing has, so the handler poisons the banked card kind to force
+its `.redo` arm: re-cut the tile, re-claim the picture, re-build all
+thirty-five sprites, re-snap every actor into the new units. Choosing the one
+already in force does nothing at all, so the board does not flash.
+
+**CGA is 240 in BOTH tables**, and it earned the exception the field asked for.
+640 × 200 has not got the 279 lines that 31 rows of nine need, so its tile
+stays 8 × 4 whatever the number says and the value only reaches the **speed**
+there — where at 100 a returning pair of eyes moved **60 of a tile's 64
+sixteenths in one tick**. That is `dd_advance` being asked to find two
+crossings in one step, and what it looks like is not a fast ghost: the demo
+froze, the score went backwards and the frame fell to **24% of a tick**. At 240
+it is 24 of 64, and 240 is what a real CGA monitor does anyway.
+
+**The tolerance moved from 1.3× of square to 1.2×, and that is the whole
+mechanism.** Both of §93.3's tile tests read `[dd_asp]`, so both follow the
+menu; no other line of `ddlay.inc` had to change. What the extra tenth had been
+allowing was a windowed Hercules keeping a 16-wide tile against a 9-tall one —
+1.15 on a 4:3 tube, which is fine, and **1.78 on a square-pixel display**,
+which is a board 1.6 times wider than tall to look at.
+
+| | 4:3 Monitor | Square Pixels |
+|---|---|---|
+| Hercules windowed | 16 × 9, 448 × 279 | **8 × 9, 224 × 279** |
+| VGA windowed | 16 × 13, 448 × 403 | **8 × 9, 224 × 279** |
+| CGA | 8 × 4, 224 × 124 | 8 × 4 — pinned, see below |
+
+**What Square Pixels costs: fullscreen stops buying anything on a Hercules.**
+The tile wants `tw ≈ th` and the only two widths are 8 and 16, so a bracket
+with 348 lines gets the same 8 × 9 the window has — the shape rule caps it
+before the surface does. `tests/dotdel.py`'s bracket check is `>=` rather than
+`>` for that reason, and a *smaller* tile would still be the failure it was
+written for. Using the whole screen would need a tile of about 11, and §93.3.3
+is where that road ends.
+
+**And the margin is enforced now rather than asserted.** §93.7.6 claimed 1.7×
+on every adapter by arithmetic, and the arithmetic changed under it; `dd_layout`
+clamps every vertical step to **half a tile**, so the next table that moves
+gives a slow ghost instead of a broken board.
 
 ### 93.4 Two surfaces, one renderer
 
@@ -112571,9 +112620,11 @@ together — the ten answers in `dd_stpx`/`dd_stpy` are all built from these two
 words — so the relative speeds §93.7.1 sets are untouched.
 
 **It cannot overshoot a tile**, which is the one thing a bigger step could
-break. The worst case is the 190% of a returning pair of eyes on a VGA: 121 of
-a tile's 208 sixteenths. `dd_advance` needs the step under one tile and has at
-least a 1.7× margin on every adapter.
+break — and on this branch that is **enforced** rather than argued. `dd_layout`
+clamps each of the ten vertical answers to **half a tile**. The arithmetic used
+to give at least a 1.7× margin on every adapter and §93.3.3.1 is the day it
+stopped: one row of the aspect table moved and a CGA's eyes went to 60 of a
+tile's 64 sixteenths, which reads as a frozen demo rather than as a fast ghost.
 
 #### 93.7.2 Steering is polled, not evented
 
