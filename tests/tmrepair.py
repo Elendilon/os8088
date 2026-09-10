@@ -341,16 +341,21 @@ with os88marty.launch("build/os8088-360.img", apps="build/apps360.img",
     # Move the ground under it: a package opened and closed again is an
     # instance in and out of the table and several claims in and out of the
     # heap, which is exactly what these two pages draw from.
-    dispcp.open_named(m, mo, S, os88marty.settle, big.x, big.y, "HELLO.O88")
-    hello = [x for x in os88geom.windows(m) if "ello" in x.title]
-    if not hello:
-        fails.append("REPAIR: Hello did not open, so nothing moved")
+    # CALC.O88 AND NOT HELLO.O88, WHICH IS OFF THE APPS DISK (SPEC.md 27.0).
+    # All this line wants is a package that opens and closes again - an
+    # instance in and out of the table, several claims in and out of the heap
+    # - and Calc is hello's nearest survivor on the disk: no worker, no clock,
+    # nothing that keeps drawing while the two pages below are being read.
+    dispcp.open_named(m, mo, S, os88marty.settle, big.x, big.y, "CALC.O88")
+    calc = [x for x in os88geom.windows(m) if "alculator" in x.title]
+    if not calc:
+        fails.append("REPAIR: Calc did not open, so nothing moved")
     else:
-        mo.click(hello[0].x + 8, hello[0].y + 9)    # its close box
+        mo.click(calc[0].x + 8, calc[0].y + 9)      # its close box
         mo.to(*dispcorner.PARK)
         os88marty.settle(m)
-        if [x for x in os88geom.windows(m) if "ello" in x.title]:
-            fails.append("REPAIR: Hello did not close")
+        if [x for x in os88geom.windows(m) if "alculator" in x.title]:
+            fails.append("REPAIR: Calc did not close")
 
     # **WHAT THE CACHE LOOKED LIKE THE INSTANT BEFORE THE UNCOVER**, which is
     # the one reading that tells a REPAIR failure's two causes apart and the

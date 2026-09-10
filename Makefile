@@ -1923,6 +1923,7 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm
 WEAVEDEMOS := apps/weave/demos
 WEAVEWABS  := $(BUILD)/FORM.WAB $(BUILD)/SHEET.WAB $(BUILD)/PONG.WAB
 all: checkdocs $(SHIPIMGS) $(BUILD)/wire.o88 $(BUILD)/recorder.o88 \
+     $(BUILD)/hello.o88 \
      $(BUILD)/imgtest.o88 $(BUILD)/scribe.o88 \
      $(WEAVEWABS) $(BUILD)/.weave-hostchecks \
      cc-note test-fast
@@ -1939,6 +1940,18 @@ all: checkdocs $(SHIPIMGS) $(BUILD)/wire.o88 $(BUILD)/recorder.o88 \
 # named by no target `all` reaches at all, and the way that fails is the way
 # every entry in this comment fails: silently, months later, when somebody
 # changes apps/os88ui.inc and the one caller nothing builds stops matching it.
+#
+# hello.o88 is here for that same half and the case is STRONGER than
+# RECORDER's (SPEC.md 27.0). It came off every floppy there is by the owner's
+# decision - it is the SDK's worked example rather than an application - and
+# a worked example that stops assembling is worse than an application that
+# does, because every new package is written by copying it and the copy is
+# what tells you. It is also not only `all` that would notice late: three
+# things read build/hello.o88 out of build/ rather than off a disk -
+# build/pkgrun.img (SPEC.md 21.5's OSAPI_PKG_RUN gate compares the loaded
+# bytes against that exact file), tests/unit/t_wire.py's fixture archives and
+# tests/unit/t_lzfmt.py's round trip - and all three are soak rows that would
+# fail naming a missing file rather than naming this line.
 #
 # The Weave demo bundles ride `all` for wire's reason, one stage earlier: the
 # runtime is a C package that `all` does not build (`make weave`), so the pack
@@ -9437,9 +9450,31 @@ $(BUILD)/lptlink144.img: $(BUILD)/llboot144.bin $(BUILD)/lptlink.bin \
 # `all` names it for WIREFRAME's reason, one screen down from $(BUILD)/wire.o88
 # - so it keeps assembling and SPEC.md 35 keeps describing something that
 # compiles; what changed is which disks carry it, which is nothing.
+#
+# FONTVIEW.O88 AND HELLO.O88 ARE BOTH OFF THIS LIST, by the owner's decision,
+# and they come off it for different reasons and land in different places.
+#
+# FONTVIEW is a MOVE and not a removal (SPEC.md 90.3): it stays in $(CORE_TOOLS)
+# above, so it is in APPS/ on all four SYSTEM disks and it is the one core
+# package that is not also on the apps disk. The copy that came off was never
+# reaching anything this one does not - ty_gofonts goes to OSAPI_VOL_SYS
+# (SPEC.md 19.8), the SYSTEM volume, so both copies listed the same ten faces
+# off A:, and the system disk's own warm ASSOC.DAT is what a double-clicked
+# .F88 in SYSTEM/FONTS/ resolves through. $(CORE_SYSONLY) below is what tells
+# the guard to expect it; the 360KB paragraph further down is the arithmetic
+# this used to be decided by, kept because the reasons in it are still reasons.
+#
+# HELLO comes off every floppy there is (SPEC.md 27.0). It is the SDK's worked
+# example rather than an application - no icon, no association, no document,
+# one window saying "Hello from a .o88 package!" - and `all` names
+# $(BUILD)/hello.o88 directly so that it keeps assembling, which is
+# RECORDER.O88's arrangement one paragraph up and WIREFRAME's before that. It
+# is not in $(SMALLOMIT) or $(COMBO_DROP) for the reason RECORDER is not: a
+# filter naming something no list contains reads like a decision and is a
+# no-op.
 APPS_TOOLS := $(BUILD)/artful.o88 $(BUILD)/browser.o88 $(BUILD)/calc.o88 \
-              $(BUILD)/chart.o88 $(BUILD)/fontview.o88 $(BUILD)/fractal.o88 \
-              $(BUILD)/hello.o88 $(BUILD)/modplug.o88 $(BUILD)/notepad.o88 \
+              $(BUILD)/chart.o88 $(BUILD)/fractal.o88 \
+              $(BUILD)/modplug.o88 $(BUILD)/notepad.o88 \
               $(BUILD)/paint.o88 $(BUILD)/piano.o88 \
               $(BUILD)/ftpd.o88 $(BUILD)/sheet.o88 $(BUILD)/telnet.o88 \
               $(BUILD)/texpad.o88 $(BUILD)/tracker.o88 $(BUILD)/audio.o88
@@ -9466,14 +9501,34 @@ APPS_GAMES := $(BUILD)/arkanoid.o88 $(BUILD)/tank.o88 $(BUILD)/cyclone.o88 \
 # GAMES/ package that turned up in APPS_TOOLS would put MINES.O88 in two
 # different folders on two disks and break the assoc_dfold rung (SPEC.md
 # 54.4.2) on whichever disk lost the race.
-$(if $(filter-out $(APPS_TOOLS),$(CORE_TOOLS)), \
+#
+# ...WITH ONE NAMED EXCEPTION, and it is a LIST rather than a deleted guard.
+# FONTVIEW.O88 is core and ships on the system disk ALONE (SPEC.md 90.3), so
+# the check has to be told to expect exactly that one and go on failing for
+# every other core package that quietly leaves the apps disk. A `filter-out`
+# of a name is the smallest thing that says "this one is deliberate" in a form
+# make can act on; taking a package off the apps disks means adding it here,
+# and putting one back means taking it out, so neither can be done by
+# accident and neither weakens the rule for anything else.
+CORE_SYSONLY := $(BUILD)/fontview.o88
+
+# ...and a guard on the guard: a name in $(CORE_SYSONLY) that is not core at
+# all is an exception excusing nothing, which is how an exception list rots.
+$(if $(filter-out $(CORE_TOOLS) $(CORE_GAMES),$(CORE_SYSONLY)), \
+     $(error CORE_SYSONLY names package(s) that are not core: \
+             $(filter-out $(CORE_TOOLS) $(CORE_GAMES),$(CORE_SYSONLY)) - it \
+             excuses a core package from the apps disk and nothing else))
+
+$(if $(filter-out $(APPS_TOOLS) $(CORE_SYSONLY),$(CORE_TOOLS)), \
      $(error core package(s) missing from APPS_TOOLS: \
-             $(filter-out $(APPS_TOOLS),$(CORE_TOOLS)) - SPEC.md 24.3 says \
-             a core package ships on the apps disk TOO))
-$(if $(filter-out $(APPS_GAMES),$(CORE_GAMES)), \
+             $(filter-out $(APPS_TOOLS) $(CORE_SYSONLY),$(CORE_TOOLS)) - \
+             SPEC.md 24.3 says a core package ships on the apps disk TOO, \
+             unless it is named in CORE_SYSONLY))
+$(if $(filter-out $(APPS_GAMES) $(CORE_SYSONLY),$(CORE_GAMES)), \
      $(error core package(s) missing from APPS_GAMES: \
-             $(filter-out $(APPS_GAMES),$(CORE_GAMES)) - SPEC.md 24.3 says \
-             a core package ships on the apps disk TOO))
+             $(filter-out $(APPS_GAMES) $(CORE_SYSONLY),$(CORE_GAMES)) - \
+             SPEC.md 24.3 says a core package ships on the apps disk TOO, \
+             unless it is named in CORE_SYSONLY))
 
 # Data that ships beside the programs that read it (SPEC.md 24): os88disk.py
 # treats anything not ending .o88 as a plain file. Tracker with no module to
@@ -9542,8 +9597,12 @@ APPS_DATA_360   := $(filter-out $(MEDIA_DISK_DATA),$(APPS_DATA))
 # so the first NUMERIC column Chart charts is B, and the summary block sits
 # out at column F where it cannot become a thirteenth bar.
 #
-# FONTVIEW gets none and needs none - it opens the FONTS/ folder on the disk
-# it was launched from, not a document - and CALC has no file format at all.
+# FONTVIEW gets none and needs none - it opens SYSTEM/FONTS/ on the SYSTEM
+# volume (ty_gofonts goes to OSAPI_VOL_SYS, SPEC.md 19.8), never a document
+# and never the disk it was launched from - and CALC has no file format at
+# all. That same fact is why FONTVIEW.O88 is off the apps disks entirely now
+# (SPEC.md 90.3) and why it can stay HERE without being stranded: this disk
+# is a subject the user chose, and the faces are on A: either way.
 OFFICE_DATA := apps/texpad/PAPER.TEX apps/texpad/GUIDE.TEX \
                apps/sheet/SALES.SLK apps/artful/WRITING.MD \
                $(BUILD)/WELCOME.DOC $(BUILD)/SAMPLE.BMP
@@ -9716,11 +9775,19 @@ APPS := $(APPS_TOOLS) $(APPS_GAMES) $(APPS_DATA) $(APPS_SYS) $(APPS_DOS)
 # **NONE OF THAT HOLDS ON THIS BRANCH, AND THE FILTER IS GONE.** Every figure
 # above is of UNCOMPRESSED packages. Here every package, driver, module, face
 # and the manual is lz4-packed (SPEC.md 20.13) and the kernel with them
-# (2.9.13), and this disk builds with AUDIO.O88, MODPLUG.O88 and
-# FONTVIEW.O88 all on it at **342 of 354 clusters - 12 spare**. The paragraphs
-# above are kept because the REASONS are still the reasons - a MOD player
-# beside no module, a disk that is exactly full - and they are what the next
-# thing that grows this geometry gives something up for.
+# (2.9.13), so this disk built with AUDIO.O88, MODPLUG.O88 and FONTVIEW.O88
+# all on it at 342 of 354 clusters - 12 spare. The paragraphs above are kept
+# because the REASONS are still the reasons - a MOD player beside no module, a
+# disk that is exactly full - and they are what the next thing that grows this
+# geometry gives something up for.
+#
+# **AND FONT VIEWER IS OFF THIS GEOMETRY AGAIN, AT EVERY GEOMETRY, FOR A
+# REASON THAT IS NOT ARITHMETIC** (SPEC.md 90.3). The paragraph above is a
+# capacity argument and this is not one: the room is there and the package
+# came off anyway, because it reaches its faces through OSAPI_VOL_SYS and the
+# copy in APPS/ on the SYSTEM disk was already the one a double-clicked .F88
+# opened. So it is out of $(APPS_TOOLS) rather than out of a per-geometry
+# filter, and $(CORE_SYSONLY) beside the guard is what makes that deliberate.
 #
 # It was also BROKEN as a filter, in a way `all` cannot show. $(APPSARGS360)
 # below is the RECIPE and it was never filtered, so the two disagreed: the
@@ -10063,7 +10130,21 @@ zset:
 ALLAPPSIMG := $(BUILD)/apps-all.img
 ALLAPPSIMG120 := $(BUILD)/apps-all-120.img
 
-ALLAPPSFILES := $(APPS) $(BUILD)/frotz.o88 \
+#
+# $(CORE_SYSONLY) IS NAMED HERE AND IT IS NOT REDUNDANT. It is exactly the
+# core packages that came off $(APPS_TOOLS) - FONTVIEW.O88 today (SPEC.md
+# 90.3) - and both consumers of this list need it back for reasons of their
+# own. build/apps-all.img is "every application on one floppy" for a release
+# page, and completeness IS its premise: it is the one image that is not
+# curated, so a program missing from it is missing from the release rather
+# than left off a disk. And $(LIVEARGS) is this list plus the system's own
+# files: the live USB and CD are ONE volume, so there is no system disk in A:
+# to fall back on there - a live machine would have carried the ten faces in
+# SYSTEM/FONTS/ and nothing that opens them, which is §24.3's "working, and
+# indistinguishable from broken" exactly. The apps floppies are the case that
+# does NOT need it, because a machine reading one has the system disk in the
+# other drive.
+ALLAPPSFILES := $(APPS) $(CORE_SYSONLY) $(BUILD)/frotz.o88 \
                 $(BUILD)/word.o88 $(BUILD)/WORD.OVL $(BUILD)/WELCOME.DOC \
                 $(BUILD)/cword.o88 $(BUILD)/CWORD.OVL $(BUILD)/WELCOME.RTF \
                 $(PACCMANDISK) \
@@ -10094,7 +10175,8 @@ ALLAPPS := $(ALLAPPSFILES) $(BUILD)/runcpm-src.stamp tools/getruncpm.py
 # 1.44MB's 512. The second is the difference.
 ALLAPPSEXTRA := 1
 
-ALLAPPSARGS := $(addprefix APPS:,$(APPS_TOOLS) $(BUILD)/frotz.o88) \
+ALLAPPSARGS := $(addprefix APPS:,$(APPS_TOOLS) $(CORE_SYSONLY) \
+                                 $(BUILD)/frotz.o88) \
                $(addprefix GAMES:,$(APPS_GAMES)) \
                $(addprefix MEDIA:,$(APPS_DATA)) \
                $(addprefix WORD:,$(BUILD)/word.o88 $(BUILD)/WORD.OVL \

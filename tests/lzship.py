@@ -202,11 +202,14 @@ def main():
     # 4. ...and the MODULE, off a floppy of ITS OWN.
     #
     #    It used to be MEDIA/ on the apps disk and that stopped being true:
-    #    apps360 is at 346 of 354 clusters and BEVERLY.MOD is 42 of them
-    #    lz4-packed, so it does not fit and no trimming makes it - taking
-    #    AUDIO, MODPLUG and FONTVIEW off buys 27. SPEC.md 24.4 is exactly
-    #    about that: at 360KB the module rides build/media360.img and the
-    #    user swaps disks.
+    #    BEVERLY.MOD is 42 of that geometry's 354 clusters lz4-packed, and
+    #    apps360 has not had that many free at any point this argument has
+    #    been made. It was 346 in use when the line was written and it is 312
+    #    now, FONTVIEW.O88 and HELLO.O88 having come off it (SPEC.md 90.3,
+    #    27.0) - so the headroom nearly doubled and the module STILL does not
+    #    fit, which is the point: no trimming reaches 42. SPEC.md 24.4 is
+    #    exactly about that: at 360KB the module rides build/media360.img and
+    #    the user swaps disks.
     #
     #    A SCRATCH DISK and not media360.img itself, because a swap is what
     #    24.4 asks of the USER and this harness has no verb for changing a

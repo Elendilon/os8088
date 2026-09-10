@@ -93,7 +93,15 @@ with os88marty.launch("build/os8088-360.img", apps="build/apps360.img",
     dsk = dispcp.win_list(m, S)[-2]     # the APPS window, now behind Note Pad
     dsk = [x for x in os88geom.windows(m) if x.title == "APPS"][0].i
     raise_win(m, mo, dsk)
-    dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "HELLO.O88")
+    # CALC.O88 AND NOT HELLO.O88, WHICH IS OFF THE APPS DISK (SPEC.md 27.0).
+    # What this line needs is a second window that LANDS ON Note Pad and is
+    # not itself two-colour, and Calc is the closest thing to hello left on
+    # the disk: no worker, no clock, and it says so itself - cal_entry calls
+    # OSAPI_WM_SAVEU with OSAPI_SAVEU_ON and NOT _1BPP, so it banks four
+    # planes and the depth loop below reads it rather than skipping it. Hello
+    # took no save-under at all, so it had no claim and `other` never saw it;
+    # this is one window more under the same assertion, not one fewer.
+    dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "CALC.O88")
     os88marty.settle(m)
 
     seg = claim_of(m, np.i)

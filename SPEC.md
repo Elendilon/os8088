@@ -17598,9 +17598,12 @@ parity rule by coin flip.
 
 **And whether a leg may excuse a slip is decided from the `dy` its drag
 actually took** — which leg A did not do. It passed `allow_dither = False` on
-the reasoning that *hello* draws one string and owns no dithered control: true
-of *hello*, and the leg has a **Disk window** on screen beside it, which it
-parts from *hello* by dragging it 175 rows. `tests/dispcorner.py --selftest`
+the reasoning that its subject draws one string and owns no dithered control:
+true of the subject, and the leg has a **Disk window** on screen beside it,
+which it parts from the subject by dragging it clear. (That subject was
+*hello* when this was written and is *calc* now — §27.0 took `HELLO.O88` off
+the apps disk, and the property leg A needs is one Calc states in the kernel's
+own terms by taking `OSAPI_WM_SAVEU`.) `tests/dispcorner.py --selftest`
 covers both halves with no emulator: the track-around-a-thumb shape must come
 back as residue, and a ragged two-colour smear in the track's own ink — the
 thing the discarded "fills a rectangle" rule used to catch — must still come
@@ -38833,9 +38836,26 @@ Six packages are **core**: `NOTEPAD.O88`, `FONTVIEW.O88`, `PAINT.O88`,
 **system** disks in addition to the apps disks, each in the folder it already
 occupies over there — `APPS/` for the first five, `GAMES/` for Mines. **A
 second copy, never a move:** the roomier apps disks carry every package there
-is exactly as before. The 360 KB pair has one capacity exception: Font Viewer
-stays on the system disk beside its fonts instead of being duplicated onto the
-apps disk (§90).
+is exactly as before.
+
+**FONT VIEWER IS THE ONE EXCEPTION AND IT IS NOW A DECISION RATHER THAN A
+CAPACITY** (§90.3). It is core, so it is in `APPS/` on all four system disks
+— and it is on **no** apps disk at any geometry, which makes it the one member
+of the six that is a MOVE and not a second copy. This used to be the 360 KB
+pair's arithmetic alone (*“another copy would exceed the software disk by four
+clusters”*), and compression made that untrue at every geometry before the
+decision was taken; the reason it holds now is the program rather than the
+volume. `ty_gofonts` (§19.8) reaches the faces through `OSAPI_VOL_SYS` — the
+**system** volume, never the one the package was launched from — so a copy on
+the apps disk read the same ten `.F88` files off A: that the system disk's own
+copy does. It was the same program listing the same faces, one double-click
+further away, on every floppy that carried it.
+
+`CORE_SYSONLY` in the Makefile is that exception, and it is a **list rather
+than a deletion**: the guard below `APPS_TOOLS` still fails the build for any
+core package that quietly stops being on the apps disk, and this is the one
+name it is told to expect. Taking a package off the apps disks and out of that
+list is one edit either way.
 
 **`THEWIRE.O88` is on the system disks too and is NOT one of the six.** It is
 a `SYSAPPS` package like `TASKMGR.O88` — it lives in `SYSTEM/`, it is launched
@@ -40435,6 +40455,72 @@ Deliberately minimal, to prove the SDK surface and the no-icon fallback:
 `ico_app16` for it), one window "Hello" 240×90 at (200,150), paint =
 two centered lines: "Hello from a" / ".o88 package!", no onkey, no
 onclick, no bss. Entry: wm_create, return BX/CF. Prefix `hl_`.
+**It no longer ships on any floppy** (§27.0) — it is the SDK's worked
+example, and it is built rather than carried.
+
+### 27.0 HELLO NO LONGER SHIPS — built by `all`, carried by no floppy
+
+`HELLO.O88` is off the apps disks at every geometry, off the small apps disks,
+off `build/apps-all.img` (§19.10), off the category disks (§24.6) and off the
+live media (§80). It is not in `$(APPS_TOOLS)`, so every list derived from that
+one lost it in the same edit, and it is on no system disk either — it was never
+a core package (§24.3). This is `RECORDER.O88`'s arrangement (§35.1) reached
+from the other end: that one is a finished application whose disks ran out of
+reasons to carry it, and this one is a **demonstration** that was on a shipped
+floppy because the SDK's first example happened to be written before there was
+anywhere else to put it.
+
+**What a user lost is a window that says "Hello from a .o88 package!".** It has
+no menu a person wants, no document, no association and no icon of its own —
+the missing icon flag is the point of it — so the row it occupied in `APPS/`
+was a program that demonstrates the machine to somebody who is already running
+it. What the SDK loses is nothing: `apps/hello/hello.asm` is unchanged and is
+still what §20.2's entry contract, §12.2's app menu and §25's no-icon fallback
+are read against.
+
+**It is still built.** `all` names `$(BUILD)/hello.o88` directly, for
+§35.1's second reason and not its first: a package that no target compiles
+stops compiling without anybody noticing, and this section would then describe
+something that no longer assembles — which for the SDK's worked example is
+worse than for an application, because every other package is written by
+copying it. The `.bin` and `.o88` rules are untouched and putting it back on a
+disk is one name in `$(APPS_TOOLS)`.
+
+**Three things still read `build/hello.o88` and none of them is a floppy:**
+`build/pkgrun.img` (§21.5's `OSAPI_PKG_RUN` gate, which loads the shipped
+package's own bytes and compares them), `tests/unit/t_wire.py`'s fixture
+archives (§92) and `tests/unit/t_lzfmt.py`'s round trip. All three take the
+file out of `build/`, which is why the line in `all` is load-bearing rather
+than tidy.
+
+**Four emulator rows used to open `B:APPS/HELLO.O88` and now open
+`B:APPS/CALC.O88`** — `dispcorner` (leg A's subject), `su1bpp` (the window
+that covers Note Pad), `wmartifact` (part 1) and `tmrepair` (the package
+opened and closed to move the ground). Each wanted the same property and it is
+not smallness: a window that **does not change while nothing is drawing it**,
+because all four capture the glass, force a full repaint and diff. Hello had
+that property by being a demo; Calc has it by declaring it — `cal_entry` takes
+`OSAPI_WM_SAVEU` with `OSAPI_SAVEU_ON` and not `_1BPP`, and §11.96.1's
+precondition for that call is exactly *no worker, no clock, nothing moves but
+on a click or a key*. So the substitute is checked by the kernel rather than
+believed, and `su1bpp` gained an assertion in the swap: hello took no
+save-under and so had no claim to read, and Calc's is four planes.
+
+**The four “directory order on the apps disk stays pinned: mines, hello,
+notepad …” sentences (§27.1 above, §36, §42, §43) are historical and were
+already so before this.** §19.4 sorts a mount by name, so a package's row is
+its name's place among the others and no index survives an insertion anyway;
+after this one of the pinned names is not on the disk at all. They are kept as
+the record of a constraint tests were once written against, not as a statement
+about a volume you can mount.
+
+**What it cost the disks**, measured against the tree before the edit:
+`HELLO.O88` is **747 bytes**, and it is the one package on the disks that
+compression leaves alone — `cz_wrap` refuses a stream it would not shrink and
+hands it back unchanged (§20.13), so `build/hello.o88` is byte-identical to
+`build/hello.bin`. That is **1 of a 360 KB volume's 354 clusters** and 2 of a
+1.44 MB one's 512-byte clusters. It is not why it came off: nothing was short
+of clusters, and the geometry that runs out first has room either way.
 
 **NOTEPAD** (`apps/notepad/notepad.asm`, prefix `np_`) is the former
 built-in Note Pad kind, moved out of the kernel to reclaim the 1,383 bytes
@@ -111285,14 +111371,13 @@ FONT_RUN and changes only when its values change.
 
 ## 90. FONT VIEWER — the system face browser (`apps/fontview/fontview.asm`)
 
-FONT VIEWER is a package in `APPS/` on the system disk. It is also carried in
-`APPS/` on the 720 KB, 1.2 MB and 1.44 MB applications disks, as the other core
-packages are (§24.3). The 360 KB applications disk omits the duplicate: the
-viewer and all ten faces are already together on its paired system disk, while
-another copy would exceed the software disk by four clusters. Its package
-header declares `F88`; browsing `FONTS/` and double-clicking any face therefore
-launches the viewer on the first attempt, through the ordinary §54 association
-cache rather than a kernel special case.
+FONT VIEWER is a package in `APPS/` on the system disk, on **all four**
+geometries, and on no applications disk at all (§90.3). It is core (§24.3) and
+it is the one member of the six that is a move rather than a second copy. Its
+package header declares `F88`; browsing `SYSTEM/FONTS/` and double-clicking any
+face therefore launches the viewer on the first attempt, through the ordinary
+§54 association cache rather than a kernel special case — and that is the path
+a user takes to it, on the disk the faces are already on.
 
 The left side of the window lists every family `ty_scan` found in the system
 volume's `FONTS/` directory. The selected row names the one face open in
@@ -111329,7 +111414,69 @@ the association made a new FONT VIEWER window, the launch name selected and
 opened Charter, the catalogue count equals the ten `.F88` directory entries,
 typed bytes and Backspace change the specimen, and both Down and a mouse click
 finish a deferred face load with no error. The row is `fontview` in the soak
-tier.
+tier — and it reaches the viewer the way a user does, through `SYSTEM/FONTS/`
+on **A:**, so §90.3 took nothing away from it.
+
+### 90.3 IT SHIPS ON THE SYSTEM DISK ALONE
+
+`FONTVIEW.O88` is off the apps disks at every geometry and off the small apps
+disks. It is not in `$(APPS_TOOLS)`, so every list derived from that one lost
+it in the same edit. It stays in `$(CORE_TOOLS)` and therefore in `APPS/` on
+all four shipped system disks — and on `make small`'s pair as well, since it is
+in neither `$(SMALLOMIT)` nor §24.5's requirement list — which is where it was
+reached from anyway.
+
+**It is NOT off `build/apps-all.img` (§19.10) or the live media (§80), and
+that is the part that is not automatic.** `$(CORE_SYSONLY)` is named again in
+`$(ALLAPPSFILES)`/`$(ALLAPPSARGS)`, because taking a package out of
+`$(APPS_TOOLS)` reaches those two as well and they are the wrong customers for
+it. `apps-all.img` is *every application on one floppy* for a release page —
+completeness is its premise, so a program missing from it is missing from the
+release rather than left off a disk. And the live USB and CD are **one
+volume**: `$(LIVEARGS)` is that same payload plus the system's own files, so
+there is no system disk in the other drive to fall back on, and a live machine
+would have carried the ten faces in `SYSTEM/FONTS/` with nothing on it that
+opens them — §24.3's *working, and indistinguishable from broken*, arrived at
+from the opposite direction. The apps floppies are the one case that does not
+need the name back, because a machine reading one has the system disk in A:.
+
+**The reason is the program and not the floppy.** A package normally earns its
+place on the apps disk by being a program the user cannot otherwise get at, and
+this one never was: `ty_gofonts` (§19.8) goes to `OSAPI_VOL_SYS` — the system
+volume — so both copies list the same ten faces off A:, and the copy in B:
+`APPS/` was one double-click further from the folder that launches it. §24.3's
+warmed `ASSOC.DAT` is what makes that concrete: the system disk's own cache
+carries the `F88` row with the cluster of the folder the viewer lives in **on
+that volume**, so a face double-clicked in `SYSTEM/FONTS/` opens the copy in
+`A:APPS/` and never the other one.
+
+**It is still built**, by `$(CORE_TOOLS)` rather than by a line in `all` —
+which is the difference between this and `RECORDER.O88` (§35.1) and
+`WIREFRAME` (§78.9): those two are on no shipped floppy at all and need `all`
+to name them, and this one is on four. Nothing in `apps/fontview/` changed and
+nothing had to.
+
+**One thing it does NOT change.** The 360 KB *category* disk `office360.img`
+(§24.6) still carries it, as the accessory that disk's own list describes —
+that is a disk a user chooses by subject rather than the general software
+floppy, and it is the one place outside `APPS/` on A: that a Font Viewer icon
+still appears. `office360.img` is byte-for-byte the same size it was, 168 of
+354 clusters.
+
+**What the two disks measured**, against the tree before the edit and with
+`FONTVIEW.O88` at **3,277 bytes** packed (4,349 raw):
+
+| image | before | after |
+|---|---|---|
+| `apps360.img` | 317 of 354 | **312** of 354 |
+| `apps720.img` | 406 of 713 | **400** of 713 |
+| `apps.img` / `apps120.img` | 786 | **776** |
+| `os8088-360.img` (system) | 271 of 354 | **271** — unchanged |
+| `office360.img` | 168 of 354 | **168** — unchanged |
+
+The apps-disk figures are Font Viewer *and* `HELLO.O88` together (§27.0), plus
+one cluster of the `APPS/` directory itself at each geometry: two fewer 32-byte
+entries crossed a directory cluster on all four.
 
 ## 91. PACCMAN — pacman.c, written in C (`apps/paccman/`)
 

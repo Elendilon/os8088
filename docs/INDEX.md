@@ -306,7 +306,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | FRACTAL | `apps/fractal/fractal.asm` | §40 | yes |
 | FROTZ | `apps/frotz/frotz.asm` | §61 | yes |
 | FTPD | `apps/ftpd/ftpd.asm` | §77 | yes |
-| HELLO | `apps/hello/hello.asm` | §27 | yes |
+| HELLO | `apps/hello/hello.asm` | §27 | no |
 | IMGTEST | `apps/imgtest/imgtest.asm` |  | no |
 | LOOM | `apps/loom/loom.asm` | `docs/WEAVE-SPEC.md` | yes |
 | MINES | `apps/mines/mines.asm` | §23 | yes |
