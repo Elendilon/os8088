@@ -1108,7 +1108,23 @@ gfx_lstepv:
     and bx, 7                   ; is 8+4n clocks and wants CL, which is the
                                 ; loop counter's; `and bx,7` also clears BH,
                                 ; which is what makes the index right
-%if %1 == 2
+%if %1 == 0
+    mov bl, [cs:bx + gfx_bitset]
+    mov al, [cs:gfx_ln_ink]     ; ONE LOOP: the class is asked per POINT, and
+    cmp al, 1                   ; the commit stays the general form. This is
+    jne %%solid                 ; what kern_small builds - see the dispatch
+    mov ax, si
+    xor ax, dx
+    and al, 1
+    dec al
+%%solid:
+    and al, bl
+    mov ah, bl
+    not ah
+    and ah, [es:di]
+    or  ah, al
+    mov [es:di], ah
+%elif %1 == 2
     mov bl, [cs:bx + gfx_bitclr]
     and [es:di], bl             ; PAPER: one read-modify-write instruction
 %elif %1 == 1
@@ -1234,6 +1250,16 @@ gfx_points:
     mov bx, [vid_rseg]          ; BX = the framebuffer's
     mov ds, dx                  ; --- and from here DS is the CALLER's, so
     mov es, bx                  ;     every kernel word is `cs:`
+%ifdef KERN_SMALL
+    ; --- ONE LOOP, and it is a DECISION rather than a build falling out of a
+    ; gate. The three-way split below is 257 bytes for 92 cycles a point
+    ; (PERFORMANCE.md Set 136.3.2), and 257 resident bytes are worth more on
+    ; the machine that has 128KB than 92 cycles are. The inlining, the segment
+    ; hoist and the bit table - 238 of the 330 cycles for 72 bytes - are here
+    ; either way; this gives up the cheapest third of the win for four fifths
+    ; of the bytes.
+    GFXPT_LOOP 0
+%else
     ; THE CLASS IS DISPATCHED ONCE A CALL, and both of these assemble to five
     ; bytes rather than two: a whole loop expansion stands between here and
     ; either target, which is well past rel8, so nasm turns each into the
@@ -1251,6 +1277,7 @@ gfx_points:
     jmp .out
 .ink:
     GFXPT_LOOP 1
+%endif
 .out:
     pop ds
     pop es

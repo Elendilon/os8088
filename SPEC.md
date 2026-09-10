@@ -4930,6 +4930,13 @@ So what changed is instruction COUNT, four ways, none of them data-dependent:
   and PERFORMANCE.md Set 136.3.2 is that comparison: the split is 257 of the
   329 bytes and 92 of the 330 cycles a point.
 
+  **So `kern_small` builds ONE loop and `kern_big` three**, and that is a
+  decision rather than a gate falling out: *257 resident bytes for 92 cycles a
+  point* is worth it on the machine with memory and is not on the machine with
+  128KB. The other three changes — 238 of the 330 cycles for 72 bytes — are in
+  both. `gfx_points` is **215 bytes on `kern_small` against 472**, which the
+  rounded `kernel.bin` cannot show: it is 75,493 either way.
+
 **The hot path is straight and the cold paths are after `loop`.** A clip-rect
 miss and a row past the row table both live below the loop body, which is what
 keeps a point's path free of every jump but the loop's own — and, not

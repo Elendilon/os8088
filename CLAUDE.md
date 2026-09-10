@@ -612,6 +612,31 @@ learned.
 
 ## Hard rules (§1 — these break silently if violated)
 
+> ### RUNGS ARE TEMPORARY. BYTES ARE FOREVER.
+>
+> The footprint moves in 512-byte steps, so a change that adds 400 bytes often
+> reports as costing nothing and a change that saves 300 often reports as
+> buying nothing. **Both readings are wrong and neither is a rounding error —
+> they are the wrong question.** The right one is always *how many BYTES, and
+> what do they buy?*, and it is asked against the byte and not against the
+> step. This project will keep optimising and will keep spending; every rung
+> gets crossed eventually, and the byte that crossed it is charged to whoever
+> was standing there rather than to whoever spent it.
+>
+> **A rounded figure will actively hide the thing you are deciding about.**
+> Worked example, this tree: `gfx_points` was built with one inner loop and
+> with three, and `kern_small`'s `kernel.bin` is **75,493 bytes either way** —
+> section padding swallowed the difference whole. The symbol span says what the
+> file could not: **472 bytes against 215**. Measure the SPAN, or `kernsize`'s
+> sum and its accrued line; never a step count, and never a padded artefact.
+>
+> **The question that replaces it has a shape**: *do we spend N resident bytes
+> for M cycles?* — and it may answer differently per build. The same
+> `gfx_points` split is **yes on `kern_big` and no on `kern_small`**: 257 bytes
+> for 92 cycles a point is worth it on the machine with memory and is not on
+> the machine with 128KB (SPEC.md 5.6.9.3, PERFORMANCE.md Set 136.3.2).
+
+
 - **8086 only.** `cpu 8086` plus `-w+error`: no `pusha`, no `push imm`, no
   `shl reg, imm` other than 1, no `movzx`, no 32-bit registers.
 - **Near model.** CS = DS = `KERNEL_SEG` for kernel code and every task;
@@ -678,23 +703,20 @@ learned.
   refused two of four candidates: `mod_need`'s own transitive cone is 155
   symbols in 7 files, so a module inside it must be gated rather than moved,
   and a layer with 33 entry points cannot fit `MOD_NENT`'s 7.
-- **Design for BYTES, never for rungs. Be efficient with size, always.**
-  512 bytes is a step in the FOOTPRINT, not a price on a diff: the amortised
-  price of a byte is a byte, so a change that crosses no rung has not cost
-  nothing — it spent slack belonging to whoever comes next, and the guard
-  bills them the whole 512 instead. **A rung is therefore not a design
-  input.** Do not size a feature, shave a table, or justify an addition
-  against where the next crossing falls; take a rung-shaped answer only when
-  it is the clean one anyway. Two arguments are refused outright: *"it adds
-  400 bytes and crosses no rung, so it is free"* and *"it saves 500 and
-  uncrosses no rung, so it buys nothing."* **Quote `kernsize`'s SUM and its
-  ACCRUED line, never its step count.** The one moment a rung is the point is
-  when a crossing means the kernel no longer FITS — and that is a discussion
-  to have with whoever asked for the feature, never a build fix and never a
-  reason to quietly cut the design down. (Which rung a byte lands in decides
-  where that 512 comes from; it never decides whether this change was free.)
-  The ledger in `kernel/kernel.asm`'s `KERN_BUDGET` comment is 35 budget
-  moves long and every one is a rung that filled: slack here has never gone unspent, so its expected
+- **Design for BYTES, never for rungs** — the banner at the top of this
+  section is the rule; this is its mechanics. The amortised price of a byte is
+  a byte, so a change that crosses no rung has not cost nothing: it spent slack
+  belonging to whoever comes next, and the guard bills *them* the whole 512.
+  **A rung is not a design input.** Do not size a feature, shave a table, or
+  justify an addition against where the next crossing falls; take a rung-shaped
+  answer only when it is the clean one anyway. Two arguments are refused
+  outright: *"it adds 400 bytes and crosses no rung, so it is free"* and *"it
+  saves 500 and uncrosses no rung, so it buys nothing."* The one moment a rung
+  is the point is when a crossing means the kernel no longer FITS — and that is
+  a discussion to have with whoever asked for the feature, never a build fix
+  and never a reason to quietly cut the design down. The ledger in
+  `kernel/kernel.asm`'s `KERN_BUDGET` comment is 35 budget moves long and every
+  one is a rung that filled: slack here has never gone unspent, so its expected
   cost is 100%.
 - **A heap claim can MOVE, and the default is that it may not** (§66). A record
   is born `MC_RLOC` = 0, PINNED; `OSAPI_MEM_MOVABLE` opts one in and takes a

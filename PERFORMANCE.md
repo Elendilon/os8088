@@ -13025,6 +13025,14 @@ built and measured on the same deterministic run:
 has and is worth stating rather than implying. The other three changes are the
 bargain: 72 bytes for 238 cycles a point.
 
+**Taken: three loops on `kern_big`, ONE on `kern_small`.** The question a
+duplication asks is *do we spend N resident bytes for M cycles?*, and it
+answers differently per machine — yes at 257 for 92 on the build with memory,
+no on the build with 128KB. Measured on the floor machine, `gfx_points` is
+**215 bytes against 472**; `kernel.bin` is **75,493 either way**, so the file
+size cannot see the decision at all and the symbol span is what to read
+(CLAUDE.md's *rungs are temporary, bytes are forever*).
+
 **And the `kern_small` rung is crossed EITHER WAY.** The one-loop build is
 74,981 → **75,493**, the same figure the three-loop build gives: the slack in
 that rung was under 72 bytes, so the floor machine's 512 is the price of the
