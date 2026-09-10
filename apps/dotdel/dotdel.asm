@@ -181,7 +181,7 @@ GS_EYES   equ 4                 ; eaten: eyes going home
 ; --- timings, in ticks (18.2 Hz) ----------------------------------------------
 DD_MAXSTEP  equ 4               ; the catch-up cap (SPEC.md 93.6.1)
 DD_READYT   equ 36              ; ~2.0 s of "READY!"
-DD_DIET     equ 32              ; the death spin
+DD_DIET     equ 18              ; the death: 18 ticks, 989 ms (SPEC.md 93.5.16)
 DD_CLEART   equ 30              ; the level-clear flash
 DD_OVERT    equ 18              ; GAME OVER alone, before the initials box
                                 ; (SPEC.md 93.12.4). It was 72 - four seconds

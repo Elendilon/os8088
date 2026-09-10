@@ -58,7 +58,12 @@ SP_NFRI   equ SP_NFRIB * 2
 SP_EYES   equ SP_FRIGHT + SP_NFRI
 SP_NEYES  equ 4
 SP_FRUIT  equ SP_EYES + SP_NEYES
-DD_NSPR   equ SP_FRUIT + 1
+; The death (SPEC.md 93.5.16): the three frames past the widest mouth Smiles
+; plays with, and the burst. The first three of the seven the animation runs
+; are the mouth he already has, facing up, so only these four are art.
+SP_DIE    equ SP_FRUIT + 1
+SP_NDIE   equ 4
+DD_NSPR   equ SP_DIE + SP_NDIE
 
 ; A master is 16 rows of two bytes, byte 0 leftmost, bit 7 leftmost.
 DD_MSZ    equ 32
@@ -302,6 +307,20 @@ dd_spr_build:
 
     mov si, dd_a_fruit
     mov ax, SP_FRUIT
+    call dd_spr_cut
+
+    ; --- the death, in the one direction it faces --------------------------
+    mov si, dd_a_die0
+    mov ax, SP_DIE + 0
+    call dd_spr_cut
+    mov si, dd_a_die1
+    mov ax, SP_DIE + 1
+    call dd_spr_cut
+    mov si, dd_a_die2
+    mov ax, SP_DIE + 2
+    call dd_spr_cut
+    mov si, dd_a_burst
+    mov ax, SP_DIE + 3
     call dd_spr_cut
     ret
 

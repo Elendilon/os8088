@@ -72,6 +72,27 @@ DD_NFRIT  equ 15
 dd_frv:   dw 100, 300, 500, 700, 1000, 2000, 3000, 5000
 DD_NFRV   equ 8
 
+; --- the death, one entry a tick (SPEC.md 93.5.16) -----------------------------
+; DD_DIET entries, indexed by how many ticks have gone: a beat with the mouth
+; SHUT and facing up, then it opens through the two Smiles already has and the
+; three past them, then the burst, then he is gone. 0FFh is that last state and
+; means dd_alive rather than an image - a blank sprite would be a band of black
+; laid over the board, and what is wanted is the board.
+;
+; A TABLE AND NOT ARITHMETIC, because the frames are not evenly held: the beat
+; is three ticks and the collapse two each, and the hold is the half of this
+; that had to be looked at rather than derived.
+DD_DGONE  equ 0FFh
+dd_dietab:
+    db SP_PAC + DIR_U * 3 + 0, SP_PAC + DIR_U * 3 + 0, SP_PAC + DIR_U * 3 + 0
+    db SP_PAC + DIR_U * 3 + 1, SP_PAC + DIR_U * 3 + 1
+    db SP_PAC + DIR_U * 3 + 2, SP_PAC + DIR_U * 3 + 2
+    db SP_DIE + 0, SP_DIE + 0
+    db SP_DIE + 1, SP_DIE + 1
+    db SP_DIE + 2, SP_DIE + 2
+    db SP_DIE + 3, SP_DIE + 3
+    db DD_DGONE, DD_DGONE, DD_DGONE
+
 DD_TILET  equ 4                 ; ticks a tile takes at 100% speed
 DD_PCTPAC equ 100               ; Smiles
 DD_PCTGH  equ 88                ; a roaming ghost
@@ -316,7 +337,8 @@ dd_step:
     call dd_play_step
     ret
 .die:
-    dec word [dd_tim]
+    call dd_die_anim                ; BEFORE the dec, so [dd_tim] runs DD_DIET
+    dec word [dd_tim]               ; down to 1 and the table is indexed 0..n-1
     jnz .rout
     call dd_life_lost
     ret
@@ -1760,10 +1782,58 @@ dd_score_add:
 ; dd_die / dd_life_lost - Smiles is caught
 ; -----------------------------------------------------------------------------
 dd_die:
+    push ax
+    push si
     mov byte [dd_state], DDS_DIE
     mov word [dd_tim], DD_DIET
     mov ax, 180
     call dd_beep
+    ; THE GHOSTS LEAVE (SPEC.md 93.5.16). Each is wiped by its own band on the
+    ; next frame - dd_actor_prep's .none arm is dd_wipe_old - so the collapse
+    ; plays on a clean board. It is not decoration: four bodies standing on the
+    ; tile Smiles is dissolving on is where the eye goes instead of on him.
+    mov si, 1
+.hide:
+    mov byte [dd_alive + si], 0
+    inc si
+    cmp si, DD_NACT
+    jb .hide
+    call dd_die_anim                ; ...and frame 0 lands on the frame of the
+    pop si                          ; catch rather than a tick after it
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_die_anim - the image Smiles wears this tick of the death (SPEC.md 93.5.16)
+;
+; It writes [dd_img + 0] and [dd_alive + 0] and nothing else, so the band
+; machinery does the rest exactly as it does in play: the union of where he was
+; and where he is, one gfx_blit1, and the board composed under him. Nothing
+; MOVES during the death, so dd_actor_prep skips the ticks on which the table
+; repeats and the collapse costs seven blits, not eighteen.
+; Preserves every register.
+; -----------------------------------------------------------------------------
+dd_die_anim:
+    push ax
+    push bx
+    mov ax, DD_DIET
+    sub ax, [dd_tim]
+    cmp ax, DD_DIET                 ; the table is the bound, and an unsigned
+    jb .in                          ; borrow above lands well past it
+    mov ax, DD_DIET - 1
+.in:
+    mov bx, ax
+    mov al, [dd_dietab + bx]
+    cmp al, DD_DGONE
+    je .gone
+    mov [dd_img + 0], al
+    mov byte [dd_alive + 0], 1
+    jmp short .out
+.gone:
+    mov byte [dd_alive + 0], 0
+.out:
+    pop bx
+    pop ax
     ret
 
 dd_life_lost:
@@ -1962,7 +2032,7 @@ dd_anims:
     ret
 
 ; =============================================================================
-; SOUND - three notes and a toggle (SPEC.md 93.10)
+; SOUND - three notes and a toggle (SPEC.md 93.5.16)
 ; =============================================================================
 ; dd_beep - AX Hz for a couple of ticks, and never at the cost of a frame:
 ; OSAPI_SND_TONE is fire and forget, so nothing here waits for anything.

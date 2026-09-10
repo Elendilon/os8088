@@ -111991,6 +111991,59 @@ its own union**, so what is left is the byte-column rounding and nothing else.
 Hercules goes 34.43 → 33.64 and CGA barely moves, its 8×4 tile being about the
 size of a step already.
 
+#### 93.5.16 The death is an animation, and the ghosts leave for it
+
+`dd_die` set a state and a timer and nothing else, so being caught was a
+**thirty-two-tick freeze** — Smiles standing in whatever direction he happened
+to be facing, four ghosts on top of him, for 1.76 seconds — and then the board
+reset. Nothing about it said he had died; the field asked for an animation.
+
+`DD_DIET` is **18 ticks (989 ms)** and `dd_dietab` is one entry a tick:
+
+| ticks | image |
+|---|---|
+| 0–2 | the plain disc, facing up — the beat before it starts |
+| 3–4 | mouth half open, up |
+| 5–6 | mouth wide open, up |
+| 7–8 | `SP_DIE + 0` — ~135° |
+| 9–10 | `SP_DIE + 1` — 180°, the top half gone |
+| 11–12 | `SP_DIE + 2` — ~250°, a bowl |
+| 13–14 | `SP_DIE + 3` — the burst |
+| 15–17 | `DD_DGONE`: `[dd_alive + 0]` = 0 |
+
+**Only four of those seven pictures are art.** The mouth opens *upward*, so the
+first three are images Smiles already has — `SP_PAC + DIR_U * 3 + phase`, built
+by the quarter turn `dd_spr_build` already does — and what the death adds is
+the three past the widest one he plays with, plus the burst. 128 bytes of
+master, 18 of table.
+
+Three things follow from writing it as a table of images rather than as a
+routine that draws:
+
+- **It costs seven blits, not eighteen.** Nothing moves during the death, so
+  §93.5.6's test holds: `dd_actor_prep` compares `[dd_img + si]` against
+  `[dd_limg + si]` and skips every tick on which the table repeats. The hold
+  is free.
+- **`DD_DGONE` is `[dd_alive]`, not a blank image.** A sprite of no lit pixels
+  is still a band, and a band is opaque — it would lay the board's own picture
+  back down, which is right, but it would also keep paying for it. Clearing
+  `[dd_alive + 0]` reaches `dd_actor_prep`'s `.none` arm, which is
+  `dd_wipe_old` once and then nothing.
+- **The hold lengths are the half that had to be looked at.** Three ticks of
+  beat and two a frame is not derivable, so it is a table rather than
+  arithmetic over `[dd_tim]`.
+
+**The ghosts leave.** `dd_die` clears `[dd_alive + 1..4]`, and the same `.none`
+arm wipes each one on the next frame, so the collapse plays on a clean board.
+That is not decoration: four bodies standing on the tile Smiles is dissolving
+on is where the eye goes instead of on him. `dd_actors_home` sets all five back
+when the next life starts; on the **last** life it is never called, and Smiles
+and the ghosts staying gone is exactly what §93.12.4's panel wants under it.
+
+`dd_die_anim` is called *before* `[dd_tim]` is decremented, so the index runs
+0…`DD_DIET`−1 over the table's own length, and `dd_die` calls it once itself so
+frame 0 lands on the frame of the catch rather than a tick after it.
+
 #### 93.5.9.1 …and the fast path forgot which BYTE the run starts in
 
 §93.5.9's two-byte mask is built from the run's **bit** offset, and the byte

@@ -24,6 +24,12 @@ Three questions, all three of them field reports:
   F  AN EATEN PELLET STAYS EATEN (SPEC.md 93.5.7.1).  dd_pills_flip walks the
      pellet LIST, which is never pruned, so the blink lettered an eaten pellet
      straight back in 91 ms after the eater's own band had put black over it.
+  G  THE DEATH IS AN ANIMATION (SPEC.md 93.5.16).  `dd_die` set a state and a
+     timer and nothing else, so being caught was a thirty-two-tick freeze
+     with four ghosts standing on Smiles.  This forces a real catch - a
+     ghost written onto his own position, so `dd_collide` fires on the next
+     tick and the REAL `dd_die` runs - and walks `dd_dietab` a tick at a
+     time off `dd_die_anim`'s own exit.
   D  NOTHING IS DRAWN THROUGH A RUNNING SCREEN SAVER (SPEC.md 79.6.1).  This
      one is a KERNEL gate driven through this package because a package is
      the only thing that can reach it: a saver session is not a window, so
@@ -33,7 +39,9 @@ Three questions, all three of them field reports:
      is never entered while the saver owns the glass.
 
 BREAK IT ON PURPOSE: take the two instructions out of `wm_clip_set` and leg D
-goes red at once.  Take the `jc` out of `dd_advance`'s left arm and leg E's
+goes red at once.  Take `dd_die`'s `.hide` loop out and leg G names the ticks a
+ghost was still on the board; put `dd_die_anim`'s call back AFTER the `dec` and
+it reads the table one entry short at both ends.  Take the `jc` out of `dd_advance`'s left arm and leg E's
 first half reads columns 0 and 1 and nothing else, for ever.  Take
 `dd_pills_flip`'s grid test out and leg F sees the blink fill a tile the grid
 calls empty.  Make `dd_pills_flip` walk its list in SI and call
@@ -449,6 +457,70 @@ def leg_f(ui, p, say, tries=4):
     return 0
 
 
+DD_DIET = 18                     # ...and its table, which is the claim
+DIE_WANT = ([9] * 3 + [10] * 2 + [11] * 2 + [37] * 2 + [38] * 2 + [39] * 2
+            + [40] * 2 + [-1] * 3)
+
+
+def leg_g(ui, p, say):
+    """The death is an ANIMATION, and the ghosts leave for it."""
+    m = ui.m
+    names = p.names
+    base = p.seg << 4
+    # FORCE the catch rather than wait for one: a ghost put on Smiles' own
+    # 1/16-px position is inside dd_collide's half-tile box on the very next
+    # tick, so this runs the real dd_die and not a poked state.
+    m.pause()
+    if p.b("dd_state") != 2:                    # DDS_PLAY
+        m.go()
+        say("G  FAIL: not in play (state %d) - nothing to be caught during"
+            % p.b("dd_state"))
+        return 1
+    m.write(base + names["dd_gs"], bytes([2]))  # GS_ROAM: dd_collide skips a
+    px = bytes(m.read(base + names["dd_x"], 2))  # ghost that is EYES or in the
+    py = bytes(m.read(base + names["dd_y"], 2))  # house, and eats a FRIGHT one
+    m.write(base + names["dd_x"] + 2, px)        # dd_x/dd_y are word arrays by
+    m.write(base + names["dd_y"] + 2, py)        # actor: +2 is ghost 0
+    off = codeoff("dd_die_anim.out")            # written, and before the dec,
+    m.breakpoints([{"type": "execseg", "seg": p.seg, "off": off}])
+    m.go()
+    walk = []
+    for _ in range(DD_DIET + 4):
+        if m.wait_stop(10.0) is None:
+            break
+        walk.append((p.w("dd_tim"), p.b("dd_img"), p.b("dd_alive"),
+                     any(p.b("dd_alive", i) for i in range(1, 5))))
+        m.go()
+    m.breakpoints([])
+    m.go()
+    if not walk:
+        say("G  FAIL: dd_die_anim was never reached - the death does not "
+            "animate at all (SPEC.md 93.5.16)")
+        return 1
+    # dd_die calls it once itself and .die once a tick, so tim 18 comes up
+    # twice; the picture is what the TABLE says for DD_DIET - tim either way.
+    got, prev = [], None
+    for tim, img, alive, _ in walk:
+        if tim == prev:
+            continue
+        prev = tim
+        got.append(img if alive else -1)
+    got = got[:DD_DIET]
+    if got != DIE_WANT:
+        say("G  FAIL: the death walked %s\n   where SPEC.md 93.5.16's table "
+            "is %s" % (got, DIE_WANT))
+        return 1
+    ghosts = [t for t, _, _, gh in walk if gh]
+    if ghosts:
+        say("G  FAIL: a ghost was still on the board at tick(s) %s of the "
+            "death - dd_die must clear [dd_alive + 1..4] (SPEC.md 93.5.16)"
+            % ghosts)
+        return 1
+    say("G  ok: %d ticks, images %s, no ghost on the board"
+        % (len(got), got))
+    return 0
+
+
 def main(argv):
     ap = argparse.ArgumentParser()
     ap.add_argument("--img", default=os88build.at("build/os8088-360.img"))
@@ -479,6 +551,7 @@ def main(argv):
         fail += leg_c(ui, p, say)
         fail += leg_e(ui, p, say)
         fail += leg_f(ui, p, say)
+        fail += leg_g(ui, p, say)   # ...and it KILLS Smiles, so                    it goes last of the game legs
         fail += leg_d(ui, p, say)      # last: it turns the screen saver ON
 
     if not a.verbose:
