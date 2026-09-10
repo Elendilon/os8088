@@ -3207,6 +3207,12 @@ SOAK = [
         "Does the pointer change SHAPE over a window that asks for one? "
         "(SPEC.md 7.2) - nothing covered it when 7.2.1.1 rewrote the test",
         needs=("marty",), serial=True),
+    Row("curbusy", "soak", py("tests/curbusy.py"), 30.0,
+        "Does the pointer wear the HOURGLASS while the machine is frozen, and"
+        "the arrow after? (SPEC.md 7.5) - the first build assembled clean, "
+        "passed the whole fast tier and drew nothing",
+        needs=("marty",), serial=True,
+        wants=("build/office360.img",)),
     Row("dispmode", "soak", py("tests/dispmode.py"), 60.0,
         "Single or Extend, where the second display sits, and does it survive"
         "a",

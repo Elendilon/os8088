@@ -241,7 +241,7 @@ WF_STALE   equ 0x8000          ; W_FLAGS bit15: THE PIXELS ON THE GLASS NO
 ; not the other either eats the shape or is read as one. Both derive from here
 ; now, so there is one place to add the next.
 WF_HIBITS  equ (WF_STALE | WF_NOANIM | WF_1BPP | WF_USRSZ) >> 8
-%if WF_HIBITS & (CUR_NSHAPE - 1)
+%if WF_HIBITS & (CUR_NWSHAPE - 1)
   %error "WF_HIBITS overlaps the cursor shape field - SPEC.md 7.2.1/11.96.17"
 %endif
 
@@ -5077,10 +5077,21 @@ wm_cursor:
                                 ; crosshair aborted the launch and the file
                                 ; row just sat there selected
     push ax
-    cmp al, CUR_NSHAPE
+    cmp al, CUR_NWSHAPE
     jae .out                    ; refuse a shape nobody ships HERE as well as
                                 ; in cur_shape_set: a bad byte written into
-                                ; the record would be re-read every pass
+                                ; the record would be re-read every pass.
+                                ; CUR_NWSHAPE AND NOT CUR_NSHAPE, and the same
+                                ; instruction either way: the hourglass belongs
+                                ; to a gfx-lock HOLD and not to a window
+                                ; (SPEC.md 7.5), so a record that could carry
+                                ; it would be a program declaring the machine
+                                ; permanently busy over its own content and
+                                ; nothing in the kernel able to take it off.
+                                ; WF_USRSZ is bit 9 of this word, so the field
+                                ; is ONE BIT WIDE and the assertion beside
+                                ; WF_HIBITS is cut from CUR_NWSHAPE for that
+                                ; reason rather than for tidiness
     cli                         ; the pushf above is this section's other half:
                                 ; wm_cursor runs on a PACKAGE task while
                                 ; wm_su_stale ORs WF_STALE into the same word

@@ -3030,6 +3030,11 @@ GLS_SZ    equ 14                 ; the walk state, in YOUR bss
 ; hold on the machine rather than only where you asked for it.
 OSAPI_CUR_ARROW equ 0           ; the default, and what W_FLAGS arrives holding
 OSAPI_CUR_CROSS equ 1           ; the aiming crosshair, hot spot at its centre
+; ...and there is NO third value to pass here. The hourglass belongs to a
+; gfx-lock HOLD rather than to a window (SPEC.md 7.5), so it is asked for with
+; OSAPI_CUR_BUSY below and this slot refuses it - a window record that could
+; carry it would be a program declaring the machine permanently busy over its
+; own content with nothing able to take it off again.
 %define OSAPI_WM_CURSOR     KERNEL_SEG:0x03D0   ; BX = your window ptr, AL =
                                                 ; OSAPI_CUR_*. The pointer wears
                                                 ; it over your window's CONTENT
@@ -3051,6 +3056,40 @@ OSAPI_CUR_CROSS equ 1           ; the aiming crosshair, hot spot at its centre
                                                 ; keeps the pointer off the
                                                 ; screen there, so an exclusive
                                                 ; app still draws its own
+%define OSAPI_CUR_BUSY      KERNEL_SEG:0x0540   ; I AM ABOUT TO GO QUIET FOR
+                                                ; A WHILE (SPEC.md 7.5). NO
+                                                ; ARGUMENT. The pointer becomes
+                                                ; an HOURGLASS for the rest of
+                                                ; the gfx-lock hold you are
+                                                ; inside, and OSAPI_GFX_UNLOCK
+                                                ; puts the old one back - so
+                                                ; there is no "off" to forget,
+                                                ; and a handler that returns
+                                                ; early or fails cannot leave
+                                                ; one on the screen. Call it
+                                                ; when you are about to spend
+                                                ; SECONDS without drawing - a
+                                                ; decode, a compression pass, a
+                                                ; long compute - and NOT around
+                                                ; an ordinary repaint: the
+                                                ; pointer would flicker to an
+                                                ; hourglass and back on every
+                                                ; one, which is why the kernel
+                                                ; does not do this for every
+                                                ; lock hold itself. A FILE
+                                                ; OPERATION NEEDS NO CALL: the
+                                                ; kernel already wears it while
+                                                ; SPEC.md 12.8's progress
+                                                ; widget is up. out CF=1
+                                                ; refused - you are not inside
+                                                ; a hold of your own, a clip
+                                                ; region is armed, an fsx
+                                                ; bracket owns the screen, or
+                                                ; something else is holding the
+                                                ; pointer down. Nothing else
+                                                ; changes and it is safe to
+                                                ; ignore: a refusal costs you
+                                                ; the picture and nothing more
 %define OSAPI_WM_DAMAGE     KERNEL_SEG:0x03B0   ; BX = your window ptr, called
                                                 ; from inside your own W_PAINT.
                                                 ; CF=1 = draw the WHOLE content

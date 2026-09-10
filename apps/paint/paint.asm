@@ -13727,6 +13727,19 @@ pt_load:
                                     ; the same argument, and toast_now is what
                                     ; puts it on the glass before the silence
                                     ; rather than after it (SPEC.md 59.4)
+    call OSAPI_CUR_BUSY             ; ...AND THE POINTER SAYS IT TOO (SPEC.md
+                                    ; 7.5.4). The message names the operation
+                                    ; ONCE and then sits there; the hourglass
+                                    ; is what a hand moving over a dead machine
+                                    ; asks and gets an answer to. No teardown:
+                                    ; the kernel took the lock around this
+                                    ; callback and its gfx_unlock is what puts
+                                    ; the arrow back, so an early return and a
+                                    ; refused decode both end with the pointer
+                                    ; right. CF is ignored deliberately - a
+                                    ; refusal costs the picture and nothing
+                                    ; else - and the `pushf` below is what
+                                    ; would have carried it anyway
     call pt_gif_in                  ; the magic decides, not the extension
     pushf
     call pt_free_lzw                ; ...and straight back, error or not
@@ -13742,6 +13755,9 @@ pt_load:
     mov si, pt_s_decbmp             ; ...and the same for a bitmap, which is
     call pt_msg_show                ; row-by-row rather than LZW and still
                                     ; seconds at 466x110 on the target machine
+    call OSAPI_CUR_BUSY             ; ...and the same (SPEC.md 7.5.4): row by
+                                    ; row is not faster than LZW, it is only
+                                    ; simpler
     call pt_bmp_in                  ; DX:AX = the byte count read
     jc .bmpbad
     mov byte [pt_sfmt], 0           ; ...and a bitmap stays a bitmap
