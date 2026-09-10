@@ -7,13 +7,31 @@ and survivable.
     python3 tools/os88soak.py status    # cheap progress read - SAFE to poll
     python3 tools/os88soak.py stop      # end it, and take its emulators with it
 
-WHY THIS EXISTS.  `make test-soak` runs the soak SERIALLY - `os88test.py soak`
-defaults to `--marty-jobs 1` - so the one command in the Makefile is the slow
-one, and the parallel invocation lived in two handoff documents as a line to
-remember (`docs/plans/completed/HANDOFF-KERNEL-SIZE-P3.md` 3).  Anything a reader has to
-remember is something the next reader will not, which is the same sentence
-that put `alone=True` on a row instead of `-x` in a runbook.  This file is
-that line, made into the command.
+WHY THIS EXISTS.  The parallel invocation lived in two handoff documents as a
+line to remember (`docs/plans/completed/HANDOFF-KERNEL-SIZE-P3.md` 3), and anything a
+reader has to remember is something the next reader will not - the same
+sentence that put `alone=True` on a row instead of `-x` in a runbook.  This
+file is that line, made into the command.
+
+**IT IS NOT "THE PARALLEL ONE" ANY MORE, AND SAYING SO COST SOMEBODY HOURS.**
+This paragraph read *"`make test-soak` runs the soak SERIALLY - `os88test.py
+soak` defaults to `--marty-jobs 1`"* long after both halves stopped being
+true: `_default_mj()` has been CORES-1 since the parallel work landed, and the
+Makefile passes no width at all, so `make test-soak` has been running an
+emulator lane of 3 on a four-core box for as long as that sentence has been
+wrong.  A reader who believes it reaches for the wrong lever - and the shape
+to watch for is a per-commit habit of `os88test.py soak -k '<family>'` once
+PER ROW, which pays this runner's ~22 s of fixed cost (the kernel-map identity
+check re-assembles the kernel) twenty-four times over.  Measured on the 24
+Clear Skies rows, 1,021 s of declared row time:
+
+    one invocation, lane of 3      353.6 s   (24 passed)
+    one invocation, lane of 1     ~1,021 s
+    one invocation PER ROW        ~1,549 s   = 1,021 + 24 x 22
+
+What this file adds over `os88test.py soak` is therefore NOT parallelism.  It
+is the four things below - and, since the width change, one lane per core
+rather than cores-1.
 
 It also owns the four things a soak in a container gets wrong, none of which
 belong in `os88test.py` - that runs rows, and these are about the RUN:
@@ -26,10 +44,13 @@ belong in `os88test.py` - that runs rows, and these are about the RUN:
      rather than after them, and prints the command that fixes each one.
 
   2. THE WIDTH.  One instance per core is the measured ceiling and going past
-     it is slower, not broken.  The default here is CORES-1, and the missing
-     core is not caution - it is the one the operator's own check-in, an
-     editor, or a small side task runs on.  A soak sized to exactly fill the
-     box is a soak that anything else on the box perturbs.
+     it is slower, not broken.  The default here is ONE PER CORE.  It was
+     CORES-1, on the argument that the spare core is what the operator's own
+     check-in runs on - and `status` reads a FILE, so there was never a load
+     to leave room for.  What settled it is that every row width 4 was blamed
+     for has since been diagnosed and none of them was a starved guest
+     (`widths()` below has the four).  `os88test.py` run by HAND still leaves
+     one, for the difference that matters: somebody is at that keyboard.
 
   3. SURVIVING.  It runs under `setsid`, so it outlives the shell that
      started it, and every completed row is journalled - so `start --resume`
@@ -82,13 +103,30 @@ if not sys.stdout.isatty() or os.environ.get("NO_COLOR"):
 def _apt(pkg):
     """The install line for this host, best effort.
 
-    Named per platform rather than assumed: `tools/setup-macos.sh` installs
-    the Mac set and does NOT install Rust, which is the one that catches
-    people out on `make marty`.
+    IT NAMES THE SCRIPT RATHER THAN A BARE apt LINE, and that is a
+    correction rather than a preference. What this used to print was
+    `apt-get install -y libudev-dev pkg-config`, which is precisely the
+    command docs/MARTYPC-DEBUG.md exists to say DOES NOT WORK in a fresh
+    container - it 404s against a shipped index, and the refresh that fixes
+    it needs `APT::Sandbox::User=root` or it silently refreshes nothing. So
+    a preflight whose whole purpose is handing the reader something to type
+    was handing them the failure it was warning about.
+
+    `make deps` (tools/setup-linux.sh, tools/setup-macos.sh) is the one
+    command that is right on every host: it refreshes with the sandbox off,
+    installs only what is absent, and probes rather than assuming - the
+    qemu version pin that document carries is a FALLBACK there, because the
+    archive has since caught up and pinning it now would install an older
+    emulator for no reason.
+
+    Named per platform where it still matters: `tools/setup-macos.sh`
+    installs the Mac set and does NOT install Rust, which is the one that
+    catches people out on `make marty`.
     """
     if sys.platform == "darwin":
-        return "tools/setup-macos.sh   (then `brew install %s` if it is not in it)" % pkg
-    return "apt-get install -y %s" % pkg
+        return ("make deps               (tools/setup-macos.sh; then "
+                "`brew install %s` if it is not in it)" % pkg)
+    return "make deps               (tools/setup-linux.sh - installs %s)" % pkg
 
 
 def requirements():
@@ -141,8 +179,10 @@ def requirements():
     req.append(("martypc", os.path.exists(marty),
                 "the default instrument. Without it EVERY emulator row skips, "
                 "which is most of the tier.",
-                "make marty      (needs cargo; on Linux also `%s`)"
-                % _apt("libudev-dev pkg-config")))
+                "make deps && make marty      (deps installs libudev-dev "
+                "+ pkg-config, which\n"
+                "                     cargo needs and fails MINUTES IN "
+                "without; cargo itself is rustup's)"))
 
     req.append(("cc", os.access(B("cc", "SmallerC", "smlrcc"), os.X_OK),
                 "the C packages - Weave, RunCPM, the C64, cword. Eleven rows.",
@@ -541,25 +581,43 @@ def _cores():
 
 
 def widths(cores, mj=None, hj=None):
-    """How wide to run, and WHY it is one less than the box.
+    """How wide to run: THE CORE COUNT, and why it used to be one less.
 
     Measured aggregate guest speed against a real 4.77 MHz 8088, four-core
     box: 3.4x at one instance, 13.1x at four, 13.9x at six, 13.4x at eight.
     It is FLAT past the core count - four to six buys 6% and six to eight
     LOSES 4% - so the core count is the ceiling and nothing above it is worth
-    paying for.  What three costs against four is not in that series and is
-    not claimed here; what it buys is measured, and is the reason for it:
-    twelve rows at width 3 with two extra CPU hogs passed 12/12 and ran 1.06x
-    slower than the same rows alone (docs/plans/SOAK-PARALLEL.md 1).
+    paying for.  That series has never been in dispute.  What was in dispute
+    is the last core, and it is settled now.
 
-    That last core is what a `status` poll, an editor, a `git log` or a small
-    side task runs on.  Leaving it is not politeness - a run sized to fill the
-    box exactly is one that anything else on the box perturbs, and every
-    perturbed row is an hour of somebody deciding whether the failure was
-    real.  `docs/plans/HANDOFF-SOAK-FINDINGS.md` is largely a list of people making
-    that decision.
+    **IT WAS CORES-1, AND THE ARGUMENT FOR THAT DID NOT SURVIVE ITS OWN
+    EVIDENCE.**  The reasoning was that a run sized to fill the box exactly is
+    one anything else perturbs, so the spare core is what a `status` poll, an
+    editor or a small side task runs on.  Two things retired it:
+
+      * `status` READS A FILE.  It was never the load the argument feared, and
+        nothing else in the workflow is either - `start` is detached and the
+        run is polled, not watched.
+      * the four rows that made docs/plans/SOAK-PARALLEL.md 15.2 conclude *"the
+        pass rate does NOT hold at width 4"* have every one been diagnosed
+        since, and **not one of them was a guest starved of CPU**.  Three were
+        the private-tree rebuild race (8.9) - a row's kernel being rewritten
+        underneath it, which width only made more likely to overlap - and the
+        fourth was an `EVT_MDOWN` dropped from a full ring behind a confirmed
+        button level (15.4).  Both are fixed at the cause.  Width was the
+        thing that exposed them and never the thing that broke them.
+
+    Since then this box has run the full soak at width 4 repeatedly and clean,
+    with no niced lane (15.1's proposal, which the same evidence retires: it
+    exists to buy the fourth core back, and the fourth core was never the
+    problem).  So the default fills the box, and 15.2's 16.8% off the wall
+    comes with it.
+
+    A row that genuinely cannot share the cores still says so - `alone=True`
+    is what that flag is for, and it is unaffected by this.  `--marty-jobs`
+    overrides for anyone who wants the old width back on a busy machine.
     """
-    return (mj if mj else max(1, cores - 1),
+    return (mj if mj else max(1, cores),
             hj if hj else max(2, cores))
 
 
@@ -649,7 +707,65 @@ def _frozen_targets(a):
                            if a.startswith("build/"))
 
 
+def _whole_tier_refusal(a):
+    """Why an unscoped `start` does not start, and what to do instead.
+
+    THE WHOLE TIER IS THE OWNER'S CALL AND NOBODY ELSE'S, and this is the
+    second gate rather than the first - `os88test.py` refuses the same run for
+    the same reason, so neither the runner nor the tier under it can be
+    reached by an agent that has decided for itself that today is the day.
+
+    TWO WORDINGS WERE TRIED AND BOTH WERE REASONED PAST WITHIN A DAY.  "At the
+    end of extensive kernel surgery" was read as "I edited kernel/": a gate of
+    1,659 bytes out of kern_small, whose own commit message said kern_big
+    assembles BYTE-IDENTICAL, took the whole 377-row tier, of which seven rows
+    touch kern_small at all.  The reach test that replaced it - run it when you
+    cannot NAME what the change misses - was read the very next run as "my
+    change moves kern_big, so I cannot bound it", which is the same door from
+    the other side.  Every wording that leaves a JUDGEMENT is exercised in
+    favour of running it, and the run is one to three hours of somebody else's
+    machine.
+
+    So it is a PERMISSION now.  --user-asked is a claim about the CONVERSATION
+    and not about the change: passing it when the owner did not ask is a false
+    statement, which is a much higher bar than deciding that a diff felt
+    significant.  Nothing is lost by stopping here - nothing has started, and
+    both ways forward are in the message.
+    """
+    try:
+        import suite
+        rows = _selected(a)
+        secs = {r.name: r.secs for r in suite.rows()}
+        hours = sum(secs.get(n, 0.0) for n in rows) / 3600.0
+        size = "%d rows, %.1f declared hours" % (len(rows), hours)
+    except Exception:
+        size = "the whole tier"
+    return (
+        "%sos88soak: REFUSING the whole %s tier - %s.%s\n"
+        "  It runs ONLY when the owner asks for it in as many words.  Nothing\n"
+        "  else licenses it: not kernel surgery, not a merge, not a change "
+        "whose\n"
+        "  reach you cannot bound, not a hunch that this one is worth it.\n"
+        "\n"
+        "  RUN THE ROWS YOUR CHANGE CAN REACH instead - this runner takes -k, "
+        "so\n"
+        "  the preflight, frozen tree, one lane per core, journal, --resume "
+        "and\n"
+        "  pollable status are all there for ten rows as they are for 377:\n"
+        "      python3 tools/os88test.py --list | grep -i <subject>\n"
+        "      python3 tools/os88soak.py start -k '<glob>' [-k '<glob>' ...]\n"
+        "\n"
+        "  If you believe the whole tier is warranted, SAY SO AND ASK, then "
+        "carry\n"
+        "  on without it.  When the owner has asked, pass --user-asked.\n"
+        "  docs/TESTING.md, \"When to run which tier\".\n"
+        % (RED, a.tier, size, OFF))
+
+
 def start(a):
+    if a.tier == "soak" and not a.k and not a.user_asked:
+        print(_whole_tier_refusal(a), file=sys.stderr)
+        return 2
     cores = _cores()
     mj, hj = widths(cores, a.marty_jobs, a.j)
 
@@ -747,6 +863,8 @@ def start(a):
 
     cmd = ["python3", os.path.join("tools", "os88test.py"), a.tier,
            "--marty-jobs", str(mj), "-j", str(hj)]
+    if a.user_asked:
+        cmd.append("--user-asked")
     for g in a.k:
         cmd += ["-k", g]
     for g in a.exclude:
@@ -1068,7 +1186,8 @@ def main():
     ap.add_argument("-x", "--exclude", metavar="GLOB", action="append",
                     default=[], help="drop rows matching (passed through)")
     ap.add_argument("--marty-jobs", type=int, default=None, dest="marty_jobs",
-                    help="emulator lane width (default: cores-1, see widths())")
+                    help="emulator lane width (default: one per core, "
+                         "see widths())")
     ap.add_argument("-j", type=int, default=None, help="host-side lane width")
     ap.add_argument("--resume", action="store_true",
                     help="continue the last run, excluding rows it reported")
@@ -1085,6 +1204,11 @@ def main():
                     help="read build/ instead of a tree of the run's own - "
                          "faster to start, and a `make` while it runs breaks "
                          "rows (docs/plans/SOAK-PARALLEL.md 14.2)")
+    ap.add_argument("--user-asked", action="store_true", dest="user_asked",
+                    help="the OWNER asked, in as many words, for the WHOLE "
+                         "soak tier. Required by `start` with no -k - see "
+                         "_whole_tier_refusal(). It is a claim about the "
+                         "conversation, not a judgement about the change.")
     ap.add_argument("--strict", action="store_true",
                     help="a missing capability is a FAILURE, not a skip")
     ap.add_argument("-v", "--verbose", action="store_true")

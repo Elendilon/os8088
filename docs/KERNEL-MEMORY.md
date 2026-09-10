@@ -768,7 +768,7 @@ did not go, and the reasons stop them being re-proposed:
   desktop that could not launch anything.
 - **`snd_xlat` (256 B) is refused on speed.** Two sites, but they are
   `spk_pcm_run`'s per-sample loop. **And three harnesses now depend on those
-  256 bytes staying idle**: `tests/evqfull.py`, `tests/linefast.py` and
+  256 bytes staying idle**: `tests/evqfull.py` and
   `tools/os88linecost.py` each plant an executable stub in `snd_xlat`
   *because* it is 256 unused `KERNEL_SEG` `.bss` bytes at a fixed symbol. So
   the largest single `.bss` item in the kernel is held in place by the test

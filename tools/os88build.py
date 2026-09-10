@@ -84,6 +84,26 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # floppies plus kern_small's two and kern_emu's, and that one is ~16 MB.
 TREES = os.path.join(ROOT, "build", "trees")
 
+# WHERE **THIS PROCESS'S** ARTEFACTS LIVE - set by `Tree.apply()`, read by
+# `at()`, and never an environment variable.
+#
+# It is the third claim in a family of two (see `at` and `tree_root` below).
+# `$OS88_TREE` says where the RUN's artefacts live and belongs to the runner;
+# `$OS88_BUILD` says which KERNEL a symbol map describes and has named a
+# sub-directory holding no floppies since long before any of this. Neither can
+# answer for a row that has just built a PRIVATE tree and wants `build/x.bin`
+# to mean its own copy: taking over $OS88_TREE is forbidden (it would reach
+# every sub-make the row spawns, which is the bug at `at`'s `build/trees/`
+# guard), and $OS88_BUILD is the wrong question.
+#
+# Measured: `tests/mseglazy.py` builds `mseg` into a private tree, boots that
+# tree's floppy, and resolved the package's symbols against the SHARED
+# `build/mseg.bin` - a day stale and genuinely different - so the row died
+# saying the map described a different build, about a file it had just made
+# correctly one directory along. `plain().apply()` restores it, because
+# plain()'s own directory IS `at("build")`.
+_LOCAL = None
+
 # What a row almost always wants: the 360KB pair, which is what MartyPC's
 # machines mount. Named here rather than defaulted per call site so that two
 # rows asking for "the same knob" really do share a tree.
@@ -144,6 +164,8 @@ class Tree(object):
         #
         # The two variables have owners: $OS88_TREE is the RUNNER's, set once
         # for a whole frozen run (14.2), and nothing here may take it over.
+        global _LOCAL
+        _LOCAL = self.dir               # ...and `build/x` now means `<tree>/x`
         os.environ["OS88_BUILD"] = self.dir
         os.environ.pop("OS88_DEFINES", None)
         if self.defines:
@@ -249,8 +271,37 @@ def _sweep_truncated(d):
     failed with `os88mod: kernel image is impossibly short` - which reads as
     kern_small being broken and is a truncated file nobody rebuilt.
 
-    A zero-length product is never legitimate here (every rule in the
-    Makefile writes bytes), so removing it is safe and make does the rest.
+    **A MARKER IS NOT A PRODUCT, AND SWEEPING ONE COST EVERY KNOB ROW A FULL
+    KERNEL REBUILD.** The first version's rule was "a zero-length product is
+    never legitimate here (every rule in the Makefile writes bytes)", and that
+    sentence is true of products and false of the twelve knob STAMPS, each of
+    which the Makefile creates with a bare `touch` and is therefore exactly
+    zero bytes. Sweeping `$(VIDSTAMP)` made the next `make`'s parse-time rule
+    find no stamp - which is its signal that the KNOB SET CHANGED - so it
+    deleted kernel.bin, kernel-full.bin, kernel.sys, both boot sectors and six
+    drivers and built the lot again, every single time, on a tree that was
+    already correct.
+
+    Two costs, and the second is the one that took three soak rows down:
+
+      * the reuse this module advertises ("a second call with the same knobs
+        re-runs make over an up-to-date tree and returns in under a second")
+        never happened once. Measured on `diskcnt-62f860de`: 21.2 s for the
+        cold build and 19.9 s for the "reuse" - a whole kernel, twice.
+      * two rows sharing a tree - and four pairs do (mseglazy/msegnomem,
+        blitplane/paintpack, small128/smallboot, fatwpin/vgadirty) - REBUILD
+        IT UNDER EACH OTHER. The lock serialises the two makes and cannot
+        serialise a make against the first row's reader, so the second row's
+        rebuild deleted and rewrote kernel.bin while the first was reading it
+        for its symbol map. That is msegnomem's soak failure twice and
+        paintpack's once, every one of them passing when run alone, and
+        os88sym's "the file was written 1.8 s ago" is what named it.
+
+    So the test is what the file IS, not how big it is. The Makefile spells
+    a marker two ways and both are here: `$(BUILD)/.<name>` for the twelve
+    knob stamps, and `$(BUILD)/<name>.stamp` for the three fetch stamps
+    (runcpm-src, cpmsw, stories). Neither is ever an artefact a row asks for.
+
     One `listdir` per tree, only at the top level, which is where every
     artefact a row asks for lives.
     """
@@ -259,6 +310,8 @@ def _sweep_truncated(d):
     except OSError:
         return
     for n in names:
+        if n.startswith(".") or n.endswith(".stamp"):
+            continue                    # a marker, legitimately empty
         p = os.path.join(d, n)
         try:
             if os.path.isfile(p) and not os.path.islink(p) \
@@ -302,7 +355,10 @@ def _goals(d, targets):
 
 # Shared holds taken by this process, kept alive for its lifetime: see
 # _Lock.__exit__. Never read - the list IS the reference.
-_HELD = []
+# The retained SHARED holds, KEYED BY PATH so that a second entry in the SAME
+# PROCESS finds the handle it already has (see _Lock.__enter__). It was a bare
+# list, and the list is what made `dispseam` hang for ever.
+_HELD = {}
 
 
 class _Lock(object):
@@ -333,6 +389,23 @@ class _Lock(object):
     nothing to renew, and no way to leave one behind. That is the property
     `martylock.py` could not have and had to work around with leases: it was
     held ACROSS many shells, so no PID could answer for it.
+
+    **AND THE RETAINED HOLD IS WHY THIS HAS TO BE RE-ENTRANT.** That sentence
+    above is about a holder that EXITS, and it is true; it says nothing about
+    the same process entering the same tree TWICE, which is the case it
+    deadlocked on. `tests/dispseam.py` calls `tree("NOSEAMCUT=1")` inside its
+    per-machine loop and runs two seam orientations, so on the SECOND machine
+    it opened a second description of the same lock file and took `LOCK_EX`
+    against the `LOCK_SH` `__exit__` had parked on the first - its own. It
+    hung in `locks_lock_inode_wait` with two fds on one file, for ever, with
+    no other party to blame and nothing to time out: **29 rows green and the
+    thirtieth never returning.**
+
+    A row that HANGS is worse than one that fails (docs/WRITING-TESTS.md): a
+    failure is investigated and a hang is waited on. So `__enter__` reuses the
+    handle this process already holds and upgrades it in place, which waits
+    for other processes' readers - the behaviour promised above - and cannot
+    wait for us.
     """
 
     def __init__(self, path):
@@ -345,7 +418,19 @@ class _Lock(object):
         except OSError as e:
             if e.errno != errno.EEXIST:
                 raise
-        self.fh = open(self.path, "w")
+        # RE-ENTER ON THE HANDLE WE ALREADY HOLD, never on a second one.
+        # flock is per OPEN FILE DESCRIPTION, so `open()`ing the same path
+        # twice gives two descriptions and LOCK_EX on the second BLOCKS
+        # AGAINST THE SHARED HOLD __exit__ RETAINED ON THE FIRST - in the
+        # same process, for ever, with nothing to time out and no other
+        # party to name. Upgrading the existing description is legal, waits
+        # only for OTHER processes' readers (which is the intended
+        # behaviour, and what the class docstring promises), and cannot
+        # wait for us.
+        self.fh = _HELD.get(self.path)
+        self.reused = self.fh is not None
+        if self.fh is None:
+            self.fh = open(self.path, "w")
         fcntl.flock(self.fh, fcntl.LOCK_EX)
         return self
 
@@ -358,11 +443,12 @@ class _Lock(object):
         """
         try:
             fcntl.flock(self.fh, fcntl.LOCK_SH)
-            _HELD.append(self.fh)
+            _HELD[self.path] = self.fh
         except Exception:               # a downgrade that cannot be taken is
             try:                        # not worth failing a row over: fall
                 fcntl.flock(self.fh, fcntl.LOCK_UN)
             finally:
+                _HELD.pop(self.path, None)
                 self.fh.close()
         self.fh = None
 
@@ -587,14 +673,45 @@ def at(path):
 
     Anything that is not under `build/` is returned unchanged, so a row that
     names /tmp, an absolute path or a private tree of its own is untouched -
-    and with $OS88_BUILD unset this is the identity function, which is what
-    every interactive run and every standalone `python3 tests/x.py` gets.
+    and with neither $OS88_TREE set nor a tree applied this is the identity
+    function, which is what every interactive run and every standalone
+    `python3 tests/x.py` gets.
 
-    It resolves the string, not the file: a path that does not exist in the
-    tree comes back pointing into the tree, and the caller's own open() says
-    so. Falling back to `build/` on a miss would be worse - it would half-run
-    a soak against the directory the tree exists to avoid, and only sometimes.
+    **A TREE THIS PROCESS APPLIED WINS OVER THE RUN'S, FOR WHAT IT HAS**
+    (`_LOCAL` at the top of this file, set by `Tree.apply()`). A row that has
+    just built a private tree and pointed the symbol reader at it means its
+    own copy of `build/mseg.bin`, not the run's - and `plain().apply()` puts
+    it back, because plain()'s directory is this function's own answer for
+    "build".
+
+    **AND THAT ONE IS EXISTENCE-CHECKED, WHERE `$OS88_TREE` IS NOT.** The two
+    are different claims and the asymmetry is the point. A run's tree is the
+    WHOLE build and the only directory a soak may read, so a miss there is a
+    row asking for something nothing built and must say so where it happened -
+    falling back to `build/` would half-run a soak against the directory the
+    tree exists to avoid, and only sometimes. A private tree is a SUBSET, cut
+    to the `targets` one row asked for: `tree(targets=("small",))` holds a
+    kern_small and no 360KB pair at all. Redirecting every `build/...` string
+    into it unconditionally would send the 34 sites that now resolve through
+    here (docs/plans/SOAK-PARALLEL.md 8.11) at files it was never asked to build, and the failure would be
+    a `FileNotFoundError` naming a private tree, an hour into a soak - which
+    is the shape of the bug those sites were converted to FIX.
+
+    So: what the private tree HAS, it answers for; everything else falls
+    through to the run's tree, which still never falls back to `build/`.
+
+    It resolves the string and not the file for the run's tree: a path that
+    does not exist in it comes back pointing into it, and the caller's own
+    open() says so.
     """
+    if isinstance(path, str) and _LOCAL:
+        q = path.replace("\\", "/")
+        if not q.startswith("build/trees/") \
+                and (q == "build" or q.startswith("build/")):
+            mine = (_LOCAL if q == "build"
+                    else os.path.join(_LOCAL, q[len("build/"):]))
+            if os.path.exists(mine):
+                return mine
     root = tree_root()
     if not root or not isinstance(path, str):
         return path

@@ -78,39 +78,55 @@ def ms(cycles):
     return 1000.0 * cycles / CLK
 
 
-def collect(m, names, budget=200.0, limit=80):
-    """Run, stopping at each armed breakpoint, until they stop arriving.
+def collect(m, names, trigger, quiet=2.0, first=30.0, limit=80):
+    """Run `trigger` with `names` armed, and record every stop it produces.
 
     Returns [(name, cycles, di_slot, bx_slot), ...]. The two slots are window
     indices when the register held a window record and nonsense otherwise -
     which is itself informative, being how you tell an unattributed hit.
+
+    IT WAS A HAND-ROLLED PUMP AND IT HAD TWO FAULTS, both of which put a wrong
+    number in a published table rather than an error on the screen:
+
+      A DUPLICATE ROW. It resumed and then broke out of its poll on the first
+        `"breakpoint"` it saw - which is the stop it had just resumed past,
+        every time the resume had not landed by the next round trip. The same
+        stop entered the trace twice, at the same cycle count, so a span read
+        one delta of 0.00 ms and one hit that never happened. `bp_trace`
+        dedupes on the server's own stop sequence.
+
+      A BUDGET THAT RAN DOWN. `t0` was taken once, outside the loop, and the
+        wait was `time.time() - t0 < budget` - so the allowance was shared by
+        all 80 iterations rather than given to each. A long operation simply
+        stopped being collected part way through, and tools/winmove.py's own
+        docstring records what that looks like from outside: *"a harness that
+        stops early reads as an operation that did not happen"*. The wait is
+        for QUIET now - `quiet` seconds with no new hit - which is the
+        condition actually meant.
+
+    `trigger` runs INSIDE the block, which the pump makes possible: os88mouse
+    converges by reading `[mouse_x]`, so before `bp_trace` a proven verb could
+    not be used with breakpoints armed at all. The scenarios still send the
+    single raw release packet they always did - the numbers in PERFORMANCE.md
+    Sets 30-34 are against that input - but a scenario that wants a whole
+    gesture may now have one.
     """
-    marks = {n: m.sym(n) for n in names}
-    by_addr = {}
-    for n, a in marks.items():
-        by_addr.setdefault(a, n)
     base = m.sym("wm_wins")
-    out, t0 = [], time.time()
-    for _ in range(limit):
-        m.run()
-        st = None
-        while time.time() - t0 < budget:
-            st = m.status()
-            if st.get("state") == "breakpoint":
-                break
+    with os88marty.bp_trace(m, *names, regs=True, cap=limit) as tr:
+        trigger()
+        seen, t0, last = 0, time.time(), time.time()
+        while tr.n < limit:
+            if tr.n != seen:
+                seen, last = tr.n, time.time()
+            elif seen and time.time() - last > quiet:
+                break                       # the operation has gone quiet
+            elif not seen and time.time() - t0 > first:
+                break                       # ...or it never started
             time.sleep(0.02)
-        if not st or st.get("state") != "breakpoint":
-            break
-        flat = ((st["cs"] << 4) + st["ip"]) & 0xFFFFF
-        r = m.regs()
-        out.append((by_addr.get(flat, "?%05X" % flat), st["cycles"],
-                    (r["di"] + 0x600 - base) // WIN_SIZE,
-                    (r["bx"] + 0x600 - base) // WIN_SIZE))
-    return out
-
-
-def arm(m, names):
-    return m.breakpoints([{"type": "exec", "addr": m.sym(n)} for n in names])
+    return [(h["name"], h["cycles"],
+             (h["regs"]["di"] + 0x600 - base) // WIN_SIZE,
+             (h["regs"]["bx"] + 0x600 - base) // WIN_SIZE)
+            for h in tr.hits]
 
 
 def report(hits):
@@ -313,11 +329,7 @@ def main():
         mo = Mouse(marty=m)
         print("machine %s / %s" % (machine, sys.argv[1]))
         names, trigger, slot = fn(m, mo)
-        arm(m, names)
-        trigger()
-        hits = collect(m, names)
-        m.breakpoints([])
-        m.run()
+        hits = collect(m, names, trigger)
         report(hits)
         print()
         for a, b in zip(names, names[1:]):

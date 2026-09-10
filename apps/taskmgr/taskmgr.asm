@@ -852,6 +852,31 @@ tm_layout:
     sub ax, [tm_xoff]           ; the list starts higher with no bar above it
     mov [tm_tpl+6], ax          ; the frame height the machine can take
 
+    ; --- how deep is the PROCESS list's column 0? -----------------------------
+    ; The same frame again, and this one starts LOWER than [tm_colrows] rather
+    ; than higher: TM_ROW_Y is under the graph, the RAM line and the bar, 30px
+    ; below the memory view's TMM_ROW_Y that the depth above is cut from.
+    ;
+    ; Sharing that depth is what SPEC.md 28.1's second column was lost to. It
+    ; named rows the frame has no height for, so tm_row_place placed them in
+    ; column 0 and then refused them on [tm_ylim] - and a refusal is MONOTONE
+    ; to the caller, which is the whole contract that lets tm_rows stop at the
+    ; first one. It stopped inside column 0, and every row after it, column 1
+    ; included, was never reached: on a CGA, three rows drawn of thirteen with
+    ; an empty second column beside them and its header already on the glass.
+    push ax
+    sub ax, TITLE_H + 1 + TM_ROW_Y
+    jbe .noprow
+    mov bl, TM_ROW_H
+    div bl                      ; AL = rows, and the quotient fits: the tallest
+    xor ah, ah                  ; frame here is 295px against an 11px pitch
+    jmp short .haveprow
+.noprow:
+    mov ax, 1                   ; a screen this short still gets one row
+.haveprow:
+    mov [tm_pcolrows], ax
+    pop ax
+
     ; --- how deep is the HEAP page's column 0? --------------------------------
     ; The same frame, but its list starts at TMH_ROW_Y instead of TMM_ROW_Y
     ; (SPEC.md 28.4) - there is no map and no bar above it - so it holds the
@@ -903,10 +928,14 @@ tm_layout:
                                 ; the performance list is bounded by its own
                                 ; `cmp si, TM_ROWS`, the memory list tests
                                 ; TMM_ROWS first, and tm_ylim clamps both
+%elifdef TMF_MEM
+    add ax, [tm_colrows]        ; ...and with no heap page the memory view's is
+                                ; the deeper of the two that are left: its list
+                                ; starts 30px above the process list's
 %else
-    add ax, [tm_colrows]        ; ...and with no heap page there is no deeper
-                                ; column 0 to take: column 0 is the one the
-                                ; two remaining lists share (SPEC.md 28.12)
+    add ax, [tm_pcolrows]       ; ...and with no memory view either there is
+                                ; one list on this window, so its own depth is
+                                ; the bound (SPEC.md 28.12)
 %endif
     cmp ax, TM_DEEPEST          ; never more than there is data for - and the
     jbe .rowcap                 ; DEEPEST list is the heap page's where this
@@ -1277,6 +1306,7 @@ tm_s_tsave: db 'MenuSav', 0
 tm_s_tdrv:  db 'DrvImg', 0
 tm_s_tcopy: db 'CopyBuf', 0
 tm_s_tfatw: db 'FATwin', 0
+tm_s_tview: db 'DirView', 0     ; kern_small's listing cache (SPEC.md 50.6.5)
 tm_s_tasc:  db 'Assoc', 0
 tm_s_tclip: db 'Clipbrd', 0
 tm_s_twsav: db 'WinSave', 0
@@ -2485,8 +2515,26 @@ tm_dmg_hit:
 tm_elchk_y:
     call tm_elchk
     jnc .out                    ; changed: drawn whatever the damage says
+    call tm_dmg_yhit            ; ...otherwise the band decides
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; tm_dmg_yhit - does this paint's damage cross a CONTENT-RELATIVE y band?
+; in:  CX/DX = the band, inclusive, content-relative
+; out: CF = 0 it does (draw it), CF = 1 it does not; all registers preserved
+;
+; SPEC.md 28.10.3 lifted this out of tm_elchk_y, which is the same question
+; with a key in front of it. The graph has no key - a new sample lands in it
+; every interval and the periodic path draws the two columns that moved - so
+; what it wants is this half on its own, and the bar's FRAME wants it too.
+;
+; X IS NOT ASKED, for tm_elchk_y's reason: every element that comes through
+; here spans the pane. tm_graph asks about x itself, being the one element
+; with 216 independently repairable columns in it.
+; -----------------------------------------------------------------------------
+tm_dmg_yhit:
     push ax
-    push bx
     mov ax, [tm_cy]
     add ax, dx
     cmp ax, [tm_dmg+2]
@@ -2495,15 +2543,12 @@ tm_elchk_y:
     add ax, cx
     cmp ax, [tm_dmg+6]
     ja .no                      ; ...or starts below it
-    pop bx
     pop ax
     clc                         ; a pop writes no flag, so the answer is set
-    ret                         ; after them and survives
+    ret                         ; after it and survives
 .no:
-    pop bx
     pop ax
     stc
-.out:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2609,7 +2654,14 @@ tm_ckz:
 
 ; -----------------------------------------------------------------------------
 tm_draw_full:
-    call tm_rowck_clear
+    call tm_rowck_clear         ; every KEY is owed...
+    call tm_dmg_all             ; ...and so is every BAND (SPEC.md 28.10.3).
+    call tm_draw_band           ; The truth rather than a belt: both callers
+    jmp tm_dmg_none             ; tm_clear_content first. Restored on the way
+                                ; out, as tm_paint restores its own - the
+                                ; worker's intervals run under `none`, where
+                                ; the keys alone decide (SPEC.md 28.10.2)
+
 tm_draw_band:                   ; ...and the entry that does NOT, for a damage
                                 ; repaint: [tm_dmg] decides which rows are
                                 ; forced and the keys decide the rest
@@ -2635,33 +2687,15 @@ tm_draw_perf:
     call tm_view_begin          ; [tm_cx]/[tm_cy]/[tm_rowx]/[tm_ylim]
 
     call tm_txt_cpu
-
-    TM_INK CBLACK
-    mov ax, [tm_cx]             ; graph frame (6,14)-(TM_RW,55)
-    add ax, 6
-    mov bx, [tm_cy]
-    add bx, TM_GF_Y1
-    mov cx, [tm_cx]
-    add cx, TM_RW
-    mov dx, [tm_cy]
-    add dx, TM_GF_Y2
-    call OSAPI_GFX_FRAME
-
-    xor bx, bx                  ; every column; tm_pos is the sweep gap
-.col:
-    cmp bx, [tm_pos]
-    je .gap
-    call tm_col
-    jmp .next
-.gap:
-    call tm_gapcol
-.next:
-    inc bx
-    cmp bx, TM_GW
-    jb .col
-
+    call tm_graph               ; its frame and the columns this paint owes -
+                                ; 216 of them and up to two calls each, so it
+                                ; is gated and run-coded (SPEC.md 28.10.3)
     call tm_txt_ram
 
+    mov cx, TM_BAR_Y1           ; the bar's FRAME on the bar's own band: its
+    mov dx, TM_BAR_Y2           ; INTERIOR has been gated since 28.10.2 and
+    call tm_dmg_yhit            ; the frame around it was not
+    jc .nobar
     TM_INK CBLACK
     mov ax, [tm_cx]             ; bar frame (6,71)-(TM_RW,80)
     add ax, 6
@@ -2672,6 +2706,7 @@ tm_draw_perf:
     mov dx, [tm_cy]
     add dx, TM_BAR_Y2
     call OSAPI_GFX_FRAME
+.nobar:
     call tm_bar
 
     TM_INK CBLACK
@@ -4045,6 +4080,11 @@ tm_htype:
     sub dx, MEM_P_FATW          ; became a range when they became a cache
     cmp dx, MEM_P_FATW_N        ; (SPEC.md 18.8.4)
     jb .fatw
+    mov dx, ax                  ; ...and a Disk window's LISTING cache, one per
+    sub dx, MEM_P_VIEW          ; fm_pool slot, which became a range when it
+    cmp dx, MEM_P_VIEW_N        ; became a cache on kern_small (SPEC.md 50.6.5).
+    jb .view                    ; On kern_big nothing is stamped with it and
+                                ; this compare simply never fires
     mov si, tm_ktab
 .scan:
     mov dx, [si]
@@ -4062,6 +4102,9 @@ tm_htype:
     jmp short .put
 .fatw:
     mov si, tm_s_tfatw
+    jmp short .put
+.view:
+    mov si, tm_s_tview
     jmp short .put
 .hex:
     call tm_put4x               ; AX is still the owner word
@@ -4729,16 +4772,27 @@ tm_row_place:
     push dx
     push si
 
-    mov si, [tm_colrows]        ; column 0's depth, and the HEAP page has its
-                                ; own: its list starts 30px higher (no map, no
-                                ; bar), so the column takes more rows before
-                                ; it has to wrap. Sharing this one wrapped
-                                ; early and left a map's height of white at
-                                ; the foot
+    mov si, [tm_pcolrows]       ; column 0's depth, and it is ONE PER PAGE:
+                                ; the three lists start at three different
+                                ; heights up the content, so the number of
+                                ; rows one column of the frame holds is three
+                                ; different numbers. The process list is the
+                                ; LOWEST (a graph and a bar above it) and the
+                                ; heap page the highest (neither), and sharing
+                                ; a depth is wrong in both directions - the
+                                ; heap page wrapped early and left a map's
+                                ; height of white at the foot, the process
+                                ; list wrapped LATE and lost every row after
+                                ; the first one [tm_ylim] refused
+%ifdef TMF_MEM
+    cmp byte [tm_view], 0
+    je .depth
+    mov si, [tm_colrows]
 %ifdef TMF_HEAP
     cmp byte [tm_view], 2
     jne .depth
     mov si, [tm_hcolrows]
+%endif
 .depth:
 %endif
 
@@ -5681,54 +5735,28 @@ tm_put4x:
 ; in:  BX = column index 0..TM_GW-1; value 0..40 from tm_hist
 ; out: nothing
 ; clobbers: nothing (flags only)
-; White vline above the value, black vline below - self-backgrounding, so
-; a column can be redrawn in place without a clear.
+;
+; A ONE-COLUMN RUN, and that is the whole of it since SPEC.md 28.10.3: the
+; white above the value and the black below are tm_grun's two rectangles at
+; x1 = x2, drawing the identical pixels the pair of vlines here drew, because
+; gfx_vline IS a one-column gfx_fill (kernel/vga12.inc). The worker's periodic
+; path is the caller that wants a single column - the newly written one and
+; the sweep gap - and it keeps it; what it no longer keeps is a second opinion
+; about where the graph's rows are.
 ; -----------------------------------------------------------------------------
 tm_col:
     push ax
-    push bx
     push cx
-    push dx
-    push si
-
-    mov al, [tm_hist+bx]
-    cbw                         ; v is 0..40
-    mov si, ax                  ; SI = v
-    mov ax, [tm_cx]
-    add ax, 7                   ; interior starts at content x=7
-    add ax, bx                  ; AX = column x
-    mov cx, [tm_cy]             ; CX = content top (scratch)
-
-    cmp si, TM_GH               ; white: rows 15..54-v (skip when v=40)
-    jae .black
-    TM_INK CWHITE
-    mov bx, cx
-    add bx, TM_GF_Y1 + 1
-    mov dx, cx
-    add dx, TM_GF_Y2 - 1
-    sub dx, si
-    call OSAPI_GFX_VLINE
-.black:
-    or si, si                   ; black: rows 55-v..54 (skip when v=0)
-    jz .done
-    TM_INK CBLACK
-    mov bx, cx
-    add bx, TM_GF_Y2
-    sub bx, si
-    mov dx, cx
-    add dx, TM_GF_Y2 - 1
-    call OSAPI_GFX_VLINE
-.done:
-    pop si
-    pop dx
+    mov al, [tm_hist+bx]        ; v is 0..TM_GH
+    mov cx, bx                  ; the run is this column and no other
+    call tm_grun
     pop cx
-    pop bx
     pop ax
     ret
 
 ; -----------------------------------------------------------------------------
 ; tm_gapcol - draw one all-white column (the sweep gap at tm_pos)
-; in:  BX = column index 0..159
+; in:  BX = column index 0..TM_GW-1
 ; out: nothing
 ; clobbers: nothing (flags only)
 ; -----------------------------------------------------------------------------
@@ -5748,6 +5776,171 @@ tm_gapcol:
     call OSAPI_GFX_VLINE
 
     pop dx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; tm_grun - one RUN of equal-height graph columns
+; in:  BX = first column, CX = last column (inclusive), AL = height 0..TM_GH
+; out: nothing
+; clobbers: nothing (flags only)
+;
+; SPEC.md 28.10.3, and the whole of the graph's geometry lives here. White
+; above the value, black below - self-backgrounding, so a run can be redrawn
+; in place without a clear.
+;
+; OSAPI_GFX_FILL and never a vline, INCLUDING for a run of one: gfx_vline is a
+; one-column gfx_fill in the kernel, so the narrow case is the same primitive
+; on the same pixels and there is no case to choose between. That is what
+; makes coalescing free rather than a trade - the worst case, every column a
+; different height, issues exactly the calls this window issued before.
+; -----------------------------------------------------------------------------
+tm_grun:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+
+    xor ah, ah
+    mov di, ax                  ; DI = v, across both calls: an X cell restores
+                                ; every register but the routine's outputs
+                                ; (SPEC.md 20.3), and gfx_fill has none
+    mov si, [tm_cx]
+    add si, 7                   ; the interior starts at content x = 7
+    add bx, si                  ; BX = the run's first screen x
+    add cx, si                  ; CX = ...and its last
+    mov si, [tm_cy]             ; SI = content top
+
+    cmp di, TM_GH               ; white: rows TM_GF_Y1+1 .. TM_GF_Y2-1-v, and
+    jae .black                  ; none of it for a full-height column
+    TM_INK CWHITE
+    push bx
+    mov ax, bx
+    mov bx, si
+    add bx, TM_GF_Y1 + 1
+    mov dx, si
+    add dx, TM_GF_Y2 - 1
+    sub dx, di
+    call OSAPI_GFX_FILL
+    pop bx
+.black:
+    or di, di                   ; black: rows TM_GF_Y2-v .. TM_GF_Y2-1, and
+    jz .done                    ; none of it for an empty one
+    TM_INK CBLACK
+    mov ax, bx
+    mov bx, si
+    add bx, TM_GF_Y2
+    sub bx, di
+    mov dx, si
+    add dx, TM_GF_Y2 - 1
+    call OSAPI_GFX_FILL
+.done:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; tm_graph - the history graph's frame, and the columns THIS PAINT OWES
+; in:  [tm_cx]/[tm_cy], [tm_hist], [tm_pos], [tm_dmg]; the gfx lock held
+; out: nothing
+; clobbers: nothing (flags only)
+;
+; SPEC.md 28.10.3. The loop this replaces walked all TM_GW columns on every
+; paint, whatever the damage said, at up to two primitive calls each - 432 of
+; them for a 216x40 box, 334 ms of a Hercules and 127 of a VGA - so uncovering
+; the RAM bar underneath redrew a graph nothing had touched.
+;
+; Two questions, in the order that makes the second one cheap: does the damage
+; cross our BAND at all, and then WHICH COLUMNS of it does it cross. The x
+; half is done in SCREEN coordinates and unsigned throughout, which is
+; tm_dmg_hit's own reason - tm_dmg_all's 0xFFFF is a maximum only as long as
+; nothing subtracts from it or reads it as -1.
+; -----------------------------------------------------------------------------
+tm_graph:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+
+    mov cx, TM_GF_Y1
+    mov dx, TM_GF_Y2
+    call tm_dmg_yhit
+    jc .done                    ; the damage never reached the graph at all
+
+    TM_INK CBLACK
+    mov ax, [tm_cx]             ; the frame (6,TM_GF_Y1)-(TM_RW,TM_GF_Y2)
+    add ax, 6
+    mov bx, [tm_cy]
+    add bx, TM_GF_Y1
+    mov cx, [tm_cx]
+    add cx, TM_RW
+    mov dx, [tm_cy]
+    add dx, TM_GF_Y2
+    call OSAPI_GFX_FRAME
+
+    mov si, [tm_cx]             ; --- the damaged span, clamped to the interior
+    add si, 7                   ; SI = the interior's first screen x
+    mov di, si
+    add di, TM_GW - 1           ; DI = ...and its last
+    mov ax, [tm_dmg+0]
+    cmp ax, si
+    jbe .lo                     ; the damage starts left of us: from column 0
+    mov si, ax
+.lo:
+    mov ax, [tm_dmg+4]
+    cmp ax, di
+    jae .hi                     ; ...and runs past our right: to the last
+    mov di, ax
+.hi:
+    cmp si, di
+    ja .done                    ; it crossed our band beside us, not over us
+    mov ax, [tm_cx]
+    add ax, 7
+    sub si, ax                  ; SI = the first column owed
+    sub di, ax                  ; DI = the last
+
+    mov bx, si
+.run:
+    cmp bx, [tm_pos]
+    jne .grow
+    call tm_gapcol              ; the sweep gap: one column, its own shape
+    inc bx
+    jmp short .next
+.grow:
+    mov al, [tm_hist+bx]        ; AL = this run's height...
+    mov cx, bx                  ; CX = ...and its last column so far
+.wider:
+    cmp cx, di
+    jae .emit                   ; the damage ends here
+    mov si, cx
+    inc si
+    cmp si, [tm_pos]
+    je .emit                    ; the sweep gap breaks a run...
+    cmp al, [tm_hist+si]
+    jne .emit                   ; ...and so does a different height
+    mov cx, si
+    jmp short .wider
+.emit:
+    call tm_grun
+    mov bx, cx
+    inc bx
+.next:
+    cmp bx, di
+    jbe .run
+.done:
+    pop di
+    pop si
+    pop dx
+    pop cx
     pop bx
     pop ax
     ret
@@ -6763,7 +6956,12 @@ tm_barw     equ tm_usedk + 2  ; RAM bar black width, 0..TM_GW
 ; once per launch, before the entry proc runs, and tm_init runs inside it.
 tm_cols     equ tm_barw + 2  ; process-list columns, 1 or 2 (SPEC.md 28.1)
 tm_colrows  equ tm_cols + 2  ; rows in COLUMN 0, which starts under the maps
-tm_col2rows equ tm_colrows + 2  ; rows in each LATER column, which starts at the
+tm_pcolrows equ tm_colrows + 2  ; ...and the PROCESS list's own column 0, which
+                                ; starts under the graph and the bar as well -
+                                ; TM_ROW_Y against TMM_ROW_Y, 30px lower, so it
+                                ; wraps EARLIER. Per page, for tm_hcolrows'
+                                ; reason and with the opposite sign
+tm_col2rows equ tm_pcolrows + 2  ; rows in each LATER column, which starts at the
                                 ; top and so holds more - A DIVISOR, never 0
 tm_maxrow   equ tm_col2rows + 2  ; rows this SCREEN shows, <= TMM_ROWS: derived
                                 ; from [vid_dock_y0] so the window never

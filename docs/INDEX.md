@@ -61,6 +61,7 @@ Read first: [§21 loader.inc](../SPEC.md#21-loaderinc); [§26 desk.inc — deskt
 |---|---|---|
 | `0x0520` | `OSAPI_PKG_RUN` | ES:SI = a package image, byte for byte what the .O88 file holds, in a claim of YOURS... |
 | `0x0528` | `OSAPI_DESK_SVC` | AL = 1 add / 0 withdraw; ES:SI = a 65-byte record in YOUR segment (add only): +0 12 the caption, NUL (<= 11 chars) +12 13 the 8.3 file the zone... |
+| `0x0530` | `OSAPI_PKG_REHOME` | DX = the segment your program part's IMAGE starts at (op_seg answers it), AX = the bytes available there... |
 
 ### Menus and the menu bar
 
@@ -100,10 +101,11 @@ Read first: [§5 vga12.inc](../SPEC.md#5-vga12inc); [§25 icons.inc — icon for
 | `0x01D8` | `OSAPI_GFX_BLIT4` | ES:SI = packed 4bpp pixels (two per byte, high nibble leftmost), BP = source stride in BYTES, AX/BX = destination x/y, CX/DX = width/height in... |
 | `0x0418` | `OSAPI_GFX_BLIT1` | ES:SI = a 1bpp BAND in the framebuffer's own bit order (row-major, bit 7 leftmost, 1 = a LIT pixel), BP = its stride in BYTES per row, AX =... |
 | `0x02B0` | `OSAPI_GFX_FILL_PAT` | AX/BX/CX/DX = the rect, SI = 8 pattern bytes in YOUR segment: row y takes byte [SI + (y & 7)], a set bit is WHITE and bit 7 is the leftmost pixel of... |
-| `0x02E0` | `OSAPI_GFX_LINE` | an arbitrary-angle line (SPEC.md 5.6): AX/BX = x1/y1, CX/DX = x2/y2, inclusive, absolute screen coords... |
-| `0x0300` | `OSAPI_GFX_LINIT` | AX/BX = x1/y1, CX/DX = x2/y2, ES:DI = a GLS_SZ block (X - it is yours). Sets the walk up at (x1,y1). Preserves all. |
-| `0x0308` | `OSAPI_GFX_LSTEP` | ES:DI = the block, CX = how many pixels to draw in [gfx_color]; the block advances by exactly that many. CX = 0 is legal and does nothing. Lock held... |
-| `0x0318` | `OSAPI_GFX_LSTEPV` | ES:DI = the array, CX = how many pairs. Identical to CX separate OSAPI_GFX_LSTEP calls in one pen. Lock held. Preserves all. |
+| `0x02E0` | `OSAPI_GFX_LINE` | RETIRED (SPEC.md 5.12.7): the cell stays because a slot number is a published constant, and it answers CF = 1... |
+| `0x0300` | `OSAPI_GFX_LINIT` | RETIRED (SPEC.md 5.12.7): the cell stays because a slot number is a published constant, and it answers CF = 1... |
+| `0x0308` | `OSAPI_GFX_LSTEP` | RETIRED (SPEC.md 5.12.7): the cell stays because a slot number is a published constant, and it answers CF = 1... |
+| `0x0318` | `OSAPI_GFX_LSTEPV` | RETIRED (SPEC.md 5.12.7): the cell stays because a slot number is a published constant, and it answers CF = 1... |
+| `0x0538` | `OSAPI_GFX_POINTS` | ES:SI = CX records of two words each, x then y (screen px); CX = how many, 0 legal and does nothing. [gfx_color] is the ink; hold the lock... |
 | `0x0310` | `OSAPI_GFX_PEN` | CF = 0 live (CBLACK, flag clear) / CF = 1 disabled (CDGRAY, flag set). Preserves every register. |
 
 ### Text and fonts
@@ -276,9 +278,11 @@ A package `%include`s these itself; they are not kernel calls. Include them at t
 | `apps/os88fp.inc` | §84 | IEEE-754 double arithmetic in software, with an 8087 path chosen at run time. Parse, format, add, subtract, multiply, divide, compare, sqrt, trunc, floor, round. |
 | `apps/os88img.inc` | §93 | Picture decoders: .PIX, .BMP and .PCX into the packed 4bpp that OSAPI_GFX_BLIT4 takes. Owns no state - the caller passes a block in SI. 8-bit files are refused by name, not approximated. |
 | `apps/os88sock.inc` | §20.11, 62.11, 72 | Finding the socket driver: `net_find` answers CF=1 when neither ETHER.DRV nor NET.DRV is loaded and sets `NET_CLASS` otherwise, so every `OSAPI_DRV_CALL` after it addresses the right class. The verbs themselves are `drivers/net/netpkg.inc`'s. |
+| `apps/os88gfx.inc` | §5.12 | The EMBEDDABLE graphics library: drawing code that lives in the PACKAGE rather than in the kernel, taken one capability at a time. `%define GFXE_BAND` composes into your own 1bpp band and commits it with one `OSAPI_GFX_BLIT1` - the pixel primitive is a bit-set, not a slot - and `%define GFXE_LINE` adds the Bresenham, which implies the band because a line needs somewhere to land. An app-side rasteriser is FASTER than the slot (24.6 us a pixel against `gfx_line`'s 31.6 with the arrival removed). |
 | `apps/os88pit.inc` | §72.15.1 | `pit_now`: a 32-bit clock in 838ns units off the 8253 and the BIOS tick, good for an hour before it wraps. Sub-tick timing for a profiler. |
 | `apps/os88type.inc` | §6.3, 6.5 | Proportional type: composes a row of glyphs from an `.F88` face into a 1bpp band in your own RAM and puts it up with one `OSAPI_GFX_BLIT1`. |
 | `apps/os88parts.inc` | §20.12 | Package parts: named, sized parts inside one `.O88` - claimed, loaded on demand, optionally into XMS, and refused with an arithmetic the package states itself. A package over 64KB is still a package. |
+| `apps/os88partsbody.inc` | §20.12.9 | The parts standard's CODE, and you do not include it: OS88_PARTS_END emits it after your table, gated on the OP_HAS_* flags the table itself derived. One plain part carries 1,018 bytes of it where every consumer used to carry 2,536. |
 
 ## Packages, and what to read them for
 
@@ -296,6 +300,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | CHART | `apps/chart/chart.asm` | §82 | yes |
 | CWORD | `apps/cword/cword.asm` | §73.12 | yes |
 | CYCLONE 88 | `apps/cyclone/cyclone.asm` | §67 | yes |
+| DOTDEL | `apps/dotdel/dotdel.asm` | §93 | yes |
 | FONT VIEWER | `apps/fontview/fontview.asm` | §90 | yes |
 | FPTEST | `apps/fptest/fptest.asm` |  | no |
 | FRACTAL | `apps/fractal/fractal.asm` | §40 | yes |
@@ -309,13 +314,14 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | MODPLUG | `apps/modplug/modplug.asm` | §56 | yes |
 | NOTEPAD | `apps/notepad/notepad.asm` | §27 | yes |
 | PACCMAN | `apps/paccman/paccman.asm` | §91 | yes |
-| PACMAN | `apps/pacman/pacman.asm` | §89 | yes |
+| PACMAN | `apps/pacman/pacman.asm` | §89 | no |
 | PAINT | `apps/paint/paint.asm` | §42 | yes |
 | PIANO | `apps/piano/piano.asm` | §36 | yes |
 | RECORDER | `apps/recorder/recorder.asm` | §35 | no |
 | RUNCPM | `apps/runcpm/runcpm.asm` | §74 | yes |
-| SCRIBE | `apps/scribe/scribe.asm` | §94 | no |
+| SCRIBE | `apps/scribe/scribe.asm` | §95 | no |
 | SHEET | `apps/sheet/sheet.asm` | §81 | yes |
+| SKIES | `apps/skies/csload.asm` | §88 | no |
 | SKIES | `apps/skies/skies.asm` | §88 | yes |
 | SOLITAIRE | `apps/solitaire/solitaire.asm` | §43 | yes |
 | TAMEGRAM | `apps/tamegram/tamegram.asm` | §49 | yes |
@@ -426,8 +432,9 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | 90 | FONT VIEWER — the system face browser (`apps/fontview/fontview.asm`) |
 | 91 | PACCMAN — pacman.c, written in C (`apps/paccman/`) |
 | 92 | THE WIRE — the online software library (`apps/thewire/thewire.asm`) |
-| 93 | Picture decoders (`apps/os88img.inc`) |
-| 94 | SCRIBE (`apps/scribe/`) — the fork of WORD |
+| 93 | DOT DELIRIUM — a maze chase, sized from the surface (`apps/dotdel/`) |
+| 94 | Picture decoders (`apps/os88img.inc`) |
+| 95 | SCRIBE (`apps/scribe/`) — the fork of WORD |
 
 ## docs/
 
@@ -435,11 +442,11 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 
 *How it works today - `docs/` (21):* `APPLE2-PORT-PLAN.md`, `APPLE2-SPEC.md`, `BIFF-NOTES.md`, `C-TOOLCHAIN.md`, `C64-SPEC.md`, `FIELD-MACHINES.md`, `FIELD-NOTES.md`, `HEAP-CLAIMS.md`, `HERCULES-TESTING.md`, `IMAGER.md`, `KERNEL-MEMORY.md`, `LIVE-MEDIA.md`, `MARTYPC-DEBUG.md`, `PACCMAN-PORT-PLAN.md`, `README.md`, `TELNET-PLAN.md`, `TESTING.md`, `UPSTREAM.md`, `WEAVE-SPEC.md`, `WIRE-PLAN.md`, `WRITING-TESTS.md`
 
-*Plans with work still open - `docs/plans/` (12):* `ARTFUL-PERF-PLAN.md`, `HANDOFF-SOAK-FINDINGS.md`, `HEAP-UNPIN-PLAN.md`, `KERN-SMALL-CUT-PLAN.md`, `KERNEL-BYTE-QUEUE.md`, `LAST-DROP-BYTES.md`, `LAST-DROP-PERF.md`, `MONO-RECLAIM-PLAN.md`, `MOUSE-BOOT-FREEZE-PLAN.md`, `O88-COMPRESSION-PLAN.md`, `SOAK-PARALLEL.md`, `UI-MENU-ELEMENT.md`
+*Plans with work still open - `docs/plans/` (16):* `ARTFUL-PERF-PLAN.md`, `HANDOFF-SOAK-FINDINGS.md`, `HANDOFF-STOP-DETECTION.md`, `HEAP-UNPIN-PLAN.md`, `KERN-SMALL-CUT-PLAN.md`, `KERN-SMALL-NOCOMPACT.md`, `KERNEL-BYTE-QUEUE.md`, `LAST-DROP-BYTES.md`, `LAST-DROP-PERF.md`, `MONO-RECLAIM-PLAN.md`, `MOUSE-BOOT-FREEZE-PLAN.md`, `O88-COMPRESSION-PLAN.md`, `PARTS-REHOME-PLAN.md`, `SKIES-FRAME-PLAN.md`, `SOAK-PARALLEL.md`, `UI-MENU-ELEMENT.md`
 
-*Design records for what shipped - `docs/plans/completed/` (65):* `ASSOC-PLAN.md`, `AUDIO-PLAN.md`, `BOOT-LADDER-PLAN.md`, `BOOT-PERF-PLAN.md`, `BROWSER-PLAN.md`, `C64-PORT-PLAN.md`, `CURSOR-PLAN.md`, `DBLCLICK-PLAN.md`, `DEBUG-PLAN.md`, `DISK-PERF-PLAN.md`, `DUAL-DISPLAY-PLAN.md`, `DUAL-DISPLAY-VGA.md`, `EGA-PLAN.md`, `FROTZ-PLAN.md`, `FSX-PLAN.md`, `FTP-PERF.md`, `GFX-FSX-PLAN.md`, `GFX-REWORK-PLAN.md`, `HANDOFF-DISK-IO.md`, `HANDOFF-FONTCHAR-SEAM.md`, `HANDOFF-KERNEL-SIZE-P2.md`, `HANDOFF-KERNEL-SIZE-P3.md`, `HANDOFF-KERNEL-SIZE-P4.md`, `HANDOFF-KERNEL-SIZE.md`, `HANDOFF-REDRAW.md`, `HANDOFF-SOUND-MEMORY.md`, `HANDOFF.md`, `HDD-PLAN.md`, `HDD-SPLIT-PLAN.md`, `HEAP-COMPACTION-PLAN.md`, `KERN-SMALL-CUT-BUILT.md`, `KERN-SMALL-MODULE-SPLIT.md`, `LINE-PERF-PLAN.md`, `MEMORY-PLAN.md`, `MOUSEUP-PLAN.md`, `NET-PLAN.md`, `NET-STACK-PLAN.md`, `NOTEPAD-NOTES.md`, `O88-MULTISEG-PLAN.md`, `ONDEMAND-PLAN.md`, `PAINT-1BPP-PLAN.md`, `PAINT-NOTES.md`, `PAINT-STROKE-PLAN.md`, `PROXY-PLAN.md`, `RUNCPM-PORT-PLAN.md`, `SAVEUNDER-LIVE-PLAN.md`, `SCHED-IDLE-PLAN.md`, `SDK-INCLUDE-SIZE.md`, `SETTINGS-COST.md`, `SNAP-PLAN.md`, `SNAPSHOT-PLAN.md`, `STACK-SLOTS-PLAN.md`, `STKBALANCE-KERNEL.md`, `TEXT-PLAN.md`, `TITLE-PLAN.md`, `TOAST-PLAN.md`, `UI-FREEZE-PLAN.md`, `UIHELPERS-PLAN.md`, `VMMOUSE-PLAN.md`, `WEAVE-PLAN.md`, `WINDOW-ANIM-PLAN.md`, `WINDOW-SIZING-PLAN.md`, `WMEVENT-PLAN.md`, `WORD-PLAN.md`, `XMEM-DRIVER-PLAN.md`
+*Design records for what shipped - `docs/plans/completed/` (69):* `ASSOC-PLAN.md`, `AUDIO-PLAN.md`, `BOOT-LADDER-PLAN.md`, `BOOT-PERF-PLAN.md`, `BROWSER-PLAN.md`, `C64-PORT-PLAN.md`, `CTRL-GLYPH-PLAN.md`, `CURSOR-PLAN.md`, `DBLCLICK-PLAN.md`, `DEBUG-PLAN.md`, `DISK-PERF-PLAN.md`, `DUAL-DISPLAY-PLAN.md`, `DUAL-DISPLAY-VGA.md`, `EGA-PLAN.md`, `FROTZ-PLAN.md`, `FSX-PLAN.md`, `FTP-PERF.md`, `GFX-EMBEDDABLE-PLAN.md`, `GFX-FSX-PLAN.md`, `GFX-REWORK-PLAN.md`, `HANDOFF-DISK-IO.md`, `HANDOFF-DOTDEL-TEXT.md`, `HANDOFF-FONTCHAR-SEAM.md`, `HANDOFF-KERNEL-SIZE-P2.md`, `HANDOFF-KERNEL-SIZE-P3.md`, `HANDOFF-KERNEL-SIZE-P4.md`, `HANDOFF-KERNEL-SIZE.md`, `HANDOFF-PAINT-BLANK-LOAD.md`, `HANDOFF-REDRAW.md`, `HANDOFF-SOUND-MEMORY.md`, `HANDOFF.md`, `HDD-PLAN.md`, `HDD-SPLIT-PLAN.md`, `HEAP-COMPACTION-PLAN.md`, `KERN-SMALL-CUT-BUILT.md`, `KERN-SMALL-MODULE-SPLIT.md`, `LINE-PERF-PLAN.md`, `MEMORY-PLAN.md`, `MOUSEUP-PLAN.md`, `NET-PLAN.md`, `NET-STACK-PLAN.md`, `NOTEPAD-NOTES.md`, `O88-MULTISEG-PLAN.md`, `ONDEMAND-PLAN.md`, `PAINT-1BPP-PLAN.md`, `PAINT-NOTES.md`, `PAINT-STROKE-PLAN.md`, `PROXY-PLAN.md`, `RUNCPM-PORT-PLAN.md`, `SAVEUNDER-LIVE-PLAN.md`, `SCHED-IDLE-PLAN.md`, `SDK-INCLUDE-SIZE.md`, `SETTINGS-COST.md`, `SNAP-PLAN.md`, `SNAPSHOT-PLAN.md`, `STACK-SLOTS-PLAN.md`, `STKBALANCE-KERNEL.md`, `TEXT-PLAN.md`, `TITLE-PLAN.md`, `TOAST-PLAN.md`, `UI-FREEZE-PLAN.md`, `UIHELPERS-PLAN.md`, `VMMOUSE-PLAN.md`, `WEAVE-PLAN.md`, `WINDOW-ANIM-PLAN.md`, `WINDOW-SIZING-PLAN.md`, `WMEVENT-PLAN.md`, `WORD-PLAN.md`, `XMEM-DRIVER-PLAN.md`
 
 *Superseded and closed - `docs/history/` (9):* `DUAL-DISPLAY-BUG2.md`, `HANDOFF-TESTS-A-STRADDLE.md`, `HANDOFF-TESTS-B-LAUNCH.md`, `HANDOFF-TESTS-C-FRESH.md`, `HANDOFF-TESTS.md`, `KERN-SPLIT-PLAN.md`, `SOUND-PLAN.md`, `TRACKER-PLAN.md`, `WM-ARTIFACTS.md`
 
-*Measurements, each true of the tree it was taken on - `docs/reports/` (2):* `KERNEL-BYTES-SINCE-SQUASH-2026-09-07.md`, `TIER-TIMINGS-2026-09-07.md`
+*Measurements, each true of the tree it was taken on - `docs/reports/` (7):* `CYCLONE-STACK-2026-09-10.md`, `DOTDEL-FRAME-PROFILE-2026-09-09.md`, `GLYPH-AND-LINE-COST-2026-09-10.md`, `KERNEL-BYTES-SINCE-SQUASH-2026-09-07.md`, `SKIES-FRAME-DELTA-2026-09-10.md`, `STKDIAG-PC5150-2026-09-10.md`, `TIER-TIMINGS-2026-09-07.md`
 

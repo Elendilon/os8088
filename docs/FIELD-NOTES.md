@@ -41,8 +41,10 @@ long-lived claims had been left in the middle of the heap:
 What stands from it: §50.3's rule that a long-lived data claim mid-heap splits
 the heap, which is why `OSAPI_MEM_AVAIL` reports the largest run and why
 Tracker sizes its request from that figure. §66's compactor came later and
-moves only data claims whose holders opted in — a region's base is its CS and
-never moves — which is exactly the class the two offenders here were in.
+moves only claims whose holders opted in, which is exactly the class the two
+offenders here were in. (This used to add *"a region's base is its CS and never
+moves"*; §66.6.1 refuted it — a region moves when it is frameless, and
+`mem_region_reloc` is the kernel's half of it.)
 
 ---
 
@@ -900,3 +902,639 @@ QEMU so no failure path runs there, and QEMU does not model the translate bit
 either — measured, by clearing it on purpose and watching `ps2mouse` stay
 green. Confirmed fixed on both machines: the 286 types correctly and the
 Packard Bell's mouse is untouched.
+
+---
+
+## 40. A line of the PREVIOUS horizon survives in the view (CLOSED — SPEC.md §88.3.1.1.3)
+
+**Reported from play, and the report was a diagnosis**: banking one way left
+*"a blank line in the ground"*, banking the other *"a filled line in the sky"*,
+both **carried from where the horizon was on the previous frame**, both
+sporadic, and both **sticking around until some object drew where they were**.
+Two photographs, four seconds apart at the same flight state, put it at **view
+row ~56 — the CENTRE row of a 112-row view** — as a horizontal run of 8 to 13
+bytes; in one it is sky-black stranded in the ground and in the other a dashed
+run of ground dither floating in empty sky, detached from the terrain.
+
+**It is the narrow span of §88.3.1.1 meeting a SIDE SWAP.** A band row is given
+the crossing's byte and one either side, on the argument that the rest of the
+row is what it was; when the roll changes SIGN the two sides exchange, the fill
+lays the row's whole width mirrored about a crossing that has barely moved, and
+the argument fails everywhere the span does not reach. Every other row is
+repaired by `cs_hzrows`' kind arm as the band sweeps past it — the band always
+contains the view's centre and at roll 0 it is that row alone, so the centre
+row is the one row in the band on both sides of the crossing. That is why it is
+exactly one line, and why the field's *"until something draws over it"* is the
+same fact from the other end: nothing repairs a band row's outer bytes but a
+mark. §88.3.1.1.3 keeps last frame's side pair in one word and forces
+`cs_fullspan` for the band when it changes — 18 bytes of `.text`, 2 of `.bss`,
+one compare a frame.
+
+**`tests/skiesstale.py` is the gate and it needed no model**: after `cs_blit`
+returns the card must equal the shadow over the whole view, which is the
+blit's one job. `--clobber` restores the old behaviour and reads the artefact
+being **born at roll +0.0** — the frame the wings pass level — and surviving
+every frame after.
+
+**One thing worth keeping from the hunt.** A first instrument reported "1 to 3
+bytes a frame that differ and are not carried" by reconstructing `cs_blit`'s
+union rule host-side. That looked like confirmation and was **the model
+disagreeing with the machine at the edges**; the real bug is 3 bytes wide in
+the same place, which is exactly how a wrong instrument survives scrutiny.
+Assert against the thing itself — the card against the shadow — not against a
+second implementation of the code under test.
+
+## 41. Ink from a road survives on the GROUND after a bank (CLOSED — SPEC.md §88.3.2.3.4)
+
+*"Stale pixels originate from roads or lines drawn on the ground, below the
+horizon. A few pixels from the line stick around, pretty often, until the
+line recrosses them. Happens after banking only. Again only on the right
+side of the screen."*
+
+**FIXED.** `tests/skiesink.py` is the instrument, and it reads **8 of 60
+frames leaking on the build before and 0 of 60 on the build after**, over
+`rollsweep`, `bank` and `slightbank`. It costs no per-row instruction at all
+— the row body it lands in is two bytes SHORTER than the one it replaces —
+and `tests/skiesspan.py` is the gate that came out of getting it wrong once
+in between.
+
+### What it is
+
+**The erase IS the span.** For a row whose KIND is unchanged from last frame,
+`cs_hzrows`'s `.r` arm refills exactly the bytes LAST frame's span covers —
+*"what last frame drew on the row IS the erase"* (SPEC.md 88.3.1). So ink laid
+outside its row's recorded span is never erased, and it sits there until
+something marks that byte again. That is the report, exactly.
+
+The under-mark is **SPEC.md 88.3.2.3's stepped mark**, and it is one clamp:
+
+    mov cl, [cs_wb0]        ; the ENDS are pulled CS_MKD_SLOP inside the view
+    add cx, CS_MKD_SLOP     ; so the byte arithmetic below cannot wrap
+
+Pulling an end **moves the interpolated line**, by up to the clamp itself,
+all the way along it — and the `±CS_MKD_SLOP` widening was sized for the
+divide's truncation, not for the clamp's own displacement. A segment whose
+end sits at the view's edge, which a bank puts there constantly, marks up to
+**3 bytes short of its own ink**, always on the side that got clamped.
+
+Modelled host-side over 40,000 segments against the true Bresenham range:
+**3,558 rows leak, worst 3 bytes.** Example — segment (516,99)→(167,108),
+row 101: ink in bytes 52..57, mark `[44,54]`.
+
+### The evidence
+
+`tests/skiesink.py` checks a **single-frame** invariant and so needs no A/B
+and can run in FLIGHT: on a whole-ground row (`cs_rowkind` = 1), every byte
+differing from the row's ground pattern must lie inside `cs_spcur`'s pair.
+
+| profile | roll | result |
+|---|---|---|
+| `rollsweep` (2 deg a frame) | moving | **11 of 60 frames, 62 bytes, ALL right of span** |
+| `bank` (decaying) | moving | **10 of 60 frames, 61 bytes, ALL right of span** |
+| `slightbank` | held | clean |
+| `turnhold` | held | clean |
+| `rollsweep`, `cs_mknostep=1` | moving | **clean** |
+
+The roll must be CHANGING, never a byte to the left, and the box mark is
+clean — which is the diagnosis three ways.
+
+### Three detectors that could NOT see it, and why
+
+1. **`tests/skiesstale.py`** compares the CARD with the SHADOW. Here the
+   shadow itself keeps the ink and the card faithfully matches it.
+2. **Incremental shadow against a forced full repaint** measures
+   `cs_rowkind`'s own refill rule, not the marking — it reports the FULL arm
+   having MORE ink, the opposite sign to the bug.
+3. **Consecutive frames** are not the same scene by right: 88.5.2's cull
+   carries SKIP COUNTERS across them, so an object can be absent from one
+   frame and present in the next with nothing wrong.
+
+### The fix: the clamp is DELETED, and a second bug was under it
+
+**Widening alone can never work**, which is the arithmetic worth keeping: the
+widening must exceed the clamp to cover the displacement AND the divide's
+truncation (`W > C`), while keeping the stored low byte at or above `wb0`
+needs `C >= W`. Both cannot hold, so every value of the pair is either short
+of the ink or below the view.
+
+**`cs_seg` CLIPS to the view before it marks**, so both ends are already
+inside it: the clamp was a no-op on geometry and a bug on placement. It is
+DELETED, `CS_MKD_SLOP` goes 3 → 4, and the setup gets six instructions
+SMALLER. Modelled over 40,000 segments against the true Bresenham range,
+unclamped needs W = 4 for **zero** leaks (W = 3 leaves 64, worst 1 byte).
+
+**And the 20x regression the first attempt hit was a real latent bug**, not a
+consequence of the widening. `cs_hzrows` computes the refill's start as `sub
+cx, [cs_wb0]` after `xor ch, ch`, and a span starting left of the view BORROWS
+— leaving `CH` = 0xFF. The byte count below it is `mov cl, dh / sub cl, dl /
+inc cx`, which never touches CH, so the `rep` ran ~65,000 bytes instead of
+twenty: **`cs_skyground` 25.13 ms → 490.52**, and a write far past the row. One
+`xor ch, ch` in the right place fixes it — DI moving backwards is correct, the
+refill may legitimately start in the row's left margin. **It was unreachable
+before**, because the old clamp guaranteed the low byte never fell below
+`wb0`; deleting the clamp is what exposed it.
+
+### …and a clamp of the STORED interval was needed after all
+
+The first build of the fix carried a reading that was wrong twice over —
+*"a pair reaching `wb0−4` and `wb0+wbn+3` is inside the row on every backend
+and lands in a margin that is never blitted."* It is inside the row only
+while the view HAS a margin, and `cs_wx0` is `((vw − ww) / 2) & 0xF0`, so at
+`CSZ_FULL` — the DEFAULT on CGA and Mode X — the view is the whole box and
+there is none. And the margin is not un-blitted: `cs_blit` copies whatever
+byte range the span names.
+
+`tests/skiesspan.py` is the row that says so, and it is one line of
+invariant: a stored pair must name a byte of the view. On the build with the
+clamp merely deleted it reads **17 frames of 30 storing a pair outside it**,
+and on `slightbank` — 33 m up, so most of the view is ground — **1,428 bytes
+of ground pattern laid into the box border**. `cs_mknostep=1` is clean, so it
+is the stepped mark's widening and nothing else. It runs at `CSZ_FULL`, where
+the view is the whole 80-byte row and there is no border to absorb an escape:
+with the clamp taken back out it stores a span reaching byte **83**, which is
+three bytes of the NEXT ROW.
+
+**The two clamps are different quantities.** Clamping an ENDPOINT moves the
+interpolated line, which is this entry's defect; clamping the widened OUTPUT
+moves nothing, because `cs_seg` clips the ink to the view before it is
+marked, so a span has nothing to cover out there. SPEC.md §88.3.2.3.6 is the
+second one: it rides inside the widening as a pair of 256-entry tables built
+once a bracket, which makes the row body **two bytes shorter** than the
+`sub`/`add` it replaces — and on an 8088 that loop is fetch-bound, so the
+correctness fix took it from 130 clocks a row to 121.
+
+### What the first attempt got wrong
+
+Widening alone is **REFUSED, measured**: at clamp 3 the model needs a
+widening of 6 to reach zero leaks (4 leaves 273 rows, 5 leaves 13). Built,
+it sends a row's low byte to `wb0 − 3`, and `cs_hzrows` computes the refill's
+start as `dl − wb0` **unsigned** — so the fill runs backwards off the view
+and `cs_skyground` goes **25.13 ms → 490.52 ms**, a 20x regression far worse
+than the defect. Reverted; `skies.bin` is byte-identical (`12c7b9ec`).
+
+The instrument needed one correction of its own: it took a row's ground byte
+as the row's MODE, which is the ground only while ink is a minority — a solid
+polygon covering more than half a row made the mode the INK, and every ground
+byte then read as a leak (54 of them on one row of `rollsweep`). The ground
+byte comes from the bytes OUTSIDE the span now, which were not written this
+frame by construction, and a row with fewer than eight of them is not judged.
+
+## 42. Cyclone overflows its task stack (FIXED — its class was 192 and it is a 256 program: SPEC.md 8.7.5)
+
+Reported as *"Cyclone is overflowing its stack… performant, near as I can
+tell, until it overflows."* Paint, Missile Command and Tank were exercised
+alongside it and none of them does it.
+
+**The mechanism is already known and already written down, in
+`apps/cyclone/cyclone.asm`'s `cy_kbdrain` header.** A held key refills the
+BIOS's 16-entry buffer at ~10/s; the UI task takes exactly ONE key per pass
+(`kernel/ui.inc`); two keys held is ~20/s against a pass rate this game's own
+lock holds put near 18. A full buffer makes the BIOS **beep**, and the beep is
+`call F000:E8C0` — two `loop $` delays run with **interrupts enabled** — so
+every IRQ1 arriving inside it nests another `int 09h` and another beep on
+whichever task stack is current. Measured on a cycle-accurate 5150 when it was
+first chased: the buffer went 0 → 9 → 15 pending inside one second of held
+arrow-plus-fire, and the machine halted in `sch_stkdie` with **seven nested
+copies of the same 26-byte beep frame** — 182 bytes. `cy_kbdrain` is the fix
+and it takes every repeat of the three keys every time it looks, because
+§`cy_kbdrain` establishes there is no safe threshold.
+
+**…and the owner reports NO BEEPS — "just sudden death" — while holding exactly
+the pair this game asks for (one arrow and space).** That is the datum that
+matters most in this entry, because **it eliminates the mechanism above rather
+than confirming it**: the beep is what a FULL buffer produces, so silence means
+`cy_kbdrain` is doing its job and the buffer never fills. The nesting cannot be
+happening, and 42.2's first question is answered before it is asked.
+
+**So something else is running away, and there is no evidence yet for what.**
+What is left in the frame: a real recursion or an unbounded loop reached only in
+play; an ISR path that is not the keyboard's; or simply that 1.28× is not enough
+margin for the ordinary deepest chain plus a normal interrupt on a bad tick —
+which the numbers below make a live possibility rather than a fallback.
+
+**PARKED at the owner's direction** ("one thing at a time"), with the three ways
+out named as the owner named them: lower Cyclone's stack usage, move it to the
+256 class, or catch whatever is running away.
+
+### 42.1 …but this branch made the margin 32% thinner, and that is measured
+
+`docs/plans/completed/GFX-EMBEDDABLE-PLAN.md`'s wave 5 (`94dd890`) moved
+Cyclone's resumable walk into `apps/os88gfx.inc`. `cy_dsc_run` used to push two
+registers and far-call `OSAPI_GFX_LSTEPV`; it now pushes five and calls
+`gfxe_wstepv` → `gfxe_wstep` → `gfxe_padd` → `gfxe_pput` → `OSAPI_GFX_POINTS`,
+four app-side frames where there was one far call.
+
+`tools/stkdepth.py` on the package either side of that commit:
+
+| | before | after | |
+|---|---:|---:|---|
+| `cy_worker` (the slice this runs on) | **66** | **86** | +20 |
+| `cy_onkey` / `cy_onclick` (deepest roots) | 76 | 96 | +20 |
+| `cy_fsx_main` | 70 | 88 | +18 |
+
+`tests/unit/t_stkclass.py` reads the consequence in one line — **`thinnest
+cyclone 1.28x (86 + 64 in 192)`**. Before the conversion the same slice was
+`66 + 64 in 192`, which is **1.48×**. So Cyclone went from comfortable to the
+thinnest margin in the tree, level with Frotz's 1.26× (docs/plans/completed/STACK-SLOTS-PLAN.md
+§12), and it did so on this branch.
+
+**Twenty bytes is not 182**, so the beep chain remains the mechanism that can
+actually exhaust a slice. But 20 of a 62-byte margin is a third of it, and a
+nesting failure is exactly the shape that turns "nearly enough headroom" into a
+halt — so this is a contributing cause and must not be written off as
+coincidence because the other number is bigger.
+
+### 42.2.0 THE PANEL DECODED, and it says the SP is HEALTHY
+
+Two reproductions photographed (2026-09-09 and 2026-09-10, Hercules 720x348)
+both read **`STACK OVERFLOW  TASK 04  SP 1788  CYCLONE 88`** — the same slot and
+the same SP to the digit, on builds a day and several kernel changes apart.
+
+`sch_diepanel` prints `sch_dphex4`, so **SP is HEX: 0x1788 = 6024**, and it is
+the PARKED SP out of the task record, not the live one. Against the slice
+table, on `kern_big`:
+
+| | |
+|---|---:|
+| `sch_stacks` | 5,590 |
+| slots 1–3, 128 each | 5,590 – 5,974 |
+| **slot 4, 192 — Cyclone's** | **5,974 – 6,166** |
+| its canary, a word at the BASE | **5,974** |
+| **the parked SP** | **6,024** |
+
+**So the parked SP is 50 bytes ABOVE the base, comfortably inside the slice**,
+with 142 of 192 used. Nothing about SP is wrong. What died is the canary word
+at 5,974, and `sch_switch` tests that and not SP —
+`cmp word [ss:bx], SCH_MAGIC` / `jne sch_stkdie`.
+
+**That changes the shape of the bug.** It is not a runaway and not a slice that
+is simply too small for its resting depth: it is a **transient excursion below
+the base that had already unwound** by the time the switch looked. The SP in
+the panel can never show it, and the same SP twice says the excursion happens
+at a repeatable point rather than at random.
+
+**And it is why the symptom keeps changing.** Below 5,974 is slot 3's slice.
+What the excursion destroys is whatever lives there, which differs per build
+and per session — so one build panics on a clean screen, the next panics on a
+corrupted one, and the third does not panic at all but **reboots with a full
+BIOS memory count**. That last one is not a third bug: an 8086 has no fault to
+triple, so "hard reboot" means execution reached `F000:FFF0`, which is what a
+`ret` into a corrupted return address eventually does.
+
+### 42.2.1 What was ruled OUT here, and the term that is still missing
+
+Measured on MartyPC (`os8088_5150_herc_gla`), Cyclone launched and **played
+with the arrow key and the spacebar HELD** — the control docs/FIELD-NOTES.md 40
+is about, `key(down=True, up=False)` so the BIOS repeats them:
+
+| | |
+|---|---:|
+| slot 4 high water, 21 s of held keys | **114 of 192** |
+| …and it is FLAT: it reaches 114 and stays | |
+| slot 1 (the idle task) | 54 of 128 |
+| slots 2, 3 and 5–13 | never spawned |
+
+So **78 bytes were still free and nothing here can spend them.** The static
+chain agrees: `tools/stkdepth.py --from cy_worker` is 86 bytes to the
+`OSAPI_GFX_POINTS` far call, and the kernel below that call measures **26**
+(`gfx_points`' cost to its caller, SPEC.md 5.6.9.3) — 112, which is the 114
+observed.
+
+Ruled out with it: **no indirect dispatch** for `stkdepth` to miss (Cyclone's
+tables at `cy_sh_*`, `cy_pn_*` and the window template are data and callbacks,
+not a state machine's jump table), and **`Z` and `J` in the status line are
+inventory** — a held zapper and a held jump — not states with code behind them.
+
+**The missing term is worth ~80 bytes and this box cannot produce it.** The
+candidates, in the order they are worth spending a field run on:
+
+1. **The interrupt floor on the machine that reproduces.** MartyPC's is ~32;
+   docs/plans/completed/STACK-SLOTS-PLAN.md §9 measured **118 on a real 5150,
+   100 with `MOUPRIV`**. `make stkdiag` answers it on ANY machine — boot it,
+   touch nothing for 30 seconds, photograph the panel — and that one number
+   either closes this or eliminates the whole line.
+2. **A stack UNDERFLOW in slot 3's task**, which would write AT 5,974 rather
+   than below it: slot 3's slice TOP *is* slot 4's canary address, so one `pop`
+   too many next door kills this canary and leaves Cyclone's SP innocent —
+   which is exactly the evidence. Slot 3 is unspawned on this box, so nothing
+   here can test it.
+3. Only then the ones docs/FIELD-NOTES.md 42.2 already lists.
+
+### 42.2.2 The reproducing machine is now IN THE TREE, and it is not the one this was reasoned against
+
+`vm/pc5150` (`make pc5150`, docs/FIELD-MACHINES.md) is the reporter's own
+86Box config, and reading it moves both candidates above from *"spend a field
+run"* to *"of course"*. It is an **IBM PC 5150** on the 10/27/82 ROM with, all
+at once: a **Sound Blaster 2.0**, an **NE1000**, an **AST SixPakPlus** whose
+MM58167 makes it a §37.90 **rung-2** machine, and an **ST-225 on an ST11M with
+an option ROM at IRQ 5**. The container's MartyPC has **none** of the four and
+boots an XT ROM.
+
+That matters twice over, and in the two places the reasoning was weakest:
+
+- **Candidate 1 is no longer a guess about a floor.** Four devices the model
+  does not have is four chances for an ISR the floor was never measured with.
+  The ST11M's ROM in particular puts a live IRQ 5 on a machine whose stkdiag
+  reading — on the *iron* 5150, which has the same controller — was taken with
+  the drive idle.
+- **Candidate 2 stops needing slot 3 to be hypothetical.** SOUND.DRV and
+  ETHER.DRV are both refused by default (§51.3), but this machine's A: floppy
+  is **writable**, so a Control Panel tick from any earlier session persists in
+  `SYSTEM.CFG` and the next boot mounts the driver — and a mounted driver is
+  exactly the thing that puts a task in a slot the container never spawns.
+  **So the first question to ask the reporter is what `SYSTEM.CFG` on their
+  boot floppy says**, and it is cheaper than any run.
+
+Neither is confirmed. What is confirmed is that the box this was diagnosed on
+differs from the box that reproduces by four devices.
+
+### 42.2.3 Candidate 1 is MEASURED, and it is a quarter of the term
+
+**`make stkdiag` has been run on the reporting machine**
+(`docs/reports/STKDIAG-PC5150-2026-09-10.md`, arm 1, Hercules 720). The floor
+is **52 against the container MartyPC's 32** — and the BIOS is controlled, the
+reporter having supplied the genuine `27 OCT 82` ROM so that MartyPC ran the
+same 8,192 bytes: `ROM int08` reads **17 on both** and the floor did not move
+with it.
+
+**So the machine costs a slice twenty more bytes than the box this was
+diagnosed on, and twenty is not eighty.** `cy_worker` read **114 of 192** on
+MartyPC with both keys held, flat; +20 is ~134 and leaves 58 free. Even
+against the **iron** 5150's 64 — the deepest floor any machine here has
+recorded — it is ~146 and 46 free.
+
+**Candidate 1 is therefore closed as the explanation and kept as a term.**
+Which is what the run was for: it was the cheapest of the three and it was
+going to either close this or eliminate the line, and it eliminated it.
+
+Two things the same panel rules out on its own rows, both on a third machine
+now: **the mouse** (`+mouse` is +2 here, +0 on MartyPC — SPEC.md 9.10 working,
+and the ISR's own stack reads the 30 STACK-SLOTS-PLAN §9.9.1 predicts for a
+1bpp adapter) and **the keyboard** (`+keys` +0, which is §9.4's finding again).
+
+### 42.2.4 What is left, and it is the sound card
+
+The reporter runs **fresh OS disks every time**, so no `SYSTEM.CFG` survives a
+session and **no driver is ever ticked** — the hard disk is present and never
+mounted, the NIC never brought up. The one exception is `SOUND.DRV`, which
+**auto-mounts** because the Sound Blaster 2.0 is real on that machine and the
+boot probe finds it.
+
+That is the term nothing has measured, and the reason is structural rather
+than an oversight: **`stkdiag` never plays a note.** The 52 above is the sound
+driver *resident and idle*. Cyclone plays sound continuously. A driver frame
+landing on `cy_worker`'s slice mid-walk is something that
+
+- the panel cannot see, because the panel is silent;
+- the container cannot produce, because **no machine in
+  `os8088_machines.toml` pairs Hercules with a Sound Blaster** — all seven SB
+  machines are CGA or VGA; and
+- no arithmetic off these numbers can bound, because it is a nesting depth and
+  not a constant.
+
+It also fits the varying symptom better than the floor does: a sound IRQ is
+**asynchronous to the walk**, so whether it lands inside the deepest chain is
+a race — which is a clean account of why the same build panics cleanly one
+time, corrupts the screen another, and reaches `F000:FFF0` a third.
+
+**The next run is therefore a Hercules + Sound Blaster machine**, which has to
+be written before it can be booted (four lines of TOML, plus its GLaBIOS twin
+— `tools/martypc/configs/os8088_machines.toml`'s own rule), and then the
+repro re-taken with Cyclone actually making noise.
+
+**That run has been taken and 42.2.5 is it.** Two things in the paragraphs
+above are wrong and are corrected there rather than here, because how they
+were wrong is the useful part: this was written as an **IRQ 7** completion,
+and it is IRQ **0**; and the *"114 of 192"* every one of these sections
+reasons against is **the title screen**.
+
+**A note on this branch's own contribution.** ~~SPEC.md 5.6.9.3's first
+version made `gfx_points` cost its caller **34 bytes where the routine it
+replaced cost 26** — a `push ds` and a wrapper. On a margin this thin that is
+material, and the reboot symptom appeared on that build.~~ **MEASURED WRONG —
+42.2.5's sweep reads `189c8c7` and HEAD at 164 alike**, so those 8 bytes never
+reach the maximum and `gfx_points` is not the bottom of this chain. Struck
+through rather than deleted because it is the obvious inference and the next
+reader will draw it too. What is left standing is the branch's *other*
+contribution, wave 5's +20 to `cy_worker` (42.1) — and the same sweep makes
+that one **bigger** than it looked, since the inlining has since given 18
+back.
+
+### 42.2.5 REPRODUCED — and it needs the card
+
+**`os8088_5150_herc_sb` now exists** (the first MartyPC machine here pairing a
+1bpp adapter with a sound card) and the reporter's own procedure reproduces on
+it. Full account and provenance:
+`docs/reports/CYCLONE-STACK-2026-09-10.md`.
+
+| MartyPC, IBM `27 OCT 82`, Hercules 720 | slot 4 (`cy_worker`, 192) | outcome |
+|---|---|---|
+| **no card** | **164 / 192** — three runs, identical to the byte | **survived 3/3** |
+| **SB 2.0** | 184, 188 sampled before the panel | **PANIC 3/3** at 12 s, 10 s, 23 s |
+
+`STACK OVERFLOW  TASK 04  SP 172C`.
+
+#### Two harness faults had to be fixed first, and one invalidates this document's own arithmetic
+
+**The repro was never in the game.** Cyclone's title screen says
+`PRESS ENTER TO START`; the script pressed Space and sat on the title for the
+whole of every run. **So "114 of 192, flat" in 42.2.1 is the TITLE SCREEN**,
+and every piece of arithmetic in 42.2.1 and 42.2.3 built on it — *"+20 leaves
+58 free"*, *"+32 leaves 46 free"* — was subtracting from the wrong number.
+In play and with no card it is **164**, and the machine is **28 bytes** under
+the canary before anything else happens. That is why this document kept
+hunting for eighty bytes it did not need.
+
+The reporter's procedure named the step (*"Enter game"*) and the script
+skipped it. **A repro that does not perform every line of the report is not
+the repro**, and it fails silently by producing plausible numbers.
+
+**And the machine did not exist.** Seven MartyPC machines carry a Sound
+Blaster and every one is CGA or VGA.
+
+#### The mechanism, from the driver's source
+
+An SB 2.0 carries an OPL2, so `drivers/sound/sound.asm`'s attach publishes
+**both** halves — `DSV_TONE = opl_tone` and `DSV_TICK = sbl_tick` — and both
+are entered **from inside IRQ 0 at IF = 0, on whichever slice the tick
+interrupted**:
+
+- **`DSV_TICK`** is called from `snd_tick` **every tick, playing or not**
+  (`drivers/os88drv.inc` says so at its definition), so it is a constant
+  addition to every slice. It is what the idle floor sees: 32 without a card
+  and 52 with one.
+- **`DSV_TONE`** turns `snd_tone_out`'s *near tail jump* to `spk_tone` into
+  `drv_svc_call`, **a far call into the driver**, on a path its own comment
+  says is *"reached from `snd_tick`'s expiry path, so this can run INSIDE IRQ0
+  at IF=0."* Cyclone fires a tone every few frames.
+
+**So it is IRQ 0 and not IRQ 7.** Cyclone plays no stream and the card's own
+interrupt is not on this path at all; what changes is that two service
+pointers which are null on a cardless machine are not null here.
+
+The second one is **asynchronous to the walk**, which is the account of the
+varying symptom this document has wanted since it opened: identical starts
+panic at 12 s, 10 s and 23 s, and a clean panel, a corrupted screen and a hard
+reboot are **three landing sites rather than three bugs**.
+
+#### The two SPs are one event at two moments
+
+Slot 4 runs **5,974 … 6,166**. The field panel's `0x1788` = 6,024 is **50
+bytes above** the base and this repro's `0x172C` = 5,932 is **42 below** it —
+`sch_diepanel` prints the *parked* SP, so whether it reads healthy is a matter
+of when `sch_switch` looked. 42.2.0 decoded a healthy SP off a machine that
+had just died, and that is why.
+
+#### Both service calls are terms, and neither alone is enough
+
+`snd_rt_card` tests `cmp byte [snd_route], SND_RT_SPK`, so writing **1** to
+`snd_route` sends tones back to `spk_tone` while `snd_tick` keeps calling
+`DSV_TICK` every tick. One byte at run time, no build:
+
+| HEAD, Hercules 720 | slot 4 of 192 | free | outcome |
+|---|---|---|---|
+| no card at all | **164** ×3 | 28 | survived 3/3 |
+| SB 2.0, `snd_route = SPK` — `DSV_TICK` only | **180** ×2, identical | 12 | survived 2/2 |
+| SB 2.0, both | 184, 188 | — | **PANIC 3/3** |
+
+**`DSV_TICK` costs 16 bytes of every slice, always** — 28 of margin becomes
+12 — and **`DSV_TONE` costs more than the 12 that are left**, arriving
+asynchronously. `snd_route = SPK` is reachable from Control Panel → Sound and
+is a **diagnosis, not a fix**: 12 bytes is thinner than any declared class
+margin in the tree, and it takes the FM tier from everything else.
+
+#### The history sweep: the inlining took 18 bytes OFF, and the 34-byte build is invisible
+
+`cy_worker`'s peak on the **no-card** machine — a deterministic number where
+the SB machine is a coin toss. One worktree per point, each given the same
+period ROM so the BIOS is held fixed.
+
+| point | commit | slot 4 of 192 | free |
+|---|---|---|---|
+| wave 5 — the walk moves into the apps | `94dd890` | **182** | 10 |
+| the commit before the `gfx_points` inlining | `0d43c61` | **182** | 10 |
+| the inlining, 34-byte caller cost | `189c8c7` | **164** | 28 |
+| HEAD, caller cost back to 26 | `e6f6fc0` | **164** ×3 | 28 |
+
+Between `0d43c61` and HEAD **the only code change in the whole tree is
+`kernel/vga12.inc`**, so the attribution is clean: the `gfx_points` inlining
+took **18 bytes off Cyclone's deepest chain**, by removing the nested
+`gfx_ls_addr` / `gfx_rowbase` / `gfx_ls_box` frames *below* it.
+
+**And that corrects this document about its own branch.** 42.2.1 ends with a
+worry that SPEC.md 5.6.9.3's first build cost its caller 34 bytes where the
+old routine cost 26, *"and the reboot symptom appeared on that build"*.
+Measured, `189c8c7` and HEAD are **both 164**: those 8 bytes never reach the
+maximum, because **`gfx_points` is not the bottom of Cyclone's deepest
+chain**. A frame added at its entry is not on the critical path. The worry was
+reasonable and it was wrong.
+
+What the sweep does confirm is the reporter's observation that pre-inlining
+builds *"seemed to do it more often"* — **10 bytes of margin against 28**, and
+a card asks for 16 before a tone is played.
+
+#### THE FIX: the class was 192 and Cyclone is a 256 program
+
+**Declared `OS88_STACK_256`** (SPEC.md 8.7.5). Measured on the machine that
+reproduces — SB 2.0, Hercules, the same held keys:
+
+| Cyclone's class | slot | peak | free | outcome |
+|---|---|---|---|---|
+| `OS88_STACK_192` | 4 | 184–192 of 192 | — | **PANIC 3/3** |
+| **`OS88_STACK_256`** | 10 | **184, 188, 192 of 256** | 64–72 | **survived 3/3** |
+
+**192 was short by a handful of bytes**, which is why the symptom needed a
+sound card to appear at all and why it looked stochastic: the true peak sits
+*on* the old canary.
+
+The reporter's framing is what found it — *Cyclone is a worker-heavy app that
+takes over the whole machine* — and the tree already said so twice. **SPEC.md
+67.5.5's stack analysis is written against "a worker gets 384 bytes"**, from
+before the classes existed, and **Missile Command, PacMan, Tank and TameGram
+all declare 256 already.** Cyclone was the outlier among its own siblings, and
+the declaration had disagreed with its own design record since the day the
+classes landed.
+
+How it got there is worth keeping, because no step is a mistake alone: the
+class was set at `b9bb040` when `cy_worker`'s chain was **66** (66 + 64 = 130,
+1.48×); wave 5 took the chain to **86** (150, 1.28×); `t_stkclass` printed
+*thinnest in the tree* on every build after that and it was read as tight-but-
+passing rather than as a class to revisit. And the gate could not have caught
+it — it compares a static chain against a documented 64-byte floor, and both
+terms were right. **The floor is a property of the machine's configuration,
+not of the kernel**, and `DSV_TICK` alone moves it 16.
+
+#### What it does not settle
+
+- **The margin without a card.** 164 of 192 was the *good* case, and it is
+  still 162 of 256 now — the class change buys headroom, it does not make the
+  chain shorter. 42.2's item 2 (give the walk chain its 20 bytes back) stands
+  on its own merits, it is simply no longer urgent.
+- **The Wire is the new thinnest** at 1.30× (84 + 64 in 192), on the same
+  optimistic floor. It is a network app rather than a game, so it is unlikely
+  to meet a mounted `SOUND.DRV` under load — but that is an argument, not a
+  measurement.
+- **The old framing, kept for the record:**
+  `cy_worker` runs at **85% of its class with no card in the machine**, and
+  the card is a further 16 before anything is audible. That is a margin
+  question first and a driver question second — which puts 42.2's item 2
+  (give the walk chain its 20 bytes back) at the top rather than the bottom,
+  and makes wave 5's +20 the single largest lever on the table.
+- **What `t_stkclass` bills.** It reads `cyclone 1.28x (86 + 64 in 192)` — an
+  86-byte app chain on an assumed **64-byte floor**. Measured in play with no
+  card the slice reads 164, and slot 1 under load reads 70 rather than its
+  idle 32. **The gate's floor term is optimistic before a card exists and
+  models no driver at all**, so it was never going to catch this.
+- **P0.** `b9bb040`, before wave 5, cannot be run with this harness at all:
+  `tools/os88ui.py` did not exist yet, and hand-rolling clicks at remembered
+  coordinates is what that layer exists to stop. Dropped rather than faked.
+
+### 42.2 Where to look, in order
+
+1. ~~**Does `cy_kbdrain` still run on every path?**~~ **ANSWERED NO by the
+   absence of beeps** — see above. Left here struck through rather than deleted,
+   because it is the obvious first guess and the next reader will have it too.
+2. ~~**Give the walk chain its 20 bytes back.**~~ **DONE, and it was SIX, not
+   twenty.** The chain is **82 -> 76 bytes** and `tools/stkdepth.py` now reads
+   *"0 bytes of 76 are pushes the routine never needed to make"*. What was
+   actually there, against what this line claimed:
+
+   - **`gfxe_padd`'s flush frame, +10 -> +6.** It banked AX, CX, DX and SI
+     across `gfxe_pput`; only CX and SI needed it. `gfxe_pput` clobbers those
+     two - its own `mov`s - and `OSAPI_GFX_POINTS` beneath it **preserves
+     every register** (SPEC.md 5.6.9), so AX and DX were dead saves. **This
+     one is in the shared library**, so it is 4 bytes off the deepest frame of
+     every walk in the tree - Cyclone, Missile, Tank, Paint and wire - and
+     four instructions off the flush path.
+   - **`cy_web_repair`'s `push si`, 2 bytes.** Dead exactly as named: the
+     routine never writes SI and `cy_web_lane` restores it.
+   - **The tail `jmp` does not work as written.** `.full` re-enters
+     **`gfxe_padd` itself** after making room, so it cannot tail-jump to
+     `gfxe_pput`; the saving had to come from the bank list instead.
+   - **`cy_dsc_run` is REFUSED, and the claim was wrong twice.** It is
+     **seven** pushes today rather than five, and all seven are required:
+     `gfxe_wstepv` documents *"clobbers everything but the segments"*. Moving
+     them to the callers would gain nothing either - the same bytes are on the
+     stack when the bottom of the chain is reached, which is where the maximum
+     is taken.
+
+   **The lesson is that `stkdepth` cannot see a dead save whose callee is
+   outside the image.** It flagged `cy_web_repair`'s 2 and not `gfxe_padd`'s
+   4, because `OSAPI_GFX_POINTS` is *"not in this image - API/kernel"* and a
+   tool must assume the worst there. The published contract is what finds the
+   other one, and only a person reads that.
+3. ~~**Only then consider the class.** Cyclone is on 192; the next class is 384
+   and `SCH_STACK` is the ceiling. Moving it is the expensive answer and the
+   one that hides both of the above.~~ **THIS WAS THE ANSWER, and the sentence
+   is wrong twice.** The classes are 128/192/**256**/384 (SPEC.md 8.7), so the
+   next one up is 256 and not 384 — *"the expensive answer"* was an artefact of
+   a ladder with a rung missing from it. And it hides nothing: items 1 and 2
+   are worth 22 bytes between them against a slice that needed ~28 more, so
+   neither would have fixed this and the pair of them together would not
+   either. **Reclassifying was the cheap answer and the correct one**
+   (SPEC.md 8.7.5); items 1 and 2 stand on their own merits and are not
+   urgent.
+
+`tools/stkwater.py` measures what a slice actually reached, and
+`tools/cyunwind` is Cyclone's own unwinder from the first investigation —
+neither needs an emulator run to be set up specially.

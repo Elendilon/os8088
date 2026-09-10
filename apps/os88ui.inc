@@ -55,6 +55,38 @@
 ; (SPEC.md 22) applied everywhere at once.
 ;
 ; REGISTERS: every routine preserves everything except its documented output.
+;
+; --- DRAWING RULES FOR A NEW CONTROL, and both of them get broken -----------
+; They are PERFORMANCE.md Part 6 rules 1 and 2 in the shape a control author
+; meets them, and they are here because the general statement did not fire:
+; both were broken in the first version of os88ui_rad by someone who had just
+; read them, because the working code next door does it the other way.
+;
+;   1. NEVER FILL A GROUND AND THEN DRAW ON IT. To clear something, draw its
+;      replacement over it in the right colour - one write, no interval. A
+;      fill followed by the real content five drawing calls later is ~4ms of
+;      BLANK on a 4.77MHz 8088, every repaint. Text is free here: font_run is
+;      opaque and lays ground and glyph in one pass (SPEC.md 6.1), so a label
+;      never needs a ground laid for it.
+;
+;   2. A CHANGE REDRAWS WHAT CHANGED. A control that knows its own old and new
+;      state redraws the difference and not the row - os88ui_raddot is six
+;      pixels' worth of dot and touches no text, where redrawing the row would
+;      re-letter a label that did not change.
+;
+;   ...and the CALLER owns the pane's ground (os88ui_drop's contract). Filling
+;   it again inside a control is exactly the second write rule 1 forbids.
+;
+; NEITHER DEFECT SHOWS IN A SCREENSHOT - the final frame is identical - so a
+; gate for a control reads the CALLS (tests/radio.py records every gfx_fill's
+; rect and every font_run_x's y). PERFORMANCE.md Part 1 is why: a double-draw
+; flash and a visible redraw are two of the three things an emulator cannot
+; show, and this project has paid for both repeatedly.
+;
+; os88ui_chk (SPEC.md 13.15) DOES NOT FOLLOW RULE 1 - it fills its whole rect
+; white and then draws frame, mark and label over it. It is named here rather
+; than quietly fixed because it is the file's most-copied routine and the next
+; author will copy it too: os88ui_rad (13.17.4) is the one to follow.
 ; =============================================================================
 
 %ifdef OS88UI_KERNEL
@@ -553,10 +585,12 @@ OS88UI_GW     equ 12            ; both are 12 x 12
 ; another without it is the same defect the button's OS88UI_FILL note
 ; describes, one layer down.
 ;
-; It is not cheap: 44 set bits for an empty box and 64 for a crossed one,
-; one drawing call each, which at PERFORMANCE.md Part 2's ~756us of fixed
-; cost is 35-50ms on the field machine. Draw the ROW that changed, never the
-; page.
+; It is not cheap: MEASURED at 4.3 to 6.4 ms of the field machine's time
+; (docs/reports/GLYPH-AND-LINE-COST-2026-09-10.md, taken on a Hercules 5150
+; with tests/glyphbn). The 35-50ms that stood here was 44-64 gfx_pixel calls
+; at PERFORMANCE.md Part 2's ~756us - which was the CLIPPED fallback's
+; arithmetic, and never what the normal path did. Draw the ROW that changed,
+; never the page.
 ;
 ; -----------------------------------------------------------------------------
 ; os88ui_gdn - should this glyph be drawn PRESSED?
@@ -583,6 +617,125 @@ os88ui_gdn:
     ret
 
 ; -----------------------------------------------------------------------------
+; --- THE SHAPES, drawn ONCE and shared with os88ui_rad ------------------------
+; SPEC.md 13.17.1 settled what a radio looks like here, and there must not be a
+; second answer: a 12x12 rounded box - a rectangle with one pixel off each
+; corner - and a 6x6 rounded dot. os88ui_rad draws a GROUP of them with labels
+; and os88ui_glyph draws ONE bare one at CX/DX, so they share the two routines
+; below rather than each carrying a copy that can drift.
+;
+; Both take CX = x, DX = y and draw in whatever the pen is. Both preserve every
+; register, so a caller can lay several without re-loading the position.
+
+; os88ui_gring - the 12x12 rounded box: FOUR RUNS, never a frame.
+; A frame lights the four corners, which would then have to be knocked out in
+; the ground colour - four more fills AND two more pen changes for the same
+; shape. Runs that stop one pixel short are cheaper and every one of them is
+; horizontal or vertical (SPEC.md 39.4: a diagonal reads as noise on 1bpp).
+os88ui_gring:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov di, cx                  ; DI = x, SI = y - and THAT is the whole trick:
+    mov si, dx                  ; UI_FILL wants AX,BX,CX,DX, so a position held
+                                ; in either of those has to be pushed and
+                                ; popped around all four calls. Held here it is
+                                ; four plain `mov`s a run and no stack at all
+    lea ax, [di+1]
+    lea cx, [di+OS88UI_GW-2]
+    mov bx, si
+    mov dx, si
+    UI_FILL                     ; top
+    lea ax, [di+1]
+    lea cx, [di+OS88UI_GW-2]
+    lea bx, [si+OS88UI_GW-1]
+    mov dx, bx
+    UI_FILL                     ; bottom
+    mov ax, di
+    mov cx, di
+    lea bx, [si+1]
+    lea dx, [si+OS88UI_GW-2]
+    UI_FILL                     ; left
+    lea ax, [di+OS88UI_GW-1]
+    mov cx, ax
+    lea bx, [si+1]
+    lea dx, [si+OS88UI_GW-2]
+    UI_FILL                     ; right
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; os88ui_gdot - the 6x6 rounded dot, centred: 1 + 2 + 6 + 2 + 1 is the box's 12
+os88ui_gdot:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov di, cx
+    mov si, dx
+    lea ax, [di+4]
+    lea cx, [di+7]
+    lea bx, [si+3]
+    mov dx, bx
+    UI_FILL                     ; the dot's top run
+    lea ax, [di+3]
+    lea cx, [di+8]
+    lea bx, [si+4]
+    lea dx, [si+7]
+    UI_FILL                     ; ...its body
+    lea ax, [di+4]
+    lea cx, [di+7]
+    lea bx, [si+8]
+    mov dx, bx
+    UI_FILL                     ; ...and its bottom run
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_glyph - ONE control glyph, drawn with FILLS (SPEC.md 13.15.1)
+;
+; It used to be four 12x12 BITMAPS put down through the masked sprite pass,
+; with a per-pixel fallback for a control a clip fragment cut. All of that is
+; gone: the pictures, the sprite record, the per-row dither compose and the
+; 45-to-65-call `.gpix` arm.
+;
+; WHAT THAT BUYS, per copy and in twenty-three of them (the kernel's .cold and
+; twenty-two package images): the four pictures, the record and its staging,
+; and most of the body. What it COSTS is calls - eight for a set radio against
+; the sprite pass's one - and that trade was the owner's to take: a control
+; glyph is drawn once and then sits there until someone interacts with it.
+;
+; THE CLIPPED CASE IS WHERE IT WINS OUTRIGHT. ico_core clips an icon WHOLE
+; (SPEC.md 25.6), so a cut control used to cost 45-65 drawing calls and 24-34
+; ms. A fill clips per pixel, so there is no second path here at all - one cost
+; instead of two, and the bad one is gone with the code that had it.
+;
+; THE BOX IS STILL CLEARED UNCONDITIONALLY, which is this routine's one
+; deliberate departure from SPEC.md 13.14.6 rule 1 and is a published contract
+; twenty-two packages rest on: a glyph is redrawn IN PLACE when a selection
+; moves, and its caller is not required to have laid a clean ground. At 12x12
+; with the shape one call behind it that interval is under a millisecond,
+; where the row-wide fill 13.17.4 removed was about four. os88ui_rad is the one
+; that needs no clear at all, because it owns its group and can redraw the DOT.
+;
+; in:  CX = x, DX = y (top-left, screen px), AL = OS88UI_G*,
+;      AH non-zero = disabled; caller holds the gfx lock
+; out: nothing; all registers preserved, and the pen is left LIVE
+; -----------------------------------------------------------------------------
 os88ui_glyph:
     push ax
     push bx
@@ -593,190 +746,72 @@ os88ui_glyph:
     push bp
 
     mov di, ax                  ; DI = the whole argument: AX is about to be a
-                                ; rect corner for the white box, so the
-                                ; DISABLED byte cannot stay in AH. It did in
-                                ; the first version, `mov ax, cx` overwrote it
-                                ; with the high byte of an x coordinate, and
-                                ; every glyph on every page came out GREYED -
-                                ; which assembles, boots, and draws a
-                                ; perfectly plausible ring
-    mov si, di                  ; SI = the index, times the 24 bytes a bitmap
-    and si, 3                   ; is (8086: no shl by an immediate but 1)
-    shl si, 1
-    shl si, 1
-    shl si, 1                   ; SI = i * 8
-    mov bx, si
-    shl bx, 1                   ; BX = i * 16
-    add si, bx                  ; SI = i * 24
-    add si, os88ui_g_roff       ; ...and the four are contiguous, asserted
-                                ; below. A table of four pointers is SHORTER
-                                ; than this by two bytes, and it was one until
-                                ; it was measured: a table is DATA and lands
-                                ; in .text, which had THREE bytes of rung left,
-                                ; so eight bytes of table cost a whole
-                                ; 512-byte step of KERN_BUDGET. The arithmetic
-                                ; is CODE and lands in .cold beside the body,
-                                ; where there are 479 bytes going spare. Same
-                                ; kernel, one rung cheaper, and in a package
-                                ; the distinction does not exist at all
-    mov bp, cx                  ; BP = left x: every row's pen restarts here
-                                ; (a VALUE, never an address - SS is not DS
-                                ; in a package)
+                                ; rect corner for the box, so the DISABLED byte
+                                ; cannot stay in AH. It did in the first
+                                ; version, `mov ax, cx` overwrote it with the
+                                ; high byte of an x coordinate, and every glyph
+                                ; on every page came out GREYED - which
+                                ; assembles, boots, and draws a perfectly
+                                ; plausible ring
+    mov bp, cx                  ; BP = x, SI = y, held clear of UI_FILL's four
+    mov si, dx                  ; registers (os88ui_gring's trick). VALUES, not
+                                ; addresses - `lea` computes and never reads,
+                                ; so SS not being DS does not enter into it
 
-    ; --- ...but is the whole 12x12 box drawable? (SPEC.md 11.3) ------
-    ; ico_core clips an icon WHOLE - one shape or none, the font_char rule -
-    ; so a control a clip fragment's edge cuts draws NOTHING through the pass
-    ; below, where the pixel arm draws the visible half: the gfx_* fills clip
-    ; per pixel. That is the pair the SDK publishes this slot for. It is asked
-    ; here and not after the compose because DI still carries the argument
-    ; and SI still points at the picture at this line.
-    mov ax, cx
-    mov bx, dx
-    add cx, OS88UI_GW - 1
-    add dx, OS88UI_GW - 1
-    UI_CLIPT                    ; preserves every register, and answers CF = 0
-    mov cx, ax                  ; when no clip is armed at all
-    mov dx, bx
-    jc .gpix
-
-    ; --- ONE CALL, through the masked sprite pass (SPEC.md 25.6) -----
-    ; `.gpix` below is the ORIGINAL, and is what a cut control still draws
-    ; with: a white box and then one drawing call per set bit, 45 to 65 of
-    ; them, 24-34 ms of the field machine's time for one 12x12 control
-    ; (PERFORMANCE.md Set 83) - a price paid where nothing else can. A glyph
-    ; is a 1bpp shape with a mask, which is exactly what ico_core draws - so
-    ; the mask rows are the 12x12 box, the data rows are the bitmap this
-    ; routine already has, and the box and the picture arrive together.
-    ;
-    ; The pair: white box / black picture, exchanged when the control is
-    ; PRESSED, and the picture in CDGRAY when it is disabled (SPEC.md 47
-    ; rule 1). Disabled outranks down inside os88ui_gdn, so the two never
-    ; both apply.
-    mov ax, (CBLACK << 8) | CWHITE
+    ; --- the box: white, or BLACK when the control is pressed ---------------
+    UI_WHITE
     call os88ui_gdn
-    jnz .gpair
-    mov ax, (CWHITE << 8) | CBLACK
-.gpair:
-    mov cx, 0xFFFF              ; CX = the per-row dither, and 0xFFFF is none
-    test di, 0xFF00
-    jz .gdith
-    mov ah, CDGRAY
-    UI_ISMONO                   ; ...and on a 1bpp adapter a grey is a 50%
-    jz .gdith                   ; STIPPLE that a mask pass has nowhere to put,
-    mov cx, 0x5555              ; so the caller lays it into the data rows.
-    mov bx, bp                  ; gfx_ink's dither class is screen-absolute in
-    add bx, dx                  ; (x + y) parity, which is what this reads -
-    test bl, 1                  ; and bit 15 of a row word is its LEFTMOST
-    jz .gdith                   ; pixel, so an odd sum keeps the even columns
-    mov cx, 0xAAAA
-.gdith:
-    push ax                     ; the pair, wanted after the compose
-    push dx                     ; ...and y, which DX is about to stop being
-    xor dx, dx                  ; DX = the row-to-row phase toggle: nothing
-    cmp cx, 0xFFFF              ; unless this is a stipple, exactly as
-    je .gnodt                   ; font_run's [font_rn_dt] is (SPEC.md 6.1.12)
-    mov dx, 0xFFFF
-.gnodt:
-    mov bx, os88ui_grec_d       ; only the DATA rows are composed: the header
-    mov di, OS88UI_GW           ; and the 12 mask words are constants and are
-.gdata:                         ; declared filled in
-    lodsw
-    and ax, cx
-    xor cx, dx
-    mov [bx], ax
-    add bx, 2
-    dec di
-    jnz .gdata
-    pop dx
-    pop ax
-    UI_IPEN                     ; AL = the box's colour, AH = the picture's
-    mov cx, bp                  ; ...and back to the pen this was called with
-    mov si, os88ui_grec
-    UI_ICON
-    jmp short .gout
-                                ; ...and no fallback for a REFUSAL, because
-                                ; the kernel CANNOT refuse this record and the
-                                ; branch that used to catch it could not have
-                                ; drawn one (SPEC.md 25.6.1). The arm below is
-                                ; the CLIP's, and is why the test above stands
-                                ; where it does.
-                                ;
-                                ; icon_draw_x refuses a width that is not
-                                ; ICO_STAGE_WW - ww = 0 and ww > 1 in one
-                                ; compare - and rows = 0, rows > ICO_STAGE_H.
-                                ; os88ui_grec is `db 1, OS88UI_GW` - a
-                                ; CONSTANT, one word a row and twelve rows -
-                                ; so all four are decided at assembly time and
-                                ; the %if below is that decision, made by the
-                                ; build instead of by this comment. Grow the
-                                ; glyph past the stage and it is a build
-                                ; failure, which is what the branch was
-                                ; standing in for.
-                                ;
-                                ; THE BRANCH WAS ALSO BROKEN, which is why it
-                                ; went rather than being kept for luck. The
-                                ; compose loop above leaves DI = 0 - it counts
-                                ; rows down in DI - and DI carried the whole
-                                ; argument including SPEC.md 47's disabled
-                                ; byte, so `test di, 0xFF00` always fell to
-                                ; .live and a DISABLED control drew in the
-                                ; live pen with no [gfx_dis] dither: rule 1's
-                                ; exact failure, a dead control that looks
-                                ; alive. SI was wrong too - it points at
-                                ; os88ui_grec, so the per-pixel pass re-read
-                                ; the record's header and its twelve constant
-                                ; mask words as if they were the picture.
-                                ; Both are the reason the arm below is reached
-                                ; from ABOVE the compose, where DI is still
-                                ; the argument and SI is still the bitmap.
+    jnz .box
+    UI_BLACK
+.box:
+    mov ax, bp
+    mov bx, si
+    lea cx, [bp+OS88UI_GW-1]
+    lea dx, [si+OS88UI_GW-1]
+    UI_FILL
 
-.gpix:                          ; the CUT control (SPEC.md 11.3), pixel by
-    UI_WHITE                    ; pixel: the box first, so a glyph can be
-    call os88ui_gdn             ; redrawn in place. [gfx_dis] does not reach a
-    jnz .box                    ; fill, so a stale one cannot tint it - and a
-    UI_BLACK                    ; PRESSED glyph is that box in black, over
-.box:                           ; which the picture below goes white
-    mov ax, cx
-    mov bx, dx
-    add cx, OS88UI_GW - 1
-    add dx, OS88UI_GW - 1
-    UI_FILL                     ; AX,BX,CX,DX = x1,y1,x2,y2; BX survives it
-
-    test di, 0xFF00             ; ...then the pen, both halves at once
-    jz .live                    ; (SPEC.md 47 rule 1) - the disabled byte out
-                                ; of the bank above, never out of AH
+    ; --- the pen for the shape: SPEC.md 47 rule 1, then inverted if pressed --
+    test di, 0xFF00             ; the disabled byte out of the bank, never out
+    jz .live                    ; of AH
     stc
     jmp short .set
 .live:
     clc
 .set:
     UI_PEN
-    call os88ui_gdn             ; ...and the picture in white if it is down,
-    jnz .pixpen                 ; which UI_PEN has just overwritten with the
-    UI_WHITE                    ; live or the disabled ink
-.pixpen:
+    call os88ui_gdn
+    jnz .shape                  ; a PRESSED glyph is a black box with the
+    UI_WHITE                    ; shape in white over it
 
-    mov dx, bx                  ; DX = pen y, back at the top row
-    mov bh, OS88UI_GW           ; BH = rows left
-.row:
-    lodsw                       ; AX = the row's bits, MSB leftmost (DF = 0
-    mov cx, bp                  ; by contract); CX = pen x
-    mov bl, OS88UI_GW           ; BL = columns left
-.col:
-    shl ax, 1
-    jnc .skip
-    UI_PIXEL
-.skip:
-    inc cx
-    dec bl
-    jnz .col
-    inc dx
-    dec bh
-    jnz .row
+.shape:
+    mov cx, bp
+    mov dx, si
+    test di, OS88UI_GCHECK
+    jnz .check
 
+    call os88ui_gring           ; --- RADIO: the rounded box...
+    test di, OS88UI_GON
+    jz .done
+    call os88ui_gdot            ; ...and the dot when it is set
+    jmp short .done
+
+.check:                         ; --- CHECK: a square frame and a square mark,
+    mov ax, bp                  ; which is os88ui_chk's own look (SPEC.md
+    mov bx, si                  ; 13.15) and SPEC.md 13.16.2.1's finding - "a
+    lea cx, [bp+OS88UI_GW-1]    ; solid square, which reads on one bit as a
+    lea dx, [si+OS88UI_GW-1]    ; tick does not". os88ui_chk CALLS this routine
+    UI_FRAME                    ; rather than drawing its own (13.15.2), so
+    test di, OS88UI_GON         ; there is no second copy to keep in step and
+    jz .done                    ; nothing shared has to be carried by the
+    lea ax, [bp+3]              ; twenty-two packages that never opt into a
+    lea bx, [si+3]              ; check box
+    lea cx, [bp+OS88UI_GW-4]
+    lea dx, [si+OS88UI_GW-4]
+    UI_FILL
+
+.done:
     clc
-    UI_PEN                      ; ...and the pen back, always
-.gout:
+    UI_PEN                      ; the pen back, always
     pop bp
     pop di
     pop si
@@ -786,102 +821,6 @@ os88ui_glyph:
     pop ax
     ret
 
-%ifdef OS88UI_KERNEL
-section .text                   ; DATA, and SPEC.md 2.6 rule 1 is why: a table
-%endif                          ; declared in .cold and walked through DS is
-                                ; not that table. In a package there are no
-                                ; sections and the same text is simply inline
-; The four are ONE array, indexed by (kind | on), and os88ui_glyph reaches
-; them by arithmetic rather than through a table of pointers - so the order
-; and the spacing are load-bearing and are asserted at the bottom.
-; os88ui_grec - THE control-glyph record (SPEC.md 25.6): a two-byte header,
-; twelve mask words and twelve data words, handed to the masked sprite pass.
-; The header and the mask are CONSTANTS - one word per row, twelve rows, and
-; the mask is the 12x12 box every control fills - so they are declared filled
-; in and only the data rows are composed per call.
-;
-; ONE of it, for os88ui_krect's reason: every caller is the UI task under the
-; gfx lock and nothing in a drawing path re-enters. In `.text` and NOT `.bss`
-; because it is initialised, and .text is writable RAM - the rule os88ui_krect
-; states is about `.cold`, which a cold module reaches through a DS that is
-; still KERNEL_SEG.
-os88ui_grec:
-    db 1, OS88UI_GW             ; ww = 1 word a row, h = 12 rows
-    times OS88UI_GW dw 0xFFF0   ; the mask: twelve bits, left-aligned
-os88ui_grec_d:
-    times OS88UI_GW dw 0        ; ...and the data, written per call
-
-os88ui_g_roff:                  ; radio, clear: an open ring
-    dw 0x0F00                   ;  0  ....####....
-    dw 0x30C0                   ;  1  ..##....##..
-    dw 0x4020                   ;  2  .#........#.
-    dw 0x4020                   ;  3  .#........#.
-    dw 0x8010                   ;  4  #..........#
-    dw 0x8010                   ;  5  #..........#
-    dw 0x8010                   ;  6  #..........#
-    dw 0x8010                   ;  7  #..........#
-    dw 0x4020                   ;  8  .#........#.
-    dw 0x4020                   ;  9  .#........#.
-    dw 0x30C0                   ; 10  ..##....##..
-    dw 0x0F00                   ; 11  ....####....
-
-os88ui_g_ron:                   ; radio, set: the same ring, 4x4 centre dot
-    dw 0x0F00                   ;  0  ....####....
-    dw 0x30C0                   ;  1  ..##....##..
-    dw 0x4020                   ;  2  .#........#.
-    dw 0x4020                   ;  3  .#........#.
-    dw 0x8F10                   ;  4  #...####...#
-    dw 0x8F10                   ;  5  #...####...#
-    dw 0x8F10                   ;  6  #...####...#
-    dw 0x8F10                   ;  7  #...####...#
-    dw 0x4020                   ;  8  .#........#.
-    dw 0x4020                   ;  9  .#........#.
-    dw 0x30C0                   ; 10  ..##....##..
-    dw 0x0F00                   ; 11  ....####....
-
-os88ui_g_coff:                  ; check, clear: an open square
-    dw 0xFFF0                   ;  0  ############
-    dw 0x8010                   ;  1  #..........#
-    dw 0x8010                   ;  2  #..........#
-    dw 0x8010                   ;  3  #..........#
-    dw 0x8010                   ;  4  #..........#
-    dw 0x8010                   ;  5  #..........#
-    dw 0x8010                   ;  6  #..........#
-    dw 0x8010                   ;  7  #..........#
-    dw 0x8010                   ;  8  #..........#
-    dw 0x8010                   ;  9  #..........#
-    dw 0x8010                   ; 10  #..........#
-    dw 0xFFF0                   ; 11  ############
-
-os88ui_g_con:                   ; check, set: the same square, crossed
-    dw 0xFFF0                   ;  0  ############
-    dw 0xC030                   ;  1  ##........##
-    dw 0xA050                   ;  2  #.#......#.#
-    dw 0x9090                   ;  3  #..#....#..#
-    dw 0x8910                   ;  4  #...#..#...#
-    dw 0x8610                   ;  5  #....##....#
-    dw 0x8610                   ;  6  #....##....#
-    dw 0x8910                   ;  7  #...#..#...#
-    dw 0x9090                   ;  8  #..#....#..#
-    dw 0xA050                   ;  9  #.#......#.#
-    dw 0xC030                   ; 10  ##........##
-    dw 0xFFF0                   ; 11  ############
-
-; ...and the invariant the arithmetic rests on, checked by the assembler
-; rather than by whoever edits the pictures. Reordering them or dropping a
-; row would otherwise draw a perfectly plausible wrong glyph.
-%if (os88ui_g_ron - os88ui_g_roff) != OS88UI_GW * 2
-  %error "os88ui: radio-on is not one bitmap past radio-off"
-%endif
-%if (os88ui_g_coff - os88ui_g_ron) != OS88UI_GW * 2
-  %error "os88ui: check-off is not one bitmap past radio-on"
-%endif
-%if (os88ui_g_con - os88ui_g_coff) != OS88UI_GW * 2
-  %error "os88ui: check-on is not one bitmap past check-off"
-%endif
-%if (OS88UI_GRADIO | OS88UI_GON) != 1 || OS88UI_GCHECK != 2
-  %error "os88ui: the glyph indices no longer walk the array in order"
-%endif
 %endif                          ; OS88UI_NOBTN
 %ifdef OS88UI_KERNEL
 section .cold
@@ -2581,6 +2520,9 @@ os88ui_abh: dw 0
 %endif                          ; OS88UI_ABOUT
 
 %ifdef OS88UI_CHK
+%ifdef OS88UI_NOBTN
+  %error "OS88UI_CHK draws its box through os88ui_glyph (SPEC.md 13.15.2), which OS88UI_NOBTN leaves out"
+%endif
 ; =============================================================================
 ; THE CHECK BOX - the fourth shared element (OS88UI_CHK), SPEC.md 13.15
 ;
@@ -2611,7 +2553,12 @@ OS88UI_CK_RECT  equ 0
 OS88UI_CK_LABEL equ 8
 OS88UI_CK_ON    equ 10
 OS88UI_CK_SIZE  equ 12
-OS88UI_CKBOX    equ 11          ; the box's side, and the label's left margin
+OS88UI_CKBOX    equ OS88UI_GW   ; the box's side, and the label's left margin.
+                                ; It was 11 and is the GLYPH's 12 now: the two
+                                ; shared controls draw the same square through
+                                ; the same routines (SPEC.md 13.15.1), and a
+                                ; size of its own was the last place they could
+                                ; still disagree
 OS88UI_CKGAP    equ 6
 
 ; -----------------------------------------------------------------------------
@@ -2628,55 +2575,20 @@ os88ui_chk:
     push di
     push bp
     mov bp, bx
-    UI_WHITE                    ; its own ground, so a toggle needs no repaint
-    mov ax, [ds:bp+0]
-    mov bx, [ds:bp+2]
-    mov cx, [ds:bp+4]
-    mov dx, [ds:bp+6]
-    UI_FILL
-    test di, OS88UI_DIS         ; the pen: SPEC.md 47 rule 1
-    jz .live
-    stc
-    jmp short .set
-.live:
-    clc
-.set:
-    UI_PEN
-    mov ax, [ds:bp+2]           ; the box, square and centred on the row
-    add ax, [ds:bp+6]
-    sub ax, OS88UI_CKBOX - 1
-    sar ax, 1
-    push ax                     ; ...its top row, kept on the STACK: this
-    mov bx, ax                  ; include owns no bss and may not invent any
-    mov ax, [ds:bp+0]
-    mov cx, ax
-    add cx, OS88UI_CKBOX - 1
-    mov dx, bx
-    add dx, OS88UI_CKBOX - 1
-    UI_FRAME
-    pop bx
-    cmp byte [ds:bp+OS88UI_CK_ON], 0
-    je .label
-    mov ax, [ds:bp+0]           ; ...and the mark: a solid square inside it,
-    add ax, 3                   ; which reads on one bit as a tick does not
-    add bx, 3
-    mov cx, ax
-    add cx, OS88UI_CKBOX - 7
-    mov dx, bx
-    add dx, OS88UI_CKBOX - 7
-    UI_FILL
-.label:
-    mov si, [ds:bp+OS88UI_CK_LABEL]
-    mov cx, [ds:bp+0]
-    add cx, OS88UI_CKBOX + OS88UI_CKGAP
-    mov dx, [ds:bp+2]
-    add dx, [ds:bp+6]
-    sub dx, 7
+    call os88ui_chkpen          ; the pen: SPEC.md 47 rule 1, and it carries to
+                                ; the label below and into the glyph's own
+    mov si, [ds:bp+OS88UI_CK_LABEL]     ; --- the label, and OPAQUE (SPEC.md
+    mov cx, [ds:bp+0]                   ; 6.1): font_run lays its own ground in
+    add cx, OS88UI_CKBOX + OS88UI_CKGAP ; the pass that lays the glyph, so
+    mov dx, [ds:bp+2]                   ; nothing has to be blanked for it -
+    add dx, [ds:bp+6]                   ; which is the whole of why this
+    sub dx, 7                           ; routine no longer fills its rect
     sar dx, 1
-    mov al, CBLACK
+    mov al, CBLACK              ; the DIS state rides on the pen, not on AL
     mov ah, CWHITE
     UI_RUN
-    clc
+    call os88ui_chkdraw         ; ...and the box and the mark, through the
+    clc                         ; GLYPH (SPEC.md 13.15.2)
     UI_PEN                      ; the pen back, always
     pop bp
     pop di
@@ -2685,6 +2597,85 @@ os88ui_chk:
     pop cx
     pop bx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_chkdraw - internal: the box and the mark, through os88ui_glyph
+; in:  BP = the record, DI = flags; out: nothing. Every register preserved
+;
+; IT DRAWS NOTHING ITSELF, and that is the point (SPEC.md 13.15.2). A check box
+; and the Control Panel's check glyph are the same picture, and the version of
+; this file that drew them separately had them at DIFFERENT SIZES - 11 against
+; 12 - for years without anyone noticing. One caller, one picture, no second
+; copy to drift; and because the glyph is already in every package that has a
+; button, sharing it costs nothing anywhere.
+; -----------------------------------------------------------------------------
+os88ui_chkdraw:
+    push ax
+    push cx
+    push dx
+    mov al, OS88UI_GCHECK
+    cmp byte [ds:bp+OS88UI_CK_ON], 0
+    je .off
+    or al, OS88UI_GON
+.off:
+    xor ah, ah                  ; AH non-zero = disabled, which is the glyph's
+    test di, OS88UI_DIS         ; own argument shape
+    jz .live
+    mov ah, 1
+.live:
+    call os88ui_chkbox          ; CX = x, DX = y
+    call os88ui_glyph
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_chkbox - internal: the box's top-left, square and centred on the row
+; in:  BP = the record; out: CX = x, DX = y. AX and BX preserved
+; -----------------------------------------------------------------------------
+os88ui_chkbox:
+    push ax
+    mov ax, [ds:bp+2]
+    add ax, [ds:bp+6]
+    sub ax, OS88UI_CKBOX - 1
+    sar ax, 1
+    mov dx, ax
+    mov cx, [ds:bp+0]
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_chkpen - internal: live or greyed, from DI's OS88UI_DIS
+; -----------------------------------------------------------------------------
+os88ui_chkpen:
+    test di, OS88UI_DIS
+    jz .live
+    stc
+    jmp short .set
+.live:
+    clc
+.set:
+    UI_PEN
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_chkmark - the BOX and the MARK, and NOT the label (SPEC.md 13.15.2)
+; in:  BX = the record, DI = flags; the gfx lock is held
+; out: nothing; every register preserved
+;
+; os88ui_raddot's twin, and for its reason: a toggle changes a 6x6 square and
+; NOTHING ELSE - the frame is identical and the label is identical - so
+; redrawing the control would re-letter text that did not change. It takes no
+; set-or-clear argument, reading OS88UI_CK_ON itself, so the caller writes the
+; byte and then says "redraw the mark".
+; -----------------------------------------------------------------------------
+os88ui_chkmark:
+    push bp
+    mov bp, bx
+    call os88ui_chkdraw
+    pop bp
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2702,14 +2693,410 @@ os88ui_chkhit:
     mov [bx+OS88UI_CK_ON], al
     push di
     xor di, di
-    call os88ui_chk
-    pop di
+    call os88ui_chkmark         ; SPEC.md 13.15.2: the MARK, not the control -
+    pop di                      ; the frame and the label did not change
     clc
 .out:
     pop ax
     ret
 
 %endif                          ; OS88UI_CHK
+
+%ifdef OS88UI_RAD
+; =============================================================================
+; THE RADIO GROUP - the SIXTH shared element (OS88UI_RAD), SPEC.md 13.17
+;
+; Opt in with `%define OS88UI_RAD` before the include; a package that does not
+; costs NOTHING AT ALL, which is os88ui_chk's rule and the whole shape of this
+; file.
+;
+; --- WHY IT IS A GROUP AND NOT A BUTTON --------------------------------------
+; A check box is independent and a radio is not: picking one UNPICKS a sibling,
+; so a control that draws one button cannot do the only thing a radio is for.
+; The record is therefore the whole GROUP - which is os88ui_drop's shape
+; (SPEC.md 13.14), and deliberately: a drop-down IS "one pick out of a short
+; list" and so is this, so the two carry the same three fields (ITEMS, N, SEL)
+; and differ in presentation. A caller can change its mind about which control
+; a setting wears without changing its data.
+;
+; It also buys the redraw. `os88ui_radhit` knows both the old pick and the new
+; one, so it repaints EXACTLY TWO ROWS and never the group - which matters
+; here rather than in the abstract: PERFORMANCE.md prices a drawing call's
+; fixed part at ~756us on the field machine, so a five-row group repainted
+; whole is tens of milliseconds to move one dot.
+;
+; --- THE LOOK, and why it is not the check box's square ----------------------
+; A 12x12 ROUNDED BOX - a rectangle with one pixel off each corner - with a
+; 6x6 rounded dot in the middle when it is picked. It is the same 12 as
+; OS88UI_GW, so a converted call site keeps its geometry to the pixel.
+;
+; Three things decided the shape and none of them is taste:
+;
+;   - IT MUST NOT BE A SQUARE. os88ui_chk's mark is a solid square and a radio
+;     that is also square says nothing about being one-of-many. At 12px a
+;     one-pixel corner cut is what a circle rasterises to, and it is what small
+;     1bpp interfaces have always drawn.
+;   - IT MUST NOT BE A THIN DIAGONAL OR A DITHER. SPEC.md 39.4: grey rounds to
+;     black on both 1bpp adapters, so a dithered ring reads as dotted and a
+;     diagonal reads as noise. Every edge here is a horizontal or vertical RUN.
+;   - THE RING IS ONE PIXEL because os88ui_chk's frame is one pixel. A heavier
+;     ring is more legible greyed and would be the odd control out in a column
+;     that has both; matching the neighbour won.
+;
+; --- WHAT IT COSTS TO DRAW, honestly -----------------------------------------
+; Six drawing calls for an unpicked row and nine for the picked one - the
+; ground, four runs for the ring, three for the dot, and the label. That is
+; MORE than os88ui_glyph's normal path, which is ONE masked-sprite call plus
+; the caller's own label, and the trade is taken on the owner's terms: this is
+; drawn once and then sits there until someone interacts with it.
+;
+; What it wins back is the OTHER path. The bitmap os88ui_glyph could not draw
+; a control a clip fragment's edge cut - ico_core clips an icon WHOLE - so it
+; fell to `.gpix`, ONE DRAWING CALL PER SET BIT: 45 to 65 of them, 24-34 ms
+; for one control (PERFORMANCE.md Set 83). A fill clips per pixel, so this
+; control has no such path and no such twin to keep in step. One cost instead
+; of two, and the bad one is gone - and the remaining one came DOWN as well,
+; which nobody expected: the fill glyph measures 4.3-6.4 ms against the
+; bitmap's 6.0-6.2, three of its four kinds cheaper and only the set radio
+; dearer, by 0.39 ms (docs/reports/GLYPH-AND-LINE-COST-2026-09-10.md).
+;
+; --- THE RECORD, in YOUR data (one per GROUP) -------------------------------
+;   my_radio:
+;       dw 0, 0, 0, 0           ; OS88UI_RD_RECT: the WHOLE clickable area,
+;                               ; {x1,y1,x2,y2} inclusive, SCREEN coords - fill
+;                               ; it in your painter from OSAPI_WM_CONTENT,
+;                               ; since a window moves. Row i is PITCH tall
+;                               ; from y1; x2 is where the labels' ground ends
+;       dw my_items             ; OS88UI_RD_ITEMS: near ptrs to NUL strings,
+;                               ; an app menu's AMENU_ITEMS shape
+;       dw 3                    ; OS88UI_RD_N: how many, 1..OS88UI_RDMAX
+;       dw 0                    ; OS88UI_RD_SEL: the pick, 0-based - yours to
+;                               ; read after a press and to set before a paint
+;       dw 16                   ; OS88UI_RD_PITCH: row to row, in pixels. IN
+;                               ; THE RECORD and not a constant because it
+;                               ; varies by PAGE in the first caller that
+;                               ; wanted it - the Control Panel's are 16, 20
+;                               ; and 16 - so a library constant would have
+;                               ; moved existing pixels to save two bytes
+;       dw 0                    ; OS88UI_RD_DIS: bit i greys item i (SPEC.md 47
+;                               ; rule 2), and BIT 15 IS THE WHOLE GROUP -
+;                               ; os88ui_rad writes that bit from its own DI so
+;                               ; the press half can refuse without being
+;                               ; passed a flag it would have to be given
+;                               ; twice. os88ui_drop's OS88UI_DR_DIS is the
+;                               ; same trick and is why this is not new
+;
+; --- USING IT ----------------------------------------------------------------
+;   in W_PAINT:      BX = my_radio, DI = flags (OS88UI_DIS greys ALL of it, on
+;                    top of the per-item bits), and `call os88ui_rad`. It fills
+;                    its own ground and draws its own labels
+;   in W_ONCLICK:    BX = my_radio, CX/DX = the point, `call os88ui_radhit`.
+;                    out CF = 1 the press was not ours - and NOTHING ELSE means
+;                    anything in that case. CF = 0 it was ours, and then
+;                    ZF = 1 exactly when the pick MOVED: the two rows that
+;                    changed have been redrawn where they stand, so there is
+;                    nothing to repaint, and OS88UI_RD_SEL is the new pick.
+;                    ZF = 0 is a press on the pick that was already made, or on
+;                    a greyed row - ours, swallowed, nothing drawn and nothing
+;                    for the caller to act on
+; =============================================================================
+OS88UI_RD_RECT  equ 0
+OS88UI_RD_ITEMS equ 8
+OS88UI_RD_N     equ 10
+OS88UI_RD_SEL   equ 12
+OS88UI_RD_PITCH equ 14
+OS88UI_RD_DIS   equ 16
+OS88UI_RD_SIZE  equ 18
+
+OS88UI_RDBOX    equ 12          ; the ring's box - OS88UI_GW, so a converted
+                                ; call site keeps its geometry to the pixel
+OS88UI_RDGAP    equ 6           ; ...and the label's margin, os88ui_chk's
+OS88UI_RDMAX    equ 8           ; bits 0..7 of OS88UI_RD_DIS; 15 is the group
+OS88UI_RDGRP    equ 0x8000      ; ...that bit, by name
+
+; -----------------------------------------------------------------------------
+; os88ui_rad - draw the whole group as it stands
+; in:  BX = the record, DI = flags (OS88UI_DIS); the gfx lock is held
+; out: nothing; every register preserved
+; -----------------------------------------------------------------------------
+os88ui_rad:
+    push ax
+    push cx
+    push si
+    mov si, [bx+OS88UI_RD_DIS]  ; bank the group's own bit from DI FIRST, so
+    and si, 0x7FFF              ; the press half reads what the paint decided
+    test di, OS88UI_DIS         ; (SPEC.md 13.14.5's trick, one control along)
+    jz .live
+    or si, OS88UI_RDGRP
+.live:
+    mov [bx+OS88UI_RD_DIS], si
+    xor si, si
+    mov cx, [bx+OS88UI_RD_N]
+    jcxz .out                   ; a group of none draws nothing, rather than
+.row:                           ; `loop` wrapping the count round to 65,536
+    call os88ui_rad1
+    inc si
+    loop .row
+.out:
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_rad_pen - internal: the pen this row draws in (SPEC.md 47 rule 1)
+; in:  BP = the record, SI = the row; out: the pen is set. AX and CX preserved
+; -----------------------------------------------------------------------------
+os88ui_rad_pen:
+    push ax
+    push cx
+    mov ax, 1
+    mov cx, si
+    jcxz .havebit
+.shift:
+    shl ax, 1                   ; (8086: no shift by an immediate but 1)
+    loop .shift
+.havebit:
+    test ax, [ds:bp+OS88UI_RD_DIS]
+    jnz .grey
+    test word [ds:bp+OS88UI_RD_DIS], OS88UI_RDGRP
+    jnz .grey
+    clc                         ; the PEN carries it, and it carries it to the
+    jmp short .set              ; ring, the dot and the label at once - which
+.grey:                          ; is why a fill-drawn mark needs no dither
+    stc                         ; table of its own, where os88ui_glyph composes
+.set:                           ; one row by row
+    UI_PEN
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_rad_dt - internal: the 6x6 rounded dot, in whatever the pen is
+; in:  BP = the record, DI = the row's y; the pen is already set
+;
+; Three runs, and it is drawn in the GROUND colour to clear rather than being
+; erased and left blank - which is the whole of SPEC.md 13.17.4.
+; -----------------------------------------------------------------------------
+os88ui_rad_dt:
+    push cx
+    push dx
+    mov cx, [ds:bp+OS88UI_RD_RECT+0]
+    mov dx, di
+    call os88ui_gdot            ; SPEC.md 13.15.1's shape, shared: there is one
+    pop dx                      ; radio look in this file and not two
+    pop cx
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_rad1 - ONE row, WITHOUT erasing anything first
+; in:  BX = the record, SI = the row, 0-based; the gfx lock is held
+; out: nothing; every register preserved
+;
+; NOTHING HERE IS DRAWN TWICE AND NOTHING IS BLANKED (SPEC.md 13.17.4). The
+; label is an OPAQUE font_run, so it lays its own ground in the same pass that
+; lays the glyph; the ring is four runs; the dot is three. No pixel is written
+; by two of them, so there is no interval in which the row is blank - which on
+; a 4.77 MHz 8088 is not a nicety, since a whole-row fill followed five drawing
+; calls later by the label is about four milliseconds of empty row, every
+; repaint, and PERFORMANCE.md Part 1 calls that class of defect invisible in an
+; emulator.
+;
+; THE CALLER OWNS THE GROUND, which is os88ui_drop's contract (SPEC.md 13.14)
+; rather than os88ui_chk's. The pane is already filled by whoever laid it out -
+; every Control Panel page does it with os88ui_krect - so filling it again here
+; would be the second write this routine exists not to make.
+;
+; It reads OS88UI_RD_DIS rather than taking a flag argument, which is what lets
+; the press half redraw without being handed the painter's DI.
+;
+; X IS RE-READ FROM THE RECORD at every step rather than held in a register.
+; UI_FILL wants AX,BX,CX,DX = x1,y1,x2,y2, so a register holding x would be
+; pushed and popped around all seven of them; a memory read through BP is one
+; instruction, no register, and cannot get out of step.
+; -----------------------------------------------------------------------------
+os88ui_rad1:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    mov bp, bx                  ; BP = the record. A VALUE, never an address:
+                                ; SS is not DS in a package or in the kernel,
+                                ; so every read below carries `ds:`
+
+    mov ax, si                  ; --- the row's top ---
+    mul word [ds:bp+OS88UI_RD_PITCH]
+    add ax, [ds:bp+OS88UI_RD_RECT+2]
+    mov di, ax                  ; DI = this row's y, for the rest of the body
+
+    call os88ui_rad_pen
+
+    mov cx, [ds:bp+OS88UI_RD_RECT+0]    ; --- the ring, shared with
+    mov dx, di                          ; os88ui_glyph (SPEC.md 13.15.1)
+    call os88ui_gring
+
+    cmp si, [ds:bp+OS88UI_RD_SEL]       ; --- the dot: 6x6, rounded the same
+    jne .label                          ; way, and centred exactly - 1 + 2 + 6
+    call os88ui_rad_dt                  ; + 2 + 1 is the box's own 12
+
+.label:
+    mov ax, si                  ; --- the label, OPAQUE (SPEC.md 6.1) ---
+    shl ax, 1                   ; SI is still the ROW here; it becomes the
+    add ax, [ds:bp+OS88UI_RD_ITEMS]     ; string only now that nothing else
+    mov si, ax                          ; wants the index
+    mov si, [si]
+    mov cx, [ds:bp+OS88UI_RD_RECT+0]
+    add cx, OS88UI_RDBOX + OS88UI_RDGAP
+    mov dx, [ds:bp+OS88UI_RD_PITCH]     ; centred in the row, os88ui_chk's
+    sub dx, 7                           ; arithmetic
+    sar dx, 1
+    add dx, di
+    mov al, CBLACK              ; the DIS state rides on the pen, not on AL -
+    mov ah, CWHITE              ; os88ui_chk's convention, and it is why the
+    UI_RUN                      ; label greys with the ring for free
+
+    clc
+    UI_PEN                      ; the pen back, always
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_raddot - ONE row's DOT and nothing else: not the ring, not the label
+; in:  BX = the record, SI = the row, 0-based; the gfx lock is held
+; out: nothing; every register preserved
+;
+; THE WHOLE POINT OF THE CONTROL'S REDRAW (SPEC.md 13.17.4). Moving a pick
+; changes six pixels' worth of shape in two rows and NOTHING ELSE - the rings
+; are identical, the labels are identical, the ground between them is
+; identical - so re-lettering either row would be re-drawing text that did not
+; change, which is exactly the class of waste SPEC.md 6.1 is about.
+;
+; It takes no "set or clear" argument: it draws in the ink when this row IS the
+; pick and in the ground when it is not, so the caller writes SEL first and
+; then names the two rows. The row that lost the pick has its dot painted
+; OVER in the ground colour rather than being blanked and left - one write,
+; no interval.
+; -----------------------------------------------------------------------------
+os88ui_raddot:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    mov bp, bx
+    mov ax, si
+    mul word [ds:bp+OS88UI_RD_PITCH]
+    add ax, [ds:bp+OS88UI_RD_RECT+2]
+    mov di, ax
+    cmp si, [ds:bp+OS88UI_RD_SEL]
+    je .ink
+    UI_WHITE                    ; a STORE, not a call: the ground colour is
+    jmp short .go               ; where gfx_color lives
+.ink:
+    call os88ui_rad_pen
+.go:
+    call os88ui_rad_dt
+    clc
+    UI_PEN                      ; the pen back, always
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_radhit - a press: the row under it becomes the pick and TWO rows are
+;                 redrawn where they stand
+; in:  BX = the record, CX = x, DX = y; the gfx lock is held
+; out: CF = 1 the press was not ours, and nothing else means anything.
+;      CF = 0 it was ours, and ZF = 1 exactly when the pick MOVED - in which
+;      case OS88UI_RD_SEL is the new one and the screen is already right.
+;      ZF = 0 is a press on the pick already made, on a greyed row, or on the
+;      slack below the last row: ours, swallowed, nothing drawn.
+;      Every register preserved.
+;
+; `pop` writes no flags, so the answer set before the epilogue survives it.
+; -----------------------------------------------------------------------------
+os88ui_radhit:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    call os88ui_bhit            ; the button's own hit test: the rect is at the
+    jc .no                      ; same offset and means the same thing
+    mov bp, bx
+    test word [ds:bp+OS88UI_RD_DIS], OS88UI_RDGRP
+    jnz .swallow                ; greyed whole (SPEC.md 13.14.5): it is still
+                                ; ours, and nothing happens
+    cmp word [ds:bp+OS88UI_RD_PITCH], 0
+    je .swallow                 ; a pitch of zero is a caller's bug, and `div`
+                                ; answers one with INT 0 - five bytes turn a
+                                ; crash into a press that does nothing
+    mov ax, dx
+    sub ax, [ds:bp+OS88UI_RD_RECT+2]
+    xor dx, dx
+    div word [ds:bp+OS88UI_RD_PITCH]
+    cmp ax, [ds:bp+OS88UI_RD_N]
+    jae .swallow                ; inside the rect but below the last row
+    mov si, ax
+
+    mov ax, 1                   ; ...and this row may be greyed on its own
+    mov cx, si
+    jcxz .hb
+.hs:
+    shl ax, 1
+    loop .hs
+.hb:
+    test ax, [ds:bp+OS88UI_RD_DIS]
+    jnz .swallow
+
+    cmp si, [ds:bp+OS88UI_RD_SEL]
+    je .swallow                 ; already the pick: ours, and NOT a change -
+                                ; which is the distinction a caller acting on
+                                ; the answer needs, since re-applying a mode
+                                ; the machine is already in is not free
+    mov di, [ds:bp+OS88UI_RD_SEL]
+    mov [ds:bp+OS88UI_RD_SEL], si
+    push si
+    mov si, di
+    call os88ui_raddot          ; the row that LOST the pick...
+    pop si
+    call os88ui_raddot          ; ...and the one that has it now. Two DOTS, not
+    xor ax, ax                  ; the group: ZF = 1, CF = 0
+    jmp short .out
+.swallow:
+    mov ax, 1
+    or ax, ax                   ; ZF = 0, CF = 0
+    jmp short .out
+.no:
+    stc
+.out:
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+%endif                          ; OS88UI_RAD
 
 %ifdef OS88UI_DROP
 ; =============================================================================
@@ -3540,6 +3927,9 @@ OS88UI_MN_WIN    equ 14
 OS88UI_MN_OPEN   equ 16
 OS88UI_MN_HOT    equ 17
 OS88UI_MN_INK    equ 18
+OS88UI_MN_CKX    equ 2           ; SPEC.md 13.16.2: the tick column's mark -
+OS88UI_MN_CKY    equ 3           ; a solid square, centred in the 8px column
+OS88UI_MN_CKW    equ 5           ; and on the 8px glyph row, os88ui_chk's size
 OS88UI_MN_MRECT  equ 20
 OS88UI_MN_ABOX   equ 28
 OS88UI_MN_SEG    equ 36
@@ -3975,25 +4365,15 @@ os88ui_mndraw:
 .chkd:
     pop bx
     jnc .nochk
-    mov ax, [ds:bp+OS88UI_MN_MRECT]
-    add ax, 2
-    mov bx, di
-    add bx, 5
-    mov cx, [ds:bp+OS88UI_MN_MRECT]
-    add cx, 3
-    mov dx, di
-    add dx, 7
-    push si
-    xor si, si
-    call OSAPI_GFX_LINE             ; the check's short down-stroke...
-    mov ax, cx
-    mov bx, dx
-    mov cx, [ds:bp+OS88UI_MN_MRECT]
-    add cx, 7
-    mov dx, di
-    add dx, 3
-    call OSAPI_GFX_LINE             ; ...and its long up-stroke
-    pop si
+    mov ax, [ds:bp+OS88UI_MN_MRECT]     ; A SOLID SQUARE, not a tick
+    add ax, OS88UI_MN_CKX              ; (SPEC.md 13.16.2) - os88ui_chk's own
+    mov bx, di                         ; mark and its own reason, which is that
+    add bx, OS88UI_MN_CKY              ; a thin diagonal READS AS NOISE on the
+    mov cx, ax                         ; two 1bpp adapters this OS is for
+    add cx, OS88UI_MN_CKW - 1          ; (SPEC.md 39.4). The pen is already the
+    mov dx, bx                         ; row's - gfx_pen_cf set [gfx_color] to
+    add dx, OS88UI_MN_CKW - 1          ; CBLACK or CDGRAY above - so a fill
+    UI_FILL                            ; inherits the greying for free
 .nochk:
     ; the label
     mov cx, [ds:bp+OS88UI_MN_MRECT]

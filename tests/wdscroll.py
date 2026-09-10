@@ -227,14 +227,17 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     box = (rw("wd_cl"), ty, sbr, bot)
 
     def click(y, watch):
-        m.bp_exec(P(watch))
-        m.run(); mo.to(sbx, y); time.sleep(0.3)
-        m.mouse(l=True); time.sleep(0.08); m.mouse(l=False)
-        hit = m.wait_stop(12)
-        m.bp_exec()
-        if hit: m.run()
+        # `mo.to` polls the published mouse_x until it agrees, which a guest
+        # stopped at `watch` can never move - so the move belongs inside a
+        # pumped trace rather than after a bare arm. The trace also clears its
+        # own set on the way out, which is what the `if hit: m.run()` below it
+        # was standing in for.
+        with M.bp_trace(m, P(watch)) as tr:
+            mo.to(sbx, y); time.sleep(0.3)
+            m.mouse(l=True); time.sleep(0.08); m.mouse(l=False)
+            tr.wait(1, limit=12.0)
         time.sleep(1.3)
-        return bool(hit)
+        return tr.n > 0
 
     def down_to(n):
         for _ in range(n):
@@ -303,14 +306,15 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
 
     # ---- leg C: consecutive page clicks must BLIT -------------------------
     def paged(y):
-        m.bp_exec(P("wd_paint"))
-        m.run(); mo.to(sbx, y); time.sleep(0.3)
-        m.mouse(l=True); time.sleep(0.08); m.mouse(l=False)
-        hit = m.wait_stop(12)
-        m.bp_exec()
-        if hit: m.run()
+        # `click` above, with a shorter tail - and inside a trace for the same
+        # reason: `mo.to` polls the published mouse_x, which a guest stopped
+        # at wd_paint cannot move.
+        with M.bp_trace(m, P("wd_paint")) as tr:
+            mo.to(sbx, y); time.sleep(0.3)
+            m.mouse(l=True); time.sleep(0.08); m.mouse(l=False)
+            tr.wait(1, limit=12.0)
         time.sleep(1.0)
-        return bool(hit)
+        return tr.n > 0
 
     ydn = (ty+sbb)//2 + (sbb-ty)//4
     for _ in range(6):               # back to the top, so page-down can page

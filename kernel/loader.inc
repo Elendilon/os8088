@@ -915,6 +915,12 @@ ld_alloc:
     call mem_claim_hi_x ; from the TOP down, away from the data claims
     jc .nomem                   ; growing up from the bottom (SPEC.md 50.3)
     mov [ld_base], dx
+    mov word [ld_rehome], 0     ; NO RE-HOME UNTIL ONE IS ASKED FOR, and it is
+                                ; cleared HERE rather than by the arm that
+                                ; consumes it: an entry proc can set this word
+                                ; and then return CF=1, and the arm never runs
+                                ; to clear it. One store on the one path every
+                                ; launch takes (SPEC.md 20.12.10)
     shl ax, cl                  ; I_SIZE is bytes, and it is what the region
                                 ; occupies now, not what the file needed.
                                 ; **CL IS STILL 10**, set by mem_bytes_kb_x
@@ -999,6 +1005,13 @@ ld_start:
     ; reserved. What it does mean is that an aborting entry's claims have to be
     ; swept by ld_unreserve, which is where the XMS release joins the two heap
     ; ones - the slot is about to be handed to somebody else.
+.call8:                         ; ...AND THE RE-HOME COMES BACK HERE (8a
+                                ; below), with [ld_base] and [ld_ent] naming
+                                ; the program instead of the loader. NOT to
+                                ; step 7: that is the `rep stosb` over the bss,
+                                ; and on this path the bss arrived inside the
+                                ; part with the loader's handoff already
+                                ; written into its head (SPEC.md 20.12.10)
     push word [snd_inst]        ; the outer dispatch's stamp
     mov di, [ld_rec]
     call KERNEL_SEG:cw_snd_disp_set     ; DI = record: this instance is asking
@@ -1041,6 +1054,13 @@ ld_start:
                                 ; still naming KERNEL_SEG here
     pop word [snd_inst]         ; ...and the stamp comes off, CF untouched
     jc .abort
+
+    cmp word [ld_rehome], 0     ; --- 8a. THE RE-HOME (SPEC.md 20.12.10) -----
+    jne .rehome                 ; six bytes on the ordinary launch, which falls
+                                ; straight through into step 9 exactly as it
+                                ; always did. The arm itself is out of line,
+                                ; below .reg, because it runs once per re-homing
+                                ; package and never otherwise
 
     ; --- 9. register + publish the instance, show the window ---------------------
 .reg:
@@ -1119,6 +1139,122 @@ ld_start:
                                 ; here, where nothing had asked
     mov al, LD_OK
     ret
+
+.rehome:
+    ; --- 8a. THE RE-HOME: the loader hands its identity to a PART ------------
+    ; SPEC.md 20.12.10. The entry proc that just returned is a LOADER: it read
+    ; its parts, one of them is a package image in its own right, and it has
+    ; asked for that part to become the program. What it gets is the loop back
+    ; to .call8 above - a second step 8 with [ld_base] and [ld_ent] naming the
+    ; part - and what the kernel gets back is 2KB of region.
+    or bx, bx                   ; A RE-HOMING ENTRY OWNS NO WINDOW. Its region
+    jnz .abort                  ; is about to be freed, so a window whose
+                                ; W_SEG named it would far-call a dead claim on
+                                ; its first repaint - and the loader has no
+                                ; business creating one anyway, the program
+                                ; being what the user asked to run
+    mov es, [ld_rehome]
+    xor si, si
+    mov al, 3                   ; ...and it is a PACKAGE header or it is not a
+    call ld_hdr_ok              ; program: magic, version, link and the
+    jc .abort                   ; dispatcher, the same five the file's own
+                                ; header passed at ld_check_hdr. NOT
+                                ; ld_check_hdr itself - that one is about the
+                                ; FILE, and a part has no file size to be
+                                ; compared against
+    mov ax, [es:si+LD_H_IMG]
+    mov [ld_img], ax
+    mov dx, [es:si+LD_H_BSS]
+    mov [ld_bss], dx
+    add ax, dx                  ; THE HEADER IS A FILE and a foreign tool may
+    jc .abort                   ; write any LD_H_BSS it likes (SPEC.md 51.1.2's
+                                ; own warning, one format along). The carry is
+                                ; the first half of the fence: each operand is
+                                ; a 16-bit header field and the sum is 17 bits
+    cmp ax, APP_MAX_SIZE        ; ...AND THE SAME CEILING EVERY OTHER PACKAGE
+    ja .abort                   ; HAS. ld_check_hdr applies this to a file and
+                                ; this path never goes near it, so without the
+                                ; line a re-homed program would be bounded by
+                                ; the 16-bit word below and nothing else - a
+                                ; silent divergence between two ways of
+                                ; starting the same kind of program, and the
+                                ; wrong direction to diverge in
+    cmp ax, [ld_rehsz]          ; ...and the LOADER's word for what it actually
+    ja .abort                   ; put there, which is the bound the part's own
+                                ; header cannot be trusted for
+    mov [ld_need], ax           ; **I_SIZE, AND IT IS NOT OPTIONAL.** Step 9
+                                ; publishes this word and ld_alloc left the
+                                ; LOADER's region size in it - so without this
+                                ; line a re-homed program's I_SIZE is ~2KB
+                                ; whatever it really is. That word is the bound
+                                ; in inst.inc's "an entry inside its own
+                                ; image+bss" fence, which is what OSAPI_FSX_RUN
+                                ; is checked against (SPEC.md 53.1): a
+                                ; full-screen package whose entry proc sits
+                                ; above the loader's old size would be REFUSED,
+                                ; and Clear Skies - the package this whole
+                                ; mechanism is for - is exactly that shape.
+                                ; The value is the PROGRAM's image + bss, which
+                                ; is what the fence means by "its own", not the
+                                ; carve's extent: the carve holds the other
+                                ; parts too and they are not the region
+    mov ax, [es:si+LD_H_ENTRY]
+    mov [ld_ent], ax
+
+    ; --- the carve, and every other claim the loader made, RE-OWNED ---------
+    ; The parts carve is claimed BY THE LOADER, whose segment is about to stop
+    ; existing, and it is the block the program is now running in. Re-stamped
+    ; to the instance SLOT, which is how ld_alloc owns a region (step 5) and
+    ; is what makes it unreachable to the program: mem_find_own matches
+    ; MC_OWN == the caller's segment or MC_SEG == it, and a slot is neither -
+    ; so OSAPI_MEM_FREE and OSAPI_MEM_MOVABLE both refuse the program its own
+    ; carve, which is exactly right. IT MUST STAY PINNED: mem_rr_tab rewrites
+    ; inst_tab + I_SPTR by matching the OLD BASE, and I_SPTR is the part's
+    ; segment where the claim's base is the carve's, so a move would leave
+    ; I_SPTR naming where the program used to be (SPEC.md 66.6.1).
+    mov di, [ld_rec]            ; **ld_slot READS DI**, and this is where it
+                                ; comes from. Nothing else on this path sets
+                                ; it: step 8 above loaded it for
+                                ; cw_snd_disp_set and then far-called a
+                                ; PACKAGE, and a package's entry proc promises
+                                ; the kernel nothing about DI. Without this
+                                ; line the slot is computed from whatever the
+                                ; loader left there, mem_reown_x stamps a
+                                ; garbage owner word onto the carve, and
+                                ; mem_free_x below matches nothing - so the
+                                ; loader's region is never freed AND the
+                                ; program is refused every claim it makes,
+                                ; mem_own reading that word and finding
+                                ; neither an instance slot nor a driver.
+                                ; Clear Skies found it (SPEC.md 88.10.4);
+                                ; tests/rehome's loader clobbers DI on purpose
+                                ; now so it cannot come back
+    call ld_slot                ; BX = this record's slot
+    mov dx, bx                  ; DX = the owner to write...
+    mov bx, [ld_base]           ; ...and BX the one to match: the loader's
+    call mem_reown_x            ; segment, which every claim it made carries
+
+    ; --- and the LOADER'S OWN REGION, freed ---------------------------------
+    mov di, [ld_rec]            ; ...and again, mem_reown_x having no reason to
+    call ld_slot                ; preserve DI. Owned by the slot since step 5,
+    mov dx, [ld_base]           ; so this is one claim BY BASE and not a sweep
+    call mem_free_x             ; - the re-owned carve is on the same owner
+                                ; word now and must not go with it
+    mov ax, [ld_rehome]
+    mov word [ld_rehome], 0     ; ONCE, AND THIS IS THE INSTRUCTION THAT SAYS
+                                ; SO. The cell's own "already asked" test only
+                                ; stops a second CALL; without this the test
+                                ; six lines below .call8 fires again on the
+                                ; way back, and the arm re-homes the program
+                                ; to itself over and over - claiming memory and
+                                ; creating a window each time round - until
+                                ; wm_create runs out of slots and the launch
+                                ; aborts. tests/rehome.py caught it
+    mov [ld_base], ax           ; ...AND [ld_fp+2] IS THIS WORD, so step 8's
+                                ; `call far [es:ld_fp]` now reaches the part
+    push ds
+    pop es                      ; ES = KERNEL_SEG for that far call: the entry
+    jmp .call8                  ; proc's contract does not promise it back
 
 .abort:
     ; SPEC.md 20.2: an aborting entry may have created windows before it
@@ -1350,6 +1486,14 @@ ld_fsz:     resw 2              ; file size, BYTES, in 32 bits: a package
                                 ; 20.12). ld_check_hdr is what bounds it, and
                                 ; which test it applies is the flags byte's
                                 ; to say
+ld_rehome:  resw 1              ; OSAPI_PKG_REHOME's answer: the segment the
+                                ; program lives at, 0 = no re-home this launch
+                                ; (SPEC.md 20.12.10). Cleared by ld_alloc on
+                                ; EVERY launch, not by whoever consumed it: an
+                                ; entry proc that re-homes and then aborts must
+                                ; not hand the next launch its leftovers
+ld_rehsz:   resw 1              ; ...and the bytes it says are available there,
+                                ; which is what bounds the part's image + bss
 ld_img:     resw 1              ; header: image size
 ld_bss:     resw 1              ; header: bss size
 ld_ent:     resw 1              ; header: image-relative entry
@@ -1391,5 +1535,45 @@ section .cold                   ; far entries (SPEC.md 2.6): the resident
                                 ; routine here keeps its ordinary near `ret`
 ldf_ld_run_name:        call ld_run_name_x
                     retf
+
+; -----------------------------------------------------------------------------
+; osapi_pkg_rehome - API slot 0x0530: "the program is at DX, not at me"
+;                    (SPEC.md 20.12.10)
+; in:  DX = the segment the program's image starts at, AX = the bytes
+;      available there, ES = the caller's segment (the X stub's)
+; out: CF = 0 recorded; CF = 1 refused
+; clobbers: flags
+;
+; IT RECORDS AND RETURNS, and that is the whole body. The loader is still
+; executing out of the region this is going to free, so nothing may happen
+; until it has returned - ld_start's step 8a is where it happens, one
+; instruction after the far call comes back.
+;
+; THE FENCE IS ONE COMPARE. [ld_base] is the segment of the package being
+; launched right now and 0 when none is (SPEC.md 66.6.1), and ES is stamped by
+; the X stub from the caller's own DS - so "ES == [ld_base]" is exactly "you
+; are the entry proc of the launch in flight", which is the only caller this
+; can have. It needs no mem_own: that fence answers for any live package, and
+; any OTHER package calling this would be re-homing somebody else's launch.
+; -----------------------------------------------------------------------------
+osapi_pkg_rehome_x:
+    push bx
+    mov bx, es
+    cmp bx, [ld_base]
+    jne .no
+    cmp word [ld_rehome], 0     ; ...and ONCE. A second call would leak the
+    jne .no                     ; region the first one is about to free, the
+                                ; arm having only one [ld_base] to free by
+    or dx, dx                   ; a segment of 0 is the heap's own "no claim"
+    jz .no                      ; and can never be a part's base
+    mov [ld_rehome], dx
+    mov [ld_rehsz], ax
+    pop bx
+    clc
+    retf
+.no:
+    pop bx                      ; `pop` writes no flag, so the refusal survives
+    stc
+    retf
 
 section .text

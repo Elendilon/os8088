@@ -146,6 +146,30 @@ def sectors(row):
     return 0 if not row["off"] else (row["len"] + 511) // 512
 
 
+def part_bytes(raw, i):
+    """Part `i` of a packed `.o88`, UNPACKED - what the machine will see.
+
+    THE FILE IS NOT THE IMAGE and a part is not the file either: a host check
+    about a size, a bss offset or an assembly wants THESE bytes
+    (docs/plans/O88-COMPRESSION-PLAN.md's rule, one container along). It is
+    what `tests/dispapps.py` needs the day a package's program is a PART
+    rather than its image (SPEC.md 88.10.4): comparing a fresh assembly with
+    the file's `image` then compares the LOADER with the program and reports
+    "build/ is BEHIND THE TREE" about a perfectly current tree.
+
+    A parted `.o88` is never itself compressed - os88pkg.py declines the pair
+    and says why - so `raw` is the file as it lies on the floppy.
+    """
+    row = rows(raw[:_u16(raw, 8)])[i]
+    if not row["off"]:
+        raise ValueError("part %d has no file bytes (a scratch row)" % i)
+    at = row["off"] * 512
+    if not row["flags"] & EQU["OP_COMP"]:
+        return raw[at:at + row["len"]]
+    import os88lz
+    return os88lz.decompress(raw[at:at + row["zkb"]], os88lz.LZ4, row["len"])
+
+
 # --- and the same question asked of the harness ------------------------------
 
 _PYCONST = re.compile(r"^([A-Z][A-Z0-9_]*)\s*=\s*(\d+)\s*(?:#.*)?$", re.M)

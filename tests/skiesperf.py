@@ -20,6 +20,8 @@ price the same frame.
              centreline (88.6.2) at the height it is meant for
     city     300 m up over the Champ de Mars heading north-east: the tower,
              the Trocadero, the river and the far skyline together
+    citybank the same frame banked 30 right: what the box impostor (88.5.4)
+             costs when the world is not level
 """
 import argparse
 import os
@@ -32,10 +34,21 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "..", "tools"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import os88marty                                            # noqa: E402
+import os88build
 import dispapps                                             # noqa: E402
 import skies as skiestest                                   # noqa: E402
 
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# WHERE `cswidx.inc` IS. Clear Skies' resident world index is GENERATED
+# (SPEC.md 88.10.5.3), so it is not in apps/skies/ and nasm reaches it only
+# through the build tree - which the Makefile passes as `-I $(BUILD)/` and
+# every script that re-assembles for a LISTING has to pass too, or the tree
+# "does not assemble" and the message points at the package. os88build.at
+# honours $OS88_BUILD, so a frozen soak tree resolves to its own copy.
+CSWIDX = os.path.join(ROOT, os88build.at("build")) + os.sep
+
 CPS = 4772727                           # the 4.77 MHz clock: cycles a second
 SCENES = {                              # x, y, z (metres), heading (degrees), pitch
     "runway": None,                     # wherever cs_reset put it
@@ -43,6 +56,7 @@ SCENES = {                              # x, y, z (metres), heading (degrees), p
     "city": (150, 300, -900, 30, -5),
     "climb": (-2689, 40, -2409, 40, 5),  # 300 m down the runway, 40 m up
     "bank": (-2689, 80, -2409, 40, 5, 30),   # ...banked 30 right, for the ADI
+    "citybank": (150, 300, -900, 30, -5, 30),  # ...the city frame banked 30 right
 }
 
 
@@ -50,7 +64,8 @@ def listing():
     fd, lst = tempfile.mkstemp(prefix="skiesperf_", suffix=".lst")
     os.close(fd)
     r = subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", "apps/",
-                        "-I", "apps/skies/", "-o", os.devnull, "-l", lst,
+                        "-I", "apps/skies/", "-I", CSWIDX,
+                        "-o", os.devnull, "-l", lst,
                         "apps/skies/skies.asm"], capture_output=True, text=True)
     if r.returncode:
         sys.exit("skiesperf: the tree does not assemble:\n" + r.stderr[:400])

@@ -258,7 +258,14 @@ def main(argv):
             return out
 
         def airborne(spd, alt=600, pitch=0):
-            m.pause()
+            # ...ONLY IF IT IS RUNNING. `sample` calls this as a `pin` with
+            # the guest already stopped at a cs_step breakpoint, and pausing
+            # an already-stopped machine leaves the next `run` with nothing
+            # to resume: the loop below then waits 30s at a stop whose cycle
+            # count never moves. Invisible until the stop detection that
+            # names it (docs/plans/HANDOFF-STOP-DETECTION.md) went in.
+            if m.status().get("state") == "running":
+                m.pause()
             for nm, v in (("cs_px", -2400), ("cs_py", alt), ("cs_pz", -2000)):
                 poke(nm, ((v * 256) & 0xFFFFFFFF).to_bytes(4, "little"))
             poke("cs_hdg", (7282).to_bytes(2, "little"))

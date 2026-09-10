@@ -8,9 +8,16 @@ Paris and nothing else, so a world written afterwards can miss that budget by
 a factor and nothing says so: the picture still draws, it just draws slowly,
 and slowly is invisible in an emulator (CLAUDE.md's three defects).
 
-So this prices every world the way the renderer does, host-side, off
-`build/skies.bin`, and holds each of them against PARIS - the one whose
-milliseconds are actually known.
+So this prices every world the way the renderer does, host-side, and holds
+each of them against PARIS - the one whose milliseconds are actually known.
+
+SINCE 88.10.5 A WORLD IS NOT IN `build/skies.bin`. It is a packed part read
+into an overlay at run time, so each location is priced against its own world
+laid into the image at the address `cs_wldget` puts it (`csworlds.overlay`) -
+which is the segment the renderer will actually walk. Two consequences worth
+knowing before editing this: only ONE world exists at a time, so the loop
+rebinds `img` per location; and every POINTER must be read unsigned, the
+overlay being at 0xB400 where a signed word is negative.
 
 WHAT IT PRICES. A frame costs the objects the cull FILES, and each of those
 costs its vertices transformed and its faces walked (88.5). So an object's
@@ -36,8 +43,10 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(ROOT, "tools"))
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 import dispapps                                             # noqa: E402
+import csworlds                                             # noqa: E402
 
 BASE = "PARIS-ISSY"     # the world SPEC.md 88.12's frame table was measured on
 OVER = 1.15             # ...and how far over it another world may be
@@ -64,6 +73,8 @@ def equates(src):
 
 
 def main():
+    # REBOUND PER LOCATION below, to that location's own world overlay.
+    # Everything that reads it is a closure over this name.
     img = open(os.path.join(ROOT, "build", "skies.bin"), "rb").read()
     mp = dispapps._map("skies")
     E = equates(os.path.join(ROOT, "apps", "skies", "skies.asm"))
@@ -81,6 +92,10 @@ def main():
     def w(off):
         v = int.from_bytes(img[off:off + 2], "little")
         return v - 65536 if v >= 32768 else v
+
+    def u(off):
+        """A POINTER, unsigned - the overlay is at 0xB400 (see the header)."""
+        return int.from_bytes(img[off:off + 2], "little")
 
     def zstr(at):
         return img[at:].split(b"\0")[0].decode("ascii", "replace")
@@ -109,7 +124,7 @@ def main():
         STACK vertices are FOUR to a declared level."""
         out, nv = [], model(at)["verts"]
         typ = img[at + E["CSM_TYPE"]]
-        f, faces = w(at + E["CSM_FACES"]), img[at + E["CSM_NF"]]
+        f, faces = u(at + E["CSM_FACES"]), img[at + E["CSM_NF"]]
         if faces and not f:
             out.append("%s: %s declares %d faces and no face table"
                        % (who, nm, faces))
@@ -126,7 +141,7 @@ def main():
                     out.append("%s: %s indexes vertex %d of %d in a face"
                                % (who, nm, i, nv))
             f += 3 + n
-        e, edges = w(at + E["CSM_EDGES"]), img[at + E["CSM_NE"]]
+        e, edges = u(at + E["CSM_EDGES"]), img[at + E["CSM_NE"]]
         if edges and not e:
             out.append("%s: %s declares %d edges and no edge table"
                        % (who, nm, edges))
@@ -140,12 +155,16 @@ def main():
 
     # --- the locations, out of the table the drop-down reads (88.6.4) --------
     n_ports = (mp["cs_apnames"] - mp["cs_ports"]) // 2
-    ports = [w(mp["cs_ports"] + 2 * i) for i in range(n_ports)]
 
     bad, rows = [], []
-    for a in ports:
-        who = zstr(w(a + E["CSA_NAME"]))
-        objs, nobj = w(a + E["CSA_OBJS"]), w(a + E["CSA_NOBJ"])
+    for i in range(n_ports):
+        # THE LOCATION'S OWN WORLD, laid in first (88.10.5): cs_apwld is the
+        # resident half that says which one, and until it is in the overlay
+        # cs_ports[i] names bytes belonging to some other country.
+        img = csworlds.overlay(csworlds.WORLDS[img[mp["cs_apwld"] + i]])
+        a = u(mp["cs_ports"] + 2 * i)
+        who = zstr(u(a + E["CSA_NAME"]))
+        objs, nobj = u(a + E["CSA_OBJS"]), w(a + E["CSA_NOBJ"])
         ax, az = w(a + E["CSA_X"]), w(a + E["CSA_Z"])
         hlen, hwid = w(a + E["CSA_HLEN"]), w(a + E["CSA_HWID"])
         hdg = w(a + E["CSA_HDG"]) & 0xFFFF
@@ -157,7 +176,7 @@ def main():
         # written down in different fields of the same record - so a runway
         # aimed one way and lettered another is a copy-paste nobody would see
         # until they read the panel with a compass.
-        des = re.search(r"(\d\d)", zstr(w(a + E["CSA_RWY"])))
+        des = re.search(r"(\d\d)", zstr(u(a + E["CSA_RWY"])))
         if not des:
             bad.append("%s: its runway designation has no number in it" % who)
         else:
@@ -166,17 +185,17 @@ def main():
             off = abs((got - want + 180) % 360 - 180)
             if off > 10:
                 bad.append("%s: it is lettered %s and heads %.0f degrees"
-                           % (who, zstr(w(a + E["CSA_RWY"])), got))
+                           % (who, zstr(u(a + E["CSA_RWY"])), got))
 
         items, npoi, nden, total = [], 0, 0, 0
         rwy_here = [1e9, None]
         for o in range(objs, objs + nobj * E["CSO_SIZE"], E["CSO_SIZE"]):
-            md = model(w(o + E["CSO_MODEL"]))
-            far = w(o + E["CSO_FAR"])
+            md = model(u(o + E["CSO_MODEL"]))
+            far = u(o + E["CSO_FAR"])
             ox, oz = w(o + E["CSO_X"]), w(o + E["CSO_Z"])
             fl, rng = w(o + E["CSO_FLAGS"]) & 0xFFFF, w(o + E["CSO_RANGE"])
-            nm = zstr(w(o + E["CSO_NAME"]))
-            bad.extend(wellformed(w(o + E["CSO_MODEL"]), nm, who))
+            nm = zstr(u(o + E["CSO_NAME"]))
+            bad.extend(wellformed(u(o + E["CSO_MODEL"]), nm, who))
             if far:
                 bad.extend(wellformed(far, nm + "'s far model", who))
             if md["verts"] > E["CS_MAXV"]:

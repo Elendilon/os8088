@@ -14,12 +14,21 @@ models are decoded out of `build/skies.bin`, at the offsets the package's
 own equates give, and every collidable building's ground footprint is held
 against every river polygon. Host-side, no emulator, one second.
 
-SINCE 88.6.4 THERE ARE NINE LOCATIONS AND SEVEN WORLDS, so it walks them
-all: the location table `cs_ports` is the list, and each row's CSA_OBJS and
-CSA_NOBJ name the world it stands in. Two locations sharing one world (the
-two Paris runways do) are walked once. A world with no water is reported
-and skipped, which is not a pass it earned - it is a world with nothing for
-this gate to say.
+SINCE 88.6.4 THERE ARE NINE LOCATIONS AND EIGHT WORLDS, so it walks them
+all - and SINCE 88.10.5 A WORLD IS NOT IN `build/skies.bin` AT ALL. It is a
+packed part read into an overlay at run time, so this lays each one into the
+image the way `cs_wldget` does (`csworlds.overlay`) and walks that. One world
+at a time, which is the machine's own constraint: nine locations stand in
+eight worlds and the two Paris runways share theirs, so eight overlays cover
+the list. A world with no water is reported and skipped, which is not a pass
+it earned - it is a world with nothing for this gate to say.
+
+**Reading `cs_ports` through a SIGNED word was how this went false-green.**
+The records were low offsets in the image and are overlay addresses now -
+0xBF60 for Paris-Issy - so a sign-extending read makes every one of them
+negative, every name reads as the package header's `O8`, and the file
+reported "1 worlds behind 9 locations, all clear" having walked nothing.
+Pointers are unsigned here; only coordinates are not.
 
 It is deliberately about the WATER and not about buildings overlapping each
 other: two blocks sharing a corner is a skyline, and a basilica standing in
@@ -30,8 +39,10 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(ROOT, "tools"))
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 import dispapps                                             # noqa: E402
+import csworlds                                             # noqa: E402
 
 MARGIN = 5                              # metres of daylight a base must keep
 
@@ -52,6 +63,9 @@ def equates(src):
 
 
 def main():
+    # `img` is REBOUND PER WORLD below - the whole segment, with that world's
+    # blob and the shared vocabulary laid at their own addresses. Everything
+    # that reads it is a closure over this name, so the rebinding reaches them.
     img = open(os.path.join(ROOT, "build", "skies.bin"), "rb").read()
     mp = dispapps._map("skies")
     E = equates(os.path.join(ROOT, "apps", "skies", "skies.asm"))
@@ -68,10 +82,15 @@ def main():
         v = int.from_bytes(img[off:off + 2], "little")
         return v - 65536 if v >= 32768 else v
 
+    def u(off):
+        """A POINTER, unsigned. The overlay is at 0xB400, so a signed read of
+        an address in it comes back negative - see the header."""
+        return int.from_bytes(img[off:off + 2], "little")
+
     def model(at):
         return {"type": img[at + E["CSM_TYPE"]], "nv": img[at + E["CSM_NV"]],
                 "nf": img[at + E["CSM_NF"]], "rad": w(at + E["CSM_RAD"]),
-                "verts": w(at + E["CSM_VERTS"]), "faces": w(at + E["CSM_FACES"])}
+                "verts": u(at + E["CSM_VERTS"]), "faces": u(at + E["CSM_FACES"])}
 
     def zstr(at):
         return img[at:].split(b"\0")[0].decode("ascii", "replace")
@@ -83,16 +102,21 @@ def main():
     n_ports = (mp["cs_apnames"] - mp["cs_ports"]) // 2
     if n_ports < 2:
         sys.exit("t_csworld: cs_ports/cs_apnames are not the pair this reads")
-    worlds = {}
+    # WHICH WORLD EACH LOCATION IS IN is resident, in cs_apwld - it has to be,
+    # because the launcher names all nine before any world is read (88.10.5).
+    # So the grouping comes off that rather than off a record this cannot read
+    # until the world holding it is laid in.
+    inworld = {}
     for i in range(n_ports):
-        a = w(mp["cs_ports"] + 2 * i)
-        key = (w(a + E["CSA_OBJS"]), w(a + E["CSA_NOBJ"]))
-        worlds.setdefault(key, []).append(zstr(w(a + E["CSA_NAME"])))
+        inworld.setdefault(img[mp["cs_apwld"] + i], []).append(i)
+    if len(inworld) != len(csworlds.WORLDS):
+        sys.exit("t_csworld: cs_apwld names %d worlds and tools/csworlds.py "
+                 "builds %d" % (len(inworld), len(csworlds.WORLDS)))
 
     def walk(objs, nobj):
         rivers, bases = [], []
         for o in range(objs, objs + nobj * E["CSO_SIZE"], E["CSO_SIZE"]):
-            md = model(w(o + E["CSO_MODEL"]))
+            md = model(u(o + E["CSO_MODEL"]))
             ox, oz = w(o + E["CSO_X"]), w(o + E["CSO_Z"])
             if md["type"] == E["CSM_FLAT"]:
                 f = md["faces"]
@@ -159,7 +183,13 @@ def main():
         return d
 
     bad, lines = [], []
-    for (objs, nobj), names in sorted(worlds.items(), key=lambda kv: kv[1][0]):
+    for wi in sorted(inworld):
+        img = csworlds.overlay(csworlds.WORLDS[wi])
+        rows = inworld[wi]
+        a = u(mp["cs_ports"] + 2 * rows[0])
+        objs, nobj = u(a + E["CSA_OBJS"]), w(a + E["CSA_NOBJ"])
+        names = [zstr(u(u(mp["cs_ports"] + 2 * i) + E["CSA_NAME"]))
+                 for i in rows]
         rivers, bases = walk(objs, nobj)
         who = "/".join(names)
         if not rivers:
@@ -168,7 +198,7 @@ def main():
             continue
         worst, where = 1e9, None
         for o, ox, oz, hx, hz in bases:
-            name = zstr(w(o + E["CSO_NAME"]))
+            name = zstr(u(o + E["CSO_NAME"]))
             foot = [(ox + hx, oz + hz), (ox - hx, oz + hz),
                     (ox - hx, oz - hz), (ox + hx, oz - hz)]
             for poly in rivers:
@@ -192,7 +222,7 @@ def main():
         sys.exit("t_csworld: %d building corner(s) in or against the water "
                  "(SPEC.md 88.6.3 wants %d m of daylight)" % (len(set(bad)), MARGIN))
     print("  csworld: %d worlds behind %d locations, all clear of their own "
-          "water (SPEC.md 88.6.3, 88.6.4)" % (len(worlds), n_ports))
+          "water (SPEC.md 88.6.3, 88.6.4)" % (len(inworld), n_ports))
 
 
 if __name__ == "__main__":

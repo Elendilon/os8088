@@ -83,6 +83,15 @@ so one can fragment the heap only for as long as the user is inside it, and
 re-taken. **A persistent module would reopen the question**, and only for that
 module.
 
+**On `kern_small` NOTHING in this file moves** (§66.0). The compactor is
+`kern_big`'s: every claim there is born pinned and stays pinned, `mem_can_move`
+and the whole `mem_cp_*` walk are compiled out, and `OSAPI_MEM_MOVABLE` answers
+CF = 1. Read every **MOVABLE** verdict below as "on `kern_big`" unless the row
+says otherwise. What that machine keeps is **purging**, which reaches every
+`MEM_P_*` row unchanged — and the Disk window's listing cache moved from the
+movable column into the purgeable one to make the trade worth taking
+(§50.6.5).
+
 **Purgeable caches are refused by `mem_can_move` too**, and it costs nothing:
 a cache that is in the way is dissolved by `mem_cp_drop` when a claim is
 waiting and outranks it (§66.10.1), which is the same room at none of the copy.
@@ -93,10 +102,11 @@ waiting and outranks it (§66.10.1), which is the same room at none of the copy.
 
 | claim | size / lifetime | verdict | why, and what it would take |
 |---|---|---|---|
-| `MEM_K_SAVE` menu save-under | `MENU_SAVE_KB` = 20KB, one menu | **MOVABLE** | `menu_reloc`. 20KB mid-arena at exactly the moment a *menu command* claims |
+| `MEM_K_SAVE` menu save-under | `MENU_SAVE_KB` = 20KB clamp; **measured 3.0KB** for a real menu | **MOVABLE on kern_big** | `menu_reloc`. Mid-arena at exactly the moment a *menu command* claims. **PINNED on kern_small** — §66.0 compiles the compactor out there, so the proc and its declaration go with it |
 | `MEM_K_ASC` ASSOC.DAT cache | `ASC_KB` = 3KB, one volume at a time, long-lived | **MOVABLE** | `asc_reloc`. Claimed on a **volume switch**, so on a used machine it lands mid-arena — measured holding 40KB out of reach before it was declared (§66.5.6) |
-| `MEM_K_CLIP` clipboard | sized to contents, long-lived | **MOVABLE** | `clip_reloc`. Outlives the app that filled it (§55). `clip_put` pins its *source* through `[mem_pinseg]` across its own claim (§66.5.6) |
-| Disk window view cache (owner = the window's instance slot) | `VIEW_KB` = 3KB per open window (2KB on kern_small) | **MOVABLE** | `fm_reloc` — `FS_VSEG` **and** the `[fm_vseg]` mirror, the pair that killed the word-poke design (§66.1). Declared from the claim site with the owner in hand (§66.5.6.2) |
+| `MEM_K_CLIP` clipboard | sized to contents, long-lived | **MOVABLE on kern_big** | `clip_reloc`. Outlives the app that filled it (§55). `clip_put` pins its *source* through `[mem_pinseg]` across its own claim (§66.5.6) — and that word is the compactor's, so on **kern_small** the pin, the proc and the declaration are all compiled out (§66.0) and the claim is PINNED |
+| Disk window view cache, **kern_big** (owner = the window's instance slot) | `VIEW_KB` = 3KB per open window | **MOVABLE** | `fm_reloc` — `FS_VSEG` **and** the `[fm_vseg]` mirror, the pair that killed the word-poke design (§66.1). Declared from the claim site with the owner in hand (§66.5.6.2) |
+| Disk window view cache, **kern_small** (owner = `MEM_P_VIEW` + the window's `fm_pool` slot) | 2KB per open window, up to four | **PURGEABLE** | §50.6.5. A cache that can be SHED does not need to be MOVED, and on a 48.5KB heap two of these stranded **21.5KB** between them as movable claims. Rank `MEM_PG_LOW` because it self-heals — `fmv_fit`'s only caller is `fmv_store`. `fmv_demote` is the second naming word, `dsk_fatw_demote`'s twin; `fm_kinit` frees the previous tenant's, because a tag is nobody's instance and `mem_free_rec` cannot reap it |
 | `MEM_K_COPY` copy buffer | one Cut/Copy/Paste | **PINNED (forever)** | claimed through `mem_claim_dma` with the whole buffer as the page-safe head (§22.5.1) |
 | `MEM_K_DRV` driver image | per loaded driver | **MOVABLE** | §66.6.3. Its base is the driver's CS, and a CS moves when nothing anywhere refers to it — which for a driver image means the kernel's own tables (`mem_region_reloc` walks all 66 words in 9 of them), the sixteen hardware IRQ vectors (§66.6.3.1) and nothing else, because no driver declares anything and none can forget to. Refused only while a frame is standing in it or `[drv_wcnt]` is non-zero. `tests/drvmove.py` and `tests/sndmove.py` are the gates |
 | `MEM_K_MOD` on-demand module | per loaded module | **PINNED (forever)** | its base is the module's CS. Claimed top-down |
@@ -124,7 +134,7 @@ waiting and outranks it (§66.10.1), which is the same room at none of the copy.
 | **ArtfulType** document + undo/redo/clip arena | **MOVABLE** | §66.5.7. `at_reloc`, two words; `at_dmov` pins across both file operations |
 | **Fractal** run cache | **MOVABLE** | §66.5.7. `fr_reloc`, one word — every cursor into it is an offset |
 | **ModPlug** module (up to 116KB) | **MOVABLE** | §66.5.8. `mpp_reloc`, 36 words. §56.1's bill: the replayer is an independent copy of Tracker's at *different strides* (`MPS_SZ` 12, `MPM_CHSZ` 40), so a renamed `trk_reloc` walks the tables wrong and yields plausible garbage |
-| every package **region** | **PINNED (forever)** | base is CS |
+| every package **region** | **see *Regions* below** | a region's base is its CS, and this row said `PINNED (forever)` until §66.6.1 opened that door. It is not a data claim and the two columns here do not decide it — the *worker* does. Eighteen regions in the tree are movable today, every C package's among them |
 
 ### Undeclared
 
@@ -143,9 +153,9 @@ be done". Sizes are the `equ`s at the claim sites.
 | **FTPD** | staging `FD_STGKB` 8KB |
 | **TeXpad** | source `TP_SRC_KB` 8KB; export `TP_EXP_KB` 24KB (transient) |
 | **Audio** | `AP_LA_SZ` 32KB look-ahead ring |
-| **Tank Attack** | `TK_SHKB` 16KB CGA/Hercules shadow |
+| **Tank Attack** | `TK_SHKB` 32KB — the CGA/Hercules shadow and its HUD template, one claim (SPEC.md 85.3.5). **The `APP_SMALL` build claims off a LADDER instead** — 18KB, else 17, else 16 (85.3.5.1) — because there the template is a span store rather than a second 16,000-byte frame buffer. Same package, same ABI, two claims; it is what put this package on the 128KB machine's disk |
 | **Frotz** | scrollback `ZW_SBKB` 24KB (8KB fallback) — `zwin.inc`'s claim, outside `zf_reloc` |
-| **Clear Skies** | `CS_SHKB` 16KB 1bpp shadow, `CS_ART_KB` 11KB launcher artwork — both for the life of the instance, and both **pinned by not declaring**, which is the right answer for the shadow rather than an audit nobody has done. `[cs_shseg]` is copied into `[cs_tseg]` at every `fsx` entry and **ES is loaded from `[cs_tseg]` at thirteen sites and kept across the span**, so a move inside a frame is a live segment in a register that no relocation proc can reach — the shape §66.5.9.1's `OSAPI_MEM_PARKSAFE` exists for, and the fsx bracket has no park point. The artwork is a different case and would only cost one word (`[cs_artseg]`, read by three blits and 0 when the claim failed), but it is 11KB claimed at launch and freed with the instance |
+| **Clear Skies** | `CS_SHKB` 16KB 1bpp shadow, `CS_ART_KB` 11KB launcher artwork — both for the life of the instance, and both **pinned by not declaring**, which is the right answer for the shadow rather than an audit nobody has done. `[cs_shseg]` is copied into `[cs_tseg]` at every `fsx` entry and **ES is loaded from `[cs_tseg]` at thirteen sites and kept across the span**, so a move inside a frame is a live segment in a register that no relocation proc can reach — the shape §66.5.9.1's `OSAPI_MEM_PARKSAFE` exists for, and the fsx bracket has no park point. The artwork is a different case and would only cost one word (`[cs_artseg]`, read by three blits and 0 when the claim failed), but it is claimed at launch and freed with the instance. **SPEC.md 88.10.3 moved both out of the image** — the artwork is a packed `OP_LAZY` part the loader expands and `op_drop`s, and the launcher's own claim is `CS_ART_KB` of expanded bands — and **88.10.5 added a third, which is TRANSIENT**: `cs_wldget` claims a cluster-rounded buffer for one packed world stream, expands it into the bss overlay and frees it before it returns, so it is never live across a call the user could reach |
 | **every C package** (C64, RunCPM, Weave, Loom, CWORD) | **`os88_mem_movable()` EXISTS NOW** (§66.4.1, `%define CC_HAS_ONMOVE` + `void os88_onmove(unsigned was, unsigned now)`), so this row is "nobody has done the audit" rather than "the SDK cannot" — which is a different row and a much cheaper one. Nothing here declares yet. C64's 64KB RAM, RunCPM's 64KB Z80 space, Weave's bundle/VM/canvas/grid, Loom's 29/50/62KB project buffers, and every `apps/os88parts.inc` scratch part are all pinned. **The C OVERLAY is the exception and it is MOVABLE** (§66.4.1, `apps/cc/crt0.asm`): it is claimed top-down because its base is a CS, and `cc_ovreloc` is four bytes falling through into `cc_ovbind` — safe because `cc_ovthunk` DISCARDS the module's CS and rebuilds the `retf` from `[cc_ovseg]` after the call, so no stack ever holds it. `tests/ovlhigh.py` is the gate |
 
 Word is the one worth an afternoon: session-lived, tens of KB,

@@ -13,13 +13,30 @@ cs_cmd_fly:
     push ax
     push bx
     push cx
+    push dx                         ; ...and these four for cs_wldpick, which
+    push si                         ; reads a world in below: this routine's
+    push di                         ; header promises EVERY register back to a
+    push es                         ; menu, key or click handler
     cmp byte [cs_want], CSB_NONE
     je .out                         ; the same predicate the menu greyed on
+    mov al, [cs_apnow]              ; ...AND THE WORLD IS IN (SPEC.md 88.10.5).
+    call cs_wldpick                 ; Idempotent - it returns having done
+    jc .out                         ; nothing when the overlay already holds
+                                    ; this location's world, which is every
+                                    ; flight after the first. Picking a place
+                                    ; is setting the ROW; this is where the row
+                                    ; becomes a world, so a caller that changed
+                                    ; the row and nothing else still flies the
+                                    ; right country
     mov ax, cs_fsx_main
     mov bx, [cs_win]
     xor cx, cx                      ; no worker to keep: this loop IS the flight
     call OSAPI_FSX_RUN              ; the kernel repaints the desktop on the
 .out:                               ; way out (SPEC.md 53.6)
+    pop es
+    pop di
+    pop si
+    pop dx
     pop cx
     pop bx
     pop ax
@@ -492,6 +509,14 @@ cs_hotkey:
 ;   F1  Detail Level    F2  Draw Distance   F3  Size (also -/+)
 ;   F4  Terrain fill    F5  Buildings fill  - each a toggle
 ;
+; The tables below carry a hole at 3 and 4 rather than a second dispatch: the
+; fill keys own those two indices and nothing else does.
+;
+; There WAS an F6 cycling the ADI's four modes, and it was an instrument
+; rather than a setting - the arm that measured 88.9.2.5. `Fast` won it
+; outright and is what the simulator draws now, so the key, the three other
+; modes and the byte behind them are gone (88.9.2.5).
+;
 ; Every one of them raises a TOAST (88.13.8), which is what makes a cycling
 ; key usable at all: a key that steps a ladder is no good if the glass does
 ; not say where the ladder now is.
@@ -509,7 +534,7 @@ cs_hotkeyx:
     mov cl, al
     xor ch, ch
     cmp al, 3
-    jae .fill
+    jae .fill                       ; 3 and 4 are the fills
     ; --- F1 F2 F3: one step up the ladder, and round at the top -----------
     mov bx, cx
     shl bx, 1
@@ -571,6 +596,9 @@ cs_render:
     call cs_r_begin
     CSSTAGE 2
     call cs_matrix
+%ifdef CSPROBE
+    call cs_probe_mstab             ; ...and is it the same one as last frame?
+%endif
     mov ax, [cs_px+1]               ; the eye, in whole metres
     mov [cs_ex], ax
     cwd
@@ -643,11 +671,27 @@ cs_crackle:
     push dx
     push si
     mov al, [cs_pinview]
+    mov ah, [cs_pwhole]
     push ax
     mov al, CSI_MARK
     call cs_setink
+    ; --- AND IT BELONGS TO NO OBJECT (SPEC.md 88.13.3.1). cs_crackle runs
+    ;     AFTER cs_scene, so all three of the words cs_seg reads here are the
+    ;     LAST OBJECT DRAWN's: cs_pinview would skip the clip, cs_pwhole
+    ;     would skip the marking outright, and cs_markacc would accumulate
+    ;     into an object box cs_drawobj flushed a moment ago and resets for
+    ;     its first object next frame - so the marks are lost either way.
+    ;     The horizon (88.13.3.1) and the panel (cs_pclip) both take all
+    ;     three stores; this took only the first, and a crack in the SKY -
+    ;     where nothing else marks the row - was drawn into the shadow and
+    ;     never recorded. cs_hzrows leaves a row alone when its kind has not
+    ;     changed and its last span was empty, so the crack was never
+    ;     refilled: it survived the crash, the reset and the rest of the
+    ;     flight (88.7.11.1).
     mov byte [cs_pinview], 0        ; every segment CLIPPED: the ring reaches
-    mov si, cs_crackt               ; the edges on a wide view
+    mov byte [cs_pwhole], 0         ; the edges on a wide view
+    mov byte [cs_ownmk], -1
+    mov si, cs_crackt
     mov cx, CS_NCRACK
 .s:
     push cx
@@ -672,8 +716,10 @@ cs_crackle:
     pop cx
     add si, 4
     loop .s
+    mov byte [cs_ownmk], 0
     pop ax
     mov [cs_pinview], al
+    mov [cs_pwhole], ah
     pop si
     pop dx
     pop cx
@@ -1074,7 +1120,7 @@ cs_toast:
     add di, 2                       ; package (SPEC.md 20), so a store through
                                     ; it lands in the wrong segment entirely
     cmp cl, 3
-    jae .fill
+    jae .fill                       ; 3 and 4 are the fills
     mov si, [cs_toastset + bx]      ; the setting's byte...
     mov al, [si]
     xor ah, ah
@@ -1138,8 +1184,8 @@ cs_toaststep:
     ret
 
 cs_toastlbl: dw cs_s_lbld, cs_s_llod, cs_s_lsize, cs_s_terr, cs_s_bld
-cs_toastset: dw cs_setbld, cs_setlod, cs_setsize
-cs_toastval: dw cs_i_bld, cs_i_lod, cs_i_size
+cs_toastset: dw cs_setbld, cs_setlod, cs_setsize, 0, 0
+cs_toastval: dw cs_i_bld, cs_i_lod, cs_i_size, 0, 0
 cs_g_fill:   db 'Fill', 0
 cs_g_wire:   db 'Wire', 0
 
@@ -1218,14 +1264,21 @@ cs_d_state:
     mov si, cs_s_crash
     cmp al, CS_ST_CRASH
     je .s
-    mov si, cs_s_flying
+    mov si, cs_s_stalled
     test ah, 1                      ; BIT 0 IS THE STALL (88.9.4.2) and the
-    jz .s                           ; cs_k_state packs cs_onwater in beside it
-    mov si, cs_s_stalled            ; so the strip repaints when a hull leaves
+    jnz .s                          ; cs_k_state packs cs_onwater in beside it
+                                    ; so the strip repaints when a hull leaves
                                     ; the water, and testing the whole byte
                                     ; read an amphibian AIRBORNE OFF THE WATER
                                     ; - which is how every A5 flight starts -
                                     ; as stalled, for the whole flight
+    mov si, cs_s_airbrake           ; ...AND BIT 2 IS THE AIRBRAKE (88.7.10.2):
+    test ah, 4                      ; the same latch the ground arm reads, and
+    jnz .s                          ; the strip said FLYING with it out, which
+    mov si, cs_s_flying             ; is the one state a pilot cannot see from
+                                    ; the window. A STALL OUTRANKS IT - the
+                                    ; brake is a thing you chose and the stall
+                                    ; is one that happened
 .s:
     push si
     mov bx, CS_PI_STATE
@@ -1388,6 +1441,7 @@ cs_s_dn:     db 'DN  ', 0        ; and not a signed number (88.7.6)
 cs_s_ground: db 'ON THE GROUND', 0
 cs_s_water:  db 'ON THE WATER ', 0
 cs_s_brakes: db 'BRAKES ON    ', 0
+cs_s_airbrake: db 'AIRBRAKE OUT ', 0
 cs_s_flying: db 'FLYING       ', 0
 cs_s_stalled: db 'STALL        ', 0
 cs_s_crash:  db 'CRASHED      ', 0

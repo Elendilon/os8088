@@ -3364,6 +3364,12 @@ pt_dmg_get:
     cmp byte [pt_selon], 0
     jne .out                        ; a live marquee wants the whole content:
 %endif                              ; putting it back is an XOR (SPEC.md 11.90.2)
+    cmp byte [pt_cvnew], 0          ; SPEC.md 11.90.3.2: a load replaced the
+    jne .out                        ; picture, so the rect the kernel would
+                                    ; answer is about what IT overpainted and
+                                    ; not about what we did. Leaving [pt_dall]
+                                    ; at 1 costs nothing extra: this IS the
+                                    ; resize's own paint, not a second one
     mov bx, [pt_win]
     call OSAPI_WM_DAMAGE
     jc .out                         ; the whole content, which is every path
@@ -3378,6 +3384,9 @@ pt_dmg_get:
     mov [pt_dy2], dx
     mov byte [pt_dall], 0
 .out:
+    mov byte [pt_cvnew], 0          ; spent, by whichever route: every one of
+                                    ; them leads to a paint that draws the
+                                    ; canvas at full extent
     pop dx
     pop cx
     pop bx
@@ -7464,7 +7473,7 @@ pt_segdo:
     mov [pt_noscr], al              ; live pass drew this ink. Clearing it here
     or al, al                       ; drew it again - a double-draw on the
     jnz .fpdone                     ; DEFAULT pencil on the 1bpp machine this
-    call pt_lndraw                  ; whole path exists for - and left the flag
+    call pt_lnblit                  ; whole path exists for - and left the flag
 .fpdone:                            ; at 0 for the .perpix chords after it
     pop ax                          ; the walk writes the canvas and the undo
     ret                             ; image; the screen is the one call above
@@ -7497,27 +7506,106 @@ pt_lcany:
     stc
     ret
 
-; pt_lndraw - the segment's screen half, in one call
+
+; -----------------------------------------------------------------------------
+; pt_lnblit - the segment's screen half, as a BAND OUT OF THE CANVAS
 ; in:  [pt_lsx0],[pt_lsy0] = the start, [pt_wx],[pt_wy] = the end; lock held
 ; out: nothing; preserves all registers
-pt_lndraw:
+;
+; THE SECOND RASTERISATION IS THE ONE THAT GOES (SPEC.md 42.23.8). pt_lineseg
+; has already walked this segment into the canvas and the undo image, so the
+; canvas holds the answer; putting it on the glass is then a COPY of the rect
+; that changed, and not a second Bresenham through the kernel. On the 1bpp
+; canvas - which is exactly the gate pt_segdo already applies - pt_blit's own
+; fast path is one OSAPI_GFX_BLIT1 (42.23.4), priced by AREA rather than by
+; runs, and a stroke segment between two mouse reports is a few pixels square.
+;
+; It is also what takes Paint off the OSAPI_GFX_LINE caller list, which is
+; docs/plans/completed/GFX-EMBEDDABLE-PLAN.md 8.1.5's first blocker on the line family
+; leaving the kernel at all.
+; -----------------------------------------------------------------------------
+pt_lnblit:
     push ax
     push bx
     push cx
     push dx
     push si
-    mov al, [pt_ink]
-    call OSAPI_SET_COLOR
+    push di
+    push bp
+    push es
     mov ax, [pt_lsx0]
+    mov bx, [pt_wx]
+    cmp ax, bx
+    jle .xok
+    xchg ax, bx
+.xok:
+    and ax, 0xFFF8                  ; the left edge onto the byte grid, which
+    mov [pt_lbx], ax                ; 42.23.4 wants and PT_CV_X = 48 makes free
+    sub bx, ax
+    inc bx
+    mov [pt_lbw], bx                ; ...and the width in pixels, exactly: since
+                                    ; SPEC.md 5.4.2.5 the last partial byte is
+                                    ; merged under a mask, so nothing rounds up
+    mov ax, [pt_lsy0]
+    mov bx, [pt_wy]
+    cmp ax, bx
+    jle .yok
+    xchg ax, bx
+.yok:
+    mov [pt_lby], ax
+    sub bx, ax
+    inc bx
+    cmp bx, 255                     ; gfx_blit1's row ceiling. A segment between
+    ja .slow                        ; two mouse reports is a handful of rows, so
+    mov [pt_lbn], bx                ; this is the impossible case and not a cost
+    add ax, bx
+    dec ax                          ; the band's LAST row is its lowest address
+    call pt_rowset                  ; - the canvas is stored bottom-up, being
+    mov ax, [pt_lbn]                ; the BMP it will be written as - so every
+    dec ax                          ; other row is a POSITIVE offset from there
+    mul word [pt_stride]
+    add ax, di
+    mov bx, [pt_lbx]
+    shr bx, 1
+    shr bx, 1
+    shr bx, 1
+    add ax, bx
+    mov si, ax
+    mov bp, [pt_stride]
+    neg bp                          ; down the picture is up the file
+    mov ax, CWHITE                  ; 42.23.1: a SET bit is white
+    mov ah, CBLACK
+    call OSAPI_GFX_BLIT1_PEN
+    mov cx, [pt_lbw]
+    mov dx, [pt_lbn]
+    mov ax, [pt_lbx]
     add ax, [pt_cx0]
-    mov bx, [pt_lsy0]
+    mov bx, [pt_lby]
     add bx, [pt_cy0]
-    mov cx, [pt_wx]
-    add cx, [pt_cx0]
-    mov dx, [pt_wy]
-    add dx, [pt_cy0]
-    xor si, si                      ; thin: nothing here erases a line drawn in
-    call OSAPI_GFX_LINE             ; segments, so 5.6.5's dilation is not owed
+    call OSAPI_GFX_BLIT1
+    jnc .out                        ; CF = 1 is a NORMAL answer: a kern_small
+.slow:                              ; kernel before SPEC.md 5.4.2.5.1 carries
+    mov ax, [pt_lsx0]               ; the slot and not the body, and pt_blit
+    mov bx, [pt_wx]                 ; already has every other route
+    cmp ax, bx
+    jle .sx
+    xchg ax, bx
+.sx:
+    mov [pt_rx1], ax
+    mov [pt_rx2], bx
+    mov ax, [pt_lsy0]
+    mov bx, [pt_wy]
+    cmp ax, bx
+    jle .sy
+    xchg ax, bx
+.sy:
+    mov [pt_ry1], ax
+    mov [pt_ry2], bx
+    call pt_blit
+.out:
+    pop es
+    pop bp
+    pop di
     pop si
     pop dx
     pop cx
@@ -12675,6 +12763,10 @@ pt_repaint:
                                     ; last W_PAINT's damage rect - which would
                                     ; skip whichever parts that one owed and
                                     ; this one does not (SPEC.md 11.90.2)
+    mov byte [pt_cvnew], 0          ; ...and pt_blit_all below is exactly what
+                                    ; 11.90.3.2's flag was asking for, so a load
+                                    ; that failed before pt_wfollow and came
+                                    ; here instead does not leave one owed
     call pt_fsbed                   ; ...and it lays its own beds now: under
                                     ; WF_OWNBG nothing else does, and this
                                     ; routine's own comment already claimed
@@ -14728,6 +14820,17 @@ pt_adopt:
     call pt_sel_drop
     mov byte [pt_trunc], 0
     mov byte [pt_tred], 0
+    mov byte [pt_cvnew], 1          ; SPEC.md 11.90.3.2: THE CANVAS IS ABOUT TO
+                                    ; BECOME A DIFFERENT PICTURE, and the resize
+                                    ; pt_wfollow asks for at the end of the load
+                                    ; is a shrink or no change more often than
+                                    ; not - for which wm_damage answers the
+                                    ; empty rect, correctly, and pt_blit_dmg
+                                    ; then draws nothing over a canvas whose
+                                    ; every pixel is new. Here rather than at
+                                    ; either caller because this is the one
+                                    ; routine both readers go through, and
+                                    ; because the fact belongs to the CANVAS
     mov ax, [pt_pw]                 ; what the SCREEN can show...
     cmp ax, [pt_cwmax]
     jbe .w_ok
@@ -16521,6 +16624,10 @@ pt_ic_text:
     PTWORD pt_bsi                   ; ...its first canvas row...
     PTWORD pt_bn                    ; ...how many rows it covers...
     PTWORD pt_brmax                 ; ...and the most that fit one segment
+    PTWORD pt_lbx                   ; pt_lnblit: a stroke segment's own band
+    PTWORD pt_lby                   ; (SPEC.md 42.23.8), kept apart from the
+    PTWORD pt_lbw                   ; four above because pt_blit is this
+    PTWORD pt_lbn                   ; routine's own fallback and would eat them
 
     PTWORD pt_ax                    ; the press point, canvas coords
     PTWORD pt_ay
@@ -16990,6 +17097,12 @@ pt_ic_text:
     PTBYTE pt_dmoved                ; SPEC.md 11.90.3: this paint re-laid the
                                     ; content, so the ANCHORED parts owe
                                     ; themselves whatever the damage says
+    PTBYTE pt_cvnew                 ; SPEC.md 11.90.3.2: a LOAD replaced the
+                                    ; picture, so the next paint owes the whole
+                                    ; canvas whatever the damage says - which
+                                    ; is a different question from pt_dmoved's,
+                                    ; because a 448-wide picture into a
+                                    ; 448-wide canvas moves no layout at all
     PTBUF  pt_argp, 1               ; 1 = we were LAUNCHED to open pt_name
                                     ; (SPEC.md 54.5) and the first paint owes
                                     ; the load

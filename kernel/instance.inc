@@ -43,9 +43,23 @@ I_CYC    equ 28                 ; dword: CPU cycles billed to this instance's
                                 ; window callbacks (SPEC.md 8.1), zeroed at
                                 ; alloc; lo word first
 I_RECSZ  equ 32                 ; power of two: index<<5 via CL
+%ifdef KERN_SMALL
+INST_MAX equ 6                  ; SIX running instances on kern_small
+                                ; (SPEC.md 11.102). The SDK's copy STAYS AT
+                                ; 12, on MAX_TASKS' and MEM_MAX's rule: it is
+                                ; SYS_SNAPSHOT_SIZE's input, taskmgr allocates
+                                ; that buffer and osapi_sys_snapshot_x fills
+                                ; it bounded by the KERNEL's figure, so a
+                                ; package built at 12 reading a 6-record
+                                ; snapshot OVER-allocates - which is safe -
+                                ; where shrinking the SDK to match would
+                                ; overflow that buffer on kern_big. One .o88
+                                ; runs on both kernels (SPEC.md 24)
+%else
 INST_MAX equ 12                 ; mirrored in apps/os88api.inc (SPEC.md 20.9
                                 ; buffer sizing) - change together, rebuild
                                 ; every .o88
+%endif
 
 INST_FNSZ equ 13                ; the per-instance Standard File name below:
                                 ; fdlg.inc's FD_NAMEMAX (12) plus the NUL, and
@@ -53,6 +67,7 @@ INST_FNSZ equ 13                ; the per-instance Standard File name below:
                                 ; because this file is included first
 
 KIND_ABOUT   equ 0
+%ifdef KERN_BIG
 KIND_TIMER   equ 1              ; (Note Pad was kind 1 until it became the
 KIND_BOUNCE  equ 2              ;  NOTEPAD package - SPEC.md 27; kind 1 was
                                 ;  the Clock until it gained its buttons and
@@ -63,6 +78,17 @@ KIND_CTRL    equ 4              ; (the Task Manager was kind 4 until it
 KIND_HIBER   equ 5              ; the Hibernate window (SPEC.md 87.1): the
                                 ; confirmation, and the boot-time question.
                                 ; kern_big only
+%else
+; SPEC.md 14.6: Timer and Bounce are not built here, so inst_kinds has two
+; fewer ROWS and every kind above them moves down two. THE INDEX IS THE TABLE
+; POSITION and nothing else - inst_launch multiplies it by KD_SIZE - so these
+; are not free-floating ids that may drift from the rows below.
+; **NOT AN ABI CHANGE**: the SDK publishes only KIND_PKG, bit 7 of SSI_KIND
+; (apps/os88api.inc), and every kernel use of a kind is by NAME, so no package
+; and no shipped .o88 can see this renumbering.
+KIND_FILES   equ 1
+KIND_CTRL    equ 2
+%endif
 KIND_PKG     equ 0x80           ; bit 7: package instance
 
 ; --- osapi_sys_snapshot's buffer, API slot 0x0298 (SPEC.md 20.9) ------------------
@@ -121,6 +147,7 @@ inst_kinds:                     ; indexed by KIND_* * 16; caps are binding
     dw app_tpl_about,  0,               0,             0,   0,                app_ttl_about
     dw inst_ico_about
     db 1, 0                     ; About: stateless singleton
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
     dw app_tpl_timer,  app_tmr_task,    app_tmr_pool,  TMR_SIZE, app_tmr_kinit, app_ttl_timer
     dw inst_ico_timer
     db 10, 0                    ; Timer: 10 x 16-byte time state, one task each
@@ -129,6 +156,7 @@ inst_kinds:                     ; indexed by KIND_* * 16; caps are binding
     dw app_tpl_bounce, app_bounce_task, app_ball_pool, 8,   app_bounce_kinit, app_ttl_bounce
     dw inst_ico_bounce
     db 10, 0                    ; Bounce: 10 x 8-byte ball state, one task each
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
     dw fm_tpl,         0,               fm_pool,       FS_SIZE,  fm_kinit,     fm_ttl
     dw inst_ico_disk
     db VIEW_SLOTS, WF_SIZABLE   ; Disk: FOUR windows, each with its own
@@ -203,6 +231,7 @@ inst_ico_about:
     dw 0x0000
     dw 0x0000
     dw 0x0000
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 
 ; inst_ico_timer - a stopwatch: crown on top, hands at 12 and 3
 ;   ......####......
@@ -305,6 +334,7 @@ inst_ico_bounce:
     dw 0x0000
     dw 0x7FFE
     dw 0x0000
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
 
 ; inst_ico_disk - a folder: the Disk window browses a volume, so it is
 ; the browser that gets an icon here, not the drive - desk.inc
@@ -437,6 +467,55 @@ inst_init:
     retf                        ; FAR: kmain reaches this through OVLGATE1
 section .text
 
+; -----------------------------------------------------------------------------
+; inst_of_seg - which live package instance is running at this segment?
+; in:  BX = a segment
+; out: CF = 0, DI = the first live KIND_PKG record whose I_SPTR matches;
+;      CF = 1 = none does (DI = one past the table)
+; clobbers: DI (the output), flags. CX is banked.
+;
+; Two routines asked this - inst_parksafe_set of the caller's own ES, and
+; inst_seg_parked of a candidate block - and neither could say it directly.
+;
+; IT SITS ABOVE THE OS88_COMPACT GATE, and it used to sit inside it: both of
+; those callers are the worker park's, so it was the compactor's routine by
+; accident of who asked first. mem_own's second arm (SPEC.md 66.6.2) is the
+; third caller and has nothing to do with compaction - it is what answers for
+; a RE-HOMED package, whose segment is not its claim's base (20.12.10) - and
+; the re-home is a memory feature, so refusing it on the memory-constrained
+; kernel would be backwards. kern_small pays this routine's bytes and gets a
+; loader that frees its own region.
+; -----------------------------------------------------------------------------
+inst_of_seg:
+    push cx
+    mov di, inst_tab
+    mov cx, INST_MAX
+.scan:
+    cmp byte [di+I_STATE], 0
+    je .next
+    test byte [di+I_KIND], KIND_PKG
+    jz .next
+    cmp [di+I_SPTR], bx
+    je .hit
+.next:
+    add di, I_RECSZ
+    loop .scan
+    pop cx
+    stc
+    ret
+.hit:
+    pop cx
+    clc
+    ret
+
+
+%ifdef OS88_COMPACT             ; THE WORKER PARK (SPEC.md 66.5) IS THE
+                                ; COMPACTOR'S, and on kern_small there is no
+                                ; compactor to park FOR (SPEC.md 66.0). Thirteen
+                                ; routines go with it; the three API slots
+                                ; below it are re-declared as refusals, because
+                                ; a small-built package calls the same table at
+                                ; the same offsets
 ; -----------------------------------------------------------------------------
 ; inst_park_wait - hold this worker still while the heap is compacted
 ; in:  DI = the calling worker's own instance record
@@ -578,38 +657,6 @@ inst_park_me:
 .no:
     pop ax
     stc
-    ret
-
-; -----------------------------------------------------------------------------
-; inst_of_seg - which live package instance is running at this segment?
-; in:  BX = a segment
-; out: CF = 0, DI = the first live KIND_PKG record whose I_SPTR matches;
-;      CF = 1 = none does (DI = one past the table)
-; clobbers: DI (the output), flags. CX is banked.
-;
-; Two routines asked this - inst_parksafe_set of the caller's own ES, and
-; inst_seg_parked of a candidate block - and neither could say it directly.
-; -----------------------------------------------------------------------------
-inst_of_seg:
-    push cx
-    mov di, inst_tab
-    mov cx, INST_MAX
-.scan:
-    cmp byte [di+I_STATE], 0
-    je .next
-    test byte [di+I_KIND], KIND_PKG
-    jz .next
-    cmp [di+I_SPTR], bx
-    je .hit
-.next:
-    add di, I_RECSZ
-    loop .scan
-    pop cx
-    stc
-    ret
-.hit:
-    pop cx
-    clc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -874,6 +921,25 @@ inst_task_park:
 
 
 
+%else
+; -----------------------------------------------------------------------------
+; THE PARK'S API SLOTS, on a kernel with nothing to park for (SPEC.md 66.0)
+;
+; The slots stay and the bodies do not. Each is a promise a package may make
+; and this kernel has no use for, so each is a `ret` that keeps the slot's
+; register contract - and every caller in the tree already treats all three as
+; advisory: `crt0.asm` calls OSAPI_MEM_MOVABLE and throws the answer away in as
+; many words, and SPEC.md 66.5.1's declaration is a WIDENING of what the
+; compactor may do rather than something a package needs to work.
+; -----------------------------------------------------------------------------
+inst_parksafe_set:              ; 0x0408 - AL = 1 declare / 0 withdraw
+inst_restart_set:               ; 0x0518 - AX = a near offset in your own code
+inst_task_park:                 ; 0x0410 - a driver worker's park point
+    ret                         ; ONE body for the three: all three promise
+                                ; every register and the flags back, and
+                                ; nothing here is asked for an answer
+%endif                          ; OS88_COMPACT
+
 inst_ptr:
     push ax
     push cx
@@ -1043,6 +1109,7 @@ inst_alloc:
     pop di
     pop ax
     call inst_fhome_clr         ; ...nor its Standard File location (38.10)
+%ifdef OS88_COMPACT
     push bx                     ; ...nor a dead instance's PARKSAFE (66.5.4):
     call inst_fhome_idx         ; the byte is a side table keyed by slot, and
     push bx                     ; ...and the restart point with it (SPEC.md
@@ -1051,7 +1118,9 @@ inst_alloc:
     pop bx                      ; offset would re-enter a new one at it
     mov byte [bx+inst_parksafe], 0 ; a package that never declared it must
     pop bx                      ; not be parked in gfx_lock because the last
-    clc                         ; tenant of its slot said so
+%endif                          ; tenant of its slot said so - and neither
+                                ; table exists on kern_small
+    clc
 .out:
     pop cx
     ret
@@ -2115,10 +2184,12 @@ inst_pkg_alive:
     cmp byte [di+I_STATE], 1    ; 2 = close requested, 0 = already gone
     jne .die
 .live:
+%ifdef OS88_COMPACT
 %ifndef NOPARK
     cmp byte [inst_parkreq], 0  ; THE COMPACTION PARK (SPEC.md 66.5). This is
     je .out                     ; the one call rule 2 already makes mandatory
     call inst_park_wait         ; once per outer loop, and therefore the one
+%endif
 %endif
 .out:                           ; point at which a worker is known to hold no
     pop di                      ; pointer derived from any claim of its own -
@@ -2404,6 +2475,7 @@ inst_fname:  resb INST_MAX * INST_FNSZ  ; ...and the name it picked there,
 
 inst_parkreq: resb 1            ; SPEC.md 66.5: the compactor is asking every
                                 ; package worker to stand still
+%ifdef OS88_COMPACT
 inst_parksafe: resb INST_MAX    ; ...and which instances said the kernel may
                                 ; park them while they are BLOCKED IN IT, not
                                 ; only at OSAPI_TASK_ALIVE (SPEC.md 66.5.4).
@@ -2423,6 +2495,9 @@ sch_parked:   resb MAX_TASKS    ; ...and which TASKS have. PER TASK and not per
                                 ; has T_INST = 0xFF and no record to be parked
                                 ; in, and an instance can have a package worker
                                 ; and a driver's stream task at once
+%endif                          ; OS88_COMPACT - all three are the park's, and
+                                ; sch_parked is here rather than in sched.inc
+                                ; because the park is what writes it
 
 inst_launch: resw 1             ; deferred launch: 0 = none, else kind + 1
 inst_knd:    resb 1             ; app_launch scratch: kind being launched

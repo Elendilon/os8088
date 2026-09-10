@@ -64,8 +64,8 @@ def say(*a):
 # next edit of it makes wrong. THE SOURCE AND NOT build/readme-plain.txt: the
 # Makefile writes CRLF onto the disk and np_load FOLDS it straight back off
 # (SPEC.md 27.11), so what Note Pad ends up holding is the LF file byte for
-# byte - 16,019 where the disk file is 16,334. Which makes this a better
-# assertion than a length: 315 carriage returns had to arrive to be dropped.
+# byte - 14,427 where the disk file is 14,722. Which makes this a better
+# assertion than a length: 295 carriage returns had to arrive to be dropped.
 PLAIN = "readme.txt"
 
 
@@ -73,11 +73,12 @@ def readme(m, mo, before, fails):
     """README.TXT, off the SHIPPED system disk, opened by a double-click.
 
     SPEC.md 20.14.2.1's case and the one a fixture cannot be: Note Pad claims
-    NP_MAXKB = 16,384 bytes for a document the machine reports as 16,334, and
-    in-place expansion wants 16,413 of them. The kernel takes a scratch claim
-    rather than answering FERR_BIG, and `np_len` is what says it worked - a
-    window with a title and an empty note looks identical to a window with the
-    file in it, at every zoom.
+    NP_MAXKB = 16,384 bytes for a document the machine reports as 14,722. It
+    was 16,334 with an in-place expansion wanting 16,413 when the field saw
+    'Too big' on a file the machine had just reported as fitting; the margin
+    is gone (SPEC.md 20.13.7) and the manual is smaller, and `np_len` is
+    still what says it worked - a window with a title and an empty note looks
+    identical to a window with the file in it, at every zoom.
     """
     want = os.path.getsize(os.path.join(
         os.path.dirname(__file__), "..", PLAIN))

@@ -201,42 +201,49 @@ cs_matrix:
     mov [cs_ny], ax
     mov ax, [cs_m + 14]
     mov [cs_nz], ax
+    call cs_eyeshift                ; ...and the eye, pre-shifted (88.5.6.3)
     ret
 
 ; -----------------------------------------------------------------------------
-; cs_rot - AX/BX/CX = a vector; out AX/BX/CX = M times it. Clobbers DX, SI, DI.
+; cs_rot - AX/BX/CX = a vector; out AX/BX/CX = M times it. Clobbers DX, SI,
+;          DI and BP - nothing from cs_scene down holds a value in BP.
+;
+; The vector used to be parked in cs_rvx/y/z and a cs_dot call read it back
+; three times a row, three rows: NINE loads, three call/rets and an
+; `add si, 6` a row around nine MUL14 (88.5.6.4).
 ; -----------------------------------------------------------------------------
-cs_rot:
-    mov [cs_rvx], ax
-    mov [cs_rvy], bx
-    mov [cs_rvz], cx
-    mov si, cs_m
-    call cs_dot
-    mov [cs_rox], ax
-    call cs_dot
-    mov [cs_roy], ax
-    call cs_dot
-    mov cx, ax
-    mov ax, [cs_rox]
-    mov bx, [cs_roy]
-    ret
-
-; cs_dot - SI = three matrix words; out AX = their dot with cs_rv*, SI += 6.
-; Clobbers BX, DX, DI.
-cs_dot:
-    mov ax, [cs_rvx]
-    mov bx, [si]
+; ONE ROW OF IT (88.5.6.4): %1 = the row's byte offset into cs_m. The vector
+; is in CX/SI/BP and stays there for all three rows - MUL14 is `imul bx`, so
+; the MULTIPLICAND has to be AX and the matrix element is what varies, which
+; is the opposite of cs_flatverts' arrangement and is why the vector wants
+; three registers of its own rather than one.
+%macro CS_ROTROW 1
+    mov ax, cx
+    mov bx, [cs_m + %1]
     MUL14
     mov di, ax
-    mov ax, [cs_rvy]
-    mov bx, [si+2]
+    mov ax, si
+    mov bx, [cs_m + %1 + 2]
     MUL14
     add di, ax
-    mov ax, [cs_rvz]
-    mov bx, [si+4]
+    mov ax, bp
+    mov bx, [cs_m + %1 + 4]
     MUL14
     add ax, di
-    add si, 6
+%endmacro
+
+cs_rot:
+    mov si, bx                      ; SI = y
+    mov bp, cx                      ; BP = z
+    mov cx, ax                      ; CX = x
+    CS_ROTROW 0
+    push ax                         ; the two finished rows park on the STACK,
+    CS_ROTROW 6                     ; a byte and a clock cheaper each way than
+    push ax                         ; the bss words they used to
+    CS_ROTROW 12
+    mov cx, ax
+    pop bx
+    pop ax
     ret
 
 ; cs_colscale - AX = a scalar, SI = the matrix column's first word, DI = three
@@ -412,6 +419,7 @@ cs_project2:
 cs_project4:
     CS_PROJ 4, 2000, 15
 cs_projtab: dw cs_project0, cs_project2, cs_project4
+cs_pshtab:  dw cs_psh, cs_psh + 6, cs_psh + 12   ; the eye pre-shifted (88.5.6.3)
 
     ; --- under the table's floor: a ground polygon's near plane is 4 m
     ;     (88.5.5), where k would not fit a word, so the two divides are
@@ -514,24 +522,35 @@ cs_scale:
     xor bh, bh
     mov ax, [cs_projtab + bx]       ; 0, 2, 4 are the table's byte offsets
     mov [cs_projp], ax
-    ; --- the origin from the 16.8 eye, at the scale ------------------------
-    mov bx, [cs_obj]
+    mov ax, [cs_pshtab + bx]        ; ...and the eye already shifted for it
+    mov [cs_pshp], ax
+    ; --- the origin from the 16.8 eye, at the scale. THE SHIFT DISTRIBUTES
+    ;     (88.5.6.3), so what used to be three cs_sdiff calls - each building
+    ;     a 32-bit `coordinate * 256`, subtracting the 32-bit position and
+    ;     shifting the pair down 8 - pshr - is a `shl` and a word subtract
+    ;     from the eye cs_eyeshift pre-shifted once for the whole frame ----
+    mov cl, [cs_pshr]               ; ...and the count is loaded ONCE for the
+    mov si, [cs_pshp]               ; three, where the ladder inside cs_sdiff
+    mov bx, [cs_obj]                ; ran per call for a per-OBJECT answer
     mov ax, [bx + CSO_X]
-    mov si, cs_px
-    call cs_sdiff
+    shl ax, cl
+    sub ax, [si]
     push ax
     mov ax, [bx + CSO_Z]
-    mov si, cs_pz
-    call cs_sdiff
+    shl ax, cl
+    sub ax, [si + 4]
     push ax
     mov ax, [bx + CSO_Y]
-    mov si, [cs_plane]
-    sub ax, [si + CSP_EYE]          ; the eye is that much above the wheels
-    mov si, cs_py
-    call cs_sdiff
+    mov bx, [cs_plane]              ; (the object's fields are all read now)
+    sub ax, [bx + CSP_EYE]          ; the eye is that much above the wheels
+    shl ax, cl
+    sub ax, [si + 2]
     mov bx, ax
     pop cx
     pop ax
+    mov [cs_odx], ax                ; the offset in WORLD axes, before the
+    mov [cs_ody], bx                ; rotation: cs_axcull's input (88.5.12)
+    mov [cs_odz], cx
     call cs_rot
     mov [cs_scx], ax
     mov [cs_scy], bx
@@ -552,39 +571,55 @@ cs_nearat:
     mov [cs_near], ax
     ret
 
-; cs_sdiff - AX = a whole-metre coordinate, SI -> a 16.8 position: out AX =
-;            (coordinate - position) in 1/2^[cs_pshr] metres. Clobbers CX, DX
-cs_sdiff:
-    mov dx, ax                      ; DX:AX = the coordinate, 16.8: the high
-    mov al, ah                      ; byte sign-extended up, the low one
-    cbw                             ; moved up (an `imul` by 256 was 145
-    xchg ax, dx                     ; cycles of this, three times an object)
-    mov ah, al
-    xor al, al
-    sub ax, [si]
-    sbb dx, [si + 2]
-    mov cl, [cs_pshr]               ; ...shifted down 8 - pshr: 4, 6 or 8,
-    cmp cl, 4                       ; unrolled (a loop of `sar`/`rcr` paid
-    je .s4                          ; 20 cycles a step in its own count)
-    cmp cl, 2
-    je .s6
-    mov al, ah                      ; whole metres: the middle two bytes
-    mov ah, dl
-    ret
-.s6:
+; -----------------------------------------------------------------------------
+; cs_eyeshift - the eye's position pre-shifted for each of the three scales
+;               (SPEC.md 88.5.6.3), nine words, once a frame
+;
+; cs_scale used to build `coordinate * 256` as a 32-bit value, subtract the
+; 16.8 position from it and shift the pair down 8 - pshr, three times an
+; OBJECT. The shift DISTRIBUTES, and exactly rather than approximately:
+; coordinate * 256 is divisible by 2^s, so
+;
+;     (c * 256 - p) >> s  ==  (c << (8 - s))  -  ceil(p / 2^s)
+;
+; for every c and p, and `ceil(p / 2^s)` is `sar(p + 2^s - 1, s)` - which
+; depends on the FRAME and not on the object. Nine of those a frame here
+; against three 32-bit builds and shifts per object there, and what is left
+; at the call site is `shl ax, cl` and a word subtract.
+;
+; `c << pshr` can overflow a word and that is allowed: the ladder guarantees
+; the DIFFERENCE fits, and two's complement arithmetic mod 65536 gives the
+; same low word either way - which is exactly what the 32-bit form did when
+; it took AX and threw DX away.
+; -----------------------------------------------------------------------------
+%macro CS_EYESH 1                   ; %1 = s, the shift for this scale
+    mov si, cs_px
+    mov cx, 3                       ; x, y, z - three consecutive ZDWORDs
+%%a:
+    mov ax, [si]
+    mov dx, [si + 2]
+    add ax, (1 << %1) - 1           ; ...the ceiling, before the shift
+    adc dx, 0
+%if %1 == 8
+    mov al, ah                      ; a shift of eight is the middle two
+    mov ah, dl                      ; bytes, which cs_sdiff knew as well
+%else
+%rep %1
     sar dx, 1
     rcr ax, 1
-    sar dx, 1
-    rcr ax, 1
-.s4:
-    sar dx, 1
-    rcr ax, 1
-    sar dx, 1
-    rcr ax, 1
-    sar dx, 1
-    rcr ax, 1
-    sar dx, 1
-    rcr ax, 1
+%endrep
+%endif
+    mov [di], ax
+    add di, 2
+    add si, 4
+    loop %%a
+%endmacro
+
+cs_eyeshift:
+    mov di, cs_psh
+    CS_EYESH 8                      ; whole metres...
+    CS_EYESH 6                      ; ...quarters...
+    CS_EYESH 4                      ; ...sixteenths
     ret
 
 ; =============================================================================
@@ -597,6 +632,11 @@ cs_sdiff:
 ; -----------------------------------------------------------------------------
 cs_scene:
     mov word [cs_nvisn], 0
+    mov bl, [cs_setlod]             ; the Detail rung's SCALE is the frame's,
+    xor bh, bh                      ; and cs_range looked it up once an object
+    shl bx, 1                       ; - a table index and a push pair for an
+    mov bx, [cs_lodscl + bx]        ; answer that cannot change inside a frame
+    mov [cs_lodsc], bx
     mov si, cs_rwobj                ; the runway first...
     call cs_consider
     mov bx, [cs_airport]            ; ...then the PICKED LOCATION'S world
@@ -1063,11 +1103,10 @@ cs_consider:
     jae .far
     add ax, bx
     mov [cs_ddm], ax                ; the reach cs_scale wants is this + |dy|
-    push ax
     call cs_range                   ; AX = this object's range AT THIS DETAIL
     mov bx, ax                      ; (88.13.2), which is its own at Moderate
-    pop ax
-    sub ax, bx
+    mov ax, [cs_ddm]                ; (it was pushed round the call; the word
+    sub ax, bx                      ;  it was just stored in is cheaper)
     jbe .inrange
     ; --- out of range by AX metres: not looked at again for AX/16 ticks.
     ;     The aeroplane covers under 5 m a tick at VMAX, so the margin is
@@ -1191,18 +1230,22 @@ cs_consider:
     shl di, 1
     shl di, 1
     add di, cs_vkey                 ; DI = the new key's slot
+    ; The shift walks DOWN, so the source is the destination less four and
+    ; needs no register of its own: [di-4] and [di-2] address it, the load
+    ; the compare already makes IS the word the shift stores, and `sub di, 4`
+    ; at the bottom replaces the pair that maintained SI. 26 bytes against 29
+    ; and 116 cycles a shift against 131 - a held bank does 67 of them over
+    ; 15 filed objects, so it is 0.21 ms a frame (SPEC.md 88.5.2.3).
 .ins:
     cmp di, cs_vkey
     je .place
-    mov si, di
-    sub si, 4
-    cmp [si], cx                    ; the key above holds a NEARER object:
-    jge .place                      ; it stays; else it moves down
-    mov ax, [si]
+    mov ax, [di-4]                  ; the key above holds a NEARER object:
+    cmp ax, cx                      ; it stays; else it moves down, and the
+    jge .place                      ; word compared is the word moved
     mov [di], ax
-    mov ax, [si+2]
+    mov ax, [di-2]
     mov [di+2], ax
-    mov di, si
+    sub di, 4
     jmp short .ins
 .place:
     mov [di], cx
@@ -1224,35 +1267,28 @@ cs_consider:
 cs_lodscl: dw 154, 256, 410, 512
 cs_range:
     mov ax, [si + CSO_RANGE]
-    push bx
-    mov bl, [cs_setlod]
-    cmp bl, CSL_NEAR
+    cmp byte [cs_setlod], CSL_NEAR
     jne .scale
     test word [si + CSO_FLAGS], CSO_POI
-    jz .scale
-    pop bx                          ; a landmark keeps every metre of it
-    ret
+    jnz .out                        ; a landmark keeps every metre of it
 .scale:
-    xor bh, bh
-    shl bx, 1
-    mul word [cs_lodscl + bx]
+    cmp word [cs_lodsc], 256        ; MODERATE is the rung the simulator ships
+    je .out                         ; on and its scale is ONE: the multiply is
+    mul word [cs_lodsc]             ; an identity, and an 8086 imul is ~130
     mov al, ah                      ; (DX:AX) >> 8, and no range x 410 can
     mov ah, dl                      ; overflow it - 16,000 is the largest
-    pop bx
+.out:
     ret
 
 cs_lodat:
     mov ax, [si + CSO_LOD]
     or ax, ax
     jz .none                        ; 0 means "no far model", not "at zero"
-    push bx
-    mov bl, [cs_setlod]
-    xor bh, bh
-    shl bx, 1
-    mul word [cs_lodscl + bx]
+    cmp word [cs_lodsc], 256        ; ...the same identity (88.5.2.1)
+    je .none
+    mul word [cs_lodsc]
     mov al, ah
     mov ah, dl
-    pop bx
 .none:
     ret
 
@@ -1412,7 +1448,13 @@ cs_drawobj:
     call cs_projall
 .full:
     call cs_wireclr                 ; the edges-once marks are an OBJECT's, and
+%ifdef CSPROBE
+    mov byte [cs_dbg_fobj], 0
+%endif
     call cs_faces                   ; a vertex index means nothing across two
+%ifdef CSPROBE
+    call cs_probe_objend            ; ...and how many vertices went unwanted?
+%endif
     ; --- a solid under CS_EDGEPX pixels across keeps no outline: twelve
     ;     segments round a fifteen-pixel box cost more than the box, and at
     ;     that size the walls' patterns already tell them apart. A wireframe
@@ -1541,8 +1583,9 @@ cs_boxlod:
     add cx, [cs_col1 + 4]
     cmp cx, CS_NEAR
     jl .out
-    call cs_project0                ; the top
-    mov [cs_by0], bx
+    call cs_project0                ; the top - BOTH of it (SPEC.md 88.5.4.6),
+    mov [cs_bx1], ax                ; because under bank the up axis leans
+    mov [cs_by0], bx                ; and its x is where the lean is
     mov ax, [cs_ocx]
     add ax, [cs_bw]
     mov bx, [cs_ocy]
@@ -1552,16 +1595,29 @@ cs_boxlod:
     jg .w
     mov ax, 1                       ; a pixel at least
 .w:
-    mov cx, [cs_bx0]
-    add cx, ax                      ; CX = x1
-    neg ax
-    add ax, [cs_bx0]                ; AX = x0
-    mov bx, [cs_by0]
-    mov dx, [cs_by1]
-    cmp bx, dx
-    jle .y
-    xchg bx, dx                     ; seen from below: the top is lower
-.y:
+    ; --- THE IMPOSTOR BANKS WITH THE WORLD (SPEC.md 88.5.4.6). The width is
+    ;     projected along the CAMERA's x, so its MAGNITUDE is right at any
+    ;     bank and only its direction is wrong; the screen-space horizontal
+    ;     is (cos r, -sin r) EXACTLY, because the up vector in camera space
+    ;     is the matrix's second column (m01, m11) = cos p (-sin r, cos r)
+    ;     and its perpendicular's own cos p divides out. So it is the
+    ;     frame's own sine and cosine and one multiply an axis - no square
+    ;     root, and nothing per object that is not already here.
+    mov [cs_bwp], ax
+    imul word [cs_cosr]             ; R = w (cos r, -sin r), ROUNDED: a
+    add ax, 1 << 14                 ; half-width is six pixels and a
+    adc dx, 0                       ; truncated 6 x 32767 >> 15 is five
+    shl ax, 1
+    rcl dx, 1
+    mov [cs_brx], dx
+    mov ax, [cs_bwp]
+    imul word [cs_sinr]
+    add ax, 1 << 14
+    adc dx, 0
+    shl ax, 1
+    rcl dx, 1
+    neg dx                          ; screen y grows DOWNWARD (88.5.4)
+    mov [cs_bry], dx
     ; --- AND REFUSE ONE THAT IS NOT SMALL (SPEC.md 88.5.4.1). The gate that
     ;     sent us here is on CSM_RAD, an ESTIMATE of the object's reach and
     ;     not the height of the rectangle actually drawn - which is the whole
@@ -1583,27 +1639,114 @@ cs_boxlod:
     ;     already drawn as the impostor keeps it until it grows CS_LODHYST
     ;     past them, so one sitting on the boundary does not change shape
     ;     every few metres.
+    ;     AND BOTH BOUNDS ARE THE BOX'S OWN, not the rectangle's bounding
+    ;     box (88.5.4.6): a banked impostor's box grows with the bank - a
+    ;     6 x 26 one is 23 x 27 at 45 degrees - so testing that would send a
+    ;     building to the polygon path for rolling, and back for levelling
+    ;     out. The width is the projected half-width doubled, and the height
+    ;     the LENGTH of the up axis rather than its vertical part, which is
+    ;     what shrank by cos r and made the building squat as it banked.
     mov di, [cs_obj]
     test word [di + CSO_FLAGS], CSO_BOXED
     mov di, 0                       ; ...the slack it has earned
     jz .lim
     mov di, CS_LODHYST
 .lim:
-    mov si, cx
-    sub si, ax
+    mov si, [cs_bwp]
+    shl si, 1
     sub si, di
     cmp si, CS_LODPX
     jg .out                         ; too wide...
-    mov si, dx
-    sub si, bx
-    sub si, di
-    cmp si, CS_LODTALL
+    mov ax, [cs_bx1]
+    sub ax, [cs_bx0]
+    jge .dx
+    neg ax
+.dx:
+    mov bx, [cs_by1]
+    sub bx, [cs_by0]
+    jge .dy
+    neg bx
+.dy:
+    cmp ax, bx                      ; |up2| as max + min/2: 0 to +6% of a
+    jae .mx                         ; length, against a bound that carries
+    xchg ax, bx                     ; CS_LODHYST of slack anyway - where a
+.mx:                                ; square root would be 200 cycles for a
+    shr bx, 1                       ; threshold nobody measures
+    add ax, bx
+    sub ax, di
+    cmp ax, CS_LODTALL
     jg .out                         ; ...or too tall
-    push ax
+    ; --- WINGS LEVEL: THE OLD RECTANGLE, and BYTE FOR BYTE the old picture
+    ;     (SPEC.md 88.5.4.7). With R horizontal the impostor's two caps are
+    ;     horizontal too, and the shape cs_rect draws differs from the quad
+    ;     only by the top's own LEAN - one or two pixels of the perspective
+    ;     the polygon path shows and this one has always squared off. The
+    ;     reported defect is a BANKED one, so level flight keeps the
+    ;     rectangle and pays nothing at all: no four edges traced, and none
+    ;     of cs_poly's own per-polygon setup.
+    mov cx, [cs_brx]
+    mov dx, [cs_bry]
+    or dx, dx
+    jnz .quad
     mov al, CSI_WALL
     call cs_setink
-    pop ax
+    mov ax, [cs_bx0]
+    mov cx, ax
+    sub ax, [cs_brx]
+    add cx, [cs_brx]
+    mov bx, [cs_by0]
+    mov dx, [cs_by1]
+    cmp bx, dx
+    jle .rect
+    xchg bx, dx                     ; seen from below: the top is lower
+.rect:
     call cs_rect
+    jmp short .done
+    ; --- the four corners, into cs_pv. That is the FACE buffer and it is
+    ;     dead here: an impostor returns before cs_stackverts and a refusal
+    ;     goes to cs_faces, which rebuilds it per face. The order puts the
+    ;     rising edge on the left, which is cs_pwind = 0.
+.quad:
+    mov ax, [cs_bx0]
+    mov bx, [cs_by1]                ; the base
+    mov si, ax
+    add si, cx
+    mov [cs_pv + 0], si             ; v0 = base + R
+    mov si, bx
+    add si, dx
+    mov [cs_pv + 2], si
+    sub ax, cx
+    sub bx, dx
+    mov [cs_pv + 12], ax            ; v3 = base - R
+    mov [cs_pv + 14], bx
+    mov ax, [cs_bx1]
+    mov bx, [cs_by0]                ; the top
+    mov si, ax
+    add si, cx
+    mov [cs_pv + 4], si             ; v1 = top + R
+    mov si, bx
+    add si, dx
+    mov [cs_pv + 6], si
+    sub ax, cx
+    sub bx, dx
+    mov [cs_pv + 8], ax             ; v2 = top - R
+    mov [cs_pv + 10], bx
+    mov byte [cs_pwind], 0
+    mov ax, [cs_by0]
+    cmp ax, [cs_by1]
+    jle .wind
+    mov byte [cs_pwind], 1          ; seen from below: the top is lower, and
+.wind:                              ; the list runs the other way round
+    mov byte [cs_pwhole], 0         ; the impostor marks its own rows, where
+                                    ; cs_rect always did (88.4.4)
+    ; --- (this shape's own exemption from the sentinel pass is gone with
+    ;     the pass itself - SPEC.md 88.4.2.2 retires it for every polygon)
+    mov al, CSI_WALL
+    call cs_setink
+    mov si, cs_pv
+    mov cx, 4
+    call cs_poly
+.done:
     mov di, [cs_obj]
     or word [di + CSO_FLAGS], CSO_BOXED
     mov al, [cs_bshr]
@@ -1714,58 +1857,78 @@ cs_stackverts:
 
 ; -----------------------------------------------------------------------------
 ; cs_flatverts - a FLAT model's (x, z) pairs: C + x M0 + z M2, six multiplies
+;
+; The six are all that has to be here, and for a long time they were about
+; half of what it cost: the columns went through cs_colscale, which WRITES
+; ITS THREE WORDS TO MEMORY, and the caller then read all six back and added
+; them - eight push/pops, two call/rets and twelve memory round-trips a
+; vertex around 900 cycles of arithmetic (88.5.6.2).
+;
+; What deletes the lot is which register the scalar sits in. MUL14 is
+; `imul bx`, so it clobbers AX and DX and LEAVES BX ALONE - put the scalar
+; in BX and the matrix element in AX (a multiply is commutative, so the
+; product is the same bit for bit) and one scalar serves all three of its
+; multiplies with no save at all. CL then holds [cs_pshr] for the whole
+; routine rather than being reloaded twice a vertex, BP is the counter, and
+; each product lands straight in its output word: the x column STORES and
+; the z column ADDS INTO the same word. cs_col0/cs_col2 are not touched.
 ; -----------------------------------------------------------------------------
 cs_flatverts:
     mov si, [cs_mdl]
-    mov cl, [si + CSM_NV]
-    xor ch, ch
-    mov [cs_nv], cx
+    mov bl, [si + CSM_NV]
+    xor bh, bh
+    mov [cs_nv], bx
+    mov bp, bx                      ; BP = the vertices left
     mov si, [si + CSM_VERTS]
     xor di, di
-.v:
-    push cx
-    push si
-    push di
     mov cl, [cs_pshr]               ; the pair at the object's scale (88.5.6)
-    mov ax, [si]
-    shl ax, cl
-    mov si, cs_m
-    mov di, cs_col0
-    call cs_colscale
-    pop di
-    pop si
-    push si
-    push di
-    mov cl, [cs_pshr]
-    mov ax, [si+2]
-    shl ax, cl
-    mov si, cs_m + 4
-    mov di, cs_col2
-    call cs_colscale
-    pop di
-    mov ax, [cs_scx]
-    add ax, [cs_col0]
-    add ax, [cs_col2]
-    mov [cs_cxv + di], ax
-    mov ax, [cs_scy]
-    add ax, [cs_col0 + 2]
-    add ax, [cs_col2 + 2]
-    mov [cs_cyv + di], ax
-    mov ax, [cs_scz]
-    add ax, [cs_col0 + 4]
-    add ax, [cs_col2 + 4]
-    mov [cs_czv + di], ax
-    add di, 2
-    pop si
-    add si, 4
+%ifdef CSPROBE
+    mov byte [cs_dbg_fvfirst], 1    ; the first vertex has no predecessor
+%endif
+.v:
+%ifdef CSPROBE
+    push cx
+    call cs_probe_fv
     pop cx
-    loop .v
+%endif
+    mov bx, [si]                    ; --- x M0, into the three outputs -------
+    shl bx, cl
+    mov ax, [cs_m]
+    MUL14
+    add ax, [cs_scx]
+    mov [cs_cxv + di], ax
+    mov ax, [cs_m + 6]
+    MUL14
+    add ax, [cs_scy]
+    mov [cs_cyv + di], ax
+    mov ax, [cs_m + 12]
+    MUL14
+    add ax, [cs_scz]
+    mov [cs_czv + di], ax
+    mov bx, [si + 2]                ; --- z M2, added into them --------------
+    shl bx, cl
+    mov ax, [cs_m + 4]
+    MUL14
+    add [cs_cxv + di], ax
+    mov ax, [cs_m + 10]
+    MUL14
+    add [cs_cyv + di], ax
+    mov ax, [cs_m + 16]
+    MUL14
+    add [cs_czv + di], ax
+    add di, 2
+    add si, 4
+    dec bp
+    jnz .v
     ret
 
 ; -----------------------------------------------------------------------------
 ; cs_projall - project every vertex in front of the near plane, flag the rest
 ; -----------------------------------------------------------------------------
 cs_projall:
+%ifdef CSPROBE
+    call cs_probe_pv                ; ...and could ANY of these be skipped?
+%endif
     mov byte [cs_pwhole], 0
     mov byte [cs_pinview], 0
     mov cx, [cs_nv]
@@ -1965,6 +2128,109 @@ cs_projall:
     ret
 
 ; -----------------------------------------------------------------------------
+; cs_axcull - is this STACK face pointing AWAY from the eye? (SPEC.md 88.5.12)
+;
+; The winding test (88.5.10) is exact and stays the authority, but it is taken
+; from the face's PROJECTED points - so a face it throws away has already been
+; counted, gathered into cs_pv and paid two `imul`s. 29-60% of walked faces are
+; thrown away that way.
+;
+; This decides the same thing FIRST and with NO MULTIPLY AT ALL. A side face of
+; an untapered level pair is an axis-aligned plane in WORLD space, so "the eye
+; is behind it" is one compare against the eye's own world position - and
+; cs_scale already has that offset, because the rotation's input IS it. (The
+; roundabout way to see the same thing: the face's outward normal in camera
+; space is a column of M, and dot(M0, C) = dot(M x, M d) = d.x for an
+; orthonormal M, so the camera-space dot product a normal test would take
+; reduces to the world offset that was there before the rotation.)
+;
+; It REFUSES rather than guesses, and every refusal falls through to the
+; winding: a TAPERED level pair tilts the plane (a pyramid, a dome's cap, a
+; setback), a face with no axis flag is not a stack side or cap, and CSF_NOCULL
+; is left alone.
+;
+; in:  [cs_fflags], [cs_fidx], [cs_mdl], [cs_odx/ody/odz], [cs_pshr]
+; out: CF = 1 the face points away and may be skipped whole. Clobbers
+;      AX, BX, CX, DX, DI - and PRESERVES SI, which is load-bearing: the
+;      caller falls through to `.cnt`, and that arm walks the face's indices
+;      with `lodsb` FROM THE SI IT ALREADY HAS. `.plain` reloads SI from
+;      [cs_fidx] and `.cnt` does not, so clobbering it here is invisible on
+;      every object that is WHOLE (88.3.2) and corrupts the near/side count
+;      on every object that is not - which is a handful of river pieces in
+;      one scene, drawn wrong in a 32x6 patch. The pixel A/B caught it; the
+;      verdict audit could not, both tests agreeing about a face whose
+;      indices were then read from the wrong place.
+; -----------------------------------------------------------------------------
+cs_axcull:
+    push si
+    mov dl, [cs_fflags]
+    test dl, CSF_NOCULL             ; a ground polygon is drawn either way
+    jnz .no
+%ifdef CSPROBE
+    and dl, [cs_axmask]             ; BISECT: one family of faces at a time
+%endif
+    test dl, CSF_AXES
+    jz .no
+    mov si, [cs_fidx]               ; the level: every one of the five faces
+    mov bl, [si]                    ; leads with an index in its own base
+    xor bh, bh                      ; level, so index >> 2 names it
+    shr bx, 1
+    shr bx, 1
+    mov si, [cs_mdl]
+    mov si, [si + CSM_VERTS]
+    mov ax, bx
+    shl bx, 1
+    add bx, ax
+    shl bx, 1                       ; BX = level x 6: (wx, h, wz)
+    add si, bx
+    mov cl, [cs_pshr]
+    test dl, CSF_TOP
+    jnz .top
+    xor di, di                      ; the x faces read wx, the z faces wz
+    test dl, CSF_PZ | CSF_MZ
+    jz .ax
+    mov di, 4
+.ax:
+    mov bx, si
+    add bx, di
+    mov ax, [bx]
+    cmp ax, [bx + 6]                ; TAPERED: the plane is not axis-aligned,
+    jne .no                         ; so this test does not apply to it
+    shl ax, cl                      ; the half-width at the object's scale -
+    mov cx, [cs_odx]                ; the scale rule (88.5.6) bounds it by the
+    test dl, CSF_PZ | CSF_MZ        ; radius, so this cannot overflow
+    jz .haved
+    mov cx, [cs_odz]
+.haved:
+    test dl, CSF_PX | CSF_PZ
+    jz .minus
+    neg ax                          ; +face: the eye is in front iff d < -w
+    cmp cx, ax
+    jl .no
+    pop si
+    stc
+    ret
+.minus:
+    cmp cx, ax                      ; -face: ...iff d > w
+    jg .no
+    pop si
+    stc
+    ret
+.top:
+    mov ax, [si + 2]                ; the cap: the eye is above it iff dy < -h
+    shl ax, cl
+    neg ax
+    cmp [cs_ody], ax
+    jl .no
+    pop si
+    stc
+    ret
+.no:
+    pop si
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
 ; cs_faces - every face of [cs_mdl]: near-clipped where it has to be, culled
 ;            by the sign of one cross product, filled
 ; -----------------------------------------------------------------------------
@@ -1986,6 +2252,27 @@ cs_faces:
     mov [cs_fflags], al
     add si, 3
     mov [cs_fidx], si
+    call cs_axcull                  ; pointing AWAY in WORLD space: skipped
+%ifdef CSPROBE                      ; before it is counted, gathered or
+    mov byte [cs_dbg_ax], 0         ; wound at all (88.5.12)
+    jnc .nax
+    mov byte [cs_dbg_ax], 1
+    inc word [cs_dbg_axcull]
+.nax:
+    cmp byte [cs_axoff], 0          ; AUDIT: compute, do not act
+    jne .noax
+    cmp byte [cs_dbg_ax], 0
+    jne .skip
+.noax:
+%else
+    jc .skip
+%endif
+%ifdef CSPROBE
+    cmp byte [cs_dbg_ax], 0         ; a face axcull would have KEPT: its
+    jne .nomark                     ; vertices are wanted, and the mark is
+    call cs_probe_used              ; taken even when the cull is not ACTING,
+.nomark:                            ; so an audit run counts the same thing
+%endif
     cmp byte [cs_pwhole], 0         ; a whole object: no end is behind or
     jne .plain                      ; past a side, so the count is skipped
                                     ; (and .plain clears cs_fcut for it)
@@ -2033,6 +2320,10 @@ cs_faces:
     add di, 4
     loop .cp
 .fill:
+%ifdef CSPROBE
+    inc word [cs_dbg_fwalk]
+    call cs_probe_face
+%endif
     mov cx, [cs_pn]
     cmp cx, 3
     jb .skip
@@ -2108,8 +2399,33 @@ cs_faces:
                                     ; culls every face there is
     mov byte [cs_pwind], 1
     test byte [cs_fflags], CSF_NOCULL
+%ifdef CSPROBE
+    jnz .draw
+    inc word [cs_dbg_fcull]
+    cmp byte [cs_dbg_ax], 0         ; the winding culls it: did the axis test?
+    je .axmiss
+    inc word [cs_dbg_axagree]
+    jmp short .skip
+.axmiss:
+    inc word [cs_dbg_axmiss]
+    jmp short .skip
+%else
     jz .skip                        ; away, or edge-on
+%endif
 .draw:
+%ifdef CSPROBE
+    cmp byte [cs_dbg_ax], 0         ; the winding DRAWS it: the axis test must
+    je .axok                        ; not have culled it, or the picture moves
+    inc word [cs_dbg_axbad]
+    push ax
+    mov ax, [cs_mdl]
+    mov [cs_dbg_axmdl], ax
+    mov al, [cs_fflags]
+    xor ah, ah
+    mov [cs_dbg_axflg], ax
+    pop ax
+.axok:
+%endif
     mov al, [cs_fink]               ; --- IS THIS FILL WANTED? (88.13.3) The
     call cs_fillon                  ;     ink says what the face is made of;
     jc .wire                        ;     with it off the face is its OUTLINE
@@ -2117,6 +2433,14 @@ cs_faces:
     call cs_setink
     mov si, cs_pv
     mov cx, [cs_pn]
+%ifdef CSPROBE
+    inc word [cs_dbg_fpoly]
+    cmp byte [cs_dbg_fobj], 0
+    jne .nfo
+    mov byte [cs_dbg_fobj], 1
+    inc word [cs_dbg_ftr]
+.nfo:
+%endif
     call cs_poly
     jmp short .skip
 .wire:
@@ -2241,6 +2565,518 @@ cs_edgemark:
 .seen:
     stc
     ret
+
+%ifdef CSPROBE
+; -----------------------------------------------------------------------------
+; cs_probe_face - PROBE ONLY, A/B 4: with [cs_dupface] set, repeat the per-face
+;                 PREAMBLE - the gather of the face's projected vertices by
+;                 index, and the quad's diagonal cross that decides its winding
+;                 - into scratch, once more. The same instructions on the same
+;                 data, discarded, so the picture is untouched and the frame's
+;                 difference over the faces walked is what one face's preamble
+;                 costs. 29-40% of them are then thrown away by the winding,
+;                 which is what that number is wanted for.
+;                 Preserves everything.
+; -----------------------------------------------------------------------------
+cs_probe_face:
+    mov al, [cs_dupface]
+    or al, [cs_dupgath]
+    or al, [cs_duparea]
+    jnz .go
+    ret
+.go:
+    pushf
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    cmp byte [cs_fcut], 0
+    jne .out                        ; a clipped face's points are the
+    mov al, [cs_dupface]            ; clipper's, not the model's
+    or al, [cs_dupgath]
+    jz .area                        ; ...cs_duparea prices the CROSS alone
+    mov si, [cs_fidx]
+    mov cx, [cs_fn]
+    mov di, cs_dbg_pv
+    cld
+.cp:
+    lodsb
+    xor ah, ah
+    mov bx, ax
+    shl bx, 1
+    mov ax, [cs_sxv + bx]
+    mov [di], ax
+    mov ax, [cs_syv + bx]
+    mov [di+2], ax
+    add di, 4
+    loop .cp
+.area:
+    mov al, [cs_dupface]
+    or al, [cs_duparea]
+    jz .out                         ; ...and cs_dupgath the GATHER alone
+    cmp word [cs_fn], 4
+    jne .out
+    mov ax, [cs_dbg_pv + 8]         ; (x2 - x0)(y3 - y1)...
+    sub ax, [cs_dbg_pv]
+    mov bx, [cs_dbg_pv + 14]
+    sub bx, [cs_dbg_pv + 6]
+    imul bx
+    mov cx, ax
+    mov si, dx
+    mov ax, [cs_dbg_pv + 10]        ; ...minus (y2 - y0)(x3 - x1)
+    sub ax, [cs_dbg_pv + 2]
+    mov bx, [cs_dbg_pv + 12]
+    sub bx, [cs_dbg_pv + 4]
+    imul bx
+    sub cx, ax
+    sbb si, dx
+.out:
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    popf
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_probe_sh - PROBE ONLY: a SHALLOW segment about to be walked. Says whether
+;               it takes the run slice (six or more pixels a row) or the
+;               per-pixel arm, and for the per-pixel arm accumulates its
+;               pixels AND the DISTINCT BYTES they land in - which is
+;                   1 + |dy| + ((x0 & 7) + |dx|) / 8
+;               because DI moves on a y-step and on a mask wrap and nowhere
+;               else, and never revisits a byte. **The difference between the
+;               two is what a byte ACCUMULATOR could merge**, and it is the
+;               only arm where anything can: a steep or vertical line puts
+;               every pixel in a different row, 80 bytes apart.
+;               in: AX = x0, CX = |dx|+1, BP = 2|dy|.  Preserves everything.
+; -----------------------------------------------------------------------------
+cs_probe_sh:
+    pushf
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    mov dx, bp                      ; the slice's own test: CX > 6|dy|
+    shl dx, 1
+    add dx, bp
+    cmp cx, dx
+    ja .slice
+    inc word [cs_dbg_wsh]
+    add [cs_dbg_wshpx], cx
+    mov si, bp
+    shr si, 1                       ; SI = |dy|
+    inc si                          ; ...+ 1 for the first byte
+    mov dx, ax
+    and dx, 7                       ; the start's bit within its byte
+    mov di, cx
+    dec di                          ; DI = |dx|
+    add dx, di
+    shr dx, 1
+    shr dx, 1
+    shr dx, 1                       ; DX = the mask wraps
+    add si, dx
+    add [cs_dbg_wshby], si
+    jmp short .out
+.slice:
+    ; ...AND THE SLICE'S OWN ROWS AND PIXELS, because the run body is the
+    ; expensive half and nothing counted it. A sliced row is one pass of
+    ; ~130 bytes whatever it lays down (SPEC.md 85.3.6), so a segment's
+    ; cost is its ROWS and not its pixels - and a bank is what turns a
+    ; FLAT line (one row, one run) into forty of them.
+    inc word [cs_dbg_wsl]
+    add [cs_dbg_wslpx], cx          ; |dx|+1 pixels...
+    mov si, bp
+    shr si, 1
+    inc si                          ; ...laid in |dy|+1 runs
+    add [cs_dbg_wslrow], si
+.out:
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    popf
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_probe_pv - PROBE ONLY: this object's vertices, split by whether its
+;               model draws EDGES. cs_projall runs BEFORE cs_faces, so every
+;               vertex is projected before cs_axcull (88.5.12) has culled a
+;               single face - and the obvious thought is to cull first and
+;               project only what survives. It is blocked for any model with
+;               edges: cs_edges walks EVERY entry of CSM_EDGES and cs_edge1
+;               reads both endpoints' cs_sxv, so an edge-bearing model needs
+;               all of them however many faces are culled. This counts which
+;               side of that line the frame's vertices fall on.
+;               Preserves everything.
+; -----------------------------------------------------------------------------
+cs_probe_pv:
+    pushf
+    push ax
+    push bx
+    push si
+    mov si, [cs_mdl]
+    mov byte [cs_dbg_pvne], 1       ; ...does this model draw edges?
+    cmp byte [si + CSM_NE], 0
+    jne .hase
+    mov byte [cs_dbg_pvne], 0
+.hase:
+    push cx                         ; and the USED map starts empty
+    push di
+    push es
+    push ds
+    pop es
+    mov di, cs_dbg_used
+    mov cx, CS_MAXV
+    xor al, al
+    cld
+    rep stosb
+    pop es
+    pop di
+    pop cx
+    mov ax, [cs_nv]                 ; ...which is the vertex COUNT: both
+                                    ; cs_stackverts (levels x 4) and
+                                    ; cs_flatverts (CSM_NV) store it that way,
+                                    ; and the first draft of this probe halved
+                                    ; it as if it were an index stride and
+                                    ; reported 31.8 vertices a frame where the
+                                    ; projection's own bracket counts 53 in
+                                    ; front of the near plane alone
+    inc word [cs_dbg_pvobj]
+    cmp byte [si + CSM_NE], 0
+    je .free
+    add [cs_dbg_pvedge], ax
+    inc word [cs_dbg_pvobje]
+    jmp short .out
+.free:
+    add [cs_dbg_pvfree], ax
+.out:
+    mov [cs_dbg_pvnv], ax
+    pop si
+    pop bx
+    pop ax
+    popf
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_probe_used - PROBE ONLY: this face PASSED cs_axcull, so its vertices are
+;                 wanted. Marks them in cs_dbg_used. The mark is set by the
+;                 AXIS cull and not by the winding on purpose: axcull is the
+;                 only one of the two that could run before cs_projall, the
+;                 winding needing the projected points it would be gating
+;                 (88.5.10). in: [cs_fidx] -> the indices, [cs_fn] = how many.
+;                 Preserves everything.
+; -----------------------------------------------------------------------------
+cs_probe_used:
+    pushf
+    push ax
+    push bx
+    push cx
+    push si
+    mov si, [cs_fidx]
+    mov cx, [cs_fn]
+    jcxz .out
+    cld
+.m:
+    lodsb
+    mov bl, al
+    xor bh, bh
+    mov byte [cs_dbg_used + bx], 1
+    loop .m
+.out:
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    popf
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_probe_objend - PROBE ONLY: the object's faces are done. How many of its
+;                   vertices did NO surviving face want? Those are the ones a
+;                   cull-before-project could have skipped - and only in a
+;                   model with no edges, cs_edges needing every vertex of one
+;                   that has them (88.5.13.4). Preserves everything.
+; -----------------------------------------------------------------------------
+cs_probe_objend:
+    pushf
+    push ax
+    push bx
+    push cx
+    cmp byte [cs_dbg_pvne], 0       ; an edge-drawing model: nothing to skip
+    jne .out
+    mov cx, [cs_dbg_pvnv]
+    jcxz .out
+    add [cs_dbg_vcand], cx
+    xor bx, bx
+.v:
+    cmp byte [cs_dbg_used + bx], 0
+    jne .n
+    inc word [cs_dbg_vunused]
+.n:
+    inc bx
+    loop .v
+.out:
+    pop cx
+    pop bx
+    pop ax
+    popf
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_probe_mstab - PROBE ONLY: is cs_m the SAME MATRIX as last frame?
+;                  SPEC.md 88.5.13.2's whole question. A per-frame
+;                  partial-product table pays from the SECOND frame of a
+;                  stable matrix and loses on the first, so what decides it
+;                  is not the table's cost but how often the answer is
+;                  "unchanged". The matrix is a function of (roll, pitch,
+;                  heading) alone, and this counts how often all three hold.
+;                  Preserves everything.
+; -----------------------------------------------------------------------------
+cs_probe_mstab:
+    pushf
+    push ax
+    push cx
+    push si
+    push di
+    push ds
+    push es
+    inc word [cs_dbg_mfr]
+    push ds
+    pop es
+    mov si, cs_m
+    mov di, cs_dbg_mprev
+    mov cx, 9
+    cld
+    repe cmpsw
+    jne .moved
+    inc word [cs_dbg_mstab]
+.moved:
+    mov si, cs_m
+    mov di, cs_dbg_mprev
+    mov cx, 9
+    rep movsw
+    pop es
+    pop ds
+    pop di
+    pop si
+    pop cx
+    pop ax
+    popf
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_probe_fv - PROBE ONLY: a FLAT model's vertex about to be transformed.
+;               cs_flatverts spends SIX multiplies a vertex - x M0 into three
+;               components and z M2 into three - where cs_stackverts' column
+;               trick spends nine a LEVEL and gets four vertices out of it by
+;               adding (88.5.6.2). The cheap version of that here is reuse:
+;               if this vertex's x equals the last one's, its three products
+;               are the last one's too. This counts how often that is true,
+;               because a compare costs 4 cycles and three imuls cost ~420.
+;               in: SI = the vertex pair. Preserves everything.
+; -----------------------------------------------------------------------------
+cs_probe_fv:
+    pushf
+    push ax
+    inc word [cs_dbg_fvn]
+    cmp byte [cs_dbg_fvfirst], 0
+    je .cmp
+    mov byte [cs_dbg_fvfirst], 0
+    jmp short .save
+.cmp:
+    mov ax, [si]
+    cmp ax, [cs_dbg_fvpx]
+    jne .zx
+    inc word [cs_dbg_fvx]
+.zx:
+    mov ax, [si + 2]
+    cmp ax, [cs_dbg_fvpz]
+    jne .save
+    inc word [cs_dbg_fvz]
+.save:
+    mov ax, [si]
+    mov [cs_dbg_fvpx], ax
+    mov ax, [si + 2]
+    mov [cs_dbg_fvpz], ax
+    pop ax
+    popf
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_probe_prow - PROBE ONLY: ONE POLYGON ROW about to be laid, and how wide.
+;                 The line's slice was priced per RUN and not per pixel
+;                 (SPEC.md 88.4.6.3), and the fill has never been asked the
+;                 same question: cs_polyrows_herc's row is ~90 bytes of
+;                 preamble and two masked ends around a `rep stosw`, so what
+;                 decides whether that shape is right is the BYTES a row
+;                 spans, not its pixels. A row of one or two bytes is all
+;                 preamble.
+;                 in: AX = x1, CX = x2, both clamped, x1 <= x2.
+;                 Preserves everything.
+; -----------------------------------------------------------------------------
+cs_probe_prow:
+    pushf
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    inc word [cs_dbg_prow]
+    mov bx, cx
+    sub bx, ax
+    inc bx                          ; BX = pixels
+    add [cs_dbg_ppx], bx
+    mov si, cx
+    shr si, 1
+    shr si, 1
+    shr si, 1                       ; SI = the last byte
+    mov bx, ax
+    shr bx, 1
+    shr bx, 1
+    shr bx, 1                       ; BX = the first
+    sub si, bx
+    inc si                          ; SI = the bytes it spans
+    add [cs_dbg_pby], si
+    cmp si, 8                       ; ...and the shape, because a mean hides
+    ja .out                         ; a bimodal one: a fill of many thin rows
+    inc word [cs_dbg_pby8]          ; and a few wide ones reads the same mean
+    cmp si, 4                       ; as one of uniform middling rows, and
+    ja .out                         ; wants a completely different answer
+    inc word [cs_dbg_pby4]
+    cmp si, 2
+    ja .out
+    inc word [cs_dbg_pby2]
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    popf
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_probe_edge - PROBE ONLY: count the traces cs_poly makes and how many of
+;                 them another face of the SAME object has already made, and
+;                 carry the two A/Bs that price the dedup test and its copy.
+;                 Called with the edge's ends in AX/BX and CX/DX, immediately
+;                 before `call cs_edge`. Preserves everything.
+; -----------------------------------------------------------------------------
+cs_probe_edge:
+    pushf
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    inc word [cs_dbg_etr]
+    mov si, bx                      ; the rows this trace covers, view-clipped
+    mov di, dx
+    cmp si, di
+    jle .ord
+    xchg si, di
+.ord:
+    or di, di
+    js .norow
+    cmp si, [cs_wh]
+    jge .norow
+    or si, si
+    jns .r1
+    xor si, si
+.r1:
+    cmp di, [cs_wh]
+    jl .r2
+    mov di, [cs_wh]
+    dec di
+.r2:
+    mov [cs_dbg_y0], si
+    sub di, si
+    inc di
+    add [cs_dbg_erow], di
+    jmp short .idx
+.norow:
+    xor di, di
+.idx:
+    cmp byte [cs_fcut], 0
+    je .look
+    inc word [cs_dbg_ecut]          ; a cut face has no model indices
+    jmp short .out
+.look:
+    ; --- A/B 2: with [cs_nomark] the index lookup and cs_edgemark are
+    ;     skipped, so the difference is what the DEDUP TEST costs - and a
+    ;     production version pays it on EVERY edge to save on one in seven
+    cmp byte [cs_nomark], 0
+    jne .out
+    mov bp, [cs_pn]                 ; the edge's index: i = pn - pei
+    mov si, bp
+    sub si, [cs_pei]
+    mov bx, si
+    inc bx
+    cmp bx, bp
+    jb .j
+    xor bx, bx
+.j:
+    mov bp, [cs_fidx]
+    add si, bp
+    mov al, [si]
+    mov si, bp
+    add si, bx
+    mov ah, [si]
+    push di
+    call cs_edgemark
+    pop di
+    jnc .out
+    inc word [cs_dbg_edup]
+    add [cs_dbg_edrow], di
+    ; --- A/B 3: with [cs_cpy] a duplicate ALSO pays the copy that would stand
+    ;     in for the trace it skips. Done INTO SCRATCH with the real trace
+    ;     still running after it, so the picture is untouched
+    cmp byte [cs_cpy], 0
+    je .out
+    or di, di
+    jz .out
+    push es
+    push ds
+    pop es
+    mov cx, di
+    cmp cx, CS_DBGSCR               ; the scratch is 112 rows (see its note)
+    jbe .cx
+    mov cx, CS_DBGSCR
+.cx:
+    mov si, [cs_dbg_y0]
+    shl si, 1
+    mov di, si
+    add si, cs_xr
+    add di, cs_dbg_scr
+    cld
+    rep movsw
+    pop es
+.out:
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    popf
+    ret
+%endif
 
 ; cs_wireclr - the object's edge marks, cleared. Preserves everything
 cs_wireclr:
@@ -2760,13 +3596,38 @@ cs_ecopy:
 ;             seen moving. Every endpoint is a point along the transformed
 ;             centreline (vertices 5 -> 4, at the object's scale), put into
 ;             scratch vertices 6 and 7 and drawn through cs_edge1, which
-;             near-clips it. Away from the runway - above RW_DASHH, beyond
-;             RW_DASHW of its axis, or past its far end - the line is solid
-;             from end to end and costs one segment, as it did before.
+;             near-clips it. Away from the runway - above RW_DASHH or beyond
+;             RW_DASHW of its axis - the line is solid from end to end and
+;             costs one segment, as it did before. PAST THE FAR END but
+;             inside those two, the stripes go at THAT threshold instead
+;             (SPEC.md 88.6.2.3): the mirror of the near end's `js .zero`.
+;             It all runs in FACING SPACE (88.6.2.4) - u = 0 at the threshold
+;             behind the aeroplane - so the stripes are the ones ahead of it
+;             whichever way round it landed.
 ;             Runs after cs_edges, in its ink.
 ; -----------------------------------------------------------------------------
 cs_rwline:
     call cs_runway_xy               ; [cs_along], [cs_across]
+    ; --- WHICH THRESHOLD IS AHEAD (SPEC.md 88.6.2.4). Everything below works
+    ;     in FACING SPACE: u = 0 at the threshold behind the aeroplane and
+    ;     32767 at the one it is pointed at, so the stripes are always the
+    ;     ones it is about to drive over and the solid part is always the
+    ;     runway behind it. Land from the far side and roll back, and the old
+    ;     code drew the whole line BEHIND the aeroplane - measured at 300 m
+    ;     inside the strip, 11 pixels against 571 the other way round.
+    ;     cos(hdg - runway) is the whole of the test, and both sines and
+    ;     cosines are already computed for the frame; cs_rwsegu mirrors each
+    ;     segment back into the model's own u at the end.
+    mov ax, [cs_sinh]
+    imul word [cs_rwsin]
+    mov cx, dx
+    mov ax, [cs_cosh]
+    imul word [cs_rwcos]
+    add dx, cx
+    mov byte [cs_rwrev], 0
+    jns .ahead
+    mov byte [cs_rwrev], 1
+.ahead:
     mov si, [cs_airport]
     mov ax, [cs_py+1]
     sub ax, [si + CSA_ELEV]
@@ -2780,13 +3641,32 @@ cs_rwline:
     cmp ax, RW_DASHW
     jg .solid
     mov ax, [cs_along]
-    add ax, [si + CSA_HLEN]         ; AX = metres from the near end
+    cmp byte [cs_rwrev], 0          ; ...from the end BEHIND it (88.6.2.4)
+    je .fwd
+    neg ax
+.fwd:
+    add ax, [si + CSA_HLEN]         ; AX = metres from the end behind
     js .zero
+    ; --- PAST THE FAR END, BEFORE THE DIVIDE (SPEC.md 88.6.2.2). The test
+    ;     for it used to be on the QUOTIENT, and the quotient is
+    ;     metres x 16384 / hlen: it leaves a word at 4 hlen - ONE whole
+    ;     runway length past the far end - and an 8086 answers a divide
+    ;     that does not fit with INT 0, having never produced the operand
+    ;     the compare below wanted. The window is a CIRCUIT: this code is
+    ;     only reached below RW_DASHH and within RW_DASHW of the axis, so
+    ;     overfly the strip, turn back, and come down the extended
+    ;     centreline from more than a runway length out. The test moves in
+    ;     front of the multiply, where it costs three instructions and
+    ;     cannot fault.
+    mov bx, [si + CSA_HLEN]
+    shl bx, 1                       ; the runway's whole length
+    cmp ax, bx
+    jae .far
     mov dx, 16384
     mul dx
     div word [si + CSA_HLEN]        ; AX = the aeroplane's u, Q15 of 2 hlen
-    cmp ax, 32000
-    jae .solid                      ; past the far end
+    cmp ax, [cs_rwfar]
+    jae .far                        ; ...and the last stripe's worth of it
     jmp short .u
 .zero:
     xor ax, ax
@@ -2819,6 +3699,24 @@ cs_rwline:
     pop cx
 .out:
     ret
+    ; --- PAST THE FAR END, LOW AND ON THE AXIS: DASHED AT THAT THRESHOLD
+    ;     (SPEC.md 88.6.2.3). The near end has been clamped since the first
+    ;     build - `js .zero` puts the stripes at the threshold you are
+    ;     aiming at - and the far end had no such case, so an approach to it
+    ;     drew ONE SOLID LINE from a runway length out to the flare. The
+    ;     field reported exactly that, and reported the state it needs:
+    ;     leave and come back, because at reset you are stood at the NEAR
+    ;     end and the only way to meet the far one is to fly a circuit.
+    ;     Solid from the near end up to [cs_rwfar], then the same four
+    ;     stripes ending ON the far threshold - five segments either way,
+    ;     so the two approaches cost the same
+.far:
+    xor ax, ax
+    mov cx, [cs_rwfar]
+    call cs_rwsegu
+    mov ax, [cs_rwfar]
+    mov cx, RW_NDASH
+    jmp short .dash
 .solid:
     xor ax, ax
     mov cx, 32767
@@ -2827,6 +3725,14 @@ cs_rwline:
 ; cs_rwsegu - the centreline from u = AX to u = CX (Q15): scratch vertices
 ;             6 and 7, then the edge. Clobbers everything
 cs_rwsegu:
+    cmp byte [cs_rwrev], 0          ; facing space back into the model's own
+    je .fwd                         ; u: [a, b] -> [32767 - b, 32767 - a]
+    xchg ax, cx
+    neg ax
+    add ax, 32767
+    neg cx
+    add cx, 32767
+.fwd:
     push cx
     mov di, 12                      ; vertex 6
     call cs_rwpt

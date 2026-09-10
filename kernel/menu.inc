@@ -80,9 +80,12 @@ CMD_FILES   equ 10
 %else
 CMD_REBOOT  equ 5
 CMD_CLOSE   equ 6               ; --- Locator: File ---
-CMD_TIMER   equ 7               ; --- Locator: Builtins (SPEC.md 12.3.1) ---
-CMD_BOUNCE  equ 8
-CMD_FILES   equ 9
+                                ; SPEC.md 14.6: no Builtins menu here, so no
+                                ; CMD_TIMER and no CMD_BOUNCE - and CMD_FILES
+                                ; survives only because ui_cmd still needs the
+                                ; id: a Disk window is opened from the desktop
+                                ; zone (SPEC.md 26.1), which posts it
+CMD_FILES   equ 7
 %endif
 
 ; --- app menu set layout (SPEC.md 12.2; mirrored in apps/os88api.inc) --------
@@ -1957,6 +1960,7 @@ menu_save_kb:
     ret
 
 ; -----------------------------------------------------------------------------
+%ifdef OS88_COMPACT
 ; menu_reloc - the compactor moved the save-under (SPEC.md 66.2). One word,
 ; re-read at every use: menu_drop loads it to save, menu_undrop to restore, and
 ; nothing holds a pointer into it across the tracking loop's yields.
@@ -1966,6 +1970,7 @@ menu_reloc:
     mov [menu_sseg], dx
 .out:
     ret
+%endif                          ; OS88_COMPACT
 
 menu_drop:
     push bx
@@ -1983,11 +1988,15 @@ menu_drop:
     call mem_claim
     jc .noclaim                 ; refused: the restore repaints instead
     mov [menu_sseg], dx
+%ifdef OS88_COMPACT
     push ax                     ; ...and MOVABLE (SPEC.md 66.5.6). It is only
     mov ax, menu_reloc          ; 20KB and only lives for one menu - but that
     mov bx, MEM_K_SAVE          ; is 20KB sitting mid-arena at exactly the
     call COLD_SEG:mmf_mem_movable ; moment a MENU COMMAND claims, which is one of
     pop ax                      ; the commonest ways a claim happens at all
+%endif                          ; ...and on kern_small nothing moves (SPEC.md
+                                ; 66.0), where this one is 3.0KB measured and
+                                ; alive for exactly as long as a menu is down
 .noclaim:
 
     ; --- save the pixels under the menu to the claimed buffer -----------------
@@ -2581,8 +2590,10 @@ menu_s_builtin  equ fm_s_mbuilt         ; ...and its Builtins menu, which is
 
 menu_s_about    db 'About os8088...', 0
 menu_s_ctrl     equ cp_ttl              ; the Control Panel's window title
+%ifdef KERN_BIG
 menu_s_timer    equ app_ttl_timer       ; the two builtins' window titles
 menu_s_bounce   equ app_ttl_bounce
+%endif                          ; KERN_BIG - SPEC.md 14.6
 menu_s_disk     equ fm_s_root           ; the Disk window's title at the root
 menu_s_closex   db MENU_DIS     ; ...with nothing to close; ui_loc_gate points
 menu_s_close    db 'Close Window', 0    ; the item at one or the other before
@@ -2638,10 +2649,12 @@ MENU_LOGO_N equ 5               ; ...and menu_relayout stamps this into cell
                                 ; a different file from the list it counts
 menu_items_file:
     dw menu_s_close
+%ifdef KERN_BIG
 menu_items_builtin:
     dw menu_s_timer
     dw menu_s_bounce
     dw menu_s_disk
+%endif                          ; KERN_BIG - SPEC.md 14.6
 
 ; Locator's menu set (SPEC.md 12.3) - an ordinary SPEC.md 12.2 structure
 ; whose AM_ONCMD is 0, the one value reserved to mean "dispatched by the
@@ -2652,9 +2665,20 @@ menu_items_builtin:
 menu_loc_set:
     dw menu_loc_name            ; AM_NAME
     dw 0                        ; AM_ONCMD: kernel-dispatched
+%ifdef KERN_BIG
     dw 2                        ; AM_COUNT
     dw menu_s_file,    menu_items_file,    1
     dw menu_s_builtin, menu_items_builtin, 3
+%else
+    dw 1                        ; AM_COUNT: File alone (SPEC.md 14.6). The
+    dw menu_s_file,    menu_items_file,    1
+                                ; Builtins menu held Timer, Bounce and Disk,
+                                ; and on this build the first two do not exist
+                                ; while the third is reachable from the
+                                ; desktop's own drive zones (SPEC.md 26.1) -
+                                ; so what is left is a menu with one item that
+                                ; duplicates a double-click
+%endif
 
 ; -----------------------------------------------------------------------------
 menu_s_abpfx db 'About ', 0     ; + the app's name -> menu_abstr (12.2)

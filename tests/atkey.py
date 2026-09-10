@@ -116,21 +116,41 @@ def measure(img, apps, machine, tree, lines, samples, scroll=False,
                 mo.to(VIEW_X, 9)
                 mo._edge(True)
                 mo.to(VIEW_X, 21 + 13 * item + 6, l=True)
-                m.bp_exec(onkey)
-                m.run()
-                mo._edge(False)                      # the release IS the command
-                if not m.wait_stop(limit=90.0):
-                    sys.exit("atkey: at_onkey never ran after the menu pick")
-                r = m.regs()
-                ret = u16(m.read((r["ss"] << 4) + r["sp"], 2))
-                m.bp_exec(seg * 16 + ret)
-                c0 = m.status()["cycles"]
-                m.run()
-                if not m.wait_stop(limit=300.0):
-                    sys.exit("atkey: at_onkey never returned from the zoom")
-                out.append(m.status()["cycles"] - c0)
-                m.bp_exec()
-                m.run()
+
+                # ENTRY, then at_onkey's OWN RETURN - whose address is a word
+                # on the guest's stack and so readable only at the entry stop,
+                # which is where this arms it. The release is inside the trace
+                # because `_edge` proves the edge against the published
+                # `mouse_btn`, and a guest stopped at at_onkey cannot move it;
+                # it survived a bare arm before only because the command
+                # cannot run until the release has been decoded.
+                st = {}
+
+                def stage(mm, rec, st=st):
+                    r = rec["regs"]
+                    if "c0" not in st:
+                        ret = u16(mm.read((r["ss"] << 4) + r["sp"], 2))
+                        st["c0"] = rec["cycles"]
+                        mm.breakpoints([{"type": "exec",
+                                         "addr": seg * 16 + ret}])
+                    else:
+                        st["cyc"] = rec["cycles"] - st["c0"]
+                        mm.breakpoints([])
+                    return None
+
+                with os88marty.bp_trace(m, onkey, regs=True,
+                                        on_hit=stage) as tr:
+                    mo._edge(False)              # the release IS the command
+                    if not tr.until(lambda: "c0" in st, "at_onkey",
+                                    limit=90.0, required=False):
+                        sys.exit("atkey: at_onkey never ran after the menu "
+                                 "pick")
+                    if not tr.until(lambda: "cyc" in st,
+                                    "at_onkey to return", limit=300.0,
+                                    required=False):
+                        sys.exit("atkey: at_onkey never returned from the "
+                                 "zoom")
+                out.append(st["cyc"])
                 os88marty.quiesce(
                     m, lambda: m.readseg(seg, syms["at_zoom"], 2)
                     + m.readseg(seg, top, 2) + m.readseg(seg, caret, 2),

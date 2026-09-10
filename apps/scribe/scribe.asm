@@ -34,7 +34,7 @@
 
 %include "os88api.inc"
 
-; The picture decoders' CONSTANTS only (SPEC.md 93). Insert > Picture is
+; The picture decoders' CONSTANTS only (SPEC.md 94). Insert > Picture is
 ; assembled a long way above where a shared include may put its code, and
 ; the IMG_* offsets have to exist by then or every `mov [si+IMG_*]` sizes
 ; its displacement differently on the two passes. The code itself is
@@ -55,7 +55,7 @@ SC_SBRATE   equ SB_RATE         ; the system
 %endif
 
 ; =============================================================================
-; SCRIBE - a fork of apps/word/word.asm (SPEC.md 94).
+; SCRIBE - a fork of apps/word/word.asm (SPEC.md 95).
 ;
 ; IT CARRIES THE sc_ PREFIX AND THE sc*.inc FILENAMES. It did not always: the
 ; fork began as a line-for-line copy of word.asm keeping every wd_ symbol, so
@@ -73,7 +73,7 @@ SC_SBRATE   equ SB_RATE         ; the system
 ;
 ; The cost is real and is paid knowingly: an upstream fix to WORD no longer
 ; applies here as a patch, and the diff against word.asm is now a rename plus
-; the changes rather than the changes alone. SPEC.md 94.1 records both sides.
+; the changes rather than the changes alone. SPEC.md 95.1 records both sides.
 ; NASM resolves the includes out of apps/scribe/ because that is the -I on
 ; this package's own rule.
 ;
@@ -431,7 +431,7 @@ SCA_SORT     equ 23             ; Utilities > Sort... (SPEC.md 68.9)
 SCA_RENUM    equ 24             ; Utilities > Renumber...
 SCA_TOC      equ 25             ; Insert > Table of Contents...
 SCA_PAGE     equ 26             ; View > Page (SPEC.md 68.11)
-SCA_PICT     equ 27             ; Insert > Picture... (SPEC.md 94.9)
+SCA_PICT     equ 27             ; Insert > Picture... (SPEC.md 95.9)
 SCA_MAX      equ 27
 
 ; --- the CHP attribute byte (SPEC.md 68.3) -----------------------------------
@@ -644,7 +644,7 @@ SC_PICCH     equ 1              ; the character. Word's own (chPicture), and
                                 ; control below 32 except tab and CR - so a
                                 ; 0x01 in this buffer can only be ours
 SC_PICKB     equ 40             ; the decoded picture's TRANSIENT claim
-                                ; (SPEC.md 94.9). 40KB holds a 640x128 or a
+                                ; (SPEC.md 95.9). 40KB holds a 640x128 or a
                                 ; 320x256 in packed 4bpp, and os88img.inc
                                 ; refuses anything past what it is given
                                 ; rather than writing past the claim
@@ -4173,7 +4173,7 @@ sc_rstart:
 ; sc_picdraw - blit the row's picture. in: [sc_rowpic] is its index, [sc_rby]
 ; the row's glyph y and [sc_rowx0] its start pen. Preserves all registers.
 ;
-; OSAPI_GFX_BLIT4 and not OSAPI_GFX_BLITP, for SPEC.md 93's reason: BLITP
+; OSAPI_GFX_BLIT4 and not OSAPI_GFX_BLITP, for SPEC.md 94's reason: BLITP
 ; refuses an armed clip region, and a picture in a document that scrolls is
 ; always inside one.
 ;
@@ -4261,7 +4261,7 @@ sc_rflush:
                                     ; advanced, so every position below is true
     cmp word [sc_rowpic], 0xFFFF    ; a PICTURE row: one blit, and none of the
     je .notpic                      ; lettering below - the row buffer holds no
-    call sc_picdraw                 ; glyphs for it (SPEC.md 94.9)
+    call sc_picdraw                 ; glyphs for it (SPEC.md 95.9)
     jmp .caret
 .notpic:
     cmp word [sc_rcols], 0
@@ -7244,7 +7244,7 @@ sc_load:
     pop ax
     mov bp, SCM_RTFPARSE        ; frees the OLD pictures ITSELF and may then
     call sc_ovcall
-    jc .bad                     ; register new ones (SPEC.md 94.6), so it
+    jc .bad                     ; register new ones (SPEC.md 95.6), so it
     jmp short .loaded2          ; must not meet sc_pictfree on the way out
 .nortf:
     pop ax
@@ -13646,25 +13646,19 @@ sc_mdraw:
     mov al, [si+2]
     call sc_mchk
     jnc .nochk
-    mov ax, [sc_mrx1]
-    add ax, 2
-    mov bx, di
-    add bx, 5
-    mov cx, [sc_mrx1]
-    add cx, 3
-    mov dx, di
-    add dx, 7
-    push si
-    xor si, si
-    call OSAPI_GFX_LINE             ; the check's short down-stroke...
-    mov ax, cx
-    mov bx, dx
-    mov cx, [sc_mrx1]
-    add cx, 7
-    mov dx, di
-    add dx, 3
-    call OSAPI_GFX_LINE             ; ...and its long up-stroke
-    pop si
+    mov ax, [sc_mrx1]               ; A SOLID SQUARE, not a tick (SPEC.md
+    add ax, 2                       ; 13.16.2), and os88ui_chk's own mark at
+    mov bx, di                      ; os88ui_chk's own size: a thin diagonal
+    add bx, 3                       ; READS AS NOISE on the two 1bpp adapters
+    mov cx, ax                      ; this OS is for (SPEC.md 39.4). The pen is
+    add cx, 4                       ; already the row's - OSAPI_GFX_PEN was set
+    mov dx, bx                      ; above - so the fill inherits the greying
+    add dx, 4                       ; for free, where the two strokes did not.
+    call OSAPI_GFX_FILL             ; THE STROKES COULD NOT DRAW AT ALL HERE:
+                                    ; the gfx_line family is a stc/ret cell on
+                                    ; this kernel (SPEC.md 5.12.7), so a tick
+                                    ; ported from main is a mark that silently
+                                    ; never appears
 .nochk:
     ; the label
     mov cx, [sc_mrx1]
@@ -16696,13 +16690,13 @@ sc_ftab:
     dw sc_a_renum                   ; Utilities > Renumber...
     dw sc_a_toc                     ; Insert > Table of Contents...
     dw sc_a_page                    ; View > Page (SPEC.md 68.11)
-    dw sc_a_pict                    ; Insert > Picture... (SPEC.md 94.9)
+    dw sc_a_pict                    ; Insert > Picture... (SPEC.md 95.9)
 
 sc_mf_ret:
     ret
 
 ; -----------------------------------------------------------------------------
-; sc_a_pict - Insert > Picture... (SPEC.md 94.9)
+; sc_a_pict - Insert > Picture... (SPEC.md 95.9)
 ;
 ; Ask for a file, read it, and decode it through SCRIBE.OVL. The picture is
 ; measured and reported and NOT yet put in the document: the model, the
@@ -19994,7 +19988,7 @@ sc_e_wprot:   db 'Write protected', 0
 sc_e_big:     db 'Too big', 0
 sc_e_nomem:   db 'No memory', 0      ; the staging claim was refused (50.3)
 
-; Insert > Picture (SPEC.md 94.9). One string per IMG_E_* code, indexed by it
+; Insert > Picture (SPEC.md 95.9). One string per IMG_E_* code, indexed by it
 ; - the include hands back a NUMBER (87.2) and each package says what it means
 ; in its own voice.
 ; EVERY ONE OF THESE IS 24 CHARACTERS OR FEWER, because TOAST_MAX is 24 and
@@ -20047,7 +20041,7 @@ sc_e_cbig:    db 'Too big to copy', 0   ; over CLIP_MAXKB, or the heap could
                                         ; not fund the clipboard (SPEC.md 55)
 
 ; =============================================================================
-; REACHING THE PACKAGE'S OWN VARIABLES FROM INSIDE THE MODULE (SPEC.md 94.8.3)
+; REACHING THE PACKAGE'S OWN VARIABLES FROM INSIDE THE MODULE (SPEC.md 95.8.3)
 ;
 ; The file-format engines read sc_dseg, sc_cseg, sc_len and the rest at moments
 ; when DS *and* ES are both pointed at the document, CHP or staging claims.
@@ -20109,7 +20103,7 @@ sc_e_cbig:    db 'Too big to copy', 0   ; over CLIP_MAXKB, or the heap could
 %endmacro
 ; =============================================================================
 
-; --- the two file formats now live in SCRIBE.OVL (SPEC.md 94.8) --------------
+; --- the two file formats now live in SCRIBE.OVL (SPEC.md 95.8) --------------
 ; scdoc.inc and scrtf.inc used to be %included here, in .text. They are
 ; %included from inside `section .modc` further down instead, which is the
 ; whole of what moving a subsystem out costs: the includes moved, and every
@@ -20161,7 +20155,7 @@ sc_e_cbig:    db 'Too big to copy', 0   ; over CLIP_MAXKB, or the heap could
 SC_OVKB      equ 12             ; the claim SCRIBE.OVL is read into, KB. It
                                 ; was 8 when the module held only the picture
                                 ; decoder; the two file formats took it past
-                                ; 9KB (SPEC.md 94.8). THE MAKEFILE CHECKS THIS
+                                ; 9KB (SPEC.md 95.8). THE MAKEFILE CHECKS THIS
                                 ; against the cut module and fails the build if
                                 ; the module outgrows it - the number is read
                                 ; out of this line, so there is one and not two
@@ -20215,7 +20209,7 @@ sc_ovneed:
     call OSAPI_FILE_READ
     jc .noread
     mov ax, cs                      ; THE PACKAGE'S SEGMENT, STAMPED INTO THE
-    mov [es:sc_pkgseg], ax          ; MODULE ITSELF (SPEC.md 94.8.3). ES is
+    mov [es:sc_pkgseg], ax          ; MODULE ITSELF (SPEC.md 95.8.3). ES is
                                     ; still the claim from the read above, and
                                     ; CS is the package because this routine
                                     ; is resident. It is the module's ONLY way
@@ -20298,7 +20292,7 @@ sc_ovcall:
                                     ; 0, so the far pointer is (0, the claim)
                                     ; and the verb's own CF comes back through
     push ax                         ; THE MODULE NEVER SPEAKS; IT LEAVES A
-    pushf                           ; REASON AND THIS SAYS IT (SPEC.md 94.8.1).
+    pushf                           ; REASON AND THIS SAYS IT (SPEC.md 95.8.1).
     mov ax, [sc_ovmsg]              ; The one shim whose resident routine
     or ax, ax                       ; touched the UI - sc_papfind's refusal
     jz .quiet                       ; toast - is the shape 82.16 records a
@@ -20386,7 +20380,7 @@ sc_modc:                            ; +0: the dispatcher, and the only offset
                                     ; cost an afternoon there
 
 ; The package's segment, stamped here by sc_ovneed the moment the module is
-; read (SPEC.md 94.8.3). It is IN THE MODULE and not in the package's bss,
+; read (SPEC.md 95.8.3). It is IN THE MODULE and not in the package's bss,
 ; because the whole point is that module code can reach it with CS alone.
 sc_pkgseg: dw 0
 
@@ -20415,7 +20409,7 @@ sc_m_ping:
 
 ; -----------------------------------------------------------------------------
 ; sc_m_imgload - decode a picture. SI = the caller's block, as img_load takes
-; it; everything else is that routine's contract (SPEC.md 93).
+; it; everything else is that routine's contract (SPEC.md 94).
 ;
 ; THE DECODER IS THIS MODULE'S FIRST REAL TENANT, and it is a deliberate
 ; choice of first tenant rather than the most useful thing that happened to be
@@ -20434,7 +20428,7 @@ sc_m_imgload:
     call img_load
     retf
 
-; --- the file formats, and the six ways in (SPEC.md 94.8) --------------------
+; --- the file formats, and the six ways in (SPEC.md 95.8) --------------------
 ; Each is a near proc ending in `ret`, as every routine in this package is
 ; (SPEC.md 20.1), so the verb table cannot point at one directly - the
 ; dispatcher's `jmp` arrives with a far return address on the stack. Each gets
@@ -20995,7 +20989,7 @@ section .text
     SCVAR sc_ovseg, 2       ; word: SCRIBE.OVL's claim, 0 = not loaded yet
     SCVAR sc_ovmsg, 2       ; word: a message the MODULE wants said, 0 = none.
                             ; The module never touches the UI; sc_ovcall says
-                            ; this on the way back out (SPEC.md 94.8.1)
+                            ; this on the way back out (SPEC.md 95.8.1)
     SCVAR sc_ovfar, 4       ; the (offset, segment) sc_ovcall far-calls: an
                             ; 8086 has no `call far reg:reg`, so the pointer
                             ; lives in memory and DS reaches it
@@ -21043,7 +21037,7 @@ section .text
 
 %endif
 
-; --- Insert > Picture (SPEC.md 94.9) ----------------------------------------
+; --- Insert > Picture (SPEC.md 95.9) ----------------------------------------
 ; The block and the row buffer os88img.inc works through. They are HERE and
 ; not in a claim because that include reaches both through DS, which stays the
 ; package's segment even while the decoder itself is running out in SCRIBE.OVL
@@ -21077,7 +21071,7 @@ section .text
                             ; output wraps instead of being one enormous line
     SCVAR sc_dpicrun, 1     ; byte: the attribute run sc_dattr just found is
                             ; a picture, so its CHPX is the fixed structure
-                            ; and not a sprm grpprl (SPEC.md 94.7)
+                            ; and not a sprm grpprl (SPEC.md 95.7)
     SCVAR sc_dpicfc, SC_PICMAX * 2
                             ; word each: where each picture's PICF landed,
                             ; filled before the CHPX that names it is built

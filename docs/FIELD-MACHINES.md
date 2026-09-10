@@ -335,6 +335,91 @@ drive's icon.
 
 ---
 
+## The 86Box IBM PC 5150 — `vm/pc5150`, and where the bug reports come from
+
+**`make pc5150`.** This is not iron and it is not a fourth entry in the
+register above — it is the **86Box machine `Elendilon/os8088` runs 90% of the
+time**, which makes it the machine most of this project's defect reports are
+seen on. It is in the tree as `vm/pc5150/86box.cfg`, adopted from the owner's
+own config **verbatim except for the three media paths**, which named disks on
+their host. That is the whole point: a report says *"hold right arrow and
+spacebar for ten seconds"*, and this is what it was held on.
+
+| | |
+|---|---|
+| machine | 86Box `ibmpc82` — an **IBM PC 5150**, not an XT, with the **10/27/82** ROM. The same ROM revision as the iron 5150 above, which is what makes its `int 08h` chain comparable |
+| CPU | 8088 at **4.772728 MHz**, `cpu_use_dynarec = 0` |
+| RAM | **256 KB** on the board + **384 KB** on an **AST SixPakPlus** = 640 KB — the iron 5150's memory arrangement exactly |
+| clock | `isartc_type = a6pak` — the SixPakPlus's **MM58167 at 2C0h**, §37.90's **rung 2**. **MartyPC models no XT clock card at all**, so `[clk_tier]` is 0 there and 2 here |
+| video | **Hercules**, 720x348 |
+| mouse | `msserial` — the serial mouse, §9.4 |
+| sound | **Sound Blaster 2.0** — SPEC.md 34 |
+| network | **NE1000 on slirp**, with FTPD's control port forwarded 2121→21 and its eight PASV data ports 2048–2055 straight through (SPEC.md 77) |
+| hard disk | an **ST-225 on a real ST11M** at 0320/IRQ 5 — the *field* machine's controller, which `make xt-mfm` deliberately avoids because the ST11M keeps its geometry on the platter and will not present a blank image. The floppy boot is unaffected |
+| floppies | A: `os8088-360.img`, B: `apps360.img`, with `media360.img` one menu click away (§24.4) |
+
+### It is the only machine here with everything switched on at once
+
+Every other profile in `vm/` is a machine built to isolate **one** thing.
+This one is the opposite, and that is worth stating explicitly before
+reproducing anything on a different one:
+
+- MartyPC has **no NIC, no sound card and no XT clock card**, and boots an XT
+  ROM rather than a 5150's.
+- `vm/xt`, `vm/xt-hercules` and `vm/xt-mfm` are `ibmxt`/`ibmxt86` machines
+  with a subset each.
+- **A driver being *available* is not a driver being *mounted*** — every
+  `SYSTEM.CFG` row is not-wanted by default (§51.3), so a stock system disk
+  leaves `SOUND.DRV` and `ETHER.DRV` alone. But this machine's floppies are
+  **writable**, so a Control Panel tick taken during an earlier session
+  persists on the disk in A:, and the next boot mounts the driver. When a
+  report differs from a container repro, **ask what `SYSTEM.CFG` says** before
+  looking anywhere else.
+
+### Its interrupt floor is 52 — twenty deeper than the container, twelve shallower than the iron
+
+**Taken 2026-09-10**, arm 1, Hercules 720, and the full three-machine table is
+`docs/reports/STKDIAG-PC5150-2026-09-10.md`.
+
+| slot 1 — the floor | |
+|---|---|
+| MartyPC `os8088_5150_herc(_gla)`, either BIOS | **32** |
+| **this machine** | **52** |
+| the iron 5150 Hercules (STACK-SLOTS-PLAN §9.8.2, arm 2-or-3) | **64** |
+
+**The BIOS is controlled and is not the difference.** The owner supplied the
+genuine `27 OCT 82` ROM, so MartyPC ran the same 8,192 bytes: `ROM int08`
+reads **17 on both emulators** (GLaBIOS is 20) and the floor stayed at 32.
+Whatever makes this machine deeper is the machine.
+
+`ROM int08` 17, `mouse ISR own stack` 30 (the STACK-SLOTS-PLAN §9.9.1 figure for a 1bpp
+adapter), `+mouse` +2, `+keys` +0, `ticks that did NOT chain` 0.
+
+Two cautions on quoting it. **Read `FLOOR, idle`, not the deepest slice** —
+the panel labels the row and STACK-SLOTS-PLAN §9.8.2 is why; the 106 in slot 12 is the panel's
+own painter. And the iron's 64 is an **arm 2-or-3** reading where this is
+arm 1 (STACK-SLOTS-PLAN §7.5 lists the 5150's arm-3 run as still wanted), so twelve is the
+nearest comparison rather than an exact one.
+
+`make stkdiag` re-takes it: boot `stkdiag360.img` in A:, touch nothing for
+30 seconds, follow the panel's two prompts, photograph at DONE. Three arms
+ship — as-shipped, `NOMOUPRIV=1`, `NOCHAINPRIV=1` — and they no longer nest,
+so arm 1 alone is a complete answer.
+
+### The Sound Blaster is real here and `SOUND.DRV` auto-mounts
+
+Stated by the owner, who runs **fresh OS disks every time** — so no
+`SYSTEM.CFG` survives a session and no driver is ever ticked, and the hard
+disk is present but never mounted. The sound driver is the exception: the
+card is there and the boot probe finds it.
+
+That matters because **`stkdiag` never plays a note**, so the 52 above is the
+driver resident and idle. Nothing here has measured what a *playing* card
+costs the slice it interrupts, and **no machine in `os8088_machines.toml`
+pairs Hercules with a Sound Blaster** — the seven SB machines are CGA or VGA.
+
+---
+
 ## PCem and MartyPC — the other places results come from
 
 Not machines, but reports come off them and are easy to mistake for field
@@ -433,7 +518,7 @@ Three things are left off the 360 KB disk by that arithmetic:
 
 | | | why |
 |---|---|---|
-| `MEDIA/BEVERLY.MOD` | 42 cl lz4-packed (114 plain) | data rather than software: Tracker and ModPlug launch with nothing to open. `apps360.img` carries it in `MEDIA/` (§20.13.5) — swap that disk in when the module is the point |
+| `MEDIA/BEVERLY.MOD` | 42 cl lz4-packed (114 plain) | data rather than software: Tracker and ModPlug launch with nothing to open. It is on `media360.img` ALONE at this geometry — lz4 briefly made the split unnecessary and §88.6.4 un-collapsed it — so swap that disk in when the module is the point |
 | `BIGFILE.DAT` | 104 cl | sysbench's cache-capacity sweep and the DOS read-rate cross-check; sysbench says so and skips those rows. It is on the `make field` disks |
 | `README.TXT` | 9 cl | the manual, on a disk that is for running |
 
@@ -676,10 +761,13 @@ discovered later in a number that moved for no visible reason.
 
 The ordinary case, as distinct from a field run, is CLAUDE.md's "Working in
 this fork" — the fork owner's standing preference, not a property of the
-project. The part that is this register's: **the 360 KB set is THREE disks**
-— `build/os8088-360.img`, `build/apps360.img` and `build/media360.img` — the
-geometry because it is what the register's machines read. Since the disks
-are lz4-packed (§20.13.5) `apps360.img` carries `BEVERLY.MOD` itself and the
-media disk is a second copy of it; the owner's standing rule is still all
-three. "Send" means attach the files: a path into a session's `build/` is in
-a container the owner cannot reach.
+project. The part that is this register's: **the 360 KB set is SIX disks**
+— `build/os8088-360.img`, `build/apps360.img`, `build/media360.img` and the
+three category disks `office360.img`, `network360.img` and `games360.img`
+(§24.6) — the geometry because it is what the register's machines read.
+`apps360.img` does **not** carry `BEVERLY.MOD`: lz4 made the two-disk split
+unnecessary for a while and §88.6.4 un-collapsed it when CLEAR SKIES took the
+clusters back, so the module is on the media disk alone again and the swap is
+real. The owner's standing rule is all six, and the set is exactly what
+`ls build/*360*.img` prints. "Send" means attach the files: a path into a
+session's `build/` is in a container the owner cannot reach.

@@ -516,6 +516,9 @@ SH_ROW_MASK  equ 0x3FFF
 SH_MBAR_H    equ 14                  ; the in-window menu bar strip
 SH_MI_H      equ 12                  ; a dropdown item's row height
 SH_MPAD      equ 8                   ; left/right pixel pad per title/item
+SH_MCHKX     equ 2                   ; SPEC.md 81.30: the check mark, a solid
+SH_MCHKY     equ 4                   ; square centred in the 8px check column
+SH_MCHKS     equ 5                   ; and on the row's 8px glyph line
 SH_MCHKW     equ 8                   ; stage 3.0c: the DROPDOWN's extra left
                                      ; gutter, where a checked item's mark
                                      ; goes. Not folded into SH_MPAD because
@@ -4464,36 +4467,23 @@ sh_mdrop_draw:
 .drawtext:
     cmp byte [sh_mchk], 0
     je .nochk
-    push si                           ; the check: two strokes, because the
-    push ax                           ; kernel font stops at 0x7E and has no
-    push bx                           ; glyph for one. The pen is already the
-    push cx                           ; right colour - set by the highlight
-    push dx                           ; branch above, so the mark inverts with
-    mov ax, [sh_mrx1]                 ; the row exactly as the text does
-    add ax, 4
-    mov bx, [sh_mry_row]
-    add bx, 5
-    mov cx, ax
-    add cx, 2
+    push ax                           ; the check: A SOLID SQUARE and not a
+    push bx                           ; tick (SPEC.md 81.30), because a thin
+    push cx                           ; diagonal reads as scattered pixels on
+    push dx                           ; the two 1bpp adapters (SPEC.md 39.4) -
+    mov ax, [sh_mrx1]                 ; os88ui_chk's own mark and its own
+    add ax, SH_MCHKX                  ; reason. The pen is already the right
+    mov bx, [sh_mry_row]              ; colour, set by the highlight branch
+    add bx, SH_MCHKY                  ; above, so the mark inverts with the row
+    mov cx, ax                        ; exactly as the text does
+    add cx, SH_MCHKS - 1
     mov dx, bx
-    add dx, 2
-    xor si, si
-    call OSAPI_GFX_LINE
-    mov ax, [sh_mrx1]
-    add ax, 7
-    mov bx, [sh_mry_row]
-    add bx, 7
-    mov cx, ax
-    add cx, 3
-    mov dx, bx
-    sub dx, 5
-    xor si, si
-    call OSAPI_GFX_LINE
+    add dx, SH_MCHKS - 1
+    call OSAPI_GFX_FILL
     pop dx
     pop cx
     pop bx
     pop ax
-    pop si
 .nochk:
     mov cx, [sh_mrx1]
     add cx, SH_MPAD + SH_MCHKW

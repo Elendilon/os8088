@@ -187,8 +187,53 @@ TK_LASTB  equ 79                ; the last byte of a viewport row - and it is
                                 ; 640 at 1bpp and 320 Mode X byte-addresses are
                                 ; each 80 bytes
 TK_SHSEG  equ 16000             ; the CGA/Hercules shadow, in bytes
+; --- THE HUD TEMPLATE'S STORAGE IS THE ONE THING THE TWO BUILDS DIFFER ON ----
+; (SPEC.md 85.3.5.1). The shipped package keeps SPEC.md 85.3.5's template as a
+; second 16,000-byte frame buffer and claims a flat 32KB for the pair, because
+; that is the fastest thing to restore from - one rep movsw a row - and a
+; machine with heap to spare should have it.
+;
+; APP_SMALL stores the same template as SPANS of the bytes it actually lights,
+; and claims off a LADDER instead. Measured, on both shadow backends and in
+; every state the game can be driven into: the template holds 486-512 non-zero
+; bytes of 16,000. THREE PER CENT. That is what makes the trade worth taking on
+; the 128KB machine, where the largest run a claimant can have once mem_claim
+; has shed the purgeable caches is 20KB and a 32KB claim simply refuses - and
+; what makes it the wrong trade on every other machine, because restoring from
+; spans costs the frame 4.0% (tests/tankperf.py; SPEC.md 85.3.5.1 has the
+; table). It is the SMALL BUILD's trade and not the package's.
+;
+;   18KB  2,432 bytes of pool - 14% over the measured high water, and what the
+;         128KB machine takes today
+;   17KB  1,408. The panel fits and a settled ridge does not, which is what
+;         TKT_RIDGEMIN below is for
+;   16KB  the shadow alone, [tk_tmpl] = 0 from the start: the pre-85.3.5 game,
+;         which is what a 128KB machine could not have at all before this
+;
+; A RUNG IS NOT A FEATURE. The game is the same game on all three and only the
+; panel's cost moves; nothing else here is sized against them.
+%ifdef APP_SMALL
+TK_SHKB   equ 18                ; the rung it would like...
+TK_SHKB2  equ 17                ; ...and the two it will settle for
+TK_SHKB3  equ 16
+TKT_RIDGEMIN equ 2048           ; A POOL SMALLER THAN THIS NEVER TAKES THE
+                                ; RIDGE. Measured: the six panel items encode
+                                ; to ~1,050 bytes and a settled ridge adds
+                                ; 800-1,100 more, so the 17KB rung holds the
+                                ; panel and cannot hold both. Refusing the
+                                ; ridge there keeps 85.3.5's 61-67 ms a frame
+                                ; and pays 85.3.8's 26; letting it overflow
+                                ; instead dropped the template whole and paid
+                                ; both
+TKT_GAP   equ 4                 ; lit runs closer than this are ONE span, the
+                                ; zeros between them stored: the panel's runs
+                                ; average under two bytes, so a two-byte header
+                                ; costs more than the gap it saves
+%else
 TK_SHKB   equ 32                ; ...as a claim, with the HUD TEMPLATE in its
                                 ; second half (SPEC.md 85.3.5)
+%endif
+
 
 ; --- gameplay -----------------------------------------------------------------
 TK_TURN   equ 2                 ; angle units per TICK at full lock
@@ -722,6 +767,9 @@ tk_tpl:
 %include "tkover.inc"
 %include "tkhs.inc"
 %include "tkraster.inc"
+%ifdef APP_SMALL
+%include "tktmpl.inc"     ; the span store (SPEC.md 85.3.5.1)
+%endif
 %include "tk3d.inc"
 %include "tkgame.inc"
 %include "tkattr.inc"
@@ -781,6 +829,9 @@ tk_tpl:
     ZWORD tk_page1
     ZBYTE tk_npage
     ZWORD tk_shseg
+%ifdef APP_SMALL
+    ZBYTE tk_shkb                   ; the ladder rung the claim came off
+%endif
     ZWORD tk_tmseg                  ; the template: the claim's second half
     ZBYTE tk_tmpl                   ; ...and whether this backend has one
     ZWORD tk_tmsave                 ; tk_spcur, while an item draws
@@ -790,9 +841,28 @@ tk_tpl:
     ZBUF  tk_tmovl, 7               ; ...and which rectangles meet which
     ZBYTE tk_tmbits
     ZWORD tk_tmcur                  ; the rectangle being redrawn, or 0
+%ifdef APP_SMALL
+    ZBUF  tk_tmrix, (TK_MAXROW + 1) * 2 ; row r's records start at pool
+                                    ; [tk_tmrix[r]] and end at [tk_tmrix[r+1]],
+                                    ; which is why there is one more of these
+                                    ; than there are rows (SPEC.md 85.3.5.1)
+    ZWORD tk_tmlen                  ; the pool's bytes in use...
+    ZWORD tk_tmcap                  ; ...and how many it has, which is the rung
+                                    ; the claim came off (SPEC.md 85.3.5.1)
+    ZWORD tk_tmr0                   ; the rows tk_tmenc is rebuilding...
+    ZWORD tk_tmr1
+    ZWORD tk_tmmid                  ; ...how many bytes it PARKED above them...
+    ZWORD tk_tmceil                 ; ...the first pool byte it may not write,
+                                    ; which is where they are parked...
+    ZBYTE tk_tmovf                  ; ...and whether a record ran into it
+    ZWORD tk_tmpen                  ; the pool pen, while a row is written
+%endif
     ZBYTE tk_rtm_on                 ; the template holds a ridge (85.3.8)...
     ZBYTE tk_rpa_tm                 ; ...drawn at this heading...
     ZBYTE tk_rpa_last               ; ...and the heading of the last frame
+    ZBYTE tk_rpa_draw               ; the heading tk_ridge is drawing AT, which
+                                    ; is the live one for every caller but the
+                                    ; template's own redraw (85.3.8.1)
     ZWORD tk_rx0                    ; the columns tk_ridge draws between
     ZWORD tk_rx1
     ZBYTE tk_par
@@ -1031,11 +1101,30 @@ tk_tpl:
     ZBUF  tk_curft, TKC_SZ          ; walk block each, plus where it has got
     ZBUF  tk_curbh, TKC_SZ          ; to and what it still owes this glyph
     ZBUF  tk_curbt, TKC_SZ
+    ZBUF  tk_lgwk,  GLS_SZ          ; ...and one more walk block, for the logo
+                                    ; segments drawn WHOLE (SPEC.md 85.10.4):
+                                    ; the cursors above animate, this one just
+                                    ; lays a segment down and is done with it
+    ZBUF  tk_pts, TK_PTMAX * 4      ; the attract cursors' points, stepped into
+                                    ; here and committed in ONE arrival
+                                    ; (SPEC.md 5.12.5). A full list commits
+                                    ; itself, so this is a tuning size and
+                                    ; never a correctness one
 
 ; --- the shared controls (SPEC.md 20.5.1) -------------------------------------
 %define OS88UI_ABOUT            ; the standard About card, and NOTHING else:
 %define OS88UI_NOBTN            ; the attract panel is the game's own chrome
 %include "os88ui.inc"
+
+; --- the embeddable graphics library (SPEC.md 5.12) ---------------------------
+; SPEC.md 5.6.7's resumable walk, in our own image, for tkattr.inc's letter
+; cursors: pure arithmetic over blocks we already owned, with the pixels
+; committed through OSAPI_GFX_POINTS. It used to spend one arrival per SEGMENT
+; of a glyph and now spends one per WAKE.
+%define GFXE_WALK                   ; ...which implies GFXE_POINTS
+%define GFXE_PT_BUF tk_pts
+%define GFXE_PT_MAX TK_PTMAX
+%include "os88gfx.inc"
 
     OS88_BSS TK_BSS
     OS88_IMAGE_END

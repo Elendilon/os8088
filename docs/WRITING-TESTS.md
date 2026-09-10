@@ -55,8 +55,9 @@ that overruns one.
 **Choose the tier by what the row costs and how broadly it fails, never by
 how important you think it is.** The two expensive tiers are not run per
 commit — `full` runs when a major round of work reaches the integration
-branch and `soak` at the end of extensive kernel surgery (docs/TESTING.md,
-*When to run which tier*) — so a row put in `full` to make sure somebody sees
+branch, and `soak` is scoped to the rows a change can REACH, the whole tier
+running only when the owner asks for it (docs/TESTING.md, *When to run which
+tier*) — so a row put in `full` to make sure somebody sees
 it is a row that runs LESS often than you imagine, and one put in `soak` is
 still run by the person who touched its subject, which is who it is for.
 `soak` is a real answer and costs nobody any budget.
@@ -236,7 +237,7 @@ run after the first.
 
 A row whose assertion is a RATE cannot share four cores with two other guests.
 That is not flakiness, it is the wrong measurement. `saverate`, `deskbench`,
-`wirefps`, `uilat` and `curdisk` carry it.
+`uilat` and `curdisk` carry it.
 
 Everything else should NOT: guest cycle counts, `disk()` counts and pixel
 comparisons are exact at any oversubscription, because they are counted rather
@@ -462,6 +463,41 @@ Rarely, and always for a stated reason:
 Even then, confirm afterwards by reading the state the click was supposed to
 change.
 
+### 6.2 A breakpoint and a UI verb: `os88marty.bp_trace`
+
+**They cannot be spelled one after the other**, and the reason is rule 2 above
+turned against you: every verb confirms by READING GUEST STATE, and a guest
+stopped at a breakpoint publishes nothing new. So an armed breakpoint does not
+send a click to the wrong place - it makes the click's own proof unobtainable,
+and the verb reports a machine that refused to go where it was sent.
+
+Put the breakpoints in a `bp_trace` block and the body is ordinary code:
+
+```python
+with os88marty.bp_trace(m, "wm_su_try", "gfx_restore") as tr:
+    ui.raise_window(w)                  # os88ui verbs, unmodified
+assert tr.count("wm_su_try") == 1
+```
+
+**Stay in the block until the work has RUN** - `tr.until(cond, what)`. A `with`
+block ends when its body ends, and a gesture returns when it is DECODED, not
+when the repaint it triggers has finished. Leaving there clears the
+breakpoints first and the row reports the kernel never doing the thing.
+
+The pump runs on a daemon and resumes at every hit. `regs=True` records a
+register set at each stop; `on_hit=f` is called while the guest is STOPPED and
+its answer kept, which is the only way to read a value that is true only
+inside the routine the breakpoint is on - a damage rect, `wm_clip_n`, a return
+address off the guest's own stack. Do NOT hand-roll the pump: it has two traps
+that have each cost a run, and `bp_trace` carries both fixes
+(docs/MARTYPC-DEBUG.md, *Driving the UI with breakpoints armed*).
+
+**Arm the narrowest symbol that answers the question.** Every hit costs two or
+three round trips plus the pump's poll interval of stopped guest, so a
+breakpoint on a hot symbol runs the machine at a fraction of its speed and the
+wait around it fails on its host backstop. When one packet is the whole
+gesture, `tools/os88span.py`'s arm-late pattern is cheaper still.
+
 ---
 
 ## 7. Waiting: the guest's clock, never the host's
@@ -532,6 +568,22 @@ load. `drv_owner` for the class is the signal, because `drv_publish` is reached
 from `drv_attach` and nothing else writes it.
 
 Read the kernel and find the write that happens LAST.
+
+**And a CONFIRMED INPUT is not a confirmed GESTURE — the same rule one layer
+down.** `os88mouse` proves every packet it sends: `to()` against the published
+cursor, `_edge()` against the guest's own `mouse_btn`. Neither proves that
+anything *acted*. `mouse_btn` is a LEVEL that `mou_isr` sets; what the UI acts
+on is an `EVT_MDOWN` in the ring, and SPEC.md 10.1 says what happens when that
+ring is full — `evq_push` drops a record. So a press can be confirmed at every
+layer the mouse has and still be a gesture that never happened, which is
+`hdboot` at a lane of four: pointer confirmed at (199,10), button confirmed
+down, and no menu on the screen after **182 ticks**.
+
+Wait on the state the gesture is FOR — `menu_dropd` for a menu, `ui_dragwin`
+for a drag — and let `os88ui.UI._edge_until` do the pressing, because the
+recovery is a **fresh edge** and not a longer wait or a re-sent packet: a
+Microsoft packet carries the LEVEL, so re-sending says what the guest already
+believes.
 
 ### 7.3 `settle` is expensive and often the wrong question
 
@@ -770,6 +822,18 @@ not. Each one can still happen today.
 | 44 | `skiesflat` reading the shadow after `advance(frames=200)`. `advance` is EXACT in guest time and stops at an arbitrary instruction — which, in a program that spends most of its frame in `cs_scene`, is usually **inside a half-drawn picture**: the ground painted and the tower not reached yet. Which half depends on the free-run phase, which depends on the HOST, so the row passed 5 times in 5 alone and failed 4 in 4 at three-way concurrency, on the same bytes and the same pinned pose — and the failure it printed was `the platform bar is drawn AT THE TOWER (nothing over x=100)`, which reads as the fix under test not working. Entry 39's rule for a different reason: 39 is about not waiting long enough, this is about not stopping in the right PLACE. **Stop where the frame is whole** — a breakpoint at the device copy (`cs_blit`), not a frame count | §7, §7.1 |
 | 45 | The `fast` tier at 55 rows and 62.7s of work, of which over half was one package's business (three SKIES rows, three FRACTAL, Paint's ink masks, the Weave family's two) or a kernel internal no package can reach (`.lowbss`'s order at 5.1s, the LZ codec at 4.7s, a `.bss` sentinel, the month mask). Nothing was wrong with any of them - they were being charged to the wrong person, on every build, for ever. The tier is the one nobody opts into, so the test is not "is this valuable" but "is it valuable to somebody who did not touch this" | §2.1 |
 | 46 | The `full` tier at 14 rows and 452s of row time, of which `buildmatrix` alone was 143s assembling 99 knob configurations — instruments, not the OS — while `weavesmoke` spent 73s opening one package's bundle and `martyconc` gated the emulator harness rather than the machine. A pre-merge smoke test that takes five minutes and is mostly about the tree rather than the product is one that gets skipped | §2.2 |
+| 47 | `hdboot` pressing a menu with the pointer and the button both CONFIRMED, and no menu for 182 ticks: the `EVT_MDOWN` was dropped from a full ring while the level stood | §7.2 |
+| 48 | Every `os88build.tree()` call sweeping `$(VIDSTAMP)` — a legitimately empty marker — so make rebuilt the whole kernel each time and two rows sharing a tree rebuilt it under each other | §5.2 |
+| 49 | Four rows hand-rolling the SAME breakpoint pump, each with the driving gesture on a daemon thread and the resume loop in `main` - because an armed breakpoint makes every `os88ui` and `os88mouse` verb unable to confirm, so the two could not be written one after the other. Two of the four counted a stop as *anything not running*, which makes the driving thread's own `advance()` and `pause()` read as entries that never happened - in `paintanchor` each one appended an EMPTY damage rect to the list its assertion is over. `paintsu` additionally carried `serialise(m)`, a monkey-patch wrapping `m.cmd` in a lock of its own, years after that lock landed IN `cmd`. **`os88marty.bp_trace` is the one pump**; and outside a trace an armed breakpoint now fails in 2.2s naming the clock, where it took **332.1s** and surfaced from `guest_sleep`'s stall arm - the only thing in the path that was watching | §6.2 |
+| 50 | ...and then 21 more sites in 16 files that armed a breakpoint and drove the mouse with NOTHING pumping it. Every one passed, and passed for a reason that is not a guarantee: the symbol under watch cannot be reached until the gesture has been decoded, so the ordering held right up until it would not have. `int0sweep` is the sharpest - it arms INT 0 across a whole UI sweep and was sound exactly as long as it was passing, because the first real divide error would have frozen the sweep at the step AFTER it; its own `check` then cleared the breakpoint set at the first fire, so a machine raising two reported one and swept the rest unarmed. **Not every such site is a defect**, and TWO are not: `paintrow`'s second one WANTS the machine stopped inside `pt_blit`, because that is the context its patch runs in; and `paintlzw`'s `paint_base` RETURNS with the guest held at `toast_show`, the whole decode bracket after it starting from that stop. Converting the second one reached the toast correctly and then timed out at 190s - the trace resumes on the way out, and two round trips of a free-running guest is past `pt_gif_in`. Both carry a comment saying why they are bare arms | §6.2 |
+| 51 | `skiesadi` waiting for a stop that had already happened AND could not happen again: `m.advance(frames=3)` then `m.wait_stop(3.0)`. `advance` ENDS STOPPED and takes the resume mark, so the wait asks for a SECOND stop nothing is coming to make - and a stopped guest burns no cycles, so it cannot even time out on its guest budget; it sat on the same stop until the host-time grace fired. Before the mark existed the same line returned AT ONCE with the stop it was asked to wait past, which is a green row for a gesture that never happened. `advance`'s own reply IS the answer - the server leaves a hit latched as `breakpoint` rather than overwriting it with `paused` - and a sweep of all 473 `advance(` sites found this shape exactly once | §7.2 |
+| 52 | ...and the same row's RED ARM had stopped running at all, silently. `--clobber-adi` puts the unguarded divide back by finding `mov bx,cx / call cs_cdiv` and overwriting it; `470bd4c` moved cos out of CX - sin owns that register - so the pattern matched nothing and the arm exited instead of asserting. The green arm stayed green throughout, so the row looked healthy while the only thing that proves it works was gone. **A red run is code too, and nothing runs it**: anchor a patch on the fewest bytes that identify the site, and re-run the red arm whenever the code under it moves | §1 |
+| 53 | `tests/skies.py`'s `until` documenting *"the guest's own clock, never the host's"* and calling `m.run()` inside the loop, so the guest free-runs across the pred read and the next advance: measured at **+6.0-6.4%** of the declared frames on an idle box, varying run to run, against **+0.1%** for the advances alone. The surplus decides how long a key is HELD - `until` releases the stick a block after liftoff - so a loaded box entered the climb at 584 units of pitch where an idle one entered at 874, and a climb assertion whose budget bought EXACTLY the 30 m it asked for went red at 27. Two rules in one incident: **a budget is not a requirement** - size it so the machine that behaves returns early and only a box that would have failed ever spends it - and **check what a helper's docstring promises against what it does**, because the next reader will believe it. It could not simply be made deterministic: `key` presses and releases with no guest cycles between them, so the guest must be executing for the keyboard to deliver both | §7 |
+| 54 | `tests/unit/t_csworld.py` and `t_csworlds.py` reading Clear Skies' `cs_ports` after SPEC.md 88.10.5 moved every location's record into a world OVERLAY, so the addresses went from small image offsets to 0xBF60 and the tests' own SIGNED `w()` made all nine negative. `t_csworld` reported **"1 worlds behind 9 locations, all clear of their own water"** in 0.6s, having read the package HEADER as a location name nine times — a gate whose whole subject is buildings standing in rivers, passing without looking at one. `t_csworlds` was the same defect and happened to fail loudly, only because its `BASE` lookup is by name. **A registry does not notice a green row**, which is §1 again; what caught it was auditing what the change could reach rather than what the runner said. Two rules fell out: **a pointer is unsigned**, and a host-side reader of a package whose data is a PART must lay the part in (`csworlds.overlay`) instead of indexing the image | §1 |
+| 55 | `tmowner` at **1 pass in 4, alone, at every point measured** - including trees that predate the session that re-rated it - and classified twice as a contention artefact on the strength of a single passing re-run. It is neither: `dispcells.Pump.serve` DROPS BREAKPOINT STOPS and says so in its own docstring, along with the rule that a gate counting rare events here must RETRY rather than fail on one observation. The row reassembles the heap page from `font_run` calls, the page indents a claim two characters INSIDE the text, so a row that loses its FIRST chunk loses the indent, `group_in` promotes it to a heading and files everything after it under a claim row. It failed saying *"its cache belongs under System - it is under 'Read 2000  63K HIGH'"*, which is the `DirRead` row one chunk short. **A capture is not automatically whole**: test the invariant that matters (here, every row kept its leftmost chunk), drop the frames that fail it, and retry the gesture until the capture ANSWERS. 3/3 failed before, 0/4 after, same sampler | §1, §7 |
+| 56 | `tests/skiescount.py` dividing a WHOLE-FRAME A/B by a PER-FRAME COUNT and printing the quotient with no warning, on scenes where that count is a handful. It read a dedup test at **-283 cycles an edge**, a winding cross at **-1031**, and one `or [es:di], al` at **2819.3** against a true cost near 13 - an ADDED term cannot be negative and cannot be 200x, so all three were noise wearing a measurement's clothes, and they very nearly chose the next piece of work. The tool was written for `city` and the `df*` three, where those counts are in the hundreds; `--fly` and `--roll`, added the day before to answer a different question, made it reachable on scenes with three of something a frame. Two rules: **an instrument must measure its own resolution** - a null A/B, the same arm twice, which is the identical self-control that saved the pixel-identity gate one task earlier - and **a derived figure is only as good as its worst input**, so a net of three A/Bs is not printed at all when one did not resolve. It also turned out the two modes are exclusive: a POPULATION needs the world flying and a PRICE needs both arms to see the same scene, and flying the resolution is **26-43 ms on a 217 ms frame** against +/-16 to +/-111 cycles pinned. `--fly` skips the pricing half now and says why | §1 |
+| 57 | `dotdel`'s leg A reading `dd_x`/`dd_y` twice **two HOST seconds apart** and reporting *"the demo's Smiles has not moved - the attract screen is a still picture"* for a demo that was walking about perfectly well. It went red exactly once, on a CGA lane sharing four cores with two other guests, and never alone; a 90-second watch of the same guest found no stall longer than **one sample**. The check is the game's own tick counter now - wait for `dd_anim` to advance 24, then compare - and it says which of the two things went wrong, because a guest that advanced no ticks is a starved lane and not a still picture. **Every `time.sleep` between two reads of the same guest variable is this bug waiting for a busy box** | §7 |
+| 58 | A pixel census that **skipped a tile with nothing lit in it** — `if not cs: continue` — and so could not see the one defect it was written for. It ran for two rounds proving DOT DELIRIUM's maze was never the *wrong colour*, while a repaired corner was coming back **black**: most wall tiles legitimately hold no ink at all (SPEC.md 93.2.1), so an emptied tile is indistinguishable from an ordinary one unless the row knows which is which. It took a field report — *"corners are back to disappearing"* — to notice, and the fix was to stop reading the screen against ITSELF and read it against `dd_bdseg`, the picture the renderer copies out of: **108 wall-ink pixels black in 2 tiles** on the very build the colour census called clean, plus a second, older defect on a different adapter that nothing had ever looked for. **A census over what is THERE cannot see something removed** — anchor one to the artefact that says what should be there | §1 |
 
 ---
 

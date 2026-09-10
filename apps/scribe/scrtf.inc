@@ -95,7 +95,7 @@ sc_rtfimg:
 ;      it (sc_rowhc).
 ;
 ; THIS IS THE ONE PLACE SCRIBE WRITES SOMETHING WORD DOES NOT, and RTF is the
-; format where that is safe rather than reckless (SPEC.md 94.5). RTF is text
+; format where that is safe rather than reckless (SPEC.md 95.5). RTF is text
 ; and its own rule is that a reader skips a destination it does not know, so
 ; the worst a foreign reader can do with this group is drop it and keep the
 ; document. The same picture in a .DOC would be a binary field that a reader
@@ -110,7 +110,7 @@ sc_rtfimg:
 ;                   byte with the high nibble leftmost, so a load is a copy
 ;                   and not a conversion
 ;   \wbmwidthbytes  the stride, carried and never recomputed - the lesson
-;                   .PCX's BytesPerLine taught (SPEC.md 93)
+;                   .PCX's BytesPerLine taught (SPEC.md 94)
 ;   \picw \pich     pixels
 ;   \picwgoal \pichgoal   twips, at 15 per pixel = 96dpi, the Windows
 ;                   logical inch. Display size, not storage size.
@@ -140,7 +140,7 @@ sc_rpict:
     push es
     push ds
     PKG_LDS sc_cseg            ; the CHP byte IS the picture index
-    mov al, [bx]                    ; (SPEC.md 94.9)
+    mov al, [bx]                    ; (SPEC.md 95.9)
     pop ds
     xor ah, ah
     call far [sc_v_picrec]; -> BX = the table slot
@@ -264,7 +264,7 @@ sc_rwhex:
     mov ah, al
     mov cl, 4
     shr al, cl                      ; the HIGH nibble first, which is also the
-    call sc_rwhex1                   ; leftmost pixel (SPEC.md 93)
+    call sc_rwhex1                   ; leftmost pixel (SPEC.md 94)
     mov al, ah
     and al, 0x0F
     call sc_rwhex1
@@ -439,7 +439,7 @@ sc_rpap:
     xor ah, ah
     mov bx, ax
     shl bx, 1
-    mov si, [cs:bx+sc_r_qtab]     ; (SPEC.md 94.8.2)
+    mov si, [cs:bx+sc_r_qtab]     ; (SPEC.md 95.8.2)
     call sc_res
 .nj:
     mov al, [sc_rpp+1]              ; left indent
@@ -706,7 +706,7 @@ sc_rtfparse:
     call far [sc_v_pictfree]; the OLD document's pictures go back
                                     ; HERE and not at sc_load's commit point,
                                     ; which is past the ones this parse is
-                                    ; about to build (SPEC.md 94.6)
+                                    ; about to build (SPEC.md 95.6)
     xor si, si                      ; SI = where we are in the file
 .step:
     cmp si, [sc_dfsize]
@@ -1134,7 +1134,7 @@ sc_rword:
     ret
 
 ; =============================================================================
-; THE PICTURE READER (SPEC.md 94.6). \pict used to be a skipped destination
+; THE PICTURE READER (SPEC.md 95.6). \pict used to be a skipped destination
 ; and is now a collected one. The shape mirrors sc_rskip exactly: [sc_rpin]
 ; holds the depth the group opened at, .step routes text to the collector
 ; while it is set, and .close finalises when that group's brace arrives.
@@ -1647,7 +1647,7 @@ sc_r_tbl:
     db SCR_SKIP
     dw sc_rw_info
     db SCR_SKIP
-    dw sc_rw_pict                   ; NOT SCR_SKIP any more (SPEC.md 94.6):
+    dw sc_rw_pict                   ; NOT SCR_SKIP any more (SPEC.md 95.6):
     db SCR_PICT                     ; a \pict this reader understands is a
     dw sc_rw_wbmwb                  ; picture, and one it does not is
     db SCR_PICWB                    ; discarded at the closing brace, which
