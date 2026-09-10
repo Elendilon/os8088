@@ -12,6 +12,12 @@ Five questions, and each one has gone wrong at least once during the build
   C  ENTER STARTS A GAME, and Smiles then EATS: the dot count falls and the
      score rises. A maze chase whose dots never go is a maze chase that never
      ends.
+  K  ACROSS AND DOWN ARE THE SAME SPEED ON THE GLASS (SPEC.md 93.7.6).  A
+     tile is not square on any adapter - 1.15 : 1 on a Hercules, 1.23 on a
+     VGA, 0.83 on a CGA - so one tile in DD_TILET ticks EITHER WAY makes an
+     actor 15-30% faster along its longer axis, which the field read
+     straight off the screen.  Checked PER SPEED, because the failure it
+     caught was rounding and that only shows where the steps are smallest.
   D  THE BOARD IS CUT FROM THE SURFACE (SPEC.md 93.3).  The tile is what the
      adapter's own pixel shape and the live content box say it should be, and
      going fullscreen re-cuts it BIGGER and leaving puts it back.
@@ -36,7 +42,11 @@ Five questions, and each one has gone wrong at least once during the build
      walk, a `font_run` and a pair of divides - each took it to 60% while
      everything still LOOKED right (SPEC.md 93.5.3).
 
-BREAK IT ON PURPOSE: put `dd_pills_blit` back on a board walk and leg E goes
+BREAK IT ON PURPOSE: set `[dd_stpy + bx]` from a base speed the way it was -
+`th * DD_SUB / DD_TILET`, scaled by the percentage - and leg K reads 1.15x on
+the Hercules arm, 1.23x on the VGA and 0.83x on the CGA.  Convert a base speed
+once instead of converting each of the ten, and only the CGA's frightened row
+goes red, at 1.13x.  Put `dd_pills_blit` back on a board walk and leg E goes
 red at ~63%, and so does copying the wall picture into every actor's band
 (SPEC.md 93.5.3 item 4, which cost 12 ms of a 54.9 ms frame). What this row
 does NOT read is a wrong COLOUR or a dot drawn half - those are a look, and
@@ -612,6 +622,41 @@ def run_arm(tag, machine, want_tile, a, say, floor=FPS_FLOOR):
             say("%s: tile %dx%d, board %dx%d, %d bpp"
                 % (tag, tile[0], tile[1], p.w("dd_mw"), p.w("dd_mh"),
                    p.b("dd_bpp")))
+
+        # --- K: across and down are the same speed ON THE GLASS ------------
+        # (SPEC.md 93.7.6).  A tile is not square on any adapter, so one tile
+        # in DD_TILET ticks EITHER WAY makes an actor 15-30% faster along its
+        # longer axis - which the field read straight off the screen.  The
+        # claim is PHYSICAL: stpy converted by the same [dd_asp] the code
+        # used has to match stpx.
+        #
+        # PER SPEED, because the failure this caught was ROUNDING and it only
+        # shows on the adapter with the smallest steps: a CGA's frightened
+        # ghost moves seven sixteenths of a pixel a tick, so one unit is 13%
+        # of it, and converting a base speed once and taking 60% of THAT put
+        # the two axes 13% apart on that row alone.
+        asp = p.w("dd_asp")
+        skewed = 0
+        for i, sname in enumerate(("Smiles", "ghost", "frightened", "eyes",
+                                   "tunnel")):
+            sx, sy = p.w("dd_stpx", i), p.w("dd_stpy", i)
+            phys = sy * asp / 100.0
+            if phys <= 0:
+                fail.append("%s: the %s speed is ZERO down - a frozen actor "
+                            "(SPEC.md 93.7.1's rounding rule)" % (tag, sname))
+                skewed += 1
+                continue
+            r = sx / phys
+            if not 0.94 <= r <= 1.06:
+                fail.append("%s: %s travels %.2fx as far ACROSS as DOWN on "
+                            "the glass (%d vs %d x %d/100 = %.1f sixteenths a "
+                            "tick) - the board is skewed and so is the "
+                            "movement (SPEC.md 93.7.6)"
+                            % (tag, sname, r, sx, sy, asp, phys))
+                skewed += 1
+        if not skewed:
+            say("%s: across = down on the glass for all five speeds "
+                "(aspect %d)" % (tag, asp))
 
         # --- A: the title screen has all four of its parts -----------------
         if p.b("dd_state") != 0:

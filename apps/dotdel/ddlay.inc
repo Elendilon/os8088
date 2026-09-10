@@ -205,7 +205,7 @@ dd_layout:
 .hgapok:
 
     ; --- the sub-pixel speeds (SPEC.md 93.7.1) ------------------------------
-    ; One tile in DD_TILET ticks, so the game runs at the same TILES per
+    ; One tile in DD_TILET ticks ACROSS, so the game runs at the same tiles per
     ; second on every adapter and the pixel rate follows the tile.
     mov ax, [dd_tw]
     mov bx, DD_SUB
@@ -214,16 +214,11 @@ dd_layout:
     div bl
     xor ah, ah
     mov [dd_spx], ax
-    mov ax, [dd_th]
-    mov bx, DD_SUB
-    mul bx
-    mov bl, DD_TILET
-    div bl
-    xor ah, ah
-    mov [dd_spy], ax
+    ; DOWN is not computed here at all - it is each horizontal step converted,
+    ; in the loop below (SPEC.md 93.7.6).
     ; --- ...and the five speeds against both axes, ONCE (SPEC.md 93.7.5) ----
-    ; dd_axis_step used to scale dd_spx/dd_spy by a percentage with a MUL and
-    ; a DIV, per actor per tick.  There are five speeds in this game, so there
+    ; dd_axis_step used to scale a base speed by a percentage with a MUL and a
+    ; DIV, per actor per tick.  There are five speeds in this game, so there
     ; are ten answers; they are resolved here, where the tile size is being
     ; decided anyway, and dd_axis_step indexes them.
     push si
@@ -244,11 +239,31 @@ dd_layout:
     pop bx
     push bx
     mov [dd_stpx + bx], ax
-    mov ax, [dd_spy]
-    mul word [dd_spct + bx]
-    mov cx, 100                     ; MUL has set DX:AX and DIV wants both:
-    div cx                          ; clearing DX here would discard the high
-                                    ; half of the product
+    ; --- ...and DOWN is THAT STEP converted to the glass (SPEC.md 93.7.6) ---
+    ; A tile is not square on the glass anywhere - 1.15 : 1 on a Hercules,
+    ; 1.23 on a VGA, 1.30 on an EGA and 0.83 on a CGA - so one tile in
+    ; DD_TILET ticks EITHER WAY is an actor that travels that much faster
+    ; along its longer axis. The field read it exactly as it is: "moving
+    ; across is faster than vertical ... the projection is slightly skewed
+    ; horizontally", and then "the horizontal speed FEELS RIGHT and the
+    ; vertical a bit slow" - which is why across is the reference and down is
+    ; brought up to it, rather than the other way round.
+    ;
+    ; The tile cannot be narrowed to fix it. dd_tw is a MULTIPLE OF EIGHT by
+    ; the band rule at the top of this file, and the only step below 16 is 8 -
+    ; a board of 224 where 14 is what squares a Hercules.
+    ;
+    ; PER SPEED and not once, because rounding is the whole difficulty on the
+    ; adapter with the smallest steps: a CGA's frightened ghost moves SEVEN
+    ; sixteenths of a pixel a tick, so one unit is 13% of it, and converting
+    ; the base speed once and then taking 60% of THAT left the two axes 13%
+    ; apart on the adapter that had least to spare.
+    mov bx, 100
+    mul bx                          ; DX:AX = stpx * 100, at most 12,100
+    mov cx, [dd_asp]
+    shr cx, 1
+    add ax, cx                      ; ...to NEAREST, and 12,220 cannot carry
+    div word [dd_asp]               ; out of AX, so the MUL's DX still stands
     or ax, ax
     jnz .syok
     mov ax, 1

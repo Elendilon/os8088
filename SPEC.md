@@ -112368,6 +112368,76 @@ one table, `dd_spct`, which `dd_layout` is the only reader of.
 The rounding rule moves with the arithmetic and still holds: a speed that
 rounds down to zero is forced to 1, because a zero step is a frozen actor.
 
+##### 93.7.6 …and DOWN is the same PHYSICAL speed, not the same tile rate
+
+**A tile is not square on the glass anywhere.** §93.3's table is the board's
+aspect and it is also, by construction, the *speed* ratio: one tile in
+`DD_TILET` ticks either way means an actor travels its tile's width across in
+the same time it travels its tile's height down, and those are different
+distances on the monitor.
+
+| | tile | board on the glass | across ÷ down |
+|---|---|---|---|
+| VGA 640×480 | 16 × 13 | 1.23 : 1 | **1.23×** |
+| Hercules 720×348 | 16 × 9 | 1.15 : 1 | **1.15×** |
+| EGA 640×350 | 16 × 9 | 1.30 : 1 | **1.30×** |
+| CGA 640×200 | 8 × 4 | 0.83 : 1 | **0.83×** — the other way |
+
+The field read it off the screen without knowing any of that: *"moving across
+is faster than vertical … the projection is slightly skewed horizontally."*
+
+**The tile cannot be narrowed to fix it.** `[dd_tw]` is a multiple of eight by
+the band rule at the top of `ddlay.inc` — a band is put down in one pen, so a
+wall rounded into it is drawn in the actor's colour — and the only step below
+16 is **8**. Squaring a Hercules wants 14; the nearest legal value halves the
+board to 224 px. Growing `[dd_th]` instead is out too: 31 rows at 10 is 310 px
+and the windowed content box on a 348-line Hercules has not got it.
+
+The field's second reading settled which way to correct it: *"the horizontal
+speed **feels right** and the vertical a bit slow."* So **across is the
+reference** and down is brought up to it.
+
+The geometry stays and the **kinematics** are corrected. One pixel down is
+`[dd_asp]`/100 pixels across on the glass, so the step that covers the same
+ground is `stpx * 100 / asp` — and it is done **per speed**, inside
+§93.7.5's loop, rather than once on a base speed:
+
+```
+    mov [dd_stpx + bx], ax
+    mov bx, 100
+    mul bx                          ; DX:AX = stpx * 100, at most 12,100
+    mov cx, [dd_asp]
+    shr cx, 1
+    add ax, cx                      ; ...to NEAREST, and 12,220 cannot carry
+    div word [dd_asp]               ; out of AX, so the MUL's DX still stands
+    mov [dd_stpy + bx], ax
+```
+
+**Rounding is the whole difficulty, and only on one adapter.** Converting a
+base speed once and then taking a percentage of the result is correct to the
+byte on a VGA and wrong by **13%** on a CGA, whose frightened ghost moves
+*seven sixteenths of a pixel* a tick — one unit is 13% of it. Converting each
+of the ten answers from its own horizontal partner, to nearest rather than
+down, brings every row on every adapter inside **±3%**. `dd_spy` is gone with
+it: there is no base vertical speed any more, only ten converted ones.
+
+`DD_TILET` keeps its meaning on the axis it was tuned on — the one the field
+says feels right — and a tile down now
+takes however long the physics says — 3.5 ticks on a Hercules, 3.25 on a VGA,
+4.9 on a CGA. **Nothing else in the game is measured in tiles**: the mode
+clocks, `DD_PENWAIT`, the fright timer and `DD_EATPAUSE` are all ticks, and
+`dd_advance` detects a crossing from the position rather than from a count.
+
+What it costs a player: vertical travel gets **14% quicker on a Hercules, 23%
+on a VGA and 30% on an EGA**, and 19% slower on a CGA. Every actor scales
+together — the ten answers in `dd_stpx`/`dd_stpy` are all built from these two
+words — so the relative speeds §93.7.1 sets are untouched.
+
+**It cannot overshoot a tile**, which is the one thing a bigger step could
+break. The worst case is the 190% of a returning pair of eyes on a VGA: 121 of
+a tile's 208 sixteenths. `dd_advance` needs the step under one tile and has at
+least a 1.7× margin on every adapter.
+
 #### 93.7.2 Steering is polled, not evented
 
 `W_ONKEY` handles the discrete commands and **nothing to do with steering**. A

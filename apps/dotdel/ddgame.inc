@@ -2078,23 +2078,23 @@ dd_beep:
 ; alarm. Both tones are also well below the old one, which is the other half of
 ; "less grating": a square wave is all odd harmonics, so 660 Hz put its third
 ; and fifth at 1,980 and 3,300 - the middle of where an ear is most sensitive -
-; and 330 puts them at 990 and 1,650. That half is the SPEAKER's: a loaded
+; and 349 puts them at 1,047 and 1,745. That half is the SPEAKER's: a loaded
 ; driver publishing DSV_TONE takes the tier (SPEC.md 34.2), so on an OPL2 the
 ; timbre is the patch's and only the pitch and the warble carry over.
 ;
-; THE INTERVAL WAS CHOSEN BY LISTENING, and it came out NARROWER than the
-; theory wanted. A fourth apart (262/349) is heard as two NOTES - a little tune
-; played four and a half times a second - where a whole tone is heard as one
-; sound wavering, which is what chewing is. Six candidates were synthesised at
-; the exact tones and tick lengths this code asks for and the pair was picked
-; off the audio.
+; THE INTERVAL IS BEING CHOSEN BY LISTENING and it is NOT SETTLED. Six
+; candidates were synthesised at the exact tones and tick lengths this code
+; asks for - the speaker is a square wave, so the preview is faithful - and two
+; survived: this fourth, and the whole tone D4/E4 (294/330), which is heard as
+; one sound wavering rather than as two notes. They are being A/B'd on real
+; hardware, on the speaker and on an AdLib, and the answer is two `equ`s.
 ;
 ; It is NOT a per-tick sound engine. One byte counts the syllable down and one
 ; word holds what to play when it lands, so a tick that is not the second
 ; syllable of a bite costs a compare against zero.
 ; -----------------------------------------------------------------------------
-DD_WAKLO  equ 294                   ; D4 and E4 - a WHOLE TONE: close enough to
-DD_WAKHI  equ 330                   ; read as a warble rather than as a melody
+DD_WAKLO  equ 262                   ; C4 and F4, a fourth. D4/E4 - a whole tone -
+DD_WAKHI  equ 349                   ; is the other candidate and is one edit
 DD_WAKT   equ 1                     ; ticks a syllable. A bite at full speed is
                                     ; DD_TILET = 4, so the pair is a crisp
                                     ; wa-ka and then a gap, which is the

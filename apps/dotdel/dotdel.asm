@@ -953,8 +953,7 @@ dd_spct:     dw DD_PCTPAC, DD_PCTGH, DD_PCTFRI, DD_PCTEYE, DD_PCTTUN
     DWORDV dd_hx                    ; the HUD column
     DWORDV dd_hy
     DWORDV dd_hgap                  ; ...and the gap between its groups
-    DWORDV dd_spx                   ; one tick of travel, 1/16 px, per axis
-    DWORDV dd_spy
+    DWORDV dd_spx                   ; one tick of travel ACROSS, in 1/16 px
     DWORDV dd_spdi                  ; which of the five speeds an actor is on
     DBUFV  dd_stpx, SPD_N * 2       ; ...and the ten answers, resolved once in
     DBUFV  dd_stpy, SPD_N * 2       ; dd_relayout (SPEC.md 93.7.5)
