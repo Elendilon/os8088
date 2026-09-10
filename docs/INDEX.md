@@ -440,5 +440,5 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 
 *Superseded and closed - `docs/history/` (9):* `DUAL-DISPLAY-BUG2.md`, `HANDOFF-TESTS-A-STRADDLE.md`, `HANDOFF-TESTS-B-LAUNCH.md`, `HANDOFF-TESTS-C-FRESH.md`, `HANDOFF-TESTS.md`, `KERN-SPLIT-PLAN.md`, `SOUND-PLAN.md`, `TRACKER-PLAN.md`, `WM-ARTIFACTS.md`
 
-*Measurements, each true of the tree it was taken on - `docs/reports/` (4):* `GLYPH-AND-LINE-COST-2026-09-10.md`, `KERNEL-BYTES-SINCE-SQUASH-2026-09-07.md`, `STKDIAG-PC5150-2026-09-10.md`, `TIER-TIMINGS-2026-09-07.md`
+*Measurements, each true of the tree it was taken on - `docs/reports/` (5):* `CYCLONE-STACK-2026-09-10.md`, `GLYPH-AND-LINE-COST-2026-09-10.md`, `KERNEL-BYTES-SINCE-SQUASH-2026-09-07.md`, `STKDIAG-PC5150-2026-09-10.md`, `TIER-TIMINGS-2026-09-07.md`
 

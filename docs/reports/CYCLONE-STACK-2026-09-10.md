@@ -86,12 +86,80 @@ as an *IRQ 7 DMA completion*. It is not — Cyclone plays no stream, and the
 card's IRQ is not in this path at all. It is IRQ **0**, the driver reached
 through two service pointers that are null on a machine with no card.
 
-## 5. What this does not settle
+## 5. Which service call — separated with a poke, no build
 
-- **Which of the two service calls dominates.** `DSV_TICK` is constant and
-  `DSV_TONE` is the race; the A/B above turns both on together. Publishing one
-  and not the other would separate them, and `snd_route` (SPEC.md 34.8) may be
-  enough to do it without a build.
+`snd_rt_card` tests `cmp byte [snd_route], SND_RT_SPK / je .no`, so writing
+**1** to `snd_route` sends *tones* back to `jmp spk_tone` while `snd_tick`
+keeps calling `DSV_TICK` every tick — a different call site, untouched. One
+byte, at run time.
+
+| HEAD, Hercules 720 | slot 4 of 192 | free | outcome |
+|---|---|---|---|
+| **no card at all** | **164** ×3 | 28 | survived 3/3 |
+| SB 2.0, `snd_route = SPK` (`DSV_TICK` only) | **180** ×2, identical | 12 | survived 2/2 |
+| SB 2.0, tones to the driver (both) | 184, 188 | — | **PANIC 3/3** |
+
+So the decomposition is exact:
+
+- **`DSV_TICK` costs 16 bytes**, on every slice, all the time — it is called
+  from `snd_tick` inside IRQ 0 whether or not anything is playing. 28 bytes of
+  margin becomes 12.
+- **`DSV_TONE` costs more than the 12 that are left**, and it arrives
+  asynchronously, which is why the panic time varies.
+
+**Neither is enough on its own and together they are.** That is the whole of
+docs/FIELD-NOTES.md 40's missing term.
+
+Two cautions before anyone calls `snd_route = SPK` a fix: 12 bytes is thinner
+than any declared class margin in the tree, and it takes the FM tier away from
+everything else on the machine. It is a **diagnosis**, and it happens to be
+reachable from Control Panel → Sound without a build.
+
+## 6. The history sweep — the inlining is worth 18 bytes of it
+
+`cy_worker`'s peak on the **no-card** machine, which reads a deterministic
+number where the SB machine reads a coin toss. Each point built in its own
+worktree, every one given the same period ROM so the BIOS is held fixed.
+
+| point | commit | slot 4 of 192 | free |
+|---|---|---|---|
+| wave 5 — the walk moves into the apps | `94dd890` | **182** | 10 |
+| the commit before the `gfx_points` inlining | `0d43c61` | **182** | 10 |
+| the inlining, with its 34-byte caller cost | `189c8c7` | **164** | 28 |
+| HEAD, caller cost back to 26 | `e6f6fc0` | **164** ×3 | 28 |
+
+**Between `0d43c61` and HEAD the only code change in the entire tree is
+`kernel/vga12.inc`** — `git diff --stat 0d43c61 HEAD -- apps/ kernel/
+drivers/` is that one file — so the attribution is clean: **the `gfx_points`
+inlining took 18 bytes off Cyclone's deepest chain.** It removed the nested
+`gfx_ls_addr` / `gfx_rowbase` / `gfx_ls_box` frames *below* `gfx_points`, and
+that is worth more than the frame it added above.
+
+**And the 34-byte version is not distinguishable from HEAD here** — both read
+164. docs/FIELD-NOTES.md 40.2.1 worried in as many words that
+SPEC.md 5.6.9.3's first build cost its caller 34 bytes where the old routine
+cost 26, *"and the reboot symptom appeared on that build"*. Measured, those 8
+bytes never reach the maximum: **`gfx_points` is not the bottom of Cyclone's
+deepest chain**, so a frame added at its entry is not on the critical path.
+The worry was reasonable and it was wrong.
+
+What the sweep does confirm is the reporter's own observation that
+pre-inlining builds *"seemed to do it more often"*: **10 bytes of margin
+against 28**, and a card asks for 16 before a tone is played.
+
+## 7. Two harness faults, and both are the kind that pass quietly
+
+- **P0 (`b9bb040`, before wave 5) cannot be run at all** — `tools/os88ui.py`
+  did not exist yet, and hand-rolling clicks at remembered coordinates is
+  exactly what that layer exists to stop. The point is dropped rather than
+  faked.
+- **The period ROM is gitignored, so a fresh worktree has none.**
+  `os88marty.machine()` refused the IBM machine, correctly and loudly — which
+  is what that refusal is for, and it would have silently run three points on
+  GLaBIOS otherwise. Every worktree is given the same copy.
+
+## 8. What this does not settle
+
 - **The fix.** Nothing here proposes one. The candidates docs/FIELD-NOTES.md
   40.2 already lists are unchanged, and the honest framing is now *`cy_worker`
   runs at 85% of its class with no card in the machine*, which is a margin
@@ -100,7 +168,7 @@ through two service pointers that are null on a machine with no card.
   the thinnest in the tree, since GFX-EMBEDDABLE-PLAN's wave 5 took it
   66 → 86 bytes. 164 of 192 measured is the same statement from the machine.
 
-## 6. How to re-take it
+## 9. How to re-take it
 
 ```sh
 python3 - <<'PY'   # or any script; the shape is what matters

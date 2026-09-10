@@ -1132,11 +1132,17 @@ were wrong is the useful part: this was written as an **IRQ 7** completion,
 and it is IRQ **0**; and the *"114 of 192"* every one of these sections
 reasons against is **the title screen**.
 
-**A note on this branch's own contribution.** SPEC.md 5.6.9.3's first version
-made `gfx_points` cost its caller **34 bytes where the routine it replaced cost
-26** — a `push ds` and a wrapper. On a margin this thin that is material, and
-the reboot symptom appeared on that build. It is back to 26, measured; the
-branch's other contribution, wave 5's +20 to `cy_worker`, stands and is 40.1.
+**A note on this branch's own contribution.** ~~SPEC.md 5.6.9.3's first
+version made `gfx_points` cost its caller **34 bytes where the routine it
+replaced cost 26** — a `push ds` and a wrapper. On a margin this thin that is
+material, and the reboot symptom appeared on that build.~~ **MEASURED WRONG —
+40.2.5's sweep reads `189c8c7` and HEAD at 164 alike**, so those 8 bytes never
+reach the maximum and `gfx_points` is not the bottom of this chain. Struck
+through rather than deleted because it is the obvious inference and the next
+reader will draw it too. What is left standing is the branch's *other*
+contribution, wave 5's +20 to `cy_worker` (40.1) — and the same sweep makes
+that one **bigger** than it looked, since the inlining has since given 18
+back.
 
 ### 40.2.5 REPRODUCED — and it needs the card
 
@@ -1203,16 +1209,70 @@ bytes above** the base and this repro's `0x172C` = 5,932 is **42 below** it —
 of when `sch_switch` looked. 40.2.0 decoded a healthy SP off a machine that
 had just died, and that is why.
 
+#### Both service calls are terms, and neither alone is enough
+
+`snd_rt_card` tests `cmp byte [snd_route], SND_RT_SPK`, so writing **1** to
+`snd_route` sends tones back to `spk_tone` while `snd_tick` keeps calling
+`DSV_TICK` every tick. One byte at run time, no build:
+
+| HEAD, Hercules 720 | slot 4 of 192 | free | outcome |
+|---|---|---|---|
+| no card at all | **164** ×3 | 28 | survived 3/3 |
+| SB 2.0, `snd_route = SPK` — `DSV_TICK` only | **180** ×2, identical | 12 | survived 2/2 |
+| SB 2.0, both | 184, 188 | — | **PANIC 3/3** |
+
+**`DSV_TICK` costs 16 bytes of every slice, always** — 28 of margin becomes
+12 — and **`DSV_TONE` costs more than the 12 that are left**, arriving
+asynchronously. `snd_route = SPK` is reachable from Control Panel → Sound and
+is a **diagnosis, not a fix**: 12 bytes is thinner than any declared class
+margin in the tree, and it takes the FM tier from everything else.
+
+#### The history sweep: the inlining took 18 bytes OFF, and the 34-byte build is invisible
+
+`cy_worker`'s peak on the **no-card** machine — a deterministic number where
+the SB machine is a coin toss. One worktree per point, each given the same
+period ROM so the BIOS is held fixed.
+
+| point | commit | slot 4 of 192 | free |
+|---|---|---|---|
+| wave 5 — the walk moves into the apps | `94dd890` | **182** | 10 |
+| the commit before the `gfx_points` inlining | `0d43c61` | **182** | 10 |
+| the inlining, 34-byte caller cost | `189c8c7` | **164** | 28 |
+| HEAD, caller cost back to 26 | `e6f6fc0` | **164** ×3 | 28 |
+
+Between `0d43c61` and HEAD **the only code change in the whole tree is
+`kernel/vga12.inc`**, so the attribution is clean: the `gfx_points` inlining
+took **18 bytes off Cyclone's deepest chain**, by removing the nested
+`gfx_ls_addr` / `gfx_rowbase` / `gfx_ls_box` frames *below* it.
+
+**And that corrects this document about its own branch.** 40.2.1 ends with a
+worry that SPEC.md 5.6.9.3's first build cost its caller 34 bytes where the
+old routine cost 26, *"and the reboot symptom appeared on that build"*.
+Measured, `189c8c7` and HEAD are **both 164**: those 8 bytes never reach the
+maximum, because **`gfx_points` is not the bottom of Cyclone's deepest
+chain**. A frame added at its entry is not on the critical path. The worry was
+reasonable and it was wrong.
+
+What the sweep does confirm is the reporter's observation that pre-inlining
+builds *"seemed to do it more often"* — **10 bytes of margin against 28**, and
+a card asks for 16 before a tone is played.
+
 #### What it does not settle
 
-- **Which service call dominates.** `DSV_TICK` is constant, `DSV_TONE` is the
-  race, and the A/B turns both on together. `snd_route` (SPEC.md 34.8) may
-  separate them without a build.
 - **The fix.** Nothing here proposes one, and the honest framing has changed:
-  `cy_worker` runs at **85% of its class with no card in the machine**. That
-  is a margin question first and a driver question second — which puts 40.2's
-  item 2 (give the walk chain its 20 bytes back) back at the top rather than
-  at the bottom.
+  `cy_worker` runs at **85% of its class with no card in the machine**, and
+  the card is a further 16 before anything is audible. That is a margin
+  question first and a driver question second — which puts 40.2's item 2
+  (give the walk chain its 20 bytes back) at the top rather than the bottom,
+  and makes wave 5's +20 the single largest lever on the table.
+- **What `t_stkclass` bills.** It reads `cyclone 1.28x (86 + 64 in 192)` — an
+  86-byte app chain on an assumed **64-byte floor**. Measured in play with no
+  card the slice reads 164, and slot 1 under load reads 70 rather than its
+  idle 32. **The gate's floor term is optimistic before a card exists and
+  models no driver at all**, so it was never going to catch this.
+- **P0.** `b9bb040`, before wave 5, cannot be run with this harness at all:
+  `tools/os88ui.py` did not exist yet, and hand-rolling clicks at remembered
+  coordinates is what that layer exists to stop. Dropped rather than faked.
 
 ### 40.2 Where to look, in order
 
