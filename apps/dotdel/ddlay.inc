@@ -19,15 +19,26 @@
 ; is the largest of {8, 16} that keeps the tile within 1.3x of square on the
 ; glass.
 ;
-;   VGA  640x480  aspect 100  ->  16 x 13   board 448 x 403   1.11 : 1
-;   HERC 720x348  aspect 155  ->  16 x  9   board 448 x 279   1.15 : 1
-;   EGA  640x350  aspect 137  ->  16 x  9   board 448 x 279   1.17 : 1
-;   CGA  640x200  aspect 240  ->   8 x  4   board 224 x 124   0.83 : 1
+; TWO RATIOS, AND THEY ARE NOT THE SAME NUMBER (SPEC.md 93.3.2). This table
+; used to give one column called "board" that was the TILE's ratio in two rows
+; of four and the BOARD's in the other two, which is a difference of 11% on a
+; Hercules. The tile's ratio is what makes movement faster along one axis
+; (93.7.6); the board's is what the eye calls the shape, and it is the tile's
+; times 28/31.
 ;
-; ...and in a fullscreen bracket the same arithmetic gives a CGA 16 x 6 and a
-; board of 448 x 186, which is 1.00 : 1 - the best-proportioned board in the
-; game, on the worst adapter in the machine. That is the whole argument for
-; sizing from the surface rather than from a table.
+;                                          tile     TILE      BOARD
+;   VGA  640x480  aspect 100  ->  16 x 13  448x403  1.23 : 1  1.11 : 1
+;   HERC 720x348  aspect 155  ->  16 x  9  448x279  1.15 : 1  1.04 : 1
+;   EGA  640x350  aspect 137  ->  16 x  9  448x279  1.30 : 1  1.17 : 1
+;   CGA  640x200  aspect 240  ->   8 x  4  224x124  0.83 : 1  0.75 : 1
+;
+; ...and in a fullscreen bracket the same arithmetic gives a HERCULES 16 x 11
+; and a board of 448 x 341, which is 0.85 : 1 - and the ARCADE's own maze is
+; 0.871 (28x31 tiles of 8x8 on a portrait monitor whose pixels are 0.964
+; square). So the closest thing to the real machine's proportions that this
+; game draws is a fullscreen Hercules, and it gets there by the tile being
+; TALLER, never by its being narrower. That is the whole argument for sizing
+; from the surface rather than from a table.
 ;
 ; --- WHY THE TILE WIDTH IS A MULTIPLE OF EIGHT (binding) ---------------------
 ;

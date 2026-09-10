@@ -111294,6 +111294,45 @@ board. A landscape screen showing a portrait board has that column spare on
 every adapter (190 px on a VGA, 270 on a Hercules, 414 on a windowed CGA), and
 a strip above or below would cost the board the rows it is shortest of.
 
+#### 93.3.2 The tile's ratio and the board's are not the same number
+
+The board is 28 tiles across and 31 down, so **board ratio = tile ratio ×
+28/31** — 0.903 of it. Both matter and they answer different questions: the
+**tile's** ratio is what makes an actor travel faster along one axis
+(§93.7.6), and the **board's** is what the eye calls the shape. `ddlay.inc`'s
+table gave one column for both and had the tile's number in two rows and the
+board's in the other two, an 11% error on a Hercules.
+
+**The reference is the arcade, and it is 0.871 : 1.** Its maze is 28 × 31
+tiles of 8 × 8 on a portrait monitor — 224 × 248 pixels, each 0.964 as wide as
+tall — so 216 × 248 units of glass. Taller than wide, by about an eighth.
+
+| | tile | board px | board on the glass | vs 0.871 |
+|---|---|---|---|---|
+| VGA windowed | 16 × 13 | 448 × 403 | 1.11 : 1 | +28% |
+| Hercules windowed | 16 × 9 | 448 × 279 | **1.04 : 1** | +19% |
+| EGA windowed | 16 × 9 | 448 × 279 | 1.17 : 1 | +35% |
+| CGA windowed | 8 × 4 | 224 × 124 | 0.75 : 1 | −14% |
+| VGA fullscreen | 16 × 15 | 448 × 465 | 0.96 : 1 | +11% |
+| **Hercules fullscreen** | 16 × 11 | 448 × 341 | **0.85 : 1** | **−3%** |
+| CGA fullscreen | 16 × 6 | 448 × 186 | 1.00 : 1 | +15% |
+
+**A fullscreen Hercules is the arcade's board, to 3%**, and it gets there by
+the tile being *taller* — never by its being narrower.
+
+**Halving the tile does not get there.** With `[dd_tw]` = 8 the height cap at
+`.twok` — a tile may not be much taller than square either — pulls `[dd_th]`
+down with it, to 6 on a Hercules: a board of 224 × 186 at **0.78 : 1**. That
+is nearer 0.871 than 1.04 is, but it overshoots on the other side and it is a
+**quarter of the area**, with 8 × 6 sprites, on a screen with room for four
+times that. The two knobs are not independent: narrowing the tile narrows the
+*board* and shortens it by nearly as much.
+
+**Windowed cannot be improved by geometry.** A Hercules content box measures
+**544 × 284** — the desktop's 348 lines less the menu bar, the title bar and
+the dock — and `[dd_th]` = 10 wants 310. It is 26 lines short and there is
+nowhere on that screen to find them.
+
 ### 93.4 Two surfaces, one renderer
 
 `dd_geom_win` banks the content box from `wm_content`/`wm_geom` and the depth
@@ -112376,12 +112415,16 @@ aspect and it is also, by construction, the *speed* ratio: one tile in
 the same time it travels its tile's height down, and those are different
 distances on the monitor.
 
-| | tile | board on the glass | across ÷ down |
+| | tile | **tile** on the glass | across ÷ down |
 |---|---|---|---|
 | VGA 640×480 | 16 × 13 | 1.23 : 1 | **1.23×** |
 | Hercules 720×348 | 16 × 9 | 1.15 : 1 | **1.15×** |
 | EGA 640×350 | 16 × 9 | 1.30 : 1 | **1.30×** |
 | CGA 640×200 | 8 × 4 | 0.83 : 1 | **0.83×** — the other way |
+
+It is the **tile's** ratio and not the board's — those differ by 28/31, and
+§93.3.2 is where that distinction is written down, because getting it wrong is
+what put two rows of §93.3's own table under the wrong heading.
 
 The field read it off the screen without knowing any of that: *"moving across
 is faster than vertical … the projection is slightly skewed horizontally."*
