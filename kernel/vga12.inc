@@ -1154,7 +1154,12 @@ gfx_lstepv:
     call gfx_pt_row             ; a row past the table's end (SPEC.md 39.3.1)
     jmp %%row
 %%miss:
-    call gfx_pt_box             ; the rect that holds it, if any - and an EMPTY
+    mov ax, cs                  ; gfx_ls_box reads the clip table through DS,
+    mov ds, ax                  ; so put the kernel's back - by RELOAD, and
+    call gfx_ls_box             ; through no wrapper, because a wrapper is two
+    mov ds, [gfx_pt_cseg]       ; more words of the caller's slice. AX is dead
+                                ; here: nothing writes it until `%%row`
+                                ; the rect that holds it, if any - and an EMPTY
     cmp si, [cs:gfx_ls_bx1]     ; box if none does, which skips the point and
     jl %%skip                   ; leaves the next one to re-resolve
     cmp si, [cs:gfx_ls_bx2]
@@ -1207,9 +1212,13 @@ gfx_points:
     push si
     push di
     push bp
-    push es
-    push ds                     ; the loop OWNS DS (see the header); once a
-                                ; call, and .slow never touches it
+    push es                     ; ...and NOT `push ds`. The loop gives DS away
+                                ; (see the header) and takes it back by RELOAD
+                                ; at `.out` - four bytes of code against two of
+                                ; the CALLER'S STACK, which is the scarce one:
+                                ; an OSAPI_* call runs on its caller's slice,
+                                ; and the thinnest in the tree has 42 bytes
+                                ; spare (docs/FIELD-NOTES.md 40)
 %ifdef GFX_VGA                  ; GFX_VGA is defined exactly when KERN_BIG is
     cmp byte [vid_ndisp], 1     ; (kernel.asm:445), so ONE gate covers both a
     ja .slow                    ; second display - which resolves per POINT
@@ -1246,7 +1255,8 @@ gfx_points:
                                 ; left here and must re-resolve
     mov al, [gfx_ln_ink]        ; ...the class, banked in a register across the
     mov bp, si                  ; two segment loads below
-    mov dx, es                  ; DX = the caller's array segment
+    mov [gfx_pt_cseg], es       ; ...and the array's segment, which the miss
+    mov dx, es                  ; path reloads DS from
     mov bx, [vid_rseg]          ; BX = the framebuffer's
     mov ds, dx                  ; --- and from here DS is the CALLER's, so
     mov es, bx                  ;     every kernel word is `cs:`
@@ -1279,8 +1289,9 @@ gfx_points:
     GFXPT_LOOP 1
 %endif
 .out:
-    pop ds
-    pop es
+    mov ax, cs                  ; DS back, by reload rather than by pop: kernel
+    mov ds, ax                  ; code always runs DS = CS = KERNEL_SEG, so
+    pop es                      ; there is nothing to remember
     pop bp
     pop di
     pop si
@@ -1295,31 +1306,18 @@ gfx_points:
 ; table through it and gfx_rowbase_calc clobbers the loop's own CX and DX, so
 ; each is wrapped once here rather than guarded inside the loop.
 
-; gfx_pt_box - gfx_ls_box with the kernel's DS put back. Preserves everything.
-gfx_pt_box:
-    push ds
-    push ax
-    mov ax, cs                  ; `.bss` and `.text` share the kernel's segment
-    mov ds, ax                  ; (KERN_CODE_MAX is what says so), so CS is a
-    call gfx_ls_box             ; correct DS for anything gfx_ls_box reads
-    pop ax
-    pop ds
-    ret
-
 ; gfx_pt_row - DI = the row base for the row in DX, for a row past the row
 ; table's end. gfx_rowbase_calc is all `cs:` so it needs no DS, but it answers
 ; in AX and clobbers CX and DX - which are this loop's counter and its y.
 ; Preserves every register but DI.
 gfx_pt_row:
-    push ax
-    push cx
-    push dx
+    push cx                     ; ...and NOT AX: it is the answer, and nothing
+    push dx                     ; in the loop reads it until `%%row` writes it
     mov ax, dx
     call gfx_rowbase_calc
     mov di, ax
     pop dx
     pop cx
-    pop ax
     ret
 
 ; --- the bit a pixel is, and the seven it is not ----------------------------

@@ -4946,6 +4946,18 @@ incidentally, keeps the body inside `loop`'s rel8 reach.
 hashes the screen 400 deterministic frames into a Missile game, and the hash is
 the same before and after.
 
+**And it costs its CALLER exactly what it cost before — 26 bytes.** An
+`OSAPI_*` call runs on the caller's slice (§8), and the thinnest in the tree has
+42 bytes spare (docs/FIELD-NOTES.md 40), so a routine on this path may not get
+deeper. The first version of this rewrite did, by 8: a `push ds` in the
+prologue and a wrapper around `gfx_ls_box` that pushed two more. DS is restored
+by RELOAD at the exit instead — kernel code always runs DS = CS = KERNEL_SEG,
+so there is nothing to remember — and the miss path sets DS itself out of
+`[gfx_pt_cseg]` rather than through a wrapper. Four bytes of code against two
+of the caller's stack, twice, which is the right way round. Measured on the
+guest at `gfx_ls_box`'s entry plus its own pushes: **26**, the same as the
+routine this replaced.
+
 ### 5.7 The per-call floor — what a small drawing call spends
 
 **A drawing call costs almost the same whatever it draws**, and the field
