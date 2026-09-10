@@ -128,6 +128,7 @@ Read first: [§9 mouse.inc — the pointer: serial and PS/2 mice, and the cursor
 |---|---|---|
 | `0x00C8` | `OSAPI_MOUSE` | out CX=mouse_x, DX=mouse_y, AL=mouse_btn |
 | `0x03F0` | `OSAPI_KEY_DOWN` | AL = a make scancode (KSC_*). out CF=1 down, CF=0 up; every register kept |
+| `0x0540` | `OSAPI_CUR_BUSY` | I AM ABOUT TO GO QUIET FOR A WHILE (SPEC.md 7.5). NO ARGUMENT. The pointer becomes an HOURGLASS for the rest of the gfx-lock hold you are inside, and... |
 | `0x0338` | `OSAPI_EVQ_PENDING` | out AX = events still queued behind the one being dispatched (SPEC.md 13.4)... |
 
 ### Files and volumes
@@ -448,5 +449,5 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 
 *Superseded and closed - `docs/history/` (9):* `DUAL-DISPLAY-BUG2.md`, `HANDOFF-TESTS-A-STRADDLE.md`, `HANDOFF-TESTS-B-LAUNCH.md`, `HANDOFF-TESTS-C-FRESH.md`, `HANDOFF-TESTS.md`, `KERN-SPLIT-PLAN.md`, `SOUND-PLAN.md`, `TRACKER-PLAN.md`, `WM-ARTIFACTS.md`
 
-*Measurements, each true of the tree it was taken on - `docs/reports/` (7):* `CYCLONE-STACK-2026-09-10.md`, `DOTDEL-FRAME-PROFILE-2026-09-09.md`, `GLYPH-AND-LINE-COST-2026-09-10.md`, `KERNEL-BYTES-SINCE-SQUASH-2026-09-07.md`, `SKIES-FRAME-DELTA-2026-09-10.md`, `STKDIAG-PC5150-2026-09-10.md`, `TIER-TIMINGS-2026-09-07.md`
+*Measurements, each true of the tree it was taken on - `docs/reports/` (8):* `BUSY-CURSOR-COST-2026-09-10.md`, `CYCLONE-STACK-2026-09-10.md`, `DOTDEL-FRAME-PROFILE-2026-09-09.md`, `GLYPH-AND-LINE-COST-2026-09-10.md`, `KERNEL-BYTES-SINCE-SQUASH-2026-09-07.md`, `SKIES-FRAME-DELTA-2026-09-10.md`, `STKDIAG-PC5150-2026-09-10.md`, `TIER-TIMINGS-2026-09-07.md`
 

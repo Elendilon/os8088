@@ -55,7 +55,7 @@ GROUPS = [
     ("Text and fonts", ["6", "83"],
      ["FONT_"]),
     ("Input - keyboard and mouse", ["9", "10", "13"],
-     ["KEY_", "MOUSE", "EVQ_"]),
+     ["KEY_", "MOUSE", "EVQ_", "CUR_"]),
     ("Files and volumes", ["18", "19", "22", "38", "54", "20.13"],
      ["FILE_", "VOL_", "FS_", "ASSOC", "ARG_FILE", "BATCH_", "DECOMP"]),
     ("Memory", ["2", "41", "50", "66"],

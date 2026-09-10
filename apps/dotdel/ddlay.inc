@@ -140,14 +140,26 @@ dd_layout:
     ; is the whole mechanism - the rest of this file did not have to change.
     ; A Hercules at 155 comes out 16x9 exactly as it always did, and at 100 it
     ; comes out 8x9: a board of 224x279 against the arcade's 224x248.
+    ; ...AND THE TOLERANCE IS THE MODE'S OWN (SPEC.md 93.3.3.3). 1.2 is Thin's,
+    ; because Thin exists to hold the arcade's proportion; Full's is the 1.3
+    ; this was before the aspect work, because Full exists to FILL THE WINDOW
+    ; and 1.3 is exactly what it used to allow. On a VGA the two aspect tables
+    ; agree at 100, so 1.2 made Full a no-op there: a 544x417 content box gives
+    ; th = 13, a 16-wide tile is 1.23 of it, and the whole mode fell back to
+    ; Thin's 8x9 with the window merely bigger round it.
+    mov ax, 12
+    cmp byte [dd_weff], 0
+    je .tolok
+    mov ax, 13
+.tolok:
+    mov [dd_tol], ax
     mov word [dd_tw], DD_TWMAX
     mov ax, DD_COLS * DD_TWMAX + DD_HUDW
     cmp ax, [dd_cw]
     ja .narrow
     mov ax, [dd_th]
     mul word [dd_asp]               ; at most 16 * 240 = 3,840
-    mov bx, 12
-    mul bx                          ; at most 46,080 - still one word
+    mul word [dd_tol]               ; at most 49,920 - still one word
     cmp ax, DD_TWMAX * 1000
     jae .twok
 .narrow:
@@ -157,10 +169,11 @@ dd_layout:
     ja .tiny
 .twok:
     ; --- and cap the height by the same tolerance the other way ------------
-    ; th  <=  tw * 100 * 12 / (aspect * 10)
+    ; th  <=  tw * 100 * [dd_tol] / (aspect * 10)
     mov ax, [dd_tw]
-    mov bx, 1200
-    mul bx                          ; at most 19,200
+    mul word [dd_tol]
+    mov bx, 100
+    mul bx                          ; at most 20,800
     mov bx, [dd_asp]
     mov cx, bx
     shl bx, 1
@@ -516,6 +529,7 @@ dd_relayout_ck:
     stc
     ret
 .move:
+    mov byte [dd_didcut], 1         ; ...and SOMETHING was owed after all
     call dd_bank_box                ; only the origin moved: the tile, the
     call dd_layout                  ; picture and the sprites all stand
     jc .fail
@@ -535,6 +549,7 @@ dd_relayout_ck:
     clc                             ; is banked at draw time (93.12.4.1)
     ret
 .redo:
+    mov byte [dd_didcut], 1
     call dd_bank_box
     call dd_layout
     jc .fail

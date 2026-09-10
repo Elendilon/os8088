@@ -151,14 +151,25 @@ def leg_d(ui, p, say):
         say("D  FAIL: Full left the tile at %dx%d, not wider than %dx%d"
             % (t1 + t0))
         return 1
+    f0 = p.w("dd_fulls")
     ui.menu_pick("Window", "Thin")
     time.sleep(3.5)
+    fulls = p.w("dd_fulls") - f0
     t2 = (p.w("dd_tw"), p.w("dd_th"))
+    # ...AND WHAT IT COST. A whole board is ~1/3 s of visible drawing, and the
+    # SHRINKING direction owes almost none of it: 11.90.3 answers an EMPTY
+    # damage rect for a window shrunk with its origin unmoved, which 93.5.18
+    # now reads. Measured 4 before and 2 after, four switches a run, twice.
+    if fulls > 3:
+        say("D  FAIL: Thin cost %d whole board draws, not the 2 it owes "
+            "(SPEC.md 93.5.18)" % fulls)
+        return 1
     if t2 != t0:
         say("D  FAIL: Thin came back as %dx%d, not the %dx%d it opened at"
             % (t2 + t0))
         return 1
-    say("D  ok: %dx%d -> %dx%d -> %dx%d" % (t0 + t1 + t2))
+    say("D  ok: %dx%d -> %dx%d -> %dx%d, %d whole draw(s) coming back"
+        % (t0 + t1 + t2 + (fulls,)))
     return 0
 
 
@@ -187,6 +198,19 @@ def main(argv):
         fail += leg_b(ui, p, say)
         fail += leg_c(ui, p, say)
         fail += leg_d(ui, p, say)
+
+    # --- and leg D again on a VGA, which is where it was WRONG -------------
+    # THE TWO ASPECT TABLES AGREE AT 100 THERE (SPEC.md 93.3.3.1), so the tile
+    # is the only thing left to separate the two modes - and a 1.2 tolerance
+    # refused the wide one by one part in fifty, so Full came out as Thin's own
+    # 8x9 with a bigger window round it. Leg D's test is exactly the right one
+    # and it had simply never run on the adapter that failed it.
+    if a.machine == MACHINE:
+        with os88ui.boot(a.img, apps=a.apps, machine="os8088_xt_vga") as ui:
+            ui.path(PKG)
+            p = Probe(ui, bss())
+            time.sleep(3.0)
+            fail += leg_d(ui, p, lambda s: say(s.replace("D  ", "D/vga  ", 1)))
 
     if not a.verbose:
         for s in out:

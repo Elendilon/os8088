@@ -1288,8 +1288,11 @@ dd_rep_vacated:
 .push:
     call dd_tile                    ; AN EMPTY TILE IS BLACK IN EVERY PEN, so
     cmp al, TT_EMPTY                ; it owes nothing - and that is most of
-    je .next                        ; them: it is exactly the tiles Smiles has
-    call dd_rep_push                ; just EATEN, so his own trail is free
+    jne .owed                       ; them: it is exactly the tiles Smiles has
+    call dd_ink_ck                  ; just EATEN, so his own trail is free.
+    jnc .next                       ; ...UNLESS 93.2.3's concave round put a
+.owed:                              ; CORNER BLOCK in it (93.2.3.2), which the
+    call dd_rep_push                ; ghost house is ringed with
 .next:
     inc cl
     cmp cl, [dd_qc1 + bx]
