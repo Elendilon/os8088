@@ -9106,6 +9106,252 @@ options that do address the freeze itself.
 The driver-backed path is covered too, on half of this argument only —
 §7.4.1.1.
 
+### 7.5 The hourglass belongs to a LOCK HOLD, not to a window
+
+`CUR_BUSYSH` is the third shape and it is the odd one. §7.2's two are a
+property of a **window**: `OSAPI_WM_CURSOR` writes one into `W_FLAGS`, the
+record owns it for its whole life, and `cur_shape_pass` applies it on the UI
+task whenever the pointer moves over that content. The hourglass is a property
+of a **gfx-lock hold** — *the machine is busy and your hand changes nothing* —
+and every one of those differences falls out of the same fact: **during the
+hold the UI task is not available to apply anything.** It is either the task
+inside the hold or it is the task waiting for it, so the shape has to be put on
+by the hold itself and taken off by `gfx_unlock`.
+
+That is `fpg_finish`'s safety argument (§12.8.3) reused verbatim, and it is why
+there is no "off" verb to forget: **every way out of a locked run of kernel
+code — return, failure, a question, a swap prompt — comes through
+`gfx_unlock`**, so nothing can leave an hourglass on the screen. `wm_cursor`
+therefore refuses `CUR_BUSYSH` at the door — `cmp al, CUR_NWSHAPE`, **the same
+instruction it always was with a different constant in it**: a window record
+that could carry it would be a program declaring the machine permanently busy
+over its own content with nothing in the kernel able to disagree. `CUR_NWSHAPE`
+is how many shapes a *window* may name and `CUR_NSHAPE` how many exist, and
+splitting the two is what keeps the field **one bit wide**: `WF_USRSZ` is bit 9
+of `W_FLAGS`, so bit 1 of that byte is already spoken for and a third
+*window-nameable* shape would need the flag word rearranged before it needed a
+picture. The assertion beside `WF_HIBITS` is cut from `CUR_NWSHAPE` for exactly
+that reason, and it is what caught this: raising `CUR_NSHAPE` to 3 failed the
+build in `wm.inc` on the first attempt.
+
+#### 7.5.0 The picture, and why it is asymmetric
+
+Every shape shares the arrow's 8x12 cell (§7.2) — a bigger one would be paid on
+every lock hold in the machine — and the hourglass fills it edge to edge,
+because the bars *are* its widest rows. So there is no room in eight columns
+for the white rim the other two shapes are built with, and a
+black-on-transparent hourglass would vanish into any dark window it stood on.
+What ships is the other construction: **a solid white tile with the glass in
+black on it**, which reads on every ground and costs the same 24 bytes.
+
+The drawing is **asymmetric on purpose**, and it was picked by rendering four
+of them zoomed rather than by drawing one. The upper chamber is SOLID — sand
+still to fall — and the lower is an OUTLINE with a pile in it. That is what
+says which way up it is at 8x11: the obvious symmetric drawing, with a
+four-row neck, reads as an **I-beam**.
+
+#### 7.5.1 It is DELIBERATELY still, where the arrow may not be
+
+§7.1.4.3 refuses a lit-but-frozen arrow and the field called that one a
+stutter; §7.1.4.4 is why `CURFIX` is still off by default. The rule survives
+here and its **reason** is what licenses the exception: a still arrow is a
+**lie about responsiveness**, and an hourglass standing still is the truth it
+exists to tell. So the hourglass may sit where the arrow may not, and the whole
+of §7.4's tracking machinery — `[cur_inxfer]`, `[cur_barok]` — is left exactly
+as it is. A file operation's hourglass **tracks** because §7.4 already makes the
+pointer track through `int 13h`; a package's does not, because nothing in a
+four-second decode is going to move it. Neither needed a line of new code.
+
+#### 7.5.2 Both ends are inside a hide and a show that were already happening
+
+The picture may only change while the cursor is off the glass (§7.2.2), and
+inside a lock hold it is off the glass or owed a hide by construction:
+`gfx_lock` promises one and `cur_shape_set`'s `cur_unlazy` spends it. At the
+other end `gfx_unlock` already owes a `cursor_show`. So **the swap costs no
+drawing at either end** — it changes which twelve rows a `cur_put` that was
+going to run anyway writes, and `cur_put`/`cur_get` are bounded by
+`CUR_GW`/`CUR_GH`/`CUR_SPAN` and not by what is in the cell (§7.2). Neither
+renderer looks at a single bit of the picture to decide how much work to do.
+
+`cur_busy_undo` sits **above** `gfx_unlock`'s `cmp byte [cur_lazy], 0` and not
+below it, and that placement is load-bearing: `cur_shape_set` spends the
+promise, which is what sends the test to the `cursor_show` arm and draws the
+restored picture. Below it, the test would take `.never` — *"the arrow never
+left the screen"* — and the hourglass would stay on it.
+
+**The bank is conditional**, and the four bytes that make it so are not
+optional: a *second* take inside one hold — a package that called the slot and
+then touched a file — would otherwise bank the hourglass as the thing to go
+back to, and `gfx_unlock` would restore it for ever. `cur_shape_set` is already
+a compare and a return when the picture is on, so a `cmp`/`je` above the store
+is the whole of the fix.
+
+**The shape that goes back is BANKED, in `[cur_shprev]`**, rather than
+restoring the arrow and posting `[cur_shchk]` for the UI pass to correct. Over
+a window that named a shape, the cheap version is arrow-then-crosshair one pass
+later, which is PERFORMANCE.md Part 1 rule 2 with the pointer itself as the
+double draw. `[cur_shchk]` is posted **as well**, because a hold can be seconds
+long and the pointer may have left the window the banked shape belonged to.
+
+#### 7.5.3 THREE pointer states, and §7.4.3.1's block covers one of them
+
+`fpg_arm` is where the file-operation half goes on, and the first design put it
+inside §7.4.3.1's re-show — free, because that block's whole reason for existing
+is that the pointer is off the glass and about to be put back, so the picture
+would change inside a `cursor_show` that was already going to happen.
+
+**Measured on a 5150/CGA under MartyPC, that block fired ZERO times in a
+session** — a mount, a directory walk and a package launch, three arms — and
+the counters say why:
+
+| where the arm fell out | of 3 |
+|---|---|
+| the fsx test | 0 |
+| **the lock was FREE** | **2** |
+| `[cur_level]` was not exactly −1 | 1 |
+| reached the re-show | **0** |
+
+§7.4.2.1 is the reason and it is written down one section up: **a package
+launch and an assoc open both read with the lock FREE.** There is no promised
+hide to spend and no `cursor_show` owed there — the arrow is simply lit, and
+the ISR is tracking it. That is the most visible freeze on the machine and the
+one the plan's "free" placement missed entirely.
+
+So the picture is swapped **where the pointer actually is**, in `cur_busy_on`,
+and it has three arms:
+
+- **already wearing it** — §7.4.3.1's block got there first, or a package asked
+  before it touched a file. Four instructions, and it is tested first because
+  it is the arm the second call always takes.
+- **down** (`[cur_level]` = −1) — swap, re-arm `[cur_lazy]`, `cursor_show`.
+  That is §7.4.3.1's own sequence, and it is what a package's hold is normally
+  in.
+- **lit** (`[cur_level]` = 0) — and this is the common one. The picture may only
+  change while the cursor is off the glass (§7.2.2) and here there is no
+  hide/show pair already happening to change it inside, **so this arm buys one:
+  one cell erase and one cell draw, once per freeze.** Against `FPG_WARM` = 3
+  sectors — the floor a freeze has to clear before the widget appears at all,
+  ~72 ms on the field machine — that is under a tenth of a percent, and every
+  freeze worth reporting is seconds.
+
+`cur_busy_take`'s three-byte call stays inside §7.4.3.1's block anyway, so that
+the day it *does* fire the swap is free and nothing is drawn twice.
+
+The four refusals below the first arm are each somebody else's rule rather than
+this one's: an **fsx bracket** (§53.6, `fpg_arm`'s own first test), a **clip
+region armed** (§7.4.2's third condition — a clipped painter that already asked
+`cur_lazyck` and was told the pointer was out of reach would draw straight
+through one put up behind its back), **the menu bar's own rows** (§7.4.3, where
+this widget is about to draw — and `[mouse_y]`, not `[cur_drawn_y]`, because
+`cursor_show` draws at the live one), and **a refcount that is not ours** to
+undo.
+
+##### 7.5.3.1 It lives INSIDE `%ifndef NOCURDISK`, and `tests/curdisk.py` says why
+
+`NOCURDISK=1` is the A/B for the whole of §7.4 — the freeze the pointer took
+before it — and its contract is that **nothing puts a pointer on the glass
+during a disk transfer**. `cur_busy_on` shows one, so the call reached from
+`fpg_arm` is inside that gate with the rest of §7.4.3.1's block. It was outside
+it for one commit and `tests/curdisk.py` caught it in the only way that
+matters: *"NOCURDISK=1 moved the arrow 2 times during the freeze, and it
+cannot"* — a knob build measuring a kernel it no longer describes, which is the
+one failure a knob exists to make impossible.
+
+`OSAPI_CUR_BUSY` is **not** gated with it, and the slot could not be: the API
+table is ABI and every cell is in every build (§20.8 rule 4). The knob is about
+the disk freeze, not about a package that says it is busy.
+
+#### 7.5.4 …and the window half is one slot with no argument
+
+`OSAPI_CUR_BUSY` (slot 0x0540) takes nothing and answers CF. It is for the case
+the kernel cannot see: **a package about to spend seconds inside its own code
+without drawing** — Paint's LZW decode of a GIF and its row-by-row BMP read
+(§42.6) are the first two callers — where the callback holds the lock the UI
+task took around it, so nothing paints and no pointer moves, and the kernel has
+no way to know it happened.
+
+**It is not done for every lock hold**, and that is the whole reason it is a
+verb rather than a policy. An ordinary repaint is one hold; wearing an
+hourglass for it would flicker the pointer on every window that redrew, which
+is PERFORMANCE.md Part 1 rule 2 again. The kernel cannot tell a four-second
+hold from a four-millisecond one *in front of it*, and by the time it could the
+flicker has already happened. The program can, and it is the only thing that
+can.
+
+The slot is a **door in front of `cur_busy_on`**, twenty bytes of it, and all
+it adds is *the caller must hold the lock itself*. That buys two things: the
+hold is the lifetime `gfx_unlock` ends, so a package cannot leave an hourglass
+to be cleared by somebody else's unlock; and it hands the drawing below the
+same guarantee the mouse ISR gets from a free lock (§7.4.2.1) — that no task is
+inside a primitive — which a package's **worker** could otherwise break.
+`fpg_arm` enters below that test and is right to: it is the one painter in the
+machine that draws with the lock free (§12.8.4), and in that state the ISR is
+already drawing the pointer at arbitrary positions on exactly this argument.
+
+A refusal costs the caller the picture and nothing else, so the flag is safe to
+ignore — Paint ignores it, and the `pushf` already round its decode is what
+would have carried it anyway.
+
+#### 7.5.5 What it costs
+
+**176 bytes of `.text`, on both kernels, and not one byte of `.bss`, `.cold` or
+`.lowbss`** — measured with `tools/kernsize.py`, `kern_big` 49,315 → 49,491 and
+`kern_small` 37,261 → 37,437.
+
+| piece | bytes |
+|---|---:|
+| the picture — two 12-byte tables, `cur_shtab`, `cur_shhot` | 28 |
+| `cur_busy_on` — the three arms and their four refusals | 71 |
+| `cur_busy` — the package's door, and the lock test in it | 20 |
+| `cur_busy_take` / `cur_busy_undo` / `[cur_shprev]` | 33 |
+| the API table's 167th slot | 8 |
+| `fpg_arm`'s two calls | 6 |
+| `gfx_unlock`'s compare, branch and call | 10 |
+
+Dropping the package half — the slot, its door and the `gfx_unlock` compare it
+needs — leaves the file-operation half at **67 bytes** with the restore moved
+under `fpg_finish`'s own gate, where it costs nothing at all. That is the
+measured alternative, not an estimate.
+
+**No rung is crossed on either kernel**, and that is luck rather than design:
+the tree it landed on had **477 bytes** of image-rung headroom (`accrued image
+35/512`), so `KERN_SIZE` stays at 110,592 on `kern_big` and 75,776 on
+`kern_small`. It is worth writing down that the *same 176 bytes* did cross one
+on the branch this was first built against, which had 62 bytes left — §1's
+banner exactly: the rung is a property of who was standing there, the byte is
+the property of the change, and **176 is the figure to quote either way**.
+
+One hazard is closed by construction rather than by the gate, and it is worth
+naming because it is invisible: on the **lit** arm `cur_shape_set`'s own
+`cur_unlazy` would hide the pointer a SECOND time, settling `[cur_level]` at
+−2 and leaving it gone for the whole freeze with the shape byte saying
+hourglass. `cur_busy_on` therefore spends the promise **above** the arm test —
+three bytes — which also decides which arm is taken. `tests/curbusy.py` does
+NOT catch it: two arms of three are lock-free, where there is no promise to
+spend, and their samples dominate.
+
+**Nothing in it is measurably slow**, and the reasoning is not an assertion:
+
+- **The renderers are blind to the picture.** `cur_put_mono`/`cur_get_mono`
+  walk `[cur_rows]` rows of `CUR_SPAN` bytes whatever the bits are — the 1bpp
+  cost is *identical* for every shape. `cur_draw` skips a framebuffer byte
+  whose shifted white row is empty, so a denser picture can cost more there:
+  counted over all eight pen phases, the arrow writes **19.75** bytes a draw
+  and the hourglass **20.62**, a 1.04x that is worst at one phase (+7 of 15)
+  and cheaper at three. `cur_saveu`'s four planes dominate either way and are
+  shape-blind.
+- **`cur_shape_pass` is untouched** — still one byte compare on a quiet pass
+  (§7.2.1.1), and still `cmp al, CUR_NSHAPE` in `cur_shape_set`.
+- **The only hot path that gained an instruction is `gfx_unlock`**, by a `cmp`
+  and a `jne` — ~30 cycles with the 8088's fetch floor. Measured rates, same
+  machine: **0 unlocks in 10 idle guest seconds** (§8.1.2's blocking `ui_task`
+  means nothing draws), 0.2/s with a Disk window up, 1.5/s opening a folder,
+  4.1/s launching a package and **7.1/s dragging a window continuously**. At
+  the worst of those the added compare is **0.0045% of a 4.77 MHz 8088**.
+- **Everything else is per FREEZE**: two `cur_shape_set` calls, and on the lit
+  arm one cell erase and one cell draw. A freeze cannot be shorter than
+  `FPG_WARM` sectors and is usually seconds.
+
 ## 8. sched.inc — round-robin, pre-emptive or cooperative (§8.2)
 
 - `MAX_TASKS equ 14` on `kern_big` and **7 on `kern_small`**. Task 0 is the

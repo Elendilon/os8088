@@ -3945,7 +3945,21 @@ osapi_table:
                                   ;          lock is held. Preserves every
                                   ;          register; a point outside every
                                   ;          clip rect is SKIPPED, not refused
-osapi_table_end:                  ; 0x0540
+    OSAPI_SLOT cur_busy        ; 0x0540 - I AM ABOUT TO GO QUIET FOR A WHILE
+                                  ;          (SPEC.md 7.5). No argument. The
+                                  ;          pointer becomes an HOURGLASS for
+                                  ;          the rest of the gfx-lock hold the
+                                  ;          caller is inside, and gfx_unlock
+                                  ;          puts the old one back - so there
+                                  ;          is no "off" to forget and no way
+                                  ;          to leave one on the screen.
+                                  ;          out CF=1 refused: no hold of the
+                                  ;          caller's own, a clip region armed,
+                                  ;          an fsx bracket, or a pointer
+                                  ;          something else is holding down.
+                                  ;          A refusal costs the caller nothing
+                                  ;          but the picture
+osapi_table_end:                  ; 0x0548
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -3953,8 +3967,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 166 * 8
-%error "os8088 API jump table must be exactly 166 8-byte slots"
+%if OSAPI_TABLE_LEN != 167 * 8
+%error "os8088 API jump table must be exactly 167 8-byte slots"
 %endif
 
 ; =============================================================================
