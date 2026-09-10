@@ -147,6 +147,33 @@ Two defects, both in this work, both invisible to the fast tier:
   before booting. `wants=("build/office360.img",)` is the fix, and
   docs/WRITING-TESTS.md names that exact failure.
 
+### 6.1 …and one failure that is NOT this change: `curdisk`
+
+`curdisk` failed the scoped soak on its `NOCURDISK=1` **folder** arm —
+*"moved the arrow 1 times during the freeze, and it cannot"* — while both
+default arms passed (30 and 37 moves, 79% and 83% lit). Two facts settle it,
+and neither is an argument:
+
+- **The knob arm is no longer byte-identical to the base's**, so it could not
+  be waved away: HEAD's `NOCURDISK=1` kernel is 512 bytes larger with every
+  address shifted by **8** — `OSAPI_CUR_BUSY`'s table slot, which is in every
+  build because the API table is ABI (SPEC.md 20.8 rule 4). Nothing on that arm
+  *calls* the new routines (`[cur_shape]` never leaves 0 there), but the layout
+  moved, so a timing perturbation was a live hypothesis.
+- **So both points were rated rather than argued.**
+  `tools/os88bisect.py sample curdisk --at 099d308 --at cbd4f0b -n 6`:
+
+| point | failures | leg |
+|---|---:|---|
+| `099d308` — `elendilon-next`, the base | **3 / 6** | `[folder] NOCURDISK=1 moved the arrow 1 times` |
+| `cbd4f0b` — this work | **2 / 6** | the same |
+
+  **The base fails more often than the branch.** It is the row's own
+  intermittent, documented at docs/plans/SOAK-PARALLEL.md §8.8 and
+  docs/plans/HANDOFF-SOAK-FINDINGS.md F3, whose control hopes a sample lands
+  instead of provoking the collision. `classify` had already refused to bisect
+  it — *INTERMITTENT 1/3 at HEAD, and a rate is not a side*.
+
 ## 7. What the gate does not cover
 
 `tests/curbusy.py` is registered in the soak tier (30 s) and both halves go red

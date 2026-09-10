@@ -1440,6 +1440,19 @@ alone. `curdisk`, sampled the same way in the same session, came out the other
 way (2 FAIL / 4 loaded, 0 / 4 idle) and did take the flag; the two look
 identical from a single failing run in a wide lane.
 
+> **2026-09-10, and `curdisk` is STILL a coin — rated at last, on both sides
+> of a change.** `tools/os88bisect.py sample curdisk -n 6` over
+> `elendilon-next` (`099d308`) and a branch on top of it: **3/6 failed at the
+> BASE and 2/6 on the branch**, the same leg both times — *"[folder]
+> NOCURDISK=1 moved the arrow 1 times during the freeze"*. So the rate is
+> roughly one in two, it is the row's own and not any change's, and **a single
+> failing run of it says nothing at all**. `gfxlk`'s fix above is written for
+> this row too and has not been applied to it: the control is
+> `arrow MOVED ... 0 times` sampled off the guest by a host loop, so it is
+> hoping a sample lands rather than provoking the collision. Whoever next has
+> a soak blocked by this row should spend that fix rather than re-diagnose it
+> a fourth time.
+
 **What to fix is the control, not the tolerance.** A check that depends on a
 coincidence occurring is a check that reports on the coincidence. Either the
 row has to PROVOKE the collision — move the pointer while something holds the
