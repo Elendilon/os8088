@@ -111283,11 +111283,39 @@ tiles**, and neither of them can see that a corner is being formed. The first
 attempt looked for a corner square inside `dd_walls_of`, and photographed
 identical to the build before it: **it never fired once.**
 
-`dd_wall_round` runs on the tiles `dd_board_render` used to skip. A wall tile's
-corner is rounded when **both** of its adjacent neighbours are open — which is
-exactly a block corner poking into the corridor — and the elbow taken is the
-wall tile's own, because a line goes `[dd_lth]` *into* the wall from the shared
-edge, so the two lines that meet overlap precisely there.
+`dd_wall_round` runs on the tiles `dd_board_render` used to skip, and the elbow
+taken is the wall tile's own, because a line goes `[dd_lth]` *into* the wall
+from the shared edge, so the two lines that meet overlap precisely there.
+
+**TWO corners meet at that elbow, not one**, and the whole of the difference
+between them is which side of it the corridor is on:
+
+| the wall tile's two adjacent neighbours | | the arms |
+|---|---|---|
+| both **open** | a block's corner poking into the corridor | run **into** the tile |
+| both **wall**, the tile **diagonally** between them open | the same elbow seen from the other side — a corridor turning around the outside of a block | run **out** of it |
+
+So a concave corner is the convex one with **both signs flipped**, which is why
+`dd_rnd_one` takes the arm directions a convex corner *would* use and negates
+them: one routine, four corners, two cases. A tile with one wall neighbour and
+one open forms no elbow at all and is left alone; so is one whose diagonal is
+wall as well, because that is solid and nothing was ever drawn there.
+
+The concave half is not a nicety — it is most of the corners in a Pac-Man
+maze. Every corridor that turns has one, and shipping without them left the
+board reading as square while the blocks read as round.
+
+#### 93.2.3.1 …and the three of them happen in THREE PASSES
+
+The first build rounded as it walked and **only the top-left corner of every
+block came out round.** The outline is drawn by corridor tiles, so a wall
+tile's corner is made by two lines from two different tiles — and in one
+row-major walk only the corridor **above** and the corridor to the **left**
+have drawn theirs by the time the wall is reached. Rounding there took the
+elbow out and the corridor below or to the right then drew straight back over
+it. It is not a race and no ordering of the *tests* fixes it: the round can
+only run once every line it is made of is down, so `dd_board_render` walks the
+board twice and draws the border third.
 
 `dd_rnd_cnr` takes the elbow's top-left and the **directions its two arms
 run**, each `± [dd_lth]`, which is the whole of what separates the four corners
@@ -111299,6 +111327,56 @@ same elbow seen from the other side.
 A subtraction after the fact rather than shortening the lines: the four sides
 already have three cases each, and this has one.
 
+#### 93.2.3.2 The concave round puts ink in a CORRIDOR, and that broke two assumptions
+
+A concave corner's arms run **out** of the wall, so its corner block lands one
+line width **inside the corridor tile** diagonally across from the elbow. Two
+routines were entitled to assume a corridor tile was empty, and both said so in
+a comment:
+
+- **`dd_tile_put`** — the pellet blink and the repair queue. It zeroed the band
+  for anything that was not a wall or a door, so **a pellet at a maze corner
+  blinked its own corner away.** The type test is gone: every tile takes the
+  picture when there is one, which is the assumption that has now been wrong
+  twice (§93.5.10 caught the first).
+- **`dd_band_ground`** — every actor band. It zeroes unless `dd_rect_wall` says
+  the rectangle holds a picture, and copying the maze under *every* band is
+  **12 ms of a 54.9 ms VGA frame** (§93.5.3 item 4), so simply always copying
+  is refused. Measured before the fix: a ghost circling the house took the
+  house's four corners off the glass and the queue put the tiles back without
+  them — **6 of the board's 34 concave corners gone inside a second, and still
+  gone twelve samples later.** The convex ones, which live in wall tiles, never
+  moved.
+
+`[dd_cnrmap]` is the answer and it is **109 bytes**: one bit a tile, set by
+`dd_rnd_one` as it rounds and read by `dd_rect_wall` as a third test after wall
+and door. `dd_board_render` rebuilds it and nothing writes it afterwards, so
+eating a dot cannot get it out of step. The alternative — working the predicate
+out where it is needed — is twelve tile lookups per corner per tile per band.
+
+**And it comes back in the WALL's pen**, which the map is also what makes
+cheap. A band is a single pen, so the block would otherwise be repaired in
+`DD_INKDOT` — white on a colour adapter, for ever, at all 34 of them. Two
+lookups settle it: *is this tile marked*, and *which of its two candidate rows
+is the block in* — and the band `dd_tile_put` has just built is already the
+picture, so the repair is a second blit of `[dd_lth]` rows and not a re-read.
+A block is at a tile CORNER and a dot is centred, so a row that holds one never
+holds the other, and a blank row costs a scan rather than a far call. Measured
+on `os8088_xt_vga` after five seconds of play: **30–33 of 34 corners in
+`(0,0,170)`, the rest lit in another pen because an actor is standing on them
+that instant, and none black.** That transient is the one every dot already
+has.
+
+**The gate was already written and was looking past it.** `tests/dotdel.py`'s
+leg G compares every ink pixel of the board picture against the glass — the
+exact claim — but it filtered the grid to `TT_WALL` and `TT_DOOR` first, *on
+the same assumption the two routines were making*. It walks every tile now, at
+5,019 ink pixels over 769 tiles instead of 4,972 over 486, and both defects
+were then reproduced on purpose to watch it go red: reinstating
+`dd_tile_put`'s type test names **tiles (1,23) and (26,23)** — the two bottom
+power pellets, which is exactly where the field saw it — and taking the
+`dd_cnrmap` test out of `dd_rect_wall` names three tiles beside the ghosts.
+
 #### 93.2.4 …and the playfield's own border is a DOUBLE line
 
 The arcade draws its maze in double line art and the field asked for the same
@@ -111308,25 +111386,39 @@ and ends with `#` and the first and last rows are solid, so the outer ring is
 **exactly one tile thick** and a corridor tile knows it is against it when its
 own column is 1 or `DD_COLS - 2`, or its row is 1 or `DD_ROWS - 2`.
 
-So each of `dd_walls_of`'s four sides draws twice against that ring: the line
-it already drew, and a second one `[dd_bgap]` = **three line widths** further
-**out** — a stroke, two widths of black, a stroke, which is the arcade's own
-proportion off the same capture. One constant covers two jobs, because a line
-offset perpendicular by `[dd_bgap]` needs its ends extended by exactly
-`[dd_bgap]` to reach the corner: the outer line inherits the inner one's
-extension cases and adds that step to each. It is capped at one **wall ring** —
-`[dd_th] - [dd_lth]` — because the ring is one tile and the tile's floor is
-three rows, where three widths would put the top line off the picture and
-`dd_bd_hrun` would clip it away in silence.
+The **inner** line is already there: it is what the corridor tiles at the ring
+draw into it, and it **breaks** wherever a stub of wall hangs off the ring —
+the pair at the top centre, the two lower ones — which is what the arcade does
+as well. The **outer** line does not break there, and that is why it cannot be
+a tile's job at all: *the tile that would draw it is exactly the one that is
+missing.* The first build drew it from the corridor tiles and had three visible
+gaps in the border for that reason.
 
-**`dd_wall_round` cannot reach the border's four corners**, and that is worth
-saying because it looks as though it should. Its rule is *a wall tile with two
-open sides*, which is a block's corner seen from outside; the border's corners
-are the same elbow seen from **inside**, and the wall tile that owns them — the
-one in the ring's corner — has wall on both of the sides that matter. So
-`dd_bord_round` does them once off the geometry rather than looking for them
-tile by tile: **eight elbows, not four**, the outer line being a second ring
-`[dd_bgap]` out.
+So `dd_bord_draw` draws it as a **path**, off the geometry. Every number in it
+is some corridor's inner line plus `[dd_bgap]` = **three line widths** on the
+side away from that corridor — a stroke, two widths of black, a stroke, which
+is the arcade's own proportion off the same capture. `[dd_bgap]` is capped at
+one **wall ring**, `[dd_th] - [dd_lth]`, because the ring is one tile and the
+tile's floor is three rows, where three widths would put the top line off the
+picture and `dd_bd_hrun` would clip it away in silence.
+
+**The path is a rectangle with a NOTCH cut into each side**, because the
+tunnel's pocket is *outside* the maze: the line follows the board's edge in
+along the top of the pocket, down its inner wall, and back out — and the
+tunnel's own mouth is the gap between the two horizontals that reach the edge
+of the picture. `DD_TUNR`, `DD_TUNW`, `DD_PKT0` and `DD_PKT1` are the four
+numbers that shape it, and they are the **game's** and not a layout's: every
+layout in `ddmzdat.inc` carries the same middle band, and `dd_speed`'s tunnel
+test reads the same two of them.
+
+Eight rects and eight rounds per side, mirrored off one signed `[dd_bSA]`; the
+top and the bottom run the whole width in one.
+
+**`dd_wall_round` cannot reach any of those corners**, and that is worth saying
+because it looks as though it should. A ring-corner wall tile has wall on both
+of the sides that matter and its diagonal is wall too, so it is solid by
+§93.2.3's own test — correctly, because the border's line is not one a corridor
+drew.
 
 **The tunnel needs no special case**, which is what makes this worth doing this
 way rather than as a drawn rectangle: the mouths are open tiles in the border

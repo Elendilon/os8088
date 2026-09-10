@@ -307,7 +307,7 @@ def leg_f(tag, ui, p, say):
 
 
 def leg_g(tag, ui, p, say):
-    """Every pixel the BOARD PICTURE says is wall ink is still on the glass.
+    """Every pixel the BOARD PICTURE says is ink is still on the glass.
 
     THE GROUND TRUTH IS dd_bdseg - the 1bpp board picture every band's wall
     arm is copied out of - so this asks the one question a colour census
@@ -316,6 +316,15 @@ def leg_g(tag, ui, p, say):
     lit pixel in it, because most wall tiles legitimately have none (dd_walls_of
     draws every line OUTSIDE the corridor it outlines), and a blacked corner
     looks exactly like one of those.
+
+    IT WALKS EVERY TILE AND NOT THE WALLS, and that is a third defect it
+    caught. It used to filter the grid to TT_WALL and TT_DOOR, on the same
+    assumption dd_tile_put and dd_band_ground were both making - that a
+    CORRIDOR tile holds no ink. SPEC.md 93.2.3's concave round put a corner
+    block one line width inside one, and this leg looked straight past 6 of
+    the board's 34 concave corners going black inside a second of play, and
+    past a power pellet blinking its own corner away four times over. The
+    picture is the truth for every tile; the type was never part of the claim.
 
     BREAK IT ON PURPOSE, two ways, and both of them shipped:
 
@@ -381,8 +390,6 @@ def leg_g(tag, ui, p, say):
     bad = []
     for r in range(G_ROWS):
         for c in range(G_COLS):
-            if grid[r * G_COLS + c] not in (TT_WALL, TT_DOOR):
-                continue
             if (c, r) in skip:
                 continue
             nt += 1
@@ -402,10 +409,10 @@ def leg_g(tag, ui, p, say):
             if here:
                 bad.append((c, r))
     if not tot:
-        fail.append("%s: the board picture has no wall ink at all in %d "
+        fail.append("%s: the board picture has no ink at all in %d "
                     "tiles - this leg read nothing" % (tag, G_COLS * G_ROWS))
     elif miss:
-        fail.append("%s: %d of %d wall-ink pixels are BLACK on the glass, in "
+        fail.append("%s: %d of %d board-ink pixels are BLACK on the glass, in "
                     "%d of %d tiles %s - something drew over the maze and put "
                     "back an empty tile (SPEC.md 93.5.10, 93.5.11) "
                     "[state %d tile %dx%d board %dx%d at %d,%d ovw %d "
@@ -417,7 +424,7 @@ def leg_g(tag, ui, p, say):
                     "seconds - the guest is not running, so an intact maze "
                     "here proves nothing" % (tag, ticks))
     else:
-        say("%s: all %d wall-ink pixels over %d wall tiles still on the glass, "
+        say("%s: all %d board-ink pixels over %d tiles still on the glass, "
             "after %d ticks of play" % (tag, tot, nt, ticks))
     return fail
 

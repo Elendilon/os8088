@@ -117,6 +117,15 @@
 
 DD_COLS   equ 28                ; the classic grid, on every adapter
 DD_ROWS   equ 31
+DD_TUNR   equ 14                ; THE TUNNEL, which is a hole in the board's
+DD_TUNW   equ 6                 ; own edge: this row, and this many columns of
+DD_PKT0   equ 9                 ; it at each end. The pocket it opens into is
+DD_PKT1   equ 19                ; wall the maze never shows, so the playfield's
+DD_INKB   equ (DD_COLS * DD_ROWS + 7) / 8
+                                ; outer line follows the board's edge round it
+                                ; (SPEC.md 93.2.4) - and every layout in
+                                ; ddmzdat.inc carries the same middle band, so
+                                ; these are the GAME's numbers, not a layout's
 DD_HUDW   equ 88                ; the HUD column, 11 cells wide
 DD_TWMAX  equ 16                ; the tile ceiling: 28*16 = 448, and a sprite
 DD_FITPADX equ 16               ; the air Thin leaves around the board when it
@@ -1133,10 +1142,22 @@ dd_spct:     dw DD_PCTPAC, DD_PCTGH, DD_PCTFRI, DD_PCTEYE, DD_PCTTUN
     DWORDV dd_lth                   ; the wall line's thickness
     DWORDV dd_bgap                  ; the border's outer line, that far beyond
     DWORDV dd_rnd                   ; the corner round, in pixels (93.2.3)
-    DWORDV dd_bcx                   ; dd_bord_round's four elbow coordinates
-    DWORDV dd_bcx2
-    DWORDV dd_bcy
-    DWORDV dd_bcy2
+    DBYTEV dd_rn1                   ; dd_rnd_one's two adjacent neighbours
+    DBYTEV dd_rn2
+    DWORDV dd_bXL                   ; dd_bord_draw's path, banked once (93.2.4)
+    DWORDV dd_bXR
+    DWORDV dd_bYT
+    DWORDV dd_bYB
+    DWORDV dd_bPT
+    DWORDV dd_bPB
+    DWORDV dd_bTT
+    DWORDV dd_bTB
+    DWORDV dd_bXA                   ; ...and the side being drawn
+    DWORDV dd_bXN
+    DWORDV dd_bTX
+    DWORDV dd_bTW
+    DWORDV dd_bSA
+    DBUFV  dd_cnrmap, DD_INKB          ; which CORRIDOR tiles carry ink (93.2.3.2)
     DWORDV dd_dotw
     DWORDV dd_doth
     DWORDV dd_pilw

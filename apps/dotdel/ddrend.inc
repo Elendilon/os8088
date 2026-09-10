@@ -875,7 +875,7 @@ dd_bandrun:
 ;
 ; THE GROUND IS NOT ALWAYS BLACK, and it took the repair queue to find that
 ; out. This routine was written for the pellet blink, where the tile is a
-; corridor and a corridor holds no wall ink at all (dd_walls_of draws every
+; corridor and a corridor held no wall ink at all (dd_walls_of draws every
 ; line OUTSIDE the tile it outlines, SPEC.md 93.2.1) - so zeros were the whole
 ; picture and nobody noticed the assumption. SPEC.md 93.5.10's queue then
 ; started handing it WALL tiles, because a turn puts the corner's wall tile in
@@ -883,6 +883,12 @@ dd_bandrun:
 ; zeroed band took the corner off the glass, which is exactly the defect
 ; dd_band_ground's wall arm was written to fix, one routine along: "corners
 ; are back to disappearing".
+;
+; IT IS NOT TRUE OF A CORRIDOR EITHER ANY MORE, and the field found that the
+; same way: SPEC.md 93.2.3's CONCAVE round puts its corner block one line width
+; INSIDE the corridor tile, so the pellet at a maze corner blinked its own
+; corner away. The type test is gone - every tile takes the picture when there
+; is one, which is the assumption that was wrong twice.
 ;
 ; SI IS PRESERVED, and that is a bug fix rather than a courtesy. `.emit` loads
 ; SI with the band's address, and dd_pills_blit walks the pellet list with SI
@@ -922,16 +928,10 @@ dd_tile_put:
     mov [dd_bx0], ax
     mov ax, [dd_gy]
     mov [dd_by0], ax
-    mov al, [dd_gt]
-    cmp al, TT_WALL
-    je .wall
-    cmp al, TT_DOOR
-    jne .black
-.wall:
     cmp word [dd_bdseg], 0          ; no picture claimed yet: black is all
     je .black                       ; there is to put back
-    call dd_band_walls
-    jmp short .item
+    call dd_band_walls              ; ...and otherwise the PICTURE, whatever
+    jmp short .item                 ; the tile is (93.2.3.2)
 .black:
     mov di, dd_band
     xor al, al
@@ -991,7 +991,70 @@ dd_tile_put:
     mov cx, [dd_tw]
     mov dx, [dd_th]
     call dd_blit
+    ; --- and the CORNER BLOCK back in the WALL's pen (SPEC.md 93.2.3.2) -----
+    ; The band is one pen, so the block 93.2.3's concave round put inside this
+    ; corridor tile has just come back in the dot's. Two lookups settle it -
+    ; is this tile marked, and which of its rows is the block in - and the
+    ; band is already the picture, so the repair is a blit and not a re-read.
+    ; The block is at a tile CORNER and a dot is centred, so a row that holds
+    ; one never holds the other.
+    mov al, [dd_gt]
+    cmp al, TT_WALL
+    je .done
+    cmp al, TT_DOOR
+    je .done
+    mov cl, [dd_gc]
+    mov ch, [dd_gr]
+    call dd_ink_ck
+    jnc .done
+    mov al, DD_INKWALL
+    call dd_pen
+    xor ax, ax                      ; the top [dd_lth] rows...
+    call dd_cnr_rows
+    mov ax, [dd_th]
+    sub ax, [dd_lth]                ; ...and the bottom
+    call dd_cnr_rows
+.done:
     pop si
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_cnr_rows - put the [dd_lth] band rows at offset AX back on the glass, in
+;               whatever pen is armed. Nothing at all when they are blank,
+;               which is the "which corner" half: a block is in one row of the
+;               two and re-blitting the other costs a far call for no pixels.
+; Clobbers everything but SI... which is why it is called after .emit's blit.
+; -----------------------------------------------------------------------------
+dd_cnr_rows:
+    push ax
+    mul word [dd_rb]
+    mov si, dd_band
+    add si, ax                      ; SI = the band's row
+    mov cx, [dd_lth]
+    mov ax, [dd_rb]
+    mul cx
+    mov cx, ax                      ; CX = the bytes in them
+    mov di, si
+    xor al, al
+.blank:
+    or al, [di]
+    inc di
+    loop .blank
+    or al, al
+    jz .none
+    pop ax
+    push ax
+    add ax, [dd_gy]
+    mov bx, ax
+    push ds
+    pop es
+    mov bp, [dd_rb]
+    mov ax, [dd_gx]
+    mov cx, [dd_tw]
+    mov dx, [dd_lth]
+    call dd_blit
+.none:
+    pop ax
     ret
 
 ; dd_dmg_tile - the same, from the [dd_gc]/[dd_gr] the caller already set
@@ -1842,6 +1905,12 @@ dd_band_ground:
 ; -----------------------------------------------------------------------------
 ; dd_rect_wall - CF = 1 when [dd_c0..dd_c1] x [dd_r0..dd_r1] holds a tile with
 ;                a picture on it. Clobbers AX/CX. Preserves SI.
+;
+; A WALL, A DOOR - or a corridor tile carrying one of 93.2.3's concave corner
+; blocks, which is what [dd_cnrmap] is for. Without that third test a ghost
+; circling the house took the house's four corners off the glass and the
+; repair queue put them back without them: 6 of the board's 34 concave corners
+; were gone inside a second and stayed gone.
 ; -----------------------------------------------------------------------------
 dd_rect_wall:
     push bx
@@ -1857,6 +1926,8 @@ dd_rect_wall:
     je .yes
     cmp al, TT_DOOR
     je .yes
+    call dd_ink_ck                  ; ...and a CORRIDOR can carry a corner block
+    jc .yes                         ; of its own now (93.2.3.2)
     inc bx
     cmp bx, [dd_c1]
     jbe .col

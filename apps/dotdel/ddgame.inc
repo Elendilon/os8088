@@ -737,11 +737,11 @@ dd_speed_of:
     ; the tunnel is slow for everybody but a pair of eyes
     push ax
     call dd_tile_of
-    cmp ch, 14
+    cmp ch, DD_TUNR
     jne .notun
-    cmp cl, 6
+    cmp cl, DD_TUNW
     jb .intun
-    cmp cl, 21
+    cmp cl, DD_COLS - 1 - DD_TUNW
     ja .intun
 .notun:
     pop ax
