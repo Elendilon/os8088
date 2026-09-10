@@ -3984,7 +3984,7 @@ SOAK = [
         "what keeps the control assembling",
         needs=("marty", "nasm"), serial=True,
         wants=("build/radtest360.img",)),
-    Row("glyphcost", "soak", py("tests/glyphcost.py"), 130.0,
+    Row("glyphcost", "soak", py("tests/glyphcost.py"), 30.0,
         "docs/plans/CTRL-GLYPH-PLAN.md 4: what did SPEC.md 13.15.1 cost a"
         "control glyph, per call, in guest cycles? tests/glyphbn carries the"
         "PRE-13.15.1 routine lifted verbatim beside today's, so the A/B is"
