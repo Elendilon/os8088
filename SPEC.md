@@ -22671,6 +22671,35 @@ DATA, and code does not shrink the way a table does.
 — and that trade is the owner's, taken on the ground that a control glyph is
 drawn once and then sits there until someone interacts with it.
 
+**MEASURED SINCE, and it costs no time at all — it saves some.** On a 4.77 MHz
+8088 with a Hercules, three of the four kinds are FASTER than the bitmaps they
+replaced — check-clear **6.18 → 4.27 ms (−30.9%)**, radio-clear **6.02 → 4.52
+(−24.9%)**, check-set **6.08 → 5.38 (−11.4%)** — and only the set radio is
+dearer, **6.02 → 6.41 (+6.5%, +0.39 ms)**. A VGA pass agrees in shape (−33.1%,
+−27.6%, −19.1%, +8.6%). The sprite pass is one drawing call and composes twelve
+mask-and-data rows to make it, so five fills beat it and eight roughly tie.
+`tests/glyphbn` carries BOTH routines in one package — the pre-conversion one
+lifted verbatim — so the A/B is one kernel and one boot, and
+docs/reports/GLYPH-AND-LINE-COST-2026-09-10.md is the record.
+
+**The ~35–50 ms this file and `kernel/ctrl.inc` used to quote for a glyph was
+never the normal path's.** It is 44–64 `gfx_pixel` calls at PERFORMANCE.md Part
+2's ~756 µs, which is `.gpix`'s arithmetic — the clipped fallback. The normal
+path was **6.0–6.2 ms**. Every argument that rested on the figure survives it:
+*do not redraw a control that did not change* is the same argument at 6 ms as
+at 40.
+
+**AND THE TWO DO NOT DRAW THE SAME GLYPH.** Only the open square comes out
+identical; the radio differs by 40 pixels of 144 clear and 56 set, the check
+mark by 32. The bitmap radio was a **circle** and `os88ui_gring` is four runs,
+so what draws today is a **square with its four corner pixels nipped off**.
+§13.17.1's rule — *the corners must be clear, so it is not a rectangle* — is
+satisfied by both, so `tests/radio.py` passes on either: the rule is too weak
+to tell a ring from a nipped square. That is a **look question that has
+shipped**, and the report prices the alternatives (about 7 ms for a rounder
+octagon at 8 fills, about 11 for the bitmap's own arc at 12, against today's
+4.5); nothing has been changed on the strength of it.
+
 **The position is held in DI and SI, and that is worth 116 bytes rather than
 four.** `UI_FILL` wants AX, BX, CX and DX, so an x or y living in any of them is
 pushed and popped around every run; held clear of all four it is a `lea` per

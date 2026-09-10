@@ -585,10 +585,12 @@ OS88UI_GW     equ 12            ; both are 12 x 12
 ; another without it is the same defect the button's OS88UI_FILL note
 ; describes, one layer down.
 ;
-; It is not cheap: 44 set bits for an empty box and 64 for a crossed one,
-; one drawing call each, which at PERFORMANCE.md Part 2's ~756us of fixed
-; cost is 35-50ms on the field machine. Draw the ROW that changed, never the
-; page.
+; It is not cheap: MEASURED at 4.3 to 6.4 ms of the field machine's time
+; (docs/reports/GLYPH-AND-LINE-COST-2026-09-10.md, taken on a Hercules 5150
+; with tests/glyphbn). The 35-50ms that stood here was 44-64 gfx_pixel calls
+; at PERFORMANCE.md Part 2's ~756us - which was the CLIPPED fallback's
+; arithmetic, and never what the normal path did. Draw the ROW that changed,
+; never the page.
 ;
 ; -----------------------------------------------------------------------------
 ; os88ui_gdn - should this glyph be drawn PRESSED?
@@ -2748,12 +2750,15 @@ os88ui_chkhit:
 ; the caller's own label, and the trade is taken on the owner's terms: this is
 ; drawn once and then sits there until someone interacts with it.
 ;
-; What it wins back is the OTHER path. os88ui_glyph cannot draw a control a
-; clip fragment's edge cuts - ico_core clips an icon WHOLE - so it falls to
-; `.gpix`, ONE DRAWING CALL PER SET BIT: 45 to 65 of them, 24-34 ms for one
-; control (PERFORMANCE.md Set 83). A fill clips per pixel, so this control has
-; no such path and no such twin to keep in step. One cost instead of two, and
-; the bad one is gone.
+; What it wins back is the OTHER path. The bitmap os88ui_glyph could not draw
+; a control a clip fragment's edge cut - ico_core clips an icon WHOLE - so it
+; fell to `.gpix`, ONE DRAWING CALL PER SET BIT: 45 to 65 of them, 24-34 ms
+; for one control (PERFORMANCE.md Set 83). A fill clips per pixel, so this
+; control has no such path and no such twin to keep in step. One cost instead
+; of two, and the bad one is gone - and the remaining one came DOWN as well,
+; which nobody expected: the fill glyph measures 4.3-6.4 ms against the
+; bitmap's 6.0-6.2, three of its four kinds cheaper and only the set radio
+; dearer, by 0.39 ms (docs/reports/GLYPH-AND-LINE-COST-2026-09-10.md).
 ;
 ; --- THE RECORD, in YOUR data (one per GROUP) -------------------------------
 ;   my_radio:

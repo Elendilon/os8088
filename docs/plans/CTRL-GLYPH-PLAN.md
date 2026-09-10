@@ -127,6 +127,33 @@ Three columns, and each has a right instrument here rather than an estimate:
 | **bytes into each app — DISK** | the **compressed** `.o88`, not the image: `PKGZ ?= lz4` means the file on the floppy is not what nasm emitted, and `os88pkg.image_unwrap` is what tells the two apart (docs/plans/O88-COMPRESSION-PLAN.md). A fill-drawn mark is *code*, where four bitmaps are *data that compresses well* — so the disk delta will not track the image delta and must be read rather than derived |
 | **performance, the converted calls** | MartyPC exec-breakpoint brackets, guest cycles entry to exit, the way PERFORMANCE.md Set 134 was taken. The bar is `os88ui_glyph`'s own **44 set bits for an empty box and 64 for a crossed one, one drawing call each** — ~35–50 ms on the field machine. A fill-drawn check is 3 calls and a radio is not yet designed |
 
+### 4.2 TAKEN, and the answer is in `docs/reports/GLYPH-AND-LINE-COST-2026-09-10.md`
+
+**The measurement is done and this section's own expectation was wrong.** §2
+priced the conversion as *"what it COSTS is calls - eight for a set radio
+against the sprite pass's one"*; measured on a Hercules 5150, **three of the
+four kinds got FASTER** - check-clear −30.9%, radio-clear −24.9%, check-set
+−11.4% - and only the set radio is dearer, by **+6.5% / +0.39 ms**. VGA agrees
+in shape. The masked sprite pass is one drawing call and composes twelve
+mask-and-data rows to make it, so five fills beat it and eight roughly tie.
+
+**The bar in the table below was also wrong twice over** and both are corrected
+in the report: *"~35-50 ms on the field machine"* was `.gpix`'s arithmetic -
+the CLIPPED fallback - and the normal path measured **6.0-6.2 ms** before and
+**4.3-6.4 ms** after. Five comments in `kernel/ctrl.inc` and two in
+`apps/os88ui.inc` carried that figure and now carry the measured one.
+
+**And the report found something nobody asked for**: the fill-drawn radio is
+**not the shape the bitmap drew** - a square with its corners nipped, against a
+circle - and 13.17.1's *corners must be clear* rule is too weak to tell them
+apart, so `tests/radio.py` passes on either. That is a look question with a
+price attached (report section 3.3: ~7 ms for a rounder outline, ~11 for the circle,
+against today's 4.5) and **nothing has been changed on the strength of it**.
+
+`tests/glyphbn` is the instrument and `tests/glyphcost.py` the row - both
+implementations in ONE package, so the A/B is one kernel and one boot and the
+`gfx_line` family this arc removed from that kernel cannot get into the answer.
+
 **A drawn-once control is not priced like a hot loop**, and the owner has said
 so: *"between 1ms and 2ms is not huge — this is not a live drawing, it's drawn
 once then it sits there until they interact with it. So we can pick the best

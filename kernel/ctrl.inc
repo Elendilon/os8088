@@ -1305,15 +1305,17 @@ cp_pt:
 ; is that it does not flash.
 ;
 ; Each page's controls already have a painter of their own, because a click
-; changes one control and os88ui_glyph is ~35-50ms of the field machine's time
-; (cp_drv_box1's header does that arithmetic). This is the switch over them.
+; changes one control and os88ui_glyph is MEASURED at 4.3-6.4 ms of the field
+; machine's time (docs/reports/GLYPH-AND-LINE-COST-2026-09-10.md; the ~35-50ms
+; that stood here was the CLIPPED fallback's arithmetic and the whole path is
+; fills since SPEC.md 13.15.1). This is the switch over them.
 ;
 ; **THE IDS ARE AN ARGUMENT BECAUSE THE DRIVERS PAGE DRAWS PER CONTROL**
 ; (SPEC.md 31.1.2). Every branch below used to redraw its page's whole control
 ; set on both edges of every press, which is the same double-draw the header
 ; above objects to, one level down: os88ui_glyph white-fills its own box
 ; before it draws a pixel, so a control that did not change still BLINKS. On
-; the Drivers page that is four checkboxes at ~35-50ms each, twice, in front
+; the Drivers page that is four checkboxes at 4.3-6.4 ms each, twice, in front
 ; of a scroll whose own repaint is the thing the user was waiting for - and
 ; the two arrows are not even in cp_drv_boxes, so all of it was drawn for a
 ; control that is not one of them. The pages whose ladders draw a whole set in
@@ -1348,9 +1350,11 @@ cp_ctlpaint:
 ; This was cp_ctlpaint's whole body, and the split is the fix: it walks the
 ; page's controls and each one asks cp_skipset whether it is the one, so the
 ; walk is cheap and only the control that moved is DRAWN. A page's set is
-; three or four glyphs and a glyph is 24-34 ms of the field machine's time
-; (PERFORMANCE.md Set 83), which is what made "redraw them all on both edges
-; of a press" a visible blink of the whole group.
+; three or four glyphs and a glyph is 4.3-6.4 ms of the field machine's time
+; (measured, docs/reports/GLYPH-AND-LINE-COST-2026-09-10.md - PERFORMANCE.md
+; Set 83's 24-34 ms was the CLIPPED fallback SPEC.md 13.15.1 deleted), which
+; is what made "redraw them all on both edges of a press" a visible blink of
+; the whole group.
 ; -----------------------------------------------------------------------------
 cp_ctlgroup:
     push ax
@@ -5126,12 +5130,14 @@ cp_drv_mem1:
 ; what the settings file asks for. A driver the user enabled on a machine with
 ; no card is unchecked, and its caption says why.
 ;
-; Per ROW because a click changes one, and os88ui_glyph is not cheap: a white
-; 12x12 fill and then one gfx_pixel per set bit - 44 of them for the empty
-; box, 64 for the crossed one - which at PERFORMANCE.md Part 2's ~756us of
-; fixed cost per drawing call is ~35-50ms of the field machine's time. Redrawn
-; unconditionally it is also a double-draw flash on a control that did not
-; change.
+; Per ROW because a click changes one, and os88ui_glyph is not cheap: since
+; SPEC.md 13.15.1 it is a white 12x12 fill and then three to eight more, and
+; it MEASURES 4.3-6.4 ms of the field machine's time
+; (docs/reports/GLYPH-AND-LINE-COST-2026-09-10.md, on a Hercules 5150). The
+; ~35-50ms that stood here was 44-64 gfx_pixel calls at PERFORMANCE.md Part
+; 2's ~756us - which was the CLIPPED fallback's cost and never the normal
+; path's. Redrawn unconditionally it is also a double-draw flash on a control
+; that did not change.
 ; -----------------------------------------------------------------------------
 cp_drv_box1:
     push ax
@@ -5214,7 +5220,8 @@ cp_drv_boxes:
 ; The Drivers page's half of cp_ctlpaint (SPEC.md 31.1.2). Every other page
 ; redraws its whole control set on both edges of a press, which is affordable
 ; where a page has three or four of them and is not here: a row's checkbox is
-; os88ui_glyph, ~35-50ms of the field machine's time, and it WHITE-FILLS its
+; os88ui_glyph, a measured 4.3-6.4 ms of the field machine's time, and it
+; WHITE-FILLS its
 ; box before it draws a pixel - so redrawing the four that did not change is
 ; a visible blink of the whole list. Pressing an ARROW redrew all four and not
 ; the arrow, which is the reported defect in one sentence: two flashes of the
