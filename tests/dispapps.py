@@ -320,6 +320,24 @@ def bss_off(app, name, small=False):
     return m[name] - m["os88_image_end"]
 
 
+def sym(app, name, small=False):
+    """A package symbol's NEAR offset inside its own segment.
+
+    Packages are assembled at org 0 and never relocated (§20), so the map
+    value IS the offset - which is exactly what `Marty.readseg(pseg, ...)`
+    wants, where `bss_off` above answers the bss-RELATIVE one for callers
+    that go through `img_size`. Both are here because a row reaching for the
+    wrong one gets plausible rubbish rather than an error.
+
+    `small=True` maps the `-DAPP_SMALL` build, WHICH IS A DIFFERENT LAYOUT.
+    """
+    m = _map(app, ("-DAPP_SMALL",) if small else ())
+    if name not in m:
+        sys.exit("dispapps: %s has no symbol %s%s"
+                 % (app, name, " in the APP_SMALL build" if small else ""))
+    return m[name]
+
+
 def img_size(app, small=False):
     """The package's image size, which is where its bss starts.
 

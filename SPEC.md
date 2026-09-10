@@ -41872,6 +41872,33 @@ the note is left alone. That is the honest answer and the old one was a trap:
 a half-loaded note whose next save wrote the truncation back over the whole
 file.
 
+#### 27.6.1 "Too big" must not be said about a claim that was REFUSED
+
+`np_load`'s open-to-`NP_MAXKB` is the one `np_resize` call whose `CF` nobody
+read. Every other one does — `np_room` drops the keystroke, `np_stghold` says
+*No memory*, `File > New` cannot fail — and this one carried straight on into
+the read with `[np_cap]` still at whatever the claim already was. A refused
+grow therefore reached the user as **"Too big"**: a sentence about the *file*,
+for a failure that was about *memory*, and it sent the field looking for a
+size limit that was not the cause (§50.6.2.1 is what actually was).
+
+Two things are wrong with refusing the load outright instead, which is why
+that is not the fix:
+
+- the claim may already be **big enough**. A note previously loaded at 8KB
+  that is asked for a 5KB file needs no grow at all, and a refusal there
+  would break a load that works.
+- a `FERR_BIG` from a claim that is **at** the ceiling is a true statement
+  about the file, and must keep saying so.
+
+So the read is always attempted, and the *error* is what learns the
+difference: on `FERR_BIG`, `[np_capkb]` against `NP_MAXKB` says which
+sentence is true. At the ceiling the file really is too big for this
+application; short of it, what refused was the heap, and the toast is
+**"No memory"** — the string `np_stghold` already uses for the same cause one
+call along. It costs no per-instance state: the claim's own size is the
+record of whether the grow was granted.
+
 ### 27.7 The view scrolls, and one word is what makes it
 
 `[np_top]` is the note row drawn at the top of the content, and **`np_walk`'s
@@ -67677,12 +67704,12 @@ reports the honest-sounding message and everyone believes it. Both shipped
 callers did. The lesson generalises to every X-stubbed slot whose body takes
 an owner: the stub supplies it or nothing does.
 
-**It does not compact the heap** — **§65 does, and this section's "and
+**It does not compact the heap** — **§66 does, and this section's "and
 cannot" was right about the mechanism and wrong about the conclusion.** A
 claim's base lives in its holder's own bss — a package's `[pt_base]`, the
 kernel's `[fm_vseg]` — and nothing in `memory.inc` can reach in and rewrite
 those, so sliding somebody else's block down would hand them a pointer into
-memory that stopped being theirs. That is exactly why §65's relocation handle
+memory that stopped being theirs. That is exactly why §66's relocation handle
 is a **callback through the holder's own dispatcher** rather than a word the
 kernel pokes: the holder puts its own derived state right, because only the
 holder knows what it derived. `mem_regrow` still does none of it — its job is
@@ -67706,7 +67733,7 @@ two cures, and they are a decision rather than a bug fix:**
    a real option and a real rewrite of the one routine in the kernel that must
    not be subtly wrong.
 
-**Cure 1 is now written and is §65**; cure 2 is not, and remains a real
+**Cure 1 is now written and is §66**; cure 2 is not, and remains a real
 option that composes with it rather than being replaced by it — better
 placement reduces the fragmentation *created*, where compaction repairs it
 afterwards. The measurement that was asked for first did arrive, from the
@@ -67884,7 +67911,8 @@ there is nothing left to shed. It terminates because each shed removes a
 record and `mem_shed_one` refuses when there are none.
 
 It is on **`mem_claim_hi`'s path too**: a package load is a user action and a
-cache is not, so the cache loses every time.
+cache is not, so the cache loses every time. **And on `mem_regrow`'s, since
+§50.6.2.1** — which is where it was missing for that routine's whole life.
 
 **And the retry has to re-enter with the same parameters, which it did not.**
 `mem_claim_1` takes its direction in `DI` and its DMA head in `SI`, stages
@@ -67920,6 +67948,64 @@ claim may only be touched under the gfx lock**, because the lock is what
 already serialises a worker against the UI task — and they will need a
 handle-based ABI rather than a bare segment, since a package that keeps a
 discarded segment in its own bss writes into somebody else's memory.
+
+#### 50.6.2.1 …and `mem_regrow` was not on that path, so a GROWER was refused over a cache
+
+`mem_regrow` (§50.3.1) had the three paths and no retry loop at all. Path 2
+wants free paragraphs directly above the claim, path 3 wants a contiguous run
+the whole new size, and when both said no the routine answered CF=1 — over a
+heap whose free space was *sitting in purgeable caches*, which is memory the
+kernel holds on the explicit understanding that it can give it away. So a
+claim `mem_claim` would have granted was refused by the one routine whose
+entire reason for existing is that growing should be *cheaper* than claiming.
+
+**Reported from the field as "Note Pad says Too big opening README.TXT" on the
+128KB `kern_small` machine**, and the toast is the second half of the defect
+(§27.6.1). The heap, read off `mem_tab` with Note Pad up and its Open dialog
+on screen (`os8088_5150_cga_128k`, 52.5KB of heap):
+
+| base | bytes | owner | |
+|---|---|---|---|
+| `12E0` | 2,048 | `MEM_P_VIEW` | purgeable — the Disk window's listing |
+| `1360` | 23,552 | `MEM_P_DIRW` | purgeable — the directory read-ahead |
+| `1920` | 1,024 | Note Pad | **the document claim, `NP_KB0`** |
+| `1960` | 6,144 | `MEM_P_WSAVE` | purgeable — a window's raise cache |
+| `1AE0` | 2,560 | — | free |
+| `1B80` | 4,096 | `FDLG.DRV` | the dialog's module image (§38.0) |
+| `1C80` | 14,336 | Note Pad | its region |
+
+`np_load` asks for 16KB. Path 2 is blocked by the raise cache immediately
+above the claim; path 3 needs 16,384 contiguous and the largest run is 2,560.
+**31,744 bytes — three caches — were purgeable and none of them was asked.**
+`[np_cap]` therefore stayed at 1,024, the read compared the manual's 14,722
+against it, and the file API answered the only thing it can: `FERR_BIG`.
+
+The fix is `mem_claim`'s loop, in the same shape: on path 3's refusal, shed
+one purgeable block and **re-enter at path 2**, not at path 3. Re-entering at
+path 2 is the point rather than an economy — the block shed is often the one
+directly above the claim, and an extend in place leaves no hole behind it.
+Three sheds run here, cheapest first (`MEM_P_WSAVE`, then `MEM_P_VIEW`, then
+the read-ahead), which is §50.6.4's ladder doing exactly what it is for: the
+expensive cache is only reached when the cheap ones were not enough.
+
+**Compaction is deliberately NOT added with it**, and that is a decision and
+not an omission. §66's walk calls each movable claim's *relocation proc*, and
+this routine's own contract is that it never does (§66.7: a regrow that
+compacted could tell one holder about one move twice, once through the proc
+and once through `DX`) — and the holder it would most likely move is the very
+claim being regrown. So `mem_regrow` sheds and does not compact, which is
+exactly what `mem_claim` does on `kern_small`, where there is no compactor at
+all. It is enough for every case measured here; a regrow that wants
+compaction is an §66.7 question to settle on its own.
+
+Registers make the loop free: `mem_find_own` and `mem_hifit` both preserve
+`BX`, so the owner word `mem_shed_one` ranks against is still live at path 3's
+refusal, and `AX`, `DX` and `SI` are untouched there — so the retry needs no
+re-derivation. `mem_shed_one` runs happily inside the `cli` window `mem_regrow`
+holds throughout: it is word stores and nothing else, exactly as it is on
+`mem_claim`'s path. It can never shed the record being regrown, because it
+takes only records *strictly* cheaper than the claimant's own rank and that
+record ranks equal to itself.
 
 #### 50.6.3 What `mem_avail` answers, and what the Task Manager shows
 
