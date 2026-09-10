@@ -2558,14 +2558,26 @@ cp_thm_click:
                                 ; be cancellable by sliding off
     call COLD_SEG:ssf_cfg       ; the overlay, and then its window (79.7)
     jnc .donej
-    push bx                     ; ...and the ONE refusal on this page that the
-    push cx                     ; user is standing in front of, so it is said
-    mov al, 1                   ; out loud rather than swallowed the way every
-    mov bx, cp_opentab          ; other one in SPEC.md 79 is (SPEC.md 2.8.4,
-    mov cx, CP_NOPEN            ; 47 rule 3)
-    call KERNEL_SEG:toast_say
-    pop cx
-    pop bx
+    mov al, [ss_row+DRVR_ERR]   ; ...and the ONE refusal on this page that the
+    or al, al                   ; user is standing in front of, so it is said
+    jz .nowinj                  ; out loud rather than swallowed the way every
+    cmp al, DRVE_NERR           ; other one in SPEC.md 79 is (SPEC.md 2.8.4,
+    jae .nowinj                 ; 47 rule 3) - AND IT SAYS WHY, out of the
+    push bx                     ; LOADER's own words (drv_errstr), which
+    push cx                     ; cp_snd_note already borrows for these same
+    mov bx, drv_errstr          ; causes. drv_load_at wrote the code into the
+    mov cx, DRVE_NERR           ; row before ssf_cfg ever answered, so naming
+    call KERNEL_SEG:toast_say   ; it is one byte read and no string of our own.
+    pop cx                      ; An out-of-range code takes the beep rather
+    pop bx                      ; than toast_say's silence: a bounds miss here
+    jmp short .donej            ; would be a press that did nothing
+.nowinj:
+    call KERNEL_SEG:cw_snd_beep ; DRVE_OK = the image loaded and SSV_CFG itself
+                                ; refused, which today is wm_create finding the
+                                ; table full - no window, and NOT ABOUT THE
+                                ; DISK, so it does not say the disk. cp_open_x's
+                                ; own rule and cp_open_x's own answer (34.3),
+                                ; and it costs no resident string
 .donej:                         ; ...and the five refusals above
     jmp .done
 .groups:

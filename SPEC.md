@@ -98252,13 +98252,35 @@ Two consequences worth stating:
   controls they pressed `Test` from — and the image is never freed in
   between, because `SSV_BUSY` answers for that window (§79.8).
 
-**The one refusal that is spoken.** If `SAVER.DRV` cannot be read, the button
-puts up the toast the panel's own load refusal already uses. That string lost
-its subject to make this possible: it read `Panel Needs Sys Disk A:` and now
-reads `Needs Sys Disk A:`, because there are two subjects and one message that
-names the wrong one is worse than one that names none — which is that
-string's own argument about the drive letter, turned round. What both readers
-need is identical: put the system disk in that drive.
+**The one refusal that is spoken — and it says WHY.** Every other refusal in
+§79 is silent because nobody is watching; this is a button press that did
+nothing, which is the shape §2.8.4 refuses. So the button reports out of
+`drv_errstr` — **the loader's own vocabulary**, which `cp_snd_note` (§31.7)
+already borrows for the same reason: one set of words for *no system disk*,
+*not on the system disk*, *not a valid driver* and *not enough memory* is one
+less thing for the reader to map. `drv_load_at` has already written the cause
+into `ss_row`'s `DRVR_ERR` by the time `ssf_cfg` answers CF = 1, so naming it
+costs one byte read and no string of its own.
+
+**A refusal that is not about the disk does not say the disk**, which is
+`cp_open_x`'s rule in the same file and the reason this changed. The button
+used to toast `Needs Sys Disk A:` for *every* CF = 1 — including the case the
+field hit, which was **`DRVE_MEM` with the system disk in the drive**: a
+`kern_big` kernel on a 128KB machine, where the heap could not fund the image.
+The message named the one cause that was not the cause, and sent the reader to
+the drive door. A message that asserts a cause it does not know is worse than
+one that names none, which is that string's own argument about the drive
+letter turned round a second time.
+
+**And when the loader recorded no cause, the button BEEPS.** `DRVR_ERR` is
+`DRVE_OK` exactly when the image loaded and `SSV_CFG` itself refused, which
+today is `wm_create` finding the window table full (§11.2) — no window, and
+nothing to do with the disk. That is `cp_open_x`'s `.beep` case arriving at a
+second door, so it takes `cp_open_x`'s answer: `snd_beep` (§34.3), the audible
+refusal every *no window* in this kernel already gives. It costs no string,
+which is the point — `ctrl`'s strings are `.text` and resident (§2.8) where its
+code is not, so a fourth message here would be a resident byte spent on a case
+no other `wm_create` caller in the tree says anything about at all.
 
 ### 79.8 Lifetime: the overlay is ASKED and never volunteers
 
