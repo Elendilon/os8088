@@ -1,6 +1,15 @@
 #!/usr/bin/env python3
 """CLEAR SKIES' faces and edges, COUNTED - and each term priced by ADDING it.
 
+**COUNT WITH --fly, PRICE WITHOUT IT.** The two halves of this file want
+opposite things from the machine. A POPULATION is what the program actually
+draws, so it has to be flying - pinned, `slightbank` at 12 degrees puts 2.2
+segments a frame into a line body where flying puts 15. A PRICE is a
+whole-frame difference between two arms, so both arms have to see the same
+scene - flying, this file's own resolution goes to 26-43 ms on a 217 ms
+frame and nothing resolves at all. Pinned, the same terms come back at +/-16
+to +/-111 cycles. So --fly skips the pricing half and says so.
+
     python3 tests/skiescount.py [--scene city] [--machine os8088_5150_herc_gla]
                                 [--roll 12]
 
@@ -191,6 +200,11 @@ def main(argv):
                          "renderer nobody runs. Pinning is right for an A/B "
                          "where both arms must draw the IDENTICAL picture; it "
                          "is wrong for a census")
+    ap.add_argument("--price", action="store_true",
+                    help="with --fly: take the per-term A/Bs anyway. They "
+                         "will not resolve - see the note on --fly - and this "
+                         "is here so that claim can be re-checked rather than "
+                         "believed")
     ap.add_argument("--spd", type=int, default=60,
                     help="with --fly: metres a second (slightbank's 60)")
     ap.add_argument("--thr", type=int, default=100,
@@ -398,9 +412,13 @@ def main(argv):
             m.bp_exec()
             return sum(out) / len(out)
 
+        spreads = []                    # every "nothing changed" difference
+
         def ab(name):
             """The arm off and on, twice each and INTERLEAVED, so drift
-            cannot land on one of them."""
+            cannot land on one of them - and the WITHIN-ARM spread of each
+            pair is kept, because two readings of the SAME arm differing is
+            the instrument telling you what it cannot resolve."""
             r = {}
             for arm in (0, 1, 0, 1):
                 m.pause()
@@ -410,68 +428,172 @@ def main(argv):
             m.pause()
             m.write(lin + base + off(name), b"\x00")
             m.run()
+            spreads.append(abs(r[0][0] - r[0][1]))
+            spreads.append(abs(r[1][0] - r[1][1]))
             return sum(r[0]) / 2.0, sum(r[1]) / 2.0
 
+        def nullab():
+            """THE INSTRUMENT'S OWN RESOLUTION: four groups of frames with
+            NOTHING poked between them, split as if they were two arms. What
+            comes back is what this machine, this scene and this frame count
+            report as a difference when there is no difference."""
+            r = {0: [], 1: []}
+            for arm in (0, 1, 0, 1):
+                m.pause()
+                m.run()
+                r[arm].append(frames(a.frames))
+            spreads.append(abs(r[0][0] - r[0][1]))
+            spreads.append(abs(r[1][0] - r[1][1]))
+            return abs(sum(r[1]) / 2.0 - sum(r[0]) / 2.0)
+
+        def res():
+            """The largest difference seen where there was none to see."""
+            return max([RES0] + spreads)
+
+        def price(dlt, cnt, added=True):
+            """A PER-UNIT price, or a sentence saying why there is not one.
+
+            **An A/B is a WHOLE-FRAME difference divided by a PER-FRAME
+            COUNT**, so its per-unit error is the frame resolution over that
+            count - and with a handful of anything a frame, that error is
+            bigger than the answer. This file used to divide anyway and print
+            the result with no warning at all: on `slightbank` at 12 degrees
+            it read a dedup TEST at **-283 cycles an edge**, a winding cross
+            at **-1031**, and ONE `or [es:di], al` at **2819.3** against a
+            true cost near 13. Every one of those is impossible, and every one
+            looked like a measurement. The counts are in the hundreds on the
+            scenes this tool was written for (`city`, the `df*` three) and in
+            single figures on the ones `--fly` and `--roll` opened up.
+
+            A NEGATIVE delta for an ADDED term is the loudest case and is
+            reported as such: the term cannot have made the machine faster.
+            """
+            R = res()
+            if cnt < 0.5:
+                return "no count to divide by"
+            err = R / cnt / 1000.0 * CPS
+            if added and dlt < 0:
+                return ("NOT RESOLVED (%.2f ms FASTER with the term added, "
+                        "which it cannot be; %.1f a frame over a %.2f ms "
+                        "resolution is +/-%.0f cycles)" % (-dlt, cnt, R, err))
+            if abs(dlt) < 2 * R:
+                return ("NOT RESOLVED (%.2f ms against a %.2f ms resolution; "
+                        "%.1f a frame makes that +/-%.0f cycles)"
+                        % (dlt, R, cnt, err))
+            return ("%.0f +/- %.0f cycles"
+                    % (dlt / cnt / 1000.0 * CPS, err))
+
+        def solid(dlt, cnt, added=True):
+            return not price(dlt, cnt, added).startswith(("NOT RESOLVED", "no "))
+
+        # --- AND --fly CANNOT BE PRICED, only counted -----------------------
+        # Every A/B below is a WHOLE-FRAME difference between two arms, so it
+        # needs both arms to see the same scene - and --fly is the world
+        # moving between them. Measured on `slightbank` at 12 degrees flying:
+        # the resolution is **26 to 43 ms on a 217 ms frame**, so nothing
+        # resolves and the section costs a quarter of an hour to say so.
+        # Pinned, the same scene's terms come back at +/-16 to +/-111 cycles.
+        # THE TWO MODES ANSWER DIFFERENT QUESTIONS: --fly is for a POPULATION
+        # (what does the machine actually draw), pinned is for a PRICE (what
+        # does one of them cost), and 7.1.15.1 is the same lesson from the
+        # other side - a paused census is not the flying one.
+        if a.fly and not a.price:
+            print("  --- the per-term A/Bs are SKIPPED under --fly ---")
+            print("  An A/B needs both arms to see the SAME SCENE and --fly is "
+                  "the world moving between them: measured, the resolution "
+                  "goes to 26-43 ms on a 217 ms frame, so no term resolves "
+                  "and finding that out costs ~15 minutes. Run WITHOUT --fly "
+                  "for a price (pinned, the same terms read +/-16 to +/-111 "
+                  "cycles) and WITH it for a population. `--price` takes them "
+                  "anyway.")
+            return
+
+        RES0 = nullab()
         base_ms, twice = ab("cs_dbl")
         per = (twice - base_ms) / max(tr / N, 1)
         print("  frame: %.2f ms (%.2f fps), mean of %d exact frames, the tick "
               "wait patched out" % (base_ms, 1000 / base_ms, a.frames))
-        print("  ONE cs_edge trace = %.3f ms (%.0f cycles); ALL %d of them = "
-              "%.2f ms (%.1f%% of the frame)"
-              % (per, per / 1000 * CPS, round(tr / N), per * tr / N,
+        print("  RESOLUTION: %.2f ms - the largest difference this scene "
+              "reports where NOTHING changed (null A/B %.2f, worst within-arm "
+              "spread %.2f). A term smaller than twice it has no per-unit "
+              "price here, however confidently one could be divided out"
+              % (res(), RES0, max(spreads) if spreads else 0.0))
+        print("  ONE cs_edge trace = %s; ALL %d of them = %.2f ms (%.1f%%)"
+              % (price(twice - base_ms, tr / N), round(tr / N), per * tr / N,
                  100 * per * (tr / N) / base_ms))
         print("    the %.1f DUPLICATES = %.2f ms (%.2f%%) <== the whole prize"
               % (dup / N, per * dup / N, 100 * per * (dup / N) / base_ms))
         t0, t1 = ab("cs_nomark")         # arm 1 SKIPS the test, so t1 < t0
         tst = (t0 - t1) / max(tr / N, 1)
-        print("    the dedup TEST = %.0f cycles an edge, %.2f ms a frame (paid "
-              "on every edge)" % (tst / 1000 * CPS * 1000 / 1000, tst * tr / N))
+        print("    the dedup TEST = %s an edge, %.2f ms a frame (paid on every "
+              "edge)" % (price(t0 - t1, tr / N), tst * tr / N))
         c0_, c1_ = ab("cs_cpy")
         cpe = (c1_ - c0_) / max(dup / N, 1)
-        print("    the COPY that replaces a skipped trace = %.0f cycles a "
-              "duplicate, %.2f ms a frame"
-              % (cpe / 1000 * CPS, cpe * dup / N))
+        print("    the COPY that replaces a skipped trace = %s a duplicate, "
+              "%.2f ms a frame" % (price(c1_ - c0_, dup / N), cpe * dup / N))
         save = per * dup / N
-        print("    ==> NET at runtime: save %.2f, test %.2f, copy %.2f = "
-              "%+.2f ms (%+.2f%%)"
-              % (save, tst * tr / N, cpe * dup / N,
-                 save - tst * tr / N - cpe * dup / N,
-                 100 * (save - tst * tr / N - cpe * dup / N) / base_ms))
+        net = save - tst * tr / N - cpe * dup / N
         stat = 60.0 / CPS * 1000        # a precomputed flag: a byte read + a branch
-        print("    ==> NET with the topology PRECOMPUTED per model (~60 cycles "
-              "a flag): %+.2f ms (%+.2f%%)"
-              % (save - stat * tr / N - cpe * dup / N,
-                 100 * (save - stat * tr / N - cpe * dup / N) / base_ms))
+        netp = save - stat * tr / N - cpe * dup / N
+        # THE NET IS ONLY AS GOOD AS ITS WORST TERM, and it is three A/Bs
+        # deep - so it is not printed at all when one of them did not resolve.
+        # A net assembled from unresolved parts is the most confident-looking
+        # number in the file and the least true.
+        parts = ((twice - base_ms, tr / N, "the trace"),
+                 (t0 - t1, tr / N, "the dedup test"),
+                 (c1_ - c0_, dup / N, "the copy"))
+        weak = [w for d, c, w in parts if not solid(d, c)]
+        if weak:
+            print("    ==> NET: NOT REPORTED - %s did not resolve, and a net "
+                  "of three A/Bs is only as good as its worst term"
+                  % " and ".join(weak))
+        else:
+            print("    ==> NET at runtime: save %.2f, test %.2f, copy %.2f = "
+                  "%+.2f ms (%+.2f%%)"
+                  % (save, tst * tr / N, cpe * dup / N, net,
+                     100 * net / base_ms))
+            print("    ==> NET with the topology PRECOMPUTED per model (~60 "
+                  "cycles a flag): %+.2f ms (%+.2f%%)"
+                  % (netp, 100 * netp / base_ms))
         g0, g1 = ab("cs_dupgath")
         a0_, a1_ = ab("cs_duparea")
         f0, f1 = ab("cs_dupface")
         fpre = (f1 - f0) / max(fw / N, 1)
         print("  a face's PREAMBLE (its gather by index + the winding cross) = "
-              "%.0f cycles, %.2f ms a frame over %.1f walked"
-              % (fpre / 1000 * CPS, fpre * fw / N, fw / N))
+              "%s, %.2f ms a frame over %.1f walked"
+              % (price(f1 - f0, fw / N), fpre * fw / N, fw / N))
         gth = (g1 - g0) / max(fw / N, 1)
         are = (a1_ - a0_) / max(fw / N, 1)
-        print("      of which the GATHER %.0f cycles and the CROSS %.0f "
-              "(%.0f measured whole)"
-              % (gth / 1000 * CPS, are / 1000 * CPS, fpre / 1000 * CPS))
-        print("    the %.1f BACK-CULLED faces = %.2f ms (%.2f%%) <== what an "
-              "earlier cull could reach"
-              % (fc / N, fpre * fc / N, 100 * fpre * (fc / N) / base_ms))
-        print("      ...of which reordering alone - the CROSS off the indices "
-              "BEFORE the gather - reaches %.2f ms (%.2f%%)"
-              % (gth * fc / N, 100 * gth * (fc / N) / base_ms))
+        print("      of which the GATHER %s and the CROSS %s"
+              % (price(g1 - g0, fw / N), price(a1_ - a0_, fw / N)))
+        if solid(f1 - f0, fw / N):
+            print("    the %.1f BACK-CULLED faces = %.2f ms (%.2f%%) <== what "
+                  "an earlier cull could reach"
+                  % (fc / N, fpre * fc / N, 100 * fpre * (fc / N) / base_ms))
+        else:
+            print("    the %.1f BACK-CULLED faces: NOT REPORTED - the preamble "
+                  "it is priced from did not resolve" % (fc / N))
+        if solid(g1 - g0, fw / N):
+            print("      ...of which reordering alone - the CROSS off the "
+                  "indices BEFORE the gather - reaches %.2f ms (%.2f%%)"
+                  % (gth * fc / N, 100 * gth * (fc / N) / base_ms))
         if px:
             p0, p1 = ab("cs_dblplot")
             ppl = (p1 - p0) / max(px / N, 1)
             print("  --- THE 1bpp PLOT ---")
-            print("  ONE `or [es:di],al` plot = %.1f cycles; ALL %.0f of them = "
-                  "%.2f ms (%.1f%% of the frame)"
-                  % (ppl / 1000 * CPS, px / N, ppl * px / N,
+            print("  ONE `or [es:di],al` plot = %s; ALL %.0f of them = %.2f ms "
+                  "(%.1f%%)"
+                  % (price(p1 - p0, px / N), px / N, ppl * px / N,
                      100 * ppl * (px / N) / base_ms))
-            print("    the %.1f MERGEABLE plots = %.2f ms (%.2f%%) <== the "
-                  "ceiling of a byte accumulator"
-                  % ((shpx - shby) / N, ppl * (shpx - shby) / N,
-                     100 * ppl * ((shpx - shby) / N) / base_ms))
+            if solid(p1 - p0, px / N):
+                print("    the %.1f MERGEABLE plots = %.2f ms (%.2f%%) <== the "
+                      "ceiling of a byte accumulator"
+                      % ((shpx - shby) / N, ppl * (shpx - shby) / N,
+                         100 * ppl * ((shpx - shby) / N) / base_ms))
+            else:
+                print("    the %.1f MERGEABLE plots: NOT REPORTED - the plot "
+                      "it is priced from did not resolve"
+                      % ((shpx - shby) / N))
 
 
 if __name__ == "__main__":
