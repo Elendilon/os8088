@@ -8640,6 +8640,23 @@ small: $(BUILD)/small360.img $(BUILD)/small.img
 #                           the floor machine. `kern_small` has fsx like every
 #                           other build - that was never what either of them
 #                           was missing
+#   sheet                   SPEC.md 24.5.2's THIRD GROUND, and it is a
+#                           requirement rather than a size: what SHEET claims
+#                           on open - grid, cell store, undo - is close to
+#                           100KB, which is more RAM than this machine has in
+#                           TOTAL before its 48,352-byte region is counted at
+#                           all. PAINT wants a lot of heap and ships, because
+#                           whether it runs depends on what else is open and
+#                           its refusal is real information; SHEET's answer
+#                           does not depend on anything, so the test is "is
+#                           there a state of this machine in which this
+#                           package runs" and only a no comes off the disk.
+#                           **THE GROUND WAS PUBLISHED AND THE WIRING WAS
+#                           NEVER DONE**: SPEC.md 24.5.2 argued this at
+#                           length when it landed (PR #147) and this list
+#                           never carried the name, so 36,696 bytes of
+#                           spreadsheet went on shipping on both small apps
+#                           floppies with every build step green
 #
 # RECORDER WAS THE FOURTH SOUND ROW AND IS NOT A ROW ANY MORE. It is off the
 # shipped apps disk entirely (SPEC.md 35.1), so it is not in $(APPS_TOOLS) for
@@ -8648,22 +8665,110 @@ small: $(BUILD)/small360.img $(BUILD)/small.img
 # omit list takes. The rule it would have failed is unchanged and would still
 # omit it if it came back.
 #
-# Eight programs that could not have started (SPEC.md 24.5 has the same
+# Nine programs that could not have started (SPEC.md 24.5 has the same
 # figures, re-measured together).
 SMALLOMIT := $(BUILD)/browser.o88 $(BUILD)/ftpd.o88 $(BUILD)/telnet.o88 \
              $(BUILD)/thewire.o88 \
              $(BUILD)/modplug.o88 $(BUILD)/tracker.o88 \
-             $(BUILD)/audio.o88
+             $(BUILD)/audio.o88 $(BUILD)/sheet.o88
 SMALLOMIT_GAMES := $(BUILD)/skies.o88 $(BUILD)/dotdel.o88
+
+# --- ...AND THE READERS LEFT WITH NOTHING TO READ (SPEC.md 24.5.3) -----------
+#
+# **$(SMALLOMIT_DATA) BELOW IS A DOCUMENT WHOSE PROGRAM IS NOT ON THE DISK;
+# THIS IS A PROGRAM WHOSE DOCUMENT IS NOT.** Same rule, opposite direction,
+# and it needs its own list because $(SMALLOMIT) is the one authority for
+# "kern_small cannot run this at all" and both of these run perfectly well -
+# they open a window and a File > Open dialog onto a volume with nothing on
+# it they can name. A name in the wrong list here sends the next reader to
+# the kernel looking for a requirement that was never the problem, which is
+# what SPEC.md 24.5's TANK row already cost this project once.
+#
+#   chart                   Chart declares NO ASSOCIATION - apps/chart/
+#                           chart.asm says so in its header, there being no
+#                           cross-app spawn API in this OS - so its ONLY
+#                           launch path is File > Open on a SYLK, DIF or BIFF
+#                           file, and the only program on any os8088 floppy
+#                           that WRITES one is SHEET, which the row above has
+#                           just taken off. The Makefile has already made
+#                           exactly this call once, at $(APPS_TOOLS_360)
+#                           ~1,000 lines below: "a chart viewer whose ONLY
+#                           launch path is File > Open is a program with
+#                           nothing to open once the spreadsheet it reads is
+#                           on another floppy. The two belong on the same
+#                           disk." Here they belong on the same disk by both
+#                           being off it. Note this was true BEFORE Sheet
+#                           moved, too - no small floppy has ever carried a
+#                           SALES.SLK for it either
+#   fontview                the small system disks carry NO SYSTEM/FONTS/ AT
+#                           ALL: $(FACESARG) is in the shipped system-disk
+#                           recipes and in neither small one, and ty_gofonts
+#                           (SPEC.md 19.8) walks to exactly that one folder on
+#                           the system volume. So the viewer lists an empty
+#                           folder - SPEC.md 24.3's "working, and
+#                           indistinguishable from broken", which is the
+#                           argument SPEC.md 90.3 itself uses to keep the
+#                           package ON the live media, where the faces ARE.
+#                           It reached these two floppies through
+#                           $(CORE_TOOLS) and 90.3 said so in as many words;
+#                           what that sentence did not check is whether the
+#                           folder it is core FOR is on the disk
+#
+# The alternative for FONTVIEW is to put the ten faces on instead - ~9KB
+# packed plus the licence - and it was not taken: the faces are there on the
+# shipped system disk BECAUSE that disk has the programs that use them, and
+# spending eleven clusters of a 128KB machine's floppy on a viewer is the
+# size argument SPEC.md 24.5 forbids run in reverse.
+SMALLOMIT_ORPHAN := $(BUILD)/chart.o88 $(BUILD)/fontview.o88
+
+# ...and it is applied EVERYWHERE $(SMALLOMIT) is - the apps list, the core
+# list, the sysapps list and both games lists - rather than only at the two
+# that carry a name today. Chart rides $(APPS_TOOLS) and Font Viewer rides
+# $(CORE_TOOLS), so this list already spans two of the five; a list that is
+# filtered in some of the places a package can reach a floppy from is the
+# defect $(SMALLBASE) was given a walker for after Solitaire shipped twice on
+# one disk. No GAME is an orphan today and the two games lines cost one token
+# each to make that a fact rather than a thing to remember.
 
 # ...and BROWSER.HTM with the browser, for the same reason one step along: a
 # .HTM is openable by nothing else on the machine (SPEC.md 71), and a manual
 # for a program that is not on the disk is worse than no file at all.
-SMALLOMIT_DATA := apps/browser/browser.htm apps/tracker/beverly.mod
+#
+# **DERIVED FROM $(APPS_DATA), NEVER SPELLED - and DEFERRED (`=`), which is
+# the whole of why this works.** It named `apps/browser/browser.htm` and
+# `apps/tracker/beverly.mod` and matched NOTHING from the day it was written,
+# which was the day compression shipped (PR #172), because the
+# $(PKGZ) arm ~1,000 lines below REDEFINES $(APPS_DATA) from the source files
+# to lz4-packed copies under $(ZDATA)/ - and PKGZ defaults to lz4, so the arm
+# that ships is the one this filter could not see. Both files went out on
+# both small apps floppies with every build step green. That block's own
+# comment names the trap ("a list held in two arms is a list that drifts in
+# the arm nobody builds by hand") about the line directly above it and this
+# variable is the same defect one name along; $(MEDIA_DISK_DATA) beside it is
+# redefined in both arms and this was not.
+#
+# A `filter` over the live list cannot drift, because there is only ever one
+# list: whatever spelling $(APPS_DATA) is in when this expands is the
+# spelling matched. Both cases are covered - the plain arm's lower-case
+# source paths and the packed arm's upper-case 8.3 names - since a %-pattern
+# match is the only thing here that is case-sensitive.
+SMALLOMIT_DATA = $(filter %/browser.htm %/BROWSER.HTM \
+                          %/beverly.mod %/BEVERLY.MOD,$(APPS_DATA))
                                     # ...and BEVERLY.MOD with the two players
                                     # that read it. At 360KB it was already on
                                     # a media disk of its own (SPEC.md 24.4);
                                     # this takes it off the 1.44MB one too
+
+# ...and a guard on the derivation, because the failure it replaces was a
+# filter that silently matched nothing. $(APPS_DATA) carries both files at
+# every geometry, so an empty result means the spelling moved a THIRD time
+# and the two files are on their way back onto the floppies.
+SMALLOMIT_DATA_CHECK = $(if $(filter 2,$(words $(SMALLOMIT_DATA))),, \
+    $(error SMALLOMIT_DATA matched $(words $(SMALLOMIT_DATA)) of \
+            $(words $(APPS_DATA)) in APPS_DATA, wanted 2 (BROWSER.HTM and \
+            BEVERLY.MOD) - the spelling of $$(APPS_DATA) has moved again and \
+            this filter has stopped seeing it: [$(SMALLOMIT_DATA)] out of \
+            [$(APPS_DATA)]))
 
 # THE PACKAGES THAT HAVE A SMALL BUILD - the build rules' list, and nothing
 # else. $(SMALLBASE) is the same set spelled as the ordinary build's paths, so
@@ -8702,18 +8807,28 @@ SMALLSUB       = $(patsubst $(BUILD)/%,$(SMALLAPPDIR)/%,$(filter $(SMALLBASE),$(
 # the full build into GAMES/ beside the small one in APPS/ - two copies on one
 # floppy, exactly what SMALLBASE exists to prevent. tests/unit/t_appsmall.py
 # now walks the built disks for it rather than trusting this line.
-SMALLGAMES      = $(call SMALLSUB,$(SMALLOMIT_GAMES),$(APPS_GAMES))
+SMALLGAMES      = $(call SMALLSUB,$(SMALLOMIT_GAMES) $(SMALLOMIT_ORPHAN),$(APPS_GAMES))
                                     # DEFERRED (`=`), and it matters: $(APPS_GAMES)
                                     # is defined ~400 lines BELOW here, so `:=`
                                     # takes an EMPTY list and the disk ships with
                                     # no GAMES folder at all - silently, because
                                     # os88disk.py is being asked for nothing
                                     # rather than for something missing
-SMALLDATA_360   = $(filter-out $(SMALLOMIT_DATA),$(APPS_DATA_360))
-SMALLDATA       = $(filter-out $(SMALLOMIT_DATA),$(APPS_DATA))
+SMALLDATA_360   = $(SMALLOMIT_DATA_CHECK)$(filter-out $(SMALLOMIT_DATA),$(APPS_DATA_360))
+SMALLDATA       = $(SMALLOMIT_DATA_CHECK)$(filter-out $(SMALLOMIT_DATA),$(APPS_DATA))
 
 
-SMALLAPPSARGS  = $(addprefix APPS:,$(call SMALLSUB,$(SMALLOMIT),$(APPS_TOOLS)))
+# ONE list, named, because BOTH the recipe and the PREREQUISITES need it and
+# they were spelled differently: the recipe asked os88disk.py for the filtered
+# set while the prerequisite line named the whole of $(APPS_TOOLS), which is
+# the exact shape the $(APPS_TOOLS_360) comment ~1,000 lines below calls out
+# ("a per-geometry package list has to be filtered in BOTH places or in
+# neither"). It drifted in the harmless direction here - a superset builds
+# packages the disk does not carry rather than missing one - and in a PRIVATE
+# tree that builds only what it needs (tools/os88build.py) it is nine
+# packages of build time for files nothing writes to the floppy.
+SMALLTOOLS     = $(call SMALLSUB,$(SMALLOMIT) $(SMALLOMIT_ORPHAN),$(APPS_TOOLS))
+SMALLAPPSARGS  = $(addprefix APPS:,$(SMALLTOOLS))
 
 # The Task Manager is in NEITHER of those lists: it lives in SYSTEM/ on both
 # floppies (SPEC.md 28.3), so it needs the substitution said once more over
@@ -8730,7 +8845,7 @@ SMALLAPPSARGS  = $(addprefix APPS:,$(call SMALLSUB,$(SMALLOMIT),$(APPS_TOOLS)))
 # substitution, which today is the Wire alone: $(SMALLOMIT) stays the one
 # authority for "kern_small cannot run this at all" (SPEC.md 24.5), and a
 # system-disk package is subtracted here rather than in a second list.
-SMALLSYSAPPS      = $(call SMALLSUB,,$(filter-out $(SMALLOMIT),$(SYSAPPS)))
+SMALLSYSAPPS      = $(call SMALLSUB,,$(filter-out $(SMALLOMIT) $(SMALLOMIT_ORPHAN),$(SYSAPPS)))
 SMALLSYSAPPSARGS  = $(addprefix SYSTEM:,$(SMALLSYSAPPS))
 
 # --- THE CORE PACKAGES, on the small system disk too --------------------------
@@ -8741,8 +8856,8 @@ SMALLSYSAPPSARGS  = $(addprefix SYSTEM:,$(SMALLSYSAPPS))
 #
 # It is CORE_TOOLS with the same two filters the apps disk uses: the omitted
 # packages go, and the ones with a small build are the small build.
-SMALLCORE_TOOLS = $(call SMALLSUB,$(SMALLOMIT),$(CORE_TOOLS))
-SMALLCORE_GAMES = $(call SMALLSUB,$(SMALLOMIT_GAMES),$(CORE_GAMES))
+SMALLCORE_TOOLS = $(call SMALLSUB,$(SMALLOMIT) $(SMALLOMIT_ORPHAN),$(CORE_TOOLS))
+SMALLCORE_GAMES = $(call SMALLSUB,$(SMALLOMIT_GAMES) $(SMALLOMIT_ORPHAN),$(CORE_GAMES))
 SMALLCOREARGS   = $(addprefix APPS:,$(SMALLCORE_TOOLS)) \
                   $(addprefix GAMES:,$(SMALLCORE_GAMES))
 
@@ -8892,6 +9007,16 @@ $(BUILD)/emu.img: $(EMUDRIVERS) $(SYSAPPS) $(COREAPPS) $(SYSDOC) $(SYSLOGO) \
 # off every shipped nasm line, which is why it is not in $(KNOBS) and needs no
 # row in the build matrix - no top-level `make` can carry it into build/.
 
+# --- ...AND THEY PACK LIKE EVERY OTHER PACKAGE (SPEC.md 20.13.5) --------------
+# `$(OS88PKG)` and $(PKGZSTAMP), which is how all ~40 shipped packages are
+# stamped and which these five spelled `python3 tools/os88pkg.py` instead -
+# dropping $(PKGZARG) and with it the compression, on the ONE floppy built for
+# the machine with the least disk. TANK's rule below already used $(OS88PKG),
+# so `make smallapps` shipped one packed package and five plain ones and the
+# inconsistency was invisible: a `.o88` is a valid package either way and the
+# kernel reads both (20.13.3), so nothing refused and nothing looked wrong.
+# The flags byte is where it shows - 0x09 on a packed package against 0x01 -
+# and `tools/os88pkgsize.py`'s "on disk" line is what prints the cost.
 $(SMALLAPPDIR)/notepad.bin: apps/notepad/notepad.asm apps/os88api.inc \
                             apps/os88ui.inc $(SBSTAMP) | $(BUILD)
 	@mkdir -p $(SMALLAPPDIR)
@@ -8899,8 +9024,8 @@ $(SMALLAPPDIR)/notepad.bin: apps/notepad/notepad.asm apps/os88api.inc \
 	        apps/notepad/notepad.asm
 	@echo "notepad (APP_SMALL): $(call FILESIZE,$@) bytes"
 
-$(SMALLAPPDIR)/notepad.o88: $(SMALLAPPDIR)/notepad.bin tools/os88pkg.py
-	python3 tools/os88pkg.py $(SMALLAPPDIR)/notepad.bin -o $@
+$(SMALLAPPDIR)/notepad.o88: $(SMALLAPPDIR)/notepad.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(SMALLAPPDIR)/notepad.bin -o $@
 
 $(SMALLAPPDIR)/paint.bin: apps/paint/paint.asm apps/os88api.inc \
                           apps/os88ui.inc $(SBSTAMP) | $(BUILD)
@@ -8909,8 +9034,8 @@ $(SMALLAPPDIR)/paint.bin: apps/paint/paint.asm apps/os88api.inc \
 	        apps/paint/paint.asm
 	@echo "paint (APP_SMALL): $(call FILESIZE,$@) bytes"
 
-$(SMALLAPPDIR)/paint.o88: $(SMALLAPPDIR)/paint.bin tools/os88pkg.py
-	python3 tools/os88pkg.py $(SMALLAPPDIR)/paint.bin -o $@
+$(SMALLAPPDIR)/paint.o88: $(SMALLAPPDIR)/paint.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(SMALLAPPDIR)/paint.bin -o $@
 
 $(SMALLAPPDIR)/calc.bin: apps/calc/calc.asm apps/os88api.inc apps/os88ui.inc \
                          $(SBSTAMP) | $(BUILD)
@@ -8919,8 +9044,8 @@ $(SMALLAPPDIR)/calc.bin: apps/calc/calc.asm apps/os88api.inc apps/os88ui.inc \
 	        apps/calc/calc.asm
 	@echo "calc (APP_SMALL): $(call FILESIZE,$@) bytes"
 
-$(SMALLAPPDIR)/calc.o88: $(SMALLAPPDIR)/calc.bin tools/os88pkg.py
-	python3 tools/os88pkg.py $(SMALLAPPDIR)/calc.bin -o $@
+$(SMALLAPPDIR)/calc.o88: $(SMALLAPPDIR)/calc.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(SMALLAPPDIR)/calc.bin -o $@
 
 $(SMALLAPPDIR)/taskmgr.bin: apps/taskmgr/taskmgr.asm apps/os88api.inc \
                             apps/os88ui.inc $(SBSTAMP) | $(BUILD)
@@ -8929,8 +9054,8 @@ $(SMALLAPPDIR)/taskmgr.bin: apps/taskmgr/taskmgr.asm apps/os88api.inc \
 	        apps/taskmgr/taskmgr.asm
 	@echo "taskmgr (APP_SMALL): $(call FILESIZE,$@) bytes"
 
-$(SMALLAPPDIR)/taskmgr.o88: $(SMALLAPPDIR)/taskmgr.bin tools/os88pkg.py
-	python3 tools/os88pkg.py $(SMALLAPPDIR)/taskmgr.bin -o $@
+$(SMALLAPPDIR)/taskmgr.o88: $(SMALLAPPDIR)/taskmgr.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(SMALLAPPDIR)/taskmgr.bin -o $@
 
 $(SMALLAPPDIR)/solitair.bin: apps/solitaire/solitaire.asm apps/os88api.inc \
                              $(SBSTAMP) | $(BUILD)
@@ -8939,8 +9064,8 @@ $(SMALLAPPDIR)/solitair.bin: apps/solitaire/solitaire.asm apps/os88api.inc \
 	        apps/solitaire/solitaire.asm
 	@echo "solitaire (APP_SMALL): $(call FILESIZE,$@) bytes"
 
-$(SMALLAPPDIR)/solitair.o88: $(SMALLAPPDIR)/solitair.bin tools/os88pkg.py
-	python3 tools/os88pkg.py $(SMALLAPPDIR)/solitair.bin -o $@
+$(SMALLAPPDIR)/solitair.o88: $(SMALLAPPDIR)/solitair.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(SMALLAPPDIR)/solitair.bin -o $@
 
 $(SMALLAPPDIR)/tank.bin: apps/tank/tank.asm apps/tank/tkraster.inc \
                          apps/tank/tktmpl.inc \
@@ -8979,46 +9104,43 @@ smallapps: $(BUILD)/smallapps360.img $(BUILD)/smallapps.img
 # build/smallapps.img in B:, and tests/fcpcopy.py's kern_small arm could
 # never have passed. 360KB declares a 2-sector FAT anyway; it is spelled here
 # so the two geometries say the same thing.
-# **PREREQUISITES ARE EXPANDED WHEN THE RULE IS READ**, and three of the five
-# lists below are defined HUNDREDS OF LINES LOWER - $(APPS_TOOLS) at the apps
-# disk, $(APPS_DOS) beside it, and $(SMALLGAMES) through $(APPS_GAMES). So this
-# rule read `$(SMALLPKGS) $(SMALLSYSAPPS) tools/os88disk.py` and NOTHING ELSE:
-# the disk did not depend on chart, calc, paint, the browser, the games or
-# os88net.com, every one of which its own recipe then puts on the volume.
+# **`.SECONDEXPANSION:` AND `$$` ON TWO OF THESE, BECAUSE A PREREQUISITE IS
+# EXPANDED WHEN THE RULE IS READ AND NOT WHEN THE TARGET IS CONSIDERED.**
+# $(APPS_TOOLS) and $(APPS_GAMES) are defined ~400 lines BELOW this point, so
+# `$(SMALLTOOLS)` and `$(SMALLGAMES)` here expand to NOTHING however carefully
+# they were deferred with `=`: the comment on $(SMALLGAMES) itself warns about
+# exactly this ordering for the RECIPE and the prerequisite half went
+# unnoticed, because `make all` builds every package into build/ anyway and
+# the empty list is invisible there. In a PRIVATE tree that builds only what
+# it needs (tools/os88build.py, `make BUILD=<dir> smallapps`) it is
+# `os88disk: error: cannot read <dir>/artful.o88` - a rule asking for a file
+# nothing was told to produce, which is the same failure mode $(APPS_TOOLS_360)
+# further down calls out for the mirror-image case.
 #
-# It is invisible in build/, because `all` builds those packages for the apps
-# disk anyway and they are always there by the time anyone looks. It is NOT
-# invisible in a PARTIAL tree: `t_nasm3` builds `shipped + small + smallapps +
-# emu` into one of its own, nothing there builds chart.o88, and the row failed
-# as `cannot read .../chart.o88` pointing at nasm 3 rather than at this.
-#
-# SMALLGAMES's own comment two hundred lines up is about the same trap one step
-# away - it is `=` and not `:=` so that its RECIPE sees $(APPS_GAMES) - and
-# deferring does not reach a prerequisite list, which make expands immediately
-# whatever the variable's flavour. `.SECONDEXPANSION` is what does: the `$$`
-# below survives the first expansion and is expanded again when the target is
-# considered, by which time every one of these is defined.
+# A `$$`-prefixed prerequisite under `.SECONDEXPANSION:` is expanded a second
+# time, when the target is considered - by which point both lists exist. It
+# reaches only prerequisites that carry `$$`, so the three plain ones here and
+# every rule below are untouched.
 .SECONDEXPANSION:
-$(BUILD)/smallapps360.img: $(SMALLPKGS) $$(APPS_TOOLS) $$(SMALLGAMES) $(SMALLSYSAPPS) \
-                           $$(SMALLDATA_360) $$(APPS_DOS) tools/os88disk.py
+
+$(BUILD)/smallapps360.img: $(SMALLPKGS) $$(SMALLTOOLS) $$(SMALLGAMES) $(SMALLSYSAPPS) \
+                           $$(SMALLDATA_360) tools/os88disk.py
 	python3 tools/os88disk.py --fatcap 2 -o $@ --size 360 \
 	    $(SMALLAPPSARGS) \
 	    $(addprefix GAMES:,$(SMALLGAMES)) \
 	    $(addprefix MEDIA:,$(SMALLDATA_360)) \
 	    $(SMALLSYSAPPSARGS) \
-	    $(addprefix SYSTEM/DOS:,$(APPS_DOS)) \
 	    $(MEDIAFOLDER) $(APPDATAFOLDER)
 	@echo "smallapps: $@ - pair it with build/small360.img (\`make small\`)"
 
-$(BUILD)/smallapps.img: $(SMALLPKGS) $$(APPS_TOOLS) $$(SMALLGAMES) $(SMALLSYSAPPS) \
-                        $$(SMALLDATA) $$(APPS_DOS) tools/os88disk.py
+$(BUILD)/smallapps.img: $(SMALLPKGS) $$(SMALLTOOLS) $$(SMALLGAMES) $(SMALLSYSAPPS) \
+                        $$(SMALLDATA) tools/os88disk.py
 	python3 tools/os88disk.py --fatcap 2 -o $@ --size 1440 \
 	    $(SMALLAPPSARGS) \
 	    $(addprefix GAMES:,$(SMALLGAMES)) \
 	    $(addprefix MEDIA:,$(SMALLDATA)) \
 	    $(SMALLSYSAPPSARGS) \
-	    $(addprefix SYSTEM/DOS:,$(APPS_DOS)) \
-	    $(APPDATAFOLDER)
+	    $(MEDIAFOLDER) $(APPDATAFOLDER)
 	@echo "smallapps: $@ - pair it with build/small.img (\`make small\`)"
 
 # ...and the size comparison on its own, for when you want the numbers without

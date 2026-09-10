@@ -597,6 +597,23 @@ FAST = [
         "at all, and whether five named packages' small arm still assembles "
         "is not 'did you obviously break the OS'. It follows t_buildmatrix "
         "down"),
+    Row("smallreq", "soak", py("tests/unit/t_smallreq.py"), 0.1,
+        "SPEC.md 24.5 on the BUILT floppy: nothing on a small disk may need "
+        "something kern_small has not got. Every one of those omissions is a "
+        "`filter-out` in the Makefile and a filter that matches NOTHING is "
+        "silent - $(SMALLOMIT_DATA) named the two data files by their "
+        "uncompressed paths while the $(PKGZ) arm that ships had renamed "
+        "them, so BROWSER.HTM and BEVERLY.MOD went out on both small apps "
+        "floppies with every build step green. Reads the image "
+        "rather than the variable, because the Makefile is the defendant. "
+        "The .DRV half is an ALLOWLIST (five on-demand kernel modules and "
+        "nothing else), so the driver added two years from now fails here "
+        "with nobody having to remember this file. "
+        "SOAK and not fast: it wants four floppies `make all` does not "
+        "build, which is what `wants=` below is - a fast row may not build "
+        "at all",
+        wants=("build/small360.img", "build/small.img",
+               "build/smallapps360.img", "build/smallapps.img")),
     Row("ktags", "soak", py("tests/unit/t_ktags.py"), 0.1,
         "every owner tag the kernel ships has a TYPE name on the Task "
         "Manager's heap page - SPEC.md 28.4's hex fallback is for a tag this "

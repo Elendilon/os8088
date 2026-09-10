@@ -34720,6 +34720,43 @@ file (which for a driver IS the compression signal, there being no flags
 byte), and `t_appsmall` compared an assembly against a compressed artefact
 and reported the wrong build arm.
 
+##### 20.13.5.2 …and the six small-build packages, which did not
+
+**`make smallapps` shipped five of its six packages UNCOMPRESSED**, on the one
+floppy built for the machine with the least disk in it. The `$(SMALLAPPDIR)`
+rules spelled the packaging step `python3 tools/os88pkg.py` where every other
+package in the tree spells it `$(OS88PKG)` — which is that same command plus
+`$(PKGZARG)` — so the flag never reached them, and they had no `$(PKGZSTAMP)`
+prerequisite either, so changing `PKGZ` did not even rebuild them.
+
+**Nothing could have gone red.** A package is valid either way, the flags byte
+at +3 says which it is and `ld_load` reads both (§20.13.3), so the disks built,
+booted and ran. `TANK`'s rule — the sixth, and the newest — already used
+`$(OS88PKG)`, so the floppy carried one packed package beside five plain ones,
+which is the shape a copied-and-edited rule leaves: the five were written
+before compression shipped and the one written after it picked up the current
+idiom.
+
+What it cost, measured on the pair (`tools/os88pkgsize.py`'s *on disk* line):
+
+| package | was | now |
+|---|---|---|
+| `NOTEPAD.O88` | 12,316 | **10,282** |
+| `PAINT.O88` | 21,285 | **16,897** |
+| `CALC.O88` | 4,943 | **4,102** |
+| `SOLITAIR.O88` | 5,438 | **4,863** |
+| `TASKMGR.O88` | 5,093 | **4,211** |
+| `TANK.O88` | 14,548 | 14,548 — already packed |
+
+…and on the floppies, at 360KB: `smallapps360.img` **154 → 147** of 354
+clusters and `small360.img` **129 → 123**, the system disk moving because
+Note Pad, Paint and the Task Manager ride it too (§24.5.1, §28.3).
+
+**The rule this is a worked example of is `$(OS88PKG)`, not compression.** A
+build step that exists in two spellings — one of which silently drops an
+argument — is the same defect as a list held in two arms (§24.5), and it lasted
+for the same reason: the wrong arm still produces something that works.
+
 ##### 20.13.5.1 `HDDTOOL.DRV` WAS the one file `PKGZ` must not touch
 
 **Every compressed artefact on these disks is read by a loader that knows it
@@ -39466,13 +39503,14 @@ turned that refusal into the whole point of Paint's small build. A package
 that cannot reach its **driver** can say nothing at all; it is a name in a
 list that does nothing when you double-click it.
 
-Eight packages fail that test:
+Nine packages fail that test:
 
 | omitted | requirement `kern_small` cannot meet |
 |---|---|
 | `BROWSER`, `FTPD`, `TELNET` | `ETHER.DRV`. The NIC is not in `$(SMALLDRIVERS)`, and §72's whole surface is driver verbs, so there is no socket to refuse on |
 | `MODPLUG`, `TRACKER`, `AUDIO` | `SOUND.DRV`, which a 128–256KB machine has nothing to spare for — the judgement that already took `RAMDISK.DRV` and `RAMPAGE.DRV` out of the small driver set |
 | `SKIES` | a **32KB heap claim** for its frame shadow (§88), against the 17.5KB largest run a claimant can have on the floor machine once `mem_claim` has shed the purgeable caches (§50.6.2). Unlike PAINT it cannot refuse in its own words: the claim is made INSIDE the fsx bracket, after the mode is set, so what a player gets is a mode switch, a black screen and a bounce back to the desktop |
+| `SHEET` | **more RAM than the machine has**, which §24.5.2 below argues at length is a requirement and not a size. It is the one row here whose ground was PUBLISHED AND NEVER WIRED: §24.5.2 has said this since the branch that wrote it, `$(SMALLOMIT)` did not carry the name, and 36,696 bytes of spreadsheet shipped on both small apps floppies until §24.5.3's audit went looking |
 
 `RECORDER` was a fourth row of the sound group and is **not a row at all now**:
 it fails the same test and would still be omitted, but it is off the shipped
@@ -39486,6 +39524,23 @@ takes, so the row came out with the package rather than being kept as a note.
 that program's manual (§71.12), which is worse than no file at all on a disk
 the program is not on — and `BEVERLY.MOD` is the two removed players' module
 (§24.4).
+
+**Both of those shipped anyway, and the filter that was supposed to stop
+them matched nothing from the day it was written.** `$(SMALLOMIT_DATA)` spelled the two files as
+`apps/browser/browser.htm` and `apps/tracker/beverly.mod` — the paths
+`$(APPS_DATA)` holds in the **plain** arm — while the `$(PKGZ)` arm redefines
+that list to lz4-packed copies under `$(ZDATA)/`, and `PKGZ` defaults to `lz4`
+(§20.13.5), so the arm that ships is the one the `filter-out` could not see.
+Nothing errored, no build step went red, and the disks carried a browser
+manual with no browser and a 42KB module with no player. The block that
+redefines `$(APPS_DATA)` names this exact trap in its own comment — *a list
+held in two arms is a list that drifts in the arm nobody builds by hand* —
+about the line directly above the one that drifted, and `$(MEDIA_DISK_DATA)`
+beside it is redefined in both arms where this was not. The list is
+**derived** now, as a `$(filter …)` over whatever spelling `$(APPS_DATA)` is
+in when it expands, so there is only ever one list; and because the failure
+being replaced is *a filter that silently matched nothing*, an expansion that
+does not match exactly two files is a hard `$(error)` naming both lists.
 
 **`TANK` WAS THE OTHER HALF OF THAT ROW AND SHIPS NOW — as its SMALL BUILD**
 (§85.3.5.1) — a `make smallapps` SUBSTITUTION rather than this table's omission, and the
@@ -39572,9 +39627,100 @@ disk had a `SYSTEM/` folder and nothing else executable.
 
 It does now, through the same two filters: the omitted packages go, and a
 package with a small build ships as the **small** build. So `CORE_TOOLS`'
-five become **`CALC.O88`, `NOTEPAD.O88`, `PAINT.O88`** (Browser and Telnet
-omitted) beside `GAMES/MINES.O88`, and the disk sits at 224 of 354 clusters
-with 130KB free.
+five become **`NOTEPAD.O88` and `PAINT.O88`** beside `GAMES/MINES.O88` —
+Browser and Telnet omitted by §24.5's table, Font Viewer by §24.5.3 — and the
+360KB disk sits at **129 of 354** clusters.
+
+(That sentence read *"`CALC.O88`, `NOTEPAD.O88`, `PAINT.O88`"* and had been
+wrong since the day the Font Viewer landed: PR #158 put
+`FONTVIEW.O88` into `$(CORE_TOOLS)` **in place of** `CALC.O88`, so the list
+this describes had never been the list on the disk. A core list quoted rather
+than derived is a list that goes stale the first time anything is swapped in
+it, which is why the figures beside it are re-measured here and not carried
+forward.)
+
+#### 24.5.3 …and the readers left with nothing to read
+
+§24.5's two data files come off because **the program that opens them is not
+on the disk**. This is the same rule pointed the other way — **a program whose
+only document is not on the disk** — and it takes two more packages off the
+small floppies. It is a separate list in the Makefile (`$(SMALLOMIT_ORPHAN)`)
+and a separate section here for one reason: `$(SMALLOMIT)` is the single
+authority for *"`kern_small` cannot run this at all"*, and **both of these run
+perfectly well**. They open a window and a File > Open dialog onto a volume
+with nothing on it they can name. A name filed under the wrong ground sends
+the next reader into the kernel looking for a requirement that was never the
+problem, which is what §24.5's `TANK` row cost this project once already.
+
+| omitted | the document it has none of |
+|---|---|
+| `CHART` | Chart declares **no association at all** — `apps/chart/chart.asm` says so in its header, there being no cross-app spawn API in this OS — so its only launch path is File > Open on a SYLK, DIF or BIFF file, and the only program on any os8088 floppy that *writes* one is `SHEET`, which §24.5's table has just taken off. It was already true before that: no small floppy has ever carried a `SALES.SLK` for it either, so Chart's Open dialog listed `PAPER.TEX` and `GUIDE.TEX` and nothing it could read |
+| `FONTVIEW` | the small system disks carry **no `SYSTEM/FONTS/` at all**. `$(FACESARG)` is in the four shipped system-disk recipes and in neither small one, and `ty_gofonts` (§19.8) walks to exactly that one folder on the system volume — so the viewer lists an empty folder |
+
+**The Makefile had already made the Chart call once**, at `$(APPS_TOOLS_360)`
+(§24.6.3): *"a chart viewer whose ONLY launch path is File > Open is a program
+with nothing to open once the spreadsheet it reads is on another floppy. The
+two belong on the same disk."* On the 360KB apps disk they belong on the
+office disk together; here they belong off the floppy together. The rule is
+the same one and this is its second use, not a new one.
+
+**Font Viewer is the one that arrived by inheritance.** §90.3 took it off the
+apps disks and left it in `$(CORE_TOOLS)`, and said in as many words that it
+therefore rides *"`make small`'s pair as well, since it is in neither
+`$(SMALLOMIT)` nor §24.5's requirement list"*. That sentence is arithmetic
+over two lists and it is correct as arithmetic; what it never asked is whether
+the folder the package is core **for** is on the disk it was being sent to.
+It is not, and §24.3's *working, and indistinguishable from broken* is the
+result — which is, exactly, the argument §90.3 itself uses one paragraph later
+to keep the package **on** the live media, where the faces are.
+
+**The alternative was to ship the faces instead, and it is refused.** Ten
+`.F88` faces are ~9KB packed plus `LICENSE.TXT`, which the 360KB small system
+disk has room for at 129 of 354 clusters. The faces are on the shipped system
+disk because that disk carries the programs that use them — Word's typeface
+cache (§68) and the viewer both — and `kern_small` carries neither Word nor
+anything else that reads a face. Spending eleven clusters of the floor
+machine's boot floppy to give a viewer something to view is §24.5's size
+argument run in reverse, and the package is 3,277 bytes on top of it.
+
+**Neither package loses anything anywhere else.** `CHART.O88` is on the apps
+disk at every geometry but 360KB, on `office360.img`, on `apps-all.img` and on
+the live media; `FONTVIEW.O88` is on all four shipped system disks, on
+`office360.img`, on `apps-all.img` and on the live media (§90.3). This section
+reaches `make small` and `make smallapps` and nothing else.
+
+#### 24.5.4 …and `OS88NET.COM`, which is the same rule across a cable
+
+`OS88NET.COM` is the **DOS** end of §62's parallel link — an MS-DOS `.COM`
+for the machine at the *other* end of the cable, and the one file on either
+shipped apps floppy that does not run on os8088 at all. It is there so the
+user has it: the link is how files reach these disks in the first place, so
+*"copy it off the disk that came with the OS"* must not depend on already
+having a way to move a file across.
+
+**That argument needs a near end, and `kern_small` has not got one.**
+`NET.DRV` is the os8088 half (§62), and `$(SMALLDRIVERS)` is `$(KMODS)` —
+the five on-demand kernel modules and **not one ordinary driver**. So a
+`kern_small` machine cannot bring the link up at any point, and the far end
+of a link that cannot exist is 11,664 bytes and a `SYSTEM/DOS/` directory
+for nothing. Both small apps floppies lose the file and the folder with it.
+
+**It is §24.5's data-file rule at one more remove**, and worth stating as its
+own row because the chain has an extra link in it: `BROWSER.HTM` is a document
+whose *program* is absent, §24.5.3's two are programs whose *document* is
+absent, and this is a program for another computer whose *driver on this one*
+is absent. What all three have in common is the only thing that matters — the
+user double-clicks, or copies, and finds out the disk was never able to do
+the thing it appeared to offer.
+
+**`NET.DRV`'s `drv_tab` row is still in `kern_small`** (row 4, and it is not
+inside `%ifdef KERN_BIG`), so the Control Panel's Drivers page still lists
+the parallel link on the floor machine and ticking it fails to find the file.
+That is a separate question from this one — it is about the panel, not about
+the floppy — and it is left where it is deliberately rather than fixed here:
+a driver row that refuses because the file is not on this disk is the same
+answer a user gets on a `kern_big` machine whose system floppy was built
+without it, and changing it means deciding what the page should say instead.
 
 ### 24.6 THE CATEGORY DISKS — a floppy per subject, at 360KB alone
 
@@ -111690,9 +111836,24 @@ on **A:**, so §90.3 took nothing away from it.
 `FONTVIEW.O88` is off the apps disks at every geometry and off the small apps
 disks. It is not in `$(APPS_TOOLS)`, so every list derived from that one lost
 it in the same edit. It stays in `$(CORE_TOOLS)` and therefore in `APPS/` on
-all four shipped system disks — and on `make small`'s pair as well, since it is
-in neither `$(SMALLOMIT)` nor §24.5's requirement list — which is where it was
-reached from anyway.
+all four shipped system disks — which is where it was reached from anyway.
+
+**IT IS NOT ON `make small`'s PAIR, and this paragraph said it was.** The
+sentence that stood here — *"and on `make small`'s pair as well, since it is
+in neither `$(SMALLOMIT)` nor §24.5's requirement list"* — is correct
+arithmetic over two lists and the wrong answer, because the question it never
+asked is whether the folder this package is core **for** is on the disk it was
+being sent to. The small system disks carry no `SYSTEM/FONTS/` at all:
+`$(FACESARG)` is in the four recipes above and in neither small one. So the
+viewer has listed an empty folder there since PR #158 put it in
+`$(CORE_TOOLS)` — this section did not put it on those two floppies, it
+inherited the arrangement and vouched for it. §24.5.3 is that finding and
+`$(SMALLOMIT_ORPHAN)` the list that acts
+on it — and the ground it files the package under is **§24.3's *working, and
+indistinguishable from broken***, which is the argument the very next
+paragraph here makes to keep the package **on** the live media. The two disks
+differ in the one way that decides it: the live volume carries the ten faces
+and the small one does not.
 
 **It is NOT off `build/apps-all.img` (§19.10) or the live media (§80), and
 that is the part that is not automatic.** `$(CORE_SYSONLY)` is named again in
