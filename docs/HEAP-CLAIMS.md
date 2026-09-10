@@ -131,7 +131,7 @@ waiting and outranks it (§66.10.1), which is the same room at none of the copy.
 | **Frotz** save staging, transcript (`ZI_SCRKB`), picture buffer, `.mg1` probe | **PINNED (rule)** | file-operation targets, or transients freed inside the call that made them |
 | **Note Pad** document + undo arena | **MOVABLE** | §66.5.7. `np_reloc`, two words, one proc — `BX` picks between them. A load pins the note for the read (`np_dmov`, §66.5.7.1) |
 | **Note Pad** CR/LF staging buffer | **PINNED (rule)** | transient and the `OSAPI_FILE_WRITE` target throughout — pinned by having no declaration, the cheapest correct answer |
-| **ArtfulType** document + undo/redo/clip arena | **MOVABLE** | §66.5.7. `at_reloc`, two words; `at_dmov` pins across both file operations |
+| **ArtfulType** document + undo/redo arena | **MOVABLE** | §66.5.7. `at_reloc`, two words; `at_dmov` pins across both file operations. The clip slice left the arena at §46.6.1 - the clipboard is the kernel's claim now |
 | **Fractal** run cache | **MOVABLE** | §66.5.7. `fr_reloc`, one word — every cursor into it is an offset |
 | **ModPlug** module (up to 116KB) | **MOVABLE** | §66.5.8. `mpp_reloc`, 36 words. §56.1's bill: the replayer is an independent copy of Tracker's at *different strides* (`MPS_SZ` 12, `MPM_CHSZ` 40), so a renamed `trk_reloc` walks the tables wrong and yields plausible garbage |
 | every package **region** | **see *Regions* below** | a region's base is its CS, and this row said `PINNED (forever)` until §66.6.1 opened that door. It is not a data claim and the two columns here do not decide it — the *worker* does. Eighteen regions in the tree are movable today, every C package's among them |

@@ -224,8 +224,8 @@ at_dmov:
 ; TWO claims and one proc: the kernel calls the proc the moved claim was
 ; declared with, and BX says which of the two it was. One word each, because
 ; everything else either side is an OFFSET - the gap ends [at_gs]/[at_ge] and
-; the capacity in the document, [at_coff]/[at_usz]/[at_csz] and every
-; snapshot's position in the arena - and a move does not change an offset.
+; the capacity in the document, [at_usz] and every snapshot's position in the
+; arena - and a move does not change an offset.
 ;
 ; at_dresize is NOT this. A regrow reports its new base in DX and the caller
 ; takes it from there (SPEC.md 50.3.1); this is the other direction, where

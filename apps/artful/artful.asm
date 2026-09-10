@@ -131,7 +131,6 @@ AT_SROWS   equ 30                   ; strip rows (the tallest row height)
 
 AT_CBGCAP  equ 80                   ; per-8px-column background flags
 AT_UMAX    equ 15                   ; undo/redo depth (MAX_UNDO_LEVELS)
-AT_CLIPBSS equ 2048                 ; clipboard fallback when no claim
 AT_FONTBYTES equ 95*8               ; room for the kernel's glyph table
                                     ; (FONT_FIRST..FONT_LAST at 8 rows), which
                                     ; at_font_init copies in and at_glyph
@@ -1241,15 +1240,19 @@ at_ferr     equ at_wn + 2
 ; --- the window, the file, the clipboard, undo --------------------------------
 at_win      equ at_ferr + 2                  ; word: our window ptr
 at_name     equ at_win + 2                   ; 14 bytes: 8.3 + NUL
-at_cliplen  equ at_name + 14                 ; word
-at_argp     equ at_cliplen + 2              ; byte: 1 = launched to open
+at_nrev     equ at_name + 14                 ; byte: SPEC.md 46.6.2 - the
+                                             ; caret got where it is by a
+                                             ; PASTE, so 46.2.2's reveal
+                                             ; leaves it alone. A LATCH:
+                                             ; cleared by the next key, click
+                                             ; or command, so a repaint in
+                                             ; between draws the same picture
+at_argp     equ at_nrev + 1                  ; byte: 1 = launched to open
 at_argdrv   equ at_argp + 1                 ; byte: ...and where it lives
 at_argclus  equ at_argdrv + 1               ; word
 at_aseg     equ at_argclus + 2               ; word: heap claim (0 = none)
 at_usz      equ at_aseg + 2                  ; word: per-stack bytes
-at_coff     equ at_usz + 2                   ; word: clip slice offset
-at_csz      equ at_coff + 2                  ; word: clip slice bytes
-at_ucnt     equ at_csz + 2                   ; word
+at_ucnt     equ at_usz + 2                   ; word
 at_utop     equ at_ucnt + 2                  ; word
 at_rcnt     equ at_utop + 2                  ; word
 at_rtop     equ at_rcnt + 2                  ; word
@@ -1261,8 +1264,7 @@ at_sncnt    equ at_snpad + 1                 ; word
 at_sntop    equ at_sncnt + 2                 ; word
 at_snbase   equ at_sntop + 2                 ; word
 at_snoffs   equ at_snbase + 2                ; word
-at_clipbss  equ at_snoffs + 2                ; AT_CLIPBSS bytes
-at_fontbuf  equ at_clipbss + AT_CLIPBSS      ; the kernel's glyph table,
+at_fontbuf  equ at_snoffs + 2                ; the kernel's glyph table,
                                              ; copied in at launch
 at_abon     equ at_fontbuf + AT_FONTBYTES     ; byte: the About card is up
 at_bss_end  equ at_abon + 1

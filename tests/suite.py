@@ -4316,6 +4316,36 @@ SOAK = [
         "a figure. It reads at_rlk back afterwards, which is what turns "
         "46.1's honest 'that paragraph's visual lines' into a table.",
         needs=("marty", "nasm"), serial=True, timeout=900),
+    Row("atclip", "soak", py("tests/atclip.py"), 45.0,
+        "SPEC.md 46.5.2 and 46.6.1: ArtfulType's MINIMIZE BOX and its SYSTEM "
+        "clipboard, one boot, because both are reachable only from the "
+        "fullscreen surface and getting there is the expensive part. The box "
+        "is asserted as a PAIR - a click in it clears [at_fs], a click on the "
+        "bar a few pixels LEFT of it must not - because a hit-test that is "
+        "really 'anywhere top-right' passes the first on its own. The "
+        "clipboard half will not take 'copy then paste in the same program' "
+        "for an answer, which is a test a PRIVATE buffer passes: the copy is "
+        "read out of the KERNEL's own clip_seg/clip_bytes, and the paste is "
+        "seeded by OVERWRITING that claim from the host with bytes ArtfulType "
+        "has never seen - a tab, a CR LF, a lone CR and a control byte - so a "
+        "paste that produces them can only have read the machine's buffer, "
+        "and SPEC.md 46.6.1's fold is asserted on the same pass. The "
+        "formatting claim (46.6.2) is an A/B ON THE GLASS and not a state "
+        "read: photograph the pasted document, type one character and take it "
+        "straight back, and the two photographs must DIFFER - both keystrokes "
+        "clear the latch, so the document and the caret end where they were "
+        "and the only change is whether the trailing ** is drawn. VERIFIED TO "
+        "GO RED THREE WAYS, one per claim: AT_MBOX_R 9 -> 60 moves the box "
+        "away from the click and the fullscreen latch never clears; at_reveal "
+        "ignoring [at_nrev] makes the A/B move 0 px; and at_copy not reaching "
+        "OSAPI_CLIP_PUT leaves clip_seg at 0. (A fourth attempt is worth "
+        "recording because it did NOT work: jumping past the hit-test made "
+        "at_fs_exit unreachable and `make` failed on the fast tier's "
+        "unreachable-code row before the emulator ever started.) It BUILDS "
+        "NOTHING - it reads the shipped disks, so they are in wants= and it "
+        "shares the emulator lane.",
+        needs=("marty", "nasm"), serial=True, timeout=900,
+        wants=("build/os8088-360.img", "build/apps360.img")),
     Row("atmenusu", "soak", py("tests/atmenusu.py"), 45.0,
         "SPEC.md 46.5.1: ArtfulType's pull-down banks the pixels it covers and "
         "the close writes them back, instead of repainting every text line the "
