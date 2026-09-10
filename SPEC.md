@@ -112677,8 +112677,25 @@ of silence — the arcade's rhythm, and not a drone.
 **Both tones are also well below the old one, and that is the other half of
 "less grating".** A square wave is all odd harmonics, so 660 Hz put its third
 and fifth at 1,980 and 3,300 Hz — the middle of where an ear is most sensitive.
-`DD_WAKLO` = 262 and `DD_WAKHI` = 349 (C4 and F4, a fourth) put them at 1,047
-and 1,745.
+`DD_WAKLO` = 294 and `DD_WAKHI` = 330 put them at 990 and 1,650.
+
+**The interval was chosen by listening, and it came out narrower than the
+theory wanted.** The first build was a fourth (262/349, C4 and F4) on the
+reasoning that it should be wide enough to hear as two notes. That is exactly
+what is wrong with it: two notes four and a half times a second is a little
+tune, and a *whole tone* (D4 and E4) is heard as one sound wavering, which is
+what chewing is. Six candidates were synthesised on the host at the exact tones
+and tick lengths this code asks for — the PC speaker is a square wave, so that
+preview is faithful — and the pair was picked off the audio rather than off the
+arithmetic.
+
+**The harmonic argument is the SPEAKER's.** When a sound driver publishing
+`DSV_TONE` is loaded, `snd_tone_out` sends the tone to it instead (§34.2), so
+on an OPL2 the note is an FM voice and its timbre is the patch's, not a square
+wave's. What carries to every sink is the pitch and the warble; only the
+"660 Hz is harsh because of its odd harmonics" half is about the cone. The
+418 µs below is likewise the speaker path — the driver path is a far call plus
+two register writes and has not been measured here.
 
 **It is not a per-tick sound engine.** One byte counts the syllable down and
 one word holds what to play when it lands, so `dd_wak_tick` — called beside
