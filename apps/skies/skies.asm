@@ -2578,6 +2578,14 @@ CS_DBGSCR equ 112               ; ...and the copy A/B's scratch is 112 rows,
     ZWORD cs_dbg_wvtpx              ; could merge, and steep/vertical cannot
     ZWORD cs_dbg_wslrow             ; the SLICED segments' runs (= rows) and
     ZWORD cs_dbg_wslpx              ; pixels: a row is the unit that is paid
+    ZWORD cs_dbg_prow               ; ...and the FILL's rows, pixels and the
+    ZWORD cs_dbg_ppx                ; BYTES they span - the same question
+    ZWORD cs_dbg_pby                ; asked of the bigger stage
+    ZWORD cs_dbg_pby2               ; rows spanning <= 2 bytes...
+    ZWORD cs_dbg_pby4               ; ...<= 4...
+    ZWORD cs_dbg_pby8               ; ...and <= 8, because a MEAN hides a
+                                    ; bimodal distribution and the two want
+                                    ; different answers
     ZBYTE cs_axmask                 ; BISECT: which axis bits may cull
     ZBYTE cs_axoff                  ; AUDIT: cs_axcull computes and does NOT
     ZBYTE cs_dbg_ax                 ; act, so the winding decides every face

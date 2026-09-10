@@ -103339,6 +103339,64 @@ are drawn as filled faces and never as outlines. A bank taking every upright
 edge off `%1_vt` is an argument from the renderer's shape with no customers in
 it.
 
+##### 88.4.6.4 The FILL's rows are short too - and the same answer does NOT apply
+
+§88.4.6.2 paid because `cs_slice_herc`'s row body was built for a LONG run and
+a bank hands it short ones. The obvious next question is whether the POLYGON
+fill has the same shape, and it is the bigger stage by far - `cs_faces` is
+52.44 ms at 12 degrees against `cs_edges`' 22.53. **The rows are short. The
+answer is still no, and the reason is worth more than the row would have
+been.**
+
+The census (`tests/skiescount.py --fly`, `cs_dbg_prow`/`ppx`/`pby` and the
+shape counters), `slightbank`, 16 counted frames, one fresh guest an angle:
+
+| roll | fill rows | pixels | bytes | px a row | bytes a row | <=2 B | <=4 B | <=8 B |
+|---|---|---|---|---|---|---|---|---|
+| 0 | 79.6 | 1561.1 | 265.4 | 19.6 | 3.33 | 60% | 74% | 94% |
+| 5 | 104.0 | 1301.9 | 259.2 | 12.5 | 2.49 | 63% | 89% | 99% |
+| 12 | 152.5 | 1342.1 | 300.9 | 8.8 | 1.97 | **78%** | 96% | 100% |
+| 20 | 197.4 | 1376.3 | 344.2 | 7.0 | 1.74 | **83%** | 100% | 100% |
+
+**A fill row is under two bytes wide at a bank, and it is under four at
+LEVEL** - the `rep stosw` in the middle of that loop has nothing to do in
+94-100% of rows at every attitude. On the line that observation was worth
+1.8% of the frame. Here it is worth **nothing**, and the reason is that
+**§88.4.5.2, §88.4.5.4 and §88.4.5.5 already did it**: the one-byte row is
+out of the loop's span, the clamp question is answered by the caller, and
+each end is a SINGLE word-table load rather than a mask lookup and three
+shifts. The fill's row body was cut for short rows years before anybody
+counted them.
+
+Assembled and compared rather than argued, the way §88.4.6.2's body was:
+today's two-byte row is **88 bytes** and a `(bit, run)` mask-pair body -
+the identical trick, one table read and two blends - is **85**. Three bytes,
+about 13 cycles a row, **0.42 ms of a 213 ms frame**. The index arithmetic a
+mask table needs (`and`, three `shl`, three `shr`) costs exactly what the two
+end tables it would replace already cost.
+
+##### 88.4.6.4.1 …so the fill's lever is the ROW COUNT, and the TRACER is half of it
+
+A fill row costs **478 cycles**, by least squares over the four angles above
+against `cs_poly`'s EXCLUSIVE time, with a fixed **~2,900 cycles a polygon**
+beside it (14.7 polygons reach `cs_poly` at every angle, so the fixed term is
+~8.95 ms a frame and does not move with the bank). The marginal figure taken
+from any single pair of angles ranges 362 to 699 because that per-polygon term
+is not constant per ROW; the fit is the number to quote.
+
+What the census makes visible is that **the tracer costs about what the filler
+does**. `cs_edge` is 15.12 ms at 12 degrees over **355.0 traced rows = 203
+cycles a traced row**, against the filler's 152.5 rows at 478. Per row that
+actually gets INK, the machinery is therefore ~478 + ~473 = **950 cycles to
+lay 8.8 pixels**, and 19% of the traced rows are a shared edge traced twice
+(25% at 20 degrees). §88.4.2.1 refused a runtime dedup of those on a
+measurement, and this is the number that says what refusing it costs.
+
+So the fill's rows are 79.6 at level and 197.4 at 20 degrees for the SAME
+~1,400 pixels - the same shape §88.4.6.3 found for the line, and here with no
+cheap exception available. The lever is the count of rows, not the price of
+one.
+
 ##### 88.4.3.1 …and the per-pixel WRITE is not what a segment costs
 
 Asked of §88.13.3's outline dedup: *"why was the wireframe duplicating pixels

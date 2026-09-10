@@ -2691,6 +2691,59 @@ cs_probe_sh:
     ret
 
 ; -----------------------------------------------------------------------------
+; cs_probe_prow - PROBE ONLY: ONE POLYGON ROW about to be laid, and how wide.
+;                 The line's slice was priced per RUN and not per pixel
+;                 (SPEC.md 88.4.6.3), and the fill has never been asked the
+;                 same question: cs_polyrows_herc's row is ~90 bytes of
+;                 preamble and two masked ends around a `rep stosw`, so what
+;                 decides whether that shape is right is the BYTES a row
+;                 spans, not its pixels. A row of one or two bytes is all
+;                 preamble.
+;                 in: AX = x1, CX = x2, both clamped, x1 <= x2.
+;                 Preserves everything.
+; -----------------------------------------------------------------------------
+cs_probe_prow:
+    pushf
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    inc word [cs_dbg_prow]
+    mov bx, cx
+    sub bx, ax
+    inc bx                          ; BX = pixels
+    add [cs_dbg_ppx], bx
+    mov si, cx
+    shr si, 1
+    shr si, 1
+    shr si, 1                       ; SI = the last byte
+    mov bx, ax
+    shr bx, 1
+    shr bx, 1
+    shr bx, 1                       ; BX = the first
+    sub si, bx
+    inc si                          ; SI = the bytes it spans
+    add [cs_dbg_pby], si
+    cmp si, 8                       ; ...and the shape, because a mean hides
+    ja .out                         ; a bimodal one: a fill of many thin rows
+    inc word [cs_dbg_pby8]          ; and a few wide ones reads the same mean
+    cmp si, 4                       ; as one of uniform middling rows, and
+    ja .out                         ; wants a completely different answer
+    inc word [cs_dbg_pby4]
+    cmp si, 2
+    ja .out
+    inc word [cs_dbg_pby2]
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    popf
+    ret
+
+; -----------------------------------------------------------------------------
 ; cs_probe_edge - PROBE ONLY: count the traces cs_poly makes and how many of
 ;                 them another face of the SAME object has already made, and
 ;                 carry the two A/Bs that price the dedup test and its copy.

@@ -2493,6 +2493,9 @@ cs_polyrows:
 %%c2:
     cmp ax, cx
     jg %%nrow
+%ifdef CSPROBE
+    call cs_probe_prow              ; a ROW about to be laid, and how wide
+%endif
     push bx
     ; --- BX IS DEAD here until it is rebuilt as the address below, so the
     ;     pattern index goes in BX and costs no SI at all - and the `and`

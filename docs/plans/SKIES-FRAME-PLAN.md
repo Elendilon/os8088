@@ -1317,6 +1317,39 @@ The census's other half still stands and is still unspent: the pixels are
 constant and the ROWS are 23x, so the remaining lever is the row COUNT and
 not the row's price.
 
+##### 7.1.15.7 …and the FILL was asked the same question, and answered NO
+
+7.1.15.6 set this as the next thing to ask, on the arithmetic that `cs_faces`
+is 52.4 ms at 12 degrees against `cs_edges`' 22.5, so a body that helped
+there would have a customer three times the size. **The rows ARE short - 78%
+of them under two bytes at 12 degrees and 94% under eight even at LEVEL - and
+the answer is still no** (SPEC.md 88.4.6.4).
+
+Two probe counters and one census answered it, exactly as predicted; what was
+NOT predicted is the reason. The line's slice paid because its row body was
+built for a LONG run and had never been revisited. **The fill's had been -
+three times.** SPEC.md 88.4.5.2 took the one-byte row out of the loop's span,
+88.4.5.4 moved the clamp question to the caller, and 88.4.5.5 made each end a
+single word-table load. Assembled and compared rather than argued: today's
+two-byte row is **88 bytes** and the identical mask-pair trick is **85**. The
+index arithmetic a `(bit, run)` table needs costs precisely what the two end
+tables it would replace already cost.
+
+**That is the transferable finding**, and it is the opposite of the one the
+line taught: an optimisation is worth trying where the code has NOT already
+been cut for the case, and the census that proves the case exists says
+nothing about whether the code has. Both halves have to be checked, and the
+cheap half is the second one - it is one `nasm` invocation.
+
+The by-product is the next lead and is measured: **the tracer costs about
+what the filler does.** A fill row is 478 cycles (least squares over four
+angles against `cs_poly`'s exclusive time, with ~2,900 cycles a polygon
+beside it), and `cs_edge` is 203 cycles a traced row over 355.0 of them at 12
+degrees against the filler's 152.5. Per row that gets INK the machinery is
+~950 cycles to lay 8.8 pixels, and 19% of traced rows are a shared edge
+traced twice - 25% at 20 degrees. SPEC.md 88.4.2.1 refused a runtime dedup on
+a measurement; this is what refusing it costs.
+
 ##### 7.1.15.6 What to ask next, with the instrument now in place
 
 The same question has never been asked of the FILL, which is three times the

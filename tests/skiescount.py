@@ -266,7 +266,9 @@ def main(argv):
                   "cs_dbg_fpoly", "cs_dbg_fout", "cs_dbg_fbox", "cs_dbg_ftr",
                   "cs_dbg_wsh", "cs_dbg_wsl", "cs_dbg_wst", "cs_dbg_wvt",
                   "cs_dbg_wshpx", "cs_dbg_wshby", "cs_dbg_wstpx",
-                  "cs_dbg_wvtpx", "cs_dbg_wslrow", "cs_dbg_wslpx"):
+                  "cs_dbg_wvtpx", "cs_dbg_wslrow", "cs_dbg_wslpx",
+                  "cs_dbg_prow", "cs_dbg_ppx", "cs_dbg_pby",
+                  "cs_dbg_pby2", "cs_dbg_pby4", "cs_dbg_pby8"):
             m.write(lin + base + off(n), b"\x00\x00")
         N = a.count_frames
         # --- WITH --fly THE BANK IS RE-PINNED EVERY FRAME ------------------
@@ -328,6 +330,18 @@ def main(argv):
         print("    the SLICED ones lay %.1f pixels in %.1f RUNS (%.1f px a run)"
               " <== a run is ~130 bytes whatever it lays"
               % (slpx / N, slrow / N, slpx / max(slrow, 1)))
+        prow, ppx = w("cs_dbg_prow"), w("cs_dbg_pby")
+        pby = w("cs_dbg_pby")
+        px2 = w("cs_dbg_ppx")
+        b2, b4, b8 = w("cs_dbg_pby2"), w("cs_dbg_pby4"), w("cs_dbg_pby8")
+        print("  POLYGON FILL/frame: %.1f rows, %.1f pixels, %.1f BYTES "
+              "(%.1f px a row, %.2f bytes a row)"
+              % (prow / N, px2 / N, pby / N, px2 / max(prow, 1),
+                 pby / max(prow, 1)))
+        print("    rows spanning <=2 bytes %.1f (%.0f%%), <=4 %.1f (%.0f%%), "
+              "<=8 %.1f (%.0f%%)  <== the SHAPE, which a mean hides"
+              % (b2 / N, 100.0 * b2 / max(prow, 1), b4 / N,
+                 100.0 * b4 / max(prow, 1), b8 / N, 100.0 * b8 / max(prow, 1)))
 
         # --- the tick wait out, for the whole run (skiesperf.py's rule: a
         #     frame faster than a tick reads 55 ms and every arm reads it) ---
