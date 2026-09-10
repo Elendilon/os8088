@@ -231,10 +231,12 @@ def main():
                  h["regs"]["cx"] - h["regs"]["ax"] + 1)
                 for h in tr.hits
                 if h["regs"]["cx"] - h["regs"]["ax"] + 1 > BOX]
-        print("   %d gfx_fill(s) in one full paint of a 3-row group" % tr.n)
-        check(tr.n >= 12, "the key reached os88ui_rad at all (%d fills)" % tr.n)
-        check(not wide, "no fill is wider than the 12px box - nothing spans "
-                        "the label (%s)" % (wide[:2] if wide else "none"))
+        print("   %d gfx_fill(s) in one full paint (3 radio rows + a check)"
+              % tr.n)
+        check(tr.n >= 12, "the key reached the controls at all (%d fills)"
+              % tr.n)
+        check(not wide, "no fill is wider than the 12px box - NEITHER control "
+                        "lays a ground (%s)" % (wide[:2] if wide else "none"))
 
         # --- 6. A PICK DOES NOT RE-LETTER EITHER ROW -------------------------
         # font_run_x is the only way a PACKAGE's label reaches the screen, and
@@ -258,7 +260,37 @@ def main():
                           "labels were not re-drawn (%s)"
                           % (inside[:2] if inside else "none"))
 
-        # --- 7. A PRESS OUTSIDE IS NOT OURS ----------------------------------
+        # --- 7. THE CHECK BOX, on the SAME two rules (13.15.2) ---------------
+        # It had NO gate in the tree at all before this, which is how it kept
+        # both defects long enough for os88ui_rad to be written by copying it.
+        cx0 = u16(m.read(p.addr("rt_c") + 0, 2))
+        cy0 = u16(m.read(p.addr("rt_c") + 2, 2))
+        cy1 = u16(m.read(p.addr("rt_c") + 6, 2))
+        with os88marty.bp_trace(m, "gfx_fill", "font_run_x", regs=True) as tr:
+            mo.click(cx0 + 4, (cy0 + cy1) // 2)
+            time.sleep(2.0)
+        mo.to(4, 4)
+        os88marty.settle(m)
+        check(p.rw("rt_ctog") == 1, "a press on the check box toggled it")
+        check(m.read(p.addr("rt_c") + 10, 1)[0] == 1, "...and CK_ON is set")
+        # ...the same two questions the radio answers, asked of the toggle
+        fills = [(h["regs"]["ax"], h["regs"]["cx"] - h["regs"]["ax"] + 1)
+                 for h in tr.hits if h.get("regs")
+                 and cy0 <= h["regs"]["dx"] <= cy1]
+        widest = max((w for _, w in fills), default=0)
+        check(0 < widest <= BOX,
+              "the toggle blanked nothing - widest fill %d px, box is %d"
+              % (widest, BOX))
+        # RULE 2 needs font_run_x and NOT the fill widths: os88ui_chk draws its
+        # frame with gfx_frame, so a toggle that redrew the whole control would
+        # still show only a 6px fill. The label is the tell.
+        clet = [h["regs"]["cx"] for h in tr.hits if h.get("regs")
+                and h["regs"]["dx"] >= cy0 and h["regs"]["dx"] <= cy1
+                and h["regs"]["cx"] > cx0 + BOX]
+        check(not clet, "...and did not re-letter the label (%s)"
+                        % (clet[:2] if clet else "none"))
+
+        # --- 8. A PRESS OUTSIDE IS NOT OURS ----------------------------------
         mv, sw = p.rw("rt_moved"), p.rw("rt_swall")
         mo.click(ax + 4, ay - 4)
         os88marty.settle(m)

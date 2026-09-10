@@ -82,6 +82,17 @@ rt_place:
     mov cx, dx
     add cx, RT_PITCH2 * 2 - 1
     mov [rt_b+OS88UI_RD_RECT+6], cx
+
+    add cx, RT_GAP              ; ...and the check box under them both
+    mov [rt_c+0], ax
+    mov [rt_c+2], cx
+    mov dx, cx
+    mov cx, ax
+    add cx, RT_W
+    mov [rt_c+4], cx
+    mov cx, dx
+    add cx, RT_PITCH - 1
+    mov [rt_c+6], cx
     pop dx
     pop cx
     pop bx
@@ -109,6 +120,9 @@ rt_paint:
     mov bx, rt_b
     xor di, di
     call os88ui_rad
+    mov bx, rt_c
+    xor di, di
+    call os88ui_chk
     pop di
     pop si
     pop dx
@@ -136,7 +150,12 @@ rt_onclick:
     jnc .ours
     mov bx, rt_b
     call os88ui_radhit
+    jnc .ours
+    mov bx, rt_c                ; ...and the check box, whose hit half answers
+    call os88ui_chkhit          ; CF only: it toggled, or it was not ours
     jc .out
+    inc word [rt_ctog]
+    jmp short .out
 .ours:
     jnz .swallowed
     inc word [rt_moved]
@@ -175,7 +194,10 @@ rt_onkey:
     mov bx, rt_a
     xor di, di
     call os88ui_rad
-    pop di
+    mov bx, rt_c                ; ...and the CHECK BOX, which is what makes the
+    xor di, di                  ; harness able to see rule 1 on it: chkhit
+    call os88ui_chk             ; redraws the MARK, so a toggle never reaches
+    pop di                      ; os88ui_chk's own ground handling at all
     pop si
     pop dx
     pop cx
@@ -184,7 +206,13 @@ rt_onkey:
     ret
 
 rt_tpl:
-    dw 120, 30, 180, 108
+    dw 120, 30, 180, 150        ; TALL ENOUGH FOR ALL THREE. Group A is
+                                ; 3 x RT_PITCH, group B 2 x RT_PITCH2 and the
+                                ; check box one more row, with RT_GAP between
+                                ; each - 134 of content. At 108 the check box
+                                ; was drawn BELOW the window and every press on
+                                ; it missed, which reads as the control being
+                                ; broken rather than as the test's own layout
     dw rt_ttl, rt_paint, rt_onkey, rt_onclick
 
 rt_ttl:  db 'Radio', 0
@@ -219,6 +247,17 @@ rt_b_items:
 rt_b0:   db 'On', 0
 rt_b1:   db 'Off', 0
 
+; --- the CHECK BOX (SPEC.md 13.15), which had no gate in the tree at all -----
+; Here rather than in a package of its own because it is the radio's neighbour
+; in one file and shares its shapes since 13.15.1: a change to os88ui_gsqm
+; moves BOTH controls, so one gate should see both.
+rt_c:
+    dw 0, 0, 0, 0               ; OS88UI_CK_RECT, filled by rt_place
+    dw rt_c0                    ; OS88UI_CK_LABEL
+    db 0                        ; OS88UI_CK_ON
+    db 0                        ; (pad to OS88UI_CK_SIZE)
+rt_c0:   db 'Sound', 0
+
 
 ; --- THE LIBRARY GOES LAST, which is skies' own placement (apps/skies:2955) ---
 ; os88ui.inc EMITS CODE, and OS88_HEADER has to be the image's first bytes - so
@@ -226,6 +265,7 @@ rt_b1:   db 'Off', 0
 ; refuses the package with "name contains non-printable byte". Nothing about
 ; the control; everything about where a package's header lives.
 %define OS88UI_RAD                  ; ...the whole subject
+%define OS88UI_CHK                  ; ...and its neighbour, which had NO gate
 %include "os88ui.inc"
 
     OS88_BSS RT_BSS
@@ -235,3 +275,4 @@ rt_win     equ os88_image_end + 0    ; word: our window
 rt_paints  equ os88_image_end + 2    ; word: whole-group paints
 rt_moved   equ os88_image_end + 4    ; word: presses that MOVED the pick
 rt_swall   equ os88_image_end + 6    ; word: ...and presses swallowed
+rt_ctog    equ os88_image_end + 8    ; word: check-box toggles

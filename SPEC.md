@@ -22723,6 +22723,42 @@ It owns no bss, which is why the box's row is carried on the STACK inside the
 painter: this include is assembled into a package and may not invent storage
 in one.
 
+#### 13.15.2 …and it follows §13.14.6 now, which it did not
+
+**`os88ui_chk` broke both of §13.14.6's rules, and it is the routine that gets
+copied** — §13.17 was written wrong by following it, which is how the pair came
+to be named in §13.14.6 at all.
+
+- **Rule 1.** It filled its **whole rect** white and then drew the frame, the
+  mark and the label over it — a row-wide blank on every repaint. There is no
+  such fill now: the label is an opaque `font_run` and lays its own ground, and
+  the box is the glyph's own 12×12.
+- **Rule 2.** `os88ui_chkhit` redrew the **whole control** on a toggle,
+  re-lettering a label that did not change. `os88ui_chkmark` is
+  `os88ui_raddot`'s twin: the 6×6 mark and nothing else, taking no
+  set-or-clear argument because it reads `OS88UI_CK_ON` itself.
+
+**It draws no box or mark of its own any more — it CALLS `os88ui_glyph`.** A
+check box and the Control Panel's check glyph are the same picture, and the
+version of this file that drew them separately had them at **different sizes**,
+11 against 12, for as long as both existed and nobody noticed. `OS88UI_CKBOX` is
+`OS88UI_GW` now, one caller draws one picture, and a caller's label shifts one
+pixel right.
+
+**Sharing it that way costs the other twenty-two packages NOTHING**, which the
+first attempt did not manage: factoring the square into two routines beside the
+radio's put **+28 bytes into every package with a button** to save about forty in
+the one package that opts into a check box. Calling the glyph — which every such
+package already carries — leaves `os88ui.inc` at **707 bytes plain, unchanged**,
+and takes a `OS88UI_CHK` package from **900 to 873**.
+
+Because the glyph is what draws, the box's unconditional clear (§13.15.1) is
+what a check box gets too; that departure is documented once, in one routine.
+
+**A toggle costs three drawing calls and touches no text** — the box, the frame
+and the mark — where it used to cost a rect fill, a frame, a mark **and a whole
+label**.
+
 ### 13.16 The IN-WINDOW MENU — the fifth shared element (`OS88UI_MENU`)
 
 **PARTIAL, and deliberately: the GEOMETRY has moved and nothing else has yet.**

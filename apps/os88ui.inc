@@ -797,12 +797,12 @@ os88ui_glyph:
     mov ax, bp                  ; which is os88ui_chk's own look (SPEC.md
     mov bx, si                  ; 13.15) and SPEC.md 13.16.2.1's finding - "a
     lea cx, [bp+OS88UI_GW-1]    ; solid square, which reads on one bit as a
-    lea dx, [si+OS88UI_GW-1]    ; tick does not"
-    UI_FRAME
-    test di, OS88UI_GON
-    jz .done
-    lea ax, [bp+3]
-    lea bx, [si+3]
+    lea dx, [si+OS88UI_GW-1]    ; tick does not". os88ui_chk CALLS this routine
+    UI_FRAME                    ; rather than drawing its own (13.15.2), so
+    test di, OS88UI_GON         ; there is no second copy to keep in step and
+    jz .done                    ; nothing shared has to be carried by the
+    lea ax, [bp+3]              ; twenty-two packages that never opt into a
+    lea bx, [si+3]              ; check box
     lea cx, [bp+OS88UI_GW-4]
     lea dx, [si+OS88UI_GW-4]
     UI_FILL
@@ -2518,6 +2518,9 @@ os88ui_abh: dw 0
 %endif                          ; OS88UI_ABOUT
 
 %ifdef OS88UI_CHK
+%ifdef OS88UI_NOBTN
+  %error "OS88UI_CHK draws its box through os88ui_glyph (SPEC.md 13.15.2), which OS88UI_NOBTN leaves out"
+%endif
 ; =============================================================================
 ; THE CHECK BOX - the fourth shared element (OS88UI_CHK), SPEC.md 13.15
 ;
@@ -2548,7 +2551,12 @@ OS88UI_CK_RECT  equ 0
 OS88UI_CK_LABEL equ 8
 OS88UI_CK_ON    equ 10
 OS88UI_CK_SIZE  equ 12
-OS88UI_CKBOX    equ 11          ; the box's side, and the label's left margin
+OS88UI_CKBOX    equ OS88UI_GW   ; the box's side, and the label's left margin.
+                                ; It was 11 and is the GLYPH's 12 now: the two
+                                ; shared controls draw the same square through
+                                ; the same routines (SPEC.md 13.15.1), and a
+                                ; size of its own was the last place they could
+                                ; still disagree
 OS88UI_CKGAP    equ 6
 
 ; -----------------------------------------------------------------------------
@@ -2565,55 +2573,20 @@ os88ui_chk:
     push di
     push bp
     mov bp, bx
-    UI_WHITE                    ; its own ground, so a toggle needs no repaint
-    mov ax, [ds:bp+0]
-    mov bx, [ds:bp+2]
-    mov cx, [ds:bp+4]
-    mov dx, [ds:bp+6]
-    UI_FILL
-    test di, OS88UI_DIS         ; the pen: SPEC.md 47 rule 1
-    jz .live
-    stc
-    jmp short .set
-.live:
-    clc
-.set:
-    UI_PEN
-    mov ax, [ds:bp+2]           ; the box, square and centred on the row
-    add ax, [ds:bp+6]
-    sub ax, OS88UI_CKBOX - 1
-    sar ax, 1
-    push ax                     ; ...its top row, kept on the STACK: this
-    mov bx, ax                  ; include owns no bss and may not invent any
-    mov ax, [ds:bp+0]
-    mov cx, ax
-    add cx, OS88UI_CKBOX - 1
-    mov dx, bx
-    add dx, OS88UI_CKBOX - 1
-    UI_FRAME
-    pop bx
-    cmp byte [ds:bp+OS88UI_CK_ON], 0
-    je .label
-    mov ax, [ds:bp+0]           ; ...and the mark: a solid square inside it,
-    add ax, 3                   ; which reads on one bit as a tick does not
-    add bx, 3
-    mov cx, ax
-    add cx, OS88UI_CKBOX - 7
-    mov dx, bx
-    add dx, OS88UI_CKBOX - 7
-    UI_FILL
-.label:
-    mov si, [ds:bp+OS88UI_CK_LABEL]
-    mov cx, [ds:bp+0]
-    add cx, OS88UI_CKBOX + OS88UI_CKGAP
-    mov dx, [ds:bp+2]
-    add dx, [ds:bp+6]
-    sub dx, 7
+    call os88ui_chkpen          ; the pen: SPEC.md 47 rule 1, and it carries to
+                                ; the label below and into the glyph's own
+    mov si, [ds:bp+OS88UI_CK_LABEL]     ; --- the label, and OPAQUE (SPEC.md
+    mov cx, [ds:bp+0]                   ; 6.1): font_run lays its own ground in
+    add cx, OS88UI_CKBOX + OS88UI_CKGAP ; the pass that lays the glyph, so
+    mov dx, [ds:bp+2]                   ; nothing has to be blanked for it -
+    add dx, [ds:bp+6]                   ; which is the whole of why this
+    sub dx, 7                           ; routine no longer fills its rect
     sar dx, 1
-    mov al, CBLACK
+    mov al, CBLACK              ; the DIS state rides on the pen, not on AL
     mov ah, CWHITE
     UI_RUN
-    clc
+    call os88ui_chkdraw         ; ...and the box and the mark, through the
+    clc                         ; GLYPH (SPEC.md 13.15.2)
     UI_PEN                      ; the pen back, always
     pop bp
     pop di
@@ -2622,6 +2595,85 @@ os88ui_chk:
     pop cx
     pop bx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_chkdraw - internal: the box and the mark, through os88ui_glyph
+; in:  BP = the record, DI = flags; out: nothing. Every register preserved
+;
+; IT DRAWS NOTHING ITSELF, and that is the point (SPEC.md 13.15.2). A check box
+; and the Control Panel's check glyph are the same picture, and the version of
+; this file that drew them separately had them at DIFFERENT SIZES - 11 against
+; 12 - for years without anyone noticing. One caller, one picture, no second
+; copy to drift; and because the glyph is already in every package that has a
+; button, sharing it costs nothing anywhere.
+; -----------------------------------------------------------------------------
+os88ui_chkdraw:
+    push ax
+    push cx
+    push dx
+    mov al, OS88UI_GCHECK
+    cmp byte [ds:bp+OS88UI_CK_ON], 0
+    je .off
+    or al, OS88UI_GON
+.off:
+    xor ah, ah                  ; AH non-zero = disabled, which is the glyph's
+    test di, OS88UI_DIS         ; own argument shape
+    jz .live
+    mov ah, 1
+.live:
+    call os88ui_chkbox          ; CX = x, DX = y
+    call os88ui_glyph
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_chkbox - internal: the box's top-left, square and centred on the row
+; in:  BP = the record; out: CX = x, DX = y. AX and BX preserved
+; -----------------------------------------------------------------------------
+os88ui_chkbox:
+    push ax
+    mov ax, [ds:bp+2]
+    add ax, [ds:bp+6]
+    sub ax, OS88UI_CKBOX - 1
+    sar ax, 1
+    mov dx, ax
+    mov cx, [ds:bp+0]
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_chkpen - internal: live or greyed, from DI's OS88UI_DIS
+; -----------------------------------------------------------------------------
+os88ui_chkpen:
+    test di, OS88UI_DIS
+    jz .live
+    stc
+    jmp short .set
+.live:
+    clc
+.set:
+    UI_PEN
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_chkmark - the BOX and the MARK, and NOT the label (SPEC.md 13.15.2)
+; in:  BX = the record, DI = flags; the gfx lock is held
+; out: nothing; every register preserved
+;
+; os88ui_raddot's twin, and for its reason: a toggle changes a 6x6 square and
+; NOTHING ELSE - the frame is identical and the label is identical - so
+; redrawing the control would re-letter text that did not change. It takes no
+; set-or-clear argument, reading OS88UI_CK_ON itself, so the caller writes the
+; byte and then says "redraw the mark".
+; -----------------------------------------------------------------------------
+os88ui_chkmark:
+    push bp
+    mov bp, bx
+    call os88ui_chkdraw
+    pop bp
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2639,8 +2691,8 @@ os88ui_chkhit:
     mov [bx+OS88UI_CK_ON], al
     push di
     xor di, di
-    call os88ui_chk
-    pop di
+    call os88ui_chkmark         ; SPEC.md 13.15.2: the MARK, not the control -
+    pop di                      ; the frame and the label did not change
     clc
 .out:
     pop ax
