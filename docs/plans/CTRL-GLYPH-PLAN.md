@@ -166,7 +166,7 @@ this is of *calls made*, and it is the one that decides work.
 | `cp_divider` | 1 | the 1px rule between the two panes | **KEEP — genuinely one-off.** `gfx_vline` is already the primitive; wrapping one call in a name is not consolidation |
 | `cp_list` | 3 | **the category LIST BOX** — rows with the selected one inverted | **A CONTROL.** And it breaks §13.14.6 rule 1 today, in its own words: *"Erases the whole pane first, so this doubles as the redraw path when the selection moves"* — the exact defect §13.17.4 fixed in the radio, a pane-wide blank to move one highlight |
 | `cp_time_fld` (+`cp_time_rows`) | 3 | **the time/date SPIN FIELD** — a value with the selected one barred | **A CONTROL**, and the closest thing in the tree to a text field |
-| `cp_drv_arrow1` / `_arrfill` / `_tri` | 3 | **scroll arrows and a triangle** for the driver list | **A CONTROL THAT ALREADY EXISTS.** `OS88UI_SCROLL` is the second shared element (§13.10) and `ctrl.inc` does not include it at all — this is the clearest hit in the census |
+| `cp_drv_arrow1` / `_arrfill` / `_tri` | 3 | **scroll arrows and a triangle** for the driver list | ~~A CONTROL THAT ALREADY EXISTS~~ — **REFUSED, and this row was WRONG. See §6.2** |
 | `cp_drv_wipe` | 1 | clears one line | **rule 1 smell** — an erase helper is what a control needs when it blanks instead of overdrawing |
 
 ### 6.1 What the census actually found
@@ -177,16 +177,60 @@ hand-rolled controls, they are a caller doing its job and one genuine one-off.
 The brief's *"no UI element drawn from hand rolled unique code"* is **ten sites
 in three routines**, not twenty-one.
 
-**And the sharpest one needs no design at all.** The driver list hand-rolls
-scroll arrows while `OS88UI_SCROLL` has been the second shared element since
-§13.10 and `ctrl.inc` does not include the file's scroll half. That is a
-conversion with an existing answer, an existing gate and no look question —
-so it should go **first**, ahead of the two that need a control invented.
+~~**And the sharpest one needs no design at all.**~~ **That claim was wrong and
+§6.2 is what checking it found.** The driver list's arrows and `OS88UI_SCROLL`
+are not one widget.
 
 **Two of the three carry §13.14.6 defects into the bargain.** `cp_list` blanks
 its whole pane to move a highlight and says so in its own comment; `cp_drv_wipe`
 exists to blank a line. Converting them is not only consolidation — it is the
 same fix §13.17.4 made, applied where a user actually sees it.
+
+### 6.2 The driver page's arrows are REFUSED — three mismatches, and the code said so
+
+§6's first version called this *"the clearest hit in the census"* on the
+strength of the words *scroll arrows* and the existence of `OS88UI_SCROLL`.
+Reading either widget's contract kills it, and **the driver page had the answer
+written down in its own source**:
+
+> NO THUMB and no track: a thumb reports a POSITION IN A LIST, and a list of
+> five rows showing four has one bit of position in it that the two arrows'
+> greying already carries (§47 rule 1 — disabled is a FACT here, not a guess).
+
+Three ways they are not the same control:
+
+| | driver page | `os88ui_sbar` |
+|---|---|---|
+| thumb and track | **none, deliberately** | a 50% grey track and a proportional thumb |
+| state | per-arrow **greying at the end stops** (§47 rule 1) and a **held/down inversion** (§13.8.3) | `UI_BLACK` throughout — neither |
+| the glyph | 4 rows, widths 1·3·5·7 | 5 rows, widths 1·3·5·7·9 |
+
+…and structurally, two separate framed squares with a gap against one
+continuous frame with two `UI_HLINE` rules.
+
+**So the conversion is not a call-site change, it is a new widget**: an
+arrows-only mode, per-arrow disable, a per-arrow down state and separate cell
+frames, added to a routine **five other callers** already scroll with
+(`files.inc`, `fdlg.inc`, Note Pad, Frotz, Artful). That is well past the
+~500-byte budget it was offered, and it would put a look question through every
+scroll bar in the OS to save ~250 bytes in one module.
+
+**The reusable lesson is docs/plans/completed/GFX-EMBEDDABLE-PLAN.md 9.1's, one
+more time.** *Read what a thing REFUSES,
+not what its name suggests.* A census matched on a NAME twice in this file now —
+`gfx_line`'s callers, and this — and both times the refusal was already written
+in the source being classified.
+
+**`os88ui.inc`'s own header names this exact failure**: *"WHAT IT IS NOT FOR. A
+skinned control… converting those would be undoing intended design, not
+consolidating it."* A widget that deliberately drops a thumb is in that class.
+
+### 6.3 …so the next one to take is `cp_list`, which has a DEFECT and not just a shape
+
+It blanks its whole pane to move one highlight and says so in its own comment,
+which is §13.14.6 rule 1 in the Control Panel where a user sees it — the same
+fix §13.17.4 and §13.15.2 have now made twice. It needs no new shared control
+and no look decision.
 
 ## 5. Sequencing
 
