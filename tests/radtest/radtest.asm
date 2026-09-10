@@ -7,7 +7,7 @@
 ; WHAT IT IS FOR is the three things a driving row cannot see any other way:
 ;
 ;   - THE PIXELS. The control's whole reason is a shape that is not a square
-;     (docs/plans/CTRL-GLYPH-PLAN.md), and a shape is not assertable from a
+;     (docs/plans/completed/CTRL-GLYPH-PLAN.md), and a shape is not assertable from a
 ;     count. The row reads the framebuffer and checks the ring's four corners
 ;     are CLEAR while its edges are set - which is the difference between this
 ;     control and os88ui_chk's, stated as pixels.

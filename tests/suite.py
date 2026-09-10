@@ -3985,7 +3985,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/radtest360.img",)),
     Row("glyphcost", "soak", py("tests/glyphcost.py"), 30.0,
-        "docs/plans/CTRL-GLYPH-PLAN.md 4: what did SPEC.md 13.15.1 cost a"
+        "docs/plans/completed/CTRL-GLYPH-PLAN.md 4: what did SPEC.md 13.15.1 cost a"
         "control glyph, per call, in guest cycles? tests/glyphbn carries the"
         "PRE-13.15.1 routine lifted verbatim beside today's, so the A/B is"
         "one binary on one kernel and the gfx_line family this arc removed"

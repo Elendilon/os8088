@@ -7,7 +7,7 @@ container — `nasm` 2.16.01, MartyPC at the pinned commit, guest figures off an
 tree; a later measurement is a new file.
 
 It answers the three questions the owner set in
-`docs/plans/CTRL-GLYPH-PLAN.md` §4:
+`docs/plans/completed/CTRL-GLYPH-PLAN.md` §4:
 
 > * How many bytes came out of kernel?
 > * How many bytes went into each app? (ram usage and compressed disk size increase)
@@ -204,7 +204,7 @@ VGA (`os8088_xt_vga`), the same bench:
 | radio, set | 22,215 / 4.66 | 24,130 / 5.06 | **+8.6%** |
 
 **THE PLAN'S OWN EXPECTATION WAS WRONG, AND IN OUR FAVOUR.**
-`docs/plans/CTRL-GLYPH-PLAN.md` §2 priced this as *"what it COSTS is calls —
+`docs/plans/completed/CTRL-GLYPH-PLAN.md` §2 priced this as *"what it COSTS is calls —
 eight for a set radio against the sprite pass's one"*, and the owner took the
 trade on look and on size expecting to pay for it. **Three of the four kinds
 got faster** and only the set radio is dearer, by 0.39 ms — well inside the

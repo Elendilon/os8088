@@ -4,7 +4,7 @@
 ; WHAT ONE CONTROL GLYPH COSTS, the bitmap way and the fill way, IN ONE BINARY.
 ;
 ; SPEC.md 13.15.1 replaced os88ui_glyph's four 12x12 bitmaps and the masked
-; sprite pass with three to eight fills. docs/plans/CTRL-GLYPH-PLAN.md 4 asks
+; sprite pass with three to eight fills. docs/plans/completed/CTRL-GLYPH-PLAN.md 4 asks
 ; what that trade cost per call, and the owner set the bar: *"between 1ms and
 ; 2ms is not huge - this is not a live drawing, it's drawn once then it sits
 ; there until they interact with it"*. So this exists to catch a REGRESSION,

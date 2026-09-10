@@ -1,6 +1,6 @@
 # CTRL-GLYPH-PLAN.md — the Control Panel draws nothing of its own
 
-**Status: BRIEF, nothing built.** Set by the owner after
+**Status: BUILT, and the census is CLOSED (§6.4).** Set by the owner after
 `docs/plans/completed/GFX-EMBEDDABLE-PLAN.md` §8.8 turned up the two shared
 controls disagreeing, and it is that section's follow-on made into work with a
 wider scope than §8.8 had.
@@ -17,6 +17,33 @@ in 512-byte rungs. A package image is disk, read once, compressed on the way
 So a byte that moves from `.cold` into a shared UI routine is not a wash even
 when the byte count is flat: it moved from the expensive account to the cheap
 one.
+
+### What it came to, before you read the rest
+
+**The brief expected to find controls that wanted naming and found a rule
+being broken instead.** Twenty-one call sites was the count of *primitives
+named*; the count of *calls made* was thirteen, in six routines, and §6.4 is
+the verdict: three were already right, one is **refused** (`cp_drv_arrow1` is
+not the same widget as `OS88_SCROLL`, §6.2), and the three that were wrong
+were wrong **the same way** — a pane, a band and a line that each **blanked
+before they drew**. §13.14.6 is one rule and the Control Panel broke it three
+ways.
+
+**No shared control was invented.** `cp_listrow`, `cp_time_fld`'s third mode
+and `cp_drv_line` are local and each is smaller than a shared routine plus its
+record. The one place a shared control *was* the answer — the glyph — was
+already shared and only needed its body changed (§13.15.1), and the radio
+(§13.17) is the sixth shared element.
+
+**What it cost: +130 bytes of `CTRL.DRV`**, an on-demand module (§2.8), so
+none of it is resident. What it bought is in
+`docs/reports/GLYPH-AND-LINE-COST-2026-09-10.md`, which is §4's measurement
+brief answered.
+
+**Still open, and it is a LOOK question rather than work**: §3 item 3 — whether
+the other 22 packages carrying `os88ui.inc` want the converted glyph's style.
+They get the smaller block either way; a package drawing a radio in a new
+style is a look change in 22 places at once, and that is the owner's call.
 
 ---
 

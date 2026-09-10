@@ -5,7 +5,7 @@
 
 os88ui_glyph used to be four 12x12 bitmaps put down through the masked sprite
 pass - ONE drawing call - and is three to eight fills now. That trade was taken
-on LOOK and on SIZE (docs/plans/CTRL-GLYPH-PLAN.md 2: the bitmap machinery is
+on LOOK and on SIZE (docs/plans/completed/CTRL-GLYPH-PLAN.md 2: the bitmap machinery is
 414 bytes a copy in twenty-three copies), with the owner saying in as many
 words that a control drawn once and then sat on is not priced like a hot loop.
 So this row exists to catch a REGRESSION, and its output is a table rather than
