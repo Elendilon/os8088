@@ -12631,6 +12631,12 @@ Both inside `GFX_POINTS`'s best-route window (≤ 6.66, Set 133), Missile furthe
 in — and **that ordering predicted the result**, which is the only part of the
 model that survived intact.
 
+> **Set 136 re-took this slot on the real caller and both figures moved.** Set
+> 133's geometry is eight VERTICAL columns, which is the one shape in which the
+> points' incoherence does not show; a game's trails are y-major. A point is
+> **573 cycles rather than 903** since SPEC.md 5.6.9.3, so any arithmetic
+> resting on the older marginal wants re-doing against 136.
+
 #### 134.3 …and what the conversion was worth
 
 Guest cycles inside one batch-step call, bracketed entry to exit:
@@ -12871,3 +12877,103 @@ disturb: it took **−597 bytes of `.text` and an image rung** out of `kern_big`
 (Set 134.4) for +251 bytes of one package image, and the game is faster rather
 than slower. What is corrected is the size of the win, and the place to quote
 it is 135.1 rather than 134.3.
+
+### Set 136 — `gfx_points` inlined and specialised: 903 -> 573 cycles a point (SPEC.md 5.6.9.3)
+
+| | |
+|---|---|
+| machine | **MartyPC**, cycle-accurate IBM 5150/XT, 4.77 MHz 8088 |
+| adapters | `os8088_5150_herc_gla`, `os8088_5150_cga_gla`, `os8088_xt_vga` |
+| harness | `tests/mcperf.py --pts` — the deterministic Missile run of Set 135, with the KERNEL's `gfx_points` bracketed and the arrays it is handed read back |
+| subject | the one slot §5.12.7 left standing: every app-side walker in the tree commits through it |
+
+**This set exists because Set 133 measured the slot on the wrong shape.** That
+was gfxbench's geometry — eight VERTICAL columns — and the figure it produced
+was fine and hid everything interesting. Read off the real caller instead:
+
+| | before | after | |
+|---|---:|---:|---:|
+| arrival | 2,928 | 3,200 | +272 |
+| **a point** | **903** | **573** | **−36.5%** |
+| instructions a point | 52.7 | **31.1** | **−41%** |
+| cycles an instruction | 17.15 | 18.40 | |
+
+**The load-bearing number is 17.15 cycles an INSTRUCTION**, and it is not a
+rounding — the arrival fits the same ratio (148 instructions, 19.8 each). On
+this path an 8088 is fetch- and operand-bound, so **the currency is
+instructions removed and not clocks saved**: a routine that looks cheap by
+clock count is not, and the 41% fewer instructions is where the 36.5% comes
+from.
+
+#### 136.1 The obvious optimisation is refused by the geometry
+
+Caching the resolved row, or the framebuffer byte, is what anyone would reach
+for first. It buys nothing here, and only measuring says so:
+
+| | |
+|---|---:|
+| consecutive points sharing a ROW | **0.4%** |
+| …sharing a framebuffer BYTE | **0.3%** |
+| points per byte touched | **1.00** |
+
+A sampled array says why in one line — `297,50 297,51 296,52 296,53 296,54` —
+**y-major**, which is what a falling missile is. `y` moves every point and `x`
+every second or third, and the byte is (x>>3, y), so neither cache ever hits.
+Set 133's vertical columns are the one shape where that is invisible.
+
+#### 136.2 What was done instead, all of it data-independent
+
+- **`gfx_ls_addr` is gone into the loop.** It was a call inside this loop, and
+  `gfx_points` was its only caller once §5.12.7 took the walk family out — so
+  inlining it is a move, not a duplication. `gfx_rowbase`'s fast path went with
+  it: a call whose whole body is four instructions.
+- **The caller's array is in DS and the framebuffer in ES**, both set once, so
+  the loop loads **no segment register per point** where it loaded two. Kernel
+  words are reached `cs:` (`.bss` and `.text` share the segment) and
+  `vid_rowtab` stays `ss:`.
+- **The bit comes from a table.** `shr bl, cl` is 8+4n clocks and wants CL,
+  which is the loop counter's.
+- **Three loops, one per ink class.** Ink commits with `or [es:di], bl` and
+  paper with `and [es:di], bl` — ONE read-modify-write instruction where the
+  general form is seven. Only the dither class needs the general form.
+- **The hot path is straight**: the clip-rect miss and the row past the row
+  table both live after `loop`, so a point executes no jump but the loop's own.
+
+#### 136.3 What it did to the game, and what it cost
+
+| Missile, 400 deterministic frames | Hercules | CGA |
+|---|---:|---:|
+| whole run, before | 68,298,000 | — |
+| whole run, after | **63,836,496** | **52,823,161** |
+| | **−6.5%** | |
+| frames over one tick, before | 57 of 400 | — |
+| frames over one tick, after | **39 of 400** | **17 of 400** |
+| cycles a point, after | 573 | **547** |
+
+**Against the tree this arc started from** — the kernel walk at `MC_DRNBUD` 64
+— the game is **68,802,005 → 63,836,496 cycles, −7.2%**, and frames over the
+tick are **56 → 39**.
+
+The break-even is under one point: +272 of arrival against −330 a point, so
+any call with a single point in it is already ahead, and the real caller hands
+over 15.8.
+
+**Bytes: `.text` +329, `.bss` 0, `.cold` 0.** `kern_big` crosses no rung (this
+branch's arc had already freed four). **`kern_small` does cross one** — 74,981
+→ 75,493 — so the 128KB floor machine pays 512 bytes of heap for it and stands
+at **52.5 KB free** (`tests/small128.py`). That is the trade stated rather than
+buried: the floor machine is also the machine a 36% faster point loop is worth
+most to.
+
+#### 136.4 The pixels are gated, not asserted
+
+`tests/mcperf.py` hashes the screen 400 deterministic frames into a Missile
+game. Before and after, on three adapters with different geometry and banking:
+
+| adapter | before | after |
+|---|---|---|
+| Hercules | `28bc48113a562257` | `28bc48113a562257` |
+| CGA — different banking, so `gfx_rowbase`'s bank path | `9a23245295c71fbe` | `9a23245295c71fbe` |
+| VGA — the `.slow` planar arm, untouched | `9ba6396856939c66` | `9ba6396856939c66` |
+
+Eighteen registered rows pass with it, `gfxpoints` and `gfxewalk` among them.

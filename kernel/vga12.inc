@@ -1059,20 +1059,118 @@ gfx_lstepv:
     ret
 
 ; -----------------------------------------------------------------------------
+; GFXPT_LOOP - gfx_points' inner loop, expanded once per INK CLASS
+; %1: 1 = ink (set the bit), 2 = paper (clear it), 3 = dither
+;
+; SPEC.md 5.6.9.3. Three copies of one loop rather than one loop with two tests
+; in it, and the reason is measured: on this path an 8088 spends **17.15 cycles
+; an INSTRUCTION** (PERFORMANCE.md Set 136), so the currency is instructions
+; removed and not clocks saved, and a branch per point costs what a memory
+; operand costs.
+;
+; THE HOT PATH IS STRAIGHT AND THE COLD PATHS ARE OUT OF IT - the clip-rect
+; miss and the row past the row table both live after `loop`, which is what
+; keeps the body inside `loop`'s rel8 reach as well as what keeps it readable.
+; A point that stays in the resolved rect executes no jump but the loop's own.
+;
+; On entry to the loop and throughout it: DS = the CALLER's array, ES = the
+; framebuffer, BP = the array cursor, CX = the count. Every kernel word is
+; reached `cs:` and every table `ss:`, so the loop touches no segment register
+; at all - which is two loads a point that used to be there.
+; -----------------------------------------------------------------------------
+%macro GFXPT_LOOP 1
+%%each:
+    mov si, [ds:bp]             ; --- the point, out of the caller's segment
+    mov dx, [ds:bp+2]
+    add bp, 4
+    cmp si, [cs:gfx_ls_bx1]     ; --- still inside the resolved rect?
+    jl %%miss
+    cmp si, [cs:gfx_ls_bx2]
+    jg %%miss
+    cmp dx, [cs:gfx_ls_by1]
+    jl %%miss
+    cmp dx, [cs:gfx_ls_by2]
+    jg %%miss
+%%have:
+    cmp dx, [cs:vid_rowmax]     ; --- the row base: gfx_rowbase's fast path,
+    jae %%calc                  ; INLINE. It was a call inside a call inside
+    mov di, dx                  ; this loop, and its whole body is four
+    add di, di                  ; instructions
+    mov di, [ss:di + vid_rowtab]
+%%row:
+    mov ax, si                  ; --- the byte: x >> 3, and ARITHMETIC because
+    sar ax, 1                   ; a walk entering from the LEFT has x < 0 here
+    sar ax, 1                   ; and `shr` would put that 8,190 bytes along
+    sar ax, 1                   ; the row instead of one byte before it. Three
+    add di, ax                  ; of them rather than `mov cl,3`/`sar ax,cl`:
+                                ; same answer, and it leaves CL alone
+    mov bx, si                  ; --- and the bit, from a TABLE. `shr bl, cl`
+    and bx, 7                   ; is 8+4n clocks and wants CL, which is the
+                                ; loop counter's; `and bx,7` also clears BH,
+                                ; which is what makes the index right
+%if %1 == 2
+    mov bl, [cs:bx + gfx_bitclr]
+    and [es:di], bl             ; PAPER: one read-modify-write instruction
+%elif %1 == 1
+    mov bl, [cs:bx + gfx_bitset]
+    or [es:di], bl              ; INK: likewise - and these two are why the
+                                ; class is a loop and not a test. The general
+                                ; form below is SEVEN instructions
+%else
+    mov bl, [cs:bx + gfx_bitset]
+    mov ax, si                  ; DITHER: lit where (x+y) is even
+    xor ax, dx
+    and al, 1
+    dec al                      ; 00 or FF
+    and al, bl
+    mov ah, bl
+    not ah
+    and ah, [es:di]
+    or  ah, al
+    mov [es:di], ah
+%endif
+%%next:
+    loop %%each
+    jmp %%done
+
+    ; --- the cold paths, deliberately AFTER the loop ------------------------
+%%calc:
+    call gfx_pt_row             ; a row past the table's end (SPEC.md 39.3.1)
+    jmp %%row
+%%miss:
+    call gfx_pt_box             ; the rect that holds it, if any - and an EMPTY
+    cmp si, [cs:gfx_ls_bx1]     ; box if none does, which skips the point and
+    jl %%skip                   ; leaves the next one to re-resolve
+    cmp si, [cs:gfx_ls_bx2]
+    jg %%skip
+    cmp dx, [cs:gfx_ls_by1]
+    jl %%skip
+    cmp dx, [cs:gfx_ls_by2]
+    jle %%have
+%%skip:
+    dec cx                      ; not `loop`: the reach from out here is not
+    jz %%done                   ; rel8's to give, and this path is taken once
+    jmp %%each                  ; a call rather than once a point
+%%done:
+%endmacro
+
+; -----------------------------------------------------------------------------
 ; gfx_points - draw a set of pixels the CALLER computed (SPEC.md 5.6.9)
 ; in:       ES:SI = CX records of two words each, x then y; CX = how many
 ;           (0 legal, does nothing); [gfx_color] = the ink; the lock held
 ; out:      nothing; preserves every register
 ;
-; gfx_line answers "draw this line" and 5.6.7's walk "draw the next N pixels of
-; it"; this answers "draw THESE pixels". The body is gfx_lstep_mono's with
-; "read the next pair" where the Bresenham advance is - so a point costs the
-; walk's marginal pixel and the call costs one arrival, where a walk step also
-; pays ~480us of staging its caller's state in and back out (5.6.8).
+; gfx_line answered "draw this line" and 5.6.7's walk "draw the next N pixels
+; of it"; this answers "draw THESE pixels", and since 5.12.7 took the other two
+; out it is the whole of that family - every app-side walker in the tree
+; commits through it (5.12.5), so what a point costs is what a figure costs.
 ;
-; ES is needed twice - the caller's array and the framebuffer - so the segment
-; is banked in .bss the way gfx_ls_one banks the block's, and the array cursor
-; rides in BP because gfx_ls_addr wants the x in SI.
+; **THE CALLER'S ARRAY IS IN DS AND THE FRAMEBUFFER IN ES**, both set once, so
+; the loop loads no segment register per point. That is why every kernel word
+; below is reached `cs:`: `.bss` and `.text` share the kernel's segment, and
+; `vid_rowtab` is `ss:` as it always was. The two helpers that DO want DS -
+; gfx_ls_box and gfx_rowbase_calc's frame - have wrappers that set it, and both
+; are off the hot path.
 ; -----------------------------------------------------------------------------
 gfx_points:
     or cx, cx                   ; nothing to draw is answered BEFORE anything
@@ -1094,6 +1192,8 @@ gfx_points:
     push di
     push bp
     push es
+    push ds                     ; the loop OWNS DS (see the header); once a
+                                ; call, and .slow never touches it
 %ifdef GFX_VGA                  ; GFX_VGA is defined exactly when KERN_BIG is
     cmp byte [vid_ndisp], 1     ; (kernel.asm:445), so ONE gate covers both a
     ja .slow                    ; second display - which resolves per POINT
@@ -1123,55 +1223,30 @@ gfx_points:
     jmp .out
 .fast:
 %endif
-    mov [gfx_pt_cseg], es       ; the array's segment, banked BEFORE anything
-    call gfx_ls_ink             ; else runs: ES is about to become the
-    mov bp, si                  ; framebuffer's, and BP the cursor
+    ; --- EVERYTHING THE LOOP NEEDS, resolved once, while DS is still ours ---
+    call gfx_ls_ink             ; [gfx_ln_ink] = 00 paper / FF ink / 01 dither
     mov word [gfx_ls_bx1], 1    ; SPEC.md 5.6.9.1: an EMPTY box, so the first
     mov word [gfx_ls_bx2], 0    ; point cannot match whatever the last caller
                                 ; left here and must re-resolve
-.each:
-    mov es, [gfx_pt_cseg]       ; --- the point, out of the caller's segment
-    mov si, [es:bp]
-    mov dx, [es:bp+2]
-    add bp, 4
-    mov es, [vid_rseg]          ; --- and the framebuffer, for the draw
-    cmp si, [gfx_ls_bx1]        ; still inside the resolved rect?
-    jl .miss
-    cmp si, [gfx_ls_bx2]
-    jg .miss
-    cmp dx, [gfx_ls_by1]
-    jl .miss
-    cmp dx, [gfx_ls_by2]
-    jle .have
-.miss:
-    call gfx_ls_box             ; ...no: the rect that holds it, if any - and
-    cmp si, [gfx_ls_bx1]        ; an EMPTY box if none does, which skips the
-    jl .next                    ; point and leaves the next one to re-resolve
-    cmp si, [gfx_ls_bx2]
-    jg .next
-    cmp dx, [gfx_ls_by1]
-    jl .next
-    cmp dx, [gfx_ls_by2]
-    jg .next
-.have:
-    call gfx_ls_addr            ; DI = the byte, BL = its bit
-    mov al, [gfx_ln_ink]
-    cmp al, 1                   ; the dither class: lit where (x+y) is even
-    jne .solid
-    mov ax, si
-    xor ax, dx
-    and al, 1
-    dec al
-.solid:
-    and al, bl
-    mov ah, bl
-    not ah
-    and ah, [es:di]
-    or  ah, al
-    mov [es:di], ah
-.next:
-    loop .each
+    mov al, [gfx_ln_ink]        ; ...the class, banked in a register across the
+    mov bp, si                  ; two segment loads below
+    mov dx, es                  ; DX = the caller's array segment
+    mov bx, [vid_rseg]          ; BX = the framebuffer's
+    mov ds, dx                  ; --- and from here DS is the CALLER's, so
+    mov es, bx                  ;     every kernel word is `cs:`
+    cmp al, 0xFF
+    je .ink
+    or al, al
+    jz .paper
+    GFXPT_LOOP 3
+    jmp .out                    ; NEAR: two whole loop expansions stand between
+.paper:                         ; here and `.out`, which is well past rel8
+    GFXPT_LOOP 2
+    jmp .out
+.ink:
+    GFXPT_LOOP 1
 .out:
+    pop ds
     pop es
     pop bp
     pop di
@@ -1182,6 +1257,44 @@ gfx_points:
     pop ax
     ret
 
+; --- the two wrappers the cold paths go through -----------------------------
+; Both exist because the loop has given DS away. gfx_ls_box reaches the clip
+; table through it and gfx_rowbase_calc clobbers the loop's own CX and DX, so
+; each is wrapped once here rather than guarded inside the loop.
+
+; gfx_pt_box - gfx_ls_box with the kernel's DS put back. Preserves everything.
+gfx_pt_box:
+    push ds
+    push ax
+    mov ax, cs                  ; `.bss` and `.text` share the kernel's segment
+    mov ds, ax                  ; (KERN_CODE_MAX is what says so), so CS is a
+    call gfx_ls_box             ; correct DS for anything gfx_ls_box reads
+    pop ax
+    pop ds
+    ret
+
+; gfx_pt_row - DI = the row base for the row in DX, for a row past the row
+; table's end. gfx_rowbase_calc is all `cs:` so it needs no DS, but it answers
+; in AX and clobbers CX and DX - which are this loop's counter and its y.
+; Preserves every register but DI.
+gfx_pt_row:
+    push ax
+    push cx
+    push dx
+    mov ax, dx
+    call gfx_rowbase_calc
+    mov di, ax
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; --- the bit a pixel is, and the seven it is not ----------------------------
+; Read `cs:` (see the header). A table because the shift these replace is
+; 8+4n clocks and wants CL, and CL is the loop counter's.
+gfx_bitset: db 0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01
+gfx_bitclr: db 0x7F, 0xBF, 0xDF, 0xEF, 0xF7, 0xFB, 0xFD, 0xFE
+
 ; gfx_ls_ink - resolve [gfx_color] to the 1bpp class once (00 / FF / 01)
 ; clobbers AX
 gfx_ls_ink:
@@ -1191,31 +1304,10 @@ gfx_ls_ink:
     ret
 
 
-; gfx_ls_addr - DI = the framebuffer byte for (SI,DX), BL = its bit
-; clobbers AX/CX, and DI/BL are outputs
-gfx_ls_addr:
-    push cx                     ; CX is the caller's STEP COUNT
-    push dx
-    mov ax, dx
-    call gfx_rowbase            ; clobbers AX/CX/DX, preserves BX
-    mov di, ax
-    mov ax, si
-    mov cl, 3
-    sar ax, cl                  ; ARITHMETIC: a walk entering the screen from
-    add di, ax                  ; the LEFT has x < 0 here, and `shr` puts that
-                                ; 8,190 bytes along the row instead of one
-                                ; byte before it. The address is not drawn
-                                ; through until x reaches the box, and this is
-                                ; what makes it right when it does - the bit
-                                ; mask below already was, x & 7 being the
-                                ; correct bit for any x
-    mov cx, si
-    and cl, 7
-    mov bl, 0x80
-    shr bl, cl
-    pop dx
-    pop cx
-    ret
+; gfx_ls_addr IS GONE (SPEC.md 5.6.9.3). It resolved one point's byte
+; and bit and was a call inside gfx_points' loop; the loop does it
+; inline now, and gfx_points was its ONLY caller once 5.12.7 took the
+; walk family out - so what would have been duplication is a move.
 
 ; gfx_ls_box - the clip rect containing (SI,DX), into gfx_ls_bx1..by2. With
 ; the region disarmed that is the screen; with no rect containing the point

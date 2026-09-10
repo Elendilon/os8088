@@ -4890,6 +4890,51 @@ survives the assembly: that build has no VGA (§39.27) and no second display, so
 the gates are constants and the fallback is a branch nothing can take, which is
 §5.6.4.5's shape one routine along.
 
+##### 5.6.9.3 The loop is INLINE, and the ink class is three loops
+
+Measured on the real caller — Missile's trails, not a bench's geometry — this
+slot cost **2,928 cycles of arrival plus 903 a point**, and the useful figure
+underneath is that a point was **52.7 instructions at 17.15 cycles each**
+(PERFORMANCE.md Set 136). The arrival fits the same ratio, so the loop is
+fetch- and operand-bound rather than clock-bound on an 8088: **the currency is
+instructions removed, not clocks saved**, and a routine that looks cheap by
+clock count is not.
+
+**The obvious optimisation is refused by the geometry, and that had to be
+measured too.** Consecutive points share a row **0.4%** of the time and a
+framebuffer byte **0.3%**, at 1.00 points per byte touched — so caching either
+buys nothing. A sampled array says why: `297,50 297,51 296,52 296,53 296,54`
+is **y-major**, which is what a falling missile is. `y` moves every point and
+`x` every second or third, and since the byte is (x>>3, y) neither cache ever
+hits. PERFORMANCE.md Set 133 measured this slot on eight VERTICAL columns,
+which is the one shape where that is invisible.
+
+So what changed is instruction COUNT, four ways, none of them data-dependent:
+
+- **`gfx_ls_addr` is gone** — it was a call inside this loop and `gfx_points`
+  was its only caller once §5.12.7 took the walk family out, so inlining it is
+  a move rather than a duplication. `gfx_rowbase`'s fast path went with it: a
+  call whose whole body is four instructions.
+- **The caller's array lives in DS and the framebuffer in ES**, both set once.
+  The loop loads no segment register at all where it loaded two a point. Every
+  kernel word is reached `cs:` — `.bss` and `.text` share the kernel's segment,
+  which is what `KERN_CODE_MAX` says — and `vid_rowtab` stays `ss:`.
+- **The bit comes from a table**, `gfx_bitset` / `gfx_bitclr`, because
+  `shr bl, cl` is 8+4n clocks and wants CL, which is the loop counter's.
+- **The ink class is three loops rather than one loop with two tests in it.**
+  Ink commits with `or [es:di], bl` and paper with `and [es:di], bl` — ONE
+  read-modify-write instruction where the general form is seven. The dither
+  class keeps the general form; it is the one that actually needs it.
+
+**The hot path is straight and the cold paths are after `loop`.** A clip-rect
+miss and a row past the row table both live below the loop body, which is what
+keeps a point's path free of every jump but the loop's own — and, not
+incidentally, keeps the body inside `loop`'s rel8 reach.
+
+**The pixels are unchanged and that is gated, not asserted**: `tests/mcperf.py`
+hashes the screen 400 deterministic frames into a Missile game, and the hash is
+the same before and after.
+
 ### 5.7 The per-call floor — what a small drawing call spends
 
 **A drawing call costs almost the same whatever it draws**, and the field

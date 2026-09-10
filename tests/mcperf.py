@@ -41,6 +41,7 @@ import argparse
 import os
 import subprocess
 import sys
+import hashlib
 import tempfile
 import time
 
@@ -48,7 +49,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "tools"))
 sys.path.insert(0, HERE)
 import os88marty, os88mouse, os88sym, os88geom, os88build, dispcp   # noqa: E402
-from cycweb import Pkg, u16                                     # noqa: E402
+from cycweb import Pkg, u16, shot                               # noqa: E402
 
 HZ = 4772727.0                  # the 5150's 8088, PERFORMANCE.md Part 2
 FRAMES = 400                    # MC_BFRAMES
@@ -213,6 +214,7 @@ def main():
         os88marty.settle(m)
 
         base = seg << 4
+        shot_hash = None
         TOP, END = base + syms["mc_b_top"], base + syms["mc_b_end"]
         out, dsc, ptr = [], None, None
         for run in range(a.runs):
@@ -299,6 +301,12 @@ def main():
                 else:
                     i += 1
             dsc = (calls, cyc, blk, empty, span, pix)
+
+        # --- the screen the run ended on, hashed ----------------------------
+        mo.to(4, 4)                 # the arrow parked: it is the kernel's
+        os88marty.settle(m)         # pixels and it moves with the harness
+        _w, _h, _px = shot(m)
+        shot_hash = hashlib.sha1(bytes(bytearray(_px))).hexdigest()[:16]
 
         # --- WHAT gfx_points IS ACTUALLY HANDED, in the real caller ---------
         # PERFORMANCE.md Set 133 measured this slot on gfxbench's geometry -
@@ -401,6 +409,16 @@ def main():
     check(1000.0 * med / HZ < BAR_MS,
           "the median frame is under %.0f ms (%.2f)" % (BAR_MS,
                                                         1000.0 * med / HZ))
+
+    if shot_hash:
+        # THE PIXEL-IDENTITY GATE, and it is nearly free. 400 deterministic
+        # frames of a game end in one screen; anything that changes what a
+        # drawing primitive PUTS DOWN changes this hash, and nothing that only
+        # changes how long it took does. It is what a rewrite of gfx_points or
+        # of any slot Missile draws through is checked against - the timings
+        # are expected to move and the picture is not.
+        print("   screen after the run: %s" % shot_hash)
+        print()
 
     if ptr:
         per, arrays = ptr
