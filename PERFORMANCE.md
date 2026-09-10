@@ -13543,3 +13543,159 @@ game. Before and after, on three adapters with different geometry and banking:
 | VGA — the `.slow` planar arm, untouched | `9ba6396856939c66` | `9ba6396856939c66` |
 
 Eighteen registered rows pass with it, `gfxpoints` and `gfxewalk` among them.
+### Set 144 — the 176 ms was never measured, and the band that replaced it was 2.4× slower than the slot (SPEC.md §93.5.5)
+
+| | |
+|---|---:|
+| machine | **MartyPC**, cycle-accurate IBM 5150/XT, 4.77 MHz 8088 |
+| adapters | `os8088_xt_vga` (mode 12h), `os8088_5150_herc_gla` (720×348), `os8088_5150_cga_gla` (640×200) |
+| harness | breakpoint pair on the package's own `dd_play_line`, guest cycle counter |
+| date | 2026-09-08 |
+
+Set 121 ends by ruling out the pen and the phase and naming three things to
+check above `font_run`. **The answer is none of the three: the 176 ms was not a
+measurement.** It was inherited from two sentences in this tree that described
+the pre-§6.1.10 world in the present tense, one of them `font_run`'s own header
+docblock; Set 121's other half is the correction to those. This set is what the
+line actually costs, and what the renderer built on that number costs beside it.
+
+#### The instrument
+
+An exec breakpoint on `dd_play_line`'s entry, the near-call return address read
+off the task stack (SS:SP), a second breakpoint there, and the difference of
+`status()["cycles"]`. **The minimum of nine samples**, because an IRQ0 or a
+mouse packet landing inside the window adds an ISR to a sample and never
+subtracts one — and in practice eight of nine samples were bit-identical, so
+the window is short enough that the tick usually misses it.
+
+No rebuild is needed to point it at a package: a probe assembly emits the code
+label's org-0 offset, and the package's segment comes out of its window record.
+
+#### The measurement
+
+`dd_play_line` end to end — a nineteen-character line, `CWHITE` on `CBLACK`, at
+an x rounded down to the byte grid — in three builds that differ only in
+`dd_text`:
+
+| adapter | band, as first written | band, cell-outer | `OSAPI_FONT_RUN` |
+|---|---:|---:|---:|
+| VGA 640×480 | 12,882 µs | **4,887** | 5,422 |
+| Hercules 720×348 | 12,969 | **4,988** | 5,663 |
+| CGA 640×200 | 12,986 | **5,000** | 5,797 |
+
+The `font_run` column agrees with Set 121's `FONT_RUN 19 col/blk` — 4,891 µs
+for the bare run against 5,028 µs measured here for `dd_text`'s wrapper around
+it, the difference being the caller's own string walk and stack frame. Two
+independent harnesses, 2.8% apart.
+
+#### The finding, and the tell that was in the table all along
+
+**The band as first written was 2.4× slower than the slot it was written to
+replace.** It composed ROW-outer and CELL-inner, so the whole glyph lookup —
+two bounds compares, a shift and two adds — ran eight times a character instead
+of once: **393 cycles a band byte**. Cell-outer with the eight stores unrolled
+is 2.6× faster.
+
+The tell is the first column, and it is the kind that is free to notice:
+**three adapters whose `gfx_blit1` costs differ by a factor of two agree to
+0.9%**. A cost that does not move with the adapter is not in the blit. That one
+comparison would have found this at any point in the three weeks the wrong
+version shipped, and nobody made it because the number it was being checked
+against was 176 ms and 12.9 looked like a triumph.
+
+#### What it does not say
+
+At **twice a second** the play line is under 2% of the machine at either cost,
+so **neither renderer is why that attract screen ran at 9.8 fps**. The 46% it
+was overrunning by belongs to the two fixes that landed in the same commit —
+a pellet blink that walked all 868 tiles three times a second, and two 16-bit
+`div`s per tile lookup from a dozen call sites a tick. Three fixes and one
+measurement afterwards cannot attribute, and Part 7's rule is the one that was
+broken here: **one row per thing changed.**
+
+### Set 145 — where a DOT DELIRIUM frame goes, and the 677 ms nobody had priced (SPEC.md §93.5.3.1)
+
+| | |
+|---|---:|
+| machine | **MartyPC**, cycle-accurate IBM 5150/XT, 4.77 MHz 8088 |
+| adapter | `os8088_xt_vga`, mode 12h, tile 16×13, five actors, in play |
+| harness | Set 137's breakpoint pair, on each proc in turn |
+| date | 2026-09-08 |
+
+| proc | µs, min of twelve |
+|---|---:|
+| `dd_render` — lock, clip, draw, unlock | 34,599 |
+| `dd_draw` | 25,962 |
+| `dd_actors_draw` — five actors | 23,111 |
+| `dd_actor_emit` — one of them | 4,068 |
+| `dd_blit` — the `gfx_blit1` under it | 1,856 |
+| `dd_band_one` — the sprite into the band | 1,135 |
+| `dd_band_build` | 886 |
+| `dd_band_ground` / `dd_band_items` / `dd_band_others` | 102 / 209 / 323 |
+| `dd_step` — one whole tick of game logic | **71** |
+| `dd_draw`, the FULL-repaint outlier in the same sample | **677,018** |
+
+Three findings, in the order they are worth having.
+
+**A full repaint is 677 ms — twelve and a half ticks — and it was happening on
+every lost life.** §93.5.3's own text had it at "~90 ms for the walls and ~36
+for the dots", which is a 1bpp figure quoted for every adapter; on a VGA the
+board is 448×403, the walls are 403 blit rows and the dots about eighty bands
+of thirteen rows each, and `gfx_blit1`'s planar cost is per ROW rather than per
+byte. The tell that it was per row is in the table: an actor band of 4–6 bytes
+× 13 rows costs 1,856 µs where a pellet tile of 2 bytes × 13 rows costs ~550.
+
+**It is what made a regression row flap.** `tests/dotdel.py` leg E measures
+frames against the guest's own tick over eight seconds, and an unsteered Smiles
+dies two or three times in that window: the row read **65.8%** in one soak lane
+and **97.7%** standalone half an hour later, off the same binary. Nothing was
+slow — the window sometimes contained two 677 ms repaints and sometimes none.
+A rate measured over a window that can contain a rare event two orders of
+magnitude above the mean is not a rate, and the fix was to stop the event
+(SPEC.md §93.5.3 item 5) rather than to widen the window.
+
+**And the logic is 0.2% of the frame.** `dd_step` — four ghosts thinking, line
+of sight down a row or column, the eyes, collisions, the mode and fright clocks
+and every animation counter — is **71 µs against one actor band's 4,068**. It
+is worth writing down because the instinct on a 4.77 MHz machine is to price
+the AI first, and on this evidence a maze game's AI is free and its renderer is
+the whole bill.
+
+### Set 146 — what a TONE costs, and why the dot's warble is not a performance question (SPEC.md §93.10.1)
+
+Taken 2026-09-10 on MartyPC's cycle-accurate 4.77 MHz 8088, `os8088_5150_herc_gla`,
+kern_big, `DOTDEL.O88` in play with `[dd_lives]` poked to 99 and `[dd_want]`
+held left so Smiles keeps eating. Both figures are cycle counts read off the
+guest's own counter with it **halted at a breakpoint**, so they are exact
+rather than sampled; the minimum of 25 samples is quoted because an IRQ0
+landing inside a bracket inflates a reading and never deflates it.
+
+| bracket | cycles | µs | spread over 25 |
+|---|---|---|---|
+| `dd_wak_tick` entry → `.out`, on a tick that is **not** a bite's second syllable | **40** | **8.4** | min = median = max = 40 |
+| `dd_tone` entry → after `call OSAPI_SND_TONE` | **1,997** | **418.4** | median 2,004, max 2,007 |
+
+**418 µs is the number worth keeping.** It is what a package pays to change the
+tone channel: the far call, `snd_tone_req`'s priority compare, `snd_tone_out`'s
+two port writes and the owner-record stamp, all inside one `pushf`/`cli` window.
+Set it against the table at the top of Part 2 — a bare `OSAPI_*` far call is
+46.7 µs and a small `gfx_*` call is 756 — and a tone lands between the two,
+which is not where the instinct puts it. **`OSAPI_SND_TONE` is fire-and-forget,
+so a caller waits for nothing; it is not free.**
+
+What §93.10.1's warble does with that: a bite is **two** `dd_tone` calls where
+it used to be one, plus 8.4 µs on every tick for the test. At `DD_PCTPAC` = 100
+a tile is `DD_TILET` = 4 ticks, so 4.55 dots a second:
+
+| | µs a second | share of the machine |
+|---|---|---|
+| one note a dot (as it was) | 1,904 | 0.19% |
+| two, plus the per-tick test | **3,960** | **0.40%** |
+| what the warble ADDED | 2,056 | 0.21% |
+
+The frame view is the one that decides it, and it is not the per-second view: a
+bite's *first* syllable lands on the tick a dot was eaten and cost that much
+before, so the new money is the *second*, landing on the next tick, which paid
+nothing. A DOT DELIRIUM frame on this adapter is **44.13 ms of a 54.93 ms
+tick**, so 418 µs is **3.9% of the slack**, on a quarter of the ticks. The
+answer to "do we have the headroom" is yes, with the arithmetic attached.

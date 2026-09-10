@@ -8465,6 +8465,94 @@ Revisit after the next upstream squash (docs/UPSTREAM.md): the branch is
 disposable at that boundary, so this is the natural point to either take the
 pair or drop it.
 
+### 7.1.4.5 A BAND asks about its own rectangle, not about the screen
+
+`gfx_blit1` spent the deferred hide unconditionally, under a comment that was
+true and useless: *"this may write any pixel on the screen"*. It may not. The
+caller has already decided every bit of the band (§5.4.2), so the routine knows
+exactly which pixels it is about to write — `AX,BX` to `AX+CX-1,BX+DX-1` — and
+that is the rectangle the question should be asked about.
+
+**What the unconditional spend cost is the hide AND the show.** `gfx_unlock`
+redraws the arrow only when the hide was spent (§7.1.4.1), so a band blit that
+hides the arrow makes the unlock draw it back; on a planar VGA that pair is
+**3.2 ms**, and a real-time package puts up five bands a frame. Measured on
+DOT DELIRIUM with the pointer parked at (4,4) — the desktop, well outside the
+window — `cursor_show` was reached in **165 frames of 165**, at **6.5% of the
+frame** (`docs/reports/DOTDEL-FRAME-PROFILE-2026-09-09.md`).
+
+`cur_lazyrect` is that question. It is **not** `cur_lazyck` with different
+arguments, and the difference is what makes it worth its bytes:
+
+| | asks about | right for |
+|---|---|---|
+| `cur_unlazy` | nothing — always spends | a primitive that cannot bound itself |
+| `cur_lazyck` | the armed REGION (§7.1.4.2) | a painter drawing an unknown amount inside its window |
+| `cur_lazyrect` | THE RECTANGLE ABOUT TO BE WRITTEN | a band, which knows |
+
+The region is the whole content rect, so for a game whose window is the board
+it answers *"reachable"* for a pointer resting anywhere on it — while the band
+in hand is two tiles wide. The rectangle answers *"no"* for every frame but the
+few the arrow is genuinely in the way of.
+
+**A superset is the safe error**, as everywhere else in §7.1.4: the cell is
+taken off the hot spot unclamped (§7.2.2), and an armed clip region can only
+make the real write a subset of the rectangle tested — so the mistake this can
+make is a redundant hide, and never §7.1.4's permanent smear. The test is in
+VIRTUAL coordinates (§39.14.9) and therefore sits **above** the display
+resolution, which is where the unconditional spend already was and for the same
+reason: nothing that answers the questions below it may be read stale.
+
+**kern_big only, and the reason CHANGED under it.** It was written when
+`gfx_blit1` was `stc`/`ret` on kern_small, so there was no caller at all;
+§5.4.2.5's decision has since been reversed and the small build has the path.
+The rect test stays kern_big's anyway, because §39.27.4 puts kern_small on a
+DIET and nothing may be spent there — so that build keeps the unconditional
+`cur_unlazy` at the same site, which is correct and merely slower.
+
+#### 7.1.4.5.1 …and what is left is the EAGER spend, which is load-bearing
+
+With the pointer **on** the window this buys nothing, and the reason is one
+line above it in the same frame: `wm_clip_set` spends the hide itself, for the
+whole hold, against the window's whole region (§7.1.4.2). By the time a band
+reaches `gfx_blit1_x` the promise is already gone, so the rectangle test
+short-circuits at its first compare and the unlock still owes a `cursor_show`.
+
+**That eager spend cannot simply be dropped**, and the measurement that made it
+look attractive was a misattribution worth recording. The frame profile put
+`wm_clip_set` at 3.11 ms on VGA against 1.74 on the 1bpp adapters, and an
+occlusion walk over window records is arithmetic that cannot be
+adapter-dependent. Broken down on its own symbols, the routine is:
+
+| | ms |
+|---|---:|
+| entry → `wm_clip_seed` (the content rect, `wm_bord`) | 0.406 |
+| `wm_clip_seed` | 0.040 |
+| **`wm_clip_occl` — the occlusion walk** | **0.169** |
+| `wm_su_drop` | 0.135 |
+| `cur_lazyck`'s own test | 0.131 |
+
+— about **0.88 ms**, and the rest of the 3.11 was `cursor_hide` inside the
+span. **So caching the occlusion walk is worth 0.169 ms and is not worth
+building**; the money is the hide, and it is spent here because the whole-shape
+clippers rely on it having been. `fnt_unlazy` (`kernel/font.inc`) is the plain
+statement of that contract —
+
+```
+fnt_unlazy:
+    cmp word [wm_clip_n], 0
+    jne .out                    ; a region is armed: do nothing
+    CURUNLAZY
+```
+
+— and `ico_core` calls `cur_unlazy` at all. Removing the eager spend without
+giving each of them its own rectangle would leave every clock tick, Timer
+refresh and Task Manager repaint drawing straight through the arrow: §7.1.4's
+permanent smear, on the hottest text path in the system. Taking it means
+`gfx_clip_run` (which already holds the primitive's rect in `gfx_cl_x1..y2`)
+and the whole-shape family each asking `cur_lazyrect` for themselves — a
+change worth costing, and a bigger one than it looks.
+
 ### 7.1.5 The hide must be spent ABOVE the `[vid_mono]` dispatch
 
 `gfx_xor_rect`'s `cur_unlazy` sat **below** its `cmp byte [vid_mono], 0`, so on
@@ -98019,6 +98107,29 @@ the screen.
 repaint is a few instructions away, and an erase here would be pixels written
 twice.
 
+#### 79.6.1 …and a BACKGROUND PAINTER has to be told, once, in one place
+
+A saver session is not a window, so nothing in the window manager put a
+package's worker off the screen and **every real-time package drew straight
+through a running saver.** It was reported against DOT DELIRIUM (§93) — a
+maze chase animating over the sea life — but nothing in it is that package's:
+Cyclone, Missile, Tank Attack, Arkanoid and the Fractal all render from a
+worker on their own clock and none of them can see `[blk_sv]`, which is
+kernel `.bss` with no published offset.
+
+So the answer is **`wm_clip_set`**, which is the door §11.3 already makes
+every background painter come through, and whose `CF = 1` already means
+*"nothing armed, skip the frame"*. It refuses while `[blk_sv]` is set, in the
+same two instructions and for the same reason as §79.5's clock gate. Eight
+bytes, `kern_big` only — `kern_small` has no animated saver.
+
+Two things fall out for free. A painter that already handles `CF = 1` needs
+**no change at all**, which is the whole point of putting it here rather than
+publishing a new question every package would have to learn to ask; and the
+repaint on the way out is already owed, because §79.6 clears `[blk_sv]`
+*before* `wm_paint_all` and a package's own skip path (`dd_render`'s
+`.skip`) marks itself dirty.
+
 ### 79.7 The settings window, and the button that opens it
 
 The Control Panel's **Theme page** (§76.4) gains a `Screen Saver` button under
@@ -113569,3 +113680,2467 @@ Together that is about 210, and the first item is over 40% of it. **The
 ceiling itself is not the lever**: 92.11's twelve kilobytes are the 360KB
 system disk's spare clusters written as a number, and raising it is a decision
 about what comes OFF that disk.
+
+## 93. DOT DELIRIUM — a maze chase, sized from the surface (`apps/dotdel/`)
+
+A `.o88` package at org 0 owning a segment (§20.1), prefix `dd_`, embedded
+icon, one worker task, and **no kernel change of any kind**. The hero is
+SMILES; the four ghosts have no names in the code, only ordinals, because
+their whole difference is one branch in `dd_gh_target`.
+
+**It is not a port, and that is the reason it exists.** §89 and §91 are two
+ports of somebody else's Pac-Man, and both inherit the raster they were
+written for: a fixed 28×36 field of 8×8 tiles, drawn on whatever the adapter
+happens to be. This one is written from the primitives out, and the three
+consequences are the whole of its design — it is **bigger on a Hercules than
+on a CGA**, it draws **one `gfx_blit1` an actor a frame** and nothing else,
+and it goes **fullscreen** on a surface it re-measures rather than assumes.
+
+Keys: arrows or WASD steer, Enter or Space starts, P pauses, F is fullscreen,
+Esc leaves fullscreen or abandons a game for the title screen.
+
+### 93.1 What it is made of
+
+| file | what is in it |
+|---|---|
+| `dotdel.asm` | the header, the icon, the entry proc, the window callbacks, the worker, the fullscreen bracket, the geometry banks and the whole `.bss` |
+| `ddlay.inc` | §93.3: the tile, from the live content box and the adapter's pixel aspect; the board picture's heap claim |
+| `ddmaze.inc` | §93.2: the three layouts, the grid, and the wall picture |
+| `ddmzdat.inc` | the layouts themselves, as characters |
+| `ddspr.inc` | §93.5: eleven 16×16 masters, and the thirty-five scaled images cut from them |
+| `ddart.inc` | the masters, each with its own picture beside it |
+| `ddrend.inc` | §93.5.1: the band composer, the blits, the HUD and the frame |
+| `ddgame.inc` | §93.7–§93.9: movement, the four personalities, the modes, scoring |
+| `ddattr.inc` | §93.11: the title, the blink and the demo |
+| `ddhs.inc` | §93.12: the table, and the file in `SYSTEM\APPDATA` |
+
+### 93.2 The board — three layouts, one shared block
+
+A layout is 31 rows of 28 characters, in the source, as characters. `#` is
+wall, `.` a dot, `o` a power pellet, `=` the ghost-house door, and a space is
+open floor with nothing on it. A maze is a *picture*, and a nibble-packed one
+cannot be reviewed in a diff.
+
+Three layouts ship, and the board changes **every three levels**, cycling:
+
+| layout | dots | shape |
+|---|---|---|
+| 0 `dd_lay0` | 240 | the classic — the arcade board, tile for tile |
+| 1 `dd_lay1` | 270 | SPIRAL: long halls and chunky islands |
+| 2 `dd_lay2` | 278 | COMB: vertical combs and an open middle |
+
+**Rows 9 to 19 are identical in all three, and that is binding.** They carry
+the ghost house, its door, the two columns above it the ghosts leave by, the
+tunnel row, and the two long verticals at columns 6 and 21 that take the whole
+board's traffic past the house. Every constant that knows where a ghost is
+born, where its eyes go home to, where the fruit appears and where Smiles
+starts reads those rows, so a layout that moved them would need its own copy
+of all of it. **Changing the board is meant to change the chase, not the
+machinery.**
+
+`tests/unit/t_ddmaze.py` reads these very bytes back out of `ddmzdat.inc` and
+floods them from Smiles' start tile: width, height, exactly four pellets, no
+unreachable dot, and the shared block byte for byte. It is a `fast` row
+because it is a property of a *file* and needs no machine to answer.
+
+#### 93.2.1 The wall is the corridor's outline
+
+The ink is laid one line **into the wall** from every corridor edge, so what
+the player sees is each corridor traced in a thin line with black inside the
+wall between two of them. That is what the arcade board looks like, and it is
+also what makes §93.5.1's band cheap: the line lives in the wall tile and
+never in the corridor.
+
+A **filled** wall was the other candidate and loses twice. It is a screen
+mostly white on the two 1bpp adapters — the corridors read as the walls — and
+it puts ink inside the tile the band rounds into, which would cost a second
+blit an actor to keep the wall out of the actor's pen.
+
+The line is 1 px thick, or 2 once the tile is at least 16 × 8, which is where
+there is room for black between two of them.
+
+#### 93.2.3 The corners are ROUNDED, and the diagonal is what says which ones
+
+The arcade's maze has no right angles: every corner of its line art is a
+quarter turn, and the field asked for the same.
+
+**The shape is read off the arcade rather than guessed**, from a pixel-perfect
+224 × 288 capture the field supplied. At a block's corner the horizontal line
+**stops two pixels short**, **one pixel sits on the diagonal**, and the
+vertical **starts two pixels down** — so a round is a **square taken out and
+one block put back** inside it, not an arc anybody has to walk:
+
+```
+    ..######        the elbow's 2x2 comes out, and the pixel diagonally
+    .#......        inside it goes back in. Both lines are 1 px.
+    #.......
+```
+
+The first build took the elbow pixel out and stopped there, which is a
+**chamfer** — the two lines meet diagonally and nothing goes back. That reads
+as round from a foot away and is what this degenerates to when there is no
+room, but it is not what the arcade draws, and beside the capture the
+difference is plain.
+
+`[dd_rnd]` is the radius and it is **two line widths where the tile has six of
+them in it, and one where it has not**. Six is the arithmetic and not a taste:
+a wall one tile thick carries a round at **each** end of the same line, so
+`2 × 2 × [dd_lth]` comes out of it and a width of line has to survive that.
+A windowed Hercules is 8 × 9 at 1 px and rounds properly; the same board in
+**Full** is 16 × 9 at 2 px, where nine rows will not carry two four-pixel
+rounds, and it chamfers. So does a windowed CGA at 8 × 4.
+
+**It has to be the WALL tile's job, and that is the whole finding.** The
+outline is drawn by the *corridor* tiles — one line into each wall that touches
+them — so a block's outer corner is made by two lines from **two different
+tiles**, and neither of them can see that a corner is being formed. The first
+attempt looked for a corner square inside `dd_walls_of`, and photographed
+identical to the build before it: **it never fired once.**
+
+`dd_wall_round` runs on the tiles `dd_board_render` used to skip, and the elbow
+taken is the wall tile's own, because a line goes `[dd_lth]` *into* the wall
+from the shared edge, so the two lines that meet overlap precisely there.
+
+**TWO corners meet at that elbow, not one**, and the whole of the difference
+between them is which side of it the corridor is on:
+
+| the wall tile's two adjacent neighbours | | the arms |
+|---|---|---|
+| both **open** | a block's corner poking into the corridor | run **into** the tile |
+| both **wall**, the tile **diagonally** between them open | the same elbow seen from the other side — a corridor turning around the outside of a block | run **out** of it |
+
+So a concave corner is the convex one with **both signs flipped**, which is why
+`dd_rnd_one` takes the arm directions a convex corner *would* use and negates
+them: one routine, four corners, two cases. A tile with one wall neighbour and
+one open forms no elbow at all and is left alone; so is one whose diagonal is
+wall as well, because that is solid and nothing was ever drawn there.
+
+The concave half is not a nicety — it is most of the corners in a Pac-Man
+maze. Every corridor that turns has one, and shipping without them left the
+board reading as square while the blocks read as round.
+
+#### 93.2.3.1 …and the three of them happen in THREE PASSES
+
+The first build rounded as it walked and **only the top-left corner of every
+block came out round.** The outline is drawn by corridor tiles, so a wall
+tile's corner is made by two lines from two different tiles — and in one
+row-major walk only the corridor **above** and the corridor to the **left**
+have drawn theirs by the time the wall is reached. Rounding there took the
+elbow out and the corridor below or to the right then drew straight back over
+it. It is not a race and no ordering of the *tests* fixes it: the round can
+only run once every line it is made of is down, so `dd_board_render` walks the
+board twice and draws the border third.
+
+`dd_rnd_cnr` takes the elbow's top-left and the **directions its two arms
+run**, each `± [dd_lth]`, which is the whole of what separates the four corners
+— and the block that goes back is always one width along each arm, so a
+concave corner and a convex one are the same three instructions with different
+signs. That is worth having because the border's corners (§93.2.4) are the
+same elbow seen from the other side.
+
+A subtraction after the fact rather than shortening the lines: the four sides
+already have three cases each, and this has one.
+
+#### 93.2.3.3 A line is two pixels once there is room for two ROUNDS
+
+`[dd_lth]` went to 2 at a 16 x 8 tile, on the black between two strokes. That
+is the wrong quantity now: what a thick line has to leave room for is
+§93.2.3's **round at each end of it**, which is `2 x 2 x [dd_lth]` out of a
+one-tile wall. The test is the same six line widths, so the threshold is
+**16 x 12** — a windowed **Full** is 16 x 9 and keeps a 1 px line *and* gets
+the arcade round, where before it had a 2 px line and a chamfer.
+
+**Built as an A/B and decided on the glass, on the field's own 5150.** The
+prediction here was "we probably keep how it is"; the answer was *"surprisingly
+the thin line full is MUCH better"*. Only a fullscreen tile is thick now.
+
+#### 93.2.3.2 The concave round puts ink in a CORRIDOR, and that broke two assumptions
+
+A concave corner's arms run **out** of the wall, so its corner block lands one
+line width **inside the corridor tile** diagonally across from the elbow. Two
+routines were entitled to assume a corridor tile was empty, and both said so in
+a comment:
+
+- **`dd_tile_put`** — the pellet blink and the repair queue. It zeroed the band
+  for anything that was not a wall or a door, so **a pellet at a maze corner
+  blinked its own corner away.** The type test is gone: every tile takes the
+  picture when there is one, which is the assumption that has now been wrong
+  twice (§93.5.10 caught the first).
+- **`dd_band_ground`** — every actor band. It zeroes unless `dd_rect_wall` says
+  the rectangle holds a picture, and copying the maze under *every* band is
+  **12 ms of a 54.9 ms VGA frame** (§93.5.3 item 4), so simply always copying
+  is refused. Measured before the fix: a ghost circling the house took the
+  house's four corners off the glass and the queue put the tiles back without
+  them — **6 of the board's 34 concave corners gone inside a second, and still
+  gone twelve samples later.** The convex ones, which live in wall tiles, never
+  moved.
+
+`[dd_cnrmap]` is the answer and it is **109 bytes**: one bit a tile, set by
+`dd_rnd_one` as it rounds and read by `dd_rect_wall` as a third test after wall
+and door. `dd_board_render` rebuilds it and nothing writes it afterwards, so
+eating a dot cannot get it out of step. The alternative — working the predicate
+out where it is needed — is twelve tile lookups per corner per tile per band.
+
+**And it comes back in the WALL's pen**, which the map is also what makes
+cheap. A band is a single pen, so the block would otherwise be repaired in
+`DD_INKDOT` — white on a colour adapter, for ever, at all 34 of them. Two
+lookups settle it: *is this tile marked*, and *which of its two candidate rows
+is the block in* — and the band `dd_tile_put` has just built is already the
+picture, so the repair is a second blit of `[dd_lth]` rows and not a re-read.
+A block is at a tile CORNER and a dot is centred, so a row that holds one never
+holds the other, and a blank row costs a scan rather than a far call. Measured
+on `os8088_xt_vga` after five seconds of play: **30–33 of 34 corners in
+`(0,0,170)`, the rest lit in another pen because an actor is standing on them
+that instant, and none black.** That transient is the one every dot already
+has.
+
+**The gate was already written and was looking past it.** `tests/dotdel.py`'s
+leg G compares every ink pixel of the board picture against the glass — the
+exact claim — but it filtered the grid to `TT_WALL` and `TT_DOOR` first, *on
+the same assumption the two routines were making*. It walks every tile now, at
+5,019 ink pixels over 769 tiles instead of 4,972 over 486, and both defects
+were then reproduced on purpose to watch it go red: reinstating
+`dd_tile_put`'s type test names **tiles (1,23) and (26,23)** — the two bottom
+power pellets, which is exactly where the field saw it — and taking the
+`dd_cnrmap` test out of `dd_rect_wall` names three tiles beside the ghosts.
+
+#### 93.2.4 …and the playfield's own border is a DOUBLE line
+
+The arcade draws its maze in double line art and the field asked for the same
+around the playfield. The border is the cheap half of that, because the maze
+data makes it identifiable in one compare: every row of `ddmzdat.inc` begins
+and ends with `#` and the first and last rows are solid, so the outer ring is
+**exactly one tile thick** and a corridor tile knows it is against it when its
+own column is 1 or `DD_COLS - 2`, or its row is 1 or `DD_ROWS - 2`.
+
+The **inner** line is already there: it is what the corridor tiles at the ring
+draw into it, and it **breaks** wherever a stub of wall hangs off the ring —
+the pair at the top centre, the two lower ones — which is what the arcade does
+as well. The **outer** line does not break there, and that is why it cannot be
+a tile's job at all: *the tile that would draw it is exactly the one that is
+missing.* The first build drew it from the corridor tiles and had three visible
+gaps in the border for that reason.
+
+So `dd_bord_draw` draws it as a **path**, off the geometry. Every number in it
+is some corridor's inner line plus `[dd_bgap]` = **three line widths** on the
+side away from that corridor — a stroke, two widths of black, a stroke, which
+is the arcade's own proportion off the same capture. `[dd_bgap]` is capped at
+one **wall ring**, `[dd_th] - [dd_lth]`, because the ring is one tile and the
+tile's floor is three rows, where three widths would put the top line off the
+picture and `dd_bd_hrun` would clip it away in silence.
+
+**The path is a rectangle with a NOTCH cut into each side**, because the
+tunnel's pocket is *outside* the maze: the line follows the board's edge in
+along the top of the pocket, down its inner wall, and back out — and the
+tunnel's own mouth is the gap between the two horizontals that reach the edge
+of the picture. `DD_TUNR`, `DD_TUNW`, `DD_PKT0` and `DD_PKT1` are the four
+numbers that shape it, and they are the **game's** and not a layout's: every
+layout in `ddmzdat.inc` carries the same middle band, and `dd_speed`'s tunnel
+test reads the same two of them.
+
+Eight rects and eight rounds per side, mirrored off one signed `[dd_bSA]`; the
+top and the bottom run the whole width in one.
+
+**`dd_wall_round` cannot reach any of those corners**, and that is worth saying
+because it looks as though it should. A ring-corner wall tile has wall on both
+of the sides that matter and its diagonal is wall too, so it is solid by
+§93.2.3's own test — correctly, because the border's line is not one a corridor
+drew.
+
+**The tunnel needs no special case**, which is what makes this worth doing this
+way rather than as a drawn rectangle: the mouths are open tiles in the border
+ring, no corridor tile draws a line into them, and the double border therefore
+stops on its own at each side of the gap.
+
+### 93.3 The tile is computed, not chosen
+
+The 28 × 31 grid never changes: a board that lost columns on a CGA would be a
+different game, and the AI, the dot count and the ghost house would all need a
+per-adapter copy. What changes is the **tile**, and it comes out of two
+numbers — the live content box, and the adapter's **pixel aspect**.
+
+A 4:3 monitor showing 640×480 has square pixels; showing 640×200 its pixels
+are 2.4× taller than they are wide, and 720×348 gives 1.55. A board laid out
+in square *tiles* is therefore three different **shapes** on the glass, and
+the one the eye reads as a maze-chase board is the portrait one. So the tile
+HEIGHT is taken first, from the height available, and the tile WIDTH is the
+largest of {8, 16} that keeps the tile within 1.3× of square on the glass.
+
+| adapter | aspect | window | tile | board | on the glass |
+|---|---|---|---|---|---|
+| VGA 640×480 | 100 | 638×~416 | 16 × 13 | 448 × 403 | 1.11 : 1 |
+| HERC 720×348 | 155 | 718×~284 | 16 × 9 | 448 × 279 | 1.15 : 1 |
+| EGA 640×350 | 137 | 638×~286 | 16 × 9 | 448 × 279 | 1.17 : 1 |
+| CGA 640×200 | 240 | 638×~136 | 8 × 4 | 224 × 124 | 0.83 : 1 |
+
+…and in a fullscreen bracket the same arithmetic gives a **CGA 16 × 6 and a
+board of 448 × 186, which is 1.00 : 1** — the best-proportioned board in the
+game, on the worst adapter in the machine. That is the whole argument for
+sizing from the surface rather than from a table.
+
+**The tile width is a multiple of eight, and that is binding.** `gfx_blit1`
+takes a destination x that is a multiple of 8 (§5.4.2), so an actor's band is
+its box rounded *out* to the byte grid. Rounding out is free when the extra
+columns hold something the band may draw and expensive when they hold
+something it may not, because a band is put down in **one pen**. A tile width
+on the byte grid — with the board's own screen x on it too, which `dd_layout`
+pins — removes the case entirely:
+
+* moving **vertically**, the actor's x is its column's x, already on the grid,
+  so the band is exactly the actor's own columns and reaches neither wall
+  beside it;
+* moving **horizontally**, the band rounds out along the corridor it is in,
+  and a corridor's neighbours along its own axis are corridor.
+
+So the only static ink a band can ever contain is **dots** — §93.5.4.
+
+#### 93.3.1 The HUD is a column, not a strip
+
+Score, high score, level and lives live in an 88 px column to the left of the
+board. A landscape screen showing a portrait board has that column spare on
+every adapter (190 px on a VGA, 270 on a Hercules, 414 on a windowed CGA), and
+a strip above or below would cost the board the rows it is shortest of.
+
+#### 93.3.2 The tile's ratio and the board's are not the same number
+
+The board is 28 tiles across and 31 down, so **board ratio = tile ratio ×
+28/31** — 0.903 of it. Both matter and they answer different questions: the
+**tile's** ratio is what makes an actor travel faster along one axis
+(§93.7.6), and the **board's** is what the eye calls the shape. `ddlay.inc`'s
+table gave one column for both and had the tile's number in two rows and the
+board's in the other two, an 11% error on a Hercules.
+
+**The reference is the arcade, and it is 0.871 : 1.** Its maze is 28 × 31
+tiles of 8 × 8 on a portrait monitor — 224 × 248 pixels, each 0.964 as wide as
+tall — so 216 × 248 units of glass. Taller than wide, by about an eighth.
+
+| | tile | board px | board on the glass | vs 0.871 |
+|---|---|---|---|---|
+| VGA windowed | 16 × 13 | 448 × 403 | 1.11 : 1 | +28% |
+| Hercules windowed | 16 × 9 | 448 × 279 | **1.04 : 1** | +19% |
+| EGA windowed | 16 × 9 | 448 × 279 | 1.17 : 1 | +35% |
+| CGA windowed | 8 × 4 | 224 × 124 | 0.75 : 1 | −14% |
+| VGA fullscreen | 16 × 15 | 448 × 465 | 0.96 : 1 | +11% |
+| **Hercules fullscreen** | 16 × 11 | 448 × 341 | **0.85 : 1** | **−3%** |
+| CGA fullscreen | 16 × 6 | 448 × 186 | 1.00 : 1 | +15% |
+
+**A fullscreen Hercules is the arcade's board, to 3%**, and it gets there by
+the tile being *taller* — never by its being narrower.
+
+**Halving the tile does not get there.** With `[dd_tw]` = 8 the height cap at
+`.twok` — a tile may not be much taller than square either — pulls `[dd_th]`
+down with it, to 6 on a Hercules: a board of 224 × 186 at **0.78 : 1**. That
+is nearer 0.871 than 1.04 is, but it overshoots on the other side and it is a
+**quarter of the area**, with 8 × 6 sprites, on a screen with room for four
+times that. The two knobs are not independent: narrowing the tile narrows the
+*board* and shortens it by nearly as much.
+
+**Windowed cannot be improved by geometry.** A Hercules content box measures
+**544 × 284** — the desktop's 348 lines less the menu bar, the title bar and
+the dock — and `[dd_th]` = 10 wants 310. It is 26 lines short and there is
+nowhere on that screen to find them.
+
+#### 93.3.3 EXPERIMENT: the tile is cut to the ARCADE's ratio, not to square
+
+**This is a branch, and it may be abandoned.** `§93.3.2` establishes that the
+board's shape is the tile's times 28/31, that the arcade's is **0.871 : 1**,
+and that the only board this game draws which comes near it is a **fullscreen**
+Hercules. Windowed, the tile would have to be about **13** wide against 9 tall
+on that adapter — and `[dd_tw]` was a multiple of eight, so 16 or 8, either 19%
+too wide or a board of a quarter the area.
+
+So this arm gives up the multiple of eight. The width now follows the height:
+
+```
+    tw = th * aspect / 100 * 0.96          clamped to [DD_TWMIN, DD_TWMAX]
+```
+
+and the square-ish **height cap is deleted** — it existed to stop a tall tile,
+and a tall tile is the point. What each adapter gets:
+
+| | tile | board px | board on the glass | vs 0.871 |
+|---|---|---|---|---|
+| VGA windowed | 12 × 13 | 336 × 403 | 0.83 : 1 | −4% |
+| Hercules windowed | 13 × 9 | 364 × 279 | 0.84 : 1 | −3% |
+| EGA windowed | 11 × 9 | 308 × 279 | 0.81 : 1 | −7% |
+| CGA windowed | 9 × 4 | 252 × 124 | 0.85 : 1 | −3% |
+| Hercules fullscreen | 16 × 11 | 448 × 341 | 0.85 : 1 | −3% |
+
+**`dd_squash` is replaced by `dd_ccut`.** The scaler handled exactly two widths
+— the master's own and half of it — because those were the only two that
+existed. `dd_cmap` is `dd_rowmap`'s column twin, and `dd_ccut` reads a master
+row as a 16-bit big-endian word where column *c* is bit 15−*c*, so taking a
+column is one variable `SHL` and a sign test. It runs at layout, ~49 ms for
+all thirty-five images on a 4.77 MHz 8088, and never in a frame.
+
+**What the multiple of eight was buying, and what giving it up costs.** §93.3's
+own note lists it as removing one case; it removes four, and three of them
+degrade into paths that already exist rather than breaking:
+
+1. **A band cut on the tile grid was also cut on the byte grid**, so every tile
+   a band touched was wholly inside it and a dot was drawn or not drawn. Now
+   the round-out reaches part-way into the neighbouring tile, which is the
+   partial-dot artefact §93.5.1's note describes.
+2. **`dd_band_one`'s two-stores-a-row fast path** assumed an actor moving
+   vertically sits on a byte column for its whole journey. It is now taken on
+   one column in `8/gcd(tw,8)` instead of all of them.
+3. **The band is wider**, by up to 7 px each side, on the cost the profile
+   says dominates a frame.
+4. **The one-pen rule (§93.5.4)** — a band is put down in one colour, so a
+   wall rounded into it is drawn in the actor's ink. Invisible on the two 1bpp
+   adapters, a real artefact on a VGA.
+
+Every one of those is a cost this arm has to be *measured* against, not an
+argument against trying it.
+
+**AND THERE IS A FIFTH, WHICH IS WHAT ACTUALLY BROKE IT.** The multiple of
+eight was not only buying invariants, it was buying *arithmetic*: the renderer
+converts pixels to bytes with a truncating `shr ax, 3` in **18 places**, and
+`[dd_tw]` is read in **37**. `dd_tile_put` is the first one a picture shows —
+it sets a tile's own band stride to `tw >> 3`, which for a 13-px tile is **one
+byte**, so a tile is composed 8 px wide and its dot lands outside it. Most of
+the board's pellets simply vanish. Every one of those sites has to become
+round-out-with-an-origin-adjust, and the band's x has to be floored to a byte
+with the tile offset carried separately. That is a sweep of the redraw layer,
+not a tile-width change, and it is where this arm stopped.
+
+**The cheap route exists and it is legal.** Deleting the height cap is the
+half of this that costs nothing, and on a Hercules it lets `[dd_th]` stay 9
+while `[dd_tw]` falls to **8** — a board of **224 × 279**, taller than wide in
+pixels, every dot present, no new path taken anywhere. Which of the two is
+right depends on a question §93.3.2 did not think to ask: whether the display
+applies the 4:3 correction the `dd_aspect` table assumes.
+
+##### 93.3.3.1 Physical or pixel — the table is a claim about the MONITOR
+
+`dd_aspect` = {100, 155, 240, 137} is *pixel height ÷ pixel width × 100* on a
+**4:3 monitor**. Every ratio in §93.3.2 rests on it. But the field measured the
+windowed Hercules board as **1.58 times wider than tall** — and on a 4:3
+display 448 × 279 Hercules pixels are 1.04 : 1, very nearly square. 1.58 is
+close to the raw pixel ratio of 1.606, so **that display is not applying the
+correction**, and on it the table is wrong in every row.
+
+The two readings give opposite answers, which is why this is written down
+rather than decided:
+
+| target | Hercules windowed | tile | board |
+|---|---|---|---|
+| physical (4:3) | 13 × 9 | 0.93 : 1 | 0.84 : 1 — needs the sweep above |
+| pixel (square) | 8 × 9 | 0.89 : 1 | 0.80 : 1 — **legal, and it draws** |
+
+**Neither reading is wrong, so it is a RUNTIME CHOICE.** The monitor is not
+something a program can ask about: a 4:3 Hercules tube really does make a pixel
+1.55× taller than wide, and an emulator showing the same 720 × 348 in a
+square-pixel window really does not. Both are true of somebody, so there is a
+**`Window` menu** with an item for each — **Thin** and **Full** — and
+`[dd_wmode]` picks between `dd_asppx` and `dd_asp43`.
+
+They are named for the **board** and not for the monitor, because the board is
+what the player is looking at and the monitor is a theory about it. Two items
+and not a toggle, because §12.2's `OS88_MENU` is a title and a list with no
+check mark, so one "Shape" item would leave no way to see which is on.
+
+**`[dd_wmode]` is the user's choice; `[dd_weff]` is what it resolves to**, and
+the resolution happens in `dd_layout` rather than in the menu handler because
+**the window can be dragged from one display to another** — so it is answered
+per layout, not once at startup. Two things override
+it, both live:
+
+- **A fullscreen bracket is always Full.** It owns the whole screen, and Thin
+  there is 224 px of board in 720 of glass.
+- **A CGA is always Full, and `Thin` is GREYED.** 200 lines cannot give 31 rows
+  of a taller tile, so both modes come out 8 × 4 there — Thin would be an item
+  that does nothing. `dd_layout` points `dd_i_win`'s first word at
+  `dd_it_thind`, whose string begins with `MENU_DIS`: the kernel greys it and
+  `menu_hover` will not land on it, so it cannot be picked. §47 rule 3 wants a
+  greyed item to name its reason, which is what "(200 lines)" is for.
+
+Picking one is a **re-layout and not a repaint** — the tile's shape and the
+vertical step both follow the number. `dd_relayout_ck` decides from what
+*moved*, and nothing has, so the handler poisons the banked card kind to force
+its `.redo` arm: re-cut the tile, re-claim the picture, re-build all
+thirty-five sprites, re-snap every actor into the new units. Choosing the one
+already in force does nothing at all, so the board does not flash.
+
+##### 93.3.3.2 Thin fits the WINDOW to the board, from the one callback that may
+
+Thin without a resize is a narrow board in a wide window — 224 px of board and
+216 of black, which is the blank space the mode exists to remove. So Thin owes
+the window a fit: content of `DD_HUDW + [dd_mw] + 16` by `[dd_mh] + 8`.
+
+**`OSAPI_WM_RESIZE` may not be called with the gfx lock held**, and every path
+that *knows* a fit is owed runs under it — the layout is inside a paint, and a
+menu dispatch arrives with the lock taken. So the knowing and the doing are
+split: those set `[dd_wantfit]` and call `OSAPI_WM_WAKE`, which is legal from
+anywhere, and **`dd_onwake` is the one callback the kernel runs with the lock
+free** (§74.1). It reads the frame as `W_W − [dd_cw]`, adds the content the
+board needs, and resizes.
+
+Three rules keep it from fighting the user or itself:
+
+- **It only ever shrinks.** Growing would re-cut a bigger tile, which would
+  want a bigger window.
+- **The flag is cleared before the resize**, so one request is one resize
+  whatever comes of it.
+- **A fit is owed on a MENU PICK or the first layout, and never on a display
+  change.** That last one is a correction rather than a simplification.
+  Dragging between two adapters changes the effective mode, and asking for a
+  resize there **pre-empts the window manager's own**: `OS88_PREFER` gives this
+  window 520 rows, so the WM grows it to 347 when it lands on a Hercules — and
+  a fit computed from the CGA-sized box it still had pinned it at 156, after
+  which `[dd_th]` was 4 and the tile never re-cut. `tests/dotdelmd.py` is what
+  caught it. A fit belongs to a thing the user did.
+- **A fit is Thin's**, so `dd_onwake` re-checks `[dd_weff]` before shrinking:
+  the entry proc asks for one unconditionally and a CGA resolves to Full, where
+  it is not owed.
+
+**The title needed nothing.** `dd_attract_layout` already sizes the title cell
+from `[dd_cw]` and reduces it until the page fits, so a 328-px content box
+gives a 4-px cell and a 284-px title where 544 gave 7 and 497. The one thing
+that looked like it would need work in a narrower window was already written.
+
+On a Hercules the fit takes the content **544 × 284 → 328 × 284**.
+
+**CGA is 240 in BOTH tables**, and it earned the exception the field asked for.
+640 × 200 has not got the 279 lines that 31 rows of nine need, so its tile
+stays 8 × 4 whatever the number says and the value only reaches the **speed**
+there — where at 100 a returning pair of eyes moved **60 of a tile's 64
+sixteenths in one tick**. That is `dd_advance` being asked to find two
+crossings in one step, and what it looks like is not a fast ghost: the demo
+froze, the score went backwards and the frame fell to **24% of a tick**. At 240
+it is 24 of 64, and 240 is what a real CGA monitor does anyway.
+
+**The tolerance moved from 1.3× of square to 1.2×, and that is the whole
+mechanism.** Both of §93.3's tile tests read `[dd_asp]`, so both follow the
+menu; no other line of `ddlay.inc` had to change. What the extra tenth had been
+allowing was a windowed Hercules keeping a 16-wide tile against a 9-tall one —
+1.15 on a 4:3 tube, which is fine, and **1.78 on a square-pixel display**,
+which is a board 1.6 times wider than tall to look at.
+
+| | 4:3 Monitor | Square Pixels |
+|---|---|---|
+| Hercules windowed | 16 × 9, 448 × 279 | **8 × 9, 224 × 279** |
+| VGA windowed | 16 × 13, 448 × 403 | **8 × 9, 224 × 279** |
+| CGA | 8 × 4, 224 × 124 | 8 × 4 — pinned, see below |
+
+**What Square Pixels costs: fullscreen stops buying anything on a Hercules.**
+The tile wants `tw ≈ th` and the only two widths are 8 and 16, so a bracket
+with 348 lines gets the same 8 × 9 the window has — the shape rule caps it
+before the surface does. `tests/dotdel.py`'s bracket check is `>=` rather than
+`>` for that reason, and a *smaller* tile would still be the failure it was
+written for. Using the whole screen would need a tile of about 11, and §93.3.3
+is where that road ends.
+
+**And the margin is enforced now rather than asserted.** §93.7.6 claimed 1.7×
+on every adapter by arithmetic, and the arithmetic changed under it; `dd_layout`
+clamps every vertical step to **half a tile**, so the next table that moves
+gives a slow ghost instead of a broken board.
+
+#### 93.3.4 Every position here is ABSOLUTE, so a geometry change owes a WHOLE frame
+
+`dd_layout` writes `[dd_bdx]`, `[dd_hx]` and the rest in **screen** coordinates,
+and `dd_attract_layout` does the same for the title, the table and the play
+line. Nothing in this package is drawn relative to a content origin. So the
+moment any of those move, **every partial draw is at new coordinates over a
+picture drawn at the old ones** — and a partial draw is what this renderer does
+by design (§93.5.6).
+
+The field met it as five separate complaints — *"after resizing or a drag and
+drop move, nothing is in the right place"*, *"there are duplicated high score
+rows"*, *"the title txt gains an extra line"*, *"the board is not centered, the
+flashing dots are in the wrong place"*, and a window that did not paint over
+what was behind it. They are one bug.
+
+`[dd_full]` is the answer and it already existed; what was missing is setting it
+everywhere the geometry moves:
+
+- **`dd_relayout_ck`'s `.move` arm** did not. It is the *"only the origin
+  moved"* path — the tile, the picture and the sprites all stand, which is why
+  it is cheap — but the ORIGIN is in every one of those absolute positions.
+- **`dd_onwake` after its own `OSAPI_WM_RESIZE`** did not. The kernel repaints
+  what it likes; the next frame of *ours* has to be a whole one.
+
+`.redo` always did, through `dd_attract_begin`.
+
+**And the window opens at the size it means to keep.** `OS88_PREFER`'s VGA and
+Hercules rows are `DD_THINW × DD_THINH` now, because Thin is the default and a
+window that opens Full and then resizes itself is a flash — reported as *"the
+window opens in Full, then resizes to Thin"*. The CGA row stays wide: it
+resolves to Full whatever the menu says, and its 200 lines clamp the height
+anyway.
+
+##### 93.3.4.1 …and the fit is ASKED FOR from the worker, not from a paint
+
+`dd_fit_ask` called `OSAPI_WM_WAKE` from inside `dd_relayout_ck`, which runs
+inside a `W_PAINT`. The wake was then dispatched while the kernel was part-way
+through painting **this very window**, and `dd_onwake`'s `OSAPI_WM_RESIZE`
+landed in the middle of its own damage bookkeeping. What the field saw was
+*"after resizing a few times the whole desktop didn't redraw"* — the vacated
+band left unpainted and the menu bar's own text gone with it.
+
+The worker asks instead, at the top of its loop, right after
+`OSAPI_TASK_ALIVE`: it is the one place in this package that is **neither a
+callback nor under the gfx lock**. The flag is set wherever the answer is known
+and read one tick later from a context with nothing in flight.
+
+**A command that owes a resize does not paint first, either.** `dd_repaint_now`
+drew the whole page at the size the window still had, and the resize a tick
+later drew it again at the new one — two layouts, and the first one's title and
+table are what the field saw as *"duplicated high score rows"* and *"the title
+txt gains an extra line"*. The resize repaints; there is nothing that draw
+could add. It follows that the menu handler must resolve `[dd_weff]` itself
+(`dd_weff_calc`), because the paint it skipped is what used to do it.
+
+**And both fit sizes are CONSTANTS** — `DD_THINW × DD_THINH` and
+`DD_PREFW × 520` — chosen by `[dd_weff]`, not by the request. Deriving Thin's
+from `[dd_mw]`/`[dd_mh]` and Full's from a banked size both had the same hole:
+**the layout has not re-run when the wake fires**, so picking Thin from a Full
+window asked for the *Full* board's fit and shrank by nothing, and picking Full
+with nothing banked did nothing at all. The shape rule pins Thin's tile at
+8 × 9 and Full's at 16 × whatever fits, so the two answers were never variable;
+the WM clamps either to the live screen exactly as it does at
+`OSAPI_WM_CREATE`.
+
+##### 93.3.4.2 NOTHING TELLS A PACKAGE ITS WINDOW MOVED, so the frame asks
+
+§93.3.4 said every position here is absolute and that a geometry change owes a
+whole frame. The first half is true and the second was the wrong conclusion,
+because it assumed something would *tell* us. Nothing does.
+
+**The kernel's drag cache (§11.96.12) banks a window's pixels and replays them
+at the new position.** A drag therefore calls no `W_PAINT`, no
+`OSAPI_WM_ONRESIZE` and no handler of this package's at all. Measured across a
+full drag with breakpoints on all three: **0, 0 and 0**, with `[dd_cx]`/
+`[dd_cy]` still naming where the window used to be. Every partial draw
+afterwards went to the old origin, which is the field's *"drag and drop is
+still hopelessly broken … the partial repaints are going to the wrong places."*
+
+So `dd_render` **asks, every frame** — `dd_geom_win` then `dd_relayout_ck`,
+after the clip is armed and before anything draws. Three far calls, ~140 µs on
+a frame that has 44 ms in it, and `dd_relayout_ck` answers in four compares
+when nothing moved.
+
+**And a move repaints NOTHING.** That is the point of asking rather than being
+told: the cache has already moved this window's pixels and they are correct
+where they now are. What went stale is only the arithmetic, so `.move` re-runs
+`dd_layout`, adds `dd_attract_layout` when the title screen is up — those
+positions are absolute too and are recomputed nowhere else — and returns. The
+`[dd_full]` this arm briefly carried was a full repaint of a picture that was
+already right.
+
+The one exception is the GAME OVER panel, whose pen is banked at *draw* time
+(§93.12.4.1) rather than at layout, so `.move` marks it dirty.
+
+**And the ACTOR pipeline never had the problem**, which is worth writing down
+because two readings of this code got it wrong before the pictures settled it.
+`[dd_ox]`/`[dd_oy]` — "where it was last DRAWN" — are **board** coordinates,
+and `dd_blit` adds `[dd_bdx]`/`[dd_bdy]` at the last moment before the blit.
+That is exactly Arkanoid's shape (§44): everything measured from the origin,
+and four leaf routines that add it. So the sprites, their unions and their
+erases all follow a move for free once `dd_layout` has re-run. What was
+absolute was the LAYOUT's own output and the attract page's, and those are the
+two things `.move` recomputes.
+
+**And the window does not ask for a fit at startup.** `OS88_PREFER` already
+opens it at `DD_THINW × DD_THINH`, so the resize the entry proc used to request
+differed only by the few rows the WM clamps off — and cost a second and a third
+full repaint at startup, which the field counted: *"the whole window then
+redraws, incorrectly. The whole window then redraws, AGAIN, correctly."*
+
+##### 93.3.4.3 …but a RECUT is the UI task's, always
+
+The frame asking every frame (§93.3.4.2) put a **second task** in the layout,
+and the layout is not re-entrant. `dd_relayout_ck`'s `.redo` arm rewrites
+`[dd_tw]`, `[dd_th]`, every position in the file, the row and column maps and
+the whole scaled sprite bank — all of them globals. Two tasks in it at once is
+what the field reported as two separate bugs:
+
+- *"When switching from thin to full, it redraws twice and the second redraw
+  looks to have the wrong origin"* — the attract page laid out and drawn twice,
+  once per task, and the screenshot has both copies of the score table on it at
+  two different pitches.
+- *"When Smiles is moving vertically he flickers and is drawn upside down every
+  other frame"* — the sprite **bank half one tile and half the other.**
+  `dd_spr_cut` reads `[dd_tw]` to decide whether the master's sixteen columns
+  go through `dd_cmap`, so an image cut after the other task moved that word
+  comes out at the **other width**, in a slot whose stride is `DD_SPRB`. A
+  16-wide slot holding an 8-wide image is what "upside down" looked like, and
+  it alternated because the mouth phases alternate and only some slots were
+  wrong. Dumping the bank is what settled it: `dir 0` correct at 16, `dir 1
+  phase 1` an 8-wide image, `dir 2 phase 0` holding an *up-facing* sprite.
+
+So `dd_relayout_ck` takes **BL**: zero from the UI task, one from the worker.
+The worker keeps the `.move` arm — that is the whole reason it asks — and a
+recut sets `[dd_needcut]`, returns CF and **skips the frame**. The worker then
+wakes the window exactly as it does for a fit (§93.3.4.1), and `dd_onwake`
+does the recut on the UI task, taking the gfx lock around it because a wake is
+the one callback the kernel runs without it (§12.8).
+
+A flag rather than a register would not do: two tasks share the flag, which is
+the same defect one level down.
+
+Nothing else needed a guard. Drawing is already serialised by the gfx lock,
+and `.move` writes only positions the same task then draws from.
+
+### 93.4 Two surfaces, one renderer
+
+`dd_geom_win` banks the content box from `wm_content`/`wm_geom` and the depth
+from **`OSAPI_WM_DISPLAY`** — about the display this window is *on*, which on
+a mixed machine is not what `OSAPI_VIDEO` answers (§39.16.4).
+`dd_relayout_ck` then re-cuts the layout only when the box actually changed
+size, and re-cuts nothing at all when it only moved.
+
+**A drag across a display seam is the case that exists for.** The box is the
+same size and the DEPTH is not, so the pens change and not one coordinate
+does — which is why the depth is banked separately and a move between two
+displays does not re-render the board picture. The picture is one bit a pixel
+and carries no colour at all.
+
+Straddling needs no code here: every primitive this package draws with takes
+virtual desktop coordinates and resolves the display itself, and `gfx_blit1`
+goes per 8-pixel band column when a band does not fit one display (§5.4.2
+step 4).
+
+#### 93.4.1 `W_ONRESIZE`, and why the window is not resizable
+
+The window takes its size from `OSAPI_WM_PREFER` and does not offer a grow
+box: the board is 28 × 31 whatever happens, so a resize can only change the
+tile, and a game whose sprites are re-cut mid-chase is a game that stutters
+once a drag. `OSAPI_WM_ONRESIZE` is still hooked, because a box can change
+under a window that never asked (§11.98) — a display change, a dock move, a
+straddle fit.
+
+#### 93.4.2 The fullscreen bracket
+
+A **same-mode** bracket (§53.7): no `fsx_mode` call, so every kernel drawing
+slot stays legal and the windowed renderer is the fullscreen renderer. What
+the bracket buys is the **lock** — windowed, every frame is an
+unlock/yield/lock round trip with the system arrow erased and redrawn inside
+it — and the whole surface, which on a CGA is the difference between a
+224 × 124 board and a 448 × 186 one.
+
+The rect comes from **`OSAPI_FSX_SURF`** and the depth from `OSAPI_FSX_CAPS`'s
+DL, never from `(0,0)` plus `OSAPI_VIDEO`'s size: a same-mode bracket does not
+collapse a two-display desktop (§53.7.1), and an app that assumed it did drew
+its whole face onto the monitor it was not on.
+
+It is entered from **`W_ONKEY` and the menu handler and never from the
+worker**, because `OSAPI_FSX_RUN` is UI-task-callback context with the gfx
+lock held (§53.8) and a worker is neither. `FSXF_KEEPWORKER` is not set: the
+worker *is* the game loop, and two loops driving one screen is two writers.
+It deliberately does not also take §11.2's fullscreen window — Paint measured
+what that costs on the way out (§42.7), three full content draws where the
+bracket alone costs one.
+
+### 93.5 The sprites — eleven masters, thirty-five images
+
+The tile is computed (§93.3), so there is no size the art could have been
+drawn at. It is drawn once at **16 × 16** — the size where a ghost still has
+eyes — and cut down to the live tile at layout time by nearest neighbour,
+which for the two widths this game uses is either a copy or "take every other
+bit". A rebuild is thirty-five images of at most 32 bytes and happens when the
+window changes size, which is not a thing that happens in a frame.
+
+The masters are also **fewer than the images they make**. Smiles faces four
+ways and only the right-facing wedge is drawn: left is its mirror and the two
+vertical ones are its quarter turns, which is 16 × 16 of bit-shuffling done
+once. A ghost's sixteen images are two skirt phases crossed with eight eye
+states, and the eye states are one socket master and one pupil master slid by
+the direction it is looking. Drawing all thirty-five by hand would be 1,120
+bytes of image and thirty-five chances to draw one of them slightly wrong.
+
+| images | what |
+|---|---|
+| 12 | Smiles: four directions × three mouth phases (closed is shared) |
+| 16 | a ghost: two skirt phases × (normal, wide) eyes × four looks |
+| 2 | frightened: the skirt phases, with a face instead of eyes |
+| 4 | eaten: the eyes alone, by direction |
+| 1 | the fruit |
+
+**A scaled row is `DD_SPRB` bytes whatever the tile is**, so a narrow image is
+a wide one with an empty second byte. The cutter used to pack an eight-pixel
+row one byte per row while the composer strode two, which on a **CGA** — the
+only adapter this game gives an 8-px tile — made every actor and every life
+icon noise. It cost nothing to find and would have cost nothing to have: one
+constant, used by the writer and the reader.
+
+#### 93.5.1 One `gfx_blit1` an actor, and the band is the whole picture under it
+
+An actor is put down as a **band** (§5.4.2): the caller decides every bit and
+the kernel does one `rep movsw` a row. The band covers the **union** of the
+tiles the actor's box was drawn on and the tiles it is on now, so the same
+call that draws the sprite lays the ground back over the trail behind it.
+There is no instant at which the sprite is off the glass, no second call to be
+pre-empted between, and **no erase pass at all** — §79.5's finding, one game
+along.
+
+What the fish did not have to solve is that the ground here is not black, so
+the band is composed from the bottom up: a **clean band**, then whatever
+`dd_grid` says is still lying on those tiles — dots, a lit pellet, the ghost
+house's door bar, the fruit — then **every actor whose box meets it**, and
+last the actor whose band it is. One `gfx_blit1` puts the lot down. The sprite
+is OR'd in at the bit offset the actor's x has landed on, and that shift is
+the only one in the whole renderer.
+
+Two rules in that are bug fixes, and both are about what the band is allowed
+to be rounded to and what it is allowed to leave out.
+
+**A BAND IS CUT ON THE TILE GRID, NOT THE BYTE GRID.** `gfx_blit1` only asks
+for a multiple of 8, and a band cut there reaches *part* of the way into the
+tile ahead — so a dot in that tile was composed partly, which on the glass is
+a dot that changes shape as an actor comes near and changes back once it has
+gone. A tile is a multiple of 8 wide by construction (§93.3), so cutting on
+the tile grid costs nothing at all and makes every tile a band touches wholly
+inside it: a dot is drawn or it is not. It is also why a dot Smiles just ate
+needs nothing drawn to make it vanish — his own band is over that tile and is
+composed from the grid.
+
+**AND A BAND CARRIES EVERY ACTOR IT OVERLAPS.** Two ghosts that met used to
+eat each other: the second band is opaque, so it laid its own ground over the
+first one's pixels and the first put them back on the next frame, which reads
+as a flash whenever two of them cross. Composing the other actor into this
+band instead means both are in every frame either of them draws. A sprite
+composed in from a neighbouring band is clipped on all four sides, since it
+can hang off any edge of a band that was not cut for it.
+
+**The clean band is zeros almost always, and the almost is a corner.** The
+proof that it needs no wall bytes runs: the rectangle's first column is
+`min(old, new)` rounded down to a tile and its last is `max(old, new) + a
+tile` rounded up, the two positions are less than a tile apart, so every tile
+in it is covered by one of the two boxes — and an actor's box is only ever on
+a tile it may stand on, which holds no wall ink because `dd_walls_of` draws
+every line **outside** the corridor it outlines (§93.2.1).
+
+**That proof assumes movement on one axis, and a TURN is not.** At a turn the
+place the actor was last drawn and the place it is now differ on *both* axes —
+one step back along the old direction, one step on along the new — so the
+rectangle is a 2 × 2 block of tiles whose diagonal member is the **wall tile
+in the corner**, carrying the corner of the maze that `dd_walls_of` extended
+both lines by the line thickness to close. A zeroed band took it off the glass
+for the rest of the level, and the field report was exactly that: *"corners
+disappear when a ghost or Smiles crosses them"*.
+
+So the tiles are walked first — four to nine `dd_tile` reads — and a rectangle
+holding a wall or the ghost-house door takes its bytes out of the wall picture
+instead. **That is one `rep movsb` at a turn and none at all in a straight
+line**; copying it into *every* band was built first and is what a frame
+cannot afford, at **12 ms of a 54.9 ms frame** on a VGA (§93.5.3 item 4) for
+bytes that are zero.
+
+#### 93.5.1.1 A band of zero height is 65,536 rows
+
+`dd_band_walls` copies `[dd_bh]` rows with `dec dx / jnz`, so a height of
+**zero** is not a no-op: it is 65,536 rows of `rep movsb` walking the whole
+package segment — its bss, its code, the lot — and what comes out the far side
+is a worker executing rubble. It reported itself as **STACK OVERFLOW**, which
+is the kernel's canary doing its job on a task whose return addresses had been
+overwritten, and it cost an afternoon because the panel names the symptom
+rather than the cause.
+
+Two things stop it, and both are worth having. `dd_band_build` **refuses** a
+degenerate rectangle rather than clamping one — a band with nothing in it is
+one an actor does not need drawn. And the producers clamp the rectangle's TOP
+as well as its bottom: clamping only `c1`/`r1` to the board's last column and
+row while leaving `c0`/`r0` free is what makes `r1 < r0` in the first place,
+and a negative height is a zero one once it has been through a `mul`.
+
+The zero-fill path was blameless throughout — `rep stosb` with `CX = 0` copies
+nothing — which is why this arrived with the corner fix and not before it.
+
+A move too big for one band is a **teleport** — the tunnel, a new life, the
+start of a level — and is drawn as two operations instead: one band over the
+tiles the actor was on, without it, then its own band where it is now.
+
+#### 93.5.2 The frame
+
+| | |
+|---|---|
+| a full repaint | one black fill, the wall picture in two blits, ~80 dot-run bands, four pellet tiles, the HUD, five actors |
+| a playing frame | five actor bands, the pellet blink when it turns over, the fruit when it changes, and the HUD only when a number moved |
+
+The wall picture goes up as **one `gfx_blit1` a half** (the slot takes 1..255
+rows). The dots go up as **one band per run of adjacent dot tiles in a tile
+row** — about eighty bands for the classic board — and a run is safe to blit
+opaquely because two adjacent corridor tiles have no wall between them to
+erase.
+
+#### 93.5.3 What it costs, measured
+
+On MartyPC, a cycle-accurate 4.77 MHz 8088 — the machine this project is
+calibrated against — with the game left to play itself and the guest's own
+cycle counter as the clock:
+
+| adapter | windowed | fullscreen |
+|---|---|---|
+| VGA 640×480 | 17.80 fps (97.9%) | 18.18 (99.8%) |
+| CGA 640×200 | 17.38 (98.2%) | 18.20 (100.0%) |
+| Hercules 720×348 | 16.81 (98.0%) | 18.15 (99.5%) |
+
+…each against the tick rate measured in the same window. **98–100% of the tick
+on every adapter, windowed and fullscreen.** The windowed figures are a whole
+tick or less short of the ceiling and the shortfall is a rounding of the
+sleep, not a frame that did not fit.
+
+**Those are the DEMO playing itself, and the headroom is not the same on every
+arm.** A *steered* game on the biggest board — VGA windowed, 448×403, five
+actors all moving and the score changing on every dot — is the heaviest case
+in the tree. Measured on the same instrument:
+
+| arm, steered | before §93.5.9 | after |
+|---|---|---|
+| CGA, Hercules | 98.4–100.2% | 98.4–100.2% |
+| **VGA windowed** | **91.7 / 93.2 / 95.1 / 96.6%** | **99.1 / 99.7 / 99.7%** |
+| VGA, in the bracket | 95.7–98.4% | 97.2 / 98.1 / 98.1% |
+
+The VGA arm sat apart for exactly one round, on a floor of its own (85%
+against the others' 95%) and a note that it would come back up when the band
+composition was taken. **It was, and it did** — §93.5.9 — so `FPS_FLOOR` went
+to 0.95 on all three.
+
+**And the three readings that justified that were the top of a spread.** Leg E
+was counting a whole repaint as a frame (§93.5.3.1 says it is not one), which
+hid four points of noise; with the window retaken when one falls in it, the
+same arm reads **94.3 / 92.9 / 98.5** — a mean of 95.2 across a spread of 5.6,
+sitting *across* the floor it had just been given. VGA is **0.90** now, 2.9
+points under the worst clean reading; CGA and Hercules keep 0.95 on a spread
+of 98.4–100.2 that has held for six rounds. §93.5.10's repair queue is 0.4 to
+1.7 points of that by same-session A/B and is not why the arm is where it is.
+
+Three samples is not a distribution, and three that agree are the easiest kind
+to believe — which is the same error this section had already written up one
+paragraph earlier.
+
+Worth keeping from that round: a **distribution** is what a floor has to be
+set from. One number for all three arms was a number nobody had taken, and a
+90% floor sat *inside* the VGA arm's eight-point swing, so it read as a
+regression every time that arm ran beside two other guests.
+
+It did not start there, and the things that were wrong are worth having
+written down because none of them was the sprite renderer:
+
+1. **The pellet blink walked the board.** Four power pellets, found by
+   scanning all 868 tiles, three times a second: **45 ms a turn**, 11 ms of
+   every frame amortised, and on its own the difference between 12 fps and
+   18.2. `dd_pill_list` records where they are when the layout is decoded and
+   the blink reads four entries.
+2. ~~**The attract screen's play line was `font_run`.**~~ **THIS ITEM WAS
+   WRONG** and is kept here because it was quoted. The 176 ms it claimed was
+   never measured and is ~30× out; the line costs 5.42 ms through `font_run`
+   and 4.89 ms as a band, and at twice a second neither is what took that
+   screen to 9.8 fps. §93.5.5 has the measurement, what the band actually buys,
+   and where the number came from.
+3. **Every tile lookup was two 16-bit divides.** `dd_tile_of` divided the
+   actor's sub-pixel position by the tile, at ~160 cycles a `div`, from a
+   dozen call sites a tick. The tile is carried alongside the position now
+   (§93.7).
+4. **The band carried a copy of the wall picture.** Cutting the band on the
+   tile grid (§93.5.1) makes it about 1.5× the bytes of a byte-grid one, which
+   is affordable; copying the maze under it as well was **12 ms of a 54.9 ms
+   frame on a VGA**, and §93.5.1 is the argument that those bytes are zero.
+   Composing an item's rectangle with two `mul`s per item instead of a running
+   origin, and shifting the sprite word twice per row instead of once, were
+   another 6 ms between them.
+
+5. **A lost life owed a WHOLE repaint.** `dd_actors_home` cleared every
+   actor's "where it was drawn", so nothing took the old sprites up and the
+   only way to clean the board was to draw all of it. On a VGA that is **677
+   ms — twelve and a half ticks** — and an unsteered Smiles dies two or three
+   times inside leg E's eight-second window, which is why that leg read
+   anywhere between 66% and 98% on VGA and always 100% on the two 1bpp
+   adapters. A death is a jump of more than a tile, which §93.5.1 already
+   calls a **teleport** and already draws as two bands: leaving `dd_shown`
+   alone is the whole fix, and `tests/dotdel.py` now sees 97–99% on VGA
+   whatever happens inside the window.
+
+#### 93.5.3.1 Where a frame goes, on the adapter with the least room
+
+Measured the same way as §93.5.5 — a breakpoint pair on each proc and the
+guest's own cycle counter — on `os8088_xt_vga`, tile 16×13, five actors in
+play (PERFORMANCE.md Set 145):
+
+| | µs, min of twelve |
+|---|---:|
+| `dd_render` — the whole frame, lock to unlock | 34,599 |
+| …of which `dd_draw` | 25,962 |
+| …of which `dd_actors_draw`, five actors | 23,111 |
+| one `dd_actor_emit` | 4,068 |
+| …its `dd_blit` (the `gfx_blit1` itself) | 1,856 |
+| …its `dd_band_one`, the sprite into the band | 1,135 |
+| …its `dd_band_build` (ground 102, items 209, others 323) | 886 |
+| `dd_step` — **one whole tick of game logic** | **71** |
+
+Two things worth keeping out of that table. **The logic is 0.2% of the
+frame** — four ghosts thinking, line of sight, the eyes, collisions and the
+clocks together cost less than a fortieth of one actor's band — so this game
+is a renderer with an AI in it and not the other way round. And **the ~8.6 ms
+between `dd_render` and `dd_draw` is the kernel's**: the gfx lock hides and
+restores the pointer, and the clip region is armed and dropped, once a frame.
+
+The costs that remain are per frame: five actor bands at ~4.1 ms each on a
+VGA and much less on either 1bpp adapter, the pellet blink at four tile blits
+three times a second, and the HUD only when a number moved. The two that are
+NOT per frame are a **full repaint — 677 ms on a VGA** — and a board render
+into the picture (~200 ms), which now happen at a level start behind "READY!"
+and when the window is repainted, and no longer on a lost life.
+
+**Four tile blits three times a second is what the blink costs**, and it is
+worth naming because the field offered to give the blink up over it: it is
+~0.6% of one adapter's frame, and the pellets stay.
+
+#### 93.5.3.2 …and the list is walked in SI, which `dd_tile_put` was loading
+
+`dd_pills_blit` walks the pellet list with **SI as its counter** and
+`dd_tile_put`'s `.emit` loads SI with the band's address, so the first pellet
+trampled the loop and the other three were never refreshed again. They did
+not merely stop blinking: the first actor to cross one composed it in
+whichever phase was current, and if that was the dark half **the pellet was
+gone for the rest of the board**. The field report was *"the dot in the upper
+left corner is blinking, the rest can be eaten but not seen"*, and the upper
+left is pellet 0.
+
+`dd_tile_put` preserves SI now, which is the fix at the routine that broke
+its own published contract rather than at the one caller that noticed. Both
+its other callers already pushed SI around it, which is why nothing else went
+wrong and why nothing else changes. `tests/dotdelpen.py` leg A reads the
+tiles the refresh actually reaches, off CX at a breakpoint on `dd_tile_put`
+itself: four corners on a fixed build, and `{(1,3), (1,23), (13,17)}` on a
+build with the two instructions taken back out.
+
+#### 93.5.9 A band is composed per OBJECT, so that is where its time goes
+
+§93.5.3.1 said a VGA actor band was ~6.9 ms and the kernel blit inside it
+~1.9 — so **two thirds of a band was this package composing it**, not the
+kernel drawing it. Broken down, on a cycle-accurate 4.77 MHz 8088 with the
+game in play:
+
+| | before | after |
+|---|---:|---:|
+| `dd_actor_emit`, a whole band | 6.16 ms | **4.69 ms** |
+| …`dd_band_build` (ground, items, others) | 2.81 | **1.14** |
+| … …`dd_band_items`, the dots | 1.12 | **0.89** |
+| … …`dd_band_ground` | 0.37 | 0.38 |
+| … …`dd_band_others` | 0.39 | 0.45 |
+| …`dd_band_one`, this actor's sprite | 1.15 | **0.60** |
+| …`dd_band_emit`, `dd_pen` + `gfx_blit1` | 1.99 | 1.99 |
+
+Nothing about the *shape* changed — the same bands, the same one blit each.
+Two things inside them did:
+
+* **`dd_band_rect` did a 16-bit `mul` and four push/pop pairs PER ROW** for a
+  base that advances by exactly one stride. About 230 cycles of the ~400 a row
+  of a four-pixel dot cost, and there are two or three dots in a band.
+* **…and it rebuilt the same bit mask for every row.** A rectangle's rows are
+  identical by definition. Two bytes hold any run this game asks for, so the
+  mask is built once and the rows are `or`/`or`/`add`.
+* **`dd_band_one` shifted on every row even when the shift was zero.** A tile
+  is a multiple of 8 wide (§93.3), so an actor moving only in Y sits on a byte
+  column for its whole journey: every ghost in a vertical corridor was paying
+  two variable shifts, three tests and three read-modify-writes a row for two
+  stores' worth of work.
+
+**The bit arithmetic was proved equivalent exhaustively rather than
+photographed.** Both old and new forms were modelled and compared over their
+whole input domain — 800 cases for the mask (every byte offset × every width
+that fits in two bytes) and 3,072 for the aligned sprite row — with no
+mismatch. That is the right proof for a change that only rearranges bits, and
+it is one a screenshot cannot give: a frozen-frame hash of this game is not
+reproducible even against itself, because the actors' animation phase follows
+`dd_anim` and two runs are never on the same tick.
+
+**The first attempt at the hoist wedged the renderer**, and the reason is
+written in the code it edited: `dd_band_rect`'s per-row multiply was banked
+with a comment saying *"MUL writes DX, which is the row counter"*. Hoisting
+the multiply without keeping that push made the height the product's high
+word, so `dec dx / jnz` walked the whole segment — the same catastrophe
+`dd_band_build`'s own comment describes one screen up. It costs one push/pop
+per rectangle instead of four pairs per row, so the win survives paying it.
+
+#### 93.5.10 A tile an actor has LEFT owes its own pen back
+
+§93.5.4's one-pen band is a fair compromise **while the actor is over the
+tile**, and the field accepted it as one. What was wrong with it is that it
+was **permanent**: the band covers where the actor was and where it is, so the
+vacated tile IS redrawn — in the actor's ink again — and once the actor is two
+tiles away no band covers it at all. The last band to touch a tile owned its
+colour for the rest of the level, so a ghost left a **trail** of its own
+colour down every corridor it walked.
+
+Measured on a VGA after twelve seconds of play: **24 of 228 dots not white and
+3 of 436 walls not blue**, all of them one ghost's magenta, in a contiguous
+line behind it — and it only accumulates.
+
+A tile that falls out of an actor's band is **queued**, and `DD_REPPF` = 2 a
+frame are put back with `dd_tile_put` in the pen their own content wants. Two
+things make that cheap enough to be the answer:
+
+* it is a **queue** and not a repaint on the spot, because a tile is ~2.5 ms
+  on a VGA and a burst of five actors crossing a boundary together would be
+  five of them on one frame. The latency it trades for that is invisible: a
+  tile that goes back to white one frame late is a tile the actor is still
+  standing next to;
+* the vacated set is computed against the band's **previous tile rect**, so
+  the queue only gains anything on the frames an actor crosses a tile
+  boundary — about one frame in four per actor, not every frame.
+
+A tile within one of any actor is skipped and re-queued (`dd_rep_covered`):
+repainting there would take the actor off the glass for a frame, which is the
+flicker §93.5.1 composes other actors into the band to avoid.
+
+**`dd_tile_put` now picks its pen from the tile's content** — `TT_WALL` and
+`TT_DOOR` get `DD_INKWALL`, everything else `DD_INKDOT`. It was always the
+dot's, which was true while the only caller was the pellet blink and wrong the
+moment a repaired WALL came back white.
+
+**The whole queue is compiled out at run time on one plane.** `dd_pen` is
+skipped entirely there (§5.4.2.2), where a band already means lit and unlit, so
+Hercules and CGA cannot have this defect — and both `dd_rep_vacated` and
+`dd_rep_run` return at a single `cmp byte [dd_bpp], 1` rather than let those
+two adapters pay two tile blits a frame for a fix they get nothing from.
+
+#### 93.5.11 …and a repaired tile owes its own GROUND, not black
+
+§93.5.10 fixed the pen a repaired tile comes back in and left the **picture**
+wrong. `dd_tile_put` composes a zeroed band and stamps the tile's dot or
+pellet into it, and that was the whole truth while its only callers were the
+pellet blink and the fruit: both of those tiles are **corridor**, and a
+corridor tile holds no wall ink at all, because `dd_walls_of` draws every line
+*outside* the tile it outlines (§93.2.1). The zeros were the picture, and
+nobody noticed there was an assumption in them.
+
+The queue then started handing it `TT_WALL` tiles. A **turn** makes the band a
+2x2 block whose diagonal member is the corner's wall tile (§93.5.1), so the
+corner is queued the moment the actor leaves it — and repainting it as an
+empty band took it off the glass for the rest of the level. The field report
+was *"corners are back to disappearing"*, and it is the same defect
+`dd_band_ground`'s wall arm was written to fix one routine along.
+
+So `dd_tile_put` takes the same arm: a `TT_WALL` or `TT_DOOR` tile has its
+ground copied out of the board picture by `dd_band_walls` rather than zeroed.
+It is the routine that was already there and it needs `[dd_bx0]`/`[dd_by0]`/
+`[dd_bh]`, which are the tile's own origin and height, so the cost is four
+stores and a compare on the tiles that do not want it.
+
+**Measured on a VGA after twenty seconds of play, against the board picture
+itself: 108 wall-ink pixels black in 2 tiles before, 0 after.** The instrument
+is `tests/dotdel.py`'s leg G, and its existence is the finding: the colour
+census that caught §93.5.10's trail **could not see this at all**, because it
+skipped a tile with no lit pixel in it — and most wall tiles legitimately have
+none, so a blacked corner is indistinguishable from an ordinary one. Asking
+"is that wall the wrong colour" is a different question from "is that wall
+there", and the second one needs `dd_bdseg` as ground truth.
+
+#### 93.5.12 The overlay's band is EIGHT ROWS and a tile need not be
+
+Leg G found a second one, older and on a different adapter. `dd_centre_line`
+puts READY!/PAUSED/GAME OVER on `DD_FRUITR`, the one board row that is empty
+in every layout, which is what makes **black the whole erase** when it comes
+down. It is not the whole erase anywhere else, and the routine already knows
+the band may not fit: when `[dd_th]` is under 8 it gives up centring and
+starts at the tile's top, so the other four rows land on the row **below**.
+
+Under the ghost house those tiles are wall, and the fill took the wall's own
+line off the glass for the rest of the level — **48 pixels, one high and six
+tiles wide, permanent**, on a windowed CGA where the tile is 8x4. VGA and
+Hercules never see it: their tiles are 8 rows or more and the band fits.
+
+`dd_ov_spill` walks the tile rows the band reached beyond `DD_FRUITR` and puts
+each tile back with `dd_tile_put` — which is only correct because §93.5.11
+taught that routine to restore a wall. It costs **one compare** on any
+geometry whose tile is 8 rows or more, which is both other adapters and every
+fullscreen bracket.
+
+#### 93.5.13 A band may wear the actor's ink over a tile it is ON, not one it is NEAR
+
+§93.5.1's one-pen band is a compromise the field accepted for the tile under
+an actor — *"the dots changing colors while the ghost is above them looks
+fine"* — and refused for the maze: *"the corners... they flash brightly"*. The
+two are not the same claim, and the difference is which tiles a band covers
+that no box of the actor's is on.
+
+A band is the union of two one-tile boxes, taken out to the tile grid. When
+those boxes differ on **both** axes the union has a fourth corner that neither
+box touches, and in a one-tile corridor that corner is the maze's own wall.
+
+**Measured on a VGA, 859 bands over 243 frames of steered play:**
+
+| | bands | note |
+|---|---|---|
+| composed | 859 | 3.53 a frame |
+| holding a wall or door | 40 | **4.7%**, 3.0 a second |
+| …the 2x2 corner | 16 | the defect — a tile no box is on |
+| …the pen DOOR | 30 | a ghost standing on it — the accepted case |
+| …belonging to Smiles | **0** | see below |
+
+**Not one of the forty was Smiles**, and that is the answer to "why only
+sometimes". §93.7.3 takes an actor's decision *inside* `dd_act_move`, standing
+on the tile origin, and spends the rest of the tick's budget along the new
+direction. Smiles' 100% divides the tile exactly — 256 units of budget into a
+256-unit tile — so he lands on every origin at a tick boundary and turns with
+a whole tick on one axis; his two boxes never differ on both. A ghost's 88%
+does not divide. A turn is therefore necessary and not sufficient, which is
+what makes it look intermittent from the glass.
+
+##### 93.5.13.1 …and the tidy answer is the one that does not fit
+
+The obvious fix is to emit the two **boxes** rather than their union: a box
+only covers tiles the actor is passing over, so the fourth corner is in
+neither and is never written at all. **It was built, measured and withdrawn.**
+
+A split path is **11.18 ms** against a single band's ~5 (median of 41, paired
+at `dd_actor_emit.split` and `.drawn`), and the frames it fires on are the 2x2
+turn frames — already the heaviest a band gets. A windowed VGA frame is
+about 90% of the 54.9 ms tick, so the extra six do not cost six: they cost the
+**whole frame**, which then misses its tick.
+
+That is the general shape and it is worth writing down: **on a machine whose
+frame is nearly full, the cost of extra work is not the work, it is a dropped
+frame** — and a repair on the very frame that needed it is always landing on
+the fullest one. A single tile put instead of a second band (2.5 ms rather
+than 6) measured no better for the same reason.
+
+So the corner is **queued** and put back on the NEXT frame, out of §93.5.10's
+existing `DD_REPPF` = 2 drain, which is work the frame was going to do anyway.
+`dd_split_ck` decides it in three tests, cheapest first: one plane has no pen
+at all (§5.4.2.2), so Hercules and CGA pay a single compare; a union spanning
+one axis has no fourth corner; and `dd_rect_wall` is the predicate
+`dd_band_ground` already takes for its ground.
+
+##### 93.5.13.2 The queue was slow because of a RING
+
+Queueing the corner is only worth anything because §93.5.10's `dd_rep_covered`
+was fixed at the same time. It deferred any tile **within one tile** of any
+actor, on the reasoning that repainting under somebody takes them off the
+glass for a frame — and the corner this section is about is adjacent to the
+actor *by construction*, so it was deferred, re-queued and deferred again
+until the ghost was two tiles away. That is the hundreds of milliseconds the
+field saw it wrong for.
+
+The test is the actor's **box** now (`dd_tile_free`), which is the exact
+question that reasoning was asking. The pen door under a ghost — 30 of the 40
+walled bands — is still left alone, and still looks fine.
+
+**But the ring may only come off a WALL**, and that is the second half of the
+fix rather than a detail. Making the test exact for *everything* changed what
+the drain does with the rest of the queue — which is mostly Smiles' own dot
+trail: under the ring `dd_rep_run` popped a tile near an actor, found it
+covered and re-queued it **without drawing**, and exact it draws. Two tiles a
+frame, every frame, is ~5 ms a windowed VGA frame has not got, and the soak
+read **78.0% of the tick** for it. A dot is in no hurry — that is §93.5.10's
+own latency argument — so it keeps the ring; a wall takes the box, and there
+are ~0.05 of those a frame against the trail's two.
+
+**Measured after, on VGA, three runs: 9,592–9,594 wall-tile readings over 20
+finished frames each, 0 wrong in every one**, against a defect that held the
+same tile wrong for a dozen frames together; windowed 97.6 / 90.5 / 97.9% of
+the tick and fullscreen 99.1–99.6%, against 96.3–97.1 before the corner work.
+`tests/dotdel.py` leg H is the gate and reads the glass at `dd_draw`'s entry,
+where a frame is finished.
+
+##### 93.5.13.3 …and repairing it a few milliseconds later is still a flicker
+
+§93.5.13.2's queue put the corner back on the frame that dirtied it —
+`dd_rep_run` drains after `dd_actors_draw` in the same `dd_draw` — so the
+corner was written in the actor's pen and overwritten a couple of
+milliseconds afterwards. **A gate that samples at a frame boundary reads that
+as clean**, and `tests/dotdel.py` leg H did: 0 wrong over 20 finished frames,
+while the field kept reporting *"the corners are still flickering"*. Sampling
+at `dd_rep_run`'s entry instead — mid-frame, after the actors have drawn —
+catches corners in the actor's pen that the boundary census cannot see. **A
+couple of milliseconds, three times a second, is a flicker on a CRT**; the
+refresh samples it often enough to be seen.
+
+So the corner must never be written at all, which is §93.5.13.1's split, and
+that section's costing is confirmed rather than overturned. Six samples of the
+windowed VGA arm: **83.6, 86.1, 87.1, 87.1, 88.5, 88.7** against **97.6, 97.9
+and 90.5** for the build that repaired instead — about **ten points of the
+tick, 18.2 fps to 15.9**. Fullscreen is unaffected (97–99%) because its frame
+has room, and Hercules and CGA pay a single compare: one plane has no pen
+(§5.4.2.2).
+
+**That is the trade and it is the owner's**, not something to absorb into a
+floor: the row's VGA floor is 0.80 with the distribution written beside it.
+What the ten points buy is that the mid-frame census reads **0 of 14,400
+wall-tile readings** in the actor's pen, where the repairing build showed them.
+
+##### 93.5.13.4 The attract screen is the same renderer, minus one call
+
+The demo runs `dd_actors_draw` — the same cast through the same one-pen band —
+so it queues the same tiles for the same reason. What it did not do was drain
+them: `dd_rep_run` was on `dd_draw`'s play path only, so nothing on the title
+screen ever put a tile back and a dot a ghost had crossed kept its colour for
+the rest of the demo. The field read it as *"the attract screen still has most
+of the bugs we've been fixing"*.
+
+It is **one call** and not a second renderer, which is worth saying because the
+report reasonably guessed otherwise: the title screen already shares
+`dd_actors_draw`, `dd_pill_refresh`, `dd_pills_blit`, `dd_walls_blit` and
+`dd_dots_blit` with the game. There is no duplicate to collapse and no second
+place a fix has to be made — there was one line of divergence.
+
+#### 93.5.14 The tile range of a band is walked out, never divided
+
+`dd_actor_prep` reduces the pixel union of an actor's two boxes to the tile
+rectangle that contains it. It used to do that with **four 16-bit `DIV`s** —
+`dd_bx0/dd_bx1` by `[dd_tw]`, `dd_by0/dd_by1` by `[dd_th]` — which is about
+160 cycles each on an 8088, five actors a frame, twenty divides a frame for
+an answer the program already holds.
+
+It holds it because §93.7's mover carries it. `dd_advance` keeps `dd_ac`/`dd_ar`
+— the tile an actor is in — and `dd_acx`/`dd_ary` — **that tile's own origin,
+in the same 1/16 px the position is in** — in lockstep with `dd_x`/`dd_y`, and
+every write to a position in the program is either `dd_advance`'s or
+`dd_put_tile`'s, which is what makes the pairing an invariant rather than a
+convention. So the tile of any pixel *near the actor* is the actor's own tile
+plus a small offset, and the offset is found by comparing rather than dividing:
+
+- the union opens at `min(px, nx)`, which `dd_actor_px` has already refused to
+  let fall more than one tile back — so the first column is `dd_ac`, or
+  `dd_ac - 1` when the union opens before `dd_acx`. **One compare.**
+- it closes at `max(px, nx) + tw - 1`, which for the same reason cannot reach
+  beyond `dd_acx + 3·tw - 2` — so the last column is `dd_ac`, `+1` or `+2`.
+  **Two compares.**
+
+Six compares an axis-pair where there were four divides, and the answer is
+*identical* rather than approximate: the walk computes `floor(v / tw)` exactly
+over the only range the value can occupy. `tests/dotdel.py` leg J is what says
+so, checking every call at `dd_actor_prep.banked` — the one point where the
+union that went in and the range that came out are both readable — against a
+host-side divide.
+
+**The teleport refusal is what bounds the walk**, so it is load-bearing here
+and not only in §93.5.1: a step longer than a tile takes `dd_actor_px`'s
+`.fresh` arm, which sets the old box to the new one, and the union is then one
+box wide.
+
+#### 93.5.15 A band is the pixel union; only its x is on the tile grid
+
+§93.5.1's band is the union of where an actor was drawn and where it is. That
+union was then rounded **out to the tile grid on both axes**, and only one of
+those axes had a reason.
+
+`gfx_blit1` takes a band whose x is a byte column and whose width is a whole
+number of bytes (§5.4.2.2). A tile is a multiple of 8 wide (§93.3), so tile
+rounding satisfied that — but it satisfied it with room to spare, and **y has
+no such rule at all**. On a VGA, where the tile is 16×13, an actor stepping
+four pixels down produced a band of **26 rows where 17 were owed**, and one
+stepping four pixels sideways a band of 32 columns where 24 were.
+
+Measured over 1,155 bands on a 4.77 MHz 8088
+(`docs/reports/DOTDEL-FRAME-PROFILE-2026-09-09.md`), the rounding cost **36%
+of every band's pixels on VGA** and 30% on Hercules, and the band is what the
+blit, the ground copy and both sprite composers are all priced by — 21.5 ms
+of a 29.9 ms frame. On CGA, where the tile is 8×4 and about the size of a
+step, it cost 10% and the change buys almost nothing.
+
+So the band now carries **two rectangles rather than one**:
+
+- `[dd_c0..dd_c1] × [dd_r0..dd_r1]`, the TILE range it overlaps. This is what
+  the composers ITERATE — which dots to consider, whether a wall is in reach
+  (§93.5.13) — and it is unchanged.
+- `[dd_ux0..dd_ux1] × [dd_uy0..dd_uy1]`, the PIXEL rectangle it must hold.
+  This is what is composed, blitted and therefore paid for. `dd_band_build`
+  cuts the band to it, rounding **x** out to byte columns and **y** not at all.
+
+Three things fall out, and the third is the one that needs code:
+
+1. `dd_band_build` stops multiplying. It used four `MUL`s to turn tiles into
+   pixels; both rectangles now arrive ready, so it shifts and subtracts.
+2. `dd_band_one` and `dd_band_others` need nothing. The first already clipped
+   a sprite to an arbitrary band rectangle — that is how an actor half out of
+   its own band was drawn — and the second already tested against the band's
+   pixels rather than its tiles, so it composes fewer neighbours for free.
+3. **An item on a tile the band only partly covers has to be clipped**, which
+   is `dd_item_rect`'s job. The tile grid no longer starts at the band's own
+   corner: tile `(c0, r0)` opens above and to the left of it, both offsets are
+   `<= 0`, and a dot near the edge of the union is now half in it. A
+   rectangle is uniform, so clipping one moves the counts and nothing else.
+
+**The clip is in `dd_item_rect` and deliberately not in `dd_band_rect`**, even
+though the second is where a general clip belongs. Four other bands in this
+program call `dd_band_rect` — the dot run, the title's glyph grid, the HUD's
+— and they are built to fit exactly what goes in them; not all of them set
+`dd_bh` at all, so a clip there would read a stale height and silently drop
+rows of somebody else's text.
+
+**Every field of the band is stored before anything is refused**, and that is
+the part to keep. `dd_band_actor` calls `dd_band_one` and `dd_band_emit`
+whether a band was built or not, so a `dd_band_build` that returns early on a
+degenerate rectangle leaves the PREVIOUS band's base, stride and origin
+standing — and the actor is then composed into that buffer and blitted where
+that one was. The tile arithmetic could not do this, having stored its five
+fields before it had anything to refuse; the pixel version has to do it on
+purpose. It reached the field as a Hercules arm reporting negative frame rates.
+
+**What the two rectangles bought**, VGA, windowed, playing, on a
+cycle-accurate 4.77 MHz 8088: mean band **460 px → 303**, bands spanning three
+tiles **20.8% → none**, `gfx_blit1` **12.69 ms a frame → 10.05**, and the whole
+frame **49.59 ms → 44.42** of a 54.93 ms tick. The band now measures **96% of
+its own union**, so what is left is the byte-column rounding and nothing else.
+Hercules goes 34.43 → 33.64 and CGA barely moves, its 8×4 tile being about the
+size of a step already.
+
+#### 93.5.16 The death is an animation, and the ghosts leave for it
+
+`dd_die` set a state and a timer and nothing else, so being caught was a
+**thirty-two-tick freeze** — Smiles standing in whatever direction he happened
+to be facing, four ghosts on top of him, for 1.76 seconds — and then the board
+reset. Nothing about it said he had died; the field asked for an animation.
+
+`DD_DIET` is **18 ticks (989 ms)** and `dd_dietab` is one entry a tick:
+
+| ticks | image |
+|---|---|
+| 0–2 | the plain disc, facing up — the beat before it starts |
+| 3–4 | mouth half open, up |
+| 5–6 | mouth wide open, up |
+| 7–8 | `SP_DIE + 0` — ~135° |
+| 9–10 | `SP_DIE + 1` — 180°, the top half gone |
+| 11–12 | `SP_DIE + 2` — ~250°, a bowl |
+| 13–14 | `SP_DIE + 3` — the burst |
+| 15–17 | `DD_DGONE`: `[dd_alive + 0]` = 0 |
+
+**Only four of those seven pictures are art.** The mouth opens *upward*, so the
+first three are images Smiles already has — `SP_PAC + DIR_U * 3 + phase`, built
+by the quarter turn `dd_spr_build` already does — and what the death adds is
+the three past the widest one he plays with, plus the burst. 128 bytes of
+master, 18 of table.
+
+Three things follow from writing it as a table of images rather than as a
+routine that draws:
+
+- **It costs seven blits, not eighteen.** Nothing moves during the death, so
+  §93.5.6's test holds: `dd_actor_prep` compares `[dd_img + si]` against
+  `[dd_limg + si]` and skips every tick on which the table repeats. The hold
+  is free.
+- **`DD_DGONE` is `[dd_alive]`, not a blank image.** A sprite of no lit pixels
+  is still a band, and a band is opaque — it would lay the board's own picture
+  back down, which is right, but it would also keep paying for it. Clearing
+  `[dd_alive + 0]` reaches `dd_actor_prep`'s `.none` arm, which is
+  `dd_wipe_old` once and then nothing.
+- **The hold lengths are the half that had to be looked at.** Three ticks of
+  beat and two a frame is not derivable, so it is a table rather than
+  arithmetic over `[dd_tim]`.
+
+**The ghosts leave.** `dd_die` clears `[dd_alive + 1..4]`, and the same `.none`
+arm wipes each one on the next frame, so the collapse plays on a clean board.
+That is not decoration: four bodies standing on the tile Smiles is dissolving
+on is where the eye goes instead of on him. `dd_actors_home` sets all five back
+when the next life starts; on the **last** life it is never called, and Smiles
+and the ghosts staying gone is exactly what §93.12.4's panel wants under it.
+
+`dd_die_anim` is called *before* `[dd_tim]` is decremented, so the index runs
+0…`DD_DIET`−1 over the table's own length, and `dd_die` calls it once itself so
+frame 0 lands on the frame of the catch rather than a tick after it.
+
+#### 93.5.9.1 …and the fast path forgot which BYTE the run starts in
+
+§93.5.9's two-byte mask is built from the run's **bit** offset, and the byte
+column — `x >> 3`, which `dd_bandrun` adds to `DI` for itself — was left out
+of the path that replaced it. So every rectangle landed at the **left edge of
+its band** instead of at its x: the title's cells all piled into byte column 0
+as a narrow bar, and every dot was drawn in the band's leftmost tile, so dots
+went missing where they belonged and turned up inside the corners the same
+band covered. The field reported all three as separate bugs on VGA, and they
+are one instruction.
+
+**An exhaustive host-side model passed 800 cases against that build**, which
+is the part worth writing down. The model had the byte column, because it was
+written from the design; the code did not. Comparing a transcription against
+the algorithm it was transcribed from proves the two agree and says nothing
+about the object that ships — so a bit-level rewrite wants a check that reads
+the GLASS, and `tests/dotdel.py` leg F is that check: the grid comes out of
+the guest and the pixels off the screen, and a dot the grid puts at (c, r)
+must put ink inside tile (c, r).
+
+Three things that leg had to get right before it could accuse the code, each
+of which made it report a defect that was not there: the grid and the pixels
+must be read of ONE instant (Smiles eats between two reads), the blink must be
+pinned LIT (a pellet caught in its dark phase reads exactly like a misplaced
+one), and `dd_pilt` counts down with `jns`, so it is **signed** — pinning it
+to 250 is −6 and flips the phase every tick.
+
+#### 93.5.7.1 The list is where they ARE; the grid is whether they still are
+
+`dd_pills_flip` walks the pellet LIST, which is built when the board is
+decoded and never pruned — so an eaten pellet was lettered straight back in on
+the next phase. `dd_eat_tile` clears the tile and the eater's own band puts
+black over it, and 91 milliseconds later the blink drew it again. The field
+report was *"all blinking squares are now visible, but I can't eat them - they
+continue to be present and blink even after going over them (I still get the
+effect)"*, and that parenthesis is the diagnosis: the game had eaten it and
+only the picture disagreed.
+
+One `dd_tile` a pellet, which is a table read (§93.7), and the flip skips a
+tile the grid no longer calls `TT_PILL`. `dd_pills_blit` — the whole-set draw
+a repaint uses — never had the bug, because it goes through `dd_tile_put` and
+that draws whatever the grid says.
+
+**§93.5.3.2 is why this surfaced now.** Only pellet 0 was ever refreshed
+before, so three of the four went dark at the first actor that crossed them
+and stayed dark; the one that did blink was the one at the top left, which is
+also where a player is least likely to be when they notice.
+
+#### 93.5.7 …and once four pellets really blinked, the blink had to get cheaper
+
+**Fixing §93.5.3.2 broke §93.6**, which is the part worth writing down: the
+blink had never actually cost what this document said it cost, because it had
+never actually drawn four pellets. Measured on a VGA in play, breakpoint pairs
+on a cycle-accurate 4.77 MHz 8088:
+
+| | | |
+|---|---:|---:|
+| `dd_tile_put`, one 16×13 pellet tile | 16,600 cy | **3.48 ms** |
+| `dd_pills_blit`, all four | 67,100 cy | **14.05 ms** |
+| `dd_fill_board`, one pellet RECT | 4,444 cy | **0.93 ms** |
+| `dd_pills_flip`, all four | 20,880 cy | **4.37 ms** |
+
+The tick is 54.9 ms. Four tile blits is a quarter of it landing on one frame
+in five, and that frame overran: leg E of `tests/dotdel.py` read **78.6% of
+the tick** with the picture still perfectly right, which is the failure mode
+§93.5.3 exists for.
+
+**A pellet tile holds nothing but the pellet**, so turning it over is the
+pellet's own rectangle in ink or in black rather than the whole tile
+recomposed and blitted — `dd_pills_flip` and `dd_fill_board` instead of four
+`dd_tile_put`s, and **3.2× cheaper** for a picture that is identical by
+construction (`dd_tile_put`'s pellet arm is `dd_band_rect` at exactly that
+offset and size, and the rest of the tile is the black it already is). An
+actor crossing a pellet is unaffected either way: its band redraws the tile
+off the grid in whichever phase is current.
+
+`dd_fill_board` is `dd_blit`'s clipping for a rect — including `[dd_clipy0]`,
+because the attract screen shows a **slice** of the board (§93.11.2) and says
+so by moving that word and the origin together.
+
+Two things not taken. **Blitting only the pellet's own rows** would have saved
+under a third: at 0.93 ms against a 0.76 ms bare arrival the fill is nearly
+all fixed cost, and so was the tile blit. And **spreading the four across
+frames** — a queue armed at the phase change, N pellets a frame — was built
+and measured at 88.5%, worse than the fill and with a ripple to explain: four
+corners changing over 165 ms is a thing a player would report.
+
+#### 93.5.4 The one-pen rule, and what it costs
+
+A band is put down in **one pen**, so everything composed into an actor's band
+— its dots, its pellet, the door bar under it, another ghost crossing it — is
+drawn in **that actor's** colour for as long as it is inside that band. On the
+two 1bpp adapters that is exact and free: a dot, a bar and a ghost are the
+same ink, so the picture is pixel-perfect there.
+
+On a **colour** adapter it is a visible compromise and a bounded one: a dot in
+the tile a ghost is entering is that ghost's colour for the few frames the
+band is over it, and two ghosts that overlap are momentarily one colour. It is
+bounded because **the band is composed from the grid again every frame** —
+nothing is left behind, which is what the first version of this got wrong. That version stamped dots into a byte-rounded band and drew no
+wall bytes at all, so a partly-stamped dot and a recoloured one were both
+*permanent*: the artefact was written up as "a dot goes red for two or three
+frames as a ghost passes" and it was not, because nothing ever drew that dot
+again. The ghosts left coloured trails across the whole board.
+
+The alternative — an actor OCCLUDING what it is over, black band and all — was
+built and is worse on both counts: a dot vanishes a whole tile before the
+actor reaches it and comes back after, and it needs a second blit per actor
+per frame to put the vacated tiles back. Being briefly the wrong colour is a
+smaller lie than not being there.
+
+#### 93.5.6 A frame in which nothing moved draws nothing
+
+Paused, behind READY!, waiting on the board flash, or with the About card up —
+the actors are where they were, their images are the ones they had, and five
+bands of identical pixels were still going down eighteen times a second. On a
+real 4.77 MHz Hercules the Task Manager read the package at **65% of the
+machine while the game was paused**, for a picture nobody could tell from the
+last one.
+
+Three things now decide not to draw, in the order they are cheapest:
+
+* **the About card SUSPENDS the game.** `dd_step` returns at once while it is
+  up, so nothing under the card can change and the card is redrawn only when
+  the window itself is (§20.5.1's dismiss already owes a full repaint). It was
+  redrawn on top of a moving board every frame, which is what "the About screen
+  flashes when brought up" was.
+* **an actor whose position AND image are the ones it was last drawn with is
+  left alone.** The frame-level `dd_still` says nothing global is owed — no
+  pellet phase turned over, no fruit changed, no whole repaint — and each actor
+  then answers for itself.
+* **the centred message is lettered once.** READY! was going down at ~5 ms a
+  time, eighteen times a second, over pixels nothing had touched; it is drawn
+  again only when the line changes or an actor drew over it.
+
+Measured off the kernel's own per-task cycle counters — `sch_cycles` against
+`sch_idleslot`, which is the number the Task Manager shows — on a Hercules
+5150 running the game windowed:
+
+| state | share of the machine |
+|---|---:|
+| playing, 18 fps | 62.4% |
+| **paused** | **23.2%** |
+| **About card up** | **11.7%** |
+
+The 65% the field reported paused is 23%, and the About card, which was the
+most expensive state on the machine, is now the cheapest. Nothing about the
+playing figure moved: a frame in which things DID move still draws them.
+
+#### 93.5.8 A penned ghost pauses, and the pause is the renderer's
+
+The three ghosts waiting in the pen (§93.8.6) **hover on a tile about half
+the ticks** rather than drifting continuously, and that is a rendering
+decision as much as a look: an actor that did not move and whose image did not
+change is a band `dd_actor_prep` does not compose at all (§93.5.6), and a
+ghost's skirt only flaps every fourth tick — so a hovering ghost costs a
+quarter of a drifting one.
+
+It is `dd_dir` = `DIR_NONE` for that tick, which stops `dd_act_move` without
+any new state: the ghost is standing on a tile origin, so `dd_ontile` runs
+again next tick and rolls again.
+
+**Three ghosts crossing each other in a six-by-three box was four points of a
+VGA's frame rate**, because two actors whose boxes meet compose into one
+larger band (§93.5.1). The pen is the one place on the board where actors
+are deliberately crowded, so it is the one place that needed this.
+
+#### 93.5.6.1 …and the HUD draws the FIELD that changed
+
+The score moves on **every dot** — four or five times a second — and lettering
+all seven lines for it is **~20 ms on top of a ~28 ms frame**, which on the
+target machine is exactly the difference between every frame and every other
+one. The field report was *"1 frame drawn every 2 frames or so when Smiles is
+crossing dots, smooth when he is not"*, and that is the sentence: crossing a
+dot is what makes the HUD dirty.
+
+The labels never change, and the high score, the level and the lives change on
+a life, a level or a new record. Each line is drawn only when its own value
+moved, and a whole panel is owed only by a full repaint. A dot now costs one
+nine-cell number, ~2.5 ms.
+
+#### 93.5.5 Text is a band too — and the margin is 11%, not 30×
+
+Every line this package letters — the HUD, the score table, the play line, the
+centred messages — goes down as **one band**, composed out of the kernel's own
+8×8 glyph table (`OSAPI_FONT_GLYPHS`) and put up with one `gfx_blit1`.
+
+**The reason first given for that was wrong, and the correction is worth more
+than the decision.** It said `font_run` could not reach §6.1's single-store
+path on a VGA and cost **176 ms** for the attract screen's nineteen-character
+play line. `font_run` has had that path since §6.1.10 and an unaligned one
+since §6.1.11; the figure was inherited from two sentences in this tree that
+described the pre-§6.1.10 world in the present tense, one of them `font_run`'s
+own header docblock, and it was never measured. It is **~30× out**. §6.1.10.1
+is the rule that actually binds a caller — the fast path needs one colour's
+plane bits to be a subset of the other's, which black paper always satisfies —
+and this package's pens are all coloured-on-black, so it was never off it.
+
+Measured in situ, `dd_play_line` end to end, the same string at the same place
+with the same pen, minimum of nine samples on a cycle-accurate 4.77 MHz 8088
+(PERFORMANCE.md Set 144):
+
+| adapter | band, as first written | band, cell-outer | `OSAPI_FONT_RUN` |
+|---|---:|---:|---:|
+| VGA 640×480 | 12.882 ms | **4.887** | 5.422 |
+| Hercules 720×348 | 12.969 | **4.988** | 5.663 |
+| CGA 640×200 | 12.986 | **5.000** | 5.797 |
+
+Two things fall out of that table and neither is the one that was claimed.
+
+**The band as first written was 2.4× SLOWER than the slot it replaced.** It
+composed ROW-outer and CELL-inner, so the whole glyph lookup — two bounds
+compares, a shift and two adds — happened eight times a character instead of
+once: 393 cycles a band byte. The tell was in the table all along and nobody
+looked for it — **three adapters whose blits differ by a factor of two agreed
+to 0.9%**, which can only mean the cost was the composer. Cell-outer with the
+eight stores unrolled is 2.6× faster and the band then wins by 10–14%.
+
+**And it was never what made the attract screen slow.** The play line is drawn
+twice a second, so even at the claimed 176 ms it was 35% of the machine and at
+its real cost it is under 2%; the 46% that screen was overrunning by belongs to
+§93.5.3's other two items, which landed in the same commit. Three fixes and one
+measurement afterwards cannot attribute, and this one did not.
+
+The band is kept, at a margin that is now stated honestly: it is faster on all
+three adapters, it makes text the same one-`gfx_blit1` operation as everything
+else this package draws, and it composes at a width the 8×8 run cannot. It is
+not load-bearing, and `font_run` at an aligned x would be a defensible choice.
+
+The cost is that the pen x is rounded down to the byte grid, so a centred line
+can sit up to seven pixels left of exact centre. A line of type is a line of
+type.
+
+#### 93.5.17 THE BOARD WALK IS A GLOBAL, and so is the picture under it
+
+`dd_board_render` walks `[dd_gc]`/`[dd_gr]` for ~200 ms — and those two bytes
+are not its own. **`dd_dots_blit` uses them as its loop as well, and
+`dd_tile_put` sets both**, so a frame drawn on the *other* task while the board
+is being walked makes the walk **jump**: it visited **609 of 868 tiles** in the
+measurement, and the maze came out with holes in it that no later paint healed.
+The field saw it as *"a bunch of the board is missing"* after a Thin → Full
+switch in play, and it is the same class of defect as §93.3.4.3 one layer down
+— a global that two tasks reach.
+
+Counted rather than reasoned about: an instrumented build recorded **five
+`dd_tile_put` calls inside a render**, four of them the pellet blink and one
+the fruit, **all five on the worker**, against a UI-task render.
+
+Three things, and the third is the one that makes it safe:
+
+1. **`dd_tile_put` banks the walk.** Four words — `[dd_gc]`, `[dd_gr]`,
+   `[dd_gt]`, `[dd_gx]`/`[dd_gy]` — pushed at entry and restored at exit, so a
+   repair landing in the middle of a walk leaves it where it found it.
+2. **The worker skips a frame while a walk is in progress**, so it does not
+   draw off a half-built picture at all.
+3. **Two flags and one yield.** `dd_board_render` sets `[dd_inrender]` *first*,
+   then waits for `[dd_drawing]` — set around every `dd_draw` — to clear,
+   yielding while it does. The order is what closes the race: if both flags go
+   up together the worker sees `[dd_inrender]`, clears `[dd_drawing]` and skips,
+   so the walk always wins and neither side waits on the other. The wait is
+   bounded by the one frame that had already started.
+
+The gfx lock is not the tool here, and that is worth writing down: it is not
+re-entrant (`gfx_lock` blocks on the flag without asking who owns it), so a
+`.redo` reached from `dd_paint` — which the kernel calls with the lock already
+held — cannot take it again.
+
+### 93.6 The frame is the tick, and the clock is not the frame
+
+The render runs **once a tick** — 18.2 Hz, flat, on every adapter — because
+that is the fastest clock this machine has that costs nothing to read. The
+LOGIC runs **once per tick of elapsed time**, however many that is, so a frame
+the machine could not fit does not slow the game down: it makes the next one
+advance twice.
+
+Windowed, `dd_worker` reads `OSAPI_GET_TICKS`, runs that many logic steps,
+renders, and sleeps one tick. In the bracket the same loop takes its clock
+from `OSAPI_FSX_WAIT` with `FSXW_TICK`, which costs nothing because the
+machine was going to wait anyway.
+
+This is deliberately **not** Cyclone's rule (§67), which misses a frame rather
+than chasing one. That is right for a game whose motion is *per frame*; this
+one's motion is per *tick*, so it catches up exactly.
+
+#### 93.6.4 A pen cannot flash on an adapter that has no pen
+
+The last two seconds of a pellet flash the frightened ghosts as a warning, and
+that flash was **a pen change**: `DD_INKFRI` (CLBLUE) on one phase and `CWHITE`
+on the other. On VGA that reads correctly. On Hercules and CGA it did nothing
+at all, and the reason is one line of §5.4.2.2 — `dd_pen` does not set a pen
+below 2 bpp, because a 1bpp band already means lit and unlit. Both phases
+therefore drew the *same lit pixels*, and the machine with the least margin for
+a mistake got no warning that the pellet was running out.
+
+**So on one plane the flash is an IMAGE and not a pen.** `SP_FRIDIM` is the two
+frightened bodies again with one pixel in two removed, and the flash phase
+selects them; the colour path is untouched and still swaps the two pens.
+
+**The dither is applied to the SCALED sprite, not to the master.** A
+checkerboard laid on the 16-row master and then put through `dd_spr_cut` is not
+a checkerboard afterwards — `dd_rmap` repeats and drops rows to reach the tile
+height, so a 16×9 Hercules tile turns an even chequer into bands. Dithering
+what the scaler has already produced puts the pattern at the screen's own
+resolution, which is the only place it means anything. It costs two more
+scaled sprites and nothing per frame.
+
+#### 93.6.1 …and the catch-up is capped
+
+`DD_MAXSTEP` is 4. A machine that was away — a long disk transfer, a modal
+dialog, a hibernate — does not get to advance the game by a hundred steps in
+one frame, and a step is a whole tick of motion for every actor, so the cap is
+a bound on *work* as well as on surprise. It is safe because a step never
+tunnels: §93.7 cuts every move at a tile origin.
+
+### 93.7 Movement is exact
+
+An actor's position is the sprite box's top-left in **1/16 px**, and a
+DECISION — a turn, a wall, eating something, arriving anywhere — happens only
+when both coordinates are exact multiples of the tile.
+
+**The tile that position is in is carried along, not divided out.** Every
+actor keeps its column and row, and the sub-pixel origin of that tile, and
+`dd_advance` maintains all four with a compare and an add — which it can,
+because a step is never longer than one tile. `dd_tile_of` is then two byte
+loads and `dd_at_tile` is two compares. They were two 16-bit divides each, at
+~160 cycles a `div` from a dozen call sites a tick, and taking them out moved
+a busy VGA board from 11.6 fps to 15.8 (§93.5.3).
+
+If a step would carry an actor **past** a tile origin it is cut at the origin,
+the decision is taken, and the remainder is spent afterwards. So no speed has
+to divide the tile size, an actor can never tunnel through a wall on a long
+step, and §93.6's catch-up is safe by construction rather than by luck.
+
+#### 93.7.1 Speed is a percentage of a tile per tick
+
+One tile takes `DD_TILET` = 4 ticks at 100%, so the game runs at the same
+**tiles per second** on every adapter and the pixel rate follows the tile — a
+CGA's 8 × 4 board and a fullscreen VGA's 16 × 15 one play at identical speed.
+Everything else is a percentage of that: a roaming ghost 88, a frightened one
+60, a returning pair of eyes 190, and anybody in the tunnel 55.
+
+##### 93.7.5 …and a percentage is resolved once, not scaled per tick
+
+There are **five** of those percentages and **two** axes, so there are ten
+answers and they change only when the tile size does. `dd_axis_step` used to
+compute one of the ten on every call — `MUL` by the percentage, `DIV` by 100 —
+which on an 8088 is about 300 cycles, five actors a tick, for a constant.
+
+`dd_layout` resolves all ten where it is already deciding the tile size, into
+`dd_stpx`/`dd_stpy`; `dd_speed_of` answers with an **index** (`SPD_PAC`,
+`SPD_GH`, `SPD_FRI`, `SPD_EYE`, `SPD_TUN`) rather than a percentage, because a
+percentage is a thing to divide by and an index is a thing to look up; and
+`dd_axis_step` is a shift and a load. The percentages survive as `DD_PCT*` in
+one table, `dd_spct`, which `dd_layout` is the only reader of.
+
+The rounding rule moves with the arithmetic and still holds: a speed that
+rounds down to zero is forced to 1, because a zero step is a frozen actor.
+
+##### 93.7.6 …and DOWN is the same PHYSICAL speed, not the same tile rate
+
+**A tile is not square on the glass anywhere.** §93.3's table is the board's
+aspect and it is also, by construction, the *speed* ratio: one tile in
+`DD_TILET` ticks either way means an actor travels its tile's width across in
+the same time it travels its tile's height down, and those are different
+distances on the monitor.
+
+| | tile | **tile** on the glass | across ÷ down |
+|---|---|---|---|
+| VGA 640×480 | 16 × 13 | 1.23 : 1 | **1.23×** |
+| Hercules 720×348 | 16 × 9 | 1.15 : 1 | **1.15×** |
+| EGA 640×350 | 16 × 9 | 1.30 : 1 | **1.30×** |
+| CGA 640×200 | 8 × 4 | 0.83 : 1 | **0.83×** — the other way |
+
+It is the **tile's** ratio and not the board's — those differ by 28/31, and
+§93.3.2 is where that distinction is written down, because getting it wrong is
+what put two rows of §93.3's own table under the wrong heading.
+
+The field read it off the screen without knowing any of that: *"moving across
+is faster than vertical … the projection is slightly skewed horizontally."*
+
+**The tile cannot be narrowed to fix it.** `[dd_tw]` is a multiple of eight by
+the band rule at the top of `ddlay.inc` — a band is put down in one pen, so a
+wall rounded into it is drawn in the actor's colour — and the only step below
+16 is **8**. Squaring a Hercules wants 14; the nearest legal value halves the
+board to 224 px. Growing `[dd_th]` instead is out too: 31 rows at 10 is 310 px
+and the windowed content box on a 348-line Hercules has not got it.
+
+The field's second reading settled which way to correct it: *"the horizontal
+speed **feels right** and the vertical a bit slow."* So **across is the
+reference** and down is brought up to it.
+
+The geometry stays and the **kinematics** are corrected. One pixel down is
+`[dd_asp]`/100 pixels across on the glass, so the step that covers the same
+ground is `stpx * 100 / asp` — and it is done **per speed**, inside
+§93.7.5's loop, rather than once on a base speed:
+
+```
+    mov [dd_stpx + bx], ax
+    mov bx, 100
+    mul bx                          ; DX:AX = stpx * 100, at most 12,100
+    mov cx, [dd_asp]
+    shr cx, 1
+    add ax, cx                      ; ...to NEAREST, and 12,220 cannot carry
+    div word [dd_asp]               ; out of AX, so the MUL's DX still stands
+    mov [dd_stpy + bx], ax
+```
+
+**Rounding is the whole difficulty, and only on one adapter.** Converting a
+base speed once and then taking a percentage of the result is correct to the
+byte on a VGA and wrong by **13%** on a CGA, whose frightened ghost moves
+*seven sixteenths of a pixel* a tick — one unit is 13% of it. Converting each
+of the ten answers from its own horizontal partner, to nearest rather than
+down, brings every row on every adapter inside **±3%**. `dd_spy` is gone with
+it: there is no base vertical speed any more, only ten converted ones.
+
+`DD_TILET` keeps its meaning on the axis it was tuned on — the one the field
+says feels right — and a tile down now
+takes however long the physics says — 3.5 ticks on a Hercules, 3.25 on a VGA,
+4.9 on a CGA. **Nothing else in the game is measured in tiles**: the mode
+clocks, `DD_PENWAIT`, the fright timer and `DD_EATPAUSE` are all ticks, and
+`dd_advance` detects a crossing from the position rather than from a count.
+
+What it costs a player: vertical travel gets **14% quicker on a Hercules, 23%
+on a VGA and 30% on an EGA**, and 19% slower on a CGA. Every actor scales
+together — the ten answers in `dd_stpx`/`dd_stpy` are all built from these two
+words — so the relative speeds §93.7.1 sets are untouched.
+
+**It cannot overshoot a tile**, which is the one thing a bigger step could
+break — and on this branch that is **enforced** rather than argued. `dd_layout`
+clamps each of the ten vertical answers to **half a tile**. The arithmetic used
+to give at least a 1.7× margin on every adapter and §93.3.3.1 is the day it
+stopped: one row of the aspect table moved and a CGA's eyes went to 60 of a
+tile's 64 sixteenths, which reads as a frozen demo rather than as a fast ghost.
+
+#### 93.7.2 Steering is polled, not evented
+
+`W_ONKEY` handles the discrete commands and **nothing to do with steering**. A
+key event arrives at the typematic rate — one event, a pause, then a stream —
+and a turn that has to be taken within two tiles of a junction cannot be built
+on that. `dd_input` asks **`OSAPI_KEY_DOWN`** once a logic step instead.
+
+A direction that is not legal yet is **remembered** rather than dropped, so a
+turn asked for a few pixels early is taken at the junction. That is the whole
+of what "responsive" means in a maze game.
+
+#### 93.7.4 The tunnel's LEFT mouth, and the borrow that is the crossing
+
+An actor's position is **unsigned**, and `dd_advance` decides it has crossed
+into the previous tile by comparing it against the tile's own origin. At
+column 0 that origin is **zero**, so a step past it borrows and the compare
+reads the result as a very large x rather than as a crossing: the tile was
+never decremented, the wrap below it had nothing negative to wrap, and Smiles
+walked off the left of the world — never on a tile origin again, so never
+deciding anything again, and clipped off the glass. The field report was
+*"going off one side of the board doesn't wrap to the other"*, and one side is
+exactly right: going RIGHT is an add and a compare against
+`origin + tile`, which no value in range can wrap.
+
+**The borrow IS the crossing**, and it is the only case the compare cannot
+see, so it is one `jc` into the arm that was already there.
+
+#### 93.7.3 A decision is taken ON the tile, inside the mover
+
+`dd_ontile` is called from `dd_act_move` at the instant the step is cut at a
+tile origin, and it is where a ghost picks its next direction and where Smiles
+eats what he is standing on. It has to be there, and the reason is arithmetic:
+a tick's budget is a fixed count of 1/16 px and a tile is 256 of them, so at
+Smiles' 100% the two divide and he lands on an origin at the *end* of a tick,
+and at a ghost's 88% they do not — 56 into 256 comes out exactly once every 32
+tiles.
+
+A decision taken once a tick from **outside** the mover therefore reached a
+ghost about twice a minute, and the one place it reliably did reach one was
+standing at a wall, where `dd_decide` had already stopped it dead on an
+origin. That is a single defect with four faces, and all four were reported:
+the ghosts did not appear to chase, two of them paced the pen for the whole
+life instead of leaving it, a frightened ghost did not scatter at junctions,
+and a ghost let out while its bob was carrying it downwards could never turn
+round to face the door (§93.8.2).
+
+What stays outside the mover is what is about the *tick* rather than the tile:
+line of sight, where the eyes are pointing, and the animation clocks.
+
+### 93.8 The four of them
+
+**Sight starts a chase and memory carries it.** A ghost that is out, whole and
+not frightened is in one of two states, and neither of them is omniscient:
+
+* **wandering** — it patrols its own corner (§93.8.1's table), which on this
+  board is a loop around the block nearest that corner;
+* **tracking** — it has, at some point, had a clear line down its own row or
+  column to Smiles. **While it can still see him it goes STRAIGHT at him** and
+  writes down **the tile he is on**, which is the mouth of the lane he is about
+  to turn into. When he goes out of view it makes for that tile, and if he is
+  still not in view when it gets there it gives up and goes back to patrolling.
+
+That is deliberately not the arcade's model, where a ghost knows where the
+player is at every moment. On a board this size that reads as unfair and gives
+a player no way to break a chase; here breaking one is a turn taken out of
+sight.
+
+**"Straight at him" is literal, and the first version was not.** It aimed at a
+target with the arcade's four personalities — four tiles ahead of him, the
+mirror through the red one, and so on — and those send a ghost that can see
+Smiles to a tile *past* him; `dd_gh_aim`'s no-reverse rule then keeps it going
+that way. The field report was *"they move in the opposite direction I am
+going even though I am still in that lane"*, and it was right. `dd_gh_sees`
+has already walked the row or column and found no wall, so the direction it
+hands back is both legal and closing: the ghost takes it, and it writes
+`dd_dir` as well as `dd_want` so that a ghost which catches sight of Smiles
+BEHIND it is allowed the one reversal. Measured, 83% of the ticks in which a
+ghost can see him it is already travelling at him, the rest being the ticks
+between the sighting and the next tile origin.
+
+What survives of the personalities is the four **corners** they patrol, which
+is what keeps them apart when nobody is in sight. Of the legal turns there —
+never straight back the way it came, never a wall, and the house door only for
+a ghost leaving or coming home — a wandering ghost takes the one whose next
+tile is nearest its corner, trying **up, left, down, right**, which is the
+arcade's own tie-break and is why a ghost climbs out of a corner rather than
+pacing in it.
+
+Line of sight is a walk along one row or one column, at most 27 tile reads,
+and only for a ghost that shares a row or a column with Smiles at all — which
+is two compares on most ticks. It is taken once a tick per ghost, outside the
+mover (§93.7.3), and both the AI and the eyes read the same answer.
+
+#### 93.8.1 Corners, the mode clock, and frightened
+
+The four corners are the arcade's: (25, 0), (2, 0), (27, 30), (0, 30). Seven
+mode phases alternate (7 s, 20 s, 7 s, 20 s, 5 s, 20 s, 5 s) and the eighth
+runs for ever; what a phase change still does is **turn every roaming ghost
+round**, which is the tell that it happened and is what stops a patrol from
+being a fixed loop.
+
+A power pellet frightens them for a level-dependent time that reaches zero by
+level 15, turns them round, and makes them worth 200, 400, 800 and 1600 as
+they go down. It frightens a ghost that is **walking out of the pen** as well
+as one already loose: one that did not was a ghost that killed Smiles while
+every other one ran away, which is what "I still died running into one" turned
+out to be. A frightened ghost turns at random and forgets whatever it was
+tracking; an eaten one becomes a pair of eyes and goes home. A ghost that was
+mid-exit when the pellet went off resumes the exit rather than roaming,
+because a roaming ghost cannot open the door.
+
+**The eyes go home in two phases, the way a ghost comes out in two phases.**
+Make for the tile above the door; then, on that column and at or below it,
+drive straight down through the door. A greedy aim at the pen alone sent them
+down a side corridor and left them circling the board, because `dd_gh_aim`
+descends a distance it cannot see round corners and the pen is behind a
+one-tile door no descent finds from the wrong side. **And a pair of eyes may
+reverse**: the no-reverse rule exists to stop a ghost pacing in front of the
+player, eyes are not a threat, and what it did to them was strand one in a
+corridor whose only way out was behind it.
+
+#### 93.8.2 Being let out
+
+The red one starts outside. The others wait in the house until the board has
+lost 0, 30 and 60 dots — **and** the longest-penned one leaves anyway once
+four seconds have gone by with nothing eaten, which is the arcade's global
+timer. One clock is not enough: a cautious player who stops eating is played
+against one ghost, and the dot tally is per BOARD and not per life, because
+zeroing it on a death put the third and fourth ghosts back behind 30 and 60
+dots they had already earned and a player who kept dying never met them at
+all.
+
+**The walk out is scripted, not pathfound.** The pen is three tiles by six and
+its exit is one column: slide to the door's column, then go up. It was an aim
+at the tile above the door, and that is the second half of why two ghosts sat
+in the pen animating — a ghost may not reverse, so one let out while its bob
+was carrying it downwards could never turn to face the door and took whichever
+sideways turn was nearest instead. The scripted exit sets the direction as
+well as the wish, which is what makes that turn a reversal it is allowed.
+
+#### 93.8.3 The eyes
+
+A ghost's eyes follow the way it is **going**, which is one byte and free. Two
+things move them off that:
+
+* a **glance** — every so often, for a few ticks, at a direction that is not
+  the one it is travelling. It costs a byte of timer and it is the single
+  cheapest thing in this game that makes it look alive. A ghost that is
+  tracking does not glance: it is looking at one thing;
+* a **lock** — while the ghost can SEE Smiles down its own corridor, the eyes
+  go **wide** and point straight at him. It is the same answer the AI is
+  steering on, read out of the same byte, so the wide pair means exactly "this
+  one has you" and never merely "this one is nearby".
+
+The wide pair is a different **image**, not a different draw: the sprite set
+already carries eight eye states a skirt phase (§93.5), so this costs one
+index and no cycles in the frame.
+
+#### 93.8.4 Touching is a BOX overlap, not a shared tile
+
+Smiles and a ghost collide when their boxes are within **half a tile on both
+axes**, which is the arcade's own rule and about a third of a sprite of
+overlap.
+
+It was a test for the same TILE, on the argument that two actors crossing at
+speed can never share a tile without having been within half a tile of each
+other. That argument is exactly backwards for the case that matters: **two
+actors walking INTO each other never share a tile at all.** Smiles' tile goes
+10, 10, 10, 11 while the ghost's goes 11, 11, 11, 10 — they swap, and the one
+tick where they are on top of each other is a tick where the two tile numbers
+differ. The field report was *"ghosts no longer interact with Smiles, he can
+go right through them"*, in the game and on the title screen, and it appeared
+when §93.8's ghosts started meeting him head-on instead of drifting into him
+sideways.
+
+The half-tile test cannot be walked through: Smiles closes at 4 px a tick and
+a ghost at 3.5, so there is always at least one tick inside 8 px of a 16 px
+tile.
+
+#### 93.8.7 A relayout re-derives every actor's position from its TILE
+
+An actor's position is in 1/16 px and is **derived from the tile size**, so a
+relayout that changes the tile leaves all five of them at coordinates that
+mean nothing. The field report was *"going fullscreen in the middle of play
+sets everything misaligned, Smiles doesn't draw in his lane, ghosts too"* —
+and the bracket is not the only way in: dragging the window between two
+displays of different pixel shapes re-cuts the tile the same way (§93.4).
+
+The TILE each of them is on is still right — `dd_ac`/`dd_ar` are tile numbers,
+carried along rather than divided out (§93.7) — so `dd_actors_resnap` puts
+each one back on its own tile's origin. What that costs is the fraction of a
+tile they had crossed, once, on a frame where the board is being rebuilt from
+scratch anyway.
+
+#### 93.8.5 The way home is a TABLE, computed once a board
+
+A pair of eyes reads **one byte a tile** to get back to the pen. `dd_home_map`
+walks the board breadth-first out from the pen when the board is decoded and
+leaves, in every reachable tile, the direction that steps one tile closer to
+it; `dd_gh_home` reads that byte, writes it to `dd_want` **and** `dd_dir`
+— the route may double back on the way the eyes were travelling and §93.8.2's
+no-reversing rule would otherwise refuse it — and that is the whole of the
+routine.
+
+**Every greedy version of this failed, and each one failed differently**,
+which is why the table is worth 868 bytes of map and 1,736 of scratch queue.
+Aiming straight at the pen sends the eyes down whichever side corridor
+happens to reduce the distance, because a descent cannot see round a corner
+and the ghost house is behind a one-tile door that no descent finds from the
+wrong side: the field report was *"once eaten a ghost goes out a side path,
+and either never returns or loops across the map once"*. Making it two phases
+— reach the door's column first, then drive down it — moved the failure
+rather than fixing it: an instrumented run poked a ghost into `GS_EYES` and
+watched it visit **four tiles in thirty seconds**, ping-ponging between (11,
+20) and (12, 20), each tile's greedy answer being the other one. Letting eyes
+reverse, tried as a way out of that, made the ping-pong tighter rather than
+looser and is reverted — the direction field removes the need for it, since a
+shortest path never asks for a step onto a wall and never asks for one back
+the way it came unless that genuinely is the way home.
+
+The cost is a walk of at most 868 tiles once per board — three boards in a
+long game — against a search that a per-move version would run four times a
+tick on a 4.77 MHz 8088. The queue is the scratch the walk needs and is dead
+between boards; it is bss, so it costs image nothing.
+
+A board with no pen (the attract slice, whose window starts below the ghost
+house) leaves the map entirely `DD_HDNONE`, and `dd_gh_home` falls back to
+the old aim — which is harmless there because §93.8.4's demo never lets a
+ghost become eyes in the first place.
+
+#### 93.8.6 The pen is somewhere to be, not somewhere to wait
+
+The pen's interior is a **six-by-three open box** — columns 11–16, rows 13–15
+— in all three layouts, and a ghost inside it **drifts round it**: it carries
+straight on while it can, turns at random about a quarter of the times it
+could have, and picks a new way when the box runs out. It used to bob one
+tile up and one tile down, which the walls did for it for free and which
+reads as a machine waiting rather than as a ghost.
+
+`dd_pen_ok` and not `dd_gh_legal` is what says where it may step, and the
+difference is the one thing in this that could break the game: **the door is
+not a way out here.** `dd_can_go` opens the door tile to any `GS_HOUSE`
+ghost — that is how `dd_gh_leave` walks through it — so a wander built on the
+ordinary rule would let one stroll out before the pen released it. The wander
+tests the box's own bounds instead, and writes `dd_dir` as well as `dd_want`
+so that a `dd_dir` left pointing at the door cannot be carried by
+`dd_decide`'s `.keep` arm.
+
+**A ghost that got home as eyes stays there for `DD_PENWAIT` = 55 ticks (3
+seconds)** before it comes back out, wandering like the others. That is a
+clock of its own: `dd_gwait` counts down in `dd_gh_think`, once a tick, and
+the pen's two *release* rules — the per-ghost dot count and the four-second
+nothing-eaten timer — both step over a ghost that is serving it, so a
+returning ghost is neither let out early nor made to wait behind a dot count
+it already paid.
+
+### 93.9 Scoring
+
+A dot is 10 and a pellet 50. Ghosts are 200/400/800/1600 within one pellet.
+
+#### 93.9.1 Levels
+
+The board is cleared when the last dot goes; the level counter advances and
+§93.2's cycle picks the next layout. Ghost speed and the frightened time are
+the only things that change with the level.
+
+#### 93.9.2 Fruit
+
+A fruit appears under the house at 70 and at 170 dots eaten, twice a board,
+and waits about nine seconds to be walked over. It is worth 100 rising to
+5,000 as the levels go by.
+
+#### 93.9.3 The extra life
+
+**One** extra life at 10,000 points, and fruit counts toward it. It is a
+one-shot: `dd_extra` is set the first time and never cleared inside a game, so
+a long game does not farm lives.
+
+### 93.10 Sound
+
+Three notes through `OSAPI_SND_TONE` — a dot, a pellet, a ghost — and one for
+the extra life and one for a death. Every one is fire-and-forget with a
+two-tick duration, so nothing in the frame ever waits for the speaker.
+
+**They are ON when the package opens**, and Game ▸ Sound is the way off. They
+were off, on a zeroed byte nobody had thought about: a maze chase that has to
+be switched on from a menu before it makes a sound is one that has none, and
+the field asked whether the game was supposed to have any.
+
+#### 93.10.1 The dot is a BITE — two tones, and the pair turns over
+
+A dot was **one note: 660 Hz for two ticks**, four and a half times a second,
+for a board of two hundred and forty of them. It reads as a clink, and the
+field's word for it was *grating*.
+
+**The arcade does not play a note.** Eating a dot triggers a rapid frequency
+*sweep*, and the sweep alternates direction bite to bite — which is the whole
+of why the sound is remembered as "waka waka" rather than as a beep.
+
+A square wave on a tick clock cannot sweep, but it can **slur**. `dd_dot_snd`
+plays one tone now with `CX` = 1 and arms the other for the next tick, so a
+bite is two syllables 55 ms apart; `[dd_wakph]` turns the pair over on the next
+dot, giving the up-down-up-down an ear hears as chewing. At `DD_PCTPAC` = 100 a
+tile is `DD_TILET` = 4 ticks, so each bite is a crisp *wa-ka* and then two ticks
+of silence — the arcade's rhythm, and not a drone.
+
+**Both tones are also well below the old one, and that is the other half of
+"less grating".** A square wave is all odd harmonics, so 660 Hz put its third
+and fifth at 1,980 and 3,300 Hz — the middle of where an ear is most sensitive.
+`DD_WAKLO` = 294 and `DD_WAKHI` = 330 put them at 990 and 1,650.
+
+**The interval was chosen by listening, and it came out narrower than the
+theory wanted.** The first build was a fourth (262/349, C4 and F4) on the
+reasoning that it should be wide enough to hear as two notes. That is exactly
+what is wrong with it: two notes four and a half times a second is a little
+tune, and a *whole tone* (D4 and E4) is heard as one sound wavering, which is
+what chewing is. Six candidates were synthesised on the host at the exact tones
+and tick lengths this code asks for — the PC speaker is a square wave, so that
+preview is faithful — and the pair was picked off the audio rather than off the
+arithmetic.
+
+**The harmonic argument is the SPEAKER's.** When a sound driver publishing
+`DSV_TONE` is loaded, `snd_tone_out` sends the tone to it instead (§34.2), so
+on an OPL2 the note is an FM voice and its timbre is the patch's, not a square
+wave's. What carries to every sink is the pitch and the warble; only the
+"660 Hz is harsh because of its odd harmonics" half is about the cone. The
+418 µs below is likewise the speaker path — the driver path is a far call plus
+two register writes and has not been measured here.
+
+**It is not a per-tick sound engine.** One byte counts the syllable down and
+one word holds what to play when it lands, so `dd_wak_tick` — called beside
+`dd_pill_tick`, in every state — is a compare against zero on every tick that
+is not the second half of a bite. `dd_beep` clears `[dd_wakt]`, because a
+pellet, a ghost, a fruit, a life and a death each outrank the tail of a dot.
+
+**What it costs**, measured on a cycle-accurate 4.77 MHz 8088 (PERFORMANCE.md
+Set 146): the per-tick test is **40 cycles = 8.4 µs**, and one `dd_tone` — the
+far call plus everything `snd_tone_req` does inside its `cli` window — is
+**1,997 cycles = 418.4 µs**. That last one is worth knowing on its own: a bare
+`OSAPI_*` far call is 46.7 µs and a small `gfx_*` call is 756, so a tone lands
+between the two and is *not* free merely because nothing waits for it.
+
+A bite is two of those where it used to be one, so at 4.55 dots a second the
+sound goes from 1,904 µs of every second to **3,960** — **0.40% of the
+machine**, of which the warble added 0.21. The frame view is the one that
+decides it: the first syllable lands on the tick that already paid for a note,
+so the new money is the second, on the next tick, and 418 µs is **3.9% of the
+10.8 ms this frame has spare** on a quarter of the ticks. The warble is not a
+performance question.
+
+### 93.11 The attract screen
+
+The title, the table, a blinking line and a demo.
+
+#### 93.11.1 The title is a grid, not a face
+
+The nine letters "DOT DELIRIUM" needs are 5 × 7 grids of solid cells, and a
+cell becomes a rectangle of whatever size the surface can afford. That is the
+whole of the type design and it is deliberate: **a grid scaled to an integer
+number of pixels has flat edges and sharp corners at every size**, where an
+outline scaled the same way has neither. It is also why the title is legible
+at a 2 px cell on a windowed CGA, which no curve would be.
+
+It goes down as **seven bands**, one per grid row, rather than as ~170
+rectangles through `gfx_fill`: at §5.7's ~756 µs a call that would be 128 ms
+of arrival every time the window is raised.
+
+The play line blinks on its own clock, **9 ticks lit against 5 dark** — TANK
+ATTACK's rate (§85.10.3), so the two title screens on this machine blink at
+one speed — and is drawn by nothing else. The dark phase puts down a **blank band** of the same
+width and place — one call takes the line down exactly as one call put it up,
+and there is no rectangle to remember.
+
+It used to draw the line in the background COLOUR, and on the two 1bpp
+adapters that is not a thing: a band has no pen there at all (§5.4.2.2), a set
+bit is lit and a clear one is not, so "PRESS ENTER TO PLAY" in `CBLACK` lit
+every glyph pixel exactly as `CWHITE` did. The line was solid on a Hercules
+and nobody noticed until somebody looked at one.
+
+#### 93.11.4 The page is placed by SPREADING the slack, not by packing
+
+The title, the score table, the play line and the playfield strip used to be
+packed against the top of the content box with fixed 4- and 6-pixel gaps, and
+the strip took whatever was left — so a surface with room to spare showed the
+whole page in its top two thirds with a band of black underneath.
+
+The four blocks are placed from the slack instead. `dd_attract_place` takes
+what the surface has over what the page needs at its minimum gaps, and gives
+out **a fifth above the title, a fifth under it, a fifth under the strip, and
+the remaining two fifths split EQUALLY either side of the play line** — which
+is what *"press enter equally between the high scores and the mini-board"*
+asks for, and it stays true at every tile size because it is a division and
+not a table.
+
+The **strip's row count is decided first**, before anything is placed, which
+is the change that makes the rest possible: it used to be "whatever is left
+under the play line", so the page's position and the strip's height were the
+same number read twice. It is now `(content height − title − the fixed
+blocks) / tile height`, clamped to `DD_ATROWS` and refused below
+`DD_ATRMIN` — and only then does the placement run.
+
+Horizontally nothing moved: the title, the table and the play line were
+already centred on the content box, and the board is centred by `dd_layout`
+with the HUD column living in its left margin (§93.3.1).
+
+#### 93.11.3 The demo player, and the two things that pinned it to one corner
+
+The attract screen's Smiles is played by `dd_demo_think`: it scores each way
+out of the tile it is standing on, prefers a dot, keeps its distance from any
+ghost that could eat it, and takes 60 off for turning round.
+
+**It paced two lanes and hardly ever reached the right of the slice**, and
+that was two separate faults with one symptom:
+
+* **the tie-break was the try order.** Down an empty corridor with the ghosts
+  far off, every legal direction scores identically; `.try` keeps the
+  *strictly* greatest, so a tie always went to whichever `dd_tryo` names
+  first — up, then left. The order starts at a random one of the four now,
+  which is `dd_gh_flee`'s trick;
+* **it could see one tile.** Scoring only the neighbouring tile cannot tell a
+  cleared corridor from a full one, so once the food beside it was gone every
+  way looked the same for ever. It adds up the food in the `DD_DEMOLOOK` = 10
+  tiles beyond as well, at `DD_DEMOFOOD` = 14 each — so four dots outweigh
+  the turning-round penalty and it will go back for them.
+
+Measured over 60 seconds on a Hercules, after: **26 of the board's 28 columns
+visited, 43% of the time in the left half and 56% in the right.** The
+lookahead is at most 40 tile reads per decision and a decision is taken about
+four times a second.
+
+#### 93.11.2 The demo is the game, on a slice
+
+The playfield under the table is the **real** board — the same layout, the
+same ghosts, the same AI — restricted to its bottom eleven tile rows. Two
+words do all of it: `dd_rmin` makes the grid answer WALL above the slice, so
+nobody walks out of the top of it, and `dd_clipy0` moves where `dd_blit`
+thinks the board's top edge is. Every coordinate in the renderer stays a board
+coordinate and **not one call site knows the difference**.
+
+What the demo is **not** is a script. A recorded one would have to be
+re-recorded for each of the three layouts and would desynchronise the moment
+anything in the AI changed; this one plays whatever board it is given. Smiles
+is driven by `dd_demo_think`, which prefers a dot, will not walk into a ghost,
+and would rather not turn round — a bad player on purpose, because a perfect
+one is boring to watch.
+
+The demo's Smiles is not killed: the attract loop is a shop window, not a
+game. When the slice runs out of dots it is laid again.
+
+If the surface is too short for the strip — which no shipped geometry is — the
+demo still runs and is simply not shown.
+
+### 93.12 The table
+
+Six rows of a score and three initials, in `SYSTEM\APPDATA\DOTDEL.HS` on the
+volume the package was launched from (§19.9), with a four-byte magic so a
+stale or foreign file is refused rather than decoded. A machine with no file
+sees six built-in rows.
+
+Beating the sixth row puts the state machine into `DDS_ENTER`, where three
+letters are typed over the still-running demo and Enter commits. **The write
+happens then**, not at close: a score is banked when the player finishes
+typing it, and a session ended any way but through the close box would
+otherwise drop a row the table had already shown.
+
+#### 93.12.4 The initials are typed on the BOARD, in a panel over it
+
+`dd_hs_offer` used to start the demo and repaint, so the sequence a player saw
+was: the game ends, `GAME OVER` sits on a frozen board for **four seconds**,
+the attract screen replaces it, and *then* `NEW HIGH SCORE:` appears down on
+the attract screen's play line. The field's report was not that the prompt was
+missing — it was that it arrived somewhere else: *"I was expecting the entry on
+the board screen, not the attract screen."*
+
+The score was made on that board and it is typed on that board. `dd_box_draw`
+is a panel centred on the **board** (not on the content box): an outline with a
+black inside, `GAME OVER` on its first line and, once `DDS_ENTER` is reached,
+the initials on its second. Three things follow:
+
+- **`DDS_ENTER` stops being an attract state.** `dd_is_attract` no longer
+  claims it, `dd_play_line` loses its initials arm and `dd_hs_prompt` is
+  deleted rather than left assembled. That one predicate is what put the
+  prompt on the attract screen.
+- **The board under the panel is FROZEN.** `dd_draw`'s box arm draws the panel
+  and nothing else — no pellet blink, no actors, no repair queue — because
+  every one of those would punch a hole in it. Nothing moves in these two
+  states anyway, so freezing costs nothing.
+- **The panel is drawn when `[dd_boxd]` says so**, not once a frame: a fill, a
+  frame and two lines of type for a picture identical to the last one is the
+  §93.5.6 mistake in a different place.
+
+`DD_OVERT` is **18 ticks** where it was 72. Four seconds of a frozen board with
+nothing happening on it was the wait the field asked to have shortened, and one
+second is what it asked for.
+
+**Game over does not repaint the board.** `dd_life_lost`'s `.over` set
+`dd_full`, so the last life redrew every wall and every dot — for a life count
+that had gone to zero and a panel that covers the middle. The line immediately
+above it already said why a *lost life* does not repaint, and the last life is
+a lost life; it sets `[dd_hudd]` and `[dd_boxd]` now.
+
+Two rules that fail *quietly* when they are got wrong, and are Cyclone's and
+Tank Attack's before they were this package's (§67.20, §85.9): the file lives
+in `SYSTEM\APPDATA` and not beside the game, and the move there is
+`OSAPI_FILE_GOTO` and **not** its quiet twin — `GOTO_Q` moves the global
+directory and deliberately not the instance's, while `FILE_FIND`, `_READ` and
+`_WRITE` all resolve in the instance's, so a quiet move is undone by the very
+next call and the save writes nothing at all while the load appears to work.
+
+#### 93.12.4.1 A keystroke draws the LETTER, not the panel
+
+`dd_hs_key` set `[dd_boxd]` on every letter and every backspace, so the whole
+panel came down and went back up: a black fill, an outline over it, `GAME OVER`
+re-lettered, and then the prompt line. The picture is nearly identical to the
+last one — four cells of the second line differ — but the fill lands first, so
+the eye sees the box blink out and come back. The field's report was exactly
+that: *"its flashing every time I type."*
+
+`[dd_boxd]` takes a second value. **1 is the panel and 2 is the initials**, and
+`dd_box_ini` draws the second with one `dd_text` of four cells: no fill, no
+frame, and the `GAME OVER` line untouched. The panel's inside is black and
+`dd_text` composes its own ground, so nothing under the four cells has to be
+taken down first.
+
+Two things make the placement free rather than a second centring calculation:
+
+- **`dd_box_line` banks the pen it actually used** — `[dd_boxlx]`/`[dd_boxly]`
+  — *after* its own `and cx, ~7`, because `dd_text` rounds down to the byte
+  grid and what a redraw has to match is where the type went, not where it was
+  asked to go. The prompt is the second and last line drawn, so the bank it
+  leaves behind is the prompt's.
+- **The initials start a whole number of CELLS along that line**, and
+  `dd_box_str` records where (`[dd_inioff]`) rather than the count being
+  written down twice. Eight times a cell offset is a multiple of 8, so the
+  four-cell pen is on the same byte grid the whole line was, and `gfx_blit1`
+  takes it directly.
+
+The caret is a trailing `_` after all three letters rather than a cursor at the
+insertion point, so the run is always exactly four cells whatever `[dd_inip]`
+is, and backspace redraws the same four.
+
+### 93.13 What it does not ship on
+
+`kern_small` does not carry `gfx_blit1`'s body at all (§5.4.2.5) — the slot is
+a `stc`/`retf` stub there — and this game's entire renderer is that one call.
+The honest degrade for a moving sprite is to leave the frame alone, which is a
+black window, so the package is in `SMALLOMIT_GAMES` and the 128 KB machine's
+floppies do not carry it. That is §24.5's rule and not a new one: a package
+that cannot reach the surface it needs is left off rather than shipped broken.
+
+At **360 KB** it rides the ordinary apps disk like every other geometry, at
+352 of that disk's 354 clusters. It did not fit when it arrived — eight spare
+clusters against a package of eleven — and it rode `build/media360.img`, the
+second 360 KB disk §24.4 already exists for, until the earlier Pac-Man port
+came off the apps disk to make room. That is a **development** arrangement the
+owner asked for and not a shipping decision: a release that wants both puts
+this one back on the media disk, which is one line of the Makefile.
+
+### 93.14 Acceptance
+
+- boots and reaches the title screen on VGA, Hercules, CGA and EGA, with the
+  board proportioned per §93.3's table on each;
+- Enter starts a game; arrows steer; a dot count of zero advances the level
+  and the board changes on levels 4, 7 and 10;
+- a power pellet turns all four blue and reverses them; eating one sends a
+  pair of eyes home and the ghost comes back out;
+- F enters and leaves the fullscreen bracket, and the board is re-cut to the
+  bracket's own surface;
+- on a two-card desktop the window may be dragged across the seam and
+  straddle it with a real share of the picture on each card, moved wholly onto
+  the Hercules and have the board **re-cut** to it and back, and go fullscreen
+  from either — with the bracket taking the display the window is on and not
+  the primary;
+- `tests/unit/t_ddmaze.py` (§93.2) floods all three layouts out of the source;
+- `tests/dotdel.py` drives the title screen, a game and the bracket on all
+  three adapters and gates the rendered frame rate against the game's own tick
+  counter (§93.5.3);
+- `tests/dotdelmd.py` is the two-card pass above, on `os8088_5150_both_gla`.

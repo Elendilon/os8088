@@ -5103,6 +5103,26 @@ $(BUILD)/skies.o88: $(BUILD)/csload.bin $(BUILD)/skies.bin $(BUILD)/csart.bin \
 		--part $(BUILD)/skies.bin --part $(BUILD)/csart.bin \
 		$(foreach z,$(CSWORLDS_Z),--part $(z))
 
+# DOT DELIRIUM (SPEC.md 93): a maze chase written from the primitives out
+# rather than ported, which is why it is the only one of the three in this tree
+# that is bigger on a Hercules than on a CGA and the only one that goes
+# fullscreen. The renderer is one gfx_blit1 an actor a frame, composed out of
+# the game's own board (SPEC.md 93.5), and the board is sized from the live
+# surface and the adapter's PIXEL ASPECT (SPEC.md 93.3).
+DOTDEL_SRC := apps/dotdel/dotdel.asm apps/dotdel/ddlay.inc \
+              apps/dotdel/ddmaze.inc apps/dotdel/ddmzdat.inc \
+              apps/dotdel/ddspr.inc apps/dotdel/ddart.inc \
+              apps/dotdel/ddgame.inc apps/dotdel/ddattr.inc \
+              apps/dotdel/ddhs.inc apps/dotdel/ddrend.inc \
+              apps/os88api.inc apps/os88ui.inc
+
+$(BUILD)/dotdel.bin: $(DOTDEL_SRC) | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/dotdel/ -o $@ apps/dotdel/dotdel.asm
+	@echo "dotdel: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/dotdel.o88: $(BUILD)/dotdel.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/dotdel.bin -o $@
+
 $(BUILD)/arkanoid.bin: apps/arkanoid/arkanoid.asm apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ apps/arkanoid/arkanoid.asm
 	@echo "arkanoid: $(call FILESIZE,$@) bytes"
@@ -8281,7 +8301,7 @@ SMALLOMIT := $(BUILD)/browser.o88 $(BUILD)/ftpd.o88 $(BUILD)/telnet.o88 \
              $(BUILD)/thewire.o88 \
              $(BUILD)/modplug.o88 $(BUILD)/tracker.o88 \
              $(BUILD)/audio.o88
-SMALLOMIT_GAMES := $(BUILD)/skies.o88
+SMALLOMIT_GAMES := $(BUILD)/skies.o88 $(BUILD)/dotdel.o88
 
 # ...and BROWSER.HTM with the browser, for the same reason one step along: a
 # .HTM is openable by nothing else on the machine (SPEC.md 71), and a manual
@@ -9083,9 +9103,15 @@ APPS_TOOLS := $(BUILD)/artful.o88 $(BUILD)/browser.o88 $(BUILD)/calc.o88 \
               $(BUILD)/paint.o88 $(BUILD)/piano.o88 \
               $(BUILD)/ftpd.o88 $(BUILD)/sheet.o88 $(BUILD)/telnet.o88 \
               $(BUILD)/texpad.o88 $(BUILD)/tracker.o88 $(BUILD)/audio.o88
+# PACMAN.O88 IS OFF THE DISKS WHILE DOT DELIRIUM IS DEVELOPED, by the owner's
+# decision and not as a shipping choice: the 360KB apps disk had eight spare
+# clusters, SPEC.md 89's package is six of them and SPEC.md 93's is twelve, so
+# taking the older one off is what lets the new one sit beside everything else
+# instead of on a second disk. `make` still BUILDS build/pacman.o88 - it is
+# only the disk lists this leaves.
 APPS_GAMES := $(BUILD)/arkanoid.o88 $(BUILD)/tank.o88 $(BUILD)/cyclone.o88 \
-              $(BUILD)/mines.o88 $(BUILD)/skies.o88 \
-              $(BUILD)/missile.o88 $(BUILD)/pacman.o88 $(BUILD)/solitair.o88 $(BUILD)/tamegram.o88
+              $(BUILD)/mines.o88 $(BUILD)/skies.o88 $(BUILD)/dotdel.o88 \
+              $(BUILD)/missile.o88 $(BUILD)/solitair.o88 $(BUILD)/tamegram.o88
 
 # The CORE PACKAGES (SPEC.md 24.3) are a SECOND copy on the system disk and
 # never a move, so the two lists above are unchanged and still carry every
@@ -9461,7 +9487,8 @@ $(APPSIMG360): $(APPS360) tools/os88disk.py
 # is the geometry's, not the disk's: a media disk exists exactly where the
 # apps disk had to drop the module, and 1.2MB is not such a geometry.
 $(MEDIAIMG360): $(MEDIA_DISK_DATA) tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 360 $(MEDIAARGS360)
+	python3 tools/os88disk.py -o $@ --size 360 $(MEDIAARGS360) \
+		--folder SYSTEM/APPDATA
 
 # =============================================================================
 # THE CATEGORY DISKS (SPEC.md 24.6) - office360, network360, games360

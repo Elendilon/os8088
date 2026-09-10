@@ -4959,13 +4959,22 @@ gfx_blit1_x:
                                 ; never reaches .pen - cannot leave .done
                                 ; tearing down ports nobody armed
 
-    cmp byte [cur_lazy], 0          ; this may write any pixel on the screen,
-    je .lazyok                      ; so the deferred hide is owed (SPEC.md
-    call KERNEL_SEG:cw_cur_unlazy   ; 7.1.4) - and owed HERE, above the two
-.lazyok:                            ; questions below, so nothing that answers
-                                    ; them can be read stale afterwards.
-                                    ; CURUNLAZY's test, written out: this body
-                                    ; is .cold and the macro's `call` is near
+    cmp byte [cur_lazy], 0          ; THE DEFERRED HIDE, ASKED ABOUT THIS BAND
+    je .lazyok                      ; AND NOT ABOUT THE SCREEN (SPEC.md
+%ifdef KERN_BIG                     ; 7.1.4.5). It used to be an unconditional
+    push cx                         ; cur_unlazy under the true but useless
+    push dx                         ; comment that a blit "may write any pixel
+    add cx, ax                      ; on the screen": this one may write
+    dec cx                          ; exactly AX,BX..AX+CX-1,BX+DX-1, and it is
+    add dx, bx                      ; the caller who decided that. Owed HERE,
+    dec dx                          ; above the two questions below, so nothing
+    call KERNEL_SEG:cw_cur_lazyrect ; that answers them can be read stale
+    pop dx                          ; afterwards - and in the VIRTUAL space
+    pop cx                          ; [cur_drawn_x] is in, which is why it is
+%else                               ; above the display resolution too.
+    call KERNEL_SEG:cw_cur_unlazy   ; KERN_BIG'S ALONE: 5.4.2.5 gave kern_small
+%endif                              ; this path and 39.27.4 puts that build on
+.lazyok:                            ; a DIET, so it keeps the whole-screen hide
 
     ; --- resolve the display BEFORE anything meets a screen extent (39.14.8)
 %ifdef KERN_BIG                  ; SPEC.md 5.4.2.5: no second display in this build

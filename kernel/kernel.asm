@@ -6254,6 +6254,8 @@ cw_cur_unlazy:          call cur_unlazy     ; gfx_blit1_x's (SPEC.md 5.4.2), and
                     retf                    ; on BOTH builds since 5.4.2.5's
                                             ; decision was reversed
 %ifdef KERN_BIG
+cw_cur_lazyrect:        call cur_lazyrect   ; ...and SPEC.md 7.1.4.5's rect
+                    retf                    ; form, which is the one a BAND asks
 ; ...and the REFCOUNTED pair (SPEC.md 7.1), which the screen saver's cold half
 ; brackets a session with: the arrow has to be off the glass for as long as
 ; something is drawing over it, and every gfx_lock/gfx_unlock inside a frame

@@ -1998,6 +1998,91 @@ SOAK = [
         " holds its worst frame - a list that fills commits itself, so one"
         " sized too small is a silent extra arrival a frame, for ever",
         needs=("marty",), serial=True),
+    Row("ddmaze", "soak", py("tests/unit/t_ddmaze.py"), 0.2,
+        "Are DOT DELIRIUM's three layouts playable boards? (SPEC.md 93.2) "
+        "Reads the characters out of apps/dotdel/ddmzdat.inc and floods them "
+        "from Smiles' start tile: 28x31, exactly four power pellets, no dot "
+        "walled off from the rest, and rows 9..19 - the ghost house, its door, "
+        "the tunnel and the two verticals past it - IDENTICAL in all three, "
+        "because every spawn, home and fruit constant in the game reads them. "
+        "A stranded dot is a level that never clears and no screenshot shows "
+        "it. In soak and not fast for docs/WRITING-TESTS.md 2.1's reason: it "
+        "is about one package",
+        needs=("nasm",)),
+    Row("dotdel", "soak", py("tests/dotdel.py"), 245.0,
+        "DOT DELIRIUM on the glass, on all three adapters (SPEC.md 93): the "
+        "title screen's four compositors, the blink, Enter starting a game "
+        "that actually EATS, the tile cut from each adapter's own pixel shape "
+        "(93.3), the bracket re-cutting it bigger and giving it back, and - "
+        "the reason the row exists - RENDERED FRAMES against the game's own "
+        "tick counter on a cycle-accurate 4.77 MHz 8088. A board walk, a "
+        "`font_run` and a pair of divides each took it to ~60% while "
+        "everything still LOOKED right (93.5.3). Leg G then asks the one "
+        "question a colour census cannot - not whether a wall is the wrong "
+        "colour but whether it is THERE - by comparing the glass against the "
+        "board picture the bands are copied out of, which caught a repaired "
+        "corner coming back BLACK on VGA (93.5.11) and the overlay's 8-row "
+        "band eating the wall line under it on CGA (93.5.12). Leg H is the "
+        "same subject one layer up and VGA only, because one plane has no pen "
+        "to get wrong: no wall tile may be left in an actor's ink at the END "
+        "of a frame, which is what lit a maze corner in a ghost's colour "
+        "every time one rounded a bend (93.5.13). Leg I is the hole the other "
+        "eight left - it reads whether the CAST is on the glass at all, which "
+        "nothing did until a refactor drew every actor at the wrong position "
+        "and passed all of them. "
+        "`--arm cga` is one adapter. At 360 KB it rides the "
+        "ordinary apps disk, in the room the earlier Pac-Man port came off "
+        "it to make (93.13)",
+        needs=("marty", "nasm"), serial=True),
+    Row("dotdelpen", "soak", py("tests/dotdelpen.py"), 90.0,
+        "DOT DELIRIUM's ghost house, and the pellets that share its bug class "
+        "(SPEC.md 93.8.6): every pellet on the board gets refreshed and not "
+        "only the first - dd_pills_blit walks the list with SI and "
+        "dd_tile_put used to load SI with the band, so three of the four "
+        "corners went dark the moment an actor crossed them - a penned ghost "
+        "WANDERS the six-by-three pen instead of bobbing one tile up and one "
+        "down, and a ghost that got home as eyes serves DD_PENWAIT there "
+        "before it comes back out, the TUNNEL wrapping both ways (93.7.4: a "
+        "position is unsigned, and at column 0 the step past the tile origin "
+        "borrows and reads as a very large x, so Smiles walked off the left "
+        "of the world), an eaten pellet staying eaten (93.5.7.1), a DOT being "
+        "a two-tone BITE and not one clink four and a half times a second "
+        "(93.10.1: read off the attract demo, the only place Smiles eats and "
+        "cannot be caught, and asserting the SHAPE - two tones, different, "
+        "reversed bite to bite - because the frequencies are a listening "
+        "decision that will be retuned), the DEATH "
+        "being an animation and not a freeze with four ghosts standing on "
+        "Smiles (93.5.16: a ghost is written onto his own position so the "
+        "REAL dd_die runs, and dd_dietab is walked a tick at a time off "
+        "dd_die_anim's own exit) - plus the "
+        "KERNEL gate a package is the "
+        "only thing that can reach: a saver session is not a window, so "
+        "nothing put a background painter off the screen and every "
+        "real-time package in the tree drew straight through one "
+        "(79.6.1). One adapter: none of the four is about the surface",
+        needs=("marty", "nasm"), serial=True),
+    Row("dotdelwin", "soak", py("tests/dotdelwin.py"), 60.0,
+        "DOT DELIRIUM's WINDOW (SPEC.md 93.3.4.2): opening it costs ONE full "
+        "redraw and not three, a MOVE costs none at all - the kernel's drag "
+        "cache has already replayed the pixels at the new place, so only the "
+        "arithmetic was stale and the picture must come out identical, "
+        "translated - being covered and uncovered costs exactly one, and "
+        "Window > Thin/Full re-cuts the tile both ways. It exists because "
+        "NOTHING TELLS A PACKAGE ITS WINDOW MOVED: a drag calls no W_PAINT, "
+        "no OSAPI_WM_ONRESIZE and no handler at all, measured as 0/0/0 with "
+        "[dd_cx] still naming where the window used to be, so dd_render asks "
+        "every frame instead. The pointer is parked before every capture, "
+        "because the arrow is drawn over the picture and comparing it is how "
+        "this row first read eleven differing rows for a pixel-perfect move",
+        needs=("marty", "nasm"), serial=True),
+    Row("dotdelmd", "soak", py("tests/dotdelmd.py"), 60.0,
+        "DOT DELIRIUM on a TWO-CARD desktop (SPEC.md 93.4): straddling the "
+        "seam with a real share of the picture on each card, moving wholly "
+        "onto the Hercules and having the board RE-CUT to it and back, and a "
+        "same-mode bracket taking the display the window is on rather than "
+        "the primary - which is the defect SPEC.md 53.7.1 exists for and which "
+        "both of this tree's other same-mode consumers shipped",
+        needs=("marty", "nasm"), serial=True),
     Row("cycweb", "soak", py("tests/cycweb.py"), 40.0,
         "Does the claw eat the web it slides over? (SPEC.md 67.5.3.1)",
         needs=("marty",), serial=True),

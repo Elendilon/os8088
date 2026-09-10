@@ -4055,6 +4055,76 @@ cur_lazyck:
 .out:                           ; CURFIX=1's, which no tier assembled
     ret
 
+%ifdef KERN_BIG
+; cur_lazyrect - spend the deferred hide unless THIS RECTANGLE provably cannot
+;                reach the cursor (SPEC.md 7.1.4.5).
+;
+; cur_lazyck above asks the same question of the armed REGION, which is the
+; right question for a painter about to draw an unknown amount somewhere inside
+; its window. A BAND BLIT IS NOT THAT. gfx_blit1's caller has already decided
+; every bit, so the routine knows exactly which pixels it is about to write -
+; and a real-time package puts up five bands a frame, each a couple of tiles
+; wide, inside a content rect that is the whole board. Asked about the region,
+; the answer is "reachable" for a pointer resting anywhere on the window; asked
+; about the band, it is "no" for all but the few frames the arrow is genuinely
+; in the way.
+;
+; What that is worth is the HIDE AND THE SHOW BOTH: gfx_unlock redraws the
+; arrow only when the hide was spent, and cursor_show through a planar VGA is
+; 3.2 ms - 6.5% of a Dot Delirium frame, paid every frame with the pointer
+; parked on the desktop, well outside the window
+; (docs/reports/DOTDEL-FRAME-PROFILE-2026-09-09.md).
+;
+; in:  AX/BX = x1/y1 and CX/DX = x2/y2, INCLUSIVE, in the VIRTUAL coordinates
+;      [cur_drawn_x] is already in (SPEC.md 39.14.9)
+; out: nothing; every register preserved, which its one caller's own contract
+;      ("clobbers: NOTHING") requires
+;
+; A SUPERSET IS THE SAFE ERROR, exactly as in cur_lazyck: the cell is taken off
+; the hot spot unclamped (SPEC.md 7.2.2), so this can only ever ask about more
+; screen than the arrow occupies, and the mistake it can make is a redundant
+; hide. The other direction is 7.1.4's permanent smear.
+cur_lazyrect:
+    cmp byte [cur_lazy], 0
+    je .out
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov si, [cur_drawn_x]
+    sub si, [cur_hx]            ; SI = the cell's x1
+    cmp cx, si                  ; SIGNED throughout: gfx_blit1 takes a signed
+    jl .clear                   ; x and y, and the unclamped cell can be
+    add si, CUR_GW-1            ; negative at the screen's top left
+    cmp ax, si
+    jg .clear
+    mov di, [cur_drawn_y]
+    sub di, [cur_hy]
+    cmp dx, di
+    jl .clear
+    add di, CUR_GH-1
+    cmp bx, di
+    jg .clear
+    pop di                      ; they overlap: the hide is owed after all
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    jmp cur_unlazy
+.clear:
+    pop di                      ; the band cannot reach the arrow, so it stays
+    pop si                      ; on the glass - and gfx_unlock then owes no
+    pop dx                      ; show either
+    pop cx
+    pop bx
+    pop ax
+.out:
+    ret
+%endif
+
 ; cur_lazyend - gfx_unlock, when the hide was never spent. The cursor is still
 ;               on screen and cursor_show must NOT run (it would bank the
 ;               drawn arrow as background), but the ISR refused to move it all
