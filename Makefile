@@ -8979,8 +8979,28 @@ smallapps: $(BUILD)/smallapps360.img $(BUILD)/smallapps.img
 # build/smallapps.img in B:, and tests/fcpcopy.py's kern_small arm could
 # never have passed. 360KB declares a 2-sector FAT anyway; it is spelled here
 # so the two geometries say the same thing.
-$(BUILD)/smallapps360.img: $(SMALLPKGS) $(APPS_TOOLS) $(SMALLGAMES) $(SMALLSYSAPPS) \
-                           $(APPS_DOS) tools/os88disk.py
+# **PREREQUISITES ARE EXPANDED WHEN THE RULE IS READ**, and three of the five
+# lists below are defined HUNDREDS OF LINES LOWER - $(APPS_TOOLS) at the apps
+# disk, $(APPS_DOS) beside it, and $(SMALLGAMES) through $(APPS_GAMES). So this
+# rule read `$(SMALLPKGS) $(SMALLSYSAPPS) tools/os88disk.py` and NOTHING ELSE:
+# the disk did not depend on chart, calc, paint, the browser, the games or
+# os88net.com, every one of which its own recipe then puts on the volume.
+#
+# It is invisible in build/, because `all` builds those packages for the apps
+# disk anyway and they are always there by the time anyone looks. It is NOT
+# invisible in a PARTIAL tree: `t_nasm3` builds `shipped + small + smallapps +
+# emu` into one of its own, nothing there builds chart.o88, and the row failed
+# as `cannot read .../chart.o88` pointing at nasm 3 rather than at this.
+#
+# SMALLGAMES's own comment two hundred lines up is about the same trap one step
+# away - it is `=` and not `:=` so that its RECIPE sees $(APPS_GAMES) - and
+# deferring does not reach a prerequisite list, which make expands immediately
+# whatever the variable's flavour. `.SECONDEXPANSION` is what does: the `$$`
+# below survives the first expansion and is expanded again when the target is
+# considered, by which time every one of these is defined.
+.SECONDEXPANSION:
+$(BUILD)/smallapps360.img: $(SMALLPKGS) $$(APPS_TOOLS) $$(SMALLGAMES) $(SMALLSYSAPPS) \
+                           $$(SMALLDATA_360) $$(APPS_DOS) tools/os88disk.py
 	python3 tools/os88disk.py --fatcap 2 -o $@ --size 360 \
 	    $(SMALLAPPSARGS) \
 	    $(addprefix GAMES:,$(SMALLGAMES)) \
@@ -8990,8 +9010,8 @@ $(BUILD)/smallapps360.img: $(SMALLPKGS) $(APPS_TOOLS) $(SMALLGAMES) $(SMALLSYSAP
 	    $(MEDIAFOLDER) $(APPDATAFOLDER)
 	@echo "smallapps: $@ - pair it with build/small360.img (\`make small\`)"
 
-$(BUILD)/smallapps.img: $(SMALLPKGS) $(APPS_TOOLS) $(SMALLGAMES) $(SMALLSYSAPPS) \
-                        $(APPS_DOS) tools/os88disk.py
+$(BUILD)/smallapps.img: $(SMALLPKGS) $$(APPS_TOOLS) $$(SMALLGAMES) $(SMALLSYSAPPS) \
+                        $$(SMALLDATA) $$(APPS_DOS) tools/os88disk.py
 	python3 tools/os88disk.py --fatcap 2 -o $@ --size 1440 \
 	    $(SMALLAPPSARGS) \
 	    $(addprefix GAMES:,$(SMALLGAMES)) \

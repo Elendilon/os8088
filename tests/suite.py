@@ -1159,7 +1159,7 @@ FULL = [
         "its own two disks, and it DELETES them first - QEMU mounts B: "
         "writable and the write assertion would otherwise find last run's "
         "files already there",
-        needs=("qemu",), serial=True, builds=True),
+        needs=("qemu",), serial=True, builds=True, wants=("build/hello.o88", "build/mines.o88",)),
     Row("stk0water", "soak", py("tests/stk0water.py"), 70.0,
         "how deep TASK 0's stack has actually been (SPEC.md 15.1). That "
         "section says `redo the fill probe before lowering either` and the "
@@ -1263,7 +1263,7 @@ FULL = [
 SOAK = [
     Row("pacman", "soak", py("tests/pacman.py"), 100.0,
         "native 8088 Pac-Man movement, score, pellets, fruit, level transitions, "
-        "pause, full-screen repaint and worker teardown", needs=("marty",)),
+        "pause, full-screen repaint and worker teardown", needs=("marty",), wants=("build/pacman.o88",)),
     Row("paccman", "soak", py("tests/paccman.py"), 100.0,
         "PACCMAN's attract screen and tick path on a cycle-accurate 8088 "
         "(SPEC.md 91): the program opening on the attract screen with the "
@@ -1294,7 +1294,7 @@ SOAK = [
         "budget before this port, so a row that boots two machines belongs "
         "where there is no wall clock to overrun - what the full tier "
         "carries instead is t_ctoolchain BUILDING paccman, which runs "
-        "build.sh\'s three host gates", needs=("marty", "cc")),
+        "build.sh\'s three host gates", needs=("marty", "cc"), wants=("build/paccman.o88",)),
     Row("nasm3", "soak", py("tests/unit/t_nasm3.py"), 165.0,
         "THE OTHER ASSEMBLER. Every tier here assembles with whatever nasm "
         "the box has, which on this container, on CI and on every Debian or "
@@ -1792,7 +1792,7 @@ SOAK = [
         "a2uitest. Needs `make apple2disk`, so it needs the C toolchain and "
         "the pinned ROM fetch.",
         needs=("marty", "cc"), serial=True,
-        wants=("build/apple2.img",)),
+        wants=("build/apple2.img", "build/apple2.o88",)),
     Row("mseglazy", "soak", py("tests/mseglazy.py"), 50.0,
         "SPEC.md 20.12.4: an OP_LAZY part is NOT READ AT LOAD and can be "
         "given back. That is the first half of goal 3 - `load only some "
@@ -2277,7 +2277,7 @@ SOAK = [
         "instance record a failed load reserved were given back. QEMU because "
         "nothing here is a time and all three answers are state; it builds "
         "its own disk, so it needs no capability of its own",
-        needs=("qemu", "nasm"), serial=True, timeout=420, builds=True),
+        needs=("qemu", "nasm"), serial=True, timeout=420, builds=True, wants=("build/hello.o88",)),
     Row("heapmap", "soak", py("tests/heapmap.py"), 30.0,
         "What does the claim heap look like when the boot is over? (SPEC.md "
         "50, 66) Every driver attached at once on a machine WITH memory above "
@@ -3446,7 +3446,7 @@ SOAK = [
         "end - and which nothing asserted until this. The installer had the "
         "same job and got it wrong (52.10.13.1); tests/instdeep.py is that "
         "half",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, wants=("build/hello.o88",)),
     Row("lzmod", "soak", py("tests/lzmod.py"), 30.0,
         "SPEC.md 20.14.5: BEVERLY.MOD, COMPRESSED, opened by a double-click. "
         "The file this whole feature is for - 116,085 bytes is 114 of a 360KB "
