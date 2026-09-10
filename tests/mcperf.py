@@ -138,6 +138,12 @@ def main():
                          "it), so frame N in one is frame N in the other and "
                          "the two dumps compare PAIRWISE - which is a far "
                          "sharper question than two distributions")
+    ap.add_argument("--pts", action="store_true",
+                    help="bracket the KERNEL's gfx_points through one "
+                         "deterministic run and read the arrays it was "
+                         "handed: its real arrival/marginal split, and how "
+                         "SPATIALLY COHERENT the points are - which is what "
+                         "decides whether caching a row or a byte would pay")
     ap.add_argument("--dsc", action="store_true",
                     help="also bracket mc_dsc_run - THE CONVERTED CALL - "
                          "through one deterministic run, so its share of a "
@@ -208,7 +214,7 @@ def main():
 
         base = seg << 4
         TOP, END = base + syms["mc_b_top"], base + syms["mc_b_end"]
-        out, dsc = [], None
+        out, dsc, ptr = [], None, None
         for run in range(a.runs):
             # THE REQUEST IS POKED, NOT TYPED. `m.key` put the game through
             # TWO bench runs a press - one event per make and break reaching
@@ -294,6 +300,50 @@ def main():
                     i += 1
             dsc = (calls, cyc, blk, empty, span, pix)
 
+        # --- WHAT gfx_points IS ACTUALLY HANDED, in the real caller ---------
+        # PERFORMANCE.md Set 133 measured this slot on gfxbench's geometry -
+        # eight VERTICAL columns - and a vertical run shares a byte column and
+        # never a row, which is the opposite of what a Bresenham trail does.
+        # So the cost model, and any optimisation resting on it, want the
+        # arrays the GAME hands over rather than a bench's.
+        if a.pts:
+            P0, P1 = S("gfx_points"), S("gfx_points.out")
+            arrays = []
+
+            def grab(mm, rec):
+                if rec["addr"] != P0:
+                    return None
+                r = rec["regs"]
+                n = r["cx"]
+                if not n or len(arrays) >= 200:
+                    return n            # cycles from every call, geometry
+                k = min(n, 128)         # from a sample: the read is not free
+                raw = mm.read((r["es"] << 4) + r["si"], k * 4)
+                arrays.append([(u16(raw[j * 4:j * 4 + 2]),
+                                u16(raw[j * 4 + 2:j * 4 + 4]))
+                               for j in range(k)])
+                return n
+
+            done = p.rw("mc_bdone")
+            with os88marty.bp_trace(m, P0, P1, regs=True, cap=8000,
+                                    on_hit=grab) as tr:
+                m.write(base + syms["mc_breq"], b"\x0A\x00")
+                tr.until(lambda: p.rw("mc_bdone") > done,
+                         "the gfx_points pass", 2400)
+            h, i2, per = tr.hits, 0, []
+            while i2 + 1 < len(h):
+                if h[i2]["addr"] == P0 and h[i2 + 1]["addr"] == P1:
+                    n = h[i2].get("hit") or 0
+                    if n:
+                        per.append((n, h[i2 + 1]["cycles"] - h[i2]["cycles"],
+                                    (h[i2 + 1].get("instructions") or 0)
+                                    - (h[i2].get("instructions") or 0)))
+                    i2 += 2
+                else:
+                    i2 += 1
+            ptr = (per, arrays)
+
+
     print()
     if a.label:
         print("   arm: %s" % a.label)
@@ -351,6 +401,74 @@ def main():
     check(1000.0 * med / HZ < BAR_MS,
           "the median frame is under %.0f ms (%.2f)" % (BAR_MS,
                                                         1000.0 * med / HZ))
+
+    if ptr:
+        per, arrays = ptr
+        npts = sum(n for n, d, q in per)
+        cyc = sum(d for n, d, q in per)
+        ins = sum(q for n, d, q in per)
+        print()
+        print("   gfx_points, AS THE GAME CALLS IT")
+        print("     %d non-empty calls, %d points (%.1f a call), %d cycles"
+              % (len(per), npts, npts / float(len(per)) if per else 0, cyc))
+        if len(per) > 8:                # the arrival/marginal split, least
+            n_ = len(per)               # squares over (points, cycles)
+            sx = sum(n for n, d, q in per)
+            sxx = sum(n * n for n, d, q in per)
+            den = n_ * sxx - sx * sx
+            fit = {}
+            for k, lbl in ((1, "cycles"), (2, "instructions")):
+                sy = sum(r[k] for r in per)
+                sxy = sum(r[0] * r[k] for r in per)
+                if den:
+                    mrg = (n_ * sxy - sx * sy) / float(den)
+                    fit[lbl] = (mrg, (sy - mrg * sx) / float(n_))
+            if "cycles" in fit:
+                mrg, arr = fit["cycles"]
+                print("     fitted: %.0f cycles ARRIVAL + %.0f a POINT "
+                      "(%.1f us + %.1f us)"
+                      % (arr, mrg, 1e6 * arr / HZ, 1e6 * mrg / HZ))
+            if "instructions" in fit:
+                im, ia = fit["instructions"]
+                print("     ...and %.0f instructions arrival + %.1f a point "
+                      "-> %.2f CYCLES AN INSTRUCTION in the loop"
+                      % (ia, im, fit["cycles"][0] / im if im else 0))
+                print("     (an 8088 averages 4-6 on ordinary register code; "
+                      "much above that is memory, not instructions)")
+        if arrays:
+            pairs = same_row = same_byte = 0
+            runs = []
+            for ar in arrays:
+                run = 1
+                for k in range(1, len(ar)):
+                    pairs += 1
+                    if ar[k][1] == ar[k - 1][1]:
+                        same_row += 1
+                        if ar[k][0] >> 3 == ar[k - 1][0] >> 3:
+                            same_byte += 1
+                            run += 1
+                            continue
+                    runs.append(run); run = 1
+                runs.append(run)
+            print("     geometry, %d sampled calls, %d consecutive pairs:"
+                  % (len(arrays), pairs))
+            print("       same ROW  as the point before: %5.1f%%"
+                  % (100.0 * same_row / pairs if pairs else 0))
+            print("       same BYTE as the point before: %5.1f%%"
+                  % (100.0 * same_byte / pairs if pairs else 0))
+            print("       points per framebuffer byte touched: %.2f"
+                  % (sum(runs) / float(len(runs)) if runs else 0))
+            # THE SAMPLES ARE THE POINT, not decoration: the two percentages
+            # above say the points are incoherent and only these say WHY -
+            # `297,50 297,51 296,52 296,53` is a Y-MAJOR line, which is what a
+            # falling missile is. y moves every point and x every second or
+            # third, so a row cache never hits and a byte cache never hits,
+            # and both are the obvious optimisation.
+            for ar in arrays[:4]:
+                print("       sample: " + " ".join("%d,%d" % q for q in ar[:14])
+                      + (" ..." if len(ar) > 14 else ""))
+        print()
+
 
     if a.dump:
         with open(a.dump, "w") as f:
