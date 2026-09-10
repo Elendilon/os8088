@@ -376,6 +376,29 @@ dd_metrics:
     jb .lok
     mov word [dd_lth], 2
 .lok:
+    mov cx, [dd_lth]                ; THE BORDER'S GAP (93.2.4) and THE CORNER
+    mov ax, cx                      ; ROUND (93.2.3), both off the line width
+    shl ax, 1
+    add ax, cx                      ; three widths: the outer border line sits
+    mov bx, [dd_th]                 ; that far out, leaving two of black, which
+    sub bx, cx                      ; is the arcade's own proportion - but never
+    cmp ax, bx                      ; past the WALL RING, which is one tile, so
+    jbe .gok                        ; a three-row tile keeps its top line on
+    mov ax, bx                      ; the picture instead of clipping it away
+.gok:
+    mov [dd_bgap], ax
+    mov ax, cx
+    shl ax, 1
+    add ax, cx
+    shl ax, 1                       ; AX = six widths
+    mov [dd_rnd], cx                ; the round is ONE width...
+    cmp [dd_tw], ax
+    jb .rok
+    cmp [dd_th], ax
+    jb .rok
+    shl cx, 1                       ; ...and TWO where a one-tile wall still
+    mov [dd_rnd], cx                ; has a width of line left between the two
+.rok:                               ; rounded ends of it - six widths to a tile
     mov ax, [dd_tw]                 ; a dot is a fifth of the tile, never under
     mov bl, 5                       ; two pixels wide or one tall
     div bl

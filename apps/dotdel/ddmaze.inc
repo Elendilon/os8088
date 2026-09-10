@@ -558,8 +558,12 @@ dd_board_render:
     mov ch, [dd_gr]
     call dd_tile
     cmp al, TT_WALL
-    je .next                        ; the wall draws nothing of its own: it is
-    mov [dd_gt], al                 ; its neighbours' outline
+    jne .open                       ; the wall draws nothing of its own: it is
+    call dd_tile_org                ; its neighbours' outline - but its own
+    call dd_wall_round              ; CORNERS are its to round (93.2.3)
+    jmp short .next
+.open:
+    mov [dd_gt], al
     call dd_tile_org                ; [dd_gx], [dd_gy] = the tile's top-left
     call dd_walls_of
     cmp byte [dd_gt], TT_DOOR
@@ -572,6 +576,7 @@ dd_board_render:
     inc byte [dd_gr]
     cmp byte [dd_gr], DD_ROWS
     jb .rows
+    call dd_bord_round              ; the playfield's own four (93.2.4)
     ret
 
 ; dd_tile_org - [dd_gx],[dd_gy] = the board pixel of tile ([dd_gc],[dd_gr])
@@ -625,7 +630,6 @@ dd_walls_of:
     call dd_iswall
     call dd_cf_byte
     mov [dd_nB], al
-
     mov dh, 1                       ; every wall line is ink
     ; --- left ---------------------------------------------------------------
     cmp byte [dd_nL], 0
@@ -644,6 +648,30 @@ dd_walls_of:
     add bp, [dd_lth]
 .lnb:
     mov cx, [dd_lth]
+    push ax
+    push bx
+    push cx
+    push bp
+    call dd_bd_rect
+    pop bp
+    pop cx
+    pop bx
+    pop ax
+    cmp byte [dd_gc], 1             ; ...and THE PLAYFIELD'S OWN BORDER is a
+    jne .noL                        ; DOUBLE line (SPEC.md 93.2.4)
+    sub ax, [dd_bgap]
+    ; ...and the OUTER line's corner needs the extension the inner one got,
+    ; plus the gap it sits beyond it (SPEC.md 93.2.4): extending by [dd_lth]
+    ; reaches the inner corner and leaves the outer one a notch short.
+    cmp byte [dd_nT], 0
+    je .lo1
+    sub bx, [dd_bgap]
+    add bp, [dd_bgap]
+.lo1:
+    cmp byte [dd_nB], 0
+    je .lo2
+    add bp, [dd_bgap]
+.lo2:
     call dd_bd_rect
 .noL:
     ; --- right --------------------------------------------------------------
@@ -663,6 +691,27 @@ dd_walls_of:
     add bp, [dd_lth]
 .rnb:
     mov cx, [dd_lth]
+    push ax
+    push bx
+    push cx
+    push bp
+    call dd_bd_rect
+    pop bp
+    pop cx
+    pop bx
+    pop ax
+    cmp byte [dd_gc], DD_COLS - 2
+    jne .noR
+    add ax, [dd_bgap]
+    cmp byte [dd_nT], 0
+    je .ro1
+    sub bx, [dd_bgap]
+    add bp, [dd_bgap]
+.ro1:
+    cmp byte [dd_nB], 0
+    je .ro2
+    add bp, [dd_bgap]
+.ro2:
     call dd_bd_rect
 .noR:
     ; --- top ----------------------------------------------------------------
@@ -682,6 +731,27 @@ dd_walls_of:
     mov bx, [dd_gy]
     sub bx, [dd_lth]
     mov bp, [dd_lth]
+    push ax
+    push bx
+    push cx
+    push bp
+    call dd_bd_rect
+    pop bp
+    pop cx
+    pop bx
+    pop ax
+    cmp byte [dd_gr], 1
+    jne .noT
+    sub bx, [dd_bgap]
+    cmp byte [dd_nL], 0
+    je .to1
+    sub ax, [dd_bgap]
+    add cx, [dd_bgap]
+.to1:
+    cmp byte [dd_nR], 0
+    je .to2
+    add cx, [dd_bgap]
+.to2:
     call dd_bd_rect
 .noT:
     ; --- bottom -------------------------------------------------------------
@@ -701,8 +771,235 @@ dd_walls_of:
     mov bx, [dd_gy]
     add bx, [dd_th]
     mov bp, [dd_lth]
+    push ax
+    push bx
+    push cx
+    push bp
+    call dd_bd_rect
+    pop bp
+    pop cx
+    pop bx
+    pop ax
+    cmp byte [dd_gr], DD_ROWS - 2
+    jne .noB
+    add bx, [dd_bgap]
+    cmp byte [dd_nL], 0
+    je .bo1
+    sub ax, [dd_bgap]
+    add cx, [dd_bgap]
+.bo1:
+    cmp byte [dd_nR], 0
+    je .bo2
+    add cx, [dd_bgap]
+.bo2:
     call dd_bd_rect
 .noB:
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_wall_round - a WALL tile's corners, rounded where two sides are open
+;                 (SPEC.md 93.2.3). Clobbers AX/BX/CX/DX/BP.
+;
+; IT HAS TO BE THE WALL'S JOB. The outline is drawn by the CORRIDOR tiles, one
+; line into each wall that touches them - so a block's outer corner is made by
+; two lines from two DIFFERENT tiles, and neither of them can see that a corner
+; is being formed. The first attempt at this looked for a corner square inside
+; dd_walls_of and never fired once.
+;
+; The pixel to take is the wall tile's own, because that is where the corridor
+; drew: a line goes [dd_lth] INTO the wall from the shared edge, so the two
+; lines that meet overlap exactly on the wall tile's corner.
+; -----------------------------------------------------------------------------
+dd_wall_round:
+    mov cl, [dd_gc]
+    mov ch, [dd_gr]
+    dec ch
+    call dd_iswall
+    call dd_cf_byte
+    mov [dd_nT], al
+    mov cl, [dd_gc]
+    mov ch, [dd_gr]
+    inc ch
+    call dd_iswall
+    call dd_cf_byte
+    mov [dd_nB], al
+    mov cl, [dd_gc]
+    mov ch, [dd_gr]
+    dec cl
+    call dd_iswall
+    call dd_cf_byte
+    mov [dd_nL], al
+    mov cl, [dd_gc]
+    mov ch, [dd_gr]
+    inc cl
+    call dd_iswall
+    call dd_cf_byte
+    mov [dd_nR], al
+
+    mov al, [dd_nT]
+    or al, [dd_nL]
+    jnz .tr
+    mov ax, [dd_gx]                 ; top-left
+    mov bx, [dd_gy]
+    mov cx, [dd_lth]
+    mov dx, cx
+    call dd_rnd_cnr
+.tr:
+    mov al, [dd_nT]
+    or al, [dd_nR]
+    jnz .bl
+    mov ax, [dd_gx]                 ; top-right
+    add ax, [dd_tw]
+    sub ax, [dd_lth]
+    mov bx, [dd_gy]
+    mov dx, [dd_lth]
+    mov cx, dx
+    neg cx
+    call dd_rnd_cnr
+.bl:
+    mov al, [dd_nB]
+    or al, [dd_nL]
+    jnz .br
+    mov ax, [dd_gx]                 ; bottom-left
+    mov bx, [dd_gy]
+    add bx, [dd_th]
+    sub bx, [dd_lth]
+    mov cx, [dd_lth]
+    mov dx, cx
+    neg dx
+    call dd_rnd_cnr
+.br:
+    mov al, [dd_nB]
+    or al, [dd_nR]
+    jnz .out
+    mov ax, [dd_gx]                 ; bottom-right
+    add ax, [dd_tw]
+    sub ax, [dd_lth]
+    mov bx, [dd_gy]
+    add bx, [dd_th]
+    sub bx, [dd_lth]
+    mov cx, [dd_lth]
+    neg cx
+    mov dx, cx
+    call dd_rnd_cnr
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_rnd_cnr - round the elbow whose [dd_lth] square has its top-left at
+;              (AX, BX) and whose two arms run in the directions (CX, DX),
+;              each of which is plus or minus [dd_lth]. Preserves everything.
+;
+; THE ARCADE'S OWN SHAPE, read off a pixel-perfect capture rather than guessed:
+; at a block's corner the horizontal line stops two pixels short, one pixel
+; sits on the diagonal, and the vertical starts two pixels down. So a round is
+; a SQUARE TAKEN OUT and ONE BLOCK PUT BACK on the diagonal inside it - not an
+; arc anybody has to walk, and not a chamfer either, a chamfer being what this
+; degenerates to at [dd_rnd] = [dd_lth] where there is no room for the block.
+;
+; The elbow is the wall tile's own corner because that is where the corridor
+; drew: a line goes [dd_lth] INTO the wall from the shared edge, so the two
+; lines that meet overlap exactly there.
+; -----------------------------------------------------------------------------
+dd_rnd_cnr:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    mov si, ax
+    add si, cx                      ; (SI, DI) = the block that goes back, one
+    mov di, bx                      ; line width along each arm
+    add di, dx
+    mov bp, [dd_rnd]
+    cmp bp, [dd_lth]
+    je .clear                       ; one width: a chamfer, nothing goes back
+    or cx, cx
+    jns .rx
+    mov ax, si                      ; an arm running LEFT or UP anchors the
+.rx:                                ; square that comes out at its far end
+    or dx, dx
+    jns .clear
+    mov bx, di
+.clear:
+    mov cx, bp
+    xor dh, dh                      ; paper: the elbow comes out
+    call dd_bd_rect
+    cmp bp, [dd_lth]
+    je .out
+    mov ax, si
+    mov bx, di
+    mov cx, [dd_lth]
+    mov bp, cx
+    mov dh, 1                       ; ...and the diagonal block goes back in
+    call dd_bd_rect
+.out:
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_bord_round - the PLAYFIELD BORDER's own four corners (SPEC.md 93.2.4)
+;
+; dd_wall_round cannot reach these. Its rule is "a wall tile with two OPEN
+; sides", which is a block's corner seen from outside; the border's corners are
+; the same elbow seen from INSIDE, and the wall tile that owns them - the one
+; in the ring's corner - has wall on both of the sides that matter. So they are
+; done once, off the geometry, rather than looked for tile by tile.
+;
+; Eight elbows, not four: the border is a DOUBLE line, and the outer one sits
+; 2*[dd_lth] further out on every side.
+; -----------------------------------------------------------------------------
+dd_bord_round:
+    mov ax, [dd_tw]                 ; the INNER line, one thickness into the
+    sub ax, [dd_lth]                ; wall ring from the corridor it edges
+    mov [dd_bcx], ax
+    mov ax, DD_COLS - 1
+    mul word [dd_tw]
+    mov [dd_bcx2], ax
+    mov ax, [dd_th]
+    sub ax, [dd_lth]
+    mov [dd_bcy], ax
+    mov ax, DD_ROWS - 1
+    mul word [dd_th]
+    mov [dd_bcy2], ax
+    call .four
+    mov ax, [dd_bgap]               ; ...and the outer one, then FALL THROUGH
+    sub [dd_bcx], ax
+    add [dd_bcx2], ax
+    sub [dd_bcy], ax
+    add [dd_bcy2], ax
+.four:
+    mov ax, [dd_bcx]
+    mov bx, [dd_bcy]
+    mov cx, [dd_lth]                ; top-left: the arms run right and down
+    mov dx, cx
+    call dd_rnd_cnr
+    mov ax, [dd_bcx2]
+    mov bx, [dd_bcy]
+    mov dx, [dd_lth]                ; top-right: left and down
+    mov cx, dx
+    neg cx
+    call dd_rnd_cnr
+    mov ax, [dd_bcx]
+    mov bx, [dd_bcy2]
+    mov cx, [dd_lth]                ; bottom-left: right and up
+    mov dx, cx
+    neg dx
+    call dd_rnd_cnr
+    mov ax, [dd_bcx2]
+    mov bx, [dd_bcy2]
+    mov cx, [dd_lth]                ; bottom-right: left and up
+    neg cx
+    mov dx, cx
+    call dd_rnd_cnr
     ret
 
 ; dd_cf_byte - AL = 1 when CF was set, 0 when it was not

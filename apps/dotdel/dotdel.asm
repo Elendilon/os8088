@@ -1131,6 +1131,12 @@ dd_spct:     dw DD_PCTPAC, DD_PCTGH, DD_PCTFRI, DD_PCTEYE, DD_PCTTUN
     DWORDV dd_thS
     DWORDV dd_mwS                   ; ...and the board's width, for the tunnel
     DWORDV dd_lth                   ; the wall line's thickness
+    DWORDV dd_bgap                  ; the border's outer line, that far beyond
+    DWORDV dd_rnd                   ; the corner round, in pixels (93.2.3)
+    DWORDV dd_bcx                   ; dd_bord_round's four elbow coordinates
+    DWORDV dd_bcx2
+    DWORDV dd_bcy
+    DWORDV dd_bcy2
     DWORDV dd_dotw
     DWORDV dd_doth
     DWORDV dd_pilw

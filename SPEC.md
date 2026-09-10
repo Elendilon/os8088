@@ -111245,6 +111245,94 @@ blit an actor to keep the wall out of the actor's pen.
 The line is 1 px thick, or 2 once the tile is at least 16 × 8, which is where
 there is room for black between two of them.
 
+#### 93.2.3 The corners are ROUNDED, and the diagonal is what says which ones
+
+The arcade's maze has no right angles: every corner of its line art is a
+quarter turn, and the field asked for the same.
+
+**The shape is read off the arcade rather than guessed**, from a pixel-perfect
+224 × 288 capture the field supplied. At a block's corner the horizontal line
+**stops two pixels short**, **one pixel sits on the diagonal**, and the
+vertical **starts two pixels down** — so a round is a **square taken out and
+one block put back** inside it, not an arc anybody has to walk:
+
+```
+    ..######        the elbow's 2x2 comes out, and the pixel diagonally
+    .#......        inside it goes back in. Both lines are 1 px.
+    #.......
+```
+
+The first build took the elbow pixel out and stopped there, which is a
+**chamfer** — the two lines meet diagonally and nothing goes back. That reads
+as round from a foot away and is what this degenerates to when there is no
+room, but it is not what the arcade draws, and beside the capture the
+difference is plain.
+
+`[dd_rnd]` is the radius and it is **two line widths where the tile has six of
+them in it, and one where it has not**. Six is the arithmetic and not a taste:
+a wall one tile thick carries a round at **each** end of the same line, so
+`2 × 2 × [dd_lth]` comes out of it and a width of line has to survive that.
+A windowed Hercules is 8 × 9 at 1 px and rounds properly; the same board in
+**Full** is 16 × 9 at 2 px, where nine rows will not carry two four-pixel
+rounds, and it chamfers. So does a windowed CGA at 8 × 4.
+
+**It has to be the WALL tile's job, and that is the whole finding.** The
+outline is drawn by the *corridor* tiles — one line into each wall that touches
+them — so a block's outer corner is made by two lines from **two different
+tiles**, and neither of them can see that a corner is being formed. The first
+attempt looked for a corner square inside `dd_walls_of`, and photographed
+identical to the build before it: **it never fired once.**
+
+`dd_wall_round` runs on the tiles `dd_board_render` used to skip. A wall tile's
+corner is rounded when **both** of its adjacent neighbours are open — which is
+exactly a block corner poking into the corridor — and the elbow taken is the
+wall tile's own, because a line goes `[dd_lth]` *into* the wall from the shared
+edge, so the two lines that meet overlap precisely there.
+
+`dd_rnd_cnr` takes the elbow's top-left and the **directions its two arms
+run**, each `± [dd_lth]`, which is the whole of what separates the four corners
+— and the block that goes back is always one width along each arm, so a
+concave corner and a convex one are the same three instructions with different
+signs. That is worth having because the border's corners (§93.2.4) are the
+same elbow seen from the other side.
+
+A subtraction after the fact rather than shortening the lines: the four sides
+already have three cases each, and this has one.
+
+#### 93.2.4 …and the playfield's own border is a DOUBLE line
+
+The arcade draws its maze in double line art and the field asked for the same
+around the playfield. The border is the cheap half of that, because the maze
+data makes it identifiable in one compare: every row of `ddmzdat.inc` begins
+and ends with `#` and the first and last rows are solid, so the outer ring is
+**exactly one tile thick** and a corridor tile knows it is against it when its
+own column is 1 or `DD_COLS - 2`, or its row is 1 or `DD_ROWS - 2`.
+
+So each of `dd_walls_of`'s four sides draws twice against that ring: the line
+it already drew, and a second one `[dd_bgap]` = **three line widths** further
+**out** — a stroke, two widths of black, a stroke, which is the arcade's own
+proportion off the same capture. One constant covers two jobs, because a line
+offset perpendicular by `[dd_bgap]` needs its ends extended by exactly
+`[dd_bgap]` to reach the corner: the outer line inherits the inner one's
+extension cases and adds that step to each. It is capped at one **wall ring** —
+`[dd_th] - [dd_lth]` — because the ring is one tile and the tile's floor is
+three rows, where three widths would put the top line off the picture and
+`dd_bd_hrun` would clip it away in silence.
+
+**`dd_wall_round` cannot reach the border's four corners**, and that is worth
+saying because it looks as though it should. Its rule is *a wall tile with two
+open sides*, which is a block's corner seen from outside; the border's corners
+are the same elbow seen from **inside**, and the wall tile that owns them — the
+one in the ring's corner — has wall on both of the sides that matter. So
+`dd_bord_round` does them once off the geometry rather than looking for them
+tile by tile: **eight elbows, not four**, the outer line being a second ring
+`[dd_bgap]` out.
+
+**The tunnel needs no special case**, which is what makes this worth doing this
+way rather than as a drawn rectangle: the mouths are open tiles in the border
+ring, no corridor tile draws a line into them, and the double border therefore
+stops on its own at each side of the gap.
+
 ### 93.3 The tile is computed, not chosen
 
 The 28 × 31 grid never changes: a board that lost columns on a CGA would be a
