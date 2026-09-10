@@ -92,6 +92,11 @@ UNREGISTERED = {
                     "redraw a changed panel field or refill a rolled horizon; "
                     "skiesperf and skiescount both pause the world",
 
+    "skiesink.py": "an INSTRUMENT, not a test: it checks CLEAR SKIES' "
+                   "one-frame INK-INSIDE-ITS-SPAN invariant and FAILS today "
+                   "(docs/FIELD-NOTES.md 41), so registering it as a gate "
+                   "would put a permanently red row in the suite. It asserts "
+                   "for a person who runs it, not for the runner",
     "skiescount.py": "an INSTRUMENT, not a test: it COUNTS CLEAR SKIES' faces "
                      "and edges and prices each term by ADDING it - every arm "
                      "draws the identical picture, where skiesperf.py's "

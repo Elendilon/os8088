@@ -943,3 +943,83 @@ disagreeing with the machine at the edges**; the real bug is 3 bytes wide in
 the same place, which is exactly how a wrong instrument survives scrutiny.
 Assert against the thing itself — the card against the shadow — not against a
 second implementation of the code under test.
+
+## 41. Ink from a road survives on the GROUND after a bank (OPEN — diagnosed)
+
+*"Stale pixels originate from roads or lines drawn on the ground, below the
+horizon. A few pixels from the line stick around, pretty often, until the
+line recrosses them. Happens after banking only. Again only on the right
+side of the screen."*
+
+**Reproduced, root-caused, and the fix is NOT yet shipped** — the first
+attempt at it was worse than the defect and was reverted. `tests/skiesink.py`
+is the instrument; `SKIES.O88` is unchanged.
+
+### What it is
+
+**The erase IS the span.** For a row whose KIND is unchanged from last frame,
+`cs_hzrows`'s `.r` arm refills exactly the bytes LAST frame's span covers —
+*"what last frame drew on the row IS the erase"* (SPEC.md 88.3.1). So ink laid
+outside its row's recorded span is never erased, and it sits there until
+something marks that byte again. That is the report, exactly.
+
+The under-mark is **SPEC.md 88.3.2.3's stepped mark**, and it is one clamp:
+
+    mov cl, [cs_wb0]        ; the ENDS are pulled CS_MKD_SLOP inside the view
+    add cx, CS_MKD_SLOP     ; so the byte arithmetic below cannot wrap
+
+Pulling an end **moves the interpolated line**, by up to the clamp itself,
+all the way along it — and the `±CS_MKD_SLOP` widening was sized for the
+divide's truncation, not for the clamp's own displacement. A segment whose
+end sits at the view's edge, which a bank puts there constantly, marks up to
+**3 bytes short of its own ink**, always on the side that got clamped.
+
+Modelled host-side over 40,000 segments against the true Bresenham range:
+**3,558 rows leak, worst 3 bytes.** Example — segment (516,99)→(167,108),
+row 101: ink in bytes 52..57, mark `[44,54]`.
+
+### The evidence
+
+`tests/skiesink.py` checks a **single-frame** invariant and so needs no A/B
+and can run in FLIGHT: on a whole-ground row (`cs_rowkind` = 1), every byte
+differing from the row's ground pattern must lie inside `cs_spcur`'s pair.
+
+| profile | roll | result |
+|---|---|---|
+| `rollsweep` (2 deg a frame) | moving | **11 of 60 frames, 62 bytes, ALL right of span** |
+| `bank` (decaying) | moving | **10 of 60 frames, 61 bytes, ALL right of span** |
+| `slightbank` | held | clean |
+| `turnhold` | held | clean |
+| `rollsweep`, `cs_mknostep=1` | moving | **clean** |
+
+The roll must be CHANGING, never a byte to the left, and the box mark is
+clean — which is the diagnosis three ways.
+
+### Three detectors that could NOT see it, and why
+
+1. **`tests/skiesstale.py`** compares the CARD with the SHADOW. Here the
+   shadow itself keeps the ink and the card faithfully matches it.
+2. **Incremental shadow against a forced full repaint** measures
+   `cs_rowkind`'s own refill rule, not the marking — it reports the FULL arm
+   having MORE ink, the opposite sign to the bug.
+3. **Consecutive frames** are not the same scene by right: 88.5.2's cull
+   carries SKIP COUNTERS across them, so an object can be absent from one
+   frame and present in the next with nothing wrong.
+
+### The fix, and why the obvious one is wrong
+
+Widening alone is **REFUSED, measured**: at clamp 3 the model needs a
+widening of 6 to reach zero leaks (4 leaves 273 rows, 5 leaves 13). Built,
+it sends a row's low byte to `wb0 − 3`, and `cs_hzrows` computes the refill's
+start as `dl − wb0` **unsigned** — so the fill runs backwards off the view
+and `cs_skyground` goes **25.13 ms → 490.52 ms**, a 20x regression far worse
+than the defect. Reverted; `skies.bin` is byte-identical (`12c7b9ec`).
+
+The correct shape is to **stop displacing the line at all**: interpolate on
+the TRUE endpoint bytes, keep the ±3 widening, and clamp the **stored**
+interval to `[wb0, wb0+wbn−1]` instead of clamping the ends. That is exact by
+construction and costs two compares and two moves a row in each of `.pos`,
+`.neg` and `.last` — which is real per-row money on a mark whose whole
+purpose is to be cheap, so it wants measuring against the 2.8–3.9 ms the
+stepped mark buys before it ships.
+
