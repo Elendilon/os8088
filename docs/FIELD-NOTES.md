@@ -968,6 +968,88 @@ nesting failure is exactly the shape that turns "nearly enough headroom" into a
 halt — so this is a contributing cause and must not be written off as
 coincidence because the other number is bigger.
 
+### 40.2.0 THE PANEL DECODED, and it says the SP is HEALTHY
+
+Two reproductions photographed (2026-09-09 and 2026-09-10, Hercules 720x348)
+both read **`STACK OVERFLOW  TASK 04  SP 1788  CYCLONE 88`** — the same slot and
+the same SP to the digit, on builds a day and several kernel changes apart.
+
+`sch_diepanel` prints `sch_dphex4`, so **SP is HEX: 0x1788 = 6024**, and it is
+the PARKED SP out of the task record, not the live one. Against the slice
+table, on `kern_big`:
+
+| | |
+|---|---:|
+| `sch_stacks` | 5,590 |
+| slots 1–3, 128 each | 5,590 – 5,974 |
+| **slot 4, 192 — Cyclone's** | **5,974 – 6,166** |
+| its canary, a word at the BASE | **5,974** |
+| **the parked SP** | **6,024** |
+
+**So the parked SP is 50 bytes ABOVE the base, comfortably inside the slice**,
+with 142 of 192 used. Nothing about SP is wrong. What died is the canary word
+at 5,974, and `sch_switch` tests that and not SP —
+`cmp word [ss:bx], SCH_MAGIC` / `jne sch_stkdie`.
+
+**That changes the shape of the bug.** It is not a runaway and not a slice that
+is simply too small for its resting depth: it is a **transient excursion below
+the base that had already unwound** by the time the switch looked. The SP in
+the panel can never show it, and the same SP twice says the excursion happens
+at a repeatable point rather than at random.
+
+**And it is why the symptom keeps changing.** Below 5,974 is slot 3's slice.
+What the excursion destroys is whatever lives there, which differs per build
+and per session — so one build panics on a clean screen, the next panics on a
+corrupted one, and the third does not panic at all but **reboots with a full
+BIOS memory count**. That last one is not a third bug: an 8086 has no fault to
+triple, so "hard reboot" means execution reached `F000:FFF0`, which is what a
+`ret` into a corrupted return address eventually does.
+
+### 40.2.1 What was ruled OUT here, and the term that is still missing
+
+Measured on MartyPC (`os8088_5150_herc_gla`), Cyclone launched and **played
+with the arrow key and the spacebar HELD** — the control docs/FIELD-NOTES.md 40
+is about, `key(down=True, up=False)` so the BIOS repeats them:
+
+| | |
+|---|---:|
+| slot 4 high water, 21 s of held keys | **114 of 192** |
+| …and it is FLAT: it reaches 114 and stays | |
+| slot 1 (the idle task) | 54 of 128 |
+| slots 2, 3 and 5–13 | never spawned |
+
+So **78 bytes were still free and nothing here can spend them.** The static
+chain agrees: `tools/stkdepth.py --from cy_worker` is 86 bytes to the
+`OSAPI_GFX_POINTS` far call, and the kernel below that call measures **26**
+(`gfx_points`' cost to its caller, SPEC.md 5.6.9.3) — 112, which is the 114
+observed.
+
+Ruled out with it: **no indirect dispatch** for `stkdepth` to miss (Cyclone's
+tables at `cy_sh_*`, `cy_pn_*` and the window template are data and callbacks,
+not a state machine's jump table), and **`Z` and `J` in the status line are
+inventory** — a held zapper and a held jump — not states with code behind them.
+
+**The missing term is worth ~80 bytes and this box cannot produce it.** The
+candidates, in the order they are worth spending a field run on:
+
+1. **The interrupt floor on the machine that reproduces.** MartyPC's is ~32;
+   docs/plans/completed/STACK-SLOTS-PLAN.md §9 measured **118 on a real 5150,
+   100 with `MOUPRIV`**. `make stkdiag` answers it on ANY machine — boot it,
+   touch nothing for 30 seconds, photograph the panel — and that one number
+   either closes this or eliminates the whole line.
+2. **A stack UNDERFLOW in slot 3's task**, which would write AT 5,974 rather
+   than below it: slot 3's slice TOP *is* slot 4's canary address, so one `pop`
+   too many next door kills this canary and leaves Cyclone's SP innocent —
+   which is exactly the evidence. Slot 3 is unspawned on this box, so nothing
+   here can test it.
+3. Only then the ones docs/FIELD-NOTES.md 40.2 already lists.
+
+**A note on this branch's own contribution.** SPEC.md 5.6.9.3's first version
+made `gfx_points` cost its caller **34 bytes where the routine it replaced cost
+26** — a `push ds` and a wrapper. On a margin this thin that is material, and
+the reboot symptom appeared on that build. It is back to 26, measured; the
+branch's other contribution, wave 5's +20 to `cy_worker`, stands and is 40.1.
+
 ### 40.2 Where to look, in order
 
 1. ~~**Does `cy_kbdrain` still run on every path?**~~ **ANSWERED NO by the
