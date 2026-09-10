@@ -1655,6 +1655,7 @@ IBM_ROM_PATH = os.path.join("tools", "martypc", "roms",
 IBM_TWIN = {
     "os8088_5150_cga":  "os8088_5150_cga_gla",
     "os8088_5150_herc": "os8088_5150_herc_gla",
+    "os8088_5150_herc_sb": "os8088_5150_herc_sb_gla",
     "os8088_5150_both": "os8088_5150_both_gla",
     "os8088_5150_sb":   "os8088_5150_sb_gla",
 }

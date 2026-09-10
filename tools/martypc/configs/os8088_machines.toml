@@ -73,6 +73,95 @@ overlays = [
     subtype = "Hercules"
     clock_mode = "Dynamic"
 
+# ...and the SAME Hercules machine with a Sound Blaster 2.0 in it.
+#
+# WHY IT HAD TO BE WRITTEN. Seven machines here carry a Sound Blaster and every
+# one of them is CGA or VGA, so until this one there was NO WAY to run a
+# 1bpp machine with a card in it - and the field machine that reports most of
+# this project's defects is exactly that: `vm/pc5150` is Hercules with an
+# SB2.0, and its owner runs fresh OS disks, so SOUND.DRV is the ONE driver
+# that ever mounts there (the probe finds the card; nothing else is ever
+# ticked in a SYSTEM.CFG that does not survive the session).
+#
+# The gap mattered because a sound IRQ lands on whatever slice it interrupts,
+# and the adapter is what sets the OTHER interrupt depths (SPEC.md 39,
+# docs/plans/completed/STACK-SLOTS-PLAN.md 9.9.1: the mouse ISR is 30 on
+# Hercules against 54 on a planar adapter). So a CGA-plus-SB machine answers
+# a different question, and `stkdiag` cannot answer this one at all - the
+# panel never plays a note, so its floor is the driver RESIDENT AND IDLE
+# (docs/FIELD-NOTES.md 40.2.4).
+#
+# The card is `os8088_5150_sb`'s, byte for byte - an OPL2 at 0x388 and a DSP
+# 2.1 at 0x220 on IRQ 7, which is what 86Box gives `sndcard = sb2.0` with no
+# section of its own.
+[[machine]]
+name = "os8088_5150_herc_sb"
+type = "Ibm5150v256K"
+rom_set = "ibm5150_82_v4"
+speaker = true
+overlays = [
+    "pcxt_2_360k_floppies",
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "MDA"
+    subtype = "Hercules"
+    clock_mode = "Dynamic"
+
+    [[machine.sound]]
+    type = "AdLib"
+    io_base = 0x388
+
+    [[machine.sound]]
+    type = "SoundBlaster"
+    io_base = 0x220
+    irq = 7
+    dsp_version = [2, 1]
+
+# ...and its GLaBIOS twin, differing in `rom_set` ALONE, because
+# tests/unit/t_machines.py check 3 says a twin that has drifted is worse than
+# no twin: the row runs, and the difference it measures is the config's rather
+# than the kernel's.
+[[machine]]
+name = "os8088_5150_herc_sb_gla"
+type = "Ibm5150v256K"
+rom_set = "glabios_pc"
+speaker = true
+overlays = [
+    "pcxt_2_360k_floppies",
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "MDA"
+    subtype = "Hercules"
+    clock_mode = "Dynamic"
+
+    [[machine.sound]]
+    type = "AdLib"
+    io_base = 0x388
+
+    [[machine.sound]]
+    type = "SoundBlaster"
+    io_base = 0x220
+    irq = 7
+    dsp_version = [2, 1]
+
 # The GLaBIOS twin, for when you want a machine that BOOTS FAST rather than one
 # that boots the way the calibration machine does.
 #
