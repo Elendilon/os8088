@@ -65419,6 +65419,59 @@ play: it patches `mc_tr_lay` to `stc`/`ret` in the running guest, which sends
 every trail down the segment arm, and then plays. Forced that way it reads 206
 commits, 880 points and 535 lit pixels of playfield.
 
+#### 48.16.2 The DETERMINISTIC run: `apps/missile/mcbench.inc`
+
+Built only under `-DMC_BENCH` (`make mcbench`); the shipped `MISSILE.O88` is
+byte-identical without it, and `tests/mcperf.py` asserts that before it
+measures anything.
+
+**It exists because §48.16's conversion could not be priced honestly.**
+PERFORMANCE.md Set 134.3 read `mc_dsc_run` over LIVE PLAY on two trees — two
+different games, medians over whatever the waves happened to do. This runs
+*one* game: `OSAPI_SRAND` at a fixed seed, a scripted shot every `MC_BFIRE`
+frames written straight into `[mc_fire]`/`[mc_firex]`/`[mc_firey]` so it goes
+down `mc_do_fire`'s own path, and `MC_BFRAMES` frames **back to back**.
+
+**Back to back is the load-bearing part, not a shortcut.** `mc_worker` sleeps
+to a *deadline* (§44.1), so a faster frame does not make the game go faster —
+it makes the worker sleep longer, and the whole win is invisible in wall time.
+Worse, a frame that overruns a tick takes `.behind` and re-anchors the
+deadline, which is clock-dependent: a fast arm and a slow arm would stop
+playing the same game at the first overrun. Running frames back to back is
+sound here for one reason that had to be checked rather than assumed — **`mc_update`
+and `mc_render` read `OSAPI_GET_TICKS` nowhere.** Every timer in the game is a
+FRAME counter (`[mc_hold]`, `[mc_ltick]`, `[mc_et]`), and the only three tick
+reads in the package are the seed and the worker's own deadline.
+
+**Three things it had to get right, each of which broke first:**
+
+1. **The bench runs on the WORKER, not from the key handler.** `gfx_lock` is
+   not recursive (§7.3) and `ui_task` holds it around the whole event handler,
+   so `mc_render`'s own `OSAPI_GFX_LOCK` from a key deadlocks the UI task
+   against a lock it already owns. It costs 1,800 guest seconds of a machine
+   that looks idle and reports nothing. The key sets `[mc_breq]`; the worker
+   runs it.
+2. **`[mc_breq]` is a COUNTDOWN.** A harness arms its breakpoints and then asks
+   for the run, and the two race — a request honoured on the very next frame
+   can start before the trace is armed. Poking 10 buys nine ordinary frames.
+3. **`[mc_bdone]` is what a harness waits on, and it is incremented LAST.**
+   `[mc_bfr]` and `[mc_bck]` are both reset at the top of a run, so reading
+   either to decide *has it finished* answers zero for a run that has just
+   STARTED — indistinguishable from a bench that never ran, and it was.
+
+**`mc_bsum` is the proof rather than the design.** It walks the game's own
+physical state — every object's position and mode, every counter — and
+`tests/mcperf.py` asserts two runs agree. It deliberately leaves out the walk
+blocks (`mc_iwlk`, `mc_awlk`), the drawn-to positions and the batch, because
+the two arms of a before/after represent a walk differently on purpose (§5.12.5)
+and summing those would fail the agreement test for the one reason that is not
+a divergence. **Both arms of the §48.16 comparison end on the same checksum**,
+which is what makes the figures in PERFORMANCE.md Set 135 a measurement.
+
+On a machine with no debugger it still answers: `[mc_bticks]` is the run in
+system ticks and `mc_bshow` puts it on the glass, so a 5150 reads the same
+number a photograph can carry.
+
 ### 48.17 The strip drew 29 cells to change one digit; a salvo redrew together
 
 The MartyPC log (PERFORMANCE.md Part 9, Set 9) is the first with a working

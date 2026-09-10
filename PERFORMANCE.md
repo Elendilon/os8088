@@ -12649,6 +12649,14 @@ the points are SCATTERED, because `gfx_ls_box` re-resolves and every point pays
 a full `gfx_ls_addr`, where the walk carried its framebuffer byte and bit mask
 forward. Set 133 measured eight walks stepping in step; a game's warp does not.
 
+> **SET 135 RE-TOOK THE MISSILE ROW DETERMINISTICALLY AND THE MEAN ABOVE DOES
+> NOT SURVIVE IT.** These are medians over LIVE PLAY on two trees playing two
+> different games. On one game run twice, the median holds (−26.3% and −24.8%
+> against this −33.5%) and the mean is **−1.6% to −4.6%, not −25.6%** — the
+> distribution changed shape rather than shifting, the tail getting a quarter
+> dearer as the typical call got a quarter cheaper. **Quote Set 135.2 for this
+> call and Set 135.1 for what a frame and a game do with it.**
+
 #### 134.4 What it bought the kernel, and what it cost the apps
 
 | | `.text` | `.bss` |
@@ -12665,3 +12673,82 @@ bss ships inside its image). **That is the premise made good rather than
 asserted** — duplicate code only used by programs that monopolise the machine
 anyway, instead of permanently spending kernel RAM on them — and the programs
 got faster doing it.
+
+
+### Set 135 — the SAME GAME twice: Missile's walk conversion, deterministically (SPEC.md 48.16.2)
+
+| | |
+|---|---|
+| machine | **MartyPC**, cycle-accurate IBM 5150/XT, 4.77 MHz 8088 |
+| adapter | `os8088_5150_herc_gla` |
+| harness | `tests/mcperf.py` over `apps/missile/mcbench.inc` — a fixed seed, scripted shots, 400 frames back to back, exec-breakpoint brackets on the frame and on `mc_dsc_run` |
+| arms | `2324ede` (the kernel walk, `OSAPI_GFX_LSTEPV`) against this branch (the app-side walk, `gfxe_wstepv` + `gfxe_pput`) |
+
+**Set 134.3 is the reason this exists.** It priced the conversion over LIVE
+PLAY — two trees playing two different games, medians over whatever the waves
+happened to do. Set 134.2 had to measure blocks-per-call separately for exactly
+that reason. This runs one game twice, and **the two arms end on the same state
+checksum in both scenarios** (`C3B7` busy, `6430` calm), so what follows is a
+comparison rather than two numbers.
+
+#### 135.1 The whole game
+
+| | busy (a shot every 7 frames) | | calm (every 29) | |
+|---|---:|---:|---:|---:|
+| | kernel walk | app walk | kernel walk | app walk |
+| 400 frames, cycles | 68,767,775 | **68,511,561** | 54,449,606 | **53,696,467** |
+| | | **−0.37%** | | **−1.38%** |
+| median frame, cycles | 144,038 | **142,146** | 112,924 | **107,168** |
+| | 30.18 ms | **29.78 ms, −1.30%** | 23.66 ms | **22.45 ms, −5.10%** |
+| system ticks | 262 | 261 | 207 | **204** |
+| state checksum | C3B7 | C3B7 | 6430 | 6430 |
+
+#### 135.2 …and the converted call inside it
+
+`mc_dsc_run`, entry to `.out`, over the same runs. Empty calls (`jcxz .out`,
+about a fifth of them) are separated out because they cost nothing and would
+otherwise move a mean without meaning anything.
+
+| | busy | | calm | |
+|---|---:|---:|---:|---:|
+| | kernel | app | kernel | app |
+| calls / of them empty | 1,074 / 239 | 1,079 / 240 | 1,027 / 187 | 1,023 / 187 |
+| walks a non-empty call | 3.53 | 3.53 | 2.63 | 2.63 |
+| **median, non-empty** | 27,434 | **20,217** | 17,558 | **13,211** |
+| | | **−26.3%** | | **−24.8%** |
+| mean, non-empty | 27,754 | 27,309 | 19,734 | 18,833 |
+| | | −1.6% | | −4.6% |
+| **max** | 79,224 | **99,398** | 75,833 | **98,903** |
+| | | **+25.5%** | | **+30.4%** |
+| share of the run | 33.70% | 33.44% | 30.48% | 29.37% |
+
+#### 135.3 What it found, and it is not what Set 134.3 says
+
+**The median is confirmed and the mean is refuted.** Set 134.3 reported the
+Missile call at −33.5% median and −25.6% mean; deterministically it is **−26.3%
+and −24.8% median** — same sign, same order, close enough — and **−1.6% and
+−4.6% mean**. The two statistics have parted because **the distribution changed
+shape**: the typical call got a quarter cheaper and the expensive tail got a
+quarter to a third DEARER. That is Set 134.3's own explanation for why its
+model over-predicted, arriving as a measurement — a point committed through
+`gfx_points` costs more when the points are SCATTERED, and the worst calls are
+the ones laying a whole new trail at once.
+
+**So the game gets 1–5% faster, not a third.** The arithmetic closes exactly:
+`mc_dsc_run` is 30–34% of the run, its TOTAL falls 1.1% (busy) and 4.9% (calm)
+once the tail is counted, and 30% × 4.9% is the 1.38% the whole calm run moved.
+A per-call median is not a frame and a frame is not a game, and this is the set
+where all three are on the table at once.
+
+**The batch size is not the explanation, which had to be checked.** The obvious
+reading of the gap is that this scenario is busier than live play, and it is
+not: 3.53 walks a non-empty call against Set 134.2's 3.64 live. The calmer arm
+at 2.63 gets a BIGGER whole-game win (−5.10% median frame against −1.30%),
+which is the direction Set 133's window predicts — `GFX_POINTS` is at its best
+with few points — but the effect is in the frame rather than in the call.
+
+**And the conversion is still the right trade**, which this set does not
+disturb: it took **−597 bytes of `.text` and an image rung** out of `kern_big`
+(Set 134.4) for +251 bytes of one package image, and the game is faster rather
+than slower. What is corrected is the size of the win, and the place to quote
+it is 135.1 rather than 134.3.

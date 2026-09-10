@@ -5281,6 +5281,30 @@ $(BUILD)/glyphbn360.img: $(BUILD)/glyphbn.o88 tools/os88disk.py
 .PHONY: glyphbn
 glyphbn: $(BUILD)/glyphbn360.img
 
+# apps/missile/mcbench.inc is the DETERMINISTIC in-game run (SPEC.md 48.16.2):
+# a fixed seed, scripted shots and MC_BFRAMES frames back to back, so a
+# before/after can be of the same game rather than of two different ones.
+# -DMC_BENCH only - the shipped MISSILE.O88 is byte-identical without it and
+# tests/mcperf.py checks that, an instrument that changes the product not
+# being one that measures it. Its own target for glyphbn's reason: nothing
+# here ships, and `all` must not pay for it.
+$(BUILD)/mcbench.bin: apps/missile/missile.asm apps/missile/mcbench.inc \
+                      apps/os88api.inc apps/os88ui.inc apps/os88gfx.inc \
+                      | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/missile/ -DMC_BENCH \
+		$(if $(MCBFIRE),-DMC_BFIRE=$(MCBFIRE)) -o $@ \
+		apps/missile/missile.asm
+	@echo "mcbench: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/mcbench.o88: $(BUILD)/mcbench.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/mcbench.bin -o $@
+
+$(BUILD)/mcbench360.img: $(BUILD)/mcbench.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/mcbench.o88
+
+.PHONY: mcbench
+mcbench: $(BUILD)/mcbench360.img
+
 # tests/filler is an instrument with no assertions of its own: it takes the
 # arena down to a few tens of KB and, on a keypress, asks for one KB more than
 # the largest run. tests/heapfrag cannot do that job - its comb is sized from

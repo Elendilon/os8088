@@ -888,7 +888,20 @@ mc_onkey:
     je .modex
     cmp bl, 'M'
     je .modex
+%ifdef MC_BENCH
+    cmp bl, 'b'                     ; the deterministic run (mcbench.inc), and
+    je .bench                       ; a key rather than a menu item because
+    cmp bl, 'B'                     ; nothing about it should reach the shipped
+    je .bench                       ; package's chrome
+%endif
     jmp .out
+%ifdef MC_BENCH
+.bench:
+    mov word [mc_breq], 1           ; the WORKER runs it; see mc_worker
+                                    ; (1 = the next frame, which is what a
+                                    ; person pressing the key wants)
+    jmp .out
+%endif
 .b1:
     mov al, 0
     jmp short .fire
@@ -1427,6 +1440,27 @@ mc_worker:
     jg .frame                       ; deadline, so the next short frame catches
     mov [mc_due], ax                ; up. Hopelessly late and the deadline is
 .frame:                             ; re-anchored, or it runs away and this
+%ifdef MC_BENCH
+    ; THE BENCH RUNS HERE AND NOWHERE ELSE (mcbench.inc). The key handler only
+    ; sets [mc_breq]: gfx_lock is NOT recursive (SPEC.md 7.3) and ui_task holds
+    ; it around the whole event handler (UI-FREEZE-PLAN 1), so mc_render called
+    ; from a key deadlocks the UI task against a lock it already owns - which
+    ; looks exactly like a machine doing nothing. On the worker the lock is
+    ; free, the stack is the worker's own, and a benched frame is the same
+    ; frame a played one is.
+    ; A COUNTDOWN AND NOT A FLAG. The harness arms its breakpoints and then
+    ; asks for the run, and the two race: a request honoured on the very next
+    ; frame can start before the trace is armed, and what that looks like is a
+    ; machine idling for the whole wait. Poking 10 here buys nine ordinary
+    ; frames - half a second - and costs the guest nothing.
+    cmp word [mc_breq], 0
+    je .nobench
+    dec word [mc_breq]
+    jnz .nobench
+    call mc_bench
+    jmp .loop
+.nobench:
+%endif
     call mc_dispck                  ; loop never sleeps again
     call mc_update
     call mc_render
@@ -7687,6 +7721,14 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
 ; =============================================================================
 ; .bss (SPEC.md 20.5: the loader zeroes MC_BSS bytes after the image, and every
 ; name below is an offset from os88_image_end)
+; --- THE DETERMINISTIC BENCH, and only when asked for -----------------------
+; -DMC_BENCH (`make mcbench`). Without it not one byte of this is emitted and
+; the shipped package is byte-identical, which tests/mcperf.py checks: an
+; instrument that changes the product is not measuring it.
+%ifdef MC_BENCH
+%include "mcbench.inc"
+%endif
+
 ; =============================================================================
 
 %assign MC_BSS 0

@@ -3995,6 +3995,17 @@ SOAK = [
         "which is also the only thing keeping the old routine assembling",
         needs=("marty", "nasm"), serial=True,
         wants=("build/glyphbn360.img",)),
+    Row("mcperf", "soak", py("tests/mcperf.py"), 50.0,
+        "SPEC.md 48.16.2: does Missile play the SAME GAME twice? A fixed"
+        "seed, scripted shots and 400 frames back to back rather than one a"
+        "tick - because mc_worker sleeps to a DEADLINE, so a faster frame"
+        "makes it sleep longer and the win is invisible in wall time. What"
+        "is gated is DETERMINISM and not speed: two runs in one boot must"
+        "end in the identical game state, which is the property a before/"
+        "after comparison rests on. Needs `make mcbench`, which is also the"
+        "only thing keeping mcbench.inc assembling",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/mcbench360.img",)),
     Row("blitp", "soak", py("tests/blitp.py"), 120.0,
         "SPEC.md 5.4.3: does gfx_blitp put the bytes where it was given them?"
         "Reads the four PLANES rather than the rendered frame - which below"
