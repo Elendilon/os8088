@@ -5170,8 +5170,9 @@ cy_web_repair:
     push ax
     push bx
     push cx
-    push dx
-    push si
+    push dx                     ; ...and NOT SI: this routine never writes it
+                                ; and `cy_web_lane` restores it, so the save
+                                ; was dead - `tools/stkdepth.py` names it
     test word [cy_frame], CY_WEBEVERY - 1
     jnz .out
     mov cx, [cy_nlane]
@@ -5197,7 +5198,6 @@ cy_web_repair:
 .next:
     loop .each
 .out:
-    pop si
     pop dx
     pop cx
     pop bx

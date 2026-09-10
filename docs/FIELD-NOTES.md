@@ -1494,11 +1494,35 @@ not of the kernel**, and `DSV_TICK` alone moves it 16.
 1. ~~**Does `cy_kbdrain` still run on every path?**~~ **ANSWERED NO by the
    absence of beeps** — see above. Left here struck through rather than deleted,
    because it is the obvious first guess and the next reader will have it too.
-2. **Give the walk chain its 20 bytes back.** `gfxe_pput` is +10 at the
-   bottom of a five-deep chain; `gfxe_padd` calling it on a full list could be
-   a tail `jmp` (+0 rather than +2), and `cy_dsc_run`'s five pushes were two.
-   `tools/stkdepth.py` also names 2 bytes `cy_web_repair` pushes and never
-   uses.
+2. ~~**Give the walk chain its 20 bytes back.**~~ **DONE, and it was SIX, not
+   twenty.** The chain is **82 -> 76 bytes** and `tools/stkdepth.py` now reads
+   *"0 bytes of 76 are pushes the routine never needed to make"*. What was
+   actually there, against what this line claimed:
+
+   - **`gfxe_padd`'s flush frame, +10 -> +6.** It banked AX, CX, DX and SI
+     across `gfxe_pput`; only CX and SI needed it. `gfxe_pput` clobbers those
+     two - its own `mov`s - and `OSAPI_GFX_POINTS` beneath it **preserves
+     every register** (SPEC.md 5.6.9), so AX and DX were dead saves. **This
+     one is in the shared library**, so it is 4 bytes off the deepest frame of
+     every walk in the tree - Cyclone, Missile, Tank, Paint and wire - and
+     four instructions off the flush path.
+   - **`cy_web_repair`'s `push si`, 2 bytes.** Dead exactly as named: the
+     routine never writes SI and `cy_web_lane` restores it.
+   - **The tail `jmp` does not work as written.** `.full` re-enters
+     **`gfxe_padd` itself** after making room, so it cannot tail-jump to
+     `gfxe_pput`; the saving had to come from the bank list instead.
+   - **`cy_dsc_run` is REFUSED, and the claim was wrong twice.** It is
+     **seven** pushes today rather than five, and all seven are required:
+     `gfxe_wstepv` documents *"clobbers everything but the segments"*. Moving
+     them to the callers would gain nothing either - the same bytes are on the
+     stack when the bottom of the chain is reached, which is where the maximum
+     is taken.
+
+   **The lesson is that `stkdepth` cannot see a dead save whose callee is
+   outside the image.** It flagged `cy_web_repair`'s 2 and not `gfxe_padd`'s
+   4, because `OSAPI_GFX_POINTS` is *"not in this image - API/kernel"* and a
+   tool must assume the worst there. The published contract is what finds the
+   other one, and only a person reads that.
 3. ~~**Only then consider the class.** Cyclone is on 192; the next class is 384
    and `SCH_STACK` is the ceiling. Moving it is the expensive answer and the
    one that hides both of the above.~~ **THIS WAS THE ANSWER, and the sentence

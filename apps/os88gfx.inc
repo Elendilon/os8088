@@ -479,16 +479,23 @@ gfxe_padd:
     inc word [gfxe_pn]
     ret
 .full:
+    ; ONLY CX AND SI ARE BANKED, and that is `gfxe_pput`'s contract below
+    ; rather than an assumption: it clobbers CX and SI - its own two `mov`s -
+    ; and `OSAPI_GFX_POINTS` under it **preserves every register** (SPEC.md
+    ; 5.6.9). AX and DX are the POINT this call was handed and they are read
+    ; again at the `jmp` below, so they matter more than the rest; they were
+    ; banked here too, and did not need to be.
+    ;
+    ; Worth 4 bytes at the DEEPEST FRAME of every walk in the tree - this is
+    ; the bottom of the chain in Cyclone, Missile, Tank, Paint and wire alike
+    ; (docs/FIELD-NOTES.md 42.2) - and four instructions off the flush path.
+    ; If `gfxe_pput` ever clobbers more, the list here grows with it.
     inc word [gfxe_pflush]
-    push ax
     push cx
-    push dx
     push si
     call gfxe_pput
     pop si
-    pop dx
     pop cx
-    pop ax
     jmp gfxe_padd               ; ...and now there is room, GFXE_PT_MAX >= 1
 
 ; gfxe_pput - the list onto the glass, ONE arrival, and empty it again
