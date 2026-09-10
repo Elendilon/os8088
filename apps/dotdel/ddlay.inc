@@ -120,29 +120,7 @@ dd_layout:
     ; tile, so both modes come out 8x4 there. dd_i_win's first item is pointed
     ; at the greyed string to say so, which is 12.2's way of saying it and
     ; SPEC.md 47 rule 3's requirement that a greyed item name its reason.
-    mov ax, dd_it_thin
-    cmp bl, VID_CGA
-    jne .wthin
-    mov ax, dd_it_thind
-.wthin:
-    mov [dd_i_win], ax
-    mov al, [dd_wmode]
-    cmp byte [dd_fsx], 0
-    jne .wfull
-    cmp bl, VID_CGA
-    jne .weff
-.wfull:
-    mov al, 1
-.weff:
-    ; A DISPLAY CHANGE DOES NOT ASK FOR A FIT, and that is a correction rather
-    ; than a simplification (SPEC.md 93.3.3.2). Dragging between two adapters
-    ; changes the effective mode, and asking for a resize there PRE-EMPTS the
-    ; window manager's own: OS88_PREFER gives this window 520 rows and the WM
-    ; grows it to 347 when it lands on a Hercules, so a fit computed from the
-    ; CGA-sized box it still had pinned it at 156 and the tile never re-cut.
-    ; A fit belongs to a MENU PICK, which is a thing the user did.
-    mov [dd_weff], al
-
+    call dd_weff_calc
     mov si, dd_asp43
     cmp byte [dd_weff], 0
     jne .asptab
@@ -433,32 +411,38 @@ dd_metrics:
     ret
 
 ; -----------------------------------------------------------------------------
-; dd_fit_ask - a fit is owed: ask for the WAKE that can perform it
+; dd_weff_calc - resolve Window > Thin/Full for the display we are on NOW
+; out: [dd_weff] = 0 Thin, 1 Full, and dd_i_win's first item greyed or not.
+;      Clobbers AX. Preserves everything else.
 ;
-; OSAPI_WM_RESIZE may not be called with the gfx lock held and every path into
-; this file has it. OSAPI_WM_WAKE is legal from anywhere and dd_onwake is the
-; one callback the kernel runs with the lock FREE (SPEC.md 93.3.3.2), so the
-; flag is set where the answer is known and the work is done where it is legal.
-; Preserves every register.
+; It is its own proc because TWO callers need the answer and only one of them
+; paints: dd_layout, and the menu handler - which does NOT repaint when a
+; resize is owed (SPEC.md 93.3.4.1), so without this the pick set [dd_wmode]
+; and nothing ever turned it into [dd_weff].
+;
+; A DISPLAY CHANGE DOES NOT ASK FOR A FIT, which is why this only resolves and
+; never sets [dd_wantfit] (93.3.3.2): dragging between adapters changes the
+; effective mode, and asking for a resize there PRE-EMPTS the window manager's
+; own - OS88_PREFER gives this window 520 rows and the WM grows it when it
+; lands on a Hercules, so a fit computed from the CGA-sized box it still had
+; pinned it there and the tile never re-cut. A fit belongs to a menu pick.
 ; -----------------------------------------------------------------------------
-dd_fit_ask:
-    cmp byte [dd_wantfit], 0
-    je .out
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    mov bx, [dd_win]
-    call OSAPI_WM_WAKE
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-.out:
+dd_weff_calc:
+    mov ax, dd_it_thin
+    cmp byte [dd_vkind], VID_CGA
+    jne .thin
+    mov ax, dd_it_thind
+.thin:
+    mov [dd_i_win], ax
+    mov al, [dd_wmode]
+    cmp byte [dd_fsx], 0
+    jne .full
+    cmp byte [dd_vkind], VID_CGA
+    jne .set
+.full:
+    mov al, 1
+.set:
+    mov [dd_weff], al
     ret
 
 ; -----------------------------------------------------------------------------
@@ -495,7 +479,16 @@ dd_relayout_ck:
     call dd_layout                  ; picture and the sprites all stand
     jc .fail
     mov byte [dd_ok], 1
-    ret
+    mov byte [dd_full], 1           ; ...BUT EVERY POSITION IN THIS FILE IS
+    ret                             ; ABSOLUTE (SPEC.md 93.3.4). dd_layout has
+                                    ; just moved dd_bdx, dd_hx and the rest,
+                                    ; and dd_attract_layout's are absolute too
+                                    ; and are not recomputed until something
+                                    ; draws the whole page. Without this the
+                                    ; next frame is a PARTIAL one at the new
+                                    ; coordinates over the old picture, which
+                                    ; is the field's "after a drag and drop
+                                    ; move, nothing is in the right place"
 .redo:
     call dd_bank_box
     call dd_layout
@@ -508,11 +501,8 @@ dd_relayout_ck:
     jne .again
     mov byte [dd_started], 1        ; the FIRST layout is also the first board:
     call dd_attract_begin           ; it lays the slice and renders it
-    call dd_fit_ask
     ret
 .again:
-    call dd_fit_ask                 ; ...and Thin may owe the window a resize,
-                                    ; which needs the lock FREE (93.3.3.2)
     call dd_actors_resnap           ; THE TILE CHANGED, so every actor's
                                     ; position is in the old one's units
     call dd_is_attract              ; ...and every later one re-draws it at the

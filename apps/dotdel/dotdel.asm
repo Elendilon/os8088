@@ -202,6 +202,8 @@ DD_EXTRA    equ 10000           ; ...and one life, once (SPEC.md 93.9.3)
 DD_LIVES0   equ 3
 
 DD_PREFW  equ DD_COLS * DD_TWMAX + DD_HUDW + 10
+DD_THINW  equ DD_COLS * DD_TWMIN + DD_HUDW + DD_FITPADX + 2
+DD_THINH  equ DD_ROWS * 9 + DD_FITPADY + 22
 
 ; The title's band: one grid row of "DOT DELIRIUM" at the widest cell the
 ; layout will hand out (10 px), which is 80 bytes a row by 10 rows.
@@ -523,11 +525,14 @@ dd_oncmd:
     cmp al, [dd_wmode]
     je .out2                        ; already that way: no re-cut, no flash
     mov [dd_wmode], al
+    call dd_weff_calc               ; ...and RESOLVE it here, because the
+                                    ; repaint that used to do it is skipped
+                                    ; when a resize is owed (93.3.4.1)
     mov byte [dd_lvkind], 0FFh      ; nothing MOVED, so dd_relayout_ck has to
     mov ah, 1                       ; be told the answer changed anyway
-    or al, al
+    cmp byte [dd_wmode], 0
     jz .wfit
-    mov ah, 2                       ; ...to Full: give back what Thin took
+    mov ah, 2                       ; ...to Full: the size the package prefers
 .wfit:
     mov [dd_wantfit], ah
     jmp short .out2
@@ -547,7 +552,16 @@ dd_oncmd:
 .sound:
     xor byte [dd_snd], 1
 .out2:
+    ; A COMMAND THAT OWES A RESIZE DOES NOT PAINT FIRST (SPEC.md 93.3.4.1).
+    ; Painting here draws the whole page at the size the window still has, and
+    ; the resize a tick later draws it again at the new one - two layouts, and
+    ; the first one's title and table are what the field saw as "duplicated
+    ; high score rows" and "the title txt gains an extra line". The resize
+    ; repaints; there is nothing this could add.
+    cmp byte [dd_wantfit], 0
+    jne .out3
     call dd_repaint_now
+.out3:
     pop es
     pop bp
     pop di
@@ -597,8 +611,7 @@ dd_onwake:
     push bx
     push cx
     push dx
-    mov al, [dd_wantfit]
-    or al, al
+    cmp byte [dd_wantfit], 0
     je .out
     mov byte [dd_wantfit], 0        ; ...FIRST, so one request is one resize
     cmp byte [dd_ok], 0             ; whatever comes of it
@@ -608,48 +621,23 @@ dd_onwake:
                                     ; resize under it means nothing and the
                                     ; layout on the way out will ask again
     mov bx, [dd_win]
-    cmp al, 2
-    je .restore
-    ; --- to THIN: bank what the window is, then shrink it to the board ------
+    ; --- BOTH SIZES ARE CONSTANTS, and that is the point -------------------
+    ; The first version derived Thin's from [dd_mw]/[dd_mh] and Full's from a
+    ; banked size, and both have the same hole: THE LAYOUT HAS NOT RE-RUN when
+    ; this fires. Picking Thin from a Full window asked for the FULL board's
+    ; fit and shrank by nothing; picking Full with nothing banked did nothing
+    ; at all. The shape rule pins Thin's tile at 8 x 9 and Full's at 16 x
+    ; whatever fits, so the two answers were never variable - and the window
+    ; manager clamps either one to the live screen, exactly as it does at
+    ; OSAPI_WM_CREATE.
+    ; THE SIZE FOLLOWS [dd_weff], not what was asked for: the display wins
+    ; over the pick, so a CGA gets the wide one whichever item set the flag.
+    mov cx, DD_THINW
+    mov dx, DD_THINH
     cmp byte [dd_weff], 0
-    jne .out                        ; ...unless the display overrode it. A CGA
-                                    ; resolves to Full, so the fit the entry
-                                    ; proc asked for is not owed there
-    cmp word [dd_prew], 0
-    jne .banked                     ; already banked: a second Thin in a row
-    mov cx, [es:bx + W_W]           ; must not overwrite the size Full goes
-    mov [dd_prew], cx               ; back to
-    mov cx, [es:bx + W_H]
-    mov [dd_preh], cx
-.banked:
-    mov cx, [es:bx + W_W]
-    sub cx, [dd_cw]                 ; CX = the chrome's width
-    mov dx, [es:bx + W_H]
-    sub dx, [dd_ch]
-    add cx, DD_HUDW + DD_FITPADX    ; ...and the content the board NEEDS: the
-    add cx, [dd_mw]                 ; HUD's column beside it and a little air
-    add dx, DD_FITPADY
-    add dx, [dd_mh]
-    cmp cx, [es:bx + W_W]           ; SHRINK ONLY: growing would re-cut a
-    jb .wok                         ; bigger tile, which would want a bigger
-    mov cx, [es:bx + W_W]           ; window, and round again
-.wok:
-    cmp dx, [es:bx + W_H]
-    jb .hok
-    mov dx, [es:bx + W_H]
-.hok:
-    jmp short .fit
-.restore:
-    ; --- to FULL: the size Thin took it from -------------------------------
-    ; Full CANNOT compute its own fit from where Thin left the window: at 328
-    ; px of content a 16-wide tile does not fit, so the layout answers 8 and
-    ; the fit answers 328 again. Banking the size Thin shrank FROM is what
-    ; makes the pair reversible.
-    mov cx, [dd_prew]
-    or cx, cx
-    je .out                         ; nothing banked - opened on Full, or on a
-    mov dx, [dd_preh]               ; CGA, and there is nothing to give back
-    mov word [dd_prew], 0
+    je .fit
+    mov cx, DD_PREFW
+    mov dx, 520
 .fit:
     cmp cx, [es:bx + W_W]
     jne .go
@@ -657,6 +645,11 @@ dd_onwake:
     je .out                         ; already the right size: no repaint
 .go:
     call OSAPI_WM_RESIZE
+    mov byte [dd_full], 1           ; whatever the kernel repaints, the next
+                                    ; frame of OURS is a whole one: a partial
+                                    ; frame at the new geometry over a picture
+                                    ; drawn at the old one is the whole bug
+                                    ; class here (SPEC.md 93.3.4)
 .out:
     pop dx
     pop cx
@@ -722,6 +715,17 @@ dd_worker:
     mov bx, [dd_win]
     call OSAPI_TASK_ALIVE           ; the lock must NOT be held here; a
                                     ; clicked close box never returns
+    ; --- a fit is asked for HERE, outside any paint (SPEC.md 93.3.4.1) -----
+    ; dd_fit_ask used to call OSAPI_WM_WAKE from inside dd_relayout_ck, which
+    ; runs inside a W_PAINT: the wake was then dispatched while the kernel was
+    ; part-way through painting this very window, and the resize landed in the
+    ; middle of its own damage bookkeeping. What the field saw was the desktop
+    ; left unpainted. The worker is the one place in this package that is
+    ; neither a callback nor under the lock.
+    cmp byte [dd_wantfit], 0
+    je .tick
+    mov bx, [dd_win]
+    call OSAPI_WM_WAKE
 .tick:
     call OSAPI_GET_TICKS
     mov bx, ax
@@ -962,7 +966,13 @@ dd_tpl:
 ; frame's two borders. The HEIGHTS ARE DELIBERATELY GENEROUS: a preference is
 ; clamped by the screen exactly as a template is, so asking for 520 rows on a
 ; CGA comes back with the 155 it has and the number never had to be right.
-    OS88_PREFER dd_pref, DD_PREFW, 520, DD_PREFW, 520, DD_PREFW, 520
+    ; VGA and Hercules OPEN AT THE THIN SIZE, because Thin is the default and
+    ; a window that opens Full and then resizes itself is a flash the field
+    ; reported as a bug (SPEC.md 93.3.3.2). A CGA resolves to Full whatever
+    ; the menu says, so it keeps the wide row - and its 200 lines clamp the
+    ; height anyway.
+    OS88_PREFER dd_pref, DD_THINW, DD_THINH, DD_THINW, DD_THINH, \
+                DD_PREFW, 520
 
 ; --- the app menu set (SPEC.md 12.2) ------------------------------------------
     OS88_MENUSET dd_menus, dd_name, dd_oncmd
@@ -1072,9 +1082,8 @@ dd_spct:     dw DD_PCTPAC, DD_PCTGH, DD_PCTFRI, DD_PCTEYE, DD_PCTTUN
     DBYTEV dd_wmode                 ; the WINDOW menu's choice: 0 Thin, 1 Full
     DBYTEV dd_weff                  ; ...and what it RESOLVES to this layout,
                                     ; which a CGA and a bracket both override
-    DBYTEV dd_wantfit               ; 1 = Thin owes the window a fit, 2 = Full
-    DWORDV dd_prew                  ; owes it back what Thin took (93.3.3.2)
-    DWORDV dd_preh
+    DBYTEV dd_wantfit               ; 1 = Thin owes the window a fit to the
+                                    ; board, 2 = Full owes it the full size
     DBYTEV dd_wakph                 ; the dot's warble (SPEC.md 93.10.1): which
     DBYTEV dd_wakt                  ; way round this bite is, how long until
     DWORDV dd_wak2                  ; its second syllable, and what that is

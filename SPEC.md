@@ -111529,6 +111529,71 @@ on every adapter by arithmetic, and the arithmetic changed under it; `dd_layout`
 clamps every vertical step to **half a tile**, so the next table that moves
 gives a slow ghost instead of a broken board.
 
+#### 93.3.4 Every position here is ABSOLUTE, so a geometry change owes a WHOLE frame
+
+`dd_layout` writes `[dd_bdx]`, `[dd_hx]` and the rest in **screen** coordinates,
+and `dd_attract_layout` does the same for the title, the table and the play
+line. Nothing in this package is drawn relative to a content origin. So the
+moment any of those move, **every partial draw is at new coordinates over a
+picture drawn at the old ones** — and a partial draw is what this renderer does
+by design (§93.5.6).
+
+The field met it as five separate complaints — *"after resizing or a drag and
+drop move, nothing is in the right place"*, *"there are duplicated high score
+rows"*, *"the title txt gains an extra line"*, *"the board is not centered, the
+flashing dots are in the wrong place"*, and a window that did not paint over
+what was behind it. They are one bug.
+
+`[dd_full]` is the answer and it already existed; what was missing is setting it
+everywhere the geometry moves:
+
+- **`dd_relayout_ck`'s `.move` arm** did not. It is the *"only the origin
+  moved"* path — the tile, the picture and the sprites all stand, which is why
+  it is cheap — but the ORIGIN is in every one of those absolute positions.
+- **`dd_onwake` after its own `OSAPI_WM_RESIZE`** did not. The kernel repaints
+  what it likes; the next frame of *ours* has to be a whole one.
+
+`.redo` always did, through `dd_attract_begin`.
+
+**And the window opens at the size it means to keep.** `OS88_PREFER`'s VGA and
+Hercules rows are `DD_THINW × DD_THINH` now, because Thin is the default and a
+window that opens Full and then resizes itself is a flash — reported as *"the
+window opens in Full, then resizes to Thin"*. The CGA row stays wide: it
+resolves to Full whatever the menu says, and its 200 lines clamp the height
+anyway.
+
+##### 93.3.4.1 …and the fit is ASKED FOR from the worker, not from a paint
+
+`dd_fit_ask` called `OSAPI_WM_WAKE` from inside `dd_relayout_ck`, which runs
+inside a `W_PAINT`. The wake was then dispatched while the kernel was part-way
+through painting **this very window**, and `dd_onwake`'s `OSAPI_WM_RESIZE`
+landed in the middle of its own damage bookkeeping. What the field saw was
+*"after resizing a few times the whole desktop didn't redraw"* — the vacated
+band left unpainted and the menu bar's own text gone with it.
+
+The worker asks instead, at the top of its loop, right after
+`OSAPI_TASK_ALIVE`: it is the one place in this package that is **neither a
+callback nor under the gfx lock**. The flag is set wherever the answer is known
+and read one tick later from a context with nothing in flight.
+
+**A command that owes a resize does not paint first, either.** `dd_repaint_now`
+drew the whole page at the size the window still had, and the resize a tick
+later drew it again at the new one — two layouts, and the first one's title and
+table are what the field saw as *"duplicated high score rows"* and *"the title
+txt gains an extra line"*. The resize repaints; there is nothing that draw
+could add. It follows that the menu handler must resolve `[dd_weff]` itself
+(`dd_weff_calc`), because the paint it skipped is what used to do it.
+
+**And both fit sizes are CONSTANTS** — `DD_THINW × DD_THINH` and
+`DD_PREFW × 520` — chosen by `[dd_weff]`, not by the request. Deriving Thin's
+from `[dd_mw]`/`[dd_mh]` and Full's from a banked size both had the same hole:
+**the layout has not re-run when the wake fires**, so picking Thin from a Full
+window asked for the *Full* board's fit and shrank by nothing, and picking Full
+with nothing banked did nothing at all. The shape rule pins Thin's tile at
+8 × 9 and Full's at 16 × whatever fits, so the two answers were never variable;
+the WM clamps either to the live screen exactly as it does at
+`OSAPI_WM_CREATE`.
+
 ### 93.4 Two surfaces, one renderer
 
 `dd_geom_win` banks the content box from `wm_content`/`wm_geom` and the depth
