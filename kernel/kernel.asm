@@ -3937,7 +3937,15 @@ osapi_table:
                                   ;          frees, so the work is ld_start's
                                   ;          step 8a, one instruction after
                                   ;          this returns
-osapi_table_end:                  ; 0x0538
+    OSAPI_XCELL gfx_points        ; 0x0538 - X: draw a set of pixels the CALLER
+                                  ;          computed (SPEC.md 5.6.9). ES:SI =
+                                  ;          CX records of two words each, x
+                                  ;          then y; CX = how many, 0 legal.
+                                  ;          [gfx_color] is the ink and the
+                                  ;          lock is held. Preserves every
+                                  ;          register; a point outside every
+                                  ;          clip rect is SKIPPED, not refused
+osapi_table_end:                  ; 0x0540
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -3945,8 +3953,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 165 * 8
-%error "os8088 API jump table must be exactly 165 8-byte slots"
+%if OSAPI_TABLE_LEN != 166 * 8
+%error "os8088 API jump table must be exactly 166 8-byte slots"
 %endif
 
 ; =============================================================================
@@ -6242,9 +6250,10 @@ cw_clk_h12h:            call clk_h12h
                     retf
 cw_clk_ampm:            call clk_ampm
                     retf
-%ifdef KERN_BIG                 ; the four shims gfx_blit1_x needs (SPEC.md
-cw_cur_unlazy:          call cur_unlazy     ; 5.4.2) are its only callers, and
-                    retf                    ; its body is kern_big's alone -
+cw_cur_unlazy:          call cur_unlazy     ; gfx_blit1_x's (SPEC.md 5.4.2), and
+                    retf                    ; on BOTH builds since 5.4.2.5's
+                                            ; decision was reversed
+%ifdef KERN_BIG
 ; ...and the REFCOUNTED pair (SPEC.md 7.1), which the screen saver's cold half
 ; brackets a session with: the arrow has to be off the glass for as long as
 ; something is drawing over it, and every gfx_lock/gfx_unlock inside a frame
@@ -6303,10 +6312,8 @@ cw_gfx_pen_live:        call gfx_pen_live
                     retf
 cw_gfx_pixel:           call gfx_pixel
                     retf
-%ifdef KERN_BIG
 cw_gfx_rowbase:         call gfx_rowbase
                     retf
-%endif
 cw_gfx_unlock:          call gfx_unlock
                     retf
 cw_gfx_vline:           call gfx_vline
@@ -6423,10 +6430,8 @@ cw_vid_ctx_capture:     call vid_ctx_capture
 %endif
 cw_wm_clip_clear:        call wm_clip_clear
                      retf
-%ifdef KERN_BIG                 ; gfx_blit1_x's, and kern_small has no body
 cw_wm_clip_rows:        call wm_clip_rows
                     retf
-%endif
 cw_wm_clip_set:         call wm_clip_set
                     retf
 cw_wm_clip_test:        call wm_clip_test
@@ -6533,19 +6538,16 @@ wm_chrome_relit:      cmp byte [ui_armlit], 0
 ; --- ...and vga12.inc's band blit (SPEC.md 5.4.2). The PUBLIC name is the
 ; thunk and the body is the same name with _x, so the OSAPI_SLOT cell below
 ; names gfx_blit1 and knows nothing about which segment it lives in.
-%ifdef KERN_BIG
 gfx_blit1:            call COLD_SEG:gbz_gfx_blit1
                   ret                   ; a near ret over a far one, neither
                                         ; of which touches the flags - and CF
-                                        ; is this routine's whole answer
-%else
-gfx_blit1:            stc               ; kern_small carries the SLOT and not
-                  ret                   ; the body: a package tests CF and
-%endif                                  ; letters in the 8x8 face instead -
-                                        ; or, Paint, expands a row at a time
-                                        ; (SPEC.md 42.23.4). The body was
-                                        ; measured on this build and refused
-                                        ; (SPEC.md 5.4.2.5)
+                                        ; is this routine's whole answer.
+                                        ; ON BOTH BUILDS since SPEC.md
+                                        ; 5.4.2.5's refusal was reversed:
+                                        ; kern_small carried the SLOT and not
+                                        ; the body, so Paint expanded a row at
+                                        ; a time there at 24x the cost
+                                        ; (SPEC.md 42.23.4)
 
 ; --- ...and SPEC.md 13.8.2/13.9's three, which are kern_big's ALONE. The CELL
 ; is in both tables - a slot number that exists in one build and not another

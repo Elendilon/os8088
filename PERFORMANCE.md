@@ -1262,9 +1262,9 @@ list to check yourself against.
 | Missile Command explosion (1bpp / 8088) | a full disc **every** frame for 27 frames plus 12 ring erases — ~750 fills a burst, 124 ms a frame in a busy wave | three drawn states, five-rect discs — 22 fills a burst, 7.9 ms | §48.8 |
 | Missile Command terrain repair | `[mc_gdirty]`, one byte: the whole ground band, six cities and three bases — **143 ms**, five times in 86 frames | a damage **span**: 16.5 ms, byte-identical to a full repaint | §48.9 |
 | Missile Command score strip | the whole strip blanked and re-lettered on every kill | three `font_run` fields, space-padded — no blank interval | §48.9, §6.1 |
-| Missile Command missile trails | an app-side Bresenham emitting one `gfx_hline` per **row** — a whole-trail erase was 267 fills, ~310 ms, a five-tick stall | one `gfx_line`: 59 ms worst frame, and the busy frame whole went 190 ms → **43.5 ms** | §5.6, §48.8.3 |
+| Missile Command missile trails | an app-side Bresenham emitting one `gfx_hline` per **row** — a whole-trail erase was 267 fills, ~310 ms, a five-tick stall | one `gfx_line`: 59 ms worst frame, and the busy frame whole went 190 ms → **43.5 ms**. **Since §48.16.1 it is an app-side walk committed through `OSAPI_GFX_POINTS`** — `gfx_line` is retired (§5.12.7) — which is 165.96 µs a point against a flat ~986 a call, so a per-frame segment of one to three pixels is ~1.6× cheaper still and the ERASE is an exact replay rather than §5.6.5's dilation. The 43.5 ms figure has not been re-taken | §5.6, §48.8.3, §48.16.1 |
 | Missile Command fullscreen | the §11.2 fullscreen WINDOW — still in the z-order, still pre-empted, so **6.2 ms of `gfx_lock`+`wm_clip_set` and 5.7 ms of `gfx_unlock` on every frame**, 21.8% of a session | §53.7's same-mode bracket: `lok` and `unl` measured at **0**, and the double cursor goes with them | §48.13 |
-| A dilated STEEP line | three Bresenham walks over the same pixels — 37.8 ms of a 73.5 ms Missile Command frame | one walk writing a three-bit mask: **1.91×**, measured in guest instructions by `gfxbench`'s transposed pair after `linetest`'s host-time 1.3–1.9× settled nothing | §5.6.6 |
+| ~~A dilated STEEP line~~ | three Bresenham walks over the same pixels — 37.8 ms of a 73.5 ms Missile Command frame | one walk writing a three-bit mask: **1.91×**, measured in guest instructions by `gfxbench`'s transposed pair after `linetest`'s host-time 1.3–1.9× settled nothing. **RETIRED with the primitive** (§5.12.7): dilation existed because a draw and an erase were two different Bresenhams that disagree by a pixel, and an app-side walk erases by REPLAYING the draw, which is exact. The row is kept because 1.91× is what the workaround was worth, and a reader meeting `[mc_lfat]` in an old set needs it | §5.6.6, §5.12.7 |
 | Missile Command crosshair | 8 `gfx_xor_fill` **every frame** whether the mouse moved or not — **8.6 ms of a 55 ms tick**, idle frames included | 0 unless it moved or something drew through it; 4 signed compares per primitive otherwise, and the screen is byte-identical | §48.11 |
 | Missile Command burst life | grow, peak, **collapse**, gone — 39 fills a burst, and the collapse alone is 42% of it for one visible state | grow and hold, with the life cut 27→21 frames so Σr (all a burst's lethality) is preserved to 3.3%: 25 fills, **18.3 → 12.4 ms a frame** | §48.12 |
 | FTPD's Setup page, a click that moves the CARET | `FDD_PAGE`, so `fd_spend` answered a 1px bar with `fd_draw_setup`: `fd_clear_content` and every field, label, tick and help line. Measured on a cycle-accurate 5150/CGA by `tests/ftpdflick.py`, the same scripted session through both builds - within the same field **9 frames = 133.5 ms**, into another field **9 = 133.6 ms**, back onto a character **10 = 150.3 ms**, onto the page background **9 = 133.5 ms**, a tick's release with a field focused **10 = 150.3 ms** - each flashing **~4,300 transient pixels** over a rect that is the whole content box | the two cells the bar leaves and arrives at: one opaque `font_run` of the character it covered (or an 8x8 white fill past the end of the text) and one 1px `gfx_fill`. **1 frame = 0 ms, 15 px changed, 0 transient** for a caret move, and the tick's release is §77.44's box alone at **16.7 ms**. Every transient pixel left is the mouse pointer's own cell (§7.1). The window's rendered pixels after each of six gestures: **0 differing** against the old build | §77.45 |
@@ -1590,40 +1590,35 @@ worth taking:
 | `gfxbench: GFX_FILL 64x64 clipped` | **what §11.3's clip region costs a covered background window.** `WM_CLIP_SET+CLEAR` was measured; drawing *under* one never was. It sits next to its own unclipped row, so the gap is the answer | a little over the unclipped row plus the `SET+CLEAR` cell. Much more and `gfx_clip_run`'s re-entry is dearer than the region arithmetic it saves |
 | `gfxbench:` the whole **fullscreen block** | **whether a primitive costs what it costs wherever it is drawn.** Same code, same sandbox, different place on the glass, no chrome around it. The rows carry the same labels as their windowed twins so they diff by name | the primitives to be **boring** — landing on their twins. One that does not has found something position-dependent nobody believed was |
 | `sysbench: boot ticks` / `boot ms` | **how long the machine takes to boot** (§15.4) — the one thing this project could never measure, because it is over before a package can run. On a floppy machine it is mostly the 125-sector kernel read, and Sets 17/18 took it from 39.88 s to **9.94 s** by fixing §18.91's `AL` bug in both transfer loops - so 238 ms a sector is the number this row was written against and NOT the one to expect now | a number at last. Resolution is one tick, 54.925 ms, which on a boot measured in seconds is quantisation rather than noise |
-| `gfxbench: GFX_LSTEP x8` vs **`GFX_LSTEPV x8`** | **§5.6.8's batching, which was argued from §5.7's floor and never measured.** The two rows draw the identical eight pixels and differ only in arriving eight times or once | it already contradicted its own prediction: **118** in instructions, not the ~800 the floor implies, because `gfx_lstep` is not a rect primitive and its arrival is a far-call cell rather than `vga_rect_setup`. Expect higher than 118 on iron — far-call cells are 46.7 µs for ~7 instructions — but §5.6.8's own field figures imply **356**, and nothing reconciles that yet. **This is the row most likely to find something** |
-| `gfxbench:` the four **`GFX_LINE`** rows | **§5.6.6's dilated-line optimisation, in microseconds.** The instruction answer is already in (below); this is the duration. The two geometries are the same line transposed, 128 pixels each, so the pair checks itself | the two **thin** rows to match; `line shal fat/thin` near **300** (three walks, the control); `line steep fat/thin` near **156**, which is the claim |
+| ~~`gfxbench: GFX_LSTEP x8` vs `GFX_LSTEPV x8`~~ and ~~the four `GFX_LINE` rows~~ | **RETIRED, subject and all.** SPEC.md §5.12.7 took `gfx_line` and §5.6.7's resumable walk out of both kernels, so §5.6.6's dilation and §5.6.8's batching are questions about code that no longer exists. The five derived rows that decomposed them went too — a ratio whose inputs are gone divides uninitialised memory, which is Part 6 rule 3 exactly | nothing, now. What a field set should carry in their place is below |
+| `gfxbench: GFX_POINTS 8 pts` and **`24 pts`** | **what a committed POINT costs**, on the slot every app-side walker in the tree now goes through (§5.12.5). Two lengths is the whole measurement: `arrival + N × marginal` is two unknowns, so two readings determine it and any longer commit is read off the fit | an arrival near a far-call cell's **46.7 µs** plus §5.7's entry, and a marginal near Set 133's **165.96 µs** a point. A marginal much above that and a composing program should be committing a BAND instead |
+| `gfxbench:` `clear mask 2048` / `mask line 127x32` / **`GFX_BLIT1 128x128`** | **the band composer end to end** (§5.9, §5.12.2) — clear, rasterise, commit, which is what `GFXE_BAND` does and what four programs plus `SAVER.DRV` draw every frame through. The rows predate the library and were written as the app-side arm of an argument against `gfx_line`; the argument is settled and the arm is now the standard path | `mask line` well under the retired `GFX_LINE shallow thin` (Set 133 fitted **24.6 µs** a pixel against 31.6), and `GFX_BLIT1 128x128 pen` to land **exactly on** its unpenned twin on both 1bpp adapters — a gap there is a bug, since a 1bpp band already means lit and unlit |
 | `sysbench:` the **hard-disk block** | **§52's driver on real spinning MFM, which has never been measured** — and the first hard-disk twin of the floppy rows. Read-only by construction: it mounts, walks the FAT, reads one file and puts the volume back, because the disk it will run against is somebody's DOS 3.3 install (docs/FIELD-MACHINES.md) | anything at all — **and it has since been measured: 74,553 B/s against the floppy's 21,307, 3.5x** (Set 24). The floppy figure moved twice while this row said 7,457: check which side of Set 17 (the `AL` fix) AND of Sets 22/24 (§18.95's cache) a figure comes from before comparing anything to it. `HDD FILE_DFREE` is the one to watch — the 9-sector FAT window (§18.8) has to page across a 41-sector FAT, which is what §18.8.1 was written against |
 
 None of them says anything on an emulator, and two say so loudly: under
 `-icount` both shift rows measure identically and the derived per-bit line
 reads **0**, which is correct and is the caution block in miniature.
 
-**The two decomposed `lstep` rows are WRONG in the first field set that
-carries them, and they are recoverable by hand.** `lstep arrival us x100` and
-`lstep pixel us x100` were computed with a raw `sub`/`sbb`, which **underflows
-whenever the vector row measures larger than the scalar one** — which is what
-noise does the moment the two are close, and the whole point of the pair is
-that they might be. What comes out is a nine-digit number (a sighting run
-printed `514229986` and `385674937`), so it does not hide, but it is exactly
-Part 6 rule 3's failure: arithmetic that looks like a measurement. Both
-subtractions go through the floored `gb_sub` now, and an inverted pair reports
-an arrival of **0** and gives the whole cost to the pixel, which is what "the
-batching saved nothing measurable" honestly means.
+**The two decomposed `lstep` rows were WRONG in the first field set that
+carried them, and the reason outlived the rows — which is why this stays.**
+`lstep arrival us x100` and `lstep pixel us x100` were computed with a raw
+`sub`/`sbb`, which **underflows whenever the vector row measures larger than
+the scalar one** — which is what noise does the moment the two are close, and
+the whole point of the pair is that they might be. What comes out is a
+nine-digit number (a sighting run printed `514229986` and `385674937`), so it
+does not hide, but it is exactly Part 6 rule 3's failure: arithmetic that looks
+like a measurement. Every subtraction in the derived block goes through the
+floored `gb_sub`, and an inverted pair reports a term of **0** rather than four
+billion.
 
-Nothing is lost, because **both inputs are printed as their own rows in the
-same report**. Take `R_A` = `GFX_LSTEP x8 (8 calls)` and `R_B` =
-`GFX_LSTEPV x8 (1 call)`, both µs × 100 per iteration, and redo the two lines:
-
-| | |
-|---|---|
-| arrival, µs × 100 | `(R_A − R_B) / 7` |
-| pixel, µs × 100 | `(R_B − arrival) / 8` |
-
-That is the same pair of equations the harness solves — `R_A = 100(8a + 8p)`,
-`R_B = 100(a + 8p)` — so a set taken with the broken build is a complete set
-with two rows to recompute, not a set to retake. If `R_B > R_A` the equations
-have no positive solution and the answer is the floored one: arrival 0, pixel
-`R_B / 8`.
+**Both rows are gone with §5.12.7** — `gfx_lstep` and `gfx_lstepv` answer
+CF = 1 now — and their three companions went with them, which is the same rule
+one turn further on: *a derived row dies with its inputs.* Left in place they
+would have divided uninitialised `.bss`, which is the identical failure with
+nothing at all behind the number. The recovery arithmetic that stood here is
+dropped because there is no set left to recover; what a decomposition of the
+surviving slot looks like is the `GFX_POINTS` pair above, and it is two rows
+rather than a derived one on purpose.
 
 **Reading the fullscreen pairs had one trap, and §32's removal retired it.**
 `[bb_mono]` was one-way and `bb_mono_chk` five instructions cheaper once it
@@ -12910,3 +12905,641 @@ this work have started by bracketing a routine's internals; this is the first
 where the bracket table did not exist, and adding nine rows to `skiesprof`
 turned "10.8 ms and never opened" into "one call, 55%, here is which" before
 any code was read. The instrument is cheaper than the reading.
+
+---
+
+### Set 139 — the resumable walk against an APP-SIDE walker plotting `OSAPI_GFX_LINE` (docs/plans/completed/GFX-EMBEDDABLE-PLAN.md 3.2)
+
+| | |
+|---|---|
+| machine | **MartyPC**, cycle-accurate IBM 5150/XT, 4.77 MHz 8088 |
+| adapter | `os8088_5150_herc_gla` |
+| harness | `tests/gfxbench`, six new rows: `kwalk n=N x8` / `aline n=N x8` |
+| subject | eight live walks stepping N pixels a frame, two ways |
+| date | 2026-09-09 |
+
+docs/plans/completed/GFX-EMBEDDABLE-PLAN.md 3.2 asks whether a package holding its own
+Bresenham can plot through `OSAPI_GFX_LINE` — one call a frame-segment,
+`(p_prev, p_now)` — instead of asking the kernel to step a block the kernel
+holds. SPEC.md 5.6.2 makes a line's pixel set a pure function of the endpoint
+PAIR, so replaying the same segments erases exactly what they drew; the
+question was never correctness, it was cost.
+
+#### The rows
+
+| pixels a block a frame | `gfx_lstepv` x8 | 8 x `gfx_line` | |
+|---:|---:|---:|---|
+| 1 | **5,243.9 µs** | 7,884.8 | kernel **1.50x** |
+| 3 | **7,703.8** | 10,496.9 | kernel **1.36x** |
+| 10 | 16,271.5 | **9,179.6** | app **1.77x** |
+
+**The two sides have different SHAPES, and that is the whole finding.** The
+kernel walk is linear and agrees with SPEC.md 5.6.8 to within 3% — a fitted
+intercept of **4,013 µs** for eight blocks (5.6.8's ~480 µs a block setup x 8 =
+3,840) and **1,230 µs** a pixel across the eight (5.6.8's ~175 x 8 = 1,400,
+measured 154 a pixel a block). The `gfx_line` side is **near enough FLAT**:
+986 µs a call at two pixels and 1,147 at eleven, because a short line is its
+own fixed part and almost nothing else.
+
+**So the crossover is at about FOUR pixels a block a frame**, from the kernel's
+own line against the app's flat band: (9,180 − 4,013) / 1,230 = **4.2**. The
+plan predicted 2, on a `gfx_line` fixed part of 714 µs taken from the intercept
+of a 127-pixel row; the real fixed part for a SHORT line on this geometry is
+**~1,150 µs**, and that is the correction.
+
+#### What it decides
+
+- **Missile Command's drain is well past the crossover.** `MC_DRNBUD` is 64
+  pixels a frame over ~4 blocks — sixteen a block — where the kernel walk
+  models at 4,013 + 1,230x16 = **23.7 ms** against a measured app-side
+  **9.2 ms**. **2.6x, to the app.**
+- **An ordinary trail is not — but the band is narrow.** One to three pixels a
+  block a frame is what Cyclone's warp and Missile's missiles do, and the walk
+  leads there against `gfx_line`; against `GFX_PIXEL` it leads only above
+  ~1.3 a block. **What `gfx_lstep` is actually worth is a window of two to
+  four pixels a block a frame**, and whether the two programs sit in it is a
+  reading nobody has taken - `MC_DRN_RATE` is jittered per trail and
+  `MC_DRNBUD` caps the queue at 64 a frame, so Missile spans the whole range
+  inside one `gfx_lstepv` call.
+
+So GFX-EMBEDDABLE-PLAN's wave 4 is **not free**, and the plan says so now: the
+walk earns its 537/641 bytes on fine-grained animation and loses on coarse.
+
+#### The THIRD route, off the same run's own rows — and it moves the answer
+
+`aline` is not the only thing an app-side walker can plot through. The same
+report carries **`GFX_PIXEL` at 539.52 µs**, and a walker that owns its state
+knows each pixel's coordinates, so eight blocks stepping N pixels is 8N of
+them. Against the walk's fitted `4,013 + 1,230N`:
+
+| pixels a block a frame | `gfx_lstepv` x8 | 8 x `GFX_PIXEL` | 8 x `GFX_LINE` | best |
+|---:|---:|---:|---:|---|
+| 1 | 5,243.9 | **4,316** | 7,884.8 | **PIXEL**, 1.21x |
+| 3 | **7,703.8** | 12,948 | 10,496.9 | **walk** |
+| 10 | 16,271.5 | 43,162 | **9,179.6** | **LINE**, 1.77x |
+
+**The walk is the best of the three only between about 1.3 and 4.2 pixels a
+block a frame** — `4,013 / (4,316 − 1,230)` at the bottom and
+`(9,200 − 4,013) / 1,230` at the top. Below it the per-block setup is bigger
+than a whole `gfx_pixel`; above it the 154 µs marginal pixel is bigger than
+amortising one `gfx_line` over the segment.
+
+The walk's own decomposition checks out against SPEC.md 5.6.8 exactly: the
+report's derived rows read **`lstep arrival` 142.49 µs** and **`lstep pixel`
+637.70**, and 142.49 + 8 x 637.70 = **5,244** against a measured 5,243.9 for
+`kwalk n=1 x8`. 5.6.8's own point — *"a one-pixel walk costs what a pixel
+costs, because it is one"* — is why the bottom of the band exists at all: at
+N=1 the walk IS eight pixels with a staging round each, and the staging is
+what `GFX_PIXEL` does not pay.
+
+#### One anomaly, left named rather than explained
+
+`aline` is **non-monotonic**: a four-row segment is 1,312 µs a call and an
+eleven-row one 1,147. Both are steep (dx = 1), so it is not the octant
+dispatch; a `gfx_line_fast` eligibility refusal on one and not the other is the
+obvious suspect and was not run down. It does not move the finding — the app
+side is flat to ±15% across the range either way — but it is the kind of thing
+Set 116's ICON_DRAW note was: worth its own look, and cheaper to write down
+than to rediscover. The row was first built ADVANCING each iteration's
+segments down the sandbox, and reads the same either way, so it is not the
+clip region.
+
+---
+
+### Set 140 — `gfx_points` BUILT and measured (SPEC.md 5.6.9)
+
+| | |
+|---|---|
+| machine | **MartyPC**, cycle-accurate IBM 5150/XT, 4.77 MHz 8088 |
+| adapter | `os8088_5150_herc_gla` |
+| harness | `tests/gfxbench`, rows `pts n=1 x8` / `pts n=3 x8` |
+| subject | the same eight walks Set 139 stepped, handed over as coordinates |
+| date | 2026-09-09 |
+
+Set 139 ended by naming the slot that was missing. It is built:
+
+| | |
+|---|---:|
+| `pts n=1 x8` — 8 points | **1,662.69 µs** |
+| `pts n=3 x8` — 24 points | **4,317.97 µs** |
+| fitted **per point** | **165.96 µs** |
+| fitted **arrival** | **335.0 µs** |
+
+Two points fit `arrival + N x marginal` exactly, which is the whole shape of
+the row. **The marginal was estimated at ~170 µs from the walk's own 154 plus a
+full `gfx_ls_addr`; it measures 165.96** — 2.4% out, and the reason it is close
+is that the body IS `gfx_lstep_mono`'s with the Bresenham advance replaced.
+
+#### Against the three routes Set 139 measured
+
+| pixels a block a frame | `gfx_lstepv` x8 | 8 x `GFX_PIXEL` | 8 x `GFX_LINE` | **`GFX_POINTS`** |
+|---:|---:|---:|---:|---:|
+| 1 | 5,243.8 | 4,316.3 | 7,884.7 | **1,662.7** |
+| 3 | 7,704.2 | 12,949.0 | 10,497.0 | **4,318.0** |
+| 10 | 16,272.0 | 43,163.2 | **9,180.0** | 13,611.5 *(fit)* |
+
+- **It is the best route below 6.66 pixels a block a frame** — Set 139
+  predicted 6.6 from the estimated marginal.
+- **It beats the resumable walk out to 37.7**, which is past anything in the
+  tree. `MC_DRNBUD` caps Missile's drain at 64 pixels a frame over ~4 blocks,
+  which is sixteen.
+
+> **So `gfx_lstep` is no longer the best route at any n a shipped program
+> uses**, which is what Set 139 said it would take and what
+> docs/plans/completed/GFX-EMBEDDABLE-PLAN.md wave 4 was waiting on.
+
+#### What it cost
+
+Per-symbol from `[map all]`, reconciled against the section lengths:
+
+| | `.text` | + cell | + `.bss` | total |
+|---|---:|---:|---:|---:|
+| `kern_small` | **157** | 8 | 2 | **167** |
+| `kern_big` | **211** | 8 | 2 | **221** |
+
+Estimated at +150 / +165. `kern_small` is 17 over; `kern_big` is 56 over,
+because the `gfx_pixel` fallback arm and the three gates in front of it cost
+more than the estimate allowed. Both reuse `gfx_ls_box`, `gfx_ls_addr` and
+`gfx_rowbase` and add nothing to them.
+
+#### What is NOT established
+
+**There is no correctness gate yet.** What the rows establish is that the draw
+path *executes* — 165.96 µs a point is within 8% of the walk's own measured
+marginal, and a loop that skipped every point could not cost that — and not
+that the pixels land where they should. The body is `gfx_lstep_mono`'s
+verbatim, which is an argument and not a check.
+
+~~**Nothing shipped calls the slot**~~ — true when this set was taken and false
+since: Cyclone, Missile, Tank, `SAVER.DRV` and Mines all commit through it now
+(SPEC.md 5.12.5, 5.13), and Set 141 is what they cost.
+
+
+### Set 141 — the embeddable library BUILT: what four programs and two kernels actually did (SPEC.md 5.12, docs/plans/completed/GFX-EMBEDDABLE-PLAN.md waves 3-7)
+
+| | |
+|---|---|
+| machine | **MartyPC**, cycle-accurate IBM 5150/XT, 4.77 MHz 8088 |
+| adapter | `os8088_5150_herc_gla` — the GLaBIOS twin; the IBM ROM is not in this tree |
+| harness | exec-breakpoint brackets around the one call under test, guest cycles from the emulator's own counter. `tests/paintstroke.py` is the one that shipped as a row |
+| subject | every headline figure waves 3–7 are quoted on |
+
+**Everything here is GUEST CYCLES between two breakpoints, not arithmetic.**
+Set 139's window was the thing this set was supposed to resolve and it did,
+twice in the same direction: the model over-predicted the win in both places it
+was checked.
+
+#### 134.1 The stroke's screen half (SPEC.md 42.23.8)
+
+Paint rasterises a one-pixel stroke twice — into its 1bpp canvas, then onto the
+glass. Bracketed between the call and its return, median of ~23 segments:
+
+| route | cycles | µs | |
+|---|---:|---:|---|
+| `OSAPI_GFX_LINE` — §42.8's | 10,646 | 2,231 | was |
+| `pt_blit` of the segment's rect | 14,268 | 2,989 | **refused, +34%** |
+| `OSAPI_GFX_BLIT1` direct | **9,243** | **1,937** | ships, −13% |
+
+**The middle row is the one to remember.** *"Commit the damaged band with one
+blit"* reads as *"call `pt_blit`, which the program already has"* — and
+`pt_blit` is the path for everything that **cannot know what it changed**, so
+it pays a clip, an inked-table band walk and a decode setup before it reaches a
+blit at all. A stroke segment knows exactly what it changed. The same trap is
+waiting wherever a program has a general repaint routine and a specific one is
+called for.
+
+#### 134.2 Pixels a block a frame — the reading the walk's window needed
+
+Read off the descriptor arrays `gfx_lstepv` was actually handed, over ~14 guest
+seconds of play:
+
+| | live blocks a call | pixels a call | **pixels a BLOCK** |
+|---|---:|---:|---:|
+| Cyclone | 10.43 | 38.68 | **3.71** |
+| Missile | 3.64 | 10.08 | **2.77** |
+
+Both inside `GFX_POINTS`'s best-route window (≤ 6.66, Set 140), Missile further
+in — and **that ordering predicted the result**, which is the only part of the
+model that survived intact.
+
+> **Set 143 re-took this slot on the real caller and both figures moved.** Set
+> 133's geometry is eight VERTICAL columns, which is the one shape in which the
+> points' incoherence does not show; a game's trails are y-major. A point is
+> **573 cycles rather than 903** since SPEC.md 5.6.9.3, so any arithmetic
+> resting on the older marginal wants re-doing against 136.
+
+#### 134.3 …and what the conversion was worth
+
+Guest cycles inside one batch-step call, bracketed entry to exit:
+
+| | before | after | |
+|---|---:|---:|---:|
+| Cyclone `cy_dsc_run`, median | 75,537 | 68,596 | **−9.2%** |
+| …mean | 66,872 | 58,759 | −12.1% |
+| Missile `mc_dsc_run`, median | 18,429 | 12,250 | **−33.5%** |
+| …mean | 13,589 | 10,110 | −25.6% |
+
+**The arithmetic predicted −41% and −47%.** It is right about the ordering and
+about the sign and wrong about the size, in both cases the same way: a point
+committed through `gfx_points` costs more than Set 140's marginal 165.96 µs when
+the points are SCATTERED, because `gfx_ls_box` re-resolves and every point pays
+a full `gfx_ls_addr`, where the walk carried its framebuffer byte and bit mask
+forward. Set 140 measured eight walks stepping in step; a game's warp does not.
+
+> **SET 135 RE-TOOK THE MISSILE ROW DETERMINISTICALLY AND THE MEAN ABOVE DOES
+> NOT SURVIVE IT.** These are medians over LIVE PLAY on two trees playing two
+> different games. On one game run twice, the median holds (−26.3% and −24.8%
+> against this −33.5%) and the mean is **−1.6% to −4.6%, not −25.6%** — the
+> distribution changed shape rather than shifting, the tail getting a quarter
+> dearer as the typical call got a quarter cheaper. **Quote Set 142.2 for this
+> call and Set 142.1 for what a frame and a game do with it.**
+
+#### 134.4 What it bought the kernel, and what it cost the apps
+
+| | `.text` | `.bss` |
+|---|---:|---:|
+| `kern_small` | **−493** | −20 |
+| `kern_big` | **−597** | −20 |
+
+`kern_big` **uncrosses an image rung** with it, so a further 512 bytes of every
+machine's RAM come back on top of the sum.
+
+Against, in four package images and none of it resident: Cyclone +238 and 384
+of bss, Missile +251 and 384, Tank +236 and 256, `SAVER.DRV` +392 (a driver's
+bss ships inside its image). **That is the premise made good rather than
+asserted** — duplicate code only used by programs that monopolise the machine
+anyway, instead of permanently spending kernel RAM on them — and the programs
+got faster doing it.
+
+
+### Set 142 — the SAME GAME twice: Missile's walk conversion, deterministically (SPEC.md 48.16.2)
+
+| | |
+|---|---|
+| machine | **MartyPC**, cycle-accurate IBM 5150/XT, 4.77 MHz 8088 |
+| adapter | `os8088_5150_herc_gla` |
+| harness | `tests/mcperf.py` over `apps/missile/mcbench.inc` — a fixed seed, scripted shots, 400 frames back to back, exec-breakpoint brackets on the frame and on `mc_dsc_run` |
+| arms | `2324ede` (the kernel walk, `OSAPI_GFX_LSTEPV`) against this branch (the app-side walk, `gfxe_wstepv` + `gfxe_pput`) |
+
+**Set 141.3 is the reason this exists.** It priced the conversion over LIVE
+PLAY — two trees playing two different games, medians over whatever the waves
+happened to do. Set 141.2 had to measure blocks-per-call separately for exactly
+that reason. This runs one game twice, and **the two arms end on the same state
+checksum in both scenarios** (`C3B7` busy, `6430` calm), so what follows is a
+comparison rather than two numbers.
+
+#### 135.1 The whole game
+
+| | busy (a shot every 7 frames) | | calm (every 29) | |
+|---|---:|---:|---:|---:|
+| | kernel walk | app walk | kernel walk | app walk |
+| 400 frames, cycles | 68,767,775 | **68,511,561** | 54,449,606 | **53,696,467** |
+| | | **−0.37%** | | **−1.38%** |
+| median frame, cycles | 144,038 | **142,146** | 112,924 | **107,168** |
+| | 30.18 ms | **29.78 ms, −1.30%** | 23.66 ms | **22.45 ms, −5.10%** |
+| system ticks | 262 | 261 | 207 | **204** |
+| state checksum | C3B7 | C3B7 | 6430 | 6430 |
+
+#### 135.2 …and the converted call inside it
+
+`mc_dsc_run`, entry to `.out`, over the same runs. Empty calls (`jcxz .out`,
+about a fifth of them) are separated out because they cost nothing and would
+otherwise move a mean without meaning anything.
+
+| | busy | | calm | |
+|---|---:|---:|---:|---:|
+| | kernel | app | kernel | app |
+| calls / of them empty | 1,074 / 239 | 1,079 / 240 | 1,027 / 187 | 1,023 / 187 |
+| walks a non-empty call | 3.53 | 3.53 | 2.63 | 2.63 |
+| **median, non-empty** | 27,434 | **20,217** | 17,558 | **13,211** |
+| | | **−26.3%** | | **−24.8%** |
+| mean, non-empty | 27,754 | 27,309 | 19,734 | 18,833 |
+| | | −1.6% | | −4.6% |
+| **max** | 79,224 | **99,398** | 75,833 | **98,903** |
+| | | **+25.5%** | | **+30.4%** |
+| share of the run | 33.70% | 33.44% | 30.48% | 29.37% |
+
+#### 135.3 What it found, and it is not what Set 141.3 says
+
+**The median is confirmed and the mean is refuted.** Set 141.3 reported the
+Missile call at −33.5% median and −25.6% mean; deterministically it is **−26.3%
+and −24.8% median** — same sign, same order, close enough — and **−1.6% and
+−4.6% mean**. The two statistics have parted because **the distribution changed
+shape**: the typical call got a quarter cheaper and the expensive tail got a
+quarter to a third DEARER. That is Set 141.3's own explanation for why its
+model over-predicted, arriving as a measurement — a point committed through
+`gfx_points` costs more when the points are SCATTERED, and the worst calls are
+the ones laying a whole new trail at once.
+
+**So the game gets 1–5% faster, not a third** — and 135.4 is why that sentence
+is not the whole answer: the busy scenario's 0.37% is a REDISTRIBUTION, and it
+moves four frames in four hundred across §44.1's tick deadline. The arithmetic
+closes exactly:
+`mc_dsc_run` is 30–34% of the run, its TOTAL falls 1.1% (busy) and 4.9% (calm)
+once the tail is counted, and 30% × 4.9% is the 1.38% the whole calm run moved.
+A per-call median is not a frame and a frame is not a game, and this is the set
+where all three are on the table at once.
+
+**The batch size is not the explanation, which had to be checked.** The obvious
+reading of the gap is that this scenario is busier than live play, and it is
+not: 3.53 walks a non-empty call against Set 141.2's 3.64 live. The calmer arm
+at 2.63 gets a BIGGER whole-game win (−5.10% median frame against −1.30%),
+which is the direction Set 140's window predicts — `GFX_POINTS` is at its best
+with few points — but the effect is in the frame rather than in the call.
+
+#### 135.4 It is a REDISTRIBUTION, and the tick deadline is where that costs
+
+The whole-run figure is a wash in the busy scenario (−0.37%), so the natural
+reading is that nothing much happened. Both arms play the same game, though,
+so frame N in one is frame N in the other and the two runs compare **pairwise**
+— which is a far sharper question than two distributions, and it says the
+opposite of "nothing much".
+
+| | busy, 400 frames, paired |
+|---|---|
+| frames faster on the app walk | **182** |
+| frames slower | **218** |
+| total | **−0.38%** |
+| the 200 QUIETEST frames | **−4.63%** |
+| the 40 BUSIEST frames | **+2.53%** |
+
+| percentile | kernel walk | app walk | |
+|---|---:|---:|---:|
+| p50 | 143,082 | 141,446 | **−1.1%** |
+| p75 | 218,548 | 220,122 | +0.7% |
+| p90 | 285,806 | 291,916 | **+2.1%** |
+| p95 | 315,964 | 330,576 | **+4.6%** |
+| p99 | 432,172 | 449,380 | **+4.0%** |
+
+**So the time was MOVED and not spent**: the quiet frames pay for the busy ones.
+That would be a free trade if a frame's cost were linear in what the player
+sees, and it is not — §44.1 is a **cliff**. `mc_worker` sleeps to a deadline of
+one tick, and a frame that crosses it does not make the rate sag, it HALVES it.
+
+| | kernel walk | app walk |
+|---|---:|---:|
+| frames over one tick (54.93 ms) | **56 of 400** | **60 of 400** |
+| newly over, pairwise | | **6** |
+| newly under, pairwise | | **2** |
+| frames over 2 / 3 / 5 ticks | 2 / 2 / 1 | 2 / 2 / 1 |
+
+**Four net frames in four hundred — 1% — and it is EXACT rather than
+indicative.** Two independent runs of each arm give 56, 56, 60, 60; the
+within-arm noise is **0 newly-over and ±0.01% of total** and all four
+cross-arm pairings give the same 6 and 2. Nothing here is a sampling artefact.
+
+And the six were all standing on the line already: 52.20 → 57.04, 52.96 →
+57.98, 52.81 → 56.47, 53.92 → 54.98, 54.12 → 55.07, 52.81 → 55.31 ms against a
+54.93 ms tick. **Three of the six cross by under 0.4 ms.** The worst frames are
+untouched — the 2-, 3- and 5-tick frames are the same count in both arms, and
+the maximum is 1,313,399 against 1,312,551, marginally in the app walk's
+favour. This is not the peak getting worse; it is the shoulder of the
+distribution rising through a threshold that happens to sit on it.
+
+**Where it comes from** is 135.2's tail, one level down: `mc_dsc_run`'s p95 and
+p99 are **+34% and +36%** where its median is −26%, and the expensive calls are
+the ones laying a whole new trail at once — many SCATTERED points through
+`gfx_points`, which is Set 141.3's own explanation for its over-prediction. The
+busiest frames are the ones with a launch in them.
+
+**The lever is §48.15's drain budget** — `MC_DRNBUD` bounds how much trail a
+frame erases and was calibrated against the kernel walk's per-pixel cost, so a
+budget that no longer matches the commit it is spending is the mechanism.
+**135.5 is that re-tune, and it took the count back to 57 against the
+pre-conversion 56** for one frame in four hundred of extra smoke.
+
+#### 135.5 The re-tune: `MC_DRNBUD` 64 -> 32, and what fixed it
+
+135.4 named the drain budget as the lever and did not pull it. Pulling it
+needed one more measurement first — **which producer fills the expensive
+batches** — because `mc_dsc_add` has three callers and re-tuning the wrong one
+would have been a look change for nothing. `mc_dsc_run`'s median against the
+pixels it was handed:
+
+| pixels in the batch | kernel walk | app walk | | cyc/px, kernel | cyc/px, app |
+|---|---:|---:|---:|---:|---:|
+| 1–8 | 21,665 | **13,425** | **−38%** | 3,710 | 2,307 |
+| 9–16 | 28,679 | **19,639** | **−32%** | 2,662 | 1,823 |
+| 17–32 | 29,423 | 37,309 | **+27%** | 1,205 | 1,530 |
+| 33–64 | 53,649 | 75,503 | **+41%** | 1,082 | 1,523 |
+
+**The crossover is between 16 and 17 pixels, and it is an AMORTISATION
+difference rather than a constant one.** The kernel walk's cost per pixel falls
+by 3.4x across that range because it carried a framebuffer byte and bit mask
+forward; `gfx_points` re-resolves per point and stays near 1,500 whatever the
+batch. So a big batch is exactly where the conversion loses, and `MC_DRNBUD` =
+64 put every drain batch there — the other two producers add a missile's speed
+each and never leave the 1–16 rows.
+
+The sweep, busy scenario, everything else fixed:
+
+| `MC_DRNBUD` | 400 frames | p90 | p95 | p99 | over one tick | smoke frames |
+|---|---:|---:|---:|---:|---:|---:|
+| *(kernel walk, 64)* | 68,802,005 | 285,806 | 315,964 | 432,172 | **56** | 240 |
+| 64 — as shipped | 68,541,774 | 291,916 | 330,576 | 449,380 | **60** | 240 |
+| 48 | 68,465,106 | 286,012 | 330,656 | 445,060 | 59 | — |
+| **32 — taken** | **68,298,000** | 280,396 | 320,130 | 387,172 | **57** | **241** |
+| 24 | 67,530,664 | 266,932 | 313,866 | 418,266 | 43 | 263 |
+| 16 | 66,660,576 | 247,996 | 294,940 | 404,298 | 30 | — |
+
+**32 is not the empirical optimum and is deliberately not chosen as one.** 24
+and 16 fix the deadline further — 43 and 30 against the pre-conversion 56 — and
+both cross a line: `MC_DRNRATE` is 24, the per-trail cap, and a budget at or
+below it caps a SINGLE trail's drain, which is a different promise from the
+one this constant makes (SPEC.md 48.15). 16 costs 23 extra frames of smoke on
+screen for it. **32 is the smallest value that leaves the per-trail rate
+alone**, and `%if MC_DRNBUD < MC_DRNRATE` now refuses the build below it.
+
+**Its cost is one frame in four hundred** (240 → 241 with the queue non-empty)
+and one more queue entry alive at once (5 → 6, against `MC_MAXDRN` = 16). The
+calm scenario comes out ahead of the tree it came from on both counts: **21
+frames over a tick against 24**, 187 smoke frames against 186.
+
+**The surprise is that it does LESS work.** The same pixels erased on a smaller
+per-frame budget is 0.4% cheaper overall, and repeatably so across the whole
+sweep — 68.54M at 64 down to 66.66M at 16, monotonically. A trail that drains
+more slowly is more likely to be under a burst when one arrives, and SPEC.md
+48.19 gives those pixels to the burst: slower draining sheds work to a routine
+that was going to run anyway. Nothing in 135.4's reasoning predicted that, and
+it is the reason the re-tune has no downside to weigh beyond the smoke.
+
+**And the conversion is still the right trade**, which this set does not
+disturb: it took **−597 bytes of `.text` and an image rung** out of `kern_big`
+(Set 141.4) for +251 bytes of one package image, and the game is faster rather
+than slower. What is corrected is the size of the win, and the place to quote
+it is 135.1 rather than 134.3.
+
+### Set 143 — `gfx_points` inlined and specialised: 903 -> 573 cycles a point (SPEC.md 5.6.9.3)
+
+| | |
+|---|---|
+| machine | **MartyPC**, cycle-accurate IBM 5150/XT, 4.77 MHz 8088 |
+| adapters | `os8088_5150_herc_gla`, `os8088_5150_cga_gla`, `os8088_xt_vga` |
+| harness | `tests/mcperf.py --pts` — the deterministic Missile run of Set 142, with the KERNEL's `gfx_points` bracketed and the arrays it is handed read back |
+| subject | the one slot §5.12.7 left standing: every app-side walker in the tree commits through it |
+
+**This set exists because Set 140 measured the slot on the wrong shape.** That
+was gfxbench's geometry — eight VERTICAL columns — and the figure it produced
+was fine and hid everything interesting. Read off the real caller instead:
+
+| | before | after | |
+|---|---:|---:|---:|
+| arrival | 2,928 | 3,200 | +272 |
+| **a point** | **903** | **573** | **−36.5%** |
+| instructions a point | 52.7 | **31.1** | **−41%** |
+| cycles an instruction | 17.15 | 18.40 | |
+
+**The load-bearing number is 17.15 cycles an INSTRUCTION**, and it is not a
+rounding — the arrival fits the same ratio (148 instructions, 19.8 each). On
+this path an 8088 is fetch- and operand-bound, so **the currency is
+instructions removed and not clocks saved**: a routine that looks cheap by
+clock count is not, and the 41% fewer instructions is where the 36.5% comes
+from.
+
+#### 136.1 The obvious optimisation is refused by the geometry
+
+Caching the resolved row, or the framebuffer byte, is what anyone would reach
+for first. It buys nothing here, and only measuring says so:
+
+| | |
+|---|---:|
+| consecutive points sharing a ROW | **0.4%** |
+| …sharing a framebuffer BYTE | **0.3%** |
+| points per byte touched | **1.00** |
+
+A sampled array says why in one line — `297,50 297,51 296,52 296,53 296,54` —
+**y-major**, which is what a falling missile is. `y` moves every point and `x`
+every second or third, and the byte is (x>>3, y), so neither cache ever hits.
+Set 140's vertical columns are the one shape where that is invisible.
+
+#### 136.2 What was done instead, all of it data-independent
+
+- **`gfx_ls_addr` is gone into the loop.** It was a call inside this loop, and
+  `gfx_points` was its only caller once §5.12.7 took the walk family out — so
+  inlining it is a move, not a duplication. `gfx_rowbase`'s fast path went with
+  it: a call whose whole body is four instructions.
+- **The caller's array is in DS and the framebuffer in ES**, both set once, so
+  the loop loads **no segment register per point** where it loaded two. Kernel
+  words are reached `cs:` (`.bss` and `.text` share the segment) and
+  `vid_rowtab` stays `ss:`.
+- **The bit comes from a table.** `shr bl, cl` is 8+4n clocks and wants CL,
+  which is the loop counter's.
+- **Three loops, one per ink class.** Ink commits with `or [es:di], bl` and
+  paper with `and [es:di], bl` — ONE read-modify-write instruction where the
+  general form is seven. Only the dither class needs the general form.
+- **The hot path is straight**: the clip-rect miss and the row past the row
+  table both live after `loop`, so a point executes no jump but the loop's own.
+
+#### 136.3 What it did to the game, and what it cost
+
+| Missile, 400 deterministic frames | Hercules | CGA |
+|---|---:|---:|
+| whole run, before | 68,298,000 | — |
+| whole run, after | **63,836,496** | **52,823,161** |
+| | **−6.5%** | |
+| frames over one tick, before | 57 of 400 | — |
+| frames over one tick, after | **39 of 400** | **17 of 400** |
+| cycles a point, after | 573 | **547** |
+
+**Against the tree this arc started from** — the kernel walk at `MC_DRNBUD` 64
+— the game is **68,802,005 → 63,836,496 cycles, −7.2%**, and frames over the
+tick are **56 → 39**.
+
+The break-even is under one point: +272 of arrival against −330 a point, so
+any call with a single point in it is already ahead, and the real caller hands
+over 15.8.
+
+**Bytes: `.text` +329, `.bss` 0, `.cold` 0.** `kern_big` crosses no rung (this
+branch's arc had already freed four). **`kern_small` does cross one** — 74,981
+→ 75,493 — so the 128KB floor machine pays 512 bytes of heap for it and stands
+at **52.5 KB free** (`tests/small128.py`). That is the trade stated rather than
+buried: the floor machine is also the machine a 36% faster point loop is worth
+most to.
+
+#### 136.3.1 Where the +329 went, since it is NOT what a move costs
+
+The obvious model — a routine moves from A to B, so B grows and A shrinks —
+predicts about zero, and it is right about the part it describes. Symbol spans,
+both builds:
+
+| | before | after | |
+|---|---:|---:|---:|
+| the early-out | 5 | 5 | |
+| prologue, the VGA gates and `.slow` | 72 | 74 | +2, the `push ds`/`pop ds` |
+| setup and the class dispatch | 21 | 44 | +23 |
+| **the loop** | **104** | **394** | **+290** — 146 dither, 125 paper, 123 ink |
+| epilogue | 9 | 10 | +1 |
+| `gfx_pt_box` + `gfx_pt_row` | 0 | 26 | +26 |
+| `gfx_bitset` + `gfx_bitclr` | 0 | 16 | +16 |
+| `gfx_ls_ink` | 10 | 10 | |
+| **`gfx_ls_addr`** | **29** | **0** | **−29** |
+| **total** | **250** | **579** | **+329** |
+
+**ONE loop went 104 → 123 bytes**, and that is the number the move model is
+about: +19 despite absorbing `gfx_ls_addr`'s body *and* `gfx_rowbase`'s fast
+path, because it gave back a call, a `push`/`pop` pair, the per-point class
+test and five instructions of commit. Take the 29 bytes of `gfx_ls_addr` off
+that and the inlining is **−10 bytes net**, exactly as it ought to be.
+
+**+290 of the +329 is the loop being emitted THREE TIMES**, which is not a move
+at all. That is the price of the one-instruction commit, and it is the change
+that bought the most.
+
+Two smaller terms have nothing to give back by construction. **`gfx_rowbase` is
+not deleted** — its own comment calls it *the fixed cost of every drawing call
+in the machine*, and `gfx_fill`, `font_char` and the rest still call it — so
+inlining its fast path here is pure addition. And the bit tables replace a
+shift that was *inside* the loop, so they add 16 while removing bytes from a
+body that is then emitted three times.
+
+#### 136.3.2 …and what the THREE loops are worth, built both ways
+
+The expansion is not forced by anything. `gfx_ls_ink` resolves a colour to
+three 1bpp classes — `FF` ink, `00` paper, `01` dither (§5.4.2) — and
+specialising the commit per class is what turns nine instructions into one.
+One loop can serve all three; it has to ask the class per point and keep the
+general read-modify-write, which is what the routine did before. Both were
+built and measured on the same deterministic run:
+
+| | before | ONE loop | THREE loops |
+|---|---:|---:|---:|
+| `.text` | 48,870 | **+72** | **+329** |
+| `gfx_points` span | 211 | 270 | 527 |
+| instructions a point | 52.7 | **38.7** | **31.1** |
+| cycles a point | 903 | **665** | **573** |
+| Missile, 400 frames | 68,298,000 | 65,142,657 | **63,836,496** |
+| frames over one tick | 57 | 46 | **39** |
+| screen hash | `28bc481…` | `28bc481…` | `28bc481…` |
+
+**So the split costs 257 of the 329 bytes and delivers 92 of the 330 cycles**
+— 78% of the bytes for 28% of the win, which is exactly the shape a duplication
+has and is worth stating rather than implying. The other three changes are the
+bargain: 72 bytes for 238 cycles a point.
+
+**Taken: three loops on `kern_big`, ONE on `kern_small`.** The question a
+duplication asks is *do we spend N resident bytes for M cycles?*, and it
+answers differently per machine — yes at 257 for 92 on the build with memory,
+no on the build with 128KB. Measured on the floor machine, `gfx_points` is
+**215 bytes against 472**; `kernel.bin` is **75,493 either way**, so the file
+size cannot see the decision at all and the symbol span is what to read
+(CLAUDE.md's *rungs are temporary, bytes are forever*).
+
+**And the `kern_small` rung is crossed EITHER WAY.** The one-loop build is
+74,981 → **75,493**, the same figure the three-loop build gives: the slack in
+that rung was under 72 bytes, so the floor machine's 512 is the price of the
+inlining and not of the expansion. An earlier revision of this set said the
+lever was the expansion; it is not, and there is no version of this change that
+is free there short of not making it.
+
+#### 136.4 The pixels are gated, not asserted
+
+`tests/mcperf.py` hashes the screen 400 deterministic frames into a Missile
+game. Before and after, on three adapters with different geometry and banking:
+
+| adapter | before | after |
+|---|---|---|
+| Hercules | `28bc48113a562257` | `28bc48113a562257` |
+| CGA — different banking, so `gfx_rowbase`'s bank path | `9a23245295c71fbe` | `9a23245295c71fbe` |
+| VGA — the `.slow` planar arm, untouched | `9ba6396856939c66` | `9ba6396856939c66` |
+
+Eighteen registered rows pass with it, `gfxpoints` and `gfxewalk` among them.

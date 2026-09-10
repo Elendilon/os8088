@@ -1101,11 +1101,30 @@ tk_tpl:
     ZBUF  tk_curft, TKC_SZ          ; walk block each, plus where it has got
     ZBUF  tk_curbh, TKC_SZ          ; to and what it still owes this glyph
     ZBUF  tk_curbt, TKC_SZ
+    ZBUF  tk_lgwk,  GLS_SZ          ; ...and one more walk block, for the logo
+                                    ; segments drawn WHOLE (SPEC.md 85.10.4):
+                                    ; the cursors above animate, this one just
+                                    ; lays a segment down and is done with it
+    ZBUF  tk_pts, TK_PTMAX * 4      ; the attract cursors' points, stepped into
+                                    ; here and committed in ONE arrival
+                                    ; (SPEC.md 5.12.5). A full list commits
+                                    ; itself, so this is a tuning size and
+                                    ; never a correctness one
 
 ; --- the shared controls (SPEC.md 20.5.1) -------------------------------------
 %define OS88UI_ABOUT            ; the standard About card, and NOTHING else:
 %define OS88UI_NOBTN            ; the attract panel is the game's own chrome
 %include "os88ui.inc"
+
+; --- the embeddable graphics library (SPEC.md 5.12) ---------------------------
+; SPEC.md 5.6.7's resumable walk, in our own image, for tkattr.inc's letter
+; cursors: pure arithmetic over blocks we already owned, with the pixels
+; committed through OSAPI_GFX_POINTS. It used to spend one arrival per SEGMENT
+; of a glyph and now spends one per WAKE.
+%define GFXE_WALK                   ; ...which implies GFXE_POINTS
+%define GFXE_PT_BUF tk_pts
+%define GFXE_PT_MAX TK_PTMAX
+%include "os88gfx.inc"
 
     OS88_BSS TK_BSS
     OS88_IMAGE_END

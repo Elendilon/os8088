@@ -2298,6 +2298,16 @@ OS88_F_PARTS  equ 4             ; the FILE is longer than the image, on purpose
 ; tools/stkdepth.py prints your worker's deepest static chain; add the kernel's
 ; interrupt floor, which docs/plans/completed/STACK-SLOTS-PLAN.md 7.1 puts at 64 on the worst
 ; real machine measured, and pick the class above the sum with margin.
+;
+; THAT 64 IS A BARE MACHINE, AND IT IS NOT A FLOOR ON ONE WITH A DRIVER IN IT
+; (SPEC.md 8.7.5). A mounted SOUND.DRV alone is worth ~16 bytes of every slice
+; ALL THE TIME - snd_tick far-calls DSV_TICK from inside IRQ0 whether or not
+; anything is playing - and more while a tone is on. Cyclone was sized by this
+; recipe, passed its gate at 1.28x for months, and overflowed on the first
+; machine with a sound card in it. If your worker DRAWS, size it against
+; 64 + the driver, and measure with tools/stkwater.py on the real recipe
+; rather than trusting the sum: a static chain plus a documented constant is
+; two right numbers that do not add up to the machine.
 OS88_STACK_DEFAULT equ 0        ; the largest. What you get by saying nothing
 OS88_STACK_128     equ 1        ; a worker that sleeps and wakes: a close
                                 ; watcher, a caret blink, a transport poll
@@ -2878,99 +2888,75 @@ OS88_BSS_SIZE equ 0
                                  ; documents carry. Call it from your entry
                                  ; proc; a package that ships a header
                                  ; declaration (54.6) needs no call at all
-%define OSAPI_GFX_LINE      KERNEL_SEG:0x02E0   ; an arbitrary-angle line (SPEC.md
-                                 ; 5.6): AX/BX = x1/y1, CX/DX = x2/y2,
-                                 ; inclusive, absolute screen coords;
-                                 ; SI = 0 thin / 1 dilated a pixel either
-                                 ; side of the MINOR axis, which is what an
-                                 ; erase owes a line that was DRAWN in short
-                                 ; per-frame segments (5.6.5) - the two
-                                 ; rasterizations differ by a pixel and the
-                                 ; ghost is half the trail. Pen in
-                                 ; SET_COLOR, gfx lock held. Clobbers flags
-                                 ; only. It does NOT replace the area
-                                 ; primitives and defers to them: an
-                                 ; axis-aligned pair tail-calls GFX_HLINE /
-                                 ; GFX_VLINE, and a long axis-aligned run is
-                                 ; theirs at any angle of the argument - a
-                                 ; fill writes eight pixels a store on 1bpp
-                                 ; where a walk writes one (5.6.1). The walk
-                                 ; runs DOWNWARD whichever way you hand it
-                                 ; the ends, so drawing (A,B) and erasing
-                                 ; (B,A) is the same pixel set (5.6.2) - but
-                                 ; a line drawn in per-frame SEGMENTS and
-                                 ; erased whole still is not, and that is
-                                 ; still the caller's to dilate
-
-; --- the boot timer (SPEC.md 15.4) --------------------------------------------
-
-; --- SPEC.md 5.6.7: the RESUMABLE walk ---------------------------------------
-; gfx_line draws a whole line. These draw the NEXT N PIXELS of one, and that
-; difference is what lets you ERASE EXACTLY WHAT YOU DREW.
-;
-; If you draw a line incrementally - a few pixels a frame, as a moving object's
-; trail - and then erase it with one whole-line call, the two Bresenhams do
-; NOT visit the same pixels, and the erase leaves a dashed remnant. The old
-; answer was to dilate the erase by a pixel either side, which is an
-; approximation in both directions: it can still miss, and it erases pixels
-; your trail never drew out of whatever was underneath. It also costs three
-; walks - 500us a trail pixel on a 4.77MHz machine.
-;
-; Carry the state instead. Init once; advance it to draw; keep a COPY of the
-; freshly-initialised block, and replay that copy in the background colour to
-; erase. Same recurrence, same pixels, one walk each way.
-;
-;   GLS_SZ bytes of your own bss per line. The layout is not yours to read:
-;   pass the block, copy it whole (rep movsw) if you want a replay cursor.
-;
-; Because you may stop and resume anywhere, an erase does NOT have to land in
-; one frame: advance the replay cursor a few pixels a frame and a spent trail
-; DRAINS instead of popping, with no frame paying for the whole thing.
-;
-; THE WALK RUNS IN YOUR DIRECTION. gfx_line normalises its endpoints so its
-; pixel set is a property of the pair; this cannot, because step 1 has to be
-; next to the point you started from. Init draw and erase from the SAME
-; endpoints in the SAME order and they agree by construction.
-%define OSAPI_GFX_LINIT     KERNEL_SEG:0x0300   ; AX/BX = x1/y1, CX/DX = x2/y2,
-                                 ; ES:DI = a GLS_SZ block (X - it is yours).
-                                 ; Sets the walk up at (x1,y1). Preserves all.
-%define OSAPI_GFX_LSTEP     KERNEL_SEG:0x0308   ; ES:DI = the block, CX = how
-                                 ; many pixels to draw in [gfx_color]; the
-                                 ; block advances by exactly that many. CX = 0
-                                 ; is legal and does nothing. Lock held.
-                                 ; Preserves all. N then M == one call of N+M.
-; STEP EVERY LINE IN ONE CALL. A walk step draws two or three pixels, and
-; PERFORMANCE.md prices the ARRIVING at a drawing call - not the drawing - at
-; ~756us on the target machine. So a caller with eight live lines that steps
-; them one call each is paying eight floors a frame to move twenty pixels,
-; and that, not the walk, is what a moving trail costs. Hand them over
-; together: same pixels, one arrival.
-;
-;   dw block1, count1            ; an array of pairs in YOUR segment,
-;   dw block2, count2            ; `block` an offset in it. A zero count is
-;   ...                          ; legal and skipped, so build it once and
-;                                ; vary what you ask for.
-%define OSAPI_GFX_LSTEPV    KERNEL_SEG:0x0318   ; ES:DI = the array, CX = how
-                                 ; many pairs. Identical to CX separate
-                                 ; OSAPI_GFX_LSTEP calls in one pen. Lock
-                                 ; held. Preserves all.
+%define OSAPI_GFX_LINE     KERNEL_SEG:0x02E0   ; RETIRED (SPEC.md 5.12.7): the cell
+                                 ; stays because a slot number is a
+                                 ; published constant, and it answers
+                                 ; CF = 1. The line, the resumable
+                                 ; walk and the batch step are all
+                                 ; apps/os88gfx.inc's now - GFXE_LINE,
+                                 ; GFXE_WALK and gfxe_wstepv - and
+                                 ; they commit through GFX_POINTS or
+                                 ; GFX_BLIT1. TEST CF: a caller that
+                                 ; does not gets no pixels rather than
+                                 ; wrong ones
+%define OSAPI_GFX_LINIT    KERNEL_SEG:0x0300   ; RETIRED (SPEC.md 5.12.7): the cell
+                                 ; stays because a slot number is a
+                                 ; published constant, and it answers
+                                 ; CF = 1. The line, the resumable
+                                 ; walk and the batch step are all
+                                 ; apps/os88gfx.inc's now - GFXE_LINE,
+                                 ; GFXE_WALK and gfxe_wstepv - and
+                                 ; they commit through GFX_POINTS or
+                                 ; GFX_BLIT1. TEST CF: a caller that
+                                 ; does not gets no pixels rather than
+                                 ; wrong ones
+%define OSAPI_GFX_LSTEP    KERNEL_SEG:0x0308   ; RETIRED (SPEC.md 5.12.7): the cell
+                                 ; stays because a slot number is a
+                                 ; published constant, and it answers
+                                 ; CF = 1. The line, the resumable
+                                 ; walk and the batch step are all
+                                 ; apps/os88gfx.inc's now - GFXE_LINE,
+                                 ; GFXE_WALK and gfxe_wstepv - and
+                                 ; they commit through GFX_POINTS or
+                                 ; GFX_BLIT1. TEST CF: a caller that
+                                 ; does not gets no pixels rather than
+                                 ; wrong ones
+; SPEC.md 5.6.7's walk STATE, which is the caller's to own and is unchanged by
+; 5.12.7 - apps/os88gfx.inc's GFXE_WALK reads and writes the same seven words
+; at the same offsets, and tests/unit/t_mirror.py keeps the two copies equal.
 GLS_SZ    equ 14                 ; the walk state, in YOUR bss
-; The DISABLED pen (SPEC.md 47 rule 3). A disabled control is CDGRAY *and* the
-; [gfx_dis] flag, and this is the only way to set both - which matters most on
-; the two 1bpp adapters, where the flag is the entire difference between a
-; greyed label and a live one: font_ink masks a flagged glyph to a
-; checkerboard, while the colour on its own rounds to solid black.
-;
-; CF IS THE ARGUMENT, and that is not an oddity - it is the shape every
-; greying predicate already answers in, so a call site is `call <your ok-test>`
-; then `call OSAPI_GFX_PEN` and nothing between them. The cell is
-; push/pop/call/retf and touches no flag, so your CF crosses it unchanged. Use
-; `clc` or `stc` first for the unconditional cases.
-;
-; It is one lock hold long: OSAPI_GFX_UNLOCK clears the flag the way it clears
-; the clip region, so you cannot leak dithered text into the next painter. Put
-; the pen back with a `clc` call when the control is drawn, all the same - the
-; next thing YOU draw in this hold would otherwise come out disabled.
+%define OSAPI_GFX_LSTEPV   KERNEL_SEG:0x0318   ; RETIRED (SPEC.md 5.12.7): the cell
+                                 ; stays because a slot number is a
+                                 ; published constant, and it answers
+                                 ; CF = 1. The line, the resumable
+                                 ; walk and the batch step are all
+                                 ; apps/os88gfx.inc's now - GFXE_LINE,
+                                 ; GFXE_WALK and gfxe_wstepv - and
+                                 ; they commit through GFX_POINTS or
+                                 ; GFX_BLIT1. TEST CF: a caller that
+                                 ; does not gets no pixels rather than
+                                 ; wrong ones
+%define OSAPI_GFX_POINTS    KERNEL_SEG:0x0538   ; ES:SI = CX records of two
+                                 ; words each, x then y (screen px); CX = how
+                                 ; many, 0 legal and does nothing.
+                                 ; [gfx_color] is the ink; hold the lock.
+                                 ; Preserves every register.
+                                 ;
+                                 ; DRAW THESE PIXELS - where OSAPI_GFX_LINE is
+                                 ; "draw this line" and the walk above is
+                                 ; "draw the next N of it". You decided which
+                                 ; ones; the kernel does the clip region, the
+                                 ; cursor's save-under, the adapter and the
+                                 ; display. A point outside every clip rect is
+                                 ; SKIPPED, not refused, so a partly covered
+                                 ; window needs no arithmetic of yours.
+                                 ;
+                                 ; It is the cheap way to plot a figure you
+                                 ; rasterised yourself: one arrival for the
+                                 ; whole set, and per point what a walk step
+                                 ; costs WITHOUT the ~480us it spends staging
+                                 ; a Bresenham block in and back out
+                                 ; (SPEC.md 5.6.8, 5.6.9).
 %define OSAPI_GFX_PEN       KERNEL_SEG:0x0310   ; CF = 0 live (CBLACK, flag
                                  ; clear) / CF = 1 disabled (CDGRAY, flag
                                  ; set). Preserves every register.

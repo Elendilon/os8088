@@ -237,7 +237,7 @@ run after the first.
 
 A row whose assertion is a RATE cannot share four cores with two other guests.
 That is not flakiness, it is the wrong measurement. `saverate`, `deskbench`,
-`wirefps`, `uilat` and `curdisk` carry it.
+`uilat` and `curdisk` carry it.
 
 Everything else should NOT: guest cycle counts, `disk()` counts and pixel
 comparisons are exact at any oversubscription, because they are counted rather

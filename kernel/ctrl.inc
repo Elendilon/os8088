@@ -481,7 +481,7 @@ cp_s_sched: db 'Scheduler', 0   ; list name AND the page heading, so RESIDENT
 cp_s_vid:   db 'Display', 0     ; list name AND the page heading, so RESIDENT
 
 %ifdef KERN_BIG
-; The DESKTOP line (SPEC.md 31.10.2): one row of three radios under the button.
+; The DESKTOP line (SPEC.md 31.1.4): one row of three radios under the button.
 ; ONE choice and not two controls - a single display has no layout, so a
 ; checkbox plus a direction would carry a fourth state that means nothing.
 ;
@@ -505,7 +505,7 @@ cp_s_vid:   db 'Display', 0     ; list name AND the page heading, so RESIDENT
 
 ; Display page geometry, PANE-relative. The Sound page's tighter 16px row
 ; pitch rather than the two-row pages' 20, because three adapter rows, a
-; button, SPEC.md 31.10.2's desktop row and its label and a caption all have
+; button, SPEC.md 31.1.4's desktop row and its label and a caption all have
 ; to fit CP_CH - and the %if guards below are what say so rather than a
 ; comment claiming it. Of 132 rows: adapters at 20/36/52, button 72..89,
 ; desktop label 94..101, desktop row 106..117, caption 122..129.
@@ -522,7 +522,7 @@ CPV_MLY   equ 94                ; SPEC.md 31.10.3's label for the desktop row.
                                 ; CPV_MB1 starts below it, so a press here
                                 ; falls through rather than picking a radio
                                 ; out of an x that means nothing
-CPV_MY    equ 106               ; SPEC.md 31.10.2's desktop row: glyph top
+CPV_MY    equ 106               ; SPEC.md 31.1.4's desktop row: glyph top
 CPV_MSTEP equ 74                ; ...and its radio pitch, so the hit test is
                                 ; one divide like the adapter rows'. Glyphs at
                                 ; 4/78/152, labels at 22/96/170, and the last
@@ -531,7 +531,7 @@ CPV_CAPY  equ 122               ; caption row, LAST as it is on every page -
                                 ; which is why the label went above it rather
                                 ; than below (the caption was 96, then 112)
 %if CPV_CAPY + 8 > CP_CH
-%error "ctrl: the Display page's caption runs past the pane (SPEC.md 31.10.2)"
+%error "ctrl: the Display page's caption runs past the pane (SPEC.md 31.1.4)"
 %endif
 %if CPV_MLY + 8 > CPV_MY
 %error "ctrl: the Display page's desktop label runs into its radios (31.10.3)"
@@ -714,6 +714,8 @@ cp_ipap:  db CWHITE
 ; pressed look at all (cp_vid_rows') cannot inherit a stale one.
 cp_only:  db 0
 cp_skip:  db 0
+CPT_FBOX  equ 2                 ; [cp_tfull]'s third value: draw MY OWN box,
+                                ; whichever way round it goes (SPEC.md 31.5.3)
 cp_tfull: db 0
 cp_tpair: dw 0                  ; ...and the field's (ink, bg), decided where
                                 ; the selection is known and read where the
@@ -1086,11 +1088,42 @@ cp_onclick_x:
 
     call cp_pick                ; --- left pane: which row? ---
     jc .done                    ; below the last row: nothing
+    mov ah, al                  ; AH = the ORDINAL, banked: cp_v2r clobbers AL
     call cp_v2r                 ; ...and which RECORD that row names
     cmp al, [cp_sel]
     je .done                    ; already showing: change nothing
+
+    ; --- THE BAR MOVES AND THE PANE DOES NOT (SPEC.md 31.1.4) --------------
+    ; cp_list used to be the redraw path here, and it erases the whole left
+    ; pane: moving one highlight blanked every row on it and re-lettered them
+    ; all, on every click, which is SPEC.md 13.14.6 rule 1 exactly. Two rows
+    ; change, so two rows are drawn - and cp_listrow draws an unselected bar
+    ; in the GROUND, so the row that loses the highlight clears it by drawing
+    ; its replacement rather than by being blanked.
+    ;
+    ; THE OLD ORDINAL IS TAKEN BEFORE [cp_sel] MOVES and the drawing AFTER,
+    ; because cp_listrow reads [cp_sel] itself to decide which way round a row
+    ; goes: resolve while it still says where the bar is, draw once it says
+    ; where the bar will be.
+    push ax                     ; AL = the new record, AH = the new ordinal
+    mov al, [cp_sel]
+    call cp_r2v                 ; AL = the ordinal the bar is LEAVING
+    mov bl, al
+    mov bh, 1
+    jnc .haveold
+    mov bh, 0                   ; hidden and so on no row: cannot happen while
+.haveold:                       ; [cp_sel] is what is being SHOWN, and costs
+    pop ax                      ; two bytes to not depend on that
     mov [cp_sel], al
-    call cp_list                ; move the bar...
+    push ax
+    or bh, bh
+    jz .newbar
+    mov al, bl
+    call cp_listrow             ; the row that loses the bar
+.newbar:
+    pop ax
+    mov al, ah
+    call cp_listrow             ; ...and the one that gains it
     call cp_page                ; ...and swap the page under it
     jmp .done
 
@@ -1272,15 +1305,17 @@ cp_pt:
 ; is that it does not flash.
 ;
 ; Each page's controls already have a painter of their own, because a click
-; changes one control and os88ui_glyph is ~35-50ms of the field machine's time
-; (cp_drv_box1's header does that arithmetic). This is the switch over them.
+; changes one control and os88ui_glyph is MEASURED at 4.3-6.4 ms of the field
+; machine's time (docs/reports/GLYPH-AND-LINE-COST-2026-09-10.md; the ~35-50ms
+; that stood here was the CLIPPED fallback's arithmetic and the whole path is
+; fills since SPEC.md 13.15.1). This is the switch over them.
 ;
 ; **THE IDS ARE AN ARGUMENT BECAUSE THE DRIVERS PAGE DRAWS PER CONTROL**
 ; (SPEC.md 31.1.2). Every branch below used to redraw its page's whole control
 ; set on both edges of every press, which is the same double-draw the header
 ; above objects to, one level down: os88ui_glyph white-fills its own box
 ; before it draws a pixel, so a control that did not change still BLINKS. On
-; the Drivers page that is four checkboxes at ~35-50ms each, twice, in front
+; the Drivers page that is four checkboxes at 4.3-6.4 ms each, twice, in front
 ; of a scroll whose own repaint is the thing the user was waiting for - and
 ; the two arrows are not even in cp_drv_boxes, so all of it was drawn for a
 ; control that is not one of them. The pages whose ladders draw a whole set in
@@ -1315,9 +1350,11 @@ cp_ctlpaint:
 ; This was cp_ctlpaint's whole body, and the split is the fix: it walks the
 ; page's controls and each one asks cp_skipset whether it is the one, so the
 ; walk is cheap and only the control that moved is DRAWN. A page's set is
-; three or four glyphs and a glyph is 24-34 ms of the field machine's time
-; (PERFORMANCE.md Set 83), which is what made "redraw them all on both edges
-; of a press" a visible blink of the whole group.
+; three or four glyphs and a glyph is 4.3-6.4 ms of the field machine's time
+; (measured, docs/reports/GLYPH-AND-LINE-COST-2026-09-10.md - PERFORMANCE.md
+; Set 83's 24-34 ms was the CLIPPED fallback SPEC.md 13.15.1 deleted), which
+; is what made "redraw them all on both edges of a press" a visible blink of
+; the whole group.
 ; -----------------------------------------------------------------------------
 cp_ctlgroup:
     push ax
@@ -1577,6 +1614,55 @@ cp_drv_item:
                                 ; consumers below could not tell
 .static:
     stc
+    ret
+
+; -----------------------------------------------------------------------------
+; cp_r2v - a RECORD -> the visible list ORDINAL that names it, cp_v2r's inverse
+;
+; in:  AL = the record index
+; out: AL = the ordinal, 0 = the top row on screen; CF = 1 if the record is
+;      HIDDEN and has no ordinal at all, and AL is then untouched
+; clobbers: AL (the output), flags
+;
+; DERIVED rather than remembered, and that is the whole reason it exists.
+; SPEC.md 31.1.4 wants the ordinal the selection is LEAVING, and the obvious
+; way to have it is a byte written beside [cp_sel] - which goes stale the
+; moment a driver comes up or goes down, because that is exactly when the
+; mapping cp_v2r implements changes. A record is the durable name (SPEC.md
+; 31.10.1's whole point); an ordinal is a view of it, so it is computed from
+; the view.
+;
+; It walks cp_v2r rather than re-implementing the hide test: CP_ITEMS is under
+; eight, this is arithmetic with no drawing in it, and one walker that can
+; disagree with another is what SPEC.md 31.10.1 is about.
+; -----------------------------------------------------------------------------
+cp_r2v:
+    push bx
+    push cx
+    mov bh, al                  ; BH = the record wanted
+    call cp_nitems
+    mov cl, al                  ; CL = how many ordinals there are
+    xor ch, ch                  ; CH = the one being tried
+.scan:
+    cmp ch, cl
+    jae .miss
+    mov al, ch
+    call cp_v2r
+    cmp al, bh
+    je .hit
+    inc ch
+    jmp short .scan
+.hit:
+    mov al, ch
+    clc
+    pop cx
+    pop bx
+    ret
+.miss:
+    mov al, bh                  ; hidden: no ordinal names it
+    stc
+    pop cx
+    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1902,16 +1988,102 @@ cp_pick:
     ret
 
 ; -----------------------------------------------------------------------------
+; cp_listrow - ONE row of the left pane: its bar and its name, ground and all
+;
+; in:  AL = the visible ORDINAL, DI = content left, BP = content top;
+;      caller holds the gfx lock
+; out: nothing (all registers preserved; leaves [gfx_color] = CBLACK or CWHITE)
+;
+; NOTHING IS BLANKED HERE, which is the whole point (SPEC.md 13.14.6 rule 1).
+; The bar rect is drawn EVERY time - in the ink when this row is the selection
+; and in the GROUND when it is not - so a row that has just lost the bar
+; erases it by drawing its replacement, in one write, rather than by having
+; the pane wiped out from under it. The name is an OPAQUE font_run, so it
+; carries its own paper in the pass that carries the glyph and needs no ground
+; laid for it either.
+;
+; That is what lets a selection MOVE cost two rows instead of a pane: the
+; ordinal it left and the ordinal it arrived at, and nothing else on the
+; screen changed.
+; -----------------------------------------------------------------------------
+cp_listrow:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+
+    mov bl, al                  ; BL = the ordinal, wanted after the multiply
+    mov cl, CP_IROWH
+    mul cl                      ; AX = ordinal * pitch (8086: mul r/m8)
+    add ax, bp
+    add ax, CP_I0Y
+    mov si, ax                  ; SI = this row's top, and it has to be SI:
+                                ; cw_gfx_fill's four arguments are AX, BX, CX
+                                ; and DX, DI is the content left and BP the
+                                ; content top, so SI is the only register a
+                                ; position can sit in across the call
+
+    mov al, bl
+    call cp_v2r                 ; AL = the RECORD this ordinal names
+    mov bh, al
+    cmp al, [cp_sel]
+    je .sel
+    mov byte [gfx_color], CWHITE    ; --- not selected: the bar rect in the
+    mov ah, CWHITE                  ; GROUND, which is what takes a bar off
+    mov al, CBLACK                  ; a row that used to have one - one write,
+    jmp short .bar                  ; where the pane erase was thousands
+.sel:
+    mov byte [gfx_color], CBLACK    ; --- selected: black bar, white name
+    mov ah, CBLACK
+    mov al, CWHITE
+.bar:
+    push ax                     ; the text pair, and the record in BH: both
+    push bx                     ; live in registers cw_gfx_fill takes as
+                                ; arguments. On the STACK rather than in a
+                                ; byte of .text, which is what [cp_ipap] was
+    mov ax, di
+    add ax, CP_IBX1
+    mov cx, di
+    add cx, CP_IBX2
+    mov bx, si
+    mov dx, si
+    add dx, CP_IBH - 1
+    call KERNEL_SEG:cw_gfx_fill
+    pop bx
+    pop ax
+
+    mov cx, di                  ; --- the name, OPAQUE, on the paper the bar
+    add cx, CP_IX               ; just laid (SPEC.md 6.1): font_run carries
+    mov dx, si                  ; both in one pass, so there is no ground for
+    add dx, CP_ITDY             ; anything else to lay and no interval in
+    push ax                     ; which the row is blank
+    mov al, bh
+    call cp_item_name           ; SI -> it, static or staged (SPEC.md 31.9).
+    pop ax                      ; It clobbers SI and nothing else, which is
+    call KERNEL_SEG:cw_font_run ; why the row top could live there until now
+
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; cp_list - draw the left pane: every item name, the selected one barred
 ;
 ; in:  DI = content left, BP = content top; caller holds the gfx lock
 ; out: nothing
 ; clobbers: nothing (flags only; leaves [gfx_color] = CBLACK or CWHITE)
-; Erases the whole pane first, so this doubles as the redraw path when the
-; selection moves. BP is repurposed as the selected record's pointer once
-; the first row's y has been computed from it - the loop then only needs a
-; running y (DX) and a running record ptr (BX), which is what lets the two
-; drawing calls (which preserve everything) sit inside it unguarded.
+;
+; THIS IS THE WHOLE-PANE PAINT and it is no longer the redraw path for a
+; selection: the pane erase below is the left pane's own GROUND - cp_paint
+; does not fill the content, it calls the three routines that each own a pane -
+; and it is legitimate exactly once, when the whole thing is being drawn.
+; A selection that MOVES calls cp_listrow twice instead (SPEC.md 31.1.4), and
+; a list whose membership changed - a driver that came up owns a page - calls
+; this, because then every row really has moved.
 ; -----------------------------------------------------------------------------
 cp_list:
     push ax
@@ -1921,7 +2093,7 @@ cp_list:
     push si
     push bp
 
-    mov byte [gfx_color], CWHITE ; erase the pane
+    mov byte [gfx_color], CWHITE ; the pane's ground, laid once
     mov ax, di
     mov bx, bp
     mov cx, di
@@ -1930,61 +2102,17 @@ cp_list:
     add dx, CP_CH - 1
     call KERNEL_SEG:cw_gfx_fill
 
-    mov dx, bp
-    add dx, CP_I0Y              ; DX = row 0 top, screen y
     call cp_nitems
-    mov bp, ax
-    and bp, 0x00FF              ; BP = how many rows there are
-    xor bx, bx                  ; BX = the ORDINAL being drawn
+    mov cx, ax
+    and cx, 0x00FF              ; CX = how many rows there are
+    jcxz .out
+    xor bx, bx                  ; BL = the ORDINAL being drawn
 .row:
     mov al, bl
-    call cp_v2r                 ; ...and BH = the record it names, resolved
-    mov bh, al                  ; ONCE for both the bar and the name
-    cmp al, [cp_sel]
-    jne .plain
-
-    push ax                     ; --- selected: white text on a black bar ---
-    push bx
-    push cx
-    push dx
-    mov byte [gfx_color], CBLACK
-    mov ax, di
-    add ax, CP_IBX1
-    mov cx, di
-    add cx, CP_IBX2
-    mov bx, dx                  ; y1 = row top
-    add dx, CP_IBH - 1          ; y2
-    call KERNEL_SEG:cw_gfx_fill
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    mov byte [gfx_color], CWHITE
-    mov byte [cp_ipap], CBLACK  ; ...on the bar this row just laid
-    jmp .text
-.plain:
-    mov byte [gfx_color], CBLACK
-    mov byte [cp_ipap], CWHITE  ; ...on the pane
-.text:
-    mov al, bh
-    call cp_item_name           ; SI -> it, static or staged (SPEC.md 31.9)
-    mov cx, di
-    add cx, CP_IX
-    push dx
-    add dx, CP_ITDY
-    push ax                     ; OPAQUE, and the one label on this window
-    mov al, [gfx_color]         ; whose paper is not the pane (SPEC.md 31.11)
-    mov ah, [cp_ipap]
-    call KERNEL_SEG:cw_font_run
-    pop ax
-    pop dx
-
-    add dx, CP_IROWH
-    mov bh, 0                   ; BX is the ordinal again: the resolved record
-    inc bx                      ; lived in BH for the length of one row
-    cmp bx, bp
-    jb .row
-
+    call cp_listrow
+    inc bl
+    loop .row
+.out:
     pop bp
     pop si
     pop dx
@@ -2893,7 +3021,7 @@ cp_vid_msel:
     ret
 
 ; -----------------------------------------------------------------------------
-; cp_vid_mode - the desktop row: Single / Right / Below (SPEC.md 31.10.2)
+; cp_vid_mode - the desktop row: Single / Right / Below (SPEC.md 31.1.4)
 ; in:  DI = pane left, BP = pane top; gfx lock held
 ; out: nothing (all registers preserved; leaves [gfx_color] = CBLACK)
 ;
@@ -3127,7 +3255,7 @@ cp_vid_click:
 .donej:                         ; ...and SEVEN refusals share it
     jmp .done                   ; NEAR: 13.8.3's probe calls grew the body past
                                 ; a short jump's reach
-.mode:                          ; --- the desktop row (SPEC.md 31.10.2) ---
+.mode:                          ; --- the desktop row (SPEC.md 31.1.4) ---
 %ifdef KERN_BIG
     cmp dx, CPV_MB1
     jl .donej
@@ -3329,9 +3457,27 @@ cp_time_click:
 %endif
     cmp al, [cp_tsel]
     je .donej                   ; already selected: change nothing
+
+    ; --- TWO FIELDS CHANGE, SO TWO FIELDS ARE DRAWN (SPEC.md 31.5.3) --------
+    ; This used to be `cp_time_rows(1)`, whose first act is to erase the whole
+    ; date-and-time band white - so moving the caret one field along blanked
+    ; both rows and re-lettered all six fields to take one black box off one of
+    ; them. cp_time_fld draws an unselected field's box in the GROUND now, so
+    ; the field that lost the caret clears it by drawing its replacement.
+    ;
+    ; [cp_tsel] MOVES FIRST, because cp_time_fld reads it to decide which way
+    ; round a field goes: the old field then tests as plain and gets the white
+    ; box, which is exactly what is wanted.
+    push ax
+    mov ah, [cp_tsel]           ; AH = the field the caret is LEAVING
     mov [cp_tsel], al
-    mov al, 1                   ; the SELECTION moved, so the old black box has
-    call cp_time_rows           ; to come off: a full draw (SPEC.md 31.5.1)
+    mov byte [cp_tfull], CPT_FBOX
+    mov al, ah
+    call cp_time_fld            ; the field that loses the box...
+    mov al, [cp_tsel]
+    call cp_time_fld            ; ...and the one that gains it
+    mov byte [cp_tfull], 0
+    pop ax
 .donej:                         ; ...and the four refusals around it
     jmp .done
 
@@ -3558,11 +3704,24 @@ cp_time_fld:
 
     ; --- selected: white text on a black box ---------------------------------
     mov word [cp_tpair], (CBLACK << 8) | CWHITE   ; AL = ink, AH = paper
+    mov byte [gfx_color], CBLACK
     cmp byte [cp_tfull], 0
     je .text                    ; SPEC.md 31.5.1: on a tick the box is already
                                 ; on the glass and its 2px surround is outside
                                 ; the run, so drawing it again would be a
                                 ; second write of pixels that did not change
+    jmp short .box
+.plain:
+    mov word [cp_tpair], (CWHITE << 8) | CBLACK
+    mov byte [gfx_color], CWHITE    ; ...and the SAME box in the GROUND, which
+    cmp byte [cp_tfull], CPT_FBOX   ; is what takes the black one off a field
+    jne .text                       ; that has just been DESELECTED - one write
+                                    ; where the whole band used to be erased
+                                    ; (SPEC.md 31.5.3). Only in that mode: on a
+                                    ; tick there is no box to take off, and on
+                                    ; a full draw the band erase has already
+                                    ; done it for every field at once
+.box:
     push cx
     push dx
     push bx
@@ -3580,15 +3739,11 @@ cp_time_fld:
     dec bx                      ; y1 = y - 2
     dec bx
     add dx, 9                   ; y2 = y + 9
-    mov byte [gfx_color], CBLACK
-    call KERNEL_SEG:cw_gfx_fill
+    call KERNEL_SEG:cw_gfx_fill ; the pen was set by whichever arm arrived here
     pop ax
     pop bx
     pop dx
     pop cx
-    jmp short .text
-.plain:
-    mov word [cp_tpair], (CWHITE << 8) | CBLACK
 .text:
     mov al, ah                  ; AL = field index for the formatter
     call clk_fld_str            ; SI = that field's text (SPEC.md 37) - near,
@@ -4454,23 +4609,21 @@ cp_snd_note:
     push cx
     push dx
     push si
-    mov dx, bp
-    add dx, CPS_NOTEY
-    mov ax, CP_PMX              ; nothing to this line's left on this page
-    call cp_drv_wipe            ; the strings differ in length, and the line
-    mov bl, [cp_snd_err]        ; is usually empty
+    xor si, si                  ; SI = the note, or 0 for none: cp_drv_line
+    mov bl, [cp_snd_err]        ; takes both, and the line is usually empty
     or bl, bl
-    jz .out
+    jz .draw
     cmp bl, DRVE_NERR           ; the code came out of a driver, and a table
-    jae .out                    ; index is not a thing to take on trust
+    jae .draw                   ; index is not a thing to take on trust
     xor bh, bh
     shl bx, 1
     mov si, [bx+drv_errstr]
-    mov cx, di
-    add cx, CP_PMX
+.draw:
     mov dx, bp
     add dx, CPS_NOTEY
-    call cp_run
+    mov ax, CP_PMX              ; nothing to this line's left on this page
+    call cp_drv_line            ; the strings differ in length, so the TAIL is
+                                ; what gets cleared - after the run, not before
 .out:
     pop si
     pop dx
@@ -4977,12 +5130,14 @@ cp_drv_mem1:
 ; what the settings file asks for. A driver the user enabled on a machine with
 ; no card is unchecked, and its caption says why.
 ;
-; Per ROW because a click changes one, and os88ui_glyph is not cheap: a white
-; 12x12 fill and then one gfx_pixel per set bit - 44 of them for the empty
-; box, 64 for the crossed one - which at PERFORMANCE.md Part 2's ~756us of
-; fixed cost per drawing call is ~35-50ms of the field machine's time. Redrawn
-; unconditionally it is also a double-draw flash on a control that did not
-; change.
+; Per ROW because a click changes one, and os88ui_glyph is not cheap: since
+; SPEC.md 13.15.1 it is a white 12x12 fill and then three to eight more, and
+; it MEASURES 4.3-6.4 ms of the field machine's time
+; (docs/reports/GLYPH-AND-LINE-COST-2026-09-10.md, on a Hercules 5150). The
+; ~35-50ms that stood here was 44-64 gfx_pixel calls at PERFORMANCE.md Part
+; 2's ~756us - which was the CLIPPED fallback's cost and never the normal
+; path's. Redrawn unconditionally it is also a double-draw flash on a control
+; that did not change.
 ; -----------------------------------------------------------------------------
 cp_drv_box1:
     push ax
@@ -5065,7 +5220,8 @@ cp_drv_boxes:
 ; The Drivers page's half of cp_ctlpaint (SPEC.md 31.1.2). Every other page
 ; redraws its whole control set on both edges of a press, which is affordable
 ; where a page has three or four of them and is not here: a row's checkbox is
-; os88ui_glyph, ~35-50ms of the field machine's time, and it WHITE-FILLS its
+; os88ui_glyph, a measured 4.3-6.4 ms of the field machine's time, and it
+; WHITE-FILLS its
 ; box before it draws a pixel - so redrawing the four that did not change is
 ; a visible blink of the whole list. Pressing an ARROW redrew all four and not
 ; the arrow, which is the reported defect in one sentence: two flashes of the
@@ -5563,10 +5719,7 @@ cp_drv_line1:
     call cp_drv_rowy                ; DX = this row's glyph top
     add dx, CP_DSTDY
     mov ax, CP_PLX                  ; ...and NOT CP_PMX: see above
-    call cp_drv_wipe
-    mov cx, di
-    add cx, CP_PLX
-    call cp_run
+    call cp_drv_line
 .out:
     pop si
     pop dx
@@ -5576,29 +5729,78 @@ cp_drv_line1:
     ret
 
 ; -----------------------------------------------------------------------------
-; cp_drv_wipe - white out one text line of the pane (module internal)
+; cp_drv_line - one VARIABLE-LENGTH text line of the pane (module internal)
+;
 ; in:  DI = pane left, AX = the line's LEFT inset from the pane, DX = the
-;      line's baseline y; gfx lock held
+;      line's baseline y, SI -> the string or 0 for none; gfx lock held
 ; out: nothing (all registers preserved; leaves [gfx_color] = CBLACK)
+;
+; THE RUN GOES FIRST AND THE CLEAR IS ONLY THE TAIL (SPEC.md 31.9.3). This
+; used to be cp_drv_wipe - fill the whole line white - and then a cp_run over
+; it, which is SPEC.md 13.14.6 rule 1: on a 4.77 MHz 8088 the line is blank
+; for the width of a fill before a letter of it comes back.
+;
+; font_run is OPAQUE, so it lays its own paper under every cell it covers
+; (SPEC.md 6.1) and the only thing an erase was ever for is the TAIL of a
+; LONGER previous string. So the string is drawn where it goes and then the
+; pixels between its end and the pane's right edge are cleared - one write
+; each, nothing written twice, and no interval in which the line reads empty.
+;
+; THE WIDTH COMES FROM font_width AND NOT A LOCAL strlen. It is 8 * length
+; today and a local loop would be a dozen bytes cheaper, but a second opinion
+; about how wide a string is, is a second opinion that can drift - and
+; font_width is FAR-ENTERED already (SPEC.md 2.6.1), so this costs no kernel
+; byte at all.
 ;
 ; The inset is an argument rather than CP_PMX because a line does not always
 ; own the pane's full width: a driver row's reason line shares a scan line
-; with that row's checkbox and must not erase into it (cp_drv_line1). A
-; caption, which has nothing to its left, passes CP_PMX.
+; with that row's checkbox and must not erase into it. A caption, which has
+; nothing to its left, passes CP_PMX.
 ; -----------------------------------------------------------------------------
-cp_drv_wipe:
+cp_drv_line:
     push ax
     push bx
     push cx
     push dx
+    push si
+
+    add ax, di                  ; AX = the line's left, in screen x
+    mov bx, ax                  ; BX = it, kept clear of the calls below
+    or si, si
+    jz .clear                   ; no string: the whole line is the tail
+
+    push bx
+    push dx
+    mov byte [gfx_color], CBLACK    ; THE INK, SET BEFORE THE RUN. cp_run takes
+                                    ; it from [gfx_color] and the wipe this
+                                    ; replaced left it CBLACK on its way past -
+                                    ; so drawing the text first, without this,
+                                    ; letters the line in whatever pen the last
+                                    ; caller happened to leave behind
+    mov cx, bx                  ; ...the string first, opaque
+    call cp_run
+    pop dx
+    pop bx
+
+    push bx
+    push dx
+    call KERNEL_SEG:font_width  ; AX = 8 * length (it sets its own ES)
+    pop dx
+    pop bx
+    add bx, ax                  ; BX = one past the string's last column
+.clear:
     mov byte [gfx_color], CWHITE
-    add ax, di
-    mov bx, dx
+    mov ax, bx
     mov cx, di
     add cx, CP_PRGT             ; the PANE's last column, not the content's
+    cmp ax, cx
+    ja .out                     ; the string filled the line: nothing to clear
+    mov bx, dx
     add dx, 7
     call KERNEL_SEG:cw_gfx_fill
+.out:
     mov byte [gfx_color], CBLACK
+    pop si
     pop dx
     pop cx
     pop bx

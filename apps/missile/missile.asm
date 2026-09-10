@@ -191,10 +191,32 @@ MC_DHEXT    equ 6                   ; probes mc_drn_hold spends walking the
                                     ; Chebyshev square back to the DISC. The
                                     ; gap is at most 0.41r and r is 13, so
                                     ; six is exactly it
-MC_DRNBUD   equ 64                  ; pixels a frame across the whole queue -
+%ifndef MC_DRNBUD                       ; -DMC_DRNBUD=<n> sweeps it; the default
+MC_DRNBUD   equ 32                      ; is what ships, and tests/mcperf.py is
+%endif                                  ; the instrument (PERFORMANCE.md 135.5)
+                                    ; pixels a frame across the whole queue -
                                     ; the cap that stops one explosion's worth
-                                    ; of dead missiles landing in one frame
-MC_DSCMAX   equ 16                  ; walks handed to OSAPI_GFX_LSTEPV at once
+                                    ; of dead missiles landing in one frame.
+                                    ; It was 64, which was right for the
+                                    ; KERNEL walk: SPEC.md 5.12.5 moved the
+                                    ; commit to OSAPI_GFX_POINTS, whose cost
+                                    ; per pixel does not amortise the way the
+                                    ; kernel walk's carried framebuffer byte
+                                    ; did, so a 64-pixel batch went from
+                                    ; 53,649 cycles to 75,503 while a 16-pixel
+                                    ; one went 28,679 to 19,639. 32 is the
+                                    ; SMALLEST value that still lets one dead
+                                    ; trail drain at its full MC_DRNRATE, so
+                                    ; SPEC.md 48.15's per-trail promise is
+                                    ; untouched and only the multi-trail case
+                                    ; is slower - measured at ONE frame in 400
+                                    ; with smoke still on the screen
+%if MC_DRNBUD < MC_DRNRATE
+  %error "missile: MC_DRNBUD below MC_DRNRATE caps a SINGLE trail's drain, which is SPEC.md 48.15's per-trail promise and not the batch cap this constant is"
+%endif
+MC_DSCMAX   equ 16                  ; walks handed to the batch step at once
+MC_PTMAX    equ 96                  ; ...and the point list os88gfx.inc steps
+                                    ; into, which is what commits them
 %if MC_MAXICBM > MC_DSCMAX || MC_MAXABM > MC_DSCMAX || MC_MAXDRN > MC_DSCMAX
   %error "mc_dsc holds fewer walks than one batch can produce"
 %endif
@@ -886,7 +908,20 @@ mc_onkey:
     je .modex
     cmp bl, 'M'
     je .modex
+%ifdef MC_BENCH
+    cmp bl, 'b'                     ; the deterministic run (mcbench.inc), and
+    je .bench                       ; a key rather than a menu item because
+    cmp bl, 'B'                     ; nothing about it should reach the shipped
+    je .bench                       ; package's chrome
+%endif
     jmp .out
+%ifdef MC_BENCH
+.bench:
+    mov word [mc_breq], 1           ; the WORKER runs it; see mc_worker
+                                    ; (1 = the next frame, which is what a
+                                    ; person pressing the key wants)
+    jmp .out
+%endif
 .b1:
     mov al, 0
     jmp short .fire
@@ -1425,6 +1460,27 @@ mc_worker:
     jg .frame                       ; deadline, so the next short frame catches
     mov [mc_due], ax                ; up. Hopelessly late and the deadline is
 .frame:                             ; re-anchored, or it runs away and this
+%ifdef MC_BENCH
+    ; THE BENCH RUNS HERE AND NOWHERE ELSE (mcbench.inc). The key handler only
+    ; sets [mc_breq]: gfx_lock is NOT recursive (SPEC.md 7.3) and ui_task holds
+    ; it around the whole event handler (UI-FREEZE-PLAN 1), so mc_render called
+    ; from a key deadlocks the UI task against a lock it already owns - which
+    ; looks exactly like a machine doing nothing. On the worker the lock is
+    ; free, the stack is the worker's own, and a benched frame is the same
+    ; frame a played one is.
+    ; A COUNTDOWN AND NOT A FLAG. The harness arms its breakpoints and then
+    ; asks for the run, and the two race: a request honoured on the very next
+    ; frame can start before the trace is armed, and what that looks like is a
+    ; machine idling for the whole wait. Poking 10 here buys nine ordinary
+    ; frames - half a second - and costs the guest nothing.
+    cmp word [mc_breq], 0
+    je .nobench
+    dec word [mc_breq]
+    jnz .nobench
+    call mc_bench
+    jmp .loop
+.nobench:
+%endif
     call mc_dispck                  ; loop never sleeps again
     call mc_update
     call mc_render
@@ -4399,7 +4455,7 @@ mc_tr_lay:
     add dx, [mc_oy]
     push ds
     pop es
-    call OSAPI_GFX_LINIT
+    call gfxe_winit                 ; SPEC.md 5.12.5: the block is ours
     clc
     jmp short .out
 .no:
@@ -4414,12 +4470,27 @@ mc_tr_lay:
 
 ; mc_tr_step - draw the next CX pixels of the walk at DI in the current pen
 ; in:  gfx lock held; preserves all registers
+;
+; The WALK is ours now and the pixels go up through OSAPI_GFX_POINTS
+; (SPEC.md 5.12.5) - so this is gfxe_wstep plus a commit, and the commit is
+; the only thing that costs an arrival.
 mc_tr_step:
-    push es
-    push ds
-    pop es
-    call OSAPI_GFX_LSTEP
-    pop es
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    call gfxe_wstep
+    call gfxe_pput
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -4450,20 +4521,27 @@ mc_dsc_add:
     ret
 
 mc_dsc_run:
+    push ax
+    push bx
     push cx
+    push dx
+    push si
     push di
-    push es
+    push bp
     mov cx, [mc_dscn]
     jcxz .out
     mov word [mc_dscn], 0
-    mov di, mc_dsc
-    push ds
-    pop es
-    call OSAPI_GFX_LSTEPV
-.out:
-    pop es
+    mov si, mc_dsc
+    call gfxe_wstepv                ; SPEC.md 5.12.5: the walk is arithmetic
+    call gfxe_pput                  ; over our own blocks, and one arrival
+.out:                               ; commits every pixel it stepped
+    pop bp
     pop di
+    pop si
+    pop dx
     pop cx
+    pop bx
+    pop ax
     ret
 
 ; mc_tr_need - how much of a walk the head has reached
@@ -6896,13 +6974,45 @@ mc_line:
     add cx, [mc_ox]
     add bx, [mc_oy]
     add dx, [mc_oy]
-    mov si, 0
-    cmp byte [mc_lfat], 0           ; the erase owes the dilation (5.6.5): we
-    je .thin                        ; DRAW in per-frame segments and erase in
-    mov si, 1                       ; one long line, and those two Bresenhams
-.thin:                              ; disagree by a pixel
-    call OSAPI_GFX_LINE
+    call .walk                      ; SPEC.md 48.16.1: the line is OURS now -
+    cmp byte [mc_lfat], 0           ; gfxe_wline into the point list, and one
+    je .ldone                       ; arrival commits it
+    mov si, [mc_lwk + GLS_DX]       ; the erase owes 5.6.5's dilation, and it
+    cmp si, [mc_lwk + GLS_DY]       ; is what the kernel did: THREE walks, one
+    jb .lsteep                      ; either side of the MINOR axis. The walk
+    dec bx                          ; block above has |dx| and |dy| in it
+    dec dx                          ; already, so which axis that is costs one
+    call .walk                   ; compare
+    add bx, 2
+    add dx, 2
+    call .walk
+    jmp short .ldone
+.lsteep:
+    dec ax
+    dec cx
+    call .walk
+    add ax, 2
+    add cx, 2
+    call .walk
+.ldone:
+    call gfxe_pput
     pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; .walk - one whole line into the point list; AX/BX/CX/DX preserved
+.walk:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    mov di, mc_lwk
+    call gfxe_wline
+    pop di
     pop dx
     pop cx
     pop bx
@@ -7631,6 +7741,14 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
 ; =============================================================================
 ; .bss (SPEC.md 20.5: the loader zeroes MC_BSS bytes after the image, and every
 ; name below is an offset from os88_image_end)
+; --- THE DETERMINISTIC BENCH, and only when asked for -----------------------
+; -DMC_BENCH (`make mcbench`). Without it not one byte of this is emitted and
+; the shipped package is byte-identical, which tests/mcperf.py checks: an
+; instrument that changes the product is not measuring it.
+%ifdef MC_BENCH
+%include "mcbench.inc"
+%endif
+
 ; =============================================================================
 
 %assign MC_BSS 0
@@ -7792,7 +7910,14 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
     MWORD mc_drncnt
     MWORD mc_drngx                  ; mc_drn_push's two damage arguments,
     MWORD mc_drnbx                  ; which no register was left for
-    MBUF  mc_dsc,    MC_DSCMAX * 4  ; the batch: `dw block, pixels` pairs
+    MBUF  mc_dsc,    MC_DSCMAX * 4  ; the batch: `dw block, pixels` pairs...
+    MBUF  mc_pts,    MC_PTMAX * 4   ; ...and the points it steps into, which go
+                                    ; up in one OSAPI_GFX_POINTS (SPEC.md
+                                    ; 5.12.5). A full list commits itself, so
+                                    ; the size is a tuning choice and never a
+                                    ; correctness one - measured, a batch is
+                                    ; 10.1 pixels on average, and MC_DRNBUD
+                                    ; caps the drain's queue at 64 a frame
     MWORD mc_dscn
     MWORD mc_dhent                  ; mc_drn_hold's workings (SPEC.md 48.19):
     MWORD mc_dhn                    ; the entry, the step, the line's two
@@ -7947,9 +8072,20 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
     MWORD mc_lerr
     MWORD mc_lrun
     MBYTE mc_lfat                   ; the erase's one-pixel dilation
+    MBUF  mc_lwk, GLS_SZ            ; ...and the block mc_lwalk lays a whole
+                                    ; line with (SPEC.md 48.16.1)
     MWORD mc_numptr
     MBUF  mc_numbuf, 12
     MBUF  mc_wbuf, 16
+
+; --- the embeddable graphics library (SPEC.md 5.12) ---------------------------
+; SPEC.md 5.6.7's resumable walk, in our image: pure arithmetic over blocks we
+; already owned, with OSAPI_GFX_POINTS doing the clip region, the cursor, the
+; adapter and the second display at the commit.
+%define GFXE_WALK                   ; ...which implies GFXE_POINTS
+%define GFXE_PT_BUF mc_pts
+%define GFXE_PT_MAX MC_PTMAX
+%include "os88gfx.inc"
 
     OS88_BSS MC_BSS
     OS88_IMAGE_END

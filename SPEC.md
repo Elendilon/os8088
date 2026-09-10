@@ -3894,12 +3894,53 @@ clip to the display and `rep movsw` a row, plus three `.cold` shims
 (`cw_cur_unlazy`, `cw_wm_clip_rows`, `cw_gfx_rowbase`) — and it measured
 **+419 bytes** (`.text` +16, `.cold` +403), one `.cold` rung crossed,
 `KERN_SIZE` 80,896 → 81,408, with the undo above at **149 ms** on that build.
-It is not shipped: §39.27.4 says a `kern_small` byte is banked and not
-budgeted, and the owner's decision is that the small build may stay slower
+It was not shipped: §39.27.4 says a `kern_small` byte is banked and not
+budgeted, and the decision then was that the small build may stay slower
 here — the slowness that was reported was `kern_big`'s, and `kern_big`'s was
-the width cliff. The `%ifdef KERN_BIG` around the body stands, the stub
-stands, and this paragraph is what a future decision the other way has to
-read first: the bytes, and the 24×.
+the width cliff.
+
+##### 5.4.2.5.1 …and that refusal is REVERSED — the body ships on both builds
+
+The decision was the owner's and so is the reversal, on a fact the first
+reading did not weigh: **`OSAPI_GFX_BLIT1` has fourteen callers and nine of
+them ship on the small disks** — `arkanoid`, `artful`, `cc`, `os88type`,
+`pacman`, `paint`, `weave`, `word`, and any C package through the thunk. The
+slot was not Paint's alone by the time the refusal was re-read, and every one
+of those nine took a fallback on the build that has least to spare.
+
+What ships is the same variant that was built and measured, and it is one gate
+and a set of `%ifdef`s rather than a second routine:
+
+| compiled out of `kern_small` | guard |
+|---|---|
+| the whole `.pen` proc — §5.4.2.2's Set/Reset arithmetic and §5.4.2.2.1's split | `GFX_VGA` |
+| its call site, its two flags' clearing, and the ports it issues | `GFX_VGA` |
+| §5.4.2.2.1's complemented SECOND PASS in the emit | `GFX_VGA` |
+| the port teardown at `.done` | `GFX_VGA` |
+| `vid_span_one`, `gfx_disp_enter` and the `gfx_dnest` unwind | `KERN_BIG` |
+
+`GFX_VGA` is defined exactly when `KERN_BIG` is (`kernel.asm`), so the two
+names are one gate read two ways; each is written where it sits. Three `.cold`
+shims move out of their own `%ifdef KERN_BIG` and serve both builds —
+`cw_cur_unlazy`, `cw_gfx_rowbase`, `cw_wm_clip_rows` — while
+`cw_gfx_disp_enter` and `cw_vid_span_one` stay `kern_big`'s, being the display
+half.
+
+**Measured on this tree**, `kern_small` against the build before it:
+`.text` **+16**, `.cold` **+456**, **one `.cold` rung crossed**, the image
+92,980 → 93,492. `kern_big` is **BYTE-IDENTICAL** — the guards it does not
+take change nothing it emits, proven by `cmp` at one commit.
+
+**`tests/paint1small.py` is the gate**, and it exists because the assembler
+cannot answer the question: `gfx_blit1` could return CF = 1 from any argument
+refusal and Paint would fall back exactly as before, silently and at the same
+24×. It opens Paint on `kern_small`, strokes, undoes, and reads `pt_line` —
+the buffer the fallback expands each row into and the fast path never touches.
+It is `paint1blit`'s technique and a file of its own for one reason: **that
+build has no file association** (§54.0), so double-clicking a `.BMP` launches
+nothing and Paint has to be opened directly, on the canvas it makes itself.
+Verified to fail with `stc`/`ret` poked over the thunk, which is the state the
+kernel shipped in until this.
 
 ### 5.4.3 `gfx_blitp` — a block that is already framebuffer bytes
 
@@ -4788,6 +4829,134 @@ about 4% there and was rightly not built. Two routes to one conclusion, which
 is the agreement PERFORMANCE.md Part 6 rule 7 asks for. What this section
 adds is the *size* of the per-call part, and it is smaller than the pixel it
 guards.
+
+#### 5.6.9 `gfx_points` — a set of pixels the CALLER computed (0x0538)
+
+```
+in:       ES:SI = CX records of two words each, x then y (screen px)
+          CX    = how many. 0 is legal and does nothing
+          [gfx_color] = the ink; the gfx lock held
+out:      nothing; preserves every register
+```
+
+An **X slot**: the array is in the caller's own segment.
+
+`gfx_line` answers *"draw this line"* and §5.6.7's walk answers *"draw the next
+N pixels of it"*. This answers **"draw these pixels"**, and the difference is
+that the caller has already decided which ones. It exists because the six
+things that stand between a package and the framebuffer — the adapter, the
+CLIP REGION, the CURSOR's save-under, the display, the lock, and the fact that
+§53.7 publishes no framebuffer to a windowed program — are all per-CALL, while
+a Bresenham is per-LINE. Nothing made the kernel the right place to keep the
+walk except that there was no slot which took the pixels.
+
+**What it costs is the walk's own marginal pixel and nothing else.** §5.6.8
+measures a walk step at ~480 µs of per-block setup plus ~175 µs a pixel, and
+the whole of that 480 is *staging the caller's Bresenham state in and back
+out*. A points array has no state to stage, so the per-call part is one
+arrival and one ink resolve.
+
+**The body is `gfx_lstep_mono`'s**, with "read the next pair" where the
+Bresenham advance is: `gfx_ls_box` resolves the clip rect containing the point
+and answers an EMPTY box when none does, `gfx_ls_addr` turns the point into a
+byte and a bit mask through `gfx_rowbase`, and the draw is the same
+read-modify-write under the same dither test. **A point outside every rect is
+skipped, not refused** — the box is re-resolved at the next one, exactly as the
+walk does.
+
+##### 5.6.9.1 The box is invalidated on entry, and that is not a nicety
+
+`gfx_ls_bx1..by2` is whatever the last caller left in it, and the region may
+have been re-armed since. The loop therefore stores an EMPTY box before the
+first point, so the first one always takes the `.miss` arm and re-resolves.
+Without it a call whose first point happens to fall inside a stale rect draws
+through a clip nobody set — which is invisible until two windows overlap.
+
+The exposure is one-sided, and worth stating because it says what a gate for
+this has to arrange: the `.miss` arm re-resolves a box that is too SMALL, so
+only an over-large one is a defect. That needs a call with the region disarmed
+— whose box is the whole screen — followed by one with it armed whose points
+fall outside the armed region. `tests/gfxpoints.py` does **not** reach it and
+says so; its three cases all draw inside the window's content, where the stale
+box and the correct one give the same pixels.
+
+##### 5.6.9.2 What takes the fallback
+
+The fast path wants a **1bpp adapter and ONE display**. A second display would
+need the point resolved per point (§39.14) and a planar one is `gfx_pixel`'s
+work either way, so both fall back to a `gfx_pixel` loop — correct, and exactly
+what the caller would have paid without this slot. On `kern_small` neither test
+survives the assembly: that build has no VGA (§39.27) and no second display, so
+the gates are constants and the fallback is a branch nothing can take, which is
+§5.6.4.5's shape one routine along.
+
+##### 5.6.9.3 The loop is INLINE, and the ink class is three loops
+
+Measured on the real caller — Missile's trails, not a bench's geometry — this
+slot cost **2,928 cycles of arrival plus 903 a point**, and the useful figure
+underneath is that a point was **52.7 instructions at 17.15 cycles each**
+(PERFORMANCE.md Set 143). The arrival fits the same ratio, so the loop is
+fetch- and operand-bound rather than clock-bound on an 8088: **the currency is
+instructions removed, not clocks saved**, and a routine that looks cheap by
+clock count is not.
+
+**The obvious optimisation is refused by the geometry, and that had to be
+measured too.** Consecutive points share a row **0.4%** of the time and a
+framebuffer byte **0.3%**, at 1.00 points per byte touched — so caching either
+buys nothing. A sampled array says why: `297,50 297,51 296,52 296,53 296,54`
+is **y-major**, which is what a falling missile is. `y` moves every point and
+`x` every second or third, and since the byte is (x>>3, y) neither cache ever
+hits. PERFORMANCE.md Set 140 measured this slot on eight VERTICAL columns,
+which is the one shape where that is invisible.
+
+So what changed is instruction COUNT, four ways, none of them data-dependent:
+
+- **`gfx_ls_addr` is gone** — it was a call inside this loop and `gfx_points`
+  was its only caller once §5.12.7 took the walk family out, so inlining it is
+  a move rather than a duplication. `gfx_rowbase`'s fast path went with it: a
+  call whose whole body is four instructions.
+- **The caller's array lives in DS and the framebuffer in ES**, both set once.
+  The loop loads no segment register at all where it loaded two a point. Every
+  kernel word is reached `cs:` — `.bss` and `.text` share the kernel's segment,
+  which is what `KERN_CODE_MAX` says — and `vid_rowtab` stays `ss:`.
+- **The bit comes from a table**, `gfx_bitset` / `gfx_bitclr`, because
+  `shr bl, cl` is 8+4n clocks and wants CL, which is the loop counter's.
+- **The ink class is three loops rather than one loop with two tests in it.**
+  `gfx_ls_ink` resolves a colour to three 1bpp classes, and specialising the
+  commit per class is what turns nine instructions into one: ink is
+  `or [es:di], bl` and paper `and [es:di], bl`. The dither class keeps the
+  general form; it is the one that actually needs it. **Nothing forces the
+  expansion** — one loop asking the class per point was built and measured too,
+  and PERFORMANCE.md Set 143.3.2 is that comparison: the split is 257 of the
+  329 bytes and 92 of the 330 cycles a point.
+
+  **So `kern_small` builds ONE loop and `kern_big` three**, and that is a
+  decision rather than a gate falling out: *257 resident bytes for 92 cycles a
+  point* is worth it on the machine with memory and is not on the machine with
+  128KB. The other three changes — 238 of the 330 cycles for 72 bytes — are in
+  both. `gfx_points` is **215 bytes on `kern_small` against 472**, which the
+  rounded `kernel.bin` cannot show: it is 75,493 either way.
+
+**The hot path is straight and the cold paths are after `loop`.** A clip-rect
+miss and a row past the row table both live below the loop body, which is what
+keeps a point's path free of every jump but the loop's own — and, not
+incidentally, keeps the body inside `loop`'s rel8 reach.
+
+**The pixels are unchanged and that is gated, not asserted**: `tests/mcperf.py`
+hashes the screen 400 deterministic frames into a Missile game, and the hash is
+the same before and after.
+
+**And it costs its CALLER exactly what it cost before — 26 bytes.** An
+`OSAPI_*` call runs on the caller's slice (§8), and the thinnest in the tree has
+44 bytes spare (docs/FIELD-NOTES.md 42), so a routine on this path may not get
+deeper. The first version of this rewrite did, by 8: a `push ds` in the
+prologue and a wrapper around `gfx_ls_box` that pushed two more. DS is restored
+by RELOAD at the exit instead — kernel code always runs DS = CS = KERNEL_SEG,
+so there is nothing to remember — and the miss path sets DS itself out of
+`[gfx_pt_cseg]` rather than through a wrapper. Four bytes of code against two
+of the caller's stack, twice, which is the right way round. Measured on the
+guest at `gfx_ls_box`'s entry plus its own pushes: **26**, the same as the
+routine this replaced.
 
 ### 5.7 The per-call floor — what a small drawing call spends
 
@@ -5679,6 +5848,326 @@ The intersect lives in `vga12.inc` rather than `wm.inc` because `vga12.inc` is
 `%include`d first: the window manager's five sites are then backward
 references, and a `gfx_*` primitive is not left forward near-calling a `wm_*`
 helper. The union has only window-manager callers and stays there.
+
+### 5.12 `apps/os88gfx.inc` — the EMBEDDABLE graphics library
+
+Drawing code that lives in the **package** rather than in the kernel, taken one
+capability at a time. It is `apps/os88ui.inc`'s idiom applied to graphics, and
+`docs/plans/completed/GFX-EMBEDDABLE-PLAN.md` is the design record.
+
+The premise is the owner's: *duplicate code only used by apps that monopolise
+the machine anyway, instead of permanently spending kernel RAM on them.* Two
+measured facts make it a straight win rather than a size trade — an app-side
+rasteriser is **faster** than the slot (24.6 µs a pixel against `gfx_line`'s
+31.6 with the arrival removed, PERFORMANCE.md Set 139), and **`kern_small` has
+never had `gfx_line_fast`** (5.6.4.1 is `%ifdef KERN_BIG`, 647 bytes), so in a
+library the floor machine can BUY a capability the kernel never gave it.
+
+**THE LATTICE RULE, as set:** *wanting one capability should not drag in unused
+others — so walk drags in "how to draw a line", but "how to draw a line" does
+not drag in the walk.* Every capability is a `%define` before the `%include`,
+an implication is a `%define` at the top of the file, and an arm nobody asked
+for emits nothing.
+
+```
+    %define GFXE_BAND_W   128        ; a multiple of 8
+    %define GFXE_BAND_H   128
+    %define GFXE_BAND_BUF my_mask    ; GFXE_BAND_SZ bytes, in YOUR bss
+    %define GFXE_LINE                ; implies GFXE_BAND
+    %include "os88gfx.inc"
+```
+
+It goes **at the end of your code, just before `OS88_BSS`** — os88ui.inc's rule
+and for os88ui.inc's reason (20.2's fixed image offsets).
+
+| capability | implies | what it is |
+|---|---|---|
+| `GFXE_BAND` | — | compose into your own 1bpp band; commit it with one `OSAPI_GFX_BLIT1`. **The pixel primitive lives here** — a bit-set, not a slot |
+| `GFXE_LINE` | `GFXE_BAND` | Bresenham, whole line, into the band |
+
+```
+gfxe_bnew     AX = x, DX = y            seed the running bounds
+gfxe_bfold    SI = x[], DI = y[], CX    widen them by a whole vertex array
+gfxe_bsize                              close them into a band; CF = 1 = TOO BIG
+gfxe_bclear   AX = the paper word       paper the band's rows
+gfxe_bpix     AX = x, DX = y            one pixel, band coords, NO CLIPPING
+gfxe_bput                               the band onto the glass; CF = BLIT1's
+gfxe_line     AX,BX -> CX,DX            one line, band coords, NO CLIPPING
+              [gfxe_bx0]/[gfxe_by0]/[gfxe_bw]/[gfxe_bh]  the band gfxe_bsize made
+```
+
+The library's own state is **fifteen words in the IMAGE**, not in bss: a package
+image is copied into the instance's own region and is writable, so an image word
+is per-instance exactly as a bss word is, and the caller does not have to find
+offsets for it. **The band itself is the caller's**, because only the caller
+knows how big a band it can afford and only the caller can put it in bss.
+
+#### 5.12.1 The row step is decided at ASSEMBLY time
+
+A power-of-two `GFXE_BAND_ST` gets a shift and anything else gets a `mul`,
+picked by a `%if` on the constant. It is once a **line**, not once a pixel, so
+even the multiply is noise against the walk — what the `%if` buys is that a
+caller who sizes a band conveniently is not paying for one who did not.
+
+#### 5.12.2 The ink polarity, and the one deliberately NOT there
+
+A band is composed on **lit paper and inked by CLEARING bits**. `1 = a lit
+pixel` is `OSAPI_GFX_BLIT1`'s own convention (5.4.2) and 42.23 measured it the
+right way round to store: it agrees with the BMP palette AND takes `rep stosw`'s
+12.5 clocks a byte for the ground instead of a complementing loop's 17 — the
+intuitive polarity costs **36% of every clear for ever**.
+
+The plot walks a **zero** through a field of ones in BL (`mov bl, 07Fh` then
+`ror`), advances it with `stc`/`rcr` and takes the carry OUT of that rotate as
+the wrap into the next byte. That is one instruction for the advance and one
+branch for the wrap, and it is the whole reason a band composer beats a
+per-pixel slot.
+
+**The opposite polarity — ink that SETS bits, for white on a black ground — is
+six lines under a `%if` and is NOT in the file**, because an untested arm in a
+shared library is worse than an absent one. What it needs is written down rather
+than guessed at: BL walks a **one** (`mov bl, 080h`), the combine is `or`, and
+the two wrap branches invert sense because the carry out of the rotate is then
+the bit that just left. `gfxe_bclear` takes the paper word in AX already, so
+that half needs nothing.
+
+#### 5.12.3 WIREFRAME is the first customer, and it is a LIFT
+
+78.8's band composer and 78.8's Bresenham were **written in `apps/wire/`** and
+are this file's now. What stayed in the program is what is genuinely the
+program's: the vertex-to-band mapping, the object-area refusal (5.12.4) and the
+record of which band is on the glass (78.8.2).
+
+Measured: the package's image goes **2,750 → 2,802** and its bss **2,232 →
+2,198**, so the first customer pays **+18 bytes** — thirty of the fifty-two are
+the library's state words moving out of bss into the image, which is a wash, and
+the rest is the seams. Nothing else in the tree moves: WIREFRAME does not ship
+(78.9), no kernel byte changes, and `wirefps` and `wireflick` are the A/B.
+
+**AND THE BAND IS BYTE-IDENTICAL.** The projected vertices are a pure function
+of the shape, the size and the two angles, so at the same four the composer must
+produce the same bytes — which is the A/B that says the library REPRODUCES the
+private implementation rather than merely drawing something plausible. Read back
+off a running machine with the angles pinned, the band's own rect and a digest
+of its 2,048 bytes agree exactly across the two builds, on all three shapes.
+(The FIRST sample after writing the angles differs on both builds
+independently — the composer can run either side of the write — which is why
+the reading is taken on the second.)
+
+`tests/wireflick.py` is the durable half of that, and the useful thing about it
+is which number it gates. Composed's **fullest** frame must be within 15% of
+`Edge at a time`'s: the same twelve edges by two routes, one the library's and
+one `OSAPI_GFX_LINE`'s. Its **flicker** numbers are explicitly not a gate —
+`floor` and `under half` are a sample of a free-running animation and move by
+half their range with host load, on modes nothing has touched.
+
+#### 5.12.4 There are TWO refusals and they are about different things
+
+`gfxe_bsize` refuses a band the **buffer** cannot hold. A program refuses a band
+its **window** will not allow — WIREFRAME's object-area test, where the status
+strip lives directly under the rows a band would cover. The library knows the
+first and cannot know the second, so the second stays in the program.
+
+Both must answer **before** a blit is spent, which is why sizing is a separate
+call from committing: refusing is a normal path (PERFORMANCE.md rule 6) and it
+is far cheaper than clipping.
+
+#### 5.12.5 `GFXE_WALK` — the resumable walk, in the caller's image
+
+§5.6.7's walk answers *"draw the next N pixels of this line"*, so a caller that
+holds the state can erase exactly what it drew. **`GFXE_WALK` is that
+recurrence in the package**, plotting through `OSAPI_GFX_POINTS` (§5.6.9).
+
+```
+gfxe_winit    AX,BX -> CX,DX; DI = a GLS_SZ block   OSAPI_GFX_LINIT's arithmetic
+gfxe_wstep    DI = the block, CX = pixels           append the next CX
+gfxe_wstepv   SI = `dw block, count` array, CX      OSAPI_GFX_LSTEPV's shape
+```
+
+**THE BLOCK LAYOUT IS THE KERNEL'S, unchanged** (`GLS_X`, `GLS_Y`, `GLS_ERR`,
+`GLS_DX`, `GLS_DY`, `GLS_SX`, `GLS_SY`). That is not laziness: a program
+converting from the slots changes the CALL and nothing else, and its own
+arithmetic on the block's x and y keeps working — §48.14 has Missile Command
+doing exactly that. `tests/unit/t_mirror.py` is what keeps the two copies equal.
+
+**WHAT DOES NOT COME WITH IT IS THE INTERESTING PART.** The kernel's walk
+carries a clip rect, a framebuffer byte and bit mask, the second display's
+translation (§39.14.5) and the cursor's save-under — and **none of that moves
+into the app**, because `gfx_points` does every one of them at the commit. So
+the app-side walk is *pure arithmetic over the caller's own words*: a fifth of
+the size docs/plans/completed/GFX-EMBEDDABLE-PLAN.md §4.1 costed, and it can step x with
+`add si, [di + GLS_SX]` where the kernel needs a branch (its `sx` also has to
+move a bit mask and a byte pointer).
+
+#### 5.12.5.1 A full point list COMMITS ITSELF
+
+The list is a **batching window, not a bound**. `gfxe_padd` on a full list
+commits it and carries on, so a buffer sized too small costs an arrival and
+never a pixel, and no caller carries a second path. `[gfxe_pflush]` counts the
+forced commits; a program whose worst frame has been thought about reads 0, and
+`tests/gfxewalk.py` is what asserts that. Break Cyclone's list down to four
+points and the picture is **identical** — 5,207 points either way — while the
+arrivals go 133 → 1,317. Nothing but that counter can see it.
+
+#### 5.12.5.2 What it measured, and what it costs
+
+Guest cycles inside one batch-step call, bracketed entry to exit, on
+`os8088_5150_herc_gla`:
+
+| | before | after | |
+|---|---:|---:|---:|
+| Cyclone `cy_dsc_run`, median | 75,537 | **68,596** | −9.2% |
+| …mean | 66,872 | 58,759 | −12.1% |
+| Missile `mc_dsc_run`, median | 18,429 | **12,250** | −33.5% |
+| …mean | 13,589 | 10,110 | −25.6% |
+
+The spread between the two is the plan's own window, measured: Cyclone steps
+**3.71 pixels a block a frame** and Missile **2.77**, against a break-even
+around 6.66 — so both are inside it and Missile, with fewer pixels per block,
+is further in. Those two numbers had never been taken; a walk of thirty pixels
+a block would have gone the other way.
+
+**The four programs that converted**, and what each paid in its own image
+(none of it kernel RAM):
+
+| | image | point list |
+|---|---:|---:|
+| Cyclone | +238 | 384 (bss) |
+| Missile | +251 | 384 (bss) |
+| Tank `tkattr.inc` | +236 | 256 (bss) |
+| `SAVER.DRV` `svshape.inc` | +392 | 320, **inside the image** — a driver's bss ships there (§51) |
+
+Tank's is not only a size change: its letter cursors spent **one arrival per
+segment** of a glyph and now spend one per wake.
+
+`SAVER.DRV` is the one place the list can be sized by arithmetic rather than by
+measurement — `SV_HACT` descriptors of at most `SV_HPX` pixels is an exact
+bound, so `SV_PTMAX` is their product and cannot be forced.
+
+#### 5.12.6 …so §5.6.7's three slots have NO BODY on a stock kernel
+
+**Every walker in the tree converted (§5.12.5), so `gfx_linit`, `gfx_lstep` and
+`gfx_lstepv` have no caller** — and the bodies are gone. They stood behind a
+`GFXWALK=1` knob for one wave; §5.12.7 deleted the knob along with the line
+family it was the A/B for.
+The three cells stay, because the table is offset-addressed and a slot number
+is a published constant (§20.3), and they answer **CF = 1**, which is what
+`gfx_blit1` on `kern_small` and `gfx_spans` already mean by it (§5.4.2).
+
+Four internals go with them — `gfx_ls_one`, `gfx_lstep_mono`, `gfx_lstep_slow`,
+`gfx_ls_adv` — and ten `.bss` words. **`gfx_ls_ink`, `gfx_ls_box` and
+`gfx_ls_addr` STAY**: `gfx_points` calls all three, which is §5.12.5's point
+seen from the kernel side — the six per-call concerns did not move, so the
+routines that answer them did not either.
+
+| | `.text` | `.bss` | |
+|---|---:|---:|---|
+| `kern_small` | **−493** | −20 | |
+| `kern_big` | **−597** | −20 | and it **uncrosses an image rung** — 512 bytes of every machine's RAM, back |
+
+**What it cost is in the apps and it is not resident**: ~240 bytes of image and
+a point list each, in four programs, only while one of them is running
+(§5.12.5.2). That is docs/plans/completed/GFX-EMBEDDABLE-PLAN.md's whole premise made
+good rather than asserted — *duplicate code only used by apps that monopolise
+the machine anyway, instead of permanently spending kernel RAM on them* — and
+the programs got **faster** doing it.
+
+##### The refusal is only safe because every caller moved FIRST
+
+KERN-SMALL-CUT-PLAN §10 is the standing warning: a refusing stub is free only
+when the caller tests CF, and on the small floppies it mostly does not. A
+package that walked and ignored CF would get **no pixels** rather than wrong
+ones — a figure that is simply absent, which is the class of defect
+PERFORMANCE.md says an emulator cannot show. So the order was: convert all four
+walkers, land that, and only then take the bodies out.
+
+**PERFORMANCE.md Set 139 was taken while the knob still existed and cannot be
+re-taken**, which is worth stating rather than leaving a reader to discover:
+those figures are a record of a kernel this tree no longer builds. Nothing
+depends on repeating them — every consumer of the comparison went with the
+subject (§5.12.7) — and keeping a knob alive to make a comparison nothing can
+act on is what §5.12.7 refused.
+
+#### 5.12.7 …and then §5.6's LINE FAMILY went with them
+
+Every caller converted, so the bodies went. **`gfx_line`, `gfx_line_raw`,
+`gfx_line_mono`, `gfx_line_fast`, `gfx_line_runs`, `gfx_lf_wide3`, `gfx_lm_pre`
+and `gfx_line_flush` are gone**, along with §5.6.7's walk and the `GFXWALK`
+knob that §5.12.6 kept it behind — a knob that compiles a comparison nothing
+can make any more is dead code with a switch on it.
+
+The four cells stay and answer **CF = 1**: `gfx_line` (0x02E0), `gfx_linit`,
+`gfx_lstep`, `gfx_lstepv`. The table is offset-addressed and a slot number is a
+published constant (§20.3).
+
+| | `.text` | `.bss` | |
+|---|---:|---:|---|
+| `kern_small` | **−659** | −36 | `gfx_line_fast`, `_runs` and `lf_wide3` were `%ifdef KERN_BIG`, so it had less to give |
+| `kern_big` | **−1,672** | −47 | and it **uncrosses FOUR image rungs** — **2,048 bytes of every machine's RAM**, back |
+
+**WHAT STAYED IS THE INTERESTING HALF.** `gfx_ls_ink`, `gfx_ls_box`,
+`gfx_ls_addr` and `gfx_ls_lx`/`gfx_ls_ly` are all still here, and `gfx_points`
+is why: the clip rect a point falls in, its byte and bit, the ink class and the
+second display's translation. That is §5.12.5's finding seen from the kernel
+side — **the six per-call concerns did not move into the apps, so the routines
+that answer them did not either.** Of `gfx_line`'s whole working set exactly one
+byte survives, `[gfx_ln_ink]`, and `gfx_points` is its only reader.
+
+##### What went with it, outside the kernel
+
+- **`tests/linetest`** — deleted. Its entire subject was §5.6.6's dilated
+  three-column walk; there is nothing left for it to compare.
+- **`tests/gfxbench`'s line and walk rows** — deleted. A bench row that times a
+  `stc`/`ret` reports a number rather than an error. `OSAPI_GFX_POINTS`
+  survived, and its rows went with them too, because they only existed to be
+  read *against* the walk — a figure that says *"cheaper than the walk"* says
+  nothing once there is no walk. **They were rebuilt on the slot's own terms**:
+  8 points and 24, which is two unknowns and two readings, so `arrival + N ×
+  marginal` is determined and every longer commit is read off the fit. That
+  number is what every app-side walker in the tree now pays (§5.12.5), so it
+  had to be a row rather than a note.
+- **`apps/paint`'s `PT_LNLINE` arm** — deleted. It was the A/B §42.23.8 was
+  measured with, and that measurement cannot be repeated.
+
+### 5.13 `gfx_pixel` and `gfx_points` — which to reach for
+
+`OSAPI_GFX_PIXEL` costs **640.87 µs** on the field machine and `OSAPI_GFX_POINTS`
+**165.96** a point (PERFORMANCE.md Sets 132, 133), so the rule is one line:
+
+> **A loop that plots more than two or three pixels wants `GFX_POINTS`.**
+> A single pixel wants `GFX_PIXEL`, and always will.
+
+`gfx_pixel` **stays in the kernel**. It is nine instructions — *a pixel is a
+1×1 solid rect*, `gfx_fill` clips and dispatches itself — and any shim that
+routed it through `gfx_points` would be LONGER than the body it replaced, as
+well as slower for the one case it exists for. Retiring it was priced in
+docs/plans/completed/GFX-EMBEDDABLE-PLAN.md §6 at twelve bytes and that is what it is.
+
+**`gfx_points` keeps its general arm too, and that is not a fallback to
+`gfx_pixel` — it is the same three instructions inlined.** The fast path is
+1bpp, one display, one plane; a VGA or an extended desktop needs the general
+route, and removing the gates would cost every 1bpp machine the 3.9× the fast
+path buys. What DID go with `gfx_pixel`'s retirement being refused is the
+duplication: the arm calls `gfx_pixel`, which is already the shortest spelling
+of it.
+
+#### 5.13.1 Where the loops were, and the one that is REFUSED
+
+| | pixels a call | route |
+|---|---:|---|
+| `apps/mines` — the wrong-flag X (§23) | 20 | **`GFX_POINTS`** — 12.8 ms → one arrival, per wrongly flagged cell of a lost board, and a board can carry several |
+| `apps/cc` — the C SDK | — | **`os88_gfx_points()` is published** (§73), so a C package has the plot primitive too |
+| `apps/os88ui.inc` `.gpix` — the CUT glyph (§11.3) | 44–64 | **REFUSED**, and the reason is where the buffer would live |
+| `apps/word` — the decimal tab's point | 1 | stays: one pixel is one call either way |
+| `apps/cword` — the ruler's fallback ticks | ~75 | stays, and it is now UNREACHABLE — §5.4.2.5.1 gave `kern_small` a `gfx_blit1` body, so the composed band no longer refuses on any shipped kernel |
+
+**`os88ui.inc`'s is the interesting refusal.** It is the biggest loop of the
+five — 44 to 64 far calls for one 12×12 glyph — and it is exactly the case
+`GFX_POINTS` was made for. But `os88ui.inc` is included by about twenty-five
+packages, so a 12×12 point buffer is **576 bytes in every one of them**, for a
+path that only runs when a control straddles a clip boundary. A shared include
+is the one place where a per-caller buffer is the wrong shape, and that is a
+property of the file rather than of the loop.
 
 ## 6. font.inc
 
@@ -9524,6 +10013,66 @@ Three things follow, and only the first is the Task Manager's:
 a sibling here: **a measurement that silently covers less than it claims is
 worse than no measurement**, because the margin it reports is the reason
 nobody looks again.
+
+#### 8.7.5 The FLOOR is not a constant either — Cyclone, and a mounted driver
+
+§8.7.4's under-count was the *chain*. This one is the other term of the same
+sum, and it is the one §8.7.2's recipe states as a number: **add the kernel's
+interrupt floor, which docs/plans/completed/STACK-SLOTS-PLAN.md §7.1 puts at 64
+on the worst real machine measured.** That 64 was taken on a machine with **no
+driver mounted**, and it is not a floor on a machine that has one.
+
+**The sequence, and no step in it is a mistake in isolation.** Cyclone
+declared `OS88_STACK_192` in the merge that introduced the classes, when
+`cy_worker`'s chain was **66**: 66 + 64 = 130, and 192 over 130 is 1.48×,
+comfortable. GFX-EMBEDDABLE-PLAN's wave 5 then moved the resumable walk into
+the app and took the chain **66 → 86**: 150, and 1.28×. `t_stkclass` printed
+that as *the thinnest in the tree* on every build from then on, and it was
+read as a tight-but-passing margin rather than as a class to revisit.
+
+**Measured in play, which no static tool can see:** the slice peaks at
+**164 of 192** on a machine with no sound card — the recipe's 150 plus the
+~14 the kernel spends below the `OSAPI_*` far calls, which is §8.7.4's own
+closing finding. That is 28 bytes of headroom, and it is the *good* case.
+
+**With a Sound Blaster the driver is a term the recipe does not have.** An
+SB 2.0 carries an OPL2, so `SOUND.DRV` publishes both `DSV_TICK` and
+`DSV_TONE`, and both are entered from `snd_tick` **inside IRQ 0 at IF = 0, on
+whichever slice the tick interrupted** (§34.2, §51.4):
+
+| Cyclone in play, Hercules, arm 1 | peak of 192 | free |
+|---|---|---|
+| no card at all | **164** | 28 |
+| SB 2.0, `snd_route = SPK` — `DSV_TICK` alone | **180** | 12 |
+| SB 2.0, both | **184–192** | **through the canary** |
+
+`DSV_TICK` costs **16 bytes of every slice, always** — it runs every tick
+whether or not anything is playing — and `DSV_TONE` costs the rest.
+`stkdiag`'s own floor row says the same thing one level up: **32 idle without
+a card, 52 with one.** So the 64 is short by ~16 the moment a driver is
+mounted, before a note is played, and the machine most likely to have a card
+in it is the one running a game.
+
+- **The class is 256.** Measured at 256: **184, 188 and 192 of 256** over
+  three runs, so 64–72 bytes free, and it takes slot 10. Cyclone was the
+  **outlier among its own siblings** — Missile Command, PacMan, Tank and
+  TameGram all declare 256 already, and §67.5.5's stack analysis was written
+  against *"a worker gets 384 bytes"*, before the classes existed. The
+  declaration and the design record had disagreed since the day the classes
+  landed.
+- **`t_stkclass` was never going to catch it**, and that is not a defect in
+  the gate: it compares a *static* chain against a *documented* floor, and
+  both terms were right. What is missing is that the floor is a property of
+  the machine's configuration rather than of the kernel.
+- **Sizing a class against 64 is sizing against a bare machine.** A worker
+  that draws while a driver is mounted should be read as **64 + the driver**,
+  and the cheap way to know is to run it: `tools/stkwater.py` on the real
+  recipe beats any sum. The next-thinnest today is The Wire at 1.30× on the
+  same optimistic 64.
+
+**The shape §8.7.4 named is the shape here too, one term along**: a number
+that silently covers less than it claims, whose reported margin is the reason
+nobody looks again. There it was the chain; here it is the floor.
 
 ### 8.8 What a stack overflow says — the death panel
 
@@ -22197,6 +22746,120 @@ that reason.
 `os88ui_drop` calls pass `xor di, di`, so it has never greyed one. This was
 live in exactly one package and latent for every future caller.
 
+### 13.14.6 The two drawing rules a NEW shared element must follow
+
+PERFORMANCE.md Part 6 rules 1 and 2, in the shape a control author meets them.
+They are written here because the general statement **did not fire**: both were
+broken in the first version of §13.17 by someone who had just read them, because
+the working code next door does it the other way.
+
+1. **Never fill a ground and then draw on it.** To clear something, draw its
+   replacement over it in the right colour — one write, no interval. A fill
+   followed by the real content five drawing calls later is ~4 ms of blank on a
+   4.77 MHz 8088, every repaint. Text is free: `font_run` is opaque and lays
+   ground and glyph in one pass (§6.1), so a label never needs a ground laid
+   for it.
+2. **A change redraws what changed.** A control that knows its own old and new
+   state redraws the difference and not the row — `os88ui_raddot` is six pixels'
+   worth of dot and touches no text, where redrawing the row would re-letter a
+   label that did not change.
+
+…and **the caller owns the pane's ground** (§13.14's contract). Filling it again
+inside a control is exactly the second write rule 1 forbids.
+
+**Neither defect shows in a screenshot** — the final frame is identical — so a
+gate for a control reads the **calls**: `tests/radio.py` records every
+`gfx_fill`'s rect and every `font_run_x`'s y. PERFORMANCE.md Part 1 is why. A
+double-draw flash and a visible redraw are two of the three things an emulator
+cannot show, and this project has paid for both repeatedly.
+
+**§13.15 does not follow rule 1** — it fills its whole rect white and then draws
+frame, mark and label over it. It is named here rather than quietly changed
+because it is the file's most-copied routine and the next author will copy it
+too; **§13.17 is the one to follow.**
+
+#### 13.15.1 `os88ui_glyph` draws with FILLS now, and shares the radio's shape
+
+It used to be four 12×12 **bitmaps** put down through the masked sprite pass
+(§25.6), with a per-pixel fallback for a control a clip fragment cut. All of it
+is gone — the pictures, the sprite record and its staging, the per-row dither
+compose, and the 45-to-65-call `.gpix` arm.
+
+**Measured, and the estimate it replaces was optimistic.** `os88ui.inc`
+assembles to **707 bytes where it was 823** — so every one of the twenty-two
+package images carrying it loses **116 bytes**, about **2.5 KB of floppy across
+the tree**. The kernel splits, because its bitmaps were `.text` DATA and its
+body is `.cold` code: **`.text` −146** — the section `KERN_CODE_MAX` bounds and
+that cannot be raised at all — against **`.cold` +45**. docs/plans/completed/GFX-EMBEDDABLE-PLAN.md 8.8.2's
+*"−200 to −300 of `.cold` per copy"* was **wrong on both the size and the section**, and the
+reason is worth keeping: a fill-drawn shape is CODE where four bitmaps are
+DATA, and code does not shrink the way a table does.
+
+**What it costs is calls** — eight for a set radio against the sprite pass's one
+— and that trade is the owner's, taken on the ground that a control glyph is
+drawn once and then sits there until someone interacts with it.
+
+**MEASURED SINCE, and it costs no time at all — it saves some.** On a 4.77 MHz
+8088 with a Hercules, three of the four kinds are FASTER than the bitmaps they
+replaced — check-clear **6.18 → 4.27 ms (−30.9%)**, radio-clear **6.02 → 4.52
+(−24.9%)**, check-set **6.08 → 5.38 (−11.4%)** — and only the set radio is
+dearer, **6.02 → 6.41 (+6.5%, +0.39 ms)**. A VGA pass agrees in shape (−33.1%,
+−27.6%, −19.1%, +8.6%). The sprite pass is one drawing call and composes twelve
+mask-and-data rows to make it, so five fills beat it and eight roughly tie.
+`tests/glyphbn` carries BOTH routines in one package — the pre-conversion one
+lifted verbatim — so the A/B is one kernel and one boot, and
+docs/reports/GLYPH-AND-LINE-COST-2026-09-10.md is the record.
+
+**The ~35–50 ms this file and `kernel/ctrl.inc` used to quote for a glyph was
+never the normal path's.** It is 44–64 `gfx_pixel` calls at PERFORMANCE.md Part
+2's ~756 µs, which is `.gpix`'s arithmetic — the clipped fallback. The normal
+path was **6.0–6.2 ms**. Every argument that rested on the figure survives it:
+*do not redraw a control that did not change* is the same argument at 6 ms as
+at 40.
+
+**AND THE TWO DO NOT DRAW THE SAME GLYPH.** Only the open square comes out
+identical; the radio differs by 40 pixels of 144 clear and 56 set, the check
+mark by 32. The bitmap radio was a **circle** and `os88ui_gring` is four runs,
+so what draws today is a **square with its four corner pixels nipped off**.
+§13.17.1's rule — *the corners must be clear, so it is not a rectangle* — is
+satisfied by both, so `tests/radio.py` passes on either: the rule is too weak
+to tell a ring from a nipped square. That is a **look question that has
+shipped**, and the report prices the alternatives (about 7 ms for a rounder
+octagon at 8 fills, about 11 for the bitmap's own arc at 12, against today's
+4.5); nothing has been changed on the strength of it.
+
+**The position is held in DI and SI, and that is worth 116 bytes rather than
+four.** `UI_FILL` wants AX, BX, CX and DX, so an x or y living in any of them is
+pushed and popped around every run; held clear of all four it is a `lea` per
+argument and no stack at all. The first version did it the other way and the
+whole conversion came out **60 bytes worse than the bitmaps it removed**.
+
+**The clipped case is where it wins outright.** `ico_core` clips an icon *whole*,
+so a cut control used to cost 45–65 drawing calls and 24–34 ms (PERFORMANCE.md
+Set 83). A fill clips per pixel, so there is no second path here at all — one
+cost instead of two, and the bad one went with the code that had it.
+
+**There is ONE radio look in the file, not two.** `os88ui_gring` and
+`os88ui_gdot` are §13.17.1's shape as shared routines: `os88ui_rad` draws a
+*group* of them with labels, `os88ui_glyph` draws one bare one at CX/DX, and
+neither carries a copy that can drift from the other. The CHECK arm is a square
+frame and a solid square mark, which is `os88ui_chk`'s own look and §13.16.2.1's
+finding — *"a solid square, which reads on one bit as a tick does not"*. **So the
+two shared controls agree at last**, which was §8.8's whole complaint.
+
+**The box is still cleared unconditionally**, and that is this routine's one
+deliberate departure from §13.14.6 rule 1. It is a published contract twenty-two
+packages rest on: a glyph is redrawn *in place* when a selection moves, and its
+caller is not required to have laid a clean ground. At 12×12 with the shape one
+call behind it, the interval is under a millisecond, where the row-wide fill
+§13.17.4 removed was about four. **§13.17 is the one that needs no clear at
+all**, because it owns its group and can redraw the dot alone.
+
+**No call site changed.** `OS88UI_GRADIO`, `OS88UI_GCHECK`, `OS88UI_GON` and
+`OS88UI_GDOWN` mean what they meant and arrive in the same registers, so the
+Control Panel's fifteen glyphs and every other caller in the tree were converted
+by the body being rewritten under them.
+
 ### 13.15 The CHECK BOX — the fourth shared element (`OS88UI_CHK`)
 
 `%define OS88UI_CHK` before the include and it costs a dozen bytes of record
@@ -22216,6 +22879,42 @@ offset and means the same thing as a button's.
 It owns no bss, which is why the box's row is carried on the STACK inside the
 painter: this include is assembled into a package and may not invent storage
 in one.
+
+#### 13.15.2 …and it follows §13.14.6 now, which it did not
+
+**`os88ui_chk` broke both of §13.14.6's rules, and it is the routine that gets
+copied** — §13.17 was written wrong by following it, which is how the pair came
+to be named in §13.14.6 at all.
+
+- **Rule 1.** It filled its **whole rect** white and then drew the frame, the
+  mark and the label over it — a row-wide blank on every repaint. There is no
+  such fill now: the label is an opaque `font_run` and lays its own ground, and
+  the box is the glyph's own 12×12.
+- **Rule 2.** `os88ui_chkhit` redrew the **whole control** on a toggle,
+  re-lettering a label that did not change. `os88ui_chkmark` is
+  `os88ui_raddot`'s twin: the 6×6 mark and nothing else, taking no
+  set-or-clear argument because it reads `OS88UI_CK_ON` itself.
+
+**It draws no box or mark of its own any more — it CALLS `os88ui_glyph`.** A
+check box and the Control Panel's check glyph are the same picture, and the
+version of this file that drew them separately had them at **different sizes**,
+11 against 12, for as long as both existed and nobody noticed. `OS88UI_CKBOX` is
+`OS88UI_GW` now, one caller draws one picture, and a caller's label shifts one
+pixel right.
+
+**Sharing it that way costs the other twenty-two packages NOTHING**, which the
+first attempt did not manage: factoring the square into two routines beside the
+radio's put **+28 bytes into every package with a button** to save about forty in
+the one package that opts into a check box. Calling the glyph — which every such
+package already carries — leaves `os88ui.inc` at **707 bytes plain, unchanged**,
+and takes a `OS88UI_CHK` package from **900 to 873**.
+
+Because the glyph is what draws, the box's unconditional clear (§13.15.1) is
+what a check box gets too; that departure is documented once, in one routine.
+
+**A toggle costs three drawing calls and touches no text** — the box, the frame
+and the mark — where it used to cost a rect fill, a frame, a mark **and a whole
+label**.
 
 ### 13.16 The IN-WINDOW MENU — the fifth shared element (`OS88UI_MENU`)
 
@@ -22300,6 +22999,47 @@ bottom inside the content. A golden rect would be a window size written down;
 this is arithmetic the table already carries, and it goes red on a bar height
 one pixel out.
 
+#### 13.16.2.1 The tick is a SOLID SQUARE, and `os88ui_chk` already knew
+
+A checked item's mark was two `OSAPI_GFX_LINE` calls — a short down-stroke and
+a long up-stroke, the shape of a hand-drawn tick. **It is one `gfx_fill` of a
+5×5 square now**, `OS88UI_MN_CKX`/`CKY`/`CKW`, centred in the 8-pixel check
+column and on the 8-pixel glyph row.
+
+**The argument was written in this file eight hundred lines earlier and nobody
+had joined it up.** §13.15's `os88ui_chk` draws its own mark as a solid square
+and says why in a comment: *"which reads on one bit as a tick does not"*. §39.4
+is the reason — grey rounds to black and a thin diagonal is single scattered
+pixels on both 1bpp adapters, which are the machines this OS is for. Photographed
+on a Hercules, the two marks side by side:
+
+```
+      before (two gfx_line)        after (one gfx_fill)
+      ......#.##..##.##.###        .#####..##..##.##.###
+      .....#..##..##..###.#        .#####..##..##..###.#
+      .#..#...##..##..##..#        .#####..##..##..##..#
+      .#.#....##.##...##...        .#####..##.##...##...
+      ..#....#####...####..        .#####.#####...####..
+```
+
+**It is also cheaper, though that is not why it was taken.** Two short
+`gfx_line` calls are **~1,972 µs** on the target machine — PERFORMANCE.md Set
+132 measures a short line at 986 µs a call, *"because a short line is its own
+fixed part and almost nothing else"* — against roughly 800 for one fill. A menu
+is drawn once and then sits there until somebody interacts with it, so the
+milliseconds decide nothing here; **the form does**, and the form happens to be
+the faster one as well.
+
+**The pen needs no handling.** `gfx_pen_cf` has already put CBLACK or CDGRAY in
+`[gfx_color]` for the row (§47 rule 1), and a fill reads the same word the line
+did, so the greying carries over unchanged.
+
+It costs **−27 bytes** in the one package that uses this element, and no kernel
+byte: the whole menu block is `%ifdef OS88UI_MENU` and `apps/word` is its only
+definer (§6.2 of docs/plans/completed/GFX-EMBEDDABLE-PLAN.md). It also takes
+`apps/os88ui.inc` to **zero `OSAPI_GFX_LINE` call sites**, which is one of the
+conversions that plan's wave 8 needs.
+
 #### 13.16.3 …and the drawing and the hit test
 
 Wave 2: `os88ui_mnbar`, `os88ui_mntxor`, `os88ui_mntitler`, `os88ui_mndraw`,
@@ -22379,6 +23119,170 @@ and after, **pixel-identical**; `wdmenusu`, `wdtype`, `wdcaret`, `wdenter`,
 seven application-side routines — `wd_mact`, `wd_mfire`, `wd_mchk`,
 `wd_mrepair`, `wd_mwinitem` and the two BP-setting wrappers the gesture's
 callers use.
+
+### 13.17 The RADIO GROUP — the sixth shared element (`OS88UI_RAD`)
+
+`%define OS88UI_RAD` before the include; a package that does not costs nothing
+at all, which is §13.15's rule and the shape of the whole file.
+
+**Measured, both halves.** Opting in is **452 bytes** of image (`os88ui.inc`
+assembles to 823 bytes without it and 1,275 with, in the same one-line package);
+not opting in is **zero, and it is checked rather than asserted** — `kernel.bin`
+and every shipped `.o88` are byte-identical to the tree before the control
+existed. `tests/radtest` is the only thing in the tree that defines
+`OS88UI_RAD`, which is what keeps the control assembling and what makes that
+A/B meaningful.
+
+**The include goes AFTER `OS88_HEADER`**, which is where every package already
+puts it (`apps/skies`): `os88ui.inc` emits code, and the header has to be the
+image's first bytes, so an include in front of it puts a `mov` where the name
+belongs and `os88pkg` refuses the package.
+
+**It is a GROUP and not a button.** A check box is independent and a radio is
+not — picking one unpicks a sibling — so a control that draws one button cannot
+do the only thing a radio is for. The record is therefore the whole group, which
+is §13.14's shape and deliberately so: a drop-down *is* "one pick out of a short
+list" and so is this, so the two carry the same three fields (`ITEMS`, `N`,
+`SEL`) and differ in presentation. A caller can change its mind about which
+control a setting wears without touching its data.
+
+It also buys the redraw. `os88ui_radhit` knows the old pick and the new one, so
+it repaints **exactly two rows** and never the group — which matters here rather
+than in the abstract: PERFORMANCE.md Part 2 prices a drawing call's fixed part
+at ~756 µs on the field machine, so repainting a five-row group to move one dot
+is tens of milliseconds.
+
+| offset | field | |
+|---:|---|---|
+| 0 | `OS88UI_RD_RECT` | `dw x1,y1,x2,y2`, inclusive, SCREEN — row *i* is `PITCH` tall from `y1`, and `x2` is where the labels' ground ends |
+| 8 | `OS88UI_RD_ITEMS` | near pointers to NUL strings, `AMENU_ITEMS`' shape |
+| 10 | `OS88UI_RD_N` | 1 … `OS88UI_RDMAX` (8) |
+| 12 | `OS88UI_RD_SEL` | the pick, 0-based |
+| 14 | `OS88UI_RD_PITCH` | row to row, in pixels |
+| 16 | `OS88UI_RD_DIS` | bit *i* greys item *i* (§47 rule 2); **bit 15 is the whole group** |
+| | `OS88UI_RD_SIZE` | 18 |
+
+**The pitch is in the RECORD and not a library constant**, which is the one
+field §13.15 would not have predicted: the first caller that wanted this control
+is the Control Panel, and *its own pages disagree* — 16 on Sound, 20 on
+Scheduling, 16 on Time. A constant would have moved existing pixels to save two
+bytes.
+
+**Bit 15 is written by the painter and read by the press half**, which is
+§13.14.5's trick one control along: `os88ui_rad` banks its own `DI` into that bit
+so `os88ui_radhit` can refuse a greyed group without being handed a flag the
+caller would otherwise have to supply twice and keep in step.
+
+#### 13.17.1 The look — a rounded box, and every reason is a constraint
+
+A **12×12 rounded box** — a rectangle with one pixel off each corner — with a
+**6×6 rounded dot** in the middle when it is picked. Twelve is `OS88UI_GW`, so a
+call site converted from §13.15's glyph keeps its geometry to the pixel.
+
+Three things decided the shape and none of them is taste:
+
+- **It must not be a square.** `os88ui_chk`'s mark is a solid square, and a
+  radio that is also square says nothing about being one-of-many. At 12 px a
+  one-pixel corner cut is what a circle rasterises to, and it is what small 1bpp
+  interfaces have always drawn.
+- **It must not be a thin diagonal or a dither** (§39.4): grey rounds to black
+  on both 1bpp adapters, so a dithered ring reads as dotted and a diagonal reads
+  as noise. Every edge here is a horizontal or vertical **run**.
+- **The ring is ONE pixel because `os88ui_chk`'s frame is one pixel.** A heavier
+  ring is more legible when greyed and would be the odd control out in a column
+  carrying both; matching the neighbour won.
+
+**The ring is four RUNS, never a frame.** `gfx_frame` puts a pixel in each
+corner, which would then have to be knocked out in the ground colour — four more
+fills *and* two more pen changes. Four runs that stop one pixel short are the
+same shape for less.
+
+**The dot is centred exactly**: 1 + 2 + 6 + 2 + 1 is the box's own 12.
+
+#### 13.17.2 What it costs to draw, against the glyph it replaces
+
+**Five drawing calls for an unpicked row and eight for the picked one** — a pen
+change, four for the ring, three for the dot, and the label. There is no ground
+fill (§13.17.4). That is *more* than
+`os88ui_glyph`'s normal path, which is one masked-sprite call plus the caller's
+own label, and the trade is taken on the owner's terms: this is drawn once and
+then sits there until someone interacts with it.
+
+**What it wins back is the other path, and that is the honest headline.**
+`os88ui_glyph` cannot draw a control a clip fragment's edge cuts — `ico_core`
+clips an icon whole (§25.6) — so it falls to `.gpix`, **one drawing call per set
+bit: 45 to 65 of them, 24–34 ms for one control** (PERFORMANCE.md Set 83). A
+fill clips per pixel, so this control has no such path and no such twin to keep
+in step. **One cost instead of two, and the bad one is gone.**
+
+The same fact is why §47 gets simpler rather than merely smaller: `os88ui_glyph`
+composes the disabled grey **row by row**, with a screen-absolute parity term,
+because a 50% stipple is something a mask pass has nowhere to put. Here the pen
+carries it to the ring, the dot and the label at once.
+
+#### 13.17.4 It BLANKS nothing, and a pick does not re-letter a row
+
+**The first version did both, and neither shows in a screenshot.** It filled the
+whole row white and then drew the ring, the dot and the label on top — five
+drawing calls later, which on a 4.77 MHz 8088 is about **four milliseconds of
+blank row on every repaint** — and `os88ui_radhit` redrew both changed rows
+whole, labels included, to move one dot. The final frame is identical either
+way, which is PERFORMANCE.md Part 1's *"invisible in an emulator"* exactly: a
+double-draw flash and a visible redraw, the two defects that cost this project
+bug after bug.
+
+**Nothing is erased, because nothing needs to be.**
+
+- The label is an **opaque `font_run`** (§6.1) — it lays its ground and its
+  glyph in the same pass, so there is no ground for anyone else to lay.
+- The ring is **four runs**, and its pixels are the same every time.
+- The dot is **three runs, drawn in the ground colour to clear it** rather than
+  blanked and left. `os88ui_raddot` takes no set-or-clear argument: it draws in
+  the ink when its row *is* the pick and in the ground when it is not, so the
+  caller writes `SEL` first and then names the two rows.
+
+No pixel is written by two of those, so **there is no interval in which any part
+of the row is blank.**
+
+**The caller owns the ground**, which is §13.14's contract rather than §13.15's:
+the pane is already filled by whoever laid it out — every Control Panel page
+does it with `os88ui_krect` — so filling it again here would be the second write
+this control exists not to make.
+
+**A pick therefore costs eight drawing calls and touches no text**: three to
+clear the old dot, three to set the new one, and a pen change each side.
+
+##### The gate reads CALLS, not pixels
+
+`tests/radio.py` records every `gfx_fill` one full `os88ui_rad` makes and fails
+on any rect wider than the box — a fill that wide is a fill that spans the label
+— and records every `font_run_x` during a press, failing on any inside the
+group's own rows. Both were verified red against the first version.
+
+**`font_run_x` and not `font_run`**, and that is the trap worth writing down:
+slot 0x0258's cell names the `_x` entry, so a breakpoint on `font_run` is one a
+package never reaches. The assertion was a **false green** on that symbol and
+only the deliberate breakage refusing to go red found it — docs/WRITING-TESTS.md
+§1 earning its place.
+
+#### 13.17.3 The press answers THREE things, not two
+
+    CF = 1   the press was not ours — and nothing else means anything
+    CF = 0   it was ours, and then:
+      ZF = 1   the pick MOVED. OS88UI_RD_SEL is the new one, the two rows that
+               changed are already redrawn, and there is nothing to repaint
+      ZF = 0   swallowed: the pick already made, a greyed row, or the slack
+               below the last row inside the rect. Nothing drawn
+
+**The third answer is the one a caller needs and `os88ui_chkhit` does not
+have.** Re-applying a mode the machine is already in is not free — the Control
+Panel's Display rows re-probe an adapter — so "ours, and nothing changed" has to
+be distinguishable from "ours, act on it". `pop` writes no flags, so the answer
+set before the epilogue survives it.
+
+`os88ui_radhit` guards its own division: a `PITCH` of zero is a caller's bug and
+`div` answers one with **INT 0**, so five bytes turn a crash into a press that
+does nothing.
 
 ## 14. apps.inc
 
@@ -45623,6 +46527,38 @@ one above — `cp_onclick` runs with the gfx lock held and `gfx_lock` is
 non-reentrant — which the clock never had, because writing a chip takes no
 lock at all.
 
+### 31.5.3 …and a SELECTION moves two fields, not the band
+
+§31.5.1 got the *tick* right — seven opaque runs and no erase — and left the
+**selection** on the other path. Clicking a different field called
+`cp_time_rows(1)`, whose first act is to fill the whole date-and-time band
+white, so moving the caret one field along **blanked both rows and re-lettered
+all six fields** to take one black box off one of them.
+
+`cp_time_fld` draws an unselected field's box **in the ground** now, so the
+field that lost the caret clears it by drawing its replacement — one write,
+where the band erase was thousands. A selection is two calls: the field the
+caret left and the one it arrived at.
+
+**`[cp_tfull]` has a third value, `CPT_FBOX` = 2**, and it is what keeps the
+other two paths free of the extra fill:
+
+| `[cp_tfull]` | who | the box |
+|---:|---|---|
+| 0 | the tick | **neither** — it is already on the glass and its 2px surround is outside the run |
+| 1 | a page draw, a 12/24 change | **the selected field's only** — the band erase has already cleared every other |
+| `CPT_FBOX` | **a selection move** | **every field's, in its own colour** — which is the whole point |
+
+**`[cp_tsel]` moves before either field is drawn**, because `cp_time_fld` reads
+it to decide which way round a field goes: the old field then tests as plain
+and gets the white box, which is exactly what is wanted. Same order as
+§31.1.4's, and for the same reason.
+
+The other three callers of `cp_time_rows` were already right and are untouched:
+a **+/- step** is `AL = 0` (digits change, the runs cover their fields exactly),
+a **page draw** is `AL = 1`, and a **12/24 change** is `AL = 1` because the
+field *count* changes and a disappearing meridiem leaves text no run covers.
+
 ### 31.6 Drivers page — loading and unloading, and remembering it
 
 Third item, index `CP_IDRV` = 2, list name and heading `'Drivers'`. One row
@@ -45992,6 +46928,53 @@ only by `cp_flush_x`, at the close, so the caption cannot change while the
 page is on screen and re-lettering it per click erases and redraws text that
 did not move (§31.6.1). Its two strings are §51.5.1's.
 
+#### 31.1.4 …and a SELECTION redraws two rows, not the pane
+
+§31.1.3 is this for the page's controls; the left pane had the same defect and
+it was worse, because the pane was **erased first**.
+
+`cp_list` fills the whole left pane white and re-letters every row, and its own
+comment named that as the feature: *"Erases the whole pane first, so this
+doubles as the redraw path when the selection moves."* So clicking a category
+blanked every name on the pane and drew them all again to move one highlight —
+§13.14.6 rule 1, in the one window whose whole job is being clicked.
+
+**`cp_listrow` draws one row and nothing is blanked in it.** The selection bar
+rect is drawn **every** time — in the ink when that row is the selection and in
+the **ground** when it is not — so a row that has just lost the bar erases it by
+drawing its replacement, in one write. The name is an opaque `font_run` (§6.1),
+which carries its own paper in the pass that carries the glyph, so no ground has
+to be laid for it either.
+
+A selection change is therefore **two rows**: the ordinal the bar left and the
+one it arrived at. On a six-item list that is 4 drawing calls where it was 1
+pane erase plus 6 names plus a bar — and, far more to the point, **no interval
+in which the pane is blank.**
+
+**The order is resolve-then-draw, and it has to be.** `cp_listrow` reads
+`[cp_sel]` itself to decide which way round a row goes, so the ordinal being
+*left* is resolved while `[cp_sel]` still says where the bar is, and both rows
+are drawn once it says where the bar will be.
+
+##### `cp_r2v` is DERIVED, not remembered
+
+The old ordinal is what §31.10.1's mapping makes awkward: a record is the
+durable name and an ordinal is a view of it, and the view changes exactly when a
+driver comes up or goes down. So the obvious implementation — a byte written
+beside `[cp_sel]` — is stale precisely when the list changed, which is when it
+would be believed. `cp_r2v` walks `cp_v2r` instead: `CP_ITEMS` is under eight,
+it is arithmetic with no drawing in it, and one walker cannot disagree with
+another.
+
+**`cp_list` stays, and is still the whole-pane paint.** Its erase is the left
+pane's own **ground** — `cp_paint` does not fill the content, it calls the three
+routines that each own a pane — and it remains the right call in the two places
+where every row really has moved: a full window paint, and a driver load or
+unload that changes the list's membership (§31.9).
+
+**It cost 76 bytes of `CTRL.DRV`** — 6,102 → 6,178, an on-demand module and not
+one resident byte (§2.8).
+
 ### 31.9 Pages a driver owns
 
 The item list is the five static rows **plus one row per loaded driver that
@@ -46116,6 +47099,29 @@ rather than far-calling into the module, and so does this.
 **An unclaimed key is dropped and not beeped at.** A Control Panel is not a
 text window; every key arriving while a button page is showing would otherwise
 be an error the user did not make.
+
+#### 31.9.3 A variable-length line draws its text FIRST and clears only the tail
+
+`cp_drv_wipe` filled a whole text line white and a `cp_run` then lettered it —
+the erase-then-letter pair, §13.14.6 rule 1, on the Sound page's note and on
+every driver row's status line. Its own comment carried the reason: *"the
+strings differ in length, and the line is usually empty."*
+
+**That reason is real and it does not need an erase first.** `font_run` is
+opaque (§6.1), so it lays its own paper under every cell it covers; the only
+thing a wipe was ever for is the **tail** of a *longer previous* string. So
+`cp_drv_line` draws the string where it goes and then clears from its last
+column to the pane's right edge — one write each, nothing written twice, and no
+interval in which the line reads empty.
+
+An empty line is the degenerate case rather than a special one: `SI` = 0 means
+the whole line is tail.
+
+**The width comes from `font_width`, not a local `strlen`.** It is `8 × length`
+today, and a loop in the module would be a dozen bytes cheaper — but a second
+opinion about how wide a string is, is a second opinion that can drift, and
+`font_width` has been **far-entered since §2.6.1**, so using it costs no kernel
+byte at all.
 
 ### 31.10 Display page — which adapter the machine is driven as
 
@@ -58592,6 +59598,56 @@ the band move's 55, and the profile is 48.6% `pt_ex1` and 35.8%
 `sw_blit_row.abyte` — the expansion here and the decode in the kernel, two
 passes over every pixel that the band move makes zero.
 
+#### 42.23.8 A STROKE SEGMENT's screen half is a band out of the canvas too
+
+Paint rasterises a one-pixel stroke **twice**: `pt_lineseg` walks it into the
+canvas and the undo image — Paint's own Bresenham, over RAM Paint owns — and
+then the segment goes on the glass. §42.8 made that second half one
+`OSAPI_GFX_LINE` where it had been a `gfx_fill` a pixel, and that is what made
+the pencil follow the hand at all (docs/FIELD-NOTES.md 11).
+
+**Since the canvas is one bit a pixel (§42.23), the second rasterisation is not
+needed at all.** The canvas already holds the answer, so putting it on the glass
+is a COPY of the rect that changed. `pt_lnblit` computes that band from the
+segment's own two endpoints, snaps its left edge to the byte grid §42.23.4 wants
+(free — `PT_CV_X` is 48), and commits it with one `OSAPI_GFX_BLIT1`.
+
+**MEASURED on a 4.77 MHz 8088** (`tests/paintstroke.py`, an exec-breakpoint
+bracket around the call and nothing else, same nudge schedule, median of ~23
+segments):
+
+| the segment's screen half | guest cycles | µs | |
+|---|---:|---:|---|
+| `OSAPI_GFX_LINE` — §42.8's, now behind `PT_LNLINE` | 10,646 | 2,231 | was |
+| `pt_blit` of the same rect | 14,268 | 2,989 | **refused** |
+| `OSAPI_GFX_BLIT1` direct | **9,243** | **1,937** | ships |
+
+**The middle row is the finding.** Going through `pt_blit` is the obvious
+spelling and it is **34% worse than the line it replaces** — because `pt_blit`
+is the path for everything that *cannot know what it changed* and pays a clip,
+an inked-table band walk and a decode setup before it reaches a blit at all. A
+stroke segment knows exactly what it changed. Whoever next replaces a drawing
+call with "the blit we already have" should read that row first.
+
+**+84 bytes of Paint's image and 8 of its bss**, and no kernel byte. `pt_lndraw`
+is behind `PT_LNLINE` rather than deleted, so a default build carries none of
+it and the A/B still assembles.
+
+Two things fall out that are worth more than the 13%:
+
+- **`kern_small` gets it for free, and only since §5.4.2.5.1.** Before
+  `gfx_blit1` had a body on the small build this would have answered CF = 1 on
+  every segment and fallen to `pt_blit` — slower than what it replaced. The
+  floor machine is exactly the machine §42.8 exists for, so the order those two
+  landed in was load-bearing.
+- **Paint is off the `OSAPI_GFX_LINE` caller list**, which is
+  docs/plans/completed/GFX-EMBEDDABLE-PLAN.md §8.1.5's first blocker on the line family
+  leaving the kernel at all.
+
+The screen cannot disagree with the canvas any more either: it is a copy of it
+rather than a second Bresenham that has to agree with the first, which is the
+concern §42.8's own `[pt_mono]` gate was written for.
+
 ### 42.25 The one-bit decoder is STRAIGHT-LINE, for §42.13.1.4's reason
 
 `pt_line_put` is the BMP and GIF decoders' inner loop — every row of every
@@ -64675,6 +65731,55 @@ Verified the §48.14 way, after letting the queue empty: **0 differing pixels**
 in the game window against a forced full repaint, mid-game with live trails,
 on VGA (of 224,961) and CGA (of 129,485).
 
+#### 48.15.1 `MC_DRNBUD` was 64 and is 32: the budget outlived the cost it was set against
+
+The drain spends its budget through `mc_dsc_add`, so §5.12.5 moved the commit
+under it from the kernel's walk to `OSAPI_GFX_POINTS` — and **the two do not
+have the same shape**. Measured deterministically (PERFORMANCE.md Set 142.5),
+`mc_dsc_run`'s median by how many pixels the batch held:
+
+| pixels in the batch | kernel walk | app walk | |
+|---|---:|---:|---:|
+| 1–8 | 21,665 | **13,425** | **−38%** |
+| 9–16 | 28,679 | **19,639** | **−32%** |
+| 17–32 | 29,423 | 37,309 | **+27%** |
+| 33–64 | 53,649 | 75,503 | **+41%** |
+
+**The crossover is between 16 and 17 pixels**, and 64 put every drain batch the
+wrong side of it: the kernel walk carried a framebuffer byte and bit mask
+forward, so its cost per pixel fell from 3,710 to 1,082 across that range,
+where a point committed through `gfx_points` re-resolves and stays near 1,500.
+
+`MC_DRNBUD` was **64** because that was right for the old commit. It is **32**,
+which is not an empirical pick: **it is the smallest value that still lets one
+dead trail drain at its full `MC_DRNRATE`**, so §48.15's per-trail promise —
+*about eight times the rate it was drawn at* — is untouched and only the
+multi-trail case is slower. A `%if MC_DRNBUD < MC_DRNRATE` refuses the build
+below that line, because the two constants answer different questions and the
+smaller one silently becomes the answer to both.
+
+**What it fixes and what it costs**, both measured on one game run twice:
+
+| busy scenario | over one tick | frames with smoke clearing | 400 frames |
+|---|---:|---:|---:|
+| kernel walk, budget 64 | 56 of 400 | 240 | 68,802,005 |
+| app walk, budget 64 | **60** | 240 | 68,541,774 |
+| **app walk, budget 32** | **57** | **241** | **68,298,000** |
+
+So the deadline regression §135.4 found is gone — 60 back to 57 against the
+pre-conversion 56 — and it costs **one frame in four hundred** with dead smoke
+still on the screen, with the queue reaching 6 entries where it reached 5
+(`MC_MAXDRN` is 16, so nothing is near overflowing). The calmer scenario is
+better than the tree it came from on both counts: 21 frames over a tick against
+24, and 187 smoke frames against 186.
+
+**And it does LESS WORK, which is the part worth understanding rather than
+banking.** A smaller budget erasing the same pixels ought to cost the same
+overall and it costs 0.4% less, because a trail that drains more slowly is more
+likely to be sitting under a burst when one arrives — and §48.19 gives those
+pixels to the burst. Slower draining sheds work to a routine that was going to
+run anyway.
+
 ### 48.16 Every trail in one call — but the arriving was NOT the cost
 
 The field log after §48.14 and §48.15 (PERFORMANCE.md Part 9, Set 6) says the
@@ -64735,6 +65840,95 @@ formality: what is on screen was drawn by the **vector** call and the forced
 full repaint replays it with the **scalar** one (`mc_redraw_trails` was left
 alone), so a disagreement between the two would show directly. **0 differing
 pixels** on VGA (of 224,961), CGA (of 129,485) and Hercules (of 236,160).
+
+#### 48.16.1 The SEGMENT arm lays its line itself now
+
+`mc_line` is the arm a trail takes when `mc_tr_lay` will not lay a walk for it —
+the Mode X surface (§53.7), or an endpoint off the content. It called
+`OSAPI_GFX_LINE`; it walks the line into the point list with `gfxe_wline` and
+commits it with one `OSAPI_GFX_POINTS` now (§5.12.5), which takes `apps/missile`
+to zero `OSAPI_GFX_LINE` call sites.
+
+**§5.6.5's dilation is three walks, which is what the kernel did.** The erase
+owes it because the trail is *drawn* in per-frame segments and *erased* as one
+long line, so the two Bresenhams disagree by a pixel. `gfxe_winit` has already
+put |dx| and |dy| in the block, so which axis is the minor one costs one
+compare, and the two extra walks are the same line offset ±1 along it.
+
+**THE ARM DOES NOT RUN, and that is measured rather than assumed.** Over 45
+guest seconds of live play `mc_tr_lay` was called **39 times and refused 0**, so
+`mc_line` was reached **0 times**; the batch (`mc_dsc_run`) ran 2,061 times in
+the same window and the trails it laid were 114 to 549 pixels, median 238. So
+this conversion is not a speed change — there is no speed here to win — it is
+what takes the last `gfx_line` caller out of the game.
+
+**What it is NOT is a fall back to `.own`.** That arm — Missile's own Bresenham,
+accumulating horizontal runs and flushing each through `mc_fillc` — still
+handles the Mode X surface and an off-content end, and it is what this whole
+section exists because of: a steep line costs it **one call a row**, so a median
+238-pixel trail would be 238 of them. The point list is one arrival per 96
+points instead.
+
+`tests/mcseg.py` is the gate, and it exists because the arm is unreachable in
+play: it patches `mc_tr_lay` to `stc`/`ret` in the running guest, which sends
+every trail down the segment arm, and then plays. Forced that way it reads 206
+commits, 880 points and 535 lit pixels of playfield.
+
+#### 48.16.2 The DETERMINISTIC run: `apps/missile/mcbench.inc`
+
+Built only under `-DMC_BENCH` (`make mcbench`); the shipped `MISSILE.O88` is
+byte-identical without it, and `tests/mcperf.py` asserts that before it
+measures anything.
+
+**It exists because §48.16's conversion could not be priced honestly.**
+PERFORMANCE.md Set 141.3 read `mc_dsc_run` over LIVE PLAY on two trees — two
+different games, medians over whatever the waves happened to do. This runs
+*one* game: `OSAPI_SRAND` at a fixed seed, a scripted shot every `MC_BFIRE`
+frames written straight into `[mc_fire]`/`[mc_firex]`/`[mc_firey]` so it goes
+down `mc_do_fire`'s own path, and `MC_BFRAMES` frames **back to back**.
+
+**Back to back is the load-bearing part, not a shortcut.** `mc_worker` sleeps
+to a *deadline* (§44.1), so a faster frame does not make the game go faster —
+it makes the worker sleep longer, and the whole win is invisible in wall time.
+Worse, a frame that overruns a tick takes `.behind` and re-anchors the
+deadline, which is clock-dependent: a fast arm and a slow arm would stop
+playing the same game at the first overrun. Running frames back to back is
+sound here for one reason that had to be checked rather than assumed — **`mc_update`
+and `mc_render` read `OSAPI_GET_TICKS` nowhere.** Every timer in the game is a
+FRAME counter (`[mc_hold]`, `[mc_ltick]`, `[mc_et]`), and the only three tick
+reads in the package are the seed and the worker's own deadline.
+
+**Three things it had to get right, each of which broke first:**
+
+1. **The bench runs on the WORKER, not from the key handler.** `gfx_lock` is
+   not recursive (§7.3) and `ui_task` holds it around the whole event handler,
+   so `mc_render`'s own `OSAPI_GFX_LOCK` from a key deadlocks the UI task
+   against a lock it already owns. It costs 1,800 guest seconds of a machine
+   that looks idle and reports nothing. The key sets `[mc_breq]`; the worker
+   runs it.
+2. **`[mc_breq]` is a COUNTDOWN.** A harness arms its breakpoints and then asks
+   for the run, and the two race — a request honoured on the very next frame
+   can start before the trace is armed. Poking 10 buys nine ordinary frames.
+3. **`[mc_bdone]` is what a harness waits on, and it is incremented LAST.**
+   `[mc_bfr]` and `[mc_bck]` are both reset at the top of a run, so reading
+   either to decide *has it finished* answers zero for a run that has just
+   STARTED — indistinguishable from a bench that never ran, and it was.
+
+**`mc_bsum` is the proof rather than the design.** It walks the game's own
+physical state — every object's position and mode, every counter — and
+`tests/mcperf.py` asserts two runs agree. It deliberately leaves out the walk
+blocks (`mc_iwlk`, `mc_awlk`), the drawn-to positions and the batch, because
+the two arms of a before/after represent a walk differently on purpose (§5.12.5)
+and summing those would fail the agreement test for the one reason that is not
+a divergence. **Both arms of the §48.16 comparison end on the same checksum**,
+which is what makes the figures in PERFORMANCE.md Set 142 a measurement — and
+it is what lets Set 142.4 compare the two runs **frame by frame** rather than
+distribution to distribution, which is the only reason the four-frames-in-four
+-hundred deadline effect there is visible at all.
+
+On a machine with no debugger it still answers: `[mc_bticks]` is the run in
+system ticks and `mc_bshow` puts it on the glass, so a 5150 reads the same
+number a photograph can carry.
 
 ### 48.17 The strip drew 29 cells to change one digit; a salvo redrew together
 
@@ -81503,7 +82697,9 @@ because the polite version assembles, boots, plays, and then hangs.
 
 A worker gets 384 bytes (§8) and every interrupt the machine takes lands on
 whichever task stack is current, so the app's own chain is only part of what
-has to fit. This app's chain is seven frames deep — worker → render →
+has to fit. **That 384 is what a worker got when this was written**, before
+§8.7's classes existed; this app declares `OS88_STACK_256` and §8.7.5 is why
+it is not the 192 the class scheme first gave it. This app's chain is seven frames deep — worker → render →
 per-state render → per-object draw → `cy_obj_show` → `cy_rsub` → the fill —
 and six of those frames opened by banking AX..DX out of habit. That is 60 of
 the slice spent on registers that every one of the call sites reloads from
@@ -95334,6 +96530,28 @@ and not a flicker one: the erase still precedes the draw inside it.
 So the ordering is the caller's, which is what this menu is: three orders, one
 program, and the reader picks.
 
+#### 78.5.1 …and three of the four orders are DELETED
+
+The menu is gone and so are `wr_edges`, `wr_edge1`, `wr_pairs`, the whole-figure
+and repair arms, `[wr_mode]` and the four words remembering the band on the
+glass. **Composed is the only order left**, because it is the only one that does
+not call the line primitive and §5.12.7 took that out.
+
+It is not a loss the figures argue against: composed already beat all three on
+both counts §78.5 measures — **74% floor, 90% mean, zero frames under half**,
+against `Edge at a time`'s 63/82/0 and `Whole figure`'s 1/47/52. What §78.5's
+numbers are for now is the finding, which is worth keeping and is not worth
+three code paths.
+
+**A band erases by covering**, so nothing was lost with the erase orders either:
+the band is sized to hold the frame on the glass *and* the frame replacing it,
+and one `gfx_blit1` does both. A refusal — from `wr_compose` when the figure
+will not fit, or from `wr_put` when `gfx_blit1` says no — now **leaves the last
+frame up**, which is a dropped frame and not a wrong one: neither has drawn
+anything by then, and `[wr_ex]`/`[wr_ey]` still describe what is on the glass.
+
+**−380 bytes of the package and 8 of its bss.**
+
 ### 78.8 A fourth order: COMPOSED, and put down in one call
 
 §78.5 offers three orders and says none of them is free, because whichever one
@@ -96235,9 +97453,44 @@ few bytes — and it is every `gfx_blit1` in the OS, Word's text bands
 included, so the odd-width carry (`shr cx, 1` / `rep movsw` / `jnc` /
 `movsb`) is load-bearing on every caller.
 
-**§78.5's order is kept as the refusal path**, taken when `gfx_blit1` answers
-CF = 1 — which with these arguments on a `kern_big` machine it cannot, and the
-saver runs nowhere else. It is insurance, and it costs a branch.
+**§78.5's order was kept as the refusal path** for six waves, taken when
+`gfx_blit1` answers CF = 1. §79.5.6.1 deleted it.
+
+#### 79.5.6.1 The refusal path is DELETED, and the refusal cannot happen
+
+The insurance above cost a branch and **186 bytes** of `SAVER.DRV` —
+`sv_cube_edge1`, `sv_cube_pairs`, `sv_cube_edges`, `sv_cube_boxclr` and the
+`[sv_cbok]` that armed them — and what it insured against is a refusal
+`gfx_blit1_x` does not issue for these arguments. The primitive refuses exactly
+four things (§5.4.2), and this call makes none of them:
+
+| it refuses | this call |
+|---|---|
+| `x` not a multiple of 8 | forced onto the byte grid — the first bullet above |
+| `cx` = 0 | `SV_CBW` = 128, an assembly-time constant |
+| `dx` = 0 | `SV_CBH` = 128, the same |
+| `dx` > 255 | 128 |
+
+**None of the four is data-dependent**: three are `equ`s and the fourth is a
+build-time forcing. That is what makes the deletion a deletion rather than a
+trade — there is no input the saver can be handed that reaches the arm, so
+keeping it assembled was keeping a path nothing could ever take.
+
+The machine where it *could* fire is gone as well, and had been for a while:
+`gfx_blit1` was `stc`/`ret` on `kern_small` until §5.4.2.5.1 gave that build the
+body, and the saver has never shipped there (§24.5). So the premium had been
+paid on a policy with no covered event since before the driver existed.
+
+**Deleting it is also what let §5.12.7 retire `OSAPI_GFX_LINE`**, this arm being
+the saver's last call site — which is the more interesting half: an insurance
+path had quietly become the reason a kernel routine stayed resident, so the
+branch was not costing a branch, it was costing 1,672 bytes of `.text` on every
+machine. A refusal path priced at its own size is priced wrong whenever it is
+the last consumer of something.
+
+**What replaces it is nothing.** `sv_cube_step` composes, calls `sv_cube_put`
+and carries on; a CF = 1 it cannot get would leave the previous frame standing,
+which is the cheapest failure a screen saver has.
 
 #### 79.5.2 Two things the emulator showed and the arithmetic did not
 
@@ -97981,6 +99234,24 @@ overrun corrupts a value; this one corrupts an *address*, and the next large
 `ch_bars_draw`'s own header warns about from the other direction (§82.1), and
 it is worth knowing that bss adjacency can arrange it without anyone loading a
 segment register wrongly at all.
+
+### 81.30 The menu tick is a SOLID SQUARE
+
+Sheet draws its own menus (§81), so it carried its own copy of the checked-item
+mark: two `OSAPI_GFX_LINE` calls in the shape of a tick. **It is one
+`OSAPI_GFX_FILL` of a 5×5 square now**, `SH_MCHKX`/`SH_MCHKY`/`SH_MCHKS`,
+centred in the 8-pixel check column and on the row's 8-pixel glyph line.
+
+The reason is §13.16.2.1's and §13.15's before it — *"a solid square … which
+reads on one bit as a tick does not"* — and §39.4 is why: grey rounds to black
+and a thin diagonal is single scattered pixels on both 1bpp adapters. The pen is
+already the row's, set by the highlight branch above, so the mark still inverts
+with the row exactly as the text does.
+
+It is also what took Sheet off `OSAPI_GFX_LINE`, which §5.12.7 needed. **Sheet's
+own catch-up pass is still owed** and this is not it: when that lands Sheet
+becomes a consumer of `os88ui.inc`'s shared menu (§13.16) the way Word is, and
+this copy goes with the rest of its private menu code.
 
 ## 82. CHART — charting, and the buffer both halves draw into (`apps/chart/chart.asm`, `apps/os88chart.inc`)
 
@@ -100398,6 +101669,43 @@ it takes the full redraw.
 nothing overlaps a moving letter for longer than a frame anyway.
 
 ### 85.10 The attract window — one stroke, two cursors, and a band that blits
+
+#### 85.10.4 The logo's WHOLE segments are a walk too, not a line each
+
+The attract logo reaches the glass by two routes: two cursors that *animate*
+along a segment, and two places that lay a segment down **whole** — the draw-in
+(`tk_at_step`) and the full repaint (`tk_logo_full`). The cursors have walked
+app-side since §5.12.5; the whole ones were still one `OSAPI_GFX_LINE` each.
+
+They are `gfxe_wline` now — **a whole line is a walk of its full length**, which
+is eighteen bytes on top of the `GFXE_WALK` this package already carries
+(§5.12). What it buys is not the per-line cost, which nobody would notice on a
+path that runs once per attract cycle: it is that **the whole logo goes up in
+one arrival** instead of one far call a segment, because the point list commits
+itself when it fills rather than per line.
+
+`tk_lgwk` is the block they walk — one more `GLS_SZ`, kept apart from the four
+cursors' because these two lay a segment down and are done with it where the
+cursors carry state between frames. **+31 bytes of the package and no kernel
+byte**, and it takes `apps/tank` to zero `OSAPI_GFX_LINE` call sites.
+
+**THE LOGO'S DIAGONALS MOVE BY A PIXEL, and that is expected rather than a
+regression.** §5.6.7 says it in as many words: *"the walk runs in the CALLER's
+direction… `gfx_line` normalises downward so its pixel set is a property of the
+endpoint PAIR (§5.6.2); this cannot."* Measured over the logo's 200×46 area,
+**30 pixels of 9,200 differ**, every one of them on a diagonal stroke and every
+one a one-column shift — which is exactly the tie-break the two rasterisers
+disagree on and nothing else.
+
+What that buys, and it is worth more than the bytes: **the whole-segment draw
+now uses the same rasterisation as the cursors that animate along those same
+segments.** The gleam's tails lay `[tk_ctube]` back over the outline
+(§85.10.3), and until now they were walking where the outline had been drawn
+with `gfx_line` — two Bresenhams over one set of endpoints. They agree by
+construction now. *(Whether the old disagreement was visible is NOT established
+here: the logo's lit count moves as the gleam crosses it, so a drift
+measurement cannot separate accumulation from the animation without
+phase-locking the sample, and none was taken.)*
 
 The window is the half of this game that draws with the kernel's slots at all;
 everything else is past §53.7's fence. So it is also where §5.6.7's resumable

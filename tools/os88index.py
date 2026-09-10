@@ -119,6 +119,15 @@ INCLUDES = [
      "ETHER.DRV nor NET.DRV is loaded and sets `NET_CLASS` otherwise, so every "
      "`OSAPI_DRV_CALL` after it addresses the right class. The verbs "
      "themselves are `drivers/net/netpkg.inc`'s."),
+    ("os88gfx.inc", "5.12",
+     "The EMBEDDABLE graphics library: drawing code that lives in the PACKAGE "
+     "rather than in the kernel, taken one capability at a time. `%define "
+     "GFXE_BAND` composes into your own 1bpp band and commits it with one "
+     "`OSAPI_GFX_BLIT1` - the pixel primitive is a bit-set, not a slot - and "
+     "`%define GFXE_LINE` adds the Bresenham, which implies the band because a "
+     "line needs somewhere to land. An app-side rasteriser is FASTER than the "
+     "slot (24.6 us a pixel against `gfx_line`'s 31.6 with the arrival "
+     "removed)."),
     ("os88pit.inc", "72.15.1",
      "`pit_now`: a 32-bit clock in 838ns units off the 8253 and the BIOS tick, "
      "good for an hour before it wraps. Sub-tick timing for a profiler."),

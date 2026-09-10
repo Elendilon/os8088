@@ -139,6 +139,10 @@ endif
 
 VM    := $(CURDIR)/vm/xt
 VM640 := $(CURDIR)/vm/xt640
+# THE FORK OWNER'S OWN 86Box MACHINE, and the one that reproduces their bug
+# reports: an IBM PC 5150 with everything on it (docs/FIELD-MACHINES.md).
+# Their file, changed only where it named their host's disks.
+VMPC5150 := $(CURDIR)/vm/pc5150
 VMMFM := $(CURDIR)/vm/xt-mfm
 VMCGA := $(CURDIR)/vm/xt-cga
 VMHERC := $(CURDIR)/vm/xt-hercules
@@ -1098,6 +1102,7 @@ ifneq ($(BAND),)
 VIDDEF += -DBAND
 endif
 
+
 # KZIP IS INTERNAL AND ON: what a caller sets is NOKZIP (SPEC.md 2.9.13), and
 # two names is not tidiness - one says what this build DOES and the other what
 # somebody ASKED FOR, and they are read by different things. Every `%ifdef` in
@@ -1867,7 +1872,7 @@ KERNEL_SRC := kernel/kernel.asm
 # a map that described "a DIFFERENT kernel".
 KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm
 
-.PHONY: stkdiag small emu kernsplit all run run-640 run-720 run-120 debug test test-snd xt xt-640 xt-mfm xt-cga \
+.PHONY: stkdiag small emu kernsplit all run run-640 run-720 run-120 debug test test-snd xt xt-640 pc5150 xt-mfm xt-cga \
         xt-hercules xt-ega xt-multimon 286 286-525 386sx 386 386-xms 386-ps2 xt-sound xt-sound-1.44 xt-wire \
         286-525-z 286-525-word 286-525-cword 286-525-runcpm 286-525-c64 \
         286-525-weave 286-525-loom 286-525-all \
@@ -3334,7 +3339,8 @@ $(BUILD)/saver.bin: drivers/saver/saver.asm drivers/saver/svcube.inc \
                     drivers/saver/svstars.inc drivers/saver/svshape.inc \
                     drivers/saver/svfish.inc drivers/saver/svcfg.inc \
                     apps/wire/wiresin.inc drivers/os88drv.inc apps/os88api.inc \
-                    apps/os88ui.inc apps/os88line.inc | $(BUILD)
+                    apps/os88ui.inc apps/os88line.inc apps/os88gfx.inc \
+                    | $(BUILD)
 	$(NASM) -f bin -w+error $(SAVDEF) -I drivers/ -I apps/ -I drivers/saver/ \
 		-I apps/wire/ -o $@ drivers/saver/saver.asm
 	@echo "saver:  $(call FILESIZE,$@) bytes"
@@ -4315,20 +4321,6 @@ $(BUILD)/xmtest.o88: $(BUILD)/xmtest.bin tools/os88pkg.py
 $(BUILD)/xmtest.img: $(BUILD)/xmtest.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/xmtest.o88
 
-# LINETEST: the gate for SPEC.md 5.6.6, the 1bpp three-column walk. A
-# deterministic fan of dilated steep lines and nothing else, so two kernels
-# can be compared byte for byte over a framebuffer dump:
-#   make test VIDEO=herc HERCSEG=0x7000 TESTAPPS=build/linetest.img
-$(BUILD)/linetest.bin: tests/linetest/linetest.asm apps/os88api.inc | $(BUILD)
-	$(NASM) -f bin -w+error -I apps/ -o $@ tests/linetest/linetest.asm
-	@echo "linetest: $(call FILESIZE,$@) bytes"
-
-$(BUILD)/linetest.o88: $(BUILD)/linetest.bin tools/os88pkg.py
-	python3 tools/os88pkg.py $(BUILD)/linetest.bin -o $@
-
-$(BUILD)/linetest.img: $(BUILD)/linetest.o88 tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/linetest.o88
-
 # FSXTEST: the fullscreen-exclusive gate package (SPEC.md 53.9). Like fmtest
 # it is never on the shipped apps disks and rides its own scratch image:
 #   make test TESTAPPS=build/fsxtest.img          (QEMU: 1.44MB)
@@ -4446,7 +4438,7 @@ $(BUILD)/hello.o88: $(BUILD)/hello.bin tools/os88pkg.py $(PKGZSTAMP)
 # OSAPI_GFX_LINE, and a frame-rate readout, so 5.6.4.1's walk can be SEEN
 # rather than only measured. wiresin.inc is a generated constant table and is
 # committed - there is no sine in NASM and no float on the target.
-$(BUILD)/wire.bin: apps/wire/wire.asm apps/wire/wiresin.inc apps/os88api.inc | $(BUILD)
+$(BUILD)/wire.bin: apps/wire/wire.asm apps/wire/wiresin.inc apps/os88api.inc apps/os88gfx.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/wire/ -o $@ apps/wire/wire.asm
 	@echo "wire:   $(call FILESIZE,$@) bytes"
 
@@ -4467,7 +4459,6 @@ $(BUILD)/wire.o88: $(BUILD)/wire.bin tools/os88pkg.py
 #
 #   make wiredisk
 #   python3 tests/wireflick.py            # 78.5/78.8's draw orders as ink
-#   python3 tests/wirefps.py              # what 5.6.4.1 is worth to a program
 #   python3 tests/uilat.py                # 7.3's click latency under a worker
 wiredisk: $(BUILD)/wire.img $(BUILD)/wire360.img
 
@@ -4979,7 +4970,7 @@ $(BUILD)/tank.bin: apps/tank/tank.asm apps/tank/tkraster.inc \
                     apps/tank/tktan.inc apps/tank/tknib.inc \
                     apps/tank/tkover.inc apps/tank/tklogo.inc \
                     apps/os88api.inc \
-                    apps/os88ui.inc | $(BUILD)
+                    apps/os88ui.inc apps/os88gfx.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/tank/ -o $@ apps/tank/tank.asm
 	@echo "tank:  $(call FILESIZE,$@) bytes"
 
@@ -5129,7 +5120,7 @@ $(BUILD)/arkanoid.o88: $(BUILD)/arkanoid.bin tools/os88pkg.py $(PKGZSTAMP)
 # numbers; the palette cycles per wave the way SETCOL does, drawn only from
 # colours that survive SPEC.md 39.4's reduction to three inks. No heap claim:
 # every array is sized by the arcade's object counts and fits the package bss.
-$(BUILD)/missile.bin: apps/missile/missile.asm apps/os88api.inc | $(BUILD)
+$(BUILD)/missile.bin: apps/missile/missile.asm apps/os88api.inc apps/os88gfx.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ apps/missile/missile.asm
 	@echo "missile: $(call FILESIZE,$@) bytes"
 
@@ -5202,7 +5193,7 @@ $(CYCSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.cycpkg*
 	@touch $@
 
-$(BUILD)/cyclone.bin: apps/cyclone/cyclone.asm apps/os88api.inc $(CYCSTAMP) | $(BUILD)
+$(BUILD)/cyclone.bin: apps/cyclone/cyclone.asm apps/os88api.inc apps/os88gfx.inc $(CYCSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ $(CYCFLAGS) -o $@ apps/cyclone/cyclone.asm
 	@echo "cyclone: $(call FILESIZE,$@) bytes"
 
@@ -5283,6 +5274,69 @@ $(BUILD)/trackmove360.img: $(BUILD)/heapfrag.o88 $(BUILD)/tracker.o88 \
 		$(BUILD)/tracker.o88 apps/tracker/beverly.mod
 
 # --- the FILLER, and the region mover's disk (SPEC.md 66.6.1) ---------------
+# tests/radtest is the RADIO GROUP's gate (SPEC.md 13.17). It is the only thing
+# in the tree that defines OS88UI_RAD, which is deliberate twice over: it is
+# what keeps the control ASSEMBLING, and it is what makes the opt-in claim
+# checkable - every shipped image must stay byte-identical to the build before
+# the control existed, and does.
+$(BUILD)/radtest.bin: tests/radtest/radtest.asm apps/os88api.inc apps/os88ui.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/radtest/radtest.asm
+	@echo "radtest: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/radtest.o88: $(BUILD)/radtest.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/radtest.bin -o $@
+
+$(BUILD)/radtest360.img: $(BUILD)/radtest.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/radtest.o88
+
+.PHONY: radtest
+radtest: $(BUILD)/radtest360.img
+
+# tests/glyphbn is what ONE CONTROL GLYPH COSTS, the bitmap way and the fill
+# way (docs/plans/CTRL-GLYPH-PLAN.md 4). It carries BOTH implementations - the
+# pre-13.15.1 routine lifted verbatim beside today's - so the A/B is one
+# binary on one kernel, and the gfx_line family this arc removed from that
+# kernel cannot get into the answer. Its own target for radtest's reason:
+# nothing here ships, and `all` must not pay for it.
+$(BUILD)/glyphbn.bin: tests/glyphbn/glyphbn.asm apps/os88api.inc \
+                         apps/os88ui.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/glyphbn/glyphbn.asm
+	@echo "glyphbn: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/glyphbn.o88: $(BUILD)/glyphbn.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/glyphbn.bin -o $@
+
+$(BUILD)/glyphbn360.img: $(BUILD)/glyphbn.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/glyphbn.o88
+
+.PHONY: glyphbn
+glyphbn: $(BUILD)/glyphbn360.img
+
+# apps/missile/mcbench.inc is the DETERMINISTIC in-game run (SPEC.md 48.16.2):
+# a fixed seed, scripted shots and MC_BFRAMES frames back to back, so a
+# before/after can be of the same game rather than of two different ones.
+# -DMC_BENCH only - the shipped MISSILE.O88 is byte-identical without it and
+# tests/mcperf.py checks that, an instrument that changes the product not
+# being one that measures it. Its own target for glyphbn's reason: nothing
+# here ships, and `all` must not pay for it.
+$(BUILD)/mcbench.bin: apps/missile/missile.asm apps/missile/mcbench.inc \
+                      apps/os88api.inc apps/os88ui.inc apps/os88gfx.inc \
+                      | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/missile/ -DMC_BENCH \
+		$(if $(MCBFIRE),-DMC_BFIRE=$(MCBFIRE)) \
+		$(if $(MCDRNBUD),-DMC_DRNBUD=$(MCDRNBUD)) -o $@ \
+		apps/missile/missile.asm
+	@echo "mcbench: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/mcbench.o88: $(BUILD)/mcbench.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/mcbench.bin -o $@
+
+$(BUILD)/mcbench360.img: $(BUILD)/mcbench.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/mcbench.o88
+
+.PHONY: mcbench
+mcbench: $(BUILD)/mcbench360.img
+
 # tests/filler is an instrument with no assertions of its own: it takes the
 # arena down to a few tens of KB and, on a keypress, asks for one KB more than
 # the largest run. tests/heapfrag cannot do that job - its comb is sized from
@@ -5323,6 +5377,21 @@ $(BUILD)/regpin360.img: $(BUILD)/filler.o88 $(BUILD)/sheet.o88 \
                         $(BUILD)/paint.o88 $(BUILD)/pinme.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/filler.o88 \
 		$(BUILD)/pinme.o88 $(BUILD)/paint.o88 $(BUILD)/sheet.o88
+
+# PTSTEST - the differential gate for SPEC.md 5.6.9's gfx_points: the same
+# coordinate set drawn through the new slot and through OSAPI_GFX_PIXEL, into
+# two bands the host compares. A disk of its own because it is the only thing
+# on it: the row wants a bare desktop, and anything else open would move the
+# window it measures.
+$(BUILD)/ptstest.bin: tests/ptstest/ptstest.asm apps/os88api.inc | $(BUILD)
+	nasm -f bin -w+error -I apps/ -o $@ $<
+	@echo "ptstest: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/ptstest.o88: $(BUILD)/ptstest.bin tools/os88pkg.py | $(BUILD)
+	python3 tools/os88pkg.py $< -o $@
+
+$(BUILD)/ptstest360.img: $(BUILD)/ptstest.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/ptstest.o88
 
 # ...and the SHIPPED packages that declare it, for tests/regapp.py
 # (SPEC.md 66.6.2). One disk for all of them: the row takes --app, and a
@@ -8507,7 +8576,8 @@ $(SMALLAPPDIR)/tank.bin: apps/tank/tank.asm apps/tank/tkraster.inc \
                          apps/tank/tksin.inc apps/tank/tkridge.inc \
                          apps/tank/tktan.inc apps/tank/tknib.inc \
                          apps/tank/tkover.inc apps/tank/tklogo.inc \
-                         apps/os88api.inc apps/os88ui.inc $(SBSTAMP) | $(BUILD)
+                         apps/os88api.inc apps/os88ui.inc apps/os88gfx.inc \
+                         $(SBSTAMP) | $(BUILD)
 	@mkdir -p $(SMALLAPPDIR)
 	$(NASM) -f bin -w+error -I apps/ -I apps/tank/ -DAPP_SMALL $(PKGSBDEF) \
 	        -o $@ apps/tank/tank.asm
@@ -10290,6 +10360,28 @@ $(MFMIMG): | $(BUILD)
 xt-mfm: $(IMG360) $(APPSIMG360) $(MFMIMG)
 	@$(UNPROTECT) $(VMMFM)/86box.cfg
 	$(BOX) -P $(VMMFM) -N
+
+# THE MACHINE THE BUG REPORTS COME OFF (docs/FIELD-MACHINES.md, "The 86Box
+# IBM PC 5150"). This is the fork owner's own 86box.cfg, adopted verbatim
+# except for the three media paths, which named disks on their host - so a
+# defect reproduced here is reproduced on the box that reported it, and a
+# difference between this and `make xt` is a difference in the report.
+#
+# It is a 5150 rather than an XT, with the 10/27/82 ROM the field 5150 has,
+# and it is the only machine in this tree with EVERY peripheral os8088 can
+# drive in it at once: Hercules, a serial mouse, a Sound Blaster 2.0, an
+# NE1000 on slirp with FTPD's control and PASV data ports forwarded
+# (SPEC.md 77), an AST SixPakPlus carrying both the other 384KB and 37.90's
+# rung-2 MM58167 clock, and an ST-225 on a REAL ST11M - the field machine's
+# controller, which `make xt-mfm` deliberately does not use.
+#
+# THE HARD DISK WANTS A LOW-LEVEL FORMAT FIRST. The ST11M keeps its geometry
+# on the platter, so a blank build/mfm20.img is not a disk it will present;
+# xt-mfm's Xebec is the controller a blank image boots on. The floppy boot is
+# unaffected either way, which is what nearly every run here uses.
+pc5150: $(IMG360) $(APPSIMG360) $(MEDIAIMG360) $(MFMIMG)
+	@$(UNPROTECT) $(VMPC5150)/86box.cfg
+	$(BOX) -P $(VMPC5150) -N
 
 # The two monochrome machines (SPEC.md 39), both 256KB - which is all an
 # ibmxt takes anyway, and the floor os8088 targets. These are the ONLY way to

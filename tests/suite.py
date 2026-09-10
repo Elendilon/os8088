@@ -1476,7 +1476,7 @@ SOAK = [
         wants=("build/weave360.img",)),
     Row("weavegame", "soak", py("tests/weavegame.py"), 50.0,
         "WEAVE-SPEC 6.10, 12.3, 14: PONG.WAB under MartyPC, and it asks "
-        "wirefps's and wireflick's two questions of a sprite canvas "
+        "wireflick's two questions of a sprite canvas "
         "(SPEC.md 78.9). HOW MANY GFX CALLS A FRAME, read out of WEAVE.WSM's "
         "own frames and blits counters - the only honest way to price a "
         "redraw here (CLAUDE.md: a redraw costs what it CALLS), and 14 "
@@ -1491,7 +1491,7 @@ SOAK = [
         "ontick, and the row reads its y out of the canvas claim before and "
         "after the frames - the module shipped waves 5-7 delivering ONE "
         "ontick per start() (6.10.6) and no counter showed it. No threshold "
-        "on TIME - wirefps's rule, that a number which fails a build when a "
+        "on TIME - wireflick's rule, that a number which fails a build when a "
         "harness gets slower teaches nobody anything - so the fps is printed "
         "and the FIELD RUN (docs/FIELD-MACHINES.md, WEAVE-PLAN 4.2) is what "
         "turns it into a claim. 50s is 34s MEASURED plus room for the one "
@@ -1990,6 +1990,14 @@ SOAK = [
         "so the broken build scores zero. `--small --img build/small360.img` "
         "is trigger A, and wants `make small` first.",
         needs=("marty",), serial=True),
+    Row("gfxewalk", "soak", py("tests/gfxewalk.py"), 90.0,
+        "SPEC.md 5.12.5: Cyclone's warp and Missile's trails step the"
+        " resumable walk in their OWN images now (apps/os88gfx.inc) and commit"
+        " through OSAPI_GFX_POINTS. Two things no picture can show: that the"
+        " commit is actually happening, and that each program's point list"
+        " holds its worst frame - a list that fills commits itself, so one"
+        " sized too small is a silent extra arrival a frame, for ever",
+        needs=("marty",), serial=True),
     Row("cycweb", "soak", py("tests/cycweb.py"), 40.0,
         "Does the claw eat the web it slides over? (SPEC.md 67.5.3.1)",
         needs=("marty",), serial=True),
@@ -2204,6 +2212,27 @@ SOAK = [
         "[ch_seg] stale and the move count at 0. Needs `cc`",
         needs=("marty", "cc"), serial=True,
         wants=("build/cmemmove360.img",)),
+    Row("gfxpoints", "soak", py("tests/gfxpoints.py"), 45.0,
+        "SPEC.md 5.6.9: gfx_points draws the SAME pixels as a gfx_pixel loop. "
+        "The slot exists to REPLACE that loop, so the only claim worth gating "
+        "is that it IS it - tests/ptstest lays one coordinate set down twice, "
+        "band A through OSAPI_GFX_POINTS and band B PT_DY rows lower one "
+        "gfx_pixel a point, and the row requires the two equal. No golden "
+        "image and no reference build: the comparison is inside one frame. "
+        "Three cases, because the draw branches three ways - a solid ink, a "
+        "DITHER ink (the (x+y) parity arm), and a solid one with the window's "
+        "clip region ARMED. VERIFIED TO FAIL: drawing every other point takes "
+        "all three red and dropping the dither arm takes case 2 red alone. "
+        "VERIFIED NOT TO COVER 5.6.9.1's box invalidation, which is written "
+        "in the row's own docstring with what would - a row that claims "
+        "coverage it has not got is worse than one that names the gap, and "
+        "this one was a FALSE GREEN twice before it caught anything (white "
+        "ink on white content; then a pattern whose second half repeated its "
+        "first). SOAK and not fast or full: it is one kernel slot, it wants "
+        "an emulator, and 'did you obviously break the OS' is not what it "
+        "asks",
+        needs=("marty",), serial=True,
+        wants=("build/ptstest360.img",)),
     Row("regmove", "soak", py("tests/regmove.py"), 130.0,
         "A package's REGION moves and the package keeps working (SPEC.md "
         "66.6.1). 66.6 said since it was written that a region can never move "
@@ -2983,11 +3012,6 @@ SOAK = [
         "frame - the flicker measured rather than argued about",
         needs=("marty", "wiredisk"), serial=True,
         wants=("build/wire360.img",)),
-    Row("wirefps", "soak", py("tests/wirefps.py"), 30.0,
-        "What SPEC.md 5.6.4.1 is worth to a program that draws lines - apps/wire"
-        "reading its own frame rate, with the dispatch poked out and back",
-        needs=("marty", "wiredisk"), serial=True, alone=True,
-        wants=("build/wire360.img",)),
     Row("paintrate", "soak", py("tests/paintrate.py"), 60.0,
         "SPEC.md 42.8.1: is Paint's brush stroke still sampled at the TICK? The"
         "facets in a hand-drawn curve were one 55ms sleep each. On the GLaBIOS"
@@ -2995,6 +3019,14 @@ SOAK = [
         "number, so its docstring argues the case: the window is guest cycles"
         "with no int 13h in it, and the assertion is a separation of an order"
         "of magnitude rather than a calibrated figure",
+        needs=("marty",), serial=True),
+    Row("paintstroke", "soak", py("tests/paintstroke.py"), 60.0,
+        "SPEC.md 42.23.8: what a stroke segment's SCREEN half costs, in guest"
+        " cycles, bracketed between pt_lnblit and pt_segdo.fpdone so nothing"
+        " but the one call is in the window. It is why the screen half is a"
+        " band out of the canvas and not an OSAPI_GFX_LINE - and it carries"
+        " the refused middle route too, pt_blit of the same rect being 34%"
+        " WORSE than the line it would replace",
         needs=("marty",), serial=True),
     Row("paintwalk", "soak", py("tests/paintwalk.py"), 30.0,
         "SPEC.md 42.8.3: a brush chord steps each axis exactly |d| times. The"
@@ -3048,11 +3080,6 @@ SOAK = [
     Row("evqfull", "soak", py("tests/evqfull.py"), 20.0,
         "SPEC.md 10.1: a full event ring discards its OLDEST input, and never"
         "a coalesced WAKE - asked of evq_push directly, with the CPU parked",
-        needs=("marty",), serial=True),
-    Row("linefast", "soak", py("tests/linefast.py"), 90.0,
-        "Does SPEC.md 5.6.4.1's fast walk lay 5.6.4's pixels? Both inks, all"
-        "eight octants, clipped and not - against the same kernel with the"
-        "dispatch poked out",
         needs=("marty",), serial=True),
     Row("dispmine", "soak", py("tests/dispmine.py"), 30.0,
         "Can Minesweeper's bottom row be PLAYED on a CGA? (SPEC.md 11.93)",
@@ -3705,6 +3732,14 @@ SOAK = [
         "The 360KB MEDIA DISK mounts, and the apps disk keeps MEDIA (SPEC.md"
         "24.4).",
         needs=("marty",), serial=True),
+    Row("mcseg", "soak", py("tests/mcseg.py"), 90.0,
+        "SPEC.md 48.16.1: Missile's SEGMENT arm - the one a trail takes when"
+        " mc_tr_lay will not lay a walk for it - draws and commits through"
+        " OSAPI_GFX_POINTS. The row exists because the arm does not run:"
+        " measured over 45 guest seconds of play, mc_tr_lay refused 0 of 39,"
+        " so it patches mc_tr_lay to stc/ret in the guest to force every trail"
+        " down it",
+        needs=("marty",), serial=True),
     Row("minexflag", "soak", py("tests/minexflag.py"), 50.0,
         "A wrong flag must not be drawn pixel-identical to a mine (SPEC.md "
         "23): the X over it is light red because a black one lands entirely "
@@ -3883,13 +3918,33 @@ SOAK = [
         "CONTROL that must DIFFER, or a rect that missed the palette would "
         "pass the first two.",
         needs=("marty",)),
+    Row("paint1small", "soak", py("tests/paint1small.py"), 60.0,
+        "SPEC.md 5.4.2.5.1: kern_small has a gfx_blit1 BODY now, and Paint "
+        "TAKES it. That the thunk points somewhere is not the claim - the "
+        "routine could answer CF = 1 from any argument refusal and Paint "
+        "would fall back exactly as before, silently and at the same 24x, so "
+        "this asks the running machine. The oracle is pt_line, which the "
+        "fallback expands each canvas row into and the fast path never "
+        "touches: a sentinel there survives one and not the other, and it "
+        "needs no instrumentation in the product. A FILE OF ITS OWN rather "
+        "than an arm of paint1blit because kern_small has no file "
+        "association (SPEC.md 54.0) - double-clicking a .BMP launches "
+        "nothing there, so Paint is opened directly on the canvas it makes "
+        "itself. VERIFIED TO FAIL with stc/ret poked over the thunk, which "
+        "is the state that kernel shipped in until wave 1 of "
+        "docs/plans/completed/GFX-EMBEDDABLE-PLAN.md. It builds nothing: `make small` "
+        "is what it reads, the same tree small128 and smallboot want",
+        needs=("marty",), serial=True,
+        wants=("build/small360.img", "build/smallk/kernel.bin")),
     Row("paint1blit", "soak",
         py("tests/paint1blit.py"), 90.0,
         "SPEC.md 42.23.4: the TWO paths a one-bit canvas reaches the screen"
         "by, compared. kern_big has gfx_blit1 and blits the band straight in;"
-        "kern_small carries the SLOT AND NOT THE BODY (5.4.2), so Paint"
-        "expands each row for gfx_blit4 instead - and the two must draw the"
-        "same picture to the pixel. Neither arm alone would catch a wrong"
+        "a REFUSED gfx_blit1 sends Paint to expand each row for"
+        "gfx_blit4 instead - and the two must draw the same picture to the"
+        "pixel. It forces that refusal by poking stc/ret over the thunk, so"
+        "it is untouched by 5.4.2.5.1 giving kern_small a body; paint1small"
+        "is what says THAT build takes the fast path. Neither arm alone would catch a wrong"
         "one: the fast path could draw a plausible picture one row or one"
         "byte out, and the fallback is what every other 1bpp row already"
         "exercises. The fixture is BUILT here, every byte differing from its"
@@ -3997,6 +4052,44 @@ SOAK = [
         "decoder, pt_line_put's packing into four planes and gfx_blitp are"
         "all inside one answer",
         needs=("marty",), serial=True),
+    Row("cplistrow", "soak", py("tests/cplistrow.py"), 30.0,
+        "SPEC.md 31.1.4: does a Control Panel selection redraw TWO ROWS, or"
+        "blank the left pane? cp_list erases the pane before re-lettering"
+        "every row and used to BE the redraw path, so moving one highlight"
+        "blanked them all. It counts font_run_x in the pane rather than"
+        "reading pixels, because the final frame is identical either way",
+        needs=("marty",), serial=True),
+    Row("radio", "soak", py("tests/radio.py"), 45.0,
+        "SPEC.md 13.17: does os88ui_rad draw a RADIO - corners clear, a"
+        "centred dot - and does its press answer three things? On HERCULES,"
+        "because 13.17.1's shape rule is a 1bpp rule (SPEC.md 39.4) and a VGA"
+        "pass would prove nothing about it. Needs `make radtest`, which is"
+        "also the ONLY thing in the tree defining OS88UI_RAD - so this row is"
+        "what keeps the control assembling",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/radtest360.img",)),
+    Row("glyphcost", "soak", py("tests/glyphcost.py"), 30.0,
+        "docs/plans/completed/CTRL-GLYPH-PLAN.md 4: what did SPEC.md 13.15.1 cost a"
+        "control glyph, per call, in guest cycles? tests/glyphbn carries the"
+        "PRE-13.15.1 routine lifted verbatim beside today's, so the A/B is"
+        "one binary on one kernel and the gfx_line family this arc removed"
+        "from that kernel cannot get into the answer. It is a REGRESSION"
+        "gate and not a verdict on the design - the bar is the owner's,"
+        "under 2ms a call for a control drawn once. Needs `make glyphbn`,"
+        "which is also the only thing keeping the old routine assembling",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/glyphbn360.img",)),
+    Row("mcperf", "soak", py("tests/mcperf.py"), 50.0,
+        "SPEC.md 48.16.2: does Missile play the SAME GAME twice? A fixed"
+        "seed, scripted shots and 400 frames back to back rather than one a"
+        "tick - because mc_worker sleeps to a DEADLINE, so a faster frame"
+        "makes it sleep longer and the win is invisible in wall time. What"
+        "is gated is DETERMINISM and not speed: two runs in one boot must"
+        "end in the identical game state, which is the property a before/"
+        "after comparison rests on. Needs `make mcbench`, which is also the"
+        "only thing keeping mcbench.inc assembling",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/mcbench360.img",)),
     Row("blitp", "soak", py("tests/blitp.py"), 120.0,
         "SPEC.md 5.4.3: does gfx_blitp put the bytes where it was given them?"
         "Reads the four PLANES rather than the rendered frame - which below"

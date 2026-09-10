@@ -109,7 +109,8 @@ MN_S_COVER   equ 0
 MN_S_FLAG    equ 1
 MN_S_OPEN    equ 2
 
-MN_BSS_TOTAL equ 427                ; see the bss layout after OS88_IMAGE_END
+MN_XPTN      equ 20                 ; the wrong-flag X's pixels (SPEC.md 5.6.9)
+MN_BSS_TOTAL equ 427 + MN_XPTN * 4  ; see the bss layout after OS88_IMAGE_END
 
 ; -----------------------------------------------------------------------------
 ; mn_entry - package entry point (SPEC.md 20.2)
@@ -813,9 +814,13 @@ mn_draw_minecell:
 ;
 ; Light red because 39.4 maps 12 to WHITE at 1bpp: red on a black mine on
 ; VGA, white on a black mine on a CGA and a Hercules. It is one SET_COLOR
-; for the whole loop, so the fix costs nothing (PERFORMANCE.md: the twenty
-; gfx_pixel calls are what they always were, and only a lost board with a
-; wrong flag on it pays them at all).
+; for the whole loop, so the fix costs nothing.
+;
+; ...AND THE TWENTY CALLS ARE ONE CALL NOW (SPEC.md 5.6.9). The X is a set of
+; pixels this program computes, which is exactly what OSAPI_GFX_POINTS takes,
+; so the loop composes into mn_xpts and hands the lot over together. Twenty
+; far calls at ~640us was 12.8ms per wrongly flagged cell of a lost board -
+; the whole board can carry several - against one arrival and twenty points.
 ; -----------------------------------------------------------------------------
 mn_draw_wrongflag:
     push ax
@@ -830,29 +835,31 @@ mn_draw_wrongflag:
     call mn_shape
     mov al, CLRED                   ; NOT CBLACK - see the header
     call OSAPI_SET_COLOR
+    push bx
     mov di, 0                       ; two 10px diagonals, corner to corner
+    mov bx, mn_xpts                 ; ...composed here and drawn in ONE call
 .px:
-    push cx
-    push dx
-    add cx, di
-    add cx, 3
-    add dx, di
-    add dx, 3
-    call OSAPI_GFX_PIXEL             ; (3+i, 3+i)
-    pop dx
-    pop cx
-    push cx
-    push dx
-    add cx, 12
-    sub cx, di
-    add dx, di
-    add dx, 3
-    call OSAPI_GFX_PIXEL             ; (12-i, 3+i)
-    pop dx
-    pop cx
+    mov ax, cx
+    add ax, di
+    add ax, 3
+    mov [bx], ax                    ; (3+i, 3+i)
+    mov ax, dx
+    add ax, di
+    add ax, 3
+    mov [bx+2], ax
+    mov [bx+6], ax                  ; ...and (12-i, 3+i), same row
+    mov ax, cx
+    add ax, 12
+    sub ax, di
+    mov [bx+4], ax
+    add bx, 8
     inc di
     cmp di, 10
     jb .px
+    mov si, mn_xpts                 ; SPEC.md 5.6.9: twenty pixels, ONE
+    mov cx, MN_XPTN                 ; arrival. It was twenty far calls at
+    call OSAPI_GFX_POINTS           ; ~640us each - 12.8ms of a lost board,
+    pop bx                          ; per wrongly flagged cell
     pop di
     pop si
     pop dx
@@ -1129,4 +1136,6 @@ mn_revealed equ os88_image_end + 416 ; byte: open safe cells (win at 71)
 mn_boom     equ os88_image_end + 417 ; byte: the mine cell that was clicked
 mn_nbuf     equ os88_image_end + 418 ; 8 bytes: mn_nlist output
 mn_abon     equ os88_image_end + 426 ; byte: the About card is up
+mn_xpts     equ os88_image_end + 427 ; MN_XPTN x,y pairs: the wrong-flag X,
+                                     ; composed once and drawn in one call
                                     ; total 427 = MN_BSS_TOTAL
