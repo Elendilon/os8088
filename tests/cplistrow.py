@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""DOES A CONTROL PANEL SELECTION REDRAW TWO ROWS, OR BLANK THE PANE?
-   (SPEC.md 31.1.4)
+"""DOES A CONTROL PANEL SELECTION REDRAW WHAT CHANGED, OR BLANK A PANE?
+   (SPEC.md 31.1.4, 31.5.3)
 
     make && python3 tests/cplistrow.py
 
@@ -32,9 +32,16 @@ no way to have one without the other.
 "two rows and no wide fill": the new row must end up with a black bar under
 white text and the old row must not.
 
-WHAT IT WOULD CATCH, both verified red by reverting the source: the pane erase
-and its six names, and a cp_listrow that skips the bar when a row is NOT
-selected, which leaves the old bar standing for ever.
+THE DATE/TIME PAGE IS THE SAME QUESTION ONE PAGE ALONG (SPEC.md 31.5.3).
+Clicking a different field called cp_time_rows(1), whose first act is to fill
+the whole date-and-time band white - so moving the caret blanked both rows and
+re-lettered all six fields to take one black box off one of them. The count
+here is the same tell: six names means the band went, two means it did not.
+
+WHAT IT WOULD CATCH, verified red by reverting the source: the list pane's
+erase and its six names, a cp_listrow that skips the bar when a row is NOT
+selected (which leaves the old bar standing for ever), and the time page's
+band erase and its six fields.
 """
 import argparse
 import os
@@ -49,6 +56,8 @@ from cycweb import shot                                        # noqa: E402
 
 CP_DIVX, CP_IBX1, CP_IBX2 = 88, 2, 85
 CP_I0Y, CP_IROWH, CP_IBH, CP_IX = 6, 14, 12, 6
+CP_RX, CPT_FX, CPT_DY, CPT_TY = 96, 8, 26, 48       # the Date/Time page
+CP_ITIME = 1                                        # cp_items' record 1
 TITLE_H = dispcp.TITLE_H
 FAIL = []
 
@@ -155,6 +164,43 @@ def main():
         check(ink_old < band * 0.4,
               "...and the row it left does not (%d of %d px ink)"
               % (ink_old, band))
+
+        # --- 2. THE DATE/TIME PAGE, same question (SPEC.md 31.5.3) -----------
+        # A field's caret is a black box round it, and moving it used to erase
+        # the whole date-and-time band. Two fields change, so two runs.
+        dispcp.open_panel(m, mo, S, os88marty.settle, page=CP_ITIME)
+        mo.to(4, 4)
+        time.sleep(1.0)
+        wx, wy = dispcp._cp_win(m, S)
+        fld = m.read(S("cp_tsel"), 1)[0]
+        tgt = 3 if fld != 3 else 0          # a field on the OTHER row
+        fy = (CPT_DY if tgt < 3 else CPT_TY)
+        fx = CPT_FX + (0, 32, 56, 0, 24, 48, 72)[tgt]
+        # THE TICK RE-LETTERS ALL SEVEN FIELDS EVERY SECOND and is supposed
+        # to (SPEC.md 31.5.1), so counting RUNS here counts the clock: the
+        # first version of this assertion did, saw six, and was reading the
+        # tick rather than the click.
+        #
+        # THE FILL IS THE DISCRIMINATOR, and 31.5.1 is why: the tick "erases
+        # nothing" - it makes no gfx_fill at all. So every fill in the window
+        # belongs to the click, a band erase is ~140px wide and a field's box
+        # is at most CPT_YRW + 4. gfx_fill is cheap to trace HERE, where
+        # cp_page is not called and the panel is otherwise still.
+        with os88marty.bp_trace(m, "gfx_fill", regs=True) as tr:
+            mo.click(wx + 1 + CP_RX + fx + 4,
+                     wy + TITLE_H + 1 + fy + 4, settle=0)
+            time.sleep(2.0)
+        mo.to(4, 4)
+        newfld = m.read(S("cp_tsel"), 1)[0]
+        pane = wx + 1 + CP_RX
+        fills = sorted({h["regs"]["cx"] - h["regs"]["ax"] + 1 for h in tr.hits
+                        if h.get("regs") and h["regs"]["ax"] >= pane})
+        print("   time page: [cp_tsel] %d -> %d, fill widths %s"
+              % (fld, newfld, fills))
+        check(newfld == tgt, "the caret moved to the field clicked")
+        check(len(fills) <= 2 and (not fills or max(fills) <= 40),
+              "only the two FIELD BOXES were filled - the band was not erased "
+              "(%s)" % (fills if fills else "no fill at all"))
 
     print("cplistrow: %s" % ("FAILED - " + "; ".join(FAIL) if FAIL else "ok"))
     sys.exit(1 if FAIL else 0)

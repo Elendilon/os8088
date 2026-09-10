@@ -46145,6 +46145,38 @@ one above — `cp_onclick` runs with the gfx lock held and `gfx_lock` is
 non-reentrant — which the clock never had, because writing a chip takes no
 lock at all.
 
+### 31.5.3 …and a SELECTION moves two fields, not the band
+
+§31.5.1 got the *tick* right — seven opaque runs and no erase — and left the
+**selection** on the other path. Clicking a different field called
+`cp_time_rows(1)`, whose first act is to fill the whole date-and-time band
+white, so moving the caret one field along **blanked both rows and re-lettered
+all six fields** to take one black box off one of them.
+
+`cp_time_fld` draws an unselected field's box **in the ground** now, so the
+field that lost the caret clears it by drawing its replacement — one write,
+where the band erase was thousands. A selection is two calls: the field the
+caret left and the one it arrived at.
+
+**`[cp_tfull]` has a third value, `CPT_FBOX` = 2**, and it is what keeps the
+other two paths free of the extra fill:
+
+| `[cp_tfull]` | who | the box |
+|---:|---|---|
+| 0 | the tick | **neither** — it is already on the glass and its 2px surround is outside the run |
+| 1 | a page draw, a 12/24 change | **the selected field's only** — the band erase has already cleared every other |
+| `CPT_FBOX` | **a selection move** | **every field's, in its own colour** — which is the whole point |
+
+**`[cp_tsel]` moves before either field is drawn**, because `cp_time_fld` reads
+it to decide which way round a field goes: the old field then tests as plain
+and gets the white box, which is exactly what is wanted. Same order as
+§31.1.4's, and for the same reason.
+
+The other three callers of `cp_time_rows` were already right and are untouched:
+a **+/- step** is `AL = 0` (digits change, the runs cover their fields exactly),
+a **page draw** is `AL = 1`, and a **12/24 change** is `AL = 1` because the
+field *count* changes and a disappearing meridiem leaves text no run covers.
+
 ### 31.6 Drivers page — loading and unloading, and remembering it
 
 Third item, index `CP_IDRV` = 2, list name and heading `'Drivers'`. One row
@@ -46685,6 +46717,29 @@ rather than far-calling into the module, and so does this.
 **An unclaimed key is dropped and not beeped at.** A Control Panel is not a
 text window; every key arriving while a button page is showing would otherwise
 be an error the user did not make.
+
+#### 31.9.3 A variable-length line draws its text FIRST and clears only the tail
+
+`cp_drv_wipe` filled a whole text line white and a `cp_run` then lettered it —
+the erase-then-letter pair, §13.14.6 rule 1, on the Sound page's note and on
+every driver row's status line. Its own comment carried the reason: *"the
+strings differ in length, and the line is usually empty."*
+
+**That reason is real and it does not need an erase first.** `font_run` is
+opaque (§6.1), so it lays its own paper under every cell it covers; the only
+thing a wipe was ever for is the **tail** of a *longer previous* string. So
+`cp_drv_line` draws the string where it goes and then clears from its last
+column to the pane's right edge — one write each, nothing written twice, and no
+interval in which the line reads empty.
+
+An empty line is the degenerate case rather than a special one: `SI` = 0 means
+the whole line is tail.
+
+**The width comes from `font_width`, not a local `strlen`.** It is `8 × length`
+today, and a loop in the module would be a dozen bytes cheaper — but a second
+opinion about how wide a string is, is a second opinion that can drift, and
+`font_width` has been **far-entered since §2.6.1**, so using it costs no kernel
+byte at all.
 
 ### 31.10 Display page — which adapter the machine is driven as
 

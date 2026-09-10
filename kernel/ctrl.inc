@@ -714,6 +714,8 @@ cp_ipap:  db CWHITE
 ; pressed look at all (cp_vid_rows') cannot inherit a stale one.
 cp_only:  db 0
 cp_skip:  db 0
+CPT_FBOX  equ 2                 ; [cp_tfull]'s third value: draw MY OWN box,
+                                ; whichever way round it goes (SPEC.md 31.5.3)
 cp_tfull: db 0
 cp_tpair: dw 0                  ; ...and the field's (ink, bg), decided where
                                 ; the selection is known and read where the
@@ -3451,9 +3453,27 @@ cp_time_click:
 %endif
     cmp al, [cp_tsel]
     je .donej                   ; already selected: change nothing
+
+    ; --- TWO FIELDS CHANGE, SO TWO FIELDS ARE DRAWN (SPEC.md 31.5.3) --------
+    ; This used to be `cp_time_rows(1)`, whose first act is to erase the whole
+    ; date-and-time band white - so moving the caret one field along blanked
+    ; both rows and re-lettered all six fields to take one black box off one of
+    ; them. cp_time_fld draws an unselected field's box in the GROUND now, so
+    ; the field that lost the caret clears it by drawing its replacement.
+    ;
+    ; [cp_tsel] MOVES FIRST, because cp_time_fld reads it to decide which way
+    ; round a field goes: the old field then tests as plain and gets the white
+    ; box, which is exactly what is wanted.
+    push ax
+    mov ah, [cp_tsel]           ; AH = the field the caret is LEAVING
     mov [cp_tsel], al
-    mov al, 1                   ; the SELECTION moved, so the old black box has
-    call cp_time_rows           ; to come off: a full draw (SPEC.md 31.5.1)
+    mov byte [cp_tfull], CPT_FBOX
+    mov al, ah
+    call cp_time_fld            ; the field that loses the box...
+    mov al, [cp_tsel]
+    call cp_time_fld            ; ...and the one that gains it
+    mov byte [cp_tfull], 0
+    pop ax
 .donej:                         ; ...and the four refusals around it
     jmp .done
 
@@ -3680,11 +3700,24 @@ cp_time_fld:
 
     ; --- selected: white text on a black box ---------------------------------
     mov word [cp_tpair], (CBLACK << 8) | CWHITE   ; AL = ink, AH = paper
+    mov byte [gfx_color], CBLACK
     cmp byte [cp_tfull], 0
     je .text                    ; SPEC.md 31.5.1: on a tick the box is already
                                 ; on the glass and its 2px surround is outside
                                 ; the run, so drawing it again would be a
                                 ; second write of pixels that did not change
+    jmp short .box
+.plain:
+    mov word [cp_tpair], (CWHITE << 8) | CBLACK
+    mov byte [gfx_color], CWHITE    ; ...and the SAME box in the GROUND, which
+    cmp byte [cp_tfull], CPT_FBOX   ; is what takes the black one off a field
+    jne .text                       ; that has just been DESELECTED - one write
+                                    ; where the whole band used to be erased
+                                    ; (SPEC.md 31.5.3). Only in that mode: on a
+                                    ; tick there is no box to take off, and on
+                                    ; a full draw the band erase has already
+                                    ; done it for every field at once
+.box:
     push cx
     push dx
     push bx
@@ -3702,15 +3735,11 @@ cp_time_fld:
     dec bx                      ; y1 = y - 2
     dec bx
     add dx, 9                   ; y2 = y + 9
-    mov byte [gfx_color], CBLACK
-    call KERNEL_SEG:cw_gfx_fill
+    call KERNEL_SEG:cw_gfx_fill ; the pen was set by whichever arm arrived here
     pop ax
     pop bx
     pop dx
     pop cx
-    jmp short .text
-.plain:
-    mov word [cp_tpair], (CWHITE << 8) | CBLACK
 .text:
     mov al, ah                  ; AL = field index for the formatter
     call clk_fld_str            ; SI = that field's text (SPEC.md 37) - near,
@@ -4576,23 +4605,21 @@ cp_snd_note:
     push cx
     push dx
     push si
-    mov dx, bp
-    add dx, CPS_NOTEY
-    mov ax, CP_PMX              ; nothing to this line's left on this page
-    call cp_drv_wipe            ; the strings differ in length, and the line
-    mov bl, [cp_snd_err]        ; is usually empty
+    xor si, si                  ; SI = the note, or 0 for none: cp_drv_line
+    mov bl, [cp_snd_err]        ; takes both, and the line is usually empty
     or bl, bl
-    jz .out
+    jz .draw
     cmp bl, DRVE_NERR           ; the code came out of a driver, and a table
-    jae .out                    ; index is not a thing to take on trust
+    jae .draw                   ; index is not a thing to take on trust
     xor bh, bh
     shl bx, 1
     mov si, [bx+drv_errstr]
-    mov cx, di
-    add cx, CP_PMX
+.draw:
     mov dx, bp
     add dx, CPS_NOTEY
-    call cp_run
+    mov ax, CP_PMX              ; nothing to this line's left on this page
+    call cp_drv_line            ; the strings differ in length, so the TAIL is
+                                ; what gets cleared - after the run, not before
 .out:
     pop si
     pop dx
@@ -5685,10 +5712,7 @@ cp_drv_line1:
     call cp_drv_rowy                ; DX = this row's glyph top
     add dx, CP_DSTDY
     mov ax, CP_PLX                  ; ...and NOT CP_PMX: see above
-    call cp_drv_wipe
-    mov cx, di
-    add cx, CP_PLX
-    call cp_run
+    call cp_drv_line
 .out:
     pop si
     pop dx
@@ -5698,29 +5722,78 @@ cp_drv_line1:
     ret
 
 ; -----------------------------------------------------------------------------
-; cp_drv_wipe - white out one text line of the pane (module internal)
+; cp_drv_line - one VARIABLE-LENGTH text line of the pane (module internal)
+;
 ; in:  DI = pane left, AX = the line's LEFT inset from the pane, DX = the
-;      line's baseline y; gfx lock held
+;      line's baseline y, SI -> the string or 0 for none; gfx lock held
 ; out: nothing (all registers preserved; leaves [gfx_color] = CBLACK)
+;
+; THE RUN GOES FIRST AND THE CLEAR IS ONLY THE TAIL (SPEC.md 31.9.3). This
+; used to be cp_drv_wipe - fill the whole line white - and then a cp_run over
+; it, which is SPEC.md 13.14.6 rule 1: on a 4.77 MHz 8088 the line is blank
+; for the width of a fill before a letter of it comes back.
+;
+; font_run is OPAQUE, so it lays its own paper under every cell it covers
+; (SPEC.md 6.1) and the only thing an erase was ever for is the TAIL of a
+; LONGER previous string. So the string is drawn where it goes and then the
+; pixels between its end and the pane's right edge are cleared - one write
+; each, nothing written twice, and no interval in which the line reads empty.
+;
+; THE WIDTH COMES FROM font_width AND NOT A LOCAL strlen. It is 8 * length
+; today and a local loop would be a dozen bytes cheaper, but a second opinion
+; about how wide a string is, is a second opinion that can drift - and
+; font_width is FAR-ENTERED already (SPEC.md 2.6.1), so this costs no kernel
+; byte at all.
 ;
 ; The inset is an argument rather than CP_PMX because a line does not always
 ; own the pane's full width: a driver row's reason line shares a scan line
-; with that row's checkbox and must not erase into it (cp_drv_line1). A
-; caption, which has nothing to its left, passes CP_PMX.
+; with that row's checkbox and must not erase into it. A caption, which has
+; nothing to its left, passes CP_PMX.
 ; -----------------------------------------------------------------------------
-cp_drv_wipe:
+cp_drv_line:
     push ax
     push bx
     push cx
     push dx
+    push si
+
+    add ax, di                  ; AX = the line's left, in screen x
+    mov bx, ax                  ; BX = it, kept clear of the calls below
+    or si, si
+    jz .clear                   ; no string: the whole line is the tail
+
+    push bx
+    push dx
+    mov byte [gfx_color], CBLACK    ; THE INK, SET BEFORE THE RUN. cp_run takes
+                                    ; it from [gfx_color] and the wipe this
+                                    ; replaced left it CBLACK on its way past -
+                                    ; so drawing the text first, without this,
+                                    ; letters the line in whatever pen the last
+                                    ; caller happened to leave behind
+    mov cx, bx                  ; ...the string first, opaque
+    call cp_run
+    pop dx
+    pop bx
+
+    push bx
+    push dx
+    call KERNEL_SEG:font_width  ; AX = 8 * length (it sets its own ES)
+    pop dx
+    pop bx
+    add bx, ax                  ; BX = one past the string's last column
+.clear:
     mov byte [gfx_color], CWHITE
-    add ax, di
-    mov bx, dx
+    mov ax, bx
     mov cx, di
     add cx, CP_PRGT             ; the PANE's last column, not the content's
+    cmp ax, cx
+    ja .out                     ; the string filled the line: nothing to clear
+    mov bx, dx
     add dx, 7
     call KERNEL_SEG:cw_gfx_fill
+.out:
     mov byte [gfx_color], CBLACK
+    pop si
     pop dx
     pop cx
     pop bx

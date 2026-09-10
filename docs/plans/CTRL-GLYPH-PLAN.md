@@ -165,9 +165,9 @@ this is of *calls made*, and it is the one that decides work.
 | `cp_run` | 1 | a `font_run` wrapper | **KEEP.** It is already the shared spelling, and opaque |
 | `cp_divider` | 1 | the 1px rule between the two panes | **KEEP — genuinely one-off.** `gfx_vline` is already the primitive; wrapping one call in a name is not consolidation |
 | `cp_list` | 3 | **the category LIST BOX** — rows with the selected one inverted | **A CONTROL.** And it breaks §13.14.6 rule 1 today, in its own words: *"Erases the whole pane first, so this doubles as the redraw path when the selection moves"* — the exact defect §13.17.4 fixed in the radio, a pane-wide blank to move one highlight |
-| `cp_time_fld` (+`cp_time_rows`) | 3 | **the time/date SPIN FIELD** — a value with the selected one barred | **A CONTROL**, and the closest thing in the tree to a text field |
+| `cp_time_fld` (+`cp_time_rows`) | 3 | **the time/date SPIN FIELD** — a value with the selected one barred | **FIXED (§31.5.3)** — moving the caret erased the whole date-and-time band to take one box off one field. A field draws its own box in the ground now, and a selection is two fields |
 | `cp_drv_arrow1` / `_arrfill` / `_tri` | 3 | **scroll arrows and a triangle** for the driver list | ~~A CONTROL THAT ALREADY EXISTS~~ — **REFUSED, and this row was WRONG. See §6.2** |
-| `cp_drv_wipe` | 1 | clears one line | **rule 1 smell** — an erase helper is what a control needs when it blanks instead of overdrawing |
+| ~~`cp_drv_wipe`~~ → `cp_drv_line` | 1 | a variable-length text line | **FIXED (§31.9.3)** — the run goes first and only the TAIL it did not cover is cleared. The rule-1 smell was right |
 
 ### 6.1 What the census actually found
 
@@ -231,6 +231,37 @@ It blanks its whole pane to move one highlight and says so in its own comment,
 which is §13.14.6 rule 1 in the Control Panel where a user sees it — the same
 fix §13.17.4 and §13.15.2 have now made twice. It needs no new shared control
 and no look decision.
+
+### 6.4 The census is CLOSED, and what it came to
+
+| routine | verdict |
+|---|---|
+| `cp_page`, `cp_run`, `cp_divider` | **already right** — a caller laying its pane's ground, the shared opaque-run wrapper, and one genuine one-off |
+| `cp_list` | **fixed**, §31.1.4 — a selection redraws two rows, not the pane |
+| `cp_time_fld` | **fixed**, §31.5.3 — a caret move redraws two fields, not the band |
+| `cp_drv_wipe` → `cp_drv_line` | **fixed**, §31.9.3 — the run first, the tail after |
+| `cp_drv_arrow1` / `_arrfill` / `_tri` | **refused**, §6.2 — not the same widget as `OS88_SCROLL` |
+
+**Three of the six were already right and one is refused, so the work was
+three routines.** The brief read as twenty-one call sites; it was ten, in three
+routines, and every one of them turned out to be the *same defect* rather than
+a missing shared control: **something blanked before it drew.**
+
+**That is the finding worth keeping.** The census was written expecting to find
+controls that wanted naming — a list box, a spin field, a scroll bar. What it
+actually found is that the Control Panel's hand-rolled code is fine *as code*
+and was wrong about *when to erase*, three times, in three different shapes:
+a pane, a band, and a line. §13.14.6 is one rule and it was broken three ways.
+
+**No shared control was invented.** `cp_listrow`, `cp_time_fld`'s third mode
+and `cp_drv_line` are all local, and each is smaller than a shared routine plus
+its record would have been. The one place a shared control *was* the answer —
+the glyph — was already shared and only needed its body changed (§13.15.1).
+
+**Total: +130 bytes of `CTRL.DRV`** — 6,102 → 6,178 for the list and → 6,232
+for the other two. None of it is resident: `CTRL.DRV` is an on-demand module
+(§2.8), read into a heap claim when the panel opens and given back when it
+closes, so this is 130 bytes of a floppy rather than of every machine's RAM.
 
 ## 5. Sequencing
 
