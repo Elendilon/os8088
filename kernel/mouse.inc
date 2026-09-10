@@ -4987,6 +4987,13 @@ cur_draw:
 ; would vanish into any dark window it was standing on. The tile reads on
 ; every ground for free, and costs the same 24 bytes either way.
 ;
+; THE SHAPE IS ASYMMETRIC ON PURPOSE, and it was chosen by looking at four of
+; them zoomed rather than by drawing one: the upper chamber is SOLID (sand
+; still to fall) and the lower is an OUTLINE with a pile in it (sand that has),
+; which is what says which way up it is at 8x11. A symmetric one with a
+; four-row neck - the obvious drawing, and the first one here - reads as an
+; I-beam.
+;
 ; It is DELIBERATELY STILL. SPEC.md 7.1.4.3 refuses a lit-but-frozen ARROW and
 ; the field called that one a stutter - but the reason is that a still arrow
 ; is a LIE about responsiveness, and an hourglass standing still is the truth
@@ -4994,15 +5001,15 @@ cur_draw:
 ; arrow may not.
 %macro CUR_BUSY 0
     CUR_ROW 0xFF00,             0xFF00      ; ########  the top bar
-    CUR_ROW 0xFF00,             0x7E00      ; .######.  the upper chamber,
-    CUR_ROW 0xFF00,             0x3C00      ; ..####..  full and running out
-    CUR_ROW 0xFF00,             0x1800      ; ...##...
-    CUR_ROW 0xFF00,             0x1800      ; ...##...  the neck
-    CUR_ROW 0xFF00,             0x1800      ; ...##...
-    CUR_ROW 0xFF00,             0x1800      ; ...##...
-    CUR_ROW 0xFF00,             0x2400      ; ..#..#..  the lower chamber,
-    CUR_ROW 0xFF00,             0x4200      ; .#....#.  drawn as an outline
-    CUR_ROW 0xFF00,             0x7E00      ; .######.  with the sand settled
+    CUR_ROW 0xFF00,             0x7E00      ; .######.  the upper chamber, its
+    CUR_ROW 0xFF00,             0x3C00      ; ..####..  sand running out
+    CUR_ROW 0xFF00,             0x1800      ; ...##...  the neck - TWO rows and
+    CUR_ROW 0xFF00,             0x1800      ; ...##...  not four; see below
+    CUR_ROW 0xFF00,             0x2400      ; ..#..#..  the lower chamber's
+    CUR_ROW 0xFF00,             0x4200      ; .#....#.  walls, opening out
+    CUR_ROW 0xFF00,             0x8100      ; #......#
+    CUR_ROW 0xFF00,             0x9900      ; #..##..#  ...and the pile it has
+    CUR_ROW 0xFF00,             0xBD00      ; #.####.#  made at the bottom
     CUR_ROW 0xFF00,             0xFF00      ; ########  the bottom bar
     CUR_ROW 0x0000,             0x0000      ; CUR_GH is 12 and this is 11
 %endmacro

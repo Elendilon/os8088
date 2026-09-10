@@ -9134,6 +9134,22 @@ picture. The assertion beside `WF_HIBITS` is cut from `CUR_NWSHAPE` for exactly
 that reason, and it is what caught this: raising `CUR_NSHAPE` to 3 failed the
 build in `wm.inc` on the first attempt.
 
+#### 7.5.0 The picture, and why it is asymmetric
+
+Every shape shares the arrow's 8x12 cell (§7.2) — a bigger one would be paid on
+every lock hold in the machine — and the hourglass fills it edge to edge,
+because the bars *are* its widest rows. So there is no room in eight columns
+for the white rim the other two shapes are built with, and a
+black-on-transparent hourglass would vanish into any dark window it stood on.
+What ships is the other construction: **a solid white tile with the glass in
+black on it**, which reads on every ground and costs the same 24 bytes.
+
+The drawing is **asymmetric on purpose**, and it was picked by rendering four
+of them zoomed rather than by drawing one. The upper chamber is SOLID — sand
+still to fall — and the lower is an OUTLINE with a pile in it. That is what
+says which way up it is at 8x11: the obvious symmetric drawing, with a
+four-row neck, reads as an **I-beam**.
+
 #### 7.5.1 It is DELIBERATELY still, where the arrow may not be
 
 §7.1.4.3 refuses a lit-but-frozen arrow and the field called that one a
