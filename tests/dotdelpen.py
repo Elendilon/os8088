@@ -573,31 +573,38 @@ def leg_h(ui, p, say, want=4):
             continue                    # a pill, a ghost or a fruit note
         if e != last:
             if cur:
-                bites.append(cur)
+                bites.append((last, cur))
             cur, last = [], e
         cur.append(hz)
     if cur:
-        bites.append(cur)
-    pairs = [b for b in bites if len(b) == 2]
+        bites.append((last, cur))
+    pairs = [(e, b) for e, b in bites if len(b) == 2]
     if len(pairs) < want:
         say("H  FAIL: %d complete bite(s) of %d wanted in %d tone(s) - a dot "
             "is not two tones (SPEC.md 93.10.1).  bites=%s"
             % (len(pairs), want, len(seq), bites))
         return 1
-    flat = [b for b in pairs if b[0] == b[1]]
+    flat = [b for _, b in pairs if b[0] == b[1]]
     if flat:
         say("H  FAIL: %d bite(s) played the SAME tone twice (%s) - that is the "
             "clink again, not a warble (SPEC.md 93.10.1)" % (len(flat), flat))
         return 1
-    stuck = [i for i in range(len(pairs) - 1) if pairs[i] != pairs[i + 1][::-1]]
+    # ...AND ONLY BETWEEN ADJACENT DOTS.  [dd_eaten] counts pellets too, and a
+    # PELLET does not flip [dd_wakph] - it is dd_beep, not dd_dot_snd - so the
+    # two dots either side of one share an orientation and always will.  That
+    # is the design and not a defect, so the reversal is required where the
+    # count moved by exactly one.
+    stuck = [i for i in range(len(pairs) - 1)
+             if pairs[i + 1][0] == pairs[i][0] + 1
+             and pairs[i][1] != pairs[i + 1][1][::-1]]
     if stuck:
         say("H  FAIL: bite(s) %s did not turn the pair over - [dd_wakph] is "
             "not flipping, so every bite is the same syllable and the "
             "up-down-up-down is gone (SPEC.md 93.10.1).  bites=%s"
-            % (stuck, pairs))
+            % (stuck, [b for _, b in pairs]))
         return 1
-    say("H  ok: %d bites, two tones each, reversed every time (%s Hz)"
-        % (len(pairs), sorted(set(pairs[0]))))
+    say("H  ok: %d bites, two tones each, reversed between adjacent dots "
+        "(%s Hz)" % (len(pairs), sorted(set(pairs[0][1]))))
     return 0
 
 

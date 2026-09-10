@@ -113,9 +113,39 @@ dd_layout:
     jb .kok
     xor bx, bx
 .kok:
+    ; --- THIN or FULL, resolved HERE and not at the menu (93.3.3.1) --------
+    ; The window can be dragged from one display to another, so this is a
+    ; runtime answer: a bracket owns the whole screen and wants FULL, and a CGA
+    ; has no Thin to offer at all - 200 lines cannot give 31 rows of a taller
+    ; tile, so both modes come out 8x4 there. dd_i_win's first item is pointed
+    ; at the greyed string to say so, which is 12.2's way of saying it and
+    ; SPEC.md 47 rule 3's requirement that a greyed item name its reason.
+    mov ax, dd_it_thin
+    cmp bl, VID_CGA
+    jne .wthin
+    mov ax, dd_it_thind
+.wthin:
+    mov [dd_i_win], ax
+    mov al, [dd_wmode]
+    cmp byte [dd_fsx], 0
+    jne .wfull
+    cmp bl, VID_CGA
+    jne .weff
+.wfull:
+    mov al, 1
+.weff:
+    ; A DISPLAY CHANGE DOES NOT ASK FOR A FIT, and that is a correction rather
+    ; than a simplification (SPEC.md 93.3.3.2). Dragging between two adapters
+    ; changes the effective mode, and asking for a resize there PRE-EMPTS the
+    ; window manager's own: OS88_PREFER gives this window 520 rows and the WM
+    ; grows it to 347 when it lands on a Hercules, so a fit computed from the
+    ; CGA-sized box it still had pinned it at 156 and the tile never re-cut.
+    ; A fit belongs to a MENU PICK, which is a thing the user did.
+    mov [dd_weff], al
+
     mov si, dd_asp43
-    cmp byte [dd_aspix], 0
-    je .asptab
+    cmp byte [dd_weff], 0
+    jne .asptab
     mov si, dd_asppx
 .asptab:
     mov al, [si + bx]
@@ -403,6 +433,35 @@ dd_metrics:
     ret
 
 ; -----------------------------------------------------------------------------
+; dd_fit_ask - a fit is owed: ask for the WAKE that can perform it
+;
+; OSAPI_WM_RESIZE may not be called with the gfx lock held and every path into
+; this file has it. OSAPI_WM_WAKE is legal from anywhere and dd_onwake is the
+; one callback the kernel runs with the lock FREE (SPEC.md 93.3.3.2), so the
+; flag is set where the answer is known and the work is done where it is legal.
+; Preserves every register.
+; -----------------------------------------------------------------------------
+dd_fit_ask:
+    cmp byte [dd_wantfit], 0
+    je .out
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov bx, [dd_win]
+    call OSAPI_WM_WAKE
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
 ; dd_relayout_ck - re-lay out only when something that decides the layout moved
 ; out: nothing; clobbers everything. Safe to call from any paint.
 ;
@@ -449,8 +508,11 @@ dd_relayout_ck:
     jne .again
     mov byte [dd_started], 1        ; the FIRST layout is also the first board:
     call dd_attract_begin           ; it lays the slice and renders it
+    call dd_fit_ask
     ret
 .again:
+    call dd_fit_ask                 ; ...and Thin may owe the window a resize,
+                                    ; which needs the lock FREE (93.3.3.2)
     call dd_actors_resnap           ; THE TILE CHANGED, so every actor's
                                     ; position is in the old one's units
     call dd_is_attract              ; ...and every later one re-draws it at the

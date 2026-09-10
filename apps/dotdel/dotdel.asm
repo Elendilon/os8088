@@ -119,6 +119,8 @@ DD_COLS   equ 28                ; the classic grid, on every adapter
 DD_ROWS   equ 31
 DD_HUDW   equ 88                ; the HUD column, 11 cells wide
 DD_TWMAX  equ 16                ; the tile ceiling: 28*16 = 448, and a sprite
+DD_FITPADX equ 16               ; the air Thin leaves around the board when it
+DD_FITPADY equ 8                ; fits the window to it (SPEC.md 93.3.3.2)
 DD_TWMIN  equ 8                 ; ...and its floor: under eight a ghost has no
                                 ; face and Smiles has no mouth (SPEC.md 93.3.3)
 DD_THMAX  equ 16                ; row is then TWO bytes, which is what keeps
@@ -241,11 +243,17 @@ dd_entry:
     call OSAPI_WM_ONRESIZE          ; the box moved under us - a drag across a
                                     ; display seam is the case that matters
                                     ; (SPEC.md 93.4)
-    mov byte [dd_aspix], 1          ; SQUARE PIXELS by default (93.3.3.1): it
-                                    ; is what an emulator window shows, it is
-                                    ; what the field's overlay of the real
-                                    ; machine matched, and a 4:3 tube is one
-                                    ; menu item away
+    mov bx, [dd_win]
+    mov ax, dd_onwake
+    call OSAPI_WM_ONWAKE            ; ...and the ONE callback without the gfx
+                                    ; lock, which is where a resize has to
+                                    ; happen (SPEC.md 93.3.3.2)
+    mov byte [dd_wmode], 0          ; THIN by default (SPEC.md 93.3.3.1): it is
+    mov byte [dd_wantfit], 1        ; the board the field's overlay of the real
+                                    ; machine matched, and Full is one menu
+                                    ; item away. A CGA overrides it at the
+                                    ; layout rather than here, because the
+                                    ; window can be dragged to one
     mov byte [dd_snd], 1            ; ON by default: a maze chase that has to be
                                     ; switched on from a menu before it makes a
                                     ; sound is one that has none, and Game ->
@@ -493,6 +501,8 @@ dd_oncmd:
     push bp
     push es
     call dd_abdismiss
+    or ah, ah
+    jnz .winmenu                    ; menu 1 is Window; 0 is Game
     cmp al, 0
     je .new
     cmp al, 1
@@ -501,10 +511,25 @@ dd_oncmd:
     je .full
     cmp al, 3
     je .sound
-    cmp al, 4
-    je .sqpx
-    cmp al, 5
-    je .asp43
+    jmp short .out2
+.winmenu:
+    or al, al
+    jnz .wfull
+    xor al, al                      ; Thin. A greyed item cannot be picked, so
+    jmp short .wset                 ; there is no CGA case to test for here
+.wfull:
+    mov al, 1
+.wset:
+    cmp al, [dd_wmode]
+    je .out2                        ; already that way: no re-cut, no flash
+    mov [dd_wmode], al
+    mov byte [dd_lvkind], 0FFh      ; nothing MOVED, so dd_relayout_ck has to
+    mov ah, 1                       ; be told the answer changed anyway
+    or al, al
+    jz .wfit
+    mov ah, 2                       ; ...to Full: give back what Thin took
+.wfit:
+    mov [dd_wantfit], ah
     jmp short .out2
 .new:
     call dd_new_game
@@ -521,22 +546,6 @@ dd_oncmd:
                                     ; It does not return until the game does
 .sound:
     xor byte [dd_snd], 1
-    jmp short .out2
-.sqpx:
-    mov al, 1
-    jmp short .aspset
-.asp43:
-    xor al, al
-.aspset:
-    ; THE TILE AND THE SPEEDS BOTH FOLLOW IT, so this is a re-layout and not a
-    ; repaint. dd_relayout_ck decides from what MOVED and nothing has, so the
-    ; banked card kind is poisoned to force its .redo arm - which re-cuts the
-    ; tile, re-claims the picture, re-builds all thirty-five sprites and
-    ; re-snaps every actor into the new units.
-    cmp al, [dd_aspix]
-    je .out2                        ; already that way: no flash, no re-cut
-    mov [dd_aspix], al
-    mov byte [dd_lvkind], 0FFh
 .out2:
     call dd_repaint_now
     pop es
@@ -568,6 +577,91 @@ dd_abdismiss:
     mov byte [dd_abon], 0
     mov byte [dd_full], 1
 .none:
+    ret
+
+; -----------------------------------------------------------------------------
+; dd_onwake - THE ONE CALLBACK WITHOUT THE GFX LOCK (SPEC.md 93.3.3.2)
+;
+; Thin means the window fits the board, and OSAPI_WM_RESIZE says in as many
+; words that it may not be called with the lock held. Every path that KNOWS a
+; fit is owed - the layout, a menu pick - runs under it, so those set
+; [dd_wantfit] and ask for this wake instead.
+;
+; It only ever makes the window SMALLER. Growing would re-cut a bigger tile,
+; which would want a bigger window, and the flag is cleared before the resize
+; so one request is one resize whatever comes of it.
+; in:  SI = our window; ES = KERNEL_SEG (SPEC.md 20's callback rule)
+; -----------------------------------------------------------------------------
+dd_onwake:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov al, [dd_wantfit]
+    or al, al
+    je .out
+    mov byte [dd_wantfit], 0        ; ...FIRST, so one request is one resize
+    cmp byte [dd_ok], 0             ; whatever comes of it
+    je .out                         ; no layout, so nothing to fit to
+    cmp byte [dd_fsx], 0
+    jne .out                        ; a bracket owns the screen: a window
+                                    ; resize under it means nothing and the
+                                    ; layout on the way out will ask again
+    mov bx, [dd_win]
+    cmp al, 2
+    je .restore
+    ; --- to THIN: bank what the window is, then shrink it to the board ------
+    cmp byte [dd_weff], 0
+    jne .out                        ; ...unless the display overrode it. A CGA
+                                    ; resolves to Full, so the fit the entry
+                                    ; proc asked for is not owed there
+    cmp word [dd_prew], 0
+    jne .banked                     ; already banked: a second Thin in a row
+    mov cx, [es:bx + W_W]           ; must not overwrite the size Full goes
+    mov [dd_prew], cx               ; back to
+    mov cx, [es:bx + W_H]
+    mov [dd_preh], cx
+.banked:
+    mov cx, [es:bx + W_W]
+    sub cx, [dd_cw]                 ; CX = the chrome's width
+    mov dx, [es:bx + W_H]
+    sub dx, [dd_ch]
+    add cx, DD_HUDW + DD_FITPADX    ; ...and the content the board NEEDS: the
+    add cx, [dd_mw]                 ; HUD's column beside it and a little air
+    add dx, DD_FITPADY
+    add dx, [dd_mh]
+    cmp cx, [es:bx + W_W]           ; SHRINK ONLY: growing would re-cut a
+    jb .wok                         ; bigger tile, which would want a bigger
+    mov cx, [es:bx + W_W]           ; window, and round again
+.wok:
+    cmp dx, [es:bx + W_H]
+    jb .hok
+    mov dx, [es:bx + W_H]
+.hok:
+    jmp short .fit
+.restore:
+    ; --- to FULL: the size Thin took it from -------------------------------
+    ; Full CANNOT compute its own fit from where Thin left the window: at 328
+    ; px of content a 16-wide tile does not fit, so the layout answers 8 and
+    ; the fit answers 328 again. Banking the size Thin shrank FROM is what
+    ; makes the pair reversible.
+    mov cx, [dd_prew]
+    or cx, cx
+    je .out                         ; nothing banked - opened on Full, or on a
+    mov dx, [dd_preh]               ; CGA, and there is nothing to give back
+    mov word [dd_prew], 0
+.fit:
+    cmp cx, [es:bx + W_W]
+    jne .go
+    cmp dx, [es:bx + W_H]
+    je .out                         ; already the right size: no repaint
+.go:
+    call OSAPI_WM_RESIZE
+.out:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -872,22 +966,34 @@ dd_tpl:
 
 ; --- the app menu set (SPEC.md 12.2) ------------------------------------------
     OS88_MENUSET dd_menus, dd_name, dd_oncmd
-        OS88_MENU dd_m_game, dd_i_game, 6
+        OS88_MENU dd_m_game, dd_i_game, 4
+        OS88_MENU dd_m_win, dd_i_win, 2
     OS88_MENUSET_END dd_menus
 
 dd_name:    db 'Dot Delirium', 0
 dd_m_game:  db 'Game', 0
-dd_i_game:  dw dd_it_new, dd_it_pause, dd_it_full, dd_it_snd, \
-               dd_it_sqpx, dd_it_43
+dd_i_game:  dw dd_it_new, dd_it_pause, dd_it_full, dd_it_snd
 dd_it_new:   db 'New Game', 0
 dd_it_pause: db 'Pause', 0
 dd_it_full:  db 'Full Screen', 0
 dd_it_snd:   db 'Sound', 0
+
+; --- the Window menu (SPEC.md 93.3.3.1) ---------------------------------------
 ; TWO ITEMS AND NOT A TOGGLE, because an app menu has no check mark (SPEC.md
-; 12.2's OS88_MENU is a title and a list) - so a single "Aspect" would give the
-; player no way to see which one is on, and the board itself is the indicator.
-dd_it_sqpx:  db 'Square Pixels', 0
-dd_it_43:    db '4:3 Monitor', 0
+; 12.2's OS88_MENU is a title and a list) - so one "Shape" item would give the
+; player no way to see which is on, and the board itself is the indicator.
+;
+; dd_i_win's FIRST WORD IS REWRITTEN AT LAYOUT. A CGA has no Thin to offer -
+; 200 lines cannot give 31 rows of a taller tile, so both modes come out 8x4 -
+; and 12.2's way of saying so is a string that begins with MENU_DIS. The
+; kernel greys it and menu_hover will not land on it, so it cannot be picked.
+; SPEC.md 47 rule 3 wants a greyed item to say WHY, which is what the
+; parenthesis is for.
+dd_m_win:   db 'Window', 0
+dd_i_win:   dw dd_it_thin, dd_it_wfull
+dd_it_thin:  db 'Thin', 0
+dd_it_thind: db MENU_DIS, 'Thin (200 lines)', 0
+dd_it_wfull: db 'Full', 0
 
 dd_ttl:     db 'Dot Delirium', 0
 
@@ -963,8 +1069,12 @@ dd_spct:     dw DD_PCTPAC, DD_PCTGH, DD_PCTFRI, DD_PCTEYE, DD_PCTTUN
     DBYTEV dd_abon                  ; the About card is up
     DBYTEV dd_hasfoc
     DBYTEV dd_snd
-    DBYTEV dd_aspix                 ; 1 = the display shows SQUARE PIXELS, 0 =
-                                    ; it is a 4:3 tube (SPEC.md 93.3.3.1)
+    DBYTEV dd_wmode                 ; the WINDOW menu's choice: 0 Thin, 1 Full
+    DBYTEV dd_weff                  ; ...and what it RESOLVES to this layout,
+                                    ; which a CGA and a bracket both override
+    DBYTEV dd_wantfit               ; 1 = Thin owes the window a fit, 2 = Full
+    DWORDV dd_prew                  ; owes it back what Thin took (93.3.3.2)
+    DWORDV dd_preh
     DBYTEV dd_wakph                 ; the dot's warble (SPEC.md 93.10.1): which
     DBYTEV dd_wakt                  ; way round this bite is, how long until
     DWORDV dd_wak2                  ; its second syllable, and what that is

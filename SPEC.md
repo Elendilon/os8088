@@ -111424,15 +111424,29 @@ rather than decided:
 **Neither reading is wrong, so it is a RUNTIME CHOICE.** The monitor is not
 something a program can ask about: a 4:3 Hercules tube really does make a pixel
 1.55× taller than wide, and an emulator showing the same 720 × 348 in a
-square-pixel window really does not. Both are true of somebody, so `Game` has
-an item for each — **Square Pixels** and **4:3 Monitor** — and `[dd_aspix]`
-picks between `dd_asp43` and `dd_asppx`. **Square Pixels is the default**: it
-is what an emulator window shows, and it is what the field's overlay of the
-real machine matched.
+square-pixel window really does not. Both are true of somebody, so there is a
+**`Window` menu** with an item for each — **Thin** and **Full** — and
+`[dd_wmode]` picks between `dd_asppx` and `dd_asp43`.
 
-Two items and not a toggle, because §12.2's `OS88_MENU` is a title and a list
-with no check mark, so one "Aspect" item would leave the player no way to see
-which is on. The board is the indicator.
+They are named for the **board** and not for the monitor, because the board is
+what the player is looking at and the monitor is a theory about it. Two items
+and not a toggle, because §12.2's `OS88_MENU` is a title and a list with no
+check mark, so one "Shape" item would leave no way to see which is on.
+
+**`[dd_wmode]` is the user's choice; `[dd_weff]` is what it resolves to**, and
+the resolution happens in `dd_layout` rather than in the menu handler because
+**the window can be dragged from one display to another** — so it is answered
+per layout, not once at startup. Two things override
+it, both live:
+
+- **A fullscreen bracket is always Full.** It owns the whole screen, and Thin
+  there is 224 px of board in 720 of glass.
+- **A CGA is always Full, and `Thin` is GREYED.** 200 lines cannot give 31 rows
+  of a taller tile, so both modes come out 8 × 4 there — Thin would be an item
+  that does nothing. `dd_layout` points `dd_i_win`'s first word at
+  `dd_it_thind`, whose string begins with `MENU_DIS`: the kernel greys it and
+  `menu_hover` will not land on it, so it cannot be picked. §47 rule 3 wants a
+  greyed item to name its reason, which is what "(200 lines)" is for.
 
 Picking one is a **re-layout and not a repaint** — the tile's shape and the
 vertical step both follow the number. `dd_relayout_ck` decides from what
@@ -111440,6 +111454,45 @@ vertical step both follow the number. `dd_relayout_ck` decides from what
 its `.redo` arm: re-cut the tile, re-claim the picture, re-build all
 thirty-five sprites, re-snap every actor into the new units. Choosing the one
 already in force does nothing at all, so the board does not flash.
+
+##### 93.3.3.2 Thin fits the WINDOW to the board, from the one callback that may
+
+Thin without a resize is a narrow board in a wide window — 224 px of board and
+216 of black, which is the blank space the mode exists to remove. So Thin owes
+the window a fit: content of `DD_HUDW + [dd_mw] + 16` by `[dd_mh] + 8`.
+
+**`OSAPI_WM_RESIZE` may not be called with the gfx lock held**, and every path
+that *knows* a fit is owed runs under it — the layout is inside a paint, and a
+menu dispatch arrives with the lock taken. So the knowing and the doing are
+split: those set `[dd_wantfit]` and call `OSAPI_WM_WAKE`, which is legal from
+anywhere, and **`dd_onwake` is the one callback the kernel runs with the lock
+free** (§74.1). It reads the frame as `W_W − [dd_cw]`, adds the content the
+board needs, and resizes.
+
+Three rules keep it from fighting the user or itself:
+
+- **It only ever shrinks.** Growing would re-cut a bigger tile, which would
+  want a bigger window.
+- **The flag is cleared before the resize**, so one request is one resize
+  whatever comes of it.
+- **A fit is owed on a MENU PICK or the first layout, and never on a display
+  change.** That last one is a correction rather than a simplification.
+  Dragging between two adapters changes the effective mode, and asking for a
+  resize there **pre-empts the window manager's own**: `OS88_PREFER` gives this
+  window 520 rows, so the WM grows it to 347 when it lands on a Hercules — and
+  a fit computed from the CGA-sized box it still had pinned it at 156, after
+  which `[dd_th]` was 4 and the tile never re-cut. `tests/dotdelmd.py` is what
+  caught it. A fit belongs to a thing the user did.
+- **A fit is Thin's**, so `dd_onwake` re-checks `[dd_weff]` before shrinking:
+  the entry proc asks for one unconditionally and a CGA resolves to Full, where
+  it is not owed.
+
+**The title needed nothing.** `dd_attract_layout` already sizes the title cell
+from `[dd_cw]` and reduces it until the page fits, so a 328-px content box
+gives a 4-px cell and a 284-px title where 544 gave 7 and 497. The one thing
+that looked like it would need work in a narrower window was already written.
+
+On a Hercules the fit takes the content **544 × 284 → 328 × 284**.
 
 **CGA is 240 in BOTH tables**, and it earned the exception the field asked for.
 640 × 200 has not got the 279 lines that 31 rows of nine need, so its tile
