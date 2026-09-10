@@ -118,7 +118,21 @@ ASM = ["boot/boot.asm", "boot/boothd.asm",
        # sections): the core's scratch offsets, the composer's band stride.
        # A drifted C64_SCR_WLO reads the wrong scratch words and presents as
        # a stale screen, not as an error.
-       "apps/c64/c64cpu.inc", "apps/c64/c64band.inc"]
+       "apps/c64/c64cpu.inc", "apps/c64/c64band.inc",
+       # ...and apps/apple2, which is the same construction one machine along
+       # (docs/APPLE2-SPEC.md, its memory and screen sections): the core's
+       # scratch offsets (A2_SCR_*), the composer's band stride and group
+       # count, and the run reasons the C compares a2_m.reason against are all
+       # typed out in the .inc AND in the C. A drifted A2_SCR_WLO reads the
+       # wrong scratch word and presents as a stale screen; a drifted
+       # A2_RUN_JAM is a machine that never stops.
+       "apps/apple2/a2cpu.inc", "apps/apple2/a2band.inc",
+       "apps/apple2/a2mem.inc",
+       # ...and a2fsx.inc, whose A2_FSXW - the Apple's 280-pixel raster, one
+       # byte a pixel - is typed out in a2scr.c as well: the composer writes
+       # it and the frame loop strides by it, and a drift is a picture that
+       # walks sideways one line at a time rather than an error.
+       "apps/apple2/a2fsx.inc"]
 
 # ...and the kernel, whole. `kernel/*.inc` + `kernel.asm`: 44 files, of which
 # the hand-written list named five. The knob-only files (band.inc, moudiag.inc)
@@ -129,7 +143,8 @@ KERNEL_GLOB = os.path.join(ROOT, "kernel", "*.inc")
 
 # ...and the C side of those, which cannot `%include` an .inc any more than a
 # host tool can.  `#define NAME VALUE`, same one-value-everywhere rule.
-CDEF = ["apps/c64/c64.c", "apps/c64/c64scr.c"]
+CDEF = ["apps/c64/c64.c", "apps/c64/c64scr.c",
+        "apps/apple2/apple2.c", "apps/apple2/a2scr.c"]
 
 # Constants a host tool spells out for itself, and where the truth lives.
 PY_MIRROR = {
@@ -292,17 +307,41 @@ def main():
                   got=got, want=truth[name])
             pychecked += 1
 
-    # ...and the one mirrored LAYOUT: apps/c64's 6510 register file is a nasm
-    # `resw` block with CM_* offsets and a C struct read over the same bytes,
-    # and the field ORDER is the layout (docs/C64-SPEC.md's register plan).
-    # A field inserted on one side alone makes the C read the wrong word.
-    fields = structfields("apps/c64/c64.c", "c64_mach")
-    cpu = defs("apps/c64/c64cpu.inc", EQU)
-    if fields and cpu:
+    # ...and the mirrored LAYOUTS: a package's register file is a nasm `resw`
+    # block with NAMED OFFSETS and a C struct read over the same bytes, and
+    # the field ORDER is the layout (docs/C64-SPEC.md's register plan,
+    # docs/APPLE2-SPEC.md section 4.1). A field inserted on one side alone
+    # makes the C read the wrong word - a stale screen or a wrong PC, never an
+    # error. One row per (C file, struct, .inc, offset prefix): a second
+    # package is an ENTRY here and not a second copy of the block.
+    for cfile, sname, incfile, pfx in [
+            ("apps/c64/c64.c",       "c64_mach", "apps/c64/c64cpu.inc",     "CM_"),
+            ("apps/apple2/apple2.c", "a2_mach",  "apps/apple2/a2cpu.inc",   "AM_")]:
+        fields = structfields(cfile, sname)
+        cpu = defs(incfile, EQU)
+        # A `continue` here is a row that reports GREEN having checked
+        # nothing: a rename of `struct a2_mach`, or a reflow that puts it on
+        # one line, makes the regex miss and the whole block vanish from the
+        # count this row exists to be evidence of. So it is a CHECK.
+        check(bool(fields), "struct %s was found in %s" % (sname, cfile),
+              "the layout check reads the struct with a regex; if it stops "
+              "matching, every field below silently stops being checked")
+        check(bool(cpu), "%s defines the %s offsets" % (incfile, pfx),
+              "the layout check reads the core's `equ`s; without them there "
+              "is nothing to compare the struct against")
+        if not fields or not cpu:
+            continue
         for i, f in enumerate(fields):
-            name = "CM_" + f
+            # structfields() UPPERCASES every name it returns (its docstring
+            # says so, and its last statement is `out.append(f.upper())`), so
+            # both packages spell an offset the same way and there is one arm,
+            # not two. The `pfx == "AM_"` conditional that used to be here
+            # produced the identical string on both sides and read as though
+            # the two packages differed.
+            name = pfx + f
             check(cpu.get(name) == i * 2,
-                  "struct c64_mach.%s is %s in c64cpu.inc" % (f.lower(), name),
+                  "struct %s.%s is %s in %s"
+                  % (sname, f.lower(), name, os.path.basename(incfile)),
                   "the C struct and the core's resw block are one layout typed "
                   "out twice; a field inserted on one side reads the wrong word",
                   got=cpu.get(name, "<not defined>"), want=i * 2)
@@ -372,9 +411,117 @@ def main():
                         for c in pstale) or "none",
           want="every copy equal to the include, or imported from os88parts")
 
+    # ...and the same shape once more, over a LITERAL rather than a constant:
+    # the SDK's three overlay refusals against the kernel's TOAST_MAX.
+    # apps/cc/crt0.asm assembles `No <NAME>.OVL`, `No RAM: <NAME>` and
+    # `Old <NAME>.OVL` out of CC_PKG_NAME, so their length is different in
+    # every C package that includes the SDK; OSAPI_TOAST TRUNCATES what is
+    # longer than TOAST_MAX rather than refusing it, so all three were being
+    # cut off the glass in all seven C packages - `APPLE2.OVL is not on this
+    # disk` reaching the reader as `APPLE2.OVL is not on thi` - and nothing
+    # in the tree was looking.
+    #
+    # THE BOUND IS THE NAME FIELD AND NOT THIS TREE'S NAMES, which is the
+    # whole reason this row is not a list of seven package names: crt0.asm
+    # %fatals a CC_PKG_NAME longer than 15 and docs/C-TOOLCHAIN.md tells
+    # authors 15 is legal, so a literal sized by the longest name that
+    # happens to exist today (7) fails inside somebody else's build the day
+    # an 11-character package arrives. Both arms are checked - the declared
+    # cap, and every %define CC_PKG_NAME in the tree, so a name too long for
+    # the FIELD is caught by the header's own %fatal and one too long for a
+    # MESSAGE is caught here.
+    #
+    # AND THE SECOND ARM IS DEFENCE IN DEPTH, WHICH IS SAID HERE BECAUSE IT
+    # CANNOT FIRE ON ITS OWN IN A HEALTHY TREE: every name really is <=
+    # name_cap (crt0.asm %fatals otherwise), so the cap arm is the strictly
+    # stronger test and the per-name arm is silent whenever it passes. What
+    # the per-name arm is for is the day one of the two things it does NOT
+    # depend on breaks - the %fatal fence being deleted, the cap being raised
+    # without re-sizing the literals, or the `%if cc__namelen > (\d+)` regex
+    # above quietly matching something smaller - and then it reports the
+    # PACKAGE, by path, rather than an abstract ceiling. It was EXERCISED
+    # rather than assumed: a scratch tests/_toastprobe/probe.asm declaring a
+    # 17-character CC_PKG_NAME makes this arm and only this arm fail
+    # (`cc_ovm_mem with CC_PKG_NAME 'SEVENTEENCHARSXYZ' ... is 25
+    # characters`, exit 1) while the cap arm stays quiet at 23 - which is
+    # also how the four-conversion/five-argument TypeError that had kept it
+    # from ever running was found.
+    toast_src = open(os.path.join(ROOT, "kernel", "toast.inc")).read()
+    m = re.search(r"^TOAST_MAX\s+equ\s+(\d+)", toast_src, re.M)
+    check(m, "kernel/toast.inc still defines TOAST_MAX",
+          "this row reads the cap out of the kernel rather than typing 24 a "
+          "third time; a renamed constant must fail rather than skip",
+          got="TOAST_MAX equ <n>" if m else "<not found>", want="TOAST_MAX equ <n>")
+    toast_max = int(m.group(1)) if m else 0
+
+    crt0_path = os.path.join(ROOT, "apps", "cc", "crt0.asm")
+    crt0 = open(crt0_path).read()
+    mc = re.search(r"%if\s+cc__namelen\s*>\s*(\d+)", crt0)
+    check(mc, "apps/cc/crt0.asm still %fatals on CC_PKG_NAME's length",
+          "the declared cap is what the three overlay refusals have to fit; "
+          "without it this row would only know the names that exist today",
+          got=("cap %s" % mc.group(1)) if mc else "<not found>",
+          want="a %if cc__namelen > <n> fence")
+    name_cap = int(mc.group(1)) if mc else 0
+
+    # every C package's name, from the one place each of them states it
+    ccnames = {}
+    for f in (glob.glob(os.path.join(ROOT, "apps", "*", "*.asm"))
+              + glob.glob(os.path.join(ROOT, "tests", "*", "*.asm"))):
+        for d in re.finditer(r"^\s*%define\s+CC_PKG_NAME\s+'([^']*)'",
+                             open(f).read(), re.M):
+            ccnames[d.group(1)] = os.path.relpath(f, ROOT)
+    check(ccnames, "the tree still declares C package names to size against",
+          "a corpus of zero is a gate that has stopped looking",
+          got="%d name(s)" % len(ccnames), want="at least one CC_PKG_NAME")
+
+    # ...and the literals, as crt0.asm assembles them: a quoted run
+    # contributes its own characters and CC_PKG_NAME contributes a name's.
+    ovm = []
+    for line in crt0.splitlines():
+        m2 = re.match(r"^(cc_ovm_[A-Za-z0-9_]*)\s*:?\s*db\s+(.*)$", line)
+        if not m2:
+            continue
+        rest = m2.group(2)
+        fixed = sum(len(t) for t in re.findall(r"'([^']*)'", rest))
+        uses = len(re.findall(r"\bCC_PKG_NAME\b", rest))
+        ovm.append((m2.group(1), fixed, uses))
+    check(len(ovm) == 3,
+          "apps/cc/crt0.asm still carries three cc_ovm_* refusals",
+          "the overlay loader raises three - missing, out of memory and "
+          "stale - and a row that finds fewer has stopped looking rather "
+          "than passing",
+          got="%d literal(s)" % len(ovm), want="3")
+
+    long = []
+    for label, fixed, uses in ovm:
+        n = fixed + uses * name_cap
+        if n > toast_max:
+            long.append("%s is %d characters with a %d-character name"
+                        % (label, n, name_cap))
+        for nm, where in sorted(ccnames.items()):
+            n = fixed + uses * len(nm)
+            if n > toast_max:
+                long.append("%s with CC_PKG_NAME %r (%s) is %d characters"
+                            % (label, nm, where, n))
+    check(not long,
+          "every SDK overlay refusal fits TOAST_MAX for a full-length "
+          "CC_PKG_NAME",
+          "OSAPI_TOAST TRUNCATES rather than refusing, so the consequence is "
+          "in the half that is cut. Size the prose from the NAME FIELD (%d "
+          "characters, crt0.asm's own %%fatal) and not from the longest name "
+          "in the tree today - a message that fits only a short name is a "
+          "build failure in a package that has not been written yet"
+          % name_cap,
+          got="; ".join(long) or "none",
+          want="every cc_ovm_* literal <= TOAST_MAX %d with a %d-character "
+               "name" % (toast_max, name_cap))
+
     print("t_mirror: %d names mirrored across %d asm/c files, %d host-tool "
-          "copies, %d local constants scanned, %d os88parts copies"
-          % (len(mirrored), len(asm) + len(CDEF), pychecked, copies, pcopies))
+          "copies, %d local constants scanned, %d os88parts copies, %d SDK "
+          "toast(s) against TOAST_MAX %d for %d CC_PKG_NAME(s)"
+          % (len(mirrored), len(asm) + len(CDEF), pychecked, copies, pcopies,
+             len(ovm), toast_max, len(ccnames)))
     done("t_mirror")
 
 

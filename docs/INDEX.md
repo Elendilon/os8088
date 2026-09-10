@@ -286,6 +286,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 
 | package | source | SPEC | ships |
 |---|---|---|---|
+| APPLE2 | `apps/apple2/apple2.asm` | `docs/APPLE2-SPEC.md` | yes |
 | ARKANOID | `apps/arkanoid/arkanoid.asm` | §44 | yes |
 | AUDIO PLAYER | `apps/audio/audio.asm` | §86 | yes |
 | ArtfulType | `apps/artful/artful.asm` | §46 | yes |
@@ -432,7 +433,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 
 **The DIRECTORY says what a document is, and the filename does not.** `docs/` describes how the system works today - instructions, contracts and maintained reference. Everything under `docs/plans/` is a design record: what was considered, including the options that were rejected, and it is never a description of what shipped - SPEC.md is the current state and these are how it got there. `docs/plans/completed/` is the subset whose work has landed; what stays directly in `docs/plans/` still has work open. `docs/history/` is superseded or closed - a record of a moment that has passed, and true of no tree you can check out. `docs/reports/` is a MEASUREMENT taken at a point in time: true of the tree it was taken on, quotable with its date and its box, and never to be read as a description of today.
 
-*How it works today - `docs/` (19):* `BIFF-NOTES.md`, `C-TOOLCHAIN.md`, `C64-SPEC.md`, `FIELD-MACHINES.md`, `FIELD-NOTES.md`, `HEAP-CLAIMS.md`, `HERCULES-TESTING.md`, `IMAGER.md`, `KERNEL-MEMORY.md`, `LIVE-MEDIA.md`, `MARTYPC-DEBUG.md`, `PACCMAN-PORT-PLAN.md`, `README.md`, `TELNET-PLAN.md`, `TESTING.md`, `UPSTREAM.md`, `WEAVE-SPEC.md`, `WIRE-PLAN.md`, `WRITING-TESTS.md`
+*How it works today - `docs/` (21):* `APPLE2-PORT-PLAN.md`, `APPLE2-SPEC.md`, `BIFF-NOTES.md`, `C-TOOLCHAIN.md`, `C64-SPEC.md`, `FIELD-MACHINES.md`, `FIELD-NOTES.md`, `HEAP-CLAIMS.md`, `HERCULES-TESTING.md`, `IMAGER.md`, `KERNEL-MEMORY.md`, `LIVE-MEDIA.md`, `MARTYPC-DEBUG.md`, `PACCMAN-PORT-PLAN.md`, `README.md`, `TELNET-PLAN.md`, `TESTING.md`, `UPSTREAM.md`, `WEAVE-SPEC.md`, `WIRE-PLAN.md`, `WRITING-TESTS.md`
 
 *Plans with work still open - `docs/plans/` (12):* `ARTFUL-PERF-PLAN.md`, `HANDOFF-SOAK-FINDINGS.md`, `HEAP-UNPIN-PLAN.md`, `KERN-SMALL-CUT-PLAN.md`, `KERNEL-BYTE-QUEUE.md`, `LAST-DROP-BYTES.md`, `LAST-DROP-PERF.md`, `MONO-RECLAIM-PLAN.md`, `MOUSE-BOOT-FREEZE-PLAN.md`, `O88-COMPRESSION-PLAN.md`, `SOAK-PARALLEL.md`, `UI-MENU-ELEMENT.md`
 

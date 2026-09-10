@@ -174,6 +174,32 @@ make c64disk    #   3.10's x64 as a windowed Commodore 64 — a 6510 in a 64KB
                 #   in raw QEMU), `make c64bandbench` the composer's bench, and
                 #   `make c64cputest` the 6510's — it arrives with the core.
                 #   THE CONTRACT IS docs/C64-SPEC.md, not a section of SPEC.md
+make apple2     # APPLE2 (docs/APPLE2-SPEC.md), the sixth C application:
+make apple2disk #   an Apple II Plus — a 6502 in a 48K claim, the II+'s video
+                #   soft switches and its SEVEN-pixel text cell, with
+                #   Applesoft, the monitor and the character generator read
+                #   at launch from PART 0 of the package itself, an
+                #   `OP_ASSET` built by `make apple2rom` from ROM images
+                #   `tools/getapple2rom.py` FETCHES at pinned SHA-256s and
+                #   NEVER commits (`make clean` spares build/apple2-rom/, so
+                #   a rebuilt tree needs no network). `make a2bandbench` is
+                #   the composer's icount bench, `make a2memtest` the
+                #   mover and write-fence gate (SS ≠ DS, in raw QEMU), and
+                #   `make a2cputest` the 6502's — Klaus Dormann's functional
+                #   test at a pinned SHA-256 (fetched, never committed),
+                #   tools/c64dec.py's 262,144 decimal cases and the Apple II
+                #   memory model's own boundaries, every row with a negative
+                #   control that must fail; minutes, so it is NOT in `all` —
+                #   it arrives with the core.
+                #   `make apple2disk` puts FIVE files in one APPLE2/
+                #   folder on all four geometries — the package, the
+                #   overlay, README.TXT, COPYING and `WELCOME.BAS`, an
+                #   Applesoft listing `tools/a2bas.py` tokenises from
+                #   apps/apple2/welcome.a2b against the token table in the
+                #   PINNED ROM itself, `--selfcheck` in the recipe.
+                #   THE CONTRACT IS docs/APPLE2-SPEC.md, not a section of
+                #   SPEC.md — and apps/apple2/ is GPL-2-or-later by way of
+                #   VICE, which the rest of this tree is not
 make weave      # WEAVE (WEAVE-SPEC §1.2), the family's runtime: web-style
 make weavedisk  #   apps - markup, script and formulas - compiled at pack time
                 #   into one `.WAB` bundle and interpreted natively. `make
@@ -354,7 +380,8 @@ controller, so no XT profile can host one),
 `386sx`, `386`, `386-sound`, `386-ps2`, `486`, `pentium`, `xt-z`, `386-z`, `xt-word`,
 `386-word`, `386-c-word`, `xt-paccman`, `386-paccman`, `xt-runcpm`, `286-runcpm`,
 `386-runcpm`, `xt-c64`,
-`286-c64`, `386-c64`, `xt-weave`, `386-weave`, `xt-weave-256`;
+`286-c64`, `386-c64`, `xt-apple2`, `286-apple2`, `386-apple2`,
+`xt-weave`, `386-weave`, `xt-weave-256`;
 plus `marty` (MartyPC). **`386-ps2` is the only machine here with a PS/2
 mouse** — every other config is `mouse_type = msserial`, which is why §9.9
 shipped and went untested on anything but QEMU for months; it is a Packard
@@ -381,9 +408,19 @@ PACMAN.O88's 4.14) comes off MartyPC, not off it —
 geometry because the three disks carry different software and the machines
 run at different speeds — which for a CP/M game IS the play speed (§74.5,
 §74.6) — `xt-c64`/`286-c64`/`386-c64` the C64 emulator's (C64-SPEC §14.3,
-one per geometry for that same reason), and
+one per geometry for that same reason),
+`xt-apple2`/`286-apple2`/`386-apple2` the Apple II+ emulator's (APPLE2-SPEC
+section 16.4 — each a copy of the corresponding `vm/*-c64` with **only**
+`fdd_02_fn` and the uuid changed; the 386 landed in wave 1 and the other two
+in the polish wave *with the measurement that justifies them*, because an XT
+target before anyone has measured the port there is a claim and not a
+machine. **`xt-apple2` is where that measurement was taken** and the answer
+is **0.54% of a 1.02 MHz Apple**, so the status row reads `0%` — an XT
+reaches the `]` prompt and answers a keystroke and is a machine to look at,
+which is why the Wire record is tier 3; it was 0.41% until APPLE2-SPEC
+section 4.3.1 made the wall slice a duty-cycle controller), and
 `xt-weave`/`386-weave`/`xt-weave-256` the Weave family's
-(WEAVE-SPEC §13.1) — the fifteen that put a dedicated
+(WEAVE-SPEC §13.1) — the eighteen that put a dedicated
 floppy in B: instead of the apps disk. `xt-weave` takes the **360KB** Weave
 disk rather than a 3.5" one — it fits in 209 of 354 clusters, the whole
 family on one floppy — so it is where that geometry of it is booted at all,
@@ -402,7 +439,8 @@ master disk at a pinned commit and `tools/getcpmsw.py` the CP/M games and
 applications that ride beside it, §74.6 — never committed, either of them;
 `make rczex` and `make rcz80test` are the Z80 core's ZEXDOC gates, in the OS
 and in raw QEMU), `make c64disk` the C64 disks, `make paccmandisk` the PaccMan
-disks, and `make weavedisk` / `make loomdisk` the Weave family's two. **`make wiredisk`** is the same shape for a package that
+disks, `make apple2disk` the Apple II+ disks (`make apple2rom` fetches their
+ROM first, once), and `make weavedisk` / `make loomdisk` the Weave family's two. **`make wiredisk`** is the same shape for a package that
 DOES NOT SHIP: WIREFRAME is an instrument rather than an application (§78.9),
 so `all` builds `wire.o88` and no shipped floppy carries it, and the three
 tests that drive it — `wireflick`, `wirefps`, `uilat` — default to that disk.
@@ -727,7 +765,7 @@ mounts — and every byte read off one is still treated as hostile.
 drive). Changing the boot path, the FAT driver or the disk layout means
 checking all four. This is the rule for the on-demand APPLICATION floppies too
 — `zdisk`, `worddisk`, `cworddisk`, `paccmandisk`, `runcpmdisk`, `c64disk`,
-`weavedisk`, `loomdisk`, `allapps` — which were three-geometry until 1.2MB
+`apple2disk`, `weavedisk`, `loomdisk`, `allapps` — which were three-geometry until 1.2MB
 reached them.
 
 **Nine images, not seven.** The system and apps disks in four geometries each,
