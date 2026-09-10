@@ -1394,8 +1394,16 @@ is where a kernel symbol lives.
 modelled one, and a second opinion on the video probe — with a person
 watching, because it has no debugger and no automation socket. CLAUDE.md
 carries the target list, one per `vm/` directory (`make xt`, `xt-640`,
-`xt-cga`, `xt-hercules`, `xt-ega`, `xt-multimon`, `xt-mfm`, `286`, `286-525`,
-`386sx`, `386`, `386-ps2`, `486`, `pentium`, and the application machines).
+`pc5150`, `xt-cga`, `xt-hercules`, `xt-ega`, `xt-multimon`, `xt-mfm`, `286`,
+`286-525`, `386sx`, `386`, `386-ps2`, `486`, `pentium`, and the application
+machines).
+
+**`pc5150` is not one of those.** It is a copy of the fork owner's own 86Box
+config — an IBM PC 5150 with a Sound Blaster, an NE1000, a SixPakPlus clock
+and an ST-225 all in it at once — and it is where most of this project's
+defect reports are actually seen (docs/FIELD-MACHINES.md). Reproduce a report
+there first and on an isolating machine second; the difference between the two
+is usually the finding.
 
 `xt-multimon` is the two-card XT (`gfxcard = cga` + `gfxcard_2 =
 hercules_plus`), a second instrument for a machine MartyPC already has:

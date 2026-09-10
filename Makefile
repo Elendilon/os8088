@@ -113,6 +113,10 @@ endif
 
 VM    := $(CURDIR)/vm/xt
 VM640 := $(CURDIR)/vm/xt640
+# THE FORK OWNER'S OWN 86Box MACHINE, and the one that reproduces their bug
+# reports: an IBM PC 5150 with everything on it (docs/FIELD-MACHINES.md).
+# Their file, changed only where it named their host's disks.
+VMPC5150 := $(CURDIR)/vm/pc5150
 VMMFM := $(CURDIR)/vm/xt-mfm
 VMCGA := $(CURDIR)/vm/xt-cga
 VMHERC := $(CURDIR)/vm/xt-hercules
@@ -1842,7 +1846,7 @@ KERNEL_SRC := kernel/kernel.asm
 # a map that described "a DIFFERENT kernel".
 KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm
 
-.PHONY: stkdiag small emu kernsplit all run run-640 run-720 run-120 debug test test-snd xt xt-640 xt-mfm xt-cga \
+.PHONY: stkdiag small emu kernsplit all run run-640 run-720 run-120 debug test test-snd xt xt-640 pc5150 xt-mfm xt-cga \
         xt-hercules xt-ega xt-multimon 286 286-525 386sx 386 386-xms 386-ps2 xt-sound xt-sound-1.44 xt-wire \
         286-525-z 286-525-word 286-525-cword 286-525-runcpm 286-525-c64 \
         286-525-weave 286-525-loom 286-525-all \
@@ -10088,6 +10092,28 @@ $(MFMIMG): | $(BUILD)
 xt-mfm: $(IMG360) $(APPSIMG360) $(MFMIMG)
 	@$(UNPROTECT) $(VMMFM)/86box.cfg
 	$(BOX) -P $(VMMFM) -N
+
+# THE MACHINE THE BUG REPORTS COME OFF (docs/FIELD-MACHINES.md, "The 86Box
+# IBM PC 5150"). This is the fork owner's own 86box.cfg, adopted verbatim
+# except for the three media paths, which named disks on their host - so a
+# defect reproduced here is reproduced on the box that reported it, and a
+# difference between this and `make xt` is a difference in the report.
+#
+# It is a 5150 rather than an XT, with the 10/27/82 ROM the field 5150 has,
+# and it is the only machine in this tree with EVERY peripheral os8088 can
+# drive in it at once: Hercules, a serial mouse, a Sound Blaster 2.0, an
+# NE1000 on slirp with FTPD's control and PASV data ports forwarded
+# (SPEC.md 77), an AST SixPakPlus carrying both the other 384KB and 37.90's
+# rung-2 MM58167 clock, and an ST-225 on a REAL ST11M - the field machine's
+# controller, which `make xt-mfm` deliberately does not use.
+#
+# THE HARD DISK WANTS A LOW-LEVEL FORMAT FIRST. The ST11M keeps its geometry
+# on the platter, so a blank build/mfm20.img is not a disk it will present;
+# xt-mfm's Xebec is the controller a blank image boots on. The floppy boot is
+# unaffected either way, which is what nearly every run here uses.
+pc5150: $(IMG360) $(APPSIMG360) $(MEDIAIMG360) $(MFMIMG)
+	@$(UNPROTECT) $(VMPC5150)/86box.cfg
+	$(BOX) -P $(VMPC5150) -N
 
 # The two monochrome machines (SPEC.md 39), both 256KB - which is all an
 # ibmxt takes anyway, and the floor os8088 targets. These are the ONLY way to

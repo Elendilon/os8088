@@ -513,6 +513,12 @@ sees an up-to-date `kernel.bin`, boots the previous configuration, and it reads
 exactly like the feature being broken.
 
 86Box targets for period hardware, one per `vm/` directory: `xt`, `xt-640`,
+**`pc5150`** (**the fork owner's own machine, which 90% of the bug reports
+come off** — an IBM PC 5150 on the 10/27/82 ROM, Hercules, serial mouse, SB2.0,
+NE1000, a SixPakPlus carrying the other 384KB and §37.90's rung-2 clock, and an
+ST-225 on a real ST11M: the only profile here with **everything** switched on at
+once, where every other one isolates a single thing. docs/FIELD-MACHINES.md
+carries it, and **no stack reading has ever been taken on it**),
 `xt-mfm` (a 20MB ST-225 on a Xebec MFM controller — the machine to install
 and hibernate on; `build/mfm20.img` is created blank and kept),
 `xt-cga`, `xt-hercules`, `xt-ega`, `xt-multimon`, `xt-sound`,
@@ -540,8 +546,10 @@ and Control Panel → Display → Desktop is what extends it (§39.19.1).
 **`xt-wire` is the NETWORKED XT** — `xt-sound`'s machine plus a Novell NE1000
 on slirp, booting `make ethertest`'s disk so `ETHER.DRV` is up before the
 first paint and The Wire (§88) reaches os8088.com's live catalog with nothing
-running on the host; the only 86Box profile with a NIC, and its B: is a kept
-scratch disk because Add to Disk writes. `xt-z`
+running on the host; the only 86Box profile with a NIC **that is here to be
+one** — `pc5150` has an NE1000 too, and a sound card, because it is a copy of
+somebody's real setup rather than a machine built to isolate anything — and its
+B: is a kept scratch disk because Add to Disk writes. `xt-z`
 and `386-z` are the Frotz machines (§61.9), `xt-word`/`386-word` are the Word
 machines (§68.5), `386-c-word` is the C word processor's (§73.12),
 **`xt-paccman` is the C Pac-Man's (§91) and the XT is the POINT there** rather

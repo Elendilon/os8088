@@ -1044,6 +1044,38 @@ candidates, in the order they are worth spending a field run on:
    here can test it.
 3. Only then the ones docs/FIELD-NOTES.md 40.2 already lists.
 
+### 40.2.2 The reproducing machine is now IN THE TREE, and it is not the one this was reasoned against
+
+`vm/pc5150` (`make pc5150`, docs/FIELD-MACHINES.md) is the reporter's own
+86Box config, and reading it moves both candidates above from *"spend a field
+run"* to *"of course"*. It is an **IBM PC 5150** on the 10/27/82 ROM with, all
+at once: a **Sound Blaster 2.0**, an **NE1000**, an **AST SixPakPlus** whose
+MM58167 makes it a §37.90 **rung-2** machine, and an **ST-225 on an ST11M with
+an option ROM at IRQ 5**. The container's MartyPC has **none** of the four and
+boots an XT ROM.
+
+That matters twice over, and in the two places the reasoning was weakest:
+
+- **Candidate 1 is no longer a guess about a floor.** Four devices the model
+  does not have is four chances for an ISR the floor was never measured with.
+  The ST11M's ROM in particular puts a live IRQ 5 on a machine whose stkdiag
+  reading — on the *iron* 5150, which has the same controller — was taken with
+  the drive idle.
+- **Candidate 2 stops needing slot 3 to be hypothetical.** SOUND.DRV and
+  ETHER.DRV are both refused by default (§51.3), but this machine's A: floppy
+  is **writable**, so a Control Panel tick from any earlier session persists in
+  `SYSTEM.CFG` and the next boot mounts the driver — and a mounted driver is
+  exactly the thing that puts a task in a slot the container never spawns.
+  **So the first question to ask the reporter is what `SYSTEM.CFG` on their
+  boot floppy says**, and it is cheaper than any run.
+
+Neither is confirmed. What is confirmed is that the box this was diagnosed on
+differs from the box that reproduces by four devices, and that
+docs/plans/completed/STACK-SLOTS-PLAN.md §9's readings are the **iron** 5150's
+and the Packard Bell 286's — **there has never been one for this machine.**
+`make stkdiag` and its 360KB disk are the answer to that and to candidate 1
+together.
+
 **A note on this branch's own contribution.** SPEC.md 5.6.9.3's first version
 made `gfx_points` cost its caller **34 bytes where the routine it replaced cost
 26** — a `push ds` and a wrapper. On a margin this thin that is material, and

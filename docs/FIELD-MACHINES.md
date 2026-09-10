@@ -335,6 +335,65 @@ drive's icon.
 
 ---
 
+## The 86Box IBM PC 5150 — `vm/pc5150`, and where the bug reports come from
+
+**`make pc5150`.** This is not iron and it is not a fourth entry in the
+register above — it is the **86Box machine `Elendilon/os8088` runs 90% of the
+time**, which makes it the machine most of this project's defect reports are
+seen on. It is in the tree as `vm/pc5150/86box.cfg`, adopted from the owner's
+own config **verbatim except for the three media paths**, which named disks on
+their host. That is the whole point: a report says *"hold right arrow and
+spacebar for ten seconds"*, and this is what it was held on.
+
+| | |
+|---|---|
+| machine | 86Box `ibmpc82` — an **IBM PC 5150**, not an XT, with the **10/27/82** ROM. The same ROM revision as the iron 5150 above, which is what makes its `int 08h` chain comparable |
+| CPU | 8088 at **4.772728 MHz**, `cpu_use_dynarec = 0` |
+| RAM | **256 KB** on the board + **384 KB** on an **AST SixPakPlus** = 640 KB — the iron 5150's memory arrangement exactly |
+| clock | `isartc_type = a6pak` — the SixPakPlus's **MM58167 at 2C0h**, §37.90's **rung 2**. **MartyPC models no XT clock card at all**, so `[clk_tier]` is 0 there and 2 here |
+| video | **Hercules**, 720x348 |
+| mouse | `msserial` — the serial mouse, §9.4 |
+| sound | **Sound Blaster 2.0** — SPEC.md 34 |
+| network | **NE1000 on slirp**, with FTPD's control port forwarded 2121→21 and its eight PASV data ports 2048–2055 straight through (SPEC.md 77) |
+| hard disk | an **ST-225 on a real ST11M** at 0320/IRQ 5 — the *field* machine's controller, which `make xt-mfm` deliberately avoids because the ST11M keeps its geometry on the platter and will not present a blank image. The floppy boot is unaffected |
+| floppies | A: `os8088-360.img`, B: `apps360.img`, with `media360.img` one menu click away (§24.4) |
+
+### It is the only machine here with everything switched on at once
+
+Every other profile in `vm/` is a machine built to isolate **one** thing.
+This one is the opposite, and that is worth stating explicitly before
+reproducing anything on a different one:
+
+- MartyPC has **no NIC, no sound card and no XT clock card**, and boots an XT
+  ROM rather than a 5150's.
+- `vm/xt`, `vm/xt-hercules` and `vm/xt-mfm` are `ibmxt`/`ibmxt86` machines
+  with a subset each.
+- **A driver being *available* is not a driver being *mounted*** — every
+  `SYSTEM.CFG` row is not-wanted by default (§51.3), so a stock system disk
+  leaves `SOUND.DRV` and `ETHER.DRV` alone. But this machine's floppies are
+  **writable**, so a Control Panel tick taken during an earlier session
+  persists on the disk in A:, and the next boot mounts the driver. When a
+  report differs from a container repro, **ask what `SYSTEM.CFG` says** before
+  looking anywhere else.
+
+### No stack reading has ever been taken on it
+
+docs/plans/completed/STACK-SLOTS-PLAN.md §9 has `FLOOR MAX` for the **iron**
+5150 (118 as shipped / 100 with `MOUPRIV`, then 112 Hercules and 98 CGA after
+the fixes) and for the Packard Bell 286 (90 / 74). **There is no reading for
+this machine**, and it is not safe to borrow the iron's: this one carries a
+Sound Blaster, a NIC, an ST11M option ROM on IRQ 5 and a clock card the iron
+5150 also has but MartyPC does not — every one of them a candidate for a
+deeper interrupt floor or a live task the container has never spawned.
+
+That reading is **candidate 1** of docs/FIELD-NOTES.md 40.2.1, and it is one
+boot: `make stkdiag`, boot `stkdiag360.img`, touch nothing for 30 seconds,
+photograph the panel. Three arms ship — as-shipped, `NOMOUPRIV=1`,
+`NOCHAINPRIV=1` — and they no longer nest, so arm 1 alone is a complete
+answer to *"how deep is the floor here"*.
+
+---
+
 ## PCem and MartyPC — the other places results come from
 
 Not machines, but reports come off them and are easy to mistake for field
