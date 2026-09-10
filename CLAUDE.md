@@ -463,7 +463,31 @@ make smallapps#   128KB floor machine, docs/history/KERN-SPLIT-PLAN.md). `smalla
               #   §85.3.5.1's small arm - which is the shape to reach for
               #   first: an omission is what is left when substitution cannot
               #   work. The small SYSTEM disk carries §24.3's core
-              #   packages too, filtered the same way (§24.5.1)
+              #   packages too, filtered the same way (§24.5.1).
+              #
+              #   **THE RULE HAS THREE MORE SHAPES AND ALL THREE HAD
+              #   SHIPPED** (§24.5.2, §24.5.3, §24.5.4). SHEET claims ~100KB
+              #   on open, more than the whole machine, which is a
+              #   REQUIREMENT and not a size - §24.5.2 published that ground
+              #   and nobody put the name in $(SMALLOMIT). Then the rule
+              #   POINTED THE OTHER WAY: a document with no program is
+              #   BROWSER.HTM, and a PROGRAM WITH NO DOCUMENT is CHART (no
+              #   association at all, so its only launch path is a file only
+              #   Sheet writes) and FONT VIEWER (the small system disks carry
+              #   no SYSTEM/FONTS/ at all - $(FACESARG) is in the four
+              #   shipped recipes and neither small one, and §90.3 sent it
+              #   there by arithmetic over two lists without asking whether
+              #   the folder it is core FOR was on the disk). And
+              #   OS88NET.COM is the same rule ACROSS A CABLE - the DOS end
+              #   of §62's link whose os8088 end, NET.DRV, is in no small
+              #   driver set. **What let all five sit there is that a
+              #   `filter-out` matching NOTHING is silent**: $(SMALLOMIT_DATA)
+              #   spelled its two files uncompressed while the $(PKGZ) arm
+              #   that ships had renamed them, so the filter matched zero
+              #   from the day it was written. It is DERIVED now and
+              #   `soak -k 'smallreq'` reads the built floppy rather than the
+              #   variable - with the .DRV half an ALLOWLIST, so the driver
+              #   added two years from now fails without anyone remembering
 make emu      # THE THIRD KERNEL (§9.11.7): kern_emu, into build/emuk/, plus
               #   build/emu.img. It is kern_big PLUS §9.11's VMware absolute
               #   pointer and nothing else - the backdoor on port 0x5658 that
