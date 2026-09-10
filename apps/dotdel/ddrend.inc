@@ -2380,7 +2380,9 @@ dd_render:
     ; ~140 us on a frame that has 44 ms in it, and dd_relayout_ck answers in
     ; four compares when nothing moved.
     call dd_geom_win
-    call dd_relayout_ck
+    mov bl, 1                       ; ...but a RECUT is the UI task's, and
+    call dd_relayout_ck             ; this is the worker (SPEC.md 93.3.4.3)
+    jc .skip
 .draw:
     call dd_draw
     cmp byte [dd_inbr], 0

@@ -480,22 +480,40 @@ dd_weff_calc:
 ; -----------------------------------------------------------------------------
 dd_relayout_ck:
     cmp word [dd_bdseg], 0
-    je .redo                        ; nothing has ever been laid out
+    je .want                        ; nothing has ever been laid out
     mov al, [dd_vkind]
     cmp al, [dd_lvkind]
-    jne .redo                       ; a different CARD is a different pixel
+    jne .want                       ; a different CARD is a different pixel
     mov ax, [dd_cw]                 ; shape, and so a different tile
     cmp ax, [dd_lcw]
-    jne .redo
+    jne .want
     mov ax, [dd_ch]
     cmp ax, [dd_lch]
-    jne .redo
+    jne .want
     mov ax, [dd_cx]
     cmp ax, [dd_lcx]
     jne .move
     mov ax, [dd_cy]
     cmp ax, [dd_lcy]
     jne .move
+    clc
+    ret
+; -----------------------------------------------------------------------------
+; A RECUT IS THE UI TASK'S, ALWAYS (SPEC.md 93.3.4.3)
+;
+; The worker asks the same question every frame - it has to, because a drag
+; tells a package nothing - but it may only take the MOVE arm. Two tasks in
+; .redo at once is what the field saw as "it redraws twice and the second
+; redraw has the wrong origin" and as Smiles flickering between two sizes: the
+; tile is a global, so a sprite cut while the other task had already moved
+; [dd_tw] comes out at the OTHER width, and the bank ends up half one and half
+; the other.
+; -----------------------------------------------------------------------------
+.want:
+    or bl, bl
+    jz .redo
+    mov byte [dd_needcut], 1        ; ...so the worker asks for one instead
+    stc
     ret
 .move:
     call dd_bank_box                ; only the origin moved: the tile, the
@@ -514,7 +532,8 @@ dd_relayout_ck:
     call dd_attract_layout
 .mvout:
     mov byte [dd_boxd], 1           ; ...except the GAME OVER panel, whose pen
-    ret                             ; is banked at draw time (93.12.4.1)
+    clc                             ; is banked at draw time (93.12.4.1)
+    ret
 .redo:
     call dd_bank_box
     call dd_layout
@@ -527,6 +546,7 @@ dd_relayout_ck:
     jne .again
     mov byte [dd_started], 1        ; the FIRST layout is also the first board:
     call dd_attract_begin           ; it lays the slice and renders it
+    clc
     ret
 .again:
     call dd_actors_resnap           ; THE TILE CHANGED, so every actor's
@@ -534,12 +554,15 @@ dd_relayout_ck:
     call dd_is_attract              ; ...and every later one re-draws it at the
     jnc .board                      ; new tile - or, on the title screen, cuts
     call dd_attract_begin           ; the slice again, which decides how much
-    ret                             ; of the board there even is
+    clc                             ; of the board there even is
+    ret
 .board:
     call dd_board_render
+    clc
     ret
 .fail:
     mov byte [dd_ok], 0
+    clc
     ret
 
 dd_bank_box:

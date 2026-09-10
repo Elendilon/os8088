@@ -111820,6 +111820,41 @@ differed only by the few rows the WM clamps off — and cost a second and a thir
 full repaint at startup, which the field counted: *"the whole window then
 redraws, incorrectly. The whole window then redraws, AGAIN, correctly."*
 
+##### 93.3.4.3 …but a RECUT is the UI task's, always
+
+The frame asking every frame (§93.3.4.2) put a **second task** in the layout,
+and the layout is not re-entrant. `dd_relayout_ck`'s `.redo` arm rewrites
+`[dd_tw]`, `[dd_th]`, every position in the file, the row and column maps and
+the whole scaled sprite bank — all of them globals. Two tasks in it at once is
+what the field reported as two separate bugs:
+
+- *"When switching from thin to full, it redraws twice and the second redraw
+  looks to have the wrong origin"* — the attract page laid out and drawn twice,
+  once per task, and the screenshot has both copies of the score table on it at
+  two different pitches.
+- *"When Smiles is moving vertically he flickers and is drawn upside down every
+  other frame"* — the sprite **bank half one tile and half the other.**
+  `dd_spr_cut` reads `[dd_tw]` to decide whether the master's sixteen columns
+  go through `dd_cmap`, so an image cut after the other task moved that word
+  comes out at the **other width**, in a slot whose stride is `DD_SPRB`. A
+  16-wide slot holding an 8-wide image is what "upside down" looked like, and
+  it alternated because the mouth phases alternate and only some slots were
+  wrong. Dumping the bank is what settled it: `dir 0` correct at 16, `dir 1
+  phase 1` an 8-wide image, `dir 2 phase 0` holding an *up-facing* sprite.
+
+So `dd_relayout_ck` takes **BL**: zero from the UI task, one from the worker.
+The worker keeps the `.move` arm — that is the whole reason it asks — and a
+recut sets `[dd_needcut]`, returns CF and **skips the frame**. The worker then
+wakes the window exactly as it does for a fit (§93.3.4.1), and `dd_onwake`
+does the recut on the UI task, taking the gfx lock around it because a wake is
+the one callback the kernel runs without it (§12.8).
+
+A flag rather than a register would not do: two tasks share the flag, which is
+the same defect one level down.
+
+Nothing else needed a guard. Drawing is already serialised by the gfx lock,
+and `.move` writes only positions the same task then draws from.
+
 ### 93.4 Two surfaces, one renderer
 
 `dd_geom_win` banks the content box from `wm_content`/`wm_geom` and the depth

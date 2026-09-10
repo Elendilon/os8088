@@ -311,6 +311,7 @@ dd_paint:
     push bp
     push es
     call dd_geom_win                ; the content box may have moved
+    xor bl, bl                      ; the UI task: mine to recut
     call dd_relayout_ck             ; ...and may have changed size or display
     call dd_spawn_ck                ; ...and the worker starts here, not at the
     mov byte [dd_full], 1
@@ -371,6 +372,7 @@ dd_onresize:
     push bp
     push es
     call dd_geom_win
+    xor bl, bl                      ; the UI task: mine to recut
     call dd_relayout_ck
     mov byte [dd_full], 1
     pop es
@@ -629,6 +631,17 @@ dd_onwake:
     push bx
     push cx
     push dx
+    cmp byte [dd_needcut], 0        ; THE WORKER SAW THE WINDOW CHANGE SHAPE
+    je .wf                          ; and may not act on it (SPEC.md 93.3.4.3)
+    mov byte [dd_needcut], 0
+    call OSAPI_GFX_LOCK             ; a wake is the one callback the kernel
+    mov ax, KERNEL_SEG              ; runs WITHOUT the lock (SPEC.md 12.8), and
+    mov es, ax                      ; dd_repaint_now wants it held
+    call dd_repaint_now
+    call OSAPI_GFX_UNLOCK
+    mov ax, KERNEL_SEG
+    mov es, ax
+.wf:
     cmp byte [dd_wantfit], 0
     je .out
     mov byte [dd_wantfit], 0        ; ...FIRST, so one request is one resize
@@ -693,6 +706,7 @@ dd_repaint_now:
     jc .gone                        ; armed (SPEC.md 11.3)
     mov byte [dd_inpaint], 1
     call dd_geom_win
+    xor bl, bl                      ; the UI task: mine to recut
     call dd_relayout_ck             ; ...and dd_paint's other half, which this
                                     ; did not have: a menu command can change
                                     ; what the layout is CUT FROM and not one
@@ -741,7 +755,10 @@ dd_worker:
     ; left unpainted. The worker is the one place in this package that is
     ; neither a callback nor under the lock.
     cmp byte [dd_wantfit], 0
-    je .tick
+    jne .wake
+    cmp byte [dd_needcut], 0        ; ...and a RECUT is asked for the same way
+    je .tick                        ; (SPEC.md 93.3.4.3)
+.wake:
     mov bx, [dd_win]
     call OSAPI_WM_WAKE
 .tick:
@@ -838,6 +855,7 @@ dd_go_fsx:
     mov byte [dd_inbr], 0           ; back on the desktop
     mov byte [dd_fsxq], 0
     call dd_geom_win                ; ...and NOTHING is banked from the
+    xor bl, bl                      ; the UI task: mine to recut
     call dd_relayout_ck             ; bracket: those four words describe a
     mov byte [dd_full], 1           ; rect only a bracket owns
 .out:
@@ -854,6 +872,7 @@ dd_go_fsx:
 dd_fsx_main:
     push si
     call dd_geom_fsx                ; **THE RECT THIS BRACKET OWNS** (SPEC.md
+    xor bl, bl                      ; the UI task: mine to recut
     call dd_relayout_ck             ; 53.7.1). NOT (0,0) plus OSAPI_VIDEO's
     mov byte [dd_hasfoc], 1         ; in here we ARE the keyboard's owner
     mov byte [dd_full], 1           ; size: a same-mode bracket does not
@@ -1157,6 +1176,7 @@ dd_spct:     dw DD_PCTPAC, DD_PCTGH, DD_PCTFRI, DD_PCTEYE, DD_PCTTUN
     DWORDV dd_bTX
     DWORDV dd_bTW
     DWORDV dd_bSA
+    DBYTEV dd_needcut               ; the worker owes the UI task a recut
     DBUFV  dd_cnrmap, DD_INKB          ; which CORRIDOR tiles carry ink (93.2.3.2)
     DWORDV dd_dotw
     DWORDV dd_doth
