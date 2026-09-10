@@ -635,6 +635,20 @@ dd_bd_wipe:
 ; not.
 ; -----------------------------------------------------------------------------
 dd_board_render:
+    ; --- THE WALK IS A GLOBAL AND SO IS THE PICTURE (SPEC.md 93.5.17) -------
+    ; [dd_gc]/[dd_gr] are the loop, and dd_dots_blit and dd_tile_put both set
+    ; them - so a frame drawn on the other task WHILE this walks makes the
+    ; walk jump, and the maze comes out with holes in it that no later paint
+    ; heals. Two flags and one yield: say so first, then wait for any frame
+    ; already in flight. The worker skips a frame while this is set, so the
+    ; wait is bounded by the frame that had already started.
+    inc byte [dd_inrender]
+.wait:
+    cmp byte [dd_drawing], 0
+    je .clear
+    call OSAPI_TASK_YIELD
+    jmp short .wait
+.clear:
     call dd_bd_wipe
     mov bx, DD_INKB - 1             ; nothing carries a corner block yet
 .zink:
@@ -683,6 +697,7 @@ dd_board_render:
     jb .rows2
     ; --- pass 3: the playfield's own outer line, which is no tile's job -----
     call dd_bord_draw
+    dec byte [dd_inrender]
     ret
 
 ; dd_tile_org - [dd_gx],[dd_gy] = the board pixel of tile ([dd_gc],[dd_gr])

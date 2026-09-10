@@ -368,13 +368,13 @@ dd_layout:
 ; VGA's 16x15 get the same picture at two sizes rather than two pictures.
 ; -----------------------------------------------------------------------------
 dd_metrics:
-    mov word [dd_lth], 1            ; two pixels of wall once there is room for
-    mov ax, [dd_th]                 ; the black between two of them
-    cmp ax, 8
-    jb .lok
-    cmp word [dd_tw], 16
-    jb .lok
-    mov word [dd_lth], 2
+    mov word [dd_lth], 1            ; TWO pixels of wall once the tile has room
+    mov ax, [dd_th]                 ; for two ROUNDS as well, which is six line
+    cmp ax, 12                      ; widths (93.2.3) - so a windowed Full's
+    jb .lok                         ; 16x9 keeps a 1px line and gets the arcade
+    cmp word [dd_tw], 16            ; round, and only a fullscreen tile is
+    jb .lok                         ; thick. It was 8 rows; the field's A/B on
+    mov word [dd_lth], 2            ; the glass is what moved it (93.2.3.3)
 .lok:
     mov cx, [dd_lth]                ; THE BORDER'S GAP (93.2.4) and THE CORNER
     mov ax, cx                      ; ROUND (93.2.3), both off the line width

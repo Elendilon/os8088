@@ -901,6 +901,17 @@ dd_bandrun:
 ; -----------------------------------------------------------------------------
 dd_tile_put:
     push si
+    push ax                         ; THE WALK'S OWN STATE IS A GLOBAL, and a
+    mov al, [dd_gc]                 ; repair can land in the middle of one
+    mov ah, [dd_gr]                 ; (SPEC.md 93.5.17): dd_board_render is
+    push ax                         ; ~200 ms of walking [dd_gc]/[dd_gr], and
+    mov al, [dd_gt]                 ; this routine sets both. Banking them is
+    xor ah, ah                      ; four words against a walk that otherwise
+    push ax                         ; jumps and leaves the maze half drawn
+    mov ax, [dd_gx]
+    push ax
+    mov ax, [dd_gy]
+    push ax
     mov [dd_gc], cl
     mov [dd_gr], ch
     call dd_tile
@@ -1015,6 +1026,16 @@ dd_tile_put:
     sub ax, [dd_lth]                ; ...and the bottom
     call dd_cnr_rows
 .done:
+    pop ax                          ; ...and putting them back is what makes
+    mov [dd_gy], ax                 ; this safe from any task
+    pop ax
+    mov [dd_gx], ax
+    pop ax
+    mov [dd_gt], al
+    pop ax
+    mov [dd_gc], al
+    mov [dd_gr], ah
+    pop ax
     pop si
     ret
 
@@ -2383,8 +2404,12 @@ dd_render:
     mov bl, 1                       ; ...but a RECUT is the UI task's, and
     call dd_relayout_ck             ; this is the worker (SPEC.md 93.3.4.3)
     jc .skip
+    cmp byte [dd_inrender], 0       ; ...and a picture being WALKED is not one
+    jne .skip                       ; to draw a frame off (SPEC.md 93.5.17)
 .draw:
-    call dd_draw
+    mov byte [dd_drawing], 1        ; SPEC.md 93.5.17: a board walk waits for
+    call dd_draw                    ; this to clear before it starts
+    mov byte [dd_drawing], 0
     cmp byte [dd_inbr], 0
     jne .out
     call OSAPI_GFX_UNLOCK

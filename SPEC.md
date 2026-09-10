@@ -111327,6 +111327,19 @@ same elbow seen from the other side.
 A subtraction after the fact rather than shortening the lines: the four sides
 already have three cases each, and this has one.
 
+#### 93.2.3.3 A line is two pixels once there is room for two ROUNDS
+
+`[dd_lth]` went to 2 at a 16 x 8 tile, on the black between two strokes. That
+is the wrong quantity now: what a thick line has to leave room for is
+§93.2.3's **round at each end of it**, which is `2 x 2 x [dd_lth]` out of a
+one-tile wall. The test is the same six line widths, so the threshold is
+**16 x 12** — a windowed **Full** is 16 x 9 and keeps a 1 px line *and* gets
+the arcade round, where before it had a 2 px line and a chamfer.
+
+**Built as an A/B and decided on the glass, on the field's own 5150.** The
+prediction here was "we probably keep how it is"; the answer was *"surprisingly
+the thin line full is MUCH better"*. Only a fullscreen tile is thick now.
+
 #### 93.2.3.2 The concave round puts ink in a CORRIDOR, and that broke two assumptions
 
 A concave corner's arms run **out** of the wall, so its corner block lands one
@@ -112837,6 +112850,40 @@ not load-bearing, and `font_run` at an aligned x would be a defensible choice.
 The cost is that the pen x is rounded down to the byte grid, so a centred line
 can sit up to seven pixels left of exact centre. A line of type is a line of
 type.
+
+#### 93.5.17 THE BOARD WALK IS A GLOBAL, and so is the picture under it
+
+`dd_board_render` walks `[dd_gc]`/`[dd_gr]` for ~200 ms — and those two bytes
+are not its own. **`dd_dots_blit` uses them as its loop as well, and
+`dd_tile_put` sets both**, so a frame drawn on the *other* task while the board
+is being walked makes the walk **jump**: it visited **609 of 868 tiles** in the
+measurement, and the maze came out with holes in it that no later paint healed.
+The field saw it as *"a bunch of the board is missing"* after a Thin → Full
+switch in play, and it is the same class of defect as §93.3.4.3 one layer down
+— a global that two tasks reach.
+
+Counted rather than reasoned about: an instrumented build recorded **five
+`dd_tile_put` calls inside a render**, four of them the pellet blink and one
+the fruit, **all five on the worker**, against a UI-task render.
+
+Three things, and the third is the one that makes it safe:
+
+1. **`dd_tile_put` banks the walk.** Four words — `[dd_gc]`, `[dd_gr]`,
+   `[dd_gt]`, `[dd_gx]`/`[dd_gy]` — pushed at entry and restored at exit, so a
+   repair landing in the middle of a walk leaves it where it found it.
+2. **The worker skips a frame while a walk is in progress**, so it does not
+   draw off a half-built picture at all.
+3. **Two flags and one yield.** `dd_board_render` sets `[dd_inrender]` *first*,
+   then waits for `[dd_drawing]` — set around every `dd_draw` — to clear,
+   yielding while it does. The order is what closes the race: if both flags go
+   up together the worker sees `[dd_inrender]`, clears `[dd_drawing]` and skips,
+   so the walk always wins and neither side waits on the other. The wait is
+   bounded by the one frame that had already started.
+
+The gfx lock is not the tool here, and that is worth writing down: it is not
+re-entrant (`gfx_lock` blocks on the flag without asking who owns it), so a
+`.redo` reached from `dd_paint` — which the kernel calls with the lock already
+held — cannot take it again.
 
 ### 93.6 The frame is the tick, and the clock is not the frame
 

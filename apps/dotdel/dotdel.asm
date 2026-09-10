@@ -316,7 +316,9 @@ dd_paint:
     call dd_spawn_ck                ; ...and the worker starts here, not at the
     mov byte [dd_full], 1
     mov byte [dd_inpaint], 1
+    mov byte [dd_drawing], 1        ; SPEC.md 93.5.17
     call dd_draw
+    mov byte [dd_drawing], 0
     mov byte [dd_inpaint], 0
     pop es
     pop bp
@@ -634,6 +636,10 @@ dd_onwake:
     cmp byte [dd_needcut], 0        ; THE WORKER SAW THE WINDOW CHANGE SHAPE
     je .wf                          ; and may not act on it (SPEC.md 93.3.4.3)
     mov byte [dd_needcut], 0
+    cmp byte [dd_wantfit], 0        ; ...unless a FIT is about to resize us
+    jne .wf                         ; anyway: that recuts and repaints, and
+                                    ; doing it here first is one of the three
+                                    ; refreshes the field counted (93.3.4.3)
     call OSAPI_GFX_LOCK             ; a wake is the one callback the kernel
     mov ax, KERNEL_SEG              ; runs WITHOUT the lock (SPEC.md 12.8), and
     mov es, ax                      ; dd_repaint_now wants it held
@@ -714,7 +720,9 @@ dd_repaint_now:
                                     ; kind did nothing until the next resize
                                     ; (SPEC.md 93.3.3.1). It is four compares
                                     ; when nothing moved.
+    mov byte [dd_drawing], 1        ; SPEC.md 93.5.17
     call dd_draw
+    mov byte [dd_drawing], 0
     mov byte [dd_inpaint], 0
     call OSAPI_WM_CLIP_CLEAR
 .gone:
@@ -1177,6 +1185,8 @@ dd_spct:     dw DD_PCTPAC, DD_PCTGH, DD_PCTFRI, DD_PCTEYE, DD_PCTTUN
     DWORDV dd_bTW
     DWORDV dd_bSA
     DBYTEV dd_needcut               ; the worker owes the UI task a recut
+    DBYTEV dd_inrender              ; dd_board_render is walking the board
+    DBYTEV dd_drawing               ; ...and a frame is being drawn off it
     DBUFV  dd_cnrmap, DD_INKB          ; which CORRIDOR tiles carry ink (93.2.3.2)
     DWORDV dd_dotw
     DWORDV dd_doth
