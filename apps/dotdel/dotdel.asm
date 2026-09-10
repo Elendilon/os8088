@@ -923,6 +923,9 @@ dd_spct:     dw DD_PCTPAC, DD_PCTGH, DD_PCTFRI, DD_PCTEYE, DD_PCTTUN
     DBYTEV dd_abon                  ; the About card is up
     DBYTEV dd_hasfoc
     DBYTEV dd_snd
+    DBYTEV dd_wakph                 ; the dot's warble (SPEC.md 93.10.1): which
+    DBYTEV dd_wakt                  ; way round this bite is, how long until
+    DWORDV dd_wak2                  ; its second syllable, and what that is
     DBYTEV dd_hudd                  ; the HUD has changed under itself
     DBYTEV dd_hudall                ; ...and ALL of it is owed, labels included
     DBUFV  dd_lscore, 4             ; what each HUD field last had on the glass

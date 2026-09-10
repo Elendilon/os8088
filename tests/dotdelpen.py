@@ -24,6 +24,13 @@ Three questions, all three of them field reports:
   F  AN EATEN PELLET STAYS EATEN (SPEC.md 93.5.7.1).  dd_pills_flip walks the
      pellet LIST, which is never pruned, so the blink lettered an eaten pellet
      straight back in 91 ms after the eater's own band had put black over it.
+  H  A DOT IS A BITE (SPEC.md 93.10.1).  One note per dot at 660 Hz, four and
+     a half times a second for a board of two hundred and forty, is the
+     clink the field called grating.  Two tones a tick apart, with the pair
+     turned over on the next dot, is the arcade's up-down-up-down.  It
+     listens to the ATTRACT DEMO - the only place Smiles eats and cannot be
+     caught - and reads the SHAPE and not the frequencies, which are a
+     listening decision and will be retuned.
   G  THE DEATH IS AN ANIMATION (SPEC.md 93.5.16).  `dd_die` set a state and a
      timer and nothing else, so being caught was a thirty-two-tick freeze
      with four ghosts standing on Smiles.  This forces a real catch - a
@@ -41,7 +48,9 @@ Three questions, all three of them field reports:
 BREAK IT ON PURPOSE: take the two instructions out of `wm_clip_set` and leg D
 goes red at once.  Take `dd_die`'s `.hide` loop out and leg G names the ticks a
 ghost was still on the board; put `dd_die_anim`'s call back AFTER the `dec` and
-it reads the table one entry short at both ends.  Take the `jc` out of `dd_advance`'s left arm and leg E's
+it reads the table one entry short at both ends.  Point `.dot` back at
+`dd_beep` and leg H sees one tone a bite; take the `xor byte [dd_wakph], 1` out
+and it sees every bite the same way round.  Take the `jc` out of `dd_advance`'s left arm and leg E's
 first half reads columns 0 and 1 and nothing else, for ever.  Take
 `dd_pills_flip`'s grid test out and leg F sees the blink fill a tile the grid
 calls empty.  Make `dd_pills_flip` walk its list in SI and call
@@ -521,6 +530,77 @@ def leg_g(ui, p, say):
     return 0
 
 
+def leg_h(ui, p, say, want=4):
+    """A dot is a BITE - two tones - and the pair turns over on the next one.
+
+    THE FREQUENCIES ARE NOT THE CLAIM.  DD_WAKLO and DD_WAKHI are a look-and-
+    listen decision and will be retuned; what must not come back is the single
+    note, so this reads the SHAPE: two tones a bite, different from each other,
+    reversed bite to bite.
+    """
+    m = ui.m
+    # THE DEMO, not a game.  dd_collide's demo arm skips dd_die, so the attract
+    # AI drives Smiles round the board eating without being caught; a poked
+    # [dd_want] in a real game walks him into a wall and then into a ghost, and
+    # the only tone that comes back is dd_die's.
+    t0 = time.time()
+    while time.time() - t0 < 20.0:
+        m.pause()
+        eaten, demo = p.w("dd_eaten"), p.b("dd_demo")
+        m.go()
+        if demo and eaten > 2:
+            break
+        time.sleep(0.25)
+    else:
+        say("H  FAIL: the demo never got going - nothing was eaten to listen to")
+        return 1
+    # AX at dd_tone's entry IS the frequency asked for and CX the ticks, so a
+    # bite's two syllables are the CX=1 pair either side of [dd_eaten] moving.
+    m.breakpoints([{"type": "execseg", "seg": p.seg,
+                    "off": codeoff("dd_tone")}])
+    seq = []
+    for _ in range(6 * want + 8):
+        m.go()
+        if m.wait_stop(15.0) is None:
+            break
+        r = m.regs()
+        seq.append((r["ax"] & 0xFFFF, r["cx"] & 0xFFFF, p.w("dd_eaten")))
+    m.breakpoints([])
+    m.go()
+    bites, cur, last = [], [], None
+    for hz, cx, e in seq:
+        if cx != 1:
+            continue                    # a pill, a ghost or a fruit note
+        if e != last:
+            if cur:
+                bites.append(cur)
+            cur, last = [], e
+        cur.append(hz)
+    if cur:
+        bites.append(cur)
+    pairs = [b for b in bites if len(b) == 2]
+    if len(pairs) < want:
+        say("H  FAIL: %d complete bite(s) of %d wanted in %d tone(s) - a dot "
+            "is not two tones (SPEC.md 93.10.1).  bites=%s"
+            % (len(pairs), want, len(seq), bites))
+        return 1
+    flat = [b for b in pairs if b[0] == b[1]]
+    if flat:
+        say("H  FAIL: %d bite(s) played the SAME tone twice (%s) - that is the "
+            "clink again, not a warble (SPEC.md 93.10.1)" % (len(flat), flat))
+        return 1
+    stuck = [i for i in range(len(pairs) - 1) if pairs[i] != pairs[i + 1][::-1]]
+    if stuck:
+        say("H  FAIL: bite(s) %s did not turn the pair over - [dd_wakph] is "
+            "not flipping, so every bite is the same syllable and the "
+            "up-down-up-down is gone (SPEC.md 93.10.1).  bites=%s"
+            % (stuck, pairs))
+        return 1
+    say("H  ok: %d bites, two tones each, reversed every time (%s Hz)"
+        % (len(pairs), sorted(set(pairs[0]))))
+    return 0
+
+
 def main(argv):
     ap = argparse.ArgumentParser()
     ap.add_argument("--img", default=os88build.at("build/os8088-360.img"))
@@ -541,7 +621,8 @@ def main(argv):
     with os88ui.boot(a.img, apps=a.apps, machine=a.machine) as ui:
         ui.path(PKG)
         p = Probe(ui, names)
-        ui.m.key("Enter")
+        fail += leg_h(ui, p, say)      # the DEMO is what it listens to, so it
+        ui.m.key("Enter")              # goes before the game starts
         time.sleep(3.0)
         ui.m.pause()
         ui.m.write((p.seg << 4) + names["dd_lives"], bytes([99]))

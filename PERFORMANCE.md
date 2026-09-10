@@ -12904,3 +12904,42 @@ and every animation counter — is **71 µs against one actor band's 4,068**. It
 is worth writing down because the instinct on a 4.77 MHz machine is to price
 the AI first, and on this evidence a maze game's AI is free and its renderer is
 the whole bill.
+
+### Set 139 — what a TONE costs, and why the dot's warble is not a performance question (SPEC.md §93.10.1)
+
+Taken 2026-09-10 on MartyPC's cycle-accurate 4.77 MHz 8088, `os8088_5150_herc_gla`,
+kern_big, `DOTDEL.O88` in play with `[dd_lives]` poked to 99 and `[dd_want]`
+held left so Smiles keeps eating. Both figures are cycle counts read off the
+guest's own counter with it **halted at a breakpoint**, so they are exact
+rather than sampled; the minimum of 25 samples is quoted because an IRQ0
+landing inside a bracket inflates a reading and never deflates it.
+
+| bracket | cycles | µs | spread over 25 |
+|---|---|---|---|
+| `dd_wak_tick` entry → `.out`, on a tick that is **not** a bite's second syllable | **40** | **8.4** | min = median = max = 40 |
+| `dd_tone` entry → after `call OSAPI_SND_TONE` | **1,997** | **418.4** | median 2,004, max 2,007 |
+
+**418 µs is the number worth keeping.** It is what a package pays to change the
+tone channel: the far call, `snd_tone_req`'s priority compare, `snd_tone_out`'s
+two port writes and the owner-record stamp, all inside one `pushf`/`cli` window.
+Set it against the table at the top of Part 2 — a bare `OSAPI_*` far call is
+46.7 µs and a small `gfx_*` call is 756 — and a tone lands between the two,
+which is not where the instinct puts it. **`OSAPI_SND_TONE` is fire-and-forget,
+so a caller waits for nothing; it is not free.**
+
+What §93.10.1's warble does with that: a bite is **two** `dd_tone` calls where
+it used to be one, plus 8.4 µs on every tick for the test. At `DD_PCTPAC` = 100
+a tile is `DD_TILET` = 4 ticks, so 4.55 dots a second:
+
+| | µs a second | share of the machine |
+|---|---|---|
+| one note a dot (as it was) | 1,904 | 0.19% |
+| two, plus the per-tick test | **3,960** | **0.40%** |
+| what the warble ADDED | 2,056 | 0.21% |
+
+The frame view is the one that decides it, and it is not the per-second view: a
+bite's *first* syllable lands on the tick a dot was eaten and cost that much
+before, so the new money is the *second*, landing on the next tick, which paid
+nothing. A DOT DELIRIUM frame on this adapter is **44.13 ms of a 54.93 ms
+tick**, so 418 µs is **3.9% of the slack**, on a quarter of the ticks. The
+answer to "do we have the headroom" is yes, with the arithmetic attached.

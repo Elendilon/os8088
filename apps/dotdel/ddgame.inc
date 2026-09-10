@@ -294,6 +294,7 @@ dd_step:
 .live:                              ; why nothing under it can change and the
     inc word [dd_anim]
     call dd_pill_tick
+    call dd_wak_tick                ; the bite's second syllable (93.10.1)
     mov al, [dd_state]
     cmp al, DDS_ATTRACT
     je .attract
@@ -1636,8 +1637,7 @@ dd_eat_here:
     mov word [dd_relt], 0
     mov ax, DD_PTDOT
     call dd_score_add
-    mov ax, 660
-    call dd_beep
+    call dd_dot_snd                 ; ...a BITE and not a clink (93.10.1)
     call dd_fruit_ck
     jmp short .out
 .pill:
@@ -2032,20 +2032,96 @@ dd_anims:
     ret
 
 ; =============================================================================
-; SOUND - three notes and a toggle (SPEC.md 93.5.16)
+; SOUND - three notes and a toggle (SPEC.md 93.10)
 ; =============================================================================
-; dd_beep - AX Hz for a couple of ticks, and never at the cost of a frame:
-; OSAPI_SND_TONE is fire and forget, so nothing here waits for anything.
-dd_beep:
+; dd_tone - AX Hz for CX ticks, or nothing at all when the sound is off.
+; Never at the cost of a frame: OSAPI_SND_TONE is fire and forget, so nothing
+; here waits for anything.
+dd_tone:
     cmp byte [dd_snd], 0
     je .out
     push ax
     push cx
     push dx
-    mov cx, 2
     mov dl, 0x40
     call OSAPI_SND_TONE
+.done:                              ; ...a label so the cost can be bracketed
     pop dx
+    pop cx
+    pop ax
+.out:
+    ret
+
+; dd_beep - one note for a couple of ticks: a pill, a ghost, a fruit, a life,
+; a death. It also CANCELS a bite in progress (below): every one of those
+; outranks the second syllable of a dot.
+dd_beep:
+    push cx
+    mov byte [dd_wakt], 0
+    mov cx, 2
+    call dd_tone
+    pop cx
+    ret
+
+; -----------------------------------------------------------------------------
+; THE DOT'S WARBLE (SPEC.md 93.10.1)
+;
+; One note a dot was a CLINK - 660 Hz, four and a half times a second, for a
+; whole board of two hundred and forty - and the field's word for it was
+; grating. The arcade does not play a note at all: it plays a SWEEP, and the
+; sweep alternates direction bite to bite, which is where "waka waka" comes
+; from.
+;
+; A square wave on tick granularity cannot sweep, but it can SLUR. Two tones
+; one tick apart is a two-syllable bite, and turning the pair over on the next
+; dot gives the up-down-up-down the ear hears as chewing rather than as an
+; alarm. Both tones are also well below the old one, which is the other half of
+; "less grating": a square wave is all odd harmonics, so 660 Hz put its third
+; and fifth at 1,980 and 3,300 - the middle of where an ear is most sensitive -
+; and 349 puts them at 1,047 and 1,745.
+;
+; It is NOT a per-tick sound engine. One byte counts the syllable down and one
+; word holds what to play when it lands, so a tick that is not the second
+; syllable of a bite costs a compare against zero.
+; -----------------------------------------------------------------------------
+DD_WAKLO  equ 262                   ; C4 and F4 - a fourth: wide enough to hear
+DD_WAKHI  equ 349                   ; as two notes, narrow enough to slur
+DD_WAKT   equ 1                     ; ticks a syllable. A bite at full speed is
+                                    ; DD_TILET = 4, so the pair is a crisp
+                                    ; wa-ka and then a gap, which is the
+                                    ; arcade's rhythm and not a drone
+
+; dd_dot_snd - a dot is eaten. Plays the first syllable and arms the second.
+dd_dot_snd:
+    push ax
+    push cx
+    xor byte [dd_wakph], 1          ; ...and the PAIR turns over each dot
+    mov ax, DD_WAKLO
+    mov cx, DD_WAKHI
+    cmp byte [dd_wakph], 0
+    je .set
+    xchg ax, cx
+.set:
+    mov [dd_wak2], cx
+    mov byte [dd_wakt], DD_WAKT
+    mov cx, 1                       ; ONE tick, so a bite that is never
+    call dd_tone                    ; followed up stops rather than drones
+    pop cx
+    pop ax
+    ret
+
+; dd_wak_tick - the second syllable, one tick on. Called every tick in every
+; state, beside dd_pill_tick.
+dd_wak_tick:
+    cmp byte [dd_wakt], 0
+    je .out
+    dec byte [dd_wakt]
+    jnz .out
+    push ax
+    push cx
+    mov ax, [dd_wak2]
+    mov cx, 1
+    call dd_tone
     pop cx
     pop ax
 .out:

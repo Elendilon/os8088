@@ -112657,6 +112657,50 @@ were off, on a zeroed byte nobody had thought about: a maze chase that has to
 be switched on from a menu before it makes a sound is one that has none, and
 the field asked whether the game was supposed to have any.
 
+#### 93.10.1 The dot is a BITE — two tones, and the pair turns over
+
+A dot was **one note: 660 Hz for two ticks**, four and a half times a second,
+for a board of two hundred and forty of them. It reads as a clink, and the
+field's word for it was *grating*.
+
+**The arcade does not play a note.** Eating a dot triggers a rapid frequency
+*sweep*, and the sweep alternates direction bite to bite — which is the whole
+of why the sound is remembered as "waka waka" rather than as a beep.
+
+A square wave on a tick clock cannot sweep, but it can **slur**. `dd_dot_snd`
+plays one tone now with `CX` = 1 and arms the other for the next tick, so a
+bite is two syllables 55 ms apart; `[dd_wakph]` turns the pair over on the next
+dot, giving the up-down-up-down an ear hears as chewing. At `DD_PCTPAC` = 100 a
+tile is `DD_TILET` = 4 ticks, so each bite is a crisp *wa-ka* and then two ticks
+of silence — the arcade's rhythm, and not a drone.
+
+**Both tones are also well below the old one, and that is the other half of
+"less grating".** A square wave is all odd harmonics, so 660 Hz put its third
+and fifth at 1,980 and 3,300 Hz — the middle of where an ear is most sensitive.
+`DD_WAKLO` = 262 and `DD_WAKHI` = 349 (C4 and F4, a fourth) put them at 1,047
+and 1,745.
+
+**It is not a per-tick sound engine.** One byte counts the syllable down and
+one word holds what to play when it lands, so `dd_wak_tick` — called beside
+`dd_pill_tick`, in every state — is a compare against zero on every tick that
+is not the second half of a bite. `dd_beep` clears `[dd_wakt]`, because a
+pellet, a ghost, a fruit, a life and a death each outrank the tail of a dot.
+
+**What it costs**, measured on a cycle-accurate 4.77 MHz 8088 (PERFORMANCE.md
+Set 139): the per-tick test is **40 cycles = 8.4 µs**, and one `dd_tone` — the
+far call plus everything `snd_tone_req` does inside its `cli` window — is
+**1,997 cycles = 418.4 µs**. That last one is worth knowing on its own: a bare
+`OSAPI_*` far call is 46.7 µs and a small `gfx_*` call is 756, so a tone lands
+between the two and is *not* free merely because nothing waits for it.
+
+A bite is two of those where it used to be one, so at 4.55 dots a second the
+sound goes from 1,904 µs of every second to **3,960** — **0.40% of the
+machine**, of which the warble added 0.21. The frame view is the one that
+decides it: the first syllable lands on the tick that already paid for a note,
+so the new money is the second, on the next tick, and 418 µs is **3.9% of the
+10.8 ms this frame has spare** on a quarter of the ticks. The warble is not a
+performance question.
+
 ### 93.11 The attract screen
 
 The title, the table, a blinking line and a demo.
