@@ -12734,7 +12734,10 @@ model over-predicted, arriving as a measurement — a point committed through
 `gfx_points` costs more when the points are SCATTERED, and the worst calls are
 the ones laying a whole new trail at once.
 
-**So the game gets 1–5% faster, not a third.** The arithmetic closes exactly:
+**So the game gets 1–5% faster, not a third** — and 135.4 is why that sentence
+is not the whole answer: the busy scenario's 0.37% is a REDISTRIBUTION, and it
+moves four frames in four hundred across §44.1's tick deadline. The arithmetic
+closes exactly:
 `mc_dsc_run` is 30–34% of the run, its TOTAL falls 1.1% (busy) and 4.9% (calm)
 once the tail is counted, and 30% × 4.9% is the 1.38% the whole calm run moved.
 A per-call median is not a frame and a frame is not a game, and this is the set
@@ -12746,6 +12749,67 @@ not: 3.53 walks a non-empty call against Set 134.2's 3.64 live. The calmer arm
 at 2.63 gets a BIGGER whole-game win (−5.10% median frame against −1.30%),
 which is the direction Set 133's window predicts — `GFX_POINTS` is at its best
 with few points — but the effect is in the frame rather than in the call.
+
+#### 135.4 It is a REDISTRIBUTION, and the tick deadline is where that costs
+
+The whole-run figure is a wash in the busy scenario (−0.37%), so the natural
+reading is that nothing much happened. Both arms play the same game, though,
+so frame N in one is frame N in the other and the two runs compare **pairwise**
+— which is a far sharper question than two distributions, and it says the
+opposite of "nothing much".
+
+| | busy, 400 frames, paired |
+|---|---|
+| frames faster on the app walk | **182** |
+| frames slower | **218** |
+| total | **−0.38%** |
+| the 200 QUIETEST frames | **−4.63%** |
+| the 40 BUSIEST frames | **+2.53%** |
+
+| percentile | kernel walk | app walk | |
+|---|---:|---:|---:|
+| p50 | 143,082 | 141,446 | **−1.1%** |
+| p75 | 218,548 | 220,122 | +0.7% |
+| p90 | 285,806 | 291,916 | **+2.1%** |
+| p95 | 315,964 | 330,576 | **+4.6%** |
+| p99 | 432,172 | 449,380 | **+4.0%** |
+
+**So the time was MOVED and not spent**: the quiet frames pay for the busy ones.
+That would be a free trade if a frame's cost were linear in what the player
+sees, and it is not — §44.1 is a **cliff**. `mc_worker` sleeps to a deadline of
+one tick, and a frame that crosses it does not make the rate sag, it HALVES it.
+
+| | kernel walk | app walk |
+|---|---:|---:|
+| frames over one tick (54.93 ms) | **56 of 400** | **60 of 400** |
+| newly over, pairwise | | **6** |
+| newly under, pairwise | | **2** |
+| frames over 2 / 3 / 5 ticks | 2 / 2 / 1 | 2 / 2 / 1 |
+
+**Four net frames in four hundred — 1% — and it is EXACT rather than
+indicative.** Two independent runs of each arm give 56, 56, 60, 60; the
+within-arm noise is **0 newly-over and ±0.01% of total** and all four
+cross-arm pairings give the same 6 and 2. Nothing here is a sampling artefact.
+
+And the six were all standing on the line already: 52.20 → 57.04, 52.96 →
+57.98, 52.81 → 56.47, 53.92 → 54.98, 54.12 → 55.07, 52.81 → 55.31 ms against a
+54.93 ms tick. **Three of the six cross by under 0.4 ms.** The worst frames are
+untouched — the 2-, 3- and 5-tick frames are the same count in both arms, and
+the maximum is 1,313,399 against 1,312,551, marginally in the app walk's
+favour. This is not the peak getting worse; it is the shoulder of the
+distribution rising through a threshold that happens to sit on it.
+
+**Where it comes from** is 135.2's tail, one level down: `mc_dsc_run`'s p95 and
+p99 are **+34% and +36%** where its median is −26%, and the expensive calls are
+the ones laying a whole new trail at once — many SCATTERED points through
+`gfx_points`, which is Set 134.3's own explanation for its over-prediction. The
+busiest frames are the ones with a launch in them.
+
+**Nothing has been changed on the strength of this**, and the obvious lever is
+named rather than pulled: §48.15's drain budget (`[mc_drnbud]`) is what bounds
+how much trail a frame lays, and it was calibrated against the kernel walk's
+per-pixel cost. A budget that no longer matches the commit it is spending is
+the mechanism a re-tune would go after.
 
 **And the conversion is still the right trade**, which this set does not
 disturb: it took **−597 bytes of `.text` and an image rung** out of `kern_big`

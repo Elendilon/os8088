@@ -90,6 +90,31 @@ def stats(v):
     return (v[n // 2], sum(v) / float(n), v[0], v[-1])
 
 
+# ONE SYSTEM TICK IN CPU CYCLES. The PIT free-runs at 1.193182 MHz / 65536 =
+# 18.2065 Hz, and mc_worker's whole design is one frame inside one of these
+# (SPEC.md 44.1): a frame that crosses it does not make the game sag, it HALVES
+# the rate. So "did this frame miss" is the question a distribution has to
+# answer, and a median cannot.
+TICK = HZ / 18.2065
+
+
+def pct(v, q):
+    """The q'th percentile, nearest-rank. A MAX is one sample - the worst of
+    several hundred - so a tail that is genuinely fatter and a tail with one
+    unlucky call in it look identical in it. These do not."""
+    v = sorted(v)
+    if not v:
+        return 0
+    i = min(len(v) - 1, max(0, int(round(q / 100.0 * len(v))) - 1))
+    return v[i]
+
+
+def tail(v, label):
+    m = pct(v, 50)
+    print("     %-14s p50 %8d  p90 %8d  p95 %8d  p99 %8d  max %8d"
+          % (label, m, pct(v, 90), pct(v, 95), pct(v, 99), max(v) if v else 0))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--image", default="build/os8088-360.img")
@@ -104,6 +129,12 @@ def main():
                     help="MC_BFIRE: a scripted shot every N frames. Must "
                          "match the MCBFIRE= the disk was built with - the "
                          "staleness check below compares the two")
+    ap.add_argument("--dump", default="",
+                    help="write run 0's per-frame cycles to this file, one a "
+                         "line. BOTH ARMS PLAY THE SAME GAME (mc_bsum proves "
+                         "it), so frame N in one is frame N in the other and "
+                         "the two dumps compare PAIRWISE - which is a far "
+                         "sharper question than two distributions")
     ap.add_argument("--dsc", action="store_true",
                     help="also bracket mc_dsc_run - THE CONVERTED CALL - "
                          "through one deterministic run, so its share of a "
@@ -270,6 +301,16 @@ def main():
     print("   whole run: %d frames, %d cycles, %.2f guest seconds"
           % (len(out[0]["per"]), tot, tot / HZ))
     print()
+    tail(out[0]["per"], "frame cycles")
+    # ...AND THE ONLY THRESHOLD THE GAME HAS. Everything else here is a cost;
+    # this is a FAILURE: mc_worker's deadline is one tick, and a frame that
+    # crosses it halves the frame rate rather than shaving it (SPEC.md 44.1).
+    for k in (1, 2, 3, 5):
+        n = sum(1 for d in out[0]["per"] if d > k * TICK)
+        print("     frames over %d tick%s (%6.1f ms): %3d of %d  (%.1f%%)"
+              % (k, " " if k == 1 else "s", k * 1000.0 * TICK / HZ, n,
+                 len(out[0]["per"]), 100.0 * n / len(out[0]["per"])))
+    print()
 
     for i, r in enumerate(out):
         check(r["frames"] == FRAMES,
@@ -287,6 +328,13 @@ def main():
     check(1000.0 * med / HZ < BAR_MS,
           "the median frame is under %.0f ms (%.2f)" % (BAR_MS,
                                                         1000.0 * med / HZ))
+
+    if a.dump:
+        with open(a.dump, "w") as f:
+            for d in out[0]["per"]:
+                f.write("%d\n" % d)
+        print("   per-frame cycles written to %s" % a.dump)
+        print()
 
     if dsc is not None:
         calls, cyc, blk, empty, span = dsc
@@ -313,6 +361,7 @@ def main():
             m2, a2, l2, h2 = stats(ne)
             print("     non-empty calls: median %d, mean %d, min %d, max %d"
                   % (m2, a2, l2, h2))
+            tail(ne, "non-empty")
         print()
 
     if FAIL:

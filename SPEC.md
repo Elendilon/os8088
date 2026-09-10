@@ -65466,7 +65466,10 @@ blocks (`mc_iwlk`, `mc_awlk`), the drawn-to positions and the batch, because
 the two arms of a before/after represent a walk differently on purpose (§5.12.5)
 and summing those would fail the agreement test for the one reason that is not
 a divergence. **Both arms of the §48.16 comparison end on the same checksum**,
-which is what makes the figures in PERFORMANCE.md Set 135 a measurement.
+which is what makes the figures in PERFORMANCE.md Set 135 a measurement — and
+it is what lets Set 135.4 compare the two runs **frame by frame** rather than
+distribution to distribution, which is the only reason the four-frames-in-four
+-hundred deadline effect there is visible at all.
 
 On a machine with no debugger it still answers: `[mc_bticks]` is the run in
 system ticks and `mc_bshow` puts it on the glass, so a 5150 reads the same
