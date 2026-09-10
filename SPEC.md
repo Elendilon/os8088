@@ -104335,20 +104335,51 @@ are culled. Counted (`cs_dbg_pvedge`/`pvfree`), over `slightbank` flying and
 (65.3 reach `cs_projall` and §88.5.13's bracket counts 53 PROJECTED: the
 difference is the vertices behind the near plane, which take `.behind`.)
 
-So 47-71% of them are structurally available, and within that only the ones
-whose EVERY face is culled can actually be skipped - which is a corner or two
-of a box depending on the view, and is **not measured here**. At 1,678 cycles
-a vertex the whole projection is 18.6 ms, so the ceiling is a few percent of
-a level frame and the achievable figure is under it.
+So 47-71% of them are structurally available. **Within that, the share a
+cull-before-project could actually skip is 4-12%** - a vertex is skippable
+only when EVERY face using it is culled, and a stack's corner is on two side
+faces and a cap:
 
-**And the mechanism is invasive**, which is the other half of why this is
-written down rather than built: `cs_axcull` would have to run as a per-face
-PRE-PASS with its verdicts stored, and `cs_projall` accumulates the object's
-BOX (`cs_obx0`/`obx1`/`oby0`/`oby1`) from every projected vertex for the
-blit's dirty mark (§88.3.2) - a box built from a subset is an under-mark, and
-an under-mark is a stale pixel, which is the defect class of §88.3.1.1.3 and
-docs/FIELD-NOTES.md 40. Whoever takes it should measure the every-face-culled
-share FIRST; it is one more probe and it decides the whole thing.
+| scene | projected | in an edge-free model | wanted by NO surviving face |
+|---|---|---|---|
+| slightbank, level | 65.3 | 45.8 | **3.6 (8%)** - 6% of all |
+| slightbank, 12 degrees | 64.3 | 45.4 | **3.5 (8%)** - 6% of all |
+| city | 61.5 | 29.2 | **1.0 (4%)** - 2% of all |
+| dfsquare | 49.0 | 41.7 | **5.2 (12%)** - 11% of all |
+
+##### 88.5.13.5 …and it is REFUSED: identifying the waste costs more than the waste
+
+At 1,678 cycles a vertex (§88.5.13) the best of those is **3.6 x 1,678 = 1.27
+ms** on a 140 ms level frame, 0.9%. Against that, priced with the same
+assembled-and-counted method §88.4.6.4 used:
+
+| | cycles | ms |
+|---|---|---|
+| saved - 3.6 vertices never wanted | +6,041 | **+1.27** |
+| marking 14.7 SURVIVING faces x 4 indices | −4,749 | −0.99 |
+| the per-vertex test `cs_projall` gains | −1,984 | −0.42 |
+| carrying 28.1 verdicts from the pre-pass into `cs_faces` | −1,686 | −0.35 |
+| **NET** | **−2,378** | **−0.50 (−0.35%)** |
+
+**It is a LOSS, and the shape of it is the lesson: you have to walk 14.7
+surviving faces and 59 vertex indices to discover that 3.6 vertices were
+unwanted.** The marking alone costs 78% of the whole prize. A cull cannot
+gate a projection when the thing being culled is a FACE and the thing being
+skipped is a VERTEX, because faces outnumber the vertices they would save by
+an order of magnitude and each names several of them.
+
+That is before the mechanism's own risk, which would have been the objection
+if the arithmetic had not been: `cs_projall` accumulates the object's BOX
+(`cs_obx0`/`obx1`/`oby0`/`oby1`) from every projected vertex for the blit's
+dirty mark (§88.3.2), and a box built from a subset is an under-mark - which
+is a stale pixel, the defect class of §88.3.1.1.3 and docs/FIELD-NOTES.md 40.
+
+**So the vertex pipeline has no optimisation available at this level.** Its
+multiplies cannot be made cheaper (§88.5.13.2), its flat-vertex products
+cannot be reused (§88.5.13.3), its loops have had eight passes, and its
+count cannot be gated by the cull. What is left is an LOD question - drawing
+models with fewer vertices - which is §88.5.4's subject and a different
+argument entirely.
 
 ##### 88.5.12.1 What verifying it cost, which is worth more than the 143 bytes
 

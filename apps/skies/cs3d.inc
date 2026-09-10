@@ -1452,6 +1452,9 @@ cs_drawobj:
     mov byte [cs_dbg_fobj], 0
 %endif
     call cs_faces                   ; a vertex index means nothing across two
+%ifdef CSPROBE
+    call cs_probe_objend            ; ...and how many vertices went unwanted?
+%endif
     ; --- a solid under CS_EDGEPX pixels across keeps no outline: twelve
     ;     segments round a fifteen-pixel box cost more than the box, and at
     ;     that size the walls' patterns already tell them apart. A wireframe
@@ -2264,6 +2267,12 @@ cs_faces:
 %else
     jc .skip
 %endif
+%ifdef CSPROBE
+    cmp byte [cs_dbg_ax], 0         ; a face axcull would have KEPT: its
+    jne .nomark                     ; vertices are wanted, and the mark is
+    call cs_probe_used              ; taken even when the cull is not ACTING,
+.nomark:                            ; so an audit run counts the same thing
+%endif
     cmp byte [cs_pwhole], 0         ; a whole object: no end is behind or
     jne .plain                      ; past a side, so the count is skipped
                                     ; (and .plain clears cs_fcut for it)
@@ -2719,6 +2728,24 @@ cs_probe_pv:
     push bx
     push si
     mov si, [cs_mdl]
+    mov byte [cs_dbg_pvne], 1       ; ...does this model draw edges?
+    cmp byte [si + CSM_NE], 0
+    jne .hase
+    mov byte [cs_dbg_pvne], 0
+.hase:
+    push cx                         ; and the USED map starts empty
+    push di
+    push es
+    push ds
+    pop es
+    mov di, cs_dbg_used
+    mov cx, CS_MAXV
+    xor al, al
+    cld
+    rep stosb
+    pop es
+    pop di
+    pop cx
     mov ax, [cs_nv]                 ; ...which is the vertex COUNT: both
                                     ; cs_stackverts (levels x 4) and
                                     ; cs_flatverts (CSM_NV) store it that way,
@@ -2736,7 +2763,73 @@ cs_probe_pv:
 .free:
     add [cs_dbg_pvfree], ax
 .out:
+    mov [cs_dbg_pvnv], ax
     pop si
+    pop bx
+    pop ax
+    popf
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_probe_used - PROBE ONLY: this face PASSED cs_axcull, so its vertices are
+;                 wanted. Marks them in cs_dbg_used. The mark is set by the
+;                 AXIS cull and not by the winding on purpose: axcull is the
+;                 only one of the two that could run before cs_projall, the
+;                 winding needing the projected points it would be gating
+;                 (88.5.10). in: [cs_fidx] -> the indices, [cs_fn] = how many.
+;                 Preserves everything.
+; -----------------------------------------------------------------------------
+cs_probe_used:
+    pushf
+    push ax
+    push bx
+    push cx
+    push si
+    mov si, [cs_fidx]
+    mov cx, [cs_fn]
+    jcxz .out
+    cld
+.m:
+    lodsb
+    mov bl, al
+    xor bh, bh
+    mov byte [cs_dbg_used + bx], 1
+    loop .m
+.out:
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    popf
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_probe_objend - PROBE ONLY: the object's faces are done. How many of its
+;                   vertices did NO surviving face want? Those are the ones a
+;                   cull-before-project could have skipped - and only in a
+;                   model with no edges, cs_edges needing every vertex of one
+;                   that has them (88.5.13.4). Preserves everything.
+; -----------------------------------------------------------------------------
+cs_probe_objend:
+    pushf
+    push ax
+    push bx
+    push cx
+    cmp byte [cs_dbg_pvne], 0       ; an edge-drawing model: nothing to skip
+    jne .out
+    mov cx, [cs_dbg_pvnv]
+    jcxz .out
+    add [cs_dbg_vcand], cx
+    xor bx, bx
+.v:
+    cmp byte [cs_dbg_used + bx], 0
+    jne .n
+    inc word [cs_dbg_vunused]
+.n:
+    inc bx
+    loop .v
+.out:
+    pop cx
     pop bx
     pop ax
     popf

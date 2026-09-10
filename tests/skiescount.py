@@ -257,6 +257,13 @@ def main(argv):
             if a.fly:
                 poke("cs_spd", (a.spd * 128).to_bytes(2, "little"))
                 poke("cs_thr", a.thr.to_bytes(2, "little"))
+        # cs_axmask IS ZERO IN BSS and `and dl, [cs_axmask]` is what decides
+        # a face, so a -DCSPROBE build has cs_axcull INERT until this is
+        # poked - every face passes, every vertex reads as wanted, and a
+        # census of what the cull reaches comes back all zeros. This file's
+        # own docstring has said so since the day it was written and this
+        # is the line that acts on it.
+        poke("cs_axmask", b"\xFF")
         poke("cs_setfill", bytes([{"all": 3, "terrain": 1, "bldg": 2,
                                    "wire": 0}[a.fill]]))
         if not a.fly:
@@ -286,7 +293,7 @@ def main(argv):
                   "cs_dbg_mfr", "cs_dbg_mstab",
                   "cs_dbg_fvn", "cs_dbg_fvx", "cs_dbg_fvz",
                   "cs_dbg_pvobj", "cs_dbg_pvobje", "cs_dbg_pvedge",
-                  "cs_dbg_pvfree"):
+                  "cs_dbg_pvfree", "cs_dbg_vcand", "cs_dbg_vunused"):
             m.write(lin + base + off(n), b"\x00\x00")
         N = a.count_frames
         # --- WITH --fly THE BANK IS RE-PINNED EVERY FRAME ------------------
@@ -371,6 +378,12 @@ def main(argv):
               "skipped whatever cs_axcull culls (%.1f of %.1f objects)"
               % ((pve + pvf) / N, pvo / N, pve / N,
                  100.0 * pve / max(pve + pvf, 1), pvoe / N, pvo / N))
+        vc, vu = w("cs_dbg_vcand"), w("cs_dbg_vunused")
+        print("    of the %.1f in an edge-free model, %.1f (%.0f%%) are wanted "
+              "by NO face that survives cs_axcull <== the only ones a "
+              "cull-before-project could skip (%.0f%% of ALL projected)"
+              % (vc / N, vu / N, 100.0 * vu / max(vc, 1),
+                 100.0 * vu / max(pve + pvf, 1)))
         fvn, fvx, fvz = w("cs_dbg_fvn"), w("cs_dbg_fvx"), w("cs_dbg_fvz")
         print("  FLAT vertices %.1f a frame; x matches the previous vertex's "
               "%.1f (%.0f%%), z %.1f (%.0f%%) <== three imuls each, already "

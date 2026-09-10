@@ -2599,6 +2599,12 @@ CS_DBGSCR equ 112               ; ...and the copy A/B's scratch is 112 rows,
     ZWORD cs_dbg_pvobje             ; ones whose model draws EDGES...
     ZWORD cs_dbg_pvedge             ; ...their vertices, which cannot be
     ZWORD cs_dbg_pvfree             ; skipped, against the ones that could
+    ZWORD cs_dbg_pvnv               ; ...this object's vertex count, and
+    ZBYTE cs_dbg_pvne               ; whether its model draws edges
+    ZBUF  cs_dbg_used, CS_MAXV      ; one byte a vertex: did any face that
+                                    ; SURVIVED cs_axcull want it?
+    ZWORD cs_dbg_vcand              ; vertices in edge-free models, and the
+    ZWORD cs_dbg_vunused            ; ones no surviving face wanted
     ZBYTE cs_axmask                 ; BISECT: which axis bits may cull
     ZBYTE cs_axoff                  ; AUDIT: cs_axcull computes and does NOT
     ZBYTE cs_dbg_ax                 ; act, so the winding decides every face
