@@ -115468,6 +115468,37 @@ The cost is that the pen x is rounded down to the byte grid, so a centred line
 can sit up to seven pixels left of exact centre. A line of type is a line of
 type.
 
+#### 93.5.18 `WF_OWNBG` was set and only HALF of it was being used
+
+The window has carried `WF_OWNBG` since its entry proc — every pixel of the
+content is the game's, and the kernel's white fill in front of `W_PAINT` would
+be a whole screen of flash before each frame. That much was right. **The flag
+is also the interlock that lets `OSAPI_WM_DAMAGE` narrow a `W_PAINT` at all**
+(§11.90.2), and `dd_paint` never asked: it set `[dd_full]` and drew the whole
+board, every time, whatever the kernel had actually damaged.
+
+A whole board is what the field timed at **about a third of a second**, so the
+answer is worth reading. Measured, with the rect the kernel offers printed at
+each paint:
+
+| the gesture | what the kernel says it owes |
+|---|---|
+| Thin → **Full** | WHOLE, both paints — the window GREW, so it is all newly exposed |
+| **Full → Thin** | an **EMPTY** rect, twice — §11.90.3's own case: shrunk with the origin unmoved, so nothing painted over what survived |
+| an uncover | a sub-rect, `323 × 201` of `544 × 285` |
+
+So `dd_paint` reads it and takes the free half: **CF = 0 with `x1 < x0` or
+`y1 < y0` means draw nothing at all**, and that is a return rather than a
+board. Counted over four switches a run, twice: **Full → Thin was 4 whole
+draws and is 2**; Thin → Full is 4 either way and legitimately so.
+
+The other half — a paint that owes a genuine SUB-RECT — needs a partial draw
+this package does not have (`dd_draw`'s `.parts` is the game's own incremental
+path, not "put this rectangle back"), and is the next thing worth building
+here. An empty rect is safe to hand any primitive by §11.90.2's own design, so
+ignoring the answer was only ever a missed optimisation — which is exactly what
+it turned out to be, four times per shrink.
+
 #### 93.5.17 THE BOARD WALK IS A GLOBAL, and so is the picture under it
 
 `dd_board_render` walks `[dd_gc]`/`[dd_gr]` for ~200 ms — and those two bytes

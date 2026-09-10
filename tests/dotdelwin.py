@@ -151,14 +151,25 @@ def leg_d(ui, p, say):
         say("D  FAIL: Full left the tile at %dx%d, not wider than %dx%d"
             % (t1 + t0))
         return 1
+    f0 = p.w("dd_fulls")
     ui.menu_pick("Window", "Thin")
     time.sleep(3.5)
+    fulls = p.w("dd_fulls") - f0
     t2 = (p.w("dd_tw"), p.w("dd_th"))
+    # ...AND WHAT IT COST. A whole board is ~1/3 s of visible drawing, and the
+    # SHRINKING direction owes almost none of it: 11.90.3 answers an EMPTY
+    # damage rect for a window shrunk with its origin unmoved, which 93.5.18
+    # now reads. Measured 4 before and 2 after, four switches a run, twice.
+    if fulls > 3:
+        say("D  FAIL: Thin cost %d whole board draws, not the 2 it owes "
+            "(SPEC.md 93.5.18)" % fulls)
+        return 1
     if t2 != t0:
         say("D  FAIL: Thin came back as %dx%d, not the %dx%d it opened at"
             % (t2 + t0))
         return 1
-    say("D  ok: %dx%d -> %dx%d -> %dx%d" % (t0 + t1 + t2))
+    say("D  ok: %dx%d -> %dx%d -> %dx%d, %d whole draw(s) coming back"
+        % (t0 + t1 + t2 + (fulls,)))
     return 0
 
 

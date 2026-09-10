@@ -314,12 +314,28 @@ dd_paint:
     xor bl, bl                      ; the UI task: mine to recut
     call dd_relayout_ck             ; ...and may have changed size or display
     call dd_spawn_ck                ; ...and the worker starts here, not at the
+    ; --- WHAT DOES THE KERNEL SAY WE OWE? (SPEC.md 11.90.2, 93.5.18) -------
+    ; WF_OWNBG is the interlock that lets it narrow a W_PAINT at all, and this
+    ; window has carried the flag since its entry proc - so the answer was
+    ; there to be read and was not read. An UNCOVER measures as THREE paints:
+    ; two that owe an EMPTY rect and one that owes 43% of the content, and all
+    ; three cost a whole board. The empty ones are free to skip and that is
+    ; taken here; the sub-rect wants a partial draw and is 93.5.18's own item.
+    mov bx, [dd_win]
+    call OSAPI_WM_DAMAGE
+    jc .whole                       ; CF=1: the whole content, and AX..DX are it
+    cmp cx, ax
+    jb .nothing                     ; x1 < x0 - 11.90.2's "draw NOTHING at all"
+    cmp dx, bx
+    jb .nothing
+.whole:
     mov byte [dd_full], 1
     mov byte [dd_inpaint], 1
     mov byte [dd_drawing], 1        ; SPEC.md 93.5.17
     call dd_draw
     mov byte [dd_drawing], 0
     mov byte [dd_inpaint], 0
+.nothing:
     pop es
     pop bp
     pop di
