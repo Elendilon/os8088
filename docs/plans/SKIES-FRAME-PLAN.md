@@ -884,7 +884,13 @@ line below is measurement and documents.
   refusal intact. Settled (`--warm 18`): **frame -2.8 at 12 degrees, -3.9 at
   20**, `cs_blit` down 13-15%, level a DEAD HEAT, `turnhold` NEUTRAL where
   88.3.2.1's banded pass was 2.9 ms slower. 243 bytes of `.text`, 3 of
-  `.bss`. `cs_mknostep` is the A/B.
+  `.bss`. `cs_mknostep` is the A/B. **RE-MEASURED and it is a TRADE rather
+  than a win** (88.3.2.3.7): those numbers are MEANS, and a frame here has a
+  long tail, so re-run as the MEDIAN of 39 frames twice per arm it reads
+  **-1.62 ms on `slightbank`, -0.03 on `turnhold` at 12 and +1.13 at 45** -
+  each pair of runs repeating to 0.03 ms. It pays where the BLIT is the
+  expensive half and loses where the MARKING is, `cs_markstep`'s row being
+  39 bus bytes against `cs_markrows`' 27.
 - **B2. The two things B left on the table**, both measured on the same 12
   degree frame. **The SLOP is now the dominant term in a stepped mark** - a
   row's own interval is 1-2 bytes and the slop is 6, and the ladder says why

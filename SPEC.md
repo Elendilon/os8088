@@ -102452,20 +102452,161 @@ not.
 `cs_mknostep` is the A/B: set it and a thin diagonal's mark goes back on its
 box.
 
+###### 88.3.2.3.4 …AND CLAMPING THE ENDS WAS A DEFECT — docs/FIELD-NOTES.md 41
+
+The ends used to be pulled `CS_MKD_SLOP` inside the view so the byte
+arithmetic could not wrap. **Pulling an end MOVES THE INTERPOLATED LINE**, by
+up to the clamp, all along it — so a segment whose end sits at the view's
+edge, which a bank puts there constantly, marked up to **3 bytes short of its
+own ink**, always on the clamped side. Ink outside its row's span is never
+erased (§88.3.1's refill for a same-kind row IS last frame's span), so it sat
+on the ground until something marked that byte again.
+
+**No pair of constants can fix it.** The widening must exceed the clamp to
+cover the displacement AND the divide's truncation (`W > C`), while keeping
+the stored low byte at or above `wb0` needs `C >= W`. Both cannot hold.
+
+`cs_seg` **clips to the view before it marks**, so both ends are already
+inside it and the clamp was a no-op on geometry and a bug on placement. It is
+DELETED and `CS_MKD_SLOP` is **4**: modelled over 40,000 segments against the
+true Bresenham range, unclamped needs 4 for **zero** leaks where 3 leaves 64
+(worst 1 byte) and the old clamped 3 left **3,558**. The setup is six
+instructions smaller and no per-row instruction is added.
+`tests/skiesink.py` reads **8 of 60 frames leaking before and 0 of 60
+after**, over `rollsweep`, `bank` and `slightbank`; what the stepped mark is
+worth now that it marks its own ink is re-measured in 88.3.2.3.7, and it is
+not the single number this section first quoted.
+
+###### 88.3.2.3.5 …and deleting the clamp exposed a latent bug in the REFILL
+
+`cs_hzrows` computes the refill's start as `sub cx, [cs_wb0]` after `xor ch,
+ch`, and a span starting LEFT of the view borrows — leaving `CH` = 0xFF. The
+byte count below it (`mov cl, dh` / `sub cl, dl` / `inc cx`) never touches CH,
+so the `rep` ran ~65,000 bytes instead of twenty: **`cs_skyground` 25.13 ms →
+490.52**, and a write far past the row. One `xor ch, ch` in the right place
+fixes it — DI moving backwards is CORRECT, a refill may legitimately start in
+the row's left margin, and only the count was wrong.
+
+**It was unreachable before**, because the old clamp guaranteed the low byte
+never fell below `wb0`. That is the shape worth remembering: a bounds clamp
+that is wrong for its own purpose was also the thing hiding a second defect,
+and removing it surfaced the second one as a 20x regression that looked like
+the fix being bad.
+
+###### 88.3.2.3.6 …AND THE OUTPUT IS CLAMPED WHERE THE ENDS ARE NOT
+
+**Deleting the clamp deleted the wrong half of it**, and `tests/skiesspan.py`
+is what says so: 17 frames of 30 store a pair naming a byte OUTSIDE the view,
+and on `slightbank` — which flies at 33 m, so most of the view is ground —
+that is **1,428 bytes of ground pattern laid into the box border** beside it.
+`cs_hzrows`'s erase arm and `cs_blit` both take the span at its word, the
+first refilling `[lo,hi]` as absolute bytes of the row and the second copying
+the same range to the card, so neither is a place the escape can be caught
+cheaply: they run per row of the VIEW, where the mark runs per row of a
+SEGMENT.
+
+The two clamps are different quantities and only one of them was ever a
+defect. **Clamping an ENDPOINT moves the interpolated line** (88.3.2.3.4).
+**Clamping the widened OUTPUT does not touch the line at all** — the ink is
+clipped to the view by `cs_seg` before it is marked, so a row's span has
+nothing to cover out there and the clamp can lose nothing.
+
+It rides in the widening rather than beside it. `cs_mktabs` builds two
+256-entry tables once a bracket —
+
+    cs_mkslo[c] = max(wb0,           c - CS_MKD_SLOP)
+    cs_mkshi[c] = min(wb0 + wbn - 1, c + CS_MKD_SLOP)
+
+— and the row body reads them where it used to `sub`/`add`, which is **two
+bytes SHORTER**. On the 8088 that is the whole of the argument: the body is
+FETCH-bound either way (`max(clocks, 4.34 x bytes)`), so 30 bytes of
+arithmetic cost 130 clocks a row and 28 bytes of table read cost 121 against
+117 clocks of work. **A correctness fix that makes the loop faster**, and the
+only new money is 512 bytes of the package's bss.
+
+The tables are 256 entries where a byte column can never exceed 79 — every
+backend's row is 80 bytes, `cs_wx0` and `cs_ww` being multiples of 8 pixels.
+That is deliberate: at 128 entries a wild column would read the OTHER table's
+row and answer with a plausible number, which is the failure mode this whole
+section is about.
+
+**The size is what makes it reachable, and the default hid it.** `cs_wx0` is
+`((vw - ww) / 2) & 0xF0`, so at MODERATE there are 11 to 15 bytes of margin
+either side of the view and at `CSZ_FULL` the view is the whole box and there
+are **none** — and FULL is the default on CGA and Mode X (88.13.4). With no
+margin the high side runs into the next row's first bytes and the low side
+BORROWS, storing 0xFC where `cs_hzrows` reads an unsigned 252 and refills a
+quarter of the way into a row three lines down. The clamp is what makes the
+two sizes the same question, and the gate runs at FULL for that reason: it
+reads `view bytes [0,79] of the row's 80`, and with the clamp taken out it
+stores a span reaching **83**.
+
+**And the SIZE is set before the bracket opens, not with the `+` key.** `+`
+runs `cs_r_setup` from a key handler, and a read after it comes back with
+`wx0` from one geometry and `wb0` from the other — a half-applied change that
+reads exactly like the defect under test. `tests/skiesspan.py` pokes
+`cs_setsize` and lets `f` compute the geometry once, then refuses to judge
+anything unless the geometry agrees with itself (`wx0 == wb0 x ww/wbn`).
+
+###### 88.3.2.3.7 WHAT THE STEPPED MARK IS WORTH — three profiles, three answers
+
+The mark that steps was built on a number and the number was a **mean over
+24 frames**, which at an 11% spread moves ±2 ms between runs of the same
+arm. Re-measured with the MEDIAN of 39 frames, twice per arm in independent
+guests, it repeats to **0.03 ms** — and it says something the mean could
+not:
+
+| scene | stepped | box | delta |
+|---|---|---|---|
+| `slightbank`, roll 12 | **209.70** | 211.32 | **−1.62 ms** |
+| `turnhold`, roll 12 | 202.43 | 202.45 | −0.03 ms |
+| `turnhold`, roll 45 | 256.76 | 255.63 | **+1.13 ms** |
+
+**It is a trade and not a win**, and the two halves of it are visible stage
+by stage. The stepped mark's own cost lands in `seg`/`edges` (+2.0 at
+`slightbank`, +4.3 at 45 degrees) and what it buys lands in `blit` and
+`markrows` (−3.7 and −1.4 at `slightbank`, −0.4 and −2.8 at 45). So it pays
+where the BLIT is the expensive half — a low, ground-filled view whose roads
+run the width of it — and loses where the marking is, which is a steep bank
+with the Seine's ribbons at 45 degrees across the whole view.
+
+Why it comes out that way is one row against the other. `cs_markrows`'
+body is 23 bytes of code and 4 of data — **27 bus bytes, ~108 clocks** —
+where `cs_markstep`'s is 28 and 6, **39 bus bytes and ~156**. Marking a row
+tightly costs 1.44 rows of marking it loosely, so the tighter mark has to
+save more than 44% of the rows' blit to break even, and whether it does is
+the SCENE's answer rather than the code's.
+
+Nothing is changed on the strength of this. `cs_mknostep` is the A/B and it
+is poked, so either mark is one byte away, and three profiles are not the
+population — what the table is for is that the next person to price this
+starts from a measurement that repeats.
+
+**And the method is the transferable half.** 88.3.2.3.2 already said the
+warm-up is part of the measurement; this adds that the STATISTIC is too. A
+frame here has a long tail — min 201, max 224 on the same arm — so a mean
+carries whichever outliers a run happened to catch, and two arms differing
+by 3 ms can be one arm differing from ITSELF by 3 ms. The check that costs
+nothing is to run each arm TWICE and look at the two numbers before looking
+at the difference.
+
 ###### 88.3.2.3.1 THE SLOP IS NOT A ROUNDING FUDGE — it is what the gate measured
 
-The interval is widened `CS_MKD_SLOP` = 3 bytes each side, and the ends are
-pulled 3 inside the view first so the widening can never name a byte outside
-it. Both halves are load-bearing and both were found by
-`tests/skiesstale.py` rather than reasoned out:
+The interval is widened `CS_MKD_SLOP` bytes each side. That widening is
+load-bearing and it was found by `tests/skiesstale.py` rather than reasoned
+out — as was the second half of it, which used to be an inward pull of the
+segment's ENDS and is a clamp of the widened OUTPUT since 88.3.2.3.6:
 
 - **Without any slop, 232 rows a run go stale.** The 8.8 divide truncates,
   and `cs_seg`'s own Bresenham does not put a row's pixel where that row's top
   edge is; at one byte each side it is 22 rows, at three it is **0**.
-- **Widening WITHOUT the inward pull is worse than not widening at all** — 442
-  rows — because a low byte of 15 widened to 11 is fine but one widened past
-  zero reads **0xFF**, which is the span set's EMPTY sentinel: the row then
-  says *nothing was drawn here* and the blit skips it entirely.
+- **Widening with NOTHING to stop it leaving the view is worse than not
+  widening at all** — 442 rows — because a low byte of 15 widened to 11 is
+  fine but one widened past zero reads **0xFF**, which is the span set's EMPTY
+  sentinel: the row then says *nothing was drawn here* and the blit skips it
+  entirely. That was measured against the inward pull of the ends, and it is
+  the half of the pull that was REAL; 88.3.2.3.6 keeps it by clamping the
+  widened output instead, which costs the same nothing and moves no line.
 
 **Three is the floor and the ladder is the evidence** — the same 15-frame run
 at each width: **0 slop reads 232 stale rows, 1 reads 22, 2 reads 10, 3 reads

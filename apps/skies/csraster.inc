@@ -289,6 +289,9 @@ cs_r_setup:
     call cs_devrows
     call cs_ktabs                   ; the projection tables for these scales
     call cs_endtab                  ; ...and the row loop's end tables (88.4.5.5)
+    call cs_mktabs                  ; ...and the stepped mark's widen-and-clamp
+                                    ; pair, which the two lines above are the
+                                    ; only other readers of cs_wb0/cs_wbn like
 
     ; --- the target: two VRAM pages, or one RAM shadow --------------------
     cmp byte [cs_back], CSB_MODEX
@@ -1573,6 +1576,17 @@ cs_hzrows:
     sub cx, [cs_wb0]                ; the span is absolute bytes of the row
     add di, cx                      ; and DI is the view's first: the first
     mov cl, dh                      ; build added them and refilled fifteen
+    xor ch, ch                      ; ...AND CH IS CLEARED AGAIN HERE, because
+                                    ; the subtract above BORROWS for a span
+                                    ; that starts left of the view and leaves
+                                    ; CH = 0xFF. The count below is a BYTE
+                                    ; subtract, so CH survived into it and the
+                                    ; `rep` ran 65,000 bytes instead of twenty:
+                                    ; cs_skyground 25.13 ms -> 490.52, and a
+                                    ; write far past the row (FIELD-NOTES 41).
+                                    ; DI moving backwards is CORRECT - the
+                                    ; refill may start in the row's left
+                                    ; margin - and only the count was wrong
     sub cl, dl                      ; bytes to the right of everything, which
     inc cx                          ; left the left of every object on the
     jmp short .fill                 ; glass and a bar past the view's edge
@@ -1712,11 +1726,14 @@ cs_markacc:
 ; pair anyway. That is ~26 cycles a row more than cs_markrows' body, against
 ; a blit that carries 4.5 cycles a byte and was being given the whole box.
 ;
-; THE ENDS ARE PULLED A BYTE INSIDE THE VIEW FIRST, once, and the interval is
-; then widened a byte on the side the truncating divide can lag. Without that
-; pull a widened span can name a byte OUTSIDE the view - and cs_hzrows' erase
-; arm takes the span at its word, so it would lay a sky or ground byte into
-; the border and the blit would carry it.
+; THE WIDENED INTERVAL IS CLAMPED TO THE VIEW, in the TABLE that widens it
+; (SPEC.md 88.3.2.3.6). cs_hzrows' erase arm and cs_blit both take the span at
+; its word - the first refills [lo,hi] as absolute bytes of the row, the second
+; copies the same range to the card - so a pair naming a byte outside the view
+; lays a ground byte into the box border, and one whose low byte borrows past
+; zero lands a quarter of the way into a row three lines down. The ENDS are not
+; clamped, because pulling an end MOVES THE INTERPOLATED LINE (FIELD-NOTES 41);
+; the OUTPUT is, which is a different quantity and costs nothing at all.
 ; -----------------------------------------------------------------------------
 CS_MKD_ROWS equ 8               ; a segment shallower than this has a tight
 CS_MKD_PX   equ 128             ; box already, and so has a narrower one.
@@ -1729,12 +1746,59 @@ CS_MKD_PX   equ 128             ; box already, and so has a narrower one.
                                 ; 64 on every angle, because what the gate
                                 ; actually turns away at level is the ROW
                                 ; test: a level Seine is two rows
-CS_MKD_SLOP equ 3               ; bytes either side of the stepped interval,
-                                ; and the ends are pulled this far inside the
-                                ; view so the widening can never name a byte
-                                ; outside it - which cs_hzrows' erase arm
-                                ; would lay a pattern byte into, and 0xFF is
-                                ; the EMPTY sentinel besides
+CS_MKD_SLOP equ 4               ; bytes either side of the stepped interval.
+                                ; THE WIDENING IS A TABLE READ (cs_mktabs), so
+                                ; the clamp to the view rides in it and the row
+                                ; body pays for neither: a stored pair can name
+                                ; no byte outside [wb0, wb0+wbn-1], where the
+                                ; refill and the blit both need it, and a low
+                                ; byte can never borrow to 0xFF, which is the
+                                ; span set's EMPTY sentinel besides
+
+; -----------------------------------------------------------------------------
+; cs_mktabs - the widen-and-clamp tables for cs_markstep, built once a bracket
+;             (SPEC.md 88.3.2.3.6). Clobbers AX, BX, CX, DX
+;
+;   cs_mkslo[c] = max(wb0,            c - CS_MKD_SLOP)
+;   cs_mkshi[c] = min(wb0 + wbn - 1,  c + CS_MKD_SLOP)
+;
+; A column is never above 79 on any backend, every row being 80 bytes; the
+; tables are 96 entries, which is that bound plus sixteen - and an overrun
+; would be benign anyway, both tables holding clamped columns, so reading one
+; for the other still names a byte of the view.
+; -----------------------------------------------------------------------------
+CS_MKT_N    equ 96
+cs_mktabs:
+    mov dx, [cs_wb0]                ; DL = the view's first byte...
+    mov ax, [cs_wb0]
+    add ax, [cs_wbn]
+    dec ax
+    mov dh, al                      ; ...DH its last
+    xor bx, bx
+    mov cx, CS_MKT_N
+.t:
+    mov al, bl
+    sub al, CS_MKD_SLOP             ; the low side: a borrow IS below the view
+    jc .l0
+    cmp al, dl
+    jae .l1
+.l0:
+    mov al, dl
+.l1:
+    mov [cs_mkslo + bx], al
+    mov al, bl
+    add al, CS_MKD_SLOP             ; ...and a carry IS above it
+    jc .h0
+    cmp al, dh
+    jbe .h1
+.h0:
+    mov al, dh
+.h1:
+    mov [cs_mkshi + bx], al
+    inc bx
+    LOOPF .t
+    ret
+
 cs_markstep:
     push ax
     push bx
@@ -1763,28 +1827,25 @@ cs_markstep:
     mov cl, [cs_kshift]
     shr ax, cl
     shr bp, cl
-    mov cl, [cs_wb0]                ; ...pulled CS_MKD_SLOP inside the view
-    xor ch, ch
-    add cx, CS_MKD_SLOP
-    cmp ax, cx
-    jge .l0
-    mov ax, cx
-.l0:
-    cmp bp, cx
-    jge .l1
-    mov bp, cx
-.l1:
-    mov cl, [cs_wb0]
-    add cl, [cs_wbn]
-    sub cl, CS_MKD_SLOP + 1
-    cmp ax, cx
-    jle .h0
-    mov ax, cx
-.h0:
-    cmp bp, cx
-    jle .h1
-    mov bp, cx
-.h1:
+    ; --- AND THE ENDS ARE NOT CLAMPED (docs/FIELD-NOTES.md 41) ---------------
+    ; They used to be pulled CS_MKD_SLOP inside the view so the byte
+    ; arithmetic below could not wrap - and PULLING AN END MOVES THE
+    ; INTERPOLATED LINE, by up to the clamp, all along it. The widening then
+    ; had to cover the displacement AND the divide's truncation, which needs
+    ; W > C, while keeping the stored low byte at or above wb0 needs C >= W.
+    ; Those cannot both hold, which is why every widening was either short of
+    ; the ink (3,558 rows leaked at C=3 W=3) or below the view (W=6 put a
+    ; stored lo at wb0-3 and found the count bug above).
+    ;
+    ; cs_seg CLIPS to the view before it marks, so both ends are already
+    ; inside it and the clamp was a no-op on geometry and a bug on placement.
+    ; Deleted. Modelled over 40,000 segments against the true Bresenham range:
+    ; unclamped needs W = 4 for ZERO leaks (W = 3 leaves 64, worst 1 byte).
+    ;
+    ; WHAT THE ENDS NO LONGER DO, THE OUTPUT DOES: the widened pair would
+    ; otherwise reach wb0-4 and wb0+wbn+3, which is outside the row's view on
+    ; every backend and outside the ROW at CSZ_FULL, where the view is the
+    ; whole box and has no margin at all. cs_mktabs clamps it (88.3.2.3.6).
     mov [cs_mkb2], bp               ; the BOTTOM end's byte, kept exact: the
                                     ; accumulator is truncated at every step
                                     ; and a shallow segment's last row is a
@@ -1804,70 +1865,70 @@ cs_markstep:
     mov di, bx
     shl di, 1
     add di, [cs_spcur]              ; DI -> the top row's pair
+    xor bh, bh                      ; ...and BX is the tables' index from here:
+                                    ; BL takes the column, BH stays zero for
+                                    ; the whole walk
     or si, si
     js .neg
 .pos:                               ; the column RISES down the segment
-    mov bl, dh
-    add dx, si
-    mov bh, dh
-    sub bl, CS_MKD_SLOP             ; SLOP EITHER SIDE, and both sides need it:
-    add bh, CS_MKD_SLOP             ; the divide truncates, and cs_seg's own
-                                    ; Bresenham does not put a row's pixel
-                                    ; exactly where the row's top edge is.
-                                    ; The ends were pulled one inside the view
-                                    ; above so neither can leave it
-    mov ax, [di]
-    cmp al, bl
-    jbe .p1
-    mov al, bl
+    mov bl, dh                      ; SLOP EITHER SIDE, and both sides need it:
+    add dx, si                      ; the divide truncates, and cs_seg's own
+    mov al, [cs_mkslo + bx]         ; Bresenham does not put a row's pixel
+    mov bl, dh                      ; exactly where the row's top edge is. The
+    mov ah, [cs_mkshi + bx]         ; TABLE clamps as it widens, so the pair is
+                                    ; inside the view with no test here - and
+                                    ; the body is TWO BYTES SHORTER than the
+                                    ; `sub`/`add` pair it replaces, which on an
+                                    ; 8088 is what decides it: at 30 bytes the
+                                    ; loop was FETCH-bound at 130 clocks and at
+                                    ; 28 it is bound at 121, against 117 of work
+    cmp al, [di]
+    jae .p1
+    mov [di], al
 .p1:
-    cmp ah, bh
-    jae .p2
-    mov ah, bh
-.p2:
-    mov [di], ax
     inc di
+    cmp ah, [di]
+    jbe .p2
+    mov [di], ah
+.p2:
     inc di
     LOOPF .pos
     jmp short .last
-.neg:                               ; ...or FALLS down it
-    mov bh, dh
+.neg:                               ; ...or FALLS down it, which only swaps
+    mov bl, dh                      ; which end of the row's interval the top
+    mov ah, [cs_mkshi + bx]         ; edge is
     add dx, si
     mov bl, dh
-    sub bl, CS_MKD_SLOP
-    add bh, CS_MKD_SLOP
-    mov ax, [di]
-    cmp al, bl
-    jbe .n1
-    mov al, bl
+    mov al, [cs_mkslo + bx]
+    cmp al, [di]
+    jae .n1
+    mov [di], al
 .n1:
-    cmp ah, bh
-    jae .n2
-    mov ah, bh
-.n2:
-    mov [di], ax
     inc di
+    cmp ah, [di]
+    jbe .n2
+    mov [di], ah
+.n2:
     inc di
     LOOPF .neg
 .last:                              ; the row the segment ENDS on: from where
-    mov bl, dh                      ; the accumulator got to, to the end's
-    mov bh, [cs_mkb2]               ; TRUE byte - which is the whole of that
-    cmp bl, bh                      ; row's ink and no more
-    jbe .z0
-    xchg bl, bh
-.z0:
-    sub bl, CS_MKD_SLOP
-    add bh, CS_MKD_SLOP
-    mov ax, [di]
-    cmp al, bl
-    jbe .z1
-    mov al, bl
+    mov cl, [cs_mkb2]               ; the accumulator got to, to the end's
+    mov bl, dh                      ; TRUE byte - which is the whole of that
+    cmp bl, cl                      ; row's ink and no more. CX is ZERO here,
+    jbe .z0                         ; LOOPF having run it out, so CL is the
+    xchg bl, cl                     ; scratch the swap wants and BH keeps the
+.z0:                                ; table index's zero
+    mov al, [cs_mkslo + bx]
+    mov bl, cl
+    mov ah, [cs_mkshi + bx]
+    cmp al, [di]
+    jae .z1
+    mov [di], al
 .z1:
-    cmp ah, bh
-    jae .z2
-    mov ah, bh
+    cmp ah, [di+1]
+    jbe .z2
+    mov [di+1], ah
 .z2:
-    mov [di], ax
     pop bp
     pop di
     pop si

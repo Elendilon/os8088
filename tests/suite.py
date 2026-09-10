@@ -2578,6 +2578,25 @@ SOAK = [
         " reads the artefact being BORN at roll +0.0 and surviving every"
         " frame after",
         needs=("marty",), serial=True),
+    Row("skiesspan", "soak", py("tests/skiesspan.py"), 25.0,
+        "SPEC.md 88.3.2.3.6 and docs/FIELD-NOTES.md 41: A STORED SPAN MUST"
+        " NAME A BYTE OF THE VIEW. cs_hzrows' erase arm and cs_blit both take"
+        " the span at its word - the first refills [lo,hi] as ABSOLUTE bytes"
+        " of the row, the second copies the same range to the card - so"
+        " neither clamps, and a pair naming a byte outside the view lays a"
+        " ground byte into the box border. One whose low byte BORROWS past"
+        " zero is worse: cs_hzrows reads an unsigned 252 and refills a quarter"
+        " of the way into a row three lines down. It is a one-frame invariant,"
+        " so it needs no A/B and runs in FLIGHT, and it asserts the HARM"
+        " beside the pair - the border beside the view must stay black. Two"
+        " profiles in one guest, slightbank (33 m up, so most of the view is"
+        " ground, which is what turns an escaped pair into visible ink) and"
+        " rollsweep (2 degrees a frame, which walks a mark onto the edge over"
+        " and over). It reads 17 frames of 30 and 1,428 border bytes on the"
+        " build that merely DELETED 88.3.2.3.4's endpoint clamp, and clean on"
+        " the one that clamps the widened output instead; NOSTEP=1 is clean"
+        " on both, so it is the stepped mark's widening and nothing else",
+        needs=("marty",), serial=True),
     Row("skiespitts", "soak", py("tests/skiespitts.py"), 34.0,
         "SPEC.md 88.7.2: the second aeroplane flies by its own CSP_ATT - the"
         " Pitts rolls right round and loops over the top and stays where the"

@@ -93,10 +93,13 @@ UNREGISTERED = {
                     "skiesperf and skiescount both pause the world",
 
     "skiesink.py": "an INSTRUMENT, not a test: it checks CLEAR SKIES' "
-                   "one-frame INK-INSIDE-ITS-SPAN invariant and FAILS today "
-                   "(docs/FIELD-NOTES.md 41), so registering it as a gate "
-                   "would put a permanently red row in the suite. It asserts "
-                   "for a person who runs it, not for the runner",
+                   "one-frame INK-INSIDE-ITS-SPAN invariant, which "
+                   "docs/FIELD-NOTES.md 41 made true and tests/skiesspan.py "
+                   "is the registered gate for. It takes a ROLL SWEEP and a "
+                   "frame count on the command line and is where a report of "
+                   "surviving ink gets diagnosed - the pixels either side of "
+                   "the leak, three rows deep, printed as a picture. The row "
+                   "asserts; this explains",
     "skiescount.py": "an INSTRUMENT, not a test: it COUNTS CLEAR SKIES' faces "
                      "and edges and prices each term by ADDING it - every arm "
                      "draws the identical picture, where skiesperf.py's "

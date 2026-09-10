@@ -944,16 +944,19 @@ the same place, which is exactly how a wrong instrument survives scrutiny.
 Assert against the thing itself — the card against the shadow — not against a
 second implementation of the code under test.
 
-## 41. Ink from a road survives on the GROUND after a bank (OPEN — diagnosed)
+## 41. Ink from a road survives on the GROUND after a bank (CLOSED — SPEC.md §88.3.2.3.4)
 
 *"Stale pixels originate from roads or lines drawn on the ground, below the
 horizon. A few pixels from the line stick around, pretty often, until the
 line recrosses them. Happens after banking only. Again only on the right
 side of the screen."*
 
-**Reproduced, root-caused, and the fix is NOT yet shipped** — the first
-attempt at it was worse than the defect and was reverted. `tests/skiesink.py`
-is the instrument; `SKIES.O88` is unchanged.
+**FIXED.** `tests/skiesink.py` is the instrument, and it reads **8 of 60
+frames leaking on the build before and 0 of 60 on the build after**, over
+`rollsweep`, `bank` and `slightbank`. It costs no per-row instruction at all
+— the row body it lands in is two bytes SHORTER than the one it replaces —
+and `tests/skiesspan.py` is the gate that came out of getting it wrong once
+in between.
 
 ### What it is
 
@@ -1006,7 +1009,61 @@ clean — which is the diagnosis three ways.
    carries SKIP COUNTERS across them, so an object can be absent from one
    frame and present in the next with nothing wrong.
 
-### The fix, and why the obvious one is wrong
+### The fix: the clamp is DELETED, and a second bug was under it
+
+**Widening alone can never work**, which is the arithmetic worth keeping: the
+widening must exceed the clamp to cover the displacement AND the divide's
+truncation (`W > C`), while keeping the stored low byte at or above `wb0`
+needs `C >= W`. Both cannot hold, so every value of the pair is either short
+of the ink or below the view.
+
+**`cs_seg` CLIPS to the view before it marks**, so both ends are already
+inside it: the clamp was a no-op on geometry and a bug on placement. It is
+DELETED, `CS_MKD_SLOP` goes 3 → 4, and the setup gets six instructions
+SMALLER. Modelled over 40,000 segments against the true Bresenham range,
+unclamped needs W = 4 for **zero** leaks (W = 3 leaves 64, worst 1 byte).
+
+**And the 20x regression the first attempt hit was a real latent bug**, not a
+consequence of the widening. `cs_hzrows` computes the refill's start as `sub
+cx, [cs_wb0]` after `xor ch, ch`, and a span starting left of the view BORROWS
+— leaving `CH` = 0xFF. The byte count below it is `mov cl, dh / sub cl, dl /
+inc cx`, which never touches CH, so the `rep` ran ~65,000 bytes instead of
+twenty: **`cs_skyground` 25.13 ms → 490.52**, and a write far past the row. One
+`xor ch, ch` in the right place fixes it — DI moving backwards is correct, the
+refill may legitimately start in the row's left margin. **It was unreachable
+before**, because the old clamp guaranteed the low byte never fell below
+`wb0`; deleting the clamp is what exposed it.
+
+### …and a clamp of the STORED interval was needed after all
+
+The first build of the fix carried a reading that was wrong twice over —
+*"a pair reaching `wb0−4` and `wb0+wbn+3` is inside the row on every backend
+and lands in a margin that is never blitted."* It is inside the row only
+while the view HAS a margin, and `cs_wx0` is `((vw − ww) / 2) & 0xF0`, so at
+`CSZ_FULL` — the DEFAULT on CGA and Mode X — the view is the whole box and
+there is none. And the margin is not un-blitted: `cs_blit` copies whatever
+byte range the span names.
+
+`tests/skiesspan.py` is the row that says so, and it is one line of
+invariant: a stored pair must name a byte of the view. On the build with the
+clamp merely deleted it reads **17 frames of 30 storing a pair outside it**,
+and on `slightbank` — 33 m up, so most of the view is ground — **1,428 bytes
+of ground pattern laid into the box border**. `cs_mknostep=1` is clean, so it
+is the stepped mark's widening and nothing else. It runs at `CSZ_FULL`, where
+the view is the whole 80-byte row and there is no border to absorb an escape:
+with the clamp taken back out it stores a span reaching byte **83**, which is
+three bytes of the NEXT ROW.
+
+**The two clamps are different quantities.** Clamping an ENDPOINT moves the
+interpolated line, which is this entry's defect; clamping the widened OUTPUT
+moves nothing, because `cs_seg` clips the ink to the view before it is
+marked, so a span has nothing to cover out there. SPEC.md §88.3.2.3.6 is the
+second one: it rides inside the widening as a pair of 256-entry tables built
+once a bracket, which makes the row body **two bytes shorter** than the
+`sub`/`add` it replaces — and on an 8088 that loop is fetch-bound, so the
+correctness fix took it from 130 clocks a row to 121.
+
+### What the first attempt got wrong
 
 Widening alone is **REFUSED, measured**: at clamp 3 the model needs a
 widening of 6 to reach zero leaks (4 leaves 273 rows, 5 leaves 13). Built,
@@ -1015,11 +1072,10 @@ start as `dl − wb0` **unsigned** — so the fill runs backwards off the view
 and `cs_skyground` goes **25.13 ms → 490.52 ms**, a 20x regression far worse
 than the defect. Reverted; `skies.bin` is byte-identical (`12c7b9ec`).
 
-The correct shape is to **stop displacing the line at all**: interpolate on
-the TRUE endpoint bytes, keep the ±3 widening, and clamp the **stored**
-interval to `[wb0, wb0+wbn−1]` instead of clamping the ends. That is exact by
-construction and costs two compares and two moves a row in each of `.pos`,
-`.neg` and `.last` — which is real per-row money on a mark whose whole
-purpose is to be cheap, so it wants measuring against the 2.8–3.9 ms the
-stepped mark buys before it ships.
+The instrument needed one correction of its own: it took a row's ground byte
+as the row's MODE, which is the ground only while ink is a minority — a solid
+polygon covering more than half a row made the mode the INK, and every ground
+byte then read as a leak (54 of them on one row of `rollsweep`). The ground
+byte comes from the bytes OUTSIDE the span now, which were not written this
+frame by construction, and a row with fewer than eight of them is not judged.
 

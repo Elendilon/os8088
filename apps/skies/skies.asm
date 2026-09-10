@@ -2412,6 +2412,18 @@ cs_hand equ os88_image_end      ; THE HANDOFF IS THE FIRST THING IN THE BSS,
     ZWORD cs_mkb2                   ; cs_markstep's bottom end, kept exact - a
                                     ; WORD because the store is `mov [x], bp`
                                     ; and a byte one would write the neighbour
+    ZBUF  cs_mkslo, CS_MKT_N        ; THE STEPPED MARK'S SLOP, WIDENED AND
+    ZBUF  cs_mkshi, CS_MKT_N        ; CLAMPED IN ONE READ (SPEC.md 88.3.2.3.6):
+                                    ; cs_mkslo[c] = max(wb0, c - CS_MKD_SLOP)
+                                    ; and cs_mkshi[c] = min(wb0+wbn-1,
+                                    ; c + CS_MKD_SLOP), built once a bracket by
+                                    ; cs_mktabs. A byte column is never above
+                                    ; 79 on ANY backend - every row is 80 bytes
+                                    ; there - so 96 entries is the bound plus
+                                    ; sixteen, and the overrun is benign
+                                    ; besides: both tables hold CLAMPED
+                                    ; columns, so reading one for the other
+                                    ; still names a byte of the view
     ZBYTE cs_slnoshort              ; set to put a SHORT sliced run back on the
                                     ; general row body (88.4.6.2's A/B)
     ZBYTE cs_mknostep               ; set to put a thin diagonal's mark back on

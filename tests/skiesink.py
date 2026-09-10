@@ -131,8 +131,18 @@ for f, (sh, kind, pat, span) in enumerate(s):
         # perfectly ordinary dither. The ground repeats with period 4 in y
         # and is uniform across x, so the commonest byte in the row IS it,
         # and ink is a minority by construction.
-        row = sh[y * 80 + WB0:y * 80 + WB0 + WBN]
-        p = max(set(row), key=row.count)
+        # THE GROUND BYTE COMES FROM OUTSIDE THE SPAN, not from the whole
+        # row. The row's own mode is the ground only while ink is a MINORITY,
+        # and a solid polygon covering more than half a row makes the mode the
+        # INK - after which every ground byte reads as a leak. Row 110 of
+        # `rollsweep` did exactly that: mode FF, 54 dither bytes flagged.
+        # Bytes outside the span were not written this frame by construction,
+        # so they ARE the ground; a row with too few of them cannot be judged.
+        out = [sh[y * 80 + c] for c in range(WB0, WB0 + WBN)
+               if not (lo <= c <= hi)]
+        if len(out) < 8:
+            continue
+        p = max(set(out), key=out.count)
         for c in range(WB0, WB0 + WBN):
             if sh[y * 80 + c] == p:
                 continue
