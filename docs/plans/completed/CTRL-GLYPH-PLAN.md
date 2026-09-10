@@ -40,10 +40,19 @@ none of it is resident. What it bought is in
 `docs/reports/GLYPH-AND-LINE-COST-2026-09-10.md`, which is §4's measurement
 brief answered.
 
-**Still open, and it is a LOOK question rather than work**: §3 item 3 — whether
-the other 22 packages carrying `os88ui.inc` want the converted glyph's style.
-They get the smaller block either way; a package drawing a radio in a new
-style is a look change in 22 places at once, and that is the owner's call.
+**§3 item 3 is ANSWERED by the build, not left open.** `os88ui_glyph` is
+inside `%ifndef OS88UI_NOBTN`, so converting its BODY converted every carrier
+that emits it, at their next build, with no per-package work at all — the
+measurement counted **116 bytes a copy out of eleven packages and five
+drivers** in this build alone, and more in the tree these disks do not carry
+(`WORD`, `CWORD`, `WEAVE`, `LOOM`, `PACCMAN`, `C64`, `FROTZ`). That is where
+the **−1,407 bytes of app disk** came from; it is the brief's own trade paying
+out.
+
+What is genuinely new rather than converted is the **radio** (§13.17):
+`os88ui_rad` is a control that did not exist, so no package draws one yet —
+`tests/radtest/` is its only caller outside the panel. Nothing is pending for
+anybody; the control is simply available.
 
 ---
 
@@ -133,9 +142,12 @@ none of them is a measurement.
    in BH through `cp_dngly` precisely so DI stays free — a record-based control
    changes that, and the ~35–50 ms per glyph (PERFORMANCE.md Part 2) says a
    redraw must stay per-ROW and never per-page.
-3. **Whether the other 22 carriers want the same change.** They get the smaller
-   block either way, but a package drawing a radio in a new style is a look
-   change in 22 places at once.
+3. ~~**Whether the other 22 carriers want the same change.**~~ **ANSWERED —
+   it was never a decision.** `os88ui_glyph` sits inside `%ifndef
+   OS88UI_NOBTN`, so the body change reached every carrier that emits it
+   automatically: **116 bytes a copy off eleven packages and five drivers**,
+   measured. The radio is the part that is new, and a package gets one only
+   by calling `os88ui_rad`, which none does yet.
 
 ## 4. The measurement this is done to produce
 

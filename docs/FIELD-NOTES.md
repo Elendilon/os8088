@@ -1499,9 +1499,17 @@ not of the kernel**, and `DSV_TICK` alone moves it 16.
    a tail `jmp` (+0 rather than +2), and `cy_dsc_run`'s five pushes were two.
    `tools/stkdepth.py` also names 2 bytes `cy_web_repair` pushes and never
    uses.
-3. **Only then consider the class.** Cyclone is on 192; the next class is 384
+3. ~~**Only then consider the class.** Cyclone is on 192; the next class is 384
    and `SCH_STACK` is the ceiling. Moving it is the expensive answer and the
-   one that hides both of the above.
+   one that hides both of the above.~~ **THIS WAS THE ANSWER, and the sentence
+   is wrong twice.** The classes are 128/192/**256**/384 (SPEC.md 8.7), so the
+   next one up is 256 and not 384 — *"the expensive answer"* was an artefact of
+   a ladder with a rung missing from it. And it hides nothing: items 1 and 2
+   are worth 22 bytes between them against a slice that needed ~28 more, so
+   neither would have fixed this and the pair of them together would not
+   either. **Reclassifying was the cheap answer and the correct one**
+   (SPEC.md 8.7.5); items 1 and 2 stand on their own merits and are not
+   urgent.
 
 `tools/stkwater.py` measures what a slice actually reached, and
 `tools/cyunwind` is Cyclone's own unwinder from the first investigation —
