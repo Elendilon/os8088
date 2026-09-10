@@ -2668,7 +2668,17 @@ cs_probe_sh:
     add [cs_dbg_wshby], si
     jmp short .out
 .slice:
+    ; ...AND THE SLICE'S OWN ROWS AND PIXELS, because the run body is the
+    ; expensive half and nothing counted it. A sliced row is one pass of
+    ; ~130 bytes whatever it lays down (SPEC.md 85.3.6), so a segment's
+    ; cost is its ROWS and not its pixels - and a bank is what turns a
+    ; FLAT line (one row, one run) into forty of them.
     inc word [cs_dbg_wsl]
+    add [cs_dbg_wslpx], cx          ; |dx|+1 pixels...
+    mov si, bp
+    shr si, 1
+    inc si                          ; ...laid in |dy|+1 runs
+    add [cs_dbg_wslrow], si
 .out:
     pop bp
     pop di

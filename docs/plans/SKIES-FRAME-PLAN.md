@@ -1167,6 +1167,146 @@ Per call, in cycles - which is where the surprises are:
 | `cs_consider` | 19.1 | 47 | 1,894 |
 | `cs_axcull` | 1.5 | 16.5 | 434 |
 
+#### 7.1.15 THE SHORT-RUN BODY, COSTED - and the outline story corrected
+
+The field asked why a slight bank costs so much, was given an account in
+7.1.14's terms, and then asked for the next idea to be COSTED before it was
+written. This is that costing. It changes the account as well as pricing the
+idea, and the correction is the more valuable half.
+
+##### 7.1.15.1 Four instrument repairs, because none of this could be measured
+
+Nothing in `all` builds the diag trees, so nothing in `all` can see them rot,
+and all four of these were found by trying to take a number:
+
+1. **`make skiesprobe` did not ASSEMBLE.** `skies.asm` lays its bss under a
+   fixed overlay address and writes the GAP as its own subtraction precisely
+   so that outgrowing it is a refusal rather than a silent overlap - and the
+   -DCSPROBE arm had outgrown it by **331 bytes**. `tools/csworlds.py` takes
+   `--vocab-at` now and the Makefile passes it for any tree with a
+   `CSDIAGDEF`, so a diag build moves its overlay up and pays a bigger heap
+   claim it does not have to fit on a floppy. **The shipped `skies.bin` is
+   byte-identical either side** (`66aead79...`), which is the whole point of
+   the -DCSPROBE design and is checked rather than asserted.
+2. **`tests/skiescount.py` re-assembled against the SHIPPED overlay address.**
+   It makes two nasm calls; `probemap()` passes the probe tree's own
+   `cswidx.inc` under a comment saying exactly why, and the tick-wait one
+   passed `build/`'s. One of the two had learned the lesson. It got away with
+   it until repair 1's overflow made the difference matter.
+3. **A PAUSED census is not the FLYING one, and the counts do not transfer.**
+   This is the one to remember. `skiescount` pins the aeroplane and stops the
+   world, which is right for an A/B where both arms must draw the IDENTICAL
+   picture and wrong for a population count: `slightbank` paused at 12 degrees
+   puts **2.2** segments a frame into a line body, and flying puts **15** into
+   `cs_seg`. Costing off the paused number would have priced a renderer nobody
+   runs. `--fly` teleports and then lets go, re-pinning the bank at each
+   frame's `cs_render` so 88.7.5's easing cannot roll it out over the census.
+4. **Nothing counted the slice's ROWS.** `cs_dbg_wsl` counted sliced SEGMENTS,
+   and a segment is not the unit that is paid. `cs_dbg_wslrow`/`cs_dbg_wslpx`
+   are two more probe-only words and they are what turned this from an
+   argument into a table.
+
+##### 7.1.15.2 The census - the same 670 pixels, and 4 runs against 94
+
+`slightbank`, flying, 16 counted frames, one fresh guest an angle:
+
+| roll | sliced px | sliced RUNS | px a run | walked px | steep | vertical |
+|---|---|---|---|---|---|---|
+| 0 | 670.1 | **4.0** | 167.5 | 0.0 | 0 | 0 |
+| 5 | 670.0 | **43.0** | 15.6 | 0.0 | 0 | 0 |
+| 12 | 652.0 | **94.2** | 6.9 | 3.1 | 0 | 0 |
+| 20 | 1.1 | 0.2 | 5.7 | **635.7** | 0 | 0 |
+
+**The same ~670 pixels are drawn at every bank.** What the tilt changes is the
+number of RUNS they are laid in - 4, then 43, then 94 - because a run is one
+row's worth of contiguous bytes and a flat line is one run for its whole
+length. That is 7.1.13's "priced by the row, not the pixel" stated exactly, in
+the one place where the pixel count is held constant by construction.
+
+##### 7.1.15.3 A sliced run costs 785 cycles, measured twice and not quoted
+
+SPEC.md 85.3.6 priced Tank's row at "some 800 cycles" by counting its bytes
+and its memory accesses. This scene gives the same number by SUBTRACTION,
+which is a different method and a different program:
+
+- roll 0 -> 12: **+90.2 runs** for **+14.83 ms** of `edges` = **785 cycles a
+  run**
+- roll 0 -> 5: **+39.0 runs** for **+6.26 ms** = **766 cycles a run**
+
+Both arms hold the pixel count, the object count and the `cs_seg` call count
+fixed, so the run is the only term moving. What is left over is `edges`'
+FIXED part - `cs_seg` entered 15 times, Cohen-Sutherland clipping most of
+them away, and the marking - and it comes to **~7.0 ms at every angle**,
+which is why `edges` reads 7.70 at level where its four runs are worth 0.66.
+
+`cs_slice_herc`'s row body is **129 bytes** measured off the listing (45 in
+`.row`, 20 in `.multi`, 12 in `.step`, the rest one-time setup), against
+85.3.6's "about 130". Two independent methods, two sources, one number.
+
+##### 7.1.15.4 THE CORRECTION: there are no steep or vertical lines at all
+
+The account this costing was asked for said that a bank takes every upright
+edge off the exactly-vertical body and every flat one off the slice, and that
+both halves were the story. **The first half has no customers in this scene at
+any angle** - the steep and vertical columns above are 0.0 throughout, because
+these buildings are drawn as FILLED FACES and not as outlines, so `cs_edges`
+never sees their uprights. The claim was reasoned from the renderer's shape
+and never checked against a count.
+
+What survives, and is now exact rather than argued, is the flat half: 670
+pixels in 4 runs becomes 670 pixels in 94. And the fill's own version of it
+survives too, from the same runs - the polygon edge tracer's rows go **171.2
+-> 355.0 -> 440.6** at 0, 12 and 20 degrees, which is the wide-flat-polygon
+argument measured rather than asserted.
+
+##### 7.1.15.5 The costing, and the verdict
+
+**The customers are the SLICED runs and not the walked pixels.** At 12 degrees
+the per-pixel arm draws **3.1 pixels a frame**, so the body as first proposed -
+a cheaper laydown BELOW the slice's six-pixel threshold - has no work to do at
+the angle the field flies. It only has customers at 20 degrees, and there the
+whole per-pixel arm is 635.7 pixels, which even eliminated entirely is ~6% of
+the frame.
+
+Re-aimed at the runs the slice IS taking, the arithmetic is:
+
+- **The budget.** 94.2 runs at 785 cycles = **15.8 ms of a 213.6 ms frame,
+  7.4%**. That is the whole of what the idea plays for at 12 degrees.
+- **The body.** Written and assembled to check the size rather than estimated:
+  a run of q <= 8 from bit b spans at most two bytes, so one word off a 64-entry
+  table and TWO UNCONDITIONAL ORs draw it - the second is a no-op write when
+  the table's high byte is zero, which needs no branch. **37 bytes**, against
+  the 65 of `.row` + `.multi` it replaces, and with 3 memory accesses against
+  85.3.6's sixteen.
+- **The saving.** The current row runs at 785 cycles for 77 bytes = 10.2
+  cycles a byte, well above the 4.34 fetch floor, which is the `rep` setup and
+  the memory accesses. The short body should sit nearer the floor: 49 bytes
+  (37 + `.step`'s 12) x 4.34 = 213, plus three accesses ~60 = **275 cycles**,
+  and **500** if it runs as memory-bound as the body it replaces. So
+  **285-510 cycles a run, 5.6-10.1 ms, 2.6-4.7% of the frame at 12 degrees.**
+  At 5 degrees 2.1%; at level **zero**, its four runs being 167 pixels long
+  and out of the body's reach by construction.
+- **The price.** ~37 bytes of body + 128 bytes of table + a dispatch ~= **170
+  bytes** of package image, and a long run must not get slower for it.
+
+**Verdict: not now.** 2.6-4.7% for 170 bytes in the hottest loop is a real
+win and a thin one, the error bar is a factor of two wide, and the same census
+says where the money actually is - the pixels are constant and the ROWS are
+23x, so the lever is the row count and not the row's price. Nothing here is
+wasted if it is taken later: the body is written and sized, the budget is
+measured, and `--fly` plus the two counters make the A/B one command.
+
+##### 7.1.15.6 What to ask next, with the instrument now in place
+
+The same question has never been asked of the FILL, which is three times the
+stage: `cs_polyrows_herc`'s run is already inline (SPEC.md 88.4.6) but nothing
+counts its runs or their lengths, and `faces` is 52.71 ms at 12 degrees
+against `edges`' 22.53. If a tilted polygon's rows are as short as a tilted
+line's runs, the same 37-byte laydown has a customer three times the size -
+and if they are wide, the fill is already at its floor and the answer is the
+row COUNT again. Two counters and one census would say which, and the
+counters are the same two.
+
 ### 7.4.1 The CULL, taken apart - and it is not fat
 
 `cs_consider` bracketed at its own call site, 323 calls over six frames, split

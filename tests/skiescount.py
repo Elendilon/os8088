@@ -2,6 +2,7 @@
 """CLEAR SKIES' faces and edges, COUNTED - and each term priced by ADDING it.
 
     python3 tests/skiescount.py [--scene city] [--machine os8088_5150_herc_gla]
+                                [--roll 12]
 
 AN INSTRUMENT, NOT A GATE - registered as such in tests/unit/t_registry.py,
 and it asserts nothing. `tests/skiesperf.py` prices a STAGE by patching its
@@ -89,6 +90,13 @@ SCENES = {                              # x, y, z (metres), heading, pitch[, rol
     "dfsquare": (-3940, 300, 2600, 0, -12),     # nose on, eye above the roofs
     "dfangled": (-4600, 300, 2900, 45, -12),    # 45 deg off, eye above
     "dflevel": (-4600, 60, 2900, 45, 0),        # 45 deg off, eye BELOW them
+    # --- THE BANK'S OWN SCENE, tests/skiesprof.py's `slightbank` profile to
+    #     the metre, so a population counted here sits beside a stage timed
+    #     there. Its subject is the LINE WALK and not the faces: a bank takes
+    #     every ground-hugging segment off the run slice (SPEC.md 88.4.3, six
+    #     pixels a row) and onto the per-pixel arm, and `--roll` is what walks
+    #     that. 0 is the control and is where the slice still has them all ---
+    "slightbank": (150, 33, -2000, 30, 0, 12),
 }
 
 
@@ -172,6 +180,26 @@ def main(argv):
                     help="[cs_setfill]: `wire` clears both bits, so every face "
                          "is its OUTLINE (SPEC.md 88.13.3) and the frame is "
                          "segments rather than polygons")
+    ap.add_argument("--fly", action="store_true",
+                    help="do NOT pause the world after the teleport: fly it, "
+                         "with the bank HELD, the way tests/skiesprof.py's "
+                         "profiles do. **A PAUSED SCENE IS NOT THE FLYING "
+                         "ONE and the counts do not transfer** - `slightbank` "
+                         "paused at 12 degrees puts 2.2 segments a frame into "
+                         "a line body and flying puts 15 into cs_seg, so a "
+                         "population counted with the world stopped prices a "
+                         "renderer nobody runs. Pinning is right for an A/B "
+                         "where both arms must draw the IDENTICAL picture; it "
+                         "is wrong for a census")
+    ap.add_argument("--spd", type=int, default=60,
+                    help="with --fly: metres a second (slightbank's 60)")
+    ap.add_argument("--thr", type=int, default=100,
+                    help="with --fly: the throttle (slightbank's 100)")
+    ap.add_argument("--roll", type=float, default=None,
+                    help="override the scene's bank, in degrees. The whole "
+                         "point of the `slightbank` scene: the shallow arm's "
+                         "population is a function of it and of nothing else "
+                         "in the scene")
     a = ap.parse_args(argv)
     os.chdir(ROOT)
     MP = probemap()
@@ -203,15 +231,22 @@ def main(argv):
         if sc:
             x, y, z, hdg, pitch = sc[:5]
             roll = sc[5] if len(sc) > 5 else 0
+            if a.roll is not None:
+                roll = a.roll
             for n, v in (("cs_px", x), ("cs_py", y), ("cs_pz", z)):
                 poke(n, ((v * 256) & 0xFFFFFFFF).to_bytes(4, "little"))
             poke("cs_hdg", ((hdg * 65536 // 360) & 0xFFFF).to_bytes(2, "little"))
             poke("cs_pitch", ((pitch * 65536 // 360) & 0xFFFF).to_bytes(2, "little"))
-            poke("cs_roll", ((roll * 65536 // 360) & 0xFFFF).to_bytes(2, "little"))
+            poke("cs_roll",
+                 (int(roll * 65536 / 360) & 0xFFFF).to_bytes(2, "little"))
             poke("cs_state", b"\x01")
+            if a.fly:
+                poke("cs_spd", (a.spd * 128).to_bytes(2, "little"))
+                poke("cs_thr", a.thr.to_bytes(2, "little"))
         poke("cs_setfill", bytes([{"all": 3, "terrain": 1, "bldg": 2,
                                    "wire": 0}[a.fill]]))
-        poke("cs_pause", b"\x01")
+        if not a.fly:
+            poke("cs_pause", b"\x01")
         ap_ = w("cs_airport")           # a poke is a teleport: SPEC.md 88.5.2's
         objs = int.from_bytes(m.read(lin + ap_ + 18, 2), "little")
         nobj = int.from_bytes(m.read(lin + ap_ + 20, 2), "little")
@@ -231,13 +266,29 @@ def main(argv):
                   "cs_dbg_fpoly", "cs_dbg_fout", "cs_dbg_fbox", "cs_dbg_ftr",
                   "cs_dbg_wsh", "cs_dbg_wsl", "cs_dbg_wst", "cs_dbg_wvt",
                   "cs_dbg_wshpx", "cs_dbg_wshby", "cs_dbg_wstpx",
-                  "cs_dbg_wvtpx"):
+                  "cs_dbg_wvtpx", "cs_dbg_wslrow", "cs_dbg_wslpx"):
             m.write(lin + base + off(n), b"\x00\x00")
         N = a.count_frames
+        # --- WITH --fly THE BANK IS RE-PINNED EVERY FRAME ------------------
+        # 88.7.5's easing rolls the bank out over the ticks, so a census that
+        # teleported to 12 degrees and then flew twelve frames would be
+        # counting a scene that was already back near level by the end. The
+        # breakpoint is cs_render's own entry, so this pins the roll the
+        # frame's cs_matrix is about to read - skiesprof.py pins at the call
+        # to cs_matrix itself, one step further in, which differs only by the
+        # easing inside a single frame and cannot move a population.
+        rollv = None
+        if a.fly and sc:
+            rollv = (int((a.roll if a.roll is not None
+                          else (sc[5] if len(sc) > 5 else 0)) * 65536 / 360)
+                     & 0xFFFF).to_bytes(2, "little")
+            poke("cs_roll", rollv)
         m.run()
         for _ in range(N):
             if m.wait_stop(20) is None:
                 sys.exit("skiescount: the frame never came")
+            if rollv is not None:
+                poke("cs_roll", rollv)
             m.run()
         m.wait_stop(20)
         m.bp_exec()
@@ -273,13 +324,23 @@ def main(argv):
               "(%.1f%% of all) could merge into one write"
               % (shby / N, (shpx - shby) / N,
                  100.0 * (shpx - shby) / max(px, 1)))
+        slrow, slpx = w("cs_dbg_wslrow"), w("cs_dbg_wslpx")
+        print("    the SLICED ones lay %.1f pixels in %.1f RUNS (%.1f px a run)"
+              " <== a run is ~130 bytes whatever it lays"
+              % (slpx / N, slrow / N, slpx / max(slrow, 1)))
 
         # --- the tick wait out, for the whole run (skiesperf.py's rule: a
         #     frame faster than a tick reads 55 ms and every arm reads it) ---
         lst = tempfile.mkstemp(prefix="skiescount_", suffix=".lst")
         os.close(lst[0])
+        # ...and the PROBE TREE'S OWN cswidx.inc, exactly as probemap() above
+        # says. This site read `build/`'s - the SHIPPED overlay address - and
+        # got away with it until the probe build outgrew the gap under it and
+        # `times` went negative. One of the two nasm calls in this file had
+        # learned the lesson and the other had not.
         subprocess.run(["nasm", "-f", "bin", "-w+error", "-DCSPROBE",
-                        "-I", "apps/", "-I", "apps/skies/", "-I", CSWIDX,
+                        "-I", "apps/", "-I", "apps/skies/",
+                        "-I", os.path.join(ROOT, PROBE) + os.sep,
                         "-o", os.devnull,
                         "-l", lst[1], "apps/skies/skies.asm"], check=True)
         import re

@@ -2574,6 +2574,8 @@ CS_DBGSCR equ 112               ; ...and the copy A/B's scratch is 112 rows,
     ZWORD cs_dbg_wshby              ; ...and the DISTINCT BYTES they land in:
     ZWORD cs_dbg_wstpx              ; the difference is what an accumulator
     ZWORD cs_dbg_wvtpx              ; could merge, and steep/vertical cannot
+    ZWORD cs_dbg_wslrow             ; the SLICED segments' runs (= rows) and
+    ZWORD cs_dbg_wslpx              ; pixels: a row is the unit that is paid
     ZBYTE cs_axmask                 ; BISECT: which axis bits may cull
     ZBYTE cs_axoff                  ; AUDIT: cs_axcull computes and does NOT
     ZBYTE cs_dbg_ax                 ; act, so the winding decides every face
