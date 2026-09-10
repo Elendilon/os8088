@@ -13001,10 +13001,36 @@ inlining its fast path here is pure addition. And the bit tables replace a
 shift that was *inside* the loop, so they add 16 while removing bytes from a
 body that is then emitted three times.
 
-**If the `kern_small` rung is the binding cost**, the lever is the expansion
-and not the inlining: emitting only the general loop there would give back ~248
-bytes and keep everything else. It is not proposed, because the floor machine
-is the one a 36% faster point loop is worth most to.
+#### 136.3.2 …and what the THREE loops are worth, built both ways
+
+The expansion is not forced by anything. `gfx_ls_ink` resolves a colour to
+three 1bpp classes — `FF` ink, `00` paper, `01` dither (§5.4.2) — and
+specialising the commit per class is what turns nine instructions into one.
+One loop can serve all three; it has to ask the class per point and keep the
+general read-modify-write, which is what the routine did before. Both were
+built and measured on the same deterministic run:
+
+| | before | ONE loop | THREE loops |
+|---|---:|---:|---:|
+| `.text` | 48,870 | **+72** | **+329** |
+| `gfx_points` span | 211 | 270 | 527 |
+| instructions a point | 52.7 | **38.7** | **31.1** |
+| cycles a point | 903 | **665** | **573** |
+| Missile, 400 frames | 68,298,000 | 65,142,657 | **63,836,496** |
+| frames over one tick | 57 | 46 | **39** |
+| screen hash | `28bc481…` | `28bc481…` | `28bc481…` |
+
+**So the split costs 257 of the 329 bytes and delivers 92 of the 330 cycles**
+— 78% of the bytes for 28% of the win, which is exactly the shape a duplication
+has and is worth stating rather than implying. The other three changes are the
+bargain: 72 bytes for 238 cycles a point.
+
+**And the `kern_small` rung is crossed EITHER WAY.** The one-loop build is
+74,981 → **75,493**, the same figure the three-loop build gives: the slack in
+that rung was under 72 bytes, so the floor machine's 512 is the price of the
+inlining and not of the expansion. An earlier revision of this set said the
+lever was the expansion; it is not, and there is no version of this change that
+is free there short of not making it.
 
 #### 136.4 The pixels are gated, not asserted
 

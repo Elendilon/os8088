@@ -4922,9 +4922,13 @@ So what changed is instruction COUNT, four ways, none of them data-dependent:
 - **The bit comes from a table**, `gfx_bitset` / `gfx_bitclr`, because
   `shr bl, cl` is 8+4n clocks and wants CL, which is the loop counter's.
 - **The ink class is three loops rather than one loop with two tests in it.**
-  Ink commits with `or [es:di], bl` and paper with `and [es:di], bl` — ONE
-  read-modify-write instruction where the general form is seven. The dither
-  class keeps the general form; it is the one that actually needs it.
+  `gfx_ls_ink` resolves a colour to three 1bpp classes, and specialising the
+  commit per class is what turns nine instructions into one: ink is
+  `or [es:di], bl` and paper `and [es:di], bl`. The dither class keeps the
+  general form; it is the one that actually needs it. **Nothing forces the
+  expansion** — one loop asking the class per point was built and measured too,
+  and PERFORMANCE.md Set 136.3.2 is that comparison: the split is 257 of the
+  329 bytes and 92 of the 330 cycles a point.
 
 **The hot path is straight and the cold paths are after `loop`.** A clip-rect
 miss and a row past the row table both live below the loop body, which is what
