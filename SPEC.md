@@ -103252,6 +103252,60 @@ Neither `tests/skiesstale.py` nor any timing row can stand in for it: an
 under-fill leaves the SHADOW wrong and the card faithfully matches it, and a
 body that draws less is FASTER.
 
+###### 88.4.6.2.2 What it is worth: -1.8% banked, and nothing anywhere else
+
+Every profile, both arms, one fresh guest a point, `--warm 18`, and the arms
+one POKE apart on one binary. The field's standing rule after the narrow fill
+(docs/plans/SKIES-FRAME-PLAN.md 7.1.14) is that a body which wins on a thin
+diagonal must be shown not to lose on a busy scene, so the whole set is the
+gate and not the scene it was designed for:
+
+| profile | frame ON | frame OFF | delta | `cs_edges` ON | OFF |
+|---|---|---|---|---|---|
+| **slightbank** | **209.99** | **213.81** | **-3.82 (-1.8%)** | **18.93** | **22.70** |
+| slightbank (repeat) | 210.15 | 213.82 | -3.68 (-1.7%) | 18.93 | 22.70 |
+| turnhold | 252.89 | 252.89 | +0.00 | 18.65 | 18.65 |
+| rollsweep | 222.31 | 222.48 | -0.18 | 20.11 | 20.29 |
+| bank | 170.52 | 170.50 | +0.02 | 14.18 | 14.30 |
+| cruise | 150.61 | 150.39 | +0.21 | 17.37 | 17.29 |
+| climb | 147.93 | 147.80 | +0.13 | 21.45 | 21.14 |
+| descend | 108.61 | 109.06 | -0.45 | 14.00 | 14.31 |
+| sparse | 70.58 | 70.32 | +0.26 | 0.00 | 0.00 |
+
+**The whole of the win is `cs_edges`** - -3.77 of the -3.82 - which is the
+mechanism and not a coincidence. Everything else is a dead heat inside +/-0.5
+ms on frames of 70 to 253 ms, and `turnhold` reads **EXACTLY equal to the
+hundredth in both arms**, which is what a runtime gate that never fires should
+read and is the best evidence the measurement is exact rather than merely
+repeatable. `sparse` draws no segments at all (`cs_edges` 0.00 both ways), so
+its +0.26 is the noise floor stated plainly.
+
+**A run costs 594 cycles on the short body against 785 on the general one** -
+3.77 ms over the 94.2 runs a frame of §88.4.6.3 is **191 cycles a run**, 24%.
+That is the pessimistic end of the estimate and past it: the body was priced
+at 275-500 cycles on the argument that 49 bytes with three memory accesses
+would run nearer the 8088's 4.34-cycles-a-byte fetch floor than the general
+body's 129 bytes with sixteen. It does not - **12.1 cycles a byte against
+10.2** - because a word table read and two read-modify-write ORs in 37 bytes
+is a DENSER mix of memory work per byte of code, not a thinner one. Fetch is
+the floor and not the price.
+
+**Why only one profile moves** is the gate: the slice is entered at `q >= 6`
+and this body taken at `q <= 7`, so its band is two values of q - about 11 to
+14 degrees of bank for a segment that is flat when level. `slightbank` is 12
+and sits in it; `bank`, `turnhold` and `sparse` hold 45 degrees, where the
+segments walk instead; `cruise`, `climb` and `descend` are level or nearly so,
+where a run is 167 pixels long and the general body is the right one. So this
+is a change that pays in a narrow window of attitude and costs nothing outside
+it - which is the whole of what 212 bytes buys, stated so nobody re-derives it
+hopefully.
+
+Widening the band was costed and is **NOT taken**: a third OR reaches `q <=
+16` (roll ~5.5 to 13 degrees) for a table of 384 bytes against 128, and at 5
+degrees there are only 43.0 runs a frame, so 43 x 191 = 1.7 ms of a 173 ms
+frame - **1.0% for +256 bytes**, worse value per byte than the row it would
+extend.
+
 ##### 88.4.6.3 What a bank does to a run, measured
 
 The census that sized §88.4.6.2, taken on `slightbank` flying with the bank

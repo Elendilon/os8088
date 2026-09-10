@@ -1289,12 +1289,33 @@ Re-aimed at the runs the slice IS taking, the arithmetic is:
 - **The price.** ~37 bytes of body + 128 bytes of table + a dispatch ~= **170
   bytes** of package image, and a long run must not get slower for it.
 
-**Verdict: not now.** 2.6-4.7% for 170 bytes in the hottest loop is a real
-win and a thin one, the error bar is a factor of two wide, and the same census
-says where the money actually is - the pixels are constant and the ROWS are
-23x, so the lever is the row count and not the row's price. Nothing here is
-wasted if it is taken later: the body is written and sized, the budget is
-measured, and `--fly` plus the two counters make the A/B one command.
+**Verdict at costing time was "not now"** - 2.6-4.7% for 170 bytes with an
+error bar a factor of two wide. **The field took it anyway, and it is BUILT
+and MEASURED** (SPEC.md 88.4.6.2): **-1.8% on `slightbank`, 0.0% on every
+other profile, pixel-identical at 113 of 113 points**, for 212 bytes. Three
+things came out different from the costing and all three are worth keeping:
+
+- **The body is DEARER than predicted, not cheaper.** 594 cycles a run
+  against the general body's 785 - 191 saved, 24% - where the estimate said
+  275-500. The reasoning was that 49 bytes with three memory accesses would
+  sit nearer the fetch floor than 129 bytes with sixteen; it sits FURTHER
+  from it (12.1 cycles a byte against 10.2), because a word table read and
+  two read-modify-write ORs inside 37 bytes is a denser mix of memory work
+  per byte of code. **Fetch is the floor, not the price** - the rule this
+  file has now got wrong in both directions.
+- **The band is two values of q**, so exactly one profile in eight moves.
+  That is not a disappointment to hide: 212 bytes that pay 1.8% in the
+  attitude the field flies and cost NOTHING in the other seven is the trade
+  as offered, and `turnhold` reading equal to the hundredth in both arms is
+  what says the gate is free when it does not fire.
+- **Proving identity was harder than building the body** and is its own
+  record (88.4.6.2.1): three harness designs each made a correct renderer
+  look broken, and the one that works is A/B/A inside one guest with A == A
+  checked per point.
+
+The census's other half still stands and is still unspent: the pixels are
+constant and the ROWS are 23x, so the remaining lever is the row COUNT and
+not the row's price.
 
 ##### 7.1.15.6 What to ask next, with the instrument now in place
 
