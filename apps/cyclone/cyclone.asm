@@ -77,7 +77,7 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'CYCLONE 88', cy_entry, 1, OS88_STACK_192
+    OS88_HEADER 'CYCLONE 88', cy_entry, 1, OS88_STACK_256
                                 ; THE WORKER'S STACK, declared
                                 ; rather than defaulted (SPEC.md 8.7):
                                 ; static 66 for cy_worker

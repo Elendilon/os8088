@@ -10014,6 +10014,66 @@ a sibling here: **a measurement that silently covers less than it claims is
 worse than no measurement**, because the margin it reports is the reason
 nobody looks again.
 
+#### 8.7.5 The FLOOR is not a constant either — Cyclone, and a mounted driver
+
+§8.7.4's under-count was the *chain*. This one is the other term of the same
+sum, and it is the one §8.7.2's recipe states as a number: **add the kernel's
+interrupt floor, which docs/plans/completed/STACK-SLOTS-PLAN.md §7.1 puts at 64
+on the worst real machine measured.** That 64 was taken on a machine with **no
+driver mounted**, and it is not a floor on a machine that has one.
+
+**The sequence, and no step in it is a mistake in isolation.** Cyclone
+declared `OS88_STACK_192` in the merge that introduced the classes, when
+`cy_worker`'s chain was **66**: 66 + 64 = 130, and 192 over 130 is 1.48×,
+comfortable. GFX-EMBEDDABLE-PLAN's wave 5 then moved the resumable walk into
+the app and took the chain **66 → 86**: 150, and 1.28×. `t_stkclass` printed
+that as *the thinnest in the tree* on every build from then on, and it was
+read as a tight-but-passing margin rather than as a class to revisit.
+
+**Measured in play, which no static tool can see:** the slice peaks at
+**164 of 192** on a machine with no sound card — the recipe's 150 plus the
+~14 the kernel spends below the `OSAPI_*` far calls, which is §8.7.4's own
+closing finding. That is 28 bytes of headroom, and it is the *good* case.
+
+**With a Sound Blaster the driver is a term the recipe does not have.** An
+SB 2.0 carries an OPL2, so `SOUND.DRV` publishes both `DSV_TICK` and
+`DSV_TONE`, and both are entered from `snd_tick` **inside IRQ 0 at IF = 0, on
+whichever slice the tick interrupted** (§34.2, §51.4):
+
+| Cyclone in play, Hercules, arm 1 | peak of 192 | free |
+|---|---|---|
+| no card at all | **164** | 28 |
+| SB 2.0, `snd_route = SPK` — `DSV_TICK` alone | **180** | 12 |
+| SB 2.0, both | **184–192** | **through the canary** |
+
+`DSV_TICK` costs **16 bytes of every slice, always** — it runs every tick
+whether or not anything is playing — and `DSV_TONE` costs the rest.
+`stkdiag`'s own floor row says the same thing one level up: **32 idle without
+a card, 52 with one.** So the 64 is short by ~16 the moment a driver is
+mounted, before a note is played, and the machine most likely to have a card
+in it is the one running a game.
+
+- **The class is 256.** Measured at 256: **184, 188 and 192 of 256** over
+  three runs, so 64–72 bytes free, and it takes slot 10. Cyclone was the
+  **outlier among its own siblings** — Missile Command, PacMan, Tank and
+  TameGram all declare 256 already, and §67.5.5's stack analysis was written
+  against *"a worker gets 384 bytes"*, before the classes existed. The
+  declaration and the design record had disagreed since the day the classes
+  landed.
+- **`t_stkclass` was never going to catch it**, and that is not a defect in
+  the gate: it compares a *static* chain against a *documented* floor, and
+  both terms were right. What is missing is that the floor is a property of
+  the machine's configuration rather than of the kernel.
+- **Sizing a class against 64 is sizing against a bare machine.** A worker
+  that draws while a driver is mounted should be read as **64 + the driver**,
+  and the cheap way to know is to run it: `tools/stkwater.py` on the real
+  recipe beats any sum. The next-thinnest today is The Wire at 1.30× on the
+  same optimistic 64.
+
+**The shape §8.7.4 named is the shape here too, one term along**: a number
+that silently covers less than it claims, whose reported margin is the reason
+nobody looks again. There it was the chain; here it is the floor.
+
 ### 8.8 What a stack overflow says — the death panel
 
 `sch_stkdie` is the only `cli`/`hlt` in the kernel, and until §8.8 it printed
@@ -82359,7 +82419,9 @@ because the polite version assembles, boots, plays, and then hangs.
 
 A worker gets 384 bytes (§8) and every interrupt the machine takes lands on
 whichever task stack is current, so the app's own chain is only part of what
-has to fit. This app's chain is seven frames deep — worker → render →
+has to fit. **That 384 is what a worker got when this was written**, before
+§8.7's classes existed; this app declares `OS88_STACK_256` and §8.7.5 is why
+it is not the 192 the class scheme first gave it. This app's chain is seven frames deep — worker → render →
 per-state render → per-object draw → `cy_obj_show` → `cy_rsub` → the fill —
 and six of those frames opened by banking AX..DX out of habit. That is 60 of
 the slice spent on registers that every one of the call sites reloads from

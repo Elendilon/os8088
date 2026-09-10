@@ -2298,6 +2298,16 @@ OS88_F_PARTS  equ 4             ; the FILE is longer than the image, on purpose
 ; tools/stkdepth.py prints your worker's deepest static chain; add the kernel's
 ; interrupt floor, which docs/plans/completed/STACK-SLOTS-PLAN.md 7.1 puts at 64 on the worst
 ; real machine measured, and pick the class above the sum with margin.
+;
+; THAT 64 IS A BARE MACHINE, AND IT IS NOT A FLOOR ON ONE WITH A DRIVER IN IT
+; (SPEC.md 8.7.5). A mounted SOUND.DRV alone is worth ~16 bytes of every slice
+; ALL THE TIME - snd_tick far-calls DSV_TICK from inside IRQ0 whether or not
+; anything is playing - and more while a tone is on. Cyclone was sized by this
+; recipe, passed its gate at 1.28x for months, and overflowed on the first
+; machine with a sound card in it. If your worker DRAWS, size it against
+; 64 + the driver, and measure with tools/stkwater.py on the real recipe
+; rather than trusting the sum: a static chain plus a documented constant is
+; two right numbers that do not add up to the machine.
 OS88_STACK_DEFAULT equ 0        ; the largest. What you get by saying nothing
 OS88_STACK_128     equ 1        ; a worker that sleeps and wakes: a close
                                 ; watcher, a caret blink, a transport poll

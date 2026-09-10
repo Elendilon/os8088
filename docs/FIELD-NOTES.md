@@ -903,7 +903,7 @@ either — measured, by clearing it on purpose and watching `ps2mouse` stay
 green. Confirmed fixed on both machines: the 286 types correctly and the
 Packard Bell's mouse is untouched.
 
-## 40. Cyclone overflows its task stack (OPEN — REPRODUCED, and the Sound Blaster is the term: 40.2.5)
+## 40. Cyclone overflows its task stack (FIXED — its class was 192 and it is a 256 program: SPEC.md 8.7.5)
 
 Reported as *"Cyclone is overflowing its stack… performant, near as I can
 tell, until it overflows."* Paint, Missile Command and Tank were exercised
@@ -1257,9 +1257,48 @@ What the sweep does confirm is the reporter's observation that pre-inlining
 builds *"seemed to do it more often"* — **10 bytes of margin against 28**, and
 a card asks for 16 before a tone is played.
 
+#### THE FIX: the class was 192 and Cyclone is a 256 program
+
+**Declared `OS88_STACK_256`** (SPEC.md 8.7.5). Measured on the machine that
+reproduces — SB 2.0, Hercules, the same held keys:
+
+| Cyclone's class | slot | peak | free | outcome |
+|---|---|---|---|---|
+| `OS88_STACK_192` | 4 | 184–192 of 192 | — | **PANIC 3/3** |
+| **`OS88_STACK_256`** | 10 | **184, 188, 192 of 256** | 64–72 | **survived 3/3** |
+
+**192 was short by a handful of bytes**, which is why the symptom needed a
+sound card to appear at all and why it looked stochastic: the true peak sits
+*on* the old canary.
+
+The reporter's framing is what found it — *Cyclone is a worker-heavy app that
+takes over the whole machine* — and the tree already said so twice. **SPEC.md
+67.5.5's stack analysis is written against "a worker gets 384 bytes"**, from
+before the classes existed, and **Missile Command, PacMan, Tank and TameGram
+all declare 256 already.** Cyclone was the outlier among its own siblings, and
+the declaration had disagreed with its own design record since the day the
+classes landed.
+
+How it got there is worth keeping, because no step is a mistake alone: the
+class was set at `b9bb040` when `cy_worker`'s chain was **66** (66 + 64 = 130,
+1.48×); wave 5 took the chain to **86** (150, 1.28×); `t_stkclass` printed
+*thinnest in the tree* on every build after that and it was read as tight-but-
+passing rather than as a class to revisit. And the gate could not have caught
+it — it compares a static chain against a documented 64-byte floor, and both
+terms were right. **The floor is a property of the machine's configuration,
+not of the kernel**, and `DSV_TICK` alone moves it 16.
+
 #### What it does not settle
 
-- **The fix.** Nothing here proposes one, and the honest framing has changed:
+- **The margin without a card.** 164 of 192 was the *good* case, and it is
+  still 162 of 256 now — the class change buys headroom, it does not make the
+  chain shorter. 40.2's item 2 (give the walk chain its 20 bytes back) stands
+  on its own merits, it is simply no longer urgent.
+- **The Wire is the new thinnest** at 1.30× (84 + 64 in 192), on the same
+  optimistic floor. It is a network app rather than a game, so it is unlikely
+  to meet a mounted `SOUND.DRV` under load — but that is an argument, not a
+  measurement.
+- **The old framing, kept for the record:**
   `cy_worker` runs at **85% of its class with no card in the machine**, and
   the card is a further 16 before anything is audible. That is a margin
   question first and a driver question second — which puts 40.2's item 2
