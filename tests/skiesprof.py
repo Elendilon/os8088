@@ -138,6 +138,18 @@ TIER6 = [                               # the flight model's own calls (88.7)
     ("cs_step",     r"call cs_touch$",       "touch"),
     ("cs_step",     r"call cs_collide$",     "collide"),
 ]
+TIER7 = [                               # THE VERTEX PIPELINE's own calls
+    # 41.7 ms at 12 degrees and 39.2 of a 140 ms LEVEL frame - the largest
+    # block in level flight, and the only one measured so far that does NOT
+    # move with the bank. What this tier answers is whether its cost is the
+    # MULTIPLIES (cs_rot's nine, cs_colscale's three a column, the
+    # projection's two a vertex) or the per-vertex loop around them, because
+    # SPEC.md 88.5.6's own note prices a vertex at ~1,200 cycles and two
+    # `imul` is a quarter of that.
+    ("cs_scale",      r"call cs_rot$",       "rot"),
+    ("cs_stackverts", r"call cs_colscale$",  "colscale"),
+    ("cs_projall",    r"call \[cs_projp\]$", "projp"),
+]
 TIER3 = [
     ("cs_faces",    r"call cs_axcull$",      "axcull"),
     ("cs_faces",    r"call cs_fclip$",       "fclip"),
@@ -256,7 +268,7 @@ def main(argv):
     ap.add_argument("--profile", default="cruise", choices=sorted(PROFILES))
     ap.add_argument("--frames", type=int, default=30)
     ap.add_argument("--tier", type=int, default=2,
-                    choices=(1, 2, 3, 4, 5, 6))
+                    choices=(1, 2, 3, 4, 5, 6, 7))
     ap.add_argument("--warm", type=int, default=6,
                     help="frames flown before the trace arms, so the first "
                          "frame after a poke - which redraws the whole panel "
@@ -293,10 +305,10 @@ def main(argv):
     # tier 5 is TIER1 plus the band's internals, and tier 6 TIER1 plus the
     # FLIGHT MODEL's - never the object tiers with either, a breakpoint
     # inside a 112-iteration loop being expensive enough alone
-    want = ({5: [1, 5], 6: [1, 6]}.get(a.tier)
+    want = ({5: [1, 5], 6: [1, 6], 7: [1, 2, 7]}.get(a.tier)
             or list(range(1, a.tier + 1)))
     for tier, rows in ((1, TIER1), (2, TIER2), (3, TIER3), (4, TIER4),
-                       (5, TIER5), (6, TIER6)):
+                       (5, TIER5), (6, TIER6), (7, TIER7)):
         if tier not in want:
             continue
         for scope, pat, name in rows:

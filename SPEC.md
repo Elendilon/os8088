@@ -104195,6 +104195,83 @@ among buildings, where a box shows two of its five faces: 350 faces walked
 become 140, the winding is left with **nothing to cull at all**, and the frame
 comes down 5.64 ms.
 
+#### 88.5.13 What the vertex pipeline costs, and where it is NOT
+
+**It is the largest block in LEVEL flight** - `cs_scale` + `cs_stackverts` +
+`cs_flatverts` + `cs_projall` is **39.5 ms of a 140 ms frame at wings level,
+28%**, and 41.7 ms (19.5%) at 12 degrees of bank. Alone among the blocks
+measured on this program it does NOT move with the attitude: every other one
+- the fill's rows, the line's runs, the horizon band, the blit - is a
+row-count that grows with tilt and sits at its floor when level. So a saving
+here is a saving in the cruise, the climb and on the runway.
+
+`tests/skiesprof.py --tier 7` is the split (TIER1 + TIER2 + the pipeline's
+own three call sites), `slightbank` at roll 0, one fresh guest, `--warm 18`:
+
+| | ms | calls | each |
+|---|---|---|---|
+| `cs_scale` | 7.18 | 10.8 objects | |
+| — of which `cs_rot` | 4.69 | 10.8 | 2,072 cycles |
+| `cs_stackverts` | 7.28 | 4.0 objects | |
+| — of which `cs_colscale` x3 | 3.86 | 27 | 682 cycles |
+| `cs_flatverts` | 6.37 | 5.0 objects | 6,065 cycles |
+| `cs_projall` | 18.63 | 9.0 objects | |
+| — of which the projection proc | 9.82 | **53 vertices** | **884 cycles** |
+| — and its own per-vertex loop | 8.81 | 53 | **794 cycles** |
+
+**A vertex costs 1,678 cycles through `cs_projall`**, of which the projection
+proc is 884 and the loop around it 794 - so §88.5.6's note pricing a vertex
+at "1,200" is an underestimate on this scene.
+
+##### 88.5.13.1 The multiplies are a THIRD of it, not the whole of it
+
+The instinct is that a 4.77 MHz 8088 doing 3D is `imul`-bound - the
+instruction is 128-154 clocks and the most expensive one in the pipeline -
+and it is worth counting before acting on it. Counted from the measured
+per-call costs above:
+
+| | multiplies a frame |
+|---|---|
+| `cs_flatverts` (6 a vertex, inlined `MUL14`) | ~186 |
+| `cs_projall`'s proc (2 a vertex) | 106 |
+| `cs_rot` (9 an object) | 97 |
+| `cs_colscale` (3 a column) | 81 |
+| **total** | **~470** |
+
+At ~140 cycles that is **13.8 ms - 35% of the block and 9.8% of a level
+frame.** The other 65% is the per-vertex and per-object loops around them:
+`cs_projall`'s own 794 cycles a vertex, the projection proc's 604 that are
+not its two multiplies, `cs_rot`'s 812 and `cs_colscale`'s 262.
+
+**So "make the multiplies cheaper" reaches a third of it at most**, and the
+pipeline has already had eight passes on the OTHER two thirds - §88.5.6's
+16.8 scale, §88.5.6.2's removal of `cs_colscale` from the flat path,
+§88.5.6.3's distributed shift, §88.5.6.4's registers, §88.5.7's object-level
+side test (180 cycles a vertex), §88.5.7.1, §88.5.11.1 and §88.5.12's cull
+before the gather. The structure has been cut repeatedly; the multiply has
+never been touched.
+
+##### 88.5.13.2 …and the one property nothing has used: the matrix is a frame CONSTANT
+
+Every one of those ~470 multiplies has a matrix element as one operand, and
+`cs_m` is built ONCE a frame (§88.5). Nothing exploits that.
+
+The obvious way to - a per-frame partial-product table for each element, so
+`m x v` becomes two byte-indexed lookups, a shift and an add at ~60 cycles
+against ~140 - is **costed and NOT taken as it stands**: nine elements of 256
+words is **4,608 bytes** of table, and building them is ~2,300 entries of
+add at ~20 cycles = **~9.6 ms a frame** against a saving of ~470 x 80 =
+**~8.3 ms**. It loses outright when the matrix moves every frame, which is
+what a turn is.
+
+What makes it interesting rather than dead is that **the matrix does not move
+in the cruise**: it is a function of (roll, pitch, heading) alone, so a table
+built when those change and reused while they do not pays from the second
+frame onward. That is a rebuild predicate and a staleness flag, not a
+rewrite - but it is a 4.6 KB claim on a machine whose floor is 128 KB, and
+the arithmetic above is an ESTIMATE against a measured comparable rather
+than a measurement. It wants costing properly before a byte is written.
+
 ##### 88.5.12.1 What verifying it cost, which is worth more than the 143 bytes
 
 Three things, in the order they were found:
