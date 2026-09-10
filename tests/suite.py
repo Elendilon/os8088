@@ -3968,6 +3968,13 @@ SOAK = [
         "decoder, pt_line_put's packing into four planes and gfx_blitp are"
         "all inside one answer",
         needs=("marty",), serial=True),
+    Row("cplistrow", "soak", py("tests/cplistrow.py"), 30.0,
+        "SPEC.md 31.1.4: does a Control Panel selection redraw TWO ROWS, or"
+        "blank the left pane? cp_list erases the pane before re-lettering"
+        "every row and used to BE the redraw path, so moving one highlight"
+        "blanked them all. It counts font_run_x in the pane rather than"
+        "reading pixels, because the final frame is identical either way",
+        needs=("marty",), serial=True),
     Row("radio", "soak", py("tests/radio.py"), 45.0,
         "SPEC.md 13.17: does os88ui_rad draw a RADIO - corners clear, a"
         "centred dot - and does its press answer three things? On HERCULES,"

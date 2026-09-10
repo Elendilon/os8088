@@ -481,7 +481,7 @@ cp_s_sched: db 'Scheduler', 0   ; list name AND the page heading, so RESIDENT
 cp_s_vid:   db 'Display', 0     ; list name AND the page heading, so RESIDENT
 
 %ifdef KERN_BIG
-; The DESKTOP line (SPEC.md 31.10.2): one row of three radios under the button.
+; The DESKTOP line (SPEC.md 31.1.4): one row of three radios under the button.
 ; ONE choice and not two controls - a single display has no layout, so a
 ; checkbox plus a direction would carry a fourth state that means nothing.
 ;
@@ -505,7 +505,7 @@ cp_s_vid:   db 'Display', 0     ; list name AND the page heading, so RESIDENT
 
 ; Display page geometry, PANE-relative. The Sound page's tighter 16px row
 ; pitch rather than the two-row pages' 20, because three adapter rows, a
-; button, SPEC.md 31.10.2's desktop row and its label and a caption all have
+; button, SPEC.md 31.1.4's desktop row and its label and a caption all have
 ; to fit CP_CH - and the %if guards below are what say so rather than a
 ; comment claiming it. Of 132 rows: adapters at 20/36/52, button 72..89,
 ; desktop label 94..101, desktop row 106..117, caption 122..129.
@@ -522,7 +522,7 @@ CPV_MLY   equ 94                ; SPEC.md 31.10.3's label for the desktop row.
                                 ; CPV_MB1 starts below it, so a press here
                                 ; falls through rather than picking a radio
                                 ; out of an x that means nothing
-CPV_MY    equ 106               ; SPEC.md 31.10.2's desktop row: glyph top
+CPV_MY    equ 106               ; SPEC.md 31.1.4's desktop row: glyph top
 CPV_MSTEP equ 74                ; ...and its radio pitch, so the hit test is
                                 ; one divide like the adapter rows'. Glyphs at
                                 ; 4/78/152, labels at 22/96/170, and the last
@@ -531,7 +531,7 @@ CPV_CAPY  equ 122               ; caption row, LAST as it is on every page -
                                 ; which is why the label went above it rather
                                 ; than below (the caption was 96, then 112)
 %if CPV_CAPY + 8 > CP_CH
-%error "ctrl: the Display page's caption runs past the pane (SPEC.md 31.10.2)"
+%error "ctrl: the Display page's caption runs past the pane (SPEC.md 31.1.4)"
 %endif
 %if CPV_MLY + 8 > CPV_MY
 %error "ctrl: the Display page's desktop label runs into its radios (31.10.3)"
@@ -1086,11 +1086,42 @@ cp_onclick_x:
 
     call cp_pick                ; --- left pane: which row? ---
     jc .done                    ; below the last row: nothing
+    mov ah, al                  ; AH = the ORDINAL, banked: cp_v2r clobbers AL
     call cp_v2r                 ; ...and which RECORD that row names
     cmp al, [cp_sel]
     je .done                    ; already showing: change nothing
+
+    ; --- THE BAR MOVES AND THE PANE DOES NOT (SPEC.md 31.1.4) --------------
+    ; cp_list used to be the redraw path here, and it erases the whole left
+    ; pane: moving one highlight blanked every row on it and re-lettered them
+    ; all, on every click, which is SPEC.md 13.14.6 rule 1 exactly. Two rows
+    ; change, so two rows are drawn - and cp_listrow draws an unselected bar
+    ; in the GROUND, so the row that loses the highlight clears it by drawing
+    ; its replacement rather than by being blanked.
+    ;
+    ; THE OLD ORDINAL IS TAKEN BEFORE [cp_sel] MOVES and the drawing AFTER,
+    ; because cp_listrow reads [cp_sel] itself to decide which way round a row
+    ; goes: resolve while it still says where the bar is, draw once it says
+    ; where the bar will be.
+    push ax                     ; AL = the new record, AH = the new ordinal
+    mov al, [cp_sel]
+    call cp_r2v                 ; AL = the ordinal the bar is LEAVING
+    mov bl, al
+    mov bh, 1
+    jnc .haveold
+    mov bh, 0                   ; hidden and so on no row: cannot happen while
+.haveold:                       ; [cp_sel] is what is being SHOWN, and costs
+    pop ax                      ; two bytes to not depend on that
     mov [cp_sel], al
-    call cp_list                ; move the bar...
+    push ax
+    or bh, bh
+    jz .newbar
+    mov al, bl
+    call cp_listrow             ; the row that loses the bar
+.newbar:
+    pop ax
+    mov al, ah
+    call cp_listrow             ; ...and the one that gains it
     call cp_page                ; ...and swap the page under it
     jmp .done
 
@@ -1580,6 +1611,55 @@ cp_drv_item:
     ret
 
 ; -----------------------------------------------------------------------------
+; cp_r2v - a RECORD -> the visible list ORDINAL that names it, cp_v2r's inverse
+;
+; in:  AL = the record index
+; out: AL = the ordinal, 0 = the top row on screen; CF = 1 if the record is
+;      HIDDEN and has no ordinal at all, and AL is then untouched
+; clobbers: AL (the output), flags
+;
+; DERIVED rather than remembered, and that is the whole reason it exists.
+; SPEC.md 31.1.4 wants the ordinal the selection is LEAVING, and the obvious
+; way to have it is a byte written beside [cp_sel] - which goes stale the
+; moment a driver comes up or goes down, because that is exactly when the
+; mapping cp_v2r implements changes. A record is the durable name (SPEC.md
+; 31.10.1's whole point); an ordinal is a view of it, so it is computed from
+; the view.
+;
+; It walks cp_v2r rather than re-implementing the hide test: CP_ITEMS is under
+; eight, this is arithmetic with no drawing in it, and one walker that can
+; disagree with another is what SPEC.md 31.10.1 is about.
+; -----------------------------------------------------------------------------
+cp_r2v:
+    push bx
+    push cx
+    mov bh, al                  ; BH = the record wanted
+    call cp_nitems
+    mov cl, al                  ; CL = how many ordinals there are
+    xor ch, ch                  ; CH = the one being tried
+.scan:
+    cmp ch, cl
+    jae .miss
+    mov al, ch
+    call cp_v2r
+    cmp al, bh
+    je .hit
+    inc ch
+    jmp short .scan
+.hit:
+    mov al, ch
+    clc
+    pop cx
+    pop bx
+    ret
+.miss:
+    mov al, bh                  ; hidden: no ordinal names it
+    stc
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
 ; cp_item_name - one row's list name
 ; in:  AL = row index
 ; out: SI -> a NUL string in the KERNEL segment, always
@@ -1902,16 +1982,102 @@ cp_pick:
     ret
 
 ; -----------------------------------------------------------------------------
+; cp_listrow - ONE row of the left pane: its bar and its name, ground and all
+;
+; in:  AL = the visible ORDINAL, DI = content left, BP = content top;
+;      caller holds the gfx lock
+; out: nothing (all registers preserved; leaves [gfx_color] = CBLACK or CWHITE)
+;
+; NOTHING IS BLANKED HERE, which is the whole point (SPEC.md 13.14.6 rule 1).
+; The bar rect is drawn EVERY time - in the ink when this row is the selection
+; and in the GROUND when it is not - so a row that has just lost the bar
+; erases it by drawing its replacement, in one write, rather than by having
+; the pane wiped out from under it. The name is an OPAQUE font_run, so it
+; carries its own paper in the pass that carries the glyph and needs no ground
+; laid for it either.
+;
+; That is what lets a selection MOVE cost two rows instead of a pane: the
+; ordinal it left and the ordinal it arrived at, and nothing else on the
+; screen changed.
+; -----------------------------------------------------------------------------
+cp_listrow:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+
+    mov bl, al                  ; BL = the ordinal, wanted after the multiply
+    mov cl, CP_IROWH
+    mul cl                      ; AX = ordinal * pitch (8086: mul r/m8)
+    add ax, bp
+    add ax, CP_I0Y
+    mov si, ax                  ; SI = this row's top, and it has to be SI:
+                                ; cw_gfx_fill's four arguments are AX, BX, CX
+                                ; and DX, DI is the content left and BP the
+                                ; content top, so SI is the only register a
+                                ; position can sit in across the call
+
+    mov al, bl
+    call cp_v2r                 ; AL = the RECORD this ordinal names
+    mov bh, al
+    cmp al, [cp_sel]
+    je .sel
+    mov byte [gfx_color], CWHITE    ; --- not selected: the bar rect in the
+    mov ah, CWHITE                  ; GROUND, which is what takes a bar off
+    mov al, CBLACK                  ; a row that used to have one - one write,
+    jmp short .bar                  ; where the pane erase was thousands
+.sel:
+    mov byte [gfx_color], CBLACK    ; --- selected: black bar, white name
+    mov ah, CBLACK
+    mov al, CWHITE
+.bar:
+    push ax                     ; the text pair, and the record in BH: both
+    push bx                     ; live in registers cw_gfx_fill takes as
+                                ; arguments. On the STACK rather than in a
+                                ; byte of .text, which is what [cp_ipap] was
+    mov ax, di
+    add ax, CP_IBX1
+    mov cx, di
+    add cx, CP_IBX2
+    mov bx, si
+    mov dx, si
+    add dx, CP_IBH - 1
+    call KERNEL_SEG:cw_gfx_fill
+    pop bx
+    pop ax
+
+    mov cx, di                  ; --- the name, OPAQUE, on the paper the bar
+    add cx, CP_IX               ; just laid (SPEC.md 6.1): font_run carries
+    mov dx, si                  ; both in one pass, so there is no ground for
+    add dx, CP_ITDY             ; anything else to lay and no interval in
+    push ax                     ; which the row is blank
+    mov al, bh
+    call cp_item_name           ; SI -> it, static or staged (SPEC.md 31.9).
+    pop ax                      ; It clobbers SI and nothing else, which is
+    call KERNEL_SEG:cw_font_run ; why the row top could live there until now
+
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; cp_list - draw the left pane: every item name, the selected one barred
 ;
 ; in:  DI = content left, BP = content top; caller holds the gfx lock
 ; out: nothing
 ; clobbers: nothing (flags only; leaves [gfx_color] = CBLACK or CWHITE)
-; Erases the whole pane first, so this doubles as the redraw path when the
-; selection moves. BP is repurposed as the selected record's pointer once
-; the first row's y has been computed from it - the loop then only needs a
-; running y (DX) and a running record ptr (BX), which is what lets the two
-; drawing calls (which preserve everything) sit inside it unguarded.
+;
+; THIS IS THE WHOLE-PANE PAINT and it is no longer the redraw path for a
+; selection: the pane erase below is the left pane's own GROUND - cp_paint
+; does not fill the content, it calls the three routines that each own a pane -
+; and it is legitimate exactly once, when the whole thing is being drawn.
+; A selection that MOVES calls cp_listrow twice instead (SPEC.md 31.1.4), and
+; a list whose membership changed - a driver that came up owns a page - calls
+; this, because then every row really has moved.
 ; -----------------------------------------------------------------------------
 cp_list:
     push ax
@@ -1921,7 +2087,7 @@ cp_list:
     push si
     push bp
 
-    mov byte [gfx_color], CWHITE ; erase the pane
+    mov byte [gfx_color], CWHITE ; the pane's ground, laid once
     mov ax, di
     mov bx, bp
     mov cx, di
@@ -1930,61 +2096,17 @@ cp_list:
     add dx, CP_CH - 1
     call KERNEL_SEG:cw_gfx_fill
 
-    mov dx, bp
-    add dx, CP_I0Y              ; DX = row 0 top, screen y
     call cp_nitems
-    mov bp, ax
-    and bp, 0x00FF              ; BP = how many rows there are
-    xor bx, bx                  ; BX = the ORDINAL being drawn
+    mov cx, ax
+    and cx, 0x00FF              ; CX = how many rows there are
+    jcxz .out
+    xor bx, bx                  ; BL = the ORDINAL being drawn
 .row:
     mov al, bl
-    call cp_v2r                 ; ...and BH = the record it names, resolved
-    mov bh, al                  ; ONCE for both the bar and the name
-    cmp al, [cp_sel]
-    jne .plain
-
-    push ax                     ; --- selected: white text on a black bar ---
-    push bx
-    push cx
-    push dx
-    mov byte [gfx_color], CBLACK
-    mov ax, di
-    add ax, CP_IBX1
-    mov cx, di
-    add cx, CP_IBX2
-    mov bx, dx                  ; y1 = row top
-    add dx, CP_IBH - 1          ; y2
-    call KERNEL_SEG:cw_gfx_fill
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    mov byte [gfx_color], CWHITE
-    mov byte [cp_ipap], CBLACK  ; ...on the bar this row just laid
-    jmp .text
-.plain:
-    mov byte [gfx_color], CBLACK
-    mov byte [cp_ipap], CWHITE  ; ...on the pane
-.text:
-    mov al, bh
-    call cp_item_name           ; SI -> it, static or staged (SPEC.md 31.9)
-    mov cx, di
-    add cx, CP_IX
-    push dx
-    add dx, CP_ITDY
-    push ax                     ; OPAQUE, and the one label on this window
-    mov al, [gfx_color]         ; whose paper is not the pane (SPEC.md 31.11)
-    mov ah, [cp_ipap]
-    call KERNEL_SEG:cw_font_run
-    pop ax
-    pop dx
-
-    add dx, CP_IROWH
-    mov bh, 0                   ; BX is the ordinal again: the resolved record
-    inc bx                      ; lived in BH for the length of one row
-    cmp bx, bp
-    jb .row
-
+    call cp_listrow
+    inc bl
+    loop .row
+.out:
     pop bp
     pop si
     pop dx
@@ -2893,7 +3015,7 @@ cp_vid_msel:
     ret
 
 ; -----------------------------------------------------------------------------
-; cp_vid_mode - the desktop row: Single / Right / Below (SPEC.md 31.10.2)
+; cp_vid_mode - the desktop row: Single / Right / Below (SPEC.md 31.1.4)
 ; in:  DI = pane left, BP = pane top; gfx lock held
 ; out: nothing (all registers preserved; leaves [gfx_color] = CBLACK)
 ;
@@ -3127,7 +3249,7 @@ cp_vid_click:
 .donej:                         ; ...and SEVEN refusals share it
     jmp .done                   ; NEAR: 13.8.3's probe calls grew the body past
                                 ; a short jump's reach
-.mode:                          ; --- the desktop row (SPEC.md 31.10.2) ---
+.mode:                          ; --- the desktop row (SPEC.md 31.1.4) ---
 %ifdef KERN_BIG
     cmp dx, CPV_MB1
     jl .donej

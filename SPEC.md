@@ -46514,6 +46514,53 @@ only by `cp_flush_x`, at the close, so the caption cannot change while the
 page is on screen and re-lettering it per click erases and redraws text that
 did not move (§31.6.1). Its two strings are §51.5.1's.
 
+#### 31.1.4 …and a SELECTION redraws two rows, not the pane
+
+§31.1.3 is this for the page's controls; the left pane had the same defect and
+it was worse, because the pane was **erased first**.
+
+`cp_list` fills the whole left pane white and re-letters every row, and its own
+comment named that as the feature: *"Erases the whole pane first, so this
+doubles as the redraw path when the selection moves."* So clicking a category
+blanked every name on the pane and drew them all again to move one highlight —
+§13.14.6 rule 1, in the one window whose whole job is being clicked.
+
+**`cp_listrow` draws one row and nothing is blanked in it.** The selection bar
+rect is drawn **every** time — in the ink when that row is the selection and in
+the **ground** when it is not — so a row that has just lost the bar erases it by
+drawing its replacement, in one write. The name is an opaque `font_run` (§6.1),
+which carries its own paper in the pass that carries the glyph, so no ground has
+to be laid for it either.
+
+A selection change is therefore **two rows**: the ordinal the bar left and the
+one it arrived at. On a six-item list that is 4 drawing calls where it was 1
+pane erase plus 6 names plus a bar — and, far more to the point, **no interval
+in which the pane is blank.**
+
+**The order is resolve-then-draw, and it has to be.** `cp_listrow` reads
+`[cp_sel]` itself to decide which way round a row goes, so the ordinal being
+*left* is resolved while `[cp_sel]` still says where the bar is, and both rows
+are drawn once it says where the bar will be.
+
+##### `cp_r2v` is DERIVED, not remembered
+
+The old ordinal is what §31.10.1's mapping makes awkward: a record is the
+durable name and an ordinal is a view of it, and the view changes exactly when a
+driver comes up or goes down. So the obvious implementation — a byte written
+beside `[cp_sel]` — is stale precisely when the list changed, which is when it
+would be believed. `cp_r2v` walks `cp_v2r` instead: `CP_ITEMS` is under eight,
+it is arithmetic with no drawing in it, and one walker cannot disagree with
+another.
+
+**`cp_list` stays, and is still the whole-pane paint.** Its erase is the left
+pane's own **ground** — `cp_paint` does not fill the content, it calls the three
+routines that each own a pane — and it remains the right call in the two places
+where every row really has moved: a full window paint, and a driver load or
+unload that changes the list's membership (§31.9).
+
+**It cost 76 bytes of `CTRL.DRV`** — 6,102 → 6,178, an on-demand module and not
+one resident byte (§2.8).
+
 ### 31.9 Pages a driver owns
 
 The item list is the five static rows **plus one row per loaded driver that
