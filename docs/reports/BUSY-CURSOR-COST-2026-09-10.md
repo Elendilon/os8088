@@ -28,10 +28,14 @@ have been quoted as part of the feature's cost.
 
 | | `.text` | `.bss` | `.cold` | `.lowbss` |
 |---|---:|---:|---:|---:|
-| `kern_big` before | 49,218 | 6,016 | 39,220 | 9,182 |
-| `kern_big` after | **49,394** | 6,016 | 39,220 | 9,182 |
-| `kern_small` before | 37,261 | 4,242 | 26,162 | 5,460 |
-| `kern_small` after | **37,437** | 4,242 | 26,162 | 5,460 |
+| `kern_big` before | 49,315 | 6,016 | 39,237 | 9,182 |
+| `kern_big` after | **49,491** | 6,016 | 39,237 | 9,182 |
+| `kern_small` before | 37,261 | 4,242 | 26,169 | 5,460 |
+| `kern_small` after | **37,437** | 4,242 | 26,169 | 5,460 |
+
+Taken on `elendilon-next` at `099d308`, in a worktree of the pristine commit —
+the figures are the same 176 on the branch this was first built against, whose
+base was `801030d` and read 49,218 / 37,261.
 
 **+176 `.text` on each, and nothing anywhere else.**
 
@@ -62,11 +66,12 @@ Measured variants, each built and read the same way:
 So the package-facing verb — the slot, its door, `cur_busy_on`'s extra arms and
 the `gfx_unlock` compare it needs — is **109 of the 176**, and it is separable.
 
-**The rung.** On `kern_big` the 176 cross an image rung: `KERN_SIZE` 110,080 →
-110,592, spare 38 steps → 37. The tree was standing at **62 bytes** of headroom
-(`accrued image 450/512`), so anything over 62 would have. On `kern_small`
-nothing crosses — 481 bytes were left there — and `KERN_SIZE` stays 75,776.
-CLAUDE.md's banner is the rule and the honest figure is 176.
+**The rung, and it is somebody else's number.** On `elendilon-next` nothing
+crosses: the base has **477 bytes** of image-rung headroom (`accrued image
+35/512`), so `KERN_SIZE` stays 110,592 on `kern_big` and 75,776 on
+`kern_small`. The identical 176 bytes DID cross one on `801030d`, which had
+**62** left. Same change, same bytes, two different rung answers — which is
+CLAUDE.md's banner working: quote the byte, never the step.
 
 ## 3. The picture costs the renderers nothing on 1bpp and 1.04x on VGA
 
@@ -129,7 +134,20 @@ no lock. The counter was removed before the tree was committed.
 Everything else the feature does is **per freeze**: two `cur_shape_set` calls
 (~30 instructions each), and on the lit arm the erase/draw pair above.
 
-## 6. What the gate does not cover
+## 6. What the scoped soak found
+
+Two defects, both in this work, both invisible to the fast tier:
+
+- **`curdisk`** — the `fpg_arm` call sat OUTSIDE `%ifndef NOCURDISK`, so the
+  knob build that exists to measure the pre-§7.4 freeze had a pointer put back
+  on the glass during it: *"NOCURDISK=1 moved the arrow 2 times during the
+  freeze, and it cannot"*. The call is inside the gate now (§7.5.3.1).
+- **`curbusy` itself** — the row reads `build/office360.img` and did not
+  declare it, so under the soak's frozen tree it died in `shutil.copyfile`
+  before booting. `wants=("build/office360.img",)` is the fix, and
+  docs/WRITING-TESTS.md names that exact failure.
+
+## 7. What the gate does not cover
 
 `tests/curbusy.py` is registered in the soak tier (30 s) and both halves go red
 when broken on purpose — `fpg_arm`'s `call cur_busy_on` out, or Paint's `call
@@ -140,7 +158,7 @@ because two arms of three are lock-free — there is no promise to spend there �
 and their samples dominate. That one is closed by construction, in the three
 bytes that spend the promise above the arm test.
 
-## 7. On the glass
+## 8. On the glass
 
 Driven with `tools/os88ui.py` on `os8088_5150_cga_gla`:
 

@@ -9246,6 +9246,21 @@ this widget is about to draw — and `[mouse_y]`, not `[cur_drawn_y]`, because
 `cursor_show` draws at the live one), and **a refcount that is not ours** to
 undo.
 
+##### 7.5.3.1 It lives INSIDE `%ifndef NOCURDISK`, and `tests/curdisk.py` says why
+
+`NOCURDISK=1` is the A/B for the whole of §7.4 — the freeze the pointer took
+before it — and its contract is that **nothing puts a pointer on the glass
+during a disk transfer**. `cur_busy_on` shows one, so the call reached from
+`fpg_arm` is inside that gate with the rest of §7.4.3.1's block. It was outside
+it for one commit and `tests/curdisk.py` caught it in the only way that
+matters: *"NOCURDISK=1 moved the arrow 2 times during the freeze, and it
+cannot"* — a knob build measuring a kernel it no longer describes, which is the
+one failure a knob exists to make impossible.
+
+`OSAPI_CUR_BUSY` is **not** gated with it, and the slot could not be: the API
+table is ABI and every cell is in every build (§20.8 rule 4). The knob is about
+the disk freeze, not about a package that says it is busy.
+
 #### 7.5.4 …and the window half is one slot with no argument
 
 `OSAPI_CUR_BUSY` (slot 0x0540) takes nothing and answers CF. It is for the case
@@ -9280,7 +9295,7 @@ would have carried it anyway.
 #### 7.5.5 What it costs
 
 **176 bytes of `.text`, on both kernels, and not one byte of `.bss`, `.cold` or
-`.lowbss`** — measured with `tools/kernsize.py`, `kern_big` 49,218 → 49,394 and
+`.lowbss`** — measured with `tools/kernsize.py`, `kern_big` 49,315 → 49,491 and
 `kern_small` 37,261 → 37,437.
 
 | piece | bytes |
@@ -9298,11 +9313,13 @@ needs — leaves the file-operation half at **67 bytes** with the restore moved
 under `fpg_finish`'s own gate, where it costs nothing at all. That is the
 measured alternative, not an estimate.
 
-**On `kern_big` those 176 bytes CROSS AN IMAGE RUNG** and `KERN_SIZE` goes
-110,080 → 110,592, because the tree was standing at **62 bytes** of headroom in
-the current rung. §1's banner is the rule: the byte that crossed it is charged
-to whoever was standing there, not to whoever spent it, and the honest figure
-is 176. On `kern_small` it crosses nothing.
+**No rung is crossed on either kernel**, and that is luck rather than design:
+the tree it landed on had **477 bytes** of image-rung headroom (`accrued image
+35/512`), so `KERN_SIZE` stays at 110,592 on `kern_big` and 75,776 on
+`kern_small`. It is worth writing down that the *same 176 bytes* did cross one
+on the branch this was first built against, which had 62 bytes left — §1's
+banner exactly: the rung is a property of who was standing there, the byte is
+the property of the change, and **176 is the figure to quote either way**.
 
 One hazard is closed by construction rather than by the gate, and it is worth
 naming because it is invisible: on the **lit** arm `cur_shape_set`'s own

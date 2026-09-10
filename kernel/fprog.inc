@@ -532,7 +532,6 @@ fpg_arm:
     mov byte [cur_lazy], 1
     call cursor_show
 .curdone:
-%endif
     call cur_busy_on            ; **AND THE POINTER SAYS SO** (SPEC.md 7.5.3).
                                 ; BELOW the block above rather than inside it,
                                 ; because that block covers ONE of the three
@@ -544,7 +543,19 @@ fpg_arm:
                                 ; simply lit and tracking. The take inside that
                                 ; block stays, so when it DOES fire the picture
                                 ; changes inside a show that was going to
-                                ; happen and this call is four instructions
+                                ; happen and this call is four instructions.
+                                ;
+                                ; **INSIDE THE %ifndef, and tests/curdisk.py is
+                                ; why** (SPEC.md 7.5.3.1): NOCURDISK=1 is the
+                                ; A/B for the whole of 7.4 and its contract is
+                                ; that NOTHING puts a pointer on the glass
+                                ; during a disk freeze. This call shows one, so
+                                ; outside the gate it moved the arrow twice in
+                                ; the arm that must not move it at all - a
+                                ; knob build measuring the kernel it no longer
+                                ; describes, which is the one failure a knob
+                                ; exists to make impossible
+%endif
     ; ...AND THE BAR BELOW IS COMPOSED WITH THE MUTEX POSSIBLY UNHELD, which is
     ; not excluded by the [gfx_lock_own] test above: that test refuses a lock
     ; held by ANOTHER task at the instant of arming and says nothing about one
