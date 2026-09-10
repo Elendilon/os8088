@@ -5261,6 +5261,26 @@ $(BUILD)/radtest360.img: $(BUILD)/radtest.o88 tools/os88disk.py
 .PHONY: radtest
 radtest: $(BUILD)/radtest360.img
 
+# tests/glyphbn is what ONE CONTROL GLYPH COSTS, the bitmap way and the fill
+# way (docs/plans/CTRL-GLYPH-PLAN.md 4). It carries BOTH implementations - the
+# pre-13.15.1 routine lifted verbatim beside today's - so the A/B is one
+# binary on one kernel, and the gfx_line family this arc removed from that
+# kernel cannot get into the answer. Its own target for radtest's reason:
+# nothing here ships, and `all` must not pay for it.
+$(BUILD)/glyphbn.bin: tests/glyphbn/glyphbn.asm apps/os88api.inc \
+                         apps/os88ui.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/glyphbn/glyphbn.asm
+	@echo "glyphbn: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/glyphbn.o88: $(BUILD)/glyphbn.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/glyphbn.bin -o $@
+
+$(BUILD)/glyphbn360.img: $(BUILD)/glyphbn.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/glyphbn.o88
+
+.PHONY: glyphbn
+glyphbn: $(BUILD)/glyphbn360.img
+
 # tests/filler is an instrument with no assertions of its own: it takes the
 # arena down to a few tens of KB and, on a keypress, asks for one KB more than
 # the largest run. tests/heapfrag cannot do that job - its comb is sized from

@@ -3984,6 +3984,17 @@ SOAK = [
         "what keeps the control assembling",
         needs=("marty", "nasm"), serial=True,
         wants=("build/radtest360.img",)),
+    Row("glyphcost", "soak", py("tests/glyphcost.py"), 130.0,
+        "docs/plans/CTRL-GLYPH-PLAN.md 4: what did SPEC.md 13.15.1 cost a"
+        "control glyph, per call, in guest cycles? tests/glyphbn carries the"
+        "PRE-13.15.1 routine lifted verbatim beside today's, so the A/B is"
+        "one binary on one kernel and the gfx_line family this arc removed"
+        "from that kernel cannot get into the answer. It is a REGRESSION"
+        "gate and not a verdict on the design - the bar is the owner's,"
+        "under 2ms a call for a control drawn once. Needs `make glyphbn`,"
+        "which is also the only thing keeping the old routine assembling",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/glyphbn360.img",)),
     Row("blitp", "soak", py("tests/blitp.py"), 120.0,
         "SPEC.md 5.4.3: does gfx_blitp put the bytes where it was given them?"
         "Reads the four PLANES rather than the rendered frame - which below"
