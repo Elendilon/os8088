@@ -638,12 +638,19 @@ dd_onwake:
     mov byte [dd_needcut], 0
     cmp byte [dd_wantfit], 0        ; ...unless a FIT is about to resize us
     jne .wf                         ; anyway: that recuts and repaints, and
-                                    ; doing it here first is one of the three
-                                    ; refreshes the field counted (93.3.4.3)
+                                    ; doing it here first is one of the four
+                                    ; whole frames the field counted (93.3.4.4)
     call OSAPI_GFX_LOCK             ; a wake is the one callback the kernel
     mov ax, KERNEL_SEG              ; runs WITHOUT the lock (SPEC.md 12.8), and
     mov es, ax                      ; dd_repaint_now wants it held
+    mov byte [dd_didcut], 0         ; ...AND ONLY IF THERE IS STILL A CUT OWED:
+    call dd_geom_win                ; the worker asks a tick before the UI task
+    xor bl, bl                      ; can answer, and by the time this runs
+    call dd_relayout_ck             ; dd_onresize has usually done it already
+    cmp byte [dd_didcut], 0
+    je .unlk
     call dd_repaint_now
+.unlk:
     call OSAPI_GFX_UNLOCK
     mov ax, KERNEL_SEG
     mov es, ax
@@ -1169,6 +1176,8 @@ dd_spct:     dw DD_PCTPAC, DD_PCTGH, DD_PCTFRI, DD_PCTEYE, DD_PCTTUN
     DWORDV dd_lth                   ; the wall line's thickness
     DWORDV dd_bgap                  ; the border's outer line, that far beyond
     DWORDV dd_rnd                   ; the corner round, in pixels (93.2.3)
+    DWORDV dd_tol                   ; how far from square a tile may be, x10
+    DBYTEV dd_didcut                ; dd_relayout_ck actually did something
     DBYTEV dd_rn1                   ; dd_rnd_one's two adjacent neighbours
     DBYTEV dd_rn2
     DWORDV dd_bXL                   ; dd_bord_draw's path, banked once (93.2.4)

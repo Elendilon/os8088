@@ -114219,6 +114219,52 @@ its `.redo` arm: re-cut the tile, re-claim the picture, re-build all
 thirty-five sprites, re-snap every actor into the new units. Choosing the one
 already in force does nothing at all, so the board does not flash.
 
+##### 93.3.4.4 A wake's recut is CONDITIONAL, because the resize usually beat it
+
+The worker asks where the window is on every frame (§93.3.4.2) and may not
+recut (§93.3.4.3), so it sets `[dd_needcut]` and wakes the window. By the time
+that wake is serviced the resize has usually already fired
+`OSAPI_WM_ONRESIZE`, which recut on the UI task — and `dd_repaint_now` from the
+wake then drew a whole frame for nothing. A whole frame here is the visible
+cost: the field timed the board at **about a third of a second**, so *"it's not
+a flash, it's a visible redraw, which is worse."*
+
+`[dd_didcut]` is the answer, and it costs one byte: `dd_relayout_ck` sets it on
+either arm it actually takes, the wake clears it, calls `dd_geom_win` and
+`dd_relayout_ck`, and repaints **only if something moved**. A Thin ↔ Full
+switch counted **four** whole frames before it.
+
+What is left is the WM's own: two `W_PAINT`s per resize, which the package does
+not control, and the ~200 ms `dd_board_render` that runs *inside* the first of
+them with the window already cleared. That gap is the redraw the eye follows,
+and closing it means rendering the picture before the box is known rather than
+after — which is a design question and not a flag.
+
+##### 93.3.3.3 …and the tolerance is the MODE's own, or Full is a no-op on a VGA
+
+The tile is refused when it is more than **1.2×** wider than tall on the glass.
+That number is **Thin's**, and it belongs to Thin: Thin exists to hold the
+arcade's proportion. Applied to **Full** it deletes the mode on one adapter.
+
+A VGA's two aspect tables (§93.3.3.1) both read **100** — square pixels on a
+4:3 tube at 640 × 480 — so Thin and Full ask the same question there, and the
+only thing left to separate them is the tile. Full's content box is
+**544 × 417**, which gives `th = 13`; a 16-wide tile is **1.23** of that, one
+part in fifty over the line; the width falls back to `DD_TWMIN` and the height
+cap then brings `th` back to 9. **Full came out 8 × 9 — Thin's own tile — with
+a bigger window round it and more black in it**, which is exactly what the
+field reported: *"VGA thin→full does not resize the board, just the window"*.
+
+So `[dd_tol]` is 12 for Thin and **13 for Full**, and 13 is not a new number:
+it is what this test was before §93.3.3 tightened it, and Full is the mode that
+means *the look it had before*. Both tests read it, so the height cap follows
+the same choice.
+
+Nothing else moves. A Hercules Full is `th = 9` at aspect 155 and clears either
+tolerance; a CGA is `th = 4` at 240 and clears neither, which is §93.3.3.1's
+whole point about that adapter. The one arm that changes is the one that was
+broken: **VGA Full is 16 × 13, a 448 × 403 board in a 544 × 417 box.**
+
 ##### 93.3.3.2 Thin fits the WINDOW to the board, from the one callback that may
 
 Thin without a resize is a narrow board in a wide window — 224 px of board and

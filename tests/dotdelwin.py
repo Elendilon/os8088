@@ -188,6 +188,19 @@ def main(argv):
         fail += leg_c(ui, p, say)
         fail += leg_d(ui, p, say)
 
+    # --- and leg D again on a VGA, which is where it was WRONG -------------
+    # THE TWO ASPECT TABLES AGREE AT 100 THERE (SPEC.md 93.3.3.1), so the tile
+    # is the only thing left to separate the two modes - and a 1.2 tolerance
+    # refused the wide one by one part in fifty, so Full came out as Thin's own
+    # 8x9 with a bigger window round it. Leg D's test is exactly the right one
+    # and it had simply never run on the adapter that failed it.
+    if a.machine == MACHINE:
+        with os88ui.boot(a.img, apps=a.apps, machine="os8088_xt_vga") as ui:
+            ui.path(PKG)
+            p = Probe(ui, bss())
+            time.sleep(3.0)
+            fail += leg_d(ui, p, lambda s: say(s.replace("D  ", "D/vga  ", 1)))
+
     if not a.verbose:
         for s in out:
             print(s)

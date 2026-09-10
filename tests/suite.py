@@ -2094,7 +2094,7 @@ SOAK = [
         "real-time package in the tree drew straight through one "
         "(79.6.1). One adapter: none of the four is about the surface",
         needs=("marty", "nasm"), serial=True),
-    Row("dotdelwin", "soak", py("tests/dotdelwin.py"), 60.0,
+    Row("dotdelwin", "soak", py("tests/dotdelwin.py"), 75.0,
         "DOT DELIRIUM's WINDOW (SPEC.md 93.3.4.2): opening it costs ONE full "
         "redraw and not three, a MOVE costs none at all - the kernel's drag "
         "cache has already replayed the pixels at the new place, so only the "
@@ -2106,7 +2106,8 @@ SOAK = [
         "[dd_cx] still naming where the window used to be, so dd_render asks "
         "every frame instead. The pointer is parked before every capture, "
         "because the arrow is drawn over the picture and comparing it is how "
-        "this row first read eleven differing rows for a pixel-perfect move",
+        "this row first read eleven differing rows for a pixel-perfect move" 
+        "Leg D runs TWICE - once on the Hercules and once on a VGA, where the two aspect tables agree at 100 (93.3.3.1) so the tile is the only thing separating Thin from Full, and a 1.2 tolerance refused the wide one by one part in fifty: Full came out as Thin's own 8x9 with a bigger window round it, and the leg that tests exactly that had never run on the adapter that failed it. ",
         needs=("marty", "nasm"), serial=True),
     Row("dotdelmd", "soak", py("tests/dotdelmd.py"), 60.0,
         "DOT DELIRIUM on a TWO-CARD desktop (SPEC.md 93.4): straddling the "
