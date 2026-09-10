@@ -2298,6 +2298,18 @@ dd_render:
     jz .skip
     call OSAPI_WM_CLIP_SET
     jc .skip                        ; not one pixel of us is showing
+    ; --- WHERE ARE WE? ASKED EVERY FRAME (SPEC.md 93.3.4.2) ----------------
+    ; NOTHING TELLS A PACKAGE ITS WINDOW MOVED. The kernel's drag cache banks
+    ; the window's pixels and replays them at the new position (SPEC.md
+    ; 11.96.12), so a drag calls no W_PAINT, no OSAPI_WM_ONRESIZE and no
+    ; handler of ours at all - measured across a full drag as 0, 0 and 0, with
+    ; [dd_cx]/[dd_cy] still naming where the window used to be.
+    ;
+    ; So the question is asked rather than waited for. It is three far calls,
+    ; ~140 us on a frame that has 44 ms in it, and dd_relayout_ck answers in
+    ; four compares when nothing moved.
+    call dd_geom_win
+    call dd_relayout_ck
 .draw:
     call dd_draw
     cmp byte [dd_inbr], 0

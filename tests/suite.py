@@ -2053,6 +2053,20 @@ SOAK = [
         "real-time package in the tree drew straight through one "
         "(79.6.1). One adapter: none of the four is about the surface",
         needs=("marty", "nasm"), serial=True),
+    Row("dotdelwin", "soak", py("tests/dotdelwin.py"), 60.0,
+        "DOT DELIRIUM's WINDOW (SPEC.md 93.3.4.2): opening it costs ONE full "
+        "redraw and not three, a MOVE costs none at all - the kernel's drag "
+        "cache has already replayed the pixels at the new place, so only the "
+        "arithmetic was stale and the picture must come out identical, "
+        "translated - being covered and uncovered costs exactly one, and "
+        "Window > Thin/Full re-cuts the tile both ways. It exists because "
+        "NOTHING TELLS A PACKAGE ITS WINDOW MOVED: a drag calls no W_PAINT, "
+        "no OSAPI_WM_ONRESIZE and no handler at all, measured as 0/0/0 with "
+        "[dd_cx] still naming where the window used to be, so dd_render asks "
+        "every frame instead. The pointer is parked before every capture, "
+        "because the arrow is drawn over the picture and comparing it is how "
+        "this row first read eleven differing rows for a pixel-perfect move",
+        needs=("marty", "nasm"), serial=True),
     Row("dotdelmd", "soak", py("tests/dotdelmd.py"), 60.0,
         "DOT DELIRIUM on a TWO-CARD desktop (SPEC.md 93.4): straddling the "
         "seam with a real share of the picture on each card, moving wholly "

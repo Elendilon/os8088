@@ -251,11 +251,20 @@ dd_entry:
                                     ; lock, which is where a resize has to
                                     ; happen (SPEC.md 93.3.3.2)
     mov byte [dd_wmode], 0          ; THIN by default (SPEC.md 93.3.3.1): it is
-    mov byte [dd_wantfit], 1        ; the board the field's overlay of the real
+                                    ; the board the field's overlay of the real
                                     ; machine matched, and Full is one menu
                                     ; item away. A CGA overrides it at the
                                     ; layout rather than here, because the
-                                    ; window can be dragged to one
+                                    ; window can be dragged to one.
+                                    ;
+                                    ; AND NO FIT IS ASKED FOR HERE. OS88_PREFER
+                                    ; already opens the window at DD_THINW x
+                                    ; DD_THINH, so the resize this used to
+                                    ; request only ever differed by the few
+                                    ; rows the WM clamps off - and it cost a
+                                    ; second and a third full repaint at
+                                    ; startup, which the field counted
+                                    ; (SPEC.md 93.3.4.2)
     mov byte [dd_snd], 1            ; ON by default: a maze chase that has to be
                                     ; switched on from a menu before it makes a
                                     ; sound is one that has none, and Game ->

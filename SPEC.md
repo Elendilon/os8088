@@ -111594,6 +111594,52 @@ with nothing banked did nothing at all. The shape rule pins Thin's tile at
 the WM clamps either to the live screen exactly as it does at
 `OSAPI_WM_CREATE`.
 
+##### 93.3.4.2 NOTHING TELLS A PACKAGE ITS WINDOW MOVED, so the frame asks
+
+§93.3.4 said every position here is absolute and that a geometry change owes a
+whole frame. The first half is true and the second was the wrong conclusion,
+because it assumed something would *tell* us. Nothing does.
+
+**The kernel's drag cache (§11.96.12) banks a window's pixels and replays them
+at the new position.** A drag therefore calls no `W_PAINT`, no
+`OSAPI_WM_ONRESIZE` and no handler of this package's at all. Measured across a
+full drag with breakpoints on all three: **0, 0 and 0**, with `[dd_cx]`/
+`[dd_cy]` still naming where the window used to be. Every partial draw
+afterwards went to the old origin, which is the field's *"drag and drop is
+still hopelessly broken … the partial repaints are going to the wrong places."*
+
+So `dd_render` **asks, every frame** — `dd_geom_win` then `dd_relayout_ck`,
+after the clip is armed and before anything draws. Three far calls, ~140 µs on
+a frame that has 44 ms in it, and `dd_relayout_ck` answers in four compares
+when nothing moved.
+
+**And a move repaints NOTHING.** That is the point of asking rather than being
+told: the cache has already moved this window's pixels and they are correct
+where they now are. What went stale is only the arithmetic, so `.move` re-runs
+`dd_layout`, adds `dd_attract_layout` when the title screen is up — those
+positions are absolute too and are recomputed nowhere else — and returns. The
+`[dd_full]` this arm briefly carried was a full repaint of a picture that was
+already right.
+
+The one exception is the GAME OVER panel, whose pen is banked at *draw* time
+(§93.12.4.1) rather than at layout, so `.move` marks it dirty.
+
+**And the ACTOR pipeline never had the problem**, which is worth writing down
+because two readings of this code got it wrong before the pictures settled it.
+`[dd_ox]`/`[dd_oy]` — "where it was last DRAWN" — are **board** coordinates,
+and `dd_blit` adds `[dd_bdx]`/`[dd_bdy]` at the last moment before the blit.
+That is exactly Arkanoid's shape (§44): everything measured from the origin,
+and four leaf routines that add it. So the sprites, their unions and their
+erases all follow a move for free once `dd_layout` has re-run. What was
+absolute was the LAYOUT's own output and the attract page's, and those are the
+two things `.move` recomputes.
+
+**And the window does not ask for a fit at startup.** `OS88_PREFER` already
+opens it at `DD_THINW × DD_THINH`, so the resize the entry proc used to request
+differed only by the few rows the WM clamps off — and cost a second and a third
+full repaint at startup, which the field counted: *"the whole window then
+redraws, incorrectly. The whole window then redraws, AGAIN, correctly."*
+
 ### 93.4 Two surfaces, one renderer
 
 `dd_geom_win` banks the content box from `wm_content`/`wm_geom` and the depth

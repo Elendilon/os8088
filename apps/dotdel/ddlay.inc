@@ -479,16 +479,19 @@ dd_relayout_ck:
     call dd_layout                  ; picture and the sprites all stand
     jc .fail
     mov byte [dd_ok], 1
-    mov byte [dd_full], 1           ; ...BUT EVERY POSITION IN THIS FILE IS
-    ret                             ; ABSOLUTE (SPEC.md 93.3.4). dd_layout has
-                                    ; just moved dd_bdx, dd_hx and the rest,
-                                    ; and dd_attract_layout's are absolute too
-                                    ; and are not recomputed until something
-                                    ; draws the whole page. Without this the
-                                    ; next frame is a PARTIAL one at the new
-                                    ; coordinates over the old picture, which
-                                    ; is the field's "after a drag and drop
-                                    ; move, nothing is in the right place"
+    ; EVERY POSITION IN THIS FILE IS ABSOLUTE, so dd_layout has just moved
+    ; dd_bdx, dd_hx and the rest onto the new origin - and dd_attract_layout's
+    ; are absolute too and are recomputed nowhere else (SPEC.md 93.3.4).
+    ;
+    ; AND NOTHING IS REPAINTED, which is the whole point: the kernel's drag
+    ; cache has ALREADY moved this window's pixels to the new place. They are
+    ; correct there. What was stale is only the arithmetic, and this is it.
+    call dd_is_attract
+    jnc .mvout
+    call dd_attract_layout
+.mvout:
+    mov byte [dd_boxd], 1           ; ...except the GAME OVER panel, whose pen
+    ret                             ; is banked at draw time (93.12.4.1)
 .redo:
     call dd_bank_box
     call dd_layout
