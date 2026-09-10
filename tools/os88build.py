@@ -355,7 +355,10 @@ def _goals(d, targets):
 
 # Shared holds taken by this process, kept alive for its lifetime: see
 # _Lock.__exit__. Never read - the list IS the reference.
-_HELD = []
+# The retained SHARED holds, KEYED BY PATH so that a second entry in the SAME
+# PROCESS finds the handle it already has (see _Lock.__enter__). It was a bare
+# list, and the list is what made `dispseam` hang for ever.
+_HELD = {}
 
 
 class _Lock(object):
@@ -386,6 +389,23 @@ class _Lock(object):
     nothing to renew, and no way to leave one behind. That is the property
     `martylock.py` could not have and had to work around with leases: it was
     held ACROSS many shells, so no PID could answer for it.
+
+    **AND THE RETAINED HOLD IS WHY THIS HAS TO BE RE-ENTRANT.** That sentence
+    above is about a holder that EXITS, and it is true; it says nothing about
+    the same process entering the same tree TWICE, which is the case it
+    deadlocked on. `tests/dispseam.py` calls `tree("NOSEAMCUT=1")` inside its
+    per-machine loop and runs two seam orientations, so on the SECOND machine
+    it opened a second description of the same lock file and took `LOCK_EX`
+    against the `LOCK_SH` `__exit__` had parked on the first - its own. It
+    hung in `locks_lock_inode_wait` with two fds on one file, for ever, with
+    no other party to blame and nothing to time out: **29 rows green and the
+    thirtieth never returning.**
+
+    A row that HANGS is worse than one that fails (docs/WRITING-TESTS.md): a
+    failure is investigated and a hang is waited on. So `__enter__` reuses the
+    handle this process already holds and upgrades it in place, which waits
+    for other processes' readers - the behaviour promised above - and cannot
+    wait for us.
     """
 
     def __init__(self, path):
@@ -398,7 +418,19 @@ class _Lock(object):
         except OSError as e:
             if e.errno != errno.EEXIST:
                 raise
-        self.fh = open(self.path, "w")
+        # RE-ENTER ON THE HANDLE WE ALREADY HOLD, never on a second one.
+        # flock is per OPEN FILE DESCRIPTION, so `open()`ing the same path
+        # twice gives two descriptions and LOCK_EX on the second BLOCKS
+        # AGAINST THE SHARED HOLD __exit__ RETAINED ON THE FIRST - in the
+        # same process, for ever, with nothing to time out and no other
+        # party to name. Upgrading the existing description is legal, waits
+        # only for OTHER processes' readers (which is the intended
+        # behaviour, and what the class docstring promises), and cannot
+        # wait for us.
+        self.fh = _HELD.get(self.path)
+        self.reused = self.fh is not None
+        if self.fh is None:
+            self.fh = open(self.path, "w")
         fcntl.flock(self.fh, fcntl.LOCK_EX)
         return self
 
@@ -411,11 +443,12 @@ class _Lock(object):
         """
         try:
             fcntl.flock(self.fh, fcntl.LOCK_SH)
-            _HELD.append(self.fh)
+            _HELD[self.path] = self.fh
         except Exception:               # a downgrade that cannot be taken is
             try:                        # not worth failing a row over: fall
                 fcntl.flock(self.fh, fcntl.LOCK_UN)
             finally:
+                _HELD.pop(self.path, None)
                 self.fh.close()
         self.fh = None
 
