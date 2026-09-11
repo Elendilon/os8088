@@ -2279,7 +2279,7 @@ SOAK = [
         "driver has gone - is invisible to every assertion about state. QEMU "
         "by name: MartyPC has no network card of any kind",
         needs=("qemu", "nasm"), serial=True, timeout=420, builds=True),
-    Row("pkgrun", "soak", py("tests/pkgrun.py"), 110.0,
+    Row("pkgrun", "soak", py("tests/pkgrun.py"), 25.0,
         "OSAPI_PKG_RUN (SPEC.md 21.5): the loader's back half with the disk "
         "read replaced by a copy, which is how the Wire runs a package it "
         "fetched over the network into a claim. `make pkgrun` builds a TEST "
@@ -2291,10 +2291,13 @@ SOAK = [
         "magic and CF=1 / LD_EBAD for header flags bit 2, a package carrying "
         "PARTS, which are read out of a FILE that does not exist here "
         "(SPEC.md 20.12). The two refusals also say the region and the "
-        "instance record a failed load reserved were given back. QEMU because "
-        "nothing here is a time and all three answers are state; it builds "
-        "its own disk, so it needs no capability of its own",
-        needs=("qemu", "nasm"), serial=True, timeout=420, builds=True, wants=("build/hello.o88",)),
+        "instance record a failed load reserved were given back. MARTYPC, "
+        "through os88ui: it was hand-rolled QEMU on the argument that "
+        "nothing here is a time, which is not on docs/TESTING.md's list - "
+        "and it FLAKED, driving remembered coordinates and reading a "
+        "384-byte inst_tab off a RUNNING machine, which returns torn "
+        "records. It builds its own disk",
+        needs=("marty",), builds=True, wants=("build/hello.o88",)),
     Row("heapmap", "soak", py("tests/heapmap.py"), 30.0,
         "What does the claim heap look like when the boot is over? (SPEC.md "
         "50, 66) Every driver attached at once on a machine WITH memory above "
