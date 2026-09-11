@@ -4848,6 +4848,7 @@ section .text                   ; ...and the file ends in .text, where it began
 ; ever reloads rows a suspend noted, so a caller with nothing suspended
 ; reloads nothing.
 ; -----------------------------------------------------------------------------
+%ifdef OS88_DRIVERS
 drv_suspend_x:
     push bx
     push dx
@@ -4949,3 +4950,43 @@ drv_suspend_x:
     pop dx
     pop bx
     ret
+
+%else
+; -----------------------------------------------------------------------------
+; drv_suspend_x - the same slot on a kernel with NO DRIVER LAYER
+;
+; OS88_DRIVERS is KERN_BIG's, and every byte the body above touches - the
+; suspended-row bitmap, the DRVV_HWINFO staging, drvf_drv_call/load/unload -
+; goes with it. The CELL cannot go with them: a package is built once and runs
+; on both kernels at the same table offsets (`make smallapps` is a disk
+; choice, not a second ABI), so 0x0550 has to answer here too.
+;
+; **IT ANSWERS SUCCESS, NOT A REFUSAL**, which is the unusual half and is the
+; honest one: the question is "did anything get out of my way", and on a
+; kernel with no driver layer the truthful answer is "nothing had to". AX = 0
+; classes went and CX = 0 records written is exactly that, and it costs the
+; caller no special case - where a refusing stub would make every caller test
+; CF for a condition that is not an error (docs/plans/KERN-SMALL-CUT-PLAN.md
+; section 10: a stub is only free when the caller tests CF, and most do not).
+;
+; The fsx fence is KEPT rather than dropped, so the contract reads identically
+; on both kernels: a suspend from outside the bracket, or from a task that does
+; not own it, is still refused. Answering CF=0 there would let a package learn
+; on kern_small that it may ask at any time, and then fail on kern_big.
+; -----------------------------------------------------------------------------
+drv_suspend_x:
+    or al, al
+    je .none                    ; RESUME: nothing was ever suspended
+    call fsx_mine
+    jne .norefuse
+.none:
+    xor ax, ax
+    xor cx, cx
+    clc
+    ret
+.norefuse:
+    xor ax, ax
+    xor cx, cx
+    stc
+    ret
+%endif
