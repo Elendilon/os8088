@@ -949,8 +949,11 @@ for an NE2000 plus a TCP/IP stack; `HDD.DRV` 5,489; Paint 21,962).
 
 | wave | what | kernel bytes | package bytes (EST) |
 |---|---|---|---|
+**WAVES 1 AND 2 ARE BUILT** — see §15 at the end for what they cost and
+what three of these rows got wrong.
+
 | 1 | `.COM` only. Arena + MCB chain + PSP + environment. fsx bracket, IVT/BDA/PIT/8259 save-restore. Character I/O, process control, memory, date/time, vectors. **Read-only file handles, behind the back-end indirection §14.4 asks for.** The `..` walk for the cwd (§11.3). Double-click via an association block. | **0** | 6–9 KB |
-| 2 | `.EXE` loader — MZ header, relocations, `minalloc`/`maxalloc`. Directory functions, find-first/next, create/replace/append writes, `INT 33h` mouse. | 0 (10 if the mickey pair is taken) | +3–4 KB |
+| 2 | **BUILT.** `.EXE` loader — MZ header, relocations, `minalloc`/`maxalloc`. Directory functions, find-first/next, create/replace/append writes, `INT 33h` mouse. | **0** | **+2.7 KB** (image 3,134 → 5,878; 5,321 compressed on disk) |
 | 3 | Sound Blaster detach/re-attach. `4Bh` EXEC. `INT 12h`/BDA polish. XMS via `XMEM.DRV`. | 0 | +2–3 KB |
 | 4 | Packet driver over `ETHER.DRV`. Validation target: mTCP's own applications. | 0 | +1.5–2.5 KB |
 | 5 | **Write-at-offset file handles** (§6.3) — on a published kernel seek/write-at trio if that API happens, on read-modify-rewrite if it does not. Ordered here rather than "deferred" because Tank Attack wants it too. | 0 or ~400 | +1–2 KB |
@@ -1335,3 +1338,94 @@ Named rather than solved, so the list exists when it is picked up:
   from §87.4 is that the machine does not stop and the stub loads a program
   instead of returning; everything before that is the same code, and a second
   copy of it would drift.
+
+---
+
+## 15. What waves 1 and 2 cost, and the three things they overturned
+
+**Both waves are built and gated.** `SPEC.md §96` is the contract;
+`tests/doscom.py`, `tests/dosexe.py`, `tests/dosmouse.py`, `tests/dosfile.py`
+and `tests/dosdir.py` are the rows. The real-program check is SOPWITH — a
+1984 game whose `.EXE` has no MZ header at all — which reaches its title
+screen and plays.
+
+**The bill is zero kernel bytes**, as every row of §11 predicted, and
+**+2.7 KB of package** for wave 2 (image 3,134 → 5,878 bytes; 5,321
+compressed on the floppy). The `.o88` is on the system disk in `APPS/`, so
+none of it is resident on any machine.
+
+Three rows of this document were wrong, and each was wrong in a way worth
+keeping.
+
+### 15.1 §6.3's file handles: option (a), plus a rule nobody costed
+
+The recommendation was right — build the handle layer on the published API,
+reads working well and writes restricted to create/append/replace — and it
+came out at ~1.2 KB against the 2–3 KB estimate, over **one** cluster-aligned
+window carved off the top of the arena rather than one buffer per handle.
+
+What the estimate did not contain is **§96.4.1**, and it is the load-bearing
+half: **a kernel file call may not run on the DOS program's stack.** Inside
+the bracket `SS` is a segment in the middle of the arena; every os8088
+context has `SS = LOW_SEG`, and `sch_switch` declines to switch when that
+does not hold — right for a short foreign-stack window, not for a
+multi-sector disk write. `OSAPI_FILE_WRITE` was **entered and never came
+back**: the bracket was torn down, the desktop returned, and the package's
+own window said *"The program has finished. Exit code 000"*. Nothing about
+that says "stack" from the outside, and the thing that found it was printing
+a character through the ROM teletype either side of the far call and watching
+the second one never arrive.
+
+The fix is one door that runs every back-end call on the UI task's own stack
+— **which is what §14.4's back-end indirection turned out to be worth before
+the hibernate phase it was designed for.** There was one place to put it, and
+it was already there. It costs 258 of task 0's 510 bytes at the deepest point
+of a 20 KB write.
+
+### 15.2 §11.3's `..` walk cannot be built at all
+
+The plan proposed building `AH=47h`'s answer by walking up: ask a directory
+who its parent is, then search the parent for the entry pointing back at the
+child. **`.` and `..` are not reported to a package.** A find inside a freshly
+made subdirectory returns *nothing*; `OSAPI_FT_UP` is in the SDK's type list
+because the kernel synthesizes an up-entry for the Disk window's own listing
+(SPEC.md §19.5), and that synthesis is not what `OSAPI_FILE_FIND` walks. Nor
+is there another way in: `OSAPI_ARG_FILE` hands over a name, a **cluster** and
+a volume, and a cluster is not a path.
+
+So the walk was abandoned and **the launch directory became the program's
+root** (SPEC.md §96.12.2) — self-consistent, exactly round-tripping, §96.6's
+containment one layer up, and **cheaper than the thing it replaced**: the path
+is maintained by `AH=3Bh`, the only call that can move us, so `AH=47h` is a
+string copy rather than one floppy mount per directory level. The version
+this document asked for would have been slower *and* wrong.
+
+### 15.3 §9.1's mouse: the mickey pair was not the interesting half
+
+§11 costed `INT 33h` at "0 kernel bytes, 10 if the mickey pair is taken", and
+the pair was **not** taken — `AH=0Bh` is derived from the position and loses
+what the hand spends against a screen edge, which is named in SPEC.md
+§96.10.2 rather than fixed.
+
+What the row did not see is that **functions 5 and 6 need edges**, and a
+handler that only runs when the program calls it sees only the transitions
+its own polls straddle. Answering `0` presses would have been honest and would
+have broken the common case — a program whose entire click detection *is*
+function 5. The counts are accumulated on every state read, and `dos_getkey`
+stopped being `int 16h AH=00h` and became a poll around it, so *waiting for a
+key samples the mouse too*: "press a key or click" is a prompt DOS programs
+write, and `AH=00h` is itself a spin on the BIOS buffer's head and tail, so it
+costs a machine that has already borrowed the screen nothing.
+
+### 15.4 Still open in waves 1–2's own scope
+
+- **Date and time** — `AH=2Ah`/`2Ch`/`2Bh`/`2Dh`. §11's wave-1 row lists them
+  and they are not built. There is no date/time slot in the SDK at all, so
+  they want `int 1Ah` directly and a tick-to-h:m:s conversion; games seed
+  random number generators from `2Ch`, so this is worth doing before wave 3.
+- **FCB functions** — already deferred in §11 and still deferred.
+- **`AH=43h` attributes, `45h`/`46h` dup** — not built, not yet wanted by
+  anything measured.
+- **`3Dh` modes 1 and 2** open a handle whose writes refuse (SPEC.md
+  §96.11.2). An in-place write wants the kernel seek/write-at trio §6.3
+  argues for on its own merits.
