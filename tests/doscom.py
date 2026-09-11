@@ -10,6 +10,9 @@ writing it (docs/WRITING-TESTS.md 1 - the row exists because the thing was
 broken on purpose and went red, three different ways):
 
   - the association not resolving          -> no DOS window opens at all
+  - the handler resolving but the read      -> "Could not run it / It could not
+    coming from the HANDLER's folder           be read" - the gate disk carries
+    (OSAPI_FILE_GOTO_Q, not _QM)               NO handler for exactly this
   - the far jump landing on PSP:0000       -> "Exit code 000" and no output,
                                               which is a program that ran and
                                               printed nothing, from the outside

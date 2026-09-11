@@ -118334,8 +118334,23 @@ measurements, the alternatives and the waves; this section is the contract.
 A `SYSAPPS` package — `SYSTEM/DOS.O88` on all four system-disk geometries and
 on no apps disk (§24.3), for §92's reason: a `.COM` can be sitting on any
 floppy, so the program that runs it belongs on the disk the machine booted
-from. It declares `COM` and `EXE` in its association block (§54.6), so a
-double-click on either launches it with `OSAPI_ARG_FILE` naming the file.
+from. **`COM` and `EXE` are BUILT-IN associations** (`assoc_ext` in `kernel/assoc.inc`,
+§54.2), not a declaration in the package's own header — and that is the one
+place this feature needs the kernel at all. A declaration is harvested at a
+**full** mount, and the boot mount is a quiet one, so a declared association
+is not known until the user has opened a Disk window on the volume the
+*program* is on. That is invisible for every other handler because a document
+and its program ride the same disk; **DOS is the first handler whose documents
+are on somebody else's disk**, which is exactly the case the harvest cannot
+reach. It costs no kernel bytes — both tables are `times`-filled to
+`ASSOC_NAPP`/`ASSOC_NEXT` already, so a row that was padding becomes a row
+that is used. The package still carries the block as well, which is what makes
+a `DOS.O88` on a *data* floppy work on a machine that never saw ours.
+
+`DOS.O88` also carries a 16×16 icon, and that is a requirement rather than a
+nicety: §54.1 composes a document's icon out of its program's, so an iconless
+handler leaves every `.COM` and `.EXE` on a disk showing the bare page — and
+`tools/os88mini.py` refuses to bake a default glyph from one at all.
 
 **`kern_big` only.** §54.0 gates associations out of `kern_small`, so a
 double-click cannot reach it there; the 128KB machine is served by launching
@@ -118351,6 +118366,12 @@ to it, and a 128KB machine's arena cannot host a DOS program worth running.
 `DOS.O88` runs a program inside **one `OSAPI_FSX_RUN` bracket** (§53.1): the
 machine is the program's, the desktop is frozen, the mouse cursor cannot
 appear over it, and the restore at the end is §53.6's.
+
+**The window does not repaint itself, and every exit must.** On the path that
+runs, §53.6's `wm_paint_all` happens to redraw the window and the exit code
+appears; every *failure* path never reaches the bracket, so without an explicit
+repaint the state is right and the screen still says `Starting...`. A refusal
+nobody can see is the worst shape §47 allows.
 
 It is entered from the **wake handler** (`OSAPI_WM_ONWAKE`, §74.1) and not
 from a paint or a click, because the order is binding:
@@ -118405,6 +118426,15 @@ respects its PSP allocation is contained by arithmetic and one that scribbles
 at a hardcoded address is not, exactly as under DOS.
 
 ### 96.4 The back end — every kernel call goes through a table
+
+**The navigation is `OSAPI_FILE_GOTO_QM` and never `_Q`.** `GOTO_Q` moves the
+*machine* and not the *instance*, and the SDK says what that costs: *"GOTO_Q
+alone is undone by that next cell, which first re-stands the machine in your
+instance's folder"*. Our instance stands wherever `assoc_locate` found
+`DOS.O88` — `A:\APPS` on a cross-volume launch — so the read went looking for
+the program there. It worked at all only while the handler happened to sit
+beside the document, which is the one arrangement a gate disk naturally has
+and the reason `build/doscom360.img` deliberately carries no handler.
 
 **Binding, and it costs almost nothing to obey.** No `INT 21h` handler calls
 an `OSAPI_*` file slot directly. They call through `dos_be`, a table of near

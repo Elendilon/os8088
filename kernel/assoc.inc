@@ -73,7 +73,10 @@ assoc_stem:
     db 'NOTEPAD '
     db 'TRACKER '
     db 'ARTFUL  '
-    times (ASSOC_NAPP - 4) * 8 db 0
+    db 'DOS     '                ; SPEC.md 96: the handler for .COM and .EXE,
+                                 ; and it has to be a BUILT-IN rather than a
+                                 ; declaration on the disk - see assoc_ext
+    times (ASSOC_NAPP - 5) * 8 db 0
 
 ; The four defaults' glyphs are BAKED AT BUILD TIME by tools/os88mini.py out
 ; of each package's own .o88, so the kernel ships knowing what its own
@@ -82,7 +85,7 @@ assoc_stem:
 ; in silence when an app's icon changes, where the make dependency cannot.
 assoc_glyph:
 %include "associco.inc"
-    times (ASSOC_NAPP - 4) * 8 db 0
+    times (ASSOC_NAPP - 5) * 8 db 0
 
 ; --- the extension slots ---------------------------------------------------
 assoc_ext:
@@ -91,7 +94,28 @@ assoc_ext:
     db 'TXT', 1                 ; -> NOTEPAD
     db 'MOD', 2                 ; -> TRACKER
     db 'MD ', 3                 ; -> ARTFUL
-    times (ASSOC_NEXT - 5) * 4 db 0
+    db 'COM', 4                 ; -> DOS (SPEC.md 96)
+    db 'EXE', 4                 ; -> DOS
+    times (ASSOC_NEXT - 7) * 4 db 0
+
+; WHY .COM AND .EXE ARE BUILT IN rather than declared in DOS.O88's own header
+; the way TRACKER declares .MOD (SPEC.md 54.6). A declaration is harvested at
+; a FULL mount, and the boot mount is a quiet one - disk.inc says `asc_use_x`
+; IS DELIBERATELY NOT CALLED there - so a declared association is not known
+; until the user has opened a Disk window on the volume the PROGRAM is on.
+; That is invisible for every other handler, because a document and its
+; program ride the SAME disk: the apps floppy carries BEVERLY.MOD and
+; TRACKER.O88 together, so mounting it teaches the machine both at once.
+;
+; DOS is the first handler whose documents are on somebody ELSE's disk - a
+; floppy of .COM files, with DOS.O88 back on the system disk - and that is
+; exactly the case the harvest cannot reach. Measured: with DOS declared and
+; not built in, a double-click on B:\FOO.COM answers `Bad package`, and the
+; SAME double-click works after opening A: once, because that full mount is
+; what finally read A:'s ASSOC.DAT.
+;
+; It costs NO kernel bytes: both tables are `times`-filled to ASSOC_NAPP and
+; ASSOC_NEXT already, so a row that was padding becomes a row that is used.
 
 
 ; --- per-app side arrays ---------------------------------------------------
@@ -100,8 +124,8 @@ assoc_ext:
 ; disk that has been swapped, so the open path re-checks the name on arrival.
 assoc_clus:  times ASSOC_NAPP dw 0     ; the directory it was last SEEN in
 assoc_drv:   times ASSOC_NAPP db 0xFF  ; ...on which volume (0xFF = never seen)
-assoc_dfold: db 1, 1, 1, 1             ; build-time folder: 0 root, 1 APPS,
-             times ASSOC_NAPP - 4 db 0 ; 2 GAMES. The one part of a default
+assoc_dfold: db 1, 1, 1, 1, 1          ; build-time folder: 0 root, 1 APPS,
+             times ASSOC_NAPP - 5 db 0 ; 2 GAMES. The one part of a default
                                        ; that cannot be a cluster, because no
                                        ; cluster is knowable at build time
 

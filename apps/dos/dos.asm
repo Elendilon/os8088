@@ -30,8 +30,23 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'DOS', dos_entry, 2     ; flags bit 1 = association block, and
-                                        ; no icon, so the block sits at 32
+    OS88_HEADER 'DOS', dos_entry, 3     ; flags bit 0 = icon, bit 1 = the
+                                        ; association block after it
+
+; --- the icon (SPEC.md 20.2/20.5) -------------------------------------------
+; A CRT on a stand with a `>` prompt and a cursor under it. It is 1bpp and
+; reads the same on all three adapters, which is what SPEC.md 39.4 asks of a
+; drawing - and it is what a .COM and a .EXE WEAR, because SPEC.md 54.1
+; composes a document's icon out of its program's. An iconless package would
+; leave every DOS program on a disk showing assoc_compose's bare page, and
+; tools/os88mini.py refuses to bake a default glyph from one at all.
+    OS88_ICON16
+    dw 0x0000, 0x7FFE, 0x7FFE, 0x7FFE, 0x7FFE, 0x7FFE, 0x7FFE, 0x7FFE
+    dw 0x7FFE, 0x7FFE, 0x7FFE, 0x03C0, 0x03C0, 0x1FF8, 0x0000, 0x0000
+    dw 0x0000, 0x7FFE, 0x4002, 0x4002, 0x5002, 0x4802, 0x5002, 0x4002
+    dw 0x5F02, 0x4002, 0x7FFE, 0x03C0, 0x03C0, 0x1FF8, 0x0000, 0x0000
+    OS88_ICON16_END
+
     OS88_ASSOC16
     db 2
     OS88_ASSOC_EXT 'COM'
@@ -111,7 +126,16 @@ dos_entry:
     mov byte [dos_state], DST_READY
     mov bx, [dos_win]
     call OSAPI_WM_WAKE              ; ...and run it from the wake handler, which
-    jmp short .ok                   ; is the one callback without the gfx lock
+    jmp short .ok                   ; is the one callback without the gfx lock.
+                                    ; CF=1 here means the ring was FULL and
+                                    ; nothing was posted - not an error, and the
+                                    ; SDK's own remedy is to kick again from the
+                                    ; next callback, which dos_paint does. It
+                                    ; is not hypothetical: a launch that had to
+                                    ; SWEEP VOLUMES to find this package
+                                    ; (SPEC.md 54.4.2) fills the ring with the
+                                    ; mounts on the way, and the symptom is a
+                                    ; window that sits on "Starting..." for ever
 
 .idle:
     mov byte [dos_state], DST_IDLE
@@ -222,8 +246,50 @@ dos_run:
     mov [dos_err], al
     mov byte [dos_state], DST_ERR
 .out:
+    call dos_repaint                ; THE WINDOW DOES NOT REPAINT ITSELF. On the
+                                    ; path that runs, fsx_restore's wm_paint_all
+                                    ; (SPEC.md 53.6) happens to redraw us and
+                                    ; the exit code appears - so every FAILURE
+                                    ; path silently left "Starting..." on the
+                                    ; glass while the real reason sat in
+                                    ; [dos_err] where nobody could see it. That
+                                    ; is the worst shape a refusal can have
+                                    ; (SPEC.md 47): the state was right and the
+                                    ; screen was a lie
     pop es
     pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_repaint - the content, under a lock WE take
+; in:  nothing; the wake handler's context, gfx lock NOT held (SPEC.md 74.1)
+; out: nothing; preserves all registers
+; -----------------------------------------------------------------------------
+dos_repaint:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    call OSAPI_GFX_LOCK             ; a wake handler is the one callback
+    mov si, [dos_win]               ; without the lock, and it MAY take it for
+    mov bx, si                      ; a burst it can state (SPEC.md 74.1)
+    call OSAPI_WM_CONTENT           ; AX = content left, DX = content top
+    mov bx, dx
+    mov cx, ax
+    add cx, DOS_CONT_W - 1
+    add dx, DOS_CONT_H - 1
+    mov al, CWHITE
+    call OSAPI_SET_COLOR
+    call OSAPI_GFX_FILL             ; AX = x1 already, BX = y1
+    mov si, [dos_win]
+    call dos_paint
+    call OSAPI_GFX_UNLOCK
     pop si
     pop dx
     pop cx
@@ -867,8 +933,21 @@ dos_be_read:
 
 ; --- the os8088 implementation ------------------------------------------------
 dos_k_goto:
-    call OSAPI_FILE_GOTO_Q          ; the QUIET goto: no listing, no icon
-    ret                             ; harvest - we are not showing a folder
+    call OSAPI_FILE_GOTO_QM         ; QM AND NOT Q, and the difference is the
+    ret                             ; whole of whether this works when the
+                                    ; handler is on a different volume from the
+                                    ; document. GOTO_Q moves the MACHINE and not
+                                    ; the INSTANCE, and the SDK says what that
+                                    ; costs in as many words: "GOTO_Q alone is
+                                    ; undone by that next cell, which first
+                                    ; re-stands the machine in your instance's
+                                    ; folder". Our instance stands where
+                                    ; assoc_locate found DOS.O88 - A:\APPS on a
+                                    ; cross-volume launch - so the read looked
+                                    ; for the program THERE. It worked at all
+                                    ; only while the handler happened to sit
+                                    ; beside the document, which is the one
+                                    ; arrangement a gate disk naturally has
 
 dos_k_read:
     call OSAPI_FILE_READ
@@ -890,6 +969,12 @@ dos_paint:
     push si
     push di
 
+    cmp byte [dos_state], DST_READY  ; THE RE-KICK (SPEC.md 74.1): the kernel
+    jne .nokick                      ; keeps at most one queued wake per window,
+    mov bx, si                       ; so this is free when one is already
+    call OSAPI_WM_WAKE               ; waiting and is the difference between a
+.nokick:                             ; full ring costing a frame and costing
+                                     ; the whole launch
     mov bx, si
     call OSAPI_WM_CONTENT           ; AX = content left, DX = content top
     mov bx, ax
@@ -1078,7 +1163,7 @@ dos_bdalist:
 dos_l_idle:  db 'No program to run.', 0
 dos_l2_idle: db 'Open a .COM from a disk window.', 0
 dos_l_ready: db 'Starting...', 0
-dos_l2_ready: db '', 0
+dos_l2_ready: db 'Reading it...', 0
 dos_l_ran:   db 'The program has finished.', 0
 dos_l2_ran:  db 'Exit code '
 dos_exitd:   db '000', 0
