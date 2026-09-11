@@ -2427,6 +2427,21 @@ SOAK = [
         "text rather than any error.",
         needs=("marty",), serial=True,
         wants=("build/dosexe360.img",)),
+    Row("dosmouse", "soak", py("tests/dosmouse.py"), 50.0,
+        "THE DOS MOUSE GATE (SPEC.md 96.10): INT 33h is a TRANSLATION over "
+        "numbers os8088's own ISR is already keeping, so the row is a "
+        "COMPARISON - it moves the kernel's pointer, reads mouse_x/mouse_y "
+        "and vid_w/vid_h back out of the guest, scales them itself, and "
+        "asserts the DOS program printed exactly that. Both level reads are "
+        "taken at points far apart on BOTH axes, so a y that is tracking x "
+        "cannot pass. It also clicks while the program is BLOCKED in "
+        "AH=08h, which is what functions 5 and 6 have to survive. VERIFIED "
+        "TO FAIL: `mul` lands its product in DX, which is the y being "
+        "answered, so the first draft returned a divide remainder as the y "
+        "coordinate - exact on x, nonsense on y, and invisible in any test "
+        "that only looks at one axis.",
+        needs=("marty",), serial=True,
+        wants=("build/dosmou360.img",)),
     Row("heapcheck", "soak", py("tests/heapcheck.py"), 40.0,
         "Drive tests/heapfrag and read its verdict out of the guest (SPEC.md"
         "66.8).",

@@ -645,6 +645,11 @@ dos_fsx_main:
                                     ; program will draw on it. Not worth
                                     ; abandoning the run for
 
+    call OSAPI_VIDEO                ; AX = width, BX = height: INT 33h's scale
+    mov [dos_vw], ax                ; (SPEC.md 96.10). Asked ONCE, here, and
+    mov [dos_vh], bx                ; not per call - it cannot change inside a
+                                    ; bracket and a divide is 80+ clocks
+
     call dos_save_machine
     call dos_build_psp
     call dos_hook_vectors
@@ -837,7 +842,11 @@ dos_hook_vectors:
     mov [es:0x23*4+2], cs
     mov word [es:0x24*4], dos_int24     ; critical error: FAIL, never retry
     mov [es:0x24*4+2], cs
-    sti
+    mov word [es:0x33*4], dos_int33     ; ...and the MOUSE (SPEC.md 96.10),
+    mov [es:0x33*4+2], cs               ; which costs us a translation and not
+    sti                                 ; a driver: the kernel's own ISR keeps
+                                        ; mouse_x/y/btn fresh for the whole
+                                        ; bracket (SPEC.md 53.1)
 
     mov ax, [dos_arena]                 ; ...and INT 12h's own source, so "how
     add ax, [dos_apara]                 ; much memory is there" agrees with the
@@ -1216,14 +1225,33 @@ dos_trace:
 ; -----------------------------------------------------------------------------
 ; dos_getkey - one character from the ROM
 ; in:  nothing; out: AL = the character (0 for an extended key's first half)
+;
+; A POLL AND NOT int 16h AH=00h, and the reason is the MOUSE. INT 33h's press
+; and release counts are accumulated by whatever reads the state (SPEC.md
+; 96.10.1), so a program parked in a blocking key read is the one place a
+; click can happen with nothing looking - and "press a key or click" is a
+; prompt DOS programs write. AH=00h is itself a spin on the BIOS buffer's head
+; and tail, so sampling round it costs a machine that has ALREADY borrowed the
+; screen nothing at all, and buys the wait its edges.
 ; -----------------------------------------------------------------------------
 dos_getkey:
-    push bx
+    push bx                         ; BX because a ROM can eat it, and CX/DX
+    push cx                         ; because the mouse sample below answers in
+    push dx                         ; them - DOS preserves every register but a
+.poll:                              ; call's documented outputs, and INT 21h
+                                    ; here hands back whatever a handler left
+    mov ah, 1
+    int 0x16                        ; ZF=0 with a key waiting, and it is NOT
+    jnz .take                       ; consumed by the check
+    call dos_mou_read               ; ...so keep the button edges alive
+    jmp short .poll
+.take:
     xor ah, ah
     int 0x16                        ; AL = the character, AH = the scan code.
-    pop bx                          ; An extended key answers AL = 0 and DOS
-    ret                             ; makes the caller ask twice for the scan;
-                                    ; wave 1 hands back the 0 and no more
+    pop dx                          ; An extended key answers AL = 0 and DOS
+    pop cx                          ; makes the caller ask twice for the scan;
+    pop bx                          ; wave 1 hands back the 0 and no more
+    ret
 
 dos_tty:
     push ax
@@ -1512,6 +1540,226 @@ dos_fnd:     db '00h.', 0
 
 
 ; =============================================================================
+; INT 33h - THE MOUSE (SPEC.md 96.10)
+; =============================================================================
+; NOT A DRIVER. os8088's own mouse ISR runs for the whole bracket and keeps
+; mouse_x/y/btn fresh (SPEC.md 53.1 - it never draws, because the gfx lock is
+; held), so what a DOS program needs is the INT 33h SHAPE over numbers that
+; are already being maintained. CuteMouse is a driver and we do not need one.
+;
+; THE VIRTUAL SCREEN IS 640x200 IN MICKEY UNITS, which is INT 33h's own
+; convention: positions go in and out doubled horizontally in modes narrower
+; than 640, and every caller expects a 0..639 x 0..199 range whatever the
+; card is. os8088's pointer lives on the DESKTOP's geometry - 640x480 on VGA,
+; 720x348 on Hercules - so the translation is a scale, and it is done with a
+; multiply and a divide rather than a table because the desktop's size is a
+; run-time fact (SPEC.md 39.2) and not one of three constants.
+;
+; FUNCTIONS 5 AND 6 NEED EDGES, and a handler that only runs when the program
+; calls it can only see the transitions its polls straddle (SPEC.md 96.10.1).
+; Answering "0 presses" would be honest and would also break the common case -
+; a program whose whole click detection IS function 5 - so the counts are
+; accumulated on EVERY state read, function 3's poll feeding them as much as
+; function 5's own call does. A click shorter than the program's poll interval
+; is lost and no shim can do better without an ISR of its own.
+;
+; WHAT IS NOT HERE, and is named rather than silently wrong: function 0Bh's
+; MICKEY COUNTERS. mou_apply consumes the raw deltas into a screen-clamped
+; position and keeps no accumulator, so a relative count can only be derived
+; from position changes - which loses every mickey spent while the pointer is
+; against an edge. Absolute programs (menus, CAD, paint packages) do not care;
+; a mouselook does. docs/plans/DOS-EXEC-PLAN.md 9.1 prices the kernel-side fix
+; at about ten resident bytes and leaves it as a decision rather than taking it.
+; BX, CX AND DX ARE OUTPUTS AND ARE NOT SAVED, which is the whole difference
+; between this prologue and INT 21h's a few hundred lines up. INT 33h answers
+; in registers rather than in the caller's FLAGS, so a handler that restores
+; them the way an ISR normally would returns the caller its own arguments back
+; - "bx=65532" for a reset that set BX to 2, and every position exact in AX
+; and garbage everywhere else. The paths that are not asked for them simply do
+; not write them, which is what a real driver's "undefined" means.
+dos_int33:
+    sti
+    push bp
+    push ds
+    push cs
+    pop ds
+    push si
+    push di
+
+    or ax, ax
+    jz .reset
+    cmp ax, 1
+    je .none                       ; show/hide: the kernel owns the pointer and
+    cmp ax, 2                      ; the bracket holds the gfx lock, so it is
+    je .none                       ; not ON the screen to raise or lower - and
+    cmp ax, 3                      ; a REFUSAL would make a program that hides
+    je .pos                        ; before drawing abandon the drawing
+    cmp ax, 4
+    je .none                       ; set position: warping the host pointer is
+    cmp ax, 5                      ; the kernel's, and a program that borrowed
+    je .press                      ; the screen has not borrowed the arrow
+    cmp ax, 6
+    je .release
+    cmp ax, 0x0B
+    je .motion
+    jmp short .none
+
+.reset:
+    call dos_mou_zero              ; a reset clears the edge state with it
+    mov ax, 0xFFFF                 ; a mouse IS installed - and it is, whatever
+    mov bx, 2                      ; the machine has, because the kernel found
+    jmp short .out                 ; one at boot or the pointer would not move
+.pos:
+    call dos_mou_read              ; BX = the buttons, CX = x, DX = y
+    jmp short .out
+.press:
+    mov si, bx                     ; the button asked about, banked before the
+    call dos_mou_read              ; read overwrites BX with the live mask
+    mov ax, bx
+    and si, 1                      ; two buttons, so anything else is button 1
+    mov bl, [si+dos_mou_pc]
+    mov byte [si+dos_mou_pc], 0    ; reading a count CONSUMES it, which is why
+    xor bh, bh                     ; it is a count and not a flag
+    mov cx, [dos_mou_px]
+    mov dx, [dos_mou_py]
+    jmp short .out
+.release:
+    mov si, bx
+    call dos_mou_read
+    mov ax, bx
+    and si, 1
+    mov bl, [si+dos_mou_rc]
+    mov byte [si+dos_mou_rc], 0
+    xor bh, bh
+    mov cx, [dos_mou_rx]
+    mov dx, [dos_mou_ry]
+    jmp short .out
+.motion:
+    call dos_mou_delta             ; CX = dx, DX = dy since the last call -
+    jmp short .out                 ; derived, see the header
+.none:
+    xor ax, ax                     ; INT 33h's "not supported"
+.out:
+    pop di
+    pop si
+    pop ds
+    pop bp
+    iret
+
+; -----------------------------------------------------------------------------
+; dos_mou_zero - forget the edge state (function 0)
+; clobbers: nothing
+; -----------------------------------------------------------------------------
+dos_mou_zero:
+    mov byte [dos_mou_lb], 0
+    mov word [dos_mou_pc], 0       ; both counts are one word apiece in pairs,
+    mov word [dos_mou_rc], 0       ; so two stores clear four bytes
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_mou_read - the pointer, in INT 33h's 640x200 virtual units
+; out: BX = the button mask (bit 0 left, bit 1 right), CX = x, DX = y
+; clobbers: flags
+;
+; The multiply EATS DX, which is the y this routine has to answer, so y is
+; banked across it - and the divide's remainder lands there too. Both are the
+; kind of clobber that reads as a mouse that only works horizontally.
+; -----------------------------------------------------------------------------
+dos_mou_read:
+    push ax
+    call OSAPI_MOUSE                ; CX = x, DX = y, AL = the buttons - and
+    mov bl, al                      ; mouse_btn's bits ARE INT 33h's, bit 0
+    xor bh, bh                      ; left and bit 1 right (SPEC.md 9), so the
+    push bx                         ; mask needs no translation at all
+    push dx                         ; the y the x scale below is about to eat
+    mov ax, cx
+    mov cx, [dos_vw]
+    jcxz .nox                       ; a zero divisor cannot happen and must not
+    mov bx, 640                     ; take the axis with it: leave x as it is
+    mul bx                          ; DX:AX = x * 640, and x < vw always, so
+    div cx                          ; the quotient is < 640 and cannot overflow
+.nox:
+    mov cx, ax
+    pop ax                          ; y
+    push cx                         ; ...and the scaled x, which is AX's next
+    mov cx, [dos_vh]
+    jcxz .noy
+    mov bx, 200
+    mul bx
+    div cx
+.noy:
+    mov dx, ax
+    pop cx
+    pop bx
+    pop ax
+    call dos_mou_edge               ; every state read feeds functions 5 and 6
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_mou_edge - accumulate the press/release counts 5 and 6 answer
+; in:  BL = the live button mask, CX = x, DX = y (INT 33h units)
+; out: nothing, every register preserved
+;
+; The press POSITION is latched once and shared between the two buttons rather
+; than kept per button (SPEC.md 96.10.1): a caller that asks button 1 where
+; button 0 went down is answered the wrong point, and a caller with one button
+; in play - in practice, all of them - is answered exactly.
+; -----------------------------------------------------------------------------
+dos_mou_edge:
+    push ax
+    push bx
+    mov al, [dos_mou_lb]
+    mov [dos_mou_lb], bl
+    xor al, bl                      ; AL = the bits that CHANGED since the last
+    jz .out                         ; read, which is the whole of the history
+    mov bh, al                      ; a polled shim can have
+    and bh, bl                      ; ...of which these went DOWN
+    jz .up
+    mov [dos_mou_px], cx
+    mov [dos_mou_py], dx
+    test bh, 1
+    jz .d1
+    inc byte [dos_mou_pc]
+.d1:
+    test bh, 2
+    jz .up
+    inc byte [dos_mou_pc+1]
+.up:
+    not bl
+    and al, bl                      ; ...and these went UP
+    jz .out
+    mov [dos_mou_rx], cx
+    mov [dos_mou_ry], dx
+    test al, 1
+    jz .u1
+    inc byte [dos_mou_rc]
+.u1:
+    test al, 2
+    jz .out
+    inc byte [dos_mou_rc+1]
+.out:
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_mou_delta - function 0Bh, derived from the position
+; out: CX = dx, DX = dy since the last call
+; clobbers: BX, flags
+; -----------------------------------------------------------------------------
+dos_mou_delta:
+    push ax
+    call dos_mou_read
+    mov ax, cx
+    sub cx, [dos_mou_lx]
+    mov [dos_mou_lx], ax
+    mov ax, dx
+    sub dx, [dos_mou_ly]
+    mov [dos_mou_ly], ax
+    pop ax
+    ret
+
+; =============================================================================
 ; THE MCB CHAIN (SPEC.md 96.9)
 ; =============================================================================
 ; A real first-fit allocator over the blocks dos_build_psp laid out, because a
@@ -1764,6 +2012,17 @@ dos_mcb_resize:
     DBSS DOS_B_PIC2,  1
     DBSS DOS_B_ISEXE, 1
     DBSS DOS_B_TRACEN, 2
+    DBSS DOS_B_VW,    2
+    DBSS DOS_B_VH,    2
+    DBSS DOS_B_MLX,   2
+    DBSS DOS_B_MLY,   2
+    DBSS DOS_B_MLB,   1        ; the button mask the last state read saw
+    DBSS DOS_B_MPC,   2        ; press counts, one BYTE per button
+    DBSS DOS_B_MRC,   2        ; ...and release counts
+    DBSS DOS_B_MPX,   2        ; where the last press landed, shared
+    DBSS DOS_B_MPY,   2        ; between the buttons (SPEC.md 96.10.1)
+    DBSS DOS_B_MRX,   2
+    DBSS DOS_B_MRY,   2
     DBSS DOS_B_IMGHI, 2
     DBSS DOS_B_XFSEG, 2
     DBSS DOS_B_XLSEG, 2
@@ -1810,6 +2069,17 @@ dos_pic1    equ os88_image_end + DOS_B_PIC1    ; byte: the 8259 masks as found
 dos_pic2    equ os88_image_end + DOS_B_PIC2    ; byte:
 dos_isexe   equ os88_image_end + DOS_B_ISEXE   ; byte: 1 = an .EXE was set up
 dos_tracen  equ os88_image_end + DOS_B_TRACEN  ; word: DOSTRACE's call counter
+dos_vw      equ os88_image_end + DOS_B_VW      ; word: the desktop's width...
+dos_vh      equ os88_image_end + DOS_B_VH      ; word: ...and height, for 33h
+dos_mou_lx  equ os88_image_end + DOS_B_MLX     ; word: the last position 0Bh
+dos_mou_ly  equ os88_image_end + DOS_B_MLY     ; word: ...answered a delta from
+dos_mou_lb  equ os88_image_end + DOS_B_MLB     ; byte: the mask the last state
+dos_mou_pc  equ os88_image_end + DOS_B_MPC     ;       read saw, for the edges
+dos_mou_rc  equ os88_image_end + DOS_B_MRC     ; 2 bytes each, INDEXED BY THE
+dos_mou_px  equ os88_image_end + DOS_B_MPX     ; button number, so they are a
+dos_mou_py  equ os88_image_end + DOS_B_MPY     ; pair and not two names
+dos_mou_rx  equ os88_image_end + DOS_B_MRX
+dos_mou_ry  equ os88_image_end + DOS_B_MRY
 dos_imghi   equ os88_image_end + DOS_B_IMGHI   ; word: the file's size, high
 dos_exe_fseg equ os88_image_end + DOS_B_XFSEG  ; word: where the FILE landed
 dos_exe_lseg equ os88_image_end + DOS_B_XLSEG  ; word: ...and the load segment

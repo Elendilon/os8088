@@ -118606,3 +118606,67 @@ place this allocator is better off than the machine it imitates.
 next allocation's walk — so a program that frees two neighbours and asks for
 their sum is asking for something DOS would refuse too.
 
+
+### 96.10 `INT 33h` is a translation, not a driver
+
+os8088's own mouse ISR runs for the whole of an fsx bracket and keeps
+`mouse_x`, `mouse_y` and `mouse_btn` fresh (§53.1 — it never *draws* there,
+because the gfx lock is held). So what a DOS program needs is the `INT 33h`
+**shape** over numbers the machine is already maintaining: no packet decode,
+no serial port, no IRQ of its own. CuteMouse is a driver; this is a dozen
+functions over three variables.
+
+`mouse_btn`'s two bits **are** `INT 33h`'s — bit 0 left, bit 1 right (§9) —
+so the mask is answered as it stands and no translation is spent on it.
+
+**The virtual screen is 640x200.** That is `INT 33h`'s own convention and
+every caller expects it whatever the card is; os8088's pointer lives on the
+*desktop's* geometry instead (640x480 on VGA, 720x348 on Hercules, §39.2), so
+each axis is scaled. It is a multiply and a divide rather than a shift or a
+table because the desktop's size is a **run-time fact** and not one of three
+constants, and `OSAPI_VIDEO` is asked **once**, at bracket entry: `fsx_mode`
+sets a mode without moving `vid_w`/`vid_h`, so the answer cannot change while
+the program runs, and a divide inside a polled ISR would be paid thousands of
+times for a constant.
+
+#### 96.10.1 Functions 5 and 6 need edges, and a shim only sees the ones it straddles
+
+Function 3 is a **level** read and is exact. Functions 5 and 6 are not: they
+answer *how many times a button has been pressed since you last asked*, which
+is a count of transitions, and a handler that only runs when the program calls
+it cannot see a transition that begins and ends between two calls.
+
+Answering `0` would be honest and would also **break the common case**, which
+is a program whose entire click detection is function 5. So the counts are
+accumulated on **every** state read — function 3's poll feeds them as much as
+function 5's own call does — by comparing the live mask against the mask the
+last read saw. A program polling in a loop, which is what a program using
+these functions does, gets every click; a click shorter than its own poll
+interval is lost, and no shim can do better without an ISR of its own.
+
+The **position at the last press** is latched once and shared between the two
+buttons rather than kept per button. A caller that asks button 1 where button
+0 went down is answered the wrong point; a caller with one button in play — in
+practice, all of them — is answered exactly.
+
+Reading a count **consumes** it, which is DOS's rule and the reason it is a
+count rather than a flag.
+
+#### 96.10.2 What is refused, and what is derived
+
+- **1 and 2 (show/hide) are no-ops that succeed.** The kernel owns the pointer
+  and the bracket holds the gfx lock, so there is nothing on the screen to show
+  or hide — the arrow came down when the bracket opened. Refusing would make a
+  program that hides before drawing abandon the drawing.
+- **4 (set position) is refused.** Warping the host pointer is the kernel's,
+  and a program that has borrowed the screen has not borrowed the arrow.
+- **0Bh (motion counters) is DERIVED from the position, and loses mickeys at
+  the screen edge.** `mou_apply` consumes the raw deltas into a screen-clamped
+  position and keeps no accumulator (§9), so a relative count can only come
+  from what the position did — and against an edge the position does nothing
+  while the hand keeps moving. Absolute programs (menus, CAD, paint packages)
+  never notice; a mouselook does. docs/plans/DOS-EXEC-PLAN.md §9.1 prices the
+  kernel-side accumulator at about ten resident bytes and leaves it as a
+  decision rather than taking it.
+- **Everything else answers AX=0**, which is `INT 33h`'s "not supported" and
+  what a real driver answers for a function it does not have.

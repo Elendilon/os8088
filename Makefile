@@ -4742,8 +4742,18 @@ $(BUILD)/DOSHELLO.EXE: tests/dosexe/hello.asm | $(BUILD)
 $(BUILD)/dosexe360.img: $(BUILD)/DOSHELLO.EXE tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSHELLO.EXE
 
+# ...and the mouse gate's, which is a .COM again: INT 33h is a translation and
+# not a loader, so nothing about the container is under test here (SPEC.md
+# 96.10). It waits for a key between every reading, because the harness has to
+# move the pointer in between and a polling program gives it no window to.
+$(BUILD)/DOSMOUSE.COM: tests/dosmouse/mouse.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dosmouse/mouse.asm
+
+$(BUILD)/dosmou360.img: $(BUILD)/DOSMOUSE.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSMOUSE.COM
+
 .PHONY: doscom
-doscom: $(BUILD)/doscom360.img $(BUILD)/dosexe360.img
+doscom: $(BUILD)/doscom360.img $(BUILD)/dosexe360.img $(BUILD)/dosmou360.img
 
 $(BUILD)/thewire.bin: apps/thewire/thewire.asm apps/thewire/wrhttp.inc \
                       apps/thewire/wrarc.inc apps/thewire/wrtxt.inc \
