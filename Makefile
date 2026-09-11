@@ -4752,8 +4752,18 @@ $(BUILD)/DOSMOUSE.COM: tests/dosmouse/mouse.asm | $(BUILD)
 $(BUILD)/dosmou360.img: $(BUILD)/DOSMOUSE.COM tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSMOUSE.COM
 
+# ...and the file-handle gate's, which WRITES - so the disk it runs from is
+# the one it creates DOSTEST.DAT on, and os88marty's per-instance clone is
+# what keeps that out of build/ (SPEC.md 96.11).
+$(BUILD)/DOSFILE.COM: tests/dosfile/file.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dosfile/file.asm
+
+$(BUILD)/dosfile360.img: $(BUILD)/DOSFILE.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSFILE.COM
+
 .PHONY: doscom
-doscom: $(BUILD)/doscom360.img $(BUILD)/dosexe360.img $(BUILD)/dosmou360.img
+doscom: $(BUILD)/doscom360.img $(BUILD)/dosexe360.img $(BUILD)/dosmou360.img \
+        $(BUILD)/dosfile360.img
 
 $(BUILD)/thewire.bin: apps/thewire/thewire.asm apps/thewire/wrhttp.inc \
                       apps/thewire/wrarc.inc apps/thewire/wrtxt.inc \

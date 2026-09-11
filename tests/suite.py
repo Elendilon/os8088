@@ -2442,6 +2442,23 @@ SOAK = [
         "that only looks at one axis.",
         needs=("marty",), serial=True,
         wants=("build/dosmou360.img",)),
+    Row("dosfile", "soak", py("tests/dosfile.py"), 150.0,
+        "THE DOS FILE-HANDLE GATE (SPEC.md 96.11): os8088 has no file handle "
+        "anywhere - the published API is by NAME and by WHOLE FILE - so the "
+        "layer is built in the package over ONE cluster-aligned window carved "
+        "off the top of the arena, and this row says the bytes survive it. It "
+        "writes 20,480 bytes through AH=3Ch/40h, which crosses that 8KB "
+        "window TWICE so the first flush REPLACES and the two after it "
+        "APPEND; reads it all back checking every byte against its own "
+        "offset, so a window that refills at the wrong base is a wrong VALUE "
+        "at a seam rather than a short read; seeks to 12,345 and reads there; "
+        "then deletes it and proves the next open fails with code 2. VERIFIED "
+        "TO FAIL: it went red at `FAILED at create, code 1` - invalid "
+        "function - against a build/ that still held the PREVIOUS package, "
+        "because `make doscom` builds the gate disk and not the system one "
+        "the handler ships on.",
+        needs=("marty",), serial=True,
+        wants=("build/dosfile360.img",)),
     Row("heapcheck", "soak", py("tests/heapcheck.py"), 40.0,
         "Drive tests/heapfrag and read its verdict out of the guest (SPEC.md"
         "66.8).",

@@ -211,6 +211,12 @@ dos_run:
     shl ax, cl                      ; KB -> paragraphs, and AX < 1024 always
     mov [dos_apara], ax             ; (640KB is 640), so this cannot carry
 
+    call dos_fh_setup               ; ...and the file window comes OFF the top
+    jc .freeerr                     ; of it before the program is ever told how
+                                    ; much memory it has (SPEC.md 96.11), so
+                                    ; there is no window for a program to find
+                                    ; and no arithmetic for it to disagree with
+
     call dos_load                   ; the image, through the back end
     jc .freeerr
     call dos_is_exe                 ; ...and only NOW, because the answer is in
@@ -682,6 +688,8 @@ dos_fsx_main:
                                     ; 0 runs that INT 20h, and from outside it
                                     ; is indistinguishable from a program that
                                     ; exited 0 having printed nothing
+    mov byte [dos_onprog], 1        ; from here until dos_terminate, a kernel
+                                    ; call has to borrow a stack (SPEC.md 96.4.1)
     cli                             ; SS and SP are loaded as a pair, always:
     mov ss, cx                      ; an interrupt between them lands on a
     mov sp, bx                      ; stack that is half of each
@@ -1057,6 +1065,18 @@ dos_int21:
     je .alloc
     cmp ah, 0x49
     je .free
+    cmp ah, 0x3C
+    je .create
+    cmp ah, 0x3D
+    je .open
+    cmp ah, 0x3E
+    je .close
+    cmp ah, 0x3F
+    je .read
+    cmp ah, 0x41
+    je .unlink
+    cmp ah, 0x42
+    je .seek
     jmp .bad
 
 .term:
@@ -1109,7 +1129,7 @@ dos_int21:
     ; here; a real file wants the write wave (DOS-EXEC-PLAN 11 wave 5), and
     ; refusing is what keeps a save from reporting success.
     cmp bx, 2
-    ja .bad
+    ja .fwrite                      ; ...and anything above them is a file
     or bx, bx
     jz .bad                         ; handle 0 is stdin: writing to it is not
     push si                         ; a thing, and DOS answers 0 bytes anyway
@@ -1133,6 +1153,184 @@ dos_int21:
     pop ax                          ; AX = the byte count, which is what a
     pop si                          ; caller checks against CX
     jmp .ok
+; --- the file handles (SPEC.md 96.11) ---------------------------------------
+; EVERY ONE OF THESE BANKS BX, because it is the handle a program keeps there
+; across a read loop and DOS preserves every register but a call's documented
+; outputs. dos_fh_slot spends it turning a handle into an index.
+.fherr:                             ; AL = a DOS error code
+    pop bx
+    xor ah, ah
+    jmp .badax
+.fnoent:
+    mov al, 2                       ; file not found
+    jmp short .fherr
+.fmany:
+    mov al, 4                       ; too many open files
+    jmp short .fherr
+.fhbad:
+    mov al, 6                       ; invalid handle
+    jmp short .fherr
+.fhacc:
+    mov al, 5                       ; access denied - and it is the honest
+    jmp short .fherr                ; answer for every write this layer cannot
+                                    ; make (SPEC.md 96.11.2)
+.fhok:
+    pop bx
+    jmp .ok
+
+.open:
+    ; AH=3Dh: DS:DX = an ASCIZ name, AL = the access mode; out AX = a handle.
+    ; THE MODE IS NOT HONOURED and the handle is read-only whatever it says,
+    ; because OSAPI_FILE_APPEND refuses a file whose size is not a cluster
+    ; multiple - so there is no in-place write to give. A program that opens
+    ; for writing gets its refusal at the WRITE, naming the call, rather than
+    ; at the open naming nothing.
+    push bx
+    call dos_fh_name
+    jc .fherr
+    call dos_fh_stat                ; fills [dos_fent]
+    jc .fnoent
+    call dos_fh_new                 ; BX = the handle, SI = the record, zeroed
+    jc .fmany
+    call dos_fh_setname
+    mov ax, [dos_fent+18]
+    mov [si+FH_SIZE], ax
+    mov ax, [dos_fent+20]
+    mov [si+FH_SIZE+2], ax
+    mov byte [si+FH_FLAGS], FHF_USED
+    test byte [dos_fent+22], OSAPI_FIND_CZ
+    jz .opdone
+    ; A COMPRESSED FILE CANNOT BE READ THROUGH THE WINDOW AT ALL: READ_AT is
+    ; raw (SPEC.md 20.14.3), so it would deliver the wrapper. Small ones are
+    ; read WHOLE instead, which expands - and the margin is the SDK's own,
+    ; the packed bytes landing high in the buffer and expanding downwards.
+    mov ax, [si+FH_SIZE+2]
+    or ax, ax
+    jnz .opbig
+    mov ax, [si+FH_SIZE]
+    add ax, 128
+    jc .opbig
+    cmp ax, [dos_wbytes]
+    ja .opbig
+    or byte [si+FH_FLAGS], FHF_WHOLE
+.opdone:
+    mov ax, bx                      ; AX = the handle
+    jmp .fhok
+.opbig:
+    mov byte [si+FH_FLAGS], 0       ; hand the slot back: a refused open must
+    jmp short .fhacc                ; not spend one
+
+.create:
+    ; AH=3Ch: DS:DX = an ASCIZ name, CX = attributes; out AX = a handle. The
+    ; file is not touched until the first window flushes, which is also what
+    ; makes the truncate free - the first flush REPLACES.
+    push bx
+    call dos_fh_name
+    jc .fherr
+    call dos_fh_new
+    jc .fmany
+    call dos_fh_setname
+    mov byte [si+FH_FLAGS], FHF_USED | FHF_WRITE
+    mov ax, bx
+    jmp .fhok
+
+.close:
+    ; AH=3Eh: BX = the handle.
+    push bx
+    call dos_fh_slot                ; SI = the record, BX = its index
+    jc .fhbad
+    cmp bl, [dos_wown]
+    jne .clnw
+    call dos_fh_flush
+    jc .fherr
+.clnw:
+    test byte [si+FH_FLAGS], FHF_WRITE
+    jz .cldone
+    test byte [si+FH_FLAGS], FHF_MADE
+    jnz .cldone
+    call dos_fh_touch               ; created, never written: DOS leaves a
+    jc .fherr                       ; zero-length file and so does this
+.cldone:
+    mov byte [si+FH_FLAGS], 0
+    xor ax, ax
+    jmp .fhok
+
+.read:
+    ; AH=3Fh: BX = the handle, CX = bytes, DS:DX = the buffer; out AX = the
+    ; bytes delivered, 0 meaning end of file.
+    push bx
+    call dos_fh_slot
+    jc .fhrdev
+    call dos_fh_rdloop              ; AX = delivered
+    jc .fherr
+    jmp .fhok
+.fhrdev:
+    cmp bx, DOS_FH0                 ; a DEVICE handle: stdin has no line editor
+    jae .fhbad                      ; here, so it is at end of file, which is
+    xor ax, ax                      ; what a program reading it will act on
+    jmp .fhok
+
+.fwrite:
+    ; AH=40h with a file handle: BX, CX and DS:DX as .write's.
+    push bx
+    call dos_fh_slot
+    jc .fhbad
+    test byte [si+FH_FLAGS], FHF_WRITE
+    jz .fhacc
+    mov ax, [si+FH_POS]             ; APPEND-ONLY, and the refusal is the point
+    cmp ax, [si+FH_SIZE]            ; (SPEC.md 96.11.2): a write anywhere but
+    jne .fhacc                      ; the end is one this layer cannot make,
+    mov ax, [si+FH_POS+2]           ; and reporting success for it would lose
+    cmp ax, [si+FH_SIZE+2]          ; the program's data silently
+    jne .fhacc
+    call dos_fh_wrloop
+    jc .fherr
+    jmp .fhok
+
+.unlink:
+    ; AH=41h: DS:DX = an ASCIZ name.
+    push bx
+    call dos_fh_name
+    jc .fherr
+    push si
+    mov si, dos_fname
+    call dos_be_delete
+    pop si
+    jc .fhacc
+    xor ax, ax
+    jmp .fhok
+
+.seek:
+    ; AH=42h: AL = the origin, BX = the handle, CX:DX = a SIGNED offset; out
+    ; DX:AX = the new position.
+    push bx
+    mov ah, al                      ; AL is about to be spent
+    call dos_fh_slot
+    jc .fhbad
+    cmp ah, 2
+    ja .fhacc
+    or ah, ah
+    jnz .skcur
+    xor ax, ax                      ; origin 0: from the start
+    xor bx, bx
+    jmp short .skadd
+.skcur:
+    dec ah
+    jnz .skend
+    mov ax, [si+FH_POS]             ; origin 1: from here
+    mov bx, [si+FH_POS+2]
+    jmp short .skadd
+.skend:
+    mov ax, [si+FH_SIZE]            ; origin 2: from the end
+    mov bx, [si+FH_SIZE+2]
+.skadd:
+    add ax, dx
+    adc bx, cx
+    mov [si+FH_POS], ax
+    mov [si+FH_POS+2], bx
+    mov dx, bx
+    jmp .fhok
+
 .resize:
     ; AH=4Ah: ES = the block, BX = the paragraphs wanted (SPEC.md 96.9).
     call dos_mcb_resize
@@ -1186,7 +1384,8 @@ dos_terminate:
     mov ax, [cs:dos_sv_ss]          ; stack is about to stop existing
     mov ss, ax
     mov sp, [cs:dos_sv_sp]
-    sti
+    mov byte [cs:dos_onprog], 0     ; back on the UI task's own stack, so a
+    sti                             ; back-end call stops borrowing it
     push cs                         ; ...and back into dos_fsx_main's flow with
     pop ds                          ; our own DS, which every proc below wants
     jmp dos_prog_done
@@ -1279,13 +1478,83 @@ dos_tty:
 ; -----------------------------------------------------------------------------
 DBE_GOTO    equ 0                   ; DX = dir cluster, BL = volume
 DBE_READ    equ 2                   ; SI = name, ES:BX = buffer, DX:CX = cap
-DBE_NENT    equ 2
+DBE_FIND    equ 4                   ; CX = ordinal, ES:DI = OSAPI_FIND_SZ buf
+DBE_RDAT    equ 6                   ; SI = name, ES:BX = buf, CX = cap,
+                                    ;   DX:AX = offset; out DX:AX = delivered
+DBE_WRITE   equ 8                   ; SI = name, ES:BX = bytes, DX:CX = count
+DBE_APPEND  equ 10                  ; SI = name, ES:BX = bytes, CX = count
+DBE_DELETE  equ 12                  ; SI = name
+DBE_DFREE   equ 14                  ; out BX = SECTORS per cluster
+DBE_NENT    equ 8
 
 dos_be_goto:
-    jmp word [dos_be + DBE_GOTO]
-
+    mov word [dos_betgt], dos_k_goto
+    jmp short dos_be_go
 dos_be_read:
-    jmp word [dos_be + DBE_READ]
+    mov word [dos_betgt], dos_k_read
+    jmp short dos_be_go
+dos_be_find:
+    mov word [dos_betgt], dos_k_find
+    jmp short dos_be_go
+dos_be_rdat:
+    mov word [dos_betgt], dos_k_rdat
+    jmp short dos_be_go
+dos_be_write:
+    mov word [dos_betgt], dos_k_write
+    jmp short dos_be_go
+dos_be_append:
+    mov word [dos_betgt], dos_k_append
+    jmp short dos_be_go
+dos_be_delete:
+    mov word [dos_betgt], dos_k_delete
+    jmp short dos_be_go
+dos_be_dfree:
+    mov word [dos_betgt], dos_k_dfree
+
+; -----------------------------------------------------------------------------
+; dos_be_go - the one door, and it SWAPS THE STACK (SPEC.md 96.4.1)
+; in:  [dos_betgt] = the dos_k_* to run; every register is its argument
+; out: whatever the slot answers, flags included
+;
+; A KERNEL FILE CALL MAY NOT RUN ON THE DOS PROGRAM'S STACK. Inside the
+; bracket SS is the program's - a segment in the middle of the arena - and
+; every os8088 context has SS = LOW_SEG (SPEC.md 2.1); the scheduler tests
+; for exactly that and declines to switch when it does not hold (SPEC.md 8.5),
+; which is safe for a short call and is not what a multi-sector disk write is.
+; The symptom is the whole reason this comment is long: OSAPI_FILE_WRITE was
+; ENTERED and never came back, the bracket was torn down, and the window said
+; `Exit code 000` - a program that ran and exited cleanly, from the outside.
+;
+; So the call runs on the UI TASK's own stack, which is where the rest of the
+; package's file work already runs - [dos_sv_ss]/[dos_sv_sp], banked by
+; dos_fsx_main at the deepest point it reaches, so what is reused below that
+; point is stack nothing else is holding.
+;
+; OUTSIDE the bracket it must NOT swap: dos_run's own load is already on that
+; stack and [dos_sv_sp] is not yet a number. [dos_onprog] is the test, set at
+; the jump into the program and cleared by dos_terminate with SS:SP.
+; -----------------------------------------------------------------------------
+dos_be_go:
+    cmp byte [dos_onprog], 0
+    je .direct
+    cli                             ; SS and SP move as a pair, as everywhere
+    mov [dos_bk_ss], ss             ; else in this file: an interrupt between
+    mov [dos_bk_sp], sp             ; them lands on a stack that is half of
+    mov ss, [dos_sv_ss]             ; each
+    mov sp, [dos_sv_sp]
+    sti
+    call word [dos_betgt]
+    pushf                           ; the answer's FLAGS are on the UI stack
+    pop word [dos_beflg]            ; and the `ret` below is on the program's,
+    cli                             ; so they are banked ACROSS the swap and
+    mov ss, [dos_bk_ss]             ; not carried on either
+    mov sp, [dos_bk_sp]
+    sti
+    push word [dos_beflg]
+    popf
+    ret
+.direct:
+    jmp word [dos_betgt]
 
 ; --- the os8088 implementation ------------------------------------------------
 dos_k_goto:
@@ -1307,6 +1576,30 @@ dos_k_goto:
 
 dos_k_read:
     call OSAPI_FILE_READ
+    ret
+
+dos_k_find:
+    call OSAPI_FILE_FIND
+    ret
+
+dos_k_rdat:
+    call OSAPI_FILE_READ_AT
+    ret
+
+dos_k_write:
+    call OSAPI_FILE_WRITE
+    ret
+
+dos_k_append:
+    call OSAPI_FILE_APPEND
+    ret
+
+dos_k_delete:
+    call OSAPI_FILE_DELETE
+    ret
+
+dos_k_dfree:
+    call OSAPI_FILE_DFREE
     ret
 
 ; =============================================================================
@@ -1491,6 +1784,12 @@ dos_ttl:    db 'DOS', 0
 dos_be:                             ; the table, in DBE_* order
     dw dos_k_goto
     dw dos_k_read
+    dw dos_k_find
+    dw dos_k_rdat
+    dw dos_k_write
+    dw dos_k_append
+    dw dos_k_delete
+    dw dos_k_dfree
 
 ; --- the BDA's RESTORE list (SPEC.md 96.5): offset, bytes, 0xFFFF ends it ----
 ; Every span here is a field the KERNEL reads, or one whose stale value would
@@ -2027,6 +2326,732 @@ dos_mcb_resize:
     DBSS DOS_B_XFSEG, 2
     DBSS DOS_B_XLSEG, 2
     DBSS DOS_B_XHPAR, 2
+
+; =============================================================================
+; FILE HANDLES (SPEC.md 96.11)
+; =============================================================================
+; os8088 HAS NO FILE HANDLE ANYWHERE. The whole published API is by NAME and
+; by WHOLE FILE - read a file into a buffer you sized, write or replace one
+; from a buffer - so the handle layer is built here, out of those pieces, and
+; docs/plans/DOS-EXEC-PLAN.md 6.3 is the design record for why it is here
+; rather than in the kernel.
+;
+; What makes it work at all is ONE WINDOW: a buffer carved off the top of the
+; arena before the program is told how much memory it has, holding a
+; cluster-aligned span of one file. A read inside the window is a `movsb`; a
+; read outside it refills with OSAPI_FILE_READ_AT, whose offset and capacity
+; must BOTH be cluster multiples, which is the whole reason the window is
+; aligned and cluster-sized rather than 512 bytes or "big".
+;
+; ONE handle owns the window at a time. Two open files interleaved thrash it
+; and are correct; the alternative is a buffer per handle and the arena is the
+; program's, not ours.
+;
+; WRITES ARE SEQUENTIAL, and that is the API's shape rather than a shortcut:
+; OSAPI_FILE_APPEND refuses a file whose size is not a whole number of
+; clusters, so the only append that can ever work is one onto a file this
+; layer itself wrote in whole windows. A create-then-write-then-close is
+; therefore exact, and a write anywhere else REFUSES (SPEC.md 96.11.2) rather
+; than reporting a success it did not have.
+DOS_FH0     equ 5                   ; 0..4 are the five devices DOS opens for
+DOS_NFH     equ 8                   ; every process; files start after them
+FH_NAME     equ 0                   ; char[13], NUL-terminated
+FH_FLAGS    equ 13
+FH_POS      equ 14                  ; dword
+FH_SIZE     equ 18                  ; dword
+FH_SIZEOF   equ 22
+FHF_USED    equ 1
+FHF_WRITE   equ 2                   ; opened by AH=3Ch: writes are accepted
+FHF_MADE    equ 4                   ; ...and at least one window has been
+                                    ; flushed, so the next one APPENDS
+FHF_WHOLE   equ 8                   ; a COMPRESSED file, read whole and
+                                    ; expanded: the window is the file and
+                                    ; never refills (SPEC.md 96.11.1)
+
+DOS_WKB     equ 8                   ; the window's floor in KB; a volume whose
+                                    ; cluster is bigger gets a window of one
+                                    ; cluster instead, because READ_AT cannot
+                                    ; be asked for less
+
+; -----------------------------------------------------------------------------
+; dos_fh_setup - size and place the window, and take it OUT of the arena
+; in:  [dos_arena] and [dos_apara] are set; called from dos_run
+; out: CF=0, [dos_apara] reduced; CF=1 with AL = DER_MEM if the arena cannot
+;      spare it
+; -----------------------------------------------------------------------------
+dos_fh_setup:
+    push bx
+    push cx
+    push dx
+
+    push di
+    push es
+    push ds
+    pop es
+    mov di, dos_fhtab               ; a launch starts with nothing open, and
+    mov cx, FH_SIZEOF * DOS_NFH     ; saying so costs six bytes against a
+    xor al, al                      ; stale handle surviving into a second run
+    cld
+    rep stosb
+    pop es
+    pop di
+
+    mov byte [dos_wown], 0xFF       ; nobody owns it yet
+    mov word [dos_wlen], 0
+    mov byte [dos_wdirty], 0
+    mov byte [dos_wfill], 0
+
+    call dos_be_dfree               ; BX = SECTORS per cluster, and this is the
+    jc .guess                       ; O(clusters) call the SDK warns about, so
+    or bx, bx                       ; it is asked ONCE per launch and never in
+    jnz .got                        ; a loop
+.guess:
+    mov bx, 2                       ; a volume that will not say: 1KB, which is
+.got:                               ; the 360KB floppy's own and is a multiple
+    mov cl, 9                       ; of every smaller one
+    shl bx, cl                      ; sectors -> bytes
+    mov [dos_cbytes], bx
+
+    mov ax, DOS_WKB * 1024
+    cmp bx, ax                      ; a cluster larger than the floor IS the
+    jbe .round                      ; window: READ_AT cannot be asked for a
+    mov ax, bx                      ; capacity that is not a multiple of one
+    jmp short .have
+.round:
+    xor dx, dx                      ; ...otherwise the largest multiple of the
+    div bx                          ; cluster that fits the floor, which for
+    mul bx                          ; every power-of-two cluster IS the floor
+.have:
+    mov [dos_wbytes], ax
+    mov cl, 4
+    shr ax, cl                      ; bytes -> paragraphs; the window is always
+    mov cx, ax                      ; a cluster multiple and so paragraph-round
+
+    mov ax, [dos_apara]
+    sub ax, cx
+    jc .nomem
+    cmp ax, DOS_PSPP + 0x100        ; 4KB past the PSP, or there is no program
+    jb .nomem                       ; worth starting
+    mov [dos_apara], ax
+    add ax, [dos_arena]
+    mov [dos_wseg], ax              ; ...which is the paragraph the arena now
+    clc                             ; ends at, so the program can never see it
+    jmp short .out
+.nomem:
+    mov al, DER_MEM
+    stc
+.out:
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_fh_setname - [dos_fname] into the record at SI
+; in:  SI = the record; out: nothing, every register preserved
+; -----------------------------------------------------------------------------
+dos_fh_setname:
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    mov di, si
+    add di, FH_NAME
+    mov si, dos_fname
+    mov cx, 13
+    cld
+    rep movsb
+    pop es
+    pop di
+    pop si
+    pop cx
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_fh_touch - make the zero-length file the record at SI names
+; in:  SI = the record; out: CF=1 with AL = a DOS error code
+; -----------------------------------------------------------------------------
+dos_fh_touch:
+    push bx
+    push cx
+    push dx
+    push si
+    push es
+    push ds
+    pop es                          ; a count of 0 reads no buffer, but ES:BX
+    xor bx, bx                      ; still has to be an address
+    xor cx, cx
+    xor dx, dx
+    add si, FH_NAME
+    call dos_be_write
+    pop es
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    jc .err
+    or byte [si+FH_FLAGS], FHF_MADE
+    clc
+    ret
+.err:
+    mov al, 5
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_fh_rdloop - AH=3Fh's body
+; in:  SI = the record, CX = the bytes wanted, DX = the offset in the
+;      PROGRAM's segment, [bp] = its DS
+; out: CF=0 with AX = the bytes delivered (0 = end of file); CF=1 with AL = a
+;      DOS error code
+;
+; THE COUNT LIVES IN BX and not in CX, because dos_fh_fill answers a chunk
+; size in CX and `rep movsb` eats it - a loop counter in the same register as
+; the primitive's answer is one that reads as a short read.
+; -----------------------------------------------------------------------------
+dos_fh_rdloop:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+
+    mov di, dx                      ; ES:DI walks the PROGRAM's buffer
+    mov es, [bp]
+    xor dx, dx                      ; ...and DX counts what has been delivered
+
+    mov ax, [si+FH_SIZE]            ; NEVER PAST THE END, which is what turns a
+    sub ax, [si+FH_POS]             ; read loop round: DOS answers short and
+    mov bx, ax                      ; then 0, and a program reads until 0
+    mov ax, [si+FH_SIZE+2]
+    sbb ax, [si+FH_POS+2]
+    jc .rdone                       ; the position is past the size
+    jnz .rcap                       ; 64KB or more left, so the ask binds
+    cmp bx, cx
+    jae .rcap
+    mov cx, bx
+.rcap:
+    mov bx, cx
+.rchunk:
+    or bx, bx
+    jz .rdone
+    call dos_fh_fill                ; AX = the offset in the window, CX = what
+    jc .rerr                        ; is there
+    jcxz .rdone                     ; end of file inside the walk
+    cmp cx, bx
+    jbe .rcopy
+    mov cx, bx
+.rcopy:
+    push cx
+    push si
+    push ds
+    mov si, ax
+    mov ax, [dos_wseg]
+    mov ds, ax
+    cld
+    rep movsb                       ; the window -> the program's buffer, and
+    pop ds                          ; DI is left advanced, which is the point
+    pop si
+    pop cx
+    sub bx, cx
+    add dx, cx
+    add [si+FH_POS], cx
+    adc word [si+FH_POS+2], 0
+    jmp short .rchunk
+.rdone:
+    mov ax, dx
+    clc
+    jmp short .rout
+.rerr:
+    stc
+.rout:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_fh_wrloop - AH=40h's body for a file handle
+; in:  SI = the record, CX = the bytes, DX = the offset in the PROGRAM's
+;      segment, [bp] = its DS
+; out: CF=0 with AX = the bytes written; CF=1 with AL = a DOS error code
+; -----------------------------------------------------------------------------
+dos_fh_wrloop:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+
+    mov di, dx                      ; DI walks the PROGRAM's buffer
+    mov bx, cx                      ; BX = what is still to go
+    xor dx, dx                      ; DX counts what has gone in
+.wchunk:
+    or bx, bx
+    jz .wdone
+    call dos_fh_take                ; for a write the window is an accumulator
+    jc .werr                        ; rather than a view
+    mov cx, [dos_wbytes]
+    sub cx, [dos_wlen]
+    jnz .wroom
+    call dos_fh_flush               ; full - and a full window is a cluster
+    jc .werr                        ; multiple, which is what keeps the next
+    mov cx, [dos_wbytes]            ; APPEND legal
+.wroom:
+    cmp cx, bx
+    jbe .wcopy
+    mov cx, bx
+.wcopy:
+    push cx
+    push si
+    push ds
+    mov si, di                      ; source: the program's buffer
+    mov di, [dos_wlen]              ; destination: the window's free end, read
+    mov ax, [dos_wseg]              ; while DS is still OURS
+    mov es, ax
+    mov ds, [bp]
+    cld
+    rep movsb
+    pop ds
+    mov di, si                      ; the source pointer, advanced by the copy
+    pop si
+    pop cx
+    add [dos_wlen], cx
+    mov byte [dos_wdirty], 1
+    sub bx, cx
+    add dx, cx
+    add [si+FH_POS], cx             ; a sequential write moves both, and they
+    adc word [si+FH_POS+2], 0       ; stay equal, which is the invariant
+    add [si+FH_SIZE], cx            ; .fwrite refuses on
+    adc word [si+FH_SIZE+2], 0
+    jmp short .wchunk
+.wdone:
+    mov ax, dx
+    clc
+    jmp short .wout
+.werr:
+    stc
+.wout:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_fh_slot - the record for handle BX
+; in:  BX = a DOS handle
+; out: CF=0 with SI = the record and BX = the index 0..DOS_NFH-1; CF=1 if it
+;      is not an open file handle
+; -----------------------------------------------------------------------------
+dos_fh_slot:
+    push ax
+    cmp bx, DOS_FH0
+    jb .no
+    cmp bx, DOS_FH0 + DOS_NFH
+    jae .no
+    sub bx, DOS_FH0
+    mov ax, FH_SIZEOF
+    mul bl
+    mov si, ax
+    add si, dos_fhtab
+    test byte [si+FH_FLAGS], FHF_USED
+    jz .no
+    mov [dos_fhix], bl              ; THE INDEX LIVES HERE and not in a
+    pop ax                          ; register: the window's owner is asked
+    clc                             ; for at four call sites down two levels,
+    ret                             ; and threading BL through all of them is
+                                    ; how one of them ends up holding a count
+.no:
+    pop ax
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_fh_new - the first free handle
+; out: CF=0 with BX = the DOS handle and SI = the record, zeroed; CF=1 if the
+;      table is full
+; -----------------------------------------------------------------------------
+dos_fh_new:
+    push ax
+    push cx
+    push di
+    push es
+    push ds
+    pop es
+    mov si, dos_fhtab
+    xor bx, bx
+.scan:
+    test byte [si+FH_FLAGS], FHF_USED
+    jz .free
+    add si, FH_SIZEOF
+    inc bx
+    cmp bx, DOS_NFH
+    jb .scan
+    stc
+    jmp short .out
+.free:
+    mov [dos_fhix], bl
+    mov di, si                      ; a reused slot must not inherit a stale
+    mov cx, FH_SIZEOF               ; name or position from the last program's
+    xor al, al                      ; file
+    cld
+    rep stosb
+    add bx, DOS_FH0
+    clc
+.out:
+    pop es
+    pop di
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_fh_name - copy a program's ASCIZ path into [dos_fname], 8.3 and upper
+; in:  DX = the offset in the PROGRAM's segment, [bp] = its DS
+; out: CF=0; CF=1 with AL = a DOS error code for a path this wave cannot walk
+; clobbers: nothing else
+;
+; A DRIVE LETTER THAT NAMES OUR OWN VOLUME IS STRIPPED AND NOT REFUSED - it is
+; what a program echoes back out of its own command line - and a SUBDIRECTORY
+; is refused with "path not found" rather than silently opened in the current
+; one, which would hand the program the wrong file under the right name.
+; -----------------------------------------------------------------------------
+dos_fh_name:
+    push bx
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    mov di, dos_fname
+    mov si, dx
+    mov ds, [bp]                    ; the program's, off the frame
+    mov cx, 13
+
+    cmp byte [si+1], ':'            ; "C:NAME" - drop the drive, whatever it
+    jne .nodrv                      ; is: the map is the identity with one
+    add si, 2                       ; hole in it (SPEC.md 96.6) and a program
+.nodrv:                             ; that names its own is naming ours
+    cmp byte [si], '.'              ; ".\NAME" and "./NAME"
+    jne .nodot
+    cmp byte [si+1], '\'
+    je .skip2
+    cmp byte [si+1], '/'
+    jne .nodot
+.skip2:
+    add si, 2
+.nodot:
+.copy:
+    lodsb
+    cmp al, '\'                     ; a separator ANYWHERE past here is a path,
+    je .path                        ; and this wave stands in one directory
+    cmp al, '/'
+    je .path
+    cmp al, 'a'
+    jb .store
+    cmp al, 'z'
+    ja .store
+    sub al, 32                      ; 8.3 names are upper case on the disk
+.store:
+    stosb
+    or al, al
+    jz .done
+    loop .copy
+    mov al, 3                       ; longer than 8.3 can be: "path not found"
+    jmp short .bad
+.path:
+    mov al, 3
+.bad:
+    push es
+    pop ds
+    stc
+    jmp short .out
+.done:
+    push es
+    pop ds
+    clc
+.out:
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_fh_stat - find [dos_fname] in the current directory
+; out: CF=0 with DX:AX = its size and BL = OSAPI_FIND_CZ bits; CF=1 if there
+;      is no such file
+; -----------------------------------------------------------------------------
+dos_fh_stat:
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    xor cx, cx
+.next:
+    mov di, dos_fent
+    call dos_be_find
+    jc .no
+    cmp word [dos_fent+14], OSAPI_FT_DIR
+    jae .next                       ; a folder is not a file, and '..' is not
+    mov si, dos_fname               ; either
+    mov di, dos_fent
+    call dos_streq
+    jne .next
+    mov ax, [dos_fent+18]
+    mov dx, [dos_fent+20]
+    mov bl, [dos_fent+22]
+    pop es
+    pop di
+    pop si
+    pop cx
+    clc
+    ret
+.no:
+    pop es
+    pop di
+    pop si
+    pop cx
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_streq - compare the NUL-terminated strings at DS:SI and ES:DI
+; out: ZF=1 equal; clobbers nothing but the flags
+; -----------------------------------------------------------------------------
+dos_streq:
+    push si
+    push di
+    push ax
+.loop:
+    mov al, [si]
+    cmp al, [es:di]
+    jne .out
+    or al, al
+    jz .out
+    inc si
+    inc di
+    jmp short .loop
+.out:
+    pop ax
+    pop di
+    pop si
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_fh_flush - write the window out if it is dirty
+; out: CF=0; CF=1 with AL = a DOS error code. Preserves everything else.
+;
+; THE FIRST FLUSH REPLACES AND EVERY ONE AFTER IT APPENDS, which is exactly
+; what makes AH=3Ch's truncate free and what keeps OSAPI_FILE_APPEND's
+; cluster-multiple rule satisfied: a window is a cluster multiple by
+; construction, so the file's size is one until the LAST flush - which is
+; allowed to be short because nothing appends after it.
+; -----------------------------------------------------------------------------
+dos_fh_flush:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push es
+
+    cmp byte [dos_wdirty], 0
+    je .ok
+    mov bl, [dos_wown]
+    cmp bl, 0xFF
+    je .ok
+    mov cx, [dos_wlen]
+    jcxz .clean
+
+    xor bh, bh
+    mov al, FH_SIZEOF
+    mul bl
+    mov si, ax
+    add si, dos_fhtab
+    mov al, [si+FH_FLAGS]
+    add si, FH_NAME
+    mov bx, [dos_wseg]
+    mov es, bx
+    xor bx, bx
+    test al, FHF_MADE
+    jnz .append
+    xor dx, dx
+    call dos_be_write
+    jc .err
+    sub si, FH_NAME
+    or byte [si+FH_FLAGS], FHF_MADE
+    jmp short .clean
+.append:
+    call dos_be_append
+    jc .err
+.clean:
+    mov byte [dos_wdirty], 0
+    mov word [dos_wlen], 0
+.ok:
+    clc
+    jmp short .out
+.err:
+    mov byte [dos_wdirty], 0        ; do not retry it for ever - one write that
+    mov word [dos_wlen], 0          ; will not go is reported once
+    pop es
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    mov al, 5                       ; "access denied", which is what DOS
+    stc                             ; answers for a write that will not go
+    ret
+.out:
+    pop es
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_fh_take - give the window to the handle [dos_fhix] names
+; out: CF=1 with AL = a DOS error if the previous owner would not flush
+; -----------------------------------------------------------------------------
+dos_fh_take:
+    push bx
+    mov bl, [dos_fhix]
+    cmp bl, [dos_wown]
+    je .mine
+    call dos_fh_flush
+    jc .out
+    mov bl, [dos_fhix]
+    mov [dos_wown], bl
+    mov word [dos_wlen], 0
+    mov word [dos_wbase], 0
+    mov word [dos_wbase+2], 0
+    mov byte [dos_wfill], 0         ; ...and the window holds nothing of the
+.mine:                              ; new owner's file yet
+    clc
+.out:
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_fh_fill - make the window cover the handle's current position
+; in:  SI = the record ([dos_fhix] is its index)
+; out: CF=0 with AX = the offset into [dos_wseg] and CX = the bytes available
+;      there, CX = 0 at end of file. CF=1 with AL = a DOS error.
+;      Preserves BX, DX, SI, DI, ES.
+;
+; AX AND NOT DI, because the caller's DI is where the bytes are GOING and a
+; source handed back in it costs a shuffle at every call site.
+; -----------------------------------------------------------------------------
+dos_fh_fill:
+    push bx
+    push dx
+    push es
+
+    call dos_fh_take
+    jc .errp
+
+    cmp byte [dos_wfill], 0         ; is the position already inside it?
+    je .refill
+    mov ax, [si+FH_POS]
+    mov dx, [si+FH_POS+2]
+    sub ax, [dos_wbase]
+    sbb dx, [dos_wbase+2]
+    jc .refill                      ; before the window
+    or dx, dx
+    jnz .refill                     ; more than 64KB past it
+    cmp ax, [dos_wlen]
+    jae .refill
+    mov cx, [dos_wlen]
+    sub cx, ax
+    jmp .okp
+
+.refill:
+    test byte [si+FH_FLAGS], FHF_WHOLE
+    jnz .whole                      ; the window IS the file on that arm, and
+                                    ; it is re-read rather than kept because
+                                    ; another handle may have taken it
+    mov ax, [si+FH_POS]             ; the cluster-aligned base under the
+    mov dx, [si+FH_POS+2]           ; position. The cluster is a power of two,
+    mov bx, [dos_cbytes]            ; so the mask is its own negation
+    neg bx
+    and ax, bx
+    mov [dos_wbase], ax
+    mov [dos_wbase+2], dx
+
+    push si
+    mov bx, [dos_wseg]
+    mov es, bx
+    xor bx, bx
+    mov cx, [dos_wbytes]
+    add si, FH_NAME
+    call dos_be_rdat                ; out DX:AX = the bytes delivered, 0 at or
+    pop si                          ; past the end
+    jc .eof
+    jmp short .got
+.whole:
+    mov word [dos_wbase], 0
+    mov word [dos_wbase+2], 0
+    push si
+    mov bx, [dos_wseg]
+    mov es, bx
+    xor bx, bx
+    mov cx, [dos_wbytes]
+    xor dx, dx
+    add si, FH_NAME
+    call dos_be_read                ; EXPANDS on the way in (SPEC.md 20.14),
+    pop si                          ; which is the whole reason this arm exists
+    jc .eof
+.got:
+    or dx, dx
+    jz .short
+    mov ax, [dos_wbytes]            ; a delivery bigger than the window cannot
+.short:                             ; happen, and clamping is two bytes
+    cmp ax, [dos_wbytes]
+    jbe .set
+    mov ax, [dos_wbytes]
+.set:
+    mov [dos_wlen], ax
+    mov byte [dos_wfill], 1
+    or ax, ax
+    jz .eof
+    mov ax, [si+FH_POS]
+    sub ax, [dos_wbase]
+    cmp ax, [dos_wlen]
+    jae .eof
+    mov cx, [dos_wlen]
+    sub cx, ax
+    jmp short .okp
+.eof:
+    xor cx, cx
+    xor ax, ax
+.okp:
+    clc
+    jmp short .outp
+.errp:
+    stc
+.outp:
+    pop es
+    pop dx
+    pop bx
+    ret
+
     DBSS DOS_B_XNREL, 2
     DBSS DOS_B_XRLOC, 2
     DBSS DOS_B_XMINA, 2
@@ -2036,6 +3061,26 @@ dos_mcb_resize:
     DBSS DOS_B_XSS,   2
     DBSS DOS_B_XSP,   2
     DBSS DOS_B_FSI,   FSI_SIZE
+    DBSS DOS_B_WSEG,  2        ; the file window (SPEC.md 96.11): the
+    DBSS DOS_B_WBYTES,2        ; paragraph it starts at and its size, which
+    DBSS DOS_B_CBYTES,2        ; is a multiple of the volume's cluster
+    DBSS DOS_B_WOWN,  1        ; the handle index holding it, 0xFF = nobody
+    DBSS DOS_B_WFILL, 1        ; ...and whether it holds anything of that
+    DBSS DOS_B_WDIRTY,1        ; file, which "0 bytes at offset 0" cannot say
+    DBSS DOS_B_WPAD,  1
+    DBSS DOS_B_WBASE, 4        ; the file offset it starts at
+    DBSS DOS_B_WLEN,  2        ; ...and the valid bytes in it
+    DBSS DOS_B_FNAME, 16       ; the 8.3 name a call named
+    DBSS DOS_B_FENT,  OSAPI_FIND_SZ
+    DBSS DOS_B_BKSS,  2
+    DBSS DOS_B_BKSP,  2
+    DBSS DOS_B_BETGT, 2        ; the back end's own three words
+    DBSS DOS_B_BEFLG, 2
+    DBSS DOS_B_ONPRG, 1
+    DBSS DOS_B_ONPAD, 1
+    DBSS DOS_B_FHIX,  1        ; the window owner's index, set by every
+    DBSS DOS_B_FHPAD, 1        ; slot resolution rather than threaded
+    DBSS DOS_B_FHTAB, FH_SIZEOF * DOS_NFH
     DBSS DOS_B_IVT,   1024
     DBSS DOS_B_BDA,   256
 DOS_BSS_SIZE equ DB
@@ -2080,6 +3125,23 @@ dos_mou_px  equ os88_image_end + DOS_B_MPX     ; button number, so they are a
 dos_mou_py  equ os88_image_end + DOS_B_MPY     ; pair and not two names
 dos_mou_rx  equ os88_image_end + DOS_B_MRX
 dos_mou_ry  equ os88_image_end + DOS_B_MRY
+dos_wseg    equ os88_image_end + DOS_B_WSEG
+dos_wbytes  equ os88_image_end + DOS_B_WBYTES
+dos_cbytes  equ os88_image_end + DOS_B_CBYTES
+dos_wown    equ os88_image_end + DOS_B_WOWN
+dos_wfill   equ os88_image_end + DOS_B_WFILL
+dos_wdirty  equ os88_image_end + DOS_B_WDIRTY
+dos_wbase   equ os88_image_end + DOS_B_WBASE
+dos_wlen    equ os88_image_end + DOS_B_WLEN
+dos_fname   equ os88_image_end + DOS_B_FNAME
+dos_fent    equ os88_image_end + DOS_B_FENT
+dos_bk_ss   equ os88_image_end + DOS_B_BKSS
+dos_bk_sp   equ os88_image_end + DOS_B_BKSP
+dos_betgt   equ os88_image_end + DOS_B_BETGT
+dos_beflg   equ os88_image_end + DOS_B_BEFLG
+dos_onprog  equ os88_image_end + DOS_B_ONPRG
+dos_fhix    equ os88_image_end + DOS_B_FHIX
+dos_fhtab   equ os88_image_end + DOS_B_FHTAB
 dos_imghi   equ os88_image_end + DOS_B_IMGHI   ; word: the file's size, high
 dos_exe_fseg equ os88_image_end + DOS_B_XFSEG  ; word: where the FILE landed
 dos_exe_lseg equ os88_image_end + DOS_B_XLSEG  ; word: ...and the load segment

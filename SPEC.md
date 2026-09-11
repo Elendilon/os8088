@@ -118451,6 +118451,54 @@ It is the shape the system already uses twice one layer down: `DSV_BLK` lets
 `dsk_xfer` serve a volume through the BIOS or a driver without knowing which
 (§18.7), and `DSV_FS`'s `FSV_*` table does it for a whole file system (§51.8).
 
+#### 96.4.1 A kernel file call may not run on the DOS program's stack
+
+Inside the bracket `SS` is the **program's** — a segment in the middle of the
+arena, because that is where a `.COM`'s stack is and where an `.EXE`'s header
+puts one. Every os8088 context has `SS = LOW_SEG` (§2.1), and the scheduler
+tests for exactly that: `sch_switch` declines to switch when `SS` is not
+`LOW_SEG` (§8.5), which is right for a short foreign-stack window and is not
+what a multi-sector disk write is.
+
+The symptom is why this is a section rather than a comment. `OSAPI_FILE_WRITE`
+was **entered and never came back**: the bracket was torn down, the desktop
+returned, and the package's own window said *"The program has finished. Exit
+code 000"* — which is a program that ran and exited cleanly, from the outside.
+Nothing pointed at a stack. It was found by printing a character through the
+ROM teletype either side of the far call and watching the second one never
+arrive.
+
+So **every** back-end entry goes through one door, `dos_be_go`, which runs the
+call on the **UI task's own stack** — `[dos_sv_ss]`/`[dos_sv_sp]`, banked by
+`dos_fsx_main` at the deepest point it reaches, so what is reused below that
+point is stack nothing else is holding. That is also where the rest of the
+package's file work already runs: `dos_load` reads the program there, before
+the bracket opens.
+
+Three details that are each load-bearing:
+
+- **Outside the bracket it must not swap.** `dos_run`'s own load is already on
+  that stack and `[dos_sv_sp]` is not yet a number. `[dos_onprog]` is the
+  test, set at the jump into the program and cleared by `dos_terminate` in the
+  same breath as `SS:SP`.
+- **The answer's flags are banked across the swap.** `pushf` lands on the UI
+  stack and the `ret` is on the program's, so a `pushf`/`popf` pair straddling
+  the restore reads a word it never wrote. They go through memory.
+- **`SS` and `SP` move as a pair under `cli`**, as everywhere else in this
+  file — an interrupt between them lands on a stack that is half of each.
+
+**What it costs is depth on a 510-byte stack**, and it was measured rather
+than assumed: the deepest `SP` seen on task 0's stack while a DOS program
+wrote 20,480 bytes — three window flushes and three refills — is **258 of 510
+bytes used, 252 free**. That is a sampled floor and not a watermark, so read
+it as "comfortably under half" rather than as an exact peak; the canary is
+live throughout, because it is checked on exactly the ticks where `SS` is
+`LOW_SEG`, which is precisely the window this opens.
+
+This is the one thing the back-end indirection (§96.4) turned out to be worth
+on its own terms, before the hibernate phase it was built for: there is one
+place to put this, and it was already there.
+
 ### 96.5 The machine-state ledger
 
 Saved into the package's **own bss** — never into the arena, which is the
@@ -118670,3 +118718,103 @@ count rather than a flag.
   decision rather than taking it.
 - **Everything else answers AX=0**, which is `INT 33h`'s "not supported" and
   what a real driver answers for a function it does not have.
+
+### 96.11 File handles, built on an API that has none
+
+`3Dh` open, `3Ch` create, `3Eh` close, `3Fh` read, `40h` write, `41h` delete,
+`42h` lseek — the calls every DOS program that touches a file makes, over an
+os8088 API that **has no file handle anywhere**. The whole published surface
+is by NAME and by WHOLE FILE: read a file into a buffer you sized, create or
+replace one from a buffer, append to one whose size is a whole number of
+clusters, or read at an offset that is a cluster multiple into a capacity that
+is another. docs/plans/DOS-EXEC-PLAN.md §6.3 is the design record for why the
+layer is built in the package out of those pieces rather than in the kernel,
+and the short form is that **`INT 21h` is the second customer for a seek and
+write-at API, not the first** — os8088's own programs pay the same cost, and
+Tank Attack taking 2–4 seconds over a few bytes of high score is the sharper
+number.
+
+**One window.** A buffer carved off the **top of the arena** before the
+program is ever told how much memory it has, holding a cluster-aligned span of
+one file. A read inside it is a `movsb`; a read outside it refills through
+`OSAPI_FILE_READ_AT`, whose offset *and* capacity must both be cluster
+multiples — which is the whole reason the window is cluster-sized and aligned
+rather than 512 bytes or "big". It is 8KB, or one cluster where a volume's
+cluster is larger than that, because `READ_AT` cannot be asked for less.
+
+Taking it off the top rather than out of the heap is not a convenience: the
+arena is `OSAPI_MEM_AVAIL`'s whole answer (§96.3), so at bracket entry there
+**is** no heap left to claim from. The program sees a block ~8KB smaller and
+no window anywhere in the map it can disagree with.
+
+**One handle owns the window at a time.** Two files open and interleaved
+thrash it and stay correct — the loser's next read refills. A buffer per
+handle would not thrash and would spend the program's memory, which is the
+trade this gets wrong on purpose: the memory is the program's and the
+thrashing is ours.
+
+#### 96.11.1 A COMPRESSED file is read whole, or not at all
+
+`OSAPI_FILE_READ_AT` is **raw** (§20.14.3): a compressed file comes back
+wrapper and all, in on-disk sizes. So a window over one would deliver the
+container rather than the contents, and silently — which is the worst shape a
+wrong answer can have.
+
+`OSAPI_FILE_FIND`'s +22 bit 0 says at open time which kind of file this is. A
+compressed one whose *expanded* size fits the window is read **whole** with
+`OSAPI_FILE_READ`, which expands on the way in, and its window never refills:
+the window is the file. One that does not fit **refuses the open**, with
+"access denied" rather than a handle that would read rubbish.
+
+The margin matters and is the SDK's own: the packed bytes are read high inside
+the buffer and expand downwards, so the buffer needs more room than the file.
+
+This is not a corner on this system. `PKGZ` compresses every package, every
+driver and every data file on a shipped floppy (§20.13.5), so `README.TXT` on
+the system disk is exactly such a file.
+
+#### 96.11.2 Writes are sequential, and the refusal is the point
+
+`OSAPI_FILE_APPEND` refuses a file whose size is not a whole number of
+clusters. So the **only** append that can ever succeed is one onto a file this
+layer itself wrote in whole windows — and that turns into the whole write
+model:
+
+- The **first** flush of a handle `OSAPI_FILE_WRITE`s, which creates or
+  replaces. That is also what makes `3Ch`'s truncate free: the file is not
+  touched until the first flush, and the first flush replaces.
+- **Every flush after it appends**, and is a whole window, so the file's size
+  stays a cluster multiple right up to the last one — which is allowed to be
+  short precisely because nothing appends after it.
+- A `3Ch` that closes having written nothing still leaves a zero-length file,
+  which is what DOS leaves.
+
+Everything else **refuses with "access denied"**, and naming the two cases is
+better than a shim that pretends:
+
+- **A write anywhere but the end of the file.** The handler checks the
+  position against the size and refuses when they differ, so a program that
+  seeks back and writes is told no. Reporting success there would lose the
+  program's data at the *next* flush, silently, which is the failure the
+  refusal exists to prevent (§47).
+- **A write to a handle from `3Dh`.** The access mode is not honoured and the
+  handle is read-only whatever it asked for, for the same reason: there is no
+  in-place write to give. The refusal lands at the WRITE, naming the call,
+  rather than at the open naming nothing — a program that opens for update and
+  only ever reads then works.
+
+`42h` moves the position and is exact for reading. On a write handle it is
+legal and makes the next write refuse unless it lands back at the end, which
+is the honest consequence rather than a special case.
+
+#### 96.11.3 Two register rules this layer is made of
+
+**Every handler banks `BX`.** It is the handle a program keeps there across a
+read loop, and DOS preserves every register but a call's documented outputs —
+while `dos_fh_slot` spends `BX` turning a handle into an index.
+
+**The index lives in `[dos_fhix]`, not in a register.** The window's owner is
+asked for at four call sites down two levels; threading it through all of them
+is how one of them ends up holding a loop counter instead. For the same
+reason `dos_fh_fill` answers the window offset in `AX` and not `DI` — the
+caller's `DI` is where the bytes are *going*.
