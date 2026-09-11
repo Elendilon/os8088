@@ -70,6 +70,29 @@ DOS_PSPP    equ DOS_PRGMCB+1        ; para 10    : the PSP
 DOS_IMGP    equ DOS_PSPP+16         ; para 26    : the image, at PSP:0100
 
 ; --- state -------------------------------------------------------------------
+; THE ARGUMENTS BUFFER IS 128 AND THE FIELD TAKES 127 OF IT (SPEC.md 96.19).
+; That is DOS's limit rather than a choice: PSP:0080 is a length byte, then
+; the text, then an 0Dh, all inside 128 bytes. A field that let a 128th
+; character in would be one the user could type into and not have obeyed.
+DOS_ARGSZ   equ 128
+DOS_ARGMAX  equ 127                 ; ...what LN_MAX gets: 126 characters + NUL
+DOS_PBUF    equ 80                  ; the program's own path for the environment
+
+; The arguments row, measured DOWN from the content origin. The label sits on
+; DOS_LBLY and the box under it, so a 126-tall window has both inside it on a
+; 640x200 CGA - which is the geometry that binds (SPEC.md 39).
+DOS_LBLY    equ 68                  ; the label's baseline
+DOS_FLDY    equ 80                  ; the box's top...
+DOS_FLDH    equ 13                  ; ...and its height, one 8px cell + frame
+DOS_FLDW    equ 256                 ; ...and its width
+
+; os88line.inc is included at the END of this file (its own rule: the header
+; and the icon block are at fixed offsets), and the bss table above needs its
+; block size BEFORE that. So the size is written here and CHECKED against the
+; real one immediately after the include - a mirrored constant with a gate on
+; it, which is what this tree does everywhere two files must agree.
+DOS_LNSZ    equ 20
+
 DST_IDLE    equ 0                   ; launched with no document (wave 7's prompt)
 DST_READY   equ 1                   ; a program is named and not yet run
 DST_RAN     equ 2                   ; it ran; [dos_exit] is its code
@@ -103,6 +126,7 @@ dos_entry:
     call OSAPI_WM_CREATE
     jc .out
     mov [dos_win], bx
+    call dos_fld_init               ; the arguments field (SPEC.md 96.19)
 
     mov ax, dos_wake
     call OSAPI_WM_ONWAKE
@@ -942,9 +966,10 @@ dos_build_psp:
     stosb                           ; ...and the NUL that ends the SET
     mov ax, 1
     stosw
-    mov si, dos_name                ; ...as a bare 8.3 name for now: a real
-.env:                               ; path needs the walk of SPEC.md 96 that
-    lodsb                           ; wave 1 does not have yet
+    call dos_envpath                ; ...and the program's own PATH, which is
+    mov si, dos_pbuf                ; a real one since SPEC.md 19.2.4 - it was
+.env:                               ; a bare 8.3 name while no package could
+    lodsb                           ; name the folder it was launched from
     stosb
     or al, al
     jnz .env
@@ -1023,9 +1048,8 @@ dos_psp_make:
                                     ; default AH=4Bh's block asks for with a 0
     mov word [es:0x50], 0x21CD      ; INT 21h / RETF, the DOS 2+ call gate
     mov byte [es:0x52], 0xCB
-    mov byte [es:0x80], 0           ; an empty command tail, and the 0Dh that
-    mov byte [es:0x81], 0x0D        ; terminates it - a program that parses its
-                                    ; own arguments must find the terminator
+    call dos_psp_tail               ; THE ARGUMENTS (SPEC.md 96.19), or the
+                                    ; empty tail this used to write flat
     mov word [es:0x5C], 0           ; the two FCBs stay zeroed, which is what
     mov word [es:0x6C], 0           ; an empty tail parses to
 
@@ -2037,9 +2061,10 @@ dos_paint:
                                      ; the whole launch
     mov bx, si
     call OSAPI_WM_CONTENT           ; AX = content left, DX = content top
-    mov bx, ax
-    add bx, 8
-    add dx, 10
+    mov [dos_ctop], dx              ; banked: DX marches down the status lines
+    mov bx, ax                      ; below, and the field's row is measured
+    add bx, 8                       ; from the ORIGIN rather than from wherever
+    add dx, 10                      ; those happened to end
 
     mov di, dos_l_idle              ; one line per state, and the second line
     mov si, dos_l2_idle             ; is the detail
@@ -2071,6 +2096,24 @@ dos_paint:
     cmp byte [dos_state], DST_IDLE  ; is the thing the user recognises
     je .out
     call dos_line
+
+    ; --- the arguments field (SPEC.md 96.19) ---------------------------------
+    ; Not drawn at DST_IDLE: there is no program named yet, so there is nothing
+    ; for arguments to be arguments TO, and a field that accepted text nothing
+    ; would read is worse than no field.
+    mov bx, [dos_win]
+    call OSAPI_WM_CONTENT
+    mov cx, ax
+    add cx, 8
+    mov dx, [dos_ctop]              ; the content top dos_line has been
+    add dx, DOS_LBLY                ; walking down from
+    mov si, dos_l_args
+    mov ax, (CWHITE << 8) | CBLACK
+    call OSAPI_FONT_RUN
+    mov bx, [dos_win]
+    call dos_fld_place
+    mov si, dos_ln
+    call os88line_draw
 .out:
     pop di
     pop si
@@ -2182,15 +2225,269 @@ dos_hexd:
 dos_about:
     ret
 
+; -----------------------------------------------------------------------------
+; dos_fld_place - put the arguments field where the window is now
+; in:  BX = the window; out: nothing, every register preserved
+;
+; The rect is recomputed from the CONTENT origin on every paint rather than
+; banked, because a window moves and os88line's rect is in SCREEN coordinates
+; (its LN_X1 comment says so). Banking it would put the caret one drag behind.
+; -----------------------------------------------------------------------------
+dos_fld_place:
+    push ax
+    push cx
+    push dx
+    push si
+    call OSAPI_WM_CONTENT           ; AX = content left, DX = content top
+    mov si, dos_ln
+    mov cx, ax
+    add cx, 8
+    mov [si+LN_X1], cx
+    add cx, DOS_FLDW
+    mov [si+LN_X2], cx
+    mov cx, dx
+    add cx, DOS_FLDY
+    mov [si+LN_Y1], cx
+    add cx, DOS_FLDH
+    mov [si+LN_Y2], cx
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_key - W_ONKEY. The field owns a keystroke it can use; everything else
+; comes back here (os88line_key's CF is that split).
+; in:  AL = ascii, AH = scan, SI = the window
+; -----------------------------------------------------------------------------
+dos_key:
+    push bx
+    push si
+    mov bx, si
+    cmp byte [dos_state], DST_IDLE  ; the field is not up while a program owns
+    je .no                          ; the screen, and there is nothing to type
+    call dos_fld_place              ; ...into before one is named
+    mov si, dos_ln
+    cmp byte [si+LN_FOCUS], 0
+    je .no
+    mov dx, [si+LN_VIEW]            ; bank what os88line_edit compares against
+    mov [dos_lnv], dx               ; - IN MEMORY, because AL is the KEYSTROKE
+    mov dx, [si+LN_LEN]             ; and loading the view into AX would eat it
+    mov [dos_lnl], dx
+    call os88line_key               ; CF=0 = the field used it. IT DOES NOT
+    jc .notours                     ; DRAW - its header says "redraw the
+    mov ax, [dos_lnv]               ; field", and the redraw is the caller's.
+    mov bx, [dos_lnl]
+    call os88line_edit
+    add [dos_ncell], cx             ; WHAT THE KEYSTROKE COST, in glyph cells
+    inc word [dos_nkey]             ; (SPEC.md 96.19.1). Twelve bytes of a
+                                    ; non-resident package image, and the only
+                                    ; way tests/dosargs.py can tell a field
+                                    ; that redraws one cell from one that
+                                    ; redraws twenty - which changes no pixel
+                                    ; and so is invisible to the flick
+                                    ; instrument
+    jmp short .done                 ; EDIT and not DRAW: typing the 21st
+                                    ; character must not repaint twenty that
+                                    ; did not change (SPEC.md 96.19.1)
+.notours:
+
+    ; --- ENTER RUNS IT AGAIN (SPEC.md 96.19.4) -------------------------------
+    ; os88line_key hands back the keys it has no meaning for, which is exactly
+    ; the split its header describes: the field knows how to edit and only the
+    ; caller knows whether Enter means GO. Here it does, and without it the
+    ; arguments row would be a box the user types into and nothing reads.
+    cmp al, 13
+    jne .no
+    cmp byte [dos_state], DST_RAN   ; only from a program that has FINISHED -
+    je .again                       ; DST_READY is one already queued and
+    cmp byte [dos_state], DST_ERR   ; DST_IDLE has no program named
+    jne .no
+.again:
+    mov byte [dos_state], DST_READY
+    mov bx, [dos_win]
+    call OSAPI_WM_WAKE              ; ...and dos_wake does the rest, exactly as
+    jmp short .done                 ; it did for the launch
+.no:
+    pop si
+    pop bx
+    stc
+    ret
+.done:
+    pop si
+    pop bx
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_click - W_ONCLICK. A press inside the field takes the caret; a press
+; outside it gives the caret up.
+; in:  CX = x, DX = y, SI = the window
+; -----------------------------------------------------------------------------
+dos_click:
+    push ax
+    push bx
+    push si
+    mov bx, si
+    cmp byte [dos_state], DST_IDLE
+    je .out
+    call dos_fld_place
+    mov si, dos_ln
+    call os88line_hit               ; CF=0 = inside
+    jc .away
+    cmp byte [si+LN_FOCUS], 0
+    jne .move                       ; already ours: just move the caret
+    mov byte [si+LN_FOCUS], 1
+    call os88line_draw              ; ...and the frame gains its caret
+    jmp short .out
+.move:
+    call os88line_click
+    jmp short .out
+.away:
+    cmp byte [si+LN_FOCUS], 0
+    je .out
+    mov byte [si+LN_FOCUS], 0
+    call os88line_caroff            ; ONE CELL, not the field (SPEC.md 13.14.6)
+.out:
+    pop si
+    pop bx
+    pop ax
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_fld_init - the field's block, once, at entry
+; -----------------------------------------------------------------------------
+dos_fld_init:
+    push ax
+    push cx
+    push si
+    mov si, dos_ln
+    mov ax, dos_args
+    mov [si+LN_BUF], ax
+    mov word [si+LN_MAX], DOS_ARGMAX
+    mov byte [si+LN_FOCUS], 0
+    mov byte [dos_args], 0
+    call os88line_set               ; LN_LEN/LN_CAR/LN_VIEW from the text
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_psp_tail - the user's arguments into the new PSP's command tail
+; in:  ES = the PSP's segment; out: nothing, every register preserved
+;
+; THE DOS FORMAT IS A LENGTH BYTE, THE TEXT, AND AN 0Dh (SPEC.md 96.19), and
+; the length counts the text alone. A program that parses its own arguments
+; finds the terminator; one that uses PSP:0080 as a counted string finds the
+; count. Both are wrong about the other, so both are written.
+;
+; It is BOUNDED AT SOURCE rather than here: dos_args is 128 bytes and the line
+; field's LN_MAX is 127 + the NUL, because the tail plus its count and its 0Dh
+; have to live inside the PSP's 128. That is DOS's limit and not ours, which
+; is why the field REFUSES the 128th character rather than this routine
+; truncating a line the user can see (SPEC.md 47).
+; -----------------------------------------------------------------------------
+dos_psp_tail:
+    push ax
+    push cx
+    push si
+    push di
+    mov si, dos_args
+    xor cx, cx
+.len:
+    cmp byte [si], 0
+    je .got
+    inc si
+    inc cx
+    cmp cx, 126
+    jb .len
+.got:
+    mov es:[0x80], cl               ; ...the count DOS puts there
+    mov di, 0x81
+    mov si, dos_args
+    cld
+    jcxz .term
+    push cx
+    rep movsb                       ; DS:SI is ours, ES:DI the PSP's
+    pop cx
+.term:
+    mov byte [es:di], 0x0D
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_envpath - the program's own path, for the tail of the environment
+; out: dos_pbuf = `\DIR\NAME.EXT`, NUL-terminated; every register preserved
+;
+; DOS 3+ puts the program's full path after the environment's terminating NUL
+; and a count word, and a program looks there when it wants to know where it
+; came from. This wrote a bare 8.3 name until SPEC.md 19.2.4 existed, because
+; no package could name the folder it was launched from.
+;
+; A REFUSAL IS NOT FATAL HERE. If the slot cannot answer - a corrupt chain, a
+; buffer too small - the name alone goes in, which is exactly what this wrote
+; before and is better than nothing: a program that cannot find its own
+; directory falls back on the current one, and every program has that path.
+; -----------------------------------------------------------------------------
+dos_envpath:
+    push ax
+    push cx
+    push si
+    push di
+    mov di, dos_pbuf
+    mov cx, DOS_PBUF
+    call OSAPI_FILE_PATH            ; ES is the CALLER's DS here: an X cell
+    jc .bare                        ; sets it (SPEC.md 19.2.4)
+    mov di, dos_pbuf
+    add di, cx                      ; ...to the NUL it wrote
+    cmp cx, 1
+    jbe .name                       ; the root already ends in its separator
+    mov byte [di], '\'
+    inc di
+.name:
+    mov si, dos_name                ; ...and the program's own 8.3 name
+.nm:
+    lodsb
+    mov [di], al
+    inc di
+    or al, al
+    jnz .nm
+    jmp short .out
+.bare:
+    mov si, dos_name                ; no path: the name alone, which is what
+    mov di, dos_pbuf                ; this did before 19.2.4 and is still a
+.bn:                                ; thing a program can resolve
+    lodsb
+    mov [di], al
+    inc di
+    or al, al
+    jnz .bn
+.out:
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
 ; =============================================================================
 ; DATA
 ; =============================================================================
 dos_tpl:
-    dw 120, 110, 288, 100           ; x, y, w, h
-    dw dos_ttl, dos_paint, 0, 0     ; no onkey, no onclick: wave 1 has nothing
-                                    ; to click and the bracket owns the keys
+    dw 120, 64, 288, 126            ; x, y, w, h. TALLER AND HIGHER THAN WAVE
+                                    ; 1's 110/100, which put the bottom at 210
+                                    ; on a 640x200 CGA and left the clamp to
+                                    ; sort out - and there is a field down
+                                    ; there now
+    dw dos_ttl, dos_paint, dos_key, dos_click
 
 dos_ttl:    db 'DOS', 0
+dos_l_args: db 'Arguments:', 0
 
 dos_be:                             ; the table, in DBE_* order
     dw dos_k_goto
@@ -2712,6 +3009,14 @@ dos_mcb_resize:
     %1 equ DB
     %assign DB DB + %2
 %endmacro
+    DBSS DOS_B_CTOP,  2          ; the content top, banked for one paint
+    DBSS DOS_B_LNV,   2          ; the field's view and length as they were
+    DBSS DOS_B_LNL,   2          ; before a keystroke (os88line_edit's inputs)
+    DBSS DOS_B_NCELL, 2          ; glyph cells the edits have redrawn...
+    DBSS DOS_B_NKEY,  2          ; ...over this many keystrokes
+    DBSS DOS_B_ARGS,  DOS_ARGSZ  ; the user's arguments, NUL-terminated
+    DBSS DOS_B_PBUF,  DOS_PBUF   ; ...and the program's own path, for the env
+    DBSS DOS_B_LN,    DOS_LNSZ  ; the arguments field's block (os88line.inc)
     DBSS DOS_B_WIN,   2
     DBSS DOS_B_STATE, 1
     DBSS DOS_B_ERR,   1
@@ -5130,6 +5435,16 @@ dos_fh_fill:
     DBSS DOS_B_BDA,   256
 DOS_BSS_SIZE equ DB
 
+; os88ui.inc first (os88line.inc needs its UI_* macros), and both LAST -
+; the header and the icon block are at fixed offsets in the image (SPEC.md
+; 20.2), so code emitted between them fails the icon macro's own assertion.
+%include "os88ui.inc"
+%include "os88line.inc"
+
+%if DOS_LNSZ != OS88LINE_SZ
+ %error "DOS_LNSZ must equal os88line.inc's OS88LINE_SZ - the bss table above reserves DOS_LNSZ bytes for a block this file does not own"
+%endif
+
     OS88_BSS DOS_BSS_SIZE
     OS88_IMAGE_END
 
@@ -5155,6 +5470,17 @@ dos_imgsz   equ os88_image_end + DOS_B_IMGSZ   ; word: the image's bytes
 dos_prgsp   equ os88_image_end + DOS_B_PRGSP   ; word: the program's first SP
 dos_sv_ss   equ os88_image_end + DOS_B_SVSS    ; word: OUR stack, banked
 dos_sv_sp   equ os88_image_end + DOS_B_SVSP    ; word: ...across the far jump
+dos_ctop    equ os88_image_end + DOS_B_CTOP    ; word: this paint's content top
+dos_lnv     equ os88_image_end + DOS_B_LNV     ; word: LN_VIEW before a key
+dos_lnl     equ os88_image_end + DOS_B_LNL     ; word: LN_LEN before a key
+dos_ncell   equ os88_image_end + DOS_B_NCELL   ; word: cells the edits redrew
+dos_nkey    equ os88_image_end + DOS_B_NKEY    ; word: ...over this many keys
+dos_args    equ os88_image_end + DOS_B_ARGS    ; 128: the command tail the user
+                                               ; typed, without its count or
+                                               ; its 0Dh - both are DOS's
+                                               ; framing and go on at the PSP
+dos_pbuf    equ os88_image_end + DOS_B_PBUF    ; the program's own path
+dos_ln      equ os88_image_end + DOS_B_LN      ; the field's os88line block
 dos_pic1    equ os88_image_end + DOS_B_PIC1    ; byte: the 8259 masks as found
 dos_pic2    equ os88_image_end + DOS_B_PIC2    ; byte:
 dos_isexe   equ os88_image_end + DOS_B_ISEXE   ; byte: 1 = an .EXE was set up

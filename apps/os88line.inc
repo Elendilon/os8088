@@ -434,6 +434,118 @@ os88line_caroff:
     ret
 
 ; -----------------------------------------------------------------------------
+; os88line_edit - repaint what ONE EDIT changed, and not the rest
+; in:  SI = the block, AX = LN_VIEW as it was BEFORE the key,
+;      BX = LN_LEN as it was before it; the gfx lock held
+; out: CX = text cells drawn, for a caller that wants to count them.
+;      Everything else preserved.
+;
+; **WHY THIS EXISTS.** os88line_draw puts ONE opaque font_run over every
+; visible character, which is right for a repaint and wrong for a keystroke:
+; typing the 21st character into a field redraws twenty that did not change.
+; PERFORMANCE.md prices a glyph cell at ~900us on the target machine, so a
+; 20-character field cost ~18ms A KEYSTROKE - and none of it showed in the
+; flick instrument, because redrawing the same glyph changes no pixel at all.
+; It is a TIME defect, and the only way to see it is to count the cells.
+;
+; **IT IS DELIBERATELY NARROW, and falls back rather than getting clever.**
+; Three cases are handled here and everything else goes to os88line_draw:
+;
+;   the view SCROLLED      -> every visible cell moved. Full draw.
+;   the caret is NOT at    -> an insert shifts the whole tail right and a
+;   the end                   delete shifts it left. Full draw.
+;   the caret IS at the end-> an APPEND touched one cell and a BACKSPACE
+;                             blanked one. That is the case worth having,
+;                             because it is what typing IS.
+;
+; A partial repaint that got its arithmetic wrong would leave ink behind, and
+; ink left behind is worse than a slow repaint - so the cheap path is taken
+; only where it is obviously right, and the expensive one is still correct.
+;
+; The cells come from os88line_cell and the caret from os88line_caron, which
+; is this file's own rule: a cell repainted from arithmetic of its own lands
+; beside the one that was drawn rather than on it.
+; -----------------------------------------------------------------------------
+os88line_edit:
+    push ax
+    push bx
+    push dx
+    push di
+    push si
+    mov di, ax                  ; DI = the view as it was, BX = the length
+    call os88line_fit           ; ...which may scroll to follow the caret
+    xor cx, cx
+    cmp di, [si+LN_VIEW]
+    jne .full                   ; the whole visible span moved
+    mov ax, [si+LN_CAR]
+    cmp ax, [si+LN_LEN]
+    jne .full                   ; a mid-string edit shifted the tail
+    cmp bx, [si+LN_LEN]
+    jb .grew
+    ja .shrank
+    jmp short .caret            ; neither grew nor shrank: a caret move, and
+                                ; caron/caroff have done their own cells
+.grew:
+    mov ax, [si+LN_LEN]         ; the character just typed is the last one...
+    dec ax
+    call os88line_cell          ; AX = its column, DX = the band, BX -> it
+    jc .caret                   ; scrolled out of sight: nothing to draw
+    mov cx, ax
+    push si
+    mov si, bx                  ; ...and ONE opaque cell, ground and glyph in
+    mov al, CBLACK              ; a single pass (SPEC.md 6.1). No NUL to bank:
+    mov ah, CWHITE              ; the last character is already followed by
+    call OSAPI_FONT_RUN         ; the buffer's own terminator
+    pop si
+    mov cx, 1
+    jmp short .caret
+.shrank:
+    mov ax, [si+LN_LEN]         ; the cell the deleted character had...
+    call os88line_cell
+    jc .caret
+    push ax
+    push dx
+    mov al, CWHITE              ; ...blanked, and only it
+    UI_INK
+    pop dx
+    pop ax
+    mov bx, dx
+    mov cx, ax
+    add cx, LN_CELL - 1
+    add dx, LN_CELL - 1
+    UI_FILL
+    mov al, CBLACK              ; AND THE PEN BACK: a colour left behind is
+    UI_INK                      ; what shows up two callers later
+    xor cx, cx
+.caret:
+    cmp byte [si+LN_FOCUS], 0
+    je .out
+    mov ax, [si+LN_CAR]
+    push cx
+    call os88line_caron
+    pop cx
+.out:
+    pop si
+    pop di
+    pop dx
+    pop bx
+    pop ax
+    ret
+.full:
+    call os88line_draw
+    mov cx, [si+LN_LEN]         ; ...and say what it cost, for a caller that
+    sub cx, [si+LN_VIEW]        ; counts
+    jns .fout
+    xor cx, cx
+.fout:
+    pop si
+    pop di
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; os88line_key - one keystroke
 ; in:  SI = the block, AL = ascii, AH = scan code
 ; out: CF=0 the field used it (redraw the field); CF=1 it is the caller's -

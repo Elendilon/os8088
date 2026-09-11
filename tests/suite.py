@@ -2579,6 +2579,29 @@ SOAK = [
         "no I/O at all' measured rather than quoted. Reads 3/0/0 here.",
         needs=("marty",), serial=True,
         wants=("build/pathtest360.img",)),
+    Row("dosargs", "soak", py("tests/dosargs.py"), 50.0,
+        "CAN A DOS PROGRAM BE GIVEN ARGUMENTS? (SPEC.md 96.19). Half the DOS "
+        "software worth running is configured by its command line and the box "
+        "wrote an EMPTY tail until this wave - Creative's own card test says "
+        "'run this program again and select the other options manually' and "
+        "there was no way to say /M. The row drives the whole loop: run with "
+        "nothing, the window SURVIVES the exit with the program named, click "
+        "the field, type, and ENTER RUNS IT AGAIN (96.19.4) - without which "
+        "the field is a box the user types into and nothing reads. It asserts "
+        "the tail in BOTH FRAMINGS, because PSP:0080 is a length byte AND the "
+        "text after it ends in 0Dh: a program that treats the tail as a "
+        "counted string reads one and a program that parses its arguments "
+        "scans for the other, so a shim that wrote only one is wrong for half "
+        "the world. IT ALSO COUNTS WHAT THE TYPING COST, in glyph cells, "
+        "which is the only way to see it - redrawing the same glyph changes "
+        "NO PIXEL, so a field that repaints all twenty characters per "
+        "keystroke is invisible to the flick instrument and still costs ~18ms "
+        "a key on a 4.77MHz machine. 8 keys, 8 cells here; a whole-field "
+        "repaint would be 36. And MYPATH, because the environment's program "
+        "path was a bare 8.3 name until OSAPI_FILE_PATH (96.19.3) - hence a "
+        "program in a SUBDIRECTORY, since in the root both spellings agree.",
+        needs=("marty",), serial=True,
+        wants=("build/dosargs360.img",)),
     Row("heapcheck", "soak", py("tests/heapcheck.py"), 40.0,
         "Drive tests/heapfrag and read its verdict out of the guest (SPEC.md"
         "66.8).",

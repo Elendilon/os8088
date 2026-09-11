@@ -1,4 +1,7 @@
-# A SHARED TEXT FIELD, AND A SHARED TEXT AREA
+# A SHARED TEXT AREA
+
+**(This was "a shared text field, and a shared text area". The FIELD half was
+wrong: `apps/os88line.inc` already is one. See §1.)**
 
 **STATUS: BRIEF ONLY. NOTHING IS DESIGNED HERE AND NOTHING SHOULD BE BUILT
 FROM IT.** It exists so that the next person to want a text field finds the
@@ -12,15 +15,38 @@ to **copy** one rather than invent a shared control, deliberately — see §4.
 
 ---
 
-## 1. The finding that makes it a plan
+## 1. CORRECTION: the field already exists, and this plan's first revision
+## missed it
 
-**`apps/os88ui.inc` has no text entry of any kind.** It publishes buttons,
-the glyph (check and radio), scroll bars and the alert set — and no field.
+**`apps/os88line.inc` is a shared one-line text field**, the second shared
+include in `apps/` carrying code, and it is used by `apps/browser`,
+`apps/telnet` and `apps/ftpd`. It has the whole control: `os88line_draw`,
+`_caron`, `_caroff`, `_key`, `_hit`, `_click`, `_set`, a block you declare
+(`OS88LINE_SZ`) so a window may have two, and a documented split of
+responsibility — `os88line_key` answers CF=1 for *"that keystroke is yours"*,
+so Enter, Tab and Escape go back to the caller.
 
-**Twelve places have rolled their own**: `apps/browser`, `apps/ftpd`,
+It has also already solved the thing this plan would have had to: its
+`os88line_pen` rounds the text pen **up to a multiple of 8** so `font_run`
+takes its single-store path, and its comment carries the measurement — a
+26-character URL flashed **246 transient pixels over ~18 cells** per keystroke
+before that, because `WF_SNAP` makes the content origin 8-aligned and every
+caller's own small inset then pinned the pen at 6 mod 8 for ever.
+
+**So the first revision of this document was wrong in its first line**, and
+the way it went wrong is worth keeping: it counted carriers by grepping for
+`caret` and found twelve, which are `apps/browser`, `apps/ftpd`,
 `apps/notepad`, `apps/texpad`, `apps/word`, `apps/sheet`, `apps/scribe`,
-`apps/loom`, `apps/artful`, `apps/paint`, plus `kernel/ctrl.inc` and
-`kernel/fdlg.inc`.
+`apps/loom`, `apps/artful`, `apps/paint`, `kernel/ctrl.inc` and
+`kernel/fdlg.inc`. Most of those are **multi-line editors** — which §2 below
+argues at length are a different control — so the count conflated exactly the
+two things the rest of the document is about keeping apart. Three of the
+twelve are `os88line.inc` callers and were never hand-rolled at all.
+
+**What is left open is the AREA alone**, and the two kernel carriers
+(`ctrl.inc`, `fdlg.inc`) which are neither — a kernel file cannot include an
+`apps/` header, so whether they *should* share one is a separate question with
+a resident-bytes answer.
 
 That is the same shape docs/plans/completed/CTRL-GLYPH-PLAN.md found one
 control along, where converging the two check boxes **REMOVED** bytes rather
@@ -47,13 +73,32 @@ conversion showed that changing a shared body reaches every carrier at its
 next build with no per-package work. **That** is what a survey is for, and a
 field that came out byte-neutral would still be worth having.
 
+## 1.1 FOLLOW-ON: three carriers still repaint the whole field per keystroke
+
+`os88line_edit` was added to the include while building the DOS box's
+arguments row (SPEC.md 96.19.1) and **only that row calls it**. `apps/ftpd`,
+`apps/browser` and `apps/telnet` still call `os88line_draw` after every
+keystroke, which repaints every visible character: ~18ms a key on a 4.77MHz
+machine for a 20-character field, at PERFORMANCE.md's ~900us a glyph cell.
+
+Converting each is a few lines — bank `LN_VIEW` and `LN_LEN` before the key,
+pass them to `os88line_edit` after — and it is **the whole argument for a
+shared include made good**: the body was changed once and every carrier can
+have it at its next build.
+
+What it needs is a look at each on the glass, because a partial repaint that
+is wrong leaves ink behind. `ftpdflick` and the browser's own rows are the
+gates that already exist; neither can SEE this defect (redrawing an identical
+glyph changes no pixel), so each conversion wants the cell COUNT the DOS row
+uses, not a pixel comparison.
+
 ## 2. The field and the area are NOT one control
 
 This is the thing to not get wrong, and it is why this document exists rather
 than a line in somebody's commit message.
 
-A **single-line field** is a plausible shared control: a rect, a string, a
-caret index, a key handler, and a draw that touches one cell. Twelve carriers.
+A **single-line field** is a rect, a string, a caret index, a key handler and
+a draw that touches one cell. **That one is built** — `apps/os88line.inc`, §1.
 
 A **multi-line area** is a miniature text editor — wrap, scroll, a caret that
 moves in two dimensions, selection, and a redraw that has to decide how much

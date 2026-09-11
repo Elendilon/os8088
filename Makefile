@@ -4710,7 +4710,8 @@ $(BUILD)/telnet.o88: $(BUILD)/telnet.bin tools/os88pkg.py $(PKGZSTAMP)
 # alone - the granule RDPV_MOUNT rounds a size up to, which the refusal
 # strings have to name.
 # --- DOS (SPEC.md 96) --------------------------------------------------------
-$(BUILD)/dos.bin: apps/dos/dos.asm apps/os88api.inc | $(BUILD)
+$(BUILD)/dos.bin: apps/dos/dos.asm apps/os88api.inc apps/os88ui.inc \
+                  apps/os88line.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ apps/dos/dos.asm
 
 $(BUILD)/dos.o88: $(BUILD)/dos.bin tools/os88pkg.py $(PKGZSTAMP)
@@ -4825,6 +4826,16 @@ $(BUILD)/pathtest.o88: tests/pathtest/pathtest.asm apps/os88api.inc tools/os88pk
 $(BUILD)/pathtest360.img: $(BUILD)/pathtest.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 ONE/TWO/THREE:$(BUILD)/pathtest.o88
 
+# --- the arguments gate (SPEC.md 96.19) --------------------------------------
+# IN A SUBDIRECTORY, because the row also reads the environment's own program
+# path - which was a bare 8.3 name until 19.2.4 and is a real path now, and a
+# program in the root would answer `\NAME` either way.
+$(BUILD)/DOSARGS.COM: tests/dosargs/args.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dosargs/args.asm
+
+$(BUILD)/dosargs360.img: $(BUILD)/DOSARGS.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 BIN:$(BUILD)/DOSARGS.COM
+
 # ...and the XMS gate's, whose whole assertion on an 8088 is a REFUSAL
 # (SPEC.md 96.15.1) - plus that asking at all comes back, which an unhooked
 # multiplex vector on a ROM that does not implement it need not do.
@@ -4847,7 +4858,8 @@ $(BUILD)/dosxmsq.img: $(BUILD)/DOSXMSQ.COM tools/os88disk.py
 doscom: $(BUILD)/doscom360.img $(BUILD)/dosexe360.img $(BUILD)/dosmou360.img \
         $(BUILD)/dosfile360.img $(BUILD)/dosdir360.img $(BUILD)/dosexec360.img \
         $(BUILD)/dosxms360.img $(BUILD)/dossnd360.img $(BUILD)/dosxmsq.img \
-        $(BUILD)/dosirq360.img $(BUILD)/pathtest360.img
+        $(BUILD)/dosirq360.img $(BUILD)/pathtest360.img \
+        $(BUILD)/dosargs360.img
 
 $(BUILD)/thewire.bin: apps/thewire/thewire.asm apps/thewire/wrhttp.inc \
                       apps/thewire/wrarc.inc apps/thewire/wrtxt.inc \

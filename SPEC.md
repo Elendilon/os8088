@@ -119305,6 +119305,114 @@ emit a letter, so it clamps now — but the reason it was reachable at all is
 the one above, and the clamp is the second line of defence rather than the
 fix.
 
+### 96.19 Arguments — the half of a DOS program nobody could give it
+
+Half the DOS software worth running is configured by its command line, and
+until now the box could not give one: `dos_psp_make` wrote an **empty** tail
+and every program got its defaults. Creative's `TEST-SBC.EXE` prints *"Run
+this program again and select the other options manually"* with `/M`, and
+there was no way to say `/M`.
+
+So the window has an **Arguments** field, and what the user types lands in the
+new program's `PSP:0080`.
+
+**The format is DOS's and both halves are written.** A command tail is a
+length byte, the text, and an `0Dh`; the length counts the text alone. A
+program that parses its own arguments finds the terminator and one that treats
+`PSP:0080` as a counted string finds the count — each is wrong about the
+other, so `dos_psp_tail` writes both.
+
+**The bound is DOS's too, and it is enforced at the FIELD.** `PSP:0080` holds
+a count, the text and the `0Dh` inside 128 bytes, so the field's `LN_MAX` is
+127 and the 128th character is **refused** rather than accepted and then cut.
+A field that took a character the machine would not obey is a field that lies,
+which is §47 at the point of typing.
+
+#### 96.19.1 What a keystroke costs, and the control it is built on
+
+The field is `apps/os88line.inc`'s — the shared one-line control the browser's
+location bar and Telnet's host box already use — and reaching for it rather
+than writing a fourth one is worth a sentence because the copy that would have
+been written is the one that flickers.
+
+`os88line_pen` rounds the text pen **up to a multiple of 8**, which is what
+lets `font_run` take its single-store path (§6.1) so a cell is never
+momentarily blank. Its own comment carries the measurement that made it: a
+26-character URL flashed **246 transient pixels over ~18 cells** per keystroke
+before the alignment, because `WF_SNAP` (§11.94.1) makes a content origin
+8-aligned and each caller's small inset then pinned the pen at 6 mod 8 for
+every window position on every adapter.
+
+**But `os88line_draw` repaints the whole field, and that is not what a
+keystroke changed.** It puts one opaque `font_run` over *every visible
+character*, so typing the 21st redraws twenty that did not move — ~18 ms a
+keystroke on the target machine at PERFORMANCE.md's ~900 µs a glyph cell. Both
+shipped callers did exactly that, and **nothing caught it**: redrawing the same
+glyph changes no pixel, so the flick instrument — which measures *changed*
+pixels — is blind to it. It is a TIME defect and the only way to see it is to
+count the cells.
+
+`os88line_edit` is the narrow path, and it lives in the shared include so its
+three other carriers get it too. It is deliberately small and **falls back
+rather than getting clever**: if the view scrolled, every visible cell moved;
+if the caret is not at the end, an insert shifted the whole tail. Both go to
+`os88line_draw`. What is left is the case that matters, because it is what
+typing *is* — an append touches **one cell** and a backspace blanks one.
+
+A partial repaint whose arithmetic is wrong leaves ink behind, which is worse
+than a slow one, so the cheap path is taken only where it is obviously right.
+Measured by `tests/dosargs.py`: **8 keystrokes, 8 glyph cells**, where a
+whole-field repaint of the same text is 36 and of a 40-character line is 820.
+
+A caret move still costs **one cell** (`os88line_caroff` puts back exactly what
+the 1px bar covered), and taking or losing focus costs one too. The rule is
+§13.14.6's and this is the place it is easiest to break.
+
+**The rect is recomputed from the content origin on every paint** rather than
+banked, because `os88line`'s rect is in SCREEN coordinates and a window moves.
+Banking it would leave the caret one drag behind the box.
+
+#### 96.19.2 The field is not drawn at `DST_IDLE`
+
+There is nothing for arguments to be arguments *to* until a program is named,
+so at `DST_IDLE` the row is absent and keys are not taken. A field that
+accepted text nothing would ever read is worse than no field — the same
+judgement §47 makes about a control that is present but inert.
+
+The state the user actually meets is the one after a program has run: the
+window survives a non-zero exit (§96.1), so the program that just ran is still
+named, and the field is there to add the `/M` they discovered they needed. No
+File→Open in the loop.
+
+#### 96.19.4 Enter runs it again
+
+A field the user types into and nothing reads is not a feature, so **Enter in
+the arguments field runs the named program again** with what is in it.
+
+`os88line_key` hands back every key it has no meaning for — its header states
+that split exactly: the field knows how to *edit* and only the caller knows
+whether Enter means GO, SUBMIT or nothing. Here it means GO, and the whole of
+making it work is setting the state back to `DST_READY` and waking the window:
+`dos_wake` then does what it did for the launch.
+
+It is refused from `DST_IDLE` (no program is named) and from `DST_READY` (one
+is already queued, and a second wake would run it twice). The states it
+accepts are `DST_RAN` and `DST_ERR` — a program that has *finished*, which is
+the state the user is in when they discover they needed `/M`.
+
+#### 96.19.3 …and the environment's program path is a real path now
+
+DOS 3+ puts the program's full path after the environment's terminating NUL
+and a count word, and a program looks there to find out where it came from.
+This wrote a **bare 8.3 name** from wave 1, under a comment saying a real path
+needed a walk the box did not have.
+
+It does now: `OSAPI_FILE_PATH` (§19.2.4), which was built for this among three
+other customers. `dos_envpath` asks for the folder, appends the name, and
+**falls back to the bare name on a refusal** — a corrupt chain or a buffer too
+small — because that is exactly what it wrote before and a program that cannot
+find its own directory falls back on the current one, which every program has.
+
 ### 96.18 The machine underneath — a real vector, a real line, a real transfer
 
 Every other section here is about `INT 21h`, which is **our** code answering.
