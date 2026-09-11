@@ -22,6 +22,9 @@ price the same frame.
              the Trocadero, the river and the far skyline together
     citybank the same frame banked 30 right: what the box impostor (88.5.4)
              costs when the world is not level
+    axisroad 150 m abeam and 15 m short of the axis road's middle vertex at
+             30 m: |cx| over 9 cz, so that vertex CLAMPS and the road bends
+    seinelow the same shape on the Seine's middle piece
 
 `--noside` is SPEC.md 88.5.7.2's A/B instead of the stage table: the same
 pinned frame with the side clip on and off, in ms, fps and DIFFERING PIXELS
@@ -62,6 +65,13 @@ SCENES = {                              # x, y, z (metres), heading (degrees), p
     "climb": (-2689, 40, -2409, 40, 5),  # 300 m down the runway, 40 m up
     "bank": (-2689, 80, -2409, 40, 5, 30),   # ...banked 30 right, for the ADI
     "citybank": (150, 300, -900, 30, -5, 30),  # ...the city frame banked 30 right
+    # --- THE WANDERING PAIR (88.5.7.3). Both put a long flat's vertex BESIDE
+    #     the eye - 150-200 m abeam, 15 m ahead - so |cx| is over NINE cz and
+    #     the projection CLAMPS it: the line through it is the one that bends.
+    #     The other six scenes are byte-identical without the side clip; these
+    #     two are what it was taken for.
+    "axisroad": (-77, 30, 1570, 115, 0),   # the Louvre-La Defense axis abeam
+    "seinelow": (151, 30, -11, 100, 0),    # the Seine's middle piece abeam
 }
 
 

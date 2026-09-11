@@ -199,6 +199,14 @@ PROFILES = {
              "marks an object's BOX (88.3.2) and a flat ground model "
              "kilometres across has an enormous one - it measured 0 of 112 "
              "rows object-free, same as turnhold, with WIDER spans"),
+    "roadpass": dict(
+        pos=(-168, 30, 1613), hdg=115, pitch=0, roll=0, thr=100, spd=40,
+        what="LOW ALONG THE AXIS ROAD at 30 m, 150 m abeam of it, flying PAST "
+             "its middle vertex - so that vertex passes beside the eye with "
+             "|cx| over NINE cz and the projection CLAMPS it. This is the "
+             "profile the side clip (88.5.7) was taken for: the one in the "
+             "set where the line actually WANDERS without it, where the other "
+             "six are byte-identical"),
     "slightbank": dict(
         pos=(150, 33, -2000), hdg=30, pitch=0, roll=12, thr=100, spd=60,
         hold=True,

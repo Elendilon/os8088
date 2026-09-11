@@ -106310,6 +106310,17 @@ to within 0.13 ms:
 nothing to clip, no gain — so the other rows are work removed and not
 measurement bias.
 
+**The six pinned scenes did not contain the defect**, which is why four of
+them read 0 pixels: a scene wanders only where a long flat's vertex is
+CLAMPED, |cx| over 9 cz, and none of the six put one there. `axisroad` and
+`seinelow` (and the `roadpass` flight profile) were built to — 150 m abeam
+and 15 m short of the axis road's middle vertex at 30 m, so it passes beside
+the eye at |cx| ≈ 13 cz — and they are where the knob is worth reading:
+**246 and 101 pixels**, the road's whole visible slope swinging about its
+inside end. `roadpass` flies through it, and reads 136.1 ms against 132.2
+with the clip off. Any scene added here should say which of the two kinds it
+is.
+
 **The finding is the pixel column, not the milliseconds.** In four of the
 six pinned scenes the frame is BYTE-IDENTICAL with the clip off, and the
 runway is the one to look at: `--trace` shows `cs_fclip` once,
@@ -106332,6 +106343,60 @@ item. What the table does argue for is a cheaper clip rather than no clip:
 four passes that find nothing to do are most of the cost on every scene
 whose picture does not change, and a per-object side verdict already exists
 (`cs_pinside`) that a per-FACE one could follow.
+
+##### 88.5.7.3 The decision is the CLAMP's, not the clip planes' — 8z, for 8 bytes
+
+§88.5.7's planes are at **4z** and its reason is precision: a crossing is
+exact only to a distance unit, and 4z leaves the whole 5z to the clamp for
+it. That is the right home for the PLANES. It was also, wrongly, the home of
+the **decision** — `cs_projall` marked a vertex `cs_fv` = 2, and exempted a
+whole object through `cs_pinside`, at 4z as well.
+
+Those are different questions. A line bends because the projection CLAMPED a
+point, and §88.5.5 clamps at **9z on x and 14z on y**. A vertex in the 4z–9z
+shell is therefore clipped and *never clamped*: it projects exactly, the line
+through it is already straight, and the clip only shortens a line that was
+right — to a crossing lying ON it, at ±1,778 where the view is ±200. Every
+cycle spent there buys nothing that can be seen.
+
+So the decision moves out to **8z** — one `sar`/`shr` more in each of four
+places, **8 bytes**, and 8 is under both clamps so it is conservative on each
+axis. The planes stay at 4z, which keeps §88.5.7's precision argument and
+keeps every crossing where it was. Measured parked, twelve exact frames, the
+pictures compared byte for byte:
+
+| scene | 4z decision | 8z decision | gain |
+|---|---|---|---|
+| `runway` | 162.14 ms, 6.17 fps | **158.81, 6.30** | −3.33 ms, +0.13 fps |
+| `citybank` | 236.18, 4.23 | **232.33, 4.30** | −3.85, +0.07 |
+| `bank` | 185.55, 5.39 | **182.37, 5.48** | −3.18, +0.09 |
+| `climb` | 139.67, 7.16 | **136.49, 7.33** | −3.18, +0.17 |
+| `city` | 160.47, 6.23 | 160.55 | +0.08 |
+| `tower` | 179.68, 5.57 | 179.76 | +0.08 |
+| `axisroad` | 127.39, 7.85 | 127.47 | +0.08 |
+| `seinelow` | 146.99, 6.80 | 147.15 | +0.16 |
+
+**All eight frames are BYTE-IDENTICAL**, and `tests/skiesgeom.py` passes with
+its host replay UNCHANGED — the replay reads `cs_fv` off the guest, so an
+independent second implementation still checks every polygon and segment
+against the new rule rather than being taught the answer. In flight it is
+−0.3 to −0.9 ms, the objects there being far enough to have been exempt
+already. The four scenes that read +0.08 to +0.16 are the trade: a primitive
+no longer shortened is a little more for the rasteriser, and it is a tenth of
+what the near ones give back.
+
+**A further step was built, measured and REFUSED.** `cs_edge1` can skip the
+four-plane walk outright when the only new point — the near crossing it just
+made — is inside 8z, testing that one point where `cs_fv` already settles the
+others; it is worth another **−2.6 ms on the runway** and −0.20 ms mean. It
+is not taken, for two reasons that cost more than that: it stops the side
+pass CULLING segments that are wholly outside the view (`skiesgeom` reported
+it exactly — *"PARIS-ISSY edge (6, 7): drawn where the replay draws
+nothing"*), which is why the same change reads +0.2 to +0.4 ms on the four
+scenes it does not help; and making the gate green again needs the early-out
+mirrored into the replay, which is teaching the independent model the answer.
+A cheaper clip is worth having; one bought with the gate that guards it is
+not.
 
 #### 88.5.10 A face is wound on the WHOLE polygon, and a quad on its diagonals
 

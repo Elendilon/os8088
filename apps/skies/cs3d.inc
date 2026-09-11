@@ -1955,8 +1955,9 @@ cs_projall:
     jc .sides
     shr cx, 1
     shr cx, 1
-    cmp cx, bx
-    ja .sides
+    shr cx, 1                       ; 88.5.7.3: the exemption cone is the
+    cmp cx, bx                      ; CLAMP's (8z, under 9) and not the clip
+    ja .sides                       ; planes' 4z - twice the objects exempt
     mov cx, [cs_scy]
     or cx, cx
     jns .ay
@@ -1964,6 +1965,7 @@ cs_projall:
 .ay:
     add cx, ax
     jc .sides
+    shr cx, 1
     shr cx, 1
     shr cx, 1
     cmp cx, bx
@@ -2017,16 +2019,18 @@ cs_projall:
 .px:
     sar ax, 1
     sar ax, 1
-    cmp ax, cx
-    jg .side
-    mov ax, [cs_cyv + di]
+    sar ax, 1                       ; 88.5.7.3: EIGHT z, not four - the
+    cmp ax, cx                      ; projection CLAMPS at 9z, so a vertex
+    jg .side                        ; inside 8z projects exactly and no line
+    mov ax, [cs_cyv + di]           ; through it can bend
     or ax, ax
     jns .py
     neg ax
 .py:
     sar ax, 1
     sar ax, 1
-    cmp ax, cx
+    sar ax, 1                       ; ...and y clamps at 14z, so 8 is doubly
+    cmp ax, cx                      ; conservative on this axis
     jle .next
 .side:
     mov word [cs_fv + di], 2
