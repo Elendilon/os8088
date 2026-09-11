@@ -19023,6 +19023,29 @@ else's tile. `dock_tile_rect` is lifted out of `dock_erase_tile` rather than
 open-coded, for `dock_hit`'s reason (§30.2): where a tile *is* has one answer.
 
 
+### 11.99.5 A window that went down from FULLSCREEN does not fly back
+
+The zoom is a promise about where a window is going, and for one transition it
+cannot keep it. A fullscreen app that minimizes itself (§29.6) is hidden by
+`wm_hide`, which drops the latch and puts the **windowed** geometry back in the
+record — so by the time the tile is clicked the only rect the kernel has to fly
+to is the one the app is not going to use. ArtfulType's is a splash card the
+user has left behind (§46.5.3); an outline flying to it is an animation of
+something that does not happen.
+
+**The outward half was already right, and by accident.** `inst_minimize` asks
+`wm_an_ok`, which asks `wm_fs_vis` — true of the very window being hidden — so
+a fullscreen minimize has never drawn an outline. The inward half is
+`inst_unmin`'s, and there the latch is already gone and nothing is left to
+notice.
+
+`IF_FSMIN` (`I_FLAGS` bit 1) is that fact carried across, set by
+`inst_minimize` off the window's own `WF_FULL` — not off `[wm_fs]`, because
+the question is about *this* window, the latch is `wm.inc`'s, and `wm_hide`
+is about to clear both. `inst_unmin` tests it, clears it and arms nothing. It
+costs one bit of a byte that had seven spare, and both halves are inside
+`%ifdef WM_ANIM`, so `kern_small` — which has no zoom at all — pays nothing.
+
 ### 11.99.4 A frame is HALF a tick, off the PIT rather than the tick counter
 
 **A whole tick a frame is 330 ms and it reads as slow.** That was the first
@@ -45819,6 +45842,44 @@ the path the field reported and it is left alone rather than changed blind.
 none, else kind + 1), plus module scratch (template copy buffer, pool-slot
 cursor — UI task only). All zeroed by `inst_init`.
 
+### 29.6 `OSAPI_WM_MINIMIZE` — a package sends its own window to the dock
+
+**Slot 0x0548. `BX` = a window of yours, the gfx lock held** — the minimize
+box's own environment, which is `W_ONCLICK`'s. The tile inverts, the window
+hides, and a click on the tile brings it back. It is `inst_minimize` published
+and nothing else: eight bytes of table, no thunk, because the routine's
+existing contract already *is* the slot's.
+
+**`OSAPI_WM_HIDE` is not this, and is a trap in its place.** A plain hide
+leaves `I_FLAGS` bit 0 clear, so the dock still draws a tile for the instance —
+a LIVE one, not an inverted one — and `dock_click` takes its `.front` arm,
+which calls `wm_front`. `wm_front` on an invisible window lifts it and repaints
+and **never sets the visible bit**. The result is a tile that does nothing and
+an instance with no way back. That is the whole reason this slot exists rather
+than a note telling packages to use the hide they already had.
+
+**Who it is for.** Not one app: until this slot there was no way for *any*
+fullscreen program to reach the dock, because a `WF_FULL` window answers AL=0
+to `wm_hit` for every point (§11), so `ui.inc`'s mouse ladder never reaches
+`dock_click` — the dock is covered and unclickable — and the title bar's own
+minimize box is not drawn on one either. Tracker, Paint, Missile, Skies, Tank
+and Frotz are all in that position. Eight resident bytes buy the capability for
+all of them.
+
+**The fullscreen case is the caller's to tidy, in both directions.** `wm_hide`
+drops the latch and restores the windowed geometry (§11.2), which is the
+kernel's half; it cannot know the *app's* own idea of being fullscreen, so the
+app clears that first — and must not spend an `OSAPI_FULLSCREEN(0)` doing it,
+because that repaints the desktop the hide is about to repaint again. One
+repaint, not two. Coming back is the app's too: **there is no "restored"
+callback in this system**, only the `W_PAINT` a window gets when it reappears.
+§46.5.3 is the worked example.
+
+Neither zoom is drawn for a fullscreen minimize (§11.99.5), and `wm_su_take`
+already refuses a `WF_FULL` window — *"it is the biggest block there is"* — so
+the round trip claims no save-under, which on a 640x480 4bpp screen would have
+been 150KB.
+
 ### 29.9 `osapi_sys_snapshot` is cold, behind the ordinary thunk
 
 Slot 0x0298 fills the Task Manager's whole table in one interrupts-off window
@@ -65038,6 +65099,63 @@ nothing: the titles run from x=8 to x=256 at the widest (`Help`'s cell ends
 there) and the narrowest screen this runs on is 640, so the box and the menu
 strip cannot meet and no ordering question is being papered over.
 
+#### 46.5.3 The box goes to the DOCK, and comes back to the DOCUMENT
+
+§46.5.2 shipped the box leaving fullscreen, on the reasoning that the window it
+collapses to carries the kernel's own minimize box and the two mechanisms
+compose. **That reasoning was wrong about what the window IS.** ArtfulType's
+window is an intro dialog — branding, a version, two buttons — and once the
+user is in fullscreen *that is the program*. Tracker's window is a tracker;
+this one is a front door. Collapsing to it is not a smaller ArtfulType, it is
+no ArtfulType at all, and it makes the user click through the front door again
+on the way back.
+
+So the box minimizes **to the dock** (`OSAPI_WM_MINIMIZE`, §29.6) and a click on
+the tile comes back **to the document, fullscreen**. The splash is not on either
+path.
+
+**Esc still goes to the splash, and that is not an inconsistency.** Esc is not a
+minimize; it is §11.2.1's escape hatch, the way out of the surface. If it went
+where the box goes there would be no key that leaves the program at all, and if
+it went straight to a close then a single keystroke would end an editing session.
+The front door is the right destination for the door key, and the dock is the
+right destination for the dock button.
+
+**Going down is three stores and a call.** `[at_fsowed]` is set, `at_fs_forget`
+does what `at_fs_exit` does *minus* the `OSAPI_FULLSCREEN(0)` — because
+`wm_hide` drops the kernel's latch itself and repaints, so spending an exit
+first buys a second whole-desktop repaint on a 4.77MHz machine and changes
+nothing — and then the slot is called. The app's own `[at_fs]` must go to 0
+before the call and not after: the caret-blink worker gates on it from another
+task (§46.5.1), and a worker that thinks it is fullscreen while the window is
+hidden would draw on somebody else's screen.
+
+**Coming back is the launch document's path, one flag along.** There is no
+"restored" callback (§29.6), so the signal is the first `W_PAINT` after
+`wm_show`: `at_paint`'s windowed arm tests `[at_fsowed]`, posts
+`OSAPI_WM_WAKE` to itself and **draws nothing** — the kernel has already
+white-filled the content, and drawing the splash there would put the front door
+on the glass for exactly the moment this section exists to avoid. `at_onwake`
+then clears the flag, takes the lock and calls `at_fs_enter`.
+
+That handler already did this. §54.10's launch-document handover is
+`at_onwake` → `at_argload` → `at_fs_enter` under a lock the handler takes
+itself, and its failure rule covers the new caller unchanged: *a fullscreen
+refused because another window owns the screen leaves `[at_fs]` at 0*, and the
+splash is then the honest picture. So the second reason to wake is a flag test,
+not a mechanism.
+
+**What it costs is one frame**, and it cannot be made zero. Between `wm_show`
+and the wake the window genuinely is windowed at splash geometry; what the flag
+buys is that the frame is empty rather than wrong. The obvious way to make it
+zero — have the kernel hold the fullscreen across the minimize — is refused, and
+not narrowly: `[wm_fs]` and `[wm_fs_save]` are **single globals**, one
+fullscreen window and one four-word geometry bank for the whole machine, so a
+minimized ArtfulType would hold both for as long as its tile sat in the dock and
+every other app's `OSAPI_FULLSCREEN` would be refused — silently, because that
+refusal is a CF an app turns into a splash that stays or a black screen. A
+system-wide regression for one app's polish.
+
 ### 46.6 Commands — markdown.c on one buffer
 
 Menu picks and ^key shortcuts land on the same `at_docmd` (the notepad
@@ -65158,6 +65276,40 @@ in place inside it — §46.9). `FERR_*` becomes a
 human sentence in an error alert. New/Open/Quit with unsaved changes ask
 first — Save / Cancel / Don't Save, with Save continuing the pending
 action through the Save As completion when the document is untitled.
+#### 46.7.1 …and the CLOSE BOX asks too, which it did not
+
+New, Open and Quit have always asked about unsaved changes. The window's own
+close box did not, and **lost the document silently** — because `W_ONCLOSE`
+(§75.1) did not exist when this package was written and nothing went back to
+add it. Every other way out of ArtfulType asked; the one the Macintosh it is
+imitating puts in the top-left corner did not.
+
+`at_onclose` is that negotiator, and it reuses the machinery the other three
+doors already share: `[at_pend]` gains a fourth action, CLOSE, and
+`at_runpend` spends it through `OSAPI_WM_CLOSE`. Save, Discard and Cancel
+therefore behave on the close box exactly as they do on Quit, including the
+untitled case, where Save raises Save As and the dialog's completion proc
+continues the close (§46.7).
+
+**It asks with `os88ui_ask` and not with `at_alert`, and the reason is
+geometry.** ArtfulType's own alert is centred on `[at_vw]`/`[at_vh]` — the
+SCREEN, not the window — because it is drawn on the fullscreen surface the app
+owns at the time (§46.5). A close box is never clicked on that surface: a
+`WF_FULL` window has no chrome, and the dock and menu bar are both covered
+while it holds the screen, so **the negotiator can only ever run windowed or
+minimized**. In either state `at_alert` would paint a box in the middle of the
+screen, outside the app's window, over whatever else is there, and route no
+input to it — `at_onclick` sends a windowed click to the splash arm before it
+ever reaches `[at_modal]`. §75.3's alert is a real window and works in both
+states; §75.3.1's refusal-raises-the-alert behaviour then un-minimizes the
+question for free, which is exactly what a second click on a docked tile's
+Close should do.
+
+So the app has two alerts on purpose, and the line between them is which
+surface exists: `at_alert` for the questions asked *inside* the writing
+surface, `os88ui_ask` for the one question that can only be asked when there
+is no writing surface to ask it on.
+
 ### 46.9 The document is a heap claim, and it grows
 
 The gap buffer was 20,480 bytes of **bss**, and the reason given for it was

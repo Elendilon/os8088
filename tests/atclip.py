@@ -6,14 +6,27 @@
 Two capabilities, one boot, because both of them are reached only from the
 FULLSCREEN surface and getting there is the expensive part.
 
-THE BOX (SPEC.md 46.5.2).  A `WF_FULL` window has no chrome - `wm_hit` answers
-AL=0 for every point of one - and ArtfulType cannot bind `f` either, because
-pressing F in a writer writes an f (SPEC.md 11.2.1).  So before this there was
-no way out of the writing surface with the MOUSE at all, and the box in the
-bar's right end is it.  The assertion is a PAIR and has to be: a click in the
-box must clear `[at_fs]`, and a click on the bar a few pixels to its LEFT must
-NOT - a box that is really "any click in the top-right quadrant" passes the
-first on its own, and so does a bar that has stopped tracking menus.
+THE BOX (SPEC.md 46.5.2, 46.5.3).  A `WF_FULL` window has no chrome - `wm_hit`
+answers AL=0 for every point of one - and ArtfulType cannot bind `f` either,
+because pressing F in a writer writes an f (SPEC.md 11.2.1).  So before this
+there was no way out of the writing surface with the MOUSE at all, and the box
+in the bar's right end is it.  It goes to the DOCK and comes back to the
+DOCUMENT: the window is an intro dialog, so landing on it either way is landing
+on no ArtfulType at all.
+
+Three assertions carry that, and the middle one is the one worth having.  The
+box must clear `[at_fs]` and a click a few pixels to its LEFT must not - a
+hit-test that is really "anywhere top-right" passes the first alone.  Then
+`I_FLAGS` bit 0 must be SET, because a plain `OSAPI_WM_HIDE` passes every other
+check on this page and leaves a live-looking tile whose click goes to
+`wm_front`, which never shows an invisible window (SPEC.md 29.6) - a docked
+instance with no way back, and nothing but that bit tells the two apart.  Then
+the tile must restore straight to fullscreen rather than to the splash.
+
+AND THE CLOSE BOX (SPEC.md 46.7.1).  New, Open and Quit always asked about
+unsaved changes; the close box did not, and lost the document silently.  It is
+tested from the SPLASH because that is the only place it exists - the same
+"no chrome" fact one step on.
 
 THE CLIPBOARD (SPEC.md 46.6.1).  ArtfulType used to carry a buffer of its own,
 which is the one thing SPEC.md 55's opening sentence says the machine's
@@ -245,12 +258,15 @@ def main():
         print("   the A/B moved %d px, box %r" % (n, box))
 
         # ------------------------------------------------------------------
-        # 4. The minimize box (SPEC.md 46.5.2)
+        # 4. The minimize box goes to the DOCK (SPEC.md 46.5.2, 46.5.3)
         # ------------------------------------------------------------------
         mo = os88mouse.Mouse(marty=m)
         BOX_X, BOX_Y = vw - 14, 9              # the box spans vw-19 .. vw-9
         NEAR_X = vw - 40                       # bar, right of every title,
                                                # left of the box: a no-op
+        wptr = os88geom.winptr(m, w.i, ui.sym)
+        vis = lambda: bool(u16(m.read(wptr + os88geom.W_FLAGS, 2)) & 2)
+
         check("still fullscreen before the box is touched", rb("at_fs") == 1,
               "at_fs=%d" % rb("at_fs"))
         mo.click(NEAR_X, BOX_Y)
@@ -260,21 +276,87 @@ def main():
 
         mo.click(BOX_X, BOX_Y)
         os88marty.until(m, lambda _: m.readseg(seg, syms["at_fs"], 1)[0] == 0,
-                        "the minimize box to leave fullscreen",
+                        "the minimize box to leave the surface",
                         poll=0.05, limit=120.0)
         ui.settle()
-        check("the minimize box LEFT fullscreen", rb("at_fs") == 0,
-              "at_fs=%d" % rb("at_fs"))
+        # Through wm_owner (window slot -> instance slot), which is tile_xy's
+        # own route and the kernel's: I_WIN holds a 16-bit OFFSET and winptr()
+        # answers a LINEAR address, so the two never compare equal.
+        islot = m.read(ui.sym("wm_owner"), os88geom.MAX_WIN)[w.i]
+        rec = os88geom.instances(m, ui.sym).get(islot)
+        check("the box left a live instance to look at", rec is not None,
+              "wm_owner says slot %d, which is not live" % islot)
+        rec = rec or {"flags": 0, "minimized": False}
+        # THE WHOLE POINT OF THE SLOT: a plain OSAPI_WM_HIDE would pass every
+        # other check here and leave this bit CLEAR - a live-looking tile whose
+        # click goes to wm_front, which never shows an invisible window
+        # (SPEC.md 29.6).
+        check("it MINIMIZED rather than hid (I_FLAGS bit 0)", rec["minimized"],
+              "I_FLAGS=%02x - a hide, not a minimize" % rec["flags"])
+        check("...and IF_FSMIN says the way back must not zoom",
+              bool(rec["flags"] & 2), "I_FLAGS=%02x" % rec["flags"])
+        check("...and the app owes itself a fullscreen re-entry",
+              rb("at_fsowed") == 1, "at_fsowed=%d" % rb("at_fsowed"))
+        check("...and the window really is off the glass", not vis(),
+              "W_FLAGS still says visible")
+
+        # ------------------------------------------------------------------
+        # 5. ...and the tile comes back to the DOCUMENT, not the splash
+        # ------------------------------------------------------------------
+        tx, ty = os88geom.tile_xy(m, w, ui.sym)
+        mo.click(tx, ty)
+        os88marty.until(m, lambda _: m.readseg(seg, syms["at_fs"], 1)[0] == 1,
+                        "the dock tile to bring the DOCUMENT back",
+                        poll=0.05, limit=120.0)
+        ui.settle()
+        check("the tile restored it straight to FULLSCREEN", rb("at_fs") == 1,
+              "at_fs=%d - it stopped at the splash" % rb("at_fs"))
+        check("...and the owed flag is spent", rb("at_fsowed") == 0,
+              "at_fsowed=%d - the next paint would wake for ever"
+              % rb("at_fsowed"))
+        gs4, ge4 = rw("at_gs"), rw("at_ge")
+        doc4 = bytes(m.read(rw("at_dseg") * 16, gs4)) + \
+            bytes(m.read(rw("at_dseg") * 16 + ge4, rw("at_dcap") - ge4))
+        check("...with the document intact across the round trip",
+              doc4 == FOLDED, "doc=%r" % doc4)
         if a.shot:
-            os88marty.write_png_rgb(a.shot.replace(".png", "-windowed.png"),
+            os88marty.write_png_rgb(a.shot.replace(".png", "-restored.png"),
                                     *m.fbuf())
-        # The document survives it, which is what makes the box a minimize and
-        # not a close (SPEC.md 46.5.2 - at_fs_exit is Esc's own call).
-        dseg2, gs2, ge2 = rw("at_dseg"), rw("at_gs"), rw("at_ge")
-        doc2 = bytes(m.read(dseg2 * 16, gs2)) + \
-            bytes(m.read(dseg2 * 16 + ge2, rw("at_dcap") - ge2))
-        check("...with the document intact behind it", doc2 == FOLDED,
-              "doc=%r" % doc2)
+
+        # ------------------------------------------------------------------
+        # 6. The close box ASKS about unsaved changes (SPEC.md 46.7.1)
+        # ------------------------------------------------------------------
+        # Esc is still the door to the splash (46.5.3), and the close box is
+        # only reachable from there - a WF_FULL window has no chrome at all.
+        m.key("Escape")
+        os88marty.until(m, lambda _: m.readseg(seg, syms["at_fs"], 1)[0] == 0,
+                        "Esc to hand the screen back", poll=0.05, limit=120.0)
+        ui.settle()
+        check("the document is still unsaved, which is what makes this a test",
+              rb("at_dirty") == 1, "at_dirty=%d" % rb("at_dirty"))
+
+        before_n = len(os88geom.windows(m, ui.sym))
+        wx, wy = os88geom.win_rect(m, w.i, ui.sym)[:2]
+        mo.click(*os88geom.close_xy(wx, wy))
+        ui.settle()
+        after = os88geom.windows(m, ui.sym)
+        still = [x for x in after if x.i == w.i]
+        check("the close box did NOT take the document with it",
+              len(still) == 1, "our window is gone - it closed silently")
+        check("...it put the question up instead",
+              len(after) == before_n + 1,
+              "%d windows, was %d - no alert appeared" % (len(after), before_n))
+
+        # Cancel: the one answer that must change nothing at all.
+        m.key("Escape")                        # dismissed == OS88UI_ACANCEL
+        ui.settle()
+        after2 = os88geom.windows(m, ui.sym)
+        check("Cancel left the window open", any(x.i == w.i for x in after2),
+              "it closed on a cancel")
+        check("...and the alert gone", len(after2) == before_n,
+              "%d windows, was %d" % (len(after2), before_n))
+        check("...and the document still unsaved", rb("at_dirty") == 1,
+              "at_dirty=%d" % rb("at_dirty"))
 
     print()
     print("atclip: %s" % ("FAILED: " + ", ".join(FAIL) if FAIL else "ok"))

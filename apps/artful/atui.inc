@@ -220,7 +220,7 @@ at_bar_click:
     push di
     call at_min_hit                 ; SPEC.md 46.5.2: the box FIRST - it is at
     jc .menus                       ; the far right and the titles end at 256
-    call at_fs_exit                 ; on the narrowest screen this runs on, so
+    call at_fs_dock                 ; on the narrowest screen this runs on, so
     jmp short .out                  ; the two can never be asked about one x
 .menus:
     call at_x2menu                  ; DI = menu under x, or -1

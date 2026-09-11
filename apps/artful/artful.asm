@@ -180,6 +180,13 @@ at_entry:
     mov bx, [at_win]                ; SPEC.md 54.10: the kernel calls this once
     mov ax, at_onwake               ; our window is on the glass, and the launch
     call OSAPI_WM_ONWAKE            ; document loads in front of it
+    mov ax, at_onclose              ; SPEC.md 46.7.1: the close box asks about
+    call OSAPI_WM_ONCLOSE           ; unsaved changes like the other three doors
+                                    ; - it did not, and lost the document
+                                    ; silently. A side table, so this goes here
+                                    ; and not in the template, and it preserves
+                                    ; the FLAGS, which is what lets it sit in
+                                    ; front of the CF the loader is owed
     clc                             ; the CF the loader is owed
 .out:
     ret
@@ -367,6 +374,17 @@ at_paint:
                                     ; poison on the way OUT, never set
     jmp short .done
 .win:
+    cmp byte [at_fsowed], 0         ; SPEC.md 46.5.3: back out of the dock, and
+    je .splash                      ; the document is where we are going. Draw
+    mov bx, [at_win]                ; NOTHING - the kernel white-filled this
+    call OSAPI_WM_WAKE              ; content already, and the splash here is
+    jmp short .done                 ; the front door on the glass for exactly
+                                    ; the moment this avoids. The re-entry is
+                                    ; the wake handler's: it runs without the
+                                    ; lock and may take it, where a paint proc
+                                    ; calling OSAPI_FULLSCREEN would re-enter
+                                    ; wm_paint_all from inside itself
+.splash:
     call at_splash
     cmp byte [at_abon], 0           ; ...and the About card LAST, over the
     je .done                        ; splash it is opaque about (SPEC.md 20.5.1)
@@ -636,12 +654,47 @@ at_fs_exit:
     push bx
     cmp byte [at_fs], 0
     je .out
-    mov byte [at_fs], 0
-    mov byte [at_cshown], 0
+    call at_fs_forget
     mov al, 0
     mov bx, [at_win]
     call OSAPI_FULLSCREEN           ; restores geometry + wm_paint_all,
 .out:                               ; which re-enters at_paint windowed
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; at_fs_forget - drop OUR idea of being fullscreen, telling the kernel nothing
+; out: nothing; preserves all registers
+;
+; The half of at_fs_exit that is not the kernel's (SPEC.md 46.5.3). The
+; minimize path needs exactly this and NOT the OSAPI_FULLSCREEN(0) beside it:
+; wm_hide drops the latch itself and repaints, so an exit in front of it buys a
+; second whole-desktop repaint on a 4.77MHz machine and changes nothing. It is
+; factored rather than copied because the blink worker gates on [at_fs] from
+; ANOTHER TASK (SPEC.md 46.5.1) - a second copy that fell behind this one would
+; be a worker drawing on a screen its window had left.
+; -----------------------------------------------------------------------------
+at_fs_forget:
+    mov byte [at_fs], 0
+    mov byte [at_cshown], 0
+    ret
+
+; -----------------------------------------------------------------------------
+; at_fs_dock - the minimize box: this window goes to the DOCK (SPEC.md 46.5.3)
+; in:  the gfx lock held (W_ONCLICK); at_fs is set
+; out: nothing; preserves all registers
+; -----------------------------------------------------------------------------
+at_fs_dock:
+    push ax
+    push bx
+    cmp byte [at_fs], 0
+    je .out                         ; not on the surface: nothing to send down
+    mov byte [at_fsowed], 1         ; ...and the way back is fullscreen, not
+    call at_fs_forget               ; the splash (SPEC.md 46.5.3)
+    mov bx, [at_win]
+    call OSAPI_WM_MINIMIZE          ; SPEC.md 29.6 - NOT OSAPI_WM_HIDE, which
+.out:                               ; would leave a tile that does nothing
     pop bx
     pop ax
     ret
@@ -1026,6 +1079,9 @@ AT_BSS_TOTAL equ (at_bss_end - at_bss_base)
 
 ; --- the shared controls (SPEC.md 20.5.1) -------------------------------------
 %define OS88UI_ABOUT            ; ...and the standard About card beside the
+%define OS88UI_ALERT 1          ; SPEC.md 46.7.1: os88ui_ask, for the ONE
+                                ; question that has to be asked when this app
+                                ; has no surface of its own to ask it on
 %include "os88ui.inc"           ; buttons this already drew
 
     OS88_BSS AT_BSS_TOTAL
@@ -1240,7 +1296,15 @@ at_ferr     equ at_wn + 2
 ; --- the window, the file, the clipboard, undo --------------------------------
 at_win      equ at_ferr + 2                  ; word: our window ptr
 at_name     equ at_win + 2                   ; 14 bytes: 8.3 + NUL
-at_nrev     equ at_name + 14                 ; byte: SPEC.md 46.6.2 - the
+at_fsowed   equ at_name + 14                 ; byte: SPEC.md 46.5.3 - we went to
+                                             ; the DOCK out of fullscreen, so
+                                             ; the W_PAINT that brings the
+                                             ; window back owes a re-entry.
+                                             ; There is no "restored" callback
+                                             ; (SPEC.md 29.6), so the paint is
+                                             ; the signal and the wake handler
+                                             ; is where the work happens
+at_nrev     equ at_fsowed + 1                ; byte: SPEC.md 46.6.2 - the
                                              ; caret got where it is by a
                                              ; PASTE, so 46.2.2's reveal
                                              ; leaves it alone. A LATCH:

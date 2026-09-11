@@ -75,6 +75,97 @@ at_cmd_quit:
     pop ax
     ret
 
+; -----------------------------------------------------------------------------
+; at_onclose - W_ONCLOSE: the close box asks too (SPEC.md 46.7.1, 75.1)
+; in:  SI = our window; the UI task, gfx lock HELD, and it must not take it
+; out: CF = 1 REFUSED (nothing is closed); CF = 0 go ahead
+;
+; It asks with os88ui_ask and not with at_alert, and the reason is geometry:
+; at_alert centres on [at_vw]/[at_vh], the SCREEN, because it is drawn on the
+; fullscreen surface this app owns at the time. A close box is never clicked
+; on that surface - a WF_FULL window has no chrome and covers the dock and the
+; bar - so this runs WINDOWED or MINIMIZED, where at_alert would paint outside
+; our window and route no input to itself. SPEC.md 75.3's alert is a real
+; window and works in both, and 75.3.1's refusal then RAISES the question and
+; un-minimizes it, which is what a second click on a docked tile's Close
+; should do.
+; -----------------------------------------------------------------------------
+at_onclose:
+    cmp byte [at_dirty], 0
+    je .go                          ; nothing unsaved: nothing to say
+    push ax
+    push bx
+    push si
+    push di
+    mov bx, si                      ; BX = our window; SI becomes the message
+    mov si, at_s_askclose
+    mov di, at_onask
+    mov al, OS88UI_ASAVE
+    call os88ui_ask                 ; ...and asked EVEN IF ONE IS UP: the
+    pop di                          ; refusal raises the one that is
+    pop si
+    pop bx
+    pop ax
+    stc                             ; ...and this close does not happen either
+    ret                             ; way - a refusal is not a hide (75.1)
+.go:
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
+; at_onask - the close alert's completion (SPEC.md 75.3)
+; in:  AL = the answer, SI = our window; UI task, gfx lock HELD, alert gone
+; out: nothing
+; -----------------------------------------------------------------------------
+at_onask:
+    or al, al
+    jz .save                        ; 0 = Save (the default, and Enter)
+    cmp al, 1
+    je .close                       ; 1 = Discard
+    ret                             ; 2 = Cancel, or OS88UI_ACANCEL (dismissed):
+                                    ; stay open, and the document is untouched
+.save:
+    cmp byte [at_havefile], 0
+    je .askname                     ; untitled: ASK where it goes. The SPEC.md
+                                    ; 38 dialog is a real window, so it works
+                                    ; with no surface of ours, and its
+                                    ; completion continues the close
+    call at_save_q                  ; titled: write it, and say NOTHING on
+    jc .failed                      ; failure - there is no surface to say it on
+.close:
+    call at_do_close
+    ret
+.askname:
+    mov byte [at_pend], 4           ; ...and the commit is a CLOSE
+    call at_dlg_save
+    ret
+.failed:
+    push ax                         ; the write's verdict, in a WINDOW for
+    push bx                         ; at_onclose's own reason. We stay open and
+    push si                         ; the document is exactly as it was, which
+    push di                         ; is the whole point of having asked
+    mov ax, [at_ferr]
+    call at_ferrmsg                 ; AX = FERR_* -> SI = message
+    mov bx, [at_win]
+    xor di, di                      ; no completion: OK just goes away
+    mov al, OS88UI_AOK
+    call os88ui_ask
+    pop di
+    pop si
+    pop bx
+    pop ax
+    ret
+
+; at_do_close - spend the close (SPEC.md 75.2): DEFERRED, so this returns and
+; the window goes on the next UI pass
+at_do_close:
+    push bx
+    mov byte [at_pend], 0
+    mov bx, [at_win]
+    call OSAPI_WM_CLOSE
+    pop bx
+    ret
+
 ; at_confirm - run pending action AL now, or after the Save-changes alert
 at_confirm:
     push si
@@ -104,7 +195,9 @@ at_runpend:
     je .open
     cmp al, 3
     je .quit
-    jmp short .out
+    cmp al, 4
+    je .close                       ; SPEC.md 46.7.1: the close box's Save,
+    jmp short .out                  ; continued through the Save As dialog
 .new:
     call at_cmd_newdoc
     call at_fs_paint_all            ; fresh page (fullscreen only)
@@ -114,6 +207,9 @@ at_runpend:
     jmp short .out
 .quit:
     call at_fs_exit
+    jmp short .out
+.close:
+    call at_do_close
 .out:
     pop ax
     ret
@@ -152,10 +248,13 @@ at_cmd_saveas:
     ret
 
 ; -----------------------------------------------------------------------------
-; at_save_named - write the document to [at_name]
-; out: [at_dirty] cleared on success; a failure raises the error alert
+; at_save_q - write the document to [at_name], SAYING NOTHING
+; out: CF = 0 written ([at_dirty] cleared); CF = 1 refused, with [at_ferr] =
+;      FERR_*. Every register preserved - the code goes in [at_ferr] for the
+;      reason at_dlg_done banks one there, that it has to survive this frame's
+;      pops (SPEC.md 46.7.1)
 ; -----------------------------------------------------------------------------
-at_save_named:
+at_save_q:
     push ax
     push bx
     push cx
@@ -183,15 +282,13 @@ at_save_named:
     mov ax, at_reloc                ; the CF below picks one
     call at_dmov
     pop ax
-    jc .err
+    jnc .ok
+    mov [at_ferr], ax               ; ...and NOTHING IS SAID here: at_save_named
+    stc                             ; below is what says it, and the close
+    jmp short .out                  ; negotiator says it another way entirely
+.ok:
     mov byte [at_dirty], 0
-    jmp short .out
-.err:
-    call at_ferrmsg                 ; AX = FERR_* -> SI = message
-    push ax
-    mov al, AT_MD_ERR
-    call at_alert
-    pop ax
+    clc
 .out:
     pop es
     pop di
@@ -199,6 +296,32 @@ at_save_named:
     pop dx
     pop cx
     pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; at_save_named - at_save_q, and complain ON THE SURFACE if it failed
+; out: CF = 1 it did not go; the alert is up and [at_modal] says so. Every
+;      register preserved, as before the split
+;
+; Split from at_save_q for SPEC.md 46.7.1: the close negotiator runs when there
+; is no surface to draw an alert on - a close box is never clicked on a
+; fullscreen window, because a WF_FULL window has no chrome and covers the dock
+; and the bar - so it needs the write's verdict WITHOUT at_alert's
+; screen-centred box, and says it in a window of its own instead.
+; -----------------------------------------------------------------------------
+at_save_named:
+    push ax
+    push si
+    call at_save_q
+    jnc .out
+    mov ax, [at_ferr]               ; AX = FERR_* -> SI = message
+    call at_ferrmsg
+    mov al, AT_MD_ERR
+    call at_alert
+    stc
+.out:
+    pop si
     pop ax
     ret
 
@@ -334,6 +457,9 @@ at_ferrmsg:
 at_ferrtab:
     dw at_e_ok, at_e_nodisk, at_e_io, at_e_name, at_e_noent, at_e_exist
     dw at_e_full, at_e_dirfull, at_e_prot, at_e_wprot, at_e_big
+; SPEC.md 46.7.1, and OS88UI_AMAX is 34 characters: the alert CLIPS rather
+; than refuses, so this is counted rather than trusted - 28 with the NUL
+at_s_askclose: db 'Save changes before closing?', 0
 at_e_ok:      db 'Done', 0
 at_e_nodisk:  db 'No data disk in the drive.', 0
 at_e_io:      db 'A disk error occurred.', 0
@@ -412,6 +538,16 @@ at_arg:
 ; and at_fs_enter takes the screen, and both draw.
 ; -----------------------------------------------------------------------------
 at_onwake:
+    cmp byte [at_fsowed], 0         ; SPEC.md 46.5.3: the dock gave us back, and
+    je .arg                         ; the document is where we are going
+    mov byte [at_fsowed], 0         ; cleared FIRST: at_fs_enter can be refused
+    call OSAPI_GFX_LOCK             ; (another window owns the screen) and a
+    call at_fs_enter                ; flag left set would post a wake from the
+    call OSAPI_GFX_UNLOCK           ; next paint for ever. A refusal leaves
+    ret                             ; [at_fs] at 0 and the splash is then the
+                                    ; honest picture - at_argload's own rule,
+                                    ; one caller along
+.arg:
     cmp byte [at_argp], 0           ; not the document's wake, or the document
     je .out                         ; is already open
     call OSAPI_GFX_LOCK
