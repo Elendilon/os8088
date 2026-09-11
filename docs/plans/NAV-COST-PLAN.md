@@ -2,9 +2,16 @@
 
 **STATUS: OPEN. The finding is measured on ONE package and the audit is not
 done.** It is written now because it was found while planning the DOS box's
-path wave (docs/plans/DOS-EXEC-PLAN.md) and deviating to it there would have
-been the tail wagging the dog - and because one of its conclusions is a
-REFUSAL that is better recorded before somebody builds the thing it refuses.
+path wave (docs/plans/DOS-EXEC-PLAN.md), and deviating to it there would have
+been the tail wagging the dog.
+
+**§4 carries a correction in place** - this document first refused the cached
+location outright, on §18.9.3's disk-swap argument, and that refusal was
+wrong. The kernel banks nine FAT sectors against a boot-sector signature
+today (§18.8.2); refusing a directory cluster on evidence the kernel trusts
+the FAT to was inconsistency rather than caution. The refusal is kept beside
+the correction because the reasoning that produced it is the reasoning
+somebody will produce again.
 
 ---
 
@@ -67,42 +74,85 @@ wants the listing, the sort and the icons - that is what the slot is for. The
 audit's question per site is *"is this program about to draw this folder?"*,
 and only a No converts.
 
-## 4. THE CACHE IS REFUSED, and this is the important half
+## 4. The cache is NOT refused - it wants the evidence the kernel already has
 
-The obvious next thought - *"walk once at startup, remember the cluster, and
-every later save just stands there"* - is the thing §18.9.3 already refuses,
-and the reason is not conservatism:
+**An earlier revision of this document refused the cache outright, and that
+was wrong.** It is kept here as a correction rather than deleted, because the
+reasoning that produced it is the reasoning somebody will produce again.
 
-> A floppy can [be swapped], and **no predicate the kernel can evaluate
-> answers it**: §18.9.1's motor timeout is physical proof for one quiet switch
-> and nothing more. So the assertion is the CALLER'S: *"I am in the middle of
-> a batched operation with the user interface frozen, so the disk is the same
-> disk."* **AND ANY UNLOCKING OF THE USER INTERFACE ENDS IT.**
+The refusal quoted §18.9.3: a floppy can be swapped, no predicate the kernel
+can evaluate answers it, so the assertion is the caller's under a frozen UI
+and any unlocking of the interface ends it. Every word of that is true **of
+the batch bracket**, which is a stricter thing than this: the bracket asks to
+skip boot-sector re-reads *entirely* for the duration of an operation. A
+package that wants to stand in `SYSTEM\APPDATA` again is not asking to skip
+validation. It is asking for validation that does not cost a walk.
 
-A remembered cluster is an assertion held **across** UI unlocks, which is
-precisely the span the kernel says nothing can validate. A game that caches
-`APPDATA`'s cluster, and whose player swaps the disk between two rounds,
-writes its high score into whatever occupies that cluster on the new disk.
+**And the kernel already has it.** §18.8.2: `dsk_bpb_sig` computes a 16-bit
+signature of the boot sector **the mount has already read** - rotated between
+adds, so position-sensitive rather than a plain checksum - and
+`dsk_fatw_pick` reuses a banked FAT window only when that signature matches
+the one banked with it. `[dsk_sigcur]` is the signature of the volume mounted
+now.
 
-**That is data corruption traded for six seconds, and it is the wrong trade
-in the wrong direction.** Clear Skies is not a counter-example: its parts live
+So the kernel **stakes nine cached FAT sectors on this evidence today**. A
+wrong answer there writes file allocations out of another disk's FAT, which
+is a far worse outcome than a misplaced high score. Refusing a directory
+cluster on evidence the kernel trusts the FAT to is not caution, it is
+inconsistency.
+
+### 4.1 What that makes the design
+
+```
+    banked:  (cluster, volume, signature)
+    on use:  signature still matches  ->  GOTO_QM and go.  A WORD COMPARE,
+                                          no I/O at all.
+             otherwise                ->  walk once, re-bank.
+```
+
+That is *"we check once, then we stop thinking the user has just swapped
+disks"* - with the check cheap enough that it can simply be made every time,
+which is better than checking once, because it is also correct on the machine
+where swapping floppies IS normal use: one drive, 128KB, a disk per program.
+
+It needs **one published slot**: the current volume's signature. Something
+like `OSAPI_VOL_SIG` - BL = a volume, out AX = its 16-bit signature, 0 = not
+mounted. A few bytes of `.text` and one API cell, and then every package in
+the tree can bank a location safely instead of each inventing a rule.
+
+**A generation counter would be the wrong primitive.** A counter that moved on
+every remount would invalidate constantly - volumes switch often and most
+switches are the same disk coming back - so packages would re-walk for
+nothing. The signature moves when the DISK changes, which is the question
+actually being asked. It has the further nice property that two IDENTICAL
+disks share a signature and also share the cluster, so a copy is not a false
+invalidation.
+
+### 4.2 What the signature is worth, stated honestly
+
+Sixteen bits collide. Two unrelated disks can share a signature, and then a
+banked cluster is trusted when it should not be. **That risk is exactly the
+one the kernel already runs for the FAT window** - no better and no worse -
+and the rule to carry is that a caller must not treat it as stronger than
+that. For a high-score file the consequence of a collision is a corrupted
+score file. A package banking something it cannot afford to lose should also
+carry a witness (§4.3).
+
+### 4.3 ...and it may still not be needed
+
+Measure before building any of it. With `QM` the walk is **two free cluster
+moves and two directory sector reads**, because `QM` inside a volume is a
+word. If that lands near Clear Skies' half-second then the bank buys little,
+and the slot is worth having anyway for the packages that walk further.
+
+If a bank IS built and the thing banked matters, the belt-and-braces shape is
+a **witness**: stand there quietly and confirm a known name is present before
+trusting it. One directory read instead of the whole walk, and it closes the
+collision case as well.
+
+**Clear Skies remains not a counter-example either way**: its parts live
 INSIDE the file it already opened (§20.12), so it never navigates and has
-nothing to invalidate. "Just being there" is the absence of a walk, not a
-cached one.
-
-### 4.1 ...and it is probably not needed anyway
-
-The reason to measure before designing a cache: with `QM` the walk is **two
-free cluster moves and two directory sector reads**, because `QM` inside a
-volume is a word. If that lands near Clear Skies' half-second then the cache
-buys nothing and risks corruption for it.
-
-**So the order is: convert, measure, and only then ask whether anything is
-left to buy.** If something is, the cheap safe shape is a cached cluster with
-a **witness** - stand there quietly and confirm a known name is present before
-trusting it, re-walking when it is not - which costs one directory read
-instead of the whole walk. That is a design to write against a number, not
-before one.
+nothing to invalidate. "Just being there" is the absence of a walk.
 
 ## 5. What this plan is waiting for
 
@@ -118,7 +168,8 @@ Then, in order:
 2. **Convert `apps/os88type.inc`'s `.back` site**, which reaches four packages
    for one edit and is an unambiguous restore.
 3. **Audit the remaining sites** by §3's question, converting the Noes.
-4. **Only then** ask whether §4.1's witnessed cache has anything left to buy.
+4. **Only then** decide whether §4.1's banked cluster has anything left to
+   buy, and whether `OSAPI_VOL_SIG` is worth its cell on that evidence.
 
 ## 6. What is NOT decided here
 
