@@ -159,6 +159,7 @@ def main():
         return
 
     seen = 0
+    pkgs = {}
     for rel in IMGS:
         path = os.path.join(ROOT, rel)
         if not os.path.exists(path):
@@ -179,6 +180,7 @@ def main():
             vol = Vol(f.read(), rel)
         here = names(vol)
         present = {n for _f, n in here}
+        pkgs[rel] = {n for _f, n in here if n.endswith(".O88")}
 
         for folder, nm in here:
             if nm.endswith(".DRV"):
@@ -213,6 +215,35 @@ def main():
                       "without being told about it",
                       got="no %s reader on %s" % (ext, rel),
                       want="one of " + ", ".join(readers))
+
+    # --- ...AND THE SYSTEM DISK IS A WHOLE SYSTEM (SPEC.md 24.5.6) --------
+    # `make small`'s floppy carries everything `make smallapps` writes, so a
+    # 128KB machine with ONE DRIVE has the whole system on the disk it booted
+    # from. This is the property, not the cluster count: a package that reaches
+    # the apps floppy and not the system one puts that machine back to swapping
+    # disks for it, silently, because both disks still build and both still
+    # boot.
+    #
+    # STATED AS A SUBSET AND NOT AS EQUALITY, deliberately. The system disk may
+    # carry MORE - `TASKMGR.O88` is a $(SYSAPPS) package and would be there on
+    # its own - and the day 24.5.6's 108 spare clusters run out the system disk
+    # goes back to a curated subset, which is a decision somebody takes: this
+    # row then fails naming the package, which is the conversation happening
+    # rather than the regression shipping.
+    for sysimg, appsimg in (("build/small360.img", "build/smallapps360.img"),
+                            ("build/small.img", "build/smallapps.img")):
+        if sysimg not in pkgs or appsimg not in pkgs:
+            continue
+        missing = sorted(pkgs[appsimg] - pkgs[sysimg])
+        check(not missing,
+              "%s carries everything %s does" % (sysimg, appsimg),
+              "SPEC.md 24.5.6 - the small SYSTEM disk is the whole system, so "
+              "a 128KB machine with one drive never swaps floppies. A package "
+              "on the apps disk and not this one is that machine quietly "
+              "losing it; if the disk is full, that is a decision to take in "
+              "the Makefile and here, not a build that still goes green",
+              got=", ".join(missing) or "nothing missing",
+              want="every package on " + appsimg)
 
     check(seen == len(IMGS), "all four small floppies were walked",
           "both geometries of both disks, because a pair built two different "

@@ -462,8 +462,23 @@ make smallapps#   128KB floor machine, docs/history/KERN-SPLIT-PLAN.md). `smalla
               #   arena. It is a SUBSTITUTION now rather than an omission -
               #   §85.3.5.1's small arm - which is the shape to reach for
               #   first: an omission is what is left when substitution cannot
-              #   work. The small SYSTEM disk carries §24.3's core
-              #   packages too, filtered the same way (§24.5.1).
+              #   work. **THE SMALL SYSTEM DISK CARRIES THE WHOLE APPS
+              #   PAYLOAD** (§24.5.6) - not §24.5.1's core subset but the same
+              #   fourteen packages, two documents and SYSTEM/APPDATA that
+              #   `make smallapps` writes - so a 128KB machine with ONE DRIVE
+              #   has the whole system on the disk it booted from. It is
+              #   arithmetic: the two disks already overlapped in four
+              #   packages, the kernel and its five modules are ~75 clusters
+              #   and are on the system disk either way, and the union is
+              #   **246 of 354** at 360KB with 108 spare. Verified on the
+              #   machine with NO B: at all - the desktop comes up with the
+              #   whole 52.5KB arena free and A:APPS/ packages open off the
+              #   boot floppy, the warm ASSOC.DAT carrying all fourteen so a
+              #   .TEX in A:MEDIA/ resolves with nothing to fall back on.
+              #   **`make smallapps` is UNCHANGED and stays**: 108 clusters is
+              #   this cycle's margin and not a property of the geometry, so
+              #   the day the union stops fitting the system disk goes back to
+              #   a subset and the apps floppy is what still carries the lot
               #
               #   **THE RULE HAS THREE MORE SHAPES AND ALL THREE HAD
               #   SHIPPED** (§24.5.2, §24.5.3, §24.5.4). SHEET claims ~100KB

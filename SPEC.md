@@ -39625,19 +39625,27 @@ run**, and a 128KB machine is the likeliest single-floppy machine there is.
 `make small` did not do this for its first several editions — the small system
 disk had a `SYSTEM/` folder and nothing else executable.
 
-It does now, through the same two filters: the omitted packages go, and a
-package with a small build ships as the **small** build. So `CORE_TOOLS`'
-five become **`NOTEPAD.O88` and `PAINT.O88`** beside `GAMES/MINES.O88` —
-Browser and Telnet omitted by §24.5's table, Font Viewer by §24.5.3 — and the
-360KB disk sits at **129 of 354** clusters.
+It did that through the same two filters the apps disk uses: the omitted
+packages go, and a package with a small build ships as the **small** build. So
+`CORE_TOOLS`' five came out as `NOTEPAD.O88` and `PAINT.O88` beside
+`GAMES/MINES.O88` — Browser and Telnet omitted by §24.5's table, Font Viewer
+by §24.5.3 — and the 360KB disk sat at **129 of 354** clusters.
 
-(That sentence read *"`CALC.O88`, `NOTEPAD.O88`, `PAINT.O88`"* and had been
+**§24.5.6 HAS SUPERSEDED THIS AND THE SECTION IS KEPT FOR THE ARGUMENT.** The
+core set was a FLOOR — *something* to run — and the floor turned out not to be
+the binding constraint: the whole apps payload fits on the same floppy with
+108 clusters to spare, so the small system disk carries all of it and a 128KB
+machine is a one-drive machine. What stays true here is the reasoning that got
+there — §24.3's second copy, and the two filters, which §24.5.6 applies to a
+longer list rather than replaces.
+
+(The list above read *"`CALC.O88`, `NOTEPAD.O88`, `PAINT.O88`"* and had been
 wrong since the day the Font Viewer landed: PR #158 put
 `FONTVIEW.O88` into `$(CORE_TOOLS)` **in place of** `CALC.O88`, so the list
 this describes had never been the list on the disk. A core list quoted rather
 than derived is a list that goes stale the first time anything is swapped in
-it, which is why the figures beside it are re-measured here and not carried
-forward.)
+it — which is an argument for §24.5.6's shape as much as a correction, since a
+disk that takes the WHOLE payload has no curated list to go stale.)
 
 #### 24.5.3 …and the readers left with nothing to read
 
@@ -39772,6 +39780,52 @@ it is deliberately not a second `tests/dotdel.py`: that row asks whether the
 game is *correct*, on kernels and adapters where it has always run, and this
 one asks the only question the disk list rests on — can the floor machine run
 it at all.
+
+#### 24.5.6 …and then it carries the WHOLE payload, so 128KB is single-disk
+
+**`make small`'s system floppy holds everything `make smallapps` writes.** Not
+§24.5.1's core subset — the same fourteen packages, the same two documents, the
+same `SYSTEM/APPDATA/`. A 128KB machine with one drive boots it and has the
+whole system on the disk it booted from.
+
+**It is arithmetic and not ambition.** The two disks already overlapped in four
+packages (Note Pad, Paint, the Task Manager, Minesweeper), the kernel and its
+five on-demand modules are ~75 clusters and are on the system disk either way,
+and what the apps floppy adds on top of that is **121**. At 360KB:
+
+| | clusters of 354 |
+|---|---|
+| small system disk, core subset (§24.5.1) | 123 |
+| small apps disk | 163 |
+| **the union, on one floppy** | **246 — 108 spare** |
+
+At 1.44MB it is 75 of 357 and the question does not arise.
+
+**THE APPS DISK STAYS AND `make smallapps` IS UNCHANGED.** 108 clusters is
+*this cycle's* margin, not a property of the geometry, and this project keeps
+making applications — the day the union stops fitting, the system disk goes
+back to a curated subset and the apps floppy is what still carries everything.
+That is §24.6.1's rule (being carried on a disk is a decision with a date on
+it, never a property of the package) applied one disk along, and `os88disk.py`
+refusing an image that does not fit is the enforcement rather than a comment.
+
+**`$(SMALLCOREARGS)` and the two lists behind it are DELETED, not left
+unused.** The filtered core set is a strict subset of the filtered apps set, so
+keeping it beside the new list would be a second filter that subtracts nothing
+— the shape §24.5 already refuses for a stale omit list.
+
+**Measured on the machine, with no second drive at all** (`os8088_5150_cga_128k`,
+`apps=None`): the desktop comes up with the whole 52.5KB arena free, and
+`A:APPS/CALC.O88` and `A:APPS/TEXPAD.O88` both open and run off the boot
+floppy. The warm `ASSOC.DAT` is written from the packages on the volume
+(§54.7), so it now carries all fourteen — which is the part that makes the
+disk *self-contained* rather than merely *full*: a `.TEX` double-clicked in
+`A:MEDIA/` resolves to `A:APPS/TEXPAD.O88` with nothing in B: to fall back on.
+
+**Two programs is about what the machine holds**, and that is unchanged by
+this — the arena is 52.5KB and TeXPad's region alone is ~25KB. The disk being
+full of programs is not a claim that they run at once; it is a claim that the
+user can *choose* one without swapping floppies.
 
 ### 24.6 THE CATEGORY DISKS — a floppy per subject, at 360KB alone
 

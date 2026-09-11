@@ -8866,18 +8866,74 @@ SMALLAPPSARGS  = $(addprefix APPS:,$(SMALLTOOLS))
 SMALLSYSAPPS      = $(call SMALLSUB,,$(filter-out $(SMALLOMIT) $(SMALLOMIT_ORPHAN),$(SYSAPPS)))
 SMALLSYSAPPSARGS  = $(addprefix SYSTEM:,$(SMALLSYSAPPS))
 
-# --- THE CORE PACKAGES, on the small system disk too --------------------------
-# SPEC.md 24.3: the core packages ship on the SYSTEM disk as well as the apps
-# disk - a second copy and never a move - so a single-floppy machine has
-# something to run. `make small` never did that, and a 128KB machine is the
-# likeliest single-floppy machine there is.
+# --- THE SMALL SYSTEM DISK CARRIES THE WHOLE APPS PAYLOAD (SPEC.md 24.5.6) ----
 #
-# It is CORE_TOOLS with the same two filters the apps disk uses: the omitted
-# packages go, and the ones with a small build are the small build.
-SMALLCORE_TOOLS = $(call SMALLSUB,$(SMALLOMIT) $(SMALLOMIT_ORPHAN),$(CORE_TOOLS))
-SMALLCORE_GAMES = $(call SMALLSUB,$(SMALLOMIT_GAMES) $(SMALLOMIT_ORPHAN),$(CORE_GAMES))
-SMALLCOREARGS   = $(addprefix APPS:,$(SMALLCORE_TOOLS)) \
-                  $(addprefix GAMES:,$(SMALLCORE_GAMES))
+# **A 128KB MACHINE IS THE LIKELIEST SINGLE-FLOPPY MACHINE THERE IS, AND THIS
+# IS WHAT MAKES IT ONE.** It used to take $(CORE_TOOLS) alone - SPEC.md 24.3's
+# core packages, a second copy on the system disk so that a one-drive machine
+# had *something* to run - which on this kernel came out as Note Pad, Paint
+# and Minesweeper. That is a floor and not a system: the machine booted, and
+# the programs it could reach were three.
+#
+# It takes the SAME PAYLOAD `make smallapps` writes now, because the
+# arithmetic says it can: the union is **246 of 354 clusters** at 360KB, with
+# 108 spare. The two disks overlap in four packages already (Note Pad, Paint,
+# the Task Manager and Minesweeper), the kernel and its five modules are 75 of
+# those clusters and are on the system disk either way, and what the apps disk
+# adds on top is 121.
+#
+# **$(SMALLCOREARGS) IS DELETED RATHER THAN LEFT UNUSED**, and so are the two
+# lists behind it. The filtered core set is a SUBSET of the filtered apps set -
+# Browser and Telnet are in $(SMALLOMIT), Font Viewer in $(SMALLOMIT_ORPHAN),
+# and Note Pad, Paint and Minesweeper are all in $(APPS_TOOLS)/$(APPS_GAMES)
+# anyway - so keeping it beside the new list would be a second filter that
+# subtracts nothing, which is the shape SPEC.md 24.5 names for a stale omit
+# list and refuses.
+#
+# THE APPS DISK IS UNCHANGED AND `make smallapps` STAYS. 108 clusters is this
+# cycle's margin rather than a property of the geometry, and this project keeps
+# making applications: the day the union stops fitting, the system disk goes
+# back to a curated subset and the apps floppy is what still carries
+# everything. That is SPEC.md 24.6.1's rule - being carried on a disk is a
+# decision with a date on it - applied one disk along, and os88disk.py refusing
+# an image that does not fit is the enforcement.
+
+# **`.SECONDEXPANSION:` AND `$$` ON TWO OF THESE, BECAUSE A PREREQUISITE IS
+# EXPANDED WHEN THE RULE IS READ AND NOT WHEN THE TARGET IS CONSIDERED.**
+# $(APPS_TOOLS) and $(APPS_GAMES) are defined ~400 lines BELOW this point, so
+# `$(SMALLTOOLS)` and `$(SMALLGAMES)` here expand to NOTHING however carefully
+# they were deferred with `=`: the comment on $(SMALLGAMES) itself warns about
+# exactly this ordering for the RECIPE and the prerequisite half went
+# unnoticed, because `make all` builds every package into build/ anyway and
+# the empty list is invisible there. In a PRIVATE tree that builds only what
+# it needs (tools/os88build.py, `make BUILD=<dir> smallapps`) it is
+# `os88disk: error: cannot read <dir>/artful.o88` - a rule asking for a file
+# nothing was told to produce, which is the same failure mode $(APPS_TOOLS_360)
+# further down calls out for the mirror-image case.
+#
+# A `$$`-prefixed prerequisite under `.SECONDEXPANSION:` is expanded a second
+# time, when the target is considered - by which point both lists exist. It
+# reaches only prerequisites that carry `$$`, so the plain ones here and
+# every rule below are untouched.
+#
+# **IT IS DECLARED HERE, ABOVE THE SMALL SYSTEM DISK, AND NOT DOWN BESIDE
+# THE APPS ONE.** `.SECONDEXPANSION:` binds the rules that come AFTER it, so
+# a declaration next to `$(BUILD)/smallapps360.img` reaches that rule and not
+# these two - which since SPEC.md 24.5.6 carry the same lists and need the
+# same deferral. A rule whose `$$(…)` prerequisite is out of scope does not
+# error: make takes `$$(SMALLTOOLS)` as a literal filename, finds no rule for
+# it and says so, which at least fails loudly - but the failure names a file
+# nobody wrote rather than the directive that is missing.
+#
+# **$(SMALLDATA)/$(SMALLDATA_360) ARE HERE FOR THE SAME REASON AND WERE MISSED
+# ONCE.** They were in the RECIPE and in neither prerequisite list at all, so
+# a private tree failed at `os88disk: error: cannot read
+# <dir>/zdata-lz4/PAPER.TEX` - the identical sentence $(SMALLTOOLS) above was
+# added for, about a different variable. Filtering a per-disk list in the
+# recipe and not in the prerequisites is one defect with as many instances as
+# the recipe has lists, and the only way to be done with it is to check every
+# line of the recipe against this one.
+.SECONDEXPANSION:
 
 $(BUILD)/small360.img: KMODDIR := $(SMALLDIR)
 
@@ -8906,28 +8962,32 @@ $(BUILD)/small360.img: KMODDIR := $(SMALLDIR)
 # fall out of $(BUILD)/kernel.bin, so any kernel source change makes them
 # newer than the disk. And a module the sub-make somehow failed to write is
 # LOUD rather than silent - os88disk.py is handed the name and refuses.
-$(BUILD)/small360.img: $(SMALLDRIVERS) $(SMALLSYSAPPS) \
-                       $(SMALLCORE_TOOLS) $(SMALLCORE_GAMES) $(SYSDOC) \
-                       tools/os88disk.py
+$(BUILD)/small360.img: $(SMALLDRIVERS) $(SMALLSYSAPPS) $(SMALLPKGS) \
+                       $$(SMALLTOOLS) $$(SMALLGAMES) $$(SMALLDATA_360) \
+                       $(SYSDOC) tools/os88disk.py
 	@$(MAKE) BUILD=$(SMALLDIR) KERN_SMALL=1 $(SMALLDIR)/boot360.bin
 	python3 tools/os88disk.py --fatcap 2 -o $@ --size 360 \
 		--boot $(SMALLDIR)/boot360.bin --kernel $(SMALLDIR)/$(KERNNAME) \
-		$(SMALLDRIVERS) $(SMALLMODS) $(SMALLSYSAPPSARGS) $(SMALLCOREARGS) \
-		$(SYSDOC) $(MEDIAFOLDER)
+		$(SMALLDRIVERS) $(SMALLMODS) $(SMALLSYSAPPSARGS) \
+		$(SMALLAPPSARGS) $(addprefix GAMES:,$(SMALLGAMES)) \
+		$(addprefix MEDIA:,$(SMALLDATA_360)) \
+		$(SYSDOC) $(MEDIAFOLDER) $(APPDATAFOLDER)
 	@echo "small: $@ - kern_small on 360KB. Pair it with"
 	@echo "       build/smallapps360.img (\`make smallapps\`)"
 
 # its kernel is $(SMALLDIR)'s, so its modules are too
 $(BUILD)/small.img: KMODDIR := $(SMALLDIR)
 
-$(BUILD)/small.img: $(SMALLDRIVERS) $(SMALLSYSAPPS) \
-                    $(SMALLCORE_TOOLS) $(SMALLCORE_GAMES) $(SYSDOC) \
-                    tools/os88disk.py
+$(BUILD)/small.img: $(SMALLDRIVERS) $(SMALLSYSAPPS) $(SMALLPKGS) \
+                    $$(SMALLTOOLS) $$(SMALLGAMES) $$(SMALLDATA) \
+                    $(SYSDOC) tools/os88disk.py
 	@$(MAKE) BUILD=$(SMALLDIR) KERN_SMALL=1 $(SMALLDIR)/boot.bin
 	python3 tools/os88disk.py --fatcap 2 -o $@ --size 1440 \
 		--boot $(SMALLDIR)/boot.bin --kernel $(SMALLDIR)/$(KERNNAME) \
-		$(SMALLDRIVERS) $(SMALLMODS) $(SMALLSYSAPPSARGS) $(SMALLCOREARGS) \
-		$(SYSDOC) $(MEDIAFOLDER)
+		$(SMALLDRIVERS) $(SMALLMODS) $(SMALLSYSAPPSARGS) \
+		$(SMALLAPPSARGS) $(addprefix GAMES:,$(SMALLGAMES)) \
+		$(addprefix MEDIA:,$(SMALLDATA)) \
+		$(SYSDOC) $(MEDIAFOLDER) $(APPDATAFOLDER)
 
 # =============================================================================
 # `make emu` - THE EMULATOR KERNEL AND ITS SYSTEM DISK (SPEC.md 9.11.7)
@@ -9122,33 +9182,6 @@ smallapps: $(BUILD)/smallapps360.img $(BUILD)/smallapps.img
 # build/smallapps.img in B:, and tests/fcpcopy.py's kern_small arm could
 # never have passed. 360KB declares a 2-sector FAT anyway; it is spelled here
 # so the two geometries say the same thing.
-# **`.SECONDEXPANSION:` AND `$$` ON TWO OF THESE, BECAUSE A PREREQUISITE IS
-# EXPANDED WHEN THE RULE IS READ AND NOT WHEN THE TARGET IS CONSIDERED.**
-# $(APPS_TOOLS) and $(APPS_GAMES) are defined ~400 lines BELOW this point, so
-# `$(SMALLTOOLS)` and `$(SMALLGAMES)` here expand to NOTHING however carefully
-# they were deferred with `=`: the comment on $(SMALLGAMES) itself warns about
-# exactly this ordering for the RECIPE and the prerequisite half went
-# unnoticed, because `make all` builds every package into build/ anyway and
-# the empty list is invisible there. In a PRIVATE tree that builds only what
-# it needs (tools/os88build.py, `make BUILD=<dir> smallapps`) it is
-# `os88disk: error: cannot read <dir>/artful.o88` - a rule asking for a file
-# nothing was told to produce, which is the same failure mode $(APPS_TOOLS_360)
-# further down calls out for the mirror-image case.
-#
-# A `$$`-prefixed prerequisite under `.SECONDEXPANSION:` is expanded a second
-# time, when the target is considered - by which point both lists exist. It
-# reaches only prerequisites that carry `$$`, so the two plain ones here and
-# every rule below are untouched.
-#
-# **$(SMALLDATA)/$(SMALLDATA_360) ARE HERE FOR THE SAME REASON AND WERE MISSED
-# ONCE.** They were in the RECIPE and in neither prerequisite list at all, so
-# a private tree failed at `os88disk: error: cannot read
-# <dir>/zdata-lz4/PAPER.TEX` - the identical sentence $(SMALLTOOLS) above was
-# added for, about a different variable. Filtering a per-disk list in the
-# recipe and not in the prerequisites is one defect with as many instances as
-# the recipe has lists, and the only way to be done with it is to check every
-# line of the recipe against this one.
-.SECONDEXPANSION:
 
 $(BUILD)/smallapps360.img: $(SMALLPKGS) $$(SMALLTOOLS) $$(SMALLGAMES) $(SMALLSYSAPPS) \
                            $$(SMALLDATA_360) tools/os88disk.py

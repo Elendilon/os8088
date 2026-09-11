@@ -111,17 +111,30 @@ def check(ok, name, note=""):
 
 
 def arena(m):
-    """(arena bytes, claimed bytes) off mem_tab - SPEC.md 50's own record."""
+    """(arena bytes, claimed bytes) off mem_tab - SPEC.md 50's own record.
+
+    **ONLY ROWS INSIDE THE ARENA ARE SUMMED.** `mem_tab` is the record of every
+    claim the kernel is holding, and the arena is `int 12h` RAM above
+    `HEAP_SEG`; summing the table flat and subtracting it from that is an
+    apples-to-pears figure that can go NEGATIVE, which is what a first version
+    of this printed (62.0 KB "claimed" against a 52.5 KB arena). A number a
+    reader cannot sanity-check is worse than no number, so the base is tested
+    rather than assumed and `free` is reported as unknown if it still comes out
+    below zero.
+    """
     eq = os88sym.equates(DEFS)
-    MC = G.MC_SIZE
+    MC, base = G.MC_SIZE, eq["HEAP_SEG"] * 16
     ram = struct.unpack("<H", bytes(m.read(0x413, 2)))[0] * 1024
     tab = bytes(m.read(m.sym("mem_tab", DEFS), eq["MEM_MAX"] * MC))
     used = 0
     for i in range(eq["MEM_MAX"]):
         r = tab[i * MC:(i + 1) * MC]
-        if struct.unpack_from("<H", r, G.MC_OWN)[0]:
-            used += struct.unpack_from("<H", r, G.MC_PARA)[0] * 16
-    return ram - eq["HEAP_SEG"] * 16, used
+        if not struct.unpack_from("<H", r, G.MC_OWN)[0]:
+            continue
+        if struct.unpack_from("<H", r, G.MC_SEG)[0] * 16 < base:
+            continue                    # not the heap's - not this sum's
+        used += struct.unpack_from("<H", r, G.MC_PARA)[0] * 16
+    return ram - base, used
 
 
 def wait_for(m, cond, guest, poll=0.25):
@@ -202,9 +215,11 @@ def run(tag, machine, why, image, apps):
               % (tile0[0], tile0[1], big[0], big[1],
                  p.w("dd_mw"), p.w("dd_mh"), p.w("dd_bdkb")))
         a, used = arena(m)
-        print("       arena %.1f KB, claimed at the widest %.1f KB, "
-              "free %.1f KB" % (a / 1024.0, used / 1024.0,
-                                (a - used) / 1024.0))
+        print("       arena %.1f KB, claimed at the widest %.1f KB, free %s"
+              % (a / 1024.0, used / 1024.0,
+                 "%.1f KB" % ((a - used) / 1024.0) if used <= a
+                 else "UNKNOWN - the claim sum exceeds the arena, so this "
+                      "reading is not to be quoted"))
         m.key("Escape")
         os88marty.guest_sleep(m, 10)
         check(p.b("dd_ok") == 1 and (p.w("dd_tw"), p.w("dd_th")) == tile0,
