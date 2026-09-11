@@ -2579,7 +2579,7 @@ SOAK = [
         "no I/O at all' measured rather than quoted. Reads 3/0/0 here.",
         needs=("marty",), serial=True,
         wants=("build/pathtest360.img",)),
-    Row("dosargs", "soak", py("tests/dosargs.py"), 50.0,
+    Row("dosargs", "soak", py("tests/dosargs.py"), 90.0,
         "CAN A DOS PROGRAM BE GIVEN ARGUMENTS? (SPEC.md 96.19). Half the DOS "
         "software worth running is configured by its command line and the box "
         "wrote an EMPTY tail until this wave - Creative's own card test says "
@@ -2599,7 +2599,14 @@ SOAK = [
         "a key on a 4.77MHz machine. 8 keys, 8 cells here; a whole-field "
         "repaint would be 36. And MYPATH, because the environment's program "
         "path was a bare 8.3 name until OSAPI_FILE_PATH (96.19.3) - hence a "
-        "program in a SUBDIRECTORY, since in the root both spellings agree.",
+        "program in a SUBDIRECTORY, since in the root both spellings agree. "
+        "IT ALSO DRIVES THE ENVIRONMENT PAGE (96.20) - the button, a row, "
+        "Done - and asserts the typed NAME=VALUE reaches the program's own "
+        "block; and that the post-exit fill STAYED INSIDE THE WINDOW "
+        "(96.19.5), measured BEFORE anything moves, because a move or a close "
+        "repaints the damage and erases the evidence: an earlier version of "
+        "that check moved the window first and stayed green with the bug "
+        "deliberately put back. VERIFIED TO FAIL at 0% ink against 50%.",
         needs=("marty",), serial=True,
         wants=("build/dosargs360.img",)),
     Row("heapcheck", "soak", py("tests/heapcheck.py"), 40.0,

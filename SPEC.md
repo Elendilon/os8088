@@ -119400,6 +119400,13 @@ is already queued, and a second wake would run it twice). The states it
 accepts are `DST_RAN` and `DST_ERR` — a program that has *finished*, which is
 the state the user is in when they discover they needed `/M`.
 
+**It is reached whether or not a field has the caret**, and that is not where
+it started. The run sat *under* the focus test, so pressing **Done** on the
+environment page and then Enter did nothing at all — the caret was nowhere and
+the key was refused before it was looked at. A window whose only action key
+works solely while one particular box is focused is a window the user thinks
+is broken, and the failure is silent.
+
 #### 96.19.3 …and the environment's program path is a real path now
 
 DOS 3+ puts the program's full path after the environment's terminating NUL
@@ -119412,6 +119419,109 @@ other customers. `dos_envpath` asks for the folder, appends the name, and
 **falls back to the bare name on a refusal** — a corrupt chain or a buffer too
 small — because that is exactly what it wrote before and a program that cannot
 find its own directory falls back on the current one, which every program has.
+
+### 96.20 The environment, on a page of its own
+
+`BLASTER=` (§96.17) was the only variable the box could produce, and the
+machine produced it. Half of what is left wants one the **user** knows:
+Creative's disks look for `SOUND=`, and mTCP — wave 4's own validation target
+— is configured *entirely* by `MTCPCFG` pointing at a file. A packet driver
+with no way to say `MTCPCFG=` is a wave that cannot be demonstrated.
+
+**Four rows, one `NAME=VALUE` to a line**, each an `apps/os88line.inc` field.
+Four because four fits under the status lines on a 640×200 CGA with the
+buttons still on the glass, and because the programs this box exists for want
+one or two rather than a dozen.
+
+**The environment block grew from 128 bytes to 512** (`DOS_ENVP` 8 → 32
+paragraphs). `BLASTER=` alone is ~24 of the old 128, before the program's own
+path (§96.19.3) and anything typed. Growing it moves the PSP and the
+program's load base, which is why it is one constant in one place.
+
+**Two kinds of row are skipped rather than emitted**, and each would break the
+set differently:
+
+- **An empty row.** A bare NUL is what *ends* an environment, so four rows
+  with the second blank would hide the third and fourth from every program
+  that reads it.
+- **A row with no `=`.** DOS's own parser splits on it, so a row without one
+  is a variable with no name, which nothing could ever look up.
+
+#### 96.19.5 `mov al, CWHITE` over the low byte of x1
+
+The window's own left border was being painted over, and the desktop beside
+it, every time a program exited. `dos_repaint` did this:
+
+```
+    call OSAPI_WM_CONTENT       ; AX = content left, DX = content top
+    ...
+    mov al, CWHITE              ; <- AL is the LOW BYTE of that AX
+    call OSAPI_SET_COLOR
+    call OSAPI_GFX_FILL         ; AX = x1 already      <- the comment believes it
+```
+
+`AL` **is** the low byte of the x1 the fill is about to use. A content left of
+121 (`0x0079`) became `0x000F` — **15** — so the fill ran from near the
+screen's left edge to the window's right, taking the border and whatever was
+beside it.
+
+It is worth writing down rather than just fixing because of the comment: *"AX
+= x1 already"* is correct about the value and blind to the fact that the line
+above it wrote to that register. The ink is set **first** now, before anything
+loads a rect.
+
+#### 96.20.1 The one place a ground fill is right
+
+§13.14.6 forbids erasing what you are about to draw again — a keystroke, a
+caret, a status line — and this file breaks that rule exactly once, in
+`dos_swap`, where the page changes.
+
+The distinction is worth stating because the next reader will otherwise
+wonder whether the rule was forgotten: **the entire content is replaced by
+something else**, so nothing is drawn twice. Every pixel is either the new
+page's or the ground it needed anyway, and there is no window in which the old
+content is gone and the new is not yet there, because both happen under one
+lock before the handler returns.
+
+The alternative — painting the new page over the old and hoping it covers — is
+what leaves the tail of a longer line behind.
+
+#### 96.20.2 The caret belongs to one field on one page
+
+A field on the page being left **must not keep the caret**, or keys would
+still reach a box nobody can see. `dos_defocus` drops it from every field on
+both pages, and `dos_defocus_but` keeps it on one — each costing **one cell
+per field that had it** (`os88line_caroff` puts back exactly what the 1px bar
+covered), never a repaint.
+
+That is the same rule as §96.19.1's and it is the one a two-page window makes
+easy to get wrong, because the field that must lose the caret is the one that
+is no longer drawn.
+
+#### 96.20.3 The window is adapter-sized, and two constants went with it
+
+The DOS window was **288×100 at a fixed place**, and wave 6 puts a text
+console in it — a console is a number of ROWS, so the window has to be as big
+as the machine allows rather than as big as somebody typed.
+
+It follows `apps/browser`'s policy exactly, because the browser wants the room
+for the same reason: **90% of the desktop band centred on VGA and Hercules**,
+and **the whole band plus the dock's strip on CGA**, where 640×200 gives the
+band 155 rows and the chrome here is already most of them. A window over the
+dock is `wm_dock_under`'s ordinary case (§11.90) and the user can move or
+shrink it like any other. `OSAPI_WM_KEEPH` is what permits it, set from the
+card **this window is on** rather than the primary (§39.16.4) — a drag across
+a display seam is exactly when that answer changes.
+
+The size is written into the **template before `wm_create`**, because
+`wm_create` runs `wm_fit` on the size it is handed and asking afterwards fits
+twice.
+
+**`DOS_CONT_W` and `DOS_CONT_H` are deleted with it.** They were 286 and 81,
+derived by hand from the old template, and used by the post-bracket fill.
+`OSAPI_WM_GEOM` answers both, is right after a resize or a drag, and cannot go
+stale when somebody edits the template — which is the same class of defect as
+§96.19.5's, one line apart.
 
 ### 96.18 The machine underneath — a real vector, a real line, a real transfer
 

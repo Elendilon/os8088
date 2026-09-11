@@ -43,6 +43,16 @@ SYS = "build/os8088-360.img"
 ARGS = "build/dosargs360.img"
 TYPED = "/M P:220"                   # ...what a user would actually type
 WANTPATH = "\\BIN\\DOSARGS.COM"
+ENVVAR = "SOUND=SB"              # ...typed on the Environment page
+DOS_FLDW = 256                   # apps/dos/dos.asm's field and button metrics
+DOS_BTNW = 104
+DOS_BTNY = 90
+DOS_EROWY = 24
+DOS_FLDY = 64                    # apps/dos/dos.asm's arguments box, from the
+                                 # content top - mirrored here because a test
+                                 # that clicks a remembered pixel is the thing
+                                 # docs/WRITING-TESTS.md warns about, and this
+                                 # is the nearest a package-local constant gets
 R_NCELL, R_NKEY = 6, 8           # dos.asm's counters, past DOS_B_CTOP/LNV/LNL
 
 
@@ -131,11 +141,48 @@ def main():
                  "needed (SPEC.md 96.1)")
         ui.raise_window(w)
 
+        # --- 2b: THE POST-EXIT FILL STAYED INSIDE THE WINDOW -----------------
+        # SPEC.md 96.19.5: dos_repaint set its ink with `mov al, CWHITE` AFTER
+        # OSAPI_WM_CONTENT had answered x1 in AX - and AL is that x1's low
+        # byte, so a content left of 121 (0x0079) became 15 and the fill ran
+        # from near the screen's edge across to the window's right, taking the
+        # border and the desktop beside it.
+        #
+        # MEASURED BEFORE ANYTHING MOVES, and that is the whole difficulty:
+        # a move or a close repaints the damaged area and ERASES THE EVIDENCE.
+        # An earlier version of this check moved the window first and stayed
+        # green with the bug deliberately put back.
+        #
+        # The band is LEFT OF THE DISK WINDOW TOO (x 20..90), because that one
+        # is white and would answer for the desktop.
+        wd, ht, data = m.fbuf()
+
+        def lit(x, y):
+            return data[(y * wd + x) * 3] < 128
+
+        rows = [y for y in range(w.y + 24, min(w.y + w.h - 8, ht - 1))]
+        ink = sum(1 for y in rows for x in range(20, 90) if lit(x, y))
+        frac = ink / float(len(rows) * 70)
+        if not 0.35 <= frac <= 0.65:
+            fail("the desktop to the LEFT of the window is %.0f%% ink over the "
+                 "window's own rows, and SPEC.md 63's dither is 50. A white "
+                 "band there is a fill whose x1 was clobbered before it ran "
+                 "(SPEC.md 96.19.5)" % (frac * 100))
+        print("dosargs: the desktop left of the window is %.0f%% ink over its "
+              "rows - the fill stayed inside (SPEC.md 96.19.5)" % (frac * 100))
+
+        dw = ui.disk_window()
+        if dw:
+            ui.close(dw)
+        ui.move_window(w, 300, 40)
+        os88marty.settle(m)
+        w = ui.window("DOS")
+
         # --- 3: click the field and type -------------------------------------
         # The field is at content+8, content_top+80, 256x13 (DOS_FLD*). The
         # click lands in its middle rather than at an edge, because an edge
         # click is os88line_hit's boundary and this row is not about that.
-        cx, cy = w.x + 8 + 100, w.y + 80 + 24
+        cx, cy = w.x + 8 + 100, w.y + 16 + DOS_FLDY + 6
         os88mouse.Mouse(marty=m).click(cx, cy)
         os88marty.settle(m)
         for ch in TYPED:
@@ -166,6 +213,26 @@ def main():
                  % (keys, cells, sum(range(1, len(TYPED) + 1)),
                     len(TYPED) * 0.9))
 
+        # --- 3b: THE ENVIRONMENT PAGE (SPEC.md 96.20) ------------------------
+        # The Environment button, then row 0, then Done. Every coordinate is
+        # apps/dos/dos.asm's own constant measured from the CONTENT origin,
+        # not a pixel somebody remembered - which is docs/WRITING-TESTS.md's
+        # rule and the reason these are named at the top of this file.
+        ctop = w.y + os88geom.TITLE_H   # ...IMPORTED, and t_mirror is why:
+                                       # typing 16 here passed only because
+                                       # the field is 13px tall and 2px of
+                                       # error still lands inside it
+        mo = os88mouse.Mouse(marty=m)
+        mo.click(w.x + 8 + DOS_FLDW - DOS_BTNW // 2, ctop + DOS_BTNY + 7)
+        os88marty.settle(m)
+        mo.click(w.x + 8 + 60, ctop + DOS_EROWY + 6)
+        os88marty.settle(m)
+        for ch in ENVVAR:
+            m.type_text(ch)
+        os88marty.settle(m)
+        mo.click(w.x + 8 + DOS_FLDW - DOS_BTNW // 2, ctop + DOS_BTNY + 7)
+        os88marty.settle(m)
+
         # --- 4: Enter runs it again ------------------------------------------
         m.key("Enter")
         second = run_and_read(m)
@@ -186,6 +253,19 @@ def main():
                  "program that treats the tail as a counted string reads that "
                  "byte and nothing else (SPEC.md 96.19)"
                  % (field(second, "COUNT"), len(TYPED)))
+        gotset = field(second, "SET") or ""
+        print("dosargs: the program's environment is %r" % gotset)
+        if ENVVAR not in gotset.split("|"):
+            fail("the environment does not carry %r - it is %r. The row was "
+                 "typed on the Environment page and should reach the block "
+                 "verbatim (SPEC.md 96.20); an empty set means the page never "
+                 "took the keys, and a set WITHOUT it but with BLASTER= means "
+                 "the emit loop skipped it" % (ENVVAR, gotset))
+        if not gotset.endswith("|"):
+            fail("the environment's last variable has no terminator: %r"
+                 % gotset)
+        print("dosargs: ...and the row typed on the Environment page is in it")
+
         if field(second, "TERM") != str(len(TYPED)):
             fail("the 0Dh is at offset %s for a %d-character tail. A program "
                  "that PARSES its arguments scans for that byte, and one in "

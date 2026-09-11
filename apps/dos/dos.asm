@@ -53,8 +53,10 @@
     OS88_ASSOC_EXT 'EXE'
     OS88_ASSOC16_END
 
-DOS_CONT_W  equ 286                 ; content width:  288 outer - 2px borders
-DOS_CONT_H  equ 81                  ; content height: 100 outer - TITLE_H - 1
+; DOS_CONT_W/H WERE HERE and are gone (SPEC.md 96.20.3): they were 286 and 81,
+; derived by hand from a 288x100 template, and the window is adapter-sized
+; now. OSAPI_WM_GEOM answers both, is correct after a resize or a drag across
+; a display seam, and cannot go stale when somebody edits the template.
 
 DOS_MIN_KB  equ 64                  ; a machine that cannot offer this much has
                                     ; nothing worth running a DOS program in,
@@ -62,7 +64,14 @@ DOS_MIN_KB  equ 64                  ; a machine that cannot offer this much has
                                     ; that dies on its first allocation
 
 ; --- the arena's shape, in PARAGRAPHS (SPEC.md 96.3) -------------------------
-DOS_ENVP    equ 8                   ; 128 bytes of environment block
+DOS_ENVP    equ 32                  ; 512 bytes of environment block. IT WAS
+                                    ; 8, which is 128 - and BLASTER= alone is
+                                    ; ~24 of those, before the program's own
+                                    ; path and anything the user typed
+                                    ; (SPEC.md 96.20). Growing it moves the
+                                    ; PSP and the program's load base, which
+                                    ; is why it is a constant here and not a
+                                    ; number anybody may pick
 DOS_ENVMCB  equ 0                   ; para 0     : the environment's MCB
 DOS_ENVSEG  equ 1                   ; para 1     : the environment itself
 DOS_PRGMCB  equ DOS_ENVSEG+DOS_ENVP ; para 9     : the program's MCB ('Z')
@@ -81,10 +90,35 @@ DOS_PBUF    equ 80                  ; the program's own path for the environment
 ; The arguments row, measured DOWN from the content origin. The label sits on
 ; DOS_LBLY and the box under it, so a 126-tall window has both inside it on a
 ; 640x200 CGA - which is the geometry that binds (SPEC.md 39).
-DOS_LBLY    equ 68                  ; the label's baseline
-DOS_FLDY    equ 80                  ; the box's top...
+; THE ENVIRONMENT PAGE (SPEC.md 96.20). Four rows because four fits a 640x200
+; CGA under the status lines with the buttons still on the glass, and because
+; the DOS programs this box exists for want one or two: BLASTER= is written
+; for them and a SOUND= or an MTCPCFG= is the whole of what most of the rest
+; ask for. The width is what a `NAME=C:\LONGISH\PATH` needs.
+DOS_ENVN    equ 4                   ; rows
+DOS_ENVW    equ 48                  ; characters in one, not counting the NUL
+DOS_ENVBUF  equ DOS_ENVW + 1
+
+DOS_PAGE_MAIN equ 0
+DOS_PAGE_ENV  equ 1
+
+; The status lines land at content+10, +22 and +36 (dos_paint marches DX down
+; by 12 then 14), so the arguments row starts below THAT rather than at a
+; number chosen by eye - and the whole lot has to finish inside a content box
+; ~110 rows tall, which is what a 126px window leaves once the title bar has
+; its 16.
+DOS_LBLY    equ 52                  ; the label's baseline
+DOS_FLDY    equ 64                  ; the box's top...
 DOS_FLDH    equ 13                  ; ...and its height, one 8px cell + frame
 DOS_FLDW    equ 256                 ; ...and its width
+DOS_EROWY   equ 24                  ; the first environment row's top...
+DOS_EROWH   equ 16                  ; ...and one row's pitch, which with four
+                                    ; rows of DOS_FLDH ends at 85 - clear of
+                                    ; the button row below, which a pitch of
+                                    ; 18 was not
+DOS_BTNW    equ 104                 ; the page buttons. 'Environment' is 11
+DOS_BTNH    equ 14                  ; cells = 88px, and a label that touches
+DOS_BTNY    equ 90                  ; its own frame reads as struck through
 
 ; os88line.inc is included at the END of this file (its own rule: the header
 ; and the icon block are at fixed offsets), and the bss table above needs its
@@ -122,10 +156,12 @@ dos_entry:
     push si
     push di
 
-    mov si, dos_tpl
-    call OSAPI_WM_CREATE
-    jc .out
+    call dos_size                   ; THE TEMPLATE, before create (SPEC.md
+    mov si, dos_tpl                 ; 96.20.3) - wm_create runs wm_fit on the
+    call OSAPI_WM_CREATE            ; size it is given, so asking afterwards
+    jc .out                         ; would fit twice
     mov [dos_win], bx
+    call dos_keeph                  ; ...and on a CGA it may cover the dock
     call dos_fld_init               ; the arguments field (SPEC.md 96.19)
 
     mov ax, dos_wake
@@ -333,15 +369,29 @@ dos_repaint:
     push si
     call OSAPI_GFX_LOCK             ; a wake handler is the one callback
     mov si, [dos_win]               ; without the lock, and it MAY take it for
-    mov bx, si                      ; a burst it can state (SPEC.md 74.1)
+                                    ; a burst it can state (SPEC.md 74.1)
+    mov al, CWHITE                  ; **THE INK FIRST** (SPEC.md 96.19.5). AL
+    call OSAPI_SET_COLOR            ; is the LOW BYTE of the AX that
+                                    ; WM_CONTENT is about to answer x1 in, so
+                                    ; setting it after was `mov al, 15` over a
+                                    ; content left of 121 - a fill from x=15,
+                                    ; which is the window's own left border and
+                                    ; most of the desktop beside it
+    mov bx, si
     call OSAPI_WM_CONTENT           ; AX = content left, DX = content top
-    mov bx, dx
-    mov cx, ax
-    add cx, DOS_CONT_W - 1
-    add dx, DOS_CONT_H - 1
-    mov al, CWHITE
-    call OSAPI_SET_COLOR
-    call OSAPI_GFX_FILL             ; AX = x1 already, BX = y1
+    push ax
+    push dx
+    mov bx, si
+    call OSAPI_WM_GEOM              ; CX = content width, DX = content height
+    pop bx                          ; ...ASKED, not two constants left over
+    pop ax                          ; from a 288x100 window. The window is
+    jc .nofill                      ; adapter-sized now (SPEC.md 96.20.3) and
+    add cx, ax                      ; a hardcoded width is the same class of
+    dec cx                          ; bug as the ink that used to be set into
+    add dx, bx                      ; this AX. AX,BX,CX,DX are x1,y1,x2,y2 by
+    dec dx                          ; the time this falls through
+    call OSAPI_GFX_FILL
+.nofill:
     mov si, [dos_win]
     call dos_paint
     call OSAPI_GFX_UNLOCK
@@ -953,14 +1003,42 @@ dos_build_psp:
     xor di, di                      ; is what DOS 3+ puts there and what a
     cld                             ; program looks for when it wants to know
                                     ; where it came from
-    cmp byte [dos_blaster], 0       ; BLASTER= IS THE ONE VARIABLE THIS MACHINE
-    je .envend                      ; HAS (SPEC.md 96.17), and it is here only
-    mov si, dos_blaster             ; when a sound driver was unloaded a moment
-.envb:                              ; ago and told us where its card was
-    lodsb
+    cmp byte [dos_blaster], 0       ; BLASTER= is the one variable the MACHINE
+    je .envuser                     ; contributes (SPEC.md 96.17), and it is
+    mov si, dos_blaster             ; here only when a sound driver was
+.envb:                              ; unloaded a moment ago and told us where
+    lodsb                           ; its card was
     stosb
     or al, al
     jnz .envb
+.envuser:
+    ; --- and whatever the user typed (SPEC.md 96.20) -------------------------
+    ; TWO ROWS ARE SKIPPED RATHER THAN EMITTED, and each would break the set
+    ; in a different way:
+    ;   EMPTY  - a bare NUL is what ENDS the environment, so four rows with
+    ;            the second blank would hide the third and fourth from every
+    ;            program that reads it.
+    ;   NO '=' - DOS's own parser splits on it, so a row without one is a
+    ;            variable with no name and nothing could ever look it up.
+    push cx
+    mov word [dos_erp], dos_ebuf
+    mov cx, DOS_ENVN
+.envrow:
+    mov si, [dos_erp]
+    cmp byte [si], 0
+    je .envnext                     ; empty
+    call dos_has_eq
+    jc .envnext                     ; no '='
+    mov si, [dos_erp]
+.envcp:
+    lodsb
+    stosb
+    or al, al
+    jnz .envcp
+.envnext:
+    add word [dos_erp], DOS_ENVBUF
+    loop .envrow
+    pop cx
 .envend:
     xor al, al
     stosb                           ; ...and the NUL that ends the SET
@@ -2053,6 +2131,13 @@ dos_paint:
     push si
     push di
 
+    cmp byte [dos_page], DOS_PAGE_ENV
+    jne .mainpage
+    mov bx, si
+    call dos_paint_env
+    jmp .out
+.mainpage:
+
     cmp byte [dos_state], DST_READY  ; THE RE-KICK (SPEC.md 74.1): the kernel
     jne .nokick                      ; keeps at most one queued wake per window,
     mov bx, si                       ; so this is free when one is already
@@ -2114,6 +2199,13 @@ dos_paint:
     call dos_fld_place
     mov si, dos_ln
     call os88line_draw
+
+    mov bx, [dos_win]               ; ...and the way to the other page
+    call dos_btn_rect
+    mov bx, dos_brect
+    mov si, dos_l_envb
+    xor di, di
+    call os88ui_btn
 .out:
     pop di
     pop si
@@ -2226,6 +2318,231 @@ dos_about:
     ret
 
 ; -----------------------------------------------------------------------------
+; dos_swap - the other page, onto the glass
+; in:  BX = the window; the gfx lock is held
+;
+; **THIS IS THE ONE PLACE A GROUND FILL IS RIGHT** (SPEC.md 96.20.1), and it
+; is worth saying which case it is rather than leaving the next reader to
+; wonder whether 13.14.6 was forgotten. That rule forbids erasing what you are
+; about to draw again - a keystroke, a caret, a status line. Here the ENTIRE
+; content is replaced by something else, so nothing is drawn twice: every
+; pixel is either the new page's or the ground it needed anyway, and there is
+; no window in which the old content is gone and the new is not yet there,
+; because both happen under one lock before the caller returns.
+;
+; The alternative - painting the new page over the old and hoping it covers -
+; is what leaves the tail of a longer line behind.
+; -----------------------------------------------------------------------------
+dos_swap:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bx
+    call OSAPI_WM_CONTENT           ; AX = left, DX = top
+    mov si, ax
+    mov di, dx
+    pop bx
+    push bx
+    call OSAPI_WM_GEOM              ; CX = content width, DX = content height
+    jc .out2
+    mov ax, si                      ; ...the whole of it, once
+    mov bx, di
+    add cx, si
+    dec cx
+    add dx, di
+    dec dx
+    push ax
+    mov al, CWHITE
+    call OSAPI_SET_COLOR            ; the SLOTS and not os88ui.inc's UI_*
+    pop ax                          ; macros: that file is included at the END
+    call OSAPI_GFX_FILL             ; of this one (its own rule - the header
+    mov al, CBLACK                  ; and the icon are at fixed offsets), so
+    call OSAPI_SET_COLOR            ; its macros are not defined up here
+.out2:
+    pop bx
+    mov si, bx                      ; dos_paint takes the window in SI, which
+    call dos_paint                  ; is how the kernel calls it
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_size - how big this window should be on THIS adapter (SPEC.md 96.20.3)
+;
+; apps/browser's br_size, verbatim in policy and for its reasons - and this
+; window wants the room for the same kind of thing, because SPEC.md 96's wave
+; 6 puts a TEXT CONSOLE in here and a console is a number of ROWS.
+;
+;   VGA and Hercules   90% of the desktop band, centred in it, so the window
+;                      still reads as a window and can be grabbed by an edge
+;   CGA                the whole band AND the dock's strip, because 640x200
+;                      gives the band 155 rows and the chrome here is already
+;                      ~100 of them. The dock stays reachable - a window over
+;                      it is wm_dock_under's ordinary case (SPEC.md 11.90)
+;
+; Written into the TEMPLATE rather than set after create: wm_create runs
+; wm_fit on the size it is handed, so asking afterwards fits twice.
+; -----------------------------------------------------------------------------
+dos_size:
+    push ax
+    push bx
+    push cx
+    push dx
+    call OSAPI_VIDEO                ; AX = w, BX = h, CX = the dock's first row
+    cmp dl, VID_CGA
+    je .cga
+    sub cx, MBAR_H                  ; CX = the desktop band
+    mov ax, cx
+    mov bx, 9
+    mul bx                          ; **MUL WRITES DX** (SPEC.md 1), which is
+    mov bx, 10                      ; why nothing is banked there across it
+    xor dx, dx
+    div bx                          ; AX = 90% of the band
+    mov [dos_tpl+6], ax
+    sub cx, ax
+    shr cx, 1
+    add cx, MBAR_H                  ; ...centred in what is left
+    mov [dos_tpl+2], cx
+    jmp short .out
+.cga:
+    sub bx, MBAR_H                  ; the whole screen below the bar, less the
+    dec bx                          ; row the drop shadow lives on
+    mov [dos_tpl+6], bx
+    mov word [dos_tpl+2], MBAR_H
+.out:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_keeph - a CGA window may hang over the dock (SPEC.md 11.93)
+; in:  BX = the window; out: FLAGS PRESERVED - the CF wm_create left is the
+;      loader's answer and still has to ride out of dos_entry
+;
+; IT ANSWERS BOTH WAYS, which is br_keeph's own hard-won note: a KEEPH left
+; set on a VGA raises the height ceiling by the dock's rows on a screen with
+; no shortage of them, and this is reachable from a resize where the adapter
+; can have gone the other way.
+; -----------------------------------------------------------------------------
+dos_keeph:
+    pushf
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push bx                         ; **BX IS THE WINDOW AND THE ANSWER COMES
+    call OSAPI_WM_DISPLAY           ; BACK IN IT** - and it is the card this
+    pop bx                          ; window is ON, not the primary (SPEC.md
+                                    ; 39.16.4), because a drag across a seam is
+                                    ; exactly when the answer changes
+    xor al, al
+    cmp dl, VID_CGA
+    jne .set
+    inc al
+.set:
+    call OSAPI_WM_KEEPH
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    popf
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_btn_rect - the page button's rect, into dos_brect
+; in:  BX = the window; out: dos_brect filled; every register preserved
+;
+; BOTTOM RIGHT of the content on both pages, so the button does not move when
+; the page does - a control that jumps under the pointer is one the user
+; clicks by accident.
+; -----------------------------------------------------------------------------
+dos_btn_rect:
+    push ax
+    push cx
+    push dx
+    push si
+    call OSAPI_WM_CONTENT           ; AX = content left, DX = content top
+    mov si, dos_brect
+    mov cx, ax
+    add cx, 8 + DOS_FLDW - DOS_BTNW
+    mov [si+0], cx
+    add cx, DOS_BTNW
+    mov [si+4], cx
+    mov cx, dx
+    add cx, DOS_BTNY
+    mov [si+2], cx
+    add cx, DOS_BTNH
+    mov [si+6], cx
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_paint_env - the environment page
+; in:  BX = the window; the gfx lock is held, as every W_PAINT's is
+;
+; NO GROUND FILL FIRST (SPEC.md 13.14.6). The window's own content is already
+; the ground the kernel painted, and every line below is an OPAQUE font_run or
+; an os88line that draws its own - so nothing here writes a pixel twice, and
+; the page is never momentarily blank between an erase and its content.
+; -----------------------------------------------------------------------------
+dos_paint_env:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bx
+    call OSAPI_WM_CONTENT           ; ASKED, not read out of [dos_ctop]: that
+    mov cx, ax                      ; is the MAIN page's banked value and is
+    add cx, 8                       ; zero until the main page has painted at
+    add dx, 6                       ; least once
+    mov si, dos_l_envt
+    mov ax, (CWHITE << 8) | CBLACK
+    call OSAPI_FONT_RUN
+    pop bx
+
+    xor cx, cx
+.row:
+    push cx
+    call dos_erow                   ; SI = the block, rect placed
+    call os88line_draw
+    pop cx
+    inc cx
+    cmp cx, DOS_ENVN
+    jb .row
+
+    call dos_btn_rect
+    push bx
+    mov bx, dos_brect
+    mov si, dos_l_done
+    xor di, di
+    call os88ui_btn
+    pop bx
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
 ; dos_fld_place - put the arguments field where the window is now
 ; in:  BX = the window; out: nothing, every register preserved
 ;
@@ -2263,61 +2580,106 @@ dos_fld_place:
 ; -----------------------------------------------------------------------------
 dos_key:
     push bx
+    push cx
+    push dx
     push si
+    push di
     mov bx, si
-    cmp byte [dos_state], DST_IDLE  ; the field is not up while a program owns
-    je .no                          ; the screen, and there is nothing to type
-    call dos_fld_place              ; ...into before one is named
+    cmp byte [dos_state], DST_IDLE   ; nothing is named, so there is nothing
+    je .no                           ; for an argument to be an argument to
+
+    ; --- whoever has the caret gets first refusal ----------------------------
+    cmp byte [dos_page], DOS_PAGE_ENV
+    je .envp
+    call dos_fld_place
     mov si, dos_ln
+    jmp short .have
+.envp:
+    call dos_erow_focus              ; SI = the focused row, or 0
+.have:
+    or si, si
+    jz .nofield
     cmp byte [si+LN_FOCUS], 0
-    je .no
-    mov dx, [si+LN_VIEW]            ; bank what os88line_edit compares against
-    mov [dos_lnv], dx               ; - IN MEMORY, because AL is the KEYSTROKE
-    mov dx, [si+LN_LEN]             ; and loading the view into AX would eat it
+    je .nofield
+    mov dx, [si+LN_VIEW]             ; bank what os88line_edit compares against
+    mov [dos_lnv], dx                ; - IN MEMORY, because AL is the KEYSTROKE
+    mov dx, [si+LN_LEN]              ; and loading the view into AX would eat it
     mov [dos_lnl], dx
-    call os88line_key               ; CF=0 = the field used it. IT DOES NOT
-    jc .notours                     ; DRAW - its header says "redraw the
-    mov ax, [dos_lnv]               ; field", and the redraw is the caller's.
+    call os88line_key                ; CF=0 = the field used it. IT DOES NOT
+    jc .nofield                      ; DRAW - its header says "redraw the
+    mov ax, [dos_lnv]                ; field", and the redraw is the caller's.
     mov bx, [dos_lnl]
-    call os88line_edit
-    add [dos_ncell], cx             ; WHAT THE KEYSTROKE COST, in glyph cells
-    inc word [dos_nkey]             ; (SPEC.md 96.19.1). Twelve bytes of a
-                                    ; non-resident package image, and the only
-                                    ; way tests/dosargs.py can tell a field
-                                    ; that redraws one cell from one that
-                                    ; redraws twenty - which changes no pixel
-                                    ; and so is invisible to the flick
-                                    ; instrument
-    jmp short .done                 ; EDIT and not DRAW: typing the 21st
-                                    ; character must not repaint twenty that
-                                    ; did not change (SPEC.md 96.19.1)
-.notours:
+    call os88line_edit               ; EDIT and not DRAW: typing the 21st
+    add [dos_ncell], cx              ; character must not repaint twenty that
+    inc word [dos_nkey]              ; did not change (SPEC.md 96.19.1)
+    jmp short .done
 
     ; --- ENTER RUNS IT AGAIN (SPEC.md 96.19.4) -------------------------------
-    ; os88line_key hands back the keys it has no meaning for, which is exactly
-    ; the split its header describes: the field knows how to edit and only the
-    ; caller knows whether Enter means GO. Here it does, and without it the
-    ; arguments row would be a box the user types into and nothing reads.
+    ; **REACHED WHETHER OR NOT A FIELD HAS THE CARET**, which is not where this
+    ; started: the run used to sit under the focus test, so pressing Done and
+    ; then Enter did nothing at all. A window whose only action key works only
+    ; while a particular box is focused is one the user thinks is broken.
+.nofield:
     cmp al, 13
     jne .no
-    cmp byte [dos_state], DST_RAN   ; only from a program that has FINISHED -
-    je .again                       ; DST_READY is one already queued and
-    cmp byte [dos_state], DST_ERR   ; DST_IDLE has no program named
+    cmp byte [dos_state], DST_RAN    ; only from a program that has FINISHED -
+    je .again                        ; DST_READY is one already queued and a
+    cmp byte [dos_state], DST_ERR    ; second wake would run it twice
     jne .no
 .again:
     mov byte [dos_state], DST_READY
     mov bx, [dos_win]
-    call OSAPI_WM_WAKE              ; ...and dos_wake does the rest, exactly as
-    jmp short .done                 ; it did for the launch
+    call OSAPI_WM_WAKE               ; ...and dos_wake does the rest, exactly
+    jmp short .done                  ; as it did for the launch
 .no:
+    pop di
     pop si
+    pop dx
+    pop cx
     pop bx
     stc
     ret
 .done:
+    pop di
     pop si
+    pop dx
+    pop cx
     pop bx
     clc
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_erow_focus - the environment row with the caret, rect placed for drawing
+; in:  BX = the window; out: SI = the block, or 0
+;
+; The rect has to be re-placed before the field is drawn OR hit, because
+; os88line's rect is in SCREEN coordinates and the window moves - which is
+; dos_fld_place's note, one page along.
+; -----------------------------------------------------------------------------
+dos_erow_focus:
+    push ax
+    push cx
+    push dx
+    push di
+    xor cx, cx
+.r:
+    push cx
+    call dos_erow
+    cmp byte [si+LN_FOCUS], 0
+    jne .got
+    pop cx
+    inc cx
+    cmp cx, DOS_ENVN
+    jb .r
+    xor si, si
+    jmp short .out
+.got:
+    pop cx
+.out:
+    pop di
+    pop dx
+    pop cx
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2328,10 +2690,30 @@ dos_key:
 dos_click:
     push ax
     push bx
+    push cx
+    push dx
     push si
+    push di
     mov bx, si
     cmp byte [dos_state], DST_IDLE
     je .out
+
+    call dos_btn_rect               ; THE PAGE BUTTON FIRST, on both pages -
+    push bx                         ; it is in the same place on each, which
+    mov bx, dos_brect               ; is what stops it moving under the
+    call os88ui_bhit                ; pointer between two clicks
+    pop bx
+    jc .notbtn
+    call dos_defocus                ; a field on the page we are leaving must
+    xor byte [dos_page], 1          ; not keep the caret, or keys would still
+    call dos_swap                   ; reach a box nobody can see
+    jmp .out
+.notbtn:
+    cmp byte [dos_page], DOS_PAGE_ENV
+    jne .mainp
+    call dos_click_env
+    jmp .out
+.mainp:
     call dos_fld_place
     mov si, dos_ln
     call os88line_hit               ; CF=0 = inside
@@ -2350,10 +2732,131 @@ dos_click:
     mov byte [si+LN_FOCUS], 0
     call os88line_caroff            ; ONE CELL, not the field (SPEC.md 13.14.6)
 .out:
+    pop di
     pop si
+    pop dx
+    pop cx
     pop bx
     pop ax
     clc
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_click_env - a press on the environment page
+; in:  BX = the window, CX = x, DX = y
+; -----------------------------------------------------------------------------
+dos_click_env:
+    push ax
+    push cx
+    push dx
+    push si
+    push di
+    mov di, cx                      ; bank the point: dos_erow uses CX for the
+    mov bp, dx                      ; row index
+    xor cx, cx
+.r:
+    push cx
+    call dos_erow
+    mov cx, di
+    mov dx, bp
+    call os88line_hit
+    jnc .in
+    pop cx
+    inc cx
+    cmp cx, DOS_ENVN
+    jb .r
+    call dos_defocus                ; the background: nobody keeps the caret
+    jmp short .out
+.in:
+    pop cx
+    call dos_defocus_but            ; SI keeps its focus, every other row loses
+    cmp byte [si+LN_FOCUS], 0
+    jne .move
+    mov byte [si+LN_FOCUS], 1
+    call os88line_draw
+    jmp short .out
+.move:
+    mov cx, di
+    mov dx, bp
+    call os88line_click
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_defocus - no field on either page keeps the caret
+; dos_defocus_but - ...except the one in SI
+; Each drops ONE CELL per field that had it, never a repaint (SPEC.md 13.14.6).
+; -----------------------------------------------------------------------------
+dos_defocus:
+    push si
+    xor si, si
+    call dos_defocus_but
+    pop si
+    ret
+
+dos_defocus_but:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov di, si
+    mov si, dos_ln
+    call .one
+    mov cx, DOS_ENVN
+    mov si, dos_eln
+.e:
+    call .one
+    add si, DOS_LNSZ
+    loop .e
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+.one:
+    cmp si, di
+    je .skip
+    cmp byte [si+LN_FOCUS], 0
+    je .skip
+    mov byte [si+LN_FOCUS], 0
+    push cx
+    call os88line_caroff
+    pop cx
+.skip:
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_focused - SI = the field with the caret, or SI = 0
+; -----------------------------------------------------------------------------
+dos_focused:
+    push cx
+    mov si, dos_ln
+    cmp byte [dos_page], DOS_PAGE_ENV
+    je .env
+    cmp byte [si+LN_FOCUS], 0
+    jne .got
+    jmp short .none
+.env:
+    mov si, dos_eln
+    mov cx, DOS_ENVN
+.e:
+    cmp byte [si+LN_FOCUS], 0
+    jne .got
+    add si, DOS_LNSZ
+    loop .e
+.none:
+    xor si, si
+.got:
+    pop cx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2361,7 +2864,9 @@ dos_click:
 ; -----------------------------------------------------------------------------
 dos_fld_init:
     push ax
+    push bx
     push cx
+    push dx
     push si
     mov si, dos_ln
     mov ax, dos_args
@@ -2370,9 +2875,85 @@ dos_fld_init:
     mov byte [si+LN_FOCUS], 0
     mov byte [dos_args], 0
     call os88line_set               ; LN_LEN/LN_CAR/LN_VIEW from the text
-    pop si
+
+    mov si, dos_eln                 ; ...and the four environment rows
+    mov bx, dos_ebuf
+    mov cx, DOS_ENVN
+.e:
+    mov [si+LN_BUF], bx
+    mov word [si+LN_MAX], DOS_ENVBUF
+    mov byte [si+LN_FOCUS], 0
+    mov byte [bx], 0
+    push cx
+    call os88line_set
     pop cx
+    add si, DOS_LNSZ
+    add bx, DOS_ENVBUF
+    loop .e
+    pop si
+    pop dx
+    pop cx
+    pop bx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_erow - the Nth environment row's block and its rect
+; in:  CX = the row (0..DOS_ENVN-1), BX = the window
+; out: SI = its os88line block, rect filled in; CX preserved
+; -----------------------------------------------------------------------------
+dos_erow:
+    push ax
+    push dx
+    push di
+    mov ax, DOS_LNSZ
+    mul cx
+    mov si, dos_eln
+    add si, ax
+    mov di, cx                      ; ...the row, for the y below
+    call OSAPI_WM_CONTENT           ; AX = content left, DX = content top
+    mov cx, ax
+    add cx, 8
+    mov [si+LN_X1], cx
+    add cx, DOS_FLDW
+    mov [si+LN_X2], cx
+    mov cx, dx                      ; BANK THE TOP: the multiply below lands
+                                    ; its high word in DX, so reading the top
+                                    ; back out of DX afterwards put every row
+                                    ; at y = row*18 + 24 - above the window
+    mov ax, DOS_EROWH
+    mul di
+    add ax, cx
+    add ax, DOS_EROWY
+    mov [si+LN_Y1], ax
+    add ax, DOS_FLDH
+    mov [si+LN_Y2], ax
+    mov cx, di
+    pop di
+    pop dx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_has_eq - does the NUL string at SI carry an '='?
+; out: CF=0 yes, CF=1 no; SI and every register preserved
+; -----------------------------------------------------------------------------
+dos_has_eq:
+    push si
+.c:
+    cmp byte [si], 0
+    je .no
+    cmp byte [si], '='
+    je .yes
+    inc si
+    jmp short .c
+.yes:
+    pop si
+    clc
+    ret
+.no:
+    pop si
+    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2488,6 +3069,9 @@ dos_tpl:
 
 dos_ttl:    db 'DOS', 0
 dos_l_args: db 'Arguments:', 0
+dos_l_envb: db 'Environment', 0
+dos_l_envt: db 'Environment - one NAME=VALUE to a line:', 0
+dos_l_done: db 'Done', 0
 
 dos_be:                             ; the table, in DBE_* order
     dw dos_k_goto
@@ -3014,6 +3598,11 @@ dos_mcb_resize:
     DBSS DOS_B_LNL,   2          ; before a keystroke (os88line_edit's inputs)
     DBSS DOS_B_NCELL, 2          ; glyph cells the edits have redrawn...
     DBSS DOS_B_NKEY,  2          ; ...over this many keystrokes
+    DBSS DOS_B_PAGE,  1          ; which page is up (DOS_PAGE_*)
+    DBSS DOS_B_BRECT, 8          ; the page button's rect, x1 y1 x2 y2
+    DBSS DOS_B_ERP,   2          ; the environment row being emitted
+    DBSS DOS_B_EBUF,  DOS_ENVN * DOS_ENVBUF   ; the environment rows...
+    DBSS DOS_B_ELN,   DOS_ENVN * DOS_LNSZ     ; ...and their field blocks
     DBSS DOS_B_ARGS,  DOS_ARGSZ  ; the user's arguments, NUL-terminated
     DBSS DOS_B_PBUF,  DOS_PBUF   ; ...and the program's own path, for the env
     DBSS DOS_B_LN,    DOS_LNSZ  ; the arguments field's block (os88line.inc)
@@ -5475,6 +6064,11 @@ dos_lnv     equ os88_image_end + DOS_B_LNV     ; word: LN_VIEW before a key
 dos_lnl     equ os88_image_end + DOS_B_LNL     ; word: LN_LEN before a key
 dos_ncell   equ os88_image_end + DOS_B_NCELL   ; word: cells the edits redrew
 dos_nkey    equ os88_image_end + DOS_B_NKEY    ; word: ...over this many keys
+dos_page    equ os88_image_end + DOS_B_PAGE    ; byte: DOS_PAGE_*
+dos_brect   equ os88_image_end + DOS_B_BRECT   ; the page button's rect
+dos_erp     equ os88_image_end + DOS_B_ERP     ; word: the row being emitted
+dos_ebuf    equ os88_image_end + DOS_B_EBUF    ; the four environment rows
+dos_eln     equ os88_image_end + DOS_B_ELN     ; ...and their os88line blocks
 dos_args    equ os88_image_end + DOS_B_ARGS    ; 128: the command tail the user
                                                ; typed, without its count or
                                                ; its 0Dh - both are DOS's

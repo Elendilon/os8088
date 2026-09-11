@@ -81,6 +81,43 @@ start:
     call put_dec16
     call put_crlf
 
+    ; --- the whole SET, one '|' between variables ----------------------------
+    ; Printed before the path below, out of the same segment, because a shim
+    ; that puts a bare NUL in the middle of the set would show here as a SHORT
+    ; list and nowhere else - the path after it would still be found, since
+    ; the walk to it stops at the first double NUL either way.
+    mov ah, 0x09
+    mov dx, msg_set
+    int 0x21
+    mov ax, [0x2C]
+    or ax, ax
+    jz .noset
+    mov es, ax
+    xor di, di
+.sv:
+    cmp byte [es:di], 0
+    je .setdone
+.sc:
+    mov al, [es:di]
+    inc di
+    or al, al
+    jz .sbar
+    mov dl, al
+    mov ah, 0x02
+    int 0x21
+    jmp short .sc
+.sbar:
+    mov dl, '|'
+    mov ah, 0x02
+    int 0x21
+    jmp short .sv
+.noset:
+    mov ah, 0x09
+    mov dx, msg_none
+    int 0x21
+.setdone:
+    call put_crlf
+
     ; --- the environment's tail: our own path -------------------------------
     mov ah, 0x09
     mov dx, msg_env
@@ -171,6 +208,7 @@ msg_hi:   db 13,10,'os8088 DOS arguments gate - DOSARGS.COM',13,10,13,10,'$'
 msg_cnt:  db 'COUNT ','$'
 msg_arg:  db 'ARGS ','$'
 msg_trm:  db 'TERM ','$'
+msg_set:  db 'SET ','$'
 msg_env:  db 'MYPATH ','$'
 msg_none: db '(none)','$'
 msg_key:  db 13,10,'READY - press a key to exit with code 35',13,10,'$'
