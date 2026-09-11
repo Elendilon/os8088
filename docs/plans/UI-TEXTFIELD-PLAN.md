@@ -1,0 +1,103 @@
+# A SHARED TEXT FIELD, AND A SHARED TEXT AREA
+
+**STATUS: BRIEF ONLY. NOTHING IS DESIGNED HERE AND NOTHING SHOULD BE BUILT
+FROM IT.** It exists so that the next person to want a text field finds the
+question already asked, the carriers already counted, and the one decision
+that must not be taken casually already written down. The work is a study with
+a survey in front of it, and the survey has not been done.
+
+It was opened while planning the DOS box's arguments-and-environment page
+(docs/plans/DOS-EXEC-PLAN.md). That page needs a single-line field and decided
+to **copy** one rather than invent a shared control, deliberately — see §4.
+
+---
+
+## 1. The finding that makes it a plan
+
+**`apps/os88ui.inc` has no text entry of any kind.** It publishes buttons,
+the glyph (check and radio), scroll bars and the alert set — and no field.
+
+**Twelve places have rolled their own**: `apps/browser`, `apps/ftpd`,
+`apps/notepad`, `apps/texpad`, `apps/word`, `apps/sheet`, `apps/scribe`,
+`apps/loom`, `apps/artful`, `apps/paint`, plus `kernel/ctrl.inc` and
+`kernel/fdlg.inc`.
+
+That is the same shape docs/plans/completed/CTRL-GLYPH-PLAN.md found one
+control along, and that plan's central finding applies here before anything
+else does: **converging the two check boxes REMOVED bytes rather than spending
+them**, because most of what each copy carried was not the control's logic but
+the machinery around it. Whether the same is true of a field is unknown and is
+exactly what the survey has to answer.
+
+## 2. The field and the area are NOT one control
+
+This is the thing to not get wrong, and it is why this document exists rather
+than a line in somebody's commit message.
+
+A **single-line field** is a plausible shared control: a rect, a string, a
+caret index, a key handler, and a draw that touches one cell. Twelve carriers.
+
+A **multi-line area** is a miniature text editor — wrap, scroll, a caret that
+moves in two dimensions, selection, and a redraw that has to decide how much
+of the page a keystroke damaged. **That is 50% or more of Note Pad**, and a
+"shared area" that did it all would be Note Pad with a different name.
+
+So the area's design question is not *what does it do*, it is **which of its
+features are opt-in**, in the shape `os88ui.inc` already uses for the button
+(`OS88UI_NOBTN`) and docs/plans/completed/GFX-EMBEDDABLE-PLAN.md uses for the
+graphics library (`GFXE_BAND`, `GFXE_LINE`, `GFXE_POINTS`, `GFXE_WALK`): a
+carrier opts into capability, not into the whole thing.
+
+## 3. What the survey must answer before a line is written
+
+One row per carrier, and the questions are the ones that decide whether a
+shared body can serve it at all:
+
+1. **What does its caret cost to move?** `apps/ftpd`'s is the one already
+   known: `fd_setup_uncaret` puts back the single 8px cell the 1px bar
+   covered. Any carrier that redraws a line is a carrier whose redraw changes
+   when it converts, which is a behaviour change and not a refactor.
+2. **Who owns the keys?** A field inside a window with a menu, a field inside
+   a modal dialog and a field inside a full page each get their keystrokes by
+   a different route.
+3. **What is the string?** Fixed buffer, heap claim, or a slice of a document.
+   The last one is what makes Word and TeXPad different in kind.
+4. **What does it validate?** A port number, a file name, an IP address and a
+   free-text label have four different refusal behaviours, and §47 says a
+   refusal names its reason.
+5. **Is it on a 1bpp adapter?** Greying rounds to black there (§39.4, §47),
+   so a disabled field and a focus indication both have to be looked at on
+   CGA and Hercules rather than reasoned about.
+6. **How many bytes is each copy?** CTRL-GLYPH-PLAN's number was 414 a copy in
+   23 copies, and it is the number that decided that plan. Nothing here is
+   decidable without the equivalent.
+
+## 4. Why the DOS box is copying instead of converging
+
+Recorded so it is not re-litigated. The DOS box needs a field NOW and this
+study is not started. Converging twelve carriers is a study, a conversion and
+a look at every one of them on three adapters; doing it under a wave that is
+about something else would be the tail wagging the dog, and doing it badly
+would put an eleventh implementation in the tree wearing a shared name, which
+is worse than an honest twelfth copy.
+
+**It copies `apps/ftpd`'s**, and the reason is not proximity: FTPD's Setup page
+is the same shape (a page of fields in a window), its caret already costs one
+cell, and it is the only field in the tree with **rows that keep it honest** -
+`ftpdflick` measures the repaint at two cells rather than the page, and
+`ftpdfocus` catches a caret left drawn in a field the keyboard no longer
+reaches. Copying it brings those two rows along as copies rather than as new
+thinking.
+
+When this study happens, the DOS box is therefore a carrier like any other and
+its conversion is not a special case.
+
+## 5. What is explicitly NOT decided here
+
+- Whether the field belongs in `os88ui.inc` at all, or in a driver, or in a
+  library beside it the way `apps/os88gfx.inc` sits beside `apps/os88ui.inc`.
+- Whether the area is ever built. It may be that three carriers need a real
+  editor and the other nine need a field, in which case the area is not a
+  control and saying so is the finding.
+- Anything about size. Every number in this document is a count of carriers,
+  never a count of bytes, because no byte has been measured.
