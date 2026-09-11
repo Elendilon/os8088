@@ -98,9 +98,20 @@ def main():
             ui.open_drive("B")              # this one may well confirm: the
         except MartyError:                  # window record is written before
             pass                            # the paint the breakpoint is on
-        froze = m.status().get("state") == "breakpoint"
-        check(froze, "the guest is at a breakpoint after the gesture (%r)"
-              % m.status().get("state"))
+        # THE GESTURE IS NOT THE STOP, and this sampled as though it were.
+        # `open_drive` confirms on the window RECORD, which wm_draw_win is
+        # reached after - so on a loaded box it returns while the guest is
+        # still short of the breakpoint. This read `m.status()` TWICE, once
+        # for the verdict and once for the message, and a soak caught the gap
+        # between them exactly: `FAIL the guest is at a breakpoint after the
+        # gesture ('breakpoint')` - a verdict contradicting its own diagnostic,
+        # which is the most expensive thing a failure can print. One sample
+        # now, and a bounded wait on the GUEST's clock when it has to.
+        st = m.status().get("state")
+        if st == "running":
+            st = m.wait_stop(limit=A_LIMIT) or m.status().get("state")
+        check(st == "breakpoint",
+              "the guest is at a breakpoint after the gesture (%r)" % st)
         t0 = time.time()
         try:
             mo.to(300, 120)                 # ...but the POINTER cannot move
