@@ -66,7 +66,7 @@ it does not.** Every part is already answered from memory:
   not merely compare: it reads `0040:003F` and uses a still-running motor as
   **physical evidence** that the floppy has not been swapped. That is a memory
   read, and it is a stronger test than a cached signature rather than a weaker
-  one.
+  one. **But read §3.2 before believing it covers a walk - it does not.**
 - **Directory sectors come out of a CACHE.** §19.2.3's window - `MEM_P_DIRW`,
   16KB purgeable, eight runs, keyed on volume + `[dsk_sigcur]` - answers the
   second climb of a `..` chain from memory. `dsk_dotdot_x` reads through it.
@@ -78,6 +78,44 @@ So os8088 already has DOS's three speed mechanisms: a resident per-volume
 parameter block (the BPB + FAT window survive a quiet mount, as a DPB does),
 a walk that never re-validates mid-operation, and `BUFFERS=` (§19.2.3).
 **There is no missing infrastructure.**
+
+### 3.2 ...EXCEPT that an unbracketed walk re-reads LBA 0 at every level
+
+The bullets above are each true and together they are **misleading about a
+walk**, which is worth stating loudly because the misreading is the natural
+one.
+
+`dsk_here_ok` answers *"is a quiet chdir to (DL, AX) a no-op?"*, and it can
+only say yes when **we are already standing at that exact cluster**. A walk
+moves at every level, so it never is. Every level therefore takes
+`dsk_chdir_q` -> `dsk_chdir_x` -> `disk_mount_x`, and for a floppy outside a
+batch that **re-reads LBA 0** to recompute `[dsk_sigcur]`.
+
+So the pathological shape is real after all, and it is exactly:
+
+```
+    is the disk the same?   (a read of LBA 0, a seek and a revolution)
+    ..
+    is the disk the same?   (again)
+    ..
+```
+
+**The cure is published and nothing uses it.** `OSAPI_BATCH_BEGIN` /
+`OSAPI_BATCH_END` (§18.9.3) set `dsk_bpbok` = 2, the BPB and its signature are
+reused from the bank, and LBA 0 is not read again for the life of the bracket.
+The SDK states the saving in the same terms: *"on a copy or an install [it is]
+one call and one revolution per switch, and was 41 of one install's 199"*.
+
+The bracket **nests and cannot be left open** - any `gfx_unlock` ends it, and
+that is every way out of a locked run of kernel code - so a caller cannot hold
+one across a moment when the user could reach the drive. A walk holds no gfx
+lock and does not unlock, so a bracket taken around one survives it.
+
+**No walker in the tree takes it.** Not `apps/tank`, not `apps/ftpd`'s
+`fd_walk`, not the DOS box. That is a second finding of the same size as
+docs/plans/NAV-COST-PLAN.md's `GOTO_QM` conversion, and it stacks with it: the
+conversion stops each level paying for a scan, a sort, an icon harvest and a
+cache flush, and the bracket stops it paying for LBA 0.
 
 ### 3.1 The trap: `GOTO_Q` makes exactly the bad shape
 
@@ -120,9 +158,14 @@ this is milliseconds and not minutes, but it is still work done K times to
 answer one question.
 
 **A kernel-side path builder walks each level's directory once**, with no API
-crossing per entry and no ordinal restart. That is the whole of the win, and
-it is a constant-factor argument rather than a complexity one: O(K) internal
-steps against O(K) far calls plus O(K^2/16) lookups.
+crossing per entry and no ordinal restart. That is a constant-factor argument
+rather than a complexity one: O(K) internal steps against O(K) far calls plus
+O(K^2/16) lookups.
+
+**It is no longer the main argument, though.** §3.2's LBA 0 re-read is one
+real revolution per level on a floppy, which is worth more than every far call
+in the walk put together - and unlike the far calls it is invisible, because
+nothing in the published API mentions that a walk wants a bracket.
 
 ## 5. The slot
 
@@ -138,6 +181,12 @@ OSAPI_FILE_PATH   ES:DI = a buffer, CX = its size
 
 Four things it must settle, none of them expensive:
 
+0. **IT TAKES THE BATCH BRACKET ITSELF** (§3.2), and this is now the strongest
+   single argument for the slot. The correct sequence is three slots deep -
+   bracket, then `GOTO_QM` and not `GOTO_Q`, then find - and **no walker in the
+   tree assembles it**. A slot that brackets internally is one a caller cannot
+   get wrong, where advice in a comment is something three packages have
+   already each got wrong differently.
 1. **It walks and RESTORES.** The caller's instance must stand where it did,
    which is `OSAPI_FILE_HERE` then `inst_vol_mark` - both already exist.
 2. **A bounded buffer, and the bound is the caller's.** `FD_CDMAX` is 16 and

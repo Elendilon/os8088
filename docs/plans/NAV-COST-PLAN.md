@@ -70,6 +70,38 @@ So the conversion in §5 buys three things per site and only the first was
 costed here originally: the remount, the scan/sort/icon harvest, **and the
 cache the remount was about to discard.**
 
+## 1.2 ...and a THIRD thing nobody is doing: the batch bracket
+
+`OSAPI_BATCH_BEGIN` / `OSAPI_BATCH_END` (§18.9.3) are published, and **no
+walker in the tree calls them**. Inside the bracket `dsk_bpbok` = 2 and a
+floppy reuses its banked BPB instead of re-reading **LBA 0 at every volume
+switch** - the SDK's own figure is *"one call and one revolution per switch,
+and was 41 of one install's 199"*.
+
+It matters here because `dsk_here_ok` can only answer "no-op" when the caller
+is **already standing at that exact cluster**, which a walk never is. So every
+level of an unbracketed walk re-reads the boot sector to recompute
+`[dsk_sigcur]` - one seek to LBA 0 and one revolution, per `..`, on top of
+everything else in §1.1.
+
+So `apps/tank`'s save has THREE separate costs and this plan originally named
+one:
+
+| | what it costs | the cure |
+|---|---|---|
+| the display mount | 12 sectors, a scan, a sort, an icon harvest | `GOTO_QM` |
+| the cache flush | all eight of §19.2.3's runs, hurting whatever runs next | `GOTO_QM` |
+| the boot sector | one seek to LBA 0 and one revolution PER LEVEL | the batch bracket |
+
+The bracket **nests and cannot be left open** - any `gfx_unlock` ends it - so
+taking it around a save is safe by construction, and a walk holds no gfx lock
+so nothing inside one ends it early.
+
+docs/plans/PATH-WAVE-PLAN.md §3.2 is the full account, and its conclusion
+reaches back here: the correct sequence is three slots deep and no package
+assembles it, which is an argument for a kernel-side walker rather than for
+better advice in a comment.
+
 ## 2. Tank's own comment is the worked example, and it is not a mistake
 
 This is worth quoting because it shows exactly how the wrong slot gets chosen,
