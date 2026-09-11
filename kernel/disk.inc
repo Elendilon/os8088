@@ -5787,6 +5787,298 @@ dsk_relist_x:
     ret
 
 ; -----------------------------------------------------------------------------
+; dsk_path - the calling directory's path from the volume root (SPEC.md 19.2.4)
+; in:  ES:DI = the caller's buffer, CX = its size in bytes (>= 2)
+; out: CF=0, a NUL-terminated `\DIR\DIR` written there, CX = its length not
+;      counting the NUL, DI unchanged. The root answers `\` and CX=1.
+;      CF=1 and AX = FERR_*: FERR_BIG (the buffer is too small), FERR_IO (a
+;      directory would not read), FERR_NAME (the chain is corrupt or deeper
+;      than DSK_PATH_MAX), FERR_NOENT (a parent does not name its own child,
+;      which is a cross-linked disk).
+; clobbers: AX, CX (the outputs), flags.
+;
+; **WHY THIS IS KERNEL CODE** (docs/plans/PATH-WAVE-PLAN.md). SPEC.md 19.2 says
+; going up needs no path stack *because the disk records the parent* - true of
+; this file and of nothing outside it, because dsk_find drops the on-disk dot
+; links outright (`cmp al, '.'` / `je .skip`) so no package can see '..'.
+; Three have each built a descent stack for want of this one answer:
+; apps/ftpd's 16-level FD_CDMAX, the DOS box's self-maintained AH=47h string,
+; and apps/tank's walk to SYSTEM\APPDATA.
+;
+; **AND THE READ COUNT IS THE POINT.** A package walking with the published
+; slots calls OSAPI_FILE_GOTO_QM per level, which is dsk_chdir_q - and
+; dsk_here_ok can only answer "no-op" when the caller is ALREADY STANDING at
+; that exact cluster, which a walk never is. So every level re-mounts, and a
+; floppy mount outside a batch bracket re-reads **LBA 0** to recompute
+; [dsk_sigcur]: one seek to the boot sector and one revolution PER LEVEL.
+;
+; This walks with dsk_dirw_start/dsk_dirw_get, which take a CLUSTER and stand
+; nowhere - so there is **no chdir, no mount and no LBA 0 read at any level**,
+; and the sectors it does read come through 19.2.3's cached window. That is
+; also why it needs no batch bracket: there is no mount for one to elide.
+;
+; It builds BACKWARDS into the tail of the caller's buffer and shuffles the
+; result down at the end, because the walk discovers names deepest-first and a
+; path reads root-first. Banking the cluster chain and walking down it instead
+; would cost a second read of every directory and a resident array.
+;
+; SEGMENTS: ES is the CALLER's throughout and is never reloaded - dsk_secbuf
+; is `.lowbss` and reached through SS (SPEC.md 2.1), the scratch name is the
+; kernel's own and reached through DS, and the one copy that crosses is a
+; plain `rep movsb`, which is DS:SI -> ES:DI and so is exactly right.
+; -----------------------------------------------------------------------------
+DSK_PATH_MAX equ 32              ; levels. FAT12 has no depth limit, and
+                                 ; dsk_path_up's range check stops a WILD '..'
+                                 ; but cannot see a CYCLE - a disk whose '..'
+                                 ; points at a descendant walks for ever. This
+                                 ; is that bound, and 32 is past any depth a
+                                 ; 1.44MB volume can hold a use for
+dsk_path_x:
+    push bx
+    push dx
+    push si
+    push di
+    cmp cx, 2
+    jb .toobig                  ; cannot hold even `\` and its NUL
+
+    mov [dsk_pbase], di         ; the buffer's base, for the shuffle at the end.
+                                ; IN MEMORY AND NOT IN BP, which is not a style
+                                ; choice: dsk_dirw_get does not preserve BP, so
+                                ; holding the base there gave the shuffle a
+                                ; garbage destination and wrote the path into
+                                ; the middle of the CALLER's image - which
+                                ; presented as a window title that read as
+                                ; machine code, twenty steps from the cause
+    add di, cx
+    dec di
+    mov [dsk_pnul], di          ; the NUL's home, and the end of the result
+    mov byte [es:di], 0
+    mov byte [dsk_pdep], 0
+
+    mov ax, [dsk_cwd]
+.level:
+    or ax, ax
+    jz .done                    ; 0 is the root: the walk is over
+    inc byte [dsk_pdep]
+    cmp byte [dsk_pdep], DSK_PATH_MAX
+    ja .corrupt
+
+    mov [dsk_pcur], ax
+    call dsk_path_up            ; AX = the parent, without standing in it
+    jc .corrupt
+    mov [dsk_ppar], ax
+    call dsk_path_name          ; dsk_pname = the child's name, CX = length
+    jc .noname
+
+    mov bx, di                  ; room for the name and its separator?
+    sub bx, cx
+    dec bx
+    cmp bx, [dsk_pbase]
+    jb .toobig                  ; REFUSED, never truncated (SPEC.md 47)
+
+    sub di, cx
+    push di
+    mov si, dsk_pname
+    cld
+    rep movsb                   ; DS:SI is ours, ES:DI is the caller's
+    pop di
+    dec di
+    mov byte [es:di], '\'
+
+    mov ax, [dsk_ppar]
+    jmp short .level
+
+.done:
+    cmp byte [dsk_pdep], 0
+    jne .shuffle
+    dec di                      ; standing at the root and nothing was
+    mov byte [es:di], '\'       ; prepended: the answer is the one separator
+.shuffle:
+    mov si, di                  ; [SI .. dsk_pnul] -> the base, NUL included
+    mov di, [dsk_pbase]
+    mov cx, [dsk_pnul]
+    sub cx, si
+    inc cx
+    push cx
+.mv:
+    mov al, [es:si]             ; BOTH ends are the caller's, so this cannot
+    mov [es:di], al             ; be movsb - that would read DS:SI
+    inc si
+    inc di
+    dec cx
+    jnz .mv
+    pop cx
+    dec cx                      ; the length the caller is told excludes the NUL
+    pop di                      ; ...and DI comes back as it arrived
+    pop si
+    pop dx
+    pop bx
+    clc
+    retf                        ; FAR: the only entry here reached from the
+                                ; kernel segment (SPEC.md 2.6.1)
+
+.corrupt:
+    mov ax, FERR_NAME
+    jmp short .fail
+.noname:
+    mov ax, FERR_NOENT
+    jmp short .fail
+.toobig:
+    mov ax, FERR_BIG
+.fail:
+    pop di
+    pop si
+    pop dx
+    pop bx
+    stc
+    retf
+
+; -----------------------------------------------------------------------------
+; dsk_path_up - the parent of cluster AX, WITHOUT standing there
+; in:  AX = a directory's first cluster (non-zero)
+; out: CF=0 and AX = the parent (0 = the root); CF=1 = missing or unreadable
+; clobbers: AX, flags
+;
+; dsk_dotdot's body against an ARGUMENT rather than against [dsk_cwd], because
+; the walk needs the parent of a cluster it is not standing in - and standing
+; in it is the entire cost this routine exists to avoid.
+; -----------------------------------------------------------------------------
+dsk_path_up:
+    push si
+    call dsk_dirw_start_x
+    call dsk_dirw_get_x         ; the directory's very first sector
+    jc .bad
+    mov si, dsk_secbuf + DSK_DE_SIZE   ; entry 1 is '..' by spec
+    cmp byte [ss:si], '.'
+    jne .bad
+    cmp byte [ss:si+1], '.'
+    jne .bad
+    mov ax, [ss:si+DSK_R_CLUS]
+    cmp ax, [dsk_maxclus]
+    ja .bad                     ; a corrupt '..' must not become a cwd
+    pop si
+    clc
+    ret
+.bad:
+    pop si
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; dsk_path_name - what is [dsk_pcur] called inside [dsk_ppar]?
+; out: CF=0, dsk_pname = the NUL 8.3 name and CX = its length; CF=1 = the
+;      parent does not name it
+; clobbers: CX (the output), flags
+;
+; ONE PASS over the parent's sectors, which is the difference from doing this
+; across the API: OSAPI_FILE_FIND is ordinal-based and restarts the directory
+; walk on every call, so a parent of K entries would cost K far calls each
+; re-walking from entry 0. Here the directory is read once.
+; -----------------------------------------------------------------------------
+dsk_path_name:
+    push ax
+    push bx
+    push dx
+    push si
+    push di
+    mov ax, [dsk_ppar]
+    call dsk_dirw_start_x
+.sector:
+    call dsk_dirw_get_x         ; banks BX/CX/DX/ES itself, so DX survives
+    jc .no
+    mov si, dsk_secbuf
+    mov dx, 512 / DSK_DE_SIZE
+.entry:
+    mov al, [ss:si]
+    test al, al
+    jz .no                      ; 0x00 ends the directory, per spec
+    cmp al, 0xE5
+    je .next                    ; deleted
+    cmp al, '.'
+    je .next                    ; the dot links themselves
+    test byte [ss:si+DSK_R_ATTR], 0x10
+    jz .next                    ; only a subdirectory can be on this path
+    mov ax, [ss:si+DSK_R_CLUS]
+    cmp ax, [dsk_pcur]
+    je .found
+.next:
+    add si, DSK_DE_SIZE
+    dec dx
+    jnz .entry
+    jmp short .sector
+.found:
+    call dsk_path_8_3           ; SS:SI -> dsk_pname, CX = its length
+    pop di
+    pop si
+    pop dx
+    pop bx
+    pop ax
+    clc
+    ret
+.no:
+    pop di
+    pop si
+    pop dx
+    pop bx
+    pop ax
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; dsk_path_8_3 - SS:SI = a raw 11-byte FAT name -> dsk_pname, NUL-terminated
+; out: CX = the length; SI unchanged
+;
+; A subdirectory's extension is almost always blank, but FAT permits one and a
+; name that dropped it would not resolve - so it is emitted when present.
+; -----------------------------------------------------------------------------
+dsk_path_8_3:
+    push ax
+    push dx
+    push si
+    push di
+    mov di, dsk_pname
+    xor cx, cx
+    mov dx, 8
+.nm:
+    mov al, [ss:si]
+    cmp al, ' '
+    je .nmpad
+    mov [di], al
+    inc di
+    inc cx
+    inc si
+    dec dx
+    jnz .nm
+    jmp short .ext
+.nmpad:
+    add si, dx                  ; step over the padding, so SI lands on +8
+.ext:
+    mov al, [ss:si]
+    cmp al, ' '
+    je .fin                     ; no extension, which is the ordinary case
+    mov byte [di], '.'
+    inc di
+    inc cx
+    mov dx, 3
+.ex:
+    mov al, [ss:si]
+    cmp al, ' '
+    je .fin
+    mov [di], al
+    inc di
+    inc cx
+    inc si
+    dec dx
+    jnz .ex
+.fin:
+    mov byte [di], 0
+    pop di
+    pop si
+    pop dx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; dsk_dotdot - the current directory's parent (SPEC.md 19.2)
 ; in:  nothing; [dsk_cwd] must be non-zero (inside a subdirectory)
 ; out: CF=0, AX = the parent's first cluster, 0 = the root; CF=1 = the '..'
@@ -7179,6 +7471,12 @@ dsk_cherr:    resb 1            ; dsk_read_chain: failure code across the
 ; --- the directory walker's scratch (SPEC.md 19.2) --------------------------
 ; Safe in .bss: dsk_dirw_start writes all three before any walk reads them.
 ; [dsk_cwd] and [dsk_keepcwd] are NOT - see the module data block up top.
+dsk_pcur:     resw 1            ; dsk_path: the child being named...
+dsk_ppar:     resw 1            ; ...the parent being searched for its name
+dsk_pnul:     resw 1            ; ...where the NUL went, = the result's end
+dsk_pbase:    resw 1            ; ...the caller's buffer base (NOT bp: 19.2.4)
+dsk_pdep:     resb 1            ; ...levels walked, against DSK_PATH_MAX
+dsk_pname:    resb 13           ; ...one 8.3 name, NUL-terminated
 dsk_wclus:    resw 1            ; dirw: the cluster being walked, 0 = root
 dsk_wsec:     resw 1            ; dirw: sector index inside it
 dsk_wguard:   resw 1            ; dirw: sectors left before the walk gives up

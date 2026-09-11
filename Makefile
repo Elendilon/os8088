@@ -4813,6 +4813,18 @@ $(BUILD)/DOSIRQ.COM: tests/dosirq/irq.asm | $(BUILD)
 $(BUILD)/dosirq360.img: $(BUILD)/DOSIRQ.COM tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSIRQ.COM
 
+# --- OSAPI_FILE_PATH's gate disk (SPEC.md 19.2.4) ----------------------------
+# THREE LEVELS DEEP ON PURPOSE. The slot's whole claim is about what a walk
+# costs per level, so a package in the root - which answers `\` having read
+# nothing - would measure nothing. ONE/TWO/THREE are named rather than nested
+# under APPS so the expected answer is a constant the test can spell.
+$(BUILD)/pathtest.o88: tests/pathtest/pathtest.asm apps/os88api.inc tools/os88pkg.py | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $(BUILD)/pathtest.bin tests/pathtest/pathtest.asm
+	python3 tools/os88pkg.py $(BUILD)/pathtest.bin -o $@
+
+$(BUILD)/pathtest360.img: $(BUILD)/pathtest.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 ONE/TWO/THREE:$(BUILD)/pathtest.o88
+
 # ...and the XMS gate's, whose whole assertion on an 8088 is a REFUSAL
 # (SPEC.md 96.15.1) - plus that asking at all comes back, which an unhooked
 # multiplex vector on a ROM that does not implement it need not do.
@@ -4835,7 +4847,7 @@ $(BUILD)/dosxmsq.img: $(BUILD)/DOSXMSQ.COM tools/os88disk.py
 doscom: $(BUILD)/doscom360.img $(BUILD)/dosexe360.img $(BUILD)/dosmou360.img \
         $(BUILD)/dosfile360.img $(BUILD)/dosdir360.img $(BUILD)/dosexec360.img \
         $(BUILD)/dosxms360.img $(BUILD)/dossnd360.img $(BUILD)/dosxmsq.img \
-        $(BUILD)/dosirq360.img
+        $(BUILD)/dosirq360.img $(BUILD)/pathtest360.img
 
 $(BUILD)/thewire.bin: apps/thewire/thewire.asm apps/thewire/wrhttp.inc \
                       apps/thewire/wrarc.inc apps/thewire/wrtxt.inc \

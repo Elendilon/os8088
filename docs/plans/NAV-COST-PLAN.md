@@ -70,7 +70,23 @@ So the conversion in §5 buys three things per site and only the first was
 costed here originally: the remount, the scan/sort/icon harvest, **and the
 cache the remount was about to discard.**
 
-## 1.2 ...and a THIRD thing nobody is doing: the batch bracket
+## 1.2 WITHDRAWN: the batch bracket is not one of Tank's costs
+
+**This section claimed a third cost and it was wrong.** `tests/pathcost.py`
+measures six same-volume `OSAPI_FILE_GOTO_QM` calls at **0 reads** - §19.2.2's
+*"inside the volume you are already on it is a WORD, no I/O at all"*, measured
+rather than quoted. The boot-sector re-read `OSAPI_BATCH_BEGIN` elides is per
+**volume switch**, and `apps/tank` walks inside one volume.
+
+So Tank has the TWO costs this plan named first - the display mount, and the
+flush of §19.2.3's eight cached runs - and `GOTO_QM` cures both. The bracket
+is still unused by every walker in the tree and is still right for a copy or
+an install that crosses volumes; it is simply not this.
+
+The section is kept rather than deleted because the reasoning was careful and
+still wrong, and reading how is worth more than not having said it.
+
+### 1.2.1 The original section, kept as it was written
 
 `OSAPI_BATCH_BEGIN` / `OSAPI_BATCH_END` (§18.9.3) are published, and **no
 walker in the tree calls them**. Inside the bracket `dsk_bpbok` = 2 and a

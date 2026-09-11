@@ -3992,7 +3992,16 @@ osapi_table:
                                   ;          buffer is the CALLER's and the
                                   ;          whole point is that the answer
                                   ;          lands in it
-osapi_table_end:                  ; 0x0558
+    OSAPI_XCELL api_file_path   ; 0x0558 - WHERE AM I STANDING? (SPEC.md
+                                  ;          19.2.4). ES:DI = your buffer,
+                                  ;          CX = its size; out CF=0 with a
+                                  ;          NUL `\DIR\DIR` in it and CX its
+                                  ;          length, else AX = FERR_*. X
+                                  ;          because the buffer is the
+                                  ;          CALLER's - and a slot at all
+                                  ;          because dsk_find drops the dot
+                                  ;          links, so no package can walk up
+osapi_table_end:                  ; 0x0560
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -4000,8 +4009,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 169 * 8
-%error "os8088 API jump table must be exactly 169 8-byte slots"
+%if OSAPI_TABLE_LEN != 170 * 8
+%error "os8088 API jump table must be exactly 170 8-byte slots"
 %endif
 
 ; =============================================================================
@@ -4327,6 +4336,41 @@ api_ff_fence:
     pop si
     pop ds
     retf
+
+; -----------------------------------------------------------------------------
+; api_file_path - slot 0x0558 (X). in ES:DI = the caller's buffer, CX = its
+; size; out CF=0 with the path written and CX its length, else AX = FERR_*
+;
+; An X cell (not a JSLOT like api_file_find, which does its own segment work):
+; api_x has already put the caller's DS in ES and KERNEL in DS, and reaches
+; here with a NEAR call - so this stub is inst_vol_enter, the walk, and a near
+; `ret`. It begins with inst_vol_enter so the walk starts from where THIS
+; instance believes it is standing rather than from wherever the volume was
+; last dragged (SPEC.md 19.2.1). **That call is the ONE "is this the same
+; disk?" in the whole operation**: dsk_path walks with dsk_dirw_start/get,
+; which take a cluster and stand nowhere, so no level of the walk mounts and
+; none re-reads LBA 0 (SPEC.md 19.2.4).
+;
+; There is no driver fence on this cell. The other two file cells have one
+; because they can NAME a hidden or system file; a path names directories the
+; caller is already standing inside, and a package that could not see its own
+; folder's name could not have been launched from it.
+; -----------------------------------------------------------------------------
+api_file_path:
+    push si
+    push bx
+    call inst_vol_enter         ; preserves everything, including the flags
+    call COLD_SEG:dsk_path_x
+    pop bx
+    pop si
+    ret                         ; NEAR. api_x reaches every X cell with
+                                ; `call bp` and does the segment work itself -
+                                ; ES = the caller's DS, DS = KERNEL - so a
+                                ; stub here neither loads a segment nor
+                                ; returns far. A `retf` popped one word too
+                                ; many and returned into nothing, which
+                                ; presented as a second window whose title
+                                ; read as machine code
 
 ; -----------------------------------------------------------------------------
 ; api_file_write_sys - slot 0x0340, and the ONE fenced cell (SPEC.md 19.6.1)

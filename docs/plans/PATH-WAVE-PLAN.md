@@ -79,7 +79,33 @@ parameter block (the BPB + FAT window survive a quiet mount, as a DPB does),
 a walk that never re-validates mid-operation, and `BUFFERS=` (§19.2.3).
 **There is no missing infrastructure.**
 
-### 3.2 ...EXCEPT that an unbracketed walk re-reads LBA 0 at every level
+### 3.2 ...and the LBA 0 claim that MEASUREMENT KILLED
+
+**This section used to say that an unbracketed walk re-reads LBA 0 at every
+level. `tests/pathcost.py` measured it and it is false**, and the correction
+is kept in place because the reasoning was careful and still wrong, which is
+the kind worth being able to recognise again.
+
+The reasoning was: `dsk_here_ok` can only answer "no-op" when the caller is
+ALREADY STANDING at that exact cluster - true - a walk moves every level, so
+it never is - true - therefore every level reaches `disk_mount`, and a floppy
+mount outside §18.9.3's batch bracket re-reads LBA 0. **The last step does not
+follow.** Six same-volume `OSAPI_FILE_GOTO_QM` calls measure at **0 reads and
+0 sectors**, exactly as §19.2.2's first sentence always said: *"inside the
+volume you are already on it is a WORD, no I/O at all."* The boot-sector
+re-read the batch bracket elides is per **volume switch**, and a path walk
+stays inside one volume.
+
+So the batch bracket is **not** part of this design, `OSAPI_BATCH_BEGIN` is
+not the missing call, and docs/plans/NAV-COST-PLAN.md's third Tank Attack cost
+is withdrawn - its other two stand.
+
+What the slot is worth is what §4 says and what §1's three customers say: a
+package cannot walk up AT ALL. The measured numbers are 3 reads for a
+three-level path and **0 for the second walk of the same chain**, which is
+§19.2.3's window.
+
+#### 3.2.1 The original section, kept as it was written
 
 The bullets above are each true and together they are **misleading about a
 walk**, which is worth stating loudly because the misreading is the natural

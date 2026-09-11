@@ -31568,6 +31568,97 @@ on this filesystem is **capacity against the working set** — three volumes'
 roots plus their subdirectories — not determinism. `DSK_RAH_RUNS` 4 → 8 is the
 change that came out of this section, and it is the whole of it.
 
+### 19.2.4 …and where am I standing? (`OSAPI_FILE_PATH`)
+
+§19.2 states, as a design property, that *"going up needs no path stack and no
+memory of how the user got here: the disk itself records the parent, and that
+is why there is no path string anywhere in os8088."*
+
+**True of the kernel, and of nothing else.** `dsk_find` filters the raw
+directory sectors and four lines into its entry loop has `cmp al, '.'` / `je
+.skip`, so **neither `.` nor `..` is ever reported to a package** — on either
+cell, since `api_file_find` and `api_file_find_raw` join at `api_ff_fence` and
+differ in the size field alone. `OSAPI_FT_UP` exists because `dsk_synth_up`
+builds an up-entry for `disk_mount`'s **listing** (§19.5), a different
+structure a package cannot reach. `OSAPI_FILE_HERE` answers a cluster, and a
+cluster is not a path.
+
+So a package could not name its own folder, and three of them each paid to
+work around it: `apps/ftpd`'s 16-level `FD_CDMAX` descent stack, the DOS box's
+self-maintained `AH=47h` string (§96.12.2), and `apps/tank`'s walk to
+`SYSTEM\APPDATA`. Three independent arrivals at the same shape is what made
+this a slot rather than advice.
+
+`OSAPI_FILE_PATH` takes the caller's buffer and writes `\DIR\DIR` from the
+volume root, `\` at the root, refusing with `FERR_BIG` rather than truncating —
+a truncated path resolves somewhere real, which is the failure worth never
+having. It carries no drive letter: `OSAPI_FILE_HERE` already answered that.
+
+#### 19.2.4.1 What it costs, measured — and the argument that did not survive
+
+`tests/pathcost.py` counts what the floppy controller was asked to do, from
+**outside** the guest, because a kernel that re-mounted per level would answer
+the identical path and look entirely correct from inside. On a 4.77 MHz 8088,
+a package three folders deep:
+
+| | reads | sectors |
+|---|---|---|
+| first walk, 3 levels | **3** | 14 |
+| second walk, same chain | **0** | 0 |
+| six same-volume `GOTO_QM` | **0** | 0 |
+
+Three `int 13h` calls for a three-level path, against about twelve for a
+single mount (§18.8.2) — and the second walk is **free**, answered entirely
+out of §19.2.3's cached directory window, which `dsk_path_up` reads through.
+
+**The design reason those numbers are what they are**: `dsk_path` never moves
+the machine. It walks with `dsk_dirw_start`/`dsk_dirw_get`, which take a
+**cluster** and stand nowhere, so no level chdirs and no level mounts. The one
+mount the operation can pay is `inst_vol_enter`'s at the slot's entry, and
+that is the *correct* one — the check that the volume is where this instance
+believes it is standing (§19.2.1), six compares when nothing moved.
+
+**AND ONE ARGUMENT FOR THIS SLOT WAS WRONG, which is why the row measures
+rather than asserts.** It was claimed here that a package-side walk built on
+`OSAPI_FILE_GOTO_QM` would re-read **LBA 0 at every level**, on the reasoning
+that `dsk_here_ok` can only answer "no-op" when the caller is already standing
+at that exact cluster — true — and that every level therefore reaches
+`disk_mount`. The third row of the table refutes it: **six same-volume chdirs
+cost zero reads.** §19.2.2's first sentence was right all along — *"inside the
+volume you are already on it is a WORD, no I/O at all"* — and the boot-sector
+re-read §18.9.3's batch bracket exists to elide is per **volume switch**, not
+per directory. A path walk stays inside one volume, so it never pays it.
+
+What survives is the argument that was always sufficient, and one real cost:
+
+- **A package cannot walk up at all.** `dsk_find` drops the dot links, so
+  there is no package-side implementation to compare against — which is why
+  three packages built descent stacks instead of walks.
+- **The API boundary is real work.** Naming each level means finding, in the
+  parent, the entry whose first cluster matches the child's, and
+  `OSAPI_FILE_FIND` is ordinal-based and *restarts the directory walk on every
+  call* — so a parent of K entries would cost K far calls each re-walking from
+  entry 0. `dsk_path_name` reads each directory once.
+
+#### 19.2.4.2 What it refuses, and why each refusal exists
+
+- **`FERR_BIG`** — the buffer cannot hold the path. Nothing is written. A
+  depth limit belongs to the caller and `FD_CDMAX`'s 16 is one package's
+  answer, not the kernel's.
+- **`FERR_NAME`** — the chain is corrupt, or deeper than `DSK_PATH_MAX` = 32.
+  `dsk_path_up` range-checks a `..` against `[dsk_maxclus]` exactly as
+  `dsk_dotdot` does, which stops a **wild** parent; it cannot see a **cycle**,
+  where a `..` points at a descendant, and the depth bound is what stops that
+  walking for ever. Both are reachable from an ordinary corrupt floppy.
+- **`FERR_NOENT`** — a parent does not contain an entry naming its own child.
+  That is a cross-linked disk, and answering a path built out of what was
+  found anyway would be the §47 failure this project keeps writing down: a
+  confident wrong answer is worse than a refusal.
+- **There is no driver fence** on this cell, unlike the other two file cells.
+  They have one because they can *name* a hidden or system file; a path names
+  directories the caller is already standing inside, and a package that could
+  not see its own folder's name could not have been launched from it.
+
 ### 19.3 The system disk — a FAT12 volume, and the kernel is a file on it
 
 The disk os8088 boots from is a **real FAT12 volume**, mounted by os8088's own

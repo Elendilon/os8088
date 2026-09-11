@@ -3305,6 +3305,41 @@ CLIP_MAXKB equ 32                ; the clipboard's ceiling, KB. A put longer
 ; and no cursor, so you may write between two reads. That is the point - the
 ; loop this exists for is read -> write -> read, and the write walks
 ; directories and the FAT.
+; --- SPEC.md 19.2.4: where am I standing? ------------------------------------
+; **THE ONLY WAY TO GET A PATH**, and the reason it is a slot rather than
+; something you assemble: `OSAPI_FILE_FIND` never reports `.` or `..`
+; (`dsk_find` drops the on-disk dot links outright), so nothing outside the
+; kernel can walk upward at all. `OSAPI_FT_UP` in the type list belongs to the
+; Disk window's LISTING (SPEC.md 19.5), which is a different structure.
+;
+; Three packages each built a descent stack for want of this - ftpd's 16-level
+; FD_CDMAX, the DOS box's self-maintained `AH=47h` string, and Tank Attack's
+; walk to SYSTEM\APPDATA. If you are about to write a fourth, this is it.
+;
+; **IT COSTS ONE MOUNT AND THEN NOTHING.** The kernel walks with the directory
+; walker, which takes a cluster and stands nowhere, so no level re-mounts and
+; no level re-reads LBA 0 - which is what a walk built out of
+; `OSAPI_FILE_GOTO_QM` does once per directory, because `dsk_here_ok` can only
+; skip a mount when you are ALREADY AT that exact cluster and a walk never is.
+; The sectors it does read come through SPEC.md 19.2.3's cached window.
+;
+; The answer starts with a separator and does not carry the drive: `\APPS\ID`,
+; or `\` at the root. `OSAPI_FILE_HERE` already told you the volume. DOS's own
+; `AH=47h` wants neither the separator nor the drive, so a DOS shim steps one
+; byte in.
+;
+; A buffer that is too small is REFUSED with FERR_BIG and nothing is written -
+; it never truncates, because a truncated path resolves somewhere real.
+%define OSAPI_FILE_PATH     KERNEL_SEG:0x0558   ; ES:DI = your buffer, CX = its
+                                 ; size in bytes (>= 2); out CF=0, a NUL
+                                 ; `\DIR\DIR` written there and CX = its
+                                 ; length not counting the NUL, DI unchanged.
+                                 ; CF=1 and AX = FERR_BIG (buffer too small),
+                                 ; FERR_IO, FERR_NAME (the chain is corrupt or
+                                 ; over 32 deep) or FERR_NOENT (a parent does
+                                 ; not name its own child - a cross-linked
+                                 ; disk). UI-task context, like every file cell
+
 ; --- SPEC.md 18.9.3: the batch bracket ---------------------------------------
 ; "The interface is frozen and the disk is the same disk." Between these two,
 ; a FLOPPY may reuse its banked BPB instead of re-reading LBA 0 at every volume

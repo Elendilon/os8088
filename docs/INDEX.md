@@ -158,6 +158,7 @@ Read first: [§18 disk.inc — floppy I/O (BIOS int 13h) + the FAT driver](../SP
 | `0x0230` | `OSAPI_FILE_GOTO` | in DX = a cluster from OSAPI_FILE_HERE, BL = its drive; moves YOUR instance there... |
 | `0x02E8` | `OSAPI_ARG_FILE` | the document this instance was launched to open (SPEC.md 54.5). No inputs; out CF=1 = launched empty, the ordinary case... |
 | `0x02F0` | `OSAPI_ASSOC_SET` | claim an extension for a program (SPEC.md 54.5). ES:SI -> 3 extension bytes then 8 stem bytes, both space-padded... |
+| `0x0558` | `OSAPI_FILE_PATH` | ES:DI = your buffer, CX = its size in bytes (>= 2); out CF=0, a NUL `\DIR\DIR` written there and CX = its length not counting the NUL, DI unchanged... |
 | `0x0388` | `OSAPI_BATCH_BEGIN` | no arguments, no answer |
 | `0x0390` | `OSAPI_BATCH_END` | ...and the other end |
 | `0x0350` | `OSAPI_FILE_APPEND` | SI = NUL 8.3 name, ES:BX = bytes, CX = count (>= 1); out CF=0 AX=0, else AX = FERR_*... |

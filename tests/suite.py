@@ -2562,6 +2562,23 @@ SOAK = [
         "is why the assertion is a read of drv_tab and not a symptom.",
         needs=("marty",), serial=True,
         wants=("build/dosirq360.img",)),
+    Row("pathcost", "soak", py("tests/pathcost.py"), 30.0,
+        "OSAPI_FILE_PATH, AND WHAT IT COSTS (SPEC.md 19.2.4). The slot exists "
+        "because dsk_find drops the on-disk dot links, so no package can walk "
+        "up - three of them each built a descent stack instead. But the "
+        "ASSERTION here is the DISK OPERATIONS, counted from outside the "
+        "guest with os88marty's disk(), because a kernel that re-mounted per "
+        "level would answer the identical path and look entirely correct from "
+        "inside. Four things: the path is right from a package the gate disk "
+        "puts THREE folders deep (a root-level one answers '\\' having read "
+        "nothing); the first walk fits under a bound three mounts could not "
+        "meet (a floppy mount is ~12 sectors, 18.8.2); the SECOND walk of the "
+        "same chain is cheaper, which is 19.2.3's cached window answering "
+        "warm - `make DIRW1=1` is the build where that fails on purpose; and "
+        "six same-volume GOTO_QM cost ZERO reads, which is 19.2.2's 'a WORD, "
+        "no I/O at all' measured rather than quoted. Reads 3/0/0 here.",
+        needs=("marty",), serial=True,
+        wants=("build/pathtest360.img",)),
     Row("heapcheck", "soak", py("tests/heapcheck.py"), 40.0,
         "Drive tests/heapfrag and read its verdict out of the guest (SPEC.md"
         "66.8).",
