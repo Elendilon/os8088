@@ -39722,6 +39722,57 @@ a driver row that refuses because the file is not on this disk is the same
 answer a user gets on a `kern_big` machine whose system floppy was built
 without it, and changing it means deciding what the page should say instead.
 
+#### 24.5.5 DOT DELIRIUM comes BACK, because its ground was withdrawn
+
+`DOTDEL.O88` was omitted beside `SKIES` in `$(SMALLOMIT_GAMES)` on one
+sentence: *"`kern_small` carries no `gfx_blit1` body at all (§5.4.2.5) and this
+renderer is that one call."* That was true the day it was written. **§5.4.2.5.1
+made it false the next cycle** — the body ships on both builds now, because the
+slot turned out to have fourteen callers of which nine are on the small disks —
+and nothing re-read the omission when its reason was withdrawn.
+
+**That is the failure mode §24.5's list keeps producing, and it is worth naming
+separately from the decisions themselves.** A list carries the *decision*; the
+*reason* lives somewhere that can change underneath it, and nothing connects
+the two. §24.5's own `TANK` row is the same story with a different ending — it
+was omitted on a requirement that was never the problem — and `RECORDER` is a
+third. The rule that falls out is: **an omission's ground is a claim about the
+kernel, so a kernel change that touches that ground is a change to the disk
+list.**
+
+**It is not put back on an argument, it is put back on a measurement**, taken
+on `os8088_5150_cga_128k` — the floor machine itself and not a 640KB stand-in:
+
+| | windowed | fullscreen |
+|---|---|---|
+| CGA, **128KB** | tile 8×4, board 224×124, claim **4 KB** | tile 16×6, board 448×186, claim **11 KB** |
+| Hercules | tile 8×9, board 224×279, claim **8 KB** | tile 16×11, board 448×341, claim **19 KB** |
+
+The window opens, `dd_ok` = 1, Enter starts a game and Smiles **eats**, the
+worker spawns on its `OS88_STACK_256` slice and its own frame counter climbs,
+`F` re-cuts the board bigger through `OSAPI_MEM_REGROW` and the game goes on
+playing, and `Escape` puts it back. At its widest on the floor machine the
+arena reads **52.5 KB with 46.0 KB claimed — 6.5 KB free**.
+
+**The 27KB figure in `dd_fit_claim`'s own comment is the VGA ceiling and does
+not apply here at all**: the picture is sized from the SURFACE (§93.3) and
+`kern_small` has no VGA (§39.27), so 19 KB on a fullscreen Hercules is the
+deepest this kernel can ever be asked for. The board is the one thing that
+scales, which is why the package that could not be afforded was never the
+package this one is.
+
+**Two things it does NOT get.** There is no `APP_SMALL` arm — nothing about it
+is compiled differently, and `$(SMALLPKGS)` is untouched — so the `.o88` on the
+small floppy is byte-for-byte the shipped one. And the 360KB apps disk pays
+16 clusters for it, **147 → 163 of 354**, which is a decision with a date on it
+exactly as §24.6.1 says: being carried there is not a property of the package.
+
+`tests/ddsmall.py` (`soak -k 'ddsmall'`) is the measurement kept runnable, and
+it is deliberately not a second `tests/dotdel.py`: that row asks whether the
+game is *correct*, on kernels and adapters where it has always run, and this
+one asks the only question the disk list rests on — can the floor machine run
+it at all.
+
 ### 24.6 THE CATEGORY DISKS — a floppy per subject, at 360KB alone
 
 `build/office360.img`, `build/network360.img` and `build/games360.img` are

@@ -2576,6 +2576,22 @@ SOAK = [
         "in nineteen did, sealing the player in a box a 26-unit step cannot"
         "leave - and a player who somehow IS inside one can still drive out",
         needs=("marty",), serial=True),
+    Row("ddsmall", "soak", py("tests/ddsmall.py"), 40.0,
+        "SPEC.md 24.5.5: DOT DELIRIUM runs on kern_small's 128KB floor "
+        "machine - a window, a board cut from the surface, a picture CLAIMED "
+        "off a 52.5KB arena, Smiles eating on an OS88_STACK_256 worker, and "
+        "fullscreen re-cutting the board bigger and coming back. It is the "
+        "MEASUREMENT the disk list rests on: the package was omitted on the "
+        "ground that kern_small had no gfx_blit1 body, SPEC.md 5.4.2.5.1 gave "
+        "both builds one, and nothing re-read the omission when its reason "
+        "was withdrawn. tests/dotdel.py asks whether the game is CORRECT on "
+        "kernels where it has always run; this asks only whether the floor "
+        "machine can run it at all. "
+        "SOAK and not full: it is ONE package on ONE build "
+        "(docs/WRITING-TESTS.md 2.1), and it follows tanksmall down",
+        needs=("marty",),
+        wants=("build/smallapps360.img", "build/small360.img"),
+        serial=True),
     Row("tanksmall", "soak", py("tests/tanksmall.py"), 30.0,
         "SPEC.md 85.3.5.1: TANK's APP_SMALL arm plays on the 128KB floor"
         "machine - the claim is GRANTED off its ladder, and the HUD template's"

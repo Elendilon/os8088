@@ -69,10 +69,17 @@ gfx_mono1       dw 0            ; THE WINDOW BEING DRAWN HAS DECLARED ITS
 ; answers the one question a single plane CAN be asked: which way up the bits
 ; are. It is 0 for every other caller and dies with the pen, so the paragraph
 ; above is untouched for a package.
-%ifdef KERN_BIG                 ; kern_small's gfx_blit1 is stc/ret (SPEC.md
-                                ; 5.4.2.5) and gfx_blit1_x is the only reader
-                                ; of any of these, so that build carries the
-                                ; SLOT and neither the body nor its state
+%ifdef KERN_BIG                 ; THE PEN IS VGA's AND NOT kern_big's PER SE:
+                                ; SPEC.md 5.4.2.2's Set/Reset arithmetic is the
+                                ; only reader, GFX_VGA is defined exactly when
+                                ; KERN_BIG is, and gfx_blit1_x's .pvga arm is
+                                ; the one path that loads the pair. The BODY
+                                ; ships on both builds since SPEC.md 5.4.2.5.1
+                                ; - this comment said "kern_small's gfx_blit1
+                                ; is stc/ret" for a cycle after that stopped
+                                ; being true, and a package was left off the
+                                ; small floppies on the strength of it
+                                ; (SPEC.md 24.5.5)
 gfx_b1ink       db CWHITE
 gfx_b1pap       db CBLACK
 %if gfx_b1pap - gfx_b1ink != 1

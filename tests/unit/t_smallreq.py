@@ -94,7 +94,11 @@ FORBIDDEN = {
     # 24.5 - a claim the floor machine cannot fund, made where it cannot refuse
     "SKIES.O88":    "a 32KB claim inside the fsx bracket - the refusal is a "
                     "black screen (SPEC.md 24.5, 88)",
-    "DOTDEL.O88":   "omitted with SKIES by $(SMALLOMIT_GAMES) (SPEC.md 24.5)",
+    # DOTDEL.O88 IS NOT A ROW. It was omitted beside SKIES on a ground that
+    # SPEC.md 5.4.2.5.1 withdrew (kern_small has a `gfx_blit1` body now), and
+    # SPEC.md 24.5.5 is the measurement that put it back on the floppy. A name
+    # left here would be a filter that reads like a decision and is a no-op,
+    # which is the shape SPEC.md 24.5 already names for RECORDER.
     # 24.5.2 - a minimum claim larger than the machine's whole RAM
     "SHEET.O88":    "claims ~100KB on open, more RAM than a 128KB machine has "
                     "in total (SPEC.md 24.5.2)",

@@ -487,7 +487,22 @@ make smallapps#   128KB floor machine, docs/history/KERN-SPLIT-PLAN.md). `smalla
               #   from the day it was written. It is DERIVED now and
               #   `soak -k 'smallreq'` reads the built floppy rather than the
               #   variable - with the .DRV half an ALLOWLIST, so the driver
-              #   added two years from now fails without anyone remembering
+              #   added two years from now fails without anyone remembering.
+              #
+              #   **AND ONE PACKAGE CAME BACK** (§24.5.5). DOT DELIRIUM was
+              #   omitted beside SKIES on the ground that kern_small had no
+              #   `gfx_blit1` body - true when written, made FALSE the next
+              #   cycle by §5.4.2.5.1, and nothing re-read the omission when
+              #   its reason was withdrawn. **An omission's ground is a claim
+              #   about the KERNEL, so a kernel change that touches that
+              #   ground is a change to the disk list** - which is TANK's
+              #   story with a different ending and RECORDER's for a third
+              #   time. It is put back on a MEASUREMENT taken on the floor
+              #   machine itself: board 224x124 and a 4KB picture claim
+              #   windowed, 448x186 and 11KB fullscreen, Smiles eating on an
+              #   OS88_STACK_256 worker, and 6.5KB of a 52.5KB arena still
+              #   free at its widest. `soak -k 'ddsmall'` is that measurement
+              #   kept runnable
 make emu      # THE THIRD KERNEL (§9.11.7): kern_emu, into build/emuk/, plus
               #   build/emu.img. It is kern_big PLUS §9.11's VMware absolute
               #   pointer and nothing else - the backdoor on port 0x5658 that
