@@ -49,7 +49,8 @@ Four findings shape everything below.
    BIOS word every well-behaved program derives "how much memory is there"
    from. A program that respects its PSP allocation is contained by
    arithmetic. A program that scribbles at a hardcoded address is not, and
-   on real DOS it was not either.
+   on real DOS it was not either. **§14 is the one thing that would change
+   that answer**, and it does it in time rather than in address space.
 
 3. **The right home is a PACKAGE, not a kernel module.** A module's *data*
    is resident in `.text` (SPEC.md 2.6, 2.8) — the exact thing we are trying
@@ -844,8 +845,9 @@ Two choices, and they are exclusive:
 - **Virtualise.** Trap the card's ports and translate to our sound layer.
   Not possible on an 8086 — there is no I/O trapping without protected mode.
 
-So: detach for the session, re-attach at exit, and accept that os8088's own
-audio is silent while a DOS program runs. Which it would be anyway: SPEC.md
+**DECIDED: detach for the session, re-attach at exit**, and accept that
+os8088's own audio is silent while a DOS program runs — nothing on our side is
+expected to keep playing. Which it would be anyway: SPEC.md
 53.3 already silences every other instance at bracket entry.
 
 **"Sound Blaster from scratch" is not needed.** We are not writing a DOS
@@ -947,7 +949,7 @@ for an NE2000 plus a TCP/IP stack; `HDD.DRV` 5,489; Paint 21,962).
 
 | wave | what | kernel bytes | package bytes (EST) |
 |---|---|---|---|
-| 1 | `.COM` only. Arena + MCB chain + PSP + environment. fsx bracket, IVT/BDA/PIT/8259 save-restore. Character I/O, process control, memory, date/time, vectors. **Read-only file handles.** Double-click via an association block. | **0** | 6–9 KB |
+| 1 | `.COM` only. Arena + MCB chain + PSP + environment. fsx bracket, IVT/BDA/PIT/8259 save-restore. Character I/O, process control, memory, date/time, vectors. **Read-only file handles, behind the back-end indirection §14.4 asks for.** The `..` walk for the cwd (§11.3). Double-click via an association block. | **0** | 6–9 KB |
 | 2 | `.EXE` loader — MZ header, relocations, `minalloc`/`maxalloc`. Directory functions, find-first/next, create/replace/append writes, `INT 33h` mouse. | 0 (10 if the mickey pair is taken) | +3–4 KB |
 | 3 | Sound Blaster detach/re-attach. `4Bh` EXEC. `INT 12h`/BDA polish. XMS via `XMEM.DRV`. | 0 | +2–3 KB |
 | 4 | Packet driver over `ETHER.DRV`. Validation target: mTCP's own applications. | 0 | +1.5–2.5 KB |
@@ -957,6 +959,8 @@ for an NE2000 plus a TCP/IP stack; `HDD.DRV` 5,489; Paint 21,962).
 | — | *deferred, needs its own design* | | |
 | ? | FCB functions (§6.2) — cost is real, audience is small | 0 | +2 KB |
 | ? | DOS 5 rather than 3.31 (§12 q1) — the version byte is free, the functions behind it are not | 0 | ? |
+| ? | `kern_small`, launched to a window and a file dialog (§11.1 item 3) | 0 | small |
+| ? | **The hibernate phase (§14)** — the whole machine for DOS, ~636 KB, and the session safe on disk. Not scheduled; §14.4 is the only thing waves 1–7 must not box out | 0 or a third kernel | ? |
 
 **Wave 1 is the one that decides everything**, and it is worth building as a
 throwaway first: a `.COM` that does nothing but `INT 21h AH=09h` (print a
@@ -964,78 +968,116 @@ string) and `AH=4Ch` (exit) exercises the arena, the PSP, the bracket, the
 vector save/restore and the exit path — every load-bearing piece — in a
 program small enough to hand-assemble and read.
 
-### 11.1 What must be decided before the first line of wave 1
+### 11.1 The starting decisions — taken
 
-Everything architectural is settled (§12). What is left is six things a person
-has to choose, and they are listed because each one is cheap to decide now and
-expensive to change after code exists.
+Six things had to be chosen before wave 1 could start. All six are decided;
+they are recorded with their reasoning because each will look arbitrary later.
 
-**1. The package's name.** `DOSBOX` is the obvious one and is the wrong one:
-it collides with a well-known *emulator*, and the whole point of this design
-is that nothing is emulated — the code runs natively on the processor that is
-already there. The stem matters beyond taste, because it is what the
-association block names, what `assoc_locate` looks for on every volume, and
-what a failure says out loud (`X.O88 - not on this disk`, §54.4.1).
-Suggestions, in preference order: **`RUNDOS`**, `DOSRUN`, `PCDOS`. Avoid
-`MSDOS` for the obvious reason.
+**1. The package is `DOS.O88`.** Not `DOSBOX` — that names a well-known
+*emulator* and nothing here is emulated; not `RUNDOS`, because the same
+package will eventually be launched with **no argument** and go to a command
+prompt (wave 7), and a name built around *running a file* would be wrong for
+half of what it does.
 
-**2. Which disk, and is it a `SYSAPPS` package?** Measured on this tree,
-`apps360.img` is at **313 of 354 clusters — 41 spare**, so a 6–9 KB package
-compresses into 4–6 of them and fits with room. (CLAUDE.md quotes *"346 of
-354"* for this disk, which does not match what this build reports — worth
-someone checking which is current before either figure is quoted again.) The open question
-is not whether it fits but **where it belongs**: it is arguably infrastructure
-rather than an application, which would make it `SYSTEM/` on all four system
-disks like `TASKMGR.O88` and `THEWIRE.O88` (§24.3, §92) instead of an
-`APPS/` entry. The argument for `SYSTEM/` is that a `.COM` can be sitting on
-any floppy and the program that runs it should be on the disk you booted from.
-**It is off the small disks either way** — SPEC.md 54.0 gates associations out
-of `kern_small`, so a double-click cannot reach it there at all, and that is a
-`SMALLOMIT` row with a *requirement* reason rather than a size one (§24.5).
+**2. It is a `SYSAPPS` package** — `SYSTEM/` on all four system-disk
+geometries, on no apps disk. `apps360.img` has too little room to carry a
+second copy, and the argument that settles it is the same one §92 made for
+`THEWIRE.O88`: a `.COM` can be sitting on any floppy, so the program that
+runs it belongs on the disk the machine booted from.
 
-**3. Does it claim `.EXE` in wave 1, when wave 1 cannot run one?** Recommend
-**yes**. Claiming it means a double-click gets a refusal that names the reason;
-not claiming it means the kernel answers *"Bad package"* (§54.4), which is
-true and tells the user nothing. The same argument §54.4.1 already made.
+**3. `kern_small` gets it in a wave of its own, and the route is a window.**
+SPEC.md 54.0 gates associations out of that kernel, so a double-click cannot
+reach `DOS.O88` there — but a package that is *launched* can open a window and
+put up the Standard File dialog (`FDLG.DRV`, SPEC.md 38.0, which `kern_small`
+has), and the user picks the `.COM` from there. Same package, one extra entry
+path, and it is the same entry path wave 7's command prompt needs. Its own
+wave because the 128KB machine's arena is the question, not the mechanism.
 
-**4. What the window is, and what happens after the program exits.** A bracket
-is entered from a window callback (§4), so the package must create a window
-before it can take the machine. The decision is what that window is *for*: the
-cheap answer is a small one naming the program, which the bracket covers
-immediately and which is on screen again the moment the program exits. Strong
-recommendation that it **stays open and shows the exit code** — a DOS program
-that terminates in a tenth of a second otherwise leaves no trace of why, and
-`AH=4Ch`'s return code is the only diagnostic a DOS program is obliged to
-give.
+**4. It claims `.COM` and `.EXE` from wave 1**, before wave 2 can run an
+`.EXE`. A double-click then gets a refusal naming the reason instead of the
+kernel's *"Bad package"* (§54.4), which is §54.4.1's argument exactly.
 
-**5. `INT 21h AH=47h` (get current directory) cannot be answered truthfully,
-and that is a property of the kernel rather than of this design.** `dsk_cwd`
-is a **first-cluster word** (`kernel/disk.inc`), and there is no path string
-anywhere in the tree — the file manager derives what it shows, and
-`OSAPI_FILE_HERE` answers a cluster and a volume index, not a name. So `47h`
-can return only `""`, which is the root, which is a lie whenever the program
-was launched from a folder — and §19.2.1 launches it standing exactly where
-the file was. A program that calls `47h`, builds a path from the answer and
-then opens it will fail, and the failure will look like a file error.
-Three ways out, and one of them wants deciding before the shim's shape is
-fixed: accept `""` and document it; **synthesise the path by walking `..`
-entries** at bracket entry (the machinery exists — `dskw_rt_*` walks parents —
-and it is one walk per session, not per call); or keep a path string in the
-runner as the program `3Bh`-chdirs around, seeded from the walk. The middle
-one looks right and is small, but it is work nobody has costed.
+**5. The window stays open when the exit code is non-zero**, and closes itself
+when it is 0. A program that fails silently in a tenth of a second is the case
+that needs a window, and one that succeeds does not. **The better version of
+this is deferred and named here so it is designed for**: capturing what the
+program wrote to the console and showing it in that window. Wave 6's windowed
+text mode is the machinery — once `INT 21h`'s character output can go
+somewhere other than the screen, the last screenful is a buffer the window can
+paint.
 
-**6. The drive-letter map.** Volume indices are 0..3 = A:..D: with C: reserved
-for a hard disk (§18.7.4), which matches DOS closely enough that the map is the
-identity. What needs saying is what a program asking for a drive we do not have
-is told — `AH=0Eh` select-drive and `AH=19h` current-drive both need an answer,
-and the honest one is DOS's own invalid-drive behaviour rather than a refusal
-of our own invention.
+**6. The drive map is the identity, with our hole in it** — §11.2.
 
-**Two things that look like decisions and are not.** The bracket must call
+**Two things that looked like decisions and are not.** The bracket must call
 `OSAPI_FSX_MODE` with `FSXM_TEXT` on entry whatever else it does, or the video
-restore is skipped (§4 note 1) — that is a constraint, not a choice. And the
-arena is `OSAPI_MEM_AVAIL` and one claim (§2.3.1) — there is no sizing policy
-to pick.
+restore is skipped (§4 note 1). And the arena is `OSAPI_MEM_AVAIL` and one
+claim (§2.3.1) — there is no sizing policy to pick.
+
+### 11.2 The drive map, and what "invalid drive" means
+
+DOS answers *"there is no such drive"* **differently in every function that can
+be asked**, and programs test for the specific value, so there is nothing to
+invent here — the shim returns what DOS returns:
+
+| function | invalid-drive answer |
+|---|---|
+| `AH=19h` get current drive | cannot fail; returns the current drive |
+| `AH=0Eh` select drive | sets it anyway and returns AL = the drive count; the error surfaces on the next file call |
+| `AH=36h` get free space | `AX = FFFFh` |
+| `AH=1Ch` get drive data | `AL = FFh` |
+| a handle call on a lettered path | CF=1, `AX = 0Fh` (invalid drive) |
+| an FCB call | `AL = FFh` |
+
+**The decision is not those values. It is whether our drive map has a HOLE in
+it, and it does.** SPEC.md 18.7.4 reserves volume index 2 — C: — for a hard
+disk *whether or not the machine has one*, so a two-floppy machine with a RAM
+disk reads **A:, B:, (nothing), D:**. DOS never does that; DOS assigns
+contiguously and a program may reasonably walk drives upward and stop at the
+first failure. Such a program stops at C: and never sees D:.
+
+Three ways to answer, and the choice is real:
+
+- **(a) Pass the hole through.** C: answers invalid, D: works. Truthful about
+  the machine; loses the scan-until-failure programs.
+- **(b) Compact the map** — present our volumes as contiguous DOS letters, so
+  the RAM disk is C: to the DOS program and D: on the desktop. Enumeration
+  works; the letter the user reads off the desktop is not the letter they type
+  into the program, and no error message can fix that.
+- **(c) Report a drive count that spans the hole** (`AH=0Eh` answering 4) while
+  leaving C: invalid — which is (a) with a hint, and helps only the programs
+  that ask the count rather than scanning.
+
+**Recommend (a), with (c)'s count.** The letter on the desktop must be the
+letter you type, or the feature is confusing in a way nothing can explain
+away — and SPEC.md 18.7.4 already took that trade for os8088's own UI, in its
+own words: *"a letter that always means the same kind of device is worth more
+than contiguity"*. A DOS box inheriting it is consistent rather than a second
+decision. The programs it loses fail by **not seeing a drive**, which is the
+safe direction.
+
+### 11.3 The current directory — and it is not only ours to fix
+
+`INT 21h AH=47h` cannot be answered truthfully today, because `dsk_cwd` is a
+first-**cluster** word and there is no path string anywhere in the tree:
+`OSAPI_FILE_HERE` answers a cluster and a volume index, not a name. A program
+that calls `47h`, builds a path from the answer and opens it will fail, and
+the failure will look like a file error.
+
+**This is not a DOS-box problem.** It is the same missing capability that makes
+TANK ATTACK walk the directory tree to reach its own save file, which is
+§6.3's Tank Attack number in a second form: the first was the cost of *writing*
+a few bytes, this is the cost of *finding* where to write them.
+
+So it is fixed twice, deliberately:
+
+- **The easy way, in wave 1**: one walk of `..` entries at bracket entry
+  (`dskw_rt_*` already walks parents), building a path string the shim then
+  maintains itself as the program `3Bh`-chdirs around. One walk per session,
+  not per call.
+- **The correct way, in wave 5** — the write wave, which is already adding
+  seek and write-at to the kernel for `INT 21h` and for os8088's own programs.
+  A path is the same kind of capability and the same customers want it, so it
+  belongs in that design rather than bolted to this one.
 
 ---
 
@@ -1060,6 +1102,16 @@ to pick.
   value is in doubt (§13).
 - **Windowed text mode and a command interpreter are waves 6 and 7** (§10,
   §11), not niceties.
+- **The six starting decisions** (§11.1): the package is `DOS.O88`, it is a
+  `SYSAPPS` package, `kern_small` reaches it through a window and a file
+  dialog in a wave of its own, it claims `.EXE` from wave 1, its window
+  survives a non-zero exit code, and the drive map is §11.2's.
+- **`SOUND.DRV` detaches for the session and re-attaches after** (§9.3) —
+  nothing of ours is expected to keep playing.
+- **The cwd is walked once at bracket entry in wave 1 and done properly in
+  wave 5** (§11.3), because it is Tank Attack's problem as much as ours.
+- **The hibernate phase is a real future phase** (§14), and the only thing
+  waves 1-7 must do for it is §14.4's back-end indirection.
 
 **Q1. What DOS version should `AH=30h` report, and what does DOS 5 buy?**
 The target is DOS 5; 3.31 is acceptable to start. Two things are worth
@@ -1145,3 +1197,141 @@ That is not licence caution for its own sake. The shim's whole job is to sit
 on os8088's volume layer, heap and fsx bracket, and none of the code in those
 projects knows those things exist — so even with the licences set aside, the
 lift would be of the half that does not fit.
+
+---
+
+## 14. The hibernate phase — handing DOS the whole machine
+
+**Not built, not scheduled, and written down now for one reason: there is
+exactly one decision in waves 1–7 that could box it out, and it costs nothing
+to get right (§14.4).**
+
+The idea: for a program that wants more than the heap can give, **hibernate the
+session to the hard disk, hand the emptied machine to DOS, and read the session
+back when the program exits.** Hard disk only — SPEC.md 87 already forbids
+hibernating to a floppy, and for the same reason.
+
+### 14.1 Most of it is already built, including the hard part
+
+SPEC.md 87 is a working hibernate: it writes **all of conventional memory** to
+`HIBERNAT.IMG`, stops the machine, and on the next boot a stub reads the image
+back and returns into `ui_task`'s loop with every window, package and task as
+they were. Three parts of it are exactly what this phase needs:
+
+- **The stub already lives somewhere the teardown cannot reach.** §87.5 runs
+  it out of the **text framebuffer** — *"the one RAM on the machine that no
+  rung of §2's ladder owns and every adapter has at least 16KB of"*. That is
+  the hard problem of this whole phase, solved, for a different reason.
+- **The image is read back by EXTENTS** — absolute LBA and sector count,
+  computed from the FAT chain *before* the teardown, so the read needs no file
+  system at all. The same trick loads the DOS program.
+- **The restore is already a return into a live kernel**, not a boot:
+  `hb_wake` (§87.6) re-enters on the restored stack with the gfx lock still
+  held, discards the disk caches, reloads the drivers and returns through the
+  module's dispatcher into the UI task.
+
+**And it is fast.** SPEC.md 87.7: the image is 1,280 sectors on a 640KB
+machine and both directions go out in track-sized runs, so it is **~80 `int
+13h` calls each way** against an XT hard disk — "seconds, not minutes". That
+figure is an ESTIMATE and SPEC.md 87.7 says so; nothing has measured it.
+
+### 14.2 What it is worth — and the memory is the smaller half
+
+**The memory.** Conventional memory is 638.5 KB above the BIOS data area
+(SPEC.md 2). Take ~2 KB for the stub, its parameters and the extent list and
+the program sees about **636 KB**, against the **523 KB** measured today
+(§2.3.1) — **+113 KB, +21.6%**.
+
+Put beside the machines this software was written for, that is the striking
+number: **DOS 3.3 on a 640KB PC leaves a program about 580 KB, and DOS 5 with
+`DOS=HIGH` about 620 KB.** So the phase does not buy a narrow band of programs
+between 523 and 636 — it buys **more free memory than any real DOS machine
+ever offered**, which is "every DOS program that ran on a 640K PC, with no
+exceptions to explain".
+
+**The safety, which is the bigger half.** §2.3's honest limitation is that our
+containment is DOS's own, and that the difference from DOS is *consequence*: a
+DOS machine that gets scribbled on is rebooted, and ours takes unsaved
+documents with it. **This phase deletes that sentence.** The session is on the
+disk before the DOS program is given a single byte, so a program that
+corrupts everything costs the user the program and nothing else. That is a
+containment guarantee real DOS never had and that an 8086 cannot otherwise
+provide — no MMU required, because the protection is in *time* rather than in
+address space.
+
+It also makes §2.3's load-low question moot on this path: there are no
+packages in memory to be above anything.
+
+### 14.3 The crux — `INT 21h` needs something underneath it
+
+**The kernel is gone, so the file half of the shim has nothing to call.** Every
+file function in §6.2 and §6.3 is built on `OSAPI_FILE_*` and the volume layer;
+after the hibernate there is no volume layer. This is the question that decides
+the phase's shape, and there are three answers:
+
+1. **A minimal kernel**, which is what the request supposed — a third build in
+   `make emu`'s shape (SPEC.md 9.11.7): `int 13h`, the FAT driver and the
+   volume layer, with no window manager, no drawing, no scheduler. The file
+   system and the window system are 69% of the kernel between them
+   (docs/plans/KERN-SMALL-CUT-PLAN.md), so this is not a small subtraction —
+   plausibly 30–40 KB, leaving DOS ~600 KB. Most work, most capability, and a
+   third kernel to maintain.
+2. **The shim carries its own FAT reader.** `DOS.O88` stops being a package for
+   this path and becomes a standalone image the stub loads: `int 13h`, FAT12/16
+   read, the `INT 21h` dispatcher. ESTIMATE 12–20 KB, leaving DOS ~615 KB. No
+   third kernel, but a second FAT implementation in the tree — which
+   CONTRIBUTING.md's instincts are against, and rightly.
+3. **`int 13h` only, no `INT 21h` file functions.** Cheapest and nearly
+   useless: DOS programs reach files through `INT 21h`, not through the BIOS.
+
+**Option 1 or 2, and it is not decidable from here** — it turns on how much of
+the file layer can be cut free of the rest, which is a measurement on the
+kernel rather than a judgement about DOS.
+
+### 14.4 The ONE thing to get right now, and it is nearly free
+
+**Put every kernel call the shim makes behind an indirection, from wave 1.**
+
+A back-end table inside `DOS.O88` — open, close, read, write, seek, find,
+chdir, free-space — with one implementation that calls the `OSAPI_*` slots,
+and room for a second that does not. Options 1 and 2 above then both become
+*a second back end* rather than a rewrite of `INT 21h`.
+
+It is the shape this system already uses twice: `DSV_BLK` lets `dsk_xfer`
+serve a volume through the BIOS or through a driver without knowing which
+(SPEC.md 18.7), and `DSV_FS`'s `FSV_*` table does the same for a whole file
+system (SPEC.md 51.8). The DOS shim wanting it is the same want one layer up.
+
+**Cost now: a handful of near-call cells and the discipline not to call
+`OSAPI_FILE_*` from inside a function handler.** Cost if retrofitted: every
+file function in §6.2 and §6.3, which is the largest single piece of the
+project.
+
+Nothing else in waves 1–7 constrains this phase. The arena, the MCB chain,
+the PSP, the vector and BDA ledgers, the drive map and the `INT 33h` mouse are
+all written against the machine rather than against the kernel, and none of
+them changes when the kernel goes away.
+
+### 14.5 What else this phase would have to settle
+
+Named rather than solved, so the list exists when it is picked up:
+
+- **A second file name.** A DOS session's image must not be `HIBERNAT.IMG`, or
+  launching a DOS program destroys a real hibernation the user is holding.
+- **The stub moves out of the text framebuffer.** §87.5's home is exactly
+  where a text-mode DOS program writes. The classic answer is the top of
+  conventional memory with `0040:0013` reduced to match — which §2.3 already
+  patches for a different reason, so the mechanism is there.
+- **`hb_wake` without a fresh boot.** §87.6 step 2 takes the clock from the
+  boot that just happened, because the RTC ladder is boot-overlay code; here
+  there is no such boot, and the clock has to come from `0040:006C` — which
+  §5.1 already says to leave alone, so the two fit.
+- **Hibernate's own refusals apply unchanged** (SPEC.md 87.2): a BIOS-known
+  hard disk (rung 0 — the stub cannot speak rung 1's task file), no extended
+  memory held, and room on the volume for `[mem_top]` × 16 + 4,096.
+- **A two-card desktop loses its second display** until the next
+  `vid_disp_init`, exactly as a hibernate does today (SPEC.md 87.7).
+- **Write it as a MODE of hibernate rather than a copy of it.** The difference
+  from §87.4 is that the machine does not stop and the stub loads a program
+  instead of returning; everything before that is the same code, and a second
+  copy of it would drift.
