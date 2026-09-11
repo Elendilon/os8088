@@ -157,12 +157,6 @@ dos_run:
     push di
     push es
 
-    call dos_is_exe                 ; wave 1 is .COM only, and the refusal
-    jnc .notexe                     ; NAMES the reason - the kernel's own
-    mov al, DER_EXE                 ; answer for a document with no program is
-    jmp .err                        ; "Bad package", which tells nobody anything
-.notexe:
-
     mov dx, [dos_dir]               ; ...stand where the file is (SPEC.md 19.2.1
     mov bl, [dos_vol]               ; put us there already, but a quiet GOTO is
     call dos_be_goto                ; what makes that true after any navigation)
@@ -194,6 +188,11 @@ dos_run:
 
     call dos_load                   ; the image, through the back end
     jc .freeerr
+    call dos_is_exe                 ; ...and only NOW, because the answer is in
+    jnc .isCOM                      ; the FILE and not in its name
+    mov al, DER_EXE
+    jmp short .freeerr
+.isCOM:
 
     call OSAPI_GFX_LOCK             ; ...and only NOW, because fsx_run wants it
     mov ax, dos_fsx_main            ; held and nothing above this may pay for it
@@ -233,55 +232,41 @@ dos_run:
     ret
 
 ; -----------------------------------------------------------------------------
-; dos_is_exe - does [dos_name] end in .EXE?
-; in:  nothing
+; dos_is_exe - is the loaded image an .EXE?
+; in:  the image is already in the arena at PSP:0100
 ; out: CF=1 yes; preserves everything but the flags
 ;
-; The extension is what decides, not the file's own magic: a .COM whose first
-; two bytes happen to be 'MZ' is still a .COM to DOS, which dispatches on the
-; name it was given. Wave 2 reads the header; wave 1 only has to refuse.
+; THE SIGNATURE DECIDES, NOT THE EXTENSION, and that is DOS's own rule rather
+; than a simplification of it: INT 21h AH=4Bh reads the header and loads an
+; MZ (or the rarer ZM) as a relocatable .EXE and ANYTHING ELSE as a .COM at
+; PSP:0100, whatever the file is called. The extension only drives
+; COMMAND.COM's search order when a bare name is typed.
+;
+; This is not a corner: SOPWITH2.EXE - a period game, verified on real
+; hardware - has NO MZ header at all. It is a Microsoft-C-style .COM whose
+; first instructions read PSP:0002 and set DS past the code, and it is named
+; .EXE. Dispatching on the name refuses a file DOS runs, and this routine used
+; to do exactly that, under a comment asserting the opposite rule.
 ; -----------------------------------------------------------------------------
 dos_is_exe:
-    push si
     push ax
-    mov si, dos_name
-.scan:
-    cmp byte [si], 0
-    je .no
-    cmp byte [si], '.'
-    je .dot
-    inc si
-    jmp short .scan
-.dot:
-    mov al, [si+1]
-    call dos_upper
-    cmp al, 'E'
-    jne .no
-    mov al, [si+2]
-    call dos_upper
-    cmp al, 'X'
-    jne .no
-    mov al, [si+3]
-    call dos_upper
-    cmp al, 'E'
-    jne .no
+    push es
+    mov ax, [dos_arena]
+    add ax, DOS_IMGP
+    mov es, ax
+    mov ax, [es:0]
+    cmp ax, 0x5A4D                  ; 'MZ'
+    je .yes
+    cmp ax, 0x4D5A                  ; 'ZM' - the same header, byte-swapped,
+    je .yes                         ; which a few very early linkers emitted
+    pop es
     pop ax
-    pop si
-    stc
-    ret
-.no:
-    pop ax
-    pop si
     clc
     ret
-
-dos_upper:
-    cmp al, 'a'
-    jb .out
-    cmp al, 'z'
-    ja .out
-    sub al, 32
-.out:
+.yes:
+    pop es
+    pop ax
+    stc
     ret
 
 ; -----------------------------------------------------------------------------

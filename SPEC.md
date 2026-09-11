@@ -118474,6 +118474,22 @@ returns the drive count, which spans the hole.
 `INT 20h`, and `INT 21h`: `AH=00h`, `01h`, `02h`, `07h`, `08h`, `09h`, `0Bh`,
 `30h`, `4Ch` — terminate, the character I/O set, the DOS version.
 
+**`.COM` or `.EXE` is decided by the SIGNATURE and never by the extension**,
+which is DOS's own rule rather than a simplification of it: `AH=4Bh` reads the
+header, loads an `MZ` (or the rarer byte-swapped `ZM`) as a relocatable `.EXE`
+and **anything else as a `.COM` at `PSP:0100`**, whatever the file is called.
+The extension drives only `COMMAND.COM`'s search order when a bare name is
+typed, and `DOS.O88` is never reached that way — an association gave it the
+whole name already.
+
+So the test runs *after* the load rather than before it, on the first word of
+the image. It is not a corner case: **`SOPWITH2.EXE`, a period game verified
+on real hardware, has no `MZ` header at all** — it is a Microsoft-C-style
+`.COM` (its first instructions read `PSP:0002` and set `DS` past the code)
+that happens to be named `.EXE`. A shim that dispatched on the name would
+refuse a file DOS runs, and would do it with a message blaming the wrong
+thing.
+
 Everything else refuses with CF=1 and `AX=1` (invalid function), which is
 what DOS answers for a function it does not have. A refusal is a normal path
 (§47): the window says which function was asked for, so an unsupported
