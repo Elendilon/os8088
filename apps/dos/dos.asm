@@ -1296,6 +1296,14 @@ dos_int21:
     je .exec
     cmp ah, 0x4D
     je .retcode
+    cmp ah, 0x44
+    je .ioctl
+    cmp ah, 0x43
+    je .getattr
+    cmp ah, 0x06
+    je .dconio
+    cmp ah, 0x0C
+    je .flushin
     jmp .bad
 
 .term:
@@ -1843,6 +1851,130 @@ dos_int21:
     jmp .ok                   ; whose functions we lack is worse than
                                     ; reporting a lower one, because a program
                                     ; branches on it (DOS-EXEC-PLAN 12 q1)
+
+.ioctl:
+    ; AH=44h - IOCTL, and only the two sub-functions a C runtime asks
+    ; (SPEC.md 96.22). AL=00h is "WHAT IS THIS HANDLE?", and it is the call a
+    ; library makes on the handle it has just opened, before it reads a byte.
+    ; A shim that refuses it hands back CF=1 with DX UNTOUCHED - so the
+    ; library tests bit 7 of whatever the program happened to leave in DL and,
+    ; when that bit is set, concludes a data file is a character device like
+    ; CON: it stops seeking and stops sizing, and the program reports its own
+    ; files missing having successfully opened every one of them.
+    or al, al
+    je .ioc_get
+    cmp al, 0x01
+    je .ioc_set
+    jmp .bad                        ; the block-device sub-functions are a
+.ioc_get:                           ; different feature, refused by name
+    cmp bx, DOS_FH0
+    jae .ioc_file
+    mov dx, 0x80D3                  ; 0..4 are the devices DOS opens for every
+    jmp short .ioc_done             ; process: a console, in and out, not EOF
+.ioc_file:
+    push bx                         ; dos_fh_slot spends BX and SI, and both
+    push si                         ; are the program's here
+    call dos_fh_slot
+    pop si
+    pop bx
+    jc .ioc_bad
+    mov dl, [dos_vol]               ; bits 0-5 the drive; BIT 7 CLEAR = a
+    and dl, 0x3F                    ; FILE, which is the whole question asked
+    xor dh, dh
+.ioc_done:
+    mov ax, dx                      ; DOS answers AX = DX here too, and a
+    jmp .ok                         ; library may read either
+.ioc_set:
+    or dh, dh                       ; DH must be zero: anything else is a
+    jne .ioc_bad                    ; device request, and we have no device
+    jmp .ok
+.ioc_bad:
+    mov ax, 6                       ; invalid handle
+    jmp .badax
+
+.getattr:
+    ; AH=43h - the attribute pair. AL=00h is how a program asks "IS THIS FILE
+    ; THERE?" without opening it, so refusing it answers "no" for every file
+    ; on the disk.
+    or al, al
+    je .att_get
+    cmp al, 0x01
+    je .att_set
+    jmp .bad
+.att_get:
+    push bx
+    call dos_fh_name
+    jc .fherr
+    call .fhabs
+    jc .fhpath
+    call dos_fh_stat                ; the same lookup AH=3Dh opens through, so
+    jc .fnoent                      ; the two can never disagree about a name
+    pop bx
+    mov cx, 0x20                    ; ARCHIVE. SPEC.md 19 keeps no attribute of
+    mov ax, cx                      ; its own and this is what an ordinary
+    jmp .ok                         ; readable file reads as everywhere
+.att_set:
+    push bx
+    call dos_fh_name                ; it still has to NAME something real...
+    jc .fherr
+    call .fhabs
+    jc .fhpath
+    call dos_fh_stat
+    jc .fnoent
+    pop bx
+    xor ax, ax                      ; ...and the new attributes are then
+    jmp .ok                         ; DROPPED rather than refused: there is
+                                    ; nowhere to keep them, and a program that
+                                    ; sets ARCHIVE on a file it has just
+                                    ; written must not fail for it
+
+.dconio:
+    ; AH=06h - direct console I/O. DL=FFh asks for a character WITHOUT
+    ; waiting, and answers ZF=1 when there is none: a flag in the pushed
+    ; image, like the carry, and not a live one.
+    cmp dl, 0xFF
+    je .dcin
+    mov al, dl
+    call dos_tty
+    jmp .ok
+.dcin:
+    mov ah, 1
+    int 0x16
+    jz .dcnone
+    xor ah, ah
+    int 0x16                        ; AL = the character, and TAKE it
+    and word [bp+8], 0xFFBF         ; ZF=0: there was one
+    jmp .ok
+.dcnone:
+    xor al, al
+    or word [bp+8], 0x40            ; ZF=1: nothing waiting
+    jmp .ok
+
+.flushin:
+    ; AH=0Ch - throw away what has been typed ahead, then BE the function in
+    ; AL. Only the input calls are legal there; DOS does the flush either way
+    ; and ignores anything else, which is what a program relies on when it
+    ; clears the buffer with AL=0 before asking a question.
+    push ax
+.fl_loop:
+    mov ah, 1
+    int 0x16
+    jz .fl_done
+    xor ah, ah
+    int 0x16
+    jmp short .fl_loop
+.fl_done:
+    pop ax
+    mov ah, al
+    cmp ah, 0x01
+    je .getce
+    cmp ah, 0x06
+    je .dconio
+    cmp ah, 0x07
+    je .getce
+    cmp ah, 0x08
+    je .getce
+    jmp .ok                         ; flushed, and the rest is not ours
 
 .bad:
     mov [dos_badfn], ah             ; the window NAMES it (SPEC.md 47): an

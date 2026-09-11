@@ -119641,6 +119641,61 @@ The rule one level up: **a field whose buffer is also the program's storage
 has two ways to change, and a shared control needs a verb for each.** Only one
 of them is a copy.
 
+### 96.22 The calls a C runtime makes that a *program* never writes
+
+A shim built by reading a program's source would stop at open, read, seek and
+close. Almost nothing from the era is written that way: it is written in C,
+and the **library** makes calls of its own around each one. Those are the
+calls that decide whether a file works, and none of them appears in the
+program's own text.
+
+**`AH=44h AL=00h` — IOCTL, get device information — is the one that matters.**
+A C `open()` calls DOS to open the file, and then immediately asks what kind
+of handle it just got, testing **bit 7 of `DL`**: set means a character device
+like `CON`, clear means a file on a disk. The library needs the answer before
+it reads a byte, because a device cannot be seeked or sized and a file can.
+
+Refusing that call is not a small gap, and it is **worse than refusing
+anything else in this section**, because of how a refusal is shaped: `CF=1`
+with `AX=1`, and **`DX` left exactly as the program had it**. The library does
+not test the carry — it has just been told the open succeeded — so it tests a
+bit of a register nobody wrote. When that stray bit is set, a data file
+becomes a console: the library stops seeking, stops sizing, and every read
+comes back short or empty.
+
+What that looks like from outside is a program that **opens all of its files,
+reads for a while, and then says it cannot find them.** The opens all worked.
+The seeks did not. Prince of Persia is where this was found and its own
+message names the wrong thing — *"unable to find all necessary files"* — which
+is exactly what the library told it.
+
+So the answer is given rather than refused: handles 0 to 4 are the devices DOS
+opens for every process and read as a console; anything else is looked up in
+our own handle table and answers **bit 7 clear** with the drive in bits 0-5.
+`AL=01h` (set device information) accepts `DH=0` and does nothing, which is
+what there is to do. The block-device sub-functions stay refused and named:
+they are a different feature, not a missing bit.
+
+**`AH=43h` — get and set file attributes — is the same shape one step
+earlier.** `AL=00h` is how a program asks *is this file there?* without opening
+it, so a shim that refuses it answers "no" for every file on the disk. It runs
+the same lookup `AH=3Dh` opens through, so the two can never disagree about a
+name, and answers `ARCHIVE`: §19 keeps no attribute of its own and that is
+what an ordinary readable file reads as everywhere. `AL=01h` **drops** the new
+attributes rather than refusing — there is nowhere to keep them, and a program
+that sets `ARCHIVE` on a file it has just written must not fail for it.
+
+`AH=06h` (direct console I/O) and `AH=0Ch` (flush, then the function in `AL`)
+are here for the same reason from the input side: `DL=FFh` is the
+*non-blocking* read a game's main loop polls on, and its answer is **`ZF` in
+the pushed flags image**, edited like the carry rather than executed — a live
+`stc` or a live `cmp` is discarded by the `iret` (§96.7).
+
+The rule the section is really about: **a DOS program's requirements are its
+compiler's, not its author's.** Reading the program tells you what it meant to
+ask for; the only way to learn what it will actually ask for is to look at
+what the binary does — `INT 21h` call sites, and the `AH` in front of each.
+
 ### 96.18 The machine underneath — a real vector, a real line, a real transfer
 
 Every other section here is about `INT 21h`, which is **our** code answering.
