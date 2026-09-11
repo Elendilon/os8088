@@ -8671,7 +8671,25 @@ SMALLOMIT := $(BUILD)/browser.o88 $(BUILD)/ftpd.o88 $(BUILD)/telnet.o88 \
              $(BUILD)/thewire.o88 \
              $(BUILD)/modplug.o88 $(BUILD)/tracker.o88 \
              $(BUILD)/audio.o88 $(BUILD)/sheet.o88
-SMALLOMIT_GAMES := $(BUILD)/skies.o88 $(BUILD)/dotdel.o88
+# DOT DELIRIUM WAS THE SECOND NAME HERE AND IS NOT ANY MORE (SPEC.md 24.5.5).
+# Its ground was *"kern_small carries no `gfx_blit1` body at all and this
+# renderer is that one call"* - true when it was written and made FALSE the
+# next cycle by SPEC.md 5.4.2.5.1, which gave both builds the body because the
+# slot had fourteen callers and nine of them ship on the small disks. Nothing
+# re-read the omission when its reason was withdrawn, which is the failure this
+# whole block keeps producing: a list carries the DECISION and the reason lives
+# somewhere that can change underneath it.
+#
+# MEASURED BEFORE IT WENT BACK ON, on os8088_5150_cga_128k - the floor machine
+# itself and not an argument about one: the window opens, `dd_ok` = 1, the
+# board is cut from the surface at 224x124 and the picture claim is 4KB, Enter
+# starts a game and Smiles EATS, the worker's own frame counter climbs, F
+# re-cuts the board BIGGER at 448x186 for an 11KB claim and the game goes on
+# playing, and Escape puts it back. 6.5KB of a 52.5KB arena is still free at
+# its widest. Hercules is the bigger board and was measured too - 8KB windowed,
+# 19KB fullscreen - so 19 is the deepest kern_small can ever be asked for.
+# `soak -k 'ddsmall'` is that measurement kept runnable (SPEC.md 24.5.5).
+SMALLOMIT_GAMES := $(BUILD)/skies.o88
 
 # --- ...AND THE READERS LEFT WITH NOTHING TO READ (SPEC.md 24.5.3) -----------
 #
@@ -9119,8 +9137,17 @@ smallapps: $(BUILD)/smallapps360.img $(BUILD)/smallapps.img
 #
 # A `$$`-prefixed prerequisite under `.SECONDEXPANSION:` is expanded a second
 # time, when the target is considered - by which point both lists exist. It
-# reaches only prerequisites that carry `$$`, so the three plain ones here and
+# reaches only prerequisites that carry `$$`, so the two plain ones here and
 # every rule below are untouched.
+#
+# **$(SMALLDATA)/$(SMALLDATA_360) ARE HERE FOR THE SAME REASON AND WERE MISSED
+# ONCE.** They were in the RECIPE and in neither prerequisite list at all, so
+# a private tree failed at `os88disk: error: cannot read
+# <dir>/zdata-lz4/PAPER.TEX` - the identical sentence $(SMALLTOOLS) above was
+# added for, about a different variable. Filtering a per-disk list in the
+# recipe and not in the prerequisites is one defect with as many instances as
+# the recipe has lists, and the only way to be done with it is to check every
+# line of the recipe against this one.
 .SECONDEXPANSION:
 
 $(BUILD)/smallapps360.img: $(SMALLPKGS) $$(SMALLTOOLS) $$(SMALLGAMES) $(SMALLSYSAPPS) \
