@@ -2478,6 +2478,21 @@ SOAK = [
         "answering B.",
         needs=("marty",), serial=True,
         wants=("build/dosdir360.img",)),
+    Row("dosexec", "soak", py("tests/dosexec.py"), 90.0,
+        "THE DOS EXEC GATE (SPEC.md 96.14): AH=4Bh loads another program and "
+        "runs it, and control comes back to the PARENT inside the INT 21h "
+        "call that asked - which is what a shell is made of. It asserts the "
+        "refusal FIRST (a 4Bh before the parent shrinks itself answers 8, "
+        "because the launched program was given the whole arena - DOS's own "
+        "rule, and a shim that found memory anyway would be lying), then "
+        "that the child printed, that its COMMAND TAIL arrived through the "
+        "parameter block's far pointer, that PSP:0016 names its parent, and "
+        "that the parent is STILL RUNNING afterwards with the child's code "
+        "readable through AH=4Dh. That last one is what a wrong stack "
+        "restore destroys, and it fails as a hang or as the bracket ending "
+        "rather than as a wrong number.",
+        needs=("marty",), serial=True,
+        wants=("build/dosexec360.img",)),
     Row("heapcheck", "soak", py("tests/heapcheck.py"), 40.0,
         "Drive tests/heapfrag and read its verdict out of the guest (SPEC.md"
         "66.8).",

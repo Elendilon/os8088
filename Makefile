@@ -4780,9 +4780,22 @@ $(BUILD)/dosdir360.img: $(BUILD)/DOSDIR.COM $(BUILD)/dosdir/A.TXT tools/os88disk
 	    $(BUILD)/dosdir/A.TXT $(BUILD)/dosdir/BB.TXT $(BUILD)/dosdir/CCC.TXT \
 	    $(BUILD)/dosdir/DATA.DAT
 
+# ...and the EXEC gate's PAIR (SPEC.md 96.14): a parent that shrinks itself
+# and runs the child, and a child that proves it was really loaded - it prints
+# the command tail out of its own PSP and reads PSP:0016 for a parent.
+$(BUILD)/DOSEXEC.COM: tests/dosexec/parent.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dosexec/parent.asm
+
+$(BUILD)/DOSKID.COM: tests/dosexec/kid.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dosexec/kid.asm
+
+$(BUILD)/dosexec360.img: $(BUILD)/DOSEXEC.COM $(BUILD)/DOSKID.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSEXEC.COM \
+	    $(BUILD)/DOSKID.COM
+
 .PHONY: doscom
 doscom: $(BUILD)/doscom360.img $(BUILD)/dosexe360.img $(BUILD)/dosmou360.img \
-        $(BUILD)/dosfile360.img $(BUILD)/dosdir360.img
+        $(BUILD)/dosfile360.img $(BUILD)/dosdir360.img $(BUILD)/dosexec360.img
 
 $(BUILD)/thewire.bin: apps/thewire/thewire.asm apps/thewire/wrhttp.inc \
                       apps/thewire/wrarc.inc apps/thewire/wrtxt.inc \

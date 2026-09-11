@@ -118967,3 +118967,65 @@ the wall. The minute can round to 60 at the top of an hour and is clamped.
 `AH=2Dh` writes the tick count back, so a program may set the clock, read it
 back and agree with itself. `0040:006C` is banked at bracket entry and
 restored at the end (§96.5), so **the machine's own time is not moved by it**.
+
+### 96.14 `AH=4Bh` — a child, and the one door both programs go through
+
+`4Bh` loads another program into memory of its own and runs it; when it
+exits, control returns to the *parent*, inside the `INT 21h` call that asked.
+It is what a shell is made of — wave 7's command interpreter is `4Bh` with a
+prompt in front of it (docs/plans/DOS-EXEC-PLAN.md §11) — and it is also what
+an installer, a launcher stub and a game's own front end use.
+
+**The parent must shrink itself first, and that is DOS's rule rather than
+ours.** The launched program is given the whole arena (§96.3), so there is no
+free block until it calls `AH=4Ah`. A `4Bh` before that answers **8, "not
+enough memory"**, which is exactly what DOS answers a program that forgot.
+
+**One door.** `dos_prog_enter` is what hands the CPU over, for the launched
+program and for the child alike, and sharing it is what stops the two
+drifting apart — the `.COM` entry at `PSP:0100`, the `.EXE`'s own `SS:SP` out
+of its header, `AX` = 0 for the two FCB drive checks, and §96.4.1's
+"a kernel call must borrow a stack from here on" flag.
+
+The loader is pointed at **`[dos_ldpsp]`/`[dos_ldpara]` — the program being
+loaded — and not at the arena.** That is the whole of what `4Bh` needed from
+the wave-1 and wave-2 code: `dos_load`, `dos_is_exe`, `dos_exe_setup` and the
+PSP builder all take the block they are filling as an argument now, so a
+child is loaded by the same four routines that load the first program.
+
+#### 96.14.1 The `call` IS the return path, and one level is deliberate
+
+`dos_terminate` cannot **jump** to a label inside the `INT 21h` dispatcher: a
+global label placed in there would re-scope every local label after it, which
+is a silent, wholesale kind of breakage. So the child's exit **restores `SP`
+to one word below what `4Bh` banked and executes a `ret`** — landing on the
+word `4Bh`'s own `call dos_prog_enter` pushed. The call is the return.
+
+**Nesting is refused** — a child may not itself `4Bh` — and that is a
+decision rather than an oversight. Each level needs its own banked `SS:SP`,
+PSP, block and exit code; one level is a flat set of words and two is a
+stack, and nothing measured wants the second yet. A nested call answers 8,
+which is the same "cannot run it" a program already has to handle.
+
+**A refused `4Bh` leaves the machine describing the parent**, whole. Every
+failure path calls `dos_exec_back` before it answers, because the bookkeeping
+that says "the child is the running program" is written *before* the load can
+fail, and a refusal that left it standing would hand the parent's next
+`INT 21h` call the child's PSP.
+
+#### 96.14.2 What is not built
+
+- **`AL=1`** (load but do not run) and **`AL=3`** (load an overlay) are
+  different shapes — one hands back a pair of registers instead of running,
+  the other has no PSP at all — and neither is built. They answer "invalid
+  function" rather than pretending.
+- **The environment is shared, not copied.** The child's `PSP:002C` points at
+  the one environment this bracket has, which is what a parameter block asking
+  for 0 requests anyway. A child that edits it edits the parent's.
+- **Handles are not inherited.** DOS gives a child copies of the parent's
+  first twenty; here the table is the machine's and the child sees the
+  parent's open files as its own. Nothing measured has minded, and the honest
+  alternative is a per-PSP table that §96.11's one window would not survive.
+- **`AH=4Dh`** answers the child's exit code, and `AH` = 0 always: there is no
+  Ctrl-Break or critical-error termination to report, because `INT 23h` is an
+  `iret` and `INT 24h` always FAILs (§96.7).

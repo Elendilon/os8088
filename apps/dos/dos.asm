@@ -211,12 +211,22 @@ dos_run:
     shl ax, cl                      ; KB -> paragraphs, and AX < 1024 always
     mov [dos_apara], ax             ; (640KB is 640), so this cannot carry
 
+    mov ax, dx                      ; the FIRST program: its PSP is the
+    add ax, DOS_PSPP                ; arena's, and its name is the one the
+    mov [dos_ldpsp], ax             ; desktop launched
+    mov word [dos_ldname], dos_name
+
     call dos_fh_setup               ; ...and the file window comes OFF the top
     jc .freeerr                     ; of it before the program is ever told how
                                     ; much memory it has (SPEC.md 96.11), so
                                     ; there is no window for a program to find
                                     ; and no arithmetic for it to disagree with
 
+    mov ax, [dos_apara]             ; ...and only NOW is the first program's
+    sub ax, DOS_PSPP                ; block known: the window came off the top
+    mov [dos_ldpara], ax            ; of the arena a moment ago, and a block
+                                    ; sized before that would hand the program
+                                    ; the file window as its own memory
     call dos_load                   ; the image, through the back end
     jc .freeerr
     call dos_is_exe                 ; ...and only NOW, because the answer is in
@@ -334,8 +344,8 @@ dos_repaint:
 dos_is_exe:
     push ax
     push es
-    mov ax, [dos_arena]
-    add ax, DOS_IMGP
+    mov ax, [dos_ldpsp]
+    add ax, 16
     mov es, ax
     mov ax, [es:0]
     cmp ax, 0x5A4D                  ; 'MZ'
@@ -354,7 +364,7 @@ dos_is_exe:
 
 ; -----------------------------------------------------------------------------
 ; dos_load - read the program into the arena at PSP:0100
-; in:  [dos_arena], [dos_apara], [dos_name]
+; in:  [dos_ldpsp], [dos_ldpara], [dos_name]
 ; out: CF=0 and [dos_imgsz] = the bytes; CF=1 with AL = a DER_*
 ; -----------------------------------------------------------------------------
 dos_load:
@@ -364,17 +374,21 @@ dos_load:
     push si
     push es
 
-    mov ax, [dos_arena]
-    add ax, DOS_IMGP
-    mov es, ax                      ; ES:0 is PSP:0100
-    xor bx, bx
-
-    mov ax, [dos_apara]             ; the capacity is everything from the image
-    sub ax, DOS_IMGP                ; to the top of the claim, in paragraphs...
+    mov ax, [dos_ldpsp]             ; THE PROGRAM BEING LOADED, not the arena
+    add ax, 16                      ; (SPEC.md 96.14): a child from AH=4Bh is
+    mov es, ax                      ; loaded exactly this way into a block of
+    xor bx, bx                      ; its own, and everything below here would
+                                    ; otherwise be the first program's for ever
+    mov ax, [dos_ldpara]            ; the capacity is everything from the image
+    sub ax, 16                      ; to the top of ITS block, in paragraphs...
     mov dx, 16
     mul dx                          ; ...as a 32-bit byte count in DX:AX, which
     mov cx, ax                      ; is what OSAPI_FILE_READ takes in DX:CX
-    mov si, dos_name
+    mov si, [dos_ldname]            ; THE NAME IS AN ARGUMENT TOO: AH=4Bh loads
+                                    ; a file the running program named, and
+                                    ; [dos_name] is the one the DESKTOP did -
+                                    ; which made the first child a second copy
+                                    ; of its own parent
     call dos_be_read                ; DX:AX = bytes read
     jc .rerr
 
@@ -440,8 +454,8 @@ dos_exe_setup:
     push ds
     push es
 
-    mov ax, [dos_arena]
-    add ax, DOS_IMGP                ; the file, header and all
+    mov ax, [dos_ldpsp]
+    add ax, 16                      ; the file, header and all
     mov es, ax
     mov [dos_exe_fseg], ax
 
@@ -505,8 +519,7 @@ dos_exe_setup:
     jc .nomem
     add bx, 16
     jc .nomem
-    mov ax, [dos_apara]
-    sub ax, DOS_PSPP                ; the program's block, in paragraphs
+    mov ax, [dos_ldpara]            ; the program's block, in paragraphs
     cmp ax, bx
     jb .nomem
 
@@ -516,10 +529,10 @@ dos_exe_setup:
     ; WHERE IT STILL SITS and the table is read in place. That is what spares
     ; this a scratch buffer and, with it, a cap on how many entries an .EXE
     ; may have.
-    mov ax, [dos_arena]
-    add ax, DOS_IMGP                ; == the file's base: DOS puts an .EXE
+    mov ax, [dos_ldpsp]
+    add ax, 16                      ; == the file's base: DOS puts an .EXE
     mov [dos_exe_lseg], ax          ; image 16 paragraphs past the PSP, and
-    mov bp, ax                      ; DOS_IMGP is exactly that
+    mov bp, ax                      ; that is where dos_load put it
 
     mov cx, [dos_exe_nrel]
     jcxz .moved
@@ -678,41 +691,8 @@ dos_fsx_main:
     mov [dos_sv_ss], ax
     mov [dos_sv_sp], sp
 
-    mov ax, [dos_arena]
-    add ax, DOS_PSPP                ; the PSP, which is DS and ES for both
-    mov dx, ax                      ; kinds (SPEC.md 96.3)
-
-    cmp byte [dos_isexe], 0
-    je .com
-    mov bx, [dos_exe_sp]            ; an .EXE brings its OWN stack, out of the
-    mov cx, [dos_exe_ss]            ; header and relocated with everything else
-    mov si, [dos_exe_cs]
-    mov di, [dos_exe_ip]
-    jmp short .go
-.com:
-    mov bx, [dos_prgsp]             ; a .COM runs on the PSP's own segment...
-    mov cx, ax
-    mov si, ax                      ; ...and is entered at PSP:0100, NOT
-    mov di, 0x100                   ; PSP:0000 - the first 256 bytes ARE the
-.go:                                ; PSP and its first two are the CD 20 a
-                                    ; program's own `ret` lands on. Jumping to
-                                    ; 0 runs that INT 20h, and from outside it
-                                    ; is indistinguishable from a program that
-                                    ; exited 0 having printed nothing
-    mov byte [dos_onprog], 1        ; from here until dos_terminate, a kernel
-                                    ; call has to borrow a stack (SPEC.md 96.4.1)
-    cli                             ; SS and SP are loaded as a pair, always:
-    mov ss, cx                      ; an interrupt between them lands on a
-    mov sp, bx                      ; stack that is half of each
-    sti
-    mov ds, dx
-    mov es, dx
-    xor ax, ax                      ; AL/AH = the two FCB drive checks, and 0
-                                    ; is "both valid" - an empty command tail
-                                    ; parses to no drive letters at all
-    push si                         ; ...and away
-    push di
-    retf
+    call dos_prog_enter             ; ...and away (SPEC.md 96.14): the same
+                                    ; door AH=4Bh's child goes through
 
 dos_prog_done:                      ; the INT 21h terminate path jumps here,
                                     ; having already put SS:SP back
@@ -964,18 +944,42 @@ dos_build_psp:
     rep stosb
 
     ; --- the PSP -------------------------------------------------------------
-    mov ax, dx
-    add ax, DOS_PSPP
+    call dos_psp_make               ; ...which is a routine of its own, because
+                                    ; AH=4Bh's child needs one too (SPEC.md
+                                    ; 96.14) and it is not at the arena's base
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_psp_make - a PSP at [dos_ldpsp], for a block of [dos_ldpara] paragraphs
+; in:  [dos_ldpsp], [dos_ldpara], [dos_parent] (0 = nobody)
+; out: [dos_prgsp] = the .COM stack offset; every register preserved
+; -----------------------------------------------------------------------------
+dos_psp_make:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    push es
+    mov ax, [dos_ldpsp]
     mov es, ax
     xor di, di
     mov cx, 128                     ; zero it first: every field this does not
     xor ax, ax                      ; set is a field a program may read, and
+    cld
     rep stosw                       ; zero is the answer DOS leaves in most
 
     mov word [es:0x00], 0x20CD      ; INT 20h, so a .COM that plain `ret`s
                                     ; lands here and terminates
-    mov ax, [dos_arena]
-    add ax, [dos_apara]
+    mov ax, [dos_ldpsp]
+    add ax, [dos_ldpara]
     mov [es:0x02], ax               ; the paragraph past the block - mechanism 1
 
     mov byte [es:0x05], 0x9A        ; the CP/M-style far call to the dispatcher
@@ -985,8 +989,15 @@ dos_build_psp:
     mov [es:0x10], cs
     mov word [es:0x12], dos_int24
     mov [es:0x14], cs
-    mov word [es:0x2C], dx          ; the environment segment...
-    add word [es:0x2C], DOS_ENVSEG
+    mov ax, [dos_parent]
+    mov [es:0x16], ax               ; the PARENT's PSP, 0 at the top level -
+                                    ; which is what AH=4Bh's child reads to
+                                    ; find who launched it
+    mov ax, [dos_arena]
+    add ax, DOS_ENVSEG
+    mov [es:0x2C], ax               ; ...and one environment, shared: a child
+                                    ; inherits the parent's, which is the
+                                    ; default AH=4Bh's block asks for with a 0
     mov word [es:0x50], 0x21CD      ; INT 21h / RETF, the DOS 2+ call gate
     mov byte [es:0x52], 0xCB
     mov byte [es:0x80], 0           ; an empty command tail, and the 0Dh that
@@ -996,10 +1007,9 @@ dos_build_psp:
     mov word [es:0x6C], 0           ; an empty tail parses to
 
     ; --- the stack -----------------------------------------------------------
-    mov ax, [dos_apara]             ; a .COM gets SP at the top of its own
-    sub ax, DOS_PSPP                ; 64KB when the block holds one, and the
-    cmp ax, 0x1000                  ; top of the block when it does not
-    jb .small
+    mov ax, [dos_ldpara]            ; a .COM gets SP at the top of its own
+    cmp ax, 0x1000                  ; 64KB when the block holds one, and the
+    jb .small                       ; top of the block when it does not
     mov bx, 0xFFFE
     jmp short .sp
 .small:
@@ -1011,10 +1021,8 @@ dos_build_psp:
     sub bx, 2                       ; ...and the 0 word DOS pushes, which is
     mov [dos_prgsp], bx             ; the offset half of that PSP:0000 return
     mov word [es:bx], 0
-
     pop es
     pop di
-    pop si
     pop dx
     pop cx
     pop bx
@@ -1120,6 +1128,10 @@ dos_int21:
     je .gettime
     cmp ah, 0x2D
     je .settime
+    cmp ah, 0x4B
+    je .exec
+    cmp ah, 0x4D
+    je .retcode
     jmp .bad
 
 .term:
@@ -1590,6 +1602,56 @@ dos_int21:
     mov al, 0xFF
     jmp .ok
 
+; --- AH=4Bh: load and run a CHILD (SPEC.md 96.14) ---------------------------
+.retcode:
+    ; AH=4Dh: out AL = the child's exit code, AH = how it ended (0 = normally).
+    mov al, [dos_chexit]
+    xor ah, ah
+    jmp .ok
+
+.exec:
+    ; AL = 0 load-and-execute, DS:DX = the name, ES:BX = the parameter block.
+    push bx
+    or al, al
+    jnz .exbadfn                    ; AL=1 (load, do not run) and AL=3 (an
+                                    ; overlay) are different shapes and neither
+                                    ; is built (SPEC.md 96.14.2)
+    cmp byte [dos_inchild], 0
+    jne .exnest                     ; ONE level, and it is a decision - see
+                                    ; SPEC.md 96.14.1
+    mov [dos_xparm], bx             ; the parameter block, banked while the
+    mov [dos_xparms], es            ; name is copied out of the same segment
+    call dos_fh_name
+    jc .fherr
+    call .fhabs
+    jc .fhpath
+
+    call dos_exec_load              ; block, load, relocate, PSP, command tail
+    jc .exerr                       ; AL is a DOS code
+
+    ; --- into the child ----------------------------------------------------
+    ; THE `call` BELOW IS THE RETURN PATH. dos_terminate cannot jump to a
+    ; label in here - a global one would re-scope every local label after it -
+    ; so the child's exit puts SP back one word BELOW what is banked here and
+    ; `ret`s, landing on the word this call is about to push.
+    mov ax, ss
+    mov [dos_psv_ss], ax
+    mov [dos_psv_sp], sp
+    mov byte [dos_inchild], 1
+    call dos_prog_enter             ; ...and comes back HERE when it exits
+    call dos_exec_unload            ; the child's block, back to the chain
+    xor ax, ax
+    jmp .fhok
+.exerr:
+    xor ah, ah
+    jmp .fherr
+.exbadfn:
+    mov al, 1                       ; "invalid function"
+    jmp .fherr
+.exnest:
+    mov al, 8                       ; "not enough memory", which is the honest
+    jmp .fherr                      ; DOS answer for a child that cannot run
+
 .resize:
     ; AH=4Ah: ES = the block, BX = the paragraphs wanted (SPEC.md 96.9).
     call dos_mcb_resize
@@ -1640,6 +1702,25 @@ dos_int21:
 dos_terminate:
     cli
     mov [cs:dos_exit], al           ; through CS: DS is the program's and the
+    cmp byte [cs:dos_inchild], 0
+    je .top
+    ; --- A CHILD (SPEC.md 96.14): back to the parent, not out of the bracket.
+    ; SP goes one word BELOW what AH=4Bh banked, because the `call
+    ; dos_prog_enter` it made pushed exactly that word - so the `ret` here
+    ; lands inside the handler with no global label to jump to.
+    mov [cs:dos_chexit], al
+    mov byte [cs:dos_inchild], 0
+    mov ax, [cs:dos_psv_ss]
+    mov ss, ax
+    mov ax, [cs:dos_psv_sp]
+    sub ax, 2
+    mov sp, ax
+    sti
+    push cs
+    pop ds
+    call dos_exec_back
+    ret
+.top:
     mov ax, [cs:dos_sv_ss]          ; stack is about to stop existing
     mov ss, ax
     mov sp, [cs:dos_sv_sp]
@@ -3467,6 +3548,214 @@ dos_time_set:
     pop ax
     ret
 
+; =============================================================================
+; AH=4Bh - LOADING AND RUNNING A CHILD (SPEC.md 96.14)
+; =============================================================================
+; -----------------------------------------------------------------------------
+; dos_prog_enter - hand the CPU to the program at [dos_ldpsp]
+; in:  [dos_ldpsp], [dos_isexe], [dos_prgsp] or the [dos_exe_*] four
+; out: NEVER RETURNS BY FALLING OUT. dos_terminate is how control comes back,
+;      and for a child it comes back to the word the CALLER's `call` pushed.
+;
+; The same door for the launched program and for AH=4Bh's child, which is
+; what stops the two drifting: a .COM is entered at PSP:0100 and NOT PSP:0000
+; - the first 256 bytes ARE the PSP and its first two are the `CD 20` a
+; program's own `ret` lands on, so jumping to 0 runs that INT 20h and, from
+; outside, is indistinguishable from a program that exited 0 having printed
+; nothing.
+; -----------------------------------------------------------------------------
+dos_prog_enter:
+    mov dx, [dos_ldpsp]             ; the PSP, which is DS and ES for both
+    cmp byte [dos_isexe], 0         ; kinds (SPEC.md 96.3)
+    je .com
+    mov bx, [dos_exe_sp]            ; an .EXE brings its OWN stack, out of the
+    mov cx, [dos_exe_ss]            ; header and relocated with everything else
+    mov si, [dos_exe_cs]
+    mov di, [dos_exe_ip]
+    jmp short .go
+.com:
+    mov bx, [dos_prgsp]             ; a .COM runs on the PSP's own segment
+    mov cx, dx
+    mov si, dx
+    mov di, 0x100
+.go:
+    mov byte [dos_onprog], 1        ; from here until dos_terminate, a kernel
+                                    ; call has to borrow a stack (SPEC.md 96.4.1)
+    cli                             ; SS and SP are loaded as a pair, always:
+    mov ss, cx                      ; an interrupt between them lands on a
+    mov sp, bx                      ; stack that is half of each
+    sti
+    mov ds, dx
+    mov es, dx
+    xor ax, ax                      ; AL/AH = the two FCB drive checks, and 0
+                                    ; is "both valid"
+    push si
+    push di
+    retf
+
+; -----------------------------------------------------------------------------
+; dos_exec_load - give the child a block, load it into it, and build its PSP
+; in:  [dos_fname], [dos_xparm]/[dos_xparms] = the parameter block
+; out: CF=0 with everything set for dos_prog_enter; CF=1 with AL = a DOS code
+; -----------------------------------------------------------------------------
+dos_exec_load:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+
+    mov ax, [dos_ldpsp]             ; BANK THE PARENT. It is still the running
+    mov [dos_ppsp], ax              ; program, and everything below is about to
+    mov [dos_parent], ax            ; describe the child instead
+    mov ax, [dos_ldpara]
+    mov [dos_ppara], ax
+    mov ax, [dos_prgsp]
+    mov [dos_pgpar], ax
+    mov al, [dos_isexe]
+    mov [dos_pexe], al
+
+    mov bx, 0xFFFF                  ; THE LARGEST FREE BLOCK, asked for the way
+    call dos_mcb_alloc              ; a program asks: 0FFFFh cannot be granted,
+    jnc .nomem                      ; so the refusal is the answer and BX is it
+    or bx, bx
+    jz .nomem
+    cmp bx, 64                      ; a PSP and a KB, or there is no point
+    jb .nomem
+    call dos_mcb_alloc              ; ...and now for real
+    jc .nomem
+    mov [dos_chblk], ax
+    mov [dos_ldpsp], ax
+    mov [dos_ldpara], bx
+    mov word [dos_ldname], dos_fname
+
+    call dos_load
+    jc .noent
+    call dos_is_exe
+    jnc .com
+    call dos_exe_setup              ; sets [dos_isexe] itself
+    jc .bad
+    jmp short .psp
+.com:
+    mov byte [dos_isexe], 0
+    cmp word [dos_imghi], 0         ; a .COM is ONE segment
+    jne .bad
+    cmp word [dos_imgsz], 0xFF00
+    ja .bad
+.psp:
+    call dos_psp_make
+    call dos_exec_tail
+    clc
+    jmp short .out
+.nomem:
+    call dos_exec_back              ; the parent, whole again: a refusal must
+    mov al, 8                       ; not leave the machine describing a child
+    jmp short .err                  ; that never ran
+.noent:
+    call dos_exec_back
+    mov al, 2
+    jmp short .err
+.bad:
+    call dos_exec_unload
+    call dos_exec_back
+    mov al, 11                      ; "invalid format", which is DOS's own
+.err:
+    stc
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_exec_back - the parent is the running program again
+; out: nothing; every register preserved
+; -----------------------------------------------------------------------------
+dos_exec_back:
+    push ax
+    mov word [dos_ldname], dos_name
+    mov ax, [dos_ppsp]
+    mov [dos_ldpsp], ax
+    mov ax, [dos_ppara]
+    mov [dos_ldpara], ax
+    mov ax, [dos_pgpar]
+    mov [dos_prgsp], ax
+    mov al, [dos_pexe]
+    mov [dos_isexe], al
+    mov word [dos_parent], 0
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_exec_unload - the child's block, back to the chain
+; out: nothing; every register preserved
+; -----------------------------------------------------------------------------
+dos_exec_unload:
+    push ax
+    push es
+    mov ax, [dos_chblk]
+    or ax, ax
+    jz .out
+    mov es, ax
+    call dos_mcb_free
+    mov word [dos_chblk], 0
+.out:
+    pop es
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_exec_tail - the parameter block's command tail into the child's PSP:0080
+; out: nothing; every register preserved
+;
+; A zero SEGMENT means no tail, and the empty one dos_psp_make already wrote
+; stands. The length byte is clamped to 126 because the tail plus its own
+; count and the 0Dh have to live inside the PSP's 128.
+; -----------------------------------------------------------------------------
+dos_exec_tail:
+    push ax
+    push cx
+    push si
+    push di
+    push ds
+    push es
+    mov es, [dos_xparms]
+    mov di, [dos_xparm]
+    mov si, [es:di+2]
+    mov ax, [es:di+4]
+    or ax, ax
+    jz .none
+    mov ds, ax
+    mov ax, [cs:dos_ldpsp]          ; through CS: DS is the tail's now
+    mov es, ax
+    mov di, 0x80
+    cld
+    lodsb
+    cmp al, 126
+    jbe .len
+    mov al, 126
+.len:
+    mov cl, al
+    xor ch, ch
+    stosb
+    jcxz .term
+    rep movsb
+.term:
+    mov al, 0x0D
+    stosb
+.none:
+    pop es
+    pop ds
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
 ; -----------------------------------------------------------------------------
 ; dos_fh_setname - [dos_fname] into the record at SI
 ; in:  SI = the record; out: nothing, every register preserved
@@ -4118,6 +4407,24 @@ dos_fh_fill:
     DBSS DOS_B_W83A,  11       ; the two 8.3 forms dos_wild compares
     DBSS DOS_B_W83B,  11
     DBSS DOS_B_W83P,  2
+    DBSS DOS_B_PARENT, 2       ; the PSP that launched the running program,
+    DBSS DOS_B_INCHLD, 1       ; 0 at the top level (SPEC.md 96.14)
+    DBSS DOS_B_XPAD,  1
+    DBSS DOS_B_PSVSS, 2        ; ...and the stack it was on when it did
+    DBSS DOS_B_PSVSP, 2
+    DBSS DOS_B_PPSP,  2        ; the parent's own PSP/block, to put back
+    DBSS DOS_B_PPARA, 2
+    DBSS DOS_B_PGPAR, 2
+    DBSS DOS_B_PEXE,  1
+    DBSS DOS_B_PEPAD, 1
+    DBSS DOS_B_CHEXIT, 1       ; the child's code, for AH=4Dh
+    DBSS DOS_B_CHPAD, 1
+    DBSS DOS_B_CHBLK, 2        ; the block it was given, to hand back
+    DBSS DOS_B_XPARM, 2        ; AH=4Bh's parameter block, banked while the
+    DBSS DOS_B_XPARMS, 2       ; name is copied out of the same segment
+    DBSS DOS_B_LDNAME, 2       ; ...and which FILE it comes from
+    DBSS DOS_B_LDPSP, 2        ; the PSP of the program being LOADED, and
+    DBSS DOS_B_LDPAR, 2        ; its block - not always the arena's
     DBSS DOS_B_DY,    2        ; the date we keep (SPEC.md 96.13)
     DBSS DOS_B_DM,    1
     DBSS DOS_B_DD,    1
@@ -4202,6 +4509,21 @@ dos_dtasvs  equ os88_image_end + DOS_B_DTASVS
 dos_ford    equ os88_image_end + DOS_B_FORD
 dos_w83a    equ os88_image_end + DOS_B_W83A
 dos_w83b    equ os88_image_end + DOS_B_W83B
+dos_parent  equ os88_image_end + DOS_B_PARENT
+dos_inchild equ os88_image_end + DOS_B_INCHLD
+dos_psv_ss  equ os88_image_end + DOS_B_PSVSS
+dos_psv_sp  equ os88_image_end + DOS_B_PSVSP
+dos_ppsp    equ os88_image_end + DOS_B_PPSP
+dos_ppara   equ os88_image_end + DOS_B_PPARA
+dos_pgpar   equ os88_image_end + DOS_B_PGPAR
+dos_pexe    equ os88_image_end + DOS_B_PEXE
+dos_chexit  equ os88_image_end + DOS_B_CHEXIT
+dos_chblk   equ os88_image_end + DOS_B_CHBLK
+dos_xparm   equ os88_image_end + DOS_B_XPARM
+dos_xparms  equ os88_image_end + DOS_B_XPARMS
+dos_ldname  equ os88_image_end + DOS_B_LDNAME
+dos_ldpsp   equ os88_image_end + DOS_B_LDPSP
+dos_ldpara  equ os88_image_end + DOS_B_LDPAR
 dos_dy      equ os88_image_end + DOS_B_DY
 dos_dm      equ os88_image_end + DOS_B_DM
 dos_dd      equ os88_image_end + DOS_B_DD
