@@ -1,9 +1,11 @@
 # DOS-EXEC-PLAN.md — running DOS `.COM` and `.EXE` programs
 
-**STATUS: INVESTIGATION ONLY. Nothing here is built, nothing is decided, and
-every size in it is an ESTIMATE unless the line says MEASURED.** The three
-heap figures in §2.2 are measured; every byte count for code that does not
-exist yet is a guess against a comparable that does.
+**STATUS: INVESTIGATION, with a first round of owner decisions folded in.
+Nothing here is BUILT, and every size in it is an ESTIMATE unless the line
+says MEASURED.** The three heap figures in §2.2 are measured; every byte count
+for code that does not exist yet is a guess against a comparable that does.
+**§12 carries the decisions taken and the questions still open**, so a reader
+who wants to know what is settled should start there rather than infer it.
 
 The ask: double-click `FOO.COM` or `FOO.EXE` in a Disk window and have it
 run. Fullscreen is acceptable. The capability lives on disk until it is
@@ -205,13 +207,85 @@ The patched `0040:0013` fixes the programs that ask; it cannot fix the ones
 that assume. Two mitigations exist if this turns out to bite, neither needed
 for a first wave:
 
-- claim the arena with the **bottom-up** `OSAPI_MEM_CLAIM` instead, accept a
-  smaller run, and put nothing of ours above it except video memory — which
-  needs the runner's own region out of the way, and there is no mechanism
-  for that today;
+- **Load packages LOW instead.** Top-down regions are a workaround from
+  before regions could be compacted, kept to hold the immovable thing out of
+  the movable thing's way — and SPEC.md 50.3's own door says so in as many
+  words, having been rewritten once already when §66.6.1 refuted its original
+  justification. With regions movable, that asymmetry has mostly stopped
+  earning its keep, and turning it round would put every os8088 claim below
+  the DOS program and leave nothing but video memory above it. **That is a
+  heap change and not a DOS change**, it touches every package in the tree,
+  and whether it is worth taking depends entirely on a number nobody has yet:
+  how many real DOS programs ignore what we tell them. **Not wave 1**, by
+  decision — wave 1 is how the number gets measured.
 - on a 386, V86 mode gives real trapping. Out of scope: the target machine
   is a 4.77MHz 8088 and `OSAPI_CPU_INFO` (SPEC.md 60) would gate it to
   machines this project does not calibrate against.
+
+#### 2.3.1 Shedding and compaction — the kernel already does it
+
+**"Purge and compact, and give the DOS program the maximum" needs no new
+mechanism, because that is what `mem_claim` already is.** Read in
+`kernel/memory.inc`: the claim path is a retry loop — try, **compact**, retry,
+**shed one cache**, retry — and it terminates by construction, because each
+shed removes a record and a compaction leaves no movers for the next call
+(SPEC.md 66.4, 50.6.2). A claim too big for the heap as it stands therefore
+pulls the caches down and packs the movable claims by itself, in priority
+order, with the cheap operation first: compaction before shedding, because a
+shed can destroy the read-ahead and that is "a long operation getting much
+longer" where a compaction is a memcpy.
+
+So the runner does not ask the kernel to purge. **It just asks for a big
+claim.** The whole of the work is knowing what to ask for, and there are two
+figures that are not the same:
+
+- **`OSAPI_MEM_AVAIL`** answers the largest free run *as things stand*, before
+  any shed or compaction. On the measured desktop that is 449.0 KB; with a
+  Disk window open it is still 449.0 KB; with a package running it was 390.0.
+  It is an **under**-estimate of what a claim could actually get, and the SDK's
+  own comment tells a package to size itself from it, which is right for
+  everything except this.
+- **What a full shed plus compaction would yield** is up to the whole heap —
+  531.5 KB measured, since the only thing standing in the way on a bare desktop
+  is one 63 KB purgeable read-ahead.
+
+**`OSAPI_CLAIM_SNAPSHOT` closes the gap with no kernel bytes.** It hands the
+package every live record's base, size and **owner word**, and a purgeable
+claim is exactly one whose owner's high byte is in the `MEM_PG_*` range
+(`0xFB`..`0xFE` — `MEM_PG_TRIV` through `MEM_PG_HIGH`). So the runner can
+compute, in its own arithmetic, what the arena would be if every cache went;
+`OSAPI_SYS_KB` gives it the heap totals to check against. The snapshot does
+not carry `MC_RLOC`, so the *compaction* half cannot be predicted exactly —
+which is why the last step is a probe rather than a calculation: ask for the
+computed figure, and on a refusal step down. Each refusal costs the kernel one
+`mem_cp_plan` walk of 32 records before it touches a byte, which is precisely
+what that walk is for.
+
+**The order matters and it is the opposite of the intuitive one: probe UP, not
+down.** A failed claim *sheds* on its way to failing, so bracketing down from
+a deliberately-too-large figure throws away caches the machine then has to
+rebuild for nothing. Start from `MEM_AVAIL`'s figure — which by definition
+succeeds without shedding anything — and only reach past it if the DOS
+program's own header asks for more.
+
+Which raises the question of **whether we can know what it will ask for**, and
+for the interesting half we can:
+
+- **An `.EXE` says so in its header.** `e_minalloc` and `e_maxalloc` are
+  paragraphs beyond the image, and they are read before a byte of the program
+  is loaded. `maxalloc = FFFFh` — which is what almost every real file carries
+  — means "everything", so that case degenerates to the maximum anyway; but a
+  file with a real `maxalloc` can be given exactly what it wants and the caches
+  left alone.
+- **A `.COM` says nothing at all.** DOS gives a `.COM` every free byte, so
+  there is no smaller honest answer: it is the maximum or it is a lie in the
+  PSP's `02h` word.
+
+So: `.EXE` with a bounded `maxalloc` gets what it asked for; everything else
+gets the maximum, and "the maximum" is a probe the kernel already knows how to
+serve. **No new slot, no user-facing choice, and no `Give this program all the
+memory` check box** — which is worth saying, because that was on the table and
+the machine can answer it without asking.
 
 ### 2.4 What about XMS and EMS
 
@@ -330,12 +404,10 @@ installers never unhook:
   scribble on, and a save area the program can corrupt is worse than no save
   area, because it fails at restore time when there is nothing left to do
   about it. 1KB of the package's 60KB budget.
-- **Save `0040:0013`** (§2.3) and the rest of the BIOS data area we care
-  about. The BDA is 256 bytes; saving all of it is the same argument as the
-  IVT, costs another 256 bytes, and goes in the same place. Restoring all of it is *not* obviously
-  right — the ROM's tick count at `40:6C` should keep whatever it reached —
-  so this wants a small explicit list rather than a blanket restore. **Open
-  question.**
+- **Save the whole BDA and restore a NAMED LIST out of it.** §5.1 is that
+  list. It is settled rather than open, and it is short: 40 bytes restored
+  out of 256 saved, four bytes zeroed, and everything else deliberately
+  left as the DOS program left it.
 - **PIT channel 0.** A DOS program that wants a fast timer reprograms it,
   and the scheduler's quantum goes with it. `sch_fast_on`/`sch_fast_off`
   already exist for exactly this (SPEC.md 53.2) and `sched_unhook` already
@@ -345,6 +417,159 @@ installers never unhook:
   leaves us with no timer. Save `0x21` and `0xA1`, restore both.
 - **The video mode**, via the `fsx_mode` note in §4.
 - **Nothing about the disk**, at the hardware level — see §7.
+
+### 5.1 The BDA, and which of it comes back
+
+**The BIOS Data Area is segment `0040`** — 256 bytes at linear `0x400`, written
+by the ROM at POST and maintained by the ROM's own handlers for the whole life
+of the machine. It is where the BIOS keeps the things it has to remember
+between calls: how much memory the machine has, which video mode is set, where
+the keyboard buffer is and how full, whether the floppy motor is spinning, how
+many ticks since midnight. `INT 12h` is nothing but a `mov ax, [0040:0013]`.
+A DOS program can write to any of it, and plenty do.
+
+**What os8088 itself touches is a short list**, and it decides most of this
+section. Grepped exhaustively for a load of segment `0040` across `kernel/`
+and `drivers/` — **seven fields, nine sites**:
+
+| field | site | what it does |
+|---|---|---|
+| `40:08`..`0F` LPT port base table | `lplink.inc` — `NET.DRV`'s port scan | reads it to FIND the parallel port |
+| `40:10` equipment word | `vid_cga_equip` (`viddet.inc`), `vidsel.inc` | **WRITES** bits 5:4 to say which display os8088 picked |
+| `40:17` keyboard flags 1 | `kbm_slock` and `kbm_isr`'s keypad-5 hatch (`mouse.inc`) | tests ScrollLock, and NumLock |
+| `40:1A`/`40:1C` kbd buffer head/tail | `kbd_ovflow` (`mouse.inc`) | **every `int 09h`** — reads both, writes the tail |
+| `40:3F` motor status, `40:40` motor countdown | `dsk_here_ok` and **`dsk_fdd_probe`** (`disk.inc`) | which floppy motors are spinning |
+| `40:65` CGA mode-select shadow | `vid_bk` (`vidsel.inc`) | read-modify-write, to blank and unblank |
+| `40:6C` tick count | `spl_clock` (`splash.inc`), `pm_ticks` (`SOUND.DRV`) | the wall clock |
+
+Everything else in the 256 bytes, this system never looks at. **Two of those
+rows change a verdict below from what it would otherwise have been**, and both
+change it towards LEAVE rather than RESTORE — see `40:3F` and `40:6C`.
+
+**The rule that generates the list**, and it is one sentence: *restore a field
+if and only if the kernel reads it AND its pre-session value is still true;
+zero a field whose honest value is "nothing is held"; leave everything else,
+because the machine really did change.*
+
+#### RESTORE — 40 bytes in seven spans
+
+```
+40:00  16  COM1-4 and LPT1-4 port base addresses
+40:10   2  equipment word
+40:13   2  conventional memory size in KB
+40:1A   4  keyboard buffer head and tail pointers
+40:72   2  soft-reset flag
+40:80   4  keyboard buffer start and end offsets
+40:98  10  INT 15h user-wait flag pointer, count and flag
+```
+
+- **`40:13`** is the one we patched ourselves (§2.3). Not restoring it leaves
+  the machine reporting a small size for the rest of the session — the Task
+  Manager's own display reads `int 12h`, and it is the second of the only two
+  `int 12h` sites in the tree.
+- **`40:80`/`40:82` is the sharpest entry in the whole ledger**, and it is not
+  obvious. A DOS TSR that *enlarges the keyboard buffer* does it by repointing
+  these two words at a bigger buffer **in its own memory**. When the bracket
+  ends and the arena is freed, the ROM's `int 09h` keeps writing keystrokes
+  into an address that is now whatever claimed that memory next — silent heap
+  corruption that first shows minutes later, on an unrelated keystroke, in an
+  unrelated program. Restore them and the ROM writes into `40:1E` again.
+  Restore what was THERE, not the constants: `kernel/mouse.inc` records that
+  these two words **do not exist on the earliest 5150 ROM**, which is exactly
+  why `kbd_ovflow` uses literal `KBD_BUFB`/`KBD_BUFE` and not these.
+- **`40:98`..`40:A0` is the same trap in a different field.** `INT 15h AH=83h`
+  arms a wait by handing the ROM a far pointer to a flag byte to set when the
+  interval expires. A program that arms one and dies leaves the ROM's tick
+  handler writing into the arena after we have freed it.
+- **`40:1A`/`40:1C`.** `fsx_restore` already drains the buffer through
+  `int 16h`, so head and tail agree by then. What the drain cannot fix is a
+  program that left them pointing **outside** `40:1E..40:3D`: `kbd_ovflow`'s
+  range check then takes its `.out` arm and the overrun guard of SPEC.md 9.8
+  is dead for the rest of the session, silently. Restore them with the pair
+  above — the keyboard goes back as one thing or not at all.
+- **`40:10`.** The kernel *writes* this to match the adapter it chose, so a
+  program that rewrites it leaves the kernel's own statement about the machine
+  untrue.
+- **`40:72`.** `1234h` here means "warm boot, skip POST". A program that set
+  it changes what the next `int 19h` does, and `ui_cmd_reboot` is an `int 19h`.
+- **`40:00`..`40:0F` has a real reader and it is not the obvious one.** The
+  mouse addresses its UART by port number, so the COM half (`40:00`..`40:07`)
+  is in for completeness only. **The LPT half is not**: `NET.DRV`'s candidate
+  scan walks `40:08`..`40:0F` to find the parallel port at all
+  (`drivers/net/lplink.inc`), so a DOS program that blanks an entry — which a
+  printer TSR reasonably might — leaves the parallel link with nothing to
+  attach to, and the failure is "there is no cable" rather than anything that
+  points here.
+
+#### ZERO — 4 bytes, because restoring them would be worse
+
+```
+40:17  1  keyboard flags 1 (shift/Ctrl/Alt, and the lock states)
+40:18  1  keyboard flags 2
+40:96  1  keyboard flags 3 (101-key)
+40:97  1  keyboard flags 4 (LED state)
+```
+
+These say which keys are **held right now**. The pre-session value is not the
+truth and neither is the program's — the truth is whatever the user's hands are
+doing when the desktop comes back, and the honest encoding of that is *nothing
+is held*. Restoring the old bytes can leave a phantom Ctrl or Alt down, which
+makes every menu and every keystroke behave oddly until the user presses and
+releases that key by accident. A stuck ScrollLock silently disables the
+keypad-5 mouse-button hatch, since that is the bit `kbm_isr` tests. The BIOS
+re-asserts the LEDs on the next keystroke.
+
+#### LEAVE — everything else, and each for a stated reason
+
+- **`40:6C` (dword) and `40:70`** — ticks since midnight, and the midnight
+  rollover flag. **Time passed.** Our `sch_isr` chains the ROM handler, so this
+  counted up through the whole session exactly as it should have; putting the
+  old value back would set the machine's clock back by the length of the DOS
+  program's run, and `int 1Ah` off this counter is rung 0 of the clock ladder
+  (SPEC.md 37.90) — the rung a 5150 with no RTC actually uses. It has **two
+  live readers in this tree** (`spl_clock`, and `SOUND.DRV`'s `pm_ticks`), and
+  both want it CURRENT: this is a field the kernel depends on and must not get
+  back, which is why the rule at the top of this section is two clauses and
+  not one.
+- **`40:3E`..`40:48`** — floppy recalibrate status, motor status, the motor
+  timeout counter, last status, and the 765's ST0–ST6. This is *hardware*
+  state and the ROM's tick handler counts `40:40` down to turn the motor off.
+  **The kernel reads `40:3F` and `40:40` in two places** — `dsk_here_ok`,
+  and `dsk_fdd_probe`, whose own comment says "there is no
+  readable DOR, so the BIOS's own MOTOR_STATUS is the only place the current
+  motor state exists". That makes the LEAVE verdict **stronger** rather than
+  weaker: restoring a pre-session motor bitmap would hand the probe a
+  statement about which drives are spinning that is not true of the machine,
+  and SPEC.md 18.97 retires a drive on what that probe decides.
+- **`40:49`..`40:66`** — the entire video block: mode, columns, page size and
+  offset, eight cursor positions, cursor shape, active page, CRTC port, and the
+  `3x8h`/`3x9h` shadows. **This is the largest block in the BDA and it needs
+  nothing from us**, because `fsx_restore` step 1 calls `vid_setmode`, which
+  goes through the ROM's `int 10h`, and the ROM rewrites all of it as part of
+  setting the mode. Restoring it before that would be overwritten; restoring it
+  after would contradict the mode actually set. (`40:65` is in this block and
+  is one of the four fields the kernel reads — `vid_bk`'s blank/unblank — and
+  it still wants leaving, for the same reason: the mode set is what makes it
+  true again.)
+- **`40:74`..`40:77`** hard-disk status, drive count and the XT fixed-disk
+  control pair — the ROM maintains these and `HDD.DRV`'s rung 0 goes through
+  `int 13h` (SPEC.md 52.1), so the ROM's own copy is the one that matters.
+- **`40:84`..`40:95`** — EGA/VGA rows, character height, the two video display
+  data areas, floppy media control and per-drive media state and current track.
+  Video half is `vid_setmode`'s; floppy half is hardware state.
+- **`40:78`..`40:7F`** printer and serial timeouts, **`40:A1`..`40:A7`** the
+  LAN bytes, **`40:A8`** the video parameter table pointer, **`40:F0`..`40:FF`**
+  the inter-application communication area, and **`0050:0000`** the
+  print-screen status byte. Nothing here reads any of them.
+
+#### Why save all 256 when only 40 come back
+
+Because the save is what makes the list **auditable** rather than a guess. One
+`rep movsw` into the runner's own bss costs 256 bytes and ~1,300 cycles; having
+the before-image means a diagnostic can print what the DOS program actually
+changed, which is how the next field in the RESTORE column gets found. The
+alternative — saving only the seven spans — saves 216 bytes of a 60KB package
+and loses the evidence.
 
 ---
 
@@ -453,6 +678,19 @@ create/append/replace, and the in-place-write case refused honestly** in
 SPEC.md 47's sense — a notice naming what the program asked for. Then
 measure which real programs that loses, and let that decide whether (b) is
 worth a kernel design.
+
+**But (b) is wanted on its own merits, and that changes who should pay for
+it.** This is not a DOS-box problem for a DOS box to solve privately: the
+whole-file API costs os8088's own programs the same thing, and the sharpest
+number on the table is **TANK ATTACK taking 2-4 seconds to load or write a
+high-score file of a few bytes**. No amount of buffering inside a DOS shim
+fixes that, because the cost is in the layer underneath it. So the honest
+framing is that **`INT 21h` is the SECOND customer for a seek/write-at API,
+not the first** — and if that API gets designed, the DOS side should be built
+on it rather than around it. Wave 1 shipping read-only handles is a
+sequencing decision, keeping the DOS work off the critical path of a kernel
+design that wants doing for its own reasons; it is not a judgement that
+read-modify-rewrite is good enough.
 
 ---
 
@@ -671,17 +909,19 @@ confused with the above.)
 
 A section written now so it does not have to be discovered later.
 
-- **Anything that wants a windowed DOS box on the cheap.** The brief asks
-  whether there is a cheap trick. There is half of one: a program that does
-  all its output through `INT 21h` character functions or `int 10h` TTY can
-  be rendered into a window, and RunCPM's terminal (SPEC.md 74.2) is the
-  working precedent for the rendering half. But **a DOS program writing
-  directly to `B8000` bypasses every interception point**, and most of them
-  do, because that is what made them fast. Making that work means a shadow
-  buffer at `B8000` — which means the program cannot be at its real address
-  — which on an 8086 means no. **Fullscreen is the honest answer**, and
-  a windowed *text-only* mode is a possible later nicety with a clearly
-  stated "only if the program is well-behaved" caveat.
+- **A windowed DOS box for arbitrary programs.** A program that does all its
+  output through `INT 21h` character functions or `int 10h` TTY **can** be
+  rendered into a window, and RunCPM's terminal (SPEC.md 74.2) is the working
+  precedent for the rendering half — that is the windowed text mode §11 now
+  carries as a named phase. What cannot be made to work is the general case:
+  **a DOS program writing directly to `B8000` bypasses every interception
+  point**, and most of them do, because that is what made them fast. Making
+  *that* work means a shadow buffer at `B8000`, which means the program
+  cannot be at its real address, which on an 8086 means no. So the windowed
+  mode is a **capability a program either has or has not**, decided the first
+  time it writes a character, and the refusal — "this program draws its own
+  screen; run it fullscreen" — is a normal path in SPEC.md 47's sense rather
+  than a failure.
 - **TSRs that survive the session.** `31h` and `INT 27h` can be made to work
   *within* a session, but the IVT restore at exit takes them out. A resident
   DOS program outliving the bracket would mean our vectors staying replaced
@@ -709,10 +949,12 @@ for an NE2000 plus a TCP/IP stack; `HDD.DRV` 5,489; Paint 21,962).
 | 2 | `.EXE` loader — MZ header, relocations, `minalloc`/`maxalloc`. Directory functions, find-first/next, create/replace/append writes, `INT 33h` mouse. | 0 (10 if the mickey pair is taken) | +3–4 KB |
 | 3 | Sound Blaster detach/re-attach. `4Bh` EXEC. `INT 12h`/BDA polish. XMS via `XMEM.DRV`. | 0 | +2–3 KB |
 | 4 | Packet driver over `ETHER.DRV`. Validation target: mTCP's own applications. | 0 | +1.5–2.5 KB |
+| 5 | **Write-at-offset file handles** (§6.3) — on a published kernel seek/write-at trio if that API happens, on read-modify-rewrite if it does not. Ordered here rather than "deferred" because Tank Attack wants it too. | 0 or ~400 | +1–2 KB |
+| 6 | **Windowed text mode** (§10) — the `INT 21h`/TTY subset rendered into a real window, RunCPM's terminal (SPEC.md 74.2) being the precedent; a program that writes `B8000` is refused into fullscreen instead. | 0 | +4 KB |
+| 7 | **A command interpreter** in that window — the `COMMAND.COM`-shaped half. Needs wave 3's `4Bh` EXEC under it, which is what makes it wave 7 and not wave 6. | 0 | +4–6 KB |
 | — | *deferred, needs its own design* | | |
-| ? | Write-at-offset file handles — either a package-side read-modify-rewrite or a published kernel seek/write-at trio (§6.3) | 0 or ~400 | |
-| ? | FCB functions | 0 | +2 KB |
-| ? | Windowed text-mode DOS box (§10) | 0 | +4 KB |
+| ? | FCB functions (§6.2) — cost is real, audience is small | 0 | +2 KB |
+| ? | DOS 5 rather than 3.31 (§12 q1) — the version byte is free, the functions behind it are not | 0 | ? |
 
 **Wave 1 is the one that decides everything**, and it is worth building as a
 throwaway first: a `.COM` that does nothing but `INT 21h AH=09h` (print a
@@ -722,28 +964,85 @@ program small enough to hand-assemble and read.
 
 ---
 
-## 12. Open questions — things this investigation could not settle
+## 12. Open questions — and the ones now settled
 
-1. **What DOS version should `AH=30h` report?** Report too low and modern
-   programs refuse; too high and they look for features we lack. 3.31 is
-   the honest description of the feature set below. Needs a survey of what
-   the target software actually checks.
-2. **How does a user get out of a hung DOS program?** §4 note 4. There is no
-   safe answer today. Ctrl-Alt-Del through the ROM reboots the machine and
-   loses the session, which is at least *an* answer and is what DOS gave.
-   Worth deciding deliberately rather than by default.
-3. **Which BDA bytes to restore and which to let stand** (§5). The tick
-   count at `40:6C` should keep what it reached; the memory size must go
-   back; the rest wants a list.
-4. **Read-modify-rewrite or a kernel seek?** (§6.3). This should be decided
-   by measurement — build wave 1 with reads only, then find out which real
-   programs need in-place writes.
-5. **Is the raw-mickey pair worth ~10 resident bytes?** (§9.1).
-6. **What is the first-run warning?** A DOS program can take the machine
-   down with unsaved work in other windows. That is a product decision.
-7. **Does the arena want to be bottom-up instead?** (§2.3). It costs free
-   run length and buys a truer "top of memory". Cannot be settled without
-   knowing which programs misbehave.
+**Settled by the owner, recorded here so the reasoning is not re-derived:**
+
+- **A package, not a module** (§3) — the resident cost was the whole
+  objection, and a package has none.
+- **Purge and compact for the maximum** (§2.3.1) — and it needs no mechanism
+  at all, because `mem_claim` is already a compact-shed-retry loop. No user
+  choice, no check box: an `.EXE` with a bounded `maxalloc` gets what it
+  asked for and everything else gets the maximum.
+- **Load packages low?** Not wave 1 (§2.3). It is a heap change touching every
+  package in the tree, and the number that decides it — how many real programs
+  ignore what we tell them — is what wave 1 measures.
+- **Which BDA bytes come back** (§5.1) — 40 bytes restored in seven spans,
+  four zeroed, the rest deliberately left.
+- **Write support is not wave 1**, and it is wave 5 rather than "deferred"
+  (§6.3, §11).
+- **All from scratch**, MIT, with FreeDOS and CuteMouse read when a return
+  value is in doubt (§13).
+- **Windowed text mode and a command interpreter are waves 6 and 7** (§10,
+  §11), not niceties.
+
+**Q1. What DOS version should `AH=30h` report, and what does DOS 5 buy?**
+The target is DOS 5; 3.31 is acceptable to start. Two things are worth
+separating before that is implemented:
+
+- **The version byte is free and the functions behind it are not.** Programs
+  branch on it, so reporting 5.00 while lacking DOS 5 services is *worse* than
+  reporting 3.31 — a program takes the DOS 5 path and fails at a function we
+  answer with CF=1. **Make the reported version a SETTING** (SPEC.md 51.5 — 2
+  resident bytes for a whole setting, and this one would live in the
+  package's own config rather than the kernel's), so a title that wants 5.00
+  gets it without a rebuild and without lying to everything else.
+- **"More command hooks" needs pinning down before it is costed.** The DOS 5
+  additions that plausibly matter here are `AX=3306h` (true version),
+  `AH=4B05h` (set execution state), `AH=58h` subfunctions 2/3 (UMB link
+  state), `INT 2Fh AX=4A01/4A02` (HMA), the `AH=6Ch` extended open that
+  arrived in DOS 4, and `COMMAND.COM`'s installable-command interface over
+  `INT 2Eh`/`INT 2Fh`. **Which of those the owner means is not settled here**
+  — several are only reachable once wave 7 exists at all — and the honest
+  next step is a survey of what the target software actually calls, not a
+  guess at the list.
+
+**Q2. Getting out of a hung program.** The backstop is what DOS's own was: a
+reboot. **Ctrl-Alt-Del already works for free** whenever the program has not
+taken `int 09h`, because that is the ROM's handler and we have not removed it.
+
+Above that, a real escape is cheap enough to be worth building, in two rungs
+and with its limits stated:
+
+- **Rung 1 — the runner's own `int 09h`.** Install over `kbm_isr` for the
+  session; read port 60h; on a magic combo restore the runner's saved `SS:SP`
+  and jump to the exit path; otherwise chain to whatever the DOS program
+  installed. ESTIMATE **40–60 bytes**. Defeated by a program that takes
+  `int 09h` itself, which games routinely do.
+- **Rung 2 — the same test from `int 08h`.** A tick handler samples the last
+  latched scancode directly, which catches a program that took the keyboard
+  but not the timer. Defeated by a program that takes `int 08h`, or that runs
+  with `IF=0`.
+
+**Why the longjmp is safe is not obvious and is worth writing down**: the exit
+path restores the IVT, the BDA list, the PIT, the 8259 masks and the video
+mode regardless of how it was reached, so the *machine* comes back consistent
+from an abort exactly as it does from a clean `4Ch`. What does not come back
+is the DOS program's own cleanup — which is fine, because our `INT 21h` owns
+its file handles and can close them itself. The one thing that can defeat both
+rungs is a program that scribbled over task 0's stack, where the runner's
+saved `SS:SP` lives; there is no defence against that on an 8086.
+
+**Still open:**
+
+- **Q3. Is the raw-mickey pair worth ~10 resident bytes?** (§9.1). The one
+  kernel change this document actively recommends considering, and it should
+  be costed on its own rather than taken on a sentence.
+- **Q4. What is the first-run warning?** A DOS program can take the machine
+  down with unsaved work in other windows. A product decision, not an
+  engineering one.
+- **Q5. Which real programs does read-only wave 1 actually lose?** The
+  measurement that sizes wave 5, and it cannot be taken before wave 1 runs.
 
 ---
 
@@ -764,9 +1063,10 @@ the kernel or for a system facility.
 | Ralf Brown's Interrupt List | freely usable, non-copyleft terms | **The actual reference to work from** for `INT 21h`, `INT 33h`, the PSP and the MCB layout. |
 | Crynwr Packet Driver Specification | a published specification | The interface to implement in §9.4. |
 
-**The recommendation is to write all of it from scratch, MIT, against RBIL
-and the published specifications**, and to use FreeDOS and CuteMouse the way
-one uses a second opinion — to check a return value, not to supply one. That
-is not licence caution for its own sake: the shim's whole job is to sit on
-os8088's volume layer, heap and fsx bracket, and none of the code in those
-projects knows those things exist.
+**All of it from scratch, MIT, against RBIL and the published specifications
+— DECIDED**, with FreeDOS and CuteMouse read the way one reads a second
+opinion: to check a return value when something is stuck, not to supply one.
+That is not licence caution for its own sake. The shim's whole job is to sit
+on os8088's volume layer, heap and fsx bracket, and none of the code in those
+projects knows those things exist — so even with the licences set aside, the
+lift would be of the half that does not fit.
