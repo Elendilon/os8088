@@ -118818,3 +118818,99 @@ asked for at four call sites down two levels; threading it through all of them
 is how one of them ends up holding a loop counter instead. For the same
 reason `dos_fh_fill` answers the window offset in `AX` and not `DI` — the
 caller's `DI` is where the bytes are *going*.
+
+### 96.12 Vectors, drives, the DTA and the directory
+
+The calls that are not I/O and not memory, and that a program makes without
+thinking about them.
+
+**`25h`/`35h` — the interrupt vectors.** A set goes **straight into the live
+IVT**, which is safe for exactly one reason: the whole table is banked at
+bracket entry and put back at the end (§96.5). So a program may hook anything
+it likes — its own `INT 60h`, the timer, `INT 1Bh` — and the machine still
+comes back. This is the pair a program installing a handler needs before it
+will run at all, and refusing it is not survivable the way refusing an
+obscure call is.
+
+**`19h` — the current drive**, answered from the volume the program was
+launched from, which is the drive map's identity with our hole in it (§96.6).
+**`0Eh` — select drive** answers the COUNT and does not make the switch: a
+program calls this and reads the count far more often than it changes drives,
+and a real change wants a directory walk per drive that this wave does not
+have.
+
+**`1Ah`/`2Fh` — the DTA.** It starts at `PSP:0080`, which is the command
+tail's own 128 bytes, because that is where DOS puts it and a program that
+never calls `1Ah` relies on it being there.
+
+#### 96.12.1 Find first and find next keep their state in the DTA
+
+`4Eh` and `4Fh` put the walk's **ordinal and pattern in the DTA's first 21
+bytes** — the driver's own by DOS's definition — so `4Fh` needs no state in
+the package at all, and two programs, or one program with two DTAs, cannot
+tread on each other. DOS does exactly this, for exactly that reason.
+
+`OSAPI_FILE_FIND` is by ordinal and keeps no cursor in the kernel either
+(§18.4), which is what makes the two fit: the ordinal in the DTA *is* the
+cursor.
+
+**The wildcard match expands both sides to the eleven-byte 8.3 form first** —
+eight of name, three of extension, space-padded — because that is the only
+shape in which DOS's two wildcards mean what everyone expects. `*` fills the
+rest of **its own field** and stops at the dot, so `*.TXT` matches `A.TXT` and
+not `A.TXTX`; `?` stands for one character **or for the padding past a short
+name**, which is why `A???????.TXT` finds `A.TXT`. Matching the printable
+`NAME.EXT` form directly gets both of those wrong.
+
+Two things are answered as zero and said so here rather than left to be
+discovered: the **time and date** fields, because the kernel's find record
+carries no timestamp, and `..`, which is **synthesized** (§19.5) and is not a
+file a DOS program can be shown.
+
+#### 96.12.2 The launch directory is the program's root, and the path is TRACKED
+
+docs/plans/DOS-EXEC-PLAN.md §11.3 proposed building `47h`'s answer with a
+**`..` walk** — ask a directory who its parent is, then search the parent for
+the entry pointing back at the child, one mount per level. **That walk cannot
+be done from a package**, and the reason is a fact about `OSAPI_FILE_FIND`
+rather than about DOS: **`.` and `..` are not reported to a package at all.**
+A find inside a freshly created subdirectory returns *nothing*. `OSAPI_FT_UP`
+exists in the type list because the kernel synthesizes an up-entry for the
+Disk window's own listing (§19.5), and that synthesis is not what this slot
+walks.
+
+So there is no way to learn the absolute path of the directory the program was
+launched in: `OSAPI_ARG_FILE` hands over a name, a **cluster** and a volume,
+and a cluster is not a path.
+
+The answer is to stop trying. **The launch directory IS the program's root.**
+`\` means it, `47h` answers a path relative to it, and nothing above it is
+reachable — which is self-consistent, round-trips exactly, and is what a DOS
+program run from a floppy's root sees anyway. It is also §96.6's containment
+one layer up, and it costs nothing: the path is **maintained by `3Bh`**, the
+only thing on the machine that can move us, so `47h` is a string copy and not
+a floppy operation.
+
+Each level records two things on the way down — **the cluster** it entered and
+**the path's length before the name was appended** — so `..` is a truncate to
+a remembered offset and a `GOTO` to a remembered cluster, both exact, and
+neither is a search. The depth is capped, and a name that would take the path
+past DOS's own 64-byte limit is refused before anything moves.
+
+`3Bh` takes `\` or `/` or an empty name as that root, `.` as where it already
+is, `..` as one level up (refused **at** the root, because above it is not
+ours), and anything else as a directory in the current one. A **leading**
+separator on any name means "from the root", so `\SUBDIR` is one step down
+from it; an **embedded** one is still refused, because this wave stands in one
+directory at a time.
+
+That leading separator is remembered for **file** names too, and there it is a
+**refusal** rather than a resolution: below the root, `\DATA.TXT` names a file
+in a folder this wave cannot reach past, so it answers "path not found"
+instead of opening a different file of the same name in the folder we happen
+to be standing in. At the root — where nearly every DOS program runs — the two
+are the same thing and it proceeds.
+
+**`39h`** and **`3Ah`** are the kernel's `mkdir` and `rmdir`, the latter in its
+**strict** form — remove it only if it is empty, which is the one `3Ah` means.
+The recursive form is a different call and DOS does not have it.

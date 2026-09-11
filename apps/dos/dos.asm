@@ -660,6 +660,16 @@ dos_fsx_main:
     call dos_build_psp
     call dos_hook_vectors
 
+    mov ax, [dos_arena]             ; the DTA starts at PSP:0080, which is the
+    add ax, DOS_PSPP                ; command tail's own 128 bytes - DOS puts
+    mov [dos_dtaseg], ax            ; it there and a program that never calls
+    mov word [dos_dta], 0x80        ; AH=1Ah relies on it
+    mov ax, [dos_dir]               ; ...and we start where the launch put us,
+    mov [dos_curdir], ax            ; which is the ROOT of the program's world
+    mov [dos_cdclus], ax            ; (SPEC.md 96.12.2)
+    mov byte [dos_cddep], 0
+    mov byte [dos_cwdbuf], 0
+
     ; --- into the program --------------------------------------------------
     ; SS:SP is banked in OUR segment, reached through CS by the INT 21h
     ; terminate path, which runs on the program's stack with DS unknown.
@@ -1077,6 +1087,30 @@ dos_int21:
     je .unlink
     cmp ah, 0x42
     je .seek
+    cmp ah, 0x25
+    je .setvec
+    cmp ah, 0x35
+    je .getvec
+    cmp ah, 0x19
+    je .curdrv
+    cmp ah, 0x0E
+    je .seldrv
+    cmp ah, 0x1A
+    je .setdta
+    cmp ah, 0x2F
+    je .getdta
+    cmp ah, 0x4E
+    je .ff
+    cmp ah, 0x4F
+    je .fn
+    cmp ah, 0x39
+    je .mkdir
+    cmp ah, 0x3A
+    je .rmdir
+    cmp ah, 0x3B
+    je .chdir
+    cmp ah, 0x47
+    je .getcwd
     jmp .bad
 
 .term:
@@ -1178,6 +1212,22 @@ dos_int21:
     pop bx
     jmp .ok
 
+.fhabs:
+    ; A LEADING "\" ON A FILE NAME names the program's root, and this wave
+    ; resolves every name in the directory it is STANDING in - so below the
+    ; root it would be the wrong folder. Refused, honestly, rather than
+    ; answered from the wrong place (SPEC.md 96.12.2).
+    cmp byte [dos_fabs], 0
+    je .fhabsok
+    cmp byte [dos_cddep], 0
+    jne .fhabsno
+.fhabsok:
+    clc
+    ret
+.fhabsno:
+    stc
+    ret
+
 .open:
     ; AH=3Dh: DS:DX = an ASCIZ name, AL = the access mode; out AX = a handle.
     ; THE MODE IS NOT HONOURED and the handle is read-only whatever it says,
@@ -1188,6 +1238,8 @@ dos_int21:
     push bx
     call dos_fh_name
     jc .fherr
+    call .fhabs
+    jc .fhpath
     call dos_fh_stat                ; fills [dos_fent]
     jc .fnoent
     call dos_fh_new                 ; BX = the handle, SI = the record, zeroed
@@ -1227,6 +1279,8 @@ dos_int21:
     push bx
     call dos_fh_name
     jc .fherr
+    call .fhabs
+    jc .fhpath
     call dos_fh_new
     jc .fmany
     call dos_fh_setname
@@ -1292,6 +1346,8 @@ dos_int21:
     push bx
     call dos_fh_name
     jc .fherr
+    call .fhabs
+    jc .fhpath
     push si
     mov si, dos_fname
     call dos_be_delete
@@ -1330,6 +1386,147 @@ dos_int21:
     mov [si+FH_POS+2], bx
     mov dx, bx
     jmp .fhok
+
+; --- vectors, drives and the DTA (SPEC.md 96.12) -----------------------------
+.setvec:
+    ; AH=25h: AL = the interrupt, DS:DX = the handler. It goes STRAIGHT into
+    ; the live IVT, which is safe because the whole table is banked at bracket
+    ; entry and put back at the end (SPEC.md 96.5) - so a program may hook
+    ; anything it likes and the machine still comes back.
+    push bx
+    push es
+    xor bx, bx
+    mov es, bx
+    mov bl, al
+    xor bh, bh
+    shl bx, 1
+    shl bx, 1
+    mov [es:bx], dx
+    mov ax, [bp]                    ; ...and the PROGRAM's DS, off the frame
+    mov [es:bx+2], ax
+    pop es
+    pop bx
+    jmp .ok
+.getvec:
+    ; AH=35h: AL = the interrupt; out ES:BX = its handler.
+    push ax
+    xor bx, bx
+    mov es, bx
+    mov bl, al
+    xor bh, bh
+    shl bx, 1
+    shl bx, 1
+    mov ax, [es:bx+2]
+    mov bx, [es:bx]
+    mov es, ax
+    pop ax
+    jmp .ok
+.curdrv:
+    mov al, [dos_vol]               ; AH=19h: 0 = A. The map is the identity
+    jmp .ok                         ; with our hole in it (SPEC.md 96.6)
+.seldrv:
+    ; AH=0Eh: DL = the drive to select; out AL = how many there are. A DOS
+    ; program calls this and reads the count far more often than it changes
+    ; drives, and a real change wants the directory walk this wave does not
+    ; have - so the count is answered and the switch is not made.
+    mov al, 4
+    jmp .ok
+.setdta:
+    mov [dos_dta], dx               ; AH=1Ah: DS:DX, and DS is the program's -
+    mov ax, [bp]                    ; which for every real program is the PSP
+    mov [dos_dtaseg], ax            ; it already runs on
+    jmp .ok
+.getdta:
+    mov bx, [dos_dta]               ; AH=2Fh: out ES:BX
+    mov es, [dos_dtaseg]
+    jmp .ok
+
+; --- find first / find next (SPEC.md 96.12.1) --------------------------------
+.ff:
+    ; AH=4Eh: DS:DX = the pattern, CX = the attribute mask.
+    push bx
+    call dos_fh_name                ; the pattern travels the same road a name
+    jc .fherr                       ; does, wildcards and all
+    call dos_dta_seg                ; ES:DI = the caller's DTA, and DI STAYS
+    mov word [es:di+DTA_ORD], 0     ; there: .fstep below wants the DTA's BASE,
+    push si                         ; and a stosw/rep movsb pair would leave it
+    push di                         ; fifteen bytes along - which reads the
+    add di, DTA_PAT                 ; ordinal out of the pattern
+    mov si, dos_fname
+    mov cx, 13                      ; the pattern lives in the DTA, so AH=4Fh
+    cld                             ; needs no state of ours at all. DOS keeps
+    rep movsb                       ; it there and so does this
+    pop di
+    pop si
+    jmp short .fstep
+.fn:
+    ; AH=4Fh: everything it needs is in the DTA AH=4Eh filled.
+    push bx
+    call dos_dta_seg
+.fstep:
+    call dos_find_step              ; CF=1 with AL = 18 (no more files)
+    jc .fherr
+    xor ax, ax
+    jmp .fhok
+
+; --- directories (SPEC.md 96.12.2) -------------------------------------------
+.mkdir:
+    push bx
+    call dos_fh_name
+    jc .fherr
+    push si
+    mov si, dos_fname
+    call dos_be_mkdir
+    pop si
+    jc .fhacc
+    xor ax, ax
+    jmp .fhok
+.rmdir:
+    push bx
+    call dos_fh_name
+    jc .fherr
+    push si
+    mov si, dos_fname
+    xor al, al                      ; STRICT: remove it only if it is empty,
+    call dos_be_rmdir               ; which is the one AH=3Ah means. The
+    pop si                          ; recursive form is a different call and
+    jc .fhacc                       ; DOS does not have it
+    xor ax, ax
+    jmp .fhok
+.chdir:
+    push bx
+    call dos_fh_name
+    jc .fherr
+    call dos_cd_go
+    jc .fhpath
+    xor ax, ax
+    jmp .fhok
+.fhpath:
+    mov al, 3                       ; path not found
+    jmp .fherr
+.getcwd:
+    ; AH=47h: DL = the drive (0 = current), DS:SI = a 64-byte buffer; the path
+    ; goes in WITHOUT its leading backslash, which is DOS's own shape.
+    push bx
+    call dos_cwd_path               ; builds [dos_cwd] once, then answers it
+    jc .fhpath
+    push si
+    push di
+    push es
+    mov di, si
+    mov es, [bp]                    ; the buffer is the PROGRAM's
+    mov si, dos_cwdbuf
+    cld
+.cwcopy:
+    lodsb
+    stosb
+    or al, al
+    jnz .cwcopy
+    pop es
+    pop di
+    pop si
+    mov ax, 0x0100                  ; DOS 3+ leaves AX = 0100h here, and at
+    jmp .fhok                       ; least one program checks it
 
 .resize:
     ; AH=4Ah: ES = the block, BX = the paragraphs wanted (SPEC.md 96.9).
@@ -1485,7 +1682,9 @@ DBE_WRITE   equ 8                   ; SI = name, ES:BX = bytes, DX:CX = count
 DBE_APPEND  equ 10                  ; SI = name, ES:BX = bytes, CX = count
 DBE_DELETE  equ 12                  ; SI = name
 DBE_DFREE   equ 14                  ; out BX = SECTORS per cluster
-DBE_NENT    equ 8
+DBE_MKDIR   equ 16                  ; SI = a name in the current directory
+DBE_RMDIR   equ 18                  ; SI = a name, AL = 0 strict
+DBE_NENT    equ 10
 
 dos_be_goto:
     mov word [dos_betgt], dos_k_goto
@@ -1510,6 +1709,12 @@ dos_be_delete:
     jmp short dos_be_go
 dos_be_dfree:
     mov word [dos_betgt], dos_k_dfree
+    jmp short dos_be_go
+dos_be_mkdir:
+    mov word [dos_betgt], dos_k_mkdir
+    jmp short dos_be_go
+dos_be_rmdir:
+    mov word [dos_betgt], dos_k_rmdir
 
 ; -----------------------------------------------------------------------------
 ; dos_be_go - the one door, and it SWAPS THE STACK (SPEC.md 96.4.1)
@@ -1600,6 +1805,14 @@ dos_k_delete:
 
 dos_k_dfree:
     call OSAPI_FILE_DFREE
+    ret
+
+dos_k_mkdir:
+    call OSAPI_FILE_MKDIR
+    ret
+
+dos_k_rmdir:
+    call OSAPI_FILE_RMDIR
     ret
 
 ; =============================================================================
@@ -1790,6 +2003,8 @@ dos_be:                             ; the table, in DBE_* order
     dw dos_k_append
     dw dos_k_delete
     dw dos_k_dfree
+    dw dos_k_mkdir
+    dw dos_k_rmdir
 
 ; --- the BDA's RESTORE list (SPEC.md 96.5): offset, bytes, 0xFFFF ends it ----
 ; Every span here is a field the KERNEL reads, or one whose stale value would
@@ -1834,6 +2049,7 @@ dos_e_big:   db 'Too large for one segment.', 0
 dos_e_fsx:   db 'The screen is already in use.', 0
 dos_e_exe:   db '.EXE is not supported yet.', 0
 dos_e_badexe: db 'Its .EXE header is malformed.', 0
+dos_dotdot:  db '..', 0
 dos_e_fn:    db 'It asked for INT 21h AH='
 dos_fnd:     db '00h.', 0
 
@@ -2368,6 +2584,9 @@ FHF_WHOLE   equ 8                   ; a COMPRESSED file, read whole and
                                     ; expanded: the window is the file and
                                     ; never refills (SPEC.md 96.11.1)
 
+DOS_CDMAX   equ 8                   ; levels below the launch directory
+DOS_CWDMAX  equ 68                  ; DOS's AH=47h buffer is 64 bytes and
+                                    ; the walk needs a NUL and a little slack
 DOS_WKB     equ 8                   ; the window's floor in KB; a volume whose
                                     ; cluster is bigger gets a window of one
                                     ; cluster instead, because READ_AT cannot
@@ -2444,6 +2663,409 @@ dos_fh_setup:
     pop dx
     pop cx
     pop bx
+    ret
+
+; =============================================================================
+; FIND, DIRECTORIES AND THE CWD (SPEC.md 96.12)
+; =============================================================================
+; The DTA's first 21 bytes are the driver's own by DOS's own definition, and
+; the whole walk lives there - the ordinal and the pattern - so AH=4Fh needs
+; no state in the package at all, and two programs, or one program with two
+; DTAs, cannot tread on each other. DOS does exactly this, for exactly that.
+DTA_ORD     equ 0                   ; word: the kernel ordinal to ask next
+DTA_PAT     equ 2                   ; char[13]: the pattern, as it was given
+DTA_ATTR    equ 21                  ; ...and from here it is DOS's PUBLISHED
+DTA_TIME    equ 22                  ; layout, which the program reads
+DTA_DATE    equ 24
+DTA_SIZE    equ 26                  ; dword
+DTA_NAME    equ 30                  ; char[13], NUL-terminated
+
+; -----------------------------------------------------------------------------
+; dos_dta_seg - ES:DI = the caller's DTA
+; out: ES:DI; clobbers nothing else
+; -----------------------------------------------------------------------------
+dos_dta_seg:
+    mov di, [dos_dta]
+    mov es, [dos_dtaseg]
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_find_step - one step of a walk, into the DTA at ES:DI
+; in:  ES:DI = the DTA, its ordinal and pattern set
+; out: CF=0 and the DTA filled; CF=1 with AL = 18, "no more files"
+; -----------------------------------------------------------------------------
+dos_find_step:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov [dos_dtasv], di             ; the caller's DTA, banked: the kernel's
+    mov [dos_dtasvs], es            ; own record has to be read through OUR
+    mov cx, [es:di+DTA_ORD]         ; ES and there is only one
+.next:
+    push ds
+    pop es
+    mov di, dos_fent
+    call dos_be_find
+    jc .none
+    mov [dos_ford], cx
+    cmp word [dos_fent+14], OSAPI_FT_UP
+    je .next                        ; '..' is SYNTHESIZED (SPEC.md 19.5) and is
+                                    ; not a file a DOS program can be shown
+    mov di, [dos_dtasv]
+    mov es, [dos_dtasvs]
+    add di, DTA_PAT
+    mov si, dos_fent
+    call dos_wild                   ; DS:SI the name, ES:DI the pattern
+    mov cx, [dos_ford]
+    jne .next
+    ; --- a hit ---------------------------------------------------------------
+    mov di, [dos_dtasv]
+    mov es, [dos_dtasvs]
+    mov [es:di+DTA_ORD], cx
+    mov al, [dos_fent+13]
+    mov [es:di+DTA_ATTR], al
+    mov word [es:di+DTA_TIME], 0    ; the kernel's find record carries no
+    mov word [es:di+DTA_DATE], 0    ; timestamp (SPEC.md 96.12.1), and 0 is
+    mov ax, [dos_fent+18]           ; what an unset one looks like to DOS
+    mov [es:di+DTA_SIZE], ax
+    mov ax, [dos_fent+20]
+    mov [es:di+DTA_SIZE+2], ax
+    add di, DTA_NAME
+    mov si, dos_fent
+    mov cx, 13
+    cld
+    rep movsb
+    clc
+    jmp short .out
+.none:
+    mov al, 18
+    stc
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_wild - does the 8.3 name at DS:SI match the pattern at ES:DI?
+; out: ZF=1 on a match; every register preserved
+;
+; BOTH SIDES ARE EXPANDED TO THE ELEVEN-BYTE 8.3 FORM first - eight of name,
+; three of extension, space-padded - because that is the only shape in which
+; DOS's two wildcards mean what everyone expects. `*` fills THE REST OF ITS
+; OWN FIELD and stops at the dot, so `*.TXT` matches `A.TXT` and not
+; `A.TXTX`; and `?` stands for one character OR for the padding past a short
+; name, which is why `A???????.TXT` finds `A.TXT`.
+; -----------------------------------------------------------------------------
+dos_wild:
+    push ax
+    push cx
+    push si
+    push di
+    push ds
+    push es
+
+    push es                         ; the pattern's far pointer, banked while
+    push di                         ; the NAME is expanded out of our own DS
+    push ds
+    pop es
+    mov di, dos_w83a
+    call dos_83
+    pop si                          ; ...and now the pattern, whose segment is
+    pop ds                          ; the program's
+    push cs
+    pop es
+    mov di, dos_w83b
+    call dos_83
+    push es                         ; both buffers are ours, so both segments
+    pop ds                          ; are too
+
+    mov si, dos_w83a
+    mov di, dos_w83b
+    mov cx, 8
+    call dos_wfld
+    jne .out
+    mov si, dos_w83a + 8
+    mov di, dos_w83b + 8
+    mov cx, 3
+    call dos_wfld
+.out:
+    pop es
+    pop ds
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_wfld - one 8.3 FIELD: CX bytes at DS:SI against the pattern at ES:DI
+; out: ZF=1 on a match; clobbers AX, CX, SI, DI
+; -----------------------------------------------------------------------------
+dos_wfld:
+    mov al, [es:di]
+    cmp al, '*'
+    je .yes                         ; the rest of this field, whatever it is
+    cmp al, '?'
+    je .step
+    cmp al, [si]
+    jne .no
+.step:
+    inc si
+    inc di
+    loop dos_wfld
+.yes:
+    xor al, al                      ; ZF=1
+    ret
+.no:
+    mov al, 1
+    or al, al                       ; ZF=0, and `or al, al` on a 0 would not
+    ret                             ; say so - which is why AL is loaded first
+
+; -----------------------------------------------------------------------------
+; dos_83 - the NUL-terminated name at DS:SI into eleven bytes at ES:DI
+; out: nothing; DI is left where it started. Clobbers AX, CX, SI
+; -----------------------------------------------------------------------------
+dos_83:
+    push di
+    push di
+    mov al, ' '
+    mov cx, 11
+    cld
+    rep stosb
+    pop di
+    push di
+    mov cx, 8
+.name:
+    lodsb
+    or al, al
+    jz .done
+    cmp al, '.'
+    je .ext
+    jcxz .name                      ; past eight: read on, store nothing
+    stosb
+    dec cx
+    jmp short .name
+.ext:
+    pop di
+    push di
+    add di, 8
+    mov cx, 3
+.eloop:
+    lodsb
+    or al, al
+    jz .done
+    jcxz .eloop
+    stosb
+    dec cx
+    jmp short .eloop
+.done:
+    pop di
+    pop di
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_cd_go - AH=3Bh's body: stand in the directory [dos_fname] names
+; out: CF=1 if there is no such directory, or it is out of reach
+;
+; THE LAUNCH DIRECTORY IS THE PROGRAM'S ROOT (SPEC.md 96.12.2). Nothing above
+; it is reachable, `\` means it, and AH=47h answers a path relative to it.
+; -----------------------------------------------------------------------------
+dos_cd_go:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+
+    cmp byte [dos_fabs], 0          ; "\" or "\NAME": start from the program's
+    je .rel                         ; own root, which is where it was launched
+    mov byte [dos_cddep], 0
+    mov byte [dos_cwdbuf], 0
+    mov dx, [dos_cdclus]
+    mov bl, [dos_vol]
+    call dos_be_goto
+    jc .no
+    mov [dos_curdir], dx
+    cmp byte [dos_fname], 0
+    je .same                        ; a bare "\" is the whole request
+.rel:
+    mov al, [dos_fname]
+    or al, al
+    jz .same
+    cmp al, '.'
+    jne .named
+    mov al, [dos_fname+1]
+    or al, al
+    jz .same                        ; "." is where we already are
+    cmp al, '.'
+    jne .named
+    cmp byte [dos_fname+2], 0
+    jne .named
+    jmp short .up
+
+.up:
+    mov bl, [dos_cddep]
+    or bl, bl
+    jz .no                          ; above the launch directory is not ours
+    dec bl
+    mov [dos_cddep], bl
+    xor bh, bh
+    shl bx, 1
+    mov di, [bx+dos_cdlen]          ; the path's length at that level, recorded
+    add di, dos_cwdbuf              ; on the way DOWN, so the truncate is exact
+    mov byte [di], 0
+    mov dx, [bx+dos_cdclus]
+    jmp short .move
+.named:
+    xor cx, cx
+.scan:
+    mov di, dos_fent
+    call dos_be_find
+    jc .no
+    cmp word [dos_fent+14], OSAPI_FT_DIR
+    jb .scan                        ; a file is not somewhere to stand
+    mov si, dos_fname
+    mov di, dos_fent
+    call dos_streq
+    jne .scan
+    mov dx, [dos_fent+16]
+    call dos_cd_fits                ; the depth and DOS's own 64-byte path,
+    jc .no                          ; both checked BEFORE anything moves
+    mov bl, [dos_vol]
+    call dos_be_goto
+    jc .no
+    mov [dos_curdir], dx
+    call dos_cd_push
+    clc
+    jmp short .out
+.same:
+    clc
+    jmp short .out
+.move:
+    mov bl, [dos_vol]
+    call dos_be_goto
+    jc .no
+    mov [dos_curdir], dx
+    clc
+    jmp short .out
+.no:
+    stc
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_cd_len - the path's current length
+; out: CX = it, DI = the NUL at its end; clobbers nothing else
+; -----------------------------------------------------------------------------
+dos_cd_len:
+    mov di, dos_cwdbuf
+    xor cx, cx
+.next:
+    cmp byte [di], 0
+    je .done
+    inc di
+    inc cx
+    jmp short .next
+.done:
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_cd_fits - would [dos_fname] fit as one more level?
+; out: CF=1 if not; every register preserved
+; -----------------------------------------------------------------------------
+dos_cd_fits:
+    push ax
+    push cx
+    push si
+    push di
+    cmp byte [dos_cddep], DOS_CDMAX
+    jae .no
+    call dos_cd_len
+    mov si, dos_fname
+.len:
+    lodsb
+    or al, al
+    jz .have
+    inc cx
+    jmp short .len
+.have:
+    inc cx                          ; the separator
+    cmp cx, DOS_CWDMAX - 4          ; DOS's own buffer is 64 bytes and its path
+    jae .no                         ; limit is what that makes it
+    clc
+    jmp short .out
+.no:
+    stc
+.out:
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_cd_push - record a level: the path so far, the new cluster, the name
+; in:  DX = the new directory's cluster, [dos_fname] = its name
+; out: nothing; every register preserved
+; -----------------------------------------------------------------------------
+dos_cd_push:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    call dos_cd_len                 ; CX = the length we are leaving, DI its NUL
+    mov bl, [dos_cddep]
+    xor bh, bh
+    inc bx
+    mov [dos_cddep], bl
+    shl bx, 1
+    mov [bx+dos_cdlen-2], cx        ; ...recorded against the level we CAME
+    mov [bx+dos_cdclus], dx         ; from, which is what '..' truncates to
+    or cx, cx
+    jz .nosep                       ; the first level needs no separator, so
+    mov byte [di], '\'              ; DOS's answer has no LEADING one
+    inc di
+.nosep:
+    mov si, dos_fname
+.cp:
+    lodsb
+    mov [di], al
+    inc di
+    or al, al
+    jnz .cp
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_cwd_path - AH=47h's answer
+; out: CF=0 always; [dos_cwdbuf] is maintained BY dos_cd_go, so there is
+;      nothing to build here (SPEC.md 96.12.2)
+; -----------------------------------------------------------------------------
+dos_cwd_path:
+    clc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2752,6 +3374,14 @@ dos_fh_name:
 .skip2:
     add si, 2
 .nodot:
+    mov byte [es:dos_fabs], 0       ; A LEADING SEPARATOR IS STRIPPED AND
+    cmp byte [si], '\'              ; REMEMBERED (SPEC.md 96.12.2): "\" is the
+    je .abs                         ; program's own root, and "\NAME" is one
+    cmp byte [si], '/'              ; step down from it. An EMBEDDED one is
+    jne .copy                       ; still refused below - this wave stands in
+.abs:                               ; one directory at a time
+    inc si
+    mov byte [es:dos_fabs], 1
 .copy:
     lodsb
     cmp al, '\'                     ; a separator ANYWHERE past here is a path,
@@ -3081,6 +3711,21 @@ dos_fh_fill:
     DBSS DOS_B_FHIX,  1        ; the window owner's index, set by every
     DBSS DOS_B_FHPAD, 1        ; slot resolution rather than threaded
     DBSS DOS_B_FHTAB, FH_SIZEOF * DOS_NFH
+    DBSS DOS_B_DTA,   2        ; the Disk Transfer Area a find fills,
+    DBSS DOS_B_DTASEG,2        ; PSP:0080 until AH=1Ah moves it
+    DBSS DOS_B_DTASV, 2        ; ...banked while the kernel's own record is
+    DBSS DOS_B_DTASVS,2        ; read through OUR ES
+    DBSS DOS_B_FORD,  2        ; the ordinal a find walk resumes from
+    DBSS DOS_B_W83A,  11       ; the two 8.3 forms dos_wild compares
+    DBSS DOS_B_W83B,  11
+    DBSS DOS_B_W83P,  2
+    DBSS DOS_B_FABS,  1        ; did the name carry a leading separator?
+    DBSS DOS_B_CDDEP, 1        ; how far below the launch directory we are
+    DBSS DOS_B_CDPAD, 1
+    DBSS DOS_B_CDCLUS, 2 * (DOS_CDMAX + 1)   ; the cluster at each level...
+    DBSS DOS_B_CDLEN,  2 * (DOS_CDMAX + 1)   ; ...and the path length there
+    DBSS DOS_B_CURDIR, 2       ; the cluster we are standing in
+    DBSS DOS_B_CWDBUF, DOS_CWDMAX
     DBSS DOS_B_IVT,   1024
     DBSS DOS_B_BDA,   256
 DOS_BSS_SIZE equ DB
@@ -3142,6 +3787,19 @@ dos_beflg   equ os88_image_end + DOS_B_BEFLG
 dos_onprog  equ os88_image_end + DOS_B_ONPRG
 dos_fhix    equ os88_image_end + DOS_B_FHIX
 dos_fhtab   equ os88_image_end + DOS_B_FHTAB
+dos_dta     equ os88_image_end + DOS_B_DTA
+dos_dtaseg  equ os88_image_end + DOS_B_DTASEG
+dos_dtasv   equ os88_image_end + DOS_B_DTASV
+dos_dtasvs  equ os88_image_end + DOS_B_DTASVS
+dos_ford    equ os88_image_end + DOS_B_FORD
+dos_w83a    equ os88_image_end + DOS_B_W83A
+dos_w83b    equ os88_image_end + DOS_B_W83B
+dos_fabs    equ os88_image_end + DOS_B_FABS
+dos_cddep   equ os88_image_end + DOS_B_CDDEP
+dos_cdclus  equ os88_image_end + DOS_B_CDCLUS
+dos_cdlen   equ os88_image_end + DOS_B_CDLEN
+dos_curdir  equ os88_image_end + DOS_B_CURDIR
+dos_cwdbuf  equ os88_image_end + DOS_B_CWDBUF
 dos_imghi   equ os88_image_end + DOS_B_IMGHI   ; word: the file's size, high
 dos_exe_fseg equ os88_image_end + DOS_B_XFSEG  ; word: where the FILE landed
 dos_exe_lseg equ os88_image_end + DOS_B_XLSEG  ; word: ...and the load segment

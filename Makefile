@@ -4761,9 +4761,28 @@ $(BUILD)/DOSFILE.COM: tests/dosfile/file.asm | $(BUILD)
 $(BUILD)/dosfile360.img: $(BUILD)/DOSFILE.COM tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSFILE.COM
 
+# ...and the directory gate's, whose DISK is the fixture: the find counts are
+# assertions about the files beside the program, so the three .TXT files and
+# the one .DAT are chosen to make `*.*`, `*.TXT` and `?.TXT` three DIFFERENT
+# numbers (SPEC.md 96.12.1).
+$(BUILD)/DOSDIR.COM: tests/dosdir/dir.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dosdir/dir.asm
+
+$(BUILD)/dosdir/A.TXT: | $(BUILD)
+	mkdir -p $(BUILD)/dosdir
+	printf 'one\r\n' > $@
+	printf 'two\r\n' > $(BUILD)/dosdir/BB.TXT
+	printf 'three\r\n' > $(BUILD)/dosdir/CCC.TXT
+	printf 'four\r\n' > $(BUILD)/dosdir/DATA.DAT
+
+$(BUILD)/dosdir360.img: $(BUILD)/DOSDIR.COM $(BUILD)/dosdir/A.TXT tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSDIR.COM \
+	    $(BUILD)/dosdir/A.TXT $(BUILD)/dosdir/BB.TXT $(BUILD)/dosdir/CCC.TXT \
+	    $(BUILD)/dosdir/DATA.DAT
+
 .PHONY: doscom
 doscom: $(BUILD)/doscom360.img $(BUILD)/dosexe360.img $(BUILD)/dosmou360.img \
-        $(BUILD)/dosfile360.img
+        $(BUILD)/dosfile360.img $(BUILD)/dosdir360.img
 
 $(BUILD)/thewire.bin: apps/thewire/thewire.asm apps/thewire/wrhttp.inc \
                       apps/thewire/wrarc.inc apps/thewire/wrtxt.inc \

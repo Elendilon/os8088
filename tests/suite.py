@@ -2459,6 +2459,20 @@ SOAK = [
         "the handler ships on.",
         needs=("marty",), serial=True,
         wants=("build/dosfile360.img",)),
+    Row("dosdir", "soak", py("tests/dosdir.py"), 90.0,
+        "THE DOS DIRECTORY, FIND AND VECTOR GATE (SPEC.md 96.12). THE FIND "
+        "COUNTS ARE THE ROW: the gate disk carries A.TXT, BB.TXT, CCC.TXT, "
+        "DATA.DAT and the program, chosen so the three patterns give three "
+        "DIFFERENT numbers - `*.*` 5, `*.TXT` 3, `?.TXT` 1. A matcher that "
+        "ignores wildcards, one that matches the printable NAME.EXT form "
+        "instead of the 8.3 one, and one that lets `*` run past the dot each "
+        "get a different number wrong and no two agree. AH=47h is checked "
+        "against a name the program CHOSE - it makes SUBDIR, stands in it and "
+        "asks - so the '..' walk cannot pass by naming something already on "
+        "the disk. Plus AH=25h/35h round-tripping a vector and AH=19h "
+        "answering B.",
+        needs=("marty",), serial=True,
+        wants=("build/dosdir360.img",)),
     Row("heapcheck", "soak", py("tests/heapcheck.py"), 40.0,
         "Drive tests/heapfrag and read its verdict out of the guest (SPEC.md"
         "66.8).",

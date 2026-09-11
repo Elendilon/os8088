@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+"""The DOS directory, find and vector gate (SPEC.md 96.12).
+
+The three groups that landed beside the file handles and that a DOS program
+uses without thinking about them: the interrupt vectors, the DTA and
+find-first/next over it, and make/change/ask/remove directory.
+
+THE FIND COUNTS ARE THE ROW. The gate disk carries A.TXT, BB.TXT, CCC.TXT,
+DATA.DAT and the program, chosen so that the three patterns give three
+DIFFERENT numbers - `*.*` five, `*.TXT` three, `?.TXT` one. A matcher that
+ignores wildcards, one that matches the printable NAME.EXT form instead of
+the 8.3 one, and one that lets `*` run past the dot each get a different
+number wrong, and no two of them agree.
+
+AH=47h is checked against a name this program CHOSE - it makes SUBDIR, stands
+in it, and asks - so the '..' walk cannot pass by answering something already
+on the disk.
+"""
+import os
+import sys
+import time
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
+import os88ui                                                  # noqa: E402
+import os88marty                                               # noqa: E402
+
+SYS = "build/os8088-360.img"
+DIR = "build/dosdir360.img"
+
+
+def fail(msg):
+    print("dosdir: FAIL: %s" % msg)
+    sys.exit(1)
+
+
+def main():
+    for p in (SYS, DIR):
+        if not os.path.exists(p):
+            fail("%s is missing - `make doscom` builds the gate disks" % p)
+
+    with os88ui.boot(SYS, apps=DIR) as ui:
+        m = ui.m
+        if not ui.path("B:/DOSDIR.COM"):
+            fail("double-clicking DOSDIR.COM opened no window")
+
+        rows = []
+        end = time.time() + 180.0
+        while time.time() < end:
+            rows = m.screen() or []
+            if any("READY" in r for r in rows):
+                break
+            time.sleep(0.3)
+        else:
+            fail("the program never finished; the last text screen was %r"
+                 % ([r.rstrip() for r in rows if r.strip()][:12],))
+
+        text = "\n".join(r.rstrip() for r in rows)
+        print("dosdir: the bracket's text screen:")
+        for r in rows[:14]:
+            if r.strip():
+                print("   | %s" % r.rstrip())
+
+        for line in (l.strip() for l in rows):
+            if line.startswith("FAILED") or "FAILED" in line:
+                fail("the program reported: %s" % line)
+
+        if "DRIVE B" not in text:
+            fail("AH=19h did not answer drive B - the program was launched "
+                 "from B: and the map is the identity (SPEC.md 96.6)")
+        if "VEC ok" not in text:
+            fail("AH=25h/35h did not round-trip a vector (SPEC.md 96.12)")
+
+        got = None
+        for r in rows:
+            if r.strip().startswith("FIND "):
+                got = r.split()[1:4]
+        if got != ["5", "3", "1"]:
+            fail("the find counts are %r, not ['5','3','1'] - `*.*` sees five "
+                 "files, `*.TXT` three and `?.TXT` one, and no two wrong "
+                 "matchers give the same triple (SPEC.md 96.12.1)" % (got,))
+        print("dosdir: wildcards: *.* = 5, *.TXT = 3, ?.TXT = 1")
+
+        inside = None
+        for r in rows:
+            if r.strip().startswith("IN "):
+                inside = r.split()[1]
+        if inside != "0":
+            fail("a find inside the freshly made SUBDIR saw %r entries, not "
+                 "'0' - '.' and '..' are not reported to a package, which is "
+                 "the fact AH=47h's whole design rests on (SPEC.md 96.12.2)"
+                 % (inside,))
+        print("dosdir: a fresh subdirectory reports 0 entries, as it must")
+
+        cwd = None
+        for r in rows:
+            if r.strip().startswith("CWD "):
+                cwd = r.strip()[4:].strip()
+        if cwd != "SUBDIR":
+            fail("AH=47h answered %r, not 'SUBDIR' - the '..' walk builds the "
+                 "path from a name this program just chose, and DOS's answer "
+                 "carries no leading backslash (SPEC.md 96.12.2)" % (cwd,))
+        print("dosdir: AH=47h walked back to %r" % cwd)
+
+        if "DIR ok" not in text:
+            fail("the mkdir/chdir/rmdir round trip did not complete")
+
+        m.type_text("x")
+        os88marty.settle(m)
+        if "Disk" not in ui.titles():
+            fail("the desktop did not come back after the bracket")
+
+        wd, ht, data = m.fbuf()
+        os88marty.write_png_rgb("build/dosdir.png", wd, ht, data)
+        print("dosdir: build/dosdir.png written")
+
+    print("dosdir: ok")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
