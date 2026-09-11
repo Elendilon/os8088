@@ -35,9 +35,14 @@ for - a Note Pad that never said "Too big" at all would pass the other three:
   intact    ...and a REFUSED load leaves the note alone (SPEC.md 27.6), which
             is checked on the way through the next leg rather than costing
             one of its own
-  toobig    PAINT.O88 is 21,285 bytes and is genuinely too big for this
-            application, so it must still say so - with the claim AT the
-            ceiling, which is the fact that makes the sentence true
+  toobig    PAINT.O88 is genuinely too big for this application, so it must
+            still say so - with the claim AT the ceiling, which is the fact
+            that makes the sentence true. Its size is DERIVED from the package
+            on the disk and checked against NP_MAXKB, because a leg asserting
+            a refusal goes vacuous the moment its subject fits: it is
+            `image_unwrap`'s UNPACKED size and not the file's, since PKGZ
+            packs the small floppies (SPEC.md 20.13.5) and dskw_rbody
+            compares U
   nomem     ...and a SECOND Note Pad cannot fund a second 16KB document on a
             128KB machine, so its load is refused for real - and the toast
             must be "No memory" and never "Too big"
@@ -67,6 +72,7 @@ import os88sym                                              # noqa: E402
 import os88ui                                               # noqa: E402
 import dispcp                                               # noqa: E402
 import dispapps                                             # noqa: E402
+import os88pkg                                               # noqa: E402
 
 ARM = ("KERN_SMALL",)
 MACHINE = sys.argv[1] if len(sys.argv) > 1 else "os8088_5150_cga_128k"
@@ -261,17 +267,33 @@ with os88ui.boot(_T.img("small360.img"), machine=MACHINE, limit=180) as ui:
               "exercise the shed - the heap has moved and the row wants "
               "re-deriving (SPEC.md 50.6.2.1)")
 
-    # 2. THE POSITIVE CONTROL. PAINT.O88 is 21,285 bytes and there is no
-    #    claim this application may grow to that holds it, so "Too big" is
-    #    the true sentence - and np_capkb AT the ceiling is what makes it
-    #    true. Without this leg a Note Pad that had simply stopped saying
-    #    "Too big" would pass every other one.
+    # 2. THE POSITIVE CONTROL. There is no claim this application may grow to
+    #    that holds PAINT.O88, so "Too big" is the true sentence - and
+    #    np_capkb AT the ceiling is what makes it true. Without this leg a
+    #    Note Pad that had simply stopped saying "Too big" would pass every
+    #    other one.
+    #
+    #    THE SIZE IS DERIVED AND CHECKED, because this is the leg that can go
+    #    vacuous: a subject that fits turns a refusal assertion into a
+    #    tautology, and the package got 20% smaller ON DISK the week this was
+    #    written. `image_unwrap` is the rule for a host-side claim about a
+    #    size (SPEC.md 20.13.5) - dskw_rbody compares the UNPACKED size
+    #    against the caller's capacity, so a packed .o88 is refused on what it
+    #    expands to and not on what it occupies.
     heap("...the manual loaded")
+    paint = os88build.at("build/smallapp/paint.o88")
+    if not os.path.isabs(paint):
+        paint = os.path.join(os.path.dirname(__file__), "..", paint)
+    pbig = len(os88pkg.image_unwrap(open(paint, "rb").read()))
+    if pbig <= 16 * 1024:
+        sys.exit("regrowshed: PAINT.O88 unpacks to %d, which FITS Note Pad's "
+                 "%d-byte ceiling - this leg has lost its subject and wants a "
+                 "bigger file (WRITING-TESTS 1)" % (pbig, 16 * 1024))
     t = open_file(first, "APPS/PAINT.O88", "toobig")
     st = npstate(first)
     check("toobig", t == "Too big" and st["np_capkb"] == 16,
-          "(toast %r, np_capkb=%d - a 21,285-byte file against a "
-          "16,384-byte ceiling)" % (t, st["np_capkb"]))
+          "(toast %r, np_capkb=%d - %d unpacked bytes against a 16,384-byte "
+          "ceiling)" % (t, st["np_capkb"], pbig))
     # ...and SPEC.md 27.6's other promise, for free: a refused load leaves
     # the note exactly as it was.
     check("intact", st["np_len"] == WANT_LEN,
