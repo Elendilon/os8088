@@ -2407,6 +2407,11 @@ cs_hand equ os88_image_end      ; THE HANDOFF IS THE FIRST THING IN THE BSS,
     ZWORD cs_near                   ; ...and its near plane: CS_NEAR or CS_NEARG
     ZBYTE cs_pshr                   ; the object's transform scale (88.5.6):
     ZBYTE cs_pinside                ; ...no vertex can be past a side (88.5.7)
+    ZBYTE cs_noside                 ; ...set to turn the SIDE clip off wholly:
+                                    ; no vertex is ever marked past a side, so
+                                    ; a clamped point is drawn to and the line
+                                    ; through it WANDERS, which is what the
+                                    ; 1983 original did. The A/B for 88.5.7
     ZBYTE cs_pwhole                 ; ...nor behind the near plane: WHOLE, its
                                     ; box off its vertices (88.3.2)
     ZWORD cs_mkb2                   ; cs_markstep's bottom end, kept exact - a
