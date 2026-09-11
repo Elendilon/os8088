@@ -3780,7 +3780,7 @@ SOAK = [
         "go red - dropping wd_mvup's step-back fails every text assertion.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
-    Row("wdcombo", "soak", py("tests/wdcombo.py"), 150.0,
+    Row("wdcombo", "soak", py("tests/wdcombo.py"), 80.0,
         "SPEC.md 68.2.3: Word's three combos are os88ui_drop records rather "
         "than rows of wd_mtab, so the gesture is THREE EVENTS (press, drag, "
         "release) where the pseudo-menu ran one modal poll - and each edge "
