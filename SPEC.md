@@ -31453,9 +31453,23 @@ Six things hold it up.
   retries*, so asking outright would let a directory walk take the window
   raise cache (§11.96) away on a tight machine — and take it every walk.
 
-`dsk_dotdot` is deliberately **not** a caller. It reads the first sector of a
-subdirectory and stops, always — the one walk whose length is known to be 1 —
-so a run would buy it nothing.
+`dsk_dotdot` was written up here as deliberately **not** a caller, on the
+ground that it reads the first sector of a subdirectory and stops, always —
+the one walk whose length is known to be 1 — so a *run* would buy it nothing.
+
+**That reasoning is right about runs and the conclusion is now wrong**, and
+the tree moved without this paragraph: `dsk_dotdot_x` calls
+`dsk_dirw_start_x` / `dsk_dirw_get_x` today, and its own comment says why —
+*"the walk-then-read PAIR, which this file already owns and three callers in
+`diskw.inc` already use"*. It went through the window as part of a merge that
+was about sharing that pair rather than about caching.
+
+It is the right place for it to be, because **the two halves of this mechanism
+are not the same half**. A *run* coalesces sequential sectors inside one walk
+and can do nothing for a walk of length 1. The *cache* answers the second
+visit from memory, and a `..` chain is walked repeatedly by anything that
+climbs it — so the half that buys nothing here is the half the old paragraph
+named, and the half that pays is the other one.
 
 **Measured**, `make DISKCNT=1` on a cycle-accurate 5150, copying `B:\APPS`
 (9 packages, 90KB) to `A:` through the file manager, against `make DIRW1=1`

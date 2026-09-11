@@ -34,6 +34,42 @@ So the six seconds is not the cost of walking a directory tree. It is the cost
 of asking, four times, for a folder to be prepared for DISPLAY by a program
 that is not going to display it.
 
+## 1.1 ...and the slow slot does not only pay, it FLUSHES
+
+This is the half that makes six seconds make sense, and it was found by asking
+whether os8088 needs a `BUFFERS=`-style directory cache. **It has one.**
+
+SPEC.md §19.2.3: the directory walk reads through a cached window -
+`MEM_P_DIRW`, a 16KB purgeable claim holding **eight runs** of directory
+sectors, keyed on **the volume index plus `[dsk_sigcur]`**, the
+position-sensitive signature of the boot sector that mount read (§18.8.2). A
+switch to another volume and back keeps the runs; a disk swapped for a
+different one loses them. It is *"is this the same disk?"* followed by a
+memory operation, built and measured: metadata `int 13h` on a reference copy
+went **50 to 22**, a 2.3x.
+
+`dsk_dotdot_x` reads through it too, so climbing a `..` chain a second time is
+memory rather than revolutions. (§19.2.3 said it was deliberately not a caller;
+that paragraph was stale and is corrected there.)
+
+**And then the bullet that indicts `OSAPI_FILE_GOTO`:**
+
+> **A FULL mount drops every run and a quiet one does not.** A full mount is a
+> navigation or a **Refresh**, and Refresh answered out of a cache is a no-op,
+> which is the one thing it must never be. A quiet mount (§18.9) is a volume
+> switch inside an operation, and that is exactly the case worth keeping.
+
+`OSAPI_FILE_GOTO` is a full mount. **So each of Tank's three calls does not
+merely spend twelve sectors of its own - it throws away the machine's entire
+directory cache on the way past.** The cost lands on whatever runs next, too,
+which is why this is worth more than a per-package saving. `GOTO_QM` inside a
+volume is a word, and across volumes a quiet mount, and a quiet mount keeps
+the runs.
+
+So the conversion in §5 buys three things per site and only the first was
+costed here originally: the remount, the scan/sort/icon harvest, **and the
+cache the remount was about to discard.**
+
 ## 2. Tank's own comment is the worked example, and it is not a mistake
 
 This is worth quoting because it shows exactly how the wrong slot gets chosen,
@@ -138,7 +174,28 @@ that. For a high-score file the consequence of a collision is a corrupted
 score file. A package banking something it cannot afford to lose should also
 carry a witness (§4.3).
 
-### 4.3 ...and it may still not be needed
+### 4.3 ...and §1.1 makes it very likely unnecessary
+
+**The kernel already banks what §4.1 proposes banking, keyed on the same
+evidence, for every package at once.** §19.2.3's window holds the directory
+sectors and checks `[dsk_sigcur]` before trusting them; a package banking its
+own cluster would be a second cache over the same data, with a second
+invalidation rule to get wrong, saving the memory read the kernel's cache
+already answers from.
+
+So `OSAPI_VOL_SIG` probably should NOT be built. The order stands - convert,
+measure - but the expected outcome has moved: with `QM` the walk is free
+moves plus directory reads that a warm window answers from memory, and the
+thing that was making it cold was the slot being converted.
+
+What would change that is a number: if a converted walk is still slow on a
+4.77MHz 8088, the question becomes *why is the window cold*, and the answers
+are its capacity (eight runs, a working set of three volumes' roots plus
+subdirectories) or its purge (it is `MEM_P_DIRW`, given back the instant
+anything else needs the room) - neither of which a per-package cluster bank
+would fix either.
+
+### 4.4 The original "it may still not be needed" 
 
 Measure before building any of it. With `QM` the walk is **two free cluster
 moves and two directory sector reads**, because `QM` inside a volume is a
