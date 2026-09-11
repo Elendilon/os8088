@@ -23,11 +23,29 @@ the glyph (check and radio), scroll bars and the alert set — and no field.
 `kernel/fdlg.inc`.
 
 That is the same shape docs/plans/completed/CTRL-GLYPH-PLAN.md found one
-control along, and that plan's central finding applies here before anything
-else does: **converging the two check boxes REMOVED bytes rather than spending
-them**, because most of what each copy carried was not the control's logic but
-the machinery around it. Whether the same is true of a field is unknown and is
-exactly what the survey has to answer.
+control along, where converging the two check boxes **REMOVED** bytes rather
+than spending them - most of what each copy carried was not the control's
+logic but the machinery around it. Whether that is true of a field is unknown
+and is what §3's survey has to answer.
+
+**But bytes are not the argument, and docs/plans/UI-MENU-ELEMENT.md is the
+precedent that already landed.** Word's in-window menu became a shared element
+in three waves, and that plan's §0 records the correction worth inheriting
+here: the first refusal was written on bytes alone, *"which was the wrong
+argument about the wrong unit"*. What `apps/os88ui.inc`'s own header says
+instead is the argument for this:
+
+> Saving bytes was never the argument … The argument is that a feature added
+> to the button lands in the Standard File dialog, the Control Panel, the
+> Timer AND every package at once, because there is one body rather than ten
+> that agree by hand. SPEC.md 47's greying rule was fixed FIVE separate times
+> in this tree, each as its own bug.
+
+Twelve hand-rolled fields is twelve chances to get §47's refusal, §39.4's
+1bpp greying, or the one-cell caret wrong independently - and the glyph
+conversion showed that changing a shared body reaches every carrier at its
+next build with no per-package work. **That** is what a survey is for, and a
+field that came out byte-neutral would still be worth having.
 
 ## 2. The field and the area are NOT one control
 
