@@ -59,6 +59,18 @@
 
 %include "os88api.inc"
 
+; THE ROW BAR'S THUMB RATES (SPEC.md 13.10.5.4.1), at the TOP for 13.10.7.4's
+; reason. EQUAL, and for The Wire's reason: this bar has followed the hand at
+; 2 ticks on every machine since it was written, so it is one of the two the
+; rest of that section's table is calibrated against rather than one of the
+; ten the section changes.
+%ifndef SH_SBRATE
+%define SH_SBRATE 2                 ; ticks between commits on an 8086/8088
+%endif
+%ifndef SH_SBRATE286
+%define SH_SBRATE286 2              ; ...and on a 286 or better
+%endif
+
     OS88_HEADER 'SHEET', sh_entry, 3   ; bit 0 = icon, bit 1 = the
                                         ; association block below
 
@@ -2829,7 +2841,8 @@ sh_sbclick:
     je .vpgup
     cmp di, SH_SB_PGDN
     je .vpgdn
-    mov al, 2                          ; SB_THUMB. A rate of 2 ticks (~110ms)
+    mov ax, SH_SBRATE | (SH_SBRATE286 << 8)
+    call os88ui_sbrate                 ; SB_THUMB. A rate of 2 ticks (~110ms)
     call os88ui_sbgrab                 ; rather than 0: the view FOLLOWS the
                                         ; thumb as it moves, throttled, which
                                         ; is 13.10.5.4's purpose - rate 0 means

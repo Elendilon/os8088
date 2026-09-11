@@ -17,6 +17,13 @@
 %define SB_RATE 0               ; RATE 0 (13.10.5.4): both panes repaint whole
 %endif
 TP_SBRATE   equ SB_RATE
+; ...AND A 286 GETS 2 (13.10.5.4.1). Two panes repainting whole is the
+; heaviest commit any package here makes, and BOTH bars share one gesture
+; record (13.10.7.2), so one number serves them.
+%ifndef SB_RATE286
+%define SB_RATE286 2
+%endif
+TP_SBRATE286 equ SB_RATE286
 %endif
 
     OS88_HEADER 'TEXPAD', tp_entry, 3
@@ -5735,8 +5742,9 @@ tp_psb_click:
     jne .o                      ; pixels - the element does not care (13.10.7.2)
     cmp byte [tp_nodrag], 0
     jne .o
-    mov al, TP_SBRATE
-    call os88ui_sbgrab
+    mov ax, TP_SBRATE | (TP_SBRATE286 << 8)
+    call os88ui_sbrate          ; the rate THIS machine can afford
+    call os88ui_sbgrab          ; (SPEC.md 13.10.5.4.1)
 %endif
     jmp short .o
 .up:
@@ -5784,8 +5792,9 @@ tp_ssb_click:
     jne .o
     cmp byte [tp_nodrag], 0
     jne .o
-    mov al, TP_SBRATE
-    call os88ui_sbgrab
+    mov ax, TP_SBRATE | (TP_SBRATE286 << 8)
+    call os88ui_sbrate          ; the rate THIS machine can afford
+    call os88ui_sbgrab          ; (SPEC.md 13.10.5.4.1)
     jmp short .o
 %endif
     jmp short .o

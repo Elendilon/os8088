@@ -52,6 +52,12 @@
 %define SB_RATE 0               ; RATE 0 (13.10.5.4): a scroll here ends in
 %endif                          ; sc_redraw, and this window is the widest in
 SC_SBRATE   equ SB_RATE         ; the system
+; ...AND A 286 GETS 2 (13.10.5.4.1): sc_redraw on a 286, nine times a
+; second, against the whole gesture's worth of nothing on an 8088.
+%ifndef SB_RATE286
+%define SB_RATE286 2
+%endif
+SC_SBRATE286 equ SB_RATE286
 %endif
 
 ; =============================================================================
@@ -1291,8 +1297,9 @@ sc_sbclick:
     jne .yes                        ; now. BX is still the block and DX still
     cmp byte [sc_nodrag], 0         ; the press, absolute
     jne .yes
-    mov al, SC_SBRATE
-    call os88ui_sbgrab
+    mov ax, SC_SBRATE | (SC_SBRATE286 << 8)
+    call os88ui_sbrate          ; the rate THIS machine can afford
+    call os88ui_sbgrab          ; (SPEC.md 13.10.5.4.1)
 %endif
     jmp short .yes                  ; the thumb itself, or an inert track
 .lineup:
