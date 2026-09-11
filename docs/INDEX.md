@@ -302,6 +302,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | CHART | `apps/chart/chart.asm` | §82 | yes |
 | CWORD | `apps/cword/cword.asm` | §73.12 | yes |
 | CYCLONE 88 | `apps/cyclone/cyclone.asm` | §67 | yes |
+| DOS | `apps/dos/dos.asm` | §96 | no |
 | DOTDEL | `apps/dotdel/dotdel.asm` | §93 | yes |
 | FONT VIEWER | `apps/fontview/fontview.asm` | §90 | yes |
 | FPTEST | `apps/fptest/fptest.asm` |  | no |
@@ -437,6 +438,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | 93 | DOT DELIRIUM — a maze chase, sized from the surface (`apps/dotdel/`) |
 | 94 | Picture decoders (`apps/os88img.inc`) |
 | 95 | SCRIBE (`apps/scribe/`) — the fork of WORD |
+| 96 | DOS — running `.COM` and `.EXE` programs (`apps/dos/`) |
 
 ## docs/
 

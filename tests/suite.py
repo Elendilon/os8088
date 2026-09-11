@@ -2399,6 +2399,19 @@ SOAK = [
         "check 4's repaint differs over 24 rows of the grid",
         needs=("marty",), serial=True,
         wants=("build/sheetmove360.img",)),
+    Row("doscom", "soak", py("tests/doscom.py"), 45.0,
+        "THE DOS WAVE-1 GATE (SPEC.md 96): double-click a .COM in a Disk "
+        "window and assert a real DOS program RAN - its own output on the "
+        "text screen inside the fsx bracket, and its exit code in the "
+        "package's window after it. MartyPC and not QEMU, because the whole "
+        "point is a 4.77MHz 8088 executing DOS code natively. VERIFIED TO "
+        "FAIL, three ways, each seen on the way to writing it: far-jump to "
+        "PSP:0000 instead of PSP:0100 and it reads 'Exit code 000' with no "
+        "output; get PSP:0002 wrong and the KB line reads 8 instead of 520; "
+        "answer an unsupported INT 21h instead of setting CF in the PUSHED "
+        "flags and the program itself prints 'the gate has FAILED'.",
+        needs=("marty",), serial=True,
+        wants=("build/doscom360.img",)),
     Row("heapcheck", "soak", py("tests/heapcheck.py"), 40.0,
         "Drive tests/heapfrag and read its verdict out of the guest (SPEC.md"
         "66.8).",

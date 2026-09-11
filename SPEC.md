@@ -118317,3 +118317,164 @@ The cheapest place to start is the pen: making `sc_advof` answer what
 change. It is not made here because it moves every caret, hit-test and
 alignment decision in the package at once, and that is a change to look at
 rather than to infer.
+
+## 96. DOS — running `.COM` and `.EXE` programs (`apps/dos/`)
+
+**Not an emulator.** This machine is an 8086 in real mode and a DOS `.COM` is
+machine code for the processor already running, so `DOS.O88` does not
+interpret anything: it builds the memory a DOS program expects, points
+`INT 21h` at code of its own, and far-jumps into the program. What it provides
+is the *operating system* the program calls, not the *processor* it runs on.
+
+The design record is **docs/plans/DOS-EXEC-PLAN.md**, which carries the
+measurements, the alternatives and the waves; this section is the contract.
+
+### 96.1 What it is, and where it lives
+
+A `SYSAPPS` package — `SYSTEM/DOS.O88` on all four system-disk geometries and
+on no apps disk (§24.3), for §92's reason: a `.COM` can be sitting on any
+floppy, so the program that runs it belongs on the disk the machine booted
+from. It declares `COM` and `EXE` in its association block (§54.6), so a
+double-click on either launches it with `OSAPI_ARG_FILE` naming the file.
+
+**`kern_big` only.** §54.0 gates associations out of `kern_small`, so a
+double-click cannot reach it there; the 128KB machine is served by launching
+the package itself and picking a file from the Standard File dialog, which is
+a later wave and not this contract.
+
+**It is not on the small disks** (`SMALLOMIT`), and the reason is a
+REQUIREMENT rather than a size (§24.5): without associations there is no route
+to it, and a 128KB machine's arena cannot host a DOS program worth running.
+
+### 96.2 The bracket, and the order that matters
+
+`DOS.O88` runs a program inside **one `OSAPI_FSX_RUN` bracket** (§53.1): the
+machine is the program's, the desktop is frozen, the mouse cursor cannot
+appear over it, and the restore at the end is §53.6's.
+
+It is entered from the **wake handler** (`OSAPI_WM_ONWAKE`, §74.1) and not
+from a paint or a click, because the order is binding:
+
+1. **Before the lock**, in the wake handler's own lock-free context (§74.1):
+   navigate to the program's directory and read it. File slots are legal
+   there, and a floppy read under the gfx lock is the freeze §7.4 exists to
+   avoid.
+2. **Take the gfx lock** (`OSAPI_GFX_LOCK`), because `fsx_run` requires it
+   held.
+3. **`OSAPI_FSX_RUN`**, which does not return until the program has finished.
+4. **Release the lock**, then repaint the window with the outcome.
+
+**The bracket MUST call `OSAPI_FSX_MODE` with `FSXM_TEXT80`**, first thing and
+whatever the program later does to the screen. This is not a choice: a DOS
+program sets its own modes through the ROM behind our back, and `fsx_restore`
+skips `vid_setmode` when `[fsx_cur]` is still 0xFF (§53.6), so without our own
+mode call the desktop returns into whatever mode the program left.
+
+`FSXF_KEEPWORKER` is not passed: the package has no worker.
+
+### 96.3 The arena — one claim, sized by one call
+
+The DOS program's memory is **one `OSAPI_MEM_CLAIM_HI` of `OSAPI_MEM_AVAIL`'s
+answer**, and there is no arithmetic between those two calls.
+
+`mem_avail` already counts every purgeable cache as free and already reports
+the run a compaction would leave (§50.6.3, §66.10.3), so it answers the same
+question `mem_claim` answers and a claim of it is served. **A package must not
+walk the claim table to "allow for" a shed**: that subtracts what the figure
+has already added, and `OSAPI_CLAIM_SNAPSHOT` is for displaying the heap
+rather than reasoning about it.
+
+Inside the claim, a DOS machine:
+
+```
+  base + 0000    MCB 'M', owner = PSP    -> the environment block
+  base + ....    MCB 'M', owner = PSP    -> PSP (256 bytes) + the image
+  base + ....    MCB 'Z', owner = 0      -> the rest, free
+```
+
+`PSP:0002` holds the paragraph past the program's block, `INT 21h AH=48h/49h/
+4Ah` walk this chain and nothing else, and `AH=52h` answers a List-of-Lists
+stub whose preceding word names the first MCB. **`0040:0013` is patched to the
+top of the arena for the life of the bracket** and restored by §96.5, so
+`INT 12h` agrees with the other three; it is safe because the kernel reads
+`int 12h` exactly twice in the whole tree, once at boot and once in the Task
+Manager, which cannot run inside a bracket.
+
+**Containment is DOS's own and no better.** An 8086 has no MMU; a program that
+respects its PSP allocation is contained by arithmetic and one that scribbles
+at a hardcoded address is not, exactly as under DOS.
+
+### 96.4 The back end — every kernel call goes through a table
+
+**Binding, and it costs almost nothing to obey.** No `INT 21h` handler calls
+an `OSAPI_*` file slot directly. They call through `dos_be`, a table of near
+procs in the package's own segment, of which the os8088 implementation is one
+and is currently the only one.
+
+It exists because docs/plans/DOS-EXEC-PLAN.md §14 wants a mode in which the
+kernel is not there at all — hibernated out, so the program has the whole
+machine — and in that mode the file half must be served by something else. A
+table makes that a second back end; direct calls would make it a rewrite of
+every file function, which is the largest single piece of this project.
+
+It is the shape the system already uses twice one layer down: `DSV_BLK` lets
+`dsk_xfer` serve a volume through the BIOS or a driver without knowing which
+(§18.7), and `DSV_FS`'s `FSV_*` table does it for a whole file system (§51.8).
+
+### 96.5 The machine-state ledger
+
+Saved into the package's **own bss** — never into the arena, which is the
+program's to scribble on — and put back when the bracket ends, however it
+ends:
+
+- **The whole IVT**, 1KB, one `rep movsw` each way. A list of vectors to
+  remember would be wrong for the ones we do not know about, and a DOS program
+  hooks vectors as a matter of routine.
+- **The whole BDA saved, a named list restored.** `0040:0000` (16, the COM and
+  LPT port tables — `NET.DRV` finds the parallel port through the LPT half),
+  `0040:0010` (2, the equipment word the kernel *writes* to match the
+  adapter), `0040:0013` (2, ours), `0040:001A` (4, the keyboard buffer head
+  and tail that `kbd_ovflow` reads on every `int 09h`), `0040:0072` (2, the
+  soft-reset flag), `0040:0080` (4, the keyboard buffer bounds — a TSR that
+  enlarges the buffer repoints these into memory we are about to free), and
+  `0040:0098` (10, the `int 15h` wait-flag pointer, the same trap).
+- **`0040:0017`, `0018`, `0096`, `0097` are ZEROED, not restored.** They say
+  which keys are held, and the honest value on the way back is that none is.
+- **Everything else in the BDA is left alone**, and the two that matter are
+  left alone *because* the kernel reads them: `0040:003F`/`0040` is the floppy
+  motor state `dsk_fdd_probe` calls the only place the current state exists,
+  and `0040:006C` is the tick `spl_clock` and `SOUND.DRV`'s `pm_ticks` read.
+  Restoring either would hand a live reader a statement that is not true of
+  the machine. The video block `0040:0049`..`0066` needs nothing, because
+  §53.6's `vid_setmode` goes through the ROM and the ROM rewrites it.
+- **PIT channel 0** back to the kernel's mode, and **the 8259 masks** at
+  `0x21`/`0xA1` back to what they were.
+
+### 96.6 Drives, and the hole in the map
+
+A DOS drive letter is an os8088 volume index and the map is the identity:
+0 = A:, 1 = B:, 2 = C:, 3 = D: (§18.7).
+
+**The map is sparse and stays sparse.** §18.7.4 reserves index 2 for a hard
+disk whether or not the machine has one, so a machine can read A:, nothing,
+C:, D: — which is not a departure from DOS but an agreement with it: a real
+IBM PC 5150 with one internal floppy, a hard disk and an external floppy is
+lettered exactly that way by DOS itself. A program that walks drives upward
+and stops at the first failure will stop at the hole; that is the cost, and it
+is paid for the rule §18.7.4 already chose — the letter on the desktop is the
+letter the user types.
+
+Invalid-drive answers are DOS's own, per function and not invented:
+`AH=36h` → `AX=FFFFh`; `AH=1Ch` → `AL=FFh`; an FCB call → `AL=FFh`; a handle
+call on a lettered path → CF=1 with `AX=0Fh`; `AH=0Eh` does not fail and
+returns the drive count, which spans the hole.
+
+### 96.7 What wave 1 answers, and what it refuses
+
+`INT 20h`, and `INT 21h`: `AH=00h`, `01h`, `02h`, `07h`, `08h`, `09h`, `0Bh`,
+`30h`, `4Ch` — terminate, the character I/O set, the DOS version.
+
+Everything else refuses with CF=1 and `AX=1` (invalid function), which is
+what DOS answers for a function it does not have. A refusal is a normal path
+(§47): the window says which function was asked for, so an unsupported
+program names its own gap instead of hanging.
