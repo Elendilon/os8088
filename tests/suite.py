@@ -725,6 +725,26 @@ FAST = [
         "own BPB: it has to name a sector a transfer run reads AFTER the head "
         "boundary, because the half before it loads correctly on exactly the "
         "machine the canary is for - which is how the first one shipped wrong"),
+    Row("volsig", "fast", py("tests/unit/t_volsig.py"), 0.4,
+        "NO TWO SHIPPED VOLUMES MAY SIGN THE SAME (SPEC.md 18.8.2). The "
+        "kernel's entire swap detector is a rotate-add sum over LBA 0, and "
+        "SPEC.md 18.95's sector cache and SPEC.md 18.8's FAT window are both "
+        "keyed on it - so two disks that sign alike are ONE disk to a running "
+        "machine: swap them and the old disk's directory sectors and FAT stay "
+        "valid against the new platter, and a write commits the old FAT onto "
+        "it. os88disk.py pinned BS_VolID to 0x88000888 on everything it built "
+        "for reproducibility, which made every non-bootable disk of a geometry "
+        "byte-identical in its boot sector - 23 images signing 0x2D68, and at "
+        "360KB that is every data floppy shipped. It computes the SIGNATURE "
+        "the kernel computes rather than asserting the field, so a future "
+        "scheme that distinguishes volumes differently still passes and a "
+        "derivation that collides still fails; and it asserts the other "
+        "direction too - images with IDENTICAL CONTENT must sign alike, which "
+        "is reproducibility stated where it can be checked. Scoped to "
+        "$(SHIPIMGS) READ OUT OF THE MAKEFILE, not a glob: the on-demand disks "
+        "and the images a soak's guests wrote live in build/ too. VERIFIED TO "
+        "FAIL by re-pinning the serial - red, naming apps/games/media/network/"
+        "office 360 as five volumes signing 0x2D68."),
     Row("mlen", "soak", py("tests/unit/t_mlen.py"), 3.4,
         "twelve month lengths, read back out of build/kernel.bin. clk_mlen "
         "carries the eleven non-February ones as a 16-bit MASK since kernel "

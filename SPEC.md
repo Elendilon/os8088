@@ -27501,15 +27501,41 @@ describes the **outgoing** volume at that moment, which is precisely the one
 being banked.
 
 It catches a disk swapped for one of a different size, format, label or
-boot-sector contents, and it costs no I/O. **It cannot tell two os8088-built
-disks of the same geometry apart**, because `tools/os88disk.py` pins
-`BS_VolID` (0x88000888) and every FAT timestamp to keep image builds
-reproducible — their boot sectors are byte-identical. That residual case
-(swap one os8088 disk for another between two *quiet* mounts, then write) is
-**accepted deliberately**: a full mount re-validates and is what every
-navigation costs, so only a background operation is exposed. Un-pinning the
-serial would close it at the price of reproducible images; that trade was
-considered and declined.
+boot-sector contents, and it costs no I/O.
+
+**It used to catch nothing else at all, and this paragraph said so wrongly.**
+`tools/os88disk.py` pinned `BS_VolID` to 0x88000888 on every volume it built,
+so the boot sectors of two os8088 disks of one geometry were byte-identical
+and signed the same — **measured, 23 images in this tree signing `0x2D68`**,
+which at 360KB is every data floppy the project ships. Taken on the machine:
+three visibly different floppies in B:, one at a time, and `[dsk_sigcur]`
+reads `0x2D68` for all three.
+
+The residual was called *accepted deliberately*, on the ground that *"a full
+mount re-validates and is what every navigation costs, so only a background
+operation is exposed."* **That ground was never true.** The full mount does
+re-read LBA 0 and does bypass §18.95's cache — and it re-reads 512 bytes that
+are *the same 512 bytes*, computes the same signature, and concludes the disk
+has not changed. A re-validation cannot catch a difference that is not in
+what it reads. So the exposure was never confined to a background operation:
+with §18.95's cache keyed on this signature and serving every read in the
+machine — and §18.8's FAT window keyed the same way — a swap left the
+**previous disk's directory sectors and FAT valid against the new platter**,
+and a write then put the old FAT onto it.
+
+**The pin was not what reproducibility needed.** What a released image needs
+is that the same inputs build the same bytes, and a serial *derived from the
+volume's own content* gives exactly that while giving different disks
+different serials. `os88disk.vol_id` is that derivation — a digest over the
+FAT, the root directory and the data area, which is the whole volume except
+the sector the serial goes in, so there is no circularity. Two volumes whose
+content is identical still share a serial, which is correct: they are the
+same disk. Images still rebuild byte for byte, and the six 360KB disks now
+sign six different values.
+
+`tests/unit/t_volsig.py` is the guard, and it checks the property rather than
+the field: no two shipped images whose content differs may sign the same.
+It is a `fast` row because it is arithmetic over files `make` has just built.
 
 **Measured**, the user on B: changing a Control Panel setting and closing the
 panel — §18.4's case, carried the rest of the way:
