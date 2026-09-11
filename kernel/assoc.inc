@@ -73,7 +73,8 @@ assoc_stem:
     db 'NOTEPAD '
     db 'TRACKER '
     db 'ARTFUL  '
-    db 'DOS     '                ; SPEC.md 96: the handler for .COM and .EXE,
+    db 'DOS     '                ; SPEC.md 96: the handler for .COM, .EXE and
+                                 ; .LNK (96.21),
                                  ; and it has to be a BUILT-IN rather than a
                                  ; declaration on the disk - see assoc_ext
     times (ASSOC_NAPP - 5) * 8 db 0
@@ -96,7 +97,11 @@ assoc_ext:
     db 'MD ', 3                 ; -> ARTFUL
     db 'COM', 4                 ; -> DOS (SPEC.md 96)
     db 'EXE', 4                 ; -> DOS
-    times (ASSOC_NEXT - 7) * 4 db 0
+    db 'LNK', 4                 ; -> DOS: a SHORTCUT (SPEC.md 96.21), and
+                                ; built in for the same reason as the two
+                                ; above and more so - a shortcut's whole point
+                                ; is that it sits where the USER put it
+    times (ASSOC_NEXT - 8) * 4 db 0
 
 ; WHY .COM AND .EXE ARE BUILT IN rather than declared in DOS.O88's own header
 ; the way TRACKER declares .MOD (SPEC.md 54.6). A declaration is harvested at
@@ -109,7 +114,12 @@ assoc_ext:
 ;
 ; DOS is the first handler whose documents are on somebody ELSE's disk - a
 ; floppy of .COM files, with DOS.O88 back on the system disk - and that is
-; exactly the case the harvest cannot reach. Measured: with DOS declared and
+; exactly the case the harvest cannot reach. **.LNK JOINED THEM AND HIT THE
+; IDENTICAL WALL**, which is worth recording because the second time cost a
+; debugging session the first had already paid for: a shortcut declared and
+; not built in opened as `Bad package` on the floppy it was saved to, and the
+; symptom was indistinguishable from a writer that had emitted rubbish.
+; Measured: with DOS declared and
 ; not built in, a double-click on B:\FOO.COM answers `Bad package`, and the
 ; SAME double-click works after opening A: once, because that full mount is
 ; what finally read A:'s ASSOC.DAT.

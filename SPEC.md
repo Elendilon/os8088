@@ -119523,6 +119523,98 @@ derived by hand from the old template, and used by the post-bracket fill.
 stale when somebody edits the template — which is the same class of defect as
 §96.19.5's, one line apart.
 
+### 96.21 A shortcut, in Microsoft's own format
+
+A program, its arguments and its environment are a thing worth keeping. `.LNK`
+is the extension for it, and **os8088 writes a valid subset of Microsoft's
+Shell Link format** rather than inventing one — because the name is instantly
+recognisable, and because every field needed already has a home:
+
+| what | where it goes |
+|---|---|
+| the folder | `WORKING_DIR` |
+| the program | `RELATIVE_PATH`, written `.\NAME.EXT` — valid Windows spelling *and* parseable here |
+| the arguments | `COMMAND_LINE_ARGUMENTS` |
+| the environment | an `ExtraData` block under a signature of our own |
+
+That last one is the part that would be a hack in most formats and is not in
+this one: `ExtraData` is a sequence of `{size, signature, data}` blocks and
+consumers are specified to **skip signatures they do not recognise** — the
+size counts itself, so stepping over an unknown block is one add. A private
+block is a legal use of the mechanism rather than a squat.
+
+**The 76-byte header is almost entirely zero**, legally: three FILETIMEs, the
+file size, the icon index, the hotkey and three reserved fields. What is not
+zero is the size dword (which is the format's own magic, `0x4C`), the fixed
+CLSID, `LinkFlags` and `ShowCommand` — so the header is a template and nothing
+is patched into it.
+
+#### 96.21.1 It reads only its own, and says so
+
+A Windows-authored shortcut leads with a **`LinkTargetIDList`** — an arbitrary
+shell ID list — and a **`LinkInfo`** carrying volume IDs. Parsing those out of
+hostile floppy input is real work for no benefit: a modern 64-bit Windows
+cannot run a DOS program anyway, so **what the format buys here is that it is
+RECOGNISED, not that it round-trips**. Both structures are optional, both are
+declared in `LinkFlags`, and one compare refuses a link that has either.
+
+**Every length is checked against what is LEFT of the file**, never against
+the buffer. A character count that runs past the end of a short file would
+otherwise read whatever follows it in our own image — §20.8 rule 2, at the one
+place in this package that parses a structure somebody else may have written.
+A string longer than its destination is **refused, not truncated**: a
+truncated path resolves somewhere real.
+
+**A refusal leaves the link's own name in place.** A corrupt or foreign `.LNK`
+then produces the ordinary "it is not a program" failure a moment later, with
+the file the user actually double-clicked named in the window. The alternative
+— a half-applied link — is a window naming a program the user never chose.
+
+#### 96.21.2 Where it is read, and where it is written
+
+It is read at the **entry** rather than in the wake, because everything
+downstream wants the *target's* name: the window's caption, the arguments
+field, the environment page. By the time the wake runs, the instance simply is
+the program the link named.
+
+It is written by **Save Shortcut**, through the kernel's Standard File dialog
+in save mode (§38), defaulting to the program's own name with `.LNK` on it.
+The dialog refusing — one is already up — needs no report: the user pressed a
+button and nothing happened, which is what a busy dialog looks like.
+
+#### 96.21.3 `os88line_resync` — the buffer the field already owns
+
+The arguments field's `LN_BUF` **is** `dos_args`, and each environment row's
+is a slice of `dos_ebuf`. That is deliberate: §96.19 has one store for what
+the user typed and what the program is given, so there is no copy to keep in
+step and no moment when the two disagree.
+
+It makes the reload after a link is parsed a different operation from the one
+`apps/os88line.inc` had. `os88line_set` **copies from `DS:DI` into `LN_BUF`**,
+which is right for a location bar being handed a URL; here the data is already
+*in* `LN_BUF`, put there by `dos_lnk_parse`, and what is needed is only for
+`LN_LEN`, `LN_CAR` and `LN_VIEW` to be re-derived from it.
+
+Calling `set` for that is not a no-op and not merely untidy — **there is
+nothing to put in `DI`**, so the call copies from whatever the register
+happened to hold, over the very bytes it was called to display. The symptom
+was a shortcut that opened its program in the right folder under the right
+name and ran it with **no arguments and no environment**: everything the link
+carried was parsed correctly and then overwritten a few instructions later.
+`dos_fld_init` had the same call with the same undefined `DI`, and was only
+ever harmless because it runs against a buffer it has just emptied.
+
+`os88line_resync` is that missing primitive — measure the NUL string already
+in `LN_BUF`, bounded by `LN_MAX`, and set the three fields from it. It is ~45
+bytes in a shared include, so every package that includes the line field pays
+for it in **compressed disk and nothing resident**; the browser, Telnet and
+ftpd do not call it yet, and the one that does could not have been written
+correctly without it.
+
+The rule one level up: **a field whose buffer is also the program's storage
+has two ways to change, and a shared control needs a verb for each.** Only one
+of them is a copy.
+
 ### 96.18 The machine underneath — a real vector, a real line, a real transfer
 
 Every other section here is about `INT 21h`, which is **our** code answering.

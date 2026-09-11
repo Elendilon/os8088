@@ -2609,6 +2609,33 @@ SOAK = [
         "deliberately put back. VERIFIED TO FAIL at 0% ink against 50%.",
         needs=("marty",), serial=True,
         wants=("build/dosargs360.img",)),
+    Row("doslnk", "soak", py("tests/doslnk.py"), 150.0,
+        "A SHORTCUT: can what a DOS program needs be SAVED and reopened? "
+        "(SPEC.md 96.21). Arguments and an environment that have to be retyped "
+        "every launch are arguments nobody sets, so the box writes a .LNK "
+        "carrying the path, the command line and the variables - a real SHELL "
+        "LINK, because 8.3 leaves no room to invent an extension and the "
+        "format is one every other system already reads. THREE STEPS, and the "
+        "middle one is the reason the row exists: the program is run once with "
+        "arguments typed in, Save Shortcut writes the link, and then "
+        "tests/doslnk.py READS THAT FILE BACK OFF THE FLUSHED IMAGE WITH ITS "
+        "OWN SHELL LINK PARSER - HeaderSize 0x4C, the fixed CLSID, LinkFlags, "
+        "the counted StringData and the ExtraData chain - so a writer and a "
+        "reader that agreed on the same wrong bytes cannot both pass. Step 3 "
+        "boots again and double-clicks the link: the arguments, the "
+        "environment AND the working directory must all arrive, which is three "
+        "separate mechanisms (the PSP tail, the environment block, and a walk "
+        "DOWN from the volume root on OSAPI_FILE_GOTO_QM - the only direction "
+        "a package can walk). MYPATH is asserted whole, because a link that "
+        "ran the right name in the WRONG FOLDER is the failure this walk "
+        "exists to stop. VERIFIED TO FAIL three ways while it was written: a "
+        "link built before the dialog navigated recorded the wrong working "
+        "directory; two strings sharing one buffer put the program's name in "
+        "the filename field; and the field reload called os88line_set with no "
+        "DI, copying a stale pointer over the very arguments it was showing - "
+        "which is why os88line_resync exists (96.21.1).",
+        needs=("marty",), serial=True,
+        wants=("build/doslnk360.img", "build/dosargs360.img")),
     Row("heapcheck", "soak", py("tests/heapcheck.py"), 40.0,
         "Drive tests/heapfrag and read its verdict out of the guest (SPEC.md"
         "66.8).",

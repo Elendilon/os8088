@@ -4836,6 +4836,13 @@ $(BUILD)/DOSARGS.COM: tests/dosargs/args.asm | $(BUILD)
 $(BUILD)/dosargs360.img: $(BUILD)/DOSARGS.COM tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 BIN:$(BUILD)/DOSARGS.COM
 
+# --- the shortcut gate's disk (SPEC.md 96.21) --------------------------------
+# A SCRATCH image, because the row WRITES to it: Save Shortcut puts a .LNK on
+# whatever volume the file dialog lands on, and a gate disk that grew a file
+# would not build byte-identical the next time.
+$(BUILD)/doslnk360.img: $(BUILD)/DOSARGS.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 BIN:$(BUILD)/DOSARGS.COM
+
 # ...and the XMS gate's, whose whole assertion on an 8088 is a REFUSAL
 # (SPEC.md 96.15.1) - plus that asking at all comes back, which an unhooked
 # multiplex vector on a ROM that does not implement it need not do.
@@ -4859,7 +4866,7 @@ doscom: $(BUILD)/doscom360.img $(BUILD)/dosexe360.img $(BUILD)/dosmou360.img \
         $(BUILD)/dosfile360.img $(BUILD)/dosdir360.img $(BUILD)/dosexec360.img \
         $(BUILD)/dosxms360.img $(BUILD)/dossnd360.img $(BUILD)/dosxmsq.img \
         $(BUILD)/dosirq360.img $(BUILD)/pathtest360.img \
-        $(BUILD)/dosargs360.img
+        $(BUILD)/dosargs360.img $(BUILD)/doslnk360.img
 
 $(BUILD)/thewire.bin: apps/thewire/thewire.asm apps/thewire/wrhttp.inc \
                       apps/thewire/wrarc.inc apps/thewire/wrtxt.inc \

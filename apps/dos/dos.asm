@@ -48,9 +48,15 @@
     OS88_ICON16_END
 
     OS88_ASSOC16
-    db 2
-    OS88_ASSOC_EXT 'COM'
+    db 3                            ; ...and this COUNT is the thing to change
+    OS88_ASSOC_EXT 'COM'            ; with them: a fourth entry left at 2 sits
+                                    ; in the block and is never looked at, and
+                                    ; the symptom is the loader trying to RUN
+                                    ; the document
     OS88_ASSOC_EXT 'EXE'
+    OS88_ASSOC_EXT 'LNK'            ; a SHORTCUT (SPEC.md 96.21): the target,
+                                    ; its arguments and its environment, in
+                                    ; Microsoft's own Shell Link layout
     OS88_ASSOC16_END
 
 ; DOS_CONT_W/H WERE HERE and are gone (SPEC.md 96.20.3): they were 286 and 81,
@@ -99,6 +105,35 @@ DOS_ENVN    equ 4                   ; rows
 DOS_ENVW    equ 48                  ; characters in one, not counting the NUL
 DOS_ENVBUF  equ DOS_ENVW + 1
 
+; --- THE SHORTCUT FILE (SPEC.md 96.21) ---------------------------------------
+; A valid subset of Microsoft's Shell Link format, because the extension is
+; instantly recognisable and every field we need already has a home in it:
+;
+;   WORKING_DIR              the folder, `\BIN`
+;   RELATIVE_PATH            the program, `.\DOSARGS.COM` - valid Windows
+;                            spelling AND parseable by us
+;   COMMAND_LINE_ARGUMENTS   the tail
+;   an ExtraData block       the environment, under a signature of our own.
+;                            ExtraData is specified as extensible and unknown
+;                            signatures are to be SKIPPED, so this is a legal
+;                            use of the mechanism rather than a squat
+;
+; WE READ ONLY OUR OWN. A Windows-authored link leads with a LinkTargetIDList
+; - an arbitrary shell ID list - and a LinkInfo with volume IDs, and parsing
+; that from hostile floppy input is real work for no benefit: a 64-bit Windows
+; cannot run a DOS program anyway, so the value of the format here is that it
+; is RECOGNISED, not that it round-trips. A foreign link is refused by name.
+LNK_HDR     equ 76                  ; the fixed header, 0x4C
+LNK_F_WDIR  equ 0x10                ; LinkFlags: HasWorkingDir...
+LNK_F_RELP  equ 0x08                ; ...HasRelativePath...
+LNK_F_ARGS  equ 0x20                ; ...HasArguments. Deliberately NOT
+                                    ; HasLinkTargetIDList or HasLinkInfo: both
+                                    ; are optional, and both are the parts we
+                                    ; decline to write or read
+LNK_EXTSIG  equ 0xA0088088          ; OUR ExtraData block: 'os8088' shaped, in
+                                    ; the range MS leaves to other producers
+LNK_MAX     equ 512                 ; what one may be, read or written
+
 DOS_PAGE_MAIN equ 0
 DOS_PAGE_ENV  equ 1
 
@@ -119,6 +154,7 @@ DOS_EROWH   equ 16                  ; ...and one row's pitch, which with four
 DOS_BTNW    equ 104                 ; the page buttons. 'Environment' is 11
 DOS_BTNH    equ 14                  ; cells = 88px, and a label that touches
 DOS_BTNY    equ 90                  ; its own frame reads as struck through
+DOS_SAVW    equ 112                 ; 'Save Shortcut' is 13 cells = 104px
 
 ; os88line.inc is included at the END of this file (its own rule: the header
 ; and the icon block are at fixed offsets), and the bss table above needs its
@@ -184,6 +220,9 @@ dos_entry:
     or al, al
     loopnz .cp
 
+    call dos_lnk_open               ; A SHORTCUT names another program and
+                                    ; carries its arguments (SPEC.md 96.21);
+                                    ; anything else is the program itself
     mov byte [dos_state], DST_READY
     mov bx, [dos_win]
     call OSAPI_WM_WAKE              ; ...and run it from the wake handler, which
@@ -2206,6 +2245,13 @@ dos_paint:
     mov si, dos_l_envb
     xor di, di
     call os88ui_btn
+
+    mov bx, [dos_win]               ; ...and the way OUT of the session
+    call dos_sav_rect
+    mov bx, dos_srect
+    mov si, dos_l_savb
+    xor di, di
+    call os88ui_btn
 .out:
     pop di
     pop si
@@ -2491,6 +2537,168 @@ dos_btn_rect:
     ret
 
 ; -----------------------------------------------------------------------------
+; dos_sav_rect - the Save Shortcut button's rect, into dos_srect
+; in:  BX = the window; every register preserved
+; -----------------------------------------------------------------------------
+dos_sav_rect:
+    push ax
+    push cx
+    push dx
+    push si
+    call OSAPI_WM_CONTENT
+    mov si, dos_srect
+    mov cx, ax
+    add cx, 8
+    mov [si+0], cx
+    add cx, DOS_SAVW
+    mov [si+4], cx
+    mov cx, dx
+    add cx, DOS_BTNY
+    mov [si+2], cx
+    add cx, DOS_BTNH
+    mov [si+6], cx
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_sav_go - the Save Shortcut button was pressed
+; in:  BX = the window
+;
+; The kernel's Standard File dialog in SAVE mode (SPEC.md 38), with the
+; completion proc below. The DEFAULT NAME is the program's own with .LNK on
+; it, because that is what the user would type.
+; -----------------------------------------------------------------------------
+dos_sav_go:
+    push ax
+    push cx
+    push si
+    push di
+    call dos_lnk_build              ; **BUILT BEFORE THE DIALOG OPENS**, and
+    jc .out                         ; that is not an ordering preference: the
+    mov [dos_lend], cx              ; dialog NAVIGATES, so by the time its
+                                    ; completion runs the instance stands
+                                    ; wherever the user went - and the link's
+                                    ; WORKING_DIR would be that folder rather
+                                    ; than the program's. It read `\` before
+                                    ; this moved
+    call dos_sav_dfl                ; dos_wname = `NAME.LNK`
+    mov bx, [dos_win]               ; **BX IS THE WINDOW WE WANT TO HEAR BACK
+                                    ; ABOUT**, and leaving it out is a dialog
+                                    ; given a garbage pointer - which opens,
+                                    ; closes on Enter, and writes nothing
+    mov si, dos_wname
+    mov di, dos_sav_done
+    mov al, FDLG_SAVE
+    call OSAPI_FILE_DLG             ; CF=1 = one is already up, or no room -
+.out:                               ; and a refusal needs no report: the user
+    pop di                          ; pressed a button and nothing happened,
+    pop si                          ; which is what a busy dialog looks like
+    pop cx
+    pop ax
+    ret
+
+; --- dos_sav_dfl - `NAME.LNK` from dos_name, into dos_sbuf ------------------
+dos_sav_dfl:
+    push ax
+    push cx
+    push si
+    push di
+    mov si, dos_name
+    mov di, dos_wname
+    mov cx, 8
+.c:
+    mov al, [si]
+    or al, al
+    jz .ext
+    cmp al, '.'
+    je .ext
+    mov [di], al
+    inc si
+    inc di
+    dec cx
+    jnz .c
+.ext:
+    mov byte [di+0], '.'
+    mov byte [di+1], 'L'
+    mov byte [di+2], 'N'
+    mov byte [di+3], 'K'
+    mov byte [di+4], 0
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_sav_done - the dialog's completion (SPEC.md 38.6)
+; in:  AL = the mode it ran in, SI = OUR window ptr, DI = the chosen name IN
+;      KERNEL_SEG (ES points there); UI task, gfx lock HELD, the dialog window
+;      already destroyed
+;
+; **A CANCELLED DIALOG NEVER GETS HERE**, so there is no flag to test - which
+; the first version of this did, on a CF the kernel never set.
+;
+; **THE NAME IS THE KERNEL'S**, so it is copied out before anything else is
+; called: the next slot is free to move what DI points at.
+;
+; IT MUST REPAINT. The kernel does not repaint after a callback returns and
+; the window under the dialog has just been uncovered by wm_destroy.
+; -----------------------------------------------------------------------------
+dos_sav_done:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov dx, si                      ; bank our window: SI is about to be ours
+    push di
+    mov si, di
+    mov di, dos_wname               ; ...the name, out of KERNEL_SEG. **NOT
+                                    ; dos_sbuf**: dos_lnk_build below calls
+                                    ; dos_lnk_rel, which stages `.\NAME.EXT`
+                                    ; there - so the write got `.\DOSARGS.COM`
+                                    ; as its FILENAME and answered FERR_NAME,
+                                    ; which is a dialog that opens, closes and
+                                    ; writes nothing
+    mov cx, 13
+.cp:
+    mov al, [es:si]
+    mov [di], al
+    inc si
+    inc di
+    or al, al
+    loopnz .cp
+    mov byte [di], 0
+    pop di
+
+    push ds                         ; the bytes were built by dos_sav_go,
+    pop es                          ; before the dialog moved us
+    mov si, dos_wname
+    mov bx, dos_lbuf
+    mov cx, [dos_lend]
+    xor dx, dx
+    call dos_be_write
+.paint:
+    push ds
+    pop es
+    mov si, [dos_win]
+    call dos_paint                  ; the dialog's window was destroyed over
+                                    ; ours and nothing else will put it back
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; dos_paint_env - the environment page
 ; in:  BX = the window; the gfx lock is held, as every W_PAINT's is
 ;
@@ -2703,10 +2911,21 @@ dos_click:
     mov bx, dos_brect               ; is what stops it moving under the
     call os88ui_bhit                ; pointer between two clicks
     pop bx
-    jc .notbtn
+    jc .notpage
     call dos_defocus                ; a field on the page we are leaving must
     xor byte [dos_page], 1          ; not keep the caret, or keys would still
     call dos_swap                   ; reach a box nobody can see
+    jmp .out
+.notpage:
+    cmp byte [dos_page], DOS_PAGE_ENV
+    je .notbtn                      ; Save Shortcut is the main page's only
+    call dos_sav_rect
+    push bx
+    mov bx, dos_srect
+    call os88ui_bhit
+    pop bx
+    jc .notbtn
+    call dos_sav_go
     jmp .out
 .notbtn:
     cmp byte [dos_page], DOS_PAGE_ENV
@@ -2874,7 +3093,7 @@ dos_fld_init:
     mov word [si+LN_MAX], DOS_ARGMAX
     mov byte [si+LN_FOCUS], 0
     mov byte [dos_args], 0
-    call os88line_set               ; LN_LEN/LN_CAR/LN_VIEW from the text
+    call os88line_resync            ; LN_LEN/LN_CAR/LN_VIEW from the text
 
     mov si, dos_eln                 ; ...and the four environment rows
     mov bx, dos_ebuf
@@ -2885,7 +3104,7 @@ dos_fld_init:
     mov byte [si+LN_FOCUS], 0
     mov byte [bx], 0
     push cx
-    call os88line_set
+    call os88line_resync
     pop cx
     add si, DOS_LNSZ
     add bx, DOS_ENVBUF
@@ -2931,6 +3150,771 @@ dos_erow:
     mov cx, di
     pop di
     pop dx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_lnk_open - was this instance handed a .LNK? If so, BECOME what it names
+; in:  dos_name = what we were launched with, [dos_dir]/[dos_vol] its folder
+; out: nothing; on any refusal the state is left exactly as it was
+;
+; A shortcut is READ HERE AND NOT IN THE WAKE, because everything downstream -
+; the window's own caption, the arguments field, the environment page - wants
+; the TARGET's name rather than the link's, and the wake is where the program
+; is already being launched.
+;
+; **A REFUSAL LEAVES THE LINK'S OWN NAME IN PLACE**, so a corrupt or foreign
+; .LNK produces the ordinary "it is not a program" failure a moment later,
+; with the file the user actually double-clicked named in the window. The
+; alternative - a half-applied link - is a window naming a program the user
+; never chose.
+; -----------------------------------------------------------------------------
+dos_lnk_open:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov si, dos_name
+    call dos_is_lnk
+    jc .out
+    mov dx, [dos_dir]               ; ...stand where the link is, exactly as
+    mov bl, [dos_vol]               ; dos_run does before loading a program
+    call dos_be_goto
+    jc .out
+    push ds
+    pop es
+    mov si, dos_name                ; ...and read it whole, in one go
+    mov bx, dos_lbuf
+    xor dx, dx                      ; DX:CX is the capacity, and a link that
+    mov cx, LNK_MAX                 ; needs more than 512 is not one of ours
+    call dos_be_read
+    jc .out
+    mov cx, ax                      ; AX = bytes delivered
+    call dos_lnk_parse              ; ...which rewrites dos_name on success
+    jc .out
+    call dos_fld_reload             ; the fields show what the link carried
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; --- dos_is_lnk - does the NUL 8.3 name at SI end in .LNK? ------------------
+; out: CF=0 yes. Case-insensitive: a FAT name is upper case and this one came
+; off a disk, but a name staged by something else need not have.
+dos_is_lnk:
+    push ax
+    push si
+.f:
+    cmp byte [si], 0
+    je .no
+    cmp byte [si], '.'
+    je .dot
+    inc si
+    jmp short .f
+.dot:
+    mov al, [si+1]
+    call dos_upc
+    cmp al, 'L'
+    jne .no
+    mov al, [si+2]
+    call dos_upc
+    cmp al, 'N'
+    jne .no
+    mov al, [si+3]
+    call dos_upc
+    cmp al, 'K'
+    jne .no
+    cmp byte [si+4], 0
+    jne .no
+    pop si
+    pop ax
+    clc
+    ret
+.no:
+    pop si
+    pop ax
+    stc
+    ret
+
+dos_upc:
+    cmp al, 'a'
+    jb .out
+    cmp al, 'z'
+    ja .out
+    sub al, 32
+.out:
+    ret
+
+; --- dos_fld_reload - the fields show what is in the buffers now ------------
+dos_fld_reload:
+    push bx
+    push cx
+    push si
+    mov si, dos_ln                  ; RESYNC and not SET: a shortcut writes
+    call os88line_resync            ; dos_args and dos_ebuf DIRECTLY, and those
+    mov si, dos_eln                 ; ARE these fields' own LN_BUFs - so there
+    mov cx, DOS_ENVN                ; is nothing to copy from, and `set` copied
+.e:                                 ; from a DI nobody had loaded, straight
+    push cx                         ; over the arguments it was called to show
+    call os88line_resync
+    pop cx
+    add si, DOS_LNSZ
+    loop .e
+    pop si
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_lnk_build - this instance's state as a Shell Link, into dos_lbuf
+; out: CX = its length; CF=1 = it does not fit LNK_MAX
+;
+; THE HEADER IS 76 BYTES AND ALMOST ALL OF IT IS LEGALLY ZERO - three
+; FILETIMEs, the file size, the icon index, the hotkey and three reserved
+; fields. What is not zero is the size dword, the fixed CLSID, LinkFlags and
+; ShowCommand, so the template below IS the header and nothing is patched.
+;
+; Each StringData entry is a 2-byte CHARACTER COUNT then the characters, NOT
+; NUL-terminated. Count is characters rather than bytes, which are the same
+; thing here only because IsUnicode is clear.
+; -----------------------------------------------------------------------------
+dos_lnk_build:
+    push ax
+    push bx
+    push dx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    mov di, dos_lbuf
+    mov si, dos_lnk_hdr
+    mov cx, LNK_HDR
+    cld
+    rep movsb
+
+    call dos_lnk_wdir               ; WORKING_DIR: the folder we came from
+    jc .no
+    call dos_lnk_rel                ; RELATIVE_PATH: `.\` and the 8.3 name
+    jc .no
+    mov si, dos_args                ; COMMAND_LINE_ARGUMENTS
+    call dos_lnk_str
+    jc .no
+    call dos_lnk_env                ; ...and ours, in an ExtraData block
+    jc .no
+    xor ax, ax                      ; the terminal block: any value below 4
+    stosw
+    stosw
+    mov cx, di
+    sub cx, dos_lbuf
+    clc
+    jmp short .out
+.no:
+    stc
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; --- dos_lnk_str - SI = a NUL string -> a counted StringData at ES:DI --------
+; out: DI advanced; CF=1 = it would pass LNK_MAX and nothing was written
+dos_lnk_str:
+    push ax
+    push cx
+    push si
+    mov ax, si
+    xor cx, cx
+.len:
+    cmp byte [si], 0
+    je .got
+    inc si
+    inc cx
+    jmp short .len
+.got:
+    mov si, ax                      ; ...back to the start
+    mov ax, di
+    sub ax, dos_lbuf
+    add ax, cx
+    add ax, 2
+    cmp ax, LNK_MAX
+    ja .no
+    mov ax, cx
+    stosw                           ; the character count...
+    jcxz .done
+    rep movsb                       ; ...and the characters, no NUL
+.done:
+    pop si
+    pop cx
+    pop ax
+    clc
+    ret
+.no:
+    pop si
+    pop cx
+    pop ax
+    stc
+    ret
+
+; --- dos_lnk_wdir - the launch folder, as a StringData ----------------------
+; **DI IS AN OUTPUT AND MUST NOT BE RESTORED.** dos_lnk_str advances it past
+; the entry it wrote, and an earlier version of this banked DI across the
+; whole routine - so the working directory was written and then OVERWRITTEN by
+; the next string, and every field in the file came out one place early.
+dos_lnk_wdir:
+    push cx
+    push si
+    push di                         ; ...only across the CALL that needs it as
+    mov di, dos_pbuf                ; a destination of its own
+    mov cx, DOS_PBUF
+    call OSAPI_FILE_PATH            ; ES is the caller's DS: an X cell sets it
+    pop di
+    jc .bare
+    mov si, dos_pbuf
+    jmp short .w
+.bare:
+    mov si, dos_lnk_root            ; a refusal is not fatal - `\` is a folder
+.w:                                 ; and the link still resolves from it
+    call dos_lnk_str                ; ...and DI comes out ADVANCED
+    pop si
+    pop cx
+    ret
+
+; --- dos_lnk_rel - `.\NAME.EXT`, which is BOTH spellings --------------------
+; Windows wants a link-relative path and so do we, and `.\` satisfies each.
+dos_lnk_rel:
+    push ax
+    push cx
+    push si
+    push bx
+    mov bx, dos_sbuf
+    mov byte [bx], '.'
+    mov byte [bx+1], '\'
+    inc bx
+    inc bx
+    mov si, dos_name
+.c:
+    mov al, [si]
+    mov [bx], al
+    inc si
+    inc bx
+    or al, al
+    jnz .c
+    mov si, dos_sbuf
+    call dos_lnk_str
+    pop bx
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; --- dos_lnk_env - the four rows, in an ExtraData block ---------------------
+; {size, signature, data}: size counts ITSELF and the signature, so an
+; unknown-signature reader steps over the whole thing with one add - which is
+; what makes a private block legal rather than a squat.
+dos_lnk_env:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov dx, di                      ; bank where the size goes
+    add di, 8                       ; ...and step over it and the signature
+    mov bx, dos_ebuf
+    mov cx, DOS_ENVN
+.row:
+    push cx
+    mov si, bx
+    cmp byte [si], 0
+    je .next
+    mov ax, di
+    sub ax, dos_lbuf
+    add ax, DOS_ENVBUF + 8
+    cmp ax, LNK_MAX
+    ja .no
+.cp:
+    mov al, [si]
+    stosb
+    inc si
+    or al, al
+    jnz .cp                         ; ...NUL and all: the block is a SET, and
+                                    ; a set's members are NUL-terminated
+.next:
+    pop cx
+    add bx, DOS_ENVBUF
+    loop .row
+    xor al, al
+    stosb                           ; ...and the bare NUL that ends the set
+    mov ax, di                      ; now the size, over the hole banked above
+    sub ax, dx
+    push di
+    mov di, dx
+    stosw
+    xor ax, ax
+    stosw                           ; ...a dword, and 512 never needs the top
+    mov ax, LNK_EXTSIG & 0xFFFF
+    stosw
+    mov ax, LNK_EXTSIG >> 16
+    stosw
+    pop di                          ; ...back to the END of the block
+    clc
+    jmp short .out
+.no:
+    pop cx
+    stc
+.out:
+    pop si                          ; **DI IS NOT RESTORED**, for dos_lnk_wdir's
+    pop dx                          ; reason: it is an OUTPUT. Banking it here
+    pop cx                          ; left the block written and then
+    pop bx                          ; OVERWRITTEN by the terminal marker, which
+    pop ax                          ; presents as a link with no environment
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_lnk_parse - dos_lbuf holds CX bytes of a .LNK; take it apart
+; out: CF=0 and dos_name/dos_args/dos_ebuf filled; CF=1 = not one of OURS
+;
+; **IT REFUSES A FOREIGN LINK BY NAME AND THAT IS DELIBERATE** (SPEC.md
+; 96.21.1). A Windows-authored shortcut leads with a LinkTargetIDList - an
+; arbitrary shell ID list - and a LinkInfo carrying volume IDs, and parsing
+; those from hostile floppy input is real work for no benefit: a modern
+; Windows cannot run a DOS program anyway, so what the format buys here is
+; that it is RECOGNISED, not that it round-trips. The flags word says which
+; it is in one compare.
+;
+; EVERY LENGTH IS CHECKED AGAINST WHAT IS LEFT, not against the buffer: a
+; count that runs past the end of a SHORT file would otherwise read whatever
+; follows it in our own image (SPEC.md 20.8 rule 2).
+; -----------------------------------------------------------------------------
+dos_lnk_parse:
+    push ax
+    push bx
+    push dx
+    push si
+    push di
+    mov [dos_lend], cx
+    cmp cx, LNK_HDR + 6
+    jb .no                          ; too short to be a link at all
+    cmp word [dos_lbuf], LNK_HDR    ; HeaderSize, the format's own magic
+    jne .no
+    cmp word [dos_lbuf+2], 0
+    jne .no
+    cmp byte [dos_lbuf+4], 0x01     ; ...and the CLSID's first two bytes, which
+    jne .no                         ; is as much of a 16-byte constant as is
+    cmp byte [dos_lbuf+5], 0x14     ; worth comparing to refuse a wrong file
+    jne .no
+    mov ax, [dos_lbuf+20]           ; LinkFlags
+    test ax, 0x03                   ; HasLinkTargetIDList | HasLinkInfo
+    jnz .no                         ; ...a Windows-authored one. Refused.
+    mov bx, ax
+    mov si, LNK_HDR                 ; SI walks the buffer as an OFFSET, so one
+                                    ; bound test serves every field
+    mov byte [dos_pbuf], 0
+    test bx, LNK_F_WDIR
+    jz .norel
+    push di                         ; WORKING_DIR -> dos_pbuf, and it is USED
+    push dx                         ; (dos_lnk_cd below). A shortcut whose
+    mov di, dos_pbuf                ; whole point is sitting where the user put
+    mov dx, DOS_PBUF                ; it cannot resolve its program relative to
+    call dos_lnk_takeb              ; ITSELF
+    pop dx
+    pop di
+    jc .no
+.norel:
+    test bx, LNK_F_RELP
+    jz .noargs
+    call dos_lnk_take               ; RELATIVE_PATH -> dos_sbuf
+    jc .no
+    call dos_lnk_name               ; ...its last component -> dos_name
+    jc .no
+.noargs:
+    test bx, LNK_F_ARGS
+    jz .extra
+    mov di, dos_args
+    mov dx, DOS_ARGSZ
+    call dos_lnk_takeb              ; COMMAND_LINE_ARGUMENTS -> dos_args
+    jc .no
+.extra:
+    call dos_lnk_ext                ; ...and our own block, if it is there
+    call dos_lnk_cd                 ; ...and stand where the link says, which
+                                    ; makes [dos_dir] the TARGET's folder
+                                    ; rather than the link's
+    clc
+    jmp short .out
+.no:
+    stc
+.out:
+    pop di
+    pop si
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_lnk_cd - walk to the link's WORKING_DIR and make it [dos_dir]
+;
+; DOWN FROM THE VOLUME ROOT, one component at a time - the only direction a
+; package can walk (SPEC.md 19.2.4: dsk_find drops the dot links, so there is
+; no up). OSAPI_FILE_GOTO_QM is the move and it is A WORD inside the volume we
+; are already on, so the walk costs its directory reads and no mounts at all.
+;
+; A REFUSAL IS NOT FATAL: [dos_dir] keeps the link's own folder, which is
+; where a shortcut saved beside its program resolves anyway. What the user
+; then sees is the ordinary "it could not be read", naming the program.
+; -----------------------------------------------------------------------------
+dos_lnk_cd:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    cmp byte [dos_pbuf], 0
+    je .out                         ; no working directory in the link
+    push ds
+    pop es
+    xor dx, dx                      ; ...the volume root, first
+    mov bl, [dos_vol]
+    call OSAPI_FILE_GOTO_QM
+    jc .out
+    mov si, dos_pbuf
+.comp:
+    cmp byte [si], '\'
+    jne .name
+    inc si
+    jmp short .comp
+.name:
+    cmp byte [si], 0
+    je .here                        ; ...every component walked
+    mov di, dos_cname
+    mov cx, 12
+.c:
+    mov al, [si]
+    or al, al
+    jz .cend
+    cmp al, '\'
+    je .cend
+    mov [di], al
+    inc si
+    inc di
+    loop .c
+.cend:
+    mov byte [di], 0
+    call dos_lnk_find               ; DX = its cluster
+    jc .out
+    mov bl, [dos_vol]
+    call OSAPI_FILE_GOTO_QM         ; ...a WORD inside this volume
+    jc .out
+    jmp short .comp
+.here:
+    call OSAPI_FILE_HERE            ; DX = where we ended up
+    mov [dos_dir], dx               ; ...and dos_run goes there unchanged
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; --- dos_lnk_find - the folder called dos_cname here; DX = its cluster ------
+dos_lnk_find:
+    push ax
+    push cx
+    push si
+    push di
+    xor cx, cx
+.l:
+    mov di, dos_fbuf
+    push ds
+    pop es
+    call OSAPI_FILE_FIND
+    jc .no
+    cmp word [dos_fbuf+14], OSAPI_FT_DIR
+    jne .l
+    mov si, dos_fbuf
+    mov di, dos_cname
+    call dos_ceq
+    jc .l
+    mov dx, [dos_fbuf+16]
+    pop di
+    pop si
+    pop cx
+    pop ax
+    clc
+    ret
+.no:
+    pop di
+    pop si
+    pop cx
+    pop ax
+    stc
+    ret
+
+; --- dos_ceq - SI vs DI, NUL strings, case-insensitive. CF=0 = equal --------
+; NOT dos_streq, which already exists here and answers in ZF against ES:DI -
+; this one is DS-relative on both sides and folds case, because a FAT name is
+; upper and a link's stored one need not be.
+dos_ceq:
+    push ax
+    push si
+    push di
+.c:
+    mov al, [si]
+    call dos_upc
+    mov ah, al
+    mov al, [di]
+    call dos_upc
+    cmp al, ah
+    jne .no
+    or al, al
+    jz .yes
+    inc si
+    inc di
+    jmp short .c
+.yes:
+    pop di
+    pop si
+    pop ax
+    clc
+    ret
+.no:
+    pop di
+    pop si
+    pop ax
+    stc
+    ret
+
+; --- dos_lnk_skip - step SI over one StringData ------------------------------
+dos_lnk_skip:
+    push ax
+    mov ax, [dos_lend]
+    sub ax, si
+    cmp ax, 2
+    jb .no
+    mov ax, [dos_lbuf+si]           ; the character count
+    add si, 2
+    push bx
+    mov bx, [dos_lend]
+    sub bx, si
+    cmp ax, bx                      ; ...against what is LEFT, never against
+    pop bx                          ; the buffer (SPEC.md 20.8 rule 2)
+    ja .no
+    add si, ax
+    pop ax
+    clc
+    ret
+.no:
+    pop ax
+    stc
+    ret
+
+; --- dos_lnk_take - one StringData -> dos_sbuf, NUL-terminated --------------
+dos_lnk_take:
+    push di
+    push dx
+    mov di, dos_sbuf
+    mov dx, 20
+    call dos_lnk_takeb
+    pop dx
+    pop di
+    ret
+
+; --- dos_lnk_takeb - one StringData -> ES:DI (DS), DX = its capacity --------
+dos_lnk_takeb:
+    push ax
+    push bx
+    push cx
+    push di
+    mov ax, [dos_lend]
+    sub ax, si
+    cmp ax, 2
+    jb .no
+    mov cx, [dos_lbuf+si]
+    add si, 2
+    mov bx, [dos_lend]
+    sub bx, si
+    cmp cx, bx
+    ja .no
+    mov bx, dx
+    dec bx                          ; ...room for the NUL we add
+    cmp cx, bx
+    ja .no                          ; REFUSED, never truncated (SPEC.md 47)
+    push si
+.cp:
+    jcxz .done
+    mov al, [dos_lbuf+si]
+    mov [di], al
+    inc si
+    inc di
+    dec cx
+    jmp short .cp
+.done:
+    mov byte [di], 0
+    pop ax                          ; the SI we pushed; SI is already advanced
+    pop di
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
+.no:
+    pop di
+    pop cx
+    pop bx
+    pop ax
+    stc
+    ret
+
+; --- dos_lnk_name - the last component of dos_sbuf -> dos_name --------------
+dos_lnk_name:
+    push ax
+    push bx
+    push si
+    push di
+    mov bx, dos_sbuf                ; find the last separator...
+    mov si, bx
+.f:
+    mov al, [si]
+    or al, al
+    jz .at
+    cmp al, '\'
+    jne .n
+    mov bx, si
+    inc bx
+.n:
+    inc si
+    jmp short .f
+.at:
+    mov si, bx
+    mov di, dos_name
+    mov cx, 13
+.c:
+    mov al, [si]
+    mov [di], al
+    inc si
+    inc di
+    or al, al
+    jz .ok
+    dec cx
+    jnz .c
+    mov byte [di-1], 0              ; a name longer than an 8.3 one is not one
+    pop di
+    pop si
+    pop bx
+    pop ax
+    stc
+    ret
+.ok:
+    cmp byte [dos_name], 0
+    je .bad
+    pop di
+    pop si
+    pop bx
+    pop ax
+    clc
+    ret
+.bad:
+    pop di
+    pop si
+    pop bx
+    pop ax
+    stc
+    ret
+
+; --- dos_lnk_ext - find OUR ExtraData block and load the rows ---------------
+; A block we do not recognise is STEPPED OVER by its own size, which is what
+; the format is for. A missing block is not an error: a link written by
+; anything else simply carries no environment.
+dos_lnk_ext:
+    push ax
+    push bx
+    push cx
+    push di
+.blk:
+    mov ax, [dos_lend]
+    sub ax, si
+    cmp ax, 8
+    jb .out                         ; no room for another block header
+    mov ax, [dos_lbuf+si]           ; BlockSize, low word
+    cmp ax, 4
+    jb .out                         ; ...the terminal value
+    mov bx, [dos_lend]
+    sub bx, si
+    cmp ax, bx
+    ja .out                         ; a size past the end: stop, do not trust
+    mov cx, [dos_lbuf+si+4]         ; the signature
+    mov di, [dos_lbuf+si+6]
+    cmp cx, LNK_EXTSIG & 0xFFFF
+    jne .next
+    cmp di, LNK_EXTSIG >> 16
+    jne .next
+    call dos_lnk_rows
+    jmp short .out
+.next:
+    add si, ax
+    jmp short .blk
+.out:
+    pop di
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; --- dos_lnk_rows - the NUL-separated set at SI+8 -> dos_ebuf ---------------
+dos_lnk_rows:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    add si, 8
+    mov bx, dos_ebuf
+    mov cx, DOS_ENVN
+.row:
+    cmp si, [dos_lend]
+    jae .out
+    cmp byte [dos_lbuf+si], 0
+    je .out                         ; the bare NUL that ends the set
+    mov di, bx
+    mov ax, DOS_ENVW
+.cp:
+    cmp si, [dos_lend]
+    jae .out
+    push ax
+    mov al, [dos_lbuf+si]
+    mov [di], al
+    inc si
+    inc di
+    or al, al
+    pop ax
+    jz .done
+    dec ax
+    jnz .cp
+    mov byte [di], 0                ; a row longer than a row is cut HERE and
+.done:                              ; nowhere else - it is our own file and
+    add bx, DOS_ENVBUF              ; the field is what bounds it on the way in
+    loop .row
+.out:
+    pop di
+    pop si
+    pop cx
+    pop bx
     pop ax
     ret
 
@@ -3072,6 +4056,31 @@ dos_l_args: db 'Arguments:', 0
 dos_l_envb: db 'Environment', 0
 dos_l_envt: db 'Environment - one NAME=VALUE to a line:', 0
 dos_l_done: db 'Done', 0
+dos_l_savb: db 'Save Shortcut', 0
+dos_lnk_root: db '\', 0
+
+; --- the Shell Link header, 76 bytes, fixed (SPEC.md 96.21) ------------------
+dos_lnk_hdr:
+    dd 0x0000004C                   ; HeaderSize, and the format's own magic
+    db 0x01,0x14,0x02,0x00          ; LinkCLSID {00021401-0000-0000-
+    db 0x00,0x00, 0x00,0x00         ;            C000-000000000046}, in the
+    db 0xC0,0x00,0x00,0x00,0x00,0x00,0x00,0x46   ; mixed-endian GUID order
+    dd LNK_F_WDIR | LNK_F_RELP | LNK_F_ARGS      ; LinkFlags
+    dd 0                            ; FileAttributes
+    dd 0, 0                         ; CreationTime  - legally zero...
+    dd 0, 0                         ; AccessTime
+    dd 0, 0                         ; WriteTime
+    dd 0                            ; FileSize      - ...and so is this
+    dd 0                            ; IconIndex
+    dd 1                            ; ShowCommand = SW_SHOWNORMAL
+    dw 0                            ; HotKey
+    dw 0                            ; Reserved1
+    dd 0                            ; Reserved2
+    dd 0                            ; Reserved3
+DOS_LNK_HDRLEN equ $ - dos_lnk_hdr
+%if DOS_LNK_HDRLEN != LNK_HDR
+ %error "the Shell Link header is 76 bytes and this template is not"
+%endif
 
 dos_be:                             ; the table, in DBE_* order
     dw dos_k_goto
@@ -3600,7 +4609,15 @@ dos_mcb_resize:
     DBSS DOS_B_NKEY,  2          ; ...over this many keystrokes
     DBSS DOS_B_PAGE,  1          ; which page is up (DOS_PAGE_*)
     DBSS DOS_B_BRECT, 8          ; the page button's rect, x1 y1 x2 y2
+    DBSS DOS_B_SRECT, 8          ; ...and Save Shortcut's
     DBSS DOS_B_ERP,   2          ; the environment row being emitted
+    DBSS DOS_B_LBUF,  LNK_MAX    ; a shortcut, read or written
+    DBSS DOS_B_SBUF,  20         ; ...and `.\NAME.EXT` while one is built
+    DBSS DOS_B_CNAME, 14         ; one component of a link's working directory
+    DBSS DOS_B_FBUF,  24         ; ...and OSAPI_FIND_SZ while it is looked up
+    DBSS DOS_B_WNAME, 14         ; ...and the name a Save dialog chose, which
+                                 ; may NOT share dos_sbuf: the builder uses it
+    DBSS DOS_B_LEND,  2          ; how many bytes of dos_lbuf are real
     DBSS DOS_B_EBUF,  DOS_ENVN * DOS_ENVBUF   ; the environment rows...
     DBSS DOS_B_ELN,   DOS_ENVN * DOS_LNSZ     ; ...and their field blocks
     DBSS DOS_B_ARGS,  DOS_ARGSZ  ; the user's arguments, NUL-terminated
@@ -6066,7 +7083,14 @@ dos_ncell   equ os88_image_end + DOS_B_NCELL   ; word: cells the edits redrew
 dos_nkey    equ os88_image_end + DOS_B_NKEY    ; word: ...over this many keys
 dos_page    equ os88_image_end + DOS_B_PAGE    ; byte: DOS_PAGE_*
 dos_brect   equ os88_image_end + DOS_B_BRECT   ; the page button's rect
+dos_srect   equ os88_image_end + DOS_B_SRECT   ; ...and Save Shortcut's
 dos_erp     equ os88_image_end + DOS_B_ERP     ; word: the row being emitted
+dos_lbuf    equ os88_image_end + DOS_B_LBUF    ; a .LNK, read or written
+dos_sbuf    equ os88_image_end + DOS_B_SBUF    ; `.\NAME.EXT` while building
+dos_cname   equ os88_image_end + DOS_B_CNAME   ; one path component
+dos_fbuf    equ os88_image_end + DOS_B_FBUF    ; OSAPI_FIND_SZ, for the walk
+dos_wname   equ os88_image_end + DOS_B_WNAME   ; ...the name to write it under
+dos_lend    equ os88_image_end + DOS_B_LEND    ; word: bytes of dos_lbuf read
 dos_ebuf    equ os88_image_end + DOS_B_EBUF    ; the four environment rows
 dos_eln     equ os88_image_end + DOS_B_ELN     ; ...and their os88line blocks
 dos_args    equ os88_image_end + DOS_B_ARGS    ; 128: the command tail the user

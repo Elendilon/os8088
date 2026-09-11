@@ -751,6 +751,51 @@ os88line_click:
     ret
 
 ; -----------------------------------------------------------------------------
+; os88line_resync - the BUFFER was written behind the field's back; re-derive
+;                   LN_LEN, LN_CAR and LN_VIEW from what is in it now
+; in:  SI = the block. LN_BUF already holds a NUL string somebody else wrote
+; out: nothing; all registers preserved
+;
+; **THE CASE os88line_set CANNOT SERVE**, and mistaking one for the other is
+; a silent corruption rather than a wrong picture: `set` copies from DS:DI
+; INTO LN_BUF, so a caller whose data is ALREADY in LN_BUF has nothing to put
+; in DI and copies whatever it held - into the very buffer it meant to keep.
+; The DOS box hit exactly that (SPEC.md 96.21.1): a shortcut writes the
+; arguments straight into `dos_args`, which IS the field's buffer, and the
+; reload then overwrote them from a stale DI, so a link with arguments ran
+; with none.
+;
+; The length is measured rather than trusted: LN_MAX bounds the walk, so a
+; buffer somebody filled without a terminator ends the field at the cap
+; instead of running off it.
+; -----------------------------------------------------------------------------
+os88line_resync:
+    push ax
+    push bx
+    push cx
+    mov bx, [si+LN_BUF]
+    mov cx, [si+LN_MAX]
+    dec cx                      ; ...the most a NUL string in there can be
+    xor ax, ax
+.walk:
+    cmp ax, cx
+    jae .done
+    cmp byte [bx], 0
+    je .done
+    inc bx
+    inc ax
+    jmp short .walk
+.done:
+    mov byte [bx], 0            ; a buffer filled with no terminator gets one
+    mov [si+LN_LEN], ax
+    mov [si+LN_CAR], ax         ; the caret lands at the END, as `set` leaves it
+    mov word [si+LN_VIEW], 0
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; os88line_set - replace the contents with the NUL string at DS:DI
 ; in:  SI = the block, DI = the string. The caret lands at the END.
 ; out: nothing; all registers preserved
