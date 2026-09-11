@@ -2399,7 +2399,7 @@ SOAK = [
         "check 4's repaint differs over 24 rows of the grid",
         needs=("marty",), serial=True,
         wants=("build/sheetmove360.img",)),
-    Row("doscom", "soak", py("tests/doscom.py"), 45.0,
+    Row("doscom", "soak", py("tests/doscom.py"), 30.0,
         "THE DOS WAVE-1 GATE (SPEC.md 96): double-click a .COM in a Disk "
         "window and assert a real DOS program RAN - its own output on the "
         "text screen inside the fsx bracket, and its exit code in the "
@@ -2412,7 +2412,7 @@ SOAK = [
         "flags and the program itself prints 'the gate has FAILED'.",
         needs=("marty",), serial=True,
         wants=("build/doscom360.img",)),
-    Row("dosexe", "soak", py("tests/dosexe.py"), 45.0,
+    Row("dosexe", "soak", py("tests/dosexe.py"), 28.0,
         "THE DOS WAVE-2 GATE (SPEC.md 96.8, 96.9): a real MZ .EXE - header, "
         "relocation table, and a last page that is exactly full so e_cblp is "
         "0. It checks the four things only an .EXE has: the relocation "
@@ -2427,7 +2427,7 @@ SOAK = [
         "text rather than any error.",
         needs=("marty",), serial=True,
         wants=("build/dosexe360.img",)),
-    Row("dosmouse", "soak", py("tests/dosmouse.py"), 50.0,
+    Row("dosmouse", "soak", py("tests/dosmouse.py"), 60.0,
         "THE DOS MOUSE GATE (SPEC.md 96.10): INT 33h is a TRANSLATION over "
         "numbers os8088's own ISR is already keeping, so the row is a "
         "COMPARISON - it moves the kernel's pointer, reads mouse_x/mouse_y "
@@ -2442,7 +2442,7 @@ SOAK = [
         "that only looks at one axis.",
         needs=("marty",), serial=True,
         wants=("build/dosmou360.img",)),
-    Row("dosfile", "soak", py("tests/dosfile.py"), 150.0,
+    Row("dosfile", "soak", py("tests/dosfile.py"), 35.0,
         "THE DOS FILE-HANDLE GATE (SPEC.md 96.11): os8088 has no file handle "
         "anywhere - the published API is by NAME and by WHOLE FILE - so the "
         "layer is built in the package over ONE cluster-aligned window carved "
@@ -2459,7 +2459,7 @@ SOAK = [
         "the handler ships on.",
         needs=("marty",), serial=True,
         wants=("build/dosfile360.img",)),
-    Row("dosdir", "soak", py("tests/dosdir.py"), 100.0,
+    Row("dosdir", "soak", py("tests/dosdir.py"), 35.0,
         "THE DOS DIRECTORY, FIND, VECTOR AND CLOCK GATE (SPEC.md 96.12, "
         "96.13). The clock half asserts that the DOS box and the MENU BAR "
         "fall back to the same day on a machine with no clock chip - which "
@@ -2478,7 +2478,7 @@ SOAK = [
         "answering B.",
         needs=("marty",), serial=True,
         wants=("build/dosdir360.img",)),
-    Row("dosexec", "soak", py("tests/dosexec.py"), 90.0,
+    Row("dosexec", "soak", py("tests/dosexec.py"), 30.0,
         "THE DOS EXEC GATE (SPEC.md 96.14): AH=4Bh loads another program and "
         "runs it, and control comes back to the PARENT inside the INT 21h "
         "call that asked - which is what a shell is made of. It asserts the "
@@ -2493,7 +2493,7 @@ SOAK = [
         "rather than as a wrong number.",
         needs=("marty",), serial=True,
         wants=("build/dosexec360.img",)),
-    Row("dosxms", "soak", py("tests/dosxms.py"), 60.0,
+    Row("dosxms", "soak", py("tests/dosxms.py"), 28.0,
         "THE DOS XMS GATE (SPEC.md 96.15). ON AN 8088 THE WHOLE ASSERTION IS "
         "A REFUSAL, and it is worth a row because getting it wrong is silent "
         "both ways: int 2Fh AX=4300h must answer AL != 80h when the pool can "
@@ -2523,7 +2523,7 @@ SOAK = [
         "MartyPC instrument with no QEMU form.",
         needs=("qemu",), serial=True, timeout=600,
         wants=("build/dosxmsq.img",)),
-    Row("dossnd", "soak", py("tests/dossnd.py"), 90.0,
+    Row("dossnd", "soak", py("tests/dossnd.py"), 30.0,
         "THE DOS SOUND GATE (SPEC.md 96.17, 51.11): a DOS program that wants "
         "the Sound Blaster wants to program it ITSELF, and SOUND.DRV is in "
         "the way three ways - an IRQ vector, DMA channel 1, and a refill "
@@ -2539,6 +2539,29 @@ SOAK = [
         "the wrong one.",
         needs=("marty",), serial=True,
         wants=("build/dossnd360.img",)),
+    Row("dosirq", "soak", py("tests/dosirq.py"), 25.0,
+        "THE DOS HARDWARE GATE (SPEC.md 96.18) - the row that says what the "
+        "DOS box is FOR. Every other dos* row asks about INT 21h, which is "
+        "our own code answering; this one asks about the machine underneath. "
+        "A program inside the bracket resets the Sound Blaster's DSP and "
+        "reads its version back (ports both ways), hooks INT 0Fh and unmasks "
+        "IRQ7 and asks the card for an interrupt with DSP command 0F2h - the "
+        "cheapest hardware interrupt on the machine, no DMA and no buffer - "
+        "then programs channel 1 of the 8237 for 256 bytes and counts the "
+        "completion. EXACTLY ONE EACH, not at-least-one: a re-raised line is "
+        "the spurious-IR7 case and is not the same thing as working. THE DMA "
+        "HALF CANNOT BE INFERRED from the IRQ half, because os8088 takes "
+        "channel 2 of that same controller inside dsk_xfer. It also reads "
+        "back the IMR the bracket handed over (IRQ7 masked, IRQ0 live) and "
+        "the buffer's PHYSICAL address, which is the one sum a program does "
+        "differently here - its segment is wherever the arena put it, so a "
+        "page register computed by habit is right everywhere it was tested "
+        "and wrong in the box. VERIFIED TO FAIL by nop-ing out the suspend; "
+        "worth knowing that the three hardware numbers DID NOT MOVE when it "
+        "did (96.18.2), because an idle driver has hooked no vector - which "
+        "is why the assertion is a read of drv_tab and not a symptom.",
+        needs=("marty",), serial=True,
+        wants=("build/dosirq360.img",)),
     Row("heapcheck", "soak", py("tests/heapcheck.py"), 40.0,
         "Drive tests/heapfrag and read its verdict out of the guest (SPEC.md"
         "66.8).",

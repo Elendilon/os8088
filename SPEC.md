@@ -119200,6 +119200,97 @@ emit a letter, so it clamps now — but the reason it was reachable at all is
 the one above, and the clamp is the second line of defence rather than the
 fix.
 
+### 96.18 The machine underneath — a real vector, a real line, a real transfer
+
+Every other section here is about `INT 21h`, which is **our** code answering.
+This one is about the hardware, and it is the section that says what the DOS
+box is actually for.
+
+**A box that can only host programs which poll can host almost nothing.**
+Every sound card, every comms program and every mouse driver of the era is
+built on a hardware interrupt, so *"the bracket hands the machine over"* is a
+claim that has to be measured rather than asserted. `tests/dosirq.py` is where
+it is measured, and what it measures is three separate things:
+
+1. **Ports both ways.** The program resets the DSP and reads its version back.
+   Without that the numbers under it would be about nothing — a card that
+   never answered was never asked.
+2. **A real interrupt.** It hooks `INT 0Fh`, unmasks IRQ7 at the 8259 and asks
+   the card for an interrupt with DSP command `0F2h`, which raises the line
+   with no DMA and no buffer and is therefore the cheapest hardware interrupt
+   on the machine to ask for. The answer is **exactly one**, not *at least*
+   one: a line being re-raised is the spurious-IR7 case and is not the same
+   thing as it working.
+3. **A real transfer.** It programs channel 1 of the 8237 for 256 bytes and
+   has the DSP play them, and counts the completion interrupt.
+
+**The third could not be inferred from the second.** os8088 takes channel 2 of
+that same 8237 inside `dsk_xfer`, so "the program can write DMA registers" and
+"a transfer the program set up completes" are different questions, and the
+second is the one every interesting use of a sound card sits on.
+
+#### 96.18.1 The mask the bracket hands over, and the page nobody would test
+
+Two of the row's numbers are about the **bracket** rather than the card, and
+both were chosen because the failure they catch is otherwise unreadable.
+
+**`MASK` is the 8259's IMR as the program finds it.** §96.3 saves and restores
+the masks and deliberately does **not** change them, so what a program gets is
+whatever os8088 was running with — IRQ7 masked, because the kernel has no use
+for the line once `SOUND.DRV` is out of the way (§96.17), and IRQ0 live,
+because the BIOS tick is what the program's own wait is counted in. A bracket
+that handed over a mask a program could not change would fail at the interrupt
+count with no clue why; printing the mask makes it the first line to look at.
+
+**`PHYS` is the one piece of arithmetic a DOS program does differently here.**
+A DMA buffer's physical address is `segment * 16 + offset`, and the 8237 wants
+it as a 16-bit address plus a 4-bit page that **does not carry** — so a
+transfer may not cross a 64KB boundary. On a bare machine a program's segment
+is low and a page register computed by habit is usually right. In the box the
+program is wherever the arena put it, so the page has to come from the
+segment; a program that got it wrong would be right everywhere it was ever
+tested and wrong here. The row reports the address rather than asserting it,
+which is what turns a wrong page from a silent zero into a readable failure.
+
+#### 96.18.2 Breaking it on purpose found something the row did not assert
+
+The row was verified the way docs/WRITING-TESTS.md §1 requires — the suspend
+call at the head of the bracket was replaced with a `nop`, the package rebuilt
+and the row re-run — and it goes red, on the `DRVR_SEG` check.
+
+**What is worth recording is that the three hardware numbers did not move.**
+With `SOUND.DRV` still loaded the program read DSP 2.1, got its one interrupt
+and completed its one transfer, exactly as before. The reason is §96.17.1's:
+an **idle** driver has never discovered its IRQ, so `sbl_irq` is `0FFh` and
+the driver has hooked no vector at all — the collision the suspend exists to
+prevent needs a driver that has *played something*, and nothing in the row
+makes it.
+
+So the hazard is real and **latent**, which is precisely why the assertion is
+a read of the kernel's own table rather than a hardware symptom. A row that
+waited for the symptom would be green on a machine that had not yet made a
+sound, which is most machines most of the time — and that is the shape of
+green this project has been caught by before.
+
+#### 96.18.3 What a third-party card test found, and what it did not
+
+Creative's own `TEST-SBC.EXE` (Sound Blaster 2.0, v1.81, 1991 — a 42KB
+Microsoft C `.EXE` that relocates itself and walks the MCB chain) **runs in
+the box**, finds the card at 220h, and exits cleanly. It reports a failure of
+its own at its interrupt-detection stage, and the window afterwards carries
+**no unsupported-function line** — so every `INT 21h` it made was answered.
+
+That is recorded here because it is the shape of evidence this section exists
+to produce, and because the conclusion is the opposite of the obvious one: the
+third-party program's verdict is **not** evidence about the bracket, and the
+reason we can say so is that `tests/dosirq.py` asks the same three questions
+directly and gets three right answers. A row that asks the machine a question
+we wrote is worth more than a program that asks it one we cannot read.
+
+The programs themselves are **not in this repository** and cannot be — they
+are Creative's work and licensed to nobody here. Anything the tree asserts
+about the hardware path is asserted by our own `tests/dosirq/irq.asm`.
+
 ### 51.11 Drivers, out of the way (`OSAPI_DRV_SUSPEND`)
 
 An exclusive fullscreen app that is about to program the hardware **itself** —

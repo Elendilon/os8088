@@ -1485,6 +1485,40 @@ nobody could ask for**: the card's base port, IRQ and DMA. That is
 `DRVV_HWINFO` (§51.11.2), four lines in `snd_entry`, and it is what turns
 `BLASTER=` from guesswork into a report.
 
+### 15.5.1 ...and what a real Sound Blaster program then showed
+
+The wave was validated against **Creative's own** `TEST-SBC.EXE` (Sound
+Blaster 2.0, v1.81, 1991): a 42KB Microsoft C `.EXE` that relocates itself and
+walks the MCB chain. It loads, runs, finds the card at 220h, exits cleanly —
+and the window afterwards carries **no unsupported-function line**, so every
+`INT 21h` it made was answered. `SOUND.DRV` went `9E80` → `0000` on the way in
+and back on the way out, which is the wave's whole claim, seen from outside.
+
+It reports a failure of its own at its interrupt-detection stage. **That is
+not evidence about the bracket**, and the reason we can say so is `tests/
+dosirq.py` (SPEC.md §96.18), written because of it: a program of **ours**
+resets the DSP and reads its version back, hooks `INT 0Fh`, unmasks IRQ7 and
+takes exactly one interrupt from DSP command `0F2h`, then runs a 256-byte
+transfer on channel 1 of the 8237 and takes exactly one completion. Three
+right answers to the three questions the third-party program's verdict was
+being read as evidence about.
+
+**The lesson is the general one and it is worth carrying forward**: a
+third-party program is a good way to *find* a question and a bad way to
+*answer* one, because its internal verdict is a number we cannot read. Two of
+the earlier test programs the owner supplied turned out to need a **386** —
+`FMLR.COM` has a `0F 84` near `jz` 33 bytes past its entry and `PCMPLAY.COM`
+has a 286 `C1 EB 04` at 16 and the same near `jz` at 23 — which on an 8088 is
+`POP CS`, so both popped the PSP's zero word into CS and ran into segment 0.
+That looked exactly like a loader bug for as long as nobody disassembled the
+entry path. `ndisasm` from the entry point, by eye, cost five minutes and a
+byte census over the whole file cost longer and said nothing: the counts
+tracked file size, which is the signature of data.
+
+**None of these programs are in the repository and none can be** — they are
+Creative's and the respective authors' work. Everything the tree asserts is
+asserted by `tests/dosirq/irq.asm`, which is ours.
+
 ### 15.6 What wave 3 left, in the order the evidence ranks it
 
 The two items this section used to head with are **both built and gated**, so

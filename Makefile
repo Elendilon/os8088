@@ -4802,6 +4802,17 @@ $(BUILD)/DOSSND.COM: tests/dossnd/snd.asm | $(BUILD)
 $(BUILD)/dossnd360.img: $(BUILD)/DOSSND.COM tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSSND.COM
 
+# ...and the HARDWARE gate's, which is the one that asks about the machine
+# rather than about INT 21h: a program inside the bracket hooks a real vector,
+# unmasks a real line and runs a real 8237 transfer on the same controller the
+# floppy uses (SPEC.md 96.18). It wants a Sound Blaster in the machine, which
+# is what makes os8088_5150_herc_sb_gla the row's machine.
+$(BUILD)/DOSIRQ.COM: tests/dosirq/irq.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dosirq/irq.asm
+
+$(BUILD)/dosirq360.img: $(BUILD)/DOSIRQ.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSIRQ.COM
+
 # ...and the XMS gate's, whose whole assertion on an 8088 is a REFUSAL
 # (SPEC.md 96.15.1) - plus that asking at all comes back, which an unhooked
 # multiplex vector on a ROM that does not implement it need not do.
@@ -4823,7 +4834,8 @@ $(BUILD)/dosxmsq.img: $(BUILD)/DOSXMSQ.COM tools/os88disk.py
 .PHONY: doscom
 doscom: $(BUILD)/doscom360.img $(BUILD)/dosexe360.img $(BUILD)/dosmou360.img \
         $(BUILD)/dosfile360.img $(BUILD)/dosdir360.img $(BUILD)/dosexec360.img \
-        $(BUILD)/dosxms360.img $(BUILD)/dossnd360.img $(BUILD)/dosxmsq.img
+        $(BUILD)/dosxms360.img $(BUILD)/dossnd360.img $(BUILD)/dosxmsq.img \
+        $(BUILD)/dosirq360.img
 
 $(BUILD)/thewire.bin: apps/thewire/thewire.asm apps/thewire/wrhttp.inc \
                       apps/thewire/wrarc.inc apps/thewire/wrtxt.inc \
