@@ -1386,12 +1386,31 @@ of a 20 KB write.
 
 The plan proposed building `AH=47h`'s answer by walking up: ask a directory
 who its parent is, then search the parent for the entry pointing back at the
-child. **`.` and `..` are not reported to a package.** A find inside a freshly
-made subdirectory returns *nothing*; `OSAPI_FT_UP` is in the SDK's type list
-because the kernel synthesizes an up-entry for the Disk window's own listing
-(SPEC.md §19.5), and that synthesis is not what `OSAPI_FILE_FIND` walks. Nor
-is there another way in: `OSAPI_ARG_FILE` hands over a name, a **cluster** and
-a volume, and a cluster is not a path.
+child. **`.` and `..` are not reported to a package**, so it cannot be built.
+
+**The mechanism, written down here so this stops being re-litigated** - it has
+now been doubted twice, and the second time was by a reader who found a source
+comment elsewhere in the tree claiming the opposite:
+
+`dsk_find_x` (kernel/disk.inc) filters the raw directory sectors, and four
+lines into its entry loop it has `cmp al, '.'` / `je .skip` - *"the on-disk dot
+links (SPEC.md 19)"*. Both cells go through it: `api_file_find` and
+`api_file_find_raw` join at `api_ff_fence` and differ in **the size field and
+nothing else**, so the RAW cell is not a way round it either.
+
+`OSAPI_FT_UP` is in the SDK's type list because `dsk_synth_up` builds an
+up-entry for `disk_mount`'s **LISTING** (SPEC.md §19.5) - a different structure
+a package cannot reach. Nor is there another way in: `OSAPI_ARG_FILE` hands
+over a name, a **cluster** and a volume, and a cluster is not a path.
+
+**`apps/ftpd` reached the same conclusion independently and solved it the same
+way**, which is the strongest evidence available that this is the shape of the
+problem and not an oversight. Its `FD_CDMAX` comment states the finding in as
+many words - *"CDUP NEEDS A STACK BECAUSE THE KERNEL CANNOT ANSWER IT"* - and
+its walker handles `..` by stripping the last component of a path stack 16
+levels deep, never by asking the kernel. So two packages have now each built a
+descent stack for want of one kernel answer, and **that, rather than "can it be
+done", is the question a path wave should be costing.**
 
 So the walk was abandoned and **the launch directory became the program's
 root** (SPEC.md §96.12.2) — self-consistent, exactly round-tripping, §96.6's
