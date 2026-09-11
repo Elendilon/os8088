@@ -119096,3 +119096,42 @@ So it is written here rather than claimed: the arithmetic is checked by
 reading, the slots' contracts are quoted above, and **no machine in this tree
 has run an XMS allocation through this code**. Anyone adding that arm should
 start from `tests/dosxms.py`'s MartyPC row and give it a QEMU twin.
+
+### 96.16 The Sound Blaster is NOT detached, and the reason is a door
+
+docs/plans/DOS-EXEC-PLAN.md §9.3 decided this row and called it "mostly
+existing code": `SOUND.DRV` already has `sbl_detach`, `sbl_halt` and
+`sbl_unhook`, which by their own comment put "the vector, mask and DSP back
+as we found them", so a DOS program could be handed a virgin card and a
+`BLASTER=` variable naming its port, IRQ and DMA.
+
+**The code exists and there is no door to it.** `SOUND.DRV` publishes no
+`DSV_PKGCALL` (§20.11), so `OSAPI_DRV_CALL` answers `CF=1, AX=0` and no
+`.O88` on any floppy can reach the driver at all — and `OSAPI_SND_CAPS`
+reports capability bits and whether a driver is loaded, **not** the card's
+port, IRQ or DMA, so even `BLASTER=` cannot be built. Of the eight drivers in
+the tree, four publish a package entry and four do not; this is one of the
+four, deliberately, in `HDD.DRV`'s company.
+
+Three things follow, and they are why this is a section rather than a TODO:
+
+- **Sending `DRVV_DETACH` behind the kernel's back would be wrong even if it
+  were reachable.** The kernel's own record would still say the driver is
+  attached, so `OSAPI_SND_TONE` and the FM verbs would keep dispatching into
+  a driver whose card is gone. What a package needs is not detach but
+  **dormancy** — halt the DSP, unhook the IRQ, keep the record — and that is a
+  state `SOUND.DRV` does not currently have.
+- **It is a capability decision, not a DOS-box one.** `OSAPI_DRV_CALL` is open
+  to every package, so a "stop using the sound card" verb is a verb *anything*
+  on the disk can call. That is a question about the driver's ABI and belongs
+  to whoever owns it.
+- **The common case already works.** `SOUND.DRV` is not mounted unless
+  `SYSTEM.CFG` asks for it (§51.3), so on a stock machine the card is virgin
+  and a DOS program programs it with no help from us — which is why this row
+  buys less than its position in the wave suggests.
+
+**What is genuinely at risk** when a driver *is* mounted is not the ports: it
+is that a `TF_SERVICE` worker keeps running inside an fsx bracket by design
+(§53.2), so the driver's feeder can touch the DSP while a DOS program owns
+it. That is the argument for dormancy rather than for leaving it alone, and
+it is the measurement anyone taking this row should make first.
