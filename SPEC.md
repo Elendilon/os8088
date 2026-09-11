@@ -118524,3 +118524,85 @@ Everything else refuses with CF=1 and `AX=1` (invalid function), which is
 what DOS answers for a function it does not have. A refusal is a normal path
 (§47): the window says which function was asked for, so an unsupported
 program names its own gap instead of hanging.
+
+### 96.8 The `.EXE` loader, and why it relocates before it moves
+
+An `MZ` file is a header, an image, and a table of places in the image that
+hold a **segment** and therefore have to be fixed up once the load address is
+known. The loader's order is **parse, relocate, move, enter**, and the middle
+two are the other way round from the obvious.
+
+The image has to end up **16 paragraphs past the PSP**, because that is where
+DOS puts one and a program is entitled to find it there. The file was read
+*whole*, header included, at exactly that address — so stripping the header
+means moving the image **down over it**, which destroys the relocation table
+living inside it.
+
+A loader that moves first must therefore copy the table out, and then carries
+a bound on how many entries an `.EXE` may have. This one does not: **the final
+load segment is known before either step** (it is an address, not a result),
+so the fixups are applied to the image *where it still sits*, reading the
+table in place, and the move happens afterwards. No scratch buffer, and no
+cap.
+
+The four entry words — `CS`, `IP`, `SS`, `SP` — are read into the package's
+bss **before** anything is moved, for the same reason and with no second
+chance: the load segment and the file's own base are the same address, so the
+move lands exactly on top of the header.
+
+`dos_movedown` is segment-stepped in 32KB chunks, so an image larger than one
+segment moves without a 16-bit offset binding — `mem_bcopy`'s argument (§66.4)
+one layer out. The destination is strictly below the source, so forward
+copying inside a chunk is safe.
+
+**What is honoured from the header**: `e_cp`/`e_cblp` for the image's length —
+including the encoding everybody forgets, that a last-page count of **zero**
+means a *full* last page; `e_cparhdr`; `e_minalloc`, which is checked against
+the arena and refuses with `Not enough memory` rather than loading a program
+that cannot start; the relocation table; and the four entry words, with `CS`
+and `SS` relocated and `IP` and `SP` taken as they are.
+
+**What is not**: `e_maxalloc` — the block is the whole arena, which is what
+`FFFFh` asks for and is more than any smaller value asks for; and `e_ovno`,
+because overlays arrive with `AH=4B03h` and there is no `AH=4Bh` yet.
+
+`AX` on entry is **0**, which is DOS's "both FCB drive letters are valid" —
+the honest answer when the command tail is empty, which it always is until a
+shell exists (§96.1).
+
+### 96.9 The MCB chain is a real allocator, not a stub
+
+`AH=48h/49h/4Ah` walk the blocks §96.3 lays out, first fit, with splitting.
+That is more than a first wave looks like it needs, and the reason is that
+**anything compiled will not start without it**: a C runtime's startup shrinks
+its own block with `4Ah` and then asks for its heap with `48h`, so a `48h`
+that always refuses leaves `malloc` returning NULL for the life of the
+program.
+
+SOPWITH 7.F15 is the worked example and it fails *silently*: version, resize,
+one write to the console, and then **no DOS call at all**, spinning in a
+graphics mode with a black screen. Nothing about that says "allocation
+failed" from the outside, which is why the trace that found it prints every
+`AH` through the ROM teletype rather than reasoning about the program.
+
+Three rules worth stating:
+
+- **A refusal answers the largest free block in `BX`**, because `48h` with
+  `BX=FFFFh` is how a program *asks how much there is*. A refusal that leaves
+  `BX` alone turns a question into a lie.
+- **Splitting needs a spare paragraph for the new header, and one under it.**
+  A zero-length free block is a chain entry nothing can use and one more step
+  for every later walk.
+- **Growing only ever absorbs the block immediately above**, and only if it is
+  free — DOS's own rule, and the reason a `4Ah` that wants more than that
+  fails rather than moving anything.
+
+A chain whose signature byte is neither `'M'` nor `'Z'` has been trampled by
+the program. The walk **refuses** with DOS's "memory control blocks
+destroyed" rather than following the damage into the heap, which is the one
+place this allocator is better off than the machine it imitates.
+
+`49h` does not coalesce. Neither does DOS at that point — it merges on the
+next allocation's walk — so a program that frees two neighbours and asks for
+their sum is asking for something DOS would refuse too.
+

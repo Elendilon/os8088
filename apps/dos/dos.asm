@@ -82,6 +82,7 @@ DER_READ    equ 2
 DER_BIG     equ 3
 DER_FSX     equ 4
 DER_EXE     equ 5
+DER_BADEXE  equ 6
 
 ; -----------------------------------------------------------------------------
 ; dos_entry - package entry (SPEC.md 20.2)
@@ -126,7 +127,7 @@ dos_entry:
     mov byte [dos_state], DST_READY
     mov bx, [dos_win]
     call OSAPI_WM_WAKE              ; ...and run it from the wake handler, which
-    jmp short .ok                   ; is the one callback without the gfx lock.
+    jmp .ok                   ; is the one callback without the gfx lock.
                                     ; CF=1 here means the ring was FULL and
                                     ; nothing was posted - not an error, and the
                                     ; SDK's own remedy is to kick again from the
@@ -186,7 +187,7 @@ dos_run:
     call dos_be_goto                ; what makes that true after any navigation)
     jnc .there
     mov al, DER_GOTO
-    jmp short .err
+    jmp .err
 .there:
 
     call OSAPI_MEM_AVAIL            ; AX = the largest run a claim can HAVE -
@@ -202,7 +203,7 @@ dos_run:
     jnc .got
 .nomem:
     mov al, DER_MEM
-    jmp short .err
+    jmp .err
 .got:
     mov [dos_arena], dx
     mov ax, [dos_akb]
@@ -214,9 +215,19 @@ dos_run:
     jc .freeerr
     call dos_is_exe                 ; ...and only NOW, because the answer is in
     jnc .isCOM                      ; the FILE and not in its name
-    mov al, DER_EXE
-    jmp short .freeerr
+    call dos_exe_setup              ; MZ: relocate, move down, size the block
+    jnc .ready
+    jmp short .freeerr              ; AL is already a DER_*
 .isCOM:
+    mov dx, [dos_imghi]             ; a .COM is ONE segment: 64KB - the PSP -
+    or dx, dx                       ; the pushed word is the ceiling, so a high
+    jnz .toobig                     ; word at all is a file that cannot be one
+    cmp word [dos_imgsz], 0xFF00
+    jbe .ready
+.toobig:
+    mov al, DER_BIG
+    jmp short .freeerr
+.ready:
 
     call OSAPI_GFX_LOCK             ; ...and only NOW, because fsx_run wants it
     mov ax, dos_fsx_main            ; held and nothing above this may pay for it
@@ -361,21 +372,15 @@ dos_load:
     call dos_be_read                ; DX:AX = bytes read
     jc .rerr
 
-    or dx, dx                       ; a .COM is one segment: 64KB - 256 - 2 is
-    jnz .toobig                     ; the ceiling, so a high word at all is a
-    cmp ax, 0xFF00                  ; file that cannot be one
-    ja .toobig
-    mov [dos_imgsz], ax
-    pop es
+    mov [dos_imgsz], ax             ; the WHOLE 32-bit size: an .EXE may be
+    mov [dos_imghi], dx             ; bigger than a segment and the .COM
+    pop es                          ; ceiling is the .COM path's business
     pop si
     pop dx
     pop cx
     pop bx
     clc
     ret
-.toobig:
-    mov al, DER_BIG
-    jmp short .out
 .rerr:
     mov al, DER_READ
 .out:
@@ -387,6 +392,226 @@ dos_load:
     stc
     ret
 
+
+; =============================================================================
+; THE .EXE LOADER (SPEC.md 96.8)
+; =============================================================================
+; MZ header fields, at the front of the file as it was read in.
+MZ_CBLP     equ 0x02                ; bytes used in the last 512-byte page
+MZ_CP       equ 0x04                ; pages, INCLUDING the header
+MZ_CRLC     equ 0x06                ; relocation entries
+MZ_CPARHDR  equ 0x08                ; header size in PARAGRAPHS
+MZ_MINALLOC equ 0x0A                ; paragraphs wanted beyond the image
+MZ_MAXALLOC equ 0x0C                ; ...and the most it can use
+MZ_SS       equ 0x0E                ; initial SS, relative to the load segment
+MZ_SP       equ 0x10
+MZ_IP       equ 0x14
+MZ_CS       equ 0x16                ; initial CS, likewise relative
+MZ_LFARLC   equ 0x18                ; where the relocation table starts
+
+; -----------------------------------------------------------------------------
+; dos_exe_setup - turn the loaded file into a running .EXE image
+; in:  the whole file is in the arena at DOS_IMGP, [dos_imgsz]/[dos_imghi] its
+;      bytes
+; out: CF=0 and [dos_exe_cs]/[dos_exe_ip]/[dos_exe_ss]/[dos_exe_sp] set, the
+;      image moved down to DOS_IMGP; CF=1 with AL = a DER_*
+;
+; THE ORDER IS RELOCATE, THEN MOVE, and it is the whole reason this needs no
+; scratch buffer. The relocation table lives in the HEADER, which the move is
+; about to overwrite - so a loader that moves first has to copy the table out
+; and then carries a bound on how many entries it can hold. The final load
+; segment is known before either step (it is the PSP plus 16 paragraphs, by
+; DOS's own arithmetic), so the fixups can be applied to the image WHERE IT
+; STILL SITS and the table is read in place. No copy, no cap.
+; -----------------------------------------------------------------------------
+dos_exe_setup:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push ds
+    push es
+
+    mov ax, [dos_arena]
+    add ax, DOS_IMGP                ; the file, header and all
+    mov es, ax
+    mov [dos_exe_fseg], ax
+
+    ; --- EVERY header field, read BEFORE anything overwrites it ------------
+    ; The load segment is DOS_IMGP, which is where the file already sits - so
+    ; the move that strips the header lands exactly on top of it. There is no
+    ; copy of these four words afterwards and no "still there above": read
+    ; them now or lose them.
+    mov ax, [es:MZ_CS]
+    mov [dos_exe_cs], ax
+    mov ax, [es:MZ_IP]
+    mov [dos_exe_ip], ax
+    mov ax, [es:MZ_SS]
+    mov [dos_exe_ss], ax
+    mov ax, [es:MZ_SP]
+    mov [dos_exe_sp], ax
+    mov ax, [es:MZ_CPARHDR]
+    mov [dos_exe_hpara], ax
+    mov ax, [es:MZ_CRLC]
+    mov [dos_exe_nrel], ax
+    mov ax, [es:MZ_LFARLC]
+    mov [dos_exe_rloc], ax
+    mov ax, [es:MZ_MINALLOC]
+    mov [dos_exe_minal], ax
+
+    ; --- the image's size, in bytes then paragraphs ------------------------
+    mov ax, [es:MZ_CP]              ; pages INCLUDING the header. A last-page
+    or ax, ax                       ; count of 0 means the last page is FULL,
+    jz .bad                         ; which is the encoding everybody forgets
+    dec ax
+    mov cx, 512
+    mul cx                          ; DX:AX = the whole pages' bytes
+    mov bx, [es:MZ_CBLP]
+    or bx, bx
+    jnz .tail
+    mov bx, 512
+.tail:
+    add ax, bx
+    adc dx, 0                       ; DX:AX = the FILE's own idea of its length
+    mov bx, [dos_exe_hpara]
+    mov cl, 4
+    shl bx, cl                      ; header bytes - a header over 4,095
+    sub ax, bx                      ; paragraphs is not a thing that exists
+    sbb dx, 0
+    jc .bad
+
+    add ax, 15                      ; ...and in paragraphs, rounded up: a
+    adc dx, 0                       ; 32-bit shift right by four
+    mov cx, 4
+.p2:
+    shr dx, 1
+    rcr ax, 1
+    loop .p2
+    or dx, dx                       ; a paragraph count past 16 bits is more
+    jnz .bad                        ; than conventional memory can hold
+    mov [dos_exe_ipara], ax
+
+    ; --- does the arena hold PSP + image + minalloc? -----------------------
+    mov bx, ax
+    add bx, [dos_exe_minal]
+    jc .nomem
+    add bx, 16
+    jc .nomem
+    mov ax, [dos_apara]
+    sub ax, DOS_PSPP                ; the program's block, in paragraphs
+    cmp ax, bx
+    jb .nomem
+
+    ; --- RELOCATE, in place, BEFORE the move -------------------------------
+    ; The table lives in the header the move is about to destroy, and the
+    ; final load segment is known already - so the fixups go on the image
+    ; WHERE IT STILL SITS and the table is read in place. That is what spares
+    ; this a scratch buffer and, with it, a cap on how many entries an .EXE
+    ; may have.
+    mov ax, [dos_arena]
+    add ax, DOS_IMGP                ; == the file's base: DOS puts an .EXE
+    mov [dos_exe_lseg], ax          ; image 16 paragraphs past the PSP, and
+    mov bp, ax                      ; DOS_IMGP is exactly that
+
+    mov cx, [dos_exe_nrel]
+    jcxz .moved
+    mov si, [dos_exe_rloc]
+    mov dx, [dos_exe_fseg]
+    add dx, [dos_exe_hpara]         ; where the image sits RIGHT NOW
+.rel:
+    mov di, [es:si]                 ; the entry: offset, then segment, both
+    mov ax, [es:si+2]               ; relative to the load segment
+    add ax, dx                      ; ...resolved against the image's CURRENT
+    mov ds, ax                      ; base, which is what lets this run first
+    add [di], bp                    ; THE FIXUP
+    add si, 4
+    loop .rel
+
+.moved:
+    ; --- ...and only NOW move the image down over the header ---------------
+    push cs
+    pop ds
+    mov ax, [dos_exe_fseg]
+    add ax, [dos_exe_hpara]
+    mov dx, [dos_exe_lseg]
+    mov cx, [dos_exe_ipara]
+    call dos_movedown
+
+    push cs                         ; dos_movedown spends DS and ES
+    pop ds
+    mov ax, [dos_exe_lseg]          ; CS and SS are RELATIVE to the load
+    add [dos_exe_cs], ax            ; segment; IP and SP are absolute
+    add [dos_exe_ss], ax
+    mov byte [dos_isexe], 1
+
+    pop es
+    pop ds
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    clc
+    ret
+.nomem:
+    mov al, DER_MEM
+    jmp short .fail
+.bad:
+    mov al, DER_BADEXE
+.fail:
+    pop es
+    pop ds
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_movedown - copy CX paragraphs from AX:0 down to DX:0
+; in:  AX = source segment, DX = destination segment (BELOW it), CX = paragraphs
+; out: nothing; clobbers AX, CX, DX, SI, DI, DS, ES, flags
+;
+; SEGMENT-STEPPED, so an image bigger than 64KB moves without a 16-bit offset
+; binding - mem_bcopy's argument one layer out (SPEC.md 66.4). Forward within
+; each chunk is safe because the destination is strictly below the source.
+; -----------------------------------------------------------------------------
+dos_movedown:
+    cld
+.chunk:
+    jcxz .done
+    push cx
+    cmp cx, 0x800                   ; 2,048 paragraphs = 32KB, so the word
+    jbe .last                       ; count below cannot leave a word
+    mov cx, 0x800
+.last:
+    mov ds, ax
+    mov es, dx
+    push cx
+    xor si, si
+    xor di, di
+    shl cx, 1                       ; paragraphs -> words, 8 words a paragraph.
+    shl cx, 1                       ; THREE SINGLE-BIT SHIFTS and not `mov cl,
+    shl cx, 1                       ; 3 / shl cx, cl`: the count being shifted
+    rep movsw                       ; IS CX, so loading CL destroys its low
+    pop cx                          ; byte first. 64 paragraphs became 3, and
+                                    ; 48 bytes of a 1KB image moved - which
+                                    ; looks like a loader that placed the image
+                                    ; wrong rather than one that truncated it
+    add ax, cx                      ; ...and both segments step by what moved
+    add dx, cx
+    pop bx
+    sub bx, cx
+    mov cx, bx
+    jmp short .chunk
+.done:
+    ret
 
 ; =============================================================================
 ; THE BRACKET (SPEC.md 96.2)
@@ -432,23 +657,38 @@ dos_fsx_main:
     mov [dos_sv_sp], sp
 
     mov ax, [dos_arena]
-    add ax, DOS_PSPP
-    mov bx, [dos_prgsp]
+    add ax, DOS_PSPP                ; the PSP, which is DS and ES for both
+    mov dx, ax                      ; kinds (SPEC.md 96.3)
+
+    cmp byte [dos_isexe], 0
+    je .com
+    mov bx, [dos_exe_sp]            ; an .EXE brings its OWN stack, out of the
+    mov cx, [dos_exe_ss]            ; header and relocated with everything else
+    mov si, [dos_exe_cs]
+    mov di, [dos_exe_ip]
+    jmp short .go
+.com:
+    mov bx, [dos_prgsp]             ; a .COM runs on the PSP's own segment...
+    mov cx, ax
+    mov si, ax                      ; ...and is entered at PSP:0100, NOT
+    mov di, 0x100                   ; PSP:0000 - the first 256 bytes ARE the
+.go:                                ; PSP and its first two are the CD 20 a
+                                    ; program's own `ret` lands on. Jumping to
+                                    ; 0 runs that INT 20h, and from outside it
+                                    ; is indistinguishable from a program that
+                                    ; exited 0 having printed nothing
     cli                             ; SS and SP are loaded as a pair, always:
-    mov ss, ax                      ; an interrupt between them lands on a
+    mov ss, cx                      ; an interrupt between them lands on a
     mov sp, bx                      ; stack that is half of each
     sti
-    mov ds, ax                      ; a .COM is entered with every segment
-    mov es, ax                      ; register on the PSP (SPEC.md 96.3)
-    push ax                         ; ...and at PSP:0100, NOT PSP:0000 - the
-    mov ax, 0x100                   ; first 256 bytes ARE the PSP and its first
-    push ax                         ; two bytes are the CD 20 that a program's
-    retf                            ; own `ret` lands on. Pushing 0 here jumps
-                                    ; straight into that INT 20h, and what it
-                                    ; looks like is a program that ran and
-                                    ; exited with code 0 having printed nothing
-                                    ; - which is indistinguishable, from the
-                                    ; outside, from a program that does that
+    mov ds, dx
+    mov es, dx
+    xor ax, ax                      ; AL/AH = the two FCB drive checks, and 0
+                                    ; is "both valid" - an empty command tail
+                                    ; parses to no drive letters at all
+    push si                         ; ...and away
+    push di
+    retf
 
 dos_prog_done:                      ; the INT 21h terminate path jumps here,
                                     ; having already put SS:SP back
@@ -775,9 +1015,12 @@ dos_int21:
     sti                             ; DOS runs its calls with interrupts on
     push bp
     push ds
-    mov bp, sp                      ; [bp]=bp [bp+2]=ds [bp+4]=IP [bp+6]=CS
+    mov bp, sp                      ; [bp]=DS [bp+2]=BP [bp+4]=IP [bp+6]=CS
     push cs                         ; [bp+8]=FLAGS, all on the PROGRAM's stack
     pop ds
+%ifdef DOSTRACE
+    call dos_trace
+%endif
 
     cmp ah, 0x4C
     je .term
@@ -797,6 +1040,14 @@ dos_int21:
     je .getc
     cmp ah, 0x0B
     je .kbhit
+    cmp ah, 0x40
+    je .write
+    cmp ah, 0x4A
+    je .resize
+    cmp ah, 0x48
+    je .alloc
+    cmp ah, 0x49
+    je .free
     jmp .bad
 
 .term:
@@ -807,7 +1058,7 @@ dos_int21:
 .putc:
     mov al, dl
     call dos_tty
-    jmp short .ok
+    jmp .ok
 
 .puts:
     pop ds                          ; the string is the PROGRAM's, at DS:DX -
@@ -823,17 +1074,17 @@ dos_int21:
     jmp short .sloop
 .sdone:
     pop si
-    jmp short .ok
+    jmp .ok
 
 .getce:
     call dos_getkey                 ; AH=01h echoes what it read; AH=07h and
     push ax                         ; AH=08h do not, and 07h additionally does
     call dos_tty                    ; not check for Ctrl-Break - a distinction
     pop ax                          ; wave 1 has nothing to make
-    jmp short .ok
+    jmp .ok
 .getc:
     call dos_getkey
-    jmp short .ok
+    jmp .ok
 .kbhit:
     mov ah, 1                       ; AH=0Bh: FFh if a character is waiting,
     int 0x16                        ; 00h if not - the poll a program spins on
@@ -841,19 +1092,70 @@ dos_int21:
     jz .khdone
     mov al, 0xFF
 .khdone:
-    jmp short .ok
+    jmp .ok
+
+.write:
+    ; AH=40h: BX = handle, CX = bytes, DS:DX = the buffer, and DS is the
+    ; PROGRAM's. Handles 1 and 2 are the console, which is the ROM teletype
+    ; here; a real file wants the write wave (DOS-EXEC-PLAN 11 wave 5), and
+    ; refusing is what keeps a save from reporting success.
+    cmp bx, 2
+    ja .bad
+    or bx, bx
+    jz .bad                         ; handle 0 is stdin: writing to it is not
+    push si                         ; a thing, and DOS answers 0 bytes anyway
+    push cx
+    mov si, dx
+    mov ds, [bp]                    ; THE PROGRAM'S DS, off the frame - [bp] and
+                                    ; NOT [bp+2]: the prologue is `push bp /
+                                    ; push ds / mov bp, sp`, so the DS push is
+                                    ; the one BP lands on. BP is SS-relative by
+                                    ; default, which is right - the frame is on
+                                    ; the program's own stack
+    jcxz .wdone
+.wloop:
+    mov al, [si]
+    inc si
+    push cx
+    call dos_tty
+    pop cx
+    loop .wloop
+.wdone:
+    pop ax                          ; AX = the byte count, which is what a
+    pop si                          ; caller checks against CX
+    jmp .ok
+.resize:
+    ; AH=4Ah: ES = the block, BX = the paragraphs wanted (SPEC.md 96.9).
+    call dos_mcb_resize
+    jc .badax
+    jmp .ok
+
+.alloc:
+    ; AH=48h: BX = paragraphs wanted; out AX = the segment. A refusal answers
+    ; the LARGEST available in BX, which is how a program asks "how much is
+    ; there" - BX=FFFFh is that question and must get a truthful number.
+    call dos_mcb_alloc
+    jc .badax
+    jmp .ok
+
+.free:
+    ; AH=49h: ES = a segment we handed out.
+    call dos_mcb_free
+    jc .badax
+    jmp .ok
 
 .ver:
     mov ax, 0x1F03                  ; AL = 3, AH = 31: DOS 3.31. The version is
     mov bx, 0                       ; a SETTING and not a constant the day a
     mov cx, 0                       ; program wants 5.00 - reporting a version
-    jmp short .ok                   ; whose functions we lack is worse than
+    jmp .ok                   ; whose functions we lack is worse than
                                     ; reporting a lower one, because a program
                                     ; branches on it (DOS-EXEC-PLAN 12 q1)
 
 .bad:
     mov [dos_badfn], ah             ; the window NAMES it (SPEC.md 47): an
     mov ax, 1                       ; unsupported program reports its own gap
+.badax:
     or word [bp+8], 1               ; CF=1 in the RETURNED flags
     pop ds
     pop bp
@@ -885,6 +1187,32 @@ dos_terminate:
 ; in:  AL = the character
 ; out: nothing; preserves everything but the flags
 ; -----------------------------------------------------------------------------
+%ifdef DOSTRACE
+; TEMPORARY: every INT 21h's AH, in hex, through the ROM teletype, capped so a
+; spin does not fill the screen. Removed before this ships.
+dos_trace:
+    push ax
+    cmp word [dos_tracen], 60
+    jae .out
+    inc word [dos_tracen]
+    mov al, ah
+    shr al, 1
+    shr al, 1
+    shr al, 1
+    shr al, 1
+    call dos_hexd
+    call dos_tty
+    mov al, ah
+    and al, 0x0F
+    call dos_hexd
+    call dos_tty
+    mov al, ' '
+    call dos_tty
+.out:
+    pop ax
+    ret
+%endif
+
 ; -----------------------------------------------------------------------------
 ; dos_getkey - one character from the ROM
 ; in:  nothing; out: AL = the character (0 for an extended key's first half)
@@ -1171,14 +1499,240 @@ dos_l_err:   db 'Could not run it.', 0
 
 dos_errs:
     dw dos_e_goto, dos_e_mem, dos_e_read, dos_e_big, dos_e_fsx, dos_e_exe
+    dw dos_e_badexe
 dos_e_goto:  db 'Its folder could not be opened.', 0
 dos_e_mem:   db 'Not enough memory.', 0
 dos_e_read:  db 'It could not be read.', 0
 dos_e_big:   db 'Too large for one segment.', 0
 dos_e_fsx:   db 'The screen is already in use.', 0
 dos_e_exe:   db '.EXE is not supported yet.', 0
+dos_e_badexe: db 'Its .EXE header is malformed.', 0
 dos_e_fn:    db 'It asked for INT 21h AH='
 dos_fnd:     db '00h.', 0
+
+
+; =============================================================================
+; THE MCB CHAIN (SPEC.md 96.9)
+; =============================================================================
+; A real first-fit allocator over the blocks dos_build_psp laid out, because a
+; stub is not enough for anything compiled: a C runtime's startup SHRINKS its
+; own block with AH=4Ah and then asks for its heap with AH=48h, and a 48h that
+; always refuses leaves malloc returning NULL for ever. SOPWITH 7.F15 does
+; exactly that and then spins - one write to the console and no further DOS
+; call at all, which is what an unchecked allocation failure looks like from
+; outside.
+;
+; An MCB is 16 bytes at the paragraph BEFORE the block it describes:
+;   +0  byte  'M' = another follows, 'Z' = the last one
+;   +1  word  the owning PSP, 0 = free
+;   +3  word  the block's size in paragraphs
+;   +5  11    reserved, and DOS 4's 8-byte name
+MCB_SIG     equ 0
+MCB_OWN     equ 1
+MCB_SZ      equ 3
+MCB_M       equ 'M'
+MCB_Z       equ 'Z'
+
+; -----------------------------------------------------------------------------
+; dos_mcb_split - make BX paragraphs of the block at ES, freeing the rest
+; in:  ES = the MCB, BX = the paragraphs to keep
+; out: nothing; the block is shortened and a free MCB follows it
+; clobbers: AX, CX, DX, flags
+;
+; Only splits when there is room for the new header AND at least one paragraph
+; under it: a zero-length free block is a chain entry nothing can ever use and
+; one more thing for every later walk to step over.
+; -----------------------------------------------------------------------------
+dos_mcb_split:
+    push es
+    mov cx, [es:MCB_SZ]
+    sub cx, bx
+    jbe .out                        ; nothing spare
+    dec cx                          ; ...one paragraph of it is the new header
+    jz .out
+    mov al, [es:MCB_SIG]            ; the tail inherits our end-of-chain flag
+    mov dx, es
+    mov [es:MCB_SZ], bx
+    mov byte [es:MCB_SIG], MCB_M    ; ...and we are no longer the last
+    add dx, bx
+    inc dx                          ; the new header sits past our block
+    mov es, dx
+    mov [es:MCB_SIG], al
+    mov word [es:MCB_OWN], 0        ; free
+    mov [es:MCB_SZ], cx
+.out:
+    pop es
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_mcb_alloc - AH=48h
+; in:  BX = paragraphs wanted
+; out: CF=0 and AX = the block's segment; CF=1 with AX = 8 and BX = the
+;      largest free block there is
+; -----------------------------------------------------------------------------
+dos_mcb_alloc:
+    push cx
+    push dx
+    push si
+    push es
+    xor cx, cx                      ; CX = the largest seen, for the refusal
+    mov dx, [dos_arena]             ; the chain starts at the arena's floor
+.scan:
+    mov es, dx
+    cmp byte [es:MCB_SIG], MCB_M
+    je .live
+    cmp byte [es:MCB_SIG], MCB_Z
+    jne .broken                     ; a chain a program has trampled: refuse
+.live:                              ; rather than walk into the heap
+    cmp word [es:MCB_OWN], 0
+    jne .next
+    mov si, [es:MCB_SZ]
+    cmp si, cx
+    jbe .notbig
+    mov cx, si                      ; remember the largest free
+.notbig:
+    cmp si, bx
+    jb .next
+    call dos_mcb_split              ; it fits: keep BX and free the rest
+    mov ax, [dos_arena]
+    add ax, DOS_PSPP
+    mov [es:MCB_OWN], ax            ; ...owned by the program's PSP
+    mov ax, dx
+    inc ax                          ; the block is the paragraph after its MCB
+    pop es
+    pop si
+    pop dx
+    pop cx
+    clc
+    ret
+.next:
+    cmp byte [es:MCB_SIG], MCB_Z
+    je .nomem
+    add dx, [es:MCB_SZ]
+    inc dx
+    jmp short .scan
+.nomem:
+    mov bx, cx                      ; the truthful largest, which is what a
+    mov ax, 8                       ; BX=FFFFh probe is asking for
+    jmp short .fail
+.broken:
+    xor bx, bx
+    mov ax, 7                       ; "memory control blocks destroyed"
+.fail:
+    pop es
+    pop si
+    pop dx
+    pop cx
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_mcb_free - AH=49h
+; in:  ES = a segment this allocator handed out
+; out: CF=0 freed; CF=1 with AX = 9 (invalid block address)
+;
+; It marks the block free and does NOT coalesce. DOS does not coalesce here
+; either - it does it on the next alloc's walk - and a program that frees two
+; neighbours and asks for their sum is asking for something DOS would also
+; refuse.
+; -----------------------------------------------------------------------------
+dos_mcb_free:
+    push dx
+    push es
+    mov dx, es
+    dec dx                          ; the MCB is the paragraph before it
+    mov es, dx
+    cmp byte [es:MCB_SIG], MCB_M
+    je .ok
+    cmp byte [es:MCB_SIG], MCB_Z
+    jne .bad
+.ok:
+    mov word [es:MCB_OWN], 0
+    pop es
+    pop dx
+    clc
+    ret
+.bad:
+    pop es
+    pop dx
+    mov ax, 9
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_mcb_resize - AH=4Ah
+; in:  ES = the block, BX = the paragraphs wanted
+; out: CF=0 resized; CF=1 with AX = 8 and BX = the most it could have, or
+;      AX = 9 for a block that is not one of ours
+;
+; GROWING is refused unless the free block immediately above is big enough,
+; which is DOS's own rule: a block only ever grows into its own neighbour.
+; -----------------------------------------------------------------------------
+dos_mcb_resize:
+    push cx
+    push dx
+    push es
+    mov dx, es
+    dec dx
+    mov es, dx
+    cmp byte [es:MCB_SIG], MCB_M
+    je .known
+    cmp byte [es:MCB_SIG], MCB_Z
+    jne .bad
+.known:
+    mov cx, [es:MCB_SZ]
+    cmp bx, cx
+    jbe .shrink
+    ; --- grow: only into a FREE neighbour --------------------------------
+    cmp byte [es:MCB_SIG], MCB_Z
+    je .nofit                       ; nothing above us at all
+    push es
+    push dx
+    add dx, cx
+    inc dx
+    mov es, dx                      ; the block above
+    cmp word [es:MCB_OWN], 0
+    jne .nofit2
+    mov ax, [es:MCB_SZ]
+    add ax, cx
+    inc ax                          ; ...absorbed, header and all
+    mov dl, [es:MCB_SIG]
+    pop dx
+    pop es
+    cmp bx, ax
+    ja .nofitax
+    mov [es:MCB_SZ], ax             ; take the whole neighbour, then give back
+    mov [es:MCB_SIG], dl            ; what is not wanted
+    call dos_mcb_split
+    jmp short .done
+.nofit2:
+    pop dx
+    pop es
+.nofit:
+    mov ax, cx
+.nofitax:
+    mov bx, ax                      ; the most it could have had
+    pop es
+    pop dx
+    pop cx
+    mov ax, 8
+    stc
+    ret
+.shrink:
+    call dos_mcb_split
+.done:
+    pop es
+    pop dx
+    pop cx
+    clc
+    ret
+.bad:
+    pop es
+    pop dx
+    pop cx
+    mov ax, 9
+    stc
+    ret
 
 ; --- bss offsets, as a RUNNING TOTAL so the size cannot disagree with the -----
 ; fields (the Arkanoid %assign pattern). DOS_BSS_SIZE was written by hand once
@@ -1208,6 +1762,20 @@ dos_fnd:     db '00h.', 0
     DBSS DOS_B_SVSP,  2
     DBSS DOS_B_PIC1,  1
     DBSS DOS_B_PIC2,  1
+    DBSS DOS_B_ISEXE, 1
+    DBSS DOS_B_TRACEN, 2
+    DBSS DOS_B_IMGHI, 2
+    DBSS DOS_B_XFSEG, 2
+    DBSS DOS_B_XLSEG, 2
+    DBSS DOS_B_XHPAR, 2
+    DBSS DOS_B_XNREL, 2
+    DBSS DOS_B_XRLOC, 2
+    DBSS DOS_B_XMINA, 2
+    DBSS DOS_B_XIPAR, 2
+    DBSS DOS_B_XCS,   2
+    DBSS DOS_B_XIP,   2
+    DBSS DOS_B_XSS,   2
+    DBSS DOS_B_XSP,   2
     DBSS DOS_B_FSI,   FSI_SIZE
     DBSS DOS_B_IVT,   1024
     DBSS DOS_B_BDA,   256
@@ -1240,6 +1808,20 @@ dos_sv_ss   equ os88_image_end + DOS_B_SVSS    ; word: OUR stack, banked
 dos_sv_sp   equ os88_image_end + DOS_B_SVSP    ; word: ...across the far jump
 dos_pic1    equ os88_image_end + DOS_B_PIC1    ; byte: the 8259 masks as found
 dos_pic2    equ os88_image_end + DOS_B_PIC2    ; byte:
+dos_isexe   equ os88_image_end + DOS_B_ISEXE   ; byte: 1 = an .EXE was set up
+dos_tracen  equ os88_image_end + DOS_B_TRACEN  ; word: DOSTRACE's call counter
+dos_imghi   equ os88_image_end + DOS_B_IMGHI   ; word: the file's size, high
+dos_exe_fseg equ os88_image_end + DOS_B_XFSEG  ; word: where the FILE landed
+dos_exe_lseg equ os88_image_end + DOS_B_XLSEG  ; word: ...and the load segment
+dos_exe_hpara equ os88_image_end + DOS_B_XHPAR ; word: header paragraphs
+dos_exe_nrel equ os88_image_end + DOS_B_XNREL  ; word: relocation entries
+dos_exe_rloc equ os88_image_end + DOS_B_XRLOC  ; word: ...where the table is
+dos_exe_minal equ os88_image_end + DOS_B_XMINA ; word: paragraphs it must have
+dos_exe_ipara equ os88_image_end + DOS_B_XIPAR ; word: the image's paragraphs
+dos_exe_cs  equ os88_image_end + DOS_B_XCS     ; word: the entry state, all
+dos_exe_ip  equ os88_image_end + DOS_B_XIP     ; word: four out of the header
+dos_exe_ss  equ os88_image_end + DOS_B_XSS     ; word: and CS/SS relocated
+dos_exe_sp  equ os88_image_end + DOS_B_XSP     ; word:
 dos_fsi     equ os88_image_end + DOS_B_FSI     ; FSI_SIZE: the fsx info block
 dos_ivt     equ os88_image_end + DOS_B_IVT     ; 1024: the whole vector table
 dos_bda     equ os88_image_end + DOS_B_BDA     ; 256:  ...and the whole BDA

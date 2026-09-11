@@ -2412,6 +2412,21 @@ SOAK = [
         "flags and the program itself prints 'the gate has FAILED'.",
         needs=("marty",), serial=True,
         wants=("build/doscom360.img",)),
+    Row("dosexe", "soak", py("tests/dosexe.py"), 45.0,
+        "THE DOS WAVE-2 GATE (SPEC.md 96.8, 96.9): a real MZ .EXE - header, "
+        "relocation table, and a last page that is exactly full so e_cblp is "
+        "0. It checks the four things only an .EXE has: the relocation "
+        "applied (a far pointer that reads back RELOC-OK instead of the "
+        "interrupt vector table), SS:SP taken from the HEADER and not the "
+        "PSP, the AH=4Ah-then-AH=48h pair every compiled program does at "
+        "startup, and a truthful largest-free-block from the BX=FFFFh probe. "
+        "VERIFIED TO FAIL: dos_movedown built its paragraphs-to-words shift "
+        "with `mov cl, 3 / shl cx, cl`, which destroys the low byte of the "
+        "count being shifted - 64 paragraphs became 3, 48 bytes of a 1KB "
+        "image moved, and the screen showed the machine's own memory as "
+        "text rather than any error.",
+        needs=("marty",), serial=True,
+        wants=("build/dosexe360.img",)),
     Row("heapcheck", "soak", py("tests/heapcheck.py"), 40.0,
         "Drive tests/heapfrag and read its verdict out of the guest (SPEC.md"
         "66.8).",

@@ -3914,7 +3914,7 @@ $(BUILD)/vmmouse.img: KMODDIR := $(EMUDIR)
 # no longer described. `wants=` guards a path's EXISTENCE (tests/suite.py), so
 # the runner's pre-build could not see it either. A parse is what it costs
 # when nothing changed.
-$(BUILD)/vmmouse.img: $(KERNEL_SRC) $(KERNEL_INC) $(EMUDRIVERS) $(SYSAPPS) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) $(BUILD)/vmmcfg/system.cfg tools/os88disk.py
+$(BUILD)/vmmouse.img: $(KERNEL_SRC) $(KERNEL_INC) $(EMUDRIVERS) $(SYSAPPS) $(SYSROOT) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) $(BUILD)/vmmcfg/system.cfg tools/os88disk.py
 	@$(MAKE) BUILD=$(EMUDIR) KERN_EMU=1 $(EMUDIR)/boot.bin
 	python3 tools/os88disk.py -o $@ --size 1440 \
 		--boot $(EMUDIR)/boot.bin --kernel $(EMUDIR)/$(KERNNAME) \
@@ -3969,7 +3969,7 @@ $(BUILD)/wirecfg/WIRE.CFG: | $(BUILD)
 # volume wants the second. This rule arrived from `main`, where they are the
 # same bytes, and merged with no conflict - so the disk booted to a BLACK
 # 720x400 text screen and every row on it reported the feature broken.
-$(BUILD)/thewire360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) $(BUILD)/wirecfg/SYSTEM.CFG $(BUILD)/wirecfg/WIRE.CFG tools/os88disk.py
+$(BUILD)/thewire360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) $(BUILD)/wirecfg/SYSTEM.CFG $(BUILD)/wirecfg/WIRE.CFG tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
 		$(DRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
@@ -4040,7 +4040,7 @@ ethertest: $(BUILD)/ether360.img
 	@echo "ethertest: build/ether360.img - the Ethernet driver already wanted."
 	@echo "           Run it with: python3 tests/ethernet.py"
 
-$(BUILD)/ether360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) $(BUILD)/system.cfg tools/os88disk.py
+$(BUILD)/ether360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) $(BUILD)/system.cfg tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
 		$(DRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
@@ -4161,7 +4161,7 @@ $(BUILD)/ftpapps.img: $(FTPDFILES) tools/os88disk.py
 # ...and this one alone takes $(COREAPPSARGS360)/$(FACESARG360) - the 354
 # clusters that geometry has do not hold MINES.O88 and JETBRAIN.F88 as well as
 # SPEC.md 70.9's parser, and §24.3 carries the arithmetic.
-$(IMG360): $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) tools/os88disk.py
+$(IMG360): $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
 		$(DRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
@@ -4205,7 +4205,7 @@ $(LZDDIR)/ramdisk.drv: $(BUILD)/ramdisk.bin tools/os88drv.py tools/os88lz.py
 
 $(BUILD)/lzdrv360.img: $(BUILD)/boot360.bin $(KERNFILE) \
                        $(LZDRIVERS) $(SYSAPPS) $(COREAPPS) $(SYSDOC) \
-                       $(SYSLOGO) $(FACES) $(FACELIC) tools/os88disk.py
+                       $(SYSLOGO) $(FACES) $(FACELIC) tools/os88disk.py $(SYSROOT)
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
 		$(LZDRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(COREAPPSARGS) $(SYSDOC) \
@@ -4734,8 +4734,16 @@ $(BUILD)/DOSHELLO.COM: tests/doscom/hello.asm | $(BUILD)
 $(BUILD)/doscom360.img: $(BUILD)/DOSHELLO.COM tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSHELLO.COM
 
+# ...and the wave-2 gate's, which is a REAL MZ .EXE - header, relocation table
+# and a last page that is exactly full, so e_cblp is 0 (SPEC.md 96.8).
+$(BUILD)/DOSHELLO.EXE: tests/dosexe/hello.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dosexe/hello.asm
+
+$(BUILD)/dosexe360.img: $(BUILD)/DOSHELLO.EXE tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSHELLO.EXE
+
 .PHONY: doscom
-doscom: $(BUILD)/doscom360.img
+doscom: $(BUILD)/doscom360.img $(BUILD)/dosexe360.img
 
 $(BUILD)/thewire.bin: apps/thewire/thewire.asm apps/thewire/wrhttp.inc \
                       apps/thewire/wrarc.inc apps/thewire/wrtxt.inc \
@@ -8134,14 +8142,14 @@ $(BUILD)/npb/notepad.o88: $(BUILD)/npbench.o88
 # nothing is swapped. It must NOT be write-protected: Ctrl-S is how the report
 # leaves the machine.
 $(BUILD)/npbench.img: $(BUILD)/boot.bin $(KERNFILE) $(DRIVERS) \
-                      $(SYSAPPS) $(SYSDOC) $(BUILD)/npb/notepad.o88 tools/os88disk.py
+                      $(SYSAPPS) $(SYSDOC) $(BUILD)/npb/notepad.o88 tools/os88disk.py $(SYSROOT)
 	python3 tools/os88disk.py -o $@ --size 1440 \
 		--boot $(BUILD)/boot.bin --kernel $(KERNFILE) \
 		$(DRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(SYSDOC) \
 		APPS:$(BUILD)/npb/notepad.o88 $(MEDIAFOLDER)
 
 $(BUILD)/npbench360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) \
-                         $(SYSAPPS) $(SYSDOC) $(BUILD)/npb/notepad.o88 tools/os88disk.py
+                         $(SYSAPPS) $(SYSDOC) $(BUILD)/npb/notepad.o88 tools/os88disk.py $(SYSROOT)
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
 		$(DRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(SYSDOC) \
@@ -8189,7 +8197,7 @@ $(BUILD)/nprun/run.txt: Makefile | $(BUILD)
 
 $(BUILD)/nprun.img: $(BUILD)/boot.bin $(KERNFILE) $(DRIVERS) \
                     $(SYSAPPS) $(BUILD)/nprun/run.txt $(BUILD)/npb/notepad.o88 \
-                    tools/os88disk.py
+                    tools/os88disk.py $(SYSROOT)
 	python3 tools/os88disk.py -o $@ --size 1440 \
 		--boot $(BUILD)/boot.bin --kernel $(KERNFILE) \
 		$(DRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(BUILD)/nprun/run.txt \
@@ -8197,7 +8205,7 @@ $(BUILD)/nprun.img: $(BUILD)/boot.bin $(KERNFILE) $(DRIVERS) \
 
 $(BUILD)/nprun360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) \
                        $(SYSAPPS) $(BUILD)/nprun/run.txt $(BUILD)/npb/notepad.o88 \
-                       tools/os88disk.py
+                       tools/os88disk.py $(SYSROOT)
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
 		$(DRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(BUILD)/nprun/run.txt \
@@ -9098,7 +9106,7 @@ $(BUILD)/emu.img: KMODDIR := $(EMUDIR)
 # one feature it was built for has not been given anything. build/vmmcfg is the
 # gate's own SYSTEM.CFG with bit 5 set, which is the absolute mouse's bit and
 # not its row number (drv_cfgbit), and it is reused verbatim rather than copied.
-$(BUILD)/emu.img: $(EMUDRIVERS) $(SYSAPPS) $(COREAPPS) $(SYSDOC) $(SYSLOGO) \
+$(BUILD)/emu.img: $(EMUDRIVERS) $(SYSAPPS) $(SYSROOT) $(COREAPPS) $(SYSDOC) $(SYSLOGO) \
                   $(FACES) $(FACELIC) $(BUILD)/vmmcfg/system.cfg \
                   tools/os88disk.py
 	@$(MAKE) BUILD=$(EMUDIR) KERN_EMU=1 $(EMUDIR)/boot.bin
@@ -9295,7 +9303,7 @@ define FONT_TARGETS
 # its kernel is that face's
 $$(BUILD)/font-$(1)-360.img: KMODDIR := $$(call FONTDIR,$(1))
 
-$$(BUILD)/font-$(1)-360.img: fonts/$(1).f8 $$(DRIVERS) $$(SYSAPPS) $$(SYSDOC) \
+$$(BUILD)/font-$(1)-360.img: fonts/$(1).f8 $$(DRIVERS) $$(SYSAPPS) $(SYSROOT) $$(SYSDOC) \
                              tools/os88font.py tools/os88disk.py
 	@$$(MAKE) BUILD=$$(call FONTDIR,$(1)) FONT=$(1) $$(call FONTDIR,$(1))/boot360.bin
 	python3 tools/os88disk.py -o $$@ --size 360 \
@@ -9307,7 +9315,7 @@ $$(BUILD)/font-$(1)-360.img: fonts/$(1).f8 $$(DRIVERS) $$(SYSAPPS) $$(SYSDOC) \
 # its kernel is that face's
 $$(BUILD)/font-$(1).img: KMODDIR := $$(call FONTDIR,$(1))
 
-$$(BUILD)/font-$(1).img: fonts/$(1).f8 $$(DRIVERS) $$(SYSAPPS) $$(SYSDOC) \
+$$(BUILD)/font-$(1).img: fonts/$(1).f8 $$(DRIVERS) $$(SYSAPPS) $(SYSROOT) $$(SYSDOC) \
                          tools/os88font.py tools/os88disk.py
 	@$$(MAKE) BUILD=$$(call FONTDIR,$(1)) FONT=$(1) $$(call FONTDIR,$(1))/boot.bin
 	python3 tools/os88disk.py -o $$@ --size 1440 \
@@ -9369,10 +9377,10 @@ field: $(BUILD)/herc.img $(BUILD)/cga.img $(BUILD)/cga720.img $(BUILD)/flop1.img
 FIELDDRV = @$(MAKE) $(FIELDKNOBS) $(filter-out $(KMODS) $(BIGMODS),$(DRIVERS))
 
 # its kernel is $(HERCDIR)'s, so its modules are too
-$(BUILD)/herc.img: KMODDIR := $(HERCDIR)
+$(BUILD)/herc.img: KMODDIR := $(HERCDIR) $(SYSROOT)
 
 $(BUILD)/herc.img: $(BUILD)/kernel.bin $(DRIVERS) \
-                   $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
+                   $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py $(SYSROOT)
 	$(FIELDDRV)
 	@$(MAKE) BUILD=$(HERCDIR) $(FIELDKNOBS) $(HERCDIR)/boot360.bin
 	python3 tools/os88disk.py -o $@ --size 360 \
@@ -9385,7 +9393,7 @@ $(BUILD)/herc.img: $(BUILD)/kernel.bin $(DRIVERS) \
 # its kernel is $(CGADIR)'s, so its modules are too
 $(BUILD)/cga.img: KMODDIR := $(CGADIR)
 
-$(BUILD)/cga.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
+$(BUILD)/cga.img: $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(FIELDBENCH) tools/os88disk.py
 	$(FIELDDRV)
 	@$(MAKE) BUILD=$(CGADIR) VIDEO=cga $(FIELDKNOBS) $(CGADIR)/boot360.bin
 	python3 tools/os88disk.py -o $@ --size 360 \
@@ -9407,7 +9415,7 @@ $(BUILD)/cga.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
 # its kernel is $(CGADIR)'s, so its modules are too
 $(BUILD)/cga720.img: KMODDIR := $(CGADIR)
 
-$(BUILD)/cga720.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
+$(BUILD)/cga720.img: $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(FIELDBENCH) tools/os88disk.py
 	$(FIELDDRV)
 	@$(MAKE) BUILD=$(CGADIR) VIDEO=cga $(FIELDKNOBS) $(CGADIR)/boot360.bin
 	python3 tools/os88disk.py -o $@ --size 720 \
@@ -9432,7 +9440,7 @@ $(BUILD)/cga720.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
 # its kernel is $(F1DIR)'s, so its modules are too
 $(BUILD)/flop1.img: KMODDIR := $(F1DIR)
 
-$(BUILD)/flop1.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
+$(BUILD)/flop1.img: $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(FIELDBENCH) tools/os88disk.py
 	$(FIELDDRV)
 	@$(MAKE) BUILD=$(F1DIR) FLOPPY1=1 $(FIELDKNOBS) $(F1DIR)/boot360.bin
 	python3 tools/os88disk.py -o $@ --size 360 \
@@ -9458,7 +9466,7 @@ $(BUILD)/flop1.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
 # its kernel is $(CQDIR)'s, so its modules are too
 $(BUILD)/cqdiag.img: KMODDIR := $(CQDIR)
 
-$(BUILD)/cqdiag.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
+$(BUILD)/cqdiag.img: $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(FIELDBENCH) tools/os88disk.py
 	$(FIELDDRV)
 	@$(MAKE) BUILD=$(CQDIR) BOOTDIAG=1 $(FIELDKNOBS) $(CQDIR)/boot360.bin
 	python3 tools/os88disk.py -o $@ --size 360 \
