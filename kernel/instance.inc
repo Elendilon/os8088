@@ -24,7 +24,21 @@
 
 ; --- instance record, 32 bytes (SPEC.md 29.1) ---------------------------------
 I_STATE  equ 0                  ; byte: 0 free, 1 live, 2 dying
-I_FLAGS  equ 1                  ; byte: bit0 = minimized
+I_FLAGS  equ 1                  ; byte: bit0 = minimized, bit1 = IF_FSMIN
+IF_MIN   equ 1                  ; I_FLAGS bit0: minimized (window hidden, tile
+                                ; in the dock inverted)
+IF_FSMIN equ 2                  ; I_FLAGS bit1: ...and it went down from
+                                ; FULLSCREEN, so the restore does not zoom
+                                ; (SPEC.md 11.99.5). The outward zoom is
+                                ; already suppressed without this - wm_an_ok
+                                ; asks wm_fs_vis, which is true of the very
+                                ; window being hidden - and the inward one is
+                                ; not, because by then the latch is dropped
+                                ; and the record carries the WINDOWED rect
+                                ; again. An outline flying from the tile to a
+                                ; splash card the user is never going to see
+                                ; is a promise about where the window is
+                                ; going that is not kept
 I_KIND   equ 2                  ; byte: KIND_*; bit 7 = package
 I_TASK   equ 3                  ; byte: task slot (SPEC.md 8), 0xFF = none
 I_WIN    equ 4                  ; word: window record ptr
@@ -1804,8 +1818,15 @@ inst_minimize:
     push di
     call inst_of_win
     jc .hide                    ; unowned: plain hide
-    or byte [di+I_FLAGS], 1
+    or byte [di+I_FLAGS], IF_MIN
 %ifdef WM_ANIM
+    and byte [di+I_FLAGS], 0xFD
+    test word [bx+W_FLAGS], WF_FULL   ; SPEC.md 11.99.5: going down from
+    jz .nofs                          ; fullscreen, so the way back does not
+    or byte [di+I_FLAGS], IF_FSMIN    ; zoom. Read off the WINDOW and not off
+.nofs:                                ; [wm_fs] - the fact wanted is about THIS
+                                      ; window, the latch is wm.inc's, and
+                                      ; wm_hide is about to clear both
     call wm_an_ok               ; MAY IT? (SPEC.md 76.11.1) This site called
     jnc .hide                   ; wm_anim DIRECTLY and was the one path that
                                 ; did not ask - so the Theme page's switch
@@ -1884,6 +1905,12 @@ inst_unmin:
                                 ; arm there flies an outline out of a dock tile
                                 ; onto a window that never left the screen
     and byte [di+I_FLAGS], 0xFE
+    test byte [di+I_FLAGS], IF_FSMIN
+    jz .zoom                    ; SPEC.md 11.99.5: it went down from fullscreen
+    and byte [di+I_FLAGS], 0xFD
+    ret                         ; ...so nothing is armed and wm_show's
+                                ; wm_an_open finds nothing to fly
+.zoom:
     push ax
     push bx
     push cx

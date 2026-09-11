@@ -392,8 +392,10 @@ at_codecols:
 ; in:  at_vis[]/at_sty[]/at_xmap[] as the styled pass left them
 ; out: the run of HIDDEN characters ending exactly at the caret turned visible,
 ;      and at_xmap/at_cellbg/[at_pcb0]/[at_pcb1] rebuilt around it; preserves
-;      every register. Nothing happens in Markdown mode, under at_pforce, or on
-;      a line the caret is not standing on.
+;      every register. Nothing happens in Markdown mode, under at_pforce,
+;      under at_nrev (SPEC.md 46.6.2 - the caret got where it is by a PASTE,
+;      and text that arrived whole is not text you are in the middle of
+;      writing), or on a line the caret is not standing on.
 ;
 ; THE ONE EXCEPTION TO 46.2.1, and it is what makes typing markdown by hand
 ; bearable in a view that hides it: `**` you have just typed is a `**` you can
@@ -426,6 +428,8 @@ at_reveal:
     push di
     cmp byte [at_pforce], 0
     jne .out                        ; at_cmd_none wants the hidden set whole
+    cmp byte [at_nrev], 0
+    jne .out                        ; SPEC.md 46.6.2: a paste is not typing
     cmp byte [at_writer], 0
     je .out
     mov ax, [at_caret]

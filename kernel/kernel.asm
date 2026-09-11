@@ -3959,7 +3959,31 @@ osapi_table:
                                   ;          something else is holding down.
                                   ;          A refusal costs the caller nothing
                                   ;          but the picture
-osapi_table_end:                  ; 0x0548
+    OSAPI_SLOT inst_minimize      ; 0x0548 - SEND MY OWN WINDOW TO THE DOCK
+                                  ;          (SPEC.md 29.6). BX = a window of
+                                  ;          yours, the gfx lock held - the
+                                  ;          minimize box's own environment,
+                                  ;          which is W_ONCLICK's. The tile
+                                  ;          inverts, the window hides, and a
+                                  ;          click on the tile brings it back.
+                                  ;          OSAPI_WM_HIDE IS NOT THIS and is
+                                  ;          a trap in its place: a plain hide
+                                  ;          leaves I_FLAGS bit0 clear, so the
+                                  ;          tile is drawn LIVE, dock_click
+                                  ;          takes its wm_front arm, and
+                                  ;          wm_front never sets the visible
+                                  ;          bit on an invisible window - a
+                                  ;          tile that does nothing and an
+                                  ;          instance with no way back.
+                                  ;          A FULLSCREEN window may call it:
+                                  ;          wm_hide drops the latch and
+                                  ;          restores the windowed geometry
+                                  ;          (SPEC.md 11.2), so the app must
+                                  ;          fix up its OWN idea of being
+                                  ;          fullscreen first, and neither zoom
+                                  ;          is drawn (SPEC.md 11.99.5).
+                                  ;          Preserves every register
+osapi_table_end:                  ; 0x0550
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -3967,8 +3991,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 167 * 8
-%error "os8088 API jump table must be exactly 167 8-byte slots"
+%if OSAPI_TABLE_LEN != 168 * 8
+%error "os8088 API jump table must be exactly 168 8-byte slots"
 %endif
 
 ; =============================================================================

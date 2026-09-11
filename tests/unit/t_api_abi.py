@@ -99,6 +99,13 @@ COMPAT = {0x01B8: "main's OSAPI_MEM_ALLOC (paragraphs)",
 # deliberate ABI decision; adding one means the SDK and the kernel have
 # parted on purpose. Keep the reason short and true.
 ALIAS = {
+    # SPEC.md 29.6: the slot is wm-shaped because a package names its own
+    # WINDOW, and the routine is instance.inc's because minimizing is a fact
+    # about the INSTANCE - I_FLAGS bit 0, the dock tile, the zoom.  The two
+    # modules were always going to disagree about the name; what matters is
+    # that OSAPI_WM_HIDE and this are different cells, since a plain hide
+    # leaves a tile that does nothing (the slot's own comment has the account).
+    "OSAPI_WM_MINIMIZE":  "inst_minimize",
     # Two cells, one routine, on purpose: the difference is the STUB, not the
     # body - 0x0448 goes through OSAPI_XSTUB and overwrites ES, 0x04A0 through
     # the ordinary SLOT and does not (SPEC.md 20.11.2).

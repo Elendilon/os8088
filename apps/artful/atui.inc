@@ -17,6 +17,18 @@
 AT_ITEMH   equ 13                   ; pull-down item row height
 AT_BARY    equ 6                    ; bar title text y
 
+; The minimize box (SPEC.md 46.5.2): the kernel's own 11x11 title-bar box and
+; its collapse glyph, at the kernel's own arithmetic (SPEC.md 11's frame
+; drawing), mirrored onto a bar that is ours. A WF_FULL window has no chrome
+; to click - which is the same fact that lets this bar exist - and F is not
+; ours to bind (SPEC.md 11.2.1), so this box is the only way out of the
+; writing surface with the mouse.
+AT_MBOX_R  equ 9                    ; the box's right edge, in from [at_vw]
+AT_MBOX_W  equ 10                   ; ...and its width, so it spans R+W .. R
+AT_MBOX_Y0 equ 4                    ; rows, both relative to the bar's top
+AT_MBOX_Y1 equ 14
+AT_MBOX_YG equ 9                    ; the collapse rule's row
+
 ; -----------------------------------------------------------------------------
 ; at_bar_draw - the fullscreen menu bar
 ; out: nothing; preserves all registers; lock held by the caller
@@ -73,8 +85,90 @@ at_bar_draw:
     inc di
     jmp short .title
 .done:
+    call at_min_draw
     pop di
     pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; at_min_box - the minimize box's rect (SPEC.md 46.5.2)
+; out: AX = x1, BX = y1, CX = x2, DX = y2 (inclusive); preserves all else
+; -----------------------------------------------------------------------------
+at_min_box:
+    mov cx, [at_vw]
+    sub cx, AT_MBOX_R
+    mov ax, cx
+    sub ax, AT_MBOX_W
+    mov bx, AT_MBOX_Y0
+    mov dx, AT_MBOX_Y1
+    ret
+
+; -----------------------------------------------------------------------------
+; at_min_draw - the box and its collapse rule, in the BAR's ink
+; out: nothing; preserves all registers; lock held by the caller
+;
+; No fill: the bar's own fill (at_bar_draw above) has already laid the ground
+; these two calls draw on, so this is the bottom rule's idiom and not an
+; erase-then-draw pair (SPEC.md 46.5.2, and PERFORMANCE.md rule 2). The ink is
+; [at_pair]'s low byte, which is BLACK on the Markdown bar and WHITE on the
+; Writer one - the kernel's white square would read as a hole in a black bar.
+; -----------------------------------------------------------------------------
+at_min_draw:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov al, [at_pair]               ; AL = the bar's ink
+    call OSAPI_SET_COLOR
+    call at_min_box
+    call OSAPI_GFX_FRAME
+    inc ax                          ; the collapse glyph: one rule across the
+    inc ax                          ; box's middle, inset 2 either side, so it
+    mov bx, cx                      ; does not read as a second close box
+    dec bx
+    dec bx
+    mov dx, AT_MBOX_YG
+    call OSAPI_GFX_HLINE            ; AX = x1, BX = x2, DX = y
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; at_min_hit - is (CX, DX) inside the minimize box?
+; in:  CX = x, DX = y (absolute; the bar is at the screen's origin)
+; out: CF = 0 yes, CF = 1 no; preserves every register
+; -----------------------------------------------------------------------------
+at_min_hit:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov si, cx                      ; the press, banked: at_min_box answers in
+    mov di, dx                      ; CX/DX and would land on top of it
+    call at_min_box                 ; AX/BX = top-left, CX/DX = bottom-right,
+    cmp si, ax                      ; the SAME rect at_min_draw framed
+    jb .no
+    cmp si, cx
+    ja .no
+    cmp di, bx
+    jb .no
+    cmp di, dx
+    ja .no
+    clc
+    jmp short .out
+.no:
+    stc
+.out:
+    pop di                          ; pops do not touch the flags, so the
+    pop si                          ; verdict above is what returns
     pop dx
     pop cx
     pop bx
@@ -113,8 +207,9 @@ at_mcell:
     ret
 
 ; -----------------------------------------------------------------------------
-; at_bar_click - a press in rows 0..19: track the menus until release
-; in:  CX = x (absolute); gfx lock held (W_ONCLICK)
+; at_bar_click - a press in rows 0..19: the minimize box, else track the menus
+;                until release
+; in:  CX = x, DX = y (absolute); gfx lock held (W_ONCLICK)
 ; -----------------------------------------------------------------------------
 at_bar_click:
     push ax
@@ -123,6 +218,11 @@ at_bar_click:
     push dx
     push si
     push di
+    call at_min_hit                 ; SPEC.md 46.5.2: the box FIRST - it is at
+    jc .menus                       ; the far right and the titles end at 256
+    call at_fs_dock                 ; on the narrowest screen this runs on, so
+    jmp short .out                  ; the two can never be asked about one x
+.menus:
     call at_x2menu                  ; DI = menu under x, or -1
     cmp di, 0FFFFh
     je .out

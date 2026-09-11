@@ -471,6 +471,34 @@ OSAPI_LZ_LZB equ 1
                                  ; app's job (Esc in its onkey is the
                                  ; convention) - the menu bar is
                                  ; unreachable while it holds the screen.
+%define OSAPI_WM_MINIMIZE   KERNEL_SEG:0x0548   ; BX = a window of YOURS; the gfx
+                                 ; lock held (a window callback does). SEND IT
+                                 ; TO THE DOCK (SPEC.md 29.6): the tile
+                                 ; inverts, the window hides, and a click on
+                                 ; the tile brings it back. Preserves every
+                                 ; register.
+                                 ; OSAPI_WM_HIDE IS NOT THIS. A plain hide
+                                 ; leaves the instance's minimized bit clear,
+                                 ; so the dock draws a LIVE tile whose click
+                                 ; goes to wm_front - which never makes an
+                                 ; invisible window visible. That is a tile
+                                 ; that does nothing and a window you cannot
+                                 ; get back.
+                                 ; THE FULLSCREEN CASE IS YOURS TO TIDY. The
+                                 ; kernel drops the latch and puts your
+                                 ; WINDOWED geometry back (SPEC.md 11.2), and
+                                 ; it cannot know your own fullscreen flag - so
+                                 ; clear that yourself BEFORE you call, and do
+                                 ; not spend an OSAPI_FULLSCREEN(0) doing it:
+                                 ; that repaints the desktop the hide is about
+                                 ; to repaint again. Coming BACK is yours too -
+                                 ; there is no "restored" callback, only the
+                                 ; W_PAINT your window gets when it reappears
+                                 ; (SPEC.md 46.5.3 is the worked example:
+                                 ; notice it in the paint, OSAPI_WM_WAKE
+                                 ; yourself, re-enter from the wake handler,
+                                 ; which is the one callback that runs without
+                                 ; the lock and may take it).
 %define OSAPI_WM_GROW       KERNEL_SEG:0x0118   ; BX=win ptr; caller holds the gfx lock.
                                  ; A resizable window's self-initiated
                                  ; content repaint must END with this:
