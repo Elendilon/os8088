@@ -106231,7 +106231,8 @@ fault — every segment with an end past ±2,500 over six frames beside the
 axis road — reads 0 of 30 off-view segments. The price is highest on the
 ground: the runway face crosses both x planes at its near end, and the two
 passes, four crossings and two extra polygon edges are 8 ms of the parked
-frame (§88.12).
+frame (§88.12) — and §88.5.7.2 is the A/B that prices the whole clip today
+and finds that those eight crossings change not one pixel.
 
 Two things came off the vertex since. **Projection is per scale**
 (`cs_project0`, `cs_project2`, `cs_project4` — one macro; `[cs_projp]` is
@@ -106269,6 +106270,68 @@ that would have caught them — every polygon and segment of a frame against
 a host replay of the same integer arithmetic, on scenes pinned at 30 and
 60 degrees — is §88.11's `skiesgeom`, and it was written to go red on both
 before either was fixed.
+
+##### 88.5.7.2 `[cs_noside]` — what the side clip costs, and what it buys
+
+The 1983 original did NOT make this fix: its long flats wander exactly the
+way §88.5.7 describes ours doing before it. So the side clip is a cost this
+simulator carries and the one it is measured against did not, and
+`[cs_noside]` is the A/B that prices it — set it and no vertex is ever
+marked past a side (`cs_projall` declares the object `cs_pinside`, which
+costs nothing per vertex), `cs_fclip` skips its four Sutherland-Hodgman
+passes and `cs_edge1` its four-plane walk. **+15 bytes of image and 1 of
+bss**, the three gates being one byte at the object's verdict and two
+`cmp`/`jne` pairs.
+
+`tests/skiesperf.py --noside` is the pinned A/B, which also compares the two
+PICTURES — a toggle that costs nothing and changes nothing has not been
+wired in — and `tests/skiesprof.py --noside 1` is the same knob in flight.
+On MartyPC's 4.77 MHz 8088 with a Hercules, means of twelve exact frames
+parked and thirty traced in flight, each parked arm repeated and repeating
+to within 0.13 ms:
+
+| pinned scene | clip on | clip off | gain | pixels changed |
+|---|---|---|---|---|
+| `climb` | 139.67 ms, 7.16 fps | 124.84, 8.01 | −14.83 ms, **+0.85 fps**, 10.6% | 449 |
+| `bank` | 185.55, 5.39 | 172.52, 5.80 | −13.03, +0.41, 7.0% | 8 |
+| `runway` | 162.14, 6.17 | 149.43, 6.69 | −12.71, +0.52, 7.8% | **0** |
+| `tower` | 179.68, 5.57 | 173.56, 5.76 | −6.12, +0.20, 3.4% | **0** |
+| `city` | 160.48, 6.23 | 154.81, 6.46 | −5.67, +0.23, 3.5% | **0** |
+| `citybank` | 236.18, 4.23 | 230.74, 4.33 | −5.44, +0.10, 2.3% | **0** |
+
+| in flight | clip on | clip off | gain |
+|---|---|---|---|
+| `cruise` | 151.7 ms, 6.59 fps | 146.1, 6.85 | −5.6 ms, +0.26 fps, 3.7% |
+| `turnhold` | 248.7, 4.02 | 240.3, 4.16 | −8.4, +0.14, 3.4% |
+| `slightbank` | 208.1, 4.80 | 205.9, 4.86 | −2.2, +0.06, 1.1% |
+| `sparse` | 69.3, 14.42 | 69.3, 14.42 | **0.0, 0.00, 0.0%** |
+
+`sparse` is the control and it reads exactly zero: one object in the view,
+nothing to clip, no gain — so the other rows are work removed and not
+measurement bias.
+
+**The finding is the pixel column, not the milliseconds.** In four of the
+six pinned scenes the frame is BYTE-IDENTICAL with the clip off, and the
+runway is the one to look at: `--trace` shows `cs_fclip` once,
+`cs_sidepass` four times and `cs_cxing` **eight** times on that frame — the
+crossings really are computed — and 0 pixels of 252,000 differ. The ground
+face crosses both x planes, but it is CONVEX and the rasteriser clips it to
+the view anyway, so the clipped ring and the clamped one light the same
+pixels. What the clip buys there is nothing, for 7.8% of the frame.
+
+Where it buys something is a LINE, which is what §88.5.7 said: `climb`
+changes 449 pixels, the dashed centreline (§88.6.2) passing beside the eye
+with its near end clamped, and that is the wander. `bank` changes 8.
+
+So the honest reading of the toggle is **+0.1 to +0.85 fps parked and +0.06
+to +0.26 in flight** — under half a frame a second where anybody flies — and
+it is bought by putting a visible defect back into the one case the fix was
+taken for. The knob stays an INSTRUMENT for that reason, off by default and
+the thing that keeps the unclipped path assembling; it is not a settings
+item. What the table does argue for is a cheaper clip rather than no clip:
+four passes that find nothing to do are most of the cost on every scene
+whose picture does not change, and a per-object side verdict already exists
+(`cs_pinside`) that a per-FACE one could follow.
 
 #### 88.5.10 A face is wound on the WHOLE polygon, and a quad on its diagonals
 

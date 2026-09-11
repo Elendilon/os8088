@@ -22,6 +22,11 @@ price the same frame.
              the Trocadero, the river and the far skyline together
     citybank the same frame banked 30 right: what the box impostor (88.5.4)
              costs when the world is not level
+
+`--noside` is SPEC.md 88.5.7.2's A/B instead of the stage table: the same
+pinned frame with the side clip on and off, in ms, fps and DIFFERING PIXELS
+- the last being the column that matters, because four of the six scenes
+are byte-identical without it.
 """
 import argparse
 import os
@@ -205,6 +210,10 @@ def main(argv):
     ap.add_argument("--trace", action="store_true",
                     help="one frame's every cs_seg and cs_poly, with its "
                          "arguments and the cycles it took")
+    ap.add_argument("--noside", action="store_true",
+                    help="the A/B for SPEC.md 88.5.7's side clip: the same "
+                         "pinned frame with [cs_noside] 0 and 1, in ms, fps "
+                         "and differing pixels. Skips the stage table")
     a = ap.parse_args(argv)
     os.chdir(ROOT)
     lst = listing()
@@ -316,6 +325,40 @@ def main(argv):
         base_ms = ms()
         print("  frame: %.2f ms (%.2f fps), mean of %d exact frames, the "
               "tick wait patched out" % (base_ms, 1000 / base_ms, a.frames))
+        if a.noside:
+            # --- 88.5.7's A/B. The same pinned frame, the side clip on and
+            #     off, with the PICTURE compared too: a toggle that costs
+            #     nothing and changes nothing has not been wired in.
+            def shot():
+                m.pause()
+                wd, hd, data = m.fbuf(0)
+                m.run()
+                return wd, hd, data
+            w0, h0, d0 = shot()
+            m.pause()
+            poke("cs_noside", b"\x01")
+            m.run()
+            frames(3)                       # the first frame after the poke
+            off_ms = ms()
+            w1, h1, d1 = shot()
+            m.pause()
+            poke("cs_noside", b"\x00")
+            m.run()
+            frames(3)
+            again = ms()
+            diff = sum(1 for i in range(0, min(len(d0), len(d1)), 3)
+                       if d0[i:i+3] != d1[i:i+3])
+            print("  side clip ON   %7.2f ms  (%5.2f fps)" % (base_ms, 1000 / base_ms))
+            print("  side clip OFF  %7.2f ms  (%5.2f fps)   %+.2f ms, %+.2f fps, "
+                  "%.1f%% of the frame"
+                  % (off_ms, 1000 / off_ms, off_ms - base_ms,
+                     1000 / off_ms - 1000 / base_ms,
+                     100 * (base_ms - off_ms) / base_ms))
+            print("  back ON        %7.2f ms   (repeat of the first arm: %+.2f ms)"
+                  % (again, again - base_ms))
+            print("  the two pictures differ in %d pixels of %d"
+                  % (diff, w0 * h0))
+            return
         for name, site in S.items():
             m.pause()
             patch(site, True)

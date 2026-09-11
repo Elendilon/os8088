@@ -1980,7 +1980,8 @@ cs_projall:
     mov word [cs_obx1], -32768
     jmp short .go
 .sides:
-    mov byte [cs_pinside], 0
+    mov al, [cs_noside]             ; 0 normally; with the A/B knob on, the
+    mov [cs_pinside], al            ; object counts as inside every side plane
 .go:
     mov cx, [cs_nv]
     xor di, di
@@ -3184,6 +3185,8 @@ cs_fclip:
     ;     buffers (88.5.7) -----------------------------------------------------
     mov word [cs_csrc], cs_clipx
     mov word [cs_cdst], cs_clipy
+    cmp byte [cs_noside], 0         ; the A/B: near-clipped only, the sides
+    jne .proj                       ; left to the projection's clamp
     mov word [cs_cpln], 0
 .pass:
     call cs_sidepass
@@ -3196,6 +3199,7 @@ cs_fclip:
     cmp word [cs_cpln], 8
     jb .pass
     ; --- project the result ------------------------------------------------
+.proj:
     mov cx, [cs_ncl]
     mov [cs_pn], cx
     jcxz .out
@@ -3520,6 +3524,8 @@ cs_edge1:
     mov di, cs_eb                   ; B behind: the crossing from A replaces it
     call cs_ncross
 .sides:
+    cmp byte [cs_noside], 0         ; the A/B, as in cs_fclip: an end past a
+    jne .eproj                      ; side is projected clamped and wanders
     mov word [cs_cpln], 0
 .side:
     call cs_cplane
@@ -3552,6 +3558,7 @@ cs_edge1:
     add word [cs_cpln], 2
     cmp word [cs_cpln], 8
     jb .side
+.eproj:
     mov ax, [cs_ea]                 ; --- both ends inside: project and draw --
     mov bx, [cs_ea + 2]
     mov cx, [cs_ea + 4]
