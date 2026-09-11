@@ -952,6 +952,19 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
                                  ; THIS, not from int 12h: it is the only
                                  ; number that accounts for what the kernel
                                  ; and every other package already hold.
+                                 ; IT IS THE DELIVERABLE, NOT THE AT-REST
+                                 ; PICTURE (SPEC.md 50.6.3, 66.10.3): a
+                                 ; PURGEABLE claim counts as FREE in both
+                                 ; answers, and the largest run is the one a
+                                 ; COMPACTION would leave. So this is the same
+                                 ; question mem_claim answers and a claim of AX
+                                 ; will be SERVED - the shed and the compaction
+                                 ; happen on the claim path to make it so.
+                                 ; DO NOT walk the claim table yourself to
+                                 ; "allow for" a shed: OSAPI_CLAIM_SNAPSHOT is
+                                 ; for DISPLAYING the heap, and a package that
+                                 ; reasons from it subtracts what this figure
+                                 ; has already added.
 %define OSAPI_WM_CLIP_TEST  KERNEL_SEG:0x0180   ; AX=x1, BX=y1, CX=x2, DX=y2 (inclusive);
                                  ; out CF=0 the whole rect is drawable (also
                                  ; when no clip is armed), CF=1 it is not.

@@ -33,13 +33,14 @@ not a route to running later software on the target machine.
 Four findings shape everything below.
 
 1. **The memory is there, and it is in the right place.** MEASURED on a
-   640KB machine at a bare desktop: **449.0 KB free, contiguous, ending
-   exactly at the top of conventional memory.** With a Disk window open —
-   the state you are actually in when you double-click — it is **still
-   449.0 KB ending at the top**, because every claim a Disk window makes is
-   at the bottom of the heap. That is about what a 512KB PC running DOS 3.3
-   gave a program, and it is a realistic DOS machine rather than a token
-   one.
+   640KB machine: **`OSAPI_MEM_AVAIL` answers 523 KB** to a package that has
+   just been loaded — that call already counts purgeable caches as free and
+   already includes what a compaction would recover, so it is the same
+   question `mem_claim` answers and a claim of it will be served (§2.3.1).
+   The free run is contiguous and **ends exactly at the top of conventional
+   memory**, and a Disk window costs it nothing, because every claim the file
+   manager makes is at the bottom of the heap. That is about what a 512KB PC
+   running DOS 3.3 gave a program: a realistic DOS machine, not a token one.
 
 2. **The containment answer is "exactly as contained as DOS itself, and no
    more."** An 8086 has no MMU. What we can do — and it is most of what is
@@ -136,11 +137,19 @@ B: Disk window open     four claims, ALL of them at 0x1B20..0x2FC0
                         ...and the run ending at mem_top is 0.0 KB
 ```
 
+**These are a HOST-SIDE WALK of `mem_tab` with the purgeable claim counted as
+occupied — the at-rest picture, and NOT what a claimant can have.** The figure
+a package is actually told is `OSAPI_MEM_AVAIL`'s, which counts caches as free
+and includes what a compaction would recover: **523 KB**, measured in-guest on
+this same machine (§2.3.1). Read the table below for where the free run
+*sits*; read §2.3.1 for how big a claim may be.
+
 Three things fall out of that table and each one matters.
 
-- **449 KB is a lot of DOS machine.** DOS 3.3 on a 640KB PC left a program
-  about 580KB; on the 512KB machines most of this software was written for,
-  about 430KB. We are in that range without trying.
+- **It is a lot of DOS machine** — 449 KB at rest, **523 KB deliverable**.
+  DOS 3.3 on a 640KB PC left a program about 580KB; on the 512KB machines
+  most of this software was written for, about 430KB. We are in that range
+  without trying, at either figure.
 - **A Disk window costs the DOS program nothing**, because the file
   manager's claims are all bottom-up. The state you are in when you
   double-click is the good state.
@@ -156,12 +165,9 @@ kernel will shed it under pressure, which merges the low fragment and gives
 ### 2.3 Giving DOS a run, and whether it stays in it
 
 The arena: **one `OSAPI_MEM_CLAIM_HI` of N KB**, so it lands as high as the
-runner's own region allows, with N taken from `OSAPI_MEM_AVAIL` — whose own
-SDK comment says "size yourself from THIS, not from int 12h: it is the only
-number that accounts for what the kernel and every other package already
-hold", which is exactly this situation. With a ~16KB runner region at the
-top, the run is roughly `0x2FC0..0x9C00` — **≈433 KB** (ESTIMATE: 0x6C40
-paragraphs = 443,392 bytes).
+runner's own region allows, **with N taken from `OSAPI_MEM_AVAIL` and nothing
+else** (§2.3.1). With a ~16KB runner region at the top, the run sits at
+roughly `0x2FC0..0x9C00`.
 
 Inside it we build a DOS machine:
 
@@ -222,70 +228,66 @@ for a first wave:
   is a 4.77MHz 8088 and `OSAPI_CPU_INFO` (SPEC.md 60) would gate it to
   machines this project does not calibrate against.
 
-#### 2.3.1 Shedding and compaction — the kernel already does it
+#### 2.3.1 Sizing the arena — `OSAPI_MEM_AVAIL`, and nothing else
 
-**"Purge and compact, and give the DOS program the maximum" needs no new
-mechanism, because that is what `mem_claim` already is.** Read in
-`kernel/memory.inc`: the claim path is a retry loop — try, **compact**, retry,
-**shed one cache**, retry — and it terminates by construction, because each
-shed removes a record and a compaction leaves no movers for the next call
-(SPEC.md 66.4, 50.6.2). A claim too big for the heap as it stands therefore
-pulls the caches down and packs the movable claims by itself, in priority
-order, with the cheap operation first: compaction before shedding, because a
-shed can destroy the read-ahead and that is "a long operation getting much
-longer" where a compaction is a memcpy.
+**One call answers the whole question, and an earlier revision of this
+document got it exactly backwards.** It claimed `OSAPI_MEM_AVAIL` reports the
+run *before* any shed, and went on to propose that the runner walk
+`OSAPI_CLAIM_SNAPSHOT` itself to work out the post-shed figure and then probe
+for it. **All of that is wrong and none of it is needed.** The correction is
+recorded here rather than quietly deleted, because it is a plausible mistake
+that this project has already made once at a higher cost than a paragraph.
 
-So the runner does not ask the kernel to purge. **It just asks for a big
-claim.** The whole of the work is knowing what to ask for, and there are two
-figures that are not the same:
+What `mem_avail_x` actually does, read in `kernel/memory.inc`:
 
-- **`OSAPI_MEM_AVAIL`** answers the largest free run *as things stand*, before
-  any shed or compaction. On the measured desktop that is 449.0 KB; with a
-  Disk window open it is still 449.0 KB; with a package running it was 390.0.
-  It is an **under**-estimate of what a claim could actually get, and the SDK's
-  own comment tells a package to size itself from it, which is right for
-  everything except this.
-- **What a full shed plus compaction would yield** is up to the whole heap —
-  531.5 KB measured, since the only thing standing in the way on a bare desktop
-  is one 63 KB purgeable read-ahead.
+- it enters at `MEM_LVL_TOP` — *"an ordinary claim's rank: **every cache
+  counts as free, because `mem_claim` sheds them all**"*, in the routine's
+  own first comment;
+- its largest-run answer is **`mem_cp_plan`'s** — the run a **compaction**
+  would leave, with those caches dissolved (on `kern_small`, which has no
+  compactor, it is `mem_bigrun` over the same shed);
+- and its total subtracts a claim only when that claim outranks the caller.
 
-**`OSAPI_CLAIM_SNAPSHOT` closes the gap with no kernel bytes.** It hands the
-package every live record's base, size and **owner word**, and a purgeable
-claim is exactly one whose owner's high byte is in the `MEM_PG_*` range
-(`0xFB`..`0xFE` — `MEM_PG_TRIV` through `MEM_PG_HIGH`). So the runner can
-compute, in its own arithmetic, what the arena would be if every cache went;
-`OSAPI_SYS_KB` gives it the heap totals to check against. The snapshot does
-not carry `MC_RLOC`, so the *compaction* half cannot be predicted exactly —
-which is why the last step is a probe rather than a calculation: ask for the
-computed figure, and on a refusal step down. Each refusal costs the kernel one
-`mem_cp_plan` walk of 32 records before it touches a byte, which is precisely
-what that walk is for.
+So **`OSAPI_MEM_AVAIL` already answers the same question `mem_claim` answers**.
+A claim of the figure it returns will be served. SPEC.md 50.6.3 owns this and
+says so in as many words, and it carries the history: `mem_avail` *did* report
+the at-rest number once, on the reasoning that under-reporting was the
+conservative direction — and that reasoning is *"exactly backwards ... every
+consumer sizes itself DOWN from this number"*, so under-reporting is a feature
+silently lost rather than a safe error. SPEC.md 66.10.3 is the other half, and
+it is the one that put compaction into the answer.
 
-**The order matters and it is the opposite of the intuitive one: probe UP, not
-down.** A failed claim *sheds* on its way to failing, so bracketing down from
-a deliberately-too-large figure throws away caches the machine then has to
-rebuild for nothing. Start from `MEM_AVAIL`'s figure — which by definition
-succeeds without shedding anything — and only reach past it if the DOS
-program's own header asks for more.
+**Measured on this build rather than argued**, driving `tests/heapfrag`
+(`tests/heapcheck.py`) on the 640KB MartyPC machine — the same one §2.2 was
+taken on, and the same situation the DOS runner is in, a loaded package asking
+what it may have:
 
-Which raises the question of **whether we can know what it will ask for**, and
-for the interesting half we can:
+```
+host-side walk of mem_tab, purgeable counted as occupied   449 KB
+OSAPI_MEM_AVAIL, asked from inside the guest               523 KB   <- L0
+```
 
-- **An `.EXE` says so in its header.** `e_minalloc` and `e_maxalloc` are
-  paragraphs beyond the image, and they are read before a byte of the program
-  is loaded. `maxalloc = FFFFh` — which is what almost every real file carries
-  — means "everything", so that case degenerates to the maximum anyway; but a
-  file with a real `maxalloc` can be given exactly what it wants and the caches
-  left alone.
-- **A `.COM` says nothing at all.** DOS gives a `.COM` every free byte, so
-  there is no smaller honest answer: it is the maximum or it is a lie in the
-  PSP's `02h` word.
+**74 KB of difference, and the larger number is the true one.** §2.2's 449 is
+this document's own naive walk and is the AT-REST picture; it is in that table
+because it shows where the free run *sits*, not how big a claim can be.
 
-So: `.EXE` with a bounded `maxalloc` gets what it asked for; everything else
-gets the maximum, and "the maximum" is a probe the kernel already knows how to
-serve. **No new slot, no user-facing choice, and no `Give this program all the
-memory` check box** — which is worth saying, because that was on the table and
-the machine can answer it without asking.
+Three consequences for the design, and the first is a rule rather than a
+detail:
+
+1. **The runner does not walk the claim table, and no package should.** The
+   shed, the compaction and the ranking are the allocator's business, and a
+   package that "allows for" them is subtracting what has already been added.
+   `OSAPI_CLAIM_SNAPSHOT` exists for the Task Manager to *display* the heap,
+   not for a package to *reason* about it.
+2. **There is no probing.** Ask `OSAPI_MEM_AVAIL`, claim what it said. The
+   compact-shed-retry loop inside `mem_claim` (SPEC.md 66.4, 50.6.2) is what
+   makes that claim succeed, and it is the same walk that produced the figure.
+3. **"Give the DOS program the maximum" is therefore two instructions.** No
+   new slot, no user-facing choice, no `Give this program all the memory`
+   check box — which was on the table and is not needed. An `.EXE` whose
+   header carries a bounded `maxalloc` can still be given exactly what it
+   asked for and the caches left alone; a `.COM`, and the `maxalloc = FFFFh`
+   that almost every real `.EXE` carries, get the figure.
 
 ### 2.4 What about XMS and EMS
 
@@ -961,6 +963,79 @@ throwaway first: a `.COM` that does nothing but `INT 21h AH=09h` (print a
 string) and `AH=4Ch` (exit) exercises the arena, the PSP, the bracket, the
 vector save/restore and the exit path — every load-bearing piece — in a
 program small enough to hand-assemble and read.
+
+### 11.1 What must be decided before the first line of wave 1
+
+Everything architectural is settled (§12). What is left is six things a person
+has to choose, and they are listed because each one is cheap to decide now and
+expensive to change after code exists.
+
+**1. The package's name.** `DOSBOX` is the obvious one and is the wrong one:
+it collides with a well-known *emulator*, and the whole point of this design
+is that nothing is emulated — the code runs natively on the processor that is
+already there. The stem matters beyond taste, because it is what the
+association block names, what `assoc_locate` looks for on every volume, and
+what a failure says out loud (`X.O88 - not on this disk`, §54.4.1).
+Suggestions, in preference order: **`RUNDOS`**, `DOSRUN`, `PCDOS`. Avoid
+`MSDOS` for the obvious reason.
+
+**2. Which disk, and is it a `SYSAPPS` package?** Measured on this tree,
+`apps360.img` is at **313 of 354 clusters — 41 spare**, so a 6–9 KB package
+compresses into 4–6 of them and fits with room. (CLAUDE.md quotes *"346 of
+354"* for this disk, which does not match what this build reports — worth
+someone checking which is current before either figure is quoted again.) The open question
+is not whether it fits but **where it belongs**: it is arguably infrastructure
+rather than an application, which would make it `SYSTEM/` on all four system
+disks like `TASKMGR.O88` and `THEWIRE.O88` (§24.3, §92) instead of an
+`APPS/` entry. The argument for `SYSTEM/` is that a `.COM` can be sitting on
+any floppy and the program that runs it should be on the disk you booted from.
+**It is off the small disks either way** — SPEC.md 54.0 gates associations out
+of `kern_small`, so a double-click cannot reach it there at all, and that is a
+`SMALLOMIT` row with a *requirement* reason rather than a size one (§24.5).
+
+**3. Does it claim `.EXE` in wave 1, when wave 1 cannot run one?** Recommend
+**yes**. Claiming it means a double-click gets a refusal that names the reason;
+not claiming it means the kernel answers *"Bad package"* (§54.4), which is
+true and tells the user nothing. The same argument §54.4.1 already made.
+
+**4. What the window is, and what happens after the program exits.** A bracket
+is entered from a window callback (§4), so the package must create a window
+before it can take the machine. The decision is what that window is *for*: the
+cheap answer is a small one naming the program, which the bracket covers
+immediately and which is on screen again the moment the program exits. Strong
+recommendation that it **stays open and shows the exit code** — a DOS program
+that terminates in a tenth of a second otherwise leaves no trace of why, and
+`AH=4Ch`'s return code is the only diagnostic a DOS program is obliged to
+give.
+
+**5. `INT 21h AH=47h` (get current directory) cannot be answered truthfully,
+and that is a property of the kernel rather than of this design.** `dsk_cwd`
+is a **first-cluster word** (`kernel/disk.inc`), and there is no path string
+anywhere in the tree — the file manager derives what it shows, and
+`OSAPI_FILE_HERE` answers a cluster and a volume index, not a name. So `47h`
+can return only `""`, which is the root, which is a lie whenever the program
+was launched from a folder — and §19.2.1 launches it standing exactly where
+the file was. A program that calls `47h`, builds a path from the answer and
+then opens it will fail, and the failure will look like a file error.
+Three ways out, and one of them wants deciding before the shim's shape is
+fixed: accept `""` and document it; **synthesise the path by walking `..`
+entries** at bracket entry (the machinery exists — `dskw_rt_*` walks parents —
+and it is one walk per session, not per call); or keep a path string in the
+runner as the program `3Bh`-chdirs around, seeded from the walk. The middle
+one looks right and is small, but it is work nobody has costed.
+
+**6. The drive-letter map.** Volume indices are 0..3 = A:..D: with C: reserved
+for a hard disk (§18.7.4), which matches DOS closely enough that the map is the
+identity. What needs saying is what a program asking for a drive we do not have
+is told — `AH=0Eh` select-drive and `AH=19h` current-drive both need an answer,
+and the honest one is DOS's own invalid-drive behaviour rather than a refusal
+of our own invention.
+
+**Two things that look like decisions and are not.** The bracket must call
+`OSAPI_FSX_MODE` with `FSXM_TEXT` on entry whatever else it does, or the video
+restore is skipped (§4 note 1) — that is a constraint, not a choice. And the
+arena is `OSAPI_MEM_AVAIL` and one claim (§2.3.1) — there is no sizing policy
+to pick.
 
 ---
 
