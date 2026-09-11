@@ -88,6 +88,95 @@ start:
     call put_dec16
     call put_crlf
 
+    ; --- 3a. the date and the time -----------------------------------------
+    mov ah, 0x2A
+    int 0x21                        ; CX = year, DH = month, DL = day, AL = dow
+    push ax
+    push cx
+    push dx
+    mov ah, 0x09
+    mov dx, msg_date
+    int 0x21
+    pop dx
+    pop cx
+    push dx
+    mov ax, cx
+    call put_dec16
+    mov al, '-'
+    call put_chr
+    pop dx
+    push dx
+    mov al, dh
+    xor ah, ah
+    call put_dec16
+    mov al, '-'
+    call put_chr
+    pop dx
+    mov al, dl
+    xor ah, ah
+    call put_dec16
+    mov al, ' '
+    call put_chr
+    pop ax
+    xor ah, ah
+    call put_dec16                  ; ...and the day of the week
+    call put_crlf
+
+    mov ah, 0x2B                    ; a date that cannot be: DOS answers FFh
+    mov cx, 2026
+    mov dh, 13
+    mov dl, 1
+    int 0x21
+    cmp al, 0xFF
+    jne .dvbad
+    mov ah, 0x09
+    mov dx, msg_dvok
+    int 0x21
+    jmp short .dvdone
+.dvbad:
+    mov ah, 0x09
+    mov dx, msg_dvbad
+    int 0x21
+.dvdone:
+
+    mov ah, 0x2D                    ; set the clock, read it straight back
+    mov ch, 13
+    mov cl, 45
+    mov dh, 30
+    xor dl, dl
+    int 0x21
+    or al, al
+    jnz .tvbad
+    mov ah, 0x2C
+    int 0x21
+    push dx
+    mov ah, 0x09
+    mov dx, msg_time
+    int 0x21
+    pop dx
+    push dx
+    mov al, ch
+    xor ah, ah
+    call put_dec16
+    mov al, ':'
+    call put_chr
+    mov al, cl
+    xor ah, ah
+    call put_dec16
+    mov al, ':'
+    call put_chr
+    pop dx
+    mov al, dh
+    xor ah, ah
+    call put_dec16
+    call put_crlf
+    jmp short .tvdone
+.tvbad:
+    mov ah, 0x09
+    mov dx, msg_tvbad
+    int 0x21
+.tvdone:
+
     ; --- 4. mkdir / chdir / getcwd / chdir back / rmdir --------------------
     mov ah, 0x39
     mov dx, dname
@@ -258,6 +347,11 @@ msg_vok:  db 'VEC ok',13,10,'$'
 msg_vbad: db 'VEC FAILED - the vector read back wrong',13,10,'$'
 msg_find: db 'FIND ','$'
 msg_in:   db 'IN ','$'
+msg_date: db 'DATE ','$'
+msg_time: db 'TIME ','$'
+msg_dvok: db 'DVAL ok',13,10,'$'
+msg_dvbad: db 'FAILED - an impossible date was accepted',13,10,'$'
+msg_tvbad: db 'FAILED - AH=2Dh refused a legal time',13,10,'$'
 msg_cwd:  db 'CWD ','$'
 msg_dok:  db 'DIR ok',13,10,'$'
 msg_emd:  db 'FAILED at mkdir',13,10,'$'

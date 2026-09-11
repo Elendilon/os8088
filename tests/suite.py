@@ -2459,8 +2459,13 @@ SOAK = [
         "the handler ships on.",
         needs=("marty",), serial=True,
         wants=("build/dosfile360.img",)),
-    Row("dosdir", "soak", py("tests/dosdir.py"), 90.0,
-        "THE DOS DIRECTORY, FIND AND VECTOR GATE (SPEC.md 96.12). THE FIND "
+    Row("dosdir", "soak", py("tests/dosdir.py"), 100.0,
+        "THE DOS DIRECTORY, FIND, VECTOR AND CLOCK GATE (SPEC.md 96.12, "
+        "96.13). The clock half asserts that the DOS box and the MENU BAR "
+        "fall back to the same day on a machine with no clock chip - which "
+        "is every machine this project targets - and that 4 July 2026 comes "
+        "out a Saturday, which is the only digit a wrong Sakamoto table "
+        "moves; plus AH=2Dh then AH=2Ch agreeing with itself. THE FIND "
         "COUNTS ARE THE ROW: the gate disk carries A.TXT, BB.TXT, CCC.TXT, "
         "DATA.DAT and the program, chosen so the three patterns give three "
         "DIFFERENT numbers - `*.*` 5, `*.TXT` 3, `?.TXT` 1. A matcher that "

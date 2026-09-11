@@ -218,6 +218,14 @@ ALIAS = [
     # stride to prove one does not overlap the next, which is the very defect
     # a stale size causes.
     ("apps/os88ui.inc", "OS88UI_DR_SIZE", "tests/skiesui.py", "DR_SIZE"),
+    # SPEC.md 96.13.1. The DOS box has no slot to ask the kernel what day it
+    # is - there is no date or time cell in the SDK at all - so on a machine
+    # with no clock chip it answers the kernel's OWN fallback, spelled again
+    # in the package. A drift does not fail a build: it stamps a file with one
+    # date and lists it under another.
+    ("kernel/clock.inc", "CLK_DEF_Y", "apps/dos/dos.asm", "CLK_DEF_Y"),
+    ("kernel/clock.inc", "CLK_DEF_M", "apps/dos/dos.asm", "CLK_DEF_M"),
+    ("kernel/clock.inc", "CLK_DEF_D", "apps/dos/dos.asm", "CLK_DEF_D"),
 ]
 DEFINE = re.compile(r"^%define\s+([A-Z][A-Z0-9_]*)\s+([^\s;]+)", re.M)
 

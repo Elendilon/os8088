@@ -669,6 +669,7 @@ dos_fsx_main:
     mov [dos_cdclus], ax            ; (SPEC.md 96.12.2)
     mov byte [dos_cddep], 0
     mov byte [dos_cwdbuf], 0
+    call dos_date_init              ; the RTC once, or the kernel's fallback
 
     ; --- into the program --------------------------------------------------
     ; SS:SP is banked in OUR segment, reached through CS by the INT 21h
@@ -1111,6 +1112,14 @@ dos_int21:
     je .chdir
     cmp ah, 0x47
     je .getcwd
+    cmp ah, 0x2A
+    je .getdate
+    cmp ah, 0x2B
+    je .setdate
+    cmp ah, 0x2C
+    je .gettime
+    cmp ah, 0x2D
+    je .settime
     jmp .bad
 
 .term:
@@ -1527,6 +1536,59 @@ dos_int21:
     pop si
     mov ax, 0x0100                  ; DOS 3+ leaves AX = 0100h here, and at
     jmp .fhok                       ; least one program checks it
+
+; --- the date and the time (SPEC.md 96.13) ----------------------------------
+.getdate:
+    ; AH=2Ah: out CX = year, DH = month, DL = day, AL = the day of the week.
+    call dos_date_roll
+    mov cx, [dos_dy]
+    mov dh, [dos_dm]
+    mov dl, [dos_dd]
+    call dos_dow                    ; AL = 0 Sunday .. 6 Saturday
+    jmp .ok
+.setdate:
+    ; AH=2Bh: CX = year, DH = month, DL = day; out AL = 0 or FFh.
+    cmp cx, 1980
+    jb .dbad
+    cmp cx, 2099
+    ja .dbad
+    or dh, dh
+    jz .dbad
+    cmp dh, 12
+    ja .dbad
+    or dl, dl
+    jz .dbad
+    cmp dl, 31
+    ja .dbad
+    mov [dos_dy], cx                ; ...into OUR copy, which is where DOS
+    mov [dos_dm], dh                ; keeps it too on a machine with no clock
+    mov [dos_dd], dl                ; chip (SPEC.md 96.13)
+    xor al, al
+    jmp .ok
+.dbad:
+    mov al, 0xFF
+    jmp .ok
+.gettime:
+    ; AH=2Ch: out CH = hours, CL = minutes, DH = seconds, DL = hundredths.
+    call dos_date_roll
+    call dos_time_now
+    jmp .ok
+.settime:
+    ; AH=2Dh: CH/CL/DH/DL as above; out AL = 0 or FFh.
+    cmp ch, 23
+    ja .tbad
+    cmp cl, 59
+    ja .tbad
+    cmp dh, 59
+    ja .tbad
+    cmp dl, 99
+    ja .tbad
+    call dos_time_set
+    xor al, al
+    jmp .ok
+.tbad:
+    mov al, 0xFF
+    jmp .ok
 
 .resize:
     ; AH=4Ah: ES = the block, BX = the paragraphs wanted (SPEC.md 96.9).
@@ -2050,6 +2112,8 @@ dos_e_fsx:   db 'The screen is already in use.', 0
 dos_e_exe:   db '.EXE is not supported yet.', 0
 dos_e_badexe: db 'Its .EXE header is malformed.', 0
 dos_dotdot:  db '..', 0
+dos_mlen:    db 31,28,31,30,31,30,31,31,30,31,30,31
+dos_dowt:    db 0,3,2,5,0,3,5,1,4,6,2,4    ; Sakamoto's month table
 dos_e_fn:    db 'It asked for INT 21h AH='
 dos_fnd:     db '00h.', 0
 
@@ -3068,6 +3132,341 @@ dos_cwd_path:
     clc
     ret
 
+; =============================================================================
+; THE DATE AND THE TIME (SPEC.md 96.13)
+; =============================================================================
+; There is NO date or time slot in the SDK at all, so this is the one group
+; that goes to the ROM and the BDA directly - which is legitimate here and
+; nowhere else: inside the bracket the machine is ours (SPEC.md 53.1), and it
+; is the same place DOS gets them.
+;
+; THE TIME IS THE BIOS TICK COUNT AT 0040:006C, read DIRECTLY rather than
+; through int 1Ah AH=00h, and that is a correctness choice and not a shortcut:
+; AH=00h CLEARS the midnight-rollover flag as it answers, and the kernel's own
+; clock is chained to the same counter (SPEC.md 8.5) - so asking the ROM would
+; consume, once a day, the very event the kernel needs to advance ITS date.
+; Reading the four bytes has no side effect at all, and midnight is detected
+; here by the count going BACKWARDS, which needs nobody's flag.
+;
+; THE DATE IS OURS TO KEEP, which is what DOS does on a machine with no clock
+; chip: the RTC is asked once at bracket entry and believed only if it answers
+; something possible, and AH=2Bh writes into the same copy.
+CLK_DEF_Y   equ 2026                ; MIRRORED from kernel/clock.inc, so a DOS
+CLK_DEF_M   equ 7                   ; program and the menu bar agree about a
+CLK_DEF_D   equ 4                   ; machine that has no clock to ask.
+                                    ; tests/unit/t_mirror.py is what keeps them
+                                    ; equal, because nothing else would notice
+
+; -----------------------------------------------------------------------------
+; dos_ticks - the BIOS tick count
+; out: DX:AX; every other register preserved
+; -----------------------------------------------------------------------------
+dos_ticks:
+    push bx
+    push es
+    mov bx, 0x40
+    mov es, bx
+    mov ax, [es:0x6C]
+    mov dx, [es:0x6E]
+    pop es
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_date_init - believe the RTC, or the kernel's fallback
+; out: nothing; every register preserved
+; -----------------------------------------------------------------------------
+dos_date_init:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov word [dos_dy], CLK_DEF_Y
+    mov byte [dos_dm], CLK_DEF_M
+    mov byte [dos_dd], CLK_DEF_D
+
+    mov ah, 0x04                    ; the RTC's date, BCD, AT and later
+    int 0x1A
+    jc .stamp                       ; no clock chip: the fallback stands
+    mov al, ch                      ; ...AND A 5150's ROM DOES NOT SET CF FOR A
+    call dos_unbcd                  ; FUNCTION IT HAS NEVER HEARD OF, so every
+    mov bx, 100                     ; field below is checked for a value that
+    mul bx                          ; is merely POSSIBLE before any of it is
+    mov [dos_tmp1], ax              ; believed - which is the only thing
+    mov al, cl                      ; standing between a garbage register and a
+    call dos_unbcd                  ; date the program will stamp on its files
+    add [dos_tmp1], ax
+    mov ax, [dos_tmp1]
+    cmp ax, 1980
+    jb .stamp
+    cmp ax, 2099
+    ja .stamp
+    mov [dos_tmp2], ax
+    mov al, dh
+    call dos_unbcd
+    or al, al
+    jz .stamp
+    cmp al, 12
+    ja .stamp
+    mov [dos_tmp3], al
+    mov al, dl
+    call dos_unbcd
+    or al, al
+    jz .stamp
+    cmp al, 31
+    ja .stamp
+    mov [dos_dd], al
+    mov al, [dos_tmp3]
+    mov [dos_dm], al
+    mov ax, [dos_tmp2]
+    mov [dos_dy], ax
+.stamp:
+    call dos_ticks                  ; the count midnight is measured against
+    mov [dos_lasttl], ax
+    mov [dos_lastth], dx
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_unbcd - AL from packed BCD to binary
+; out: AX = 0..99; clobbers nothing else
+; -----------------------------------------------------------------------------
+dos_unbcd:
+    push bx
+    push cx
+    mov bh, al
+    and bh, 0x0F
+    mov cl, 4
+    shr al, cl
+    mov ah, 10
+    mul ah                          ; AX = tens * 10
+    add al, bh
+    adc ah, 0
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_date_roll - has midnight passed since anyone last looked?
+; out: nothing; every register preserved
+; -----------------------------------------------------------------------------
+dos_date_roll:
+    push ax
+    push dx
+    call dos_ticks
+    cmp dx, [dos_lastth]
+    jb .rolled                      ; the count going BACKWARDS is midnight,
+    ja .keep                        ; and it needs no flag from the ROM
+    cmp ax, [dos_lasttl]
+    jae .keep
+.rolled:
+    call dos_date_inc
+.keep:
+    mov [dos_lasttl], ax
+    mov [dos_lastth], dx
+    pop dx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_date_inc - one day on
+; out: nothing; every register preserved
+; -----------------------------------------------------------------------------
+dos_date_inc:
+    push ax
+    push bx
+    mov al, [dos_dd]
+    inc al
+    mov bl, [dos_dm]
+    xor bh, bh
+    dec bx
+    mov ah, [bx+dos_mlen]
+    cmp bl, 1                       ; February
+    jne .chk
+    test word [dos_dy], 3           ; the century rule cannot bite between 1980
+    jnz .chk                        ; and 2099 - 2000 is a leap year by BOTH
+    inc ah                          ; tests - so `and 3` is exact here
+.chk:
+    cmp al, ah
+    jbe .store
+    mov al, 1
+    mov bl, [dos_dm]
+    inc bl
+    cmp bl, 12
+    jbe .mok
+    mov bl, 1
+    inc word [dos_dy]
+.mok:
+    mov [dos_dm], bl
+.store:
+    mov [dos_dd], al
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_dow - the day of the week, Sakamoto's method
+; out: AL = 0 Sunday .. 6 Saturday; clobbers AH
+; -----------------------------------------------------------------------------
+dos_dow:
+    push bx
+    push cx
+    push dx
+    mov cx, [dos_dy]
+    mov bl, [dos_dm]
+    xor bh, bh
+    cmp bl, 3
+    jae .nm
+    dec cx                          ; January and February belong to the year
+.nm:                                ; before, which is what makes the table work
+    dec bx
+    mov al, [bx+dos_dowt]
+    xor ah, ah
+    mov [dos_acc], ax
+    mov al, [dos_dd]
+    xor ah, ah
+    add [dos_acc], ax
+    add [dos_acc], cx
+    mov ax, cx
+    shr ax, 1
+    shr ax, 1
+    add [dos_acc], ax               ; + y/4
+    mov ax, cx
+    xor dx, dx
+    mov bx, 100
+    div bx
+    sub [dos_acc], ax               ; - y/100
+    mov ax, cx
+    xor dx, dx
+    mov bx, 400
+    div bx
+    add [dos_acc], ax               ; + y/400
+    mov ax, [dos_acc]
+    xor dx, dx
+    mov bx, 7
+    div bx
+    mov ax, dx                      ; the remainder IS the day
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_time_now - the tick count as DOS's four fields
+; out: CH = hours, CL = minutes, DH = seconds, DL = hundredths
+;
+; THE COUNT IS HALVED FIRST, because there are 65,543.4 ticks in an hour and
+; that does not fit a 16-bit divisor - half of it does. What the whole chain
+; costs in accuracy is about a second at the end of an hour, which is the
+; same order as the drift a PC's own tick clock has against the wall: the
+; divisors here are 32,772 / 1,092 / 18.2 against true values of 32,771.7 /
+; 1,092.39 / 18.2065.
+; -----------------------------------------------------------------------------
+dos_time_now:
+    push ax
+    push bx
+    call dos_ticks
+    shr dx, 1
+    rcr ax, 1
+    mov bx, 32772
+    div bx                          ; AX = hours, DX = half-ticks left over
+    mov [dos_tmp1], al
+    mov ax, dx
+    shl ax, 1                       ; ...whole ticks again, 0..65,542
+    xor dx, dx
+    mov bx, 1092
+    div bx
+    cmp ax, 59
+    jbe .m
+    mov ax, 59                      ; 1092 against a true 1092.39 can round the
+.m:                                 ; last minute of an hour up to 60
+    mov [dos_tmp2], al
+    mov ax, dx
+    mov bx, 10
+    mul bx
+    mov bx, 182                     ; ticks in a second, times ten
+    div bx
+    cmp ax, 59
+    jbe .s
+    mov ax, 59
+.s:
+    mov [dos_tmp3], al
+    mov ax, dx
+    mov bx, 100
+    mul bx
+    mov bx, 182
+    div bx
+    mov dl, al                      ; hundredths
+    mov dh, [dos_tmp3]
+    mov ch, [dos_tmp1]
+    mov cl, [dos_tmp2]
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_time_set - AH=2Dh's body: the four fields back into the tick count
+; in:  CH = hours, CL = minutes, DH = seconds
+; out: nothing; every register preserved
+;
+; It writes 0040:006C, which is banked at bracket entry and put back at the
+; end (SPEC.md 96.5) - so a DOS program may set the clock, read it back and
+; agree with itself, and the machine's own time is not moved by it.
+; -----------------------------------------------------------------------------
+dos_time_set:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov [dos_tmp1], ch
+    mov [dos_tmp2], cl
+    mov [dos_tmp3], dh
+
+    mov al, [dos_tmp1]
+    xor ah, ah
+    mov bx, 32772
+    mul bx
+    shl ax, 1
+    rcl dx, 1                       ; hours, in ticks
+    mov si, ax
+    mov di, dx
+    mov al, [dos_tmp2]
+    xor ah, ah
+    mov bx, 1092
+    mul bx
+    add si, ax
+    adc di, dx
+    mov al, [dos_tmp3]
+    xor ah, ah
+    mov bx, 182
+    mul bx
+    mov bx, 10
+    div bx
+    xor dx, dx
+    add si, ax
+    adc di, dx
+
+    mov bx, 0x40
+    mov es, bx
+    mov [es:0x6C], si
+    mov [es:0x6E], di
+    mov [dos_lasttl], si            ; ...and midnight is measured from here now
+    mov [dos_lastth], di
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ; -----------------------------------------------------------------------------
 ; dos_fh_setname - [dos_fname] into the record at SI
 ; in:  SI = the record; out: nothing, every register preserved
@@ -3719,6 +4118,15 @@ dos_fh_fill:
     DBSS DOS_B_W83A,  11       ; the two 8.3 forms dos_wild compares
     DBSS DOS_B_W83B,  11
     DBSS DOS_B_W83P,  2
+    DBSS DOS_B_DY,    2        ; the date we keep (SPEC.md 96.13)
+    DBSS DOS_B_DM,    1
+    DBSS DOS_B_DD,    1
+    DBSS DOS_B_LTL,   2        ; the tick count midnight is measured against
+    DBSS DOS_B_LTH,   2
+    DBSS DOS_B_TMP1,  2        ; the clock arithmetic's fields, held in memory
+    DBSS DOS_B_TMP2,  2        ; rather than in registers a divide needs back
+    DBSS DOS_B_TMP3,  2
+    DBSS DOS_B_ACC,   2
     DBSS DOS_B_FABS,  1        ; did the name carry a leading separator?
     DBSS DOS_B_CDDEP, 1        ; how far below the launch directory we are
     DBSS DOS_B_CDPAD, 1
@@ -3794,6 +4202,15 @@ dos_dtasvs  equ os88_image_end + DOS_B_DTASVS
 dos_ford    equ os88_image_end + DOS_B_FORD
 dos_w83a    equ os88_image_end + DOS_B_W83A
 dos_w83b    equ os88_image_end + DOS_B_W83B
+dos_dy      equ os88_image_end + DOS_B_DY
+dos_dm      equ os88_image_end + DOS_B_DM
+dos_dd      equ os88_image_end + DOS_B_DD
+dos_lasttl  equ os88_image_end + DOS_B_LTL
+dos_lastth  equ os88_image_end + DOS_B_LTH
+dos_tmp1    equ os88_image_end + DOS_B_TMP1
+dos_tmp2    equ os88_image_end + DOS_B_TMP2
+dos_tmp3    equ os88_image_end + DOS_B_TMP3
+dos_acc     equ os88_image_end + DOS_B_ACC
 dos_fabs    equ os88_image_end + DOS_B_FABS
 dos_cddep   equ os88_image_end + DOS_B_CDDEP
 dos_cdclus  equ os88_image_end + DOS_B_CDCLUS

@@ -80,6 +80,36 @@ def main():
                  "matchers give the same triple (SPEC.md 96.12.1)" % (got,))
         print("dosdir: wildcards: *.* = 5, *.TXT = 3, ?.TXT = 1")
 
+        # --- the date and the time (SPEC.md 96.13) --------------------------
+        # MartyPC's 5150 has no clock chip and neither does the machine this
+        # project targets, so both the kernel and the DOS box fall back - and
+        # the assertion is that they fall back to the SAME DAY. 2026-07-04 is
+        # a Saturday, which is DOS's day-of-week 6, and getting Sakamoto's
+        # table or its January/February shift wrong moves only that digit.
+        date = None
+        for r in rows:
+            if r.strip().startswith("DATE "):
+                date = r.split()[1:3]
+        if date != ["2026-7-4", "6"]:
+            fail("AH=2Ah answered %r, not ['2026-7-4', '6'] - the fallback "
+                 "date is mirrored from kernel/clock.inc so a DOS program and "
+                 "the menu bar agree, and 4 July 2026 is a Saturday "
+                 "(SPEC.md 96.13.1)" % (date,))
+        print("dosdir: AH=2Ah = 2026-07-04, day 6 (Saturday)")
+
+        if "DVAL ok" not in text:
+            fail("AH=2Bh accepted month 13 - an impossible date answers FFh")
+
+        tm = None
+        for r in rows:
+            if r.strip().startswith("TIME "):
+                tm = r.split()[1]
+        if tm != "13:45:30":
+            fail("AH=2Dh then AH=2Ch answered %r, not '13:45:30' - a program "
+                 "that sets the clock and reads it straight back has to agree "
+                 "with itself (SPEC.md 96.13.2)" % (tm,))
+        print("dosdir: AH=2Dh/2Ch round-tripped 13:45:30")
+
         inside = None
         for r in rows:
             if r.strip().startswith("IN "):

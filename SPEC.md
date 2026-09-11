@@ -118914,3 +118914,56 @@ are the same thing and it proceeds.
 **`39h`** and **`3Ah`** are the kernel's `mkdir` and `rmdir`, the latter in its
 **strict** form — remove it only if it is empty, which is the one `3Ah` means.
 The recursive form is a different call and DOS does not have it.
+
+### 96.13 The date and the time go to the ROM, because nothing else has them
+
+There is **no date or time slot in the SDK at all**. The kernel keeps both —
+the menu bar shows them, `dskw_now` stamps every file saved with them — but
+they are kernel state with no published door, and a package reading kernel
+`.bss` through `KERNEL_SEG` would be depending on an address rather than on a
+contract.
+
+So this is the one group that goes to the **ROM and the BDA directly**, which
+is legitimate here and nowhere else: inside the bracket the machine is the
+program's (§53.1), and it is the same place DOS gets them.
+
+**The time is the BIOS tick count at `0040:006C`, read directly rather than
+through `int 1Ah AH=00h`** — and that is a correctness choice, not a
+shortcut. `AH=00h` **clears the midnight-rollover flag** as it answers, and
+the kernel's own clock is chained to the same counter (§8.5); so asking the
+ROM would consume, once a day, the very event the kernel needs to advance its
+own date. Reading the four bytes has no side effect at all, and midnight is
+detected here by the count going **backwards**, which needs nobody's flag.
+
+**The date is ours to keep**, which is exactly what DOS does on a machine
+with no clock chip. The RTC is asked **once**, at bracket entry, and `AH=2Bh`
+writes into the same copy.
+
+#### 96.13.1 A 5150's ROM does not set CF for a function it never heard of
+
+`int 1Ah AH=04h` is the AT's, and the 1981 BIOS has `AH=00h` and `AH=01h`.
+Asking an XT for the date does not reliably come back with `CF=1`; it comes
+back with whatever was in `CX` and `DX`. So **every field is checked for a
+value that is merely possible** — year 1980–2099, month 1–12, day 1–31 —
+before any of it is believed, and a failure anywhere keeps the fallback
+whole rather than half-applying a garbage register.
+
+The fallback is `CLK_DEF_Y`/`M`/`D`, **mirrored from `kernel/clock.inc`**, so
+a DOS program and the menu bar agree about a machine that has no clock to ask
+— which on this project's own target hardware is every one of them.
+`tests/unit/t_mirror.py` is what keeps the two equal, because nothing else
+would notice: the symptom of a drift is a file stamped with one date and
+listed under another.
+
+#### 96.13.2 What the arithmetic costs, stated rather than discovered
+
+There are **65,543.4 ticks in an hour**, which does not fit a 16-bit divisor
+— half of it does, so the count is halved first and the hour falls out of one
+`div`. The chain's divisors are **32,772 / 1,092 / 18.2** against true values
+of 32,771.7 / 1,092.39 / 18.2065, which is worth about **a second by the end
+of an hour** — the same order as the drift a PC's own tick clock has against
+the wall. The minute can round to 60 at the top of an hour and is clamped.
+
+`AH=2Dh` writes the tick count back, so a program may set the clock, read it
+back and agree with itself. `0040:006C` is banked at bracket entry and
+restored at the end (§96.5), so **the machine's own time is not moved by it**.
