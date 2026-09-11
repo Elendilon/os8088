@@ -1923,7 +1923,7 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm
 WEAVEDEMOS := apps/weave/demos
 WEAVEWABS  := $(BUILD)/FORM.WAB $(BUILD)/SHEET.WAB $(BUILD)/PONG.WAB
 all: checkdocs $(SHIPIMGS) $(BUILD)/wire.o88 $(BUILD)/recorder.o88 \
-     $(BUILD)/hello.o88 \
+     $(BUILD)/hello.o88 $(BUILD)/pacman.o88 \
      $(BUILD)/imgtest.o88 $(BUILD)/scribe.o88 \
      $(WEAVEWABS) $(BUILD)/.weave-hostchecks \
      cc-note test-fast
@@ -1940,6 +1940,18 @@ all: checkdocs $(SHIPIMGS) $(BUILD)/wire.o88 $(BUILD)/recorder.o88 \
 # named by no target `all` reaches at all, and the way that fails is the way
 # every entry in this comment fails: silently, months later, when somebody
 # changes apps/os88ui.inc and the one caller nothing builds stops matching it.
+#
+# pacman.o88 is RECORDER'S CASE EXACTLY, and it arrived here by being caught
+# rather than by being remembered: PACMAN came off the disk lists while DOT
+# DELIRIUM is developed (the comment over APPS_GAMES says so), and the sentence
+# it was written with - "`make` still BUILDS build/pacman.o88 - it is only the
+# disk lists this leaves" - stopped being true in the same commit, because
+# $(BUILD)/pacman.o88 was in APPS_GAMES and nothing else named it. A PR-cycle
+# byte audit found it by building three commits clean and noticing the
+# artefact had vanished from one of them
+# (docs/reports/PR-CYCLE-ACCOUNTING-2026-09-11.md 6). That is the failure this
+# whole comment is about, caught by arithmetic instead of by the months-later
+# route - so the line goes here and the claim beside APPS_GAMES is true again.
 #
 # hello.o88 is here for that same half and the case is STRONGER than
 # RECORDER's (SPEC.md 27.0). It came off every floppy there is by the owner's
@@ -9685,7 +9697,11 @@ APPS_TOOLS := $(BUILD)/artful.o88 $(BUILD)/browser.o88 $(BUILD)/calc.o88 \
 # clusters, SPEC.md 89's package is six of them and SPEC.md 93's is twelve, so
 # taking the older one off is what lets the new one sit beside everything else
 # instead of on a second disk. `make` still BUILDS build/pacman.o88 - it is
-# only the disk lists this leaves.
+# only the disk lists this leaves, and that is true because `all` NAMES it
+# (beside recorder.o88, whose case this is exactly). It was not true for one
+# cycle: this line said so while APPS_GAMES was the only thing that had ever
+# built the package, so taking it off the disks took it out of every build
+# too.
 APPS_GAMES := $(BUILD)/arkanoid.o88 $(BUILD)/tank.o88 $(BUILD)/cyclone.o88 \
               $(BUILD)/mines.o88 $(BUILD)/skies.o88 $(BUILD)/dotdel.o88 \
               $(BUILD)/missile.o88 $(BUILD)/solitair.o88 $(BUILD)/tamegram.o88
