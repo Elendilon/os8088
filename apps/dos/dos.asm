@@ -4689,13 +4689,23 @@ dos_mcb_resize:
     mov ax, [es:MCB_SZ]
     add ax, cx
     inc ax                          ; ...absorbed, header and all
-    mov dl, [es:MCB_SIG]
+    mov ch, [es:MCB_SIG]            ; ITS end-of-chain flag, banked in a
+                                    ; register the two pops below do not
+                                    ; touch. It was DL, one instruction in
+                                    ; front of `pop dx` - so the byte written
+                                    ; back was the LOW HALF OF THIS BLOCK'S
+                                    ; OWN SEGMENT, and dos_mcb_split then
+                                    ; handed that to the tail it cut. A chain
+                                    ; ending in 1Ch instead of 'Z' is refused
+                                    ; whole by dos_mcb_alloc's .broken arm,
+                                    ; which answers BX=0: "0 KBytes is
+                                    ; Available", with 319 KB free behind it
     pop dx
     pop es
     cmp bx, ax
     ja .nofitax
     mov [es:MCB_SZ], ax             ; take the whole neighbour, then give back
-    mov [es:MCB_SIG], dl            ; what is not wanted
+    mov [es:MCB_SIG], ch            ; what is not wanted
     call dos_mcb_split
     jmp short .done
 .nofit2:
