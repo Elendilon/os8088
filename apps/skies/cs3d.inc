@@ -1955,8 +1955,9 @@ cs_projall:
     jc .sides
     shr cx, 1
     shr cx, 1
-    cmp cx, bx
-    ja .sides
+    shr cx, 1                       ; 88.5.7.3: the exemption cone is the
+    cmp cx, bx                      ; CLAMP's (8z, under 9) and not the clip
+    ja .sides                       ; planes' 4z - twice the objects exempt
     mov cx, [cs_scy]
     or cx, cx
     jns .ay
@@ -1964,6 +1965,7 @@ cs_projall:
 .ay:
     add cx, ax
     jc .sides
+    shr cx, 1
     shr cx, 1
     shr cx, 1
     cmp cx, bx
@@ -1980,7 +1982,8 @@ cs_projall:
     mov word [cs_obx1], -32768
     jmp short .go
 .sides:
-    mov byte [cs_pinside], 0
+    mov al, [cs_noside]             ; 0 normally; with the A/B knob on, the
+    mov [cs_pinside], al            ; object counts as inside every side plane
 .go:
     mov cx, [cs_nv]
     xor di, di
@@ -2016,16 +2019,18 @@ cs_projall:
 .px:
     sar ax, 1
     sar ax, 1
-    cmp ax, cx
-    jg .side
-    mov ax, [cs_cyv + di]
+    sar ax, 1                       ; 88.5.7.3: EIGHT z, not four - the
+    cmp ax, cx                      ; projection CLAMPS at 9z, so a vertex
+    jg .side                        ; inside 8z projects exactly and no line
+    mov ax, [cs_cyv + di]           ; through it can bend
     or ax, ax
     jns .py
     neg ax
 .py:
     sar ax, 1
     sar ax, 1
-    cmp ax, cx
+    sar ax, 1                       ; ...and y clamps at 14z, so 8 is doubly
+    cmp ax, cx                      ; conservative on this axis
     jle .next
 .side:
     mov word [cs_fv + di], 2
@@ -3184,6 +3189,8 @@ cs_fclip:
     ;     buffers (88.5.7) -----------------------------------------------------
     mov word [cs_csrc], cs_clipx
     mov word [cs_cdst], cs_clipy
+    cmp byte [cs_noside], 0         ; the A/B: near-clipped only, the sides
+    jne .proj                       ; left to the projection's clamp
     mov word [cs_cpln], 0
 .pass:
     call cs_sidepass
@@ -3196,6 +3203,7 @@ cs_fclip:
     cmp word [cs_cpln], 8
     jb .pass
     ; --- project the result ------------------------------------------------
+.proj:
     mov cx, [cs_ncl]
     mov [cs_pn], cx
     jcxz .out
@@ -3520,6 +3528,8 @@ cs_edge1:
     mov di, cs_eb                   ; B behind: the crossing from A replaces it
     call cs_ncross
 .sides:
+    cmp byte [cs_noside], 0         ; the A/B, as in cs_fclip: an end past a
+    jne .eproj                      ; side is projected clamped and wanders
     mov word [cs_cpln], 0
 .side:
     call cs_cplane
@@ -3552,6 +3562,7 @@ cs_edge1:
     add word [cs_cpln], 2
     cmp word [cs_cpln], 8
     jb .side
+.eproj:
     mov ax, [cs_ea]                 ; --- both ends inside: project and draw --
     mov bx, [cs_ea + 2]
     mov cx, [cs_ea + 4]
