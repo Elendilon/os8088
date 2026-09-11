@@ -273,6 +273,10 @@ dos_run:
     mov [dos_err], al
     mov byte [dos_state], DST_ERR
 .out:
+    call dos_drv_back               ; ...and back again, on EVERY path through
+                                    ; here including the refusals: a resume with
+                                    ; nothing suspended is free and a machine
+                                    ; left silent is not (SPEC.md 51.11.1)
     call dos_repaint                ; THE WINDOW DOES NOT REPAINT ITSELF. On the
                                     ; path that runs, fsx_restore's wm_paint_all
                                     ; (SPEC.md 53.6) happens to redraw us and
@@ -669,6 +673,11 @@ dos_fsx_main:
     mov [dos_vh], bx                ; not per call - it cannot change inside a
                                     ; bracket and a divide is 80+ clocks
 
+    call dos_drv_take               ; THE DRIVERS, OUT OF THE WAY (SPEC.md
+                                    ; 96.17) - before the PSP, because the
+                                    ; environment it builds carries BLASTER=
+                                    ; and the driver is the last thing that
+                                    ; knew where the card was
     call dos_save_machine
     call dos_build_psp
     call dos_hook_vectors
@@ -914,13 +923,23 @@ dos_build_psp:
     xor al, al                      ; name field DOS 4 added - zeroed, which is
     rep stosb                       ; what a block with no name looks like
 
-    mov ax, dx                      ; the environment itself: one NUL for an
-    add ax, DOS_ENVSEG              ; empty set of variables, a second to end
-    mov es, ax                      ; the set, then the count word and the
-    xor di, di                      ; program's own path, which is what DOS 3+
-    xor al, al                      ; puts there and what a program looks for
-    stosb                           ; when it wants to know where it came from
+    mov ax, dx                      ; the environment itself: the variables,
+    add ax, DOS_ENVSEG              ; then a NUL to end the set, then the count
+    mov es, ax                      ; word and the program's own path - which
+    xor di, di                      ; is what DOS 3+ puts there and what a
+    cld                             ; program looks for when it wants to know
+                                    ; where it came from
+    cmp byte [dos_blaster], 0       ; BLASTER= IS THE ONE VARIABLE THIS MACHINE
+    je .envend                      ; HAS (SPEC.md 96.17), and it is here only
+    mov si, dos_blaster             ; when a sound driver was unloaded a moment
+.envb:                              ; ago and told us where its card was
+    lodsb
     stosb
+    or al, al
+    jnz .envb
+.envend:
+    xor al, al
+    stosb                           ; ...and the NUL that ends the SET
     mov ax, 1
     stosw
     mov si, dos_name                ; ...as a bare 8.3 name for now: a real
@@ -2233,6 +2252,7 @@ dos_e_fsx:   db 'The screen is already in use.', 0
 dos_e_exe:   db '.EXE is not supported yet.', 0
 dos_e_badexe: db 'Its .EXE header is malformed.', 0
 dos_dotdot:  db '..', 0
+dos_s_blast: db 'BLASTER=A', 0
 dos_mlen:    db 31,28,31,30,31,30,31,31,30,31,30,31
 dos_dowt:    db 0,3,2,5,0,3,5,1,4,6,2,4    ; Sakamoto's month table
 dos_e_fn:    db 'It asked for INT 21h AH='
@@ -4178,6 +4198,237 @@ dos_xms_move:
     pop ax
     ret
 
+
+; =============================================================================
+; THE DRIVERS, OUT OF THE WAY (SPEC.md 96.17)
+; =============================================================================
+; A DOS program that wants the Sound Blaster wants to program it ITSELF -
+; reset the DSP, set its own IRQ and DMA, own the card completely - and
+; os8088's SOUND.DRV is in the way of that in three separate ways: it owns an
+; IRQ vector, it owns DMA channel 1, and its refill worker is TF_SERVICE, so
+; it KEEPS RUNNING inside the bracket by design (SPEC.md 53.2) and can feed
+; the DSP while the DOS program is resetting it.
+;
+; SPEC.md 51.11 is the door: one call, and every driver that owns hardware is
+; unloaded - service table, worker, vector, memory and all. Two things follow
+; that are worth saying here rather than leaving to be discovered:
+;
+; THE DRIVER IS NOT MOUNTED ONLY BY SYSTEM.CFG. SPEC.md 51.3.1's boot sniff
+; runs an OPL timer dance and sets the sound row's want bit, so a machine with
+; a card and NO SYSTEM.CFG AT ALL mounts the driver - which is to say the
+; common case on a machine with a sound card is that the driver IS there.
+;
+; RESUME IS CALLED ON EVERY EXIT PATH, including the ones that refuse before
+; the bracket ever opened, because a resume with nothing suspended is free and
+; a machine left silent is not. SPEC.md 51.11.1 puts that rule on the caller
+; and this is the caller.
+
+; -----------------------------------------------------------------------------
+; dos_drv_take - the hardware drivers, out of the way; BLASTER= from what they
+;                say on the way past
+; in:  inside the bracket, on the exclusive task
+; out: nothing; [dos_blaster] is a string or an empty one
+; -----------------------------------------------------------------------------
+dos_drv_take:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+
+    mov byte [dos_blaster], 0
+    push ds
+    pop es
+    mov di, dos_dqbuf
+    mov al, 1
+    call OSAPI_DRV_SUSPEND          ; AX = the classes, CX = records
+    jc .out                         ; not our bracket: nothing moved
+    mov [dos_drvmask], ax
+    jcxz .out
+    mov si, dos_dqbuf
+.rec:
+    cmp byte [si+DQ_CLASS], DRVC_SOUND
+    je .sound
+    add si, DQ_SIZE
+    loop .rec
+    jmp short .out
+.sound:
+    call dos_blaster_set
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_drv_back - ...and back again
+; out: nothing; every register preserved
+; -----------------------------------------------------------------------------
+dos_drv_back:
+    push ax
+    push cx
+    push di
+    push es
+    push ds
+    pop es
+    xor di, di
+    xor al, al
+    call OSAPI_DRV_SUSPEND
+    mov word [dos_drvmask], 0
+    pop es
+    pop di
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_blaster_set - "BLASTER=A220 I5 D1 T4" from the record at SI
+; in:  SI = a DQ record whose class is DRVC_SOUND
+; out: nothing; [dos_blaster] written
+;
+; THE TYPE IS DERIVED FROM THE DSP VERSION, which is what every DOS program
+; that reads this variable expects: 1 is an original Sound Blaster, 3 a 2.0,
+; 4 a Pro and 6 an SB16. Getting it wrong does not stop a program running -
+; almost all of them only parse A, I and D - but a program that picks its
+; stereo path off T would pick the wrong one.
+; -----------------------------------------------------------------------------
+dos_blaster_set:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    push ds
+    pop es
+    cld
+    mov di, dos_blaster
+    mov bx, si
+    mov si, dos_s_blast             ; "BLASTER=A"
+.hdr:
+    lodsb
+    or al, al
+    jz .port
+    stosb
+    jmp short .hdr
+.port:
+    mov ax, [bx+DQ_A]               ; the base port, in hex as DOS writes it
+    call dos_hex3
+    mov al, ' '
+    stosb
+    mov al, [bx+DQ_B]               ; THE IRQ, IF THERE IS ONE TO HAVE. The
+    cmp al, 0xFF                    ; driver defers discovery to first use
+    je .noirq                       ; (SPEC.md 34.5), so a machine that has
+    push ax                         ; not played a sound yet genuinely does
+    mov al, 'I'                     ; not know - and a BLASTER= naming the
+    stosb                           ; WRONG line sends a program to wait on an
+    pop ax                          ; interrupt that never comes, where its
+    call dos_dec2                   ; absence sends it to its own default and
+    mov al, ' '                     ; lets it own the guess (SPEC.md 96.17.1)
+    stosb
+.noirq:
+    mov al, 'D'
+    stosb
+    mov al, [bx+DQ_B+1]
+    call dos_dec2
+    mov al, ' '
+    stosb
+    mov al, 'T'
+    stosb
+    mov al, [bx+DQ_C+1]             ; the DSP's MAJOR version
+    cmp al, 4
+    jb .t3
+    mov al, '6'                     ; 4.xx is an SB16
+    jmp short .temit
+.t3:
+    cmp al, 3
+    jb .t2
+    mov al, '4'                     ; 3.xx is a Pro
+    jmp short .temit
+.t2:
+    cmp al, 2
+    jb .t1
+    mov al, '3'                     ; 2.xx
+    jmp short .temit
+.t1:
+    mov al, '1'                     ; ...and anything older is the original
+.temit:
+    stosb
+    xor al, al
+    stosb
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_hex3 - AX's low twelve bits as three hex digits at ES:DI (DI advanced)
+; -----------------------------------------------------------------------------
+dos_hex3:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov dx, ax
+    mov cx, 3
+.next:
+    mov ax, dx
+    push cx
+    dec cx
+    shl cx, 1
+    shl cx, 1                   ; CL = 8, then 4, then 0
+    shr ax, cl
+    pop cx
+    and al, 0x0F
+    add al, '0'
+    cmp al, '9'
+    jbe .emit
+    add al, 7
+.emit:
+    stosb
+    loop .next
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_dec2 - AL (0..99) as one or two digits at ES:DI
+; An SB16 can be on IRQ 10, so one digit is not enough and the second one is
+; four instructions.
+; -----------------------------------------------------------------------------
+dos_dec2:
+    push ax
+    push bx
+    cmp al, 99                      ; A TWO-DIGIT EMITTER MUST NEVER EMIT A
+    jbe .ok                         ; LETTER, and this one did: handed 255 -
+    mov al, 99                      ; which is the sound driver's "no IRQ
+.ok:                                ; discovered yet" - it divided to 25 and 5
+    cmp al, 10                      ; and wrote '0'+25, so a BLASTER= read
+    jb .one                         ; `I5` where it meant 255
+    xor ah, ah
+    mov bl, 10
+    div bl
+    push ax
+    add al, '0'
+    stosb
+    pop ax
+    mov al, ah
+.one:
+    add al, '0'
+    stosb
+    pop bx
+    pop ax
+    ret
+
 ; -----------------------------------------------------------------------------
 ; dos_fh_setname - [dos_fname] into the record at SI
 ; in:  SI = the record; out: nothing, every register preserved
@@ -4842,6 +5093,9 @@ dos_fh_fill:
     DBSS DOS_B_CHEXIT, 1       ; the child's code, for AH=4Dh
     DBSS DOS_B_CHPAD, 1
     DBSS DOS_B_CHBLK, 2        ; the block it was given, to hand back
+    DBSS DOS_B_DQBUF, DQ_SIZE * DQ_MAXREC  ; what the drivers said on their
+    DBSS DOS_B_DRVMASK, 2      ; way out, and which classes went (96.17)
+    DBSS DOS_B_BLAST, 32       ; "BLASTER=A220 I5 D1 T4", or empty
     DBSS DOS_B_XMSTAB, XH_SIZE * XMS_NH  ; the XMS handle table (96.15)
     DBSS DOS_B_XMLEN, 4        ; ...and AH=0Bh's move, unpacked out of the
     DBSS DOS_B_XMSH,  2        ; caller's sixteen-byte block
@@ -4950,6 +5204,9 @@ dos_pgpar   equ os88_image_end + DOS_B_PGPAR
 dos_pexe    equ os88_image_end + DOS_B_PEXE
 dos_chexit  equ os88_image_end + DOS_B_CHEXIT
 dos_chblk   equ os88_image_end + DOS_B_CHBLK
+dos_dqbuf   equ os88_image_end + DOS_B_DQBUF
+dos_drvmask equ os88_image_end + DOS_B_DRVMASK
+dos_blaster equ os88_image_end + DOS_B_BLAST
 dos_xmstab  equ os88_image_end + DOS_B_XMSTAB
 dos_xmlen   equ os88_image_end + DOS_B_XMLEN
 dos_xmsh    equ os88_image_end + DOS_B_XMSH

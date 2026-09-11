@@ -119097,41 +119097,159 @@ reading, the slots' contracts are quoted above, and **no machine in this tree
 has run an XMS allocation through this code**. Anyone adding that arm should
 start from `tests/dosxms.py`'s MartyPC row and give it a QEMU twin.
 
-### 96.16 The Sound Blaster is NOT detached, and the reason is a door
+### 96.16 What the Sound Blaster row cost, and the claim that was wrong
 
-docs/plans/DOS-EXEC-PLAN.md §9.3 decided this row and called it "mostly
-existing code": `SOUND.DRV` already has `sbl_detach`, `sbl_halt` and
-`sbl_unhook`, which by their own comment put "the vector, mask and DSP back
-as we found them", so a DOS program could be handed a virgin card and a
-`BLASTER=` variable naming its port, IRQ and DMA.
+This section used to say the row was **refused**, on two grounds. One of them
+was a fact about the code and stands; the other was simply false, and it is
+kept here because it is the kind of wrong that makes a piece of work look
+unnecessary rather than merely hard.
 
-**The code exists and there is no door to it.** `SOUND.DRV` publishes no
-`DSV_PKGCALL` (§20.11), so `OSAPI_DRV_CALL` answers `CF=1, AX=0` and no
-`.O88` on any floppy can reach the driver at all — and `OSAPI_SND_CAPS`
-reports capability bits and whether a driver is loaded, **not** the card's
-port, IRQ or DMA, so even `BLASTER=` cannot be built. Of the eight drivers in
-the tree, four publish a package entry and four do not; this is one of the
-four, deliberately, in `HDD.DRV`'s company.
+**What was right**: `SOUND.DRV` publishes no `DSV_PKGCALL`, so `OSAPI_DRV_CALL`
+could not reach it, and `OSAPI_SND_CAPS` reports capability bits rather than
+the card's port, IRQ and DMA — so neither the detach nor the `BLASTER=` could
+be built from a package alone. That is still true, and it is why the answer is
+a **kernel slot** (§51.11) rather than a driver verb a package calls directly.
 
-Three things follow, and they are why this is a section rather than a TODO:
+**What was wrong**: *"`SOUND.DRV` is not mounted unless `SYSTEM.CFG` asks for
+it, so on a stock machine the card is already virgin."* §51.3.1's boot sniff
+runs an OPL timer dance at `MARK 25` and sets the sound row's want bit when a
+chip answers, so **a machine with a card and no `SYSTEM.CFG` at all mounts the
+driver.** The common case on a machine with a sound card is that the driver
+*is* loaded and *is* in the way — which is the opposite of what that sentence
+claimed, and it turned the highest-value row in the wave into one that looked
+like it could be skipped.
 
-- **Sending `DRVV_DETACH` behind the kernel's back would be wrong even if it
-  were reachable.** The kernel's own record would still say the driver is
-  attached, so `OSAPI_SND_TONE` and the FM verbs would keep dispatching into
-  a driver whose card is gone. What a package needs is not detach but
-  **dormancy** — halt the DSP, unhook the IRQ, keep the record — and that is a
-  state `SOUND.DRV` does not currently have.
-- **It is a capability decision, not a DOS-box one.** `OSAPI_DRV_CALL` is open
-  to every package, so a "stop using the sound card" verb is a verb *anything*
-  on the disk can call. That is a question about the driver's ABI and belongs
-  to whoever owns it.
-- **The common case already works.** `SOUND.DRV` is not mounted unless
-  `SYSTEM.CFG` asks for it (§51.3), so on a stock machine the card is virgin
-  and a DOS program programs it with no help from us — which is why this row
-  buys less than its position in the wave suggests.
+The second half of the refusal — *"sending `DRVV_DETACH` behind the kernel's
+back would be wrong"* — was right and is what §51.11 is built out of: the
+answer is not to detach a driver behind the kernel, it is to ask the **kernel**
+to unload it.
 
-**What is genuinely at risk** when a driver *is* mounted is not the ports: it
-is that a `TF_SERVICE` worker keeps running inside an fsx bracket by design
-(§53.2), so the driver's feeder can touch the DSP while a DOS program owns
-it. That is the argument for dormancy rather than for leaving it alone, and
-it is the measurement anyone taking this row should make first.
+### 96.17 The drivers, out of the way — and `BLASTER=`
+
+A DOS program that wants the Sound Blaster wants to program it **itself** —
+reset the DSP, set its own IRQ and DMA, own the card completely — and
+`SOUND.DRV` is in the way of that three separate ways: it owns an IRQ vector,
+it owns DMA channel 1, and **its refill worker is `TF_SERVICE`, so it keeps
+running inside the bracket by design** (§53.2) and can feed the DSP while the
+DOS program is resetting it.
+
+§51.11 is the door. `dos_drv_take` calls it on the way in and `dos_drv_back`
+on the way out, and the second is called on **every** path through `dos_run`'s
+exit — including the ones that refuse before the bracket ever opened — because
+a resume with nothing suspended is free and a machine left silent is not.
+
+**The driver is not mounted only by `SYSTEM.CFG`**, and an earlier revision of
+this section said it was, which made the whole row look like it did not
+matter. §51.3.1's boot sniff runs an OPL timer dance and sets the sound row's
+want bit, so **a machine with a card and no `SYSTEM.CFG` at all mounts the
+driver** — which is to say the common case on a machine with a sound card is
+that the driver *is* there, and the DOS program *is* fighting it.
+
+**`BLASTER=` is the one environment variable this machine has.** It is built
+from what `DRVV_HWINFO` said on the way past — base port, IRQ, DMA channel —
+and the **type digit is derived from the DSP version**, which is what a program
+reading it expects: 1 an original Sound Blaster, 3 a 2.0, 4 a Pro, 6 an SB16.
+Getting the type wrong does not stop a program running, since almost all of
+them parse only `A`, `I` and `D`; a program that picks its stereo path off `T`
+would pick the wrong one.
+
+An **AdLib-only** machine answers `DRVV_HWINFO` with `CF=1` rather than a base
+of zero, so no `BLASTER=` is written at all. A variable naming a card that is
+not there sends a program to reset a DSP that will never answer — a hang,
+where its absence is a fallback. That is §96.15.1's argument one device along.
+
+#### 96.17.1 The IRQ is usually not known, and that is the driver's design
+
+`sbl_irq` starts at `0FFh` and the Sound Blaster driver **defers IRQ discovery
+to first use** (§34.5): the line is learned by provoking an interrupt during
+the first stream, not by probing at attach. So a machine that has booted and
+not yet played a sound genuinely does not know which line its card is on —
+which is the *common* case at the moment a DOS program is launched.
+
+`BLASTER=` therefore carries the `I` field **only when there is one to carry**,
+and omits it otherwise. A variable naming the wrong line sends a program to
+wait on an interrupt that will never arrive; its absence sends the program to
+its own default — almost always `I5`, which is very likely right — and lets it
+own the guess. That is §96.15.1's argument for the third time in this section,
+and it keeps arriving at the same answer: **a confident wrong number is worse
+than a missing one.**
+
+**The alternative was considered and not taken.** `DRVV_HWINFO` could call the
+driver's own `sbl_f_irqdisc` and force the discovery, since it is asked exactly
+once and the driver is about to be unloaded anyway. It is refused because that
+routine is reached from inside a stream open with the ring already sized, hooks
+the winning vector as a side effect, and would be run here in a state nobody
+has tested it in — to improve a field a program already has a default for.
+
+**One number in this line cost a debugging session and is worth keeping.** The
+package's two-digit emitter was handed `0FFh` and printed `I5`: 255 divides to
+25 and 5, and `'0' + 25` is `'I'`. A two-digit emitter must never be able to
+emit a letter, so it clamps now — but the reason it was reachable at all is
+the one above, and the clamp is the second line of defence rather than the
+fix.
+
+### 51.11 Drivers, out of the way (`OSAPI_DRV_SUSPEND`)
+
+An exclusive fullscreen app that is about to program the hardware **itself** —
+a DOS program driving a Sound Blaster (§96.17), a demo taking the OPL — needs
+the drivers that own that hardware to stop owning it. `OSAPI_DRV_SUSPEND` is
+that door, and it is deliberately **not sound-specific**: what the caller says
+is *get out of my way*, and each class decides what that means for it.
+
+**It is an unload and a reload**, and that is the whole design rather than a
+shortcut. The alternative — a dormant state each driver polices for itself —
+has to be written once per driver, and gets the **kernel's** copy of the
+service table wrong the first time somebody forgets: `drv_svc` is a copy taken
+at attach (§51.2), so a driver clearing its own table changes nothing the
+kernel reads, and `DSV_TICK` would still be far-called from inside IRQ0 at a
+card somebody else is programming. An unload puts the service table back,
+waits the worker out, unhooks the vector and gives the memory back — all of it
+already written, and this tree ships the pair twice already: `hbm_detach` /
+`hbm_reload` around a hibernate (§87.4), and `ss_reap_x` after a screen saver.
+
+**The worker is why it works at all**, and it reads like a hazard before it
+reads like a mechanism: a driver's refill worker is `TF_SERVICE` (§53.2), so
+it **keeps running inside the bracket by design** — which is both the danger
+this call exists for and the reason the call can complete. `drv_unload` waits
+on that worker, and the wait can only finish because the freeze lets that one
+task run.
+
+**`DRVC_DISK` and `DRVC_FILE` are skipped**, which is `hbm_detach`'s list for
+`hbm_detach`'s reason: one is memory and the ROM's `int 13h`, the other is the
+RAM disk, and both are things a fullscreen program *wants* rather than fights.
+
+#### 51.11.1 Suspend is bracket-only; resume is not
+
+The fence on **suspend** is `fsx_mine` — an fsx bracket, on the task that owns
+it — which is the same fence `fsx_mode` and `fsx_surf` carry, and it is what
+makes this safe to publish at all: only the app that has been given the screen
+can take the hardware.
+
+**Resume is fenced on nothing**, and that is deliberate rather than forgotten.
+The put-back has to be possible *after* the bracket has ended, which is where
+an app that has finished with the screen actually is. It only ever reloads
+rows a suspend noted, so a caller with nothing suspended reloads nothing.
+
+The cost of that looseness is stated rather than designed around: **nothing
+puts the drivers back if the app never asks.** An app that suspends and then
+dies leaves the machine with its sound driver unloaded until the user re-ticks
+it in the Control Panel. The rule is therefore on the caller — resume on every
+exit path, including the refusals — and it is written in `os88api.inc` where
+an author is looking rather than only here.
+
+#### 51.11.2 `DRVV_HWINFO` is asked on the way past
+
+A driver about to be unloaded is the **last thing that knows where its
+hardware is**, so the suspend asks each one before it goes: `DRVV_HWINFO`,
+no inputs, `CF=0` with three class-defined words or `CF=1` for a driver with
+nothing to say. For `DRVC_SOUND` they are the DSP base port, `(IRQ | DMA<<8)`
+and the DSP version — which is what a `BLASTER=` is made of.
+
+The records land in the **caller's** buffer (`ES:DI`, hence an X cell), one
+`DQ_SIZE` record per driver that answered, and `CX` counts them. A driver that
+does not implement the verb simply gets no record, so `CX` may be smaller than
+the number of bits in `AX`. `DQ_MAXREC` is published in `os88api.inc` so a
+caller can size that buffer without mirroring the kernel's own `DRV_MAX`,
+which is 6, 5 or 4 depending on the build — and the kernel asserts one against
+the other at assembly time, because a row added here without widening the SDK
+would write past the end of somebody's buffer.

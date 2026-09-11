@@ -140,6 +140,12 @@ _MIRROR = {
     # agree with itself while every kern_small script decoded garbage.
     "WIN_SIZE": ("kernel/wm.inc", {"big": 34, "small": 28}),
     "MAX_WIN": ("kernel/wm.inc", {"big": 12, "small": 6}),
+    # kernel/driver.inc - a driver row (SPEC.md 51.2). DRVR_SEG is "is it
+    # loaded", which is the only way a host-side script can SEE a driver
+    # come and go - tests/xmcheck.py watches XMEM.DRV arrive and
+    # tests/dossnd.py watches SOUND.DRV get out of a DOS program's way
+    # (SPEC.md 51.11).
+    "DRVR_SEG": ("kernel/driver.inc", 2),
     "W_FLAGS": ("kernel/wm.inc", 0),
     "W_X": ("kernel/wm.inc", 2),
     "W_Y": ("kernel/wm.inc", 4),

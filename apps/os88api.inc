@@ -1306,7 +1306,7 @@ CPU_F_X87           equ 0x08     ; an 8087/287/387 IS IN THE SOCKET, probed
                                  ; (SPEC.md 31.8). The old verb 2, "write the
                                  ; file NOW", is retired and reads as 1
 
-; --- a DRIVER page's file dialog (SPEC.md 51.10) -----------------------------
+; --- a DRIVER page's file dialog (SPEC.md 51.11) -----------------------------
 ; OSAPI_FILE_DLG is unreachable from a driver and always was: fdlg_open fences
 ; on a live INSTANCE owning the window it is handed (SPEC.md 38.1), because
 ; the staleness triple it banks is what stops a commit calling into a region
@@ -1743,6 +1743,53 @@ KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
                                  ; you specifically need this; the claim must
                                  ; also be PINNED (the default, SPEC.md 66), or
                                  ; a compaction moves it under the driver.
+; --- DRIVERS, OUT OF MY WAY (SPEC.md 51.11) ----------------------------------
+; An exclusive fullscreen app about to program the hardware ITSELF - a DOS
+; program driving a Sound Blaster, a demo taking the OPL - needs the drivers
+; that own that hardware to stop owning it. This is the door, and it is NOT
+; sound-specific: what you say is "get out of my way", and each class decides
+; what that means for it.
+;
+; IT IS AN UNLOAD AND A RELOAD, which is why it is honest: the service table
+; the kernel dispatches through is a COPY taken at attach, so a driver going
+; quietly dormant would change nothing the kernel reads - DSV_TICK would still
+; be far-called from inside IRQ0 at a card you are programming. An unload puts
+; that table back, waits the driver's worker out, unhooks its vector and gives
+; its memory back, and you get the memory too.
+;
+; SUSPEND IS BRACKET-ONLY and RESUME IS NOT, deliberately: the put-back has to
+; be possible after the bracket has ended, which is where an app that has
+; finished with the screen actually is. **CALL THE RESUME ON EVERY EXIT PATH
+; YOU HAVE**, including the ones that refuse: nothing else will, and a machine
+; left with its sound driver unloaded is a machine that went quiet for no
+; reason the user can see.
+;
+; DRVC_DISK and DRVC_FILE are NOT touched - memory and the ROM's int 13h, and
+; the RAM disk - because both are things a fullscreen program WANTS rather
+; than fights, and neither owns a chip anyone is about to take.
+DQ_CLASS   equ 0                 ; db: the DRVC_* this record is about
+DQ_FLAGS   equ 1                 ; db: bit 0 = it went
+DQ_A       equ 2                 ; dw: the class's own three words. For
+DQ_B       equ 4                 ; dw: DRVC_SOUND: the DSP base port, then
+DQ_C       equ 6                 ; dw: (IRQ | DMA<<8), then the DSP version -
+DQ_SIZE    equ 8                 ;     which is what a BLASTER= is made of
+DQ_MAXREC  equ 8                 ; the most records one call can write, so
+                                 ; a caller can size a buffer without
+                                 ; mirroring the kernel's own DRV_MAX -
+                                 ; which is 6, 5 or 4 depending on the
+                                 ; build and is asserted against this at
+                                 ; assembly time (SPEC.md 51.11.2)
+%define OSAPI_DRV_SUSPEND   KERNEL_SEG:0x0550   ; AL = 1 suspend / 0 resume,
+                                 ; ES:DI = a buffer of DQ_SIZE records or
+                                 ; DI = 0 for none. out CF=0 with AX = a
+                                 ; bitmap of the DRVC_* classes that went and
+                                 ; CX = records written; CF=1 = a SUSPEND from
+                                 ; outside an fsx bracket, or from a task that
+                                 ; does not own one. A driver with nothing to
+                                 ; say about its hardware simply gets no
+                                 ; record, so CX may be less than the bits in
+                                 ; AX.
+;
 %define OSAPI_DRV_CALL      KERNEL_SEG:0x0448   ; in BH = a DRVC_* class,
                                  ; BL = a verb THAT DRIVER defines; AX, CX, DX,
                                  ; SI and DI are the driver's to define too.

@@ -3983,7 +3983,16 @@ osapi_table:
                                   ;          fullscreen first, and neither zoom
                                   ;          is drawn (SPEC.md 11.99.5).
                                   ;          Preserves every register
-osapi_table_end:                  ; 0x0550
+    OSAPI_XCELL drv_suspend_x   ; 0x0550 - DRIVERS, OUT OF MY WAY (SPEC.md
+                                  ;          51.10). AL = 1 suspend / 0
+                                  ;          resume, ES:DI = a DQ_SIZE-record
+                                  ;          buffer or DI = 0; out AX = the
+                                  ;          DRVC_* classes that went, CX =
+                                  ;          records written. X because the
+                                  ;          buffer is the CALLER's and the
+                                  ;          whole point is that the answer
+                                  ;          lands in it
+osapi_table_end:                  ; 0x0558
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -3991,8 +4000,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 168 * 8
-%error "os8088 API jump table must be exactly 168 8-byte slots"
+%if OSAPI_TABLE_LEN != 169 * 8
+%error "os8088 API jump table must be exactly 169 8-byte slots"
 %endif
 
 ; =============================================================================

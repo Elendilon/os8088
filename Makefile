@@ -4793,6 +4793,15 @@ $(BUILD)/dosexec360.img: $(BUILD)/DOSEXEC.COM $(BUILD)/DOSKID.COM tools/os88disk
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSEXEC.COM \
 	    $(BUILD)/DOSKID.COM
 
+# ...and the sound gate's. It needs NO SYSTEM.CFG: SPEC.md 51.3.1's boot
+# sniff finds the OPL and mounts SOUND.DRV by itself, which is exactly the
+# case SPEC.md 96.17 is about - the common one, not the configured one.
+$(BUILD)/DOSSND.COM: tests/dossnd/snd.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dossnd/snd.asm
+
+$(BUILD)/dossnd360.img: $(BUILD)/DOSSND.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSSND.COM
+
 # ...and the XMS gate's, whose whole assertion on an 8088 is a REFUSAL
 # (SPEC.md 96.15.1) - plus that asking at all comes back, which an unhooked
 # multiplex vector on a ROM that does not implement it need not do.
@@ -4805,7 +4814,7 @@ $(BUILD)/dosxms360.img: $(BUILD)/DOSXMS.COM tools/os88disk.py
 .PHONY: doscom
 doscom: $(BUILD)/doscom360.img $(BUILD)/dosexe360.img $(BUILD)/dosmou360.img \
         $(BUILD)/dosfile360.img $(BUILD)/dosdir360.img $(BUILD)/dosexec360.img \
-        $(BUILD)/dosxms360.img
+        $(BUILD)/dosxms360.img $(BUILD)/dossnd360.img
 
 $(BUILD)/thewire.bin: apps/thewire/thewire.asm apps/thewire/wrhttp.inc \
                       apps/thewire/wrarc.inc apps/thewire/wrtxt.inc \

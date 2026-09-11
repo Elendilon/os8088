@@ -2506,6 +2506,22 @@ SOAK = [
         "XMEM.DRV and so needs a QEMU twin (SPEC.md 96.15.3).",
         needs=("marty",), serial=True,
         wants=("build/dosxms360.img",)),
+    Row("dossnd", "soak", py("tests/dossnd.py"), 90.0,
+        "THE DOS SOUND GATE (SPEC.md 96.17, 51.11): a DOS program that wants "
+        "the Sound Blaster wants to program it ITSELF, and SOUND.DRV is in "
+        "the way three ways - an IRQ vector, DMA channel 1, and a refill "
+        "worker that is TF_SERVICE and so KEEPS RUNNING inside the bracket by "
+        "design. The row reads the driver's own DRVR_SEG out of the guest, "
+        "which is the only way to see the half with no pixels: LOADED at the "
+        "desktop, ZERO while the DOS program runs, loaded again after. It "
+        "uses NO SYSTEM.CFG deliberately - 51.3.1's boot sniff mounts the "
+        "driver on a machine with a card and no configuration at all, which "
+        "is the common case an earlier revision of 96.16 got wrong. The "
+        "visible half is BLASTER=, and its IRQ field is ABSENT on purpose: "
+        "discovery is deferred to first use, so naming a line here is naming "
+        "the wrong one.",
+        needs=("marty",), serial=True,
+        wants=("build/dossnd360.img",)),
     Row("heapcheck", "soak", py("tests/heapcheck.py"), 40.0,
         "Drive tests/heapfrag and read its verdict out of the guest (SPEC.md"
         "66.8).",

@@ -232,6 +232,7 @@ Read first: [§31 ctrl.inc — the Control Panel window](../SPEC.md#31-ctrlinc--
 | `0x0298` | `OSAPI_SYS_SNAPSHOT` | ES:DI = a SYS_SNAPSHOT_SIZE buffer; out AX = MAX_TASKS, BX = INST_MAX... |
 | `0x0188` | `OSAPI_CPU_INFO` | no inputs; out AL = CPU_8086 / CPU_286 / CPU_386, AH = feature bits (the CPU_F_* below): bit 0 A20 verified open, bit 1 HMA claimed, bit 2 unreal... |
 | `0x04A0` | `OSAPI_DRV_CALL_AT` | OSAPI_DRV_CALL, EXCEPT ES IS YOURS (SPEC.md 20.11.2)... |
+| `0x0550` | `OSAPI_DRV_SUSPEND` | AL = 1 suspend / 0 resume, ES:DI = a buffer of DQ_SIZE records or DI = 0 for none... |
 | `0x0448` | `OSAPI_DRV_CALL` | in BH = a DRVC_* class, BL = a verb THAT DRIVER defines; AX, CX, DX, SI and DI are the driver's to define too... |
 | `0x0320` | `OSAPI_CLIP_PUT` | ES:SI = the text, CX = its length. CX = 0 EMPTIES the clipboard and is not an error. Out CF=1 = refused (over CLIP_MAXKB, or the heap could not fund... |
 | `0x0328` | `OSAPI_CLIP_GET` | ES:DI = your buffer, CX = its capacity. Out CF=1 = empty (AX = CX = 0)... |
