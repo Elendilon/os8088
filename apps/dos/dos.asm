@@ -89,6 +89,7 @@ DOS_IMGP    equ DOS_PSPP+16         ; para 26    : the image, at PSP:0100
 ; That is DOS's limit rather than a choice: PSP:0080 is a length byte, then
 ; the text, then an 0Dh, all inside 128 bytes. A field that let a 128th
 ; character in would be one the user could type into and not have obeyed.
+DOS_TRACEN  equ 256                 ; DOSTRACE ring entries (power of two)
 DOS_ARGSZ   equ 128
 DOS_ARGMAX  equ 127                 ; ...what LN_MAX gets: 126 characters + NUL
 DOS_PBUF    equ 80                  ; the program's own path for the environment
@@ -2032,27 +2033,29 @@ dos_terminate:
 ; out: nothing; preserves everything but the flags
 ; -----------------------------------------------------------------------------
 %ifdef DOSTRACE
-; TEMPORARY: every INT 21h's AH, in hex, through the ROM teletype, capped so a
-; spin does not fill the screen. Removed before this ships.
+; EVERY INT 21h CALL, INTO A RING THE HOST READS - not onto the screen.
+;
+; The first version of this printed AH through the ROM teletype, which is
+; unusable for exactly the programs worth tracing: a game SETS A MODE and owns
+; every pixel (SPEC.md 53.7), so the characters land in a framebuffer nobody
+; can read back as text, and the 60-call cap ran out during the C runtime's
+; own start-up. A ring in .bss costs the traced program nothing, survives the
+; mode change, and is read off the guest with the package's own segment - the
+; way every other host-side probe in this tree reads package state.
+;
+; AH and AL both, because the sub-function is the interesting half of 44h,
+; 43h, 42h and 4Eh alike. DOS_TRACEN entries, wrapping, with the TOTAL kept
+; separately so a reader can tell a wrapped ring from a short one.
 dos_trace:
     push ax
-    cmp word [dos_tracen], 60
-    jae .out
-    inc word [dos_tracen]
-    mov al, ah
-    shr al, 1
-    shr al, 1
-    shr al, 1
-    shr al, 1
-    call dos_hexd
-    call dos_tty
-    mov al, ah
-    and al, 0x0F
-    call dos_hexd
-    call dos_tty
-    mov al, ' '
-    call dos_tty
-.out:
+    push bx
+    mov bx, [dos_tracew]
+    and bx, (DOS_TRACEN * 2) - 2    ; the ring's byte index, always even
+    mov [dos_traceb+bx], ah
+    mov [dos_traceb+bx+1], al
+    add word [dos_tracew], 2
+    inc word [dos_tracen]           ; ...and the TOTAL, which does not wrap
+    pop bx
     pop ax
     ret
 %endif
@@ -4774,7 +4777,11 @@ dos_mcb_resize:
     DBSS DOS_B_PIC1,  1
     DBSS DOS_B_PIC2,  1
     DBSS DOS_B_ISEXE, 1
-    DBSS DOS_B_TRACEN, 2
+%ifdef DOSTRACE                 ; ...and NOTHING when it is off: the ring is
+    DBSS DOS_B_TRACEN, 2        ; 514 bytes, and an instrument that costs the
+    DBSS DOS_B_TRACEW, 2        ; shipped build anything is one that gets
+    DBSS DOS_B_TRACEB, DOS_TRACEN * 2   ; deleted rather than kept
+%endif
     DBSS DOS_B_VW,    2
     DBSS DOS_B_VH,    2
     DBSS DOS_B_MLX,   2
@@ -7234,7 +7241,11 @@ dos_ln      equ os88_image_end + DOS_B_LN      ; the field's os88line block
 dos_pic1    equ os88_image_end + DOS_B_PIC1    ; byte: the 8259 masks as found
 dos_pic2    equ os88_image_end + DOS_B_PIC2    ; byte:
 dos_isexe   equ os88_image_end + DOS_B_ISEXE   ; byte: 1 = an .EXE was set up
+%ifdef DOSTRACE
 dos_tracen  equ os88_image_end + DOS_B_TRACEN  ; word: DOSTRACE's call counter
+dos_tracew  equ os88_image_end + DOS_B_TRACEW  ; word: its ring write index
+dos_traceb  equ os88_image_end + DOS_B_TRACEB  ; the ring: AH,AL per entry
+%endif
 dos_vw      equ os88_image_end + DOS_B_VW      ; word: the desktop's width...
 dos_vh      equ os88_image_end + DOS_B_VH      ; word: ...and height, for 33h
 dos_mou_lx  equ os88_image_end + DOS_B_MLX     ; word: the last position 0Bh
