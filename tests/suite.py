@@ -3636,6 +3636,36 @@ SOAK = [
         "SPEC.md 13.10.5: ...and the Standard File dialog's, which is the"
         "second bar one gesture record has to tell apart (13.10.5.10).",
         needs=("marty",), serial=True, builds=True),
+    Row("regrowshed", "soak", py("tests/regrowshed.py"), 70.0,
+        "SPEC.md 50.6.2.1 and 27.6.1: a GROW is not refused over a cache, "
+        "and 'Too big' is not said about memory. Reported from the field as "
+        "'kern_small says Too big opening README.TXT', where the arithmetic "
+        "says it should work - a 13,475-byte region, a 14,722-byte manual "
+        "and 52.5KB of heap - and TWO defects each hid the other. "
+        "mem_regrow had no shed-and-retry, which mem_claim has had since "
+        "50.6.2, so the 16KB grow was refused with 31,744 bytes sitting in "
+        "three purgeable caches - memory the kernel holds on the explicit "
+        "understanding that it can give it away. Then np_load ignored that "
+        "CF, so the read compared 14,722 against a claim still at 1,024 and "
+        "the file API answered the only thing it can, FERR_BIG: a MEMORY "
+        "refusal reported as a sentence about the FILE, which sent the field "
+        "looking for a size limit that was not the cause. Four verdicts on "
+        "the 128KB floor machine, driving Note Pad's own File > Open: the "
+        "manual loads (np_len 14,427, the CRLF file folded, with the claim "
+        "at NP_MAXKB); a refused load leaves the note alone; PAINT.O88 at "
+        "21,285 bytes still says 'Too big' - the POSITIVE CONTROL, because "
+        "a Note Pad that had simply stopped saying it would pass every "
+        "other leg; and a SECOND Note Pad, which genuinely cannot be funded "
+        "here, says 'No memory'. The toast is read out of toast_buf and not "
+        "off the glass: it expires on a tick count (SPEC.md 59), so a settle "
+        "long enough to be sure a load finished is long enough to lose it. "
+        "Both halves were watched going red - the shed removed fails "
+        "'loaded' with np_len 0, and 27.6.1's compare removed fails 'nomem' "
+        "reading 'Too big', which is the field report exactly. It builds its "
+        "own kern_small into a private tree, and the row is on the SMALL "
+        "kernel because that is where the heap is tight enough to reach it - "
+        "the defect is in kern_big's mem_regrow too",
+        needs=("marty",), serial=True),
     Row("npscroll", "soak", py("tests/npscroll.py"), 30.0,
         "SPEC.md 27.7.6.1/27.7.2: scrolling a note whose height is still being"
         "counted neither freezes the machine nor blanks half the scroll bar.",

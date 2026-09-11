@@ -3039,6 +3039,13 @@ mem_movable_x:
 ;      the old block is freed. Only this path pays for a move, and it is the
 ;      same copy the caller used to make itself.
 ;
+; ...and when 3 finds no run, SHED ONE PURGEABLE BLOCK AND RETRY FROM 2, which
+; is mem_claim's own loop and which this routine went its whole life without
+; (SPEC.md 50.6.2.1). A cache is memory held on the understanding that the
+; kernel can take it back, so a grow refused over one is a claim mem_claim
+; would have granted - measured in the field as Note Pad refusing a 14,722-byte
+; README.TXT with 31,744 bytes of the heap sitting in three caches.
+;
 ; WHAT IT IS NOT. It does not compact the heap by sliding OTHER claims down -
 ; SPEC.md 66 does that, and this routine deliberately stays out of it. The two
 ; answer different questions: mem_regrow resizes ONE claim whose holder is
@@ -3046,7 +3053,9 @@ mem_movable_x:
 ; moves claims whose holders are not asking for anything and have to be TOLD.
 ; So a regrow does not call the relocation proc even when the claim has one -
 ; that would tell a holder twice, in two different ways, about one move
-; (SPEC.md 66.7) - and MC_RLOC rides through all three paths untouched.
+; (SPEC.md 66.7) - and MC_RLOC rides through all three paths untouched. That
+; is also why the shed above is NOT joined by a compaction: the walk calls the
+; procs this routine may not call, on a set that includes this very claim.
 ;
 ; Path 2 is still worth what it always was: a claim that grows in place never
 ; leaves a hole behind it, and fragmentation not created needs no repairing.
@@ -3105,7 +3114,8 @@ mem_regrow:
     pushf
     mov word [mem_dma], 0       ; a transient, and this window is the only
     popf                        ; place it may be set (the whole op is IF=0)
-    jc .fail
+    jc .shed                    ; no run: SHED AND RETRY (.shed, past the
+                                ; `ret` below)
     push ax
     push cx
     push si                     ; BANK the record. SI is about to be spent as
@@ -3133,6 +3143,37 @@ mem_regrow:
     pop bx
     pop ax
     ret
+
+    ; SHED AND RETRY, which mem_claim has had all along and this routine had
+    ; not (SPEC.md 50.6.2.1). A purgeable block is memory the kernel holds on
+    ; the understanding that it can give it away, so refusing a GROW over one
+    ; refuses a claim mem_claim would have granted - measured in the field as
+    ; Note Pad refusing a 14,722-byte README.TXT with 31,744 bytes of the heap
+    ; sitting in three caches.
+    ;
+    ; OUT OF LINE, PAST THE `ret`, and that is worth 3 bytes rather than
+    ; tidiness: inline it costs 10 instead of 7, because pushing `.fail` seven
+    ; bytes further down takes one of the prologue's `jc .fail` out of short
+    ; range and nasm spends 5 bytes on it instead of 2. It is the cold path
+    ; anyway, so out of the fall-through is where it belongs.
+    ;
+    ; BACK TO .grow AND NOT TO .move, because the block shed is often the one
+    ; directly ABOVE this claim - the field case is exactly that - and an
+    ; extend in place leaves no hole behind it. AX, DX and SI are all still
+    ; live here, and BX - which is what mem_shed_one ranks against - survives
+    ; because mem_find_own and mem_hifit both preserve it, so the retry
+    ; re-derives nothing.
+    ;
+    ; It cannot shed THIS record: mem_shed_one takes only records strictly
+    ; cheaper than the claimant's rank, and ours ranks equal to itself. It
+    ; terminates because each shed removes a record and mem_shed_one refuses
+    ; when there are none. And no COMPACTION goes with it - SPEC.md 66.7: this
+    ; routine may not call a relocation proc, and the claim the walk would
+    ; most likely move is this very one.
+.shed:
+    call mem_shed_one
+    jnc .grow
+    jmp short .fail
 
 ; -----------------------------------------------------------------------------
 ; mem_free - release a block (SPEC.md 50.3)
