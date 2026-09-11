@@ -954,7 +954,7 @@ what three of these rows got wrong.
 
 | 1 | `.COM` only. Arena + MCB chain + PSP + environment. fsx bracket, IVT/BDA/PIT/8259 save-restore. Character I/O, process control, memory, date/time, vectors. **Read-only file handles, behind the back-end indirection §14.4 asks for.** The `..` walk for the cwd (§11.3). Double-click via an association block. | **0** | 6–9 KB |
 | 2 | **BUILT.** `.EXE` loader — MZ header, relocations, `minalloc`/`maxalloc`. Directory functions, find-first/next, create/replace/append writes, `INT 33h` mouse. | **0** | **+2.7 KB** (image 3,134 → 5,878; 5,321 compressed on disk) |
-| 3 | **THREE OF FOUR BUILT.** `4Bh` EXEC (SPEC.md 96.14), XMS via the `OSAPI_XMEM_*` slots (96.15), `INT 12h`/BDA (already done in wave 1: the BDA's memory word is written at bracket entry, and the ROM's `int 12h` reads it). **Sound Blaster detach is REFUSED** — 96.16, and §15.5 below is why. | **0** | **+2.3 KB** |
+| 3 | **BUILT, all four.** `4Bh` EXEC (SPEC.md 96.14), XMS via the `OSAPI_XMEM_*` slots (96.15), `INT 12h`/BDA (already done in wave 1: the BDA's memory word is written at bracket entry, and the ROM's `int 12h` reads it), and **the drivers out of the way** — which came out a KERNEL slot rather than package code, `OSAPI_DRV_SUSPEND` (96.17, 51.11), and is the only row in the whole plan that spent a kernel byte. §15.5 below is what it cost and what the refusal got wrong. | **209 `.text` + 5 `.bss` + 1 API cell** | **+2.9 KB** |
 | 4 | Packet driver over `ETHER.DRV`. Validation target: mTCP's own applications. | 0 | +1.5–2.5 KB |
 | 5 | **Write-at-offset file handles** (§6.3) — on a published kernel seek/write-at trio if that API happens, on read-modify-rewrite if it does not. Ordered here rather than "deferred" because Tank Attack wants it too. | 0 or ~400 | +1–2 KB |
 | 6 | **Windowed text mode** (§10) — the `INT 21h`/TTY subset rendered into a real window, RunCPM's terminal (SPEC.md 74.2) being the precedent; a program that writes `B8000` is refused into fullscreen instead. | 0 | +4 KB |
@@ -1432,51 +1432,85 @@ costs a machine that has already borrowed the screen nothing.
 
 ### 15.5 Wave 3, and the row that turned out to be a door rather than code
 
-**Three of the four rows are built** and gated — `AH=4Bh` (SPEC.md §96.14),
-XMS (§96.15), and `INT 12h`/BDA, which wave 1 had already done without
-noticing: the BDA's memory-size word is written at bracket entry, and the
-ROM's own `int 12h` reads exactly that word, so the polish this row asked for
-was a consequence of §96.3's containment rather than work of its own.
+**All four rows are built** and gated. Three of them cost no kernel byte —
+`AH=4Bh` (SPEC.md §96.14), XMS (§96.15), and `INT 12h`/BDA, which wave 1 had
+already done without noticing: the BDA's memory-size word is written at
+bracket entry and the ROM's own `int 12h` reads exactly that word, so the
+polish this row asked for was a consequence of §96.3's containment rather than
+work of its own.
 
-**The Sound Blaster row is refused, and §9.3 was wrong about why.** It called
+The fourth is the Sound Blaster, and it is **the only row in this entire plan
+that spent a resident byte**: `OSAPI_DRV_SUSPEND` (§51.11), 209 bytes of
+`.text`, 5 of `.bss` and one API cell. What follows is why the shape changed,
+because the first reading of this row was wrong twice and both errors are the
+kind worth writing down.
+
+**Error one: it was called refused, and §9.3 was wrong about why.** §9.3 called
 detach "mostly existing code", and the code does exist — `sbl_detach`,
-`sbl_halt`, `sbl_unhook`, all with the right comments on them. What does not
+`sbl_halt`, `sbl_unhook`, all with the right comments on them. What did not
 exist is a **door**: `SOUND.DRV` publishes no `DSV_PKGCALL`, so
 `OSAPI_DRV_CALL` refuses and no package on any floppy can reach it; and
 `OSAPI_SND_CAPS` answers capability bits and "is a driver loaded", not the
-card's port, IRQ or DMA, so even the `BLASTER=` variable cannot be built.
+card's port, IRQ or DMA, so even `BLASTER=` could not be built. That part
+stands, and it is exactly why the answer came out a **kernel slot** and not a
+driver verb — a package asking a driver to stand down is a package reaching
+round the kernel's own record of what is attached.
 
-That makes it **a decision about the driver's ABI rather than about the DOS
-box**, which is why it is not taken here: `OSAPI_DRV_CALL` is open to every
-package, so a "stop using the sound card" verb is one *anything* on the disk
-can call. And what a package would need is not `DRVV_DETACH` — sending that
-behind the kernel's back leaves the kernel's own record saying the driver is
-attached, so every later tone dispatches into a driver whose card is gone —
-but a **dormant** state the driver does not have.
+**Error two, and this is the one that made the row look skippable:**
+*"`SOUND.DRV` is not mounted unless `SYSTEM.CFG` asks"*. It is false.
+§51.3.1's boot sniff runs an OPL timer dance at `MARK 25` and sets the sound
+row's want bit when a chip answers, so **a machine with a card and no
+`SYSTEM.CFG` at all mounts the driver** — which is the common case, not the
+configured one. The row was not a corner; it was the ordinary path.
 
-Two things make the row worth less than its position suggests, and one makes
-it worth more:
+The second half of the old refusal — *"sending `DRVV_DETACH` behind the
+kernel's back would be wrong"* — was right, and is what the built answer is
+made out of. The kernel does not put a driver to sleep, because a dormant
+state is one every driver would have to grow and none has: it **unloads**
+them, at the bracket, and **loads them back** at the other end. `drv_unload`'s
+own wait on `[drv_wcnt]` is what makes that safe, and it is already built.
 
-- `SOUND.DRV` is **not mounted unless `SYSTEM.CFG` asks** (SPEC.md §51.3), so
-  on a stock machine the card is already virgin and a DOS program drives it
-  with no help from us.
-- Nothing in this tree is a DOS program that drives a Sound Blaster, so the
-  working half would ship untested — which is the same position §96.15.3 puts
-  XMS's allocation path in, and one such row is enough.
-- **But** a `TF_SERVICE` worker keeps running inside an fsx bracket by design
-  (SPEC.md §53.2), so a mounted driver's feeder can touch the DSP while a DOS
-  program owns it. That is the real hazard, it is not about ports, and it is
-  the measurement whoever takes this row should make before writing anything.
+**The `TF_SERVICE` hazard was real and is what the design turns on.** A loaded
+driver's refill worker keeps running inside an fsx bracket by design (§53.2),
+so a mounted `SOUND.DRV` can feed the DSP while a DOS program is resetting it.
+That is a second exception beyond the kept worker, and it is not fixable by
+asking the driver to be quiet: `drv_svc` is a **copy** taken at attach, so a
+driver clearing its own service table changes nothing the kernel reads and
+`DSV_TICK` is still far-called from IRQ0. Unloading is the only thing that
+removes both the feeder and the vector, which is why the slot is shaped the
+way it is.
+
+What the row actually needed, in the end, was **one fact the driver had and
+nobody could ask for**: the card's base port, IRQ and DMA. That is
+`DRVV_HWINFO` (§51.11.2), four lines in `snd_entry`, and it is what turns
+`BLASTER=` from guesswork into a report.
 
 ### 15.6 What wave 3 left, in the order the evidence ranks it
 
-1. **The XMS working path has never run** (SPEC.md §96.15.3). It needs a 286
-   with `XMEM.DRV` and MartyPC cannot be one, so it wants a QEMU twin of
-   `tests/dosxms.py`. This is the largest untested surface the DOS box has.
-2. **Sound Blaster dormancy** — §15.5, and the `TF_SERVICE` measurement first.
-3. **`4Bh` nesting**, refused in §96.14.1 for want of a stack rather than for
+The two items this section used to head with are **both built and gated**, so
+they are recorded here rather than listed: the XMS working path now has its
+QEMU twin (`tests/dosxmsq.py`, SPEC.md §96.15.3) and the Sound Blaster row is
+`OSAPI_DRV_SUSPEND` (§15.5). What is left is smaller than either.
+
+1. **`4Bh` nesting**, refused in §96.14.1 for want of a stack rather than for
    want of a reason. Wave 7's command interpreter does not need it (a shell
    runs one child at a time); a batch file that calls a batch file does.
-4. **Handles are not inherited by a child** (§96.14.2), which nothing measured
+2. **Handles are not inherited by a child** (§96.14.2), which nothing measured
    has minded and which the one-window design of §96.11 would not survive
    being made per-PSP.
+3. **`DRVV_HWINFO` has one implementer.** `SOUND.DRV` answers it; every other
+   driver in the tree does not, and `drv_suspend_x` neither needs nor asks.
+   The slot is published (§51.11.2) so that the next driver whose hardware a
+   fullscreen program wants to name can answer it, and until one does the
+   contract is a table with one row in it. That is honest rather than
+   speculative — but it is also why the verb number should not be treated as
+   settled by use.
+4. **A suspended driver is unloaded, not paused, so a bracket that takes long
+   enough is a mount away from the disk.** `drv_load` reads the `.DRV` back
+   off the boot volume at the resume, which is fine on a machine that still
+   has that volume in the drive and is a refusal on one that does not. The DOS
+   box's own resume path treats a failed reload as "the driver is gone" and
+   carries on, which is the only answer available inside a bracket, but it
+   means **a user who swaps the system disk during a DOS program loses the
+   sound driver for the session**. Nothing measured has hit it; it wants a
+   sentence in the user-facing docs before it does.

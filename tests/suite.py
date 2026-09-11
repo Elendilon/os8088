@@ -2501,11 +2501,28 @@ SOAK = [
         "the time the first call refuses; every OTHER multiplex number must "
         "answer AL=0, which an UNHOOKED vector cannot say; and asking has to "
         "RETURN, an unhooked 2Fh on a ROM that does not implement it being "
-        "how a TSR probe becomes a hang. WHAT IT DOES NOT COVER is the "
-        "working path - allocate, move, free - which needs a 286 with "
-        "XMEM.DRV and so needs a QEMU twin (SPEC.md 96.15.3).",
+        "how a TSR probe becomes a hang. THE WORKING PATH IS THE OTHER ROW: "
+        "allocate, move, free needs a machine with memory above 1MB, which "
+        "this one by definition has not got, so it is `dosxmsq` on QEMU "
+        "(SPEC.md 96.15.3) and neither row can answer the other's half.",
         needs=("marty",), serial=True,
         wants=("build/dosxms360.img",)),
+    Row("dosxmsq", "soak", py("tests/dosxmsq.py"), 45.0,
+        "THE DOS XMS WORKING GATE (SPEC.md 96.15.3) - the other half of "
+        "`dosxms`, and QEMU because it has to be: the assertion needs a "
+        "machine with memory ABOVE 1MB and MartyPC's 8088 never has any, "
+        "which is docs/TESTING.md's QEMU list entry 1, the same ground "
+        "`xmcheck` stands on. A .COM asks int 2Fh AX=4300h (must be AL=80h "
+        "HERE, where the MartyPC row asserts it is NOT), takes the entry "
+        "point from AX=4310h and CALLS it, reads the pool, allocates 64KB, "
+        "moves a pattern OUT, then WIPES conventional memory with a third "
+        "value before moving it BACK - that wipe is the load-bearing step, "
+        "because without it a move that did nothing in either direction "
+        "passes - compares every byte and frees. It reads the bracket's text "
+        "screen out of 0xB8000 rather than through os88ui, which is a "
+        "MartyPC instrument with no QEMU form.",
+        needs=("qemu",), serial=True, timeout=600,
+        wants=("build/dosxmsq.img",)),
     Row("dossnd", "soak", py("tests/dossnd.py"), 90.0,
         "THE DOS SOUND GATE (SPEC.md 96.17, 51.11): a DOS program that wants "
         "the Sound Blaster wants to program it ITSELF, and SOUND.DRV is in "

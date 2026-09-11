@@ -119085,17 +119085,29 @@ area is a 286 addressing trick, and this is an 8086 contract. A program that
 wants the HMA is told there is none and falls back, which is the path it
 already has for every 8088 it has ever run on.
 
-#### 96.15.3 What is NOT verified, and why it is written down
+#### 96.15.3 Two machines, because one cannot answer both halves
 
 The **refusal** path is gated on MartyPC, which is an 8088 with no extended
-memory: a program asks, is told no, and carries on. The **working** path —
-allocate, move out, move back, free — needs a 286 or better with `XMEM.DRV`
-mounted, and MartyPC cannot be one (docs/TESTING.md's QEMU list, entry 1).
+memory: a program asks, is told no, and carries on (`tests/dosxms.py`). The
+**working** path — allocate, move out, move back, free — needs a machine that
+HAS memory above 1MB, and MartyPC's 8088 never can, which is exactly
+docs/TESTING.md's QEMU list entry 1. So it has a **QEMU twin**,
+`tests/dosxmsq.py`, and the two rows together are the contract: neither
+machine can answer the other's half, and either alone would leave the more
+expensive kind of silence.
 
-So it is written here rather than claimed: the arithmetic is checked by
-reading, the slots' contracts are quoted above, and **no machine in this tree
-has run an XMS allocation through this code**. Anyone adding that arm should
-start from `tests/dosxms.py`'s MartyPC row and give it a QEMU twin.
+The twin asserts the whole round trip against bytes it chose — `AX=4300h`
+answers `AL=80h`, `AX=4310h` gives an entry point that is called rather than
+merely read, `AH=08h` reports the pool, `AH=09h` takes 64KB, a pattern is
+moved **out**, conventional memory is then **wiped with a third value** so a
+move-back that did nothing cannot pass, `AH=0Bh` brings it back, every byte is
+compared, and `AH=0Ah` frees. The wipe is the load-bearing step: without it
+the assertion is satisfied by a `AH=0Bh` that is a no-op in both directions.
+
+It reads its verdict off the text screen at `0xB8000` rather than through
+`tools/os88ui.py`, which is a MartyPC instrument and has no QEMU form — the
+same shape `tests/xmcheck.py` uses, and it borrows that row's coordinates for
+the same reason.
 
 ### 96.16 What the Sound Blaster row cost, and the claim that was wrong
 

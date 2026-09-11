@@ -4811,10 +4811,19 @@ $(BUILD)/DOSXMS.COM: tests/dosxms/xms.asm | $(BUILD)
 $(BUILD)/dosxms360.img: $(BUILD)/DOSXMS.COM tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSXMS.COM
 
+# ...and the WORKING path's, which needs a machine with a store above 1MB and
+# so runs under QEMU - entry 1 on docs/TESTING.md's short list (SPEC.md
+# 96.15.3). 1.44MB because that is the geometry `make test` boots.
+$(BUILD)/DOSXMSQ.COM: tests/dosxms/xmsq.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dosxms/xmsq.asm
+
+$(BUILD)/dosxmsq.img: $(BUILD)/DOSXMSQ.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/DOSXMSQ.COM
+
 .PHONY: doscom
 doscom: $(BUILD)/doscom360.img $(BUILD)/dosexe360.img $(BUILD)/dosmou360.img \
         $(BUILD)/dosfile360.img $(BUILD)/dosdir360.img $(BUILD)/dosexec360.img \
-        $(BUILD)/dosxms360.img $(BUILD)/dossnd360.img
+        $(BUILD)/dosxms360.img $(BUILD)/dossnd360.img $(BUILD)/dosxmsq.img
 
 $(BUILD)/thewire.bin: apps/thewire/thewire.asm apps/thewire/wrhttp.inc \
                       apps/thewire/wrarc.inc apps/thewire/wrtxt.inc \
