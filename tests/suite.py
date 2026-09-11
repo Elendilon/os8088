@@ -1176,7 +1176,7 @@ FULL = [
         "its own two disks, and it DELETES them first - QEMU mounts B: "
         "writable and the write assertion would otherwise find last run's "
         "files already there",
-        needs=("qemu",), serial=True, builds=True),
+        needs=("qemu",), serial=True, builds=True, wants=("build/hello.o88", "build/mines.o88",)),
     Row("stk0water", "soak", py("tests/stk0water.py"), 70.0,
         "how deep TASK 0's stack has actually been (SPEC.md 15.1). That "
         "section says `redo the fill probe before lowering either` and the "
@@ -1280,7 +1280,7 @@ FULL = [
 SOAK = [
     Row("pacman", "soak", py("tests/pacman.py"), 100.0,
         "native 8088 Pac-Man movement, score, pellets, fruit, level transitions, "
-        "pause, full-screen repaint and worker teardown", needs=("marty",)),
+        "pause, full-screen repaint and worker teardown", needs=("marty",), wants=("build/pacman.o88",)),
     Row("paccman", "soak", py("tests/paccman.py"), 100.0,
         "PACCMAN's attract screen and tick path on a cycle-accurate 8088 "
         "(SPEC.md 91): the program opening on the attract screen with the "
@@ -1311,7 +1311,7 @@ SOAK = [
         "budget before this port, so a row that boots two machines belongs "
         "where there is no wall clock to overrun - what the full tier "
         "carries instead is t_ctoolchain BUILDING paccman, which runs "
-        "build.sh\'s three host gates", needs=("marty", "cc")),
+        "build.sh\'s three host gates", needs=("marty", "cc"), wants=("build/paccman.o88",)),
     Row("nasm3", "soak", py("tests/unit/t_nasm3.py"), 165.0,
         "THE OTHER ASSEMBLER. Every tier here assembles with whatever nasm "
         "the box has, which on this container, on CI and on every Debian or "
@@ -1809,7 +1809,7 @@ SOAK = [
         "a2uitest. Needs `make apple2disk`, so it needs the C toolchain and "
         "the pinned ROM fetch.",
         needs=("marty", "cc"), serial=True,
-        wants=("build/apple2.img",)),
+        wants=("build/apple2.img", "build/apple2.o88",)),
     Row("mseglazy", "soak", py("tests/mseglazy.py"), 50.0,
         "SPEC.md 20.12.4: an OP_LAZY part is NOT READ AT LOAD and can be "
         "given back. That is the first half of goal 3 - `load only some "
@@ -2279,7 +2279,7 @@ SOAK = [
         "driver has gone - is invisible to every assertion about state. QEMU "
         "by name: MartyPC has no network card of any kind",
         needs=("qemu", "nasm"), serial=True, timeout=420, builds=True),
-    Row("pkgrun", "soak", py("tests/pkgrun.py"), 110.0,
+    Row("pkgrun", "soak", py("tests/pkgrun.py"), 25.0,
         "OSAPI_PKG_RUN (SPEC.md 21.5): the loader's back half with the disk "
         "read replaced by a copy, which is how the Wire runs a package it "
         "fetched over the network into a claim. `make pkgrun` builds a TEST "
@@ -2291,10 +2291,13 @@ SOAK = [
         "magic and CF=1 / LD_EBAD for header flags bit 2, a package carrying "
         "PARTS, which are read out of a FILE that does not exist here "
         "(SPEC.md 20.12). The two refusals also say the region and the "
-        "instance record a failed load reserved were given back. QEMU because "
-        "nothing here is a time and all three answers are state; it builds "
-        "its own disk, so it needs no capability of its own",
-        needs=("qemu", "nasm"), serial=True, timeout=420, builds=True),
+        "instance record a failed load reserved were given back. MARTYPC, "
+        "through os88ui: it was hand-rolled QEMU on the argument that "
+        "nothing here is a time, which is not on docs/TESTING.md's list - "
+        "and it FLAKED, driving remembered coordinates and reading a "
+        "384-byte inst_tab off a RUNNING machine, which returns torn "
+        "records. It builds its own disk",
+        needs=("marty",), builds=True, wants=("build/hello.o88",)),
     Row("heapmap", "soak", py("tests/heapmap.py"), 30.0,
         "What does the claim heap look like when the boot is over? (SPEC.md "
         "50, 66) Every driver attached at once on a machine WITH memory above "
@@ -3479,7 +3482,7 @@ SOAK = [
         "end - and which nothing asserted until this. The installer had the "
         "same job and got it wrong (52.10.13.1); tests/instdeep.py is that "
         "half",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, wants=("build/hello.o88",)),
     Row("lzmod", "soak", py("tests/lzmod.py"), 30.0,
         "SPEC.md 20.14.5: BEVERLY.MOD, COMPRESSED, opened by a double-click. "
         "The file this whole feature is for - 116,085 bytes is 114 of a 360KB "
@@ -3652,6 +3655,36 @@ SOAK = [
         "SPEC.md 13.10.5: ...and the Standard File dialog's, which is the"
         "second bar one gesture record has to tell apart (13.10.5.10).",
         needs=("marty",), serial=True, builds=True),
+    Row("regrowshed", "soak", py("tests/regrowshed.py"), 70.0,
+        "SPEC.md 50.6.2.1 and 27.6.1: a GROW is not refused over a cache, "
+        "and 'Too big' is not said about memory. Reported from the field as "
+        "'kern_small says Too big opening README.TXT', where the arithmetic "
+        "says it should work - a 13,475-byte region, a 14,722-byte manual "
+        "and 52.5KB of heap - and TWO defects each hid the other. "
+        "mem_regrow had no shed-and-retry, which mem_claim has had since "
+        "50.6.2, so the 16KB grow was refused with 31,744 bytes sitting in "
+        "three purgeable caches - memory the kernel holds on the explicit "
+        "understanding that it can give it away. Then np_load ignored that "
+        "CF, so the read compared 14,722 against a claim still at 1,024 and "
+        "the file API answered the only thing it can, FERR_BIG: a MEMORY "
+        "refusal reported as a sentence about the FILE, which sent the field "
+        "looking for a size limit that was not the cause. Four verdicts on "
+        "the 128KB floor machine, driving Note Pad's own File > Open: the "
+        "manual loads (np_len 14,427, the CRLF file folded, with the claim "
+        "at NP_MAXKB); a refused load leaves the note alone; PAINT.O88 at "
+        "21,285 bytes still says 'Too big' - the POSITIVE CONTROL, because "
+        "a Note Pad that had simply stopped saying it would pass every "
+        "other leg; and a SECOND Note Pad, which genuinely cannot be funded "
+        "here, says 'No memory'. The toast is read out of toast_buf and not "
+        "off the glass: it expires on a tick count (SPEC.md 59), so a settle "
+        "long enough to be sure a load finished is long enough to lose it. "
+        "Both halves were watched going red - the shed removed fails "
+        "'loaded' with np_len 0, and 27.6.1's compare removed fails 'nomem' "
+        "reading 'Too big', which is the field report exactly. It builds its "
+        "own kern_small into a private tree, and the row is on the SMALL "
+        "kernel because that is where the heap is tight enough to reach it - "
+        "the defect is in kern_big's mem_regrow too",
+        needs=("marty",), serial=True),
     Row("npscroll", "soak", py("tests/npscroll.py"), 30.0,
         "SPEC.md 27.7.6.1/27.7.2: scrolling a note whose height is still being"
         "counted neither freezes the machine nor blanks half the scroll bar.",
