@@ -2493,6 +2493,19 @@ SOAK = [
         "rather than as a wrong number.",
         needs=("marty",), serial=True,
         wants=("build/dosexec360.img",)),
+    Row("dosxms", "soak", py("tests/dosxms.py"), 60.0,
+        "THE DOS XMS GATE (SPEC.md 96.15). ON AN 8088 THE WHOLE ASSERTION IS "
+        "A REFUSAL, and it is worth a row because getting it wrong is silent "
+        "both ways: int 2Fh AX=4300h must answer AL != 80h when the pool can "
+        "hand nothing out, because a program told YES has committed to XMS by "
+        "the time the first call refuses; every OTHER multiplex number must "
+        "answer AL=0, which an UNHOOKED vector cannot say; and asking has to "
+        "RETURN, an unhooked 2Fh on a ROM that does not implement it being "
+        "how a TSR probe becomes a hang. WHAT IT DOES NOT COVER is the "
+        "working path - allocate, move, free - which needs a 286 with "
+        "XMEM.DRV and so needs a QEMU twin (SPEC.md 96.15.3).",
+        needs=("marty",), serial=True,
+        wants=("build/dosxms360.img",)),
     Row("heapcheck", "soak", py("tests/heapcheck.py"), 40.0,
         "Drive tests/heapfrag and read its verdict out of the guest (SPEC.md"
         "66.8).",

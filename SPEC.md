@@ -119029,3 +119029,70 @@ fail, and a refusal that left it standing would hand the parent's next
 - **`AH=4Dh`** answers the child's exit code, and `AH` = 0 always: there is no
   Ctrl-Break or critical-error termination to report, because `INT 23h` is an
   `iret` and `INT 24h` always FAILs (§96.7).
+
+### 96.15 XMS, over the four slots the kernel already publishes
+
+A DOS program finds extended memory by asking the **multiplex interrupt**
+whether an XMS driver is there (`int 2Fh AX=4300h`), then asking the same
+interrupt for its entry point (`AX=4310h`) and far-calling that. So what is
+needed is the *shape* of `HIMEM.SYS` over os8088's own pool — and the pool is
+already published, as `OSAPI_XMEM_CAPS`, `_ALLOC`, `_FREE` and `_COPY` (§41).
+No driver change, and no second allocator.
+
+They are **UI-task slots**, so every one goes through the back end and runs on
+the UI task's own stack — §96.4.1's rule, which the file calls live under for
+the same reason.
+
+**A handle is ours.** `OSAPI_XMEM_ALLOC` answers a 32-bit linear base and XMS
+handles are 16-bit, so the package keeps the mapping. The table is small on
+purpose: the SDK's own advice is to take one big block and subdivide it rather
+than take many, and a program wanting more handles than this would exhaust the
+kernel's table too.
+
+**`AH=0Bh` needs one conventional end.** `OSAPI_XMEM_COPY` moves between a
+conventional address and a linear extended one, in either direction, and has
+no extended-to-extended form — so a move with two extended ends is **refused**
+rather than bounced through a buffer the program did not give us. Moves longer
+than the slot's 32KB ceiling are chunked, both ends walking.
+
+#### 96.15.1 No store is not an XMS driver
+
+`int 2Fh AX=4300h` answers **`AL = 80h` only when the pool can actually hand
+something out**. On the 8088 this project is calibrated against there is no
+extended memory at all, so the answer is "no driver" — and that is the honest
+one: a program told *yes* and then refused every call is worse off than a
+program told *no*, which uses conventional memory and runs.
+
+This is §47's refusal rule reaching a place where the refusal is a *single
+byte*, and it is the whole difference between a shim that helps and one that
+lies.
+
+**And hooking `int 2Fh` at all is worth more than XMS is.** Before this, a
+program's multiplex call went to whatever the ROM or the kernel had left in
+the vector, and a program probing for a TSR read a random `AL` as an answer.
+Every other multiplex number now answers `AL = 0`, "nobody is here", which is
+a thing an unhooked vector cannot say.
+
+#### 96.15.2 A20 and the HMA
+
+The four A20 calls (`03h`–`06h`) **succeed and change nothing**. The kernel's
+own access to memory above 1MB goes through the same BIOS path (§41), so the
+line is already however it needs to be, and a program toggling it is told yes.
+Fighting over A20 with the layer underneath is the one way to make this worse.
+
+**There is no HMA.** `AH=00h` answers XMS 3.0 with `DX = 0`: the high memory
+area is a 286 addressing trick, and this is an 8086 contract. A program that
+wants the HMA is told there is none and falls back, which is the path it
+already has for every 8088 it has ever run on.
+
+#### 96.15.3 What is NOT verified, and why it is written down
+
+The **refusal** path is gated on MartyPC, which is an 8088 with no extended
+memory: a program asks, is told no, and carries on. The **working** path —
+allocate, move out, move back, free — needs a 286 or better with `XMEM.DRV`
+mounted, and MartyPC cannot be one (docs/TESTING.md's QEMU list, entry 1).
+
+So it is written here rather than claimed: the arithmetic is checked by
+reading, the slots' contracts are quoted above, and **no machine in this tree
+has run an XMS allocation through this code**. Anyone adding that arm should
+start from `tests/dosxms.py`'s MartyPC row and give it a QEMU twin.

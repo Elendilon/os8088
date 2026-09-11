@@ -841,6 +841,10 @@ dos_hook_vectors:
     mov [es:0x23*4+2], cs
     mov word [es:0x24*4], dos_int24     ; critical error: FAIL, never retry
     mov [es:0x24*4+2], cs
+    mov word [es:0x2F*4], dos_int2f     ; the MULTIPLEX interrupt, which is
+    mov [es:0x2F*4+2], cs               ; how a program finds XMS (SPEC.md
+                                        ; 96.15) - and, unhooked, is how it
+                                        ; finds whatever the ROM left there
     mov word [es:0x33*4], dos_int33     ; ...and the MOUSE (SPEC.md 96.10),
     mov [es:0x33*4+2], cs               ; which costs us a translation and not
     sti                                 ; a driver: the kernel's own ISR keeps
@@ -1827,7 +1831,11 @@ DBE_DELETE  equ 12                  ; SI = name
 DBE_DFREE   equ 14                  ; out BX = SECTORS per cluster
 DBE_MKDIR   equ 16                  ; SI = a name in the current directory
 DBE_RMDIR   equ 18                  ; SI = a name, AL = 0 strict
-DBE_NENT    equ 10
+DBE_XCAPS   equ 20                  ; out AX = extended-memory KB
+DBE_XALLOC  equ 22                  ; DX:AX = bytes; out DX:AX = a linear base
+DBE_XFREE   equ 24                  ; DX:AX = a base
+DBE_XCOPY   equ 26                  ; ES:SI, DX:AX, CX, DI (SPEC.md 96.15)
+DBE_NENT    equ 14
 
 dos_be_goto:
     mov word [dos_betgt], dos_k_goto
@@ -1858,6 +1866,18 @@ dos_be_mkdir:
     jmp short dos_be_go
 dos_be_rmdir:
     mov word [dos_betgt], dos_k_rmdir
+    jmp short dos_be_go
+dos_be_xcaps:
+    mov word [dos_betgt], dos_k_xcaps
+    jmp short dos_be_go
+dos_be_xalloc:
+    mov word [dos_betgt], dos_k_xalloc
+    jmp short dos_be_go
+dos_be_xfree:
+    mov word [dos_betgt], dos_k_xfree
+    jmp short dos_be_go
+dos_be_xcopy:
+    mov word [dos_betgt], dos_k_xcopy
 
 ; -----------------------------------------------------------------------------
 ; dos_be_go - the one door, and it SWAPS THE STACK (SPEC.md 96.4.1)
@@ -1956,6 +1976,22 @@ dos_k_mkdir:
 
 dos_k_rmdir:
     call OSAPI_FILE_RMDIR
+    ret
+
+dos_k_xcaps:
+    call OSAPI_XMEM_CAPS
+    ret
+
+dos_k_xalloc:
+    call OSAPI_XMEM_ALLOC
+    ret
+
+dos_k_xfree:
+    call OSAPI_XMEM_FREE
+    ret
+
+dos_k_xcopy:
+    call OSAPI_XMEM_COPY
     ret
 
 ; =============================================================================
@@ -2148,6 +2184,10 @@ dos_be:                             ; the table, in DBE_* order
     dw dos_k_dfree
     dw dos_k_mkdir
     dw dos_k_rmdir
+    dw dos_k_xcaps
+    dw dos_k_xalloc
+    dw dos_k_xfree
+    dw dos_k_xcopy
 
 ; --- the BDA's RESTORE list (SPEC.md 96.5): offset, bytes, 0xFFFF ends it ----
 ; Every span here is a field the KERNEL reads, or one whose stale value would
@@ -3756,6 +3796,388 @@ dos_exec_tail:
     pop ax
     ret
 
+; =============================================================================
+; XMS - EXTENDED MEMORY (SPEC.md 96.15)
+; =============================================================================
+; A DOS program finds extended memory by asking the MULTIPLEX interrupt
+; whether an XMS driver is there (int 2Fh AX=4300h), then asking the same
+; interrupt for its entry point (AX=4310h) and far-calling that. So what is
+; needed is the SHAPE of HIMEM.SYS over os8088's own pool, which the kernel
+; already publishes as four slots: OSAPI_XMEM_CAPS, _ALLOC, _FREE and _COPY.
+; No driver change, and no second allocator.
+;
+; THEY ARE UI-TASK SLOTS, so every one of them goes through dos_be_go and runs
+; on the UI task's own stack (SPEC.md 96.4.1) - the same rule the file calls
+; live under, and for the same reason.
+;
+; A HANDLE IS OURS, not the kernel's. OSAPI_XMEM_ALLOC answers a 32-bit linear
+; base and XMS handles are 16-bit, so the table below is the mapping. It is
+; small on purpose: the SDK's own advice is to take one big block and
+; subdivide it rather than take many, and a program that wants more handles
+; than this is a program that would exhaust the kernel's table too.
+XMS_NH      equ 8
+XH_BASE     equ 0                   ; dword: what the kernel handed back
+XH_KB       equ 4                   ; word
+XH_USED     equ 6
+XH_SIZE     equ 8
+
+; -----------------------------------------------------------------------------
+; dos_int2f - the multiplex interrupt
+; -----------------------------------------------------------------------------
+dos_int2f:
+    sti
+    push bp
+    push ds
+    mov bp, sp
+    push cs
+    pop ds
+    cmp ax, 0x4300
+    je .installed
+    cmp ax, 0x4310
+    je .entry
+    pop ds                          ; EVERY OTHER MULTIPLEX NUMBER IS ANSWERED
+    pop bp                          ; "nobody is here", which is AL = 0 and is
+    xor al, al                      ; what an unhooked 2Fh cannot say: before
+    iret                            ; this the vector was the ROM's or nothing
+.installed:
+    call dos_xms_kb                 ; AX = KB the pool can hand out
+    or ax, ax
+    jz .absent                      ; NO STORE IS NOT AN XMS DRIVER (SPEC.md
+    mov al, 0x80                    ; 96.15.1): on the 8088 this project is
+    jmp short .out                  ; calibrated against there is none, and a
+.absent:                            ; program that is told "yes" and then
+    xor al, al                      ; refused every call is worse off than one
+.out:                               ; told "no" and using conventional memory
+    pop ds
+    pop bp
+    iret
+.entry:
+    mov bx, dos_xms_ent
+    pop ds
+    pop bp
+    push cs
+    pop es
+    iret
+
+; -----------------------------------------------------------------------------
+; dos_xms_kb - the pool's free KB, through the back end
+; out: AX = KB; clobbers nothing else
+; -----------------------------------------------------------------------------
+dos_xms_kb:
+    push bx
+    push cx
+    push dx
+    call dos_be_xcaps
+    jnc .ok
+    xor ax, ax
+.ok:
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_xms_ent - the XMS entry point itself, FAR CALLED by the program
+; in:  AH = the function; out: AX = 1 done / 0 refused with BL = the code
+; -----------------------------------------------------------------------------
+dos_xms_ent:
+    push bp
+    push ds
+    mov bp, sp
+    push cs
+    pop ds
+
+    cmp ah, 0x00
+    je .ver
+    cmp ah, 0x08
+    je .query
+    cmp ah, 0x09
+    je .alloc
+    cmp ah, 0x0A
+    je .free
+    cmp ah, 0x0B
+    je .move
+    cmp ah, 0x03                    ; the four A20 calls. WE DO NOT FIGHT OVER
+    jb .nope                        ; A20 (SPEC.md 96.15.2): the kernel's own
+    cmp ah, 0x07                    ; memory above 1MB is reached by the same
+    ja .nope                        ; BIOS path, so the line is already however
+    mov ax, 1                       ; it needs to be and a program toggling it
+    xor bl, bl                      ; is told yes and changes nothing
+    jmp .out
+.nope:
+    xor ax, ax
+    mov bl, 0x80                    ; "not implemented", which is XMS's own
+    jmp .out
+.ver:
+    mov ax, 0x0300                  ; XMS 3.0
+    mov bx, 0
+    xor dx, dx                      ; ...and NO HMA: the high memory area is a
+    jmp .out                        ; 286 addressing trick and this is an 8086
+                                    ; contract (SPEC.md 96.15.2)
+.query:
+    call dos_xms_kb
+    mov dx, ax                      ; total free
+    mov bl, 0                       ; ...and the largest, which for one pool
+    or ax, ax                       ; with one free run is the same number
+    jnz .out
+    mov bl, 0xA0                    ; "all extended memory is allocated"
+    jmp .out
+.alloc:
+    ; DX = KB wanted; out DX = the handle
+    call dos_xms_new                ; SI = a free row, AX = its handle
+    jc .nohand
+    push si
+    mov ax, dx
+    mov dx, 1024
+    mul dx                          ; DX:AX = bytes, and 64MB is the ceiling a
+    call dos_be_xalloc              ; 16-bit KB count can even ask for
+    pop si
+    jc .noroom
+    mov [si+XH_BASE], ax
+    mov [si+XH_BASE+2], dx
+    mov byte [si+XH_USED], 1
+    mov dx, si
+    sub dx, dos_xmstab
+    mov ax, XH_SIZE
+    push bx
+    mov bx, ax
+    mov ax, dx
+    xor dx, dx
+    div bx
+    inc ax                          ; handles are 1-based: 0 means CONVENTIONAL
+    pop bx                          ; memory in a move block
+    mov dx, ax
+    mov ax, 1
+    xor bl, bl
+    jmp .out
+.nohand:
+    xor ax, ax
+    mov bl, 0xA1                    ; "all handles are in use"
+    jmp .out
+.noroom:
+    xor ax, ax
+    mov bl, 0xA0
+    jmp .out
+.free:
+    ; DX = the handle
+    mov ax, dx
+    call dos_xms_row                ; SI = its row
+    jc .badh
+    mov ax, [si+XH_BASE]
+    mov dx, [si+XH_BASE+2]
+    call dos_be_xfree
+    mov byte [si+XH_USED], 0
+    mov ax, 1
+    xor bl, bl
+    jmp .out
+.badh:
+    xor ax, ax
+    mov bl, 0xA2                    ; "invalid handle"
+    jmp .out
+.move:
+    ; DS:SI = a sixteen-byte move block, and DS is the CALLER's
+    call dos_xms_move
+    jc .mvbad
+    mov ax, 1
+    xor bl, bl
+    jmp short .out
+.mvbad:
+    xor ax, ax                      ; BL is dos_xms_move's own
+.out:
+    pop ds
+    pop bp
+    retf
+
+; -----------------------------------------------------------------------------
+; dos_xms_new - the first free handle row
+; out: CF=0 with SI = the row; CF=1 if the table is full
+; -----------------------------------------------------------------------------
+dos_xms_new:
+    push cx
+    mov si, dos_xmstab
+    mov cx, XMS_NH
+.scan:
+    cmp byte [si+XH_USED], 0
+    je .got
+    add si, XH_SIZE
+    loop .scan
+    stc
+    jmp short .out
+.got:
+    clc
+.out:
+    pop cx
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_xms_row - the row handle AX names
+; out: CF=0 with SI = the row; CF=1 if it is not an open handle
+; -----------------------------------------------------------------------------
+dos_xms_row:
+    push ax
+    push bx
+    or ax, ax
+    jz .no
+    cmp ax, XMS_NH
+    ja .no
+    dec ax
+    mov bl, XH_SIZE
+    mul bl
+    mov si, ax
+    add si, dos_xmstab
+    cmp byte [si+XH_USED], 0
+    je .no
+    pop bx
+    pop ax
+    clc
+    ret
+.no:
+    pop bx
+    pop ax
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_xms_move - AH=0Bh's body
+; in:  the caller's DS:SI -> the move block; [bp] = the caller's DS
+; out: CF=0 done; CF=1 with BL = an XMS error code
+;
+; ONE END MUST BE CONVENTIONAL. OSAPI_XMEM_COPY moves between a conventional
+; address and a linear extended one, in either direction, and has no
+; extended-to-extended form at all - so a move with two extended ends is
+; REFUSED rather than bounced through a buffer the program did not give us.
+; -----------------------------------------------------------------------------
+dos_xms_move:
+    push ax
+    push cx
+    push dx
+    push di
+    push es
+    push ds
+
+    mov ds, [bp]                    ; the block is the CALLER's
+    mov ax, [si]                    ; the length, which must be even
+    mov dx, [si+2]
+    mov [cs:dos_xmlen], ax
+    mov [cs:dos_xmlen+2], dx
+    test al, 1
+    jnz .badlen
+    mov ax, [si+4]
+    mov [cs:dos_xmsh], ax           ; the source handle...
+    mov ax, [si+6]
+    mov [cs:dos_xmso], ax           ; ...and its offset, far or linear
+    mov ax, [si+8]
+    mov [cs:dos_xmso+2], ax
+    mov ax, [si+10]
+    mov [cs:dos_xmdh], ax
+    mov ax, [si+12]
+    mov [cs:dos_xmdo], ax
+    mov ax, [si+14]
+    mov [cs:dos_xmdo+2], ax
+    push cs
+    pop ds
+
+    mov ax, [dos_xmsh]
+    or ax, ax
+    jz .fromconv
+    mov ax, [dos_xmdh]
+    or ax, ax
+    jnz .bothx
+    ; --- extended -> conventional ------------------------------------------
+    mov ax, [dos_xmsh]
+    call dos_xms_row
+    jc .badsh
+    mov ax, [si+XH_BASE]
+    mov dx, [si+XH_BASE+2]
+    add ax, [dos_xmso]
+    adc dx, [dos_xmso+2]
+    mov [dos_xmlin], ax
+    mov [dos_xmlin+2], dx
+    mov ax, [dos_xmdo]              ; the conventional end, as a far pointer
+    mov dx, [dos_xmdo+2]
+    mov word [dos_xmdir], 1
+    jmp short .run
+.fromconv:
+    mov ax, [dos_xmdh]
+    or ax, ax
+    jz .bothc
+    call dos_xms_row
+    jc .baddh
+    mov ax, [si+XH_BASE]
+    mov dx, [si+XH_BASE+2]
+    add ax, [dos_xmdo]
+    adc dx, [dos_xmdo+2]
+    mov [dos_xmlin], ax
+    mov [dos_xmlin+2], dx
+    mov ax, [dos_xmso]
+    mov dx, [dos_xmso+2]
+    mov word [dos_xmdir], 0
+.run:
+    mov [dos_xmcon], ax             ; ES:SI for the copy, kept whole because
+    mov [dos_xmcon+2], dx           ; the chunk loop below moves BOTH ends
+.chunk:
+    mov ax, [dos_xmlen]
+    mov dx, [dos_xmlen+2]
+    mov cx, ax
+    or dx, dx
+    jnz .big
+    or cx, cx
+    jz .done
+    cmp cx, 32768
+    jbe .go
+.big:
+    mov cx, 32768                   ; the slot's own ceiling, and the reason it
+.go:                                ; has one is its interrupts-off window
+    push cx
+    mov es, [dos_xmcon+2]
+    mov si, [dos_xmcon]
+    mov ax, [dos_xmlin]
+    mov dx, [dos_xmlin+2]
+    mov di, [dos_xmdir]
+    call dos_be_xcopy
+    pop cx
+    jc .ioerr
+    sub [dos_xmlen], cx             ; ...and every pointer forward by what went
+    sbb word [dos_xmlen+2], 0
+    add [dos_xmlin], cx
+    adc word [dos_xmlin+2], 0
+    add [dos_xmcon], cx             ; a 32KB step cannot carry a paragraph-
+    jnc .chunk                      ; aligned offset past 64KB by more than
+    add word [dos_xmcon+2], 0x1000  ; one segment's worth
+    jmp short .chunk
+.done:
+    clc
+    jmp short .out
+.bothc:
+    mov bl, 0x8E                    ; conventional to conventional: a program
+    jmp short .err                  ; with two far pointers can `movsb`
+.bothx:
+    mov bl, 0x8E                    ; ...and extended to extended has no slot
+    jmp short .err
+.badsh:
+    mov bl, 0xA3
+    jmp short .err
+.baddh:
+    mov bl, 0xA5
+    jmp short .err
+.badlen:
+    push cs
+    pop ds
+    mov bl, 0xA7
+    jmp short .err
+.ioerr:
+    mov bl, 0xA8
+.err:
+    stc
+.out:
+    pop ds
+    pop es
+    pop di
+    pop dx
+    pop cx
+    pop ax
+    ret
+
 ; -----------------------------------------------------------------------------
 ; dos_fh_setname - [dos_fname] into the record at SI
 ; in:  SI = the record; out: nothing, every register preserved
@@ -4420,6 +4842,15 @@ dos_fh_fill:
     DBSS DOS_B_CHEXIT, 1       ; the child's code, for AH=4Dh
     DBSS DOS_B_CHPAD, 1
     DBSS DOS_B_CHBLK, 2        ; the block it was given, to hand back
+    DBSS DOS_B_XMSTAB, XH_SIZE * XMS_NH  ; the XMS handle table (96.15)
+    DBSS DOS_B_XMLEN, 4        ; ...and AH=0Bh's move, unpacked out of the
+    DBSS DOS_B_XMSH,  2        ; caller's sixteen-byte block
+    DBSS DOS_B_XMSO,  4
+    DBSS DOS_B_XMDH,  2
+    DBSS DOS_B_XMDO,  4
+    DBSS DOS_B_XMLIN, 4
+    DBSS DOS_B_XMCON, 4
+    DBSS DOS_B_XMDIR, 2
     DBSS DOS_B_XPARM, 2        ; AH=4Bh's parameter block, banked while the
     DBSS DOS_B_XPARMS, 2       ; name is copied out of the same segment
     DBSS DOS_B_LDNAME, 2       ; ...and which FILE it comes from
@@ -4519,6 +4950,15 @@ dos_pgpar   equ os88_image_end + DOS_B_PGPAR
 dos_pexe    equ os88_image_end + DOS_B_PEXE
 dos_chexit  equ os88_image_end + DOS_B_CHEXIT
 dos_chblk   equ os88_image_end + DOS_B_CHBLK
+dos_xmstab  equ os88_image_end + DOS_B_XMSTAB
+dos_xmlen   equ os88_image_end + DOS_B_XMLEN
+dos_xmsh    equ os88_image_end + DOS_B_XMSH
+dos_xmso    equ os88_image_end + DOS_B_XMSO
+dos_xmdh    equ os88_image_end + DOS_B_XMDH
+dos_xmdo    equ os88_image_end + DOS_B_XMDO
+dos_xmlin   equ os88_image_end + DOS_B_XMLIN
+dos_xmcon   equ os88_image_end + DOS_B_XMCON
+dos_xmdir   equ os88_image_end + DOS_B_XMDIR
 dos_xparm   equ os88_image_end + DOS_B_XPARM
 dos_xparms  equ os88_image_end + DOS_B_XPARMS
 dos_ldname  equ os88_image_end + DOS_B_LDNAME

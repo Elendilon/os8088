@@ -4793,9 +4793,19 @@ $(BUILD)/dosexec360.img: $(BUILD)/DOSEXEC.COM $(BUILD)/DOSKID.COM tools/os88disk
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSEXEC.COM \
 	    $(BUILD)/DOSKID.COM
 
+# ...and the XMS gate's, whose whole assertion on an 8088 is a REFUSAL
+# (SPEC.md 96.15.1) - plus that asking at all comes back, which an unhooked
+# multiplex vector on a ROM that does not implement it need not do.
+$(BUILD)/DOSXMS.COM: tests/dosxms/xms.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dosxms/xms.asm
+
+$(BUILD)/dosxms360.img: $(BUILD)/DOSXMS.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSXMS.COM
+
 .PHONY: doscom
 doscom: $(BUILD)/doscom360.img $(BUILD)/dosexe360.img $(BUILD)/dosmou360.img \
-        $(BUILD)/dosfile360.img $(BUILD)/dosdir360.img $(BUILD)/dosexec360.img
+        $(BUILD)/dosfile360.img $(BUILD)/dosdir360.img $(BUILD)/dosexec360.img \
+        $(BUILD)/dosxms360.img
 
 $(BUILD)/thewire.bin: apps/thewire/thewire.asm apps/thewire/wrhttp.inc \
                       apps/thewire/wrarc.inc apps/thewire/wrtxt.inc \
