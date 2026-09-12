@@ -2548,6 +2548,24 @@ SOAK = [
         "not 15, on 4Eh, 3Dh and 3Bh alike.",
         needs=("marty",), serial=True,
         wants=("build/dosdrv360.img", "build/dosdrvsys.img")),
+    Row("dosfcb", "soak", py("tests/dosfcb.py"), 30.0,
+        "AH=29h PARSES A NAME INTO AN FCB, exactly as DOS does (SPEC.md "
+        "96.28). THE CARRY IS THE ROW: unimplemented, the call fell to the "
+        "invalid-function arm and answered CF=1 with AX=0001 - and DOS does "
+        "not use the carry for it at all, so a program reading AL, which for "
+        "this call every program does, was told its plain name HAD WILDCARDS "
+        "IN IT. A handler that gets the FCB right and leaves the carry set is "
+        "still broken, so CF is asserted on every row. The table is a "
+        "MEASUREMENT OF IBM DOS 3.30 (tests/dostrap/parsefcb.asm is the same "
+        "binary under a real DOS), so it is written down rather than derived "
+        "and cannot drift with the disk. FOUR ROWS DECIDE THE "
+        "IMPLEMENTATION and none is guessable: a wildcard becomes `?` and not "
+        "`*`; an invalid drive answers FFh AND STILL WRITES its number; the "
+        "name is upper-cased, which is what Prince's installer needs "
+        "(B:Prince.exe); and a PATH is not a path - A:\\DIR\\NAME advances SI "
+        "by TWO and leaves the name blank.",
+        needs=("marty",), serial=True,
+        wants=("build/dosfcb360.img",)),
     Row("dosexec", "soak", py("tests/dosexec.py"), 30.0,
         "THE DOS EXEC GATE (SPEC.md 96.14): AH=4Bh loads another program and "
         "runs it, and control comes back to the PARENT inside the INT 21h "

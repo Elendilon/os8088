@@ -1626,6 +1626,8 @@ dos_int21:
     je .ioctl
     cmp ah, 0x43
     je .getattr
+    cmp ah, 0x29
+    je .parsefcb
     cmp ah, 0x06
     je .dconio
     cmp ah, 0x0C
@@ -2104,6 +2106,204 @@ dos_int21:
     jc .fherr
     xor ax, ax
     jmp .fhok
+
+; --- AH=29h: parse a filename into an FCB (SPEC.md 96.28) --------------------
+.parsefcb:
+    ; in:  DS:SI = the name, ES:DI = the FCB, AL = the parse flags
+    ; out: AL = 0 no wildcards / 1 wildcards / FFh a drive past the last, SI
+    ;      advanced past what was parsed, ES:DI untouched.
+    ;
+    ; IT SETS NO CARRY, and that is the whole reason it is here. Unimplemented
+    ; it fell to .bad, which answers CF=1 with AX=0001 - and a program reading
+    ; AL, which for this call every program does, is told its plain name HAD
+    ; WILDCARDS IN IT. Measured over eleven inputs under IBM DOS 3.30
+    ; (tests/dostrap/parsefcb.asm): CF is clear on every one, the invalid
+    ; drive included. SPEC.md 96.22's shape for the fourth time in this box.
+    ;
+    ; THE SEGMENTS ARE WHY IT IS THREE PHASES. The name is in the program's
+    ; DS, the FCB in the program's ES, and the separator table in OURS - so it
+    ; copies in, parses at home, and copies out, rather than juggling two
+    ; overrides through a loop that also has to index a table.
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+
+    ; --- phase 1: the name, out of the program's segment ------------------
+    push ds
+    pop es                          ; ES = ours for the copy in
+    mov ds, [bp]                    ; DS = the program's
+    xor cx, cx                      ; CX counts the LEADING BLANKS, which DOS
+.pf_blank:                          ; skips and which still count towards SI
+    mov al, [si]
+    cmp al, ' '
+    je .pf_bs
+    cmp al, 9
+    jne .pf_copy
+.pf_bs:
+    inc si
+    inc cx
+    cmp cx, DOS_PFIN
+    jb .pf_blank                    ; a string of nothing but blanks parses to
+                                    ; a blank FCB, which is what it is
+.pf_copy:
+    mov di, dos_pfbuf
+    mov dx, cx                      ; DX = the blanks, banked across the copy
+    mov cx, DOS_PFIN
+.pf_cp:
+    mov al, [si]
+    mov [es:di], al
+    inc si
+    inc di
+    or al, al
+    loopnz .pf_cp
+    mov byte [es:di-1], 0           ; TERMINATED WHATEVER CAME IN: a name with
+                                    ; no NUL in DOS_PFIN bytes is not a name
+    push es
+    pop ds                          ; ...and home, where the table lives
+
+    ; --- phase 2: the parse, entirely in our own segment ------------------
+    mov si, dos_pfbuf
+    mov di, dos_pfcb
+    xor bh, bh                      ; BH = the answer, BL = "a ? was stored"
+    xor bl, bl
+    xor al, al                      ; the drive byte: 0 = the one we are on
+    cmp byte [si+1], ':'
+    jne .pf_drvset
+    mov al, [si]
+    cmp al, 'a'
+    jb .pf_dup
+    cmp al, 'z'
+    ja .pf_dup
+    sub al, 32
+.pf_dup:
+    sub al, 'A' - 1                 ; the FCB numbers A: as 1, not as 0
+    add si, 2
+    cmp al, DVOL_MAX
+    jbe .pf_drvset
+    mov bh, 0xFF                    ; past the last drive - and the byte STILL
+.pf_drvset:                         ; goes in, measured: Z: writes 26
+    mov [di], al
+    inc di
+    mov cx, 8                       ; the name...
+    call .pf_field
+    mov cx, 3                       ; ...and the extension, which is there only
+    cmp byte [si], '.'              ; if a dot says so
+    jne .pf_noext
+    inc si
+    call .pf_field
+    jmp short .pf_ans
+.pf_noext:
+    mov al, ' '                     ; no dot, so the extension is three blanks
+.pf_nex:
+    mov [di], al
+    inc di
+    loop .pf_nex
+.pf_ans:
+    or bh, bh
+    jnz .pf_out                     ; FFh beats everything
+    mov bh, bl                      ; ...otherwise 1 if any ? landed, else 0
+.pf_out:
+    sub si, dos_pfbuf               ; how far the parse got, plus the blanks
+    add si, dx                      ; phase 1 skipped - an ADVANCE and not a
+    add [bp-2], si                  ; pointer, so it is ADDED to the banked
+                                    ; slot, which still holds the SI the
+                                    ; program came in with (SPEC.md 96.7.1).
+                                    ; Storing it flat left every caller's SI
+                                    ; pointing at the same low address
+
+    ; --- phase 3: the twelve bytes, into the program's FCB ----------------
+    mov es, [bp-6]                  ; ES = the program's, as it passed it
+    mov di, [bp-4]                  ; ...and DI, which is NOT ours to move
+    mov si, dos_pfcb
+    mov cx, 12
+    cld
+    rep movsb
+
+    mov al, bh
+    xor ah, ah
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    jmp .ok                         ; .ok and NOT .badax: there is no carry in
+                                    ; this call's contract at all
+
+; --- .pf_field - CX bytes of one FCB field at DS:DI from DS:SI --------------
+; Stops at a separator, blank-pads what is left, and expands `*` to `?` for
+; the rest of the field - which is the FCB's own convention and not ours: DOS
+; answers `*.*` with eleven question marks. BL is set when one lands.
+.pf_field:
+    mov al, [si]
+    call .pf_sep
+    jc .pf_fpad
+    inc si
+    cmp al, '*'
+    je .pf_fstar
+    cmp al, 'a'
+    jb .pf_fst
+    cmp al, 'z'
+    ja .pf_fst
+    sub al, 32                      ; AN FCB MATCHES A DIRECTORY ENTRY, which
+.pf_fst:                            ; is upper - and Prince's installer really
+    cmp al, '?'                     ; does pass "B:Prince.exe"
+    jne .pf_fnq
+    mov bl, 1
+.pf_fnq:
+    mov [di], al
+    inc di
+    loop .pf_field
+    ret
+.pf_fstar:
+    mov al, '?'
+    mov bl, 1
+.pf_fss:
+    mov [di], al
+    inc di
+    loop .pf_fss
+    ret
+.pf_fpad:
+    mov al, ' '
+.pf_fps:
+    mov [di], al
+    inc di
+    loop .pf_fps
+    ret
+
+; --- .pf_sep - does AL end an FCB field? CF=1 if it does --------------------
+.pf_sep:
+    cmp al, ' '
+    jbe .pf_syes                    ; the NUL, the tab, a control byte and the
+    push cx                         ; blank itself all end it
+    push si
+    mov si, .pf_seps
+    mov cx, DOS_PFSEPN
+.pf_sscan:
+    cmp al, [si]
+    je .pf_shit
+    inc si
+    loop .pf_sscan
+    pop si
+    pop cx
+    clc
+    ret
+.pf_shit:
+    pop si
+    pop cx
+.pf_syes:
+    stc
+    ret
+; The characters DOS ends an FCB field on, above the blank - the ones at or
+; below it are covered by one compare. `.` is in here because .pf_field has to
+; stop on it; the caller is what looks for it and starts the extension.
+; A LOCAL LABEL, and that is not a style choice: a global one here re-scopes
+; every `.local` in dos_int21 below it, and the whole dispatch stops resolving.
+.pf_seps:   db '.', ':', ';', ',', '=', '+', '"', '/', '\\', '[', ']', '|'
+            db '<', '>'
 
 ; --- directories (SPEC.md 96.12.2) -------------------------------------------
 .mkdir:
@@ -6356,6 +6556,10 @@ FHF_WHOLE   equ 8                   ; a COMPRESSED file, read whole and
                                     ; expanded: the window is the file and
                                     ; never refills (SPEC.md 96.11.1)
 
+DOS_PFIN    equ 24                  ; AH=29h reads at most this much of the
+                                    ; program's name: "D:NNNNNNNN.EEE" is 14,
+                                    ; so it is a whole one with room over
+DOS_PFSEPN  equ 14                  ; ...and the separators above the blank
 DVOL_MAX    equ 6                   ; MIRRORS the kernel's (kernel/assoc.inc).
                                     ; It is a CAPACITY here rather than a fact
                                     ; about the machine, and every use of it
@@ -9984,6 +10188,8 @@ dos_fh_fill:
     DBSS DOS_B_TMP3,  2
     DBSS DOS_B_ACC,   2
     DBSS DOS_B_FABS,  1        ; did the name carry a leading separator?
+    DBSS DOS_B_PFBUF, DOS_PFIN + 1  ; AH=29h's copy of the program's name...
+    DBSS DOS_B_PFCB,  12            ; ...and the twelve bytes it hands back
     DBSS DOS_B_FDRV,  1        ; ...and the DRIVE it named, 0xFF = none
     DBSS DOS_B_FHOME, 1        ; where to go back to, 0xFF = we never left
     DBSS DOS_B_FVTGT, 2        ; the back end call a bracketed read makes
@@ -10232,6 +10438,8 @@ dos_tmp2    equ os88_image_end + DOS_B_TMP2
 dos_tmp3    equ os88_image_end + DOS_B_TMP3
 dos_acc     equ os88_image_end + DOS_B_ACC
 dos_fabs    equ os88_image_end + DOS_B_FABS
+dos_pfbuf   equ os88_image_end + DOS_B_PFBUF   ; AH=29h's name scratch...
+dos_pfcb    equ os88_image_end + DOS_B_PFCB    ; ...and its FCB prefix
 dos_fdrv    equ os88_image_end + DOS_B_FDRV    ; byte: the drive a name named
 dos_fhome   equ os88_image_end + DOS_B_FHOME   ; byte: ...and where it left
 dos_fvtgt   equ os88_image_end + DOS_B_FVTGT   ; word: the read's back end

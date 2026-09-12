@@ -1686,3 +1686,46 @@ nothing but the DTA.
 
 **+264 bytes of package image and 16 of package bss; no kernel byte.**
 
+### 15.9 ...and then wave 5 ran out of INT 21h to implement
+
+With the drive letter reaching the drive it names, `INSTALL.EXE` gets to
+*"Currently copying 'Prince of Persia Disk' to C:\PRINCE"* and stops. The
+trace is four lines (SPEC.md 96.29) and the answer is not a missing call:
+
+```
+4E findfirst  "B:Prince.exe"   -> AX=0000 CF=0    §96.6.2 working
+29 parse-FCB  AX=2901          -> AX=0001 CF=1    unimplemented
+29 parse-FCB  AX=2901          -> AX=0001 CF=1
+4B exec       AX=4B00          -> AX=0002 CF=1    file not found
+```
+
+**It shells out.** `COMSPEC\0/c\0command.com\0` sits in its data segment
+beside `'copy '` and `'del install.exe > NUL'` — Microsoft C's `system()`
+verbatim — so the two `29h` calls are it building the child's FCBs and the
+`4Bh` is it trying to run `COMMAND.COM`. **Our answer of 2 is correct**: there
+is no shell on this machine and the environment does not claim one.
+
+So the write wave's own scope is finished for this program before its write
+path was ever reached: nothing it asked for is unanswered, and what it wants
+next is a *program*. §96.29 records the door's shape — a one-shot `/C` shell
+with `COPY`, `DEL` and an exit code, over an `AH=4Bh` that already works — and
+deliberately does not propose it.
+
+**`AH=29h` was implemented anyway, and the reason is worth keeping**: a wrong
+answer is worth more to remove than a missing one. It is the fourth time in
+this plan that the defect was §96.22's shape — a call answered with the wrong
+*kind* of thing rather than refused — and this one told a program that
+`PRINCE.EXE` contained wildcards. Eleven inputs measured against IBM DOS 3.30
+(`tests/dostrap/parsefcb.asm`), and **four of them could not have been
+guessed**: wildcards expand to `?`, an invalid drive answers FFh *and still
+writes its number*, the name is upper-cased, and a PATH advances `SI` by two
+and leaves the name blank.
+
+**Two mistakes on the way in, both about scope rather than logic.** A global
+label placed beside the new routine re-scoped every `.local` in `dos_int21`
+below it and the whole dispatch stopped resolving — the hard rule about label
+hygiene biting *inside* one routine. And `SI` is returned through the gate's
+banked slot, which already holds the SI the program came in with, so the
+advance is **added** and not stored: storing it left every caller's pointer at
+the same low address, with every other column correct.
+

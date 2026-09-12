@@ -119453,6 +119453,112 @@ one. §96.6 is corrected.
 which is past `DVOL_MAX` and refused by the same compare that refuses `G:` on
 a four-drive machine.
 
+#### 96.29 A program that shells out to `COMMAND.COM` cannot be helped by this box
+
+Prince of Persia's `INSTALL.EXE` gets all the way to *"Currently copying
+'Prince of Persia Disk' to C:\PRINCE"* and then fails. The trace says why in
+four lines:
+
+```
+4E findfirst  "B:Prince.exe"   -> AX=0000 CF=0    the drive letter reaching B: (§96.6.2)
+29 parse-FCB  AX=2901          -> AX=0001 CF=1    unimplemented (§96.28)
+29 parse-FCB  AX=2901          -> AX=0001 CF=1
+4B exec       AX=4B00          -> AX=0002 CF=1    file not found
+07 getc                                           "Error copying files..."
+```
+
+**It does not copy the files itself.** Its data segment carries
+`COMSPEC\0/c\0command.com\0` adjacent to `PATH\0\\0` and `.bat\0.exe\0.com\0`,
+with `'copy '` and `'del install.exe > NUL'` a few hundred bytes away. That is
+Microsoft C's `system()` verbatim: look up `COMSPEC`, fall back to
+`command.com`, and `EXEC` it with `/c copy …`. The two `29h` calls are it
+building the child's two FCBs for the `EXEC` parameter block.
+
+**So `AH=4Bh` answering 2 is correct.** There is no `COMMAND.COM` on this
+machine and the box does not pretend otherwise — the environment it builds
+carries `BLASTER=` and the four user rows (§96.20), and no `COMSPEC`. A
+program that asks for a shell is told there is not one, in the way DOS would
+say it.
+
+**This is a wall that more `INT 21h` calls cannot move**, which is why it is
+written down as a section rather than queued as work. Everything the installer
+asked for before this point is now answered, and correctly; the thing it wants
+next is a *program*.
+
+What would move it is a **one-shot `/C` shell** — a small `COMMAND.COM` of our
+own on the system disk, implementing `COPY` with wildcards, `DEL`, a tolerated
+`> NUL`, and an exit code. `AH=4Bh` already loads and runs a child and returns
+control to the parent inside the `INT 21h` call that asked (§96.14, and
+`tests/dosexec.py` is the gate), so the mechanism is built: this is a program
+to write, not kernel surface to add, and it would unblock a whole class of
+period installers rather than one. **It is not proposed here** — it is a
+product decision with its own scope and its own testing, and §96 records only
+that the door is this shape.
+
+**The game itself is unaffected.** `PRINCE.EXE` runs off the floppy; what
+needs a shell is the hard-disk *installer*.
+
+#### 96.28 `AH=29h` parses a NAME into an FCB, and sets no carry doing it
+
+Prince of Persia's `INSTALL.EXE` calls it twice on its way to `AH=4Bh`. There
+was no handler, so it fell to the "invalid function" arm and answered `CF=1`
+with `AX=0001` — and **`AH=29h` does not use the carry at all**. A program
+reading `AL`, which for this call every program does, was told its plain name
+*had wildcards in it*. That is §96.22's shape for the fourth time in this box:
+not a refusal a caller can act on, but a plausible answer to a question nobody
+asked.
+
+`tests/dostrap/parsefcb.asm` is what the handler is written against — eleven
+inputs, under IBM DOS 3.30 and under this box, `CF=0` on every reference row
+including the invalid drive:
+
+| in | `AL` | `SI` + | FCB drive | the eleven bytes |
+|---|---|---|---|---|
+| `PRINCE.EXE` | 00 | 0A | 0 | `PRINCE  EXE` |
+| `B:PRINCE.EXE` | 00 | 0C | 2 | `PRINCE  EXE` |
+| `*.*` | 01 | 03 | 0 | `???????????` |
+| `B:*.*` | 01 | 05 | 2 | `???????????` |
+| `PRINCE` | 00 | 06 | 0 | `PRINCE     ` |
+| `Z:PRINCE.EXE` | **FF** | 0C | **26** | `PRINCE  EXE` |
+| `  B:PRINCE.EXE` | 00 | 0E | 2 | `PRINCE  EXE` |
+| `B:Prince.exe` | 00 | 0C | 2 | **`PRINCE  EXE`** |
+| `prince.dat` | 00 | 0A | 0 | `PRINCE  DAT` |
+| `PRINCE.EXE ARG` | 00 | **0A** | 0 | `PRINCE  EXE` |
+| `A:\DIR\PRINCE.EXE` | 00 | **02** | 1 | **`           `** |
+
+**Four of those rows decide how it is written and none of the four is
+guessable.**
+
+- **A wildcard becomes `?`, not `*`** — `*.*` is eleven question marks. That
+  is the FCB's own convention, and a parser that stored the asterisk would
+  match nothing for ever.
+- **An invalid drive still writes its number.** `Z:` answers `FFh` *and* puts
+  26 in the drive byte; it does not leave the field alone.
+- **The name is upper-cased.** An FCB matches a directory entry, which is
+  upper — and `B:Prince.exe` is literally what this installer passes.
+- **A PATH is not a path.** `A:\DIR\PRINCE.EXE` comes back `AL=00` with the
+  drive set, `SI` advanced by **two**, and the name left as eleven blanks:
+  `29h` parses a NAME, stops at the first separator, and the caller is
+  expected to notice `SI` did not move. This is DOS's behaviour and not a
+  simplification here.
+
+The handler is **three phases because of the segments**, and that is worth
+saying because the obvious spelling is two overrides inside one loop: the name
+is in the program's `DS`, the FCB in the program's `ES`, and the separator
+table in ours. So it copies the name in, parses at home, and copies twelve
+bytes out. `SI` goes back through the gate's banked slot at `[bp-2]` (§96.7.1)
+like every other returned register, and the exit is `.ok` rather than
+`.badax`: there is no carry in this call's contract.
+
+**The separator table is a LOCAL label and that is not style.** A global one
+placed beside `.pf_sep` re-scopes every `.local` in `dos_int21` below it and
+the whole dispatch stops resolving — which is the hard rule about label
+hygiene biting inside a single routine rather than across two files.
+
+**It does not unblock the installer**, and it was never going to: the call
+after it is the `AH=4Bh` that cannot find `COMMAND.COM` (§96.29). It is here
+because a wrong answer is worth more to remove than a missing one.
+
 ### 96.7 What wave 1 answers, and what it refuses
 
 `INT 20h`, and `INT 21h`: `AH=00h`, `01h`, `02h`, `07h`, `08h`, `09h`, `0Bh`,
