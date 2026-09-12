@@ -22157,14 +22157,20 @@ proportional bar has always done.
 | 1 | at most once a tick, ~55 ms |
 | n | at most once every n ticks |
 
-**0 is the default and it is not a cop-out.** A Disk window's scroll is
-`fm_scroll_by` — a `gfx_scroll` blit plus a relettering of every newly exposed
-row, and PERFORMANCE.md prices a 78-cell row at **~71 ms** on the target
-machine. A thumb dragged the length of the track with the view following would
-be seconds of repaint behind a hand that has already stopped, which is exactly
-PERFORMANCE.md Part 1's **visible redraw** — invisible in an emulator, and the
-reason the rate is a number the window chooses rather than a cadence the
-element assumes.
+**0 is the default ON AN 8086 and it is not a cop-out.** A Disk window's
+scroll is `fm_scroll_by` — a `gfx_scroll` blit plus a relettering of every
+newly exposed row, and PERFORMANCE.md prices a 78-cell row at **~71 ms** on
+the target machine. A thumb dragged the length of the track with the view
+following would be seconds of repaint behind a hand that has already stopped,
+which is exactly PERFORMANCE.md Part 1's **visible redraw** — invisible in an
+emulator, and the reason the rate is a number the window chooses rather than a
+cadence the element assumes.
+
+**On a 286 or better it is 2, and §13.10.5.4.1 is how**: the paragraph above
+is an argument about a 4.77 MHz 8088 and it stops being one several times over
+on a faster machine, so the caller names a rate for each and `os88ui_sbrate`
+picks. Everything below in this section is about the rate once it is picked,
+and is the same on either.
 
 **The rate is a THROTTLE and not a clock.** `W_ONDRAG` is delivered only when
 the pointer actually moved (§13.8.2), so nothing fires under a still hand and
@@ -22172,6 +22178,171 @@ no timer is armed. The deadline is banked at the last *commit*, so a hand that
 pauses and moves again is served immediately rather than waiting out a window
 it already sat through. A position the throttle refused is never lost: the
 release commits `pos` unconditionally.
+
+##### 13.10.5.4.1 The caller names TWO rates and the MACHINE picks — `os88ui_sbrate`
+
+§13.10.5.4's argument is entirely about a **4.77 MHz 8088**, and every number
+in it is one of PERFORMANCE.md's. That is the right argument for the machine
+this OS is for and it is the wrong argument for a 286, so the rate stopped
+being one number: **`os88ui_sbgrab`'s caller names the rate for an 8086 and
+the rate for a `CPU_286` or better, and `os88ui_sbrate` picks between them.**
+
+```
+    mov ax, FM_SBRATE | (FM_SBRATE286 << 8)
+    call os88ui_sbrate          ; AL = the one this machine can afford
+    call os88ui_sbgrab
+```
+
+**It is still §13.10.1's geometry and not policy.** Both numbers are the
+caller's; the element does not choose a rate and does not know what a commit
+costs. What it owns is the one question that is the same for all ten callers —
+*which of the two is this machine* — answered on a **fact the code can test**
+(`[cpu_tier]`, §41.1) and never on a guess about speed, which is
+PERFORMANCE.md rule 7 at the point of use.
+
+**Why it lives in the element rather than at the twelve call sites.** The
+policy is one sentence and there were ten copies of the surrounding code
+waiting to be written; `os88ui_sbrate` is nine bytes and the macro, and it
+reaches every carrier at its next build the way §13.16.2's glyph did. The
+alternative — each caller asking `OSAPI_CPU_INFO` for itself — is the same
+bytes multiplied and ten places for the policy to drift apart.
+
+###### The body, and the trick in it
+
+```
+os88ui_sbrate:
+    push ax                     ; the pair, banked whole
+    UI_CPUTIER                  ; AL = CPU_8086 / CPU_286 / CPU_386
+    cmp al, CPU_286
+    pop ax
+    jb .out                     ; an 8086/8088: AL is already tier 0's
+    mov al, ah
+.out:
+    ret
+```
+
+**A `pop` writes no flags**, so the compare's answer survives the restore and
+the whole body is nine bytes plus `UI_CPUTIER` — `mov al, [cpu_tier]` in the
+kernel, `call OSAPI_CPU_INFO` in a package. It is the trick `UI_ISMONO`
+already uses one macro up.
+
+`UI_CPUTIER` **clobbers AH in the package arm and does not in the kernel's**,
+because `cpu_info` answers the tier and the feature bits in one word (§41.1).
+So `os88ui_sbrate` documents AH as undefined on the way out, and nothing may
+rely on either arm's incidental behaviour. Unlike `UI_ISMONO` it banks nothing
+else: `cpu_info` is `mov ax, [cpu_tier]` and a `ret`, and three shipped
+packages already call the slot mid-routine with registers live.
+
+###### Who gets what — and it is ONE number
+
+The 8086 column is unchanged from the day each bar was wired — **this changes
+no behaviour at all on the machine this OS is for**, which is what makes it
+affordable to take before anybody has run it on a 286.
+
+| bar | 8086 | 286+ | one commit, measured on a 4.77 MHz 8088 / CGA |
+|---|---:|---:|---|
+| Disk window (`FM_SBRATE`) | 0 | **2** | **116.9 ms** — `fm_scroll_by` past its blit tier, 31 files, `fit` 5 |
+| Standard File dialog (`FD_SBRATE`) | 0 | **2** | not separately measured; `fdlg_draw_list` is a fill, `FD_ROWS` = **6** filename rows and the bar, so it is bounded below the Disk window's |
+| Word, Scribe, TexPad, Note Pad, Frotz, Browser (`SB_RATE`) | 0 | **2** | **383.8** (Note Pad, 200 lines), **417.3** (TeXPad), **300.4** (Word) |
+| **The Wire**, **Sheet** | **2** | **2** | unchanged — and they are the CALIBRATION, not the subject |
+
+The figures are `docs/reports/SBRATE-COMMIT-COST-2026-09-11.md`, taken for
+this section because §13.10.5.4's own numbers are Part 5 rows for *adjacent*
+operations and what a rate has to clear is the commit a **dragged thumb**
+makes. Two of its findings changed this table: the Disk window — the bar
+§13.10.5.4 is written about — is the **cheapest** of them and not the
+dearest, and the cost is a property of the **window** rather than the
+program, because it is `fit` rows × cells that dominates. So a per-bar number
+would be sizing against a window the user can resize, and one number cut from
+the heaviest measured commit is both simpler and no less right.
+
+**The Wire and Sheet are not being changed; they are what the number is
+calibrated against.** Both have followed the hand at 2 on every machine since
+they were written. They still name a pair and still call `os88ui_sbrate`,
+with the two halves EQUAL — because the element's body is in every carrier's
+image whether it is called or not, so the call costs 4 bytes and buys the
+tree one description of what a bar's rate is.
+
+###### Why 2 — asked as an open question, then SETTLED on a 12 MHz 286
+
+**What was measured before it shipped:** the commit costs above, on a
+cycle-accurate 8088; and, in the field, that The Wire — whose bar is not a
+light one — follows a dragged thumb acceptably at rate 2 on the **16 MHz 286
+with a Paradise VGA** in docs/FIELD-MACHINES.md, whose clock this project has
+itself re-derived at 15.83 and 15.86 MHz.
+
+**What could not be measured here:** the tier factor. MartyPC is an 8088 for
+ever (docs/TESTING.md's closed list, entry 1) and QEMU counts work exactly and
+cannot time it. So the arithmetic was stated rather than hidden: for rate 2
+(110 ms) to be a *working* throttle rather than a no-op, the heaviest measured
+commit — TeXPad's **417 ms** — has to fall under 110 ms, which needs a factor
+of **3.8**. A 16 MHz 286 clears that comfortably; an **8 MHz** one does not,
+and would want **3**. Since `CPU_286` is one bit over a 3x spread of machines,
+2 shipped with `make SBRATE286=3` named as the sweep and the sentence *this is
+the first thing a field 286 should settle*.
+
+**It was settled the next day, on 86Box's `286` at 12 MHz** — deliberately
+between the two ends of that spread — and the verdict is that **2 is right**:
+
+| bar | default window | fully maximised |
+|---|---|---|
+| Browser | full speed | **full speed** |
+| TeXPad | full speed | **full speed** |
+| Note Pad | full speed | slightly laggy |
+
+**Two things that reading confirms beyond the number.** The first is the
+finding this section is built on — that the commit's cost is a property of the
+**window** and not the program — because the one place it degrades is a
+MAXIMISED window, which is where `fit` rows × cells is largest; nothing
+degrades at the default size. The second is *which* program: Note Pad is the
+heaviest of the three on the glass, and it is the heaviest of the three that
+was measured on the 8088 (**383.8 ms** against the Browser's line and TeXPad's
+200 deep in a document). **The 8088 ranking predicted the 286 ranking**, which
+is the whole basis for cutting one shared number from the heaviest measured
+commit.
+
+So the arithmetic's 3.8x was pessimistic at 12 MHz, and the remaining
+uncertainty is only the **slow end** — an 8 MHz 286 with a maximised Note Pad
+is the one combination nobody has looked at, and `make SBRATE286=3` is still
+what to reach for if anybody finds it wanting. Note that 86Box asserts nothing
+(docs/TESTING.md): this is a person looking at a screen, which is exactly the
+right instrument for *"does a dragged thumb feel laggy"* and is not a number.
+
+**What a wrong number costs is bounded, which is what makes it takeable.** Too
+LARGE and the view updates less often than the machine could manage — 6 times
+a second instead of 9, and still plainly a following view. Too SMALL and the
+throttle stops throttling: `os88ui_sbtrack` commits on every `W_ONDRAG`, the
+commits run back to back, the event ring fills and mouse reports drop. Even
+then nothing is corrupted — §13.10.5.4's release commits `pos`
+unconditionally, and a release lost to a full ring is what §13.10.5.7's stale
+net already exists for. The failure mode at either end is a **look**, never a
+state. `make SBRATE286=n` sweeps it and `make SBRATE286=0` is the reference
+arm.
+
+###### What it cost
+
+| | |
+|---|---:|
+| kernel `.text` | **0** |
+| kernel `.bss` | **0** |
+| kernel `.cold` | **+20** — the element's body (12: nine bytes and a 3-byte `UI_CPUTIER`) and +4 at each of the two kernel call sites, where `mov al, imm8` became `mov ax, imm16` and a `call` |
+| rung | **none crossed** — 160 bytes left in the cold rung, where there were 180 |
+| `kern_small` | **0**. `OS88UI_SBDRAG` is `KERN_BIG` only (§13.10.5), so the small build assembles none of this |
+| a package | **+18** (Note Pad, Word, Scribe, Sheet, The Wire), **+19** (Browser), **+22** (TexPad, which has two call sites) — the body is 14 in a package because `UI_CPUTIER` is a far call there |
+
+**The package bytes are an IMAGE, not residency**: a `.o88` is compressed on
+the floppy (§20.13) and present only while the program runs, where a kernel
+byte is on every machine for ever and billed in 512-byte rungs. That is the
+trade §13.16.2.1 states and it is why the element carrying the policy is
+cheaper than the kernel carrying it twice.
+
+###### The reference arm is a KNOB, for `SBDRAGOFF`'s reason
+
+`make SBRATE286=0` puts every bar back on "the view waits for the release" on
+every machine, which is what shipped before this section. It is in
+`$(VIDSTAMP)` and `$(SBSTAMP)` like the rest, so the A/B rebuilds both halves
+— and it reaches the package builds through `$(PKGSBDEF)`, because a package's
+copy of `os88ui.inc` is its own (§13.10.6.2).
 
 ##### 13.10.5.5 The thumb moves. The XOR overlay was tried and WITHDRAWN
 
@@ -22370,6 +22541,21 @@ builds a 30-file B: disk of its own rather than navigating a shipped one: with
 drag most of the way down moves the view by nothing at all — a correct bar and
 a useless gate.
 
+**§13.10.5.4.1's gate is `tests/sbrate286.py`, and it is a second row rather
+than a `--rate=` arm of this one**, because what it has to vary is not a build
+but a MACHINE. It is one A/B on one boot of one build: the same drag twice
+with `cpu_tier` poked between the arms — the only way a 286 is testable in
+this tree at all, MartyPC being an 8088 (docs/TESTING.md's closed list, entry
+1) and QEMU being unable to say what a drag looks like. It drives BOTH halves
+of `UI_CPUTIER`, since `mov al, [cpu_tier]` and `call OSAPI_CPU_INFO` are not
+the same code and one passing says nothing about the other: the Disk window's
+answer is `os88ui_sbd_rate`, a kernel byte, and Note Pad's is **pixels**,
+because a package's copy of the element is its own. And it reads its
+expectations out of the build's own defines (`$OS88_DEFINES` /
+`$OS88_PKGDEFS` over the `%define`) — the first version read the source alone
+and therefore passed against a `SBRATE286=0` tree while asserting the shipped
+numbers.
+
 ### 13.10.6 Who actually uses it — the survey, and two that do not
 
 §13.10 named five private scroll bars as its motivation and unified the two
@@ -22391,6 +22577,13 @@ them now** (§13.10.6.3, §13.10.6.5), with one deliberate exception.
 
 **All seven bars drag now**, and Artful is the one exception because its thumb
 is a different widget (§13.10.6).
+
+**Three more have adopted the element since this survey was taken** — Sheet
+(§24), Scribe (§84) and The Wire (§92) — so the count above is the one this
+subsection measured and not today's total. **§13.10.5.4.1's table is the
+current list**, because every bar in the system now names a rate there,
+including those three; it is also the one place to look for what a given bar
+does while the hand is still down.
 
 **Frotz and Word were the two, and both said so in their own headers.**
 `zw_thumb` is *"SPEC.md 22's geometry, so it looks like the Disk window's"*;

@@ -3651,6 +3651,21 @@ SOAK = [
         "SPEC.md 13.10.5: the Disk window's scroll-bar THUMB is dragged, and"
         "x is never read.",
         needs=("marty",), serial=True),
+    Row("sbrate286", "soak", py("tests/sbrate286.py"), 60.0,
+        "SPEC.md 13.10.5.4.1: the thumb's rate is a PAIR and os88ui_sbrate "
+        "picks on [cpu_tier]. ONE A/B on ONE boot of ONE build - the same "
+        "drag twice with `cpu_tier` poked between the arms, which is the only "
+        "way a 286 is testable here at all (MartyPC is an 8088 and QEMU "
+        "cannot say what a drag LOOKS like). Both arms of the macro: the "
+        "Disk window is `mov al, [cpu_tier]` and Note Pad is `call "
+        "OSAPI_CPU_INFO`, so one passing says nothing about the other - and "
+        "Note Pad's answer is PIXELS, because a package's copy of the "
+        "element is its own and os88ui_sbd_rate is the KERNEL's byte. It "
+        "reads its expectations out of the build's own defines ($OS88_DEFINES "
+        "/ $OS88_PKGDEFS over the %define), so `make SBRATE286=0` reds the "
+        "kernel case instead of quietly asserting the shipped numbers "
+        "against another tree.",
+        needs=("marty",), serial=True),
     Row("fdlgthumb", "soak", py("tests/fdlgthumb.py"), 50.0,
         "SPEC.md 13.10.5: ...and the Standard File dialog's, which is the"
         "second bar one gesture record has to tell apart (13.10.5.10).",

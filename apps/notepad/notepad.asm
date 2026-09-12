@@ -296,6 +296,13 @@ NP_SB_ARR    equ 11             ; ...and the arrow cells at each end of it
 %define SB_RATE 0
 %endif
 NP_SBRATE   equ SB_RATE
+; ...AND A 286 GETS 2 (13.10.5.4.1): the text arrives WITH the thumb there,
+; nine times a second, which is exactly what the sentence above describes
+; the absence of.
+%ifndef SB_RATE286
+%define SB_RATE286 2
+%endif
+NP_SBRATE286 equ SB_RATE286
 %endif
 
 NP_SB_STEP   equ 4              ; rows an arrow cell steps. The Disk window
@@ -872,8 +879,9 @@ np_sbclick:
     jne .yes                        ; now, where it was inert. BX is still the
     cmp byte [np_nodrag], 0         ; block and DX still the press, absolute
     jne .yes
-    mov al, NP_SBRATE
-    call os88ui_sbgrab              ; CF = 1 = no thumb after all; either way
+    mov ax, NP_SBRATE | (NP_SBRATE286 << 8)
+    call os88ui_sbrate          ; the rate THIS machine can afford
+    call os88ui_sbgrab          ; (SPEC.md 13.10.5.4.1)              ; CF = 1 = no thumb after all; either way
 %endif                              ; this click scrolls nothing
     jmp short .yes                  ; the thumb itself, or an inert track
 .lineup:

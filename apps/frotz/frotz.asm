@@ -60,6 +60,13 @@
 %define SB_RATE 0               ; RATE 0 (13.10.5.4): a scrollback step
 %endif                          ; re-letters rows out of the ring
 ZF_SBRATE   equ SB_RATE
+; ...AND A 286 GETS 2 (13.10.5.4.1): the ring's rows are re-lettered, and a
+; machine three to four times the target's can afford them nine times a
+; second where the target cannot afford them at all.
+%ifndef SB_RATE286
+%define SB_RATE286 2
+%endif
+ZF_SBRATE286 equ SB_RATE286
 %endif
 
     OS88_HEADER 'FROTZ', zf_entry, 3, OS88_STACK_384    ; bit0 = icon, bit1 = association block

@@ -2540,8 +2540,9 @@ zw_click:
     jne .out                        ; now. BX is still the block and DX still
     cmp byte [zw_nodrag], 0         ; the press, absolute
     jne .out
-    mov al, ZF_SBRATE
-    call os88ui_sbgrab
+    mov ax, ZF_SBRATE | (ZF_SBRATE286 << 8)
+    call os88ui_sbrate          ; the rate THIS machine can afford
+    call os88ui_sbgrab          ; (SPEC.md 13.10.5.4.1)
 %endif
     jmp short .out                  ; the thumb itself, or an inert track
 .lineup:

@@ -43,6 +43,14 @@
 %define SB_RATE 0               ; RATE 0 (13.10.5.4): a scroll here ends in
 %endif                          ; wd_redraw, and this window is the widest in
 WD_SBRATE   equ SB_RATE         ; the system
+; ...AND A 286 GETS 2 (13.10.5.4.1). wd_redraw on a 286 is not wd_redraw on
+; an 8088: PERFORMANCE.md Part 5 prices this window's scroll-bar repaint at
+; 155 ms and a click above the thumb at 307 on the TARGET machine, and this
+; is the one number in the table a field 286 should check first.
+%ifndef SB_RATE286
+%define SB_RATE286 2
+%endif
+WD_SBRATE286 equ SB_RATE286
 %endif
 
     OS88_HEADER 'WORD', wd_entry, 3, OS88_STACK_256    ; bit 0 icon, bit 1 the DOC
@@ -1273,8 +1281,9 @@ wd_sbclick:
     jne .yes                        ; now. BX is still the block and DX still
     cmp byte [wd_nodrag], 0         ; the press, absolute
     jne .yes
-    mov al, WD_SBRATE
-    call os88ui_sbgrab
+    mov ax, WD_SBRATE | (WD_SBRATE286 << 8)
+    call os88ui_sbrate          ; the rate THIS machine can afford
+    call os88ui_sbgrab          ; (SPEC.md 13.10.5.4.1)
 %endif
     jmp short .yes                  ; the thumb itself, or an inert track
 .lineup:

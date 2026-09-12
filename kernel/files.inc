@@ -96,17 +96,29 @@ FM_SB_W     equ 14              ; scroll bar width
 ; it are the WINDOW's rather than the element's - which is 13.10.1's rule
 ; still holding.
 ;
-; **THE RATE DEFAULTS TO 0 AND THAT IS NOT A COP-OUT.** A scroll here is
+; **THE 8086 RATE IS 0 AND THAT IS NOT A COP-OUT.** A scroll here is
 ; fm_scroll_by - a gfx_scroll blit plus a relettering of every newly exposed
 ; row - and PERFORMANCE.md prices one 78-cell row at ~71 ms on a 4.77 MHz
 ; 8088. A thumb dragged the length of a 200-file listing with the view
 ; following would be seconds of repaint behind a hand that had already
 ; stopped: PERFORMANCE.md Part 1's VISIBLE REDRAW, which is invisible in an
 ; emulator and is exactly why the rate is a number rather than a cadence.
-; `make SBRATE=2` is the one to try on a fast machine.
+;
+; **A 286 IS A DIFFERENT MACHINE AND GETS A DIFFERENT NUMBER** (13.10.5.4.1).
+; The drag's commit here is `fm_scroll_by` past its blit tier - the whole
+; window - and it is the CHEAPEST of the bars measured for that section:
+; **116.9 ms** on a 4.77 MHz 8088 with a CGA, against Note Pad's 383.8 and
+; TeXPad's 417.3 (docs/reports/SBRATE-COMMIT-COST-2026-09-11.md). It takes
+; the shared number anyway, because 2 has headroom for all three and the
+; difference between 6 and 9 commits a second is not one anybody can see.
+; os88ui_sbrate picks between the two on [cpu_tier] - a FACT, not a guess
+; about speed (PERFORMANCE.md rule 7). `make SBRATE=n SBRATE286=n` sweeps it.
 %ifndef FM_SBRATE
 %define FM_SBRATE 0             ; ticks between commits; 0 = the release
 %endif                          ; commits and nothing before it
+%ifndef FM_SBRATE286
+%define FM_SBRATE286 2          ; ...and what a 286 or better is given
+%endif
 %endif
 ; --- the band under the rows: the edge, then the status line (SPEC.md 22.20)
 ; The row area is UNCHANGED by all three of these - [fm_listb] is still
@@ -2903,7 +2915,8 @@ fm_onclick_x:
 %ifdef OS88UI_SBDRAG
     cmp al, OS88UI_SBTHUMB      ; SPEC.md 13.10.5: the thumb is DRAGGED here
     jne .nograb                 ; now, where it used to page down. BX is still
-    mov al, FM_SBRATE           ; the block and DX still the press, absolute
+    mov ax, FM_SBRATE | (FM_SBRATE286 << 8)
+    call os88ui_sbrate          ; the block and DX still the press, absolute;
     call os88ui_sbgrab          ; CF = 1: no thumb to take after all, so the
     mov al, OS88UI_SBTHUMB      ; ladder below pages exactly as it did
     jc .nograb

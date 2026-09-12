@@ -1321,6 +1321,16 @@ fdlg_actok:
 %ifndef FD_SBRATE
 %define FD_SBRATE 0             ; ticks between commits; 0 = the release
 %endif                          ; commits and nothing before it
+;
+; ...AND A 286 GETS A NUMBER (13.10.5.4.1). The argument above is about a
+; 4.77 MHz 8088 and stops being true three or four times over on a 286. The
+; absolute cost here is also the SMALLEST of any bar in the system, which the
+; paragraph above does not say: FD_ROWS is **6**, so a whole-list repaint is
+; one fill, six filename rows and the bar - against the Disk window's whole
+; content. It is the shape that is worse here and the SIZE that is better.
+%ifndef FD_SBRATE286
+%define FD_SBRATE286 2
+%endif
 %endif
 
 %define OS88UI_KERNEL
@@ -2805,9 +2815,11 @@ FDBODY fdlg_onclick_x
     cmp al, OS88UI_SBTHUMB      ; SPEC.md 13.10.5: the thumb is DRAGGED here
     jne .nograb2                ; now, where it did nothing at all. BX is
     push ax                     ; still the block and DX still the press,
-    mov al, FD_SBRATE           ; absolute - and AL has to survive, because a
-    FDX os88ui_sbgrab          ; unchanged and fall through to .out, which is
-    pop ax                      ; what a thumb press has always done here
+    mov ax, FD_SBRATE | (FD_SBRATE286 << 8)
+    FDX os88ui_sbrate          ; absolute - and AL has to survive, because a
+    FDX os88ui_sbgrab          ; thumb press leaves the ladder below it
+    pop ax                      ; unchanged and falls through to .out, which
+                                ; is what a thumb press has always done here
 .nograb2:
 %endif
     pop dx
@@ -3201,6 +3213,7 @@ fdlg_top_x:
     FDXF os88ui_sbar
     FDXF os88ui_sbhit
 %ifdef OS88UI_SBDRAG
+    FDXF os88ui_sbrate
     FDXF os88ui_sbgrab
     FDXF os88ui_sbtrack
     FDXF os88ui_sbdrop

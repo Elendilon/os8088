@@ -141,6 +141,10 @@
   %macro UI_TICKS 0
     mov ax, [ticks]
   %endmacro
+  %macro UI_CPUTIER 0               ; AL = CPU_8086 / CPU_286 / CPU_386, the
+    mov al, [cpu_tier]              ; published tier (SPEC.md 41.1). AH is
+  %endmacro                         ; CLOBBERED in the package arm and not
+                                    ; here, so a caller may rely on neither
 %else
   %macro UI_FRAME 0
     call OSAPI_GFX_FRAME
@@ -212,6 +216,14 @@
   %macro UI_TICKS 0
     call OSAPI_GET_TICKS
   %endmacro
+  %macro UI_CPUTIER 0               ; ...and the slot answers AL = the tier and
+    call OSAPI_CPU_INFO             ; AH = the feature bits in one word, so AH
+  %endmacro                         ; is clobbered HERE and is not in the
+                                    ; kernel arm: neither may be relied on.
+                                    ; Unlike UI_ISMONO this banks nothing -
+                                    ; cpu_info is `mov ax, [cpu_tier]` and a
+                                    ; `ret`, and three packages already call
+                                    ; it mid-routine with registers live
 %endif
 
 OS88UI_DIS  equ 1               ; disabled: dithered frame AND label (47 r2)
@@ -1394,12 +1406,46 @@ os88ui_sbmove:
 ; grow (13.10.5.6): one drag at a time on the one UI task, os88ui_ksb's
 ; argument exactly - and a block that grew would move every caller's .bss and
 ; rebuild every package that ever declared one.
+;
+; THE CALLER NAMES TWO RATES AND THE MACHINE PICKS (13.10.5.4.1). A following
+; view was rate 0 nearly everywhere because ONE commit is 117 to 417 ms on a
+; 4.77 MHz 8088 - two to eight ticks BEHIND a hand that has already stopped,
+; which is PERFORMANCE.md Part 1's VISIBLE REDRAW
+; (docs/reports/SBRATE-COMMIT-COST-2026-09-11.md is the measurement). That is
+; a fact about the MACHINE and not about the widget, so the element resolves
+; it once for everybody instead of ten callers each asking the same question.
 ; =============================================================================
+
+; -----------------------------------------------------------------------------
+; os88ui_sbrate - which of the caller's two rates THIS machine can afford
+; in:  AL = the rate for an 8086/8088, AH = the rate for a CPU_286 or better
+;      (both in system ticks, as os88ui_sbgrab takes one - SPEC.md 13.10.5.4)
+; out: AL = whichever applies here, ready for os88ui_sbgrab. AH is UNDEFINED;
+;      every other register preserved, flags not.
+;
+; SPEC.md 13.10.5.4.1. It is still 13.10.1's geometry-not-policy: both numbers
+; are the caller's and the element picks between them on a FACT the code can
+; test (PERFORMANCE.md rule 7), never on a guess about how fast this is.
+;
+; THE POP IS THE TRICK AND IT IS UI_ISMONO'S: a pop writes no flags, so the
+; compare's answer survives the restore and the whole body is nine bytes and
+; the macro.
+; -----------------------------------------------------------------------------
+os88ui_sbrate:
+    push ax                     ; the pair, banked whole
+    UI_CPUTIER                  ; AL = CPU_8086 / CPU_286 / CPU_386
+    cmp al, CPU_286
+    pop ax
+    jb .out                     ; an 8086/8088: AL is already tier 0's
+    mov al, ah
+.out:
+    ret
 
 ; -----------------------------------------------------------------------------
 ; os88ui_sbgrab - take the thumb: a press landed on it and the hand has it now
 ; in:  BX = the block, DX = the press's y (ABSOLUTE), AL = the rate in TICKS
-;      (0 = the view does not follow at all until the release, 13.10.5.4)
+;      (0 = the view does not follow at all until the release, 13.10.5.4) -
+;      ONE rate, already resolved, which is what os88ui_sbrate above is for
 ; out: CF = 1 = there is no thumb to take and NOTHING was armed; CF = 0 = the
 ;      gesture is live. Every register preserved.
 ;
