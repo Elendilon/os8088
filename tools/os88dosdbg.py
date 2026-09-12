@@ -338,7 +338,11 @@ def build_trace_disk(system_img, out_img, verbose=True):
     d = tempfile.mkdtemp(prefix="os88dosdbg-")
     try:
         tb = nasm(DOS_ASM, os.path.join(d, "dos-trace.bin"),
-                  defines=("DOSTRACE",), incs=(os.path.join(ROOT, "apps"),))
+                  defines=("DOSTRACE",),
+                  incs=tuple(os.path.join(ROOT, *i.split("/"))
+                             for i in DOS_INCS))   # the Makefile's list, and
+                                                   # the SECOND site that had a
+                                                   # hard-coded `apps` alone
         to = os.path.join(d, "DOS.O88")
         r = subprocess.run([sys.executable, os.path.join(HERE, "os88pkg.py"),
                             tb, "-o", to, "--compress-if=lz4"],
