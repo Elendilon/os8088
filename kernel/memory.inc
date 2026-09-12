@@ -1410,31 +1410,36 @@ mem_can_move:
     call mem_in_xfer            ; ...and the block a DISK TRANSFER is reading
     jc .pin                     ; into, which the kernel is holding a pointer
                                 ; into on its own stack (SPEC.md 66.3 rule 5)
-    mov bx, [ss:si+MC_OWN]
-    cmp bh, MEM_PG_MIN
-    jb .notpg
-    cmp bh, MEM_PG_MAX
-    jbe .pin                    ; A PURGEABLE CACHE IS NEVER MOVED, AND NEVER
-                                ; NEEDS TO BE (SPEC.md 50.6.1). It is not that
-                                ; it could not be: it is that mem_claim's loop
-                                ; already reaches the same room by SHEDDING it
-                                ; one step later, and the shed is the cheaper
-                                ; primitive by every measure - a 63KB block
-                                ; with a 64KB page head cannot be packed
-                                ; tight, and its contents are disposable by
-                                ; definition (a re-claim calls dsk_rah_flush,
-                                ; so a cache never comes back warm from any
-                                ; path). A relocation here would copy 63KB to
-                                ; preserve nothing.
+    mov bx, [ss:si+MC_OWN]      ; A PURGEABLE CACHE MOVES IF IT DECLARED A
+    cmp bh, MEM_PG_MIN          ; PROC, AND IS PINNED IF IT DID NOT - which is
+    jb .notpg                   ; the rule every other claim is under, and the
+    cmp bh, MEM_PG_MAX          ; MC_RLOC test at the top of this routine has
+    jbe .notpg                  ; already applied it. What stood here was a
+                                ; BLANKET refusal that overrode a declaration
+                                ; (SPEC.md 50.6.7), on three reasons that have
+                                ; each stopped being true:
                                 ;
-                                ; This USED to cite the top-down placement as
-                                ; the reason, and the compactor's pin was then
-                                ; resting on an invariant the allocator was
-                                ; not delivering (50.6.1.1). The pin outlived
-                                ; its justification and was right anyway,
-                                ; which is worth one comment: a correct answer
-                                ; held up by a false premise is a defect that
-                                ; has not fired yet.
+                                ;   "mem_claim's loop already reaches the same
+                                ;    room by SHEDDING it one step later" - not
+                                ;    for a claimant with a FLOOR (50.6.6). A
+                                ;    floor is a promise not to shed at or above
+                                ;    a level, so for that claimant the block is
+                                ;    a pure wall and the shed is not available
+                                ;    at all
+                                ;   "a 63KB block with a 64KB page head cannot
+                                ;    be packed tight" - the window is 32KB
+                                ;    (18.95.6) and claims no head at all
+                                ;    (18.95.7)
+                                ;   "its contents are disposable, so a
+                                ;    relocation would copy 63KB to preserve
+                                ;    nothing" - it preserves them, and the
+                                ;    alternative it was weighed against was a
+                                ;    shed, which loses them. 32KB of memcpy is
+                                ;    ~86 ms against up to seven ~400 ms fills
+                                ;
+                                ; A cache that declares nothing is still pinned
+                                ; by MC_RLOC, so the other three are unmoved
+                                ; and reach mem_cp_drop exactly as before.
 .notpg:
     cmp bx, MEM_K_DRV
 %ifdef OS88_DRIVERS

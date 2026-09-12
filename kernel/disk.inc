@@ -5281,6 +5281,35 @@ dsk_rah_wr:
     ret
 
 ; -----------------------------------------------------------------------------
+; dsk_rah_reloc - the compactor moved the window (§66.2, §50.6.7)
+;
+; ONE WORD, asc_reloc's shape exactly: mem_pg_own names [dsk_rah_seg] and
+; nothing else, dsk_rah_tab holds LBAs and lengths rather than addresses, and
+; the one disk read that targets the cache is the fill - which dsk_xfer pins
+; for its duration (§66.3 rule 5), so mem_can_move has already refused by then.
+; -----------------------------------------------------------------------------
+section .text                   ; **.text AND NOT .cold**, and nothing static
+                                ; can catch it if this is wrong: mem_reloc_call
+                                ; reaches a kernel proc through cw_mem_disp,
+                                ; which is `call bp` in KERNEL_SEG, and the
+                                ; offset comes out of MC_RLOC at run time - so
+                                ; a .cold body here is executed against the
+                                ; kernel segment and the machine walks into
+                                ; whatever is at that offset. os88ovlchk reads
+                                ; CALL SITES and there is no call site to read.
+                                ; Measured: the 192KB floor machine stopped
+                                ; reaching a desktop at all, because mem_unblob
+                                ; compacts at the end of kmain and the window
+                                ; is the first thing it moves
+dsk_rah_reloc:
+    cmp bx, [dsk_rah_seg]
+    jne .out
+    mov [dsk_rah_seg], dx
+.out:
+    ret
+section .cold                   ; ...and back, or every routine below joins it
+
+; -----------------------------------------------------------------------------
 ; dsk_rah_want - take the cache if we do not hold it
 ; preserves every register and the flags
 ;
@@ -5338,11 +5367,33 @@ dsk_rah_want:
     inc ax
     shr ax, 1                   ; ...and KB = ceil(n * 4.5), a chunk being
                                 ; 4,608 bytes. Exact at 14: (126+1)>>1 = 63
-    mov cx, ax
-    mov bx, MEM_P_DIRW          ; ...the WHOLE of it inside one 64KB DMA page
-    call mem_claim_dma_x          ; (SPEC.md 50.3), so dsk_runcap never splits a
-    jc .none                    ; fill and a fill is exactly one call
+    mov bx, MEM_P_DIRW          ; NO 64KB PAGE HEAD (§18.95.7). It used to
+    call mem_claim_x            ; claim the WHOLE block as one, so that
+    jc .none                    ; dsk_runcap never split a fill - and that is
+                                ; an OPTIMISATION and not a rule: dsk_runcap
+                                ; caps a run at the page boundary and dsk_xfer
+                                ; carries on from there, so a straddling fill
+                                ; is two int 13h and the right data either way.
+                                ;
+                                ; What it cost was the PLACEMENT. A block that
+                                ; must sit inside one physical page may only
+                                ; begin in the part of a page it fits in, so
+                                ; first fit skipped every hole below the next
+                                ; page boundary - measured on the 192KB floor
+                                ; machine, 19KB of a 77KB heap walled off at
+                                ; the desktop with nothing yet open, and the
+                                ; largest free run 32KB where 46 was there
+                                ; (§18.95.7). Prince of Persia pays 8 int 13h
+                                ; of 148 for it, and no measurable time
     mov [dsk_rah_seg], dx
+    push ax                     ; ...AND MOVABLE (§66.2, §50.6.7), asc_reloc's
+    push bx                     ; shape and for its reason: this claim is taken
+    mov ax, dsk_rah_reloc       ; at a MOUNT, so after a shed it comes back
+    mov bx, MEM_P_DIRW          ; wherever the arena had room and stands there
+    call mem_movable_x          ; pinned for the session. ONE WORD names it
+    pop bx                      ; (mem_pg_own says so), the slot table holds
+    pop ax                      ; LBAs and not addresses, and a fill in flight
+                                ; is already pinned by mem_in_xfer
     call dsk_rah_flush          ; ...and it holds nothing yet. THE ONLY place
                                 ; that is established: .bss arrives at whatever
                                 ; -f bin left there, and dsk_rah_have would

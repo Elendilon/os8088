@@ -29306,6 +29306,51 @@ over eight are what this gives back, and it gives back 31KB for them. What
 changed is that the three are now priced against a second workload rather than
 against the one that chose them.
 
+#### 18.95.7 …and it claims NO 64KB page head, because that was placing it
+
+The window is claimed `mem_claim_dma` with **the whole block as the head**, so
+that `dsk_runcap` never splits a fill and a fill is exactly one `int 13h`. That
+is an optimisation and was read as a rule. `dsk_runcap` caps a run at the page
+boundary and `dsk_xfer` carries on from there, so a straddling fill is *two*
+calls and the right data either way — the constraint buys a call, not
+correctness.
+
+**What it cost was the placement.** A block that must sit inside one physical
+page may only begin in the part of a page it fits in, so first fit skips every
+hole below the next page boundary. Measured on the 192KB floor machine
+(`os8088_5150_gla_192k`), at the desktop, with nothing open:
+
+```
+1B400..20000    19.0K  -- free --
+20000..28000    32.0K  purge:HIGH/02  PINNED  dma-head 2048 para
+28000..30000    32.0K  -- free --
+```
+
+`mem_base` is `0x1B400`; the first legal base above it is the next page, so
+**19KB of a 77KB heap is walled off before anything is opened** and the largest
+free run is 32KB. With no head:
+
+```
+1B400..1C800     5.0K  -- free --
+1C800..24800    32.0K  purge:HIGH/02  PINNED
+24800..30000    46.0K  -- free --
+```
+
+**19KB stranded → 5KB, and the largest run 32KB → 46KB**, on the machine with
+least to spare.
+
+What it costs is the straddle. A 32,256-byte block placed at random has a page
+boundary inside it about half the time, and when it does, exactly one of its
+seven chunks straddles — so one fill in seven costs two calls instead of one,
+about +3.5% of fill calls averaged over placements. Measured end to end,
+*Prince of Persia* to its title screen and into the game: **140 → 148 `int 13h`
+(+5.7%), 1,241 → 1,251 sectors**, with the modelled mechanics 36.3s → 35.7s and
+the guest clock 111.9s → 111.2s — both inside run-to-run variance.
+
+Dropping the head is also what makes §50.6.7 possible: `mem_can_move` weighs
+`MC_DMA` against `[drv_wcnt]`, so a claim with a page constraint is refused a
+move whenever any driver has a worker.
+
 #### 18.95.3 …and `sysbench` states it in `int 13h`, not in seconds
 
 The cache is a claim about **calls**, so the gate for it is `tests/sysbench`'s
@@ -69173,6 +69218,50 @@ answer.
 
 The door clears the floor back to `MEM_LVL_TOP` on every path out, so a second
 claim from the same task is an ordinary one unless it says otherwise.
+
+#### 50.6.7 A cache that declares a proc MOVES, and the blanket refusal is gone
+
+`mem_can_move` carried **"A PURGEABLE CACHE IS NEVER MOVED, AND NEVER NEEDS TO
+BE"** — a blanket refusal that overrode a declaration, sitting below the
+`MC_RLOC` test that already pins anything undeclared. Its three reasons were
+each true when written and each has stopped being true:
+
+| it said | what changed |
+|---|---|
+| "`mem_claim`'s loop already reaches the same room by SHEDDING it one step later" | **not for a claimant with a floor** (§50.6.6). A floor is a promise not to shed at or above a level, so for that claimant the block is a pure wall and the shed is not available at all |
+| "a 63KB block with a 64KB page head cannot be packed tight" | the window is 32KB (§18.95.6) and claims no head (§18.95.7) |
+| "its contents are disposable, so a relocation would copy 63KB to preserve nothing" | it preserves them, and what it was weighed against is a **shed**, which loses them. 32KB of `rep movsw` is ~86 ms against up to seven ~400 ms fills |
+
+So the rule is now the one every other claim is under: **declared moves,
+undeclared is pinned.** `MEM_P_WSAVE`, `MEM_P_FATW` and `MEM_P_VIEW` declare
+nothing and reach `mem_cp_drop` exactly as before.
+
+##### 50.6.7.1 Why the window needs it: it is claimed at a MOUNT
+
+At boot the window is taken at the A: mount before anything else exists, so it
+lands at the bottom of the heap and the §96.24.0 map shows it walling nothing
+off. **That is a fact about one placement.** `dsk_rah_want` is called from
+`disk_mount`, so a window that is shed under pressure and re-claimed later
+lands at whatever depth the heap has *then* — and being pinned, it stands there
+for the rest of the session. Measured on the 192KB machine: boot, open Paint
+(which sheds it), close Paint, mount again, and the window comes back with
+free heap on both sides of it.
+
+`asc_reloc` is the precedent and its own comment is the same sentence about a
+different claim: *"it is taken on a VOLUME SWITCH, so on a machine that has
+been used it sits wherever the arena had room — 3KB holding 40KB out of reach
+on the run that found it."* This is that at 32KB.
+
+`dsk_rah_reloc` is `asc_reloc`'s shape: **one word**. `mem_pg_own` names
+`[dsk_rah_seg]` and nothing else, `dsk_rah_tab` holds LBAs and lengths rather
+than addresses, and the one disk read that targets the window is the fill —
+which `dsk_xfer` pins for its duration (§66.3 rule 5), so `mem_can_move` has
+already refused by then.
+
+**The shed is still there and still last.** `mem_claim`'s loop is compact, then
+shed, then retry (§66.4): a compaction that can make room by moving the window
+does, and one that cannot is followed by a shed that still takes it. What
+changed is only which of the two happens first.
 
 ### 51.0 NOT ON `kern_small` — the whole mechanism is `kern_big`'s
 
@@ -120559,7 +120648,7 @@ arena and its disk stops being the slowest thing about it. A user who would
 rather have the RAM than the cache needs a way to say so, and that is a
 separate decision from this one.
 
-#### 96.24.0 …and a MOVABLE cache was the obvious follow-on and is REFUSED
+#### 96.24.0 …and a MOVABLE cache looked unnecessary from ONE placement
 
 The floor makes the cache something the compaction must pack around rather than
 dissolve, so the next thought is `OSAPI_MEM_MOVABLE` on it — §66.10's own
@@ -120588,9 +120677,23 @@ relocation proc, a declaration, and a `MC_DMA` block the compactor has to place
 inside a 64KB page.
 
 §18.95.6's smaller cache is worth **31KB** on the same measurement and is a
-constant. That is the same argument the tree makes about §5.6.9.3 and about
-every rung: the cheap answer that moves the number wins over the architectural
-one that does not.
+constant, so it was taken first.
+
+**THAT REASONING WAS RIGHT ABOUT THIS MAP AND WRONG AS A CONCLUSION, and
+§50.6.7 is the correction.** Every figure above is the placement the window
+gets *at boot*, where it is claimed at the A: mount before anything else
+exists. `dsk_rah_want` is called from `disk_mount`, so a window shed under
+pressure and re-claimed later lands at whatever depth the heap has then — and
+pinned, it stands there for the rest of the session. Measured on the 192KB
+machine: boot, open Paint (which sheds it), close Paint, mount again, and the
+window comes back **mid-arena with free heap on both sides of it**. It is
+movable now, and forcing a compaction with `tests/filler` moves it from
+`0x2600` back down to `0x1D80` with the 23KB below it collapsing to none.
+
+The lesson is the one `docs/plans/completed/GFX-EMBEDDABLE-PLAN.md` already
+carries in its own closing rules — read what a document MEASURED rather than
+what it claims: a map is one measurement, and "it walls nothing off" was a fact
+about the boot, read as a fact about the claim.
 
 #### 96.24.1 Two more findings the same profile produced, which the floor does not fix
 
