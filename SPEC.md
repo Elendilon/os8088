@@ -121034,3 +121034,17 @@ bit) and nothing here needs it: every ordinary mTCP application uses mode 3,
 and only a *sniffer* wants more. Recorded as a limitation rather than left to
 be discovered, because the refusal is the honest path (§47) and the warning it
 produces is not a fault.
+
+#### 72.22.5 `ethsock.inc` has two hosts, and only one can reach these
+
+`ethsock.inc` is shared: `ether.asm` is one host and `drivers/net/os88net.asm`
+— the DOS end of §62's cable, which runs the same stack (§62.11.1) — is the
+other. The raw verbs are reached through `eth_vtab`, which is `ether.asm`'s
+alone, so on the second host they are **215 bytes of a shipped `.COM` that
+nothing can call**.
+
+`ETH_NORAW` is the gate, and it is `ETH_NOEMIT`'s shape sitting beside it in
+the same includer for the same reason. Worth writing down because the hazard
+is structural rather than a slip: a file with two hosts grows for both of them
+whenever either one gains a feature, and NASM emits every byte of a flat
+binary whether or not it is referenced.

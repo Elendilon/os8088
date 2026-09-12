@@ -527,6 +527,14 @@ eth_v_accept:
 ; because every hard part of them is already written: ne_tx and ne_rx are the
 ; link layer the socket half sits on, and usr_read/usr_write are the caller's
 ; segment. What is new is only WHO the frames belong to.
+;
+; **ETH_NORAW, BECAUSE THIS FILE HAS TWO HOSTS** (SPEC.md 72.22.5). ether.asm
+; is one and drivers/net/os88net.asm is the other - the DOS end of the cable
+; runs the SAME stack (SPEC.md 62.11.1), and it reaches these verbs through no
+; table at all: eth_vtab lives in ether.asm. So on that host they are 215
+; bytes of a shipped .COM that nothing can call. The gate is ETH_NOEMIT's
+; shape and sits beside it in the same includer, for the same reason.
+%ifndef ETH_NORAW
 
 ; --- NETV_RAW ----------------------------------------------------------------
 ; in AL = 1 claim / 0 release.
@@ -673,3 +681,5 @@ eth_rawseg:
     mov [eth_useg], dx
 .keep:
     ret
+
+%endif                          ; ETH_NORAW
