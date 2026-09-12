@@ -4075,8 +4075,6 @@ osapi_sys_kb_x:
 ; and these near-call the bodies above, so every routine here keeps its
 ; ordinary near `ret`.
 ; =============================================================================
-mmf_mem_avail:            call mem_avail_x
-                      retf
 mmf_mem_claim:            call mem_claim_x
                       retf
 mmf_osapi_mem_claim_hi:   call osapi_mem_claim_hi_x

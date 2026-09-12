@@ -377,11 +377,14 @@ FDBODY fdlg_open_x
                                 ; can move it
 
     mov si, fdlg_tpl            ; wm_create reads the template at ES:SI, and
-    push es                     ; ours is kernel data - which is also what
-    push ds                     ; tells it this is a KERNEL window (W_SEG 0)
-    pop es
-    call KERNEL_SEG:cw_wm_create ; BX = window ptr, CF = table full
-    pop es
+    call KERNEL_SEG:apic_wm_create ; BX = window ptr, CF = table full. THE
+                                ; CELL (0x0078), and it is an X cell - api_x
+                                ; sets ES = the caller's DS and puts it back,
+                                ; so ES = KERNEL_SEG here, which is what tells
+                                ; wm_create this is a KERNEL window (W_SEG 0).
+                                ; That is exactly the push es / push ds / pop
+                                ; es / pop es this site used to spell out, so
+                                ; the scaffolding went with the shim
     jc .refuse
     mov ax, fdlg_s_topen
     cmp byte [fdlg_mode], 0
@@ -807,7 +810,7 @@ fdlg_close:
     or bx, bx
     jz .out
     mov word [fdlg_win], 0      ; drop the gate FIRST: wm_destroy repaints,
-    call KERNEL_SEG:cw_wm_destroy ; and nothing may observe a gate pointing at
+    call KERNEL_SEG:apic_wm_destroy ; and nothing may observe a gate pointing at
                                 ; a freed record
     mov bx, [fdlg_rqwin]
     call KERNEL_SEG:cw_menu_activate
@@ -1698,7 +1701,8 @@ fdlg_name_body:
     add bx, [fdlg_cy]
     mov dx, FD_NTY+7
     add dx, [fdlg_cy]
-    call KERNEL_SEG:cw_gfx_vline ; AX = x, BX = y1, DX = y2
+    call KERNEL_SEG:apic_gfx_vline ; AX = x, BX = y1, DX = y2 - the CELL
+                                ; (0x0030) rather than a shim of our own
 .out:
     jmp fdk_si
 
