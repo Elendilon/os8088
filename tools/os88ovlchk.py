@@ -784,7 +784,7 @@ def main():
     # declares its accessors as `%define NAME(x) [...]`, and one inside the
     # IMAGE arm must name CS. It is exact because there is no correct way to
     # write that operand otherwise.
-    a_bad = []
+    a_bad, b_mis = [], []
     for f in files:
         secs = [sect for sect, _n, _l in sections(f)]
         if not any(s.endswith('b') and s[:-1] in MODS for s in secs):
@@ -808,6 +808,34 @@ def main():
     for f, n, src in a_bad:
         print("%s:%d: a module-bss accessor in the image arm must name CS: %s"
               % (f, n, src), file=sys.stderr)
+    # ...and the accessor has to be pointed at a label that really IS in the
+    # image's bss. A label left in `.bss` and read through one is the SAME
+    # silent corruption the other way round - the image reads KERNEL_SEG at an
+    # offset that belongs to something else - and it happened while this wave
+    # was being built, to twelve labels at once, caught by a hand check and by
+    # nothing else. This is that hand check, kept.
+    for f in files:
+        where = {}
+        for sect, n, line in sections(f):
+            m = re.match(r'^(\w+):', line)
+            if m:
+                where[m.group(1)] = sect
+        src = open(f, encoding='utf-8', errors='replace').read()
+        for acc in set(re.findall(r'%define\s+(\w+)\([^)]*\)\s*\[cs:', src)):
+            for lab in set(re.findall(r'\b%s\(\s*(\w+)' % acc, src)):
+                if lab in where and not (where[lab].endswith('b')
+                                         and where[lab][:-1] in MODS):
+                    b_mis.append((f, lab, acc, where[lab]))
+
+    for f, lab, acc, sect in b_mis:
+        print("%s: %s is read with %s() but defined in %s, not a module bss"
+              % (f, lab, acc, sect), file=sys.stderr)
+    if b_mis:
+        sys.exit("os88ovlchk: %d label(s) are read through a module-bss "
+                 "accessor but live in the KERNEL - the image would read "
+                 "KERNEL_SEG at an offset that belongs to something else, "
+                 "consistently, which looks like working code "
+                 "(docs/plans/MODULE-SELFCONTAIN-PLAN.md 3)" % len(b_mis))
     if a_bad:
         sys.exit("os88ovlchk: %d module-bss accessor(s) do not name CS in the "
                  "image arm - docs/plans/MODULE-SELFCONTAIN-PLAN.md 3 (a "

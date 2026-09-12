@@ -555,6 +555,44 @@ prefix gone, and 0 with it back.
 register has no automatic gate, and needs one written before the first byte
 moves.**
 
+#### 6.4.1 Extending it past `fcp_stack` FAILED, and the symptom is recorded
+
+The obvious next step — move the rest of `FILECP.DRV`'s operation state, 31
+labels and 151 access sites, worth a further **~59 bytes** — was built,
+measured at **`kern_small` −192 total**, and **reverted**: `fcpsmall` goes red
+with *"GUIDE.TEX is not in B:\ after the paste"* and then *"the folder paste
+reported FERR 1"*, which is `FERR_NODISK` off `cmp byte [dsk_mntok], 1`.
+
+What was ruled out, so the next attempt starts ahead:
+
+* **Not a mechanical miss.** Every reference to every moved label goes through
+  the accessor — checked both ways by script, and `os88ovlchk`'s new half 3b
+  agrees. The only bare one is `add ax, fcp_stack`, which is the frame base
+  and correct.
+* **Not the clipboard.** `fcp_arm` writes only `fcp_op`/`type`/`drv`/`cwd`/
+  `name`, all of which stayed resident, and `fcp_paste`'s prologue sets
+  `fcp_ddrv`/`fcp_sdrv`/`fcp_dcwd` from them on every paste — so nothing moved
+  has to survive a `mod_drop`.
+* **Not a callback.** `fcp_rdnext`, `fcp_chunkset` and `fcp_clspan` appear in
+  `disk.inc`/`diskw.inc` in COMMENTS only; no kernel code calls into the image.
+* **Not the claim arithmetic.** The `MODP_SIZE + MODP_BSS` assertion passes,
+  so the bss fits inside the KB rounding and `mod_need`'s zeroing cannot
+  overrun it.
+* **Not adjacency.** The rewrite preserves order within each group, and the
+  only `+2` operands (`fcp_roff`, `fcp_ovwsz`, `fcp_need`) are inside a single
+  `resd`/`resw 2`.
+
+`FERR_NODISK` is read out of `[dsk_mntok]`, which is KERNEL state and was not
+moved — so something in the wider move corrupts memory, and the first visible
+symptom is a file paste that silently does nothing. **It wants a bisect over
+the 31 labels, in groups**, which is three or four emulator cycles. The tree
+is left at the verified `fcp_stack`-only state rather than shipping it.
+
+**`fcpsmall` is a real gate for this** — it went red on the extension where it
+had passed the frame-only move, which is the opposite of 6.4's finding about
+the frame and worth knowing: the row can see most of this state, just not the
+descent stack.
+
 ### 6.3 What W4 came to, and the trap that makes the rest of it smaller
 
 **`drv_status_x`: `.cold` 39,256 → 39,216, −40 on `kern_big`** (−4 on
