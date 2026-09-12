@@ -4879,28 +4879,60 @@ dskw_fmt_boot:
     ret
 
 ; -----------------------------------------------------------------------------
-; dskw_fmt_cpy - CX bytes from DS:BX to ES:DI (module-internal)
-; in:  BX = source in the KERNEL segment, ES:DI = destination, CX = count
-; out: nothing (all registers preserved)
+; dskw_fmt_cpy - CX bytes from CS:BX to ES:DI (module-internal)
+; in:  BX = source IN THIS IMAGE, ES:DI = destination, CX = count
+; out: nothing (all registers preserved, AX included)
 ;
-; `rep movsb` is exactly the right instruction - DS:SI to ES:DI is the pair
-; this has - so the source arrives in BX only because SI is the live table
-; row at every call site and is cheaper to bank here than at four of them.
+; The source arrives in BX only because SI is the live table row at every call
+; site and is cheaper to bank here than at four of them.
+;
+; IT WAS `rep movsb` FROM `.text`, and the four blocks it copies are now in
+; the image with it (SPEC.md 2.8.6): they are bytes written into a SECTOR and
+; nothing ever draws them, so the ordering rule has no window to fail in.
+; What that costs is the instruction: a `cs rep movsb` is refused on this
+; machine because an 8086 drops the segment prefix if an interrupt lands
+; mid-`rep` (SPEC.md 5.9), and the rest of a boot sector would then come from
+; whatever is at that offset in KERNEL_SEG - which assembles, runs, and writes
+; a disk that SPEC.md 18.2 rule 2 will not mount. So it is a byte loop.
 ; -----------------------------------------------------------------------------
 dskw_fmt_cpy:
+    push ax
     push cx
     push si
     push di
     mov si, bx
     cld
-    rep movsb
+.b:
+    mov al, [cs:si]             ; THE SOURCE IS THIS IMAGE (SPEC.md 2.8.6), so
+    inc si                      ; it is read through CS - and a byte loop and
+    stosb                       ; not `cs rep movsb`, because an 8086 LOSES the
+    loop .b                     ; prefix if an interrupt lands mid-`rep` and
+                                ; the rest of the copy would silently come
+                                ; from KERNEL_SEG (SPEC.md 5.9's rule, and
+                                ; kernel/vga12.inc:5223 is the other site that
+                                ; obeys it). ES:DI is LOW_SEG's sector buffer
+                                ; throughout, which `stosb` wants anyway.
+                                ;
+                                ; It costs ~8 bytes of the IMAGE and 4 clocks a
+                                ; byte over `rep movsb` - 97 bytes once per
+                                ; format, against an operation that is minutes
+                                ; of floppy - and takes 97 bytes of `.text`
+                                ; off every machine for ever.
     pop di
     pop si
     pop cx
+    pop ax
     ret
 
-section .text                   ; DATA, so back to the kernel segment: cold
-                                ; code reads it through DS (SPEC.md 2.6)
+                                ; DATA, and it STAYS IN THE IMAGE (SPEC.md
+                                ; 2.8.6): nothing here is ever drawn, it is
+                                ; bytes written into a sector, so the ordering
+                                ; rule is satisfied by construction - there is
+                                ; no window in which something wants these
+                                ; while FORMAT.DRV is not loaded, because the
+                                ; only thing that wants them is the format
+                                ; itself. dskw_fmt_cpy above reads them
+                                ; through CS.
 dskw_fmt_jmp: db 0xEB, 0x3C, 0x90   ; jmp short 0x3E / nop - and SPEC.md 18.2
                                 ; rule 2 tests this first byte for 0EBh/0E9h,
                                 ; so a sector without it would not mount the
@@ -4922,6 +4954,9 @@ dskw_fmt_stub:
     db 0x16, 0xCD, 0x19
     db 0x0D, 0x0A, 'Not a bootable disk. Press any key.', 0x0D, 0x0A, 0
 DFMT_STUB_LEN equ $ - dskw_fmt_stub
+
+section .text                   ; ...and back to the kernel segment for what
+                                ; follows (CLAUDE.md 1: a file ends in .text)
 section .cold                   ; ...and the RESIDENT stubs (SPEC.md 2.8.1)
 ;
 ; Four public names, unchanged, so not one call site in files.inc moved. Each

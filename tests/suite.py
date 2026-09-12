@@ -3357,6 +3357,54 @@ SOAK = [
         " analysis. The trainer is wired to it through cs_axisp."
         " --clobber-body is the red run and it reproduces both reports",
         needs=("marty",), serial=True),
+    Row("skiesinv", "soak", py("tests/skiesinv.py"), 27.0,
+        "SPEC.md 88.7.8.3: INVERTED IS THE SAME AEROPLANE. cs_step turns by"
+        " CSP_TURNK x sin(roll) with no cos(pitch) in it, and lift along the"
+        " body up axis dotted into the track's right is exactly"
+        " sign(cos pitch) sin(roll) - ch^2 + sh^2 cancels the rest - so past"
+        " the vertical a right bank turned LEFT. Reported as *\"the direction"
+        " of travel is wrong, I seem to be going partially sideways\"*, and"
+        " it is 88.7.8.1's sign a third time. Same pair as skiesfacing"
+        " ((H,0,0) and (H+180,180,180) are one attitude), stepped a TICK at a"
+        " time with the speed pinned: the row proves the arms are one camera"
+        " and the SAME PHYSICAL BANK (right.y equal) before it asks anything"
+        " about the turn, so a difference cannot be two aeroplanes banking"
+        " different ways. What it sees that skiesfacing cannot is MOTION - a"
+        " still frame does not say which way an aeroplane is turning."
+        " Tolerance is one unit in the last place and that is MUL14's floor,"
+        " not slop: cos(0) is +32767 and cos(180) is -32767. --clobber-bank"
+        " is the red run and it reads +15,+30,+44 against -16,-31,-45 from"
+        " the same wing down",
+        needs=("marty",), serial=True),
+    Row("skiesfacing", "soak", py("tests/skiesfacing.py"), 30.0,
+        "SPEC.md 88.7.8.2: the SCENE reads the FACING and not the heading."
+        " The camera's forward vector is (sh cp, sp, ch cp), so past the"
+        " vertical cos(pitch) turns its horizontal part round and the"
+        " aeroplane is pointed the other way along its own heading - and"
+        " 88.5.1's cull, the occluder's across and 88.6.2.4's"
+        " which-threshold-is-ahead all worked in the heading's frame with no"
+        " cos(pitch) in them at all. Reported as *\"a vertical 180 in the"
+        " Pitts stops drawing buildings in the distance and the lines on the"
+        " runway, and a reverse vertical 180 clears it\"*, which is 88.7.8.1"
+        " one layer out. The A/B is EXACT: (H, 0, 0) and (H+180, 180, 180)"
+        " are one camera to the bit - the quarter table reflects exactly -"
+        " so the row asserts cs_m matches first and then requires the same"
+        " objects filed, the same runway threshold and the same 3D window,"
+        " pixel for pixel. It clears CSO_SEEN each pose, because the cull is"
+        " only consulted for a stranger and the defect is invisible to"
+        " anything already on the glass. --clobber-facing is the red run and"
+        " it reads 7 filed against 1, 8 against 5 and 10 against 8."
+        " THE COMPARISON IS THE WHOLE SCREEN, PANEL INCLUDED, and it did not"
+        " used to be: the 80 pixels the first version carved out as *the"
+        " panel legitimately reads a different Euler triple* were SPEC.md"
+        " 88.9.2.6 - the attitude line off the glass and the compass reading"
+        " the reciprocal, both reported by the field within the day."
+        " --clobber-panel is that half's red run and reproduces exactly 80."
+        " Its fourth pose flies both arms at 60 DEGREES OF BANK, which is the"
+        " only one that can tell the roll half of the fold from nothing - and"
+        " 60 rather than 90, where cos(roll) is exactly 0 over a 64-unit"
+        " window and a line-only horizon cannot say which way vertical leans",
+        needs=("marty",), serial=True),
     Row("skiesrad", "soak", py("tests/skiesrad.py"), 34.0,
         "SPEC.md 88.5.11: cs_pwhole never lies. cs_projall PREDICTS off"
         " CSM_RAD that an object is wholly in front of the near plane, and"
@@ -4094,7 +4142,14 @@ SOAK = [
         "the resident build. It builds its own image (`make small`) for "
         "smallboot's reason.",
         needs=("marty",), serial=True,
-        wants=("build/muptest.img", "build/small.img", "build/smallapps.img")),
+        # build/small360.img is what the COMMAND above opens (OS88_SYSIMG),
+        # and it was not in this list - so the frozen tree built the 1.44MB
+        # pair and the row died in 0.1s on the 360KB one it actually reads.
+        # A `wants=` that names a different artefact from the command is a row
+        # that cannot run anywhere but a checkout where somebody has already
+        # typed `make small` by hand (docs/WRITING-TESTS.md 4).
+        wants=("build/muptest.img", "build/small360.img",
+               "build/small.img", "build/smallapps.img")),
     Row("fdlgdrop", "soak", py("tests/fdlgdrop.py"), 80.0,
         "...and the module comes BACK on every route a dialog ends by "
         "(SPEC.md 38.0.1). The row above drives the dialog and never asks "
@@ -4124,6 +4179,21 @@ SOAK = [
     Row("fmthumb", "soak", py("tests/fmthumb.py"), 30.0,
         "SPEC.md 13.10.5: the Disk window's scroll-bar THUMB is dragged, and"
         "x is never read.",
+        needs=("marty",), serial=True),
+    Row("sbrate286", "soak", py("tests/sbrate286.py"), 60.0,
+        "SPEC.md 13.10.5.4.1: the thumb's rate is a PAIR and os88ui_sbrate "
+        "picks on [cpu_tier]. ONE A/B on ONE boot of ONE build - the same "
+        "drag twice with `cpu_tier` poked between the arms, which is the only "
+        "way a 286 is testable here at all (MartyPC is an 8088 and QEMU "
+        "cannot say what a drag LOOKS like). Both arms of the macro: the "
+        "Disk window is `mov al, [cpu_tier]` and Note Pad is `call "
+        "OSAPI_CPU_INFO`, so one passing says nothing about the other - and "
+        "Note Pad's answer is PIXELS, because a package's copy of the "
+        "element is its own and os88ui_sbd_rate is the KERNEL's byte. It "
+        "reads its expectations out of the build's own defines ($OS88_DEFINES "
+        "/ $OS88_PKGDEFS over the %define), so `make SBRATE286=0` reds the "
+        "kernel case instead of quietly asserting the shipped numbers "
+        "against another tree.",
         needs=("marty",), serial=True),
     Row("fdlgthumb", "soak", py("tests/fdlgthumb.py"), 50.0,
         "SPEC.md 13.10.5: ...and the Standard File dialog's, which is the"
@@ -5002,7 +5072,13 @@ SOAK = [
         "modstr - a module's own strings letter correctly (SPEC.md 2.8.6). "
         "The bytes, out of fm_hdrbuf and toast_buf, because a string read "
         "through DS instead of CS lands in kernel code and letters plausible "
-        "rubbish rather than faulting",
+        "rubbish rather than faulting. ...and since the formatter's 97-byte "
+        "boot-sector template moved into its image too, the last check is "
+        "about bytes on a DISK: B: is re-opened after the format, and "
+        "SPEC.md 18.2 rule 2's 0EBh/0E9h test on the first byte is what makes "
+        "the MOUNT the assertion - a template read through DS puts 97 bytes "
+        "of KERNEL_SEG on the disk and the volume does not come back. "
+        "Measured at 47s",
         needs=("marty",), serial=True),
     Row("diskclone", "soak", py("tests/diskclone.py"), 120.0,
         "diskclone - Clone Disk... (SPEC.md 18.99/22.21) driven end to end, "

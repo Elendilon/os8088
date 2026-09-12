@@ -49,6 +49,30 @@
 ; =============================================================================
 
 %include "os88api.inc"
+
+; THE LIST BAR'S THUMB RATES (SPEC.md 13.10.5.4.1), and they are AT THE TOP
+; for 13.10.7.4's reason: a %ifdef is answered in file order and the bar
+; ladder that names them is two thousand lines above the include.
+;
+; THIS PACKAGE IS THE CALIBRATION and the pair says so by being EQUAL. Every
+; other bar in the system waited for the release on every machine; this one
+; has followed the hand at 2 ticks since it was written, on the target as
+; well, and the field reading that a 286 scrolls it correctly is what sized
+; the rest of 13.10.5.4.1's table. So there is nothing here to pick between -
+; what the call buys is that the tree has ONE description of a bar's rate.
+%ifndef WR_SBRATE
+%define WR_SBRATE 2                 ; ticks between commits on an 8086/8088
+%endif
+%ifndef WR_SBRATE286
+%define WR_SBRATE286 2              ; ...and on a 286 or better
+%endif
+; ...AND THE PAUSE COMMIT (13.10.5.4.2), which this bar gets like every other
+; even though its rate already follows: a hand that stops is owed the row it
+; stopped on, and the throttle may still be holding one.
+%ifndef WR_SBIDLE
+%define WR_SBIDLE 9
+%endif
+
 %include "netpkg.inc"               ; THE DRIVER'S OWN HEADER, the same file
                                     ; drivers/ether/ether.asm includes, so the
                                     ; two ends cannot drift (SPEC.md 20.11)
@@ -319,6 +343,8 @@ wr_entry:
     mov ax, wr_onup
     call OSAPI_WM_ONMOUSEUP             ; the thumb's release...
     mov bx, [wr_win]
+    mov ax, wr_ontimer              ; 13.10.5.4.2's PAUSE commit, the gesture's
+    call OSAPI_WM_ONTIMER           ; third edge
     mov ax, wr_ondrag
     call OSAPI_WM_ONDRAG                ; ...and its movement. CF = 1 on the
                                         ; 128KB kernel, which has no W_ONDRAG
@@ -2221,7 +2247,8 @@ wr_sbclick:
     cmp al, OS88UI_SBTHUMB
     jne .out
     mov bx, wr_sb
-    mov al, 2                           ; the view follows every 2 ticks: a
+    mov ax, WR_SBRATE | (WR_SBRATE286 << 8)
+    call os88ui_sbrate                  ; the view follows every 2 ticks: a
     call os88ui_sbgrab                  ; 12-row repaint is 36 drawing calls
     jmp short .out                      ; and the field machine cannot do that
 .up:                                    ; per mouse report (SPEC.md 13.10.5.4)
@@ -2285,6 +2312,12 @@ wr_ondrag:
     call wr_geom
     jc .out
     call wr_dscroll
+    call os88ui_sbdragging          ; 13.10.5.4.2: only a LIVE drag may arm the
+    jc .notimer                     ; pause timer, and the window is in SI
+    mov bx, si
+    mov ax, WR_SBIDLE
+    call OSAPI_WM_TIMER
+.notimer:
     mov bx, wr_sb
     call os88ui_sbtrack
     jc .out
@@ -2299,6 +2332,29 @@ wr_ondrag:
     pop ax
     ret
 
+wr_ontimer:                         ; the thumb has been STILL for WR_SBIDLE
+    push ax                         ; ticks; 13.9 disarms before this runs and
+    push bx                         ; this does not re-arm, so a pause is ONE
+    push cx                         ; commit however long it lasts
+    push dx
+    call wr_geom
+    jc .tout
+    call wr_dscroll
+    mov bx, wr_sb
+    call os88ui_sbowed              ; ...and NOT os88ui_sbdrop: a pause is not
+    jc .tout                        ; the end of the gesture
+    cmp ax, [wr_top]
+    je .tout
+    mov [wr_top], ax
+    call wr_dlist
+.tout:                              ; ITS OWN epilogue, and not a jump into
+    pop dx                          ; wr_onup's: a local label belongs to
+    pop cx                          ; whichever non-local one preceded it, so
+    pop bx                          ; `.out` here and `.out` there are two
+    pop ax                          ; different symbols (SPEC.md 13.10.7.4)
+    ret
+
+
 wr_onup:
     push ax
     push bx
@@ -2307,6 +2363,9 @@ wr_onup:
     call wr_geom
     jc .out
     call wr_dscroll
+    mov bx, si                      ; the pause timer must not outlive the
+    xor ax, ax                      ; gesture it belongs to (13.10.5.4.2)
+    call OSAPI_WM_TIMER
     mov bx, wr_sb
     call os88ui_sbdrop
     jc .out

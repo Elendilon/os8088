@@ -96,17 +96,40 @@ FM_SB_W     equ 14              ; scroll bar width
 ; it are the WINDOW's rather than the element's - which is 13.10.1's rule
 ; still holding.
 ;
-; **THE RATE DEFAULTS TO 0 AND THAT IS NOT A COP-OUT.** A scroll here is
+; **THE 8086 RATE IS 0 AND THAT IS NOT A COP-OUT.** A scroll here is
 ; fm_scroll_by - a gfx_scroll blit plus a relettering of every newly exposed
 ; row - and PERFORMANCE.md prices one 78-cell row at ~71 ms on a 4.77 MHz
 ; 8088. A thumb dragged the length of a 200-file listing with the view
 ; following would be seconds of repaint behind a hand that had already
 ; stopped: PERFORMANCE.md Part 1's VISIBLE REDRAW, which is invisible in an
 ; emulator and is exactly why the rate is a number rather than a cadence.
-; `make SBRATE=2` is the one to try on a fast machine.
+;
+; **A 286 IS A DIFFERENT MACHINE AND GETS A DIFFERENT NUMBER** (13.10.5.4.1).
+; The drag's commit here is `fm_scroll_by` past its blit tier - the whole
+; window - and it is the CHEAPEST of the bars measured for that section:
+; **116.9 ms** on a 4.77 MHz 8088 with a CGA, against Note Pad's 383.8 and
+; TeXPad's 417.3 (docs/reports/SBRATE-COMMIT-COST-2026-09-11.md). It takes
+; the shared number anyway, because 2 has headroom for all three and the
+; difference between 6 and 9 commits a second is not one anybody can see.
+; os88ui_sbrate picks between the two on [cpu_tier] - a FACT, not a guess
+; about speed (PERFORMANCE.md rule 7). `make SBRATE=n SBRATE286=n` sweeps it.
 %ifndef FM_SBRATE
-%define FM_SBRATE 0             ; ticks between commits; 0 = the release
+%define FM_SBRATE 1             ; ticks between commits; 0 = the release
 %endif                          ; commits and nothing before it
+%ifndef FM_SBRATE286
+%define FM_SBRATE286 1          ; ...and what a 286 or better is given. EQUAL
+%endif                          ; to the above because 1 is the FLOOR - the
+                                ; rate is counted in ticks and there is nothing
+                                ; faster to hand a 286 (13.10.5.4.1)
+;
+; ...AND THE PAUSE COMMIT (13.10.5.4.2), which is a different trigger and not
+; another value of the one above: a one-shot timer re-armed on every W_ONDRAG
+; fires only after this many ticks in which the thumb did not move. It takes NO
+; tier pair, because it is how long a PERSON pauses when they mean "show me"
+; and that is the same half second on every machine.
+%ifndef FM_SBIDLE
+%define FM_SBIDLE 9             ; ticks of stillness before the view arrives;
+%endif                          ; 9 = 494 ms. 0 = no pause commit at all
 %endif
 ; --- the band under the rows: the edge, then the status line (SPEC.md 22.20)
 ; The row area is UNCHANGED by all three of these - [fm_listb] is still
@@ -495,6 +518,12 @@ fm_kinit_x:
     call KERNEL_SEG:cw_wm_onmouseup ; header buttons fire and track on. Not
     mov ax, fm_ondrag           ; template words - the template is eight and
     call KERNEL_SEG:cw_wm_ondrag ; growing it would read one past every
+%ifdef OS88UI_SBDRAG
+    mov ax, fm_ontimer          ; ...and 13.10.5.4.2's PAUSE commit, which is
+    call KERNEL_SEG:cw_wm_ontimer ; the third edge of the same gesture. Nothing
+                                ; ARMS it here - fm_ondrag does, on movement -
+                                ; so a window merely open has no timer
+%endif
                                 ; existing package's - so a KD_INIT is where
                                 ; a kernel window installs them, and a
                                 ; KD_POOL block is REUSED, so a window closed
@@ -2903,7 +2932,8 @@ fm_onclick_x:
 %ifdef OS88UI_SBDRAG
     cmp al, OS88UI_SBTHUMB      ; SPEC.md 13.10.5: the thumb is DRAGGED here
     jne .nograb                 ; now, where it used to page down. BX is still
-    mov al, FM_SBRATE           ; the block and DX still the press, absolute
+    mov ax, FM_SBRATE | (FM_SBRATE286 << 8)
+    call os88ui_sbrate          ; the block and DX still the press, absolute;
     call os88ui_sbgrab          ; CF = 1: no thumb to take after all, so the
     mov al, OS88UI_SBTHUMB      ; ladder below pages exactly as it did
     jc .nograb
@@ -3058,7 +3088,11 @@ fm_onup_x:
     call os88ui_sbdragging      ; SPEC.md 13.10.5: the release COMMITS, and it
     jc .btn                     ; commits unconditionally - a position the rate
     mov bx, si                  ; refused mid-drag is never lost, and a release
-    call fm_layout              ; that landed off the screen entirely still
+    xor ax, ax                  ; that landed off the screen entirely still
+    call KERNEL_SEG:cw_wm_timer ; ends the gesture (13.7's second rule).
+                                ; 13.10.5.4.2's timer is cancelled FIRST: it
+                                ; must not outlive the gesture it belongs to
+    call fm_layout
     call fm_sbset               ; ends the gesture (13.7's second rule).
     call os88ui_sbdrop          ; fm_sbset FIRST: the overlay's erase reads the
     jc .btn                     ; block's geometry. CF = 1 = the gesture was
@@ -3122,7 +3156,13 @@ fm_ondrag_x:
     call os88ui_sbdragging      ; SPEC.md 13.10.5: a live thumb drag owns this
     jc .btn                     ; movement whole - a header button cannot also
     mov bx, si                  ; be armed, but asking costs one compare and
-    call fm_layout              ; says so
+    mov ax, FM_SBIDLE           ; says so.
+    call KERNEL_SEG:cw_wm_timer ; 13.10.5.4.2: EVERY movement pushes the
+                                ; one-shot out, which is what makes it an IDLE
+                                ; detector and not a cadence. FM_SBIDLE = 0
+                                ; needs no test of its own - wm_timer takes 0
+                                ; as CANCEL, so that build arms nothing
+    call fm_layout
     call fm_sbset               ; BX = the block; DX is still the pointer's y
     call os88ui_sbtrack         ; CF = 1: the thumb moved and the view is not
     jc .out                     ; owed a thing yet (the rate, or the same row)
@@ -3148,6 +3188,45 @@ fm_ondrag_x:
     xor al, al                  ; off it: nothing is down
 .set:
     call fm_setdown             ; ...which draws only if that CHANGED
+.out:
+    jmp kretc_di
+%endif
+
+%ifdef OS88UI_SBDRAG
+; -----------------------------------------------------------------------------
+; fm_ontimer - W_ONTIMER (SPEC.md 13.9): the thumb has been STILL for FM_SBIDLE
+;              ticks, so the view goes where the hand is (SPEC.md 13.10.5.4.2)
+; in:  SI = window ptr; gfx lock held, on the UI task - W_ONCLICK's environment
+; out: nothing (all registers preserved)
+;
+; fm_ondrag re-arms the one-shot on every movement, so reaching here at all is
+; the statement that no W_ONDRAG arrived for FM_SBIDLE ticks - and W_ONDRAG is
+; delivered only when the pointer MOVED (SPEC.md 13.8.2), so a still hand is
+; the only thing that gets here.
+;
+; IT DOES NOT RE-ARM. A pause is ONE commit however long it lasts (13.9 disarms
+; the timer before this runs), and the next movement arms it again.
+;
+; os88ui_sbowed rather than os88ui_sbdrop: a pause is not the end of the
+; gesture, so the record must survive it. CF = 1 is a timer that outlived its
+; drag - the lost-release door of 13.10.5.7 - and drawing nothing is right.
+; -----------------------------------------------------------------------------
+fm_ontimer_x:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov bx, si
+    call fm_layout              ; the same three steps fm_ondrag takes, for the
+    call fm_sbset               ; same reason: the block is what owns the
+    call os88ui_sbowed          ; gesture's identity (13.10.5.10)
+    jc .out
+    sub ax, [fm_lscr]           ; ...as a DELTA, which is what fm_scroll_by
+    call fm_scroll_by           ; takes (SPEC.md 22.11)
+    jnc .out
+    call fm_repaint             ; 11.3's granularity refusal; SI still = window
 .out:
     jmp kretc_di
 %endif
@@ -8414,6 +8493,10 @@ fmf_fm_onclick:         call fm_onclick_x
 %ifdef KERN_BIG
 fmf_fm_ondrag:          call fm_ondrag_x
                     retf
+%ifdef OS88UI_SBDRAG                        ; ...and the PAUSE commit's, whose
+fmf_fm_ontimer:         call fm_ontimer_x   ; BODY is behind the same guard:
+                    retf                    ; KERN_BIG is not enough, because
+%endif                                      ; SBDRAGOFF leaves the first set
 %endif
 
 section .text

@@ -1348,6 +1348,19 @@ drv_owns_seg_x:
 ; nothing went wrong" is the absence of both. Only a FAILURE has a stored
 ; code, which is the only one of the three that could not be re-derived.
 ; -----------------------------------------------------------------------------
+section .modc                   ; CTRL.DRV's image (SPEC.md 2.8): the Drivers
+                                ; page is this routine's only caller, twice,
+                                ; and the page is `.modc` on BOTH builds. It
+                                ; calls NOTHING out - every operand is either a
+                                ; register or DS-relative kernel data, and DS
+                                ; is still KERNEL_SEG inside an image - so it
+                                ; takes no shim with it and the whole 40 bytes
+                                ; leave `.cold` rather than a net share of it.
+                                ; The strings it hands back (drv_errstr,
+                                ; drv_s_off, drv_e0) STAY in `.text`: it
+                                ; answers an ADDRESS and the caller draws it
+                                ; through DS, so they are not module data and
+                                ; want no `cs:`.
 drv_status_x:
     push ax
     mov al, [bx+DRVR_ERR]       ; A REPORTED REASON OUTRANKS 'Loaded', which is
@@ -1360,17 +1373,18 @@ drv_status_x:
     mov si, ax                  ; existing row's caption moves. A code from a
     mov si, [si+drv_errstr]     ; future version still says nothing rather than
     pop ax                      ; indexing past the table
-    retf
+    ret
 .noerr:
     cmp word [bx+DRVR_SEG], 0
     jne .loaded
     mov si, drv_s_off
     pop ax
-    retf
+    ret
 .loaded:
     mov si, drv_e0
     pop ax
-    retf
+    ret
+section .cold
 
 
 ; -----------------------------------------------------------------------------
@@ -4691,9 +4705,11 @@ drv_task_x:
 drv_cp_count_x:
     xor al, al                  ; no class publishes a Control Panel page
     retf
-drv_status_x:
-    mov si, drv_s_off           ; the one status a row could ever have
-    retf
+section .modc                   ; ...and the stub goes where the body went, or
+drv_status_x:                   ; the two builds would put one name in two
+    mov si, drv_s_off           ; different segments (the one status a row
+    ret                         ; could ever have)
+section .cold
 
 section .ovlw                   ; ...and these two are BOOT-OVERLAY code on the
                                 ; live arm (SPEC.md 2.5.2), reached near from
