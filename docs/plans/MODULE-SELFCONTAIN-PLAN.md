@@ -454,15 +454,43 @@ argument is the wave's real work**: a file dialog's labels are drawn by
 `fdlg_paint` inside the image, but `inst_fname` is the ANSWER buffer and a
 caller reads it *after* the dialog closes, so it stays.
 
-**W4 — bodies only an image calls. ~160 bytes, `kern_big`.**
-`drv_status_x` (40), `sched_mode_set` (20), `vid_disp_relayout` (10),
-`drv_cp_count_x` (6), `ssf_cfg` (6), `hb_onup` (6) and the rest. This is
-ordinary code motion — `.cold`/`.text` into `.modc` — and its hazard is the
-near/far rule rather than the data rule: a body that moves into an image must
-reach the kernel through a shim, and `tools/os88ovlchk.py`'s near-call check
-is what says so. **Check the shim arithmetic before assuming a win**: a
-40-byte body that needs a 4-byte far shim nets 36, and one that needs three
-nets 28.
+**W4 — bodies only an image calls. `drv_status_x` TAKEN: −40 bytes of
+`.cold`; the row's other candidates are REFUSED, and 6.3 is why.** Ordinary
+code motion — `.cold`/`.text` into `.modc` — whose hazard is the near/far rule
+rather than the data rule, and `tools/os88ovlchk.py`'s near-call check is what
+says so. **Check the shim arithmetic before assuming a win**: a 40-byte body
+that needs a 4-byte far shim nets 36, and one that needs three nets 28.
+
+### 6.3 What W4 came to, and the trap that makes the rest of it smaller
+
+**`drv_status_x`: `.cold` 39,256 → 39,216, −40 on `kern_big`** (−4 on
+`kern_small`, where it is a stub). It is the ideal shape — the Drivers page is
+its only caller, twice, on both builds, and it **calls nothing out**, so it
+took no shim with it and the whole 40 bytes left rather than a net share. The
+strings it hands back (`drv_errstr`, `drv_s_off`, `drv_e0`) stay in `.text`:
+it answers an ADDRESS and the caller draws it through DS, so they are not
+module data and want no `cs:`.
+
+**`vid_disp_relayout` is REFUSED on its own arithmetic**: ten bytes that make
+three near calls (`vid_disp_init`, `desk_rowcalc`, `wm_refit`), so moving it
+needs three 4-byte shims — twelve resident bytes to save ten. That is the row's
+own warning firing on the row's own list.
+
+**And `sched_mode_set` is REFUSED for a reason that invalidates part of the
+measurement.** It read as `.modc`-only and it is called by the BOOT OVERLAY:
+`driver.inc:3475` is line 73 of `%macro CFG_BOOT`, expanded at `driver.inc:3825`
+into `.ovl`. The move assembled and `tools/os88ovlchk.py` refused the build
+(`.ovl -> .modc, near: sched_mode_set`) — which is the only reason it cost ten
+minutes instead of producing a kernel that cannot boot.
+
+**`os88modcost.py` claimed that blind spot was conservative. It is not**, and
+the file says so now: a `%macro` body written INSIDE a module section makes its
+calls look module-only when they expand somewhere else entirely. The tool marks
+any such row `?macro`, and turning that on immediately found **two more**:
+`drv_cfgname` and `drv_sysname` (`'SYSTEM.CFG'` and `'KERNEL.SYS'`, 11 bytes
+each) are read by the settings loader's macros in `.ovl`, so 22 bytes that the
+audit called movable never were. **Re-read W3 and W5 with `--detail` and treat
+every `?macro` row as unmovable until somebody has looked.**
 
 **W5 — `CTRL.DRV`'s leftovers and `HIBER.DRV`'s. ~90 bytes.** `cp_sbuf` (28)
 is the interesting one and it is shared between `.modc` and `.modh`, so it is

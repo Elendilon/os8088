@@ -61,8 +61,19 @@ WHAT IT CANNOT SEE, and both are conservative - they UNDER-report:
     is named where the table is, not where it is dispatched from.  That is
     os88ovlchk.py's blind spot too and it stays a review rule.
   * a reference inside a %macro BODY is filed where the body is written, not
-    where it expands.  A module-only string read through a macro defined in
-    `.text` therefore reads as resident and is left out.
+    where it expands.
+
+AND THAT SECOND ONE IS NOT CONSERVATIVE, which this file claimed until a wave
+was built on the claim.  It cuts BOTH ways: a macro body written INSIDE a
+module section makes its calls look module-only when they expand somewhere
+else entirely.  `sched_mode_set` read as `.modc`-only and is called by the
+BOOT OVERLAY - `driver.inc:3475` is line 73 of `%macro CFG_BOOT`, expanded at
+`driver.inc:3825` into `.ovl` - so moving it into the image would have put a
+routine the boot ladder needs out of the boot ladder's reach.
+`tools/os88ovlchk.py` refused the build, which is the only reason that was ten
+wasted minutes rather than a kernel that does not boot.  A row whose module
+references ALL come from inside a macro body is marked `?macro` and must be
+checked by hand before anything is moved.
 
 WHAT IT DELIBERATELY EXCLUDES: an `apic_*` label (SPEC.md 2.8, and the comment
 over `osapi_table`).  It names a cell of the PUBLISHED table so that a module
@@ -122,6 +133,7 @@ def scan_source():
     """label -> (section, file, line), and label -> [(file, line, section)]."""
     defs, refsite, kind = {}, collections.defaultdict(list), {}
     sec = ['.text']
+    macro = [0]
 
     def walk(path):
         try:
@@ -139,6 +151,12 @@ def scan_source():
                     if os.path.isfile(c):
                         walk(c)
                         break
+                continue
+            if re.match(r'\s*%macro\b', raw, re.I):
+                macro[0] += 1
+                continue
+            if re.match(r'\s*%endmacro\b', raw, re.I):
+                macro[0] = max(0, macro[0] - 1)
                 continue
             m = SECT.match(raw)
             if m:
@@ -160,7 +178,7 @@ def scan_source():
                     kind[lab] = 'equ'
                 line = line[m.end():]
             for tok in IDENT.findall(line):
-                refsite[tok].append((rel, n, sec[0]))
+                refsite[tok].append((rel, n, sec[0], macro[0] > 0))
 
     walk(os.path.join(ROOT, 'kernel', 'kernel.asm'))
     return defs, refsite, kind
@@ -354,9 +372,14 @@ def main():
     for lab, (dsec, f, ln) in defs.items():
         if dsec not in RESIDENT or NOTMOD.match(lab):
             continue
-        naming = {rs for (rf, rl, rs) in refsite[lab] if (rf, rl) != (f, ln)}
+        sites = [x for x in refsite[lab] if (x[0], x[1]) != (f, ln)]
+        naming = {x[2] for x in sites}
+        # ANY macro-body reference, not all of them: `sched_mode_set` has a
+        # real `.modc` caller AND a `%macro CFG_BOOT` one that expands into
+        # `.ovl`, and it is the second that decides whether it can move.
+        inmac = any(x[3] for x in sites)
         if naming and naming <= target:
-            rows.append(dict(sz=sizes.get(lab, 0), lab=lab, sec=dsec,
+            rows.append(dict(sz=sizes.get(lab, 0), lab=lab, sec=dsec, macro=inmac,
                              kind=kind.get(lab, '?'), f=f, ln=ln,
                              by=sorted(naming),
                              cls=('DATA  .text' if dsec == '.text' and kind.get(lab) == 'data'
@@ -405,8 +428,9 @@ def main():
         print()
         print('  %6s  %-22s %-6s %-12s %s' % ('bytes', 'label', 'sec', 'named from', 'where'))
         for r in rows:
-            print('  %6d  %-22s %-6s %-12s %s:%d'
-                  % (r['sz'], r['lab'], r['sec'], ','.join(r['by']), r['f'], r['ln']))
+            print('  %6d  %-22s %-6s %-12s %s:%d%s'
+                  % (r['sz'], r['lab'], r['sec'], ','.join(r['by']), r['f'],
+                     r['ln'], '   ?macro' if r.get('macro') else ''))
 
 
 if __name__ == '__main__':

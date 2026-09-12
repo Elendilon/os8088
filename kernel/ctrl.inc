@@ -4794,7 +4794,8 @@ cp_drv_paint:
     call cp_drv_mem1                ; (SPEC.md 31.6.2). BX survives it, and the
                                     ; status call below still wants the row
 
-    call COLD_SEG:drv_status_x                    ; ...and what it is doing right now
+    call drv_status_x                             ; ...and what it is doing right now
+                                                  ; NEAR: the body is in this image
     pop ax
     push ax
     call cp_drv_rowy
@@ -5730,7 +5731,8 @@ cp_drv_line1:
     call COLD_SEG:drvf_drv_row      ; AL survives both of these
     cmp word [bx+DRVR_FILE], 0
     je .out
-    call COLD_SEG:drv_status_x      ; SI = what it is doing right now
+    call drv_status_x               ; SI = what it is doing right now (NEAR:
+                                    ; the body is in this image)
     call cp_drv_rowy                ; DX = this row's glyph top
     add dx, CP_DSTDY
     mov ax, CP_PLX                  ; ...and NOT CP_PMX: see above
