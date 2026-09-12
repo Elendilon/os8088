@@ -19,10 +19,10 @@ state sticks until the loop is flown backwards.
 
 THE A/B IS EXACT AND NEEDS NO TOLERANCE, which is what makes this testable:
 
-    (hdg = H,        pitch = 0,    roll = 0)
-    (hdg = H + 180,  pitch = 180,  roll = 180)
+    (hdg = H,        pitch = p,    roll = r)
+    (hdg = H + 180,  pitch = 180-p, roll = r + 180)
 
-are THE SAME CAMERA. Every row of cs_matrix comes out identical term for
+are ONE ATTITUDE, and at p = 0 THE SAME CAMERA. Every row of cs_matrix comes out identical term for
 term - the quarter table (88.5.9) reflects exactly, so sh, ch, cp and cr all
 negate exactly, and MUL14(-a, -b) is MUL14(a, b) to the bit. So the two
 attitudes must file the same objects, sort them the same way, pick the same
@@ -30,9 +30,13 @@ runway threshold and put the same pixels in the 3D window. Check 0 asserts
 the premise itself off the guest's own cs_m, so a row whose A/B had stopped
 being an A/B would say so rather than compare two different cameras.
 
-The PANEL is deliberately outside the comparison and is not a defect: it
-reads the Euler triple, and 180/180 is a different attitude from 0/0 however
-the camera comes out - the compass really does say the other number.
+THE COMPARISON IS THE WHOLE SCREEN, PANEL INCLUDED, and it did not used to
+be. This row first carved the panel out on the reasoning that it reads the
+Euler triple and 180/180 is a different triple from 0/0 - which is true and
+is not a licence, because the panel draws an ATTITUDE and those two triples
+are one attitude. The 80 pixels the carve-out was hiding were SPEC.md
+88.9.2.6: the attitude line off the glass entirely and the compass reading
+the reciprocal. An exclusion in a gate is where the next defect lives.
 
 EVERY POSE CLEARS CSO_SEEN FIRST (cs_skipclr by hand). 88.5.1 files an
 object that was drawn LAST frame without consulting the cone at all, so the
@@ -40,9 +44,13 @@ defect is invisible to anything already on the glass: what is up stays up
 and only strangers are refused. That is the *"in the distance"* in the
 report, and a row that did not make strangers of them would measure nothing.
 
---clobber-facing is the red run (docs/WRITING-TESTS.md 1): it NOPs the four
-bytes of `neg ax / neg bx` in cs_matrix, so [cs_fsinh]/[cs_fcosh] are just
-[cs_sinh]/[cs_cosh] again - the code exactly as the field had it.
+--clobber-facing is the red run for the scene (docs/WRITING-TESTS.md 1): it
+NOPs the four bytes of `neg ax / neg bx` in cs_matrix, so [cs_fsinh]/
+[cs_fcosh] are just [cs_sinh]/[cs_cosh] again - the code exactly as the field
+had it. --clobber-panel is the red run for the PANEL half: one byte each
+turns SPEC.md 88.9.2.6's two folds off (`jns` over the fold becomes `jmp
+short`), and the attitude line leaves the glass and the compass reads the
+reciprocal again.
 """
 import argparse
 import os
@@ -79,6 +87,8 @@ def main(argv):
     ap.add_argument("--apps", default="build/apps360.img")
     ap.add_argument("--clobber-facing", action="store_true",
                     help="the facing pair becomes the heading again: red")
+    ap.add_argument("--clobber-panel", action="store_true",
+                    help="the ADI and the compass read the raw triple: red")
     a = ap.parse_args(argv)
     os.chdir(ROOT)
     mp = dispapps._map("skies")
@@ -122,6 +132,26 @@ def main(argv):
             m.run()
             print("  (the facing pair is the heading again: this must fail)")
 
+        if a.clobber_panel:
+            # 88.9.2.6's two folds, each turned off by ONE BYTE: `jns` over
+            # the fold becomes `jmp short`, so the raw Euler triple reaches
+            # the attitude indicator and the compass again
+            for nm, pat, where in (
+                    ("the ADI", b"\x81\xC1\x00\x40\x79\x08\xF7\xD8"
+                                b"\x05\x00\x80", "cs_d_adi"),
+                    ("the compass", b"\x81\xC3\x00\x40\x79\x03"
+                                    b"\x80\xF4\x80", "cs_k_hdg")):
+                lo = mp[where]
+                code = m.read(lin + lo, 0x120)
+                j = code.find(pat)
+                if j < 0 or code.find(pat, j + 1) >= 0:
+                    sys.exit("skiesfacing: %s does not fold the attitude the "
+                             "way this patch expects" % where)
+                m.pause()
+                m.write(lin + lo + j + 4, b"\xEB")     # jns -> jmp short
+                m.run()
+                print("  (%s reads the raw triple again: must fail)" % nm)
+
         m.type_text("f")
         m.advance(frames=90)
         m.run()
@@ -160,7 +190,7 @@ def main(argv):
         vx0, vy0 = uw("cs_wx0"), uw("cs_vy")
         vw, vh = uw("cs_ww"), uw("cs_wh")
         print("    --- %d objects, half-length %d m; the 3D window is "
-              "%dx%d at (%d,%d) and the panel is NOT in it"
+              "%dx%d at (%d,%d), and the PANEL IS IN THE COMPARISON"
               % (nobj, hlen, vw, vh, vx0, vy0))
 
         def strangers():
@@ -176,7 +206,8 @@ def main(argv):
             m.write(lin + at + CSO_SKIP, b"\x00\x00")
 
         def window(px, w):
-            """The 3D view alone, rows of rgb24."""
+            """The 3D view alone, rows of rgb24 - reported beside the whole
+            screen so a failure says WHERE, the scene or the panel."""
             return [px[((vy0 + y) * w + vx0) * 3:
                        ((vy0 + y) * w + vx0 + vw) * 3] for y in range(vh)]
 
@@ -241,18 +272,24 @@ def main(argv):
             print("      %-26s %2d whole frames to settle" % ("", i + 1))
             return nvis, rwrev, window(shot, w), mat, shot
 
-        def ab(what, t, y):
+        def ab(what, t, y, roll=0):
+            # (H, p, r) and (H+180, 180-p, r+180) are ONE attitude, so the
+            # pair generalises: `roll` banks BOTH arms by the same real angle
             print("    --- %s" % what)
-            A = pose(t, y, 0, 0, 0)
-            B = pose(t, y, 0x8000, 0x8000, 0x8000)
+            A = pose(t, y, 0, 0, roll)
+            B = pose(t, y, 0x8000, 0x8000, (roll + 0x8000) & 0xFFFF)
             d = sum(1 for ra, rb in zip(A[2], B[2])
                     for i in range(0, len(ra), 3)
                     if ra[i:i + 3] != rb[i:i + 3])
+            full = sum(1 for i in range(0, len(A[4]), 3)
+                       if A[4][i:i + 3] != B[4][i:i + 3])
             lit = sum(1 for r in A[2] for i in range(0, len(r), 3)
                       if r[i:i + 3] != b"\0\0\0")
             print("      upright  nvisn %2d rwrev %d | inverted nvisn %2d "
-                  "rwrev %d | %d of %d window pixels differ (%d lit)"
-                  % (A[0], A[1], B[0], B[1], d, vw * vh, lit))
+                  "rwrev %d | %d of %d window and %d of %d SCREEN pixels "
+                  "differ (%d lit)"
+                  % (A[0], A[1], B[0], B[1], d, vw * vh, full, len(A[4]) // 3,
+                     lit))
             check(A[3] == B[3],
                   "%s: the two attitudes ARE one camera (cs_m %s)"
                   % (what, "matches" if A[3] == B[3] else
@@ -269,6 +306,10 @@ def main(argv):
             check(d == 0,
                   "%s: and the 3D window is the SAME PICTURE (%d differ)"
                   % (what, d))
+            check(full == 0,
+                  "%s: ...and so is the WHOLE SCREEN, panel and all (%d "
+                  "differ, of which %d are outside the window)"
+                  % (what, full, full - d))
 
         # 1 - THE APPROACH. The distance is the point: at 1.5 km every object
         #     ahead is a stranger, and a cone that has them all behind it
@@ -282,6 +323,16 @@ def main(argv):
         #     has candidates and an `along` of the wrong sign takes every one
         #     of them out of the ranking
         ab("400 m up over the middle of the strip", 0, 400)
+        # 4 - AND IN A 60 DEGREE BANK, which is the ATTITUDE INDICATOR's real
+        #     test: level, the line is centred and level in both arms whether
+        #     or not the fold works on the roll, so only a banked pose says
+        #     the roll half of 88.9.2.6 is right. 60 and not 90: at exactly
+        #     90 cos(roll) is EXACTLY zero over a whole 64-unit window
+        #     (88.9.2.2), the guarded divide answers +-30000 by the sign of
+        #     the numerator, and a line-only horizon cannot say which way
+        #     "vertical" leans - the two arms then differ for a reason that
+        #     is the representation's and not the fold's
+        ab("60 degrees of bank, 400 m up over the strip", 0, 400, 10923)
 
     print()
     if bad:

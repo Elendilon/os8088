@@ -470,12 +470,22 @@ cs_step:
     mov byte [cs_msg], CSG_NONE
 .warned:
     ; --- the turn: TURNK sin(roll) a tick, and the rudder ------------------
+    ;     THE SIGN IS cos(pitch)'s (SPEC.md 88.7.8.3). Lift is along the body's
+    ;     up axis and the track is sign(cos pitch) x the heading, so the lift's
+    ;     component to the track's RIGHT works out at exactly sign(cp) sin(roll)
+    ;     - ch^2 + sh^2 cancels the rest - and past the vertical a right bank
+    ;     turned LEFT. 88.7.8.1's four instructions on the same test
     mov ax, [cs_roll]
     push di
     call cs_sin
     pop di
     mov bx, [di + CSP_TURNK]
     MUL14
+    mov bx, [cs_pitch]
+    add bx, 16384
+    jns .bank
+    neg ax
+.bank:
     add [cs_hdg], ax
     mov al, [cs_kyaw]
     cbw

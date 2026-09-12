@@ -2969,6 +2969,8 @@ CS_SWOOPHI equ 900              ; DOWN from the top in sink
     ZWORD cs_adry
     ZWORD cs_adhw
     ZWORD cs_adhh
+    ZWORD cs_adroll                 ; ...the FOLDED roll it is drawn from
+                                    ; (88.9.2.6), and
     ZWORD cs_adoff                  ; ...its horizon: the pitch offset, the
     ZWORD cs_addy                   ; slope's rise over the half-width, and
     ZWORD cs_adx1                   ; the two ends

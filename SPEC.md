@@ -109348,30 +109348,94 @@ Measured on a Hercules 5150 — **before**: **7 objects filed against 1** on a
 with `[cs_rwrev]` opposite in two of the three. **After**: equal on every
 count, and **0 of 44,800 window pixels differ** in all three.
 
-**The PANEL is outside that comparison and is not a defect.** It reads the
-Euler triple, and 180/180 is a different attitude from 0/0 however the camera
-comes out — the compass really does say the other number. Two more things the
-row has to do that are worth writing down because each one reads exactly like
-the bug: every pose must clear `CSO_SEEN` by hand, since §88.5.1 files
-whatever was drawn last frame without consulting the cone at all (which is
-*why* the report says "in the distance" — what is up stays up and only
-strangers are refused); and the take-off prompt has to be allowed to EXPIRE
-before the first pose, its strip being inside the window and worth ~5,000
-pixels. It cannot be poked away: `[cs_toastt]` reaching zero is what erases
-the strip, so a zero written into it leaves the message up for good.
+**The PANEL was carved out of that comparison and that was WRONG** — the
+correction is §88.9.2.6 and it is the most useful thing in this section. This
+row measured 80 differing pixels in the panel, and they were explained away in
+one sentence: *it reads the Euler triple, and 180/180 is a different attitude
+from 0/0 however the camera comes out.* The first half is true and the second
+half is exactly backwards — the panel draws an ATTITUDE, and those two triples
+are ONE attitude. Under the carve-out sat the attitude line off the glass
+entirely and a compass reading the reciprocal, both reported by the field
+within the day. **The comparison is the whole screen now** — 0 of 252,000
+pixels on all three poses — and `--clobber-panel` puts the two folds back the
+way they were and reproduces **exactly the 80**. The rule the episode is worth
+is that an exclusion carved into a gate to make it pass is where the next
+defect lives.
 
-**One thing of the same family is deliberately NOT taken**, and is written
-down here so that it is a decision rather than an oversight: `cs_k_hdg`
-(§88.9) puts `[cs_hdg]` on the compass raw, so past the vertical the panel
-reads the RECIPROCAL of the way the nose's horizontal projection points. That
-is an instrument question and not this report — nothing in the scene reads it,
-the arithmetic is one `add ax, 32768` behind the same test if it is ever
-wanted, and §88.7.2's refusal to re-canonicalise the Euler triple is what
-makes the two questions separable at all.
+Two more things the row has to do that are worth writing down because each one
+reads exactly like the bug: every pose must clear `CSO_SEEN` by hand, since
+§88.5.1 files whatever was drawn last frame without consulting the cone at all
+(which is *why* the report says "in the distance" — what is up stays up and
+only strangers are refused); and the take-off prompt has to be allowed to
+EXPIRE before the first pose, its strip being inside the window and worth
+~5,000 pixels. It cannot be poked away: `[cs_toastt]` reaching zero is what
+erases the strip, so a zero written into it leaves the message up for good.
+
+**One thing of the same family was deliberately NOT taken here, and §88.9.2.6
+has since taken it** — the entry is kept because being wrong about it is the
+useful part. `cs_k_hdg` (§88.9) puts `[cs_hdg]` on the compass raw, so past
+the vertical the panel reads the RECIPROCAL of the way the nose's horizontal
+projection points; this section called that an instrument question and not
+that report's, on the ground that nothing in the scene reads it. **The very
+next report was *"the direction of travel is wrong"***, which is what a
+compass reading 220° in an aeroplane flying 040° looks like from the cockpit —
+so the question a reader cannot answer is whether an instrument is *"not this
+report"*, and the cheap fix should have gone in when it was found.
 
 `tests/skiesfacing.py` is the gate and `--clobber-facing` the red run — it
 NOPs the four bytes of `neg ax / neg bx` and nothing else, so the facing pair
 becomes the heading again.
+
+##### 88.7.8.3 ...and so was the BANK, which is the turn itself
+
+Reported off the machine, in the same session as §88.9.2.6:
+
+> The direction of travel is wrong. I seem to be going... partially sideways
+> I think? Not where the nose is pointed.
+
+`cs_step`'s turn is `[cs_hdg] += CSP_TURNK · sin(roll)` and that is the third
+place with §88.7.8.1's shape in it. §88.7.8 fixed the ELEVATOR's contribution
+to the heading and §88.7.8.2 the SCENE's reading of it; **the bank's own
+contribution — the turn a banked aeroplane makes, which is most of what a
+heading ever does here — was never looked at.**
+
+**The gain is right and the sign is not**, and the algebra says so exactly.
+Lift acts along the body's up axis, which is `cs_matrix`'s second row; the
+ground track is `sign(cos θ)·(sh, ch)` (§88.7.8.2) and the horizontal
+direction to its RIGHT is `sign(cos θ)·(ch, −sh)`. Dotting the one into the
+other:
+
+    up · right-of-track = sign(cθ)·[ (sφ·ch − cφ·sh·sθ)·ch
+                                   + (−sφ·sh − cφ·ch·sθ)·(−sh) ]
+                        = sign(cθ)·sφ·(ch² + sh²)
+                        = sign(cθ)·sin(φ)
+
+`ch² + sh²` is 1, so **the heading term is `sin(roll)` exactly, times the sign
+of `cos(pitch)` and nothing else** — no magnitude is being dropped here, which
+makes this one cheaper to justify than §88.7.8.1 was. The fix is the same four
+instructions, on the same test.
+
+**Measured on the machine**, a Pitts with ROLL RIGHT held, one tick at a time
+from a pinned attitude, upright `(H, 0, 0)` against inverted-and-rolled-level
+`(H+180, 180, 180)` — the same aeroplane, and the matrix says so:
+`right`.y reads **−16,325 in both**, a 30° bank with the right wing down in
+both. The heading then moved **+15, +30, +44 upright and −16, −31, −45
+inverted**, and the world velocity curved toward +x in one arm and −x in the
+other. **The same stick, the same bank, opposite turns.**
+
+That is the whole of *"partially sideways"*: the aeroplane goes exactly where
+its nose points — `cs_move` is `(cos θ, sin θ)·speed` along the heading and
+was never wrong — but the nose is taken the wrong way round the turn, so the
+track curls away from where the pilot is pointing it and every correction
+makes it worse. The other half of the report is §88.9.2.6's compass, which was
+reading the reciprocal at the same time.
+
+**+49 bytes of code and one word of bss** across the three fixes in this
+round (`cs_step`'s sign, §88.9.2.6's two folds and its `[cs_adroll]`),
+measured on the symbol span — `build/skies.bin` is 51,776 bytes either way,
+§88.10.5's overlay pad absorbing it as it did §88.7.8.2's.
+
+`tests/skiesinv.py` is the gate and `--clobber-bank` the red run.
 
 #### 88.7.9 The take-off prompt names THIS aeroplane's speed
 
@@ -110302,6 +110366,72 @@ it once (§5.9's shape); neither is done.
 above are `cs_panel`'s for that reason: a roll sweep changes what is in the
 view, so `Small` read a 161.8 ms frame against `Full`'s 254.6 for reasons
 that have nothing to do with the instrument.
+
+#### 88.9.2.6 THE PANEL READS THE ATTITUDE, NOT THE EULER TRIPLE
+
+Reported off the machine — do a vertical 180 in the Pitts, then roll the
+aeroplane upright:
+
+> The attitude line is completely gone.
+
+It is, and `.none` is the label it goes to. `cs_d_adi` takes the horizon's
+offset from **the top byte of `[cs_pitch]` sign-extended** — a row per 1.4° —
+and at pitch 180° that byte is `0x80`, so the offset is **−128 rows on a glass
+whose radius is about ten**. §88.9.6.2's chord arithmetic then finds `d ≥ R`,
+which is *"the horizon is not on the glass"* in as many words, and draws the
+aeroplane's bars and dot over an empty circle.
+
+**But the aeroplane is straight and level.** Pitch 180 with roll 180 is
+upright, wings level, nose on the horizon — §88.7.3 says so, having made
+INVERTED-level a place the Pitts can settle — so the one attitude the
+instrument exists for is the one it refuses to draw.
+
+**A Euler triple names each attitude twice and the panel wants the other
+one.** The fold is exact and local to the display:
+
+    θd = 180° − θ      φd = φ + 180°       when cos θ < 0
+
+`sin(180° − θ) = sin θ`, so **the nose's true elevation is untouched** — the
+fold moves the *representation* and not the aeroplane. In 16-bit angles it is
+`neg` then `add 0x8000`, and `xor` of the roll's top bit, behind §88.7.8.1's
+test; below the vertical nothing changes at all, so ordinary flight is
+byte-identical.
+
+**Measured IN A BANK and not merely level**, because level is the pose that
+cannot tell the roll half of the fold from nothing: `tests/skiesfacing.py`'s
+fourth pose flies both arms at **60° of bank** and the panel comes out
+pixel-identical, where the raw triple differs by 70. The bank is 60 and not
+90 deliberately: at exactly 90 `cos(roll)` is EXACTLY zero over a whole
+64-unit window (§88.9.2.2), the guarded divide answers ±30,000 by the sign of
+its numerator, and **a line-only horizon cannot say which way "vertical"
+leans** — so the two representations of that one attitude draw the clamped
+line leaning opposite ways. That is the representation's limit rather than
+the fold's, and it is the one place the pair is not pixel-exact.
+
+**The compass had the same defect and it is the other half of §88.7.8.3's
+report.** `cs_k_hdg` puts `[cs_hdg]` on the glass raw, and past the vertical
+the nose's horizontal projection is its RECIPROCAL — at the pinned inverted
+pose `[cs_hdg]` measures 40,050, which `cs_k_hdg` puts on the glass as
+**220° in an aeroplane whose track is 040°**. So it
+takes the same `+180°`, on the same test. §88.7.8.2 recorded this one as
+deliberately NOT taken, on the ground that it was an instrument question and
+not that report's; **the next report was about the direction of travel, which
+makes it exactly that report's**, and the entry there is corrected rather than
+left standing.
+
+What is NOT changed is `cs_k_adi`, the redraw key: it stays the RAW top bytes,
+which is conservative in the safe direction — equal raw angles always mean an
+equal folded picture, so the key can cost a redundant redraw and can never
+miss a change.
+
+**None of this re-canonicalises the Euler triple**, which §88.7.2 refuses and
+this section does not reopen: `[cs_pitch]` still reads 172° after a loop,
+`cs_move` still flies off `cos θ`, and the fold lives in the two panel items
+that draw an attitude.
+
+`tests/skiesfacing.py` is the gate — its comparison is the whole screen for
+this section's reason — and `--clobber-panel` the red run, one byte per fold,
+reproducing exactly the 80 pixels §88.7.8.2 first explained away.
 
 #### 88.9.3 …and instruments that only look the part
 
