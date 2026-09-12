@@ -5425,6 +5425,11 @@ dos_click:
     call os88ui_bhit
     pop bx
     jc .barfld
+    call dos_defocus                ; **A BUTTON TAKES THE CARET TOO.** Every
+                                    ; control that consumes a click owes the
+                                    ; focused field its caret back - one cell
+                                    ; through os88line_caroff, never a redraw
+                                    ; of the field (SPEC.md 13.14.6)
     call dos_go                     ; Run: what the box names, as it stands
     jmp .out
 .barfld:
@@ -5471,6 +5476,7 @@ dos_click:
     call os88ui_bhit
     pop bx
     jc .notsav
+    call dos_defocus                ; ...as Run does, and for its reason
     call dos_mem_take               ; ...and the shortcut carries what is in
     call dos_sav_go                 ; the boxes NOW, for the same reason
     jmp .out
@@ -5504,6 +5510,7 @@ dos_click:
     cmp byte [si+LN_FOCUS], 0
     je .out
     mov byte [si+LN_FOCUS], 0
+    mov ax, [si+LN_CAR]             ; ...its index, as above
     call os88line_caroff            ; ONE CELL, not the field (SPEC.md 13.14.6)
 .out:
     pop di
@@ -5607,6 +5614,15 @@ dos_defocus_but:
     je .skip
     mov byte [si+LN_FOCUS], 0
     push cx
+    mov ax, [si+LN_CAR]             ; **THE CARET'S INDEX, WHICH IS AN
+                                    ; ARGUMENT** - os88line_caroff takes the
+                                    ; buffer position in AX and this passed
+                                    ; whatever happened to be there, so the
+                                    ; cell it repainted was not the cell with
+                                    ; the bar in it. The focus byte went to 0
+                                    ; and the bar stayed on the glass, which
+                                    ; is how a field the user had left kept
+                                    ; showing a caret
     call os88line_caroff
     pop cx
 .skip:
