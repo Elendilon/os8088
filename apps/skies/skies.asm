@@ -2673,6 +2673,9 @@ CS_DBGSCR equ 112               ; ...and the copy A/B's scratch is 112 rows,
     ZWORD cs_cosp
     ZWORD cs_sinr
     ZWORD cs_cosr
+    ZWORD cs_fsinh                  ; ...and the GROUND TRACK'S FACING, which
+    ZWORD cs_fcosh                  ; is the heading turned round past the
+                                    ; vertical (88.7.8.2)
     ZWORD cs_t1
     ZWORD cs_t2
     ZWORD cs_nx                     ; the world's up vector in camera space:
@@ -2966,6 +2969,8 @@ CS_SWOOPHI equ 900              ; DOWN from the top in sink
     ZWORD cs_adry
     ZWORD cs_adhw
     ZWORD cs_adhh
+    ZWORD cs_adroll                 ; ...the FOLDED roll it is drawn from
+                                    ; (88.9.2.6), and
     ZWORD cs_adoff                  ; ...its horizon: the pitch offset, the
     ZWORD cs_addy                   ; slope's rise over the half-width, and
     ZWORD cs_adx1                   ; the two ends
