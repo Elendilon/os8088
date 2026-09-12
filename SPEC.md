@@ -26897,6 +26897,52 @@ is one nobody reads the third time). Without the first the kernel reports 4,
 without the second 27, with both **2** — and those two were the two halves of
 this bug, so the check lands with no exception list at all.
 
+#### 18.4.6 `OSAPI_VOL_STAT` — one door for a family of questions about a volume
+
+`OSAPI_FILE_DFREE` answers free bytes and the cluster size and stops there, and
+nothing published answers a volume's **size**. That gap is what left §96.26's
+`AH=36h` unimplementable, and the obvious fix — a slot for the total cluster
+count — is the wrong shape: DOS asks about a volume four different ways
+(`AH=36h`, `AH=1Bh`, `AH=1Ch`, `AH=32h`), so a slot per question is four cells
+of a table that cannot grow (§20.3.1).
+
+So it is **one slot and a record**: `ES:DI` = the caller's buffer, `CX` = its
+size; out `CF=0` with `CX` = bytes written, `CF=1` with `AX = FERR_*`.
+
+| field | | |
+|---|---|---|
+| `VS_BPS` | 0, word | bytes per sector |
+| `VS_SPC` | 2, word | sectors per cluster |
+| `VS_CLUS` | 4, word | total clusters — `CountOfClusters`, which the mount already computed for rule 15 and stored as `[dsk_maxclus]` + 1 |
+| `VS_MEDIA` | 6, byte | the BPB media descriptor |
+| `VS_FAT` | 7, byte | 12 or 16 — the width in BITS, not `dsk_fattype`'s 0/1 |
+| `VS_KIND` | 8, byte | `VK_REMOVABLE` / `VK_FIXED`, `0xFF` unknown |
+| `VS_TRANS` | 9, byte | `VT_BIOS` / `VT_DRIVER`, `0xFF` unknown |
+| `VS_FREE` | 10, word | free clusters |
+
+It folds in `OSAPI_VOL_KIND`'s two answers deliberately: *"what is this
+volume"* is one call now rather than two.
+
+##### 18.4.6.1 The size you pass is the request, and that is the interface
+
+Everything up to `VS_NOFREE` is a read of resident state. `VS_FREE` is
+`dsk_free_clus_x` walking the whole FAT — **~105 ms on a 20MB disk on a
+4.77MHz 8088** (§18.4.5), and three of the four DOS calls above do not want
+it. So the expensive field is **last**, and the count is taken only when the
+caller's buffer reaches it: pass `VS_NOFREE` and there is no walk, pass
+`VS_SIZEOF` and you have asked for it. A buffer shorter than `VS_NOFREE` is
+refused with `FERR_BIG`.
+
+The same property lets the record **grow without an ABI break**: a caller that
+knows twelve bytes passes twelve and is written twelve, whatever a later
+kernel has learned to say. Read `CX` back rather than assuming it.
+
+**It answers for the volume the CALLER stands on**, `osapi_file_dfree`'s V and
+for its reason (§19.2.1): an app asks this about the disk its writes are going
+to, so an answer about the machine's idea of "current" would be about the
+wrong one. A caller wanting another volume moves to it, which is what
+`OSAPI_FILE_GOTO_QM` is for and what the DOS box does.
+
 ### 18.5 `dskw_mkdir` — creating a subdirectory
 
 ```
@@ -120406,6 +120452,10 @@ learn to skim.
 
 #### 96.21.8 `AH=36h` is refused, and its refusal is the §96.22 defect again
 
+**BUILT — §96.26 is the contract and this is the prediction that named it.**
+What follows is the reasoning as it stood, kept because it was right about the
+caller, the symptom and the register before any of them were seen.
+
 Get free disk space is not implemented. It is on the short list because of
 **how** it fails rather than that it fails: the refusal leaves `AX`, `BX`, `CX`
 and `DX` holding whatever the program set, so an installer asking whether there
@@ -120819,6 +120869,58 @@ and the defaults stand.
 takes the smaller of it and what the machine offers, so `0xFFFF` means "all" —
 but the choice byte is forced to 0 or 1, because a `0x7F` would draw a check
 box with a mark in it that no click could ever clear.
+
+### 96.27 `AH=36h` — and it was the REFUSAL that was the defect
+
+§96.21.8 named this call and predicted exactly how it would fail:
+
+> *"It is on the short list because of **how** it fails rather than that it
+> fails: the refusal leaves `AX`, `BX`, `CX` and `DX` holding whatever the
+> program set, so an installer asking whether there is room and not testing the
+> carry reads four stale registers as an answer. DOS answers `AX=FFFFh` for an
+> invalid drive, which is a value a program can test even when it ignores the
+> flag."*
+
+Prince of Persia's `INSTALL.EXE` is that installer, and the trace is the whole
+diagnosis. On a machine with os8088 installed to a hard disk, driving the
+installer to its own prompts — source `B`, destination `C:\PRINCE`:
+
+| # | call | in | out |
+|---|---|---|---|
+| 13 | `AH=0Eh` select | `DL=01` (B) | `AL=03` — three drives |
+| 14 | `AH=19h` | | `AL=01` — **standing on B** |
+| 16 | `AH=0Eh` select | `DL=02` (C) | `AL=03` |
+| 17 | `AH=19h` | | `AL=02` — **standing on C** |
+| 18 | `AH=36h` | `DL=03` (C) | **`AX=0001, CF=1`** |
+
+Everything about the drive worked. The hard disk is never unmounted — §51.11's
+suspend skips `DRVC_DISK` deliberately — it is counted, it is selectable, and
+the program is told it is standing on it. Then the next call falls to the
+unsupported exit, which answers `AX=1` with `CF`, and DOS **does not use CF
+here at all**: the installer reads one sector per cluster and three stale
+registers, and prints *"Invalid drive letter"*.
+
+#### 96.27.1 What it answers, and where the fourth number comes from
+
+`DL` is the drive, `0` meaning the one the program is on and `1` meaning A.
+Out: `AX` = sectors per cluster, `BX` = free clusters, `CX` = bytes per sector,
+`DX` = total clusters — and **`AX = FFFFh` for a drive that is not there**,
+which is the part a program can act on.
+
+All four come from one `OSAPI_VOL_STAT` (§18.4.6), which is why that slot is a
+record rather than the total-cluster cell this call alone needed: `AH=1Bh`,
+`AH=1Ch` and `AH=32h` are the same questions in a different order, and each
+will read a different field of the same reply rather than earning a slot.
+
+**The drive the program is not standing on costs a mount**, and the box already
+owns that: `dos_drv_sel` switches, mounts, and puts itself back if the mount
+refuses (§96.6.1). So `AH=36h` on another drive is select, ask, select back —
+and the trace above is why that path is rare enough not to matter: a program
+that wants to know about a drive selects it first.
+
+The record lands in the box's **own** bss and not the program's. DOS gives this
+call nowhere to put a buffer, so there is no caller's memory to write into and
+none is invented.
 
 ### 51.11 Drivers, out of the way (`OSAPI_DRV_SUSPEND`)
 
