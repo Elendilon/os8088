@@ -118708,8 +118708,22 @@ rather than a lie, and it is written down here because the next program to
 check a label by name will be defeated by it and the trace will look like
 nothing is wrong.
 
+**It is an OPEN CANDIDATE rather than a settled refusal.** One program asking
+what a disk is called is a limitation; several would be a missing feature, and
+the era's software checks its own media often enough that this may well come
+back. What it needs is small and known: a slot that answers the mounted
+volume's label, which the kernel already holds — the label is read at every
+mount — plus the 08h arm here returning it instead of nothing. Nobody should
+build that on one program's behalf; whoever meets the second one should.
+
 Directories are filtered on the same rule: returned only when the caller set
 bit 4, which is what DOS does and what this box also did not do.
+
+**And the two calls have different errors.** `AH=4Eh` answers `AX=02h` — *file
+not found* — for a search that never matched; `AX=12h`, *no more files*, is
+`AH=4Fh`'s, for an enumeration that ran out. This box answered 12h to both,
+which makes "there is no such thing" indistinguishable from "that was the last
+one" to a program that tests the code rather than the carry.
 
 **The general shape, which is the reason this section exists at all.** Every
 other refusal in §96 is a call this box does not answer, and a program told

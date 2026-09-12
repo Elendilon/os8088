@@ -1667,12 +1667,17 @@ dos_int21:
     rep movsb                       ; it there and so does this
     pop di
     pop si
-    jmp short .fstep
+    call dos_find_step              ; FIND FIRST'S OWN ERROR IS 2, not 18: DOS
+    jc .ffnone                      ; answers "file not found" for a search
+    xor ax, ax                      ; that never matched and keeps 18 for an
+    jmp .fhok                       ; enumeration that RAN OUT. A program can
+.ffnone:                            ; tell "there is no such thing" from "that
+    mov al, 2                       ; was the last one", and one code for both
+    jmp .fherr                      ; makes the first look like the second
 .fn:
     ; AH=4Fh: everything it needs is in the DTA AH=4Eh filled.
     push bx
     call dos_dta_seg
-.fstep:
     call dos_find_step              ; CF=1 with AL = 18 (no more files)
     jc .fherr
     xor ax, ax
@@ -2039,11 +2044,19 @@ dos_int21:
     mov [dos_badfn], ah             ; the window NAMES it (SPEC.md 47): an
     mov ax, 1                       ; unsupported program reports its own gap
 .badax:
+%ifdef DOSTRACE
+    stc                             ; ...as this exit is about to return it
+    call dos_tr_result
+%endif
     or word [bp+8], 1               ; CF=1 in the RETURNED flags
     pop ds
     pop bp
     iret
 .ok:
+%ifdef DOSTRACE
+    clc
+    call dos_tr_result
+%endif
     and word [bp+8], 0xFFFE         ; CF=0 in the returned flags
     pop ds
     pop bp
@@ -2141,7 +2154,7 @@ dos_tr_name_in:
 
 dos_tr_name: db 'TRACE.LOG', 0
 dos_tr_hdr:  db 'os8088 DOS INT 21h trace', 13, 10
-             db 'AX BX CX DX, oldest first. TOTAL/WRAP ', 0
+             db 'AX BX CX DX > AXout/CF, oldest first. TOTAL/WRAP ', 0
 
 ; --- AL -> two hex digits at DI; AX and the flags preserved -----------------
 dos_tr_hex2:
@@ -2224,7 +2237,7 @@ dos_trace_dump:
 .short:
     xor bx, bx
 .go:
-    and bx, (DOS_TRACEN * 8) - 8
+    and bx, (DOS_TRACEN * 16) - 16
     or cx, cx
     jz .write
     xor dx, dx                      ; DX = entries on this line
@@ -2243,12 +2256,20 @@ dos_trace_dump:
     inc di
     mov ax, [bx+dos_traceb+6]       ; DX=
     call dos_tr_hex4
+    mov byte [di], '>'              ; ...and what it ANSWERED
+    inc di
+    mov ax, [bx+dos_traceb+8]
+    call dos_tr_hex4
+    mov byte [di], '/'
+    inc di
+    mov ax, [bx+dos_traceb+10]
+    call dos_tr_hex4
     mov byte [di], 13
     inc di
     mov byte [di], 10
     inc di
-    add bx, 8
-    and bx, (DOS_TRACEN * 8) - 8
+    add bx, 16
+    and bx, (DOS_TRACEN * 16) - 16
     loop .ent
 .write:
     mov byte [di], 13
@@ -2313,20 +2334,49 @@ dos_trace:
     push bx
     push si
     mov si, [dos_tracew]
-    and si, (DOS_TRACEN * 8) - 8    ; the ring's byte index, entry-aligned
-    add si, dos_traceb
+    and si, (DOS_TRACEN * 16) - 16  ; the ring's byte index, entry-aligned.
+    add si, dos_traceb              ; 16 and not 12 so the mask still works -
+    mov [dos_tracei], si            ; a ring of non-power-of-two entries needs
+                                    ; a divide where this needs an AND
     mov [si], ax                    ; AX carries the function AND its
     mov [si+2], bx                  ; sub-function; the other three carry what
     mov [si+4], cx                  ; it is ABOUT - a handle, a count, an
     mov [si+6], dx                  ; offset, a name's address. All four are
                                     ; still the caller's: `push` does not
                                     ; change what it pushes
-    add word [dos_tracew], 8
+    mov word [si+8], 0xFFFF         ; ...no result yet, so a call that never
+    mov word [si+10], 0xFFFF        ; returned is visible as one
+    add word [dos_tracew], 16
     inc word [dos_tracen]           ; ...and the TOTAL, which does not wrap
     pop si
     pop bx
     pop ax
+    ret                             ; ...and NOT into .skip below, which would
+                                    ; zero the entry pointer this just set
 .skip:
+    mov word [dos_tracei], 0        ; a filtered call must not overwrite the
+    ret                             ; RESULT of the one before it
+
+; --- dos_tr_result - what the call answered, into its own entry -------------
+; in: AX = the answer, CF as it will be returned. Called from the two exits.
+dos_tr_result:
+    push si
+    push ax
+    pushf                           ; CF IS THE SUBJECT here, and `or si, si`
+    mov si, [dos_tracei]            ; two lines down would destroy it
+    or si, si
+    jz .out                         ; filtered, or no call in flight
+    mov [si+8], ax
+    mov word [si+10], 0
+    pop ax                          ; ...the flags, back off the stack
+    push ax
+    test al, 1                      ; CF is bit 0 of the low half
+    jz .out
+    mov word [si+10], 1
+.out:
+    popf
+    pop ax
+    pop si
     ret
 %endif
 
@@ -5090,10 +5140,12 @@ dos_mcb_resize:
 %ifdef DOSTRACE                 ; ...and NOTHING when it is off: the ring is
     DBSS DOS_B_TRACEN, 2        ; 514 bytes, and an instrument that costs the
     DBSS DOS_B_TRACEW, 2        ; shipped build anything is one that gets
-    DBSS DOS_B_TRACEB, DOS_TRACEN * 8   ; deleted rather than kept
+    DBSS DOS_B_TRACEB, DOS_TRACEN * 16  ; deleted rather than kept
+    DBSS DOS_B_TRACEI, 2                ; the entry a result belongs to, 0 =
+                                        ; the call was filtered out
     DBSS DOS_B_TRNM,   DOS_TRNM_N * 13      ; the NAMES the program passed
     DBSS DOS_B_TRNMI,  1                    ; ...and how many, capped
-    DBSS DOS_B_TRDUMP, DOS_TRACEN * 24 + DOS_TRNM_N * 15 + 96
+    DBSS DOS_B_TRDUMP, DOS_TRACEN * 36 + DOS_TRNM_N * 15 + 96
 %endif
     DBSS DOS_B_VW,    2
     DBSS DOS_B_VH,    2
@@ -7652,7 +7704,8 @@ dos_isexe   equ os88_image_end + DOS_B_ISEXE   ; byte: 1 = an .EXE was set up
 %ifdef DOSTRACE
 dos_tracen  equ os88_image_end + DOS_B_TRACEN  ; word: DOSTRACE's call counter
 dos_tracew  equ os88_image_end + DOS_B_TRACEW  ; word: its ring write index
-dos_traceb  equ os88_image_end + DOS_B_TRACEB  ; the ring: AH,AL per entry
+dos_traceb  equ os88_image_end + DOS_B_TRACEB  ; the ring, 16 bytes an entry
+dos_tracei  equ os88_image_end + DOS_B_TRACEI  ; ...the live entry's offset
 dos_trnm    equ os88_image_end + DOS_B_TRNM   ; the names passed in
 dos_trnmi   equ os88_image_end + DOS_B_TRNMI  ; ...how many so far
 dos_trdump  equ os88_image_end + DOS_B_TRDUMP  ; ...rendered, for the file
