@@ -89,7 +89,16 @@ DOS_IMGP    equ DOS_PSPP+16         ; para 26    : the image, at PSP:0100
 ; That is DOS's limit rather than a choice: PSP:0080 is a length byte, then
 ; the text, then an 0Dh, all inside 128 bytes. A field that let a 128th
 ; character in would be one the user could type into and not have obeyed.
-DOS_TRACEN  equ 64                 ; DOSTRACE ring entries (power of two)
+DOS_TRACEN  equ 256                 ; DOSTRACE ring entries (power of two).
+                                    ; IT HOLDS A WHOLE RUN, and 64 did not:
+                                    ; the failure under investigation makes
+                                    ; 169 calls, so a 64-entry ring threw away
+                                    ; the FIRST 105 - which is where a
+                                    ; divergence is, every time. The reference
+                                    ; tracer (tests/dostrap) keeps the first
+                                    ; 256 and stops for the same reason, and
+                                    ; the two files only diff line-for-line if
+                                    ; both start at entry 0
 DOS_TRNM_N  equ 12                  ; ...and names it keeps. Plenty: the
                                     ; failure under investigation makes
                                     ; exactly ONE open in a whole session
@@ -1143,6 +1152,65 @@ dos_build_psp:
     ret
 
 ; -----------------------------------------------------------------------------
+; dos_fcb_blank - the unparsed FCB DOS leaves when there is no argument for it
+; in:  ES = the PSP, DI = 5Ch or 6Ch; out: DI past the name
+; -----------------------------------------------------------------------------
+dos_fcb_blank:
+    push ax
+    push cx
+    mov byte [es:di], 0             ; drive 0 = "whichever is current"
+    inc di
+    mov cx, 11
+    mov al, ' '                     ; ...and a name of spaces, which is what a
+    cld                             ; tail with nothing in it parses to
+    rep stosb
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_jft_sync - the PSP's job file table, rewritten from our own handle table
+;
+; 0FFh is FREE and anything else is an index into the open-file table DOS keeps
+; and we do not, so an open handle publishes its OWN NUMBER - the one thing
+; about it that is certainly true (SPEC.md 96.21.4). All twenty are rewritten
+; rather than poked one at a time, because a derived table that is only
+; corrected where somebody remembered to correct it goes stale, and a stale
+; 0FFh on a handle the program is holding is a worse answer than the zero this
+; replaces.
+; -----------------------------------------------------------------------------
+dos_jft_sync:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    push es
+    mov es, [dos_ldpsp]
+    mov si, dos_fhtab
+    mov di, 0x18 + DOS_FH0
+    mov cx, DOS_NFH
+    mov bl, DOS_FH0
+.one:
+    mov al, 0xFF
+    test byte [si+FH_FLAGS], FHF_USED
+    jz .put
+    mov al, bl
+.put:
+    mov [es:di], al
+    inc di
+    inc bl
+    add si, FH_SIZEOF
+    loop .one
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; dos_psp_make - a PSP at [dos_ldpsp], for a block of [dos_ldpara] paragraphs
 ; in:  [dos_ldpsp], [dos_ldpara], [dos_parent] (0 = nobody)
 ; out: [dos_prgsp] = the .COM stack offset; every register preserved
@@ -1168,17 +1236,77 @@ dos_psp_make:
     add ax, [dos_ldpara]
     mov [es:0x02], ax               ; the paragraph past the block - mechanism 1
 
-    mov byte [es:0x05], 0x9A        ; the CP/M-style far call to the dispatcher
+    ; --- the CP/M block at +05, WHOSE ADDRESS IS ALSO A FIELD ---------------
+    ; The five bytes are a far call, and the word inside it is published in
+    ; its own right: [PSP:0006] is "how many bytes are there in this segment",
+    ; which is one of the four ways a DOS program asks how much memory it has
+    ; (SPEC.md 96.21.4) and the only one that costs it no call at all. Writing
+    ; the 9Ah and leaving the address zero - which is what this did - says
+    ; ZERO BYTES AVAILABLE and points the call at 0000:0000.
+    ;
+    ; DOS picks the SEGMENT half so that segment:size addresses its own
+    ; dispatcher, which is what lets one five-byte field carry two answers. We
+    ; have a dispatcher at PSP:0050 - the `int 21h`/`retf` gate four lines down
+    ; - so the segment is (PSP + 5) - size/16 and the call lands on it exactly.
+    ; MEASURED against IBM DOS 3.30: 0FEF0h for a block of 64KB or more
+    ; (SPEC.md 96.21.4).
+    mov byte [es:0x05], 0x9A
+    mov ax, [dos_ldpara]
+    cmp ax, 0x20                    ; a block too small to hold a PSP and the
+    jb .cpmnone                     ; field's own bias cannot answer at all
+    cmp ax, 0x1000
+    jb .cpmhave
+    mov ax, 0x1000                  ; a SEGMENT is 64KB however big the block
+.cpmhave:
+    mov cl, 4
+    shl ax, cl                      ; paragraphs -> bytes, and 1000h shifted is
+    sub ax, 0x110                   ; 0 - which is the wrap that MAKES it 0FEF0h
+    mov bx, ax
+    mov cl, 4
+    shr bx, cl
+    mov [es:0x06], ax
+    mov ax, [dos_ldpsp]
+    add ax, 5
+    sub ax, bx
+    mov [es:0x08], ax
+.cpmnone:
     mov word [es:0x0A], dos_int22   ; the terminate address, which DOS copies
     mov [es:0x0C], cs               ; out of the vectors it is about to hook
     mov word [es:0x0E], dos_iret
     mov [es:0x10], cs
     mov word [es:0x12], dos_int24
     mov [es:0x14], cs
-    mov ax, [dos_parent]
-    mov [es:0x16], ax               ; the PARENT's PSP, 0 at the top level -
-                                    ; which is what AH=4Bh's child reads to
-                                    ; find who launched it
+    mov ax, [dos_parent]            ; the PARENT's PSP, which AH=4Bh's child
+    or ax, ax                       ; reads to find who launched it
+    jnz .haveparent
+    mov ax, [dos_ldpsp]             ; A PROGRAM WITH NO PARENT IS ITS OWN, which
+.haveparent:                        ; is what DOS does for COMMAND.COM and what
+    mov [es:0x16], ax               ; makes a walk up the chain TERMINATE. Zero
+                                    ; does not: a walker that follows it reads
+                                    ; the interrupt vector table as a PSP
+
+    ; --- the job file table, and the two words that point at it -------------
+    ; The twenty bytes at PSP:0018 are how a program asks whether a handle is
+    ; open without making a call (SPEC.md 96.21.4). 0FFh is FREE and anything
+    ; else is an index into the open-file table DOS keeps - so the zeroes the
+    ; wipe above leaves say all twenty are OPEN and that they all share one
+    ; file. The five devices take the indices IBM DOS 3.30 gives them,
+    ; measured; every other entry starts free and dos_jft_sync keeps it true.
+    mov di, 0x18
+    mov cx, 20
+    mov al, 0xFF
+    cld
+    rep stosb
+    mov word [es:0x18], 0x0101      ; 0, 1: stdin and stdout, the console
+    mov byte [es:0x1A], 0x01        ; 2: stderr, the same device
+    mov byte [es:0x1B], 0x00        ; 3: AUX
+    mov byte [es:0x1C], 0x02        ; 4: PRN
+    mov word [es:0x32], 20          ; ...and its size and address, which is how
+    mov word [es:0x34], 0x0018      ; a program with more than twenty files
+    mov ax, [dos_ldpsp]             ; open finds the table that replaced it
+    mov [es:0x36], ax
+    mov word [es:0x38], 0xFFFF      ; the previous PSP: DOS 3 leaves FFFF:FFFF
+    mov word [es:0x3A], 0xFFFF      ; and a program may test for it
     mov ax, [dos_arena]
     add ax, DOS_ENVSEG
     mov [es:0x2C], ax               ; ...and one environment, shared: a child
@@ -1188,8 +1316,14 @@ dos_psp_make:
     mov byte [es:0x52], 0xCB
     call dos_psp_tail               ; THE ARGUMENTS (SPEC.md 96.19), or the
                                     ; empty tail this used to write flat
-    mov word [es:0x5C], 0           ; the two FCBs stay zeroed, which is what
-    mov word [es:0x6C], 0           ; an empty tail parses to
+    mov di, 0x5C                    ; ...and the two FCBs, in the shape an
+    call dos_fcb_blank              ; EMPTY tail parses to. Zero - which this
+    mov di, 0x6C                    ; wrote before - is a name of eleven NULs
+    call dos_fcb_blank              ; on drive A and not a blank one, so a
+                                    ; program that opens FCB 1 without reading
+                                    ; the tail got a file that cannot exist
+                                    ; rather than one obviously unnamed
+                                    ; (SPEC.md 96.21.6)
 
     ; --- the stack -----------------------------------------------------------
     mov ax, [dos_ldpara]            ; a .COM gets SP at the top of its own
@@ -1482,6 +1616,7 @@ dos_int21:
     ja .opbig
     or byte [si+FH_FLAGS], FHF_WHOLE
 .opdone:
+    call dos_jft_sync               ; ...the PSP's own view of it (96.21.4)
     mov ax, bx                      ; AX = the handle
     jmp .fhok
 .opbig:
@@ -1501,6 +1636,7 @@ dos_int21:
     jc .fmany
     call dos_fh_setname
     mov byte [si+FH_FLAGS], FHF_USED | FHF_WRITE
+    call dos_jft_sync
     mov ax, bx
     jmp .fhok
 
@@ -1522,6 +1658,7 @@ dos_int21:
     jc .fherr                       ; zero-length file and so does this
 .cldone:
     mov byte [si+FH_FLAGS], 0
+    call dos_jft_sync
     xor ax, ax
     jmp .fhok
 
@@ -1682,13 +1819,20 @@ dos_int21:
     rep movsb                       ; it there and so does this
     pop di
     pop si
-    call dos_find_step              ; FIND FIRST'S OWN ERROR IS 2, not 18: DOS
-    jc .ffnone                      ; answers "file not found" for a search
-    xor ax, ax                      ; that never matched and keeps 18 for an
-    jmp .fhok                       ; enumeration that RAN OUT. A program can
-.ffnone:                            ; tell "there is no such thing" from "that
-    mov al, 2                       ; was the last one", and one code for both
-    jmp .fherr                      ; makes the first look like the second
+    ; A SEARCH THAT MATCHED NOTHING ANSWERS 18, THE SAME AS ONE THAT RAN OUT,
+    ; and the distinction this once drew is one DOS does not (SPEC.md
+    ; 96.12.1.2). MEASURED, by running one binary under IBM DOS 3.30 and under
+    ; this box: a name that is not there in a directory that IS answers 0012h,
+    ; and 0002h is not what DOS says for it at all. What DOS answers 3 for is
+    ; the DIRECTORY not being there, which `dos_fh_name` above has already
+    ; refused by the time this runs.
+    call dos_find_step
+    jc .ffnone
+    xor ax, ax
+    jmp .fhok
+.ffnone:
+    mov al, 18
+    jmp .fherr
 .fn:
     ; AH=4Fh: everything it needs is in the DTA AH=4Eh filled.
     push bx
@@ -2291,6 +2435,14 @@ dos_trace_dump:
     inc di
     mov ax, [bx+dos_traceb+10]
     call dos_tr_hex4
+    mov byte [di], '/'              ; ...and ES:BX, which for AH=35h, 48h and
+    inc di                          ; 2Fh IS the answer and AX is not
+    mov ax, [bx+dos_traceb+14]
+    call dos_tr_hex4
+    mov byte [di], ':'
+    inc di
+    mov ax, [bx+dos_traceb+12]
+    call dos_tr_hex4
     mov byte [di], 13
     inc di
     mov byte [di], 10
@@ -2373,6 +2525,8 @@ dos_trace:
                                     ; change what it pushes
     mov word [si+8], 0xFFFF         ; ...no result yet, so a call that never
     mov word [si+10], 0xFFFF        ; returned is visible as one
+    mov word [si+12], 0xFFFF
+    mov word [si+14], 0xFFFF
     add word [dos_tracew], 16
     inc word [dos_tracen]           ; ...and the TOTAL, which does not wrap
     pop si
@@ -2386,6 +2540,13 @@ dos_trace:
 
 ; --- dos_tr_result - what the call answered, into its own entry -------------
 ; in: AX = the answer, CF as it will be returned. Called from the two exits.
+;
+; ES AND BX ARE RECORDED TOO, and they are not padding. AX and the carry are
+; the answer to most calls and to some they are not the answer at all:
+; AH=35h's is ES:BX, AH=48h's block is AX with the FAILURE size in BX, and
+; AH=2Fh's DTA is ES:BX as well. A ring that logs only AX reads those three as
+; "returned 0, no error" - which is how a trace can be complete, correct, and
+; silent about the value the program actually branched on.
 dos_tr_result:
     push si
     push ax
@@ -2395,6 +2556,9 @@ dos_tr_result:
     jz .out                         ; filtered, or no call in flight
     mov [si+8], ax
     mov word [si+10], 0
+    mov [si+12], bx                 ; ...the OTHER answer, whole
+    mov ax, es
+    mov [si+14], ax
     pop ax                          ; ...the flags, back off the stack
     push ax
     test al, 1                      ; CF is bit 0 of the low half
@@ -5172,7 +5336,7 @@ dos_mcb_resize:
                                         ; the call was filtered out
     DBSS DOS_B_TRNM,   DOS_TRNM_N * 13      ; the NAMES the program passed
     DBSS DOS_B_TRNMI,  1                    ; ...and how many, capped
-    DBSS DOS_B_TRDUMP, DOS_TRACEN * 36 + DOS_TRNM_N * 15 + 96
+    DBSS DOS_B_TRDUMP, DOS_TRACEN * 44 + DOS_TRNM_N * 15 + 96
 %endif
     DBSS DOS_B_VW,    2
     DBSS DOS_B_VH,    2

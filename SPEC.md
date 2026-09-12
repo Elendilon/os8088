@@ -118742,14 +118742,61 @@ volume's label, which the kernel already holds — the label is read at every
 mount — plus the 08h arm here returning it instead of nothing. Nobody should
 build that on one program's behalf; whoever meets the second one should.
 
+**What the gap costs is now MEASURED rather than reasoned about**, and it is
+bigger than the paragraph above implies. `tests/dostrap/dosref.asm` puts the
+same search to both DOSes, and on a disk that carries a label —
+`build/apps360.img` and every other disk `os88disk.py` writes does, ours being
+`OS8088APPS` — **IBM DOS 3.30 answers `CF=0` and this box answers "no such
+thing"**. So the limitation is not the rare case: a program that asks what an
+os8088 disk is called is told the disk has no name, every time, on every disk
+this project ships. The disk that made the game work is the *unlabelled* one
+it came on.
+
 Directories are filtered on the same rule: returned only when the caller set
 bit 4, which is what DOS does and what this box also did not do.
 
-**And the two calls have different errors.** `AH=4Eh` answers `AX=02h` — *file
-not found* — for a search that never matched; `AX=12h`, *no more files*, is
-`AH=4Fh`'s, for an enumeration that ran out. This box answered 12h to both,
-which makes "there is no such thing" indistinguishable from "that was the last
-one" to a program that tests the code rather than the carry.
+#### 96.12.1.2 One binary, two DOSes — `tests/dostrap/dosref.asm`
+
+Every answer in §96 is a claim about what DOS does, and until this file existed
+each one was read out of a reference and argued about. `DOSREF.COM` puts the
+questions to a DOS and prints what it said; **the same binary runs under IBM
+DOS 3.30 and under this box**, so the two columns diff with nothing to
+interpret. It lives beside `tests/dostrap/trap.asm`, which is the other half —
+the TSR that logs a real DOS's `INT 21h` traffic in this box's own trace
+format.
+
+Measured on one 360KB disk, IBM DOS 3.30 against this box:
+
+| the question | DOS 3.30 | this box, before | after |
+|---|---|---|---|
+| `4E` a name that is not there, in a directory that is | `AX=0012 CF=1` | `AX=0002 CF=1` | `0012` |
+| `4E` a directory that is not there | `AX=0003 CF=1` | `AX=0003 CF=1` | — |
+| `4E` `CX=08h` on a disk that HAS a label | `AX=0000 **CF=0**` | `CF=1` | unchanged, §96.12.1.1 |
+| `4E`+`4F` to exhaustion | `AX=0012`, 4 entries | same | — |
+| `35` `INT 33h` | `0226:1445` | our own handler | — |
+| `48` `BX=FFFF` | `AX=0008 CF=1`, `BX=0` | same | — |
+| `30` the version | `1E03` | `1F03` | §96.21.7 |
+| `44` handles 0–4 | `80D3 80D3 80D3 80C0 A0C0` | all `80D3` | §96.22.1 |
+| `36` spc/total/bps/free | `2 / 354 / 512 / 350` | refused, registers STALE | §96.21.8 |
+
+**Row 1 is the one to read.** `AH=4Eh` answering 02h for a search that matched
+nothing was published here, argued for in prose, and built — and DOS answers
+**18**, the same code as an enumeration that ran out. The distinction is real
+but it is drawn somewhere else: what DOS answers **3** to is the *directory*
+not being there, which this box already refuses one level up in `dos_fh_name`.
+So the three codes are 3 for a bad path and 18 for everything else, and the
+version of this section that reasoned its way to 2 lasted one day.
+
+**Row 9 is the one that is still open.** `AH=36h` is refused, and a refusal
+here leaves `AX`, `BX`, `CX` and `DX` exactly as the program set them — which
+is §96.22's defect in a fourth register: a program that asks how much room is
+on the disk and does not test the carry reads whatever it happened to be
+holding. §96.21.8 is what it needs.
+
+**The two calls' errors were then made to differ, and DOS does not differ.**
+That paragraph used to argue that `AH=4Eh` answers `AX=02h` for a search that
+never matched and that 12h was `AH=4Fh`'s alone. It reads well and it is
+wrong; §96.12.1.2 is the measurement that replaced it.
 
 **The general shape, which is the reason this section exists at all.** Every
 other refusal in §96 is a call this box does not answer, and a program told
@@ -119779,6 +119826,115 @@ correctly without it.
 The rule one level up: **a field whose buffer is also the program's storage
 has two ways to change, and a shared control needs a verb for each.** Only one
 of them is a copy.
+
+#### 96.21.4 The PSP fields a program reads without making a call
+
+§96.5 is the machine state the bracket banks; this is the state the bracket
+*writes*, and it was written to the letter of the four or five fields the
+loader obviously needs and zero everywhere else. **Zero is not a neutral
+value in a PSP** — most of these fields have a documented meaning for which
+zero is a definite and wrong answer — and the whole point of them is that a
+program reads them with no call, so nothing appears in a trace when it does.
+
+Dumping the 256 bytes IBM DOS 3.30 hands Prince of Persia and the 256 this box
+hands it, side by side, named eight:
+
+| offset | field | DOS 3.30 | this box, before |
+|---|---|---|---|
+| `06` | bytes available in this segment | `FEF0` | **`0000`** |
+| `08` | the segment half of the `+05` far call | `F01D` | **`0000`** |
+| `16` | the parent's PSP | COMMAND.COM's | **`0000`** |
+| `18`..`2B` | the job file table, 20 bytes | `01 01 01 00 02` then `FF` | **all zero** |
+| `32` | the table's size | `0014` | **`0000`** |
+| `34` | the table's address | `PSP:0018` | **`0000:0000`** |
+| `38` | the previous PSP | `FFFF:FFFF` | **all zero** |
+| `5C`, `6C` | the two FCBs | drive 0, name of spaces | **all zero** |
+
+Three of those are a definite wrong answer rather than a gap:
+
+- **`[PSP:0006]` says the segment holds ZERO BYTES.** It is one of the four
+  ways a DOS program asks how much memory it has (docs/plans/DOS-EXEC-PLAN.md
+  2.1) and the only one that costs it no call, so a program that uses it never
+  appears in a trace asking. DOS's value is the segment size less the PSP and
+  a 16-byte bias: `10000h - 110h = 0FEF0h` for any block of 64KB or more, and
+  this box now computes exactly that.
+- **The job file table says all twenty handles are open**, and that they all
+  share one file. `0FFh` is what FREE looks like; zero is a valid index.
+- **A parent of zero does not terminate a chain.** DOS makes the root process
+  its own parent, so a walk up the chain stops; from zero it walks into the
+  interrupt vector table and reads it as a PSP.
+
+`[PSP:0008]` is the one with a trick in it, and it is DOS's trick rather than
+ours. Bytes `05`..`09` are a `CALL FAR` for CP/M-era programs, and the word at
+`06` inside it is *also* the size field above — so DOS picks the **segment**
+half such that `segment:size` addresses its own dispatcher, and one five-byte
+field carries two unrelated answers. This box has a dispatcher of its own at
+`PSP:0050` — the `int 21h`/`retf` gate DOS 2 published — so the segment is
+`(PSP + 5) - size/16` and the call lands on it exactly.
+
+Keeping the job file table TRUE after load is `dos_jft_sync`, called from
+both opens and the close. It rewrites all twenty rather than poking the one
+that changed: a derived table corrected only where somebody remembered to
+correct it goes stale, and a stale `0FFh` on a handle the program is holding
+is a worse answer than the zero it replaces. An open handle publishes **its
+own number**, there being no open-file table here for an index to point into
+and the number being the one thing about it that is certainly true.
+
+#### 96.21.5 What filling them in actually changed
+
+Worth recording because it is the evidence that the section above is not
+book-keeping. With the PSP completed and nothing else altered, Prince of
+Persia's `INT 21h` conversation changed from
+
+    seek 6 → read 1 → read 0 → close → exit 1
+
+to
+
+    seek 6 → read 1 → setblock 200h → setblock E00h → read A700h → close → exit 1
+
+— the program now sizes a 56KB block and asks for 42,752 bytes where it used
+to ask for none. It still exits, so this was not the whole of it; but a
+program that reads no PSP field cannot change behaviour when the PSP changes,
+and this one did.
+
+#### 96.21.6 The two FCBs are BLANK, not zero
+
+DOS parses the first two words of the command tail into the FCBs at `5Ch` and
+`6Ch`, and when there is nothing to parse it still writes the *shape*: drive
+0, meaning "whichever is current", and a name of eleven spaces. Zero is a name
+of eleven NULs on drive A — a file that cannot exist, under a drive letter the
+program did not ask for — so a program that opens FCB 1 without reading the
+tail got a definite wrong answer instead of an obviously empty one.
+
+The blank form is what this box writes. **Parsing real arguments into them is
+not built**: §96.19 passes arguments through the tail, which is what everything
+after DOS 1 reads, and a program that takes its filename from FCB 1 will see
+no filename. That is a gap with a name rather than a silent one.
+
+#### 96.21.7 The version is a SETTING, and 3.31 was the wrong setting
+
+`AH=30h` answered `AX=1F03` — DOS 3.31 — against IBM DOS 3.30's `1E03`. The
+reasoning was sound as far as it went (reporting a version whose functions we
+lack is worse than reporting a lower one) and then picked a number half a
+release above the machine this box is calibrated against. 3.31 is a real
+version, Compaq's, and its distinguishing feature is large-partition support
+this box does not have.
+
+#### 96.21.8 `AH=36h` is refused, and its refusal is the §96.22 defect again
+
+Get free disk space is not implemented. It is on the short list because of
+**how** it fails rather than that it fails: the refusal leaves `AX`, `BX`, `CX`
+and `DX` holding whatever the program set, so an installer asking whether there
+is room and not testing the carry reads four stale registers as an answer. DOS
+answers `AX=FFFFh` for an invalid drive, which is a value a program can test
+even when it ignores the flag.
+
+What it needs is mostly already published: `OSAPI_FILE_DFREE` gives free bytes
+and sectors per cluster, so `AX`, `BX` and `CX` are exact. **`DX`, the total
+cluster count, has no slot at all** — no published cell answers a volume's
+size — so implementing this honestly means either a new slot or an answer that
+says less than DOS's. That is the decision, and it is why the call is named
+here rather than built.
 
 ### 96.22 The calls a C runtime makes that a *program* never writes
 
