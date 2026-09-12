@@ -119794,6 +119794,33 @@ not relaxed for the shell: every file action is a `dos_be_*`, which is what
 keeps §14's hibernate phase a second back end rather than a rewrite. Two verbs
 were added for it — `DBE_COPY` and `DBE_MOVE`, over §22.24 and §22.25.
 
+##### 96.30.0 It finishes the program it was written for
+
+Prince of Persia's `INSTALL.EXE` runs to completion and the game is on the
+hard disk. Both halves of Microsoft C's `system()` pair answer 0 —
+
+```
+4B exec    -> AX=0000 CF=0      /c copy B:*.* C:\PRINCE
+4D retcode -> AX=0000
+4B exec    -> AX=0000 CF=0      /c del install.exe
+4D retcode -> AX=0000
+4C exit                          the installer finished
+```
+
+— and the destination volume is the real assertion: `C:\PRINCE` holds all 28
+game files at **byte-exact sizes** (`PRINCE.EXE` 126,304, `DIGISND1.DAT`
+48,545, `EPALACE.DAT` 13,876), with `INSTALL.EXE` gone, having deleted itself.
+
+**The last defect on the way was not in this code**, and it is worth reading
+before believing a copy engine is broken: eleven of the source's files sit
+past cylinder 39, `os8088_xt_hdd`'s drives are 40-cylinder, and §96.11.4 turns
+that `int 13h` refusal into end of file. So the copy **silently truncated**
+files 19–22 and then failed outright on file 23, whose first cluster is out of
+reach — which reads exactly like a bug in the copy and is a drive.
+`os8088_xt_hdd_720` is the profile that has both a hard disk and an
+80-cylinder drive; `tools/os88fat.py reach` names the problem in one line, and
+docs/DOS-DEBUGGING.md's *Traps* is the account.
+
 ##### 96.30.6 The copy buffer comes out of the DOS ARENA, and the disk cache is not an alternative
 
 `COPY` needs a buffer. Inside the fsx bracket the heap is the DOS program's —
