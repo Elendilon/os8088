@@ -120515,6 +120515,165 @@ go in front of the ring, so the lowest entry index is 18,432 and the existing
 test is correct again. Zero bytes, no code, and the same arithmetic the bss
 arm got for free. `RDSUM.COM`'s open now reads `AX=3D00 … axout=0002 CF=1` —
 DOS error 2, file not found — where before it read `FFFF`.
+
+#### 96.32 THE WINDOW'S SETTLED SHAPE: a top bar, a console band, one setup area
+
+Every control this box has was added the moment a wave needed it — arguments
+in §96.19, the environment page in §96.20, the memory settings in §96.25 —
+each landing wherever there was room in a 288×126 window. This is the shape
+they should have had, decided once, with the console wave's requirement in
+front of it rather than behind.
+
+**The requirement is 80 COLUMNS, and it decides the window on its own.** A
+cell is 8 px and is not negotiable (§6), so 80 of them is **640 px of
+content** — and VGA and CGA are both 640 px WIDE. A window can only have 640
+px of content if it has no side borders, and §11.95.3 removes them in exactly
+one case: a frame that starts at its display's first column and reaches its
+last. So the frame **spans the screen width**, on every adapter, because on
+two of the three there is no other way to hold the thing the window is for.
+
+That is not a reluctant consequence — it is worth having twice over. A
+spanning frame's content origin is `W_X` itself rather than `W_X+1`
+(§11.95.2), so the content starts at **column 0, which is 8-aligned**, and
+every row the console draws reaches `font_run`'s single-store fast path
+(§6.1) instead of the erase-and-letter pair. The same alignment is what
+`OSAPI_GFX_BLIT1` needs for a band (§5.4.2.5).
+
+| adapter | frame | content | console |
+|---|---|---|---|
+| VGA 640×480 | 640×239 | 640×220 | **80×25**, flush to both edges |
+| Hercules 720×348 | 720×239 | 720×220 | **80×25**, centred with 40 px each side |
+| CGA 640×200 | 640×179 | 640×160 | **80×17**, flush |
+| EGA 640×350 | 640×239 | 640×220 | 80×25 (§39.8 takes the VGA row) |
+
+**The height is 25 rows plus the bar plus the chrome, and nothing more.**
+`25 × 8 + DOS_BARH + (TITLE_H + 1)` is 239, which fits the desktop band on
+every adapter but CGA — so on VGA the window is 239 of an available 436 and
+leaves desktop below it, which is what a window should do when it knows how
+big it wants to be. **CGA is the one that cannot**, at 200 px total: the band
+is 156 rows and even over the dock (`OSAPI_WM_KEEPH`, §11.93) it is 179, so
+the console takes what is left and answers **17 rows**. That is the honest
+spelling of "80×whatever fits" — the ROWS are computed from the content box
+at paint time, never from a constant, so a resize or a drag across a display
+seam re-answers it.
+
+**`OSAPI_WM_PREFER` states the width and `wm_fit` settles the rest**
+(§11.100.1). It replaces `dos_size`'s hand arithmetic — a `mul`, a `div` and
+a per-adapter branch computing 90% of a band — with a three-row table, and
+its own contract is why: *"the honest way to say 'as wide as that card, and as
+tall as it will give me' is a real width and a generous height"*. The CGA row
+asks for 300 and is clamped to 179 without the package needing to know the
+dock exists.
+
+##### 96.32.0 The band's four words are a CACHE, and a MOVE does not repaint
+
+`dos_con_geom` fills `[dos_conx]`, `[dos_cony]`, `[dos_concols]` and
+`[dos_conrows]`, and every painter and hit test calls it (or `dos_place`,
+which calls the rest) **before** reading them. That is not defensive style, it
+is a measured requirement: **moving a window does not call its paint
+callback** — the window manager carries the pixels — so a rect cached in a
+screen coordinate stays at the old position until something paints or clicks.
+
+Measured on a Hercules: the DOS window dragged from y=20 to y=60 left
+`[dos_cony]` at 58 and the `Environment` button's rect at rows 41..54, which
+is the old window's title bar. `dos_click` and `dos_key` both call `dos_place`
+first, so the box itself is never wrong — a reader that takes a rect out of
+bss and *then* clicks it is, and `tests/dosargs.py` was for one run.
+
+**The console inherits this.** A console that draws at `[dos_conx]` without
+asking again draws where the window used to be, and nothing about the picture
+will say so — it will simply appear in the wrong place after a drag, which is
+§96.22's shape once more.
+
+##### 96.32.1 The top bar is three controls and it is ALWAYS drawn
+
+One row across the top of the content, above the console band:
+
+| control | what it is |
+|---|---|
+| the **path box** | an `os88line` field (§96.19.1's control, its third carrier) holding the **fully qualified path** of the program — `B:\APPS\PRINCE.EXE`. It is editable, and what is in it is what `Run` runs |
+| **`Environment`** | a button, beside the box, into the setup area below |
+| **`Run`** | a button, right-anchored, which runs what the box names with the setup as it stands |
+
+**An EMPTY box is not an empty state — it is the internal interface.** A box
+with nothing in it means the box's own `COMMAND.COM` (§96.30), which has no
+display yet and will have one; it does not mean "no program chosen" and it
+does not mean an error. So **the bar is drawn at `DST_IDLE`**, which reverses
+§96.19.2: that section refused to draw the arguments field with no program
+named, and was right about arguments and wrong as a rule. The arguments field
+has moved to the setup area where it is always meaningful; the path box is the
+control that says what the program IS, so a window with no program is exactly
+when it matters most.
+
+**The path is a STRING now, and it was never one before.** The box kept a
+volume, a directory CLUSTER and an 8.3 name — three fields no user can read —
+so both directions had to be built:
+
+- **out**, for an association: `dos_be_goto` to the pair, then
+  `OSAPI_FILE_PATH` for `\DIR\DIR`, then the drive letter in front and the
+  8.3 name on the end. That slot's own note already lists this box's `AH=47h`
+  string among its callers, so this is its fourth and nothing new is invented.
+- **in**, for `Run`: the drive letter sets `[dos_vol]`, the directory part
+  goes to `dos_pbuf` and `dos_walk_pbuf` stands there and answers the cluster,
+  and the last component becomes `[dos_name]`. That walker already exists for
+  `AH=3Dh` opening `\PRINCE\LEVEL.DAT`, so the resolver a typed path needs was
+  already in the file — which is the argument for doing this now rather than
+  inventing a path layer.
+
+##### 96.32.2 ONE setup area, with pages inside it rather than beside it
+
+`Environment` opens a **page in the same window**, not a second window, and
+the whole setup area is one place with furniture that does not move:
+
+```
+  Setup                                    <- the title, one of the page names
+  Arguments: [__________]   Memory
+  Environ.:  [__________]   ... the figures, the limit, the cache box
+  ...
+  [<] [>]                    [Save Shortcut] [Return]
+```
+
+- the **title** names the page, so a page is never ambiguous and adding a
+  third costs a string
+- **`<` and `>`**, bottom left, change the page. They CYCLE, which is what the
+  old single button did and is the one thing worth keeping from it
+- **`Save Shortcut`** and **`Return`**, bottom right. Save writes the `.LNK`
+  (§96.21); Return goes back to the console view
+
+**The page set is `Setup` and `Environment`, and the memory page is gone as a
+page.** §96.25's three read-only figures, its limit box and its cache check
+box are **the right half of Setup** — because they are three lines and a
+control, and a page of its own for that was the old window's 288 px talking.
+What is on the left is the two things a run needs: the arguments and one
+environment row.
+
+**That env box IS `Environment`'s first row, not a copy of it.** One buffer,
+two rects — which needs no mirroring code at all, and is `dos_fld_reload`'s
+own arrangement one step further: a shortcut already writes `dos_ebuf`
+directly *because those bytes ARE the fields' `LN_BUF`s*. A second copy would
+be a thing to keep in step, and the first time it fell out of step the user
+would have typed into the one nothing reads.
+
+##### 96.32.3 What an association fills in, and what it still does
+
+| opened as | what is populated | does it run |
+|---|---|---|
+| nothing (double-click `DOS.O88`) | the box is **empty** — the internal interface | no |
+| `.COM` / `.EXE` | the **path box**, from the volume, cluster and name the launcher gave | **yes, at once** |
+| `.LNK` | the path box **and the whole setup** — arguments, environment, memory cap and cache flag, as the link prescribes (§96.21) | **yes, at once** |
+
+**Running at once is unchanged and is the point.** A user who double-clicks a
+`.COM` wants the program, not a form about the program — §54's association is
+a launch, and the window is where they land afterwards to change something and
+press `Run` again. What is new is only that the window they land on says what
+it ran, in a control they can edit.
+
+**`Environment` is in the menu as well as on the bar**, which is this box's
+first `OSAPI_MENU_SET` (§12.2) — it had no menu at all. The button is the
+thing under the pointer; the menu is where a user who has learned the system
+looks for a settings page, and §12.2 exists so that a package does not have to
+choose.
+
 #### 96.30 `COMMAND.COM` is not a file (`apps/dos/dosh.inc`)
 
 §96.29 said the door was a one-shot `/C` shell and deliberately did not
@@ -121580,7 +121739,7 @@ the 1px bar covered), and taking or losing focus costs one too. The rule is
 banked, because `os88line`'s rect is in SCREEN coordinates and a window moves.
 Banking it would leave the caret one drag behind the box.
 
-#### 96.19.2 The field is not drawn at `DST_IDLE`
+#### 96.19.2 The field is not drawn at `DST_IDLE` — and has since MOVED
 
 There is nothing for arguments to be arguments *to* until a program is named,
 so at `DST_IDLE` the row is absent and keys are not taken. A field that
@@ -121591,6 +121750,13 @@ The state the user actually meets is the one after a program has run: the
 window survives a non-zero exit (§96.1), so the program that just ran is still
 named, and the field is there to add the `/M` they discovered they needed. No
 File→Open in the loop.
+
+**The field is on the SETUP page now (§96.32.2), so the question this section
+answers no longer arises**: the setup area is reached deliberately and every
+control on it is meaningful whatever the state. The judgement above was right
+about *arguments* and wrong as a general rule, and §96.32.1 is where it gets
+tested — the **path box** is drawn at `DST_IDLE` precisely because an empty
+one is a state (the internal `COMMAND.COM`) rather than an absence.
 
 #### 96.19.4 Enter runs it again
 
@@ -121712,14 +121878,19 @@ The DOS window was **288×100 at a fixed place**, and wave 6 puts a text
 console in it — a console is a number of ROWS, so the window has to be as big
 as the machine allows rather than as big as somebody typed.
 
-It follows `apps/browser`'s policy exactly, because the browser wants the room
-for the same reason: **90% of the desktop band centred on VGA and Hercules**,
-and **the whole band plus the dock's strip on CGA**, where 640×200 gives the
-band 155 rows and the chrome here is already most of them. A window over the
-dock is `wm_dock_under`'s ordinary case (§11.90) and the user can move or
-shrink it like any other. `OSAPI_WM_KEEPH` is what permits it, set from the
-card **this window is on** rather than the primary (§39.16.4) — a drag across
-a display seam is exactly when that answer changes.
+**SUPERSEDED BY §96.32, which asks the question properly.** What stood here
+was *90% of the desktop band centred on VGA and Hercules*, computed by a
+`mul`, a `div` and a per-adapter branch — a shape chosen by proportion when
+the requirement is a COUNT. 80 columns is 640 px and settles the width with no
+arithmetic at all; 25 rows plus the bar settles the height at 239; and
+`OSAPI_WM_PREFER` (§11.100.1) says both in a three-row table. `dos_size` is
+gone with it.
+
+What survives unchanged is the CGA half and its reason: a window over the dock
+is `wm_dock_under`'s ordinary case (§11.90), `OSAPI_WM_KEEPH` is what permits
+it, and it is set from the card **this window is on** rather than the primary
+(§39.16.4) — a drag across a display seam is exactly when that answer changes.
+On CGA it is the difference between 15 console rows and 17.
 
 The size is written into the **template before `wm_create`**, because
 `wm_create` runs `wm_fit` on the size it is handed and asking afterwards fits

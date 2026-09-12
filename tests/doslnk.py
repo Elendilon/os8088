@@ -34,6 +34,7 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 import os88geom                                                # noqa: E402
+import dosmap                                                  # noqa: E402
 import os88marty                                               # noqa: E402
 import os88mouse                                               # noqa: E402
 import os88build                                               # noqa: E402
@@ -68,8 +69,13 @@ LIMIT = 96                          # KB, comfortably over DOS_MIN_KB's 64 and
 CLSID = bytes([0x01, 0x14, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
                0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46])
 TITLE_H = os88geom.TITLE_H
-DOS_FLDW, DOS_BTNW, DOS_SAVW, DOS_BTNY, DOS_EROWY, DOS_FLDY = 256, 104, 112, 90, 24, 64
-DOS_MFLDX, DOS_MFLDY, DOS_MCHKY = 64, 52, 72      # the memory page (SPEC.md 96.25)
+# **NO LAYOUT CONSTANTS HERE ANY MORE.** Ten of them stood here, copied from
+# apps/dos/dos.asm, and every click below was computed from them - which is
+# exactly the failure docs/WRITING-TESTS.md names: SPEC.md 96.32 moved the
+# arguments box and Save Shortcut onto a page of their own and this row went
+# on clicking an empty part of the window, reporting it as "Save Shortcut
+# opened no file dialog". dosmap.centre reads each control's real rect out of
+# the guest's own bss, so a layout change moves the clicks with it.
 
 
 def fail(msg):
@@ -187,39 +193,43 @@ def main():
         os88marty.settle(m)
         w = ui.window("DOS")
         ui.raise_window(w)
-        ctop = w.y + TITLE_H
         mo = os88mouse.Mouse(marty=m)
+        pseg = dosmap.instance(m)
+        dm = dosmap.package()
 
         # --- 1: fill both, then save -----------------------------------------
-        mo.click(w.x + 8 + 100, ctop + DOS_FLDY + 6)
+        # The arguments box is behind the bar's Environment button now
+        # (SPEC.md 96.32.2), so getting to it is a click on that first.
+        mo.click(*dosmap.centre(m, pseg, dm, "dos_erect"))
+        os88marty.settle(m)
+        mo.click(*dosmap.centre(m, pseg, dm, "dos_ln"))
         os88marty.settle(m)
         for ch in TYPED:
             m.type_text(ch)
-        mo.click(w.x + 8 + DOS_FLDW - DOS_BTNW // 2, ctop + DOS_BTNY + 7)
         os88marty.settle(m)
-        mo.click(w.x + 8 + 60, ctop + DOS_EROWY + 6)
+
+        # **ONE PAGE HOLDS ALL FOUR NOW** (SPEC.md 96.32.2): the arguments box,
+        # one environment row, the memory limit and the cache box are the Setup
+        # page's two halves, so this walks controls instead of walking pages -
+        # and every one of them is resolved OUT OF THE GUEST by name rather
+        # than computed from a host-side copy of the layout, which is what
+        # broke this row when the layout moved.
+        mo.click(*dosmap.centre(m, pseg, dm, "dos_eln"))
         os88marty.settle(m)
         for ch in ENVVAR:
             m.type_text(ch)
-        mo.click(w.x + 8 + DOS_FLDW - DOS_BTNW // 2, ctop + DOS_BTNY + 7)
         os88marty.settle(m)
-
-        # ...and THE PRESS ABOVE LANDED ON THE MEMORY PAGE, not back on the
-        # main one: the button CYCLES now - main -> environment -> memory ->
-        # main (SPEC.md 96.25) - so the third press below is what returns to
-        # the page Save Shortcut is on
-        mo.click(w.x + 8 + 6, ctop + DOS_MCHKY + 6)     # untick Keep the cache
+        mo.click(*dosmap.centre(m, pseg, dm, "dos_mchk"))   # untick the cache
         os88marty.settle(m)
-        mo.click(w.x + DOS_MFLDX + 20, ctop + DOS_MFLDY + 6)
+        mo.click(*dosmap.centre(m, pseg, dm, "dos_mln"))
         os88marty.settle(m)
         m.type_text(str(LIMIT))
         os88marty.settle(m)
-        mo.click(w.x + 8 + DOS_FLDW - DOS_BTNW // 2, ctop + DOS_BTNY + 7)
-        os88marty.settle(m)                             # ...and back to main,
-                                                        # which also reads the
-                                                        # field (96.25)
 
-        mo.click(w.x + 8 + DOS_SAVW // 2, ctop + DOS_BTNY + 7)
+        # ...and Save Shortcut is on this page's own bottom row, beside Return.
+        # It reads the limit on the way out for dos_mem_take's reason (96.25):
+        # a number typed with nothing pressed after it is still the setting.
+        mo.click(*dosmap.centre(m, pseg, dm, "dos_srect"))
         os88marty.settle(m)
         if not ui.wait_window("Save", limit=30.0):
             fail("Save Shortcut opened no file dialog")

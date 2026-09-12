@@ -34,6 +34,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
+import dosmap                                                  # noqa: E402
 import os88marty                                               # noqa: E402
 import os88mouse                                               # noqa: E402
 import os88geom                                                # noqa: E402
@@ -43,17 +44,22 @@ SYS = "build/os8088-360.img"
 ARGS = "build/dosargs360.img"
 TYPED = "/M P:220"                   # ...what a user would actually type
 WANTPATH = "\\BIN\\DOSARGS.COM"
-ENVVAR = "SOUND=SB"              # ...typed on the Environment page
-DOS_FLDW = 256                   # apps/dos/dos.asm's field and button metrics
-DOS_BTNW = 104
-DOS_BTNY = 90
-DOS_EROWY = 24
-DOS_FLDY = 64                    # apps/dos/dos.asm's arguments box, from the
-                                 # content top - mirrored here because a test
-                                 # that clicks a remembered pixel is the thing
-                                 # docs/WRITING-TESTS.md warns about, and this
-                                 # is the nearest a package-local constant gets
-R_NCELL, R_NKEY = 6, 8           # dos.asm's counters, past DOS_B_CTOP/LNV/LNL
+ENVVAR = "SOUND=SB"              # ...typed in the Setup page's env row
+# **NOT ONE LAYOUT CONSTANT HERE ANY MORE.** Five stood here - DOS_FLDW,
+# DOS_BTNW, DOS_BTNY, DOS_EROWY, DOS_FLDY - copied from apps/dos/dos.asm under
+# a comment saying that mirroring them was "the nearest a package-local
+# constant gets" to doing this properly. It is not near enough: SPEC.md 96.32
+# moved every one of those controls and this row went on clicking where they
+# used to be, with nothing to say about it. dosmap.centre reads each control's
+# real rect out of the guest's own bss instead.
+#
+# **AND THE COUNTERS ARE READ BY NAME** (dosmap), never at an offset counted by
+# hand. `R_NCELL, R_NKEY = 6, 8` stood here - "past DOS_B_CTOP/LNV/LNL" - and
+# SPEC.md 96.32 put four words of console geometry in that gap, so this row
+# started reading dos_conrows and dos_concols and reporting them as "25
+# keystrokes redrew 80 glyph cells". A plausible number from the wrong word is
+# worse than a crash, which is the same failure docs/WRITING-TESTS.md keeps
+# naming: a layout known in two places decodes nonsense the day it moves.
 
 
 def u16(m, at):
@@ -153,37 +159,69 @@ def main():
         # An earlier version of this check moved the window first and stayed
         # green with the bug deliberately put back.
         #
-        # The band is LEFT OF THE DISK WINDOW TOO (x 20..90), because that one
-        # is white and would answer for the desktop.
+        # **IT LOOKS BELOW THE WINDOW NOW, AND IT HAS TO** (SPEC.md 96.32).
+        # This used to sample the desktop to the LEFT of the window, which was
+        # where a clobbered x1 showed: the fill ran from near the screen's
+        # edge across to the window's right, eating the border and the dither
+        # beside it. The window SPANS THE SCREEN WIDTH now - 80 columns is 640
+        # pixels and VGA and CGA are 640 wide - so there is no desktop to its
+        # left to eat, and the old sample was reading the window's own white
+        # content and calling it a band.
+        #
+        # What is still there to guard is the fill escaping VERTICALLY, which
+        # is the same defect measured on the axis that still has desktop on
+        # it. The rows below the window are the dither and must stay it.
         wd, ht, data = m.fbuf()
 
         def lit(x, y):
             return data[(y * wd + x) * 3] < 128
 
-        rows = [y for y in range(w.y + 24, min(w.y + w.h - 8, ht - 1))]
+        y0 = w.y + w.h + 2
+        rows = [y for y in range(y0, min(y0 + 40, ht - 1))]
+        if len(rows) < 8:
+            fail("this adapter leaves no desktop below the window, so the "
+                 "escape check has nothing to measure - run it on one that "
+                 "does (Hercules is 348 rows and the window is 239)")
         ink = sum(1 for y in rows for x in range(20, 90) if lit(x, y))
         frac = ink / float(len(rows) * 70)
         if not 0.35 <= frac <= 0.65:
-            fail("the desktop to the LEFT of the window is %.0f%% ink over the "
-                 "window's own rows, and SPEC.md 63's dither is 50. A white "
-                 "band there is a fill whose x1 was clobbered before it ran "
-                 "(SPEC.md 96.19.5)" % (frac * 100))
-        print("dosargs: the desktop left of the window is %.0f%% ink over its "
-              "rows - the fill stayed inside (SPEC.md 96.19.5)" % (frac * 100))
+            fail("the desktop BELOW the window is %.0f%% ink and SPEC.md 63's "
+                 "dither is 50. A white band there is a fill that ran past the "
+                 "window's own content box (SPEC.md 96.19.5)" % (frac * 100))
+        print("dosargs: the desktop below the window is %.0f%% ink - the fill "
+              "stayed inside (SPEC.md 96.19.5)" % (frac * 100))
 
         dw = ui.disk_window()
         if dw:
             ui.close(dw)
-        ui.move_window(w, 300, 40)
-        os88marty.settle(m)
+        # **THE MOVE IS GONE** (SPEC.md 96.32). It was here to get the window
+        # clear of the Disk window, which the close above already does now
+        # that the DOS window spans the screen - and it cannot do what it
+        # used to anyway: `wm_land_fit` refuses every horizontal destination
+        # for a screen-width frame, so a drag to 300 lands back at 0.
+        #
+        # What it would ALSO have needed is a repaint, and that is worth
+        # writing down because the console wave inherits it: **a MOVE does
+        # not call the paint callback** - the window manager carries the
+        # pixels - so every screen-coordinate rect this package caches stays
+        # at the old position until something paints or clicks. dos_click and
+        # dos_key both call dos_place first, so the box itself is never wrong;
+        # a reader that takes the rects out of bss and then clicks them is.
         w = ui.window("DOS")
 
         # --- 3: click the field and type -------------------------------------
-        # The field is at content+8, content_top+80, 256x13 (DOS_FLD*). The
-        # click lands in its middle rather than at an edge, because an edge
-        # click is os88line_hit's boundary and this row is not about that.
-        cx, cy = w.x + 8 + 100, w.y + 16 + DOS_FLDY + 6
-        os88mouse.Mouse(marty=m).click(cx, cy)
+        # **THE ARGUMENTS BOX IS ON THE SETUP PAGE NOW** (SPEC.md 96.32.2), so
+        # getting to it is a click on the bar's Environment button first. Every
+        # coordinate below is READ OUT OF THE GUEST by name (dosmap.centre) -
+        # this row used to compute them from host-side copies of the layout
+        # constants, and when the layout moved it went on clicking an empty
+        # part of the window with nothing to say about it.
+        mo = os88mouse.Mouse(marty=m)
+        pseg = dosmap.instance(m)
+        dm = dosmap.package()
+        mo.click(*dosmap.centre(m, pseg, dm, "dos_erect"))
+        os88marty.settle(m)
+        mo.click(*dosmap.centre(m, pseg, dm, "dos_ln"))
         os88marty.settle(m)
         for ch in TYPED:
             m.type_text(ch)
@@ -198,9 +236,8 @@ def main():
         # and costs ~18ms a key on the target machine (PERFORMANCE.md prices a
         # glyph cell at ~900us). dos.asm counts the cells os88line_edit says it
         # drew; a whole-field repaint of this text would be 1+2+...+8 = 36.
-        base = pkg_base(m)
-        cells = u16(m, base + R_NCELL)
-        keys = u16(m, base + R_NKEY)
+        cells = u16(m, (pseg << 4) + dm["dos_ncell"])
+        keys = u16(m, (pseg << 4) + dm["dos_nkey"])
         print("dosargs: %d keystrokes redrew %d glyph cells" % (keys, cells))
         if keys != len(TYPED):
             fail("%d keystrokes were counted for %d typed - the field did not "
@@ -213,24 +250,17 @@ def main():
                  % (keys, cells, sum(range(1, len(TYPED) + 1)),
                     len(TYPED) * 0.9))
 
-        # --- 3b: THE ENVIRONMENT PAGE (SPEC.md 96.20) ------------------------
-        # The Environment button, then row 0, then Done. Every coordinate is
-        # apps/dos/dos.asm's own constant measured from the CONTENT origin,
-        # not a pixel somebody remembered - which is docs/WRITING-TESTS.md's
-        # rule and the reason these are named at the top of this file.
-        ctop = w.y + os88geom.TITLE_H   # ...IMPORTED, and t_mirror is why:
-                                       # typing 16 here passed only because
-                                       # the field is 13px tall and 2px of
-                                       # error still lands inside it
-        mo = os88mouse.Mouse(marty=m)
-        mo.click(w.x + 8 + DOS_FLDW - DOS_BTNW // 2, ctop + DOS_BTNY + 7)
-        os88marty.settle(m)
-        mo.click(w.x + 8 + 60, ctop + DOS_EROWY + 6)
+        # --- 3b: THE ENVIRONMENT ROW (SPEC.md 96.20, 96.32.2) ----------------
+        # It is on the SAME page as the arguments box now - one env row beside
+        # them, which IS Environment's first row rather than a copy of it - so
+        # this no longer changes page at all. Then Return, which is what leaves
+        # the setup area and also commits the memory limit.
+        mo.click(*dosmap.centre(m, pseg, dm, "dos_eln"))
         os88marty.settle(m)
         for ch in ENVVAR:
             m.type_text(ch)
         os88marty.settle(m)
-        mo.click(w.x + 8 + DOS_FLDW - DOS_BTNW // 2, ctop + DOS_BTNY + 7)
+        mo.click(*dosmap.centre(m, pseg, dm, "dos_trect"))
         os88marty.settle(m)
 
         # --- 4: Enter runs it again ------------------------------------------
