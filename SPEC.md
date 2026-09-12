@@ -119549,6 +119549,55 @@ that the door is this shape.
 **The game itself is unaffected.** `PRINCE.EXE` runs off the floppy; what
 needs a shell is the hard-disk *installer*.
 
+#### 96.31 `AH=56h` renames where it stands, and says so when it cannot
+
+DOS uses this call for two things: rename a file, and **move** one between
+directories of a volume by re-linking its entry. `OSAPI_FILE_RENAME` is a
+directory-entry rewrite in the folder you are standing in (§18.4), so the
+first is ours and the second is not.
+
+Every rule below is measured by one binary under IBM DOS 3.30
+(`tests/dostrap/renref.asm`), and **two of them are not what a reading of the
+call would give you**:
+
+| | IBM DOS 3.30 | this box |
+|---|---|---|
+| `T1.TXT` → `T2.TXT` | `CF=0` (`AX=0012h` — junk) | `CF=0` |
+| ...again, when it is gone | `AX=0002 CF=1` | same |
+| onto its own name | `AX=0005 CF=1` | same |
+| the old name names THIS drive | `CF=0` | same |
+| the old name names ANOTHER | **`AX=0011 CF=1`** | same |
+| the new name names ANOTHER | **`AX=0011 CF=1`** | same |
+| the new name is `\NAME` | **`CF=0`** — it MOVED it | `CF=0`, from the root |
+| another drive, source really there | `AX=0011 CF=1` | same |
+
+**The drive letters are built at run time from `AH=19h`**, and that is the
+row that makes the table a diff rather than a puzzle: under a real DOS the
+probe runs from A: and under this box the package is launched off B:, so a
+hard-coded `B:` means *another drive* on one side and *the one I am on* on
+the other — and the two columns then disagree while both are right.
+
+- **`AX` is junk on success.** The row that worked reports `0012h` and so do
+  both rows at the bottom; only `CF` carries the answer. A caller that reads
+  `AX` the way `AH=4Eh` invites gets "no more files" from a rename that
+  worked.
+- **The two names must resolve to the SAME drive, and an unqualified one
+  means the CURRENT drive — not the other name's.** That is the row that
+  overturns the obvious implementation: resolving the new name against
+  wherever the old one lives makes `B:X` → `Y` from A: a cheerful rename on
+  B:, where DOS answers `11h`.
+- **A path in the new name is a move**, and DOS does it.
+
+So the handler banks the volume it was *asked* on, resolves both names
+against that, answers `11h` when they disagree, and **refuses the move with
+`5`** — access denied being the honest code for a change this layer cannot
+make, which is §96.11.2's own reasoning for the write path. The one case that
+looks like a move and is not is a leading separator while already standing in
+the root: that names this very folder, so it is a rename and goes through.
+
+`FERR_NOENT` maps to **2** and everything else to **5**, which is what the
+second and third rows above ask for.
+
 #### 96.28 `AH=29h` parses a NAME into an FCB, and sets no carry doing it
 
 Prince of Persia's `INSTALL.EXE` calls it twice on its way to `AH=4Bh`. There

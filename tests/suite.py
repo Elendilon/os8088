@@ -2586,6 +2586,23 @@ SOAK = [
         "by TWO and leaves the name blank.",
         needs=("marty",), serial=True,
         wants=("build/dosfcb360.img",)),
+    Row("dosren", "soak", py("tests/dosren.py"), 30.0,
+        "AH=56h RENAMES WHERE IT STANDS (SPEC.md 96.31). The table is a "
+        "MEASUREMENT OF IBM DOS 3.30 by the same binary "
+        "(tests/dostrap/renref.asm), so it is a property of DOS and cannot "
+        "drift with the disk or the build. AX IS JUNK ON SUCCESS - DOS "
+        "reports 0012h on the rows that worked - so only CF is asserted "
+        "there. TWO ROWS DECIDE THE IMPLEMENTATION: the two names must "
+        "resolve to the SAME drive and an unqualified one means the CURRENT "
+        "drive, not the other name's, so a handler that resolves the new "
+        "name against wherever the old one lives renames happily on the "
+        "other drive where DOS answers 11h; and a path in the new name is a "
+        "MOVE that DOS makes and OSAPI_FILE_RENAME cannot, so it is refused "
+        "with 5. The drive letters are built at RUN TIME from AH=19h, which "
+        "is what lets one binary mean the same thing under a real DOS "
+        "(running from A:) and here (launched off B:).",
+        needs=("marty",), serial=True,
+        wants=("build/dosren360.img",)),
     Row("dosexec", "soak", py("tests/dosexec.py"), 30.0,
         "THE DOS EXEC GATE (SPEC.md 96.14): AH=4Bh loads another program and "
         "runs it, and control comes back to the PARENT inside the INT 21h "

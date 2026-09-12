@@ -1628,6 +1628,8 @@ dos_int21:
     je .getattr
     cmp ah, 0x29
     je .parsefcb
+    cmp ah, 0x56
+    je .rename
     cmp ah, 0x06
     je .dconio
     cmp ah, 0x0C
@@ -2304,6 +2306,115 @@ dos_int21:
 ; every `.local` in dos_int21 below it, and the whole dispatch stops resolving.
 .pf_seps:   db '.', ':', ';', ',', '=', '+', '"', '/', '\\', '[', ']', '|'
             db '<', '>'
+
+; --- AH=56h: rename (SPEC.md 96.31) ------------------------------------------
+.rename:
+    ; in: DS:DX = the old name, ES:DI = the new one - and note the SECOND is
+    ; in the program's ES, which is why dos_fh_core takes a far pointer.
+    ;
+    ; EVERY RULE BELOW IS MEASURED, under IBM DOS 3.30, by the same binary
+    ; (tests/dostrap/renref.asm) - and two of them are not what a reading of
+    ; the call would give you:
+    ;
+    ;   * THE TWO NAMES MUST RESOLVE TO THE SAME DRIVE, and an unqualified one
+    ;     means the CURRENT drive - not the OTHER NAME's. "B:X.TXT" -> "Y.TXT"
+    ;     standing on A: is 11h, not same device. A handler that resolved the
+    ;     new name against wherever the old one lives renames happily on B:.
+    ;   * A PATH IN THE NEW NAME IS A MOVE, and DOS does it: "\Y.TXT" succeeds
+    ;     and the file is in the root afterwards. OSAPI_FILE_RENAME rewrites a
+    ;     directory entry WHERE WE STAND (SPEC.md 18.4), so that is the one
+    ;     shape refused here rather than half-done.
+    ;
+    ; AX is junk on success in DOS (the row that worked reports 0012h), so
+    ; only CF carries the answer and zero is as good as anything.
+    push bx
+    mov al, [dos_vol]               ; THE ENTRY VOLUME, banked before anything
+    mov [dos_rnvol], al             ; moves us: it is what an unqualified name
+                                    ; means, for BOTH names
+
+    push ax                         ; --- the OLD name, parsed and NOT entered
+    mov ax, [bp]
+    mov [dos_fnseg], ax
+    pop ax
+    push di
+    mov di, dos_fname
+    call dos_fh_core
+    pop di
+    jc .fherr
+    call .rndrv                     ; AL = the drive it means
+    mov [dos_rndrv], al
+    mov al, [dos_fabs]
+    mov [dos_rnabs], al
+
+    push ax                         ; --- ...and the NEW one, out of its ES
+    mov ax, [bp-6]                  ; (SPEC.md 96.7.1's banked slot)
+    mov [dos_fnseg], ax
+    pop ax
+    push di
+    push dx
+    mov dx, di
+    mov di, dos_fname2
+    call dos_fh_core
+    pop dx
+    pop di
+    jc .fherr
+    call .rndrv
+    cmp al, [dos_rndrv]
+    je .rnone
+    mov al, 0x11                    ; "not same device" - measured, and the
+    jmp .fherr                      ; only code DOS has for this
+
+.rnone:
+    cmp byte [dos_fabs], 0          ; a leading separator on EITHER name is a
+    jne .rnroot                     ; move - unless we are standing in the
+.rnone2:                            ; root already, where it names this very
+    cmp byte [dos_rnabs], 0         ; folder and the move is a rename
+    jne .rnroot2
+.rngo:
+    mov [dos_fdrv], al              ; ...and now stand on it. .fhok/.fherr are
+    call dos_fh_enter               ; what come home (SPEC.md 96.6.2)
+    jc .fherr
+    push si
+    push di
+    mov si, dos_fname
+    mov di, dos_fname2
+    call dos_be_rename
+    pop di
+    pop si
+    jc .rnerr
+    xor ax, ax
+    jmp .fhok
+.rnroot:
+    cmp word [dos_curdir], 0
+    jne .rnmove
+    jmp short .rnone2
+.rnroot2:
+    cmp word [dos_curdir], 0
+    jne .rnmove
+    jmp short .rngo
+.rnmove:
+    mov al, 5                       ; THE MOVE DOS WOULD MAKE, refused: this
+    jmp .fherr                      ; layer rewrites an entry where it stands
+                                    ; and cannot re-link one into another
+                                    ; folder. "Access denied" is the honest
+                                    ; code for a change we cannot make
+                                    ; (SPEC.md 96.11.2's own reasoning)
+.rnerr:
+    cmp ax, FERR_NOENT              ; the source is not there: DOS says 2, and
+    jne .fhacc                      ; everything else this can fail with - the
+    mov al, 2                       ; target existing included - it says 5 for
+    jmp .fherr
+
+; --- .rndrv - the drive a just-parsed name MEANS ----------------------------
+; out: AL = [dos_fdrv], or the volume we entered on when the name named none.
+; clobbers: AL, flags
+.rndrv:
+    mov al, [dos_fdrv]
+    cmp al, 0xFF
+    jne .rnd
+    mov al, [dos_rnvol]
+.rnd:
+    ret
 
 ; --- directories (SPEC.md 96.12.2) -------------------------------------------
 .mkdir:
@@ -3176,7 +3287,9 @@ DBE_XCAPS   equ 20                  ; out AX = extended-memory KB
 DBE_XALLOC  equ 22                  ; DX:AX = bytes; out DX:AX = a linear base
 DBE_XFREE   equ 24                  ; DX:AX = a base
 DBE_XCOPY   equ 26                  ; ES:SI, DX:AX, CX, DI (SPEC.md 96.15)
-DBE_NENT    equ 14
+DBE_RENAME  equ 28                  ; SI = the old name, DI = the new, both in
+                                    ; the CURRENT directory (SPEC.md 96.31)
+DBE_NENT    equ 15
 
 dos_be_goto:
     mov word [dos_betgt], dos_k_goto
@@ -3216,6 +3329,9 @@ dos_be_xalloc:
     jmp short dos_be_go
 dos_be_xfree:
     mov word [dos_betgt], dos_k_xfree
+    jmp short dos_be_go
+dos_be_rename:
+    mov word [dos_betgt], dos_k_rename
     jmp short dos_be_go
 dos_be_xcopy:
     mov word [dos_betgt], dos_k_xcopy
@@ -3329,6 +3445,10 @@ dos_k_xalloc:
 
 dos_k_xfree:
     call OSAPI_XMEM_FREE
+    ret
+
+dos_k_rename:
+    call OSAPI_FILE_RENAME
     ret
 
 dos_k_xcopy:
@@ -10218,6 +10338,11 @@ dos_fh_fill:
     DBSS DOS_B_FABS,  1        ; did the name carry a leading separator?
     DBSS DOS_B_PFBUF, DOS_PFIN + 1  ; AH=29h's copy of the program's name...
     DBSS DOS_B_PFCB,  12            ; ...and the twelve bytes it hands back
+    DBSS DOS_B_FNAME2, 16      ; AH=56h's SECOND name (SPEC.md 96.31)
+    DBSS DOS_B_RNVOL,  1       ; ...the volume it was ASKED on, which is what
+    DBSS DOS_B_RNDRV,  1       ; an unqualified name means; the old name's
+    DBSS DOS_B_RNABS,  1       ; drive; and whether it carried a separator
+    DBSS DOS_B_RNPAD,  1
     DBSS DOS_B_FNSEG, 2        ; the segment dos_fh_core reads a name FROM
     DBSS DOS_B_FDRV,  1        ; ...and the DRIVE it named, 0xFF = none
     DBSS DOS_B_FHOME, 1        ; where to go back to, 0xFF = we never left
@@ -10469,6 +10594,10 @@ dos_acc     equ os88_image_end + DOS_B_ACC
 dos_fabs    equ os88_image_end + DOS_B_FABS
 dos_pfbuf   equ os88_image_end + DOS_B_PFBUF   ; AH=29h's name scratch...
 dos_pfcb    equ os88_image_end + DOS_B_PFCB    ; ...and its FCB prefix
+dos_fname2  equ os88_image_end + DOS_B_FNAME2  ; AH=56h's second name
+dos_rnvol   equ os88_image_end + DOS_B_RNVOL   ; ...and its three bytes of
+dos_rndrv   equ os88_image_end + DOS_B_RNDRV   ; drive arithmetic
+dos_rnabs   equ os88_image_end + DOS_B_RNABS
 dos_fnseg   equ os88_image_end + DOS_B_FNSEG   ; word: where a name is read from
 dos_fdrv    equ os88_image_end + DOS_B_FDRV    ; byte: the drive a name named
 dos_fhome   equ os88_image_end + DOS_B_FHOME   ; byte: ...and where it left

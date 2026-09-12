@@ -4806,6 +4806,15 @@ $(BUILD)/dosdir360.img: $(BUILD)/DOSDIR.COM $(BUILD)/dosdir/A.TXT tools/os88disk
 	    $(BUILD)/dosdir/A.TXT $(BUILD)/dosdir/BB.TXT $(BUILD)/dosdir/CCC.TXT \
 	    $(BUILD)/dosdir/DATA.DAT
 
+# ...and AH=56h's (SPEC.md 96.31). Its drive letters are built at run time
+# from AH=19h, so one disk is enough and the row means the same thing here as
+# it does under a real DOS.
+$(BUILD)/RENREF.COM: tests/dostrap/renref.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/renref.asm
+
+$(BUILD)/dosren360.img: $(BUILD)/RENREF.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/RENREF.COM
+
 # ...and AH=29h's (SPEC.md 96.28). One disk and no fixture: every assertion is
 # against what IBM DOS 3.30 answered, which is a property of DOS and not of
 # anything on the floppy.
@@ -4952,7 +4961,7 @@ doscom: $(BUILD)/doscom360.img $(BUILD)/dosexe360.img $(BUILD)/dosmou360.img \
         $(BUILD)/dosirq360.img $(BUILD)/pathtest360.img \
         $(BUILD)/dosargs360.img $(BUILD)/doslnk360.img \
         $(BUILD)/dosdrv360.img $(BUILD)/dosdrvsys.img \
-        $(BUILD)/dosfcb360.img
+        $(BUILD)/dosfcb360.img $(BUILD)/dosren360.img
 
 $(BUILD)/thewire.bin: apps/thewire/thewire.asm apps/thewire/wrhttp.inc \
                       apps/thewire/wrarc.inc apps/thewire/wrtxt.inc \
