@@ -478,7 +478,20 @@ class UI:
         # written against the request fails on a window manager doing exactly
         # what the spec says, and that is a false failure this layer exists to
         # stop rather than one to inherit.
-        want = (geom.snapx(x, bool(w.flags & geom.WF_NOSNAP)), y)
+        # **A WINDOW AS WIDE AS THE SCREEN SNAPS DIFFERENTLY** (SPEC.md
+        # 11.95.2): it has no left border, so its content origin is W_X and
+        # the snap is `x & ~7` rather than the +7 form. Without this a drag of
+        # SPEC.md 96.32's DOS window to 0 is predicted to land at 7, the
+        # window correctly lands at 0, and this layer reports the window
+        # manager as broken. Read off the guest's own [vid_w] - one word - and
+        # carrying snapw's caveat: on an extended desktop the window's display
+        # may not be the primary, and a caller that lands elsewhere should
+        # read the record rather than trust this.
+        try:
+            span = w.w >= geom.word(self.m, "vid_w")
+        except Exception:
+            span = False
+        want = (geom.snapx(x, bool(w.flags & geom.WF_NOSNAP), span), y)
         gx = w.x + w.w // 2
         gy = w.y + geom.TITLE_H // 2
         self._grab(w, gx, gy)

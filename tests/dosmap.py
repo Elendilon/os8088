@@ -93,6 +93,45 @@ def package(*defines):
                  os.path.join("drivers", "net")))
 
 
+def rect(m, pseg, dm, name):
+    """The four words at `name` in a live DOS instance, as x1, y1, x2, y2.
+
+    **A CONTROL IS RESOLVED OUT OF THE GUEST, never recomputed here.** Every
+    rect this box draws - the bar's two buttons, the setup area's four, the
+    memory check box - is four words in the package's bss, and an os88line
+    block starts with LN_X1..LN_Y2, which is the same four. So one reader
+    covers both and a test never carries a copy of the layout.
+
+    docs/WRITING-TESTS.md names the alternative as one of the four failures
+    that keep coming back, and SPEC.md 96.32 is what made it bite: the
+    arguments box and Save Shortcut moved to a page of their own, and the two
+    rows that clicked them at `content + DOS_BTNY + 7` went on clicking an
+    empty part of the window.
+    """
+    at = (pseg << 4) + dm[name]
+    return [int.from_bytes(m.read(at + i * 2, 2), "little") for i in range(4)]
+
+
+def instance(m, slot=0):
+    """The SEGMENT of a live DOS instance, which is what rect() wants.
+
+    A package is loaded at a paragraph boundary and never relocated (SPEC.md
+    20), so the map value IS the offset inside this segment - no image size to
+    add and nothing to subtract.
+    """
+    import dispapps
+    g = dispapps.pkg_seg(m, slot)
+    if not g:
+        raise RuntimeError("dosmap.instance: no package window in slot %d" % slot)
+    return g[1]
+
+
+def centre(m, pseg, dm, name):
+    """...and the middle of it, which is what a click wants."""
+    x1, y1, x2, y2 = rect(m, pseg, dm, name)
+    return (x1 + x2) // 2, (y1 + y2) // 2
+
+
 def probe(name="dospkt"):
     """Every label in one of tests/dostrap/'s `.COM` probes, from the PSP."""
     return _map(os.path.join(ROOT, "tests", "dostrap", name + ".asm"), (),

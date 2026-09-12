@@ -734,8 +734,16 @@ def snapw(w, flush=False, x=None, screen=None):
     return down if down > c else w
 
 
-def snapx(x, nosnap=False):
+def snapx(x, nosnap=False, span=False):
     """Where a frame asked to sit at `x` ACTUALLY lands (SPEC.md 11.94).
+
+    `span` IS THE CASE snapw's docstring said no test subject was. SPEC.md
+    96.32's DOS window is one now: 80 columns is 640 pixels of content and VGA
+    and CGA are 640 wide, so its frame spans the screen and 11.95.2 gives it no
+    left border - which makes its CONTENT origin W_X itself rather than W_X+1,
+    so the snap is `x & ~7` and an x of 0 is already where it belongs. Model it
+    with the +7 form and a drag to 0 is predicted to land at 7, the window
+    correctly lands at 0, and the harness calls the window manager wrong.
 
     `wm_snap_win` rounds a window's CONTENT origin down to a multiple of 8 -
     content left is W_X + 1, so the frame x it hands back is
@@ -760,6 +768,9 @@ def snapx(x, nosnap=False):
     """
     if nosnap:
         return x
+    if span:
+        return x & 0xFFF8           # no left border: the content origin IS
+                                    # the frame's, so 0 stays 0
     c = ((x + 1) & 0xFFF8) - 1
     return c if c >= 0 else c + 8
 

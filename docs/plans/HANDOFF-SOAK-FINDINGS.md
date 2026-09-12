@@ -1734,3 +1734,35 @@ contention makes a row LESS THOROUGH rather than slower, and this one got
 slower. Worth one `os88bisect.py classify dossnd` before anything is
 concluded, because N=1 is not a rate (E1).
 
+
+## G4. A `.COM` in the ROOT of a 360KB B: will not load on `os8088_5150_herc_gla`
+
+Found while photographing SPEC.md 96.32's new window on all three adapters,
+and **it is not that change's doing**: the identical probe against the DOS box
+as it stood one commit earlier answers the same thing.
+
+```
+  os8088_xt_vga         + build/doscom360.img   ->  state=2 (DST_RAN)
+  os8088_5150_herc_gla  + build/doscom360.img   ->  state=3 (DST_ERR) err=2
+```
+
+`err=2` is `DER_READ` — `dos_load`'s `dos_be_read` refused — so the box
+navigated to the file and could not read it. Pressing **Run** afterwards, with
+the same name and the same volume, works: `state=2`, program on the glass. So
+the disk is readable and the failure is in the FIRST load of a session on that
+profile.
+
+**Nothing in the suite covers this pair.** `doscom` launches the same
+`DOSHELLO.COM` off the same image and passes, because it calls
+`os88ui.boot(SYS, apps=COM)` with **no machine** and gets the default;
+`dosargs` and `doslnk` do use `os8088_5150_herc_gla`, and both launch out of
+`B:/BIN/` rather than the volume root. So the uncovered combination is
+narrow — *herc_gla, 360KB, a program in the ROOT* — and either of those two
+rows moving its program up a directory would have found it.
+
+Not classified. Worth knowing which of the three it is before anything else:
+the profile's drive geometry, the root directory specifically (`dos_be_goto`
+with cluster 0 against a subdirectory's cluster), or the first mount of a
+session. `tools/os88dosdbg.py trace DOSHELLO.COM --disk build/doscom360.img`
+against that machine is the instrument, and SPEC.md 96.29.1's part means the
+ring no longer competes with the arena for room.
