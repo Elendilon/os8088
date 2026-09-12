@@ -240,6 +240,26 @@ connection we refuse with `RST`, which is what a client understands.
 | 8 | `OSAPI_PKG_REHOME` — give **S** back | `kernsize`-style A/B on the region |
 | 9 | inbound (`NW_LISTEN`/`NW_ACCEPT` exist) | `ftpsrv` serves across the cable |
 
+### 7.0 The translation is developed on the CARD, and that is not a shortcut
+
+The translation consumes `NETV_OPEN`, `NETV_STATUS`, `NETV_SEND`, `NETV_RECV`
+and `NETV_CLOSE` — and **both** drivers answer those verbs. `ETHER.DRV` is one
+socket provider and `NET.DRV` is the other; which one a machine has is
+`net_find`'s answer and nothing else in the translation cares.
+
+So it is built and tested against the **card** under QEMU, where
+`tests/dospkt.py`'s harness, a real network and mTCP already work, and the
+cable is then the same code with `[net_cls]` holding a different class.
+`DOSNETCARD=1` forces the translation on a machine that has a card, which is
+what makes that testable at all — on such a machine §96.23's raw path is
+strictly better and would otherwise always win.
+
+That inverts the risk the hard way round on purpose: the protocol logic is the
+part most likely to be wrong, and it is the part that can be exercised against
+a real host at emulator speed. What is left for §7.1 is only *"do the same
+verbs work when the wire under them is a cable"*, which is a much smaller
+question than "is this TCP endpoint correct".
+
 ### 7.1 Testing needs no second machine, and that was not obvious
 
 `tests/lptlink/partner.py` plays the far end of the cable **from the host**,

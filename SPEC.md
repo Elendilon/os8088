@@ -121082,3 +121082,115 @@ the same includer for the same reason. Worth writing down because the hazard
 is structural rather than a slip: a file with two hosts grows for both of them
 whenever either one gains a feature, and NASM emits every byte of a flat
 binary whether or not it is referenced.
+
+### 96.26 The cable translation — a DOS program on the wire without a card
+
+§96.23's packet driver is a **card** feature: it rests on `ETHER.DRV`'s raw
+verbs, and a machine with a parallel cable and no NIC has none. This is how
+such a machine gets a DOS program onto the network anyway, and
+docs/plans/DOS-CABLE-NET-PLAN.md is the design record.
+
+**It is a slirp in reverse.** The DOS program believes it is on an Ethernet —
+it ARPs, it builds IP headers, it runs its own TCP — and every frame it emits
+is terminated in `apps/dos/dosnet.inc` and re-issued as a socket verb. Every
+socket byte that arrives is wrapped in a header and handed back through
+§96.23.4's up-call.
+
+**The argument is LATENCY, not bandwidth**, and it is what rules out the
+obvious design of relaying raw frames over the cable. At PERFORMANCE.md Set
+39's 3,741 B/s a 1,514-byte frame is 0.405 s each way, so one round trip is
+0.81 s — which sits on the edge of mTCP's own retransmit timeout, and the
+first queue behind a data frame tips it into permanent retransmit. Translating
+sends only **payload** and answers every acknowledgement locally in
+microseconds: the client measures an RTT of about zero and its timers never
+fire. ~3.4× the throughput, and the difference between slow and thrashing.
+
+#### 96.26.1 It does not know which wire is under it
+
+Everything here goes through `NETV_OPEN`, `NETV_STATUS`, `NETV_SEND`,
+`NETV_RECV` and `NETV_CLOSE` — and **both** drivers answer those. `net_find`
+picks one (the card first, for its own stated reason), `[net_cls]` holds the
+answer, and three routing compares in the packet driver are the whole
+difference between the two paths:
+
+| | card | cable |
+|---|---|---|
+| `send_pkt` | `NETV_RAWTX`, the client's buffer handed over where it lies | staged into our segment, then `dn_tx` |
+| the poll | `NETV_RAWRX` into the claim | `dn_ready`, already in `dn_frame` |
+| the up-call's source | the claim at `PKT_RXOFF` | `dn_frame` |
+
+The cable path stages the outbound frame because `dn_tx` and everything under
+it use no segment override — every other byte they touch is ours. That is a
+copy of up to 1,514 bytes against a wire that moves 3,741 a second, so it is
+not a cost that decides anything.
+
+**We are the whole segment.** There is no wire to forward an ARP onto, so
+every request is answered with one synthetic MAC and the client's routing
+collapses to "everything is one hop away" — which is exactly true here. The
+address is locally-administered unicast, because a client that saw a multicast
+bit would refuse to ARP for it.
+
+#### 96.26.2 The DNS hijack — `NETV_OPEN` takes a NAME
+
+There is **no UDP in the socket ABI**, so a DNS query cannot be relayed. That
+is the best simplification in the design rather than its hard edge, because
+`NETV_OPEN` takes `ES:SI` = a host **name**: the far side resolves.
+
+So the translation answers port 53 itself. It flattens the query's
+length-prefixed labels to dots, remembers the name in one of four slots, and
+answers with a synthetic address out of **10.88.0.0/24** whose last octet *is*
+the slot index. When the client then connects to that address, the octet
+indexes straight back and `NETV_OPEN` gets the name.
+
+**No resolver, no cache and no UDP path of our own.** The answer is the
+question copied back with an A record appended — which every resolver accepts
+and which means the labels never have to be re-encoded, since they are already
+on the wire in front of us. The TTL is 30 seconds on purpose: the mapping
+lives in four slots, and a client that cached for an hour would outlive its
+own entry.
+
+An address out of our pool that we never handed out is refused with `RST`.
+There is nothing to look up and nothing to connect to, and a reset is what
+tells a client to stop rather than retry into a silence.
+
+#### 96.26.3 The TCP endpoint is wave 3, and until then it REFUSES
+
+`dn_tcp_in` answers every segment with `RST`. That is not a stub: a reset is a
+real answer, so the client's own error path says *connection refused* where a
+drop would read as a dead network — and it is what makes §96.26.2 observable
+on its own, since a name is resolved and an address handed out before the
+connect fails cleanly.
+
+What goes there is the state machine, the sequence arithmetic and the
+checksum. What it does **not** need is the interesting half: no congestion
+control, no retransmit queue and no reassembly, because what is underneath a
+`NETV_SEND` is a reliable in-order local transport rather than a network. Our
+whole TCP is 1,943 bytes (the `tcp_` hull in `ether.bin`) and this is a
+fraction of it.
+
+**`ping` will never work** — there is no raw ICMP over sockets — and neither
+will a UDP application beyond the DNS port. Every TCP one does.
+
+#### 96.26.4 The cable has no raw claim, and no PROM either
+
+`dos_pkt_claim` takes `NETV_RAW` before the first handle (§96.23.5), and
+`NETV_RAW` is one of the three verbs the cable **refuses** (§72.22.3). Asking
+for it on the translation path would fail every `access_type` on the machine
+this whole feature exists for.
+
+There is nothing to claim there: no ring, no card, and our own stack is not
+using a wire the DOS program could collide with. So the claim is a no-op on
+that path, and so is its release.
+
+It does have to invent the **station address** the claim would have handed
+back, because `get_address` must answer something. That is a second
+locally-administered unicast address, one digit off the synthetic gateway's — a
+client that saw its own address as a frame's source would drop it as a loop.
+
+**The knob that makes this testable also hides this**, and the hiding is worth
+recording: `DOSNET_CARD` forces the translation on a machine that *has* a
+card, so `NETV_RAW` succeeds and a real PROM answers. The ARP half of §96.26.1
+was verified green under that knob with this defect still present, and it
+would have failed on the first cable-only machine. A knob that substitutes one
+half of a path tests the other half and says nothing about the half it
+replaced.

@@ -578,3 +578,6 @@ eth_v_state:
 %if EH_SIZE != NET_EHSIZE
   %error "ether: the stack's Ethernet header size and netpkg.inc's disagree"
 %endif
+%if ETY_IP != NET_ETY_IP || ETY_ARP != NET_ETY_ARP
+  %error "ether: the stack's ethertypes and netpkg.inc's published ones disagree"
+%endif

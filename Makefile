@@ -1497,6 +1497,22 @@ OS88DRV := python3 tools/os88drv.py $(PKGZARG)
 # dozen up-to-date .o88 files and rebuilds none of them.
 PKGZSTAMP := $(BUILD)/.pkgz$(if $(PKGZ),-$(PKGZ))
 
+# DOSNETCARD=1 forces the DOS box's CABLE TRANSLATION (SPEC.md 96.26) on a
+# machine that HAS a card, which is the only way it can be driven at all -
+# net_find prefers the card and §96.23's raw path is strictly better there, so
+# the translation would otherwise never run anywhere an emulator can reach it
+# (DOS-CABLE-NET-PLAN 7.0).
+#
+# **IT IS STAMPED, and it has to be.** A knob with no stamp leaves an
+# up-to-date dos.bin from the other arm, so `make ethertest DOSNETCARD=1`
+# after a plain `make` silently ships the STOCK package - and the row then
+# tests the card path while reporting on the cable one. That is CLAUDE.md's
+# standing warning about knob kernels, one artefact along, and it was walked
+# into on this knob's first use: two runs disagreed about whether an ARP
+# reached the wire and both answers were correct for the build actually on
+# the disk.
+DOSNETSTAMP := $(BUILD)/.dosnet$(if $(DOSNETCARD),-card)
+
 # CURFIX=1 turns ON the two cursor-hide changes, and they are OFF BY DEFAULT.
 # SPEC.md 7.1.4.2 makes cur_lazyck test the ARMED REGION rather than the
 # window's frame, so a pointer parked over a window IN FRONT of an updating
@@ -4568,6 +4584,10 @@ $(SBSTAMP): | $(BUILD)
 $(PKGZSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.pkgz $(BUILD)/.pkgz-lz4 $(BUILD)/.pkgz-lzb
 	@touch $@
+
+$(DOSNETSTAMP): | $(BUILD)
+	@rm -f $(BUILD)/.dosnet $(BUILD)/.dosnet-card
+	@touch $@
 # Sheet (spreadsheet roadmap stage 1.0): a 64x64 numeric grid, no formulas,
 # no formatting, SYLK only.
 # EVERY .inc A PACKAGE INCLUDES BELONGS IN ITS RULE, and this one is the reason
@@ -4710,10 +4730,12 @@ $(BUILD)/telnet.o88: $(BUILD)/telnet.bin tools/os88pkg.py $(PKGZSTAMP)
 # alone - the granule RDPV_MOUNT rounds a size up to, which the refusal
 # strings have to name.
 # --- DOS (SPEC.md 96) --------------------------------------------------------
-$(BUILD)/dos.bin: apps/dos/dos.asm apps/os88api.inc apps/os88ui.inc \
+$(BUILD)/dos.bin: apps/dos/dos.asm apps/dos/dosnet.inc \
+                  apps/dos/dosnetabi.inc apps/os88api.inc apps/os88ui.inc \
                   apps/os88line.inc apps/os88sock.inc \
-                  drivers/net/netpkg.inc | $(BUILD)
-	$(NASM) -f bin -w+error -I apps/ -I drivers/net/ -o $@ apps/dos/dos.asm
+                  drivers/net/netpkg.inc $(DOSNETSTAMP) | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/dos/ -I drivers/net/ \
+	        $(if $(DOSNETCARD),-DDOSNET_CARD) -o $@ apps/dos/dos.asm
 
 $(BUILD)/dos.o88: $(BUILD)/dos.bin tools/os88pkg.py $(PKGZSTAMP)
 	python3 tools/os88pkg.py $< -o $@ $(PKGZARG)

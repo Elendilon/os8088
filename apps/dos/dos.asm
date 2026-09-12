@@ -495,6 +495,8 @@ dos_run:
     mov [dos_err], al
     mov byte [dos_state], DST_ERR
 .out:
+    call dn_shut                    ; every translated flow closed, before the
+                                    ; driver that owns its sockets is resumed
     call dos_pkt_shut               ; THE RAW CLAIM GOES BACK FIRST, on every
                                     ; path here for dos_drv_back's own reason
                                     ; (SPEC.md 96.23.5): a release by a caller
@@ -5975,6 +5977,11 @@ dos_mcb_resize:
 ; and was 6 bytes short of dos_bda's end, which the loader would have answered
 ; by zeroing less than we write - and a write past our bss is a write past our
 ; REGION, which is somebody else's heap claim.
+%include "dosnetabi.inc"             ; the cable translation's numbers, EARLY
+                                    ; (SPEC.md 96.26) - its code is dosnet.inc
+                                    ; at the end, and the bss table below
+                                    ; cannot see an equ from there
+
 PKT_NHAND   equ 4                   ; handles. mTCP opens ONE (IP) and ARP
                                     ; rides the same one; four is room for a
                                     ; client that separates them and one more
@@ -7864,10 +7871,37 @@ dos_pkt_go:
     ; a whole class of segment bug lived, because it was the one place this
     ; package addressed the client's memory itself.
     mov dx, [dos_pkt_cds]           ; the CLIENT's DS, banked at the gate
+    cmp byte [dos_pkt_xl], 0
+    jne .xlate                      ; the cable carries no frames (SPEC.md
+                                    ; 72.22.3), so they are TRANSLATED
     mov bh, DRVC_NET
     mov bl, NETV_RAWTX
     call OSAPI_DRV_CALL
     jc .cantsend
+    jmp .ok
+.xlate:
+    ; --- the translation reads the frame in OUR segment --------------------
+    ; dn_tx and everything under it use no segment override, because every
+    ; other byte they touch is ours. So this is the one copy the card path
+    ; does not make - 42 to 1514 bytes, against a wire that moves 3,741 a
+    ; second, which is not the cost that decides anything here.
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    push ds
+    pop es
+    mov di, dos_pkt_txs
+    mov ds, dx
+    call dos_pkt_copy               ; DS:SI -> ES:DI, CX bytes
+    pop ds
+    pop es
+    pop di
+    pop si
+    pop cx
+    mov si, dos_pkt_txs
+    call dn_tx
     jmp .ok
 .cantsend:
     mov dh, PKE_CANTSEND
@@ -8000,6 +8034,35 @@ dos_pkt_hchk:
 dos_pkt_claim:
     cmp byte [dos_pkt_raw], 0
     jne .have
+    ; --- **THE CABLE HAS NO RAW CLAIM TO TAKE** (SPEC.md 96.26.4) ----------
+    ; NETV_RAW is one of the three verbs NET.DRV refuses (72.22.3), so asking
+    ; for it here would fail every access_type on the machine this translation
+    ; exists for. There is nothing to claim: no ring, no card, and our own
+    ; stack is not using a wire the DOS program can collide with.
+    ;
+    ; It also has to invent the STATION ADDRESS the claim would have handed
+    ; back, because get_address must answer something and there is no PROM to
+    ; read. Locally-administered unicast again, and one digit off the
+    ; gateway's - a client that saw its own address on both ends of a frame
+    ; would drop it as a loop.
+    cmp byte [dos_pkt_xl], 0
+    je .real
+    push ax
+    push cx
+    push si
+    push di
+    mov si, dn_ourmac
+    mov di, dos_pkt_mac
+    mov cx, 6
+    call dn_copy                    ; DS:SI -> DS:DI, both ours
+    pop di
+    pop si
+    pop cx
+    pop ax
+    mov byte [dos_pkt_raw], 1
+    clc
+    ret
+.real:
     push ax
     push bx
     push di
@@ -8067,11 +8130,14 @@ dos_pkt_rawdrop:
     loop .z
     cmp byte [dos_pkt_raw], 0
     je .out
+    cmp byte [dos_pkt_xl], 0        ; nothing was claimed on the translation
+    jne .letgo                      ; path, so there is nothing to give back
     xor di, di                      ; no MAC wanted on the way out
     xor al, al                      ; release
     mov bh, DRVC_NET
     mov bl, NETV_RAW
     call OSAPI_DRV_CALL
+.letgo:
     mov byte [dos_pkt_raw], 0
 .out:
     pop di
@@ -8114,9 +8180,16 @@ dos_pkt_poll:
     jne .out                        ; **THE TICK CAN LAND INSIDE A CALL** and
                                     ; the client's receiver is not re-entrant
                                     ; merely because ours is
-    cmp word [dos_pkt_bseg], 0
-    je .out                         ; the claim was refused: no handle can have
-                                    ; been opened, so there is nothing to poll
+    cmp byte [dos_pkt_xl], 0        ; **THE CLAIM GUARD IS THE CARD PATH'S
+    jne .armed                      ; ALONE** (SPEC.md 96.26.4): the
+    cmp word [dos_pkt_bseg], 0      ; translation claims nothing, so a guard on
+    je .out                         ; the claim stopped the poll before it ever
+                                    ; reached dn_ready - and the symptom was an
+                                    ; ARP that vanished: dn_tx had swallowed
+                                    ; the request correctly and built the
+                                    ; reply, and nothing ever came to collect
+                                    ; it
+.armed:
     mov byte [dos_pkt_busy], 1
     push ax
     push bx
@@ -8128,6 +8201,8 @@ dos_pkt_poll:
     mov dx, PKT_BUDGET
 .f:
     push dx                         ; the budget: DX is the segment argument now
+    cmp byte [dos_pkt_xl], 0
+    jne .xl
     mov di, PKT_RXOFF
     mov cx, NET_FRAME
     mov dx, [dos_pkt_bseg]
@@ -8135,7 +8210,13 @@ dos_pkt_poll:
     mov bl, NETV_RAWRX
     call OSAPI_DRV_CALL
     pop dx
-    jc .done                        ; the ring is empty
+    jc .done
+    jmp short .got
+.xl:
+    call dn_ready                   ; ...and it is ALREADY in our segment, so
+    pop dx                          ; there is nothing to move (dn_ready)
+    jc .done
+.got:                        ; the ring is empty
     cmp cx, NET_FRAME                ; the TRUE length may exceed what we asked
     ja .next                        ; for (SPEC.md 72.22.2), and a cut frame
                                     ; handed to a stack is worse than none
@@ -8167,10 +8248,16 @@ dos_pkt_poll:
 ; is nowhere to put it back.
 ; -----------------------------------------------------------------------------
 dos_pkt_deliver:
+    cmp byte [dos_pkt_xl], 0
+    jne .xl                         ; the cable path built it in our own bss
     push es
-    mov es, [dos_pkt_bseg]          ; the frame is in the CLAIM (SPEC.md
-    mov ax, [es:PKT_RXOFF+PKT_ETYPE] ; 96.23.7), so every read of it is through
-    pop es                          ; a segment and not DS-relative
+    mov es, [dos_pkt_bseg]          ; the card path's frame is in the CLAIM
+    mov ax, [es:PKT_RXOFF+PKT_ETYPE] ; (SPEC.md 96.23.7), so that read is
+    pop es                          ; through a segment and not DS-relative
+    jmp short .have
+.xl:
+    mov ax, [dos_pkt_rxs+PKT_ETYPE]
+.have:
     xchg al, ah                     ; the wire is big-endian and we are not
     mov bx, dos_pkt_htab
     mov si, PKT_NHAND
@@ -8211,9 +8298,15 @@ dos_pkt_deliver:
     push di
     push es
     push ds
+    cmp byte [dos_pkt_xl], 0
+    jne .xlc
     mov si, PKT_RXOFF
     mov ds, [dos_pkt_bseg]          ; DS:SI is the claim, ES:DI is the buffer
-    call dos_pkt_copy               ; the client just gave us
+    jmp short .docp                 ; the client just gave us
+.xlc:
+    mov si, dos_pkt_rxs             ; ...or our own bss, on the cable path
+.docp:
+    call dos_pkt_copy
     pop ds
     pop es
     pop di
@@ -8279,9 +8372,30 @@ dos_pkt_bufs:
     push bx
     push dx
     mov word [dos_pkt_bseg], 0
-    mov bh, DRVC_NET
-    call net_try                    ; is there a card at all?
-    jc .out
+    call net_find                   ; **EITHER WIRE** (SPEC.md 96.26.1): the
+    jc .out                         ; CARD if there is one and the CABLE if
+                                    ; there is not - net_find's own preference
+                                    ; order, for its own reason
+    mov byte [dos_pkt_xl], 0
+    cmp byte [net_cls], DRVC_NET
+    jne .xlate
+%ifdef DOSNET_CARD
+    jmp short .xlate                ; **THE KNOB** (DOS-CABLE-NET-PLAN 7.0):
+                                    ; translate even where the raw path is
+                                    ; available, because on a card machine raw
+                                    ; is strictly better and would otherwise
+                                    ; always win - so the translation would
+                                    ; never run anywhere it can be driven
+%endif
+    jmp short .card
+.xlate:
+    mov byte [dos_pkt_xl], 1
+    call dn_init                    ; the translation IS the route, and it
+    jmp short .out                  ; starts with nothing remembered.
+                                    ; **AND IT CLAIMS NOTHING**: its receive
+                                    ; staging is dn_frame, in the bss, so the
+                                    ; card path's 2KB buys it nothing at all
+.card:
     mov ax, PKT_BUFKB
     call OSAPI_MEM_CLAIM
     jc .out                         ; **A REFUSAL IS SURVIVABLE**: the program
@@ -8332,9 +8446,13 @@ dos_pkt_start:
     mov byte [dos_pkt_busy], 0
     mov byte [dos_pkt_mode], 3      ; what the card is in, and what get_rcv_mode
                                     ; answers until somebody sets it
-    cmp word [dos_pkt_bseg], 0      ; dos_pkt_bufs already asked whether there
-    je .none                        ; is a card AND got the buffers for it, so
-                                    ; this is both questions in one compare
+    cmp byte [dos_pkt_xl], 0        ; the translation needs no buffers...
+    jne .go
+    cmp word [dos_pkt_bseg], 0      ; ...and the card path's dos_pkt_bufs
+    je .none                        ; already asked whether there is a card
+                                    ; AND got the buffers for it, so that is
+                                    ; both of its questions in one compare
+.go:
     call dos_pkt_install
     cmp byte [dos_pkt_vec], 0
     je .none
@@ -9470,6 +9588,26 @@ dos_fh_fill:
                                     ; machine - including every machine with no
                                     ; card in it
     DBSS DOS_B_PKTSTAT, 24          ; six dwords, get_statistics' own order
+; --- THE CABLE TRANSLATION (SPEC.md 96.26) ----------------------------------
+; Only reached when [net_cls] is the CABLE, but the bytes are unconditional:
+; a package's bss is one span and this is the cost DOS-CABLE-NET-PLAN 3.1
+; measured the parts alternative against.
+    DBSS DOS_B_DNFLOW,  DN_NFLOW * DN_F_SIZE
+    DBSS DOS_B_DNNAME,  DN_NNAME * DN_N_SIZE
+    DBSS DOS_B_DNQNAME, DN_NAMEMAX
+    DBSS DOS_B_DNFRAME, NET_FRAME   ; the frame we build for the client
+    DBSS DOS_B_DNPEND,  2           ; ...and how many bytes of it are waiting
+    DBSS DOS_B_DNLASTIP, 1          ; the pool octet the last answer used
+    DBSS DOS_B_DNPSEUDO, 12         ; TCP's pseudo-header, off to one side
+    DBSS DOS_B_PKTTXS,  NET_FRAME   ; the client's frame, staged into OUR
+                                    ; segment for dn_tx to read
+    DBSS DOS_B_PKTXL,   1           ; **WHICH PATH, and it is NOT the same
+                                    ; question as which CLASS** (SPEC.md
+                                    ; 96.26.1): the translation calls sockets
+                                    ; on whatever [net_cls] says, so forcing
+                                    ; the path on a card machine - which is
+                                    ; how it is tested at all - must not
+                                    ; forge the class underneath it
 DOS_BSS_SIZE equ DB
 
 ; os88ui.inc first (os88line.inc needs its UI_* macros), and both LAST -
@@ -9481,6 +9619,8 @@ DOS_BSS_SIZE equ DB
                                     ; a control pays NOTHING for it
 %include "os88ui.inc"
 %include "os88line.inc"
+%include "dosnet.inc"               ; THE CABLE TRANSLATION (SPEC.md 96.26) -
+                                    ; only reached when the route is the cable
 %include "os88sock.inc"             ; net_try - WHICH driver answers (SPEC.md
                                     ; 20.11.1). The packet driver wants the
                                     ; CARD and not the cable, so it asks
@@ -9681,3 +9821,21 @@ dos_pkt_stk_top equ dos_pkt_stk + PKT_STK
 dos_pkt_cds   equ os88_image_end + DOS_B_PKTCDS
 dos_pkt_bseg  equ os88_image_end + DOS_B_PKTBSEG
 dos_pkt_stats equ os88_image_end + DOS_B_PKTSTAT
+
+; --- the cable translation's (SPEC.md 96.26) --------------------------------
+dn_flows    equ os88_image_end + DOS_B_DNFLOW
+dn_names    equ os88_image_end + DOS_B_DNNAME
+dn_qname    equ os88_image_end + DOS_B_DNQNAME
+dn_frame    equ os88_image_end + DOS_B_DNFRAME
+dn_pend     equ os88_image_end + DOS_B_DNPEND
+dn_lastip   equ os88_image_end + DOS_B_DNLASTIP
+dn_pseudo   equ os88_image_end + DOS_B_DNPSEUDO
+dos_pkt_txs equ os88_image_end + DOS_B_PKTTXS
+dos_pkt_xl  equ os88_image_end + DOS_B_PKTXL
+dos_pkt_rxs equ dn_frame            ; THE CABLE PATH'S RECEIVE STAGING IS
+                                    ; dn_frame ITSELF - the translation builds
+                                    ; there, in the one segment it shares with
+                                    ; everything, so there is nothing to move.
+                                    ; The card path's is the claim at
+                                    ; PKT_RXOFF, and dos_pkt_deliver reads
+                                    ; whichever dos_pkt_poll filled

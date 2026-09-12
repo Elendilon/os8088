@@ -331,6 +331,8 @@ NETV_RAWTX   equ 16
 ; its own constants against these, so one number cannot drift from the other.
 NET_EHSIZE   equ 14             ; destination, source, ethertype
 NET_FRAME    equ 1514           ; ...and the largest frame without the FCS
+NET_ETY_IP   equ 0x0800         ; ...and the two ethertypes anything looking
+NET_ETY_ARP  equ 0x0806         ; at a frame has to tell apart
 
 ; NETV_RAWRX - take ONE frame off the ring
 ; in  DI = a buffer, DX = the segment holding it (0 = the caller's own),
