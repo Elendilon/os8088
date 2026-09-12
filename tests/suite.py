@@ -1934,6 +1934,36 @@ SOAK = [
         "SPEC.md 11.96.18: a wholly covered window keeps its raise cache when"
         "it arms a clip, and a partly covered one still loses it.",
         needs=("marty",), serial=True),
+    Row("fcpapi", "soak", py("tests/fcpapi.py"), 55.0,
+        "OSAPI_FILE_COPY AND OSAPI_FILE_MOVE, THE PUBLISHED ENGINE (SPEC.md "
+        "22.24, 22.25). EVERY "
+        "ANSWER IS A FILE: a copy engine that goes wrong strands clusters, "
+        "cross-links two chains or writes a directory entry pointing at "
+        "nothing, and all three look perfectly fine from inside the guest - "
+        "the listing is drawn from the same structures that are wrong. So the "
+        "package writes its verdict into RESULT.TXT and stops, and the host "
+        "walks the volume afterwards with an independent FAT12 reader plus "
+        "`os88disk --verify`. CHECK 2 IS THE ROW and check 1 cannot replace "
+        "it: with [fcp_lclus] left at the file manager's value - which is "
+        "what a door that set only the pending file's drives would do, and "
+        "zero on a machine that has pasted nothing - fcp_floor hands "
+        "fcp_chunkset a buffer below one cluster, the chunk floors to ZERO, "
+        "and the copy CREATES THE DESTINATION, WRITES NOTHING AND REPORTS "
+        "SUCCESS. Verified by breaking it exactly that way: check 1 stays "
+        "green and check 2 goes red. It also asserts the two promises a "
+        "package cannot check for itself - the directory it was standing in "
+        "is restored, and a refused copy leaves no destination behind. CHECKS 6-9 "
+        "ARE THE MOVE, and the one that matters is not in the guest at all: a "
+        "move that quietly COPIED would pass every row the package writes - "
+        "right folder, gone from the old one, right bytes - so what says it "
+        "was RE-LINKED is that the first cluster is the same number on the "
+        "untouched gate image and on the one the guest left, which needs both "
+        "open at once. The other half is the answer AX=0, 'not attempted': a "
+        "cross-volume move must give that and not a FERR_*, because a caller "
+        "that reads it as a failure gives up on a move it could make and one "
+        "that reads it as success deletes a source that never went anywhere.",
+        needs=("marty",), serial=True,
+        wants=("build/fcpapi.img",)),
     Row("fcpcopy", "soak", py("tests/fcpcopy.py"), 70.0,
         "SPEC.md 22.3-22.5: Cut/Copy/Paste actually moves a file AND a folder "
         "tree. Nothing exercised kernel/filecp.inc at all until this row - a "
@@ -2566,6 +2596,43 @@ SOAK = [
         "by TWO and leaves the name blank.",
         needs=("marty",), serial=True,
         wants=("build/dosfcb360.img",)),
+    Row("dosren", "soak", py("tests/dosren.py"), 30.0,
+        "AH=56h RENAMES WHERE IT STANDS (SPEC.md 96.31). The table is a "
+        "MEASUREMENT OF IBM DOS 3.30 by the same binary "
+        "(tests/dostrap/renref.asm), so it is a property of DOS and cannot "
+        "drift with the disk or the build. AX IS JUNK ON SUCCESS - DOS "
+        "reports 0012h on the rows that worked - so only CF is asserted "
+        "there. TWO ROWS DECIDE THE IMPLEMENTATION: the two names must "
+        "resolve to the SAME drive and an unqualified one means the CURRENT "
+        "drive, not the other name's, so a handler that resolves the new "
+        "name against wherever the old one lives renames happily on the "
+        "other drive where DOS answers 11h; and a path in the new name is a "
+        "MOVE that DOS makes and OSAPI_FILE_RENAME cannot, so it is refused "
+        "with 5. The drive letters are built at RUN TIME from AH=19h, which "
+        "is what lets one binary mean the same thing under a real DOS "
+        "(running from A:) and here (launched off B:).",
+        needs=("marty",), serial=True,
+        wants=("build/dosren360.img",)),
+    Row("dosshell", "soak", py("tests/dosshell.py"), 200.0,
+        "THE BUILT-IN COMMANDS - A COMMAND.COM THAT IS NOT A FILE (SPEC.md "
+        "96.30). AH=4Bh of a program named COMMAND.COM loads nothing: it "
+        "reads the command tail and runs one built-in, so a program's "
+        "system(\"copy ...\") works with no shell on the disk. EVERY ANSWER "
+        "IS A FILE, twice: the probe writes the eight exit codes into "
+        "RESULT.TXT and the host then walks the volume with an independent "
+        "FAT12 reader, because a shell that reports success and writes "
+        "nothing looks perfect from inside the guest. THE PROBE RUNS UNDER A "
+        "REAL IBM DOS UNCHANGED (tests/dostrap/shellref.asm), which is what "
+        "makes the expected codes a measurement of DOS rather than a "
+        "description of us - under DOS it drives the genuine COMMAND.COM. "
+        "The three .TXT bodies DIFFER on purpose, so 'the RIGHT file "
+        "arrived' is the assertion rather than 'a file arrived'. AND THE "
+        "MOVE'S CLAIM IS THE HOST'S ALONE: a move that quietly copied would "
+        "pass every row the probe can write, so what says it was RE-LINKED "
+        "(22.25) is the first cluster being the same number on the untouched "
+        "gate image and on the one the guest left.",
+        needs=("marty",), serial=True,
+        wants=("build/dossh360.img",)),
     Row("dosexec", "soak", py("tests/dosexec.py"), 30.0,
         "THE DOS EXEC GATE (SPEC.md 96.14): AH=4Bh loads another program and "
         "runs it, and control comes back to the PARENT inside the INT 21h "

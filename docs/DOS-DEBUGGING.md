@@ -325,6 +325,68 @@ this call every program does**, DOS never setting `CF` here. That is the exact
 shape of the defect §96.27 fixed: unimplemented, the call returned `AX=1` with
 `CF`, and Prince's installer read it as one sector per cluster.
 
+### `renref.asm` — `AH=56h` renames, and it also MOVES
+
+`OSAPI_FILE_RENAME` rewrites a directory entry in the folder you are standing
+in (SPEC.md §18.4). DOS's `AH=56h` does that *and* uses the same call to move
+a file between directories of one volume by re-linking it. So the question a
+probe has to answer is not *"does rename work"* — it is which shapes DOS
+refuses, which it does silently, and with what codes.
+
+Measured, IBM DOS 3.30 against this box, same binary, every drive letter
+built at run time from `AH=19h` so that both columns mean the same thing:
+
+```
+                  DOS 3.30        os8088
+rename            0012 CF=0       0000 CF=0
+gone              0002 CF=1       0002 CF=1
+onto itself       0005 CF=1       0005 CF=1
+old THIS drv      0012 CF=0       0000 CF=0
+old OTHER drv     0011 CF=1       0011 CF=1
+new OTHER drv     0011 CF=1       0011 CF=1
+new is a path     0012 CF=0       0000 CF=0
+old OTHER, real   0011 CF=1       0011 CF=1
+```
+
+**Three of those six are worth having in front of you before writing the
+handler:**
+
+- **`AX` IS JUNK ON SUCCESS.** The row that worked reports `0012h`, and so do
+  both rows at the bottom. Only `CF` is the answer, which is a trap for
+  anyone who reads `AX` the way `AH=4Eh` invites.
+- **The two names must resolve to the SAME drive**, and an unqualified one
+  means the **current** drive — not the other name's. A handler that
+  resolves the new name against wherever the old one lives renames happily
+  on the other drive, where DOS answers `11h`. It is `11h` whether or not
+  the source is really there, which row 8 is for.
+- **A path in the new name is a move**, and DOS does it. That is the shape an
+  entry rewrite cannot make.
+
+**This probe measured ITSELF twice before it measured DOS, and both times the
+wrong answer looked like a finding about DOS.**
+
+1. Rows 5 and 6 took their source from row 4's output, row 4 was always going
+   to fail, and both reported *"file not found"* — an artefact of the fixture
+   wearing the clothes of a result. Each row creates its own file now, which
+   is the lesson `dosdir`'s find counts already carry.
+2. Then the letters were computed as `'A' XOR 1` — which is **`@`**, not
+   `B`. Three rows were naming a drive that does not exist, DOS answered
+   **3, path not found**, and that read exactly like *"a cross-drive rename
+   is 3 and not 11h"* — a plausible, quotable, entirely false finding about
+   the call under test. The XOR belongs on the drive NUMBER, before `'A'` is
+   added.
+
+Both are the same shape: **a probe that is wrong produces a confident answer,
+not an error.** The tell for the second one was that an earlier run with a
+hard-coded `B:` had said `11h` for what looked like the same question, and
+two measurements of "the same thing" disagreeing is worth more attention than
+either of them.
+
+It **writes**, so the disk it runs from must be writable, and it leaves its
+files behind.
+
+---
+
 ### `parsefcb.asm` — what `AH=29h` really answers
 
 `AH=29h` (Parse Filename into FCB, SPEC.md §96.28) is a pure string-to-FCB

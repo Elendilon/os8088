@@ -4731,7 +4731,7 @@ $(BUILD)/telnet.o88: $(BUILD)/telnet.bin tools/os88pkg.py $(PKGZSTAMP)
 # alone - the granule RDPV_MOUNT rounds a size up to, which the refusal
 # strings have to name.
 # --- DOS (SPEC.md 96) --------------------------------------------------------
-$(BUILD)/dos.bin: apps/dos/dos.asm apps/dos/dosnet.inc \
+$(BUILD)/dos.bin: apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
                   apps/dos/dosnetabi.inc apps/os88api.inc apps/os88ui.inc \
                   apps/os88line.inc apps/os88sock.inc \
                   apps/os88parts.inc apps/os88partsbody.inc \
@@ -4806,6 +4806,35 @@ $(BUILD)/dosdir360.img: $(BUILD)/DOSDIR.COM $(BUILD)/dosdir/A.TXT tools/os88disk
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSDIR.COM \
 	    $(BUILD)/dosdir/A.TXT $(BUILD)/dosdir/BB.TXT $(BUILD)/dosdir/CCC.TXT \
 	    $(BUILD)/dosdir/DATA.DAT
+
+# ...and AH=56h's (SPEC.md 96.31). Its drive letters are built at run time
+# from AH=19h, so one disk is enough and the row means the same thing here as
+# it does under a real DOS.
+$(BUILD)/RENREF.COM: tests/dostrap/renref.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/renref.asm
+
+$(BUILD)/dosren360.img: $(BUILD)/RENREF.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/RENREF.COM
+
+# ...and the BUILT-IN COMMANDS' (SPEC.md 96.30). Its fixtures are files rather
+# than arguments, because a shell that reports success and writes nothing looks
+# perfect from inside the guest - so the host walks the volume afterwards and
+# the three .TXT bodies DIFFER, which is what makes "the right file arrived" a
+# real assertion rather than "a file arrived".
+$(BUILD)/SHELLREF.COM: tests/dostrap/shellref.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/shellref.asm
+
+$(BUILD)/src.txt: Makefile | $(BUILD)
+	printf 'os8088 shell source' > $@
+$(BUILD)/one.txt: Makefile | $(BUILD)
+	printf 'os8088 shell one' > $@
+$(BUILD)/two.txt: Makefile | $(BUILD)
+	printf 'os8088 shell two' > $@
+
+$(BUILD)/dossh360.img: $(BUILD)/SHELLREF.COM $(BUILD)/src.txt \
+	    $(BUILD)/one.txt $(BUILD)/two.txt tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/SHELLREF.COM \
+	    $(BUILD)/src.txt $(BUILD)/one.txt $(BUILD)/two.txt --folder SUB
 
 # ...and AH=29h's (SPEC.md 96.28). One disk and no fixture: every assertion is
 # against what IBM DOS 3.30 answered, which is a property of DOS and not of
@@ -4953,7 +4982,7 @@ doscom: $(BUILD)/doscom360.img $(BUILD)/dosexe360.img $(BUILD)/dosmou360.img \
         $(BUILD)/dosirq360.img $(BUILD)/pathtest360.img \
         $(BUILD)/dosargs360.img $(BUILD)/doslnk360.img \
         $(BUILD)/dosdrv360.img $(BUILD)/dosdrvsys.img \
-        $(BUILD)/dosfcb360.img
+        $(BUILD)/dosfcb360.img $(BUILD)/dosren360.img $(BUILD)/dossh360.img
 
 $(BUILD)/thewire.bin: apps/thewire/thewire.asm apps/thewire/wrhttp.inc \
                       apps/thewire/wrarc.inc apps/thewire/wrtxt.inc \
@@ -5885,6 +5914,33 @@ $(BUILD)/muptest.o88: $(BUILD)/muptest.bin tools/os88pkg.py
 
 $(BUILD)/muptest.img: $(BUILD)/muptest.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/muptest.o88
+
+# fcpapi: OSAPI_FILE_COPY's gate (SPEC.md 22.24). EVERY ANSWER IS A FILE - the
+# copies it makes and the verdict it writes - because a copy engine that goes
+# wrong strands clusters or cross-links chains, and both look fine from inside
+# the guest. The host walks the volume afterwards with its own FAT12 reader.
+$(BUILD)/fcpapi.bin: tests/fcpapi/fcpapi.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/fcpapi/fcpapi.asm
+	@echo "fcpapi: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/fcpapi.o88: $(BUILD)/fcpapi.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/fcpapi.bin -o $@
+
+$(BUILD)/src.dat: Makefile | $(BUILD)
+	printf 'os8088 copy' > $@
+
+# ...and the one the MOVE re-links (SPEC.md 22.25). Its bytes differ from
+# src.dat's on purpose: the host compares what lands in SUB/ against this, so
+# a move that fetched the wrong file would read as a pass against the other.
+$(BUILD)/move.dat: Makefile | $(BUILD)
+	printf 'os8088 move' > $@
+
+.PHONY: fcpapi
+fcpapi: $(BUILD)/fcpapi.img
+$(BUILD)/fcpapi.img: $(BUILD)/fcpapi.o88 $(BUILD)/src.dat $(BUILD)/move.dat \
+	    tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/fcpapi.o88 \
+	    $(BUILD)/src.dat $(BUILD)/move.dat --folder SUB
 
 # assoctest: the SPEC.md 54 gate. Its own scratch image, and a TEST.AST for it
 # to be opened WITH - the point of the gate is what happens on a document

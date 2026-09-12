@@ -298,6 +298,22 @@ DOS_MCHKON  equ 10                  ; ...and OS88UI_CK_ON inside it, so that
 ; it, which is what this tree does everywhere two files must agree.
 DOS_LNSZ    equ 20
 
+; --- the built-in commands' sizes (apps/dos/dosh.inc, SPEC.md 96.30) --------
+; HERE AND NOT IN dosh.inc: the DBSS table below sizes that file's buffers and
+; `%assign` cannot forward-reference, so the numbers come before both.
+DSH_LINE    equ 128                 ; DOS's own command tail is a counted byte,
+                                    ; so 127 is the longest there has ever been
+DSH_ARG     equ 64                  ; one argument - longer than any 8.3 path
+                                    ; this box can walk, so a truncation here
+                                    ; is a path that was going to be refused
+DSH_PAT     equ 11                  ; a padded 8.3 name, the form a match is
+                                    ; decided in
+DSH_BUF     equ 128                 ; TYPE's chunk
+DSH_CPKB    equ 8                   ; the COPY buffer, out of the DOS ARENA and
+                                    ; not the heap (SPEC.md 96.30.6): 8KB asked
+DSH_CPMINKB equ 1                   ; for, one accepted, which is 2 sectors and
+                                    ; still copies
+
 DST_IDLE    equ 0                   ; launched with no document (wave 7's prompt)
 DST_READY   equ 1                   ; a program is named and not yet run
 DST_RAN     equ 2                   ; it ran; [dos_exit] is its code
@@ -1670,6 +1686,8 @@ dos_int21:
     je .getattr
     cmp ah, 0x29
     je .parsefcb
+    cmp ah, 0x56
+    je .rename
     cmp ah, 0x06
     je .dconio
     cmp ah, 0x0C
@@ -2347,6 +2365,115 @@ dos_int21:
 .pf_seps:   db '.', ':', ';', ',', '=', '+', '"', '/', '\\', '[', ']', '|'
             db '<', '>'
 
+; --- AH=56h: rename (SPEC.md 96.31) ------------------------------------------
+.rename:
+    ; in: DS:DX = the old name, ES:DI = the new one - and note the SECOND is
+    ; in the program's ES, which is why dos_fh_core takes a far pointer.
+    ;
+    ; EVERY RULE BELOW IS MEASURED, under IBM DOS 3.30, by the same binary
+    ; (tests/dostrap/renref.asm) - and two of them are not what a reading of
+    ; the call would give you:
+    ;
+    ;   * THE TWO NAMES MUST RESOLVE TO THE SAME DRIVE, and an unqualified one
+    ;     means the CURRENT drive - not the OTHER NAME's. "B:X.TXT" -> "Y.TXT"
+    ;     standing on A: is 11h, not same device. A handler that resolved the
+    ;     new name against wherever the old one lives renames happily on B:.
+    ;   * A PATH IN THE NEW NAME IS A MOVE, and DOS does it: "\Y.TXT" succeeds
+    ;     and the file is in the root afterwards. OSAPI_FILE_RENAME rewrites a
+    ;     directory entry WHERE WE STAND (SPEC.md 18.4), so that is the one
+    ;     shape refused here rather than half-done.
+    ;
+    ; AX is junk on success in DOS (the row that worked reports 0012h), so
+    ; only CF carries the answer and zero is as good as anything.
+    push bx
+    mov al, [dos_vol]               ; THE ENTRY VOLUME, banked before anything
+    mov [dos_rnvol], al             ; moves us: it is what an unqualified name
+                                    ; means, for BOTH names
+
+    push ax                         ; --- the OLD name, parsed and NOT entered
+    mov ax, [bp]
+    mov [dos_fnseg], ax
+    pop ax
+    push di
+    mov di, dos_fname
+    call dos_fh_core
+    pop di
+    jc .fherr
+    call .rndrv                     ; AL = the drive it means
+    mov [dos_rndrv], al
+    mov al, [dos_fabs]
+    mov [dos_rnabs], al
+
+    push ax                         ; --- ...and the NEW one, out of its ES
+    mov ax, [bp-6]                  ; (SPEC.md 96.7.1's banked slot)
+    mov [dos_fnseg], ax
+    pop ax
+    push di
+    push dx
+    mov dx, di
+    mov di, dos_fname2
+    call dos_fh_core
+    pop dx
+    pop di
+    jc .fherr
+    call .rndrv
+    cmp al, [dos_rndrv]
+    je .rnone
+    mov al, 0x11                    ; "not same device" - measured, and the
+    jmp .fherr                      ; only code DOS has for this
+
+.rnone:
+    cmp byte [dos_fabs], 0          ; a leading separator on EITHER name is a
+    jne .rnroot                     ; move - unless we are standing in the
+.rnone2:                            ; root already, where it names this very
+    cmp byte [dos_rnabs], 0         ; folder and the move is a rename
+    jne .rnroot2
+.rngo:
+    mov [dos_fdrv], al              ; ...and now stand on it. .fhok/.fherr are
+    call dos_fh_enter               ; what come home (SPEC.md 96.6.2)
+    jc .fherr
+    push si
+    push di
+    mov si, dos_fname
+    mov di, dos_fname2
+    call dos_be_rename
+    pop di
+    pop si
+    jc .rnerr
+    xor ax, ax
+    jmp .fhok
+.rnroot:
+    cmp word [dos_curdir], 0
+    jne .rnmove
+    jmp short .rnone2
+.rnroot2:
+    cmp word [dos_curdir], 0
+    jne .rnmove
+    jmp short .rngo
+.rnmove:
+    mov al, 5                       ; THE MOVE DOS WOULD MAKE, refused: this
+    jmp .fherr                      ; layer rewrites an entry where it stands
+                                    ; and cannot re-link one into another
+                                    ; folder. "Access denied" is the honest
+                                    ; code for a change we cannot make
+                                    ; (SPEC.md 96.11.2's own reasoning)
+.rnerr:
+    cmp ax, FERR_NOENT              ; the source is not there: DOS says 2, and
+    jne .fhacc                      ; everything else this can fail with - the
+    mov al, 2                       ; target existing included - it says 5 for
+    jmp .fherr
+
+; --- .rndrv - the drive a just-parsed name MEANS ----------------------------
+; out: AL = [dos_fdrv], or the volume we entered on when the name named none.
+; clobbers: AL, flags
+.rndrv:
+    mov al, [dos_fdrv]
+    cmp al, 0xFF
+    jne .rnd
+    mov al, [dos_rnvol]
+.rnd:
+    ret
+
 ; --- directories (SPEC.md 96.12.2) -------------------------------------------
 .mkdir:
     push bx
@@ -2516,6 +2643,20 @@ dos_int21:
     jnz .exbadfn                    ; AL=1 (load, do not run) and AL=3 (an
                                     ; overlay) are different shapes and neither
                                     ; is built (SPEC.md 96.14.2)
+
+    ; --- COMMAND.COM IS NOT A FILE HERE (SPEC.md 96.30) --------------------
+    ; Before the name is parsed, before the arena is asked for anything: a
+    ; shell-out runs one built-in command and comes straight back. Nothing is
+    ; loaded, so dos_inchild is not set and the one-level rule below does not
+    ; apply - a program may shell out as often as it likes.
+    call dsh_isshell
+    jc .noshell
+    call dsh_tail                   ; ES:BX is still the parameter block
+    mov [dos_chexit], al            ; ...and AH=4Dh is where the caller reads
+    xor ax, ax                      ; the command's own verdict
+    pop bx
+    jmp .ok
+.noshell:
     cmp byte [dos_inchild], 0
     jne .exnest                     ; ONE level, and it is a decision - see
                                     ; SPEC.md 96.14.1
@@ -3249,7 +3390,15 @@ DBE_XCAPS   equ 20                  ; out AX = extended-memory KB
 DBE_XALLOC  equ 22                  ; DX:AX = bytes; out DX:AX = a linear base
 DBE_XFREE   equ 24                  ; DX:AX = a base
 DBE_XCOPY   equ 26                  ; ES:SI, DX:AX, CX, DI (SPEC.md 96.15)
-DBE_NENT    equ 14
+DBE_RENAME  equ 28                  ; SI = the old name, DI = the new, both in
+                                    ; the CURRENT directory (SPEC.md 96.31)
+DBE_COPY    equ 30                  ; ES:SI = source name, ES:DI = destination
+                                    ; name, BL/DX = the source place, BH/CX =
+                                    ; the destination's (SPEC.md 22.24)
+DBE_MOVE    equ 32                  ; ES:SI = the name, BL/DX and BH/CX the two
+                                    ; places, ONE volume (SPEC.md 22.25). AX=0
+                                    ; with CF is NOT ATTEMPTED, not an error
+DBE_NENT    equ 17
 
 dos_be_goto:
     mov word [dos_betgt], dos_k_goto
@@ -3289,6 +3438,15 @@ dos_be_xalloc:
     jmp short dos_be_go
 dos_be_xfree:
     mov word [dos_betgt], dos_k_xfree
+    jmp short dos_be_go
+dos_be_rename:
+    mov word [dos_betgt], dos_k_rename
+    jmp short dos_be_go
+dos_be_copy:
+    mov word [dos_betgt], dos_k_copy
+    jmp short dos_be_go
+dos_be_move:
+    mov word [dos_betgt], dos_k_move
     jmp short dos_be_go
 dos_be_xcopy:
     mov word [dos_betgt], dos_k_xcopy
@@ -3403,6 +3561,21 @@ dos_k_xalloc:
 dos_k_xfree:
     call OSAPI_XMEM_FREE
     ret
+
+dos_k_rename:
+    call OSAPI_FILE_RENAME
+    ret
+
+dos_k_copy:
+    call OSAPI_FILE_COPY            ; the file manager's own engine, published
+    ret                             ; (SPEC.md 22.24) - so the built-in COPY
+                                    ; below is not a second one, and gets the
+                                    ; partial-destination undo for nothing
+
+dos_k_move:
+    call OSAPI_FILE_MOVE            ; ...and its re-link (22.25). AX=0 with CF
+    ret                             ; is "not attempted" and the shell's MOVE
+                                    ; falls back to copy-then-delete on it
 
 dos_k_xcopy:
     call OSAPI_XMEM_COPY
@@ -9731,6 +9904,40 @@ dos_fh_new:
 ; C:, both of them reporting success.
 ; -----------------------------------------------------------------------------
 dos_fh_name:
+    push di
+    push ax                         ; ...AND PUT AX BACK BEFORE THE CALL: this
+    mov ax, [bp]                    ; routine's own answer on CF=1 is AL, so the
+    mov [dos_fnseg], ax             ; segment travels in a word rather than in
+    pop ax                          ; the register that carries the error code
+    mov di, dos_fname
+    call dos_fh_core
+    jc .nout
+%ifdef DOSTRACE
+    call dos_tr_name_in             ; WHICH FILE - AH/AL alone cannot say, and
+%endif                              ; that is the question a field trace asks
+    call dos_fh_enter               ; ...and WHICH DRIVE, which is the same
+    jc .nout                        ; question one level up (SPEC.md 96.6.2)
+    clc
+.nout:
+    pop di
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_fh_core - the parse itself, from ANY segment into ANY buffer of ours
+; in:  [dos_fnseg]:DX = the ASCIZ name, DI = a 13-byte buffer in OUR segment
+; out: CF=0 with the name copied, [dos_fdrv] the drive it named (0xFF = none)
+;      and [dos_fabs] whether it carried a leading separator; CF=1 with AL = a
+;      DOS error code for a path this wave cannot walk
+; clobbers: AL
+;
+; IT IS SEPARATE FROM dos_fh_name BECAUSE THERE ARE THREE CALLERS AND ONLY ONE
+; OF THEM IS AN INT 21h ARGUMENT. AH=56h's second name is in the program's ES
+; rather than its DS, and the built-in commands (SPEC.md 22.24) parse names
+; out of OUR OWN segment - so the source is a far pointer and the destination
+; is a parameter, and dos_fh_name is what adds the trace hook and the drive
+; bracket on top for the calls that want them.
+; -----------------------------------------------------------------------------
+dos_fh_core:
     push bx
     push cx
     push si
@@ -9738,9 +9945,8 @@ dos_fh_name:
     push es
     push ds
     pop es
-    mov di, dos_fname
     mov si, dx
-    mov ds, [bp]                    ; the program's, off the frame
+    mov ds, [es:dos_fnseg]          ; ...wherever the name really is
     mov cx, 13
 
     mov byte [es:dos_fdrv], 0xFF    ; "C:NAME" - the letter comes off the name
@@ -9802,11 +10008,6 @@ dos_fh_name:
 .done:
     push es
     pop ds
-%ifdef DOSTRACE
-    call dos_tr_name_in             ; WHICH FILE - AH/AL alone cannot say, and
-%endif                              ; that is the question a field trace asks
-    call dos_fh_enter               ; ...and WHICH DRIVE, which is the same
-    jc .out                         ; question one level up (SPEC.md 96.6.2)
     clc
 .out:
     pop es
@@ -10325,6 +10526,12 @@ dos_fh_fill:
     DBSS DOS_B_FABS,  1        ; did the name carry a leading separator?
     DBSS DOS_B_PFBUF, DOS_PFIN + 1  ; AH=29h's copy of the program's name...
     DBSS DOS_B_PFCB,  12            ; ...and the twelve bytes it hands back
+    DBSS DOS_B_FNAME2, 16      ; AH=56h's SECOND name (SPEC.md 96.31)
+    DBSS DOS_B_RNVOL,  1       ; ...the volume it was ASKED on, which is what
+    DBSS DOS_B_RNDRV,  1       ; an unqualified name means; the old name's
+    DBSS DOS_B_RNABS,  1       ; drive; and whether it carried a separator
+    DBSS DOS_B_RNPAD,  1
+    DBSS DOS_B_FNSEG, 2        ; the segment dos_fh_core reads a name FROM
     DBSS DOS_B_FDRV,  1        ; ...and the DRIVE it named, 0xFF = none
     DBSS DOS_B_FHOME, 1        ; where to go back to, 0xFF = we never left
     DBSS DOS_B_FVTGT, 2        ; the back end call a bracketed read makes
@@ -10399,7 +10606,47 @@ dos_fh_fill:
                                     ; the path on a card machine - which is
                                     ; how it is tested at all - must not
                                     ; forge the class underneath it
+; --- the built-in commands' own state (SPEC.md 96.30, apps/dos/dosh.inc) -----
+    DBSS DOS_B_SHLINE,  DSH_LINE    ; the command tail, unpacked
+    DBSS DOS_B_SHVERB,  DSH_ARG     ; the verb, upper-cased
+    DBSS DOS_B_SHA1,    DSH_ARG     ; ...and its two arguments
+    DBSS DOS_B_SHA2,    DSH_ARG
+    DBSS DOS_B_SHSPEC,  DSH_ARG     ; one of them, being taken apart
+    DBSS DOS_B_SHLEAF,  DSH_ARG     ; ...into a folder and this
+    DBSS DOS_B_SHDNAM,  DSH_ARG     ; the destination's name, empty = keep
+    DBSS DOS_B_SHRTGT,  DSH_ARG     ; what a `>` named
+    DBSS DOS_B_SHPAT,   DSH_PAT     ; the pattern, padded to eleven...
+    DBSS DOS_B_SHNM11,  DSH_PAT     ; ...and the candidate, the same way
+    DBSS DOS_B_SHFNAM,  16          ; the match's own name
+    DBSS DOS_B_SHFND,   OSAPI_FIND_SZ
+    DBSS DOS_B_SHBUF,   DSH_BUF     ; TYPE's chunk
+    DBSS DOS_B_SHNUM,   6           ; a count, as digits
+    DBSS DOS_B_SHQUIET, 1           ; the line was redirected
+    DBSS DOS_B_SHASDIR, 1           ; try the whole spec as a folder
+    DBSS DOS_B_SHDEL,   1           ; ...and delete the source after
+    DBSS DOS_B_SHDIROP, 1           ; 0 MD, 1 RD, 2 CD
+    DBSS DOS_B_SHSKIP,  2           ; matches to pass over
+    DBSS DOS_B_SHN,     2           ; ...and how many were done
+    DBSS DOS_B_SHOFF,   4           ; TYPE's offset, 32 bits
+    DBSS DOS_B_SHBVOL,  1           ; where we were standing before a verb
+    DBSS DOS_B_SHBCLUS, 2
+    DBSS DOS_B_SHRDRV,  1           ; what dsh_resolve answered
+    DBSS DOS_B_SHRCLUS, 2
+    DBSS DOS_B_SHSDRV,  1           ; the source place...
+    DBSS DOS_B_SHSCLUS, 2
+    DBSS DOS_B_SHDDRV,  1           ; ...and the destination's
+    DBSS DOS_B_SHDCLUS, 2
+    DBSS DOS_B_SHCNAME, DSH_ARG     ; the name this file is written under
+    DBSS DOS_B_SHCPSEG, 2           ; the copy buffer's DOS block...
+    DBSS DOS_B_SHCPKB,  2           ; ...and how many KB it turned out to be
+    DBSS DOS_B_SHMADE,  1           ; the destination has been created
+    DBSS DOS_B_SHGOT,   2           ; bytes in the buffer this pass
+
 DOS_BSS_SIZE equ DB
+
+%include "dosh.inc"                 ; THE BUILT-IN COMMANDS (SPEC.md 96.30) -
+                                    ; a COMMAND.COM that is not a file, over
+                                    ; the back end like every other file verb
 
 ; os88ui.inc first (os88line.inc needs its UI_* macros), and both LAST -
 ; the header and the icon block are at fixed offsets in the image (SPEC.md
@@ -10546,6 +10793,40 @@ dos_ford    equ os88_image_end + DOS_B_FORD
 dos_w83a    equ os88_image_end + DOS_B_W83A
 dos_w83b    equ os88_image_end + DOS_B_W83B
 dos_parent  equ os88_image_end + DOS_B_PARENT
+dsh_line    equ os88_image_end + DOS_B_SHLINE
+dsh_verb    equ os88_image_end + DOS_B_SHVERB
+dsh_a1      equ os88_image_end + DOS_B_SHA1
+dsh_a2      equ os88_image_end + DOS_B_SHA2
+dsh_spec    equ os88_image_end + DOS_B_SHSPEC
+dsh_leaf    equ os88_image_end + DOS_B_SHLEAF
+dsh_dname   equ os88_image_end + DOS_B_SHDNAM
+dsh_rtgt    equ os88_image_end + DOS_B_SHRTGT
+dsh_pat     equ os88_image_end + DOS_B_SHPAT
+dsh_nm11    equ os88_image_end + DOS_B_SHNM11
+dsh_fname   equ os88_image_end + DOS_B_SHFNAM
+dsh_fnd     equ os88_image_end + DOS_B_SHFND
+dsh_buf     equ os88_image_end + DOS_B_SHBUF
+dsh_num     equ os88_image_end + DOS_B_SHNUM
+dsh_quiet   equ os88_image_end + DOS_B_SHQUIET
+dsh_asdir   equ os88_image_end + DOS_B_SHASDIR
+dsh_del     equ os88_image_end + DOS_B_SHDEL
+dsh_dirop   equ os88_image_end + DOS_B_SHDIROP
+dsh_skip    equ os88_image_end + DOS_B_SHSKIP
+dsh_n       equ os88_image_end + DOS_B_SHN
+dsh_off     equ os88_image_end + DOS_B_SHOFF
+dsh_bvol    equ os88_image_end + DOS_B_SHBVOL
+dsh_bclus   equ os88_image_end + DOS_B_SHBCLUS
+dsh_rdrv    equ os88_image_end + DOS_B_SHRDRV
+dsh_rclus   equ os88_image_end + DOS_B_SHRCLUS
+dsh_sdrv    equ os88_image_end + DOS_B_SHSDRV
+dsh_sclus   equ os88_image_end + DOS_B_SHSCLUS
+dsh_ddrv    equ os88_image_end + DOS_B_SHDDRV
+dsh_dclus   equ os88_image_end + DOS_B_SHDCLUS
+dsh_cname   equ os88_image_end + DOS_B_SHCNAME
+dsh_cpseg   equ os88_image_end + DOS_B_SHCPSEG
+dsh_cpkb    equ os88_image_end + DOS_B_SHCPKB
+dsh_made    equ os88_image_end + DOS_B_SHMADE
+dsh_got     equ os88_image_end + DOS_B_SHGOT
 dos_inchild equ os88_image_end + DOS_B_INCHLD
 dos_psv_ss  equ os88_image_end + DOS_B_PSVSS
 dos_psv_sp  equ os88_image_end + DOS_B_PSVSP
@@ -10584,6 +10865,11 @@ dos_acc     equ os88_image_end + DOS_B_ACC
 dos_fabs    equ os88_image_end + DOS_B_FABS
 dos_pfbuf   equ os88_image_end + DOS_B_PFBUF   ; AH=29h's name scratch...
 dos_pfcb    equ os88_image_end + DOS_B_PFCB    ; ...and its FCB prefix
+dos_fname2  equ os88_image_end + DOS_B_FNAME2  ; AH=56h's second name
+dos_rnvol   equ os88_image_end + DOS_B_RNVOL   ; ...and its three bytes of
+dos_rndrv   equ os88_image_end + DOS_B_RNDRV   ; drive arithmetic
+dos_rnabs   equ os88_image_end + DOS_B_RNABS
+dos_fnseg   equ os88_image_end + DOS_B_FNSEG   ; word: where a name is read from
 dos_fdrv    equ os88_image_end + DOS_B_FDRV    ; byte: the drive a name named
 dos_fhome   equ os88_image_end + DOS_B_FHOME   ; byte: ...and where it left
 dos_fvtgt   equ os88_image_end + DOS_B_FVTGT   ; word: the read's back end

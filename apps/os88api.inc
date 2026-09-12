@@ -555,6 +555,72 @@ OSAPI_LZ_LZB equ 1
                                  ; expanded downwards. FERR_BIG says so.
 %define OSAPI_FILE_DELETE   KERNEL_SEG:0x0130   ; SI = name; out CF=0 AX=0, else FERR_*
 %define OSAPI_FILE_RENAME   KERNEL_SEG:0x0138   ; SI = old name, DI = new name; out as above
+%define OSAPI_FILE_COPY     KERNEL_SEG:0x0578   ; COPY ONE FILE, source directory
+                                 ; to destination (SPEC.md 22.24).
+                                 ; ES:SI = the source 8.3 name, ES:DI = the
+                                 ; destination's - both in YOUR segment - with
+                                 ; BL = the source drive and DX its folder's
+                                 ; first cluster, BH = the destination drive
+                                 ; and CX its folder's. That is exactly the
+                                 ; pair OSAPI_FILE_HERE answers and
+                                 ; OSAPI_FILE_GOTO takes, so "copy this file
+                                 ; to where I was a moment ago" needs no
+                                 ; vocabulary of its own.
+                                 ; Out: CF=0, or CF=1 with AX = FERR_*.
+                                 ;
+                                 ; IT IS THE FILE MANAGER'S OWN ENGINE
+                                 ; (kernel/filecp.inc), not a second one: it
+                                 ; streams in chunks through a buffer it
+                                 ; claims and releases, takes the redirector's
+                                 ; own FSV_COPY when both ends are on one
+                                 ; remote volume, and DELETES A PARTIAL
+                                 ; DESTINATION if anything fails - which is
+                                 ; the half a hand-rolled copy gets wrong.
+                                 ;
+                                 ; WHERE YOU WERE STANDING IS RESTORED, and
+                                 ; the directory listing's staleness is paid,
+                                 ; so a Disk window showing either folder is
+                                 ; correct afterwards.
+                                 ;
+                                 ; The two names may DIFFER: a copy that
+                                 ; renames is one call.
+                                 ; It refuses with FERR_NODISK while a Cut or
+                                 ; Copy/Paste is running or suspended on its
+                                 ; overwrite question - the engine has one set
+                                 ; of state words and the user's operation
+                                 ; owns them.
+%define OSAPI_FILE_MOVE     KERNEL_SEG:0x0580   ; MOVE ONE FILE between two folders
+                                 ; of ONE volume (SPEC.md 22.25). ES:SI = the
+                                 ; 8.3 name - in YOUR segment - with BL = the
+                                 ; source drive and DX its folder's first
+                                 ; cluster, BH = the destination drive and CX
+                                 ; its folder's. OSAPI_FILE_COPY's registers
+                                 ; with one name instead of two.
+                                 ; Out: CF=0 it moved; CF=1 with AX = FERR_*,
+                                 ; or AX = 0.
+                                 ;
+                                 ; **AX = 0 IS NOT AN ERROR. IT MEANS NOTHING
+                                 ; HAPPENED**, and the file is still where it
+                                 ; was: copy it and delete the source instead.
+                                 ; A caller that treats it as a failure gives
+                                 ; up on a move it could have made; one that
+                                 ; treats it as success loses the file.
+                                 ; You get it for a request that spans two
+                                 ; volumes (the FATs share nothing, so there
+                                 ; is no entry to move), for a redirected
+                                 ; volume, when the destination already holds
+                                 ; the name, and when the destination folder
+                                 ; has no reusable slot.
+                                 ;
+                                 ; WHY IT IS WORTH ASKING FIRST: it REWRITES
+                                 ; THE DIRECTORY ENTRY and moves no data at
+                                 ; all, so a 100KB file costs a directory
+                                 ; write rather than 100KB through a buffer
+                                 ; and 100KB back. A folder moves with
+                                 ; everything under it, its '..' following.
+                                 ; It refuses with FERR_NODISK while a Cut or
+                                 ; Copy/Paste is running, as the copy slot
+                                 ; does.
 %define OSAPI_FILE_DFREE    KERNEL_SEG:0x0140   ; out CF=0, DX:AX = free bytes, BX =
                                  ; SECTORS per cluster.
                                  ;
