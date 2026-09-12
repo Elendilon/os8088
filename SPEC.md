@@ -121411,6 +121411,46 @@ detected here by the count going **backwards**, which needs nobody's flag.
 with no clock chip. The RTC is asked **once**, at bracket entry, and `AH=2Bh`
 writes into the same copy.
 
+#### 96.12.3 A name may carry a PATH, and refusing one broke every program that asks where it is
+
+`dos_fh_core` used to refuse a separator anywhere past a leading one with code
+3, *"path not found"*, under a comment saying *"this wave stands in one
+directory at a time"*. That is the whole of why Prince of Persia would not run
+from a subdirectory, and the trace is three lines:
+
+```
+47 getcwd  -> AX=0100 CF=0
+3D open    DS:DX -> 'B:\PRINCE\prince.dat'  -> AX=0003 CF=1
+40 write   to handle 2 -> 'R6001\r\n- null pointer assignment\r\n'
+```
+
+**The path it built is correct**, and DOS opens it. The program asked where it
+was standing, prepended the drive, appended the file name, and handed the
+result straight back to `AH=3Dh` — which is not an unusual thing to do, it is
+what the Microsoft C runtime does, so the refusal reached far past one game.
+The R6001 that follows is the runtime falling over a null `FILE *`, which is
+why the symptom looks like a crash rather than a missing file.
+
+**The fix is a split and a walk, and both already existed.** `dos_fh_split`
+cuts the name at its LAST separator: everything before it is a folder path,
+everything after is the 8.3 name. `dos_fh_enter` then walks that path — after
+the drive switch, because `B:\PRINCE\X` names a folder on B: and walking it
+from A: would resolve the wrong disk — and `dos_fh_leave` walks back, so a
+name never moves the program. The walker is `dos_walk_pbuf`'s own body with
+one argument added (`dos_walk_at`, `AL` = from the root or from here), and it
+has always handled arbitrary depth: it is what §96.12.2's `..` re-descent
+runs on.
+
+**`AH=3Bh` is the one caller that must NOT be walked back**, since moving the
+program is its entire purpose. It sets `[dos_fhkeep]` after `dos_cd_go`
+succeeds, and the two halves then compose: `dos_fh_enter` walks to the folder
+part of `\A\B` and `dos_cd_go` takes the last step, which together is a
+chdir of arbitrary depth for no extra code.
+
+**A path that does not fit the buffer is still refused with 3**, by the copy
+loop that always did: `dos_fh_split` leaves a name it cannot shorten alone, so
+the failure is the old one rather than a half-walked path.
+
 #### 96.13.1 A 5150's ROM does not set CF for a function it never heard of
 
 `int 1Ah AH=04h` is the AT's, and the 1981 BIOS has `AH=00h` and `AH=01h`.

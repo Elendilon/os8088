@@ -1904,17 +1904,15 @@ dos_int21:
     ; resolves every name in the directory it is STANDING in - so below the
     ; root it would be the wrong folder. Refused, honestly, rather than
     ; answered from the wrong place (SPEC.md 96.12.2).
-    cmp byte [dos_fabs], 0
-    je .fhabsok
-    cmp word [dos_curdir], 0        ; "\NAME" names the VOLUME's root, so it is
-    jne .fhabsno                    ; answerable exactly when we are standing
-.fhabsok:                           ; there. Elsewhere it is still refused
-                                    ; rather than resolved in the wrong folder:
-                                    ; this wave opens names, not paths
+    ; **AND SINCE SPEC.md 96.12.3 IT HAS NOTHING TO REFUSE.** The guard above
+    ; was: an absolute name below the root would resolve in the wrong folder,
+    ; so refuse it. dos_fh_enter now WALKS one - to the volume root, and then
+    ; down whatever folder part the name carried - so "\NAME" and
+    ; "\DIR\NAME" both resolve where they say from wherever we are standing.
+    ; The call sites are left in place rather than deleted: they are the four
+    ; handlers that care, and if a future wave finds a name shape the walk
+    ; cannot take, this is where it says so.
     clc
-    ret
-.fhabsno:
-    stc
     ret
 
 .open:
@@ -2604,8 +2602,10 @@ dos_int21:
     jc .fherr
     call dos_cd_go
     jc .fhpath
-    xor ax, ax
-    jmp .fhok
+    mov byte [dos_fhkeep], 1        ; KEEP the walk: dos_fh_enter may have moved
+    xor ax, ax                      ; us into the folder part of "\A\B" and
+    jmp .fhok                       ; dos_cd_go the rest of the way, which
+                                    ; together IS the chdir (SPEC.md 96.12.3)
 .fhpath:
     mov al, 3                       ; path not found
     jmp .fherr
@@ -6418,6 +6418,14 @@ dos_lnk_cd:
 ; recorded stack would not have been.
 ; -----------------------------------------------------------------------------
 dos_walk_pbuf:
+    mov si, dos_pbuf                ; the absolute form, from the volume root
+    mov al, 1
+    jmp short dos_walk_at
+; dos_walk_at - ...and the general one, which SPEC.md 96.12.3 needs: AL=1 walks
+; from the volume's root and AL=0 from WHERE WE ARE STANDING, so the folder
+; part of `SUB\FILE.DAT` resolves without pretending it is absolute. SI is the
+; path. Everything else is dos_walk_pbuf's, unchanged.
+dos_walk_at:
     push ax
     push bx
     push cx
@@ -6426,11 +6434,12 @@ dos_walk_pbuf:
     push es
     push ds
     pop es
+    or al, al
+    jz .comp                        ; relative: start from here
     xor dx, dx                      ; ...the volume root, first
     mov bl, [dos_vol]
-    call OSAPI_FILE_GOTO_QM
+    call dos_be_goto                ; the back end, for dos_lnk_find's reason
     jc .no
-    mov si, dos_pbuf
 .comp:
     cmp byte [si], '\'
     jne .name
@@ -6456,7 +6465,7 @@ dos_walk_pbuf:
     call dos_lnk_find               ; DX = its cluster
     jc .no
     mov bl, [dos_vol]
-    call OSAPI_FILE_GOTO_QM         ; ...a WORD inside this volume
+    call dos_be_goto                ; ...a WORD inside this volume
     jc .no
     jmp short .comp
 .here:
@@ -6485,8 +6494,14 @@ dos_lnk_find:
     mov di, dos_fbuf
     push ds
     pop es
-    call OSAPI_FILE_FIND
-    jc .no
+    call dos_be_find                ; THE BACK END AND NOT THE SLOT (SPEC.md
+    jc .no                          ; 96.4.1): inside the fsx bracket SS is the
+                                    ; DOS program's, and a directory walk is
+                                    ; exactly the multi-sector kernel call that
+                                    ; may not run there. dos_cd_go's own
+                                    ; component scan has always gone through
+                                    ; dos_be_find, which is why AH=3Bh worked
+                                    ; while this did not
     cmp word [dos_fbuf+14], OSAPI_FT_DIR
     jne .l
     mov si, dos_fbuf
@@ -10992,10 +11007,23 @@ dos_fh_core:
     inc si
     mov byte [es:dos_fabs], 1
 .copy:
+    call dos_fh_split               ; ...AND THE FOLDER PART COMES OFF HERE
+    mov cx, 13                      ; ...AND CX IS RE-ARMED, because the split
+                                    ; spends it scanning: it is the 8.3 bound
+                                    ; the loop below counts on, and leaving the
+                                    ; scan's leftover there truncated or ran
+                                    ; past every name in the box
+                                    ; (SPEC.md 96.12.3). It used to be refused
+                                    ; with code 3, which is what stopped a
+                                    ; program opening `B:\PRINCE\PRINCE.DAT` -
+                                    ; a path it built itself out of AH=47h's
+                                    ; own answer, and the shape every Microsoft
+                                    ; C program uses
+.copy2:
     lodsb
-    cmp al, '\'                     ; a separator ANYWHERE past here is a path,
-    je .path                        ; and this wave stands in one directory
-    cmp al, '/'
+    cmp al, '\'                     ; ...so anything left here is a separator
+    je .path                        ; dos_fh_split could not remove, which
+    cmp al, '/'                     ; means the folder part did not fit
     je .path
     cmp al, 'a'
     jb .store
@@ -11006,7 +11034,7 @@ dos_fh_core:
     stosb
     or al, al
     jz .done
-    loop .copy
+    loop .copy2
     mov al, 3                       ; longer than 8.3 can be: "path not found"
     jmp short .bad
 .path:
@@ -11026,6 +11054,69 @@ dos_fh_core:
     pop si
     pop cx
     pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_fh_split - take the FOLDER PART off the name at DS:SI (SPEC.md 96.12.3)
+; in:  DS:SI = what is left of the name, ES = ours
+; out: SI past the last separator, [es:dos_fhpath] = 1 if there was one and
+;      dos_fpbuf holds it, upper-cased and NUL-terminated
+; clobbers: AX, BX, CX, SI, flags
+;
+; THE LAST SEPARATOR IS THE SPLIT, which is the whole of it: everything before
+; it is a folder path for dos_fh_enter to walk and everything after is the 8.3
+; name to resolve there. A path too long for the buffer is left alone, so the
+; copy loop above still refuses it with code 3 rather than walking half of one.
+; -----------------------------------------------------------------------------
+dos_fh_split:
+    push di
+    push si                         ; ...and SI walks the scan, because on an
+    mov byte [es:dos_fhpath], 0     ; 8086 only BX, BP, SI and DI index
+    xor bx, bx                      ; BX = characters before the last separator
+    xor cx, cx                      ; CX = how far we have looked
+.scan:
+    mov al, [si]
+    or al, al
+    jz .scand
+    cmp al, '\'
+    je .sep
+    cmp al, '/'
+    jne .next
+.sep:
+    mov bx, cx
+    inc bx
+.next:
+    inc si
+    inc cx
+    cmp cx, DOS_PBUF - 1
+    jb .scan
+.scand:
+    pop si                          ; the start again
+    or bx, bx
+    jz .out                         ; no folder part, and the common case
+    mov byte [es:dos_fhpath], 1
+    mov di, dos_fpbuf
+    mov cx, bx
+    dec cx                          ; the separator itself is not part of it
+.cp:
+    jcxz .cpd
+    mov al, [si]
+    cmp al, 'a'
+    jb .st
+    cmp al, 'z'
+    ja .st
+    sub al, 32
+.st:
+    mov [es:di], al
+    inc si
+    inc di
+    dec cx
+    jmp short .cp
+.cpd:
+    mov byte [es:di], 0
+    inc si                          ; ...and SI past the separator, which is
+.out:                               ; where the 8.3 name starts
+    pop di
     ret
 
 ; -----------------------------------------------------------------------------
@@ -11069,8 +11160,37 @@ dos_fh_enter:
                                     ; is not there, and that is the whole of
                                     ; "invalid drive" (SPEC.md 96.6.1)
 .none:
+    ; --- ...AND THE FOLDER, if the name carried one (SPEC.md 96.12.3) -----
+    ; AFTER the drive switch and not before: `B:\PRINCE\X` names a folder on
+    ; B:, so walking it while standing on A: would resolve the wrong disk -
+    ; which is dos_fh_enter's own ordering rule one level down.
+    mov byte [dos_fhkeep], 0
+    mov byte [dos_fhmoved], 0
+    cmp byte [dos_fhpath], 0
+    jne .dowalk
+    cmp byte [dos_fabs], 0
+    je .nowalk                      ; a bare name, and the common case
+    mov byte [dos_fpbuf], 0         ; "\NAME" is the volume ROOT and no
+.dowalk:                            ; components, which the walk below does by
+                                    ; going to the root and finding nothing to
+                                    ; descend - so an absolute name resolves
+                                    ; where it says whatever folder we are in
+    mov ax, [dos_curdir]            ; banked BEFORE the walk, because
+    mov [dos_fhcwd], ax             ; dos_fh_leave is what puts it back and a
+    mov byte [dos_fhmoved], 1       ; name must not move the program
+    mov si, dos_fpbuf
+    mov al, [dos_fabs]
+    call dos_walk_at
+    jc .nofold
+.nowalk:
     pop dx
     clc
+    ret
+.nofold:
+    call dos_fh_home                ; a half-walked path leaves us somewhere
+    mov al, 3                       ; the caller never asked to be
+    pop dx
+    stc
     ret
 .back:
     mov byte [dos_fhome], 0xFF      ; we did not move, so there is nothing to
@@ -11078,6 +11198,27 @@ dos_fh_enter:
     mov al, 3                       ; move us on the way out
     pop dx
     stc
+    ret
+
+; dos_fh_home - back to the folder dos_fh_enter banked, if it moved us
+; clobbers: nothing (AX, BX, DX and the flags are restored)
+dos_fh_home:
+    cmp byte [dos_fhmoved], 0
+    je .out
+    pushf
+    push ax
+    push bx
+    push dx
+    mov byte [dos_fhmoved], 0
+    mov dx, [dos_fhcwd]
+    mov bl, [dos_vol]
+    call dos_be_goto
+    mov [dos_curdir], dx
+    pop dx
+    pop bx
+    pop ax
+    popf
+.out:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -11120,6 +11261,11 @@ dos_vol_to:
 ; so a handler that grows a new error path cannot forget it.
 ; -----------------------------------------------------------------------------
 dos_fh_leave:
+    cmp byte [dos_fhkeep], 0        ; AH=3Bh sets this: a chdir's whole purpose
+    jne .nofold                     ; is to leave the program somewhere else,
+    call dos_fh_home                ; so the folder walk must NOT be undone
+.nofold:
+    mov byte [dos_fhkeep], 0
     push ax
     pushf
     mov al, [dos_fhome]
@@ -11653,6 +11799,11 @@ dos_fh_fill:
     DBSS DOS_B_SHMADE,  1           ; the destination has been created
     DBSS DOS_B_SHGOT,   2           ; bytes in the buffer this pass
     DBSS DOS_B_SHWHY,   1           ; DSHW_*: WHICH refusal, for a debugger
+    DBSS DOS_B_FHPATH,  1           ; the name carried a folder part...
+    DBSS DOS_B_FPBUF,   DOS_PBUF    ; ...which is this
+    DBSS DOS_B_FHCWD,   2           ; where we were before walking it
+    DBSS DOS_B_FHMOVED, 1           ; ...and whether we did
+    DBSS DOS_B_FHKEEP,  1           ; AH=3Bh: do NOT walk back
 
 DOS_BSS_SIZE equ DB
 
@@ -11853,6 +12004,11 @@ dsh_cpkb    equ os88_image_end + DOS_B_SHCPKB
 dsh_made    equ os88_image_end + DOS_B_SHMADE
 dsh_got     equ os88_image_end + DOS_B_SHGOT
 dsh_why     equ os88_image_end + DOS_B_SHWHY
+dos_fhpath  equ os88_image_end + DOS_B_FHPATH
+dos_fpbuf   equ os88_image_end + DOS_B_FPBUF
+dos_fhcwd   equ os88_image_end + DOS_B_FHCWD
+dos_fhmoved equ os88_image_end + DOS_B_FHMOVED
+dos_fhkeep  equ os88_image_end + DOS_B_FHKEEP
 dos_inchild equ os88_image_end + DOS_B_INCHLD
 dos_psv_ss  equ os88_image_end + DOS_B_PSVSS
 dos_psv_sp  equ os88_image_end + DOS_B_PSVSP

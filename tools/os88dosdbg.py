@@ -604,7 +604,24 @@ def cmd_ref(a):
             m.type_text("%s:" % a.drive)
             m.key("Enter")
             time.sleep(3)
-            m.type_text(os.path.splitext(a.program)[0])
+            if a.cd:
+                # A PROGRAM THAT DEMANDS ITS OWN DIRECTORY cannot be compared
+                # by naming a path, because the two sides would then be doing
+                # different things: Prince of Persia answers "Please start
+                # program from the default drive and directory" to
+                # `B:\PRINCE\PRINCE` under a real DOS. This types the CD that
+                # our side gets for free from a double-click, so both machines
+                # start the program where it expects to be.
+                m.type_text("CD \\%s" % a.cd.replace("/", "\\"))
+                m.key("Enter")
+                time.sleep(2)
+            # A PATHED PROGRAM NEEDS DOS's OWN SEPARATOR.  `trace` hands
+            # `PRINCE/PRINCE.EXE` to os88ui.path(), which wants forward
+            # slashes; COMMAND.COM reads one as a SWITCH character and answers
+            # "Bad command or file name", so the two sides of a comparison
+            # cannot take the same string.  Translating here is what lets one
+            # invocation name one program (docs/DOS-DEBUGGING.md).
+            m.type_text(os.path.splitext(a.program)[0].replace("/", "\\"))
             m.key("Enter")
             seg = struct.unpack("<HH", bytes(m.read(0x21 * 4, 4)))[1]
             base = seg << 4
@@ -949,6 +966,10 @@ def main():
             p.add_argument("--dos-disk", required=True,
                            help="YOUR bootable DOS floppy; it is copied, not edited")
             p.add_argument("--boot-secs", type=int, default=30)
+            p.add_argument("--cd", default=None,
+                           help="CD into this directory before running the "
+                                "program, for one that demands its own "
+                                "(the double-click gives our side this free)")
             p.add_argument("--boot-keys", type=int, default=2,
                            help="Enters for the date and time prompts (DOS 3.3: 2)")
             p.add_argument("--shot", help="write a PNG of the screen at the end")

@@ -241,6 +241,45 @@ not optional**: the run tree is built by `cat`-ing that file into
 source and not rebuilt is refused with *"No machine configuration for
 specified config name"*, listing every name but yours.
 
+**THE TRACER COSTS THE DOS PROGRAM 42 KB OF ARENA, so no memory-shaped
+conclusion survives a traced run.** Measured on `os8088_5150_herc_sb_720_gla`
+with the same disk: the shipping build gives the program **451 KB** and the
+DOSTRACE build **409 KB**. The ring is a package PART now (§96.29.1), and a
+part is claimed out of the same heap the arena comes from — so the instrument
+takes its 42 KB off the top of the quantity you are measuring.
+
+It is worth naming because the failure is so plausible. Prince of Persia
+sizes itself from `AH=48h AL=03 BX=FFFF` — *"how much is there?"* — and a
+traced run answered **220 KB** against a real DOS's 393 KB, which reads
+exactly like the box being short of memory by 173 KB. It is not: on the
+shipping build the gap is about a third of that, and the rest was the
+tracer. **Ask the arena question on the SHIPPING build** (`[dos_akb]`, and
+`dos_syms(..., defines=())` — the default is `DOSTRACE`, whose bss offsets do
+not describe a shipped package and which will hand you a confident zero), and
+use the trace for what it is good at: which call was asked, and what was
+answered.
+
+The other 14 KB is real and is the sound driver: the same machine with no
+card reports **465 KB**. `OSAPI_DRV_SUSPEND` frees that memory *inside* the
+bracket and the arena was claimed before it, which is
+docs/plans/DISK-CPU-PLAN.md §5 in one number.
+
+**A program in a SUBDIRECTORY needs two things of `ref` that `trace` does not,
+and both were missing until Prince of Persia wanted them.** `trace` hands the
+program to `os88ui.path()`, which wants forward slashes; `COMMAND.COM` reads
+one as a **switch character** and answers *"Bad command or file name"*, so
+`ref` translates to `\` — one invocation, one program name, two machines. And
+a program may demand that its own directory be CURRENT rather than merely
+named: Prince of Persia answers `B:\PRINCE\PRINCE` with *"Unable to find
+necessary files. Please start program from the default drive and directory"*,
+which is not a DOS refusal at all but the game's own. `--cd PRINCE` types the
+`CD` our side gets for free from a double-click. **Without it the comparison is
+two machines doing different things**, and the reference looks broken.
+
+`reach` also walks the **root only** — a documented scope, but worth knowing
+when a disk keeps everything in a folder: `PRINCE/`'s files run out to
+cylinder 59 and `reach` reports only the three entries in the root.
+
 `reach` reports the **last** cylinder a file touches, not the first: a file
 that starts inside the drive and runs off the end truncates in the middle,
 which is harder to spot than one that cannot be opened at all.
