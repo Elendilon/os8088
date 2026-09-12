@@ -1,6 +1,6 @@
 # A module that is fully contained on disk
 
-**Status: PROPOSED. Nothing here is built.** The measurement behind it is
+**Status: W0 BUILT (6.1); W1–W5 proposed.** The measurement behind it is
 `docs/reports/MODULE-RESIDENT-DATA-2026-09-12.md`, taken at `6c91a3a`, and
 every byte figure in this document comes from it or from
 `tools/os88modcost.py --api` on that same commit. Re-derive them with
@@ -295,6 +295,8 @@ lands on, and reports where they meet:
 | `cw_wm_destroy` | `wm_destroy` | `0x0398` SLOT | — | 4 |
 | | | | **12** | **24** |
 
+**TAKEN — W0, and it came to −28 / −24; 6.1 says why it beat the row above.**
+
 **Six of thirty-five, and the other twenty-nine stay.** `mmf_mem_avail` is the
 clean worked example and shows the shape of the duplication: `memory.inc`
 carries `mmf_mem_avail: call mem_avail_x` for the module *and*
@@ -336,14 +338,52 @@ Each wave ends with `python3 tools/os88modcost.py` re-run and the figure
 quoted (`--api` too, after W0), and with `kernsize`'s own line — a wave that moved no `KERN_SIZE`
 byte still moved `.text` bytes, and those are what the report counts.
 
-**W0 — the six redundant shims. 12 bytes on `kern_big`, 24 on `kern_small`,
-and no mechanism at all.** Section 5's table: point each module call site at
-the public cell it already has and delete the private shim. It is first
-because it needs nothing this plan has not already established, it touches no
-data, and `--api` re-derives the list on any tree. Check `cw_wm_create`'s
-XCELL at the call site (5.3); the other five are plain SLOTs. **Expect the
-byte figure to move**: a cell that becomes redundant later, or a slot added
-for a package's own sake, changes this list without anybody touching a module.
+**W0 — the six redundant shims. BUILT: −28 bytes on `kern_big`, −24 on
+`kern_small`.** Section 5's table, taken: each call site points at the public
+cell and the private shim is gone. Six shims, seven call sites, no mechanism
+and no data touched. See 6.1 for what it came to, which is **more than this
+plan predicted, for a reason worth keeping**.
+
+### 6.1 What W0 came to, and the two things it found
+
+`.text` **49,524 → 49,504** and `.cold` **39,264 → 39,256** on `kern_big`
+(−28); `.text` **37,445 → 37,425** and `.cold` **26,176 → 26,172** on
+`kern_small` (−24). Measured against a baseline taken on the same tree before
+the change — **not** against `kernsize`'s blessed baseline, which was stale
+here and reported `-1,547` for a twenty-byte edit (CLAUDE.md's own warning
+about that line, and it is why the figures above are a before/after and not a
+`sum`).
+
+**It beat section 5's prediction of 12 on `kern_big`, and the reason is a hole
+in the measurement rather than luck.** The audit counts only what is named
+*exclusively* from a module image, so three of the six — `cw_gfx_vline`,
+`cw_wm_create`, `cw_wm_destroy` — did not appear in `kern_big`'s tally at all:
+on that build `fdlg.inc` is resident `.cold` rather than `.modd`, so `.cold`
+names them too. **But a `.cold` caller cannot near-call `.text` either** — it
+has its own vstart — so it wants the identical far call, and the public cell
+serves it just as well. The lesson for W1–W5: *the audit's figure is a floor
+for shims as well as for data, and a shim shared with `.cold` is still worth
+deleting.*
+
+**The `wm_create` XCELL paid twice.** 5.3 flagged it as the one row to check
+at the call site rather than substitute on the strength of the table — and the
+check turned up a bonus. `api_x` sets `ES` = the caller's DS and puts it back,
+which for a module is `ES = KERNEL_SEG`; `fdlg.inc` was spelling that out by
+hand (`push es / push ds / pop es` … `pop es`) around the shim call. Those
+four bytes went with it, which is why `.cold` fell 8 on `kern_big` where only
+one 4-byte shim lived there. On `kern_small` the same four bytes come out of
+`FDLG.DRV`'s image instead of the kernel, so they do not show in `kernsize` at
+all — a file getting smaller, which is the shape this whole plan is after.
+
+**A measurement trap, recorded because it cost a cycle.** The cells are named
+with a bare `apic_*` label so the address is DERIVED rather than a second copy
+of the slot number (`tests/unit/t_mirror.py`'s subject). A bare label inside
+the table then **absorbs every unlabelled cell after it** in any tool that
+sizes a label by the distance to the next one — `os88modcost.py` read
+`apic_wm_destroy` at **440 bytes** and the totals jumped 440 → 1,116. The cell
+is resident for the package ABI whether a module names it or not, so its
+marginal cost here is zero; the tool excludes `apic_*` now and says why. The
+totals came back to **428 / 533**, which is 440 − 12 and 557 − 24 exactly.
 
 **W1 — `FORMAT.DRV`'s boot-sector template. ~30 bytes, no UI risk.**
 `dskw_fmt_jmp` (11), `dskw_fmt_lab` (11) and `dskw_fmt_typ` (8) are bytes the

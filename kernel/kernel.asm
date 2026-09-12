@@ -2764,11 +2764,32 @@ dbg_reg_at:                     ; 0060:000E - THE DEBUG REGISTRY (SPEC.md 57)
     db 0
 %endmacro
 
+; **`apic_*` NAMES A CELL, for a caller inside the kernel**
+; (docs/plans/MODULE-SELFCONTAIN-PLAN.md 5). An on-demand module runs from a
+; heap claim with a CS of its own, so it reaches kernel code through a far
+; call - and where a cell ALREADY publishes the routine it wants, that cell is
+; the door and the private `cw_*` shim below is a second one. A cell is EIGHT
+; bytes and a shim is four, so this is only ever worth doing where the cell
+; exists already: publishing a routine in order to delete its shim spends 8 to
+; save 4 and commits the SDK for ever.
+;
+; The label is what makes it safe to say. A `%define` of the slot NUMBER would
+; be that number written down twice - tests/unit/t_mirror.py's whole subject -
+; where a label is DERIVED and follows the cell if the table is ever renumbered.
+; It emits nothing.
+;
+; `OSAPI_SLOT` is `push ds / push cs / pop ds / call / pop ds / retf`, which
+; for a caller whose DS is already KERNEL_SEG is the shim's semantics exactly,
+; plus four instructions; `pop` and `retf` touch no flags, so a CF answer still
+; survives. `OSAPI_XCELL` additionally sets ES = the caller's DS and restores
+; it, which for a module is ES = KERNEL_SEG - what a kernel-owned template
+; wants, and what the one XCELL caller here used to do by hand.
 osapi_table:
     OSAPI_SLOT gfx_lock           ; 0x0010
     OSAPI_SLOT gfx_unlock         ; 0x0018
     OSAPI_SLOT gfx_pixel          ; 0x0020
     OSAPI_SLOT gfx_hline          ; 0x0028
+apic_gfx_vline:
     OSAPI_SLOT gfx_vline          ; 0x0030
     OSAPI_SLOT gfx_fill           ; 0x0038
     OSAPI_SLOT gfx_frame          ; 0x0040
@@ -2778,6 +2799,7 @@ osapi_table:
     OSAPI_SLOT font_char          ; 0x0060
     OSAPI_XCELL font_str_x      ; 0x0068  X: the string is package data
     OSAPI_XCELL font_width_x    ; 0x0070  X
+apic_wm_create:
     OSAPI_XCELL wm_create     ; 0x0078  X: so is the template
     OSAPI_SLOT wm_show            ; 0x0080
     OSAPI_SLOT wm_hide            ; 0x0088
@@ -2792,6 +2814,7 @@ osapi_table:
     OSAPI_SLOT osapi_srand        ; 0x00D0
     OSAPI_SLOT osapi_rand         ; 0x00D8
     OSAPI_SLOT osapi_snd_caps     ; 0x00E0 - sound (SPEC.md 34): what the PC
+apic_osapi_snd_tone:
     OSAPI_SLOT osapi_snd_tone     ; 0x00E8   speaker can do, a tone, and a
     OSAPI_SLOT osapi_snd_play     ; 0x00F0   clip out of the caller's buffer
     OSAPI_XCELL osapi_snd_fm_x        ; 0x00F8 - FM verbs (SPEC.md 34.2). X: a
@@ -2913,6 +2936,7 @@ osapi_table:
 ; --- and from here on, the slots added since ----------------------------------
     OSAPI_XCELL osapi_mem_claim     ; 0x0200 - the claim heap (SPEC.md 50.3):
     OSAPI_XCELL osapi_mem_free      ; 0x0208   X, same fence as the spawn
+apic_osapi_mem_avail:
     OSAPI_SLOT osapi_mem_avail    ; 0x0210
     OSAPI_SLOT osapi_font_glyphs  ; 0x0218 - the kernel's 8x8 glyph table
                                   ;          (SPEC.md 6): out DX:SI = the
@@ -3234,6 +3258,7 @@ osapi_table:
                                   ;         a quiet mount. For a caller about to
                                   ;         read or write BY NAME rather than to
                                   ;         list - which is every copy loop
+apic_wm_saveu:
     OSAPI_SLOT wm_saveu           ; 0x0378 - BX = window, AL = 0 clear / non-0
                                   ;          set. "My content does not change
                                   ;          while I am not drawing", which
@@ -3257,6 +3282,7 @@ osapi_table:
                                   ;         gfx_unlock ends the batch anyway,
                                   ;         which is what makes an unclosed one
                                   ;         impossible rather than merely rare
+apic_wm_destroy:
     OSAPI_SLOT wm_destroy         ; 0x0398  BX = a window of YOURS; the gfx lock
                                   ;         is held, exactly as OSAPI_WM_HIDE
                                   ;         wants it. Frees the RECORD, where
@@ -6356,8 +6382,6 @@ cw_gfx_rowbase:         call gfx_rowbase
                     retf
 cw_gfx_unlock:          call gfx_unlock
                     retf
-cw_gfx_vline:           call gfx_vline
-                    retf
 cw_gfx_xor_fill:        call gfx_xor_fill
                     retf
 cw_icon_draw:           call icon_draw
@@ -6413,8 +6437,6 @@ cw_menu_relayout:       call menu_relayout
 cw_menu_draw_bar:       call menu_draw_bar
                     retf
 cw_menu_popup:          call menu_popup
-                    retf
-cw_osapi_snd_tone:      call osapi_snd_tone
                     retf
 cw_snd_beep:            call snd_beep
                     retf
@@ -6478,19 +6500,11 @@ cw_wm_clip_test:        call wm_clip_test
                     retf
 cw_wm_content:          call wm_content
                     retf
-cw_wm_create:           call wm_create
-                    retf
-cw_wm_destroy:          call wm_destroy
-                    retf
 cw_wm_minsize:          call wm_minsize
                     retf
 cw_wm_snap:             call wm_snap    ; OUTSIDE the KERN_BIG gate below:
                     retf                    ; app_tmr_kinit asks for the snap
                                             ; on every kernel (SPEC.md 11.94)
-cw_wm_saveu:            call wm_saveu   ; ...and the Control Panel answers
-                    retf                    ; SPEC.md 11.96.1's promise per
-                                            ; PAGE, from its module (SPEC.md
-                                            ; 31.12)
 %ifdef KERN_BIG
 cw_wm_onmouseup:        call wm_onmouseup
                     retf

@@ -2138,7 +2138,7 @@ cp_divider:
     mov bx, bp
     mov dx, bp
     add dx, CP_CH - 1
-    call KERNEL_SEG:cw_gfx_vline              ; in AX = x, BX = y1, DX = y2
+    call KERNEL_SEG:apic_gfx_vline            ; in AX = x, BX = y1, DX = y2
     pop dx
     pop bx
     pop ax
@@ -2180,7 +2180,10 @@ cp_promise:
     jne .say
     xor al, al                          ; the clock is on the pane: withdraw,
 .say:                                   ; and wm_saveu drops the claim with it
-    call KERNEL_SEG:cw_wm_saveu
+    call KERNEL_SEG:apic_wm_saveu       ; the CELL (0x0378): the Control
+                                        ; Panel answers SPEC.md 11.96.1's
+                                        ; promise per PAGE, from its
+                                        ; module (SPEC.md 31.12)
 .out:
     pop di
     pop bx
@@ -4678,7 +4681,7 @@ cp_snd_click:
     mov ax, 660                 ; one second of a tone through whatever the
     mov cx, 18                  ; page currently selects. UI priority, so it
     mov dl, SND_PRI_UI          ; outranks anything a package is playing -
-    call KERNEL_SEG:cw_osapi_snd_tone         ; the user asked for it
+    call KERNEL_SEG:apic_osapi_snd_tone       ; the user asked for it
     jmp short .done
 
 .rows:

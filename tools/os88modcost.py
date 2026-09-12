@@ -63,6 +63,12 @@ WHAT IT CANNOT SEE, and both are conservative - they UNDER-report:
   * a reference inside a %macro BODY is filed where the body is written, not
     where it expands.  A module-only string read through a macro defined in
     `.text` therefore reads as resident and is left out.
+
+WHAT IT DELIBERATELY EXCLUDES: an `apic_*` label (SPEC.md 2.8, and the comment
+over `osapi_table`).  It names a cell of the PUBLISHED table so that a module
+can far-call the door a package already uses, and that cell is resident for the
+package ABI whether any module names it or not - so its marginal cost here is
+zero, and counting it would make the whole table look like a module's.
 """
 import argparse
 import collections
@@ -91,6 +97,14 @@ RESIDENT = ('.text', '.bss', '.cold')
 # being the thing it calls to get out.  Reported, and never counted as
 # movable.
 SHIM = re.compile(r'^(?:dskf_|dkf_|drvf_|fmf_|mmf_|memf_|cw_|hbk_)|_f$')
+
+# `apic_*` NAMES AN OSAPI CELL and costs a module nothing: the cell is in the
+# published table whether or not any module calls it, and the label emits no
+# byte at all.  It is excluded rather than counted, and the exclusion is not a
+# nicety - a bare label in the middle of the table ABSORBS every unlabelled
+# cell after it, so the first one added here read 440 bytes and would have sent
+# the next reader chasing a table that is resident for the package ABI.
+NOTMOD = re.compile(r'^apic_')
 
 SECT  = re.compile(r'^\s*section\s+(\.\w+)')
 INCL  = re.compile(r'^\s*%include\s+"([^"]+)"')
@@ -338,7 +352,7 @@ def main():
 
     rows = []
     for lab, (dsec, f, ln) in defs.items():
-        if dsec not in RESIDENT:
+        if dsec not in RESIDENT or NOTMOD.match(lab):
             continue
         naming = {rs for (rf, rl, rs) in refsite[lab] if (rf, rl) != (f, ln)}
         if naming and naming <= target:
