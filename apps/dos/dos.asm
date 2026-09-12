@@ -117,15 +117,29 @@ DOS_TRACE_SZ equ 32                 ; ...bytes an entry, NAMED so that the host
                                     ; decodes plausible nonsense the day it
                                     ; moves. It has moved twice already, 12 to
                                     ; 16 to 32
-DOS_TRDUMPN equ 256                 ; ...and how many of them TRACE.LOG holds,
+DOS_TRDUMPN equ 240                 ; ...and how many of them TRACE.LOG holds,
                                     ; which is separate because the RING is
                                     ; read live off a debugger and the FILE is
-                                    ; what the field posts: 256 lines is
-                                    ; plenty of the latter, and 512 entries of
-                                    ; dump buffer would be 36KB of bss taken
-                                    ; out of the program's own arena - which
-                                    ; would change the measurement the
+                                    ; what the field posts: a couple of hundred
+                                    ; lines is plenty of the latter, and 512
+                                    ; entries of dump buffer would be 36KB of
+                                    ; bss taken out of the program's own arena
+                                    ; - which would change the measurement the
                                     ; instrument exists to take.
+                                    ; IT WAS 256 UNTIL THE DOSTRACE BUILD
+                                    ; STOPPED FITTING: it went 131 bytes past
+                                    ; APP_MAX_SIZE when SPEC.md 96.26's cable
+                                    ; translation landed, and the buffer is
+                                    ; DOS_TRDUMPN * 72, so sixteen lines back
+                                    ; is 1,152 bytes of headroom. THE REAL FIX
+                                    ; IS A PART (SPEC.md 20.12): the ring is
+                                    ; 16,384 bytes and this is 17,280, both of
+                                    ; them SCRATCH in a build nobody ships,
+                                    ; and both belong in a segment of their
+                                    ; own rather than in the 60KB an image and
+                                    ; its bss share. Until then this constant
+                                    ; is what gives way, and it will have to
+                                    ; give way again.
                                     ; IT HOLDS A WHOLE RUN, and 64 did not:
                                     ; the failure under investigation makes
                                     ; 169 calls, so a 64-entry ring threw away
@@ -1679,8 +1693,9 @@ dos_int21:
 ; outputs. dos_fh_slot spends it turning a handle into an index.
 .fherr:                             ; AL = a DOS error code
     pop bx
-    xor ah, ah
-    jmp .badax
+    call dos_fh_leave               ; ...and off the drive the name named, if
+    xor ah, ah                      ; it named one (SPEC.md 96.6.2). BOTH exits
+    jmp .badax                      ; carry it, so no error path can forget
 .fnoent:
     mov al, 2                       ; file not found
     jmp short .fherr
@@ -1696,6 +1711,7 @@ dos_int21:
                                     ; make (SPEC.md 96.11.2)
 .fhok:
     pop bx
+    call dos_fh_leave
     jmp .ok
 
 .fhabs:
@@ -1733,6 +1749,11 @@ dos_int21:
     call dos_fh_new                 ; BX = the handle, SI = the record, zeroed
     jc .fmany
     call dos_fh_setname
+    mov al, [dos_vol]               ; THE VOLUME THE NAME LANDED ON, which is
+    mov [si+FH_VOL], al             ; where every later read of this handle
+                                    ; goes - dos_fh_name is still standing
+                                    ; there, so it is [dos_vol] and needs no
+                                    ; second lookup (SPEC.md 96.6.2)
     mov ax, [dos_fent+18]
     mov [si+FH_SIZE], ax
     mov ax, [dos_fent+20]
@@ -1773,6 +1794,8 @@ dos_int21:
     call dos_fh_new
     jc .fmany
     call dos_fh_setname
+    mov al, [dos_vol]
+    mov [si+FH_VOL], al
     mov byte [si+FH_FLAGS], FHF_USED | FHF_WRITE
     call dos_jft_sync
     mov ax, bx
@@ -2020,7 +2043,8 @@ dos_int21:
     jc .fherr                       ; does, wildcards and all
     call dos_dta_seg                ; ES:DI = the caller's DTA, and DI STAYS
     mov [es:di+DTA_MASK], cl        ; ...the mask FIRST: the rep movsb below
-                                    ; spends CX (SPEC.md 96.12.1)
+    mov al, [dos_vol]               ; spends CX (SPEC.md 96.12.1)
+    mov [es:di+DTA_VOL], al         ; ...and the volume dos_fh_name put us on
     mov word [es:di+DTA_ORD], 0     ; there: .fstep below wants the DTA's BASE,
     push si                         ; and a stosw/rep movsb pair would leave it
     push di                         ; fifteen bytes along - which reads the
@@ -2049,6 +2073,10 @@ dos_int21:
     ; AH=4Fh: everything it needs is in the DTA AH=4Eh filled.
     push bx
     call dos_dta_seg
+    mov al, [es:di+DTA_VOL]         ; ...the volume included: a walk started on
+    mov [dos_fdrv], al              ; B: carries on there whatever the program
+    call dos_fh_enter               ; has done to its own drive since, and
+    jc .fherr                       ; .fhok/.fherr bring us home
     call dos_find_step              ; CF=1 with AL = 18 (no more files)
     jc .fherr
     xor ax, ax
@@ -2235,6 +2263,11 @@ dos_int21:
 
     call dos_exec_load              ; block, load, relocate, PSP, command tail
     jc .exerr                       ; AL is a DOS code
+    call dos_fh_leave               ; ...and HOME BEFORE THE CHILD RUNS: under
+                                    ; DOS, EXEC "B:FOO" does not leave the
+                                    ; program on B:, and the restore at .fhok
+                                    ; is on the far side of the whole child
+                                    ; (SPEC.md 96.6.2)
 
     ; --- into the child ----------------------------------------------------
     ; THE `call` BELOW IS THE RETURN PATH. dos_terminate cannot jump to a
@@ -2361,10 +2394,14 @@ dos_int21:
     jc .fhpath
     call dos_fh_stat                ; the same lookup AH=3Dh opens through, so
     jc .fnoent                      ; the two can never disagree about a name
-    pop bx
     mov cx, 0x20                    ; ARCHIVE. SPEC.md 19 keeps no attribute of
     mov ax, cx                      ; its own and this is what an ordinary
-    jmp .ok                         ; readable file reads as everywhere
+    jmp .fhok                       ; readable file reads as everywhere. .fhok
+                                    ; AND NOT .ok: these two were the only
+                                    ; dos_fh_name callers that popped BX and
+                                    ; left by the front door, which since
+                                    ; SPEC.md 96.6.2 is also the door that
+                                    ; comes off the named drive
 .att_set:
     push bx
     call dos_fh_name                ; it still has to NAME something real...
@@ -2373,9 +2410,8 @@ dos_int21:
     jc .fhpath
     call dos_fh_stat
     jc .fnoent
-    pop bx
     xor ax, ax                      ; ...and the new attributes are then
-    jmp .ok                         ; DROPPED rather than refused: there is
+    jmp .fhok                       ; DROPPED rather than refused: there is
                                     ; nowhere to keep them, and a program that
                                     ; sets ARCHIVE on a file it has just
                                     ; written must not fail for it
@@ -6227,7 +6263,14 @@ FH_NAME     equ 0                   ; char[13], NUL-terminated
 FH_FLAGS    equ 13
 FH_POS      equ 14                  ; dword
 FH_SIZE     equ 18                  ; dword
-FH_SIZEOF   equ 22
+FH_VOL      equ 22                  ; the VOLUME the name is resolved against
+                                    ; (SPEC.md 96.6.2). A handle is a name
+                                    ; here and not a file, so without this a
+                                    ; read re-resolves it wherever the program
+                                    ; happens to be standing - which is how a
+                                    ; copy off B: onto C: reads the
+                                    ; destination back into itself
+FH_SIZEOF   equ 23
 FHF_USED    equ 1
 FHF_WRITE   equ 2                   ; opened by AH=3Ch: writes are accepted
 FHF_MADE    equ 4                   ; ...and at least one window has been
@@ -6335,6 +6378,11 @@ DTA_MASK    equ 15                  ; byte: the ATTRIBUTE MASK AH=4Eh was
                                     ; given, which DOS also keeps in the
                                     ; reserved head of the DTA. AH=4Fh needs
                                     ; it and is handed nothing but the DTA
+DTA_VOL     equ 16                  ; byte: ...and the VOLUME it was walking,
+                                    ; for the same reason one level along - a
+                                    ; walk that began on B: continues on B:
+                                    ; however the program has moved since
+                                    ; (SPEC.md 96.6.2)
 DTA_ATTR    equ 21                  ; ...and from here it is DOS's PUBLISHED
 DTA_TIME    equ 22                  ; layout, which the program reads
 DTA_DATE    equ 24
@@ -9207,10 +9255,18 @@ dos_fh_new:
 ; out: CF=0; CF=1 with AL = a DOS error code for a path this wave cannot walk
 ; clobbers: nothing else
 ;
-; A DRIVE LETTER THAT NAMES OUR OWN VOLUME IS STRIPPED AND NOT REFUSED - it is
-; what a program echoes back out of its own command line - and a SUBDIRECTORY
-; is refused with "path not found" rather than silently opened in the current
-; one, which would hand the program the wrong file under the right name.
+; A DRIVE LETTER IS TAKEN OFF THE NAME AND OBEYED (SPEC.md 96.6.2), not
+; thrown away: it goes in [dos_fdrv] and dos_fh_enter below stands on that
+; volume for the length of the call.  A SUBDIRECTORY is refused with "path not
+; found" rather than silently opened in the current one, which would hand the
+; program the wrong file under the right name.
+;
+; IT USED TO BE DROPPED, on the reasoning that "a program that names its own
+; drive is naming ours" - which was true of a box that had one volume and
+; stopped being true the day AH=0Eh really switched (SPEC.md 96.6.1).  What it
+; cost is in tests/dostrap/drvname.asm: standing on B:, this box answered
+; A:*.* with B:'s own directory and answered C:*.* on a machine that HAS no
+; C:, both of them reporting success.
 ; -----------------------------------------------------------------------------
 dos_fh_name:
     push bx
@@ -9225,10 +9281,20 @@ dos_fh_name:
     mov ds, [bp]                    ; the program's, off the frame
     mov cx, 13
 
-    cmp byte [si+1], ':'            ; "C:NAME" - drop the drive, whatever it
-    jne .nodrv                      ; is: the map is the identity with one
-    add si, 2                       ; hole in it (SPEC.md 96.6) and a program
-.nodrv:                             ; that names its own is naming ours
+    mov byte [es:dos_fdrv], 0xFF    ; "C:NAME" - the letter comes off the name
+    cmp byte [si+1], ':'            ; and goes in [dos_fdrv], where dos_fh_enter
+    jne .nodrv                      ; picks it up. A LETTER IS NOT CHECKED HERE:
+    mov al, [si]                    ; anything that is not a volume falls out of
+    add si, 2                       ; range and dos_fh_enter refuses it with the
+    cmp al, 'a'                     ; code a real DOS gives, which is 3 and not
+    jb .drvup                       ; 15 (measured - drvname.asm under IBM DOS
+    cmp al, 'z'                     ; 3.30)
+    ja .drvup
+    sub al, 32
+.drvup:
+    sub al, 'A'
+    mov [es:dos_fdrv], al
+.nodrv:
     cmp byte [si], '.'              ; ".\NAME" and "./NAME"
     jne .nodot
     cmp byte [si+1], '\'
@@ -9277,6 +9343,8 @@ dos_fh_name:
 %ifdef DOSTRACE
     call dos_tr_name_in             ; WHICH FILE - AH/AL alone cannot say, and
 %endif                              ; that is the question a field trace asks
+    call dos_fh_enter               ; ...and WHICH DRIVE, which is the same
+    jc .out                         ; question one level up (SPEC.md 96.6.2)
     clc
 .out:
     pop es
@@ -9284,6 +9352,113 @@ dos_fh_name:
     pop si
     pop cx
     pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_fh_enter - stand on the volume [dos_fdrv] named, for one call
+; out: CF=0, having moved or not; CF=1 with AL = 3 for a drive that is not
+;      there. [dos_fhome] is where to go back to, 0xFF when we never left
+; clobbers: AL, which dos_fh_name has already spent on the name it copied
+;
+; UNDER DOS A DRIVE LETTER IN A NAME DOES NOT CHANGE THE DEFAULT DRIVE - it
+; selects which drive's current directory the name is resolved against, and
+; AH=0Eh alone moves the program.  Our back end resolves against whatever is
+; MOUNTED, so "resolve elsewhere" has to be spelled "go there and come back":
+; the bracket IS the implementation and not a shortcut, which is why the
+; restore is at the two exits every handler already funnels through and not at
+; ten call sites.
+;
+; THE CODE FOR A DRIVE THAT IS NOT THERE IS 3 AND NOT 15, which is measured
+; rather than reasoned: IBM DOS 3.30 answers AH=4Eh on C: with AX=0003 CF=1 on
+; a machine with no hard disk (tests/dostrap/drvname.asm).  15 is what a
+; program gets from calls that take a drive NUMBER, and this is not one.
+; -----------------------------------------------------------------------------
+dos_fh_enter:
+    push dx
+    mov byte [dos_fhome], 0xFF
+    mov dl, [dos_fdrv]
+    cmp dl, 0xFF
+    je .none                        ; no letter: resolve where we stand, which
+                                    ; is the common case and costs one compare
+    cmp dl, [dos_vol]
+    je .none                        ; named the drive we are already on
+    cmp dl, DVOL_MAX
+    jae .bad                        ; past the array - and a non-letter lands
+                                    ; here too, 'C'-'A' being the only shape
+                                    ; that does not
+    mov al, [dos_vol]
+    mov [dos_fhome], al
+    call dos_drv_sel
+    mov al, [dos_fdrv]
+    cmp al, [dos_vol]
+    jne .back                       ; dos_drv_sel leaves us put when the volume
+                                    ; is not there, and that is the whole of
+                                    ; "invalid drive" (SPEC.md 96.6.1)
+.none:
+    pop dx
+    clc
+    ret
+.back:
+    mov byte [dos_fhome], 0xFF      ; we did not move, so there is nothing to
+.bad:                               ; put back - and a stale [dos_fhome] would
+    mov al, 3                       ; move us on the way out
+    pop dx
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_vol_to - stand on volume AL
+; in:  AL = the volume, 0 = A
+; out: CF=0 with AL = the volume we WERE on, for the caller to hand back;
+;      CF=1, AL untouched, if that volume is not there
+; clobbers: nothing else
+;
+; dos_fh_enter is this with [dos_fdrv]'s policy on top and one place to come
+; back to.  The window routines want the bare mechanism instead: they bracket
+; a single back-end call, they are reached with no name in hand, and their
+; volume is the HANDLE's rather than the call's.
+; -----------------------------------------------------------------------------
+dos_vol_to:
+    push dx
+    mov dl, al
+    mov al, [dos_vol]
+    cmp dl, al
+    je .same                        ; already there: the common case, and it
+    push ax                         ; costs one compare
+    call dos_drv_sel
+    pop ax
+    cmp dl, [dos_vol]
+    jne .no
+.same:
+    pop dx
+    clc
+    ret
+.no:
+    pop dx
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_fh_leave - back to the drive dos_fh_enter left, if it left one
+; clobbers: nothing, flags included
+;
+; IT IS AT .fhok AND .fherr, the two exits every file handler funnels through,
+; so a handler that grows a new error path cannot forget it.
+; -----------------------------------------------------------------------------
+dos_fh_leave:
+    push ax
+    pushf
+    mov al, [dos_fhome]
+    cmp al, 0xFF
+    je .out
+    push dx
+    mov dl, al
+    mov byte [dos_fhome], 0xFF
+    call dos_drv_sel
+    pop dx
+.out:
+    popf
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -9380,6 +9555,10 @@ dos_fh_flush:
     mul bl
     mov si, ax
     add si, dos_fhtab
+    mov al, [si+FH_VOL]             ; THE BYTES GO WHERE THE FILE IS, not where
+    call dos_vol_to                 ; the program is standing: a copy off B:
+    jc .err                         ; onto C: writes with B: current every
+    mov [dos_wvsv], al              ; other window (SPEC.md 96.6.2)
     mov al, [si+FH_FLAGS]
     add si, FH_NAME
     mov bx, [dos_wseg]
@@ -9389,20 +9568,26 @@ dos_fh_flush:
     jnz .append
     xor dx, dx
     call dos_be_write
-    jc .err
+    jc .errv
     sub si, FH_NAME
     or byte [si+FH_FLAGS], FHF_MADE
-    jmp short .clean
+    jmp short .home
 .append:
     call dos_be_append
-    jc .err
-.clean:
+    jc .errv
+.home:
+    mov al, [dos_wvsv]              ; ...and back, before anything else can
+    call dos_vol_to                 ; run: it worked a moment ago, so a
+.clean:                             ; refusal here is not a case
     mov byte [dos_wdirty], 0
     mov word [dos_wlen], 0
 .ok:
     clc
     jmp short .out
-.err:
+.errv:
+    mov al, [dos_wvsv]              ; a failed write still comes home, or the
+    call dos_vol_to                 ; program is left standing somewhere it
+.err:                               ; never asked to be
     mov byte [dos_wdirty], 0        ; do not retry it for ever - one write that
     mov word [dos_wlen], 0          ; will not go is reported once
     pop es
@@ -9480,6 +9665,12 @@ dos_fh_fill:
     jmp .okp
 
 .refill:
+    mov al, [si+FH_VOL]             ; THE VOLUME FIRST, because AX becomes the
+    mov [dos_fvvol], al             ; file OFFSET four lines down and AL is its
+                                    ; low byte. Reading it later cost a whole
+                                    ; round: FH_VOL is 0 for A:, so the arm
+                                    ; under test read correctly and every
+                                    ; ordinary read on B: came back EMPTY
     test byte [si+FH_FLAGS], FHF_WHOLE
     jnz .whole                      ; the window IS the file on that arm, and
                                     ; it is re-read rather than kept because
@@ -9493,12 +9684,13 @@ dos_fh_fill:
     mov [dos_wbase+2], dx
 
     push si
-    mov bx, [dos_wseg]
-    mov es, bx
-    xor bx, bx
+    mov bx, [dos_wseg]              ; THE BYTES COME FROM WHERE THE FILE IS,
+    mov es, bx                      ; not from where the program is standing
+    xor bx, bx                      ; (SPEC.md 96.6.2)
     mov cx, [dos_wbytes]
     add si, FH_NAME
-    call dos_be_rdat                ; out DX:AX = the bytes delivered, 0 at or
+    mov word [dos_fvtgt], dos_k_rdat
+    call .onvol                     ; out DX:AX = the bytes delivered, 0 at or
     pop si                          ; past the end
     jc .eof
     jmp short .got
@@ -9512,8 +9704,9 @@ dos_fh_fill:
     mov cx, [dos_wbytes]
     xor dx, dx
     add si, FH_NAME
-    call dos_be_read                ; EXPANDS on the way in (SPEC.md 20.14),
-    pop si                          ; which is the whole reason this arm exists
+    mov word [dos_fvtgt], dos_k_read ; EXPANDS on the way in (SPEC.md 20.14),
+    call .onvol                      ; which is the whole reason this arm exists
+    pop si
     jc .eof
 .got:
     or dx, dx
@@ -9548,6 +9741,48 @@ dos_fh_fill:
     pop dx
     pop bx
     ret
+
+; --- .onvol - dos_be_go, standing where the WINDOW OWNER's file is ----------
+; [dos_fvtgt] is the back end's target and [dos_fvvol] is the volume.  It is
+; one routine rather than two brackets because dos_be_rdat and dos_be_read
+; differ in that word alone, and a bracket written twice is one that gets
+; fixed once.
+;
+; THE TARGET IS COPIED IN AFTER THE SWITCH AND NOT BEFORE, which is the whole
+; reason it travels in a word of its own: dos_drv_sel mounts through
+; dos_be_goto, and dos_be_goto's first act is to write [dos_betgt]. Setting
+; the target first and then switching ran every cross-volume READ as a
+; DIRECTORY GOTO - which returns, so the caller read a byte count out of
+; whatever it left in DX:AX and called the file empty.
+.onvol:
+    push ax
+    push dx
+    mov al, [dos_fvvol]
+    call dos_vol_to
+    jc .onbad
+    mov [dos_fvsv], al
+    pop dx
+    pop ax
+    push ax                         ; ...and only now, with every mount the
+    mov ax, [dos_fvtgt]             ; switch needed already made. BP IS NOT A
+    mov [dos_betgt], ax             ; SCRATCH REGISTER HERE - it is the INT 21h
+    pop ax                          ; frame, and [bp] is the program's own DS
+    call dos_be_go
+    pushf                           ; the back end's answer is DX:AX and CF,
+    push ax                         ; and the walk home must not spend any of
+    push dx                         ; them
+    mov al, [dos_fvsv]
+    call dos_vol_to
+    pop dx
+    pop ax
+    popf
+    ret
+.onbad:
+    pop dx                          ; THE VOLUME IS GONE - the floppy came out
+    pop ax                          ; between the open and the read.  The
+    stc                             ; caller reads this as end of file, which
+    ret                             ; is the honest half of it: no bytes, and
+                                    ; no lie about which ones
 
     DBSS DOS_B_XNREL, 2
     DBSS DOS_B_XRLOC, 2
@@ -9626,6 +9861,13 @@ dos_fh_fill:
     DBSS DOS_B_TMP3,  2
     DBSS DOS_B_ACC,   2
     DBSS DOS_B_FABS,  1        ; did the name carry a leading separator?
+    DBSS DOS_B_FDRV,  1        ; ...and the DRIVE it named, 0xFF = none
+    DBSS DOS_B_FHOME, 1        ; where to go back to, 0xFF = we never left
+    DBSS DOS_B_FVTGT, 2        ; the back end call a bracketed read makes
+    DBSS DOS_B_FVVOL, 1        ; the window owner's volume, and where the read
+    DBSS DOS_B_FVSV,  1        ; came from; the FLUSH has a byte of its own
+    DBSS DOS_B_WVSV,  1        ; because it runs INSIDE a fill, through
+    DBSS DOS_B_WVPAD, 1        ; dos_fh_take, and must not spend the fill's
     DBSS DOS_B_CURDIR, 2       ; the cluster we are standing in
 ; --- WHERE EACH DRIVE IS STANDING (SPEC.md 96.6.1) -------------------------
 ; DOS keeps a current directory per drive, and here that is one CLUSTER each
@@ -9879,6 +10121,12 @@ dos_tmp2    equ os88_image_end + DOS_B_TMP2
 dos_tmp3    equ os88_image_end + DOS_B_TMP3
 dos_acc     equ os88_image_end + DOS_B_ACC
 dos_fabs    equ os88_image_end + DOS_B_FABS
+dos_fdrv    equ os88_image_end + DOS_B_FDRV    ; byte: the drive a name named
+dos_fhome   equ os88_image_end + DOS_B_FHOME   ; byte: ...and where it left
+dos_fvtgt   equ os88_image_end + DOS_B_FVTGT   ; word: the read's back end
+dos_fvvol   equ os88_image_end + DOS_B_FVVOL   ; byte: the fill's volume...
+dos_fvsv    equ os88_image_end + DOS_B_FVSV    ; byte: ...and where it came from
+dos_wvsv    equ os88_image_end + DOS_B_WVSV    ; byte: the flush's own
 dos_curdir  equ os88_image_end + DOS_B_CURDIR
 dos_dvcwd   equ os88_image_end + DOS_B_DVCWD   ; per drive: its cluster
 dos_dvtgt   equ os88_image_end + DOS_B_DVTGT   ; ...and the one it goes to

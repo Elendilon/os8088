@@ -1632,3 +1632,57 @@ throughout. mTCP saves `DS` around those calls; our probe did not.
 **Still open, and small:** promiscuous mode is refused (SPEC.md 96.23.10) —
 the NE2000 can do it and only a sniffer wants it; `4Bh` nesting and handle
 inheritance are §15.6's items and untouched by this wave.
+
+### 15.8 Wave 5's first finding, and it was not in the write path at all
+
+The write wave opened on Prince of Persia's `INSTALL.EXE`, which — once
+§96.27 gave it `AH=36h` — got as far as selecting C:, making `\PRINCE`,
+standing in it, and then stopping dead with *"Please insert Prince of Persia
+Disk in drive B:"*. The message names a floppy; the program was looking at the
+hard disk.
+
+**A comment that was true when it was written, one section away from the
+change that made it false.** `dos_fh_name` dropped a drive letter under
+*"a program that names its own drive is naming ours"*, which is correct for a
+box with one volume. §96.6.1 made `AH=0Eh` really switch drives three waves
+later, and nothing re-read the line above it. SPEC.md 96.6.2 is the fix and
+`tests/dostrap/drvname.asm` the measurement.
+
+**What makes this class expensive is that it is a confident wrong answer, not
+a refusal** — the same shape as §96.22's `AH=44h` and §96.21.8's `AH=36h`, and
+the third time this plan has met it. A search of A: came back with B:'s own
+directory and `CF` clear, and a search of `C:` came back successfully **on a
+machine with no hard disk**. There is no instrument inside the guest that can
+see that: the trace ring records the name *after* the strip, the registers are
+what a working call returns, and the program is the only thing that knows it
+asked about a different disk. The probe asks by running the pattern and
+printing which file came back, and the reference is a machine.
+
+**Three self-inflicted bugs on the way in, and the shape of two of them is
+worth keeping.**
+
+1. `dos_drv_sel` mounts through `dos_be_goto`, whose first act is to write
+   `[dos_betgt]` — so setting the back end's target and *then* switching
+   volumes ran every cross-volume READ as a directory goto. It returns, so the
+   caller read a byte count out of whatever was left in `DX:AX` and called the
+   file empty.
+2. `dos_fh_fill` carries the file OFFSET in `AX`, four lines below where the
+   volume seemed like a natural thing to read. `mov al, [si+FH_VOL]` ate its
+   low byte — and **`FH_VOL` is 0 for A:, so the cross-drive arm under test
+   read perfectly and every ordinary read on B: came back empty.** The new row
+   passed its own headline assertion while `dosfile` went red. A fixture whose
+   value is zero is a fixture that tests nothing, and it chose the arm that
+   mattered most.
+3. `BP` is the `INT 21h` frame in this file and `[bp]` is the program's own
+   `DS`; it is not a scratch register anywhere below the gate.
+
+**A handle here is a NAME, which is the part that needed real design.** It is
+re-resolved at every window, so a copy off B: onto C: would read the
+destination back into itself; `FH_VOL` binds each handle to its volume and the
+bracket lives in `dos_fh_fill` and `dos_fh_flush` rather than at the handler,
+because `dos_fh_take` flushes **another** handle's window on the way past. A
+find walk needed the same treatment in `DTA_VOL`, `AH=4Fh` being handed
+nothing but the DTA.
+
+**+264 bytes of package image and 16 of package bss; no kernel byte.**
+

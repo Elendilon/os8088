@@ -119101,8 +119101,14 @@ letter the user types.
 
 Invalid-drive answers are DOS's own, per function and not invented:
 `AH=36h` → `AX=FFFFh`; `AH=1Ch` → `AL=FFh`; an FCB call → `AL=FFh`; a handle
-call on a lettered path → CF=1 with `AX=0Fh`; `AH=0Eh` does not fail and
+call on a lettered path → CF=1 with **`AX=0003h`**; `AH=0Eh` does not fail and
 returns the drive count, which spans the hole.
+
+**That third one said `0Fh` until it was measured.** `0Fh` is "invalid drive"
+and reads like the obvious answer; IBM DOS 3.30 does not give it for a lettered
+path on any of the three families that take one — `AH=4Eh`, `AH=3Dh` and
+`AH=3Bh` all answer **3** ("path not found") for a drive that is not there
+(§96.6.2). `0Fh` belongs to the calls that take a drive **number**.
 
 #### 96.7.1 The gate banks SI, DI and ES, and the handlers stopped having to
 
@@ -119351,6 +119357,101 @@ and the switch cost less than the bookkeeping they retire.
 the machine, and every use of it is bound-checked. A kernel that grows a
 seventh volume costs this box reach; it can never cost it a write past its own
 bss, which is somebody else's heap claim.
+
+#### 96.6.2 A drive letter in a NAME reaches the drive it names
+
+`dos_fh_name` used to throw the letter away. The comment said why — *"a
+program that names its own drive is naming ours"* — and that was true of a box
+with one volume. §96.6.1 made `AH=0Eh` really switch, and nothing re-read the
+line above it.
+
+**What it cost is not a refusal, it is a confident wrong answer.**
+`tests/dostrap/drvname.asm` puts every shape of drive-qualified name to both
+DOSes, standing on B: with a system disk in A: and no hard disk at all:
+
+| the pattern | IBM DOS 3.30 | this box, before | after |
+|---|---|---|---|
+| `*.*` | `DRVNAME.COM` (B:) | `DRVNAME.COM` | same |
+| `A:*.*` | **`COMMAND.COM`** (A:) | `DRVNAME.COM` | **A:'s own** |
+| `A:\*.*` | **`COMMAND.COM`** | `DRVNAME.COM` | **A:'s own** |
+| `B:*.*`, `B:\*.*` | `DRVNAME.COM` | `DRVNAME.COM` | same |
+| `C:*.*`, `C:\*.*` | **`AX=0003 CF=1`** | `AX=0000 CF=0` | **`0003 CF=1`** |
+
+`CUR=1` on every row of all three columns: the letter never moves the program.
+
+So a search of another drive returned **this** drive's directory, reporting
+success — and a search of a drive the machine has not got returned this
+drive's directory too. A program cannot defend against either: both look like
+an answer.
+
+It is what stopped Prince of Persia's `INSTALL.EXE`. It selects C:, makes
+`\PRINCE`, stands in it, and asks `AH=4Eh` for its source files by a name that
+names B:. The empty destination directory is what it was shown, so it printed
+*"Please insert Prince of Persia Disk in drive B:"* — a message about the
+floppy, from a program that was looking at the hard disk.
+
+...and the same letters through the two other families that take a path, on a
+bare root, so that the drive is the only thing left to be wrong about:
+
+| | IBM DOS 3.30 | this box, after |
+|---|---|---|
+| `AH=3Dh` open `A:\`, `B:\` | `AX=0005 CF=1` | `AX=0002 CF=1` |
+| `AH=3Dh` open `C:\` | `AX=0003 CF=1` | same |
+| `AH=3Bh` chdir `A:\`, `B:\` | `AX=0000 CF=0` | same |
+| `AH=3Bh` chdir `C:\` | `AX=0003 CF=1` | same |
+
+**The one row that still differs is the bare root through `AH=3Dh`**, 5
+against 2 — DOS knows `A:\` is a directory and answers "access denied", and
+this box strips the letter and the separator, is left with an empty name,
+looks for it and does not find it. Both refuse; they disagree about why. It is
+left as it is because the probe is what makes it visible: no program opens a
+bare root, and the general case behind it — opening a *directory* by name as
+though it were a file — is a different arm that nothing has asked for yet.
+
+**The letter selects where the name is resolved, and does NOT move the
+program.** That is DOS's rule, it is what the `CUR` column above is for, and
+`AH=0Eh` alone moves the default drive. A box that got every search right by
+*moving* would satisfy every other assertion here, which is why that column
+exists at all.
+
+Our back end resolves against whatever is **mounted**, so "resolve elsewhere"
+can only be spelled *go there and come back*: the bracket is the
+implementation and not a shortcut. `dos_fh_name` records the letter in
+`[dos_fdrv]` and `dos_fh_enter` stands on it; `dos_fh_leave` comes home. The
+restore is at **`.fhok` and `.fherr`**, the two exits every file handler
+already funnels through, rather than at the ten `dos_fh_name` call sites — so
+a handler that grows a new error path cannot forget it.
+
+**A HANDLE CARRIES ITS VOLUME, because here a handle is a NAME.** `FH_NAME` is
+re-resolved at every window, so without `FH_VOL` a copy off B: onto C: reads
+the destination back into itself: the read stands wherever the program does.
+The bracket is in `dos_fh_fill` and `dos_fh_flush` — the two routines that
+touch the disk — and not at the handler, because `dos_fh_take` flushes
+**another** handle's window on the way past, and that one's volume is its own.
+`dos_fh_flush` keeps a separate save byte for exactly that reason: it runs
+*inside* a fill.
+
+**A find walk carries its volume too**, in `DTA_VOL` — byte 16 of the DTA's
+reserved head, beside the attribute mask §96.12.1.1 put at 15. `AH=4Fh` is
+handed nothing but the DTA, so a walk that began on B: has to find B: written
+down; and the program is free to change drives between the `4E` and the `4F`.
+
+**`AH=4Bh` comes home before the CHILD runs.** `EXEC "B:FOO"` under DOS does
+not leave the parent on B:, and `.fhok` is on the far side of the whole child —
+so the restore is called explicitly after the load and before `dos_prog_enter`,
+where `dos_fh_leave`'s own "we never left" marker makes the one at `.fhok` a
+no-op.
+
+**The error code is 3 and not 15, and that is measured.** §96.6's table said a
+handle call on a lettered path answers `0Fh`, which reads like the obvious
+answer and is not what the machine does for any of the three families above:
+`AH=4Eh`, `AH=3Dh` and `AH=3Bh` all give `AX=0003 CF=1` for a drive that is not
+there. 15 is what calls taking a drive **number** answer, and a path is not
+one. §96.6 is corrected.
+
+**A non-letter needs no special case.** `1:NAME` computes `'1' - 'A'` = 0F0h,
+which is past `DVOL_MAX` and refused by the same compare that refuses `G:` on
+a four-drive machine.
 
 ### 96.7 What wave 1 answers, and what it refuses
 

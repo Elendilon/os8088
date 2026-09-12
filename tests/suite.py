@@ -2528,6 +2528,26 @@ SOAK = [
         "answering B.",
         needs=("marty",), serial=True,
         wants=("build/dosdir360.img",)),
+    Row("dosdrv", "soak", py("tests/dosdrv.py"), 40.0,
+        "A DRIVE LETTER IN A NAME REACHES THE DRIVE IT NAMES (SPEC.md "
+        "96.6.2). THE FOUND COLUMN IS THE ROW: a search of another drive "
+        "that comes back with THIS drive's directory reports success, so it "
+        "is indistinguishable from a search that worked - which is how it "
+        "shipped, standing on B: and answering `A:*.*` with B:'s own files "
+        "and `C:*.*` on a machine with no hard disk. The assertion is WHICH "
+        "FILE, computed from the two floppies rather than written down: the "
+        "pair is built so each carries a name the other has not. THE `CUR` "
+        "COLUMN IS THE SECOND HALF and without it a wrong fix passes - a "
+        "letter must not MOVE the program, so a box that got the search "
+        "right by leaving it on A: would satisfy everything else here. THE "
+        "HANDLE ROWS ARE THE THIRD and are what a pattern cannot reach: a "
+        "handle is a NAME, re-resolved at every window, and the A: handle is "
+        "read AGAIN after the B: one has taken the window, which is the only "
+        "way to exercise the steal across volumes. The refusal code is "
+        "MEASURED - IBM DOS 3.30 answers 3 for a drive that is not there, "
+        "not 15, on 4Eh, 3Dh and 3Bh alike.",
+        needs=("marty",), serial=True,
+        wants=("build/dosdrv360.img", "build/dosdrvsys.img")),
     Row("dosexec", "soak", py("tests/dosexec.py"), 30.0,
         "THE DOS EXEC GATE (SPEC.md 96.14): AH=4Bh loads another program and "
         "runs it, and control comes back to the PARENT inside the INT 21h "
