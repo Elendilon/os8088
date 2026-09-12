@@ -735,6 +735,30 @@ class Partner(object):
             # it did.
             self.budget = self.spent + idle
             try:
+                # **THE GAP BETWEEN COMMANDS IS WAITED COARSELY**, and that is
+                # this loop's whole runtime. `recv_byte` spins `_await_strobe`
+                # at STEP = 400 cycles per debug round trip, so an idle guest
+                # tick - 262,000 cycles - costs 655 round trips of watching a
+                # line nobody is driving. tests/doscable.py's inbound leg is
+                # where that stopped being an inefficiency and became the
+                # measurement: the box polls NETV_ACCEPT once a tick while a
+                # listener is open, so the leg is mostly gap, and it ran for
+                # over twenty minutes.
+                #
+                # idle_until_wire is the same 25,600-cycle chunk
+                # `idle_until_wire`'s own docstring argues safe against
+                # LP_TMO's 2 ticks and TURN_RX's 8 - 64x fewer round trips
+                # for at worst one chunk of lateness to the first nibble,
+                # after which _await_strobe is back at full resolution.
+                #
+                # **THE STROBE IS CHECKED FIRST**, because a coarse wait keys
+                # off a CHANGE in the data register: if the master already has
+                # its nibble and strobe up when we arrive, `start` captures
+                # them and we would sit waiting for a second change that is
+                # not coming. That is not hypothetical - the master may assert
+                # the moment our last `_status(idle=True)` lands.
+                if not (self._data() & 0x10) and not self.idle_until_wire(idle):
+                    return seen          # nothing more to say: we are done
                 c = self.recv_byte()
             except LinkTimeout:
                 return seen              # nothing more to say: we are done

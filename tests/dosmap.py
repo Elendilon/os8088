@@ -45,11 +45,29 @@ def _map(src, defines, incs):
     if r.returncode:
         sys.exit("dosmap: could not map %s:\n%s" % (src, r.stderr[:400]))
     out = {}
+    # **TWO SHAPES, AND THE SECOND ONE IS THE CLAIM.** Inside a section nasm
+    # writes "<real> <virtual> <name>"; under its "---- No Section ----"
+    # heading it writes "<value> <name>" for every ABSOLUTE equate - which is
+    # where PKB_STATE, DNB_LSN, dn_lsn and DOS_ENVBUF live, because an offset
+    # into a heap CLAIM is a plain number and not an address in this image.
+    # A reader that took only the three-field lines could see dos_pkt_bseg
+    # (`equ os88_image_end + N`, relocatable) and not the offset to apply to
+    # what it holds, which left a test hardcoding the layout - the one thing
+    # DOS_TRACE_SZ's own comment says not to do.
+    nosect = False
     for line in open(mp):
+        if line.startswith("---- "):
+            nosect = line.startswith("---- No Section")
+            continue
         p = line.split()                # "<vaddr> <raddr> <name>", HEX
         if len(p) == 3:
             try:
                 out[p[2]] = int(p[0], 16)
+            except ValueError:
+                pass
+        elif nosect and len(p) == 2:
+            try:
+                out.setdefault(p[1], int(p[0], 16))
             except ValueError:
                 pass
     for f in (a, mp):

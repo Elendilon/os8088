@@ -4734,6 +4734,7 @@ $(BUILD)/telnet.o88: $(BUILD)/telnet.bin tools/os88pkg.py $(PKGZSTAMP)
 $(BUILD)/dos.bin: apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
                   apps/dos/dosnetabi.inc apps/os88api.inc apps/os88ui.inc \
                   apps/os88line.inc apps/os88sock.inc \
+                  apps/os88parts.inc apps/os88partsbody.inc \
                   drivers/net/netpkg.inc $(DOSNETSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/dos/ -I drivers/net/ \
 	        $(if $(DOSNETCARD),-DDOSNET_CARD) \

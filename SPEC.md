@@ -119693,6 +119693,109 @@ section called "a program to write" turned out not to need to be a program.
 **The game itself is unaffected.** `PRINCE.EXE` runs off the floppy; what
 needs a shell is the hard-disk *installer*.
 
+##### 96.29.1 The trace buffers are a PART, and what that buys is the CEILING
+
+`DOSTRACE`'s two buffers — the ring and the rendered dump — are **35,092
+bytes**, and in the package's bss they were **80% of `APP_MAX_SIZE`**. That
+cap is 60KB, it is absolute, and it cannot be raised at all: a package's
+offsets are 16 bits.
+
+**It ran out twice in one cycle.** The trace arm measured **61,437 of
+61,440 — three bytes** — so §96.26's cable networking stopped the instrument
+assembling; `DOS_TRACEN` was halved 512 → 256 to make room, and when the next
+feature went 131 bytes over, `DOS_TRDUMPN` was cut 256 → 240 as well. Neither
+was a decision anybody wanted to make, and the only row that noticed either
+was `dosdbg`, quoting the assembler about a probe.
+
+So they are one `OP_ZERO` part (§20.12), and both constants are back:
+
+| | image + bss | of 61,440 |
+|---|---|---|
+| shipped build | 22,616 | 37% |
+| trace build, in bss | 49,199 | **80%** |
+| trace build, parted | **24,631** | **40%** |
+
+Measured on the tree that landed it, by assembling all three arms and reading
+the header's own image and bss words. The part's price is **+1,092 image
+bytes and +251 of bss** over the bss arm, against 25,660 bytes of bss
+returned.
+
+**`OP_ZERO`, so there is no disk in it at all**: `os88pkg.py` writes a row
+asking for KB and nothing else, and not one extra byte lands on a floppy.
+**`OP_OPT`, so a machine that cannot spare 35KB still runs the program** —
+`[dos_trseg]` stays 0, `dos_trace` tests it and writes nothing, which is what
+an instrument owes a machine it does not fit on and is better than 35KB of
+stores into segment zero.
+
+**IT DOES NOT GIVE THE DOS PROGRAM MEMORY BACK**, and that is worth stating
+because it is the obvious thing to assume. 35,092 bytes of bss become a 35KB
+claim plus the parts standard's own 1,080 image bytes, so the arena is ~1,900
+bytes *worse*. What is bought is 24,656 bytes of headroom under a ceiling that
+had three — in a build nothing ships, which is why the price is not a
+question. §96.26.6 is the change that *did* give the arena bytes back, and it
+is a different mechanism for a different reason.
+
+**THE SHIPPED BUILD IS BYTE-IDENTICAL**, verified by assembling `HEAD`'s copy
+and `cmp`. Every line of this is behind the `%ifdef`, including the header's
+`OS88_F_PARTS` bit.
+
+**ES IS THE PART, in the three routines that touch it.** `dosnet.inc` put `DS`
+on its claim (§96.26.6) and this does the opposite, for a reason rather than a
+preference: `dos_trace` runs from the `int 21h` gate where `DS` is already
+ours and the registers are the client's, so borrowing `ES` for eighteen stores
+costs a push, a load and a prefix byte each — while a `DS` switch would need
+an override on every package word the tracer reads. And it falls out **free**
+at the one place it mattered most: `OSAPI_FILE_WRITE` takes `ES:BX`, so
+handing 18KB of rendered log to the file system lost the `push ds / pop es`
+it used to need and gained nothing.
+
+`[dos_trseg]` is one word of bss, banked by `dos_entry` from `op_seg`, and it
+exists for the **host**: `tools/os88dosdbg.py` needs a segment to read the
+ring at, where `op_seg`'s arithmetic would otherwise have to be reimplemented
+outside the guest. It asks for `DOS_B_TRSEG` by name now and `DOS_B_TRACEB`
+is gone, so a stale reader fails its symbol probe rather than decoding 16KB of
+somebody else's image as a trace.
+
+**`op_load` is the first thing `dos_entry` does**, before `dos_size` or
+`OSAPI_WM_CREATE`, because `SI` arrives holding an offset into the kernel's
+own segment at the name of the file we came from and the loader reuses that
+buffer on the next launch (`os88parts.inc` rule 1). There is no `jc` on it:
+the part is optional and a refusal is survivable.
+
+##### 96.29.1.1 Two defects the part caused, and both are about ZERO meaning two things
+
+Neither is in the tracer. Both are a value that was safely impossible while
+the buffers were bss and became reachable the moment they moved into a
+claim — which is the general shape worth having, because the next thing moved
+out of a package's bss will meet it too.
+
+**1. `op_load` clobbers `ES`, and `OSAPI_ARG_FILE` needs it.** That slot
+answers with an `SI` into the *kernel's* segment and does not reload `ES`
+itself: it is documented as read through the `ES` a package proc was entered
+with (§20.1, and the slot's own row). Every `OSAPI` slot preserves `ES`, so an
+entry proc can rely on it across `wm_create` and `about_set` — `op_load` is
+package code and its clobber list says `ES`. So the 13-byte name copy read
+`RDSUM.COM` out of the **part's** segment, `[dos_name]` came out junk, and
+what surfaced four routines later was `dos_be_read` refusing: the window said
+*"It could not be read."* about a file that reads perfectly well. `dos_entry`
+banks `ES` across `op_load` now, and `os88parts.inc`'s rule 1 says so for the
+next consumer.
+
+**2. `[dos_tracei]` spells "the call was filtered" as ZERO, so the ring may
+not start at part offset 0.** A bss ring's base is `os88_image_end` plus a
+positive displacement and can never be 0; a part's base can be exactly that.
+With the ring first, **entry 0's index is 0**, `dos_tr_result` reads it as
+"no call in flight", and that entry's result is never filled — so the first
+call of every trace, and every 512th after a wrap, reads `axout=FFFF`, which
+the reader correctly renders as *"this call never returned"* about a call that
+returned normally. It is a trace that is complete, plausible and wrong in one
+row, which is the failure mode §96.22 keeps naming.
+
+The fix is the **layout**, not the sentinel: the rendered dump's 18,432 bytes
+go in front of the ring, so the lowest entry index is 18,432 and the existing
+test is correct again. Zero bytes, no code, and the same arithmetic the bss
+arm got for free. `RDSUM.COM`'s open now reads `AX=3D00 … axout=0002 CF=1` —
+DOS error 2, file not found — where before it read `FFFF`.
 #### 96.30 `COMMAND.COM` is not a file (`apps/dos/dosh.inc`)
 
 §96.29 said the door was a one-shot `/C` shell and deliberately did not
@@ -122340,16 +122443,33 @@ Parsing the control stream to learn it would be deep inspection of a protocol
 this box has no business knowing. A single-port server — `httpserv`, or
 anything answering on one well-known port — needs none of that.
 
-**The trace build is not on this scheme and is bounded instead.** `DOSTRACE`'s
-ring and its rendered dump are 26,900 bytes and they are `%ifdef`'d, so they
-cost a shipped build nothing — but they are 26,900 bytes of the very arena the
-instrument exists to measure, which is the argument `DOS_TRDUMPN`'s own
-comment already makes. What forced a decision was not that: the trace arm was
-measured at **61,437 of `APP_MAX_SIZE`'s 61,440** — three bytes — so the next
-feature to touch the file stopped it assembling, and the only row that noticed
-was `dosdbg` reporting the assembler's complaint about a probe. The ring is
-**256 entries** now rather than 512, which is the better number on its own
-merits as well as 8,192 bytes cheaper: the failure that sized it makes 169
-calls, and 256 is exactly what `TRACE.LOG` holds and what the reference tracer
-in `tests/dostrap` keeps — so the ring, the file and the reference now cover
-the same span instead of the ring holding twice what can ever be written out.
+**THE ACCEPT CAN LAND AT ANY TIME, INCLUDING INSIDE SOMETHING ELSE**, and a
+DOS server has to tolerate that. `dn_accept` accepts the moment `[dn_cip]` is
+known, and the frame that teaches it is *any* IP frame the client has sent —
+so a connection that was already waiting is accepted while the client is in
+the middle of an unrelated **outbound** exchange of its own, and our `SYN`
+arrives at its up-call then. It is not a corner: it is what happens every
+time a program is a client before it is a server, which is the ordinary shape
+of an FTP daemon's own control connection. Two consequences for whoever
+writes one, both of which `tests/dostrap/dospkt.asm` got wrong first and is
+the worked example of getting right (docs/plans/DOS-CABLE-NET-PLAN.md §7.6):
+a receiver must **bank the `SYN`'s own four address fields**, since by the
+time the program gets round to answering, its receive buffer holds whatever
+arrived last; and a server loop must **not clear the flag** that says a
+connection is waiting, because it may have been set before the loop was
+reached.
+
+**And there is still no retransmit**, which is the same sentence one
+paragraph up read the other way round: the box offers that `SYN` once, so a
+client that refuses the buffer loses the connection while the far side holds
+it open. The driver counts the refusal (`get_statistics`' dropped field,
+§96.23.3) and that counter is how a test tells "refused" from "never staged".
+
+**The trace build's buffers are a PART now, and §96.29.1 is that record.**
+The paragraph that stood here described the emergency instead: the trace arm
+measured **61,437 of `APP_MAX_SIZE`'s 61,440** — three bytes — so §96.26's own
+cable networking stopped the instrument assembling, and `DOS_TRACEN` was
+halved to make room. Both constants are back at 512 and 256, `image + bss` for
+the trace arm is **24,631 rather than 49,199**, and the shipped build is
+byte-identical. A `%ifdef`'d instrument competing with the arena it exists to
+measure was the wrong trade to keep making.

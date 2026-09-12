@@ -326,6 +326,113 @@ publishes **"`BP`, `DS` and `ES` come back yours"** and says `AX`, `CX`, `DX`,
 `SI` and `DI` are the driver's to define. A loop counter in one of the second
 group is a defect waiting for a verb that happens to return in it.
 
+**And wave 9 made it four, with the same shape and no driver in it at all.**
+`dn_lsn_ports` parses `OS88LISTEN=<port>` a digit at a time and held the digit
+in `DL` — across `mul bx`, which writes `DX:AX`. A port anybody would type
+gives a high half of 0, so `add al, dl` added **nothing**: five digits
+accumulated to zero, the routine's own `or ax, ax / jz` refused to listen on
+port 0, and the whole inbound direction was silent with the environment row
+read perfectly. So the family is not "a register a *driver* may return in" —
+it is **a register an INSTRUCTION owns**, and `mul`, `div` and `loop` own
+theirs unconditionally. Three of the four were found by reading for the
+pattern after the first; this one was found by a test that could say *no
+listener was taken* rather than *nothing arrived*.
+
+Which is the other half of the lesson and is about the TEST. `LSN 0` is one
+message for three different bugs in three different files — the environment
+never read, `NETV_LISTEN` refused, or a connection that never came — so the
+row now reads the box's own `dn_lsn` rows out of the network claim and checks
+them **first**. `tests/dosmap.py` had to learn to see them: nasm's map writes
+absolute equates under a `---- No Section ----` heading as two fields where a
+section's symbols are three, so an offset into a heap claim was invisible to a
+reader that took only the three-field lines. Hardcoding them in the test was
+the alternative, and `DOS_TRACE_SZ`'s own comment is about why that loses.
+
+**A row-walk defect sat beside it and is fixed in the same commit**:
+`dn_lsn_init` restored `SI` across `dn_streqc` and not across
+`dn_lsn_ports`, so `.next` added `DOS_ENVBUF` to a cursor eleven-plus bytes
+into the row that had just matched — every row after one naming ports was
+scanned from the wrong place. `MTCPCFG=` is exactly the row a user types
+beside it, so the ordinary case was the broken one.
+
+### 7.6 …and then FOUR more, and every one was in the harness or the probe
+
+The box needed one more line after that (nothing, in the end — the register
+fix was the whole of the box's share). What stood between a listening DOS
+program and a served request was four defects in the *test*, and they are
+written down because each is a general shape rather than this row's bad luck.
+
+**1. The box accepts EARLY, and the probe threw the evidence away.**
+`dn_accept` accepts the moment it knows where the client is — `[dn_cip]`,
+which any IP frame teaches — so a connection already waiting is accepted
+*during* the probe's outbound leg, and `receiver` banks its SYN there.
+`do_listen` then opened with `mov word [isyn], 0`, discarding it, and waited
+ninety ticks for a SYN that had arrived and been recorded. The three stores
+were redundant as well as harmful: a `.COM` starts with the zeros its image
+carries and runs once per launch.
+
+**2. `rxbuf` is whatever arrived LAST, and `do_listen` read two of the SYN's
+four address fields out of it.** With the SYN early, `rxbuf` held the
+outbound connection's FIN by the time the roles swapped, so the reply went
+out on the wrong source port and address — and the box, correctly, read it as
+a *new outbound connection*: `NETV_OPEN 10.88.0.255:49152` in the far side's
+log, the box's own invented pool address being dialled by the box. All four
+fields are banked with the SYN now (`isyn_dport`, `isyn_dst` are new). The
+same mistake one line along made `[ldata]` count the outbound leg's own
+45-byte answer as the request: `LDATA 45 LFIRST 4854` — `HT` of our own
+reply — so the payload counter takes the port as well as `[isyn]`.
+
+**3. The host end timed out in 20 seconds** against a leg that is minutes of
+host wall clock, closed its socket, and the far side went `NSK_CLOSING` — so
+the box closed the flow before the DOS program's reply was ever sent, and the
+row failed with *"the host got nothing back"* about a program that had
+answered perfectly. `docs/WRITING-TESTS.md` names this family; the read now
+gets the whole deadline and the connect keeps a short one so retries work.
+
+**4. …and then it waited for 512 bytes of a 24-byte answer that never
+closes.** The probe replies and holds the screen on `int 16h`, so an
+EOF-or-512 loop blocks for the whole (now long) timeout after the answer has
+arrived, and the caller reads `got` as `None`. One segment IS the answer; the
+loop takes a 5-second tail for a split one and keeps what it has.
+
+**The reason all four were invisible is that the row said `LSN 0`** — one
+message for the environment never read, `NETV_LISTEN` refused, a SYN staged
+and refused, a SYN staged and never collected, and a connection that never
+came. It reads the box's own `dn_lsn` rows, `dn_flows`, `[dn_pend]` and the
+driver's dropped counter now, and checks them in that order, so each of those
+is a different sentence. That is what turned a week's worth of guessing into
+four runs.
+
+### 7.7 The row was 20+ minutes and is 525 seconds, and the fix was in `serve`
+
+Worth its own entry because it is not about this row. `partner.py` drives
+MartyPC one debug round trip per `STEP` = 400 guest cycles, so the cost of a
+cable row is **guest cycles ÷ 400** — an idle guest tick is 262,000 cycles,
+which is **655 round trips spent watching a line nobody is driving**. The box
+polls `NETV_ACCEPT` once a tick while a listener is open, so the inbound leg
+is almost entirely gap, and it ran past twenty minutes.
+
+`idle_until_wire` already existed for exactly this, with its safety argument
+already written down (25,600-cycle chunks against `LP_TMO`'s 2 ticks and
+`TURN_RX`'s 8) — `serve` was simply not using it for the gap *between*
+commands, only for the launch. It does now: 64x fewer round trips per idle
+tick, full resolution the moment the strobe moves, and the strobe is tested
+first because a coarse wait keys off a *change* and a master that is already
+asserting would otherwise be waited out.
+
+| | before | after |
+|---|---|---|
+| `doscable`, whole row | killed at 1,200s, mid-leg | **525s** |
+| one idle guest tick | 655 round trips | **10** |
+
+What is left is boot, the Control Panel mount, **two** program launches and
+the outbound leg's dense back-to-back traffic. The one structural cut still
+on the table: the second launch re-runs the entire outbound TCP connection
+only because the probe is a linear program, where `dn_accept` needs just one
+client IP frame to learn `[dn_cip]` — a `/L` argument on the second run
+(SPEC.md 96.20 already carries arguments to the program, and
+`tests/dosargs.py` gates it) would drop sixteen commands.
+
 ### 7.3 …and the memory, which was the owner's call and the bigger win
 
 Asked mid-wave: *every byte of RAM the DOS box uses is one a DOS program

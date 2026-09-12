@@ -225,11 +225,18 @@ def dos_syms(names, defines=("DOSTRACE",)):
         shutil.rmtree(d, ignore_errors=True)
 
 
-BSS = ("DOS_B_TRACEN", "DOS_B_TRACEW", "DOS_B_TRACEB", "DOS_B_TRNM",
+# **DOS_B_TRACEB IS GONE AND DOS_B_TRSEG REPLACES IT** (SPEC.md 96.29.1). The
+# ring is in a PART now, not in the package's bss, so there is no bss offset
+# to read it at - there is a SEGMENT, banked by dos_entry into one word for
+# exactly this reader. Asking for the old name would fail the symbol probe,
+# which is the right failure: a reader that fell back to an offset would
+# decode 16KB of somebody else's image as a trace.
+BSS = ("DOS_B_TRACEN", "DOS_B_TRACEW", "DOS_B_TRSEG", "DOS_B_TRNM",
        "DOS_B_TRNMI", "DOS_B_LDPSP", "DOS_B_STATE", "DOS_B_ARENA",
        "DOS_B_APARA", "DOS_B_FHTAB", "DOS_B_WOWN", "DOS_B_WLEN",
        "DOS_B_WFILL", "DOS_B_WBYTES")
-CONSTS = ("DOS_TRACEN", "DOS_TRACE_SZ", "DOS_TRNM_N", "DOS_NFH", "DOS_FH0",
+CONSTS = ("DOS_TRACEN", "DOS_TRACE_SZ", "DOS_TRNM_N", "DOS_TRB_OFF",
+          "DOS_NFH", "DOS_FH0",
           "FH_SIZEOF", "FH_NAME", "FH_FLAGS", "FH_POS", "FH_SIZE")
 
 
@@ -458,9 +465,27 @@ def cmd_trace(a):
         last, end = None, time.time() + a.timeout
         while time.time() < end:
             total = w16(sym["DOS_B_TRACEN"])
+            trseg = w16(sym["DOS_B_TRSEG"])
+            if total and not trseg:
+                raise SystemExit(
+                    "os88dosdbg: the box has traced %d call(s) and its trace "
+                    "part is not loaded, which cannot both be true - "
+                    "[dos_trseg] is 0 (SPEC.md 96.29.1)" % total)
             if total:
+                # THE RING IS AT DOS_TRB_OFF INSIDE THE PART, and the
+                # part's is a whole SEGMENT rather than an offset from `base`
+                # - so this read is `trseg << 4` plus that offset, never
+                # `base + something`. Getting it wrong reads the package's own
+                # image and decodes it as a trace, plausibly.
+                #
+                # The offset is NOT zero and must not be assumed to be: the
+                # rendered dump goes in front of the ring so that entry 0's
+                # index cannot collide with [dos_tracei]'s "no call in
+                # flight" sentinel (SPEC.md 96.29.1.1). It is asked for by
+                # name for that reason.
                 last = (total, w16(sym["DOS_B_TRACEW"]),
-                        bytes(m.read(base + sym["DOS_B_TRACEB"], nent * stride)),
+                        bytes(m.read((trseg << 4) + sym["DOS_TRB_OFF"],
+                                     nent * stride)),
                         w16(sym["DOS_B_LDPSP"]))
             if a.until and total >= a.until:
                 break

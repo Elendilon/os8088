@@ -485,12 +485,24 @@ do_tcp:
 ;   LFIRST 4745    ...starting 'GE' of a GET
 ; -----------------------------------------------------------------------------
 do_listen:
-    mov word [isyn], 0
-    mov word [ldata], 0
-    mov word [lfirst], 0
-    mov cx, 200                     ; ~11 seconds of BIOS ticks. Generous: the
-    mov si, isyn                    ; far side has a real connection to make
-    call wait_word                  ; and the box polls on its own tick
+    ; **NOTHING IS CLEARED HERE, AND THAT IS THE POINT.** A `.COM` starts with
+    ; the zeros its image carries and runs once per launch, so the three
+    ; stores that used to stand here bought nothing - and they THREW AWAY the
+    ; case this routine exists for. The box accepts the moment it knows where
+    ; the client is (dn_accept needs [dn_cip], which any IP frame teaches), so
+    ; a connection that was already waiting is accepted DURING the outbound
+    ; leg above, and `receiver` banks its SYN before this routine is reached.
+    ; Zeroing [isyn] here then waited ninety ticks for a SYN that had already
+    ; arrived and been recorded.
+    mov cx, 90                      ; ~5 seconds of BIOS ticks, which is
+    mov si, isyn                    ; do_tcp's own figure. NOT more: on the
+    call wait_word                  ; cable every one of these ticks is
+                                    ; stepped by the partner four hundred
+                                    ; cycles at a time, so a generous wait
+                                    ; here is minutes of a test's wall clock
+                                    ; - and the host end is already retrying
+                                    ; its connect, so there is nothing to be
+                                    ; patient about
     mov dx, s_lsn
     call puts
     mov ax, [isyn]
@@ -503,13 +515,13 @@ do_listen:
     ; --- the roles swap, and every field of the frame with them -----------
     mov ax, [isyn_sport]            ; their port becomes the destination...
     mov [t_dport], ax
-    mov ax, [rxbuf+34+2]            ; ...and the one they asked for is ours
-    mov [t_sport], ax
-    mov si, isyn_src                ; their address becomes the destination
-    mov di, t_dst
+    mov ax, [isyn_dport]            ; ...and the one they asked for is ours.
+    mov [t_sport], ax               ; ALL FOUR COME OUT OF THE BANK: `rxbuf`
+    mov si, isyn_src                ; is whatever arrived LAST, and the SYN is
+    mov di, t_dst                   ; long gone from it by here
     mov cx, 4
     call cpy
-    mov si, rxbuf + 14 + 16         ; ...and the one they addressed is ours
+    mov si, isyn_dst                ; ...and the one they addressed is ours
     mov di, t_src
     mov cx, 4
     call cpy
@@ -531,7 +543,7 @@ do_listen:
     mov ax, 1                       ; a SYN consumes one sequence number
     call seq_adv
 
-    mov cx, 200                     ; --- and the request they then send ---
+    mov cx, 90                      ; --- and the request they then send ---
     mov si, ldata
     call wait_word
     mov dx, s_ldata
@@ -927,8 +939,27 @@ receiver:
     jz .notsyn
     test al, F_ACK
     jnz .notsyn
+    push ax                         ; **THE FLAGS ARE BANKED ACROSS THIS**:
+                                    ; the log below writes AL, and every read
+                                    ; here overwrites it - so without this the
+                                    ; one entry that matters most goes into
+                                    ; the log as the low byte of a port
     mov ax, [rxbuf+34+0]            ; its source port, wire order
     mov [isyn_sport], ax
+    mov ax, [rxbuf+34+2]            ; **AND THE PORT IT ASKED FOR**, which is
+    mov [isyn_dport], ax            ; the half do_listen used to read back out
+                                    ; of `rxbuf` when it ran - true only while
+                                    ; the SYN is still the LAST frame that
+                                    ; arrived, and it is not: the box accepts
+                                    ; as soon as it knows where we are, so the
+                                    ; SYN lands during the outbound leg and
+                                    ; `rxbuf` holds that connection's FIN by
+                                    ; the time this matters. The reply then
+                                    ; went out on the wrong source port and
+                                    ; the box read it as a NEW outbound
+                                    ; connection - `NETV_OPEN 10.88.0.255` in
+                                    ; the far side's log, against its own
+                                    ; invented pool address
     mov ax, [rxbuf+34+4]            ; ...and its ISN, big-endian to ours
     xchg al, ah
     mov [isyn_seq_h], ax
@@ -939,7 +970,12 @@ receiver:
     mov di, isyn_src
     mov cx, 4
     call cpy
+    mov si, rxbuf + 14 + 16         ; ...and the address it was sent TO, for
+    mov di, isyn_dst                ; isyn_dport's reason
+    mov cx, 4
+    call cpy
     inc word [isyn]
+    pop ax                          ; the flags again
                                     ; ...and FALLS THROUGH to the flag log:
                                     ; the inbound SYN belongs in it, being the
                                     ; proof that NETV_ACCEPT reached the client
@@ -984,7 +1020,16 @@ receiver:
     adc word [dack_hi], 0
     cmp word [isyn], 0              ; on the SERVER flow the same payload is
     je .clientpay                   ; the REQUEST, and it is counted apart:
-    add [ldata], ax                 ; do_listen asserts on what it was sent
+    mov dx, [rxbuf+34+2]            ; do_listen asserts on what it was sent.
+    cmp dx, [isyn_dport]            ; **AND THE PORT DECIDES WHICH FLOW IT
+    jne .clientpay                  ; IS**, not [isyn] alone: the SYN arrives
+                                    ; during the outbound leg, so `isyn` is
+                                    ; set while the CLIENT connection is still
+                                    ; carrying data - and its 45-byte answer
+                                    ; was landing in [ldata] as though the
+                                    ; host had sent it. LDATA 45 LFIRST 4854
+                                    ; ('HT' of our own reply) was the reading
+    add [ldata], ax
     mov si, rxbuf + 34
     add si, bx
     mov ah, [si]
@@ -1182,7 +1227,9 @@ isyn:       dw 0                    ; --- what an INBOUND SYN brought ---
 isyn_sport: dw 0                    ; its source port, wire order
 isyn_seq_h: dw 0                    ; ...and its ISN
 isyn_seq_l: dw 0
+isyn_dport: dw 0                    ; ...the port it asked for
 isyn_src:   times 4 db 0            ; ...and where it came from
+isyn_dst:   times 4 db 0            ; ...and the address it was sent to
 ldata:      dw 0                    ; payload bytes it sent us
 lfirst:     dw 0
 mymac:      times 6 db 0
