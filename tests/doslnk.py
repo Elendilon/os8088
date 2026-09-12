@@ -17,6 +17,12 @@ one - so the row asserts BOTH halves of that decision:
      directions.
   3  os8088 reads it back.  Double-click the .LNK and the program runs with
      the arguments and the environment the link carried, not with empty ones.
+  4  ...AND THE MEMORY SETTINGS, which are a SECOND ExtraData block (SPEC.md
+     96.25.2).  They are the one thing in the file that changes what the
+     program is HANDED rather than what it is told, so the last assertion is
+     not that the bytes came back - it is that the arena the box claimed obeys
+     the limit the link carried.  A setting that round-trips and is then
+     ignored looks identical to one that works, from the file.
 
 The disk is a SCRATCH image because step 1 writes to it.
 """
@@ -31,6 +37,12 @@ import os88geom                                                # noqa: E402
 import os88marty                                               # noqa: E402
 import os88mouse                                               # noqa: E402
 import os88ui                                                  # noqa: E402
+import importlib.util                                          # noqa: E402
+_spec = importlib.util.spec_from_file_location(
+    "os88dosdbg", os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "..", "tools", "os88dosdbg.py"))
+dbg = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(dbg)
 
 SYS = "build/os8088-360.img"
 LNK = "build/doslnk360.img"
@@ -38,10 +50,15 @@ WHERE, FOLDER = [], []
 FLUSHED = "build/doslnk-out.img"   # ...the guest's live copy, flushed out
 TYPED = "/M P:220"
 ENVVAR = "SOUND=SB"
+LIMIT = 96                          # KB, comfortably over DOS_MIN_KB's 64 and
+                                    # far under anything a machine here has, so
+                                    # "the cap was applied" cannot be confused
+                                    # with "the machine was small"
 CLSID = bytes([0x01, 0x14, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
                0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46])
 TITLE_H = os88geom.TITLE_H
 DOS_FLDW, DOS_BTNW, DOS_SAVW, DOS_BTNY, DOS_EROWY, DOS_FLDY = 256, 104, 112, 90, 24, 64
+DOS_MFLDX, DOS_MFLDY, DOS_MCHKY = 64, 52, 72      # the memory page (SPEC.md 96.25)
 
 
 def fail(msg):
@@ -52,6 +69,36 @@ def fail(msg):
 def field(text, name):
     m = re.search(r"^%s (.*?)\s*$" % name, text, re.M)
     return m.group(1) if m else None
+
+
+def dos_state(m, ui):
+    """[dos_memkb], [dos_keepc] and [dos_akb] out of the live instance.
+
+    The offsets come from tools/os88dosdbg.py, which makes the ASSEMBLER emit
+    them - nasm prints no symbols and `-f bin` writes no map, so a layout
+    transcribed here would decode plausible nonsense the day a field moves.
+    The image size is taken off SYS and not off the apps floppy for the same
+    reason: the bss begins at os88_image_end, so it is the DOS.O88 that was
+    LOADED that decides where it starts - and that one is on the system disk
+    (SPEC.md 24.3), which is also the disk a knob build would change.
+    """
+    sym = dbg.dos_syms(["DOS_B_MEMKB", "DOS_B_MCHK", "DOS_MCHKON",
+                        "DOS_B_AKB"], defines=())
+    base = None
+    for w in os88geom.windows(m, ui.sym):
+        if w.used and w.visible and w.title.startswith("DOS"):
+            raw = bytes(m.read(ui.sym("wm_wins") + w.i * os88geom.WIN_SIZE,
+                               os88geom.WIN_SIZE))
+            seg = struct.unpack_from("<H", raw, os88geom.W_SEG)[0]
+            base = (seg << 4) + dbg.package_image_size(SYS)
+            break
+    if base is None:
+        fail("no DOS window to read the settings out of")
+    def w16(o):
+        return struct.unpack("<H", bytes(m.read(base + o, 2)))[0]
+    return (w16(sym["DOS_B_MEMKB"]),
+            bytes(m.read(base + sym["DOS_B_MCHK"] + sym["DOS_MCHKON"], 1))[0],
+            w16(sym["DOS_B_AKB"]))
 
 
 def wait_ready(m, limit=120.0):
@@ -106,6 +153,11 @@ def parse_lnk(b):
             blob = b[at + 8:at + size]
             out["env"] = [v.decode("latin1")
                           for v in blob.split(b"\0") if v]
+        elif sig == 0xA0088089:         # SPEC.md 96.25.2 - and its fields are
+            if size < 12:               # at FIXED offsets, which is the whole
+                fail("the memory block says %d bytes and the layout is 12"
+                     % size)            # reason it is a block of its own
+            out["memkb"], out["keep"] = struct.unpack_from("<HB", b, at + 8)
         at += size
     return out
 
@@ -141,13 +193,29 @@ def main():
         mo.click(w.x + 8 + DOS_FLDW - DOS_BTNW // 2, ctop + DOS_BTNY + 7)
         os88marty.settle(m)
 
+        # ...and THE PRESS ABOVE LANDED ON THE MEMORY PAGE, not back on the
+        # main one: the button CYCLES now - main -> environment -> memory ->
+        # main (SPEC.md 96.25) - so the third press below is what returns to
+        # the page Save Shortcut is on
+        mo.click(w.x + 8 + 6, ctop + DOS_MCHKY + 6)     # untick Keep the cache
+        os88marty.settle(m)
+        mo.click(w.x + DOS_MFLDX + 20, ctop + DOS_MFLDY + 6)
+        os88marty.settle(m)
+        m.type_text(str(LIMIT))
+        os88marty.settle(m)
+        mo.click(w.x + 8 + DOS_FLDW - DOS_BTNW // 2, ctop + DOS_BTNY + 7)
+        os88marty.settle(m)                             # ...and back to main,
+                                                        # which also reads the
+                                                        # field (96.25)
+
         mo.click(w.x + 8 + DOS_SAVW // 2, ctop + DOS_BTNY + 7)
         os88marty.settle(m)
         if not ui.wait_window("Save", limit=30.0):
             fail("Save Shortcut opened no file dialog")
         m.key("Enter")                      # ...accept the default name
         os88marty.settle(m)
-        print("doslnk: saved, with %r and %r" % (TYPED, ENVVAR))
+        print("doslnk: saved, with %r, %r, a %dK limit and the cache OFF"
+              % (TYPED, ENVVAR, LIMIT))
 
         # THE GUEST WRITES TO ITS OWN CLONE of the image, which is what makes
         # --marty-jobs safe - so the host's copy of the gate disk never
@@ -169,6 +237,15 @@ def main():
              % got["relpath"])
     if ENVVAR not in got["env"]:
         fail("our ExtraData block carries %r, not %r" % (got["env"], ENVVAR))
+    if "memkb" not in got:
+        fail("there is no memory ExtraData block in the file at all - "
+             "SPEC.md 96.25.2 writes one beside the environment's")
+    if got["memkb"] != LIMIT:
+        fail("the memory block says a %dK limit and %dK was typed"
+             % (got["memkb"], LIMIT))
+    if got["keep"] != 0:
+        fail("the memory block says keep-the-cache %d and the box was "
+             "UNTICKED" % got["keep"])
 
     # --- 3: os8088 reads its own back ---------------------------------------
     with os88ui.boot(SYS, apps=FLUSHED, machine="os8088_5150_herc_gla") as ui:
@@ -195,6 +272,24 @@ def main():
             fail("the program thinks it is %r - a shortcut must make the "
                  "instance BECOME its target, name and all (SPEC.md 96.21.2)"
                  % field(out, "MYPATH"))
+
+        # --- 4: ...AND THE SETTINGS WERE OBEYED, not merely carried ---------
+        # The bss is read from OUTSIDE because no DOS program can report what
+        # the box decided before it was loaded, and because the three numbers
+        # have to agree: what the link said, what the box believes, and what it
+        # actually claimed. A limit that round-trips and is then ignored looks
+        # identical to one that works, from the file alone.
+        memkb, keep, akb = dos_state(m, ui)
+        print("doslnk: the relaunched box has memkb=%d keep=%d, arena %dK"
+              % (memkb, keep, akb))
+        if memkb != LIMIT or keep != 0:
+            fail("the shortcut ran with memkb=%d keep=%d and the link carries "
+                 "%d/0 - the second ExtraData block was written and not read"
+                 % (memkb, keep, LIMIT))
+        if akb > LIMIT:
+            fail("the box claimed %dK against a %dK limit - the setting "
+                 "reached [dos_memkb] and dos_run ignored it (SPEC.md 96.25.1)"
+                 % (akb, LIMIT))
         m.type_text("x")
 
     print("doslnk: ok")

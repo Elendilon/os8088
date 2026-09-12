@@ -74,6 +74,20 @@ DOS_MIN_KB  equ 64                  ; a machine that cannot offer this much has
                                     ; and saying so is cheaper than a program
                                     ; that dies on its first allocation
 
+; THE DISK CACHE IS WORTH MORE TO A DOS PROGRAM THAN THE RAM IT SITS IN
+; (SPEC.md 96.24). A .COM owns every byte after its image, so the honest thing
+; to ask for is "everything" - and everything includes SPEC.md 18.95's
+; directory read-ahead window, which the claim used to shed to make that true.
+; Measured loading Prince of Persia off a 720KB floppy on a 4.77MHz 5150, the
+; cache alive against the cache shed, the program's own int 13h traffic is
+; SEVEN TIMES what IBM DOS 3.30 makes on the same disk. The floor is the whole
+; of the fix (SPEC.md 50.6.6): nothing at or above MEM_PG_HIGH is shed or
+; dropped, so the compaction packs the window out of the way instead.
+;
+; A CONSTANT AND NOT A NUMBER ANYBODY MAY PICK, because the level it names has
+; to be the same in both calls - the AVAIL that plans and the CLAIM that acts.
+DOS_PG_FLOOR equ MEM_PG_HIGH
+
 ; --- the arena's shape, in PARAGRAPHS (SPEC.md 96.3) -------------------------
 DOS_ENVP    equ 32                  ; 512 bytes of environment block. IT WAS
                                     ; 8, which is 128 - and BLASTER= alone is
@@ -167,10 +181,27 @@ LNK_F_ARGS  equ 0x20                ; ...HasArguments. Deliberately NOT
                                     ; decline to write or read
 LNK_EXTSIG  equ 0xA0088088          ; OUR ExtraData block: 'os8088' shaped, in
                                     ; the range MS leaves to other producers
+LNK_EXTSIG2 equ 0xA0088089          ; ...and a SECOND one, the memory settings
+                                    ; (SPEC.md 96.25.2). A second BLOCK and not
+                                    ; two more fields on the first, because the
+                                    ; first ends in a bare NUL after a variable
+                                    ; number of rows - so anything appended
+                                    ; sits at an offset that depends on what
+                                    ; the user typed. ExtraData is a sequence
+                                    ; whose consumers SKIP signatures they do
+                                    ; not know, so a second block is what the
+                                    ; mechanism is for, and its fields are at a
+                                    ; fixed offset inside it. An older link
+                                    ; simply has not got one
+LNK_EXT2SZ  equ 12                  ; size(4) + signature(4) + memkb(2) + a
+                                    ; byte for the cache and one of padding
 LNK_MAX     equ 512                 ; what one may be, read or written
 
 DOS_PAGE_MAIN equ 0
 DOS_PAGE_ENV  equ 1
+DOS_PAGE_MEM  equ 2                 ; SPEC.md 96.25's memory settings
+DOS_PAGE_N    equ 3                 ; ...and the button CYCLES now rather than
+                                    ; toggling, which is why this is a count
 
 ; The status lines land at content+10, +22 and +36 (dos_paint marches DX down
 ; by 12 then 14), so the arguments row starts below THAT rather than at a
@@ -190,6 +221,31 @@ DOS_BTNW    equ 104                 ; the page buttons. 'Environment' is 11
 DOS_BTNH    equ 14                  ; cells = 88px, and a label that touches
 DOS_BTNY    equ 90                  ; its own frame reads as struck through
 DOS_SAVW    equ 112                 ; 'Save Shortcut' is 13 cells = 104px
+
+; THE MEMORY PAGE (SPEC.md 96.25), laid out in the same content box as the
+; other two - three read-only lines, the field, the check box, and the page
+; button already at DOS_BTNY. The two figures are what the user is choosing
+; between, so they are on the glass rather than in the documentation.
+DOS_MEMY    equ 6                   ; the heading's baseline
+DOS_MROW1   equ 22                  ; ...the two figures
+DOS_MROW2   equ 34
+DOS_MFLDY   equ 52                  ; the limit box's top (DOS_FLDH tall)
+DOS_MFLDW   equ 64                  ; ...and its width: 5 digits and the caret
+DOS_MFLDX   equ 64                  ; ...indented past its own label
+DOS_MCHKY   equ 72                  ; the check box's row
+DOS_MEMBUF  equ 8                   ; the field's text: 5 digits + NUL, and
+                                    ; room for the caret to sit past the end
+DOS_MEMMAX  equ 5                   ; ...what LN_MAX gets. 640 is three and a
+                                    ; machine cannot have six digits of KB
+                                    ; below 1MB
+DOS_MCHKSZ  equ 12                  ; os88ui.inc's OS88UI_CK_SIZE, written here
+                                    ; and CHECKED against it after the include
+                                    ; - DOS_LNSZ's rule exactly, and for the
+                                    ; same reason: the bss table is above and
+                                    ; the record's owner is below
+DOS_MCHKON  equ 10                  ; ...and OS88UI_CK_ON inside it, so that
+                                    ; [dos_keepc] IS the control's own byte and
+                                    ; there is no second copy to keep in step
 
 ; os88line.inc is included at the END of this file (its own rule: the header
 ; and the icon block are at fixed offsets), and the bss table above needs its
@@ -325,19 +381,44 @@ dos_run:
 .there:
 
     call dos_pkt_bufs               ; THE PACKET DRIVER'S BUFFERS FIRST (SPEC.md
-                                    ; 96.23.7): the claim below takes everything
-                                    ; left, so a claim after it is a claim that
-                                    ; always fails
-    call OSAPI_MEM_AVAIL            ; AX = the largest run a claim can HAVE -
-    cmp ax, DOS_MIN_KB              ; already net of every purgeable cache and
-    jb .nomem                       ; of what a compaction would recover
-                                    ; (SPEC.md 50.6.3, 66.10.3). There is
-                                    ; nothing to compute and nothing to probe
+                                    ; 96.23.7): the sizing below takes
+                                    ; everything left, so a claim after it is a
+                                    ; claim that always fails. It is 2KB and it
+                                    ; preserves BX, so it sits in front of the
+                                    ; floor rather than inside it - and it asks
+                                    ; at the DEFAULT level, which for two
+                                    ; kilobytes never needs a purge to answer
+    mov bl, MEM_LVL_TOP             ; THE FLOOR IS THE USER'S (SPEC.md 96.25),
+    cmp byte [dos_keepc], 0         ; and the default is the box ticked -
+    je .floor                       ; everything except the disk cache
+    mov bl, DOS_PG_FLOOR            ; (SPEC.md 50.6.6, 96.24)
+.floor:
+    push bx
+    mov al, bl
+    call OSAPI_MEM_AVAIL_LVL        ; AX = the largest run a claim can HAVE at
+    pop bx                          ; that level - already net of every
+                                    ; purgeable cache BELOW it and of what a
+                                    ; compaction would recover (SPEC.md 50.6.3,
+                                    ; 66.10.3). Nothing to compute, nothing to
+                                    ; probe, and BX is an OUTPUT here
+    mov dx, [dos_memkb]             ; ...and the user's own cap, if there is
+    or dx, dx                       ; one. 0 is "as much as the machine will
+    jz .cap                         ; give", which is what a double click gets
+    cmp ax, dx
+    jbe .cap
+    mov ax, dx
+.cap:
+    cmp ax, DOS_MIN_KB
+    jb .nomem
     mov [dos_akb], ax               ; BANKED: the claim's answer is DX and the
                                     ; slot promises nothing about AX, so the KB
                                     ; figure has to survive the call somewhere
                                     ; other than in a register
-    call OSAPI_MEM_CLAIM_HI         ; AX = KB -> DX = base segment
+    mov bh, 1                       ; BL is STILL the floor, and it has to be
+    xor cx, cx                      ; the same one, or the number above was a
+                                    ; plan the claim does not carry out. BH = 1
+                                    ; is OSAPI_MEM_CLAIM_HI's own door (50.3.2)
+    call OSAPI_MEM_CLAIM_LVL        ; AX = KB -> DX = base segment
     jnc .got
 .nomem:
     mov al, DER_MEM
@@ -2934,10 +3015,15 @@ dos_paint:
     push si
     push di
 
-    cmp byte [dos_page], DOS_PAGE_ENV
-    jne .mainpage
+    cmp byte [dos_page], DOS_PAGE_MAIN
+    je .mainpage
     mov bx, si
+    cmp byte [dos_page], DOS_PAGE_MEM
+    je .mempage
     call dos_paint_env
+    jmp .out
+.mempage:
+    call dos_paint_mem
     jmp .out
 .mainpage:
 
@@ -3003,10 +3089,10 @@ dos_paint:
     mov si, dos_ln
     call os88line_draw
 
-    mov bx, [dos_win]               ; ...and the way to the other page
-    call dos_btn_rect
-    mov bx, dos_brect
-    mov si, dos_l_envb
+    mov bx, [dos_win]               ; ...and the way to the NEXT page, which
+    call dos_btn_rect               ; the label has to name rather than imply
+    mov bx, dos_brect               ; now that the button cycles
+    call dos_btn_lbl
     xor di, di
     call os88ui_btn
 
@@ -3501,7 +3587,7 @@ dos_paint_env:
     call dos_btn_rect
     push bx
     mov bx, dos_brect
-    mov si, dos_l_done
+    call dos_btn_lbl
     xor di, di
     call os88ui_btn
     pop bx
@@ -3512,6 +3598,362 @@ dos_paint_env:
     pop bx
     pop ax
     clc
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_mfld_place - put the memory limit field where the window is now
+; in:  BX = the window; every register preserved
+;
+; dos_fld_place's shape and for its reason: os88line's rect is in SCREEN
+; coordinates, so a banked one puts the caret one drag behind.
+; -----------------------------------------------------------------------------
+dos_mfld_place:
+    push ax
+    push cx
+    push dx
+    push si
+    call OSAPI_WM_CONTENT           ; AX = content left, DX = content top
+    mov si, dos_mln
+    mov cx, ax
+    add cx, DOS_MFLDX
+    mov [si+LN_X1], cx
+    add cx, DOS_MFLDW
+    mov [si+LN_X2], cx
+    mov cx, dx
+    add cx, DOS_MFLDY
+    mov [si+LN_Y1], cx
+    add cx, DOS_FLDH
+    mov [si+LN_Y2], cx
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_mchk_place - put the check box's record where the window is now
+; in:  BX = the window; every register preserved
+;
+; The RECT IS THE WHOLE CLICKABLE AREA - box, gap and label - which is
+; os88ui_chk's own contract, so a press on the words counts. Recomputed from
+; the content origin on every paint and every click for dos_fld_place's reason:
+; the rect is in SCREEN coordinates and a window moves.
+; -----------------------------------------------------------------------------
+dos_mchk_place:
+    push ax
+    push cx
+    push dx
+    push si
+    push di
+    call OSAPI_WM_CONTENT           ; AX = content left, DX = content top
+    mov si, dos_mchk
+    mov di, dos_l_memc
+    mov [si+OS88UI_CK_LABEL], di
+    mov cx, ax
+    add cx, 8
+    mov [si+0], cx
+    add cx, OS88UI_CKBOX + OS88UI_CKGAP + 8 * DOS_MEMC_N
+    mov [si+4], cx                  ; ...x2 INCLUSIVE, so the label's last
+    dec word [si+4]                 ; cell is inside and the next pixel is not
+    mov cx, dx
+    add cx, DOS_MCHKY
+    mov [si+2], cx
+    add cx, OS88UI_CKBOX
+    dec cx
+    mov [si+6], cx
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_mem_figs - the two numbers the page is a choice BETWEEN
+; out: AX = KB with the cache kept, DX = KB with it taken; flags
+;
+; Both come from the kernel rather than from arithmetic here, and they are the
+; SAME question dos_run asks - so what the page shows is what the program will
+; get, not an estimate of it (SPEC.md 50.6.6, 96.25.1).
+; -----------------------------------------------------------------------------
+dos_mem_figs:
+    push bx
+    push cx
+    mov al, DOS_PG_FLOOR
+    call OSAPI_MEM_AVAIL_LVL        ; AX = the largest run that leaves the
+    push ax                         ; cache alive
+    call OSAPI_MEM_AVAIL            ; ...and the one that does not
+    mov dx, ax
+    pop ax
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_paint_mem - the memory page (SPEC.md 96.25)
+; in:  BX = the window; the gfx lock is held, as every W_PAINT's is
+;
+; NO GROUND FILL (SPEC.md 13.14.6), dos_paint_env's reason exactly: every line
+; is an opaque font_run, an os88line or a control that draws its own ground.
+; -----------------------------------------------------------------------------
+dos_paint_mem:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bx
+    call OSAPI_WM_CONTENT           ; ASKED and not read out of [dos_ctop],
+    mov cx, ax                      ; which is the MAIN page's banked value
+    add cx, 8
+    mov [dos_mx], cx
+    add dx, DOS_MEMY
+    mov [dos_my], dx
+    mov si, dos_l_memt
+    mov ax, (CWHITE << 8) | CBLACK
+    call OSAPI_FONT_RUN
+    pop bx
+
+    push bx
+    call dos_mem_figs               ; AX = kept, DX = taken
+    push dx
+    mov di, dos_memk1
+    call dos_mem_num                ; AX -> the first line's five digits
+    pop ax
+    mov di, dos_memk2
+    call dos_mem_num
+    mov bx, [dos_mx]
+    mov dx, [dos_my]
+    sub dx, DOS_MEMY
+    add dx, DOS_MROW1
+    mov si, dos_l_memk
+    call dos_line
+    add dx, DOS_MROW2 - DOS_MROW1
+    mov si, dos_l_memt2
+    call dos_line
+    pop bx
+
+    push bx                         ; the limit's label, then its box
+    mov bx, [dos_mx]
+    mov dx, [dos_my]
+    sub dx, DOS_MEMY
+    add dx, DOS_MFLDY + 3
+    mov si, dos_l_meml
+    call dos_line
+    pop bx
+    push bx
+    call dos_mfld_place
+    mov si, dos_mln
+    call os88line_draw
+    pop bx
+
+    push bx                         ; ...and the choice itself
+    call dos_mchk_place
+    mov bx, dos_mchk
+    xor di, di
+    call os88ui_chk
+    pop bx
+
+    call dos_btn_rect
+    push bx
+    mov bx, dos_brect
+    call dos_btn_lbl
+    xor di, di
+    call os88ui_btn
+    pop bx
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_btn_lbl - SI = what the page button should SAY, for the page that is up
+; out: SI; every other register preserved
+;
+; It names WHERE IT GOES and not where you are, which is what a cycle needs: a
+; button labelled with the current page is one the user has to press to find
+; out what it does.
+; -----------------------------------------------------------------------------
+dos_btn_lbl:
+    push bx
+    xor bh, bh
+    mov bl, [dos_page]
+    shl bl, 1
+    mov si, [dos_btn_tab+bx]
+    pop bx
+    ret
+
+; in:  AX = 0..65535, DI -> five bytes inside a literal; clobbers nothing
+;
+; Into the LITERAL rather than into a buffer, which is dos_fmt_exit's shape
+; one line along: the line is drawn by one opaque font_run and a number
+; assembled anywhere else would need a second store to get there.
+; -----------------------------------------------------------------------------
+dos_mem_num:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    add di, 4                       ; the units digit, and work backwards
+    mov cx, 5
+    mov bx, 10
+.d:
+    xor dx, dx
+    div bx                          ; AX = quotient, DX = this digit
+    add dl, '0'
+    mov [di], dl
+    dec di
+    dec cx
+    jz .out
+    or ax, ax
+    jnz .d
+.blank:
+    mov byte [di], ' '              ; a LEADING BLANK and not a zero: the two
+    dec di                          ; lines sit under one another and 00419
+    loop .blank                     ; reads as a different quantity
+.out:
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_mem_take - the limit field's text -> [dos_memkb]
+; out: nothing; every register preserved
+;
+; EMPTY IS ZERO AND ZERO IS "ALL", which is what makes the field need no
+; second control: a user who wants the machine's own answer clears the box.
+; Anything that is not a digit ends the number, so a half-typed entry is the
+; digits in front of it rather than a refusal in the middle of typing.
+; -----------------------------------------------------------------------------
+dos_mem_take:
+    push ax
+    push bx
+    push cx
+    push si
+    xor ax, ax
+    mov si, dos_mbuf
+    mov bx, 10
+.d:
+    mov cl, [si]
+    cmp cl, '0'
+    jb .out
+    cmp cl, '9'
+    ja .out
+    mul bx
+    sub cl, '0'
+    xor ch, ch
+    add ax, cx
+    inc si
+    jmp short .d
+.out:
+    mov [dos_memkb], ax
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_mem_put - [dos_memkb] -> the limit field's text (0 = empty)
+; out: nothing; every register preserved
+; -----------------------------------------------------------------------------
+dos_mem_put:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    push si
+    mov byte [dos_mbuf], 0
+    mov ax, [dos_memkb]
+    or ax, ax
+    jz .sync
+    mov di, dos_mbuf + DOS_MEMMAX   ; right to left into the buffer, then
+    mov byte [di], 0                ; shuffled down - five digits is not worth
+    mov bx, 10                      ; a second pass over
+    mov cx, DOS_MEMMAX
+.d:
+    xor dx, dx
+    div bx
+    add dl, '0'
+    dec di
+    mov [di], dl
+    dec cx
+    jz .move
+    or ax, ax
+    jnz .d
+.move:
+    mov si, di
+    mov di, dos_mbuf
+.m:
+    mov al, [si]
+    mov [di], al
+    inc si
+    inc di
+    or al, al
+    jnz .m
+.sync:
+    mov si, dos_mln
+    call os88line_resync
+    pop si
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_click_mem - a press on the memory page
+; in:  BX = the window, CX = x, DX = y
+; -----------------------------------------------------------------------------
+dos_click_mem:
+    push ax
+    push si
+    push di
+    mov di, cx
+    mov bp, dx
+    call dos_mchk_place             ; THE CHECK BOX FIRST: it is the control
+    push bx                         ; the page exists for. os88ui_chkhit takes
+    mov bx, dos_mchk                ; the point in CX/DX, toggles the record's
+    call os88ui_chkhit              ; own ON byte and redraws THE MARK - not
+    pop bx                          ; the control and not the page (13.15.2)
+    jc .notchk
+    call dos_defocus                ; ...and a field keeping the caret while
+    jmp short .out                  ; another control is worked is a caret the
+.notchk:                            ; user cannot account for
+    call dos_mfld_place
+    mov si, dos_mln
+    mov cx, di
+    mov dx, bp
+    call os88line_hit
+    jc .away
+    call dos_defocus_but
+    cmp byte [si+LN_FOCUS], 0
+    jne .move
+    mov byte [si+LN_FOCUS], 1
+    call os88line_draw
+    jmp short .out
+.move:
+    mov cx, di
+    mov dx, bp
+    call os88line_click
+    jmp short .out
+.away:
+    call dos_defocus
+.out:
+    pop di
+    pop si
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -3563,8 +4005,14 @@ dos_key:
     ; --- whoever has the caret gets first refusal ----------------------------
     cmp byte [dos_page], DOS_PAGE_ENV
     je .envp
+    cmp byte [dos_page], DOS_PAGE_MEM
+    je .memp
     call dos_fld_place
     mov si, dos_ln
+    jmp short .have
+.memp:
+    call dos_mfld_place              ; the memory page has ONE field, so its
+    mov si, dos_mln                  ; focus is the field's own byte
     jmp short .have
 .envp:
     call dos_erow_focus              ; SI = the focused row, or 0
@@ -3677,12 +4125,23 @@ dos_click:
     pop bx
     jc .notpage
     call dos_defocus                ; a field on the page we are leaving must
-    xor byte [dos_page], 1          ; not keep the caret, or keys would still
+    mov al, [dos_page]              ; ...and the button CYCLES rather than
+    inc al                          ; toggling now: main -> environment ->
+    cmp al, DOS_PAGE_N              ; memory -> main, which is why its label
+    jb .setpage                     ; is a table (SPEC.md 96.25)
+    xor al, al
+.setpage:
+    mov [dos_page], al
+    call dos_mem_take               ; THE LIMIT IS READ ON THE WAY OUT, so a
+                                    ; number the user typed and did not press
+                                    ; anything after is still the setting - a
+                                    ; field that only commits on Enter loses
+                                    ; what was typed, silently
     call dos_swap                   ; reach a box nobody can see
     jmp .out
 .notpage:
-    cmp byte [dos_page], DOS_PAGE_ENV
-    je .notbtn                      ; Save Shortcut is the main page's only
+    cmp byte [dos_page], DOS_PAGE_MAIN
+    jne .notbtn                     ; Save Shortcut is the main page's only
     call dos_sav_rect
     push bx
     mov bx, dos_srect
@@ -3692,6 +4151,11 @@ dos_click:
     call dos_sav_go
     jmp .out
 .notbtn:
+    cmp byte [dos_page], DOS_PAGE_MEM
+    jne .notmem
+    call dos_click_mem
+    jmp .out
+.notmem:
     cmp byte [dos_page], DOS_PAGE_ENV
     jne .mainp
     call dos_click_env
@@ -3792,8 +4256,10 @@ dos_defocus_but:
     mov di, si
     mov si, dos_ln
     call .one
-    mov cx, DOS_ENVN
-    mov si, dos_eln
+    mov si, dos_mln                 ; ...the memory page's too: "no field on
+    call .one                       ; EITHER page" is now three pages, and a
+    mov cx, DOS_ENVN                ; caret left behind on a page nobody can
+    mov si, dos_eln                 ; see still takes the keystrokes
 .e:
     call .one
     add si, DOS_LNSZ
@@ -3825,6 +4291,10 @@ dos_focused:
     mov si, dos_ln
     cmp byte [dos_page], DOS_PAGE_ENV
     je .env
+    cmp byte [dos_page], DOS_PAGE_MEM
+    jne .one
+    mov si, dos_mln
+.one:
     cmp byte [si+LN_FOCUS], 0
     jne .got
     jmp short .none
@@ -3873,6 +4343,17 @@ dos_fld_init:
     add si, DOS_LNSZ
     add bx, DOS_ENVBUF
     loop .e
+
+    mov si, dos_mln                 ; ...and the memory limit (SPEC.md 96.25).
+    mov ax, dos_mbuf                ; THE DEFAULTS ARE SET HERE and not in the
+    mov [si+LN_BUF], ax             ; bss table, because -f bin zeroes nothing
+    mov word [si+LN_MAX], DOS_MEMMAX  ; and "keep the cache" is a 1
+    mov byte [si+LN_FOCUS], 0
+    mov byte [dos_mbuf], 0
+    mov word [dos_memkb], 0         ; 0 = as much as the machine will give,
+    mov byte [dos_keepc], 1         ; which is what a double click gets
+    call os88line_resync
+
     pop si
     pop dx
     pop cx
@@ -4074,6 +4555,8 @@ dos_lnk_build:
     jc .no
     call dos_lnk_env                ; ...and ours, in an ExtraData block
     jc .no
+    call dos_lnk_mem                ; ...and the memory settings, in a SECOND
+    jc .no                          ; one (SPEC.md 96.25.2)
     xor ax, ax                      ; the terminal block: any value below 4
     stosw
     stosw
@@ -4244,6 +4727,43 @@ dos_lnk_env:
     pop bx                          ; OVERWRITTEN by the terminal marker, which
     pop ax                          ; presents as a link with no environment
     ret
+
+; --- dos_lnk_mem - the memory settings, in an ExtraData block of their own --
+; A SECOND BLOCK and not two more fields on the first (SPEC.md 96.25.2): that
+; one ends in a bare NUL after a variable number of rows, so anything appended
+; to it sits at an offset that depends on what the user typed. Here the two
+; fields are at a fixed offset inside a fixed-size block, and a reader that
+; does not know the signature steps over it with one add - which is what
+; ExtraData is specified for.
+dos_lnk_mem:
+    push ax
+    mov ax, di
+    sub ax, dos_lbuf
+    add ax, LNK_EXT2SZ
+    cmp ax, LNK_MAX
+    ja .no
+    mov ax, LNK_EXT2SZ              ; BlockSize, counting itself
+    stosw
+    xor ax, ax
+    stosw
+    mov ax, LNK_EXTSIG2 & 0xFFFF
+    stosw
+    mov ax, LNK_EXTSIG2 >> 16
+    stosw
+    mov ax, [dos_memkb]             ; the cap, 0 = as much as the machine gives
+    stosw
+    mov al, [dos_keepc]             ; ...and the one choice
+    stosb
+    xor al, al
+    stosb                           ; ...and a byte of padding, so the block is
+    clc                             ; a whole number of dwords like every other
+    jmp short .out
+.no:
+    stc
+.out:
+    pop ax
+    ret                             ; DI IS NOT RESTORED - it is an OUTPUT, for
+                                    ; dos_lnk_env's reason
 
 ; -----------------------------------------------------------------------------
 ; dos_lnk_parse - dos_lbuf holds CX bytes of a .LNK; take it apart
@@ -4654,12 +5174,18 @@ dos_lnk_ext:
     ja .out                         ; a size past the end: stop, do not trust
     mov cx, [dos_lbuf+si+4]         ; the signature
     mov di, [dos_lbuf+si+6]
+    cmp di, LNK_EXTSIG >> 16        ; both of ours share a high word
+    jne .next
     cmp cx, LNK_EXTSIG & 0xFFFF
-    jne .next
-    cmp di, LNK_EXTSIG >> 16
-    jne .next
+    jne .m
     call dos_lnk_rows
-    jmp short .out
+    jmp short .next                 ; ...AND KEEP WALKING: there are two of our
+.m:                                 ; blocks now, and a link written by an
+    cmp cx, LNK_EXTSIG2 & 0xFFFF    ; older build has only the first
+    jne .next
+    cmp ax, LNK_EXT2SZ
+    jb .next                        ; short: not one of ours, whatever it says
+    call dos_lnk_memr
 .next:
     add si, ax
     jmp short .blk
@@ -4667,6 +5193,29 @@ dos_lnk_ext:
     pop di
     pop cx
     pop bx
+    pop ax
+    ret
+
+; --- dos_lnk_memr - the memory block at SI -> [dos_memkb] / [dos_keepc] -----
+; The size was checked against LNK_EXT2SZ before the call and the block's own
+; size was checked against what is LEFT of the file before that, so both reads
+; are inside the buffer by construction (SPEC.md 20.8 rule 2).
+;
+; THE CAP IS CLAMPED and the choice is FORCED TO 0 OR 1, because this is a file
+; somebody else may have written: a cap of 0xFFFF is harmless (dos_run takes
+; the smaller of it and what the machine offers) but a keep byte of 0x7F would
+; make the check box draw a mark for a value it can never toggle back to.
+dos_lnk_memr:
+    push ax
+    mov ax, [dos_lbuf+si+8]
+    mov [dos_memkb], ax
+    mov al, [dos_lbuf+si+10]
+    cmp al, 1
+    jbe .set
+    mov al, 1                       ; anything else means the default, which is
+.set:                               ; the one a double click gets
+    mov [dos_keepc], al
+    call dos_mem_put                ; ...and the field shows what the link said
     pop ax
     ret
 
@@ -4851,6 +5400,28 @@ dos_l_envb: db 'Environment', 0
 dos_l_envt: db 'Environment - one NAME=VALUE to a line:', 0
 dos_l_done: db 'Done', 0
 dos_l_savb: db 'Save Shortcut', 0
+; --- the memory page (SPEC.md 96.25) -----------------------------------------
+; The two figures are PATCHED IN PLACE by dos_mem_num and drawn as part of one
+; opaque font_run, which is dos_fmt_exit's shape: a number assembled anywhere
+; else needs a second store to reach the line, and a second pass over the
+; pixels is what SPEC.md 6.1 exists to stop.
+dos_l_memb: db 'Memory', 0
+; ...and WHERE THE BUTTON GOES from each page, indexed by DOS_PAGE_*
+dos_btn_tab:
+    dw dos_l_envb                   ; main -> environment
+    dw dos_l_memb                   ; environment -> memory
+    dw dos_l_done                   ; memory -> back to the main page
+dos_l_memt: db 'Memory for the program:', 0
+dos_l_memk: db 'Keeping the disk cache:  '
+dos_memk1:  db '     K', 0
+dos_l_memt2: db 'Taking it as well:       '
+dos_memk2:  db '     K', 0
+dos_l_meml: db 'Limit:', 0
+dos_l_memc: db 'Keep the disk cache', 0
+DOS_MEMC_N  equ 19                  ; ...its length, for the click rect. A
+                                    ; literal because the label is one and
+                                    ; font_width would be a call per paint to
+                                    ; re-derive a constant
 dos_lnk_root: db '\', 0
 
 ; --- the Shell Link header, 76 bytes, fixed (SPEC.md 96.21) ------------------
@@ -5484,6 +6055,16 @@ PKT_VERSION equ 9
     DBSS DOS_B_ARGS,  DOS_ARGSZ  ; the user's arguments, NUL-terminated
     DBSS DOS_B_PBUF,  DOS_PBUF   ; ...and the program's own path, for the env
     DBSS DOS_B_LN,    DOS_LNSZ  ; the arguments field's block (os88line.inc)
+    DBSS DOS_B_MEMKB, 2          ; SPEC.md 96.25: the arena cap in KB, 0 = as
+                                 ; much as the machine will give
+    DBSS DOS_B_MCHK,  DOS_MCHKSZ ; ...and the 'Keep disk cache' check box's own
+                                 ; record (os88ui.inc), whose ON byte IS the
+                                 ; setting - os88ui_chkhit toggles and redraws
+                                 ; it, so a copy here would be a second truth
+    DBSS DOS_B_MBUF,  DOS_MEMBUF ; the limit field's text...
+    DBSS DOS_B_MLN,   DOS_LNSZ   ; ...and its os88line block
+    DBSS DOS_B_MX,    2          ; the memory page's content origin, banked
+    DBSS DOS_B_MY,    2          ; for one paint (dos_ctop's shape)
     DBSS DOS_B_WIN,   2
     DBSS DOS_B_STATE, 1
     DBSS DOS_B_ERR,   1
@@ -8894,6 +9475,10 @@ DOS_BSS_SIZE equ DB
 ; os88ui.inc first (os88line.inc needs its UI_* macros), and both LAST -
 ; the header and the icon block are at fixed offsets in the image (SPEC.md
 ; 20.2), so code emitted between them fails the icon macro's own assertion.
+%define OS88UI_CHK                  ; SPEC.md 13.15: the memory page's one
+                                    ; choice. Opted into here because os88ui's
+                                    ; rule is that a package that does not use
+                                    ; a control pays NOTHING for it
 %include "os88ui.inc"
 %include "os88line.inc"
 %include "os88sock.inc"             ; net_try - WHICH driver answers (SPEC.md
@@ -8903,6 +9488,15 @@ DOS_BSS_SIZE equ DB
                                     ; net_find, whose job is to prefer one of
                                     ; two and whose second answer refuses
                                     ; every verb this feature is made of
+
+%if DOS_MCHKSZ != OS88UI_CK_SIZE
+ %error "DOS_MCHKSZ must equal os88ui.inc's OS88UI_CK_SIZE - the bss table \
+above reserves DOS_MCHKSZ bytes for a record this file does not own"
+%endif
+%if DOS_MCHKON != OS88UI_CK_ON
+ %error "DOS_MCHKON must equal os88ui.inc's OS88UI_CK_ON - [dos_keepc] IS \
+that byte of the record, and a wrong offset writes the label pointer"
+%endif
 
 %if DOS_LNSZ != OS88LINE_SZ
  %error "DOS_LNSZ must equal os88line.inc's OS88LINE_SZ - the bss table above reserves DOS_LNSZ bytes for a block this file does not own"
@@ -8956,6 +9550,13 @@ dos_args    equ os88_image_end + DOS_B_ARGS    ; 128: the command tail the user
                                                ; framing and go on at the PSP
 dos_pbuf    equ os88_image_end + DOS_B_PBUF    ; the program's own path
 dos_ln      equ os88_image_end + DOS_B_LN      ; the field's os88line block
+dos_memkb   equ os88_image_end + DOS_B_MEMKB   ; word: the arena cap, 0 = all
+dos_mchk    equ os88_image_end + DOS_B_MCHK    ; the check box's record
+dos_keepc   equ dos_mchk + DOS_MCHKON          ; byte: 1 = keep the disk cache
+dos_mbuf    equ os88_image_end + DOS_B_MBUF    ; the limit field's text
+dos_mln     equ os88_image_end + DOS_B_MLN     ; ...and its os88line block
+dos_mx      equ os88_image_end + DOS_B_MX      ; word: this paint's content x
+dos_my      equ os88_image_end + DOS_B_MY      ; word: ...and its top
 dos_pic1    equ os88_image_end + DOS_B_PIC1    ; byte: the 8259 masks as found
 dos_pic2    equ os88_image_end + DOS_B_PIC2    ; byte:
 dos_isexe   equ os88_image_end + DOS_B_ISEXE   ; byte: 1 = an .EXE was set up

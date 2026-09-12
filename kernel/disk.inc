@@ -4889,17 +4889,34 @@ DSK_RAH_SECS equ 9               ; sectors per chunk: ONE REVOLUTION on the
                                  ; calibrated against. The simulation is
                                  ; monotone in this and the track is the
                                  ; ceiling - a CHS call cannot cross one
-DSK_RAH_RUNS equ 14              ; ...and how many chunks are kept. Simulated
-                                 ; against the install's own trace: 1 slot is
-                                 ; 156 calls, 2 is 123, 4 is 108, 8 is 102,
-                                 ; 14 is 93 and 16 is 92. FOURTEEN IS THE
-                                 ; CEILING AND NOT A CHOICE - see the assert
-                                 ; below - and it is worth taking because it
-                                 ; is where the working set fits: the three
-                                 ; calls it buys over eight are the same ones
-                                 ; a resumable FIND cursor would have bought
-                                 ; (§18.95.2), at heap instead of an ABI
-                                 ; change. §18.95.4
+DSK_RAH_RUNS equ 7               ; ...and how many chunks are kept. IT WAS 14,
+                                 ; the segment-offset ceiling the assert below
+                                 ; derives, chosen on the INSTALL trace alone:
+                                 ; 1 slot is 156 calls, 2 is 123, 4 is 108, 8
+                                 ; is 102, 14 is 93. §18.95.6 measured a
+                                 ; SECOND workload of a different shape - a DOS
+                                 ; program loading off a floppy, which opens
+                                 ; few files and reads them in big pieces - and
+                                 ; the curve there is FLATTER: 4 slots is 71%
+                                 ; of the saving where the install trace's own
+                                 ; low end reads 93%, and 7 is 87%.
+                                 ;
+                                 ; So the five calls between 7 and 14 buy 31KB,
+                                 ; and three things want them more. The DOS
+                                 ; program, whose arena this comes straight out
+                                 ; of (§96.24's heap map is 419.0K of arena
+                                 ; with the full cache sitting under it). Every
+                                 ; machine between the old 126KB free-run bar
+                                 ; and the new 64KB one, which got NO cache at
+                                 ; all - §18.95.4 named that band as what the
+                                 ; ceiling costs. And the PLACEMENT: the whole
+                                 ; claim is its own 64KB DMA head, so a 63KB
+                                 ; block may only begin in the first 1KB of a
+                                 ; physical page - ten legal bases in a 640KB
+                                 ; machine - where a 32KB one may begin
+                                 ; anywhere in the first half of one.
+                                 ;
+                                 ; §18.95.4, §18.95.6
 DSK_RAH_KB   equ (DSK_RAH_SECS * 512 * DSK_RAH_RUNS) / 1024   ; the CEILING's
                                  ; size. The live width is [dsk_rah_runs],
                                  ; solved for from the machine (SPEC.md
@@ -4941,7 +4958,10 @@ above the ceiling it can never be satisfied so the cache is dead code"
 (dsk_rah_have shifts slot*SECS+delta left by 9), so RUNS*SECS*512 must fit a \
 segment: RUNS*SECS <= 128. At SECS=9 that is 14 runs, and 15 would wrap the \
 offset silently - dsk_rah_take would serve a sector from the front of the \
-cache and nothing would report it. More than 63KB needs a segment per slot"
+cache and nothing would report it. More than 63KB needs a segment per slot. \
+THE SHIPPED WIDTH IS BELOW THIS CEILING AND IS A DECISION (§18.95.6), so this \
+assert no longer picks it: putting DSK_RAH_RUNS back to 14 would assemble, and \
+would spend 31KB of every machine to save five int 13h"
 %endif
 section .text                   ; DATA, so back to the kernel segment
                                 ; (SPEC.md 2.6 rule 1)

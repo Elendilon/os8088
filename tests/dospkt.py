@@ -42,6 +42,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "..", "tools"))
 
+import dispcp                                                 # noqa: E402
 import ethernet as eth                                       # noqa: E402
 import os88build                                             # noqa: E402
 import os88qemu                                              # noqa: E402
@@ -115,9 +116,16 @@ def main():
         say("dospkt: station address %s" % ":".join("%02X" % b for b in mac))
 
         # --- run the probe --------------------------------------------------
-        mouse.dblclick(601, 110)            # drive B:
-        time.sleep(3.0)
-        mouse.dblclick(175, 128)            # DOSPKT.COM, the first row
+        # **BY NAME, NEVER BY COORDINATE** (CLAUDE.md; tests/dispcp.py's
+        # open_named). The first version clicked row 1 at a remembered y,
+        # which is DOSPKT.COM only while it is the sole file on the disk -
+        # MTCPDIR= puts DHCP.EXE in front of it alphabetically (SPEC.md 19.4
+        # sorts by name), so the row launched the wrong program and reported
+        # it as the packet driver never being found.
+        dispcp.open_drive(m, mouse, eth.S, eth.settle, "B")
+        wins = dispcp.win_list(m, eth.S)
+        wx, wy = dispcp.win_rect(m, eth.S, wins[-1])[:2]
+        dispcp.open_named(m, mouse, eth.S, eth.settle, wx, wy, "DOSPKT.COM")
         say("dospkt: launched; the probe holds the screen on int 16h")
 
         # it sends, then waits ~3s of BIOS ticks for the reply

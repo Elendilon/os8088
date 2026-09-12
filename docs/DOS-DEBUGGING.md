@@ -59,6 +59,7 @@ PSP fields that were zero here and are not zero under DOS, found that way.
 | `tests/dostrap/dosref.asm` | one binary that answers the same questions on both |
 | `tests/dostrap/rdsum.asm` | did the program get the bytes the disk holds? |
 | `tests/dostrap/twoopen.asm` | is it the file, or is it the *second handle*? |
+| `tests/dostrap/diskcost.asm` | what one open and one read cost the DRIVE — the only SPEED probe |
 | `apps/dos/dos.asm`, `%ifdef DOSTRACE` | the box's own ring — **not in any shipped build** |
 
 Both Python tools carry `--selfcheck`, which needs no emulator and no network.
@@ -268,6 +269,44 @@ The box has **one** read window; a program reading two files at once is
 ordinary. Three cases in one run: X alone, Y alone, both open at once. A and B
 passing with C failing is the window (SPEC.md §96.11.5 is that bug); all three
 failing is the file; B alone failing is usually the disk — go back to `reach`.
+
+### `diskcost.asm` — what ONE open and ONE read cost the DRIVE
+
+The only one of the four that is about **speed** rather than correctness, and
+the only one the host brackets from outside: it does `NOPEN` opens and `NREAD`
+reads of `CHUNK` bytes and then **waits for a key**, so
+`os88marty.Marty.disk()` — MartyPC's own floppy-controller counters — can be
+read either side of it. Assemble one binary per point and take the
+**difference** between two:
+
+```
+nasm -f bin -DNOPEN=1 -DNREAD=0               -o D1.COM tests/dostrap/diskcost.asm
+nasm -f bin -DNOPEN=4 -DNREAD=0               -o D2.COM tests/dostrap/diskcost.asm
+nasm -f bin -DNOPEN=1 -DNREAD=1 -DCHUNK=8192  -o D3.COM tests/dostrap/diskcost.asm
+nasm -f bin -DNOPEN=1 -DNREAD=4 -DCHUNK=8192  -o D4.COM tests/dostrap/diskcost.asm
+```
+
+`(D2 − D1) / 3` is one open and `(D4 − D3) / 3` is one 8KB read. Every point
+carries the identical fixed cost — the file manager loading it, the box
+claiming its arena — so that cost cancels and never has to be known. The same
+binaries run under a real DOS, which is the whole point: *"we make seven times
+the `int 13h` calls"* is a ratio nobody can act on, and *"one open costs us N
+calls and DOS M"* is a defect with an address. SPEC.md §96.24.1 is what it
+produced.
+
+Three traps, all paid for once:
+
+- **The buffer is not emitted.** A `.COM` owns every byte after its image, so
+  `times CHUNK db 0` would only make the *file* bigger — and a bigger file
+  costs more to load, which is a confound in the one measurement this exists to
+  take. Every point must cost the same to start.
+- **Give it a disk of its own.** The file under test needs a known DIRECTORY
+  POSITION, because that is exactly what an open costs here; and os8088's Disk
+  window lists a bounded number of entries, so a busy root simply *hides* the
+  later probes — they are on the floppy and cannot be double-clicked.
+- **The key wait is not a courtesy.** Under os8088 the fsx bracket ends when
+  the program does and the desktop comes straight back, taking its own disk
+  traffic with it.
 
 ---
 
