@@ -210,6 +210,46 @@ class Partner(object):
                 return
             self.m.step(STEP * 8)
 
+    def idle_until_wire(self, steps, chunk=None):
+        """Run the guest in COARSE chunks until it touches the port, or
+        `steps` are spent. Returns True if it touched it.
+
+        **FOR A PHASE WHERE THE GUEST IS NOT USING THE CABLE AT ALL** - the
+        one `_await_strobe` is worst at. That loop steps `STEP` = 400 cycles
+        per debug round trip, which is one round trip per 84 microseconds of
+        guest time; a DOS package launch is a floppy read and tens of millions
+        of cycles, so it is tens of thousands of round trips spent watching a
+        line the guest is not driving. tests/doscable.py is the row that needs
+        it: everything before its first `NETV_OPEN` is the box mounting a
+        volume and loading two programs.
+
+        **IT IS SAFE FOR `_spend_stall`'s REASON** (which already steps
+        `STEP * 8`): every deadline in this transport is in TICKS and not in
+        polls - docs/plans/completed/NET-PLAN.md 9.1's third defect - and the default chunk is
+        25,600 cycles, 5.4 ms at 4.77 MHz, against `LP_TMO`'s 2 ticks (110 ms)
+        and `TURN_RX`'s 8. So the most a coarse chunk can cost is being one
+        twentieth of the tightest deadline late to the FIRST nibble, after
+        which `_await_strobe` is back in charge at full resolution.
+
+        It watches the WHOLE data register rather than D4 alone: the guest may
+        drive a nibble whose strobe bit happens to match what the register
+        already held, and a change anywhere in it means the port has been
+        touched. Missing it entirely costs one more chunk, which is the same
+        5.4 ms.
+        """
+        if chunk is None:
+            chunk = STEP * 64
+        start = self._data()
+        left = steps
+        while left > 0:
+            if self._data() != start:
+                return True
+            n = min(chunk, left)
+            self.m.step(n)
+            self.spent += n
+            left -= n
+        return False
+
     # --- the two wires -------------------------------------------------------
     def _status(self, idle, nib=None):
         """Drive bit 7 (idle = raw 1) and bits 6..3 (our nibble)."""

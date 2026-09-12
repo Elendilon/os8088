@@ -2635,6 +2635,34 @@ SOAK = [
         "programs on the disk beside ours.",
         needs=("qemu",), serial=True,
         wants=("build/ether360.img", "build/dospkt360.img")),
+    Row("doscable", "soak", py("tests/doscable.py"), 900.0,
+        "A DOS PACKET-DRIVER CLIENT OVER THE PARALLEL CABLE (SPEC.md 96.26) - "
+        "the arm that is about the WIRE, where `dosxlat` is about the "
+        "endpoint. There the translation is FORCED over a card because that "
+        "is the only wire an emulator here can drive at speed; here "
+        "net_find picks NET.DRV with no knob at all, and 96.23's raw path "
+        "does not exist because NETV_RAW is one of the three verbs the cable "
+        "refuses (72.22.3). The GUEST is a cycle-accurate 8088 running the "
+        "shipped kernel, a real NET.DRV, the real DOS box and a real Crynwr "
+        "client; the CABLE is MartyPC's parallel port driven a nibble at a "
+        "time by tests/lptlink/partner.py; and the far side's TCP is not "
+        "modelled at all - partner.SocketBox is real host sockets. THE FAR "
+        "SIDE REDIRECTS ONE ADDRESS AND RECORDS IT: the probe dials "
+        "10.0.2.2:8099 because that is where slirp puts the host and the same "
+        "binary has to work on the card arm, so the SocketBox here connects "
+        "to this process's own listener instead - and the recorded string is "
+        "a STRONGER assertion than a connect, because it is the dotted quad "
+        "dn_tcp_open formatted out of an IP header (96.26.5). Five: the route "
+        "is the cable ([dos_pkt_xl]=1, [net_cls]=DRVC_FILE and not the CARD's "
+        "DRVC_NET); NET.DRV survives the bracket (drv_suspend_x's DRVC_FILE "
+        "skip); the far side was asked for exactly 10.0.2.2:8099; the "
+        "client's own record of every segment holds a SYN|ACK and no RST; and "
+        "the payload crossed both ways. EXACT RATHER THAN FAST - every nibble "
+        "is debug-server round trips with the emulator stepped between them, "
+        "which is why the answer is seven bytes and not a page, and why this "
+        "declares fifteen minutes.",
+        needs=("marty",), serial=True,
+        wants=("build/dospkt360.img",)),
     Row("dosxlat", "soak", py("tests/dosxlat.py"), 75.0,
         "THE CABLE TRANSLATION, ONE WHOLE TCP CONNECTION (SPEC.md 96.26). "
         "Where `dospkt` asks whether a frame reached a CARD, this asks whether "
