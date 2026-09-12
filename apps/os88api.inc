@@ -65,6 +65,41 @@
 ; package differ only in the segment they run in.
 KERNEL_SEG   equ 0x0060     ; where the kernel is, and what ES holds on entry.
 
+; =============================================================================
+; DRAW FROM THE CONTENT ORIGIN. ALWAYS. (SPEC.md 11.96.12)
+; =============================================================================
+; **A MOVED WINDOW DOES NOT CALL YOUR PAINT PROC.** The kernel banks your
+; content's pixels and replays them at the new position (§11.96.12's drag
+; cache) - 4.7x fewer drawing calls and half the guest time - so `W_PAINT` is
+; not reached, and any screen coordinate you worked out on a previous paint is
+; now describing where your window USED TO BE.
+;
+; So there are two rules and they are not style:
+;
+;   1. Ask OSAPI_WM_CONTENT (and OSAPI_WM_GEOM) for the box, and compute every
+;      coordinate from it, EVERY TIME you draw or hit-test.
+;   2. Never draw from a screen origin, and never from a rect you cached on an
+;      earlier pass. A rect in bss is valid until the next thing that can move
+;      the window, which is any moment your code is not running.
+;
+; **ASSUME IT ALWAYS HAPPENS.** §11.96.13 snaps a drop's x onto a multiple of
+; 8 before the cache is taken - it exists because the byte-phase refusal below
+; otherwise turned away seven drags in eight - so in ordinary use the replay
+; is what happens on EVERY drag, horizontal or vertical. What is left to refuse
+; it is a destination hanging off the screen, two displays that differ in
+; depth, and **a failed memory claim**: in other words, the only common way to
+; see your paint proc after a move is to be short of heap.
+;
+; That is why the wrong code passes a casual test rather than failing one, and
+; why it is the machine you did NOT test on that shows the defect.
+; `make DRAGCACHE=0` is the A/B.
+;
+; Measured, and the symptom is not subtle once you know it: SPEC.md 96.32's DOS
+; window dragged from y=20 to y=60 left its cached button rects sitting on the
+; old window's title bar, so clicks landed on the drag handle. It cost that
+; session an afternoon, and it is at least the third time this has been found
+; from scratch rather than read.
+
 ; The debug registry's tags (SPEC.md 57) - for a TEST package only. One word
 ; at 0060:000E names a list of (tag, offset) pairs ended by tag 0; the tag is
 ; also the block's own first word. Shipped software has no business here: a
@@ -2437,7 +2472,13 @@ W_Y       equ 4             ; word: frame top (y >= MBAR_H - except under
 W_W       equ 6             ; word: frame width, outer
 W_H       equ 8             ; word: frame height, includes title bar
 W_TITLE   equ 10            ; word: near ptr to NUL title string
-W_PAINT   equ 12            ; word: near ptr, SI = win ptr; content only
+W_PAINT   equ 12            ; word: near ptr, SI = win ptr; content only.
+                            ; **A MOVE DOES NOT CALL IT** - the drag cache
+                            ; replays your pixels instead (SPEC.md 11.96.12),
+                            ; and conditionally, so the mistake it invites
+                            ; passes a casual test. Draw from
+                            ; OSAPI_WM_CONTENT every time; see the rule at
+                            ; the head of this file
 W_ONKEY   equ 14            ; word: near ptr or 0; AL=ascii, AH=scan, SI=win
 W_ONCLICK equ 16            ; word: near ptr or 0; CX=x, DX=y, SI=win.
                             ; GIVE SI BACK AS YOU GOT IT: ui_task arms the
