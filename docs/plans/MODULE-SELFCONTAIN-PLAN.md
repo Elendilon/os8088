@@ -491,8 +491,8 @@ the assertion**. Verified by breaking it on purpose — `[cs:si]` → `[si]` —
 the volume does not come back at all (`a Disk window showing B: at its root
 did not happen`). 47 s measured against the row's declared 60.
 
-**W2 — the mechanism, proved on `FILECP.DRV`'s scratch state. ~123 bytes of
-`kern_small`.** Section 3 built: the nobits section, the assertion, the
+**W2 — the mechanism. BUILT, and its first customer with it; 6.4 is what it
+came to and the gate it needed. ~123 bytes of `kern_small`.** Section 3 built: the nobits section, the assertion, the
 `mod_need` zeroing, the gate extension. `FILECP.DRV` is the right first
 customer because section 3.4's split is *already written down in its source*,
 so the wave spends its effort on the mechanism rather than on the
@@ -514,6 +514,46 @@ code motion — `.cold`/`.text` into `.modc` — whose hazard is the near/far ru
 rather than the data rule, and `tools/os88ovlchk.py`'s near-call check is what
 says so. **Check the shim arithmetic before assuming a win**: a 40-byte body
 that needs a 4-byte far shim nets 36, and one that needs three nets 28.
+
+### 6.4 What W2 came to, and the gate it turned out to need
+
+**Built: `kern_small` `.bss` −36, `.cold` +22, net −14 — and `kern_big` pays
+NOTHING**, the zeroing being behind a `MOD_BSS` define that only a build with a
+module bss sets. The mechanism is now paid for; every byte a later customer
+moves is free.
+
+`section .modpb nobits vfollows=.modp`, `MODP_BSS equ modpb_end - $$`, and an
+assembly-time assertion beside the existing `MOD_MAX_KB` one that image + bss
+fits the claim's KB rounding. `mod_need` zeroes the claim's tail after
+`mod_check`, and banks nothing doing it: its own prologue already pushed
+AX/CX/DI/ES and `mod_check` is documented to clobber all four.
+
+**The first customer is `fcp_stack`** — `FILECP.DRV`'s 36-byte directory
+descent stack, scratch by 3.4's test: its whole life is inside one copy
+operation, `fcp_fin` drops the image at the end of every one, and a suspended
+paste still holds the image while the user reads the overwrite question.
+Fourteen call sites, through two `%define`d accessors because the frame is
+reached by BX at one set and DI at another.
+
+**AND THE SAFETY ARGUMENT IN 4 DOES NOT HOLD FOR THIS SHAPE.** `os88ovlchk`'s
+half 1 sees operands that NAME module data; a frame field is reached through a
+REGISTER, so half 1 structurally cannot cover it. Neither can the row — and
+that was demonstrated rather than assumed: with `cs:` dropped from both
+accessors, **`fcpsmall` PASSES**. It passes because the module then reads and
+writes the same wrong address in `KERNEL_SEG` consistently, so the copy still
+completes and `os88disk --verify` still walks a sound volume, while the engine
+scribbles on kernel memory throughout.
+
+So the checker gained a **half 3**, and it is a construction rule like half 2
+rather than an analysis: *a file that emits into a `.mod?b` section declares
+its accessors as `%define NAME(x) [...]`, and one inside the image arm must
+name CS.* Exact, because there is no correct way to write that operand
+otherwise. Verified both ways — it exits 1 naming `filecp.inc:83` with the
+prefix gone, and 0 with it back.
+
+**The lesson for anything that follows: a module bss reached through a
+register has no automatic gate, and needs one written before the first byte
+moves.**
 
 ### 6.3 What W4 came to, and the trap that makes the rest of it smaller
 

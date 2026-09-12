@@ -770,6 +770,52 @@ def main():
     for k in [k for k in mdata if k.endswith('_hdr')]:
         del mdata[k]
 
+    # --- half 3: a MODULE BSS accessor must carry cs: in the image arm -----
+    # docs/plans/MODULE-SELFCONTAIN-PLAN.md 3. A module's own bss lives in the
+    # tail of its heap claim, so it is reached through CS - but it is reached
+    # through a REGISTER (`[cs:bx+FCP_FSRC]`) and not by label, and half 1
+    # above only sees operands that NAME module data. So half 1 structurally
+    # cannot cover it, and neither can the row: with the prefix dropped the
+    # module reads and writes the same WRONG address consistently, so a copy
+    # still "works" while scribbling on KERNEL_SEG. That was DEMONSTRATED and
+    # not feared - `fcpsmall` passes with `cs:` removed from both accessors.
+    #
+    # The construction rule instead: a file that emits into a `.mod?b` section
+    # declares its accessors as `%define NAME(x) [...]`, and one inside the
+    # IMAGE arm must name CS. It is exact because there is no correct way to
+    # write that operand otherwise.
+    a_bad = []
+    for f in files:
+        secs = [sect for sect, _n, _l in sections(f)]
+        if not any(s.endswith('b') and s[:-1] in MODS for s in secs):
+            continue
+        arm = None                      # None outside, True inside the image arm
+        for _sect, n, line in sections(f):
+            t = line.lstrip()
+            m = re.match(r'%(ifdef|ifndef)\s+(\w+)', t)
+            if m:
+                arm = (m.group(1) == 'ifdef') if m.group(2).endswith('_MOD') else None
+                continue
+            if t.startswith('%else'):
+                arm = (not arm) if arm is not None else None
+                continue
+            if t.startswith('%endif'):
+                arm = None
+                continue
+            m = re.match(r'%define\s+\w+\([^)]*\)\s*(\[.*)', t)
+            if m and arm and 'cs:' not in m.group(1):
+                a_bad.append((f, n, t[:60]))
+    for f, n, src in a_bad:
+        print("%s:%d: a module-bss accessor in the image arm must name CS: %s"
+              % (f, n, src), file=sys.stderr)
+    if a_bad:
+        sys.exit("os88ovlchk: %d module-bss accessor(s) do not name CS in the "
+                 "image arm - docs/plans/MODULE-SELFCONTAIN-PLAN.md 3 (a "
+                 "module's bss is the tail of its heap claim, so it is "
+                 "CS-relative; without the prefix the image reads and writes "
+                 "the same wrong address in KERNEL_SEG consistently, which "
+                 "looks like working code)" % len(a_bad))
+    print("os88ovlchk: every module-bss accessor names CS in the image arm")
     d_bad = []
     for f in files:
         for sect, n, line in sections(f):

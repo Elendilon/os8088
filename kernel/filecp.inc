@@ -67,6 +67,26 @@ FCP_FDST    equ 2               ;        word, its mirror in the destination
 FCP_FPOS    equ 4               ;        word, the next raw entry ordinal to
 FCP_FSIZE   equ 6               ;        examine in the source
 
+; FF - a frame field, at BX, wherever fcp_stack lives on this build
+; (docs/plans/MODULE-SELFCONTAIN-PLAN.md 3). On kern_small the descent stack is
+; in FILECP.DRV's OWN bss - the tail of the claim mod_need already rounded up
+; to whole KB - so it is reached through CS like any other image data; on
+; kern_big this file is resident `.cold` and there is no image, so the stack
+; stays in `.bss` and BX is DS-relative as it always was.
+;
+; ONE %define rather than six %ifdefs, and it is the whole of the difference:
+; `fcp_faddr` computes the same offset either way, because a label's value is
+; the same in both sections.
+; There are two, because the frame is reached through BX at one set of sites
+; and DI at another - fcp_faddr answers in BX, fcp_scan walks with DI.
+%ifdef FCP_MOD
+  %define FF(x) [cs:bx+x]
+  %define FD(x) [cs:di+x]
+%else
+  %define FF(x) [bx+x]
+  %define FD(x) [di+x]
+%endif
+
 FCP_MAXKB   equ 64              ; the copy buffer. It bounds the CHUNK, not
 FCP_MINKB   equ 3               ; the file (SPEC.md 22.5), so the minimum is
 FCP_MAXCH   equ 65024           ; small - but big is still what we ASK for,
@@ -1007,10 +1027,10 @@ fcp_push:
     jae .deep
     mov ax, [fcp_depth]
     call fcp_faddr              ; BX -> the new frame, AX = its destination
-    mov [bx+FCP_FDST], ax
+    mov FF(FCP_FDST), ax
     mov ax, [fcp_csrc]
-    mov [bx+FCP_FSRC], ax
-    mov word [bx+FCP_FPOS], 0
+    mov FF(FCP_FSRC), ax
+    mov word FF(FCP_FPOS), 0
     inc word [fcp_depth]
     pop dx
     pop bx
@@ -1055,7 +1075,7 @@ fcp_scan:
     push ss
     pop es
     mov al, [fcp_sdrv]
-    mov bx, [di+FCP_FSRC]
+    mov bx, FD(FCP_FSRC)
     FCPX fcp_goto
     jc .fsio
     cmp byte [dsk_vkind], DVK_FILE
@@ -1068,8 +1088,8 @@ fcp_scan:
     ; built. That is why this joins the FAT path at .stage instead of
     ; repeating its tail: one copy of "what does the engine take from an
     ; entry", not two that can drift.
-    mov ax, [di+FCP_FSRC]       ; the folder's handle...
-    mov cx, [di+FCP_FPOS]       ; ...and how far into it we already are
+    mov ax, FD(FCP_FSRC)       ; the folder's handle...
+    mov cx, FD(FCP_FPOS)       ; ...and how far into it we already are
     mov dx, ds                  ; DX:BX, not ES:BX (SPEC.md 51.8) - and DS
     mov bx, dsk_ent             ; because dsk_ent is .bss, which is where the
     push bp                     ; shared tail reads it from (ES is LOW_SEG
@@ -1077,7 +1097,7 @@ fcp_scan:
     FCPX drv_fs_call            ; got)
     pop bp
     jc .fsdone
-    inc word [di+FCP_FPOS]      ; consumed. THIS ordinal is dense where the
+    inc word FD(FCP_FPOS)      ; consumed. THIS ordinal is dense where the
     jmp .stage                  ; FAT one counts raw slots, and both are
 .fsdone:                        ; opaque to every caller above
     or ax, ax
@@ -1087,13 +1107,13 @@ fcp_scan:
     jmp .ioerr
 
 .fatwalk:
-    mov ax, [di+FCP_FSRC]
+    mov ax, FD(FCP_FSRC)
     FCPX dsk_dirw_start_x
-    mov ax, [di+FCP_FPOS]       ; the ordinal splits into a sector and a slot
+    mov ax, FD(FCP_FPOS)       ; the ordinal splits into a sector and a slot
     mov cl, 4
     shr ax, cl
     mov [fcp_ssec], ax
-    mov ax, [di+FCP_FPOS]
+    mov ax, FD(FCP_FPOS)
     and ax, 15
     mov [fcp_sslot], ax
 .skipsec:
@@ -1121,7 +1141,7 @@ fcp_scan:
     mov al, [es:si]
     test al, al
     jz .end                     ; 0x00: end of directory, per spec
-    inc word [di+FCP_FPOS]      ; consumed, whatever it turns out to be
+    inc word FD(FCP_FPOS)      ; consumed, whatever it turns out to be
     cmp al, 0xE5
     je .next
     cmp al, '.'
@@ -1225,7 +1245,7 @@ fcp_mksub:
     push si
     mov al, [fcp_ddrv]
     push bx
-    mov bx, [bx+FCP_FDST]
+    mov bx, FF(FCP_FDST)
     FCPX fcp_goto
     pop bx
     jc .out
@@ -1372,9 +1392,9 @@ fcp_fnames:
     mov al, [fcp_sdrv]
     mov [fcp_fsdrv], al
     call fcp_frame              ; BX -> the top frame
-    mov ax, [bx+FCP_FSRC]
+    mov ax, FF(FCP_FSRC)
     mov [fcp_fsclus], ax
-    mov ax, [bx+FCP_FDST]
+    mov ax, FF(FCP_FDST)
     mov [fcp_fdclus], ax
 .name:
     mov di, fcp_fname
@@ -1837,7 +1857,29 @@ fcp_rszh:   resw 1              ; low and high...
 fcp_rgot:   resw 1              ; ...and what this chunk has taken so far
 
 fcp_depth:  resw 1              ; frames in use, 0 = not inside a tree
+; --- and the descent stack goes in the IMAGE's own bss on kern_small ------
+; (docs/plans/MODULE-SELFCONTAIN-PLAN.md 3). It is SCRATCH by 3.4's test: its
+; whole life is inside one copy operation, fcp_fin drops the image at the end
+; of every one, and a suspended paste still holds the image while the user
+; reads the overwrite question - so there is no moment when the stack is
+; wanted and FILECP.DRV is out. mod_need zeroes the claim's tail, so it starts
+; zeroed exactly as `.bss` did.
+;
+; THE MODULE ARM IS LAST on purpose: tools/os88ovlchk.py reads source and
+; cannot evaluate an %ifdef, so the section it ends up in is the one it models
+; - and kern_small is the build its module-data check exists to protect. Same
+; reason filecp.inc's one other switch is written this way round.
+%ifndef FCP_MOD
+section .bss
+%else
+section .modpb
+%endif
 fcp_stack:  resb FCP_MAXD * FCP_FSIZE
+%ifndef FCP_MOD
+section .bss
+%else
+section .bss                    ; ...and back, for the words that STAY: the
+%endif                          ; clipboard is resident by 3.4
 
 fcp_ssec:   resw 1              ; fcp_scan: sectors still to skip...
 fcp_sslot:  resw 1              ; ...and the slot to resume at

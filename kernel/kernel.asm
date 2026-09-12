@@ -2558,7 +2558,24 @@ section .modl    start=MODL_START vstart=0
 section .modh    start=MODH_START vstart=0
 %endif
 %ifdef FCP_MOD
+  %define MOD_BSS 1             ; ...and THIS is what mod_need's zeroing hangs
+                                ; off: a build with no module bss has nothing
+                                ; to zero and must not carry the code. Widen it
+                                ; when a second module declares one.
 section .modp    start=MODP_START vstart=0
+; ...AND ITS OWN BSS (docs/plans/MODULE-SELFCONTAIN-PLAN.md 3.1). A module runs
+; from a heap claim and mod_need sizes that claim in whole KB
+; (mem_bytes_kb_x), so every image already owns memory past its own end for
+; exactly as long as it is loaded - and a module's scratch can live THERE
+; instead of in the kernel's `.bss`, where it is resident whether the feature
+; has ever been opened or not.
+;
+; `nobits`, so not one byte of it reaches the floppy; `vfollows`, so its
+; labels are offsets from the same claim base the image's are and `[cs:x]`
+; reaches them. What may live here is SCRATCH and not PENDING state
+; (MODULE-SELFCONTAIN-PLAN 3.4): anything that has to outlive mod_drop - the
+; clipboard's own selection - stays in the kernel.
+section .modpb   nobits vfollows=.modp
 %endif
 %ifdef FDLG_MOD
 section .modd    start=MODD_START vstart=0
@@ -7220,6 +7237,9 @@ MODH_SIZE equ modh_end - $$
 section .modp
 modp_end:
 MODP_SIZE equ modp_end - $$
+section .modpb
+modpb_end:
+MODP_BSS equ modpb_end - $$
 %endif
 
 %ifdef FDLG_MOD
@@ -7250,6 +7270,17 @@ MODD_SIZE equ modd_end - $$
 %ifdef FCP_MOD
  %if MODP_SIZE > MOD_MAX_KB*1024
 %error "the Cut/Copy/Paste module is over MOD_MAX_KB - mod_need would refuse it at run time"
+ %endif
+; ...and its bss has to fit inside the KB ROUNDING of that same claim, which
+; is what makes it cost no heap at all (MODULE-SELFCONTAIN-PLAN 3.2). The risk
+; is a CLIFF and not a slope - an image that grows past a KB boundary loses
+; the room all at once - so it is asserted here, in the file that grew, rather
+; than discovered as a module scribbling on whatever follows its claim.
+; If this ever fires, MODULE-SELFCONTAIN-PLAN 3.2 names the fallback: a word
+; per module in mod_tab, added to AX before mem_bytes_kb_x, for 12 resident
+; bytes on kern_small. Do that WHEN it fires and not before.
+ %if MODP_SIZE + MODP_BSS > ((MODP_SIZE + 1023) / 1024) * 1024
+%error "FILECP.DRV's bss does not fit its claim's KB rounding - see MODULE-SELFCONTAIN-PLAN 3.2"
  %endif
 %endif
 %ifdef FDLG_MOD
