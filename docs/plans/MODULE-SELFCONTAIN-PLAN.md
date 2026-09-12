@@ -546,12 +546,19 @@ each) are read by the settings loader's macros in `.ovl`, so 22 bytes that the
 audit called movable never were. **Re-read W3 and W5 with `--detail` and treat
 every `?macro` row as unmovable until somebody has looked.**
 
-**W5 — `CTRL.DRV`'s leftovers and `HIBER.DRV`'s. ~90 bytes.** `cp_sbuf` (28)
-is the interesting one and it is shared between `.modc` and `.modh`, so it is
-the first case where two images want one buffer — the honest answer is
-probably a copy in each (SPEC.md 2.8.6's *"A string in an image may be COPIED
-rather than shared"*, in the other currency), and 28 bytes of two *files*
-against 28 of RAM is the trade to state rather than assume.
+**W5 — `CTRL.DRV`'s leftovers. CLOSED: nothing clean left**, and every row was
+checked rather than estimated. `cp_sbuf` (28) is the staging buffer 2.8.6.1's
+own move created and is the *destination* of a `cs:` read, not a candidate for
+one. `cp_dmbuf` (12) and `clk_fbuf` (5) are composed then handed to
+`cp_run` -> `cw_font_run`. `cp_savetab` (8) is handed to `toast_say` as `BX`
+and walked through DS. `sched_mode_set` (20), `drv_cfgname` and `drv_sysname`
+(11 each) are the boot overlay's (6.3). `vid_disp_relayout` (10) costs three
+shims to save ten.
+
+**That is the whole of W5's ~90 accounted for, and none of it moves** — which
+is 5.4's rule holding on every row of one image rather than on a sample.
+`HIBER.DRV`'s `hb_onup` (6) is the only untested remainder and is not worth a
+wave.
 
 ## 7. What is refused, and why, so it is not re-derived
 
