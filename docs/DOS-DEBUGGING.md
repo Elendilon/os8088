@@ -325,6 +325,51 @@ this call every program does**, DOS never setting `CF` here. That is the exact
 shape of the defect §96.27 fixed: unimplemented, the call returned `AX=1` with
 `CF`, and Prince's installer read it as one sector per cluster.
 
+### `renref.asm` — `AH=56h` renames, and it also MOVES
+
+`OSAPI_FILE_RENAME` rewrites a directory entry in the folder you are standing
+in (SPEC.md §18.4). DOS's `AH=56h` does that *and* uses the same call to move
+a file between directories of one volume by re-linking it. So the question a
+probe has to answer is not *"does rename work"* — it is which shapes DOS
+refuses, which it does silently, and with what codes.
+
+Measured, IBM DOS 3.30, run from A: with the file on A::
+
+```
+rename        AX=0012 CF=0     T1.TXT -> T2.TXT
+gone          AX=0002 CF=1     ...the second time, when it is no longer there
+onto itself   AX=0005 CF=1     access denied
+old has drive AX=0011 CF=1     B:T2.TXT while standing on A:
+new other drv AX=0012 CF=0     A:T5.TXT while standing on A: - the SAME drive
+new is a path AX=0012 CF=0     \T6.TXT - a MOVE, and it succeeds
+```
+
+**Three of those six are worth having in front of you before writing the
+handler:**
+
+- **`AX` IS JUNK ON SUCCESS.** The row that worked reports `0012h`, and so do
+  both rows at the bottom. Only `CF` is the answer, which is a trap for
+  anyone who reads `AX` the way `AH=4Eh` invites.
+- **The two names must resolve to the SAME drive**, and an unqualified one
+  means the **current** drive — not the other name's. `B:T2.TXT` → `T4.TXT`
+  from A: is `0011h`, *not same device*; `T4.TXT` → `A:T5.TXT` from A: is
+  fine. A handler that resolves the new name against wherever the old one
+  lives gets the first of those wrong and renames happily on B:.
+- **A path in the new name is a move**, and DOS does it. That is the shape an
+  entry rewrite cannot make.
+
+**The first run of this probe measured the PROBE.** Rows 5 and 6 took their
+source from row 4's output, row 4 was always going to fail, and both reported
+*"file not found"* — two rows that looked like findings and were an artefact
+of the fixture. Each row creates its own file now, which is the same lesson
+`dosdir`'s find counts already carry: a fixture shared down a chain of rows
+makes the first failure the only real measurement.
+
+It **writes**, so the disk it runs from must be writable, and it leaves its
+files behind.
+
+---
+
 ### `parsefcb.asm` — what `AH=29h` really answers
 
 `AH=29h` (Parse Filename into FCB, SPEC.md §96.28) is a pure string-to-FCB
