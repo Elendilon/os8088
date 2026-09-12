@@ -86,6 +86,41 @@ start:
     call put_chr
     call put_crlf
 
+    ; --- 1c. A VOLUME LABEL SEARCH must not answer with a FILE -------------
+    ; AH=4Eh's CX is an attribute mask and this box used to ignore it, so a
+    ; program asking "what is this disk called" was handed the first ordinary
+    ; file on it. Prince of Persia asks exactly that to check it is running
+    ; from its own floppy, and refused to start (SPEC.md 96.12.1).
+    mov ah, 0x1A                    ; our own DTA, so the PSP's command tail
+    mov dx, dta                     ; is not trampled by the search
+    int 0x21
+    mov ah, 0x4E
+    mov cx, 0x0008                  ; ...the VOLUME LABEL and nothing else
+    mov dx, pat_lbl
+    int 0x21
+    pushf
+    mov ah, 0x09
+    mov dx, msg_lbl
+    int 0x21
+    popf
+    jc .nolabel
+    mov si, dta + 30                ; ...whatever it handed back
+    mov cx, 13
+.lblc:
+    mov al, [si]
+    or al, al
+    jz .lbldone
+    call put_chr
+    inc si
+    loop .lblc
+    jmp short .lbldone
+.nolabel:
+    mov ah, 0x09
+    mov dx, msg_none
+    int 0x21
+.lbldone:
+    call put_crlf
+
     ; --- 2. a vector, hooked and read back ---------------------------------
     mov ax, 0x2560
     mov dx, myvec
@@ -392,6 +427,9 @@ msg_drv:  db 'DRIVE ','$'
 msg_sel:   db 'SEL ','$'
 msg_back:  db 'BACK ','$'
 msg_nodrv: db 'NOSUCH ','$'
+msg_lbl:   db 'LABEL ','$'
+msg_none:  db '(none)','$'
+pat_lbl:   db '????????.???', 0
 msg_vok:  db 'VEC ok',13,10,'$'
 msg_vbad: db 'VEC FAILED - the vector read back wrong',13,10,'$'
 msg_find: db 'FIND ','$'

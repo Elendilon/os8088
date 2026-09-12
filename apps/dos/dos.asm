@@ -89,7 +89,7 @@ DOS_IMGP    equ DOS_PSPP+16         ; para 26    : the image, at PSP:0100
 ; That is DOS's limit rather than a choice: PSP:0080 is a length byte, then
 ; the text, then an 0Dh, all inside 128 bytes. A field that let a 128th
 ; character in would be one the user could type into and not have obeyed.
-DOS_TRACEN  equ 256                 ; DOSTRACE ring entries (power of two)
+DOS_TRACEN  equ 64                 ; DOSTRACE ring entries (power of two)
 DOS_TRNM_N  equ 12                  ; ...and names it keeps. Plenty: the
                                     ; failure under investigation makes
                                     ; exactly ONE open in a whole session
@@ -1655,6 +1655,8 @@ dos_int21:
     call dos_fh_name                ; the pattern travels the same road a name
     jc .fherr                       ; does, wildcards and all
     call dos_dta_seg                ; ES:DI = the caller's DTA, and DI STAYS
+    mov [es:di+DTA_MASK], cl        ; ...the mask FIRST: the rep movsb below
+                                    ; spends CX (SPEC.md 96.12.1)
     mov word [es:di+DTA_ORD], 0     ; there: .fstep below wants the DTA's BASE,
     push si                         ; and a stosw/rep movsb pair would leave it
     push di                         ; fifteen bytes along - which reads the
@@ -2139,7 +2141,7 @@ dos_tr_name_in:
 
 dos_tr_name: db 'TRACE.LOG', 0
 dos_tr_hdr:  db 'os8088 DOS INT 21h trace', 13, 10
-             db 'AH/AL, oldest first. TOTAL/WRAP ', 0
+             db 'AX BX CX DX, oldest first. TOTAL/WRAP ', 0
 
 ; --- AL -> two hex digits at DI; AX and the flags preserved -----------------
 dos_tr_hex2:
@@ -2222,30 +2224,31 @@ dos_trace_dump:
 .short:
     xor bx, bx
 .go:
-    and bx, (DOS_TRACEN * 2) - 2
+    and bx, (DOS_TRACEN * 8) - 8
     or cx, cx
     jz .write
     xor dx, dx                      ; DX = entries on this line
 .ent:
-    mov al, [bx+dos_traceb]
-    call dos_tr_hex2
-    mov byte [di], '/'
-    inc di
-    mov al, [bx+dos_traceb+1]
-    call dos_tr_hex2
+    mov ax, [bx+dos_traceb]         ; AX=
+    call dos_tr_hex4
     mov byte [di], ' '
     inc di
-    add bx, 2
-    and bx, (DOS_TRACEN * 2) - 2
-    inc dx
-    cmp dx, 8
-    jb .noeol
-    xor dx, dx
+    mov ax, [bx+dos_traceb+2]       ; BX=
+    call dos_tr_hex4
+    mov byte [di], ' '
+    inc di
+    mov ax, [bx+dos_traceb+4]       ; CX=
+    call dos_tr_hex4
+    mov byte [di], ' '
+    inc di
+    mov ax, [bx+dos_traceb+6]       ; DX=
+    call dos_tr_hex4
     mov byte [di], 13
     inc di
     mov byte [di], 10
     inc di
-.noeol:
+    add bx, 8
+    and bx, (DOS_TRACEN * 8) - 8
     loop .ent
 .write:
     mov byte [di], 13
@@ -2300,16 +2303,30 @@ dos_trace_dump:
     ret
 
 dos_trace:
+    cmp ah, 0x02                    ; NOT the console writers. A 110-character
+    je .skip                        ; message is 110 entries, which is a whole
+    cmp ah, 0x09                    ; ring of noise standing exactly where the
+    je .skip                        ; calls that CAUSED it used to be - and the
+    cmp ah, 0x06                    ; message can be read off the screen
+    je .skip
     push ax
     push bx
-    mov bx, [dos_tracew]
-    and bx, (DOS_TRACEN * 2) - 2    ; the ring's byte index, always even
-    mov [dos_traceb+bx], ah
-    mov [dos_traceb+bx+1], al
-    add word [dos_tracew], 2
+    push si
+    mov si, [dos_tracew]
+    and si, (DOS_TRACEN * 8) - 8    ; the ring's byte index, entry-aligned
+    add si, dos_traceb
+    mov [si], ax                    ; AX carries the function AND its
+    mov [si+2], bx                  ; sub-function; the other three carry what
+    mov [si+4], cx                  ; it is ABOUT - a handle, a count, an
+    mov [si+6], dx                  ; offset, a name's address. All four are
+                                    ; still the caller's: `push` does not
+                                    ; change what it pushes
+    add word [dos_tracew], 8
     inc word [dos_tracen]           ; ...and the TOTAL, which does not wrap
+    pop si
     pop bx
     pop ax
+.skip:
     ret
 %endif
 
@@ -5073,10 +5090,10 @@ dos_mcb_resize:
 %ifdef DOSTRACE                 ; ...and NOTHING when it is off: the ring is
     DBSS DOS_B_TRACEN, 2        ; 514 bytes, and an instrument that costs the
     DBSS DOS_B_TRACEW, 2        ; shipped build anything is one that gets
-    DBSS DOS_B_TRACEB, DOS_TRACEN * 2   ; deleted rather than kept
+    DBSS DOS_B_TRACEB, DOS_TRACEN * 8   ; deleted rather than kept
     DBSS DOS_B_TRNM,   DOS_TRNM_N * 13      ; the NAMES the program passed
     DBSS DOS_B_TRNMI,  1                    ; ...and how many, capped
-    DBSS DOS_B_TRDUMP, DOS_TRACEN * 6 + DOS_TRNM_N * 15 + 96
+    DBSS DOS_B_TRDUMP, DOS_TRACEN * 24 + DOS_TRNM_N * 15 + 96
 %endif
     DBSS DOS_B_VW,    2
     DBSS DOS_B_VH,    2
@@ -5230,6 +5247,10 @@ dos_fh_setup:
 ; DTAs, cannot tread on each other. DOS does exactly this, for exactly that.
 DTA_ORD     equ 0                   ; word: the kernel ordinal to ask next
 DTA_PAT     equ 2                   ; char[13]: the pattern, as it was given
+DTA_MASK    equ 15                  ; byte: the ATTRIBUTE MASK AH=4Eh was
+                                    ; given, which DOS also keeps in the
+                                    ; reserved head of the DTA. AH=4Fh needs
+                                    ; it and is handed nothing but the DTA
 DTA_ATTR    equ 21                  ; ...and from here it is DOS's PUBLISHED
 DTA_TIME    equ 22                  ; layout, which the program reads
 DTA_DATE    equ 24
@@ -5277,9 +5298,30 @@ dos_find_step:
     call dos_wild                   ; DS:SI the name, ES:DI the pattern
     mov cx, [dos_ford]
     jne .next
-    ; --- a hit ---------------------------------------------------------------
+    ; --- the name matches; does the ATTRIBUTE MASK allow it? ----------------
+    ; AH=4Eh's CX is a mask and this used to ignore it, which is not a
+    ; refinement: a program asking "what is this disk called" got handed the
+    ; first ORDINARY FILE on it. Prince of Persia asks exactly that - mask 08h,
+    ; pattern ????????.??? - to check it is running from its own floppy, and a
+    ; disk with no label must answer NO MORE FILES. It got FAT.DAT and 28 more
+    ; and refused to start (SPEC.md 96.12.1).
     mov di, [dos_dtasv]
     mov es, [dos_dtasvs]
+    push ax
+    mov al, [es:di+DTA_MASK]
+    test al, 0x08
+    jnz .skipit                     ; A VOLUME LABEL SEARCH matches the label
+                                    ; and nothing else. A package cannot see
+                                    ; one at all - the kernel reports labels to
+                                    ; a DRIVER only - so the honest answer is
+                                    ; the one a label-less disk gives anyway
+    test byte [dos_fent+13], 0x10
+    jz .allowed
+    test al, 0x10
+    jz .skipit                      ; a directory the caller did not ask for
+.allowed:
+    pop ax
+    ; --- a hit ---------------------------------------------------------------
     mov [es:di+DTA_ORD], cx
     mov al, [dos_fent+13]
     mov [es:di+DTA_ATTR], al
@@ -5296,6 +5338,10 @@ dos_find_step:
     rep movsb
     clc
     jmp short .out
+.skipit:
+    pop ax
+    jmp .next                       ; CX is already [dos_ford], which is what
+                                    ; .next asks for
 .none:
     mov al, 18
     stc

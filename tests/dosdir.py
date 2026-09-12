@@ -83,6 +83,25 @@ def main():
                 fail("%s: expected %r in the program's output" % (why, want))
         print("dosdir: AH=0Eh selects, comes back, and refuses what is not there")
 
+        # A VOLUME LABEL SEARCH MUST NOT ANSWER WITH A FILE (SPEC.md
+        # 96.12.1). AH=4Eh's CX is an attribute mask and this box ignored it,
+        # so "what is this disk called" was answered with the first ordinary
+        # file on it - which is how Prince of Persia was told it was not
+        # running from its own floppy.
+        lbl = None
+        for r in rows:
+            if "LABEL" in r:
+                lbl = r.strip().split("LABEL", 1)[1].strip()
+        if lbl is None:
+            fail("the program printed no LABEL line at all")
+        for f in ("DOSDIR", "A.TXT", "BB.TXT", "CCC.TXT", "DATA.DAT", "SUBDIR"):
+            if f in lbl:
+                fail("a volume-label search (AH=4Eh, CX=0008h) answered with "
+                     "%r, which is an ordinary directory entry and not a "
+                     "label. The attribute mask in CX is being ignored "
+                     "(SPEC.md 96.12.1)" % lbl)
+        print("dosdir: a volume-label search answers %r, not a file" % lbl)
+
         if "VEC ok" not in text:
             fail("AH=25h/35h did not round-trip a vector (SPEC.md 96.12)")
 

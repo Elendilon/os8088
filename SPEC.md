@@ -118678,6 +118678,47 @@ Invalid-drive answers are DOS's own, per function and not invented:
 call on a lettered path → CF=1 with `AX=0Fh`; `AH=0Eh` does not fail and
 returns the drive count, which spans the hole.
 
+#### 96.12.1.1 `AH=4Eh`'s CX is a MASK, and ignoring it answers the wrong question
+
+`AH=4Eh` takes an attribute mask in `CX`, and this box ignored it. That is not
+a refinement left for later: a mask is how a program says *what kind of thing
+it is looking for*, so ignoring it does not return too much — it returns
+**something else entirely**, confidently.
+
+The mask a caller sets bit 3 (`08h`) in is a **volume-label search**, and DOS
+answers it with the label and nothing else. It is the ordinary way a program
+asks *what is this disk called*, which is the ordinary way a program on
+removable media checks it is running from its own floppy.
+
+Prince of Persia asks exactly that: `FindFirst("????????.???", 08h)` before it
+will start. The disk it was asked about carries **no label at all**, so DOS
+answers "no more files" and the game accepts the disk. This box answered
+`FAT.DAT`, and then twenty-eight more ordinary files as the program kept
+asking — so the game never got the end-of-search it was waiting for, decided
+the floppy was not its own, and refused to run. The user-visible message names
+files, which is the last thing wrong with the disk.
+
+So the mask is honoured. A label search matches nothing, which is what a
+label-less disk gives under DOS anyway and is the honest answer here for a
+second reason: **a package cannot see a volume label at all** — the kernel
+reports label, hidden and system entries to a driver only (§19.6.1) — so
+reporting one would need a slot that does not exist. A disk that *does* carry
+a label is therefore answered as though it did not. That is a limitation
+rather than a lie, and it is written down here because the next program to
+check a label by name will be defeated by it and the trace will look like
+nothing is wrong.
+
+Directories are filtered on the same rule: returned only when the caller set
+bit 4, which is what DOS does and what this box also did not do.
+
+**The general shape, which is the reason this section exists at all.** Every
+other refusal in §96 is a call this box does not answer, and a program told
+`CF=1` does something sensible. A call answered with the *wrong kind of thing*
+has no such floor: the program believes it, and the failure surfaces
+arbitrarily far away, wearing a message about something else. `AH=44h`
+(§96.22) was the same defect in a different register, and both were found by
+tracing what the program asked rather than by reading what it does.
+
 #### 96.6.1 Selecting one, and the jail that went with it
 
 `AH=0Eh` used to answer the drive count and **not move**, on two arguments.
