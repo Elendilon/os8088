@@ -385,6 +385,19 @@ is resident for the package ABI whether a module names it or not, so its
 marginal cost here is zero; the tool excludes `apic_*` now and says why. The
 totals came back to **428 / 533**, which is 440 − 12 and 557 − 24 exactly.
 
+**What verified it, and a row it found broken.** `cppromise` (SPEC.md 31.12,
+the per-PAGE promise — `wm_saveu`, one of the six), `cpup`, `dtfield`,
+`diskclone` (the cloner, `mem_avail`) and `fdlgup` all pass; `fdlgsmall` is
+the one that matters most, because on `kern_small` the dialog IS the `.modd`
+module and all six substitutions are live there including the XCELL. It
+**could not run at all** and not because of this change: its `wants=` named
+`build/small.img` while its command opens `build/small360.img`, so the frozen
+tree built the 1.44MB pair and the row died in 0.1 s on the 360KB disk it
+actually reads. One line of `tests/suite.py`; it passes in 51.9 s now. A
+`wants=` that names a different artefact from the command is
+docs/WRITING-TESTS.md's own rule, and the row had been unrunnable on any
+checkout where nobody had typed `make small` by hand.
+
 **W1 — `FORMAT.DRV`'s boot-sector template. ~30 bytes, no UI risk.**
 `dskw_fmt_jmp` (11), `dskw_fmt_lab` (11) and `dskw_fmt_typ` (8) are bytes the
 formatter *writes into a sector*, so SPEC.md 2.8.6's ordering rule is

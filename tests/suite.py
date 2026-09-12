@@ -3668,7 +3668,14 @@ SOAK = [
         "the resident build. It builds its own image (`make small`) for "
         "smallboot's reason.",
         needs=("marty",), serial=True,
-        wants=("build/muptest.img", "build/small.img", "build/smallapps.img")),
+        # build/small360.img is what the COMMAND above opens (OS88_SYSIMG),
+        # and it was not in this list - so the frozen tree built the 1.44MB
+        # pair and the row died in 0.1s on the 360KB one it actually reads.
+        # A `wants=` that names a different artefact from the command is a row
+        # that cannot run anywhere but a checkout where somebody has already
+        # typed `make small` by hand (docs/WRITING-TESTS.md 4).
+        wants=("build/muptest.img", "build/small360.img",
+               "build/small.img", "build/smallapps.img")),
     Row("fdlgdrop", "soak", py("tests/fdlgdrop.py"), 80.0,
         "...and the module comes BACK on every route a dialog ends by "
         "(SPEC.md 38.0.1). The row above drives the dialog and never asks "
