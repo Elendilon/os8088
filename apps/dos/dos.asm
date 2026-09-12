@@ -143,7 +143,7 @@ DOS_TRACE_SZ equ 32                 ; ...bytes an entry, NAMED so that the host
                                     ; decodes plausible nonsense the day it
                                     ; moves. It has moved twice already, 12 to
                                     ; 16 to 32
-DOS_TRDUMPN equ 256                 ; ...and how many of them TRACE.LOG holds,
+DOS_TRDUMPN equ 64                  ; ...and how many of them TRACE.LOG holds,
                                     ; which is separate because the RING is
                                     ; read live off a debugger and the FILE is
                                     ; what the field posts. **256 AGAIN, and
@@ -396,6 +396,14 @@ dos_entry:
                                     ; door for this one (wave 7)
     mov [dos_dir], dx
     mov [dos_vol], bl
+    mov byte [dos_fhome], 0xFF      ; **THE SENTINEL, BECAUSE BSS IS ZERO AND
+                                    ; ZERO IS DRIVE A:** (SPEC.md 96.6.3).
+                                    ; [dos_fhome] means "we never left" at
+                                    ; 0xFF, and dos_fh_enter is the only thing
+                                    ; that ever wrote it - so until the first
+                                    ; name with a drive letter in it, every
+                                    ; dos_fh_leave read 0 and dutifully
+                                    ; "restored" the program to A:
     mov di, dos_name                ; copy the name out of KERNEL_SEG first:
     mov cx, 13                      ; ES is the kernel's here and the next call
 .cp:                                ; is free to move what SI points at
@@ -2520,8 +2528,11 @@ dos_int21:
     ; AND the 8-level limit that came with it.
     push bx
     mov [dos_cwdst], si
-    mov byte [dos_cwdrv], 0
-    mov al, dl
+    mov byte [dos_cwdrv], 0xFF      ; ...AND THE SAME SENTINEL HERE, for the
+    mov al, dl                      ; same reason: 0 is drive A:, so asking
+                                    ; AH=47h about A: from anywhere else set
+                                    ; this to "never left" and dos_cw_back
+                                    ; stayed there (96.6.3)
     or al, al
     jz .cw_here                     ; 0 is "the one I am on"
     dec al                          ; ...otherwise DOS counts A: as 1 here
@@ -7330,8 +7341,8 @@ dos_cw_back:
     push ax
     push dx
     mov al, [dos_cwdrv]
-    or al, al
-    jz .out
+    cmp al, 0xFF
+    je .out
     cmp al, [dos_vol]
     jne .out
     mov dl, [dos_dvfrom]
