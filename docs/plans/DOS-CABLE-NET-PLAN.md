@@ -234,7 +234,7 @@ connection we refuse with `RST`, which is what a client understands.
 |---|---|---|
 | 1 | **DONE, and it changed the plan**: measure S. §3.1 is the result — 2,277 for a `SEG\|LAZY` row, against a 2,000-byte translation, so the part is REFUSED for now and waves 2–4 build inline | `S` is a number in §3.1 |
 | 2 | ARP, IP, and the DNS hijack | the client's ARP is answered and a DNS query gets a synthetic A record |
-| 3 | the TCP endpoint | mTCP's `htget` fetches a page across the cable |
+| 3 | **WRITTEN, NOT WORKING, gated behind `DOSNET=1`** (SPEC.md 96.26.3). The open path is proven to the wire and the SYN\|ACK is proven correct; it does not reach the client. The up-call is the next thing to measure | mTCP's `htget` fetches a page across the cable |
 | 4 | the gate's cable arm | `tests/dospkt.py` proves it under MartyPC with no second machine |
 | — | *below here is optional and separately revertible* | |
 | 8 | `OSAPI_PKG_REHOME` — give **S** back | `kernsize`-style A/B on the region |

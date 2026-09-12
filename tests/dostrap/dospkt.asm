@@ -28,6 +28,7 @@
 VEC_LO      equ 0x60
 VEC_HI      equ 0x80
 ETY_ARP     equ 0x0806
+ETY_IP      equ 0x0800
 RXMAX       equ 1514
 
 ; the gateway QEMU's slirp always puts at 10.0.2.2, and the address its DHCP
@@ -74,6 +75,7 @@ start:
     call get_address
     call send_arp
     call wait_rx
+    call do_tcp                     ; ...AND A CONNECTION (SPEC.md 96.26.3)
     call release
 
 done:
@@ -312,6 +314,79 @@ wait_rx:
     ret
 
 ; -----------------------------------------------------------------------------
+; do_tcp - send a SYN and say what comes back
+;
+; **THE POINT IS THE ANSWER, NOT THE CONNECTION.** mTCP's own programs cannot
+; say what they received - their output dies with the bracket (SPEC.md 96.11's
+; wave 6) - so a handshake that fails inside one is unreadable. This asks the
+; one question that matters and prints the flags byte: did a SYN|ACK arrive.
+;
+; It registers for IP separately, because the ARP handle above will not match
+; an 0800 frame.
+; -----------------------------------------------------------------------------
+do_tcp:
+    mov ah, 2                       ; access_type for IP
+    mov al, 1
+    mov bx, 0xFFFF
+    mov dl, 0
+    mov si, ip_type
+    mov cx, 2
+    push cs
+    pop es
+    mov di, receiver
+    call callvec
+    jc .no
+    mov [handle2], ax
+
+    push cs                         ; --- the SYN ---
+    pop es
+    mov si, mymac
+    mov di, synbuf + 6
+    mov cx, 6
+    call cpy
+    mov si, mymac
+    mov di, synbuf + 14 + 12 + 8    ; ...nothing: the IP header has no MAC.
+                                    ; (kept as one call so the shape matches
+                                    ; send_arp and the offsets stay visible)
+    mov cx, 0
+    call cpy
+    mov word [nrx], 0
+    mov word [firstety], 0
+    mov word [lastflags], 0
+    mov ah, 4
+    mov si, synbuf
+    mov cx, SYNLEN
+    call callvec
+    jc .no
+
+    push es                         ; --- and wait for the answer ---
+    xor ax, ax
+    mov es, ax
+    mov bx, [es:0x46C]
+    add bx, 90                      ; ~5 seconds
+.w:
+    mov ax, [es:0x46C]
+    cmp ax, bx
+    jae .done
+    cmp word [lastflags], 0
+    je .w
+.done:
+    pop es
+    mov dx, s_syn
+    call puts
+    mov ax, [lastflags]
+    call puthex16
+    call crlf
+    ret
+.no:
+    mov dx, s_nosyn
+    call puts
+    mov al, dh
+    call puthex8
+    call crlf
+    ret
+
+; -----------------------------------------------------------------------------
 release:
     mov ah, 3
     mov bx, [handle]
@@ -360,6 +435,16 @@ receiver:
     jne .notfirst
     mov [firstety], ax
 .notfirst:
+    cmp ax, ETY_IP
+    jne .notip
+    cmp byte [rxbuf+14+9], 6        ; ...a TCP segment: bank its FLAGS, which
+    jne .out                        ; is the whole question do_tcp asks
+    mov al, [rxbuf+14+20+13]
+    xor ah, ah
+    or ax, 0x100                    ; ...with a bit set so "nothing yet" and
+    mov [lastflags], ax             ; "flags of zero" are different answers
+    jmp short .out
+.notip:
     cmp ax, ETY_ARP
     jne .out
     mov al, [rxbuf+14+7]            ; ARP oper, low byte: 2 = a REPLY
@@ -452,6 +537,7 @@ cpy:
     pop ax
     ret
 
+ip_type:    db 0x08, 0x00           ; ...and IP, for do_tcp's own handle
 arp_type:   db 0x08, 0x06           ; the ethertype access_type is given, in
                                     ; wire order - which is what the spec says
                                     ; and what makes a big-endian compare right
@@ -472,17 +558,47 @@ s_noacc:    db 'NOACC 1', 13, 10, '$'
 s_noinfo:   db 'NOINFO 1', 13, 10, '$'
 s_nomac:    db 'NOMAC 1', 13, 10, '$'
 s_notx:     db 'NOTX $'
+s_syn:      db 'SYNACK $'
+s_nosyn:    db 'NOSYN $'
 s_ready:    db 'READY', 13, 10, '$'
 
 pktvec:     db 0
 lasterr:    db 0
 handle:     dw 0
+handle2:    dw 0
+lastflags:  dw 0
 nrx:        dw 0
 narp:       dw 0
 firstety:   dw 0
 rxbusy:     dw 0
 rxlen:      dw 0
 mymac:      times 6 db 0
+; --- a SYN, as a template too ------------------------------------------------
+; To 10.0.2.2:8099, from 10.0.2.15:4660. Both checksums are PRECOMPUTED for
+; exactly these bytes: the frame never changes but the source MAC, and a MAC
+; is not in either sum. A wrong checksum here would be indistinguishable from
+; the box dropping the frame, so it is computed once by tools and checked by
+; tests/dospkt.py rather than trusted.
+synbuf:
+            db 0x02,'o','s','8','8',0x01        ; +0  to the gateway (us)
+            times 6 db 0                        ; +6  from: poked in
+            db 0x08, 0x00                       ; +12 IPv4
+            db 0x45, 0x00, 0x00, 0x28           ; +14 IP: v4, 40 bytes
+            db 0x00, 0x00, 0x00, 0x00           ; +18 id, flags
+            db 64, 6                            ; +22 ttl, TCP
+            db 0x62, 0xC0                       ; +24 header checksum
+            db 10, 0, 2, 15                     ; +26 from 10.0.2.15
+            db 10, 0, 2, 2                      ; +30 to   10.0.2.2
+            db 0x12, 0x34                       ; +34 sport 4660
+            db 0x1F, 0xA3                       ; +36 dport 8099
+            db 0x00, 0x00, 0x10, 0x00           ; +38 seq 4096
+            db 0x00, 0x00, 0x00, 0x00           ; +42 ack
+            db 0x50, 0x02                       ; +46 five words, SYN
+            db 0x04, 0x00                       ; +48 window 1024
+            db 0x51, 0xFB                       ; +50 checksum
+            db 0x00, 0x00                       ; +52 urgent
+SYNLEN      equ 54
+
 ; --- the ARP request, as a template (every byte but the MACs is a constant) --
 txbuf:
             db 0xFF,0xFF,0xFF,0xFF,0xFF,0xFF    ; +0  destination: broadcast

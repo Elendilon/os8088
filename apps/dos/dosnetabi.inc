@@ -20,11 +20,19 @@ DN_F_ST     equ 2                   ; byte: DN_S_*
 DN_F_LPORT  equ 3                   ; word: the CLIENT's port, wire order
 DN_F_RPORT  equ 5                   ; word: ...and the one it asked for
 DN_F_RIP    equ 7                   ; 4:    the synthetic address it connected
-                                    ;       to, wire order
-DN_F_SND    equ 11                  ; 4:    our next sequence TO the client
-DN_F_RCV    equ 15                  ; 4:    the next we expect FROM it - which
+                                    ;       to, wire order - which is also the
+                                    ;       SOURCE of everything we send it
+DN_F_LIP    equ 11                  ; 4:    ...and its own, the destination
+DN_F_SND    equ 15                  ; 4:    our next sequence TO the client
+DN_F_RCV    equ 19                  ; 4:    the next we expect FROM it - which
                                     ;       is also the ack we send
-DN_F_SIZE   equ 19
+DN_F_SIZE   equ 23
+
+; **THE ETHERNET ADDRESSES ARE NOT PER FLOW**, and that is worth stating
+; because it is the kind of field that gets added by habit. We told the client
+; its own MAC (dn_ourmac) and we are the only other station, so every frame we
+; build goes FROM dn_gwmac TO dn_ourmac whatever the flow - there is nothing
+; to remember and nothing to look up.
 
 DN_S_FREE   equ 0
 DN_S_OPEN   equ 1                   ; NETV_OPEN issued, waiting on NSK_UP

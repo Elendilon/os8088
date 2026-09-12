@@ -6020,7 +6020,7 @@ PKT_BUFKB   equ 2                   ; 1,514 bytes wanted, and a claim is in KB
 PKT_ETYPE   equ 12                  ; where the ethertype sits in a frame. The
                                     ; ABI publishes the header's SIZE and this
                                     ; is the one offset inside it a demux needs
-PKT_STK     equ 512                 ; the tick poll's own stack
+PKT_STK     equ 1024                ; the tick poll's own stack
                                     ; (SPEC.md 96.23.4.1). The chain under it
                                     ; is OSAPI_DRV_CALL into the kernel, the
                                     ; driver's verb, ne_rx's DMA loop and then
@@ -8377,15 +8377,21 @@ dos_pkt_bufs:
                                     ; there is not - net_find's own preference
                                     ; order, for its own reason
     mov byte [dos_pkt_xl], 0
+    ; --- **THE TRANSLATION IS OPT-IN WHILE ITS TCP IS UNFINISHED** ---------
+    ; SPEC.md 96.26.3's endpoint does not yet complete a handshake, and a
+    ; half-built one is WORSE than none on the machine it is for: without it a
+    ; cable-only machine publishes no packet driver and a client says so at
+    ; once (96.23.5), while with it the client finds an interface, opens a
+    ; handle and waits for ever. So DOSNET=1 is what builds the route at all,
+    ; and a stock build behaves exactly as it did before this file existed.
+%ifdef DOSNET
     cmp byte [net_cls], DRVC_NET
     jne .xlate
 %ifdef DOSNET_CARD
-    jmp short .xlate                ; **THE KNOB** (DOS-CABLE-NET-PLAN 7.0):
-                                    ; translate even where the raw path is
-                                    ; available, because on a card machine raw
-                                    ; is strictly better and would otherwise
-                                    ; always win - so the translation would
-                                    ; never run anywhere it can be driven
+    jmp short .xlate                ; ...and this one forces it where a card
+                                    ; is present, which is the only way it can
+                                    ; be driven (DOS-CABLE-NET-PLAN 7.0)
+%endif
 %endif
     jmp short .card
 .xlate:
@@ -8444,6 +8450,7 @@ dos_pkt_start:
     mov byte [dos_pkt_vec], 0
     mov byte [dos_pkt_raw], 0
     mov byte [dos_pkt_busy], 0
+    mov word [dos_pkt_can], 0x5A5A  ; the canary, armed
     mov byte [dos_pkt_mode], 3      ; what the card is in, and what get_rcv_mode
                                     ; answers until somebody sets it
     cmp byte [dos_pkt_xl], 0        ; the translation needs no buffers...
@@ -9576,6 +9583,15 @@ dos_fh_fill:
     DBSS DOS_B_PKTOLD08, 4          ; the tick we chain
     DBSS DOS_B_PKTSSS,  2           ; the program's stack, banked across a poll
     DBSS DOS_B_PKTSSP,  2
+    DBSS DOS_B_PKTCAN,  2           ; **A CANARY UNDER THE PRIVATE STACK**, and
+                                    ; it is here because the alternative was a
+                                    ; HANG: the two words above are what the
+                                    ; program's SS:SP is banked in, they sit
+                                    ; directly below the stack, and an overflow
+                                    ; writes a bogus stack back and takes the
+                                    ; machine with it. The translation made the
+                                    ; chain under this poll much deeper than
+                                    ; §96.23.4.1 sized it for
     DBSS DOS_B_PKTSTK,  PKT_STK     ; ...and ours (SPEC.md 96.23.4.1)
     DBSS DOS_B_PKTCDS,  2           ; the CLIENT's DS, captured at the gate
                                     ; (SPEC.md 96.23.9) - NOT read back out of
@@ -9599,6 +9615,9 @@ dos_fh_fill:
     DBSS DOS_B_DNPEND,  2           ; ...and how many bytes of it are waiting
     DBSS DOS_B_DNLASTIP, 1          ; the pool octet the last answer used
     DBSS DOS_B_DNPSEUDO, 12         ; TCP's pseudo-header, off to one side
+    DBSS DOS_B_DNRR,    1           ; dn_pump's round-robin cursor: a busy
+                                    ; first flow would starve every other one,
+                                    ; and FTP opens two
     DBSS DOS_B_PKTTXS,  NET_FRAME   ; the client's frame, staged into OUR
                                     ; segment for dn_tx to read
     DBSS DOS_B_PKTXL,   1           ; **WHICH PATH, and it is NOT the same
@@ -9816,6 +9835,7 @@ dos_pkt_chand equ os88_image_end + DOS_B_PKTCHAND
 dos_pkt_old08 equ os88_image_end + DOS_B_PKTOLD08
 dos_pkt_sss   equ os88_image_end + DOS_B_PKTSSS
 dos_pkt_ssp   equ os88_image_end + DOS_B_PKTSSP
+dos_pkt_can   equ os88_image_end + DOS_B_PKTCAN
 dos_pkt_stk   equ os88_image_end + DOS_B_PKTSTK
 dos_pkt_stk_top equ dos_pkt_stk + PKT_STK
 dos_pkt_cds   equ os88_image_end + DOS_B_PKTCDS
@@ -9830,6 +9850,7 @@ dn_frame    equ os88_image_end + DOS_B_DNFRAME
 dn_pend     equ os88_image_end + DOS_B_DNPEND
 dn_lastip   equ os88_image_end + DOS_B_DNLASTIP
 dn_pseudo   equ os88_image_end + DOS_B_DNPSEUDO
+dn_rr       equ os88_image_end + DOS_B_DNRR
 dos_pkt_txs equ os88_image_end + DOS_B_PKTTXS
 dos_pkt_xl  equ os88_image_end + DOS_B_PKTXL
 dos_pkt_rxs equ dn_frame            ; THE CABLE PATH'S RECEIVE STAGING IS

@@ -163,6 +163,39 @@ dn_arp:
     cmp ax, 0x0100                  ; oper 1, wire order: a REQUEST
     jne .out
 
+    ; --- **NEVER ANSWER A DUPLICATE-ADDRESS PROBE** (SPEC.md 96.26.1.1) ----
+    ; A stack coming up asks whether anything already holds the address it is
+    ; about to use, and it asks with an ARP whose TARGET is its OWN address -
+    ; either from that address (a gratuitous probe) or from 0.0.0.0. A reply
+    ; means "taken", and a responder that answers EVERYTHING answers this too.
+    ;
+    ; mTCP then refuses to initialise at all, and what it prints is "Failed to
+    ; initialize TCP/IP" - which names neither ARP nor an address and sends
+    ; you looking at the config. It cost a session to find: every counter said
+    ; the translation was idle because the client had given up before its
+    ; first socket call.
+    push cx
+    push si
+    push di
+    mov di, si
+    add di, DN_ARP_TPA
+    add si, DN_ARP_SPA
+    mov cx, 4
+    call dn_streqn                  ; target == sender: a probe for its own
+    pop di                          ; address
+    pop si
+    pop cx
+    je .out
+    push cx
+    push si
+    mov si, si
+    add si, DN_ARP_SPA
+    mov cx, 4
+    call dn_iszero                  ; ...or from 0.0.0.0, which is the other
+    pop si                          ; spelling of the same question
+    pop cx
+    je .out
+
     mov di, dn_frame                ; --- build the reply ---
     push si
     mov cx, 6                       ; destination: whoever asked
@@ -546,6 +579,126 @@ dn_name_put:
     clc
     ret
 
+; -----------------------------------------------------------------------------
+; dn_ipstr - the four bytes at SI as a NUL-terminated dotted quad at DI
+;
+; Three digits at most and no leading zeros, because that is what a resolver's
+; own parser expects - ip_parse in dns.inc reads decimal and stops at the dot.
+; -----------------------------------------------------------------------------
+dn_ipstr:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov cx, 4
+.oct:
+    mov al, [si]
+    inc si
+    xor ah, ah
+    mov bl, 100
+    div bl                          ; AL = hundreds, AH = the rest
+    or al, al
+    jz .tens
+    add al, '0'
+    mov [di], al
+    inc di
+    mov al, ah                      ; ...and once a digit is out, the next two
+    xor ah, ah                      ; are emitted whatever they are
+    mov bl, 10
+    div bl
+    add al, '0'
+    mov [di], al
+    inc di
+    mov al, ah
+    jmp short .ones
+.tens:
+    mov al, ah
+    xor ah, ah
+    mov bl, 10
+    div bl
+    or al, al
+    jz .ones2
+    add al, '0'
+    mov [di], al
+    inc di
+    mov al, ah
+    jmp short .ones
+.ones2:
+    mov al, ah
+.ones:
+    add al, '0'
+    mov [di], al
+    inc di
+    dec cx
+    jz .done
+    mov byte [di], '.'
+    inc di
+    jmp short .oct
+.done:
+    mov byte [di], 0
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; --- dn_streqn - are the CX bytes at SI and DI the same? out ZF=1 = yes -----
+dn_streqn:
+    push ax
+    push cx
+    push si
+    push di
+    jcxz .same
+.l:
+    mov al, [si]
+    cmp al, [di]
+    jne .no
+    inc si
+    inc di
+    loop .l
+.same:
+    pop di
+    pop si
+    pop cx
+    pop ax
+    cmp al, al                      ; ZF=1
+    ret
+.no:
+    pop di
+    pop si
+    pop cx
+    pop ax
+    or al, 1                        ; ZF=0 - and AL is ours to spend, since
+    ret                             ; every caller here wants only the flag
+
+; --- dn_iszero - are the CX bytes at SI all zero? out ZF=1 = yes ------------
+dn_iszero:
+    push ax
+    push cx
+    push si
+    jcxz .yes
+.l:
+    cmp byte [si], 0
+    jne .no
+    inc si
+    loop .l
+.yes:
+    pop si
+    pop cx
+    pop ax
+    cmp al, al
+    ret
+.no:
+    pop si
+    pop cx
+    pop ax
+    or al, 1
+    ret
+
 ; --- dn_streq - is the NUL string at SI the same as the one at DI? ----------
 ; out: ZF=1 = equal
 dn_streq:
@@ -723,31 +876,462 @@ dn_dns_reply:
     ret
 
 ; =============================================================================
-; THE TCP ENDPOINT - WAVE 3'S SEAM (SPEC.md 96.26.3)
+; THE TCP ENDPOINT (SPEC.md 96.26.3)
 ; =============================================================================
-; **NOT BUILT YET, AND IT REFUSES RATHER THAN PRETENDING.** Every segment is
-; answered with RST, which is a real answer: the client stops instead of
-; retrying into a silence, and its own error path says "connection refused"
-; where a drop would read as a dead network.
+; What is underneath is not a network: a NETV_SEND either takes bytes or does
+; not, in order, locally. So this needs no congestion control, no retransmit
+; queue and no reassembly - only the state machine, the sequence arithmetic
+; and the checksum. DOS-CABLE-NET-PLAN 5 is the full list of what that removes.
 ;
-; That is what makes wave 2 testable on its own. A client ARPs, resolves a
-; name, gets an address out of our pool and connects - and the first two of
-; those are observable precisely because the third fails cleanly.
-;
-; What goes here is the state machine, the sequence arithmetic and the
-; checksum, and DOS-CABLE-NET-PLAN 5 is the list of what it does NOT need:
-; no congestion control, no retransmit queue, no reassembly.
+; **ONE FRAME IS STAGED AT A TIME**, because dn_frame is one buffer, so every
+; builder here checks [dn_pend] first and does nothing if something is already
+; waiting. For a pure ACK that is free - they are cumulative, so the next one
+; carries what the skipped one would have - and for a SYN|ACK or a FIN the
+; STATE IS NOT ADVANCED until the frame is staged, so the next poll retries.
+; -----------------------------------------------------------------------------
+; dn_seg - build a segment for a flow, from the FLOW and nothing else
+; in:  BX = the flow, AL = the TCP flags, CX = payload bytes ALREADY placed at
+;      dn_frame + DN_T_PAY
+; out: [dn_pend] set. Does NOT advance the sequence - the caller knows whether
+;      its flags consume one (SYN and FIN do; data consumes its length)
+; -----------------------------------------------------------------------------
+dn_seg:
+    push ax
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    mov bp, cx                      ; the payload length, banked
+    mov [dn_frame+DN_T_FLAGS], al   ; **THE FLAGS GO STRAIGHT INTO THE FRAME**
+                                    ; and are not banked in a register, which
+                                    ; is how this was wrong: they were held in
+                                    ; DL, and dn_put32 takes DX:AX - so the
+                                    ; sequence load below overwrote them and
+                                    ; what went out was the low byte of the
+                                    ; acknowledgement's high word. A SYN|ACK
+                                    ; (0x12) left as SYN|FIN|PSH|URG (0x2B),
+                                    ; with both checksums CORRECT over it, so
+                                    ; the client dropped it in silence and sat
+                                    ; waiting for a handshake that had already
+                                    ; been answered
+
+    mov si, dn_ourmac               ; --- Ethernet: to the client, from us ---
+    mov di, dn_frame
+    mov cx, 6
+    call dn_copy
+    mov si, dn_gwmac
+    mov di, dn_frame + DN_EH_SRC
+    mov cx, 6
+    call dn_copy
+    mov word [dn_frame+DN_EH_TYP], 0x0008   ; IPv4, wire order
+
+    mov byte [dn_frame+DN_IP_VIHL], 0x45    ; --- IP ---
+    mov byte [dn_frame+DN_EH_LEN+1], 0
+    mov ax, bp
+    add ax, DN_IP_HLEN + DN_T_HLEN
+    xchg al, ah
+    mov [dn_frame+DN_IP_LEN], ax
+    mov word [dn_frame+DN_EH_LEN+4], 0      ; id, and flags/offset: nothing
+    mov word [dn_frame+DN_EH_LEN+6], 0      ; here fragments
+    mov byte [dn_frame+DN_IP_TTL], 64
+    mov byte [dn_frame+DN_IP_PROTO], DN_IPP_TCP
+    mov word [dn_frame+DN_IP_CK], 0         ; zero ACROSS the sum, always
+    mov si, bx
+    add si, DN_F_RIP                        ; source: what it connected TO
+    mov di, dn_frame + DN_IP_SRC
+    mov cx, 4
+    call dn_copy
+    mov si, bx
+    add si, DN_F_LIP                        ; ...and destination: its own
+    mov di, dn_frame + DN_IP_DST
+    mov cx, 4
+    call dn_copy
+    mov si, dn_frame + DN_EH_LEN
+    mov cx, DN_IP_HLEN
+    call dn_cksum
+    xchg al, ah
+    mov [dn_frame+DN_IP_CK], ax
+
+    mov ax, [bx+DN_F_RPORT]                 ; --- TCP ---
+    mov [dn_frame+DN_T_SPORT], ax
+    mov ax, [bx+DN_F_LPORT]
+    mov [dn_frame+DN_T_DPORT], ax
+    mov si, bx
+    add si, DN_F_SND
+    mov ax, [si]
+    mov dx, [si+2]
+    mov di, dn_frame + DN_T_SEQ
+    call dn_put32
+    mov si, bx
+    add si, DN_F_RCV
+    mov ax, [si]
+    mov dx, [si+2]
+    mov di, dn_frame + DN_T_ACK
+    call dn_put32
+    mov byte [dn_frame+DN_T_OFF], 0x50      ; five words, no options
+    mov ax, DN_WIN                          ; a FIXED window, and it is our
+    xchg al, ah                             ; staging buffer's size: the client
+    mov [dn_frame+DN_T_WIN], ax             ; must never send more than we can
+    mov word [dn_frame+DN_T_CK], 0          ; hold, because there is nowhere to
+    mov word [dn_frame+DN_T_URG], 0         ; put an overflow and no reassembly
+    mov cx, bp
+    add cx, DN_T_HLEN
+    call dn_tcp_ck
+    mov cx, bp
+    add cx, DN_T_HLEN
+    mov ax, cx
+    add ax, DN_TCP
+    mov [dn_pend], ax
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; --- dn_adv - the flow's send sequence forward by AX --------------------------
+dn_adv:
+    push si
+    push dx
+    mov si, bx
+    add si, DN_F_SND
+    add [si], ax
+    adc word [si+2], 0
+    pop dx
+    pop si
+    ret
+
+; --- dn_advr - ...and the receive one, which is what we acknowledge ----------
+dn_advr:
+    push si
+    push dx
+    mov si, bx
+    add si, DN_F_RCV
+    add [si], ax
+    adc word [si+2], 0
+    pop dx
+    pop si
+    ret
+
+; --- dn_paylen - how many bytes of payload are in the client's segment ------
+; in:  SI = the frame.  out: AX = the length (0 for a pure ACK)
+dn_paylen:
+    push bx
+    push cx
+    mov bx, si
+    mov ah, [bx+DN_IP_LEN]          ; the IP total length, wire order - NOT the
+    mov al, [bx+DN_IP_LEN+1]        ; frame's, because the card pads to 60
+    sub ax, DN_IP_HLEN
+    jb .none
+    mov cl, [bx+DN_T_OFF]           ; ...and the TCP header's own length, which
+    shr cl, 1                       ; is the high nibble in 32-bit words
+    shr cl, 1
+    shr cl, 1
+    shr cl, 1
+    and cl, 0x0F
+    shl cl, 1
+    shl cl, 1
+    xor ch, ch
+    sub ax, cx
+    jb .none
+    pop cx
+    pop bx
+    ret
+.none:
+    xor ax, ax
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; dn_tcp_in - one TCP segment from the client
+; in:  SI = the frame, CX = its length
 ; -----------------------------------------------------------------------------
 dn_tcp_in:
     push ax
+    push bx
+    push cx
+    push dx
+    push di
     test byte [si+DN_T_FLAGS], DN_RST
-    jnz .out                        ; never answer an RST with an RST
+    jnz .reset                      ; never answer a reset with a reset
+    test byte [si+DN_T_FLAGS], DN_SYN
+    jnz .syn
+    call dn_flow
+    jc .rst                         ; a segment for a flow we do not have is
+                                    ; answered with RST, which tells a client
+                                    ; to stop rather than retry into silence
+    cmp byte [bx+DN_F_ST], DN_S_UP
+    jne .out                        ; still connecting, or closing: its own
+                                    ; retransmit will find us in a moment
+    test byte [si+DN_T_FLAGS], DN_FIN
+    jnz .fin
+    call dn_tcp_data
+    jmp short .out
+.syn:
+    call dn_tcp_open
+    jmp short .out
+.fin:
+    call dn_tcp_fin
+    jmp short .out
+.reset:
+    call dn_flow
+    jc .out
+    call dn_kill
+    jmp short .out
+.rst:
     call dn_tcp_rst
 .out:
+    pop di
+    pop dx
+    pop cx
+    pop bx
     pop ax
     ret
 
 ; -----------------------------------------------------------------------------
+; dn_tcp_open - a SYN: open the socket BY NAME (SPEC.md 96.26.2)
+;
+; The client is connecting to an address we invented in a DNS answer, so the
+; last octet indexes straight back into the name table and NETV_OPEN gets the
+; NAME. An address we never handed out is refused with RST: there is nothing
+; to look up.
+;
+; NO SYN|ACK IS SENT HERE. NETV_OPEN is non-blocking and the far side has its
+; own handshake to do, so the answer waits for NSK_UP in dn_pump. The client
+; retransmits its SYN meanwhile, and dn_flow finding the flow is what makes
+; that harmless.
+; -----------------------------------------------------------------------------
+dn_tcp_open:
+    push si
+    push di
+    call dn_flow
+    jnc .done                       ; a RETRANSMITTED SYN must not open a
+                                    ; second socket
+    call dn_flow_new
+    jc .rst
+    ; --- WHICH ADDRESS IS IT? (SPEC.md 96.26.5) ---------------------------
+    ; One of ours out of the DNS pool, in which case the octet indexes the
+    ; name; or a LITERAL the client was given directly, in which case there is
+    ; nothing to look up and the dotted quad is itself the thing to open -
+    ; NETV_OPEN takes either ("a dotted quad connects at once; a NAME waits",
+    ; ethsock.inc). Without this arm a program handed an IP rather than a
+    ; hostname could not connect at all, which is most test setups and plenty
+    ; of real ones.
+    push si
+    add si, DN_IP_DST
+    mov di, dn_qname
+    call dn_ipstr                   ; the literal, as text, always - it costs
+    pop si                          ; ~40 cycles and it is what the pool arm
+                                    ; below overwrites if it applies
+    mov di, dn_qname
+    mov al, [si+DN_IP_DST+0]        ; is it 10.88.0.x at all?
+    cmp al, 10
+    jne .lit
+    mov al, [si+DN_IP_DST+1]
+    cmp al, 88
+    jne .lit
+    mov al, [si+DN_IP_DST+3]        ; ...then the pool octet indexes the names
+    sub al, DN_POOL0
+    jb .lit
+    cmp al, DN_NNAME
+    jae .lit
+    mov ah, DN_N_SIZE
+    mul ah
+    add ax, dn_names
+    mov di, ax
+    cmp byte [di+DN_N_USED], 0
+    je .rst                         ; ours to hand out, never handed out: a
+    add di, DN_N_NAME               ; reset, because there IS nothing else it
+    jmp short .have                 ; could have meant
+.lit:
+    mov di, dn_qname
+.have:
+
+    mov ax, [si+DN_T_SPORT]         ; --- the flow, before the open ---
+    mov [bx+DN_F_LPORT], ax
+    mov ax, [si+DN_T_DPORT]
+    mov [bx+DN_F_RPORT], ax
+    push si
+    push di
+    mov di, bx
+    add di, DN_F_RIP
+    add si, DN_IP_DST
+    mov cx, 4
+    call dn_copy
+    pop di
+    pop si
+    push si
+    push di
+    mov di, bx
+    add di, DN_F_LIP
+    add si, DN_IP_SRC
+    mov cx, 4
+    call dn_copy
+    pop di
+    pop si
+    push si                         ; their ISN + 1 is what we expect next
+    add si, DN_T_SEQ
+    call dn_get32
+    pop si
+    add ax, 1
+    adc dx, 0
+    push si
+    mov si, bx
+    add si, DN_F_RCV
+    mov [si], ax
+    mov [si+2], dx
+    pop si
+    push si                         ; OUR ISN is 0, deliberately: this is a
+    mov si, bx                      ; local link with one peer, so the collide
+    add si, DN_F_SND                ; case ISN randomisation exists for cannot
+    xor ax, ax                      ; arise. Addressed through DN_F_SND rather
+    mov [si], ax                    ; than as an offset from DN_F_RCV, which
+    mov [si+2], ax                  ; was correct and would have broken in
+    pop si                          ; silence the day the record changed
+
+    push bx                         ; --- NETV_OPEN, with the NAME ---
+    push si
+    mov si, di                      ; DI is already the string: the name out
+                                    ; of the table, or the literal in dn_qname
+    mov cx, [bx+DN_F_RPORT]
+    xchg cl, ch                     ; the verb wants a host-order port
+    push ds
+    pop es                          ; ES:SI is ours - the one driver entry
+    mov bh, [net_cls]               ; where ES is the CALLER's segment
+    mov bl, NETV_OPEN
+    call OSAPI_DRV_CALL
+    pop si
+    pop bx
+    jc .rst
+    mov [bx+DN_F_HAND], al
+    mov byte [bx+DN_F_USED], 1
+    mov byte [bx+DN_F_ST], DN_S_OPEN
+.done:
+    pop di
+    pop si
+    ret
+.rst:
+    mov byte [bx+DN_F_USED], 0
+    pop di
+    pop si
+    call dn_tcp_rst
+    ret
+
+; -----------------------------------------------------------------------------
+; dn_tcp_data - the client sent bytes: hand them to the socket and ACK
+;
+; IN ORDER ONLY. A segment whose sequence is not the one we expect is answered
+; with a bare ACK naming what we DO expect, and dropped - the client then
+; retransmits, which is a path it already has and which costs us no buffer.
+; -----------------------------------------------------------------------------
+dn_tcp_data:
+    push ax
+    push cx
+    push dx
+    push si
+    push di
+    call dn_paylen
+    or ax, ax
+    jz .ack                         ; a pure ACK: nothing to pass on
+    mov cx, ax
+
+    push cx                         ; is it the next one?
+    push si
+    add si, DN_T_SEQ
+    call dn_get32
+    pop si
+    mov di, bx
+    add di, DN_F_RCV
+    cmp ax, [di]
+    jne .oos
+    cmp dx, [di+2]
+    jne .oos
+    pop cx
+
+    push si                         ; --- NETV_SEND ---
+    add si, DN_T_PAY
+    push ds
+    pop es
+    mov al, [bx+DN_F_HAND]
+    push bx
+    mov bh, [net_cls]
+    mov bl, NETV_SEND
+    call OSAPI_DRV_CALL
+    pop bx
+    pop si
+    jc .ack                         ; refused: ACK nothing and let it retry
+    jcxz .ack                       ; took none - same
+    mov ax, cx
+    call dn_advr                    ; ...and only what was TAKEN is acknowledged
+.ack:
+    cmp word [dn_pend], 0
+    jne .out                        ; something is already staged, and an ACK
+                                    ; is cumulative: the next one carries this
+    xor cx, cx
+    mov al, DN_ACK
+    call dn_seg
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    ret
+.oos:
+    pop cx
+    jmp short .ack
+
+; -----------------------------------------------------------------------------
+; dn_tcp_fin - the client is done sending
+; -----------------------------------------------------------------------------
+dn_tcp_fin:
+    push ax
+    push cx
+    mov ax, 1                       ; a FIN consumes one sequence number
+    call dn_advr
+    mov al, [bx+DN_F_HAND]
+    push bx
+    mov bh, [net_cls]
+    mov bl, NETV_CLOSE
+    call OSAPI_DRV_CALL
+    pop bx
+    cmp word [dn_pend], 0
+    jne .st                         ; the state still moves: dn_pump owes the
+                                    ; FIN and will send it when the buffer is
+                                    ; free
+    xor cx, cx
+    mov al, DN_FIN | DN_ACK
+    call dn_seg
+    mov ax, 1
+    call dn_adv
+    mov byte [bx+DN_F_USED], 0      ; ...and it is gone. We do not wait for the
+    pop cx                          ; client's ACK of our FIN: there is nothing
+    pop ax                          ; left to retransmit and nothing to reuse
+    ret                             ; the port for until it does
+.st:
+    mov byte [bx+DN_F_ST], DN_S_FIN
+    pop cx
+    pop ax
+    ret
+
+; --- dn_kill - the flow is over, with no ceremony ---------------------------
+dn_kill:
+    push ax
+    push bx
+    mov al, [bx+DN_F_HAND]
+    push bx
+    mov bh, [net_cls]
+    mov bl, NETV_CLOSE
+    call OSAPI_DRV_CALL
+    pop bx
+    mov byte [bx+DN_F_USED], 0
+    pop bx
+    pop ax
+    ret
+
 ; dn_tcp_rst - "there is nothing listening here"
 ; in:  SI = the segment that provoked it
 ;
@@ -849,11 +1433,146 @@ dn_tcp_ck:
     ret
 
 ; -----------------------------------------------------------------------------
-; dn_pump - ask the sockets whether anything has arrived
+; dn_pump - ask the sockets what has happened, and turn it into a frame
 ;
-; WAVE 3'S other half. With no flow ever established there is nothing to ask,
-; so this is a `ret` that documents where the asking goes rather than an empty
-; routine somebody has to wonder about.
+; **ONE FLOW PER CALL AT MOST**, because dn_frame is one buffer. The scan is
+; round-robin from [dn_rr] rather than from zero, or a busy first flow would
+; starve every other one - which on a two-connection program like FTP is the
+; difference between a transfer and a hang.
+;
+; Every arm here checks nothing about [dn_pend]: dn_ready only calls this when
+; it is zero, and that is the whole of the interlock.
 ; -----------------------------------------------------------------------------
 dn_pump:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov cl, DN_NFLOW
+.l:
+    mov al, [dn_rr]
+    inc al
+    cmp al, DN_NFLOW
+    jb .keep
+    xor al, al
+.keep:
+    mov [dn_rr], al
+    mov ah, DN_F_SIZE
+    mul ah
+    add ax, dn_flows
+    mov bx, ax
+    cmp byte [bx+DN_F_USED], 0
+    je .next
+    cmp byte [bx+DN_F_ST], DN_S_OPEN
+    je .connecting
+    cmp byte [bx+DN_F_ST], DN_S_UP
+    je .up
+    cmp byte [bx+DN_F_ST], DN_S_FIN
+    je .owedfin
+.next:
+    dec cl
+    jnz .l
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; --- still connecting: has it come up, or failed? --------------------------
+.connecting:
+    call dn_stat                    ; AH = an NSK_*, CX = readable
+    jc .next
+    cmp ah, NSK_UP
+    je .estab
+    cmp ah, NSK_FAILED
+    je .failed
+    cmp ah, NSK_CLOSING             ; up and closed before we looked, which a
+    je .failed                      ; refused connection can arrive as
+    jmp short .next
+.estab:
+    xor cx, cx                      ; **THE SYN|ACK, AT LAST.** The client has
+    mov al, DN_SYN | DN_ACK         ; been retransmitting its SYN while the far
+    call dn_seg                     ; side handshook, and this is the first
+    mov ax, 1                       ; thing it has heard back
+    call dn_adv                     ; a SYN consumes one sequence number
+    mov byte [bx+DN_F_ST], DN_S_UP
+    jmp .out
+.failed:
+    push bx                         ; a connection that never came up is an
+    xor cx, cx                      ; RST the client understands - its own
+    mov al, DN_RST | DN_ACK         ; error path then says so
+    call dn_seg
+    pop bx
+    call dn_kill
+    jmp short .out
+
+; --- established: is there anything to deliver, or is it over? -------------
+.up:
+    call dn_stat
+    jc .next
+    or cx, cx
+    jz .maybeover
+    cmp cx, DN_WIN                  ; never take more than one segment's worth,
+    jbe .take                       ; whatever is readable: the client's window
+    mov cx, DN_WIN                  ; is what we advertised and we may not
+.take:                              ; exceed it
+    push cx
+    mov di, dn_frame + DN_T_PAY
+    push ds
+    pop es
+    mov al, [bx+DN_F_HAND]
+    push bx
+    mov bh, [net_cls]
+    mov bl, NETV_RECV               ; ES:DI is ours, CX its capacity
+    call OSAPI_DRV_CALL
+    pop bx
+    pop ax                          ; (the capacity we asked for, discarded)
+    jc .next
+    jcxz .maybeover                 ; 0 IS NOT END OF STREAM (netpkg.inc) - it
+                                    ; is "nothing yet", and reading it as an
+                                    ; end truncates every transfer that
+                                    ; arrives in more than one piece
+    push cx
+    mov al, DN_ACK | DN_PSH
+    call dn_seg
+    pop ax
+    call dn_adv                     ; our sequence by what we just sent
+    jmp .out
+.maybeover:
+    cmp ah, NSK_CLOSING             ; readable is 0 AND the peer has closed:
+    jne .next                       ; THAT is end of stream
+    xor cx, cx
+    mov al, DN_FIN | DN_ACK
+    call dn_seg
+    mov ax, 1
+    call dn_adv
+    call dn_kill
+    jmp .out
+
+; --- we owe a FIN that dn_tcp_fin could not stage ---------------------------
+.owedfin:
+    xor cx, cx
+    mov al, DN_FIN | DN_ACK
+    call dn_seg
+    mov ax, 1
+    call dn_adv
+    call dn_kill
+    jmp .out
+
+; -----------------------------------------------------------------------------
+; dn_stat - NETV_STATUS for the flow in BX
+; out: CF=0 with AH = an NSK_* and CX = bytes readable now; CF=1 = refused
+; -----------------------------------------------------------------------------
+dn_stat:
+    push bx
+    mov al, [bx+DN_F_HAND]
+    mov bh, [net_cls]
+    mov bl, NETV_STATUS
+    call OSAPI_DRV_CALL
+    pop bx
     ret
