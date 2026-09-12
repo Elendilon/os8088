@@ -39,6 +39,40 @@ DN_S_OPEN   equ 1                   ; NETV_OPEN issued, waiting on NSK_UP
 DN_S_UP     equ 2
 DN_S_FIN    equ 3                   ; the far side is done; a FIN is owed
 DN_S_DEAD   equ 4
+DN_S_SYNSENT equ 5                  ; **THE INBOUND DIRECTION** (SPEC.md
+                                    ; 96.26.8): NETV_ACCEPT gave us a
+                                    ; connection and we have sent the client a
+                                    ; SYN, so what we are waiting for is ITS
+                                    ; SYN|ACK. The mirror of DN_S_OPEN, and
+                                    ; the reason the two cannot share a state:
+                                    ; in DN_S_OPEN the client is retransmitting
+                                    ; at us and the SOCKET is what has not
+                                    ; answered; here the socket is already up
+                                    ; and the CLIENT is what has not
+
+; --- a LISTENER (SPEC.md 96.26.8) --------------------------------------------
+; One per port the box was told to forward. A listener is not a flow: it
+; outlives every connection accepted through it (netpkg.inc's own note on why
+; NETV_LISTEN and NETV_ACCEPT are separate verbs), so it has a row of its own.
+DN_NLSN     equ 4                   ; ports at once. Four is a server plus the
+                                    ; small PASV range a second one wants, and
+                                    ; each costs one of NET_SOCKS' eight
+                                    ; handles for the session's whole life -
+                                    ; which is the real bound, not this number
+DN_L_USED   equ 0                   ; byte: 1 = listening
+DN_L_HAND   equ 1                   ; byte: the listening handle
+DN_L_PORT   equ 2                   ; word: the port, HOST order (NETV_LISTEN
+                                    ; takes it in CX and wants host order;
+                                    ; every other port in this file is wire
+                                    ; order, which is exactly the kind of
+                                    ; difference that has to be written down)
+DN_L_SIZE   equ 4
+
+; The source port we invent for the far side of an inbound connection. The
+; client picks its own for outbound, so these cannot collide with anything it
+; chose; a listening client never sees them as a key anyway, because dn_flow
+; keys on ITS port.
+DN_LSN_PORT0 equ 0xC000
 
 ; --- a remembered name (SPEC.md 96.26.2) -------------------------------------
 DN_N_USED   equ 0                   ; byte: 1 = taken
@@ -81,7 +115,17 @@ DNB_OURMAC  equ DNB_GWMAC + 6               ; 6:  ...the client's, COPIED in by
                                             ; dn_init out of the image, where
                                             ; they are `db` constants a
                                             ; claim-relative DS cannot reach
-DNB_SIZE    equ DNB_OURMAC + 6
+DNB_LSN     equ DNB_OURMAC + 6              ; the listener table
+DNB_LRR     equ DNB_LSN + DN_NLSN * DN_L_SIZE   ; byte: its round robin
+DNB_CIP     equ DNB_LRR + 1                 ; 4:  THE CLIENT'S OWN ADDRESS,
+                                            ; learned from any frame it sends
+                                            ; (SPEC.md 96.26.8). An OUTBOUND
+                                            ; flow reads it out of the SYN's IP
+                                            ; header; an inbound one has never
+                                            ; seen a packet from the client, so
+                                            ; without this there is no address
+                                            ; to send its SYN to
+DNB_SIZE    equ DNB_CIP + 4
 
 ; --- offsets, wire order -----------------------------------------------------
 DN_EH_DST   equ 0

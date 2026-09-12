@@ -44,6 +44,14 @@ dn_gwmac_c: db 0x02, 'o', 's', '8', '8', 0x01
 dn_ourmac_c: db 0x02, 'o', 's', '8', '8', 0x02
 DN_MAC_C_N  equ 12
 
+; --- ...and the environment variable that names the INBOUND ports ----------
+; SPEC.md 96.26.8. Image data, read through CS like the MACs above and for the
+; same reason. `OS88` and not `MTCP` or `DOS`: it is OUR variable in the
+; user's own environment page, and a name a DOS program might itself define
+; would be a collision nobody could debug.
+dn_lsnvar:  db 'OS88LISTEN=', 0
+DN_LSNVAR_N equ 11
+
 ; =============================================================================
 ; THE FOUR DOORS, AND DS IS THE CLAIM BEHIND EVERY ONE (SPEC.md 96.26.6)
 ; =============================================================================
@@ -128,11 +136,280 @@ dn_init_x:
     mov word [dn_pend], 0
     mov byte [dn_lastip], 0
     mov byte [dn_rr], 0
+    mov byte [dn_lrr], 0
+    mov bx, dn_lsn                  ; ...and no listener until the environment
+    mov cx, DN_NLSN                 ; says otherwise
+.s:
+    mov byte [bx+DN_L_USED], 0
+    add bx, DN_L_SIZE
+    loop .s
+    mov word [dn_cip+0], 0
+    mov word [dn_cip+2], 0
+    call dn_lsn_init
     pop cx
     pop bx
     pop ax
     clc
     ret
+
+; =============================================================================
+; THE INBOUND DIRECTION (SPEC.md 96.26.8)
+; =============================================================================
+; **A LISTENING CLIENT SENDS NOTHING**, and that is the whole difficulty. A
+; packet driver has no notion of a port, so when a DOS server binds one there
+; is not a single frame on the wire to infer it from - unlike the outbound
+; direction, where the client's own SYN carries everything we need.
+;
+; So the box has to be TOLD, and the place it is told is the one that already
+; exists: the ENVIRONMENT PAGE (SPEC.md 96.20). `OS88LISTEN=80` in a row the
+; user has typed anyway, beside the `MTCPCFG=` the program needs. No new
+; dialog, no new file, and the DOS program sees it as a variable it ignores.
+;
+; A comma separates ports, so `OS88LISTEN=21,2048,2049` is three.
+; -----------------------------------------------------------------------------
+; dn_lsn_init - read the environment and take a listener per port named
+;
+; **[cs:dos_ebuf] AND NOT [dos_ebuf]**: DS is the network claim in here
+; (SPEC.md 96.26.6) and the environment rows are the package's own bss, so
+; this is the second place in this file that needs the override. An unprefixed
+; read would scan whatever the claim holds at that offset.
+; -----------------------------------------------------------------------------
+dn_lsn_init:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov cx, DOS_ENVN
+    mov si, dos_ebuf
+.row:
+    push cx
+    push si
+    mov di, dn_lsnvar               ; does this row start `OS88LISTEN=`?
+    call dn_streqc
+    pop si
+    jne .next
+    add si, DN_LSNVAR_N             ; ...then what follows is the port list
+    call dn_lsn_ports
+.next:
+    pop cx
+    add si, DOS_ENVBUF
+    loop .row
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; --- dn_streqc - does [cs:SI] start with the NUL string at [cs:DI]? --------
+; ZF=1 if it does. Both sides are the PACKAGE's, so both are CS-relative -
+; which is why this is not dn_streqn.
+dn_streqc:
+    push ax
+.l:
+    mov al, [cs:di]
+    or al, al
+    jz .yes
+    mov ah, [cs:si]
+    cmp al, ah
+    jne .no
+    inc si
+    inc di
+    jmp short .l
+.yes:
+    pop ax
+    cmp al, al                      ; ZF=1, whatever AL held
+    ret
+.no:
+    pop ax
+    or al, 0xFF                     ; ZF=0
+    ret
+
+; --- dn_lsn_ports - a comma list of decimal ports at [cs:SI], one listener --
+;                    each, stopping at the NUL or when the table is full
+dn_lsn_ports:
+    push ax
+    push bx
+    push cx
+    push dx
+.one:
+    xor ax, ax                      ; --- one decimal number ---
+    xor cx, cx                      ; CX counts the digits, so a stray comma
+.dig:                               ; cannot become port 0
+    mov dl, [cs:si]
+    cmp dl, '0'
+    jb .end
+    cmp dl, '9'
+    ja .end
+    sub dl, '0'
+    mov bx, 10
+    mul bx                          ; DX:AX, and a port cannot overflow 16
+    add al, dl                      ; bits in five digits without being
+    adc ah, 0                       ; nonsense anyway
+    inc cx
+    inc si
+    jmp short .dig
+.end:
+    jcxz .done
+    or ax, ax
+    jz .done
+    call dn_listen                  ; AX = the port, host order
+.done:
+    mov dl, [cs:si]
+    cmp dl, ','
+    jne .out
+    inc si
+    jmp short .one
+.out:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; --- dn_listen - NETV_LISTEN on the port in AX, into a free listener row ----
+dn_listen:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov dx, ax                      ; the port, banked
+    mov bx, dn_lsn
+    mov cx, DN_NLSN
+.f:
+    cmp byte [bx+DN_L_USED], 0
+    je .got
+    add bx, DN_L_SIZE
+    loop .f
+    jmp short .out                  ; the table is full, which is not an error
+.got:                               ; worth a refusal: the user named more
+    mov cx, dx                      ; ports than DN_NLSN and the first four win
+    push bx
+    mov bh, [cs:net_cls]
+    mov bl, NETV_LISTEN
+    call OSAPI_DRV_CALL             ; in CX = the port, out AX = the handle
+    pop bx
+    jc .out                         ; the far side refused it - a port already
+    or ax, ax                       ; bound on that machine is the usual
+    jz .out                         ; reason, and there is nothing to say to
+    mov [bx+DN_L_HAND], al          ; the DOS program about it
+    mov [bx+DN_L_PORT], dx
+    mov byte [bx+DN_L_USED], 1
+.out:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dn_accept - one NETV_ACCEPT, round robin, and the SYN it owes the client
+;
+; **[dn_pend] IS CHECKED BEFORE THE ACCEPT AND NOT AFTER**, which is the whole
+; ordering question here: an accepted socket we cannot announce is a connection
+; the far side believes in and the client has never heard of, and there is
+; nowhere to put it. So a staged frame means we do not ask this tick.
+;
+; out: nothing. [dn_pend] set if a connection arrived.
+; -----------------------------------------------------------------------------
+dn_accept:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    cmp word [dn_pend], 0
+    jne .out
+    ; **AND WE MUST KNOW WHERE THE CLIENT IS.** Its address is banked from any
+    ; IP frame it has sent (dn_tx), and a stack that has bound a port has
+    ; usually ARPed and DHCPed long before anything connects to it - but not
+    ; necessarily, and a SYN addressed to 0.0.0.0 is a frame the client drops
+    ; while the far side holds a connection nobody answers. So we do not
+    ; accept until we can address the answer.
+    cmp word [dn_cip+0], 0
+    jne .know
+    cmp word [dn_cip+2], 0
+    je .out
+.know:
+    mov al, [dn_lrr]                ; --- whose turn ---
+    inc al
+    cmp al, DN_NLSN
+    jb .keep
+    xor al, al
+.keep:
+    mov [dn_lrr], al
+    mov ah, DN_L_SIZE
+    mul ah
+    add ax, dn_lsn
+    mov si, ax                      ; SI = the listener row
+    cmp byte [si+DN_L_USED], 0
+    je .out
+    mov al, [si+DN_L_HAND]
+    mov bh, [cs:net_cls]
+    mov bl, NETV_ACCEPT
+    call OSAPI_DRV_CALL
+    jc .out
+    or ax, ax
+    jz .out                         ; NOBODY YET, which netpkg.inc calls the
+                                    ; ordinary answer and not an error
+    mov dl, al                      ; the new handle, banked
+    call dn_flow_new
+    jc .noroom
+    ; --- the flow, entirely of our own invention -------------------------
+    mov byte [bx+DN_F_HAND], dl
+    mov byte [bx+DN_F_ST], DN_S_SYNSENT
+    mov ax, [si+DN_L_PORT]          ; the CLIENT's port is the one it is
+    xchg al, ah                     ; listening on, in wire order for dn_flow
+    mov [bx+DN_F_LPORT], ax
+    mov ax, [dn_lrr]                ; ...and the far side's is ours to invent
+    and ax, 0x00FF
+    add ax, DN_LSN_PORT0
+    xchg al, ah
+    mov [bx+DN_F_RPORT], ax
+    ; the SOURCE of what we send is a pool address, counted DOWN from the top
+    ; so that it can never be one dn_dns handed out
+    mov byte [bx+DN_F_RIP+0], 10
+    mov byte [bx+DN_F_RIP+1], 88
+    mov byte [bx+DN_F_RIP+2], 0
+    mov al, 255
+    sub al, [dn_lrr]
+    mov [bx+DN_F_RIP+3], al
+    push si                         ; ...and the destination is the client,
+    push di                         ; which is the one thing here we had to be
+    mov si, dn_cip                  ; TOLD rather than invent
+    mov di, bx
+    add di, DN_F_LIP
+    mov cx, 4
+    call dn_copy
+    pop di
+    pop si
+    mov word [bx+DN_F_SND+0], 0     ; our ISN, and nothing expected yet: the
+    mov word [bx+DN_F_SND+2], 0     ; client's SYN|ACK is what fills DN_F_RCV
+    mov word [bx+DN_F_RCV+0], 0
+    mov word [bx+DN_F_RCV+2], 0
+    mov byte [bx+DN_F_USED], 1
+    xor cx, cx                      ; --- and the SYN ---
+    mov al, DN_SYN
+    call dn_seg
+    mov ax, 1                       ; a SYN consumes one sequence number
+    call dn_adv
+    jmp short .out
+.noroom:
+    mov al, dl                      ; no flow to put it in, so it is closed at
+    mov bh, [cs:net_cls]            ; once rather than left half-accepted
+    mov bl, NETV_CLOSE
+    call OSAPI_DRV_CALL
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 
 ; -----------------------------------------------------------------------------
 ; dn_shut_x - every flow closed, on the way out of the bracket
@@ -158,6 +435,27 @@ dn_shut_x:
 .next:
     add bx, DN_F_SIZE
     loop .f
+    ; --- AND THE LISTENERS, which outlive every flow through them ---------
+    ; They are handles too, and NET_SOCKS is eight: a bracket that gave the
+    ; flows back and kept four listeners would leave the far side with half
+    ; its table gone for the rest of the session.
+    mov bx, dn_lsn
+    mov cx, DN_NLSN
+.s:
+    cmp byte [bx+DN_L_USED], 0
+    je .snext
+    push bx
+    push cx
+    mov al, [bx+DN_L_HAND]
+    mov bh, [cs:net_cls]
+    mov bl, NETV_CLOSE
+    call OSAPI_DRV_CALL
+    pop cx
+    pop bx
+    mov byte [bx+DN_L_USED], 0
+.snext:
+    add bx, DN_L_SIZE
+    loop .s
     pop cx
     pop bx
     pop ax
@@ -187,7 +485,21 @@ dn_tx_x:
     je .arp
     cmp ax, NET_ETY_IP
     jne .drop
-    cmp cx, DN_TCP
+    ; --- **WHOSE ADDRESS IS THE CLIENT'S** (SPEC.md 96.26.8) --------------
+    ; Banked from every IP frame it sends, because an INBOUND connection has
+    ; never seen one: NETV_ACCEPT hands us a socket and nothing else, so
+    ; without this there is no destination to put in the SYN we owe the
+    ; client. An outbound flow reads the same thing out of its own SYN and
+    ; does not need it.
+    push si
+    push di
+    mov di, dn_cip
+    add si, DN_IP_SRC
+    mov cx, 4
+    call dn_copy
+    pop di
+    pop si                          ; CX is still the frame length: dn_copy
+    cmp cx, DN_TCP                  ; preserves it, which is why it took ours
     jb .drop
     cmp byte [si+DN_IP_VIHL], 0x45  ; v4, no options - the same refusal
     jne .drop                       ; eth_frame makes, for its reason
@@ -1131,6 +1443,11 @@ dn_tcp_in:
     jnz .syn
     call dn_flow
     jc .unknown                     ; a segment for a flow we do not have
+    cmp byte [bx+DN_F_ST], DN_S_SYNSENT
+    je .out                         ; an inbound flow that has not handshaken
+                                    ; yet: anything but a SYN|ACK or an RST is
+                                    ; not an answer to our SYN, and the client
+                                    ; has not agreed to the connection
     cmp byte [bx+DN_F_ST], DN_S_UP
     jne .out                        ; still connecting, or closing: its own
                                     ; retransmit will find us in a moment
@@ -1139,6 +1456,20 @@ dn_tcp_in:
     call dn_tcp_data
     jmp short .out
 .syn:
+    ; **A SYN WITH ACK IS OUR OWN ANSWER** (SPEC.md 96.26.8) and not a client
+    ; opening a connection. The two are told apart by that one bit and by the
+    ; flow's state, and both tests are needed: a plain SYN on a SYNSENT flow
+    ; would be a simultaneous open, which nothing here does, and a SYN|ACK on
+    ; a flow we opened OUTBOUND is a client that is confused.
+    test byte [si+DN_T_FLAGS], DN_ACK
+    jz .clientsyn
+    call dn_flow
+    jc .clientsyn
+    cmp byte [bx+DN_F_ST], DN_S_SYNSENT
+    jne .out
+    call dn_synack_in
+    jmp short .out
+.clientsyn:
     call dn_tcp_open
     jmp short .out
 .fin:
@@ -1401,6 +1732,50 @@ dn_tcp_fin:
     pop ax
     ret
 
+; -----------------------------------------------------------------------------
+; dn_synack_in - the client has agreed to a connection WE opened (96.26.8)
+; in:  BX = the flow (DN_S_SYNSENT), SI = the segment
+;
+; The mirror of dn_tcp_open's tail: bank its ISN + 1, acknowledge it, and the
+; flow is up. From here nothing distinguishes the two directions - dn_tcp_data
+; and dn_pump's `.up` arm carry bytes either way - which is the whole reason
+; this wave is small.
+; -----------------------------------------------------------------------------
+dn_synack_in:
+    push ax
+    push cx
+    push dx
+    push si
+    push di
+    ; **THE STATE IS NOT ADVANCED UNTIL THE ACK IS STAGED**, which is the
+    ; discipline this whole endpoint runs on (the note above dn_seg). Moving
+    ; to DN_S_UP first and then losing the ACK to a busy [dn_pend] would leave
+    ; the client retransmitting a SYN|ACK that `.syn` then drops for being on
+    ; an UP flow - a connection up at both ends that never carries a byte. So
+    ; a busy buffer means we do nothing and the client's own retransmit brings
+    ; us back here.
+    cmp word [dn_pend], 0
+    jne .out
+    add si, DN_T_SEQ                ; their ISN...
+    call dn_get32                   ; -> DX:AX, and SI is untouched by it
+    add ax, 1                       ; ...plus one, which is what a SYN consumes
+    adc dx, 0
+    mov di, bx
+    add di, DN_F_RCV
+    mov [di], ax
+    mov [di+2], dx
+    xor cx, cx                      ; the ACK that finishes the handshake...
+    mov al, DN_ACK
+    call dn_seg
+    mov byte [bx+DN_F_ST], DN_S_UP  ; ...and only then is it up
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    ret
+
 ; --- dn_kill - the flow is over, with no ceremony ---------------------------
 dn_kill:
     push ax
@@ -1544,6 +1919,18 @@ dn_pump:
     ; program never ran again - which looked exactly like a hang in the
     ; program, and eth_ncall wrapping its 16 bits was the tell.
     ; OSAPI_DRV_CALL publishes "BP, DS and ES come back yours".
+    call dn_accept                  ; **THE INBOUND PASS FIRST** (SPEC.md
+                                    ; 96.26.8), because it is the one arm that
+                                    ; can create a flow: doing it last would
+                                    ; mean a connection accepted this tick
+                                    ; waits a whole one before anything looks
+                                    ; at it. It refuses itself when a frame is
+                                    ; already staged, so it costs a listening
+                                    ; box one compare and a box with no
+                                    ; listener at all one more
+    cmp word [dn_pend], 0
+    jne .out                        ; ...and if it staged the SYN, that IS
+                                    ; this pump's frame
     mov bp, DN_NFLOW
 .l:
     mov al, [dn_rr]
@@ -1565,6 +1952,12 @@ dn_pump:
     je .up
     cmp byte [bx+DN_F_ST], DN_S_FIN
     je .owedfin
+                                    ; DN_S_SYNSENT falls through: what it is
+                                    ; waiting for is the CLIENT, and nothing
+                                    ; the sockets can say moves it. The one
+                                    ; thing worth doing here would be a
+                                    ; retransmit, and there is no timer to
+                                    ; hang one on (96.26.8)
 .next:
     dec bp
     jnz .l

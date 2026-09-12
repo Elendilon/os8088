@@ -1616,3 +1616,121 @@ carries real colour and `blitpair`'s red channel separates `0xAA0000` from
 Both are true and neither is a default. `paintpack` passes `--gif` now, which
 is what `blitpair`'s own comment asks for: it is the caller that builds the
 disk.
+
+---
+
+## G1. THIRTEEN DOS rows FAIL where they mean nothing at all — a bare `build/` existence check in front of a boot that would have worked
+
+**Reproduced exactly, and it is not the prewarm.** `os88soak.py start -k
+'doscom' --anyway` on a tree with no gate disk:
+
+```
+os88soak: the run reads build/trees/plain-0113a176, so build/ is yours ...
+  doscom: FAIL: build/doscom360.img is missing - `make doscom` builds the gate disk
+os88test: 0 passed, 1 failed, 0 skipped in 0.1s
+$ ls build/trees/plain-0113a176/doscom360.img
+build/trees/plain-0113a176/doscom360.img            # ...it is RIGHT THERE
+```
+
+`_frozen_targets` did its job: the row DECLARES `build/doscom360.img` through
+`wants=`, the union was taken, and the frozen tree holds it. What fails is the
+row's own preflight:
+
+```python
+COM = "build/doscom360.img"
+for p in (SYS, COM):
+    if not os.path.exists(p):
+        fail("%s is missing - `make doscom` builds the gate disk" % p)
+```
+
+`os.path.exists` looks in the CHECKOUT. Under a run `$OS88_TREE` points at the
+frozen tree, and `os88build.at` is what resolves a `build/...` string against
+it — which `os88ui.boot(SYS, apps=COM)` on the very next line already does
+internally. **So the row dies in its own guard, in 0.1 s, immediately before
+the boot that would have succeeded.**
+
+**Ten rows have that exact shape** — `dosargs`, `doscom`, `dosdir`, `dosexe`,
+`dosexec`, `dosfile`, `dosirq`, `dosmouse`, `dossnd`, `dosxms` — plus
+`dosxmsq`, which is 13 with `doslnk` below. It is B4's *"three rows FAIL where
+they mean SKIP"* one turn worse: these do not even mean SKIP, because the
+artefact exists and the row could have run.
+
+**The fix is one line each**: `if not os.path.exists(os88build.at(p))`. What is
+worth doing at the same time is asking why the check is there — `wants=`
+already guarantees the artefact and the runner already builds it, so on a
+declared row the guard only fires when the resolver is being bypassed.
+`tests/dospkt.py` and `tests/dosxlat.py` are the two that already call
+`os88build.at` in the check and are the pattern to copy.
+
+**This is why the whole `dos*` family reads as 13 simultaneous failures in 35
+seconds**, which looks like the DOS box being broken and is a harness path
+bug. It cost this session two runs before `make doscom` by hand made all 13
+pass.
+
+### G1.1 `doslnk` is the same root cause, one site along — FIXED, and it is the worked example
+
+`doslnk` flushed the guest's live B: to `os.path.abspath(FLUSHED)` — the
+checkout — and then booted stage 3 with `os88ui.boot(apps=FLUSHED)`, which
+resolves the same string through `os88build.at`. So stage 3 booted a file
+nothing had written, and the row died with a `FileNotFoundError` naming
+`build/trees/plain-<hash>/`.
+
+It **passed every time it was run standalone**, because with no `$OS88_TREE`
+set `at` is the identity function and the two spellings agree — so this only
+ever failed inside a soak, which is where it failed three times in one
+session. Fixed: the path is resolved once at the top (`FLUSHED_AT`) and all
+three uses take it.
+
+**The rule G1 and G1.1 are two halves of**: a row may name `build/x` as a
+STRING, but every use of it — an existence check, a flush destination, a boot
+argument, a reader — has to go through the same resolver, or two of them
+disagree and only under a frozen run.
+
+## G2. `socktest` is unregistered, fails its own assertion, and its exemption reason is wrong
+
+Three things, found while writing `tests/doscable.py` (which is the same
+arrangement one layer up and IS registered).
+
+**Its exemption reason was false.** `t_registry` carried *"needs `make
+socktest` and QEMU networking"*. It needs no NIC anywhere: it runs under
+MartyPC with `tests/lptlink/partner.py` as the far end of the parallel cable
+and real host sockets behind that. Corrected in place, with the real reason —
+it is MINUTES.
+
+**It fetches its page correctly and then fails.** A full run:
+
+```
+Got: 00232 bytes err 00000
+Head: HTTP/1.0 200 OK__Content-Type:
+4 RECV(s), 1 empty-while-up, server gap yes
+FAIL: 8 of 4 handles free after the close - one leaked
+socktest: FAILED
+```
+
+Assertions 0 to 3 all pass — including the one with teeth, that a zero-length
+`NETV_RECV` on a live socket is not end-of-stream. Only assertion 4 fails, and
+*"8 of 4 handles free"* is not a leak: it is **more** free than the total,
+which is a comparison the wrong way round or against the wrong constant
+(`NET_SOCKS` is 8 and the message's 4 is not it). **Read the assertion before
+reading the driver** — nothing here suggests the handle was not given back.
+
+**Nobody has been running it to notice**, which is the B4/G1 lesson again: the
+row is worth having, it has never been in the suite, and the one number it
+reports wrongly is the one that decides its verdict. Registering it wants a
+`secs` measured first — the run above was **~13 minutes**, and
+`tests/doscable.py`'s 250 s says why: that row steps the guest's non-wire
+phases coarsely (`Partner.idle_until_wire`) and `socktest` does not, so the
+same treatment is probably most of the difference.
+
+## G3. `dossnd` declares 30 s and TIMED OUT at 150 as the tail of a four-lane run
+
+It passes **alone in 18.6 s**, twice. What it did once, as the last row still
+running with three lanes idle beside it, was exceed a 150 s timeout having got
+as far as `SOUND.DRV mounted itself at boot, segment 9E80`.
+
+Not classified. It is B5's shape — `settle()` is host wall-clock, so an
+emulator row's thoroughness moves with the box — but B5's own finding is that
+contention makes a row LESS THOROUGH rather than slower, and this one got
+slower. Worth one `os88bisect.py classify dossnd` before anything is
+concluded, because N=1 is not a rate (E1).
+
