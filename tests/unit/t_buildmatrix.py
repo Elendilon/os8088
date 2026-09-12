@@ -18,7 +18,8 @@ somebody types the knob by hand:
     `RAMKB=`, `FLOPPY1=`, `DISKCNT=`, `DIRTYRAM=`, `FSNOSTAMP=`, `DISKAL=`,
     `BOOTDIAG=`,
     `REDRAWFULL=`, `HEAPCOMPACT=`, `FDDPROBE=`, `SNAPAUDIT=`, `BOOTPROF=`,
-    `MOUIDSLOW=`, `TRACKRUN=`, `QUANTUM=`, `SBDRAGOFF=`/`SBRATE=`,
+    `MOUIDSLOW=`, `TRACKRUN=`, `QUANTUM=`,
+    `SBDRAGOFF=`/`SBRATE=`/`SBRATE286=`,
     `DIRW1=`, `PICOMEM=`, `BOOTMARK=`/`BOOTHALT=`/`BOOTSTOP=`, `NOPS2=`,
     `BAND=`, `TITLESNAP=`, `SPLSTARS=`, `NOUNAL=`,
     `NOFLUSHR=`, `FATWGATE=`, `FDDSLOW=`.
@@ -214,8 +215,17 @@ KNOBS = [
     # SPEC.md 13.10.5's thumb drag SHIPS, so what needs keeping alive is the
     # configuration nobody builds: the reference kernel WITHOUT it, and the
     # rate constant, which only the second of these reaches.
+    #
+    # SINCE 13.10.5.4.1 THE RATE IS A PAIR, so there are two constants and
+    # each knob reaches one: SBRATE= is the 8086 half (0 in every shipped
+    # build) and SBRATE286= the 286 half (2 in every shipped build). The
+    # reference arm is therefore `SBRATE286=0` and NOT `SBRATE=0` - that
+    # second spelling builds what already ships and would report a pass for
+    # a path nothing assembled, which is the failure the NOBAND row below
+    # records at length.
     ("sbdragoff",   ["SBDRAGOFF=1"]),
     ("sbrate",      ["SBRATE=2"]),
+    ("sbrate286",   ["SBRATE286=0"]),
     # The LOOK/measurement knobs, which nothing else builds at all. Each
     # switches a whole path in or out - and BAND is now the only thing that
     # assembles the COMPOSED title bar at all, because SPEC.md 5.9.6 sent it

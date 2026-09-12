@@ -22263,30 +22263,50 @@ with the two halves EQUAL — because the element's body is in every carrier's
 image whether it is called or not, so the call costs 4 bytes and buys the
 tree one description of what a bar's rate is.
 
-###### Why 2, which is the one number here somebody could reasonably disagree with
+###### Why 2 — asked as an open question, then SETTLED on a 12 MHz 286
 
-**What is measured:** the commit costs above, on a cycle-accurate 8088.
-**What is measured in the FIELD:** that The Wire, whose bar is not a light
-one, follows a dragged thumb acceptably at rate 2 on a **16 MHz 286 with a
-Paradise VGA** — the machine in docs/FIELD-MACHINES.md, whose clock this
-project has itself re-derived at 15.83 and 15.86 MHz. That is the only 286
-reading that exists and it is the reason this section exists.
+**What was measured before it shipped:** the commit costs above, on a
+cycle-accurate 8088; and, in the field, that The Wire — whose bar is not a
+light one — follows a dragged thumb acceptably at rate 2 on the **16 MHz 286
+with a Paradise VGA** in docs/FIELD-MACHINES.md, whose clock this project has
+itself re-derived at 15.83 and 15.86 MHz.
 
-**What is not measured, and cannot be here:** the tier factor. MartyPC is an
-8088 for ever (docs/TESTING.md's closed list, entry 1) and QEMU counts work
-exactly and cannot time it. So the arithmetic is stated rather than hidden:
-for rate 2 (110 ms) to be a *working* throttle rather than a no-op, the
-heaviest measured commit — TeXPad's **417 ms** — has to fall under 110 ms,
-which needs a factor of **3.8**. A 16 MHz 286 clears that comfortably (3.3x
-the clock, and a 16-bit bus on top of it); an **8 MHz** one does not, and
-wants **3**.
+**What could not be measured here:** the tier factor. MartyPC is an 8088 for
+ever (docs/TESTING.md's closed list, entry 1) and QEMU counts work exactly and
+cannot time it. So the arithmetic was stated rather than hidden: for rate 2
+(110 ms) to be a *working* throttle rather than a no-op, the heaviest measured
+commit — TeXPad's **417 ms** — has to fall under 110 ms, which needs a factor
+of **3.8**. A 16 MHz 286 clears that comfortably; an **8 MHz** one does not,
+and would want **3**. Since `CPU_286` is one bit over a 3x spread of machines,
+2 shipped with `make SBRATE286=3` named as the sweep and the sentence *this is
+the first thing a field 286 should settle*.
 
-**So the tier is one bit and the population behind it is not.** 2 is chosen
-because it matches the only reading anybody has taken, on the machine the
-request came from, and because `CPU_286` covering a 3x spread of machines is
-an argument for a knob rather than for a number nobody has checked either. 3
-is what the arithmetic says for the slow end of that spread, it is
-`make SBRATE286=3`, and **this is the first thing a field 286 should settle.**
+**It was settled the next day, on 86Box's `286` at 12 MHz** — deliberately
+between the two ends of that spread — and the verdict is that **2 is right**:
+
+| bar | default window | fully maximised |
+|---|---|---|
+| Browser | full speed | **full speed** |
+| TeXPad | full speed | **full speed** |
+| Note Pad | full speed | slightly laggy |
+
+**Two things that reading confirms beyond the number.** The first is the
+finding this section is built on — that the commit's cost is a property of the
+**window** and not the program — because the one place it degrades is a
+MAXIMISED window, which is where `fit` rows × cells is largest; nothing
+degrades at the default size. The second is *which* program: Note Pad is the
+heaviest of the three on the glass, and it is the heaviest of the three that
+was measured on the 8088 (**383.8 ms** against the Browser's line and TeXPad's
+200 deep in a document). **The 8088 ranking predicted the 286 ranking**, which
+is the whole basis for cutting one shared number from the heaviest measured
+commit.
+
+So the arithmetic's 3.8x was pessimistic at 12 MHz, and the remaining
+uncertainty is only the **slow end** — an 8 MHz 286 with a maximised Note Pad
+is the one combination nobody has looked at, and `make SBRATE286=3` is still
+what to reach for if anybody finds it wanting. Note that 86Box asserts nothing
+(docs/TESTING.md): this is a person looking at a screen, which is exactly the
+right instrument for *"does a dragged thumb feel laggy"* and is not a number.
 
 **What a wrong number costs is bounded, which is what makes it takeable.** Too
 LARGE and the view updates less often than the machine could manage — 6 times
