@@ -119939,6 +119939,40 @@ This is the one thing the back-end indirection (§96.4) turned out to be worth
 on its own terms, before the hibernate phase it was built for: there is one
 place to put this, and it was already there.
 
+##### 96.4.1.1 It is the KERNEL'S `.lowbss` that binds, not the depth
+
+The rule above was written against `SS = LOW_SEG` as a **scheduler**
+precondition, and it is a memory-addressing one as well — which is a stronger
+statement, because it bites on calls far too short for the scheduler to care
+about. `dsk_secbuf` is `.lowbss` (§2.1), so kernel code reaches it as
+`[ss:…]`. A file slot entered on the program's stack therefore reads its
+directory sector **into the DOS program's own memory**, at whatever that
+offset happens to name there, and then parses the program's bytes as a
+directory. Nothing faults, nothing reports, and the call may well succeed.
+
+`OSAPI_FILE_PATH` is the worked example and it cost a day. `AH=47h` asked it
+directly, and `dsk_path`'s walk is where the sectors get read — so the damage
+had **nothing to do with the call that caused it**. What it broke was an
+`AH=3Dh open` of a file, hundreds of calls later, with `[dos_curdir]`,
+`[dos_vol]` and the kernel's own `[dsk_cwd]` all reading correct at the time.
+
+**The shape to recognise is "it works at the root and fails in a
+subdirectory."** `dsk_path` answers `\` out of `[dsk_cwd] == 0` **without
+reading anything**, so a program launched from a volume's root never enters
+the walk and never sees the corruption; one launched from a folder enters it
+on every `AH=47h`. Prince of Persia asks its own working directory as part of
+identifying the disk, so it asked about once a second, and the machine it was
+scribbling on was the game.
+
+So the test for "does this slot need the door" is not *how long does it run* —
+it is **does any kernel code under it touch `.lowbss` or the disk**:
+
+- `OSAPI_FILE_PATH` and `OSAPI_VOL_STAT` do, and go through the door
+  (`DBE_PATH`, `DBE_VSTAT`). `VOL_STAT` mounts the volume and reads its FAT.
+- `OSAPI_FILE_HERE` and `OSAPI_VOL_KIND` do **not** — both are table reads in
+  `KERNEL_SEG`, reached through DS — so they stay direct, and this sentence is
+  why, so that the next sweep does not have to re-derive it.
+
 ### 96.5 The machine-state ledger
 
 Saved into the package's **own bss** — never into the arena, which is the
