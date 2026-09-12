@@ -72616,6 +72616,200 @@ has to say `[hd_ilvl] == 0`, or a user's own file of that name in a folder of
 their own would be skipped for sharing a name with the kernel.
 
 
+### 52.10.14 …and it builds the volume's OWN `ASSOC.DAT`, because a copied one is a lie
+
+**An install copied the source disk's association cache onto the hard disk,
+and every row in it named a cluster on the floppy.** `ASSOC.DAT` (§54.7) is a
+per-VOLUME cache whose app rows carry, since §54.7.1, the cluster of the
+folder the program lives in — so it is the one file on a system disk that
+cannot be copied anywhere, and copying it is not a wasted read but a wrong
+answer that outlives the install.
+
+**The apps phase already refused it and said why.** §52.10.12's species test
+skips every hidden + system file on the apps disk, and its comment names this
+exact hazard — *"a floppy's association cache (54.7, whose rows carry SOURCE
+cluster numbers) on a hard disk"*. The SYSTEM phase is the one that copies it,
+because that phase's whole job is the hidden + system files, and the test that
+had been written to keep the cache off the destination ran only on the half
+that was never going to carry it.
+
+**Measured**, `os8088_xt_hdd`, a 360KB system disk and a 360KB apps disk onto
+a pristine 31M partition:
+
+| | on the floppy it came from | on the installed volume |
+|---|---:|---:|
+| `APPS` | cluster **87** | cluster **68** |
+| `GAMES` | 88 | 104 |
+| `SYSTEM` | 85 | 44 |
+| every app row's `ASC_ROWCLUS` | 87 / 88 / 85 | **87 / 88 / 85** |
+
+…and the file describes **8 packages of the 25** that were installed, because
+it is the *system* disk's cache and the apps disk's seventeen were never in
+it. A 1.44MB install is 33 packages against `ASC_NAPP`'s 32, which is the
+other reason a copied file cannot be right: the destination holds both disks
+and neither source cache was built for that volume.
+
+#### What the user sees, and why it is exactly one rung
+
+Reported from the field as *"install to a hard disk, take the system disk out,
+restart, go to C:, open `MEDIA`, double-click `BROWSER.HTM` — and it says
+`BROWSER.O88 - not on this disk`"*, with `BROWSER.O88` sitting in `C:\APPS`.
+
+Both halves of that are the stale cluster meeting §54.4.2's rungs, and the
+failure is sharper than "a bad hint" because **the association survives the
+copy and the location does not**:
+
+1. the mount loads `C:\ASSOC.DAT`, and `asc_merge_ext` takes its `HTM` row —
+   so the machine knows the document opens with `BROWSER` and can name it;
+2. `asc_seed` then sets that slot's hint to **this volume** and **the row's
+   cluster**, which is the floppy's 87;
+3. rung 1 goes to C: cluster 87, re-checks the name (§54.4.2) and falls
+   through — correctly, and having taught the machine nothing;
+4. rung 2 is the document's own folder, `C:\MEDIA`;
+5. rung 3 is the root of every live volume, and on a machine with the floppy
+   out there is one;
+6. **rung 4 never runs.** It tries the folder `assoc_dfold` names, and that
+   byte is a BUILD-TIME default carried by the kernel's four own stems alone
+   (`db 1, 1, 1, 1` — APPS); a slot created by `asc_merge_ext` has 0, which
+   `assoc_tryfold` reads as *nothing to try*. `asc_seed` does not set it and
+   could not: the row carries a cluster, not a folder name.
+
+So `C:\APPS` — the one folder on the volume that holds the program — is the
+one place the sweep is structurally unable to look, and the four packages that
+would have been found there anyway are exactly the four that do not need the
+cache. **PAINT, NOTEPAD, TRACKER and ARTFUL are locatable on any volume with
+no row at all**, because they carry `assoc_dfold` = APPS. Every *declared*
+extension (§54.6) is not. That asymmetry is what makes this look like a
+browser bug rather than an installer bug, and it is what the row ordering
+below is cut from.
+
+#### The phase
+
+The system phase **stops copying `ASSOC.DAT`**, in the root, beside the
+`KERNEL.SYS` skip and for a related reason — it is a file the destination owns
+rather than one the source lends — and a fourth step builds the volume's own
+from what is actually on it. `hd_iassoc` runs at the end of `hd_inst_step`,
+after the apps phase, so it sees both disks' packages; on an install where the
+apps disk was declined it sees the system disk's and is equally right.
+
+**It reads the destination, never the sources.** A cache assembled from the
+two floppies' own caches would have to map each source folder cluster onto the
+destination's, would inherit whatever the sources dropped at their own caps,
+and would be wrong about a re-install onto a volume that already holds
+packages. Walking C: is one question — *what is on this volume, and where?* —
+and the answer is the file.
+
+The walk is the root and one level of folders, which is the shape
+`tools/os88disk.py`'s `build_assoc` indexes on the disks this project ships
+(its group keys are `APPS:`, `GAMES:`, `SYSTEM:`, `MEDIA:`), so a floppy and
+an installed volume cache the same set. It is deliberately NOT
+`hd_icopy_tree`'s full descent: the walk's level stack belongs to the copy, a
+package two folders down is on no disk in this tree, and a cache that misses
+one costs a harvest rather than a wrong answer.
+
+Per type-1 entry (§19.1 — a PACKAGE, not "a file"):
+
+- **`OSAPI_FILE_FIND_RAW`, never `OSAPI_FILE_FIND`.** The row's key is
+  `(stem, size)` and `asc_lookup` compares it against §19.1's +20, the raw
+  directory entry's size — the bytes the file OCCUPIES. `OSAPI_FILE_FIND`
+  reports what a compressed file expands to (§20.14.3), and a row carrying
+  that number misses on every mount for ever. No shipped `.o88` is `CZ`-wrapped
+  today, so the two cells agree and the defect would be invisible; it is the
+  copier's cell for the copier's reason.
+- **one `OSAPI_FILE_READ_AT` of the first cluster**, whose capacity must be a
+  whole number of clusters (§18.4.4) — `OSAPI_FILE_DFREE` answers the sectors
+  per cluster, which is what sizes the claim below.
+- the header is checked as `build_assoc` checks it — `'O8'`, version 3 — and
+  the icon is the 64 bytes at +32 when flags bit 0 is set, the declaration
+  block at +96 (or +32 with no icon) when bit 1 is.
+
+**An iconless package still gets a row** of 64 zero bytes, which is §54.7's
+sentinel: caching the absence saves that read too, and `asc_seed`'s `.ink`
+test leaves such a slot's glyph unresolved rather than blanking one another
+volume resolved.
+
+#### The cap is filled from both ends
+
+`ASC_NAPP` is 32 and a 1.44MB install is 33 packages, so the cap is not
+theoretical and what it drops has to be chosen rather than discovered.
+`build_assoc` sorts association-bearing rows to the front; a driver walking a
+disk cannot sort what it has not read yet, and a second pass would be a second
+`int 13h` per package — **~400 ms each on the field machine** (PERFORMANCE.md
+Part 2), against an install's measured 271 ticks (§52.10.9). So the array is
+filled from both ends in one pass: a package that **declares** extensions
+takes the next index up from 0, and every other package takes the next index
+down from `ASC_NAPP - 1`. When they meet the table is full and further plain
+packages are dropped; a further declaring package overwrites the topmost plain
+row, which is safe because **no ext row can point at a plain row**. A final
+compaction slides the plain rows down against the declaring ones, and moves no
+index anything refers to.
+
+**The front is declaring packages ALONE, and the kernel's four defaults are
+deliberately not privileged** — they are the four that rung 4 finds with no
+row at all, so what they lose at the cap is a cached icon and one quiet mount,
+which is the trade `os88disk.py` already documents on its own side. A declared
+extension loses the ability to open its document, and that is the whole of
+this section.
+
+#### Failure is silent, and that is the degradation rule rather than a shrug
+
+The step cannot fail an install that has already committed its MBR
+(§52.10.10): a refused claim, a full volume or a write error leaves the
+machine with **no** `ASSOC.DAT`, which is §54.7's third tier — an absent cache
+answers *miss* to everything and the harvest runs as it did before the file
+existed. That is strictly better than what shipped, because the failure mode
+being removed is a cache that is *present and wrong*, and §54.7's tiers have
+no row for that one. `INSTBNCH.TXT` (§52.10.9) already sets the precedent: a
+finished install does not become an error over a file it writes for
+convenience.
+
+**What it costs, measured rather than rounded.** `HDDTOOL.DRV`'s image grows
+**1,116 bytes** — 1,092 of `iassoc.inc` and 24 in `inst.inc` — and **891** on
+the floppy, the driver being lz4-packed (8,196 → 9,087). At run time it is one
+claim of `ASC_KB` + one cluster, taken and freed inside the step; one
+`OSAPI_FILE_READ_AT` per package on the destination — 33 on the largest
+install, against the 1,251 device sectors §52.10.9 measures — and one write of
+at most 2,672 bytes. **No kernel byte moves**: `assoc.inc` is untouched, and
+the fix is in the driver because the fact that is missing is the driver's.
+
+**And it moves `HDTOOL_KB`, which is the one figure that is not the tool's own.**
+The Makefile derives that constant from the tool image's size and `HDD.DRV`
+claims exactly that much to read the tool into (§52.11), so the claim goes
+**13KB → 14KB**: `hdd.bin` is the same 7,843 bytes with two constants in it
+different. It is TRANSIENT and pinned only while the Disks page is open, but
+it is heap on a machine that has a hard disk, so it is named rather than
+buried. The comment beside that claim said `13KB` while the constant was
+already 14; it now names the constant instead of a number.
+
+**`hddtool.bin` is 12,451 → 13,475 and that figure is NOT the cost** —
+`hdsec.inc`'s closing `align 512` quantises this image, so a change of three
+bytes and a change of five hundred both report as 1,024. It is CLAUDE.md's
+rung rule one image along, and the span above is what replaces it: the entry
+point moved `+0x2761` → `+0x2BBD`, which is the number to quote.
+
+#### Verified as the field reported it
+
+The A/B is the user's own sequence — install, take the system disk out,
+restart, C:, `MEDIA`, double-click `BROWSER.HTM` — on `os8088_xt_hdd`, booting
+the installed partition with a blank floppy in A: so the machine has nowhere
+else to look:
+
+| | the window that opens |
+|---|---|
+| before | **`Open`** — §54.4.1's notice, reading `BROWSER.O88 - not on this disk` |
+| after | **`Browser`**, on the document |
+
+…with `BROWSER.O88` in `C:\APPS` in both arms, which is the whole complaint.
+On the host side the same install reads **25 app rows and 5 ext rows** against
+**8 and 2**, and every row's cluster is one of C:'s own — `APPS` 68, `GAMES`
+104, `SYSTEM` 44 — where all eight of the old ones said 87, 88 and 85.
+
+**`tests/instassoc.py` is the gate**, and it asserts the thing a screendump
+cannot: that every app row's cluster names a folder that is really on the
+installed volume, that the packages the volume carries are the ones the file
+describes, and that `BROWSER.HTM`'s program is reachable from its row. The
+installer says `Done` either way.
+
 ## 52.11 Two images: the transport, and the tool
 
 `HDD.DRV` was two programs in one file. One knows how to find a hard disk,
@@ -74309,6 +74503,14 @@ file's contents depend only on the packages and not on the disk's layout, so
 `tools/os88disk.py` can build it before a single cluster is assigned. A
 shipped disk therefore arrives **warm**, and nothing has to run on the target
 to earn it.
+
+**A volume the INSTALLER produced is warm too, and it is not warm by being
+copied one.** §54.7.1's cluster made this file per-volume in a way it had not
+been before — so a hard disk gets its own, built by `hd_iassoc` out of its own
+packages at the end of the install (§52.10.14). The source floppy's copy is
+skipped rather than carried: its rows name the floppy's folders, and a cache
+that is present and wrong is the one state §54.7's three tiers below have no
+row for.
 
 **An iconless package still gets a row**, holding 64 zero bytes — the
 all-zero "no icon" sentinel the kernel already understands (§19.1), so
