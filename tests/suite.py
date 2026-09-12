@@ -2613,6 +2613,26 @@ SOAK = [
         "(running from A:) and here (launched off B:).",
         needs=("marty",), serial=True,
         wants=("build/dosren360.img",)),
+    Row("dosshell", "soak", py("tests/dosshell.py"), 200.0,
+        "THE BUILT-IN COMMANDS - A COMMAND.COM THAT IS NOT A FILE (SPEC.md "
+        "96.30). AH=4Bh of a program named COMMAND.COM loads nothing: it "
+        "reads the command tail and runs one built-in, so a program's "
+        "system(\"copy ...\") works with no shell on the disk. EVERY ANSWER "
+        "IS A FILE, twice: the probe writes the eight exit codes into "
+        "RESULT.TXT and the host then walks the volume with an independent "
+        "FAT12 reader, because a shell that reports success and writes "
+        "nothing looks perfect from inside the guest. THE PROBE RUNS UNDER A "
+        "REAL IBM DOS UNCHANGED (tests/dostrap/shellref.asm), which is what "
+        "makes the expected codes a measurement of DOS rather than a "
+        "description of us - under DOS it drives the genuine COMMAND.COM. "
+        "The three .TXT bodies DIFFER on purpose, so 'the RIGHT file "
+        "arrived' is the assertion rather than 'a file arrived'. AND THE "
+        "MOVE'S CLAIM IS THE HOST'S ALONE: a move that quietly copied would "
+        "pass every row the probe can write, so what says it was RE-LINKED "
+        "(22.25) is the first cluster being the same number on the untouched "
+        "gate image and on the one the guest left.",
+        needs=("marty",), serial=True,
+        wants=("build/dossh360.img",)),
     Row("dosexec", "soak", py("tests/dosexec.py"), 30.0,
         "THE DOS EXEC GATE (SPEC.md 96.14): AH=4Bh loads another program and "
         "runs it, and control comes back to the PARENT inside the INT 21h "

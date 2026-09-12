@@ -291,6 +291,22 @@ DOS_MCHKON  equ 10                  ; ...and OS88UI_CK_ON inside it, so that
 ; it, which is what this tree does everywhere two files must agree.
 DOS_LNSZ    equ 20
 
+; --- the built-in commands' sizes (apps/dos/dosh.inc, SPEC.md 96.30) --------
+; HERE AND NOT IN dosh.inc: the DBSS table below sizes that file's buffers and
+; `%assign` cannot forward-reference, so the numbers come before both.
+DSH_LINE    equ 128                 ; DOS's own command tail is a counted byte,
+                                    ; so 127 is the longest there has ever been
+DSH_ARG     equ 64                  ; one argument - longer than any 8.3 path
+                                    ; this box can walk, so a truncation here
+                                    ; is a path that was going to be refused
+DSH_PAT     equ 11                  ; a padded 8.3 name, the form a match is
+                                    ; decided in
+DSH_BUF     equ 128                 ; TYPE's chunk
+DSH_CPKB    equ 8                   ; the COPY buffer, out of the DOS ARENA and
+                                    ; not the heap (SPEC.md 96.30.6): 8KB asked
+DSH_CPMINKB equ 1                   ; for, one accepted, which is 2 sectors and
+                                    ; still copies
+
 DST_IDLE    equ 0                   ; launched with no document (wave 7's prompt)
 DST_READY   equ 1                   ; a program is named and not yet run
 DST_RAN     equ 2                   ; it ran; [dos_exit] is its code
@@ -2585,6 +2601,20 @@ dos_int21:
     jnz .exbadfn                    ; AL=1 (load, do not run) and AL=3 (an
                                     ; overlay) are different shapes and neither
                                     ; is built (SPEC.md 96.14.2)
+
+    ; --- COMMAND.COM IS NOT A FILE HERE (SPEC.md 96.30) --------------------
+    ; Before the name is parsed, before the arena is asked for anything: a
+    ; shell-out runs one built-in command and comes straight back. Nothing is
+    ; loaded, so dos_inchild is not set and the one-level rule below does not
+    ; apply - a program may shell out as often as it likes.
+    call dsh_isshell
+    jc .noshell
+    call dsh_tail                   ; ES:BX is still the parameter block
+    mov [dos_chexit], al            ; ...and AH=4Dh is where the caller reads
+    xor ax, ax                      ; the command's own verdict
+    pop bx
+    jmp .ok
+.noshell:
     cmp byte [dos_inchild], 0
     jne .exnest                     ; ONE level, and it is a decision - see
                                     ; SPEC.md 96.14.1
@@ -3289,7 +3319,13 @@ DBE_XFREE   equ 24                  ; DX:AX = a base
 DBE_XCOPY   equ 26                  ; ES:SI, DX:AX, CX, DI (SPEC.md 96.15)
 DBE_RENAME  equ 28                  ; SI = the old name, DI = the new, both in
                                     ; the CURRENT directory (SPEC.md 96.31)
-DBE_NENT    equ 15
+DBE_COPY    equ 30                  ; ES:SI = source name, ES:DI = destination
+                                    ; name, BL/DX = the source place, BH/CX =
+                                    ; the destination's (SPEC.md 22.24)
+DBE_MOVE    equ 32                  ; ES:SI = the name, BL/DX and BH/CX the two
+                                    ; places, ONE volume (SPEC.md 22.25). AX=0
+                                    ; with CF is NOT ATTEMPTED, not an error
+DBE_NENT    equ 17
 
 dos_be_goto:
     mov word [dos_betgt], dos_k_goto
@@ -3332,6 +3368,12 @@ dos_be_xfree:
     jmp short dos_be_go
 dos_be_rename:
     mov word [dos_betgt], dos_k_rename
+    jmp short dos_be_go
+dos_be_copy:
+    mov word [dos_betgt], dos_k_copy
+    jmp short dos_be_go
+dos_be_move:
+    mov word [dos_betgt], dos_k_move
     jmp short dos_be_go
 dos_be_xcopy:
     mov word [dos_betgt], dos_k_xcopy
@@ -3450,6 +3492,17 @@ dos_k_xfree:
 dos_k_rename:
     call OSAPI_FILE_RENAME
     ret
+
+dos_k_copy:
+    call OSAPI_FILE_COPY            ; the file manager's own engine, published
+    ret                             ; (SPEC.md 22.24) - so the built-in COPY
+                                    ; below is not a second one, and gets the
+                                    ; partial-destination undo for nothing
+
+dos_k_move:
+    call OSAPI_FILE_MOVE            ; ...and its re-link (22.25). AX=0 with CF
+    ret                             ; is "not attempted" and the shell's MOVE
+                                    ; falls back to copy-then-delete on it
 
 dos_k_xcopy:
     call OSAPI_XMEM_COPY
@@ -10418,7 +10471,47 @@ dos_fh_fill:
                                     ; the path on a card machine - which is
                                     ; how it is tested at all - must not
                                     ; forge the class underneath it
+; --- the built-in commands' own state (SPEC.md 96.30, apps/dos/dosh.inc) -----
+    DBSS DOS_B_SHLINE,  DSH_LINE    ; the command tail, unpacked
+    DBSS DOS_B_SHVERB,  DSH_ARG     ; the verb, upper-cased
+    DBSS DOS_B_SHA1,    DSH_ARG     ; ...and its two arguments
+    DBSS DOS_B_SHA2,    DSH_ARG
+    DBSS DOS_B_SHSPEC,  DSH_ARG     ; one of them, being taken apart
+    DBSS DOS_B_SHLEAF,  DSH_ARG     ; ...into a folder and this
+    DBSS DOS_B_SHDNAM,  DSH_ARG     ; the destination's name, empty = keep
+    DBSS DOS_B_SHRTGT,  DSH_ARG     ; what a `>` named
+    DBSS DOS_B_SHPAT,   DSH_PAT     ; the pattern, padded to eleven...
+    DBSS DOS_B_SHNM11,  DSH_PAT     ; ...and the candidate, the same way
+    DBSS DOS_B_SHFNAM,  16          ; the match's own name
+    DBSS DOS_B_SHFND,   OSAPI_FIND_SZ
+    DBSS DOS_B_SHBUF,   DSH_BUF     ; TYPE's chunk
+    DBSS DOS_B_SHNUM,   6           ; a count, as digits
+    DBSS DOS_B_SHQUIET, 1           ; the line was redirected
+    DBSS DOS_B_SHASDIR, 1           ; try the whole spec as a folder
+    DBSS DOS_B_SHDEL,   1           ; ...and delete the source after
+    DBSS DOS_B_SHDIROP, 1           ; 0 MD, 1 RD, 2 CD
+    DBSS DOS_B_SHSKIP,  2           ; matches to pass over
+    DBSS DOS_B_SHN,     2           ; ...and how many were done
+    DBSS DOS_B_SHOFF,   4           ; TYPE's offset, 32 bits
+    DBSS DOS_B_SHBVOL,  1           ; where we were standing before a verb
+    DBSS DOS_B_SHBCLUS, 2
+    DBSS DOS_B_SHRDRV,  1           ; what dsh_resolve answered
+    DBSS DOS_B_SHRCLUS, 2
+    DBSS DOS_B_SHSDRV,  1           ; the source place...
+    DBSS DOS_B_SHSCLUS, 2
+    DBSS DOS_B_SHDDRV,  1           ; ...and the destination's
+    DBSS DOS_B_SHDCLUS, 2
+    DBSS DOS_B_SHCNAME, DSH_ARG     ; the name this file is written under
+    DBSS DOS_B_SHCPSEG, 2           ; the copy buffer's DOS block...
+    DBSS DOS_B_SHCPKB,  2           ; ...and how many KB it turned out to be
+    DBSS DOS_B_SHMADE,  1           ; the destination has been created
+    DBSS DOS_B_SHGOT,   2           ; bytes in the buffer this pass
+
 DOS_BSS_SIZE equ DB
+
+%include "dosh.inc"                 ; THE BUILT-IN COMMANDS (SPEC.md 96.30) -
+                                    ; a COMMAND.COM that is not a file, over
+                                    ; the back end like every other file verb
 
 ; os88ui.inc first (os88line.inc needs its UI_* macros), and both LAST -
 ; the header and the icon block are at fixed offsets in the image (SPEC.md
@@ -10556,6 +10649,40 @@ dos_ford    equ os88_image_end + DOS_B_FORD
 dos_w83a    equ os88_image_end + DOS_B_W83A
 dos_w83b    equ os88_image_end + DOS_B_W83B
 dos_parent  equ os88_image_end + DOS_B_PARENT
+dsh_line    equ os88_image_end + DOS_B_SHLINE
+dsh_verb    equ os88_image_end + DOS_B_SHVERB
+dsh_a1      equ os88_image_end + DOS_B_SHA1
+dsh_a2      equ os88_image_end + DOS_B_SHA2
+dsh_spec    equ os88_image_end + DOS_B_SHSPEC
+dsh_leaf    equ os88_image_end + DOS_B_SHLEAF
+dsh_dname   equ os88_image_end + DOS_B_SHDNAM
+dsh_rtgt    equ os88_image_end + DOS_B_SHRTGT
+dsh_pat     equ os88_image_end + DOS_B_SHPAT
+dsh_nm11    equ os88_image_end + DOS_B_SHNM11
+dsh_fname   equ os88_image_end + DOS_B_SHFNAM
+dsh_fnd     equ os88_image_end + DOS_B_SHFND
+dsh_buf     equ os88_image_end + DOS_B_SHBUF
+dsh_num     equ os88_image_end + DOS_B_SHNUM
+dsh_quiet   equ os88_image_end + DOS_B_SHQUIET
+dsh_asdir   equ os88_image_end + DOS_B_SHASDIR
+dsh_del     equ os88_image_end + DOS_B_SHDEL
+dsh_dirop   equ os88_image_end + DOS_B_SHDIROP
+dsh_skip    equ os88_image_end + DOS_B_SHSKIP
+dsh_n       equ os88_image_end + DOS_B_SHN
+dsh_off     equ os88_image_end + DOS_B_SHOFF
+dsh_bvol    equ os88_image_end + DOS_B_SHBVOL
+dsh_bclus   equ os88_image_end + DOS_B_SHBCLUS
+dsh_rdrv    equ os88_image_end + DOS_B_SHRDRV
+dsh_rclus   equ os88_image_end + DOS_B_SHRCLUS
+dsh_sdrv    equ os88_image_end + DOS_B_SHSDRV
+dsh_sclus   equ os88_image_end + DOS_B_SHSCLUS
+dsh_ddrv    equ os88_image_end + DOS_B_SHDDRV
+dsh_dclus   equ os88_image_end + DOS_B_SHDCLUS
+dsh_cname   equ os88_image_end + DOS_B_SHCNAME
+dsh_cpseg   equ os88_image_end + DOS_B_SHCPSEG
+dsh_cpkb    equ os88_image_end + DOS_B_SHCPKB
+dsh_made    equ os88_image_end + DOS_B_SHMADE
+dsh_got     equ os88_image_end + DOS_B_SHGOT
 dos_inchild equ os88_image_end + DOS_B_INCHLD
 dos_psv_ss  equ os88_image_end + DOS_B_PSVSS
 dos_psv_sp  equ os88_image_end + DOS_B_PSVSP

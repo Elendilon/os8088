@@ -119681,12 +119681,177 @@ own on the system disk, implementing `COPY` with wildcards, `DEL`, a tolerated
 control to the parent inside the `INT 21h` call that asked (§96.14, and
 `tests/dosexec.py` is the gate), so the mechanism is built: this is a program
 to write, not kernel surface to add, and it would unblock a whole class of
-period installers rather than one. **It is not proposed here** — it is a
-product decision with its own scope and its own testing, and §96 records only
-that the door is this shape.
+period installers rather than one. **It was not proposed here** — it was a
+product decision with its own scope and its own testing, and §96 recorded only
+that the door was this shape.
+
+**It has since been taken, and §96.30 is it** — with one change to the sketch
+above that is worth noticing: there is no `COMMAND.COM` on the disk at all.
+`AH=4Bh` recognises the name and runs the command itself, so the thing this
+section called "a program to write" turned out not to need to be a program.
 
 **The game itself is unaffected.** `PRINCE.EXE` runs off the floppy; what
 needs a shell is the hard-disk *installer*.
+
+#### 96.30 `COMMAND.COM` is not a file (`apps/dos/dosh.inc`)
+
+§96.29 said the door was a one-shot `/C` shell and deliberately did not
+propose one. This is it, and the one thing it does differently from that
+sketch is the thing that made it small: **there is no `COMMAND.COM` on the
+disk.** `AH=4Bh` looks at the name it was handed, and if the last component is
+`COMMAND.COM` it loads nothing at all — it reads the command tail out of the
+parameter block, runs one command, and returns. No file is opened, no arena
+block is taken, `[dos_inchild]` is never set (so §96.14.1's one-level rule
+does not apply and a program may shell out as often as it likes), and the
+caller cannot tell the difference from the outside.
+
+That also settles three things a real file would have had to answer: it works
+whatever volume the program was launched from, it cannot be deleted or
+shadowed by a `COMMAND.COM` on the user's own floppy, and there is no second
+binary to keep in step with the box.
+
+**The name is matched RAW, before parsing.** `COMSPEC` is normally a full path
+— `C:\COMMAND.COM` — on a drive that may not exist here, so parsing it first
+would refuse with "invalid drive" (§96.6.1) before anything could recognise
+it. The last component is the whole question, compared case-insensitively
+because `COMSPEC` is conventionally upper case and the literal fallback a
+program carries is conventionally lower.
+
+##### 96.30.1 What it had to run was measured, not guessed
+
+`INSTALL.EXE` carries these in its data segment, and they fixed the
+requirement before a line was written:
+
+```
+copy          *.*           > NUL        del install.exe > NUL
+/c            COMSPEC       command.com  .bat  .exe  .com
+C:\PRINCE     " to "        " in drive "
+```
+
+So the two commands that had to work are `copy *.* C:\PRINCE > NUL` and `del
+install.exe > NUL`, and **a wildcard source, a folder destination named by a
+drive-qualified path, and `> NUL` are requirements rather than garnish.**
+
+##### 96.30.2 The verbs
+
+`COPY`, `XCOPY`, `MOVE`, `DEL`/`ERASE`, `REN`/`RENAME`, `MD`/`MKDIR`,
+`RD`/`RMDIR`, `CD`/`CHDIR`, `TYPE`, `VER`, `ECHO`, `REM`. An unknown verb is
+*"Bad command or file name"* and exit code 1, which is what a program that
+shells out is entitled to see.
+
+`MOVE` and `XCOPY` did not exist in DOS 3.3 — `XCOPY` was an external `.EXE`
+and `MOVE` arrived with DOS 6 — so a period program will not ask for them
+through this door. They are here because they are the same engine with two
+flags, and because the prompt this interpreter is also for will be typed at by
+a person.
+
+##### 96.30.3 Three decisions worth the reasoning
+
+**A redirection target that is not `NUL` REFUSES the whole command.** Our
+verbs print almost nothing, so quietly dropping `> FILE` would be
+indistinguishable from honouring it right up until somebody read the file and
+found it missing — §96.22's shape exactly, an answer of the wrong *kind*
+rather than a refusal. `> NUL`, which is what shelling-out code actually
+writes, sets a quiet flag and costs nothing.
+
+**Whether a destination is a folder is asked of the DISK, not of the string.**
+`copy *.* C:\PRINCE` means *into* `PRINCE` if `PRINCE` is a directory and
+*onto a file called* `PRINCE` if it is not, and `PRINCE` is a perfectly good
+filename. So the whole spec is tried as a folder first; only if that fails is
+the last component treated as a name. That is DOS's own rule and it is one
+extra directory walk.
+
+**The match loop counts matches, not entries, and the destructive verbs do not
+count at all.** `OSAPI_FILE_FIND` is by ordinal, and a directory being written
+renumbers underneath a walk (§19.7.1). A copy leaves its source folder alone,
+so it walks with a skip count rising; `DEL` and `MOVE` take an entry out every
+pass, so they ask for the **first** match every time and each pass makes
+progress. One loop, one parameter, and the destructive case cannot skip a file
+by counting one that has gone. A copy whose source and destination folder are
+the same *and* whose destination has no new name is refused — DOS refuses it
+too, and here it would also renumber the ordinals it is walking.
+
+##### 96.30.4 What it inherits, and what it does not
+
+**`MOVE` tries the re-link first.** `OSAPI_FILE_MOVE` (§22.25) rewrites the
+directory entry and reads no data; `AX` = 0 with `CF` means *not attempted*,
+and only then does the fallback pay for a copy and a delete. On one volume a
+`MOVE` of a 100KB file is a directory write.
+
+**A path is one component past the root**, which is `dos_fh_core`'s own limit
+(a separator anywhere past a leading one is code 3, "path not found") and not
+a new one invented here. `C:\PRINCE` resolves; `C:\A\B` does not. That is
+exactly the reach the measured case needs, and `dos_walk_pbuf` — which already
+walks arbitrary depth for `AH=3Bh` — is the upgrade, isolated to one routine.
+
+**A `CD` inside a `/C` command does not reach the program that shelled out.**
+Under DOS the child shell's directory dies with it, and running in-process is
+not a reason to behave differently, so `dsh_tail` banks the place and puts it
+back around the whole command.
+
+**No `OSAPI_*` file slot is called from this file.** §96.4's back-end rule is
+not relaxed for the shell: every file action is a `dos_be_*`, which is what
+keeps §14's hibernate phase a second back end rather than a rewrite. Two verbs
+were added for it — `DBE_COPY` and `DBE_MOVE`, over §22.24 and §22.25.
+
+##### 96.30.6 The copy buffer comes out of the DOS ARENA, and the disk cache is not an alternative
+
+`COPY` needs a buffer. Inside the fsx bracket the heap is the DOS program's —
+every byte of it, by §96.3's one claim — so `OSAPI_FILE_COPY`'s own
+`fcp_bufget` answers `FERR_FULL`, measured: on the gate disk every `COPY`
+failed with 6 and every `MOVE`, `REN` and `DEL` passed, because only the copy
+needs memory. Holding 8 KB back from the arena made all eight checks pass,
+which is the diagnosis and is **not** the fix — it taxes every DOS program for
+a feature most never use.
+
+**The read-ahead cache is not the answer either, and the reason is worth
+stating because it looks like one.** The 32 KB the machine already holds for
+disk work is not a copy of the payload: §18.95.1 skips the cache fill whenever
+the caller's request already covers the whole chunk, since filling would read
+exactly the sectors the direct path reads and evict a slot for sectors nobody
+asks for twice. A copy's chunks are precisely that case, so **the payload
+never enters the cache at all** — it is DMA'd straight into the copy's buffer.
+That gate is not an optimisation to be undone: without it the reference copy's
+subdirectory walks went **15 calls / 27 sectors → 17 calls / 101 sectors**,
+*worse in calls*, because the streaming payload was flushing the directory
+chunks out from under `fcp_scan`. Staging a copy through that cache would buy
+one buffer and lose the thing the cache is for.
+
+So the buffer comes from **the DOS arena**, which is where DOS itself takes
+it. A program that EXECs must free memory first — that is the DOS contract,
+and `tests/dosexec/parent.asm` already asserts it: a `4Bh` before `AH=4Ah`
+answers 8, *"insufficient memory"*. **A program that shells out has, by
+construction, left room for a shell to load into**, and ours loads a buffer
+where a real `COMMAND.COM` would load itself. `dos_mcb_alloc` is `AH=48h`'s
+own body; 8 KB is asked for and the request halves down to 1 KB, because a
+smaller buffer is a slower copy rather than no copy. Nothing is taxed, and a
+program that never shells out pays nothing at all.
+
+What that costs is that `COPY` streams the bytes itself — `DBE_RDAT` in,
+`DBE_WRITE` then `DBE_APPEND` out — rather than calling §22.24's engine. So
+**the half §22.24 warns a hand-rolled copy gets wrong is written here on
+purpose**: a destination that was created and then failed is deleted, because
+a short file that looks whole is worse than no file. The half genuinely lost
+is the redirector's `FSV_COPY` fast path, which applies to a remote-to-remote
+pair — not something a DOS program inside an fsx bracket has.
+
+**`OSAPI_FILE_COPY` is still the right door for a package with a heap**, which
+is every windowed caller including wave 7's prompt; it is simply not reachable
+from inside a bracket, and that is a property of the bracket rather than of
+the slot. It is the same finding docs/plans/DISK-CPU-PLAN.md §5 records one
+layer out: *an exclusive fullscreen program cannot reach the RAM the drivers
+gave back for it.*
+
+##### 96.30.5 It is the interpreter the windowed prompt wants
+
+A prompt in a window (docs/plans/DOS-EXEC-PLAN.md wave 7) differs from this in
+its **input** — a typed line rather than a command tail — and its **output** —
+a text pane rather than the ROM teletype — and in nothing else. `dsh_run`
+takes an ASCIZ line and answers an exit code; `dsh_tail` is the six lines that
+unpack `AH=4Bh`'s counted string and put `/c` in front of it, plus the
+directory bracket above. So the parser and every verb are built here,
+fullscreen, where a real program is the test — and wave 7 becomes a pane and a
+line editor in front of something that already works.
 
 #### 96.31 `AH=56h` renames where it stands, and says so when it cannot
 
