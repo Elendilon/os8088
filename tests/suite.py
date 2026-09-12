@@ -2883,6 +2883,25 @@ SOAK = [
         " analysis. The trainer is wired to it through cs_axisp."
         " --clobber-body is the red run and it reproduces both reports",
         needs=("marty",), serial=True),
+    Row("skiesfacing", "soak", py("tests/skiesfacing.py"), 28.0,
+        "SPEC.md 88.7.8.2: the SCENE reads the FACING and not the heading."
+        " The camera's forward vector is (sh cp, sp, ch cp), so past the"
+        " vertical cos(pitch) turns its horizontal part round and the"
+        " aeroplane is pointed the other way along its own heading - and"
+        " 88.5.1's cull, the occluder's across and 88.6.2.4's"
+        " which-threshold-is-ahead all worked in the heading's frame with no"
+        " cos(pitch) in them at all. Reported as *\"a vertical 180 in the"
+        " Pitts stops drawing buildings in the distance and the lines on the"
+        " runway, and a reverse vertical 180 clears it\"*, which is 88.7.8.1"
+        " one layer out. The A/B is EXACT: (H, 0, 0) and (H+180, 180, 180)"
+        " are one camera to the bit - the quarter table reflects exactly -"
+        " so the row asserts cs_m matches first and then requires the same"
+        " objects filed, the same runway threshold and the same 3D window,"
+        " pixel for pixel. It clears CSO_SEEN each pose, because the cull is"
+        " only consulted for a stranger and the defect is invisible to"
+        " anything already on the glass. --clobber-facing is the red run and"
+        " it reads 7 filed against 1, 8 against 5 and 10 against 8",
+        needs=("marty",), serial=True),
     Row("skiesrad", "soak", py("tests/skiesrad.py"), 34.0,
         "SPEC.md 88.5.11: cs_pwhole never lies. cs_projall PREDICTS off"
         " CSM_RAD that an object is wholly in front of the near plane, and"

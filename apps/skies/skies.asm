@@ -2673,6 +2673,9 @@ CS_DBGSCR equ 112               ; ...and the copy A/B's scratch is 112 rows,
     ZWORD cs_cosp
     ZWORD cs_sinr
     ZWORD cs_cosr
+    ZWORD cs_fsinh                  ; ...and the GROUND TRACK'S FACING, which
+    ZWORD cs_fcosh                  ; is the heading turned round past the
+                                    ; vertical (88.7.8.2)
     ZWORD cs_t1
     ZWORD cs_t2
     ZWORD cs_nx                     ; the world's up vector in camera space:
