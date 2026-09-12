@@ -130,6 +130,67 @@ class Redirect(P.SocketBox):
         return P.SocketBox.open(self, host, port)
 
 
+class Inbound(threading.Thread):
+    """The host end of an INBOUND connection: connect to the port the DOS
+    program is listening on, and see whether it serves us (SPEC.md 96.26.8).
+
+    **IT RETRIES**, because the port is not bound when this starts: the guest
+    binds it inside `dn_lsn_init`, which runs at the second launch, which
+    happens inside `Partner.serve` while this thread is asleep. A one-shot
+    connect would race the emulator and lose every time.
+    """
+
+    REQ = b"GET / HTTP/1.0\r\n\r\n"
+
+    def __init__(self, port, deadline=600.0):
+        threading.Thread.__init__(self)
+        self.daemon = True
+        self.port, self.deadline = port, deadline
+        self.got = None
+        self.tries = 0
+
+    def run(self):
+        t0 = time.time()
+        while time.time() - t0 < self.deadline:
+            s = socket.socket()
+            s.settimeout(20.0)
+            try:
+                self.tries += 1
+                s.connect(("127.0.0.1", self.port))
+            except OSError:
+                s.close()
+                time.sleep(0.25)
+                continue
+            try:
+                s.sendall(self.REQ)
+                out = b""
+                while len(out) < 512:
+                    b = s.recv(256)
+                    if not b:
+                        break
+                    out += b
+                self.got = out
+            except OSError:
+                self.got = b""
+            finally:
+                s.close()
+            return
+
+
+def free_port():
+    """A port nothing on this box holds, chosen HERE rather than fixed.
+
+    The guest is told it through [dos_ebuf] and binds it on the far side, so
+    a constant would make two runs of this row on one box collide - which is
+    exactly what `--marty-jobs` does.
+    """
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    p = s.getsockname()[1]
+    s.close()
+    return p
+
+
 class Listener(threading.Thread):
     """One connection, one fixed answer, the request line recorded."""
 
@@ -182,6 +243,23 @@ def main():
 
     dm = dosmap.package()
     pm = dosmap.probe()
+    # **THE MAPS ARE CHECKED BEFORE THE EMULATOR STARTS.** Every read below is
+    # an offset out of one of them, and a name that has moved comes back as a
+    # KeyError two hundred seconds into the row - or, worse, as a plausible
+    # number if the read were guarded. dosxlat does the same, for the same
+    # reason.
+    for n in ("dos_ebuf", "dos_pkt_xl", "net_cls", "dos_ldpsp"):
+        if n not in dm:
+            say("doscable: FAILED - the DOS box has no %s; SPEC.md 96.20's "
+                "environment page and 96.26's route are what this row reads"
+                % n)
+            return 1
+    for n in ("flaglog", "nflag", "rxdata", "rxfirst", "narp", "gwmac",
+              "isyn", "ldata", "lfirst"):
+        if n not in pm:
+            say("doscable: FAILED - the probe has no %s: "
+                "tests/dostrap/dospkt.asm is not the one this row reads" % n)
+            return 1
     fails = []
     lis = Listener()
     lis.start()
@@ -316,6 +394,63 @@ def main():
         say("doscable: the far side was asked for %r" % (box.asked,))
         say("doscable: ...and saw %r" % (lis.got,))
 
+        # =====================================================================
+        # THE OTHER DIRECTION (SPEC.md 96.26.8)
+        # =====================================================================
+        # A listening client sends NOTHING a packet driver could be read for,
+        # so the box is told which port to forward through the environment
+        # page. **IT IS POKED AND NOT TYPED**, deliberately: tests/dosargs.py
+        # already asserts that a row typed on that page reaches the program's
+        # environment block verbatim (SPEC.md 96.20), so typing it again here
+        # would re-test the UI at the cost of a third of this row's runtime -
+        # and what is under test is dn_lsn_init reading it, not the field.
+        #
+        # The SECOND run is what picks it up: dn_lsn_init runs at the launch,
+        # so the environment has to be in place before one, and the first
+        # launch is over.
+        port = free_port()
+        row = ("OS88LISTEN=%d" % port).encode("ascii") + b"\0"
+        m.key("Enter")                          # let the probe off int 16h
+        os88marty.settle(m)
+        m.write((pseg << 4) + dm["dos_ebuf"], row)
+        back = m.read((pseg << 4) + dm["dos_ebuf"], len(row))
+        say("doscable: [dos_ebuf] is now %r, port %d"
+            % (back.split(b"\0")[0].decode("latin-1"), port))
+        inb = Inbound(port)
+        inb.start()
+
+        # Enter runs it again - and this time dos_pkt_bufs' dn_init takes a
+        # NETV_LISTEN on that port, which crosses the cable like every other
+        # verb.
+        m.pause()
+        p.sync()
+        p.allow(4000000000)
+        p.idle_until_wire(300000000)
+        try:
+            seen2 = p.serve(ft, limit=900, idle=8000000, sox=box)
+            say("doscable: second run served: %r" % "".join(seen2))
+        except P.LinkTimeout as e:
+            say("doscable: the wire STALLED on the inbound run: %s" % e)
+            fails.append("the wire stalled on the inbound run: %s" % e)
+        for line in box.log[len(box.log) - 40:]:
+            say("   " + line)
+        m.run()
+        os88marty.settle(m)
+
+        psp2 = eth.u16(m.read((pseg << 4) + dm["dos_ldpsp"], 2))
+        isyn = ldata = lfirst = 0
+        if psp2:
+            isyn = int.from_bytes(m.read((psp2 << 4) + pm["isyn"], 2), "little")
+            ldata = int.from_bytes(m.read((psp2 << 4) + pm["ldata"], 2),
+                                   "little")
+            lfirst = int.from_bytes(m.read((psp2 << 4) + pm["lfirst"], 2),
+                                    "little")
+        inb.join(timeout=5.0)
+        say("doscable: LSN %d, LDATA %d, LFIRST %04X (psp %04X)"
+            % (isyn, ldata, lfirst, psp2))
+        say("doscable: the host connected %d time(s) and was served %r"
+            % (inb.tries, inb.got))
+
     # --- 0: the route ------------------------------------------------------
     if not xl:
         fails.append("[dos_pkt_xl] is 0: the box took the CARD path on a "
@@ -356,6 +491,26 @@ def main():
     if rxfirst != (RESP[0] << 8 | RESP[1]):
         fails.append("the payload starts %04X and the answer starts %r"
                      % (rxfirst, RESP[:2]))
+
+    # --- 5: the INBOUND direction (SPEC.md 96.26.8) ------------------------
+    if not isyn:
+        fails.append("no inbound SYN reached the client: dn_accept never "
+                     "accepted, [dn_cip] was never learnt, or the SYN it "
+                     "staged did not reach the up-call")
+    if ldata != len(Inbound.REQ):
+        fails.append("the DOS program was handed %d request bytes and the "
+                     "host sent %d - so the handshake completed and the DATA "
+                     "did not, which is dn_synack_in's ACK"
+                     % (ldata, len(Inbound.REQ)))
+    if lfirst != (Inbound.REQ[0] << 8 | Inbound.REQ[1]):
+        fails.append("the request starts %04X and the host sent %r"
+                     % (lfirst, Inbound.REQ[:2]))
+    if not inb.got:
+        fails.append("the host got nothing back from the DOS program: it "
+                     "connected %d time(s)" % inb.tries)
+    elif not inb.got.startswith(b"HTTP/1.0 200 OK"):
+        fails.append("the host was served %r rather than the probe's reply"
+                     % inb.got[:40])
 
     for f in fails:
         say("doscable: " + f)

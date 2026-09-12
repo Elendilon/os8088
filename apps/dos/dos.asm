@@ -10046,6 +10046,9 @@ dn_pseudo   equ PKB_STATE + DNB_PSEUDO
 dn_rr       equ PKB_STATE + DNB_RR
 dn_gwmac    equ PKB_STATE + DNB_GWMAC       ; copied out of the image by
 dn_ourmac   equ PKB_STATE + DNB_OURMAC      ; dn_init (dn_mac_c below)
+dn_lsn      equ PKB_STATE + DNB_LSN         ; the inbound listeners (96.26.8)
+dn_lrr      equ PKB_STATE + DNB_LRR
+dn_cip      equ PKB_STATE + DNB_CIP         ; ...and the client's own address
 dn_frame    equ PKB_RX                      ; the frame we build FOR the
                                             ; client, which is also...
 dos_pkt_rxs equ PKB_RX                      ; ...the one dos_pkt_deliver hands

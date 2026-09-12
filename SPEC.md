@@ -121610,6 +121610,84 @@ TICKS, and a chunk is 5.4 ms against `LP_TMO`'s 110 — so the most it can cost
 is being one twentieth of the tightest deadline late to the *first* nibble,
 after which the fine loop is back in charge.
 
+#### 96.26.8 Inbound, and the hard part is that a listening client says nothing
+
+`ftpsrv` and `httpserv` are servers: the connection comes from outside and the
+DOS program is what answers. The socket ABI has had the verbs all along —
+`NETV_LISTEN` takes a port and answers a listening handle, `NETV_ACCEPT` turns
+it into a connected one or says *nobody yet* — so the missing half was never
+the wire.
+
+**It was the DISCOVERY, and it has no answer on the wire at all.** A packet
+driver has no notion of a port: when a DOS stack binds one it sends **not a
+single frame**, so there is nothing to infer it from. That is the exact
+opposite of the outbound direction, where the client's own `SYN` carries the
+port, the address and the sequence number and we invent nothing.
+
+So the box has to be **told**, and it is told in the place that already
+exists — the environment page (§96.20):
+
+```
+OS88LISTEN=80              one port
+OS88LISTEN=21,2048,2049    a control port and a small PASV range
+```
+
+No new dialog, no new file, no new format. The user types it in a row beside
+the `MTCPCFG=` the program needs anyway, and the DOS program sees a variable
+it ignores. `dn_lsn_init` reads it at launch and takes one `NETV_LISTEN` per
+port named, up to `DN_NLSN` = 4 — and four is not a guess about servers, it is
+that each listener holds one of `NET_SOCKS`' **eight** handles for the
+session's whole life.
+
+**A listener is not a flow.** It outlives every connection accepted through
+it, which is `netpkg.inc`'s own reason for the two verbs being separate, so it
+has a row of its own — and `dn_shut` closes them with the flows, because a
+bracket that gave four handles back and kept four would leave the far side
+with half its table gone.
+
+**What `dn_accept` then owes the client is a `SYN`**, and every field of it is
+ours to invent except one:
+
+| field | where it comes from |
+|---|---|
+| the client's port | the listening port — which is also what `dn_flow` keys on, so an inbound flow is found the same way an outbound one is |
+| the far side's port | invented, `0xC000 + slot`. The client picks its own for outbound, so these cannot collide |
+| the source address | the DNS pool counted **down** from the top, so it can never be one `dn_dns` handed out |
+| the destination | **the one thing we had to be told** — `[dn_cip]`, banked from any IP frame the client has sent |
+
+That last row is the only new state the direction needs. An outbound flow
+reads the client's address out of its own `SYN`; an inbound one has never seen
+a packet from it, and a `SYN` addressed to `0.0.0.0` is a frame the client
+drops while the far side holds a connection nobody answers. So `dn_accept`
+**does not accept until it can address the answer** — in practice a stack that
+has bound a port has ARPed long before, but "in practice" is not a guarantee
+and an accepted socket we cannot announce has nowhere to go.
+
+`[dn_pend]` is checked **before** the accept for that same reason, not after.
+
+**`DN_S_SYNSENT` is the mirror of `DN_S_OPEN` and cannot share it.** In
+`DN_S_OPEN` the client is retransmitting at us and the *socket* is what has
+not answered; here the socket is already up and the *client* is what has not.
+A `SYN` with `ACK` set on a `SYNSENT` flow is our own answer coming back —
+`dn_synack_in` banks its ISN + 1, stages the `ACK`, and only **then** moves to
+`DN_S_UP`, because advancing first and losing the `ACK` to a busy buffer would
+leave a connection up at both ends that never carries a byte.
+
+**And from `DN_S_UP` nothing distinguishes the two directions.**
+`dn_tcp_data` and `dn_pump`'s `.up` arm carry bytes either way, which is why
+this wave is a listener table, one state and one handler rather than a second
+endpoint.
+
+**What does not work, stated plainly**: there is **no retransmit of our
+`SYN`**, because there is no timer to hang one on — if the client's receiver
+refuses that one frame the connection is lost rather than retried. And **FTP's
+data connections need the ports named in advance**: `ftpsrv` picks a PASV port
+at runtime and announces it inside the control stream, so the only way to reach
+it is to list the server's configured PASV range in `OS88LISTEN=` as well.
+Parsing the control stream to learn it would be deep inspection of a protocol
+this box has no business knowing. A single-port server — `httpserv`, or
+anything answering on one well-known port — needs none of that.
+
 **The trace build is not on this scheme and is bounded instead.** `DOSTRACE`'s
 ring and its rendered dump are 26,900 bytes and they are `%ifdef`'d, so they
 cost a shipped build nothing — but they are 26,900 bytes of the very arena the

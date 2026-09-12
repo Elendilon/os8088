@@ -83,6 +83,8 @@ start:
     call wait_rx
     call do_tcp                     ; ...AND A CONNECTION (SPEC.md 96.26.3)
     call do_stats                   ; ...and what the driver counted of it
+    call do_listen                  ; ...AND THE OTHER DIRECTION (96.26.8):
+                                    ; be the server, if anything connects
     call release
 
 done:
@@ -468,6 +470,98 @@ do_tcp:
     ret
 
 ; -----------------------------------------------------------------------------
+; do_listen - BE THE SERVER: wait to be connected to, and answer (96.26.8)
+;
+; The box has to be TOLD which port to forward, because a listening client
+; sends nothing a packet driver could be read for - `OS88LISTEN=<port>` on the
+; environment page is how (SPEC.md 96.26.8). This program does not set that
+; and does not need to: it answers whatever arrives, so the port is the
+; harness's business and the assertion here is only *did a connection reach
+; me and could I serve it*.
+;
+; Three answers, and the first is the one nothing else can give:
+;   LSN 0001       an unasked SYN arrived - NETV_ACCEPT reached the client
+;   LDATA 0012     ...and the request it then sent
+;   LFIRST 4745    ...starting 'GE' of a GET
+; -----------------------------------------------------------------------------
+do_listen:
+    mov word [isyn], 0
+    mov word [ldata], 0
+    mov word [lfirst], 0
+    mov cx, 200                     ; ~11 seconds of BIOS ticks. Generous: the
+    mov si, isyn                    ; far side has a real connection to make
+    call wait_word                  ; and the box polls on its own tick
+    mov dx, s_lsn
+    call puts
+    mov ax, [isyn]
+    call puthex16
+    call crlf
+    cmp word [isyn], 0
+    je .out                         ; nobody connected, which on the card arm
+                                    ; is the ordinary answer
+
+    ; --- the roles swap, and every field of the frame with them -----------
+    mov ax, [isyn_sport]            ; their port becomes the destination...
+    mov [t_dport], ax
+    mov ax, [rxbuf+34+2]            ; ...and the one they asked for is ours
+    mov [t_sport], ax
+    mov si, isyn_src                ; their address becomes the destination
+    mov di, t_dst
+    mov cx, 4
+    call cpy
+    mov si, rxbuf + 14 + 16         ; ...and the one they addressed is ours
+    mov di, t_src
+    mov cx, 4
+    call cpy
+
+    mov word [seq_hi], 0            ; our ISN for this direction
+    mov word [seq_lo], 0x2000
+    mov ax, [isyn_seq_h]            ; ...and their ISN + 1 is what we ack
+    mov [ack_hi], ax
+    mov ax, [isyn_seq_l]
+    mov [ack_lo], ax
+    add word [ack_lo], 1
+    adc word [ack_hi], 0
+
+    mov al, F_SYN | F_ACK           ; --- the SYN|ACK ---
+    xor cx, cx
+    xor si, si
+    call tcp_build
+    call tcp_tx
+    mov ax, 1                       ; a SYN consumes one sequence number
+    call seq_adv
+
+    mov cx, 200                     ; --- and the request they then send ---
+    mov si, ldata
+    call wait_word
+    mov dx, s_ldata
+    call puts
+    mov ax, [ldata]
+    call puthex16
+    call crlf
+    mov dx, s_lfirst
+    call puts
+    mov ax, [lfirst]
+    call puthex16
+    call crlf
+    cmp word [ldata], 0
+    je .out
+
+    mov ax, [ldata]                 ; acknowledge what arrived, then answer
+    add [ack_lo], ax
+    adc word [ack_hi], 0
+    mov al, F_PSH | F_ACK
+    mov cx, LREPLEN
+    mov si, s_lrep
+    call tcp_build
+    call tcp_tx
+    mov ax, LREPLEN
+    call seq_adv
+    call put_log
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
 ; tcp_build - one segment in tcpbuf, with both checksums COMPUTED
 ;
 ; in:  AL = the flags byte, CX = the payload length, SI = the payload (0 for
@@ -493,6 +587,31 @@ tcp_build:
     mov di, tcpbuf + 54
     call cpy                        ; DS:SI -> DS:DI, CX bytes
 .nopay:
+    ; --- **THE ENDS ARE VARIABLES AND NOT THE TEMPLATE'S** ----------------
+    ; do_listen (SPEC.md 96.26.8) makes this program the SERVER, and then
+    ; every one of these is the mirror of the client role: the ports swap, the
+    ; addresses swap, and the peer is whoever connected rather than the
+    ; gateway. Four words and eight bytes, set once per role.
+    mov ax, [t_sport]
+    mov [tcpbuf + 34], ax
+    mov ax, [t_dport]
+    mov [tcpbuf + 36], ax
+    mov si, t_src
+    mov di, tcpbuf + 26
+    mov cx, 4
+    call cpy
+    mov si, t_dst
+    mov di, tcpbuf + 30
+    mov cx, 4
+    call cpy
+    mov si, t_src                   ; ...and the pseudo-header's copy of them
+    mov di, pseudo + 0
+    mov cx, 4
+    call cpy
+    mov si, t_dst
+    mov di, pseudo + 4
+    mov cx, 4
+    call cpy
     ; --- the IP header -----------------------------------------------------
     mov ax, [t_pay]
     add ax, 40                      ; two 20-byte headers
@@ -799,6 +918,33 @@ receiver:
     xor ah, ah
     or ax, 0x100                    ; ...with a bit set so "nothing yet" and
     mov [lastflags], ax             ; "flags of zero" are different answers
+    ; --- **AN INBOUND SYN IS SOMEBODY CONNECTING TO US** (SPEC.md 96.26.8) -
+    ; A SYN with no ACK, arriving unasked: do_listen's whole signal. Banked
+    ; here rather than acted on, because this is an up-call from the box's own
+    ; INT 08h chain and building a reply inside one would put a send_pkt
+    ; inside the driver's own receive path.
+    test al, F_SYN
+    jz .notsyn
+    test al, F_ACK
+    jnz .notsyn
+    mov ax, [rxbuf+34+0]            ; its source port, wire order
+    mov [isyn_sport], ax
+    mov ax, [rxbuf+34+4]            ; ...and its ISN, big-endian to ours
+    xchg al, ah
+    mov [isyn_seq_h], ax
+    mov ax, [rxbuf+34+6]
+    xchg al, ah
+    mov [isyn_seq_l], ax
+    mov si, rxbuf + 14 + 12         ; ...and where it came from
+    mov di, isyn_src
+    mov cx, 4
+    call cpy
+    inc word [isyn]
+                                    ; ...and FALLS THROUGH to the flag log:
+                                    ; the inbound SYN belongs in it, being the
+                                    ; proof that NETV_ACCEPT reached the client
+                                    ; at all
+.notsyn:
     ; --- **EVERY SEGMENT'S FLAGS, IN ORDER** -------------------------------
     ; One word is the LAST answer, and a connection is a sequence: 12 02 10
     ; 18 11 is a handshake, a request, a reply and a close, and any one of
@@ -836,6 +982,18 @@ receiver:
     mov ax, [paylen]
     add [dack_lo], ax
     adc word [dack_hi], 0
+    cmp word [isyn], 0              ; on the SERVER flow the same payload is
+    je .clientpay                   ; the REQUEST, and it is counted apart:
+    add [ldata], ax                 ; do_listen asserts on what it was sent
+    mov si, rxbuf + 34
+    add si, bx
+    mov ah, [si]
+    mov al, [si+1]
+    cmp word [lfirst], 0
+    jne .out
+    mov [lfirst], ax
+    jmp short .out
+.clientpay:
     cmp word [rxfirst], 0
     jne .out
     mov si, rxbuf + 34              ; the payload starts after a header whose
@@ -968,6 +1126,9 @@ s_first:    db 'FIRST $'
 s_nogw:     db 'NOGW 1', 13, 10, '$'
 s_flags:    db 'FLAGS $'
 s_stats:    db 'STATS $'
+s_lsn:      db 'LSN $'
+s_ldata:    db 'LDATA $'
+s_lfirst:   db 'LFIRST $'
 s_sp:       db ' $'
 s_nosyn:    db 'NOSYN $'
 s_ready:    db 'READY', 13, 10, '$'
@@ -975,6 +1136,10 @@ s_ready:    db 'READY', 13, 10, '$'
 ; --- the request itself, which is not a `$`-terminated string -------------
 s_get:      db 'GET / HTTP/1.0', 13, 10, 13, 10
 GETLEN      equ $ - s_get
+
+; ...and what do_listen answers WITH, as the server half (SPEC.md 96.26.8)
+s_lrep:     db 'HTTP/1.0 200 OK', 13, 10, 13, 10, 'dos', 13, 10
+LREPLEN     equ $ - s_lrep
 
 F_FIN       equ 0x01                ; the flags, by name
 F_SYN       equ 0x02
@@ -1009,6 +1174,17 @@ statbuf:    times 24 db 0           ; get_statistics' record, copied out of
 txtcp:      dw 0
 t_flags:    db 0
 t_pay:      dw 0
+t_sport:    dw 0x3412               ; OUR port, wire order - 4660 as a client
+t_dport:    dw 0xA31F               ; ...and theirs, 8099
+t_src:      db 10, 0, 2, 15         ; our address...
+t_dst:      db 10, 0, 2, 2          ; ...and the peer's
+isyn:       dw 0                    ; --- what an INBOUND SYN brought ---
+isyn_sport: dw 0                    ; its source port, wire order
+isyn_seq_h: dw 0                    ; ...and its ISN
+isyn_seq_l: dw 0
+isyn_src:   times 4 db 0            ; ...and where it came from
+ldata:      dw 0                    ; payload bytes it sent us
+lfirst:     dw 0
 mymac:      times 6 db 0
 gwmac:      times 6 db 0            ; out of the ARP reply, never a constant
 ; --- the TCP frame, BUILT rather than templated ------------------------------
