@@ -1497,6 +1497,22 @@ OS88DRV := python3 tools/os88drv.py $(PKGZARG)
 # dozen up-to-date .o88 files and rebuilds none of them.
 PKGZSTAMP := $(BUILD)/.pkgz$(if $(PKGZ),-$(PKGZ))
 
+# DOSNETCARD=1 forces the DOS box's CABLE TRANSLATION (SPEC.md 96.26) on a
+# machine that HAS a card, which is the only way it can be driven at all -
+# net_find prefers the card and §96.23's raw path is strictly better there, so
+# the translation would otherwise never run anywhere an emulator can reach it
+# (DOS-CABLE-NET-PLAN 7.0).
+#
+# **IT IS STAMPED, and it has to be.** A knob with no stamp leaves an
+# up-to-date dos.bin from the other arm, so `make ethertest DOSNETCARD=1`
+# after a plain `make` silently ships the STOCK package - and the row then
+# tests the card path while reporting on the cable one. That is CLAUDE.md's
+# standing warning about knob kernels, one artefact along, and it was walked
+# into on this knob's first use: two runs disagreed about whether an ARP
+# reached the wire and both answers were correct for the build actually on
+# the disk.
+DOSNETSTAMP := $(BUILD)/.dosnet$(if $(DOSNETCARD),-card)
+
 # CURFIX=1 turns ON the two cursor-hide changes, and they are OFF BY DEFAULT.
 # SPEC.md 7.1.4.2 makes cur_lazyck test the ARMED REGION rather than the
 # window's frame, so a pointer parked over a window IN FRONT of an updating
@@ -4568,6 +4584,10 @@ $(SBSTAMP): | $(BUILD)
 $(PKGZSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.pkgz $(BUILD)/.pkgz-lz4 $(BUILD)/.pkgz-lzb
 	@touch $@
+
+$(DOSNETSTAMP): | $(BUILD)
+	@rm -f $(BUILD)/.dosnet $(BUILD)/.dosnet-card
+	@touch $@
 # Sheet (spreadsheet roadmap stage 1.0): a 64x64 numeric grid, no formulas,
 # no formatting, SYLK only.
 # EVERY .inc A PACKAGE INCLUDES BELONGS IN ITS RULE, and this one is the reason
@@ -4710,9 +4730,12 @@ $(BUILD)/telnet.o88: $(BUILD)/telnet.bin tools/os88pkg.py $(PKGZSTAMP)
 # alone - the granule RDPV_MOUNT rounds a size up to, which the refusal
 # strings have to name.
 # --- DOS (SPEC.md 96) --------------------------------------------------------
-$(BUILD)/dos.bin: apps/dos/dos.asm apps/os88api.inc apps/os88ui.inc \
-                  apps/os88line.inc | $(BUILD)
-	$(NASM) -f bin -w+error -I apps/ -o $@ apps/dos/dos.asm
+$(BUILD)/dos.bin: apps/dos/dos.asm apps/dos/dosnet.inc \
+                  apps/dos/dosnetabi.inc apps/os88api.inc apps/os88ui.inc \
+                  apps/os88line.inc apps/os88sock.inc \
+                  drivers/net/netpkg.inc $(DOSNETSTAMP) | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/dos/ -I drivers/net/ \
+	        $(if $(DOSNETCARD),-DDOSNET_CARD) -o $@ apps/dos/dos.asm
 
 $(BUILD)/dos.o88: $(BUILD)/dos.bin tools/os88pkg.py $(PKGZSTAMP)
 	python3 tools/os88pkg.py $< -o $@ $(PKGZARG)
@@ -4813,6 +4836,32 @@ $(BUILD)/DOSIRQ.COM: tests/dosirq/irq.asm | $(BUILD)
 
 $(BUILD)/dosirq360.img: $(BUILD)/DOSIRQ.COM tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSIRQ.COM
+
+# --- the packet driver's gate disk (SPEC.md 96.23) ---------------------------
+# DOSPKT.COM asks our packet driver the questions a client asks and prints the
+# answers; tests/dospkt.py reads ETHER.DRV's counters rather than that screen,
+# because the box has no windowed text yet.
+#
+# **mTCP IS NOT IN THIS REPOSITORY AND CANNOT BE.** It is Michael Brutman's
+# work under its own licence and it is the CLIENT half - what wave 4 provides
+# is the INTERFACE. So the disk takes it the way the CP/M and Z-machine disks
+# take theirs (`CPMSW=`, `STORIES=`): MTCPDIR=<dir> adds PKTTOOL.EXE and the
+# rest beside our own probe, and without it the disk is still a whole gate.
+MTCPDIR ?=
+MTCPFILES := $(if $(MTCPDIR),$(wildcard $(MTCPDIR)/*.EXE $(MTCPDIR)/*.exe $(MTCPDIR)/*.CFG))
+
+dospkt: $(BUILD)/dospkt360.img
+
+$(BUILD)/DOSPKT.COM: tests/dostrap/dospkt.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/dospkt.asm
+
+$(BUILD)/dospkt360.img: $(BUILD)/DOSPKT.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSPKT.COM \
+		$(MTCPFILES)
+	@echo "dospkt: $@ - the packet driver's gate disk."
+	@$(if $(MTCPFILES),echo "        with $(words $(MTCPFILES)) mTCP file(s)",\
+	  echo "        our probe only; MTCPDIR=<dir> adds mTCP's own programs")
+	@echo "        Run it with: python3 tests/dospkt.py"
 
 # --- OSAPI_FILE_PATH's gate disk (SPEC.md 19.2.4) ----------------------------
 # THREE LEVELS DEEP ON PURPOSE. The slot's whole claim is about what a walk

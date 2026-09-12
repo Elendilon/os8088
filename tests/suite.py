@@ -2612,6 +2612,29 @@ SOAK = [
         "is why the assertion is a read of drv_tab and not a symptom.",
         needs=("marty",), serial=True,
         wants=("build/dosirq360.img",)),
+    Row("dospkt", "soak", py("tests/dospkt.py"), 120.0,
+        "THE PACKET DRIVER, OVER A REAL CARD (SPEC.md 96.23, 72.22) - wave 4 "
+        "of DOS-EXEC-PLAN.md, and the row that says a DOS program can reach "
+        "the network. DOSPKT.COM walks 60h..80h for `PKT DRVR` at offset 3, "
+        "takes a handle with access_type, reads its own station address, "
+        "builds a broadcast ARP request for the gateway and sends it - then "
+        "SPINS ON THE BIOS TICK and never asks the driver for anything again. "
+        "QEMU'S, on CLAUDE.md's closed list for tests/ethernet.py's reason: "
+        "MartyPC has no NIC of any kind. IT READS THE DRIVER AND NOT THE "
+        "SCREEN, because the box has no windowed text yet (wave 6) and a "
+        "program's output dies with the bracket - so the evidence is "
+        "ETHER.DRV's own eth_nrawtx/eth_nraw, zeroed by NETV_RAW and "
+        "surviving its release, plus eth_raw back at 0 to prove the claim was "
+        "given back. THE RECEIVE HALF IS THE POINT: the probe polls nothing, "
+        "so a frame it counted arrived because our INT 08h chain pulled it "
+        "off the ring and up-called the client - which is what a Crynwr "
+        "client expects and what no other row here can reach. VERIFIED TO "
+        "FAIL by taking the DRVC_NET skip out of drv_suspend_x, which unloads "
+        "the driver at the bracket and leaves every counter 0. mTCP is NOT in "
+        "this repository and is not needed: MTCPDIR=<dir> puts its own "
+        "programs on the disk beside ours.",
+        needs=("qemu",), serial=True,
+        wants=("build/ether360.img", "build/dospkt360.img")),
     Row("pathcost", "soak", py("tests/pathcost.py"), 30.0,
         "OSAPI_FILE_PATH, AND WHAT IT COSTS (SPEC.md 19.2.4). The slot exists "
         "because dsk_find drops the on-disk dot links, so no package can walk "

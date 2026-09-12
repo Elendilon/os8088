@@ -90877,6 +90877,132 @@ and that the page renders. The 5150 is where a number would land, and there is
 no number here to land.
 
 `make test ETHER=1 TESTIMG=build/ether360.img` is the machine.
+
+### 72.22 The raw verbs — whole frames, for a consumer that IS a stack
+
+Every verb above this point is a **socket**: the driver owns ARP, IP and TCP
+and the package owns a byte stream. `NETV_RAW`, `NETV_RAWTX` and `NETV_RAWRX`
+are the other shape — the caller has a stack of its own and wants the wire.
+
+The first consumer is the DOS box's packet driver (§96.23), and the Crynwr
+interface it publishes is why these are shaped the way they are. They are
+**not** a general second API: a package that wants to move bytes has sockets,
+and reaching for these instead means writing ARP and TCP again.
+
+**They are a PULL, not an up-call**, and that follows from the driver rather
+than from taste. `ETHER.DRV` hooks no interrupt vector at all and polls the
+NE2000's receive ring (§72.2.1), so there is no context in which the driver
+could call a consumer back — there is no ISR to call it from. A consumer that
+wants frames asks for them, and how often it asks is its own problem to solve.
+
+| verb | in | out |
+|---|---|---|
+| `NETV_RAW` 15 | `AL` = 1 claim, 0 release; `DI` = a six-byte buffer for the station address, or 0 | CF=0. CF=1 `AX=NETE_BUSY` — somebody else holds it |
+| `NETV_RAWTX` 16 | `SI` = the frame, `DX` = its segment (0 = the caller's), `CX` = 14..1514 | CF=0. CF=1 `AX=NETE_ARG` (a length that is not a frame) or `NETE_NOLINK` (no claim, or the card never finished) |
+| `NETV_RAWRX` 17 | `DI` = a buffer, `DX` = its segment (0 = the caller's), `CX` = its capacity | CF=0 and `CX` = the frame's **true** length. CF=1 = the ring is empty |
+
+The claim **hands back the station address**, and that is a coupling rather
+than a convenience: a consumer that is the stack now cannot build a single
+frame without its own source MAC, so a claim that did not answer it would be
+followed by a second verb every caller had to make. `NETV_ADDR` is not that
+verb — it answers the machine's **IPv4** address, which belongs to our stack
+and is exactly what a raw consumer has stopped using.
+
+#### 72.22.4 Both buffers take a segment, because 3KB of image is the wrong price
+
+Every other buffer in this ABI lives in the **caller's own segment**, and that
+is not a convention — `OSAPI_DRV_CALL` is an X stub and the only segment it
+can put in `[eth_useg]` is the caller's (§77.10 is the bug that taught this).
+
+For a socket that is right: the buffers are a few hundred bytes of a package's
+own bss. A **raw** consumer moves a 1,514-byte frame each way, so the same
+rule would make it carry 3KB of image for ever, on every machine, including
+every machine with no card in it. So `NETV_RAWTX` and `NETV_RAWRX` take the
+segment in `DX`, and a heap claim can hold the pair. `DX = 0` keeps the old
+meaning, so a caller with a small buffer in its own bss writes nothing extra.
+
+The driver's end is four instructions: `[eth_useg]` is banked by the verb,
+overwritten from `DX` when `DX` is non-zero, and restored on every exit —
+`usr_read` and `usr_write` are unchanged.
+
+#### 72.22.1 The claim stops `eth_pump`, and that is the safe end to gate
+
+A raw claim is exclusive, and while it is held **`eth_pump` does nothing at
+all** — no drain, no timers — so the only consumer of the ring is
+`NETV_RAWRX`.
+
+Gating the *pump* rather than the *frame dispatcher* is the whole of the care
+here. `ne_rx` has already taken the frame **off** the ring by the time
+`eth_frame` could refuse it, so a gate one level down would drop exactly what
+the raw consumer was waiting for. And the failure that would cause is the
+expensive kind this project keeps writing down: two stacks sharing a ring
+corrupt nothing — `ne_rx` is one frame at a time and the card mutex is above
+both — they simply make frames **vanish**, each getting the ones the other was
+waiting for, with no error reported anywhere and a protocol that stalls.
+
+The timers stop for a reason of their own. A DHCP renew fired mid-bracket
+would put a frame on a wire somebody else believes they own, under a MAC they
+are using, and a TCP retransmit would do it for a connection nothing is left
+to read.
+
+#### 72.22.2 The true length is the answer, and the capacity only bounds the copy
+
+`NETV_RAWRX` returns `CX` = the length of the frame that arrived, which **may
+exceed the capacity the caller passed**; that many bytes were there and the
+excess was not copied.
+
+A caller with a 1514-byte buffer never sees the case. One with less can tell a
+truncation from a short frame — where a `CX` clamped to the capacity would
+make a 1514-byte frame read as a 64-byte one, and the caller would parse a cut
+header as a whole packet. The implementation banks the capacity **before**
+calling `ne_rx`, which returns the length in the same register the capacity
+arrived in.
+
+#### 72.22.3 The parallel cable refuses all three — and NOT for the reason this section first gave
+
+`NET.DRV` answers the same `NETV_*` surface (§62) and its rows for these three
+are refusals. A refusal is the honest answer rather than an empty success,
+because a packet driver built on a silent no would look mounted and never
+receive — which is §24.5's shape of failure one layer along.
+
+**The first version of this section justified that with a claim that is
+false**, and it is corrected here rather than quietly reworded because the
+false version reads perfectly plausibly. It said there are no Ethernet frames
+on a parallel cable — no MAC address, no ethertype, nothing a raw consumer
+could use. That describes the *wire*, and the wire is not the far end.
+
+**The far end is on a real NIC through a real packet driver.**
+`OS88NET.COM` includes `drivers/net/pktdrv.inc` — "a packet driver where the
+NE2000 was" — so the DOS machine's `ne_tx`/`ne_rx` are a Crynwr client against
+whatever card mTCP is already using there (§62.11.1). Frames, MACs and
+ethertypes all exist at that end in abundance. `NET.DRV` is the **alternate to
+`ETHER.DRV`**, not a lesser thing: it is how a machine with a parallel port
+and no card gets a network at all.
+
+So the true reasons are two, and only the first is about today:
+
+1. **The wire alphabet is socket-level** — `NW_OPEN`, `NW_SEND`, `NW_RECV`,
+   `NW_ADDR` and the rest (`nwire.inc`) — and has no raw-frame command. Adding
+   one is a real option and the protocol is built for it, but it needs
+   `NET_VER_RAW` alongside `NET_VER_SOCK` and `NET_VER_ADDR`, because
+   `nwire.inc`'s own warning is that an unknown letter does not get refused:
+   it falls through `os88net`'s dispatch ladder **without a reply** and leaves
+   the master blocked.
+
+2. **The cable is the wrong place to relay frames, and the arithmetic says
+   so.** PERFORMANCE.md Set 39 measures it at **3,741 bytes/second**, so a
+   1,514-byte frame is ~0.4 s each way — about **2.5 frames a second**. A raw
+   relay puts *every* TCP acknowledgement, *every* retransmit and *every* ARP
+   across that link. Relaying **sockets**, which is what the cable does today,
+   keeps all of that protocol chatter on the DOS side and sends only payload.
+   That is why the socket wire is right for os8088's own packages, and it is
+   the same trade `os88sock.inc` already makes when it prefers the card.
+
+What that costs is stated plainly: on a machine with only the cable, a **DOS
+program** in the box gets no network, because mTCP speaks packet driver and
+nothing else. §96.23 is a card feature until somebody wants item 1 enough to
+pay item 2's price.
+
 ## 73. The C toolchain — compiling C into an `.o88` package
 
 Everything in this OS is hand-written assembly, and that is a choice rather
@@ -120759,3 +120885,415 @@ caller can size that buffer without mirroring the kernel's own `DRV_MAX`,
 which is 6, 5 or 4 depending on the build — and the kernel asserts one against
 the other at assembly time, because a row added here without widening the SDK
 would write past the end of somebody's buffer.
+
+### 96.23 The packet driver — a Crynwr interface over `ETHER.DRV`
+
+A **packet driver is an interface, not a program**. What the box publishes is
+the Crynwr Packet Driver Specification — a vector in `60h`..`80h` whose
+handler carries the signature `PKT DRVR` at offset 3, and about a dozen
+functions reached through `AH` — and what consumes it is a DOS application
+that brings its own TCP/IP. mTCP is the validation target and is nobody's code
+here: it is GPL, it is not in this repository, and it is the *client* half.
+
+It is a good fit for one specific reason, and the reason is a property of our
+driver rather than a coincidence: **`ETHER.DRV` hooks no interrupt vector at
+all** (§72.2.1). There is no IRQ to arbitrate and no ISR to hand over, so a
+packet driver over it is a translation and not a negotiation.
+
+#### 96.23.1 Two things had to be built under it first
+
+The design this was planned against assumed both of these existed, and neither
+did. They are recorded because the plan's own §9.4 reads as a package-only
+wave and it is not one.
+
+**1. There was no transmit verb to call.** `ETHER.DRV`'s table is fifteen
+verbs and every one is a **socket** — `NETV_SEND` sends on a TCP connection.
+The frame-level `ne_tx`/`ne_rx` are internal to the driver and reachable from
+no package. §72.22's three raw verbs are what wave 4 actually rests on.
+
+**2. The box unloaded the network driver on the way in.** §51.11's
+`drv_suspend_x` skips exactly `DRVC_DISK` and `DRVC_FILE`, so `DRVC_NET` was
+suspended with everything else and the packet driver would have had no card to
+talk to — the door §96.17 opened for the Sound Blaster took the wire away.
+§96.23.6 is what replaced that.
+
+#### 96.23.2 The vector, and why it is searched for rather than chosen
+
+The client finds a packet driver by walking `60h`..`80h` and comparing the
+nine bytes at offset 3 of each handler against `PKT DRVR`. The box installs at
+the **first** vector in that range whose current handler does not already
+answer to that signature, which is `60h` on a machine where nothing else has
+one.
+
+Searching rather than hard-coding costs four instructions and buys the case
+that actually happens: a program the user ran earlier in the same session left
+something at `60h`, or the `.COM` being run is itself a packet driver for a
+card we do not have. The vector chosen is reported in the window.
+
+#### 96.23.3 The functions, and what each one answers from
+
+| `AH` | function | answered from |
+|---|---|---|
+| 1 | `driver_info` | constants. Class 1 (DIX Ethernet), type 1, number 0, version 9, functionality **2** — basic plus extended |
+| 2 | `access_type` | a handle table of `PKT_NHAND` rows. The ethertype is banked and the client's receiver far pointer with it |
+| 3 | `release_type` | the same table |
+| 4 | `send_pkt` | `NETV_RAWTX`, directly |
+| 5 | `terminate` | releases every handle and drops the raw claim |
+| 6 | `get_address` | `NETV_ADDR` — the card's own station address out of its PROM |
+| 20 | `set_rcv_mode` | accepted and recorded; the card is left in the mode `ne_init` set |
+| 21 | `get_rcv_mode` | what `20` recorded — 3, "all frames addressed to me plus broadcast" |
+| 24 | `get_statistics` | the driver's own counters, through `NETV_RAW`'s per-claim pair |
+
+Everything else answers `CF=1` with `DH=11` (`NO_SPACE` is not it —
+`BAD_COMMAND` is), which is what a client that asks for a feature it can live
+without expects to get.
+
+#### 96.23.4 The receive is a PULL underneath and an UP-CALL on top
+
+This is the one place the translation is not mechanical. The Crynwr contract
+is that the driver calls the client **twice** per frame from its ISR — `AX=0`
+asking for a buffer of `CX` bytes, to which the client answers `ES:DI` or
+`0:0` to refuse it; then `AX=1` handing the same buffer back full. mTCP is
+written against exactly that and does not poll.
+
+We have no ISR, so the up-calls are generated from a poll, and the poll runs
+in **three** places:
+
+1. **The `INT 08h` tick**, which the box chains for the life of the bracket.
+   This is the one that makes asynchronous delivery real, and it is what a
+   client that never calls us again still gets.
+2. **Every packet-driver call**, before the function it asked for. A client
+   in a send loop drains as it sends.
+3. **Every `INT 21h`**, which costs a compare on a path that is already a
+   dispatch and covers the client that is doing file I/O between receives.
+
+Each poll drains **up to the whole ring** rather than one frame. The ring
+holds about ten frames and the tick is 18.2 Hz, so a per-tick drain of one
+would cap at 18 frames a second and lose the rest to overflow; a full drain
+bounds delivery at roughly 180 frames a second, which is far more than a
+4.77 MHz 8088 above it can process anyway.
+
+##### 96.23.4.1 The up-call runs on a stack of ours, not on the program's
+
+The poll is reached from `INT 08h`, so the deepest chain in it —
+`OSAPI_DRV_CALL` into the kernel, into the driver, into `ne_rx`'s byte-at-a-
+time DMA loop, and then out into the client's receiver — lands on **whatever
+stack the DOS program was running on**, at whatever depth it had reached.
+
+A DOS program's stack is its own business and a `.COM`'s default is 256 bytes
+below its image. So the tick poll switches to a private stack of its own
+first, which is §9.10's answer to the same question for the mouse ISR and is
+the established shape in this tree. `mov [cs:x], sp` and `mov sp, imm16` need
+no register, which is what makes the swap possible at a gate where every
+register belongs to the interrupted program.
+
+##### 96.23.4.2 A refused buffer is a dropped frame, and that is the contract
+
+A client that answers `0:0` to the `AX=0` call has refused the frame, and the
+frame is gone — it has already been taken off the ring by `ne_rx` and there is
+nowhere to put it back. That is the Crynwr contract rather than a shortcut:
+the client refuses when it has no buffer free, and the protocol above it
+retransmits.
+
+#### 96.23.5 One claim, held for the bracket
+
+The box takes `NETV_RAW` when the client's **first** `access_type` succeeds
+and drops it at `terminate` or at the end of the bracket, whichever comes
+first. It is not taken at bracket entry: a DOS program that never asks for a
+packet driver should leave our own stack running, and most of them are not
+network programs at all.
+
+Dropping it on **every** exit path is deliberate, and it is §96.17's argument
+repeated: a release by a caller that does not hold the claim is a no-op, so
+the unconditional call is free, and a machine left with its stack switched off
+because a program crashed is not.
+
+#### 96.23.6 The suspend learned a third skip, and it is narrower than the other two
+
+`drv_suspend_x`'s skip list was `DRVC_DISK` and `DRVC_FILE` — things a DOS
+program **wants** rather than fights. `DRVC_NET` is now a third, and it is not
+the same kind of entry: a DOS program driving an NE2000 itself would want the
+driver out of the way exactly as it wants `SOUND.DRV` out of the way.
+
+What settles it is that **this box's packet driver is the only route a DOS
+program here has to the card at all**, and it is built on the driver staying
+mounted. A program that wanted to own the hardware would need the card's I/O
+base, which `DRVV_HWINFO` would have to answer and `ETHER.DRV` does not
+implement (§15.6 item 3) — so the suspend was taking the driver away to serve
+a program that could not have used the result.
+
+The skip is therefore recorded as a **decision about this wave** rather than a
+property of the class: the day a driver answers `DRVV_HWINFO` for a NIC and a
+DOS program wants raw ports, this is the line that has to be revisited, and
+`AL=2` on the suspend — "and the network too" — is where it would go.
+
+#### 96.23.7 The frame buffer is a heap claim, taken before the arena
+
+A packet driver needs a 1,514-byte receive buffer: the length of an arriving
+frame is not known until it is off the ring, and the client is not asked for
+somewhere to put it until then. (There is no *transmit* buffer — §96.23.8.)
+
+As package bss that is **1,514 bytes zeroed into the heap claim at every
+launch, on every machine** — including every machine with no card in it, where
+nothing can ever read them. So it is an `OSAPI_MEM_CLAIM` of 2KB instead, made
+only when `net_try` finds a `DRVC_NET` driver.
+
+**It is taken before the arena, or it cannot be taken at all.** §96.3 claims
+`OSAPI_MEM_AVAIL`'s whole answer for the program with no arithmetic between
+the two calls, so by the time a client calls `access_type` there is no heap
+left and a claim then would always be refused. Taking it in front of the
+sizing call means `OSAPI_MEM_AVAIL` simply answers 2KB less — the honest
+trade, and one the DOS program can see in its own MCB chain.
+
+That is why the claim cannot be made lazily on the first `access_type`, which
+is where it would otherwise belong: a machine with a card that runs `EDIT.COM`
+still pays the 2KB. The saving is real where it was aimed — a machine with no
+card pays nothing — and the remaining case wants §96.3 to change first.
+
+A refusal is survivable and silent: the program runs, and the interface is
+simply not published, which is §96.23.5's "no card" path reached by a second
+route. `dos_pkt_start` tests `[dos_pkt_bseg]` rather than asking again, so the
+card question and the memory question are one compare.
+
+The claim is freed at `dos_pkt_shut`, which only the **bracket's** exit calls,
+and that split matters: the first version freed it from `release_type` too,
+which is unrecoverable. §96.3 has already given the whole heap to the program,
+so a client that released a handle and then asked for another had its
+`access_type` refused for ever. The buffer belongs to the bracket's lifetime
+and the raw claim to the handles' — `dos_pkt_rawdrop` is the second, and
+`terminate` calls it rather than `shut` for the same reason.
+
+The kernel frees a dead instance's claims anyway, so the free is only about
+handing memory back **mid-session** — which is exactly what a DOS window that
+stays open after a run is.
+
+**And it is zeroed on the way in**, which is not tidiness: a heap claim
+arrives with whatever was last in it, and `ne_tx` pads a short frame without
+touching the length the caller gave — so a send that staged nothing would have
+put bytes of somebody else's heap onto the network.
+
+#### 96.23.8 `send_pkt` copies nothing — the client's buffer goes straight down
+
+`NETV_RAWTX` takes the segment (§72.22.4), so `send_pkt` hands the client's
+own buffer over **where it lies**: `DX` is the `DS` the `int` pushed, `SI` the
+offset it was called with.
+
+The first version staged it into a claim buffer of its own first, and that was
+waste on three counts. The driver copies into `eth_txb` regardless, so ours
+was a **second** copy of up to 1,514 bytes on a 4.77 MHz machine; it cost
+1,514 bytes of claim to hold; and it was the only place this package addressed
+the client's memory itself, which is where a segment bug duly lived — the
+staged frame was read from the package's own image instead of the program's,
+and what went on the wire was 42 bytes of `dos_save_machine`.
+
+That bug is worth recording rather than just fixing, because the *symptom* was
+misleading in a way this tree keeps meeting: every counter said the send had
+worked. `eth_nrawtx` was 1, `CF` was clear, the length was right, and the card
+really did transmit — the only way to see it was `ETHDUMP=`'s pcap, where the
+frame's first twelve bytes were plainly not a broadcast destination and not
+our station address. **A frame that is sent is not a frame that is right**, and
+nothing inside the guest was ever going to say so.
+
+#### 96.23.9 The client's `DS` is banked from the register, not read back out of `[bp]`
+
+The gate's frame (§96.7.1) puts the caller's `DS` at `[bp]`, and three
+functions need it: `access_type` reads the ethertype the client points at,
+`send_pkt` hands the driver the segment the frame is in, and `get_address`
+writes into a buffer.
+
+Reading it as `mov dx, [bp]` **answered our own segment**, and the packet
+driver's first working build was wrong in two places because of it. The read
+is `SS`-relative — that is the hardware's default for a `BP` base, and
+CLAUDE.md states it as a rule — so what it names depends on where `SS` points
+at that instant, and it is not checkable by eye at the call site.
+
+So the gate banks it **from the register**, one instruction after the `int`'s
+own frame is built:
+
+```
+    push ds                         ; the client's, again
+    push cs
+    pop ds                          ; ...ours from here
+    pop word [dos_pkt_cds]          ; ...and the store lands in our bss
+```
+
+**The two symptoms had one cause, and they looked unrelated.** `send_pkt`
+transmitted 42 bytes of this package's image instead of the program's frame —
+visible only in `ETHDUMP=`'s pcap, since every counter said the send worked.
+And `access_type` registered a handle for whatever two bytes sat at the
+client's offset **in our segment**, so the ethertype was never `0806` and no
+arriving ARP reply ever matched a handle: the receive path was correct
+throughout and had nothing to deliver. Chasing them separately cost most of a
+session.
+
+#### 96.23.10 What mTCP actually does with it
+
+mTCP is the validation target and it is nobody's code here — Michael
+Brutman's, under its own licence, not in this repository, and the *client*
+half of what wave 4 provides. `MTCPDIR=<dir>` puts its programs on
+`make dospkt`'s disk beside our own probe; without it the disk is still a
+whole gate.
+
+**`PKTTOOL.EXE scan` reads every field and decodes all of them.** Its own
+output, on QEMU's `ne2k_isa`:
+
+```
+Details for driver at software interrupt: 0x60
+  Name: os8088 ETHER
+  Entry point: 9280:2816
+  Version: 9   Class: 1   Type: 1  Interface Number: 0
+  Function flag: 2  (basic and extended functions)
+  Current receive mode: packets for this MAC and broadcast packets
+  MAC address: 52:54:00:12:34:56
+```
+
+**`PING.EXE` completes, and the wire is the evidence.** `ETHDUMP=`'s pcap for
+one run of `ping 10.0.2.2` — mTCP's own duplicate-address probe, its ARP for
+the gateway, and four echo pairs:
+
+```
+ARP REQUEST 10.0.2.15 -> 10.0.2.15        mTCP checking its own address
+ARP REQUEST 10.0.2.15 -> 10.0.2.2
+ARP REPLY   10.0.2.2  -> 10.0.2.15
+ICMP echo-REQUEST 10.0.2.15 -> 10.0.2.2   ...four times, all answered
+```
+
+That is ARP, IP and ICMP, transmit and receive, from an unmodified DOS
+application — with every received frame delivered by the `INT 08h` poll and
+the two-call up-call of §96.23.4. It needs `MTCPCFG` in the environment, which
+§96.20's page already provides and which cost this feature nothing.
+
+**Promiscuous mode is refused, and `pkttool listen` says so.** `set_rcv_mode`
+accepts only 3 — this MAC plus broadcast — so a client asking for 6 gets
+`CF=1` and mTCP prints *"failed to set promiscuous mode on your Ethernet
+card"* and carries on with what it has. The NE2000 can do it (the RCR has the
+bit) and nothing here needs it: every ordinary mTCP application uses mode 3,
+and only a *sniffer* wants more. Recorded as a limitation rather than left to
+be discovered, because the refusal is the honest path (§47) and the warning it
+produces is not a fault.
+
+#### 72.22.5 `ethsock.inc` has two hosts, and only one can reach these
+
+`ethsock.inc` is shared: `ether.asm` is one host and `drivers/net/os88net.asm`
+— the DOS end of §62's cable, which runs the same stack (§62.11.1) — is the
+other. The raw verbs are reached through `eth_vtab`, which is `ether.asm`'s
+alone, so on the second host they are **215 bytes of a shipped `.COM` that
+nothing can call**.
+
+`ETH_NORAW` is the gate, and it is `ETH_NOEMIT`'s shape sitting beside it in
+the same includer for the same reason. Worth writing down because the hazard
+is structural rather than a slip: a file with two hosts grows for both of them
+whenever either one gains a feature, and NASM emits every byte of a flat
+binary whether or not it is referenced.
+
+### 96.26 The cable translation — a DOS program on the wire without a card
+
+§96.23's packet driver is a **card** feature: it rests on `ETHER.DRV`'s raw
+verbs, and a machine with a parallel cable and no NIC has none. This is how
+such a machine gets a DOS program onto the network anyway, and
+docs/plans/DOS-CABLE-NET-PLAN.md is the design record.
+
+**It is a slirp in reverse.** The DOS program believes it is on an Ethernet —
+it ARPs, it builds IP headers, it runs its own TCP — and every frame it emits
+is terminated in `apps/dos/dosnet.inc` and re-issued as a socket verb. Every
+socket byte that arrives is wrapped in a header and handed back through
+§96.23.4's up-call.
+
+**The argument is LATENCY, not bandwidth**, and it is what rules out the
+obvious design of relaying raw frames over the cable. At PERFORMANCE.md Set
+39's 3,741 B/s a 1,514-byte frame is 0.405 s each way, so one round trip is
+0.81 s — which sits on the edge of mTCP's own retransmit timeout, and the
+first queue behind a data frame tips it into permanent retransmit. Translating
+sends only **payload** and answers every acknowledgement locally in
+microseconds: the client measures an RTT of about zero and its timers never
+fire. ~3.4× the throughput, and the difference between slow and thrashing.
+
+#### 96.26.1 It does not know which wire is under it
+
+Everything here goes through `NETV_OPEN`, `NETV_STATUS`, `NETV_SEND`,
+`NETV_RECV` and `NETV_CLOSE` — and **both** drivers answer those. `net_find`
+picks one (the card first, for its own stated reason), `[net_cls]` holds the
+answer, and three routing compares in the packet driver are the whole
+difference between the two paths:
+
+| | card | cable |
+|---|---|---|
+| `send_pkt` | `NETV_RAWTX`, the client's buffer handed over where it lies | staged into our segment, then `dn_tx` |
+| the poll | `NETV_RAWRX` into the claim | `dn_ready`, already in `dn_frame` |
+| the up-call's source | the claim at `PKT_RXOFF` | `dn_frame` |
+
+The cable path stages the outbound frame because `dn_tx` and everything under
+it use no segment override — every other byte they touch is ours. That is a
+copy of up to 1,514 bytes against a wire that moves 3,741 a second, so it is
+not a cost that decides anything.
+
+**We are the whole segment.** There is no wire to forward an ARP onto, so
+every request is answered with one synthetic MAC and the client's routing
+collapses to "everything is one hop away" — which is exactly true here. The
+address is locally-administered unicast, because a client that saw a multicast
+bit would refuse to ARP for it.
+
+#### 96.26.2 The DNS hijack — `NETV_OPEN` takes a NAME
+
+There is **no UDP in the socket ABI**, so a DNS query cannot be relayed. That
+is the best simplification in the design rather than its hard edge, because
+`NETV_OPEN` takes `ES:SI` = a host **name**: the far side resolves.
+
+So the translation answers port 53 itself. It flattens the query's
+length-prefixed labels to dots, remembers the name in one of four slots, and
+answers with a synthetic address out of **10.88.0.0/24** whose last octet *is*
+the slot index. When the client then connects to that address, the octet
+indexes straight back and `NETV_OPEN` gets the name.
+
+**No resolver, no cache and no UDP path of our own.** The answer is the
+question copied back with an A record appended — which every resolver accepts
+and which means the labels never have to be re-encoded, since they are already
+on the wire in front of us. The TTL is 30 seconds on purpose: the mapping
+lives in four slots, and a client that cached for an hour would outlive its
+own entry.
+
+An address out of our pool that we never handed out is refused with `RST`.
+There is nothing to look up and nothing to connect to, and a reset is what
+tells a client to stop rather than retry into a silence.
+
+#### 96.26.3 The TCP endpoint is wave 3, and until then it REFUSES
+
+`dn_tcp_in` answers every segment with `RST`. That is not a stub: a reset is a
+real answer, so the client's own error path says *connection refused* where a
+drop would read as a dead network — and it is what makes §96.26.2 observable
+on its own, since a name is resolved and an address handed out before the
+connect fails cleanly.
+
+What goes there is the state machine, the sequence arithmetic and the
+checksum. What it does **not** need is the interesting half: no congestion
+control, no retransmit queue and no reassembly, because what is underneath a
+`NETV_SEND` is a reliable in-order local transport rather than a network. Our
+whole TCP is 1,943 bytes (the `tcp_` hull in `ether.bin`) and this is a
+fraction of it.
+
+**`ping` will never work** — there is no raw ICMP over sockets — and neither
+will a UDP application beyond the DNS port. Every TCP one does.
+
+#### 96.26.4 The cable has no raw claim, and no PROM either
+
+`dos_pkt_claim` takes `NETV_RAW` before the first handle (§96.23.5), and
+`NETV_RAW` is one of the three verbs the cable **refuses** (§72.22.3). Asking
+for it on the translation path would fail every `access_type` on the machine
+this whole feature exists for.
+
+There is nothing to claim there: no ring, no card, and our own stack is not
+using a wire the DOS program could collide with. So the claim is a no-op on
+that path, and so is its release.
+
+It does have to invent the **station address** the claim would have handed
+back, because `get_address` must answer something. That is a second
+locally-administered unicast address, one digit off the synthetic gateway's — a
+client that saw its own address as a frame's source would drop it as a loop.
+
+**The knob that makes this testable also hides this**, and the hiding is worth
+recording: `DOSNET_CARD` forces the translation on a machine that *has* a
+card, so `NETV_RAW` succeeds and a real PROM answers. The ARP half of §96.26.1
+was verified green under that knob with this defect still present, and it
+would have failed on the first cable-only machine. A knob that substitutes one
+half of a path tests the other half and says nothing about the half it
+replaced.
