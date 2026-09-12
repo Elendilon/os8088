@@ -35,7 +35,16 @@
                                     ; only at this point in the file; the code
                                     ; half is os88sock.inc at the end
 
+%ifdef DOSTRACE
+    ; **THE TRACE BUILD IS A PARTED PACKAGE AND THE SHIPPED ONE IS NOT**
+    ; (SPEC.md 96.29.1). flags bit 2 is OS88_F_PARTS, and it is behind the
+    ; %ifdef for the reason the whole instrument is: a byte the shipped build
+    ; pays for an instrument is a byte the DOS program does not get.
+    OS88_HEADER 'DOS', dos_entry, 3 | OS88_F_PARTS
+%else
     OS88_HEADER 'DOS', dos_entry, 3     ; flags bit 0 = icon, bit 1 = the
+%endif
+                                        ; flags bit 0 = icon, bit 1 = the
                                         ; association block after it
 
 ; --- the icon (SPEC.md 20.2/20.5) -------------------------------------------
@@ -108,30 +117,24 @@ DOS_IMGP    equ DOS_PSPP+16         ; para 26    : the image, at PSP:0100
 ; That is DOS's limit rather than a choice: PSP:0080 is a length byte, then
 ; the text, then an 0Dh, all inside 128 bytes. A field that let a 128th
 ; character in would be one the user could type into and not have obeyed.
-DOS_TRACEN  equ 256                 ; DOSTRACE ring entries (power of two).
-                                    ; **256 AND NOT 512, because the TRACE
-                                    ; BUILD HAD THREE BYTES LEFT.** Measured:
-                                    ; `-DDOSTRACE` was 61,437 of
-                                    ; APP_MAX_SIZE's 61,440, so the next
-                                    ; feature to touch this file - §96.26's
-                                    ; cable translation, 77 bytes of it - made
-                                    ; the instrument stop assembling, and the
-                                    ; only row that noticed was `dosdbg`
-                                    ; failing with the assembler's message
-                                    ; about a probe. That is CLAUDE.md's
-                                    ; "RUNGS ARE TEMPORARY, BYTES ARE FOREVER"
-                                    ; one artefact along: the slack was spent
-                                    ; and whoever crossed it is billed.
-                                    ; Halving the ring gives back 8,192 bytes
-                                    ; and lands the arm at ~53,300, and it
-                                    ; COSTS the instrument nothing measurable:
-                                    ; the failure that sized it makes 169
-                                    ; calls, and 256 is also exactly what
-                                    ; TRACE.LOG holds (DOS_TRDUMPN below) and
-                                    ; what the reference tracer keeps - so
-                                    ; ring, file and reference now cover the
-                                    ; same span instead of the ring holding
-                                    ; twice what can ever be written out
+DOS_TRACEN  equ 512                 ; DOSTRACE ring entries (power of two).
+                                    ; **512 AGAIN, because the buffers are a
+                                    ; PART now** (SPEC.md 96.29.1). It was cut
+                                    ; to 256 when the trace build measured
+                                    ; 61,437 of APP_MAX_SIZE's 61,440 - three
+                                    ; bytes - and §96.26's cable networking
+                                    ; stopped it assembling; the next cut
+                                    ; after that was DOS_TRDUMPN, 256 to 240.
+                                    ; Neither was a design decision, both were
+                                    ; a ceiling, and the ceiling is gone: a
+                                    ; part is outside the 60KB an image and
+                                    ; its bss share, so this is sized by the
+                                    ; failure it exists for again. That one
+                                    ; makes 169 calls, so 256 was never the
+                                    ; binding number - but 512 is what lets a
+                                    ; run be read from its FIRST call with
+                                    ; slack, and slack in a ring is the whole
+                                    ; point of one
 DOS_TRACE_SZ equ 32                 ; ...bytes an entry, NAMED so that the host
                                     ; side derives it rather than transcribing
                                     ; it (docs/DOS-DEBUGGING.md): every reader
@@ -140,38 +143,42 @@ DOS_TRACE_SZ equ 32                 ; ...bytes an entry, NAMED so that the host
                                     ; decodes plausible nonsense the day it
                                     ; moves. It has moved twice already, 12 to
                                     ; 16 to 32
-DOS_TRDUMPN equ 240                 ; ...and how many of them TRACE.LOG holds,
+DOS_TRDUMPN equ 256                 ; ...and how many of them TRACE.LOG holds,
                                     ; which is separate because the RING is
                                     ; read live off a debugger and the FILE is
-                                    ; what the field posts: a couple of hundred
-                                    ; lines is plenty of the latter, and 512
-                                    ; entries of dump buffer would be 36KB of
-                                    ; bss taken out of the program's own arena
-                                    ; - which would change the measurement the
-                                    ; instrument exists to take.
-                                    ; IT WAS 256 UNTIL THE DOSTRACE BUILD
-                                    ; STOPPED FITTING: it went 131 bytes past
-                                    ; APP_MAX_SIZE when SPEC.md 96.26's cable
-                                    ; translation landed, and the buffer is
-                                    ; DOS_TRDUMPN * 72, so sixteen lines back
-                                    ; is 1,152 bytes of headroom. THE REAL FIX
-                                    ; IS A PART (SPEC.md 20.12): the ring is
-                                    ; 16,384 bytes and this is 17,280, both of
-                                    ; them SCRATCH in a build nobody ships,
-                                    ; and both belong in a segment of their
-                                    ; own rather than in the 60KB an image and
-                                    ; its bss share. Until then this constant
-                                    ; is what gives way, and it will have to
-                                    ; give way again.
-                                    ; IT HOLDS A WHOLE RUN, and 64 did not:
-                                    ; the failure under investigation makes
-                                    ; 169 calls, so a 64-entry ring threw away
-                                    ; the FIRST 105 - which is where a
-                                    ; divergence is, every time. The reference
-                                    ; tracer (tests/dostrap) keeps the first
-                                    ; 256 and stops for the same reason, and
-                                    ; the two files only diff line-for-line if
-                                    ; both start at entry 0
+                                    ; what the field posts. **256 AGAIN, and
+                                    ; for DOS_TRACEN's reason**: it was cut to
+                                    ; 240 as the second stopgap under the same
+                                    ; ceiling, its own comment saying "THE
+                                    ; REAL FIX IS A PART" - which this is.
+                                    ; Sixteen lines is not a quantity anybody
+                                    ; chose; 256 is the ring, the reference
+                                    ; tracer's own cap and this, all covering
+                                    ; the same span, which is what makes two
+                                    ; traces diff line for line
+; --- THE PART'S OWN LAYOUT (SPEC.md 96.29.1) --------------------------------
+; Two buffers in one OP_ZERO part, because a part is a claim and MEM_OWNER_MAX
+; is eight of them: one 35KB row beats two rows for no gain. The offsets are
+; the part's, not the package's, and everything that reads them does it
+; through ES.
+;
+; **THE RENDERED DUMP GOES FIRST, AND THAT IS A CORRECTNESS REQUIREMENT AND
+; NOT A LAYOUT TASTE.** [dos_tracei] holds the entry a result belongs to and
+; spells "the call was filtered" as ZERO (it is in the bss block below, under
+; that comment) - a sentinel that cost nothing while the ring was bss, because
+; a bss offset is os88_image_end plus a positive displacement and can never be
+; 0. In a part it can: with the ring at offset 0, ENTRY 0's index IS 0, so
+; dos_tr_result reads "filtered" for it and its result is never filled. The
+; symptom is a trace whose first call - and every 512th after a wrap - reads
+; `axout=FFFF`, which the reader correctly renders as "this call never
+; returned", about a call that returned perfectly well. Putting the dump's
+; 18,432 bytes in front of the ring restores what bss gave for free, for zero
+; bytes and no code.
+DOS_TRD_OFF equ 0                           ; the rendered dump...
+DOS_TRB_OFF equ DOS_TRDUMPN * 72            ; ...and THEN the ring
+DOS_TRACE_BY equ DOS_TRB_OFF + DOS_TRACEN * DOS_TRACE_SZ + DOS_TRNM_N * 15 + 96
+DOS_TRACE_KB equ (DOS_TRACE_BY + 1023) / 1024
+
 DOS_TRNM_N  equ 12                  ; ...and names it keeps. Plenty: the
                                     ; failure under investigation makes
                                     ; exactly ONE open in a whole session
@@ -319,6 +326,41 @@ dos_entry:
     push dx
     push si
     push di
+%ifdef DOSTRACE
+    ; **op_load FIRST, BEFORE ANYTHING TOUCHES SI** (os88parts.inc rule 1):
+    ; SI arrives holding an offset into the KERNEL's segment at the name of
+    ; the file we came out of, and the loader reuses that buffer on the next
+    ; launch - so nothing later can recover it. The pushes below would not
+    ; lose it, but dos_size and OSAPI_WM_CREATE would.
+    ;
+    ; The part is OP_OPT, so a refusal is survivable and [dos_trseg] stays 0:
+    ; the trace writes nothing and the program runs. That is the right answer
+    ; for an instrument on a machine it does not fit on, and it is why there
+    ; is no `jc` here.
+    ;
+    ; **AND IT IS INSIDE THE PUSHES**, which is not in tension with rule 1:
+    ; `push` does not change what it pushes, so SI still holds the kernel's
+    ; pointer here - while op_load's documented clobber list is AX, BX, CX,
+    ; DX, SI, DI and ES, and every one of those except BX is a register this
+    ; proc owes the kernel back.
+    ;
+    ; **AND ES IS BANKED, WHICH IS THE ONE THAT BIT.** ES arrives holding
+    ; KERNEL_SEG (SPEC.md 20.1) and OSAPI_ARG_FILE below answers with an SI
+    ; into THAT segment and does not reload it - it is documented as read
+    ; through the ES a package proc was entered with (SPEC.md 74240). Every
+    ; OSAPI slot preserves ES, so the entry proc can rely on it across
+    ; wm_create and about_set; op_load is OUR code and clobbers it. Without
+    ; this pair the name copy below reads RDSUM.COM's 13 bytes out of the
+    ; PART's segment, [dos_name] is junk, and the failure surfaces four
+    ; routines later as dos_be_read refusing - "It could not be read.", about
+    ; a file that is perfectly readable.
+    push es
+    call op_load
+    xor al, al
+    call op_seg                     ; AX = the part's segment, or 0
+    mov [dos_trseg], ax
+    pop es
+%endif
 
     call dos_size                   ; THE TEMPLATE, before create (SPEC.md
     mov si, dos_tpl                 ; 96.20.3) - wm_create runs wm_fit on the
@@ -2829,12 +2871,12 @@ dos_tr_hex2:
     shr al, 1
     shr al, 1
     call dos_hexd
-    mov [di], al
+    mov [es:di], al
     inc di
     pop ax
     and al, 0x0F
     call dos_hexd
-    mov [di], al
+    mov [es:di], al
     inc di
     pop ax
     ret
@@ -2868,6 +2910,16 @@ dos_trace_dump:
     push si
     push di
     push es
+    cmp word [dos_trseg], 0         ; no part, nothing to dump (SPEC.md
+    je .nopart                      ; 96.29.1)
+    mov es, [dos_trseg]             ; **ES IS THE PART FOR THE WHOLE ROUTINE**,
+                                    ; which is what makes this cheap: the ring
+                                    ; is read through it, the text is written
+                                    ; through it, and OSAPI_FILE_WRITE takes
+                                    ; ES:BX already - so handing 18KB of
+                                    ; rendered log to the file system costs
+                                    ; not one instruction more than it did
+                                    ; when the buffer was our own bss
 
     mov di, dos_trdump
     mov si, dos_tr_hdr
@@ -2875,19 +2927,19 @@ dos_trace_dump:
     lodsb
     or al, al
     jz .hdrend
-    mov [di], al
+    mov [es:di], al
     inc di
     jmp short .hdr
 .hdrend:
     mov ax, [dos_tracen]
     call dos_tr_hex4
-    mov byte [di], '/'
+    mov byte [es:di], '/'
     inc di
     mov ax, [dos_tracew]
     call dos_tr_hex4
-    mov byte [di], 13
+    mov byte [es:di], 13
     inc di
-    mov byte [di], 10
+    mov byte [es:di], 10
     inc di
 
     ; WHERE THE OLDEST ENTRY IS depends on whether the ring has wrapped: a
@@ -2910,51 +2962,51 @@ dos_trace_dump:
     jz .write
     xor dx, dx                      ; DX = entries on this line
 .ent:
-    mov ax, [bx+dos_traceb]         ; AX=
+    mov ax, [es:bx+dos_traceb]         ; AX=
     call dos_tr_hex4
-    mov byte [di], ' '
+    mov byte [es:di], ' '
     inc di
-    mov ax, [bx+dos_traceb+2]       ; BX=
+    mov ax, [es:bx+dos_traceb+2]       ; BX=
     call dos_tr_hex4
-    mov byte [di], ' '
+    mov byte [es:di], ' '
     inc di
-    mov ax, [bx+dos_traceb+4]       ; CX=
+    mov ax, [es:bx+dos_traceb+4]       ; CX=
     call dos_tr_hex4
-    mov byte [di], ' '
+    mov byte [es:di], ' '
     inc di
-    mov ax, [bx+dos_traceb+6]       ; DX=
+    mov ax, [es:bx+dos_traceb+6]       ; DX=
     call dos_tr_hex4
-    mov byte [di], '>'              ; ...and what it ANSWERED
+    mov byte [es:di], '>'              ; ...and what it ANSWERED
     inc di
-    mov ax, [bx+dos_traceb+8]
+    mov ax, [es:bx+dos_traceb+8]
     call dos_tr_hex4
-    mov byte [di], '/'
+    mov byte [es:di], '/'
     inc di
-    mov ax, [bx+dos_traceb+10]
+    mov ax, [es:bx+dos_traceb+10]
     call dos_tr_hex4
-    mov byte [di], '/'              ; ...and ES:BX, which for AH=35h, 48h and
+    mov byte [es:di], '/'              ; ...and ES:BX, which for AH=35h, 48h and
     inc di                          ; 2Fh IS the answer and AX is not
-    mov ax, [bx+dos_traceb+14]
+    mov ax, [es:bx+dos_traceb+14]
     call dos_tr_hex4
-    mov byte [di], ':'
+    mov byte [es:di], ':'
     inc di
-    mov ax, [bx+dos_traceb+12]
+    mov ax, [es:bx+dos_traceb+12]
     call dos_tr_hex4
-    mov byte [di], '@'              ; ...and WHO CALLED, which is what a pair
+    mov byte [es:di], '@'              ; ...and WHO CALLED, which is what a pair
     inc di                          ; of traces that diverge with no call in
-    mov ax, [bx+dos_traceb+18]      ; between is read on
+    mov ax, [es:bx+dos_traceb+18]      ; between is read on
     call dos_tr_hex4
-    mov byte [di], ':'
+    mov byte [es:di], ':'
     inc di
-    mov ax, [bx+dos_traceb+16]
+    mov ax, [es:bx+dos_traceb+16]
     call dos_tr_hex4
-    mov byte [di], '/'
+    mov byte [es:di], '/'
     inc di
-    mov ax, [bx+dos_traceb+20]
+    mov ax, [es:bx+dos_traceb+20]
     call dos_tr_hex4
-    mov byte [di], 13
+    mov byte [es:di], 13
     inc di
-    mov byte [di], 10
+    mov byte [es:di], 10
     inc di
     add bx, DOS_TRACE_SZ
     and bx, (DOS_TRACEN * DOS_TRACE_SZ) - DOS_TRACE_SZ
@@ -2962,9 +3014,9 @@ dos_trace_dump:
     jz .write                       ; own short displacement when the entry
     jmp .ent                        ; learned to say who called
 .write:
-    mov byte [di], 13
+    mov byte [es:di], 13
     inc di
-    mov byte [di], 10
+    mov byte [es:di], 10
     inc di
     ; --- and the NAMES, one per line ------------------------------------
     mov si, dos_trnm
@@ -2979,7 +3031,7 @@ dos_trace_dump:
     lodsb
     or al, al
     jz .nmpad
-    mov [di], al
+    mov [es:di], al
     inc di
     loop .nmc
     jmp short .nmeol
@@ -2988,22 +3040,22 @@ dos_trace_dump:
     jz .nmeol
     add si, cx
 .nmeol:
-    mov byte [di], 13
+    mov byte [es:di], 13
     inc di
-    mov byte [di], 10
+    mov byte [es:di], 10
     inc di
     pop cx
     loop .nm
 .nonames:
     mov cx, di
     sub cx, dos_trdump              ; CX = how much of it there is
-    push ds
-    pop es
-    mov bx, dos_trdump
-    mov si, dos_tr_name
-    xor dx, dx
-    call OSAPI_FILE_WRITE           ; creates or REPLACES, in the directory
-                                    ; the program was launched from
+    mov bx, dos_trdump              ; ES IS ALREADY THE PART, so the `push ds /
+    mov si, dos_tr_name             ; pop es` that used to be here is gone -
+    xor dx, dx                      ; the slot's buffer argument was ES:BX all
+    call OSAPI_FILE_WRITE           ; along (os88api.inc). Creates or REPLACES,
+                                    ; in the directory the program was
+                                    ; launched from
+.nopart:
     pop es
     pop di
     pop si
@@ -3020,23 +3072,36 @@ dos_trace:
     je .skip                        ; calls that CAUSED it used to be - and the
     cmp ah, 0x06                    ; message can be read off the screen
     je .skip
+    cmp word [dos_trseg], 0         ; **NO PART, NO TRACE** (SPEC.md 96.29.1).
+    je .skip                        ; It is OP_OPT, so a machine that could
+                                    ; not spare 35KB runs the program with the
+                                    ; instrument silent - which is the whole
+                                    ; point of an optional part, and far
+                                    ; better than 35KB of stores into segment
+                                    ; zero
     push ax
     push bx
     push si
+    push es
+    mov es, [dos_trseg]             ; ES IS THE PART from here to the pop, and
+                                    ; every store below carries the override.
+                                    ; ES on entry is the CLIENT's - the gate
+                                    ; banked the program's at [bp-6] - so it
+                                    ; is ours to borrow and must be put back
     mov si, [dos_tracew]
     and si, (DOS_TRACEN * DOS_TRACE_SZ) - DOS_TRACE_SZ  ; the ring's byte index, entry-aligned - a
     add si, dos_traceb              ; power-of-two stride so this is an AND
     mov [dos_tracei], si            ; where any other size needs a divide
-    mov [si], ax                    ; AX carries the function AND its
-    mov [si+2], bx                  ; sub-function; the other three carry what
-    mov [si+4], cx                  ; it is ABOUT - a handle, a count, an
-    mov [si+6], dx                  ; offset, a name's address. All four are
+    mov [es:si], ax                    ; AX carries the function AND its
+    mov [es:si+2], bx                  ; sub-function; the other three carry what
+    mov [es:si+4], cx                  ; it is ABOUT - a handle, a count, an
+    mov [es:si+6], dx                  ; offset, a name's address. All four are
                                     ; still the caller's: `push` does not
                                     ; change what it pushes
-    mov word [si+8], 0xFFFF         ; ...no result yet, so a call that never
-    mov word [si+10], 0xFFFF        ; returned is visible as one
-    mov word [si+12], 0xFFFF
-    mov word [si+14], 0xFFFF
+    mov word [es:si+8], 0xFFFF         ; ...no result yet, so a call that never
+    mov word [es:si+10], 0xFFFF        ; returned is visible as one
+    mov word [es:si+12], 0xFFFF
+    mov word [es:si+14], 0xFFFF
 
     ; --- WHO CALLED, which is the question AH and its arguments cannot answer.
     ; Two runs that make the same calls with the same arguments and then
@@ -3045,24 +3110,25 @@ dos_trace:
     ; and the reader subtracts the PSP, so the offset compares across two
     ; machines that loaded the program at different addresses.
     mov ax, [bp+4]
-    mov [si+16], ax                 ; the return IP - one instruction past the
+    mov [es:si+16], ax                 ; the return IP - one instruction past the
     mov ax, [bp+6]                  ; `int 21h` that got here
-    mov [si+18], ax                 ; ...and its CS
+    mov [es:si+18], ax                 ; ...and its CS
     mov ax, [bp]                    ; ...and DS, BP: BOTH OFF THE FRAME, and
-    mov [si+20], ax                 ; the live registers are NOT them -
+    mov [es:si+20], ax                 ; the live registers are NOT them -
     mov ax, [bp+2]                  ; dos_int21 pushed its own over the
-    mov [si+26], ax                 ; caller's before this was reached
+    mov [es:si+26], ax                 ; caller's before this was reached
     pop ax                          ; SI is the caller's, under the push above
     push ax
-    mov [si+22], ax
-    mov [si+24], di                 ; DI is untouched from the gate
+    mov [es:si+22], ax
+    mov [es:si+24], di                 ; DI is untouched from the gate
     mov ax, ss                      ; SS is still the program's - a DOS call
-    mov [si+28], ax                 ; runs on the caller's stack
+    mov [es:si+28], ax                 ; runs on the caller's stack
     lea ax, [bp+10]                 ; ...at the SP the `int` was taken on
-    mov [si+30], ax
+    mov [es:si+30], ax
 
     add word [dos_tracew], DOS_TRACE_SZ
     inc word [dos_tracen]           ; ...and the TOTAL, which does not wrap
+    pop es
     pop si
     pop bx
     pop ax
@@ -3084,23 +3150,30 @@ dos_trace:
 dos_tr_result:
     push si
     push ax
+    push es
     pushf                           ; CF IS THE SUBJECT here, and `or si, si`
     mov si, [dos_tracei]            ; two lines down would destroy it
     or si, si
     jz .out                         ; filtered, or no call in flight
-    mov [si+8], ax
-    mov word [si+10], 0
-    mov [si+12], bx                 ; ...the OTHER answer, whole
+    mov es, [dos_trseg]             ; the part (SPEC.md 96.29.1), and no guard
+                                    ; of its own: [dos_tracei] is only ever
+                                    ; SET by dos_trace, which refuses without
+                                    ; a segment, so a zero there already means
+                                    ; there is no entry to finish
+    mov [es:si+8], ax
+    mov word [es:si+10], 0
+    mov [es:si+12], bx                 ; ...the OTHER answer, whole
     mov ax, [bp-6]                  ; ES as the PROGRAM will get it, off the
-    mov [si+14], ax                 ; gate's banked slot and not the live
+    mov [es:si+14], ax                 ; gate's banked slot and not the live
                                     ; register a handler happens to have left
     pop ax                          ; ...the flags, back off the stack
     push ax
     test al, 1                      ; CF is bit 0 of the low half
     jz .out
-    mov word [si+10], 1
+    mov word [es:si+10], 1
 .out:
     popf
+    pop es
     pop ax
     pop si
     ret
@@ -6311,6 +6384,40 @@ dos_mcb_resize:
 ; and was 6 bytes short of dos_bda's end, which the loader would have answered
 ; by zeroing less than we write - and a write past our bss is a write past our
 ; REGION, which is somebody else's heap claim.
+%ifdef DOSTRACE
+; =============================================================================
+; THE TRACE BUFFERS ARE A PART (SPEC.md 96.29.1)
+; =============================================================================
+; **WHAT THIS BUYS IS THE CEILING, NOT THE ARENA**, and saying so is the whole
+; of why it is worth doing. The two buffers are 35,092 bytes - the ring and
+; the rendered dump - and in bss they were 80% of APP_MAX_SIZE, which is a
+; HARD 60KB and cannot be raised at all: a package's offsets are 16 bits. The
+; trace arm was measured at 61,437 of 61,440 - THREE BYTES - so §96.26's
+; cable networking stopped the instrument assembling, and the only row that
+; noticed was `dosdbg` quoting the assembler about a probe.
+;
+; As a part they are outside the image and outside that cap: image + bss goes
+; 49,199 -> 23,379, which is the same 38% the SHIPPED build sits at. The ring
+; can go back to 512 entries and the next feature in this file has room.
+;
+; It does NOT give the DOS program memory back, and the arithmetic is worth
+; writing down rather than discovering: 35,092 bytes of bss become a 35KB
+; CLAIM plus the parts standard's own 1,080 image bytes, so the arena is
+; ~1,900 bytes WORSE. That is a fair price for 25,820 bytes under an absolute
+; ceiling, in a build nothing ships - and the shipped build is BYTE-IDENTICAL,
+; because every line of this is behind the %ifdef.
+;
+; OP_ZERO, so there is no disk in it at all: os88pkg.py writes a row that asks
+; for KB and nothing else, and `make` puts not one extra byte on a floppy.
+; OP_OPT, so a machine that cannot spare 35KB still RUNS the program - the
+; trace simply refuses, which is what an instrument owes a machine it cannot
+; fit on.
+%include "os88parts.inc"
+OS88_PARTS_BEGIN 1
+  OS88_PART OP_ASSET, OP_ZERO | OP_OPT, DOS_TRACE_KB
+OS88_PARTS_END
+%endif
+
 %include "dosnetabi.inc"             ; the cable translation's numbers, EARLY
                                     ; (SPEC.md 96.26) - its code is dosnet.inc
                                     ; at the end, and the bss table below
@@ -6424,7 +6531,24 @@ PKT_FUNC    equ 2                   ; basic plus extended: set/get_rcv_mode
                                     ; and get_statistics are answered
 PKT_VERSION equ 9
 
+; **THE CHAIN STARTS PAST THE PARTS STANDARD'S OWN BSS** in the trace build
+; (SPEC.md 96.29.1). os88parts.inc puts its 86 bytes at OP_BSS_AT, which
+; defaults to `os88_image_end` - exactly where this chain starts - so with
+; `DB` at 0 the two OVERLAP, silently and completely. What it looked like:
+; op_load ran perfectly (op_allkb 35, op_optok 1, op_base and dos_trseg both
+; 0x2600) and NOTHING traced, because `op_name` and the first words of this
+; table are the same bytes and each was writing over the other. The tell is
+; that `op_name` read `&\0S.O88` - a package name with op_base's low word
+; sitting on top of its first two characters.
+;
+; os88parts.inc's own usage note says this in as many words - "OUR words come
+; first, yours follow them, and OS88_BSS is told the sum" - and it is one
+; line, once, rather than a term on every symbol.
+%ifdef DOSTRACE
+%assign DB OP_BSS
+%else
 %assign DB 0
+%endif
 %macro DBSS 2
     %1 equ DB
     %assign DB DB + %2
@@ -6485,12 +6609,23 @@ PKT_VERSION equ 9
 %ifdef DOSTRACE                 ; ...and NOTHING when it is off: the ring is
     DBSS DOS_B_TRACEN, 2        ; 514 bytes, and an instrument that costs the
     DBSS DOS_B_TRACEW, 2        ; shipped build anything is one that gets
-    DBSS DOS_B_TRACEB, DOS_TRACEN * DOS_TRACE_SZ  ; deleted rather than kept
+                                ; ...and the RING is not here: it is in the
+                                ; part (SPEC.md 96.29.1), with the rendered
+                                ; dump beside it. 35,092 bytes that used to be
+                                ; 80% of APP_MAX_SIZE
     DBSS DOS_B_TRACEI, 2                ; the entry a result belongs to, 0 =
                                         ; the call was filtered out
     DBSS DOS_B_TRNM,   DOS_TRNM_N * 13      ; the NAMES the program passed
     DBSS DOS_B_TRNMI,  1                    ; ...and how many, capped
-    DBSS DOS_B_TRDUMP, DOS_TRDUMPN * 72 + DOS_TRNM_N * 15 + 96
+    DBSS DOS_B_TRSEG,  2        ; THE PART'S SEGMENT, banked by dos_entry.
+                                ; 0 = the part was refused (it is OP_OPT), and
+                                ; dos_trace tests it: an instrument that
+                                ; cannot fit writes NOTHING rather than
+                                ; writing to segment zero. It is also what the
+                                ; HOST reads - tools/os88dosdbg.py needs one
+                                ; word to find the ring, where op_seg's
+                                ; arithmetic would have to be reimplemented
+                                ; outside the guest
 %endif
     DBSS DOS_B_VW,    2
     DBSS DOS_B_VH,    2
@@ -10360,11 +10495,20 @@ dos_isexe   equ os88_image_end + DOS_B_ISEXE   ; byte: 1 = an .EXE was set up
 %ifdef DOSTRACE
 dos_tracen  equ os88_image_end + DOS_B_TRACEN  ; word: DOSTRACE's call counter
 dos_tracew  equ os88_image_end + DOS_B_TRACEW  ; word: its ring write index
-dos_traceb  equ os88_image_end + DOS_B_TRACEB  ; the ring, 16 bytes an entry
+dos_traceb  equ DOS_TRB_OFF         ; **AN OFFSET IN THE PART, NOT IN US**
+                                    ; (SPEC.md 96.29.1), so every reference to
+                                    ; it carries an `es:` and ES is
+                                    ; [dos_trseg]. An unprefixed one reads our
+                                    ; own image at that offset, which
+                                    ; assembles cleanly and traces nonsense
 dos_tracei  equ os88_image_end + DOS_B_TRACEI  ; ...the live entry's offset
 dos_trnm    equ os88_image_end + DOS_B_TRNM   ; the names passed in
 dos_trnmi   equ os88_image_end + DOS_B_TRNMI  ; ...how many so far
-dos_trdump  equ os88_image_end + DOS_B_TRDUMP  ; ...rendered, for the file
+dos_trdump  equ DOS_TRD_OFF         ; ...rendered, for the file - and in the
+                                    ; part beside the ring. OSAPI_FILE_WRITE
+                                    ; takes ES:BX, so handing it over costs
+                                    ; nothing at all
+dos_trseg   equ os88_image_end + DOS_B_TRSEG
 %endif
 dos_vw      equ os88_image_end + DOS_B_VW      ; word: the desktop's width...
 dos_vh      equ os88_image_end + DOS_B_VH      ; word: ...and height, for 33h

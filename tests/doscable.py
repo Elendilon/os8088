@@ -148,32 +148,53 @@ class Inbound(threading.Thread):
         self.port, self.deadline = port, deadline
         self.got = None
         self.tries = 0
+        self.err = None
 
     def run(self):
         t0 = time.time()
         while time.time() - t0 < self.deadline:
             s = socket.socket()
-            s.settimeout(20.0)
-            try:
+            s.settimeout(5.0)               # THE CONNECT's, so a refused port
+            try:                            # comes back fast enough to retry
                 self.tries += 1
                 s.connect(("127.0.0.1", self.port))
             except OSError:
                 s.close()
                 time.sleep(0.25)
                 continue
+            # **AND THE READ's IS THE WHOLE DEADLINE**, which is the thing
+            # that has to be said out loud: the answer is composed by a
+            # cycle-accurate 8088 whose every wire nibble is a debug round
+            # trip, so the round trip from our request to its reply is
+            # MINUTES of host wall clock. At 20 seconds this timed out, closed
+            # the socket, and the far side went NSK_CLOSING - so the box
+            # closed the flow before the DOS program's reply was ever sent,
+            # and the row failed with "the host got nothing back" about a
+            # program that had answered perfectly well. docs/WRITING-TESTS.md
+            # names this family: a timeout nobody measured against the guest.
+            s.settimeout(max(30.0, self.deadline - (time.time() - t0)))
+            out = b""
             try:
                 s.sendall(self.REQ)
-                out = b""
                 while len(out) < 512:
                     b = s.recv(256)
                     if not b:
                         break
                     out += b
-                self.got = out
-            except OSError:
-                self.got = b""
-            finally:
+                    # **AND THE TAIL IS SHORT**, because the answer does not
+                    # end in a close: the probe replies and then holds the
+                    # screen on int 16h, so a loop waiting for EOF or 512
+                    # bytes waits for the whole long timeout above after a
+                    # 24-byte reply has already arrived - and the caller,
+                    # which joins with a few seconds, reads `got` as None and
+                    # reports that nothing came back. What we have after one
+                    # segment IS the answer; this only collects a split one.
+                    s.settimeout(5.0)
+            except OSError as e:                # a tail timeout is the
+                self.err = e                    # ORDINARY ending, so `out`
+            finally:                            # is kept either way
                 s.close()
+            self.got = out
             return
 
 
@@ -261,6 +282,8 @@ def main():
                 "tests/dostrap/dospkt.asm is not the one this row reads" % n)
             return 1
     fails = []
+    lsn, seen2, port = [], [], 0       # the inbound run's, so a stall
+    drop = pin = pend = 0              # below still reports rather than raises
     lis = Listener()
     lis.start()
     box = Redirect(lis.port)
@@ -419,9 +442,20 @@ def main():
         inb = Inbound(port)
         inb.start()
 
-        # Enter runs it again - and this time dos_pkt_bufs' dn_init takes a
-        # NETV_LISTEN on that port, which crosses the cable like every other
-        # verb.
+        # --- ...AND ENTER RUNS IT AGAIN, which is the whole point ----------
+        # The Enter above only got the probe off its int 16h; this one is the
+        # re-launch, and it is tests/dosargs.py's own sequence (run, come back
+        # to the window, change something, Enter). The first version of this
+        # row had the comment and not the keystroke, so the second run never
+        # happened and `served: ''` was the only sign.
+        #
+        # **THE PAUSE IS THE VERY NEXT CALL**, with no settle between: on this
+        # launch the first wire command is dn_lsn_init's NETV_LISTEN, which
+        # dos_pkt_bufs reaches in the bracket's own setup - far earlier than
+        # the outbound SYN, which came after a whole program load. A settle
+        # here would hand the guest seconds and the listen would go into a
+        # cable nobody is holding.
+        m.key("Enter")
         m.pause()
         p.sync()
         p.allow(4000000000)
@@ -437,7 +471,8 @@ def main():
         m.run()
         os88marty.settle(m)
 
-        psp2 = eth.u16(m.read((pseg << 4) + dm["dos_ldpsp"], 2))
+        psp2 = int.from_bytes(m.read((pseg << 4) + dm["dos_ldpsp"], 2),
+                              "little")
         isyn = ldata = lfirst = 0
         if psp2:
             isyn = int.from_bytes(m.read((psp2 << 4) + pm["isyn"], 2), "little")
@@ -445,11 +480,72 @@ def main():
                                    "little")
             lfirst = int.from_bytes(m.read((psp2 << 4) + pm["lfirst"], 2),
                                     "little")
-        inb.join(timeout=5.0)
+        inb.join(timeout=30.0)      # the tail timeout above, with room
         say("doscable: LSN %d, LDATA %d, LFIRST %04X (psp %04X)"
             % (isyn, ldata, lfirst, psp2))
-        say("doscable: the host connected %d time(s) and was served %r"
-            % (inb.tries, inb.got))
+        say("doscable: the host connected %d time(s) and was served %r%s"
+            % (inb.tries, inb.got,
+               "" if inb.err is None else " (%r)" % (inb.err,)))
+
+        # --- AND THE BOX'S OWN SIDE OF IT, which is what separates the two
+        # ways this can fail. `LSN 0` alone cannot say whether dn_lsn_init
+        # never parsed the environment row, or parsed it and had NETV_LISTEN
+        # refused, or took a handle and never saw a connection - and those are
+        # three different bugs in three different files. The rows live in the
+        # network CLAIM (SPEC.md 96.26.6), so they are read through
+        # [dos_pkt_bseg] with the offsets dosmap now takes off nasm's absolute
+        # equates rather than a test transcribing them.
+        bseg = int.from_bytes(m.read((pseg << 4) + dm["dos_pkt_bseg"], 2),
+                              "little")
+        if bseg:
+            raw = m.read((bseg << 4) + dm["dn_lsn"],
+                         dm["DN_NLSN"] * dm["DN_L_SIZE"])
+            for i in range(dm["DN_NLSN"]):
+                r = raw[i * dm["DN_L_SIZE"]:(i + 1) * dm["DN_L_SIZE"]]
+                if r[dm["DN_L_USED"]]:
+                    lsn.append((r[dm["DN_L_HAND"]],
+                                int.from_bytes(r[dm["DN_L_PORT"]:
+                                                 dm["DN_L_PORT"] + 2],
+                                               "little")))
+        say("doscable: [dos_pkt_bseg]=%04X, listeners (handle, port) = %r"
+            % (bseg, lsn))
+
+        # ...AND WHAT THE DRIVER COUNTED, which is the third way this can
+        # fail and the one neither reading above can see: a frame the box
+        # STAGED and the client REFUSED. dos_pkt_deliver's two-call up-call
+        # asks the client for a buffer and a 0:0 answer is a legal reply that
+        # costs the frame - `.dropped` is the same arm as "nobody registered
+        # for this type", and get_statistics has a field for it (§96.23.3).
+        drop = pin = 0
+        if pseg:
+            drop = int.from_bytes(
+                m.read((pseg << 4) + dm["dos_pkt_stats"] + dm["PKS_DROP"], 4),
+                "little")
+            pin = int.from_bytes(
+                m.read((pseg << 4) + dm["dos_pkt_stats"] + dm["PKS_PIN"], 4),
+                "little")
+        say("doscable: the driver counted %d frame(s) in and %d dropped"
+            % (pin, drop))
+
+        # ...AND WHETHER A FRAME IS STILL STAGED, which is the fourth outcome
+        # and the worst-behaved: dn_pump returns early while [dn_pend] is set
+        # (a staged SYN IS that pump's frame), so a frame the poll never comes
+        # to collect freezes EVERY flow, not only the inbound one.
+        pend, praw, pbusy, flows = 0, 0, 0, []
+        if bseg:
+            pend = int.from_bytes(m.read((bseg << 4) + dm["dn_pend"], 2),
+                                  "little")
+            raw = m.read((bseg << 4) + dm["dn_flows"],
+                         dm["DN_NFLOW"] * dm["DN_F_SIZE"])
+            for i in range(dm["DN_NFLOW"]):
+                r = raw[i * dm["DN_F_SIZE"]:(i + 1) * dm["DN_F_SIZE"]]
+                if r[dm["DN_F_USED"]]:
+                    flows.append((r[dm["DN_F_HAND"]], r[dm["DN_F_ST"]]))
+        if pseg:
+            praw = m.read((pseg << 4) + dm["dos_pkt_raw"], 1)[0]
+            pbusy = m.read((pseg << 4) + dm["dos_pkt_busy"], 1)[0]
+        say("doscable: [dn_pend]=%d [dos_pkt_raw]=%d [dos_pkt_busy]=%d "
+            "flows (handle, state) = %r" % (pend, praw, pbusy, flows))
 
     # --- 0: the route ------------------------------------------------------
     if not xl:
@@ -493,10 +589,26 @@ def main():
                      % (rxfirst, RESP[:2]))
 
     # --- 5: the INBOUND direction (SPEC.md 96.26.8) ------------------------
+    # THE LISTENER ROW IS CHECKED FIRST, because it splits the failure: no row
+    # means dn_lsn_init never read the environment row or NETV_LISTEN was
+    # refused, and a row with nothing arriving on it means the far end never
+    # accepted. Without it `LSN 0` is one message for three bugs in three
+    # different files.
+    if not lsn:
+        fails.append("the box took NO listener: dn_lsn_init did not find "
+                     "'OS88LISTEN=%d' in [dos_ebuf], or NETV_LISTEN was "
+                     "refused by NET.DRV - the wire served %r, and an 'l' is "
+                     "what a listen looks like" % (port, "".join(seen2)))
+    elif port not in [q for _, q in lsn]:
+        fails.append("the box is listening on %r and the host connected to "
+                     "%d" % (lsn, port))
     if not isyn:
-        fails.append("no inbound SYN reached the client: dn_accept never "
-                     "accepted, [dn_cip] was never learnt, or the SYN it "
-                     "staged did not reach the up-call")
+        fails.append("no inbound SYN reached the client (%d frame(s) in, %d "
+                     "dropped, [dn_pend]=%d): a DROP means the box staged the "
+                     "SYN and the client refused the buffer, a PEND means it "
+                     "staged one the poll never collected - and neither means "
+                     "dn_accept never staged it at all"
+                     % (pin, drop, pend))
     if ldata != len(Inbound.REQ):
         fails.append("the DOS program was handed %d request bytes and the "
                      "host sent %d - so the handshake completed and the DATA "

@@ -184,16 +184,18 @@ dn_lsn_init:
     mov si, dos_ebuf
 .row:
     push cx
-    push si
-    mov di, dn_lsnvar               ; does this row start `OS88LISTEN=`?
-    call dn_streqc
-    pop si
-    jne .next
-    add si, DN_LSNVAR_N             ; ...then what follows is the port list
-    call dn_lsn_ports
-.next:
-    pop cx
-    add si, DOS_ENVBUF
+    push si                         ; **THE ROW'S BASE HAS TO SURVIVE BOTH
+    mov di, dn_lsnvar               ; CALLS**, and it is two calls rather than
+    call dn_streqc                  ; one: dn_streqc walks SI to the first
+    pop si                          ; difference and dn_lsn_ports walks it to
+    push si                         ; the end of the port list. Restoring it
+    jne .next                       ; only across the first left `.next`
+    add si, DN_LSNVAR_N             ; adding DOS_ENVBUF to a cursor eleven-
+    call dn_lsn_ports               ; plus bytes into the row that MATCHED, so
+.next:                              ; every row after one that named ports was
+    pop si                          ; scanned from the wrong place - which is
+    pop cx                          ; the ordinary case, `MTCPCFG=` being the
+    add si, DOS_ENVBUF              ; row a user types beside it
     loop .row
     pop si
     pop dx
@@ -244,9 +246,19 @@ dn_lsn_ports:
     ja .end
     sub dl, '0'
     mov bx, 10
-    mul bx                          ; DX:AX, and a port cannot overflow 16
-    add al, dl                      ; bits in five digits without being
-    adc ah, 0                       ; nonsense anyway
+    push dx                         ; **`mul` WRITES DX:AX AND THE DIGIT IS IN
+    mul bx                          ; DL.** Third time in this file: dn_pump
+    pop dx                          ; kept a counter in CX that NETV_STATUS
+    add al, dl                      ; answers in, dn_seg kept flags in DL that
+    adc ah, 0                       ; dn_put32's own DX:AX ate, and here the
+                                    ; digit is destroyed one instruction before
+                                    ; it is added. DX came back 0 for every
+                                    ; port anyone would type, so `add al, dl`
+                                    ; added NOTHING: five digits accumulated to
+                                    ; zero, dn_lsn_ports' own `jz .done`
+                                    ; refused to listen on port 0, and the
+                                    ; whole inbound direction was silent with
+                                    ; the environment row read correctly
     inc cx
     inc si
     jmp short .dig
@@ -491,15 +503,20 @@ dn_tx_x:
     ; without this there is no destination to put in the SYN we owe the
     ; client. An outbound flow reads the same thing out of its own SYN and
     ; does not need it.
-    push si
-    push di
-    mov di, dn_cip
-    add si, DN_IP_SRC
-    mov cx, 4
-    call dn_copy
-    pop di
-    pop si                          ; CX is still the frame length: dn_copy
-    cmp cx, DN_TCP                  ; preserves it, which is why it took ours
+    push cx                         ; **CX IS THE FRAME LENGTH AND THE COPY
+    push si                         ; TAKES IT AS AN ARGUMENT.** dn_copy
+    push di                         ; preserves CX, so the first version of
+    mov di, dn_cip                  ; this banked nothing - and then set it to
+    add si, DN_IP_SRC               ; 4 itself, two instructions later. Every
+    mov cx, 4                       ; IP frame the client sent was then
+    call dn_copy                    ; dropped by the `cmp cx, DN_TCP` below
+    pop di                          ; for being 4 bytes long: the ARP still
+    pop si                          ; worked (it is answered above this),
+    pop cx                          ; nothing else did, and get_statistics
+    cmp cx, DN_TCP                  ; read `out 2, in 1` - a SYN sent and an
+                                    ; ARP reply back, which is exactly what a
+                                    ; far side that never heard of the
+                                    ; connection looks like
     jb .drop
     cmp byte [si+DN_IP_VIHL], 0x45  ; v4, no options - the same refusal
     jne .drop                       ; eth_frame makes, for its reason

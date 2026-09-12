@@ -146,8 +146,20 @@ def main():
         say("dospkt: door calls %d, frames off the ring %d, dropped %d"
             % (dw("eth_ncall"), dw("eth_nrx"), dw("eth_ndrop")))
 
-        m.hmp("sendkey ret")                # let the probe exit the bracket
-        time.sleep(3.0)
+        # --- LET THE PROBE OUT, AND READ THE STATE RATHER THAN SLEEP ------
+        # It holds the screen on int 16h, so Enter is what ends it - but what
+        # happens next is a whole bracket teardown, and how long that takes is
+        # the guest's business. A fixed sleep here was 3 seconds and passed
+        # until the probe grew a second phase (SPEC.md 96.26.8's do_listen),
+        # at which point Enter arrived while it was still waiting on a tick
+        # and assertion 3 read a claim that was simply not released YET -
+        # reported as `dos_pkt_shut did not run on that path`, about a path
+        # that runs perfectly. So: poll the byte the assertion is about.
+        m.hmp("sendkey ret")
+        for _ in range(60):
+            time.sleep(0.5)
+            if not db("eth_raw"):
+                break
 
         fails = []
         if not ntx:

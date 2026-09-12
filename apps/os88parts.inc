@@ -45,6 +45,17 @@
 ;    the next launch (SPEC.md 20.2). op_load copies it before anything else,
 ;    and nothing later can recover it.
 ;
+;    ...AND BANK ES ACROSS IT IF YOU GO ON TO CALL OSAPI_ARG_FILE. ES arrives
+;    holding KERNEL_SEG and that slot answers with an SI into THAT segment
+;    WITHOUT reloading it - it is documented as read through the ES a package
+;    proc was entered with (SPEC.md 74240). Every OSAPI slot preserves ES, so
+;    an entry proc may rely on it across wm_create and about_set; op_load is
+;    package code and its clobber list says ES. So `push es` / `call op_load`
+;    / `pop es`, or load KERNEL_SEG yourself the way apps/cc/os88thunk.asm
+;    does. It is worth stating because the failure is silent and lands four
+;    routines away: the name copy reads the document's 13 bytes out of a
+;    PART's segment, and what surfaces is the file refusing to be read.
+;
 ; 2. SEGMENT 0 OWNS THE IDENTITY (SPEC.md 20.12.5, binding). Your entry proc,
 ;    every window, every callback and your worker task live in the PRIMARY
 ;    segment. A part may not call the kernel's ES-fenced slots -
