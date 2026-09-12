@@ -121153,17 +121153,41 @@ An address out of our pool that we never handed out is refused with `RST`.
 There is nothing to look up and nothing to connect to, and a reset is what
 tells a client to stop rather than retry into a silence.
 
-#### 96.26.3 The TCP endpoint is wave 3, and until then it REFUSES
+#### 96.26.3 The TCP endpoint — BUILT, NOT WORKING, AND OPT-IN BECAUSE OF IT
 
-`dn_tcp_in` answers every segment with `RST`. That is not a stub: a reset is a
-real answer, so the client's own error path says *connection refused* where a
-drop would read as a dead network — and it is what makes §96.26.2 observable
-on its own, since a name is resolved and an address handed out before the
-connect fails cleanly.
+The state machine, the sequence arithmetic and both checksums are written
+(`dn_tcp_open`, `dn_tcp_data`, `dn_tcp_fin`, `dn_seg`, `dn_pump`). It does not
+complete a handshake yet, so **`DOSNET=1` is what builds the route at all** and
+a stock kernel behaves exactly as it did before the file existed.
 
-What goes there is the state machine, the sequence arithmetic and the
-checksum. What it does **not** need is the interesting half: no congestion
-control, no retransmit queue and no reassembly, because what is underneath a
+That gate is the point rather than caution. A half-built endpoint is **worse
+than none** on the machine this is for: without it a cable-only machine
+publishes no packet driver and the client says so at once (§96.23.5); with it
+the client finds an interface, opens a handle and waits for ever.
+
+**What is proven, and it is most of the path:**
+
+- the client's `SYN` is terminated and becomes a real `NETV_OPEN` — the wire
+  shows `ETHER.DRV` completing a three-way handshake with the far host, so
+  §96.26.5's literal-address arm and the whole open path work;
+- the `SYN|ACK` is **built correctly**: read out of guest RAM it is
+  `flags 0x12`, our ISN 0, the client's ISN+1 acknowledged, window 1024, and
+  **both checksums verify** against an independent implementation;
+- `dn_pump` runs continuously — `eth_ncall` wraps its 16-bit counter — so the
+  poll, the round-robin and `NETV_STATUS` all work.
+
+**What is not:** that frame does not reach the client. The next thing to
+measure is the up-call itself — whether `dos_pkt_deliver` matches a handle for
+`0x0800` on this path and what the client's receiver is handed — and the
+instrument for it is `tests/dostrap/dospkt.asm`'s own `do_tcp`, which prints
+the flags byte of whatever arrives and currently prints nothing.
+
+Two things were already ruled out and should not be re-measured: the private
+poll stack (doubled to 1,024 with a canary beneath it, §96.26.4, no change)
+and the frame's correctness (above).
+
+What it does **not** need remains the interesting half: no congestion control,
+no retransmit queue and no reassembly, because what is underneath a
 `NETV_SEND` is a reliable in-order local transport rather than a network. Our
 whole TCP is 1,943 bytes (the `tcp_` hull in `ether.bin`) and this is a
 fraction of it.
@@ -121194,3 +121218,42 @@ was verified green under that knob with this defect still present, and it
 would have failed on the first cable-only machine. A knob that substitutes one
 half of a path tests the other half and says nothing about the half it
 replaced.
+
+#### 96.26.5 A literal address needs no name, because `NETV_OPEN` takes either
+
+§96.26.2's hijack is for a client that **resolves** a name. A client handed an
+address directly — a configuration file, a command line, most test setups —
+never sends a DNS query, so there is nothing in the table to look up.
+
+It needs nothing: `NETV_OPEN` accepts a **dotted quad** as readily as a name
+(`ethsock.inc` — *"a dotted quad connects at once; a NAME waits"*). So the
+destination is formatted back to text and opened as itself.
+
+The two arms are told apart by the address: `10.88.0.x` with `x` inside the
+pool is one of ours and indexes the name table; anything else is a literal.
+An address **in** the pool that was never handed out is the one case that gets
+`RST`, because there is genuinely nothing else it could have meant.
+
+Without this arm the translation would refuse every connection a program made
+without resolving first, which is a large share of them and almost all of the
+testable ones.
+
+##### 96.26.1.1 Never answer a duplicate-address probe
+
+A stack coming up asks whether anything already holds the address it is about
+to use, and it asks with an ARP request whose **target is its own address** —
+sent either from that address (a gratuitous probe) or from `0.0.0.0`. A reply
+means *taken*.
+
+§96.26.1's responder answers every request by design, so it answered this one
+too, and every client refused to start. What mTCP prints is **"Failed to
+initialize TCP/IP"** — which names neither ARP nor an address, and sends the
+reader to the configuration file. It cost a session: `eth_ncall` showed the
+driver idle and the wire showed no TCP, both of which read as *the translation
+never ran*, when what had happened is that the client gave up before its first
+socket call.
+
+So two shapes are dropped rather than answered: target equal to sender, and a
+sender of `0.0.0.0`. Both are the same question and neither has an answer we
+are entitled to give — nothing holds that address, because there is nothing
+else on this segment at all.
