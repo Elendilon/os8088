@@ -5908,11 +5908,18 @@ $(BUILD)/fcpapi.o88: $(BUILD)/fcpapi.bin tools/os88pkg.py
 $(BUILD)/src.dat: Makefile | $(BUILD)
 	printf 'os8088 copy' > $@
 
+# ...and the one the MOVE re-links (SPEC.md 22.25). Its bytes differ from
+# src.dat's on purpose: the host compares what lands in SUB/ against this, so
+# a move that fetched the wrong file would read as a pass against the other.
+$(BUILD)/move.dat: Makefile | $(BUILD)
+	printf 'os8088 move' > $@
+
 .PHONY: fcpapi
 fcpapi: $(BUILD)/fcpapi.img
-$(BUILD)/fcpapi.img: $(BUILD)/fcpapi.o88 $(BUILD)/src.dat tools/os88disk.py
+$(BUILD)/fcpapi.img: $(BUILD)/fcpapi.o88 $(BUILD)/src.dat $(BUILD)/move.dat \
+	    tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/fcpapi.o88 \
-	    $(BUILD)/src.dat
+	    $(BUILD)/src.dat $(BUILD)/move.dat --folder SUB
 
 # assoctest: the SPEC.md 54 gate. Its own scratch image, and a TEST.AST for it
 # to be opened WITH - the point of the gate is what happens on a document

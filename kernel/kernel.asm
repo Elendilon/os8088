@@ -4046,7 +4046,21 @@ osapi_table:
                                   ;          on failure; a package that rolled
                                   ;          its own would get the second half
                                   ;          wrong
-osapi_table_end:                  ; 0x0580
+    OSAPI_XCELL osapi_file_move   ; 0x0580 - MOVE ONE FILE between two folders
+                                  ;          of ONE volume, by re-linking its
+                                  ;          directory entry (SPEC.md 22.25).
+                                  ;          ES:SI = the 8.3 name, BL/DX the
+                                  ;          source drive and folder cluster,
+                                  ;          BH/CX the destination's - copy's
+                                  ;          registers, one name. Out CF=0 it
+                                  ;          moved; CF=1 with AX = FERR_*, or
+                                  ;          **AX = 0 meaning NOT ATTEMPTED**,
+                                  ;          which is the answer for two
+                                  ;          volumes and for the three cases
+                                  ;          the re-link declines: copy then
+                                  ;          delete instead. X, because the
+                                  ;          name is package data
+osapi_table_end:                  ; 0x0588
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -4054,8 +4068,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 174 * 8
-%error "os8088 API jump table must be exactly 174 8-byte slots"
+%if OSAPI_TABLE_LEN != 175 * 8
+%error "os8088 API jump table must be exactly 175 8-byte slots"
 %endif
 
 ; =============================================================================
@@ -5461,6 +5475,16 @@ osapi_vol_stat:
 osapi_file_copy:
     call inst_vol_enter
     call COLD_SEG:fcpf_fcp_copy     ; its AX and CF are ours
+    ret
+
+; ---- osapi_file_move - the same engine's RE-LINK, published (22.25) ---------
+; One volume, no data moved: a 100KB file changes parent for the cost of a
+; directory write. The half that makes it safe to publish is the answer it
+; gives when it cannot - AX=0 with CF, "not attempted" - so a caller falls
+; back to osapi_file_copy plus osapi_file_delete having lost nothing.
+osapi_file_move:
+    call inst_vol_enter
+    call COLD_SEG:fcpf_fcp_move     ; its AX and CF are ours
     ret
 
 ; ---- osapi_file_here / osapi_file_goto - the volume's location (SPEC.md 19.2)

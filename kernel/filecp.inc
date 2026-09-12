@@ -82,15 +82,17 @@ FCPS_ASK    equ 1               ; suspended: fcp_cname needs a verdict
 FCPS_ERR    equ 2               ; stopped, [fcp_err] = FERR_*
 
 %ifdef FCP_MOD
-FCP_NENT    equ 4               ; entries FILECP.DRV publishes (SPEC.md 2.8):
-                                ; arm, paste, answer and copy. NOT fcp_ncopy,
-                                ; which is `equ dsk_ncopy` and resident, and
-                                ; NOT fcp_goto, which CLONE.DRV needs mid-clone
-                                ; and which therefore stays resident too
+FCP_NENT    equ 5               ; entries FILECP.DRV publishes (SPEC.md 2.8):
+                                ; arm, paste, answer, copy and move. NOT
+                                ; fcp_ncopy, which is `equ dsk_ncopy` and
+                                ; resident, and NOT fcp_goto, which CLONE.DRV
+                                ; needs mid-clone and which therefore stays
+                                ; resident too
 FCPE_ARM    equ 0               ; ...and their slots, in header order
 FCPE_PASTE  equ 1
 FCPE_ANSWER equ 2
 FCPE_COPY   equ 3               ; OSAPI_FILE_COPY's (SPEC.md 22.24)
+FCPE_MOVE   equ 4               ; OSAPI_FILE_MOVE's (SPEC.md 22.25)
 FCPFP       equ mod_fp + MOD_FCP*MODFP_STRIDE   ; this module's slot block
 %endif
 
@@ -177,6 +179,7 @@ modp_hdr:                       ; is at offset 0 because vstart is 0 and
     dw modp_e_paste             ; is reached by `call far`, so it has to end in
     dw modp_e_answer            ; a retf, and every body below keeps the near
     dw modp_e_copy              ; `ret` cold code has always had
+    dw modp_e_move
     times MOD_NENT - FCP_NENT dw 0
                                 ; FOUR, AND `fcp_ncopy` IS NOT ONE OF THEM.
                                 ; files.inc's other public name here is not a
@@ -185,9 +188,11 @@ modp_hdr:                       ; is at offset 0 because vstart is 0 and
                                 ; under a second name, and that stays RESIDENT.
                                 ; So it needs no entry, no stub and no load: a
                                 ; caller of it reads no disk.
-                                ; The fourth that IS here is OSAPI_FILE_COPY's
-                                ; (SPEC.md 22.24) - the first entry in this
-                                ; image reached from outside the file manager
+                                ; The last two that ARE here are
+                                ; OSAPI_FILE_COPY's (SPEC.md 22.24) and
+                                ; OSAPI_FILE_MOVE's (22.25) - the first entries
+                                ; in this image reached from outside the file
+                                ; manager
 
 modp_e_arm:     call fcp_arm_x
             retf
@@ -196,6 +201,8 @@ modp_e_paste:   call fcp_paste_x
 modp_e_answer:  call fcp_answer_x
             retf
 modp_e_copy:    call fcp_copy_x
+            retf
+modp_e_move:    call fcp_move_x
             retf
 %endif
 
@@ -1833,14 +1840,23 @@ fcp_wprep:
 ; than those two, and it is the one the DOS box's COPY reaches through
 ; (SPEC.md 22.24).
 ; -----------------------------------------------------------------------------
-FCPBODY fcp_copy
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push es
-
+; -----------------------------------------------------------------------------
+; fcp_enter / fcp_leave - what the two PUBLISHED doors do identically either
+; side of the work, which is nearly everything that is not the work
+; -----------------------------------------------------------------------------
+; They exist because the second door made the duplication visible: fcp_copy
+; and fcp_move differ in their middles - one streams bytes and the other
+; rewrites a directory entry - and agreed to the instruction on both ends.
+; Sharing the ENDS is worth about three times what folding the two doors into
+; one published slot would have saved, because the slot is 17 bytes and the
+; body is not.
+;
+; fcp_enter - take the module's one set of state words, and bank the three
+;             things a caller is entitled to find unchanged
+; out: CF=1 with AX = FERR_NODISK, somebody else has them; CF=0 they are yours
+;      and fcp_leave is owed
+; clobbers: AX, flags
+fcp_enter:
     cmp byte [fcp_busy], 0      ; ONE SET OF STATE WORDS in this module, so a
     jne .busy                   ; Paste that is running - or suspended on its
     mov byte [fcp_busy], 1      ; overwrite question - owns them
@@ -1849,6 +1865,61 @@ FCPBODY fcp_copy
     mov [fcp_svdrv], al         ; the current directory, and a package is
     mov ax, [dsk_cwd]           ; entitled to find itself where it left off
     mov [fcp_svcwd], ax
+
+    mov al, [dskw_batch]        ; BANKED AND RESTORED rather than cleared: a
+    mov [fcp_svbat], al         ; door does not know who else was batching
+    mov byte [dskw_batch], 1    ; one sync for the whole thing, not one per
+    clc                         ; chunk (SPEC.md 18.9.3)
+    ret
+.busy:
+    mov ax, FERR_NODISK         ; the nearest true thing: the machinery this
+    stc                         ; needs is not available to you right now,
+    ret                         ; which is fcp_pfail's own precedent
+
+; fcp_leave - ...and give them back
+; in:  AX and CF are the CALLER's answer
+; out: AX and CF unchanged
+; clobbers: BX, flags (restored)
+;
+; THE ANSWER IS CARRIED OVER THE WALK HOME: every call here is allowed to fail
+; and none of them may become it.
+fcp_leave:
+    pushf
+    push ax
+    mov al, [fcp_svbat]         ; ...AND NOT fcp_unbatch, WHICH IS THE FILE
+    mov [dskw_batch], al        ; MANAGER'S. That one ends in dsk_relist, an
+    FCPX dskw_sync_x            ; UNCONDITIONAL remount - real disk I/O whose
+                                ; only purpose is refreshing a Disk window's
+                                ; listing, and a package copying a file has no
+                                ; Disk window. dskw_sync_x is the same debt
+                                ; settled honestly: it rebuilds the snapshot
+                                ; only when something ON SCREEN is drawn from
+                                ; it (fmv_gneed) and otherwise just records
+                                ; [dsk_lstale] - so the file manager pays
+                                ; exactly what it always paid and everyone
+                                ; else pays NOTHING
+    mov al, [fcp_svdrv]
+    mov bx, [fcp_svcwd]
+    FCPX fcp_goto               ; FCPX AND NOT A NEAR CALL: fcp_goto is
+                                ; RESIDENT even on kern_small, because
+                                ; CLONE.DRV far-calls it mid-clone - so from
+                                ; inside the image it is a segment away, which
+                                ; tools/os88ovlchk.py is what says so
+    mov byte [fcp_busy], 0
+    pop ax
+    popf
+    ret
+
+FCPBODY fcp_copy
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+
+    call fcp_enter              ; the busy test, where the caller was standing
+    jc .out                     ; and the write batch - fcp_move's prologue too
 
     mov [fcp_fsdrv], bl         ; the two ends, out of the registers rather
     mov [fcp_fddrv], bh         ; than out of the clipboard
@@ -1878,10 +1949,6 @@ FCPBODY fcp_copy
     mov di, fcp_dname
     call fcp_cpname
 
-    mov al, [dskw_batch]        ; BANKED AND RESTORED rather than cleared: this
-    mov [fcp_svbat], al         ; door does not know who else was batching
-    mov byte [dskw_batch], 1    ; one sync for the whole thing, not one per
-                                ; chunk (SPEC.md 18.9.3)
     call fcp_clspan             ; what a chunk must be a multiple of, from BOTH
     jc .nobuf                   ; volumes - fcp_bufget sizes off it, and
                                 ; fcp_floor's own header is the account of what
@@ -1901,36 +1968,11 @@ FCPBODY fcp_copy
     mov ax, FERR_FULL           ; no run of heap big enough for one cluster,
     stc                         ; which is fcp_floor's own refusal
 .home:
-    pushf                       ; THE ANSWER IS CARRIED OVER THE WALK HOME:
-    push ax                     ; every call below is allowed to fail and none
-                                ; of them may become the answer
-    mov al, [fcp_svbat]         ; ...AND NOT fcp_unbatch, WHICH IS THE FILE
-    mov [dskw_batch], al        ; MANAGER'S. That one ends in dsk_relist, an
-    FCPX dskw_sync_x            ; UNCONDITIONAL remount - real disk I/O whose
-                                ; only purpose is refreshing a Disk window's
-                                ; listing, and a package copying a file has no
-                                ; Disk window. dskw_sync_x is the same debt
-                                ; settled honestly: it rebuilds the snapshot
-                                ; only when something ON SCREEN is drawn from
-                                ; it (fmv_gneed) and otherwise just records
-                                ; [dsk_lstale] - so the file manager pays
-                                ; exactly what it always paid and everyone
-                                ; else pays NOTHING
-    mov al, [fcp_svdrv]
-    mov bx, [fcp_svcwd]
-    FCPX fcp_goto               ; FCPX AND NOT A NEAR CALL: fcp_goto is
-                                ; RESIDENT even on kern_small, because
-                                ; CLONE.DRV far-calls it mid-clone - so from
-                                ; inside the image it is a segment away, which
-                                ; tools/os88ovlchk.py is what says so
-    mov byte [fcp_busy], 0
-    pop ax
-    popf
-    jmp short .out
-.busy:
-    mov ax, FERR_NODISK         ; the nearest true thing: the machinery this
-    stc                         ; needs is not available to you right now,
-.out:                           ; which is fcp_pfail's own precedent
+    call fcp_leave              ; the batch, the listing debt, the walk home
+                                ; and [fcp_busy] - fcp_move's epilogue too, and
+                                ; it carries this routine's AX and CF over all
+                                ; four
+.out:
     pop es
     pop di
     pop si
@@ -1938,6 +1980,86 @@ FCPBODY fcp_copy
     pop cx
     pop bx
     ret
+
+; -----------------------------------------------------------------------------
+; fcp_move - OSAPI_FILE_MOVE's body (SPEC.md 22.25)
+; in:  ES:SI = the 8.3 name, BL = the drive, DX = the source folder's first
+;      cluster, CX = the destination folder's - ONE volume, both ends
+; out: CF=0 it moved; CF=1 with AX = FERR_*, or AX = 0 meaning NOT ATTEMPTED
+;      and the caller should copy then delete
+; clobbers: AX, flags
+;
+; IT RE-LINKS THE DIRECTORY ENTRY and moves no data at all, which is what
+; makes it worth having: the alternative for a 100KB file is streaming 100KB
+; through a buffer to write the same clusters back under a different parent.
+; fcp_relink is the body, unchanged - it is what a same-volume Paste of a Cut
+; has always used (SPEC.md 22.6).
+;
+; AX = 0 IS NOT AN ERROR, it is "I did not start". A redirected volume has no
+; raw directory slots, the destination may already hold the name, and the
+; folder may have no reusable slot - fcp_relink declines all three having
+; written nothing, which is precisely why the file manager can treat it as a
+; fast path with a fallback. A caller that cannot tell those apart from a real
+; failure would lose files; the SDK's note says which way to read it.
+;
+; ONE VOLUME. A re-link across volumes is not a slower version of this, it is
+; a different operation: the two FATs share nothing, so there is no entry to
+; move. That is refused here rather than silently turned into a copy, because
+; a caller that asked for a move and got a copy has paid for the data twice
+; without being told.
+; -----------------------------------------------------------------------------
+FCPBODY fcp_move
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+
+    cmp bl, bh                  ; BEFORE fcp_enter and not after: a pair of
+    jne .cross                  ; volumes is declinable whoever else is busy,
+                                ; and taking the state words to refuse would
+                                ; be a door that can fail for two reasons
+    call fcp_enter
+    jc .out
+
+    mov [fcp_drv], bl           ; fcp_gosrc's pair...
+    mov [fcp_cwd], dx
+    mov [fcp_ddrv], bl          ; ...and fcp_godst's, one volume by the test
+    mov [fcp_dcwd], cx          ; above
+    mov di, fcp_name
+    call fcp_cpname
+
+    ; --- IS IT A FOLDER? fcp_relink follows a moved folder's own '..', and
+    ; only if it is told. The attribute comes off the entry the stat leaves in
+    ; dskw_raw, which is the same stat fcp_relink is about to make - one walk
+    ; more than the minimum, against writing a wrong parent link.
+    mov word [fcp_type], 0
+    FCPX fcp_gosrc
+    jc .nostat
+    mov si, fcp_name
+    FCPX dskw_stat_x
+    jc .nostat
+    test byte [dskw_raw+11], 0x10
+    jz .nostat
+    mov word [fcp_type], 2
+.nostat:
+
+    call fcp_relink
+    call fcp_leave              ; AX and CF are the answer and survive it
+    jmp short .out
+.cross:
+    xor ax, ax                  ; NOT ATTEMPTED, which is the honest answer
+    stc                         ; for a pair of volumes that share no FAT
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
 
 ; fcp_cpname - up to 13 bytes of an ASCIZ name from the CALLER's ES:SI into
 ; our DS:DI, always terminated.  clobbers: AX, CX, SI, DI, flags
@@ -2217,6 +2339,10 @@ fcpf_fcp_goto:          call fcp_goto
 fcpf_fcp_copy:          call fcp_copy
                     retf
 
+; ...and OSAPI_FILE_MOVE's (SPEC.md 22.25), the same shape one slot along.
+fcpf_fcp_move:          call fcp_move
+                    retf
+
 %ifdef FCP_MOD
 ; =============================================================================
 ; THE RESIDENT HALF (SPEC.md 2.8.1) - kern_small only
@@ -2302,6 +2428,21 @@ fcp_copy:
     jmp short fcp_fin           ; AX and CF are the answer; fcp_fin keeps both
 .no:
     mov ax, FERR_NODISK
+    stc
+    ret
+
+; OSAPI_FILE_MOVE's stub, and its refusal is NOT fcp_copy's. AX=0 with CF=1 is
+; the slot's "not attempted", which tells the caller to copy and delete
+; instead - and a system disk that is not in the drive genuinely has not
+; attempted anything, so the true answer is also the useful one. FERR_NODISK
+; here would be a caller that gives up on a move it could still make.
+fcp_move:
+    call fcp_load
+    jc .no
+    call far [FCPFP + FCPE_MOVE*4]
+    jmp short fcp_fin           ; AX and CF are the answer; fcp_fin keeps both
+.no:
+    xor ax, ax
     stc
     ret
 

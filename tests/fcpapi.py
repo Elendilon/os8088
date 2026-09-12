@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""OSAPI_FILE_COPY - the published copy engine (SPEC.md 22.24).
+"""OSAPI_FILE_COPY and OSAPI_FILE_MOVE - the published engine (22.24, 22.25).
 
     make fcpapi && python3 tests/fcpapi.py [machine]
 
@@ -27,9 +27,16 @@ MANAGER STATE it must not inherit, both of which this row would have caught:
     file and reports success.  Check 2 is what sees that.
   * [fcp_ovwsz], which only fcp_ensure sets, so fcp_room would count a stale
     file's size as room it is about to get back.
+
+AND THE MOVE'S CLAIM IS ONE THE GUEST CANNOT MAKE.  A move that quietly copied
+would pass every row the package writes: the file is in the new folder, it is
+gone from the old one, and the bytes are right.  What says it was RE-LINKED is
+that the first cluster is the SAME NUMBER before and after, which needs both
+images open at once - so that check is here and not in the package.
 """
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import time
@@ -42,6 +49,7 @@ SYS = "build/os8088-360.img"
 GATE = "build/fcpapi.img"
 SCRATCH = "build/fcpapi-run.img"
 WANT = b"os8088 copy"
+WANT_MV = b"os8088 move"
 
 CHECKS = [
     "a copy under a NEW name",
@@ -49,7 +57,41 @@ CHECKS = [
     "where we were standing is unchanged",
     "a missing source is refused with FERR_NOENT",
     "...and no destination was left behind",
+    "a move into a subfolder of one volume",
+    "...and it left the folder it came from",
+    "a cross-volume move answers AX=0, not a FERR_*",
+    "...and left the source where it was",
 ]
+
+
+def subdir(v, name):
+    """The entries of one subdirectory of the root, which os88fat.Fat12 does
+    not walk - deliberately, and its comment says why.  Reading one here needs
+    the public primitives and nothing else: find() gives the folder's entry,
+    chain() its clusters, and a directory is 32-byte records like the root."""
+    _, _, e = v.find(name)
+    if e is None:
+        return {}
+    first = struct.unpack_from("<H", e, 26)[0]
+    out = {}
+    csz = v.spc * v.bps
+    for c in v.chain(first):
+        off = v.cluster_off(c)
+        for i in range(csz // 32):
+            r = bytes(v.img[off + i * 32:off + i * 32 + 32])
+            if r[0] == 0:
+                return out
+            if r[0] == 0xE5 or r[11] & 0x08 or r[:1] == b".":
+                continue
+            out[v.pretty(r[:11])] = r
+    return out
+
+
+def first_clus(v, name):
+    _, _, e = v.find(name)
+    if e is None:
+        return None
+    return struct.unpack_from("<H", e, 26)[0]
 
 
 def fail(msg):
@@ -123,6 +165,40 @@ def main():
     if "NEVER.DAT" in names:
         fail("NEVER.DAT exists: a copy whose source was missing left a "
              "destination behind (fcp_undo, SPEC.md 22.5.2)")
+
+    # --- the move, which is the host's claim and not the package's --------
+    if "MOVE.DAT" in names:
+        fail("MOVE.DAT is still in the root: the move did not take, though "
+             "the guest said it did")
+    sub_ents = subdir(v, "SUB")
+    if "MOVE.DAT" not in sub_ents:
+        fail("MOVE.DAT is in neither the root nor SUB - a move that lost the "
+             "file (SUB holds %s)" % sorted(sub_ents))
+    body = sub_ents["MOVE.DAT"]
+    size = struct.unpack_from("<I", body, 28)[0]
+    fc = struct.unpack_from("<H", body, 26)[0]
+    csz = v.spc * v.bps
+    got = b"".join(bytes(v.img[v.cluster_off(c):v.cluster_off(c) + csz])
+                   for c in v.chain(fc))[:size]
+    if got != WANT_MV:
+        fail("SUB/MOVE.DAT holds %r and MOVE.DAT held %r" % (got, WANT_MV))
+    print("fcpapi: ok  - SUB/MOVE.DAT reads %r off the volume itself" % got)
+
+    # ...AND IT WAS RE-LINKED, NOT COPIED. Same cluster number, both images.
+    was = first_clus(os88fat.Fat12(GATE), "MOVE.DAT")
+    if was is None:
+        fail("MOVE.DAT is not on the UNTOUCHED gate image %s - the fixture "
+             "is wrong, not the kernel" % GATE)
+    if fc != was:
+        fail("SUB/MOVE.DAT starts at cluster %d and MOVE.DAT started at %d: "
+             "the file's DATA MOVED, so that was a copy and not the re-link "
+             "OSAPI_FILE_MOVE promises (SPEC.md 22.25)" % (fc, was))
+    print("fcpapi: ok  - re-linked: still cluster %d, so no data was moved"
+          % fc)
+
+    if "SRC.DAT" not in names:
+        fail("SRC.DAT left the root, and the only call that touched it was a "
+             "CROSS-VOLUME move that answered 'not attempted'")
 
     r = subprocess.run([sys.executable, "tools/os88disk.py", "--verify",
                         SCRATCH], capture_output=True, text=True)

@@ -38990,6 +38990,145 @@ nearest true thing this code has to say.
 a copy is something a machine does occasionally, and the image is dropped when
 it is done.
 
+### 22.25 `OSAPI_FILE_MOVE` — the same engine's re-link, and the answer that means *nothing happened*
+
+A move between two folders of one volume moves **no data at all**: the file's
+clusters are already where they belong, and the only thing that has to change
+is which directory names them. `fcp_relink` has done exactly that since §22.6
+— it is what a same-volume Paste of a Cut takes — and the whole of this slot
+is that body with §22.24's registers in front of it.
+
+The arithmetic is why it is a slot and not a convenience. A 100KB file moved
+by copy-then-delete is 100KB read through a buffer, 100KB written back, and
+then a delete; on a 4.77MHz 8088 that is disk revolutions in the hundreds. Re-
+linked, it is one directory write. **The two are not fast and slow versions of
+each other** — one of them touches the data and one of them does not.
+
+`ES:SI` is the 8.3 name — one name, because a move that renames is a rename
+this call does not do — with `BL`/`DX` the source drive and its folder's first
+cluster and `BH`/`CX` the destination's, the same pair `OSAPI_FILE_HERE`
+answers. A **folder** moves with everything under it and its `..` follows,
+which `[fcp_type]` = 2 is what tells `fcp_relink`; the attribute is read off
+the entry a stat leaves in `dskw_raw`, one walk more than the minimum and
+cheaper than writing a wrong parent link.
+
+**`AX` = 0 with `CF` set is the whole design, and it does not mean an error.**
+It means *not attempted* — nothing was written, the file is still where it
+was, and the caller should copy it and delete the source instead. There are
+four ways to get it, and `fcp_relink` declines all of them having written
+nothing:
+
+- **two volumes.** Refused before anything is opened. The two FATs share
+  nothing, so there is no entry to move — and this is refused rather than
+  quietly turned into a copy, because a caller that asked for a move and got a
+  copy has paid for the data twice without being told.
+- **a redirected volume** (§75), which has no raw directory slots to rewrite.
+- **the destination already holds the name.** The public door has no overwrite
+  question to ask — §22.24's has none either — so it declines and the caller
+  decides.
+- **no reusable slot** in the destination folder.
+
+**A caller that cannot tell those from a real failure loses files**, which is
+why the answer is a distinct value rather than a `FERR_*`, and why both the
+SDK cell and `os88.h` say so in capitals. The shape is the file manager's own:
+a fast path with a fallback, and the fallback is two calls that already exist.
+
+**The refusals that are not that one** are `FERR_*` with `CF`, and one of them
+is `FERR_NODISK` while a Cut or Copy/Paste is running — §22.24's reason, one
+set of state words owned by the user's operation. On `kern_small` the loading
+stub answers **`AX` = 0** instead when the image cannot be read, and that is
+deliberate: a system disk that is not in the drive genuinely has not attempted
+anything, so there the true answer and the useful one are the same.
+
+**It is the module's fifth entry on `kern_small`** (§22.3.0), so like the copy
+it costs `FILECP.DRV` bytes rather than resident ones.
+
+#### 22.25.1 Why a slot of its own — and why that question is worth less than it looks
+
+The cheaper-looking change was a destination-folder argument on
+`OSAPI_FILE_RENAME`, and the first argument against it was the wrong one. It
+was that the slot has five callers — the DOS box's `AH=56h`, `apps/ftpd`, the
+C SDK's `rename()` in `os88thunk.asm`, and two in `tests/filetest` — and that
+**not one of them sets `BX` or `AL`**, so a new parameter would read whatever
+the caller last left there. That is true, and it is not a reason: **every one
+of those five is in this tree**, exactly as much ours to edit as the kernel
+is, and setting a register in five places is a sweep rather than a risk.
+
+The reason is arithmetic, and it is the same answer for any existing slot:
+
+| | bytes |
+|---|---|
+| the DOOR — an 8-byte `OSAPI_XCELL` and a 9-byte `.text` thunk | **17** |
+| the BODY — `fcp_move`, in `.cold` (`FILECP.DRV`'s on `kern_small`) | **98** |
+
+**Folding the move into an existing slot saves the 17 and not the 98**, because
+the body is the work: `fcp_relink` needs `[fcp_drv]`, `[fcp_cwd]`,
+`[fcp_ddrv]`, `[fcp_dcwd]`, `[fcp_name]` and `[fcp_type]` set, the write batch
+taken, and the caller put back where they were standing, and no other slot
+does any of that already. Nor does the rename path get there cheaply — it ends
+in `dskw_rename_x`, which rewrites a name **in place**; taking an entry out of
+one directory and putting it in another is `fcp_relink`, a different file and,
+on `kern_small`, a module load that a rename has never needed.
+
+So the best fold available was never rename at all — it was
+`OSAPI_FILE_COPY`, which already takes `BL`/`DX` and `BH`/`CX` for exactly
+these two places and would need only a sentinel in `DI` to mean *move*. That
+saves the same 17 bytes and costs the copy slot the one property worth having:
+**a caller who forgets `DI` would get a move where they asked for a copy**,
+which deletes the original. Seventeen bytes is not the price of that.
+
+**The saving that WAS there was in the body, and it is three times bigger.**
+The second door is what made the duplication visible: `fcp_copy` and
+`fcp_move` differ only in their middles — one streams bytes through a claimed
+buffer, the other rewrites a directory entry — and agreed to the instruction
+on both ends. `fcp_enter` and `fcp_leave` are those two ends factored out: the
+busy test on the module's one set of state words, the bank of `[disk_drive]`,
+`[dsk_cwd]` and `[dskw_batch]`, and the walk home through `dskw_sync_x` and
+`fcp_goto`. Measured, `.cold` **40,216 → 40,162: 54 bytes**, against the 17 a
+fold would have returned.
+
+That is the general shape and it is worth keeping: **when a second caller makes
+a slot look expensive, the duplication is usually in the body and not in the
+door.** A door here is 17 bytes; nothing is ever going to make it 9.
+
+The C sources are a data point rather than the argument, now that the argument
+is a number — but the data point is real, and it can be read rather than
+assumed because the sources are all in this tree. `os88_file_rename` has
+exactly **one** caller, RunCPM's `ovl_fs_rename` (§74), which does this two
+lines before it:
+
+```c
+rc_fcb[16] = rc_fcb[0];                  /* no move between folders */
+```
+
+CP/M's `F_RENAME` cannot move a file between folders, so the slot's one C
+consumer is actively forcing the two ends together. That does not veto
+anything — it would pass the same cluster twice and be fine — but a parameter
+whose only existing user exists to suppress it is a parameter looking for a
+call site, and the call site it was looking for is the DOS box, which has the
+sibling slot instead.
+
+#### 22.25.2 `os88_file_copy` and `os88_file_move` — the C doors
+
+`apps/cc/os88.h` publishes both, over `struct os88_place` — the record
+`os88_file_here()` fills and `os88_file_goto()` takes, so a C package names a
+folder with the same two words the assembly SDK does.
+
+The copy returns 0 or −1 with `os88_ferr()` set, which is every other file
+call's shape. **The move returns three things**, and the middle one is why:
+
+```
+     0   moved.
+     1   NOT ATTEMPTED - nothing was written, copy and delete instead.
+    -1   failed; os88_ferr() says why, and the file MAY be half-moved.
+```
+
+The kernel says *not attempted* with `AX` = 0 and `CF`, which is the one value
+in that register that is not a `FERR_*`. Collapsing it into −1 would make a C
+caller give up on a move it could make; collapsing it into 0 would make one
+delete a source that never went anywhere. A third return is the smallest
+honest shape, and `> 0` is the fallback test.
+
 ### 22.22 `Compress` — the file manager makes a file smaller
 
 **The one verb on this machine that COMPRESSES**, and since the size pass it

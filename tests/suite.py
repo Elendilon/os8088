@@ -1935,7 +1935,8 @@ SOAK = [
         "it arms a clip, and a partly covered one still loses it.",
         needs=("marty",), serial=True),
     Row("fcpapi", "soak", py("tests/fcpapi.py"), 55.0,
-        "OSAPI_FILE_COPY, THE PUBLISHED COPY ENGINE (SPEC.md 22.24). EVERY "
+        "OSAPI_FILE_COPY AND OSAPI_FILE_MOVE, THE PUBLISHED ENGINE (SPEC.md "
+        "22.24, 22.25). EVERY "
         "ANSWER IS A FILE: a copy engine that goes wrong strands clusters, "
         "cross-links two chains or writes a directory entry pointing at "
         "nothing, and all three look perfectly fine from inside the guest - "
@@ -1951,7 +1952,16 @@ SOAK = [
         "SUCCESS. Verified by breaking it exactly that way: check 1 stays "
         "green and check 2 goes red. It also asserts the two promises a "
         "package cannot check for itself - the directory it was standing in "
-        "is restored, and a refused copy leaves no destination behind.",
+        "is restored, and a refused copy leaves no destination behind. CHECKS 6-9 "
+        "ARE THE MOVE, and the one that matters is not in the guest at all: a "
+        "move that quietly COPIED would pass every row the package writes - "
+        "right folder, gone from the old one, right bytes - so what says it "
+        "was RE-LINKED is that the first cluster is the same number on the "
+        "untouched gate image and on the one the guest left, which needs both "
+        "open at once. The other half is the answer AX=0, 'not attempted': a "
+        "cross-volume move must give that and not a FERR_*, because a caller "
+        "that reads it as a failure gives up on a move it could make and one "
+        "that reads it as success deletes a source that never went anywhere.",
         needs=("marty",), serial=True,
         wants=("build/fcpapi.img",)),
     Row("fcpcopy", "soak", py("tests/fcpcopy.py"), 70.0,
