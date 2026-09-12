@@ -1451,16 +1451,25 @@ costs a machine that has already borrowed the screen nothing.
 
 ### 15.4 Still open in waves 1–2's own scope
 
-- **Date and time** — `AH=2Ah`/`2Ch`/`2Bh`/`2Dh`. §11's wave-1 row lists them
-  and they are not built. There is no date/time slot in the SDK at all, so
-  they want `int 1Ah` directly and a tick-to-h:m:s conversion; games seed
-  random number generators from `2Ch`, so this is worth doing before wave 3.
+**Two of the four rows this section carried are BUILT and were left saying
+otherwise**, which is worth a line of its own: a plan's open list goes stale
+in the safe-looking direction, and a reader planning the next wave from it
+would have costed work already done. Checked against `apps/dos/dos.asm`'s
+dispatch rather than against memory.
+
+- ~~**Date and time**~~ — **BUILT**. `AH=2Ah`/`2Bh`/`2Ch`/`2Dh` all dispatch
+  (`.getdate`/`.setdate`/`.gettime`/`.settime`).
+- ~~**`AH=43h` attributes**~~ — **BUILT** (`.getattr`).
+- **`45h`/`46h` dup** — not built, and still not wanted by anything measured.
 - **FCB functions** — already deferred in §11 and still deferred.
-- **`AH=43h` attributes, `45h`/`46h` dup** — not built, not yet wanted by
-  anything measured.
-- **`3Dh` modes 1 and 2** open a handle whose writes refuse (SPEC.md
-  §96.11.2). An in-place write wants the kernel seek/write-at trio §6.3
-  argues for on its own merits.
+- **`3Dh` modes 1 and 2** open a handle whose writes refuse anywhere but the
+  end (SPEC.md §96.11.2), so a program that seeks back and rewrites is
+  refused. **This is the one still-open item that is likely to stop a real
+  program next**, and it is a kernel question rather than package code: it
+  wants the seek/write-at trio §6.3 argues for on its own merits. Note that
+  §22.24 and §22.25 did NOT answer it — `OSAPI_FILE_COPY` and
+  `OSAPI_FILE_MOVE` move whole files and say nothing about writing inside
+  one.
 
 ### 15.5 Wave 3, and the row that turned out to be a door rather than code
 
