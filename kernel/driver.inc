@@ -4875,6 +4875,18 @@ drv_suspend_x:
     je .next
     cmp al, DRVC_FILE
     je .next
+    cmp al, DRVC_NET            ; **AND THE WIRE, FOR A NARROWER REASON THAN
+    je .next                    ; THE OTHER TWO** (SPEC.md 96.23.6). Those are
+                                ; things a DOS program WANTS; this one it
+                                ; would happily fight - except that the DOS
+                                ; box's packet driver is the only route a DOS
+                                ; program here HAS to the card, and it is
+                                ; built on the driver staying mounted. A
+                                ; program wanting raw ports would need the I/O
+                                ; base out of DRVV_HWINFO, which no NIC driver
+                                ; in this tree implements - so the suspend was
+                                ; taking the card away to serve a program that
+                                ; could not have used the result
     mov [drv_sp_cls], al
 
     mov cl, al                  ; its CLASS, into the answer

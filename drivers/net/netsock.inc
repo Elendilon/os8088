@@ -169,6 +169,17 @@ nsk_tab:
                                 ; a package that treated NETE_VERB as fatal
                                 ; would stop working over the cable for
                                 ; asking a question about performance
+    dw nsk_everb                ; NETV_RAW   - **THERE ARE NO FRAMES ON A
+    dw nsk_everb                ; NETV_RAWTX   PARALLEL CABLE** (SPEC.md
+    dw nsk_everb                ; NETV_RAWRX   72.22). These three hand over
+                                ; whole ETHERNET frames, and this driver's wire
+                                ; is eight data lines and a handshake carrying
+                                ; a private protocol - there is no MAC address,
+                                ; no ethertype and nothing a raw consumer could
+                                ; do with what arrives. A refusal is the honest
+                                ; answer rather than an empty success, because
+                                ; a packet driver built on a silent no would
+                                ; look mounted and never receive
 %if ($ - nsk_tab) / 2 != NETV_MAX + 1
   %error "net: nsk_tab does not cover NETV_0..NETV_MAX"
 %endif

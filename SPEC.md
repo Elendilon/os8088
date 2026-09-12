@@ -90649,6 +90649,74 @@ and that the page renders. The 5150 is where a number would land, and there is
 no number here to land.
 
 `make test ETHER=1 TESTIMG=build/ether360.img` is the machine.
+
+### 72.22 The raw verbs — whole frames, for a consumer that IS a stack
+
+Every verb above this point is a **socket**: the driver owns ARP, IP and TCP
+and the package owns a byte stream. `NETV_RAW`, `NETV_RAWTX` and `NETV_RAWRX`
+are the other shape — the caller has a stack of its own and wants the wire.
+
+The first consumer is the DOS box's packet driver (§96.23), and the Crynwr
+interface it publishes is why these are shaped the way they are. They are
+**not** a general second API: a package that wants to move bytes has sockets,
+and reaching for these instead means writing ARP and TCP again.
+
+**They are a PULL, not an up-call**, and that follows from the driver rather
+than from taste. `ETHER.DRV` hooks no interrupt vector at all and polls the
+NE2000's receive ring (§72.2.1), so there is no context in which the driver
+could call a consumer back — there is no ISR to call it from. A consumer that
+wants frames asks for them, and how often it asks is its own problem to solve.
+
+| verb | in | out |
+|---|---|---|
+| `NETV_RAW` 15 | `AL` = 1 claim, 0 release | CF=0. CF=1 `AX=NETE_BUSY` — somebody else holds it |
+| `NETV_RAWTX` 16 | `SI` = the frame in the caller's segment, `CX` = 14..1514 | CF=0. CF=1 `AX=NETE_ARG` (a length that is not a frame) or `NETE_NOLINK` (no claim, or the card never finished) |
+| `NETV_RAWRX` 17 | `DI` = a buffer in the caller's segment, `CX` = its capacity | CF=0 and `CX` = the frame's **true** length. CF=1 = the ring is empty |
+
+#### 72.22.1 The claim stops `eth_pump`, and that is the safe end to gate
+
+A raw claim is exclusive, and while it is held **`eth_pump` does nothing at
+all** — no drain, no timers — so the only consumer of the ring is
+`NETV_RAWRX`.
+
+Gating the *pump* rather than the *frame dispatcher* is the whole of the care
+here. `ne_rx` has already taken the frame **off** the ring by the time
+`eth_frame` could refuse it, so a gate one level down would drop exactly what
+the raw consumer was waiting for. And the failure that would cause is the
+expensive kind this project keeps writing down: two stacks sharing a ring
+corrupt nothing — `ne_rx` is one frame at a time and the card mutex is above
+both — they simply make frames **vanish**, each getting the ones the other was
+waiting for, with no error reported anywhere and a protocol that stalls.
+
+The timers stop for a reason of their own. A DHCP renew fired mid-bracket
+would put a frame on a wire somebody else believes they own, under a MAC they
+are using, and a TCP retransmit would do it for a connection nothing is left
+to read.
+
+#### 72.22.2 The true length is the answer, and the capacity only bounds the copy
+
+`NETV_RAWRX` returns `CX` = the length of the frame that arrived, which **may
+exceed the capacity the caller passed**; that many bytes were there and the
+excess was not copied.
+
+A caller with a 1514-byte buffer never sees the case. One with less can tell a
+truncation from a short frame — where a `CX` clamped to the capacity would
+make a 1514-byte frame read as a 64-byte one, and the caller would parse a cut
+header as a whole packet. The implementation banks the capacity **before**
+calling `ne_rx`, which returns the length in the same register the capacity
+arrived in.
+
+#### 72.22.3 The parallel cable refuses all three
+
+`NET.DRV` answers the same `NETV_*` surface (§62) and its rows for these three
+are refusals. There are no Ethernet frames on a parallel cable: the wire is
+eight data lines and a handshake carrying a private protocol, with no MAC
+address, no ethertype, and nothing a raw consumer could do with what arrives.
+
+A refusal is the honest answer rather than an empty success, because a packet
+driver built on a silent no would look mounted and never receive — which is
+§24.5's shape of failure one layer along.
+
 ## 73. The C toolchain — compiling C into an `.o88` package
 
 Everything in this OS is hand-written assembly, and that is a choice rather
@@ -120305,3 +120373,144 @@ caller can size that buffer without mirroring the kernel's own `DRV_MAX`,
 which is 6, 5 or 4 depending on the build — and the kernel asserts one against
 the other at assembly time, because a row added here without widening the SDK
 would write past the end of somebody's buffer.
+
+### 96.23 The packet driver — a Crynwr interface over `ETHER.DRV`
+
+A **packet driver is an interface, not a program**. What the box publishes is
+the Crynwr Packet Driver Specification — a vector in `60h`..`80h` whose
+handler carries the signature `PKT DRVR` at offset 3, and about a dozen
+functions reached through `AH` — and what consumes it is a DOS application
+that brings its own TCP/IP. mTCP is the validation target and is nobody's code
+here: it is GPL, it is not in this repository, and it is the *client* half.
+
+It is a good fit for one specific reason, and the reason is a property of our
+driver rather than a coincidence: **`ETHER.DRV` hooks no interrupt vector at
+all** (§72.2.1). There is no IRQ to arbitrate and no ISR to hand over, so a
+packet driver over it is a translation and not a negotiation.
+
+#### 96.23.1 Two things had to be built under it first
+
+The design this was planned against assumed both of these existed, and neither
+did. They are recorded because the plan's own §9.4 reads as a package-only
+wave and it is not one.
+
+**1. There was no transmit verb to call.** `ETHER.DRV`'s table is fifteen
+verbs and every one is a **socket** — `NETV_SEND` sends on a TCP connection.
+The frame-level `ne_tx`/`ne_rx` are internal to the driver and reachable from
+no package. §72.22's three raw verbs are what wave 4 actually rests on.
+
+**2. The box unloaded the network driver on the way in.** §51.11's
+`drv_suspend_x` skips exactly `DRVC_DISK` and `DRVC_FILE`, so `DRVC_NET` was
+suspended with everything else and the packet driver would have had no card to
+talk to — the door §96.17 opened for the Sound Blaster took the wire away.
+§96.23.6 is what replaced that.
+
+#### 96.23.2 The vector, and why it is searched for rather than chosen
+
+The client finds a packet driver by walking `60h`..`80h` and comparing the
+nine bytes at offset 3 of each handler against `PKT DRVR`. The box installs at
+the **first** vector in that range whose current handler does not already
+answer to that signature, which is `60h` on a machine where nothing else has
+one.
+
+Searching rather than hard-coding costs four instructions and buys the case
+that actually happens: a program the user ran earlier in the same session left
+something at `60h`, or the `.COM` being run is itself a packet driver for a
+card we do not have. The vector chosen is reported in the window.
+
+#### 96.23.3 The functions, and what each one answers from
+
+| `AH` | function | answered from |
+|---|---|---|
+| 1 | `driver_info` | constants. Class 1 (DIX Ethernet), type 1, number 0, version 9, functionality **2** — basic plus extended |
+| 2 | `access_type` | a handle table of `PKT_NHAND` rows. The ethertype is banked and the client's receiver far pointer with it |
+| 3 | `release_type` | the same table |
+| 4 | `send_pkt` | `NETV_RAWTX`, directly |
+| 5 | `terminate` | releases every handle and drops the raw claim |
+| 6 | `get_address` | `NETV_ADDR` — the card's own station address out of its PROM |
+| 20 | `set_rcv_mode` | accepted and recorded; the card is left in the mode `ne_init` set |
+| 21 | `get_rcv_mode` | what `20` recorded — 3, "all frames addressed to me plus broadcast" |
+| 24 | `get_statistics` | the driver's own counters, through `NETV_RAW`'s per-claim pair |
+
+Everything else answers `CF=1` with `DH=11` (`NO_SPACE` is not it —
+`BAD_COMMAND` is), which is what a client that asks for a feature it can live
+without expects to get.
+
+#### 96.23.4 The receive is a PULL underneath and an UP-CALL on top
+
+This is the one place the translation is not mechanical. The Crynwr contract
+is that the driver calls the client **twice** per frame from its ISR — `AX=0`
+asking for a buffer of `CX` bytes, to which the client answers `ES:DI` or
+`0:0` to refuse it; then `AX=1` handing the same buffer back full. mTCP is
+written against exactly that and does not poll.
+
+We have no ISR, so the up-calls are generated from a poll, and the poll runs
+in **three** places:
+
+1. **The `INT 08h` tick**, which the box chains for the life of the bracket.
+   This is the one that makes asynchronous delivery real, and it is what a
+   client that never calls us again still gets.
+2. **Every packet-driver call**, before the function it asked for. A client
+   in a send loop drains as it sends.
+3. **Every `INT 21h`**, which costs a compare on a path that is already a
+   dispatch and covers the client that is doing file I/O between receives.
+
+Each poll drains **up to the whole ring** rather than one frame. The ring
+holds about ten frames and the tick is 18.2 Hz, so a per-tick drain of one
+would cap at 18 frames a second and lose the rest to overflow; a full drain
+bounds delivery at roughly 180 frames a second, which is far more than a
+4.77 MHz 8088 above it can process anyway.
+
+##### 96.23.4.1 The up-call runs on a stack of ours, not on the program's
+
+The poll is reached from `INT 08h`, so the deepest chain in it —
+`OSAPI_DRV_CALL` into the kernel, into the driver, into `ne_rx`'s byte-at-a-
+time DMA loop, and then out into the client's receiver — lands on **whatever
+stack the DOS program was running on**, at whatever depth it had reached.
+
+A DOS program's stack is its own business and a `.COM`'s default is 256 bytes
+below its image. So the tick poll switches to a private stack of its own
+first, which is §9.10's answer to the same question for the mouse ISR and is
+the established shape in this tree. `mov [cs:x], sp` and `mov sp, imm16` need
+no register, which is what makes the swap possible at a gate where every
+register belongs to the interrupted program.
+
+##### 96.23.4.2 A refused buffer is a dropped frame, and that is the contract
+
+A client that answers `0:0` to the `AX=0` call has refused the frame, and the
+frame is gone — it has already been taken off the ring by `ne_rx` and there is
+nowhere to put it back. That is the Crynwr contract rather than a shortcut:
+the client refuses when it has no buffer free, and the protocol above it
+retransmits.
+
+#### 96.23.5 One claim, held for the bracket
+
+The box takes `NETV_RAW` when the client's **first** `access_type` succeeds
+and drops it at `terminate` or at the end of the bracket, whichever comes
+first. It is not taken at bracket entry: a DOS program that never asks for a
+packet driver should leave our own stack running, and most of them are not
+network programs at all.
+
+Dropping it on **every** exit path is deliberate, and it is §96.17's argument
+repeated: a release by a caller that does not hold the claim is a no-op, so
+the unconditional call is free, and a machine left with its stack switched off
+because a program crashed is not.
+
+#### 96.23.6 The suspend learned a third skip, and it is narrower than the other two
+
+`drv_suspend_x`'s skip list was `DRVC_DISK` and `DRVC_FILE` — things a DOS
+program **wants** rather than fights. `DRVC_NET` is now a third, and it is not
+the same kind of entry: a DOS program driving an NE2000 itself would want the
+driver out of the way exactly as it wants `SOUND.DRV` out of the way.
+
+What settles it is that **this box's packet driver is the only route a DOS
+program here has to the card at all**, and it is built on the driver staying
+mounted. A program that wanted to own the hardware would need the card's I/O
+base, which `DRVV_HWINFO` would have to answer and `ETHER.DRV` does not
+implement (§15.6 item 3) — so the suspend was taking the driver away to serve
+a program that could not have used the result.
+
+The skip is therefore recorded as a **decision about this wave** rather than a
+property of the class: the day a driver answers `DRVV_HWINFO` for a NIC and a
+DOS program wants raw ports, this is the line that has to be revisited, and
+`AL=2` on the suspend — "and the network too" — is where it would go.

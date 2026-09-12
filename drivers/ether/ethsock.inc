@@ -519,3 +519,127 @@ eth_v_accept:
     stc
     ret
 
+
+; =============================================================================
+; THE RAW VERBS - whole frames, for a consumer that IS a stack (SPEC.md 72.22)
+; =============================================================================
+; netpkg.inc carries the contract and the reasoning. These three are short
+; because every hard part of them is already written: ne_tx and ne_rx are the
+; link layer the socket half sits on, and usr_read/usr_write are the caller's
+; segment. What is new is only WHO the frames belong to.
+
+; --- NETV_RAW ----------------------------------------------------------------
+; in AL = 1 claim / 0 release.
+;
+; **THE CLAIM STOPS eth_pump, WHICH IS WHY IT IS A CLAIM AND NOT A FLAG.**
+; A second consumer would not corrupt anything - ne_rx is one frame at a time
+; and the card mutex is above us - it would simply make frames vanish, one
+; stack getting the ones the other was waiting for. That is the failure this
+; project keeps writing down as the expensive kind: nothing reports an error
+; and the symptom is a protocol that stalls.
+eth_v_raw:
+    or  al, al
+    je  .release
+    cmp byte [eth_raw], 0
+    jne .held
+    mov byte [eth_raw], 1
+    mov word [eth_nraw], 0      ; the counters are per CLAIM, so a probe can
+    mov word [eth_nrawtx], 0    ; read them without knowing what ran before it
+    clc
+    ret
+.release:
+    mov byte [eth_raw], 0       ; **A RELEASE ALWAYS SUCCEEDS** (netpkg.inc):
+    clc                         ; the DOS box calls it on every exit path it
+    ret                         ; has, including the ones that never claimed
+.held:
+    mov ax, NETE_BUSY
+    stc
+    ret
+
+; --- NETV_RAWTX --------------------------------------------------------------
+; in SI = the frame in the caller's segment, CX = its length.
+eth_v_rawtx:
+    push bx
+    push cx
+    push si
+    push di
+    cmp byte [eth_raw], 0
+    je  .noclaim
+    cmp cx, EH_SIZE             ; shorter than an Ethernet header is not a
+    jb  .bad                    ; short frame, it is a wrong one - ne_tx pads
+    cmp cx, NE_FRAME            ; to the 60-byte minimum itself
+    ja  .bad                    ; ...and too long is REFUSED, never truncated:
+                                ; a silently shortened frame is a checksum
+                                ; failure at the far end and a bug hunt here
+    mov di, eth_txb
+    call usr_read               ; SI theirs, DI ours, CX bytes
+    call ne_tx
+    jc  .gone
+    inc word [eth_ntx]          ; the same counter the stack's own frames use:
+    inc word [eth_nrawtx]       ; the Control Panel page is about the CARD
+    pop di
+    pop si
+    pop cx
+    pop bx
+    clc
+    ret
+.gone:
+    mov ax, NETE_NOLINK         ; the card never finished the previous transmit
+    jmp short .err
+.bad:
+    mov ax, NETE_ARG
+    jmp short .err
+.noclaim:
+    mov ax, NETE_NOLINK         ; **NOT NETE_ARG**: a caller that never claimed
+                                ; the wire is not making a malformed call, it
+                                ; is making one there is no wire for - and the
+                                ; frame it wanted to send would have gone out
+                                ; under a MAC our own stack is still using
+.err:
+    pop di
+    pop si
+    pop cx
+    pop bx
+    stc
+    ret
+
+; --- NETV_RAWRX --------------------------------------------------------------
+; in DI = a buffer in the caller's segment, CX = its capacity.
+; out CF=0 with CX = the frame's TRUE length; CF=1 = nothing there.
+eth_v_rawrx:
+    push ax
+    push bx
+    push si
+    push di
+    mov bx, cx                  ; **THE CAPACITY, BANKED BEFORE ne_rx**, which
+                                ; returns the frame's length in the same
+                                ; register the caller passed the capacity in
+    cmp byte [eth_raw], 0
+    je  .none                   ; no claim, no frames - and it reads as an
+                                ; empty ring rather than an error, because a
+                                ; poll loop is the only thing that calls this
+    call ne_rx                  ; CF=1 = empty; CX = the length in eth_rxb
+    jc  .none
+    inc word [eth_nrx]
+    inc word [eth_nraw]
+    push cx                     ; **THE TRUE LENGTH IS THE ANSWER** and the
+    cmp cx, bx                  ; COPY is what the capacity bounds. A caller
+    jbe .fits                   ; told "1514" by a 64-byte buffer knows it lost
+    mov cx, bx                  ; bytes; one told "64" would think that was the
+.fits:                          ; frame and read a truncated header as a whole
+    mov si, eth_rxb
+    call usr_write              ; SI ours, DI theirs, CX bytes
+    pop cx
+    pop di
+    pop si
+    pop bx
+    pop ax
+    clc
+    ret
+.none:
+    pop di
+    pop si
+    pop bx
+    pop ax
+    stc
+    ret
