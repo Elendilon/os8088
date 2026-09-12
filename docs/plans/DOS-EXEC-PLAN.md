@@ -867,8 +867,21 @@ it, and about a dozen functions (`driver_info`, `access_type`,
 And it is a **very good fit**, for one specific reason: `ETHER.DRV` **hooks
 no interrupt vector at all** and polls the NE2000's receive ring (verified in
 `drivers/ether/ether.asm`: "DRVV_ATTACH — find a card, and hook NOTHING").
-So there is no IRQ to arbitrate and no ISR to hand over. A packet driver
-over `ETHER.DRV`'s existing verbs is:
+So there is no IRQ to arbitrate and no ISR to hand over.
+
+> **BOTH BULLETS BELOW WERE WRONG, and they are left with the correction
+> beside them because the shape of the error is the useful part** — this
+> section costed the wave by reading the driver's *design* and never its
+> *verb table*. See §15.7, and SPEC.md 96.23.1.
+>
+> 1. **There is no transmit verb.** `ETHER.DRV`'s table is fifteen verbs and
+>    every one is a SOCKET; `ne_tx`/`ne_rx` are internal and reachable from no
+>    package. Wave 4 had to add three raw verbs first (SPEC.md 72.22).
+> 2. **The box unloads the network driver on the way in.** §51.11's
+>    `drv_suspend_x` skips only `DRVC_DISK` and `DRVC_FILE`, so wave 3's own
+>    door took the card away before a packet driver could reach it.
+
+A packet driver over `ETHER.DRV`'s existing verbs is:
 
 - `send_pkt` → the driver's transmit verb, directly;
 - receive → poll the ring from our `INT 08h` path or from the shim's idle
@@ -955,7 +968,7 @@ what three of these rows got wrong.
 | 1 | `.COM` only. Arena + MCB chain + PSP + environment. fsx bracket, IVT/BDA/PIT/8259 save-restore. Character I/O, process control, memory, date/time, vectors. **Read-only file handles, behind the back-end indirection §14.4 asks for.** The `..` walk for the cwd (§11.3). Double-click via an association block. | **0** | 6–9 KB |
 | 2 | **BUILT.** `.EXE` loader — MZ header, relocations, `minalloc`/`maxalloc`. Directory functions, find-first/next, create/replace/append writes, `INT 33h` mouse. | **0** | **+2.7 KB** (image 3,134 → 5,878; 5,321 compressed on disk) |
 | 3 | **BUILT, all four.** `4Bh` EXEC (SPEC.md 96.14), XMS via the `OSAPI_XMEM_*` slots (96.15), `INT 12h`/BDA (already done in wave 1: the BDA's memory word is written at bracket entry, and the ROM's `int 12h` reads it), and **the drivers out of the way** — which came out a KERNEL slot rather than package code, `OSAPI_DRV_SUSPEND` (96.17, 51.11), and is the only row in the whole plan that spent a kernel byte. §15.5 below is what it cost and what the refusal got wrong. | **209 `.text` + 5 `.bss` + 1 API cell** | **+2.9 KB** |
-| 4 | Packet driver over `ETHER.DRV`. Validation target: mTCP's own applications. | 0 | +1.5–2.5 KB |
+| 4 | **BUILT.** Packet driver over `ETHER.DRV` (SPEC.md 96.23), validated with mTCP's own `PKTTOOL` and `PING`. **Not the package-only row this table claimed**: §9.4's two premises were both false and §15.7 is what it cost. | **4 `.text`** + 3 driver verbs | **+1.2 KB** (image 13,074 → 14,292; 1,060 compressed) |
 | 5 | **Write-at-offset file handles** (§6.3) — on a published kernel seek/write-at trio if that API happens, on read-modify-rewrite if it does not. Ordered here rather than "deferred" because Tank Attack wants it too. | 0 or ~400 | +1–2 KB |
 | 6 | **Windowed text mode** (§10) — the `INT 21h`/TTY subset rendered into a real window, RunCPM's terminal (SPEC.md 74.2) being the precedent; a program that writes `B8000` is refused into fullscreen instead. | 0 | +4 KB |
 | 7 | **A command interpreter** in that window — the `COMMAND.COM`-shaped half. Needs wave 3's `4Bh` EXEC under it, which is what makes it wave 7 and not wave 6. | 0 | +4–6 KB |
@@ -1567,3 +1580,55 @@ QEMU twin (`tests/dosxmsq.py`, SPEC.md §96.15.3) and the Sound Blaster row is
    means **a user who swaps the system disk during a DOS program loses the
    sound driver for the session**. Nothing measured has hit it; it wants a
    sentence in the user-facing docs before it does.
+
+### 15.7 What wave 4 cost, and the three things it overturned
+
+**BUILT** — SPEC.md 96.23 is the contract, 72.22 the driver half, and
+`tests/dospkt.py` the gate. mTCP's own `PKTTOOL` and `PING` run unmodified.
+
+**1. §9.4 costed the wrong half, and the wave table's "0 kernel bytes" was
+right by luck.** Both of that section's premises were false (corrected in
+place above): there was no transmit verb to call, and the box was unloading
+`ETHER.DRV` at the bracket. What that actually cost is small — **4 bytes of
+kernel `.text`** for the `DRVC_NET` skip, exact, plus three verbs in a
+driver, whose bytes are never resident. But it was found by reading the verb
+table, not by reading the plan, and no estimate in §9.4 would have produced
+it. **A section that costs a wave against a driver's design rather than its
+published surface is costing a guess.**
+
+**2. The interesting cost was MEMORY, and it moved twice.** A packet driver
+wants a 1,514-byte frame buffer each way, and as package bss that is 3,028
+bytes zeroed into the heap claim at every launch on every machine — including
+every machine with no card, where nothing can read them. It is a 2KB heap
+claim now, taken only when a card answers (SPEC.md 96.23.7), and the transmit
+half turned out not to be needed at all: `NETV_RAWTX` takes a segment, so the
+client's buffer goes down where it lies (96.23.8). **bss +592 instead of
++3,616**, and the staging copy that went with it was a second copy of 1.5KB
+per frame on a 4.77 MHz machine.
+
+That claim **cannot be lazy**, which is the one thing here that wants §96.3 to
+change: the arena takes `OSAPI_MEM_AVAIL`'s whole answer, so a claim on the
+first `access_type` is always refused and the buffer has to be taken in front
+of the sizing call. A machine with a card that runs `EDIT.COM` therefore still
+pays the 2KB.
+
+**3. The debugging lesson is the one this project keeps paying for, and it
+cost most of a session.** Every counter inside the guest said the transmit
+path worked — `eth_nrawtx` 1, `CF` clear, the right length, the card really
+transmitting — and the frame on the wire was 42 bytes of `dos_save_machine`.
+**A frame that is SENT is not a frame that is RIGHT**, and nothing in the
+guest was ever going to say so; `ETHDUMP=`'s pcap was the only instrument that
+could, and it should have been the first one reached for rather than the
+fifth.
+
+The cause was one fact with three symptoms that looked unrelated (SPEC.md
+96.23.9): `driver_info` is *defined* to return `DS:SI`, so the probe ran with
+the driver's segment as its own from its first call — which made its strings
+print as garbage, made `send_pkt`'s frame read out of our image, and made
+`access_type` bank an ethertype of two bytes of our code, so no arriving frame
+matched a handle and the receive path looked broken while being correct
+throughout. mTCP saves `DS` around those calls; our probe did not.
+
+**Still open, and small:** promiscuous mode is refused (SPEC.md 96.23.10) —
+the NE2000 can do it and only a sniffer wants it; `4Bh` nesting and handle
+inheritance are §15.6's items and untouched by this wave.

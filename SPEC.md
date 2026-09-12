@@ -120637,3 +120637,49 @@ client's offset **in our segment**, so the ethertype was never `0806` and no
 arriving ARP reply ever matched a handle: the receive path was correct
 throughout and had nothing to deliver. Chasing them separately cost most of a
 session.
+
+#### 96.23.10 What mTCP actually does with it
+
+mTCP is the validation target and it is nobody's code here — Michael
+Brutman's, under its own licence, not in this repository, and the *client*
+half of what wave 4 provides. `MTCPDIR=<dir>` puts its programs on
+`make dospkt`'s disk beside our own probe; without it the disk is still a
+whole gate.
+
+**`PKTTOOL.EXE scan` reads every field and decodes all of them.** Its own
+output, on QEMU's `ne2k_isa`:
+
+```
+Details for driver at software interrupt: 0x60
+  Name: os8088 ETHER
+  Entry point: 9280:2816
+  Version: 9   Class: 1   Type: 1  Interface Number: 0
+  Function flag: 2  (basic and extended functions)
+  Current receive mode: packets for this MAC and broadcast packets
+  MAC address: 52:54:00:12:34:56
+```
+
+**`PING.EXE` completes, and the wire is the evidence.** `ETHDUMP=`'s pcap for
+one run of `ping 10.0.2.2` — mTCP's own duplicate-address probe, its ARP for
+the gateway, and four echo pairs:
+
+```
+ARP REQUEST 10.0.2.15 -> 10.0.2.15        mTCP checking its own address
+ARP REQUEST 10.0.2.15 -> 10.0.2.2
+ARP REPLY   10.0.2.2  -> 10.0.2.15
+ICMP echo-REQUEST 10.0.2.15 -> 10.0.2.2   ...four times, all answered
+```
+
+That is ARP, IP and ICMP, transmit and receive, from an unmodified DOS
+application — with every received frame delivered by the `INT 08h` poll and
+the two-call up-call of §96.23.4. It needs `MTCPCFG` in the environment, which
+§96.20's page already provides and which cost this feature nothing.
+
+**Promiscuous mode is refused, and `pkttool listen` says so.** `set_rcv_mode`
+accepts only 3 — this MAC plus broadcast — so a client asking for 6 gets
+`CF=1` and mTCP prints *"failed to set promiscuous mode on your Ethernet
+card"* and carries on with what it has. The NE2000 can do it (the RCR has the
+bit) and nothing here needs it: every ordinary mTCP application uses mode 3,
+and only a *sniffer* wants more. Recorded as a limitation rather than left to
+be discovered, because the refusal is the honest path (§47) and the warning it
+produces is not a fault.
