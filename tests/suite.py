@@ -2635,7 +2635,7 @@ SOAK = [
         "programs on the disk beside ours.",
         needs=("qemu",), serial=True,
         wants=("build/ether360.img", "build/dospkt360.img")),
-    Row("doscable", "soak", py("tests/doscable.py"), 900.0,
+    Row("doscable", "soak", py("tests/doscable.py"), 600.0,
         "A DOS PACKET-DRIVER CLIENT OVER THE PARALLEL CABLE (SPEC.md 96.26) - "
         "the arm that is about the WIRE, where `dosxlat` is about the "
         "endpoint. There the translation is FORCED over a card because that "
@@ -2659,8 +2659,12 @@ SOAK = [
         "client's own record of every segment holds a SYN|ACK and no RST; and "
         "the payload crossed both ways. EXACT RATHER THAN FAST - every nibble "
         "is debug-server round trips with the emulator stepped between them, "
-        "which is why the answer is seven bytes and not a page, and why this "
-        "declares fifteen minutes.",
+        "which is why the answer is 45 bytes and not a page. MEASURED at "
+        "250.5s through the runner and 250s standalone, declared at 600 because the cost is debug round "
+        "trips and a loaded box has fewer of them per second - and because "
+        "the launch phase alone is 13.2 MILLION guest cycles, which "
+        "Partner.idle_until_wire steps in 516 coarse chunks where the nibble "
+        "loop would take 33,000.",
         needs=("marty",), serial=True,
         wants=("build/dospkt360.img",)),
     Row("dosxlat", "soak", py("tests/dosxlat.py"), 75.0,

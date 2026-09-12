@@ -85,7 +85,10 @@ MACHINE = "os8088_5150_cga_lpt"     # GLaBIOS on purpose: nothing here is a
                                     # timing question - the wire is
                                     # bit-banged and the BIOS never sees it
 NET_ROW = 4                         # drv_tab row 4 is the parallel link
-DRVR_SZ, DRVR_SEG, DRVR_CLASS = 16, 2, 0
+DRVR_SZ, DRVR_SEG, DRVR_CLASS = 16, 2, 12     # kernel/driver.inc's row -
+                                              # and CLASS is 12, not 0, which
+                                              # is DRVR_DISP and happened to
+                                              # hold 12 as well
 CP_I0Y, CP_IROWH, CP_IDRV = 6, 14, 2
 CP_RX = 96
 

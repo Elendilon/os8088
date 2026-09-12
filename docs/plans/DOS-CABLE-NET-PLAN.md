@@ -236,10 +236,48 @@ connection we refuse with `RST`, which is what a client understands.
 | 2 | ARP, IP, and the DNS hijack | the client's ARP is answered and a DNS query gets a synthetic A record |
 | 3 | **DONE, and the route on the cable is now this** (SPEC.md 96.26.3) — no knob. One connection reads `FLAGS 12 10 10 18 11`: the `SYN\|ACK`, the handshake, 235 bytes of HTTP and a clean close, with the host's own log recording the `GET`. All three defects were REGISTERS, not protocol (§7.2) | `tests/dosxlat.py`, registered — and it reads the CLIENT's record of every segment, because nothing outside the client can tell "the box opened a socket" from "the client ever heard about it" |
 | — | **the bss went with it** (SPEC.md 96.26.6): 4,299 bytes of every DOS program's arena, on every machine, for a wire that may not be there. `image + bss` **25,586 → 21,287**, and `DS` is the claim inside every `dn_*` | `t_appsmall`-style A/B: the stock arm's figures are in §7.3 |
-| 4 | the gate's cable arm | `tests/dospkt.py` proves it under MartyPC with no second machine |
+| 4 | **DONE, and it passed first time** (SPEC.md 96.26.7). `tests/doscable.py`: a real Crynwr client, in the real DOS box, over a real `NET.DRV`, over MartyPC's parallel port a nibble at a time, to a real host socket - with NO knob, `net_find` picking the cable because `NETV_RAW` is one of the three verbs it refuses. `FLAGS 12 10 10 18 11`, the same five segments as the card arm, and the partner's own log reads `o ssssssssss w s r s c` | `tests/doscable.py`, registered |
 | — | *below here is optional and separately revertible* | |
 | 8 | `OSAPI_PKG_REHOME` — give **S** back | `kernsize`-style A/B on the region |
 | 9 | inbound (`NW_LISTEN`/`NW_ACCEPT` exist) | `ftpsrv` serves across the cable |
+
+### 7.4 What wave 4 found, and the one thing it had to build
+
+**Nothing in the translation.** It passed on its first run, which is what
+§7.0's argument predicted: the endpoint consumes five verbs and both drivers
+answer them, so once the card arm was right the cable arm was a question about
+`net_find` and about whether `NET.DRV` survives the bracket. Both answers were
+already yes - `drv_suspend_x` has skipped `DRVC_FILE` since long before this
+plan, on the ground that a volume is *"a thing a DOS program WANTS"*.
+
+**And `SocketBox` was already there**, which this plan did not know: §7.1
+reads as though the socket verbs still had to be put on top of the transport,
+and `tests/lptlink/partner.py` has served them against real host sockets since
+`tests/socktest.py` was written. So the wave was a test file and one harness
+method, not a far side.
+
+**The one thing built is `Partner.idle_until_wire`.** `_await_strobe` steps
+400 cycles a debug round trip, which is one round trip per 84 microseconds of
+guest time - fine while a nibble is in flight and terrible for a phase where
+the guest is not using the cable at all. The DOS box's launch is exactly that
+phase: a floppy mount and two programs, **13.2 million cycles**, which is
+33,000 round trips spent watching a line nothing is driving. Stepping it in
+25,600-cycle chunks until the data register moves is **516**. It is safe for
+`_spend_stall`'s reason and the arithmetic is the whole argument: every
+deadline in this transport is in TICKS (docs/plans/completed/NET-PLAN.md 9.1), and a chunk is
+5.4 ms against `LP_TMO`'s 110 and `TURN_RX`'s 440.
+
+**It is still the slow row in the tree, and that is the instrument and not the
+subject.** `tests/socktest.py` - the same arrangement one layer down, fetching
+a page from an ALREADY-RUNNING package - takes ~13 minutes; this adds the box's
+launch in front of it. The payload is 45 bytes on purpose.
+
+Two things noticed in passing and not chased, because neither is this branch's
+subject: `socktest` itself fetches its page correctly and then fails its own
+handle-leak assertion with *"8 of 4 handles free after the close"*, which reads
+as a bug in that assertion rather than in the wire - and it is UNREGISTERED, so
+nobody has been running it (its exemption reason says *"needs `make socktest`
+and QEMU networking"*, and it needs no QEMU at all).
 
 ### 7.2 What wave 3 actually cost, and it was never the protocol
 

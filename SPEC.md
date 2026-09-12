@@ -121553,6 +121553,63 @@ gone entirely and the one left in `dos_pkt_poll` is about `NETV_RAWRX` versus
 `dn_ready` — a real difference between the wires rather than a question about
 which buffer.
 
+#### 96.26.7 …and it works on the wire it was written for
+
+§96.26.3's connection is over a **card**, because that is the only wire an
+emulator here can drive at speed (`DOSNETCARD=1` forces it there; `net_find`
+would otherwise always prefer §96.23's raw path, which is strictly better on a
+machine that has one). The question that leaves open is the one the whole
+feature is for: does the same translation work when what is underneath it is
+the **parallel cable**?
+
+It does, and the answer is the same five segments. `tests/doscable.py` boots
+the shipped kernel and a real `NET.DRV` under MartyPC, drives the cable a
+nibble at a time from the host (`tests/lptlink/partner.py`), and lets a real
+Crynwr client inside the real DOS box open a connection through it — with no
+knob at all, `net_find` picking the cable because `NETV_RAW` is one of the
+three verbs it refuses (§72.22.3):
+
+```
+[dos_pkt_xl]=1  [net_cls]=5 (DRVC_FILE)     NET.DRV at 9C40
+FLAGS 12 10 10 18 11                        ARP 1, data 45, first 4854
+the far side was asked for [('10.0.2.2', 8099)]  ...and saw 'GET / HTTP/1.0'
+the partner served: o s s s s s s s s s s w s r s c
+```
+
+The last line is the far side's own record — `NETV_OPEN`, ten `NETV_STATUS`
+polls while the connection came up, a `SEND` of 18 bytes taken, a `RECV` of
+45, and a `CLOSE`. Every one of those crossed a LapLink cable four bits at a
+time.
+
+**The far side redirects one address and RECORDS it**, which is a stronger
+assertion than a connect rather than a weaker one: the probe dials
+`10.0.2.2:8099` because that is where QEMU's slirp puts the host and the same
+binary has to work on the card arm, nothing routes there in a container, so
+the harness's socket end connects to its own listener instead. What is
+asserted is the recorded string — the dotted quad `dn_tcp_open` formatted out
+of an IP header (§96.26.5) — and a connect that merely succeeded would not
+check it. It is also what the real far side does by construction:
+`os88net.com` resolves and connects on our behalf.
+
+Two things the run settles that nothing else could. `NET.DRV` **survives the
+bracket**, which is `drv_suspend_x`'s `DRVC_FILE` skip doing its job — without
+it the translation's very first verb reaches nothing. And `DRVC_NET` is **not**
+the cable: `[net_cls]` is 5, and the constant's own header comment said *"the
+parallel link"* for a cycle after the cable moved to `DRVC_FILE` to serve a
+volume (§62.9), which is how `dos_pkt_bufs`' route compare came to be written
+the wrong way round.
+
+**It is exact rather than fast**, and the cost is the guest's idle time and not
+the payload: `_await_strobe` steps 400 cycles a debug round trip, so the DOS
+box's own launch — a floppy mount and two programs, 13.2 million cycles —
+would be 33,000 round trips spent watching a line the guest is not driving.
+`Partner.idle_until_wire` steps that phase in 25,600-cycle chunks instead and
+stops the moment the data register moves: 516 chunks for the same work. It is
+safe for `_spend_stall`'s reason — every deadline in that transport is in
+TICKS, and a chunk is 5.4 ms against `LP_TMO`'s 110 — so the most it can cost
+is being one twentieth of the tightest deadline late to the *first* nibble,
+after which the fine loop is back in charge.
+
 **The trace build is not on this scheme and is bounded instead.** `DOSTRACE`'s
 ring and its rendered dump are 26,900 bytes and they are `%ifdef`'d, so they
 cost a shipped build nothing — but they are 26,900 bytes of the very arena the
