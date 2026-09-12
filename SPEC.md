@@ -22241,10 +22241,16 @@ affordable to take before anybody has run it on a 286.
 
 | bar | 8086 | 286+ | one commit, measured on a 4.77 MHz 8088 / CGA |
 |---|---:|---:|---|
-| Disk window (`FM_SBRATE`) | 0 | **2** | **116.9 ms** — `fm_scroll_by` past its blit tier, 31 files, `fit` 5 |
-| Standard File dialog (`FD_SBRATE`) | 0 | **2** | not separately measured; `fdlg_draw_list` is a fill, `FD_ROWS` = **6** filename rows and the bar, so it is bounded below the Disk window's |
+| Disk window (`FM_SBRATE`) | **1** | **1** | **78–84 ms** at a live rate (§13.10.5.4.3 measured it; the 116.9 ms below is the rate-0 commit, which is a different quantity) |
+| Standard File dialog (`FD_SBRATE`) | **1** | **1** | **169–179 ms**, and it has no blit tier at all — every change to `fdlg_scrl` repaints the whole list, which `FD_ROWS` = 6 makes affordable anyway |
 | Word, Scribe, TexPad, Note Pad, Frotz, Browser (`SB_RATE`) | 0 | **2** | **383.8** (Note Pad, 200 lines), **417.3** (TeXPad), **300.4** (Word) |
 | **The Wire**, **Sheet** | **2** | **2** | unchanged — and they are the CALIBRATION, not the subject |
+
+**The two kernel bars' halves are EQUAL because 1 is the FLOOR, not because the
+pair collapsed.** The rate is counted in system ticks, so rate 1 is one commit
+per tick and there is nothing faster to give a 286; §13.10.5.4.3 measured the
+8088 itself wanting 1, and a faster machine cannot want less. The pair is still
+what the packages use, where the 8086 half is 0 and the 286 half is 2.
 
 The figures are `docs/reports/SBRATE-COMMIT-COST-2026-09-11.md`, taken for
 this section because §13.10.5.4's own numbers are Part 5 rows for *adjacent*
@@ -22343,6 +22349,165 @@ every machine, which is what shipped before this section. It is in
 `$(VIDSTAMP)` and `$(SBSTAMP)` like the rest, so the A/B rebuilds both halves
 — and it reaches the package builds through `$(PKGSBDEF)`, because a package's
 copy of `os88ui.inc` is its own (§13.10.6.2).
+
+##### 13.10.5.4.2 The SECOND trigger: commit when the hand STOPS — `os88ui_sbowed`
+
+§13.10.5.4.1's rate answers *how often may the view follow while the hand is
+moving*. It has a floor it cannot cross, and §13.10.5.4.3 measured exactly
+where: **a rate is only a throttle while the commit is FASTER than the
+window.** Note Pad's commit is ~360 ms — 6.6 ticks — so every rate from 1 to 6
+produces the identical three commits and the identical 30-to-40 rows of lag.
+No value of that number reaches it, and none ever will.
+
+**So there is a second trigger, and it is a different question: commit once,
+`IDLE` ticks after the thumb STOPS moving.** The hand drags freely with the
+view left alone; pause about half a second and the view arrives, once. It is
+what a person does anyway when they want to see where they are, and it turns
+the release from *the only way to look* into *the way to finish*.
+
+###### It needed no new mechanism, which is the whole reason it is cheap
+
+`OSAPI_WM_TIMER` (§13.9) is **one-shot and re-armable**, so a timer re-armed
+on every `W_ONDRAG` fires only after `IDLE` ticks in which no `W_ONDRAG`
+arrived — and `W_ONDRAG` is delivered only when the pointer actually moved
+(§13.8.2). *An idle detector is a one-shot timer pushed forward by movement*,
+and both halves of that were already published. Nothing here polls, nothing
+here samples, and no timer is armed unless a thumb is actually being dragged.
+
+**The element owns the arithmetic and the caller owns the timer**, which is
+§13.10.1 again and not a compromise: a timer belongs to a WINDOW and a gesture
+belongs to the element, so the caller arms `OSAPI_WM_TIMER` in its own
+`W_ONDRAG`, cancels it in its `W_ONMOUSEUP`, and asks the element one question
+from its `W_ONTIMER`:
+
+```
+; os88ui_sbowed - where a LIVE drag on this bar has got to, WITHOUT spending it
+; in:  BX = the block
+; out: CF = 0 and AX = the hand's pos; CF = 1 = no drag, or a different bar's
+;      (13.10.5.10). Every other register preserved.
+```
+
+It is `os88ui_sbdrop` with the spend taken out — the one thing a caller cannot
+write for itself, because `os88ui_sbd_pos` is the element's private state.
+
+###### The idle count is a property of the HAND, so it takes no tier pair
+
+This is the one structural difference from the rate and it is worth stating,
+because the obvious move is to copy §13.10.5.4.1's two-column shape and it
+would be wrong. The rate is *how much drawing this machine can afford per
+second* — a fact about the CPU, which is why it is a pair resolved on
+`[cpu_tier]`. The idle count is *how long a person pauses when they mean "show
+me"*, which is the same half second on a 4.77 MHz 8088 and on a 16 MHz 286.
+**One number, both tiers, no `os88ui_sbrate` call on this path at all.**
+
+`SB_IDLE` = **9 ticks** = 494 ms, the "half a second or so" the request asked
+for, expressed in the clock the whole system already keeps.
+
+###### What each bar does now
+
+| bar | while MOVING | on a PAUSE |
+|---|---|---|
+| Disk window, Standard File dialog | follows every tick (§13.10.5.4.1) | commits — which closes the one row the throttle may still owe |
+| Word, Scribe, TexPad, Note Pad, Frotz, Browser — **8086** | nothing | **commits.** This is the whole of what those bars gain on the target machine, and it is the case the trigger exists for |
+| ...the same six on a **286** | follows every 2 ticks | commits |
+| The Wire, Sheet | follows every 2 ticks | commits |
+
+**A pause commit is affordable exactly where a periodic one is not**, and that
+is the argument in one line: Note Pad's is the 360 ms the rate could not fit
+into any window, spent ONCE against a hand that has stopped and is waiting for
+it, rather than repeatedly against a hand that has not.
+
+###### Three things it must not do, and what stops each
+
+- **Fire when nothing is being dragged.** The arm is inside the `W_ONDRAG`
+  path below `os88ui_sbdragging`, so no timer is armed by a click, a button,
+  or a window that is merely open; and `os88ui_sbowed` answers CF = 1 to a
+  handler that runs after the gesture ended anyway.
+- **Commit twice for one pause.** `OSAPI_WM_TIMER` disarms itself BEFORE the
+  handler runs (§13.9) and the handler does not re-arm, so a pause is one
+  commit however long it lasts. The next movement arms it again.
+- **Outlive the gesture.** `W_ONMOUSEUP` cancels with `OSAPI_WM_TIMER` AX = 0
+  before the drop. A lost release (§13.10.5.7) leaves one armed, and that one
+  fires once into a `os88ui_sbowed` that refuses — the same stale net, one
+  door along.
+
+###### What it cost
+
+| | |
+|---|---:|
+| kernel `.text` | **+20** — two `cw_*` wrappers and two thunks; `wm_ontimer` is a pure store and a cold store would have done, but `wm_timer` is not (it sets `[wm_tarm]` and `[ui_post]`), so the pair goes through wrappers together |
+| kernel `.bss` | **0** — the gesture record does not grow, and the deadline lives in `W_TIMER`, a window word that has existed since §13.9 |
+| kernel `.cold` | **+136** — the two handlers, the arms and the cancels |
+| rung | **none crossed**, and the cold one is down to 72 bytes of slack |
+| a package | **+54** (Note Pad, Word, Scribe), +55 (Browser), +58 (Sheet), +73 (TeXPad, two bars), +79 (The Wire), +88 (Frotz) |
+
+**The element itself grew by ELEVEN bytes** — `os88ui_sbowed` is
+`os88ui_sbmine`, a load and a `clc` — because the timer is the caller's and
+the gesture record already held everything the answer needed.
+
+###### The reference arm
+
+`make SBIDLE=0` builds every bar with no pause commit, which is what shipped
+before this section; it is in `$(VIDSTAMP)` and `$(SBSTAMP)` and reaches the
+packages through `$(PKGSBDEF)`, exactly as `SBRATE286=` does.
+
+###### What the gate found, and it was all in the TESTS
+
+`tests/sbrate286.py` gained case D and `tests/pkgthumb.py` a pause case, and
+four rows went red on the way — every one of them a test asserting a constant
+it had typed rather than one the build told it:
+
+- **`fmthumb` and `fdlgthumb` defaulted `--rate=` to 0**, which was the shipped
+  value until §13.10.5.4.1's 8086 column was measured. They then asserted *the
+  view did not move* against a kernel whose rate is 1 and went red for a change
+  that was correct. Both read the build's own `%define` now, knob first.
+- **`pkgthumb` drove its drag with the ABSOLUTE mouse driver**, which confirms
+  every packet by reading guest memory at ~680 **guest** ms a packet — longer
+  than `SB_IDLE`'s 494, so the pause commit fired *between two packets of one
+  drag* and the row read it as "the content followed at rate 0". A raw packet
+  stream is ~17 ms and is a real hand.
+- **And a host `time.sleep` is magnified ~5.7x in guest time here**, so even
+  `time.sleep(0.20)` is 1.1 guest seconds and lands a pause commit inside a
+  window a script means as *mid-drag*.
+
+The rule under all three: **once a trigger is time-based, a test's own pacing
+is part of the assertion.** `SBIDLE=0` is what makes that checkable, and
+`soak -k 'buildmatrix'` keeps the arm assembling — where it caught the last one
+of these, four new symbols guarded by `KERN_BIG` that needed `OS88UI_SBDRAG`.
+
+##### 13.10.5.4.3 What a rate sweep on the 8088 established, and the two rules it corrects
+
+`docs/reports/SCROLL-LIVE-8088-2026-09-12.md` swept the rate 0..6 over four
+bars at three hand speeds on a cycle-accurate 4.77 MHz 8088, reading the lag
+between the hand and the view in ROWS. It is the measurement §13.10.5.4.1's
+8086 column and §13.10.5.4.2's existence both rest on. Two of its findings are
+rules rather than numbers and belong here:
+
+**1. A rate is only a throttle while the commit is FASTER than the window.**
+Past that it is inert and the bar runs flat out — Note Pad answers with the
+identical three commits at every rate from 1 to 6. §13.10.5.4.1 called that
+"the throttle becoming a no-op" and treated it as the failure mode of too small
+a rate; it is neither a failure nor a mode, it is the rate ceasing to be the
+binding quantity, and it is why §13.10.5.4.2 had to be a different trigger
+rather than a different number.
+
+**2. Where the rate IS a throttle, LOWER is better on an 8088** —
+monotonically, on every bar and at every hand speed, which is the opposite of
+the intuition that a slower cadence is the safe one. A shorter window means a
+smaller delta per commit, which means fewer newly exposed rows to letter and,
+on every bar but The Wire's, `gfx_scroll`'s **blit tier** instead of a repaint.
+A longer window buys nothing and pays for it twice. Rate 0 is therefore the
+worst setting on the scale rather than the most conservative: its mean lag is
+half the travel by construction.
+
+Two facts from it that a later design should not re-derive. **A bar reaches its
+own blit tier only if the thumb is fine enough**: the deciding quantity is rows
+of travel per PIXEL of track — 0.40 for the Disk window, 2.18 for Note Pad on a
+200-line document — and Note Pad's blit needs the hand to move under 7.4 px
+between commits while at 360 ms a commit it moves 31, so it is locked out of its
+own fast path by the DOCUMENT's length and not by the window's height. And
+**the window's height barely moves a live commit at all**: CGA `fm_fit` 5 is
+78 ms and VGA `fm_fit` 8 is 84, because only the delta's rows are relettered.
 
 ##### 13.10.5.5 The thumb moves. The XOR overlay was tried and WITHDRAWN
 

@@ -51,6 +51,15 @@ WD_SBRATE   equ SB_RATE         ; the system
 %define SB_RATE286 2
 %endif
 WD_SBRATE286 equ SB_RATE286
+; ...AND THE PAUSE COMMIT (13.10.5.4.2): a one-shot timer re-armed on every
+; movement fires only after this many ticks in which the thumb did not move,
+; which reaches the bars the RATE cannot - 13.10.5.4.3 measured a commit here
+; slower than any window the rate can name. No tier pair: half a second is
+; half a second on an 8088 and on a 286 alike.
+%ifndef SB_IDLE
+%define SB_IDLE 9               ; ticks of stillness before the view arrives;
+%endif                          ; 9 = 494 ms. 0 = no pause commit
+WD_SBIDLE   equ SB_IDLE
 %endif
 
     OS88_HEADER 'WORD', wd_entry, 3, OS88_STACK_256    ; bit 0 icon, bit 1 the DOC
@@ -868,6 +877,11 @@ wd_entry:
 %ifdef OS88UI_SBDRAG
     pushf                           ; the entry still owes the loader
     push ax                         ; wm_create's CF (SPEC.md 13.10.7.1)
+    mov ax, wd_ontimer          ; 13.10.5.4.2's PAUSE commit - FIRST of
+    call OSAPI_WM_ONTIMER       ; the three, because the `sbb al, al`
+                                ; below captures OSAPI_WM_ONDRAG's OWN
+                                ; CF and a third install after it would
+                                ; answer for the wrong slot
     mov ax, wd_onup                 ; SPEC.md 13.10.6.4: these two are the
     call OSAPI_WM_ONMOUSEUP         ; THUMB's alone. wd_mtrack's poll loop
     mov ax, wd_ondrag               ; (27.8.1) owns a gesture that cannot be
@@ -1190,11 +1204,25 @@ wd_ondrag:
                                     ; grabs the thumb, never both
     call os88ui_sbdragging
     jc wd_sbd_out
+    mov bx, si                  ; 13.10.5.4.2: EVERY movement pushes the
+    mov ax, WD_SBIDLE           ; one-shot out, which is what makes it an
+    call OSAPI_WM_TIMER         ; IDLE detector and not a cadence. 0 needs no
+                                ; test - the slot takes it as CANCEL
     call wd_bounds
     call wd_sbset               ; BX = the block; DX is still the pointer's y
     call os88ui_sbtrack         ; CF = 1: nothing owed - the rate, or the same
     jc wd_sbd_out               ; row
     jmp short wd_sbd_go
+wd_ontimer:                     ; the thumb has been STILL for WD_SBIDLE
+    push ax                     ; ticks (SPEC.md 13.9 disarms before this
+    push bx                     ; runs, and this does not re-arm: a pause is
+    push cx                     ; ONE commit however long it lasts)
+    push dx
+    call wd_bounds
+    call wd_sbset
+    call os88ui_sbowed          ; ...and NOT os88ui_sbdrop: a pause is not
+    jc wd_sbd_out                 ; the end of the gesture, so the record
+    jmp short wd_sbd_go          ; survives it
 wd_onup:
     push ax
     push bx
@@ -1205,6 +1233,9 @@ wd_onup:
                                     ; gesture is the one that needs it
     call os88ui_sbdragging
     jc wd_sbd_out
+    mov bx, si                  ; the pause timer must not outlive the
+    xor ax, ax                  ; gesture it belongs to (13.10.5.4.2)
+    call OSAPI_WM_TIMER
     call wd_bounds
     call wd_sbset
     call os88ui_sbdrop

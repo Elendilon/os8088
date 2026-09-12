@@ -303,6 +303,16 @@ NP_SBRATE   equ SB_RATE
 %define SB_RATE286 2
 %endif
 NP_SBRATE286 equ SB_RATE286
+; ...AND THE PAUSE COMMIT (13.10.5.4.2), which is the trigger that reaches THIS
+; program: 13.10.5.4.3 measured one commit here at ~360 ms - 6.6 ticks - so no
+; value of the rate above is a throttle at all on the target machine, and the
+; sweep answers with the identical three commits from rate 1 to rate 6. A pause
+; commit is the same 360 ms spent ONCE against a hand that has stopped and is
+; waiting for it. No tier pair: half a second is half a second on any machine.
+%ifndef SB_IDLE
+%define SB_IDLE 9               ; ticks of stillness before the view arrives;
+%endif                          ; 9 = 494 ms. 0 = no pause commit
+NP_SBIDLE   equ SB_IDLE
 %endif
 
 NP_SB_STEP   equ 4              ; rows an arrow cell steps. The Disk window
@@ -522,6 +532,11 @@ np_entry:
                                     ; 13.8.2) - so the two installs go inside
                                     ; a pushf exactly as the CPU_INFO block
                                     ; below does
+    mov ax, np_ontimer              ; 13.10.5.4.2's PAUSE commit - FIRST of the
+    call OSAPI_WM_ONTIMER           ; three, because the `sbb al, al` below
+                                    ; captures OSAPI_WM_ONDRAG's OWN CF and a
+                                    ; third install after it would answer for
+                                    ; the wrong slot
     mov ax, np_onup                 ; SPEC.md 13.7 / 13.8.2: the release and
     call OSAPI_WM_ONMOUSEUP         ; the tracking edge, both AFTER wm_create
     mov ax, np_ondrag               ; and neither a template word
@@ -967,10 +982,27 @@ np_ondrag:
     push dx
     call os88ui_sbdragging
     jc np_sbd_out
+    mov bx, si                  ; 13.10.5.4.2: EVERY movement pushes the
+    mov ax, NP_SBIDLE           ; one-shot out, which is what makes it an IDLE
+    call OSAPI_WM_TIMER         ; detector and not a cadence. SB_IDLE = 0 needs
+                                ; no test - the slot takes 0 as CANCEL - and
+                                ; neither does kern_small, which refuses the
+                                ; slot and never reaches here anyway (no
+                                ; tracking edge means no live drag to own it)
     call np_bounds
     call np_sbset               ; BX = the block; DX is still the pointer's y
     call os88ui_sbtrack         ; CF = 1: nothing owed - the rate, or the same
     jc np_sbd_out               ; row
+    jmp short np_sbd_go
+np_ontimer:                     ; the thumb has been STILL for NP_SBIDLE ticks
+    push ax                     ; (SPEC.md 13.9 disarms before this runs, and
+    push bx                     ; this does not re-arm: a pause is ONE commit
+    push cx                     ; however long it lasts)
+    push dx
+    call np_bounds
+    call np_sbset
+    call os88ui_sbowed          ; ...and NOT os88ui_sbdrop: a pause is not the
+    jc np_sbd_out               ; end of the gesture, so the record survives it
     jmp short np_sbd_go
 np_onup:
     push ax
@@ -979,6 +1011,9 @@ np_onup:
     push dx
     call os88ui_sbdragging
     jc np_sbd_out
+    mov bx, si                  ; the pause timer must not outlive the gesture
+    xor ax, ax                  ; it belongs to (13.10.5.4.2)
+    call OSAPI_WM_TIMER
     call np_bounds
     call np_sbset
     call os88ui_sbdrop
