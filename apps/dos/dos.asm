@@ -324,6 +324,10 @@ dos_run:
     jmp .err
 .there:
 
+    call dos_pkt_bufs               ; THE PACKET DRIVER'S BUFFERS FIRST (SPEC.md
+                                    ; 96.23.7): the claim below takes everything
+                                    ; left, so a claim after it is a claim that
+                                    ; always fails
     call OSAPI_MEM_AVAIL            ; AX = the largest run a claim can HAVE -
     cmp ax, DOS_MIN_KB              ; already net of every purgeable cache and
     jb .nomem                       ; of what a compaction would recover
@@ -5424,6 +5428,17 @@ PKE_TYPEUSED equ 10
 PKE_BADCMD  equ 11
 PKE_CANTSEND equ 12
 
+PKT_RXOFF   equ 0                   ; --- inside the claim (SPEC.md 96.23.7) ---
+                                    ; ONE frame, and only the RECEIVE one:
+                                    ; send_pkt hands the client's own buffer
+                                    ; straight to the driver (SPEC.md 96.23.8),
+                                    ; so there is nothing to stage outbound.
+                                    ; Inbound there has to be a buffer, because
+                                    ; the length is not known until the frame is
+                                    ; off the ring and the client is not asked
+                                    ; for somewhere to put it until then
+PKT_BUFKB   equ 2                   ; 1,514 bytes wanted, and a claim is in KB
+
 PKT_ETYPE   equ 12                  ; where the ethertype sits in a frame. The
                                     ; ABI publishes the header's SIZE and this
                                     ; is the one offset inside it a demux needs
@@ -7122,8 +7137,14 @@ dos_pkt_go:
     push si
     push di
     push es
-    push cs
-    pop ds
+    push ds                         ; **THE CLIENT'S DS, BANKED FROM THE
+    push cs                         ; REGISTER** (SPEC.md 96.23.9) - the
+    pop ds                          ; version that read it back out of [bp]
+    pop word [dos_pkt_cds]          ; answered our OWN segment, and `[bp]` is
+                                    ; SS-relative so it was never going to be
+                                    ; checkable by eye. This pops the value
+                                    ; pushed one instruction earlier, with DS
+                                    ; already ours so the store lands here
 
     call dos_pkt_poll               ; **DRAIN FIRST** (SPEC.md 96.23.4): a
                                     ; client in a send loop receives as it
@@ -7253,22 +7274,15 @@ dos_pkt_go:
     jb .cantsend
     cmp cx, NET_FRAME
     ja .cantsend
-    push cx
-    push si
-    push di
-    push es
-    push ds                         ; ours to the copy's destination...
-    pop es
-    mov di, dos_pkt_txb
-    mov ds, [bp]                    ; ...and the CLIENT's to its source
-    call dos_pkt_copy               ; DS:SI -> ES:DI, CX bytes
-    push es
-    pop ds                          ; ours back before any call of ours
-    pop es
-    pop di
-    pop si
-    pop cx
-    mov si, dos_pkt_txb
+    ; --- **THERE IS NO STAGING COPY** (SPEC.md 96.23.8) --------------------
+    ; NETV_RAWTX takes the segment (SPEC.md 72.22.4), so the client's own
+    ; buffer is handed over where it lies: DX = the DS the `int` pushed, SI =
+    ; the offset it was called with. The driver copies into eth_txb either
+    ; way, so a staging copy of ours was a SECOND copy of 1,514 bytes on a
+    ; 4.77MHz machine and 1,514 bytes of claim to hold it - and it was where
+    ; a whole class of segment bug lived, because it was the one place this
+    ; package addressed the client's memory itself.
+    mov dx, [dos_pkt_cds]           ; the CLIENT's DS, banked at the gate
     mov bh, DRVC_NET
     mov bl, NETV_RAWTX
     call OSAPI_DRV_CALL
@@ -7282,8 +7296,9 @@ dos_pkt_go:
 .term:
     call dos_pkt_hchk
     jc .badhand
-    call dos_pkt_shut
-    jmp .ok
+    call dos_pkt_rawdrop            ; NOT dos_pkt_shut: the buffers are the
+    jmp .ok                         ; bracket's and a program that terminates
+                                    ; the driver may still open it again
 
 ; --- AH=6 get_address --------------------------------------------------------
 ; in BX = handle, ES:DI = a buffer, CX = its size; out CX = bytes written
@@ -7439,7 +7454,7 @@ dos_pkt_idle:                       ; the LAST handle takes the claim with it
     loop .l
     pop cx
     pop bx
-    jmp dos_pkt_shut                ; a TAIL JUMP and not a fall-through: the
+    jmp dos_pkt_rawdrop             ; a TAIL JUMP and not a fall-through: the
                                     ; label between them would take the local
                                     ; names below it into its own namespace,
                                     ; which is how `.busy` stopped resolving
@@ -7448,7 +7463,17 @@ dos_pkt_idle:                       ; the LAST handle takes the claim with it
     pop bx
     ret
 
-dos_pkt_shut:
+; -----------------------------------------------------------------------------
+; dos_pkt_rawdrop - the handles and the raw claim, but NOT the buffers
+; dos_pkt_shut    - ...and the buffers too, which only the bracket may do
+;
+; **THE SPLIT IS THE POINT.** The first version had release_type free the
+; buffer claim along with everything else, and that is unrecoverable: §96.3
+; has already given the whole heap to the program, so a client that released
+; a handle and asked for another got its access_type refused for ever. The
+; buffers belong to the BRACKET's lifetime and the raw claim to the handles'.
+; -----------------------------------------------------------------------------
+dos_pkt_rawdrop:
     push ax
     push bx
     push cx
@@ -7474,6 +7499,18 @@ dos_pkt_shut:
     pop ax
     ret
 
+dos_pkt_shut:
+    call dos_pkt_rawdrop
+    cmp word [dos_pkt_bseg], 0      ; ...and NOW the buffers. The kernel frees
+    je .nobuf                       ; a dead instance's claims anyway
+    push dx                         ; (os88api.inc), so this is only about
+    mov dx, [dos_pkt_bseg]          ; handing memory back MID-SESSION - which
+    call OSAPI_MEM_FREE             ; is exactly what a DOS window that stays
+    mov word [dos_pkt_bseg], 0      ; open after a run is
+    pop dx
+.nobuf:
+    ret
+
 ; -----------------------------------------------------------------------------
 ; dos_pkt_poll - drain the ring, up-calling the client once per frame
 ;
@@ -7496,6 +7533,9 @@ dos_pkt_poll:
     jne .out                        ; **THE TICK CAN LAND INSIDE A CALL** and
                                     ; the client's receiver is not re-entrant
                                     ; merely because ours is
+    cmp word [dos_pkt_bseg], 0
+    je .out                         ; the claim was refused: no handle can have
+                                    ; been opened, so there is nothing to poll
     mov byte [dos_pkt_busy], 1
     push ax
     push bx
@@ -7506,11 +7546,14 @@ dos_pkt_poll:
     push es
     mov dx, PKT_BUDGET
 .f:
-    mov di, dos_pkt_rxb
+    push dx                         ; the budget: DX is the segment argument now
+    mov di, PKT_RXOFF
     mov cx, NET_FRAME
+    mov dx, [dos_pkt_bseg]
     mov bh, DRVC_NET
     mov bl, NETV_RAWRX
     call OSAPI_DRV_CALL
+    pop dx
     jc .done                        ; the ring is empty
     cmp cx, NET_FRAME                ; the TRUE length may exceed what we asked
     ja .next                        ; for (SPEC.md 72.22.2), and a cut frame
@@ -7534,7 +7577,7 @@ dos_pkt_poll:
     ret
 
 ; -----------------------------------------------------------------------------
-; dos_pkt_deliver - one frame in dos_pkt_rxb, CX bytes, to whoever registered
+; dos_pkt_deliver - one frame in the claim, CX bytes, to whoever registered
 ;
 ; **THE UP-CALL IS TWO CALLS** and that is the Crynwr contract rather than a
 ; choice (SPEC.md 96.23.4): AX=0 asks the client for somewhere to put CX
@@ -7543,7 +7586,10 @@ dos_pkt_poll:
 ; is nowhere to put it back.
 ; -----------------------------------------------------------------------------
 dos_pkt_deliver:
-    mov ax, [dos_pkt_rxb + PKT_ETYPE]
+    push es
+    mov es, [dos_pkt_bseg]          ; the frame is in the CLAIM (SPEC.md
+    mov ax, [es:PKT_RXOFF+PKT_ETYPE] ; 96.23.7), so every read of it is through
+    pop es                          ; a segment and not DS-relative
     xchg al, ah                     ; the wire is big-endian and we are not
     mov bx, dos_pkt_htab
     mov si, PKT_NHAND
@@ -7580,11 +7626,14 @@ dos_pkt_deliver:
     or ax, di
     jz .out                         ; 0:0 - refused, and the frame is gone
 
-    push cx                         ; --- the copy, ours to theirs ---
+    push cx                         ; --- the copy, the claim to theirs ---
     push di
     push es
-    mov si, dos_pkt_rxb
-    call dos_pkt_copy
+    push ds
+    mov si, PKT_RXOFF
+    mov ds, [dos_pkt_bseg]          ; DS:SI is the claim, ES:DI is the buffer
+    call dos_pkt_copy               ; the client just gave us
+    pop ds
     pop es
     pop di
     pop cx
@@ -7630,6 +7679,59 @@ dos_pkt_copy:
     ret
 
 ; -----------------------------------------------------------------------------
+; dos_pkt_bufs - the two frame buffers, and WHY THEY ARE CLAIMED HERE
+;
+; **BEFORE THE ARENA, OR NOT AT ALL** (SPEC.md 96.23.7). §96.3 claims
+; OSAPI_MEM_AVAIL's whole answer for the program, with no arithmetic between
+; the two calls - so by the time a client calls access_type there is no heap
+; left and a claim then would always be refused. Taking it here means
+; OSAPI_MEM_AVAIL simply answers 3KB less, which is the honest trade and the
+; one the DOS program can see.
+;
+; A MACHINE WITH NO CARD CLAIMS NOTHING, which is the whole point of moving
+; them out of bss: 3,028 bytes of a package's bss are zeroed into its heap
+; claim at every launch, on every machine, whether or not there is a wire.
+; out: [dos_pkt_bseg] = the claim, or 0
+; -----------------------------------------------------------------------------
+dos_pkt_bufs:
+    push ax
+    push bx
+    push dx
+    mov word [dos_pkt_bseg], 0
+    mov bh, DRVC_NET
+    call net_try                    ; is there a card at all?
+    jc .out
+    mov ax, PKT_BUFKB
+    call OSAPI_MEM_CLAIM
+    jc .out                         ; **A REFUSAL IS SURVIVABLE**: the program
+    mov [dos_pkt_bseg], dx          ; still runs, the interface is simply not
+                                    ; published (dos_pkt_start tests this)
+    ; --- AND IT IS ZEROED, which is not tidiness ---------------------------
+    ; A heap claim arrives with whatever was last in it, and this one's bytes
+    ; go ON THE WIRE: ne_tx pads a short frame but does not touch the length
+    ; the caller gave, so a send that staged nothing would put 42 bytes of
+    ; somebody else's heap onto the network.
+    push cx
+    push di
+    push es
+    mov es, dx
+    xor di, di
+    mov cx, PKT_BUFKB * 1024
+    xor al, al
+.z:
+    mov [es:di], al
+    inc di
+    loop .z
+    pop es
+    pop di
+    pop cx
+.out:
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; dos_pkt_start - publish the interface, if there is a card to publish it over
 ;
 ; **NOT PUBLISHED ON A MACHINE WITH NO NIC**, and that is SPEC.md 96.15.1's
@@ -7649,9 +7751,9 @@ dos_pkt_start:
     mov byte [dos_pkt_busy], 0
     mov byte [dos_pkt_mode], 3      ; what the card is in, and what get_rcv_mode
                                     ; answers until somebody sets it
-    mov bh, DRVC_NET
-    call net_try                    ; is there an ETHER.DRV at all?
-    jc .none
+    cmp word [dos_pkt_bseg], 0      ; dos_pkt_bufs already asked whether there
+    je .none                        ; is a card AND got the buffers for it, so
+                                    ; this is both questions in one compare
     call dos_pkt_install
     cmp byte [dos_pkt_vec], 0
     je .none
@@ -8776,10 +8878,16 @@ dos_fh_fill:
     DBSS DOS_B_PKTSSS,  2           ; the program's stack, banked across a poll
     DBSS DOS_B_PKTSSP,  2
     DBSS DOS_B_PKTSTK,  PKT_STK     ; ...and ours (SPEC.md 96.23.4.1)
-    DBSS DOS_B_PKTRXB,  NET_FRAME    ; one frame each way. NOT shared: a tick
-    DBSS DOS_B_PKTTXB,  NET_FRAME    ; can land between send_pkt's copy and its
-                                    ; RAWTX, and a poll that reused the buffer
-                                    ; would put the received frame on the wire
+    DBSS DOS_B_PKTCDS,  2           ; the CLIENT's DS, captured at the gate
+                                    ; (SPEC.md 96.23.9) - NOT read back out of
+                                    ; the stack frame, which is what the first
+                                    ; version did and got wrong
+    DBSS DOS_B_PKTBSEG, 2           ; **THE FRAME BUFFER IS A HEAP CLAIM**
+                                    ; (SPEC.md 96.23.7) and this is its segment,
+                                    ; 0 = none. They were 3,028 bytes of bss,
+                                    ; which every DOS window paid for on every
+                                    ; machine - including every machine with no
+                                    ; card in it
     DBSS DOS_B_PKTSTAT, 24          ; six dwords, get_statistics' own order
 DOS_BSS_SIZE equ DB
 
@@ -8969,6 +9077,6 @@ dos_pkt_sss   equ os88_image_end + DOS_B_PKTSSS
 dos_pkt_ssp   equ os88_image_end + DOS_B_PKTSSP
 dos_pkt_stk   equ os88_image_end + DOS_B_PKTSTK
 dos_pkt_stk_top equ dos_pkt_stk + PKT_STK
-dos_pkt_rxb   equ os88_image_end + DOS_B_PKTRXB
-dos_pkt_txb   equ os88_image_end + DOS_B_PKTTXB
+dos_pkt_cds   equ os88_image_end + DOS_B_PKTCDS
+dos_pkt_bseg  equ os88_image_end + DOS_B_PKTBSEG
 dos_pkt_stats equ os88_image_end + DOS_B_PKTSTAT

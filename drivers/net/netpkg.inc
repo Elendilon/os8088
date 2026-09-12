@@ -316,7 +316,8 @@ NETV_BULK    equ 14
 NETV_RAW     equ 15
 
 ; NETV_RAWTX - put ONE frame on the wire, exactly as given
-; in  SI = the frame in the CALLER's segment, CX = its length (14..1514: a
+; in  SI = the frame, DX = the segment holding it (0 = the caller's own),
+; CX = its length (14..1514: a
 ; runt is padded by the card layer, and anything longer is refused rather than
 ; truncated). out: CF=0. CF=1 with AX = NETE_* - NETE_NOLINK if no raw claim
 ; is held, which is the error a caller that forgot NETV_RAW gets rather than a
@@ -332,12 +333,21 @@ NET_EHSIZE   equ 14             ; destination, source, ethertype
 NET_FRAME    equ 1514           ; ...and the largest frame without the FCS
 
 ; NETV_RAWRX - take ONE frame off the ring
-; in  DI = a buffer in the CALLER's segment, CX = its capacity
+; in  DI = a buffer, DX = the segment holding it (0 = the caller's own),
+; CX = its capacity
 ; out CF=0 and CX = the frame's length, which may EXCEED the capacity given:
 ;     that many bytes were there and CX-capacity of them were not copied. A
 ;     caller with a 1514-byte buffer never sees it and one with less can tell
 ;     a truncation from a short frame. CF=1 = the ring is empty.
 NETV_RAWRX   equ 17
+
+; **WHY BOTH TAKE A SEGMENT** (SPEC.md 72.22.4). Every other buffer in this
+; ABI is in the caller's own segment, because OSAPI_DRV_CALL is an X stub and
+; the only segment it can put in [eth_useg] is the caller's. That is right for
+; a socket, whose buffers are a few hundred bytes of a package's own bss. A
+; raw consumer moves a 1514-byte frame EACH WAY and would have to carry 3KB of
+; image for ever, on every machine, including the ones with no card - so these
+; two take the segment explicitly and a heap claim can hold the pair.
 
 NETV_MAX     equ 17             ; ...and anything above it is refused. A verb
                                 ; table indexed by an unchecked verb is a wild

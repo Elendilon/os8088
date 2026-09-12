@@ -567,14 +567,18 @@ eth_v_raw:
     ret
 
 ; --- NETV_RAWTX --------------------------------------------------------------
-; in SI = the frame in the caller's segment, CX = its length.
+; in SI = the frame, CX = its length, DX = the segment it is in (0 = the
+;    caller's own).
 eth_v_rawtx:
     push bx
     push cx
     push si
     push di
-    cmp byte [eth_raw], 0
-    je  .noclaim
+    push word [eth_useg]            ; **DX NAMES THE SEGMENT** (SPEC.md
+    call eth_rawseg                 ; 72.22.4): a consumer moving 1.5KB a frame
+    cmp byte [eth_raw], 0           ; should not have to keep the buffer in its
+    je  .noclaim                    ; own image, and OSAPI_DRV_CALL can only
+                                    ; put the CALLER's segment in [eth_useg]
     cmp cx, EH_SIZE             ; shorter than an Ethernet header is not a
     jb  .bad                    ; short frame, it is a wrong one - ne_tx pads
     cmp cx, NE_FRAME            ; to the 60-byte minimum itself
@@ -587,6 +591,7 @@ eth_v_rawtx:
     jc  .gone
     inc word [eth_ntx]          ; the same counter the stack's own frames use:
     inc word [eth_nrawtx]       ; the Control Panel page is about the CARD
+    pop word [eth_useg]
     pop di
     pop si
     pop cx
@@ -606,6 +611,7 @@ eth_v_rawtx:
                                 ; frame it wanted to send would have gone out
                                 ; under a MAC our own stack is still using
 .err:
+    pop word [eth_useg]
     pop di
     pop si
     pop cx
@@ -614,13 +620,16 @@ eth_v_rawtx:
     ret
 
 ; --- NETV_RAWRX --------------------------------------------------------------
-; in DI = a buffer in the caller's segment, CX = its capacity.
+; in DI = a buffer, CX = its capacity, DX = the segment it is in (0 = the
+;    caller's own).
 ; out CF=0 with CX = the frame's TRUE length; CF=1 = nothing there.
 eth_v_rawrx:
     push ax
     push bx
     push si
     push di
+    push word [eth_useg]
+    call eth_rawseg             ; DX, as above
     mov bx, cx                  ; **THE CAPACITY, BANKED BEFORE ne_rx**, which
                                 ; returns the frame's length in the same
                                 ; register the caller passed the capacity in
@@ -640,6 +649,7 @@ eth_v_rawrx:
     mov si, eth_rxb
     call usr_write              ; SI ours, DI theirs, CX bytes
     pop cx
+    pop word [eth_useg]
     pop di
     pop si
     pop bx
@@ -647,9 +657,19 @@ eth_v_rawrx:
     clc
     ret
 .none:
+    pop word [eth_useg]
     pop di
     pop si
     pop bx
     pop ax
     stc
+    ret
+
+; --- eth_rawseg - DX names the buffer's segment, 0 = the caller's own --------
+; The two raw verbs both want it and both have banked [eth_useg] already.
+eth_rawseg:
+    or  dx, dx
+    jz  .keep
+    mov [eth_useg], dx
+.keep:
     ret

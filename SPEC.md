@@ -90670,8 +90670,8 @@ wants frames asks for them, and how often it asks is its own problem to solve.
 | verb | in | out |
 |---|---|---|
 | `NETV_RAW` 15 | `AL` = 1 claim, 0 release; `DI` = a six-byte buffer for the station address, or 0 | CF=0. CF=1 `AX=NETE_BUSY` — somebody else holds it |
-| `NETV_RAWTX` 16 | `SI` = the frame in the caller's segment, `CX` = 14..1514 | CF=0. CF=1 `AX=NETE_ARG` (a length that is not a frame) or `NETE_NOLINK` (no claim, or the card never finished) |
-| `NETV_RAWRX` 17 | `DI` = a buffer in the caller's segment, `CX` = its capacity | CF=0 and `CX` = the frame's **true** length. CF=1 = the ring is empty |
+| `NETV_RAWTX` 16 | `SI` = the frame, `DX` = its segment (0 = the caller's), `CX` = 14..1514 | CF=0. CF=1 `AX=NETE_ARG` (a length that is not a frame) or `NETE_NOLINK` (no claim, or the card never finished) |
+| `NETV_RAWRX` 17 | `DI` = a buffer, `DX` = its segment (0 = the caller's), `CX` = its capacity | CF=0 and `CX` = the frame's **true** length. CF=1 = the ring is empty |
 
 The claim **hands back the station address**, and that is a coupling rather
 than a convenience: a consumer that is the stack now cannot build a single
@@ -90679,6 +90679,23 @@ frame without its own source MAC, so a claim that did not answer it would be
 followed by a second verb every caller had to make. `NETV_ADDR` is not that
 verb — it answers the machine's **IPv4** address, which belongs to our stack
 and is exactly what a raw consumer has stopped using.
+
+#### 72.22.4 Both buffers take a segment, because 3KB of image is the wrong price
+
+Every other buffer in this ABI lives in the **caller's own segment**, and that
+is not a convention — `OSAPI_DRV_CALL` is an X stub and the only segment it
+can put in `[eth_useg]` is the caller's (§77.10 is the bug that taught this).
+
+For a socket that is right: the buffers are a few hundred bytes of a package's
+own bss. A **raw** consumer moves a 1,514-byte frame each way, so the same
+rule would make it carry 3KB of image for ever, on every machine, including
+every machine with no card in it. So `NETV_RAWTX` and `NETV_RAWRX` take the
+segment in `DX`, and a heap claim can hold the pair. `DX = 0` keeps the old
+meaning, so a caller with a small buffer in its own bss writes nothing extra.
+
+The driver's end is four instructions: `[eth_useg]` is banked by the verb,
+overwritten from `DX` when `DX` is non-zero, and restored on every exit —
+`usr_read` and `usr_write` are unchanged.
 
 #### 72.22.1 The claim stops `eth_pump`, and that is the safe end to gate
 
@@ -120521,3 +120538,102 @@ The skip is therefore recorded as a **decision about this wave** rather than a
 property of the class: the day a driver answers `DRVV_HWINFO` for a NIC and a
 DOS program wants raw ports, this is the line that has to be revisited, and
 `AL=2` on the suspend — "and the network too" — is where it would go.
+
+#### 96.23.7 The frame buffer is a heap claim, taken before the arena
+
+A packet driver needs a 1,514-byte receive buffer: the length of an arriving
+frame is not known until it is off the ring, and the client is not asked for
+somewhere to put it until then. (There is no *transmit* buffer — §96.23.8.)
+
+As package bss that is **1,514 bytes zeroed into the heap claim at every
+launch, on every machine** — including every machine with no card in it, where
+nothing can ever read them. So it is an `OSAPI_MEM_CLAIM` of 2KB instead, made
+only when `net_try` finds a `DRVC_NET` driver.
+
+**It is taken before the arena, or it cannot be taken at all.** §96.3 claims
+`OSAPI_MEM_AVAIL`'s whole answer for the program with no arithmetic between
+the two calls, so by the time a client calls `access_type` there is no heap
+left and a claim then would always be refused. Taking it in front of the
+sizing call means `OSAPI_MEM_AVAIL` simply answers 2KB less — the honest
+trade, and one the DOS program can see in its own MCB chain.
+
+That is why the claim cannot be made lazily on the first `access_type`, which
+is where it would otherwise belong: a machine with a card that runs `EDIT.COM`
+still pays the 2KB. The saving is real where it was aimed — a machine with no
+card pays nothing — and the remaining case wants §96.3 to change first.
+
+A refusal is survivable and silent: the program runs, and the interface is
+simply not published, which is §96.23.5's "no card" path reached by a second
+route. `dos_pkt_start` tests `[dos_pkt_bseg]` rather than asking again, so the
+card question and the memory question are one compare.
+
+The claim is freed at `dos_pkt_shut`, which only the **bracket's** exit calls,
+and that split matters: the first version freed it from `release_type` too,
+which is unrecoverable. §96.3 has already given the whole heap to the program,
+so a client that released a handle and then asked for another had its
+`access_type` refused for ever. The buffer belongs to the bracket's lifetime
+and the raw claim to the handles' — `dos_pkt_rawdrop` is the second, and
+`terminate` calls it rather than `shut` for the same reason.
+
+The kernel frees a dead instance's claims anyway, so the free is only about
+handing memory back **mid-session** — which is exactly what a DOS window that
+stays open after a run is.
+
+**And it is zeroed on the way in**, which is not tidiness: a heap claim
+arrives with whatever was last in it, and `ne_tx` pads a short frame without
+touching the length the caller gave — so a send that staged nothing would have
+put bytes of somebody else's heap onto the network.
+
+#### 96.23.8 `send_pkt` copies nothing — the client's buffer goes straight down
+
+`NETV_RAWTX` takes the segment (§72.22.4), so `send_pkt` hands the client's
+own buffer over **where it lies**: `DX` is the `DS` the `int` pushed, `SI` the
+offset it was called with.
+
+The first version staged it into a claim buffer of its own first, and that was
+waste on three counts. The driver copies into `eth_txb` regardless, so ours
+was a **second** copy of up to 1,514 bytes on a 4.77 MHz machine; it cost
+1,514 bytes of claim to hold; and it was the only place this package addressed
+the client's memory itself, which is where a segment bug duly lived — the
+staged frame was read from the package's own image instead of the program's,
+and what went on the wire was 42 bytes of `dos_save_machine`.
+
+That bug is worth recording rather than just fixing, because the *symptom* was
+misleading in a way this tree keeps meeting: every counter said the send had
+worked. `eth_nrawtx` was 1, `CF` was clear, the length was right, and the card
+really did transmit — the only way to see it was `ETHDUMP=`'s pcap, where the
+frame's first twelve bytes were plainly not a broadcast destination and not
+our station address. **A frame that is sent is not a frame that is right**, and
+nothing inside the guest was ever going to say so.
+
+#### 96.23.9 The client's `DS` is banked from the register, not read back out of `[bp]`
+
+The gate's frame (§96.7.1) puts the caller's `DS` at `[bp]`, and three
+functions need it: `access_type` reads the ethertype the client points at,
+`send_pkt` hands the driver the segment the frame is in, and `get_address`
+writes into a buffer.
+
+Reading it as `mov dx, [bp]` **answered our own segment**, and the packet
+driver's first working build was wrong in two places because of it. The read
+is `SS`-relative — that is the hardware's default for a `BP` base, and
+CLAUDE.md states it as a rule — so what it names depends on where `SS` points
+at that instant, and it is not checkable by eye at the call site.
+
+So the gate banks it **from the register**, one instruction after the `int`'s
+own frame is built:
+
+```
+    push ds                         ; the client's, again
+    push cs
+    pop ds                          ; ...ours from here
+    pop word [dos_pkt_cds]          ; ...and the store lands in our bss
+```
+
+**The two symptoms had one cause, and they looked unrelated.** `send_pkt`
+transmitted 42 bytes of this package's image instead of the program's frame —
+visible only in `ETHDUMP=`'s pcap, since every counter said the send worked.
+And `access_type` registered a handle for whatever two bytes sat at the
+client's offset **in our segment**, so the ethertype was never `0806` and no
+arriving ARP reply ever matched a handle: the receive path was correct
+throughout and had nothing to deliver. Chasing them separately cost most of a
+session.

@@ -4815,6 +4815,32 @@ $(BUILD)/DOSIRQ.COM: tests/dosirq/irq.asm | $(BUILD)
 $(BUILD)/dosirq360.img: $(BUILD)/DOSIRQ.COM tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSIRQ.COM
 
+# --- the packet driver's gate disk (SPEC.md 96.23) ---------------------------
+# DOSPKT.COM asks our packet driver the questions a client asks and prints the
+# answers; tests/dospkt.py reads ETHER.DRV's counters rather than that screen,
+# because the box has no windowed text yet.
+#
+# **mTCP IS NOT IN THIS REPOSITORY AND CANNOT BE.** It is Michael Brutman's
+# work under its own licence and it is the CLIENT half - what wave 4 provides
+# is the INTERFACE. So the disk takes it the way the CP/M and Z-machine disks
+# take theirs (`CPMSW=`, `STORIES=`): MTCPDIR=<dir> adds PKTTOOL.EXE and the
+# rest beside our own probe, and without it the disk is still a whole gate.
+MTCPDIR ?=
+MTCPFILES := $(if $(MTCPDIR),$(wildcard $(MTCPDIR)/*.EXE $(MTCPDIR)/*.exe $(MTCPDIR)/*.CFG))
+
+dospkt: $(BUILD)/dospkt360.img
+
+$(BUILD)/DOSPKT.COM: tests/dostrap/dospkt.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/dospkt.asm
+
+$(BUILD)/dospkt360.img: $(BUILD)/DOSPKT.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSPKT.COM \
+		$(MTCPFILES)
+	@echo "dospkt: $@ - the packet driver's gate disk."
+	@$(if $(MTCPFILES),echo "        with $(words $(MTCPFILES)) mTCP file(s)",\
+	  echo "        our probe only; MTCPDIR=<dir> adds mTCP's own programs")
+	@echo "        Run it with: python3 tests/dospkt.py"
+
 # --- OSAPI_FILE_PATH's gate disk (SPEC.md 19.2.4) ----------------------------
 # THREE LEVELS DEEP ON PURPOSE. The slot's whole claim is about what a walk
 # costs per level, so a package in the root - which answers `\` having read
