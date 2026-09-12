@@ -5190,6 +5190,11 @@ dos_click_mem:
     call os88line_click
     jmp short .out
 .away:
+    ; The POINT is still in CX/DX for dos_fld_hit, which tests the two boxes
+    ; beside this block with it - checked rather than assumed, because
+    ; os88ui_chkhit does not carry os88ui_bhit's "all registers preserved":
+    ; it only draws on a HIT, and a hit takes the .out path below and never
+    ; reaches the caller's other boxes at all.
     pop di                          ; **IT REFUSES WHAT IT DID NOT USE** now
     pop si                          ; (SPEC.md 96.32.2): this block shares the
     pop ax                          ; Setup page with two more boxes, so a
@@ -5678,6 +5683,9 @@ dos_oncmd:
     mov bx, si
     or al, al
     jnz .env
+    call dos_defocus                ; ...the caret too, exactly as the BUTTON
+                                    ; does: the menu item is the same action
+                                    ; and owes the same thing
     call dos_go                     ; 'Run', which is the bar's button
     jmp short .out
 .env:
