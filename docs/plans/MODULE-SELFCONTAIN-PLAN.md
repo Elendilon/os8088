@@ -2,9 +2,14 @@
 
 **Status: PROPOSED. Nothing here is built.** The measurement behind it is
 `docs/reports/MODULE-RESIDENT-DATA-2026-09-12.md`, taken at `6c91a3a`, and
-every byte figure in this document comes from it. Re-derive them with
-`python3 tools/os88modcost.py [--small]` rather than quoting this file at a
-tree that has moved on.
+every byte figure in this document comes from it or from
+`tools/os88modcost.py --api` on that same commit. Re-derive them with
+`python3 tools/os88modcost.py [--small] [--api]` rather than quoting this file
+at a tree that has moved on — section 5's list in particular changes whenever
+the public table does, without anybody touching a module.
+
+**The owner has committed to this work.** What follows is ordered and costed,
+not offered.
 
 The ask, in the owner's words:
 
@@ -17,12 +22,21 @@ The ask, in the owner's words:
 inside those (SPEC.md 2.8.6.1's `dskw_fmt_tab`, 56 bytes, and its six Control
 Panel list names) take the realistic figure to **~270 / ~420**.
 
-That is not a disappointment and it is not an argument against the work, but
-it decides the SHAPE of it: this is a plan with a byte budget of its own, and
-a wave that spends 100 resident bytes of mechanism to recover 115 is a wave
-that should not be taken. Section 3's design exists in the form it does
-because it costs **zero resident bytes on three of its four parts**, and that
-is the whole reason the arithmetic works.
+**Say the share honestly, because it will be quoted.** On `kern_small` at
+`6c91a3a` — `KERN_SIZE` 75,776, `.text` 37,445, `.bss` 4,242 — 473 bytes is
+**0.62% of `KERN_SIZE` and 1.13% of `.text` + `.bss`**. It is not ~6% of the
+kernel on any base, and the figure is written here so that nobody has to
+reconstruct it later. **The work is worth doing anyway** and the owner has
+called it: every byte is resident on every machine for ever, `KERN_BUDGET` is
+billed in 512-byte rungs, and 473 is most of one on the machine that has the
+least room.
+
+That decides the SHAPE of it rather than whether to do it: this is a plan
+with a byte budget of its own, and a wave that spends 100 resident bytes of
+mechanism to recover 115 is a wave that should not be taken. Section 3's
+design exists in the form it does because it costs **zero resident bytes on
+three of its four parts**, and that is the whole reason the arithmetic works.
+Section 5 is the same rule applied to a tempting shortcut, and it refuses it.
 
 **Why the number is small is itself the finding.** SPEC.md 2.8.6 already
 opened the door for strings and SPEC.md 2.8.6.1 records the three bodies that
@@ -53,7 +67,51 @@ The three populations, and they want three different answers:
 | read-only `.text` data — tables, strings | 114 | 184 | into the IMAGE; the door is already open (SPEC.md 2.8.6) |
 | `.bss` state — the module's own variables | 55 | 202 | into the CLAIM; **no mechanism exists**, section 3 is it |
 | `.text`/`.cold` bodies only an image calls | 160 | 87 | into the IMAGE; ordinary code motion |
-| far shims — `cw_*`, `dskf_*`, `drvf_*` | 111 | 84 | **stay.** They are what the image calls to get OUT |
+| far shims — `cw_*`, `dskf_*`, `drvf_*` | 111 | 84 | **mostly stay** — see 1.1 and section 5 |
+
+### 1.1 The two doors, and which way each one faces
+
+The phrase "the ABI" hides a fork, and the two halves have different answers.
+
+**A module calling INTO the kernel is a far SHIM.** A module runs from a heap
+claim with a `CS` of its own, so a near call into `KERNEL_SEG` or `COLD_SEG`
+assembles happily and emits a displacement computed between two address
+spaces — the bug `tools/os88ovlchk.py` exists to refuse, and
+`kernel/disk.inc:7245` says so at the point of use. So each kernel routine a
+module wants gets a four-byte landing pad:
+
+```nasm
+dskf_disk_read:   call disk_read_x     ; 3 bytes
+                  retf                 ; 1
+```
+
+and every caller is inside an image — `call COLD_SEG:dskf_disk_read` at
+`diskw.inc:4362` and `:4652` (`.modf`), `clone.inc:707` and `:2109` (`.modl`).
+Two families, split by which segment they land in: **`cw_*` in `.text`**
+(`call KERNEL_SEG:cw_clk_tobcd` from `clockw.inc`, which is `CTRL.DRV`'s image
+on `kern_big`) and **`dskf_` / `drvf_` / `fmf_` / `mmf_` / `memf_` / `hbk_` /
+`*_f` in `.cold`**.
+
+This is why they pass a *named only from a module image* test so cleanly: it
+is their definition. Nothing resident calls one — a resident caller uses the
+near body (`disk_read_x`) directly. They exist solely to be far-called from an
+image, which is also why they cannot move into one. The landing pad is the
+thing the module calls to *leave*; moving it inside is moving the door into
+the room.
+
+**The kernel calling OUT to a module is `mod_fp`,** and it is not a shim at
+all: a `.bss` table of far pointers dispatched as `call far [mod_fp + K]` with
+K an assembly-time constant, armed by `mod_need` and pointed at `mod_gone`
+when the module is out — never at zero, which would be a far call through the
+divide-by-zero vector. It is **112 bytes on `kern_big` and 140 on
+`kern_small`**, plus the resident thunks that dispatch through it (`fcp_arm`,
+`fcp_load`, `cp_open`, …).
+
+`mod_fp` is **not** in the 440/557 above and correctly so: `.text` and `.cold`
+both name it, so it fails the *module only* test. It is recorded here because
+the honest resident bill for the module ABI is the shims **plus** `mod_fp`
+**plus** the thunks — more than the 111/84 the table shows. None of it is
+movable, so the 329/473 does not change.
 
 ## 2. The two facts that make it cheap
 
@@ -185,11 +243,107 @@ seconds per build arm**, so it is a `soak` row and not a `fast` one:
 `fast` is 13.7 s of a 30 s budget and is paid for by everybody
 (docs/WRITING-TESTS.md 2.1).
 
-## 5. The waves, cheapest and least risky first
+## 5. Can a shim be replaced by a now-public call? Six of them, and no more
+
+**The question was the owner's and it is the right one to ask**: this tree has
+been publishing disk and other internals as `OSAPI_*` slots, and a public slot
+is already a far door. If the module could call the public cell, the private
+shim deletes.
+
+**It works mechanically, and exactly.** An `OSAPI_*` slot is a far address
+literal in the SDK — `%define OSAPI_MEM_AVAIL KERNEL_SEG:0x0210` — so
+`call OSAPI_MEM_AVAIL` assembles to the same `call far seg:off` a module
+already emits at `call COLD_SEG:dskf_disk_read`. No new mechanism, no new
+instruction, same cost. And `OSAPI_SLOT` is
+
+```nasm
+push ds
+push cs          ; the cell is in .text, so CS = KERNEL_SEG
+pop ds
+call <near body>
+pop ds
+retf
+```
+
+which for a module — whose DS is *already* `KERNEL_SEG` — is the shim's
+semantics precisely, plus four wasted instructions. The substitution is exact
+rather than nearly so.
+
+### 5.1 …but it only pays where the slot ALREADY exists
+
+**A cell is 8 bytes and a shim is 4**, both asserted in their macro comments
+(`OSAPI_SLOT 1 ; 8 bytes exactly`). The table is **contiguous** — 167 cells
+across 168 positions at `6c91a3a`, one hole — so a new slot goes on the end
+and costs its 8.
+
+> **Publishing a routine in order to delete its shim spends 8 to save 4.** It
+> is a net loss of 4 resident bytes, and it also commits the SDK for ever:
+> a slot number is a promise to every package ever built against it.
+
+So this avenue is worth exactly what is already lying on the ground, and the
+tree was walked to find out. `python3 tools/os88modcost.py --api [--small]`
+resolves every shim and every cell through its thunk chain to the body it
+lands on, and reports where they meet:
+
+| shim | → body | public cell | `kern_big` | `kern_small` |
+|---|---|---|---:|---:|
+| `mmf_mem_avail` | `mem_avail_x` | `0x0210` SLOT | 4 | 4 |
+| `cw_osapi_snd_tone` | `osapi_snd_tone` | `0x00E8` SLOT | 4 | 4 |
+| `cw_wm_saveu` | `wm_saveu` | `0x0378` SLOT | 4 | 4 |
+| `cw_gfx_vline` | `gfx_vline` | `0x0030` SLOT | — | 4 |
+| `cw_wm_create` | `wm_create` | `0x0078` **XCELL** | — | 4 |
+| `cw_wm_destroy` | `wm_destroy` | `0x0398` SLOT | — | 4 |
+| | | | **12** | **24** |
+
+**Six of thirty-five, and the other twenty-nine stay.** `mmf_mem_avail` is the
+clean worked example and shows the shape of the duplication: `memory.inc`
+carries `mmf_mem_avail: call mem_avail_x` for the module *and*
+`mmf_osapi_mem_avail: call osapi_mem_avail_x` for the public path — and
+`osapi_mem_avail_x` is a bare `jmp mem_avail_x`. Two doors, one room.
+
+### 5.2 What the twenty-nine are, and why publishing them is refused
+
+* **The raw sector transfers** — `dskf_disk_read`, `dskf_disk_write` — have
+  **no public equivalent and should not get one.** The published disk surface
+  is file- and volume-level (`OSAPI_FILE_READ`, `OSAPI_FILE_READ_AT`,
+  `OSAPI_VOL_*`); `disk_read_x`/`disk_write_x` are `int 13h` sector moves the
+  formatter and cloner need precisely *because* they work below the file
+  layer. Publishing them hands every package an unvalidated sector writer to
+  save 8 bytes of shim while spending 16 bytes of cell.
+* **The driver internals** — nine `drvf_*`, `kern_big`'s alone, 36 bytes —
+  are `drv_*_x` bodies behind the Control Panel's Drivers page. `kern_small`
+  has **no loadable drivers at all** (`OS88_DRIVERS` is `KERN_BIG`-only), so
+  those labels do not assemble there and the row reads 0 — the same reason
+  `drv_sysname` measures 0 on that build.
+* **The clock's six `cw_clk_*`** are `CTRL.DRV`'s write half (SPEC.md 37.0.1)
+  and are internal by design: the panel writes the chip, nothing else may.
+* The rest (`fmf_*`, `hbk_*`, `cw_menu_*`, `cw_vid_*`, `cw_thm_set`,
+  `cw_inst_fhome_idx`, `cw_wm_pkgcall`) are one-caller helpers with no
+  package-facing meaning at all.
+
+### 5.3 One caution before the wave
+
+`cw_wm_create`'s cell is an **XCELL**, not a SLOT — `push bp / mov bp,
+wm_create / jmp api_x`, and `api_x` stamps ES from the caller's DS. For a
+module that lands ES = `KERNEL_SEG`, and the template a module passes IS
+kernel data, so it is very probably right — but it is the one row here that
+must be **checked at the call site** rather than substituted on the strength
+of the table. The other five are plain SLOTs and are exact.
+
+## 6. The waves, cheapest and least risky first
 
 Each wave ends with `python3 tools/os88modcost.py` re-run and the figure
-quoted, and with `kernsize`'s own line — a wave that moved no `KERN_SIZE`
+quoted (`--api` too, after W0), and with `kernsize`'s own line — a wave that moved no `KERN_SIZE`
 byte still moved `.text` bytes, and those are what the report counts.
+
+**W0 — the six redundant shims. 12 bytes on `kern_big`, 24 on `kern_small`,
+and no mechanism at all.** Section 5's table: point each module call site at
+the public cell it already has and delete the private shim. It is first
+because it needs nothing this plan has not already established, it touches no
+data, and `--api` re-derives the list on any tree. Check `cw_wm_create`'s
+XCELL at the call site (5.3); the other five are plain SLOTs. **Expect the
+byte figure to move**: a cell that becomes redundant later, or a slot added
+for a package's own sake, changes this list without anybody touching a module.
 
 **W1 — `FORMAT.DRV`'s boot-sector template. ~30 bytes, no UI risk.**
 `dskw_fmt_jmp` (11), `dskw_fmt_lab` (11) and `dskw_fmt_typ` (8) are bytes the
@@ -234,7 +388,7 @@ probably a copy in each (SPEC.md 2.8.6's *"A string in an image may be COPIED
 rather than shared"*, in the other currency), and 28 bytes of two *files*
 against 28 of RAM is the trade to state rather than assume.
 
-## 6. What is refused, and why, so it is not re-derived
+## 7. What is refused, and why, so it is not re-derived
 
 1. **The boot overlay.** Two bytes. The measurement's section 3 has the
    arithmetic and the false positive that makes it look like 492.
@@ -246,17 +400,24 @@ against 28 of RAM is the trade to state rather than assume.
    equally be a driver's staged one and `cp_list` draws it through DS."*
    They are the reason tier 2 of the measurement is 62 bytes rather than a
    second prize.
-4. **The far shims, 111 / 84 bytes.** They are the ABI out of the image.
-   Moving one into the image is moving the door inside the room.
-5. **A `mod_tab` size word up front** (section 3.2's fallback). Take it when
+4. **The far shims, 111 / 84 bytes** — except section 5's six. They are the
+   door a module calls to LEAVE its image (1.1), so moving one inside is
+   moving the door into the room.
+5. **Publishing a kernel routine in ORDER to delete its shim.** A cell is 8
+   bytes and a shim is 4, and the table is contiguous, so it spends 8 to save
+   4 and commits the SDK for ever (5.1). Where a slot already exists the
+   substitution is free and W0 takes it; where one does not, the shim is the
+   cheaper of the two doors. This is the one avenue that looks like a
+   shortcut and is not.
+6. **A `mod_tab` size word up front** (section 3.2's fallback). Take it when
    the assertion fires. Spending 8–12 resident bytes to avoid a build error
    that has not happened is the rung-shaped reasoning CLAUDE.md refuses.
-6. **Making the claim purgeable so a module can be shed under pressure.**
+7. **Making the claim purgeable so a module can be shed under pressure.**
    Out of scope here and already designed and refused elsewhere: SPEC.md
    2.8.3 and docs/plans/completed/ONDEMAND-PLAN.md 7.1/7.2 — shed-and-retry
    would free the code that is running, and a pin is what that needs.
 
-## 7. Open questions somebody should settle before W2
+## 8. Open questions somebody should settle before W2
 
 1. **Does anything read a module's `.bss` while the image is out, other than
    the classified "pending" set?** The measurement's instrument cannot answer

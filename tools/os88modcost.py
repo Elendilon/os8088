@@ -227,12 +227,100 @@ def crosscheck(persec, defines):
     return bad
 
 
+# --- the far shims, and whether the PUBLIC table already reaches them --------
+# A module leaves its image through a four-byte far shim (`call <near body>` +
+# `retf`) because its CS is its heap claim: a near call into KERNEL_SEG or
+# COLD_SEG would assemble and emit a displacement between two address spaces,
+# which is the bug tools/os88ovlchk.py exists to refuse.  An `OSAPI_*` cell is
+# the same door built for packages - and `OSAPI_SLOT` is `push ds / push cs /
+# pop ds / call / pop ds / retf`, so calling one with DS already KERNEL_SEG is
+# the shim's semantics exactly, plus four wasted instructions.
+#
+# So a shim whose body the table ALREADY reaches is a duplicate the module can
+# stop using.  One that it does not is NOT worth publishing for this: a cell is
+# **8 bytes** and a shim is **4**, and the table is contiguous (167 cells in 168
+# positions), so a new slot costs 8 to save 4 - and commits the SDK for ever.
+CELL = re.compile(r'\s*OSAPI_(SLOT|JSLOT|XCELL|NCELL)\s+(\w+)\s*;\s*(0x[0-9A-Fa-f]+)')
+SHIMDEF = re.compile(r'^((?:dskf_|dkf_|drvf_|fmf_|mmf_|memf_|cw_|hbk_)\w*|\w*_f):'
+                     r'\s*(?:call\s+(?:\w+:)?(\w+))?')
+
+
+def _sources():
+    d = os.path.join(ROOT, 'kernel')
+    return {f: open(os.path.join(d, f), errors='replace').read().splitlines()
+            for f in sorted(os.listdir(d)) if f.endswith(('.inc', '.asm'))}
+
+
+def api_check(rows):
+    """Which module shims wrap a body an OSAPI_* cell already lands on."""
+    src = _sources()
+    # every one-hop thunk: a label whose whole body is one call/jmp and a ret
+    thunk = {}
+    for L in src.values():
+        for i, line in enumerate(L):
+            m = re.match(r'^(\w+):\s*(.*?)\s*(?:;.*)?$', line)
+            if not m:
+                continue
+            lab, step = m.groups()
+            j = i
+            while not step and j + 1 < len(L):
+                j += 1
+                step = re.sub(r';.*', '', L[j]).strip()
+            m2 = re.match(r'(?:call|jmp)\s+(?:strict\s+near\s+)?(?:\w+:)?(\w+)\s*$', step)
+            if not m2:
+                continue
+            tail = ''
+            for k in range(j + 1, min(j + 4, len(L))):
+                t = re.sub(r';.*', '', L[k]).strip()
+                if t:
+                    tail = t
+                    break
+            if tail in ('ret', 'retf') or step.startswith('jmp'):
+                thunk[lab] = m2.group(1)
+
+    def resolve(lab):
+        seen = set()
+        while lab in thunk and lab not in seen:
+            seen.add(lab)
+            lab = thunk[lab]
+        return lab
+
+    shim = {}
+    for L in src.values():
+        for i, line in enumerate(L):
+            m = SHIMDEF.match(line)
+            if not m:
+                continue
+            lab, tgt = m.groups()
+            if tgt is None and i + 1 < len(L):
+                m2 = re.match(r'\s*call\s+(?:\w+:)?(\w+)', L[i + 1])
+                tgt = m2.group(1) if m2 else None
+            if tgt:
+                shim[lab] = tgt
+
+    cells = {}
+    for line in src['kernel.asm']:
+        m = CELL.match(line)
+        if m:
+            cells.setdefault(resolve(m.group(2)), (m.group(3), m.group(2), m.group(1)))
+
+    out = []
+    for r in rows:
+        if r['kind'] == 'data' or not SHIM.match(r['lab']):
+            continue
+        body = resolve(shim[r['lab']]) if r['lab'] in shim else None
+        out.append((r['sz'], r['lab'], body, cells.get(body)))
+    return sorted(out, key=lambda x: (x[3] is None, -x[0], x[1]))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--small', action='store_true', help='measure kern_small')
     ap.add_argument('--ovl', action='store_true',
                     help='the boot overlay instead of the modules')
     ap.add_argument('--detail', action='store_true', help='every label')
+    ap.add_argument('--api', action='store_true',
+                    help='which far shims the public OSAPI table already reaches')
     ap.add_argument('--json', action='store_true')
     a = ap.parse_args()
 
@@ -287,6 +375,18 @@ def main():
             per[b] += r['sz'] / len(r['by'])
     for b in sorted(per):
         print('  %-8s %6.0f bytes' % (b, per[b]))
+    if a.api:
+        res = api_check(rows)
+        print()
+        print('  far shims against the public table  (a cell is 8 bytes, a shim 4)')
+        print('  %5s  %-22s %-22s %s' % ('bytes', 'shim', '-> body', 'public cell'))
+        dup = 0
+        for sz, lab, body, cell in res:
+            c = '%s %s (%s)' % (cell[0], cell[2], cell[1]) if cell else '-'
+            print('  %5d  %-22s %-22s %s' % (sz, lab, body or '?', c))
+            dup += sz if cell else 0
+        print('  REDUNDANT: %d bytes of shim wrap a body the table already reaches'
+              % dup)
     if a.detail:
         print()
         print('  %6s  %-22s %-6s %-12s %s' % ('bytes', 'label', 'sec', 'named from', 'where'))
