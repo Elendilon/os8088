@@ -1561,6 +1561,27 @@ os88ui_sbdrop:
     ret
 
 ; -----------------------------------------------------------------------------
+; os88ui_sbowed - where a LIVE drag on this bar has got to, WITHOUT spending it
+; in:  BX = the block
+; out: CF = 0 and AX = the hand's pos; CF = 1 = no drag, or a DIFFERENT bar's
+;      (13.10.5.10) and AX is untouched. Every other register preserved.
+;
+; SPEC.md 13.10.5.4.2's second trigger - the caller's W_ONTIMER asks this after
+; IDLE ticks in which the thumb did not move, and commits what it answers.
+;
+; It is os88ui_sbdrop with the SPEND taken out, and that is the whole reason it
+; has to live here: a pause is not the end of the gesture, so the record must
+; survive it, and `os88ui_sbd_pos` is the element's own state.
+; -----------------------------------------------------------------------------
+os88ui_sbowed:
+    call os88ui_sbmine
+    jc .no
+    mov ax, [os88ui_sbd_pos]
+    clc
+.no:
+    ret
+
+; -----------------------------------------------------------------------------
 ; os88ui_sbdragging - is a thumb drag live?
 ; out: CF = 1 = no. Every register preserved.
 ;

@@ -19,7 +19,7 @@ somebody types the knob by hand:
     `BOOTDIAG=`,
     `REDRAWFULL=`, `HEAPCOMPACT=`, `FDDPROBE=`, `SNAPAUDIT=`, `BOOTPROF=`,
     `MOUIDSLOW=`, `TRACKRUN=`, `QUANTUM=`,
-    `SBDRAGOFF=`/`SBRATE=`/`SBRATE286=`,
+    `SBDRAGOFF=`/`SBRATE=`/`SBRATE286=`/`SBIDLE=`,
     `DIRW1=`, `PICOMEM=`, `BOOTMARK=`/`BOOTHALT=`/`BOOTSTOP=`, `NOPS2=`,
     `BAND=`, `TITLESNAP=`, `SPLSTARS=`, `NOUNAL=`,
     `NOFLUSHR=`, `FATWGATE=`, `FDDSLOW=`.
@@ -226,6 +226,10 @@ KNOBS = [
     ("sbdragoff",   ["SBDRAGOFF=1"]),
     ("sbrate",      ["SBRATE=2"]),
     ("sbrate286",   ["SBRATE286=0"]),
+    # ...and 13.10.5.4.2's PAUSE commit off, which is a third TRIGGER and not a
+    # third value: SBIDLE=0 is the only build in which a hand that stops draws
+    # nothing, so it is the only one that keeps that arm assembling.
+    ("sbidle",      ["SBIDLE=0"]),
     # The LOOK/measurement knobs, which nothing else builds at all. Each
     # switches a whole path in or out - and BAND is now the only thing that
     # assembles the COMPOSED title bar at all, because SPEC.md 5.9.6 sent it

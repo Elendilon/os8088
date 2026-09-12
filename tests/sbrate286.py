@@ -25,6 +25,10 @@ not a reading.
   C  the package arm is a DIFFERENT macro - `call OSAPI_CPU_INFO` where the
      kernel has `mov al, [cpu_tier]` - so Note Pad is driven too, and its
      answer is pixels because a package's copy of the element is its own
+  D  SPEC.md 13.10.5.4.2's PAUSE commit, which is a different TRIGGER and not
+     another value of the rate: with the periodic rate poked to 0 the view
+     must not move while the hand does, must arrive once after the hand
+     STOPS, and must still be there a second and a half later
 
 BREAK IT ON PURPOSE (docs/WRITING-TESTS.md 1): `make SBRATE286=0` must fail
 B and C and pass A, and `make SBRATE=2` must fail A.
@@ -81,10 +85,12 @@ def _defnum(path, name, env):
     return int(m.group(1))
 
 
+FM_SBIDLE = _defnum("kernel/files.inc", "FM_SBIDLE", "OS88_DEFINES")
 FM_SBRATE = _defnum("kernel/files.inc", "FM_SBRATE", "OS88_DEFINES")
 FM_SBRATE286 = _defnum("kernel/files.inc", "FM_SBRATE286", "OS88_DEFINES")
 SB_RATE = _defnum("apps/notepad/notepad.asm", "SB_RATE", "OS88_PKGDEFS")
 SB_RATE286 = _defnum("apps/notepad/notepad.asm", "SB_RATE286", "OS88_PKGDEFS")
+SB_IDLE = _defnum("apps/notepad/notepad.asm", "SB_IDLE", "OS88_PKGDEFS")
 FS_SCRL_OFS = int(re.search(r"^FS_SCRL\s+equ\s+(\d+)",
                             open("kernel/files.inc").read(), re.M).group(1))
 
@@ -235,6 +241,43 @@ with os88ui.boot("build/os8088-360.img", apps=DISK, machine=MACHINE) as ui:
     mo._edge(False)
     M.settle(m)
 
+    # --- D: THE PAUSE COMMIT (13.10.5.4.2) --------------------------------
+    # The periodic rate is poked to 0 so that the ONLY thing that can move the
+    # view is the hand stopping - which is what makes this a test of the
+    # trigger and not of the rate.
+    tier(m, CPU_8086)
+    t = thumb(ksb(m))
+    mo.to(cx, t[0] + t[1] // 2)
+    time.sleep(0.3)
+    mo._edge(True)
+    time.sleep(0.4)
+    m.write(m.sym("os88ui_sbd_rate"), bytes([0]))
+    v0 = scrl(m)
+    for _ in range(10):
+        m.mouse(0, 2, l=True)           # DOWN the track: case B left the view
+    moving = scrl(m)                    # at the top, so up has nowhere to go
+    check("the pause commit: nothing is drawn while the hand MOVES",
+          moving == v0, f"(FS_SCRL {moving}, was {v0})")
+    arrived, waited = None, 0
+    for _ in range(70):
+        time.sleep(0.06)
+        waited += 1
+        if scrl(m) != moving:
+            arrived = scrl(m)
+            break
+    if FM_SBIDLE:
+        check("...and it arrives when the hand STOPS", arrived is not None,
+              f"(FS_SCRL {scrl(m)}, was {moving}, FM_SBIDLE {FM_SBIDLE})")
+        settled = scrl(m)
+        time.sleep(1.5)
+        check("...ONCE, and it does not keep going", scrl(m) == settled,
+              f"(FS_SCRL {scrl(m)}, was {settled})")
+    else:
+        check("...and with FM_SBIDLE 0 it does NOT", arrived is None,
+              f"(FS_SCRL {scrl(m)}, was {moving})")
+    mo._edge(False)
+    M.settle(m)
+
     # --- C: THE PACKAGE ARM, which is a different macro -------------------
     # UI_CPUTIER is `mov al, [cpu_tier]` in the kernel and `call
     # OSAPI_CPU_INFO` in a package, so the two halves of 13.10.5.4.1 are not
@@ -306,16 +349,43 @@ with os88ui.boot("build/os8088-360.img", apps=DISK, machine=MACHINE) as ui:
                                             # alone
         mo._edge(True)
         time.sleep(0.8)
-        mo.to(sbx, to, l=True)
-        time.sleep(1.8)
+        # RAW PACKETS AND NOT `mo.to`, AND THAT IS NOT A STYLE CHOICE. The
+        # absolute driver confirms every packet by reading guest memory, which
+        # costs ~680 GUEST ms per packet here - longer than SB_IDLE's 494, so
+        # 13.10.5.4.2's pause commit fires BETWEEN two packets of what the
+        # script means as one continuous drag. Driven that way this case reads
+        # "the TEXT follows" on a build whose rate is 0, which is the pause
+        # commit mis-attributed to the rate. A raw stream is ~17-34 ms a
+        # packet, which is a real hand and is inside the deadline.
+        # ...and the whole stream has to FIT the deadline: a round trip is
+        # ~17 guest ms here, so 11 packets is ~190 of SB_IDLE's 494.
+        step = 8 if to > frm else -8
+        for _ in range(abs(to - frm) // 8):
+            m.mouse(0, step, l=True)
+        # NO SLEEP BEFORE THE READING, for the same reason: a host sleep is
+        # magnified ~5.7x in guest time here, so even `time.sleep(0.20)` is
+        # 1.1 GUEST seconds and lands the pause commit inside a window the
+        # script means as "mid-drag".
         moved = sig(m, mono, textband) != before
-        mo._edge(False)
-        M.settle(m)
-        after = sig(m, mono, textband)
         check(f"Note Pad, tier {t}: the TEXT "
               f"{'follows' if want_follow else 'waits'} mid-drag",
               moved == want_follow,
               f"(text changed mid-drag: {moved})")
+        # ...and now the PAUSE, with the button still down
+        paused = sig(m, mono, textband)
+        arrived = False
+        for _ in range(70):
+            time.sleep(0.06)
+            if sig(m, mono, textband) != paused:
+                arrived = True
+                break
+        check(f"...and tier {t}: the pause commit lands with the button DOWN",
+              arrived == (SB_IDLE > 0) or moved,
+              f"(the band changed after the hand stopped: {arrived}, "
+              f"SB_IDLE {SB_IDLE})")
+        mo._edge(False)
+        M.settle(m)
+        after = sig(m, mono, textband)
         check(f"...and tier {t}'s release committed either way",
               after != before, "(the document did not scroll at all)")
 

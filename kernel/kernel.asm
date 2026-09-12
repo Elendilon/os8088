@@ -6527,6 +6527,18 @@ cw_wm_onmouseup:        call wm_onmouseup
                     retf
 cw_wm_ondrag:           call wm_ondrag
                     retf
+%ifdef OS88UI_SBDRAG
+cw_wm_ontimer:          call wm_ontimer     ; SPEC.md 13.10.5.4.2's PAUSE
+                    retf                    ; commit: the kernel's two bars arm
+cw_wm_timer:            call wm_timer       ; the same one-shot a package does,
+                    retf                    ; through the same two routines.
+                                            ; wm_ontimer is a pure store and a
+                                            ; cold store would do - wm_timer is
+                                            ; NOT (it sets [wm_tarm] and
+                                            ; [ui_post]), so the pair goes
+                                            ; through wrappers together rather
+                                            ; than one of each shape
+%endif                                      ; OS88UI_SBDRAG
 ; ...and HIBER.DRV's seven needs go through cw_mem_disp (`call bp / retf`)
 %endif
 cw_wm_dmg_add:           call wm_dmg_add
@@ -6680,6 +6692,10 @@ fm_onup:              call COLD_SEG:fm_onup_x
                     ret
 fm_ondrag:            call COLD_SEG:fmf_fm_ondrag
                     ret
+%ifdef OS88UI_SBDRAG                    ; 13.10.5.4.2's PAUSE commit, behind
+fm_ontimer:           call COLD_SEG:fmf_fm_ontimer ; SBDRAG and not KERN_BIG:
+                    ret                 ; SBDRAGOFF leaves that one set
+%endif
 %endif
 fm_oncmd:             call COLD_SEG:fm_oncmd_x
                     ret
@@ -6692,7 +6708,11 @@ fdlg_onup:            call COLD_SEG:fdf_fdlg_onup   ; SPEC.md 13.8.3's release
                   ret                               ; and tracking edges - the
 fdlg_ondrag:          call COLD_SEG:fdf_fdlg_ondrag ; window record holds these
                   ret                               ; as NEAR pointers, so the
-%endif                                              ; thunk has to be resident
+%ifdef OS88UI_SBDRAG                                ; the third is 13.10.5.4.2's
+fdlg_ontimer:         call COLD_SEG:fdf_fdlg_ontimer ; PAUSE commit, and it is
+                  ret                               ; behind SBDRAG and not
+%endif                                              ; KERN_BIG: SBDRAGOFF
+%endif                                              ; leaves that one set
 fdlg_onclick:         call COLD_SEG:fdlg_onclick_x
                     ret
 fdlg_onkey:           call COLD_SEG:fdlg_onkey_x

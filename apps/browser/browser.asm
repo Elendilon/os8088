@@ -56,6 +56,15 @@ BR_SBRATE   equ SB_RATE         ; that followed the hand IS input overrun
 %define SB_RATE286 2
 %endif
 BR_SBRATE286 equ SB_RATE286
+; ...AND THE PAUSE COMMIT (13.10.5.4.2): a one-shot timer re-armed on every
+; movement fires only after this many ticks in which the thumb did not move,
+; which reaches the bars the RATE cannot - 13.10.5.4.3 measured a commit here
+; slower than any window the rate can name. No tier pair: half a second is
+; half a second on an 8088 and on a 286 alike.
+%ifndef SB_IDLE
+%define SB_IDLE 9               ; ticks of stillness before the view arrives;
+%endif                          ; 9 = 494 ms. 0 = no pause commit
+BR_SBIDLE   equ SB_IDLE
 %endif
 %include "netpkg.inc"          ; the SOCKET ABI (SPEC.md 62.11) - the
                                 ; same file drivers/net/net.asm
@@ -278,6 +287,11 @@ br_entry:
 %ifdef OS88UI_SBDRAG
     pushf                           ; the entry still owes the loader
     push ax                         ; wm_create's CF (SPEC.md 13.10.7.1)
+    mov ax, br_ontimer          ; 13.10.5.4.2's PAUSE commit - FIRST of
+    call OSAPI_WM_ONTIMER       ; the three, because the `sbb al, al`
+                                ; below captures OSAPI_WM_ONDRAG's OWN
+                                ; CF and a third install after it would
+                                ; answer for the wrong slot
     mov ax, br_onup
     call OSAPI_WM_ONMOUSEUP
     mov ax, br_ondrag
@@ -1280,11 +1294,26 @@ br_ondrag:
     push si
     call os88ui_sbdragging
     jc br_sbd_out
+    mov bx, si                  ; 13.10.5.4.2: EVERY movement pushes the
+    mov ax, BR_SBIDLE           ; one-shot out, which is what makes it an
+    call OSAPI_WM_TIMER         ; IDLE detector and not a cadence. 0 needs no
+                                ; test - the slot takes it as CANCEL
     call br_measure
     call br_sbfill                  ; BX = the block; DX is still the pointer
     call os88ui_sbtrack             ; CF = 1: nothing owed - the rate, or the
     jc br_sbd_out                   ; same line
     jmp short br_sbd_go
+br_ontimer:                     ; the thumb has been STILL for BR_SBIDLE
+    push ax                     ; ticks (SPEC.md 13.9 disarms before this
+    push bx                     ; runs, and this does not re-arm: a pause is
+    push cx                     ; ONE commit however long it lasts)
+    push dx
+    push si
+    call br_measure
+    call br_sbfill
+    call os88ui_sbowed          ; ...and NOT os88ui_sbdrop: a pause is not
+    jc br_sbd_out                 ; the end of the gesture, so the record
+    jmp short br_sbd_go          ; survives it
 br_onup:
     push ax
     push bx
@@ -1293,6 +1322,9 @@ br_onup:
     push si
     call os88ui_sbdragging
     jc br_sbd_out
+    mov bx, si                  ; the pause timer must not outlive the
+    xor ax, ax                  ; gesture it belongs to (13.10.5.4.2)
+    call OSAPI_WM_TIMER
     call br_measure
     call br_sbfill
     call os88ui_sbdrop
