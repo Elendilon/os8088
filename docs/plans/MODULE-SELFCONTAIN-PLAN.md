@@ -18,9 +18,12 @@ The ask, in the owner's words:
 
 ## 0. Read this before costing it: the prize is HUNDREDS of bytes
 
-**329 bytes on `kern_big`, 473 on `kern_small`**, and the documented refusals
-inside those (SPEC.md 2.8.6.1's `dskw_fmt_tab`, 56 bytes, and its six Control
-Panel list names) take the realistic figure to **~270 / ~420**.
+**329 bytes on `kern_big`, 473 on `kern_small`** as the audit reports them —
+**and 5.4 is the correction that matters: the honest figure is roughly a
+third of that**, because a buffer the kernel draws must stay DS-addressable
+whoever owns it. `−165` and `−125` are BANKED (W0, W1, W4); the realistic
+remainder is ~30 and ~135, and two of the three waves left need machinery
+that does not exist yet (5.5).
 
 **Say the share honestly, because it will be quoted.** On `kern_small` at
 `6c91a3a` — `KERN_SIZE` 75,776, `.text` 37,445, `.bss` 4,242 — 473 bytes is
@@ -331,6 +334,57 @@ module that lands ES = `KERNEL_SEG`, and the template a module passes IS
 kernel data, so it is very probably right — but it is the one row here that
 must be **checked at the call site** rather than substituted on the strength
 of the table. The other five are plain SLOTs and are exact.
+
+## 5.4 THE MOVABLE FIGURE IS AN UPPER BOUND, and three waves in it is roughly a third
+
+**Read this before costing anything below.** Building W0, W1 and W4 turned up
+three constraints the audit cannot see, and together they take the honest
+prize well under half of the 329 / 473 that section 0 quotes.
+
+1. **A buffer or string a KERNEL routine reads must stay DS-addressable.**
+   `font_run` takes `DS:SI`. `wm_create` takes a template at `ES:SI` with `ES`
+   = the caller's DS. `OSAPI_WM_TITLE` stores a pointer the window manager
+   dereferences on any repaint. So *named only from the image* does **not**
+   imply *can move into the image*. Verified rather than argued: `cp_dmbuf`
+   (12) is composed per row and handed to `cp_run`, which is
+   `call KERNEL_SEG:cw_font_run`. `clk_fbuf` (5), `fdlg_num` (11) and
+   `fdlg_row` (18) are the same shape; `fdlg_tpl` (16) is a window template;
+   and `cp_sbuf` (28) is the staging buffer that exists *because* SPEC.md
+   2.8.6.1's strings already moved. **That is ~90 bytes of `kern_small`'s 473
+   that were never movable.**
+   Moving such a string is still possible — that is exactly what `cp_stage`
+   is — but it **costs a resident buffer back**, so the figure is a NET one
+   per image. CTRL's own numbers are the precedent: 443 out, 28 back.
+2. **A `%macro` body inside a module section makes its calls look
+   module-only** (6.3). `sched_mode_set` (20), `drv_cfgname` (11) and
+   `drv_sysname` (11) are all read by the boot overlay. **42 bytes more.**
+3. **`.bss` splits into scratch and pending** (3.4), and pending stays: 19
+   bytes of `FILECP.DRV`'s clipboard alone.
+
+**So the realistic remaining prize is ~135 bytes on `kern_small`** — the
+`fcp_*` operation state (~70, needing 3's mechanism *and* 4 below), the
+`fdlg_s_*` strings (~70 gross, ~50 net of a staging buffer), and ~15 of small
+tables — against ~30 on `kern_big`, where FILECP and FDLG are resident code
+and have no image to move into.
+
+### 5.5 …and two of the three remaining waves need machinery that does not exist
+
+`FILECP.DRV` and `FDLG.DRV` are modules on `kern_small` **and resident
+`.cold` on `kern_big`** (SPEC.md 2.8 refuses them as modules there). One
+source, two segments: the same `mov si, fcp_x` must be `[cs:…]` on one build
+and plain on the other. Per-site `%ifdef` is not an option at ~100 sites.
+
+There are two shapes that work and the tree already uses both:
+
+* **a macro per access**, which is what `filecp.inc`'s own `FCPX`/`FCPXJ`
+  already are for calls — registrable with `tools/os88ovlchk.py`'s MODSTAGE
+  so half 2 covers it;
+* **a staging routine**, which is `cp_stage` and `clo_cat` — one `%ifdef`
+  inside ONE routine, and no call site changes at all. This is the better
+  shape for strings and is how `.modc` did it.
+
+Neither is written. **That is the whole of what W2 and W3 are now**, and it
+should be costed as machinery rather than as a byte count.
 
 ## 6. The waves, cheapest and least risky first
 

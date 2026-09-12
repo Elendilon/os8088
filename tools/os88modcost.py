@@ -75,6 +75,21 @@ wasted minutes rather than a kernel that does not boot.  A row whose module
 references ALL come from inside a macro body is marked `?macro` and must be
 checked by hand before anything is moved.
 
+  * A THIRD constraint this cannot see at all, and it is the one that costs
+    the most: **a buffer or string a KERNEL routine reads must stay
+    DS-addressable.** `font_run` takes `DS:SI`; `wm_create` takes a template
+    at `ES:SI` with `ES` = the caller's DS; `OSAPI_WM_TITLE` stores a pointer
+    the window manager dereferences on any repaint. So "named only from the
+    image" does NOT imply "can move into the image", and a good share of the
+    MOVABLE column below is composed-then-drawn scratch that cannot:
+    `cp_dmbuf` is built per row and handed to `cp_run` -> `cw_font_run`,
+    `clk_fbuf` and `fdlg_num` are the same shape, `fdlg_tpl` is a window
+    template, and `cp_sbuf` is the staging buffer that exists BECAUSE
+    SPEC.md 2.8.6.1's strings already moved.  Moving such a string is still
+    possible - that is what `cp_stage` is - but it costs a resident buffer
+    back, so it is a NET figure per image and never the gross one here.
+    MOVABLE is an upper bound. Cost a wave by hand before believing it.
+
 WHAT IT DELIBERATELY EXCLUDES: an `apic_*` label (SPEC.md 2.8, and the comment
 over `osapi_table`).  It names a cell of the PUBLISHED table so that a module
 can far-call the door a package already uses, and that cell is resident for the
