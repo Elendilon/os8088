@@ -860,6 +860,21 @@ dos_save_machine:
     mov cx, 128
     rep movsw
 
+    ; --- THE VECTORS WE DO NOT PROVIDE, HONESTLY NULL (SPEC.md 96.5.1) -----
+    ; Banking the whole table is right for everything the machine really
+    ; answers, and wrong for one thing: a vector os8088 has NEVER installed
+    ; still holds whatever the boot left in it, which is a pointer into the
+    ; HEAP. A DOS program asks "is there a mouse driver?" by reading INT 33h
+    ; and testing it for non-null - so a stale pointer answers YES, and the
+    ; program then CALLS it, into our heap, at whatever that memory happens
+    ; to be. NULL is the truthful answer and the one DOS gives on a machine
+    ; with no driver loaded. The bank above already holds the old value, so
+    ; the restore puts it back untouched.
+    xor ax, ax
+    mov ds, ax
+    mov [0x33*4], ax
+    mov [0x33*4+2], ax
+
     push cs
     pop ds
     in al, 0x21                     ; the 8259 masks: a program that masks IRQs
@@ -1933,8 +1948,20 @@ dos_int21:
 .ioc_get:                           ; different feature, refused by name
     cmp bx, DOS_FH0
     jae .ioc_file
-    mov dx, 0x80D3                  ; 0..4 are the devices DOS opens for every
-    jmp short .ioc_done             ; process: a console, in and out, not EOF
+    ; THE FIVE STANDARD HANDLES ARE NOT ALL THE CONSOLE, and answering as
+    ; though they were is what a real DOS does not do (SPEC.md 96.22.1).
+    ; Measured against IBM DOS 3.30 on the same machine: handle 3 is AUX and
+    ; answers 80C0h, handle 4 is PRN and answers A0C0h - bit 13 is the
+    ; printer's "output until busy" - and only 0, 1 and 2 are the console's
+    ; 80D3h. A C runtime classifies all five at start-up, so telling it the
+    ; printer is a console is a wrong answer it keeps.
+    mov dx, 0x80D3
+    cmp bx, 3
+    jb .ioc_done                    ; 0, 1, 2: the console
+    mov dx, 0x80C0
+    je .ioc_done                    ; 3: AUX
+    mov dx, 0xA0C0                  ; 4: PRN
+    jmp short .ioc_done
 .ioc_file:
     push bx                         ; dos_fh_slot spends BX and SI, and both
     push si                         ; are the program's here

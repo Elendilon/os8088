@@ -118659,6 +118659,32 @@ ends:
 - **PIT channel 0** back to the kernel's mode, and **the 8259 masks** at
   `0x21`/`0xA1` back to what they were.
 
+#### 96.5.1 A vector we have never installed is NULLED, not banked and left
+
+Banking the whole table is right for every vector the machine really answers,
+and wrong for exactly one class: a vector os8088 has **never installed** still
+holds whatever the boot left in it, and on this machine that is a pointer into
+the **heap**.
+
+That matters because of how a DOS program asks a question about the machine.
+It does not call anything to find out whether a mouse driver is loaded — it
+reads `INT 33h` out of the IVT and tests it for **non-null**, which is the
+published way and the only way that works on a machine where the driver may
+not be there. A stale pointer answers *yes*. The program then far-calls it,
+into our heap, at whatever those bytes happen to be — a jump into a window
+buffer, a font, or a package image.
+
+So the bracket **zeroes** `INT 33h` immediately after the bank. The bank
+already holds the old value, so the restore puts the machine back untouched
+and the kernel never sees the null; what the program sees is the answer a real
+DOS gives on a machine with no driver loaded. §96.16's mouse support installs a
+real handler there and overwrites the zero, so the two do not interact: the
+null is what a program reads when there is **no** mouse to report.
+
+The list is one vector today because `INT 33h` is the only never-installed
+vector a program is known to read as a presence test. It is a **list**, not a
+special case, precisely so the next one is an entry rather than an argument.
+
 ### 96.6 Drives, and the hole in the map
 
 A DOS drive letter is an os8088 volume index and the map is the identity:
@@ -119783,11 +119809,39 @@ message names the wrong thing — *"unable to find all necessary files"* — whi
 is exactly what the library told it.
 
 So the answer is given rather than refused: handles 0 to 4 are the devices DOS
-opens for every process and read as a console; anything else is looked up in
-our own handle table and answers **bit 7 clear** with the drive in bits 0-5.
-`AL=01h` (set device information) accepts `DH=0` and does nothing, which is
-what there is to do. The block-device sub-functions stay refused and named:
-they are a different feature, not a missing bit.
+opens for every process, answered from the table in §96.22.1; anything else is
+looked up in our own handle table and answers **bit 7 clear** with the drive in
+bits 0-5. `AL=01h` (set device information) accepts `DH=0` and does nothing,
+which is what there is to do. The block-device sub-functions stay refused and
+named: they are a different feature, not a missing bit.
+
+#### 96.22.1 The five standard handles are not all the console
+
+The first version of the answer above gave all five handles `80D3h`, on the
+reading that they are *"the devices DOS opens for every process"* — true, and
+not the same statement as *they are all the console*. **Measured against IBM
+DOS 3.30 on the same machine**, by a program that asks for each in turn:
+
+| handle | device | DOS 3.30 answers |
+|---|---|---|
+| 0, 1, 2 | `CON` — stdin, stdout, stderr | `80D3h` |
+| 3 | `AUX` | `80C0h` |
+| 4 | `PRN` | `A0C0h` |
+
+The bits that differ are the ones the answer is *for*. `D3h` is the console's:
+bit 0 stdin, bit 1 stdout, bit 4 *special*, bit 6 *not at EOF*. `C0h` is a
+character device with none of those roles, which is what AUX and PRN are to a
+process that has not opened them. And PRN alone sets **bit 13**, *output until
+busy* — the one flag that says a device can refuse to take a byte right now,
+which is a printer and nothing else on the machine.
+
+A C runtime classifies all five at start-up and keeps the answer, so telling it
+the printer is a console is a wrong answer with a long life: a library that
+believes handle 4 is stdout-like will treat a failed write as a short write
+rather than as a busy device. None of this needs the devices to exist — os8088
+has neither an AUX nor a PRN to write to, and §96.22's point stands either way:
+**the answer is a fact about the handle, and a fact is cheaper to give than a
+refusal is to recover from.**
 
 **`AH=43h` — get and set file attributes — is the same shape one step
 earlier.** `AL=00h` is how a program asks *is this file there?* without opening
