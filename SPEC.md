@@ -29183,7 +29183,11 @@ change being proposed is exactly the shape that gets a rework built.
 
 #### 18.95.4 …and fourteen runs is a ceiling, not a choice
 
-`DSK_RAH_RUNS` is **14**, and the number is arithmetic rather than tuning.
+**`DSK_RAH_RUNS` IS 7 NOW AND §18.95.6 IS WHY** — the ceiling this section
+derives is still the ceiling, and the shipped width is a decision below it. Read
+this for the arithmetic that bounds the constant and that one for what picks it.
+
+`DSK_RAH_RUNS` was **14**, and the ceiling is arithmetic rather than tuning.
 `dsk_rah_have` derives a cached sector's address as **one 16-bit offset** from
 `dsk_rah_seg` — `(slot × DSK_RAH_SECS + delta) << 9` — so the whole cache has
 to fit one segment: `RUNS × SECS ≤ 128`, which at a 9-sector chunk is 14 runs
@@ -29253,6 +29257,54 @@ option and it is not free: `mem_claim_dma` can only keep one 64KB page's worth
 of it page-safe, so a fill that straddles would split into two `int 13h` and
 break §18.95's "a fill is exactly one call". Nobody should build it for the
 one call the table above says is left.
+
+#### 18.95.6 …and the ceiling came DOWN to 32KB, measured on a DOS program
+
+The table above is **one workload** — an install, walking a tree and copying
+files — and `DSK_RAH_MIN`'s "four slots is 93% of what the ceiling saves" is
+that same trace read at its own low end. §96.24 produced a second workload of a
+very different shape: a DOS program loading itself off a floppy, which opens a
+few files and reads them in big pieces. The sweep pokes `[dsk_rah_runs]` live
+rather than rebuilding — every slot past the width is simply never scanned, and
+`dsk_rah_flush` clears all `DSK_RAH_RUNS` records, which is what makes any width
+safe (§18.95.5) — so the cache is the only thing moving. Prince of Persia to its
+title screen, 720KB floppy, 4.77MHz 5150, MartyPC's own floppy-controller
+counters read from outside the guest:
+
+| slots | KB | `int 13h` reads | sectors | guest s |
+|---:|---:|---:|---:|---:|
+| 1 | 5 | 136 | 1,064 | 84.4 |
+| 2 | 9 | 120 | 1,004 | 75.5 |
+| 4 | 18 | 109 | 955 | 71.9 |
+| **7** | **32** | **103** | 925 | 68.0 |
+| 14 | 63 | 98 | 903 | 66.3 |
+
+**The curve is flatter here than on the install, and the answer is different at
+both ends.** Against the one-slot floor, 4 slots is **71%** of the saving and 7
+is **87%** — where the install trace read at 4 slots says 93%. So 18KB is *not*
+"nearly all of it" on DOS use, and 32KB is.
+
+`DSK_RAH_RUNS` is **7** now — 32KB — and what the five calls buy is 31KB on
+every machine that had the full cache:
+
+- **The DOS program gets them.** §96.24's heap map is `419.0K` of arena with a
+  63KB cache alive and the read-ahead window sitting under it. The program is
+  what the machine is for while it runs, and 31KB of arena is worth more to it
+  than five `int 13h`.
+- **The free-run bar falls from 126KB to 64KB.** The claim is gated on
+  `mem_avail` reporting *twice* its size (§40.1's terms), and §18.95.4 named the
+  band between the two bars as what the ceiling costs: "a band where the machine
+  is short of memory". Machines in it get a cache now instead of none.
+- **The 64KB-page constraint stops being pathological.** The whole claim is its
+  own DMA head (§18.95), so a 63KB block may only begin in the first 1KB of a
+  physical page — ten legal bases in a 640KB machine. A 32KB one may begin
+  anywhere in the first 32KB of one.
+
+**Nothing about the install regressed to pay for it**: the simulated trace reads
+96 calls at 8 slots against 93 at 14, so the same three calls §18.95.4 bought
+over eight are what this gives back, and it gives back 31KB for them. What
+changed is that the three are now priced against a second workload rather than
+against the one that chose them.
 
 #### 18.95.3 …and `sysbench` states it in `int 13h`, not in seconds
 
@@ -69034,6 +69086,93 @@ The alternative priced against it was a **`KD_DONE` teardown hook** on the kind
 descriptor (§29.3) — architecturally the nicer answer, since a built-in kind is
 an app that ships with the kernel — and it measured **129 bytes** for the same
 job. It is not needed to make the cache purgeable and is a separate decision.
+
+#### 50.6.6 A claimant may name a FLOOR — "compact the disk cache, do not destroy it"
+
+§50.6.4 gave every cache a rank and made the SHED honest: a claimant takes the
+cheapest thing it outranks, and an ordinary claim outranks all four levels. That
+is the right default and it is the only behaviour a package could ask for, which
+turns out to be the defect: **"give me everything" and "give me everything the
+disk cache is not sitting on" are different requests, and only the first could
+be spelled.**
+
+The DOS box (§96) is where it bites. A `.COM` owns every byte after its image,
+so the box asks `OSAPI_MEM_AVAIL` and claims the lot — and the lot includes the
+63KB directory read-ahead window (§18.95), which the claim sheds to make the
+number true. Measured loading *Prince of Persia* off a 720KB floppy on a 4.77MHz
+5150, against IBM DOS 3.30 on the same disk and the same emulator, read by
+MartyPC's own floppy-controller counters from outside the guest:
+
+| | `int 13h` reads | sectors | guest seconds |
+|---|---|---|---|
+| IBM DOS 3.30 | 190 | 548 | 48.5 |
+| os8088, cache shed | 1,379 | 2,143 | 260.2 |
+
+`dsk_rah_seg` reads `2000` at the desktop and `0000` three seconds into the
+program. Every sector the program asks for after that goes to the drive, and so
+does every directory sector behind every one of its opens.
+
+**The fix is a FLOOR, and it is arithmetic on a number that already exists.**
+`mem_rank_bh` is §50.6.4's ladder in one door — the shed and the compactor's
+drop (§66.10) both derive their rank from it — so a claimant's floor is applied
+*there* and both halves honour it by construction:
+
+```
+rank = min(the claimant's own rank, the claimant's floor)
+```
+
+A floor of `MEM_LVL_TOP` is exactly what every caller has always had. A floor of
+`MEM_PG_HIGH` leaves `MEM_P_DIRW` alone: `mem_shed_one` will not take it, and
+`mem_cp_drop` will not dissolve it, so the compaction **packs it out of the way**
+instead — which is the whole of what the user asked for and the reason the
+answer is a floor rather than a smaller cache.
+
+##### 50.6.6.1 Two new slots, because BL on the old one is whatever was left there
+
+`OSAPI_MEM_AVAIL_LVL` (`0x0560`) takes `AL` = the level. `OSAPI_MEM_CLAIM_LVL`
+(`0x0568`) takes `AX` = KB with `BL` = the same level, `BH` = the direction and
+`CX` = the DMA head — **one door for all four** of the claims §50.3/§50.3.2
+publish, because a new slot's registers are free to mean something and four
+cells for four flag combinations is the thing the table has no room for.
+
+They are **new slots and not new registers on the old ones**, and that is not
+caution for its own sake:
+`OSAPI_MEM_CLAIM` promises every register but `DX` back, so a package built
+before this change leaves whatever it likes in `BL`. Reading it would hand every
+one of them a floor nobody asked for, and the consequence is a *smaller grant or
+a refusal* — the direction §50.3 calls the invisible one, reported by the caller
+as "no room" and believed. `osapi_mem_regrow`'s own header records that exact
+failure with a fence in place of a rank.
+
+`OSAPI_MEM_AVAIL_LVL` needed no body at all: `mem_avail_lvl_x` has taken a level
+since §50.6.4 and only the kernel's own caches could reach it. The slot is a
+`jmp`.
+
+Every value of `AL`/`BL` is meaningful, so nothing is validated — `0xFF` is the
+old answer, `0xFE` spares the read-ahead window, and `0` is "how much is free if
+nothing at all is purged", which is the honest question for a program that would
+rather be refused than cost somebody else a redraw.
+
+##### 50.6.6.2 The floor belongs to the TASK that set it
+
+The floor is a global byte, and a global read by `mem_rank_bh` is read from
+inside `mem_claim`'s retry loop — which is **not** a no-switch window and cannot
+be made one, because `mem_compact` deliberately *drops* `[sch_lock]` around the
+worker park (§66.5). So another task claiming in that gap would see a floor it
+never asked for, fail a shed it was entitled to, and report "no room" against a
+heap that had room.
+
+`[mem_pg_ftask]` is stamped with `[sch_cur]` beside the floor and compared
+before it is applied. That makes the race **impossible rather than unlikely**,
+for one byte of data and one compare — and it is the cheap half of the pattern
+`mem_claim_1`'s own header argues for at length, where the expensive half
+(staging a parameter in a register because "a global stored BEFORE the `cli` is
+another task's to overwrite in the gap") is not available: the loop has no free
+byte register, `SI`/`DI`/`BP` have no byte halves on an 8086, and `DX` is the
+answer.
+
+The door clears the floor back to `MEM_LVL_TOP` on every path out, so a second
+claim from the same task is an ordinary one unless it says otherwise.
 
 ### 51.0 NOT ON `kern_small` — the whole mechanism is `kern_big`'s
 
@@ -120239,6 +120378,117 @@ we wrote is worth more than a program that asks it one we cannot read.
 The programs themselves are **not in this repository** and cannot be — they
 are Creative's work and licensed to nobody here. Anything the tree asserts
 about the hardware path is asserted by our own `tests/dosirq/irq.asm`.
+
+### 96.24 The box asks for everything, and everything included the disk cache
+
+The first profile of a real program loading is the one that says where the
+work is, so it was taken against the machine the box is imitating: *Prince of
+Persia* off a 720KB floppy, on a 4.77MHz 5150 with a Hercules and a Sound
+Blaster, under MartyPC, the same disk and the same emulator both times. The
+instrument is MartyPC's own floppy-controller counters read from **outside**
+the guest (`os88marty.Marty.disk`), so IBM DOS 3.30 and this box are measured
+by the identical thing and neither needs a byte of instrumentation. The clock
+is guest cycles, so host load cannot move it. Both runs end on the title
+screen.
+
+| | `int 13h` reads | sectors | guest seconds |
+|---|---|---|---|
+| IBM DOS 3.30 | 190 | 548 | 48.5 |
+| os8088 | **1,379** | **2,143** | **260.2** |
+
+…and with §50.6.6's floor in, plus §18.95.6's 32KB cache, on the same disk and
+the same machine:
+
+| | `int 13h` reads | sectors | guest seconds |
+|---|---|---|---|
+| IBM DOS 3.30 | 190 | 548 | 53.6 |
+| os8088 | **94** | 881 | **56.6** |
+
+**Half DOS's disk calls, and within 6% of its wall time**, from 5.4× behind.
+The two guest-second figures for DOS are two runs of the identical script — the
+counts are exact and the seconds carry about 10% of run-to-run variance, so
+read the calls and treat the seconds as "the same".
+
+The sector count going the other way is the cache doing its job rather than a
+cost: a fill is one `int 13h` for a whole 9-sector revolution (§18.95), and the
+head is already there.
+
+**`dsk_rah_seg` reads `2000` at the desktop and `0000` three seconds into the
+program.** That is the whole of the first finding: the box asks
+`OSAPI_MEM_AVAIL` for the largest run and claims it, which is correct — a
+`.COM` owns every byte after its image and a program that is handed less than
+the machine has is a program that refuses to run — but the claim path makes
+that number true by **shedding §18.95's 63KB directory read-ahead window**.
+Every sector the program reads afterwards goes to the drive, and so does every
+directory sector behind every one of its opens.
+
+The fix is §50.6.6's floor, and the box is its first caller: `DOS_PG_FLOOR` is
+`MEM_PG_HIGH`, named once and passed to both halves — the `OSAPI_MEM_AVAIL_LVL`
+that plans and the `OSAPI_MEM_CLAIM_LVL` that acts. A number planned at one
+level and claimed at another is a plan the claim does not carry out.
+
+**What it costs the program is the difference between the two numbers**, and
+that is the trade this is: a DOS program on a 640KB machine gets ~32KB less
+arena and its disk stops being the slowest thing about it. A user who would
+rather have the RAM than the cache needs a way to say so, and that is a
+separate decision from this one.
+
+#### 96.24.0 …and a MOVABLE cache was the obvious follow-on and is REFUSED
+
+The floor makes the cache something the compaction must pack around rather than
+dissolve, so the next thought is `OSAPI_MEM_MOVABLE` on it — §66.10's own
+argument, and a relocation proc for `[dsk_rah_seg]` is one store. The claim map,
+read from outside while the program runs, says not to bother:
+
+```
+-- at the desktop : heap 530.5K, 3 claims, 453.5K unclaimed
+     20000..2FC00    63.0K  purge:HIGH/02  PINNED   bottom-up  dma-head 4032 para
+     9C800..9E800     8.0K  seg 9E80       movable  top-down   dma-head 512 para
+     9E800..A0000     6.0K  kern:DRV       movable  top-down
+-- with PRINCE.EXE running : heap 530.5K, 5 claims, 26.5K unclaimed
+     1B600..1C200     3.0K  inst 0         movable  bottom-up
+     1C200..1CE00     3.0K  kern:ASC       movable  bottom-up
+     20000..2FC00    63.0K  purge:HIGH/02  PINNED   bottom-up  dma-head 4032 para
+     2FC00..98800   419.0K  seg 9880       PINNED   top-down
+     98800..9C800    16.0K  inst 1         PINNED   top-down
+```
+
+**The arena begins exactly where the cache ends.** The read-ahead window is
+claimed at the A: mount, before anything else exists, so it is at the *bottom*
+of the heap and walls nothing off — the ascending pass packed the two small
+movables underneath it and the DOS arena took all 419KB above. Making it movable
+could close the 12.5KB hole between `1CE00` and `20000` and nothing else, for a
+relocation proc, a declaration, and a `MC_DMA` block the compactor has to place
+inside a 64KB page.
+
+§18.95.6's smaller cache is worth **31KB** on the same measurement and is a
+constant. That is the same argument the tree makes about §5.6.9.3 and about
+every rung: the cheap answer that moves the number wins over the architectural
+one that does not.
+
+#### 96.24.1 Two more findings the same profile produced, which the floor does not fix
+
+The floor is the largest single item and it is not the only one. Both of these
+were measured with `tests/dostrap/diskcost.asm` (docs/DOS-DEBUGGING.md), which
+does a parameterised number of opens and reads and waits for a key, so the
+host brackets it from outside and the fixed cost of launching cancels in the
+difference between two points:
+
+1. **One open costs one `int 13h` per directory ORDINAL.** `dos_fh_stat`
+   enumerates `OSAPI_FILE_FIND`, which is stateless by ordinal (§19.7.1) and
+   re-walks the directory from the front on every call — so entry 0 is one
+   call and `PRINCE.EXE`, at entry 14, is fourteen.
+2. **One 8KB read is 3 calls and 17 sectors**, of which one call and one
+   sector are the DIRECTORY: `OSAPI_FILE_READ_AT` is stateless by NAME
+   (§18.4.4), so it re-stats the file and re-walks its cluster chain from the
+   front every time.
+
+Both are the read-ahead window's customers, which is why they are in this
+section: with the cache alive they are cheap and with it shed they are the
+2,143 sectors above. They are worth removing on their own, and the
+first of them wants a stat-by-name door the file API does not publish:
+`dskw_stat_x` already exists inside the kernel and answers in one directory
+walk what `OSAPI_FILE_FIND` answers in one per ordinal.
 
 ### 51.11 Drivers, out of the way (`OSAPI_DRV_SUSPEND`)
 

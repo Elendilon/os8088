@@ -870,6 +870,20 @@ section .text                   ; DATA, so back to the kernel segment
                                 ; (SPEC.md 2.6 rule 1)
 
 
+; -----------------------------------------------------------------------------
+; The CLAIMANT'S FLOOR (SPEC.md 50.6.6), read by mem_rank_bh and by nothing
+; else. In .text with real initialisers because -f bin zeroes no .bss and
+; these two are read before anything sets them - the default has to be "no
+; floor", which is the behaviour every caller that has never heard of this had.
+; -----------------------------------------------------------------------------
+mem_pg_floor: db MEM_LVL_TOP    ; the level at and above which the task below
+                                ; will not have a cache shed or dropped.
+                                ; MEM_LVL_TOP = no floor, which is the default
+                                ; and is what OSAPI_MEM_CLAIM has always done
+mem_pg_ftask: db 0              ; ...and WHOSE it is (sch_cur). Task 0 with the
+                                ; default floor is a no-op, so this needs no
+                                ; impossible value to start from
+
 mem_pg_own:
     dw MEM_P_WSAVE, wm_su_segs,  MAX_WIN
     dw MEM_P_DIRW,  dsk_rah_seg, 1
@@ -924,16 +938,35 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
 ; SPEC.md 50.6.4's ladder, in ONE door. mem_shed_one and mem_compact both need
 ; it and mem_compact's own comment said so while keeping a second copy:
 ; "putting that rule in one door and not the other is how 50.6.4 gets undone".
+;
+; ...AND THE CALLER'S OWN FLOOR IS APPLIED HERE FOR THE SAME REASON (SPEC.md
+; 50.6.6). A claimant may declare a level it will not shed at or above -
+; "compact the disk cache, do not destroy it" - and that is arithmetic on
+; exactly this number: the rank a claimant scans with is min(its own rank,
+; its floor). Putting it in this door rather than at the two call sites means
+; the SHED and the COMPACTOR'S DROP honour it by construction, which is the
+; whole of what 50.6.4 was written to keep true.
 ; -----------------------------------------------------------------------------
 mem_rank_bh:
     mov al, MEM_LVL_TOP
     cmp bh, MEM_PG_MIN
-    jb .out
+    jb .floor
     cmp bh, MEM_PG_MAX
-    ja .out
+    ja .floor
     mov al, bh
-.out:
-    ret
+.floor:
+    push bx                     ; THE FLOOR IS THE RUNNING TASK'S OR IT IS NOT
+    mov bl, [sch_cur]           ; APPLIED. mem_claim's retry loop is not a
+    cmp bl, [mem_pg_ftask]      ; no-switch window - it cannot be, because
+    jne .keep                   ; mem_compact deliberately DROPS [sch_lock]
+    mov bl, [mem_pg_floor]      ; around a park - so a floor held in a global
+    cmp al, bl                  ; across it is visible to any other task that
+    jbe .keep                   ; claims in the gap, and what that task would
+    mov al, bl                  ; get is a refusal where the heap had room:
+.keep:                          ; the invisible direction (SPEC.md 50.3's own
+    pop bx                      ; rule). Stamping the owner makes the race
+    ret                         ; impossible rather than unlikely, for one
+                                ; byte and one compare
 
 mem_shed_one:
     push ax
@@ -3572,6 +3605,66 @@ osapi_mem_claim_x:
 ; 8237 or a NIC holds the address of is exactly as unmovable as a package's
 ; region, so it belongs at the same end - and out of the arena the compactor
 ; and every data claim share.
+; -----------------------------------------------------------------------------
+; osapi_mem_claim_lvl - ...AND THEN CLAIM IT WITHOUT DESTROYING IT
+; in:  AX = KB, BL = the purge floor, BH = 0 bottom-up / 1 from the top,
+;      CX = the 64KB-page-safe HEAD in KB (0 = none), ES = the caller's
+;      segment (the stub's doing)
+; out: CF = 0 and DX = the base segment, CF = 1 refused
+;
+; ONE DOOR FOR ALL FOUR. The plain, DMA, hi and DMA-hi claims are the same body
+; reached with two flags set, and this slot takes them as arguments rather than
+; earning four table cells of its own - which is what a NEW slot buys: the
+; registers are free to mean something because no package was ever compiled
+; against them. Every combination is legal, so nothing here is validated.
+;
+; SPEC.md 50.6.6. The floor is the LEVEL AT AND ABOVE WHICH NOTHING MAY GO -
+; BL = MEM_PG_HIGH keeps the directory read-ahead window, BL = MEM_LVL_TOP is
+; OSAPI_MEM_CLAIM exactly - and it reaches both halves of the refusal path
+; through mem_rank_bh: the SHED skips anything at or above it, and the
+; compactor's DROP (66.10) does too, so the cache is packed out of the way
+; instead of destroyed. That is the pairing the slot exists for: a claimant
+; that asked OSAPI_MEM_AVAIL_LVL for a number and would rather have that
+; number than the whole heap.
+;
+; A NEW SLOT AND NOT A REGISTER ON THE OLD ONE. OSAPI_MEM_CLAIM takes AX and
+; promises the rest back; a package built before this change leaves whatever
+; it likes in BL, and reading it would hand every one of them a floor nobody
+; asked for. The error direction is the invisible one - a smaller grant, or a
+; refusal, reported by the caller as "no room" - which is osapi_mem_regrow's
+; own defect (see its header) with the fence replaced by a rank.
+; -----------------------------------------------------------------------------
+osapi_mem_claim_lvl_x:
+    push bx
+    push si
+    mov si, bx                  ; THE DIRECTION, banked before mem_own writes
+                                ; the owner over BX. SI and not a byte register
+                                ; because AX is the size, CX is the head and DX
+                                ; is the answer - and mem_claim_dma_x banks SI
+                                ; at its own entry, so it survives the claim
+    push cx
+    mov cl, [sch_cur]           ; the floor is THIS task's (mem_rank_bh), so
+    mov [mem_pg_ftask], cl      ; nothing another task claims in the retry
+    mov [mem_pg_floor], bl      ; loop's switch window can read it (SPEC.md
+    pop cx                      ; 50.6.6.2)
+    call mem_own                ; BX = owner word = the calling segment
+    jc .fail
+    test si, 0xFF00             ; BH: from the top, or from the bottom
+    jnz .hi
+    call mem_claim_dma_x
+    jmp short .out
+.hi:
+    call mem_claim_dma_hi_x
+    jmp short .out
+.fail:
+    xor dx, dx
+    stc
+.out:
+    mov byte [mem_pg_floor], MEM_LVL_TOP   ; ...for THIS call and no other, and
+    pop si                      ; a mov imm to memory touches no flag, and nor
+    pop bx                      ; does a pop, so CF and DX are still the answer
+    ret
+
 osapi_mem_claim_hi_x:
     push cx
     xor cx, cx                  ; no head: no 64KB page constraint
@@ -3664,6 +3757,26 @@ osapi_mem_movable_x:
 ; -----------------------------------------------------------------------------
 osapi_mem_avail_x:
     jmp mem_avail_x
+
+; -----------------------------------------------------------------------------
+; osapi_mem_avail_lvl - HOW MUCH MAY I HAVE WITHOUT DESTROYING WHAT I NAME?
+; in:  AL = a purge level (SPEC.md 50.6.6): caches STRICTLY below it count as
+;      free, the rest do not. MEM_LVL_TOP is OSAPI_MEM_AVAIL exactly
+; out: AX = largest free run KB, BX = total free KB
+;
+; The body is mem_avail's - it has taken a level since 50.6.4 and only the
+; kernel's own caches could reach it. A package sizing itself against the disk
+; cache has the same question the read-ahead window asks at every mount, and
+; asking it was the one thing it could not do: OSAPI_MEM_AVAIL answers "all of
+; it", the claim that follows sheds the cache to make that true, and the
+; program then runs at 7x the disk traffic it needed (SPEC.md 50.6.6).
+;
+; EVERY VALUE OF AL IS MEANINGFUL, so nothing is validated: 0xFF is the old
+; answer, 0xFE spares the directory read-ahead window, and 0 is "how much is
+; free if nothing at all is purged".
+; -----------------------------------------------------------------------------
+osapi_mem_avail_lvl_x:
+    jmp mem_avail_lvl_x
 
 ; -----------------------------------------------------------------------------
 ; osapi_cm_alloc / osapi_cm_free / osapi_cm_caps - main's v3 arena slots
@@ -4091,7 +4204,11 @@ mmf_osapi_claim_snapshot: call osapi_claim_snapshot_x
                       retf
 mmf_osapi_mem_avail:      call osapi_mem_avail_x
                       retf
+mmf_osapi_mem_avail_lvl:  call osapi_mem_avail_lvl_x
+                      retf
 mmf_osapi_mem_claim:      call osapi_mem_claim_x
+                      retf
+mmf_osapi_mem_claim_lvl:  call osapi_mem_claim_lvl_x
                       retf
 mmf_osapi_mem_claim_dma:  call osapi_mem_claim_dma_x
                       retf

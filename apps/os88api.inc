@@ -965,6 +965,41 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
                                  ; for DISPLAYING the heap, and a package that
                                  ; reasons from it subtracts what this figure
                                  ; has already added.
+; ...AND THE PAIR THAT SAYS "BUT NOT THAT" (SPEC.md 50.6.6). The two above are
+; unconditional: they count EVERY cache as free and then, on the claim, shed or
+; drop it to make that true. That is right for a program whose own work is
+; worth more than any cache - and wrong for one that is about to hammer the
+; DISK, because the dearest cache in the system is the directory read-ahead
+; window and losing it multiplies a program's own int 13h traffic (SPEC.md
+; 18.95, 50.6.6).
+;
+; So name a LEVEL and both halves honour it: caches STRICTLY BELOW it are still
+; yours for the taking, and nothing at or above it is shed by the claim or
+; dropped by the compaction that precedes it - it is PACKED OUT OF THE WAY
+; instead. Ask AVAIL_LVL for the number, then CLAIM_LVL for that number with
+; the same level, and the plan you made is the plan that happens.
+;
+;   mov al, MEM_PG_HIGH          ; everything except the disk cache
+;   call OSAPI_MEM_AVAIL_LVL     ; AX = the largest run that leaves it alive
+;   mov bl, MEM_PG_HIGH
+;   call OSAPI_MEM_CLAIM_LVL     ; ...and it is still alive afterwards
+;
+; MEM_LVL_TOP in either is exactly the unconditional slot above, so there is
+; one code path and a constant decides. 0 is "how much without purging
+; ANYTHING", which is the honest number for a program that would rather be
+; refused than cost somebody else a redraw.
+%define OSAPI_MEM_AVAIL_LVL KERNEL_SEG:0x0560   ; AL = the level; out as AVAIL
+%define OSAPI_MEM_CLAIM_LVL KERNEL_SEG:0x0568   ; AX = KB, BL = the level,
+                                 ; BH = 0 bottom-up / 1 from the top (the two
+                                 ; doors above), CX = the page-safe HEAD in KB
+                                 ; or 0; out CF and DX as CLAIM. ONE DOOR FOR
+                                 ; ALL FOUR of the claims above, because a NEW
+                                 ; slot's registers are free to mean something
+                                 ; - no package was ever compiled against them.
+                                 ; **BH AND CX ARE READ**, so set them: the
+                                 ; plain slot ignores both and this one does
+                                 ; not, and a stale CX is a 64KB page
+                                 ; constraint nobody asked for.
 %define OSAPI_WM_CLIP_TEST  KERNEL_SEG:0x0180   ; AX=x1, BX=y1, CX=x2, DX=y2 (inclusive);
                                  ; out CF=0 the whole rect is drawable (also
                                  ; when no clip is armed), CF=1 it is not.

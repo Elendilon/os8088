@@ -69,6 +69,20 @@ DOS_MIN_KB  equ 64                  ; a machine that cannot offer this much has
                                     ; and saying so is cheaper than a program
                                     ; that dies on its first allocation
 
+; THE DISK CACHE IS WORTH MORE TO A DOS PROGRAM THAN THE RAM IT SITS IN
+; (SPEC.md 96.24). A .COM owns every byte after its image, so the honest thing
+; to ask for is "everything" - and everything includes SPEC.md 18.95's
+; directory read-ahead window, which the claim used to shed to make that true.
+; Measured loading Prince of Persia off a 720KB floppy on a 4.77MHz 5150, the
+; cache alive against the cache shed, the program's own int 13h traffic is
+; SEVEN TIMES what IBM DOS 3.30 makes on the same disk. The floor is the whole
+; of the fix (SPEC.md 50.6.6): nothing at or above MEM_PG_HIGH is shed or
+; dropped, so the compaction packs the window out of the way instead.
+;
+; A CONSTANT AND NOT A NUMBER ANYBODY MAY PICK, because the level it names has
+; to be the same in both calls - the AVAIL that plans and the CLAIM that acts.
+DOS_PG_FLOOR equ MEM_PG_HIGH
+
 ; --- the arena's shape, in PARAGRAPHS (SPEC.md 96.3) -------------------------
 DOS_ENVP    equ 32                  ; 512 bytes of environment block. IT WAS
                                     ; 8, which is 128 - and BLASTER= alone is
@@ -319,16 +333,24 @@ dos_run:
     jmp .err
 .there:
 
-    call OSAPI_MEM_AVAIL            ; AX = the largest run a claim can HAVE -
-    cmp ax, DOS_MIN_KB              ; already net of every purgeable cache and
-    jb .nomem                       ; of what a compaction would recover
-                                    ; (SPEC.md 50.6.3, 66.10.3). There is
-                                    ; nothing to compute and nothing to probe
+    mov al, DOS_PG_FLOOR            ; EVERYTHING EXCEPT THE DISK CACHE (SPEC.md
+    call OSAPI_MEM_AVAIL_LVL        ; 50.6.6, 96.24). AX = the largest run a
+                                    ; claim can HAVE - already net of every
+                                    ; purgeable cache BELOW that level and of
+                                    ; what a compaction would recover (SPEC.md
+                                    ; 50.6.3, 66.10.3). There is nothing to
+                                    ; compute and nothing to probe
+    cmp ax, DOS_MIN_KB
+    jb .nomem
     mov [dos_akb], ax               ; BANKED: the claim's answer is DX and the
                                     ; slot promises nothing about AX, so the KB
                                     ; figure has to survive the call somewhere
                                     ; other than in a register
-    call OSAPI_MEM_CLAIM_HI         ; AX = KB -> DX = base segment
+    mov bl, DOS_PG_FLOOR            ; ...and the SAME level on the claim, or the
+    mov bh, 1                       ; number above was a plan the claim does not
+    xor cx, cx                      ; carry out. BH = 1 is OSAPI_MEM_CLAIM_HI's
+                                    ; own door (50.3.2) and CX = 0 no DMA head
+    call OSAPI_MEM_CLAIM_LVL        ; AX = KB -> DX = base segment
     jnc .got
 .nomem:
     mov al, DER_MEM
