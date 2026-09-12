@@ -1,0 +1,356 @@
+# Debugging a DOS program under os8088
+
+A DOS program that misbehaves in the box (SPEC.md §96) is **not debuggable
+from one side**. Our own trace says what we were asked and what we answered,
+and both look right — they looked right through four separate defects in one
+session, every one of which was found only by putting the same program in
+front of a real IBM DOS and diffing.
+
+This is the method and the tools. Read *The method* first; the rest is
+reference.
+
+---
+
+## The method
+
+1. **Log what the program asks us**, with the *call site* of every call.
+2. **Log what it asks a real DOS**, in the same format.
+3. **Align the two on (function, call site)** — never on line number.
+4. Read two things off the alignment: where the code paths **part**, and the
+   first place the same instruction was **answered differently**.
+
+### Why the call site is the whole instrument
+
+Two runs of one program differ in every address — the load segment, the heap,
+the stack — so a line-for-line diff is noise from call 0. What does *not*
+differ is the sequence of instructions that made calls. The ring records
+`CS:IP` off the frame the `int` pushed, and the reader subtracts the PSP, so
+`+0C93:A4DD` means the same instruction on both machines however they were
+loaded.
+
+That turns *"they diverge somewhere"* into *"they diverge at this
+instruction"* — and **three of the four defects were cases where the
+instruction was the same on both sides** and only a computed value differed.
+No amount of reading our own trace would ever have shown those; our trace was
+correct, right up to the call where the two sequences stopped agreeing.
+
+### What each finding looks like
+
+| the alignment says | it means |
+|---|---|
+| runs align, one side has extra calls | the program **branched** — read the last agreed call |
+| same site, same arguments, different answer | **we answered wrong** — this is the common one |
+| same site, same answer, program diverges later | the program read something with **no call in it** — PSP, BDA, IVT, its own memory |
+| nothing aligns at all | different program, or one trace wrapped |
+
+The third row is the one to be ready for. `--state` dumps the PSP, the IVT,
+the BDA and the box's handle table for exactly that case; §96.21.4 is eight
+PSP fields that were zero here and are not zero under DOS, found that way.
+
+---
+
+## The tools
+
+| | |
+|---|---|
+| `tools/os88dosdbg.py` | the driver: trace, reference-trace, align, dump state |
+| `tools/os88fat.py` | edit a floppy image in place; **say what a drive can reach** |
+| `tests/dostrap/trap.asm` | the TSR that logs a real DOS's `INT 21h` traffic |
+| `tests/dostrap/dosref.asm` | one binary that answers the same questions on both |
+| `tests/dostrap/rdsum.asm` | did the program get the bytes the disk holds? |
+| `tests/dostrap/twoopen.asm` | is it the file, or is it the *second handle*? |
+| `apps/dos/dos.asm`, `%ifdef DOSTRACE` | the box's own ring — **not in any shipped build** |
+
+Both Python tools carry `--selfcheck`, which needs no emulator and no network.
+Run them before trusting an answer:
+
+```sh
+python3 tools/os88fat.py    --selfcheck
+python3 tools/os88dosdbg.py --selfcheck
+```
+
+### A session, end to end
+
+```sh
+# 1. is the disk even readable on the machine you are about to use?
+python3 tools/os88fat.py reach GAME.img               # 40-cylinder drive
+python3 tools/os88fat.py reach GAME.img --cylinders 80
+
+# 2. a system disk carrying the traced box (built, then VERIFIED)
+python3 tools/os88dosdbg.py build
+
+# 3. our side
+python3 tools/os88dosdbg.py trace GAME.EXE --disk GAME.img --state \
+        -o build/ours.json
+
+# 4. the reference.  The DOS floppy is YOURS - it is copied, never edited.
+python3 tools/os88dosdbg.py ref GAME.EXE --disk GAME.img \
+        --dos-disk ~/dos330.img -o build/ref.json \
+        --free XCOPY.EXE REPLACE.EXE FORMAT.COM FDISK.COM SYS.COM
+
+# 5. the answer
+python3 tools/os88dosdbg.py diff build/ours.json build/ref.json
+```
+
+Traces are JSON, so they keep: attach one to a bug, diff it against the same
+program after a fix, or read it in Python.
+
+---
+
+## `tools/os88dosdbg.py`
+
+### `syms [NAME...]`
+
+Every constant and bss offset in `apps/dos/dos.asm`, **derived by assembling
+it**, never transcribed. With no names it prints the set the tool itself uses.
+
+This exists because nasm will not print a symbol's value and `-f bin` emits no
+map. The trick is to make the assembler emit the numbers: append a signature
+and a `dw` of each name to a copy of the source, assemble, read the words back.
+Use it whenever you want to poke at the box's state from the host.
+
+### `build [--system TARGET] [-o IMG]`
+
+A system floppy carrying the `DOSTRACE` build of `apps/dos`.
+
+**The order matters and getting it wrong is silent.** `make` rebuilds
+`build/dos.o88` from `apps/dos/dos.asm` whenever the source is newer, so a copy
+made *before* `make` is overwritten by it — and the disk then carries the
+**shipped** package while every symptom points at the guest. That cost a whole
+debugging round: the ring read as empty. So the tool runs `make`, *then*
+copies, *then* extracts the package back off the finished image and compares it
+byte for byte. `build/` is put back to the shipped package either way.
+
+### `trace PROG.EXE --disk IMG [--state] [--until N]`
+
+Boots the traced box under MartyPC, double-clicks the program, and reads the
+ring **out of guest memory** — not off the screen. That matters: inside the
+`fsx` bracket the program owns the adapter, so a program that sets Hercules
+graphics has no text screen to read, and `m.screen()` returns the framebuffer
+decoded as characters, which looks like garbage and is easy to misread as a
+crash.
+
+`--until N` stops once *N* calls are logged, for a program that never exits.
+Without it the trace runs to the program's own exit or the ring's cap.
+
+`--state` writes `<out>.psp.bin`, `.ivt.bin`, `.bda.bin` and `.fhtab.bin`
+beside the trace, and prints the box's open handles. Take the same four under
+DOS (`--state` on `ref` is not implemented; use `cmp` against a known-good run,
+or read the PSP dump directly) whenever the program diverges with no call in
+between.
+
+### `ref PROG.EXE --disk IMG --dos-disk YOURS.img`
+
+The same program under a real DOS, logged by `tests/dostrap/trap.asm`.
+
+- **No DOS is in this repository and none can be.** You supply the floppy.
+- It is **copied, never edited**. `--free NAME...` leaves files out of the
+  copy to make room for the tracer; a DOS system floppy is usually full of
+  utilities the program under test does not use.
+- `--boot-keys` is the number of Enters for the date/time prompts — 2 for IBM
+  DOS 3.30, 0 for a DOS that does not ask.
+- The TSR **arms on the first `AH=4Bh` EXEC**, so the ring is the program's and
+  not `COMMAND.COM`'s prompt, and it **keeps the first N and stops**, because
+  divergence is early and a ring that wrapped would throw away the only part
+  that matters.
+
+### `diff A B`
+
+Prints the aligned runs, then every gap (with what each side did alone), then
+**two findings that mean opposite things**:
+
+- **The first differing ANSWER** — same instruction, same arguments, different
+  reply. *This is the box being wrong.* Go and read the handler.
+- **The first differing QUESTION** — same instruction, different arguments.
+  *The program computed something different*, from state with no call in it:
+  the PSP, the BDA, the vectors, its own memory. Reach for `--state`.
+
+Getting *"no call was answered differently"* is a result, not a blank: it says
+nothing the box **says** is the difference, which is most of the search space
+gone in one line.
+
+Both checks are deliberately narrow, and the narrowness is load-bearing —
+every widening below was tried and reported noise on the first or second call
+of every trace, which buries the real finding:
+
+- `CF` is always comparable. The error code is comparable whenever both failed.
+  `AX` on *success* only for the functions where it is a fact rather than a
+  leftover or an address (`AX_IS_AN_ANSWER`): `AH=4Ah` leaves `AX` undefined
+  and `AH=48h` answers a **segment**.
+- An argument counts only where it is a **value**, not an address
+  (`ARG_VALUES`): `DS:DX` is a filename on `AH=3Dh` and the two stacks sit two
+  bytes apart, so comparing it reports a different question at every open.
+- `AL` counts only where it is an argument (`AL_IS_AN_ARGUMENT`): `AH=19h`
+  reads nothing, so its `AL` is whatever the program last had there.
+- A finding in the first few calls of a run that **follows a gap** is annotated
+  as such. When a loop runs a different number of times on the two sides, which
+  iteration pairs with which is difflib's guess; the tool says so rather than
+  hiding it with a heuristic.
+
+---
+
+## `tools/os88fat.py`
+
+`tools/os88disk.py` *builds* an image and is the right tool for anything this
+project ships. This one **edits an image somebody else built**, which has a
+different constraint: a bootable DOS floppy keeps IBMBIO and IBMDOS exactly
+where SYS put them, and a game disk keeps every file where its installer put
+it. Nothing here rewrites, compacts or re-orders.
+
+```sh
+python3 tools/os88fat.py ls    IMG                  # cluster, LBA, cylinder
+python3 tools/os88fat.py add   IMG FILE [NAME.EXT]
+python3 tools/os88fat.py del   IMG NAME...
+python3 tools/os88fat.py cat   IMG NAME -o OUT
+python3 tools/os88fat.py head  IMG NAME -n 32       # hex, and the first 3 words
+python3 tools/os88fat.py reach IMG [--cylinders N]
+```
+
+### `reach` is the one nobody expects to need
+
+**Every MartyPC 5150 profile in this tree has 40-cylinder drives** — 9 sectors,
+2 heads, 720 sectors — and a 720KB image has 1,440. The first half reads
+perfectly; the second answers an `int 13h` error, which `apps/dos`'s read
+window turns into **end of file** (SPEC.md §96.11.4). So the program is handed
+a file that is *shorter than it is*, and blames the file.
+
+Nine of Prince of Persia's files sit past cylinder 39, and nothing anywhere
+reported it as a configuration problem. It cost most of a day, twice: once
+chasing the game, once chasing a probe that would not load.
+
+`os8088_5150_herc_sb_720_gla` is this tree's 720KB machine. If you need another
+geometry, clone a profile in `tools/martypc/configs/os8088_machines.toml` and
+change the floppy overlay (`pcxt_2_720k_floppies` and friends are defined
+upstream, in `build/martypc/run/configs/machines/config_overlays.toml`), then
+re-run `tools/martypc/build.sh` so the run tree picks it up.
+
+`reach` reports the **last** cylinder a file touches, not the first: a file
+that starts inside the drive and runs off the end truncates in the middle,
+which is harder to spot than one that cannot be opened at all.
+
+---
+
+## The guest-side probes
+
+They are `.COM` programs, so they run under our box *and* under a real DOS,
+unchanged. Assemble one with `nasm -f bin -o NAME.COM tests/dostrap/NAME.asm`
+and put it on the disk with `os88fat.py add`.
+
+Each of them **waits for a key before exiting**. That is not a courtesy: the
+box's `fsx` bracket ends when the program does and the desktop comes straight
+back, so a probe that prints and exits leaves its answers on the screen for a
+few milliseconds.
+
+### `dosref.asm` — one binary, two DOSes
+
+Puts the questions the box has to answer to *a* DOS and prints what it said.
+The same binary runs on both sides, so the two columns diff with nothing to
+interpret. It is how SPEC.md §96.12.1.2's table was measured, and it found four
+wrong answers in one run.
+
+**Add a row whenever you settle an argument about what DOS does.** A rule read
+out of a reference book is an opinion; this is a measurement. Keep the output
+one line per question, `AX/CF=` shaped, so the two columns stay diffable.
+
+### `rdsum.asm` — right bytes, or right behaviour?
+
+*"The program was given the wrong bytes"* and *"the program did the wrong thing
+with the right bytes"* look identical from outside. This reads a named file
+whole and prints its length and a **position-sensitive** checksum (rotate, then
+add), which the host computes off the image with `os88fat.py cat`. A plain sum
+would be blind to exactly the failures worth catching here — a cluster chain
+walked wrongly, a window refilled from the wrong offset, two handles sharing
+one buffer.
+
+### `twoopen.asm` — the file, or the second handle?
+
+The box has **one** read window; a program reading two files at once is
+ordinary. Three cases in one run: X alone, Y alone, both open at once. A and B
+passing with C failing is the window (SPEC.md §96.11.5 is that bug); all three
+failing is the file; B alone failing is usually the disk — go back to `reach`.
+
+---
+
+## Extending them
+
+### Record another register in the ring
+
+Both rings are 16 words an entry, and **three pieces of code must move
+together**:
+
+1. `apps/dos/dos.asm` — `dos_trace` (the way in) and `dos_tr_result` (the way
+   out), and `DOS_TRACE_SZ` if the entry grows.
+2. `tests/dostrap/trap.asm` — the same fields, in the same order, and `ENTSZ`.
+3. `tools/os88dosdbg.py` — `FIELDS`, in that order.
+
+The tool checks the first and third agree **on every use** and refuses rather
+than decoding from inside the wrong entry. Growing the entry beyond 32 bytes
+means keeping it a power of two: both rings mask rather than divide.
+
+`dos_trace_dump` also writes `TRACE.LOG` on the guest's own disk, for a field
+report from a machine with no debugger. Its line is built by hand; widen it too
+or the file quietly loses the new column.
+
+### Make the ring longer
+
+`DOS_TRACEN` in `apps/dos/dos.asm` (a power of two) and `NENT` in
+`trap.asm`. `DOS_TRDUMPN` is separate on purpose: the ring is read live off a
+debugger, `TRACE.LOG` is what the field posts, and 512 entries of dump buffer
+is 36KB of bss taken **out of the program's own arena** — which would change
+the measurement the instrument exists to take.
+
+A wrapped trace is reported as `WRAPPED` and the alignment is unreliable
+against a reference that did not wrap; raise the ring rather than reason around
+it.
+
+### Watch another piece of state
+
+`_dump_state` in `os88dosdbg.py` is four `m.read` calls. Anything the guest can
+see, the host can: `dos_syms` gives you any bss offset by name, and
+`os88geom.windows` finds the box's arena. Dump it as raw binary beside the
+trace so `cmp` says everything.
+
+### Add a probe
+
+Copy `twoopen.asm`: build the name in (a double click passes no arguments),
+print one line per case, and wait for a key. Keep it assembling with
+`nasm -f bin` and nothing else — it has to run under a real DOS too.
+
+---
+
+## Traps, each of which cost real time
+
+- **A 720KB image in a 360KB drive.** Half the disk is unreachable, and the
+  refusal reads as *end of file*. `os88fat.py reach` first, every time.
+- **`make` overwriting the traced package.** `os88dosdbg.py build` orders it
+  correctly and verifies; do not hand-roll the copy.
+- **The image size is not a constant.** Every bss offset is measured from
+  `os88_image_end`, so a `DOSTRACE` build's offsets differ from the shipped
+  one's. The tool reads the package **off the disk it is about to boot**;
+  taking it from `build/dos.o88` gives a plausible number that is wrong by the
+  difference, and the ring reads as empty.
+- **`m.screen()` inside the bracket.** The program owns the adapter. Read the
+  ring from memory.
+- **A ring that wrapped.** 169 calls into a 64-entry ring threw away the first
+  105 — which is where a divergence is, every time.
+- **Comparing registers DOS leaves undefined.** See `AX_IS_AN_ANSWER`.
+- **Believing our own trace.** It was correct four times in a row while the
+  program was failing. The reference is the instrument.
+
+---
+
+## Where the contract lives
+
+SPEC.md §96 is what the box promises; this file is how to find out where it
+does not keep the promise. The sections most often reached from a trace:
+
+| | |
+|---|---|
+| §96.7.1 | the gate banks `SI`, `DI`, `ES` — and what it cost not to |
+| §96.9.1 | the allocator handed out the block it had just freed |
+| §96.11.4 | an `int 13h` failure is **not** end of file — still open |
+| §96.11.5 | the read window cannot outlive its file |
+| §96.12.1.1 | `AH=4Eh`'s mask, and the volume label — still open |
+| §96.12.1.2 | the measured table, and `dosref.asm` |
+| §96.21.4 | the PSP fields a program reads without making a call |
+| §96.22 | the calls a C runtime makes that a *program* never writes |

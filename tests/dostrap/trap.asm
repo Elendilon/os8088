@@ -18,6 +18,11 @@
     org 0x100
     cpu 8086
 
+ENTSZ   equ 32                      ; bytes an entry - the same layout the box's
+                                    ; own ring uses (apps/dos/dos.asm's
+                                    ; DOS_TRACE_SZ), because the whole point of
+                                    ; this program is that one reader decodes
+                                    ; both
 NENT    equ 512                     ; entries, 16KB. IT KEEPS THE FIRST ONES AND
                                     ; STOPS: this exists to find where two runs
                                     ; DIVERGE, and divergence is early - a ring
@@ -128,7 +133,7 @@ new21:
     lea ax, [bp+12]                 ; ...at the SP the `int` was taken on
     mov [cs:si+30], ax
 
-    add word [cs:wr], 32
+    add word [cs:wr], ENTSZ
     inc word [cs:total]
     pop ax
     pop si
@@ -234,7 +239,7 @@ dump:
     call hex4
     call eol
     call flush
-    add bx, 32
+    add bx, ENTSZ
     pop cx
     loop .ent
 .done:
@@ -332,6 +337,18 @@ s_file:   db 'TRACE.LOG', 0
 s_hdr:    db 'os8088 DOS INT 21h trace', 13, 10
           db 'AX BX CX DX>AXout/CF/ES:BX@CS:IP/DS ', 0
 
+; --- THE HOST READS THIS, rather than a nasm listing (docs/DOS-DEBUGGING.md).
+; Every offset below moves whenever a line above it is edited, and a host-side
+; reader that carries its own copy of them decodes a plausible-looking ring out
+; of the wrong addresses - which is not a crash, it is a WRONG ANSWER about
+; what a real DOS did. tools/os88dosdbg.py finds this signature in the
+; assembled .COM and takes the six words that follow.
+;
+; `org 0x100` means a label's value is already the in-memory offset, so these
+; need no bias; the signature's own FILE offset is where the search lands.
+          db 'DOSTRAP1'
+          dw ring, total, wr, here, NENT, ENTSZ
+
 armed:    db 0                      ; 0 until the EXEC that loads the subject
 old21:    dd 0
 here:     dw 0
@@ -340,5 +357,5 @@ total:    dw 0
 fh:       dw 0
 line:     times 128 db 0             ; ...a whole line: the header plus its
                                     ; two numbers is 60, and an entry 41
-ring:     times NENT * 32 db 0
+ring:     times NENT * ENTSZ db 0
 resident_end:

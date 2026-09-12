@@ -120040,7 +120040,15 @@ reasoning was sound as far as it went (reporting a version whose functions we
 lack is worse than reporting a lower one) and then picked a number half a
 release above the machine this box is calibrated against. 3.31 is a real
 version, Compaq's, and its distinguishing feature is large-partition support
-this box does not have.
+this box does not have. It answers **`1E03`**, with `BX` and `CX` zero, which
+is what IBM DOS 3.30 answers to the byte.
+
+The reason to bother is not the version: it is that
+`tools/os88dosdbg.py diff` reports **the first answer two machines disagree
+on**, and a permanent disagreement on call 2 is the first finding of every
+trace anybody takes from here on, burying the one they were looking for. An
+instrument whose loudest output is a known difference is an instrument people
+learn to skim.
 
 #### 96.21.8 `AH=36h` is refused, and its refusal is the §96.22 defect again
 

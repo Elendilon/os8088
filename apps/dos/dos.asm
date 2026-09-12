@@ -90,6 +90,14 @@ DOS_IMGP    equ DOS_PSPP+16         ; para 26    : the image, at PSP:0100
 ; the text, then an 0Dh, all inside 128 bytes. A field that let a 128th
 ; character in would be one the user could type into and not have obeyed.
 DOS_TRACEN  equ 512                 ; DOSTRACE ring entries (power of two).
+DOS_TRACE_SZ equ 32                 ; ...bytes an entry, NAMED so that the host
+                                    ; side derives it rather than transcribing
+                                    ; it (docs/DOS-DEBUGGING.md): every reader
+                                    ; of this ring lives outside the guest, and
+                                    ; a layout known in two places is one that
+                                    ; decodes plausible nonsense the day it
+                                    ; moves. It has moved twice already, 12 to
+                                    ; 16 to 32
 DOS_TRDUMPN equ 256                 ; ...and how many of them TRACE.LOG holds,
                                     ; which is separate because the RING is
                                     ; read live off a debugger and the FILE is
@@ -2085,12 +2093,17 @@ dos_int21:
     jmp .ok
 
 .ver:
-    mov ax, 0x1F03                  ; AL = 3, AH = 31: DOS 3.31. The version is
-    mov bx, 0                       ; a SETTING and not a constant the day a
-    mov cx, 0                       ; program wants 5.00 - reporting a version
-    jmp .ok                   ; whose functions we lack is worse than
-                                    ; reporting a lower one, because a program
-                                    ; branches on it (DOS-EXEC-PLAN 12 q1)
+    mov ax, 0x1E03                  ; AL = 3, AH = 30: DOS 3.30 (SPEC.md
+    mov bx, 0                       ; 96.21.7). The version is a SETTING and
+    mov cx, 0                       ; not a constant the day a program wants
+    jmp .ok                         ; 5.00 - reporting a version whose
+                                    ; functions we lack is worse than reporting
+                                    ; a lower one, because a program branches
+                                    ; on it (DOS-EXEC-PLAN 12 q1) - and 3.31
+                                    ; was half a release above the machine this
+                                    ; box is measured against, for no feature
+                                    ; it has. BX and CX are the OEM and serial,
+                                    ; and 0/0 is what IBM DOS 3.30 answers too
 
 .ioctl:
     ; AH=44h - IOCTL, and only the two sub-functions a C runtime asks
@@ -2446,7 +2459,7 @@ dos_trace_dump:
     jbe .fits
     mov cx, DOS_TRDUMPN
 .fits:
-    and bx, (DOS_TRACEN * 32) - 32
+    and bx, (DOS_TRACEN * DOS_TRACE_SZ) - DOS_TRACE_SZ
     or cx, cx
     jz .write
     xor dx, dx                      ; DX = entries on this line
@@ -2497,8 +2510,8 @@ dos_trace_dump:
     inc di
     mov byte [di], 10
     inc di
-    add bx, 32
-    and bx, (DOS_TRACEN * 32) - 32
+    add bx, DOS_TRACE_SZ
+    and bx, (DOS_TRACEN * DOS_TRACE_SZ) - DOS_TRACE_SZ
     dec cx                          ; ...and NOT `loop`: the body outgrew its
     jz .write                       ; own short displacement when the entry
     jmp .ent                        ; learned to say who called
@@ -2565,7 +2578,7 @@ dos_trace:
     push bx
     push si
     mov si, [dos_tracew]
-    and si, (DOS_TRACEN * 32) - 32  ; the ring's byte index, entry-aligned - a
+    and si, (DOS_TRACEN * DOS_TRACE_SZ) - DOS_TRACE_SZ  ; the ring's byte index, entry-aligned - a
     add si, dos_traceb              ; power-of-two stride so this is an AND
     mov [dos_tracei], si            ; where any other size needs a divide
     mov [si], ax                    ; AX carries the function AND its
@@ -2602,7 +2615,7 @@ dos_trace:
     lea ax, [bp+10]                 ; ...at the SP the `int` was taken on
     mov [si+30], ax
 
-    add word [dos_tracew], 32
+    add word [dos_tracew], DOS_TRACE_SZ
     inc word [dos_tracen]           ; ...and the TOTAL, which does not wrap
     pop si
     pop bx
@@ -5410,7 +5423,7 @@ dos_mcb_resize:
 %ifdef DOSTRACE                 ; ...and NOTHING when it is off: the ring is
     DBSS DOS_B_TRACEN, 2        ; 514 bytes, and an instrument that costs the
     DBSS DOS_B_TRACEW, 2        ; shipped build anything is one that gets
-    DBSS DOS_B_TRACEB, DOS_TRACEN * 32  ; deleted rather than kept
+    DBSS DOS_B_TRACEB, DOS_TRACEN * DOS_TRACE_SZ  ; deleted rather than kept
     DBSS DOS_B_TRACEI, 2                ; the entry a result belongs to, 0 =
                                         ; the call was filtered out
     DBSS DOS_B_TRNM,   DOS_TRNM_N * 13      ; the NAMES the program passed

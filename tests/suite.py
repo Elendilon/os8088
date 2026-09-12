@@ -2479,6 +2479,36 @@ SOAK = [
         "the handler ships on.",
         needs=("marty",), serial=True,
         wants=("build/dosfile360.img",)),
+    Row("dosdbg", "soak", py("tools/os88dosdbg.py", "--selfcheck"), 0.3,
+        "THE DOS DEBUGGING TOOLKIT'S OWN SELF-CHECK (docs/DOS-DEBUGGING.md). "
+        "It is here rather than in `fast` because it is about one subject "
+        "nobody else touches, and because the tool ALSO checks itself on every "
+        "real use - the thing that must never go wrong quietly is the ring "
+        "layout, and `trace` and `ref` both refuse rather than decode from "
+        "inside the wrong entry. WHAT IT COVERS is the half that has no "
+        "emulator in it: apps/dos's constants assemble out and the ring is a "
+        "power of two (its mask depends on that), tests/dostrap/trap.asm "
+        "publishes its own layout and AGREES with the box on the entry size - "
+        "one reader decodes both rings, so a field added to one and not the "
+        "other reads as a plausible trace of a program that never ran - the "
+        "ring decodes oldest-first WRAPPED and not, and the alignment survives "
+        "a different load address and an inserted pair of calls, which is the "
+        "whole instrument: two runs of one program share no address and every "
+        "call site.",
+        needs=("nasm",)),
+    Row("dosfat", "soak", py("tools/os88fat.py", "--selfcheck"), 0.1,
+        "FAT12 SURGERY ON SOMEBODY ELSE'S DISK (tools/os88fat.py). It builds "
+        "its own image, so there is no fixture and no emulator. Two of the "
+        "four checks are the ones that are silent when wrong: that BOTH FATs "
+        "are written - a one-sided edit passes every reader in this tree and "
+        "fails chkdsk on the machine the disk is for - and that adding a file "
+        "leaves every other file's bytes exactly where they were, which is the "
+        "whole reason this exists beside os88disk.py rather than inside it: a "
+        "bootable DOS floppy keeps IBMBIO and IBMDOS where SYS put them. The "
+        "`reach` check is the geometry one, and it counts the LAST cylinder a "
+        "file touches, because a file that starts inside a 40-cylinder drive "
+        "and runs off the end truncates in the MIDDLE.",
+        needs=()),
     Row("dosdir", "soak", py("tests/dosdir.py"), 35.0,
         "THE DOS DIRECTORY, FIND, VECTOR AND CLOCK GATE (SPEC.md 96.12, "
         "96.13). The clock half asserts that the DOS box and the MENU BAR "
