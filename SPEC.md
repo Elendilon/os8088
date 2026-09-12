@@ -120484,11 +120484,112 @@ difference between two points:
    front every time.
 
 Both are the read-ahead window's customers, which is why they are in this
-section: with the cache alive they are cheap and with it shed they are the
-2,143 sectors above. They are worth removing on their own, and the
-first of them wants a stat-by-name door the file API does not publish:
+section: with the cache shed they are the 2,143 sectors above.
+
+##### 96.24.1.1 …and with the cache ALIVE both cost nothing, so the door they wanted is refused
+
+A stat-by-name slot was the obvious answer to the first of them —
 `dskw_stat_x` already exists inside the kernel and answers in one directory
-walk what `OSAPI_FILE_FIND` answers in one per ordinal.
+walk what `OSAPI_FILE_FIND` answers in one per ordinal. The same probe re-run
+against the same disk with §50.6.6's floor in says not to build it:
+
+| | `int 13h` calls | sectors |
+|---|---|---|
+| one open + close | **0.00** | −0.67 |
+| one 8KB read | **2.00** | 16.33 |
+
+Sixteen of those sectors are the 8KB itself and the two calls are the two
+revolutions that cover it (§18.95). **The directory walk behind an open, and
+the re-stat and chain walk behind a read, cost zero calls** — every sector they
+touch is in the cache. What is left is CPU: a `rep movsw` out of the cache and
+a sixteen-entry scan per ordinal, which is real and is not what a floppy-bound
+program is waiting for.
+
+So the door is not worth an ABI slot today. The finding is kept because it will
+come back the moment something makes the cache miss — a program walking a large
+directory, or a machine that never gets a cache — and because the shape is worth
+recognising: **the fix one layer down took the value out of the fix one layer
+up**, which is why it is measured again after rather than built in parallel.
+
+### 96.25 A third page, because the trade is the user's to make
+
+§96.24 gives a DOS program the whole machine except §18.95's disk cache, and
+that is the right default — it is the choice that makes the *disk* fast, which
+is what a floppy-bound program is waiting for. It is not the right answer for
+everything. Some programs want RAM and do very little I/O; some want far less
+than the "all" the box hands them and would rather leave the machine to
+whatever else is open.
+
+So the settings are the user's, on a **Memory** page beside Arguments and
+Environment, and they behave exactly as those two do: edit them, **Save
+Shortcut**, and the next launch from that `.LNK` uses them. A plain double
+click on the program gets the default. There is no new lifecycle — the box
+runs the program on the wake after launch and always has (§96.2), so a setting
+that is not in the shortcut is a setting for next time, which is what
+Arguments has meant since it was written.
+
+```
+Memory for the program:
+
+  Keeping the disk cache:    419 K
+  Taking it as well:         482 K
+
+  Limit: [       ] K
+  [x] Keep the disk cache
+
+                                   [ Memory ]
+```
+
+**The two figures are the choice, so they are on the glass.** Both come from
+`OSAPI_MEM_AVAIL_LVL` and `OSAPI_MEM_AVAIL` — the same two questions `dos_run`
+asks — so the page shows what the program *will* get rather than an estimate
+of it, and the numbers move with whatever else the machine has open.
+
+**The limit is one field and empty means all**, which is what saves it needing
+a second control: a user who wants the machine's own answer clears the box.
+It is read on the way *out* of the page rather than on Enter — a field that
+only commits on a keystroke the user did not know to press loses what was
+typed, silently.
+
+**The page button cycles now** rather than toggling, and its label names where
+it goes rather than where you are: main → `Environment` → `Memory` → `Done`.
+A button labelled with the current page is one you have to press to find out
+what it does.
+
+#### 96.25.1 What `dos_run` does with them
+
+```
+    floor = keep the cache ? MEM_PG_HIGH : MEM_LVL_TOP
+    kb    = OSAPI_MEM_AVAIL_LVL(floor)
+    if limit: kb = min(kb, limit)
+    OSAPI_MEM_CLAIM_LVL(kb, floor, from the top)
+```
+
+The floor is the same in both calls, which is the one thing that must not
+drift: a number planned at one level and claimed at another is a plan the
+claim does not carry out (§50.6.6). `DOS_MIN_KB` still refuses below 64KB —
+a limit under it is a machine with nothing worth running a DOS program in, and
+saying so is cheaper than a program that dies on its first allocation.
+
+#### 96.25.2 …and a SECOND `ExtraData` block, not two more fields on the first
+
+§96.21's block is the environment: a set of NUL-terminated rows ending in a
+bare NUL. Anything appended to it sits at an offset that depends on how many
+rows the user filled in, which is a parser that has to *count* to find a field.
+
+`ExtraData` is a sequence of `{size, signature, data}` blocks whose consumers
+are specified to **skip signatures they do not recognise**, so a second block
+is what the mechanism is for. It is a fixed twelve bytes — size, signature, the
+cap as a word, the choice as a byte, one of padding — and its fields are at
+fixed offsets inside it. `dos_lnk_ext`'s walk gained one compare and now keeps
+walking after the environment block instead of stopping at it, so **a link
+written by an older build still reads**: it simply has not got a second block,
+and the defaults stand.
+
+**Both fields are treated as hostile.** The cap needs no clamp — `dos_run`
+takes the smaller of it and what the machine offers, so `0xFFFF` means "all" —
+but the choice byte is forced to 0 or 1, because a `0x7F` would draw a check
+box with a mark in it that no click could ever clear.
 
 ### 51.11 Drivers, out of the way (`OSAPI_DRV_SUSPEND`)
 
