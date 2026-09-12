@@ -121444,6 +121444,48 @@ detected here by the count going **backwards**, which needs nobody's flag.
 with no clock chip. The RTC is asked **once**, at bracket entry, and `AH=2Bh`
 writes into the same copy.
 
+#### 96.6.3 A sentinel that means "nowhere" cannot be zero, because zero is A:
+
+Prince of Persia stopped running at §96.6.2 and the bisect is unambiguous —
+six points, every one a clean pass or fail, on a disk with the game at the
+volume root. §96.6.2 gave the box a **bracket**: `dos_fh_enter` switches to
+the drive a name names and banks where it came from in `[dos_fhome]`, and
+`dos_fh_leave` puts it back. `0xFF` means *we never left*.
+
+**`[dos_fhome]` is `.bss`, and `.bss` starts ZERO — which is drive A:.**
+`dos_fh_enter` was the only thing that ever wrote it, so until the first name
+carrying a drive letter, every `dos_fh_leave` read 0 and dutifully "restored"
+the program to A:. One byte, never initialised.
+
+What it costs is not a refusal. The program keeps running on the wrong drive
+and the damage surfaces later, in a shape that points anywhere but here:
+
+```
+os8088 221 AH=19 getdrv -> 1900      A:
+dos    227 AH=19 getdrv -> 1901      B:
+os8088 223 AH=3D open   -> 0002 CF   file not found
+dos    229 AH=3D open   -> 0005 ok
+```
+
+The game asks which drive it is on, is told **A:**, builds its next filename
+from that letter, and finds nothing — so it prints *"Please insert Prince of
+Persia Disk 1 into Drive A:"*, naming a drive the user never chose. **That
+prompt is the bug's only visible symptom and it names the wrong subject
+entirely.**
+
+**The same mistake is in `AH=47h`, and it is the reason to state this as a
+rule rather than fix one byte.** `[dos_cwdrv]` remembers the drive a `getcwd`
+visited so `dos_cw_back` can return, and it used 0 for *never left* — so
+asking about **A:** from any other drive set it to 0 and the walk back was
+skipped. Both now use `0xFF`, which is what `[dos_fdrv]` has always used for
+*no letter*.
+
+**The rule: in this box a drive number is 0-based, so any word meaning "no
+drive" is `0xFF` and must be INITIALISED, not left to `.bss`.** A zeroed
+sentinel is not merely wrong, it is wrong in the one direction that looks
+plausible — it names the first drive, which exists on every machine, so
+nothing refuses and the failure travels.
+
 #### 96.12.3 A name may carry a PATH, and refusing one broke every program that asks where it is
 
 `dos_fh_core` used to refuse a separator anywhere past a leading one with code
