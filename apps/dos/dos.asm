@@ -90,6 +90,9 @@ DOS_IMGP    equ DOS_PSPP+16         ; para 26    : the image, at PSP:0100
 ; the text, then an 0Dh, all inside 128 bytes. A field that let a 128th
 ; character in would be one the user could type into and not have obeyed.
 DOS_TRACEN  equ 256                 ; DOSTRACE ring entries (power of two)
+DOS_TRNM_N  equ 12                  ; ...and names it keeps. Plenty: the
+                                    ; failure under investigation makes
+                                    ; exactly ONE open in a whole session
 DOS_ARGSZ   equ 128
 DOS_ARGMAX  equ 127                 ; ...what LN_MAX gets: 126 characters + NUL
 DOS_PBUF    equ 80                  ; the program's own path for the environment
@@ -2099,6 +2102,41 @@ dos_terminate:
 ; AH and AL both, because the sub-function is the interesting half of 44h,
 ; 43h, 42h and 4Eh alike. DOS_TRACEN entries, wrapping, with the TOTAL kept
 ; separately so a reader can tell a wrapped ring from a short one.
+; --- dos_tr_name_in - bank [dos_fname], up to DOS_TRNM_N of them -----------
+; Every name the program hands the file API, in order. DS is ours here (the
+; caller has just restored it) and every register must survive.
+dos_tr_name_in:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    push es
+    mov al, [dos_trnmi]
+    cmp al, DOS_TRNM_N
+    jae .out                        ; keep the FIRST ones: the interesting
+    inc byte [dos_trnmi]            ; open is early and the tail is noise
+    mov bl, al
+    xor bh, bh
+    mov ax, 13
+    mul bx
+    mov di, ax
+    add di, dos_trnm
+    push ds
+    pop es
+    mov si, dos_fname
+    mov cx, 13
+    cld
+    rep movsb
+.out:
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 dos_tr_name: db 'TRACE.LOG', 0
 dos_tr_hdr:  db 'os8088 DOS INT 21h trace', 13, 10
              db 'AH/AL, oldest first. TOTAL/WRAP ', 0
@@ -2214,6 +2252,35 @@ dos_trace_dump:
     inc di
     mov byte [di], 10
     inc di
+    ; --- and the NAMES, one per line ------------------------------------
+    mov si, dos_trnm
+    mov cl, [dos_trnmi]
+    xor ch, ch
+    or cx, cx
+    jz .nonames
+.nm:
+    push cx
+    mov cx, 13
+.nmc:
+    lodsb
+    or al, al
+    jz .nmpad
+    mov [di], al
+    inc di
+    loop .nmc
+    jmp short .nmeol
+.nmpad:
+    dec cx                          ; step over the rest of the fixed field
+    jz .nmeol
+    add si, cx
+.nmeol:
+    mov byte [di], 13
+    inc di
+    mov byte [di], 10
+    inc di
+    pop cx
+    loop .nm
+.nonames:
     mov cx, di
     sub cx, dos_trdump              ; CX = how much of it there is
     push ds
@@ -5007,7 +5074,9 @@ dos_mcb_resize:
     DBSS DOS_B_TRACEN, 2        ; 514 bytes, and an instrument that costs the
     DBSS DOS_B_TRACEW, 2        ; shipped build anything is one that gets
     DBSS DOS_B_TRACEB, DOS_TRACEN * 2   ; deleted rather than kept
-    DBSS DOS_B_TRDUMP, DOS_TRACEN * 6 + 96   ; ...and the TEXT of it
+    DBSS DOS_B_TRNM,   DOS_TRNM_N * 13      ; the NAMES the program passed
+    DBSS DOS_B_TRNMI,  1                    ; ...and how many, capped
+    DBSS DOS_B_TRDUMP, DOS_TRACEN * 6 + DOS_TRNM_N * 15 + 96
 %endif
     DBSS DOS_B_VW,    2
     DBSS DOS_B_VH,    2
@@ -7099,6 +7168,9 @@ dos_fh_name:
 .done:
     push es
     pop ds
+%ifdef DOSTRACE
+    call dos_tr_name_in             ; WHICH FILE - AH/AL alone cannot say, and
+%endif                              ; that is the question a field trace asks
     clc
 .out:
     pop es
@@ -7535,6 +7607,8 @@ dos_isexe   equ os88_image_end + DOS_B_ISEXE   ; byte: 1 = an .EXE was set up
 dos_tracen  equ os88_image_end + DOS_B_TRACEN  ; word: DOSTRACE's call counter
 dos_tracew  equ os88_image_end + DOS_B_TRACEW  ; word: its ring write index
 dos_traceb  equ os88_image_end + DOS_B_TRACEB  ; the ring: AH,AL per entry
+dos_trnm    equ os88_image_end + DOS_B_TRNM   ; the names passed in
+dos_trnmi   equ os88_image_end + DOS_B_TRNMI  ; ...how many so far
 dos_trdump  equ os88_image_end + DOS_B_TRDUMP  ; ...rendered, for the file
 %endif
 dos_vw      equ os88_image_end + DOS_B_VW      ; word: the desktop's width...
