@@ -17551,14 +17551,48 @@ window that has made no promise, which is §11.96.1's hazard with a new way in.
 promise, because from the next raise onward it would be an ordinary raise cache
 with none of the guarantees one needs.
 
+##### 11.96.12.0 What it asks of a PACKAGE, which is the half that keeps being rediscovered
+
+**Your `W_PAINT` is not called, so any screen coordinate you banked on a
+previous paint is now describing where your window used to be.** Two rules,
+and they are in `apps/os88api.inc`'s own header because that is what a package
+author reads:
+
+1. Ask `OSAPI_WM_CONTENT` and `OSAPI_WM_GEOM` for the box, and compute every
+   coordinate from it, **every time** you draw or hit-test.
+2. Never draw from a screen origin, and never from a rect cached on an earlier
+   pass. A cached rect is valid until the next thing that can move the window,
+   which is any moment your code is not running.
+
+**Assume it always happens.** §11.96.13 snaps a drop's x onto a multiple of 8
+*before* the cache is taken — it exists because the byte-phase refusal below
+otherwise turned away seven drags in eight — so in ordinary use the replay is
+what happens on **every** drag, in either axis. What is left to refuse it is a
+destination off the screen, a depth mismatch across a seam, and **a failed
+memory claim**: the common way to see a paint proc after a move is to be short
+of heap.
+
+So the wrong code passes a casual test rather than failing one, and it is the
+machine the package was *not* written on that shows the defect. That is the
+whole reason this keeps being found from scratch instead of read.
+
+Found again while building §96.32's DOS window, which cached six control rects
+in bss: dragged from y=20 to y=60 they stayed on the old window's title bar, so
+clicks on `Environment` landed on the drag handle. The box itself was never
+wrong — `dos_click` and `dos_key` re-place first — and the defect was entirely
+in what a *reader* did with the cache, which is the shape to expect.
+
 **Three things refuse it**, and each falls back to exactly what happened before:
 
 - **The byte phase.** `gfx_save` lays the buffer out from `x1` rounded DOWN to
   a framebuffer byte, so the pixels can be replayed at another `x` only where
   the content sits at the same offset inside its byte: `dx & 7` must be 0. Any
   `dy` is free *as far as the LAYOUT goes* — rows are whole — so a **vertical**
-  drag always takes it and a horizontal one takes it once every eight pixels.
-  A shifted restore would lift that and is not written. **`dy` is not free as
+  drag always takes it and a horizontal one took it once every eight pixels —
+  **until §11.96.13 snapped the drop's x to a multiple of 8 for exactly this
+  reason**, after which the refusal is rare rather than seven-in-eight, and a
+  package must assume the replay (§11.96.12.0). A shifted restore would lift
+  the constraint itself and is not written. **`dy` is not free as
   far as a DITHER goes** — an odd one replays a window's own dithered controls
   in the opposite phase — **but that is a cosmetic residue this section
   deliberately keeps rather than quantising a drop's `y` to hide, and
@@ -120599,25 +120633,24 @@ tall as it will give me' is a real width and a generous height"*. The CGA row
 asks for 300 and is clamped to 179 without the package needing to know the
 dock exists.
 
-##### 96.32.0 The band's four words are a CACHE, and a MOVE does not repaint
+##### 96.32.0 The band's four words are a CACHE, and §11.96.12 is why
 
 `dos_con_geom` fills `[dos_conx]`, `[dos_cony]`, `[dos_concols]` and
 `[dos_conrows]`, and every painter and hit test calls it (or `dos_place`,
-which calls the rest) **before** reading them. That is not defensive style, it
-is a measured requirement: **moving a window does not call its paint
-callback** — the window manager carries the pixels — so a rect cached in a
-screen coordinate stays at the old position until something paints or clicks.
+which calls the rest) **before** reading them. That is not defensive style: a
+moved window does not call its paint proc (§11.96.12, and §11.96.12.0 is the
+rule stated for packages), so a rect cached in a screen coordinate stays where
+the window used to be.
 
-Measured on a Hercules: the DOS window dragged from y=20 to y=60 left
-`[dos_cony]` at 58 and the `Environment` button's rect at rows 41..54, which
-is the old window's title bar. `dos_click` and `dos_key` both call `dos_place`
-first, so the box itself is never wrong — a reader that takes a rect out of
-bss and *then* clicks it is, and `tests/dosargs.py` was for one run.
+Measured on a Hercules: dragged from y=20 to y=60, `[dos_cony]` stayed at 58
+and the `Environment` button's rect at rows 41..54 — the old window's title
+bar. `dos_click` and `dos_key` both call `dos_place` first, so the box itself
+is never wrong; `tests/dosargs.py` read the rects and *then* clicked them, and
+was wrong for exactly one run.
 
-**The console inherits this.** A console that draws at `[dos_conx]` without
-asking again draws where the window used to be, and nothing about the picture
-will say so — it will simply appear in the wrong place after a drag, which is
-§96.22's shape once more.
+**The console inherits this**: one that draws at `[dos_conx]` without asking
+again draws where the window used to be, and nothing about the picture will
+say so.
 
 ##### 96.32.1 The top bar is three controls and it is ALWAYS drawn
 

@@ -330,6 +330,15 @@ OS88UI_DOWN equ 16              ; THE PRESSED LOOK (SPEC.md 13.8): interior
 ;      caller holds the gfx lock (every callback and every kernel painter does)
 ; out: nothing; all registers preserved
 ;
+; **THE RECT IS IN SCREEN COORDINATES AND MUST BE COMPUTED FROM THE CONTENT
+; ORIGIN EVERY TIME** - OSAPI_WM_CONTENT and OSAPI_WM_GEOM - never from a
+; screen origin and never from a copy banked on an earlier pass. A window that
+; MOVES does not call its paint proc: the kernel replays its pixels instead
+; (SPEC.md 11.96.12), so a banked rect goes on describing where the window used
+; to be, and the control is then drawn and hit-tested on somebody else's
+; pixels. apps/os88api.inc's header carries the rule and why it looks like it
+; works until it does not.
+;
 ; Optional white interior, frame, optional default ring, then the label
 ; CENTRED IN BOTH AXES.
 ;
