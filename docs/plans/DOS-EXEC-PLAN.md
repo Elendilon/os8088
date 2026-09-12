@@ -1632,3 +1632,100 @@ throughout. mTCP saves `DS` around those calls; our probe did not.
 **Still open, and small:** promiscuous mode is refused (SPEC.md 96.23.10) —
 the NE2000 can do it and only a sniffer wants it; `4Bh` nesting and handle
 inheritance are §15.6's items and untouched by this wave.
+
+### 15.8 Wave 5's first finding, and it was not in the write path at all
+
+The write wave opened on Prince of Persia's `INSTALL.EXE`, which — once
+§96.27 gave it `AH=36h` — got as far as selecting C:, making `\PRINCE`,
+standing in it, and then stopping dead with *"Please insert Prince of Persia
+Disk in drive B:"*. The message names a floppy; the program was looking at the
+hard disk.
+
+**A comment that was true when it was written, one section away from the
+change that made it false.** `dos_fh_name` dropped a drive letter under
+*"a program that names its own drive is naming ours"*, which is correct for a
+box with one volume. §96.6.1 made `AH=0Eh` really switch drives three waves
+later, and nothing re-read the line above it. SPEC.md 96.6.2 is the fix and
+`tests/dostrap/drvname.asm` the measurement.
+
+**What makes this class expensive is that it is a confident wrong answer, not
+a refusal** — the same shape as §96.22's `AH=44h` and §96.21.8's `AH=36h`, and
+the third time this plan has met it. A search of A: came back with B:'s own
+directory and `CF` clear, and a search of `C:` came back successfully **on a
+machine with no hard disk**. There is no instrument inside the guest that can
+see that: the trace ring records the name *after* the strip, the registers are
+what a working call returns, and the program is the only thing that knows it
+asked about a different disk. The probe asks by running the pattern and
+printing which file came back, and the reference is a machine.
+
+**Three self-inflicted bugs on the way in, and the shape of two of them is
+worth keeping.**
+
+1. `dos_drv_sel` mounts through `dos_be_goto`, whose first act is to write
+   `[dos_betgt]` — so setting the back end's target and *then* switching
+   volumes ran every cross-volume READ as a directory goto. It returns, so the
+   caller read a byte count out of whatever was left in `DX:AX` and called the
+   file empty.
+2. `dos_fh_fill` carries the file OFFSET in `AX`, four lines below where the
+   volume seemed like a natural thing to read. `mov al, [si+FH_VOL]` ate its
+   low byte — and **`FH_VOL` is 0 for A:, so the cross-drive arm under test
+   read perfectly and every ordinary read on B: came back empty.** The new row
+   passed its own headline assertion while `dosfile` went red. A fixture whose
+   value is zero is a fixture that tests nothing, and it chose the arm that
+   mattered most.
+3. `BP` is the `INT 21h` frame in this file and `[bp]` is the program's own
+   `DS`; it is not a scratch register anywhere below the gate.
+
+**A handle here is a NAME, which is the part that needed real design.** It is
+re-resolved at every window, so a copy off B: onto C: would read the
+destination back into itself; `FH_VOL` binds each handle to its volume and the
+bracket lives in `dos_fh_fill` and `dos_fh_flush` rather than at the handler,
+because `dos_fh_take` flushes **another** handle's window on the way past. A
+find walk needed the same treatment in `DTA_VOL`, `AH=4Fh` being handed
+nothing but the DTA.
+
+**+264 bytes of package image and 16 of package bss; no kernel byte.**
+
+### 15.9 ...and then wave 5 ran out of INT 21h to implement
+
+With the drive letter reaching the drive it names, `INSTALL.EXE` gets to
+*"Currently copying 'Prince of Persia Disk' to C:\PRINCE"* and stops. The
+trace is four lines (SPEC.md 96.29) and the answer is not a missing call:
+
+```
+4E findfirst  "B:Prince.exe"   -> AX=0000 CF=0    §96.6.2 working
+29 parse-FCB  AX=2901          -> AX=0001 CF=1    unimplemented
+29 parse-FCB  AX=2901          -> AX=0001 CF=1
+4B exec       AX=4B00          -> AX=0002 CF=1    file not found
+```
+
+**It shells out.** `COMSPEC\0/c\0command.com\0` sits in its data segment
+beside `'copy '` and `'del install.exe > NUL'` — Microsoft C's `system()`
+verbatim — so the two `29h` calls are it building the child's FCBs and the
+`4Bh` is it trying to run `COMMAND.COM`. **Our answer of 2 is correct**: there
+is no shell on this machine and the environment does not claim one.
+
+So the write wave's own scope is finished for this program before its write
+path was ever reached: nothing it asked for is unanswered, and what it wants
+next is a *program*. §96.29 records the door's shape — a one-shot `/C` shell
+with `COPY`, `DEL` and an exit code, over an `AH=4Bh` that already works — and
+deliberately does not propose it.
+
+**`AH=29h` was implemented anyway, and the reason is worth keeping**: a wrong
+answer is worth more to remove than a missing one. It is the fourth time in
+this plan that the defect was §96.22's shape — a call answered with the wrong
+*kind* of thing rather than refused — and this one told a program that
+`PRINCE.EXE` contained wildcards. Eleven inputs measured against IBM DOS 3.30
+(`tests/dostrap/parsefcb.asm`), and **four of them could not have been
+guessed**: wildcards expand to `?`, an invalid drive answers FFh *and still
+writes its number*, the name is upper-cased, and a PATH advances `SI` by two
+and leaves the name blank.
+
+**Two mistakes on the way in, both about scope rather than logic.** A global
+label placed beside the new routine re-scoped every `.local` in `dos_int21`
+below it and the whole dispatch stopped resolving — the hard rule about label
+hygiene biting *inside* one routine. And `SI` is returned through the gate's
+banked slot, which already holds the SI the program came in with, so the
+advance is **added** and not stored: storing it left every caller's pointer at
+the same low address, with every other column correct.
+

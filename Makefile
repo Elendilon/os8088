@@ -4806,6 +4806,39 @@ $(BUILD)/dosdir360.img: $(BUILD)/DOSDIR.COM $(BUILD)/dosdir/A.TXT tools/os88disk
 	    $(BUILD)/dosdir/A.TXT $(BUILD)/dosdir/BB.TXT $(BUILD)/dosdir/CCC.TXT \
 	    $(BUILD)/dosdir/DATA.DAT
 
+# ...and AH=29h's (SPEC.md 96.28). One disk and no fixture: every assertion is
+# against what IBM DOS 3.30 answered, which is a property of DOS and not of
+# anything on the floppy.
+$(BUILD)/PARSEFCB.COM: tests/dostrap/parsefcb.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/parsefcb.asm
+
+$(BUILD)/dosfcb360.img: $(BUILD)/PARSEFCB.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/PARSEFCB.COM
+
+# ...and the DRIVE-LETTER gate's PAIR (SPEC.md 96.6.2). It is a pair because
+# the question is cross-DRIVE: a letter in a name has to reach the other
+# floppy, so there has to be a file on each that is not on the other. The A:
+# side is the SYSTEM disk with one more file in it - bootable, because A: has
+# to boot - and os88fat.py adds it in place, disturbing nothing.
+$(BUILD)/DRVNAME.COM: tests/dostrap/drvname.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/drvname.asm
+
+$(BUILD)/dosdrv/BONLY1.TXT: | $(BUILD)
+	mkdir -p $(BUILD)/dosdrv
+	printf 'bee one\r\n' > $@
+	printf 'bee two\r\n' > $(BUILD)/dosdrv/BONLY2.TXT
+	printf 'ay only\r\n' > $(BUILD)/dosdrv/AONLY.TXT
+
+$(BUILD)/dosdrv360.img: $(BUILD)/DRVNAME.COM $(BUILD)/dosdrv/BONLY1.TXT \
+    tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DRVNAME.COM \
+	    $(BUILD)/dosdrv/BONLY1.TXT $(BUILD)/dosdrv/BONLY2.TXT
+
+$(BUILD)/dosdrvsys.img: $(BUILD)/os8088-360.img $(BUILD)/dosdrv/BONLY1.TXT \
+    tools/os88fat.py
+	cp $(BUILD)/os8088-360.img $@
+	python3 tools/os88fat.py add $@ $(BUILD)/dosdrv/AONLY.TXT
+
 # ...and the EXEC gate's PAIR (SPEC.md 96.14): a parent that shrinks itself
 # and runs the child, and a child that proves it was really loaded - it prints
 # the command tail out of its own PSP and reads PSP:0016 for a parent.
@@ -4917,7 +4950,9 @@ doscom: $(BUILD)/doscom360.img $(BUILD)/dosexe360.img $(BUILD)/dosmou360.img \
         $(BUILD)/dosfile360.img $(BUILD)/dosdir360.img $(BUILD)/dosexec360.img \
         $(BUILD)/dosxms360.img $(BUILD)/dossnd360.img $(BUILD)/dosxmsq.img \
         $(BUILD)/dosirq360.img $(BUILD)/pathtest360.img \
-        $(BUILD)/dosargs360.img $(BUILD)/doslnk360.img
+        $(BUILD)/dosargs360.img $(BUILD)/doslnk360.img \
+        $(BUILD)/dosdrv360.img $(BUILD)/dosdrvsys.img \
+        $(BUILD)/dosfcb360.img
 
 $(BUILD)/thewire.bin: apps/thewire/thewire.asm apps/thewire/wrhttp.inc \
                       apps/thewire/wrarc.inc apps/thewire/wrtxt.inc \

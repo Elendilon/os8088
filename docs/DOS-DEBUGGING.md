@@ -325,6 +325,86 @@ this call every program does**, DOS never setting `CF` here. That is the exact
 shape of the defect §96.27 fixed: unimplemented, the call returned `AX=1` with
 `CF`, and Prince's installer read it as one sector per cluster.
 
+### `parsefcb.asm` — what `AH=29h` really answers
+
+`AH=29h` (Parse Filename into FCB, SPEC.md §96.28) is a pure string-to-FCB
+parse with no I/O, which makes it the easiest thing in §96 to get *nearly*
+right and then ship wrong. This runs eleven inputs through it and prints, for
+each, `AL`, `CF`, how far `SI` moved, the FCB's drive byte and the eleven name
+bytes DOS wrote — spaces and all, so a field padded wrongly shows up as a
+shifted column rather than as nothing.
+
+**The carry is the column to look at first.** Unimplemented, the call fell to
+the "invalid function" arm and answered `CF=1` with `AX=0001` — and DOS does
+not use the carry for `29h` at all, on any row, the invalid drive included. A
+program reading `AL`, which for this call every program does, was told its
+plain name *had wildcards in it*.
+
+**Four of the eleven rows decide how the handler is written, and none of them
+is guessable from a reference:**
+
+- `*.*` comes back as **eleven question marks**, not asterisks.
+- `Z:` answers `FFh` **and still writes 26** into the drive byte.
+- `B:Prince.exe` comes back **upper-cased** — an FCB matches a directory
+  entry, and mixed case is what Prince's installer really passes.
+- `A:\DIR\PRINCE.EXE` advances `SI` by **two** and leaves the name **blank**:
+  `29h` parses a NAME, stops at the first separator, and the caller is
+  expected to notice.
+
+The last one is why the probe prints `SI+` at all. Everything else about that
+row looks like success.
+
+It runs under a real DOS unchanged. `tests/dosfcb.py` is the registered row
+and its table is exactly what IBM DOS 3.30 answered here.
+
+**One trap is in the probe's own source**, because it bit: `pad` walks a
+string to its NUL decrementing a column counter, and a string LONGER than the
+column wrapped that counter to 65,535 and printed that many spaces — which
+scrolls the whole run off the screen and reads exactly like the program
+crashing. Adding a row is what triggers it, which is the worst possible time.
+
+---
+
+### `drvname.asm` — does a drive letter in a NAME reach that drive?
+
+A trace cannot answer this one, which is why it exists. `dos_fh_name` banks
+the name it was given **after** stripping the prefix, so the DOSTRACE ring
+records `*.*` whether the program wrote `*.*` or `B:\*.*` — and the question
+here is precisely whether there was a letter to lose.
+
+So it asks from the other side, by running the patterns. Stand on B:, with a
+system disk in A: and no hard disk at all, and print for each shape:
+
+```
+*.*         AX=0000 CF=0 CUR=1 FOUND=DRVNAME.COM
+A:*.*       AX=0000 CF=0 CUR=1 FOUND=COMMAND.COM      <- IBM DOS 3.30
+A:*.*       AX=0000 CF=0 CUR=1 FOUND=DRVNAME.COM      <- this box, before
+```
+
+Three of those five columns matter and the obvious one matters least:
+
+- **`FOUND`** is the name out of the DTA, so *"it found something"* and *"it
+  found the right thing"* are different answers. This is the column that
+  caught it: a search of A: came back with B:'s own directory, **reporting
+  success**. Nothing else on the machine can see that — `AX=0000 CF=0` is
+  what a correct search looks like too.
+- **`CUR`** is `AH=19h` afterwards. A letter in a name must not move the
+  program: under DOS it selects which drive's current directory the name is
+  resolved against, and `AH=0Eh` alone changes drives. Getting the search
+  right by *moving* is a second defect wearing the first one's fix, and only
+  this column can tell them apart.
+- **`AX`/`CF`** is the ordinary one, and it pinned an error code that had been
+  guessed: a drive that is not there answers **3**, not 15, on `AH=4Eh`,
+  `AH=3Dh` and `AH=3Bh` alike. SPEC.md §96.6 said `0Fh` and is corrected.
+
+It runs under a real DOS unchanged, so the reference answer is a machine. See
+SPEC.md §96.6.2 for the whole table and what it cost — Prince's `INSTALL.EXE`
+stood on C:, asked for its source files by a name naming B:, was shown the
+empty destination directory, and printed *"Please insert Prince of Persia Disk
+in drive B:"*.
+
+---
+
 ---
 
 ## Extending them
