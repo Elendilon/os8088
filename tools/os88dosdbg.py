@@ -57,6 +57,28 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 
 DOS_ASM = os.path.join(ROOT, "apps", "dos", "dos.asm")
+
+# ...and the -I list `$(BUILD)/dos.bin`'s own recipe passes, read OUT OF THE
+# MAKEFILE so the two cannot drift. A hard-coded copy here went stale the day
+# a new include landed in a new directory, and the failure names the include
+# rather than the path.
+def _dos_incs():
+    mk = os.path.join(ROOT, "Makefile")
+    try:
+        with open(mk, errors="replace") as f:
+            txt = f.read()
+    except OSError:
+        return ["apps"]
+    i = txt.find("$(BUILD)/dos.bin:")
+    if i < 0:
+        return ["apps"]
+    seg = txt[i:i + 2000]
+    seg = seg[:seg.find("\n\n")] if "\n\n" in seg else seg
+    out = re.findall(r"-I\s+(\S+?)/?\s", seg)
+    return out or ["apps"]
+
+
+DOS_INCS = _dos_incs()
 TRAP_ASM = os.path.join(ROOT, "tests", "dostrap", "trap.asm")
 
 # The AH names, for reading.  Everything the box answers plus the handful it
@@ -167,8 +189,27 @@ def dos_syms(names, defines=("DOSTRACE",)):
             for n in names:
                 f.write("    dw %s\n" % n)
         out = os.path.join(d, "probe.bin")
-        cmd = ["nasm", "-f", "bin", "-w-error",
-               "-I", os.path.join(ROOT, "apps") + os.sep]
+        # THE SAME INCLUDE PATH THE MAKEFILE USES, and DERIVED from it rather
+        # than transcribed: dos.asm's includes are not all in apps/ (SPEC.md
+        # 96.30's cable networking put two in apps/dos/ and one in
+        # drivers/net/), and a probe that assembles with a SHORTER path than
+        # the real build fails on a file that is right there - which reads as
+        # "the tool is broken" rather than "the tool is out of date". It broke
+        # exactly once, at the merge that added them: both sides built, the
+        # combination did not.
+        cmd = ["nasm", "-f", "bin", "-w-error"]
+        for inc in DOS_INCS:            # `inc` AND NOT `d`: `d` is the temp
+                                        # directory this function deletes in
+                                        # its own `finally`, and a loop that
+                                        # rebinds it points shutil.rmtree at
+                                        # the LAST INCLUDE PATH instead - which
+                                        # is a tracked source directory. It
+                                        # removed drivers/net entirely, twice,
+                                        # before the cause was found: the row
+                                        # that noticed was the assembly failing
+                                        # on an include that had been there a
+                                        # moment earlier
+            cmd += ["-I", os.path.join(ROOT, *inc.split("/")) + os.sep]
         for m in defines:
             cmd += ["-D" + m]
         cmd += ["-o", out, probe]
