@@ -90869,16 +90869,50 @@ header as a whole packet. The implementation banks the capacity **before**
 calling `ne_rx`, which returns the length in the same register the capacity
 arrived in.
 
-#### 72.22.3 The parallel cable refuses all three
+#### 72.22.3 The parallel cable refuses all three — and NOT for the reason this section first gave
 
 `NET.DRV` answers the same `NETV_*` surface (§62) and its rows for these three
-are refusals. There are no Ethernet frames on a parallel cable: the wire is
-eight data lines and a handshake carrying a private protocol, with no MAC
-address, no ethertype, and nothing a raw consumer could do with what arrives.
+are refusals. A refusal is the honest answer rather than an empty success,
+because a packet driver built on a silent no would look mounted and never
+receive — which is §24.5's shape of failure one layer along.
 
-A refusal is the honest answer rather than an empty success, because a packet
-driver built on a silent no would look mounted and never receive — which is
-§24.5's shape of failure one layer along.
+**The first version of this section justified that with a claim that is
+false**, and it is corrected here rather than quietly reworded because the
+false version reads perfectly plausibly. It said there are no Ethernet frames
+on a parallel cable — no MAC address, no ethertype, nothing a raw consumer
+could use. That describes the *wire*, and the wire is not the far end.
+
+**The far end is on a real NIC through a real packet driver.**
+`OS88NET.COM` includes `drivers/net/pktdrv.inc` — "a packet driver where the
+NE2000 was" — so the DOS machine's `ne_tx`/`ne_rx` are a Crynwr client against
+whatever card mTCP is already using there (§62.11.1). Frames, MACs and
+ethertypes all exist at that end in abundance. `NET.DRV` is the **alternate to
+`ETHER.DRV`**, not a lesser thing: it is how a machine with a parallel port
+and no card gets a network at all.
+
+So the true reasons are two, and only the first is about today:
+
+1. **The wire alphabet is socket-level** — `NW_OPEN`, `NW_SEND`, `NW_RECV`,
+   `NW_ADDR` and the rest (`nwire.inc`) — and has no raw-frame command. Adding
+   one is a real option and the protocol is built for it, but it needs
+   `NET_VER_RAW` alongside `NET_VER_SOCK` and `NET_VER_ADDR`, because
+   `nwire.inc`'s own warning is that an unknown letter does not get refused:
+   it falls through `os88net`'s dispatch ladder **without a reply** and leaves
+   the master blocked.
+
+2. **The cable is the wrong place to relay frames, and the arithmetic says
+   so.** PERFORMANCE.md Set 39 measures it at **3,741 bytes/second**, so a
+   1,514-byte frame is ~0.4 s each way — about **2.5 frames a second**. A raw
+   relay puts *every* TCP acknowledgement, *every* retransmit and *every* ARP
+   across that link. Relaying **sockets**, which is what the cable does today,
+   keeps all of that protocol chatter on the DOS side and sends only payload.
+   That is why the socket wire is right for os8088's own packages, and it is
+   the same trade `os88sock.inc` already makes when it prefers the card.
+
+What that costs is stated plainly: on a machine with only the cable, a **DOS
+program** in the box gets no network, because mTCP speaks packet driver and
+nothing else. §96.23 is a card feature until somebody wants item 1 enough to
+pay item 2's price.
 
 ## 73. The C toolchain — compiling C into an `.o88` package
 
