@@ -551,6 +551,60 @@ overlays = [
     type = "CGA"
     clock_mode = "Dynamic"
 
+# os8088_xt_hdd_720 - THE ONLY MACHINE HERE THAT HAS BOTH A HARD DISK AND AN
+# 80-CYLINDER FLOPPY DRIVE, and it exists because the absence of one cost a
+# whole diagnosis (docs/DOS-DEBUGGING.md, *Traps*). os8088_xt_hdd's drives are
+# 40-cylinder, so a 720KB image's top half is simply unreadable - and apps/dos
+# turns that int 13h refusal into END OF FILE (SPEC.md 96.11.4), so a program
+# is handed a SHORT file and blames the file. Prince of Persia's installer
+# copied 22 of 29 files off a 720KB disk and failed on the 23rd, which read
+# exactly like a defect in the copy engine and was the drive.
+#
+# `python3 tools/os88fat.py reach <image>` is the check, and it names this
+# machine. Anything that puts a 720KB image in B: and needs C: wants this one.
+[[machine]]
+name = "os8088_xt_hdd_720"
+type = "Ibm5160"
+rom_set = "glabios_xt"
+speaker = true
+overlays = [
+    "pcxt_2_720k_floppies",
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+    "parallel_port",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [machine.hdc]
+    bus_type = "ISA"
+    type = "XtIde"
+
+        [[machine.hdc.drive]]
+        format = "Mfm"
+        vhd = "default_xtide.vhd"
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "CGA"
+    clock_mode = "Dynamic"
+
+# ...and the same disk behind a VGA, which until now no machine in this file
+# offered: every hard-disk machine here is CGA, and the loading screen's whole
+# dialog - the frames, the `Welcome to os8088.` caption and the percentage -
+# is VGA-only (SPEC.md 15.3). So the one path that draws chrome from the
+# KERNEL rather than from stage 2 could not be looked at: a hard-disk boot has
+# no loader that ticks, so `spl_step` starts the screen itself (SPEC.md
+# 2.9.9.1) and enters `spl_rechrome` (2.9.9.2). On CGA that path returns before
+# any of it.
+#
+# It matters more since SPEC.md 15.3.2: the caption and the percentage are
+# blitted out of the ROM 8x8 set now, and `spl_kfont` asks the BIOS for that
+# set with an `int 10h` at the first glyph of the boot. On every other machine
+# here the first glyph is stage 2's; on this one it is the kernel's.
 [[machine]]
 name = "os8088_xt_hdd"
 type = "Ibm5160"

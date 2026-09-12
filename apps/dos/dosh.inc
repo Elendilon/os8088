@@ -98,7 +98,9 @@ dsh_tail:
 ; clobbers: everything but the segment registers
 ; -----------------------------------------------------------------------------
 dsh_run:
-    call dsh_redir                  ; `> NUL` off the end first, so the verb
+    mov byte [dsh_why], DSHW_NONE   ; ...and cleared per command, so a stale
+    call dsh_redir                  ; one cannot be read as this one's
+                                    ; `> NUL` off the end first, so the verb
     jc .badredir                    ; scan never sees it
     call dsh_skipsp
     mov di, dsh_verb
@@ -141,6 +143,7 @@ dsh_run:
 .badredir:
     mov si, dsh_s_redir
     call dsh_say
+    mov byte [dsh_why], DSHW_REDIR
     mov al, 1
     ret
 
@@ -616,12 +619,14 @@ dsh_two:
 .nodst:
     mov si, dsh_s_syntax
     call dsh_say
+    mov byte [dsh_why], DSHW_SYNTAX
     mov al, 1
     stc
     ret
 .nopath:
     mov si, dsh_s_nopath
     call dsh_say
+    mov byte [dsh_why], DSHW_NOPATH
     mov al, 3
     stc
     ret
@@ -765,22 +770,26 @@ dsh_copy_go:
     call dsh_home
     mov si, dsh_s_ioerr
     call dsh_say
+    mov byte [dsh_why], DSHW_IO
     mov al, 1
     ret
 .nomem:
     call dsh_home
     mov si, dsh_s_nomem
     call dsh_say
+    mov byte [dsh_why], DSHW_MEM
     mov al, 1
     ret
 .nofile:
     mov si, dsh_s_nofile
     call dsh_say
+    mov byte [dsh_why], DSHW_NOFILE
     mov al, 1
     ret
 .self:
     mov si, dsh_s_self
     call dsh_say
+    mov byte [dsh_why], DSHW_SELF
     mov al, 1
 .out:
     ret
@@ -993,21 +1002,25 @@ dsh_c_del:
     call dsh_home
     mov si, dsh_s_ioerr
     call dsh_say
+    mov byte [dsh_why], DSHW_IO
     mov al, 1
     ret
 .nofile:
     mov si, dsh_s_nofile
     call dsh_say
+    mov byte [dsh_why], DSHW_NOFILE
     mov al, 1
     ret
 .syntax:
     mov si, dsh_s_syntax
     call dsh_say
+    mov byte [dsh_why], DSHW_SYNTAX
     mov al, 1
     ret
 .nopath:
     mov si, dsh_s_nopath
     call dsh_say
+    mov byte [dsh_why], DSHW_NOPATH
     mov al, 3
     ret
 
@@ -1053,16 +1066,19 @@ dsh_c_ren:
     call dsh_home
     mov si, dsh_s_ioerr
     call dsh_say
+    mov byte [dsh_why], DSHW_IO
     mov al, 1
     ret
 .syntax:
     mov si, dsh_s_syntax
     call dsh_say
+    mov byte [dsh_why], DSHW_SYNTAX
     mov al, 1
     ret
 .nopath:
     mov si, dsh_s_nopath
     call dsh_say
+    mov byte [dsh_why], DSHW_NOPATH
     mov al, 3
     ret
 
@@ -1120,16 +1136,19 @@ dsh_dir_go:
     call dsh_home
     mov si, dsh_s_ioerr
     call dsh_say
+    mov byte [dsh_why], DSHW_IO
     mov al, 1
     ret
 .syntax:
     mov si, dsh_s_syntax
     call dsh_say
+    mov byte [dsh_why], DSHW_SYNTAX
     mov al, 1
     ret
 .nopath:
     mov si, dsh_s_nopath
     call dsh_say
+    mov byte [dsh_why], DSHW_NOPATH
     mov al, 3
     ret
 
@@ -1187,16 +1206,19 @@ dsh_c_type:
     call dsh_home
     mov si, dsh_s_ioerr
     call dsh_say
+    mov byte [dsh_why], DSHW_IO
     mov al, 1
     ret
 .syntax:
     mov si, dsh_s_syntax
     call dsh_say
+    mov byte [dsh_why], DSHW_SYNTAX
     mov al, 1
     ret
 .nopath:
     mov si, dsh_s_nopath
     call dsh_say
+    mov byte [dsh_why], DSHW_NOPATH
     mov al, 3
     ret
 
@@ -1274,6 +1296,21 @@ dsh_tab:
     DSHCMD 'ECHO',   dsh_c_echo
     DSHCMD 'REM',    dsh_c_rem
     db 0
+
+; [dsh_why] - WHICH refusal, for a debugger and not for the program
+; The exit code stays DOS's (1, or 3 for a path), because a shell's exit code
+; is what a batch file tests and inventing a richer one would be a contract
+; nobody asked for. But `> NUL` silences the message, so under exactly the
+; conditions a program shells out in there is NOTHING to read - which cost this
+; session two emulator runs to recover by other means. One byte fixes it.
+DSHW_NONE   equ 0
+DSHW_MEM    equ 1               ; no DOS block for the copy buffer (96.30.6)
+DSHW_IO     equ 2               ; the back end refused
+DSHW_NOFILE equ 3               ; nothing matched the pattern
+DSHW_SELF   equ 4               ; source and destination are one file
+DSHW_NOPATH equ 5               ; no such folder
+DSHW_SYNTAX equ 6               ; wrong number of arguments
+DSHW_REDIR  equ 7               ; a redirection target that is not NUL
 
 dsh_s_nul:      db 'NUL', 0
 dsh_s_crlf:     db 13, 10, 0

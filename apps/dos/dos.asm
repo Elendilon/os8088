@@ -10641,6 +10641,7 @@ dos_fh_fill:
     DBSS DOS_B_SHCPKB,  2           ; ...and how many KB it turned out to be
     DBSS DOS_B_SHMADE,  1           ; the destination has been created
     DBSS DOS_B_SHGOT,   2           ; bytes in the buffer this pass
+    DBSS DOS_B_SHWHY,   1           ; DSHW_*: WHICH refusal, for a debugger
 
 DOS_BSS_SIZE equ DB
 
@@ -10827,6 +10828,7 @@ dsh_cpseg   equ os88_image_end + DOS_B_SHCPSEG
 dsh_cpkb    equ os88_image_end + DOS_B_SHCPKB
 dsh_made    equ os88_image_end + DOS_B_SHMADE
 dsh_got     equ os88_image_end + DOS_B_SHGOT
+dsh_why     equ os88_image_end + DOS_B_SHWHY
 dos_inchild equ os88_image_end + DOS_B_INCHLD
 dos_psv_ss  equ os88_image_end + DOS_B_PSVSS
 dos_psv_sp  equ os88_image_end + DOS_B_PSVSP

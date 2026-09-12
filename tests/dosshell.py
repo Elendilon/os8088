@@ -51,6 +51,7 @@ CHECKS = [
     ("frobnicate  (unknown)",     None),
     ("copy NOSUCH.TXT X.TXT",     None),
     ("copy SRC.TXT > OUT.TXT",    None),
+    ("copy SHBIG.DAT SUB (full)", None),
 ]
 
 
@@ -186,6 +187,17 @@ def main():
                  % (want_name, got, want_body))
         print("dosshell: ok  - SUB/%s reads %r off the volume itself"
               % (want_name, got))
+
+    # ...and the UNDO: check 8's copy ran the volume out of space part way
+    # through, so the destination was CREATED and then failed. A short file
+    # that looks whole is worse than no file (SPEC.md 96.30.6).
+    if "SHBIG.DAT" in sub:
+        got = body(v, sub["SHBIG.DAT"])
+        fail("SUB/SHBIG.DAT survived a copy that ran out of disk: %d bytes of "
+             "a %d-byte source, which looks like a whole file to anything that "
+             "opens it. dsh_stream's undo did not run (SPEC.md 96.30.6)"
+             % (len(got), 20 * 1024))
+    print("dosshell: ok  - the out-of-space copy left no partial file behind")
 
     now = struct.unpack_from("<H", sub["TWO.TXT"], 26)[0]
     if now != two_clus:

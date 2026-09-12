@@ -1720,6 +1720,41 @@ next is a *program*. §96.29 records the door's shape — a one-shot `/C` shell
 with `COPY`, `DEL` and an exit code, over an `AH=4Bh` that already works — and
 deliberately does not propose it.
 
+### 15.10 ...and then the shell was built, and the installer finished
+
+§15.9's wall is gone and **the write wave's own goal is met**: `INSTALL.EXE`
+runs to completion and Prince of Persia is on the hard disk, verified on the
+destination volume rather than from the exit codes — `C:\PRINCE` holds all 28
+game files at byte-exact sizes and `INSTALL.EXE` has deleted itself.
+
+What made it small is the thing §96.29's sketch did not have: **there is no
+`COMMAND.COM` on the disk.** `AH=4Bh` recognises the name and runs a built-in
+itself, so nothing is loaded, no arena block is taken, and a program may shell
+out as often as it likes. SPEC.md §96.30 is the contract and
+`apps/dos/dosh.inc` the implementation; the cost is **zero kernel bytes** and
+`dos.o88` +2,751 image / +867 bss.
+
+**Three findings from it, in the order they will matter again:**
+
+1. **Inside the fsx bracket the heap is the DOS program's**, so
+   `OSAPI_FILE_COPY` answers `FERR_FULL` — measured, every `COPY` failing with
+   6 while every `MOVE`, `REN` and `DEL` passed, because only the copy needs
+   memory. The buffer comes from the DOS arena instead, where DOS itself takes
+   it. §5's *"an exclusive fullscreen program cannot reach the RAM the drivers
+   gave back for it"* is the same finding one layer out, and the sound
+   driver's ~14 KB is the better source on the machines that have it
+   (§96.30.6).
+2. **The read-ahead cache is not an alternative**, and it looks like one. A
+   copy's payload never enters it — §18.95.1 skips the fill precisely for a
+   request that covers the whole chunk — so there is no second buffer to
+   avoid, and staging through it would undo the gate that keeps a streaming
+   copy from flushing the directory chunks.
+3. **The last bug was the MACHINE.** `os8088_xt_hdd` has 40-cylinder drives,
+   so eleven files of the 720KB source were out of reach; §96.11.4 turned that
+   into end-of-file, the copy silently truncated four files and then failed on
+   the fifth. `os8088_xt_hdd_720` now exists because no profile had both a
+   hard disk and an 80-cylinder drive, which is why this trap keeps landing.
+
 **`AH=29h` was implemented anyway, and the reason is worth keeping**: a wrong
 answer is worth more to remove than a missing one. It is the fourth time in
 this plan that the defect was §96.22's shape — a call answered with the wrong
