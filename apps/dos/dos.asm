@@ -7449,6 +7449,18 @@ dos_fh_new:
     jmp short .out
 .free:
     mov [dos_fhix], bl
+    ; --- AND THE WINDOW CANNOT SURVIVE ITS FILE (SPEC.md 96.11.5) ----------
+    ; dos_fh_take decides whether the window already holds the right bytes by
+    ; comparing this record's INDEX with the window's owner - so a handle that
+    ; is closed and another opened lands on the same index, `take` says "mine",
+    ; and the new file is read out of the old one's window. The close has
+    ; already flushed anything dirty, so disowning is the whole of it.
+    cmp bl, [dos_wown]
+    jne .nowin
+    mov byte [dos_wown], 0xFF
+    mov byte [dos_wfill], 0
+    mov word [dos_wlen], 0
+.nowin:
     mov di, si                      ; a reused slot must not inherit a stale
     mov cx, FH_SIZEOF               ; name or position from the last program's
     xor al, al                      ; file

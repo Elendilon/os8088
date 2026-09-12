@@ -118791,6 +118791,36 @@ it came on.
 Directories are filtered on the same rule: returned only when the caller set
 bit 4, which is what DOS does and what this box also did not do.
 
+#### 96.11.5 The read window cannot outlive its file
+
+There is one 8KB window and `[dos_wown]` says whose it is. `dos_fh_take`
+decides whether the window already holds the right bytes by comparing the
+asking handle's **record index** with that owner — which is correct while both
+handles exist and wrong the moment one of them stops existing, because a
+record is reused by index. Close handle 5 and open another file: the new
+handle gets the same record, `take` says *mine*, and the program reads the
+**previous file** out of a window nobody invalidated.
+
+It is worth reading the shape of the failure, because neither half of it looks
+like a stale buffer:
+
+- The program opened `TITLE.DAT`, read six bytes, and got **`KID.DAT`'s**
+  header — the previous file, still sitting in the window.
+- It then seeked to the offset that header names, `8A3Bh`, asked for `06E2h`
+  bytes, and was given **`053Ah`**. That is not a truncated window; it is the
+  size clamp in `dos_fh_rdloop` doing its job on the record's *real* file,
+  because `FH_SIZE` was `TITLE.DAT`'s all along. The shortfall is exactly
+  `KID.DAT` minus `TITLE.DAT`, 424 bytes.
+
+So one handle carried **one file's contents and another file's length**, and
+the two halves of that disagreed by an amount that means nothing until you
+subtract two directory entries. The program read a short index and asked for
+its floppy back.
+
+`dos_fh_new` disowns the window when it hands out a record that owns it. The
+close has already flushed anything dirty, so disowning is the whole of the
+fix, and `0FFh` is a value `take` and `flush` both already understand.
+
 #### 96.11.4 An `int 13h` failure is NOT end of file
 
 `dos_fh_fill`'s `.eof` arm turns a refusal from `OSAPI_FILE_READ_AT` into
