@@ -89,7 +89,16 @@ DOS_IMGP    equ DOS_PSPP+16         ; para 26    : the image, at PSP:0100
 ; That is DOS's limit rather than a choice: PSP:0080 is a length byte, then
 ; the text, then an 0Dh, all inside 128 bytes. A field that let a 128th
 ; character in would be one the user could type into and not have obeyed.
-DOS_TRACEN  equ 256                 ; DOSTRACE ring entries (power of two).
+DOS_TRACEN  equ 512                 ; DOSTRACE ring entries (power of two).
+DOS_TRDUMPN equ 256                 ; ...and how many of them TRACE.LOG holds,
+                                    ; which is separate because the RING is
+                                    ; read live off a debugger and the FILE is
+                                    ; what the field posts: 256 lines is
+                                    ; plenty of the latter, and 512 entries of
+                                    ; dump buffer would be 36KB of bss taken
+                                    ; out of the program's own arena - which
+                                    ; would change the measurement the
+                                    ; instrument exists to take.
                                     ; IT HOLDS A WHOLE RUN, and 64 did not:
                                     ; the failure under investigation makes
                                     ; 169 calls, so a 64-entry ring threw away
@@ -1371,7 +1380,10 @@ dos_int21:
     push bp
     push ds
     mov bp, sp                      ; [bp]=DS [bp+2]=BP [bp+4]=IP [bp+6]=CS
-    push cs                         ; [bp+8]=FLAGS, all on the PROGRAM's stack
+    push si                         ; [bp+8]=FLAGS, all on the PROGRAM's stack
+    push di                         ; ...and [bp-2]=SI [bp-4]=DI [bp-6]=ES,
+    push es                         ; banked here rather than per handler
+    push cs
     pop ds
 %ifdef DOSTRACE
     call dos_trace
@@ -1462,9 +1474,10 @@ dos_int21:
     jmp .bad
 
 .term:
-    pop ds
-    pop bp
-    jmp dos_terminate               ; AL is already the exit code
+    mov sp, bp                      ; THE FRAME, not the top of the stack: the
+    pop ds                          ; gate banks three registers below `bp` now
+    pop bp                          ; (SPEC.md 96.7.1) and a bare pop pair here
+    jmp dos_terminate               ; took two of them instead. AL is the code
 
 .putc:
     mov al, dl
@@ -1472,10 +1485,12 @@ dos_int21:
     jmp .ok
 
 .puts:
-    pop ds                          ; the string is the PROGRAM's, at DS:DX -
-    push ds                         ; so its DS is what addresses it, not ours
-    push si
-    mov si, dx
+    push ds                         ; the string is the PROGRAM's, at DS:DX, so
+    mov ds, [bp]                    ; its DS addresses it and not ours - OFF THE
+    push si                         ; FRAME and not off the top of the stack,
+    mov si, dx                      ; which is three registers deeper than it
+                                    ; was (SPEC.md 96.7.1). Ours is banked
+                                    ; because .ok's own work is DS-relative
 .sloop:
     mov al, [si]
     cmp al, '$'
@@ -1485,6 +1500,7 @@ dos_int21:
     jmp short .sloop
 .sdone:
     pop si
+    pop ds
     jmp .ok
 
 .getce:
@@ -1771,7 +1787,7 @@ dos_int21:
     shl bx, 1
     mov ax, [es:bx+2]
     mov bx, [es:bx]
-    mov es, ax
+    mov [bp-6], ax                  ; ...the banked ES, as .getdta above
     pop ax
     jmp .ok
 .curdrv:
@@ -1796,8 +1812,9 @@ dos_int21:
     mov [dos_dtaseg], ax            ; it already runs on
     jmp .ok
 .getdta:
-    mov bx, [dos_dta]               ; AH=2Fh: out ES:BX
-    mov es, [dos_dtaseg]
+    mov bx, [dos_dta]               ; AH=2Fh: out ES:BX - and ES is written into
+    mov ax, [dos_dtaseg]            ; the gate's banked slot, which .leave
+    mov [bp-6], ax                  ; restores from (SPEC.md 96.7.1)
     jmp .ok
 
 ; --- find first / find next (SPEC.md 96.12.1) --------------------------------
@@ -2220,17 +2237,34 @@ dos_int21:
     call dos_tr_result
 %endif
     or word [bp+8], 1               ; CF=1 in the RETURNED flags
-    pop ds
-    pop bp
-    iret
+    jmp short .leave
 .ok:
 %ifdef DOSTRACE
     clc
     call dos_tr_result
 %endif
     and word [bp+8], 0xFFFE         ; CF=0 in the returned flags
-    pop ds
-    pop bp
+.leave:
+    ; STKBALANCE-OK: the gate banks SI, DI and ES below `bp` and unwinds them
+    ; with `mov sp, bp` rather than three pops, so every exit reads +3 to a
+    ; walker that counts pushes. That is the POINT of the arrangement - the
+    ; frame is restored from `bp`, so the gate's promise does not rest on
+    ; every handler below it being balanced (SPEC.md 96.7.1).
+    ;
+    ; SI, DI AND ES GO BACK, AND THAT IS NOT TIDINESS (SPEC.md 96.7.1).
+    ; No INT 21h function returns SI or DI, so a program keeps live pointers
+    ; in them across a call - and the file handlers here use SI as the address
+    ; of the handle record and hand it back, so an `open` returned a pointer
+    ; into OUR OWN table in a register the program was still using. ES is the
+    ; same guarantee with two documented exceptions, and AH=35h and AH=2Fh
+    ; make theirs by writing the BANKED slot rather than the live register -
+    ; the way the carry flag is already returned.
+    mov si, [bp-2]
+    mov di, [bp-4]
+    mov es, [bp-6]
+    mov sp, bp                      ; ...and whatever depth a handler left at,
+    pop ds                          ; so the gate's promise does not rest on
+    pop bp                          ; every one of them being balanced
     iret
 
 ; -----------------------------------------------------------------------------
@@ -2408,7 +2442,11 @@ dos_trace_dump:
 .short:
     xor bx, bx
 .go:
-    and bx, (DOS_TRACEN * 16) - 16
+    cmp cx, DOS_TRDUMPN             ; the FILE holds fewer than the ring does
+    jbe .fits
+    mov cx, DOS_TRDUMPN
+.fits:
+    and bx, (DOS_TRACEN * 32) - 32
     or cx, cx
     jz .write
     xor dx, dx                      ; DX = entries on this line
@@ -2443,13 +2481,27 @@ dos_trace_dump:
     inc di
     mov ax, [bx+dos_traceb+12]
     call dos_tr_hex4
+    mov byte [di], '@'              ; ...and WHO CALLED, which is what a pair
+    inc di                          ; of traces that diverge with no call in
+    mov ax, [bx+dos_traceb+18]      ; between is read on
+    call dos_tr_hex4
+    mov byte [di], ':'
+    inc di
+    mov ax, [bx+dos_traceb+16]
+    call dos_tr_hex4
+    mov byte [di], '/'
+    inc di
+    mov ax, [bx+dos_traceb+20]
+    call dos_tr_hex4
     mov byte [di], 13
     inc di
     mov byte [di], 10
     inc di
-    add bx, 16
-    and bx, (DOS_TRACEN * 16) - 16
-    loop .ent
+    add bx, 32
+    and bx, (DOS_TRACEN * 32) - 32
+    dec cx                          ; ...and NOT `loop`: the body outgrew its
+    jz .write                       ; own short displacement when the entry
+    jmp .ent                        ; learned to say who called
 .write:
     mov byte [di], 13
     inc di
@@ -2513,10 +2565,9 @@ dos_trace:
     push bx
     push si
     mov si, [dos_tracew]
-    and si, (DOS_TRACEN * 16) - 16  ; the ring's byte index, entry-aligned.
-    add si, dos_traceb              ; 16 and not 12 so the mask still works -
-    mov [dos_tracei], si            ; a ring of non-power-of-two entries needs
-                                    ; a divide where this needs an AND
+    and si, (DOS_TRACEN * 32) - 32  ; the ring's byte index, entry-aligned - a
+    add si, dos_traceb              ; power-of-two stride so this is an AND
+    mov [dos_tracei], si            ; where any other size needs a divide
     mov [si], ax                    ; AX carries the function AND its
     mov [si+2], bx                  ; sub-function; the other three carry what
     mov [si+4], cx                  ; it is ABOUT - a handle, a count, an
@@ -2527,7 +2578,31 @@ dos_trace:
     mov word [si+10], 0xFFFF        ; returned is visible as one
     mov word [si+12], 0xFFFF
     mov word [si+14], 0xFFFF
-    add word [dos_tracew], 16
+
+    ; --- WHO CALLED, which is the question AH and its arguments cannot answer.
+    ; Two runs that make the same calls with the same arguments and then
+    ; diverge have already diverged somewhere with no call in it, and the only
+    ; thing that says where is the CS:IP the `int` pushed. CS is recorded raw
+    ; and the reader subtracts the PSP, so the offset compares across two
+    ; machines that loaded the program at different addresses.
+    mov ax, [bp+4]
+    mov [si+16], ax                 ; the return IP - one instruction past the
+    mov ax, [bp+6]                  ; `int 21h` that got here
+    mov [si+18], ax                 ; ...and its CS
+    mov ax, [bp]                    ; ...and DS, BP: BOTH OFF THE FRAME, and
+    mov [si+20], ax                 ; the live registers are NOT them -
+    mov ax, [bp+2]                  ; dos_int21 pushed its own over the
+    mov [si+26], ax                 ; caller's before this was reached
+    pop ax                          ; SI is the caller's, under the push above
+    push ax
+    mov [si+22], ax
+    mov [si+24], di                 ; DI is untouched from the gate
+    mov ax, ss                      ; SS is still the program's - a DOS call
+    mov [si+28], ax                 ; runs on the caller's stack
+    lea ax, [bp+10]                 ; ...at the SP the `int` was taken on
+    mov [si+30], ax
+
+    add word [dos_tracew], 32
     inc word [dos_tracen]           ; ...and the TOTAL, which does not wrap
     pop si
     pop bx
@@ -2557,8 +2632,9 @@ dos_tr_result:
     mov [si+8], ax
     mov word [si+10], 0
     mov [si+12], bx                 ; ...the OTHER answer, whole
-    mov ax, es
-    mov [si+14], ax
+    mov ax, [bp-6]                  ; ES as the PROGRAM will get it, off the
+    mov [si+14], ax                 ; gate's banked slot and not the live
+                                    ; register a handler happens to have left
     pop ax                          ; ...the flags, back off the stack
     push ax
     test al, 1                      ; CF is bit 0 of the low half
@@ -5079,11 +5155,13 @@ MCB_Z       equ 'Z'
 ; -----------------------------------------------------------------------------
 dos_mcb_split:
     push es
-    mov cx, [es:MCB_SZ]
-    sub cx, bx
-    jbe .out                        ; nothing spare
-    dec cx                          ; ...one paragraph of it is the new header
-    jz .out
+    push dx                         ; DX IS THE CALLER'S AND MUST SURVIVE. Not
+    mov cx, [es:MCB_SZ]             ; tidiness: dos_mcb_alloc walks the chain in
+    sub cx, bx                      ; DX and forms its ANSWER from it after
+    jbe .out                        ; calling here, so a split that moved DX
+    dec cx                          ; handed the program a segment one whole
+    jz .out                         ; block high - inside the FREE remainder
+                                    ; this call had just cut (SPEC.md 96.9.1)
     mov al, [es:MCB_SIG]            ; the tail inherits our end-of-chain flag
     mov dx, es
     mov [es:MCB_SZ], bx
@@ -5095,6 +5173,7 @@ dos_mcb_split:
     mov word [es:MCB_OWN], 0        ; free
     mov [es:MCB_SZ], cx
 .out:
+    pop dx
     pop es
     ret
 
@@ -5331,12 +5410,12 @@ dos_mcb_resize:
 %ifdef DOSTRACE                 ; ...and NOTHING when it is off: the ring is
     DBSS DOS_B_TRACEN, 2        ; 514 bytes, and an instrument that costs the
     DBSS DOS_B_TRACEW, 2        ; shipped build anything is one that gets
-    DBSS DOS_B_TRACEB, DOS_TRACEN * 16  ; deleted rather than kept
+    DBSS DOS_B_TRACEB, DOS_TRACEN * 32  ; deleted rather than kept
     DBSS DOS_B_TRACEI, 2                ; the entry a result belongs to, 0 =
                                         ; the call was filtered out
     DBSS DOS_B_TRNM,   DOS_TRNM_N * 13      ; the NAMES the program passed
     DBSS DOS_B_TRNMI,  1                    ; ...and how many, capped
-    DBSS DOS_B_TRDUMP, DOS_TRACEN * 44 + DOS_TRNM_N * 15 + 96
+    DBSS DOS_B_TRDUMP, DOS_TRDUMPN * 72 + DOS_TRNM_N * 15 + 96
 %endif
     DBSS DOS_B_VW,    2
     DBSS DOS_B_VH,    2

@@ -162,6 +162,54 @@ overlays = [
     irq = 7
     dsp_version = [2, 1]
 
+# THE ONLY MACHINE HERE WITH 720KB DRIVES, and it exists because without one
+# no 720KB or 1.44MB image on this emulator can be read past its first half.
+#
+# Every other profile in this file takes `pcxt_2_360k_floppies`, which is a
+# 40-cylinder drive: 9 sectors, 2 heads, 720 sectors in all. A 720KB image has
+# 1,440, so LBA 720 and up is under a cylinder the head cannot reach. Nothing
+# reports that as a configuration problem - the first half reads perfectly and
+# the second half answers an int 13h error, which a caller that treats a
+# refusal as end-of-file turns into a SHORT FILE. It cost most of a session:
+# Prince of Persia's disk puts nine of its files past cylinder 39, so the game
+# opened DIGISND1.DAT, was told it was empty, and asked for its floppy back -
+# and every layer in between looked innocent because every layer WAS.
+#
+# So a row that mounts a 720KB or 1.44MB image wants this machine, not
+# `os8088_5150_herc_sb_gla`. It is that machine with one overlay changed, which
+# is also what makes it an A/B for the geometry itself.
+[[machine]]
+name = "os8088_5150_herc_sb_720_gla"
+type = "Ibm5150v256K"
+rom_set = "glabios_pc"
+speaker = true
+overlays = [
+    "pcxt_2_720k_floppies",
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "MDA"
+    subtype = "Hercules"
+    clock_mode = "Dynamic"
+
+    [[machine.sound]]
+    type = "AdLib"
+    io_base = 0x388
+
+    [[machine.sound]]
+    type = "SoundBlaster"
+    io_base = 0x220
+    irq = 7
+    dsp_version = [2, 1]
+
 # The GLaBIOS twin, for when you want a machine that BOOTS FAST rather than one
 # that boots the way the calibration machine does.
 #

@@ -118704,6 +118704,42 @@ Invalid-drive answers are DOS's own, per function and not invented:
 call on a lettered path → CF=1 with `AX=0Fh`; `AH=0Eh` does not fail and
 returns the drive count, which spans the hole.
 
+#### 96.7.1 The gate banks SI, DI and ES, and the handlers stopped having to
+
+`INT 21h` preserves every register that is not a documented output. That is not
+a courtesy — it is the whole reason a program can keep a live pointer in `SI`
+across a call — and this box did not do it. `DS` and `BP` were banked at the
+gate from the first commit; `SI`, `DI` and `ES` were left to each handler, and
+the file handlers use `SI` as **the address of the handle record**.
+
+So `AH=3Dh` returned a pointer into our own table in a register the program
+was still using. Nothing failed at the call: Prince of Persia opened its data
+file, read six bytes, seeked, read the index — all correct, all with the same
+arguments a real DOS was given — and then, two dozen calls later, computed a
+record length of `0A700h` where DOS computed `0121h`, at **the same
+instruction address**, because a pointer it had parked in `SI` before the open
+was now ours.
+
+It is banked at the gate rather than per handler, because per-handler is the
+arrangement that produced the bug: every one of them has to remember, and the
+one that forgets fails somewhere else. `.leave` restores all three and then
+`mov sp, bp`, so the guarantee does not rest on every handler being balanced
+either.
+
+**The two calls that DO return `ES` write the banked slot**, not the live
+register — `AH=35h` and `AH=2Fh` — which is exactly how the carry flag has
+always been returned here (§96.7): the answer is edited into the frame the
+`iret` will restore from. No `INT 21h` function returns `SI` or `DI` at all, so
+those two need no exception.
+
+**What it cost to add was two bugs in code that popped the frame by hand.**
+`.term` unwound with a bare `pop ds` / `pop bp`, and `AH=09h` reached the
+program's `DS` with a `pop ds` / `push ds` pair — both correct against a frame
+two words deep and both silently wrong against one that is five. They take the
+frame from `bp` now. The lesson is the ordinary one about a layout that more
+than one place knows: the gate's shape was written down in a comment and read
+by three pieces of code, and changing it compiled cleanly.
+
 #### 96.12.1.1 `AH=4Eh`'s CX is a MASK, and ignoring it answers the wrong question
 
 `AH=4Eh` takes an attribute mask in `CX`, and this box ignored it. That is not
@@ -118754,6 +118790,28 @@ it came on.
 
 Directories are filtered on the same rule: returned only when the caller set
 bit 4, which is what DOS does and what this box also did not do.
+
+#### 96.11.4 An `int 13h` failure is NOT end of file
+
+`dos_fh_fill`'s `.eof` arm turns a refusal from `OSAPI_FILE_READ_AT` into
+"zero bytes available", and `AH=3Fh` then answers the program `AX=0, CF=0` —
+**end of file**. That is right for the case it was written for, a read at or
+past the end, and wrong for every other reason the call can refuse: a sector
+the drive cannot reach, a chain that does not resolve, a disk that has been
+swapped.
+
+It matters because of what the program does next. A program told `CF=1` shows
+an error naming a file; a program told "end of file" believes the file is
+**shorter than it is** and carries on. Prince of Persia was told
+`DIGISND1.DAT` was empty and asked for its floppy back, and every layer in
+between looked innocent, because every layer *was* — the sector really was
+unreachable, and the only defect was that nobody said so.
+
+This is recorded rather than fixed, because fixing it needs a distinction the
+back end does not currently publish: `OSAPI_FILE_READ_AT` answers `CF=1` for
+"no such name" and for "the transfer failed" alike, so this layer cannot tell
+a short file from a bad one either. The honest shape is a DOS error `1Eh`
+(read fault) on a transfer failure and `0` only at the end.
 
 #### 96.12.1.2 One binary, two DOSes — `tests/dostrap/dosref.asm`
 
@@ -118971,6 +119029,40 @@ place this allocator is better off than the machine it imitates.
 next allocation's walk — so a program that frees two neighbours and asks for
 their sum is asking for something DOS would refuse too.
 
+
+#### 96.9.1 The allocator handed out the block it had just freed
+
+`dos_mcb_alloc` walks the chain with the candidate MCB's segment in `DX`,
+calls `dos_mcb_split` to cut the free run down to what was asked for, and then
+forms its answer as `DX + 1` — the paragraph after the header. `dos_mcb_split`
+uses `DX` as a scratch register for the address of the **new tail header** it
+creates, and did not put it back.
+
+So every allocation that had to split a free run — which is every allocation
+into an arena bigger than the request, so nearly all of them — returned a
+segment **one whole block high, inside the free remainder the split had just
+cut.** The block the allocator marked as owned was never given to anybody, and
+the memory the program was told to use was still on the free list.
+
+What that looks like from outside is not a crash. Prince of Persia asks for
+`0FFDh` paragraphs six times in a row, and on this box the first and second
+requests came back with the *same segment*, and so did the third and fourth:
+
+    DOS 3.30   3BB9  4BB7  5BB5  6BB3  7BB1  8BAF      six blocks
+    os8088     5A1C  5A1C  7A18  7A18                  two, handed out twice
+
+The program then loads two different things into one 64KB block. The reason
+the repeat takes two calls rather than one is worth following, because it is
+what makes the bug look like an allocator that *forgets*: the wrong segment
+the program was handed is the free tail's data area, so the `AH=4Ah` the
+program makes on it next resizes a block that is **free**, leaving a free block
+of exactly the requested size for the following `AH=48h` to find and return
+honestly.
+
+The fix is in `dos_mcb_split`, which banks `DX` now. It is a leaf helper with
+two callers and no documented outputs, so preserving is the contract it should
+always have had — and `dos_mcb_alloc` forming an address from a register across
+a call it did not write is the other half of the same mistake.
 
 ### 96.10 `INT 33h` is a translation, not a driver
 

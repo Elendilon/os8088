@@ -18,7 +18,7 @@
     org 0x100
     cpu 8086
 
-NENT    equ 256                     ; entries, 4KB. IT KEEPS THE FIRST ONES AND
+NENT    equ 512                     ; entries, 16KB. IT KEEPS THE FIRST ONES AND
                                     ; STOPS: this exists to find where two runs
                                     ; DIVERGE, and divergence is early - a ring
                                     ; that wrapped would throw away the only
@@ -89,6 +89,7 @@ new21:
 
     cmp word [cs:total], NENT
     jae .chain                      ; full: the first NENT are the answer
+    push bp
     push si
     push ax
     mov si, [cs:wr]
@@ -104,10 +105,34 @@ new21:
     mov word [cs:si+10], 0xFFFF
     mov word [cs:si+12], 0xFFFF
     mov word [cs:si+14], 0xFFFF
-    add word [cs:wr], 16
+
+    ; --- WHO CALLED. The `int 21h` pushed FLAGS, CS and IP, and this handler
+    ; has since pushed BP, SI and AX - so the caller's frame is six bytes up
+    ; from where BP now points. CS is recorded raw and the reader subtracts the
+    ; PSP, so an offset compares across two machines that loaded the program at
+    ; different addresses.
+    mov bp, sp
+    mov ax, [bp+6]                  ; +0 AX, +2 SI, +4 BP, then IP
+    mov [cs:si+16], ax
+    mov ax, [bp+8]
+    mov [cs:si+18], ax              ; ...and CS
+    mov ax, ds
+    mov [cs:si+20], ax              ; DS, SI, DI, BP: the caller's, live -
+    mov ax, [bp+2]                  ; nothing above has changed them except
+    mov [cs:si+22], ax              ; the three this pops back
+    mov [cs:si+24], di
+    mov ax, [bp+4]
+    mov [cs:si+26], ax
+    mov ax, ss
+    mov [cs:si+28], ax
+    lea ax, [bp+12]                 ; ...at the SP the `int` was taken on
+    mov [cs:si+30], ax
+
+    add word [cs:wr], 32
     inc word [cs:total]
     pop ax
     pop si
+    pop bp
 
     pushf
     call far [cs:old21]
@@ -195,9 +220,21 @@ dump:
     stosb
     mov ax, [bx+ring+12]
     call hex4
+    mov al, '@'
+    stosb
+    mov ax, [bx+ring+18]
+    call hex4
+    mov al, ':'
+    stosb
+    mov ax, [bx+ring+16]
+    call hex4
+    mov al, '/'
+    stosb
+    mov ax, [bx+ring+20]
+    call hex4
     call eol
     call flush
-    add bx, 16
+    add bx, 32
     pop cx
     loop .ent
 .done:
@@ -293,7 +330,7 @@ s_wrote:  db 'TRACE.LOG written', 13, 10, 0
 s_nofile: db 'could not create TRACE.LOG', 13, 10, 0
 s_file:   db 'TRACE.LOG', 0
 s_hdr:    db 'os8088 DOS INT 21h trace', 13, 10
-          db 'AX BX CX DX>AXout/CF/ES:BX ', 0
+          db 'AX BX CX DX>AXout/CF/ES:BX@CS:IP/DS ', 0
 
 armed:    db 0                      ; 0 until the EXEC that loads the subject
 old21:    dd 0
@@ -303,5 +340,5 @@ total:    dw 0
 fh:       dw 0
 line:     times 128 db 0             ; ...a whole line: the header plus its
                                     ; two numbers is 60, and an entry 41
-ring:     times NENT * 16 db 0
+ring:     times NENT * 32 db 0
 resident_end:
