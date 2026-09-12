@@ -60,6 +60,7 @@ PSP fields that were zero here and are not zero under DOS, found that way.
 | `tests/dostrap/rdsum.asm` | did the program get the bytes the disk holds? |
 | `tests/dostrap/twoopen.asm` | is it the file, or is it the *second handle*? |
 | `tests/dostrap/diskcost.asm` | what one open and one read cost the DRIVE — the only SPEED probe |
+| `tests/dostrap/dfree.asm` | what `AH=36h` answers, for every drive letter |
 | `apps/dos/dos.asm`, `%ifdef DOSTRACE` | the box's own ring — **not in any shipped build** |
 
 Both Python tools carry `--selfcheck`, which needs no emulator and no network.
@@ -307,6 +308,22 @@ Three traps, all paid for once:
 - **The key wait is not a courtesy.** Under os8088 the fsx bracket ends when
   the program does and the desktop comes straight back, taking its own disk
   traffic with it.
+
+### `dfree.asm` — the four registers, for every drive letter
+
+`AH=36h` (SPEC.md §96.27) answers four things and a program usually reads one
+of them, so *"the installer stopped complaining"* is not *"the numbers are
+right"*: a wrong total-cluster count is invisible to a caller that only wants
+free bytes. This prints `AX`, `BX`, `CX` and `DX` for drives 0..4 and the host
+compares them with `tools/os88fat.py` reading the same image — one side the
+guest's arithmetic, the other an independent FAT reader that shares no code
+with it.
+
+`AX=FFFFh` is the row to look at hardest. It is DOS's own *invalid drive*, and
+it is the answer a program can act on **when it ignores the carry — which for
+this call every program does**, DOS never setting `CF` here. That is the exact
+shape of the defect §96.27 fixed: unimplemented, the call returned `AX=1` with
+`CF`, and Prince's installer read it as one sector per cluster.
 
 ---
 

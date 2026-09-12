@@ -569,6 +569,45 @@ OSAPI_LZ_LZB equ 1
                                  ; latter and spent 44% of an upload here
                                  ; (SPEC.md 77.40).
 
+%define OSAPI_VOL_STAT      KERNEL_SEG:0x0570   ; EVERY FACT ABOUT THE VOLUME YOU
+                                 ; ARE STANDING ON, in one record (SPEC.md
+                                 ; 18.4.6). ES:DI = your buffer, CX = its size
+                                 ; in bytes; out CF=0 with CX = bytes written,
+                                 ; CF=1 with AX = FERR_*.
+                                 ;
+                                 ; ONE DOOR FOR A FAMILY. DOS alone asks this
+                                 ; four ways (AH=36h, AH=1Bh, AH=1Ch, AH=32h)
+                                 ; and a slot apiece would be four cells of a
+                                 ; table that cannot grow. It also answers
+                                 ; OSAPI_VOL_KIND's two questions, so "what IS
+                                 ; this volume" is one call instead of two.
+                                 ;
+                                 ; **THE SIZE YOU PASS IS THE REQUEST.**
+                                 ; Everything up to VS_NOFREE is a read of
+                                 ; resident state; VS_FREE is a walk of the
+                                 ; whole FAT - ~105 ms on a 20MB disk on a
+                                 ; 4.77MHz 8088, the same walk
+                                 ; OSAPI_FILE_DFREE makes. Pass VS_NOFREE and
+                                 ; it is not taken; pass VS_SIZEOF and you
+                                 ; have asked for it. A buffer shorter than
+                                 ; VS_NOFREE is refused with FERR_BIG.
+                                 ;
+                                 ; The record may GROW, so read CX back rather
+                                 ; than assuming: a caller that knows 12 bytes
+                                 ; passes 12 and gets 12 whatever a later
+                                 ; kernel can say.
+VS_BPS    equ 0                 ; word: bytes per sector
+VS_SPC    equ 2                 ; word: sectors per cluster
+VS_CLUS   equ 4                 ; word: total clusters (CountOfClusters)
+VS_MEDIA  equ 6                 ; byte: the BPB media descriptor
+VS_FAT    equ 7                 ; byte: 12 or 16, the FAT width in BITS
+VS_KIND   equ 8                 ; byte: VK_REMOVABLE / VK_FIXED, 0xFF unknown
+VS_TRANS  equ 9                 ; byte: VT_BIOS / VT_DRIVER, 0xFF unknown
+VS_NOFREE equ 10                ; ...and the size that stops HERE, before the
+                                ; expensive field below
+VS_FREE   equ 10                ; word: free clusters
+VS_SIZEOF equ 12
+
 ; --- menus (SPEC.md 12.2) ------------------------------------------------------
 ; Every application owns the menu bar while its window is frontmost: the
 ; System (chip) menu stays put, the app's NAME is drawn to its right, and

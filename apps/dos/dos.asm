@@ -1555,6 +1555,8 @@ dos_int21:
     je .curdrv
     cmp ah, 0x0E
     je .seldrv
+    cmp ah, 0x36
+    je .dfree
     cmp ah, 0x1A
     je .setdta
     cmp ah, 0x2F
@@ -1926,6 +1928,79 @@ dos_int21:
     call dos_drv_sel
     call dos_drv_count
     jmp .ok
+.dfree:
+    ; AH=36h: DL = the drive - 0 the default, 1 = A. Out AX = sectors per
+    ; cluster, BX = free clusters, CX = bytes per sector, DX = total clusters;
+    ; AX = FFFFh for an INVALID DRIVE, which is the answer that matters
+    ; (SPEC.md 96.27).
+    ;
+    ; **IT IS THE REFUSAL THAT WAS THE DEFECT, not the absence.** Unimplemented,
+    ; this fell to .bad and returned AX=1 with CF - and DOS does not use CF
+    ; here at all, so an installer read "one sector per cluster" and three
+    ; stale registers. Prince of Persia's INSTALL selects C:, is told it is
+    ; standing on C:, asks this, and prints "Invalid drive letter" (96.27.1).
+    push bx
+    push si
+    push di
+    push es
+    mov al, dl
+    or al, al
+    jnz .df1
+    mov al, [dos_vol]               ; 0 = the drive we are on
+    jmp short .dfv
+.df1:
+    dec al                          ; 1-based -> a volume index
+.dfv:
+    mov bh, [dos_vol]               ; where to come back to
+    cmp al, bh
+    je .dfask                       ; the common case by far: a program selects
+                                    ; the drive and then asks about it
+    mov dl, al
+    call dos_drv_sel                ; A REAL MOUNT, and dos_drv_sel is the one
+    cmp al, [dos_vol]               ; place that knows how to put itself back
+    jne .dfbad                      ; if the mount refuses
+.dfask:
+    push ds
+    pop es                          ; the record lands in OUR bss, not the
+    mov di, dos_vsbuf               ; program's: nothing here is the caller's
+    mov cx, VS_SIZEOF               ; buffer and DOS gives us nowhere to put one
+    call OSAPI_VOL_STAT
+    jc .dfback
+    cmp cx, VS_SIZEOF
+    jb .dfback                      ; a short answer has no free count in it,
+                                    ; and three quarters of a reply is not one
+    mov ax, [dos_vsbuf+VS_SPC]
+    mov bx, [dos_vsbuf+VS_FREE]
+    mov cx, [dos_vsbuf+VS_BPS]
+    mov dx, [dos_vsbuf+VS_CLUS]
+    call .dfhome
+    pop es
+    pop di
+    pop si
+    add sp, 2                       ; BX is an ANSWER: drop the banked one
+    jmp .ok
+.dfback:
+    call .dfhome
+.dfbad:
+    mov ax, 0xFFFF                  ; DOS's own "invalid drive", and a value a
+    pop es                          ; program can test even when it ignores the
+    pop di                          ; flag - which for this call every program
+    pop si                          ; does, DOS never setting CF here
+    add sp, 2
+    jmp .ok
+; --- .dfhome - back to the drive we were standing on, if we left it ---------
+.dfhome:
+    push ax
+    push dx
+    mov dl, bh
+    cmp dl, [dos_vol]
+    je .dfh
+    call dos_drv_sel
+.dfh:
+    pop dx
+    pop ax
+    ret
+
 .setdta:
     mov [dos_dta], dx               ; AH=1Ah: DS:DX, and DS is the program's -
     mov ax, [bp]                    ; which for every real program is the PSP
@@ -6062,6 +6137,9 @@ PKT_VERSION equ 9
     DBSS DOS_B_ARGS,  DOS_ARGSZ  ; the user's arguments, NUL-terminated
     DBSS DOS_B_PBUF,  DOS_PBUF   ; ...and the program's own path, for the env
     DBSS DOS_B_LN,    DOS_LNSZ  ; the arguments field's block (os88line.inc)
+    DBSS DOS_B_VSBUF, VS_SIZEOF  ; OSAPI_VOL_STAT's record (SPEC.md 18.4.6),
+                                 ; for AH=36h. OURS and not the program's:
+                                 ; DOS gives that call nowhere to put a buffer
     DBSS DOS_B_MEMKB, 2          ; SPEC.md 96.25: the arena cap in KB, 0 = as
                                  ; much as the machine will give
     DBSS DOS_B_MCHK,  DOS_MCHKSZ ; ...and the 'Keep disk cache' check box's own
@@ -9709,6 +9787,7 @@ dos_args    equ os88_image_end + DOS_B_ARGS    ; 128: the command tail the user
                                                ; framing and go on at the PSP
 dos_pbuf    equ os88_image_end + DOS_B_PBUF    ; the program's own path
 dos_ln      equ os88_image_end + DOS_B_LN      ; the field's os88line block
+dos_vsbuf   equ os88_image_end + DOS_B_VSBUF   ; OSAPI_VOL_STAT's record
 dos_memkb   equ os88_image_end + DOS_B_MEMKB   ; word: the arena cap, 0 = all
 dos_mchk    equ os88_image_end + DOS_B_MCHK    ; the check box's record
 dos_keepc   equ dos_mchk + DOS_MCHKON          ; byte: 1 = keep the disk cache

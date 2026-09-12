@@ -4020,7 +4020,18 @@ osapi_table:
                                   ;          SLOT of its own because BL on the
                                   ;          old one is whatever an older
                                   ;          package left there
-osapi_table_end:                  ; 0x0570
+    OSAPI_SLOT osapi_vol_stat     ; 0x0570 - EVERY FACT ABOUT THE VOLUME YOU
+                                  ;          ARE STANDING ON, in one record
+                                  ;          (SPEC.md 18.4.6). ES:DI = your
+                                  ;          buffer, CX = its size; out CF=0
+                                  ;          with CX = bytes written, CF=1
+                                  ;          with AX = FERR_*. One door for a
+                                  ;          FAMILY of questions - DOS alone
+                                  ;          asks it four ways - and the
+                                  ;          expensive field is LAST, so a
+                                  ;          short buffer does not pay for the
+                                  ;          FAT walk
+osapi_table_end:                  ; 0x0578
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -4028,8 +4039,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 172 * 8
-%error "os8088 API jump table must be exactly 172 8-byte slots"
+%if OSAPI_TABLE_LEN != 173 * 8
+%error "os8088 API jump table must be exactly 173 8-byte slots"
 %endif
 
 ; =============================================================================
@@ -5416,6 +5427,15 @@ osapi_file_dfree:
                                     ; only reference was a call - every other
                                     ; one is an API cell or a kind template,
                                     ; where the near entry is the contract
+
+; ---- osapi_vol_stat - the volume this app stands on, in one record ---------
+; osapi_file_dfree's V and for its reason (SPEC.md 19.2.1): an app asks this
+; about the disk its writes are going to, so an answer about the machine's
+; idea of "current" would be about the wrong one.
+osapi_vol_stat:
+    call inst_vol_enter
+    call COLD_SEG:dwf_dskw_vstat    ; its CX and CF are ours
+    ret
 
 ; ---- osapi_file_here / osapi_file_goto - the volume's location (SPEC.md 19.2)
 ;

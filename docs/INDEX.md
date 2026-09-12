@@ -144,6 +144,7 @@ Read first: [§18 disk.inc — floppy I/O (BIOS int 13h) + the FAT driver](../SP
 | `0x0130` | `OSAPI_FILE_DELETE` | SI = name; out CF=0 AX=0, else FERR_* |
 | `0x0138` | `OSAPI_FILE_RENAME` | SI = old name, DI = new name; out as above |
 | `0x0140` | `OSAPI_FILE_DFREE` | out CF=0, DX:AX = free bytes, BX = SECTORS per cluster. NO DISK I/O - AND THAT IS NOT THE SAME AS CHEAP (SPEC.md 18.4.5)... |
+| `0x0570` | `OSAPI_VOL_STAT` | EVERY FACT ABOUT THE VOLUME YOU ARE STANDING ON, in one record (SPEC.md 18.4.6)... |
 | `0x0150` | `OSAPI_FILE_DLG` | AL = 0 Open / 1 Save, BX = your window ptr, DI = completion proc, SI = default name (NUL, <= 12) or 0... |
 | `0x01E8` | `OSAPI_VOL_KIND` | AL = a volume index (0 = A:). CF=1 = there is no such volume... |
 | `0x0270` | `OSAPI_VOL_ADD` | AL = the driver's own volume handle, CX = the volume's sector count, DX = a listing claim's segment (0 = the kernel's 32-entry floor), SI = a NUL... |
