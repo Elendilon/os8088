@@ -67,6 +67,22 @@ def main():
         if "DRIVE B" not in text:
             fail("AH=19h did not answer drive B - the program was launched "
                  "from B: and the map is the identity (SPEC.md 96.6)")
+        # SELECTING A DRIVE, which used to be a no-op that reported the
+        # count (SPEC.md 96.6.1). The idiom every program uses is select then
+        # ask, so a stub answers "invalid drive" for drives that are there.
+        for want, why in (("SEL A", "AH=0Eh did not actually move to A: - it "
+                                    "answered the drive count and stayed on B:, "
+                                    "which is how an installer is told a mounted "
+                                    "drive is an invalid letter"),
+                          ("BACK B", "AH=0Eh could not get back to B:"),
+                          ("NOSUCH B", "selecting a drive that does not exist "
+                                       "MOVED the program - the current drive "
+                                       "must be left alone, which is what makes "
+                                       "the AH=19h after it a real answer")):
+            if want not in text:
+                fail("%s: expected %r in the program's output" % (why, want))
+        print("dosdir: AH=0Eh selects, comes back, and refuses what is not there")
+
         if "VEC ok" not in text:
             fail("AH=25h/35h did not round-trip a vector (SPEC.md 96.12)")
 

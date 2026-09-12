@@ -40,6 +40,52 @@ start:
     call put_chr
     call put_crlf
 
+    ; --- 1b. SELECTING one, which is the half that used to do nothing ------
+    ; AH=0Eh answered the drive COUNT and never moved, so the standard idiom -
+    ; select it, then ask AH=19h where you ended up - reported every drive as
+    ; invalid (SPEC.md 96.6.1). A: is the system disk and is always there.
+    mov ah, 0x0E
+    xor dl, dl
+    int 0x21
+    mov ah, 0x19
+    int 0x21
+    push ax
+    mov ah, 0x09
+    mov dx, msg_sel
+    int 0x21
+    pop ax
+    add al, 'A'
+    call put_chr
+    call put_crlf
+
+    mov ah, 0x0E                    ; ...and BACK, so everything after this
+    mov dl, 1                       ; still resolves on the gate disk
+    int 0x21
+    mov ah, 0x19
+    int 0x21
+    push ax
+    mov ah, 0x09
+    mov dx, msg_back
+    int 0x21
+    pop ax
+    add al, 'A'
+    call put_chr
+    call put_crlf
+
+    mov ah, 0x0E                    ; ...and a drive that is NOT there has to
+    mov dl, 5                       ; leave us exactly where we were, which is
+    int 0x21                        ; what makes the AH=19h above an answer
+    mov ah, 0x19                    ; rather than an echo
+    int 0x21
+    push ax
+    mov ah, 0x09
+    mov dx, msg_nodrv
+    int 0x21
+    pop ax
+    add al, 'A'
+    call put_chr
+    call put_crlf
+
     ; --- 2. a vector, hooked and read back ---------------------------------
     mov ax, 0x2560
     mov dx, myvec
@@ -343,6 +389,9 @@ n_one:    dw 0
 
 msg_hi:   db 13,10,'os8088 DOS dir gate - DOSDIR.COM',13,10,13,10,'$'
 msg_drv:  db 'DRIVE ','$'
+msg_sel:   db 'SEL ','$'
+msg_back:  db 'BACK ','$'
+msg_nodrv: db 'NOSUCH ','$'
 msg_vok:  db 'VEC ok',13,10,'$'
 msg_vbad: db 'VEC FAILED - the vector read back wrong',13,10,'$'
 msg_find: db 'FIND ','$'

@@ -118678,6 +118678,64 @@ Invalid-drive answers are DOS's own, per function and not invented:
 call on a lettered path → CF=1 with `AX=0Fh`; `AH=0Eh` does not fail and
 returns the drive count, which spans the hole.
 
+#### 96.6.1 Selecting one, and the jail that went with it
+
+`AH=0Eh` used to answer the drive count and **not move**, on two arguments.
+The first was right and still is: a program reads the count far more often
+than it changes drives, so the no-op path has to stay free. The second —
+*"a real change wants a directory walk this box does not have"* — stopped
+being true at §19.2.4.
+
+**What a stub costs is not the switch, it is the answer to the next
+question.** The way a program discovers whether a drive exists is to select it
+and then ask `AH=19h` where it ended up. A select that silently does nothing
+therefore reports **every** drive as invalid, the ones that are there
+included. An installer moving from B: to a mounted C: was told "invalid drive
+letter" by a box that had never looked.
+
+So the select is real. `OSAPI_VOL_KIND` is the validator — it answers `CF=1`
+for "there is no such volume", which is exactly the question — and a drive
+that does not exist leaves the current one **untouched**, which is what makes
+the `AH=19h` that follows truthful either way. A switch across volumes is a
+genuine mount and re-reads the boot sector (§19.2.2), so it is paid only when
+the drive actually changes; selecting the drive you are already on costs
+nothing at all, and the count is probed once and remembered.
+
+**And the launch directory is no longer a jail.** §96.12.2 made it the
+program's root: `\` meant it, nothing above it was reachable, and `AH=47h`
+answered relative to it. That is wrong for the software this box exists to
+run — programs are launched from subdirectories, walk out of them, and change
+drives — so the root of every drive is now that volume's own root.
+
+Removing the jail is what makes the rest small, because the machinery that
+enforced it was also the machinery that answered `AH=47h`. A package could not
+ask where it was standing, so the box recorded the path on the way **down**: a
+depth counter, a cluster table, a length table and a 68-byte string, all
+maintained per level, with an 8-level limit and no answer at all for a second
+drive. `OSAPI_FILE_PATH` replaces the lot.
+
+**`..` becomes a re-descent rather than a walk upward**, which is the one
+genuinely new idea here. A package still cannot walk up — `dsk_find` drops the
+on-disk dot links, so `OSAPI_FILE_FIND` never reports `..` — but it can now
+ask where it is. So up is: take the path, drop the last component, and walk
+down to what is left. That has no depth limit, needs nothing remembered, and
+is correct after a drive switch, which a recorded stack would not have been.
+The walker is shared with the one a `.LNK` uses to reach its working directory
+(§96.21).
+
+What each drive keeps is then **one cluster**, and a slot nobody has touched
+is zero — which `.bss` already is, and which reads as that volume's root.
+There is no "has this been initialised" flag because there is no other state a
+fresh drive could be in.
+
+The whole change is **+144 bytes of image and −88 of bss**: the drive table
+and the switch cost less than the bookkeeping they retire.
+
+`DVOL_MAX` is mirrored package-side as a **capacity** rather than a fact about
+the machine, and every use of it is bound-checked. A kernel that grows a
+seventh volume costs this box reach; it can never cost it a write past its own
+bss, which is somebody else's heap claim.
+
 ### 96.7 What wave 1 answers, and what it refuses
 
 `INT 20h`, and `INT 21h`: `AH=00h`, `01h`, `02h`, `07h`, `08h`, `09h`, `0Bh`,

@@ -800,11 +800,10 @@ dos_fsx_main:
     add ax, DOS_PSPP                ; command tail's own 128 bytes - DOS puts
     mov [dos_dtaseg], ax            ; it there and a program that never calls
     mov word [dos_dta], 0x80        ; AH=1Ah relies on it
-    mov ax, [dos_dir]               ; ...and we start where the launch put us,
-    mov [dos_curdir], ax            ; which is the ROOT of the program's world
-    mov [dos_cdclus], ax            ; (SPEC.md 96.12.2)
-    mov byte [dos_cddep], 0
-    mov byte [dos_cwdbuf], 0
+    mov ax, [dos_dir]               ; ...and we start where the launch put us.
+    mov [dos_curdir], ax            ; NOT a root: a program launched from a
+    mov al, [dos_vol]               ; subdirectory can walk out of it, like it
+    call dos_drv_bank               ; would under DOS (SPEC.md 96.6.1)
     call dos_date_init              ; the RTC once, or the kernel's fallback
 
     ; --- into the program --------------------------------------------------
@@ -1413,9 +1412,11 @@ dos_int21:
     ; answered from the wrong place (SPEC.md 96.12.2).
     cmp byte [dos_fabs], 0
     je .fhabsok
-    cmp byte [dos_cddep], 0
-    jne .fhabsno
-.fhabsok:
+    cmp word [dos_curdir], 0        ; "\NAME" names the VOLUME's root, so it is
+    jne .fhabsno                    ; answerable exactly when we are standing
+.fhabsok:                           ; there. Elsewhere it is still refused
+                                    ; rather than resolved in the wrong folder:
+                                    ; this wave opens names, not paths
     clc
     ret
 .fhabsno:
@@ -1617,13 +1618,19 @@ dos_int21:
     jmp .ok
 .curdrv:
     mov al, [dos_vol]               ; AH=19h: 0 = A. The map is the identity
-    jmp .ok                         ; with our hole in it (SPEC.md 96.6)
+    jmp .ok                         ; with our hole in it (SPEC.md 96.6), and
+                                    ; it MOVES now - which is what makes the
+                                    ; select-then-ask idiom above truthful
 .seldrv:
-    ; AH=0Eh: DL = the drive to select; out AL = how many there are. A DOS
-    ; program calls this and reads the count far more often than it changes
-    ; drives, and a real change wants the directory walk this wave does not
-    ; have - so the count is answered and the switch is not made.
-    mov al, 4
+    ; AH=0Eh: DL = the drive to select; out AL = how many there are.
+    ;
+    ; IT ACTUALLY SWITCHES NOW (SPEC.md 96.6.1). It used to answer the count
+    ; and stay put, which is not a small gap: the way a program finds out
+    ; whether a drive exists is to select it and then ask AH=19h where it
+    ; ended up, so a select that silently does nothing reports EVERY drive as
+    ; invalid - including the ones that are there.
+    call dos_drv_sel
+    call dos_drv_count
     jmp .ok
 .setdta:
     mov [dos_dta], dx               ; AH=1Ah: DS:DX, and DS is the program's -
@@ -1699,28 +1706,71 @@ dos_int21:
     mov al, 3                       ; path not found
     jmp .fherr
 .getcwd:
-    ; AH=47h: DL = the drive (0 = current), DS:SI = a 64-byte buffer; the path
-    ; goes in WITHOUT its leading backslash, which is DOS's own shape.
+    ; AH=47h: DL = the drive (0 = current, 1 = A), DS:SI = a 64-byte buffer.
+    ; The path goes in WITHOUT its leading backslash, which is DOS's shape.
+    ;
+    ; IT IS OSAPI_FILE_PATH's ANSWER NOW, not a string this box maintained on
+    ; the way down. The buffer, the level tables and the depth counter all
+    ; existed because a package could not ask where it was standing; SPEC.md
+    ; 19.2.4 is that question, and answering it here deletes the bookkeeping
+    ; AND the 8-level limit that came with it.
     push bx
-    call dos_cwd_path               ; builds [dos_cwd] once, then answers it
-    jc .fhpath
+    mov [dos_cwdst], si
+    mov byte [dos_cwdrv], 0
+    mov al, dl
+    or al, al
+    jz .cw_here                     ; 0 is "the one I am on"
+    dec al                          ; ...otherwise DOS counts A: as 1 here
+    cmp al, [dos_vol]
+    je .cw_here
+    cmp al, DVOL_MAX
+    jae .fhpath
+    ; ANOTHER DRIVE: stand there, ask, and come back. A program asks this far
+    ; less often than it asks about the drive it is on, and the alternative is
+    ; a second copy of every drive's path kept up to date for the one call
+    ; that reads it.
+    mov [dos_cwdrv], al
+    mov dl, al
+    call dos_drv_sel
+    mov al, [dos_cwdrv]
+    cmp al, [dos_vol]
+    jne .fhpath                     ; dos_drv_sel left us where we were, so
+                                    ; that drive is not there
+.cw_here:
     push si
     push di
     push es
-    mov di, si
+    push ds
+    pop es
+    mov di, dos_pbuf
+    mov cx, DOS_PBUF
+    call OSAPI_FILE_PATH
+    jc .cw_bad
+    mov si, dos_pbuf
+    cmp byte [si], '\'
+    jne .cw_copy
+    inc si                          ; DOS's shape carries no leading separator
+.cw_copy:
+    mov di, [dos_cwdst]
     mov es, [bp]                    ; the buffer is the PROGRAM's
-    mov si, dos_cwdbuf
     cld
-.cwcopy:
+.cw_byte:
     lodsb
     stosb
     or al, al
-    jnz .cwcopy
+    jnz .cw_byte
     pop es
     pop di
     pop si
+    call dos_cw_back
     mov ax, 0x0100                  ; DOS 3+ leaves AX = 0100h here, and at
     jmp .fhok                       ; least one program checks it
+.cw_bad:
+    pop es
+    pop di
+    pop si
+    call dos_cw_back
+    jmp .fhpath
 
 ; --- the date and the time (SPEC.md 96.13) ----------------------------------
 .getdate:
@@ -3711,20 +3761,48 @@ dos_lnk_parse:
 ; -----------------------------------------------------------------------------
 dos_lnk_cd:
     push ax
+    push dx
+    cmp byte [dos_pbuf], 0
+    je .out                         ; no working directory in the link
+    call dos_walk_pbuf
+    jc .out                         ; A REFUSAL IS NOT FATAL: [dos_dir] keeps
+    mov [dos_dir], dx               ; the link's own folder, which is where a
+.out:                               ; shortcut saved beside its program
+    pop dx                          ; resolves anyway. What the user then sees
+    pop ax                          ; is the ordinary "it could not be read",
+    ret                             ; naming the program
+
+; -----------------------------------------------------------------------------
+; dos_walk_pbuf - stand at the absolute path in dos_pbuf, from the volume ROOT
+; out: CF=0 with DX = the cluster it ended on (0 = the root); CF=1 = some
+;      component does not exist, and where the machine stands is then undefined
+; clobbers: DX and the flags, nothing else
+;
+; DOWN AND ONLY DOWN, one component at a time, because that is the only
+; direction a package has: dsk_find drops the on-disk dot links, so
+; OSAPI_FILE_FIND never reports '..' and nothing outside the kernel can walk
+; upward at all (SPEC.md 19.2.4). Every move is OSAPI_FILE_GOTO_QM, which
+; inside the volume we are already on is a WORD and no I/O - so the walk costs
+; its directory reads and no mounts.
+;
+; It is what makes '..' possible WITHOUT a descent stack: ask where we are,
+; drop the last component, and re-descend to what is left. That has no depth
+; limit, needs nothing remembered, and is right after a drive switch - which a
+; recorded stack would not have been.
+; -----------------------------------------------------------------------------
+dos_walk_pbuf:
+    push ax
     push bx
     push cx
-    push dx
     push si
     push di
     push es
-    cmp byte [dos_pbuf], 0
-    je .out                         ; no working directory in the link
     push ds
     pop es
     xor dx, dx                      ; ...the volume root, first
     mov bl, [dos_vol]
     call OSAPI_FILE_GOTO_QM
-    jc .out
+    jc .no
     mov si, dos_pbuf
 .comp:
     cmp byte [si], '\'
@@ -3749,19 +3827,21 @@ dos_lnk_cd:
 .cend:
     mov byte [di], 0
     call dos_lnk_find               ; DX = its cluster
-    jc .out
+    jc .no
     mov bl, [dos_vol]
     call OSAPI_FILE_GOTO_QM         ; ...a WORD inside this volume
-    jc .out
+    jc .no
     jmp short .comp
 .here:
     call OSAPI_FILE_HERE            ; DX = where we ended up
-    mov [dos_dir], dx               ; ...and dos_run goes there unchanged
+    clc
+    jmp short .out
+.no:
+    stc
 .out:
     pop es
     pop di
     pop si
-    pop dx
     pop cx
     pop bx
     pop ax
@@ -4849,9 +4929,14 @@ FHF_WHOLE   equ 8                   ; a COMPRESSED file, read whole and
                                     ; expanded: the window is the file and
                                     ; never refills (SPEC.md 96.11.1)
 
-DOS_CDMAX   equ 8                   ; levels below the launch directory
-DOS_CWDMAX  equ 68                  ; DOS's AH=47h buffer is 64 bytes and
-                                    ; the walk needs a NUL and a little slack
+DVOL_MAX    equ 6                   ; MIRRORS the kernel's (kernel/assoc.inc).
+                                    ; It is a CAPACITY here rather than a fact
+                                    ; about the machine, and every use of it
+                                    ; below is bound-checked - so a kernel that
+                                    ; grows a seventh volume costs this box
+                                    ; reach and can never cost it a write past
+                                    ; its own bss, which is somebody else's
+                                    ; heap claim
 DOS_WKB     equ 8                   ; the window's floor in KB; a volume whose
                                     ; cluster is bigger gets a window of one
                                     ; cluster instead, because READ_AT cannot
@@ -5153,13 +5238,11 @@ dos_cd_go:
     push ds
     pop es
 
-    cmp byte [dos_fabs], 0          ; "\" or "\NAME": start from the program's
-    je .rel                         ; own root, which is where it was launched
-    mov byte [dos_cddep], 0
-    mov byte [dos_cwdbuf], 0
-    mov dx, [dos_cdclus]
-    mov bl, [dos_vol]
-    call dos_be_goto
+    cmp byte [dos_fabs], 0          ; "\" or "\NAME": from the VOLUME's root.
+    je .rel                         ; There is no jail any more - a program
+    xor dx, dx                      ; launched from a subdirectory may leave it
+    mov bl, [dos_vol]               ; and may change drives, as it would under
+    call dos_be_goto                ; DOS (SPEC.md 96.6.1)
     jc .no
     mov [dos_curdir], dx
     cmp byte [dos_fname], 0
@@ -5177,21 +5260,34 @@ dos_cd_go:
     jne .named
     cmp byte [dos_fname+2], 0
     jne .named
-    jmp short .up
 
-.up:
-    mov bl, [dos_cddep]
-    or bl, bl
-    jz .no                          ; above the launch directory is not ours
-    dec bl
-    mov [dos_cddep], bl
-    xor bh, bh
-    shl bx, 1
-    mov di, [bx+dos_cdlen]          ; the path's length at that level, recorded
-    add di, dos_cwdbuf              ; on the way DOWN, so the truncate is exact
-    mov byte [di], 0
-    mov dx, [bx+dos_cdclus]
-    jmp short .move
+    ; --- ".." IS A RE-DESCENT, and that is the whole trick ----------------
+    ; A package cannot walk up: dsk_find drops the on-disk dot links, so
+    ; OSAPI_FILE_FIND never reports '..'. What it CAN do since SPEC.md 19.2.4
+    ; is ask where it is standing - so up is "take the path, drop the last
+    ; component, walk down to what is left". No stack, no depth limit, and
+    ; correct across a drive switch, which a recorded stack would not have
+    ; been.
+    cmp word [dos_curdir], 0
+    je .same                        ; at a root, and DOS ignores '..' there
+    mov di, dos_pbuf                ; (pbuf is free here: the link's working
+    mov cx, DOS_PBUF                ; directory and the environment's program
+    call OSAPI_FILE_PATH            ; path are both spent before the program
+    jc .no                          ; runs, and this only happens while it does)
+    add di, cx                      ; ...CX is the length, so DI is the NUL
+.strip:
+    cmp di, dos_pbuf
+    jbe .cut
+    dec di
+    cmp byte [di], '\'
+    jne .strip
+.cut:
+    mov byte [di], 0                ; "\A\B" -> "\A", and "\A" -> ""
+    call dos_walk_pbuf
+    jc .no
+    mov [dos_curdir], dx
+    jmp short .same
+
 .named:
     xor cx, cx
 .scan:
@@ -5205,23 +5301,11 @@ dos_cd_go:
     call dos_streq
     jne .scan
     mov dx, [dos_fent+16]
-    call dos_cd_fits                ; the depth and DOS's own 64-byte path,
-    jc .no                          ; both checked BEFORE anything moves
     mov bl, [dos_vol]
     call dos_be_goto
     jc .no
     mov [dos_curdir], dx
-    call dos_cd_push
-    clc
-    jmp short .out
 .same:
-    clc
-    jmp short .out
-.move:
-    mov bl, [dos_vol]
-    call dos_be_goto
-    jc .no
-    mov [dos_curdir], dx
     clc
     jmp short .out
 .no:
@@ -5236,101 +5320,148 @@ dos_cd_go:
     pop ax
     ret
 
+; =============================================================================
+; DRIVES (SPEC.md 96.6.1)
+; =============================================================================
+; AH=0Eh used to answer the COUNT and never move, on the reasoning that a
+; program reads the count far more often than it changes drives and that a
+; real change wanted a directory walk this box did not have. The first half is
+; true and is why the no-op path below is still free; the second stopped being
+; true at SPEC.md 19.2.4.
+;
+; WHAT A STUB COSTS IS NOT THE SWITCH, IT IS THE ANSWER TO THE NEXT QUESTION.
+; The way a program finds out whether a drive exists is to select it and then
+; ask AH=19h where it is - so a select that silently does nothing reports
+; every drive as invalid, including the ones that are there. That is what an
+; installer moving from B: to a mounted C: was told.
 ; -----------------------------------------------------------------------------
-; dos_cd_len - the path's current length
-; out: CX = it, DI = the NUL at its end; clobbers nothing else
-; -----------------------------------------------------------------------------
-dos_cd_len:
-    mov di, dos_cwdbuf
-    xor cx, cx
-.next:
-    cmp byte [di], 0
-    je .done
-    inc di
-    inc cx
-    jmp short .next
-.done:
-    ret
 
-; -----------------------------------------------------------------------------
-; dos_cd_fits - would [dos_fname] fit as one more level?
-; out: CF=1 if not; every register preserved
-; -----------------------------------------------------------------------------
-dos_cd_fits:
+; --- dos_cw_back - undo AH=47h's temporary visit to another drive -----------
+; A no-op when it never left, which is the ordinary case.
+dos_cw_back:
     push ax
-    push cx
-    push si
-    push di
-    cmp byte [dos_cddep], DOS_CDMAX
-    jae .no
-    call dos_cd_len
-    mov si, dos_fname
-.len:
-    lodsb
+    push dx
+    mov al, [dos_cwdrv]
     or al, al
-    jz .have
-    inc cx
-    jmp short .len
-.have:
-    inc cx                          ; the separator
-    cmp cx, DOS_CWDMAX - 4          ; DOS's own buffer is 64 bytes and its path
-    jae .no                         ; limit is what that makes it
-    clc
-    jmp short .out
-.no:
-    stc
+    jz .out
+    cmp al, [dos_vol]
+    jne .out
+    mov dl, [dos_dvfrom]
+    call dos_drv_sel
 .out:
-    pop di
-    pop si
-    pop cx
+    pop dx
     pop ax
     ret
 
-; -----------------------------------------------------------------------------
-; dos_cd_push - record a level: the path so far, the new cluster, the name
-; in:  DX = the new directory's cluster, [dos_fname] = its name
-; out: nothing; every register preserved
-; -----------------------------------------------------------------------------
-dos_cd_push:
+; --- dos_drv_bank - remember where drive AL is standing ---------------------
+dos_drv_bank:
     push ax
     push bx
-    push cx
-    push si
-    push di
-    call dos_cd_len                 ; CX = the length we are leaving, DI its NUL
-    mov bl, [dos_cddep]
+    mov bl, al
     xor bh, bh
-    inc bx
-    mov [dos_cddep], bl
     shl bx, 1
-    mov [bx+dos_cdlen-2], cx        ; ...recorded against the level we CAME
-    mov [bx+dos_cdclus], dx         ; from, which is what '..' truncates to
-    or cx, cx
-    jz .nosep                       ; the first level needs no separator, so
-    mov byte [di], '\'              ; DOS's answer has no LEADING one
-    inc di
-.nosep:
-    mov si, dos_fname
-.cp:
-    lodsb
-    mov [di], al
-    inc di
-    or al, al
-    jnz .cp
-    pop di
-    pop si
-    pop cx
+    mov ax, [dos_curdir]
+    mov [bx+dos_dvcwd], ax
     pop bx
     pop ax
     ret
 
+; --- dos_drv_recall - stand drive AL where it last was (0 = its root) -------
+dos_drv_recall:
+    push ax
+    push bx
+    mov bl, al
+    xor bh, bh
+    shl bx, 1
+    mov ax, [bx+dos_dvcwd]
+    mov [dos_curdir], ax
+    pop bx
+    pop ax
+    ret
+
+; --- dos_drv_count - how many volumes there are, probed ONCE ----------------
+; out: AL = the count; every other register preserved
+dos_drv_count:
+    push bx
+    push cx
+    mov al, [dos_ndrv]
+    or al, al
+    jnz .out                    ; PROBED ONCE and remembered: AH=0Eh is called
+    xor bl, bl                  ; for its count far more often than to change
+    xor cl, cl                  ; drives, and six far calls an ask would be a
+.probe:                         ; poll nobody asked for
+    mov al, bl
+    push bx
+    push cx
+    call OSAPI_VOL_KIND
+    pop cx
+    pop bx
+    jc .gap
+    inc cl
+.gap:
+    inc bl
+    cmp bl, DVOL_MAX
+    jb .probe
+    or cl, cl
+    jnz .have
+    mov cl, 1                   ; a machine with no volume at all still has a
+.have:                          ; drive as far as a DOS program is concerned
+    mov [dos_ndrv], cl
+    mov al, cl
+.out:
+    pop cx
+    pop bx
+    ret
+
 ; -----------------------------------------------------------------------------
-; dos_cwd_path - AH=47h's answer
-; out: CF=0 always; [dos_cwdbuf] is maintained BY dos_cd_go, so there is
-;      nothing to build here (SPEC.md 96.12.2)
+; dos_drv_sel - AH=0Eh's body: stand on drive DL
+; in:  DL = the drive, 0 = A
+; out: nothing. The drive is UNCHANGED if DL names no volume, which is what
+;      makes the AH=19h that follows a truthful answer either way
+; clobbers: nothing but the flags
 ; -----------------------------------------------------------------------------
-dos_cwd_path:
-    clc
+dos_drv_sel:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    cmp dl, [dos_vol]
+    je .out                     ; already there, and this is the common case:
+                                ; no volume probe, no mount, nothing
+    cmp dl, DVOL_MAX
+    jae .out                    ; past our own array: refused rather than
+                                ; written past (see DVOL_MAX)
+    mov [dos_dvtgt], dl
+    mov al, dl
+    call OSAPI_VOL_KIND         ; CF=1 = there is no such volume, and that is
+    jc .out                     ; the whole of "invalid drive letter"
+    mov al, [dos_vol]
+    mov [dos_dvfrom], al
+    call dos_drv_bank           ; bank where we are...
+    mov al, [dos_dvtgt]
+    mov [dos_vol], al
+    call dos_drv_recall         ; ...and stand where that drive last was
+    mov dx, [dos_curdir]
+    mov bl, [dos_vol]
+    call dos_be_goto            ; A REAL MOUNT, and only here: a switch across
+    jnc .out                    ; volumes re-reads the boot sector (19.2.2)
+    mov al, [dos_dvfrom]        ; the mount refused - put the whole switch
+    mov [dos_vol], al           ; back, so a drive that cannot be reached
+    call dos_drv_recall         ; leaves the program exactly where it was
+    mov dx, [dos_curdir]
+    mov bl, [dos_vol]
+    call dos_be_goto            ; ...and this one worked a moment ago
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; =============================================================================
@@ -7180,12 +7311,24 @@ dos_fh_fill:
     DBSS DOS_B_TMP3,  2
     DBSS DOS_B_ACC,   2
     DBSS DOS_B_FABS,  1        ; did the name carry a leading separator?
-    DBSS DOS_B_CDDEP, 1        ; how far below the launch directory we are
-    DBSS DOS_B_CDPAD, 1
-    DBSS DOS_B_CDCLUS, 2 * (DOS_CDMAX + 1)   ; the cluster at each level...
-    DBSS DOS_B_CDLEN,  2 * (DOS_CDMAX + 1)   ; ...and the path length there
     DBSS DOS_B_CURDIR, 2       ; the cluster we are standing in
-    DBSS DOS_B_CWDBUF, DOS_CWDMAX
+; --- WHERE EACH DRIVE IS STANDING (SPEC.md 96.6.1) -------------------------
+; DOS keeps a current directory per drive, and here that is one CLUSTER each
+; and nothing else. It is that small because there is no jail: every drive's
+; root is its volume's root, so a slot nobody has touched is 0 - which .bss
+; already is, and which is exactly right. No "has this been initialised" flag,
+; because there is no state a fresh drive could be in other than its root.
+    DBSS DOS_B_DVCWD,  2 * DVOL_MAX
+    DBSS DOS_B_DVTGT,  1            ; the drive a switch is going TO, banked
+                                    ; because OSAPI_VOL_KIND promises nothing
+                                    ; about DX
+    DBSS DOS_B_DVFROM, 1            ; the drive a switch is leaving, for its
+                                    ; own rollback
+    DBSS DOS_B_NDRV,   1            ; the count AH=0Eh answers, probed once
+    DBSS DOS_B_CWDST,  2            ; AH=47h: the program's buffer, banked
+                                    ; across OSAPI_FILE_PATH, which wants ES:DI
+                                    ; for its OWN answer
+    DBSS DOS_B_CWDRV,  1            ; ...and the drive it was asked about
     DBSS DOS_B_IVT,   1024
     DBSS DOS_B_BDA,   256
 DOS_BSS_SIZE equ DB
@@ -7328,11 +7471,13 @@ dos_tmp2    equ os88_image_end + DOS_B_TMP2
 dos_tmp3    equ os88_image_end + DOS_B_TMP3
 dos_acc     equ os88_image_end + DOS_B_ACC
 dos_fabs    equ os88_image_end + DOS_B_FABS
-dos_cddep   equ os88_image_end + DOS_B_CDDEP
-dos_cdclus  equ os88_image_end + DOS_B_CDCLUS
-dos_cdlen   equ os88_image_end + DOS_B_CDLEN
 dos_curdir  equ os88_image_end + DOS_B_CURDIR
-dos_cwdbuf  equ os88_image_end + DOS_B_CWDBUF
+dos_dvcwd   equ os88_image_end + DOS_B_DVCWD   ; per drive: its cluster
+dos_dvtgt   equ os88_image_end + DOS_B_DVTGT   ; ...and the one it goes to
+dos_dvfrom  equ os88_image_end + DOS_B_DVFROM  ; the drive a switch is leaving
+dos_ndrv    equ os88_image_end + DOS_B_NDRV    ; AH=0Eh's count, 0 = unprobed
+dos_cwdst   equ os88_image_end + DOS_B_CWDST   ; AH=47h's destination
+dos_cwdrv   equ os88_image_end + DOS_B_CWDRV   ; ...and the drive asked about
 dos_imghi   equ os88_image_end + DOS_B_IMGHI   ; word: the file's size, high
 dos_exe_fseg equ os88_image_end + DOS_B_XFSEG  ; word: where the FILE landed
 dos_exe_lseg equ os88_image_end + DOS_B_XLSEG  ; word: ...and the load segment
