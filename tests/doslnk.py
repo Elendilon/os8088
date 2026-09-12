@@ -36,6 +36,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 import os88geom                                                # noqa: E402
 import os88marty                                               # noqa: E402
 import os88mouse                                               # noqa: E402
+import os88build                                               # noqa: E402
 import os88ui                                                  # noqa: E402
 import importlib.util                                          # noqa: E402
 _spec = importlib.util.spec_from_file_location(
@@ -48,6 +49,16 @@ SYS = "build/os8088-360.img"
 LNK = "build/doslnk360.img"
 WHERE, FOLDER = [], []
 FLUSHED = "build/doslnk-out.img"   # ...the guest's live copy, flushed out
+
+# **AND IT IS RESOLVED ONCE, THROUGH os88build.at, BECAUSE THREE USES OF IT
+# DID NOT AGREE.** The flush wrote `os.path.abspath(FLUSHED)` - the checkout -
+# while `os88ui.boot(apps=FLUSHED)` resolved the same string through
+# os88build.at, which under a soak run points at the run's FROZEN TREE. So
+# stage 3 booted a file nothing had written and the row died with a
+# FileNotFoundError naming build/trees/plain-<hash>/, three times, having
+# passed every time it was run standalone - because with no $OS88_TREE set
+# `at` is the identity function and the two spellings agree.
+FLUSHED_AT = os.path.abspath(os88build.at(FLUSHED))
 TYPED = "/M P:220"
 ENVVAR = "SOUND=SB"
 LIMIT = 96                          # KB, comfortably over DOS_MIN_KB's 64 and
@@ -221,10 +232,10 @@ def main():
         # --marty-jobs safe - so the host's copy of the gate disk never
         # changes and reading it would report "nothing was written". flush()
         # writes the LIVE drive out.
-        m.flush(drive=1, path=os.path.abspath(FLUSHED))
+        m.flush(drive=1, path=FLUSHED_AT)
 
     # --- 2: read the bytes off the floppy, with our own reader ---------------
-    raw = read_lnk(FLUSHED)
+    raw = read_lnk(FLUSHED_AT)
     print("doslnk: the file is %d bytes" % len(raw))
     got = parse_lnk(raw)
     print("doslnk: an independent Shell Link reader says %r" % (got,))
@@ -248,7 +259,8 @@ def main():
              "UNTICKED" % got["keep"])
 
     # --- 3: os8088 reads its own back ---------------------------------------
-    with os88ui.boot(SYS, apps=FLUSHED, machine="os8088_5150_herc_gla") as ui:
+    with os88ui.boot(SYS, apps=FLUSHED_AT,
+                     machine="os8088_5150_herc_gla") as ui:
         m = ui.m
         where = "B:/%s/%s.LNK" % (FOLDER[0], WHERE[0]) if FOLDER \
             else "B:/%s.LNK" % WHERE[0]

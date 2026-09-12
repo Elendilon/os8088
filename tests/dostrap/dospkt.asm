@@ -19,7 +19,13 @@
 ;                             is a frame a real host must answer
 ;   6. spin on the tick     - the reply arrives through the UP-CALL, which is
 ;                             the half no other row here can reach
-;   7. release_type
+;   7. a WHOLE TCP CONNECTION by hand - SYN, the SYN|ACK, the ACK, an HTTP
+;                             request and the bytes that come back. That is
+;                             what SPEC.md 96.26.3's endpoint is for, and the
+;                             three answers it prints are the only way to tell
+;                             "the translation opened a socket" from "the
+;                             client ever heard about it"
+;   8. release_type
 ;
 ; Every line is `NAME value`, which is tests/dosirq.py's parser.
     org 0x100
@@ -76,6 +82,7 @@ start:
     call send_arp
     call wait_rx
     call do_tcp                     ; ...AND A CONNECTION (SPEC.md 96.26.3)
+    call do_stats                   ; ...and what the driver counted of it
     call release
 
 done:
@@ -127,7 +134,7 @@ find_driver:
 .got:
     mov [pktvec], bl
     mov al, bl                      ; build the INT the calls go through: an
-    mov [callvec+2], al             ; 8086 has no `int reg`, so the opcode is
+    mov [callvec_ds+1], al          ; 8086 has no `int reg`, so the opcode is
     pop es                          ; patched once and called from then on
     clc
     ret
@@ -147,9 +154,20 @@ find_driver:
 ; session (SPEC.md 96.23.9).
 callvec:
     push ds
-    db 0xCD, 0x60
+    call callvec_ds
     pop ds
     ret
+
+; --- callvec_ds - the same INT with DS LEFT AS THE DRIVER SET IT ------------
+; The two calls that ANSWER in DS:SI - driver_info and get_statistics - cannot
+; be read through callvec above, which is the point of it: the answer is a
+; pointer into the driver's own segment and restoring DS throws the segment
+; half away. A caller that wants the record has to be willing to run with a
+; foreign DS for the length of the read, and to put it back itself.
+callvec_ds:
+    db 0xCD, 0x60
+    ret                             ; `ret` and `pop` change no flag, so CF
+                                    ; and DH reach the caller through both
 
 ; -----------------------------------------------------------------------------
 driver_info:
@@ -314,15 +332,25 @@ wait_rx:
     ret
 
 ; -----------------------------------------------------------------------------
-; do_tcp - send a SYN and say what comes back
+; do_tcp - open a connection, ask for a page, and say what came back
 ;
 ; **THE POINT IS THE ANSWER, NOT THE CONNECTION.** mTCP's own programs cannot
 ; say what they received - their output dies with the bracket (SPEC.md 96.11's
-; wave 6) - so a handshake that fails inside one is unreadable. This asks the
-; one question that matters and prints the flags byte: did a SYN|ACK arrive.
+; wave 6) - so a handshake that fails inside one is unreadable. This runs the
+; three-way handshake by hand and prints each answer where a test can read it:
+;
+;   SYNACK 0112   the flags of the segment that came back, with bit 8 set so
+;                 that "nothing yet" and "flags of zero" are different answers
+;   DATA 0060     payload bytes that arrived after the request
+;   FIRST 4854    the first two of them - 'HT' of an HTTP response
 ;
 ; It registers for IP separately, because the ARP handle above will not match
 ; an 0800 frame.
+;
+; **THE GATEWAY'S MAC COMES OUT OF THE ARP REPLY** rather than a constant, so
+; the same binary is right on either wire: the translation answers with its own
+; synthetic router address (SPEC.md 96.26.2) and a real card's gateway answers
+; with its real one.
 ; -----------------------------------------------------------------------------
 do_tcp:
     mov ah, 2                       ; access_type for IP
@@ -338,52 +366,380 @@ do_tcp:
     jc .no
     mov [handle2], ax
 
-    push cs                         ; --- the SYN ---
-    pop es
+    mov si, gwmac                   ; nothing answered the ARP, so there is
+    mov cx, 6                       ; nobody to open a connection to and the
+    call iszero                     ; failure to report is that one
+    jne .havegw
+    mov dx, s_nogw
+    call puts
+    ret
+.havegw:
+    mov si, gwmac                   ; --- the two MACs, which are the only
+    mov di, tcpbuf + 0              ; bytes of the frame that are not either
+    mov cx, 6                       ; a constant or computed
+    call cpy
     mov si, mymac
-    mov di, synbuf + 6
+    mov di, tcpbuf + 6
     mov cx, 6
     call cpy
-    mov si, mymac
-    mov di, synbuf + 14 + 12 + 8    ; ...nothing: the IP header has no MAC.
-                                    ; (kept as one call so the shape matches
-                                    ; send_arp and the offsets stay visible)
-    mov cx, 0
-    call cpy
+
+    ; --- the SYN -----------------------------------------------------------
+    mov word [seq_hi], 0            ; an ISN a capture can be read for
+    mov word [seq_lo], 0x1000
+    mov word [ack_hi], 0
+    mov word [ack_lo], 0
     mov word [nrx], 0
     mov word [firstety], 0
     mov word [lastflags], 0
-    mov ah, 4
-    mov si, synbuf
-    mov cx, SYNLEN
-    call callvec
+    mov word [rxdata], 0
+    mov word [rxfirst], 0
+    mov al, F_SYN
+    xor cx, cx
+    xor si, si
+    call tcp_build
+    call tcp_tx
     jc .no
+    mov ax, 1                       ; a SYN consumes one sequence number
+    call seq_adv
 
-    push es                         ; --- and wait for the answer ---
-    xor ax, ax
-    mov es, ax
-    mov bx, [es:0x46C]
-    add bx, 90                      ; ~5 seconds
-.w:
-    mov ax, [es:0x46C]
-    cmp ax, bx
-    jae .done
-    cmp word [lastflags], 0
-    je .w
-.done:
-    pop es
+    mov cx, 90                      ; ~5 seconds of BIOS ticks
+    mov si, lastflags
+    call wait_word
     mov dx, s_syn
     call puts
     mov ax, [lastflags]
     call puthex16
     call crlf
+    cmp ax, 0x100 | F_SYN | F_ACK
+    jne .out                        ; no handshake, so no request to make
+
+    ; --- the ACK that finishes the handshake -------------------------------
+    call take_ack                   ; their sequence number + 1
+    mov al, F_ACK
+    xor cx, cx
+    xor si, si
+    call tcp_build
+    call tcp_tx
+
+    ; --- ...and the request ------------------------------------------------
+    mov al, F_PSH | F_ACK
+    mov cx, GETLEN
+    mov si, s_get
+    call tcp_build
+    call tcp_tx
+    mov ax, GETLEN
+    call seq_adv
+
+    mov cx, 145                     ; ~8 seconds: the far side has a
+    mov si, rxdata                  ; connection of its own to make
+    call wait_word
+    mov dx, s_data
+    call puts
+    mov ax, [rxdata]
+    call puthex16
+    call crlf
+    mov dx, s_first
+    call puts
+    mov ax, [rxfirst]
+    call puthex16
+    call crlf
+    call put_log
+    cmp word [rxdata], 0
+    je .out
+    mov ax, [dack_hi]               ; --- and acknowledge it, which is what
+    mov [ack_hi], ax                ; the receiver banked the numbers for
+    mov ax, [dack_lo]
+    mov [ack_lo], ax
+    mov al, F_ACK
+    xor cx, cx
+    xor si, si
+    call tcp_build
+    call tcp_tx
+.out:
     ret
 .no:
-    mov dx, s_nosyn
+    mov al, dh                      ; **BANKED FIRST**: puts takes its string
+    mov [lasterr], al               ; in DX, so reading dh after it prints the
+    mov dx, s_nosyn                 ; high byte of the message's address
     call puts
-    mov al, dh
+    mov al, [lasterr]
     call puthex8
     call crlf
+    ret
+
+; -----------------------------------------------------------------------------
+; tcp_build - one segment in tcpbuf, with both checksums COMPUTED
+;
+; in:  AL = the flags byte, CX = the payload length, SI = the payload (0 for
+;      none); [seq_*] and [ack_*] = the numbers to put on the wire
+; out: [txtcp] = the frame's length. Nothing is sent.
+;
+; **THE CHECKSUMS ARE COMPUTED AND NOT TEMPLATED**, which the first version's
+; SYN was: a template only works for a frame that never changes, and a segment
+; carrying a sequence number and a payload changes every time. A wrong
+; checksum is indistinguishable from the box dropping the frame, which is
+; precisely the wrong diagnosis to leave lying around.
+; -----------------------------------------------------------------------------
+tcp_build:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    mov [t_flags], al
+    mov [t_pay], cx
+    or si, si
+    jz .nopay
+    mov di, tcpbuf + 54
+    call cpy                        ; DS:SI -> DS:DI, CX bytes
+.nopay:
+    ; --- the IP header -----------------------------------------------------
+    mov ax, [t_pay]
+    add ax, 40                      ; two 20-byte headers
+    xchg al, ah
+    mov [tcpbuf + 16], ax           ; total length, big-endian
+    mov word [tcpbuf + 24], 0       ; the checksum field, zeroed to sum over
+    xor bx, bx
+    mov si, tcpbuf + 14
+    mov cx, 20
+    call ck_sum
+    not bx
+    xchg bl, bh
+    mov [tcpbuf + 24], bx
+    ; --- the TCP header ----------------------------------------------------
+    mov ax, [seq_hi]
+    xchg al, ah
+    mov [tcpbuf + 38], ax
+    mov ax, [seq_lo]
+    xchg al, ah
+    mov [tcpbuf + 40], ax
+    mov ax, [ack_hi]
+    xchg al, ah
+    mov [tcpbuf + 42], ax
+    mov ax, [ack_lo]
+    xchg al, ah
+    mov [tcpbuf + 44], ax
+    mov al, [t_flags]
+    mov [tcpbuf + 47], al
+    mov word [tcpbuf + 50], 0
+    ; ...whose checksum covers a PSEUDO-HEADER as well as the segment, which
+    ; is the one part of TCP that is not in the segment it protects
+    mov ax, [t_pay]
+    add ax, 20
+    xchg al, ah
+    mov [pseudo + 10], ax
+    xor bx, bx
+    mov si, pseudo
+    mov cx, 12
+    call ck_sum
+    mov si, tcpbuf + 34
+    mov cx, [t_pay]
+    add cx, 20
+    call ck_sum
+    not bx
+    xchg bl, bh
+    mov [tcpbuf + 50], bx
+    mov ax, [t_pay]
+    add ax, 54
+    mov [txtcp], ax
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ck_sum - fold CX bytes at DS:SI into BX, as big-endian 16-bit words
+;
+; The carry is folded back in as it happens rather than at the end, which is
+; what makes the order of the calls - and splitting one sum across two buffers,
+; as the TCP checksum does - not matter.
+; -----------------------------------------------------------------------------
+ck_sum:
+    push ax
+    push cx
+    push dx
+    push si
+    mov dx, cx
+    and dx, 1
+    shr cx, 1
+    jcxz .tail
+.l:
+    mov ah, [si]
+    mov al, [si+1]
+    add bx, ax
+    adc bx, 0
+    inc si
+    inc si
+    loop .l
+.tail:
+    or dx, dx
+    jz .out
+    mov ah, [si]                    ; a lone last byte is the HIGH half of a
+    xor al, al                      ; word the standard pads with zero
+    add bx, ax
+    adc bx, 0
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+tcp_tx:
+    push ax
+    push cx
+    push si
+    mov ah, 4
+    mov si, tcpbuf
+    mov cx, [txtcp]
+    call callvec
+    pop si
+    pop cx
+    pop ax
+    ret                             ; CF and DH are callvec's - pop sets
+                                    ; neither
+
+; -----------------------------------------------------------------------------
+; seq_adv - our sequence number, by AX
+seq_adv:
+    add [seq_lo], ax
+    adc word [seq_hi], 0
+    ret
+
+; --- take_ack - the sequence number of the segment just received, plus one --
+; A SYN consumes one sequence number, so this is what acknowledges it.
+take_ack:
+    push ax
+    mov ax, [rxbuf + 34 + 4]        ; the wire is big-endian and we are not
+    xchg al, ah
+    mov [ack_hi], ax
+    mov ax, [rxbuf + 34 + 6]
+    xchg al, ah
+    mov [ack_lo], ax
+    add word [ack_lo], 1
+    adc word [ack_hi], 0
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; wait_word - spin on the BIOS tick until [SI] is non-zero, CX ticks at most
+;
+; **IT POLLS NOTHING.** The frame arrives through the driver's own up-call,
+; called from the box's INT 08h chain (SPEC.md 96.23.4), so a Crynwr client
+; has nothing to ask and this loop is the whole of its receive path.
+; -----------------------------------------------------------------------------
+wait_word:
+    push ax
+    push bx
+    push es
+    xor ax, ax
+    mov es, ax
+    mov bx, [es:0x46C]
+    add bx, cx
+.w:
+    mov ax, [es:0x46C]
+    cmp ax, bx
+    jae .done
+    cmp word [si], 0
+    je .w
+.done:
+    pop es
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; put_log - `FLAGS 12 10 18 11`, the connection's shape on one line
+put_log:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov dx, s_flags
+    call puts
+    mov bx, 0
+    mov cx, [nflag]
+    jcxz .done
+.l:
+    mov al, [flaglog+bx]
+    call puthex8
+    mov dx, s_sp
+    call puts
+    inc bx
+    loop .l
+.done:
+    call crlf
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; iszero - CX bytes at DS:SI: ZF=1 if every one of them is
+iszero:
+    push ax
+    push cx
+    push si
+    xor ax, ax
+.l:
+    or al, [si]
+    inc si
+    loop .l
+    or al, al
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; do_stats - get_statistics' six dwords, printed as `STATS pin pout bin bout`
+;
+; The record lives in the DRIVER's segment, so this is the one call that has
+; to go through callvec_ds - and the record is COPIED out before anything is
+; printed, because every string below is a near label in ours.
+; -----------------------------------------------------------------------------
+do_stats:
+    push ds
+    push si
+    push di
+    mov ah, 24
+    mov bx, [handle]
+    call callvec_ds
+    jc .no
+    xor di, di                      ; **SI AND DI ARE BOTH WALKED**: [si+di]
+.l:                                 ; is not a legal 8086 effective address -
+    mov ax, [si]                    ; only BX or BP may be the base
+    mov [cs:statbuf+di], ax         ; DS:SI is THEIRS and CS is ours, which is
+    inc si                          ; what makes the override the whole trick
+    inc si
+    inc di
+    inc di
+    cmp di, 24
+    jb .l
+    pop di
+    pop si
+    pop ds
+    mov dx, s_stats
+    call puts
+    xor bx, bx
+.p:
+    mov ax, [statbuf+bx]            ; the LOW word of each dword: a transfer
+    call puthex16                   ; this size cannot reach the high one, and
+    mov dx, s_sp                    ; a test that needs it can read the record
+    call puts                       ; out of guest memory
+    add bx, 4
+    cmp bx, 24
+    jb .p
+    call crlf
+    ret
+.no:
+    pop di
+    pop si
+    pop ds
     ret
 
 ; -----------------------------------------------------------------------------
@@ -438,11 +794,55 @@ receiver:
     cmp ax, ETY_IP
     jne .notip
     cmp byte [rxbuf+14+9], 6        ; ...a TCP segment: bank its FLAGS, which
-    jne .out                        ; is the whole question do_tcp asks
-    mov al, [rxbuf+14+20+13]
+    jne .out                        ; is the first question do_tcp asks
+    mov al, [rxbuf+34+13]
     xor ah, ah
     or ax, 0x100                    ; ...with a bit set so "nothing yet" and
     mov [lastflags], ax             ; "flags of zero" are different answers
+    ; --- **EVERY SEGMENT'S FLAGS, IN ORDER** -------------------------------
+    ; One word is the LAST answer, and a connection is a sequence: 12 02 10
+    ; 18 11 is a handshake, a request, a reply and a close, and any one of
+    ; them missing is a different defect. Eight is more than a transfer this
+    ; small can produce, so a full log is itself a finding.
+    mov si, [nflag]
+    cmp si, FLAGLOG
+    jae .nolog
+    mov [flaglog+si], al
+    inc word [nflag]
+.nolog:
+    ; --- ...AND ITS PAYLOAD, which is the question after it ----------------
+    ; The length is the IP header's rather than the frame's: a short segment
+    ; is PADDED to the wire's 60-byte minimum, so counting what arrived would
+    ; read 6 bytes of payload out of a bare ACK.
+    mov ax, [rxbuf+14+2]            ; IP total length, big-endian
+    xchg al, ah
+    sub ax, 20                      ; less the IP header...
+    mov bl, [rxbuf+34+12]           ; ...and less the TCP one, whose length is
+    mov cl, 4                       ; the top nibble of +12, in DWORDS
+    shr bl, cl
+    shl bl, 1
+    shl bl, 1
+    xor bh, bh
+    sub ax, bx
+    jbe .out                        ; a segment with no payload at all
+    add [rxdata], ax
+    mov [paylen], ax
+    mov ax, [rxbuf+34+4]            ; its sequence number + its length is what
+    xchg al, ah                     ; do_tcp owes it back as an ACK
+    mov [dack_hi], ax
+    mov ax, [rxbuf+34+6]
+    xchg al, ah
+    mov [dack_lo], ax
+    mov ax, [paylen]
+    add [dack_lo], ax
+    adc word [dack_hi], 0
+    cmp word [rxfirst], 0
+    jne .out
+    mov si, rxbuf + 34              ; the payload starts after a header whose
+    add si, bx                      ; length we have just worked out
+    mov ah, [si]                    ; ...and its first two bytes are 'HT' of
+    mov al, [si+1]                  ; an HTTP response
+    mov [rxfirst], ax
     jmp short .out
 .notip:
     cmp ax, ETY_ARP
@@ -451,6 +851,10 @@ receiver:
     cmp al, 2
     jne .out
     inc word [narp]
+    mov si, rxbuf + 22              ; ...and its sender hardware address is
+    mov di, gwmac                   ; the gateway's, which do_tcp addresses
+    mov cx, 6                       ; its frames to
+    call cpy
 .out:
     mov word [rxbusy], 0
     pop ds
@@ -559,8 +963,24 @@ s_noinfo:   db 'NOINFO 1', 13, 10, '$'
 s_nomac:    db 'NOMAC 1', 13, 10, '$'
 s_notx:     db 'NOTX $'
 s_syn:      db 'SYNACK $'
+s_data:     db 'DATA $'
+s_first:    db 'FIRST $'
+s_nogw:     db 'NOGW 1', 13, 10, '$'
+s_flags:    db 'FLAGS $'
+s_stats:    db 'STATS $'
+s_sp:       db ' $'
 s_nosyn:    db 'NOSYN $'
 s_ready:    db 'READY', 13, 10, '$'
+
+; --- the request itself, which is not a `$`-terminated string -------------
+s_get:      db 'GET / HTTP/1.0', 13, 10, 13, 10
+GETLEN      equ $ - s_get
+
+F_FIN       equ 0x01                ; the flags, by name
+F_SYN       equ 0x02
+F_RST       equ 0x04
+F_PSH       equ 0x08
+F_ACK       equ 0x10
 
 pktvec:     db 0
 lasterr:    db 0
@@ -572,32 +992,58 @@ narp:       dw 0
 firstety:   dw 0
 rxbusy:     dw 0
 rxlen:      dw 0
+rxdata:     dw 0                    ; payload bytes that have arrived
+rxfirst:    dw 0                    ; ...and the first two of them
+paylen:     dw 0
+seq_hi:     dw 0                    ; **TWO WORDS, NOT A DWORD** - this is an
+seq_lo:     dw 0                    ; 8086, so a 32-bit sequence number is
+ack_hi:     dw 0                    ; carried as its halves and written to the
+ack_lo:     dw 0                    ; wire big-endian a word at a time
+dack_hi:    dw 0                    ; what the last DATA segment owes back
+dack_lo:    dw 0
+nflag:      dw 0
+FLAGLOG     equ 8
+flaglog:    times FLAGLOG db 0
+statbuf:    times 24 db 0           ; get_statistics' record, copied out of
+                                    ; the driver's own segment
+txtcp:      dw 0
+t_flags:    db 0
+t_pay:      dw 0
 mymac:      times 6 db 0
-; --- a SYN, as a template too ------------------------------------------------
-; To 10.0.2.2:8099, from 10.0.2.15:4660. Both checksums are PRECOMPUTED for
-; exactly these bytes: the frame never changes but the source MAC, and a MAC
-; is not in either sum. A wrong checksum here would be indistinguishable from
-; the box dropping the frame, so it is computed once by tools and checked by
-; tests/dospkt.py rather than trusted.
-synbuf:
-            db 0x02,'o','s','8','8',0x01        ; +0  to the gateway (us)
-            times 6 db 0                        ; +6  from: poked in
+gwmac:      times 6 db 0            ; out of the ARP reply, never a constant
+; --- the TCP frame, BUILT rather than templated ------------------------------
+; To 10.0.2.2:8099, from 10.0.2.15:4660. Every field a segment changes - the
+; length, both checksums, the sequence and acknowledgement numbers, the flags
+; and the payload - is written by tcp_build; what is left here is the constant
+; part, so that the layout is readable in one place and the code is offsets
+; into it.
+tcpbuf:
+            times 6 db 0                        ; +0  to the gateway: poked in
+            times 6 db 0                        ; +6  from us: poked in
             db 0x08, 0x00                       ; +12 IPv4
-            db 0x45, 0x00, 0x00, 0x28           ; +14 IP: v4, 40 bytes
+            db 0x45, 0x00                       ; +14 v4, five words, no TOS
+            db 0x00, 0x28                       ; +16 total length: computed
             db 0x00, 0x00, 0x00, 0x00           ; +18 id, flags
             db 64, 6                            ; +22 ttl, TCP
-            db 0x62, 0xC0                       ; +24 header checksum
+            db 0x00, 0x00                       ; +24 header checksum: computed
             db 10, 0, 2, 15                     ; +26 from 10.0.2.15
             db 10, 0, 2, 2                      ; +30 to   10.0.2.2
             db 0x12, 0x34                       ; +34 sport 4660
             db 0x1F, 0xA3                       ; +36 dport 8099
-            db 0x00, 0x00, 0x10, 0x00           ; +38 seq 4096
-            db 0x00, 0x00, 0x00, 0x00           ; +42 ack
-            db 0x50, 0x02                       ; +46 five words, SYN
+            db 0x00, 0x00, 0x00, 0x00           ; +38 seq: written per segment
+            db 0x00, 0x00, 0x00, 0x00           ; +42 ack: written per segment
+            db 0x50, 0x00                       ; +46 five words; flags poked in
             db 0x04, 0x00                       ; +48 window 1024
-            db 0x51, 0xFB                       ; +50 checksum
+            db 0x00, 0x00                       ; +50 checksum: computed
             db 0x00, 0x00                       ; +52 urgent
-SYNLEN      equ 54
+            times 128 db 0                      ; +54 ...and room for a payload
+
+; --- TCP's pseudo-header, which is the one part of the checksum that is not --
+; in the segment it protects. The length word is written per segment.
+pseudo:     db 10, 0, 2, 15
+            db 10, 0, 2, 2
+            db 0, 6
+            db 0, 0
 
 ; --- the ARP request, as a template (every byte but the MACs is a constant) --
 txbuf:

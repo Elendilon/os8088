@@ -108,7 +108,30 @@ DOS_IMGP    equ DOS_PSPP+16         ; para 26    : the image, at PSP:0100
 ; That is DOS's limit rather than a choice: PSP:0080 is a length byte, then
 ; the text, then an 0Dh, all inside 128 bytes. A field that let a 128th
 ; character in would be one the user could type into and not have obeyed.
-DOS_TRACEN  equ 512                 ; DOSTRACE ring entries (power of two).
+DOS_TRACEN  equ 256                 ; DOSTRACE ring entries (power of two).
+                                    ; **256 AND NOT 512, because the TRACE
+                                    ; BUILD HAD THREE BYTES LEFT.** Measured:
+                                    ; `-DDOSTRACE` was 61,437 of
+                                    ; APP_MAX_SIZE's 61,440, so the next
+                                    ; feature to touch this file - §96.26's
+                                    ; cable translation, 77 bytes of it - made
+                                    ; the instrument stop assembling, and the
+                                    ; only row that noticed was `dosdbg`
+                                    ; failing with the assembler's message
+                                    ; about a probe. That is CLAUDE.md's
+                                    ; "RUNGS ARE TEMPORARY, BYTES ARE FOREVER"
+                                    ; one artefact along: the slack was spent
+                                    ; and whoever crossed it is billed.
+                                    ; Halving the ring gives back 8,192 bytes
+                                    ; and lands the arm at ~53,300, and it
+                                    ; COSTS the instrument nothing measurable:
+                                    ; the failure that sized it makes 169
+                                    ; calls, and 256 is also exactly what
+                                    ; TRACE.LOG holds (DOS_TRDUMPN below) and
+                                    ; what the reference tracer keeps - so
+                                    ; ring, file and reference now cover the
+                                    ; same span instead of the ring holding
+                                    ; twice what can ever be written out
 DOS_TRACE_SZ equ 32                 ; ...bytes an entry, NAMED so that the host
                                     ; side derives it rather than transcribing
                                     ; it (docs/DOS-DEBUGGING.md): every reader
@@ -2678,7 +2701,7 @@ dos_trace_dump:
 .short:
     xor bx, bx
 .go:
-    cmp cx, DOS_TRDUMPN             ; the FILE holds fewer than the ring does
+    cmp cx, DOS_TRDUMPN             ; the FILE holds no more than the ring
     jbe .fits
     mov cx, DOS_TRDUMPN
 .fits:
@@ -6117,16 +6140,20 @@ PKE_TYPEUSED equ 10
 PKE_BADCMD  equ 11
 PKE_CANTSEND equ 12
 
-PKT_RXOFF   equ 0                   ; --- inside the claim (SPEC.md 96.23.7) ---
-                                    ; ONE frame, and only the RECEIVE one:
-                                    ; send_pkt hands the client's own buffer
-                                    ; straight to the driver (SPEC.md 96.23.8),
-                                    ; so there is nothing to stage outbound.
-                                    ; Inbound there has to be a buffer, because
-                                    ; the length is not known until the frame is
-                                    ; off the ring and the client is not asked
-                                    ; for somewhere to put it until then
-PKT_BUFKB   equ 2                   ; 1,514 bytes wanted, and a claim is in KB
+; --- get_statistics' record: six DWORDS, in the Crynwr order -----------------
+; These are the numbers mTCP's PKTTOOL prints, so they are kept for real
+; rather than left at zero - and they used to be two DIAGNOSTIC word counters
+; written over bytes_out and errors_in, which made a debugging aid into a
+; wrong answer to a published call.
+PKS_PIN     equ 0                   ; packets in  - frames handed to a client
+PKS_POUT    equ 4                   ; packets out - frames a client sent
+PKS_BIN     equ 8                   ; ...and their lengths, as the client
+PKS_BOUT    equ 12                  ; asked for them rather than as padded
+PKS_ERRIN   equ 16                  ; errors in: nothing here can report one -
+                                    ; a frame the driver could not read never
+                                    ; reaches us at all
+PKS_DROP    equ 20                  ; dropped: no handle matched it, or the
+                                    ; client refused the buffer
 
 PKT_ETYPE   equ 12                  ; where the ethertype sits in a frame. The
                                     ; ABI publishes the header's SIZE and this
@@ -6139,6 +6166,56 @@ PKT_STK     equ 1024                ; the tick poll's own stack
                                     ; those is the one we cannot measure, so
                                     ; this is cut generously rather than to a
                                     ; walked depth
+
+; =============================================================================
+; THE NETWORK CLAIM (SPEC.md 96.23.7) - every byte the wire needs, and NONE
+; of it in this package's bss
+; =============================================================================
+; **A BSS BYTE IS A BYTE THE DOS PROGRAM CANNOT HAVE.** §96.3 hands the
+; program OSAPI_MEM_AVAIL's whole answer, and this package's image + bss is
+; claimed off the same heap first - so every byte declared below the DBSS
+; macro comes straight out of the arena, on every machine, whether or not
+; there is a wire to use it. The frames, the staging copy and the poll's
+; private stack were 4,052 bytes of exactly that: on the 128KB floor machine
+; that is 8% of the arena spent on a driver kern_small does not even ship
+; (SPEC.md 24.5).
+;
+; So they live in a claim `dos_pkt_bufs` takes only when net_find answers -
+; and the shape that makes it nearly free is that **DS IS THIS CLAIM inside
+; every dn_* routine** (SPEC.md 96.26.6). dosnet.inc's premise was already
+; "one segment, no segment override", so pointing that one segment at the
+; claim instead of at ourselves leaves all 78 of its frame references
+; untouched: what changes is the VALUE of the symbols, not the code.
+;
+; It also collapses two branches that were only ever about which buffer:
+; dos_pkt_deliver and dos_pkt_poll each had a `[dos_pkt_xl]` arm choosing
+; between the claim and our bss, and both arms are now the same claim.
+; **THE ORDER IS THE CARD'S NEEDS FIRST**, so that the two routes' claims
+; nest: a card wants the received frame and the stack and nothing else, and
+; putting the cable-only parts above them means the card claims 3KB rather
+; than paying for a hole.
+PKB_RX      equ 0                   ; NET_FRAME: the frame FOR the client -
+                                    ; the card's received one, or the one the
+                                    ; translation built
+PKB_STK     equ 1536                ; PKT_STK bytes of private stack
+PKB_STKTOP  equ PKB_STK + PKT_STK
+PKB_TX      equ PKB_STKTOP          ; NET_FRAME: the CLIENT's own frame,
+                                    ; staged - the CABLE PATH ALONE, because
+                                    ; the card hands the client's buffer to
+                                    ; the driver where it lies (96.23.8)
+PKB_STATE   equ PKB_TX + 1536       ; ...and the translation's own state, laid
+                                    ; out by dosnetabi.inc's DNB_*
+PKT_RXOFF   equ PKB_RX              ; the packet driver's own name for it,
+                                    ; kept because SPEC.md 96.23.7 publishes
+                                    ; that one
+
+; **THE TWO ROUTES CLAIM DIFFERENT AMOUNTS**, which is the other half of not
+; spending a byte that cannot be used: a card needs the received frame and the
+; stack and nothing else, because send_pkt hands the client's own buffer to the
+; driver where it lies (SPEC.md 96.23.8). The cable needs the staging frame and
+; the whole translation state on top.
+PKB_CARDKB  equ (PKB_STK + PKT_STK + 1023) / 1024
+PKB_XLKB    equ (PKB_STATE + DNB_SIZE + 1023) / 1024
 
 PKT_CLASS   equ 1                   ; DIX Ethernet (Blue Book), which is what
                                     ; an NE2000 is and what mTCP expects
@@ -7997,14 +8074,19 @@ dos_pkt_go:
     ; a whole class of segment bug lived, because it was the one place this
     ; package addressed the client's memory itself.
     mov dx, [dos_pkt_cds]           ; the CLIENT's DS, banked at the gate
+    push cx                         ; ...and the LENGTH, because get_statistics
+                                    ; wants it after the route has run and
+                                    ; OSAPI_DRV_CALL publishes CX as the
+                                    ; driver's to define
     cmp byte [dos_pkt_xl], 0
     jne .xlate                      ; the cable carries no frames (SPEC.md
                                     ; 72.22.3), so they are TRANSLATED
     mov bh, DRVC_NET
     mov bl, NETV_RAWTX
     call OSAPI_DRV_CALL
-    jc .cantsend
-    jmp .ok
+    jnc .sent
+    pop cx
+    jmp short .cantsend
 .xlate:
     ; --- the translation reads the frame in OUR segment --------------------
     ; dn_tx and everything under it use no segment override, because every
@@ -8016,9 +8098,8 @@ dos_pkt_go:
     push di
     push es
     push ds
-    push ds
-    pop es
-    mov di, dos_pkt_txs
+    mov es, [dos_pkt_bseg]          ; ES:DI is the CLAIM's staging frame and
+    mov di, dos_pkt_txs             ; DS:SI the client's own buffer
     mov ds, dx
     call dos_pkt_copy               ; DS:SI -> ES:DI, CX bytes
     pop ds
@@ -8028,6 +8109,16 @@ dos_pkt_go:
     pop cx
     mov si, dos_pkt_txs
     call dn_tx
+.sent:
+    ; --- get_statistics' OWN numbers, and they are the real ones -----------
+    ; Both routes end here so the count is written once. It is the client's
+    ; own frame length that is added, not the driver's padded one: a Crynwr
+    ; client asked for these bytes and mTCP's PKTTOOL prints them back.
+    pop cx
+    add word [dos_pkt_stats+PKS_POUT], 1
+    adc word [dos_pkt_stats+PKS_POUT+2], 0
+    add word [dos_pkt_stats+PKS_BOUT], cx
+    adc word [dos_pkt_stats+PKS_BOUT+2], 0
     jmp .ok
 .cantsend:
     mov dh, PKE_CANTSEND
@@ -8177,10 +8268,13 @@ dos_pkt_claim:
     push cx
     push si
     push di
-    mov si, dn_ourmac
-    mov di, dos_pkt_mac
-    mov cx, 6
-    call dn_copy                    ; DS:SI -> DS:DI, both ours
+    mov si, dn_ourmac_c             ; **THE IMAGE COPY AND NOT THE CLAIM'S**:
+    mov di, dos_pkt_mac             ; dn_ourmac is an offset into the network
+    mov cx, 6                       ; claim now (SPEC.md 96.26.6) and DS here
+    call dn_copy                    ; is ours, so reading it would fetch six
+                                    ; bytes of our own bss. The constant is in
+                                    ; the image, which is the one place both
+                                    ; segments can see
     pop di
     pop si
     pop cx
@@ -8306,16 +8400,15 @@ dos_pkt_poll:
     jne .out                        ; **THE TICK CAN LAND INSIDE A CALL** and
                                     ; the client's receiver is not re-entrant
                                     ; merely because ours is
-    cmp byte [dos_pkt_xl], 0        ; **THE CLAIM GUARD IS THE CARD PATH'S
-    jne .armed                      ; ALONE** (SPEC.md 96.26.4): the
-    cmp word [dos_pkt_bseg], 0      ; translation claims nothing, so a guard on
-    je .out                         ; the claim stopped the poll before it ever
-                                    ; reached dn_ready - and the symptom was an
-                                    ; ARP that vanished: dn_tx had swallowed
-                                    ; the request correctly and built the
-                                    ; reply, and nothing ever came to collect
-                                    ; it
-.armed:
+    cmp word [dos_pkt_bseg], 0      ; **AND THE CLAIM GUARD IS BOTH ROUTES'**
+    je .out                         ; now (SPEC.md 96.23.7): it was the card's
+                                    ; alone while the translation kept its
+                                    ; frame in bss, and the symptom of getting
+                                    ; that wrong was an ARP that vanished -
+                                    ; dn_tx had swallowed the request and
+                                    ; built the reply correctly, and this test
+                                    ; stopped the poll before anything came to
+                                    ; collect it
     mov byte [dos_pkt_busy], 1
     push ax
     push bx
@@ -8339,16 +8432,26 @@ dos_pkt_poll:
     jc .done
     jmp short .got
 .xl:
-    call dn_ready                   ; ...and it is ALREADY in our segment, so
-    pop dx                          ; there is nothing to move (dn_ready)
-    jc .done
+    call dn_ready                   ; ...and it is ALREADY at PKB_RX, because
+    pop dx                          ; the translation BUILT it there - which
+    jc .done                        ; is the one place the two routes differ
+                                    ; and the only reason this branch is left
 .got:                        ; the ring is empty
     cmp cx, NET_FRAME                ; the TRUE length may exceed what we asked
     ja .next                        ; for (SPEC.md 72.22.2), and a cut frame
                                     ; handed to a stack is worse than none
     cmp cx, NET_EHSIZE
     jbe .next
-    call dos_pkt_deliver
+    push dx                         ; **THE BUDGET GOES ON THE STACK ACROSS
+    call dos_pkt_deliver            ; THE UP-CALL**, because DX is not ours
+    pop dx                          ; over it: dos_pkt_deliver far-calls the
+                                    ; CLIENT's receiver twice, and a client
+                                    ; owes us no register at all. With the
+                                    ; count in DX a receiver that used it
+                                    ; turned a ten-frame drain into up to
+                                    ; 65,535 of them, inside a tick handler -
+                                    ; the same livelock dn_pump's CL counter
+                                    ; had, one layer out
 .next:
     dec dx
     jnz .f
@@ -8374,16 +8477,12 @@ dos_pkt_poll:
 ; is nowhere to put it back.
 ; -----------------------------------------------------------------------------
 dos_pkt_deliver:
-    cmp byte [dos_pkt_xl], 0
-    jne .xl                         ; the cable path built it in our own bss
-    push es
-    mov es, [dos_pkt_bseg]          ; the card path's frame is in the CLAIM
-    mov ax, [es:PKT_RXOFF+PKT_ETYPE] ; (SPEC.md 96.23.7), so that read is
-    pop es                          ; through a segment and not DS-relative
-    jmp short .have
-.xl:
-    mov ax, [dos_pkt_rxs+PKT_ETYPE]
-.have:
+    push es                         ; **ONE SOURCE ON BOTH ROUTES NOW** - the
+    mov es, [dos_pkt_bseg]          ; card writes the claim through NETV_RAWRX
+    mov ax, [es:PKT_RXOFF+PKT_ETYPE] ; and the translation BUILDS in it
+    pop es                          ; (SPEC.md 96.23.7), so the two arms this
+                                    ; routine had, and the [dos_pkt_xl] test
+                                    ; that chose between them, are gone
     xchg al, ah                     ; the wire is big-endian and we are not
     mov bx, dos_pkt_htab
     mov si, PKT_NHAND
@@ -8398,9 +8497,14 @@ dos_pkt_deliver:
     add bx, PKT_HSIZE
     dec si
     jnz .l
-    ret                             ; nobody registered for it, so it is
+                                    ; nobody registered for it, so it is
                                     ; dropped - which is what a packet driver
-                                    ; does and not an error of ours
+                                    ; does and not an error of ours, and
+                                    ; get_statistics has a FIELD for saying so
+.dropped:
+    add word [dos_pkt_stats+PKS_DROP], 1
+    adc word [dos_pkt_stats+PKS_DROP+2], 0
+    ret
 .hit:
     mov ax, [bx+PKT_HRCVO]
     mov [dos_pkt_cvec], ax
@@ -8418,20 +8522,17 @@ dos_pkt_deliver:
     pop cx
     mov ax, es
     or ax, di
-    jz .out                         ; 0:0 - refused, and the frame is gone
+    jz .dropped                     ; 0:0 - refused, and the frame is gone -
+                                    ; it is off the ring already and there is
+                                    ; nowhere to put it back, so it is a DROP
+                                    ; and get_statistics counts it as one
 
     push cx                         ; --- the copy, the claim to theirs ---
     push di
     push es
     push ds
-    cmp byte [dos_pkt_xl], 0
-    jne .xlc
-    mov si, PKT_RXOFF
-    mov ds, [dos_pkt_bseg]          ; DS:SI is the claim, ES:DI is the buffer
-    jmp short .docp                 ; the client just gave us
-.xlc:
-    mov si, dos_pkt_rxs             ; ...or our own bss, on the cable path
-.docp:
+    mov si, PKT_RXOFF               ; DS:SI is the claim and ES:DI the buffer
+    mov ds, [dos_pkt_bseg]          ; the client just gave us
     call dos_pkt_copy
     pop ds
     pop es
@@ -8448,7 +8549,12 @@ dos_pkt_deliver:
     call far [cs:dos_pkt_cvec]      ; POP**, so the vector is only reachable
     pop bp                          ; with an override - and reading it from
     pop ds                          ; the client's segment would be a wild
-.out:                               ; far call into the program's own data
+                                    ; far call into the program's own data
+    add word [dos_pkt_stats+PKS_PIN], 1
+    adc word [dos_pkt_stats+PKS_PIN+2], 0
+    add word [dos_pkt_stats+PKS_BIN], cx
+    adc word [dos_pkt_stats+PKS_BIN+2], 0
+.out:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -8496,40 +8602,45 @@ dos_pkt_copy:
 dos_pkt_bufs:
     push ax
     push bx
+    push cx
     push dx
+    push di
+    push es
     mov word [dos_pkt_bseg], 0
     call net_find                   ; **EITHER WIRE** (SPEC.md 96.26.1): the
     jc .out                         ; CARD if there is one and the CABLE if
                                     ; there is not - net_find's own preference
                                     ; order, for its own reason
     mov byte [dos_pkt_xl], 0
-    ; --- **THE TRANSLATION IS OPT-IN WHILE ITS TCP IS UNFINISHED** ---------
-    ; SPEC.md 96.26.3's endpoint does not yet complete a handshake, and a
-    ; half-built one is WORSE than none on the machine it is for: without it a
-    ; cable-only machine publishes no packet driver and a client says so at
-    ; once (96.23.5), while with it the client finds an interface, opens a
-    ; handle and waits for ever. So DOSNET=1 is what builds the route at all,
-    ; and a stock build behaves exactly as it did before this file existed.
-%ifdef DOSNET
-    cmp byte [net_cls], DRVC_NET
-    jne .xlate
+    ; --- WHICH ROUTE, AND IT IS DECIDED BY WHICH WIRE ----------------------
+    ; A card carries frames, so the packet driver hands the client's frames
+    ; straight to it. The cable carries SOCKETS and no frames at all (SPEC.md
+    ; 72.22.3), so on that wire the frames are TRANSLATED - the endpoint in
+    ; dosnet.inc terminates the client's TCP and re-opens it as a socket
+    ; (96.26.3).
+    mov ax, PKB_CARDKB               ; ...and the two want DIFFERENT amOUNTS
 %ifdef DOSNET_CARD
-    jmp short .xlate                ; ...and this one forces it where a card
-                                    ; is present, which is the only way it can
-                                    ; be driven (DOS-CABLE-NET-PLAN 7.0)
+    jmp short .xlate                ; ...and this knob forces the translation
+                                    ; where a card is present, which is the
+                                    ; only way it can be DRIVEN until the
+                                    ; harness has a cable partner
+                                    ; (DOS-CABLE-NET-PLAN 7.0)
 %endif
-%endif
-    jmp short .card
+    cmp byte [net_cls], DRVC_NET    ; **DRVC_NET IS THE CARD.** The cable is
+    je .claim                       ; DRVC_FILE - it moved there when it
+                                    ; started serving a volume (SPEC.md 62.9)
+                                    ; and the comment at the constant's own
+                                    ; definition still says "the parallel
+                                    ; link", which is how this compare got
+                                    ; written the wrong way round once
 .xlate:
     mov byte [dos_pkt_xl], 1
-    call dn_init                    ; the translation IS the route, and it
-    jmp short .out                  ; starts with nothing remembered.
-                                    ; **AND IT CLAIMS NOTHING**: its receive
-                                    ; staging is dn_frame, in the bss, so the
-                                    ; card path's 2KB buys it nothing at all
-.card:
-    mov ax, PKT_BUFKB
+    mov ax, PKB_XLKB                ; the translation wants the staging frame
+                                    ; and its own state as well
+.claim:
+    push ax
     call OSAPI_MEM_CLAIM
+    pop cx                          ; (the size, for the zeroing below)
     jc .out                         ; **A REFUSAL IS SURVIVABLE**: the program
     mov [dos_pkt_bseg], dx          ; still runs, the interface is simply not
                                     ; published (dos_pkt_start tests this)
@@ -8537,23 +8648,30 @@ dos_pkt_bufs:
     ; A heap claim arrives with whatever was last in it, and this one's bytes
     ; go ON THE WIRE: ne_tx pads a short frame but does not touch the length
     ; the caller gave, so a send that staged nothing would put 42 bytes of
-    ; somebody else's heap onto the network.
-    push cx
-    push di
-    push es
+    ; somebody else's heap onto the network. It is also where every dn_*
+    ; counter, flow row and name slot now lives, and those are read before
+    ; they are written.
     mov es, dx
     xor di, di
-    mov cx, PKT_BUFKB * 1024
+    mov ax, cx
+    mov cl, 10
+    shl ax, cl                      ; KB -> bytes; the claim is in KB and the
+    mov cx, ax                      ; loop is in bytes
     xor al, al
 .z:
     mov [es:di], al
     inc di
     loop .z
+    cmp byte [dos_pkt_xl], 0
+    je .out
+    call dn_init                    ; ...and THEN the translation's own start,
+                                    ; which copies the two MACs in and needs
+                                    ; the claim to exist (SPEC.md 96.26.6)
+.out:
     pop es
     pop di
-    pop cx
-.out:
     pop dx
+    pop cx
     pop bx
     pop ax
     ret
@@ -8745,7 +8863,12 @@ dos_pkt_tick:
     jne .out
     mov [dos_pkt_sss], ss
     mov [dos_pkt_ssp], sp
-    mov ax, ds
+    mov ax, [dos_pkt_bseg]          ; **THE STACK IS IN THE NETWORK CLAIM**
+                                    ; (SPEC.md 96.23.7), not in our bss - and
+                                    ; [dos_pkt_raw] above is what proves there
+                                    ; is one: a claim that was refused
+                                    ; publishes no interface, so nothing can
+                                    ; have taken a handle
     cli
     mov ss, ax                      ; **SS AND SP IN CONSECUTIVE INSTRUCTIONS**
     mov sp, dos_pkt_stk_top         ; - an 8086 masks interrupts for one
@@ -9912,7 +10035,6 @@ dos_fh_fill:
                                     ; machine with it. The translation made the
                                     ; chain under this poll much deeper than
                                     ; §96.23.4.1 sized it for
-    DBSS DOS_B_PKTSTK,  PKT_STK     ; ...and ours (SPEC.md 96.23.4.1)
     DBSS DOS_B_PKTCDS,  2           ; the CLIENT's DS, captured at the gate
                                     ; (SPEC.md 96.23.9) - NOT read back out of
                                     ; the stack frame, which is what the first
@@ -9924,22 +10046,11 @@ dos_fh_fill:
                                     ; machine - including every machine with no
                                     ; card in it
     DBSS DOS_B_PKTSTAT, 24          ; six dwords, get_statistics' own order
-; --- THE CABLE TRANSLATION (SPEC.md 96.26) ----------------------------------
-; Only reached when [net_cls] is the CABLE, but the bytes are unconditional:
-; a package's bss is one span and this is the cost DOS-CABLE-NET-PLAN 3.1
-; measured the parts alternative against.
-    DBSS DOS_B_DNFLOW,  DN_NFLOW * DN_F_SIZE
-    DBSS DOS_B_DNNAME,  DN_NNAME * DN_N_SIZE
-    DBSS DOS_B_DNQNAME, DN_NAMEMAX
-    DBSS DOS_B_DNFRAME, NET_FRAME   ; the frame we build for the client
-    DBSS DOS_B_DNPEND,  2           ; ...and how many bytes of it are waiting
-    DBSS DOS_B_DNLASTIP, 1          ; the pool octet the last answer used
-    DBSS DOS_B_DNPSEUDO, 12         ; TCP's pseudo-header, off to one side
-    DBSS DOS_B_DNRR,    1           ; dn_pump's round-robin cursor: a busy
-                                    ; first flow would starve every other one,
-                                    ; and FTP opens two
-    DBSS DOS_B_PKTTXS,  NET_FRAME   ; the client's frame, staged into OUR
-                                    ; segment for dn_tx to read
+; --- AND NOTHING FOR THE WIRE ITSELF (SPEC.md 96.23.7) -----------------------
+; Every frame, the staging copy, the poll's private stack and the whole of the
+; cable translation's state are in the NETWORK CLAIM - see PKB_* above. They
+; were 4,052 bytes of this table, which every DOS window paid for on every
+; machine, including the 128KB one that ships no network driver at all.
     DBSS DOS_B_PKTXL,   1           ; **WHICH PATH, and it is NOT the same
                                     ; question as which CLASS** (SPEC.md
                                     ; 96.26.1): the translation calls sockets
@@ -10163,27 +10274,32 @@ dos_pkt_old08 equ os88_image_end + DOS_B_PKTOLD08
 dos_pkt_sss   equ os88_image_end + DOS_B_PKTSSS
 dos_pkt_ssp   equ os88_image_end + DOS_B_PKTSSP
 dos_pkt_can   equ os88_image_end + DOS_B_PKTCAN
-dos_pkt_stk   equ os88_image_end + DOS_B_PKTSTK
-dos_pkt_stk_top equ dos_pkt_stk + PKT_STK
 dos_pkt_cds   equ os88_image_end + DOS_B_PKTCDS
 dos_pkt_bseg  equ os88_image_end + DOS_B_PKTBSEG
 dos_pkt_stats equ os88_image_end + DOS_B_PKTSTAT
 
-; --- the cable translation's (SPEC.md 96.26) --------------------------------
-dn_flows    equ os88_image_end + DOS_B_DNFLOW
-dn_names    equ os88_image_end + DOS_B_DNNAME
-dn_qname    equ os88_image_end + DOS_B_DNQNAME
-dn_frame    equ os88_image_end + DOS_B_DNFRAME
-dn_pend     equ os88_image_end + DOS_B_DNPEND
-dn_lastip   equ os88_image_end + DOS_B_DNLASTIP
-dn_pseudo   equ os88_image_end + DOS_B_DNPSEUDO
-dn_rr       equ os88_image_end + DOS_B_DNRR
-dos_pkt_txs equ os88_image_end + DOS_B_PKTTXS
 dos_pkt_xl  equ os88_image_end + DOS_B_PKTXL
-dos_pkt_rxs equ dn_frame            ; THE CABLE PATH'S RECEIVE STAGING IS
-                                    ; dn_frame ITSELF - the translation builds
-                                    ; there, in the one segment it shares with
-                                    ; everything, so there is nothing to move.
-                                    ; The card path's is the claim at
-                                    ; PKT_RXOFF, and dos_pkt_deliver reads
-                                    ; whichever dos_pkt_poll filled
+
+; --- the cable translation's, IN THE NETWORK CLAIM (SPEC.md 96.26.6) --------
+; These are offsets into [dos_pkt_bseg] and NOT into our own segment, which is
+; the whole of what made the move cheap: dosnet.inc already addressed all of
+; them DS-relative with no override, so pointing DS at the claim leaves its
+; seventy-eight frame references untouched and only these fourteen lines move.
+dn_flows    equ PKB_STATE + DNB_FLOWS
+dn_names    equ PKB_STATE + DNB_NAMES
+dn_qname    equ PKB_STATE + DNB_QNAME
+dn_pend     equ PKB_STATE + DNB_PEND
+dn_lastip   equ PKB_STATE + DNB_LASTIP
+dn_pseudo   equ PKB_STATE + DNB_PSEUDO
+dn_rr       equ PKB_STATE + DNB_RR
+dn_gwmac    equ PKB_STATE + DNB_GWMAC       ; copied out of the image by
+dn_ourmac   equ PKB_STATE + DNB_OURMAC      ; dn_init (dn_mac_c below)
+dn_frame    equ PKB_RX                      ; the frame we build FOR the
+                                            ; client, which is also...
+dos_pkt_rxs equ PKB_RX                      ; ...the one dos_pkt_deliver hands
+                                            ; over, on EITHER route: the card
+                                            ; writes the same offset through
+                                            ; NETV_RAWRX, which is why both
+                                            ; of that routine's arms collapsed
+dos_pkt_txs equ PKB_TX                      ; and the client's own, staged
+dos_pkt_stk_top equ PKB_STKTOP

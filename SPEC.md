@@ -121145,11 +121145,22 @@ card we do not have. The vector chosen is reported in the window.
 | 6 | `get_address` | `NETV_ADDR` — the card's own station address out of its PROM |
 | 20 | `set_rcv_mode` | accepted and recorded; the card is left in the mode `ne_init` set |
 | 21 | `get_rcv_mode` | what `20` recorded — 3, "all frames addressed to me plus broadcast" |
-| 24 | `get_statistics` | the driver's own counters, through `NETV_RAW`'s per-claim pair |
+| 24 | `get_statistics` | six dwords we keep ourselves, in the Crynwr order |
 
 Everything else answers `CF=1` with `DH=11` (`NO_SPACE` is not it —
 `BAD_COMMAND` is), which is what a client that asks for a feature it can live
 without expects to get.
+
+`get_statistics`' record is the box's own count and **not the driver's**,
+because the numbers a client asks for are the ones it can act on: frames in
+and out as *it* framed them (the card pads a short frame and the client did
+not ask for the padding), and `packets_dropped` incremented where a frame is
+actually lost — no handle matched it, or the client answered `0:0` to the
+buffer request. `errors_in` stays 0 and that is honest: a frame the card could
+not read never reaches us at all. These are the numbers mTCP's `PKTTOOL`
+prints, so they are kept for real — for one cycle the last two fields carried
+two **diagnostic** counters instead, which made a debugging aid into a wrong
+answer to a published call.
 
 #### 96.23.4 The receive is a PULL underneath and an UP-CALL on top
 
@@ -121459,38 +121470,64 @@ An address out of our pool that we never handed out is refused with `RST`.
 There is nothing to look up and nothing to connect to, and a reset is what
 tells a client to stop rather than retry into a silence.
 
-#### 96.26.3 The TCP endpoint — BUILT, NOT WORKING, AND OPT-IN BECAUSE OF IT
+#### 96.26.3 The TCP endpoint — BUILT, and the route on the cable is now this
 
-The state machine, the sequence arithmetic and both checksums are written
-(`dn_tcp_open`, `dn_tcp_data`, `dn_tcp_fin`, `dn_seg`, `dn_pump`). It does not
-complete a handshake yet, so **`DOSNET=1` is what builds the route at all** and
-a stock kernel behaves exactly as it did before the file existed.
+The state machine, the sequence arithmetic and both checksums are in
+`dn_tcp_open`, `dn_tcp_data`, `dn_tcp_fin`, `dn_seg` and `dn_pump`, and the
+route is no longer a knob: a cable answers `NETV_RAW` with a refusal
+(§72.22.3), so on that wire `dos_pkt_bufs` takes the translation and on a card
+it takes §96.23's raw path. `DOSNETCARD=1` forces the translation over a card,
+which is the only way it can be **driven** on any emulator here — MartyPC has
+no NIC and QEMU has no cable partner yet.
 
-That gate is the point rather than caution. A half-built endpoint is **worse
-than none** on the machine this is for: without it a cable-only machine
-publishes no packet driver and the client says so at once (§96.23.5); with it
-the client finds an interface, opens a handle and waits for ever.
+**What one connection looks like, measured** (`tests/dosxlat.py`, the probe in
+`tests/dostrap/dospkt.asm` running under the box with a host listener on
+`10.0.2.2:8099`). Every TCP segment's flags byte in order, as the client's own
+receiver recorded them:
 
-**What is proven, and it is most of the path:**
+```
+FLAGS 12 10 10 18 11
+DATA 00EB          235 bytes
+FIRST 4854         'HT' of an HTTP response
+```
 
-- the client's `SYN` is terminated and becomes a real `NETV_OPEN` — the wire
-  shows `ETHER.DRV` completing a three-way handshake with the far host, so
-  §96.26.5's literal-address arm and the whole open path work;
-- the `SYN|ACK` is **built correctly**: read out of guest RAM it is
-  `flags 0x12`, our ISN 0, the client's ISN+1 acknowledged, window 1024, and
-  **both checksums verify** against an independent implementation;
-- `dn_pump` runs continuously — `eth_ncall` wraps its 16-bit counter — so the
-  poll, the round-robin and `NETV_STATUS` all work.
+`12` is the `SYN|ACK` the endpoint sends once `NETV_STATUS` reports `NSK_UP`,
+`18` carries the whole HTTP response and `11` closes it. The host's own log
+records the `GET`, so the path is proven in both directions: the client's TCP
+is terminated here, re-opened as a socket, and the far side's bytes come back
+as segments the client's stack accepts.
 
-**What is not:** that frame does not reach the client. The next thing to
-measure is the up-call itself — whether `dos_pkt_deliver` matches a handle for
-`0x0800` on this path and what the client's receiver is handed — and the
-instrument for it is `tests/dostrap/dospkt.asm`'s own `do_tcp`, which prints
-the flags byte of whatever arrives and currently prints nothing.
+**Three defects were found getting there and every one was a REGISTER, not a
+protocol mistake.** They are written down because each looked like something
+else entirely:
 
-Two things were already ruled out and should not be re-measured: the private
-poll stack (doubled to 1,024 with a canary beneath it, §96.26.4, no change)
-and the frame's correctness (above).
+1. **`dn_pump`'s loop counter was `CL`** — and `CX` is an *output* of every
+   verb here, `NETV_STATUS` answering the readable byte count in it. `dec cl`
+   then ran on whatever the driver had returned: a 0 wrapped to 255, so one
+   pump made hundreds of far calls, a poll made ten pumps of them, and the
+   tick handler took **longer than a tick**. The machine spent all its time in
+   its own timer and the DOS program never ran again — which reads as a hang
+   *in the program*. `eth_ncall` wrapping its 16 bits was the tell. The
+   counter is `BP` now, which `OSAPI_DRV_CALL` publishes as the caller's.
+2. **`dos_pkt_poll`'s budget was `DX` across the up-call** — the same fault one
+   layer out. `dos_pkt_deliver` far-calls the *client's* receiver twice, and a
+   client owes us no register at all, so a receiver that used `DX` turned a
+   ten-frame drain into up to 65,535 of them inside a tick handler. The budget
+   goes on the stack across the call.
+3. **`dn_seg` banked the flags in `DL`**, which `dn_put32` needs as the high
+   half of `DX:AX`. The flags byte written to the wire was therefore whatever
+   the last sequence number's top half had been — `0x2B` where `0x12` was
+   meant — and the client dropped the segment as malformed while every counter
+   on our side said it had been sent.
+
+**A bare ACK for a flow we have not got is DROPPED, not reset.**
+`dn_kill` frees a flow the moment its `FIN` goes out — there is no `TIME_WAIT`
+here and nowhere to keep one — so the client's own final ACK *always* arrives
+after we have forgotten the connection. Answering it with a reset made every
+successful transfer end in an `RST`, which a client is entitled to report as
+an error on a transfer that in fact completed. Anything that asks for
+something — data, a `FIN` — still gets the reset, because that is a client
+retrying into silence and it should stop.
 
 What it does **not** need remains the interesting half: no congestion control,
 no retransmit queue and no reassembly, because what is underneath a
@@ -121563,3 +121600,127 @@ So two shapes are dropped rather than answered: target equal to sender, and a
 sender of `0.0.0.0`. Both are the same question and neither has an answer we
 are entitled to give — nothing holds that address, because there is nothing
 else on this segment at all.
+
+#### 96.26.6 Every byte of it is a heap claim, and `DS` is that claim
+
+**A byte of this package's bss is a byte the DOS program cannot have.** §96.3
+hands the program `OSAPI_MEM_AVAIL`'s whole answer, and the package's image
+plus bss is claimed off the same heap first — so anything declared in the bss
+table comes straight out of the arena, on every machine, whether or not there
+is a wire to use it.
+
+The wire wanted 4,299 bytes of exactly that: two 1,514-byte frames (the one
+built for the client and the client's own, staged), the poll's 1,024-byte
+private stack, and the translation's flows, names, pseudo-header and
+counters. On the 128 KB floor machine that is **8% of the arena spent on a
+driver `kern_small` does not even ship** (§24.5).
+
+So there is one claim, `dos_pkt_bufs` takes it only when `net_find` answers,
+and the two routes ask for different amounts — **3 KB** for a card (the
+received frame and the stack; `send_pkt` hands the client's own buffer to the
+driver where it lies, §96.23.8) and **5 KB** for the cable, which needs the
+staging frame and the state as well. Measured, `image + bss`: **25,586 →
+21,287**.
+
+**What made it cheap is that `dosnet.inc` was already written for it.** That
+file's premise is *one segment, no segment override* — every frame offset and
+every state field is `DS`-relative — so pointing `DS` at the claim instead of
+at ourselves left all **78** of its frame references untouched. What moved was
+fourteen `equ` lines and four door wrappers:
+
+| | |
+|---|---|
+| `dn_init`, `dn_shut`, `dn_tx`, `dn_ready` | the only four routines `dos.asm` calls. Each is now a wrapper that banks `DS`, loads `[dos_pkt_bseg]`, calls the body and puts `DS` back |
+| `dn_copy` | takes whatever `DS` it is given and is used by `dos.asm` in its **own** segment, so it must stay unwrapped |
+| `[cs:net_cls]` | the one thing inside that stays ours: which driver class answers the socket verbs. Seven sites, one prefix byte each, no copy |
+| `dn_gwmac_c`, `dn_ourmac_c` | the two MACs are image constants a claim-relative `DS` cannot reach, so `dn_init` copies twelve bytes in once rather than overriding at seven call sites |
+
+An unprefixed reference to a package symbol from inside `dosnet.inc` now reads
+the **claim** at that offset and is silently wrong. That is the hazard the
+table above is written down for, and it bit once already: `dos_pkt_claim`
+synthesises the station address by copying `dn_ourmac`, which became a claim
+offset while that routine still ran with our own `DS`.
+
+Each door **refuses on a segment of zero**, which is not defensive padding:
+`dos_pkt_bufs` publishes no interface when the claim is refused, but `dn_shut`
+is called from the bracket's own teardown where nothing has consulted that —
+and `mov ds, 0` followed by this file's stores would write the interrupt
+vector table.
+
+Two branches went with it. `dos_pkt_deliver` and `dos_pkt_poll` each had a
+`[dos_pkt_xl]` arm choosing between the claim and our bss; both arms are now
+the same claim at the same offset, so the routing test in `dos_pkt_deliver` is
+gone entirely and the one left in `dos_pkt_poll` is about `NETV_RAWRX` versus
+`dn_ready` — a real difference between the wires rather than a question about
+which buffer.
+
+#### 96.26.7 …and it works on the wire it was written for
+
+§96.26.3's connection is over a **card**, because that is the only wire an
+emulator here can drive at speed (`DOSNETCARD=1` forces it there; `net_find`
+would otherwise always prefer §96.23's raw path, which is strictly better on a
+machine that has one). The question that leaves open is the one the whole
+feature is for: does the same translation work when what is underneath it is
+the **parallel cable**?
+
+It does, and the answer is the same five segments. `tests/doscable.py` boots
+the shipped kernel and a real `NET.DRV` under MartyPC, drives the cable a
+nibble at a time from the host (`tests/lptlink/partner.py`), and lets a real
+Crynwr client inside the real DOS box open a connection through it — with no
+knob at all, `net_find` picking the cable because `NETV_RAW` is one of the
+three verbs it refuses (§72.22.3):
+
+```
+[dos_pkt_xl]=1  [net_cls]=5 (DRVC_FILE)     NET.DRV at 9C40
+FLAGS 12 10 10 18 11                        ARP 1, data 45, first 4854
+the far side was asked for [('10.0.2.2', 8099)]  ...and saw 'GET / HTTP/1.0'
+the partner served: o s s s s s s s s s s w s r s c
+```
+
+The last line is the far side's own record — `NETV_OPEN`, ten `NETV_STATUS`
+polls while the connection came up, a `SEND` of 18 bytes taken, a `RECV` of
+45, and a `CLOSE`. Every one of those crossed a LapLink cable four bits at a
+time.
+
+**The far side redirects one address and RECORDS it**, which is a stronger
+assertion than a connect rather than a weaker one: the probe dials
+`10.0.2.2:8099` because that is where QEMU's slirp puts the host and the same
+binary has to work on the card arm, nothing routes there in a container, so
+the harness's socket end connects to its own listener instead. What is
+asserted is the recorded string — the dotted quad `dn_tcp_open` formatted out
+of an IP header (§96.26.5) — and a connect that merely succeeded would not
+check it. It is also what the real far side does by construction:
+`os88net.com` resolves and connects on our behalf.
+
+Two things the run settles that nothing else could. `NET.DRV` **survives the
+bracket**, which is `drv_suspend_x`'s `DRVC_FILE` skip doing its job — without
+it the translation's very first verb reaches nothing. And `DRVC_NET` is **not**
+the cable: `[net_cls]` is 5, and the constant's own header comment said *"the
+parallel link"* for a cycle after the cable moved to `DRVC_FILE` to serve a
+volume (§62.9), which is how `dos_pkt_bufs`' route compare came to be written
+the wrong way round.
+
+**It is exact rather than fast**, and the cost is the guest's idle time and not
+the payload: `_await_strobe` steps 400 cycles a debug round trip, so the DOS
+box's own launch — a floppy mount and two programs, 13.2 million cycles —
+would be 33,000 round trips spent watching a line the guest is not driving.
+`Partner.idle_until_wire` steps that phase in 25,600-cycle chunks instead and
+stops the moment the data register moves: 516 chunks for the same work. It is
+safe for `_spend_stall`'s reason — every deadline in that transport is in
+TICKS, and a chunk is 5.4 ms against `LP_TMO`'s 110 — so the most it can cost
+is being one twentieth of the tightest deadline late to the *first* nibble,
+after which the fine loop is back in charge.
+
+**The trace build is not on this scheme and is bounded instead.** `DOSTRACE`'s
+ring and its rendered dump are 26,900 bytes and they are `%ifdef`'d, so they
+cost a shipped build nothing — but they are 26,900 bytes of the very arena the
+instrument exists to measure, which is the argument `DOS_TRDUMPN`'s own
+comment already makes. What forced a decision was not that: the trace arm was
+measured at **61,437 of `APP_MAX_SIZE`'s 61,440** — three bytes — so the next
+feature to touch the file stopped it assembling, and the only row that noticed
+was `dosdbg` reporting the assembler's complaint about a probe. The ring is
+**256 entries** now rather than 512, which is the better number on its own
+merits as well as 8,192 bytes cheaper: the failure that sized it makes 169
+calls, and 256 is exactly what `TRACE.LOG` holds and what the reference tracer
+in `tests/dostrap` keeps — so the ring, the file and the reference now cover
+the same span instead of the ring holding twice what can ever be written out.

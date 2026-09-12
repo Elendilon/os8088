@@ -234,11 +234,115 @@ connection we refuse with `RST`, which is what a client understands.
 |---|---|---|
 | 1 | **DONE, and it changed the plan**: measure S. §3.1 is the result — 2,277 for a `SEG\|LAZY` row, against a 2,000-byte translation, so the part is REFUSED for now and waves 2–4 build inline | `S` is a number in §3.1 |
 | 2 | ARP, IP, and the DNS hijack | the client's ARP is answered and a DNS query gets a synthetic A record |
-| 3 | **WRITTEN, NOT WORKING, gated behind `DOSNET=1`** (SPEC.md 96.26.3). The open path is proven to the wire and the SYN\|ACK is proven correct; it does not reach the client. The up-call is the next thing to measure | mTCP's `htget` fetches a page across the cable |
-| 4 | the gate's cable arm | `tests/dospkt.py` proves it under MartyPC with no second machine |
+| 3 | **DONE, and the route on the cable is now this** (SPEC.md 96.26.3) — no knob. One connection reads `FLAGS 12 10 10 18 11`: the `SYN\|ACK`, the handshake, 235 bytes of HTTP and a clean close, with the host's own log recording the `GET`. All three defects were REGISTERS, not protocol (§7.2) | `tests/dosxlat.py`, registered — and it reads the CLIENT's record of every segment, because nothing outside the client can tell "the box opened a socket" from "the client ever heard about it" |
+| — | **the bss went with it** (SPEC.md 96.26.6): 4,299 bytes of every DOS program's arena, on every machine, for a wire that may not be there. `image + bss` **25,586 → 21,287**, and `DS` is the claim inside every `dn_*` | `t_appsmall`-style A/B: the stock arm's figures are in §7.3 |
+| 4 | **DONE, and it passed first time** (SPEC.md 96.26.7). `tests/doscable.py`: a real Crynwr client, in the real DOS box, over a real `NET.DRV`, over MartyPC's parallel port a nibble at a time, to a real host socket - with NO knob, `net_find` picking the cable because `NETV_RAW` is one of the three verbs it refuses. `FLAGS 12 10 10 18 11`, the same five segments as the card arm, and the partner's own log reads `o ssssssssss w s r s c` | `tests/doscable.py`, registered |
 | — | *below here is optional and separately revertible* | |
 | 8 | `OSAPI_PKG_REHOME` — give **S** back | `kernsize`-style A/B on the region |
 | 9 | inbound (`NW_LISTEN`/`NW_ACCEPT` exist) | `ftpsrv` serves across the cable |
+
+### 7.4 What wave 4 found, and the one thing it had to build
+
+**Nothing in the translation.** It passed on its first run, which is what
+§7.0's argument predicted: the endpoint consumes five verbs and both drivers
+answer them, so once the card arm was right the cable arm was a question about
+`net_find` and about whether `NET.DRV` survives the bracket. Both answers were
+already yes - `drv_suspend_x` has skipped `DRVC_FILE` since long before this
+plan, on the ground that a volume is *"a thing a DOS program WANTS"*.
+
+**And `SocketBox` was already there**, which this plan did not know: §7.1
+reads as though the socket verbs still had to be put on top of the transport,
+and `tests/lptlink/partner.py` has served them against real host sockets since
+`tests/socktest.py` was written. So the wave was a test file and one harness
+method, not a far side.
+
+**The one thing built is `Partner.idle_until_wire`.** `_await_strobe` steps
+400 cycles a debug round trip, which is one round trip per 84 microseconds of
+guest time - fine while a nibble is in flight and terrible for a phase where
+the guest is not using the cable at all. The DOS box's launch is exactly that
+phase: a floppy mount and two programs, **13.2 million cycles**, which is
+33,000 round trips spent watching a line nothing is driving. Stepping it in
+25,600-cycle chunks until the data register moves is **516**. It is safe for
+`_spend_stall`'s reason and the arithmetic is the whole argument: every
+deadline in this transport is in TICKS (docs/plans/completed/NET-PLAN.md 9.1), and a chunk is
+5.4 ms against `LP_TMO`'s 110 and `TURN_RX`'s 440.
+
+**It is still the slow row in the tree, and that is the instrument and not the
+subject.** `tests/socktest.py` - the same arrangement one layer down, fetching
+a page from an ALREADY-RUNNING package - takes ~13 minutes; this adds the box's
+launch in front of it. The payload is 45 bytes on purpose.
+
+Two things noticed in passing and not chased, because neither is this branch's
+subject: `socktest` itself fetches its page correctly and then fails its own
+handle-leak assertion with *"8 of 4 handles free after the close"*, which reads
+as a bug in that assertion rather than in the wire - and it is UNREGISTERED, so
+nobody has been running it (its exemption reason says *"needs `make socktest`
+and QEMU networking"*, and it needs no QEMU at all).
+
+### 7.2 What wave 3 actually cost, and it was never the protocol
+
+Three defects stood between a correct endpoint and a working one, and **every
+one was a register**. Worth writing down because each presented as something
+else:
+
+1. **`dn_pump`'s loop counter was `CL`**, and `CX` is an *output* of every
+   verb here — `NETV_STATUS` answers the readable byte count in it. `dec cl`
+   then ran on whatever the driver had returned: a 0 wrapped to 255, so one
+   pump made hundreds of far calls, a poll made ten pumps of them, and the
+   tick handler took **longer than a tick**. The machine spent all its time
+   in its own timer and the DOS program never ran again — which reads as a
+   hang *in the program*. `eth_ncall` wrapping its 16 bits was the tell.
+2. **`dos_pkt_poll`'s frame budget was `DX` across the up-call** — the same
+   fault one layer out, and found by reading for it after (1).
+   `dos_pkt_deliver` far-calls the *client's* receiver twice and a client owes
+   us no register, so a receiver that used `DX` turned a ten-frame drain into
+   up to 65,535 of them, inside a tick handler.
+3. **`dn_seg` banked the flags in `DL`**, which `dn_put32` needs as the high
+   half of `DX:AX`. The byte on the wire was therefore the last sequence
+   number's top half — `0x2B` where `0x12` was meant — and the client dropped
+   the segment as malformed while every counter on our side said *sent*.
+
+The lesson for anything else built against `OSAPI_DRV_CALL`: the slot
+publishes **"`BP`, `DS` and `ES` come back yours"** and says `AX`, `CX`, `DX`,
+`SI` and `DI` are the driver's to define. A loop counter in one of the second
+group is a defect waiting for a verb that happens to return in it.
+
+### 7.3 …and the memory, which was the owner's call and the bigger win
+
+Asked mid-wave: *every byte of RAM the DOS box uses is one a DOS program
+cannot use*. Correct, and it lands hardest on this feature — §96.3 hands the
+program `OSAPI_MEM_AVAIL`'s whole answer, and the package's image plus bss
+comes off the same heap first.
+
+| | bytes |
+|---|---|
+| the frame built for the client | 1,514 |
+| the client's own frame, staged | 1,514 |
+| the poll's private stack | 1,024 |
+| flows, names, pseudo-header, counters | 247 |
+| **`image + bss`, before → after** | **25,586 → 21,287** |
+
+The claim is taken only when `net_find` answers, and sized by route: **3 KB**
+for a card, **5 KB** for the cable. So a machine with no wire — which is every
+`kern_small` machine, since it ships no network driver at all (SPEC.md 24.5) —
+gets the whole 4,299 back, and on the 128 KB floor machine that is 8% of the
+arena.
+
+**It cost fourteen `equ` lines and four wrappers, not a rewrite**, and the
+reason is worth keeping: `dosnet.inc`'s premise was already *one segment, no
+segment override*, so pointing `DS` at the claim left all 78 of its frame
+references untouched. SPEC.md 96.26.6 is the mechanism and the one hazard it
+introduces.
+
+**The 16 KB the other agent found is `DOSTRACE`'s ring, and it is
+`%ifdef`'d** — it costs a shipped build nothing. What did need doing there was
+different and more urgent: the trace arm measured **61,437 of
+`APP_MAX_SIZE`'s 61,440**, three bytes, so this wave's 77 bytes stopped the
+instrument assembling and the only row that noticed was `dosdbg` quoting the
+assembler about a probe. The ring is 256 entries now — 8,192 bytes cheaper and
+the better number anyway, since the failure that sized it makes 169 calls and
+256 is exactly what `TRACE.LOG` holds and what `tests/dostrap`'s reference
+tracer keeps.
 
 ### 7.0 The translation is developed on the CARD, and that is not a shortcut
 

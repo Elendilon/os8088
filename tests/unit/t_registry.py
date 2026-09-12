@@ -63,6 +63,14 @@ UNREGISTERED = {
                  "green row that tests nothing is worse than B4's three rows "
                  "that failed where they meant to skip, because nobody "
                  "investigates a pass",
+    "dosmap.py": "symbol offsets for the DOS box and for a probe running "
+                 "INSIDE it - library, not a test. It exists because "
+                 "dispapps._map's `defines` argument means exactly ONE thing "
+                 "(-DAPP_SMALL, compared against build/smallapp/), and its "
+                 "source path is apps/<app>/<app>.asm, which "
+                 "tests/dostrap/dospkt.asm is not. Both differences fail as a "
+                 "message about the wrong subject. tests/dosxlat.py is the "
+                 "registered row that reads through it",
     "os88qemu.py": "the teardown every QEMU launcher registers, written once "
                    "rather than thirteen times - library, not a test. What "
                    "checks it is `t_qemuown`, which asserts every launcher "
@@ -149,7 +157,18 @@ UNREGISTERED = {
     "rczex_ocr.py": "needs the RunCPM fetch and an OCR dependency",
     "proxytest.py": "drives tools/os88proxy.py against a live network",
     "proxyguitest.py": "drives the proxy GUI, needs a display",
-    "socktest.py": "needs `make socktest` and QEMU networking",
+    "socktest.py": "needs `make socktest`, and it is MINUTES: the cable is "
+                   "stepped a nibble at a time, so a page fetch is ~13 of "
+                   "them. **AND IT DOES NOT NEED QEMU NETWORKING**, which is "
+                   "what this reason said - it runs under MartyPC with "
+                   "tests/lptlink/partner.py as the far end and real host "
+                   "sockets behind that, no NIC anywhere. Measured while "
+                   "tests/doscable.py was being written, which is the same "
+                   "arrangement one layer up and IS registered: socktest "
+                   "fetches its page correctly and then fails its own "
+                   "handle-leak assertion with `8 of 4 handles free after the "
+                   "close`, which reads as a bug in that assertion rather "
+                   "than in the wire. Nobody has been running it to notice",
 
     # --- A/B gates: each needs a SECOND kernel built with a knob, so it is a
     #     two-build session rather than a row (the knob itself is kept alive

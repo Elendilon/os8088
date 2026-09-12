@@ -1511,7 +1511,7 @@ PKGZSTAMP := $(BUILD)/.pkgz$(if $(PKGZ),-$(PKGZ))
 # into on this knob's first use: two runs disagreed about whether an ARP
 # reached the wire and both answers were correct for the build actually on
 # the disk.
-DOSNETSTAMP := $(BUILD)/.dosnet$(if $(DOSNET),-on)$(if $(DOSNETCARD),-card)
+DOSNETSTAMP := $(BUILD)/.dosnet$(if $(DOSNETCARD),-card)
 
 # CURFIX=1 turns ON the two cursor-hide changes, and they are OFF BY DEFAULT.
 # SPEC.md 7.1.4.2 makes cur_lazyck test the ARMED REGION rather than the
@@ -4736,7 +4736,7 @@ $(BUILD)/dos.bin: apps/dos/dos.asm apps/dos/dosnet.inc \
                   apps/os88line.inc apps/os88sock.inc \
                   drivers/net/netpkg.inc $(DOSNETSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/dos/ -I drivers/net/ \
-	        $(if $(DOSNET),-DDOSNET) $(if $(DOSNETCARD),-DDOSNET_CARD) \
+	        $(if $(DOSNETCARD),-DDOSNET_CARD) \
 	        -o $@ apps/dos/dos.asm
 
 $(BUILD)/dos.o88: $(BUILD)/dos.bin tools/os88pkg.py $(PKGZSTAMP)

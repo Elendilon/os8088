@@ -18,7 +18,7 @@
 ;
 ; **IT DOES NOT KNOW WHICH WIRE IS UNDER IT.** Everything here goes through
 ; NETV_OPEN/STATUS/SEND/RECV/CLOSE, and both drivers answer those - the card
-; and the cable. [net_cls] is the whole difference, which is why this is
+; and the cable. [cs:net_cls] is the whole difference, which is why this is
 ; developed and tested against ETHER.DRV under QEMU (DOSNETCARD=1) and works
 ; over NET.DRV unchanged.
 ;
@@ -26,27 +26,93 @@
 ; below, because the socket ABI has neither. Every TCP application works.
 ; =============================================================================
 
-; --- THE ROUTER'S OWN ADDRESS, and it is image data rather than bss ---------
-; A locally-administered unicast MAC: bit 1 of the first byte set, bit 0 clear
-; (so it is not multicast), which is the range IEEE reserves for exactly this.
-; It never reaches a wire - the client is the only thing that ever reads it -
-; but a client that saw a multicast bit here would refuse to ARP for us.
-dn_gwmac:   db 0x02, 'o', 's', '8', '8', 0x01
+; --- THE TWO ADDRESSES, as IMAGE CONSTANTS with claim copies ----------------
+; The ROUTER's, then the one we tell the CLIENT it has. Both are
+; locally-administered unicast MACs: bit 1 of the first byte set, bit 0 clear
+; (so not multicast), which is the range IEEE reserves for exactly this.
+; Neither reaches a wire - the client is the only thing that ever reads them -
+; but a client that saw a multicast bit here would refuse to ARP for us, and
+; one that saw its OWN address as a frame's source would drop it as a loop,
+; which is why they differ by a digit (SPEC.md 96.26.4).
+;
+; **THESE ARE THE `_c` COPIES AND THE CODE READS THE CLAIM'S.** Inside dn_*
+; DS is the network claim (SPEC.md 96.26.6), so image data is out of reach
+; without an override - and an override at each of seven call sites is more
+; than the twelve bytes dn_init copies once.
+dn_mac_c:
+dn_gwmac_c: db 0x02, 'o', 's', '8', '8', 0x01
+dn_ourmac_c: db 0x02, 'o', 's', '8', '8', 0x02
+DN_MAC_C_N  equ 12
 
-; --- ...and the one we tell the CLIENT it has -------------------------------
-; There is no PROM to read on this path, so get_address has to answer
-; something (SPEC.md 96.26.4). One digit off the gateway's: a client that saw
-; its own address as a frame's source would drop it as a loop.
-dn_ourmac:  db 0x02, 'o', 's', '8', '8', 0x02
+; =============================================================================
+; THE FOUR DOORS, AND DS IS THE CLAIM BEHIND EVERY ONE (SPEC.md 96.26.6)
+; =============================================================================
+; Everything under this line addresses its state and its frames DS-relative
+; with no segment override, which was this file's premise when that state was
+; in the package's bss - and it is still the premise now that the state is a
+; heap claim, because ALL that changed is which segment DS holds. That is why
+; moving 4,052 bytes out of a DOS program's arena cost fourteen `equ` lines
+; and these four wrappers rather than a rewrite of seventy-eight frame
+; references.
+;
+; `dos.asm` calls exactly four routines in here - dn_init, dn_shut, dn_tx and
+; dn_ready - plus dn_copy, which takes whatever DS it is given and is used by
+; dos.asm in its OWN segment, so it must stay unwrapped.
+;
+; **EACH ONE REFUSES ON A SEGMENT OF ZERO**, and that is not defensive
+; padding: `dos_pkt_bufs` publishes no interface when the claim is refused,
+; but dn_shut is called from the bracket's own teardown where nothing has
+; consulted that - and `mov ds, 0` followed by this file's stores would write
+; the interrupt vector table.
+; **AND `[cs:net_cls]` IS THE ONE THING THAT STAYS OURS.** Which driver class
+; answers the socket verbs is the package's own state, read at seven call
+; sites in here, and CS is the package segment for a near-model package - so
+; the override costs one prefix byte each and no copy. It is the tell for
+; anything else that ever needs reaching out of here: an unprefixed reference
+; to a package symbol from below this line reads the CLAIM at that offset and
+; is silently wrong.
+%macro DN_DOOR 1
+dn_%1:
+    push ds
+    mov ds, [dos_pkt_bseg]          ; read with the OLD DS, which is ours
+    mov ax, ds
+    or ax, ax
+    jz %%noclaim
+    call dn_%1_x
+    pop ds
+    ret
+%%noclaim:
+    pop ds
+    stc                             ; the two doors that answer report
+    ret                             ; "nothing", which is what no claim means
+%endmacro
+
+DN_DOOR init
+DN_DOOR shut
+DN_DOOR tx
+DN_DOOR ready
 
 ; -----------------------------------------------------------------------------
-; dn_init - the translation is the route; forget everything
+; dn_init_x - the translation is the route; forget everything
 ; out: nothing
 ; -----------------------------------------------------------------------------
-dn_init:
+dn_init_x:
     push ax
     push bx
     push cx
+    push si
+    push di
+    mov si, dn_mac_c                ; the two MACs, out of the IMAGE and into
+    mov di, dn_gwmac                ; the claim - CS is ours and DS is the
+    mov cx, DN_MAC_C_N              ; claim's, which is the one place in this
+.m:                                 ; file an override is unavoidable
+    mov al, [cs:si]
+    mov [di], al
+    inc si
+    inc di
+    loop .m
+    pop di
+    pop si
     mov bx, dn_flows
     mov cx, DN_NFLOW
 .f:
@@ -60,15 +126,18 @@ dn_init:
     add bx, DN_N_SIZE
     loop .n
     mov word [dn_pend], 0
+    mov byte [dn_lastip], 0
+    mov byte [dn_rr], 0
     pop cx
     pop bx
     pop ax
+    clc
     ret
 
 ; -----------------------------------------------------------------------------
-; dn_shut - every flow closed, on the way out of the bracket
+; dn_shut_x - every flow closed, on the way out of the bracket
 ; -----------------------------------------------------------------------------
-dn_shut:
+dn_shut_x:
     push ax
     push bx
     push cx
@@ -80,7 +149,7 @@ dn_shut:
     push bx
     push cx
     mov al, [bx+DN_F_HAND]
-    mov bh, [net_cls]
+    mov bh, [cs:net_cls]
     mov bl, NETV_CLOSE
     call OSAPI_DRV_CALL
     pop cx
@@ -92,6 +161,7 @@ dn_shut:
     pop cx
     pop bx
     pop ax
+    clc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -103,7 +173,7 @@ dn_shut:
 ; refusal for a dead card would stop trying.
 ; out: CF=0 always
 ; -----------------------------------------------------------------------------
-dn_tx:
+dn_tx_x:
     push ax
     push bx
     push cx
@@ -260,7 +330,7 @@ dn_arp:
 ; reset - goes first, because it is an answer the client is blocked on. Only
 ; then is a socket asked for data.
 ; -----------------------------------------------------------------------------
-dn_ready:
+dn_ready_x:
     cmp word [dn_pend], 0
     jne .have
     call dn_pump                    ; nothing staged, so try the sockets
@@ -1060,9 +1130,7 @@ dn_tcp_in:
     test byte [si+DN_T_FLAGS], DN_SYN
     jnz .syn
     call dn_flow
-    jc .rst                         ; a segment for a flow we do not have is
-                                    ; answered with RST, which tells a client
-                                    ; to stop rather than retry into silence
+    jc .unknown                     ; a segment for a flow we do not have
     cmp byte [bx+DN_F_ST], DN_S_UP
     jne .out                        ; still connecting, or closing: its own
                                     ; retransmit will find us in a moment
@@ -1080,6 +1148,22 @@ dn_tcp_in:
     call dn_flow
     jc .out
     call dn_kill
+    jmp short .out
+; --- a segment for a flow we have not got -----------------------------------
+; **A BARE ACK IS DROPPED AND NOT RESET**, which is not politeness: dn_kill
+; frees a flow the moment its FIN goes out - there is no TIME_WAIT here and
+; there is nowhere to keep one - so the client's own final ACK ALWAYS arrives
+; after we have forgotten the connection. Answering it with a reset made every
+; successful transfer end in an RST, which a client is entitled to report as
+; an error on a transfer that in fact completed. Anything that asks for
+; something - data, a FIN - still gets the reset, because that is a client
+; retrying into silence and it should stop.
+.unknown:
+    test byte [si+DN_T_FLAGS], DN_FIN
+    jnz .rst
+    call dn_paylen                  ; ...which answers in AX
+    or ax, ax
+    jnz .rst
     jmp short .out
 .rst:
     call dn_tcp_rst
@@ -1199,9 +1283,9 @@ dn_tcp_open:
     mov cx, [bx+DN_F_RPORT]
     xchg cl, ch                     ; the verb wants a host-order port
     push ds
-    pop es                          ; ES:SI is ours - the one driver entry
-    mov bh, [net_cls]               ; where ES is the CALLER's segment
-    mov bl, NETV_OPEN
+    pop es                          ; ES:SI is the CLAIM's - OSAPI_DRV_CALL is
+    mov bh, [cs:net_cls]            ; an X stub and sets ES to the caller's DS
+    mov bl, NETV_OPEN               ; anyway, so this only says so out loud
     call OSAPI_DRV_CALL
     pop si
     pop bx
@@ -1257,7 +1341,7 @@ dn_tcp_data:
     pop es
     mov al, [bx+DN_F_HAND]
     push bx
-    mov bh, [net_cls]
+    mov bh, [cs:net_cls]
     mov bl, NETV_SEND
     call OSAPI_DRV_CALL
     pop bx
@@ -1294,7 +1378,7 @@ dn_tcp_fin:
     call dn_advr
     mov al, [bx+DN_F_HAND]
     push bx
-    mov bh, [net_cls]
+    mov bh, [cs:net_cls]
     mov bl, NETV_CLOSE
     call OSAPI_DRV_CALL
     pop bx
@@ -1323,7 +1407,7 @@ dn_kill:
     push bx
     mov al, [bx+DN_F_HAND]
     push bx
-    mov bh, [net_cls]
+    mov bh, [cs:net_cls]
     mov bl, NETV_CLOSE
     call OSAPI_DRV_CALL
     pop bx
@@ -1450,7 +1534,17 @@ dn_pump:
     push dx
     push si
     push di
-    mov cl, DN_NFLOW
+    push bp
+    ; **THE COUNTER IS BP AND NOT CL**, because CX is an OUTPUT of every verb
+    ; here - NETV_STATUS answers the readable byte count in it. With the
+    ; counter in CL, `dec cl` ran on whatever the driver had just returned:
+    ; a 0 wrapped it to 255, so one pump made hundreds of far calls, a poll
+    ; made ten pumps of them, and the tick handler took LONGER THAN A TICK.
+    ; The machine then spent all its time in its own timer and the DOS
+    ; program never ran again - which looked exactly like a hang in the
+    ; program, and eth_ncall wrapping its 16 bits was the tell.
+    ; OSAPI_DRV_CALL publishes "BP, DS and ES come back yours".
+    mov bp, DN_NFLOW
 .l:
     mov al, [dn_rr]
     inc al
@@ -1472,9 +1566,10 @@ dn_pump:
     cmp byte [bx+DN_F_ST], DN_S_FIN
     je .owedfin
 .next:
-    dec cl
+    dec bp
     jnz .l
 .out:
+    pop bp
     pop di
     pop si
     pop dx
@@ -1527,8 +1622,8 @@ dn_pump:
     pop es
     mov al, [bx+DN_F_HAND]
     push bx
-    mov bh, [net_cls]
-    mov bl, NETV_RECV               ; ES:DI is ours, CX its capacity
+    mov bh, [cs:net_cls]
+    mov bl, NETV_RECV               ; ES:DI is the CLAIM's, CX its capacity
     call OSAPI_DRV_CALL
     pop bx
     pop ax                          ; (the capacity we asked for, discarded)
@@ -1571,7 +1666,7 @@ dn_pump:
 dn_stat:
     push bx
     mov al, [bx+DN_F_HAND]
-    mov bh, [net_cls]
+    mov bh, [cs:net_cls]
     mov bl, NETV_STATUS
     call OSAPI_DRV_CALL
     pop bx
