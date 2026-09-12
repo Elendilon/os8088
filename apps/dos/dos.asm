@@ -363,6 +363,9 @@ dos_run:
     mov [dos_err], al
     mov byte [dos_state], DST_ERR
 .free:
+%ifdef DOSTRACE
+    call dos_trace_dump             ; ...and the field gets to read it too
+%endif
     mov dx, [dos_arena]
     or dx, dx
     jz .out
@@ -2096,6 +2099,139 @@ dos_terminate:
 ; AH and AL both, because the sub-function is the interesting half of 44h,
 ; 43h, 42h and 4Eh alike. DOS_TRACEN entries, wrapping, with the TOTAL kept
 ; separately so a reader can tell a wrapped ring from a short one.
+dos_tr_name: db 'TRACE.LOG', 0
+dos_tr_hdr:  db 'os8088 DOS INT 21h trace', 13, 10
+             db 'AH/AL, oldest first. TOTAL/WRAP ', 0
+
+; --- AL -> two hex digits at DI; AX and the flags preserved -----------------
+dos_tr_hex2:
+    push ax
+    push ax
+    shr al, 1
+    shr al, 1
+    shr al, 1
+    shr al, 1
+    call dos_hexd
+    mov [di], al
+    inc di
+    pop ax
+    and al, 0x0F
+    call dos_hexd
+    mov [di], al
+    inc di
+    pop ax
+    ret
+
+; --- AX -> four hex digits at DI -------------------------------------------
+dos_tr_hex4:
+    push ax
+    mov al, ah
+    call dos_tr_hex2
+    pop ax
+    call dos_tr_hex2
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_trace_dump - the ring, as TEXT, into TRACE.LOG beside the program
+;
+; The ring is unreadable from inside the guest - a DOS program owns the screen
+; - and reading it off the host needs a debugger the field does not have. So
+; the box writes it: one file, plain text, in the directory the program was
+; launched from, replaced on every run.
+;
+; UI-TASK CONTEXT, which is why it hangs off the end of the bracket and not
+; off dos_terminate: the file API is the UI task's (SPEC.md 20.6 rule 7) and
+; the program's own stack is gone by here anyway.
+; -----------------------------------------------------------------------------
+dos_trace_dump:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+
+    mov di, dos_trdump
+    mov si, dos_tr_hdr
+.hdr:
+    lodsb
+    or al, al
+    jz .hdrend
+    mov [di], al
+    inc di
+    jmp short .hdr
+.hdrend:
+    mov ax, [dos_tracen]
+    call dos_tr_hex4
+    mov byte [di], '/'
+    inc di
+    mov ax, [dos_tracew]
+    call dos_tr_hex4
+    mov byte [di], 13
+    inc di
+    mov byte [di], 10
+    inc di
+
+    ; WHERE THE OLDEST ENTRY IS depends on whether the ring has wrapped: a
+    ; short run starts at 0, a wrapped one starts at the write index.
+    mov cx, [dos_tracen]
+    cmp cx, DOS_TRACEN
+    jbe .short
+    mov cx, DOS_TRACEN
+    mov bx, [dos_tracew]
+    jmp short .go
+.short:
+    xor bx, bx
+.go:
+    and bx, (DOS_TRACEN * 2) - 2
+    or cx, cx
+    jz .write
+    xor dx, dx                      ; DX = entries on this line
+.ent:
+    mov al, [bx+dos_traceb]
+    call dos_tr_hex2
+    mov byte [di], '/'
+    inc di
+    mov al, [bx+dos_traceb+1]
+    call dos_tr_hex2
+    mov byte [di], ' '
+    inc di
+    add bx, 2
+    and bx, (DOS_TRACEN * 2) - 2
+    inc dx
+    cmp dx, 8
+    jb .noeol
+    xor dx, dx
+    mov byte [di], 13
+    inc di
+    mov byte [di], 10
+    inc di
+.noeol:
+    loop .ent
+.write:
+    mov byte [di], 13
+    inc di
+    mov byte [di], 10
+    inc di
+    mov cx, di
+    sub cx, dos_trdump              ; CX = how much of it there is
+    push ds
+    pop es
+    mov bx, dos_trdump
+    mov si, dos_tr_name
+    xor dx, dx
+    call OSAPI_FILE_WRITE           ; creates or REPLACES, in the directory
+                                    ; the program was launched from
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 dos_trace:
     push ax
     push bx
@@ -4871,6 +5007,7 @@ dos_mcb_resize:
     DBSS DOS_B_TRACEN, 2        ; 514 bytes, and an instrument that costs the
     DBSS DOS_B_TRACEW, 2        ; shipped build anything is one that gets
     DBSS DOS_B_TRACEB, DOS_TRACEN * 2   ; deleted rather than kept
+    DBSS DOS_B_TRDUMP, DOS_TRACEN * 6 + 96   ; ...and the TEXT of it
 %endif
     DBSS DOS_B_VW,    2
     DBSS DOS_B_VH,    2
@@ -7398,6 +7535,7 @@ dos_isexe   equ os88_image_end + DOS_B_ISEXE   ; byte: 1 = an .EXE was set up
 dos_tracen  equ os88_image_end + DOS_B_TRACEN  ; word: DOSTRACE's call counter
 dos_tracew  equ os88_image_end + DOS_B_TRACEW  ; word: its ring write index
 dos_traceb  equ os88_image_end + DOS_B_TRACEB  ; the ring: AH,AL per entry
+dos_trdump  equ os88_image_end + DOS_B_TRDUMP  ; ...rendered, for the file
 %endif
 dos_vw      equ os88_image_end + DOS_B_VW      ; word: the desktop's width...
 dos_vh      equ os88_image_end + DOS_B_VH      ; word: ...and height, for 33h
