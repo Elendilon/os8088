@@ -22157,14 +22157,20 @@ proportional bar has always done.
 | 1 | at most once a tick, ~55 ms |
 | n | at most once every n ticks |
 
-**0 is the default and it is not a cop-out.** A Disk window's scroll is
-`fm_scroll_by` — a `gfx_scroll` blit plus a relettering of every newly exposed
-row, and PERFORMANCE.md prices a 78-cell row at **~71 ms** on the target
-machine. A thumb dragged the length of the track with the view following would
-be seconds of repaint behind a hand that has already stopped, which is exactly
-PERFORMANCE.md Part 1's **visible redraw** — invisible in an emulator, and the
-reason the rate is a number the window chooses rather than a cadence the
-element assumes.
+**0 is the default ON AN 8086 and it is not a cop-out.** A Disk window's
+scroll is `fm_scroll_by` — a `gfx_scroll` blit plus a relettering of every
+newly exposed row, and PERFORMANCE.md prices a 78-cell row at **~71 ms** on
+the target machine. A thumb dragged the length of the track with the view
+following would be seconds of repaint behind a hand that has already stopped,
+which is exactly PERFORMANCE.md Part 1's **visible redraw** — invisible in an
+emulator, and the reason the rate is a number the window chooses rather than a
+cadence the element assumes.
+
+**On a 286 or better it is 2, and §13.10.5.4.1 is how**: the paragraph above
+is an argument about a 4.77 MHz 8088 and it stops being one several times over
+on a faster machine, so the caller names a rate for each and `os88ui_sbrate`
+picks. Everything below in this section is about the rate once it is picked,
+and is the same on either.
 
 **The rate is a THROTTLE and not a clock.** `W_ONDRAG` is delivered only when
 the pointer actually moved (§13.8.2), so nothing fires under a still hand and
@@ -22172,6 +22178,336 @@ no timer is armed. The deadline is banked at the last *commit*, so a hand that
 pauses and moves again is served immediately rather than waiting out a window
 it already sat through. A position the throttle refused is never lost: the
 release commits `pos` unconditionally.
+
+##### 13.10.5.4.1 The caller names TWO rates and the MACHINE picks — `os88ui_sbrate`
+
+§13.10.5.4's argument is entirely about a **4.77 MHz 8088**, and every number
+in it is one of PERFORMANCE.md's. That is the right argument for the machine
+this OS is for and it is the wrong argument for a 286, so the rate stopped
+being one number: **`os88ui_sbgrab`'s caller names the rate for an 8086 and
+the rate for a `CPU_286` or better, and `os88ui_sbrate` picks between them.**
+
+```
+    mov ax, FM_SBRATE | (FM_SBRATE286 << 8)
+    call os88ui_sbrate          ; AL = the one this machine can afford
+    call os88ui_sbgrab
+```
+
+**It is still §13.10.1's geometry and not policy.** Both numbers are the
+caller's; the element does not choose a rate and does not know what a commit
+costs. What it owns is the one question that is the same for all ten callers —
+*which of the two is this machine* — answered on a **fact the code can test**
+(`[cpu_tier]`, §41.1) and never on a guess about speed, which is
+PERFORMANCE.md rule 7 at the point of use.
+
+**Why it lives in the element rather than at the twelve call sites.** The
+policy is one sentence and there were ten copies of the surrounding code
+waiting to be written; `os88ui_sbrate` is nine bytes and the macro, and it
+reaches every carrier at its next build the way §13.16.2's glyph did. The
+alternative — each caller asking `OSAPI_CPU_INFO` for itself — is the same
+bytes multiplied and ten places for the policy to drift apart.
+
+###### The body, and the trick in it
+
+```
+os88ui_sbrate:
+    push ax                     ; the pair, banked whole
+    UI_CPUTIER                  ; AL = CPU_8086 / CPU_286 / CPU_386
+    cmp al, CPU_286
+    pop ax
+    jb .out                     ; an 8086/8088: AL is already tier 0's
+    mov al, ah
+.out:
+    ret
+```
+
+**A `pop` writes no flags**, so the compare's answer survives the restore and
+the whole body is nine bytes plus `UI_CPUTIER` — `mov al, [cpu_tier]` in the
+kernel, `call OSAPI_CPU_INFO` in a package. It is the trick `UI_ISMONO`
+already uses one macro up.
+
+`UI_CPUTIER` **clobbers AH in the package arm and does not in the kernel's**,
+because `cpu_info` answers the tier and the feature bits in one word (§41.1).
+So `os88ui_sbrate` documents AH as undefined on the way out, and nothing may
+rely on either arm's incidental behaviour. Unlike `UI_ISMONO` it banks nothing
+else: `cpu_info` is `mov ax, [cpu_tier]` and a `ret`, and three shipped
+packages already call the slot mid-routine with registers live.
+
+###### Who gets what — and it is ONE number
+
+The 8086 column is unchanged from the day each bar was wired — **this changes
+no behaviour at all on the machine this OS is for**, which is what makes it
+affordable to take before anybody has run it on a 286.
+
+| bar | 8086 | 286+ | one commit, measured on a 4.77 MHz 8088 / CGA |
+|---|---:|---:|---|
+| Disk window (`FM_SBRATE`) | **1** | **1** | **78–84 ms** at a live rate (§13.10.5.4.3 measured it; the 116.9 ms below is the rate-0 commit, which is a different quantity) |
+| Standard File dialog (`FD_SBRATE`) | **1** | **1** | **169–179 ms**, and it has no blit tier at all — every change to `fdlg_scrl` repaints the whole list, which `FD_ROWS` = 6 makes affordable anyway |
+| Word, Scribe, TexPad, Note Pad, Frotz, Browser (`SB_RATE`) | 0 | **2** | **383.8** (Note Pad, 200 lines), **417.3** (TeXPad), **300.4** (Word) |
+| **The Wire**, **Sheet** | **2** | **2** | unchanged — and they are the CALIBRATION, not the subject |
+
+**The two kernel bars' halves are EQUAL because 1 is the FLOOR, not because the
+pair collapsed.** The rate is counted in system ticks, so rate 1 is one commit
+per tick and there is nothing faster to give a 286; §13.10.5.4.3 measured the
+8088 itself wanting 1, and a faster machine cannot want less. The pair is still
+what the packages use, where the 8086 half is 0 and the 286 half is 2.
+
+The figures are `docs/reports/SBRATE-COMMIT-COST-2026-09-11.md`, taken for
+this section because §13.10.5.4's own numbers are Part 5 rows for *adjacent*
+operations and what a rate has to clear is the commit a **dragged thumb**
+makes. Two of its findings changed this table: the Disk window — the bar
+§13.10.5.4 is written about — is the **cheapest** of them and not the
+dearest, and the cost is a property of the **window** rather than the
+program, because it is `fit` rows × cells that dominates. So a per-bar number
+would be sizing against a window the user can resize, and one number cut from
+the heaviest measured commit is both simpler and no less right.
+
+**The Wire and Sheet are not being changed; they are what the number is
+calibrated against.** Both have followed the hand at 2 on every machine since
+they were written. They still name a pair and still call `os88ui_sbrate`,
+with the two halves EQUAL — because the element's body is in every carrier's
+image whether it is called or not, so the call costs 4 bytes and buys the
+tree one description of what a bar's rate is.
+
+###### Why 2 — asked as an open question, then SETTLED on a 12 MHz 286
+
+**What was measured before it shipped:** the commit costs above, on a
+cycle-accurate 8088; and, in the field, that The Wire — whose bar is not a
+light one — follows a dragged thumb acceptably at rate 2 on the **16 MHz 286
+with a Paradise VGA** in docs/FIELD-MACHINES.md, whose clock this project has
+itself re-derived at 15.83 and 15.86 MHz.
+
+**What could not be measured here:** the tier factor. MartyPC is an 8088 for
+ever (docs/TESTING.md's closed list, entry 1) and QEMU counts work exactly and
+cannot time it. So the arithmetic was stated rather than hidden: for rate 2
+(110 ms) to be a *working* throttle rather than a no-op, the heaviest measured
+commit — TeXPad's **417 ms** — has to fall under 110 ms, which needs a factor
+of **3.8**. A 16 MHz 286 clears that comfortably; an **8 MHz** one does not,
+and would want **3**. Since `CPU_286` is one bit over a 3x spread of machines,
+2 shipped with `make SBRATE286=3` named as the sweep and the sentence *this is
+the first thing a field 286 should settle*.
+
+**It was settled the next day, on 86Box's `286` at 12 MHz** — deliberately
+between the two ends of that spread — and the verdict is that **2 is right**:
+
+| bar | default window | fully maximised |
+|---|---|---|
+| Browser | full speed | **full speed** |
+| TeXPad | full speed | **full speed** |
+| Note Pad | full speed | slightly laggy |
+
+**Two things that reading confirms beyond the number.** The first is the
+finding this section is built on — that the commit's cost is a property of the
+**window** and not the program — because the one place it degrades is a
+MAXIMISED window, which is where `fit` rows × cells is largest; nothing
+degrades at the default size. The second is *which* program: Note Pad is the
+heaviest of the three on the glass, and it is the heaviest of the three that
+was measured on the 8088 (**383.8 ms** against the Browser's line and TeXPad's
+200 deep in a document). **The 8088 ranking predicted the 286 ranking**, which
+is the whole basis for cutting one shared number from the heaviest measured
+commit.
+
+So the arithmetic's 3.8x was pessimistic at 12 MHz, and the remaining
+uncertainty is only the **slow end** — an 8 MHz 286 with a maximised Note Pad
+is the one combination nobody has looked at, and `make SBRATE286=3` is still
+what to reach for if anybody finds it wanting. Note that 86Box asserts nothing
+(docs/TESTING.md): this is a person looking at a screen, which is exactly the
+right instrument for *"does a dragged thumb feel laggy"* and is not a number.
+
+**What a wrong number costs is bounded, which is what makes it takeable.** Too
+LARGE and the view updates less often than the machine could manage — 6 times
+a second instead of 9, and still plainly a following view. Too SMALL and the
+throttle stops throttling: `os88ui_sbtrack` commits on every `W_ONDRAG`, the
+commits run back to back, the event ring fills and mouse reports drop. Even
+then nothing is corrupted — §13.10.5.4's release commits `pos`
+unconditionally, and a release lost to a full ring is what §13.10.5.7's stale
+net already exists for. The failure mode at either end is a **look**, never a
+state. `make SBRATE286=n` sweeps it and `make SBRATE286=0` is the reference
+arm.
+
+###### What it cost
+
+| | |
+|---|---:|
+| kernel `.text` | **0** |
+| kernel `.bss` | **0** |
+| kernel `.cold` | **+20** — the element's body (12: nine bytes and a 3-byte `UI_CPUTIER`) and +4 at each of the two kernel call sites, where `mov al, imm8` became `mov ax, imm16` and a `call` |
+| rung | **none crossed** — 160 bytes left in the cold rung, where there were 180 |
+| `kern_small` | **0**. `OS88UI_SBDRAG` is `KERN_BIG` only (§13.10.5), so the small build assembles none of this |
+| a package | **+18** (Note Pad, Word, Scribe, Sheet, The Wire), **+19** (Browser), **+22** (TexPad, which has two call sites) — the body is 14 in a package because `UI_CPUTIER` is a far call there |
+
+**The package bytes are an IMAGE, not residency**: a `.o88` is compressed on
+the floppy (§20.13) and present only while the program runs, where a kernel
+byte is on every machine for ever and billed in 512-byte rungs. That is the
+trade §13.16.2.1 states and it is why the element carrying the policy is
+cheaper than the kernel carrying it twice.
+
+###### The reference arm is a KNOB, for `SBDRAGOFF`'s reason
+
+`make SBRATE286=0` puts every bar back on "the view waits for the release" on
+every machine, which is what shipped before this section. It is in
+`$(VIDSTAMP)` and `$(SBSTAMP)` like the rest, so the A/B rebuilds both halves
+— and it reaches the package builds through `$(PKGSBDEF)`, because a package's
+copy of `os88ui.inc` is its own (§13.10.6.2).
+
+##### 13.10.5.4.2 The SECOND trigger: commit when the hand STOPS — `os88ui_sbowed`
+
+§13.10.5.4.1's rate answers *how often may the view follow while the hand is
+moving*. It has a floor it cannot cross, and §13.10.5.4.3 measured exactly
+where: **a rate is only a throttle while the commit is FASTER than the
+window.** Note Pad's commit is ~360 ms — 6.6 ticks — so every rate from 1 to 6
+produces the identical three commits and the identical 30-to-40 rows of lag.
+No value of that number reaches it, and none ever will.
+
+**So there is a second trigger, and it is a different question: commit once,
+`IDLE` ticks after the thumb STOPS moving.** The hand drags freely with the
+view left alone; pause about half a second and the view arrives, once. It is
+what a person does anyway when they want to see where they are, and it turns
+the release from *the only way to look* into *the way to finish*.
+
+###### It needed no new mechanism, which is the whole reason it is cheap
+
+`OSAPI_WM_TIMER` (§13.9) is **one-shot and re-armable**, so a timer re-armed
+on every `W_ONDRAG` fires only after `IDLE` ticks in which no `W_ONDRAG`
+arrived — and `W_ONDRAG` is delivered only when the pointer actually moved
+(§13.8.2). *An idle detector is a one-shot timer pushed forward by movement*,
+and both halves of that were already published. Nothing here polls, nothing
+here samples, and no timer is armed unless a thumb is actually being dragged.
+
+**The element owns the arithmetic and the caller owns the timer**, which is
+§13.10.1 again and not a compromise: a timer belongs to a WINDOW and a gesture
+belongs to the element, so the caller arms `OSAPI_WM_TIMER` in its own
+`W_ONDRAG`, cancels it in its `W_ONMOUSEUP`, and asks the element one question
+from its `W_ONTIMER`:
+
+```
+; os88ui_sbowed - where a LIVE drag on this bar has got to, WITHOUT spending it
+; in:  BX = the block
+; out: CF = 0 and AX = the hand's pos; CF = 1 = no drag, or a different bar's
+;      (13.10.5.10). Every other register preserved.
+```
+
+It is `os88ui_sbdrop` with the spend taken out — the one thing a caller cannot
+write for itself, because `os88ui_sbd_pos` is the element's private state.
+
+###### The idle count is a property of the HAND, so it takes no tier pair
+
+This is the one structural difference from the rate and it is worth stating,
+because the obvious move is to copy §13.10.5.4.1's two-column shape and it
+would be wrong. The rate is *how much drawing this machine can afford per
+second* — a fact about the CPU, which is why it is a pair resolved on
+`[cpu_tier]`. The idle count is *how long a person pauses when they mean "show
+me"*, which is the same half second on a 4.77 MHz 8088 and on a 16 MHz 286.
+**One number, both tiers, no `os88ui_sbrate` call on this path at all.**
+
+`SB_IDLE` = **9 ticks** = 494 ms, the "half a second or so" the request asked
+for, expressed in the clock the whole system already keeps.
+
+###### What each bar does now
+
+| bar | while MOVING | on a PAUSE |
+|---|---|---|
+| Disk window, Standard File dialog | follows every tick (§13.10.5.4.1) | commits — which closes the one row the throttle may still owe |
+| Word, Scribe, TexPad, Note Pad, Frotz, Browser — **8086** | nothing | **commits.** This is the whole of what those bars gain on the target machine, and it is the case the trigger exists for |
+| ...the same six on a **286** | follows every 2 ticks | commits |
+| The Wire, Sheet | follows every 2 ticks | commits |
+
+**A pause commit is affordable exactly where a periodic one is not**, and that
+is the argument in one line: Note Pad's is the 360 ms the rate could not fit
+into any window, spent ONCE against a hand that has stopped and is waiting for
+it, rather than repeatedly against a hand that has not.
+
+###### Three things it must not do, and what stops each
+
+- **Fire when nothing is being dragged.** The arm is inside the `W_ONDRAG`
+  path below `os88ui_sbdragging`, so no timer is armed by a click, a button,
+  or a window that is merely open; and `os88ui_sbowed` answers CF = 1 to a
+  handler that runs after the gesture ended anyway.
+- **Commit twice for one pause.** `OSAPI_WM_TIMER` disarms itself BEFORE the
+  handler runs (§13.9) and the handler does not re-arm, so a pause is one
+  commit however long it lasts. The next movement arms it again.
+- **Outlive the gesture.** `W_ONMOUSEUP` cancels with `OSAPI_WM_TIMER` AX = 0
+  before the drop. A lost release (§13.10.5.7) leaves one armed, and that one
+  fires once into a `os88ui_sbowed` that refuses — the same stale net, one
+  door along.
+
+###### What it cost
+
+| | |
+|---|---:|
+| kernel `.text` | **+20** — two `cw_*` wrappers and two thunks; `wm_ontimer` is a pure store and a cold store would have done, but `wm_timer` is not (it sets `[wm_tarm]` and `[ui_post]`), so the pair goes through wrappers together |
+| kernel `.bss` | **0** — the gesture record does not grow, and the deadline lives in `W_TIMER`, a window word that has existed since §13.9 |
+| kernel `.cold` | **+136** — the two handlers, the arms and the cancels |
+| rung | **none crossed**, and the cold one is down to 72 bytes of slack |
+| a package | **+54** (Note Pad, Word, Scribe), +55 (Browser), +58 (Sheet), +73 (TeXPad, two bars), +79 (The Wire), +88 (Frotz) |
+
+**The element itself grew by ELEVEN bytes** — `os88ui_sbowed` is
+`os88ui_sbmine`, a load and a `clc` — because the timer is the caller's and
+the gesture record already held everything the answer needed.
+
+###### The reference arm
+
+`make SBIDLE=0` builds every bar with no pause commit, which is what shipped
+before this section; it is in `$(VIDSTAMP)` and `$(SBSTAMP)` and reaches the
+packages through `$(PKGSBDEF)`, exactly as `SBRATE286=` does.
+
+###### What the gate found, and it was all in the TESTS
+
+`tests/sbrate286.py` gained case D and `tests/pkgthumb.py` a pause case, and
+four rows went red on the way — every one of them a test asserting a constant
+it had typed rather than one the build told it:
+
+- **`fmthumb` and `fdlgthumb` defaulted `--rate=` to 0**, which was the shipped
+  value until §13.10.5.4.1's 8086 column was measured. They then asserted *the
+  view did not move* against a kernel whose rate is 1 and went red for a change
+  that was correct. Both read the build's own `%define` now, knob first.
+- **`pkgthumb` drove its drag with the ABSOLUTE mouse driver**, which confirms
+  every packet by reading guest memory at ~680 **guest** ms a packet — longer
+  than `SB_IDLE`'s 494, so the pause commit fired *between two packets of one
+  drag* and the row read it as "the content followed at rate 0". A raw packet
+  stream is ~17 ms and is a real hand.
+- **And a host `time.sleep` is magnified ~5.7x in guest time here**, so even
+  `time.sleep(0.20)` is 1.1 guest seconds and lands a pause commit inside a
+  window a script means as *mid-drag*.
+
+The rule under all three: **once a trigger is time-based, a test's own pacing
+is part of the assertion.** `SBIDLE=0` is what makes that checkable, and
+`soak -k 'buildmatrix'` keeps the arm assembling — where it caught the last one
+of these, four new symbols guarded by `KERN_BIG` that needed `OS88UI_SBDRAG`.
+
+##### 13.10.5.4.3 What a rate sweep on the 8088 established, and the two rules it corrects
+
+`docs/reports/SCROLL-LIVE-8088-2026-09-12.md` swept the rate 0..6 over four
+bars at three hand speeds on a cycle-accurate 4.77 MHz 8088, reading the lag
+between the hand and the view in ROWS. It is the measurement §13.10.5.4.1's
+8086 column and §13.10.5.4.2's existence both rest on. Two of its findings are
+rules rather than numbers and belong here:
+
+**1. A rate is only a throttle while the commit is FASTER than the window.**
+Past that it is inert and the bar runs flat out — Note Pad answers with the
+identical three commits at every rate from 1 to 6. §13.10.5.4.1 called that
+"the throttle becoming a no-op" and treated it as the failure mode of too small
+a rate; it is neither a failure nor a mode, it is the rate ceasing to be the
+binding quantity, and it is why §13.10.5.4.2 had to be a different trigger
+rather than a different number.
+
+**2. Where the rate IS a throttle, LOWER is better on an 8088** —
+monotonically, on every bar and at every hand speed, which is the opposite of
+the intuition that a slower cadence is the safe one. A shorter window means a
+smaller delta per commit, which means fewer newly exposed rows to letter and,
+on every bar but The Wire's, `gfx_scroll`'s **blit tier** instead of a repaint.
+A longer window buys nothing and pays for it twice. Rate 0 is therefore the
+worst setting on the scale rather than the most conservative: its mean lag is
+half the travel by construction.
+
+Two facts from it that a later design should not re-derive. **A bar reaches its
+own blit tier only if the thumb is fine enough**: the deciding quantity is rows
+of travel per PIXEL of track — 0.40 for the Disk window, 2.18 for Note Pad on a
+200-line document — and Note Pad's blit needs the hand to move under 7.4 px
+between commits while at 360 ms a commit it moves 31, so it is locked out of its
+own fast path by the DOCUMENT's length and not by the window's height. And
+**the window's height barely moves a live commit at all**: CGA `fm_fit` 5 is
+78 ms and VGA `fm_fit` 8 is 84, because only the delta's rows are relettered.
 
 ##### 13.10.5.5 The thumb moves. The XOR overlay was tried and WITHDRAWN
 
@@ -22370,6 +22706,21 @@ builds a 30-file B: disk of its own rather than navigating a shipped one: with
 drag most of the way down moves the view by nothing at all — a correct bar and
 a useless gate.
 
+**§13.10.5.4.1's gate is `tests/sbrate286.py`, and it is a second row rather
+than a `--rate=` arm of this one**, because what it has to vary is not a build
+but a MACHINE. It is one A/B on one boot of one build: the same drag twice
+with `cpu_tier` poked between the arms — the only way a 286 is testable in
+this tree at all, MartyPC being an 8088 (docs/TESTING.md's closed list, entry
+1) and QEMU being unable to say what a drag looks like. It drives BOTH halves
+of `UI_CPUTIER`, since `mov al, [cpu_tier]` and `call OSAPI_CPU_INFO` are not
+the same code and one passing says nothing about the other: the Disk window's
+answer is `os88ui_sbd_rate`, a kernel byte, and Note Pad's is **pixels**,
+because a package's copy of the element is its own. And it reads its
+expectations out of the build's own defines (`$OS88_DEFINES` /
+`$OS88_PKGDEFS` over the `%define`) — the first version read the source alone
+and therefore passed against a `SBRATE286=0` tree while asserting the shipped
+numbers.
+
 ### 13.10.6 Who actually uses it — the survey, and two that do not
 
 §13.10 named five private scroll bars as its motivation and unified the two
@@ -22391,6 +22742,13 @@ them now** (§13.10.6.3, §13.10.6.5), with one deliberate exception.
 
 **All seven bars drag now**, and Artful is the one exception because its thumb
 is a different widget (§13.10.6).
+
+**Three more have adopted the element since this survey was taken** — Sheet
+(§24), Scribe (§84) and The Wire (§92) — so the count above is the one this
+subsection measured and not today's total. **§13.10.5.4.1's table is the
+current list**, because every bar in the system now names a rate there,
+including those three; it is also the one place to look for what a given bar
+does while the hand is still down.
 
 **Frotz and Word were the two, and both said so in their own headers.**
 `zw_thumb` is *"SPEC.md 22's geometry, so it looks like the Disk window's"*;
@@ -107241,7 +107599,8 @@ fault — every segment with an end past ±2,500 over six frames beside the
 axis road — reads 0 of 30 off-view segments. The price is highest on the
 ground: the runway face crosses both x planes at its near end, and the two
 passes, four crossings and two extra polygon edges are 8 ms of the parked
-frame (§88.12).
+frame (§88.12) — and §88.5.7.2 is the A/B that prices the whole clip today
+and finds that those eight crossings change not one pixel.
 
 Two things came off the vertex since. **Projection is per scale**
 (`cs_project0`, `cs_project2`, `cs_project4` — one macro; `[cs_projp]` is
@@ -107279,6 +107638,133 @@ that would have caught them — every polygon and segment of a frame against
 a host replay of the same integer arithmetic, on scenes pinned at 30 and
 60 degrees — is §88.11's `skiesgeom`, and it was written to go red on both
 before either was fixed.
+
+##### 88.5.7.2 `[cs_noside]` — what the side clip costs, and what it buys
+
+The 1983 original did NOT make this fix: its long flats wander exactly the
+way §88.5.7 describes ours doing before it. So the side clip is a cost this
+simulator carries and the one it is measured against did not, and
+`[cs_noside]` is the A/B that prices it — set it and no vertex is ever
+marked past a side (`cs_projall` declares the object `cs_pinside`, which
+costs nothing per vertex), `cs_fclip` skips its four Sutherland-Hodgman
+passes and `cs_edge1` its four-plane walk. **+15 bytes of image and 1 of
+bss**, the three gates being one byte at the object's verdict and two
+`cmp`/`jne` pairs.
+
+`tests/skiesperf.py --noside` is the pinned A/B, which also compares the two
+PICTURES — a toggle that costs nothing and changes nothing has not been
+wired in — and `tests/skiesprof.py --noside 1` is the same knob in flight.
+On MartyPC's 4.77 MHz 8088 with a Hercules, means of twelve exact frames
+parked and thirty traced in flight, each parked arm repeated and repeating
+to within 0.13 ms:
+
+| pinned scene | clip on | clip off | gain | pixels changed |
+|---|---|---|---|---|
+| `climb` | 139.67 ms, 7.16 fps | 124.84, 8.01 | −14.83 ms, **+0.85 fps**, 10.6% | 449 |
+| `bank` | 185.55, 5.39 | 172.52, 5.80 | −13.03, +0.41, 7.0% | 8 |
+| `runway` | 162.14, 6.17 | 149.43, 6.69 | −12.71, +0.52, 7.8% | **0** |
+| `tower` | 179.68, 5.57 | 173.56, 5.76 | −6.12, +0.20, 3.4% | **0** |
+| `city` | 160.48, 6.23 | 154.81, 6.46 | −5.67, +0.23, 3.5% | **0** |
+| `citybank` | 236.18, 4.23 | 230.74, 4.33 | −5.44, +0.10, 2.3% | **0** |
+
+| in flight | clip on | clip off | gain |
+|---|---|---|---|
+| `cruise` | 151.7 ms, 6.59 fps | 146.1, 6.85 | −5.6 ms, +0.26 fps, 3.7% |
+| `turnhold` | 248.7, 4.02 | 240.3, 4.16 | −8.4, +0.14, 3.4% |
+| `slightbank` | 208.1, 4.80 | 205.9, 4.86 | −2.2, +0.06, 1.1% |
+| `sparse` | 69.3, 14.42 | 69.3, 14.42 | **0.0, 0.00, 0.0%** |
+
+`sparse` is the control and it reads exactly zero: one object in the view,
+nothing to clip, no gain — so the other rows are work removed and not
+measurement bias.
+
+**The six pinned scenes did not contain the defect**, which is why four of
+them read 0 pixels: a scene wanders only where a long flat's vertex is
+CLAMPED, |cx| over 9 cz, and none of the six put one there. `axisroad` and
+`seinelow` (and the `roadpass` flight profile) were built to — 150 m abeam
+and 15 m short of the axis road's middle vertex at 30 m, so it passes beside
+the eye at |cx| ≈ 13 cz — and they are where the knob is worth reading:
+**246 and 101 pixels**, the road's whole visible slope swinging about its
+inside end. `roadpass` flies through it, and reads 136.1 ms against 132.2
+with the clip off. Any scene added here should say which of the two kinds it
+is.
+
+**The finding is the pixel column, not the milliseconds.** In four of the
+six pinned scenes the frame is BYTE-IDENTICAL with the clip off, and the
+runway is the one to look at: `--trace` shows `cs_fclip` once,
+`cs_sidepass` four times and `cs_cxing` **eight** times on that frame — the
+crossings really are computed — and 0 pixels of 252,000 differ. The ground
+face crosses both x planes, but it is CONVEX and the rasteriser clips it to
+the view anyway, so the clipped ring and the clamped one light the same
+pixels. What the clip buys there is nothing, for 7.8% of the frame.
+
+Where it buys something is a LINE, which is what §88.5.7 said: `climb`
+changes 449 pixels, the dashed centreline (§88.6.2) passing beside the eye
+with its near end clamped, and that is the wander. `bank` changes 8.
+
+So the honest reading of the toggle is **+0.1 to +0.85 fps parked and +0.06
+to +0.26 in flight** — under half a frame a second where anybody flies — and
+it is bought by putting a visible defect back into the one case the fix was
+taken for. The knob stays an INSTRUMENT for that reason, off by default and
+the thing that keeps the unclipped path assembling; it is not a settings
+item. What the table does argue for is a cheaper clip rather than no clip:
+four passes that find nothing to do are most of the cost on every scene
+whose picture does not change, and a per-object side verdict already exists
+(`cs_pinside`) that a per-FACE one could follow.
+
+##### 88.5.7.3 The decision is the CLAMP's, not the clip planes' — 8z, for 8 bytes
+
+§88.5.7's planes are at **4z** and its reason is precision: a crossing is
+exact only to a distance unit, and 4z leaves the whole 5z to the clamp for
+it. That is the right home for the PLANES. It was also, wrongly, the home of
+the **decision** — `cs_projall` marked a vertex `cs_fv` = 2, and exempted a
+whole object through `cs_pinside`, at 4z as well.
+
+Those are different questions. A line bends because the projection CLAMPED a
+point, and §88.5.5 clamps at **9z on x and 14z on y**. A vertex in the 4z–9z
+shell is therefore clipped and *never clamped*: it projects exactly, the line
+through it is already straight, and the clip only shortens a line that was
+right — to a crossing lying ON it, at ±1,778 where the view is ±200. Every
+cycle spent there buys nothing that can be seen.
+
+So the decision moves out to **8z** — one `sar`/`shr` more in each of four
+places, **8 bytes**, and 8 is under both clamps so it is conservative on each
+axis. The planes stay at 4z, which keeps §88.5.7's precision argument and
+keeps every crossing where it was. Measured parked, twelve exact frames, the
+pictures compared byte for byte:
+
+| scene | 4z decision | 8z decision | gain |
+|---|---|---|---|
+| `runway` | 162.14 ms, 6.17 fps | **158.81, 6.30** | −3.33 ms, +0.13 fps |
+| `citybank` | 236.18, 4.23 | **232.33, 4.30** | −3.85, +0.07 |
+| `bank` | 185.55, 5.39 | **182.37, 5.48** | −3.18, +0.09 |
+| `climb` | 139.67, 7.16 | **136.49, 7.33** | −3.18, +0.17 |
+| `city` | 160.47, 6.23 | 160.55 | +0.08 |
+| `tower` | 179.68, 5.57 | 179.76 | +0.08 |
+| `axisroad` | 127.39, 7.85 | 127.47 | +0.08 |
+| `seinelow` | 146.99, 6.80 | 147.15 | +0.16 |
+
+**All eight frames are BYTE-IDENTICAL**, and `tests/skiesgeom.py` passes with
+its host replay UNCHANGED — the replay reads `cs_fv` off the guest, so an
+independent second implementation still checks every polygon and segment
+against the new rule rather than being taught the answer. In flight it is
+−0.3 to −0.9 ms, the objects there being far enough to have been exempt
+already. The four scenes that read +0.08 to +0.16 are the trade: a primitive
+no longer shortened is a little more for the rasteriser, and it is a tenth of
+what the near ones give back.
+
+**A further step was built, measured and REFUSED.** `cs_edge1` can skip the
+four-plane walk outright when the only new point — the near crossing it just
+made — is inside 8z, testing that one point where `cs_fv` already settles the
+others; it is worth another **−2.6 ms on the runway** and −0.20 ms mean. It
+is not taken, for two reasons that cost more than that: it stops the side
+pass CULLING segments that are wholly outside the view (`skiesgeom` reported
+it exactly — *"PARIS-ISSY edge (6, 7): drawn where the replay draws
+nothing"*), which is why the same change reads +0.2 to +0.4 ms on the four
+scenes it does not help; and making the gate green again needs the early-out
+mirrored into the replay, which is teaching the independent model the answer.
+A cheaper clip is worth having; one bought with the gate that guards it is
+not.
 
 #### 88.5.10 A face is wound on the WHOLE polygon, and a quad on its diagonals
 
@@ -109670,6 +110156,173 @@ blow-up in it" stands unchanged.
 
 `tests/skiesbody.py` check 5 is the gate and `--clobber-invert` the red run.
 
+##### 88.7.8.2 ...and the SCENE was reading the heading as the facing
+
+Reported off the machine, one aerobatic session after §88.7.8.1:
+
+> If you do a vertical 180 in the Pitts Special, it stops drawing buildings
+> in the distance, lines on the runway, and the movement of the runway gets
+> weird. A reverse vertical 180 clears the bad state.
+
+Same shape again, one layer further out. §88.7.8.1 is the STICK reaching the
+angles past the vertical; this is everything that reads the angles back, and
+it is the same dropped `cos(pitch)` with the same sign in it.
+
+**The camera's forward vector is `(sh cp, sp, ch cp)`** (§88.4.1's third row),
+so its horizontal part is the heading's direction SCALED BY `cos(pitch)` — and
+past the vertical that scale is negative and the aeroplane is pointed the
+OTHER WAY along its own heading. §88.7.2 says so in as many words and calls it
+the correct answer rather than a tolerated one. The matrix has it right
+because `cp` is a factor of both terms it builds. **Nothing else did**: three
+places work in the heading's frame directly, for the good reason that a
+heading is two multiplies where the matrix is nine, and every one of them
+took `(sh, ch)` as the way the aeroplane faces.
+
+A loop is how the pitch gets there and stays — nothing re-canonicalises the
+Euler triple (§88.7.8.1) — so a vertical 180 leaves `[cs_pitch]` past a
+quarter turn and every frame after it is drawn from a facing that is 180° out.
+Flying the half loop back is what returns the pitch, which is exactly the
+"reverse vertical 180 clears it" in the report.
+
+**The three consumers, and which face of the report each one is:**
+
+| what it computes | what it decides | the symptom |
+|---|---|---|
+| `cs_consider`'s `along` (§88.5.1's cone) | `along + r + \|dy\| < 0` is *wholly behind*, and `along` is the sort key and `cs_drawobj`'s stand-in for `cz` | **buildings in the distance** — everything genuinely ahead reads as behind and is never filed |
+| `cs_occbox`'s `cs_ob_c` | the occluder's angular interval (§88.13.7) | nothing on its own, but it is multiplied AGAINST `along`, so it has to move with it |
+| `cs_rwline`'s dot against the runway axis (§88.6.2.4) — `cos(hdg − runway)` where it wanted `cos(facing − runway)` | which threshold is BEHIND the aeroplane, and so which end the stripes start from and which way `cs_rwsegu` mirrors them | **the lines on the runway, and their movement** |
+
+**Why the buildings already on the glass stayed** — which is the half of the
+report that reads like a puzzle, and is the tell. §88.5.1 files an object that
+was drawn LAST frame without the cone at all, and `cs_drawobj` then re-tests
+it against the true frustum after the rotation it has to do anyway. So the
+cone is only consulted for a STRANGER: what is already up stays up, and what
+is coming is never let in. *"Stops drawing buildings in the distance"* is
+precisely what a broken cone over a working frustum looks like.
+
+**The fix is a second pair of trig values and not a case anywhere.**
+`cs_matrix` already has `cos(pitch)` in hand, so it stores the GROUND TRACK'S
+FACING beside the six it keeps — `[cs_fsinh]`/`[cs_fcosh]`, which are
+`(sh, ch)` negated when `[cs_cosp]` is negative — and the three consumers name
+those instead. No consumer gains an instruction, none of them has to know
+about pitch, and a fourth one written later gets it right by picking the
+obviously-named pair. **+25 bytes of code and two words of bss** in
+`apps/skies`, once a frame, off a value the routine had already computed —
+and `build/skies.bin` is **51,776 bytes either way**, the overlay pad at
+`CS_VOCAB_AT` (§88.10.5) absorbing it, so the symbol span is the only honest
+measure of it (CLAUDE.md's rungs rule).
+
+The occluder's `[cs_asinh]`/`[cs_acosh]` are deliberately NOT converted: they
+are `|sh|` and `|ch|`, a box's WIDTH, and the facing pair reads the same
+through an absolute value. The signed `cs_consider` `across` IS converted
+even though only `|across|` is used, so that the routine is in one frame
+throughout rather than two.
+
+**The A/B is exact and needs no tolerance**, which is what makes this
+testable at all: `(hdg = H, pitch = 0, roll = 0)` and
+`(hdg = H + 180°, pitch = 180°, roll = 180°)` are **the same camera**. Every
+row of `cs_matrix` comes out identical *to the bit*, and that is a property of
+the quarter table (§88.5.9) rather than a rounding accident — adding half a
+turn flips bit 9 of the index, so `sh`, `ch`, `cp` and `cr` each negate
+EXACTLY, and `MUL14(−a, −b)` is `MUL14(a, b)` because the 32-bit product is
+the same one. So the two attitudes must file the same objects, sort them the
+same way, pick the same runway threshold and put the same pixels in the 3D
+window.
+
+Measured on a Hercules 5150 — **before**: **7 objects filed against 1** on a
+1.5 km final, **8 against 5** on the strip, **10 against 8** over the middle,
+with `[cs_rwrev]` opposite in two of the three. **After**: equal on every
+count, and **0 of 44,800 window pixels differ** in all three.
+
+**The PANEL was carved out of that comparison and that was WRONG** — the
+correction is §88.9.2.6 and it is the most useful thing in this section. This
+row measured 80 differing pixels in the panel, and they were explained away in
+one sentence: *it reads the Euler triple, and 180/180 is a different attitude
+from 0/0 however the camera comes out.* The first half is true and the second
+half is exactly backwards — the panel draws an ATTITUDE, and those two triples
+are ONE attitude. Under the carve-out sat the attitude line off the glass
+entirely and a compass reading the reciprocal, both reported by the field
+within the day. **The comparison is the whole screen now** — 0 of 252,000
+pixels on all three poses — and `--clobber-panel` puts the two folds back the
+way they were and reproduces **exactly the 80**. The rule the episode is worth
+is that an exclusion carved into a gate to make it pass is where the next
+defect lives.
+
+Two more things the row has to do that are worth writing down because each one
+reads exactly like the bug: every pose must clear `CSO_SEEN` by hand, since
+§88.5.1 files whatever was drawn last frame without consulting the cone at all
+(which is *why* the report says "in the distance" — what is up stays up and
+only strangers are refused); and the take-off prompt has to be allowed to
+EXPIRE before the first pose, its strip being inside the window and worth
+~5,000 pixels. It cannot be poked away: `[cs_toastt]` reaching zero is what
+erases the strip, so a zero written into it leaves the message up for good.
+
+**One thing of the same family was deliberately NOT taken here, and §88.9.2.6
+has since taken it** — the entry is kept because being wrong about it is the
+useful part. `cs_k_hdg` (§88.9) puts `[cs_hdg]` on the compass raw, so past
+the vertical the panel reads the RECIPROCAL of the way the nose's horizontal
+projection points; this section called that an instrument question and not
+that report's, on the ground that nothing in the scene reads it. **The very
+next report was *"the direction of travel is wrong"***, which is what a
+compass reading 220° in an aeroplane flying 040° looks like from the cockpit —
+so the question a reader cannot answer is whether an instrument is *"not this
+report"*, and the cheap fix should have gone in when it was found.
+
+`tests/skiesfacing.py` is the gate and `--clobber-facing` the red run — it
+NOPs the four bytes of `neg ax / neg bx` and nothing else, so the facing pair
+becomes the heading again.
+
+##### 88.7.8.3 ...and so was the BANK, which is the turn itself
+
+Reported off the machine, in the same session as §88.9.2.6:
+
+> The direction of travel is wrong. I seem to be going... partially sideways
+> I think? Not where the nose is pointed.
+
+`cs_step`'s turn is `[cs_hdg] += CSP_TURNK · sin(roll)` and that is the third
+place with §88.7.8.1's shape in it. §88.7.8 fixed the ELEVATOR's contribution
+to the heading and §88.7.8.2 the SCENE's reading of it; **the bank's own
+contribution — the turn a banked aeroplane makes, which is most of what a
+heading ever does here — was never looked at.**
+
+**The gain is right and the sign is not**, and the algebra says so exactly.
+Lift acts along the body's up axis, which is `cs_matrix`'s second row; the
+ground track is `sign(cos θ)·(sh, ch)` (§88.7.8.2) and the horizontal
+direction to its RIGHT is `sign(cos θ)·(ch, −sh)`. Dotting the one into the
+other:
+
+    up · right-of-track = sign(cθ)·[ (sφ·ch − cφ·sh·sθ)·ch
+                                   + (−sφ·sh − cφ·ch·sθ)·(−sh) ]
+                        = sign(cθ)·sφ·(ch² + sh²)
+                        = sign(cθ)·sin(φ)
+
+`ch² + sh²` is 1, so **the heading term is `sin(roll)` exactly, times the sign
+of `cos(pitch)` and nothing else** — no magnitude is being dropped here, which
+makes this one cheaper to justify than §88.7.8.1 was. The fix is the same four
+instructions, on the same test.
+
+**Measured on the machine**, a Pitts with ROLL RIGHT held, one tick at a time
+from a pinned attitude, upright `(H, 0, 0)` against inverted-and-rolled-level
+`(H+180, 180, 180)` — the same aeroplane, and the matrix says so:
+`right`.y reads **−16,325 in both**, a 30° bank with the right wing down in
+both. The heading then moved **+15, +30, +44 upright and −16, −31, −45
+inverted**, and the world velocity curved toward +x in one arm and −x in the
+other. **The same stick, the same bank, opposite turns.**
+
+That is the whole of *"partially sideways"*: the aeroplane goes exactly where
+its nose points — `cs_move` is `(cos θ, sin θ)·speed` along the heading and
+was never wrong — but the nose is taken the wrong way round the turn, so the
+track curls away from where the pilot is pointing it and every correction
+makes it worse. The other half of the report is §88.9.2.6's compass, which was
+reading the reciprocal at the same time.
+
+**+49 bytes of code and one word of bss** across the three fixes in this
+round (`cs_step`'s sign, §88.9.2.6's two folds and its `[cs_adroll]`),
+measured on the symbol span — `build/skies.bin` is 51,776 bytes either way,
+§88.10.5's overlay pad absorbing it as it did §88.7.8.2's.
+
+`tests/skiesinv.py` is the gate and `--clobber-bank` the red run.
+
 #### 88.7.9 The take-off prompt names THIS aeroplane's speed
 
 Reported off the machine: *"the jet's take-off speed message says 55, but it
@@ -110599,6 +111252,72 @@ it once (§5.9's shape); neither is done.
 above are `cs_panel`'s for that reason: a roll sweep changes what is in the
 view, so `Small` read a 161.8 ms frame against `Full`'s 254.6 for reasons
 that have nothing to do with the instrument.
+
+#### 88.9.2.6 THE PANEL READS THE ATTITUDE, NOT THE EULER TRIPLE
+
+Reported off the machine — do a vertical 180 in the Pitts, then roll the
+aeroplane upright:
+
+> The attitude line is completely gone.
+
+It is, and `.none` is the label it goes to. `cs_d_adi` takes the horizon's
+offset from **the top byte of `[cs_pitch]` sign-extended** — a row per 1.4° —
+and at pitch 180° that byte is `0x80`, so the offset is **−128 rows on a glass
+whose radius is about ten**. §88.9.6.2's chord arithmetic then finds `d ≥ R`,
+which is *"the horizon is not on the glass"* in as many words, and draws the
+aeroplane's bars and dot over an empty circle.
+
+**But the aeroplane is straight and level.** Pitch 180 with roll 180 is
+upright, wings level, nose on the horizon — §88.7.3 says so, having made
+INVERTED-level a place the Pitts can settle — so the one attitude the
+instrument exists for is the one it refuses to draw.
+
+**A Euler triple names each attitude twice and the panel wants the other
+one.** The fold is exact and local to the display:
+
+    θd = 180° − θ      φd = φ + 180°       when cos θ < 0
+
+`sin(180° − θ) = sin θ`, so **the nose's true elevation is untouched** — the
+fold moves the *representation* and not the aeroplane. In 16-bit angles it is
+`neg` then `add 0x8000`, and `xor` of the roll's top bit, behind §88.7.8.1's
+test; below the vertical nothing changes at all, so ordinary flight is
+byte-identical.
+
+**Measured IN A BANK and not merely level**, because level is the pose that
+cannot tell the roll half of the fold from nothing: `tests/skiesfacing.py`'s
+fourth pose flies both arms at **60° of bank** and the panel comes out
+pixel-identical, where the raw triple differs by 70. The bank is 60 and not
+90 deliberately: at exactly 90 `cos(roll)` is EXACTLY zero over a whole
+64-unit window (§88.9.2.2), the guarded divide answers ±30,000 by the sign of
+its numerator, and **a line-only horizon cannot say which way "vertical"
+leans** — so the two representations of that one attitude draw the clamped
+line leaning opposite ways. That is the representation's limit rather than
+the fold's, and it is the one place the pair is not pixel-exact.
+
+**The compass had the same defect and it is the other half of §88.7.8.3's
+report.** `cs_k_hdg` puts `[cs_hdg]` on the glass raw, and past the vertical
+the nose's horizontal projection is its RECIPROCAL — at the pinned inverted
+pose `[cs_hdg]` measures 40,050, which `cs_k_hdg` puts on the glass as
+**220° in an aeroplane whose track is 040°**. So it
+takes the same `+180°`, on the same test. §88.7.8.2 recorded this one as
+deliberately NOT taken, on the ground that it was an instrument question and
+not that report's; **the next report was about the direction of travel, which
+makes it exactly that report's**, and the entry there is corrected rather than
+left standing.
+
+What is NOT changed is `cs_k_adi`, the redraw key: it stays the RAW top bytes,
+which is conservative in the safe direction — equal raw angles always mean an
+equal folded picture, so the key can cost a redundant redraw and can never
+miss a change.
+
+**None of this re-canonicalises the Euler triple**, which §88.7.2 refuses and
+this section does not reopen: `[cs_pitch]` still reads 172° after a loop,
+`cs_move` still flies off `cos θ`, and the fold lives in the two panel items
+that draw an attitude.
+
+`tests/skiesfacing.py` is the gate — its comparison is the whole screen for
+this section's reason — and `--clobber-panel` the red run, one byte per fold,
+reproducing exactly the 80 pixels §88.7.8.2 first explained away.
 
 #### 88.9.3 …and instruments that only look the part
 

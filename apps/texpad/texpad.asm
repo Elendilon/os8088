@@ -17,6 +17,20 @@
 %define SB_RATE 0               ; RATE 0 (13.10.5.4): both panes repaint whole
 %endif
 TP_SBRATE   equ SB_RATE
+; ...AND A 286 GETS 2 (13.10.5.4.1). Two panes repainting whole is the
+; heaviest commit any package here makes, and BOTH bars share one gesture
+; record (13.10.7.2), so one number serves them.
+%ifndef SB_RATE286
+%define SB_RATE286 2
+%endif
+TP_SBRATE286 equ SB_RATE286
+; ...AND THE PAUSE COMMIT (13.10.5.4.2): a one-shot re-armed on every movement
+; fires only after this many ticks of stillness. No tier pair - half a second
+; is half a second on an 8088 and on a 286 alike.
+%ifndef SB_IDLE
+%define SB_IDLE 9
+%endif
+TP_SBIDLE   equ SB_IDLE
 %endif
 
     OS88_HEADER 'TEXPAD', tp_entry, 3
@@ -123,6 +137,12 @@ tp_entry:
     call OSAPI_WM_ONMOUSEUP     ; the edges. Not template words, so they are
     mov ax, tp_ondrag           ; set after wm_create like MENU_SET above
     call OSAPI_WM_ONDRAG
+%ifdef OS88UI_SBDRAG
+    push ax                     ; 13.10.5.4.2's PAUSE commit. The push is the
+    mov ax, tp_ontimer          ; `sbb al, al` below: it reads OSAPI_WM_ONDRAG's
+    call OSAPI_WM_ONTIMER       ; own CF, so this install may not sit between
+    pop ax                      ; the two - and AX carries the flags out
+%endif
 %ifdef OS88UI_SBDRAG
     sbb al, al                  ; CF = 1 on kern_small (SPEC.md 13.10.7.1): no
     mov [tp_nodrag], al         ; tracking edge, so no thumb gesture either
@@ -4222,6 +4242,29 @@ tp_bact:
 ; tp_onup - W_ONMOUSEUP (SPEC.md 13.7): a bar button fires HERE
 ; in:  CX = x, DX = y (SCREEN), SI = the window; gfx lock held
 ; -----------------------------------------------------------------------------
+%ifdef OS88UI_SBDRAG
+tp_ontimer:                     ; the thumb has been STILL for TP_SBIDLE ticks
+    push ax                     ; (13.9 disarms before this runs and this does
+    push bx                     ; not re-arm, so a pause is ONE commit)
+    push cx
+    push dx
+    push si
+    push di
+    call tp_sbd_which           ; WHICH bar, same as the other two edges
+    jc .tout
+    call os88ui_sbowed          ; ...and NOT os88ui_sbdrop: a pause is not the
+    jc .tout                    ; end of the gesture
+    call tp_sbd_commit
+.tout:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+%endif
+
 tp_onup:
     push ax
     push bx
@@ -4233,6 +4276,11 @@ tp_onup:
 %ifdef OS88UI_SBDRAG
     call tp_sbd_which           ; SPEC.md 13.10.5: the release COMMITS, and
     jc .btn                     ; unconditionally
+    push bx                     ; the pause timer must not outlive the gesture
+    mov bx, [tp_win]            ; it belongs to (13.10.5.4.2)
+    xor ax, ax
+    call OSAPI_WM_TIMER
+    pop bx
     call os88ui_sbdrop
     jc .btn
     call tp_sbd_commit
@@ -4301,6 +4349,11 @@ tp_ondrag:
 %ifdef OS88UI_SBDRAG
     call tp_sbd_which           ; SPEC.md 13.10.5: a live thumb drag owns this
     jc .btn                     ; movement whole
+    push bx                     ; 13.10.5.4.2: every movement pushes the
+    mov bx, [tp_win]            ; one-shot out. BX is the BLOCK here and the
+    mov ax, TP_SBIDLE           ; timer wants the WINDOW, so it is banked -
+    call OSAPI_WM_TIMER         ; tp_sbd_which chose which of the two bars and
+    pop bx                      ; that answer must survive
     call os88ui_sbtrack         ; CF = 1: nothing owed - the rate, or the same
     jc .out                     ; step
     call tp_sbd_commit
@@ -5735,8 +5788,9 @@ tp_psb_click:
     jne .o                      ; pixels - the element does not care (13.10.7.2)
     cmp byte [tp_nodrag], 0
     jne .o
-    mov al, TP_SBRATE
-    call os88ui_sbgrab
+    mov ax, TP_SBRATE | (TP_SBRATE286 << 8)
+    call os88ui_sbrate          ; the rate THIS machine can afford
+    call os88ui_sbgrab          ; (SPEC.md 13.10.5.4.1)
 %endif
     jmp short .o
 .up:
@@ -5784,8 +5838,9 @@ tp_ssb_click:
     jne .o
     cmp byte [tp_nodrag], 0
     jne .o
-    mov al, TP_SBRATE
-    call os88ui_sbgrab
+    mov ax, TP_SBRATE | (TP_SBRATE286 << 8)
+    call os88ui_sbrate          ; the rate THIS machine can afford
+    call os88ui_sbgrab          ; (SPEC.md 13.10.5.4.1)
     jmp short .o
 %endif
     jmp short .o

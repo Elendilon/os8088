@@ -199,6 +199,14 @@ PROFILES = {
              "marks an object's BOX (88.3.2) and a flat ground model "
              "kilometres across has an enormous one - it measured 0 of 112 "
              "rows object-free, same as turnhold, with WIDER spans"),
+    "roadpass": dict(
+        pos=(-168, 30, 1613), hdg=115, pitch=0, roll=0, thr=100, spd=40,
+        what="LOW ALONG THE AXIS ROAD at 30 m, 150 m abeam of it, flying PAST "
+             "its middle vertex - so that vertex passes beside the eye with "
+             "|cx| over NINE cz and the projection CLAMPS it. This is the "
+             "profile the side clip (88.5.7) was taken for: the one in the "
+             "set where the line actually WANDERS without it, where the other "
+             "six are byte-identical"),
     "slightbank": dict(
         pos=(150, 33, -2000), hdg=30, pitch=0, roll=12, thr=100, spd=60,
         hold=True,
@@ -286,6 +294,11 @@ def main(argv):
                     help="poke [cs_slnoshort]: 1 puts a SHORT sliced run back "
                          "on the general row body, which is what shipped "
                          "before SPEC.md 88.4.6.2. The A/B, on one binary")
+    ap.add_argument("--noside", type=int, default=None, choices=(0, 1),
+                    help="poke [cs_noside]: 1 turns SPEC.md 88.5.7's side "
+                         "clip off wholly, so a clamped point is drawn to and "
+                         "the line through it wanders as the 1983 original's "
+                         "did. The A/B for it, in flight")
     ap.add_argument("--nostep", type=int, default=None, choices=(0, 1),
                     help="poke cs_mknostep: 1 puts a thin diagonal's mark "
                          "back on its BOX (SPEC.md 88.3.2.2's A/B)")
@@ -358,7 +371,8 @@ def main(argv):
         print("  backend %d, view %dx%d"
               % (w("cs_back") & 0xFF, w("cs_ww"), w("cs_wh")))
         print("  profile %s: %s%s" % (a.profile, P["what"],
-              "" if a.hzfull is None else "  [cs_hzfull=%d]" % a.hzfull))
+              "" if a.hzfull is None else "  [cs_hzfull=%d]" % a.hzfull)
+              + ("" if a.noside is None else "  [cs_noside=%d]" % a.noside))
 
         # --- put the aeroplane where the profile wants it, ONCE -------------
         m.pause()
@@ -381,6 +395,8 @@ def main(argv):
             poke("cs_mknostep", bytes([a.nostep]))
         if a.noshort is not None:
             poke("cs_slnoshort", bytes([a.noshort]))
+        if a.noside is not None:
+            poke("cs_noside", bytes([a.noside]))
         if P["pos"] is None:            # the runway start: it is ON the strip
             poke("cs_pitch", ((P["pitch"] * 65536 // 360) & 0xFFFF)
                  .to_bytes(2, "little"))

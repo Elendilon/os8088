@@ -950,7 +950,12 @@ cs_k_alt:                           ; feet: metres x 3.281
     call cs_shr32
     ret
 cs_k_hdg:                           ; degrees: hdg x 360 / 65536
-    mov ax, [cs_hdg]
+    mov ax, [cs_hdg]                ; ...of the NOSE'S HORIZONTAL PROJECTION
+    mov bx, [cs_pitch]              ; (SPEC.md 88.9.2.6), which past the
+    add bx, 16384                   ; vertical is the heading's RECIPROCAL:
+    jns .fwd                        ; the panel read 220 in an aeroplane
+    xor ah, 0x80                    ; flying 040
+.fwd:
     mov bx, 360
     mul bx
     mov ax, dx
