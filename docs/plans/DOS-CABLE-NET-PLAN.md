@@ -238,8 +238,27 @@ connection we refuse with `RST`, which is what a client understands.
 | — | **the bss went with it** (SPEC.md 96.26.6): 4,299 bytes of every DOS program's arena, on every machine, for a wire that may not be there. `image + bss` **25,586 → 21,287**, and `DS` is the claim inside every `dn_*` | `t_appsmall`-style A/B: the stock arm's figures are in §7.3 |
 | 4 | **DONE, and it passed first time** (SPEC.md 96.26.7). `tests/doscable.py`: a real Crynwr client, in the real DOS box, over a real `NET.DRV`, over MartyPC's parallel port a nibble at a time, to a real host socket - with NO knob, `net_find` picking the cable because `NETV_RAW` is one of the three verbs it refuses. `FLAGS 12 10 10 18 11`, the same five segments as the card arm, and the partner's own log reads `o ssssssssss w s r s c` | `tests/doscable.py`, registered |
 | — | *below here is optional and separately revertible* | |
-| 8 | `OSAPI_PKG_REHOME` — give **S** back | `kernsize`-style A/B on the region |
+| 8 | `OSAPI_PKG_REHOME` — give **S** back. **BEHIND A DEPENDENCY, and deliberately parked** (§7.5) | `kernsize`-style A/B on the region |
 | 9 | inbound (`NW_LISTEN`/`NW_ACCEPT` exist) | `ftpsrv` serves across the cable |
+
+### 7.5 Wave 8 is parked, and the reason is a dependency rather than a doubt
+
+**The owner's call, and it is about ORDER rather than value.** The whole value
+of `OSAPI_PKG_REHOME` is that the region it frees can then be MOVED and the
+heap COMPACTED — and today a region cannot move under its own package's calls:
+`mem_frameless` asks `mem_in_nest`, and a region is pinned for every moment it
+could be claiming (SPEC.md 66.6.1, and docs/plans/DISK-CPU-PLAN.md's §5 is the
+same wall from the other side). That is a design question in another document,
+not this plan's.
+
+So the arithmetic is: rehome hands bytes back to a heap that cannot yet put
+them anywhere useful, **and we are the party that wants those bytes now** —
+which is the case where the give-back is worth least. §96.26.6 took the 4,299
+bytes this feature actually needed straight out of the package's bss instead,
+which needed no ABI and no compaction at all.
+
+**It still needs doing.** It simply sits behind that dependency, and the row
+above says so rather than reading as un-started work somebody should pick up.
 
 ### 7.4 What wave 4 found, and the one thing it had to build
 
