@@ -55,6 +55,34 @@ DN_N_SIZE   equ DN_N_NAME + DN_NAMEMAX
 DN_GWMAC    equ 0                   ; (offset into dn_gwmac)
 DN_POOL0    equ 16                  ; 10.88.0.16 is the first name we hand out
 
+; --- THE TRANSLATION'S STATE, laid out in the NETWORK CLAIM ------------------
+; Offsets from PKB_STATE (apps/dos/dos.asm), not from this package's bss:
+; **DS IS THE CLAIM inside every dn_* routine** (SPEC.md 96.26.6), so a bss
+; byte here would be a byte of the DOS program's own arena spent on a wire
+; that may not exist. dosnet.inc's premise was already "one segment, no
+; override"; the segment is simply not ours.
+;
+; Laid out here rather than in dos.asm for this file's own reason one level
+; on: the frame offsets above and the state offsets below are read together
+; by every routine in dosnet.inc, and splitting them across two files is how
+; a layout ends up known in two places.
+DNB_FLOWS   equ 0
+DNB_NAMES   equ DNB_FLOWS + DN_NFLOW * DN_F_SIZE
+DNB_QNAME   equ DNB_NAMES + DN_NNAME * DN_N_SIZE
+DNB_PEND    equ DNB_QNAME + DN_NAMEMAX      ; word: bytes of frame waiting
+DNB_LASTIP  equ DNB_PEND + 2                ; byte: the pool octet last used
+DNB_PSEUDO  equ DNB_LASTIP + 1              ; 12: TCP's pseudo-header
+DNB_RR      equ DNB_PSEUDO + 12             ; byte: dn_pump's round robin - a
+                                            ; busy first flow would starve
+                                            ; every other one, and FTP opens
+                                            ; two
+DNB_GWMAC   equ DNB_RR + 1                  ; 6:  the router's address and...
+DNB_OURMAC  equ DNB_GWMAC + 6               ; 6:  ...the client's, COPIED in by
+                                            ; dn_init out of the image, where
+                                            ; they are `db` constants a
+                                            ; claim-relative DS cannot reach
+DNB_SIZE    equ DNB_OURMAC + 6
+
 ; --- offsets, wire order -----------------------------------------------------
 DN_EH_DST   equ 0
 DN_EH_SRC   equ 6

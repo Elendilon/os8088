@@ -1909,7 +1909,11 @@ DRVC_DISK    equ 2              ; block volumes: hard disks (SPEC.md 51.8).
                                 ; not free: a class number is ABI, and a driver
                                 ; built against the old header would attach as
                                 ; whatever took it (SPEC.md 58)
-DRVC_NET     equ 4              ; the parallel link (SPEC.md 62)
+DRVC_NET     equ 4              ; **THE ETHERNET CARD** (SPEC.md 72), and
+                                ; not the parallel link, which this line said
+                                ; for a cycle after the cable moved to
+                                ; DRVC_FILE (62.9). apps/dos read it and put
+                                ; a route compare the wrong way round
 DRVC_FILE    equ 5              ; a volume served by somebody answering
                                 ; questions about FILES rather than sectors
                                 ; (SPEC.md 62.9)

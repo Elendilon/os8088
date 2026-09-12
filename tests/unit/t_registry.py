@@ -63,6 +63,14 @@ UNREGISTERED = {
                  "green row that tests nothing is worse than B4's three rows "
                  "that failed where they meant to skip, because nobody "
                  "investigates a pass",
+    "dosmap.py": "symbol offsets for the DOS box and for a probe running "
+                 "INSIDE it - library, not a test. It exists because "
+                 "dispapps._map's `defines` argument means exactly ONE thing "
+                 "(-DAPP_SMALL, compared against build/smallapp/), and its "
+                 "source path is apps/<app>/<app>.asm, which "
+                 "tests/dostrap/dospkt.asm is not. Both differences fail as a "
+                 "message about the wrong subject. tests/dosxlat.py is the "
+                 "registered row that reads through it",
     "os88qemu.py": "the teardown every QEMU launcher registers, written once "
                    "rather than thirteen times - library, not a test. What "
                    "checks it is `t_qemuown`, which asserts every launcher "

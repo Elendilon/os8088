@@ -2635,6 +2635,33 @@ SOAK = [
         "programs on the disk beside ours.",
         needs=("qemu",), serial=True,
         wants=("build/ether360.img", "build/dospkt360.img")),
+    Row("dosxlat", "soak", py("tests/dosxlat.py"), 75.0,
+        "THE CABLE TRANSLATION, ONE WHOLE TCP CONNECTION (SPEC.md 96.26). "
+        "Where `dospkt` asks whether a frame reached a CARD, this asks whether "
+        "a DOS client's own stack gets what TCP owes it over the PARALLEL "
+        "CABLE, which carries sockets and no frames at all (72.22.3): the box "
+        "terminates the client's TCP and re-opens it as a NETV_OPEN. NOTHING "
+        "OUTSIDE THE CLIENT CAN ANSWER THAT - every counter in the box and in "
+        "the driver reads correct while the client hears nothing, which is "
+        "exactly how three register defects hid (96.26.3) - so DOSPKT.COM "
+        "runs the connection by hand and BANKS THE FLAGS BYTE OF EVERY "
+        "SEGMENT its receiver was handed, and this row reads that array out "
+        "of the running program: 12 10 10 18 11 is a handshake, a reply and a "
+        "close. THE FAR SIDE IS THE TEST ITSELF, a socket on 10.0.2.2:8099 "
+        "writing a FIXED answer, so the byte count asserted is one the row "
+        "chose - http.server will not do, its Server: header carrying the "
+        "interpreter version. QEMU'S, on CLAUDE.md's closed list for "
+        "tests/ethernet.py's reason: MartyPC has no NIC. DOSNETCARD=1 IN A "
+        "PRIVATE TREE, because net_find prefers the card and 96.23's raw path "
+        "is better there, so the translation would otherwise run on no "
+        "machine an emulator here can host - and a stock `make` in build/ "
+        "would put the other arm of the package on the floppy and the row "
+        "would test the card path while reporting on this one. [dos_pkt_xl] "
+        "is read before anything is concluded, so that cannot happen "
+        "silently. BREAK IT: put dn_pump's counter back in CL and the data "
+        "assertions fire; take dn_tcp_in's .unknown arm out and the log "
+        "gains a trailing 14.",
+        needs=("qemu",), serial=True),
     Row("pathcost", "soak", py("tests/pathcost.py"), 30.0,
         "OSAPI_FILE_PATH, AND WHAT IT COSTS (SPEC.md 19.2.4). The slot exists "
         "because dsk_find drops the on-disk dot links, so no package can walk "

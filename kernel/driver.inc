@@ -116,9 +116,12 @@ DRV_MAX     equ 4               ; **kern_small HAS NO RAM DISK** (SPEC.md
 ; the first (SPEC.md 51.2.1).
 DRVC_SOUND  equ 1               ; fills the FM and STREAM tiers (SPEC.md 34)
 DRVC_DISK   equ 2               ; block volumes: hard disks (SPEC.md 51.8)
-DRVC_NET    equ 4               ; the parallel link (docs/plans/completed/NET-PLAN.md). A
-                                ; SECOND block-serving class beside DRVC_DISK,
-                                ; which is what DV_CLASS exists for
+DRVC_NET    equ 4               ; **THE ETHERNET CARD** (SPEC.md 72) - and
+                                ; not the parallel link, which this line said
+                                ; for a cycle after the cable moved to
+                                ; DRVC_FILE (62.9) to serve a volume. A SECOND
+                                ; block-serving class beside DRVC_DISK, which
+                                ; is what DV_CLASS exists for
 DRVC_RETIRED3 equ 3             ; WAS the serial monitor's, and the driver is
                                 ; gone (SPEC.md 58). THE NUMBER STAYS: a class
                                 ; is an index into drv_fptr* below, which
