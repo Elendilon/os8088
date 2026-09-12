@@ -90669,9 +90669,16 @@ wants frames asks for them, and how often it asks is its own problem to solve.
 
 | verb | in | out |
 |---|---|---|
-| `NETV_RAW` 15 | `AL` = 1 claim, 0 release | CF=0. CF=1 `AX=NETE_BUSY` — somebody else holds it |
+| `NETV_RAW` 15 | `AL` = 1 claim, 0 release; `DI` = a six-byte buffer for the station address, or 0 | CF=0. CF=1 `AX=NETE_BUSY` — somebody else holds it |
 | `NETV_RAWTX` 16 | `SI` = the frame in the caller's segment, `CX` = 14..1514 | CF=0. CF=1 `AX=NETE_ARG` (a length that is not a frame) or `NETE_NOLINK` (no claim, or the card never finished) |
 | `NETV_RAWRX` 17 | `DI` = a buffer in the caller's segment, `CX` = its capacity | CF=0 and `CX` = the frame's **true** length. CF=1 = the ring is empty |
+
+The claim **hands back the station address**, and that is a coupling rather
+than a convenience: a consumer that is the stack now cannot build a single
+frame without its own source MAC, so a claim that did not answer it would be
+followed by a second verb every caller had to make. `NETV_ADDR` is not that
+verb — it answers the machine's **IPv4** address, which belongs to our stack
+and is exactly what a raw consumer has stopped using.
 
 #### 72.22.1 The claim stops `eth_pump`, and that is the safe end to gate
 

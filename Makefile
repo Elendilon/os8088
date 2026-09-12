@@ -4711,8 +4711,9 @@ $(BUILD)/telnet.o88: $(BUILD)/telnet.bin tools/os88pkg.py $(PKGZSTAMP)
 # strings have to name.
 # --- DOS (SPEC.md 96) --------------------------------------------------------
 $(BUILD)/dos.bin: apps/dos/dos.asm apps/os88api.inc apps/os88ui.inc \
-                  apps/os88line.inc | $(BUILD)
-	$(NASM) -f bin -w+error -I apps/ -o $@ apps/dos/dos.asm
+                  apps/os88line.inc apps/os88sock.inc \
+                  drivers/net/netpkg.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I drivers/net/ -o $@ apps/dos/dos.asm
 
 $(BUILD)/dos.o88: $(BUILD)/dos.bin tools/os88pkg.py $(PKGZSTAMP)
 	python3 tools/os88pkg.py $< -o $@ $(PKGZARG)

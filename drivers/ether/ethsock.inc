@@ -545,6 +545,16 @@ eth_v_raw:
     mov byte [eth_raw], 1
     mov word [eth_nraw], 0      ; the counters are per CLAIM, so a probe can
     mov word [eth_nrawtx], 0    ; read them without knowing what ran before it
+    or  di, di                  ; ...AND THE STATION ADDRESS, because a
+    jz  .nomac                  ; consumer that is the stack now cannot build
+    push cx                     ; one frame without it (netpkg.inc)
+    push si
+    mov si, eth_mac
+    mov cx, 6
+    call usr_write              ; SI ours, DI theirs
+    pop si
+    pop cx
+.nomac:
     clc
     ret
 .release:

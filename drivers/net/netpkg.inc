@@ -300,10 +300,19 @@ NETV_BULK    equ 14
 ; -----------------------------------------------------------------------------
 
 ; NETV_RAW - the wire is mine / the wire is yours again
-; in  AL = 1 claim, 0 release. out: CF=0. CF=1 with AX = NETE_BUSY = somebody
-; else holds it. A release by a caller that does not hold it is a no-op, which
-; is what lets a bracket call it on every exit path the way SPEC.md 96.17's
-; resume does.
+; in  AL = 1 claim, 0 release; DI = a SIX-byte buffer in the caller's segment
+;     for the station address, or DI = 0 for none (drv_suspend_x's idiom).
+; out: CF=0. CF=1 with AX = NETE_BUSY = somebody else holds it.
+;
+; **THE CLAIM HANDS BACK THE MAC**, and that is a coupling rather than a
+; convenience: a consumer that is now the stack cannot build a single frame
+; without its own source address, so a claim that did not answer it would be
+; followed by a second verb every caller had to make. NETV_ADDR is NOT that
+; verb - it answers the IPv4 address, which is OUR stack's and is precisely
+; what a raw consumer has stopped using.
+;
+; A release by a caller that does not hold it is a no-op, which is what lets a
+; bracket call it on every exit path the way SPEC.md 96.17's resume does.
 NETV_RAW     equ 15
 
 ; NETV_RAWTX - put ONE frame on the wire, exactly as given
@@ -313,6 +322,14 @@ NETV_RAW     equ 15
 ; is held, which is the error a caller that forgot NETV_RAW gets rather than a
 ; frame going out under our own MAC by accident.
 NETV_RAWTX   equ 16
+
+; --- what a frame IS, for a consumer that has to build one -------------------
+; A raw consumer needs both of these before it can send anything, and neither
+; was reachable from a package: they lived in the card layer (ne2000.inc) and
+; the stack (inet.inc), which are the driver's own files. ether.asm asserts
+; its own constants against these, so one number cannot drift from the other.
+NET_EHSIZE   equ 14             ; destination, source, ethertype
+NET_FRAME    equ 1514           ; ...and the largest frame without the FCS
 
 ; NETV_RAWRX - take ONE frame off the ring
 ; in  DI = a buffer in the CALLER's segment, CX = its capacity
