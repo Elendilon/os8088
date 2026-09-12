@@ -9596,6 +9596,40 @@ dos_fh_new:
 ; C:, both of them reporting success.
 ; -----------------------------------------------------------------------------
 dos_fh_name:
+    push di
+    push ax                         ; ...AND PUT AX BACK BEFORE THE CALL: this
+    mov ax, [bp]                    ; routine's own answer on CF=1 is AL, so the
+    mov [dos_fnseg], ax             ; segment travels in a word rather than in
+    pop ax                          ; the register that carries the error code
+    mov di, dos_fname
+    call dos_fh_core
+    jc .nout
+%ifdef DOSTRACE
+    call dos_tr_name_in             ; WHICH FILE - AH/AL alone cannot say, and
+%endif                              ; that is the question a field trace asks
+    call dos_fh_enter               ; ...and WHICH DRIVE, which is the same
+    jc .nout                        ; question one level up (SPEC.md 96.6.2)
+    clc
+.nout:
+    pop di
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_fh_core - the parse itself, from ANY segment into ANY buffer of ours
+; in:  [dos_fnseg]:DX = the ASCIZ name, DI = a 13-byte buffer in OUR segment
+; out: CF=0 with the name copied, [dos_fdrv] the drive it named (0xFF = none)
+;      and [dos_fabs] whether it carried a leading separator; CF=1 with AL = a
+;      DOS error code for a path this wave cannot walk
+; clobbers: AL
+;
+; IT IS SEPARATE FROM dos_fh_name BECAUSE THERE ARE THREE CALLERS AND ONLY ONE
+; OF THEM IS AN INT 21h ARGUMENT. AH=56h's second name is in the program's ES
+; rather than its DS, and the built-in commands (SPEC.md 22.24) parse names
+; out of OUR OWN segment - so the source is a far pointer and the destination
+; is a parameter, and dos_fh_name is what adds the trace hook and the drive
+; bracket on top for the calls that want them.
+; -----------------------------------------------------------------------------
+dos_fh_core:
     push bx
     push cx
     push si
@@ -9603,9 +9637,8 @@ dos_fh_name:
     push es
     push ds
     pop es
-    mov di, dos_fname
     mov si, dx
-    mov ds, [bp]                    ; the program's, off the frame
+    mov ds, [es:dos_fnseg]          ; ...wherever the name really is
     mov cx, 13
 
     mov byte [es:dos_fdrv], 0xFF    ; "C:NAME" - the letter comes off the name
@@ -9667,11 +9700,6 @@ dos_fh_name:
 .done:
     push es
     pop ds
-%ifdef DOSTRACE
-    call dos_tr_name_in             ; WHICH FILE - AH/AL alone cannot say, and
-%endif                              ; that is the question a field trace asks
-    call dos_fh_enter               ; ...and WHICH DRIVE, which is the same
-    jc .out                         ; question one level up (SPEC.md 96.6.2)
     clc
 .out:
     pop es
@@ -10190,6 +10218,7 @@ dos_fh_fill:
     DBSS DOS_B_FABS,  1        ; did the name carry a leading separator?
     DBSS DOS_B_PFBUF, DOS_PFIN + 1  ; AH=29h's copy of the program's name...
     DBSS DOS_B_PFCB,  12            ; ...and the twelve bytes it hands back
+    DBSS DOS_B_FNSEG, 2        ; the segment dos_fh_core reads a name FROM
     DBSS DOS_B_FDRV,  1        ; ...and the DRIVE it named, 0xFF = none
     DBSS DOS_B_FHOME, 1        ; where to go back to, 0xFF = we never left
     DBSS DOS_B_FVTGT, 2        ; the back end call a bracketed read makes
@@ -10440,6 +10469,7 @@ dos_acc     equ os88_image_end + DOS_B_ACC
 dos_fabs    equ os88_image_end + DOS_B_FABS
 dos_pfbuf   equ os88_image_end + DOS_B_PFBUF   ; AH=29h's name scratch...
 dos_pfcb    equ os88_image_end + DOS_B_PFCB    ; ...and its FCB prefix
+dos_fnseg   equ os88_image_end + DOS_B_FNSEG   ; word: where a name is read from
 dos_fdrv    equ os88_image_end + DOS_B_FDRV    ; byte: the drive a name named
 dos_fhome   equ os88_image_end + DOS_B_FHOME   ; byte: ...and where it left
 dos_fvtgt   equ os88_image_end + DOS_B_FVTGT   ; word: the read's back end

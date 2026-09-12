@@ -1934,6 +1934,26 @@ SOAK = [
         "SPEC.md 11.96.18: a wholly covered window keeps its raise cache when"
         "it arms a clip, and a partly covered one still loses it.",
         needs=("marty",), serial=True),
+    Row("fcpapi", "soak", py("tests/fcpapi.py"), 55.0,
+        "OSAPI_FILE_COPY, THE PUBLISHED COPY ENGINE (SPEC.md 22.24). EVERY "
+        "ANSWER IS A FILE: a copy engine that goes wrong strands clusters, "
+        "cross-links two chains or writes a directory entry pointing at "
+        "nothing, and all three look perfectly fine from inside the guest - "
+        "the listing is drawn from the same structures that are wrong. So the "
+        "package writes its verdict into RESULT.TXT and stops, and the host "
+        "walks the volume afterwards with an independent FAT12 reader plus "
+        "`os88disk --verify`. CHECK 2 IS THE ROW and check 1 cannot replace "
+        "it: with [fcp_lclus] left at the file manager's value - which is "
+        "what a door that set only the pending file's drives would do, and "
+        "zero on a machine that has pasted nothing - fcp_floor hands "
+        "fcp_chunkset a buffer below one cluster, the chunk floors to ZERO, "
+        "and the copy CREATES THE DESTINATION, WRITES NOTHING AND REPORTS "
+        "SUCCESS. Verified by breaking it exactly that way: check 1 stays "
+        "green and check 2 goes red. It also asserts the two promises a "
+        "package cannot check for itself - the directory it was standing in "
+        "is restored, and a refused copy leaves no destination behind.",
+        needs=("marty",), serial=True,
+        wants=("build/fcpapi.img",)),
     Row("fcpcopy", "soak", py("tests/fcpcopy.py"), 70.0,
         "SPEC.md 22.3-22.5: Cut/Copy/Paste actually moves a file AND a folder "
         "tree. Nothing exercised kernel/filecp.inc at all until this row - a "

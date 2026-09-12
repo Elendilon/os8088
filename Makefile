@@ -5885,6 +5885,26 @@ $(BUILD)/muptest.o88: $(BUILD)/muptest.bin tools/os88pkg.py
 $(BUILD)/muptest.img: $(BUILD)/muptest.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/muptest.o88
 
+# fcpapi: OSAPI_FILE_COPY's gate (SPEC.md 22.24). EVERY ANSWER IS A FILE - the
+# copies it makes and the verdict it writes - because a copy engine that goes
+# wrong strands clusters or cross-links chains, and both look fine from inside
+# the guest. The host walks the volume afterwards with its own FAT12 reader.
+$(BUILD)/fcpapi.bin: tests/fcpapi/fcpapi.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/fcpapi/fcpapi.asm
+	@echo "fcpapi: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/fcpapi.o88: $(BUILD)/fcpapi.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/fcpapi.bin -o $@
+
+$(BUILD)/src.dat: Makefile | $(BUILD)
+	printf 'os8088 copy' > $@
+
+.PHONY: fcpapi
+fcpapi: $(BUILD)/fcpapi.img
+$(BUILD)/fcpapi.img: $(BUILD)/fcpapi.o88 $(BUILD)/src.dat tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/fcpapi.o88 \
+	    $(BUILD)/src.dat
+
 # assoctest: the SPEC.md 54 gate. Its own scratch image, and a TEST.AST for it
 # to be opened WITH - the point of the gate is what happens on a document
 # double-click, so the fixture is half the test:

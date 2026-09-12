@@ -82,14 +82,15 @@ FCPS_ASK    equ 1               ; suspended: fcp_cname needs a verdict
 FCPS_ERR    equ 2               ; stopped, [fcp_err] = FERR_*
 
 %ifdef FCP_MOD
-FCP_NENT    equ 3               ; entries FILECP.DRV publishes (SPEC.md 2.8):
-                                ; arm, paste and answer. NOT fcp_ncopy, which
-                                ; is `equ dsk_ncopy` and resident, and NOT
-                                ; fcp_goto, which CLONE.DRV needs mid-clone and
-                                ; which therefore stays resident too
+FCP_NENT    equ 4               ; entries FILECP.DRV publishes (SPEC.md 2.8):
+                                ; arm, paste, answer and copy. NOT fcp_ncopy,
+                                ; which is `equ dsk_ncopy` and resident, and
+                                ; NOT fcp_goto, which CLONE.DRV needs mid-clone
+                                ; and which therefore stays resident too
 FCPE_ARM    equ 0               ; ...and their slots, in header order
 FCPE_PASTE  equ 1
 FCPE_ANSWER equ 2
+FCPE_COPY   equ 3               ; OSAPI_FILE_COPY's (SPEC.md 22.24)
 FCPFP       equ mod_fp + MOD_FCP*MODFP_STRIDE   ; this module's slot block
 %endif
 
@@ -175,21 +176,26 @@ modp_hdr:                       ; is at offset 0 because vstart is 0 and
     dw modp_e_arm               ; the FAR entries, never the bodies: an entry
     dw modp_e_paste             ; is reached by `call far`, so it has to end in
     dw modp_e_answer            ; a retf, and every body below keeps the near
-                                ; `ret` cold code has always had
+    dw modp_e_copy              ; `ret` cold code has always had
     times MOD_NENT - FCP_NENT dw 0
-                                ; FOUR ENTRIES AND NOT FIVE. files.inc's fourth
-                                ; public name here is `fcp_ncopy`, and it is
-                                ; not a body in this file at all - the
-                                ; `fcp_ncopy equ dsk_ncopy` below makes it
-                                ; disk.inc's routine under a second name, and
-                                ; that stays RESIDENT. So it needs no entry, no
-                                ; stub and no load: a caller of it reads no disk
+                                ; FOUR, AND `fcp_ncopy` IS NOT ONE OF THEM.
+                                ; files.inc's other public name here is not a
+                                ; body in this file at all - the `fcp_ncopy equ
+                                ; dsk_ncopy` below makes it disk.inc's routine
+                                ; under a second name, and that stays RESIDENT.
+                                ; So it needs no entry, no stub and no load: a
+                                ; caller of it reads no disk.
+                                ; The fourth that IS here is OSAPI_FILE_COPY's
+                                ; (SPEC.md 22.24) - the first entry in this
+                                ; image reached from outside the file manager
 
 modp_e_arm:     call fcp_arm_x
             retf
 modp_e_paste:   call fcp_paste_x
             retf
 modp_e_answer:  call fcp_answer_x
+            retf
+modp_e_copy:    call fcp_copy_x
             retf
 %endif
 
@@ -1379,6 +1385,9 @@ fcp_fnames:
 .name:
     mov di, fcp_fname
     call fcp_n13
+    mov si, fcp_fname           ; ...and it lands under the same name, which is
+    mov di, fcp_dname           ; what a Paste means. Only OSAPI_FILE_COPY ever
+    call fcp_n13                ; sets the two apart
     pop di
     pop si
     pop cx
@@ -1645,8 +1654,10 @@ fcp_undo:
                                 ; off the stack and whose `stc` sets the flags
                                 ; after this returns - so those are free and
     jc .done                    ; saving them is bytes spent to restore values
-    mov si, fcp_fname           ; that are about to be overwritten. AX is not:
-    FCPX dskw_delete_x          ; it carries the FERR_* on its way out
+    mov si, fcp_dname           ; that are about to be overwritten. AX is not:
+    FCPX dskw_delete_x          ; it carries the FERR_* on its way out - and it
+                                ; is the DESTINATION's name, which is the one
+                                ; that got created
 .done:
     pop ax
 .out:
@@ -1703,6 +1714,8 @@ fcp_xfer:
     mov al, [fcp_fsdrv]
     cmp al, [fcp_fddrv]
     jne .stream
+    call fcp_same13             ; ...AND ONE NAME: FSV_COPY takes a single one
+    jne .stream                 ; for both ends, so a copy that renames streams
     push bp
     mov ax, [fcp_fsclus]        ; the two FOLDERS, and one name: fcp_xfer
     mov dx, [fcp_fdclus]        ; copies under the same name at both ends
@@ -1764,6 +1777,27 @@ fcp_xfer:
 .out:                           ; flags, the FERR_* being on its way out
     jmp fcp_x6
 
+; fcp_same13 - are fcp_fname and fcp_dname the same 8.3 name?
+; out: ZF=1 if they are.  clobbers: flags
+; -----------------------------------------------------------------------------
+fcp_same13:
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    mov si, fcp_fname
+    mov di, fcp_dname
+    mov cx, 13
+    cld
+    repe cmpsb
+    pop es
+    pop di
+    pop si
+    pop cx
+    ret
+
 ; fcp_wprep - the four arguments dskw_write and dskw_append share
 ; out: ES:BX -> the chunk, CX = its length, SI -> the destination name.
 ;      All four are inside fcp_xfer's own save set, which is where both
@@ -1772,7 +1806,157 @@ fcp_wprep:
     mov es, [fcp_seg]
     xor bx, bx
     mov cx, [fcp_flen]
-    mov si, fcp_fname
+    mov si, fcp_dname           ; the DESTINATION's name - the same one for a
+    ret                         ; Paste, and not for a copy that renames
+
+; -----------------------------------------------------------------------------
+; fcp_copy - OSAPI_FILE_COPY's body (SPEC.md 22.24)
+; in:  ES:SI = the source 8.3 name and ES:DI the destination's, both in the
+;      CALLER's segment (this is an X cell); BL = the source drive and DX its
+;      folder's first cluster, BH = the destination drive and CX its folder's
+;      - the pair OSAPI_FILE_HERE answers and OSAPI_FILE_GOTO takes
+; out: CF=0; CF=1 with AX = FERR_*
+; clobbers: AX, flags
+;
+; ONE FILE, AND IT IS fcp_xfer - the same body Paste has always used, with the
+; two names and the two folders set from registers instead of from a
+; clipboard. What is here and is not there is only what a PACKAGE cannot be
+; assumed to have done for itself: the buffer claimed and given back, the
+; directory the caller was standing in put back, and the listing debt paid.
+;
+; THE HEADER OF THIS FILE SAYS "gfx lock held by the caller" AND THAT IS A
+; DESCRIPTION OF ITS CALLERS, NOT A REQUIREMENT. Nothing on the copy path
+; draws: the exclusion the disk layer needs is `[sch_lock]`, which dsk_xfer
+; raises itself, and the bodies fcp_xfer streams through - dskw_write_x and
+; dskw_append_x - are the same two OSAPI_FILE_WRITE and OSAPI_FILE_APPEND
+; have always published to any package. So this door is no more lock-bound
+; than those two, and it is the one the DOS box's COPY reaches through
+; (SPEC.md 22.24).
+; -----------------------------------------------------------------------------
+FCPBODY fcp_copy
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+
+    cmp byte [fcp_busy], 0      ; ONE SET OF STATE WORDS in this module, so a
+    jne .busy                   ; Paste that is running - or suspended on its
+    mov byte [fcp_busy], 1      ; overwrite question - owns them
+
+    mov al, [disk_drive]        ; WHERE THE CALLER WAS STANDING. fcp_goto moves
+    mov [fcp_svdrv], al         ; the current directory, and a package is
+    mov ax, [dsk_cwd]           ; entitled to find itself where it left off
+    mov [fcp_svcwd], ax
+
+    mov [fcp_fsdrv], bl         ; the two ends, out of the registers rather
+    mov [fcp_fddrv], bh         ; than out of the clipboard
+    mov [fcp_fsclus], dx
+    mov [fcp_fdclus], cx
+    mov [fcp_sdrv], bl          ; ...AND THE OPERATION'S PAIR AS WELL, which is
+    mov [fcp_ddrv], bh          ; not the same words: fcp_clspan reads THESE
+                                ; two, and a door that set only the pending
+                                ; file's would size the buffer against whatever
+                                ; the last Paste left - or, on a machine that
+                                ; has pasted nothing, against zero
+    mov word [fcp_ovwsz], 0     ; NOTHING IS BEING REPLACED as far as this door
+    mov word [fcp_ovwsz+2], 0   ; knows. fcp_ensure banks the size of the entry
+                                ; a Paste is about to overwrite, from a stat it
+                                ; had already done; there is no such stat here,
+                                ; and asking for one costs a volume switch and
+                                ; a directory walk to make fcp_room's answer
+                                ; LESS conservative. Zero is the safe
+                                ; direction: it can refuse a copy that would
+                                ; just have fitted by replacing something, and
+                                ; it can never promise room that is not there
+
+    mov bx, di                  ; DI is the destination name and SI the source;
+    mov di, fcp_fname           ; the copy in wants DI for OUR buffer, so the
+    call fcp_cpname             ; one that is still needed goes to BX
+    mov si, bx
+    mov di, fcp_dname
+    call fcp_cpname
+
+    mov al, [dskw_batch]        ; BANKED AND RESTORED rather than cleared: this
+    mov [fcp_svbat], al         ; door does not know who else was batching
+    mov byte [dskw_batch], 1    ; one sync for the whole thing, not one per
+                                ; chunk (SPEC.md 18.9.3)
+    call fcp_clspan             ; what a chunk must be a multiple of, from BOTH
+    jc .nobuf                   ; volumes - fcp_bufget sizes off it, and
+                                ; fcp_floor's own header is the account of what
+                                ; a wrong [fcp_lclus] does: a chunk of zero
+                                ; clusters reads nothing, so the copy writes an
+                                ; EMPTY file and reports success
+    call fcp_bufget
+    jc .nobuf
+    call fcp_xfer
+    pushf
+    push ax
+    call fcp_bufput
+    pop ax
+    popf
+    jmp short .home
+.nobuf:
+    mov ax, FERR_FULL           ; no run of heap big enough for one cluster,
+    stc                         ; which is fcp_floor's own refusal
+.home:
+    pushf                       ; THE ANSWER IS CARRIED OVER THE WALK HOME:
+    push ax                     ; every call below is allowed to fail and none
+                                ; of them may become the answer
+    mov al, [fcp_svbat]         ; ...AND NOT fcp_unbatch, WHICH IS THE FILE
+    mov [dskw_batch], al        ; MANAGER'S. That one ends in dsk_relist, an
+    FCPX dskw_sync_x            ; UNCONDITIONAL remount - real disk I/O whose
+                                ; only purpose is refreshing a Disk window's
+                                ; listing, and a package copying a file has no
+                                ; Disk window. dskw_sync_x is the same debt
+                                ; settled honestly: it rebuilds the snapshot
+                                ; only when something ON SCREEN is drawn from
+                                ; it (fmv_gneed) and otherwise just records
+                                ; [dsk_lstale] - so the file manager pays
+                                ; exactly what it always paid and everyone
+                                ; else pays NOTHING
+    mov al, [fcp_svdrv]
+    mov bx, [fcp_svcwd]
+    FCPX fcp_goto               ; FCPX AND NOT A NEAR CALL: fcp_goto is
+                                ; RESIDENT even on kern_small, because
+                                ; CLONE.DRV far-calls it mid-clone - so from
+                                ; inside the image it is a segment away, which
+                                ; tools/os88ovlchk.py is what says so
+    mov byte [fcp_busy], 0
+    pop ax
+    popf
+    jmp short .out
+.busy:
+    mov ax, FERR_NODISK         ; the nearest true thing: the machinery this
+    stc                         ; needs is not available to you right now,
+.out:                           ; which is fcp_pfail's own precedent
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; fcp_cpname - up to 13 bytes of an ASCIZ name from the CALLER's ES:SI into
+; our DS:DI, always terminated.  clobbers: AX, CX, SI, DI, flags
+;
+; A LENGTH THE CALLER DOES NOT CHOOSE: the buffer is 13 bytes and a package's
+; string is whatever a package's string is, so the count bounds it and the
+; last byte is forced to NUL rather than trusted to arrive.
+fcp_cpname:
+    push di
+    mov cx, 13
+.b:
+    mov al, [es:si]
+    mov [di], al
+    inc si
+    inc di
+    or al, al
+    loopnz .b
+    pop di
+    mov byte [di+12], 0
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1855,6 +2039,14 @@ fcp_csrc:   resw 1              ; ...and first cluster. NOT the size: it was
                                 ; DESTINATION handle, not off the scan
 
 fcp_fname:  resb 13             ; the pending file: name...
+fcp_svbat:  resb 1              ; fcp_copy: the write batch as it found it...
+fcp_svdrv:  resb 1              ; ...where the CALLER was standing...
+fcp_svcwd:  resw 1              ; ...and its folder, put back on every exit
+fcp_dname:  resb 13             ; ...and the name it lands under, which for a
+                                ; Paste is the same one and for OSAPI_FILE_COPY
+                                ; need not be (SPEC.md 22.24). fcp_fnames sets
+                                ; both, so every path that does not care is
+                                ; unchanged
 fcp_fsdrv:  resb 1              ; ...source drive...
 fcp_fddrv:  resb 1              ; ...destination drive... (both `mov [x], al`
                                 ; at every site, so the alignment pad that
@@ -2018,6 +2210,13 @@ fcp_goto:
 fcpf_fcp_goto:          call fcp_goto
                     retf
 
+; ...and OSAPI_FILE_COPY's (SPEC.md 22.24). kernel.asm's `.text` thunk reaches
+; the engine through here, which on kern_big is the body and on kern_small is
+; the loading stub below - one name, both shapes, and the slot never learns
+; which build it is in.
+fcpf_fcp_copy:          call fcp_copy
+                    retf
+
 %ifdef FCP_MOD
 ; =============================================================================
 ; THE RESIDENT HALF (SPEC.md 2.8.1) - kern_small only
@@ -2092,6 +2291,20 @@ fcp_pfin:
 .keep:                          ; so the compare costs nothing they promised
     ret
 
+; OSAPI_FILE_COPY's stub. Its refusal is the body's own FERR_NODISK with CF -
+; "the machinery is not available to you right now" - which is exactly what a
+; system disk that is not in the drive means here too, so the slot's caller
+; needs no way to tell the two apart.
+fcp_copy:
+    call fcp_load
+    jc .no
+    call far [FCPFP + FCPE_COPY*4]
+    jmp short fcp_fin           ; AX and CF are the answer; fcp_fin keeps both
+.no:
+    mov ax, FERR_NODISK
+    stc
+    ret
+
 fcp_pfail:
     mov byte [fcp_err], FERR_NODISK   ; the system disk was not there to read
     mov al, FCPS_ERR                  ; the image from, which is the literal
@@ -2130,6 +2343,7 @@ fcp_pfail:
     FCPXF dskw_mkdir_x
     FCPXF dskw_rmtree
     FCPXF dskw_stat_x
+    FCPXF dskw_sync_x
     FCPXF dskw_take_slot
     FCPXF dskw_write_x
     FCPXF fm_stage_name

@@ -1887,7 +1887,7 @@ KERN_BUDGET equ 107520          ; the whole kernel's FOOTPRINT. Growing past
                                 ; on the removal alone: 84 bytes off .text +
                                 ; .bss (the image rung unmoved) and 190 off
                                 ; .cold, whose rung falls 40 -> 39, so it is
-                                ; worth 84,480 -> 83,968. SPEC.md 22.9's
+                                ; worth 84,480 -> 83,968. SPEC.md 22.24's
                                 ; status-line work landed in the same round
                                 ; and spent a step, so the tree stands at
                                 ; 84,480 with 1,536 spare - one step UNDER
@@ -4031,7 +4031,22 @@ osapi_table:
                                   ;          expensive field is LAST, so a
                                   ;          short buffer does not pay for the
                                   ;          FAT walk
-osapi_table_end:                  ; 0x0578
+    OSAPI_XCELL osapi_file_copy   ; 0x0578 - COPY ONE FILE, source directory to
+                                  ;          destination (SPEC.md 22.24). ES:SI
+                                  ;          = the source 8.3 name and ES:DI
+                                  ;          the destination's, BL/DX the
+                                  ;          source drive and folder cluster,
+                                  ;          BH/CX the destination's - the
+                                  ;          pair OSAPI_FILE_HERE answers.
+                                  ;          X, because both names are package
+                                  ;          data. It is the file manager's
+                                  ;          OWN engine, which streams in
+                                  ;          chunks through a buffer it claims
+                                  ;          and undoes a partial destination
+                                  ;          on failure; a package that rolled
+                                  ;          its own would get the second half
+                                  ;          wrong
+osapi_table_end:                  ; 0x0580
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -4039,8 +4054,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 173 * 8
-%error "os8088 API jump table must be exactly 173 8-byte slots"
+%if OSAPI_TABLE_LEN != 174 * 8
+%error "os8088 API jump table must be exactly 174 8-byte slots"
 %endif
 
 ; =============================================================================
@@ -5435,6 +5450,17 @@ osapi_file_dfree:
 osapi_vol_stat:
     call inst_vol_enter
     call COLD_SEG:dwf_dskw_vstat    ; its CX and CF are ours
+    ret
+
+; ---- osapi_file_copy - the file manager's copy engine, published (22.24) -----
+; The body is `.cold` on kern_big and FILECP.DRV's on kern_small, and the far
+; entry is the same name in both - so this thunk is three instructions and
+; knows about neither. inst_vol_enter first, for osapi_vol_stat's reason: the
+; two folders the caller names are on ITS volume (19.2.1) and not on whichever
+; the machine last touched.
+osapi_file_copy:
+    call inst_vol_enter
+    call COLD_SEG:fcpf_fcp_copy     ; its AX and CF are ours
     ret
 
 ; ---- osapi_file_here / osapi_file_goto - the volume's location (SPEC.md 19.2)

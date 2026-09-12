@@ -38939,6 +38939,57 @@ copies it started as, `fm_clone_go`'s reaching it as a **tail jump** because its
 whole body is a `ret` away. That is 30 bytes of `.cold`, and the account beside
 `KERN_BUDGET` records why they were worth counting.
 
+### 22.24 `OSAPI_FILE_COPY` — the copy engine is a door, not a menu item
+
+`fcp_xfer` moves one file's bytes from a source directory to a destination:
+it streams in chunks through a buffer it claims, hands a remote-to-remote pair
+to the redirector's own `FSV_COPY`, and **deletes a partial destination if
+anything fails**. It had one caller — Paste — and lived behind a header
+sentence saying *"UI-task context only, gfx lock held by the caller"*.
+
+**That sentence describes its callers and not the engine**, and the difference
+matters because it is what made the copy look unshareable. Nothing on the copy
+path draws. The exclusion the disk layer needs is `[sch_lock]`, which
+`dsk_xfer` raises itself; the two bodies `fcp_xfer` streams through —
+`dskw_write_x` and `dskw_append_x` — are the **same two** `OSAPI_FILE_WRITE`
+and `OSAPI_FILE_APPEND` have published to any package since §18.4. So the
+engine was never more lock-bound than the write slot next to it.
+
+So it is published. `ES:SI` is the source 8.3 name and `ES:DI` the
+destination's, both in the caller's segment; `BL`/`DX` are the source drive
+and its folder's first cluster, `BH`/`CX` the destination's. **That is exactly
+the pair `OSAPI_FILE_HERE` answers and `OSAPI_FILE_GOTO` takes** (§19.2.4), so
+*"copy this to where I was standing a moment ago"* needs no vocabulary of its
+own.
+
+**What the public body adds is only what a package cannot be assumed to have
+done**, and each of the three is a defect if it is left out:
+
+- **the buffer**, claimed and given back — `fcp_bufget` wants a DMA-page-aligned
+  run and falls back to an ordinary one (§22.5.1);
+- **where the caller was standing**, put back — `fcp_goto` moves the current
+  directory, and a package that called a copy and then found itself in another
+  folder would be reading the wrong disk with no way to know;
+- **the listing debt**, paid — `[dsk_lstale]` and the write batch, so a Disk
+  window showing either folder is correct afterwards.
+
+**The two names may differ**, which Paste never needed: `fcp_fname` was used
+for both ends, and the destination now has `fcp_dname` beside it. `fcp_fnames`
+sets the two the same, so every existing path is unchanged to the byte — and
+the redirector's one-name `FSV_COPY` fast path is taken only when they still
+match.
+
+**It refuses with `FERR_NODISK` while a Cut or Copy/Paste is running**, or is
+suspended on its overwrite question. The module has one set of state words and
+the user's own operation owns them; `fcp_pfail` already answers that way for
+the same reason, and "the machinery is not available to you right now" is the
+nearest true thing this code has to say.
+
+**On `kern_small` it is the module's fourth entry** (§22.3.0), so the bytes are
+`FILECP.DRV`'s and not resident — which is the shape this door wanted anyway:
+a copy is something a machine does occasionally, and the image is dropped when
+it is done.
+
 ### 22.22 `Compress` — the file manager makes a file smaller
 
 **The one verb on this machine that COMPRESSES**, and since the size pass it
