@@ -4830,10 +4830,22 @@ $(BUILD)/one.txt: Makefile | $(BUILD)
 $(BUILD)/two.txt: Makefile | $(BUILD)
 	printf 'os8088 shell two' > $@
 
+# ...and the pair that makes the volume RUN OUT part way through a copy, which
+# is the only way to reach dsh_stream's undo. 315KB of filler leaves ~34 of the
+# 354 clusters, BIG.DAT takes 20 of those, and the copy of it then gets one
+# 8KB chunk down before the next has nowhere to go - so the destination EXISTS
+# and is SHORT, which is exactly the state the undo has to remove.
+$(BUILD)/shfill.dat: Makefile | $(BUILD)
+	python3 -c "import sys; sys.stdout.buffer.write(b'F' * (315 * 1024))" > $@
+$(BUILD)/shbig.dat: Makefile | $(BUILD)
+	python3 -c "import sys; sys.stdout.buffer.write(b'B' * (20 * 1024))" > $@
+
 $(BUILD)/dossh360.img: $(BUILD)/SHELLREF.COM $(BUILD)/src.txt \
-	    $(BUILD)/one.txt $(BUILD)/two.txt tools/os88disk.py
+	    $(BUILD)/one.txt $(BUILD)/two.txt $(BUILD)/shfill.dat \
+	    $(BUILD)/shbig.dat tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/SHELLREF.COM \
-	    $(BUILD)/src.txt $(BUILD)/one.txt $(BUILD)/two.txt --folder SUB
+	    $(BUILD)/src.txt $(BUILD)/one.txt $(BUILD)/two.txt \
+	    $(BUILD)/shfill.dat $(BUILD)/shbig.dat --folder SUB
 
 # ...and AH=29h's (SPEC.md 96.28). One disk and no fixture: every assertion is
 # against what IBM DOS 3.30 answered, which is a property of DOS and not of

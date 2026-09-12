@@ -19,6 +19,11 @@
 ;   5  frobnicate                    -> non-zero, and NOT a crash
 ;   6  copy NOSUCH.TXT X.TXT         -> non-zero
 ;   7  copy SRC.TXT > OUT.TXT        -> non-zero  (a target that is not NUL)
+;   8  copy SHBIG.DAT SUB           -> non-zero: the volume RUNS OUT part way
+;      through, and the host then asserts SUB holds no SHBIG.DAT at all. A
+;      destination created and then failed is worse than none, because a short
+;      file looks like a whole one - so the undo is the check, and it is the
+;      one thing a hand-rolled copy classically gets wrong (96.30.6)
 ;
 ; A DIGIT AND NOT A PASS/FAIL, so a wrong code is visible rather than merely
 ; wrong: '0'..'9' is the code, '+' is any code above nine, and '-' is a check
@@ -31,7 +36,7 @@
     bits 16
     org 0x100
 
-NCHK        equ 8
+NCHK        equ 9
 
 start:
     mov [parm+4], ds                ; the tail's SEGMENT, which exists only at
@@ -80,6 +85,9 @@ start:
     call one
     mov si, c_redir
     mov di, 7
+    call one
+    mov si, c_full
+    mov di, 8
     call one
 
     ; --- and publish it ---------------------------------------------------
@@ -177,6 +185,7 @@ c_wild:  db 'copy *.BAK SUB', 0
 c_bad:   db 'frobnicate', 0
 c_nosrc: db 'copy NOSUCH.TXT X.TXT', 0
 c_redir: db 'copy SRC.TXT > OUT.TXT', 0
+c_full:  db 'copy SHBIG.DAT SUB', 0
 
 parm:    dw 0                       ; inherit the environment
          dw tail, 0                 ; the command tail, segment patched

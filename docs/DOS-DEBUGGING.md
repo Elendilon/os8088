@@ -218,13 +218,28 @@ a file that is *shorter than it is*, and blames the file.
 
 Nine of Prince of Persia's files sit past cylinder 39, and nothing anywhere
 reported it as a configuration problem. It cost most of a day, twice: once
-chasing the game, once chasing a probe that would not load.
+chasing the game, once chasing a probe that would not load — **and then a
+third time**, on a run that had a hard disk in it.
 
-`os8088_5150_herc_sb_720_gla` is this tree's 720KB machine. If you need another
-geometry, clone a profile in `tools/martypc/configs/os8088_machines.toml` and
-change the floppy overlay (`pcxt_2_720k_floppies` and friends are defined
-upstream, in `build/martypc/run/configs/machines/config_overlays.toml`), then
-re-run `tools/martypc/build.sh` so the run tree picks it up.
+`os8088_5150_herc_sb_720_gla` is this tree's 720KB machine and **has no hard
+disk**, which is the gap the third one fell into: an installer needs `C:`, so
+the only machine that would host it was `os8088_xt_hdd`, whose drives are
+40-cylinder. `os8088_xt_hdd_720` exists now and is the **only profile here
+with both** — it is `os8088_xt_hdd` with one overlay line changed. The
+symptom it removes is worth recognising on sight: the copy ran, reported
+success on eleven files it had **silently truncated**, and then failed
+outright on the first file whose *start* was out of reach — which reads
+exactly like a bug in a copy engine and is a drive.
+
+If you need another geometry, clone a profile in
+`tools/martypc/configs/os8088_machines.toml` and change the floppy overlay
+(`pcxt_2_720k_floppies` and friends are defined upstream, in
+`build/martypc/run/configs/machines/config_overlays.toml`), then re-run
+`tools/martypc/build.sh` so the run tree picks it up — **and that last step is
+not optional**: the run tree is built by `cat`-ing that file into
+`build/martypc/run/configs/machines/ibm5150.toml`, so a machine added to the
+source and not rebuilt is refused with *"No machine configuration for
+specified config name"*, listing every name but yours.
 
 `reach` reports the **last** cylinder a file touches, not the first: a file
 that starts inside the drive and runs off the end truncates in the middle,

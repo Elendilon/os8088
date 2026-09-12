@@ -119842,6 +119842,20 @@ the slot. It is the same finding docs/plans/DISK-CPU-PLAN.md §5 records one
 layer out: *an exclusive fullscreen program cannot reach the RAM the drivers
 gave back for it.*
 
+**The alternative, kept because it is better than this one on the machines it
+applies to**: reserve the buffer out of the heap rather than the arena, and
+take it from the memory `OSAPI_DRV_SUSPEND` has already freed. On a Sound
+Blaster machine that is **~14 KB the fullscreen program cannot reach anyway**
+— §96.17 unloads the driver inside the bracket and the arena was claimed
+before it, so the memory is returned to a heap nobody can spend. A copy buffer
+is exactly the customer DISK-CPU-PLAN §5 says that RAM does not have. What
+stops it being the answer *here* is that it is conditional: a machine with no
+sound driver mounted has no such hole, so the box would still need a fallback,
+and the arena route is the fallback. Worth taking when the ordering in
+DISK-CPU-PLAN §5 is settled — it would make the copy buffer free on the
+machines that have a driver, and leave the arena route for the ones that do
+not.
+
 ##### 96.30.5 It is the interpreter the windowed prompt wants
 
 A prompt in a window (docs/plans/DOS-EXEC-PLAN.md wave 7) differs from this in
