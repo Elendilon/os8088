@@ -241,6 +241,22 @@ not optional**: the run tree is built by `cat`-ing that file into
 source and not rebuilt is refused with *"No machine configuration for
 specified config name"*, listing every name but yours.
 
+**A program in a SUBDIRECTORY needs two things of `ref` that `trace` does not,
+and both were missing until Prince of Persia wanted them.** `trace` hands the
+program to `os88ui.path()`, which wants forward slashes; `COMMAND.COM` reads
+one as a **switch character** and answers *"Bad command or file name"*, so
+`ref` translates to `\` — one invocation, one program name, two machines. And
+a program may demand that its own directory be CURRENT rather than merely
+named: Prince of Persia answers `B:\PRINCE\PRINCE` with *"Unable to find
+necessary files. Please start program from the default drive and directory"*,
+which is not a DOS refusal at all but the game's own. `--cd PRINCE` types the
+`CD` our side gets for free from a double-click. **Without it the comparison is
+two machines doing different things**, and the reference looks broken.
+
+`reach` also walks the **root only** — a documented scope, but worth knowing
+when a disk keeps everything in a folder: `PRINCE/`'s files run out to
+cylinder 59 and `reach` reports only the three entries in the root.
+
 `reach` reports the **last** cylinder a file touches, not the first: a file
 that starts inside the drive and runs off the end truncates in the middle,
 which is harder to spot than one that cannot be opened at all.
