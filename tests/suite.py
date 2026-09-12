@@ -4598,7 +4598,13 @@ SOAK = [
         "modstr - a module's own strings letter correctly (SPEC.md 2.8.6). "
         "The bytes, out of fm_hdrbuf and toast_buf, because a string read "
         "through DS instead of CS lands in kernel code and letters plausible "
-        "rubbish rather than faulting",
+        "rubbish rather than faulting. ...and since the formatter's 97-byte "
+        "boot-sector template moved into its image too, the last check is "
+        "about bytes on a DISK: B: is re-opened after the format, and "
+        "SPEC.md 18.2 rule 2's 0EBh/0E9h test on the first byte is what makes "
+        "the MOUNT the assertion - a template read through DS puts 97 bytes "
+        "of KERNEL_SEG on the disk and the volume does not come back. "
+        "Measured at 47s",
         needs=("marty",), serial=True),
     Row("diskclone", "soak", py("tests/diskclone.py"), 120.0,
         "diskclone - Clone Disk... (SPEC.md 18.99/22.21) driven end to end, "

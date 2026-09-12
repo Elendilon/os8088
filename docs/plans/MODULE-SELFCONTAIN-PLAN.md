@@ -398,14 +398,44 @@ actually reads. One line of `tests/suite.py`; it passes in 51.9 s now. A
 docs/WRITING-TESTS.md's own rule, and the row had been unrunnable on any
 checkout where nobody had typed `make small` by hand.
 
-**W1 — `FORMAT.DRV`'s boot-sector template. ~30 bytes, no UI risk.**
-`dskw_fmt_jmp` (11), `dskw_fmt_lab` (11) and `dskw_fmt_typ` (8) are bytes the
-formatter *writes into a sector*, so SPEC.md 2.8.6's ordering rule is
-satisfied trivially: nothing draws them, and nothing can want them while the
-image is out. Half 1 of the gate covers the reads. **It is first because it
-proves the route with no screen in it.** `dskw_fmt_tab` (56) is NOT in this
-wave — SPEC.md 2.8.6.1 refuses it, and re-arguing that is a separate decision
-with `dskw_fmt_row_x`'s `SI`-into-the-table contract to answer.
+**W1 — `FORMAT.DRV`'s boot-sector template. BUILT: −97 bytes of `.text`**,
+three times the row's own estimate. See 6.2. `dskw_fmt_tab` (56) is NOT in
+this wave — SPEC.md 2.8.6.1 refuses it, and re-arguing that is a separate
+decision with `dskw_fmt_row_x`'s `SI`-into-the-table contract to answer.
+
+### 6.2 What W1 came to
+
+**`.text` 49,504 → 49,407, −97** on `kern_big` (the image grows ~8, which is
+compressed disk and not RAM). The wave was costed at ~30 and the miss is the
+instrument's, not the estimate's: **`dskw_fmt_stub` is 67 of the 97** — the
+not-bootable stub, byte for byte `os88disk.py`'s `BOOT_STUB` — and it never
+appeared in the audit because `DFMT_STUB_LEN equ $ - dskw_fmt_stub` names it
+from `.text`. That is the `%macro`/`equ` blind spot the tool's own header
+warns about, seen in the wild: **an `equ` that MEASURES a block counts as a
+reference to it**, so any data block with a length constant beside it is
+under-reported. Worth re-reading W3–W5's figures with that in mind.
+
+**The copier could not stay `rep movsb`.** The four blocks are now read
+through `CS`, and `cs rep movsb` is refused on this machine — an 8086 drops
+the segment prefix if an interrupt lands mid-`rep`, so the rest of a boot
+sector would come from whatever is at that offset in `KERNEL_SEG`. SPEC.md
+5.9 states the rule and `kernel/vga12.inc:5223` is the other site that obeys
+it. `dskw_fmt_cpy` is a `mov al, [cs:si]` / `stosb` / `loop` byte loop
+instead: ~8 bytes of image, 4 clocks a byte, once per format — against an
+operation that is minutes of floppy.
+
+**The ordering rule is satisfied by construction here**, which is why this was
+the wave to go first: these bytes are never drawn. They are written into a
+sector, and the only thing that wants them is the format itself.
+
+**What verifies it, and it is new.** `tests/modstr.py` was the only row that
+drives `FORMAT.DRV` at all, and it asserted the *verdict toast* — which is
+composed somewhere else entirely and would read `Formatted B:` just as
+happily with all 97 bytes wrong. It re-opens B: after the format now:
+SPEC.md 18.2 rule 2 tests the first byte for `0EBh`/`0E9h`, so **the mount is
+the assertion**. Verified by breaking it on purpose — `[cs:si]` → `[si]` — and
+the volume does not come back at all (`a Disk window showing B: at its root
+did not happen`). 47 s measured against the row's declared 60.
 
 **W2 — the mechanism, proved on `FILECP.DRV`'s scratch state. ~123 bytes of
 `kern_small`.** Section 3 built: the nobits section, the assertion, the
