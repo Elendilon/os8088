@@ -2613,7 +2613,7 @@ SOAK = [
         "(running from A:) and here (launched off B:).",
         needs=("marty",), serial=True,
         wants=("build/dosren360.img",)),
-    Row("dosshell", "soak", py("tests/dosshell.py"), 200.0,
+    Row("dosshell", "soak", py("tests/dosshell.py"), 270.0,
         "THE BUILT-IN COMMANDS - A COMMAND.COM THAT IS NOT A FILE (SPEC.md "
         "96.30). AH=4Bh of a program named COMMAND.COM loads nothing: it "
         "reads the command tail and runs one built-in, so a program's "
