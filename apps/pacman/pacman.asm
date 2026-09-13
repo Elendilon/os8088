@@ -34,6 +34,12 @@ pm_entry:
     call OSAPI_WM_CREATE
     jc .out
     mov [pm_win], bx
+    ; OUR REGION MAY MOVE (SPEC.md 66.6.1). Here, where the window
+    ; exists, and not beside any worker's declaration: a package with
+    ; NO worker is the case that moves most easily, and putting it at
+    ; the spawn left exactly those runs declaring nothing - measured,
+    ; by the row that reads MC_RLOC back out of the kernel's own table.
+    OS88_REGION_MOVABLE
     mov si, pm_menus
     call OSAPI_MENU_SET
     mov si, pm_about
@@ -884,6 +890,15 @@ pm_paint_body:
     call OSAPI_TASK_SPAWN
     jc .draw                        ; next paint retries a full task table
     mov byte [pm_hired], 1
+    ; ...AND THE REGION CANNOT MOVE WITHOUT THIS (SPEC.md 66.6.2): the
+    ; kernel wrote our segment into this worker's frame before its
+    ; first instruction, so mem_frameless pins a region with an
+    ; undeclared worker however that region is declared. What a restart
+    ; costs is one pass of the loop - the park is inside
+    ; OSAPI_TASK_ALIVE and nowhere else (this package is not
+    ; OSAPI_MEM_PARKSAFE), which is the TOP of the loop, and every byte
+    ; that outlives a pass is a static and moves with us.
+    OS88_WORKER_RESTARTABLE pm_worker
 .draw:
     mov byte [pm_full], 1
     mov byte [pm_status_dirty], 1

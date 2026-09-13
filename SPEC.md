@@ -83702,6 +83702,56 @@ caller's region and can be nothing else, so that is the second way to match.
 No new API slot: a region *is* a claim, so `OSAPI_MEM_MOVABLE` is already the
 door.
 
+##### 66.6.1.1 …and every package declares, or says here why not
+
+**The door opened and twenty-eight packages did not walk through it.** Six asm
+packages declared, `apps/cc/crt0.asm` took every C one along for free, and the
+rest of `apps/` stayed pinned for a whole cycle — because an undeclared region
+is **invisible from inside the package**: nothing refuses, nothing warns, the
+program runs perfectly and the heap quietly cannot pack. That is §6.6's
+transparent-text failure one mechanism along, and it gets §6.6's answer.
+
+`tests/unit/t_movable.py` (fast tier) walks every package under `apps/` and
+fails the build for one that does not declare, or that hires a worker and never
+declares it restartable. **Both halves, because half a declaration buys
+nothing**: §66.6.2's frame pins the region however it is declared, so a region
+declaration on a worker-owning package is *inert*, and inert is the most
+expensive shape available — it reads as done. An exemption is a line in
+`tests/movable.txt` carrying a reason, and the list turns **one way**: a line
+for a package that now declares is a failure, so it cannot rot into a register
+of things that used to be true.
+
+**A package with a fix-up of its own declares in the same vocabulary.**
+`OS88_REGION_MOVABLE` takes an optional near proc (`0-1`), so the package that
+has a word to put right is not pushed into hand-rolling the call — which
+`sheet.asm` was, and which made a search for the macro report it as a gap. Both
+it and `OS88_WORKER_RESTARTABLE` preserve the **flags**: the slots answer in
+CF, the site is an entry proc or a spawn that is carrying a CF of its own
+(§20.2), and nothing acts on the answer — a refusal can only mean the region is
+not ours, which cannot happen from inside it.
+
+**Two shapes genuinely cannot take the bare form.** A package that has
+**stamped its own segment** somewhere the kernel does not know about —
+`apps/scribe`, into the vector table of a hand-rolled pre-parts `.ovl` module —
+and a **re-homed** program (§20.12.10), whose loader named its assets by
+absolute segment and whose assets are *inside its own carve*, so they move with
+it. For those a bare `ret` is **silent corruption** rather than a missed
+optimisation, and `tests/rehomemove.py` is the row that proves the non-trivial
+proc is what a re-homed program owes.
+
+**`apps/skies` is the second shape and it DECLARES** — `cs_reloc`, which adds
+`DX−BX` to `[cs_artseg]` and to `cs_hand`'s own `CSH_ART`. Two things about it
+generalise. **The handoff carries less than it looks like**: `CSH_WDIR`'s nine
+rows are *(sector, packed length)* and `CSH_CLB` is bytes per cluster, so only
+one word of that block is a segment at all — and the three segments the package
+*does* bank are two claims of its own, which a region move does not touch, and
+the kernel's glyph table. **And the zero is a state**: `[cs_artseg]` is 0 when
+the part was refused, every reader tests for it, and a delta added to 0 turns a
+refusal into a wild segment — so a proc guards its zeros rather than assuming
+them away. It is accepted on 1.44MB alone, where 512-byte clusters put the
+program at the carve base; below that `mem_find_own` does not reach it and
+there is nothing to move.
+
 #### 66.6.2 …and past the worker: the package gives its worker back
 
 `OSAPI_TASK_RESTARTABLE` (slot `0x0518`, `inst_restart_set`) — `AX` = a near

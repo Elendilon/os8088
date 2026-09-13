@@ -519,15 +519,23 @@ FAST = [
         "because a stale one does not fault: it far-calls a dispatcher in "
         "freed memory on the next volume access",
         wants=("build/regmove360.img",)),
-    Row("regapp", "soak", py("tests/regapp.py"), 150.0,
-        "SPEC.md 66.6.1/66.6.2 per SHIPPED PACKAGE: five that hire a worker "
-        "declare OS88_REGION_MOVABLE and OS88_WORKER_RESTARTABLE, and a "
-        "declaration the owner fence refused is indistinguishable from one "
-        "that took, from inside the package (66.5.6.2). So this reads MC_RLOC "
-        "and inst_restart back out of the kernel's own tables. regwork proves "
-        "the move; this proves the packages - and it found the region "
-        "declaration placed at the SPAWN, where a package that hires no "
-        "worker never reaches it",
+    Row("regapp", "soak", py("tests/regapp.py"), 210.0,
+        "SPEC.md 66.6.1/66.6.2 per SHIPPED PACKAGE: seven declare "
+        "OS88_REGION_MOVABLE, and those that hire a worker declare "
+        "OS88_WORKER_RESTARTABLE too - a declaration the owner fence refused "
+        "is indistinguishable from one that took, from inside the package "
+        "(66.5.6.2). So this reads MC_RLOC and inst_restart back out of the "
+        "kernel's own tables. Since 66.6.1.1 it carries the two SHAPES the "
+        "original five did not: CALC, which hires no worker at all, and "
+        "PACMAN, the canonical restartable pair. All five originals hire one, "
+        "so the row proved the RESTART half five times over and the plain "
+        "declaration not once - and the plain one is what 39 of the tree's 41 "
+        "are. 150s was five apps and this is seven, scaled at the same "
+        "per-app rate: measured at 122s on an idle 4-core container, so the "
+        "declaration keeps the original's headroom rather than this box's. "
+        "regwork proves the move; this proves the packages - and it found the "
+        "region declaration placed at the SPAWN, where a package that hires "
+        "no worker never reaches it",
         wants=("build/regapp360.img",)),
     Row("regwork", "soak", py("tests/regwork.py"), 170.0,
         "SPEC.md 66.6.2: a WORKER-OWNING region moves once the package has "
@@ -862,6 +870,20 @@ FAST = [
         "compilers agree - `soak -k 'lmpack'`, which is what a change to "
         "either one runs",
         needs=()),
+    Row("movable", "fast", py("tests/unit/t_movable.py"), 0.6,
+        "SPEC.md 66.6.1's ratchet: a package's region is born PINNED, so a "
+        "package that never declares OS88_REGION_MOVABLE is a WALL in the "
+        "arena for the life of the instance - and it is invisible from "
+        "inside, because nothing refuses and the program runs perfectly. The "
+        "door opened with six asm packages through it and twenty-eight that "
+        "were never followed up, for a cycle. Every package under apps/ now "
+        "declares or carries a line in tests/movable.txt saying why not, and "
+        "the list only turns one way. Checks the WORKER half too (66.6.2): a "
+        "region declaration on a package that hires a worker is INERT, which "
+        "is the most expensive shape there is because it reads as done. FAST "
+        "and not soak on t_textrules.py's argument - it is a rule about how "
+        "every package is written, so the place it belongs is in front of "
+        "the next `make` rather than the next soak run"),
     Row("textrules", "fast", py("tests/unit/t_textrules.py"), 0.7,
         "SPEC.md 6.6's ratchet: transparent text (font_char/font_str) draws every "
         "pixel twice and flashes on the target machine, so every call site is "

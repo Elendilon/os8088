@@ -845,6 +845,19 @@ learned.
   can have more than one such word, and segments derived from a base are
   reached by no poke at all. Opting in and forgetting the proc is silent until
   the next compaction, which by construction happens on a busy heap.
+- **A PACKAGE'S OWN REGION is that rule's biggest instance, and it is a
+  RATCHET now** (§66.6.1.1). Every package under `apps/` declares
+  `OS88_REGION_MOVABLE` where its window exists — and, if it hires a worker,
+  `OS88_WORKER_RESTARTABLE` at the spawn, because §66.6.2's frame pins the
+  region however it is declared and a region declaration alone is **inert**.
+  `tests/unit/t_movable.py` (fast tier) fails the build otherwise; the way out
+  is a line in `tests/movable.txt` with a reason, and the list only turns one
+  way. **Before declaring, ask what segment words the package holds that point
+  INSIDE itself** — almost always none, which is why the proc is a `ret`; the
+  two shapes where it is not are a segment the package **stamped** somewhere
+  (scribe, into a pre-parts `.ovl`) and a **re-homed** program whose assets
+  live in its own carve (skies), and for those the bare form is silent
+  corruption rather than a missed optimisation.
 - **The package boundary is solved once, not per call site** (§20): calling out
   is a far call through an API cell that switches DS; calling in goes through
   the three-byte dispatcher in the package header, so every callback is a near
