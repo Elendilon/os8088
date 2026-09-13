@@ -82449,6 +82449,114 @@ address rather than a flag: a block landing across a page is answered by the
 8237 wrapping to the start of its page and moving **the wrong memory,
 silently**.
 
+### 66.4.3 A region that compacts ITSELF, and the plan that can say so
+
+§66.6.1 built everything a region needs to move and left out the one moment a
+package ever wants it. `mem_frameless` asks `mem_in_nest`, and **a package
+reaches `mem_claim` only from inside its own callback** — so `wm_pkgs` names
+its segment and the compactor pins the asker's own region *by the act of
+asking*. A driver unmounted from under it leaves a hole at the ceiling that
+nothing can ever merge.
+
+**The fix is not a new predicate. It is a later moment.**
+
+`OSAPI_MEM_COMPACT_WAKE` (slot `0x0558`) records the wish and returns:
+
+> `BX` = a window of yours, `AL` = the shed rank the pass must respect. CF = 0
+> posted — **return from your callback**; an `EVT_WAKE` arrives once the pass
+> has run. CF = 1 refused: `BX` is not your window, or a post of yours is
+> already standing.
+
+This is `OSAPI_PKG_REHOME`'s shape (§20.12.10) one mechanism along — *you are
+still executing in the region this is going to move, so nothing may happen
+until you have returned* — and it is spent where the posted restart is spent,
+at `ui_task`'s step 0, **with nothing held**. `[wm_pkgd]` is 0 there by
+construction, every `wm_pkgcall` on that task having returned, so
+`mem_frameless` answers *movable* for the asker's own region **with no
+predicate changed**. The feature is *where* the compaction runs.
+
+It is not `wm_pkgcall`'s return path, and that is not tidiness: `mem_compact`'s
+park request drops `[sch_lock]` for up to `INST_PARKW` ticks (§66.5), which
+from inside a repaint holding the gfx lock is a deadlock against
+`OSAPI_MEM_PARKSAFE` rather than a slow path.
+
+**The rank rides on the request.** `mem_compact` takes the rank a cache must be
+cheaper than from the *pending claim's* owner, and there is no pending claim
+here — the pass runs after the asking package's turn is over — so without it
+the pack would stop at the first purgeable barrier.
+
+**One post may stand per package.** A second before the first is serviced is
+refused rather than queued: the answer to *"I asked and nothing has happened"*
+is to wait for the wake, and a queue would let a package spend the machine on
+compactions it has already been promised.
+
+#### 66.4.3.1 …and `mem_avail` had to learn to plan BOTH passes
+
+§66.4.1 made `mem_claim` compact both ways. `mem_avail` still planned one, so
+the number the SDK teaches a package to ask for was **smaller than what the
+allocator would hand out** — measured at up to 48KB short over thirteen
+layouts (`tools/heapwhatif.py`). Not a broken promise, because it errs low; but
+it made the both-passes fix **inert for the ask-then-claim pattern**, which is
+the only pattern a package with an exact requirement can use.
+
+That matters more than a lost byte, because **a failed claim is destructive**:
+`mem_claim`'s refusal path is compact → *shed* → retry, and the shed dissolves
+purgeable caches at the claimant's rank — the read-ahead among them, priced at
+seconds of `int 13h` (§66.4). A package that wants a specific amount and is
+told too small a number refuses a file it could have opened; one that guesses
+and claims anyway pays for its refusal with the caches. So `mem_avail` must
+answer the question `mem_claim` answers, and `mem_cp_both` is that plan.
+
+**It is the two sweeps IN THE ORDER THE PASSES RUN, and the obvious spelling is
+wrong in the dangerous direction.** Two *independent* sweeps — a floor fill
+rising over the bottom-up claims, a ceiling fill falling over the top-down ones
+— is the natural reading of "plan both", and it **over-reports** whenever a
+bottom-up claim sits above a top-down one, because the two stacks **wall each
+other in**: the lo claim is a barrier to the descending pass, so the hi claim
+beneath it never reaches the ceiling, and once that pass has left it there it
+is a barrier to the ascending pass in turn. An over-report is the worst answer
+available here — memory promised that `mem_claim` cannot produce.
+
+So the walk is **ascending**, as the second pass is, and a top-down claim is a
+barrier at the base the *first* pass would have left it at. That base is
+`mem_cp_newbase` and it takes **no scratch**:
+
+> `newbase = B − S`, where `B` is the base of the lowest claim above this one
+> that the descending pass may not move (`[mem_top]` if there is none), and `S`
+> the paragraphs of every ceiling mover from this one up to `B`.
+
+Two `O(MEM_MAX)` scans, so the plan stays `O(MEM_MAX²)` like every other walk
+here. It is exact because the descending pass preserves **order** — a claim
+only ever slides up onto paragraphs the walk has already passed, so no mover
+crosses another claim and everything between one and its barrier packs solid.
+A `MEM_MAX`-word table of new bases was the alternative and is 64 bytes of
+`.bss` resident for a question nothing asks per frame.
+
+**PLAN ONLY.** There is no `mem_cp_both_run` and there must not be: one walk
+may plan both directions and may **not** run them, because packing a top-down
+claim up inside an ascending walk writes onto claims the walk has not visited
+yet. §66.4.1's two separate `mem_cp_run` calls are what runs them.
+
+#### 66.4.3.2 `OSAPI_MEM_AVAIL_MAX` is a measurement, not a promise
+
+Slot `0x0550`: `OSAPI_MEM_AVAIL`'s answer, planned as if the caller's own
+region could move. `[mem_cp_self]` names the segment and `mem_frameless`
+excuses **the nest test alone** — `[ld_base]` and the worker are as true at the
+service point as they are now, and only the nest is the thing that stops being
+true once the callback has returned.
+
+**Claiming this number refuses**, and that is correct rather than a wart: the
+caller really is standing in its region as it asks. The number becomes true by
+posting §66.4.3's request and reading plain `OSAPI_MEM_AVAIL` on the wake,
+where the heap is packed both ways and the plan and the heap agree. A package
+decides **on the wake** and not before it: the what-if measured a state the
+machine has since left, and re-posting because the first answer disappointed is
+how a program spins.
+
+`[mem_cp_self]` is plan-only by discipline — `mem_avail` sets it and clears it
+before returning, and no path that can reach `mem_cp_run` ever sets it. A
+compaction running with it standing would move a region with a frame in it.
+
 ### 66.5 The worker park
 
 Without it, a claim owned by a package with a live worker is pinned — which is

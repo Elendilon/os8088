@@ -555,47 +555,82 @@ decision, and doesn't recall the max compact a second round."*
 
 ---
 
-## 7. How it is verified
+## 7. What is built, what it measured, and what is NOT covered
 
-### 7.1 What the defect fix already ran
+### 7.1 Built
 
-`python3 tools/os88soak.py start -k 'heap*' -k 'reg*' -k drvmove -k sndmove -k
-hdmove -k 'rehome*' -k dsegaudit -k pgrank -k small128` — every row that boots a
-machine and compacts, **19/19 ok in 7:35**, plus `fast` 37/37. `t_asmrules`
-caught the arm it made unreachable, which is the dead-code gate doing its job.
+`mem_cp_both` + `mem_cp_newbase` + `mem_cp_ceilmv` (the combined plan),
+`[mem_cp_self]` and `mem_frameless`'s excuse, `OSAPI_MEM_AVAIL_MAX` (0x0550),
+`OSAPI_MEM_COMPACT_WAKE` (0x0558), `[mem_cpq]`/`[mem_cpq_lvl]` and
+`mem_cpq_run_x` at `ui_task` step 0.
 
-What that run does NOT do is prove the fix *fires*: no shipped row builds a heap
-that needs both passes, which is why the defect survived. §7.2 row 1 is that
-row, and it is the one to write before this is called done.
+**MEASURED on `kern_big`, against the +35 defect fix:** `.text` +44,
+`.bss` +5, `.cold` +318 — **+367 bytes**, and `KERN_SIZE` 110,592 → 111,104,
+so **one cold rung crossed** (spare 37 → 36 steps). `kern_small` takes the two
+cells and the queue words and none of the plan.
 
-### 7.2 What the feature needs
+**That is over the ~90–120 this document estimated for the plan**, and the
+estimate is where it went wrong rather than the encoding: `mem_cp_newbase`'s
+two scans each carry a full register-save discipline, and the estimate priced
+the arithmetic without it. The obvious trim is merging the two scans into one
+pass that collects `B` and `S` together; it is not taken, and the byte is
+quoted rather than the rung (CLAUDE.md's banner).
 
-`tests/heapfrag` is the instrument and it already builds this scenario for a
-data claim (check 13). Three rows:
+**Three of the new bytes were a defect `make` cannot see.** `[mem_cpq]` and
+`[mem_cpq_lvl]` were declared inside `%ifdef OS88_COMPACT` while the cells that
+name them are published on **both** kernels (SPEC.md 24.5). `kern_big` built
+perfectly; `kern_small` failed with six undefined symbols, and only the rows
+that build the small tree saw it — `regrowshed`, `small128` and two others went
+red together, which is what a scoped soak is for.
 
-1. **A claim needing BOTH passes is satisfied.** Build the two-run heap, ask for
-   more than either single pass can fund, and check it lands. Today it fails
-   with nothing copied, which is the negative control — and it is the row §7.1
-   is missing.
-2. **The caller's own region moves.** The package declares
-   `OS88_REGION_MOVABLE`, records its base, claims through the top-down door to
-   put a block ABOVE its region and frees it (§2.1's geometry, built on
-   purpose), posts, returns. On the wake: its base has gone **up**, and
-   `OSAPI_MEM_AVAIL` has grown by the hole. Both halves are the assertion — a
-   base that moved and a run that grew — because either alone can be true for
-   the wrong reason.
-3. **The wake's number is claimable.** `mem_avail` on the wake, then a claim of
-   exactly that, must succeed. This is what §3.3 rests on in place of a combined
-   plan: after the pass the heap is packed both ways, so the ascending-only plan
-   is exact. A row that does not assert it would let a half-packed heap through
-   as an over-report.
+### 7.2 What the gate asserts
 
-**And the two negative controls §3.1 exists for**, without which a half-built
-version passes: with the region un-pinned but only one pass taken, and with both
-passes taken but the region pinned, `mem_avail` must come back **unchanged at
-494.5K**. Those are the two middle rows of §3.1's table.
+`tests/heapfrag` grew four rows and they are **programmatic**: the package runs
+them itself on its first paint and writes a verdict byte each, and
+`tests/heapcheck.py` reads them out of its bss. No extra clicking, and the row
+is 37s.
 
-`tests/heaphi.py`'s pattern — MartyPC plus `tools/heapmap.py` against `mem_tab`
-— reads the claim map off the running machine for the same assertions from the
-host side, and `heapmap.Map.compacted()` already models both directions, so it
-can say what the run SHOULD have become.
+| | |
+|---|---|
+| 15 `mem_avail` is claimable | ask, claim exactly that, free it. The guard on the whole combined plan, in the one direction that matters |
+| 16 `avail_max >= avail` | the what-if excuses our own region, so it can only find more |
+| 17 the post round-tripped | `OSAPI_MEM_COMPACT_WAKE` accepted, serviced, and the wake arrived |
+| 18 the wake's `avail` is not short | of what the what-if predicted before the post |
+
+…plus a host-side reading that is worth more than any of them: **`heapcheck`
+now models the same claim map itself** and compares. `mem_cp_both` is new
+arithmetic whose dangerous error is an over-report, so a second, independent
+reader is the right instrument. It agrees to the KB on the live machine.
+
+**Two amputations, because a row nobody has broken is a row nobody has
+tested** (`docs/WRITING-TESTS.md` 1): `mem_cp_both`'s barrier arm patched not to
+resume past a barrier, and its result replaced by the whole arena — the
+over-report direction exactly. Both take the row red.
+
+### 7.3 What is NOT covered, and one row that needs a decision
+
+1. **`mem_cp_newbase`'s own branch is not exercised.** A third amputation —
+   `newbase` patched to answer `[mem_top]` — left every row green, and that is
+   the finding: heapfrag owns a worker, so `mem_busy_seg` pins every claim it
+   holds against `mem_avail`, which does not park. Giving the checks a live
+   ceiling mover was not enough for the same reason. It wants a movable
+   top-down claim owned by something with no running worker.
+2. **The region physically moving up into a hole above it** — the reported
+   scenario's own headline — is not asserted. heapfrag's region is the topmost
+   claim on the heap, so there is never a hole above it. It needs a package
+   loaded ABOVE heapfrag and then closed; `build/heapfrag360.img` already
+   carries `PAINT.O88`, so the setup exists and the sequencing (the suite runs
+   on the first paint, before anything could close) is what does not.
+3. **`tests/sndmove` changed behaviour and is left red.** Every substantive
+   assertion in it still passes — the ring moved, the image moved, the 8237's
+   words followed, the IVT names the new image, the machine draws — but its
+   *staging* assumed the ceiling does not pack until the row asks, and
+   SPEC.md 66.4.1's last-resort pair now packs it during `FILLER`'s launch, so
+   the row's "before" baseline is taken after the move it wants to observe.
+   A one-line re-read of the base fixes 5b and then 4b fails instead, because
+   the image has already reached its packed position and does not move again.
+   **The row needs a new hole opened after its baseline, which is a redesign
+   and not a patch** — and it is deliberately not done here, because quietly
+   weakening a gate to make a change go green is the worse of the two
+   outcomes.
+

@@ -50,7 +50,10 @@ LABELS = ["worker hired", "room", "comb built", "pattern round-trip",
           "declare movable", "break the comb", "heap IS fragmented",
           "the big claim", "contents intact", "pinned block held",
           "something moved", "told once per move",
-          "ceiling packed up", "dma lands page-safe"]
+          "ceiling packed up", "dma lands page-safe",
+          # SPEC.md 66.4.3 - the combined plan, the what-if and the post
+          "mem_avail is claimable", "avail_max >= avail",
+          "the post round-tripped", "the wake's avail is not short"]
 # With the compactor removed these THREE must go the other way. Check 11 is NOT
 # here: 0 moves and 0 notifications agree, so it passes honestly in both.
 # Check 12 is the descending pass (SPEC.md 66.4): its ask can only be funded by
@@ -73,6 +76,38 @@ def claims(m, S):
         if u16(r, 0):
             out.append(tuple(u16(r, k) for k in (0, 2, 4, 6, 8)))
     return sorted(out)
+
+
+def both_passes(cl, base, top):
+    """The largest run BOTH compaction passes would leave - the ASCENDING
+    sweep over each claim at the base the DESCENDING pass would have left it
+    at (SPEC.md 66.4.3.1). Written here from the spec rather than imported
+    from the kernel's arithmetic, which is the point of it.
+
+    `cl` is (base, para, owner, dma, rloc); rloc != 0 is movable and dma's top
+    bit is the top-down door. Purgeable claims are not modelled as dropped,
+    so this is a LOWER bound on what the guest may report - the assertion is
+    one-sided by construction, and one-sided the safe way."""
+    MC_DMA_HI = 0x8000
+    live = sorted(cl)
+    def ceilmover(c):
+        return c[4] != 0 and (c[3] & MC_DMA_HI)
+    def newbase(c):
+        B = top
+        for d in live:
+            if d[0] > c[0] and not ceilmover(d) and d[0] < B:
+                B = d[0]
+        return B - sum(d[1] for d in live if ceilmover(d) and c[0] <= d[0] < B)
+    best, fill = 0, base
+    for c in live:
+        if c[4] != 0 and not (c[3] & MC_DMA_HI):
+            fill += c[1]                        # a bottom-up mover packs down
+            continue
+        at = newbase(c) if ceilmover(c) else c[0]
+        if at > fill:
+            best = max(best, at - fill)
+        fill = at + c[1]
+    return max(best, top - fill if top > fill else 0)
 
 
 def largest_run(cl, base, top):
@@ -151,9 +186,9 @@ def main():
 
         # its bss, at the offsets heapfrag.asm's own table declares
         img = u16(m.read(seg * 16 + 8, 2))       # +8 = image size (the header)
-        b = m.read(seg * 16 + img, 128)
+        b = m.read(seg * 16 + img, 176)
         n = u16(b, 0)
-        res = b[40:40 + n]
+        res = b[128:128 + n]
         nmoved, nrel, nbad = u16(b, 20), u16(b, 16), u16(b, 18)
         got = u16(b, 12)
         print("pin=block %d" % u16(b, 30))
@@ -166,7 +201,24 @@ def main():
               % (u16(b, 6), u16(b, 4), u16(b, 8), u16(b, 10),
                  nmoved, nrel, nbad))
 
+        # --- SPEC.md 66.4.3: the guest's mem_avail against an INDEPENDENT
+        # model of the same claim map. mem_cp_both is new arithmetic and its
+        # dangerous error is an OVER-report - memory promised that mem_claim
+        # cannot produce - so a second reader is worth more here than another
+        # assertion inside the package. tools/heapwhatif.py is where the model
+        # is checked against both passes actually run.
+        av, avmax, avwake = u16(b, 40), u16(b, 42), u16(b, 44)
+        print("mem_avail %dK, avail_max %dK, on the wake %dK (posted=%d woke=%d)"
+              % (av, avmax, avwake, b[46], b[47]))
         after = claims(m, S)
+        model = both_passes(after, base, top) // 64
+        print("the host's model of the same map after both passes: %dK" % model)
+        if avwake > model:
+            print("  FAIL: the guest reported %dK where the model says %dK - "
+                  "an OVER-report is memory mem_claim cannot produce" % (avwake, model))
+            over = 1
+        else:
+            over = 0
         print("after: %d claims, largest run %d KB  (got %d of %d blocks)"
               % (len(after), largest_run(after, base, top) // 64,
                  u16(b, 12), 8))
@@ -181,7 +233,7 @@ def main():
         if top > fill:
             print("      %5d KB HOLE (to the top)" % ((top - fill) // 64))
 
-        bad = 0
+        bad = over
         for i, r in enumerate(res):
             want_fail = i in expect_fail
             ok = (r != 0) if want_fail else (r == 0)

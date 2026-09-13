@@ -168,14 +168,27 @@ def exact2(m, me):
     live = [c for c in m.claims if not c.purgeable]
     def movable(c):
         return (not c.pinned) or c.seg == me
-    at, pos = m.top, {}
-    for c in sorted(live, key=lambda c: -c.seg):        # the descending pass
-        if movable(c) and c.hi:
-            at -= c.para
-            pos[id(c)] = at
-        else:
-            pos[id(c)] = c.seg
-            at = c.seg
+    def ceilmover(c):
+        return movable(c) and c.hi        # what the DESCENDING pass may move
+
+    # NO SCRATCH: a ceiling mover's post-descending base is
+    #     B - S
+    # where B is the base of the lowest claim above it that the descending
+    # pass may NOT move (mem_top if there is none) and S the paragraphs of
+    # every ceiling mover from it up to B.  Two O(n) scans, so the whole plan
+    # stays O(MEM_MAX^2) like every other walk here and needs no table.
+    def newbase(c):
+        B = m.top
+        for d in live:
+            if d.seg > c.seg and not ceilmover(d) and d.seg < B:
+                B = d.seg
+        S = sum(d.para for d in live
+                if ceilmover(d) and c.seg <= d.seg < B)
+        return B - S
+
+    pos = {}
+    for c in live:
+        pos[id(c)] = newbase(c) if ceilmover(c) else c.seg
     runs, lo = [], m.base
     for c in sorted(live, key=lambda c: pos[id(c)]):    # ...then the ascending
         b = pos[id(c)]
