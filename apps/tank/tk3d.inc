@@ -498,8 +498,8 @@ tk_ridge:
     mov al, TKI_RIDGE
     call tk_setink
 
-    mov al, [tk_pa]
-    sub al, 24
+    mov al, [tk_rpa_draw]           ; the heading the CALLER means (85.3.8.1),
+    sub al, 24                      ; which is not always the live one
     mov [tk_ra], al
     xor bx, bx
     mov cx, 25

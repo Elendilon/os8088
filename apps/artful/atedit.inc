@@ -48,6 +48,10 @@ at_ed_key:
     push di
     call at_shiftctl
     mov byte [at_cphase], 0         ; a key relights the caret
+    mov byte [at_nrev], 0           ; ...and resumes SPEC.md 46.2.2's reveal,
+                                    ; including the ^V that leads to the next
+                                    ; paste: it clears this on the way in and
+                                    ; at_paste sets it again on the way out
     cmp al, 27
     jne .notesc                     ; Esc leaves fullscreen (SPEC.md 11.2's
     call at_fs_exit                 ; convention; the document survives)
@@ -1044,6 +1048,7 @@ at_click_text:
     push si
     mov byte [at_typrun], 0
     mov byte [at_cphase], 0
+    mov byte [at_nrev], 0           ; SPEC.md 46.6.2
     call at_shiftctl
     mov ax, [at_sela]               ; the PRE-click selection, banked before
     mov [at_osela], ax              ; the press collapses it - at_nav_paint is
@@ -1342,58 +1347,48 @@ at_sb_thumb:
     ret
 
 ; =============================================================================
-; The clipboard (SPEC.md 46.6): one buffer per instance, markdown text -
-; a Writer-mode copy is already canonical markdown, which is exactly what
-; EncodeSelectionAsMarkdown existed to reconstruct.
+; The clipboard (SPEC.md 46.6.1): the SYSTEM one (SPEC.md 55), not a buffer of
+; our own - a Writer-mode copy is already canonical markdown, which is exactly
+; what EncodeSelectionAsMarkdown existed to reconstruct, and what the machine's
+; one text buffer wants. Copy here, close this window, paste in Note Pad.
 ; =============================================================================
 
-; at_clipwhere - ES = clip segment, DI = offset, CX = capacity
-at_clipwhere:
-    mov ax, [at_aseg]
-    or ax, ax
-    jz .bss
-    mov es, ax
-    mov di, [at_coff]
-    mov cx, [at_csz]
-    ret
-.bss:
-    push ds
-    pop es
-    mov di, at_clipbss
-    mov cx, AT_CLIPBSS
-    ret
-
+; -----------------------------------------------------------------------------
+; at_copy - the selection -> the system clipboard
+; out: nothing (a refusal has alerted); preserves all registers
+;
+; SPEC.md 55's slots take ONE contiguous run and a selection straddles the gap
+; whenever the gap is inside it, so the gap is parked at the selection's HIGH
+; end first: logical [lo, hi) is then physically [lo, hi) in the claim and
+; ES:SI is [at_dseg]:lo with no staging buffer at all. A copy is a command and
+; not a keystroke (SPEC.md 46.1), so it can afford the one rep movsb.
+; -----------------------------------------------------------------------------
 at_copy:
     push ax
     push bx
     push cx
     push dx
-    push di
+    push si
     push es
-    call at_selget
+    call at_selget                  ; AX = lo, DX = hi
     cmp ax, dx
     je .out
-    mov [at_xrlo], ax               ; scratch: survive the clipwhere call
-    mov [at_xrhi], dx
-    call at_clipwhere
-    mov ax, [at_xrlo]
-    mov dx, [at_xrhi]
-    mov bx, dx
-    sub bx, ax
-    cmp bx, cx
-    ja .big
-    mov [at_cliplen], bx
-    call at_copyout                 ; [AX, DX) -> ES:DI
-    jmp short .out
-.big:
-    push si
-    mov al, AT_MD_ERR
-    mov si, at_s_toobig
-    call at_alert
-    pop si
+    push ax
+    mov ax, dx
+    call at_gapto                   ; park the gap past the selection
+    pop ax
+    mov cx, dx
+    sub cx, ax                      ; CX = the length
+    mov si, ax
+    mov es, [at_dseg]               ; the document is a claim of its own, which
+    call OSAPI_CLIP_PUT             ; is exactly why the slot takes a far ptr
+    jnc .out
+    mov al, AT_MD_ERR               ; refused WHOLE and never truncated (55.2):
+    mov si, at_s_toobig             ; over CLIP_MAXKB, or the heap could not
+    call at_alert                   ; fund it - and the clipboard is empty now
 .out:
     pop es
-    pop di
+    pop si
     pop dx
     pop cx
     pop bx
@@ -1417,6 +1412,17 @@ at_cut:
     pop ax
     ret
 
+; -----------------------------------------------------------------------------
+; at_paste - the system clipboard -> the document, replacing the selection
+; out: nothing (a refusal has alerted); preserves all registers
+;
+; np_paste's shape one package along (SPEC.md 46.6.1): clip_size FIRST, grow
+; if the answer does not fit, then open the gap AT the paste position and let
+; clip_get write straight into it - a 4KB paste costs 4KB of document and not
+; 8KB of anything. What arrives is FILTERED IN PLACE afterwards, because the
+; bytes were put there by another program and this document has a byte rule
+; (SPEC.md 46.2) that program does not share.
+; -----------------------------------------------------------------------------
 at_paste:
     push ax
     push bx
@@ -1425,8 +1431,9 @@ at_paste:
     push si
     push di
     push es
-    mov cx, [at_cliplen]
-    jcxz .out
+    call OSAPI_CLIP_SIZE            ; AX = the whole length; CF = 1 = empty
+    jc .out
+    mov cx, ax                      ; CX = n, held to the clip_get below
     call at_selget
     mov bx, dx
     sub bx, ax                      ; BX = bytes the selection frees
@@ -1442,7 +1449,7 @@ at_paste:
     jbe .fits
     call at_dgrow                   ; a paste bigger than the buffer grows it
     jnc .fit                        ; a quantum at a time (SPEC.md 46.9), and
-    jmp short .nofit                ; only then gives up
+    jmp .nofit                      ; only then gives up
 .fits:
     call at_undo_push               ; only a paste that WILL land pays:
     mov byte [at_typrun], 0         ; before the fit check, a refused one
@@ -1454,27 +1461,66 @@ at_paste:
     pop cx
 .ins:
     mov ax, [at_pastepos]
-    call at_gapto
-    call at_clipwhere               ; ES:DI = the source; CX reloaded:
-    mov cx, [at_cliplen]
-    ; copy ES:DI -> the gap; DS must briefly become the clip segment, so
-    ; every cursor is latched in registers first
+    call at_gapto                   ; the gap starts AT the paste position now,
+    mov es, [at_dseg]               ; and [at_dseg] is re-read AFTER at_dgrow,
+    mov di, [at_gs]                 ; which may have moved the claim
+    call OSAPI_CLIP_GET             ; ES:DI = the gap itself; out CX = the bytes
+                                    ; actually copied, and DI is preserved. A
+                                    ; clipboard emptied by another task between
+                                    ; the two calls answers CF=1 with CX = 0,
+                                    ; which the fold below spends nothing on
+    ; fold in place, at_load_named's rule and for at_load_named's reason
+    ; (SPEC.md 46.6.1): CR LF and lone CR to one LF, tab to a space, and
+    ; anything else outside 32..126 dropped. SI reads, DI writes behind it,
+    ; both inside the gap; the KEPT count is what the caret advances by
     mov si, di
-    mov di, [at_gs]
-    mov ax, es                      ; AX = source segment
-    push ds
-    mov es, [at_dseg]               ; ES = the document (destination)
-    mov ds, ax                      ; DS = the clip
+    xor dx, dx                      ; DL = the previous RAW byte
     cld
-    push cx
-    rep movsb
-    pop cx
-    pop ds                          ; ours again
-    add [at_gs], cx
+.fold:
+    jcxz .folded
+    es lodsb                        ; the gap is ES, not DS (SPEC.md 46.9)
+    dec cx
+    cmp al, 10
+    jne .notlf
+    cmp dl, 13
+    je .skip                        ; CR LF: the CR already wrote the LF
+    jmp short .store
+.notlf:
+    cmp al, 13
+    jne .noteol
+    mov dl, al                      ; remember the CR...
+    mov al, 10                      ; ...and store it as LF
+    mov [es:di], al
+    inc di
+    jmp short .fold
+.noteol:
+    cmp al, 9
+    jne .nottab
+    mov al, ' '
+    jmp short .store
+.nottab:
+    cmp al, 32
+    jb .skip
+    cmp al, 126
+    ja .skip
+.store:
+    mov [es:di], al
+    inc di
+.skip:
+    mov dl, al
+    jmp short .fold
+.folded:
+    mov cx, di
+    sub cx, [at_gs]                 ; CX = the bytes KEPT; the dropped ones
+    add [at_gs], cx                 ; never existed
     add [at_caret], cx
     mov ax, [at_caret]
     mov [at_sela], ax
     mov [at_selb], ax
+    mov byte [at_nrev], 1           ; SPEC.md 46.6.2: a paste is not typing, so
+                                    ; the run it ends on stays hidden. A LATCH
+                                    ; and not a one-shot - the next W_PAINT has
+                                    ; to draw the same picture as this one
     mov dx, cx
     sub dx, bx                      ; delta = inserted - deleted
     mov ax, [at_pastepos]
@@ -1521,19 +1567,16 @@ at_undo_init:
     push cx
     cmp word [at_aseg], 0
     jne .out
-    mov ax, 64                      ; 64KB: 24K undo + 24K redo + 16K clip
-    mov bx, 24576
-    mov cx, 16384
-    call at_ualloc
-    jnc .out
-    mov ax, 32
+    mov ax, 48                      ; 48KB: 24K undo + 24K redo. It was 64 with
+    mov bx, 24576                   ; a 16K clip slice on the end of it; the
+    call at_ualloc                  ; clipboard is the machine's now (46.6.1),
+    jnc .out                        ; so the claim shrinks by exactly that and
+    mov ax, 24                      ; the undo depth does not move
     mov bx, 12288
-    mov cx, 8192
     call at_ualloc
     jnc .out
-    mov ax, 16
+    mov ax, 12
     mov bx, 6144
-    mov cx, 4096
     call at_ualloc
 .out:
     pop cx
@@ -1541,21 +1584,17 @@ at_undo_init:
     pop ax
     ret
 
-; at_ualloc - AX = KB wanted; BX = per-stack bytes; CX = clip bytes
+; at_ualloc - AX = KB wanted; BX = per-stack bytes (undo at 0, redo at BX)
 at_ualloc:
     push dx
     call OSAPI_MEM_CLAIM            ; AX KB -> DX segment (SPEC.md 50.3)
     jc .no
     mov [at_aseg], dx
     push ax                         ; the arena moves too (SPEC.md 66.5.7):
-    mov ax, at_reloc                ; [at_coff]/[at_usz]/[at_csz] are OFFSETS
-    call OSAPI_MEM_MOVABLE          ; and spans within it, so at_reloc has one
-    pop ax                          ; more word to fix and nothing else
+    mov ax, at_reloc                ; [at_usz] is an OFFSET and so is every
+    call OSAPI_MEM_MOVABLE          ; span within it, so at_reloc has one more
+    pop ax                          ; word to fix and nothing else
     mov [at_usz], bx
-    mov dx, bx
-    add dx, bx
-    mov [at_coff], dx
-    mov [at_csz], cx
     clc
 .no:
     pop dx

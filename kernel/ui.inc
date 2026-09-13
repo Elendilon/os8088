@@ -2207,8 +2207,9 @@ ui_dispatch:
 .kernel:
     mov bl, ah                  ; cmd = the cell's base + the item index
     xor bh, bh
-    cmp bx, 3                   ; ui_loc_base has three entries; a set with
-    jae .ret                    ; more cells must have had a handler
+    cmp bx, UI_LOC_N            ; ui_loc_base's own length (two cells on
+    jae .ret                    ; kern_small, SPEC.md 14.6); a set with more
+                                ; cells must have had a handler
     shl bx, 1
     xor ah, ah
     add ax, [ui_loc_base + bx]
@@ -2296,7 +2297,13 @@ ui_dispatch:
 ; the base CMD_* of each kernel-dispatched bar cell (SPEC.md 12.3): the
 ; System menu, then Locator's File and Builtins (SPEC.md 12.3.1)
 ui_loc_base:
+%ifdef KERN_BIG
     dw CMD_ABOUT, CMD_CLOSE, CMD_TIMER
+UI_LOC_N equ 3
+%else
+    dw CMD_ABOUT, CMD_CLOSE     ; SPEC.md 14.6: no Builtins cell on this build
+UI_LOC_N equ 2
+%endif
 
 ; -----------------------------------------------------------------------------
 ; ui_post_cmd - defer one of the kernel's own menu commands (SPEC.md 13)
@@ -2808,7 +2815,7 @@ ui_cmd:
 %ifdef KERN_BIG
     dw .about, .ctrl, .tasks, .done, .hiber, .reboot, .close, .timer, .bounce, .files
 %else
-    dw .about, .ctrl, .tasks, .done, .reboot, .close, .timer, .bounce, .files
+    dw .about, .ctrl, .tasks, .done, .reboot, .close, .files
 %endif
 
 %ifdef KERN_BIG
@@ -2828,12 +2835,14 @@ ui_cmd:
                                 ; retf and ui_cmd does not, so the retf would
                                 ; pop a NEAR frame as CS:IP - a wild jump, and
                                 ; os88ovlchk refuses it
+%ifdef KERN_BIG
 .timer:
     mov al, KIND_TIMER
     jmp .launch
 .bounce:
     mov al, KIND_BOUNCE
     jmp .launch
+%endif                          ; KERN_BIG - SPEC.md 14.6
 .tasks:
     jmp ui_tm_open              ; not a kind any more: it is a package on the
                                 ; system disk (SPEC.md 28)

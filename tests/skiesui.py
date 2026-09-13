@@ -224,10 +224,30 @@ def main(argv):
         check(top < po[3] + 1,
               "...and a list that long slid UP to do it (top %d, the box ends %d)"
               % (top, po[3]))
+        was_wld = bss("cs_wldnow", 1)
         ui.mo.to(po[0] + 20, cell("cs_drport", 1))          # the second cell:
         ui.mo._edge(True)                                   # PRESS, and look
-        m.advance(frames=10)                                # before releasing
-        m.run()
+        # WAIT FOR THE HANDLER, don't count frames. `mov [ui_armw], si` is
+        # AFTER `call ui_bill` in ui.inc, so the arm does not exist until
+        # W_ONCLICK has RETURNED - and since SPEC.md 88.10.5 that handler
+        # READS A WORLD off the floppy, several int 13h calls at ~400 ms each
+        # on the target machine. Ten frames covered the whole gesture and now
+        # covers the start of it.
+        #
+        # AND THE LIST GOING DOWN IS NOT THE END OF IT, which is the trap:
+        # probed at two-frame resolution the list is already shut and
+        # cs_apnow already set on the FIRST reading, while cs_wldnow does not
+        # change for another ten frames - the drop-down takes the pick and
+        # THEN cs_drtake reads the country in. So the world is what to wait
+        # on, and it is worth asserting on its own account.
+        for _ in range(40):
+            m.advance(frames=10)
+            m.run()
+            if bss("cs_wldnow", 1) != was_wld:
+                break
+        check(bss("cs_wldnow", 1) != was_wld,
+              "the pick read its own world into the overlay (cs_wldnow %d, "
+              "was %d)" % (bss("cs_wldnow", 1), was_wld))
         armw = int.from_bytes(m.read(os88sym.linear("ui_armw"), 2), "little")
         check(armw == bss("cs_win"),
               "the pick's press leaves the release owed to the LAUNCHER's window (ui_armw %04x, cs_win %04x)"
@@ -235,9 +255,12 @@ def main(argv):
         ui.mo._edge(False)
         m.advance(frames=20)
         m.run()
+        # cs_ports READ NOW, after the pick: a record lives in the world
+        # overlay (88.10.5), so row 1's pointer is only true once row 1's
+        # world is the one loaded - which is what the press just did.
         second = int.from_bytes(m.readseg(seg, mp["cs_ports"] + 2, 2), "little")
-        check(rec("cs_drport", DR_OPEN, 1) == 0 and rec("cs_drport", DR_SEL) == 1,
-              "a press on the second item picks it and the list goes")
+        check(rec("cs_drport", DR_SEL) == 1,
+              "a press on the second item picks it")
         check(bss("cs_airport") == second and bss("cs_inited", 1) == 0,
               "the pick is the airport in use, and the next flight starts there (cs_airport %04x, cs_inited %d)"
               % (bss("cs_airport"), bss("cs_inited", 1)))

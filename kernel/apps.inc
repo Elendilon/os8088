@@ -90,14 +90,19 @@ BAL_VY    equ 6                 ; stride 8
 ; The Timer's x keeps its whole cap-10 cascade (+16 per pool slot, SPEC.md
 ; 29.4) on a 640px screen: 330 + 144 + 160 = 634.
 app_tpl_about:  dw 170, 140, 300, 120, app_ttl_about,  app_about_paint,  0, 0
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 app_tpl_timer:  dw 330,  60, APP_TMR_W, APP_TMR_H, app_ttl_timer, app_tmr_paint
                 dw 0, app_tmr_onclick
 app_tpl_bounce: dw 300, 150, 150, 130, app_ttl_bounce, app_bounce_paint, 0, 0
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
 
 app_ttl_about:  db 'About os8088', 0
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 app_ttl_timer:  db 'Timer', 0
 app_ttl_bounce: db 'Bounce', 0
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
 
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 app_tmr_s_start: db 'Start', 0
 app_tmr_s_stop:  db 'Stop', 0
 app_tmr_s_reset: db 'Reset', 0
@@ -109,6 +114,7 @@ app_tmr_lbl:     dw app_tmr_s_start, app_tmr_s_stop, app_tmr_s_reset
 %error "app_tmr_lim is indexed by TMR_HRS/MIN/SEC and needs them at 0/1/2"
 %endif
 app_tmr_lim:     db 24, 60, 60
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
 %ifdef KERN_BIG
 ; Which button is DRAWN pressed, 1-based so 0 can mean "none" (SPEC.md 13.8).
 ; ONE byte for the machine and not one per Timer, which is safe for the reason
@@ -174,6 +180,7 @@ app_about_v3:   db 'EGA - 640x350 - 16 colors', 0
 ; The _f entries STAY: ctrl.inc is an on-demand module and still needs them.
 ; =============================================================================
 section .cold
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 
 ; =============================================================================
 ; Kind init procs (KD_INIT contract, SPEC.md 29.3): in BX = window ptr,
@@ -242,6 +249,7 @@ app_bounce_kinit_x:
     mov word [ss:di+BAL_VX], APP_BAL_VX0
     mov word [ss:di+BAL_VY], APP_BAL_VY0
     retf
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
 
 ; --- apf_app_about_center - the far side of app_about_center's thunk --------
 ; A PAD rather than SPEC.md 2.6.1's retf body, because app_about_paint_x near-
@@ -250,6 +258,7 @@ app_bounce_kinit_x:
 apf_app_about_center:
     call app_about_center_x
     retf
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 
 ; -----------------------------------------------------------------------------
 ; app_state_of - the instance state block for a window, in one place
@@ -320,6 +329,7 @@ app_kind_arm:
 .no:
     stc
     ret
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
 
 ; =============================================================================
 ; About
@@ -390,6 +400,7 @@ app_about_center_x:
     mov ax, (CWHITE << 8) | CBLACK  ; AL = ink, AH = the content's own ground:
     call KERNEL_SEG:cw_font_run               ; W_PAINT arrives white-filled (6.6.5)
     ret
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 
 ; =============================================================================
 ; Timer
@@ -1328,6 +1339,7 @@ app_ball_fill:
     jmp kretc_dx
 
 ; -----------------------------------------------------------------------------
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
 section .lowbss                 ; LOW_SEG (SPEC.md 2.1): both state pools are
                                 ; walked through a POINTER the instance record
                                 ; hands over, never addressed by name, so they
@@ -1335,17 +1347,21 @@ section .lowbss                 ; LOW_SEG (SPEC.md 2.1): both state pools are
                                 ; the kernel's own 64KB segment. SS is LOW_SEG
                                 ; from kmain onwards and never changes, so the
                                 ; prefix needs no setup and cannot be clobbered
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 app_tmr_pool:   resb 10 * TMR_SIZE  ; TMR_HRS/MIN/SEC/RUN + LAST + ACC, and
                                     ; the 8 cells the window is SHOWING
 app_ball_pool:  resb 80         ; 10 x 8: BAL_X/Y/VX/VY
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
 
 section .bss
 
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 app_tmr_str:    resb 9          ; "HH:MM:SS",0 scratch (drawn under the lock)
 app_bwy:        resw 1          ; app_ball_wipe's old square's y, absolute.
                                 ; Module scratch for the same reason again: it
                                 ; runs under the lock, which is what makes it
                                 ; safe with several Bounce instances live. The
                                 ; x lives in DI - see that routine.
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
 
 section .text

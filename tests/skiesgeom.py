@@ -50,18 +50,24 @@ same products. That is an outside fact about the polygon and not a replay of
 the guest's arithmetic.
 
 AND THE IMPOSTOR'S SIZE. cs_boxlod stands a distant solid up as ONE
-SCREEN-AXIS-ALIGNED RECTANGLE, which is invisible at a few pixels and, in a
-bank, the only thing on the glass that did not rotate. Its gate was on
-CSM_RAD - wx + wz + h/2, which under-states a tall building's height - and
-let 22 x 3 rectangles through on a 400-wide view. cs_rect has exactly one
-caller, so any stop there is an impostor and its size is checked against
-CS_LODPX, read out of skies.asm rather than mirrored (SPEC.md 88.5.4.1).
+rectangle. Its gate was on CSM_RAD - wx + wz + h/2, which under-states a tall
+building's height - and let 22 x 3 rectangles through on a 400-wide view, so
+the size is checked here against CS_LODPX, read out of skies.asm rather than
+mirrored (SPEC.md 88.5.4.1). Since 88.5.4.6 that rectangle BANKS with the
+world: upright it is still cs_rect, banked it is one quad through cs_poly, so
+the impostor is found by its CALL SITE - a fill whose return lands inside
+cs_boxlod - and its size taken off the box's own extents rather than off the
+bounding box a bank inflates. The same test keeps the replay honest: an
+impostor's corners are built from three projected points and have no model
+face behind them, so the replay is skipped for them rather than fed a face
+that does not exist.
 
 --clobber-proj, --clobber-side, --clobber-lod and --clobber-fan are the red runs
 (docs/WRITING-TESTS.md 1): each patches one fault back into the guest's code
 and the row must fail on it.
 """
 import argparse
+import math
 import os
 import re
 import sys
@@ -79,9 +85,15 @@ TOL = 3                                 # pixels: the replay is exact, the
                                         # margin is for a rounding it misses
 CS_NEAR = 40
 CS_MAXPV = 10
-LODPX = int(re.search(r"^CS_LODPX\s+equ\s+(\d+)", open(os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "..", "apps", "skies",
-    "skies.asm")).read(), re.M).group(1))   # read, not mirrored
+_SK = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
+                        "apps", "skies", "skies.asm")).read()
+
+
+def _equ(n):                            # read, not mirrored
+    return int(re.search(r"^%s\s+equ\s+(\d+)" % n, _SK, re.M).group(1))
+
+
+LODPX, LODTALL, LODHYST = _equ("CS_LODPX"), _equ("CS_LODTALL"), _equ("CS_LODHYST")
 SCENES = {   # airport (the launcher's Location row), x, y, z (metres);
              # heading, pitch, roll (65536 to the turn)
     "issy60":  (0, -2430, 35, -2097, 7646, 876, 10923),  # 60 right, climbing out
@@ -339,17 +351,20 @@ def main(argv):
             m.run()
             print("  (cs_project2's shift put back to the middle-word form: this run must fail)")
         if a.clobber_lod:
-            # cs_boxlod's two `cmp si, CS_LODPX`, which nasm emits as the
-            # sign-extended imm8 form; 127 is past every rectangle it can
-            # draw, so the refusal never fires - the gate exactly as it was
+            # cs_boxlod's TWO bounds - `cmp si, CS_LODPX` on the width and
+            # `cmp ax, CS_LODTALL` on the axis (88.5.4.4, 88.5.4.6), both in
+            # nasm's sign-extended imm8 form; 127 is past every rectangle it
+            # can draw, so neither refusal fires - the gate exactly as it was
             lo, hi = mp["cs_boxlod"], mp["cs_stackverts"]
             code = m.read(lin + lo, hi - lo)
             sites = [lo + i for i in range(len(code) - 2)
-                     if code[i] == 0x83 and code[i + 1] == 0xFE
-                     and code[i + 2] == LODPX]
+                     if code[i] == 0x83
+                     and ((code[i + 1] == 0xFE and code[i + 2] == LODPX)
+                          or (code[i + 1] == 0xF8 and code[i + 2] == LODTALL))]
             if len(sites) != 2:
-                sys.exit("skiesgeom: cs_boxlod does not test CS_LODPX twice "
-                         "the way this patch expects (%d found)" % len(sites))
+                sys.exit("skiesgeom: cs_boxlod does not carry its two size "
+                         "bounds the way this patch expects (%d found)"
+                         % len(sites))
             m.pause()
             for st in sites:
                 m.write(lin + st + 2, b"\x7F")
@@ -426,14 +441,16 @@ def main(argv):
         # off cs_ports rather than assumed: the list is nine long and sorted by
         # its own names since SPEC.md 88.6.4, so Paris-Issy is not row 0 any
         # more and the next rename would move it again.
-        nports = (mp["cs_apnames"] - mp["cs_ports"]) // 2
-        ports = [int.from_bytes(m.readseg(seg, mp["cs_ports"] + 2 * i, 2), "little")
-                 for i in range(nports)]
-        recs = [mp["cs_a_issy"], mp["cs_a_lbg"]]
-        try:
-            LROW = [ports.index(r) for r in recs]
-        except ValueError:
-            sys.exit("skiesgeom: cs_a_issy/cs_a_lbg are not both in cs_ports")
+        # BY NAME, out of cs_apnames (SPEC.md 88.10.5): cs_a_issy and cs_a_lbg
+        # are symbols in the WORLD PART now, not in this program's map, and a
+        # record only exists while its world is in the overlay. The resident
+        # half is the names.
+        LROW = []
+        for want in ("ISSY", "LBG"):
+            row, _ = dispapps.skies_port(m, seg, mp, want)
+            if row is None:
+                sys.exit("skiesgeom: no %s in cs_apnames" % want)
+            LROW.append(row)
 
         airport = 0
         for sc in sorted(scenes, key=lambda n: SCENES[n][0]):
@@ -458,9 +475,18 @@ def main(argv):
                 mo.click(po[0] + 20, top + 1 + 12 * LROW[row] + 6)
                 m.advance(frames=20)
                 m.run()
-                check(w("cs_airport") == recs[row],
-                      "the Location list picked %s at row %d (cs_airport %04x)"
-                      % (("Paris-Issy", "Paris-LBG")[row], LROW[row], w("cs_airport")))
+                # cs_ports READ NOW and not banked before the pick: a
+                # record lives in the world overlay (SPEC.md 88.10.5), and
+                # both Paris runways stand in the same world - so once that
+                # world is in, the resident index's row for the one picked is
+                # exactly what cs_airport must hold.
+                rec = int.from_bytes(
+                    m.readseg(seg, mp["cs_ports"] + 2 * LROW[row], 2), "little")
+                check(byte("cs_apnow") == LROW[row] and w("cs_airport") == rec,
+                      "the Location list picked %s at row %d (cs_apnow %d, "
+                      "cs_airport %04x against %04x)"
+                      % (("Paris-Issy", "Paris-LBG")[row], LROW[row],
+                         byte("cs_apnow"), w("cs_airport"), rec))
                 m.type_text("f")
                 m.advance(frames=40)
                 m.run()
@@ -490,10 +516,12 @@ def main(argv):
                 sys.exit("skiesgeom: cs_render never ran")
             m.bp_exec(lin + render, *[lin + s for s in stops])
             cur, ref, npoly, nseg, worst = "?", None, 0, 0, 0
-            imp = (0, None)             # the biggest IMPOSTOR rectangle
-                                        # (88.5.4.1): cs_rect has exactly one
-                                        # caller, cs_boxlod, so any stop there
-                                        # is one
+            imp = (0, 0, None)          # the biggest IMPOSTOR (88.5.4.1),
+                                        # found by CALL SITE: upright it is
+                                        # cs_rect and banked it is a quad
+                                        # through cs_poly (88.5.4.6), and
+                                        # cs_poly is what every face uses
+            bxlo, bxhi = mp["cs_boxlod"], mp["cs_stackverts"]
             lean = (0, None, None)      # the worst world-vertical edge that
             leann = 0                   # did not come out vertical (88.5.8),
                                         # and how many were looked at - a
@@ -535,9 +563,8 @@ def main(argv):
                     cur = name_of(ob)
                 elif k == "cs_rect":
                     x0, y0, x1, y1 = (sg(v) for v in (ax, bx, cx, dx))
-                    big = max(x1 - x0, y1 - y0)
-                    if big > imp[0]:
-                        imp = (big, cur)
+                    if x1 - x0 > imp[0] or y1 - y0 > imp[1]:
+                        imp = (max(imp[0], x1 - x0), max(imp[1], y1 - y0), cur)
                 if k == "cs_wind":
                     # SI:CX is the guest's twice-signed-area, whatever the
                     # face is about to be; the shoelace of cs_pv is the same
@@ -555,6 +582,25 @@ def main(argv):
                         wind = (abs(v - sho), (cur, n, v, sho))
                     continue
                 if k == "cs_poly":
+                    # THE IMPOSTOR IS NOT A FACE (SPEC.md 88.5.4.6). Its four
+                    # corners are built in cs_boxlod out of three projected
+                    # points, so there is no model face behind them and the
+                    # replay has nothing to reproduce - it would read whatever
+                    # cs_fidx last held and report a face of the wrong length.
+                    # Its SIZE is still checked, off the box's own extents,
+                    # which is what 88.5.4.6's two bounds are on.
+                    ret = int.from_bytes(m.read((r["ss"] << 4) + r["sp"], 2),
+                                         "little")
+                    if bxlo <= ret < bxhi:
+                        v = words("cs_pv", 8)
+                        q = [(sg(v[2 * t] & 0xFFFF), sg(v[2 * t + 1] & 0xFFFF))
+                             for t in range(4)]
+                        wd = math.hypot(q[0][0] - q[3][0], q[0][1] - q[3][1])
+                        ht = math.hypot(q[1][0] - q[0][0], q[1][1] - q[0][1])
+                        if wd > imp[0] or ht > imp[1]:
+                            imp = (max(imp[0], int(wd)), max(imp[1], int(ht)),
+                                   cur)
+                        continue
                     R, pts, fv, whole = geom()
                     fn = w("cs_fn")
                     idx = list(m.readseg(seg, w("cs_fidx"), fn))
@@ -643,9 +689,14 @@ def main(argv):
                   % (sc, windn, wind[0],
                      ": %s, %d points, %d against %d" % wind[1] if wind[0] else ""))
             if imp[0]:
-                check(imp[0] <= LODPX,
-                      "%s: no impostor is bigger than CS_LODPX (%d px%s)"
-                      % (sc, imp[0], ", " + imp[1] if imp[1] else ""))
+                # THE TWO BOUNDS ARE SEPARATE (88.5.4.4) and both carry
+                # CS_LODHYST of slack, an object already boxed keeping the
+                # box until it grows that much past them (88.5.4.6).
+                check(imp[0] <= LODPX + LODHYST and imp[1] <= LODTALL + LODHYST,
+                      "%s: no impostor is bigger than its bounds (%d x %d px "
+                      "against %d x %d%s)"
+                      % (sc, imp[0], imp[1], LODPX + LODHYST,
+                         LODTALL + LODHYST, ", " + imp[2] if imp[2] else ""))
             if not roll and not pitch:
                 check(leann >= 4 and lean[0] <= 1,
                       "%s: %d world-vertical edges, and they stay vertical "

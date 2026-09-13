@@ -87,7 +87,13 @@ def run(apps, want_root):
                          "in it" % apps)
 
 
-run("build/media360.img", ["MEDIA"])
+# SYSTEM IS THERE ON PURPOSE and is not a stray: the media disk's own rule
+# ends `--folder SYSTEM/APPDATA` (Makefile), because a disk a program can
+# SAVE to is a disk that needs somewhere to keep that program's state
+# (SPEC.md 19.9) - the same folder every other shipped floppy carries. This
+# line said ["MEDIA"] and the row failed as `root: ['MEDIA', 'SYSTEM']`,
+# which is the disk being right and the expectation being old.
+run("build/media360.img", ["MEDIA", "SYSTEM"])
 run("build/apps360.img", ["APPS", "GAMES", "MEDIA", "SYSTEM"])
 
 if fails:

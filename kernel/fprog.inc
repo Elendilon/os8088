@@ -518,9 +518,43 @@ fpg_arm:
     jb .curdone                 ; [mouse_y] and NOT [cur_drawn_y]: the drawn
                                 ; position is meaningless while the arrow is
                                 ; hidden, and cursor_show draws at the live one
+    call cur_busy_take          ; ...AND IT COMES BACK AS AN HOURGLASS (SPEC.md
+                                ; 7.5). THE FREE HALF OF THE FEATURE: this
+                                ; site's whole reason for existing is that the
+                                ; pointer is off the glass and about to be put
+                                ; back, so the picture changes inside a
+                                ; cursor_show that was already going to happen
+                                ; and the machine draws exactly what it drew
+                                ; before. The five compares above are already
+                                ; the answer to "may a system pointer be on
+                                ; this screen at all", which is the same
+                                ; question the hourglass has to ask
     mov byte [cur_lazy], 1
     call cursor_show
 .curdone:
+    call cur_busy_on            ; **AND THE POINTER SAYS SO** (SPEC.md 7.5.3).
+                                ; BELOW the block above rather than inside it,
+                                ; because that block covers ONE of the three
+                                ; states this is found in and MEASURED ZERO of
+                                ; three arms in a session: a package launch and
+                                ; an assoc open both read with the lock FREE
+                                ; (SPEC.md 7.4.2.1), where there is no promised
+                                ; hide to spend and no show owed - the arrow is
+                                ; simply lit and tracking. The take inside that
+                                ; block stays, so when it DOES fire the picture
+                                ; changes inside a show that was going to
+                                ; happen and this call is four instructions.
+                                ;
+                                ; **INSIDE THE %ifndef, and tests/curdisk.py is
+                                ; why** (SPEC.md 7.5.3.1): NOCURDISK=1 is the
+                                ; A/B for the whole of 7.4 and its contract is
+                                ; that NOTHING puts a pointer on the glass
+                                ; during a disk freeze. This call shows one, so
+                                ; outside the gate it moved the arrow twice in
+                                ; the arm that must not move it at all - a
+                                ; knob build measuring the kernel it no longer
+                                ; describes, which is the one failure a knob
+                                ; exists to make impossible
 %endif
     ; ...AND THE BAR BELOW IS COMPOSED WITH THE MUTEX POSSIBLY UNHELD, which is
     ; not excluded by the [gfx_lock_own] test above: that test refuses a lock

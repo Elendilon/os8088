@@ -31,6 +31,17 @@ equates give, and its declared radius held against the vertices it points
 at. It walks EVERY `cs_m_*` in the map and not only the ones a world reaches
 today, because a model nothing places yet is one a world places tomorrow.
 
+**SINCE 88.10.5 THE MODELS ARE NOT IN `build/skies.bin`.** A world is a
+packed part read into an overlay at run time, so `dispapps._map('skies')`
+sees TWO `cs_m_*` where there are a hundred and twenty - and the guard that
+caught that (`< 60 models in the map`) is the only reason this was a red row
+rather than a green one walking almost nothing. It lays each world into the
+image the way `cs_wldget` does (`csworlds.overlay`, `t_csworld.py`'s reader)
+and walks all eight, plus whatever the resident image still declares - the
+shared vocabulary's own models, which every world's map carries anyway. A
+model seen in more than one map is walked once: the vocabulary is laid at the
+same address in all eight.
+
 Break it on purpose: put the `/ 2` back on any of `csworld.inc`'s four
 macros, or lower one hand-written `dw`, and this goes red naming the model
 and both numbers. Take the `shr`/`add` out of `cs_inwater` and the ribbons
@@ -44,12 +55,12 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, "tests"))
+sys.path.insert(0, os.path.join(ROOT, "tools"))
 import dispapps                                             # noqa: E402
+import csworlds                                             # noqa: E402
 
 
 def main():
-    img = open(os.path.join(ROOT, "build", "skies.bin"), "rb").read()
-    mp = dispapps._map("skies")
     E = {}
     for line in open(os.path.join(ROOT, "apps", "skies", "skies.asm")):
         m = re.match(r"^(CS[A-Z]*_[A-Z0-9_]+)\s+equ\s+"
@@ -61,50 +72,72 @@ def main():
     if miss:
         sys.exit("t_csrad: skies.asm no longer defines %s" % ", ".join(miss))
 
+    # `img` is REBOUND PER WORLD in the loop below, so every reader of it is
+    # a closure over this name (t_csworld.py's shape).
+    img = open(os.path.join(ROOT, "build", "skies.bin"), "rb").read()
+
     def w(off):
         v = int.from_bytes(img[off:off + 2], "little")
         return v - 65536 if v >= 32768 else v
+
+    def u(off):
+        """A POINTER, unsigned. `CSM_VERTS` was read through `w` and a model
+        in the overlay lives at 0xB400 and up, so every world's vertex
+        pointer came back NEGATIVE and every model was skipped by the
+        `0 < vp` guard - t_csworld.py's own false-green, one field along."""
+        return int.from_bytes(img[off:off + 2], "little")
 
     # A MODEL LABEL, NOT ITS INSIDES: `.v` and `.e` are NASM local labels
     # under the model they belong to, and the map spells them `cs_m_x.e` -
     # decoding an edge list as a model header reads a radius of 3 against a
     # need of 10,067 and looks exactly like the defect this gate is for.
-    models = sorted((n, a) for n, a in mp.items()
-                    if n.startswith("cs_m_") and "." not in n)
-    if len(models) < 60:
-        sys.exit("t_csrad: %d models in the map - it does not describe this "
-                 "package" % len(models))
+    def modelsof(mp):
+        return sorted((n, a) for n, a in mp.items()
+                      if n.startswith("cs_m_") and "." not in n)
 
-    bad, walked = [], 0
-    for nm, at in models:
-        t = img[at + E["CSM_TYPE"]]
-        if t not in (E["CSM_STACK"], E["CSM_FLAT"]):
-            continue                    # a model shape this does not know
-        nv, rad, vp = img[at + E["CSM_NV"]], w(at + E["CSM_RAD"]), w(at + E["CSM_VERTS"])
-        if nv == 0 or not (0 < vp < len(img)):
-            continue
-        walked += 1
-        man = euc = 0.0
-        # A STACK is `dw wx, y, wz` a LEVEL, and the level's four corners are
-        # (+-wx, y, +-wz); a FLAT is `dw x, z` a vertex, on the ground.
-        if t == E["CSM_STACK"]:
-            for k in range(nv):
-                x, y, z = w(vp + 6 * k), w(vp + 6 * k + 2), w(vp + 6 * k + 4)
-                man = max(man, abs(x) + abs(y) + abs(z))
-                euc = max(euc, math.sqrt(x * x + y * y + z * z))
-        else:
-            for k in range(nv):
-                x, z = w(vp + 4 * k), w(vp + 4 * k + 2)
-                man = max(man, abs(x) + abs(z))
-                euc = max(euc, math.hypot(x, z))
-        why = ""
-        if rad < euc:
-            why = "under its EUCLIDEAN radius"
-        elif t == E["CSM_FLAT"] and rad + rad // 2 < man:
-            why = "cs_inwater's 3/2 does not cover its MANHATTAN radius"
-        if why:
-            bad.append((nm, rad, man, euc, nv,
-                        "stack" if t == E["CSM_STACK"] else "flat", why))
+    bad, walked, seen = [], 0, set()
+    todo = [(None, dispapps._map("skies"))]
+    todo += [(world, csworlds.world_map(world)) for world in csworlds.WORLDS]
+    for world, mp in todo:
+        if world is not None:
+            img = csworlds.overlay(world)
+        for nm, at in modelsof(mp):
+            if (nm, at) in seen:
+                continue            # the vocabulary, in all eight maps at one
+            seen.add((nm, at))      # address - walked on the first world only
+            t = img[at + E["CSM_TYPE"]]
+            if t not in (E["CSM_STACK"], E["CSM_FLAT"]):
+                continue                    # a model shape this does not know
+            nv, rad = img[at + E["CSM_NV"]], w(at + E["CSM_RAD"])
+            vp = u(at + E["CSM_VERTS"])
+            if nv == 0 or not (0 < vp < len(img)):
+                continue
+            walked += 1
+            man = euc = 0.0
+            # A STACK is `dw wx, y, wz` a LEVEL, and the level's four corners are
+            # (+-wx, y, +-wz); a FLAT is `dw x, z` a vertex, on the ground.
+            if t == E["CSM_STACK"]:
+                for k in range(nv):
+                    x, y, z = w(vp + 6 * k), w(vp + 6 * k + 2), w(vp + 6 * k + 4)
+                    man = max(man, abs(x) + abs(y) + abs(z))
+                    euc = max(euc, math.sqrt(x * x + y * y + z * z))
+            else:
+                for k in range(nv):
+                    x, z = w(vp + 4 * k), w(vp + 4 * k + 2)
+                    man = max(man, abs(x) + abs(z))
+                    euc = max(euc, math.hypot(x, z))
+            why = ""
+            if rad < euc:
+                why = "under its EUCLIDEAN radius"
+            elif t == E["CSM_FLAT"] and rad + rad // 2 < man:
+                why = "cs_inwater's 3/2 does not cover its MANHATTAN radius"
+            if why:
+                bad.append((nm, rad, man, euc, nv,
+                            "stack" if t == E["CSM_STACK"] else "flat", why))
+
+    if walked < 60:
+        sys.exit("t_csrad: %d models walked over %d worlds - the reader is "
+                 "not describing this package" % (walked, len(csworlds.WORLDS)))
 
     if bad:
         print("t_csrad: %d model(s) declare LESS than their own vertices need "

@@ -34,7 +34,7 @@
 2 apps/piano/piano.asm  # 6.6.2 case 3 - key_x + 5 off a keyboard pn_metrics scales at run time (11.98.1); no constant aligns it
 4 apps/solitaire/solitaire.asm  # 6.6.2 case 2 - a card's rank over a card face put down by the previous operation
 4 tests/fontbench/fontbench.asm  # 6.6.2 case 5 - prices FONT_CHAR per cell
-3 tests/gfxbench/gfxbench.asm  # 6.6.2 case 5 - the harness PRICES the pair; it is the measurement (PERFORMANCE.md Set 76)
+4 tests/gfxbench/gfxbench.asm  # 6.6.2 case 5 - the harness PRICES the pair; it is the measurement (PERFORMANCE.md Set 76, and Set 121's PAIR 10 coloured, which is the fall-back font_run itself takes for a non-subset pen on VGA - SPEC.md 6.1.10.1)
 2 tests/typebench/typebench.asm  # 6.6.2 case 5 - measures the erase-and-letter pair against one font_run
 
 # --- 6.6.2 case 6: an OVERSTRIKE, which has to ADD to the glyphs under it ----

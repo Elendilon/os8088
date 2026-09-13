@@ -181,6 +181,23 @@ _os88_gfx_pixel:
     pop bp
     ret
 
+; void os88_gfx_points(const void *pts, int n) - SI = the array, CX = n.
+; SPEC.md 5.6.9: n records of two ints each, x then y, IN OUR SEGMENT - so the
+; C passes a plain pointer to a static `int[]` and there is no segment to think
+; about, os88_gfx_fill_pat's shape. It is the plot primitive: one arrival for
+; a whole set of pixels the program computed, against os88_gfx_pixel's one far
+; call EACH at ~640us on the field machine.
+_os88_gfx_points:
+    push bp
+    mov bp, sp
+    push si
+    mov si, [bp+4]
+    mov cx, [bp+6]
+    call OSAPI_GFX_POINTS
+    pop si
+    pop bp
+    ret
+
 ; void os88_gfx_hline(int x1, int x2, int y) - AX = x1, BX = x2, DX = y.
 _os88_gfx_hline:
     push bp
@@ -209,23 +226,6 @@ CC_T_RECT _os88_gfx_frame,     OSAPI_GFX_FRAME
 CC_T_RECT _os88_gfx_fill_gray, OSAPI_GFX_FILL_GRAY
 CC_T_RECT _os88_gfx_xor_rect,  OSAPI_GFX_XOR_RECT
 CC_T_RECT _os88_gfx_xor_fill,  OSAPI_GFX_XOR_FILL
-
-; void os88_gfx_line(int x1,int y1,int x2,int y2,int dilate) - SPEC.md 5.6.
-; SI = 0 thin / 1 dilated by a pixel either side of the minor axis, which is
-; what an erase owes a line that was DRAWN in per-frame segments (5.6.5).
-_os88_gfx_line:
-    push bp
-    mov bp, sp
-    push si
-    mov ax, [bp+4]
-    mov bx, [bp+6]
-    mov cx, [bp+8]
-    mov dx, [bp+10]
-    mov si, [bp+12]
-    call OSAPI_GFX_LINE
-    pop si
-    pop bp
-    ret
 
 ; void os88_gfx_fill_pat(int x1,int y1,int x2,int y2,const void *pat8)
 ; SI = 8 pattern bytes IN OUR SEGMENT (SPEC.md 20.9) - DS-relative, so the C
@@ -2191,6 +2191,17 @@ _os88_part_seg:
     pop bp
     ret
 
+; THE THREE LAZY THUNKS ARE A MACRO, and CC_PARTS_END emits them (SPEC.md
+; 20.12.9). They cannot be emitted HERE: this file is included by crt0.asm
+; before the package's own table, so OP_HAS_LAZY is still 0 at this point and
+; a gate written here would compile the thunks out of every C package -
+; including one that really does declare a lazy row. The table decides, and
+; the table has not been read yet.
+;
+; Ungated they were the only thing in the tree still referencing op_fetch,
+; op_drop and op_lazyok, so C64 carried the whole lazy surface for three
+; functions it never calls.
+%macro CC_PART_LAZY_THUNKS 0
 ; int os88_part_fetch(int i) - claim and read a lazy part NOW. 0 = it is here
 ; (including "already was"), -1 = it could not be had and a toast has said why.
 _os88_part_fetch:
@@ -2233,6 +2244,8 @@ _os88_part_lazyok:
 .ok:
     pop bp
     ret
+
+%endmacro
 
 ; int os88_part_optok(void) - were the OP_OPT scratch parts granted?
 ; All or none (SPEC.md 20.12.4), so it is one answer for the whole table.

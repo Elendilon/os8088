@@ -62,39 +62,43 @@ PRIMS = os.environ.get('SYMS', '').split(',') if os.environ.get('SYMS') else [
          'wm_su_try', 'wm_su_bank', 'wm_draw_win']
 
 
-def burst(m, by, budget=300.0, limit=4000):
-    """Collect until the guest goes quiet for QUIET cycles.
+def burst(m, names, trigger, first=60.0, limit=4000):
+    """Run `trigger` with `names` armed; collect until the guest goes quiet.
 
-    THE FIRST HIT IS RECORDED BEFORE THE FIRST `run`, and that is not a nicety:
-    the trigger is sent with the breakpoints already armed, so the guest is
-    usually stopped at the FIRST symbol of the operation by the time this is
-    entered - and a loop that opens with `run` resumes past it and never sees
-    it. It cost a whole diagnosis: the routine under test was the first thing
-    to fire, so it was the one hit that always vanished, and its absence read
-    as "the new code never runs".
+    THE COUNT IS THE MEASUREMENT here - 207 calls against 981 is the finding -
+    so a hit counted twice is a wrong published number rather than an error.
+    This was a hand-rolled pump and it had that: it resumed, then broke out of
+    its poll on the first `"breakpoint"` it saw, which is the stop it had just
+    resumed past whenever the resume had not landed by the next round trip.
+    The duplicate carried the SAME cycle count, so the `> QUIET` gap test could
+    not reject it either. `bp_trace` dedupes on the server's own stop sequence.
+
+    Its budget ran down the same way os88span's did - `t0` taken once outside
+    the loop, so 4,000 iterations shared one 300-second allowance - and this
+    file's own docstring says what that looks like from outside.
+
+    THE FIRST HIT NEEDED A SPECIAL CASE AND NO LONGER DOES. The trigger used to
+    be sent before the collector was entered, so the guest was already stopped
+    at the first symbol and a loop opening with `run` resumed past it - the one
+    hit that always vanished, reading as "the new code never runs". The trigger
+    is inside the block now, so the pump is watching before it is pulled.
     """
-    out, t0, last = [], time.time(), None
-    st = m.status()
-    if st.get('state') == 'breakpoint':
-        out.append((by.get(((st['cs'] << 4) + st['ip']) & 0xFFFFF, '?'),
-                    st['cycles']))
-        last = st['cycles']
-    for _ in range(limit):
-        m.run()
-        st = None
-        while time.time() - t0 < budget:
-            st = m.status()
-            if st.get('state') == 'breakpoint':
-                break
+    with os88marty.bp_trace(m, *names, cap=limit) as tr:
+        trigger()
+        t0, seen = time.time(), 0
+        while tr.n < limit:
+            if tr.n != seen:
+                seen = tr.n
+            elif tr.hits:
+                # QUIET IS GUEST CYCLES and stays guest cycles: the gap that
+                # ends a burst is a property of the machine, not of how fast
+                # the host got round this loop.
+                if m.status()["cycles"] - tr.hits[-1]["cycles"] > QUIET:
+                    break
+            elif time.time() - t0 > first:
+                break                       # nothing drew at all
             time.sleep(0.004)
-        if not st or st.get('state') != 'breakpoint':
-            break
-        cyc = st['cycles']
-        if last is not None and cyc - last > QUIET:
-            break
-        out.append((by.get(((st['cs'] << 4) + st['ip']) & 0xFFFFF, '?'), cyc))
-        last = cyc
-    return out
+    return [(h["name"], h["cycles"]) for h in tr.hits]
 
 
 def main():
@@ -135,7 +139,6 @@ def main():
         win = [w for w in su.windows(m) if w.visible and w.i == win.i][0]
         print('dragging %r by its title bar' % (win,))
 
-        by = {m.sym(n): n for n in PRIMS}
         p = sc.titlebar(m, win)
         mo.to(*p)
         time.sleep(0.4)
@@ -143,11 +146,9 @@ def main():
         mo.to(p[0] + ddx, p[1] + ddy, l=True)
         time.sleep(1.0)
 
-        m.breakpoints([{'type': 'exec', 'addr': a} for a in by])
-        mo._pk(l=False)                     # the release: the repaint happens
-        hits = burst(m, by)
-        m.breakpoints([])
-        m.run()
+        # The release is what starts the repaint, and it goes INSIDE the
+        # block - the pump is armed and watching before the trigger is pulled.
+        hits = burst(m, PRIMS, lambda: mo._pk(l=False))
         time.sleep(1.5)
         now = [w for w in su.windows(m) if w.i == win.i][0]
         print('moved (%d,%d) -> (%d,%d): dx=%d (dx&7=%d) dy=%d'

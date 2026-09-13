@@ -354,6 +354,34 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
   %define OS88_RTC 1
 %endif
 
+; SPEC.md 66's HEAP COMPACTOR is kern_big's (SPEC.md 66.0). The 128KB machine
+; keeps PURGING and gives up MOVING, which is a trade this tree measured both
+; halves of rather than assumed:
+;
+;   what it costs there is small and getting smaller. Its two biggest
+;   customers - a driver IMAGE and a driver's DONATED claim (SPEC.md
+;   66.6.3/66.5.10.2) - cannot exist on a kernel OS88_DRIVERS gates out, the
+;   association cache went with SPEC.md 54.0, and hibernate is kern_big's; so
+;   of the kernel's own claims only the menu save-under is left movable there,
+;   and it is 3.0KB alive for one menu;
+;
+;   and what made the case for keeping it - two 2KB Disk-window listing caches
+;   stranding 21.5KB of a 48.5KB arena between them - was answered at the
+;   CLAIM instead (SPEC.md 50.6.5): a cache that can be shed does not need to
+;   be moved, and shedding reaches 48.5KB where compacting reached 44.5.
+;
+; What goes with it is the whole feature and not the call: mem_can_move and
+; its five predicates, the seventeen mem_cp_* routines, mem_reloc_call,
+; mem_region_reloc's table walk, OSAPI_MEM_MOVABLE's body, the WORKER PARK
+; (SPEC.md 66.5) and sch_wk_restart. THE API SLOTS STAY - a small-built
+; package calls the same table at the same offsets (SPEC.md 24.5) - and
+; refuse, which is gfx_blit1's precedent on this kernel (SPEC.md 5.4.2.5).
+;
+; Resolved here for OS88_ASSOC's reason.
+%ifdef KERN_BIG
+  %define OS88_COMPACT 1
+%endif
+
 ; SPEC.md 22.3-22.5's Cut/Copy/Paste is an ON-DEMAND MODULE on kern_small
 ; (SPEC.md 2.8, docs/plans/completed/KERN-SMALL-MODULE-SPLIT.md 9.2 wave 1) and stays resident
 ; `.cold` on kern_big, which keeps its speed and its one contiguous boot read:
@@ -3074,13 +3102,12 @@ osapi_table:
                                   ;          id, ES:DI = the caller's buffer
     OSAPI_SLOT fsx_wait           ; 0x02D8 - frame clock / present (SPEC.md
                                   ;          53.5): AL = 0 tick / 1 retrace
-    OSAPI_SLOT gfx_line           ; 0x02E0 - an arbitrary-angle line (SPEC.md
-                                  ;          5.6): AX/BX = x1/y1, CX/DX =
-                                  ;          x2/y2 inclusive, pen in
-                                  ;          [gfx_color], lock held. An
-                                  ;          axis-aligned pair defers to
-                                  ;          gfx_hline / gfx_vline, which stay
-                                  ;          the right answer for a long run
+    OSAPI_SLOT gfx_line           ; 0x02E0 - RETIRED (SPEC.md 5.12.7). The
+                                  ;          cell stays - a slot number is a
+                                  ;          published constant (20.3) - and
+                                  ;          the body answers CF = 1. The line
+                                  ;          is apps/os88gfx.inc's GFXE_LINE
+                                  ;          now, committed through gfx_blit1
     OSAPI_SLOT osapi_arg_file     ; 0x02E8 - the document this instance was
                                   ;          launched to open (SPEC.md 54.5):
                                   ;          out CF=1 none; CF=0 with SI = its
@@ -3105,17 +3132,14 @@ osapi_table:
                                   ;          15.4): the boot sector's first
                                   ;          instruction to the first desktop
                                   ;          frame. 0xFFFF = unknown
-    OSAPI_XCELL gfx_linit     ; 0x0300  X: the walk state is package data
-                                  ;          (SPEC.md 5.6.7). AX/BX = x1/y1,
-                                  ;          CX/DX = x2/y2, ES:DI = a GLS_SZ
-                                  ;          block. The walk runs in the
-                                  ;          CALLER'S direction - order
-                                  ;          matters here, unlike gfx_line
-    OSAPI_XCELL gfx_lstep     ; 0x0308  X: draw the walk's next CX pixels
-                                  ;          in [gfx_color] and advance it.
-                                  ;          N then M is exactly the N+M one
-                                  ;          call would have drawn, which is
-                                  ;          what lets an erase replay a draw
+    OSAPI_XCELL gfx_linit     ; 0x0300  RETIRED (SPEC.md 5.12.7): stc/ret.
+                                  ;          The walk is apps/os88gfx.inc's
+                                  ;          GFXE_WALK now, in a GLS_SZ block
+                                  ;          of the package's own - GLS_SZ is
+                                  ;          still live and still mirrored
+    OSAPI_XCELL gfx_lstep     ; 0x0308  RETIRED (SPEC.md 5.12.7): stc/ret.
+                                  ;          gfxe_wstep draws the walk's next
+                                  ;          CX pixels into the package's band
     OSAPI_SLOT gfx_pen_cf         ; 0x0310 - CF = 0 live / 1 disabled, and it
                                   ;          sets [gfx_color] AND [gfx_dis]
                                   ;          together (SPEC.md 47 rule 3), so
@@ -3127,11 +3151,10 @@ osapi_table:
                                   ;          unchanged - which is why this
                                   ;          needs no stub and no AL
                                   ;          argument
-    OSAPI_XCELL gfx_lstepv    ; 0x0318  X: gfx_lstep for CX walks at once
-                                  ;          (SPEC.md 5.6.8). ES:DI = an array
-                                  ;          of `dw block, pixels` pairs. Same
-                                  ;          pixels as CX separate calls, one
-                                  ;          arriving instead of CX of them
+    OSAPI_XCELL gfx_lstepv    ; 0x0318  RETIRED (SPEC.md 5.12.7): stc/ret.
+                                  ;          gfxe_wstepv is the batch form and
+                                  ;          gfx_points (0x0538) is what a
+                                  ;          package commits a point set with
     OSAPI_SLOT clip_put           ; 0x0320 - the system clipboard (SPEC.md
                                   ;          55): ES:SI = text, CX = bytes
                                   ;          (0 = empty it); out CF=1 refused.
@@ -3831,7 +3854,7 @@ osapi_table:
     OSAPI_SLOT api_gfx_save       ; 0x0508 - AX/BX/CX/DX = an inclusive rect,
                                   ;          ES:DI = your buffer. Bank the
                                   ;          pixels under a thing you are about
-                                  ;          to draw over (SPEC.md 5.4.3), so
+                                  ;          to draw over (SPEC.md 5.3), so
                                   ;          taking it down is a write-back
                                   ;          instead of a repaint. CF = 1
                                   ;          REFUSED - the rect straddles two
@@ -3896,7 +3919,66 @@ osapi_table:
                                   ;          instructions that refuse: there is
                                   ;          no driver there that would
                                   ;          register one
-osapi_table_end:                  ; 0x0530
+    OSAPI_XCELL osapi_pkg_rehome  ; 0x0530 - X: a LOADER hands its identity to
+                                  ;          one of its own parts (SPEC.md
+                                  ;          20.12.10). in DX = the segment the
+                                  ;          program's image starts at, AX =
+                                  ;          the bytes available there.
+                                  ;          out CF=1 refused - not the entry
+                                  ;          proc of the launch in flight, a
+                                  ;          second call, or DX = 0.
+                                  ;          IT ONLY RECORDS: the loader is
+                                  ;          still running in the region this
+                                  ;          frees, so the work is ld_start's
+                                  ;          step 8a, one instruction after
+                                  ;          this returns
+    OSAPI_XCELL gfx_points        ; 0x0538 - X: draw a set of pixels the CALLER
+                                  ;          computed (SPEC.md 5.6.9). ES:SI =
+                                  ;          CX records of two words each, x
+                                  ;          then y; CX = how many, 0 legal.
+                                  ;          [gfx_color] is the ink and the
+                                  ;          lock is held. Preserves every
+                                  ;          register; a point outside every
+                                  ;          clip rect is SKIPPED, not refused
+    OSAPI_SLOT cur_busy        ; 0x0540 - I AM ABOUT TO GO QUIET FOR A WHILE
+                                  ;          (SPEC.md 7.5). No argument. The
+                                  ;          pointer becomes an HOURGLASS for
+                                  ;          the rest of the gfx-lock hold the
+                                  ;          caller is inside, and gfx_unlock
+                                  ;          puts the old one back - so there
+                                  ;          is no "off" to forget and no way
+                                  ;          to leave one on the screen.
+                                  ;          out CF=1 refused: no hold of the
+                                  ;          caller's own, a clip region armed,
+                                  ;          an fsx bracket, or a pointer
+                                  ;          something else is holding down.
+                                  ;          A refusal costs the caller nothing
+                                  ;          but the picture
+    OSAPI_SLOT inst_minimize      ; 0x0548 - SEND MY OWN WINDOW TO THE DOCK
+                                  ;          (SPEC.md 29.6). BX = a window of
+                                  ;          yours, the gfx lock held - the
+                                  ;          minimize box's own environment,
+                                  ;          which is W_ONCLICK's. The tile
+                                  ;          inverts, the window hides, and a
+                                  ;          click on the tile brings it back.
+                                  ;          OSAPI_WM_HIDE IS NOT THIS and is
+                                  ;          a trap in its place: a plain hide
+                                  ;          leaves I_FLAGS bit0 clear, so the
+                                  ;          tile is drawn LIVE, dock_click
+                                  ;          takes its wm_front arm, and
+                                  ;          wm_front never sets the visible
+                                  ;          bit on an invisible window - a
+                                  ;          tile that does nothing and an
+                                  ;          instance with no way back.
+                                  ;          A FULLSCREEN window may call it:
+                                  ;          wm_hide drops the latch and
+                                  ;          restores the windowed geometry
+                                  ;          (SPEC.md 11.2), so the app must
+                                  ;          fix up its OWN idea of being
+                                  ;          fullscreen first, and neither zoom
+                                  ;          is drawn (SPEC.md 11.99.5).
+                                  ;          Preserves every register
+osapi_table_end:                  ; 0x0550
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -3904,8 +3986,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 164 * 8
-%error "os8088 API jump table must be exactly 164 8-byte slots"
+%if OSAPI_TABLE_LEN != 168 * 8
+%error "os8088 API jump table must be exactly 168 8-byte slots"
 %endif
 
 ; =============================================================================
@@ -6201,9 +6283,12 @@ cw_clk_h12h:            call clk_h12h
                     retf
 cw_clk_ampm:            call clk_ampm
                     retf
-%ifdef KERN_BIG                 ; the four shims gfx_blit1_x needs (SPEC.md
-cw_cur_unlazy:          call cur_unlazy     ; 5.4.2) are its only callers, and
-                    retf                    ; its body is kern_big's alone -
+cw_cur_unlazy:          call cur_unlazy     ; gfx_blit1_x's (SPEC.md 5.4.2), and
+                    retf                    ; on BOTH builds since 5.4.2.5's
+                                            ; decision was reversed
+%ifdef KERN_BIG
+cw_cur_lazyrect:        call cur_lazyrect   ; ...and SPEC.md 7.1.4.5's rect
+                    retf                    ; form, which is the one a BAND asks
 ; ...and the REFCOUNTED pair (SPEC.md 7.1), which the screen saver's cold half
 ; brackets a session with: the arrow has to be off the glass for as long as
 ; something is drawing over it, and every gfx_lock/gfx_unlock inside a frame
@@ -6262,10 +6347,8 @@ cw_gfx_pen_live:        call gfx_pen_live
                     retf
 cw_gfx_pixel:           call gfx_pixel
                     retf
-%ifdef KERN_BIG
 cw_gfx_rowbase:         call gfx_rowbase
                     retf
-%endif
 cw_gfx_unlock:          call gfx_unlock
                     retf
 cw_gfx_vline:           call gfx_vline
@@ -6382,10 +6465,8 @@ cw_vid_ctx_capture:     call vid_ctx_capture
 %endif
 cw_wm_clip_clear:        call wm_clip_clear
                      retf
-%ifdef KERN_BIG                 ; gfx_blit1_x's, and kern_small has no body
 cw_wm_clip_rows:        call wm_clip_rows
                     retf
-%endif
 cw_wm_clip_set:         call wm_clip_set
                     retf
 cw_wm_clip_test:        call wm_clip_test
@@ -6492,19 +6573,16 @@ wm_chrome_relit:      cmp byte [ui_armlit], 0
 ; --- ...and vga12.inc's band blit (SPEC.md 5.4.2). The PUBLIC name is the
 ; thunk and the body is the same name with _x, so the OSAPI_SLOT cell below
 ; names gfx_blit1 and knows nothing about which segment it lives in.
-%ifdef KERN_BIG
 gfx_blit1:            call COLD_SEG:gbz_gfx_blit1
                   ret                   ; a near ret over a far one, neither
                                         ; of which touches the flags - and CF
-                                        ; is this routine's whole answer
-%else
-gfx_blit1:            stc               ; kern_small carries the SLOT and not
-                  ret                   ; the body: a package tests CF and
-%endif                                  ; letters in the 8x8 face instead -
-                                        ; or, Paint, expands a row at a time
-                                        ; (SPEC.md 42.23.4). The body was
-                                        ; measured on this build and refused
-                                        ; (SPEC.md 5.4.2.5)
+                                        ; is this routine's whole answer.
+                                        ; ON BOTH BUILDS since SPEC.md
+                                        ; 5.4.2.5's refusal was reversed:
+                                        ; kern_small carried the SLOT and not
+                                        ; the body, so Paint expanded a row at
+                                        ; a time there at 24x the cost
+                                        ; (SPEC.md 42.23.4)
 
 ; --- ...and SPEC.md 13.8.2/13.9's three, which are kern_big's ALONE. The CELL
 ; is in both tables - a slot number that exists in one build and not another
@@ -6631,28 +6709,42 @@ fdlg_reap:
 ; below it is unreachable. It is written anyway rather than as a far `jmp`,
 ; because a thunk that is not shaped like every other thunk here is one a
 ; future reader has to stop and check.
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 app_tmr_kinit:        call COLD_SEG:app_tmr_kinit_x
                     ret
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 app_bounce_kinit:     call COLD_SEG:app_bounce_kinit_x
                     ret
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
 app_about_paint:      call COLD_SEG:app_about_paint_x
                     ret
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 app_tmr_paint:        call COLD_SEG:app_tmr_paint_x
                     ret
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 app_tmr_onclick:      call COLD_SEG:app_tmr_onclick_x
                     ret
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
 %ifdef KERN_BIG
 app_tmr_onup:         call COLD_SEG:app_tmr_onup_x
                     ret
 app_tmr_ondrag:       call COLD_SEG:app_tmr_ondrag_x
                     ret
 %endif
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 app_bounce_paint:     call COLD_SEG:app_bounce_paint_x
                     ret
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 app_tmr_task:         call COLD_SEG:app_tmr_task_x
                     ret                     ; never reached (inst_task_die)
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
+%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 app_bounce_task:      call COLD_SEG:app_bounce_task_x
                     ret                     ; never reached (inst_task_die)
+%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
 ; ...and the one with near callers of its own: app_about_paint calls it four
 ; times from inside .cold, so the body keeps a near `ret` and apf_ is the pad
 ; that owes the far one (SPEC.md 2.6's original two-call shape).
@@ -6782,6 +6874,8 @@ osapi_mem_claim_dma_hi: call COLD_SEG:mmf_osapi_mem_claim_dma_hi
 osapi_mem_free:       call COLD_SEG:mmf_osapi_mem_free
                   ret
 osapi_mem_movable:    call COLD_SEG:osapi_mem_movable_x
+                  ret
+osapi_pkg_rehome:     call COLD_SEG:osapi_pkg_rehome_x
                   ret
 osapi_mem_regrow:     call COLD_SEG:osapi_mem_regrow_x
                   ret

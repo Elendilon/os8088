@@ -77,7 +77,7 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'CYCLONE 88', cy_entry, 1, OS88_STACK_192
+    OS88_HEADER 'CYCLONE 88', cy_entry, 1, OS88_STACK_256
                                 ; THE WORKER'S STACK, declared
                                 ; rather than defaulted (SPEC.md 8.7):
                                 ; static 66 for cy_worker
@@ -146,6 +146,7 @@
 ; =============================================================================
 
 CY_MAXV     equ 17                  ; vertices in the widest web (16 + wrap)
+CY_PTMAX    equ 96                  ; the point list os88gfx.inc steps into
 CY_MAXLANE  equ 16
 CY_DEPTH    equ 16                  ; depth steps: 0 = the far end, 16 = the rim
 CY_NDEPTH   equ 18                  ; ...plus CY_TOPD above it = 18 table rows
@@ -2313,23 +2314,28 @@ cy_dsc_add:
 ; descriptor carries no colour and the whole array draws in one ink.
 cy_dsc_run:
     push ax
+    push bx
     push cx
+    push dx
+    push si
     push di
-    push es
+    push bp
     mov cx, [cy_dscn]
     jcxz .out
     mov word [cy_dscn], 0
-    mov di, cy_dsc
-    push ds
-    pop es
+    mov si, cy_dsc
 %ifdef CYPROF
     inc word [cy_pf_lstep]
 %endif
-    call OSAPI_GFX_LSTEPV
-.out:
-    pop es
-    pop di
+    call gfxe_wstepv                ; SPEC.md 5.12.5: the WALK is ours now -
+    call gfxe_pput                  ; pure arithmetic over our own blocks -
+.out:                               ; and the pixels go up in one arrival
+    pop bp                          ; through OSAPI_GFX_POINTS, which is what
+    pop di                          ; carries the clip, the cursor, the
+    pop si                          ; adapter and the second display
+    pop dx
     pop cx
+    pop bx
     pop ax
     ret
 
@@ -2469,7 +2475,7 @@ cy_walk_one:
     add cx, [cy_ox]
     mov dx, [cy_wy2]
     add dx, [cy_oy]
-    call OSAPI_GFX_LINIT
+    call gfxe_winit                 ; SPEC.md 5.12.5: the block is ours
 
     mov ax, [cy_wx2]
     sub ax, [cy_wx1]
@@ -5164,8 +5170,9 @@ cy_web_repair:
     push ax
     push bx
     push cx
-    push dx
-    push si
+    push dx                     ; ...and NOT SI: this routine never writes it
+                                ; and `cy_web_lane` restores it, so the save
+                                ; was dead - `tools/stkdepth.py` names it
     test word [cy_frame], CY_WEBEVERY - 1
     jnz .out
     mov cx, [cy_nlane]
@@ -5191,7 +5198,6 @@ cy_web_repair:
 .next:
     loop .each
 .out:
-    pop si
     pop dx
     pop cx
     pop bx
@@ -8474,7 +8480,14 @@ CY_TWORDS equ 14
     ; --- the walks --------------------------------------------------------
     CBUF  cy_walk, CY_MAXV * GLS_SZ
     CBUF  cy_wrem, CY_MAXV * 2
-    CBUF  cy_dsc, CY_MAXV * 4       ; the LSTEPV `dw block, count` array
+    CBUF  cy_dsc, CY_MAXV * 4       ; the walk's `dw block, count` array...
+    CBUF  cy_pts, CY_PTMAX * 4      ; ...and the points it steps into, which go
+                                    ; up in one OSAPI_GFX_POINTS (SPEC.md
+                                    ; 5.12.5). A full list commits itself, so
+                                    ; this size is a tuning choice and never a
+                                    ; correctness one - measured, a frame is
+                                    ; 38.7 pixels on average and CY_PTMAX is
+                                    ; sized off the worst rather than the mean
 
     ; --- what is on the glass ---------------------------------------------
     CBUF  cy_ost, CY_NOBJ * CY_OBSZ
@@ -8546,6 +8559,15 @@ CY_TWORDS equ 14
     CWORD cy_dbclus                 ; where we were standing before the visit
     CBYTE cy_dbdrv
     CBUF  cy_ibuf2, CY_INITW + 2    ; ...and the prompt it is lettered from
+
+; --- the embeddable graphics library (SPEC.md 5.12) ---------------------------
+; The resumable walk lives HERE now rather than in the kernel: it is pure
+; arithmetic over blocks we own, and OSAPI_GFX_POINTS does the clip region,
+; the cursor, the adapter and the second display at the commit.
+%define GFXE_WALK                   ; ...which implies GFXE_POINTS
+%define GFXE_PT_BUF cy_pts
+%define GFXE_PT_MAX CY_PTMAX
+%include "os88gfx.inc"
 
     OS88_BSS CY_BSS
     OS88_IMAGE_END

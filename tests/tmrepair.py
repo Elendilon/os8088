@@ -55,7 +55,7 @@ Servicing a breakpoint and driving the mouse are the same loop here, which is
 why `edge` exists rather than mo.click: os88mouse waits on the guest's own
 published mouse_btn, and a guest parked at a breakpoint never publishes it.
 """
-import os, sys
+import os, sys, time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 sys.path.insert(0, os.path.dirname(__file__))
 import os88marty, os88mouse, os88geom, os88sym, dispcp, dispcorner, dispapps
@@ -236,27 +236,36 @@ def watch_click(m, mo, x, y, sym, di, rounds=90, path=None):
     return hits[0]
 
 
+def guest_secs(m, secs):
+    """Let `secs` of GUEST time pass with the machine free-running.
+
+    Not `advance()`: that ends PAUSED and returns early at a breakpoint, so
+    inside a `bp_trace` block it both cuts its own window short and hands the
+    pump a stop the body meant to skip past."""
+    end = m.status()["cycles"] + int(secs * os88marty.GUEST_HZ)
+    while m.status()["cycles"] < end:
+        time.sleep(0.005)
+
+
 def drops(m, ours, rounds=POLLS, frames=110):
-    """wm_su_drop calls for OUR window across `rounds` worker intervals."""
-    at = m.sym("wm_su_drop")
-    m.bp_exec("wm_su_drop")
-    mine = 0
-    for _ in range(rounds):
-        m.run()
-        for _ in range(40):
-            if not m.stopped():
-                m.advance(frames=frames // 8)
-            if not m.stopped():
-                continue
-            r = m.regs()
-            if ((r["cs"] & 0xFFFF) << 4) + (r["ip"] & 0xFFFF) != at:
-                break
-            if (r["bx"] & 0xFFFF) == ours:
-                mine += 1
-            m.run()
-    m.breakpoints([])
-    m.run()
-    return mine
+    """wm_su_drop calls for OUR window across `rounds` worker intervals.
+
+    BX is only true at the stop, so it is read there. This was a hand-rolled
+    pump that sampled an eighth of its window: `stopped()` is true at a PAUSE
+    as well as at a breakpoint and `advance()` ends paused, so the round's own
+    advance satisfied the test below it, the IP read there was the pause point,
+    and the `!= at` arm broke the inner loop on the first advance every round.
+    It matters in the direction this leg asserts - KEPT wants ZERO drops, and
+    a window nobody looked at reports zero for the wrong reason."""
+    mine = [0]
+
+    def whose(mm, rec):
+        if (rec["regs"]["bx"] & 0xFFFF) == ours:
+            mine[0] += 1
+
+    with os88marty.bp_trace(m, "wm_su_drop", regs=True, on_hit=whose):
+        guest_secs(m, rounds * frames / 60.0)
+    return mine[0]
 
 
 with os88marty.launch("build/os8088-360.img", apps="build/apps360.img",
@@ -332,16 +341,21 @@ with os88marty.launch("build/os8088-360.img", apps="build/apps360.img",
     # Move the ground under it: a package opened and closed again is an
     # instance in and out of the table and several claims in and out of the
     # heap, which is exactly what these two pages draw from.
-    dispcp.open_named(m, mo, S, os88marty.settle, big.x, big.y, "HELLO.O88")
-    hello = [x for x in os88geom.windows(m) if "ello" in x.title]
-    if not hello:
-        fails.append("REPAIR: Hello did not open, so nothing moved")
+    # CALC.O88 AND NOT HELLO.O88, WHICH IS OFF THE APPS DISK (SPEC.md 27.0).
+    # All this line wants is a package that opens and closes again - an
+    # instance in and out of the table, several claims in and out of the heap
+    # - and Calc is hello's nearest survivor on the disk: no worker, no clock,
+    # nothing that keeps drawing while the two pages below are being read.
+    dispcp.open_named(m, mo, S, os88marty.settle, big.x, big.y, "CALC.O88")
+    calc = [x for x in os88geom.windows(m) if "alculator" in x.title]
+    if not calc:
+        fails.append("REPAIR: Calc did not open, so nothing moved")
     else:
-        mo.click(hello[0].x + 8, hello[0].y + 9)    # its close box
+        mo.click(calc[0].x + 8, calc[0].y + 9)      # its close box
         mo.to(*dispcorner.PARK)
         os88marty.settle(m)
-        if [x for x in os88geom.windows(m) if "ello" in x.title]:
-            fails.append("REPAIR: Hello did not close")
+        if [x for x in os88geom.windows(m) if "alculator" in x.title]:
+            fails.append("REPAIR: Calc did not close")
 
     # **WHAT THE CACHE LOOKED LIKE THE INSTANT BEFORE THE UNCOVER**, which is
     # the one reading that tells a REPAIR failure's two causes apart and the

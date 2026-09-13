@@ -50,6 +50,9 @@ AT_CMD_MAX    equ 26
 at_docmd:
     push ax
     push bx
+    mov byte [at_nrev], 0           ; SPEC.md 46.6.2: every command resumes
+                                    ; 46.2.2's reveal - at_paste, reached
+                                    ; through the table below, sets it again
     xor bh, bh
     mov bl, al
     or bl, bl

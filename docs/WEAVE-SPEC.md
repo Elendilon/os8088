@@ -3920,7 +3920,7 @@ soak unbudgeted). `needs`, `secs` and `wants=` are `tests/suite.py`'s:
 | soak | `weavesession` | MartyPC scripted replay of a real session, diffed against `weavesim --run`'s end state (§12.3.1) |
 | soak | `weavegfx` | pixels-vs-model with no goldens — transcript diffing is structurally blind to drawing defects (zgfx's whole reason) |
 | soak | `weavegrid` | recalc vs weavesim + incremental-equals-full-repaint (the tests/tpdraw.py identity gate) |
-| soak | `weavegame` | wirefps/wireflick with `PONG.WAB` as the load, reading `WEAVE.WSM`'s own frame and blit counters (§14) |
+| soak | `weavegame` | wireflick with `PONG.WAB` as the load, reading `WEAVE.WSM`'s own frame and blit counters (§14) |
 | soak | `weavelat` | uilat's cycle-exact bar with a Weave form as the load |
 | soak | `weavepack` | Loom's pack byte-identical to `weavesim --pack`, in the OS — every demo and every template packed ON THE MACHINE, read back off the guest's floppy and compared whole; then `tests/weave/packerr/` through LOOM for §10.5's sentence identity. THE GATE for §11.1 |
 | soak | `weavefuzz` | host-side: damaged projects through both packers, asserting they agree about whether the result is a program and about its bytes |
@@ -4003,7 +4003,7 @@ about a fraction is looked for there first.
 - **The SPEC.md §7.3 latency bar**: 37–70 ms click-to-action, measured by
   tests/uilat.py's cycle counting — the JS slice design must not push a
   Weave form past it.
-- **wirefps / wireflick** (SPEC.md §78.9's instrument): frame rate and
+- **wireflick** (SPEC.md §78.9's instrument): frame rate and
   flicker with the game as load — the canvas's double-draw and pacing
   gate.
 - **The tpdraw identity**: every incremental redraw pixel-identical to a

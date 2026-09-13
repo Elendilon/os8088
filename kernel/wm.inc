@@ -101,7 +101,24 @@ WIN_SIZE equ 34                 ; NOT a power of two: never shift, multiply
 %else
 WIN_SIZE equ 28                 ; ...and kern_small stops where SPEC.md 13.7
 %endif                          ; left it
+%ifdef KERN_SMALL
+MAX_WIN  equ 6                  ; SIX windows on kern_small (SPEC.md 11.102).
+                                ; The SDK's copy STAYS AT 12, on MAX_TASKS'
+                                ; rule - but for a DIFFERENT reason, and the
+                                ; distinction is the whole of why this row is
+                                ; cheap: MAX_WIN sizes NO package buffer (it
+                                ; appears in apps/os88api.inc exactly once, as
+                                ; a bare equ, and there is deliberately no
+                                ; WIN_SIZE beside it). What it bounds is the
+                                ; INDEX a package may hand OSAPI_WM_OWNSEG,
+                                ; and every kernel site that takes one checks
+                                ; it against THIS value and answers CF=1. So a
+                                ; package built at 12 asking a 6-slot kernel
+                                ; for slot 11 gets a clean refusal, not a read
+                                ; past wm_wins
+%else
 MAX_WIN  equ 12                 ; mirrored in apps/os88api.inc (SPEC.md 11)
+%endif
 WM_PKGD_MAX equ 8               ; how deep wm_pkgs records the nest (SPEC.md
                                 ; 66.6.1). Callbacks nest across packages - a
                                 ; callback may call OSAPI_WM_SHOW, which
@@ -224,7 +241,7 @@ WF_STALE   equ 0x8000          ; W_FLAGS bit15: THE PIXELS ON THE GLASS NO
 ; not the other either eats the shape or is read as one. Both derive from here
 ; now, so there is one place to add the next.
 WF_HIBITS  equ (WF_STALE | WF_NOANIM | WF_1BPP | WF_USRSZ) >> 8
-%if WF_HIBITS & (CUR_NSHAPE - 1)
+%if WF_HIBITS & (CUR_NWSHAPE - 1)
   %error "WF_HIBITS overlaps the cursor shape field - SPEC.md 7.2.1/11.96.17"
 %endif
 
@@ -5060,10 +5077,21 @@ wm_cursor:
                                 ; crosshair aborted the launch and the file
                                 ; row just sat there selected
     push ax
-    cmp al, CUR_NSHAPE
+    cmp al, CUR_NWSHAPE
     jae .out                    ; refuse a shape nobody ships HERE as well as
                                 ; in cur_shape_set: a bad byte written into
-                                ; the record would be re-read every pass
+                                ; the record would be re-read every pass.
+                                ; CUR_NWSHAPE AND NOT CUR_NSHAPE, and the same
+                                ; instruction either way: the hourglass belongs
+                                ; to a gfx-lock HOLD and not to a window
+                                ; (SPEC.md 7.5), so a record that could carry
+                                ; it would be a program declaring the machine
+                                ; permanently busy over its own content and
+                                ; nothing in the kernel able to take it off.
+                                ; WF_USRSZ is bit 9 of this word, so the field
+                                ; is ONE BIT WIDE and the assertion beside
+                                ; WF_HIBITS is cut from CUR_NWSHAPE for that
+                                ; reason rather than for tidiness
     cli                         ; the pushf above is this section's other half:
                                 ; wm_cursor runs on a PACKAGE task while
                                 ; wm_su_stale ORs WF_STALE into the same word
@@ -6397,6 +6425,17 @@ wm_clip_rn  db 8                ; first drawable row of the cell it was last
 wm_clip_set:
     test byte [bx+W_FLAGS], 2
     jz .gone
+%ifdef KERN_BIG
+    cmp byte [blk_sv], 0        ; A SAVER SESSION OWNS THE GLASS (SPEC.md
+    jne .gone                   ; 79.6.1). The overlay is not a window, so
+%endif                          ; nothing above puts a background painter off
+                                ; the screen and every real-time package drew
+                                ; straight through a running saver. This is
+                                ; the door 11.3 already makes all of them come
+                                ; through, and CF = 1 already means "skip the
+                                ; frame" - so it is one test in one place
+                                ; rather than a new question every package has
+                                ; to learn to ask
     push ax
     push bx
     push cx

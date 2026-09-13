@@ -63,6 +63,9 @@ RANGE_TAGS = {
     "MEM_P_WSAVE": "a window's raise cache: MEM_P_WSAVE_N of them, the slot "
                    "added (SPEC.md 11.96.3), so tm_htype subtracts and "
                    "compares against the length instead of matching a word",
+    "MEM_P_VIEW": "a Disk window's listing cache on kern_small: MEM_P_VIEW_N "
+                  "of them, the window's fm_pool slot added (SPEC.md 50.6.5), "
+                  "so tm_htype tests the range before it walks the table",
     "MEM_P_FATW": "one volume's FAT window: MEM_P_FATW_N of them, the VOLUME "
                   "added (SPEC.md 18.8.4). It was MEM_K_FATW and an ordinary "
                   "tm_ktab row until the window became a purgeable cache, "

@@ -604,6 +604,8 @@ cs_pface:
     mov ax, [cs_adry]               ; the black disc sat in the middle of the
     sub ax, 2                       ; ring with a band of the cockpit's face
     mov [cs_adhh], ax               ; between them (SPEC.md 88.9.6)
+    call cs_adsize                  ; SMALL shrinks the glass, and every mode
+                                    ; but FULL wants the table (88.9.2.5)
     mov al, CSI_PFG
     call cs_setink
     mov ax, [cs_adcx]
@@ -978,8 +980,90 @@ cs_adwin:
     mov bx, [cs_adcy]
     mov cx, [cs_adhw]
     mov dx, [cs_adhh]
-    jmp cs_pdisc                    ; ROUND: the glass is round, so the black
-                                    ; behind it is too (SPEC.md 88.9.6)
+    cmp word [cs_adtn], 0           ; the table is built: walk it (88.9.2.5).
+    jne cs_addisc                   ; A bezel too tall for it falls back here
+    jmp cs_pdisc                    ; - ROUND either way, because the glass is
+                                    ; round and so is the black behind it
+                                    ; (SPEC.md 88.9.6)
+
+; -----------------------------------------------------------------------------
+; cs_adsize - the ADI's half-width TABLE (SPEC.md 88.9.2.5). Called from
+;             cs_pface once a layout, which is the only time cs_adrx/cs_adry
+;             can move.
+;
+; **The erase is a square root a row and the radius never changes in flight.**
+; cs_elhw is `sqrt(ry^2 - dy^2) . rx / ry`, and cs_pdisc takes it again on
+; every row of every redraw for an answer that was the same last frame and
+; will be the same next: 35 roots a redraw, 41 ms of a banked frame. The rows
+; are symmetric about the centre, so the table is hh + 1 entries.
+; -----------------------------------------------------------------------------
+cs_adsize:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov word [cs_adtn], 0
+    mov ax, [cs_adhh]
+    or ax, ax
+    jle .out
+    cmp ax, CS_ADHMAX
+    ja .out                         ; too tall for the table: keep the roots
+    mov [cs_elry], ax
+    mov ax, [cs_adhw]
+    mov [cs_elrx], ax
+    xor si, si                      ; SI = dy, 0 .. hh
+.t:
+    mov ax, si
+    call cs_elhw                    ; the ONE place these roots are taken now
+    mov bx, si
+    shl bx, 1
+    mov [cs_adtab + bx], ax
+    inc si
+    cmp si, [cs_adhh]
+    jbe .t
+    mov ax, [cs_adhh]
+    mov [cs_adtn], ax
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_addisc - cs_pdisc's picture off cs_adtab: the same rows, the same runs,
+;             no root. in: AX/BX the centre, CX/DX the radii (DX = [cs_adtn])
+; -----------------------------------------------------------------------------
+cs_addisc:
+    mov [cs_elcx], ax
+    mov [cs_elcy], bx
+    mov si, dx
+    neg si                          ; SI = dy, -hh .. +hh
+.row:
+    mov bx, si
+    or bx, bx
+    jns .pos
+    neg bx
+.pos:
+    shl bx, 1
+    mov ax, [cs_adtab + bx]         ; the half-width, looked up
+    mov bx, [cs_elcx]
+    mov cx, bx
+    sub bx, ax
+    add cx, ax                      ; BX..CX = the run
+    mov ax, bx
+    mov bx, [cs_elcy]
+    add bx, si
+    mov dx, bx
+    push si
+    call cs_prect                   ; one row of it, as cs_pdisc lays one
+    pop si
+    inc si
+    cmp si, [cs_adtn]
+    jle .row
+    ret
 
 ; -----------------------------------------------------------------------------
 ; The attitude indicator (SPEC.md 88.9.2): the horizon as one line in the

@@ -352,7 +352,10 @@ cs_a_lbg:
     dw -640                         ; CSA_SPAWN    60 m in from the threshold
     dw cs_ot_paris, CS_N_PARIS      ; CSA_OBJS, CSA_NOBJ: the SAME world, seen
     dw 5650, -1450                 ; CSA_WX, CSA_WZ: THE WATER STRIP
-    dw 22756                        ; CSA_WHDG    (88.7.7) - THE SEINE
+    dw 55524                        ; CSA_WHDG    (88.7.7) - THE SEINE,
+                                    ; 305 and not 125: the strip is the same
+                                    ; water either way and this end of it is
+                                    ; the one that faces Paris (88.7.7.3)
     dw 1000                          ; CSA_WLEN    half its length...
     dw 40                           ; CSA_WWID    ...and half its width
     dw cs_n_seine              ; CSA_WNAME

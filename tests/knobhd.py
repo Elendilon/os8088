@@ -51,7 +51,14 @@ import instdeep                                            # noqa: E402
 
 KNOBS = ["BOOTPROF=1", "MOUDIAG=1"]
 KNOBTREE = None
-DEFINES = ("BOOT_PROFILE", "MOU_DIAG")
+# **DERIVED, NEVER RESTATED** (docs/plans/SOAK-PARALLEL.md 8.4). A knob's make
+# VARIABLE and its nasm DEFINE are not the same string, and this line used to
+# be the second copy of that mapping: `("BOOT_PROFILE", "MOU_DIAG")` against `os88build`'s
+# `('BOOT_PROFILE', 'MOU_DIAG', 'KERN_BIG', 'KERN_KNOB')`. It assembled - which is exactly why it survived - but as
+# a DIFFERENT cache key from the one `Tree.apply()` had just set, so the row
+# re-assembled the kernel a second time to get the same answer. `fddpark`
+# is the class that died of this mirror going stale; `tree()` asks make.
+DEFINES = ()                    # filled from the tree in main()
 MACHINES = ("os8088_xt_hdd", "os8088_xt_vga_hdd")
 BLANK = os.path.join(ROOT, "build", "hdboot-blank.img")
 
@@ -123,9 +130,9 @@ def main():
     # that any row reading it would have driven. Out of tree there is nothing
     # to restore and no reason for the row to hold the tree.
     print("  building the knob pair (%s)..." % " ".join(KNOBS))
-    global KNOBTREE
+    global KNOBTREE, DEFINES
     KNOBTREE = os88build.tree(*KNOBS).apply()
-    os88sym.default_defines(*DEFINES)
+    DEFINES = KNOBTREE.defines  # ...and apply() has already set the default
     heap = os88sym.equates(DEFINES)["HEAP_SEG"]
     print("  the knob kernel's HEAP_SEG is %04X" % heap)
 

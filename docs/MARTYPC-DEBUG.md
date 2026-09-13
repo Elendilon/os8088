@@ -40,6 +40,20 @@ depends on `serialport`, whose build script hard-fails without them.
 
 ### Installing the deps in a fresh Ubuntu container
 
+> **Do not follow this subsection by hand — run `make deps`.**
+> `tools/setup-linux.sh` is every cure below, applied in the right order and
+> only where it is needed, and `tools/martypc/build.sh` now runs it for you
+> when `pkg-config --exists libudev` fails, *before* the clone rather than
+> four minutes into cargo. This subsection is kept as the ACCOUNT of why the
+> script does what it does — read it when the script fails, not before.
+>
+> **And read it knowing the cures go stale.** The qemu version pin below was
+> right when it was taken and is wrong today: on the archive of 2026-09-08
+> both the `-updates` and the base `.deb` answer 200 and the plain install
+> takes **8 seconds**. That is exactly why the script tries plain first and
+> keeps the pin as a fallback — a transcribed cure installs an older
+> emulator for no reason, and a probed one tracks the archive.
+
 **This subsection is about ONE environment**: a fresh Ubuntu container, which
 is what an agent session gets. A Mac has neither problem — `tools/setup-macos.sh`
 installs through Homebrew (but not Rust, so `make marty` there wants `cargo`
@@ -59,8 +73,15 @@ while `/usr/bin/gpgv --version` answers perfectly well, the missing thing is
 not gpgv: apt drops to the unprivileged `_apt` user to fetch and verify, and
 in a container whose filesystem that user cannot traverse the check fails
 with that sentence. The tell is a plain `apt-get update` that ends in
-`W: Some index files failed to download` having touched nothing, after which
-the install 404s exactly as it does with no refresh at all. Run both steps
+`W: Some index files failed to download` **having touched nothing**, after
+which the install 404s exactly as it does with no refresh at all.
+
+**Weigh the "having touched nothing" and not the warning** — the warning
+alone is ambiguous and reading it as this trap wastes a diagnosis. A blocked
+third-party PPA prints the identical line: on the agent container two PPAs
+(`deadsnakes`, `ondrej/php`) 403 through the outbound proxy every time while
+the main archive fetches all 10.9 MB perfectly, and the refresh is entirely
+successful. Judge it by whether the INSTALL then works. Run both steps
 with the sandbox off:
 
 ```sh
@@ -83,6 +104,12 @@ V='1:8.2.2+ds-0ubuntu1'              # the BASE version, NOT -updates
 apt-get install -y --no-install-recommends \
         "qemu-system-x86=$V" "qemu-system-common=$V" "qemu-system-data=$V"
 ```
+
+**This is the FALLBACK now, not the first move** (see the note at the top of
+this subsection): try the plain install, and pin only if it fails.
+`tools/setup-linux.sh` does exactly that, and derives `$V` from `apt-cache
+madison` rather than hard-coding it, so the pin does not rot into naming a
+version the pool no longer has either.
 
 `-t noble` is **not** enough — it still resolves to the `-updates` version.
 `--no-install-recommends` skips the gstreamer/libcaca display extras, which
@@ -527,6 +554,98 @@ the limit and blames the guest (an install driven that way sat for 40
 minutes with the install long finished). `settle` samples the cycle counter
 first and refuses a window it can prove cannot close, naming `until`.
 
+### Driving the UI with breakpoints armed: `os88marty.bp_trace`
+
+**A breakpoint and a UI verb cannot simply be spelled one after the other**,
+and the reason is not the emulator. Every verb in `os88ui` and `os88mouse`
+CONFIRMS what it did by reading guest state — `to` polls the published
+`mouse_x` until it agrees, `_edge` polls `mouse_btn`, `open_drive` reads
+`wm_wins` — and a guest stopped at a breakpoint publishes nothing new. So an
+armed breakpoint does not send a click to the wrong place; it makes the
+click's own PROOF unobtainable, and the verb reports a machine that refused to
+go where it was sent.
+
+The answer is a PUMP — something that resumes the guest at every hit while
+recording it — and `bp_trace` is that with the pump on a daemon, so the block
+body is ordinary code:
+
+```python
+with os88marty.bp_trace(m, "wm_su_try", "gfx_restore") as tr:
+    ui.raise_window(w)                  # os88ui verbs, unmodified
+print(tr.count("wm_su_try"), tr.ms("wm_su_try", "gfx_restore"))
+```
+
+`targets` are anything `bp_exec` takes plus raw `breakpoints()` dicts, so the
+`mem`, `int` and `io` types work too. The set is replaced on entry, cleared on
+exit, and the guest is left running either way.
+
+**That last guarantee is also the one case where a trace is the wrong tool.**
+A row that wants the machine HELD at the stop — because the stop *is* the
+context it works in — must keep a bare `bp_exec`. Two do: `tests/paintrow.py`
+patches a caller while stopped inside `pt_blit`, and `tests/paintlzw.py`'s
+`paint_base` returns with the guest at `toast_show` because the decode bracket
+after it starts from there. Converting the second reached its answer correctly
+and then timed out — the resume on the way out is past `pt_gif_in` before the
+next arm lands. Both carry a comment saying so; add one if you write a third.
+
+- **`regs=True`** records a full register set at every stop — one more round
+  trip each, and what attributes a hit to a window (`os88span.py`'s `di=`/`bx=`
+  columns).
+- **`on_hit=f`** is called `(m, record)` WHILE THE GUEST IS STOPPED and its
+  answer kept as the record's `hit`. This is the one that matters for
+  conversions: a value like Paint's damage rect or `wm_clip_n` is only true
+  *inside* the routine the breakpoint is on, so it cannot be read from the
+  body at all. The callback may also **disarm** (`m.breakpoints([])`, to let
+  the rest of a gesture run at speed once the answer is in) or **re-arm** on
+  an address only that stop can name — `tests/paintsu.py` reads `wm_su_kb`'s
+  return address off the guest's own stack and arms it.
+- **`cap`** bounds what is KEPT; `tr.n` stays the true count and
+  `tr.overflowed` says the two have parted.
+- **`poll`** is the pump's interval and so the mean latency of a resume,
+  5 ms by default.
+
+**STAY IN THE BLOCK UNTIL THE WORK HAS RUN — `tr.until(cond, what)`.** The
+sharpest mistake here, and it cost two conversions in one run. A `with` block
+ends when its BODY ends, and a gesture returns when it is DECODED, not when
+the work it triggers has finished: a drag's mouse-up is confirmed the moment
+`mouse_btn` agrees, and on a 4.77 MHz 8088 the repaint it started has not
+begun. Leaving there clears the breakpoints before the traced code executes,
+and the row then reports the KERNEL never doing the thing — `blitcut` said "no
+straddling canvas blit arrived in 240s" with one entry recorded and no return.
+`required=False` answers True/False instead of raising, for work that
+legitimately may not happen.
+
+```python
+with os88marty.bp_trace(m, entry, ret, regs=True, on_hit=match) as tr:
+    mo.drag(x0, y0, x1, y1)
+    tr.until(lambda: bool(got), "a straddling canvas blit", limit=240.0)
+```
+
+**The ceiling is real and is not a bug to tune away.** A hit costs two or
+three round trips plus up to `poll` of stopped guest, so a breakpoint on a hot
+symbol — `gfx_hline` inside a repaint — runs the guest at a fraction of its
+speed and the wait around it fails on its host backstop. Arm the narrowest
+symbol that answers the question; when one trigger packet is the whole
+gesture, `tools/os88span.py`'s arm-late pattern is still cheaper.
+
+**Two failures it inherits from `bp_count`, both of which cost a run.** It
+counts `"breakpoint"` and never `!= "running"` — `advance()` and `pause()`
+from the body leave the guest `paused`, and a pump that resumed those would
+cut the body's own `advance` short. And it dedupes on the server's `stops`
+sequence, because `run` and the `status` after it are two round trips and the
+resume has not always landed by the next poll — see *tell a stop from the next
+one* above; it was written to dedupe on `instructions`, which is not a clock.
+It enters through `go()`, so the stop a machine may already have been sitting
+at when the block opened is not charged to the block.
+
+**Without a trace, an armed breakpoint now says so.** `os88mouse`'s polls
+watch the guest clock the way `_Progress` does, so a breakpoint armed outside
+a `bp_trace` block fails in about two seconds naming the machine. Measured on
+this container, the same gesture before that guard took **332.1 seconds** — it
+ended in `guest_sleep`'s stall arm inside `to`'s retry, having spent all of it
+in `_landed`, whose deadline is in guest CYCLES that a stopped machine never
+spends. `tests/bptrace.py` is the A/B and the gate.
+
 ### Naming a kernel flag: `os88sym`
 
 `m.sym("fpg_on")` is the flat address of a kernel symbol, and `python3
@@ -943,7 +1062,8 @@ is the client — a CLI, a REPL (address and no verb) and an importable
 | command | |
 |---|---|
 | `ping` | the emulator's pid — what `launch` checks against the one it spawned |
-| `status` | exec state, cycles, instructions, CS:IP |
+| `status` | exec state, `stops`, cycles, instructions, CS:IP |
+| | `stops` is a SEQUENCE NUMBER counting every entry into a stopped state, and `run` also answers `resumed_from` — the count as the resume found the machine. Two reports of one stop carry one number and a new stop carries a greater one, which is the only way to tell *"my resume has not landed"* from *"it landed and stopped again"* (below) |
 | `regs` / `setreg` | all sixteen-bit registers and flags |
 | `read` / `write` | memory, by flat `addr` or by `seg`+`off` |
 | `inb` / `outb` | I/O ports |
@@ -989,6 +1109,22 @@ Load-bearing:
   what `Marty.stopped()` is), or `== "breakpoint"`. Five separate
   investigations here concluded "breakpoints do not fire in this build" and
   every one was the poll.
+- **A HIT AND THE SAME HIT AGAIN ALSO READ ALIKE — use `stops`, and never
+  the IP.** Having resumed a breakpoint, `"breakpoint"` on the next poll is
+  either the stop you just resumed past (the resume has not landed) or a
+  second entry, and the state cannot say which. **The address cannot either**,
+  and that is the trap worth carrying: a breakpoint that fires repeatedly
+  fires at the SAME address every time, so "the IP has not moved" is true of a
+  machine that never resumed and of one that went the whole way round — an
+  `int 08h` breakpoint on a plain desktop gives 59 consecutive stops at
+  59 identical `flat_ip`s. `status`'s `stops` is the answer, and
+  `Marty.go()`/`wait_stop(since=...)` are it applied: `go()` hands back the
+  mark its resume was measured from and a wait past that mark cannot come back
+  with the stop that was already there. `instructions` is NOT the fallback —
+  `machine.run()` accumulates it once at the END of a batch and returns early
+  at a breakpoint, so the batch a stop lands in never reaches the count;
+  `cycles` is the honest clock and is what `os88marty` uses against an
+  emulator built before the field. `tests/martyresume.py` is the row.
 - **`sym()` is FLAT; `execseg`'s `off` is an OFFSET.** `sym("wm_show")`
   answers `KERNEL_SEG*16 + offset`, so it pairs with `{"type": "exec",
   "addr": ...}`. Put it in an `execseg`'s `off` and the breakpoint is armed
@@ -1398,6 +1534,9 @@ offering upstream:
   was "not found" (above).
 - **`run` from a breakpoint advanced zero cycles** unless the transition went
   through `machine.run()`'s `BreakpointHit` arm (above).
+- **A stop and the next one were indistinguishable**, so every client invented
+  its own test and two of them were wrong (above). `status` carries `stops`
+  now, and `run` carries `resumed_from`.
 
 The server itself is the answer to the crate's own standing TODO — *"We
 don't have any backend to run an event loop. If we want to actually run the

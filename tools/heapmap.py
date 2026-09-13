@@ -55,7 +55,10 @@ KTAG = {0xFF01: "SAVE",  0xFF03: "DRV",   0xFF04: "COPY",
 # Purgeable RANGES: base -> (name, count). The consumer adds an ordinal to the
 # base, so these are decoded before the exact-match table (SPEC.md 50.6).
 # 0xFF05 was MEM_K_FATW until the FAT window became a cache (SPEC.md 18.8.4).
-PGRANGE = {0xFB10: ("WSAVE", 16), 0xFD20: ("FATW", 8)}
+PGRANGE = {0xFB10: ("WSAVE", 16), 0xFC10: ("VIEW", 4), 0xFD20: ("FATW", 8)}
+# 0xFC10 is MEM_P_VIEW, a Disk window's listing cache - kern_small only
+# (SPEC.md 22.1/50.6). On kern_big that claim is an ordinary movable one
+# owned by the window's instance slot, so the range simply matches nothing.
 PGO_MIN, PGO_MAX = 0xFB, 0xFE
 PURGE = {0xFB: "TRIV", 0xFC: "LOW", 0xFD: "MED", 0xFE: "HIGH"}
 

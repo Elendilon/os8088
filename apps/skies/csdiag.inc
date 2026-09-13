@@ -32,6 +32,14 @@ CSD_BLKS  equ 9                     ; ...and the blocks painted in all
 CSD_ROWS  equ 4                     ; scan rows a word is painted in
 CSD_CANB  equ 16                    ; the watchdog's own guard, beside the
 CSD_PAT   equ 0xA55A                ; bytes a wild write was seen to reach
+CSD_TOP   equ 36                    ; the device row the strip starts on when
+                                    ; the backend leaves room above the view
+                                    ; (SPEC.md 88.14.3). NOT 0: KFZ=1's kernel
+                                    ; heartbeat owns rows 0-3 and its 30-second
+                                    ; report is drawn at MBAR_H + 8 = row 28,
+                                    ; eight rows tall - so 36 clears both, and
+                                    ; 36 + CSD_BLKS * CSD_ROWS = 72 clears a
+                                    ; Hercules view at 74 (cs_vptab) by two
 
 ; -----------------------------------------------------------------------------
 ; cs_diag_on / cs_diag_off - take and give back the int 08h vector. Called
@@ -62,6 +70,7 @@ cs_diag_on:
     pop es
     pop di
     pop cx
+    call cs_diag_rows               ; where the strip goes (SPEC.md 88.14.3)
     pushf                           ; CLAUDE.md: pushf/cli ... popf, so an
     cli                             ; interrupt disabled here comes back
     mov ax, [es:8*4]
@@ -89,6 +98,108 @@ cs_diag_off:
     mov [es:8*4 + 2], ax
     popf
     pop es
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_diag_devo - the device byte offset of absolute device row AX, in AX
+;
+; cs_r_setup's arithmetic, duplicated rather than shared: that routine walks
+; the VIEW's rows and takes its row from [cs_vy], and what this wants is a
+; row ABOVE it. A diagnostic build may spend forty bytes to avoid changing a
+; hot routine's shape. Clobbers CX, DX.
+; -----------------------------------------------------------------------------
+cs_diag_devo:
+    cmp byte [cs_back], CSB_C160
+    je .c160
+    cmp byte [cs_back], CSB_HERC
+    je .herc
+    mov dx, ax                      ; CGA: bank = y & 1, 80 bytes a row
+    and dx, 1
+    push dx
+    shr ax, 1
+    mov cx, 80
+    mul cx
+    pop dx
+    jmp short .bank
+.herc:
+    mov dx, ax                      ; HERC: bank = y & 3, 90 bytes a row
+    and dx, 3
+    push dx
+    mov cl, 2
+    shr ax, cl
+    mov cx, 90
+    mul cx
+    pop dx
+    add ax, 5                       ; ...and the box starts at x = 40
+    jmp short .bank
+.c160:
+    mov cx, 160
+    mul cx
+    xor dx, dx
+.bank:
+    mov cl, 5
+    shl dx, cl
+    mov cl, 8
+    shl dx, cl
+    add ax, dx
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_diag_rows - WHERE THE STRIP GOES, once (SPEC.md 88.14.3)
+;
+; It used to go at the VIEW's top-left. THE BLIT WAS NOT EATING IT - that was
+; this file's first explanation and it is measurably wrong: cs_blit copies a
+; per-row SPAN and not the box's width, and over all 200 view rows with the
+; aeroplane manoeuvring those spans never leave bytes 15 to 64, which is the
+; 400-wide window and nothing else. The watchdog's bytes 5 and 6 were never
+; touched, on any row, ever.
+;
+; What IS in the way is the kernel: KFZ=1's heartbeat owns device rows 0-3,
+; and its 30-second report is drawn at MBAR_H + 8 - row 28, eight rows tall -
+; which the two instruments together put straight through the strip. So it
+; goes at CSD_TOP, clear of both and clear of the view, where nothing in
+; either the kernel or the package writes at all.
+;
+; The field mixture that started this - a block whose three rows disagreed, a
+; blank fourth row that was not blank, and one block whose lit pixels spanned
+; SEVENTEEN columns of a sixteen-pixel field - is therefore STILL UNEXPLAINED,
+; and moving the strip is one variable removed rather than a fix for it.
+;
+; Where there is no room - CGA and Mode X both put the view at row 0 - it
+; falls back to the view's own rows, which is exactly what it did before.
+; Preserves every register.
+; -----------------------------------------------------------------------------
+cs_diag_rows:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    push es
+    push ds
+    pop es
+    cld
+    mov bx, [cs_vy]
+    cmp bx, CSD_BLKS * CSD_ROWS + CSD_TOP
+    jb .go                          ; no room above: the view's own rows
+    mov bx, CSD_TOP
+.go:
+    mov di, cs_doff
+    mov cx, CSD_BLKS * CSD_ROWS
+.r:
+    push cx
+    mov ax, bx
+    call cs_diag_devo
+    stosw
+    inc bx
+    pop cx
+    loop .r
+    pop es
+    pop di
+    pop dx
+    pop cx
+    pop bx
     pop ax
     ret
 
@@ -270,7 +381,7 @@ cs_diag_paint:
 .row:
     mov si, di
     shl si, 1
-    mov si, [cs_devoff + si]
+    mov si, [cs_doff + si]          ; ABOVE the view where there is room
     cmp cx, 1                       ; the last row of a block is left BLANK,
     jne .put                        ; so four blocks read as four in a
     xor ax, ax                      ; photograph rather than as one smear

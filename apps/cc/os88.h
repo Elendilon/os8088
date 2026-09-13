@@ -127,8 +127,11 @@
  *     function that obeys them lives (docs/APPLE2-SPEC.md section 13.3).
  *     (OSAPI_FULLSCREEN, the WINDOW latch of SPEC.md 11.2, is a different
  *     thing again and is os88_fullscreen() below.)
- *   OSAPI_GFX_LINIT / LSTEP / LSTEPV      a resumable Bresenham whose state
- *     block is explicitly not yours to read (SPEC.md 5.6.7).
+ *   OSAPI_GFX_LINIT / LSTEP / LSTEPV      RETIRED - a stock kernel carries the
+ *     three cells and no body and answers CF=1 (SPEC.md 5.12.6). The
+ *     resumable walk is apps/os88gfx.inc's `GFXE_WALK` now, which is NASM and
+ *     so out of C's reach; a C package that wants one writes the recurrence
+ *     itself and commits with os88_gfx_points().
  *   OSAPI_SYS_SNAPSHOT / CLAIM_SNAPSHOT / SYS_KB   buffer layouts that the
  *     kernel renumbers; for the Task Manager, not for applications.
  *   OSAPI_VOL_* / OSAPI_FS_* / OSAPI_DRV_CFG / OSAPI_FILE_*_SYS   fenced on
@@ -149,7 +152,7 @@
  *     to read a file's HEADER and decide from it before reading the rest,
  *     which os88_file_read() cannot express - it is os88_file_read_at().)
  *
- * The count: 105 of the 160 slots apps/os88api.inc publishes, plus six
+ * The count: 105 of the 164 slots apps/os88api.inc publishes, plus six
  * window-record accessors and six runtime helpers that are not slots at all -
  * 133 C entry points, and every one of them is in apps/cc/os88thunk.asm -
  * FOUR OF THEM ONLY IF THE SHIM SAYS SO. The four fsx_* thunks are behind
@@ -158,7 +161,7 @@
  * with no bodies. The recipe below counts the FILE, which holds all of them.
  *
  * How those three are counted, so the next person does not have to guess:
- *   160  `%define OSAPI_<NAME> KERNEL_SEG:0x...` lines in apps/os88api.inc.
+ *   164  `%define OSAPI_<NAME> KERNEL_SEG:0x...` lines in apps/os88api.inc.
  *        OSAPI_FIND_SZ is an `equ`, not a slot, and is not one of them.
  *   105  those names that appear in apps/cc/os88thunk.asm, in code rather
  *        than in a comment - a macro invocation names its slot as an
@@ -176,8 +179,9 @@
  * PACCMAN (SPEC.md 91) added os88_gfx_blitp() and os88_wm_display(), and the
  * recipe above then answered 99/155/127; the merge that brought PACCMAN and
  * THE WIRE onto the integration branch beside its own five new slots answers
- * 101/160/129, and APPLE2's four gated fsx thunks (SPEC.md 53) take the file
- * to 105/160/133. Run the
+ * 101/160/129, APPLE2's four gated fsx thunks (SPEC.md 53) take the file to
+ * 105/160/133, and this cycle's four slots - PKG_REHOME, GFX_POINTS, CUR_BUSY
+ * and WM_MINIMIZE, none of them wrapped - take it to 105/164/133. Run the
  * recipe when you touch this file; do not add one to what is written here.
  * ==========================================================================*/
 
@@ -504,6 +508,16 @@ void os88_set_color(int colour);                 /* ONE global pen for the
                                                   * the same lock hold as the
                                                   * drawing it colours */
 void os88_gfx_pixel(int x, int y);
+void os88_gfx_points(const void *pts, int n);    /* SPEC.md 5.6.9: n records
+                                                  * of two ints, x then y, in
+                                                  * a static of yours. THE
+                                                  * PLOT PRIMITIVE - one
+                                                  * arrival for a whole set of
+                                                  * pixels you computed, where
+                                                  * os88_gfx_pixel is one far
+                                                  * call EACH. A loop that
+                                                  * plots more than two or
+                                                  * three points wants this */
 void os88_gfx_hline(int x1, int x2, int y);
 void os88_gfx_vline(int x, int y1, int y2);
 void os88_gfx_fill(int x1, int y1, int x2, int y2);
@@ -511,7 +525,6 @@ void os88_gfx_frame(int x1, int y1, int x2, int y2);
 void os88_gfx_fill_gray(int x1, int y1, int x2, int y2);   /* 50% dither */
 void os88_gfx_xor_rect(int x1, int y1, int x2, int y2);
 void os88_gfx_xor_fill(int x1, int y1, int x2, int y2);
-void os88_gfx_line(int x1, int y1, int x2, int y2, int dilate);  /* 5.6 */
 
 /* The 8 pattern bytes are yours and are SCREEN-aligned, so two rects that
  * abut tile seamlessly. A set bit is WHITE, bit 7 is leftmost. */

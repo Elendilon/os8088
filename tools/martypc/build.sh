@@ -23,7 +23,66 @@ RUN=$BUILD/run
 REPO=$(sed -n 's/^repo=//p' "$HERE/UPSTREAM")
 PIN=$(sed -n 's/^commit=//p' "$HERE/UPSTREAM")
 
-command -v cargo >/dev/null || { echo "build.sh: cargo not found - install Rust" >&2; exit 1; }
+# --- the preflight -----------------------------------------------------------
+# MartyPC depends on the `serialport` crate, whose build script probes for
+# libudev THROUGH pkg-config on Linux and hard-fails without it. That probe
+# runs after the clone, the patches and most of a cargo build, so the missing
+# 200KB header is reported MINUTES LATE, dressed as a compiler error, to
+# somebody who by then has stopped provisioning a box and started debugging a
+# build. Asking the same question here costs a few milliseconds.
+#
+# It is exactly serialport's own test, so it does not guess: if this fails,
+# that build fails. Stopping now is therefore strictly better than stopping
+# later on every box, and never a new refusal.
+#
+# WHAT IT WILL NOT DO IS INSTALL SOFTWARE ON SOMEBODY'S WORKSTATION.
+# Auto-repair is gated on being ROOT - which a disposable container is and a
+# developer's box is not - and on apt existing. Everywhere else it prints the
+# command and stops, because a build script that apt-installs behind a
+# contributor's back is a worse failure than the one it is preventing.
+# OS88_NO_PREFLIGHT=1 skips the check outright, for an environment where the
+# probe is wrong in a way this script cannot know about.
+if [ "$(uname -s)" = "Linux" ] && [ "${OS88_NO_PREFLIGHT:-}" != "1" ] \
+   && ! pkg-config --exists libudev 2>/dev/null; then
+    if [ "$(id -u)" = 0 ] && command -v apt-get >/dev/null 2>&1 \
+       && [ -x "$ROOT/tools/setup-linux.sh" ]; then
+        echo "==> libudev-dev is missing; the serialport crate will fail this"
+        echo "    build. Installing it (root + apt) before the expensive part."
+        "$ROOT/tools/setup-linux.sh" --quiet || true
+    fi
+    if ! pkg-config --exists libudev 2>/dev/null; then
+        cat >&2 <<'MSG'
+build.sh: pkg-config cannot find libudev, so this build WILL fail several
+          minutes from now inside cargo, on the serialport crate. Stopping
+          here instead. Install the headers and pkg-config first:
+
+              Debian/Ubuntu   apt-get install -y libudev-dev pkg-config
+              Fedora/RHEL     dnf install -y systemd-devel pkgconf-pkg-config
+              Arch            pacman -S --needed systemd-libs pkgconf
+
+          `tools/setup-linux.sh` does the Debian/Ubuntu case, including the
+          two apt traps a fresh container hits (docs/MARTYPC-DEBUG.md).
+
+          If libudev IS present and this probe is simply wrong for your
+          environment, set OS88_NO_PREFLIGHT=1 to skip it.
+MSG
+        exit 1
+    fi
+fi
+
+command -v cargo >/dev/null || { cat >&2 <<'MSG'
+build.sh: cargo not found - MartyPC is Rust, and this is the one dependency
+          tools/setup-linux.sh deliberately does NOT install: Rust comes from
+          rustup rather than the distribution archive, and a 200MB toolchain
+          is a decision for whoever is at the keyboard.
+
+              curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+              . "$HOME/.cargo/env"
+
+          On a Mac, `tools/setup-macos.sh` installs everything else and not
+          this, which is exactly the case that catches people out.
+MSG
+exit 1; }
 
 # --- source, at the pin ------------------------------------------------------
 # THREE STATES, not two, and the third is what any CACHING build is in on every

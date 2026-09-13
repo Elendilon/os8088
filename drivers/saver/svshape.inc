@@ -346,11 +346,10 @@ sv_hrun:
 
 .spend:
     jcxz .none
-    push ds
-    pop es                      ; ES:DI = the array, in OUR segment
-    mov di, sv_hdsc
-    call OSAPI_GFX_LSTEPV
-.none:
+    mov si, sv_hdsc             ; the array, in our own segment. SI is dead
+    call gfxe_wstepv            ; here - it built the array above - and the
+    call gfxe_pput              ; WALK is ours now (SPEC.md 5.12.5), so what
+.none:                          ; reaches the kernel is the pixels it stepped
     clc
     pop es
     ret
@@ -426,7 +425,7 @@ sv_hinitw:
     mov cx, [sv_hx2]
     mov dx, [sv_hy2]
     mov di, bp
-    call OSAPI_GFX_LINIT
+    call gfxe_winit                 ; SPEC.md 5.12.5: the block is ours
 
     add bp, GLS_SZ
     inc byte [sv_hci]
@@ -874,3 +873,9 @@ sv_heb:     times SV_HNF * SV_HNE db 0
 sv_hln:     times SV_HNF * SV_HNE dw 0
 sv_hwk:     times SV_HNF * SV_HNE * GLS_SZ db 0
 sv_hdsc:    times SV_HACT * 2 dw 0
+; ...and the points those descriptors step into. SV_HACT descriptors of at most
+; SV_HPX pixels each is the exact bound, so this list is never forced to commit
+; itself early (gfxe_pflush stays 0) - which is the one place in the tree where
+; the buffer can be sized by arithmetic rather than by measurement.
+SV_PTMAX    equ SV_HACT * SV_HPX
+sv_pts:     times SV_PTMAX * 2 dw 0

@@ -69,7 +69,14 @@ STANDARD = {
 SYSTEM_IMAGES = ["os8088.img", "os8088-120.img", "os8088-720.img",
                  "os8088-360.img"]
 DATA_IMAGES = ["apps.img", "apps120.img", "apps720.img", "apps360.img",
-               "media360.img"]
+               "media360.img",
+               # ...and the CATEGORY DISKS (SPEC.md 24.6), which are 360KB
+               # only, like the media disk and for its reason one step on.
+               # They are DATA images and not system ones: no boot sector of
+               # ours, no kernel, so t_canary and t_blobruns - which are both
+               # about a bootable volume - have nothing to say about them and
+               # do not list them.
+               "office360.img", "network360.img", "games360.img"]
 
 
 class Vol:

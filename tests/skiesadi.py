@@ -24,7 +24,7 @@ aeroplane that has no clamp.
      unit at the angles it can reach.
 
 --clobber-adi is the red run (docs/WRITING-TESTS.md 1): it puts the raw
-`idiv cx` back over the guarded divide, and checks 1 and 2 go red.
+divide back over the guarded one, and checks 1 and 2 go red.
 """
 import argparse
 import os
@@ -88,17 +88,32 @@ def main(argv):
         m.advance(frames=30)
         m.run()
         if a.clobber_adi:
-            # `mov bx,cx / call cs_cdiv` back to `idiv cx` and three nops:
-            # F7 F9 is idiv cx, and the pair it replaces is five bytes
+            # `call cs_cdiv` back to a bare `idiv bx`, which is the original
+            # defect exactly: cs_cdiv IS an `idiv bx` behind a range guard
+            # (csraster.inc), the divisor is cos, and cos is EXACTLY 0 through
+            # the window this row walks. E8 rel16 is three bytes and F7 FB is
+            # two, so the third is a nop.
+            #
+            # THE ANCHOR IS THE FOUR BYTES IN FRONT OF THE CALL, not the call
+            # itself, which is a bare E8 and appears all over this proc. It
+            # used to anchor on `mov bx,cx` (89 CB) and 470bd4c moved cos out
+            # of CX - sin owns that register - so the pattern went stale and
+            # THE RED RUN STOPPED RUNNING AT ALL. That is the arm the row is
+            # worth having for (docs/WRITING-TESTS.md 1), and it exits rather
+            # than passing, so the failure names the drift instead of quietly
+            # asserting nothing.
             code = m.read(lin + mp["cs_d_adi"], 400)
-            i = code.find(b"\x89\xcb\xe8")          # mov bx,cx ; call ...
+            i = code.find(b"\x89\xc3\x58\x5a\xe8")   # mov bx,ax/pop ax/pop dx/call
             if i < 0:
                 sys.exit("skiesadi: cs_d_adi does not divide the way this "
-                         "patch expects")
+                         "patch expects - no `mov bx,ax / pop ax / pop dx / "
+                         "call cs_cdiv` in its first 400 bytes, so the guarded "
+                         "divide has moved and this red run would prove "
+                         "nothing")
             m.pause()
-            m.write(lin + mp["cs_d_adi"] + i, b"\xf7\xf9\x90\x90\x90")
+            m.write(lin + mp["cs_d_adi"] + i + 4, b"\xf7\xfb\x90")
             m.run()
-            print("  (the raw `idiv cx` put back: this run must fail)")
+            print("  (the raw `idiv bx` put back: this run must fail)")
 
         def fly(row):
             if byte("cs_back") != 0:
@@ -140,18 +155,29 @@ def main(argv):
                 poke("cs_pitch", b"\x00\x00")
                 poke("cs_spd", (60 * 128).to_bytes(2, "little"))
                 poke("cs_state", b"\x01")
-                m.run()
-                m.advance(frames=3)
-                if m.wait_stop(3.0) is not None and m.regs():
-                    st = m.status().get("state")
-                    if st == "breakpoint":
-                        faults.append(r)
-                        m.bp_exec()
-                        m.run()
-                        m.advance(frames=2)
-                        m.run()
-                        m.bp_exec(ivt)
-                        continue
+                # `advance` IS the wait, and its own reply is the answer:
+                # it runs the bounded window and stops, and the server leaves
+                # a hit LATCHED as `breakpoint` rather than overwriting it
+                # with `paused`. A `wait_stop` behind it asks for a SECOND
+                # stop that nothing is coming to make - `advance` takes the
+                # resume mark, so the stop it just produced is not one a wait
+                # measures to - and a stopped guest burns no cycles, so that
+                # wait cannot even time out on its guest budget. It was the
+                # only site in the tree with that shape.
+                #
+                # Nor is the guest resumed first. That is not merely redundant
+                # here - `advance` clears a latched hit on its way in, so a
+                # fault landing in the gap before it arrives is one the window
+                # is then counted from the far side of, and the roll this
+                # iteration is pinned at stops being the roll under test.
+                st = m.advance(frames=3)
+                if st.get("state") == "breakpoint":
+                    faults.append(r)
+                    m.bp_exec()
+                    m.advance(frames=2)
+                    m.run()
+                    m.bp_exec(ivt)
+                    continue
                 m.run()
                 rises.append(sg(w("cs_addy")))
             m.bp_exec()

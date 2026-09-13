@@ -57,6 +57,66 @@ if os.environ.get("NOPLANE"):
 S = os88sym.linear
 
 
+def wide_blit(m, gesture, wide, syms=BLITS, limit=300.0, regs=False,
+              at_hit=None):
+    """Run `gesture` and answer the FIRST blit at least `wide` pixels across.
+
+        hit = blitpair.wide_blit(m, lambda: mo.dblclick(rx, ry), iw)
+        ox, oy = hit[0], hit[1]          # ...where Paint put its canvas
+
+    Answers `(ax, bx, cx, dx)` - the primitive's own arguments, so the origin
+    and the size both come out of the call rather than out of a guess - or
+    None if no such blit arrived. `regs=True` answers the whole register set
+    instead, for a caller that wants more than the four.
+
+    `at_hit(m, regs)` is called AT the matching stop, before the guest is
+    resumed, for anything that is only readable there. Three rows need it and
+    all three want the same thing: Paint's own segment, off the API stub's
+    saved DS at `[ss:sp+2]`, which is the one place the harness is stopped
+    inside a call Paint made. A word on the guest's stack is gone a
+    microsecond after the resume, so this cannot be done by the caller
+    afterwards - `wide_blit` returning the registers is not enough.
+
+    WHY IT IS HERE AND NOT COPIED. Five rows carried this same twelve lines
+    (`paintdraw`, `paintfill`, `paintsu`, `blitpair`, and `paintrow` in a
+    variant), each spelled slightly differently, and every one of them had
+    the same two properties: it armed a breakpoint and then drove the mouse
+    with nothing pumping it, and it took the FIRST wide enough call and
+    stopped caring. The first of those is why it needed converting at all -
+    a guest stopped at a breakpoint publishes no `mouse_btn`, so os88mouse
+    cannot prove the click it is making, and these worked only because the
+    click is decoded before the blit is reached. The second is the reason
+    the disarm below is not an optimisation: `gfx_blit4` on a picture that
+    dithers is one call per RUN, so leaving it armed after the answer is in
+    stops the guest thousands of times for nothing.
+
+    WHY THE HEIGHT IS NOT ASKED FOR. The load path emits one `iw x 1` call
+    per row through this same primitive, so which shape arrives first depends
+    on the picture and the adapter. Requiring both dimensions found no such
+    call at all, and asserting the height as the canvas's reported "the
+    canvas is 466x1 and the picture 466x110 - Paint cropped it" about a Paint
+    that had cropped nothing. Ask the ORIGIN here and the size from Paint.
+    """
+    found = []
+
+    def grab(mm, rec):
+        r = rec["regs"]
+        if not found and r["cx"] >= wide:
+            if at_hit is not None:
+                at_hit(mm, r)           # ...whatever is only true HERE
+            found.append(r if regs else (r["ax"], r["bx"], r["cx"], r["dx"]))
+            mm.breakpoints([])          # ...and let the rest run at speed
+        return None
+
+    with os88marty.bp_trace(m, *syms, regs=True, on_hit=grab) as tr:
+        gesture()
+        # STAY IN THE BLOCK: the gesture returns when the click is decoded and
+        # the launch it starts has not begun. See BpTrace.until.
+        tr.until(lambda: bool(found), "a blit at least %d wide" % wide,
+                 limit=limit, required=False)
+    return found[0] if found else None
+
+
 def gif_pixels(path):
     """(w, h, one palette index per pixel) for a GIF87a with a global table.
 
@@ -200,29 +260,11 @@ def main():
         # the canvas ARRIVED, not which primitive carried it, and the two
         # take the same arguments in the same registers - so both are armed
         # and the first wide enough wins.
-        m.bp_exec(*BLITS)
-        mo.dblclick(rx, ry)
-        # WHERE THE CANVAS IS: the first blit as wide as the picture. Its
-        # HEIGHT is not the canvas's and must not be read as one - the load
-        # path emits one 466x1 call per row through this same primitive, so
-        # which of the two shapes arrives first depends on the picture and on
-        # the adapter. Asserting `(bw, bh) == (iw, ih)` here reported
-        # `the canvas is 466x1 and the picture 466x110 - Paint cropped it`
-        # about a Paint that had cropped nothing, and requiring both
-        # dimensions instead found no such call at all.
-        #
-        # So this takes the ORIGIN from the blit and asks PAINT for the size,
-        # below, which is the thing that actually answers "did it crop".
-        r = None
-        for _ in range(400):
-            if not m.wait_stop(limit=300.0):
-                break
-            r = m.regs()
-            if r["cx"] >= iw:
-                break
-            m.bp_exec(*BLITS)
-            m.run()
-            r = None
+        # WHERE THE CANVAS IS: the first blit as wide as the picture, out of
+        # `wide_blit` above - which is where the twelve lines this used to be
+        # now live, together with the two things they encode and the reason
+        # the click has to be inside a trace.
+        r = wide_blit(m, lambda: mo.dblclick(rx, ry), iw, regs=True)
         if r is None:
             sys.exit("blitpair: Paint never blitted a canvas through %s"
                      % " or ".join(BLITS))

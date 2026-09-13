@@ -774,6 +774,16 @@ sv_ry:      db 0
 ; an overlay has neither. What decides it here is that svcfg.inc RESERVES
 ; `times OS88LINE_SZ` of state, and a `times` count has to be known when the
 ; line is assembled rather than in a later pass.
+; --- the embeddable graphics library (SPEC.md 5.12) ---------------------------
+; SPEC.md 5.6.7's resumable walk, in this driver's own image: svshape.inc grows
+; a figure a few pixels an edge a frame, which is arithmetic over blocks the
+; driver already owned. OSAPI_GFX_POINTS does the clip, the cursor, the adapter
+; and the second display at the commit.
+%define GFXE_WALK                   ; ...which implies GFXE_POINTS
+%define GFXE_PT_BUF sv_pts
+%define GFXE_PT_MAX SV_PTMAX
+%include "os88gfx.inc"
+
 %include "os88ui.inc"           ; the standard button, glyph and press latch
 %include "os88line.inc"         ; ...and the one-line field the two numbers use
 

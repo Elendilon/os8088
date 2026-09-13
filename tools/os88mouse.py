@@ -173,6 +173,59 @@ def _wait(m, secs, why="click"):
             pass
 
 
+# A GUEST THAT IS NOT EXECUTING, named here rather than polled out.
+#
+# Every wait in this file is a poll on something the GUEST publishes - the
+# pointer in `_landed`, the button level in `_edge` - so a guest that has
+# stopped can never satisfy one. Without this the two of them fail in the two
+# worst possible ways: `_landed`'s deadline is in guest CYCLES and a stopped
+# machine spends none, so it burns its whole 4000-round loop (~20 host
+# seconds) per packet and `to` then re-sends and does it again; and `_edge`
+# ends in a raise BLAMING THE 1200-BAUD UART for dropping a packet the UART
+# was never asked to carry. An armed breakpoint is what puts a machine in that
+# state, and MEASURED on this container that took 332.1 seconds to say so -
+# from `guest_sleep`'s stall arm inside `to`'s retry, which is the only thing
+# in the path that was watching the clock at all. It is 2.2s now.
+#
+# So the clock is watched the way os88marty's `_Progress` watches it - the
+# same GUEST_STALL, and the same reasoning that a two-second answer naming the
+# machine beats a sixty-second one blaming the condition.
+#
+# UNDER A `bp_trace` BLOCK THE ALLOWANCE IS WIDER AND STILL FINITE. A pumped
+# stop is meant to end within a poll interval, so the clock keeps moving
+# between hits and this never fires; a clock frozen for four times the stall
+# under a pump means the pump is not resuming, which is worth saying in those
+# words rather than sitting out the caller's deadline.
+def _alive(m, seen, why):
+    """Raise if the guest's clock has stopped. `seen` is the caller's [c, t]."""
+    c = int(m.status().get("cycles", 0))
+    now = time.time()
+    if not seen or c != seen[0]:
+        seen[:] = [c, now]
+        return
+    pumped = bool(getattr(m, "_pumping", 0))
+    if now - seen[1] <= os88marty.GUEST_STALL * (4 if pumped else 1):
+        return
+    st = {}
+    try:
+        st = m.status()
+    except Exception:
+        pass
+    raise MartyError(
+        "the GUEST CLOCK HAS NOT MOVED for %.1fs while waiting for %s - it is "
+        "%r at %04X:%04X. %s"
+        % (now - seen[1], why, st.get("state", "?"), st.get("cs", 0),
+           st.get("ip", 0),
+           "A bp_trace block is open and its pump is not resuming the guest - "
+           "the pump thread has died, or a breakpoint is being re-entered "
+           "before any cycle passes."
+           if pumped else
+           "A stopped machine cannot move the pointer or decode a button, so "
+           "this is the machine and not the mouse. A breakpoint armed outside "
+           "a bp_trace block is the usual cause: arm it inside one, or clear "
+           "it before driving the UI."))
+
+
 # The BIOS tick count, 18.2 Hz. A fact about the PC rather than about os8088 -
 # sch_isr chains the ROM's handler (SPEC.md 7), so this advances on every
 # machine and cannot drift with the kernel the way a .bss offset would.
@@ -275,14 +328,15 @@ class Mouse:
         A `False` here is not a verdict - `to`'s loop simply re-reads and
         sends again, which is what it did before.
         """
-        c0 = None
+        c0, seen = None, []
         for i in range(4000):
             if self.where()[:2] != was:
                 return True
             if i % 4 == 3:                      # a status is a round trip;
-                c = self.m.status().get("cycles", 0)     # the position read
-                if c0 is None:                  # is the pacing, this is only
-                    c0 = c                      # the deadline
+                _alive(self.m, seen, "the pointer to move")  # the position
+                c = self.m.status().get("cycles", 0)         # read is the
+                if c0 is None:                  # pacing, this is only the
+                    c0 = c                      # deadline
                 elif (c - c0) / os88marty.GUEST_HZ >= guest:
                     return False
             time.sleep(0.005)
@@ -389,11 +443,16 @@ class Mouse:
         genuinely stuck button into a pass.
         """
         want = btn if down else 0
+        seen = []
         for i in range(tries):
             if i % resend == 0:
                 self.m.mouse(0, 0, l=down and btn == 1, r=down and btn == 2)
             if (self.where()[2] & btn) == want:
                 return
+            # ...and the raise below blames the UART, which is the wrong
+            # answer for a guest that is not executing at all.
+            if i % 4 == 3:
+                _alive(self.m, seen, "the button edge to be decoded")
             time.sleep(0.02)
         raise MartyError(
             "the %s %s was never decoded (mouse_btn = %02x). The 1200-baud "

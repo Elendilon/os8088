@@ -27,6 +27,7 @@ saves and draws. Nothing host-side can: it wants a machine, and
 """
 import hashlib
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -40,12 +41,25 @@ ROOT = os.path.abspath(ROOT)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import os88pkg                                              # noqa: E402
 
-# (package, source, the shipped .o88 it must still equal)
-PKGS = [("notepad", "apps/notepad/notepad.asm", "build/notepad.o88"),
-        ("paint", "apps/paint/paint.asm", "build/paint.o88"),
-        ("calc", "apps/calc/calc.asm", "build/calc.o88"),
-        ("solitaire", "apps/solitaire/solitaire.asm", "build/solitair.o88"),
-        ("taskmgr", "apps/taskmgr/taskmgr.asm", "build/taskmgr.o88")]
+# (package, source, the shipped .o88 it must still equal, a heap claim in KB
+#  the package makes for the life of an instance and whose SOURCE CONSTANT is
+#  named here, or None)
+#
+# THAT LAST FIELD EXISTS FOR TANK, and it is the case that says what this file
+# is really measuring. Five of the six small builds trade FEATURES, so their
+# saving is in image + bss and the region is the whole story. Tank trades a
+# DATA STRUCTURE (SPEC.md 85.3.5.1): its HUD template stops being a second
+# 16,000-byte frame buffer and becomes a span store, which costs 576 bytes of
+# image and takes 14KB off the claim. Weighed on the region alone it is a small
+# build that got BIGGER and this gate would fail it; weighed on what an
+# instance actually takes out of the heap it saves 26%. The quantity is
+# "region + claim" for every row - the other five simply have no claim.
+PKGS = [("notepad", "apps/notepad/notepad.asm", "build/notepad.o88", None),
+        ("paint", "apps/paint/paint.asm", "build/paint.o88", None),
+        ("calc", "apps/calc/calc.asm", "build/calc.o88", None),
+        ("solitaire", "apps/solitaire/solitaire.asm", "build/solitair.o88", None),
+        ("taskmgr", "apps/taskmgr/taskmgr.asm", "build/taskmgr.o88", None),
+        ("tank", "apps/tank/tank.asm", "build/tank.o88", "TK_SHKB")]
 
 # ...and the arms BETWEEN the two, which no floppy carries and which nothing
 # else would keep assembling (SPEC.md 28.12). The Task Manager's gates are a
@@ -92,7 +106,14 @@ DEFS = os.environ.get("OS88_PKGDEFS", "").split()
 
 
 def build(src, out, small):
-    cmd = ["nasm", "-f", "bin", "-w+error", "-I", "apps/"] + DEFS
+    # ...and the SOURCE'S OWN directory, because a package with more than one
+    # file includes its siblings by bare name and the Makefile passes it:
+    # tank is `-I apps/ -I apps/tank/`. Adding it for the single-file packages
+    # too is safe and is checked rather than assumed - the md5 row below
+    # compares each default arm against the shipped .o88, so a resolution this
+    # changed would fail there.
+    cmd = (["nasm", "-f", "bin", "-w+error", "-I", "apps/",
+            "-I", os.path.dirname(src) + "/"] + DEFS)
     if small:
         cmd += ["-DAPP_SMALL"]
     cmd += ["-o", out, src]
@@ -101,10 +122,50 @@ def build(src, out, small):
 
 
 def claim(path):
-    """image + bss - what ONE instance takes out of the heap (SPEC.md 20.1)."""
+    """image + bss - the REGION one instance takes out of the heap (SPEC.md 20.1)."""
     with open(path, "rb") as f:
         h = f.read(32)
     return int.from_bytes(h[8:10], "little") + int.from_bytes(h[10:12], "little")
+
+
+def equ_kb(src, name, small):
+    """`NAME equ <n>` from a source, read for ONE ARM of its %ifdef APP_SMALL.
+
+    A plain regex finds both arms and picks whichever comes first, which for
+    Tank is the small one - so this walks the conditional instead. It knows
+    only APP_SMALL: any other %if nests and is skipped whole, which is enough
+    here and fails loudly rather than quietly if it stops being.
+    """
+    want, depth, skip = [], 0, None
+    for line in open(os.path.join(ROOT, src)):
+        t = line.strip()
+        if skip is not None:
+            if t.startswith("%if"):
+                depth += 1
+            elif t.startswith("%endif"):
+                if depth == 0:
+                    skip = None
+                else:
+                    depth -= 1
+            continue
+        if t.startswith("%ifdef APP_SMALL") or t.startswith("%ifndef APP_SMALL"):
+            arm = t.startswith("%ifdef") == bool(small)
+            want.append(arm)
+            continue
+        if t.startswith("%else") and want:
+            want[-1] = not want[-1]
+            continue
+        if t.startswith("%endif") and want:
+            want.pop()
+            continue
+        if t.startswith("%if"):                 # any other conditional: skip it
+            skip, depth = True, 0
+            continue
+        if all(want):
+            m = re.match(r"%s\s+equ\s+(\d+)\s*(;.*)?$" % re.escape(name), t)
+            if m:
+                return int(m.group(1)) * 1024
+    return None
 
 
 def md5(path):
@@ -123,7 +184,7 @@ def md5(path):
 
 def main():
     tmp = tempfile.mkdtemp(prefix="appsmall.")
-    for name, src, shipped in PKGS:
+    for name, src, shipped, kbconst in PKGS:
         full = os.path.join(tmp, name + ".full.bin")
         small = os.path.join(tmp, name + ".small.bin")
 
@@ -152,6 +213,17 @@ def main():
                   got=md5(full), want=md5(shipped_path))
 
         cf, cs = claim(full), claim(small)
+        if kbconst:                     # ...plus the package's own claim, which
+            kf = equ_kb(src, kbconst, False)     # for Tank is where the whole
+            ks = equ_kb(src, kbconst, True)      # saving is (SPEC.md 85.3.5.1)
+            check(kf is not None and ks is not None,
+                  "%s: %s reads for both arms" % (name, kbconst),
+                  "the walker over %ifdef APP_SMALL has stopped finding it, so "
+                  "the numbers below would be the region alone and this row "
+                  "would fail for the wrong reason",
+                  got="%s / %s" % (kf, ks), want="two figures")
+            if kf and ks:
+                cf, cs = cf + kf, cs + ks
         saved = (cf - cs) / float(cf) if cf else 0.0
         check(cs < cf, "%s: the small build claims less than the full one" % name,
               "if these match, -DAPP_SMALL has stopped reaching the source and "
@@ -216,7 +288,7 @@ def disks(tmp):
         return
 
     want = {}
-    for name, src, shipped in PKGS:
+    for name, src, shipped, _kb in PKGS:
         base = os.path.basename(shipped).upper()            # e.g. PAINT.O88
         small = os.path.join(ROOT, "build", "smallapp", os.path.basename(shipped))
         full = os.path.join(ROOT, "build", os.path.basename(shipped))

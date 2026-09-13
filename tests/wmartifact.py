@@ -9,8 +9,11 @@
 Both were found while testing SPEC.md 65's Calculator and both are the window
 manager's; docs/history/WM-ARTIFACTS.md is the report and carries the measurements
 this script produces. It is written so that a reader who suspects the package
-can throw the package away: part 1 opens `hello`, which draws one greeting and
-nothing else, and part 2 drags a DISK WINDOW, which is the kernel's own.
+can throw the package away: part 1 opens `calc`, which draws a keypad and then
+stops - no worker and no clock, which cal_entry states by taking OSAPI_WM_SAVEU
+- and part 2 drags a DISK WINDOW, which is the kernel's own. It was `hello`
+until that package came off the apps disk (SPEC.md 27.0); what part 1 needs is
+a window that does not move on its own, and that is the property Calc declares.
 
 WHAT MAKES EITHER OF THEM VISIBLE IS THE COMPARISON, and it is the thing most
 likely to be missing from a failed reproduction. Neither artifact is visible
@@ -199,13 +202,13 @@ def part_shadow(machine):
             fails.append("the control is not clean: %d px with no package "
                          "open at all" % len(base))
 
-        row = row_of(m, "HELLO.O88")
-        dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "HELLO.O88")
+        row = row_of(m, "CALC.O88")
+        dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "CALC.O88")
         time.sleep(2)
         os88marty.settle(m)
         slot = dispcp.win_list(m, S)[-1]
         hx, hy, hw, hh = dispcp.win_rect(m, S, slot)
-        print("\n   HELLO.O88 (row %d) opened at (%d,%d) %dx%d"
+        print("\n   CALC.O88 (row %d) opened at (%d,%d) %dx%d"
               % (row, hx, hy, hw, hh))
         u = under(m, hx, hy + hh, slot)
         print("   its frame's bottom-left shadow pixel is (%d,%d), over %s"
@@ -268,7 +271,7 @@ def part_shadow(machine):
         if got3:
             fails.append("closing the package left %d px behind" % len(got3))
 
-        # A SECOND PACKAGE, so the answer is not about `hello`. Which one is
+        # A SECOND PACKAGE, so the answer is not about `calc`. Which one is
         # whatever the WINDOW can reach: a CGA Disk window shows ~7 rows of a
         # ten-package folder, and a row below the fold cannot be clicked -
         # os88mouse says so rather than clicking into the desktop, which is

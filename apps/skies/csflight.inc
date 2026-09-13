@@ -100,6 +100,15 @@ cs_runway_build:
     mul dx
     div word [si + CSA_HLEN]
     mov [cs_rwdu], ax
+    mov bx, ax                      ; ...and where the FAR threshold's run of
+    shl ax, 1                       ; stripes starts (88.6.2.3): back off
+    add ax, bx                      ; (2 RW_NDASH - 1) pitches from the end,
+    shl ax, 1                       ; so the last one ends ON the threshold
+    add ax, bx                      ; AX = 7 du
+    mov bx, 32766
+    sub bx, ax                      ; (no runway here is short enough to
+    mov [cs_rwfar], bx              ; underflow this: 7 du passes 32766 only
+                                    ; below an 88 m half-length)
     mov di, cs_rwobj
     mov word [di + CSO_MODEL], cs_rwmodel
     mov word [di + CSO_FAR], 0
@@ -361,6 +370,7 @@ cs_step:
     mov ax, [cs_spd]
     mul ax                          ; DX:AX = v^2 (16.16)
     mov ax, dx                      ; AX = v^2 in whole m^2/s^2
+    mov [cs_qv], ax                 ; ...kept for the induced term below
     mul word [di + CSP_DRAGK]
     mov bx, dx                      ; BX = the drag, a tick
     mov ax, [cs_thrust]
@@ -370,6 +380,61 @@ cs_step:
     jne .air
     jmp .ground
 .air:
+    ; --- THE WING'S OWN DRAG (SPEC.md 88.7.12), which a v^2 law has not got.
+    ;     CSP_DRAGK is parasitic drag and falls away as the square of the
+    ;     speed, so an aeroplane that is slow is an aeroplane that is barely
+    ;     dragging - and the field flew the consequence: a Cessna holding 60
+    ;     knots level on 18% of its power, hanging at 150 for minutes on end,
+    ;     and arriving over the threshold so fast that the roll-out took most
+    ;     of the runway. A real wing pays for lift, and that bill RISES as
+    ;     the speed falls: CSP_INDK / (v^2/4), added here.
+    ;
+    ;     IN THE AIR ONLY. On the ground the wheels carry the weight and the
+    ;     wing is not making the lift it would be charged for - and the
+    ;     rolling and braking figures below are already the field's.
+    mov ax, [di + CSP_INDK]
+    or ax, ax
+    jz .noind                       ; a record that has not got one
+    mov bx, [cs_qv]
+    ; --- ...AND IT STOPS RISING AT THE STALL. Induced drag goes as the
+    ;     square of the LIFT, and a wing at its maximum lift coefficient is
+    ;     making all it ever will - past that it has departed, and charging
+    ;     it more is charging it for lift it is not producing. Without this
+    ;     the term runs away: at 10 m/s the Cessna reads 28 units a tick
+    ;     against 16 of full thrust, so an aeroplane that got slow could
+    ;     NEVER accelerate again and every throttle from 10% to 100% settled
+    ;     at 2 m/s. Measured, and very nearly shipped.
+    mov ax, [di + CSP_VSTALL]
+    mul ax
+    cmp bx, dx
+    jae .qok
+    mov bx, dx                      ; the stall's own q is the floor
+.qok:
+    mov ax, [di + CSP_INDK]
+    or bx, bx
+    jz .noind                       ; a record with no stall speed either
+    xor dx, dx
+    div bx
+    cmp ax, CS_INDMAX
+    jbe .indok
+    mov ax, CS_INDMAX
+.indok:
+    sub cx, ax
+.noind:
+    ; --- ...AND THE BRAKE IS AN AIRBRAKE UP HERE (SPEC.md 88.7.12.1). The
+    ;     key that means STOP already closes the throttle and stands on the
+    ;     wheels (88.7.10); in the air it opens what the aeroplane has. Half
+    ;     of CSP_BRAKE, because that number is sized for a wheel with the
+    ;     weight on it - and the Fouga is the aeroplane this is for: 100 to
+    ;     51 m/s takes 174 seconds and 11.9 km without it and 25.6 s and
+    ;     1.9 km with, which is the difference between a jet you can land
+    ;     and one you cannot.
+    cmp byte [cs_kbrake], 0
+    je .noab
+    mov ax, [di + CSP_BRAKE]
+    sar ax, 1
+    sub cx, ax
+.noab:
     mov ax, [cs_pitch]
     push cx
     push di
@@ -1388,7 +1453,8 @@ cs_touch:
 ;
 ; A point-in-polygon test over the location's own CSI_RIVER faces, and what
 ; makes it affordable is that cs_touch FIRES ONCE, at the tick the wheels meet
-; the ground - which cs_water_xy's own comment said before this was written.
+; the ground - which the strip transform's own comment said before this was
+; written, and that routine is gone with the claim (SPEC.md 88.7.7.4).
 ; At most 20 water faces in any world here and every one a quad, behind a
 ; Manhattan reject on the object's CSM_RAD.
 ;
@@ -1583,33 +1649,21 @@ cs_wedge:
     ret
 
 ; cs_runway_xy - the aeroplane in the runway's coordinates: along its heading
-; and across it, whole metres
+; and across it, whole metres.  Falls INTO cs_local_xy, which had a second
+; caller until 88.7.7.1: cs_water_xy did the same for the water strip, and
+; that whole transform went when a landing stopped being tested against the
+; strip's rectangle at all (SPEC.md 88.7.7.4).
 cs_runway_xy:
     mov si, [cs_airport]
     mov ax, [si + CSA_X]
     mov bx, [si + CSA_Z]
     mov cx, [cs_rwsin]              ; the runway's, already computed
     mov dx, [cs_rwcos]
-    jmp short cs_local_xy
-
-; cs_water_xy - and the WATER STRIP's (SPEC.md 88.7.7), whose sine and cosine
-; are taken here rather than cached: this runs once, at a touchdown
-cs_water_xy:
-    mov si, [cs_airport]
-    mov ax, [si + CSA_WHDG]
-    call cs_sin
-    push ax
-    mov si, [cs_airport]
-    mov ax, [si + CSA_WHDG]
-    call cs_cos
-    mov dx, ax
-    pop cx
-    mov si, [cs_airport]
-    mov ax, [si + CSA_WX]
-    mov bx, [si + CSA_WZ]
 
 ; cs_local_xy - AX/BX = a strip's centre, CX/DX = the sine and cosine of its
-; heading: the aeroplane in ITS coordinates, into [cs_along]/[cs_across]
+; heading: the aeroplane in ITS coordinates, into [cs_along]/[cs_across].
+; Entered by FALLTHROUGH and by nothing else; the label and this contract
+; stay because they are what a second strip would enter at.
 cs_local_xy:
     mov [cs_lsn], cx
     mov [cs_lcs], dx
@@ -1643,37 +1697,22 @@ cs_local_xy:
 ; -----------------------------------------------------------------------------
 ; cs_collide - the aeroplane against every CSO_COLLIDE box (SPEC.md 88.6)
 ; -----------------------------------------------------------------------------
-cs_collide:
-    mov si, [cs_airport]            ; the PICKED location's world (88.6.4):
-    mov cx, [si + CSA_NOBJ]         ; a tower in Paris is not in the way of
-    mov si, [si + CSA_OBJS]         ; an aeroplane over Manhattan
+cs_ctopbuild:
+    ; --- one word an object: the height a crash needs the aeroplane to be
+    ;     BELOW - the tallest level's top above the object's base - or
+    ;     -32768 for an object that cannot be hit at all (88.7.13). Called
+    ;     when a location is picked, which is the only time it can change.
+    push si
+    mov si, [cs_airport]
+    mov cx, [si + CSA_NOBJ]
+    mov si, [si + CSA_OBJS]
+    mov di, cs_ctop
     jcxz .out
 .o:
-    mov ax, [si + CSO_FLAGS]
-    test ax, CSO_COLLIDE
-    jz .next
-    test ax, CSO_DENSE              ; ...AND YOU CANNOT HIT WHAT THE RUNG DOES
-    jz .solid                       ; NOT DRAW (88.13.1.4): a High tier is not
-    cmp byte [cs_setbld], CSBL_HIGH ; in the world below High, and this walker
-    jne .next                       ; reads the table and never the ladder, so
-.solid:                             ; without it Manhattan's twelve kill a
-                                    ; player at Moderate out of clear air
-    mov ax, [cs_px+1]
-    sub ax, [si + CSO_X]
-    jns .x1
-    neg ax
-.x1:
+    mov ax, -32768                  ; py >= this always, so the walk skips it
+    test word [si + CSO_FLAGS], CSO_COLLIDE
+    jz .put
     mov bx, [si + CSO_MODEL]
-    mov di, [bx + CSM_VERTS]        ; level 0: wx, h, wz
-    cmp ax, [di]
-    jge .next
-    mov ax, [cs_pz+1]
-    sub ax, [si + CSO_Z]
-    jns .z1
-    neg ax
-.z1:
-    cmp ax, [di+4]
-    jge .next
     mov al, [bx + CSM_NV]           ; the tallest level is the last
     xor ah, ah
     dec ax
@@ -1681,14 +1720,73 @@ cs_collide:
     shl ax, 1
     add ax, dx
     shl ax, 1                       ; x 6
-    add di, ax
-    mov ax, [di+2]
+    add ax, [bx + CSM_VERTS]
+    mov bx, ax
+    mov ax, [bx + 2]                ; ...that level's height, over the base
     add ax, [si + CSO_Y]
-    cmp [cs_py+1], ax
+.put:
+    mov [di], ax
+    add di, 2
+    add si, CSO_SIZE
+    loop .o
+.out:
+    pop si
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_collide - has the aeroplane hit anything? (SPEC.md 88.7.13)
+;
+; THE ALTITUDE IS THE REJECT AND IT USED TO BE TESTED LAST. The walk went
+; x, then z, then y - and the y test is the expensive one, chasing the object
+; to its model and the model to its vertex table to find the tallest level.
+; So every collidable object paid two pointer loads and a multiply-by-six to
+; ask a question about height that a single word could answer, three times a
+; frame, on all 47 of them.
+;
+; cs_ctop holds that word per object now, so the walk opens with `cmp bp,
+; [di]` and 46 of Paris' 47 take it at 300 m - the Eiffel Tower's 324 being
+; the one that does not, which is also why a WORLD-wide maximum would not
+; have worked: one tall object keeps the whole walk alive for everything else.
+; -----------------------------------------------------------------------------
+cs_collide:
+    mov si, [cs_airport]
+    mov cx, [si + CSA_NOBJ]         ; the PICKED location's world (88.6.4):
+    mov si, [si + CSA_OBJS]         ; a tower in Paris is not in the way of
+    jcxz .out                       ; an aeroplane over Manhattan
+    mov bp, [cs_py+1]               ; the whole-metre altitude, and the x with
+    mov dx, [cs_px+1]               ; it: both are the WALK's invariants
+    mov di, cs_ctop
+.o:
+    cmp bp, [di]                    ; ABOVE everything this object has? Then
+    jge .next                       ; nothing to test - and a non-collider
+                                    ; carries -32768, so it lands here too
+    test word [si + CSO_FLAGS], CSO_DENSE
+    jz .solid                       ; ...AND YOU CANNOT HIT WHAT THE RUNG DOES
+    cmp byte [cs_setbld], CSBL_HIGH ; NOT DRAW (88.13.1.4): a High tier is not
+    jne .next                       ; in the world below High, and this walker
+.solid:                             ; reads the table and never the ladder, so
+                                    ; without it Manhattan's twelve kill a
+                                    ; player at Moderate out of clear air
+    mov ax, dx
+    sub ax, [si + CSO_X]
+    jns .x1
+    neg ax
+.x1:
+    mov bx, [si + CSO_MODEL]
+    mov bx, [bx + CSM_VERTS]        ; level 0: wx, h, wz
+    cmp ax, [bx]
+    jge .next
+    mov ax, [cs_pz+1]
+    sub ax, [si + CSO_Z]
+    jns .z1
+    neg ax
+.z1:
+    cmp ax, [bx+4]
     jge .next
     mov si, [si + CSO_NAME]
     jmp cs_crash
 .next:
+    add di, 2
     add si, CSO_SIZE
     loop .o
 .out:

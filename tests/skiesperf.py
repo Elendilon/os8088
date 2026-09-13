@@ -20,6 +20,16 @@ price the same frame.
              centreline (88.6.2) at the height it is meant for
     city     300 m up over the Champ de Mars heading north-east: the tower,
              the Trocadero, the river and the far skyline together
+    citybank the same frame banked 30 right: what the box impostor (88.5.4)
+             costs when the world is not level
+    axisroad 150 m abeam and 15 m short of the axis road's middle vertex at
+             30 m: |cx| over 9 cz, so that vertex CLAMPS and the road bends
+    seinelow the same shape on the Seine's middle piece
+
+`--noside` is SPEC.md 88.5.7.2's A/B instead of the stage table: the same
+pinned frame with the side clip on and off, in ms, fps and DIFFERING PIXELS
+- the last being the column that matters, because four of the six scenes
+are byte-identical without it.
 """
 import argparse
 import os
@@ -32,10 +42,21 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "..", "tools"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import os88marty                                            # noqa: E402
+import os88build
 import dispapps                                             # noqa: E402
 import skies as skiestest                                   # noqa: E402
 
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# WHERE `cswidx.inc` IS. Clear Skies' resident world index is GENERATED
+# (SPEC.md 88.10.5.3), so it is not in apps/skies/ and nasm reaches it only
+# through the build tree - which the Makefile passes as `-I $(BUILD)/` and
+# every script that re-assembles for a LISTING has to pass too, or the tree
+# "does not assemble" and the message points at the package. os88build.at
+# honours $OS88_BUILD, so a frozen soak tree resolves to its own copy.
+CSWIDX = os.path.join(ROOT, os88build.at("build")) + os.sep
+
 CPS = 4772727                           # the 4.77 MHz clock: cycles a second
 SCENES = {                              # x, y, z (metres), heading (degrees), pitch
     "runway": None,                     # wherever cs_reset put it
@@ -43,6 +64,14 @@ SCENES = {                              # x, y, z (metres), heading (degrees), p
     "city": (150, 300, -900, 30, -5),
     "climb": (-2689, 40, -2409, 40, 5),  # 300 m down the runway, 40 m up
     "bank": (-2689, 80, -2409, 40, 5, 30),   # ...banked 30 right, for the ADI
+    "citybank": (150, 300, -900, 30, -5, 30),  # ...the city frame banked 30 right
+    # --- THE WANDERING PAIR (88.5.7.3). Both put a long flat's vertex BESIDE
+    #     the eye - 150-200 m abeam, 15 m ahead - so |cx| is over NINE cz and
+    #     the projection CLAMPS it: the line through it is the one that bends.
+    #     The other six scenes are byte-identical without the side clip; these
+    #     two are what it was taken for.
+    "axisroad": (-77, 30, 1570, 115, 0),   # the Louvre-La Defense axis abeam
+    "seinelow": (151, 30, -11, 100, 0),    # the Seine's middle piece abeam
 }
 
 
@@ -50,7 +79,8 @@ def listing():
     fd, lst = tempfile.mkstemp(prefix="skiesperf_", suffix=".lst")
     os.close(fd)
     r = subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", "apps/",
-                        "-I", "apps/skies/", "-o", os.devnull, "-l", lst,
+                        "-I", "apps/skies/", "-I", CSWIDX,
+                        "-o", os.devnull, "-l", lst,
                         "apps/skies/skies.asm"], capture_output=True, text=True)
     if r.returncode:
         sys.exit("skiesperf: the tree does not assemble:\n" + r.stderr[:400])
@@ -190,6 +220,10 @@ def main(argv):
     ap.add_argument("--trace", action="store_true",
                     help="one frame's every cs_seg and cs_poly, with its "
                          "arguments and the cycles it took")
+    ap.add_argument("--noside", action="store_true",
+                    help="the A/B for SPEC.md 88.5.7's side clip: the same "
+                         "pinned frame with [cs_noside] 0 and 1, in ms, fps "
+                         "and differing pixels. Skips the stage table")
     a = ap.parse_args(argv)
     os.chdir(ROOT)
     lst = listing()
@@ -301,6 +335,40 @@ def main(argv):
         base_ms = ms()
         print("  frame: %.2f ms (%.2f fps), mean of %d exact frames, the "
               "tick wait patched out" % (base_ms, 1000 / base_ms, a.frames))
+        if a.noside:
+            # --- 88.5.7's A/B. The same pinned frame, the side clip on and
+            #     off, with the PICTURE compared too: a toggle that costs
+            #     nothing and changes nothing has not been wired in.
+            def shot():
+                m.pause()
+                wd, hd, data = m.fbuf(0)
+                m.run()
+                return wd, hd, data
+            w0, h0, d0 = shot()
+            m.pause()
+            poke("cs_noside", b"\x01")
+            m.run()
+            frames(3)                       # the first frame after the poke
+            off_ms = ms()
+            w1, h1, d1 = shot()
+            m.pause()
+            poke("cs_noside", b"\x00")
+            m.run()
+            frames(3)
+            again = ms()
+            diff = sum(1 for i in range(0, min(len(d0), len(d1)), 3)
+                       if d0[i:i+3] != d1[i:i+3])
+            print("  side clip ON   %7.2f ms  (%5.2f fps)" % (base_ms, 1000 / base_ms))
+            print("  side clip OFF  %7.2f ms  (%5.2f fps)   %+.2f ms, %+.2f fps, "
+                  "%.1f%% of the frame"
+                  % (off_ms, 1000 / off_ms, off_ms - base_ms,
+                     1000 / off_ms - 1000 / base_ms,
+                     100 * (base_ms - off_ms) / base_ms))
+            print("  back ON        %7.2f ms   (repeat of the first arm: %+.2f ms)"
+                  % (again, again - base_ms))
+            print("  the two pictures differ in %d pixels of %d"
+                  % (diff, w0 * h0))
+            return
         for name, site in S.items():
             m.pause()
             patch(site, True)

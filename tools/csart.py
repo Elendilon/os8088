@@ -656,12 +656,14 @@ def emit(path, title, planes):
              "; The aircraft bands share ONE frame and a plane record names",
              "; the one it is drawn from in CSP_ART (SPEC.md 88.10.1).",
              ";",
-             "; THE BANDS ARE PACKED (SPEC.md 88.10.2). What follows the equs is",
-             "; ONE LZ4 stream, T word first, that expands to CS_ART_SIZE bytes:",
-             "; the title band then the five aircraft, in CSP_ART's order. The",
-             "; names below are OFFSETS INTO THAT BLOB and not labels in this",
-             "; segment - cs_artload claims CS_ART_KB and hands the whole thing",
-             "; to OSAPI_DECOMP once, and every blit reads [cs_artseg]:offset.",
+             "; THE BANDS ARE NOT IN THIS FILE (SPEC.md 88.10.3). They are a PART",
+             "; of SKIES.O88 - the LZ4 stream this same script writes with",
+             "; --stream - so the program's image carries the offsets and nothing",
+             "; else. apps/skies/csload.asm fetches that part, expands it into a",
+             "; claim and hands the segment over, and every blit reads",
+             "; [cs_artseg]:offset exactly as it did when the stream was in the",
+             "; image. The names below are OFFSETS INTO THAT BLOB and not labels",
+             "; in this segment.",
              ""]
 
     bands = [title] + list(planes)
@@ -693,16 +695,17 @@ def emit(path, title, planes):
     for name, off in offs:
         lines.append("%-16s equ %d" % (name, off))
     lines.append("")
-    lines.append("CS_ART_SIZE equ %d        ; what the stream expands to" % len(blob))
-    lines.append("CS_ART_ZLEN equ %d         ; ...out of this many, T word in" % len(z))
+    lines.append("CS_ART_SIZE equ %d        ; the bands, UNPACKED - what the"
+                 % len(blob))
+    lines.append("                             ; loader claims and decodes into")
+    lines.append("CS_ART_ZLEN equ %d         ; ...out of this many, T word in -"
+                 % len(z))
+    lines.append("                             ; which is part 1's whole length")
     lines.append("CS_ART_KB   equ %d            ; ...into a claim of this many KB"
                  % ((len(blob) + 1023) // 1024))
     lines.append("")
-    lines.append("cs_art_z:")
-    for i in range(0, len(z), 24):
-        lines.append("    db " + ", ".join("0x%02X" % b for b in z[i:i + 24]))
-    lines.append("")
     open(path, "w").write("\n".join(lines))
+    return z
 
 
 def main(argv):
@@ -710,6 +713,9 @@ def main(argv):
     ap.add_argument("-o", "--out", default=os.path.join(ROOT, "apps", "skies", "csart.inc"))
     ap.add_argument("--preview", help="write PNG previews into this directory")
     ap.add_argument("--zoom", type=int, default=4)
+    ap.add_argument("--stream", help="write the PACKED bands here - the bytes "
+                                     "os88pkg.py appends as SKIES.O88's art "
+                                     "part, which csload.asm expands")
     a = ap.parse_args(argv)
     title = ("cs_art_title", title_art())
     planes = [("cs_art_c172", plane_art(art_c172)),      # in cs_planes' order,
@@ -722,7 +728,14 @@ def main(argv):
         os.makedirs(a.preview, exist_ok=True)
         for name, canvas in bands:
             canvas.png(os.path.join(a.preview, name + ".png"), a.zoom)
-    emit(a.out, title, planes)
+    z = emit(a.out, title, planes)
+    if a.stream:
+        # THE PART'S OWN BYTES. The row is LAZY, and a lazy row cannot also be
+        # OP_COMP - the two want the same zkb word (apps/os88parts.inc says so
+        # and refuses) - so the stream is packed HERE and csload.asm expands
+        # it, which is what the image used to do with the same bytes.
+        with open(a.stream, "wb") as f:
+            f.write(z)
     print("csart: %s (%s)" % (a.out, ", ".join("%s %dx%d" % (n, c.w, c.h) for n, c in bands)))
 
 

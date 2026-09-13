@@ -124,31 +124,17 @@ sv_cube_step:
     call sv_cube_move
     call sv_cube_proj
 
-    cmp byte [sv_cbok], 0       ; --- the composite (SPEC.md 79.5.6)
-    je .edges
-    call sv_cube_compose
-    call sv_cube_put
-    jc .refused
-    mov byte [sv_shown], 1
-    jmp .out
-.refused:                       ; BLIT1 said no, which on a kern_big machine
-    mov byte [sv_cbok], 0       ; with these arguments it cannot - so this is
-    call sv_cube_boxclr         ; insurance and not a path. Take the band's box
-    mov byte [sv_shown], 0      ; off the glass and let the edge-at-a-time
-    jmp .out                    ; draw a WHOLE figure next frame
-
-.edges:                         ; --- SPEC.md 78.5's order, kept as the refusal
-    cmp byte [sv_shown], 0
-    je .fresh
-    call sv_cube_pairs          ; erase old[i], draw new[i], EDGE BY EDGE
-    jmp short .keep
-.fresh:
-    mov al, SV_MAIN
-    call sv_pen
-    mov si, sv_cpx
-    mov di, sv_cpy
-    call sv_cube_edges
-.keep:
+    call sv_cube_compose        ; --- the composite (SPEC.md 79.5.6), and
+    call sv_cube_put            ; SINCE 79.5.6.1 IT IS THE ONLY PATH. It used
+                                ; to be guarded by [sv_cbok] with the
+                                ; edge-at-a-time orders behind it as insurance
+                                ; against a BLIT1 refusal - and gfx_blit1_x
+                                ; refuses four things, of which this call makes
+                                ; none: x is forced onto the byte grid, and the
+                                ; width and the rows are SV_CBW and SV_CBH,
+                                ; constants of 128. kern_small carries the body
+                                ; too since SPEC.md 5.4.2.5.1, so there is no
+                                ; machine left where the insurance can fire
     mov si, sv_cpx              ; the frame now on the glass is the one to
     mov di, sv_cex              ; erase next time
     mov cx, SV_CNV * 2
@@ -361,18 +347,6 @@ sv_cube_put:
     pop es                      ; `pop` writes no flag, so BLIT1's CF is still
     ret                         ; the caller's answer
 
-; sv_cube_boxclr - the band's box to the ground ink, for the refusal above
-sv_cube_boxclr:
-    mov al, SV_GROUND
-    call sv_pen
-    mov ax, [sv_cbx0]
-    mov bx, [sv_cby0]
-    mov cx, ax
-    add cx, SV_CBW - 1
-    mov dx, bx
-    add dx, SV_CBH - 1
-    call OSAPI_GFX_FILL
-    ret
 
 ; -----------------------------------------------------------------------------
 ; sv_cml - one edge into the mask, in MASK coordinates
@@ -499,94 +473,6 @@ sv_cml:
     jnz .my
     ret
 
-; -----------------------------------------------------------------------------
-; sv_cube_pairs - erase old[i], draw new[i], one edge at a time (SPEC.md 78.5)
-;
-; What it costs is a NICK: erasing old[j] cuts new[i] wherever the two cross,
-; for every j drawn after i, which on a cube in projection is a handful of
-; pixels a frame and is gone on the next one. What it buys is a figure that is
-; never absent.
-; -----------------------------------------------------------------------------
-sv_cube_pairs:
-    mov bp, sv_cube_e
-    mov cx, SV_CNE
-.edge:
-    push cx
-    push bp
-    mov al, SV_GROUND
-    call sv_pen
-    mov si, sv_cex
-    mov di, sv_cey
-    call sv_cube_edge1
-    pop bp
-    push bp
-    mov al, SV_MAIN
-    call sv_pen
-    mov si, sv_cpx
-    mov di, sv_cpy
-    call sv_cube_edge1
-    pop bp
-    add bp, 2
-    pop cx
-    dec cx
-    jnz .edge
-    ret
-
-; sv_cube_edges - the whole figure from one coordinate pair, pen already set
-sv_cube_edges:
-    mov bp, sv_cube_e
-    mov cx, SV_CNE
-.edge:
-    push cx
-    push bp
-    call sv_cube_edge1
-    pop bp
-    add bp, 2
-    pop cx
-    dec cx
-    jnz .edge
-    ret
-
-; -----------------------------------------------------------------------------
-; sv_cube_edge1 - ONE edge, from one coordinate pair table
-; in:  SI = the x table, DI = the y table, BP -> the edge's two indices
-; out: SI/DI/BP survive; AX/BX/CX/DX do not
-;
-; BP IS COPIED INTO BX BEFORE IT IS DEREFERENCED. SS != DS here (SPEC.md 1),
-; so `[bp+0]` addresses the task stack and would read two bytes of somebody
-; else's frame as vertex indices - which assembles cleanly and draws a cube
-; made of noise.
-; -----------------------------------------------------------------------------
-sv_cube_edge1:
-    mov bx, bp
-    mov al, [bx]
-    xor ah, ah
-    add ax, ax
-    mov bx, ax
-    mov al, [bx + si]           ; ...and NOT [si+bx]: one is a base+index
-    mov ah, [bx + si + 1]       ; addressing mode either way, and this is the
-    push ax                     ; one NASM assembles without a warning
-    mov ax, [bx + di]
-    push ax
-    mov bx, bp
-    mov al, [bx+1]
-    xor ah, ah
-    add ax, ax
-    mov bx, ax
-    mov cx, [bx + si]
-    mov dx, [bx + di]
-    pop bx                      ; y1
-    pop ax                      ; x1
-    push si
-    push di
-    push bp
-    xor si, si                  ; SPEC.md 5.6.5: thin, both ways - an edge is
-    call OSAPI_GFX_LINE         ; drawn whole and erased whole from the same
-    pop bp                      ; endpoint pair, so 5.6.2 makes the two pixel
-    pop di                      ; sets identical and a dilation would cost
-    pop si                      ; three walks for nothing
-    ret
-
 ; --- the solid, and it is the only one: a screen saver has no View menu ------
 sv_cube_v:
     db -SV_CV, -SV_CV, -SV_CV
@@ -611,7 +497,6 @@ sv_cvx:     dw 0
 sv_cvy:     dw 0
 sv_cpx:     times SV_CNV dw 0   ; this frame's screen coordinates...
 sv_cpy:     times SV_CNV dw 0
-sv_cbok:    db 1                ; the composite is available (SPEC.md 79.5.6)
 sv_cbx0:    dw 0                ; the band's origin on the glass
 sv_cby0:    dw 0
 sv_cmx1:    dw 0                ; sv_cml's endpoints, in the mask

@@ -546,9 +546,10 @@ def listing(m, S):
     The cache is a byte-for-byte copy of `disk_dir` living in the window's own
     FS_VSEG claim (SPEC.md 2.3/22.1), so the decode is the same one.
 
-    The fallback reads through [dsk_dseg]:[dsk_doff] rather than at `disk_dir`,
-    because a driver-backed volume lists into its DRIVER's claim instead
-    (disk.inc's dsk_doff comment) - the floppy case is where those agree.
+    The fallback is `snapshot` below, which is also what a row driving the
+    FILE DIALOG wants directly - the dialog lists the globals and not any
+    window's cache, so it is the one caller for which this routine's
+    preference is the wrong answer.
     """
     vp = _u16(m.read(S("fm_vp"), 2))
     if vp:
@@ -557,6 +558,25 @@ def listing(m, S):
         vseg = _u16(m.read(base + FS_VSEG, 2))
         if n and vseg:
             return _decode(m.read(vseg << 4, n * DSK_DE_STRIDE), n)
+    return snapshot(m, S)
+
+
+def snapshot(m, S):
+    """[(name, type)] of the GLOBAL mount snapshot, in order.
+
+    **THIS IS WHAT THE STANDARD FILE DIALOG LISTS, and `listing` above is
+    not.** `fdlg_rows` answers `[disk_nfiles]` and `fdlg_stage` walks
+    `dsk_get_dir`, so the dialog reads the globals directly - §38.2's
+    modality is exactly what lets it. `listing` prefers the acting DISK
+    window's own cache, so with a Disk window open on one folder and a
+    dialog navigated to another it answers confidently about the wrong one:
+    a row that picks the dialog's row N off it selects whatever sorted into
+    slot N of somebody else's folder.
+
+    Read through `[dsk_dseg]:[dsk_doff]` rather than at `disk_dir`, because a
+    driver-backed volume lists into its DRIVER's claim instead (disk.inc's
+    dsk_doff comment); the floppy case is where those agree.
+    """
     n = _u16(m.read(S("disk_nfiles"), 2))
     if not n:
         return []

@@ -37,7 +37,6 @@ import argparse
 import os
 import subprocess
 import sys
-import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -210,10 +209,6 @@ def run(image, apps, machine, defines, tree=None):
         # still holds for the OUTER call: the cut re-enters gfx_blit4 for each
         # half, and those return at a lower sp.
         entry, ret = S("gfx_blit4"), S("kret_ret")
-        m.bp_exec(entry, ret)
-        m.run()
-        pend, got, geom = None, [], None
-        t0 = time.time()
 
         # WHAT THE DRIVER DID, recorded rather than assumed. This row's only
         # failure mode is a 240-second wait ending in "no straddling canvas
@@ -222,33 +217,56 @@ def run(image, apps, machine, defines, tree=None):
         # or the loop never saw a hit at all. All three look identical.
         drove = {"done": False, "err": None}
         hits = {"entry": 0, "ret": 0, "wide": 0}
+        pend, got, geom = None, [], None
 
-        def driver():                       # a 16px nudge is a whole repaint
-            try:
-                mo.drag(wx2 + ww // 2, wy2 + TITLE_H // 2,
-                        wx2 + ww // 2 + 16, wy2 + TITLE_H // 2)
-                drove["done"] = True
-            except Exception as e:                          # noqa: BLE001
-                drove["err"] = "%s: %s" % (type(e).__name__, e)
-        threading.Thread(target=driver, daemon=True).start()
-        while time.time() - t0 < 240 and not got:
-            if m.status().get("state") == "running":
-                time.sleep(0.01)
-                continue
-            r = m.regs()
+        # THE MATCH RUNS AT THE STOP, because that is the only place it can.
+        # `sp` pairs an entry with its own return - the cut re-enters
+        # gfx_blit4 for each half and those return at a LOWER sp - and both
+        # halves of that comparison are registers, gone the moment the guest
+        # resumes. It disarms the moment it has its pair: `kret_ret` is the
+        # shared epilogue ladder's `ret`, which every routine using the ladder
+        # returns through, so leaving it armed for the rest of the drag stops
+        # the guest thousands of times for an answer already in hand. That is
+        # what the old loop's `and not got` bought, kept here exactly.
+        def match(mm, rec):
+            nonlocal pend, geom
+            r = rec["regs"]
             ip = (r["cs"] << 4) + r["ip"]
             if ip == entry:
                 hits["entry"] += 1
                 if r["cx"] > 200:
                     hits["wide"] += 1
                 if pend is None and r["cx"] > 200:      # the CANVAS, not a
-                    pend = (r["sp"], m.status()["cycles"],      # dock tile
+                    pend = (r["sp"], rec["cycles"],             # dock tile
                             r["ax"], r["bx"], r["cx"], r["dx"])
             elif ip == ret and pend is not None and r["sp"] == pend[0]:
                 hits["ret"] += 1
-                got.append(m.status()["cycles"] - pend[1])
+                got.append(rec["cycles"] - pend[1])
                 geom = pend[2:]
-            m.run()
+                mm.breakpoints([])          # ...and let the drag finish
+            return None
+
+        # A 16px nudge is a whole repaint. It is ordinary code here because
+        # bp_trace pumps the breakpoints from a daemon; this was a driver
+        # THREAD around a hand-rolled pump, for the reason that docstring
+        # gives - os88mouse proves every button edge by polling `mouse_btn`,
+        # and a guest stopped at a breakpoint never advances far enough to
+        # answer.
+        with os88marty.bp_trace(m, entry, ret, regs=True, on_hit=match) as tr:
+            try:
+                mo.drag(wx2 + ww // 2, wy2 + TITLE_H // 2,
+                        wx2 + ww // 2 + 16, wy2 + TITLE_H // 2)
+                drove["done"] = True
+            except Exception as e:                          # noqa: BLE001
+                drove["err"] = "%s: %s" % (type(e).__name__, e)
+            # ...AND STAY IN THE BLOCK UNTIL THE BLIT HAS RUN. `drag` returns
+            # when the mouse-up is decoded; the repaint it starts has not
+            # begun, and on a 4.77MHz 8088 those are seconds apart. Leaving
+            # here clears the breakpoints first and the row reports the kernel
+            # never blitting - which is exactly what it said on the run that
+            # taught this: one entry, no matched return.
+            tr.until(lambda: bool(got), "a straddling canvas blit",
+                     limit=240.0, required=False)
         if not got:
             print("   the drag %s; gfx_blit4 entered %d time(s), %d of them "
                   "wide (cx > 200), %d matched returns"
@@ -256,8 +274,6 @@ def run(image, apps, machine, defines, tree=None):
                      ("FAILED - %s" % drove["err"]) if drove["err"] else
                      "NEVER FINISHED", hits["entry"], hits["wide"],
                      hits["ret"]))
-        m.bp_exec()
-        m.run()
         if not got:
             sys.exit("blitcut: no straddling canvas blit arrived in 240s")
 

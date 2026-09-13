@@ -134,13 +134,49 @@ def bar_check(m):
         M.until(m, lambda mm: not ui._byte("menu_dropd"),
                 "the bar to have nothing down before pressing %r" % title,
                 poll=0.05, guest=10.0)
-        ui.mo.to((x0 + x1) // 2, os88ui.geom.MBAR_H // 2)
+        px = (x0 + x1) // 2
+        ui.mo.to(px, os88ui.geom.MBAR_H // 2)
         if ui.mo.where()[2] & 1:            # a press that finds the button
             ui.mo._edge(False)              # already down is not an edge, and
-        ui.mo._edge(True)                   # so drops nothing at all
-        try:
-            M.until(m, lambda mm: ui._byte("menu_dropd"),
-                    "the %s menu to drop" % title, poll=0.05, guest=10.0)
+        try:                                # so drops nothing at all
+            try:
+                # `_edge_until` AND NOT A BARE WAIT: the press is confirmed
+                # against the guest's `mouse_btn` and its EVT_MDOWN can still
+                # be dropped from a full ring (SPEC.md 10.1), which is this
+                # row's own failure at a lane of four. A second EDGE is the
+                # only recovery; ten more seconds is not.
+                ui._edge_until(lambda: ui._byte("menu_dropd"),
+                               "the %s menu to drop" % title, guest=10.0)
+            except Exception:
+                # **SAY WHAT THE MACHINE LOOKED LIKE**, because `_edge(True)`
+                # already proves the guest's own `mouse_btn` agreed the button
+                # went down - so "the press was lost" is the one explanation
+                # this failure cannot have, and a bare timeout invites it
+                # anyway. It went red once in a width-4 soak, on a bar cell
+                # eleven presses in, and every guess about it since has been
+                # about a press that never arrived.
+                #
+                # The four readings that tell the real cases apart cost one
+                # round trip: where the pointer ACTUALLY is (a press at the
+                # right x on the wrong y hits no title), whether the button is
+                # still down at all, whether a PREVIOUS drop is still up
+                # (menu_y1 is stamped and never cleared, so menu_dropd is the
+                # only honest one), and what ui_task last decided.
+                cx, cy, btn = ui.mo.where()
+                raise SystemExit(
+                    "hdboot: FAIL - pressed %r (cell %d of %d) at x=%d in "
+                    "[%d,%d], y=%d, and no menu dropped in 10 guest seconds. "
+                    "The guest confirmed the button DOWN before this wait, so "
+                    "the press reached mou_isr. At the timeout: pointer "
+                    "(%d,%d) btn %#x, menu_dropd %d, menu_cell %d, menu_y1 "
+                    "%d. A pointer that is not at (%d,%d) means the move was "
+                    "undone between the confirm and the press; menu_dropd 0 "
+                    "with the button still down means ui_task saw the edge "
+                    "and menu_track refused the hit test."
+                    % (title, i, len(cells), px, x0, x1,
+                       os88ui.geom.MBAR_H // 2, cx, cy, btn,
+                       ui._byte("menu_dropd"), ui._byte("menu_cell"),
+                       ui._word("menu_y1"), px, os88ui.geom.MBAR_H // 2))
             got = ui._byte("menu_cell")
         finally:
             ui.mo.to(2, os88ui.geom.MBAR_H + 8)     # off every title, so the

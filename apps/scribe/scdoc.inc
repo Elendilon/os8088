@@ -107,7 +107,7 @@ SC_MAXBTE    equ 64             ; FKP pages of each kind. 64 x 512 = 32KB,
 SC_MAXPCD    equ 1024           ; pieces a complex file may have. Read in
                                 ; place out of the staging image - no copy,
                                 ; so this bounds the WALK and nothing else
-; --- the picture record (SPEC.md 94.7) ---------------------------------------
+; --- the picture record (SPEC.md 95.7) ---------------------------------------
 ; Derived from two documents Microsoft itself wrote and cross-checked against
 ; each other: TECHREF.DOC, which ships with Word 1.1a and holds exactly one
 ; metafile picture, and SNAP.DOC, a Paint bitmap pasted into Word and saved.
@@ -366,7 +366,7 @@ sc_dpichdr:
 ; Advances DI by bmWidthBytes * height; preserves everything else.
 ;
 ; Bit 7 is the LEFTMOST pixel, which is the same end os88img.inc reads a 1bpp
-; row from (SPEC.md 93) - so this and the decoder that will read it back agree
+; row from (SPEC.md 94) - so this and the decoder that will read it back agree
 ; by construction rather than by testing.
 ;
 ; SC_PICWHITE is shifted right by the colour index and the low bit tested,
@@ -513,7 +513,7 @@ sc_dgrpc:
     push bx
     push dx
     cmp byte [sc_dpicrun], 0        ; A PICTURE'S CHPX IS NOT A grpprl AND
-    je .attrs                       ; NOT AN ATTRIBUTE SET (SPEC.md 94.7).
+    je .attrs                       ; NOT AN ATTRIBUTE SET (SPEC.md 95.7).
     cmp al, [sc_npic]               ; ...AND THE INDEX CAME OFF THE DISK. A
     jae .attrs                      ; 0x01 anywhere in a hostile file's text
                                     ; is read as SC_PICCH, and sc_dpicr stops
@@ -972,7 +972,7 @@ sc_dattr:
     PKG_STB sc_dpicrun, 0
     call sc_dispic                  ; A PICTURE IS ALWAYS A RUN OF ONE, so its
     jne .notpic                     ; CHPX can carry its own fcPic and nothing
-    PKG_STB sc_dpicrun, 1     ; else shares it (SPEC.md 94.7)
+    PKG_STB sc_dpicrun, 1     ; else shares it (SPEC.md 95.7)
     call sc_dat1                    ; AL = the CHP byte, which for a picture
     mov dl, al                      ; character is its INDEX (88.9)
     inc bx
@@ -1459,7 +1459,7 @@ sc_docparse:
     call far [sc_v_pictfree]; THE OLD DOCUMENT'S PICTURES GO BACK
                                     ; HERE, not at sc_load's commit point,
                                     ; which is past the ones sc_dpicr is
-                                    ; about to build (SPEC.md 94.7). Safe
+                                    ; about to build (SPEC.md 95.7). Safe
                                     ; this late: every refusal sc_docparse
                                     ; can make is above this line, so by now
                                     ; the read has committed and the rule the
@@ -1927,7 +1927,7 @@ sc_dpapin:
                                     ; sc_v_papfind, which is itself a
                                     ; DS-relative dword - would be read ~33KB
                                     ; past the end of a 12,288-byte claim
-                                    ; (SPEC.md 94.8.3)
+                                    ; (SPEC.md 95.8.3)
     cmp al, 13
     jne .next
     mov ax, si
@@ -2494,7 +2494,7 @@ sc_dcompact:
     cmp al, 9
     je .keep
     cmp al, SC_PICCH                ; a picture SURVIVES compaction now
-    je .keep                        ; (SPEC.md 94.7): it is the one control
+    je .keep                        ; (SPEC.md 95.7): it is the one control
     cmp al, 32                      ; character below 32 this port renders,
     jb .drop                        ; and sc_dpicr pairs it with its record
     cmp al, 126

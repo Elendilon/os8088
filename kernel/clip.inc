@@ -122,16 +122,21 @@ clip_put:
                                 ; overwritten and a regrow would need both
                                 ; blocks free at once to preserve them
     mov bx, MEM_K_CLIP
+%ifdef OS88_COMPACT
     push word [mem_pinseg]      ; THE SOURCE IS PINNED ACROSS THE CLAIM (SPEC.md
     mov [mem_pinseg], bp        ; 66.3 rule 5): the caller's text is very
-    call mem_claim              ; often a document claim that is itself
-    pop word [mem_pinseg]       ; movable, this claim can compact, and the
-                                ; copy of its segment in BP is on OUR stack -
-                                ; a stale one no relocation proc can repair
+%endif                          ; often a document claim that is itself
+    call mem_claim              ; movable, this claim can compact, and the
+%ifdef OS88_COMPACT
+    pop word [mem_pinseg]       ; copy of its segment in BP is on OUR stack -
+%endif                          ; a stale one no relocation proc can repair.
+                                ; kern_small moves nothing (SPEC.md 66.0), so
+                                ; there is no window to pin against
     jc .toobig                  ; clip_drop already emptied it
     mov [clip_seg], dx
     mov [clip_kb], al           ; ...while AX still holds the size, so no bank
                                 ; is needed round the call below
+%ifdef OS88_COMPACT
     mov ax, clip_reloc          ; ...and MOVABLE (SPEC.md 66.5.6): one word,
                                 ; read immediately before each copy, and a
                                 ; claim that outlives the app that filled it -
@@ -143,6 +148,7 @@ clip_put:
                                 ; is the worked example that cost SPEC.md
                                 ; 66.5.6.2 a shipped defect
     call COLD_SEG:mmf_mem_movable
+%endif                          ; ...and nothing moves on kern_small (66.0)
 .room:
     mov [clip_bytes], cx        ; while DS is still ours
     mov es, [clip_seg]
@@ -286,6 +292,7 @@ clip_drop:
 
 section .text
 
+%ifdef OS88_COMPACT
 ; clip_reloc - the compactor moved the clipboard (SPEC.md 66.2). One word:
 ; clip_put and clip_get each load it immediately before their rep movsb, and
 ; nothing derives anything from it.
@@ -305,6 +312,7 @@ clip_reloc:
                                 ; the one walk that runs for blocks it does
                                 ; not own and it scans by VALUE; this is not
                                 ; that
+%endif                          ; OS88_COMPACT
 
 section .bss
 ; All three arrive zeroed, which IS an empty clipboard - the boot image's

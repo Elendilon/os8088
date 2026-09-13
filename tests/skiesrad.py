@@ -44,6 +44,7 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 import os88ui                                               # noqa: E402
 import dispapps                                             # noqa: E402
+import csworlds                                             # noqa: E402
 
 PORTS = ["SPX", "LCY", "MIA", "VNLK", "JFK", "ISSY", "LBG", "SDU", "SFO"]
 SHARD = (2700, 480)                     # where csw_lcy.inc stands it
@@ -99,9 +100,10 @@ def main(argv):
             m.write(lin + base + off(n), d)
 
         m.pause()
-        poke("cs_airport", int.from_bytes(
-            m.readseg(seg, mp["cs_ports"] + 2 * PORTS.index("LCY"), 2),
-            "little").to_bytes(2, "little"))
+        # THE ROW AND NOT THE RECORD (SPEC.md 88.10.5): a location's record
+        # lives in the world overlay, so only the loaded world has one - and
+        # cs_cmd_fly turns the row into a world on its way into the bracket.
+        poke("cs_apnow", bytes([PORTS.index("LCY")]))
         poke("cs_inited", b"\x00")
         m.run()
         m.type_text("f")                        # ONE f enters the flight; a
@@ -140,7 +142,13 @@ def main(argv):
         m.run()
         gframes(2)
 
-        shard = mp["cs_m_lcy_shd"]
+        # THE WORLD'S MAP AND NOT THE PROGRAM'S (SPEC.md 88.10.5). The Shard
+        # is a mesh in csw_lcy.inc, which is packed into a part and read into
+        # the overlay at run time - so `cs_m_lcy_shd` is not a symbol of the
+        # package at all any more. csworlds.world_map lays the world out at
+        # the address cs_wldget puts it, so what comes back is the address
+        # the guest has.
+        shard = csworlds.world_map(csworlds.WORLD_OF["lcy"])["cs_m_lcy_shd"]
         rad = int.from_bytes(m.readseg(seg, shard + E["CSM_RAD"], 2), "little")
         nvx = m.readseg(seg, shard + E["CSM_NV"], 1)[0]
         print("    cs_m_lcy_shd: CSM_RAD %d over %d levels" % (rad, nvx))

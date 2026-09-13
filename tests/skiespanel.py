@@ -195,8 +195,17 @@ def main(argv):
         # flight starts, read STALLED for the whole flight and nothing ever
         # cleared it. Every combination, driven by the three source bytes so
         # the key really changes and the painter really runs.
+        #
+        # SINCE 88.7.10.2 THE SAME BIT HAS AN AIR ARM. The airbrake is the
+        # one state a pilot cannot see out of the window, and the strip said
+        # FLYING with it out; a STALL still outranks it, because the brake is
+        # a thing the pilot chose and the stall is one that happened.
         WANT = ((1, 0, 0, 0, "FLYING"), (1, 1, 0, 0, "STALL"),
                 (1, 0, 1, 0, "FLYING"), (1, 1, 1, 0, "STALL"),
+                (1, 0, 0, 1, "AIRBRAKE OUT"),   # the air arm (88.7.10.2)
+                (1, 0, 1, 1, "AIRBRAKE OUT"),   # ...off the water too
+                (1, 1, 0, 1, "STALL"),          # ...and a STALL outranks it
+                (2, 0, 0, 1, "CRASHED"),        # ...as a crash outranks both
                 (0, 0, 0, 0, "ON THE GROUND"), (0, 0, 1, 0, "ON THE WATER"),
                 (0, 0, 0, 1, "BRAKES ON"),      # the latch (88.7.10.1), bit 2
                 (0, 0, 1, 1, "BRAKES ON"))      # ...and it beats the water

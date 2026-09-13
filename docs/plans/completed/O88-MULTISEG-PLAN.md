@@ -441,6 +441,15 @@ own vector slot.
 
 ### 6.4 What the standard costs the package
 
+> **THE ESTIMATE BELOW WAS NEVER TAKEN AGAIN, AND IT WAS OUT BY 4x.** It is
+> right for the wave the file was closed on; waves 3 to 7 then added scratch
+> and optional parts, XMS, lazy parts, compression and the C SDK, and each of
+> them measured its bill as *"zero kernel bytes"* — truthfully, and in the
+> wrong currency. Measured at wave 7, a package declaring one plain
+> `OP_ASSET` row carried **2,536**. SPEC.md §20.12.9 is the diagnosis and the
+> fix: the flags are derived from the table, the code is emitted after it, and
+> that same package now carries **800**.
+
 Estimated at **500–700 bytes** of image, against the 2,031 that came out of
 the kernel, because the validation is gone (§4.2) and the file-finding is
 gone (§6.3). Two instances of one package carry two copies — but two

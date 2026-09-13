@@ -82,19 +82,21 @@ def main(argv):
 
         m.advance(frames=40)
         m.run()
+        # NAME -> ROW, out of cs_apnames: a record lives in the world overlay
+        # now and only the loaded world has one, so the resident half is what
+        # a lookup by name reads (SPEC.md 88.10.5).
         ports = {}
         for i in range(int.from_bytes(m.readseg(seg, mp["cs_drport"] + 10, 2),
                                       "little")):
-            p = int.from_bytes(m.readseg(seg, mp["cs_ports"] + 2 * i, 2),
-                               "little")
-            q = int.from_bytes(m.readseg(seg, p, 2), "little")
+            at = int.from_bytes(m.readseg(seg, mp["cs_apnames"] + 2 * i, 2),
+                                "little")
             nm = ""
             while True:
-                c = m.readseg(seg, q + len(nm), 1)[0]
+                c = m.readseg(seg, at + len(nm), 1)[0]
                 if not c:
                     break
                 nm += chr(c)
-            ports[nm] = p
+            ports[nm] = i
 
         if a.clobber_occ:
             # cs_occpair's first instruction is `mov ax, [cs_ob_y0]`; an
@@ -105,14 +107,27 @@ def main(argv):
             m.run()
             print("  (cs_occpair answers yes without testing: must fail)")
 
-        def enter(port):
+        def enter(row):
+            # THE ROW, NOT THE RECORD (SPEC.md 88.10.5). A location's record
+            # lives in the world overlay, and cs_cmd_fly is what turns a row
+            # into a world - so entering the bracket is now the only way to
+            # change country, and `f` is that.
             m.pause()
-            put("cs_airport", port.to_bytes(2, "little"))
+            put("cs_apnow", bytes([row]))
             put("cs_inited", b"\x00")
             m.run()
             m.type_text("f")
             m.advance(frames=130)
             m.run()
+
+        def leave():
+            m.type_text("f")            # F toggles; this is the way OUT
+            m.advance(frames=60)
+            m.run()
+
+        def record():
+            """The live location record, once its world is in the overlay."""
+            return word("cs_airport")
 
         def viewpx():
             m.pause()
@@ -202,10 +217,10 @@ def main(argv):
 
         # --- 1 and 2: Nepal's verdicts, and each one against the glass -----
         nep = [k for k in ports if "NEPAL" in k][0]
-        port = ports[nep]
+        enter(ports[nep])
+        port = record()                 # ...and NOW the record is real
         flags = int.from_bytes(m.read(lin + port + CSA_FLAGS, 2), "little")
         check(flags & 1, "%s asks for the pass (CSA_FLAGS %d)" % (nep, flags))
-        enter(port)
         # EACH VERDICT IS CHECKED WITH THE PASS OFF, which is the whole
         # point: with it ON the object is already being skipped, so removing
         # it changes nothing and the check passes whatever the pass believes.
@@ -290,10 +305,9 @@ def main(argv):
         # toggles, and one that has not landed leaves this reading a world
         # that is not being drawn (SPEC.md 88.13.1.1).
         other = [k for k in ports if "NEPAL" not in k][0]
-        m.pause()
-        put("cs_airport", ports[other].to_bytes(2, "little"))
-        m.run()
-        pin(ports[other], 0, 60)
+        leave()                         # ...and BACK OUT to change country: a
+        enter(ports[other])             # world is read at cs_cmd_fly now, so
+        pin(record(), 0, 60)            # poking the record switches nothing
         m.advance(frames=8)
         m.run()
         check(not verdicts(),

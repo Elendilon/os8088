@@ -1,6 +1,6 @@
 ; =============================================================================
 ; os88img.inc - picture decoders: .PIX, .BMP and .PCX into packed 4bpp
-; SPEC.md 93. Include LAST, after os88ui.inc and before OS88_BSS, exactly as
+; SPEC.md 94. Include LAST, after os88ui.inc and before OS88_BSS, exactly as
 ; os88line.inc and os88text.inc are.
 ;
 ; WHY AN INCLUDE AND NOT A KERNEL SLOT: the same argument 75.3 and 83 make. A

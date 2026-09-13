@@ -188,12 +188,11 @@ static void cw_menu_paint(void)
              * where the check IS the answer (SPEC.md 73.12.1), which is what
              * turned it up.
              *
-             * Two strokes, which is what apps/word draws - a short down-stroke
-             * and a long up-stroke - and two calls per checked item, never one
-             * per pixel. */
+             * A SOLID SQUARE, which is what apps/word draws since SPEC.md
+             * 13.16.2.1 - one call, and a thin diagonal reads as scattered
+             * pixels on the two 1bpp adapters (SPEC.md 39.4). */
             os88_set_color(OS88_BLACK);
-            os88_gfx_line(cw_m_x1 + 2, y + 5, cw_m_x1 + 3, y + 7, 0);
-            os88_gfx_line(cw_m_x1 + 3, y + 7, cw_m_x1 + 7, y + 3, 0);
+            os88_gfx_fill(cw_m_x1 + 2, y + 3, cw_m_x1 + 6, y + 7);
         }
         /* the mnemonic, underlined where menus.cmd put the '&' */
         if (!dis) {

@@ -117,22 +117,32 @@ def main():
         # making: `drv_load` has read, checked, expanded and zeroed by then,
         # and NOTHING has entered the driver. What the file says is what
         # memory must hold, all of it, with no region to carve out.
-        m.bp_exec("drv_attach")
-        mo.click(x0 + drvcall.CP_RX + 40,
-                 y0 + drvcall.CP_DBY1 + RD_ROW * drvcall.CP_DROWH
-                 + drvcall.CP_DROWH // 2)
-        # THE BYTES, not the segment. Banking the segment here and reading it
-        # after `m.run()` reads exactly what the old code read - a driver that
-        # has attached and started using its own memory - and is the same
-        # failure with an extra step in front of it.
-        loaded = None
-        if m.wait_stop(limit=120.0):
-            r = m.regs()
+        # THE BYTES, not the segment, and they are read AT the stop. Banking
+        # the segment here and reading it after the resume reads exactly what
+        # the old code read - a driver that has attached and started using its
+        # own memory - and is the same failure with an extra step in front of
+        # it. So the read is `on_hit`'s, which runs while the guest is still
+        # in `drv_attach`; the click is inside the trace because os88mouse
+        # proves it against the published `mouse_btn`, which a stopped guest
+        # cannot move.
+        got = {}
+
+        def image(mm, rec):
             sg = int.from_bytes(
-                m.read(KERNEL_SEG * 16 + r["bx"] + DRVR_SEG, 2), "little")
+                mm.read(KERNEL_SEG * 16 + rec["regs"]["bx"] + DRVR_SEG, 2),
+                "little")
             if sg:
-                loaded = bytes(m.readseg(sg, 0, len(plain)))
-        m.bp_exec()
+                got["bytes"] = bytes(mm.readseg(sg, 0, len(plain)))
+            return None
+
+        with os88marty.bp_trace(m, "drv_attach", regs=True,
+                                on_hit=image) as tr:
+            mo.click(x0 + drvcall.CP_RX + 40,
+                     y0 + drvcall.CP_DBY1 + RD_ROW * drvcall.CP_DROWH
+                     + drvcall.CP_DROWH // 2)
+            tr.until(lambda: bool(got), "drv_attach", limit=120.0,
+                     required=False)
+        loaded = got.get("bytes")
         m.run()
         # WAITED FOR, not slept through - AND NOT ON THE SEGMENT, which is
         # the trap this row taught. `drv_load` writes DRVR_SEG the moment

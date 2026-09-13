@@ -4538,7 +4538,13 @@ np_load:
                                 ; read reports it, and the fold below only ever
                                 ; SHRINKS what arrived - so the file lands in
                                 ; the document buffer itself and folds in
-                                ; place, and there is no load staging at all
+                                ; place, and there is no load staging at all.
+                                ;
+                                ; THE CF IS NOT READ HERE ON PURPOSE, and
+                                ; .err is where it is answered instead
+                                ; (SPEC.md 27.6.1): the claim may already be
+                                ; big enough for this file, so a refusal is
+                                ; only news if the read then does not fit
     call np_goto                ; ...and the same folder dance on the way in
     xor ax, ax                  ; PIN it across the read (SPEC.md 66.5.7.1):
     call np_dmov                ; ES:BX below is a pointer INTO this claim and
@@ -4612,6 +4618,24 @@ np_load:
     call np_saymsg
     jmp short .done
 .err:
+    cmp ax, FERR_BIG            ; A REFUSED CLAIM IS NOT A FILE THAT IS TOO
+    jne .say                    ; BIG (SPEC.md 27.6.1). The resize above is
+    cmp word [np_capkb], NP_MAXKB   ; the one np_resize in this package whose
+    jae .say                    ; CF nobody reads - deliberately, because the
+                                ; claim may already be big enough for this
+                                ; file and refusing the load outright would
+                                ; break a load that works. So the ERROR is
+                                ; what learns the difference, and the claim's
+                                ; own size is the record of what happened: AT
+                                ; the ceiling, the file really is too big for
+                                ; this application; SHORT of it, the grow was
+                                ; refused and what said no was the HEAP.
+                                ; np_stghold already says this sentence about
+                                ; the same cause one call along
+    mov ax, np_e_nomem
+    call np_saymsg
+    jmp short .done
+.say:
     call np_errmsg
 .done:
     call np_fitclaim            ; both paths: give back what the file did not
