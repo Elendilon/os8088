@@ -9,7 +9,8 @@
 > bytes *smaller*. `tests/skiessound.py` is the gate — three red runs — and all
 > 34 `skies*` soak rows are green.
 >
-> **It shipped three times**, and §5 and §6 are the field passes: the first build was
+> **It shipped four times**, and §5 to §7 are the field passes — the last of
+> which was not in this package at all: the first build was
 > arithmetic and a person listened to it on a real speaker. Two of the four
 > tops came down, a feature was **deleted**, and the one complaint nobody had
 > predicted got a mechanism of its own.
@@ -356,3 +357,66 @@ During a *sustained* sweep the note cannot be finer than the thing it follows,
 and the lever has fifty whole steps. A piston's sweep is ~1 Hz a tick and stays
 there. Everything in §6 is about the transitions that are not sustained
 sweeps — and the one source with real resolution to give was the jet's.
+
+
+---
+
+## 7. The fourth pass: the wobble was under the note the whole time
+
+> *"The changes go 'up, then down, then up'. So the jet — if I change it
+> between just two throttle ranges — sounds great, no up/down. But when I
+> change it straight from 0-100 as fast as possible the ramp is 'up, down a
+> bit, up a bit more, down a bit, up a bit more' etc."*
+
+**A monotone throttle producing a non-monotone note is a defect, not a
+perceptual limit**, so this one was measured before anything was touched. A
+probe flew the Magister, slammed the lever to 100 and recorded `[cs_thr]`,
+`[cs_thracc]`, `[cs_eng]` and `[cs_tone]` at every sim tick; a second held the
+key instead and pinned nothing. Both read **0 down-steps in 149**, strictly
+monotone from 180 Hz to 684.
+
+So nothing at or above `cs_tone` could account for a down, and the search moved
+below it — to `spk_tone`, which wrote the 8253's **control word on every
+frequency change**. That resets the counter's output to its initial state and
+inhibits it until a count is loaded: every change **restarted the square wave**
+rather than retuning it. During that sweep the note changed on **149 of 149
+consecutive ticks**, so the speaker was restarted 149 times in a row, each one
+truncating the cycle in progress.
+
+**The report's own shape is what identifies it.** *"Between just two throttle
+ranges — sounds great"* is one or two restarts, inaudible. *"0-100 as fast as
+possible"* is a hundred and fifty in a row. No property of the Hz sequence
+distinguishes those two cases; the number of port writes is the only thing that
+does.
+
+The fix is SPEC.md 34.1.1 and it needs **no new state**: `snd_ch2mode` already
+says whether a tone is sounding, so the control word goes in when it is not 1
+and is skipped when it is. Mode 3 loads a new count at the end of the current
+half-cycle — a clean retune — and mode 3 is the chip's resting state here
+anyway, §34.4's PWM being the only thing that leaves it and `spk_pcm_idle`
+latching it back. **7 bytes**, measured on the symbol span, because
+`kernel.bin` is the same length either way: section padding swallowed it whole,
+which is CLAUDE.md's rungs rule catching a reader who measures the artefact.
+
+**Two things about it are decisions rather than side effects.** It changes what
+*consecutive* notes sound like — two non-zero tones with no silence between
+them used to be separated by the restart's click and are now connected, legato
+where it was marcato — and a tune that wants articulation gets it by going
+through zero, which is what a rest already is. And **the suite cannot see any
+of this**: every shipped sound gate asserts frequencies, and the frequencies
+never changed. It is verified by the mechanism and by a listener, which is the
+same standing as every number in §6.
+
+### 7.1 What the scoped soak said, and what it did not
+
+Fifty rows — every `skies*` plus every row that reaches a tone, a kernel byte
+or a package that beeps — **48 green, and both failures accounted for and
+neither the change's**:
+
+- `dotdelwin` — a window-geometry assertion, nothing to do with sound.
+  `os88bisect.py classify` re-ran it alone at HEAD: **3/3 GOOD**, so it was
+  contention and the base was never built.
+- `paccman` — a **fast**-tier host-side source check that passes in a plain
+  tree in 0.0 s. It died in the soak's frozen tree on a missing generated
+  `paccman.gen.asm`, which is `docs/plans/HANDOFF-SOAK-FINDINGS.md`'s standing
+  "rows that FAIL where they mean SKIP", one artefact along.

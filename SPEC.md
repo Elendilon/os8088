@@ -48927,6 +48927,48 @@ working exactly as intended. The machine really has no card.
   still jitters at tick scale behind the mouse ISR. Interrupt-paced
   speaker PCM is the same arithmetic and is rejected with it: speaker PCM
   is the §34.4 busy loop or nothing.
+#### 34.1.1 The mode word goes in ONCE, so a GLIDE does not restart the wave
+
+`spk_tone` wrote `0xB6` to 0x43 on **every** frequency change. Writing the
+control word to an 8253/8254 resets the counter's output to its initial state
+and inhibits it until a count is loaded — so each change **restarted the square
+wave** rather than retuning it.
+
+For one beep that is invisible. For a **glide** it is not. A package that moves
+its tone every tick is asking for 18 restarts a second, and each one truncates
+the cycle in progress and forces OUT high: the pitch wobbles around the glide
+instead of following it. It was reported off CLEAR SKIES' jet (§88.8.2.1),
+which sweeps 180 → 700 Hz, and the shape of the report is what identifies the
+cause — *"if I change it between just two throttle ranges, sounds great, no
+up/down. But when I change it straight from 0-100 as fast as possible the ramp
+is 'up, down a bit, up a bit more, down a bit'"*. Measured on the guest, that
+sweep changes the tone on **149 of 149 consecutive ticks**, and the note itself
+is strictly monotone throughout: nothing above the port writes can account for
+a down.
+
+**The fix needs no new state**: `snd_ch2mode` already says whether a tone is
+sounding, so the control word is written when it is not 1 and skipped when it
+is. Mode 3 loads a new count at the end of the current half-cycle, which is a
+clean retune, and mode 3 is the chip's resting state here anyway — §34.4's PWM
+is the only thing that leaves it, and `spk_pcm_idle` latches the bare mode-3
+word back on the way out. So a tone episode costs one control word however many
+times its frequency moves, and every path that reaches silence re-establishes
+it. **7 bytes**, measured on the symbol span — `kernel.bin` is the SAME LENGTH
+either way, section padding having swallowed it whole, which is CLAUDE.md's
+rungs rule catching a reader who measures the artefact. `KERN_BUDGET` keeps
+18,432 spare and no rung moves.
+
+**It changes what CONSECUTIVE NOTES sound like, and that is a decision rather
+than a side effect.** Two non-zero tones with no silence between them used to
+be separated by the restart's click; they are now connected, which is legato
+where it was marcato. A tune that wants articulation gets it by going through
+zero — which is what a rest is, and what `.off` already does to the gate. No
+shipped package's gate can see the difference: every one of them asserts
+FREQUENCIES, and the frequencies are unchanged. That is worth stating rather
+than leaving implied — **this fix is verified by the mechanism and by a
+listener, and not by the suite**, which is the same standing as every other
+number in §88.8.2.2.
+
 ### 34.2 Capabilities and the speaker driver
 
 There is no driver table any more — a table with one row is a lie about

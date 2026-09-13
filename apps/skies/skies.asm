@@ -399,7 +399,12 @@ CSS_LAG   equ 4                 ; THE ENGINE'S RESPONSE (88.8.2.1), a shift:
                                 ; snapping, which is what an engine does and
                                 ; what a note does not
 CSS_CAP   equ 5                 ; ...AND THE NOTE'S PITCH CEILING, a second
-                                ; shift, on the NOTE rather than on the gap:
+                                ; shift (and see SPEC.md 34.1.1, which is the
+                                ; OTHER half of what a glide sounds like: the
+                                ; kernel used to restart the square wave on
+                                ; every change, so a sweep wobbled however
+                                ; smooth the numbers were),
+                                ; on the NOTE rather than on the gap:
                                 ; the step may not exceed this share of where
                                 ; the note already is. A share of the gap is a
                                 ; constant fraction in HERTZ and a wildly
