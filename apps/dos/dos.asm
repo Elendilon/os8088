@@ -11086,6 +11086,21 @@ dos_fh_wiloop:
     mov di, dx                      ; DI walks the PROGRAM's buffer
     mov bx, cx                      ; BX = what is still to go
     xor dx, dx                      ; DX counts what has gone in
+    ; --- a seek PAST the end is a GAP, and it is laid FIRST (96.11.6.1) -----
+    ; At the TOP rather than down in .igrow, because a write of ZERO bytes is
+    ; how DOS spells "the file ends HERE" (96.11.6.2) and .ichunk's own
+    ; `or bx, bx` returns before the gap has been looked at. It is the same
+    ; test either way: past the end at entry is the only way .igrow could ever
+    ; have seen one, the position only moving forward from here.
+    test byte [si+FH_FLAGS], FHF_WHOLE
+    jnz .ichunk                     ; a COMPRESSED file is the window (96.11.1)
+    mov ax, [si+FH_POS+2]
+    cmp ax, [si+FH_SIZE+2]
+    ja .ihole
+    jb .ichunk
+    mov ax, [si+FH_POS]
+    cmp ax, [si+FH_SIZE]
+    ja .ihole
 .ichunk:
     or bx, bx
     jz .idone
@@ -11157,14 +11172,12 @@ dos_fh_wiloop:
     test byte [si+FH_FLAGS], FHF_WHOLE
     jnz .idone                      ; a COMPRESSED file is the window (96.11.1)
                                     ; and cannot be grown a byte at a time
-    mov ax, [si+FH_POS+2]           ; PAST the end is a seek's gap and is laid
-    cmp ax, [si+FH_SIZE+2]          ; rather than refused (96.11.6.1); BEFORE
-    ja .ihole                       ; it cannot happen at all, the fill above
-    jb .idone                       ; having found no bytes of the file there.
-    mov ax, [si+FH_POS]             ; Equal falls through with AX = the size,
-    cmp ax, [si+FH_SIZE]            ; which is what the arithmetic below wants
-    ja .ihole
-    jb .idone
+    mov ax, [si+FH_SIZE+2]          ; only at the very END of the file, which
+    cmp ax, [si+FH_POS+2]           ; by here is the only place it can be: a
+    jne .idone                      ; gap was laid at the top and the position
+    mov ax, [si+FH_SIZE]            ; only moves forward. AX ends as the SIZE,
+    cmp ax, [si+FH_POS]             ; which is what the arithmetic below wants
+    jne .idone
 
     ; **AND THE ARITHMETIC IS 16-BIT, WHICH IS NOT A SHORTCUT.** [dos_wbase] is
     ; the position rounded DOWN to a cluster and the position is the file's

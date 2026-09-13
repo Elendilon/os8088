@@ -37,6 +37,7 @@ SZ4D      equ BLK * NBLK + 16 + BLK * 2   ; what 4a..4d leave behind
 GAP       equ 5000                  ; ...and how far past it 4e seeks: bigger
                                     ; than a cluster on every geometry here,
                                     ; so the GAP itself crosses the hand-over
+ZGAP      equ 777                   ; ...and how far past THAT 4f's CX=0 seeks
 
 start:
     mov ah, 0x09
@@ -459,6 +460,51 @@ start:
     mov dx, msg_gap
     int 0x21
 
+    ; --- 4f. ...and CX=0 past the end is "the file ends HERE" (96.11.6.2) ---
+    ; Writing ZERO bytes is how DOS sets a file's length, and both DOS and this
+    ; box answer CF=0 with AX=0 whatever happens - so the SIZE is the only
+    ; assertion there can be. Only the extending direction is built; the
+    ; shortening one is still a no-op and is not asserted here.
+    mov ax, 0x3D02
+    mov dx, fname
+    int 0x21
+    jc .ofail
+    mov [handle], ax
+    mov ax, 0x4200
+    mov bx, [handle]
+    xor cx, cx
+    mov dx, SZ4D + GAP + 16 + ZGAP
+    int 0x21
+    jc .sfail
+    mov ah, 0x40
+    mov bx, [handle]
+    xor cx, cx                      ; the call under test: no bytes at all
+    mov dx, buf
+    int 0x21
+    jc .wfail
+    mov ah, 0x3E
+    mov bx, [handle]
+    int 0x21
+    jc .clfail
+    mov ax, 0x3D00
+    mov dx, fname
+    int 0x21
+    jc .ofail
+    mov [handle], ax
+    mov ax, 0x4202
+    mov bx, [handle]
+    xor cx, cx
+    xor dx, dx
+    int 0x21
+    jc .sfail
+    cmp ax, SZ4D + GAP + 16 + ZGAP
+    jne .enogrow
+    or dx, dx
+    jnz .enogrow
+    mov ah, 0x09
+    mov dx, msg_zlen
+    int 0x21
+
     ; --- 5. close, delete, and prove it is gone -----------------------------
     mov ah, 0x3E
     mov bx, [handle]
@@ -679,6 +725,7 @@ msg_inpl:    db 'INPLACE ok',13,10,'$'
 msg_grew:    db 'GREW ok',13,10,'$'
 msg_cross:   db 'CROSS ok',13,10,'$'
 msg_gap:     db 'GAP ok',13,10,'$'
+msg_zlen:    db 'ZLEN ok',13,10,'$'
 msg_left:    db ' blocks left ','$'
 msg_eshrt2:  db 'FAILED - a write at the end took a SHORT count ','$'
 msg_enogrow: db 'FAILED - a write at the end did not move the size',13,10,'$'

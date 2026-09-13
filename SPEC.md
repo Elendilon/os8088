@@ -122091,6 +122091,54 @@ Three things fall out of that and each is worth naming:
 - **A seek PAST the end and a write LAYS THE GAP** — §96.11.6.1, which is the
   one case that is not simply the read path reversed.
 
+##### 96.11.6.2 `AH=40h` with `CX=0`, which is not a write at all
+
+Writing zero bytes is how DOS spells **"the file ends HERE"**: the length is
+set to the handle's current position, up or down. It is not folklore —
+measured on the fork owner's own IBM DOS 3.30 and on this box, with one `.COM`
+run unchanged on both — `tests/dostrap/cx0.asm`, which prints rather than
+asserts and is how this table is re-taken (docs/DOS-DEBUGGING.md's method, and
+the reason to use it is in the last column):
+
+| `AH=40h`, `CX=0`, on a 1,000-byte file | IBM DOS 3.30 | os8088, before | os8088, now |
+|---|---|---|---|
+| position 400 — **inside** the file | size → **400** | 1,000, unchanged | 1,000, unchanged |
+| position 2,000 — **past** the end | size → **2,000** | 1,000, unchanged | **2,000** |
+
+**Both sides answered `CF=0` with `AX=0` in every cell of that table**, which
+is why this is worth a section: the program cannot tell. It asked for the file
+to be a length, was told the call succeeded, and got a file of a different
+length — §96.22's wrong-kind-of-answer, one layer down.
+
+**The extend half is BUILT and cost 26 bytes**, because §96.11.6.1's gap is
+exactly it with the data write empty; all it needed was the gap test moved to
+the top of the loop, where a count of zero has not yet returned.
+
+**The TRUNCATE half is NOT built** and is the one thing in this area that
+needs a kernel it has not got. `OSAPI_FILE_WRITE_AT` grows a file to the end
+of what it has allocated and `OSAPI_FILE_APPEND` grows it further; **nothing
+published can make a file smaller**, and lowering a size means freeing the
+clusters past a point, re-terminating the chain at the last one kept, and
+storing the new size — a commit order of its own (§18.4). `dskw_free_chain`
+is already the second half of it. Until that exists the call stays a no-op on
+a shortening handle, which is what it has always been here; the shape that
+DOES truncate — `3Ch` create, which replaces — is unaffected and is how nearly
+every program that wants an empty file asks for one.
+
+**It is costed rather than estimated**: the body was written against
+`dskw_wabody`'s shape, assembled, and measured by building the kernel with and
+without it at one commit — **271 bytes of `.cold`, with `.text` and `.bss`
+byte-identical**, because every scratch word it needs (`dwr_off`, `dwr_clb`,
+`dwr_end`) is `WRITE_AT`'s and the two cannot be in flight together. Published
+as a slot it is **+14 `.text`** on top of that — an 8-byte cell and a 6-byte
+thunk, exactly what `OSAPI_FILE_WRITE_AT` cost — so **285 resident bytes**,
+plus perhaps seventy in the DOS package for the door and the shrink arm. The
+`.cold` rung had 308 bytes left when that was taken, so it crosses one; per
+the byte rule that does not decide it, but it is the fact whoever decides
+should have. What the 271 buys beyond DOS fidelity is that **nothing on this
+machine can shorten a file except by rewriting it whole** — a program that
+saves a shorter document rewrites every byte of it today.
+
 The `3Ch` path is **unchanged**: a handle that CREATED its file is still an
 accumulator that writes then appends, because that file's size really is
 moving and §18.4's commit order is where that belongs. Two handles, two
@@ -122108,11 +122156,7 @@ edge case anyone invented, it is how three ordinary things are spelled —
 - **fixed-record random access**: a program that writes record 40 of a
   twelve-record file, which is every ISAM and B-tree index, the dBASE family,
   and GW-BASIC's `PUT #n, recnum`,
-- **extending without data**: `AH=40h` with `CX=0`, which under DOS sets the
-  file's length to the current position — and which this box answers as a
-  silent no-op today. That is a **gap of its own** and is not fixed here: it
-  needs a kernel that can lower a size and free the clusters past it, which
-  neither `WRITE_AT` nor `APPEND` can do.
+- **extending without data**: `AH=40h` with `CX=0`, which is §96.11.6.2.
 
 So the gap is laid rather than refused, and **the byte cost is nearly all
 reuse**: laying `POS - SIZE` bytes at the end of a file is the same operation
@@ -122149,6 +122193,12 @@ which is the one thing §18.4.7 refuses. So the window is flushed as the append
 it is, and only then does the flag move. Leaving the flag alone instead is the
 other half of the same fault, one call later: the CLOSE then flushes a **view**
 as an append and writes the file's own tail onto the end of it.
+
+**The test is at the TOP of the write loop and not down in the growth arm**,
+because `CX=0` is how §96.11.6.2 is spelled and the loop's own `or bx, bx`
+returns before the gap has been looked at. It is the same test in either
+place: past the end at entry is the only way the growth arm could ever see a
+gap, the position only moving forward from there.
 
 **It cost 138 bytes of the package and NOTHING resident** — the kernel is
 byte-identical, `OSAPI_FILE_APPEND` already doing the allocation — plus four

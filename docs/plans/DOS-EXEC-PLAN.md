@@ -1498,11 +1498,27 @@ dispatch rather than against memory.
   are **package-side and free to every machine**, because the kernel slot the
   first one bought turned out to be the only kernel work either needed.
 
-  **What is left of `40h` is the CX=0 case** — under DOS that sets the file's
-  length to the current position, and here it is a silent no-op. It is the one
-  remaining shape in this area that needs a kernel it has not got: lowering a
-  size and freeing the clusters past it is something neither `WRITE_AT` (which
-  grows only) nor `APPEND` can do.
+  **`CX=0` was the third question and it SPLIT** (96.11.6.2). Writing zero
+  bytes is how DOS spells *"the file ends HERE"*, and the table was measured
+  on a real IBM DOS 3.30 and on this box with one `.COM` run unchanged on both
+  (`tests/dostrap/cx0.asm`): DOS moves the length in **either** direction and
+  this box moved it in neither, **both answering `CF=0` with `AX=0`**, so the
+  program could not tell. The EXTENDING half is now built and cost **26
+  package bytes** — it is 96.11.6.1's gap with the data write empty, and all
+  it needed was the gap test moved to the top of the loop, where a count of
+  zero has not yet returned.
+
+  **The TRUNCATING half is costed and NOT built**, and it is the one thing
+  left in this area that needs a kernel it has not got: nothing published can
+  make a file smaller. The body was written against `dskw_wabody`'s shape,
+  assembled and measured by building the kernel with and without it at one
+  commit — **271 bytes of `.cold`, `.text` and `.bss` byte-identical** (every
+  scratch word it wants is `WRITE_AT`'s, and the two cannot be in flight
+  together) — plus **14 `.text`** for the cell and thunk if it is published,
+  and ~70 in the package for the door and the shrink arm. **285 resident**,
+  crossing the `.cold` rung that had 308 bytes left when the measurement was
+  taken. The case for spending it is wider than DOS: today nothing on this
+  machine can shorten a file except by rewriting it whole.
 
 ### 15.5 Wave 3, and the row that turned out to be a door rather than code
 
