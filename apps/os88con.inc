@@ -150,9 +150,63 @@ con_mark:
     push cx
     cmp bx, CON_ROWS
     jae .out                        ; the cursor may sit one past the end
+    pushf
+    cli                             ; THE SPAN MOVES WITH THE BIT (96.33.12),
+    mov byte [con_dc0 + bx], 0      ; and con_takerow reads the two together.
+    mov byte [con_dc1 + bx], CON_COLS - 1   ; a whole row is columns 0..79
     call con_bit
     or [con_drb + bx], al
+    popf
 .out:
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; --- con_markc - BX = a row, CL = ONE column of it (SPEC.md 96.33.12) --------
+; The bitmap names a ROW because a band repaint is priced per CALL (~756 us of
+; arrival whatever it covers), so a row is the unit worth paying for there. A
+; TEXT screen has no fixed cost to amortise - a cell is a `mov` - so eighty
+; stores to change one is eighty times the traffic and, on CGA, eighty times
+; the SNOW. This widens the row's dirty span by one column instead.
+;
+; **INSIDE ONE `cli` WITH THE BIT**, which is con_takerow's own subject one
+; field along: a worker marking between a renderer's take and its read of the
+; span would narrow it under a decision already made, leaving the cells outside
+; the new span stale WITH the bit set - so the next pass would draw the narrow
+; span and never the lost ones.
+con_markc:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov dl, cl                      ; THE COLUMN, banked: con_bit spends CL and
+    cmp bx, CON_ROWS                ; rewrites BX into the bitmap's byte index
+    jae .out
+    pushf
+    cli
+    push bx                         ; ...so the ROW is banked too
+    call con_bit
+    mov ah, [con_drb + bx]
+    or [con_drb + bx], al           ; set it...
+    test ah, al                     ; ...but was it ALREADY set? `pop` touches
+    pop bx                          ; no flag, so this survives it
+    jnz .widen
+    mov [con_dc0 + bx], dl          ; a clean row: the span IS this column
+    mov [con_dc1 + bx], dl
+    jmp short .done
+.widen:
+    cmp dl, [con_dc0 + bx]
+    jae .hi
+    mov [con_dc0 + bx], dl
+.hi:
+    cmp dl, [con_dc1 + bx]
+    jbe .done
+    mov [con_dc1 + bx], dl
+.done:
+    popf
+.out:
+    pop dx
     pop cx
     pop bx
     pop ax
@@ -188,12 +242,23 @@ con_takerow:
                                     ; SURVIVES because this is what clears it
     cmp bx, CON_ROWS
     jae .no
-    call con_bit                     ; AL = the bit, BX = its byte
-    pushf
-    cli
+    pushf                           ; **THE FLAGS FIRST AND THE ROW SECOND**, so
+    cli                             ; the `pop bx` below takes the row and not
+    push bx                         ; the saved flags - which it did, and the
+    call con_bit                     ; span then indexed off a flags word: the
+                                    ; renderer wrote 109 cells of an 80-cell
+                                    ; row from tkc0/tkc1 that were never a span
     and al, [con_drb + bx]           ; AL = the bit if it was set, else 0
     xor [con_drb + bx], al           ; ...and a zero XORs nothing, so there is
-    popf                            ; no second branch to get wrong
+    pop bx                          ; no second branch to get wrong. BX = the
+                                    ; ROW again, which is what the span tables
+                                    ; are indexed by
+    mov ah, [con_dc0 + bx]           ; **AND THE SPAN COMES WITH THE BIT**
+    mov [con_tkc0], ah               ; (96.33.12), in the same window: a worker
+    mov ah, [con_dc1 + bx]           ; marking between the take and a renderer's
+    mov [con_tkc1], ah               ; read would narrow the span under a
+    popf                            ; decision already made, and the cells
+                                    ; outside it would be stale WITH the bit set
     or al, al
     jz .no
     pop cx
@@ -236,8 +301,15 @@ con_takescroll:
 ; it arrived on.
 con_markcur:
     push bx
+    push cx
     mov bx, [con_cy]
-    call con_mark
+    mov cx, [con_cx]                ; ...and its COLUMN (96.33.12): the
+    cmp cx, CON_COLS                ; underline is ONE cell, so marking the row
+    jb .have                        ; was eighty stores to move a caret
+    mov cx, CON_COLS - 1            ; the pen may sit one past the last column
+.have:
+    call con_markc
+    pop cx
     pop bx
     ret
 
@@ -247,7 +319,34 @@ con_markcur:
 con_markall:
     mov word [con_drb], 0xFFFF
     mov word [con_drb + 2], 0x01FF   ; ...twenty-five bits and not thirty-two:
-    ret                             ; byte 3 carries row 24 alone
+                                    ; byte 3 carries row 24 alone
+    ; --- AND THE SPANS WITH THEM (SPEC.md 96.33.12) ----------------------
+    ; A BIT WITHOUT A SPAN IS A ROW THAT EMITS ONE CELL.  This set the
+    ; twenty-five bits and left dc0/dc1 alone, which out of zeroed bss is
+    ; 0..0 - so the full repaint entering the bracket wrote ONE CELL PER ROW
+    ; and telnet measured 768 of 1,988 cells differing from the buffer with
+    ; 24 whole rows stale.  Every caller of this means "all of it".
+con_spanall:
+    push ax
+    push cx
+    push di
+    push es
+    push ds
+    pop es
+    cld
+    mov di, con_dc0
+    mov cx, CON_ROWS
+    xor al, al
+    rep stosb
+    mov di, con_dc1
+    mov cx, CON_ROWS
+    mov al, CON_COLS - 1
+    rep stosb
+    pop es
+    pop di
+    pop cx
+    pop ax
+    ret
 
 ; --- con_markup - the bitmap follows the buffer up one row -------------------
 ; **A DEFECT THE RANGE HAD AND NOBODY COULD FIX CHEAPLY.** A row marked before
@@ -260,7 +359,13 @@ con_markup:
     rcr byte [con_drb + 2], 1        ; walks down through the other three
     rcr byte [con_drb + 1], 1
     rcr byte [con_drb + 0], 1
-    ret
+    call con_spanall                ; **AND THE SPANS GO WIDE** (96.33.12).
+    ret                             ; They could be shifted with the bits, but a
+                                    ; scroll has moved every row's CONTENT, so
+                                    ; a row still marked after one is a row
+                                    ; whose whole width may have changed - and
+                                    ; carrying a one-cell span through it left
+                                    ; 23 rows of pre-scroll text on the glass
 
 ; -----------------------------------------------------------------------------
 ; con_rows_owed - draw the rows in the dirty range, and clear it
@@ -1513,7 +1618,19 @@ con_tx_row:
     add si, ax
     mov di, ax                      ; ...and the VRAM offset is the SAME
     mov es, [con_tseg]               ; number: one cell, one layout
-    mov cx, CON_COLS
+    mov cl, [con_tkc1]              ; **THE SPAN AND NOT THE ROW** (SPEC.md
+    mov ch, [con_tkc0]              ; 96.33.12): the ROM teletype writes ONE
+    cmp ch, cl                      ; cell and this wrote eighty, which on CGA
+    ja .out                         ; is eighty times the SNOW as well as the
+    sub cl, ch                      ; traffic. dc0 > dc1 is a row nothing
+    inc cl                          ; marked, and draws nothing
+    mov al, ch
+    xor ah, ah
+    add si, ax                      ; ...and both pointers start at dc0, two
+    add si, ax                      ; bytes to a cell
+    add di, ax
+    add di, ax
+    xor ch, ch                      ; CX = the cells to move
     cld
     cmp byte [con_tkind], VID_HERC
     je .mda
@@ -1714,7 +1831,11 @@ con_topy    equ con_oy + 2              ; content top it measures rows from
 con_vcols   equ con_topy + 2            ; columns the LIVE box shows...
 con_vrows   equ con_vcols + 2           ; ...rows it fits...
 con_vtop    equ con_vrows + 2           ; ...and the first buffer row shown
-con_mono    equ con_vtop + 2            ; byte: 1bpp, so the polarity goes in
+con_dc0     equ con_vtop + 2            ; CON_ROWS bytes: the FIRST dirty
+con_dc1     equ con_dc0 + CON_ROWS      ; column of each row, and the last
+con_tkc0    equ con_dc1 + CON_ROWS      ; ...as con_takerow banked them, which
+con_tkc1    equ con_tkc0 + 1            ; is what a renderer reads (96.33.12)
+con_mono    equ con_tkc1 + 1            ; byte: 1bpp, so the polarity goes in
                                         ; the band and not the pen (70.8.4)
 con_ry      equ con_mono + 1            ; --- the renderer's own ---
 con_rcp     equ con_ry + 2              ; word: ...and its first cell
