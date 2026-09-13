@@ -262,7 +262,7 @@ CUR_ARROWSH equ 0               ; the Mac arrow, hot spot (0,0) - the default,
                                 ; and 0 for the reason W_FLAGS' spare byte
                                 ; arrives 0 (SPEC.md 7.2.1)
 CUR_CROSSSH equ 1               ; the aiming crosshair, hot spot at its centre
-CUR_BUSYSH  equ 2               ; the hourglass (SPEC.md 7.5) - THE MACHINE IS
+CUR_BUSYSH  equ 2               ; the clock (SPEC.md 7.5) - THE MACHINE IS
                                 ; BUSY AND YOUR HAND CHANGES NOTHING. It is
                                 ; the one shape no window OWNS: cur_shape_pass
                                 ; never picks it, because it belongs to a
@@ -271,7 +271,7 @@ CUR_BUSYSH  equ 2               ; the hourglass (SPEC.md 7.5) - THE MACHINE IS
 CUR_NSHAPE  equ 3
 CUR_NWSHAPE equ CUR_BUSYSH      ; ...of which this many may be named by a
                                 ; WINDOW, and it is not the same number. The
-                                ; hourglass is the hold's and not the record's
+                                ; clock is the hold's and not the record's
                                 ; (SPEC.md 7.5), so wm_cursor's fence and
                                 ; wm.inc's WF_HIBITS assertion are both cut
                                 ; from THIS - which is what keeps the field one
@@ -284,9 +284,11 @@ CUR_NWSHAPE equ CUR_BUSYSH      ; ...of which this many may be named by a
 %endif
 CUR_XHX     equ 3               ; the crosshair's hot spot inside the cell...
 CUR_XHY     equ 5               ; ...which is the only reason 7.2.2 exists
-CUR_BHX     equ 3               ; ...and the hourglass's, which is centred for
-CUR_BHY     equ 5               ; the same reason: the picture must not JUMP
-                                ; down and right of where the arrow was
+CUR_BHX     equ 3               ; ...and the clock's, which is the pixel its
+CUR_BHY     equ 4               ; two hands MEET at - the centre of an 8x8 face
+                                ; and not the 8x11 cross's row 5, so the
+                                ; picture does not JUMP when the shape changes
+                                ; under a pointer that has not moved
 
 ; -----------------------------------------------------------------------------
 ; The port table (SPEC.md 9.5)
@@ -4254,7 +4256,7 @@ cur_shape_set:
     ret
 
 ; -----------------------------------------------------------------------------
-; THE HOURGLASS (SPEC.md 7.5)
+; THE CLOCK (SPEC.md 7.5)
 ;
 ; The other two shapes belong to a WINDOW and the UI task applies them; this
 ; one belongs to a gfx-lock HOLD, and the UI task is not running to apply
@@ -4262,7 +4264,7 @@ cur_shape_set:
 ; the hold puts the picture on itself and gfx_unlock is what takes it off, for
 ; fpg_finish's reason one section over (SPEC.md 12.8.3): every way out of a
 ; locked run of kernel code goes through that one routine, so nothing can leave
-; an hourglass on the screen - not a forgotten bracket, not an early return,
+; a clock on the screen - not a forgotten bracket, not an early return,
 ; not a file operation that failed.
 ;
 ; The picture may only change while the cursor is OFF THE GLASS (SPEC.md 7.2.2)
@@ -4275,7 +4277,7 @@ cur_shape_set:
 ; feature.
 ; -----------------------------------------------------------------------------
 
-; cur_busy_take - wear the hourglass, banking what it replaces
+; cur_busy_take - wear the clock, banking what it replaces
 ; in:  the cursor is OFF THE GLASS or owed a hide, and the caller holds the
 ;      gfx lock (both are cur_shape_set's contract)
 ; out: nothing (all registers preserved)
@@ -4285,7 +4287,7 @@ cur_busy_take:
     cmp al, CUR_BUSYSH          ; **THE BANK IS CONDITIONAL AND HAS TO BE**: a
     je .on                      ; SECOND take inside one hold - a package that
     mov [cur_shprev], al        ; called the slot and then touched a file - is
-.on:                            ; four bytes away from banking the hourglass as
+.on:                            ; four bytes away from banking the clock as
     mov al, CUR_BUSYSH          ; the thing to go back to, and gfx_unlock would
     call cur_shape_set          ; then restore it for ever. cur_shape_set below
     pop ax                      ; is already a compare and a return when the
@@ -4299,7 +4301,7 @@ cur_busy_take:
 ; cur_shape_set spends gfx_lock's promised hide on the way past, which is what
 ; makes gfx_unlock's own `cmp byte [cur_lazy], 0` two instructions below take
 ; the cursor_show arm and draw the restored picture. Without that it would take
-; .never - "the arrow never left the screen" - and leave the hourglass on it.
+; .never - "the arrow never left the screen" - and leave the clock on it.
 cur_busy_undo:
     push ax
     mov al, [cur_shprev]
@@ -4313,12 +4315,12 @@ cur_busy_undo:
 ; cur_busy_on   - ...and the KERNEL's, which is inside fpg_arm and does not
 ;
 ; in:  nothing
-; out: CF=0 the hourglass is on (or legitimately not drawn), CF=1 refused and
+; out: CF=0 the clock is on (or legitimately not drawn), CF=1 refused and
 ;      nothing changed; every other register and flag preserved
 ;
 ; THE HOLD IS THE ONLY LIFETIME A PACKAGE MAY HANG THIS ON, so the door tests
 ; for one: gfx_unlock is what takes the picture off, and a package that asked
-; without a hold would get an hourglass cleared by the next unlock anywhere in
+; without a hold would get a clock cleared by the next unlock anywhere in
 ; the machine rather than by its own. It also buys the drawing below the same
 ; guarantee the mouse ISR gets from a FREE lock (SPEC.md 7.4.2.1) - that no
 ; task is inside a primitive - which a package's WORKER could otherwise break.
@@ -4373,7 +4375,7 @@ cur_busy_on:
                                 ; the arrow still lit, the LIT arm's own hide
                                 ; would be the first of TWO and the refcount
                                 ; would settle at -2 - a pointer gone for the
-                                ; rest of the hold and an hourglass that never
+                                ; rest of the hold and a clock that never
                                 ; appears. It is three instructions when there
                                 ; is no promise outstanding, which is every
                                 ; lock-free arm. Spending it here also decides
@@ -4979,39 +4981,51 @@ cur_draw:
     CUR_ROW 0x0000,             0x0000      ; CUR_GH is 12 and the cross is 11
 %endmacro
 
-; The hourglass (SPEC.md 7.5), hot spot at its centre. THE MACHINE IS BUSY,
-; and the picture is a solid white tile with a black hourglass on it rather
-; than the outline-and-body construction the other two use: an hourglass fills
-; its cell edge to edge - the bars ARE its widest rows - so there is no room
-; in eight columns for a white rim around it, and a black-on-transparent one
-; would vanish into any dark window it was standing on. The tile reads on
-; every ground for free, and costs the same 24 bytes either way.
+; The clock (SPEC.md 7.5), hot spot at the hands' own pivot. THE MACHINE IS
+; BUSY, and the picture is a WATCH FACE rather than an hourglass: a round
+; silhouette with a black bezel, a white face inside it, and NOTHING WRITTEN
+; OUTSIDE THE CIRCLE. That last clause is the whole point. An hourglass's
+; widest rows are its CAPS, which span the cell, so a white rim around one is
+; a solid tile by construction - and a tile stamps a white square onto the 50%
+; dither desktop that reads as a hole punched in it wherever the pointer
+; stops. A circle has no corners to stamp.
 ;
-; THE SHAPE IS ASYMMETRIC ON PURPOSE, and it was chosen by looking at four of
-; them zoomed rather than by drawing one: the upper chamber is SOLID (sand
-; still to fall) and the lower is an OUTLINE with a pile in it (sand that has),
-; which is what says which way up it is at 8x11. A symmetric one with a
-; four-row neck - the obvious drawing, and the first one here - reads as an
-; I-beam.
+; It is SELF-CONTRASTING, which is what replaces the rim the other two shapes
+; are built with: on a white window the bezel and the hands read, and on a
+; dark one the bezel disappears into the ground and the white FACE reads - the
+; same clock either way, and no ground it can vanish into. Twelve of the
+; cell's ninety-six pixels are left transparent and the table is still 24
+; bytes.
+;
+; It is also CHEAPER TO DRAW than the arrow, where the tile it replaces was
+; dearer: cur_draw skips a framebuffer byte whose shifted white row is empty,
+; and a sparse mask has more of them - 13.50 bytes a draw against the arrow's
+; 19.75 and the old tile's 20.62 (SPEC.md 7.5.4).
+;
+; THE HANDS MUST MEET. The vertical stroke and the horizontal one share the
+; pixel at (CUR_BHX, CUR_BHY), which is the pivot and the hot spot both;
+; drawn a pixel apart they read as two scratches rather than as a clock.
+; Nothing can assert that - it is a statement about which pixel means the
+; centre, and the table does not know. Look at it.
 ;
 ; It is DELIBERATELY STILL. SPEC.md 7.1.4.3 refuses a lit-but-frozen ARROW and
 ; the field called that one a stutter - but the reason is that a still arrow
-; is a LIE about responsiveness, and an hourglass standing still is the truth
-; it exists to tell. That is the whole of why this shape may sit where the
+; is a LIE about responsiveness, and a clock that is not counting is the truth
+; this shape exists to tell. That is the whole of why it may sit where the
 ; arrow may not.
-%macro CUR_BUSY 0
-    CUR_ROW 0xFF00,             0xFF00      ; ########  the top bar
-    CUR_ROW 0xFF00,             0x7E00      ; .######.  the upper chamber, its
-    CUR_ROW 0xFF00,             0x3C00      ; ..####..  sand running out
-    CUR_ROW 0xFF00,             0x1800      ; ...##...  the neck - TWO rows and
-    CUR_ROW 0xFF00,             0x1800      ; ...##...  not four; see below
-    CUR_ROW 0xFF00,             0x2400      ; ..#..#..  the lower chamber's
-    CUR_ROW 0xFF00,             0x4200      ; .#....#.  walls, opening out
-    CUR_ROW 0xFF00,             0x8100      ; #......#
-    CUR_ROW 0xFF00,             0x9900      ; #..##..#  ...and the pile it has
-    CUR_ROW 0xFF00,             0xBD00      ; #.####.#  made at the bottom
-    CUR_ROW 0xFF00,             0xFF00      ; ########  the bottom bar
-    CUR_ROW 0x0000,             0x0000      ; CUR_GH is 12 and this is 11
+%macro CUR_BUSY 0                  ; DIAL - A clock face - round silhouette, so there are no corners at all
+    CUR_ROW 0x3C00,             0x3C00      ; ..####..  the bezel
+    CUR_ROW 0x7E00,             0x4200      ; .#****#.
+    CUR_ROW 0xFF00,             0x9100      ; #**#***#  the minute hand
+    CUR_ROW 0xFF00,             0x9100      ; #**#***#
+    CUR_ROW 0xFF00,             0x9D00      ; #**###*#  the hour hand
+    CUR_ROW 0xFF00,             0x8100      ; #******#
+    CUR_ROW 0x7E00,             0x4200      ; .#****#.
+    CUR_ROW 0x3C00,             0x3C00      ; ..####..  the bezel
+    CUR_ROW 0x0000,             0x0000      ; ........
+    CUR_ROW 0x0000,             0x0000      ; ........
+    CUR_ROW 0x0000,             0x0000      ; ........
+    CUR_ROW 0x0000,             0x0000      ; ........
 %endmacro
 
 ; --- the shape table (SPEC.md 7.2) -------------------------------------------
@@ -5071,7 +5085,7 @@ cur_busy_and:
 %assign cur_row_i 0
 cur_busy_data:
     CUR_BUSY
-CUR_SHAPE_END "hourglass"
+CUR_SHAPE_END "clock"
 
 ; --- the hot spot per shape, in the same order (SPEC.md 7.2) -----------------
 ; Two bytes a shape: the pixel inside the cell that sits under the pointer.
@@ -5137,7 +5151,7 @@ cur_hy      dw 0                ; cell that sits under the pointer. WORDS
                                 ; scratch register left to widen a byte in
 cur_shape   db CUR_ARROWSH      ; which shape that is - compared per UI pass,
                                 ; so the swap is what is rare, not the check
-cur_shprev  db CUR_ARROWSH      ; ...and what it was before the hourglass went
+cur_shprev  db CUR_ARROWSH      ; ...and what it was before the clock went
                                 ; on (SPEC.md 7.5). ONE BYTE rather than
                                 ; letting gfx_unlock restore the arrow and
                                 ; posting [cur_shchk] for the UI pass to

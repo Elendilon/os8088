@@ -9106,12 +9106,12 @@ options that do address the freeze itself.
 The driver-backed path is covered too, on half of this argument only —
 §7.4.1.1.
 
-### 7.5 The hourglass belongs to a LOCK HOLD, not to a window
+### 7.5 The clock belongs to a LOCK HOLD, not to a window
 
 `CUR_BUSYSH` is the third shape and it is the odd one. §7.2's two are a
 property of a **window**: `OSAPI_WM_CURSOR` writes one into `W_FLAGS`, the
 record owns it for its whole life, and `cur_shape_pass` applies it on the UI
-task whenever the pointer moves over that content. The hourglass is a property
+task whenever the pointer moves over that content. The clock is a property
 of a **gfx-lock hold** — *the machine is busy and your hand changes nothing* —
 and every one of those differences falls out of the same fact: **during the
 hold the UI task is not available to apply anything.** It is either the task
@@ -9121,7 +9121,7 @@ by the hold itself and taken off by `gfx_unlock`.
 That is `fpg_finish`'s safety argument (§12.8.3) reused verbatim, and it is why
 there is no "off" verb to forget: **every way out of a locked run of kernel
 code — return, failure, a question, a swap prompt — comes through
-`gfx_unlock`**, so nothing can leave an hourglass on the screen. `wm_cursor`
+`gfx_unlock`**, so nothing can leave a clock on the screen. `wm_cursor`
 therefore refuses `CUR_BUSYSH` at the door — `cmp al, CUR_NWSHAPE`, **the same
 instruction it always was with a different constant in it**: a window record
 that could carry it would be a program declaring the machine permanently busy
@@ -9134,31 +9134,57 @@ picture. The assertion beside `WF_HIBITS` is cut from `CUR_NWSHAPE` for exactly
 that reason, and it is what caught this: raising `CUR_NSHAPE` to 3 failed the
 build in `wm.inc` on the first attempt.
 
-#### 7.5.0 The picture, and why it is asymmetric
+#### 7.5.0 The picture, and why it is a clock and not an hourglass
 
 Every shape shares the arrow's 8x12 cell (§7.2) — a bigger one would be paid on
-every lock hold in the machine — and the hourglass fills it edge to edge,
-because the bars *are* its widest rows. So there is no room in eight columns
-for the white rim the other two shapes are built with, and a
-black-on-transparent hourglass would vanish into any dark window it stood on.
-What ships is the other construction: **a solid white tile with the glass in
-black on it**, which reads on every ground and costs the same 24 bytes.
+every lock hold in the machine. What ships inside it is a **watch face**: a
+round silhouette, a black bezel, a white face, two black hands, and **nothing
+written outside the circle**.
 
-The drawing is **asymmetric on purpose**, and it was picked by rendering four
-of them zoomed rather than by drawing one. The upper chamber is SOLID — sand
-still to fall — and the lower is an OUTLINE with a pile in it. That is what
-says which way up it is at 8x11: the obvious symmetric drawing, with a
-four-row neck, reads as an **I-beam**.
+It was an hourglass first, and the reason it is not one any more is a
+constraint that only shows up on the desktop. **An hourglass cannot be given a
+rim.** The arrow and the crosshair float because their black bodies are ringed
+in one pixel of white, but an hourglass's *widest* rows are its caps, which
+span the whole cell — so dilating them by a pixel reaches both edges and the
+"rim" is a solid tile. That tile is what shipped, and on a white window it is
+invisible and correct. On the **50% dither desktop** it is a white square
+punched into the dither wherever the pointer stops, and the pointer moves, so
+the phase under it changes pixel by pixel and there is no alignment to hide
+behind. A circle has no corners to stamp.
+
+So the white goes **inside**, and that is the construction worth naming because
+it generalises: the outline is black, the surface behind it is white, and the
+ground shows through everywhere else. It is **self-contrasting** — on a white
+window you read the bezel and the hands, and on a dark one the bezel
+disappears into the ground and you read the white face, which is the same
+clock. There is no ground it can vanish into, which is what the rim was for.
+Twelve of the cell's ninety-six pixels are left transparent and the table is
+still **24 bytes**; §7.5.4's cost is *lower* than the tile's, not higher.
+
+The hands are what say the machine is counting rather than broken, and **they
+must meet**: both strokes share the pixel at `(CUR_BHX, CUR_BHY)`, which is the
+pivot and the hot spot at once. Drawn a pixel apart they read as two scratches.
+Nothing can assert that — it is a statement about which pixel means the centre
+and the table does not know — so it is checked the way §7.2's crosshair gap is,
+by looking at it.
+
+**The hot spot moved with the picture**, `CUR_BHY` 5 → 4. The hourglass was 11
+rows and the clock is 8, so the crosshair's row 5 is no longer the middle of
+anything; a shape swapped in under a pointer that has not moved must not appear
+to jump, which is the whole reason §7.2.2 subtracts a hot spot per shape.
+
+A wristwatch is also what System 1 itself wore, which is not the argument for
+it but is the reason it does not look foreign here.
 
 #### 7.5.1 It is DELIBERATELY still, where the arrow may not be
 
 §7.1.4.3 refuses a lit-but-frozen arrow and the field called that one a
 stutter; §7.1.4.4 is why `CURFIX` is still off by default. The rule survives
 here and its **reason** is what licenses the exception: a still arrow is a
-**lie about responsiveness**, and an hourglass standing still is the truth it
-exists to tell. So the hourglass may sit where the arrow may not, and the whole
+**lie about responsiveness**, and a clock that is not counting is the truth
+this shape exists to tell. So it may sit where the arrow may not, and the whole
 of §7.4's tracking machinery — `[cur_inxfer]`, `[cur_barok]` — is left exactly
-as it is. A file operation's hourglass **tracks** because §7.4 already makes the
+as it is. A file operation's clock **tracks** because §7.4 already makes the
 pointer track through `int 13h`; a package's does not, because nothing in a
 four-second decode is going to move it. Neither needed a line of new code.
 
@@ -9177,11 +9203,11 @@ renderer looks at a single bit of the picture to decide how much work to do.
 below it, and that placement is load-bearing: `cur_shape_set` spends the
 promise, which is what sends the test to the `cursor_show` arm and draws the
 restored picture. Below it, the test would take `.never` — *"the arrow never
-left the screen"* — and the hourglass would stay on it.
+left the screen"* — and the clock would stay on it.
 
 **The bank is conditional**, and the four bytes that make it so are not
 optional: a *second* take inside one hold — a package that called the slot and
-then touched a file — would otherwise bank the hourglass as the thing to go
+then touched a file — would otherwise bank the clock as the thing to go
 back to, and `gfx_unlock` would restore it for ever. `cur_shape_set` is already
 a compare and a return when the picture is on, so a `cmp`/`je` above the store
 is the whole of the fix.
@@ -9272,7 +9298,7 @@ no way to know it happened.
 
 **It is not done for every lock hold**, and that is the whole reason it is a
 verb rather than a policy. An ordinary repaint is one hold; wearing an
-hourglass for it would flicker the pointer on every window that redrew, which
+clock for it would flicker the pointer on every window that redrew, which
 is PERFORMANCE.md Part 1 rule 2 again. The kernel cannot tell a four-second
 hold from a four-millisecond one *in front of it*, and by the time it could the
 flicker has already happened. The program can, and it is the only thing that
@@ -9280,7 +9306,7 @@ can.
 
 The slot is a **door in front of `cur_busy_on`**, twenty bytes of it, and all
 it adds is *the caller must hold the lock itself*. That buys two things: the
-hold is the lifetime `gfx_unlock` ends, so a package cannot leave an hourglass
+hold is the lifetime `gfx_unlock` ends, so a package cannot leave a clock
 to be cleared by somebody else's unlock; and it hands the drawing below the
 same guarantee the mouse ISR gets from a free lock (§7.4.2.1) — that no task is
 inside a primitive — which a package's **worker** could otherwise break.
@@ -9325,7 +9351,7 @@ One hazard is closed by construction rather than by the gate, and it is worth
 naming because it is invisible: on the **lit** arm `cur_shape_set`'s own
 `cur_unlazy` would hide the pointer a SECOND time, settling `[cur_level]` at
 −2 and leaving it gone for the whole freeze with the shape byte saying
-hourglass. `cur_busy_on` therefore spends the promise **above** the arm test —
+busy. `cur_busy_on` therefore spends the promise **above** the arm test —
 three bytes — which also decides which arm is taken. `tests/curbusy.py` does
 NOT catch it: two arms of three are lock-free, where there is no promise to
 spend, and their samples dominate.
@@ -9335,11 +9361,12 @@ spend, and their samples dominate.
 - **The renderers are blind to the picture.** `cur_put_mono`/`cur_get_mono`
   walk `[cur_rows]` rows of `CUR_SPAN` bytes whatever the bits are — the 1bpp
   cost is *identical* for every shape. `cur_draw` skips a framebuffer byte
-  whose shifted white row is empty, so a denser picture can cost more there:
+  whose shifted white row is empty, so a SPARSER picture costs less there:
   counted over all eight pen phases, the arrow writes **19.75** bytes a draw
-  and the hourglass **20.62**, a 1.04x that is worst at one phase (+7 of 15)
-  and cheaper at three. `cur_saveu`'s four planes dominate either way and are
-  shape-blind.
+  and the clock **13.50**, which is **0.68x** — the busy pointer is cheaper to
+  draw than the ordinary one, where the solid tile this replaces was dearer at
+  20.62. That is the transparency of §7.5.0 paying for itself twice.
+  `cur_saveu`'s four planes dominate either way and are shape-blind.
 - **`cur_shape_pass` is untouched** — still one byte compare on a quiet pass
   (§7.2.1.1), and still `cmp al, CUR_NSHAPE` in `cur_shape_set`.
 - **The only hot path that gained an instruction is `gfx_unlock`**, by a `cmp`
@@ -73480,6 +73507,200 @@ has to say `[hd_ilvl] == 0`, or a user's own file of that name in a folder of
 their own would be skipped for sharing a name with the kernel.
 
 
+### 52.10.14 …and it builds the volume's OWN `ASSOC.DAT`, because a copied one is a lie
+
+**An install copied the source disk's association cache onto the hard disk,
+and every row in it named a cluster on the floppy.** `ASSOC.DAT` (§54.7) is a
+per-VOLUME cache whose app rows carry, since §54.7.1, the cluster of the
+folder the program lives in — so it is the one file on a system disk that
+cannot be copied anywhere, and copying it is not a wasted read but a wrong
+answer that outlives the install.
+
+**The apps phase already refused it and said why.** §52.10.12's species test
+skips every hidden + system file on the apps disk, and its comment names this
+exact hazard — *"a floppy's association cache (54.7, whose rows carry SOURCE
+cluster numbers) on a hard disk"*. The SYSTEM phase is the one that copies it,
+because that phase's whole job is the hidden + system files, and the test that
+had been written to keep the cache off the destination ran only on the half
+that was never going to carry it.
+
+**Measured**, `os8088_xt_hdd`, a 360KB system disk and a 360KB apps disk onto
+a pristine 31M partition:
+
+| | on the floppy it came from | on the installed volume |
+|---|---:|---:|
+| `APPS` | cluster **87** | cluster **68** |
+| `GAMES` | 88 | 104 |
+| `SYSTEM` | 85 | 44 |
+| every app row's `ASC_ROWCLUS` | 87 / 88 / 85 | **87 / 88 / 85** |
+
+…and the file describes **8 packages of the 25** that were installed, because
+it is the *system* disk's cache and the apps disk's seventeen were never in
+it. A 1.44MB install is 33 packages against `ASC_NAPP`'s 32, which is the
+other reason a copied file cannot be right: the destination holds both disks
+and neither source cache was built for that volume.
+
+#### What the user sees, and why it is exactly one rung
+
+Reported from the field as *"install to a hard disk, take the system disk out,
+restart, go to C:, open `MEDIA`, double-click `BROWSER.HTM` — and it says
+`BROWSER.O88 - not on this disk`"*, with `BROWSER.O88` sitting in `C:\APPS`.
+
+Both halves of that are the stale cluster meeting §54.4.2's rungs, and the
+failure is sharper than "a bad hint" because **the association survives the
+copy and the location does not**:
+
+1. the mount loads `C:\ASSOC.DAT`, and `asc_merge_ext` takes its `HTM` row —
+   so the machine knows the document opens with `BROWSER` and can name it;
+2. `asc_seed` then sets that slot's hint to **this volume** and **the row's
+   cluster**, which is the floppy's 87;
+3. rung 1 goes to C: cluster 87, re-checks the name (§54.4.2) and falls
+   through — correctly, and having taught the machine nothing;
+4. rung 2 is the document's own folder, `C:\MEDIA`;
+5. rung 3 is the root of every live volume, and on a machine with the floppy
+   out there is one;
+6. **rung 4 never runs.** It tries the folder `assoc_dfold` names, and that
+   byte is a BUILD-TIME default carried by the kernel's four own stems alone
+   (`db 1, 1, 1, 1` — APPS); a slot created by `asc_merge_ext` has 0, which
+   `assoc_tryfold` reads as *nothing to try*. `asc_seed` does not set it and
+   could not: the row carries a cluster, not a folder name.
+
+So `C:\APPS` — the one folder on the volume that holds the program — is the
+one place the sweep is structurally unable to look, and the four packages that
+would have been found there anyway are exactly the four that do not need the
+cache. **PAINT, NOTEPAD, TRACKER and ARTFUL are locatable on any volume with
+no row at all**, because they carry `assoc_dfold` = APPS. Every *declared*
+extension (§54.6) is not. That asymmetry is what makes this look like a
+browser bug rather than an installer bug, and it is what the row ordering
+below is cut from.
+
+#### The phase
+
+The system phase **stops copying `ASSOC.DAT`**, in the root, beside the
+`KERNEL.SYS` skip and for a related reason — it is a file the destination owns
+rather than one the source lends — and a fourth step builds the volume's own
+from what is actually on it. `hd_iassoc` runs at the end of `hd_inst_step`,
+after the apps phase, so it sees both disks' packages; on an install where the
+apps disk was declined it sees the system disk's and is equally right.
+
+**It reads the destination, never the sources.** A cache assembled from the
+two floppies' own caches would have to map each source folder cluster onto the
+destination's, would inherit whatever the sources dropped at their own caps,
+and would be wrong about a re-install onto a volume that already holds
+packages. Walking C: is one question — *what is on this volume, and where?* —
+and the answer is the file.
+
+The walk is the root and one level of folders, which is the shape
+`tools/os88disk.py`'s `build_assoc` indexes on the disks this project ships
+(its group keys are `APPS:`, `GAMES:`, `SYSTEM:`, `MEDIA:`), so a floppy and
+an installed volume cache the same set. It is deliberately NOT
+`hd_icopy_tree`'s full descent: the walk's level stack belongs to the copy, a
+package two folders down is on no disk in this tree, and a cache that misses
+one costs a harvest rather than a wrong answer.
+
+Per type-1 entry (§19.1 — a PACKAGE, not "a file"):
+
+- **`OSAPI_FILE_FIND_RAW`, never `OSAPI_FILE_FIND`.** The row's key is
+  `(stem, size)` and `asc_lookup` compares it against §19.1's +20, the raw
+  directory entry's size — the bytes the file OCCUPIES. `OSAPI_FILE_FIND`
+  reports what a compressed file expands to (§20.14.3), and a row carrying
+  that number misses on every mount for ever. No shipped `.o88` is `CZ`-wrapped
+  today, so the two cells agree and the defect would be invisible; it is the
+  copier's cell for the copier's reason.
+- **one `OSAPI_FILE_READ_AT` of the first cluster**, whose capacity must be a
+  whole number of clusters (§18.4.4) — `OSAPI_FILE_DFREE` answers the sectors
+  per cluster, which is what sizes the claim below.
+- the header is checked as `build_assoc` checks it — `'O8'`, version 3 — and
+  the icon is the 64 bytes at +32 when flags bit 0 is set, the declaration
+  block at +96 (or +32 with no icon) when bit 1 is.
+
+**An iconless package still gets a row** of 64 zero bytes, which is §54.7's
+sentinel: caching the absence saves that read too, and `asc_seed`'s `.ink`
+test leaves such a slot's glyph unresolved rather than blanking one another
+volume resolved.
+
+#### The cap is filled from both ends
+
+`ASC_NAPP` is 32 and a 1.44MB install is 33 packages, so the cap is not
+theoretical and what it drops has to be chosen rather than discovered.
+`build_assoc` sorts association-bearing rows to the front; a driver walking a
+disk cannot sort what it has not read yet, and a second pass would be a second
+`int 13h` per package — **~400 ms each on the field machine** (PERFORMANCE.md
+Part 2), against an install's measured 271 ticks (§52.10.9). So the array is
+filled from both ends in one pass: a package that **declares** extensions
+takes the next index up from 0, and every other package takes the next index
+down from `ASC_NAPP - 1`. When they meet the table is full and further plain
+packages are dropped; a further declaring package overwrites the topmost plain
+row, which is safe because **no ext row can point at a plain row**. A final
+compaction slides the plain rows down against the declaring ones, and moves no
+index anything refers to.
+
+**The front is declaring packages ALONE, and the kernel's four defaults are
+deliberately not privileged** — they are the four that rung 4 finds with no
+row at all, so what they lose at the cap is a cached icon and one quiet mount,
+which is the trade `os88disk.py` already documents on its own side. A declared
+extension loses the ability to open its document, and that is the whole of
+this section.
+
+#### Failure is silent, and that is the degradation rule rather than a shrug
+
+The step cannot fail an install that has already committed its MBR
+(§52.10.10): a refused claim, a full volume or a write error leaves the
+machine with **no** `ASSOC.DAT`, which is §54.7's third tier — an absent cache
+answers *miss* to everything and the harvest runs as it did before the file
+existed. That is strictly better than what shipped, because the failure mode
+being removed is a cache that is *present and wrong*, and §54.7's tiers have
+no row for that one. `INSTBNCH.TXT` (§52.10.9) already sets the precedent: a
+finished install does not become an error over a file it writes for
+convenience.
+
+**What it costs, measured rather than rounded.** `HDDTOOL.DRV`'s image grows
+**1,116 bytes** — 1,092 of `iassoc.inc` and 24 in `inst.inc` — and **891** on
+the floppy, the driver being lz4-packed (8,196 → 9,087). At run time it is one
+claim of `ASC_KB` + one cluster, taken and freed inside the step; one
+`OSAPI_FILE_READ_AT` per package on the destination — 33 on the largest
+install, against the 1,251 device sectors §52.10.9 measures — and one write of
+at most 2,672 bytes. **No kernel byte moves**: `assoc.inc` is untouched, and
+the fix is in the driver because the fact that is missing is the driver's.
+
+**And it moves `HDTOOL_KB`, which is the one figure that is not the tool's own.**
+The Makefile derives that constant from the tool image's size and `HDD.DRV`
+claims exactly that much to read the tool into (§52.11), so the claim goes
+**13KB → 14KB**: `hdd.bin` is the same 7,843 bytes with two constants in it
+different. It is TRANSIENT and pinned only while the Disks page is open, but
+it is heap on a machine that has a hard disk, so it is named rather than
+buried. The comment beside that claim said `13KB` while the constant was
+already 14; it now names the constant instead of a number.
+
+**`hddtool.bin` is 12,451 → 13,475 and that figure is NOT the cost** —
+`hdsec.inc`'s closing `align 512` quantises this image, so a change of three
+bytes and a change of five hundred both report as 1,024. It is CLAUDE.md's
+rung rule one image along, and the span above is what replaces it: the entry
+point moved `+0x2761` → `+0x2BBD`, which is the number to quote.
+
+#### Verified as the field reported it
+
+The A/B is the user's own sequence — install, take the system disk out,
+restart, C:, `MEDIA`, double-click `BROWSER.HTM` — on `os8088_xt_hdd`, booting
+the installed partition with a blank floppy in A: so the machine has nowhere
+else to look:
+
+| | the window that opens |
+|---|---|
+| before | **`Open`** — §54.4.1's notice, reading `BROWSER.O88 - not on this disk` |
+| after | **`Browser`**, on the document |
+
+…with `BROWSER.O88` in `C:\APPS` in both arms, which is the whole complaint.
+On the host side the same install reads **25 app rows and 5 ext rows** against
+**8 and 2**, and every row's cluster is one of C:'s own — `APPS` 68, `GAMES`
+104, `SYSTEM` 44 — where all eight of the old ones said 87, 88 and 85.
+
+**`tests/instassoc.py` is the gate**, and it asserts the thing a screendump
+cannot: that every app row's cluster names a folder that is really on the
+installed volume, that the packages the volume carries are the ones the file
+describes, and that `BROWSER.HTM`'s program is reachable from its row. The
+installer says `Done` either way.
+
 ## 52.11 Two images: the transport, and the tool
 
 `HDD.DRV` was two programs in one file. One knows how to find a hard disk,
@@ -75173,6 +75394,14 @@ file's contents depend only on the packages and not on the disk's layout, so
 `tools/os88disk.py` can build it before a single cluster is assigned. A
 shipped disk therefore arrives **warm**, and nothing has to run on the target
 to earn it.
+
+**A volume the INSTALLER produced is warm too, and it is not warm by being
+copied one.** §54.7.1's cluster made this file per-volume in a way it had not
+been before — so a hard disk gets its own, built by `hd_iassoc` out of its own
+packages at the end of the install (§52.10.14). The source floppy's copy is
+skipped rather than carried: its rows name the floppy's folders, and a cache
+that is present and wrong is the one state §54.7's three tiers below have no
+row for.
 
 **An iconless package still gets a row**, holding 64 zero bytes — the
 all-zero "no icon" sentinel the kernel already understands (§19.1), so
@@ -82998,11 +83227,39 @@ pass was for. As a loop each is asked for whichever plan needs it, and it still
 terminates in at most **three** plans: `[mem_parked]` admits one park and
 `[mem_cp_msk]` one turn.
 
-**The two passes are alternatives, not cumulative.** Each plan is made against
-the layout as it stands, so whichever single pass satisfies the claim is the
-one that runs. Running both would spend the ascending copy for a claim the
-descending pass was going to have to satisfy anyway — and the descending copy
-is the expensive one, being over the largest blocks on the machine.
+**The two passes are asked in order and the PAIR is the last resort.** Each
+plan is made against the layout as it stands, so whichever single pass
+satisfies the claim is the one that runs — ascending first, being the cheaper,
+then descending. Only when neither alone funds the claim does `mem_compact`
+run both, cheapest first.
+
+**They used to be ALTERNATIVES, and that was a defect rather than a trade.**
+The rule read *"whichever single pass satisfies the claim is the one that
+runs"*, and `.doit` — the one arm that answers CF = 0 — is reached only when a
+single pass's own plan already satisfies it. So a claim that needed the pair
+got **neither half**: nothing was copied, `mem_compact` answered CF = 1, and
+the claim fell through to the shed with the room standing there in two runs.
+`mem_claim`'s retry loop could not sequence them either, because it re-enters
+only after a CF = 0 that means the claim already fits. `mem_avail` had the
+same hole from the reporting side and still has the harmless half of it: it
+plans ascending alone, so it under-reports until a pass has run, and reads
+exactly once one has — which is what makes a *deferred* compaction able to
+report its own result with no combined plan
+(`docs/plans/REGION-SELF-COMPACT-PLAN.md`).
+
+**Nothing is speculative at the pair.** The descending plan has already said
+the expensive pass alone is short, so the cheap copy is needed rather than
+guessed at — and the ascending pass cannot make the largest run *smaller*, only
+slide bottom-up claims onto floor paragraphs the walk has already passed, so a
+claim that is refused anyway is left on a better-packed heap. It costs **35
+bytes** of `.cold` and nothing in `.text`; `kern_small` compiles none of it.
+
+**A claim the pair still cannot fund pays for the copies before it is
+refused**, which is the one case the old rule was right about and is priced at
+`rep movsw`'s 13.3 cycles a byte (PERFORMANCE.md Set 117.2) — 2.86 ms a KB
+moved. A combined *plan* would refuse before copying and costs ~150–250 bytes
+to answer a question no caller has to ask;
+`docs/plans/REGION-SELF-COMPACT-PLAN.md` 3.4 is that arithmetic.
 
 **Termination mirrors §66.4's**, with both comparisons in `mem_cp_next` turned
 round: the descending walk takes the live claim with the **highest** base at or
@@ -83082,6 +83339,114 @@ bumped block — §66.4's binding property.
 address rather than a flag: a block landing across a page is answered by the
 8237 wrapping to the start of its page and moving **the wrong memory,
 silently**.
+
+### 66.4.3 A region that compacts ITSELF, and the plan that can say so
+
+§66.6.1 built everything a region needs to move and left out the one moment a
+package ever wants it. `mem_frameless` asks `mem_in_nest`, and **a package
+reaches `mem_claim` only from inside its own callback** — so `wm_pkgs` names
+its segment and the compactor pins the asker's own region *by the act of
+asking*. A driver unmounted from under it leaves a hole at the ceiling that
+nothing can ever merge.
+
+**The fix is not a new predicate. It is a later moment.**
+
+`OSAPI_MEM_COMPACT_WAKE` (slot `0x0558`) records the wish and returns:
+
+> `BX` = a window of yours, `AL` = the shed rank the pass must respect. CF = 0
+> posted — **return from your callback**; an `EVT_WAKE` arrives once the pass
+> has run. CF = 1 refused: `BX` is not your window, or a post of yours is
+> already standing.
+
+This is `OSAPI_PKG_REHOME`'s shape (§20.12.10) one mechanism along — *you are
+still executing in the region this is going to move, so nothing may happen
+until you have returned* — and it is spent where the posted restart is spent,
+at `ui_task`'s step 0, **with nothing held**. `[wm_pkgd]` is 0 there by
+construction, every `wm_pkgcall` on that task having returned, so
+`mem_frameless` answers *movable* for the asker's own region **with no
+predicate changed**. The feature is *where* the compaction runs.
+
+It is not `wm_pkgcall`'s return path, and that is not tidiness: `mem_compact`'s
+park request drops `[sch_lock]` for up to `INST_PARKW` ticks (§66.5), which
+from inside a repaint holding the gfx lock is a deadlock against
+`OSAPI_MEM_PARKSAFE` rather than a slow path.
+
+**The rank rides on the request.** `mem_compact` takes the rank a cache must be
+cheaper than from the *pending claim's* owner, and there is no pending claim
+here — the pass runs after the asking package's turn is over — so without it
+the pack would stop at the first purgeable barrier.
+
+**One post may stand per package.** A second before the first is serviced is
+refused rather than queued: the answer to *"I asked and nothing has happened"*
+is to wait for the wake, and a queue would let a package spend the machine on
+compactions it has already been promised.
+
+#### 66.4.3.1 …and `mem_avail` had to learn to plan BOTH passes
+
+§66.4.1 made `mem_claim` compact both ways. `mem_avail` still planned one, so
+the number the SDK teaches a package to ask for was **smaller than what the
+allocator would hand out** — measured at up to 48KB short over thirteen
+layouts (`tools/heapwhatif.py`). Not a broken promise, because it errs low; but
+it made the both-passes fix **inert for the ask-then-claim pattern**, which is
+the only pattern a package with an exact requirement can use.
+
+That matters more than a lost byte, because **a failed claim is destructive**:
+`mem_claim`'s refusal path is compact → *shed* → retry, and the shed dissolves
+purgeable caches at the claimant's rank — the read-ahead among them, priced at
+seconds of `int 13h` (§66.4). A package that wants a specific amount and is
+told too small a number refuses a file it could have opened; one that guesses
+and claims anyway pays for its refusal with the caches. So `mem_avail` must
+answer the question `mem_claim` answers, and `mem_cp_both` is that plan.
+
+**It is the two sweeps IN THE ORDER THE PASSES RUN, and the obvious spelling is
+wrong in the dangerous direction.** Two *independent* sweeps — a floor fill
+rising over the bottom-up claims, a ceiling fill falling over the top-down ones
+— is the natural reading of "plan both", and it **over-reports** whenever a
+bottom-up claim sits above a top-down one, because the two stacks **wall each
+other in**: the lo claim is a barrier to the descending pass, so the hi claim
+beneath it never reaches the ceiling, and once that pass has left it there it
+is a barrier to the ascending pass in turn. An over-report is the worst answer
+available here — memory promised that `mem_claim` cannot produce.
+
+So the walk is **ascending**, as the second pass is, and a top-down claim is a
+barrier at the base the *first* pass would have left it at. That base is
+`mem_cp_newbase` and it takes **no scratch**:
+
+> `newbase = B − S`, where `B` is the base of the lowest claim above this one
+> that the descending pass may not move (`[mem_top]` if there is none), and `S`
+> the paragraphs of every ceiling mover from this one up to `B`.
+
+Two `O(MEM_MAX)` scans, so the plan stays `O(MEM_MAX²)` like every other walk
+here. It is exact because the descending pass preserves **order** — a claim
+only ever slides up onto paragraphs the walk has already passed, so no mover
+crosses another claim and everything between one and its barrier packs solid.
+A `MEM_MAX`-word table of new bases was the alternative and is 64 bytes of
+`.bss` resident for a question nothing asks per frame.
+
+**PLAN ONLY.** There is no `mem_cp_both_run` and there must not be: one walk
+may plan both directions and may **not** run them, because packing a top-down
+claim up inside an ascending walk writes onto claims the walk has not visited
+yet. §66.4.1's two separate `mem_cp_run` calls are what runs them.
+
+#### 66.4.3.2 `OSAPI_MEM_AVAIL_MAX` is a measurement, not a promise
+
+Slot `0x0550`: `OSAPI_MEM_AVAIL`'s answer, planned as if the caller's own
+region could move. `[mem_cp_self]` names the segment and `mem_frameless`
+excuses **the nest test alone** — `[ld_base]` and the worker are as true at the
+service point as they are now, and only the nest is the thing that stops being
+true once the callback has returned.
+
+**Claiming this number refuses**, and that is correct rather than a wart: the
+caller really is standing in its region as it asks. The number becomes true by
+posting §66.4.3's request and reading plain `OSAPI_MEM_AVAIL` on the wake,
+where the heap is packed both ways and the plan and the heap agree. A package
+decides **on the wake** and not before it: the what-if measured a state the
+machine has since left, and re-posting because the first answer disappointed is
+how a program spins.
+
+`[mem_cp_self]` is plan-only by discipline — `mem_avail` sets it and clears it
+before returning, and no path that can reach `mem_cp_run` ever sets it. A
+compaction running with it standing would move a region with a frame in it.
 
 ### 66.5 The worker park
 

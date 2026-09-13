@@ -5098,7 +5098,7 @@ wm_cursor:
                                 ; in cur_shape_set: a bad byte written into
                                 ; the record would be re-read every pass.
                                 ; CUR_NWSHAPE AND NOT CUR_NSHAPE, and the same
-                                ; instruction either way: the hourglass belongs
+                                ; instruction either way: the clock belongs
                                 ; to a gfx-lock HOLD and not to a window
                                 ; (SPEC.md 7.5), so a record that could carry
                                 ; it would be a program declaring the machine
