@@ -43,7 +43,7 @@ import os88ui                                                  # noqa: E402
 SYS = "build/os8088-360.img"
 ARGS = "build/dosargs360.img"
 TYPED = "/M P:220"                   # ...what a user would actually type
-WANTPATH = "\\BIN\\DOSARGS.COM"
+WANTPATH = "B:\\BIN\\DOSARGS.COM"
 ENVVAR = "SOUND=SB"              # ...typed in the Setup page's env row
 # **NOT ONE LAYOUT CONSTANT HERE ANY MORE.** Five stood here - DOS_FLDW,
 # DOS_BTNW, DOS_BTNY, DOS_EROWY, DOS_FLDY - copied from apps/dos/dos.asm under

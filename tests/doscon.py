@@ -30,10 +30,11 @@ one of them is a separate thing that can be missing:
      renderer is a move and not a translation (70.8.7), and a screenshot
      cannot tell those apart.
 
-...and 5b, between them, is that a bare `B:` is a DRIVE CHANGE and not a verb
-(96.33.6) - which the box answered `Bad command or file name` until it was
-reported, because a drive letter falls through a table that has no row for it.
-`Z:` must be refused AND must not move.
+...and two more between them, both reported from the console and both the same
+shape - a thing COMMAND.COM answers BEFORE its table and this box did not.
+5b: a bare `B:` is a DRIVE CHANGE and not a verb (96.33.6), `Z:` is refused AND
+does not move. 5c: a bare name with no extension is a SEARCH, `.COM` then
+`.EXE` (96.33.7) - typed `PRINCE`, the box refused a folder holding PRINCE.EXE.
 
 **IT READS THE BUFFER AND NOT THE GLASS**, with one exception. con_scr is
 2,000 cells of (character, attribute) and every assertion above is about
@@ -55,8 +56,13 @@ import os88marty                                               # noqa: E402
 import os88ui                                                  # noqa: E402
 
 SYS = "build/os8088-360.img"
-APPS = "build/apps360.img"
+# **B: IS THE doscom DISK AND NOT THE APPS ONE**, for one reason: step 5c needs
+# a `.COM` at a root to type the bare name of, and no apps disk has one - every
+# package on those is a `.O88`. It costs nothing else: the only other thing B:
+# is for here is being a drive to switch to.
+APPS = "build/doscom360.img"
 BOX = "A:/APPS/DOS.O88"
+BARE = "DOSHELLO"                    # ...and DOSHELLO.COM is what it finds
 
 
 def fail(msg):
@@ -276,6 +282,22 @@ def main():
                  % bx.b("dos_vol"))
         print("doscon: ...and %s: changes drive while Z: is refused without "
               "moving" % other)
+        # --- 5c: a BARE NAME is a search, .COM then .EXE (96.33.7) ---------
+        # Typed `PRINCE`, the box answered `Bad command or file name` for a
+        # folder holding PRINCE.EXE: it took the word as a whole file name,
+        # where COMMAND.COM treats a name with no extension as a SEARCH.
+        bx.type("%s\n" % BARE)
+        got = bx.text("dos_path", 32).upper()
+        if got != BARE + ".COM":
+            fail("typing %r should find %s.COM in this folder and the path box "
+                 "holds %r - a name with no extension is a SEARCH, .COM then "
+                 ".EXE (SPEC.md 96.33.7)" % (BARE, BARE, got))
+        rows = bx.live()
+        if any("Bad command" in r for r in rows[-3:]):
+            fail("%r was refused as a bad command and %s.COM is right there: "
+                 "%r" % (BARE, BARE, rows[-3:]))
+        print("doscon: ...and a bare %r finds %s" % (BARE, got))
+
         bx.type("%s:\n" % chr(ord("A") + here))
 
         # --- 7: a name that is neither a verb nor a file --------------------

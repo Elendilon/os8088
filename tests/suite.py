@@ -2879,8 +2879,13 @@ SOAK = [
         "COMMAND.COM's and not a verb, which this box answered `Bad command "
         "or file name` until it was reported - a drive letter falls through a "
         "table that has no row for it - and `Z:` must be refused AND must not "
-        "move.",
-        needs=("marty",), serial=True),
+        "move. STEP 5c IS THE OTHER HALF OF THAT SHAPE (96.33.7): a bare name "
+        "with no extension is a SEARCH, .COM then .EXE, and typing `PRINCE` "
+        "was refused by a box standing in a folder holding PRINCE.EXE. **B: IS "
+        "THE doscom DISK** for that step alone - it needs a `.COM` at a root "
+        "to type the bare name of, and every package on an apps disk is a "
+        "`.O88`.",
+        needs=("marty",), serial=True, wants=("build/doscom360.img",)),
     Row("doslnk", "soak", py("tests/doslnk.py"), 150.0,
         "A SHORTCUT: can what a DOS program needs be SAVED and reopened? "
         "(SPEC.md 96.21). Arguments and an environment that have to be retyped "

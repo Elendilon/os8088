@@ -326,17 +326,15 @@ dos_con_run:
 ; verb handlers are handed and what the arguments field wants.
 ; -----------------------------------------------------------------------------
 dos_con_prog:
-    mov si, dsh_line                ; the VERB as typed, not [dsh_verb]: that
-    call dsh_skipsp                 ; one is upper-cased for the table compare
-    mov di, dos_path                ; and an 8.3 name on a FAT volume is too,
-    mov cx, DOS_PBUF - 1            ; but a path is the user's own text
+    call dos_con_ext                ; **`PRINCE` IS `PRINCE.COM` OR `PRINCE.EXE`**
+    jc .no                          ; (SPEC.md 96.33.7). It hands back dsh_a1 =
+    push si                         ; the name and SI = the tail, which is the
+    mov si, dsh_a1                  ; split this proc wanted anyway - the NAME
+    mov di, dos_path                ; as typed and not [dsh_verb], that one
+    mov cx, DOS_PBUF - 1            ; being upper-cased for the table compare
 .v:
     mov al, [si]
     or al, al
-    je .vend
-    cmp al, ' '
-    je .vend
-    cmp al, 9
     je .vend
     mov [di], al
     inc si
@@ -345,6 +343,7 @@ dos_con_prog:
     jnz .v
 .vend:
     mov byte [di], 0
+    pop si
     call dsh_skipsp                 ; ...and everything after it is the tail
     mov di, dos_args
     mov cx, DOS_ARGMAX
@@ -384,6 +383,112 @@ dos_con_prog:
     call os88line_resync
     mov si, dos_ln
     call os88line_resync
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_con_ext - the typed line's PROGRAM NAME, extension and all (SPEC.md 96.33.7)
+; in:  nothing; dsh_line holds the line
+; out: CF=0 with dsh_a1 = the name to run and SI = the argument tail;
+;      CF=1 = a bare name and no such program
+; clobbers: everything but the segment registers
+;
+; **DOS TRIES `.COM` THEN `.EXE` THEN `.BAT`, AND THE ORDER IS THE CONTRACT** -
+; a folder holding both `FOO.COM` and `FOO.EXE` runs the `.COM`. There is no
+; `.BAT` here because there is no batch interpreter, and no PATH search because
+; this box has no PATH: what is searched is the current directory, which is
+; where somebody who typed a bare name is standing.
+;
+; A NAME THAT ALREADY CARRIES A DOT IS LEFT ALONE, whether or not it exists -
+; DOS does not search on `FOO.` or `FOO.DAT` either, and a typed extension is
+; the user saying which file they mean.
+;
+; **IT HANDS THE NAME BACK RATHER THAN REWRITING THE LINE.** Appending four
+; characters in place would have DI overtake the SI still walking the tail -
+; `PRINCE /F` is eleven characters of name over a tail that starts at six - so
+; the caller reads dsh_a1 and the SI this leaves, which it wanted anyway.
+;
+; It WALKS the directory and opens nothing: dsh_nth is the same ordinal walk
+; DEL and COPY use, so a name is decided by the matcher that decides every
+; other one, and a probe that opened a file would leave a handle on the
+; refusing path.
+; -----------------------------------------------------------------------------
+dos_con_ext:
+    mov si, dsh_line
+    call dsh_skipsp
+    mov di, dsh_a1
+    call dsh_word                   ; ...SI walks on to the argument tail
+    cmp byte [dsh_a1], 0
+    je .no
+    mov di, dsh_a1
+.dot:
+    mov al, [di]
+    or al, al
+    jz .nodot
+    cmp al, '.'
+    je .out                         ; it named one: not ours to change
+    inc di
+    jmp short .dot
+.nodot:
+    push si                         ; the tail, across the two probes
+    mov di, dos_c_com
+    call .try
+    jnc .found
+    mov di, dos_c_exe
+    call .try
+    jc .nofile
+.found:
+    pop si
+.out:
+    clc
+    ret
+.nofile:
+    pop si
+.no:
+    stc
+    ret
+
+; --- .try - DI = an extension; CF=0 = dsh_a1 + it is a file in this folder ---
+; On a hit dsh_a1 becomes the name that matched, so the caller never rebuilds it.
+.try:
+    push si
+    push di
+    mov si, dsh_a1                  ; NAME + EXT, in the other argument slot
+    mov di, dsh_a2
+.n:
+    mov al, [si]
+    or al, al
+    jz .nend
+    mov [di], al
+    inc si
+    inc di
+    jmp short .n
+.nend:
+    pop si                          ; ...the extension
+    push si
+.e:
+    mov al, [si]
+    mov [di], al
+    inc si
+    inc di
+    or al, al
+    jnz .e
+    mov si, dsh_a2
+    mov di, dsh_pat
+    call dsh_to11
+    mov word [dsh_skip], 0
+    call dsh_nth                    ; the current directory, by ordinal
+    jc .tno
+    mov si, dsh_a2
+    mov di, dsh_a1
+    call dsh_cpz
+    pop di
+    pop si
+    clc
+    ret
+.tno:
+    pop di
+    pop si
     stc
     ret
 
@@ -506,6 +611,8 @@ dos_c_hint:  db 13, 10, 'Type a command, or the name of a program to run.'
              db 13, 10, 0
 dos_c_exit:  db ' ended, exit code ', 0
 dos_c_colon: db ': ', 0
+dos_c_com:   db '.COM', 0     ; ...and the ORDER is the contract
+dos_c_exe:   db '.EXE', 0
 
 ; =============================================================================
 ; FULL SCREEN, AND ESC BACK OUT (SPEC.md 96.33.5)

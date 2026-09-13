@@ -121250,6 +121250,33 @@ floppy is ordinary and printing its low word alone is a plausible wrong number.
 `dsh_num32` divides `DX:AX` by ten the two-step way and `dsh_num` is twelve
 bytes now.
 
+##### 96.33.7 A bare name is a SEARCH: `.COM` then `.EXE`
+
+Typing `PRINCE` answered `Bad command or file name` for a folder holding
+`PRINCE.EXE`, because the box took the typed word as a file name whole.
+**COMMAND.COM does not**: a name with no extension is a search, and the order
+is the contract — `.COM`, then `.EXE`, then `.BAT`, so a folder holding both
+`FOO.COM` and `FOO.EXE` runs the `.COM`.
+
+There is **no `.BAT`** here because there is no batch interpreter, and **no
+PATH search** because this box has no `PATH`: what is searched is the current
+directory, which is where somebody who typed a bare name is standing.
+
+**A name that already carries a dot is left alone**, whether or not it exists.
+DOS does not search on `FOO.` or `FOO.DAT` either, and a typed extension is the
+user saying which file they mean.
+
+**It walks the directory and opens nothing.** `dsh_nth` is the same ordinal
+walk `DEL` and `COPY` use, so a name is decided by the matcher that decides
+every other one — and a probe that OPENED the file would leave a handle to
+close on the path where it refuses.
+
+**It hands the name back rather than rewriting the line**, which is not a style
+choice: appending four characters in place has the write pointer overtake the
+read pointer still walking the tail — `PRINCE /F` is eleven characters of name
+over a tail that starts at six — and the caller wanted the name and the tail
+separately anyway.
+
 ##### 96.33.6 `B:` is a drive change, and `VER` says what this is
 
 **A bare `X:` is not a verb and DOS answers it before the table.** That is why
@@ -122210,6 +122237,33 @@ other customers. `dos_envpath` asks for the folder, appends the name, and
 **falls back to the bare name on a refusal** — a corrupt chain or a buffer too
 small — because that is exactly what it wrote before and a program that cannot
 find its own directory falls back on the current one, which every program has.
+
+##### 96.19.3.1 …and it needs the DRIVE, which is what a program looks for
+
+§96.19.3 fixed the name and left half the field missing. IBM DOS 3.30, measured
+with the same probe on the same disk:
+
+```
+  DOS      MYPATH B:\BIN\DOSARGS.COM
+  this box MYPATH   \BIN\DOSARGS.COM
+```
+
+**DOS's program path is always FULLY QUALIFIED and always carries the drive.**
+`OSAPI_FILE_PATH` answers a path and not a drive — it is the INSTANCE's own
+folder and the volume is `[dos_vol]`, a fact this box has and the slot does not
+— so the letter is prefixed here, through §96.6's identity map, and the
+fallback keeps it: a refusal writes `X:NAME`, which is drive-relative and still
+resolvable, rather than dropping the half that turned out to matter.
+
+**It matters because a program that looks there is looking for its FILES.**
+Prince of Persia reads its own path, finds no drive, falls back to A: and puts
+up *"Please insert Prince of Persia Disk 1 into Drive A:"* — about a disk that
+is in B: and open, on a box whose `AH=19h` correctly answered B: and whose
+first thirty-five `INT 21h` calls agree with IBM DOS 3.30 **on the function,
+the call site and the answer**. Nothing this box SAID was wrong; the difference
+was thirty bytes of memory it had written earlier, which is the exact shape
+docs/DOS-DEBUGGING.md exists for and the fourth time that document's method has
+found one.
 
 ### 96.20 The environment, on a page of its own
 

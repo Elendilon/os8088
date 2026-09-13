@@ -290,10 +290,13 @@ def main():
         if ENVVAR not in (field(out, "SET") or "").split("|"):
             fail("the shortcut ran without %r in its environment; the set is "
                  "%r" % (ENVVAR, field(out, "SET")))
-        if field(out, "MYPATH") != "\\BIN\\DOSARGS.COM":
+        # **AND IT CARRIES THE DRIVE** (SPEC.md 96.19.3.1): DOS's program path
+        # is fully qualified, this box wrote it drive-less, and a program that
+        # reads its own path to find its FILES then has no drive to look on.
+        if field(out, "MYPATH") != "B:\\BIN\\DOSARGS.COM":
             fail("the program thinks it is %r - a shortcut must make the "
-                 "instance BECOME its target, name and all (SPEC.md 96.21.2)"
-                 % field(out, "MYPATH"))
+                 "instance BECOME its target, drive, path and name (SPEC.md "
+                 "96.21.2, 96.19.3.1)" % field(out, "MYPATH"))
 
         # --- 4: ...AND THE SETTINGS WERE OBEYED, not merely carried ---------
         # The bss is read from OUTSIDE because no DOS program can report what

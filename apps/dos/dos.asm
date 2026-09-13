@@ -7058,11 +7058,22 @@ dos_envpath:
     push cx
     push si
     push di
-    mov di, dos_pbuf
-    mov cx, DOS_PBUF
-    call OSAPI_FILE_PATH            ; ES is the CALLER's DS here: an X cell
+    ; --- THE DRIVE FIRST, BECAUSE DOS ALWAYS HAS ONE (SPEC.md 96.19.3.1) -----
+    ; Measured against IBM DOS 3.30, which writes `B:\BIN\DOSARGS.COM` where
+    ; this wrote `\BIN\DOSARGS.COM`. A program that reads its own path to find
+    ; its FILES then has no drive to look on, and what it does with that is its
+    ; own business - Prince of Persia falls back to A: and puts up "Please
+    ; insert Prince of Persia Disk 1 into Drive A:" about a disk that is in B:
+    ; and open.
+    mov al, [dos_vol]
+    add al, 'A'                     ; SPEC.md 96.6's map is the identity
+    mov [dos_pbuf], al
+    mov byte [dos_pbuf+1], ':'
+    mov di, dos_pbuf + 2
+    mov cx, DOS_PBUF - 2
+    call dos_be_path                ; ES is the CALLER's DS here: an X cell
     jc .bare                        ; sets it (SPEC.md 19.2.4)
-    mov di, dos_pbuf
+    mov di, dos_pbuf + 2
     add di, cx                      ; ...to the NUL it wrote
     cmp cx, 1
     jbe .name                       ; the root already ends in its separator
@@ -7078,10 +7089,10 @@ dos_envpath:
     jnz .nm
     jmp short .out
 .bare:
-    mov si, dos_name                ; no path: the name alone, which is what
-    mov di, dos_pbuf                ; this did before 19.2.4 and is still a
-.bn:                                ; thing a program can resolve
-    lodsb
+    mov si, dos_name                ; no path: `X:NAME`, which is DRIVE-RELATIVE
+    mov di, dos_pbuf + 2            ; and still a thing a program can resolve -
+.bn:                                ; and it keeps the drive, which is the half
+    lodsb                           ; that turned out to matter
     mov [di], al
     inc di
     or al, al
