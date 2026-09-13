@@ -194,6 +194,36 @@ def main():
         m = ui.m
         if not ui.path("B:/BIN/DOSARGS.COM"):
             fail("could not launch the gate program")
+
+        # --- 0: THE ASSOCIATION DOOR FILLS THE PATH BOX (SPEC.md 96.33.10.1) -
+        # This row already came in through the door the field reported - a
+        # .COM double-clicked, opening DOS.O88 by association - and asserted
+        # nothing about the box, so it watched an empty field for as long as
+        # it has existed.
+        #
+        # **THE ASSERTION IS THE FIELD'S LN_LEN AND NOT THE BUFFER**, which is
+        # the whole shape of the defect: [dos_path] held a perfect
+        # `B:\BIN\DOSARGS.COM` while the box drew NOTHING, because
+        # dos_fld_init had left LN_LEN at 0 and dos_path_make wrote the buffer
+        # without re-measuring. A check that read the buffer would have been
+        # green throughout.
+        _ps = dosmap.instance(m)
+        _dm = dosmap.package()
+        _buf = m.read((_ps << 4) + _dm["dos_path"], 40).split(b"\0")[0]
+        _len = int.from_bytes(
+            m.read((_ps << 4) + _dm["dos_pln"] + 12, 2), "little")
+        if not _buf.upper().endswith(b"DOSARGS.COM"):
+            fail("an association launch left [dos_path] = %r, and the entry "
+                 "proc composes it from OSAPI_ARG_FILE (SPEC.md 96.32.3)"
+                 % _buf)
+        if _len != len(_buf):
+            fail("the path box holds %r and its LN_LEN is %d - the field "
+                 "draws LN_LEN characters, so it is %s on the glass (SPEC.md "
+                 "96.33.10.1)"
+                 % (_buf, _len, "EMPTY" if not _len else "truncated"))
+        print("doslnk: the association door fills the path box - %r, LN_LEN %d"
+              % (_buf.decode("latin-1"), _len))
+
         wait_ready(m)
         m.type_text("x")
         os88marty.settle(m)

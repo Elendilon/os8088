@@ -122273,6 +122273,42 @@ re-launches, what `Save Shortcut` writes (§96.21) and what the user reads to se
 what last ran — and a relative name is only true while the box is still standing
 where it was typed. One `CD` and `PRINCE.EXE` names a different file or none.
 
+###### 96.33.10.1 …and the RESYNC belongs inside the proc, not beside one caller
+
+Reported from the field: *"double clicking a .COM and opening DOS.O88 via an
+association is not populating the text field with the path."*
+
+The buffer was right and the FIELD was empty. Measured on an association
+launch of `B:\DOSHELLO.COM`: `[dos_path]` holds `B:\DOSHELLO.COM` and the
+path box's `LN_LEN` is **0**, so `os88line_draw` draws zero characters of a
+perfectly good string.
+
+`dos_fld_init` empties the box and resyncs it — `LN_LEN` = 0, which IS the
+internal COMMAND.COM (§96.32.1) — and the entry proc's `OSAPI_ARG_FILE` arm
+then calls `dos_path_make` **after** it. `dos_path_make` writes the buffer and
+nothing else, so the field kept the length the initialiser gave it.
+
+**The console door had the fix and the comment beside it claimed the other
+door was covered.** §96.33.10's `dos_con_prog` reads, verbatim: *"dos_path_make
+is the entry proc's own proc, which is what makes the two doors agree by
+construction rather than by both being written correctly."* True of the
+COMPOSE and false of the RESYNC, because the resync was four lines outside the
+shared proc — so the claim was about the half that was shared, and the half
+that was not is exactly where the defect lived.
+
+So the resync moves **into** `dos_path_make`, on both its arms, and
+`dos_con_prog`'s copy comes out. The proc sets CF as its answer, so the
+re-measure happens BEFORE the flag: `os88line_resync` reads a buffer and
+writes three words and has no opinion about the carry, but a call between the
+`clc`/`stc` and the `ret` would still be a defect waiting for its first
+clobber.
+
+**It is not a regression, and the dates say so**: `b30d4c1` introduced
+`dos_fld_init`'s zeroing and the entry proc's `dos_path_make` in the same
+commit, so the association door has drawn an empty box since the top bar
+existed. What §96.33.10 did was fix the door somebody was using and leave the
+one nobody had opened yet.
+
 ##### 96.33.9 `DIR`'s SWITCHES, and why `/P` cannot block
 
 Reported from the field: *"dir doesn't have most of its common command line

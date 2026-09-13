@@ -4542,6 +4542,7 @@ dos_path_make:
     inc di
     or al, al
     jnz .nm
+    call .sync
     clc
     jmp short .out
 .bare:
@@ -4554,6 +4555,7 @@ dos_path_make:
     inc di
     or al, al
     jnz .bn
+    call .sync
     stc
 .out:
     pop es
@@ -4563,6 +4565,26 @@ dos_path_make:
     pop cx
     pop bx
     pop ax
+    ret
+
+; --- .sync - the FIELD, re-measured from the text just written -------------
+; **INSIDE THE PROC AND NOT BESIDE ONE CALLER** (SPEC.md 96.33.10.1).
+; dos_fld_init empties the box and resyncs it, so LN_LEN is 0 until something
+; re-measures - and this routine writes the BUFFER. The console door had a
+; resync four lines outside it and the entry proc's association arm did not,
+; so a .COM opened by double-click put a perfect path in [dos_path] and drew
+; an EMPTY field: measured at LN_LEN = 0 with the buffer holding
+; `B:\DOSHELLO.COM`.
+;
+; BEFORE the clc/stc, because CF is this routine's answer. os88line_resync
+; reads a buffer and writes three words and has no opinion about the carry,
+; but a call between the flag and the `ret` is a defect waiting for its first
+; clobber.
+.sync:
+    push si
+    mov si, dos_pln
+    call os88line_resync
+    pop si
     ret
 
 ; -----------------------------------------------------------------------------
