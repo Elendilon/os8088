@@ -59,6 +59,7 @@ HF_MINKB  equ 64              ; below this there is no room to build a comb
                               ; that proves anything, and the suite says so
                               ; rather than passing vacuously
 HF_ROWS   equ 18                ; ...15 to 18 at SPEC.md 66.4.3
+HF_RROWS  equ 4                 ; ...and the KEY-driven region suite's own
 HF_BSS_TOTAL equ 176
 
 ; -----------------------------------------------------------------------------
@@ -108,6 +109,11 @@ hf_entry:
 hf_wake:
     push ax
     push bx
+    cmp byte [hf_woke], 0
+    jne .region                 ; THE KEY'S POST, not the suite's: 17 and 18
+                                ; are already recorded and recording them
+                                ; twice would push hf_n past HF_ROWS and slide
+                                ; every label in the harness by two
     mov byte [hf_woke], 1
     call OSAPI_MEM_AVAIL        ; AX = largest run KB, and now it is the truth
     mov [hf_avwake], ax
@@ -116,12 +122,105 @@ hf_wake:
     cmp ax, bx
     jb .short
     call hf_pass                ; 18: ...and the wake's answer is not short of
-    jmp short .out              ; what the what-if predicted
+    jmp short .region           ; what the what-if predicted
 .short:
     call hf_fail
+.region:
+    cmp word [hf_rn], 0
+    je .out                     ; the key has not run, so there is no hole
+                                ; above us and nothing to say
+    mov ax, cs
+    cmp ax, [hf_rseg0]
+    jbe .nomove
+    call hf_rpass               ; R3: OUR OWN REGION WENT UP, which is the
+    jmp short .wav              ; whole feature - and CS is the reading,
+                                ; because the bytes we are executing are the
+                                ; ones that moved
+.nomove:
+    call hf_rfail
+.wav:
+    call OSAPI_MEM_AVAIL
+    mov [hf_ravwake], ax
+    cmp ax, [hf_rmax]
+    jb .noav
+    call hf_rpass               ; R4: ...and plain mem_avail here is not short
+    jmp short .out              ; of what the what-if said before the post
+.noav:
+    call hf_rfail
 .out:
     pop bx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; hf_key - W_ONKEY: THE REGION'S OWN MOVE, which the suite cannot ask
+;
+; SPEC.md 66.4.3. While the suite runs, this package's region is the TOPMOST
+; claim on the heap - a region is claimed top-down and nothing else has been
+; launched - so there is never a hole above it and the what-if has nothing to
+; find. The harness builds the reported scenario instead: open PAINT FIRST so
+; its region takes the ceiling and ours lands underneath, let the suite run,
+; CLOSE Paint, and press a key. A package standing in for the unmounted
+; driver, and the hole in the same place.
+;
+; ONCE. A second keystroke would post again, which is the go-round the SDK
+; warns about: the what-if measured a state the machine has since left, and
+; the number to claim against is the one on the wake.
+; -----------------------------------------------------------------------------
+hf_key:
+    push ax
+    push bx
+    cmp word [hf_rn], 0
+    jne .out
+    mov ax, cs
+    mov [hf_rseg0], ax          ; where we are BEFORE
+    call OSAPI_MEM_AVAIL
+    mov [hf_rav], ax
+    call OSAPI_MEM_AVAIL_MAX
+    mov [hf_rmax], ax
+    cmp ax, [hf_rav]
+    jbe .nomax
+    call hf_rpass               ; R1: the what-if found room the plain answer
+    jmp short .post             ; cannot reach, and the only difference between
+.nomax:                         ; the two questions is our own region
+    call hf_rfail
+.post:
+    mov bx, [hf_win]
+    mov al, MEM_LVL_TOP
+    call OSAPI_MEM_COMPACT_WAKE
+    jc .nopost
+    call hf_rpass               ; R2: posted - and R3 and R4 are answered in
+    jmp short .out              ; hf_wake, because that is the whole shape
+.nopost:
+    call hf_rfail
+.out:
+    pop bx
+    pop ax
+    ret
+
+; --- hf_rpass / hf_rfail - the REGION suite's own result bytes ---------------
+; Separate from hf_res on purpose: nine test files put HEAPFRAG.O88 on a disk
+; and the harness that reads hf_n expects exactly HF_ROWS, so a key-driven
+; check appended there would make every one of them report a short suite.
+hf_rpass:
+    push bx
+    mov bx, [hf_rn]
+    cmp bx, HF_RROWS
+    jae .out
+    mov byte [bx+hf_rres], 0
+    inc word [hf_rn]
+.out:
+    pop bx
+    ret
+hf_rfail:
+    push bx
+    mov bx, [hf_rn]
+    cmp bx, HF_RROWS
+    jae .out
+    mov byte [bx+hf_rres], 1
+    inc word [hf_rn]
+.out:
+    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -973,7 +1072,7 @@ hf_numgo:
 
 hf_tpl:
     dw 140, 26, 250, 250
-    dw hf_ttl, hf_paint, 0, 0
+    dw hf_ttl, hf_paint, hf_key, 0
 
 hf_ttl:    db 'Heap Compaction', 0
 hf_s_pass: db 'PASS', 0
@@ -1033,6 +1132,12 @@ hf_avwake  equ os88_image_end + 44   ; word: ...and plain avail ON THE WAKE,
                                   ; own model of the claim map (SPEC.md 66.4.3)
 hf_posted  equ os88_image_end + 46   ; byte: the compaction was posted
 hf_woke    equ os88_image_end + 47   ; byte: ...and the wake arrived
+hf_rres    equ os88_image_end + 148  ; HF_RROWS region-suite bytes, 0 = PASS
+hf_rn      equ os88_image_end + 152  ; word: region checks recorded
+hf_rseg0   equ os88_image_end + 154  ; word: our region's base BEFORE the post
+hf_rav     equ os88_image_end + 156  ; word: mem_avail at the key
+hf_rmax    equ os88_image_end + 158  ; word: ...and mem_avail_max
+hf_ravwake equ os88_image_end + 160  ; word: ...and plain avail on the wake
 hf_res     equ os88_image_end + 128  ; HF_ROWS result bytes, 0 = PASS. Moved
                                   ; out of +40 when the suite went to 18 rows:
                                   ; 18 bytes there would have run into hf_base

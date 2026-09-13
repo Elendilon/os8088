@@ -1564,63 +1564,60 @@ mem_cp_ceilmv:
 ; It is exact because the descending pass preserves ORDER: a claim only ever
 ; slides up onto paragraphs the walk has already passed, so no mover can cross
 ; another claim, and everything between this one and its barrier packs solid.
+;
+; **THE TWO SCANS CANNOT BE ONE, and it is worth writing down why so nobody
+; tries again.** S is a sum over [me, B) and B is not known until a scan has
+; ended, so a single unordered pass would have to un-count the movers between a
+; newly-found lower barrier and the one it replaced - and it did not keep them
+; individually. Scanning in DESCENDING order does fix it, because B only ever
+; falls and S then accumulates correctly, but mem_tab is unordered and putting
+; it in order is an O(MEM_MAX) search per step - the O(n^2) this routine exists
+; to avoid. What the pass DID have was slack: DI carries each record's base so
+; AX can stay the accumulator, and a free row is caught by the range compare
+; that was there anyway, which is -24 bytes over the first spelling.
 ; -----------------------------------------------------------------------------
 mem_cp_newbase:
     push ax
     push bx
     push cx
+    push di
     push si
     mov bx, [ss:si+MC_SEG]      ; BX = my own base, the floor of both scans
-    mov dx, [mem_top]           ; --- scan 1: B -------------------------------
-    push si
-    mov si, mem_tab
+    mov dx, [mem_top]           ; DX = B, and [mem_top] when nothing is above
+    mov si, mem_tab             ; --- scan 1: the lowest BARRIER above me -----
     mov cx, MEM_MAX
 .b1:
-    mov ax, [ss:si+MC_SEG]
-    or ax, ax
-    jz .b1n                     ; a free row
-    cmp ax, bx
-    jbe .b1n                    ; at or below me
-    cmp ax, dx
-    jae .b1n                    ; no lower than the best so far
-    call mem_pg_cheap           ; ...a cache that dissolves is not a barrier
+    mov di, [ss:si+MC_SEG]      ; DI AND NOT AX, which is scan 2's accumulator:
+    cmp di, bx                  ; banking that per record cost a push and a pop
+    jbe .b1n                    ; an iteration. A FREE ROW is base 0 and is
+    cmp di, dx                  ; caught by this same compare, at or below me
+    jae .b1n                    ; ...and no lower than the best so far
+    call mem_pg_cheap           ; a cache that dissolves is not a barrier...
     jnc .b1n
     call mem_cp_ceilmv          ; ...and neither is something that moves WITH
     jnc .b1n                    ; me
-    mov dx, ax
+    mov dx, di
 .b1n:
     add si, MC_SIZE
     loop .b1
-    pop si
-
-    xor ax, ax                  ; --- scan 2: S -------------------------------
-    push si
-    push dx
-    mov si, mem_tab
+    mov si, mem_tab             ; --- scan 2: S, the movers from me up to B ---
     mov cx, MEM_MAX
+    xor ax, ax
 .b2:
-    cmp word [ss:si+MC_SEG], 0
-    je .b2n
-    push ax
-    mov ax, [ss:si+MC_SEG]
-    cmp ax, bx
-    jb .b2p                     ; below me
-    cmp ax, dx
-    jae .b2p                    ; at or above the barrier
-    pop ax
+    mov di, [ss:si+MC_SEG]
+    cmp di, bx
+    jb .b2n                     ; below me - a free row lands here too
+    cmp di, dx
+    jae .b2n                    ; at or above the barrier
     call mem_cp_ceilmv
     jc .b2n
     add ax, [ss:si+MC_PARA]
-    jmp short .b2n
-.b2p:
-    pop ax
 .b2n:
     add si, MC_SIZE
     loop .b2
-    pop dx
-    pop si
     sub dx, ax                  ; B - S
     pop si
+    pop di
     pop cx
     pop bx
     pop ax
@@ -1818,17 +1815,11 @@ mem_frameless:
     cmp bx, [ld_base]
     je .nope                    ; the loader is standing in it
     cmp bx, [mem_cp_self]       ; ...UNLESS THIS IS THE WHAT-IF ASKING ABOUT
-    je .ok                      ; the asker's own region (SPEC.md 66.4.3): at
-                                ; the service point its callback has returned
-                                ; and the nest is empty, so the nest is exactly
-                                ; the test that will not still be true. The
-                                ; word is 0 on every other path, and no segment
-                                ; is 0
+    je .self                    ; the asker's own region (SPEC.md 66.4.3)
     call mem_in_nest            ; ...or a callback is, and this claim is the
     jc .nope                    ; REGION, so a frame's return address points
                                 ; into it (SPEC.md 66.6.1). No [mem_wpin]: a
                                 ; park does not retire a return address
-.ok:
     call mem_busy_seg           ; ...AND THE REST IS THE QUESTION A PACKAGE'S
     jc .nope                    ; DATA CLAIM ALREADY ASKS: is a frame standing
                                 ; in the segment, and is its worker running.
@@ -1843,6 +1834,25 @@ mem_frameless:
                                 ; declaration above is in hand - and it raises
                                 ; [mem_wpin] itself, so a region asks for the
                                 ; park on the same terms a data claim does
+.self:                          ; THE WHAT-IF EXCUSES BOTH REMAINING TESTS, and
+                                ; the worker is the half that was missed: at
+                                ; ui_task's service point the asker's callback
+                                ; has returned, so the nest is empty - and
+                                ; mem_compact PARKS on its way past a refusal
+                                ; it is told about ([mem_wpin], SPEC.md 66.5),
+                                ; so a worker that is merely RUNNING now is not
+                                ; what it will be then. The restart declaration
+                                ; is tested ABOVE and still binds: without one
+                                ; no park helps and this arm is never reached.
+                                ;
+                                ; SO THE WHAT-IF MAY READ HIGH, and that is the
+                                ; right direction for it. It is a measurement
+                                ; and not a promise: nothing is claimed against
+                                ; it, the number to claim against is plain
+                                ; mem_avail on the wake, and a what-if that
+                                ; read LOW would have a package skip a post
+                                ; that would have worked - which is the failure
+                                ; that is silent
     pop di
     pop bx
     pop ax

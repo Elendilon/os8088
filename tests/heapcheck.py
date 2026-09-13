@@ -54,6 +54,11 @@ LABELS = ["worker hired", "room", "comb built", "pattern round-trip",
           # SPEC.md 66.4.3 - the combined plan, the what-if and the post
           "mem_avail is claimable", "avail_max >= avail",
           "the post round-tripped", "the wake's avail is not short"]
+
+# ...and the KEY-driven region suite, which needs a hole above heapfrag's own
+# region and so needs PAINT opened before it and closed after (SPEC.md 66.4.3).
+RLABELS = ["avail_max > avail", "the post was accepted",
+           "MY REGION MOVED UP", "the wake's avail is the max"]
 # With the compactor removed these THREE must go the other way. Check 11 is NOT
 # here: 0 moves and 0 notifications agree, so it passes honestly in both.
 # Check 12 is the descending pass (SPEC.md 66.4): its ask can only be funded by
@@ -167,6 +172,17 @@ def main():
             print("FAIL: the Disk window never opened")
             return 1
         wx, wy, ww, wh = dispcp.win_rect(m, S, w[-1])
+        # PAINT FIRST, and that ordering is the whole of the region test
+        # (SPEC.md 66.4.3). A region is claimed TOP-DOWN, so whichever package
+        # launches first takes the ceiling: open Paint, then heapfrag lands
+        # underneath it, and closing Paint later leaves a hole ABOVE
+        # heapfrag's own region that only heapfrag moving can reach. That is
+        # the reported scenario with a package standing in for the unmounted
+        # driver - and heapfrag cannot build it for itself, being the topmost
+        # claim on the heap for as long as it is the only thing running.
+        dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "PAINT.O88")
+        pw = [w for w in os88geom.windows(m, S) if "Paint" in (w.title or "")]
+        os88marty.settle(m)
         dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "HEAPFRAG.O88")
 
         # the suite runs on the first W_PAINT and fills a heap-sized buffer
@@ -233,7 +249,54 @@ def main():
         if top > fill:
             print("      %5d KB HOLE (to the top)" % ((top - fill) // 64))
 
-        bad = over
+        # --- THE REGION'S OWN MOVE (SPEC.md 66.4.3) -------------------------
+        # Close Paint to open the hole above us, then one keystroke: heapfrag's
+        # W_ONKEY asks both mem_avail questions, posts, and answers R3/R4 on
+        # the wake. Programmatic, like the rest - the verdict comes back as
+        # bytes in its bss and not off the screen.
+        rbad = 0
+        if pw:
+            ui = dispcp._ui(m, mo, None, S)
+            ui.close(pw[-1])
+            m.key("KeyR")
+            # POLL THE PACKAGE'S OWN COUNTER, not a sleep: the wake writes no
+            # pixels, so a settle returns at once and a fixed delay is the
+            # thing docs/WRITING-TESTS.md warns about - it hands a loaded box
+            # less work and then fails looking like the feature.
+            # ...AND RE-READ W_SEG EVERY TIME ROUND. If the feature works the
+            # package's bss is not where it was: the region moved, and reading
+            # the old base gives the bytes it used to occupy - which decode
+            # as a base that did not move, so the row would report the exact
+            # failure it is meant to catch.
+            now = seg
+            for _ in range(40):
+                for slot in dispcp.win_list(m, S):
+                    sg = u16(m.read(os88geom.winptr(m, slot, S)
+                                    + os88geom.W_SEG, 2))
+                    if sg:
+                        now = sg
+                b2 = m.read(now * 16 + img, 176)
+                if u16(b2, 152) >= len(RLABELS):
+                    break
+                time.sleep(0.5)
+            rn = u16(b2, 152)
+            seg = now
+            print("region: avail %dK, avail_max %dK, wake %dK, base %04x -> %04x"
+                  % (u16(b2, 156), u16(b2, 158), u16(b2, 160),
+                     u16(b2, 154), seg))
+            for i, r in enumerate(b2[148:148 + rn]):
+                print("  R%d %-28s %s" % (i + 1, RLABELS[i] if i < len(RLABELS)
+                                          else "?", "PASS" if r == 0 else "FAIL"))
+                rbad += r != 0
+            if rn < len(RLABELS):
+                print("  region suite stopped after %d of %d"
+                      % (rn, len(RLABELS)))
+                rbad += 1
+        else:
+            print("  PAINT never opened - the region rows cannot be asked")
+            rbad += 1
+
+        bad = over + rbad
         for i, r in enumerate(res):
             want_fail = i in expect_fail
             ok = (r != 0) if want_fail else (r == 0)
