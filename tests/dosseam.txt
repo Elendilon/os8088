@@ -1,0 +1,9 @@
+# The OSAPI_* surface the DOS box's INT 21h core can reach that is NOT a
+# file-system slot, and what docs/plans/KERN-DOS-PLAN.md does about each.
+# tests/unit/t_dosseam.py is the gate; the FILE-SYSTEM half has no registry
+# and is a hard zero (SPEC.md 96.4.1, 96.4.2).
+#
+#   <slot>  <what kern_dos does about it>
+#
+OSAPI_DRV_CALL   the packet driver (SPEC.md 96.23), which KERN-DOS-PLAN 10 does not carry - a future phase may bring a thinner DOS-side one (its 12 question 7)
+OSAPI_MOUSE      INT 33h's packets (SPEC.md 96.16). kern_dos carries kernel/mouse.inc's mouse third and neither its cursor nor its keyboard (KERN-DOS-PLAN 6.1 lever 2)

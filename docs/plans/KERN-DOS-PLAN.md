@@ -163,6 +163,29 @@ launch and shortcut paths (`dos_load`, `dos_lnk_*`, `dos_sav_go`,
 `dos_path_make`, `dos_trace_dump`). Of those, only **`dos_load`** — reading the
 program image — is needed under `kern_dos`; the rest are window-side.
 
+> **W2 CHECKED IT PROPERLY AND FOUND THREE** (SPEC.md 96.4.2). The paragraph
+> above was a grep over file names and prefixes; walking the call graph from
+> the interrupt entries instead found `dos_walk_at` → `OSAPI_FILE_HERE`
+> (reached from `dos_int21` via `dos_fh_enter`) and `dos_drv_count` /
+> `dos_drv_sel` → `OSAPI_VOL_KIND` (both straight off `dos_int21`). **All
+> three were outside for the same reason** — the slot does no disk I/O, so
+> §96.4.1's stated reason does not bind and the direct call looks right. They
+> are `DBE_HERE` and `DBE_VKIND` now, **22 doors**, +24 bytes of package image
+> and no kernel byte.
+>
+> **`dos_load` turned out NOT to be an exception**: it is not in the outside
+> list at all, so the port is *twenty-two doors and nothing else*.
+>
+> Two things the same walk establishes about §4.1.2's split, which is the
+> other thing W2 owed. The reachable core touches **none** of `os88ui.inc`,
+> `os88line.inc`, `os88parts.inc` or the socket layer — zero sites. It does
+> reach `dosc.inc`'s console in three procs, and **all three are the
+> outside-the-bracket arm**: `dos_tty` already branches on `[dos_inbr]` and
+> takes the ROM's `int 10h` teletype inside the bracket, which is §6.1 lever
+> 5's premise confirmed rather than assumed. And the whole non-file `OSAPI_*`
+> surface the core can reach is **two slots**, `OSAPI_DRV_CALL` and
+> `OSAPI_MOUSE`, registered in `tests/dosseam.txt` so it cannot grow quietly.
+
 > **The port is a second implementation of twenty doors plus `dos_load`, and
 > nothing above them changes.** `dos_fh_*`, the INT 21h dispatch, the PSP, the
 > FCB layer, `AH=4Bh`, the memory chain and the mouse translation are all
@@ -459,7 +482,7 @@ Arm 3 is **not a superset of arm 2**, and the Memory page has to say so:
 |---|---|---|
 | **W0** | **BUILT** (SPEC.md 96.36). `[dos_keepc]` is three-way over `os88ui_rad` — the control's **first caller in the tree** — and arm 3 is greyed with its reason on the glass. +364 package bytes, +6 bss, **zero kernel**. | `soak -k dosmem`, and its three verified failures |
 | **W1** | **DONE** — docs/reports/KERN-DOS-BUDGET-2026-09-13.md. Arms 1 and 2 confirmed at 449/481 KB with a 32 KB cache between them, the floor re-derived at **35.5 KB against 38.5**, and the hibernate round trip at **~4 s on iron** (§2.2 — the 43.4 s this first reported is MartyPC's XT-IDE PIO and not the field's controller). | the report, and `tools/os88doscost.py` to re-derive it |
-| **W2** | **Prove the seam.** Every path from the INT 21h core to the file system goes through a `dos_k_*` door; a gate that fails if a new one appears. | a `fast` row over the source, `t_textrules`' shape |
+| **W2** | **DONE, and the seam held with three breaches to fix** (§3, SPEC.md 96.4.2). Two new doors, +24 package bytes and no kernel byte; `tests/unit/t_dosseam.py` is the gate and walks the CALL GRAPH. | `soak -k dosseam` — **soak and not the fast this row first said**, by docs/WRITING-TESTS.md §2.1 rule 1 |
 | **W3** | **The shim and the root.** `kerndos/kerndos.asm` assembles `disk.inc`+`diskw.inc` and reads a file. **Allowed to return "the shim is too big, write a reader instead."** | a host-side FAT read against `os88fat.py` |
 | **W4** | **A `.COM` runs.** The DOS core over the new back end, no handoff yet — `kern_dos` booted directly on a test disk. | MartyPC, a `.COM` that prints |
 | **W5** | **The handoff.** §7 steps 2–8, ending in `int 19h`. No hibernate yet. | the program runs and the machine reboots |
@@ -512,7 +535,12 @@ W1, which is the wave that measures it.
    not a measurement that can be taken without it.
 2. **Does the DOS core assemble outside a package at all?** It is `org 0` with
    bss at `os88_image_end` and a three-byte dispatcher header (§20). W2 should
-   check this, not assume it.
+   check this, not assume it. **PARTLY ANSWERED**: W2's walk shows the
+   reachable core calls into none of the package libraries — `os88ui.inc`,
+   `os88line.inc`, `os88parts.inc` and the socket layer are zero sites — and
+   reaches the console only on the arm `kern_dos` never takes. What is left is
+   the mechanical half, `org 0`, `os88_image_end` and the header, and that
+   cannot be answered without doing the split: it is W3/W4's, not a scan's.
 3. **How does the exit code come back?** The stub restores conventional memory
    over everything, so a byte in `kern_dos`'s image does not survive. Candidates:
    a word in the BDA's unused area, a word in `HIBERNAT.PTR` rewritten before

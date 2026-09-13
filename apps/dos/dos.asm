@@ -3797,7 +3797,11 @@ DBE_PATH    equ 34                  ; ES:DI = a buffer, CX = its size; out CX =
 DBE_VSTAT   equ 36                  ; ES:DI = a VS_SIZEOF record, CX = its size
 DBE_WRAT    equ 38                  ; SI = name, ES:BX = bytes, CX = count,
                                     ; DX:AX = the offset (SPEC.md 18.4.7)
-DBE_NENT    equ 20
+DBE_HERE    equ 40                  ; out DX = where this instance stands,
+                                    ; BL = its drive (SPEC.md 19.2.4)
+DBE_VKIND   equ 42                  ; AL = a volume index; out CF=1 no such
+                                    ; volume, else AL/AH = VK_*/VT_*
+DBE_NENT    equ 22
 
 dos_be_goto:
     mov word [dos_betgt], dos_k_goto
@@ -3855,6 +3859,20 @@ dos_be_vstat:
     jmp dos_be_go
 dos_be_wrat:
     mov word [dos_betgt], dos_k_wrat
+    jmp dos_be_go
+; --- THE TWO QUERY DOORS (SPEC.md 96.4.2) ----------------------------------
+; Neither does disk I/O, so neither NEEDS dos_be_go's stack swap - and both
+; are here anyway, because the rule this block states is not about the swap.
+; It is that the INT 21h core reaches the file system through ONE list, which
+; is what makes docs/plans/KERN-DOS-PLAN.md a port of that list and not a hunt
+; through the core for stragglers. Wave 2 found these three call sites by
+; walking the call graph from the interrupt entries, and they were the whole
+; of what was outside.
+dos_be_here:
+    mov word [dos_betgt], dos_k_here
+    jmp dos_be_go
+dos_be_vkind:
+    mov word [dos_betgt], dos_k_vkind
     jmp dos_be_go
 dos_be_xcopy:
     mov word [dos_betgt], dos_k_xcopy
@@ -3991,6 +4009,14 @@ dos_k_xcopy:
 
 dos_k_path:
     call OSAPI_FILE_PATH
+    ret
+
+dos_k_here:
+    call OSAPI_FILE_HERE
+    ret
+
+dos_k_vkind:
+    call OSAPI_VOL_KIND
     ret
 
 dos_k_vstat:
@@ -7013,7 +7039,7 @@ dos_walk_at:
     jc .no
     jmp short .comp
 .here:
-    call OSAPI_FILE_HERE            ; DX = where we ended up
+    call dos_be_here                ; DX = where we ended up
     clc
     jmp short .out
 .no:
@@ -8971,7 +8997,7 @@ dos_drv_count:
     mov al, bl
     push bx
     push cx
-    call OSAPI_VOL_KIND
+    call dos_be_vkind
     pop cx
     pop bx
     jc .gap
@@ -9014,7 +9040,7 @@ dos_drv_sel:
                                 ; written past (see DVOL_MAX)
     mov [dos_dvtgt], dl
     mov al, dl
-    call OSAPI_VOL_KIND         ; CF=1 = there is no such volume, and that is
+    call dos_be_vkind           ; CF=1 = there is no such volume, and that is
     jc .out                     ; the whole of "invalid drive letter"
     mov al, [dos_vol]
     mov [dos_dvfrom], al

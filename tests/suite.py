@@ -2678,6 +2678,24 @@ SOAK = [
         "MartyPC instrument with no QEMU form.",
         needs=("qemu",), serial=True, timeout=600,
         wants=("build/dosxmsq.img",)),
+    Row("dosseam", "soak", py("tests/unit/t_dosseam.py"), 1.0,
+        "THE DOS BOX'S FILE SEAM (SPEC.md 96.4.1, 96.4.2): the INT 21h core "
+        "reaches the file system through the DBE_* doors and nothing else, "
+        "which SPEC.md 96.4.1 states for the STACK SWAP's sake and "
+        "docs/plans/KERN-DOS-PLAN.md 3 rests on for a different one - every "
+        "call outside a door is a straggler its port has to go and find. IT "
+        "WALKS THE CALL GRAPH from the interrupt entries and does not trust a "
+        "NAME: a prefix rule was tried first and got two of three wrong, "
+        "dos_drv_count and dos_drv_sel reading exactly like the window's "
+        "drive list and being called straight from dos_int21. A second, "
+        "weaker rule registers every OTHER OSAPI_* the core can reach "
+        "(tests/dosseam.txt), so the port's surface cannot grow silently. "
+        "SOAK AND NOT FAST, by docs/WRITING-TESTS.md 2.1 rule 1 - it is about "
+        "ONE package - although the plan's own wave table said fast. "
+        "VERIFIED TO FAIL both ways: putting `call OSAPI_FILE_HERE` back into "
+        "dos_walk_at names the file, the line and the path from dos_int21, "
+        "and adding a `call OSAPI_TASK_YIELD` to dos_fh_enter takes the "
+        "registry rule red."),
     Row("dosmem", "soak", py("tests/dosmem.py"), 55.0,
         "THE MEMORY PAGE'S THREE ARMS (SPEC.md 96.36, 96.25, 47): the choice "
         "of how much of the machine a DOS program gets was a CHECK BOX, which "

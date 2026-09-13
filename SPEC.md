@@ -120758,6 +120758,48 @@ it is **does any kernel code under it touch `.lowbss` or the disk**:
   `KERNEL_SEG`, reached through DS — so they stay direct, and this sentence is
   why, so that the next sweep does not have to re-derive it.
 
+#### 96.4.2 The list is the SEAM, so a query with no I/O goes through it too
+
+§96.4.1's rule is *no INT 21h handler may call an `OSAPI_*` file slot
+directly*, and its reason is the stack swap. **There is a second reason, and
+it binds where the first does not.**
+
+docs/plans/KERN-DOS-PLAN.md assembles the DOS core against a kernel-less back
+end, and its §3 is the claim that makes that tractable: *"the port is a second
+implementation of twenty doors plus `dos_load`, and nothing above them
+changes."* Every file-system call outside a door is a straggler that port has
+to go and find. So the door list is not merely a stack discipline — it is
+**the seam the core is cut along**, and a slot belongs behind it whether or
+not it touches a disk.
+
+That distinction is not academic: **three call sites were outside, and all
+three were outside for the same reason** — the slot does no I/O, so
+§96.4.1's stated reason does not bind and the direct call looks right.
+
+| | slot | reached as |
+|---|---|---|
+| `dos_walk_at` | `OSAPI_FILE_HERE` | `dos_int21` → `dos_fh_enter` → |
+| `dos_drv_count` | `OSAPI_VOL_KIND` | `dos_int21` → (AH=0Eh's drive count) |
+| `dos_drv_sel` | `OSAPI_VOL_KIND` | `dos_int21` → (AH=0Eh's drive switch) |
+
+They are `DBE_HERE` and `DBE_VKIND` now, taking the list to **22 doors**, for
+**24 bytes** of the package image and no kernel byte at all. Neither needs
+`dos_be_go`'s swap and both take it anyway: one list, one cut.
+
+**`tests/unit/t_dosseam.py` is the gate and it WALKS THE CALL GRAPH.** A
+prefix rule — *a proc named `dos_k_*` is a door and `dos_drv_*` is the
+window's drive list* — was tried first and got two of the three wrong, because
+`dos_drv_count` and `dos_drv_sel` read exactly like the window control they
+sit beside and are called straight from `dos_int21`. So the roots are the
+interrupt entries plus `dos_load`, the walk follows `call` and `jmp`, and it
+stops at the doors.
+
+It carries a second, weaker rule with a registry behind it
+(`tests/dosseam.txt`): **every OTHER `OSAPI_*` the core can reach is a slot
+`kern_dos` must answer or refuse**, so that surface cannot grow silently. It
+is two entries — `OSAPI_DRV_CALL` and `OSAPI_MOUSE` — and the row prints it on
+every run.
+
 ### 96.5 The machine-state ledger
 
 Saved into the package's **own bss** — never into the arena, which is the

@@ -75,7 +75,14 @@ CORE = ("dos_int21", "dos_int33", "dos_int2", "dos_fh_", "dos_psp",
         "dos_ivt", "dos_bda", "dos_a20", "dos_clk", "dos_tick",
         "dos_save_machine", "dos_terminate", "dos_wild", "dos_prog_enter",
         "dos_jft", "dos_tty", "dos_ceq", "dos_is_exe", "dos_mou_",
-        "dos_movedown", "dos_keeph")
+        "dos_movedown", "dos_keeph",
+        # ...and these two, which READ like the window's drive list beside
+        # them and are called straight from dos_int21 (AH=0Eh).  W2's call
+        # graph found it; the prefix rule below had them both wrong, which is
+        # why tests/unit/t_dosseam.py walks reachability and does not trust a
+        # name (SPEC.md 96.4.2).
+        "dos_drv_count", "dos_drv_sel", "dos_drv_let", "dos_drv_bank",
+        "dos_drv_recall")
 WINDOW = ("dos_paint", "dos_click", "dos_key", "dos_entry", "dos_pref",
           "dos_menu", "dos_l_", "dos_lnk_", "dos_sav_", "dos_swap",
           "dos_fld_", "dos_mem_", "dos_mrad", "dos_mfld", "dos_bar_",
@@ -86,6 +93,8 @@ WINDOW = ("dos_paint", "dos_click", "dos_key", "dos_entry", "dos_pref",
           "dos_wake", "dos_close", "dos_open", "dos_assoc", "dos_stat",
           "dos_run", "dos_fsx_", "dos_repaint", "dos_place", "dos_is_lnk",
           "dos_oncmd", "dos_focused", "dos_btn_", "dos_fmt_", "dos_page_",
+          # dos_drv_take / dos_drv_back only; the other dos_drv_* are CORE and
+          # are named above, CORE being tested first.
           "dos_hex", "dos_dec", "dos_e_", "dos_wfld")
 DROP = ("dos_pkt_", "dos_net", "dn_", "dos_blaster", "dos_cable")
 

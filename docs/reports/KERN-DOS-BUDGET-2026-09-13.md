@@ -94,6 +94,14 @@ the package header, which `os88pkg` reports separately:
 |---|---:|---:|---|
 | **core** | 14,636 | 3,031 | INT 21h, the handle layer, PSP/MCB, the loader, FCBs, `dosh.inc`'s built-ins |
 | **window** | 11,960 | 1,135 | the pages, the console, `os88ui.inc`, `os88line.inc`, the shortcut writer |
+
+> **CORRECTED AFTER W2, by 200 bytes: core 14,836 and window 11,784.** The
+> prefix rule put the whole `dos_drv_*` family on the window side, and W2's
+> call-graph walk showed `dos_drv_count` and `dos_drv_sel` are called straight
+> from `dos_int21` — the drive functions, not the drive list (SPEC.md 96.4.2).
+> `tools/os88doscost.py` names them now. Everything below is 200 bytes light
+> in the same direction and the floor is **36,580**, which changes no
+> conclusion: 35.7 KB against 38.5, and 2.8 KB left instead of 3.0.
 | **drop** | 4,608 | 115 | the packet driver and §96.26's cable translation, which KERN-DOS-PLAN §10 says do not come |
 | unclassified | 201 | 129 | 0.6% and 2.9%, listed below |
 
