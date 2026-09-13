@@ -607,30 +607,62 @@ tested** (`docs/WRITING-TESTS.md` 1): `mem_cp_both`'s barrier arm patched not to
 resume past a barrier, and its result replaced by the whole arena — the
 over-report direction exactly. Both take the row red.
 
-### 7.3 What is NOT covered, and one row that needs a decision
+### 7.3 …and the three gaps 7.2 left, all closed
 
-1. **`mem_cp_newbase`'s own branch is not exercised.** A third amputation —
-   `newbase` patched to answer `[mem_top]` — left every row green, and that is
-   the finding: heapfrag owns a worker, so `mem_busy_seg` pins every claim it
-   holds against `mem_avail`, which does not park. Giving the checks a live
-   ceiling mover was not enough for the same reason. It wants a movable
-   top-down claim owned by something with no running worker.
-2. **The region physically moving up into a hole above it** — the reported
-   scenario's own headline — is not asserted. heapfrag's region is the topmost
-   claim on the heap, so there is never a hole above it. It needs a package
-   loaded ABOVE heapfrag and then closed; `build/heapfrag360.img` already
-   carries `PAINT.O88`, so the setup exists and the sequencing (the suite runs
-   on the first paint, before anything could close) is what does not.
-3. **`tests/sndmove` changed behaviour and is left red.** Every substantive
-   assertion in it still passes — the ring moved, the image moved, the 8237's
-   words followed, the IVT names the new image, the machine draws — but its
-   *staging* assumed the ceiling does not pack until the row asks, and
-   SPEC.md 66.4.1's last-resort pair now packs it during `FILLER`'s launch, so
-   the row's "before" baseline is taken after the move it wants to observe.
-   A one-line re-read of the base fixes 5b and then 4b fails instead, because
-   the image has already reached its packed position and does not move again.
-   **The row needs a new hole opened after its baseline, which is a redesign
-   and not a patch** — and it is deliberately not done here, because quietly
-   weakening a gate to make a change go green is the worse of the two
-   outcomes.
+1. **`mem_cp_newbase`'s own branch is exercised now.** It was not: heapfrag
+   owns a worker, so `mem_busy_seg` pinned every claim it held against a
+   `mem_avail` that does not park, and an amputation of `newbase` left every
+   row green. The region rows reach it, and the amputation now takes **R4**
+   red — `avail_max` reads 270K against the 267K the machine delivers, which
+   is the over-report direction exactly.
+
+2. **The region physically moves, and it is asserted.** `heapcheck` opens
+   **PAINT first** so its region takes the ceiling and heapfrag's lands
+   underneath, runs the suite, closes Paint, and presses a key; heapfrag's
+   `W_ONKEY` asks both `mem_avail` questions and posts, and its wake answers
+   the rest. Measured: `avail 234K, avail_max 267K, wake 267K, base 9700 ->
+   9f40` — the region really moves 33KB up into the hole and the wake's plain
+   `mem_avail` is the what-if's number to the KB.
+
+   It is four rows in heapfrag's **own** result bytes and not appended to
+   `hf_res`: nine test files put `HEAPFRAG.O88` on a disk, and the harness
+   that reads `hf_n` expects exactly `HF_ROWS`.
+
+3. **`tests/sndmove` is green, and the diagnosis was worth the dig.** Its
+   staging did not assume what §7.3 first said it did. `base0` and `sndseg`
+   were always captured before the filler; only `vec0` was read after it — and
+   `fl_fill` claims `OSAPI_MEM_AVAIL`, which since §5.1.1 plans both passes
+   and which `mem_claim` now delivers, so **the filler's own fill is the
+   forcing event** and the image had already moved by the time `vec0` was
+   taken. One line moved. **And the fix that looks right is wrong**: re-reading
+   `sndseg` beside `vec0` fixes 5b and moves the failure to 4b, because the
+   image has then already reached its packed position and does not move again.
+   5b now reads `['0f'] -> ['0f']` — a real vector following a real move.
+
+#### 7.3.1 Two defects the region rows found, both in this work
+
+- **The what-if excused `mem_in_nest` and not `mem_busy_seg`**, on the stated
+  ground that the worker is as true at the service point as now. That is
+  false: `mem_compact` **parks** on its way past a refusal it is told about
+  (`[mem_wpin]`, §66.5), so a worker merely running now is not what it will be
+  then. `avail_max` read 234K where the machine went on to deliver 267K — the
+  under-report that has a package skip a post that would have worked. It
+  excuses both now, and the restart declaration tested above still binds.
+  **The what-if may therefore read HIGH**, which is the right direction for
+  it: nothing is claimed against it and the wake is exact.
+- **The harness read the package's bss at the base it had before the post**,
+  so if the feature worked it decoded the bytes the region used to occupy —
+  which look like a base that did not move. It re-reads `W_SEG` every time
+  round the poll now. A row that would have reported the exact failure it
+  exists to catch.
+
+### 7.4 What is still open
+
+`mem_cp_newbase`'s two scans cannot be one, and its header says why rather
+than leaving it to be re-attempted: `S` is a sum over `[me, B)` and `B` is not
+known until a scan has ended, so a single unordered pass would have to
+un-count the movers between a newly-found lower barrier and the one it
+replaced. A descending pass does fix it — `B` only falls — but `mem_tab` is
+unordered and ordering it is the `O(n²)` the routine exists to avoid. The
+slack it **did** have came out: −19 bytes.
 

@@ -2404,7 +2404,7 @@ SOAK = [
         "66.8). 60s is 42.8 MEASURED after SPEC.md 66.4.3 added the region "
         "rows, which open PAINT first so heapfrag's own region lands under it "
         "and closing Paint leaves a hole above it - that is a second package "
-        "launch and a close on top of the suite, and the row was 36.9s before."",
+        "launch and a close on top of the suite, and the row was 36.9s before.",
         needs=("marty",), serial=True,
         wants=("build/heapfrag360.img",)),
     Row("xmcheck", "soak", py("tests/xmcheck.py"), 50.0,
