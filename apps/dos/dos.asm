@@ -12048,6 +12048,20 @@ dos_fh_fill:
     DBSS DOS_B_SHMADE,  1           ; the destination has been created
     DBSS DOS_B_SHGOT,   2           ; bytes in the buffer this pass
     DBSS DOS_B_SHWHY,   1           ; DSHW_*: WHICH refusal, for a debugger
+    ; --- DIR's SWITCHES, and the state a SUSPENDED listing resumes from -----
+    ; (SPEC.md 96.33.9). /P cannot wait for a key: dos_con_key holds the gfx
+    ; lock, so a built-in that blocked there would freeze the whole machine
+    ; until a human pressed something. It emits one page and returns instead,
+    ; and these four are what the next keystroke picks the walk up from.
+    DBSS DOS_B_SHDSW,   1           ; DIR's switch bits: DSW_P, DSW_W
+    DBSS DOS_B_SHMORE,  1           ; 1 = a listing is suspended mid-page
+    DBSS DOS_B_SHORD,   2           ; ...the ORDINAL to resume at (19.7.1),
+                                    ; never a cursor: the walk re-goto's and
+                                    ; re-reads, so a floppy change between
+                                    ; pages costs a wrong listing and not a
+                                    ; wrong SECTOR
+    DBSS DOS_B_SHLN,    2           ; lines put on this page so far
+    DBSS DOS_B_SHWCOL,  1           ; /W: which of the five columns is next
     DBSS DOS_B_FHPATH,  1           ; the name carried a folder part...
     DBSS DOS_B_FPBUF,   DOS_PBUF    ; ...which is this
     DBSS DOS_B_FHCWD,   2           ; where we were before walking it
@@ -12287,6 +12301,11 @@ dsh_cpkb    equ os88_image_end + DOS_B_SHCPKB
 dsh_made    equ os88_image_end + DOS_B_SHMADE
 dsh_got     equ os88_image_end + DOS_B_SHGOT
 dsh_why     equ os88_image_end + DOS_B_SHWHY
+dsh_dsw     equ os88_image_end + DOS_B_SHDSW   ; DIR's switches (SPEC.md 96.33.9)
+dsh_more    equ os88_image_end + DOS_B_SHMORE  ; ...a listing is suspended
+dsh_ord     equ os88_image_end + DOS_B_SHORD   ; ...at this ordinal
+dsh_ln      equ os88_image_end + DOS_B_SHLN    ; ...this many lines on the page
+dsh_wcol    equ os88_image_end + DOS_B_SHWCOL  ; ...and /W's column
 dos_inbr    equ os88_image_end + DOS_B_INBR    ; the console's five (96.33)
 dos_fromcon equ os88_image_end + DOS_B_FROMCON
 dos_fsxup   equ os88_image_end + DOS_B_FSXUP

@@ -172,9 +172,11 @@ dos_con_key:
     push dx
     push si
     push di
-    cmp al, 13
-    je .enter
-    cmp al, 8
+    cmp byte [dsh_more], 0          ; **A SUSPENDED `DIR /P` OWNS THE NEXT KEY**
+    jne .more                       ; (SPEC.md 96.33.9), whatever it is - which
+    cmp al, 13                      ; is DOS's own behaviour and is why this
+    je .enter                       ; test is in front of the editor rather
+    cmp al, 8                       ; than inside it
     je .bs
     cmp al, 27
     je .esc
@@ -219,6 +221,29 @@ dos_con_key:
                                     ; tested before this proc is reached
 .enter:
     call dos_con_run
+    jmp short .done
+
+; --- a paged listing is waiting: any key is its own, not the line's ----------
+; Esc and Ctrl-C ABANDON it, which is what DOS's break does to a DIR; anything
+; else is one more page.  dsh_dir_page prints the prompt again itself when it
+; stops a second time, so nothing here knows how many pages there are.
+.more:
+    cmp al, 27
+    je .stop
+    cmp al, 3
+    je .stop
+    call dsh_dir_page               ; ...which leaves [dsh_more] set if there
+    cmp byte [dsh_more], 0          ; is still more after this page
+    jne .drew
+    call dos_prompt                 ; the listing finished: a new prompt, as
+    jmp short .drew                 ; dos_con_run's own tail does
+.stop:
+    call dsh_dir_stop
+    mov si, dsh_s_crlf
+    call con_say
+    call dos_prompt
+.drew:
+    call dos_con_draw
 .done:
     pop di
     pop si
@@ -295,6 +320,13 @@ dos_con_run:
     mov si, dsh_line
     call dsh_run
     mov byte [dsh_exec], 0
+    cmp byte [dsh_more], 0          ; **A SUSPENDED `DIR /P` OWES NO PROMPT**
+    je .ranout                      ; (SPEC.md 96.33.9): the listing stopped
+    ret                             ; mid-page and printed `Strike a key`, and
+                                    ; a prompt under that would be a machine
+                                    ; asking two questions at once. The next
+                                    ; keystroke resumes it in dos_con_key
+.ranout:
     or al, al
     jz .prompt
     cmp byte [dsh_why], DSHW_NOCMD

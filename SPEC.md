@@ -121304,6 +121304,58 @@ thing the DOS default would buy is nothing: `A>` is what DOS shows when
 `AUTOEXEC.BAT` has not run, and every machine this box runs on is one where
 that line would have run.
 
+##### 96.33.9 `DIR`'s SWITCHES, and why `/P` cannot block
+
+Reported from the field: *"dir doesn't have most of its common command line
+args. Like /p"*. `dsh_c_dir` took one argument — a path or a pattern — and read
+anything else as part of it.
+
+**What the switches ARE was measured and not remembered**, off the DOS 3.30
+image and out of `COMMAND.COM`'s own string table (`tools/os88fat.py` reads the
+file; the strings sit together at offsets 20095–20875):
+
+| | DOS 3.30 |
+|---|---|
+| `/P` | pauses a screenful at a time, prompting **`Strike a key when ready . . . `** |
+| `/W` | five columns of names, no size and no date — `COMMAND  COM    ANSI     SYS    …`, each field 8-pad, space, 3-pad, four trailing, 16 columns, five to a row |
+| anything else | **`Invalid parameter`** |
+
+**`/B` IS NOT A DOS 3.3 SWITCH**, and that is the measurement worth having
+rather than the reasoning: `DIR /B` on the real thing answers `Invalid
+parameter`, exactly as `DIR /Z` does. It arrived with DOS 5, this box reports
+3.31 (§96.7), and it would have shipped on the strength of feeling like it had
+always been there.
+
+**`/P` CANNOT WAIT FOR A KEY, and that is a property of where the shell runs.**
+`dos_con_key` is `W_ONKEY`'s handler and its contract is **the gfx lock HELD**
+(§12.8.3), so a built-in that blocked on a keystroke would hold that lock for
+as long as the user took to press one: no pointer, no repaint, no other window
+— the whole machine, not merely this box. §7.4 is a 125-byte fix for a freeze
+that only lasted a disk transfer; one that lasts until a human acts is not a
+freeze to trade against anything.
+
+So `/P` **SUSPENDS** rather than waits, which is `fcp_step`'s shape one layer up
+(§22.3): the listing emits one page, banks the ordinal it stopped at, prints the
+prompt and RETURNS, with `[dsh_more]` set. The next keystroke is then the
+console's resume rather than its input — any key continues, `Esc` and `Ctrl-C`
+abandon the listing the way DOS's own break does — and the enumeration picks up
+at the banked ordinal. Nothing is held across the suspension that a floppy
+change could invalidate: the walk is by ORDINAL against a re-`dos_be_goto`'d
+directory (§19.7.1), so a resumed listing re-reads rather than trusting a
+cursor, and `dsh_home` runs on the way out of every page.
+
+**A PAGE IS THE LIVE VIEWPORT AND NOT 24 LINES.** `[con_vrows] - 1` is the
+height: 24 in the full-screen bracket and on VGA or Hercules, and **16 on CGA**,
+where §96.33.8's short band shows 17 rows of 25. A fixed 24 would page *past*
+the end of a CGA band and make the switch useless on the one adapter whose user
+most needs it.
+
+**The header and footer come with it**, because the same measurement showed
+them missing: DOS prints ` Volume in drive A has no label` and ` Directory
+of  A:\` (two spaces, which is `COMMAND.COM`'s own `%S` format) above the
+listing, and `%9d File(s) %9ld bytes free` under it. This box printed
+`N file(s)` — lower case, no byte count, no header.
+
 ##### 96.33.3 Line input is the console's, and Esc is the way out of full screen
 
 A keystroke on the main page with **no field focused** is the console's: a

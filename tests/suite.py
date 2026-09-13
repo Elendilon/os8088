@@ -2886,6 +2886,35 @@ SOAK = [
         "to type the bare name of, and every package on an apps disk is a "
         "`.O88`.",
         needs=("marty",), serial=True, wants=("build/doscom360.img",)),
+    Row("dosdirsw", "soak", py("tests/dosdirsw.py"), 200.0,
+        "DIR's SWITCHES, AND THE PAUSE THAT MAY NOT BLOCK (SPEC.md 96.33.9). "
+        "dsh_c_dir took a path and nothing else, so every switch was read as "
+        "part of the file name; reported from the field as \"dir doesn't have "
+        "most of its common command line args. Like /p\". WHAT THE SWITCHES "
+        "ARE WAS MEASURED - off the IBM DOS 3.30 image and out of "
+        "COMMAND.COM's own string table - and one answer is why this row "
+        "exists: **/B IS NOT A DOS 3.3 SWITCH**, the real thing answers "
+        "`Invalid parameter` exactly as it does for /Z, so a box reporting "
+        "3.31 that accepted it would be wrong in the direction nobody checks. "
+        "AND /P MAY NOT WAIT FOR A KEY: dos_con_key is W_ONKEY's handler and "
+        "its contract is the gfx lock HELD, so a built-in blocking there would "
+        "hold it until a human pressed something - no pointer, no repaint, no "
+        "other window, the whole machine and not just this box. The listing "
+        "SUSPENDS instead, and FIVE ASSERTIONS are about that mechanism rather "
+        "than about the text: an unknown switch is `Invalid parameter` and not "
+        "a file name (/Z, and /B beside it); /W keeps the FILE COUNT, which is "
+        "what says it is a layout and not a filter; /P STOPS with `Strike a "
+        "key when ready . . . ` on the glass, [dsh_more] set and NO PROMPT "
+        "UNDER IT, a machine asking two questions at once being the failure "
+        "mode this design has; a key RESUMES to the same total, a resume that "
+        "lost or repeated an entry still looking like a listing; and Esc "
+        "ABANDONS it. CGA by name: a page is [con_vrows]-1, so 16 rows here "
+        "against 24 where all 25 fit. **B: IS A FIXTURE**, build/dirsw360.img, "
+        "because /P can only be tested against a directory with more VISIBLE "
+        "entries than a page and no shipped floppy has one - the system disk's "
+        "root holds 21 entries and DIR shows FIVE, sixteen being hidden or "
+        "system, which DOS does not list and neither do we.",
+        needs=("marty",), serial=True, wants=("build/dirsw360.img",)),
     Row("dosconcga", "soak", py("tests/dosconcga.py"), 120.0,
         "THE CONSOLE BAND ON THE SHORT ADAPTER (SPEC.md 96.33.8). CGA's 200 "
         "lines leave the DOS box 17 of the console's 25 rows, and [con_vtop] "

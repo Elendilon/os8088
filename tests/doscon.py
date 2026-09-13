@@ -245,9 +245,18 @@ def main():
         if not body:
             fail("DIR listed no folder and this volume's root has four: %r"
                  % rows[-8:])
-        if not any(r.strip().endswith("file(s)") for r in rows):
-            fail("DIR printed no footer: %r" % rows[-4:])
-        print("doscon: DIR lists %d folder(s) and a footer" % len(body))
+        # **THE FOOTER IS DOS 3.30's OWN FORMAT** since SPEC.md 96.33.9, and
+        # it was `N file(s)` before: COMMAND.COM's string table has
+        # `%9d File(s) %9ld bytes free` at offsets 20095 and 20111, capital F
+        # and a byte count, both measured rather than remembered.
+        foot = [r for r in rows if "File(s)" in r]
+        if not foot:
+            fail("DIR printed no `N File(s)` footer: %r" % rows[-4:])
+        if "bytes free" not in foot[-1]:
+            fail("the footer is %r and DOS's carries the free space too "
+                 "(SPEC.md 96.33.9)" % foot[-1])
+        print("doscon: DIR lists %d folder(s) and DOS's own footer, %r"
+              % (len(body), foot[-1].strip()))
 
         # --- 5: CD moves, and the prompt follows ----------------------------
         bx.type("CD APPS\n")

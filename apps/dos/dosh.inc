@@ -1281,6 +1281,13 @@ dsh_c_type:
 ; is how they know they are not at the root.
 ; -----------------------------------------------------------------------------
 dsh_c_dir:
+    mov byte [dsh_dsw], 0           ; --- THE SWITCHES FIRST (SPEC.md 96.33.9)
+    call dsh_dirsw                  ; /P and /W, wherever in the tail they sit,
+    jc .badsw                       ; and REMOVED from it so the parse below
+                                    ; sees a path. CF=1 = one we have not got,
+                                    ; which is `Invalid parameter` and not a
+                                    ; file name - measured on IBM DOS 3.30,
+                                    ; where /B answers exactly that
     call dsh_skipsp
     mov di, dsh_a1
     call dsh_word
@@ -1302,14 +1309,113 @@ dsh_c_dir:
     mov di, dsh_pat
     call dsh_to11
 
+    mov word [dsh_n], 0             ; a FRESH listing: the counters, the
+    mov word [dsh_ord], 0           ; ordinal to start at, /W's column
+    mov word [dsh_ln], 0
+    mov byte [dsh_wcol], 0
+    jmp dsh_dir_page                ; ...and its answer is ours (tail call)
+.badsw:
+    mov si, dsh_s_badparm
+    call dsh_say
+    mov byte [dsh_why], DSHW_BADSW
+    mov al, 1
+    ret
+.nopath:
+    mov si, dsh_s_nopath
+    call dsh_say
+    mov byte [dsh_why], DSHW_NOPATH
+    mov al, 3
+    ret
+
+; --- dsh_dirsw - take DIR's switches out of the tail at SI ------------------
+; in:  SI = the tail cursor
+; out: CF=0 with [dsh_dsw] set and every `/X` REMOVED from the string in
+;      place; CF=1 = a switch this box has not got, nothing else promised
+; clobbers: flags (SI is preserved, and it is still the cursor)
+;
+; SPEC.md 96.33.9. DOS takes them ANYWHERE in the tail - `DIR /P *.COM` and
+; `DIR *.COM /P` are the same command - so this is a compacting scan rather
+; than a leading-token test, and the caller's own parse then sees a tail with
+; nothing in it but the path.
+dsh_dirsw:
+    push ax
+    push si
+    push di
+    mov di, si                      ; the write cursor trails the read one
+.scan:
+    mov al, [si]
+    or al, al
+    jz .end
+    cmp al, '/'
+    jne .keep
+    inc si
+    mov al, [si]
+    call dos_upc                    ; `/p` is `/P`
+    cmp al, 'P'
+    jne .notp
+    or byte [dsh_dsw], DSW_P
+    jmp short .took
+.notp:
+    cmp al, 'W'
+    jne .bad                        ; **AND /B IS HERE**: it is DOS 5's, the
+    or byte [dsh_dsw], DSW_W        ; real 3.30 refuses it, and the refusal is
+.took:                              ; measured rather than assumed
+    inc si
+    jmp short .scan
+.keep:
+    mov [di], al
+    inc di
+    inc si
+    jmp short .scan
+.bad:
+    pop di
+    pop si
+    pop ax
+    stc
+    ret
+.end:
+    mov byte [di], 0
+    pop di
+    pop si
+    pop ax
+    clc
+    ret
+
+; --- dsh_pagemax - AX = how many lines one page of this console holds -------
+; clobbers: AX (flags)
+;
+; **THE LIVE VIEWPORT AND NOT 24** (SPEC.md 96.33.9): [con_vrows] is 25 in the
+; full-screen bracket and on VGA or Hercules, and SEVENTEEN on CGA, where
+; 96.33.8's short band shows 17 rows of 25. A fixed 24 pages past the end of a
+; CGA band and makes the switch useless on the one adapter whose user needs it
+; most. One row is left for the `Strike a key` prompt itself.
+dsh_pagemax:
+    mov ax, [con_vrows]
+    cmp ax, 4
+    jae .have                       ; never painted (a `COMMAND /c` before the
+    mov ax, 25                      ; first paint): DOS's own screen, so the
+.have:                              ; listing is at worst not paged
+    dec ax
+    ret
+
+; --- dsh_dir_page - ONE PAGE of the listing, and where a resume comes back --
+; in:  [dsh_ord] = the ordinal to start at, [dsh_pat]/[dsh_rclus]/[dsh_rdrv]
+;      the walk, [dsh_dsw] the switches
+; out: AL = the exit code; [dsh_more] = 1 if it stopped with more to come
+;
+; SPEC.md 96.33.9. **IT RE-`dos_be_goto`s EVERY PAGE** rather than holding a
+; cursor across the suspension, because the ORDINAL is the only thing the
+; by-name API promises to mean the same twice (SPEC.md 19.7.1) - so a floppy
+; changed between two pages costs a wrong listing and never a wrong sector.
+dsh_dir_page:
+    mov byte [dsh_more], 0
     call dsh_bank
     mov dx, [dsh_rclus]
     mov bl, [dsh_rdrv]
     call dos_be_goto
     jc .ioerr
     mov [dos_curdir], dx
-    mov word [dsh_n], 0
-    xor cx, cx                      ; the ordinal
+    mov cx, [dsh_ord]               ; the ordinal, banked across the pause
 .each:
     push ds
     pop es
@@ -1326,13 +1432,43 @@ dsh_c_dir:
     mov di, dsh_pat
     call dsh_match
     jc .next
+    test byte [dsh_dsw], DSW_W
+    jz .long
+    call dsh_dirwide                ; five to a row, so four names in five
+    jmp short .counted              ; cost no line at all
+.long:
     call dsh_dirline
+    inc word [dsh_ln]
+.counted:
     inc word [dsh_n]
+    test byte [dsh_dsw], DSW_P
+    jz .next                        ; no /P: nothing stops
+    cmp byte [dsh_exec], 0          ; **AND ONLY THE PROMPT MAY PAUSE.** This
+    je .next                        ; byte is set exactly while a line typed at
+                                    ; the console is running (dos_con_run), so
+                                    ; it is also the answer to "is there a key
+                                    ; handler that will resume me". From
+                                    ; `COMMAND /c DIR /P` inside a program's
+                                    ; AH=4Bh there is not, and a listing that
+                                    ; suspended there would never finish and
+                                    ; never return to the program
+    call dsh_pagemax                ; AX = lines this console's page holds
+    cmp [dsh_ln], ax
+    jb .next
+    pop cx                          ; the NEXT ordinal is where we resume
+    mov [dsh_ord], cx
+    call dsh_home
+    mov byte [dsh_more], 1          ; ...and the console reads this, because
+    mov si, dsh_s_strike            ; dos_con_key holds the gfx lock and a
+    call dsh_say                    ; built-in may not wait in it (96.33.9)
+    xor al, al
+    ret
 .next:
     pop cx
     jmp short .each
 .done:
     pop cx
+    call dsh_wflush                 ; /W's part-row, if one is open
     call dsh_home
     call dsh_dirtot
     xor al, al
@@ -1344,11 +1480,11 @@ dsh_c_dir:
     mov byte [dsh_why], DSHW_IO
     mov al, 1
     ret
-.nopath:
-    mov si, dsh_s_nopath
-    call dsh_say
-    mov byte [dsh_why], DSHW_NOPATH
-    mov al, 3
+
+; --- dsh_dir_stop - abandon a suspended listing (Esc, Ctrl-C) ---------------
+; clobbers: nothing (flags)
+dsh_dir_stop:
+    mov byte [dsh_more], 0
     ret
 
 ; --- dsh_dirline - one entry of [dsh_fnd], as DOS lays it out ----------------
@@ -1356,12 +1492,12 @@ dsh_c_dir:
 dsh_dirline:
     mov si, dsh_nm11                ; the padded form dsh_to11 just built, which
     mov cx, 8                       ; is the columns already - the `?` a pattern
-    call .field                     ; expansion leaves is not in it, dsh_to11
+    call dsh_field                  ; expansion leaves is not in it, dsh_to11
     mov al, ' '                     ; having been given a real name
     call dos_tty
     mov si, dsh_nm11 + 8
     mov cx, 3
-    call .field
+    call dsh_field
     mov al, ' '
     call dos_tty
     cmp word [dsh_fnd+14], OSAPI_FT_DIR
@@ -1377,22 +1513,117 @@ dsh_dirline:
     mov si, dsh_s_crlf
     call dsh_say
     ret
-.field:                             ; CX bytes at SI, verbatim
+
+; --- dsh_field - CX bytes at SI, verbatim.  clobbers: AL, CX, SI (flags) ----
+; It was dsh_dirline's own local until /W wanted the same two fields.
+dsh_field:
     mov al, [si]
     call dos_tty
     inc si
-    loop .field
+    loop dsh_field
+    ret
+
+; --- dsh_dirwide - one entry in /W's five columns (SPEC.md 96.33.9) ---------
+; clobbers: AX, CX, SI, flags
+;
+; The field is MEASURED: `COMMAND  COM    ANSI     SYS    ` is 8-pad, a space,
+; 3-pad and four trailing - sixteen columns, five to a row, eighty exactly.
+; The fifth ends the row instead of padding, so no line is 81 characters wide
+; and nothing wraps.
+dsh_dirwide:
+    mov si, dsh_nm11
+    mov cx, 8
+    call dsh_field
+    mov al, ' '
+    call dos_tty
+    mov si, dsh_nm11 + 8
+    mov cx, 3
+    call dsh_field
+    inc byte [dsh_wcol]
+    cmp byte [dsh_wcol], 5
+    jb .pad
+    mov byte [dsh_wcol], 0
+    mov si, dsh_s_crlf
+    call dsh_say
+    inc word [dsh_ln]
+    ret
+.pad:
+    mov cx, 4
+.sp:
+    mov al, ' '
+    call dos_tty
+    loop .sp
+    ret
+
+; --- dsh_wflush - end a part-finished /W row.  clobbers: AX, SI, flags ------
+dsh_wflush:
+    cmp byte [dsh_wcol], 0
+    je .out
+    mov byte [dsh_wcol], 0
+    mov si, dsh_s_crlf
+    call dsh_say
+    inc word [dsh_ln]
+.out:
     ret
 
 ; --- dsh_dirtot - `N file(s)`, DOS's own footer -----------------------------
 dsh_dirtot:
     mov si, dsh_s_crlf
     call dsh_say
-    mov ax, [dsh_n]
-    xor dx, dx
+    mov al, ' '                     ; **NINE COLUMNS AND NOT EIGHT.**
+    call dos_tty                    ; COMMAND.COM's own format is
+    mov ax, [dsh_n]                 ; `%9d File(s) %9ld bytes free`, and
+    xor dx, dx                      ; dsh_num32 pads to 8 for the SIZE column,
+    call dsh_num32                  ; which is right there because a space
+    mov si, dsh_s_files             ; precedes it. One more space is the
+    call dsh_say                    ; difference and costs no second routine
+    call dsh_dfree                  ; DX:AX = bytes free, CF=1 = unknown
+    jc .crlf
+    push ax
+    push dx
+    mov al, ' '
+    call dos_tty
+    pop dx
+    pop ax
     call dsh_num32
-    mov si, dsh_s_files
+    mov si, dsh_s_bfree
     call dsh_say
+    ret
+.crlf:
+    mov si, dsh_s_crlf              ; no free count: the line still ends, and
+    call dsh_say                    ; `N File(s)` alone is what DOS prints for
+    ret                             ; a listing it could not size
+
+; --- dsh_dfree - DX:AX = bytes free on the volume we are standing on --------
+; out: CF=0 with DX:AX the byte count; CF=1 = the volume would not answer
+; clobbers: AX, BX, CX, DX, DI, ES, flags
+;
+; free CLUSTERS x sectors-per-cluster is a 32-bit sector count, and x 512 is
+; nine shifts of it - no 32x16 multiply, and no overflow inside FAT12's own
+; 32MB ceiling.
+dsh_dfree:
+    push si
+    push ds
+    pop es
+    mov di, dos_vsbuf
+    mov cx, VS_SIZEOF
+    call dos_be_vstat
+    jc .no
+    cmp cx, VS_SIZEOF
+    jb .no                          ; a short answer carries no free count, and
+    mov ax, [dos_vsbuf+VS_FREE]     ; three quarters of a reply is not one
+    mul word [dos_vsbuf+VS_SPC]     ; DX:AX = free SECTORS
+    mov cx, 9
+.sh:
+    shl ax, 1                       ; ...x 512, through the high half
+    rcl dx, 1
+    loop .sh
+    pop si
+    clc
+    ret
+.no:
+    pop si
+    stc
     ret
 
 ; --- dsh_num32 - DX:AX as decimal, right-aligned in eight columns -----------
@@ -1530,6 +1761,14 @@ DSHW_REDIR  equ 7               ; a redirection target that is not NUL
 DSHW_NOCMD  equ 8               ; no such verb - which from a prompt means
                                 ; "try it as a program" (SPEC.md 96.33.3)
 DSHW_NODRV  equ 9               ; `X:` named a drive that is not there
+DSHW_BADSW  equ 10              ; a switch this box has not got (96.33.9)
+
+; --- DIR's switches, in [dsh_dsw] (SPEC.md 96.33.9) -------------------------
+; The DOS 3.30 set is these TWO and nothing else, measured: /B answers
+; `Invalid parameter` on the real thing exactly as /Z does, having arrived
+; with DOS 5, and this box reports 3.31.
+DSW_P       equ 1               ; pause a page at a time
+DSW_W       equ 2               ; five columns of names, no size and no date
 
 dsh_s_nul:      db 'NUL', 0
 dsh_s_crlf:     db 13, 10, 0
@@ -1540,7 +1779,19 @@ dsh_s_nofile:   db 'File not found', 13, 10, 0
 dsh_s_ioerr:    db 'File creation error', 13, 10, 0
 dsh_s_self:     db 'File cannot be copied onto itself', 13, 10, 0
 dsh_s_copied:   db ' file(s) copied', 13, 10, 0
-dsh_s_files:    db ' file(s)', 13, 10, 0
+dsh_s_files:    db ' File(s)', 0     ; **MEASURED, not remembered**: the
+                                ; format in IBM DOS 3.30's COMMAND.COM is
+                                ; `%9d File(s) %9ld bytes free` (offsets
+                                ; 20095 and 20111), capital F and no newline
+                                ; until the byte count has been printed
+dsh_s_bfree:    db ' bytes free', 13, 10, 0
+dsh_s_strike:   db 'Strike a key when ready . . . ', 0
+                                ; ...at offset 20332, spaced dots and a
+                                ; trailing space, which is what DIR /P prints
+                                ; (SPEC.md 96.33.9)
+dsh_s_badparm:  db 'Invalid parameter', 13, 10, 0
+                                ; ...20365, and it is what the real DOS 3.30
+                                ; answers `DIR /B` as well as `DIR /Z`
 dsh_s_dir:      db '<DIR>', 0
 dsh_s_redir:    db 'Cannot redirect to that file', 13, 10, 0
 dsh_s_nomem:    db 'Insufficient memory', 13, 10, 0
