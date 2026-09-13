@@ -2833,6 +2833,37 @@ SOAK = [
         " its OWN rotate speed (88.7.9). --clobber-lag, --clobber-amphib and"
         " --clobber-water are the three red runs",
         needs=("marty",), serial=True),
+    Row("skiessound", "soak", py("tests/skiessound.py"), 120.0,
+        "SPEC.md 88.8.2: an ENGINE each. Every aeroplane used to be"
+        " [cs_thr] + 50, so a Fouga Magister and an Icon A5 were the same"
+        " note at the same lever; each reads its own record now, and this"
+        " asks the GUEST what it is playing rather than the table what it"
+        " should. Every powered aeroplane's tone is its own record's law at"
+        " idle, half and full, computed on the host off the record the guest"
+        " holds - and the jet's off [cs_thracc] at 8.8, which is the"
+        " resolution the sound actually uses. The four of them are four"
+        " DIFFERENT notes at full power, which is the whole of the ask and"
+        " the one check a shared record cannot pass. A shut throttle is an"
+        " IDLE and not silence. The Bijave plays nothing, and the rule behind"
+        " that is checked per row rather than as a special case: an aeroplane"
+        " has an engine record exactly when it has CSP_THRUST, so a sixth is"
+        " covered by arriving. THE NOTE IS STEADY - one value over sixteen"
+        " settled ticks, which is what replaced a beat the field heard as a"
+        " bug - and it GLIDES at a constant INTERVAL, 15 distinct notes on"
+        " the Cessna and 97 on the Magister when the lever shuts in one step,"
+        " which is CSS_CAP's ceiling and not CSS_LAG's share of the gap: a"
+        " share of the gap was a musical FOURTH at the bottom of the jet's"
+        " range (88.8.2.1). It is AT its note from a flight's FIRST TICK,"
+        " watched from outside the bracket because a ramp would be over"
+        " before a test could confirm the mode. And the Magister plays the"
+        " thrust it HAS - 426 Hz at a half-open lever against the 440 the"
+        " lever asks for, the two separable because cs_step rounds its target"
+        " to whole units. --clobber-lag, --clobber-shared and --clobber-spool"
+        " are the three red runs. Its breakpoint is cs_sound_step's OWN"
+        " .tick and not cs_step: 88.8.2.1.2 put a wall-clock gate in front of"
+        " the body, so cs_step runs up to CS_MAXSTEP times a frame and only"
+        " the first of them crosses a tick",
+        needs=("marty",), serial=True),
     Row("skiesease", "soak", py("tests/skiesease.py"), 34.0,
         "SPEC.md 88.7.3: the horizon captures the approach - held toward"
         " level both aeroplanes land EXACTLY on it on both axes, the Pitts"

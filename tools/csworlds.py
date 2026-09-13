@@ -33,29 +33,41 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import os88lz                                                  # noqa: E402
+from os88pkg import APP_MAX_SIZE                              # noqa: E402
 
 # THE OVERLAY'S FOUR NUMBERS, and this is the ONLY place they are written.
 # skies.asm gets them out of the cswidx.inc emitted below and cswone.asm off
 # the command line, so there is no mirror to hold in step - which matters more
 # than usual here: a world laid at one address and read at another is a world
 # of wild pointers, and nothing would fault.
-CS_VOCAB_AT = 0xBE00            # where the overlay begins in the segment
-                                # (0xB400 until SPEC.md 88.4.5.5 put the row
-                                #  loop's two 1,280-byte END TABLES under it)
-                                # --- AND A DIAG TREE RAISES IT (`--vocab-at`).
-                                # The gap below it is the growth headroom for
-                                # the image and the ZWORD chain TOGETHER
-                                # (skies.asm's three `times`), and a -DCSPROBE
-                                # build spends BOTH - counters in the chain and
-                                # probe bodies in the image. It outgrew the gap
-                                # by 331 bytes and the instrument stopped
-                                # ASSEMBLING, which is a rot no shipped gate can
-                                # see: nothing in `all` builds these trees. The
-                                # shipped address is untouched, and a diag tree
-                                # only pays a bigger heap claim - it is not on a
-                                # floppy and no machine has to fit it.
-CS_VOCAB_MAX = 576              # ...the shared vocabulary's room in it...
+CS_VOCAB_MAX = 576              # the shared vocabulary's room in the overlay...
 CS_WLD_MAX = 2560               # ...and the picked world's
+
+# WHERE THE OVERLAY BEGINS, AND IT IS DERIVED (SPEC.md 88.10.6). It sits at the
+# TOP of the segment, so this is APP_MAX_SIZE less what it holds and there is no
+# number here for anyone to tune, get right, or leave behind.
+#
+# IT USED TO BE HAND-SET, and that is what went wrong. `image + bss` is
+# CS_VOCAB_AT plus the overlay - a CONSTANT, whatever the program's own size -
+# so this address IS the heap claim (SPEC.md 88.4.5.5 says so), and the gap
+# below it is the growth headroom for the image and the ZWORD chain TOGETHER.
+# Set by hand it tracked nothing: it went 0xB400 -> 0xBE00 when the end tables
+# landed and then stayed there while 88.10.2, 88.10.3, 88.10.4 and 88.10.5 took
+# the art, the reader, the body and the nine worlds OUT of the image - so the
+# program got smaller and its growth room did not get bigger. The gap reached
+# 208 bytes, the -DCSPROBE build stopped ASSEMBLING (which nothing in `all`
+# could catch), and a `--vocab-at 0xC200` knob had been bolted on for the diag
+# trees to buy one rung of it back.
+#
+# THE PROJECT HAD ALREADY HAD THIS ARGUMENT AND SETTLED IT THE OTHER WAY:
+# SPEC.md 88.4.5.5's end tables were refused against the gap, correctly on the
+# arithmetic and wrongly on the question, "before anybody asked what the gap was
+# actually protecting". It protects nothing. The bss ships inside the part as a
+# run of zeros that LZ4 all but deletes, so the floppy does not notice; SKIES is
+# in SMALLOMIT_GAMES, so the 128 KB machine never loads it; and the claim this
+# makes - 61,440 - is 340 bytes above the 61,100 Clear Skies ALREADY SHIPPED AT
+# before 88.10.3. A kern_big desktop has run this program at this size.
+CS_VOCAB_AT = APP_MAX_SIZE - CS_VOCAB_MAX - CS_WLD_MAX
 CS_WLD_AT = CS_VOCAB_AT + CS_VOCAB_MAX
 
 # The nine locations, IN THE DROP-DOWN'S ORDER (sorted by name, which is what
@@ -215,22 +227,13 @@ def cstr(blob, at):
 
 
 def main(argv):
-    global CS_VOCAB_AT, CS_WLD_AT
+    # NO `--vocab-at`. There was one, so a diag tree could raise the overlay
+    # above a shipped address that had stopped leaving room; the address is the
+    # top of the segment now and there is nowhere to raise it to. Every tree -
+    # shipped, CSDIAG, CSPROBE, CSHZPROBE - assembles against this one file.
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=os.path.join(ROOT, "build"))
-    ap.add_argument("--vocab-at", type=lambda v: int(v, 0), default=None,
-                    help="move the overlay UP, for a diag build whose extra "
-                         "image and counters no longer fit under the shipped "
-                         "0x%04X. Never pass it for a shipped tree."
-                         % CS_VOCAB_AT)
     a = ap.parse_args(argv)
-    if a.vocab_at is not None:
-        if a.vocab_at < CS_VOCAB_AT:
-            sys.exit("csworlds: --vocab-at 0x%04X is BELOW the shipped 0x%04X, "
-                     "which would shrink the gap rather than grow it"
-                     % (a.vocab_at, CS_VOCAB_AT))
-        CS_VOCAB_AT = a.vocab_at
-        CS_WLD_AT = CS_VOCAB_AT + CS_VOCAB_MAX
     os.makedirs(a.out, exist_ok=True)
 
     blobs, syms, vocab, vsyms = {}, {}, None, None
