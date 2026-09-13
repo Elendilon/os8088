@@ -58,9 +58,14 @@ So the three radio arms are worth, roughly:
 would put it at ~587 — still over the 580 the hogs want, but the margin is
 four kilobytes and that is not a margin. §6.6 proposes the way out.
 
-> **Every byte figure in this section past the first table is an ESTIMATE.**
-> §11 wave 1 is the measurement that replaces them, and it comes before any
-> code.
+> **WAVE 1 HAS MEASURED THEM** —
+> docs/reports/KERN-DOS-BUDGET-2026-09-13.md. Arms 1 and 2 stand: **449 KB and
+> 481 KB off one boot**, so the 32 KB between them is a difference rather than
+> two readings, and the table above is confirmed. **Arm 3 is worse than 603**:
+> the floor is 35.5 KB measured against §6's ~30.5 estimated, so the honest
+> arm-3 figure before §6.1's levers is ~**603 KB with no cache and no shim
+> budget at all** — 3.0 KB of the 38.5 is what is left. Two of the five levers
+> are priced there and are worth 4.1 KB together.
 
 ---
 
@@ -116,6 +121,27 @@ go.
 conventional memory; there is no extent-skipping of free heap. That is a fixed
 cost per launch and it is the honest price of the third arm, alongside the
 losses in §10.
+
+> **MEASURED — and "seconds, not minutes" is right in the way that matters
+> least.** docs/reports/KERN-DOS-BUDGET-2026-09-13.md §3, on
+> `os8088_xt_hdd` (XT-IDE, rung 0), three runs inside 1.5% of each other:
+> the write is **26.2 guest seconds**, the read **17.1**, and **arm 3's own
+> half is 43.4** — 26 before the program starts and 17 after it exits, on top
+> of whatever the program does. It is seconds rather than minutes and it is
+> also an order of magnitude over the *"a few seconds"* §2.1 weighed it
+> against, so the trade §2.1 put to the requester should be re-put with the
+> real number: **whether a DOS program worth 600 KB is worth three quarters of
+> a minute of waiting around it.**
+>
+> The middle figure in that report — 33.3 s from the ROM's text screen back to
+> a desktop — is **not** arm 3's: §7's handoff stages a stub and jumps, it does
+> not reboot. §9's floppy arm is the one that pays it, and pays it with no
+> restore at the end.
+>
+> One caveat that has to be settled on iron: MartyPC agrees with the field
+> 5150 to 0–4% on 45 of 47 `gfxbench` rows, but those are CPU and VRAM rows
+> and the XT-IDE transport's timing has never been checked here.
+> docs/FIELD-MACHINES.md's `pc5150` has an ST-225 on a real ST11M.
 
 ---
 
@@ -270,6 +296,21 @@ each file and `kern_dos` wants part of it.
 | the shim (§5) | ? | **the unknown** |
 | | **~31 KB + shim** | against 39 |
 
+> **MEASURED, and the table above is 5,100 bytes light** —
+> docs/reports/KERN-DOS-BUDGET-2026-09-13.md §2. Today's tree, `kern_small`,
+> `.text` + `.cold` + `.bss` + `.lowbss` per file: `disk.inc` **7,206**,
+> `diskw.inc` **5,473**, `dskwin.inc` **2,336**, `mouse.inc` **3,698** —
+> 18,713 against 17,767. And the DOS core row is the one that moved: it is
+> **17,667** (14,636 of image and 3,031 of bss, measured by symbol span with
+> `tools/os88doscost.py`) and not ~12,000 + ~1,500, because *"most of it is
+> window"* is false — the window half is 38% of the image, not most of it.
+> The 1,500 for the PSP, environment and MCB chain is already inside that
+> figure rather than beside it.
+>
+> **Floor 36,380 = 35.5 KB against a budget of 39,424 = 38.5 KB**, so **3.0 KB
+> is left for the shim and any cache**. The levers below stop being an
+> ordering suggestion.
+
 ### 6.1 The levers, in the order they should be pulled
 
 1. **Drop the file-window handle layer.** §96.11's 8 KB cluster-aligned window
@@ -278,8 +319,17 @@ each file and `kern_dos` wants part of it.
    program's buffer. **−8 KB of buffer and ~−3 KB of code**, and it makes the
    box *more* like DOS rather than less. This is the single biggest lever and
    it should be taken first.
+   **MEASURED: the 8 KB is a heap CLAIM** (`dos_wseg` holds a segment), so it
+   is not in the floor at all and comes off the *budget*; the code half is
+   **1,803** of `dos_fh_*`'s 2,186, the other 383 being the handle TABLE,
+   which stays because DOS needs handles whatever is under them.
 2. **Drop the cursor half of `mouse.inc`.** INT 33h needs the packets and the
    scale; nothing draws an arrow. ESTIMATE −1.5 KB.
+   **MEASURED at 1,440, so the estimate was right — and there is a second
+   781 beside it nobody counted**: `kbm_*`/`kbd_*`, the keyboard, which
+   `kern_dos` does not want either (no event ring to feed, and the ROM's own
+   `int 09h`/`int 16h` serve INT 21h's character input). `mouse.inc`'s
+   carried share is ~1,007 of 3,419.
 3. **Drop `diskw.inc`'s long-operation machinery** — the batch bracket, the
    progress widget, the copy engine (§22.24/§22.25 are the file manager's).
 4. **One volume class.** BIOS floppies and the boot partition; no driver
@@ -292,6 +342,12 @@ each file and `kern_dos` wants part of it.
 
 At ~31 KB plus shim, a **16 KB read-ahead** takes the program to ~587 KB.
 Over the 580 the hogs want, but only by seven.
+
+> **MEASURED: it cannot be funded out of slack.** The floor leaves 3.0 KB, and
+> 7.1 KB with levers 1 and 2 taken — before the shim is written. So the
+> purgeable shape is not the nicer of two options, it is the only one that
+> works, and it has to be purgeable in the strong sense: claimed only when the
+> program has not taken the memory, rather than merely given back on demand.
 
 **Make it purgeable** — approved.  `kern_dos` claims the cache at the top of free memory
 and gives it back the moment the program's own `AH=48h` needs it. A hog that
@@ -398,7 +454,7 @@ Arm 3 is **not a superset of arm 2**, and the Memory page has to say so:
 | | what | gate |
 |---|---|---|
 | **W0** | **BUILT** (SPEC.md 96.36). `[dos_keepc]` is three-way over `os88ui_rad` — the control's **first caller in the tree** — and arm 3 is greyed with its reason on the glass. +364 package bytes, +6 bss, **zero kernel**. | `soak -k dosmem`, and its three verified failures |
-| **W1** | **Measure.** The three arena figures on one machine; the hibernate round trip on `os8088_xt_hdd`; `KERN_SIZE`'s share per §6's table, re-derived rather than quoted. | numbers in `docs/reports/` |
+| **W1** | **DONE** — docs/reports/KERN-DOS-BUDGET-2026-09-13.md. Arms 1 and 2 confirmed at 449/481 KB with a 32 KB cache between them, the floor re-derived at **35.5 KB against 38.5**, and the hibernate round trip at **43.4 guest seconds**. | the report, and `tools/os88doscost.py` to re-derive it |
 | **W2** | **Prove the seam.** Every path from the INT 21h core to the file system goes through a `dos_k_*` door; a gate that fails if a new one appears. | a `fast` row over the source, `t_textrules`' shape |
 | **W3** | **The shim and the root.** `kerndos/kerndos.asm` assembles `disk.inc`+`diskw.inc` and reads a file. **Allowed to return "the shim is too big, write a reader instead."** | a host-side FAT read against `os88fat.py` |
 | **W4** | **A `.COM` runs.** The DOS core over the new back end, no handoff yet — `kern_dos` booted directly on a test disk. | MartyPC, a `.COM` that prints |
@@ -443,8 +499,13 @@ W1, which is the wave that measures it.
 
 ## 12. Open questions
 
-1. **How big is the shim?** (§5) The plan's largest unknown, and W3 answers it.
-   A shim near the size of a purpose-written FAT reader reopens §4.
+1. **How big is the shim, and can levers 3–5 find the rest?** (§5) The plan's
+   largest unknown, and W3 answers it. A shim near the size of a
+   purpose-written FAT reader reopens §4. **W1 sharpened this**: the budget
+   after the two priced levers is 7.1 KB, and levers 3, 4 and 5 are each a
+   subset of a file rather than a family of symbols — so pricing them means
+   classifying `disk.inc` and `diskw.inc` proc by proc, which is W3's work and
+   not a measurement that can be taken without it.
 2. **Does the DOS core assemble outside a package at all?** It is `org 0` with
    bss at `os88_image_end` and a three-byte dispatcher header (§20). W2 should
    check this, not assume it.
