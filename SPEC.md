@@ -83430,8 +83430,20 @@ yet. §66.4.1's two separate `mem_cp_run` calls are what runs them.
 
 #### 66.4.3.2 `OSAPI_MEM_AVAIL_MAX` is a measurement, not a promise
 
-Slot `0x0550`: `OSAPI_MEM_AVAIL`'s answer, planned as if the caller's own
-region could move. `[mem_cp_self]` names the segment and `mem_frameless`
+Slot `0x0590`: `OSAPI_MEM_AVAIL_LVL`'s answer, planned as if the caller's own
+region could move.
+
+**`AL` IS THE PURGE LEVEL, exactly as `OSAPI_MEM_AVAIL_LVL`'s is** (§50.6.6),
+and it was missing from the first build — the routine forced `MEM_LVL_TOP` and
+the slot took no argument at all. That is not a nicety: the one caller this was
+built for asks at `MEM_PG_HIGH` by default, because a DOS program is about to
+hammer the disk and the read-ahead window is the dearest cache in the system
+(§96.24). A what-if fixed at `MEM_LVL_TOP` counts that cache as free where the
+claim beside it will not, so the two numbers are answers to different
+questions — and the difference between them, which is the whole signal this
+slot exists to give, would read non-zero every time and post a compaction the
+caller did not need. Passing `MEM_LVL_TOP` in `AL` is the old behaviour, so the
+fix costs **−2 bytes**: the forced load is deleted and nothing replaces it. `[mem_cp_self]` names the segment and `mem_frameless`
 excuses **the nest test alone** — `[ld_base]` and the worker are as true at the
 service point as they are now, and only the nest is the thing that stops being
 true once the callback has returned.
@@ -83444,9 +83456,27 @@ decides **on the wake** and not before it: the what-if measured a state the
 machine has since left, and re-posting because the first answer disappointed is
 how a program spins.
 
+**It excuses the asker's CLAIMS as well as its region**, and that half was
+missed in the first build. `mem_frameless`'s `.self` arm argues that
+`mem_compact` *parks* on its way past a refusal it is told about (`[mem_wpin]`,
+§66.5), so a worker that is merely RUNNING at the ask is not what it will be at
+the service point — and that argument is about the worker, so it applies word
+for word to every claim the asking package holds, which reach `mem_can_move`'s
+`.notslot` arm and `mem_busy_seg` rather than `mem_frameless` at all.
+
+Measured on the machine, with a probe in the walk: the what-if answered **223
+KB** where the posted pass then produced **250 KB**, and `[mem_cp_self]` was
+correct and `.self` was taken five times — the missing 27 KB was three movable
+57 KB claims *owned by the asker*, pinned in the plan because its worker was
+running, and moved by the pass because the pass parked it. Six bytes at
+`.notslot` close it, and **the caller is the one package in the system
+guaranteed to be running as it asks**, so this is the common case rather than
+an edge.
+
 `[mem_cp_self]` is plan-only by discipline — `mem_avail` sets it and clears it
 before returning, and no path that can reach `mem_cp_run` ever sets it. A
-compaction running with it standing would move a region with a frame in it.
+compaction running with it standing would move a region with a frame in it, and
+now a claim out from under a live worker.
 
 ### 66.5 The worker park
 
@@ -124442,6 +124472,105 @@ takes the smaller of it and what the machine offers, so `0xFFFF` means "all" —
 but the choice byte is forced to 0 or 1, because a `0x7F` would draw a check
 box with a mark in it that no click could ever clear.
 
+### 96.35 Sizing the arena: unmount, ask twice, and come back for the answer
+
+§96.24 has the box claim everything the machine will give. What it could not
+reach was **the memory its own unmount had just freed**, and that is the gap
+docs/plans/DISK-CPU-PLAN.md §5 has carried: `OSAPI_DRV_SUSPEND` unloads
+`SOUND.DRV` — ~14KB on a Sound Blaster machine — and it ran *inside* the fsx
+bracket, which is long after the arena was claimed. The driver's bytes went
+back to a heap nobody was going to ask about again.
+
+**Two things had to change before the box could do anything about it**, and
+both are somebody else's, which is why this section is short:
+
+- the suspend was **bracket-only** (§51.11.1), so it could not happen before
+  the claim at all; that fence is withdrawn;
+- and a package cannot compact the heap it is standing in, because
+  `mem_frameless` pins the asker's own region by the act of asking. §66.4.3's
+  `OSAPI_MEM_COMPACT_WAKE` **records the wish and returns** — the pass runs at
+  `ui_task`'s step 0 with nothing held, and an `EVT_WAKE` brings the answer.
+
+#### 96.35.1 Why `dos_run` was already the right place
+
+`dos_wake` runs the program on an `EVT_WAKE`, on `ui_task`, with no gfx lock —
+which is exactly the shape `OSAPI_MEM_COMPACT_WAKE` demands of a caller, *return
+from your callback*. So the box gains a state rather than a lifecycle:
+`DST_READY` sizes and decides, `DST_CPWAIT` waits for the pass, `DST_RAN` is
+unchanged. A stale wake still finds the state advanced and does nothing, which
+is what that byte has always been for (§96.2).
+
+#### 96.35.2 The decision, and why a CAP takes the cheaper road
+
+**With no limit set** — a plain double click — the box wants the maximum, so
+the unmount is unconditional and the question is only whether a compaction adds
+anything:
+
+1. `dos_drv_take` — the drivers out, which is what *creates* the hole;
+2. `a = OSAPI_MEM_AVAIL_LVL(floor)`;
+3. `m = OSAPI_MEM_AVAIL_MAX(floor)` — **the same floor**, or the two are
+   answers to different questions (§66.4.3.2);
+4. `m > a` → post, `DST_CPWAIT`, **return**; otherwise claim `a` now.
+
+**With a limit set**, the order inverts and that is the point: a program that
+asked for 200K on a machine with 300K free needs no compaction and no silence.
+
+1. `a = OSAPI_MEM_AVAIL_LVL(floor)`; `a >= N` → claim `N`, **and the sound
+   driver is never touched**;
+2. otherwise unmount, and ask the what-if; `m >= N` → post and return;
+3. otherwise `DER_MEM`, exactly as today.
+
+**On the wake**, plain `OSAPI_MEM_AVAIL_LVL(floor)` is exact — the heap really
+is packed both ways — so the box claims against a number rather than an
+estimate, which is §66.4.3.2's own instruction to read it *on the wake* and not
+before.
+
+#### 96.35.3 The floor is still the user's
+
+`MEM_LVL_TOP` or `DOS_PG_FLOOR` off `[dos_keepc]`, defaulting to *keep the disk
+cache* exactly as §96.24 and §96.25 left it — and it rides on the request in
+`AL`, so the pass respects the same promise the claim does. A user who has
+ticked the box away gets a compaction that may drop the read-ahead; one who has
+not, does not.
+
+#### 96.35.4 …and the box's own region had to be declared movable
+
+**The unmount alone recovers nothing, and that is the half that was measured
+rather than reasoned.** With the fence gone and the post in place,
+`[dos_drvout]` read 1 — the driver really was out before the claim — and both
+`OSAPI_MEM_AVAIL_LVL` and `OSAPI_MEM_AVAIL_MAX` still answered **435 KB**
+against **449** on the same machine with no card. Exactly the driver's image
+plus its ring, sitting in a hole at the top of the heap that nothing would
+merge.
+
+The reason is one line of the map: **`SOUND.DRV` sits ABOVE the DOS box on the
+heap**, both being claimed top-down, so the hole its unmount leaves is above
+the box's own region — and a region is born `MC_RLOC` = 0, **pinned**, like
+every other claim (§66.2). A pinned region is a wall the hole can never merge
+past, whatever the compactor is asked for.
+
+`OS88_REGION_MOVABLE` is the declaration and it is one line, carrying its own
+`ret` relocation proc; Word, the Browser, Audio, FTPD and Tank already had it
+and the DOS box did not. The box owns no worker, so there is no
+`OS88_WORKER_RESTARTABLE` to pair with it. With it, the two machines agree at
+**449 KB** and the card costs the program nothing.
+
+**The general shape is worth keeping**: a package that asks for the biggest
+claim it can get, and whose own region sits below the space it wants, is
+asking the compactor to move *it* — so declaring the region is not an
+optimisation there, it is the feature. `tests/dosarena.py` is the gate and it
+went red against each of these two causes in turn.
+
+#### 96.35.5 The resume obligation is the whole price of the fence going
+
+§51.11.1 stopped fencing suspend, so nothing but this package will put
+`SOUND.DRV` back. `dos_drv_back` was already called on every path out of
+`dos_run`; the pre-bracket unmount adds **two new exits that are not refusals
+and not the bracket** — a post that is declined, and a claim that fails on the
+wake — and both go through it. A machine left silent with an ordinary window on
+screen is the failure this pays for, and it is worse than the one the bracket
+fence prevented, because there is no full-screen program to explain it.
+
 ### 96.27 `AH=36h` — and it was the REFUSAL that was the defect
 
 §96.21.8 named this call and predicted exactly how it would fail:
@@ -124524,12 +124653,30 @@ task run.
 `hbm_detach`'s reason: one is memory and the ROM's `int 13h`, the other is the
 RAM disk, and both are things a fullscreen program *wants* rather than fights.
 
-#### 51.11.1 Suspend is bracket-only; resume is not
+#### 51.11.1 Neither half is fenced; the RESUME OBLIGATION is the whole contract
 
-The fence on **suspend** is `fsx_mine` — an fsx bracket, on the task that owns
-it — which is the same fence `fsx_mode` and `fsx_surf` carry, and it is what
-makes this safe to publish at all: only the app that has been given the screen
-can take the hardware.
+**Suspend was `fsx_mine`** — an fsx bracket, on the task that owns it, the same
+fence `fsx_mode` and `fsx_surf` carry — on the reading that *only the app that
+has been given the screen can take the hardware*. That fence is **withdrawn**,
+and the case that withdrew it is the one the slot was built for.
+
+§96.35 has the DOS box unmount the sound driver **so that the arena claim can
+have the 14KB back**, and the claim happens on an `EVT_WAKE` long before any
+bracket is entered — it has to, because `OSAPI_MEM_COMPACT_WAKE` (§66.4.3)
+requires the caller to *return from its callback*, which nothing inside an fsx
+bracket can do. So the bracket fence made the slot's own headline use
+impossible: the driver came out **after** the arena was sized, freeing memory
+into a hole nothing could reach (docs/plans/DISK-CPU-PLAN.md §5).
+
+**What replaces it is nothing**, and that is a decision rather than an
+oversight. This is real mode: a package that wants the sound card can `cli` and
+program the DSP directly, and no fence in a published slot changes that. What
+the fence was buying was not safety but *tidiness*, and it was buying it at the
+price of the feature.
+
+**So the contract is the OBLIGATION, on both halves**: whoever suspends resumes,
+on every exit path including the refusals. That was always the rule for resume
+and it is now the rule for the pair.
 
 **Resume is fenced on nothing**, and that is deliberate rather than forgotten.
 The put-back has to be possible *after* the bracket has ended, which is where
@@ -124542,6 +124689,13 @@ dies leaves the machine with its sound driver unloaded until the user re-ticks
 it in the Control Panel. The rule is therefore on the caller — resume on every
 exit path, including the refusals — and it is written in `os88api.inc` where
 an author is looking rather than only here.
+
+That cost is now the cost of **both** halves rather than of one, and it is
+larger by exactly the window the fence used to close: an app may suspend while
+it is still a WINDOW, so a machine can sit silent with an ordinary program on
+screen rather than only behind a full-screen one. `dos_drv_back` on every path
+out of `dos_run` — the refusals, the failed claim and the failed post included
+— is what the one caller in this tree does about it (§96.35.5).
 
 #### 51.11.2 `DRVV_HWINFO` is asked on the way past
 

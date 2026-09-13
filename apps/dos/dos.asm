@@ -400,6 +400,13 @@ DST_IDLE    equ 0                   ; launched with no document (wave 7's prompt
 DST_READY   equ 1                   ; a program is named and not yet run
 DST_RAN     equ 2                   ; it ran; [dos_exit] is its code
 DST_ERR     equ 3                   ; it did not; [dos_err] says why
+DST_CPWAIT  equ 4                   ; ...and it is waiting for the heap to be
+                                    ; packed (SPEC.md 96.35). A posted
+                                    ; OSAPI_MEM_COMPACT_WAKE runs at ui_task's
+                                    ; step 0, and the EVT_WAKE it sends lands
+                                    ; here - so this is one more state and not
+                                    ; a lifecycle, which is why a stale wake
+                                    ; still finds the state advanced
 
 ; --- why it did not ----------------------------------------------------------
 DER_GOTO    equ 0
@@ -467,6 +474,26 @@ dos_entry:
                                     ; the requirement is a COUNT of columns
     mov si, dos_menus               ; ...and the menu bar gains a Program menu
     call OSAPI_MENU_SET             ; (SPEC.md 96.32.3)
+
+    OS88_REGION_MOVABLE             ; **AND OUR REGION MAY MOVE** (SPEC.md
+                                    ; 96.35, 66.6.1), which is the half of the
+                                    ; arena recovery that is ours. The sound
+                                    ; driver sits ABOVE us on the heap, so the
+                                    ; hole its unmount leaves is above us too -
+                                    ; and a pinned region is a wall that hole
+                                    ; can never merge past, whatever the
+                                    ; compactor is asked for. Measured: the
+                                    ; unmount happened, [dos_drvout] read 1,
+                                    ; and both mem_avail and the what-if still
+                                    ; answered 435KB against 449 on the same
+                                    ; machine with no card - exactly the
+                                    ; driver's image plus its ring, sitting in
+                                    ; a hole at the top of the heap.
+                                    ; We own no worker, so there is no restart
+                                    ; point to declare with it, and the proc
+                                    ; the macro carries is a `ret` for the
+                                    ; ordinary reason: every word that names
+                                    ; this region is the kernel's
 
     call dos_keeph                  ; **KEEPH FIRST, THEN THE PREFERENCE.** On
     mov si, dos_pref                ; a CGA the dock's strip is the difference
@@ -580,8 +607,13 @@ dos_entry:
 ; does nothing, rather than launching the program twice.
 ; -----------------------------------------------------------------------------
 dos_wake:
+    cmp byte [dos_state], DST_CPWAIT
+    je .go                          ; the compaction has run and the heap is
+                                    ; packed BOTH ways: dos_run picks up at the
+                                    ; claim, and plain OSAPI_MEM_AVAIL is exact
     cmp byte [dos_state], DST_READY
     jne .out
+.go:
     mov byte [dos_state], DST_RAN
     call dos_run
 .out:
@@ -609,6 +641,10 @@ dos_run:
     jmp .err
 .there:
 
+    cmp byte [dos_cpw], 0
+    jne .floor                      ; THE COMPACTION WAKE resumes here: the
+                                    ; buffers are claimed already, and claiming
+                                    ; them twice would leak 2KB a launch
     call dos_pkt_bufs               ; THE PACKET DRIVER'S BUFFERS FIRST (SPEC.md
                                     ; 96.23.7): the sizing below takes
                                     ; everything left, so a claim after it is a
@@ -617,11 +653,73 @@ dos_run:
                                     ; floor rather than inside it - and it asks
                                     ; at the DEFAULT level, which for two
                                     ; kilobytes never needs a purge to answer
+.floor:
     mov bl, MEM_LVL_TOP             ; THE FLOOR IS THE USER'S (SPEC.md 96.25),
     cmp byte [dos_keepc], 0         ; and the default is the box ticked -
-    je .floor                       ; everything except the disk cache
+    je .sized                       ; everything except the disk cache
     mov bl, DOS_PG_FLOOR            ; (SPEC.md 50.6.6, 96.24)
-.floor:
+.sized:
+    ; --- UNMOUNT, ASK TWICE, AND COME BACK FOR THE ANSWER (SPEC.md 96.35) ---
+    ; The sound driver is ~14KB at the top of the heap, and unmounting it used
+    ; to happen INSIDE the fsx bracket - long after this claim - so the memory
+    ; went back to a heap nobody would ask about again
+    ; (docs/plans/DISK-CPU-PLAN.md 5). It comes out HERE now, and what makes
+    ; the hole reachable is that a package cannot compact the heap it is
+    ; standing in: OSAPI_MEM_COMPACT_WAKE records the wish and RETURNS, and the
+    ; pass runs at ui_task's step 0 with nothing held (SPEC.md 66.4.3).
+    cmp byte [dos_cpw], 0
+    jne .ask                        ; on the wake the heap IS packed, so plain
+                                    ; avail is exact and posting again is how a
+                                    ; program spins (SPEC.md 66.4.3.2)
+    cmp word [dos_memkb], 0
+    je .unmount                     ; NO CAP: we want the maximum, so the
+                                    ; driver comes out unconditionally
+    push bx                         ; ...A CAP, and the cheaper road: a program
+    mov al, bl                      ; that asked for 200K on a machine with
+    call OSAPI_MEM_AVAIL_LVL        ; 300K free needs no compaction and no
+    pop bx                          ; silence
+    cmp ax, [dos_memkb]
+    jae .ask                        ; it fits - and the sound driver is never
+                                    ; touched
+.unmount:
+    call dos_drv_take               ; ...which is what CREATES the hole. From
+                                    ; here every exit owes dos_drv_back, which
+                                    ; .out does on every path but the posted
+                                    ; one (SPEC.md 96.35.5)
+    push bx
+    mov al, bl
+    call OSAPI_MEM_AVAIL_LVL
+    mov [dos_akb], ax               ; what the heap gives WITHOUT a pass...
+    pop bx
+    push bx
+    mov al, bl                      ; ...and what it would give with one, AT
+    call OSAPI_MEM_AVAIL_MAX        ; THE SAME LEVEL, or the two are answers to
+    pop bx                          ; different questions (SPEC.md 66.4.3.2)
+    cmp word [dos_memkb], 0
+    jne .capmax
+    cmp ax, [dos_akb]               ; no cap: does a pass add anything at all?
+    jbe .ask                        ; no - claim what is there
+    jmp short .post
+.capmax:
+    cmp ax, [dos_memkb]             ; a cap: could a pass even fill it?
+    jb .nomem                       ; no, and nothing else will either
+.post:
+    push bx
+    mov al, bl                      ; AL = the shed rank the pass must respect,
+    mov bx, [dos_win]               ; which is the same promise the claim makes
+    call OSAPI_MEM_COMPACT_WAKE
+    pop bx
+    jc .ask                         ; refused - a post of ours already stands,
+                                    ; or the window is not ours. Carry on with
+                                    ; the heap as it is rather than waiting for
+                                    ; a wake that is not coming
+    mov byte [dos_cpw], 1
+    mov byte [dos_state], DST_CPWAIT
+    jmp .outq                       ; **RETURN.** The pass cannot run while we
+                                    ; are executing in the region it is going
+                                    ; to move, and the drivers stay OUT across
+                                    ; it on purpose
+.ask:
     push bx
     mov al, bl
     call OSAPI_MEM_AVAIL_LVL        ; AX = the largest run a claim can HAVE at
@@ -731,6 +829,8 @@ dos_run:
     mov [dos_err], al
     mov byte [dos_state], DST_ERR
 .out:
+    mov byte [dos_cpw], 0           ; THE REAL EXIT, so the next launch in this
+                                    ; instance sizes from the start again
     call dn_shut                    ; every translated flow closed, before the
                                     ; driver that owns its sockets is resumed
     call dos_pkt_shut               ; THE RAW CLAIM GOES BACK FIRST, on every
@@ -767,6 +867,11 @@ dos_run:
                                     ; launch AND every refusal reaches, and
                                     ; after dos_repaint so the window under it
                                     ; is right when the bracket next comes down
+.outq:                              ; ...AND THE POSTED PATH, which reaches
+                                    ; none of the above on purpose: nothing has
+                                    ; ended, the drivers must stay out for the
+                                    ; pass to have their space, and the window
+                                    ; still says what it said (SPEC.md 96.35.1)
     pop es
     pop di
     pop si
@@ -10751,14 +10856,24 @@ dos_drv_take:
     push di
     push es
 
+    cmp byte [dos_drvout], 0
+    jne .out                        ; **ALREADY OUT** (SPEC.md 96.35). The
+                                    ; arena sizing takes the drivers BEFORE the
+                                    ; bracket now, so this call - which is
+                                    ; still the only one on the path where the
+                                    ; sizing did not need to - would find
+                                    ; nothing suspended, answer 0 classes, and
+                                    ; wipe both [dos_drvmask] and the BLASTER=
+                                    ; the first call went and asked the card for
     mov byte [dos_blaster], 0
     push ds
     pop es
     mov di, dos_dqbuf
     mov al, 1
     call OSAPI_DRV_SUSPEND          ; AX = the classes, CX = records
-    jc .out                         ; not our bracket: nothing moved
+    jc .out                         ; nothing moved
     mov [dos_drvmask], ax
+    mov byte [dos_drvout], 1
     jcxz .out
     mov si, dos_dqbuf
 .rec:
@@ -10794,6 +10909,7 @@ dos_drv_back:
     xor al, al
     call OSAPI_DRV_SUSPEND
     mov word [dos_drvmask], 0
+    mov byte [dos_drvout], 0
     pop es
     pop di
     pop cx
@@ -12485,6 +12601,9 @@ dos_fh_fill:
                                ; program's buffer" flag is free (96.11.6.1)
     DBSS DOS_B_GAPN,  4        ; ...and what is left of the gap to lay
     DBSS DOS_B_TRNOF, 4        ; ...and how far a shrink's rewrite has got
+    DBSS DOS_B_CPW,   1        ; 1 = dos_run is resuming on the compaction's
+                               ; own wake (SPEC.md 96.35.1)
+    DBSS DOS_B_DRVOUT, 1       ; ...and 1 = the drivers are already suspended
     DBSS DOS_B_CURDIR, 2       ; the cluster we are standing in
 ; --- WHERE EACH DRIVE IS STANDING (SPEC.md 96.6.1) -------------------------
 ; DOS keeps a current directory per drive, and here that is one CLUSTER each
@@ -12922,6 +13041,8 @@ dos_wvsv    equ os88_image_end + DOS_B_WVSV    ; byte: the flush's own
 dos_wfil    equ os88_image_end + DOS_B_WFIL    ; byte: fill the window, not copy
 dos_gapn    equ os88_image_end + DOS_B_GAPN    ; dword: the gap still to lay
 dos_trnof   equ os88_image_end + DOS_B_TRNOF   ; dword: a shrink's copy offset
+dos_cpw     equ os88_image_end + DOS_B_CPW     ; byte: resuming on the pass
+dos_drvout  equ os88_image_end + DOS_B_DRVOUT  ; byte: the drivers are out
 dos_curdir  equ os88_image_end + DOS_B_CURDIR
 dos_dvcwd   equ os88_image_end + DOS_B_DVCWD   ; per drive: its cluster
 dos_dvtgt   equ os88_image_end + DOS_B_DVTGT   ; ...and the one it goes to

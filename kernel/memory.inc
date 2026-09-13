@@ -1488,6 +1488,22 @@ mem_can_move:
     jne .pin
 .nodma:
 %endif
+    cmp bx, [mem_cp_self]       ; ...UNLESS THIS IS THE WHAT-IF asking about a
+    je .ok                      ; claim OF ITS OWN (SPEC.md 66.4.3.2), which is
+                                ; mem_frameless's .self argument one claim
+                                ; along and was missed there: mem_compact PARKS
+                                ; on its way past a refusal it is told about
+                                ; ([mem_wpin], SPEC.md 66.5), so a worker that
+                                ; is merely RUNNING now is not what it will be
+                                ; at the service point. Without it the what-if
+                                ; pinned every claim the ASKER holds - measured
+                                ; at 223KB against the 250KB the pass then
+                                ; produced - and the caller is the one package
+                                ; guaranteed to be running as it asks.
+                                ; PLAN-ONLY by the same discipline: mem_avail
+                                ; is the only setter and clears it before it
+                                ; returns, and no path that reaches mem_cp_run
+                                ; ever sets it
     call mem_busy_seg           ; ...otherwise a package's or a driver's own
     jc .pin                     ; segment, and somebody may be RUNNING in it
     jmp short .ok
@@ -3643,8 +3659,11 @@ mem_free_rec_x:
 mem_avail_self_x:
     push es
     pop word [mem_cp_self]      ; the one test mem_frameless will excuse
-    mov al, MEM_LVL_TOP
-    call mem_avail_lvl_x
+    call mem_avail_lvl_x        ; **AL IS THE CALLER'S LEVEL** (SPEC.md
+                                ; 66.4.3.2) and used to be forced to
+                                ; MEM_LVL_TOP here, which made the what-if and
+                                ; the claim beside it answer DIFFERENT
+                                ; questions whenever a caller named a floor
     mov word [mem_cp_self], 0   ; ...and it is set for the walk and nothing
     retf                        ; else: a compaction that ran with it standing
                                 ; would move a region with a frame in it

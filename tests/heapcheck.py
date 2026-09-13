@@ -63,8 +63,8 @@ LABELS = ["worker hired", "room", "comb built", "pattern round-trip",
 
 # ...and the KEY-driven region suite, which needs a hole above heapfrag's own
 # region and so needs PAINT opened before it and closed after (SPEC.md 66.4.3).
-RLABELS = ["avail_max > avail", "the post was accepted",
-           "MY REGION MOVED UP", "the wake's avail is the max"]
+RLABELS = ["avail_max >= avail", "the post was accepted",
+           "MY REGION MOVED UP", "the wake's avail is not short"]
 # With the compactor removed these THREE must go the other way. Check 11 is NOT
 # here: 0 moves and 0 notifications agree, so it passes honestly in both.
 # Check 12 is the descending pass (SPEC.md 66.4): its ask can only be funded by
@@ -264,6 +264,26 @@ def main():
         if pw:
             ui = dispcp._ui(m, mo, None, S)
             ui.close(pw[-1])
+
+            # --- THE MAP AS IT IS AT THE ASK, and why it is read HERE ------
+            # Every assertion the PACKAGE can make about avail_max is
+            # one-sided: R1 can only say "not less than plain avail" and R4
+            # "the wake was not short of it", because the guest has no model
+            # of its own heap to check itself against. Both passed for a
+            # cycle while the what-if read 27KB SHORT of what the pass then
+            # produced - it pinned every claim the ASKER holds, its worker
+            # being live at the ask (SPEC.md 66.4.3.2) - and neither could
+            # see it.
+            #
+            # So the exact test is here: both_passes() is written from the
+            # spec rather than from the kernel, and in THIS scenario it is
+            # exactly what avail_max must answer, because the asker is the
+            # only package with claims by the time Paint has closed - so the
+            # worker and nest questions the model cannot see have only one
+            # subject, and that subject is excused.
+            os88marty.settle(m)
+            askmap = claims(m, S)
+            askmodel = both_passes(askmap, base, top) // 64
             m.key("KeyR")
             # POLL THE PACKAGE'S OWN COUNTER, not a sleep: the wake writes no
             # pixels, so a settle returns at once and a fixed delay is the
@@ -287,9 +307,20 @@ def main():
                 time.sleep(0.5)
             rn = u16(b2, 152)
             seg = now
+            ravail, rmax, rwake = u16(b2, 156), u16(b2, 158), u16(b2, 160)
             print("region: avail %dK, avail_max %dK, wake %dK, base %04x -> %04x"
-                  % (u16(b2, 156), u16(b2, 158), u16(b2, 160),
-                     u16(b2, 154), seg))
+                  % (ravail, rmax, rwake, u16(b2, 154), seg))
+            print("   the host's model of that map, both passes: %dK" % askmodel)
+            if rmax != askmodel:
+                print("  FAIL: the what-if said %dK where the model says %dK - "
+                      "%s (SPEC.md 66.4.3.2)"
+                      % (rmax, askmodel,
+                         "SHORT, so a package would skip a post that would "
+                         "have worked" if rmax < askmodel else
+                         "OVER, which is memory the pass cannot produce"))
+                rbad += 1
+            else:
+                print("   Rx avail_max IS the model          PASS")
             for i, r in enumerate(b2[148:148 + rn]):
                 print("  R%d %-28s %s" % (i + 1, RLABELS[i] if i < len(RLABELS)
                                           else "?", "PASS" if r == 0 else "FAIL"))
