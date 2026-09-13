@@ -121378,6 +121378,66 @@ thing the DOS default would buy is nothing: `A>` is what DOS shows when
 `AUTOEXEC.BAT` has not run, and every machine this box runs on is one where
 that line would have run.
 
+##### 96.33.12 The dirty bitmap is per ROW, and a text screen wants a CELL
+
+Asked from the field, about the full-screen bracket on CGA: *"writing 80 chars
+to update 2 does still seem excessive, but I don't know if that is how DOS does
+it too, or if it's possible to do less?"*
+
+**It is not how DOS does it, and yes.** `int 10h AH=0Eh` — the ROM teletype,
+which is what `AH=09h` and `AH=02h` come down to — writes **one cell, two
+bytes**. `con_tx_row` writes **eighty cells, a hundred and sixty**, because
+`[con_drb]` is a bitmap of dirty ROWS and a row is the smallest thing it can
+name. Measured in the bracket: one letter is 1 row and 80 words (§96.33.11).
+
+**The row is the right grain for the WINDOW and the wrong one for the text
+screen**, and that is the whole of it. A band repaint issues
+`OSAPI_GFX_BLIT1` per attribute run and PERFORMANCE.md prices the arrival of a
+drawing call at **~756 µs** whatever it covers — so there the fixed cost
+dominates and a row is already the unit worth paying for. On the text screen a
+cell is a `mov` to VRAM with **no fixed cost to amortise at all**, so eighty of
+them to change one is eighty times the traffic for nothing.
+
+On CGA it is also eighty times the **snow**: every CPU access to B800 during
+active display steals a character clock from the CRTC, so the visible artefact
+is proportional to the bytes written and not to the bytes that changed.
+
+So the bitmap gains a **SPAN**: `[con_dc0]`/`[con_dc1]`, a first and last dirty
+column per row, 50 bytes of the package's own bss. `con_mark` means the whole
+row as it always did; `con_markc` widens the span by ONE column and is what
+`con_putc` and `con_markcur` use. `con_tx_row` then writes `[dc0..dc1]`, so a
+typed character is **one cell** and matches the ROM.
+
+**The span is taken with the bit and inside the same `cli`**, which is
+`con_takerow`'s existing subject one field along: a worker that marks between
+the take and the read would otherwise narrow the span under a renderer that
+had already decided how much to draw, and the cells outside the new span would
+be stale with the bit set — so the next pass would redraw the narrow span and
+never the lost ones. `con_takerow` banks both into `[con_tkc0]`/`[con_tkc1]`.
+
+**A BIT WITHOUT A SPAN IS A ROW THAT EMITS ONE CELL**, and that is the trap the
+change is really made of. `con_markall` set the twenty-five bits and left the
+span tables alone, which out of zeroed bss is `0..0` — so the full repaint on
+entering the bracket wrote **one cell per row**, and Telnet measured *768 of
+1,988 cells differing from the buffer with 24 whole rows stale*. `con_markup`
+was the same defect during a scroll: the bits follow the buffer up a row, and a
+one-cell span carried through a scroll left *23 rows of pre-scroll text on the
+glass*. Both now go through `con_spanall`, which is the honest answer for
+either — a scroll has moved every row's CONTENT, so a row still marked after
+one is a row whose whole width may have changed.
+
+**The span is therefore a WIDENING-ONLY quantity**: `con_markc` may only grow
+it, `con_mark` and `con_spanall` set it to the whole row, and nothing ever
+narrows it except `con_markc` on a row the take has just cleaned. Any new
+marker that sets a bit must set a span with it, and the safe default is the
+whole row.
+
+**THE WINDOWED RENDERER DELIBERATELY IGNORES IT, for now.** `con_emit`'s run
+scan would narrow the same way and the saving is real, but the band is what
+every `disp*` row and all five Telnet rows assert against and the fixed call
+cost is what dominates there — so that is a separate change with its own
+measurement, not a rider on this one.
+
 ##### 96.33.11 Full screen streams a LINE AT A TIME; the window still draws once
 
 Asked from the field: *"in fullscreen text mode, can we print each line as it
