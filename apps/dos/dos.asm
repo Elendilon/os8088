@@ -4200,12 +4200,37 @@ dos_con_pub:
     mov ax, CON_ROWS                ; a window taller than the buffer shows the
 .rows:                              ; buffer, not more of it
     mov [con_vrows], ax
-    mov cx, CON_ROWS
-    sub cx, ax                      ; **THE BOTTOM OF THE BUFFER, not the top**
-    jnb .top                        ; - a console's interesting row is the one
-    xor cx, cx                      ; the prompt is on (SPEC.md 96.33.1). Only
-.top:                               ; CGA reaches it: 25 rows want 200 pixels
+    mov cx, [con_cy]                ; **THE WINDOW FOLLOWS THE CURSOR** (SPEC.md
+    inc cx                          ; 96.33.8). It was CON_ROWS - vrows, the
+    sub cx, ax                      ; bottom of the BUFFER, under a reasoning
+    jnb .top                        ; that is half right - the interesting row
+    xor cx, cx                      ; is the one the prompt is on, and the
+.top:                               ; prompt is only on the LAST row once the
+                                    ; console has filled. Before that it is near
+                                    ; the top and the bottom is blank, which on
+                                    ; CGA is the whole visible band: 200 pixels
+                                    ; leave 17 rows of 25, so vtop was 8 with
+                                    ; every live row above it and the field
+                                    ; reported an empty console. No upper clamp
+                                    ; is needed - cy is at most CON_ROWS-1 - and
+                                    ; the two rules agree exactly once the
+                                    ; buffer starts scrolling under a pinned
+                                    ; cursor, which is why typing anything first
+                                    ; hid this
+    cmp cx, [con_vtop]
+    je .mono                        ; unmoved, and that is the common case
+    jb .back
+    push ax                         ; **DOWN IS A SCROLL, NOT A REPAINT.** A
+    mov ax, cx                      ; viewport moving down by n looks exactly
+    sub ax, [con_vtop]              ; like a buffer scrolling up by n, and this
+    add [con_scrl], ax              ; runs immediately before con_scrollpaint -
+    pop ax                          ; so the existing blit spends it and the
+    jmp short .settop               ; revealed bottom row is already marked by
+.back:                              ; con_markcur. UP has no such equivalent and
+    call con_markall                ; no teletype makes one: only con_clear's
+.settop:                            ; home can, and it markalls anyway
     mov [con_vtop], cx
+.mono:
     call OSAPI_VIDEO                ; DH = bits per pixel, 4 or 1 - the PRIMARY's
     cmp dh, 1                       ; (osapi_video's own contract), which on an
     mov dh, 0                       ; extended desktop is the wrong question for

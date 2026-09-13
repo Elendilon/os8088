@@ -2886,6 +2886,31 @@ SOAK = [
         "to type the bare name of, and every package on an apps disk is a "
         "`.O88`.",
         needs=("marty",), serial=True, wants=("build/doscom360.img",)),
+    Row("dosconcga", "soak", py("tests/dosconcga.py"), 120.0,
+        "THE CONSOLE BAND ON THE SHORT ADAPTER (SPEC.md 96.33.8). CGA's 200 "
+        "lines leave the DOS box 17 of the console's 25 rows, and [con_vtop] "
+        "is which buffer row the band starts at. It was CON_ROWS - "
+        "[con_vrows] - the bottom of the BUFFER - which is the right number "
+        "only once the console has scrolled a whole screenful; at the first "
+        "paint the cursor is on row 4 and the view started at row 8, so every "
+        "live row was above the fold and the band was AN EMPTY BLACK "
+        "RECTANGLE. Reported from the field in those words. `doscon` cannot "
+        "see it: that row runs on os8088_5150_herc_gla, where 348 pixels hold "
+        "all 25 rows and vtop is 0 under either rule - which is SPEC.md 39's "
+        "standing trap, three adapters and one binary, and this row is the "
+        "second adapter. THREE ASSERTIONS: at the FIRST PAINT the cursor is "
+        "inside the view and the banner and prompt are on rows the band "
+        "shows; the band HAS LIT PIXELS, because a correct buffer pointed at "
+        "the wrong rows draws the same black rectangle as an empty glyph "
+        "table and only the glass can tell those apart (doscon's con_font "
+        "lesson one defect along); and IT STILL TRACKS ONCE IT SCROLLS - "
+        "enough output to drive the cursor past vrows, with the cursor in "
+        "view at every step and vtop actually moving, then the pixels read "
+        "again, because the viewport shift is spent as [con_scrl] and a shift "
+        "that is not spent leaves the band showing the old rows. VERIFIED TO "
+        "FAIL with vtop back on CON_ROWS - vrows: vtop 8, cy 4, nothing in "
+        "view.",
+        needs=("marty",), serial=True),
     Row("dirwshed", "soak", py("tests/dirwshed.py"), 45.0,
         "THE DIRECTORY READ-AHEAD WINDOW IS 32K A DOS PROGRAM CAN HAVE "
         "(SPEC.md 66.10.4). 50.6.6 gave a claimant a FLOOR - \"compact the "
