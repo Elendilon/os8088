@@ -176,14 +176,23 @@ hf_key:
     mov [hf_rseg0], ax          ; where we are BEFORE
     call OSAPI_MEM_AVAIL
     mov [hf_rav], ax
-    call OSAPI_MEM_AVAIL_MAX
+    mov al, MEM_LVL_TOP         ; THE SAME LEVEL AS THE PLAIN SLOT ABOVE, or
+    call OSAPI_MEM_AVAIL_MAX    ; the two are answers to different questions
     mov [hf_rmax], ax
     cmp ax, [hf_rav]
-    jbe .nomax
-    call hf_rpass               ; R1: the what-if found room the plain answer
-    jmp short .post             ; cannot reach, and the only difference between
-.nomax:                         ; the two questions is our own region
-    call hf_rfail
+    jb .nomax                   ; **NOT STRICTLY GREATER.** The what-if can
+    call hf_rpass               ; only ever find MORE room, never less, and
+    jmp short .post             ; that half holds in every layout - but whether
+.nomax:                         ; it finds any depends on where the holes are,
+    call hf_rfail               ; and a kernel 11KB bigger moved this machine
+                                ; out of the regime the strict test assumed
+                                ; (measured: a 223KB hole below a pinned block
+                                ; and 9KB above it, so excusing our 3KB region
+                                ; grew the SMALLER of the two). The exact
+                                ; assertion needs a model of the map and lives
+                                ; on the HOST, in tests/heapcheck.py - which is
+                                ; also the only thing that can see a what-if
+                                ; reading SHORT, since R4 below is one-sided
 .post:
     mov bx, [hf_win]
     mov al, MEM_LVL_TOP
@@ -754,6 +763,7 @@ hf_run:
     ; asserted here is the half that holds in every layout, and it is the half
     ; a sign error would break.
 .avmax:
+    mov al, MEM_LVL_TOP
     call OSAPI_MEM_AVAIL_MAX
     mov [hf_avmax], ax
     cmp ax, [hf_av]

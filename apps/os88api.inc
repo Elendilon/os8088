@@ -1150,8 +1150,14 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
 ; mirrors kernel/memory.inc's own constant; tests/unit/t_mirror.py says so.
 MEM_LVL_TOP equ 0xFF
 
-%define OSAPI_MEM_AVAIL_MAX KERNEL_SEG:0x0590   ; out AX/BX as OSAPI_MEM_AVAIL,
-                                 ; planned as if YOUR OWN REGION could move.
+%define OSAPI_MEM_AVAIL_MAX KERNEL_SEG:0x0590   ; AL = a purge level, exactly
+                                 ; as OSAPI_MEM_AVAIL_LVL's; out AX/BX as
+                                 ; OSAPI_MEM_AVAIL, planned as if YOUR OWN
+                                 ; REGION could move. **SET AL** - pass
+                                 ; MEM_LVL_TOP for the unconditional answer,
+                                 ; and otherwise the SAME level you are going
+                                 ; to claim at, or the two numbers you compare
+                                 ; are answers to different questions.
                                  ; A MEASUREMENT AND NOT A PROMISE: claiming
                                  ; this number refuses, because you are
                                  ; standing in your region as you ask
@@ -2007,12 +2013,15 @@ KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
 ; that table back, waits the driver's worker out, unhooks its vector and gives
 ; its memory back, and you get the memory too.
 ;
-; SUSPEND IS BRACKET-ONLY and RESUME IS NOT, deliberately: the put-back has to
-; be possible after the bracket has ended, which is where an app that has
-; finished with the screen actually is. **CALL THE RESUME ON EVERY EXIT PATH
-; YOU HAVE**, including the ones that refuse: nothing else will, and a machine
-; left with its sound driver unloaded is a machine that went quiet for no
-; reason the user can see.
+; NEITHER HALF IS FENCED, and the whole contract is therefore yours: **CALL THE
+; RESUME ON EVERY EXIT PATH YOU HAVE**, including the ones that refuse. Nothing
+; else will, and a machine left with its sound driver unloaded is a machine
+; that went quiet for no reason the user can see - and since suspend stopped
+; being bracket-only (SPEC.md 51.11.1) that machine can be showing an ordinary
+; WINDOW while it is silent, not only a full-screen program. Suspend where you
+; will: the reason the fence went is that the memory an unload gives back is
+; only reachable if you ask for it BEFORE you claim, which is before any
+; bracket.
 ;
 ; DRVC_DISK and DRVC_FILE are NOT touched - memory and the ROM's int 13h, and
 ; the RAM disk - because both are things a fullscreen program WANTS rather
@@ -2033,9 +2042,8 @@ DQ_MAXREC  equ 8                 ; the most records one call can write, so
                                  ; ES:DI = a buffer of DQ_SIZE records or
                                  ; DI = 0 for none. out CF=0 with AX = a
                                  ; bitmap of the DRVC_* classes that went and
-                                 ; CX = records written; CF=1 = a SUSPEND from
-                                 ; outside an fsx bracket, or from a task that
-                                 ; does not own one. A driver with nothing to
+                                 ; CX = records written; CF=1 = nothing went.
+                                 ; A driver with nothing to
                                  ; say about its hardware simply gets no
                                  ; record, so CX may be less than the bits in
                                  ; AX.

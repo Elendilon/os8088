@@ -4877,9 +4877,20 @@ drv_suspend_x:
     or al, al
     je .resume
 
-    call fsx_mine               ; SUSPEND is the exclusive app's, and only for
-    jne .refuse                 ; as long as it holds the screen
-
+                                ; **NO FENCE ON EITHER HALF** (SPEC.md 51.11.1).
+                                ; Suspend was fsx_mine's, on the reading that
+                                ; only the app holding the screen may take the
+                                ; hardware - and that made the slot's own
+                                ; headline use impossible: 96.26 unmounts the
+                                ; sound driver so the DOS ARENA CLAIM can have
+                                ; the 14KB, and the claim is on an EVT_WAKE,
+                                ; long before any bracket, because
+                                ; OSAPI_MEM_COMPACT_WAKE needs the caller to
+                                ; RETURN from its callback. This is real mode:
+                                ; a package that wants the card can program the
+                                ; DSP itself, so the fence bought tidiness and
+                                ; not safety. The contract is the RESUME
+                                ; OBLIGATION, on both halves
     mov word [drv_susp], 0
     mov byte [drv_sp_n], 0
     xor si, si                  ; SI = the class bitmap
@@ -4969,12 +4980,9 @@ drv_suspend_x:
     xor ax, ax
     xor cx, cx
     clc
-    jmp short .out
-.refuse:
-    xor ax, ax
-    xor cx, cx
-    stc
-.out:
+.out:                           ; ...and there is no refusing arm any more:
+                                ; the fsx fence was the only thing that took
+                                ; one, and 51.11.1 withdrew it
     pop bp
     pop di
     pop si
@@ -5000,24 +5008,15 @@ drv_suspend_x:
 ; CF for a condition that is not an error (docs/plans/KERN-SMALL-CUT-PLAN.md
 ; section 10: a stub is only free when the caller tests CF, and most do not).
 ;
-; The fsx fence is KEPT rather than dropped, so the contract reads identically
-; on both kernels: a suspend from outside the bracket, or from a task that does
-; not own it, is still refused. Answering CF=0 there would let a package learn
-; on kern_small that it may ask at any time, and then fail on kern_big.
+; The stub used to keep the fsx fence so the contract read identically on both
+; kernels. **51.11.1 WITHDREW THAT FENCE**, so keeping it here would invert the
+; very reason it was kept: a package would learn on kern_small that it may not
+; ask outside a bracket, and then find on kern_big that it may. Neither verb
+; refuses now, on either kernel, and the stub is four instructions.
 ; -----------------------------------------------------------------------------
 drv_suspend_x:
-    or al, al
-    je .none                    ; RESUME: nothing was ever suspended
-    call fsx_mine
-    jne .norefuse
-.none:
     xor ax, ax
     xor cx, cx
     clc
-    ret
-.norefuse:
-    xor ax, ax
-    xor cx, cx
-    stc
     ret
 %endif

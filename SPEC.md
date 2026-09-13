@@ -83374,8 +83374,20 @@ yet. §66.4.1's two separate `mem_cp_run` calls are what runs them.
 
 #### 66.4.3.2 `OSAPI_MEM_AVAIL_MAX` is a measurement, not a promise
 
-Slot `0x0550`: `OSAPI_MEM_AVAIL`'s answer, planned as if the caller's own
-region could move. `[mem_cp_self]` names the segment and `mem_frameless`
+Slot `0x0590`: `OSAPI_MEM_AVAIL_LVL`'s answer, planned as if the caller's own
+region could move.
+
+**`AL` IS THE PURGE LEVEL, exactly as `OSAPI_MEM_AVAIL_LVL`'s is** (§50.6.6),
+and it was missing from the first build — the routine forced `MEM_LVL_TOP` and
+the slot took no argument at all. That is not a nicety: the one caller this was
+built for asks at `MEM_PG_HIGH` by default, because a DOS program is about to
+hammer the disk and the read-ahead window is the dearest cache in the system
+(§96.24). A what-if fixed at `MEM_LVL_TOP` counts that cache as free where the
+claim beside it will not, so the two numbers are answers to different
+questions — and the difference between them, which is the whole signal this
+slot exists to give, would read non-zero every time and post a compaction the
+caller did not need. Passing `MEM_LVL_TOP` in `AL` is the old behaviour, so the
+fix costs **−2 bytes**: the forced load is deleted and nothing replaces it. `[mem_cp_self]` names the segment and `mem_frameless`
 excuses **the nest test alone** — `[ld_base]` and the worker are as true at the
 service point as they are now, and only the nest is the thing that stops being
 true once the callback has returned.
@@ -83388,9 +83400,27 @@ decides **on the wake** and not before it: the what-if measured a state the
 machine has since left, and re-posting because the first answer disappointed is
 how a program spins.
 
+**It excuses the asker's CLAIMS as well as its region**, and that half was
+missed in the first build. `mem_frameless`'s `.self` arm argues that
+`mem_compact` *parks* on its way past a refusal it is told about (`[mem_wpin]`,
+§66.5), so a worker that is merely RUNNING at the ask is not what it will be at
+the service point — and that argument is about the worker, so it applies word
+for word to every claim the asking package holds, which reach `mem_can_move`'s
+`.notslot` arm and `mem_busy_seg` rather than `mem_frameless` at all.
+
+Measured on the machine, with a probe in the walk: the what-if answered **223
+KB** where the posted pass then produced **250 KB**, and `[mem_cp_self]` was
+correct and `.self` was taken five times — the missing 27 KB was three movable
+57 KB claims *owned by the asker*, pinned in the plan because its worker was
+running, and moved by the pass because the pass parked it. Six bytes at
+`.notslot` close it, and **the caller is the one package in the system
+guaranteed to be running as it asks**, so this is the common case rather than
+an edge.
+
 `[mem_cp_self]` is plan-only by discipline — `mem_avail` sets it and clears it
 before returning, and no path that can reach `mem_cp_run` ever sets it. A
-compaction running with it standing would move a region with a frame in it.
+compaction running with it standing would move a region with a frame in it, and
+now a claim out from under a live worker.
 
 ### 66.5 The worker park
 
@@ -124384,12 +124414,30 @@ task run.
 `hbm_detach`'s reason: one is memory and the ROM's `int 13h`, the other is the
 RAM disk, and both are things a fullscreen program *wants* rather than fights.
 
-#### 51.11.1 Suspend is bracket-only; resume is not
+#### 51.11.1 Neither half is fenced; the RESUME OBLIGATION is the whole contract
 
-The fence on **suspend** is `fsx_mine` — an fsx bracket, on the task that owns
-it — which is the same fence `fsx_mode` and `fsx_surf` carry, and it is what
-makes this safe to publish at all: only the app that has been given the screen
-can take the hardware.
+**Suspend was `fsx_mine`** — an fsx bracket, on the task that owns it, the same
+fence `fsx_mode` and `fsx_surf` carry — on the reading that *only the app that
+has been given the screen can take the hardware*. That fence is **withdrawn**,
+and the case that withdrew it is the one the slot was built for.
+
+§96.26 has the DOS box unmount the sound driver **so that the arena claim can
+have the 14KB back**, and the claim happens on an `EVT_WAKE` long before any
+bracket is entered — it has to, because `OSAPI_MEM_COMPACT_WAKE` (§66.4.3)
+requires the caller to *return from its callback*, which nothing inside an fsx
+bracket can do. So the bracket fence made the slot's own headline use
+impossible: the driver came out **after** the arena was sized, freeing memory
+into a hole nothing could reach (docs/plans/DISK-CPU-PLAN.md §5).
+
+**What replaces it is nothing**, and that is a decision rather than an
+oversight. This is real mode: a package that wants the sound card can `cli` and
+program the DSP directly, and no fence in a published slot changes that. What
+the fence was buying was not safety but *tidiness*, and it was buying it at the
+price of the feature.
+
+**So the contract is the OBLIGATION, on both halves**: whoever suspends resumes,
+on every exit path including the refusals. That was always the rule for resume
+and it is now the rule for the pair.
 
 **Resume is fenced on nothing**, and that is deliberate rather than forgotten.
 The put-back has to be possible *after* the bracket has ended, which is where
@@ -124402,6 +124450,13 @@ dies leaves the machine with its sound driver unloaded until the user re-ticks
 it in the Control Panel. The rule is therefore on the caller — resume on every
 exit path, including the refusals — and it is written in `os88api.inc` where
 an author is looking rather than only here.
+
+That cost is now the cost of **both** halves rather than of one, and it is
+larger by exactly the window the fence used to close: an app may suspend while
+it is still a WINDOW, so a machine can sit silent with an ordinary program on
+screen rather than only behind a full-screen one. `dos_drv_back` on every path
+out of `dos_run` — the refusals, the failed claim and the failed post included
+— is what the one caller in this tree does about it (§96.26.3).
 
 #### 51.11.2 `DRVV_HWINFO` is asked on the way past
 
