@@ -1,12 +1,14 @@
-# A region that can compact ITSELF — the wall a package builds by asking
+# A region that can compact ITSELF — and the pass pair that has to land with it
 
-**Status: DESIGN, not started.** SPEC.md 66.6.1 built everything a region
-needs to move and left one moment out — the only moment a package ever wants
-it. This costs that moment three ways and recommends the third.
+**Status: DESIGN, not started.** Two things are wrong and each makes the other
+measure as worthless. SPEC.md 66.6.1 built everything a region needs to move
+and left out the only moment a package ever wants it; SPEC.md 66.4.1's
+"alternatives, not cumulative" rule then means **a claim that needs both
+compaction passes gets neither of them**. Fix either alone and the measured
+gain is zero, which is how both have stayed invisible.
 
-Read SPEC.md 66 first, and SPEC.md 66.6.1 in particular. This document assumes
-both, and it changes none of it: what is proposed here does not weaken
-`mem_can_move`, it arranges to ASK IT SOMEWHERE ELSE.
+Read SPEC.md 66 first. §3 below is a defect against what SPEC.md 66 was asked
+for, not a new feature, and it is the half that moves the number.
 
 ---
 
@@ -19,12 +21,19 @@ both, and it changes none of it: what is proposed here does not weaken
 > compact into the space freed by the sound driver, so it loses 14KB of
 > potential heap.
 
-Every clause of that is right, and the last one is right for a reason that is
-one line of `kernel/memory.inc`.
+And the standing requirement it is measured against, from the ask SPEC.md 66
+was built for:
+
+> * ALL regions are movable, with the exception of the package making the call
+>   and of modules. ALL packages and all workers subscribe to being movable.
+> * ALL available ram is reported, and recovered when a compaction is done.
+
+The first bullet's exception is §2. **The second bullet is not met today**, and
+that is §3.
 
 ---
 
-## 2. The diagnosis, and it is exact
+## 2. The caller's own region — the pin the report is about
 
 `mem_frameless` (SPEC.md 66.6.1) asks four questions of a region before the
 compactor may move it. The third is `mem_in_nest`: *is a frame standing in the
@@ -44,7 +53,7 @@ own `push ds`, and the package may have pushed it a third time itself — Paint
 does `push ds` at twelve sites. Those words are real and they are stale the
 moment the region moves. `wm_pkgs` is the cheap, exact proxy for them.
 
-### 2.1 …and the geometry it produces, measured
+### 2.1 …and the geometry it produces
 
 Booted `build/os8088-360.img` on `os8088_xt_hdd`, opened the Calculator and
 then the Browser, and read `mem_tab` off the running machine with
@@ -61,61 +70,167 @@ beneath it. Close the Calculator and there is an 8KB hole at the top of the
 heap with the Browser's region under it — the report's shape exactly, with a
 package standing in for the driver and 8KB standing in for 14.
 
-**What is measured and what is modelled**, because the difference matters for
-every number below: the layout above is READ off a running machine. The close
-is MODELLED — the Calculator's record is dropped from the map that was read,
-which is what `mem_free` does to it — and so are §5.4's pass figures, through
-`heapmap.Map.compacted()`, the tree's own host-side model of `mem_cp_plan`
-(`tests/heaphi.py` and `tests/drvmove.py` already assert against it). §8 is
-how the whole of it gets asserted in the guest instead.
-
 The Browser is one of the five packages in the tree that already declares
 `OS88_REGION_MOVABLE` (`rloc=160` above, against the Calculator's `rloc=0`),
-so the declaration is not what is missing. **Everything needed to move that
-region exists and is live in shipped software.** What is missing is a moment
-at which the kernel is allowed to.
+so the declaration is not what is missing.
 
-### 2.2 The hole is reachable, and by the pass that already exists
-
-SPEC.md 66.4.1's descending pass packs the ceiling: a top-down claim slides
-**up** into the hole above it. Move the Browser's region up by 8KB and the
-free run beneath it grows by 8KB — one `rep movsw` of 20KB, and the wall is
-gone. The pass is built, it is reached from `mem_compact`'s `.flip` arm
-whenever the ascending plan comes back short, and `tests/heapfrag`'s check 13
-already asserts it works — **on a claim the package holds, never on the region
-the package runs in.**
-
-So the missing piece is not a mechanism. It is one predicate answering
-honestly at a moment chosen badly — **and a second piece §5.4 measures, which
-is that the pass able to use the answer is never the pass the compactor
-picks.**
+**What is measured and what is modelled.** The layout above is READ off a
+running machine. The close is MODELLED — the Calculator's record is dropped
+from the map that was read, which is what `mem_free` does to it — and so are
+§3.1's pass figures, through `heapmap.Map.compacted()`, the tree's own
+host-side model of `mem_cp_plan` (`tests/heaphi.py` and `tests/drvmove.py`
+already assert against it). §7 is how the whole of it gets asserted in the
+guest instead.
 
 ---
 
-## 3. What the fix must not do
+## 3. The defect: a claim that needs both passes gets NEITHER
 
-`mem_in_nest`'s answer is correct. Three things follow, and they are the fence
-every option below is judged against:
+This is the half that was mis-reported the first time this plan was written,
+and it is a defect against §1's second bullet rather than a design trade.
 
-1. **No stack scan, and no stack patch it cannot prove.** SPEC.md 66.3 rule 5:
-   a heap segment number shares a 16-bit range with kernel return addresses and
-   with a package's own near pointers, so a sweep that patched would corrupt a
-   return address silently.
-2. **A declaration the kernel cannot check must not be load-bearing.** SPEC.md
-   66.2's own rule — "declared and named nothing" is the one shape the kernel
-   cannot tell from "declared and forgot".
-3. **Whatever runs must run with nothing held.** `mem_compact` raises
-   `[sch_lock]` across the plan and the moves, and its park request DROPS that
-   lock for up to `INST_PARKW` ticks (SPEC.md 66.5). Doing that from inside a
-   repaint pass — which holds `gfx_lock` across `wm_pkgcall` — is a deadlock
-   against `OSAPI_MEM_PARKSAFE`, not a slow path.
+SPEC.md 66.4 gave the compactor two passes. The ascending one packs bottom-up
+claims down onto the floor; the descending one (66.4.1) packs top-down claims —
+every CS on the heap: regions, driver images, modules — up against the ceiling.
+`mem_cp_mine` makes a claim whose door disagrees with the pass in flight a
+**barrier**, so each pass moves only its own half.
+
+`mem_compact`'s ladder then picks **one**:
+
+```
+.plan:  call mem_cp_plan        ; CX = the run THIS pass would leave
+        or dx, dx
+        jz .nowt                ; nothing this pass can move
+        or di, di
+        jz .doit                ; "compact regardless" (AX = 0)
+        cmp cx, di
+        jae .doit               ; it fits → run this pass and RETURN
+.nowt:  ; …park, then:
+.flip:  cmp byte [mem_cp_msk], 0
+        jne .undo               ; already turned round: nothing left to try
+        mov word [mem_cp_msk], 0xFFFF
+        jmp short .plan
+.doit:  call mem_cp_run
+        call mem_cp_end
+        clc
+.undo:  call mem_cp_end
+        stc                     ; ← NOTHING WAS COPIED
+```
+
+`.doit` runs one pass and returns. For a sized claim, CF = 0 comes back only
+when some **single** pass's own plan already satisfies it. So:
+
+> If the ascending pass alone is short and the descending pass alone is short,
+> `mem_compact` copies nothing at all and answers CF = 1 — even when the two
+> together would have satisfied the claim twice over.
+
+`mem_claim`'s retry loop cannot rescue it: the loop re-enters `mem_compact`
+only after a call that returned CF = 0, and CF = 0 means the claim already
+fits. So the two passes are never sequenced for the one claim that needs them.
+The claim falls through to `mem_shed_one` and then fails, with the room sitting
+there in two runs.
+
+`mem_avail` has the same hole from the reporting side. It calls `mem_cp_plan`
+once, and `mem_cp_end` leaves `[mem_cp_msk]` at 0 on every path, so what it
+reports is the **ascending pass alone** (`kernel/memory.inc`, `mem_avail_x`).
+Its own header says under-reporting is "the error that is invisible", and this
+is that error with a second cause.
+
+### 3.1 What it costs, on the measured layout
+
+`heapmap.Map.compacted()` over §2.1's map with the Calculator's record dropped
+— the 8KB hole standing above the Browser's region:
+
+| | ascending | descending |
+|---|---|---|
+| caller's region PINNED — today | **494.5K** | 418.0K |
+| caller's region MOVABLE, one pass | **494.5K** | 426.0K |
+| caller's region MOVABLE, both passes | **502.5K** | |
+
+Read the middle row against the top one. `mem_compact` takes whichever single
+pass is better, the ascending one wins by 68.5K, and the answer is 494.5K
+**whether the caller's region is pinned or not**. Read the bottom row: both
+passes together give 502.5K — 494.5 + 8.0, the hole to the byte.
+
+So each fix measures zero on its own, for a different reason:
+
+- **Un-pin the caller only.** The pass that could use the answer is never the
+  pass that runs. 494.5K.
+- **Run both passes only.** The descending pass reaches the ceiling and finds
+  the caller's region pinned, so the hole above it stays a separate run.
+  494.5K.
+
+**Together: 502.5K.** That is why they are one plan and why taking either alone
+would look like a feature that did nothing.
+
+### 3.2 What the rule was protecting, and why it survives the fix
+
+66.4.1's argument is a cost one: *"Running both would spend the ascending copy
+for a claim the descending pass was going to have to satisfy anyway — and the
+descending copy is the expensive one, being over the largest blocks on the
+machine."*
+
+Keep it, by asking in order and stopping early:
+
+1. plan ascending — if it satisfies, run it and stop. (Today's behaviour, and
+   the common case.)
+2. else plan descending — if it satisfies alone, run it and stop. (Today's
+   behaviour.)
+3. else run **both**, cheapest first.
+4. else refuse.
+
+Nothing is wasted at step 3: step 2 has already established that the expensive
+pass alone is not enough, so the cheap copy is needed rather than speculative.
+And the ascending pass cannot make the largest run *smaller* — it only slides
+bottom-up claims onto floor paragraphs the walk has already passed, which
+merges holes upward — so committing it before the descending plan is taken
+loses nothing even when the claim ends up refused anyway.
+
+### 3.3 The hard part is the PLAN, not the run
+
+The run is two walks that already exist, sequenced. **The plan is a third
+body**, and SPEC.md 66.4 names that as the one thing this feature cannot
+promise loosely: *the plan promises a run the run has to deliver*, which is why
+`mem_cp_plan` and `mem_cp_run` are two entries into one `mem_cp_walk`.
+
+A combined plan cannot be a third `[mem_cp_msk]` value that simply lets the
+existing walk move everything, and the reason is worth writing down because it
+looks like it should work:
+
+> **One walk can PLAN both directions and must not RUN both.** The ascending
+> walk moves a bottom-up claim down onto paragraphs it has already passed,
+> which is safe. Moving a top-down claim *up* in that same walk would write
+> onto paragraphs still holding claims the walk has not visited — and the
+> descending pass exists precisely so a top-down claim lands on already-passed
+> ground. A plan writes nothing, so two fill points (one rising from
+> `[mem_base]`, one falling from `[mem_top]`, each claim routed by its own
+> `MC_DMA` door bit rather than by the pass) are sound for counting and unsound
+> for copying.
+
+That is the design question to settle first, and the eight direction routines
+are where it lands: `mem_cp_fill0`, `mem_cp_step`, `mem_cp_near`, `mem_cp_far`,
+`mem_cp_adv`, `mem_cp_dest`, `mem_cp_gap` and `mem_cp_tail` each branch on
+`[mem_cp_msk]` today, and a combined plan needs them branching on the claim's
+own door with two fill points carried. Three candidate spellings, in the order
+I would try them:
+
+| | shape | what it costs |
+|---|---|---|
+| A | a third `[mem_cp_msk]` state that the eight routines read as "route by the claim's own door", two fill points; `mem_cp_walk` refuses `BP = 1` in that state | the direction routines grow a case each; the plan/run agreement becomes an invariant a test has to hold rather than a property of one body |
+| B | no combined plan at all: `mem_compact` commits the ascending pass on step 2's evidence and lets `mem_claim_1`'s retry discover the total | nothing new in the walk — but `mem_avail` still cannot REPORT the combined figure, so §1's second bullet stays unmet |
+| C | combined plan derived arithmetically from the two single plans | rejected: barriers make the two runs non-additive, and the failure is an OVER-report, which is a refusal on a number the kernel promised |
+
+A is the only one that meets the requirement. Its invariant is one sentence and
+it is directional: **the combined plan must never exceed what running both
+passes actually leaves.** Under-reporting is a lost byte; over-reporting is a
+package told it can have memory and then refused.
 
 ---
 
-## 4. Option 1 — move the caller's region and patch its return frame
+## 4. Option 1 from the report — move the caller's region and patch its frame
 
-*"Allow a compaction of the calling region during the compaction, and then
-tell it it moved in the return."*
+*"Allow a compaction of the calling region during the compaction, and then tell
+it it moved in the return."*
 
 **What it would take.** The two words the KERNEL pushed are at computable
 offsets, and that is the half that works. An `OSAPI_SLOT` cell is eight bytes
@@ -146,46 +261,86 @@ they are not the only two copies:
 | **whatever the package holds in a register** | ES, a spare | **no** |
 | a second frame, if S appears twice in `wm_pkgs` | anywhere | no |
 
-Rows four and five are fence 2 exactly: the only way past them is a
-declaration — *"my frame holds no copy of my own segment and no register does
-either"* — which the kernel cannot verify, which a package gets right on the
-day it is written and wrong on the day someone adds a `push ds`, and whose
-violation is **not a crash but a wrong answer**: the package reads its own
-data out of a segment that is no longer its image. That is the single worst
-failure shape this tree ships, and SPEC.md 66.3 rule 5 already refuses its
-sibling.
+Rows four and five can only be answered by a declaration — *"my frame holds no
+copy of my own segment and no register does either"* — which the kernel cannot
+verify, which a package gets right on the day it is written and wrong on the
+day someone adds a `push ds`, and whose violation is **not a crash but a wrong
+answer**: the package reads its own data out of a segment that is no longer its
+image. SPEC.md 66.3 rule 5 already refuses its sibling for that reason.
 
-It also couples `mem_claim` — eight near calls deep by the time
-`mem_cp_run` copies anything — to the byte layout of an API cell.
+It also couples `mem_claim` — eight near calls deep by the time `mem_cp_run`
+copies anything — to the byte layout of an API cell, and it does not escape §3:
+a patched frame un-pins the region and the ascending pass still wins, so option
+1 built alone measures 494.5K against today's 494.5K.
 
 **Verdict: refused.** Not because it cannot be built: because what it rests on
-cannot be checked, and the thing it buys is a saved callback boundary.
+cannot be checked.
 
 ---
 
-## 5. Option 2 — take the package off, compact, hand it back
+## 5. The proposal
 
-*"Allow a package to request a 'max compaction', which takes it off as the
-running program and compacts, then on its next turn it can make whatever
-claims it needs."*
+Option 2 from the report — *"take it off as the running program, compact, and
+let it claim on its next turn"* — plus §3. Three pieces.
 
-**This is the right shape, and it is already the house pattern — twice.**
+### 5.1 `mem_avail` learns a WHAT-IF, and it is the report's own design
 
-### 5.1 `OSAPI_PKG_REHOME` solved this exact problem once
+Two questions, because they have different contracts:
 
-SPEC.md 20.12.10's slot, in the SDK's own words:
+| call | answers | contract |
+|---|---|---|
+| `OSAPI_MEM_AVAIL` (+ the rank form) | the largest run a full compaction would leave **with my region where it is** | a PROMISE: a claim of this number must succeed now |
+| …with the new what-if flag | the same, **also pretending my own region may move** | a MEASUREMENT of the current state, not a promise of a future one — the caller is making a plan |
+
+The distinction is the load-bearing part and it is the requester's sentence:
+*"the 'what if' of mem_avail is not a promise of a future state, but rather, a
+measurement of a CURRENT state."* Plain `mem_avail` must stay claimable
+immediately, so it cannot model a move that has not been arranged; the what-if
+exists precisely so the difference between the two numbers is visible, and that
+difference is what tells the package whether posting the request is worth a
+callback boundary at all.
+
+Both go through §3.3's combined plan. On §2.1's layout they read 494.5K and
+502.5K.
+
+### 5.2 One posted request, and it carries the rank
+
+> **`OSAPI_MEM_COMPACT_WAKE`**, at the next free cell (`0x0550` today) —
+> *"compact everything you can, including my own region, then wake me."*
+>
+> `BX` = your window. `AL` = the shed rank this compaction is to respect — the
+> same `MEM_LVL_*` a rank-form `mem_avail` takes, so *"do not shed HIGH or
+> above"* survives into a pass that runs after your turn ended.
+> Out: CF = 0 posted — **return from your callback**, and do your sizing and
+> claiming in your `OSAPI_WM_ONWAKE` handler (SPEC.md 74.1).
+> CF = 1 refused: `BX` is not your window, or one of your requests is already
+> standing.
+
+**The rank has to be on the request, not read at the service point.** The
+posted compaction runs on `ui_task` after the asking package's turn is over, so
+there is no claimant for `mem_compact` to derive a rank from (`mem_rank_bh`
+takes it from the pending claim's owner) and the default would dissolve caches
+the package asked to keep. This is a requirement of the deferred shape rather
+than a nicety.
+
+**One request and one wake — there is no "twice" anywhere.** An earlier draft
+of this plan said "two calls", meaning two kernel-internal `mem_compact` calls,
+one per direction; §3 makes that a defect fix inside `mem_compact` instead, so
+the package posts once, the kernel compacts once, and one wake comes back.
+
+### 5.3 It is two patterns this tree already ships, composed
+
+**`OSAPI_PKG_REHOME` solved this exact problem once.** SPEC.md 20.12.10's slot,
+in the SDK's own words:
 
 > *CALL IT FROM YOUR ENTRY PROC AND RETURN CF=0 WITH BX=0. It only RECORDS:
 > you are still executing in the region this frees, so the kernel does the
 > work after you return.*
 
-A package that wants its own region disposed of **records the wish and
-returns**, and the loader does it in the window where nothing is standing in
-the region any more. Word for word the problem here, with "frees" for "moves".
+Word for word the problem here, with "frees" for "moves".
 
-### 5.2 …and `ui_task` already has the quiescent point
-
-`kernel/ui.inc`, the top of the event loop:
+**And `ui_task` already has the quiescent point.** `kernel/ui.inc`, the top of
+the event loop:
 
 ```
 .loop:
@@ -194,167 +349,105 @@ the region any more. Word for word the problem here, with "frees" for "moves".
 ```
 
 A posted action, cleared before it is acted on, spent at the top of the loop
-with no lock held and no callback in flight. That is fence 3 satisfied by a
-site that already exists and is already audited — and `[wm_pkgd]` is 0 there
-by construction, because every `wm_pkgcall` on this task has returned.
+with no lock held and no callback in flight — and `[wm_pkgd]` is 0 there by
+construction, because every `wm_pkgcall` on this task has returned. That
+matters beyond tidiness: `mem_compact`'s park request DROPS `[sch_lock]` for up
+to `INST_PARKW` ticks (SPEC.md 66.5), which from inside a repaint pass holding
+`gfx_lock` would be a deadlock against `OSAPI_MEM_PARKSAFE` rather than a slow
+path.
 
-### 5.3 So the proposal is those two composed
-
-> **`OSAPI_MEM_COMPACT_WAKE`**, at the next free cell (`0x0550` today) — *"compact everything you can at
-> the next quiescent point, then wake me."*
->
-> `BX` = your window. Out: CF=0 posted — **return from your callback**, and do
-> your sizing and claiming in your `OSAPI_WM_ONWAKE` handler (SPEC.md 74.1).
-> CF=1 refused: `BX` is not your window, or a request is already posted.
+**So `mem_can_move`, `mem_frameless` and `mem_in_nest` are untouched.** That is
+the whole argument for this shape over §4: at the service point the region is
+**genuinely frameless**, and the existing predicate answers "movable" because
+it is TRUE, not because it was bypassed.
 
 Kernel side, in four pieces:
 
 | piece | where | what |
 |---|---|---|
-| `[mem_cpq]` | `.bss`, 2 bytes | the window to wake, 0 = nothing posted |
-| the cell | `osapi_table` 0x0550 | validate `BX`, store, `sch_uiwake` |
-| the service | `ui.inc` `.loop` step 0, beside `[ui_rebootq]` | clear first, `mem_compact_max`, `wm_wake` |
-| `mem_compact_max` | `memory.inc` | the descending pass and then the ascending one, both unconditional (§5.4) |
+| `[mem_cpq]`, `[mem_cpq_lvl]` | `.bss`, 3 bytes | the window to wake and the rank to respect; 0 = nothing posted |
+| the cell | `osapi_table` 0x0550 | validate `BX` is the caller's window, store, `sch_uiwake` |
+| the service | `ui.inc` `.loop` step 0, beside `[ui_rebootq]` | clear first, `mem_compact` at the posted rank, `wm_wake` |
+| §3's ladder + combined plan | `memory.inc` | `mem_compact` step 3, and `mem_cp_plan`'s combined mode |
 
-**Nothing else changes.** `mem_can_move`, `mem_frameless` and `mem_in_nest`
-are untouched, and that is the whole argument for this option: at the service
-point the region is **genuinely frameless** — the existing predicate returns
-"movable" because it is TRUE, not because it was bypassed.
-
-### 5.4 `mem_compact_max` is the second half — and ALONE, THE UN-PIN IS WORTH ZERO
-
-This is the part nobody would have costed, and it is the most useful thing
-measured here. SPEC.md 66.4.1: *"The two passes are ALTERNATIVES and not
-cumulative… whichever single pass satisfies the claim is the one that runs."*
-That is right for a sized claim. For this request it is the difference between
-the feature working and the feature doing **nothing at all**.
-
-`tools/heapmap.py`'s model of both passes, run over the §2.1 layout with the
-Calculator's record dropped — the 8KB hole standing above the Browser's region:
-
-| | ascending | descending |
-|---|---|---|
-| region PINNED — today | **494.5K** | 418.0K |
-| region MOVABLE, one pass | **494.5K** | 426.0K |
-| region MOVABLE, both passes in sequence | **502.5K** | |
-
-Read the middle row. `mem_compact` takes whichever single pass is better, the
-ascending one wins by 68.5K, and **the answer is 494.5K whether the region is
-pinned or not**. Unpinning the caller's region — the whole of §4 and §5.1–5.3 —
-buys *exactly nothing* on its own, because the pass that would have used it is
-never the pass that runs.
-
-Run the ceiling pass and then re-plan the floor against the result and the run
-is 502.5K: 494.5 + 8.0, the hole to the byte. The two passes act on **disjoint
-sets** — bottom-up claims and top-down ones — and both grow the SAME middle
-run, so for a request that is not sized against anything they are cumulative
-and the alternatives rule is simply the wrong rule.
-
-So the two halves have to land together, and a plan that takes one of them
-should take neither.
-
-**What it costs.** `mem_compact(AX=0)` is already "compact regardless,
-dissolve nothing" (SPEC.md 66.10.1, `mem_unblob`'s call). What is new is
-seeding the direction, so the request is two calls and ~20 bytes:
-
-```
-mem_compact_max:                ; SPEC.md 66.4.1's two passes, both taken
-    mov byte [mem_cp_seed], 1
-    xor ax, ax
-    call mem_compact            ; the ceiling packs up, opening the wall…
-    mov byte [mem_cp_seed], 0
-    xor ax, ax
-    call mem_compact            ; …and then the floor packs down into one run
-    ret
-```
-
-with `mem_compact`'s `mov word [mem_cp_msk], 0` seeded from that byte.
-**Ceiling first**: the table's last row is the descending pass followed by an
-ascending plan made against the result, and that ordering is what produced
-502.5K. The other order leaves the ascending pass planning around a wall that
-the descending pass is about to remove.
-
-### 5.5 The package needs no new question answered
+### 5.4 The package needs no new question answered afterwards
 
 After the service point the region has PHYSICALLY moved, so:
 
-- `OSAPI_MEM_AVAIL` is correct with no change at all. It plans through
-  `mem_cp_plan` in the ascending direction only (`kernel/memory.inc`,
-  `mem_avail_x`), and once the region is at the ceiling that single plan sees
-  one long run. **Had we tried to answer this by making `mem_avail` model both
-  directions instead, it would have had to promise a run `mem_claim` could only
-  deliver by running both passes — a second place for the two to disagree.**
-- The package does not need to be told it moved. `wm_pkgcall` sets DS from
-  `W_SEG` live, and `mem_region_reloc` put `W_SEG` right. Its own data claims
-  were fixed by its own relocation proc, and its near offsets never moved —
-  a package is `org 0` with no relocation of any kind.
+- The package is not told it moved and does not need to be. `wm_pkgcall` sets
+  DS from `W_SEG` live and `mem_region_reloc` put `W_SEG` right; its own data
+  claims were fixed by its own relocation proc; its near offsets never moved,
+  a package being `org 0` with no relocation of any kind.
+- Plain `OSAPI_MEM_AVAIL` on the wake is the number to claim, and it is exact:
+  the region is where it is going to stay, so the promise form answers the
+  whole run.
 
-### 5.6 What it costs the package
+### 5.5 The go-round, and why the decision belongs on the second trip
 
-One callback boundary: ask, return, claim on the wake. For the reported
-program that boundary is free — *the user picked a program to run* and *size
-the arena for it* are already two steps — and it is the shape this OS uses
-everywhere else for work that cannot finish in one turn (SPEC.md 7.4's
-resumable copy, `OSAPI_WM_ONWAKE`, the posted restart above).
+A package that posted, woke, found less than it hoped for and posted again
+would ping-pong. Three things stop it, and only the first is the kernel's:
 
----
+1. **One request per package may stand at a time** — a second post while one is
+   unserviced is refused (CF = 1). That bounds the queue, not the loop.
+2. **The compaction is idempotent.** A second pass immediately after the first
+   finds every claim at its fill point, counts no movers and answers CF = 1
+   (SPEC.md 66.4's own termination argument), so a re-post costs a walk of 32
+   records and changes nothing. The loop cannot starve the machine.
+3. **The contract says decide on the wake, and the SDK macro enforces it** with
+   a one-shot flag: post once, and on the wake claim what plain `mem_avail`
+   reports and proceed — whether or not it equals what the what-if predicted.
+   The what-if was a measurement of a state that has since changed, which is
+   exactly what §5.1 says it is.
 
-## 6. Recommendation
-
-**Option 2, as §5.3, WITH §5.4.** Its correctness argument is one sentence —
-*the compactor is asked the question it already asks, at a moment when the
-answer is yes* — and it invents no invariant to get there.
-
-Option 1 buys one callback boundary and pays for it with a rule no test can
-enforce. It also does not escape §5.4: patching the frame un-pins the region
-and the ascending pass still wins, so option 1 built alone measures 494.5K
-against today's 494.5K. **Whichever option is taken, §5.4 is the half that
-actually moves the number.**
+The requester's own instinct is the rule: *"on the second trip it makes its
+decision, and doesn't recall the max compact a second round."*
 
 ---
 
-## 7. What this does NOT solve
-
-Written down so nobody costs them as part of it:
+## 6. What this does NOT solve
 
 1. **A claim made by the package's WORKER.** A worker pins its own region
-   through `mem_busy_seg`, not through the nest, and it cannot park itself
-   while it is inside `mem_claim`. The deferred path helps here where the
-   in-line path never could — the service point runs on `ui_task`, so
-   `mem_compact`'s own park request can stand the worker up — but only if the
-   package also declares `OSAPI_TASK_RESTARTABLE` (SPEC.md 66.6.2). Worth a
-   sentence in the slot's contract and no kernel code.
-2. **A region whose package owns a window the user is dragging**, or any other
-   state that makes the callback boundary unwelcome. The request is advisory:
-   the service point compacts what it can and wakes the asker either way.
-3. **`mem_avail` still under-reports before the request runs.** §5.5 explains
-   why that is left alone. A package that wants the true ceiling asks for the
-   compaction and reads `mem_avail` on the wake.
-4. **The mid-session mount wall itself** (`docs/plans/HEAP-UNPIN-PLAN.md` §2.0).
+   through `mem_busy_seg`, not through the nest, and cannot park itself while
+   inside `mem_claim`. The deferred path helps where the in-line path never
+   could — the service point runs on `ui_task`, so `mem_compact`'s own park
+   request can stand the worker up — but only if the package also declares
+   `OSAPI_TASK_RESTARTABLE` (SPEC.md 66.6.2). A sentence in the slot's
+   contract, no kernel code.
+2. **On-demand MODULES stay pinned**, which is the standing decision (§1's
+   first bullet): each is a temporary user action and nobody has done the work.
+   A module standing mid-arena is still a barrier in both passes.
+3. **The mid-session mount wall itself** (`docs/plans/HEAP-UNPIN-PLAN.md` §2.0).
    This makes the wall healable on demand; it does not stop it forming.
 
 ---
 
-## 8. How it would be verified
+## 7. How it would be verified
 
 `tests/heapfrag` is the instrument and it already builds this scenario for a
-data claim (check 13). The new row is the same check one level up:
+data claim (check 13). Three rows, because §3 and §2 fail independently:
 
-1. The package declares `OS88_REGION_MOVABLE` and records its own base.
-2. It claims through the top-down door, to put a block ABOVE its region, and
-   frees it — the §2.1 geometry, built on purpose.
-3. It reads `OSAPI_MEM_AVAIL`, posts `OSAPI_MEM_COMPACT_WAKE`, and returns.
-4. On the wake: its base has gone **up**, and `OSAPI_MEM_AVAIL` is larger by
-   the hole. Both halves are the assertion — a base that moved and a run that
-   grew — because either alone can be true for the wrong reason.
-5. **Two negative controls, and the second is the one §5.4 exists for.**
-   With the post NOT made, the base must not move — today's behaviour, so the
-   row goes red on a build without the fix. And with the region un-pinned but
-   only ONE pass taken, `OSAPI_MEM_AVAIL` must come back unchanged: that is
-   the 494.5K row of §5.4's table, and a row that does not assert it will pass
-   on a build where half the feature is missing.
+1. **The combined plan agrees with the combined run.** `mem_avail`'s answer,
+   then a claim of exactly that, must succeed — on a heap that needs both
+   passes. This is §3.3's invariant and it is the row that matters most,
+   because an over-report is a promise the allocator breaks.
+2. **A claim needing both passes is satisfied.** Build the two-run heap, ask
+   for more than either single pass can fund, and check it lands. Today this
+   fails with nothing copied, which is the negative control.
+3. **The caller's own region moves.** The package declares
+   `OS88_REGION_MOVABLE`, records its base, claims through the top-down door to
+   put a block ABOVE its region and frees it (§2.1's geometry, built on
+   purpose), reads the what-if `mem_avail`, posts, returns. On the wake: its
+   base has gone **up**, and plain `mem_avail` equals what the what-if said.
+   Both halves are the assertion — a base that moved and a run that grew —
+   because either alone can be true for the wrong reason.
+
+**And the two negative controls that §3.1 exists for**, since without them a
+half-built feature passes: with the region un-pinned but only one pass taken,
+and with both passes taken but the region pinned, `mem_avail` must come back
+**unchanged at 494.5K**. Those are the two middle rows of §3.1's table, and a
+gate that does not assert them will go green on a build that gained nothing.
 
 `tests/heaphi.py`'s pattern — MartyPC plus `tools/heapmap.py` against
 `mem_tab` — reads the claim map off the running machine for the same
 assertions from the host side, and `heapmap.Map.compacted()` already models
-both passes, so it can say what the run SHOULD have become.
+both directions, so it can say what the run SHOULD have become.
