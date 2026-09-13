@@ -122,26 +122,27 @@ conventional memory; there is no extent-skipping of free heap. That is a fixed
 cost per launch and it is the honest price of the third arm, alongside the
 losses in §10.
 
-> **MEASURED — and "seconds, not minutes" is right in the way that matters
-> least.** docs/reports/KERN-DOS-BUDGET-2026-09-13.md §3, on
-> `os8088_xt_hdd` (XT-IDE, rung 0), three runs inside 1.5% of each other:
-> the write is **26.2 guest seconds**, the read **17.1**, and **arm 3's own
-> half is 43.4** — 26 before the program starts and 17 after it exits, on top
-> of whatever the program does. It is seconds rather than minutes and it is
-> also an order of magnitude over the *"a few seconds"* §2.1 weighed it
-> against, so the trade §2.1 put to the requester should be re-put with the
-> real number: **whether a DOS program worth 600 KB is worth three quarters of
-> a minute of waiting around it.**
+> **MEASURED, and the answer is ~4 SECONDS** —
+> docs/reports/KERN-DOS-BUDGET-2026-09-13.md §3. The owner hibernated on iron:
+> **~2 s to write and ~2 s to resume**. So §2.1's *"a few seconds for the
+> restore"* is exactly what it is, the judgement §2.1 already made stands, and
+> arm 3's handoff is cheap.
 >
-> The middle figure in that report — 33.3 s from the ROM's text screen back to
-> a desktop — is **not** arm 3's: §7's handoff stages a stub and jumps, it does
-> not reboot. §9's floppy arm is the one that pays it, and pays it with no
-> restore at the end.
+> **The first version of that report said 43.4 seconds and it was the wrong
+> instrument, not a wrong reading.** It was taken on `os8088_xt_hdd`, whose
+> transport is **XT-IDE** — and MartyPC's hard disk has *no timing model at
+> all*: the mechanical model this tree wrote and field-checked
+> (`tools/martypc/patches/04-floppy-disk-timing.patch`, PERFORMANCE.md Part 9
+> Set 37) is the FLOPPY's, and the ATA device carries one 200 ms reset
+> constant and nothing per sector. So 92% of those seconds are the 8088
+> grinding through the option ROM's byte-at-a-time PIO at 25 KB/s, where the
+> field machine's **ST-225 on an ST-11M** does ~320. Our own batching was
+> checked on the way and is fine — track-capped, ~50 `int 13h` calls each way,
+> exactly what §87.7 claims.
 >
-> One caveat that has to be settled on iron: MartyPC agrees with the field
-> 5150 to 0–4% on 45 of 47 `gfxbench` rows, but those are CPU and VRAM rows
-> and the XT-IDE transport's timing has never been checked here.
-> docs/FIELD-MACHINES.md's `pc5150` has an ST-225 on a real ST11M.
+> **The rule, which is the tree's and not this plan's: a hard-disk TIMING off
+> MartyPC is not quotable.** Counts and call shapes are exact as ever;
+> milliseconds are not. docs/TESTING.md carries it.
 
 ---
 
@@ -454,7 +455,7 @@ Arm 3 is **not a superset of arm 2**, and the Memory page has to say so:
 | | what | gate |
 |---|---|---|
 | **W0** | **BUILT** (SPEC.md 96.36). `[dos_keepc]` is three-way over `os88ui_rad` — the control's **first caller in the tree** — and arm 3 is greyed with its reason on the glass. +364 package bytes, +6 bss, **zero kernel**. | `soak -k dosmem`, and its three verified failures |
-| **W1** | **DONE** — docs/reports/KERN-DOS-BUDGET-2026-09-13.md. Arms 1 and 2 confirmed at 449/481 KB with a 32 KB cache between them, the floor re-derived at **35.5 KB against 38.5**, and the hibernate round trip at **43.4 guest seconds**. | the report, and `tools/os88doscost.py` to re-derive it |
+| **W1** | **DONE** — docs/reports/KERN-DOS-BUDGET-2026-09-13.md. Arms 1 and 2 confirmed at 449/481 KB with a 32 KB cache between them, the floor re-derived at **35.5 KB against 38.5**, and the hibernate round trip at **~4 s on iron** (§2.2 — the 43.4 s this first reported is MartyPC's XT-IDE PIO and not the field's controller). | the report, and `tools/os88doscost.py` to re-derive it |
 | **W2** | **Prove the seam.** Every path from the INT 21h core to the file system goes through a `dos_k_*` door; a gate that fails if a new one appears. | a `fast` row over the source, `t_textrules`' shape |
 | **W3** | **The shim and the root.** `kerndos/kerndos.asm` assembles `disk.inc`+`diskw.inc` and reads a file. **Allowed to return "the shim is too big, write a reader instead."** | a host-side FAT read against `os88fat.py` |
 | **W4** | **A `.COM` runs.** The DOS core over the new back end, no handoff yet — `kern_dos` booted directly on a test disk. | MartyPC, a `.COM` that prints |

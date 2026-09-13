@@ -935,6 +935,16 @@ immediately, so nine separate reads fit one revolution **if the BIOS turns a
 call around inside one sector time (22 ms)**. GLaBIOS does; the 1982 ROM
 cannot, its head-settle loop alone being 52.5 ms.
 
+**EVERY ROW OF THAT TABLE IS THE FLOPPY.** A machine with `_hdd` in its name
+is field-comparable on its *diskette* drive and says nothing about its hard
+one: MartyPC's hard disk has **no mechanical model at all** — `ata_device.rs`
+has one 200 ms reset constant and nothing per sector — so a hard-disk figure
+is the guest CPU inside the controller's option ROM and nothing else. On
+`os8088_xt_hdd`'s XT-IDE that is **25 KB/s written, 38 KB/s read**, against an
+ST-11M field machine's ~320. docs/TESTING.md's *…and the HARD DISK has no
+model at all* is the rule and the incident it came from; the one-line version
+is that counts are exact and milliseconds are not askable.
+
 **No single machine is "the calibration".** Which rows land exactly shuffles
 between the IBM machines — `_cga` nails both track rows and misses `seek 5
 cyl`, `_herc` the reverse — because a row on a 13,731 µs quantum boundary

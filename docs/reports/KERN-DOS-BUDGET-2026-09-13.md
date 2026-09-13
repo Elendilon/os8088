@@ -21,10 +21,14 @@ and that this comes before any code.
    not the ~8 KB plus a 16 KB cache KERN-DOS-PLAN §6 hoped for — and KERN-DOS-PLAN §6.1's levers stop
    being an ordering suggestion and become the thing that makes the target
    reachable. Two of them are priced below and are worth **4.1 KB** together.
-3. **The hibernate round trip is 43.4 guest seconds**, three runs inside
-   1.5% of each other: 26.2 s to write the image and 17.1 s to read it back.
-   KERN-DOS-PLAN §2.1 weighed this as *"a few seconds"* against *"4–5 seconds and then a few
-   more"*. It is neither.
+3. **The hibernate round trip is ~4 seconds on the field machine, and 43.4
+   guest seconds through MartyPC's XT-IDE** — a difference that is the
+   CONTROLLER, not the emulator being wrong. Section 3 was written the other
+   way round and is corrected in place; the short version is that MartyPC's
+   hard disk has no timing model at all (the one this tree wrote and
+   field-checked is the floppy's), so 92% of that 43.4 s is the 8088 grinding
+   through the XT-IDE option ROM's byte-at-a-time PIO. KERN-DOS-PLAN §2.1's
+   *"a few seconds"* stands.
 
 ---
 
@@ -162,51 +166,102 @@ measurement that can be taken without it.
 
 ---
 
-## 3. What the handoff costs: 43.4 guest seconds
+## 3. What the handoff costs — CORRECTED: the 43.4 s is an XT-IDE figure and the field is ~4 s
 
-KERN-DOS-PLAN §2 rests on §87.5's resume stub, and its §2.1 asks what including the restore
-costs, weighing *"waiting 4–5 seconds to get to desktop again, and THEN a few
-more seconds for the restore"* against *"waiting a few seconds for the
-restore"*.
+> **This section was wrong when it was written, and the correction is kept in
+> place rather than in a new file because what was wrong is the
+> INTERPRETATION and not the reading.** The 43.4 s below is real and
+> reproducible; it is the cost through **MartyPC's XT-IDE option ROM**, and
+> that is not the transport the machine this plan is about has. The owner
+> hibernated on iron and measured **~2 s each way**. Section 3.1 is what the
+> number is, 3.2 is why it is 8–13x the field's, and 3.3 is what it means for
+> the plan — which is the opposite of what this section first concluded.
+
+KERN-DOS-PLAN §2 rests on §87.5's resume stub, and its §2.1 asks what including
+the restore costs, weighing *"waiting 4–5 seconds to get to desktop again, and
+THEN a few more seconds for the restore"* against *"waiting a few seconds for
+the restore"*.
+
+### 3.1 The reading
 
 Measured on `os8088_xt_hdd` — a 4.77 MHz XT with XT-IDE's option ROM, which is
-rung 0 (§52.1), the transport the field machine has and the only one the
-resume stub speaks — by bracketing `tests/hibernate.py`'s own verbs with
-MartyPC's cycle counter, which costs the guest nothing. Three runs:
+rung 0 (§52.1) — by bracketing `tests/hibernate.py`'s own verbs with MartyPC's
+cycle counter, which costs the guest nothing. Three runs:
 
 | | run 1 | run 2 | run 3 |
 |---|---:|---:|---:|
 | **WRITE** — [Hibernate] clicked → the ROM's text screen | 26.23 | 26.62 | 26.17 |
 | restart → the desktop asking the question | 33.32 | 33.49 | 33.30 |
 | **READ** — Resume clicked → the old desktop back | 17.13 | 16.87 | 17.12 |
-| **arm 3's own half** (write + read) | **43.37** | **43.48** | **43.28** |
+| write + read | **43.37** | **43.48** | **43.28** |
 | the whole round trip | 76.69 | 76.97 | 76.59 |
 
-Guest seconds at 4.772727 MHz. The spread is under 1.5%, which is what a
-cycle counter on a deterministic guest should give.
+Guest seconds at 4.772727 MHz, spread under 1.5%. That is 655,360 bytes at
+**25 KB/s written and 38 KB/s read**.
 
 **Read the three rows separately, because arm 3 pays two of them and not the
-third.** KERN-DOS-PLAN §7's handoff stages the stub and jumps; it does not reboot, so the
-33 s middle row — a machine reset, the ROM's POST and memory count, and a
-whole os8088 boot — is *not* arm 3's. The floppy arm (KERN-DOS-PLAN §9) is the case that
-does pay it, and it pays it with no restore at the end.
+third.** KERN-DOS-PLAN §7's handoff stages the stub and jumps; it does not
+reboot, so the 33 s middle row — a machine reset, the ROM's POST and memory
+count, and a whole os8088 boot — is *not* arm 3's. The floppy arm
+(KERN-DOS-PLAN §9) is the case that does pay it, and it pays it with no
+restore at the end.
 
-So on a machine with a hard disk, arm 3 costs **26 seconds before the DOS
-program starts and 17 after it exits**, on top of whatever the program itself
-does. That is the number KERN-DOS-PLAN §2.1 wanted and it is an order of magnitude over the
-estimate it was weighed against.
+### 3.2 Why it is 8–13x the field, and it is the CONTROLLER
 
-Three caveats, stated rather than left to be discovered:
+Four things, each checked rather than assumed:
 
-- **It is one machine's figure.** MartyPC agrees with the field 5150 to 0–4%
-  on 45 of 47 `gfxbench` rows, but those are CPU and VRAM rows; the XT-IDE
-  transport's timing has never been checked against iron here. The right
-  place to settle it is docs/FIELD-MACHINES.md's `pc5150`, which has an
-  ST-225 on a real ST11M.
-- **It is the WHOLE operation and not just the transfer.** The write includes
-  `HIBER.DRV` being loaded, the image composed, a 640 KB file allocated on
-  FAT16 and the machine torn down; the read includes the extent walk and the
-  restore. A sector count would be a smaller and less useful number.
+1. **92% of the write's guest time is in segment C800** — the XT-IDE option
+   ROM — sampled with `regs()` across the whole operation. It is the disk
+   BIOS and nothing else.
+2. **MartyPC's ATA device model has no per-sector or per-byte delay at all.**
+   `ata_device.rs` carries one constant, `ATA_RESET_DELAY_US` = 200 ms, and
+   `operation_read_sector` fetches the next sector the moment the buffer is
+   exhausted with no accumulator gating it. So the emulated *controller* is
+   free: every one of those seconds is the 8088 executing the option ROM's
+   programmed-I/O loop, which MartyPC runs cycle-accurately.
+3. **This tree's disk-timing model is the FLOPPY's, and only the floppy's.**
+   `tools/martypc/patches/04-floppy-disk-timing.patch` is where the mechanics
+   were modelled and PERFORMANCE.md Part 9 Set 37 is where they were checked
+   against the real 5150. **There is no hard-disk patch and no such check.**
+4. **Our own batching is not the problem.** `hb_stub`'s transfer run is capped
+   at the track, the extent and the 64 KB DMA page, so on this 26-sector
+   geometry it is ~50 `int 13h` calls each way and not 1,280. §87.7's claim
+   stands; there is no §18.91-class defect here.
+
+And the field machine is a different controller: **an ST-225 on an ST-11M**,
+which is what docs/plans/completed/BOOT-PERF-PLAN.md §1 states for its own
+machine and what docs/FIELD-MACHINES.md's `pc5150` has. On that transport a
+*whole os8088 boot* — kernel, modules and drivers off the same disk — is
+**2,087 ms**, which is not compatible with 25 KB/s by any arithmetic.
+
+**The owner's own reading, on iron: ~2 s to write and ~2 s to resume**, which
+is ~320 KB/s and 8–13x this box's XT-IDE figure.
+
+What is NOT established, and must not be inferred from any of the above:
+**whether MartyPC's figure is right for an XT-IDE card.** Real XT-IDE on a
+4.77 MHz XT is genuinely slow, so 25 KB/s may be faithful or may be
+pessimistic; nothing here can tell, because no XT-IDE card exists in the field
+set to check it against.
+
+> **The rule this generalises to: a hard-disk TIMING taken on MartyPC is not
+> quotable.** The floppy is modelled and field-checked; the hard disk is
+> neither, and its device model is explicitly delay-free. Counts, sector
+> traffic and call shapes off it are exact as ever — it is milliseconds that
+> are not.
+
+### 3.3 What it means, which is the opposite of what this section first said
+
+**At ~2 s each way the round trip is ~4 s, and KERN-DOS-PLAN §2.1's judgement
+stands.** The owner weighed *"a few seconds for the restore"* and that is what
+it is. Arm 3's handoff is cheap, the direct restore is worth taking for the
+reason §2.1 gives, and the plan needs no re-putting.
+
+Two caveats on the field figure, which are the honest residue:
+
+- **Which machine it was taken on decides whether to normalise for clock.**
+  BOOT-PERF-PLAN's `8088VGA` is an 8088 at **10 MHz**; `pc5150` is 4.77. At
+  10 MHz, ~2 s is ~320 KB/s; at 4.77 it is the same 320 KB/s of a slower CPU,
+  which says more about the controller still.
 - **It scales with the machine's RAM**, the image being all of conventional
   memory. A 640 KB machine is the worst case and also the one arm 3 is for.
 
@@ -224,9 +279,13 @@ Three caveats, stated rather than left to be discovered:
   KERN-DOS-PLAN §6.2 proposes is therefore the only shape that works, and it has to be
   purgeable in the strong sense — claimed only when the program has not
   taken the memory, not merely given back on demand.
-- **section 2.1's cost question is answered and the answer is 43 seconds**, which is
-  a product decision rather than a technical one: whether a DOS program worth
-  600 KB is worth three quarters of a minute of waiting around it.
+- **KERN-DOS-PLAN §2.1's cost question is answered and the answer is ~4
+  seconds**, so the judgement it already made stands and there is nothing to
+  re-put. The first version of this report said 43 and called it a product
+  decision; section 3 is why that was the wrong instrument.
+- **A hard-disk timing taken on MartyPC is not quotable** (section 3.2), which
+  is a fact about the whole tree rather than about this plan. docs/TESTING.md
+  carries it now.
 - **W3 gains a second question.** It was *"how big is the shim?"*; it is now
   *"how big is the shim, and can levers 3–5 find the rest?"* — because the
   budget after the two priced levers is 7.1 KB and the shim was already the
