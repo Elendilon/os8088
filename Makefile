@@ -5402,6 +5402,30 @@ $(BUILD)/trackmove360.img: $(BUILD)/heapfrag.o88 $(BUILD)/tracker.o88 \
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/heapfrag.o88 \
 		$(BUILD)/tracker.o88 apps/tracker/beverly.mod
 
+# --- the 397KB module, and the disk the OWNER'S SCENARIO is driven on --------
+# SPEC.md 45.3.2 / 66.4.3. The heap question only shows up at a SIZE, and every
+# module big enough to show it is somebody's copyrighted file - so this one is
+# GENERATED, at an exact length, by tools/os88mkmod.py (which is a real M.K.
+# module and not a blob: a file mp_load refused would exercise the claim and
+# then fail the load, which is a green row about a machine that never played
+# anything). --selfcheck in the recipe, weavesim's shape.
+#
+# 397KB because that is the size the scenario was reported at, and 1.44MB
+# because a 397KB file does not go on a 360KB floppy. SHEET, PAINT and SKIES
+# ride with it: they are the three programs whose regions hold the ceiling
+# while SOUND.DRV is mounted underneath them, which is the whole construction.
+$(BUILD)/bigmod.mod: tools/os88mkmod.py | $(BUILD)
+	python3 tools/os88mkmod.py --selfcheck
+	python3 tools/os88mkmod.py -o $@ --kb 397
+
+$(BUILD)/trkbig.img: $(BUILD)/tracker.o88 $(BUILD)/sheet.o88 \
+                     $(BUILD)/paint.o88 $(BUILD)/skies.o88 \
+                     $(BUILD)/bigmod.mod tools/os88disk.py
+	cp $(BUILD)/bigmod.mod $(BUILD)/BIGMOD.MOD
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/tracker.o88 \
+		$(BUILD)/sheet.o88 $(BUILD)/paint.o88 $(BUILD)/skies.o88 \
+		$(BUILD)/BIGMOD.MOD
+
 # --- the FILLER, and the region mover's disk (SPEC.md 66.6.1) ---------------
 # tests/radtest is the RADIO GROUP's gate (SPEC.md 13.17). It is the only thing
 # in the tree that defines OS88UI_RAD, which is deliberate twice over: it is

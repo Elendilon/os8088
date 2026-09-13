@@ -976,11 +976,10 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
 ; has since left; the wake's OSAPI_MEM_AVAIL is the one to claim against, and
 ; posting a second time because the first did not give you what you hoped for
 ; is how a program spins.
-; The shed rank OSAPI_MEM_COMPACT_WAKE takes in AL. MEM_LVL_TOP is an ordinary
-; claim's - every cache counts as free, because mem_claim sheds them all - and
-; it is what you want unless you are a cache yourself (SPEC.md 50.6.4). It
-; mirrors kernel/memory.inc's own constant; tests/unit/t_mirror.py says so.
-MEM_LVL_TOP equ 0xFF
+; The shed rank OSAPI_MEM_COMPACT_WAKE takes in AL is MEM_LVL_TOP, declared
+; with the purge tiers further down: an ordinary claim's rank, where every
+; cache counts as free because mem_claim sheds them all, and it is what you
+; want unless you are a cache yourself (SPEC.md 50.6.4).
 
 %define OSAPI_MEM_AVAIL_MAX KERNEL_SEG:0x0550   ; out AX/BX as OSAPI_MEM_AVAIL,
                                  ; planned as if YOUR OWN REGION could move.

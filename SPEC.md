@@ -62610,6 +62610,104 @@ same disk and same clicks:** the 300KB module is `File too big` /
 `No module loaded` before, and `OS8088 300K TEST` / `Playing` after. The
 `.o88` grows 73 bytes.
 
+#### 45.3.2 …and the refusal asks for the room first (§66.4.3)
+
+§45.3.1 leaves `trk_fdone` asking `OSAPI_MEM_AVAIL` before it stops the
+music, frees the old blob or turns the drive, so **a refusal costs nothing**
+— whatever was playing keeps playing. What that refusal could not say is
+whether the machine could have *found* the room. A package may not compact
+its own region from inside its own callback (§66.6.1), so the largest run
+Tracker is quoted is the largest run with Tracker's own 49KB standing in the
+middle of the heap, and the answer to "is 400KB fundable" is being given by
+a plan that is forbidden to move the asker.
+
+**Tracker is the exact-requirement consumer §66.4.3 was written for**, and
+the distinction it draws is the one that decides whether the feature is
+worth its bytes. A program that wants *all* of the heap can just claim and
+find out; Tracker wants **this module or no module**, and a claim that fails
+is destructive — `mem_claim`'s refusal path sheds every purgeable cache on
+the way down (§50.6.4), so the read-ahead and the FAT windows go and cost
+seconds of `int 13h` to rebuild. A package with an exact requirement that
+guesses wrong therefore **pays for its refusal twice**. So `trk_cpq_try`
+asks `OSAPI_MEM_AVAIL_MAX` — the same plan with the asker's own region
+excused — and only says `Too big for free memory` once the answer is *not
+even if the machine emptied itself for me*.
+
+When the what-if says yes, it posts `OSAPI_MEM_COMPACT_WAKE` at
+`MEM_LVL_TOP`, puts **`Making room...`** on the status line and **returns
+having touched nothing**. `ui_task` step 0a runs the compaction with
+nothing held (§66.4.3), and the `EVT_WAKE` that follows re-enters
+`trk_fdone` through `trk_cpqload` with the name and size already banked in
+this package's own segment — so the retry is `trk_argload`'s shape with no
+`OSAPI_FILE_GOTO` to do, and it re-asks plain `OSAPI_MEM_AVAIL` rather than
+trusting the what-if. The message is composed **before** the return and not
+after, because the callback returns *into* a pass that freezes the machine
+for hundreds of milliseconds, and a sentence that arrives after the freeze
+is a sentence nobody reads.
+
+**`[trk_cpq]` is one byte doing two jobs and they are the same job.** It
+tells `trk_onwake` that this wake is the same load attempt continuing rather
+than a new one, and it tells `trk_cpq_try` that this attempt has already had
+its one question. `trk_fdone` clears it at its single exit and the posted
+path jumps past that clear (`.outq`), so a load posts **once**: a second
+post because the first did not give the what-if's number is how a program
+spins, and the wake's own `OSAPI_MEM_AVAIL` is the number to decide on.
+
+**It cost the region two declarations, and the second is what makes the
+first mean anything.** `OS88_REGION_MOVABLE` sits at the end of `trk_entry`
+with a `clc` behind it, because `OSAPI_MEM_MOVABLE` writes CF and the
+loader's success is riding in it — every other call in that chain preserves
+the flags on purpose. `OS88_WORKER_RESTARTABLE trk_worker` goes in
+`trk_hire` right after the spawn, and without it `mem_frameless` pins the
+region however it is declared: the kernel wrote Tracker's segment into the
+mixer's frame before its first instruction (§66.6.2). Tracker is **park-safe**
+(§66.5.4), so the kernel may park that worker blocked in `OSAPI_GFX_LOCK` as
+well as at `OSAPI_TASK_ALIVE` — and the only lock it ever blocks on is
+`trk_render`'s, taken with `[trk_inrend]` already 1 and nothing drawn yet.
+Restarted there the frame is lost, which is what a restart costs, and the
+flag would stay set for ever with `trk_fs_enter`'s drain waiting on a worker
+that is no longer inside `trk_render`. So `trk_worker`'s own head clears it,
+which is where the restart lands. **`[trk_mixing]` needs no such line** and
+the reason is worth keeping: `trk_feed` blocks on nothing, so neither park
+point is ever inside a feed pass.
+
+**Measured**, `tests/trkcompact.py` on a 4.77MHz 8088 with 640KB: nine
+Tracker instances stacked down from the ceiling leave a 79KB floor run, the
+topmost is closed to put a 49KB hole above the survivor, and
+`BEVERLY.MOD` — 114KB — is loaded into it. Before this the load is `Too big
+for free memory`; after it, the asker's own region moves `8780` → `93c0`,
+the two runs merge, and the module plays. The `.o88` grows **128 bytes**,
+none of it resident.
+
+**And measured again on the session the feature was asked for**, which is
+worth carrying because it is a machine somebody would actually sit at rather
+than a heap a gate built: a 640KB Hercules 5150
+(`os8088_5150_herc_sb_gla_144`) booted with `SOUND.DRV` **not mounted**, then
+Sheet, then Paint, then Clear Skies, then `SOUND.DRV` mounted **mid-session**
+from the Control Panel, then Tracker — so the driver's image and pool land
+UNDER three regions that already hold the ceiling, and Tracker's region lands
+under those — and then the three are closed and a **397KB** ProTracker module
+is opened. The heap at that moment is **365KB free below Tracker and 92KB
+above the driver**, the module wants 397, and the two runs are what
+§66.4.3.2's what-if can see and plain `mem_avail` cannot: Tracker's own 49KB
+region is the barrier between them. It posts, and the descending pass packs
+all three top-down claims into the ceiling hole — Tracker's region `7940` →
+`9040`, the sound pool `8580` → `9c80`, the driver's own image `8780` →
+`9e80`, every one of them **92KB** — leaving a 457KB floor run out of which
+the 397KB claim is taken. **A/B on the same machine, the same disk and the
+same clicks**, with only `trk_cpq_try`'s call removed: `Too big for free
+memory`, nothing moved, no module. This is HEAP-UNPIN-PLAN §2.0's
+mount-mid-session wall and SPEC.md 66.4.3's pin measured as one thing, and
+what makes it a demonstration rather than a construction is that every step
+of it is something a user does.
+
+`tests/trkbigmod.py` is that run kept runnable, at 78 seconds. The module is
+the one thing it could not keep — every real one this size is somebody's file
+— so `tools/os88mkmod.py` generates a valid M.K. module at an exact length,
+and it is a real module rather than a blob because a file `mp_load` refused
+would exercise the claim and then fail the load, which is a green row about a
+machine that never played anything.
+
 ### 45.4 Memory layout
 
 Four stores, none of them guessed:
@@ -82583,6 +82681,27 @@ how a program spins.
 `[mem_cp_self]` is plan-only by discipline — `mem_avail` sets it and clears it
 before returning, and no path that can reach `mem_cp_run` ever sets it. A
 compaction running with it standing would move a region with a frame in it.
+
+#### 66.4.3.3 Tracker is the first consumer, and it is the exact-requirement one
+
+§45.3.2 is the adoption and the shape to copy. It is worth naming here
+because the two halves of the door are used by **different kinds of
+program**, and only one of them needs the what-if at all. A package that
+wants *whatever is going* — a DOS arena, a scratch heap — can post, return,
+and claim the largest run the wake reports; `OSAPI_MEM_AVAIL_MAX` tells it
+nothing it will act on. Tracker wants **this module or no module**, and for
+it the what-if is the whole feature: a claim that fails sheds every
+purgeable cache on its way down, so a refusal that could have been avoided
+is paid for twice, and `Too big for free memory` has to mean *not even if
+the machine emptied itself for me*.
+
+**Adoption is also where the two declarations get tested against a real
+program rather than against `tests/heapfrag`.** Tracker owns a worker, so
+`OS88_REGION_MOVABLE` alone buys nothing (§66.6.2), and it is **park-safe**,
+so `OS88_WORKER_RESTARTABLE` reaches a park point that is *not* the top of
+its loop — which is exactly the case the SDK note warns about and the one
+`tests/heapfrag`'s pump-shaped worker cannot exercise. What that cost was
+one line of `trk_worker`'s head, and §45.3.2 says which line and why.
 
 ### 66.5 The worker park
 
