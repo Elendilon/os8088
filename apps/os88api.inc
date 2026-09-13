@@ -2644,10 +2644,12 @@ OS88_STACK_384     equ 4        ; the largest, asked for on purpose: a deep
 %endmacro
 
 %macro OS88_WORKER_RESTARTABLE 1
-    push ax
-    mov ax, %1
-    call OSAPI_TASK_RESTARTABLE
-    pop ax
+    pushf                       ; flags for OS88_REGION_MOVABLE's reason:
+    push ax                     ; inst_restart_set answers in CF (it `clc`s on
+    mov ax, %1                  ; the way out precisely because inst_fhome_idx
+    call OSAPI_TASK_RESTARTABLE ; clobbers them), and the site this goes at is
+    pop ax                      ; a spawn whose OWN CF the caller is usually
+    popf                        ; still carrying
 %endmacro
 
 ; -----------------------------------------------------------------------------
