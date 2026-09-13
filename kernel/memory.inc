@@ -2732,7 +2732,10 @@ mem_compact:
     or dx, dx                   ; IS IT WORTH RUNNING? Nothing can move, so not
     jz .nowt                    ; a byte is touched...
     or di, di
-    jz .doit                    ; ..."compact regardless" (SPEC.md 66.10.1)...
+    jz .both                    ; ..."compact regardless" (SPEC.md 66.10.1) is
+                                ; BOTH passes: nobody is waiting on a size, so
+                                ; there is no plan to satisfy and no reason to
+                                ; leave the other half of the arena unpacked...
     cmp cx, di
     jae .doit                   ; ...or IT STILL WOULD NOT FIT, and the caller
 .nowt:                          ; is about to be refused either way: a quarter
@@ -2771,18 +2774,43 @@ mem_compact:
     ; claim the descending pass was going to have to satisfy anyway.
 .flip:
     cmp byte [mem_cp_msk], 0
-    jne .undo                   ; the walk has already been turned round: there
-    mov word [mem_cp_msk], 0xFFFF     ; is nothing left to try
+    jne .both                   ; the walk has already been turned round, so
+    mov word [mem_cp_msk], 0xFFFF     ; the last thing left to try is the PAIR
     jmp short .plan
 .doit:
     call mem_cp_run
     call mem_cp_end
     clc
     jmp short .out
-.undo:
-    call mem_cp_end             ; the two arms that took the lock share one
-.none:                          ; way of giving it back; .none never took it
-    stc
+.both:
+    ; NEITHER PASS ALONE FUNDS IT, so take BOTH - which is what SPEC.md
+    ; 66.4.1's alternatives rule refused, and it refused it by copying NOTHING
+    ; at all: CF = 0 came back only from .doit, and .doit is reached only when a
+    ; SINGLE pass's own plan already satisfies the claim. A claim needing the
+    ; pair therefore got neither half and fell through to the shed with the
+    ; room sitting there in two runs.
+    ;
+    ; NOTHING HERE IS SPECULATIVE. .flip has already established that the
+    ; expensive pass alone is short, so the cheap copy is needed rather than
+    ; guessed at - and the ascending pass cannot make the largest run SMALLER,
+    ; only slide bottom-up claims onto floor paragraphs the walk has already
+    ; passed, so a claim that fails anyway is left on a better-packed heap.
+    ; Cheapest first for that reason.
+    mov word [mem_cp_msk], 0
+    call mem_cp_run             ; ...the floor packs down
+    mov bx, dx                  ; DX = what it moved, banked across the second
+                                ; walk (mem_cp_walk preserves BX, and BX has
+                                ; been spent since .rank)
+    mov word [mem_cp_msk], 0xFFFF
+    call mem_cp_run             ; ...and then the ceiling packs up
+    or bx, dx                   ; DID EITHER PASS MOVE ANYTHING? mem_claim's
+    call mem_cp_end             ; retry loop rests on CF = 1 when nothing did -
+    or bx, bx                   ; a CF = 0 that moved nothing is an infinite
+    jz .none                    ; loop there (SPEC.md 66.4's termination)
+    clc
+    jmp short .out
+.none:                          ; .both gave the lock back itself; this is the
+    stc                         ; only arm left that never took it
 .out:
     pop di
     pop si

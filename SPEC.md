@@ -82336,11 +82336,39 @@ pass was for. As a loop each is asked for whichever plan needs it, and it still
 terminates in at most **three** plans: `[mem_parked]` admits one park and
 `[mem_cp_msk]` one turn.
 
-**The two passes are alternatives, not cumulative.** Each plan is made against
-the layout as it stands, so whichever single pass satisfies the claim is the
-one that runs. Running both would spend the ascending copy for a claim the
-descending pass was going to have to satisfy anyway — and the descending copy
-is the expensive one, being over the largest blocks on the machine.
+**The two passes are asked in order and the PAIR is the last resort.** Each
+plan is made against the layout as it stands, so whichever single pass
+satisfies the claim is the one that runs — ascending first, being the cheaper,
+then descending. Only when neither alone funds the claim does `mem_compact`
+run both, cheapest first.
+
+**They used to be ALTERNATIVES, and that was a defect rather than a trade.**
+The rule read *"whichever single pass satisfies the claim is the one that
+runs"*, and `.doit` — the one arm that answers CF = 0 — is reached only when a
+single pass's own plan already satisfies it. So a claim that needed the pair
+got **neither half**: nothing was copied, `mem_compact` answered CF = 1, and
+the claim fell through to the shed with the room standing there in two runs.
+`mem_claim`'s retry loop could not sequence them either, because it re-enters
+only after a CF = 0 that means the claim already fits. `mem_avail` had the
+same hole from the reporting side and still has the harmless half of it: it
+plans ascending alone, so it under-reports until a pass has run, and reads
+exactly once one has — which is what makes a *deferred* compaction able to
+report its own result with no combined plan
+(`docs/plans/REGION-SELF-COMPACT-PLAN.md`).
+
+**Nothing is speculative at the pair.** The descending plan has already said
+the expensive pass alone is short, so the cheap copy is needed rather than
+guessed at — and the ascending pass cannot make the largest run *smaller*, only
+slide bottom-up claims onto floor paragraphs the walk has already passed, so a
+claim that is refused anyway is left on a better-packed heap. It costs **35
+bytes** of `.cold` and nothing in `.text`; `kern_small` compiles none of it.
+
+**A claim the pair still cannot fund pays for the copies before it is
+refused**, which is the one case the old rule was right about and is priced at
+`rep movsw`'s 13.3 cycles a byte (PERFORMANCE.md Set 117.2) — 2.86 ms a KB
+moved. A combined *plan* would refuse before copying and costs ~150–250 bytes
+to answer a question no caller has to ask;
+`docs/plans/REGION-SELF-COMPACT-PLAN.md` 3.4 is that arithmetic.
 
 **Termination mirrors §66.4's**, with both comparisons in `mem_cp_next` turned
 round: the descending walk takes the live claim with the **highest** base at or
