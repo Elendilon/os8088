@@ -49,33 +49,19 @@ region apps/skies/csload.asm     # NOTHING TO DECLARE: it is the launch image
                                  # acted on. Retired by nothing; this one is
                                  # correct as it stands.
 
-# --- worker ------------------------------------------------------------------
+# --- worker -------------------------------------------------------------------
 #
-# FOUR OF THESE ARE ONE ARGUMENT. A parksafe worker may also be parked blocked
-# in OSAPI_GFX_LOCK, which is ANYWHERE in its loop and not just at
-# OSAPI_TASK_ALIVE - so restartable declared blanket-fashion beside it says
-# "throw away a half-mixed buffer or a half-drawn frame". The SDK header names
-# the fix and it is the same for all four: declare it as a WINDOW, on
-# immediately before OSAPI_TASK_ALIVE and off immediately after. That is a
-# per-package argument about what each loop is holding, which is why none of
-# them is taken here by a sweep.
-
-worker apps/artful/artful.asm    # OSAPI_MEM_PARKSAFE - see above. Its worker
-                                 # also drives the document reflow, so the
-                                 # window form has to close before at_dseg's own
-                                 # staging rather than after it.
-
-worker apps/fractal/fractal.asm  # OSAPI_MEM_PARKSAFE - see above. It is
-                                 # mid-ITERATION for most of its life and the
-                                 # row buffer it is filling is the one thing a
-                                 # restart would discard.
-
-worker apps/modplug/modplug.asm  # OSAPI_MEM_PARKSAFE - see above, and it MIXES
-                                 # AUDIO: the SDK header names this case
-                                 # outright. A restart between two half-filled
-                                 # buffer halves is an audible click.
-
-worker apps/notepad/notepad.asm  # OSAPI_MEM_PARKSAFE - see above.
+# THE FOUR PARK-SAFE PACKAGES ARE GONE FROM THIS LIST and the reason they were
+# on it was wrong. The SDK note says a park-safe worker should declare this as
+# a WINDOW around OSAPI_TASK_ALIVE rather than blanket-fashion, and
+# REGION-SELF-COMPACT-PLAN 8.2 found that reading FAILS SILENTLY:
+# mem_frameless reads [inst_restart] at PLAN time, and a worker is outside its
+# own ALIVE for essentially all of a tick, so a windowed declaration answers no
+# better for a heap the compactor could have emptied. The declaration is
+# permanent and the work is enumerating BOTH park points - which came to a few
+# lines each, because a park-safe worker is parked while BLOCKED in
+# OSAPI_GFX_LOCK and never while holding it, and all four take the lock as
+# their first action with nothing set before it.
 
 worker apps/frotz/frotz.asm      # TWO PARK POINTS AND ONE IS INSIDE THE
                                  # Z-MACHINE (zexec.inc:122, beside zio.inc's).

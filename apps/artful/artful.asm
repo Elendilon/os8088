@@ -650,6 +650,32 @@ at_fs_enter:
     call OSAPI_TASK_SPAWN           ; the caret-blink worker
     jc .out                         ; transient refusal: retry next entry
     mov byte [at_wspawned], 1
+    ; ...AND THE REGION CANNOT MOVE WITHOUT THIS (SPEC.md 66.6.2): the
+    ; kernel wrote our segment into this worker's frame, so a region
+    ; declaration alone is INERT. It is PERMANENT and not a window
+    ; around OSAPI_TASK_ALIVE - the SDK note's advice for a park-safe
+    ; worker, which fails SILENTLY (REGION-SELF-COMPACT-PLAN 8.2):
+    ; mem_frameless reads [inst_restart] at PLAN time, and this worker
+    ; is outside its own ALIVE for essentially all of a tick, so a
+    ; windowed declaration would make OSAPI_MEM_AVAIL_MAX answer no
+    ; better for a heap the compactor could have emptied.
+    ;
+    ; SO BOTH PARK POINTS ARE ENUMERATED, Tracker's shape. We are
+    ; OSAPI_MEM_PARKSAFE, so the second one is BLOCKED IN
+    ; OSAPI_GFX_LOCK - never HOLDING it (66.5.4 marks the task only
+    ; across the yield inside the wait path).
+    ;   * ALIVE is the top of .loop; .gate above the lock only READS the
+    ;     four suppression flags.
+    ;   * The only worker lock site is the one in .loop - at_caret_on and
+    ;     at_caret_off take none, being called with it held - and
+    ;     [at_cphase] is toggled AFTER the acquire, so it is never half
+    ;     applied at a park. The file's six other lock calls are
+    ;     at_click_text, at_sb_repeat, at_sb_thumb, at_onwake and
+    ;     at_menu_track: all UI task.
+    ; A restart costs one caret phase - and lands on at_worker rather than
+    ; .loop, which is what re-does the `push cs / pop es` the caret path
+    ; needs.
+    OS88_WORKER_RESTARTABLE at_worker
 .out:
     pop bx
     pop ax

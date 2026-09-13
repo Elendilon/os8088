@@ -2952,6 +2952,29 @@ np_hire:
     call OSAPI_TASK_SPAWN
     jc .out
     mov byte [np_hired], 1
+    ; ...AND THE REGION CANNOT MOVE WITHOUT THIS (SPEC.md 66.6.2): the
+    ; kernel wrote our segment into this worker's frame, so a region
+    ; declaration alone is INERT. It is PERMANENT and not a window
+    ; around OSAPI_TASK_ALIVE - the SDK note's advice for a park-safe
+    ; worker, which fails SILENTLY (REGION-SELF-COMPACT-PLAN 8.2):
+    ; mem_frameless reads [inst_restart] at PLAN time, and this worker
+    ; is outside its own ALIVE for essentially all of a tick, so a
+    ; windowed declaration would make OSAPI_MEM_AVAIL_MAX answer no
+    ; better for a heap the compactor could have emptied.
+    ;
+    ; SO BOTH PARK POINTS ARE ENUMERATED, Tracker's shape. We are
+    ; OSAPI_MEM_PARKSAFE, so the second one is BLOCKED IN
+    ; OSAPI_GFX_LOCK - never HOLDING it (66.5.4 marks the task only
+    ; across the yield inside the wait path).
+    ;   * ALIVE is the top of .loop and nothing above it is ours.
+    ;   * The worker's ONLY lock site is .go's, and everything before it
+    ;     in the pass READS - [np_bmode], [np_hdirty], [np_uopen],
+    ;     [np_fcdirty], OSAPI_WM_TOP, the idle tick. [np_sowed] is the one
+    ;     flag the pass clears and it is cleared UNDER the lock, so it is
+    ;     never standing at a park. The two other OSAPI_GFX_LOCK calls in
+    ;     this file are np_onwake's and np_selpace's, both UI task.
+    ; A restart costs one wake.
+    OS88_WORKER_RESTARTABLE np_worker
 .out:
     pop bx
     pop ax
